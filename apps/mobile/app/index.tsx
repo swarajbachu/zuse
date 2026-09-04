@@ -10,6 +10,7 @@ import { router, Stack } from "expo-router";
 import { MessageSquare, Search } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+	Alert,
 	FlatList,
 	Image,
 	Pressable,
@@ -49,13 +50,14 @@ import {
 	hydrateAuth,
 	signIn,
 } from "~/store/auth";
+import { cloudCatalogAtom, refreshCloudCatalog } from "~/store/cloud-catalog";
 import {
 	retryConnection,
 	snapshotsByConnectionAtom,
 	watchConnection,
 } from "~/store/connection-runtime";
 import {
-	connectionsAtom,
+	allConnectionsAtom as connectionsAtom,
 	connectionsHydratedAtom,
 	hydrateConnections,
 	refreshConnectionLabel,
@@ -98,6 +100,7 @@ export default function HomeScreen() {
 	>(() => new Map());
 	const connectingEnvironmentIds = useRef(new Set<string>());
 	const account = useAtomValue(authAccountAtom);
+	const cloudCatalog = useAtomValue(cloudCatalogAtom);
 	const authHydrated = useAtomValue(authHydratedAtom);
 	const busy = useAtomValue(authBusyAtom);
 	const authError = useAtomValue(authErrorAtom);
@@ -190,22 +193,25 @@ export default function HomeScreen() {
 	}, [connectionSnapshots, connections, reachableConnections]);
 
 	const searching = search.trim().length > 0;
+	const feedConnections = useMemo(
+		() =>
+			reachableConnections.filter(
+				(connection) =>
+					connection.source === "cloud" ||
+					connectionSnapshots[connection.key]?.status === "connected",
+			),
+		[reachableConnections, connectionSnapshots],
+	);
 	const groups = useMemo(
 		() =>
 			buildInboxGroups({
-				connections: reachableConnections,
+				connections: feedConnections,
 				bundlesByConnection,
 				statusBySession,
 				query: search,
 				pinnedChatKeys: new Set(pinnedKeys),
 			}),
-		[
-			bundlesByConnection,
-			pinnedKeys,
-			reachableConnections,
-			search,
-			statusBySession,
-		],
+		[bundlesByConnection, pinnedKeys, feedConnections, search, statusBySession],
 	);
 	const feed = useMemo(
 		() => buildHomeFeed({ groups, displayStates, searching }),
@@ -216,11 +222,15 @@ export default function HomeScreen() {
 		!connectionsHydrated ||
 		!pinnedHydrated ||
 		(account !== null && environmentsLoading) ||
+		(account !== null &&
+			cloudCatalog.loading &&
+			cloudCatalog.chats.length === 0) ||
 		reachableConnections.some(
 			(connection) => loadingByConnection[connection.key] === true,
 		);
 	const connectionFailure =
 		reachableConnections
+			.filter((connection) => connection.source !== "cloud")
 			.map((connection) => {
 				const snapshot = connectionSnapshots[connection.key];
 				const failed =
@@ -235,6 +245,7 @@ export default function HomeScreen() {
 			.find((entry) => entry !== null) ?? null;
 	const connectionError = connectionFailure?.[1] ?? null;
 	const recoveringConnection = reachableConnections.find((connection) => {
+		if (connection.source === "cloud") return false;
 		const status = connectionSnapshots[connection.key]?.status;
 		return status === "connecting" || status === "reconnecting";
 	});
@@ -426,7 +437,17 @@ export default function HomeScreen() {
 				<Stack.Toolbar.Button
 					icon="square.and.pencil"
 					separateBackground
-					onPress={() => router.push("/new-chat")}
+					onPress={() => {
+						if (account === null) {
+							router.push("/new-chat");
+							return;
+						}
+						Alert.alert("New chat", "Choose where the agent runs.", [
+							{ text: "Cloud", onPress: () => router.push("/new-cloud-chat") },
+							{ text: "Computer", onPress: () => router.push("/new-chat") },
+							{ text: "Cancel", style: "cancel" },
+						]);
+					}}
 				/>
 			</Stack.Toolbar>
 			<FlatList
@@ -446,6 +467,7 @@ export default function HomeScreen() {
 						refreshing={loading && feed.length > 0}
 						tintColor={colors.accent}
 						onRefresh={() => {
+							void refreshCloudCatalog();
 							if (account !== null) void refreshEnvironments();
 							for (const connection of reachableConnections) {
 								const options = optionsForConnection(
@@ -459,26 +481,68 @@ export default function HomeScreen() {
 					/>
 				}
 				ListHeaderComponent={
-					((account === null ? null : environmentsError) ?? connectionError) ? (
-						<View className="mb-3">
-							<ConnectionRecoveryBanner
-								message={connectionErrorMessage(
-									(account === null ? null : environmentsError) ??
-										connectionError,
-								)}
-								onRetry={retryFailedConnection}
-								onPairAgain={() => router.push("/connect/scan")}
-							/>
-						</View>
-					) : recoveringConnection !== undefined ? (
-						<View className="mb-3">
-							<ConnectionRecoveryBanner
-								message="Trying to reach your computer…"
-								onRetry={retryRecoveringConnection}
-								recovering
-							/>
-						</View>
-					) : null
+					<>
+						{cloudCatalog.error ? (
+							<Text
+								role="alert"
+								className="px-4 py-2 font-sans text-sm text-destructive"
+							>
+								{cloudCatalog.error}
+							</Text>
+						) : null}
+						{cloudCatalog.chats
+							.filter(
+								(row) =>
+									row.activeSessionId === null &&
+									(!searching ||
+										`${row.title} ${row.repositoryDisplayName}`
+											.toLowerCase()
+											.includes(search.toLowerCase())),
+							)
+							.map((row) => (
+								<Pressable
+									key={row.workspaceId}
+									className="mx-4 mb-2 gap-1 rounded-lg bg-muted/50 p-3"
+									onPress={() =>
+										router.push({
+											pathname: "/new-chat",
+											params: {
+												conn: `cloud:${row.workspaceId}`,
+												chatId: row.chatId,
+											},
+										})
+									}
+								>
+									<Text className="font-sans-medium text-sm text-foreground">
+										{row.title || row.repositoryDisplayName}
+									</Text>
+									<Text className="font-sans text-xs text-muted-foreground">
+										Cloud · No active threads · Start a thread
+									</Text>
+								</Pressable>
+							))}
+						{((account === null ? null : environmentsError) ??
+						connectionError) ? (
+							<View className="mb-3">
+								<ConnectionRecoveryBanner
+									message={connectionErrorMessage(
+										(account === null ? null : environmentsError) ??
+											connectionError,
+									)}
+									onRetry={retryFailedConnection}
+									onPairAgain={() => router.push("/connect/scan")}
+								/>
+							</View>
+						) : recoveringConnection !== undefined ? (
+							<View className="mb-3">
+								<ConnectionRecoveryBanner
+									message="Trying to reach your computer…"
+									onRetry={retryRecoveringConnection}
+									recovering
+								/>
+							</View>
+						) : null}
+					</>
 				}
 				ListEmptyComponent={
 					loading ? (
@@ -491,7 +555,9 @@ export default function HomeScreen() {
 								detail={
 									searching
 										? "Try a project, chat title, model, status, or computer name."
-										: "Open the desktop app on a linked computer to start or resume a chat."
+										: account === null
+											? "Sign in to see your cloud chats, or connect a computer."
+											: "Start a cloud chat, or connect a computer to see its chats too."
 								}
 							/>
 							{!searching && reachableConnections.length === 0 ? (

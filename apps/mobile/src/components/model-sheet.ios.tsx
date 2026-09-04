@@ -36,6 +36,7 @@ export function ModelSheet({
 	onOpenChange,
 	value,
 	availableProviders,
+	strictProviders = false,
 	canChangeProvider,
 	canChangeReasoning,
 	onChange,
@@ -44,6 +45,7 @@ export function ModelSheet({
 	onOpenChange: (open: boolean) => void;
 	value: ModelModeValue;
 	availableProviders?: readonly ProviderId[] | null;
+	strictProviders?: boolean;
 	canChangeProvider: boolean;
 	canChangeReasoning: boolean;
 	onChange: (value: ModelModeValue) => void;
@@ -55,6 +57,8 @@ export function ModelSheet({
 		value.modelOptions,
 	);
 	const providers = providerOptions().filter((provider) => {
+		if (strictProviders && !availableProviders?.includes(provider.value))
+			return false;
 		if (!canChangeProvider) return provider.value === value.providerId;
 		if (availableProviders == null) return true;
 		return (
@@ -62,7 +66,10 @@ export function ModelSheet({
 			availableProviders.includes(provider.value)
 		);
 	});
-	const models = modelOptionsForProvider(value.providerId);
+	const models =
+		strictProviders && !availableProviders?.includes(value.providerId)
+			? []
+			: modelOptionsForProvider(value.providerId);
 
 	return (
 		<Host matchContents seedColor={colors.fg}>

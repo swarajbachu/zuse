@@ -35,7 +35,7 @@ import {
 } from "~/lib/syntax-highlighting";
 import { basename } from "~/lib/workspace-path";
 import { readWorkspaceFile } from "~/rpc/actions";
-import { connectionsAtom } from "~/store/connections";
+import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
 import { colors } from "~/theme";
 import { presentQuickLook } from "../../../../../modules/mobile-platform";

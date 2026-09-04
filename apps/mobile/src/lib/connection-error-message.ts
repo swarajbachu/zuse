@@ -1,4 +1,9 @@
+import { cloudFailurePresentation } from "@zuse/client-runtime/cloud-failure-presentation";
+
 export const connectionErrorMessage = (cause: unknown): string => {
+	const presentation = cloudFailurePresentation({ cause });
+	if (presentation !== null && presentation.kind !== "network")
+		return presentation.message;
 	const text = cause instanceof Error ? cause.message : String(cause);
 	if (text.includes("ApiEnvironmentList")) {
 		return "API returned an older computer list. Refresh after the api finishes updating.";

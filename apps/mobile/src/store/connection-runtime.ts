@@ -2,6 +2,7 @@ import { Atom } from "effect/unstable/reactivity";
 import { AppState } from "react-native";
 
 import { setConnectionSnapshot } from "~/lib/connection-snapshot-state";
+import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
 import {
 	type ConnectionSnapshot,
 	getConnectionSnapshot,
@@ -47,6 +48,11 @@ export const watchConnection = (
 	connKey: string,
 	options: WsProtocolOptions,
 ): (() => void) => {
+	if (
+		options.cloudWorkspaceId !== undefined &&
+		!cloudRuntimeReady(options.cloudWorkspaceId)
+	)
+		return () => undefined;
 	installAppStateOnlineBridge();
 	patchSnapshot(connKey, getConnectionSnapshot(options));
 	return subscribeConnection(options, (snapshot) => {

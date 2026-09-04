@@ -52,6 +52,7 @@ import {
 	interruptSession,
 	makeTextInput,
 	queueMessage,
+	sendCloudMessage,
 	sendMessage,
 	setSessionModel,
 	setSessionProvider,
@@ -61,6 +62,7 @@ import {
 	connectionAvailabilityAtom,
 	hydrateAvailability,
 } from "~/store/availability";
+import { cloudAuthenticatedProvidersAtom } from "~/store/cloud-catalog";
 import {
 	clearComposerDraft,
 	composerDraft,
@@ -219,9 +221,13 @@ export const Composer = ({
 	useEffect(() => {
 		void hydrateAvailability(connKey, connection);
 	}, [connKey, connection]);
+	const cloudProviders = useAtomValue(cloudAuthenticatedProvidersAtom);
 	const availableProviders = useMemo(
-		() => availableProviderIds(availability),
-		[availability],
+		() =>
+			connection.cloudWorkspaceId === undefined
+				? availableProviderIds(availability)
+				: cloudProviders,
+		[availability, cloudProviders, connection.cloudWorkspaceId],
 	);
 	const goalSupported =
 		availability
@@ -270,7 +276,7 @@ export const Composer = ({
 		if (!canSend) return;
 		const value = (inputRef.current?.getText() ?? "").trim();
 		if (value.length === 0 && attachments.length === 0) return;
-		if (!online) {
+		if (!online && connection.cloudWorkspaceId === undefined) {
 			if (attachments.length > 0) {
 				setComposerError("Attachments require an active connection.");
 				return;
@@ -318,7 +324,7 @@ export const Composer = ({
 			// row. LegendList's anchored-end contract uses the pre-append index.
 			onMessageWillAppend?.();
 			didPrepareAppend = true;
-				optimisticMessageId = messageId;
+			optimisticMessageId = messageId;
 			const optimisticContent: MessageContent =
 				uploaded.length > 0 || fileRefs.length > 0 || skillRefs.length > 0
 					? {
@@ -331,29 +337,32 @@ export const Composer = ({
 							goal: goalMode,
 						}
 					: {
-					_tag: "user",
-					text: value,
-					goal: goalMode,
-				};
-				addOptimisticMessage(
-					stateKey,
-					Message.make({
-						id: messageId,
-						sessionId,
-						role: "user",
-						content: optimisticContent,
-						createdAt: new Date(),
-					}),
-				);
-			await Effect.runPromise(
-				sendMessage({
-					connection,
+							_tag: "user",
+							text: value,
+							goal: goalMode,
+						};
+			addOptimisticMessage(
+				stateKey,
+				Message.make({
+					id: messageId,
 					sessionId,
-					input,
-					asGoal: goalMode,
-					clientMessageId: messageId,
+					role: "user",
+					content: optimisticContent,
+					createdAt: new Date(),
 				}),
 			);
+			const messageOptions = {
+				connection,
+				sessionId,
+				input,
+				asGoal: goalMode,
+				clientMessageId: messageId,
+			};
+			if (connection.cloudWorkspaceId !== undefined) {
+				const handle = sendCloudMessage(messageOptions);
+				void handle.result.catch(() => undefined); // ClientBus owns terminal UI state and receipt recovery.
+				await handle.accepted;
+			} else await Effect.runPromise(sendMessage(messageOptions));
 			finishSuccessfulSubmission({ dismissKeyboard: false });
 		} catch (cause) {
 			setComposerError(connectionErrorMessage(cause));
@@ -744,6 +753,7 @@ export const Composer = ({
 					onOpenChange={setModelSheetOpen}
 					value={modelValue}
 					availableProviders={availableProviders}
+					strictProviders={connection.cloudWorkspaceId !== undefined}
 					canChangeProvider={fresh}
 					canChangeReasoning={fresh}
 					onChange={(next) => void changeModelMode(next)}

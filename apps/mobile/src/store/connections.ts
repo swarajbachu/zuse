@@ -19,7 +19,7 @@ import { serverKeyPin as serverKeyPinForPublicKey } from "~/lib/nearby-pairing";
 import { getConnectionClient } from "~/rpc/connection";
 import { redeemPairingCode } from "~/rpc/pairing-client";
 import { connectionKey, type WsProtocolOptions } from "~/rpc/ws-protocol";
-
+import { cloudConnectionsAtom } from "./cloud-catalog";
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
 
 export type { ConnectionRecord } from "~/lib/connection-records";
@@ -28,6 +28,12 @@ export const connectionsAtom = Atom.make<ConnectionRecord[]>([]).pipe(
 	Atom.keepAlive,
 );
 export const connectionsHydratedAtom = Atom.make(false).pipe(Atom.keepAlive);
+
+/** Cloud routes are account-derived, never persisted as paired computers. */
+export const allConnectionsAtom = Atom.make((get) => [
+	...get(connectionsAtom),
+	...get(cloudConnectionsAtom),
+]);
 
 const parseHostPort = (wsBaseUrl: string): { host: string; port: number } => {
 	try {
@@ -238,6 +244,7 @@ export const refreshConnectionLabel = async (
 	key: string,
 	options: WsProtocolOptions,
 ): Promise<void> => {
+	if (options.cloudWorkspaceId !== undefined) return;
 	const descriptor = await describeEnvironment(options);
 	if (descriptor === null) return;
 	const nextLabel = visibleConnectionLabel(descriptor.label, key);

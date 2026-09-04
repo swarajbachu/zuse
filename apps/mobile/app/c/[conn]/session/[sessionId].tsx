@@ -42,7 +42,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwind } from "uniwind";
-
+import { CloudChatStatus } from "~/components/cloud-chat-status";
 import { Composer } from "~/components/composer";
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { InlineErrorNotice } from "~/components/inline-error-notice";
@@ -88,13 +88,14 @@ import {
 	respondToPlan,
 	sendMessage,
 } from "~/rpc/actions";
+import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
 import {
 	connectionSnapshotAtom,
 	retryConnection,
 	watchConnection,
 } from "~/store/connection-runtime";
 import {
-	connectionsAtom,
+	allConnectionsAtom as connectionsAtom,
 	connectionsHydratedAtom,
 	hydrateConnections,
 } from "~/store/connections";
@@ -150,6 +151,7 @@ import {
 	connectionBundlesAtom,
 	createSession,
 	markChatRead,
+	prepareSessionWorkspace,
 	renameChat,
 	renameSession,
 	selectSessionChat,
@@ -398,6 +400,11 @@ function ThreadScreen() {
 	// hydrate) so the inbox unread styling clears. Idempotent server-side.
 	useEffect(() => {
 		if (chatId === null || options === null) return;
+		if (
+			options.cloudWorkspaceId !== undefined &&
+			!cloudRuntimeReady(options.cloudWorkspaceId)
+		)
+			return;
 		void markChatRead(connKey, options, chatId);
 	}, [chatId, connKey, options]);
 
@@ -414,8 +421,10 @@ function ThreadScreen() {
 		connectionSnapshot?.status === "connecting" ||
 		connectionSnapshot?.status === "reconnecting";
 	const connectionNotice =
-		connectionProblem ??
-		(connectionRecovering ? "Trying to reach your computer…" : null);
+		options?.cloudWorkspaceId !== undefined
+			? null
+			: (connectionProblem ??
+				(connectionRecovering ? "Trying to reach your computer…" : null));
 
 	// Transfer editable offline drafts once into the durable ClientBus outbox.
 	// ClientBus owns every retry after this handoff.
@@ -518,6 +527,11 @@ function ThreadScreen() {
 	) => {
 		if (detail === null || options === null) return;
 		try {
+			const detail = await prepareSessionWorkspace(
+				connKey,
+				options,
+				normalizedSessionId,
+			);
 			const worktreeId =
 				destination === "chat" && isolated
 					? (
@@ -813,37 +827,53 @@ function ThreadScreen() {
 		if (chatId === null || options === null) return;
 		void archiveChat(connKey, options, chatId).then(() => router.back());
 	};
-	const onOpenTerminal = async () => {
-		if (detail === null || options === null) return;
-		let cwd = detail.project.path;
-		const worktreeId = detail.session.worktreeId;
-		if (worktreeId !== null) {
-			try {
-				const worktree = await Effect.runPromise(
-					getWorktree({ connection: options, worktreeId }),
-				);
-				if (worktree !== null) cwd = worktree.path;
-			} catch (cause) {
-				Alert.alert("Could not open terminal", connectionErrorMessage(cause));
-				return;
-			}
+	const withWorkspace = async (
+		action: (
+			current: NonNullable<ReturnType<typeof selectSessionChat>>,
+		) => void | Promise<void>,
+	) => {
+		if (options === null) return;
+		try {
+			await action(
+				await prepareSessionWorkspace(connKey, options, normalizedSessionId),
+			);
+		} catch (cause) {
+			Alert.alert("Cloud workspace", connectionErrorMessage(cause));
 		}
-		router.push({
-			pathname: "/c/[conn]/session/[sessionId]/terminal",
-			params: {
-				conn: connKey,
-				sessionId: normalizedSessionId,
-				cwd,
-				label: title,
-			},
-		});
 	};
-	const openChanges = () => {
-		router.push({
-			pathname: "/c/[conn]/session/[sessionId]/review",
-			params: { conn: connKey, sessionId: normalizedSessionId },
+	const onOpenTerminal = () =>
+		withWorkspace(async (detail) => {
+			if (detail === null || options === null) return;
+			let cwd = detail.project.path;
+			const worktreeId = detail.session.worktreeId;
+			if (worktreeId !== null) {
+				try {
+					const worktree = await Effect.runPromise(
+						getWorktree({ connection: options, worktreeId }),
+					);
+					if (worktree !== null) cwd = worktree.path;
+				} catch (cause) {
+					Alert.alert("Could not open terminal", connectionErrorMessage(cause));
+					return;
+				}
+			}
+			router.push({
+				pathname: "/c/[conn]/session/[sessionId]/terminal",
+				params: {
+					conn: connKey,
+					sessionId: normalizedSessionId,
+					cwd,
+					label: title,
+				},
+			});
 		});
-	};
+	const openChanges = () =>
+		withWorkspace(() => {
+			router.push({
+				pathname: "/c/[conn]/session/[sessionId]/review",
+				params: { conn: connKey, sessionId: normalizedSessionId },
+			});
+		});
 	const openOnDesktop = () => {
 		if (options === null) return;
 		void Effect.runPromise(
@@ -855,12 +885,13 @@ function ThreadScreen() {
 			Alert.alert("Could not open on desktop", connectionErrorMessage(cause)),
 		);
 	};
-	const openFiles = () => {
-		router.push({
-			pathname: "/c/[conn]/session/[sessionId]/files",
-			params: { conn: connKey, sessionId: normalizedSessionId },
+	const openFiles = () =>
+		withWorkspace(() => {
+			router.push({
+				pathname: "/c/[conn]/session/[sessionId]/files",
+				params: { conn: connKey, sessionId: normalizedSessionId },
+			});
 		});
-	};
 	const openThreads = () => {
 		if (chatId === null) return;
 		router.push({
@@ -1040,6 +1071,7 @@ function ThreadScreen() {
 							onChanges={openChanges}
 							onFiles={openFiles}
 							onTerminal={
+								options?.cloudWorkspaceId !== undefined ||
 								connectionSupports(connectionRecord, "mobile-terminal-v1")
 									? () => void onOpenTerminal()
 									: undefined
@@ -1057,92 +1089,101 @@ function ThreadScreen() {
 			{hydrated && options === null ? (
 				<View className="px-4 py-3">
 					<Text selectable className="font-sans text-[13px] text-danger">
-						This saved connection could not be found on this phone. Go back and
-						connect the computer again.
+						{connKey.startsWith("cloud:")
+							? "Loading this chat from your cloud account. If it was archived or deleted, return to your chat list."
+							: "This saved connection could not be found on this phone. Go back and connect the computer again."}
 					</Text>
 				</View>
 			) : null}
-				<KeyboardAwareLegendList
-					ref={listRef}
-					style={{ flex: 1 }}
-					data={turns}
-					dataKey={stateKey}
-					keyExtractor={(turn) => turn.id}
-					getItemType={() => "turn"}
-					estimatedItemSize={180}
-					renderItem={({ item, index }) => (
-						<TurnRow
-							turn={item}
-							context={ctx}
-							live={sessionStatus === "running" && index === turns.length - 1}
-						/>
-					)}
-					alignItemsAtEnd
-					applyWorkaroundForContentInsetHitTestBug
-					contentInsetAdjustmentBehavior="never"
-					automaticallyAdjustsScrollIndicatorInsets={false}
-					contentContainerStyle={{
-						gap: 4,
-						paddingHorizontal: 16,
-						paddingTop: headerHeight + 12,
-					}}
-					scrollIndicatorInsets={{
-						top: headerHeight,
-						bottom: -insets.bottom,
-					}}
-					contentInsetEndAdjustment={contentInsetEndAdjustment}
-					freeze={freeze}
+			<KeyboardAwareLegendList
+				ref={listRef}
+				style={{ flex: 1 }}
+				data={turns}
+				dataKey={stateKey}
+				keyExtractor={(turn) => turn.id}
+				getItemType={() => "turn"}
+				estimatedItemSize={180}
+				renderItem={({ item, index }) => (
+					<TurnRow
+						turn={item}
+						context={ctx}
+						live={sessionStatus === "running" && index === turns.length - 1}
+					/>
+				)}
+				alignItemsAtEnd
+				applyWorkaroundForContentInsetHitTestBug
+				contentInsetAdjustmentBehavior="never"
+				automaticallyAdjustsScrollIndicatorInsets={false}
+				contentContainerStyle={{
+					gap: 4,
+					paddingHorizontal: 16,
+					paddingTop: headerHeight + 12,
+				}}
+				scrollIndicatorInsets={{
+					top: headerHeight,
+					bottom: -insets.bottom,
+				}}
+				contentInsetEndAdjustment={contentInsetEndAdjustment}
+				freeze={freeze}
 				keyboardLiftBehavior="whenAtEnd"
-					keyboardDismissMode="interactive"
-					keyboardOffset={insets.bottom}
-					keyboardShouldPersistTaps="handled"
-					initialScrollAtEnd={restoredViewState?.mode !== "detached"}
-					{...(restoredViewState?.mode === "detached"
-						? { initialScrollOffset: restoredViewState.offsetY }
-						: {})}
-					{...(anchoredEndSpace === undefined
-						? {}
+				keyboardDismissMode="interactive"
+				keyboardOffset={insets.bottom}
+				keyboardShouldPersistTaps="handled"
+				initialScrollAtEnd={restoredViewState?.mode !== "detached"}
+				{...(restoredViewState?.mode === "detached"
+					? { initialScrollOffset: restoredViewState.offsetY }
+					: {})}
+				{...(anchoredEndSpace === undefined
+					? {}
+					: {
+							anchoredEndSpace,
+						})}
+				maintainScrollAtEnd={
+					transcriptScroll.readerDetached
+						? false
 						: {
-								anchoredEndSpace,
-							})}
-					maintainScrollAtEnd={
-						transcriptScroll.readerDetached
-							? false
-							: {
-									animated: false,
-									on: {
-										dataChange: true,
+								animated: false,
+								on: {
+									dataChange: true,
 									footerLayout: true,
-										itemLayout: true,
-										layout: true,
-									},
-								}
-					}
-					maintainScrollAtEndThreshold={0.1}
-					maintainVisibleContentPosition
-					drawDistance={800}
-					sharedValues={{ isNearEnd }}
-					ListHeaderComponent={
-					error && connectionNotice === null ? (
+									itemLayout: true,
+									layout: true,
+								},
+							}
+				}
+				maintainScrollAtEndThreshold={0.1}
+				maintainVisibleContentPosition
+				drawDistance={800}
+				sharedValues={{ isNearEnd }}
+				ListHeaderComponent={
+					options?.cloudWorkspaceId !== undefined ? (
+						<CloudChatStatus
+							workspaceId={options.cloudWorkspaceId}
+							connKey={connKey}
+							sessionId={normalizedSessionId}
+							messages={messages}
+							error={error}
+						/>
+					) : error && connectionNotice === null ? (
 						<InlineErrorNotice
 							message={connectionErrorMessage(error)}
 							compact
-									/>
-						) : null
-					}
-					ListFooterComponent={
+						/>
+					) : null
+				}
+				ListFooterComponent={
 					<View style={{ minHeight: endRunwayHeight, paddingTop: 4 }}>
-							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
-						</View>
-					}
-					onScroll={onScroll}
-					onScrollBeginDrag={startReaderGesture}
-					onScrollEndDrag={finishReaderGesture}
-					onMomentumScrollBegin={startReaderGesture}
-					onMomentumScrollEnd={finishReaderGesture}
-					onEndVisible={onEndVisible}
-					scrollEventThrottle={16}
-				/>
+						{workingActive ? <WorkingIndicator since={workingSince} /> : null}
+					</View>
+				}
+				onScroll={onScroll}
+				onScrollBeginDrag={startReaderGesture}
+				onScrollEndDrag={finishReaderGesture}
+				onMomentumScrollBegin={startReaderGesture}
+				onMomentumScrollEnd={finishReaderGesture}
+				onEndVisible={onEndVisible}
+				scrollEventThrottle={16}
+			/>
 			{initialTranscriptLoading && turns.length === 0 ? (
 				<View
 					pointerEvents="none"

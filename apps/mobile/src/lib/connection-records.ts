@@ -1,7 +1,12 @@
 import { CapabilityFeature, CapabilityManifest } from "@zuse/contracts";
 import { Schema } from "effect";
 
-export const ConnectionSource = Schema.Literals(["paired", "api", "manual"]);
+export const ConnectionSource = Schema.Literals([
+	"paired",
+	"api",
+	"manual",
+	"cloud",
+]);
 export type ConnectionSource = typeof ConnectionSource.Type;
 const LegacyConnectionSource = Schema.Literal("relay");
 
@@ -11,6 +16,7 @@ export type LocalPathType = typeof LocalPathType.Type;
 const ConnectionRecordFields = {
 	key: Schema.String,
 	environmentId: Schema.optional(Schema.String),
+	cloudWorkspaceId: Schema.optional(Schema.String),
 	host: Schema.String,
 	port: Schema.Number,
 	token: Schema.optional(Schema.NullOr(Schema.String)),
@@ -151,10 +157,15 @@ export const availableConnections = (
 		paired: 3,
 		manual: 2,
 		api: 1,
+		cloud: 4,
 	};
 	const selected = new Map<string, ConnectionRecord>();
 	for (const connection of connections) {
-		if (connection.source === "api" && !signedIn) continue;
+		if (
+			(connection.source === "api" || connection.source === "cloud") &&
+			!signedIn
+		)
+			continue;
 		const identity = connection.environmentId ?? connection.key;
 		const current = selected.get(identity);
 		if (

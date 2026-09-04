@@ -258,28 +258,70 @@ const decodeClientCommand = (value: unknown): ClientCommand | null => {
 		payload: Reflect.get(value, "payload"),
 		retry,
 		createdAt,
+		...(Reflect.get(value, "awaitResourceReflection") === true
+			? { awaitResourceReflection: true }
+			: {}),
+		...(Reflect.get(value, "resourceReflection") === undefined
+			? {}
+			: {
+					resourceReflection: Reflect.get(
+						value,
+						"resourceReflection",
+					) as ClientCommand["resourceReflection"],
+				}),
 	};
 };
 
 export const readClientCommandOutbox = () =>
 	readJson(clientCommandOutboxPath(), (value): ClientCommandOutboxSnapshot => {
 		if (typeof value !== "object" || value === null) {
-			return { entries: [], receipts: [] };
+			throw new Error("Invalid command outbox");
 		}
 		const entries = Reflect.get(value, "entries");
 		const receipts = Reflect.get(value, "receipts");
+		if (!Array.isArray(entries) || !Array.isArray(receipts))
+			throw new Error("Invalid command outbox entries");
 		return {
 			entries: Array.isArray(entries)
 				? entries.flatMap((entry) => {
-						if (typeof entry !== "object" || entry === null) return [];
+						if (typeof entry !== "object" || entry === null)
+							throw new Error("Invalid command outbox entry");
 						const command = decodeClientCommand(Reflect.get(entry, "command"));
 						const attempts = Reflect.get(entry, "attempts");
 						const lastAttemptAt = Reflect.get(entry, "lastAttemptAt");
 						const fingerprint = Reflect.get(entry, "fingerprint");
+						if (command === null || typeof attempts !== "number")
+							throw new Error("Invalid persisted command identity");
 						return command !== null && typeof attempts === "number"
 							? [
 									{
 										command,
+										// Never drop opaque cloud identity on recovery. The shared transport
+										// validates the envelope before either replaying or reading a receipt.
+										...(Reflect.get(entry, "encryptedEnvelope") === undefined
+											? {}
+											: {
+													encryptedEnvelope: Reflect.get(
+														entry,
+														"encryptedEnvelope",
+													),
+												}),
+										...(Reflect.get(entry, "acceptance") === undefined
+											? {}
+											: {
+													acceptance: Reflect.get(
+														entry,
+														"acceptance",
+													) as OutboxEntry["acceptance"],
+												}),
+										...(Reflect.get(entry, "deliveryStatus") === undefined
+											? {}
+											: {
+													deliveryStatus: Reflect.get(
+														entry,
+														"deliveryStatus",
+													) as OutboxEntry["deliveryStatus"],
+												}),
 										fingerprint:
 											typeof fingerprint === "string"
 												? (fingerprint as CommandFingerprint)
@@ -307,18 +349,29 @@ export const readClientCommandOutbox = () =>
 										fingerprint: fingerprint as CommandFingerprint,
 										receivedAt,
 										result: Reflect.get(receipt, "result"),
+										...(Reflect.get(receipt, "terminalError") === undefined
+											? {}
+											: {
+													terminalError: Reflect.get(
+														receipt,
+														"terminalError",
+													) as CommandReceipt["terminalError"],
+												}),
 									},
 								]
 							: [];
 					})
 				: [],
 		};
-	}).pipe(Effect.catchTag("CacheCorrupt", () => Effect.succeed(null)));
+	});
 
 export const writeClientCommandOutbox = (
 	snapshot: ClientCommandOutboxSnapshot,
 ) =>
 	ensureDir(ROOT).pipe(
+		// Expo's iOS writeAsStringAsync uses Data.write(.atomic). moveAsync first
+		// deletes its destination, so a separate temporary/move would lose that
+		// native atomic-replacement guarantee on app termination.
 		Effect.andThen(writeJson(clientCommandOutboxPath(), snapshot)),
 	);
 

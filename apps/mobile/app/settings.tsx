@@ -212,7 +212,7 @@ export default function SettingsScreen() {
 
 				<ListSection
 					header="Remote access"
-					footer="Sign in only when you want to reach account-linked computers away from your local network."
+					footer="Sign in to access your cloud chats and account-linked computers."
 				>
 					{account === null ? (
 						<ListRow
@@ -229,6 +229,12 @@ export default function SettingsScreen() {
 								title="Signed in"
 								subtitle={account.email ?? account.id}
 								chevron={false}
+							/>
+							<ListRow
+								icon={UserRound}
+								title="Cloud Authentication"
+								subtitle="Shared across your cloud chats"
+								onPress={() => router.push("/cloud-auth")}
 							/>
 							{loading ? (
 								<View className="min-h-[54px] flex-row items-center gap-3 px-4 py-2.5">

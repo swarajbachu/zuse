@@ -53,6 +53,7 @@ export const signIn = async (): Promise<void> => {
 	});
 	try {
 		const account = await workosSignIn();
+		resetApiAccessToken();
 		batchAtomUpdates(() => {
 			appAtomRegistry.set(authAccountAtom, account);
 			appAtomRegistry.set(authBusyAtom, false);

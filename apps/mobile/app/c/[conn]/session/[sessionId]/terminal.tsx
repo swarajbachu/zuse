@@ -23,7 +23,7 @@ import {
 	ZuseMobileTerminalView,
 } from "~/native/mobile-terminal";
 import { listOwnedTerminals, openMobileTerminal } from "~/rpc/actions";
-import { connectionsAtom } from "~/store/connections";
+import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import {
 	dispatchMobileTerminalClose,
 	dispatchMobileTerminalInput,

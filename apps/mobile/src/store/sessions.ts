@@ -16,18 +16,27 @@ import { createConnectionRefreshCoordinator } from "~/lib/connection-refresh-coo
 import { connectionSessionKey } from "~/lib/session-key";
 import { readSessionsSnapshot, writeSessionsSnapshot } from "~/offline/cache";
 import {
+	makeTextInput,
 	markChatRead as markChatReadRpc,
 	renameChat as renameChatRpc,
 	renameSession as renameSessionRpc,
+	sendMessage,
 	setSessionPermissionMode as setSessionPermissionModeRpc,
 	setSessionRuntimeMode as setSessionRuntimeModeRpc,
 } from "~/rpc/actions";
+import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
 import {
 	getConnectionClient,
+	getConnectionSnapshot,
 	reportConnectionFailure,
 	retryConnectionNow,
 } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
+import {
+	archiveCloudWorkspace,
+	cloudCatalogAtom,
+	cloudCatalogBundles,
+} from "./cloud-catalog";
 
 import { messagesBySessionAtom } from "./messages";
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
@@ -38,9 +47,20 @@ export type ProjectBundle = {
 	sessions: readonly Session[];
 };
 
-export const bundlesByConnectionAtom = Atom.make<
+export const runtimeBundlesByConnectionAtom = Atom.make<
 	Record<string, ProjectBundle[]>
 >({}).pipe(Atom.keepAlive);
+export const bundlesByConnectionAtom = Atom.make((get) => {
+	const live = get(runtimeBundlesByConnectionAtom);
+	const devices = Object.fromEntries(
+		Object.entries(live).filter(([key]) => !key.startsWith("cloud:")),
+	);
+	return {
+		...devices,
+		...cloudCatalogBundles(get(cloudCatalogAtom).chats, live),
+	};
+});
+
 export const statusBySessionAtom = Atom.make<Record<string, SessionStatus>>(
 	{},
 ).pipe(Atom.keepAlive);
@@ -91,7 +111,7 @@ export const resetSessionsRuntime = async (): Promise<void> => {
 		),
 	]);
 	batchAtomUpdates(() => {
-		appAtomRegistry.set(bundlesByConnectionAtom, {});
+		appAtomRegistry.set(runtimeBundlesByConnectionAtom, {});
 		appAtomRegistry.set(statusBySessionAtom, {});
 		appAtomRegistry.set(errorByConnectionAtom, {});
 		appAtomRegistry.set(loadingByConnectionAtom, {});
@@ -99,13 +119,13 @@ export const resetSessionsRuntime = async (): Promise<void> => {
 };
 
 const currentBundles = (connKey: string): ProjectBundle[] =>
-	appAtomRegistry.get(bundlesByConnectionAtom)[connKey] ?? [];
+	appAtomRegistry.get(runtimeBundlesByConnectionAtom)[connKey] ?? [];
 
 const setConnectionBundles = (
 	connKey: string,
 	bundles: ProjectBundle[],
 ): void => {
-	appAtomRegistry.update(bundlesByConnectionAtom, (state) => ({
+	appAtomRegistry.update(runtimeBundlesByConnectionAtom, (state) => ({
 		...state,
 		[connKey]: bundles,
 	}));
@@ -174,6 +194,10 @@ export const archiveChat = async (
 	options: WsProtocolOptions,
 	chatId: Chat["id"],
 ): Promise<void> => {
+	if (options.cloudWorkspaceId !== undefined) {
+		await archiveCloudWorkspace(options.cloudWorkspaceId);
+		return;
+	}
 	const previous = currentBundles(connKey);
 	setConnectionBundles(connKey, removeChat(previous, chatId));
 	try {
@@ -495,7 +519,10 @@ export const createSession = async (
 				providerId: input.providerId,
 				model: input.model,
 				title: input.title,
-				initialPrompt: input.initialPrompt,
+				initialPrompt:
+					options.cloudWorkspaceId === undefined
+						? input.initialPrompt
+						: undefined,
 				runtimeMode: input.runtimeMode,
 				permissionMode: input.permissionMode,
 				modelOptions: input.modelOptions,
@@ -511,6 +538,17 @@ export const createSession = async (
 				[connectionSessionKey(connKey, session.id)]: session.status,
 			}));
 		});
+		if (options.cloudWorkspaceId !== undefined && input.initialPrompt?.trim()) {
+			// Creation succeeded. Keep this session even if acceptance needs retry;
+			// its qualified outbox owns the initial prompt and terminal error state.
+			await Effect.runPromise(
+				sendMessage({
+					connection: options,
+					sessionId: session.id,
+					input: makeTextInput(input.initialPrompt),
+				}),
+			).catch(() => undefined);
+		}
 		return session;
 	} catch (cause) {
 		reportConnectionFailure(options, cause);
@@ -522,6 +560,11 @@ const hydrateSessionsOnce = async (
 	connKey: string,
 	options: WsProtocolOptions,
 ): Promise<boolean> => {
+	if (
+		options.cloudWorkspaceId !== undefined &&
+		!cloudRuntimeReady(options.cloudWorkspaceId)
+	)
+		return true;
 	const cached = await Effect.runPromise(readSessionsSnapshot(connKey));
 	if (cached !== null) {
 		setConnectionBundles(
@@ -732,6 +775,19 @@ export const hydrateSessions = (
 	options: WsProtocolOptions,
 ): Promise<void> => sessionRefreshCoordinator.hydrate(connKey, options);
 
+/** Opening the thread catalog is an explicit live read, unlike the home feed. */
+export const openWorkspaceSessions = async (
+	connKey: string,
+	options: WsProtocolOptions,
+): Promise<void> => {
+	await Effect.runPromise(getConnectionClient(options));
+	await sessionRefreshCoordinator.refreshConnected(
+		connKey,
+		options,
+		getConnectionSnapshot(options).generation,
+	);
+};
+
 export const refreshSessionsAfterConnect = (
 	connKey: string,
 	options: WsProtocolOptions,
@@ -906,6 +962,25 @@ export const selectSessionChat = (
 		}
 	}
 	return null;
+};
+
+/** File/PTY actions need runtime folder IDs and paths, never catalog shells. */
+export const prepareSessionWorkspace = async (
+	connKey: string,
+	options: WsProtocolOptions,
+	sessionId: Session["id"],
+) => {
+	if (options.cloudWorkspaceId !== undefined)
+		await openWorkspaceSessions(connKey, options);
+	const detail = selectSessionChat(
+		appAtomRegistry.get(runtimeBundlesByConnectionAtom)[connKey] ?? [],
+		sessionId,
+	);
+	if (detail === null)
+		throw new Error(
+			"This thread's workspace is not available yet. Refresh the chat and try again.",
+		);
+	return detail;
 };
 
 const timestampOf = (value: unknown): number => {

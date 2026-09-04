@@ -2,6 +2,7 @@ import {
 	ClientBus,
 	type ResourceDriver,
 	type ResourceDriverFactory,
+	type ResourceSynchronization,
 } from "@zuse/client-runtime/client-bus";
 import type {
 	ClientCommand,
@@ -17,6 +18,11 @@ import {
 	assertCommandFingerprint,
 	commandFingerprint,
 } from "@zuse/client-runtime/client-persistence";
+import { makeCloudCommandTransport } from "@zuse/client-runtime/cloud-command-transport";
+import {
+	openCloudTranscriptCheckpoint,
+	openCloudTranscriptPage,
+} from "@zuse/client-runtime/cloud-transcript";
 import { environmentFault } from "@zuse/client-runtime/environment-runtime";
 import {
 	makeResourceKey,
@@ -25,6 +31,11 @@ import {
 	type SessionRef,
 	type TerminalRef,
 } from "@zuse/client-runtime/resource-ref";
+import {
+	durableOptimisticSessionMessage,
+	sessionMessageCommandReflected,
+} from "@zuse/client-runtime/session-message-intent";
+import { makeSessionMessagePager } from "@zuse/client-runtime/session-message-pager";
 import {
 	makeSessionTimelineResourceDriver,
 	type SessionTimelineDriverClient,
@@ -63,6 +74,10 @@ import {
 import { isRetryableClientError } from "~/rpc/connection-failures";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
+const getCloudControl = async () =>
+	(await import("~/rpc/api-client")).cloudControlClient;
+const cloudTransport = makeCloudCommandTransport(getCloudControl);
+
 type EnvironmentBinding = Readonly<{
 	connKey: string;
 	options: WsProtocolOptions;
@@ -83,6 +98,16 @@ export class MobileCommandOutbox implements CommandOutbox {
 	private readonly entries = new Map<string, OutboxEntry>();
 	private readonly receipts = new Map<string, CommandReceipt>();
 	private writeTail = Promise.resolve();
+	private closed = false;
+
+	private assertOpen(): void {
+		if (this.closed) throw new Error("Mobile command outbox was closed");
+	}
+
+	async close(): Promise<void> {
+		this.closed = true;
+		await this.writeTail.catch(() => undefined);
+	}
 
 	private load(): Promise<void> {
 		this.loaded ??= Effect.runPromise(readClientCommandOutbox()).then(
@@ -100,6 +125,7 @@ export class MobileCommandOutbox implements CommandOutbox {
 
 	private persist(): Promise<void> {
 		this.writeTail = this.writeTail
+			.catch(() => undefined)
 			.then(() =>
 				Effect.runPromise(
 					writeClientCommandOutbox({
@@ -114,6 +140,7 @@ export class MobileCommandOutbox implements CommandOutbox {
 
 	async putOutbox(entry: OutboxEntry): Promise<void> {
 		await this.load();
+		this.assertOpen();
 		const existing = this.entries.get(entry.command.commandId);
 		if (existing !== undefined) {
 			assertCommandFingerprint(
@@ -131,6 +158,7 @@ export class MobileCommandOutbox implements CommandOutbox {
 		fingerprint: CommandFingerprint,
 	): Promise<void> {
 		await this.load();
+		this.assertOpen();
 		const existing = this.entries.get(commandId);
 		if (existing === undefined) return;
 		assertCommandFingerprint(commandId, existing.fingerprint, fingerprint);
@@ -147,6 +175,7 @@ export class MobileCommandOutbox implements CommandOutbox {
 
 	async putReceipt(receipt: CommandReceipt): Promise<void> {
 		await this.load();
+		this.assertOpen();
 		const existing = this.receipts.get(receipt.commandId);
 		if (existing !== undefined) {
 			assertCommandFingerprint(
@@ -161,6 +190,7 @@ export class MobileCommandOutbox implements CommandOutbox {
 
 	async completeOutbox(receipt: CommandReceipt): Promise<void> {
 		await this.load();
+		this.assertOpen();
 		const pending = this.entries.get(receipt.commandId);
 		if (pending !== undefined) {
 			assertCommandFingerprint(
@@ -565,14 +595,14 @@ const commandExecutor: ClientCommandExecutor<MemoizeClient> = {
 const makeBus = () =>
 	new ClientBus<MemoizeClient>({
 		resolver: {
-			resolve: (environmentId) => {
+			resolve: (environmentId, activation) => {
 				const binding = bindings.get(environmentId);
 				if (binding === undefined) {
 					return Effect.fail(
 						environmentFault("failed", "Unknown mobile environment"),
 					);
 				}
-				return getConnectionClient(binding.options).pipe(
+				return getConnectionClient(binding.options, activation === "wake").pipe(
 					Effect.map((client) => ({
 						client,
 						dispose: async () => undefined,
@@ -584,6 +614,45 @@ const makeBus = () =>
 		persistence: new MobileTimelinePersistence(),
 		outbox: commandOutbox,
 		commandExecutor,
+		commandTransportFor: (environmentId, kind) =>
+			bindings.get(environmentId)?.options.cloudWorkspaceId !== undefined &&
+			kind === "messages.send"
+				? cloudTransport
+				: undefined,
+		commandReflected: sessionMessageCommandReflected,
+		synchronizer: {
+			synchronize: async <Data>(
+				key: ResourceKey<Data>,
+				current: { cursor: { epoch: string; version: number } | null },
+			) => {
+				const ref = sessionRef(key);
+				if (
+					ref === null ||
+					bindings.get(ref.environmentId)?.options.cloudWorkspaceId ===
+						undefined
+				)
+					return null;
+				const control = await getCloudControl();
+				const result = await Effect.runPromise(
+					control["cloud.transcript.get"]({
+						workspaceId: ref.environmentId,
+						sessionId: ref.sessionId,
+					}),
+				);
+				if (result.checkpoint === null) return null;
+				const payload = await openCloudTranscriptCheckpoint(
+					ref,
+					result.checkpoint,
+				);
+				return {
+					data: payload.projection,
+					cursor: payload.cursor,
+					resetEpoch:
+						current.cursor !== null &&
+						current.cursor.epoch !== payload.cursor.epoch,
+				} as ResourceSynchronization<Data>;
+			},
+		},
 		commandFaultFor: (cause) =>
 			isRetryableClientError(cause) ? environmentFault("failed", cause) : null,
 		runtime: { isOnline: isConnectionOnline },
@@ -593,6 +662,38 @@ const makeBus = () =>
 let bus = makeBus();
 
 export const mobileClientBus = (): ClientBus<MemoizeClient> => bus;
+
+const messagePager = makeSessionMessagePager({
+	getBus: mobileClientBus,
+	readPage: async (ref, client, cursor, beforeSequence) => {
+		if (client !== null)
+			return Effect.runPromise(
+				client["session.messages.page"]({
+					sessionId: ref.sessionId,
+					beforeSequence,
+					limit: 100,
+				}),
+			);
+		if (
+			cursor === null ||
+			bindings.get(ref.environmentId)?.options.cloudWorkspaceId === undefined
+		)
+			return null;
+		const control = await getCloudControl();
+		const result = await Effect.runPromise(
+			control["cloud.transcript.messages.page"]({
+				workspaceId: ref.environmentId,
+				sessionId: ref.sessionId,
+				cursor,
+				beforeSequence,
+			}),
+		);
+		return result.page === null
+			? null
+			: openCloudTranscriptPage(ref, cursor, beforeSequence, result.page);
+	},
+});
+export const loadOlderMobileMessages = messagePager.load;
 
 /** Resume retained resources immediately when the native connectivity owner
  * reports an online/app-active edge. */
@@ -607,6 +708,16 @@ export const registerMobileEnvironment = (
 	bindings.set(environmentId, { connKey, options });
 	return environmentId;
 };
+
+export const mobilePendingMessageIntents = async (ref: SessionRef) =>
+	(await commandOutbox.listOutbox(ref.environmentId)).flatMap((entry) => {
+		const message = durableOptimisticSessionMessage(entry, ref);
+		return message === null ? [] : [message];
+	});
+
+export const dispatchMobileSessionCommandHandle = <Result>(
+	command: ClientCommand<unknown, Result>,
+) => mobileClientBus().dispatchHandle(command);
 
 export const dispatchMobileSessionCommand = <Result>(
 	command: ClientCommand<unknown, Result>,
@@ -664,12 +775,8 @@ export const sessionCommandContext = (
 	};
 };
 
-let commandCounter = 0;
-
 export const nextMobileCommandId = (kind: string): CommandId =>
-	CommandId.make(
-		`${kind}:${Date.now().toString(36)}:${(commandCounter++).toString(36)}`,
-	);
+	CommandId.make(`${kind}:${crypto.randomUUID()}`);
 
 export const dispatchMobileSessionCommandResult = async <Result>(options: {
 	readonly connKey?: string;
@@ -811,7 +918,9 @@ export const resetMobileClientBus = async (): Promise<void> => {
 	const previous = bus;
 	bindings.clear();
 	terminalSinks.clear();
+	messagePager.clear();
+	await previous.dispose();
+	await commandOutbox.close();
 	commandOutbox = new MobileCommandOutbox();
 	bus = makeBus();
-	await previous.dispose();
 };

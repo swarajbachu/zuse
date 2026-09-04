@@ -1,9 +1,9 @@
 import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
-import type { ConnectionRecord } from "~/store/connections";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
+import type { ConnectionRecord } from "~/store/connections";
 
 export const normalizeConnParam = (
-  param: string | string[] | undefined,
+	param: string | string[] | undefined,
 ): string => (Array.isArray(param) ? (param[0] ?? "") : (param ?? ""));
 
 export const parseConnectionKey = (key: string): WsProtocolOptions => {
@@ -13,13 +13,14 @@ export const parseConnectionKey = (key: string): WsProtocolOptions => {
 };
 
 export const optionsForConnection = (
-  key: string,
-  connections: ConnectionRecord[],
+	key: string,
+	connections: ConnectionRecord[],
 ): WsProtocolOptions | null => {
-  const existing = connections.find(
-    (connection) => connection.key === key || connection.environmentId === key,
-  );
-  if (existing !== undefined) return existing;
-  if (!key.includes(":")) return null;
-  return parseConnectionKey(key);
+	const existing = connections.find(
+		(connection) => connection.key === key || connection.environmentId === key,
+	);
+	if (existing !== undefined) return existing;
+	if (key.startsWith("cloud:")) return null;
+	if (!key.includes(":")) return null;
+	return parseConnectionKey(key);
 };

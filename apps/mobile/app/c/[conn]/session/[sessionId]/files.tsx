@@ -33,7 +33,7 @@ import {
 } from "~/lib/connection-params";
 import { buildFileTree, flattenFileTree } from "~/lib/file-tree";
 import { listWorkspacePaths } from "~/rpc/actions";
-import { connectionsAtom } from "~/store/connections";
+import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
 import { colors } from "~/theme";
 

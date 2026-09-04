@@ -21,18 +21,21 @@ export function SelectorRow({
 	options,
 	disabled = false,
 	emptyLabel = "None",
+	compact = false,
 }: {
 	symbol: string;
 	label: string;
 	options: readonly SelectorOption[];
 	disabled?: boolean;
 	emptyLabel?: string;
+	compact?: boolean;
 }) {
 	return (
 		<Host
+			className={compact ? "h-7" : undefined}
 			matchContents
 			seedColor={colors.fg}
-			style={{ alignSelf: "flex-start", height: 48 }}
+			style={{ alignSelf: "flex-start", height: compact ? 28 : 48 }}
 		>
 			<Menu label={label} systemImage={sf(symbol)}>
 				{disabled || options.length === 0 ? (

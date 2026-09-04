@@ -8,7 +8,7 @@ import type {
 } from "@zuse/contracts";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { Check, Ellipsis, Plus, Search, X } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ActivityIndicator,
 	Alert,
@@ -34,13 +34,14 @@ import {
 	threadStatusLabel,
 } from "~/lib/thread-presentation";
 import { activeThreadSelection, switchToThread } from "~/lib/thread-switching";
-import { connectionsAtom } from "~/store/connections";
+import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import { pendingBySessionAtom } from "~/store/permissions";
 import {
 	archiveChat,
 	archiveSession,
 	connectionBundlesAtom,
 	hydrateSessions,
+	openWorkspaceSessions,
 	renameSession,
 	setActiveSession,
 	statusBySessionAtom,
@@ -59,6 +60,7 @@ export default function ThreadsScreen() {
 	const normalizedChatId = normalizeConnParam(chatId) as ChatId;
 	const currentSessionId = normalizeConnParam(sessionId ?? "") as SessionId;
 	const [query, setQuery] = useState("");
+	const requestedCloud = useRef<string | null>(null);
 	const [switchingSessionId, setSwitchingSessionId] =
 		useState<SessionId | null>(null);
 	const connections = useAtomValue(connectionsAtom);
@@ -110,6 +112,17 @@ export default function ThreadsScreen() {
 	}, [chat, query, threads]);
 
 	useEffect(() => {
+		if (options?.cloudWorkspaceId !== undefined) {
+			if (requestedCloud.current === connKey) return;
+			requestedCloud.current = connKey;
+			void openWorkspaceSessions(connKey, options).catch((cause) =>
+				Alert.alert(
+					"Cloud workspace",
+					cause instanceof Error ? cause.message : "Could not load threads.",
+				),
+			);
+			return;
+		}
 		if (options !== null && chat === null && threads.length === 0) {
 			void hydrateSessions(connKey, options);
 		}
@@ -149,13 +162,7 @@ export default function ThreadsScreen() {
 				);
 			}
 		},
-		[
-			activeSessionId,
-			connKey,
-			normalizedChatId,
-			options,
-			switchingSessionId,
-		],
+		[activeSessionId, connKey, normalizedChatId, options, switchingSessionId],
 	);
 
 	const openNewThread = useCallback(() => {

@@ -20,7 +20,7 @@ import {
 	type GitReviewScope,
 	type GitReviewSummary,
 	type GitStatusSummary,
-	type MessageId,
+	MessageId,
 	type PermissionDecision,
 	type PermissionMode,
 	type PlanApprovalOutcome,
@@ -37,8 +37,12 @@ import { Effect, Stream } from "effect";
 
 import { reviewScopeRequestValue } from "~/lib/review-scope";
 import {
+	connectionKeyForOptions,
+	dispatchMobileSessionCommandHandle,
 	dispatchMobileSessionCommandResult,
+	mobileClientBus,
 	nextMobileCommandId,
+	sessionCommandContext,
 } from "~/store/mobile-client-bus";
 import { getConnectionClient, reportConnectionFailure } from "./connection";
 import type { WsProtocolOptions } from "./ws-protocol";
@@ -297,13 +301,55 @@ export const resolveVoiceAuth = (options: {
 		return yield* client["voice.resolveAuth"]({ ticket: options.ticket });
 	});
 
-export const sendMessage = (options: {
+export type SendMessageOptions = {
 	connection: WsProtocolOptions;
 	sessionId: SessionId;
 	input: ComposerInputType;
 	asGoal?: boolean;
 	clientMessageId?: MessageId;
-}) => {
+};
+
+/** Composer completion means durable acceptance, not compute availability. */
+export const sendCloudMessage = (
+	options: SendMessageOptions & { clientMessageId: MessageId },
+) => {
+	const commandId = CommandId.make(`message-send:${options.clientMessageId}`);
+	const context = sessionCommandContext(
+		connectionKeyForOptions(options.connection),
+		options.connection,
+		options.sessionId,
+	);
+	mobileClientBus().dismissFailedCommands(context.resource);
+	return dispatchMobileSessionCommandHandle({
+		kind: "messages.send",
+		commandId,
+		...context,
+		payload: {
+			sessionId: options.sessionId,
+			commandId,
+			input: options.input,
+			asGoal: options.asGoal,
+			clientMessageId: options.clientMessageId,
+		},
+		retry: "safe",
+		createdAt: Date.now(),
+		awaitResourceReflection: true,
+	});
+};
+
+export const sendMessage = (options: SendMessageOptions) => {
+	if (options.connection.cloudWorkspaceId !== undefined) {
+		const clientMessageId =
+			options.clientMessageId ?? MessageId.make(crypto.randomUUID());
+		return Effect.tryPromise({
+			try: async () => {
+				const handle = sendCloudMessage({ ...options, clientMessageId });
+				void handle.result.catch(() => undefined);
+				await handle.accepted;
+			},
+			catch: (cause) => cause,
+		});
+	}
 	if (options.clientMessageId !== undefined) {
 		const commandId = CommandId.make(options.clientMessageId);
 		const payload = {

@@ -16,15 +16,17 @@ export type SelectorOption = {
  */
 export function SelectorRow({
 	label,
+	compact = false,
 }: {
 	symbol: string;
 	label: string;
 	options: readonly SelectorOption[];
 	disabled?: boolean;
 	emptyLabel?: string;
+	compact?: boolean;
 }) {
 	return (
-		<View className="h-11 flex-row items-center gap-2">
+		<View className={`${compact ? "h-7" : "h-11"} flex-row items-center gap-2`}>
 			<Text
 				className="font-sans-medium text-[15px] text-foreground"
 				numberOfLines={1}

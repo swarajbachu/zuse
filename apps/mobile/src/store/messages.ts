@@ -1,3 +1,8 @@
+import { cloudFailurePresentation } from "@zuse/client-runtime/cloud-failure-presentation";
+import type {
+	FailedCommand,
+	PendingCommand,
+} from "@zuse/client-runtime/resource-state";
 import type {
 	ComposerInput,
 	EnvironmentId,
@@ -7,21 +12,23 @@ import type {
 	SessionId,
 } from "@zuse/contracts";
 import { Atom } from "effect/unstable/reactivity";
-
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { connectionSessionKey } from "~/lib/session-key";
+import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
 import { reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
-
 import {
 	dispatchMobileSessionCommandResult,
+	loadOlderMobileMessages,
 	mobileClientBus,
+	mobilePendingMessageIntents,
 	registerMobileEnvironment,
 	resetMobileClientBus,
 	sessionTimelineKey,
 } from "./mobile-client-bus";
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
 import {
+	markSessionTurnStartFailed,
 	resetSessionTurnActivity,
 	syncSessionTurnActivity,
 } from "./session-turn-activity";
@@ -44,6 +51,33 @@ export const messagesErrorBySessionAtom = Atom.make<
 
 const EMPTY_MESSAGES: readonly Message[] = [];
 const EMPTY_QUEUE: readonly QueuedMessage[] = [];
+const EMPTY_DELIVERY = {
+	pending: [] as readonly PendingCommand[],
+	failed: [] as readonly FailedCommand[],
+};
+export const deliveryBySessionAtom = Atom.make<
+	Record<string, typeof EMPTY_DELIVERY>
+>({}).pipe(Atom.keepAlive);
+export const sessionDeliveryAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(deliveryBySessionAtom)[key] ?? EMPTY_DELIVERY),
+);
+export const olderMessagesBySessionAtom = Atom.make<Record<string, boolean>>(
+	{},
+).pipe(Atom.keepAlive);
+export const hasOlderMessagesAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(olderMessagesBySessionAtom)[key] ?? false),
+);
+export const loadOlderMessages = (connKey: string, sessionId: SessionId) => {
+	const retained = retainedTimelines.get(
+		connectionSessionKey(connKey, sessionId),
+	);
+	return retained === undefined
+		? Promise.resolve()
+		: loadOlderMobileMessages({
+				environmentId: retained.environmentId,
+				sessionId,
+			}).then(() => undefined);
+};
 
 /** Per-session transcript; notifies only when this session's messages change. */
 export const sessionMessagesAtom = Atom.family((key: string) =>
@@ -125,6 +159,20 @@ const patchError = (key: string, error: string | null): void => {
 const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 	const view = mobileClientBus().snapshot(retained.key);
 	const projection = view.data;
+	appAtomRegistry.update(deliveryBySessionAtom, (state) => ({
+		...state,
+		[liveKey]: { pending: view.pendingCommands, failed: view.failedCommands },
+	}));
+	appAtomRegistry.update(olderMessagesBySessionAtom, (state) => ({
+		...state,
+		[liveKey]: projection?.olderMessageSequence != null,
+	}));
+	const running =
+		projection?.currentTurn != null ||
+		view.pendingCommands.some((command) => command.kind === "messages.send");
+	if (!running && view.failedCommands.length > 0)
+		markSessionTurnStartFailed(liveKey);
+	syncSessionTurnActivity(liveKey, running);
 	if (projection !== null && projection !== undefined) {
 		const durable = projection.messages;
 		const durableIds = new Set(durable.map((message) => message.id));
@@ -132,7 +180,6 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 			if (durableIds.has(id)) optimisticIds.delete(id);
 		}
 		batchAtomUpdates(() => {
-			syncSessionTurnActivity(liveKey, projection.currentTurn !== null);
 			appAtomRegistry.update(messagesBySessionAtom, (state) => {
 				const current = state[liveKey] ?? [];
 				const pending = current.filter(
@@ -156,11 +203,19 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 		patchReconnecting(liveKey, reconnecting);
 		patchError(
 			liveKey,
-			view.sync === "failed" || view.sync === "stale"
-				? "Transcript synchronization failed."
-				: view.connection === "failed" || view.connection === "offline"
-					? mobileClientBus().connection(retained.environmentId).error
-					: null,
+			view.failedCommands.length > 0
+				? (cloudFailurePresentation({
+						state: view.failedCommands.at(-1)?.terminal?.state,
+						category: view.failedCommands.at(-1)?.terminal?.category,
+						cause: view.failedCommands.at(-1)?.error,
+					})?.message ??
+						view.failedCommands.at(-1)?.error ??
+						null)
+				: view.sync === "failed" || view.sync === "stale"
+					? "Transcript synchronization failed."
+					: view.connection === "failed" || view.connection === "offline"
+						? mobileClientBus().connection(retained.environmentId).error
+						: null,
 		);
 	});
 };
@@ -180,6 +235,8 @@ export const resetMessagesRuntime = async (): Promise<void> => {
 		appAtomRegistry.set(queuePausedBySessionAtom, {});
 		appAtomRegistry.set(reconnectingBySessionAtom, {});
 		appAtomRegistry.set(messagesErrorBySessionAtom, {});
+		appAtomRegistry.set(deliveryBySessionAtom, {});
+		appAtomRegistry.set(olderMessagesBySessionAtom, {});
 	});
 };
 
@@ -206,15 +263,20 @@ export const hydrateMessages = async (
 	sessionId: SessionId,
 ): Promise<void> => {
 	const liveKey = connectionSessionKey(connKey, sessionId);
+	const activation =
+		options.cloudWorkspaceId !== undefined &&
+		!cloudRuntimeReady(options.cloudWorkspaceId)
+			? "sync"
+			: "connect";
 	const existing = retainedTimelines.get(liveKey);
 	if (existing !== undefined) {
-		existing.lease.activate("connect");
+		existing.lease.activate(activation);
 		publishTimeline(liveKey, existing);
 		return;
 	}
 	const environmentId = registerMobileEnvironment(connKey, options);
 	const key = sessionTimelineKey(environmentId, sessionId);
-	const lease = mobileClientBus().retain(key, { activation: "connect" });
+	const lease = mobileClientBus().retain(key, { activation });
 	const retained: RetainedTimeline = {
 		environmentId,
 		key,
@@ -225,7 +287,16 @@ export const hydrateMessages = async (
 		publishTimeline(liveKey, retained),
 	);
 	retainedTimelines.set(liveKey, { ...retained, unsubscribe });
-	publishTimeline(liveKey, retainedTimelines.get(liveKey) as RetainedTimeline);
+	if (options.cloudWorkspaceId !== undefined) {
+		const pending = await mobilePendingMessageIntents({
+			environmentId,
+			sessionId,
+		});
+		if (retainedTimelines.get(liveKey)?.lease !== lease) return;
+		for (const message of pending) addOptimisticMessage(liveKey, message);
+	}
+	const current = retainedTimelines.get(liveKey);
+	if (current !== undefined) publishTimeline(liveKey, current);
 };
 
 /**
@@ -428,7 +499,7 @@ export const addOptimisticMessage = (key: string, message: Message): void => {
 		const current = state[key] ?? [];
 		if (current.some((item) => item.id === message.id)) return state;
 		return {
-		...state,
+			...state,
 			[key]: [...current, message].slice(-500),
 		};
 	});

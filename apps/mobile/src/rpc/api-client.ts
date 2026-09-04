@@ -1,11 +1,16 @@
 import {
+	type CloudControlRequest,
+	makeCloudControlClient,
+} from "@zuse/client-runtime/cloud-control-client";
+import {
 	ApiAccessToken,
 	ApiConnectGrant,
 	ApiEnvironmentList,
 	ApiEnvironmentStatus,
 	ApiPaths,
+	CloudWorkspaceOpError,
 } from "@zuse/contracts";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import { apiBaseUrl } from "../auth/config.ts";
 import { devicePublicJwk, signDpopProof } from "../auth/dpop.ts";
@@ -254,3 +259,99 @@ export const resetApiAccessToken = (): void => {
 	apiAuthState.accessToken = null;
 	apiAuthState.refresh = null;
 };
+
+/** Cloud control-plane access is account-owned, never proxied through a Mac. */
+const cloudRequest: CloudControlRequest = (
+	path,
+	schema,
+	method = "GET",
+	body,
+) =>
+	Effect.gen(function* () {
+		const epoch = apiAuthState.epoch;
+		const token = yield* Effect.tryPromise({
+			try: getWorkosToken,
+			catch: () => new CloudWorkspaceOpError({ code: "not-allowed" }),
+		});
+		if (epoch !== apiAuthState.epoch)
+			return yield* Effect.fail(
+				new CloudWorkspaceOpError({ code: "not-allowed" }),
+			);
+		const response = yield* Effect.tryPromise({
+			try: (signal) =>
+				fetch(url(path), {
+					method,
+					signal,
+					headers: {
+						authorization: `Bearer ${token}`,
+						...(body === undefined
+							? {}
+							: { "content-type": "application/json" }),
+					},
+					body: body === undefined ? undefined : JSON.stringify(body),
+				}),
+			catch: () => new CloudWorkspaceOpError({ code: "provider-unavailable" }),
+		});
+		if (epoch !== apiAuthState.epoch)
+			return yield* Effect.fail(
+				new CloudWorkspaceOpError({ code: "not-allowed" }),
+			);
+		const payload: unknown = yield* Effect.tryPromise({
+			try: () => response.json(),
+			catch: () => new CloudWorkspaceOpError({ code: "provider-unavailable" }),
+		}).pipe(
+			Effect.catch((cause) =>
+				response.ok ? Effect.fail(cause) : Effect.succeed(null),
+			),
+		);
+		if (!response.ok) {
+			const error =
+				typeof payload === "object" && payload !== null
+					? (Reflect.get(payload, "error") ?? Reflect.get(payload, "code"))
+					: null;
+			const codes: Record<string, CloudWorkspaceOpError["code"]> = {
+				cloud_beta_access_required: "beta-access-required",
+				cloud_beta_access_unavailable: "beta-access-unavailable",
+				cloud_entitlement_required: "entitlement-required",
+				cloud_credential_connection_required: "credential-required",
+				cloud_project_not_ready: "project-not-ready",
+				cloud_image_rebuild_required: "project-not-ready",
+				billing_hold: "billing-hold",
+				entitlement_required: "entitlement-required",
+				billing_approval_pending: "billing-hold",
+			};
+			return yield* Effect.fail(
+				new CloudWorkspaceOpError({
+					code:
+						(typeof error === "string" ? codes[error] : undefined) ??
+						(response.status === 401 || response.status === 403
+							? "not-allowed"
+							: response.status === 404
+								? "not-found"
+								: response.status === 409
+									? "conflict"
+									: response.status >= 500 || response.status === 429
+										? "provider-unavailable"
+										: "invalid-request"),
+				}),
+			);
+		}
+		return yield* Schema.decodeUnknownEffect(schema)(payload).pipe(
+			Effect.mapError(
+				() => new CloudWorkspaceOpError({ code: "invalid-request" }),
+			),
+		);
+	});
+
+// The server long-poll is bounded at 25s. Bound the native fetch too, so a
+// half-open mobile network cannot pin catalog refresh or mailbox recovery.
+export const cloudControlClient = makeCloudControlClient((...args) =>
+	cloudRequest(...args).pipe(
+		Effect.timeout("30 seconds"),
+		Effect.mapError((cause) =>
+			cause instanceof CloudWorkspaceOpError
+				? cause
+				: new CloudWorkspaceOpError({ code: "provider-unavailable" }),
+		),
+	),
+);

@@ -77,6 +77,7 @@ import {
 	connectionAvailabilityAtom,
 	hydrateAvailability,
 } from "~/store/availability";
+import { cloudAuthenticatedProvidersAtom } from "~/store/cloud-catalog";
 import {
 	clearComposerDraft,
 	composerDraft,
@@ -84,7 +85,7 @@ import {
 	setComposerDraft,
 } from "~/store/composer-drafts";
 import {
-	connectionsAtom,
+	allConnectionsAtom as connectionsAtom,
 	connectionsHydratedAtom,
 	hydrateConnections,
 	refreshConnectionLabel,
@@ -149,8 +150,13 @@ export default function NewChatScreen() {
 	const hydrated = useAtomValue(connectionsHydratedAtom);
 	const account = useAtomValue(authAccountAtom);
 	const connections = useMemo(
-		() => availableConnections(allConnections, account !== null),
-		[account, allConnections],
+		() =>
+			availableConnections(allConnections, account !== null).filter(
+				(connection) =>
+					connection.source !== "cloud" ||
+					connection.key === requestedConnectionKey,
+			),
+		[account, allConnections, requestedConnectionKey],
 	);
 	const bundlesByConnection = useAtomValue(bundlesByConnectionAtom);
 	const loadingByConnection = useAtomValue(loadingByConnectionAtom);
@@ -260,9 +266,13 @@ export default function NewChatScreen() {
 		if (effectiveConnectionKey === null || selectedOptions === null) return;
 		void hydrateAvailability(effectiveConnectionKey, selectedOptions);
 	}, [effectiveConnectionKey, selectedOptions]);
+	const cloudProviders = useAtomValue(cloudAuthenticatedProvidersAtom);
 	const availableProviders = useMemo(
-		() => availableProviderIds(availability),
-		[availability],
+		() =>
+			requestedConnectionKey.startsWith("cloud:")
+				? cloudProviders
+				: availableProviderIds(availability),
+		[availability, cloudProviders, requestedConnectionKey],
 	);
 
 	useEffect(() => {
@@ -788,6 +798,7 @@ export default function NewChatScreen() {
 					onOpenChange={setModelSheetOpen}
 					value={effectiveModelMode}
 					availableProviders={availableProviders}
+					strictProviders={selectedOptions?.cloudWorkspaceId !== undefined}
 					canChangeProvider
 					canChangeReasoning
 					onChange={setModelMode}
