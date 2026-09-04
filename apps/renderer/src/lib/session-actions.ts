@@ -1,3 +1,4 @@
+import { CloudCommandTerminalError } from "@zuse/client-runtime/client-persistence";
 import {
 	resourceRefKey,
 	type SessionRef,
@@ -39,6 +40,11 @@ export type ChatError =
 			readonly message: string;
 	  }
 	| { readonly kind: "network"; readonly message: string }
+	| {
+			readonly kind: "terminal";
+			readonly headline: string;
+			readonly message: string;
+	  }
 	| { readonly kind: "generic"; readonly message: string };
 
 const AUTH_PATTERN =
@@ -64,8 +70,23 @@ export const classifyMessage = (
 	return { kind: "generic", message: readable };
 };
 
-const classifyError = (cause: unknown, providerId?: ProviderId): ChatError =>
-	classifyMessage(formatError(cause), providerId);
+export const classifyError = (
+	cause: unknown,
+	providerId?: ProviderId,
+): ChatError => {
+	if (cause instanceof CloudCommandTerminalError) {
+		const headline =
+			cause.category === "workspace-deleted"
+				? "Workspace unavailable"
+				: cause.category === "interaction-expired"
+					? "Interaction expired"
+					: cause.state === "outcome-unknown"
+						? "Command outcome unknown"
+						: "Command not delivered";
+		return { kind: "terminal", headline, message: cause.message };
+	}
+	return classifyMessage(formatError(cause), providerId);
+};
 
 const classifyActionError = (
 	cause: unknown,

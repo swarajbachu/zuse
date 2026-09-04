@@ -1,3 +1,4 @@
+import { CloudCommandTerminalError } from "@zuse/client-runtime/client-persistence";
 import {
 	ComposerInput,
 	EnvironmentId,
@@ -12,6 +13,7 @@ import { Effect, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+	classifyError,
 	classifyMessage,
 	isRecoveredPreAckSessionError,
 	optimisticQueuedMessageReady,
@@ -58,6 +60,23 @@ describe("session actions", () => {
 		).toEqual({
 			kind: "network",
 			message: "WebSocket closed while the laptop was offline",
+		});
+	});
+
+	it("classifies terminal cloud lifecycle failures without exposing internals", () => {
+		expect(
+			classifyError(
+				new CloudCommandTerminalError(
+					"cancelled",
+					"workspace-deleted",
+					"This workspace was archived or deleted before the command was accepted.",
+				),
+			),
+		).toEqual({
+			kind: "terminal",
+			headline: "Workspace unavailable",
+			message:
+				"This workspace was archived or deleted before the command was accepted.",
 		});
 	});
 

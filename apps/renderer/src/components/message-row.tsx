@@ -1187,7 +1187,9 @@ export function ErrorBubble({
 				}`
 			: error.kind === "network"
 				? "Connection lost"
-				: null;
+				: error.kind === "terminal"
+					? error.headline
+					: null;
 
 	const iconTone =
 		error.kind === "auth"
@@ -1224,7 +1226,7 @@ export function ErrorBubble({
 						<pre className="min-w-0 max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
 							{error.message || "(empty)"}
 						</pre>
-						{sessionId !== undefined && (
+						{sessionId !== undefined && error.kind !== "terminal" && (
 							<div className="mt-1.5 flex flex-wrap items-center gap-1.5">
 								<Button
 									type="button"

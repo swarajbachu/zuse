@@ -47,24 +47,60 @@ const terminalError = (status: CommandStatus): CloudCommandTerminalError => {
 	return new CloudCommandTerminalError(status.state, status.category, label);
 };
 
+const errorCode = (cause: unknown): unknown =>
+	typeof cause === "object" && cause !== null
+		? Reflect.get(cause, "code")
+		: undefined;
+
+const destructiveWorkspaceLifecycle = (workspace: {
+	readonly state: string;
+	readonly desiredState: string;
+}): boolean =>
+	workspace.state === "archiving" ||
+	workspace.state === "archived" ||
+	workspace.state === "deleting" ||
+	workspace.state === "deleted" ||
+	workspace.desiredState === "archived" ||
+	workspace.desiredState === "deleted";
+
+const workspaceUnavailable = (): CloudCommandTerminalError =>
+	new CloudCommandTerminalError(
+		"cancelled",
+		"workspace-deleted",
+		"This workspace was archived or deleted before the command was accepted.",
+	);
+
 const dataKey = async (workspaceId: string) => {
+	const control = await getControlPlaneRpcClient();
 	try {
-		const control = await getControlPlaneRpcClient();
 		return await Effect.runPromise(
 			control["cloud.commands.dataKey"]({ workspaceId }),
 		);
 	} catch (cause) {
-		const code =
-			typeof cause === "object" && cause !== null
-				? Reflect.get(cause, "code")
-				: undefined;
-		if (code === "invalid-state" || code === "not-found")
-			throw new CloudCommandTerminalError(
-				"cancelled",
-				"workspace-deleted",
-				"This workspace was archived or deleted before the command was accepted.",
+		if (errorCode(cause) !== "not-found") throw cause;
+
+		// During the additive v3 rollout, an older control plane returns the same
+		// endpoint-level 404 as a genuinely missing workspace. Disambiguate through
+		// the long-lived v2 workspace route before assigning a terminal lifecycle.
+		try {
+			const workspace = await Effect.runPromise(
+				control["cloud.workspaces.get"]({ workspaceId }),
 			);
-		throw cause;
+			if (destructiveWorkspaceLifecycle(workspace))
+				throw workspaceUnavailable();
+			throw new CloudCommandTransportUnavailableError(
+				"Durable cloud commands are not available on this control plane",
+			);
+		} catch (workspaceCause) {
+			if (
+				workspaceCause instanceof CloudCommandTerminalError ||
+				workspaceCause instanceof CloudCommandTransportUnavailableError
+			)
+				throw workspaceCause;
+			if (errorCode(workspaceCause) === "not-found")
+				throw workspaceUnavailable();
+			throw workspaceCause;
+		}
 	}
 };
 

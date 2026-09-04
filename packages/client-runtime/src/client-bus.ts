@@ -1225,16 +1225,17 @@ export class ClientBus<Client> {
 					try {
 						acceptance = await handle.accepted;
 					} catch (cause) {
+						// Both promises derive from the same envelope preparation. Once
+						// acceptance fails, no caller can await a distinct result; consume it
+						// here so a typed failure never also becomes an unhandled rejection.
+						void handle.result.catch(() => undefined);
+						void handle.encryptedEnvelope?.catch(() => undefined);
 						if (cause instanceof CloudCommandTerminalError) {
 							retainForRetry = false;
 							throw cause;
 						}
 						if (!(cause instanceof CloudCommandTransportUnavailableError))
 							throw cause;
-						// `result` is derived from `accepted`; consume the matching rejection
-						// before falling back to the live transport so it cannot surface as an
-						// unhandled promise rejection.
-						void handle.result.catch(() => undefined);
 						acceptance = undefined;
 					}
 					if (acceptance !== undefined) {
