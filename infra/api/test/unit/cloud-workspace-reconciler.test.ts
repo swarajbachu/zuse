@@ -345,6 +345,44 @@ describe("cloud workspace reconciler", () => {
 		).toBe(true);
 	});
 
+	test("rechecks provider state when a queued restart auto-paused before cron", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-restart-auto-paused",
+					state: "resuming",
+					desiredState: "ready",
+					statusCode: "restart-queued",
+					requestConfig: { runtimeGeneration: 4, gatewayEpoch: 4 },
+				});
+				yield* Ref.update(control.sandboxes, (sandboxes) => {
+					const next = new Map(sandboxes);
+					const sandbox = next.get(workspace.providerSandboxId ?? "");
+					if (sandbox !== undefined)
+						next.set(sandbox.providerSandboxId, {
+							...sandbox,
+							state: "paused",
+						});
+					return next;
+				});
+
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					resumeInputs: yield* Ref.get(control.resumeInputs),
+					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.resumeInputs).toEqual([
+			{ timeoutSeconds: 600, onTimeout: "pause" },
+		]);
+		expect(result.startProcessCalls).toEqual([
+			"source-workspace-restart-auto-paused",
+		]);
+	});
+
 	test("gives an enrolled runtime a fresh gateway connection window", async () => {
 		const enrolledAt = Date.now();
 		const result = await Effect.runPromise(

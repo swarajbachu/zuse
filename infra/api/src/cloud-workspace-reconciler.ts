@@ -1186,7 +1186,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 		provider: SandboxProviderAdapter,
 		nowMs: number,
 		saveWorkspace: SaveClaimedWorkspace,
-		providerAlreadyRunning = false,
+		providerAlreadyRunning?: boolean,
 	) {
 		const store = yield* CloudWorkspaceStore;
 		const config = yield* SandboxOfferConfiguration;
@@ -1197,7 +1197,19 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			project.repositoryIdentity,
 		);
 
-		if (!providerAlreadyRunning)
+		const running =
+			typeof providerAlreadyRunning === "boolean"
+				? providerAlreadyRunning
+				: yield* provider
+						.inspect(providerSandboxId)
+						.pipe(
+							Effect.flatMap((sandbox) =>
+								sandbox === null
+									? Effect.fail(new SandboxProviderError({ code: "not-found" }))
+									: Effect.succeed(sandbox.state === "running"),
+							),
+						);
+		if (!running)
 			yield* provider.resume(
 				providerSandboxId,
 				config.keepAliveTimeoutSeconds,
@@ -1740,8 +1752,6 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				provider,
 				nowMs,
 				saveWorkspace,
-				workspace.statusCode === "resume-runtime-waking" ||
-					workspace.statusCode === "restart-queued",
 			);
 		}
 
