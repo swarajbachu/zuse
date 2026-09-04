@@ -114,9 +114,3 @@ export const formatProviderFailure = (cause: unknown): string => {
 	}
 	return String(cause);
 };
-
-/** Authentication failures cannot be recovered by restarting the provider. */
-export const looksLikeAuthFailure = (reason: string): boolean =>
-	/\b401\b|\bunauthorized\b|invalid authentication credentials|please run \/login|please log ?in|invalid api key|authentication failed|authorizationrequired/i.test(
-		reason,
-	);

@@ -53,6 +53,10 @@ export interface ApiConfig {
 	readonly cloudBillingCutoverAtMs?: number;
 	readonly cloudBillingPolarMeterId?: string;
 	readonly cloudCommandMailboxEnabled: boolean;
+	/** Allows newly-created workspaces to opt into broker-v1 Codex auth. */
+	readonly cloudCodexAuthBrokerEnrollmentEnabled: boolean;
+	/** Must remain enabled while any broker-v1 workspace exists. */
+	readonly cloudCodexAuthBrokerServingEnabled: boolean;
 	readonly cloudTranscriptObjects?: CloudTranscriptObjectStore;
 	readonly challengeTtlMs: number;
 	readonly connectTokenTtlMs: number;
@@ -89,6 +93,8 @@ const DEFAULTS = {
 	cloudBillingEnforcementEnabled: false,
 	cloudBillingExportEnabled: false,
 	cloudCommandMailboxEnabled: false,
+	cloudCodexAuthBrokerEnrollmentEnabled: false,
+	cloudCodexAuthBrokerServingEnabled: false,
 } as const;
 
 export const layer = (

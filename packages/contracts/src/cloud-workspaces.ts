@@ -119,6 +119,17 @@ export const CloudWorkspaceRuntimeState = Schema.Literals([
 ]);
 export type CloudWorkspaceRuntimeState = typeof CloudWorkspaceRuntimeState.Type;
 
+/**
+ * Codex subscription authentication ownership for a cloud workspace. Missing
+ * values decode as `legacy-image`; retained workspaces are never silently
+ * migrated onto the broker protocol.
+ */
+export const CloudCodexAuthMode = Schema.Literals([
+	"legacy-image",
+	"broker-v1",
+]);
+export type CloudCodexAuthMode = typeof CloudCodexAuthMode.Type;
+
 export class CloudProviderOption extends Schema.Class<CloudProviderOption>(
 	"CloudProviderOption",
 )({
@@ -249,6 +260,7 @@ export class CloudAccountImage extends Schema.Class<CloudAccountImage>(
 	repositories: Schema.Array(CloudAccountImageRepository),
 	providers: Schema.Array(CloudAccountImageProvider),
 	builds: Schema.Array(CloudAccountImageBuildAttempt),
+	codexAuthDeliveryVersion: Schema.optional(Schema.Literal(1)),
 	builtAt: Schema.optional(Schema.Number),
 	updatedAt: Schema.Number,
 }) {}
@@ -280,6 +292,10 @@ export class CloudWorkspace extends Schema.Class<CloudWorkspace>(
 		Schema.withDecodingDefaultType(Effect.succeed("legacy")),
 	),
 	providerId: Schema.String,
+	codexAuthMode: CloudCodexAuthMode.pipe(
+		Schema.withConstructorDefault(Effect.succeed("legacy-image" as const)),
+		Schema.withDecodingDefaultType(Effect.succeed("legacy-image" as const)),
+	),
 	branch: Schema.String,
 	baseRef: Schema.String,
 	state: CloudWorkspaceState,
@@ -344,6 +360,10 @@ export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 	title: Schema.String,
 	branch: Schema.String,
 	providerId: Schema.String,
+	codexAuthMode: CloudCodexAuthMode.pipe(
+		Schema.withConstructorDefault(Effect.succeed("legacy-image" as const)),
+		Schema.withDecodingDefaultType(Effect.succeed("legacy-image" as const)),
+	),
 	agent: ProviderId,
 	model: Schema.String,
 	runtimeMode: RuntimeMode.pipe(

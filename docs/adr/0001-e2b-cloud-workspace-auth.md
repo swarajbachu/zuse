@@ -29,28 +29,37 @@ added projects.
    Promotion is atomic. Old snapshots and unclaimed pool sandboxes are deleted;
    already-running chats continue independently.
 4. Local Mac and persistent-machine authentication are unrelated and are never
-   inspected or imported. Codex and Grok device login run in the E2B setup
-   environment. Claude setup tokens/API keys and Cursor API keys are sealed to
-   that environment. A successful real CLI status check is required before the
-   state is included in the account image.
-5. Provider-owned subscription state and the restricted account-image secret
-   store may be present in this private snapshot. Provider CLIs own refresh in
-   each fork. Zuse does not synchronize refresh files between chats. Terminal
-   authentication failure marks the image/provider `auth-broken` and directs
-   the user to rebuild; it does not log out WorkOS or reconnect the sandbox.
-6. GitHub is the exception: users install the Zuse GitHub App and grant selected
+   inspected or imported. Codex and Grok device login run in the account-owned
+   E2B authentication authority. Claude setup tokens/API keys and Cursor API
+   keys are sealed to that environment. A successful managed-account read is
+   required for Codex subscription authentication; `codex login status` alone
+   is not considered proof that the token can be used.
+5. The authentication authority is the sole owner of a Codex subscription
+   refresh token. Broker-capable account images prove that `.codex/auth.json`
+   is absent before promotion. A workspace receives only a short-lived access
+   token sealed directly to its runtime key and supplies it to Codex in memory
+   through app-server external authentication. API routes only ciphertext.
+   Refresh is serialized in the authority, and account-image freshness ignores
+   brokered Codex rotation. Codex API-key/custom modes and other providers keep
+   their existing private-image behavior.
+6. Existing workspaces retain their immutable `legacy-image` authentication
+   mode. New subscription-backed workspaces opt into `broker-v1` only from an
+   image advertising `codexAuthDeliveryVersion: 1`. Lost authority storage
+   requires one account-level reconnect; it never triggers per-chat login or a
+   silent migration.
+7. GitHub is the exception: users install the Zuse GitHub App and grant selected
    repositories. Relay retains only installation metadata and mints short-lived
    installation access tokens when needed. These tokens are never baked into
    the image. Image builds receive a transient `GIT_ASKPASS` grant for checkout
    synchronization. The main image permanently preconfigures Git and `gh` with
    a credential broker; chat sandboxes lazily mint and cache a short-lived grant
    only when a GitHub command runs, then refresh it on demand.
-7. Normal create/resume has a p95 target below five seconds from user action to
+8. Normal create/resume has a p95 target below five seconds from user action to
    gateway connected and repository ready. Agent startup and explicit image
    builds are outside that setup SLO. Phase timestamps are retained for pool
    claim/fork, runtime connection, repository readiness, agent start, and first
    message acceptance.
-8. Relay placement follows the regional control-plane database. Cloud workspace
+9. Relay placement follows the regional control-plane database. Cloud workspace
    lifecycle requests contain several ordered writes, so running the Worker near
    users or E2B while Postgres is remote compounds network latency. Staging pins
    Relay to the database's AWS Singapore region; each deployment must configure
@@ -62,8 +71,9 @@ added projects.
   account image outdated and requires one update, not another project image.
 - Repository freshness is controlled by image update. There is intentionally no
   slow clone/fetch fallback when a repository is absent from the active image.
-- Credential duplication can eventually invalidate provider-native state. The
-  supported recovery is an explicit clean rebuild with a clear explanation.
+- Provider-native credentials other than brokered Codex subscription auth can
+  still become stale in retained legacy images. Brokered Codex recovery is one
+  account reconnect; a legacy chat offers creation of a replacement chat.
 - During atomic replacement a candidate snapshot may coexist briefly with the
   active snapshot. This is not a second maintained user image.
 

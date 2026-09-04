@@ -37,6 +37,20 @@ describe("cloud runtime assets", () => {
 		expect(builder).not.toContain("ZUSE_REPOSITORY_URL");
 	});
 
+	test("keeps rotating Codex login out of broker-capable account images", async () => {
+		const builder = await readWorkspaceFile(
+			"infra/cloud-sandboxes/project-builder.sh",
+		);
+		const reconciler = await readWorkspaceFile(
+			"infra/api/src/cloud-workspace-reconciler.ts",
+		);
+		expect(builder).toContain("rm -f /home/zuse/.codex/auth.json");
+		expect(builder).toContain("ZUSE_CODEX_AUTH_DELIVERY_VERSION");
+		expect(builder).toContain("codexAuthDeliveryVersion");
+		expect(reconciler).toContain('"/home/zuse/.codex/auth.json"');
+		expect(reconciler).toContain("Codex auth delivery capability mismatch");
+	});
+
 	test("uses the image checkout directly without launch-time Git networking", async () => {
 		const bootstrap = await readWorkspaceFile(
 			"infra/cloud-sandboxes/workspace-bootstrap.sh",

@@ -84,6 +84,8 @@ describe("api deployment safety", () => {
 		]);
 		expect(config.vars.API_ISSUER).toBe(STAGING_API_URL);
 		expect(config.vars.CLOUD_COMMAND_MAILBOX_ENABLED).toBe("true");
+		expect(config.vars.CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED).toBe("true");
+		expect(config.vars.CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED).toBe("true");
 		expect(`https://${config.routes[0]?.pattern}`).toBe(STAGING_API_URL);
 		expect(config.vars.MANAGED_TUNNEL_NAMESPACE).toBe("zenv-staging");
 		expect(config.vars.WORKOS_JWKS_URL).toBe(
@@ -156,6 +158,12 @@ describe("api deployment safety", () => {
 		]);
 		expect(production.vars.MACHINE_PROVIDER).toBe("fake");
 		expect(production.vars.CLOUD_COMMAND_MAILBOX_ENABLED).toBe("true");
+		expect(production.vars.CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED).toBe(
+			"false",
+		);
+		expect(production.vars.CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED).toBe(
+			"false",
+		);
 		expect(production.vars.HETZNER_ADAPTER_ENABLED).toBe("false");
 		expect(production.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("true");
 		expect(production.vars.MACHINE_RUNTIME_MANIFEST_URL).toBe("");

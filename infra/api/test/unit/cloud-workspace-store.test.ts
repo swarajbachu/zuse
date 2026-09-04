@@ -10,6 +10,120 @@ import {
 	workspaceSupportsCloudCommandMailbox,
 } from "../../src/cloud-workspace-store.ts";
 
+describe("cloud auth authority locator", () => {
+	test("serializes provisioning and fences epoch changes to the located sandbox", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		const first = await runtime.runPromise(
+			store.claimCloudAuthAuthority({
+				accountId: "account-auth",
+				provider: "e2b",
+				candidateStorageIncarnationId: "incarnation-1",
+				toolchainVersion: "0.144.5",
+				leaseOwner: "worker-1",
+				nowMs: 100,
+				leaseExpiresAtMs: 200,
+			}),
+		);
+		const contender = await runtime.runPromise(
+			store.claimCloudAuthAuthority({
+				accountId: "account-auth",
+				provider: "e2b",
+				candidateStorageIncarnationId: "incarnation-2",
+				toolchainVersion: "0.144.5",
+				leaseOwner: "worker-2",
+				nowMs: 150,
+				leaseExpiresAtMs: 250,
+			}),
+		);
+		expect(first.acquired).toBe(true);
+		expect(contender.acquired).toBe(false);
+		expect(contender.record.storageIncarnationId).toBe("incarnation-1");
+
+		const ready = await runtime.runPromise(
+			store.completeCloudAuthAuthorityProvisioning({
+				accountId: "account-auth",
+				providerSandboxId: "sandbox-authority",
+				storageIncarnationId: "incarnation-1",
+				toolchainVersion: "0.144.5",
+				leaseOwner: "worker-1",
+				nowMs: 160,
+			}),
+		);
+		expect(ready?.state).toBe("ready");
+		const protectedReady = await runtime.runPromise(
+			store.claimCloudAuthAuthority({
+				accountId: "account-auth",
+				provider: "e2b",
+				candidateStorageIncarnationId: "incarnation-ignored",
+				toolchainVersion: "0.144.5",
+				leaseOwner: "worker-2",
+				nowMs: 165,
+				leaseExpiresAtMs: 265,
+			}),
+		);
+		expect(protectedReady).toMatchObject({
+			acquired: false,
+			record: { providerSandboxId: "sandbox-authority", authEpoch: 1 },
+		});
+		const replacement = await runtime.runPromise(
+			store.claimCloudAuthAuthority({
+				accountId: "account-auth",
+				provider: "e2b",
+				candidateStorageIncarnationId: "incarnation-replacement",
+				toolchainVersion: "0.144.5",
+				leaseOwner: "worker-2",
+				nowMs: 166,
+				leaseExpiresAtMs: 266,
+				replaceReady: true,
+			}),
+		);
+		expect(replacement).toMatchObject({
+			acquired: true,
+			record: {
+				state: "provisioning",
+				storageIncarnationId: "incarnation-replacement",
+				authEpoch: 2,
+			},
+		});
+		expect(replacement.record.providerSandboxId).toBeUndefined();
+		const replacementReady = await runtime.runPromise(
+			store.completeCloudAuthAuthorityProvisioning({
+				accountId: "account-auth",
+				providerSandboxId: "sandbox-replacement",
+				storageIncarnationId: "incarnation-replacement",
+				toolchainVersion: "0.144.5",
+				leaseOwner: "worker-2",
+				nowMs: 168,
+			}),
+		);
+		expect(replacementReady).toMatchObject({
+			state: "ready",
+			providerSandboxId: "sandbox-replacement",
+			authEpoch: 2,
+		});
+		await expect(
+			runtime.runPromise(
+				store.advanceCloudAuthEpoch({
+					accountId: "account-auth",
+					providerSandboxId: "wrong-sandbox",
+					nowMs: 170,
+				}),
+			),
+		).resolves.toBeNull();
+		await expect(
+			runtime.runPromise(
+				store.advanceCloudAuthEpoch({
+					accountId: "account-auth",
+					providerSandboxId: "sandbox-replacement",
+					nowMs: 180,
+				}),
+			),
+		).resolves.toMatchObject({ authEpoch: 3 });
+		await runtime.dispose();
+	});
+});
+
 const project = {
 	projectId: "project-1",
 	accountId: "account-1",

@@ -58,6 +58,8 @@ const CATEGORY_KIND: Readonly<Record<string, CloudFailureKind>> = {
 	"sign-in-required": "sign-in-required",
 	"auth-required": "sign-in-required",
 	"authentication-required": "sign-in-required",
+	"codex-auth-reconnect-required": "sign-in-required",
+	"codex-auth-legacy-workspace": "sign-in-required",
 	"not-allowed": "sign-in-required",
 	"billing-blocked": "billing-blocked",
 	"billing-hold": "billing-blocked",
@@ -67,6 +69,7 @@ const CATEGORY_KIND: Readonly<Record<string, CloudFailureKind>> = {
 	"command-kind-not-supported": "update-required",
 	"command-schema-not-supported": "update-required",
 	"command-dependencies-not-supported": "update-required",
+	"codex-auth-update-required": "update-required",
 	"beta-access-required": "cloud-access-required",
 	"beta-access-unavailable": "cloud-access-unavailable",
 	"credential-required": "credentials-required",
@@ -81,6 +84,7 @@ const CATEGORY_KIND: Readonly<Record<string, CloudFailureKind>> = {
 	"reservation-expired": "interaction-expired",
 	"session-not-found": "session-unavailable",
 	"session-unavailable": "session-unavailable",
+	"codex-auth-reconnecting": "network",
 };
 
 const BLOCKED_KIND: Partial<
@@ -143,7 +147,7 @@ const causeKind = (cause: unknown): CloudFailureKind | null => {
 	const exactText = categoryKind(text.trim(), undefined);
 	if (exactText !== null) return exactText;
 	if (
-		/\b401\b|\bunauthorized\b|expired token|invalid_grant|signed?\s?out|sign\s?in required|please log ?in|please run \/login|not logged in|invalid authentication credentials|invalid api key|authorizationrequired|auth\(authorizationrequired\)|authentication (?:failed|required)/i.test(
+		/\b401\b|\bunauthorized\b|expired token|refresh token|invalid_grant|signed?\s?out|sign\s?in required|please log ?in|please run \/login|not logged in|invalid authentication credentials|invalid api key|authorizationrequired|auth\(authorizationrequired\)|authentication (?:failed|required)/i.test(
 			text,
 		)
 	)

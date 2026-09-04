@@ -13,6 +13,7 @@ desktop / mobile
 API Worker ---- Postgres (catalog, lifecycle, receipts, billing metadata)
 	|       |
 	|       +---- R2 (encrypted read-only transcript projections)
+	|       +---- account CloudAuthAuthority (sole Codex refresh owner)
 	|
 	+---- WorkspaceMailbox Durable Object (encrypted command coordination)
 	|                       |
@@ -50,6 +51,7 @@ idempotent command path and API removes it only after receipt.
 | --- | --- | --- |
 | ClientBus | Qualified cached projections, resource leases, command outbox, one connection supervisor per environment | Server authority, feature-specific sockets, inferred active environment |
 | API Worker | WorkOS auth, beta authorization, lifecycle, catalog, tickets, checkpoint metadata, billing | Normal transcript content, file state, terminal output |
+| CloudAuthAuthority | Account-level Codex refresh token, serialized managed refresh, access-grant sealing | Workspace session state, per-chat credential copies |
 | Postgres | Control-plane records, command receipts, lifecycle revisions, immutable billing ledger | Writable chat projection |
 | WorkspaceGateway Durable Object | Authenticated live attachments and opaque frame forwarding | Replay log, transcript, pending command buffer |
 | WorkspaceMailbox Durable Object | Encrypted command envelopes, ordering, leases, lifecycle status, encrypted terminal results | Command plaintext, transcript projection, provider state |

@@ -55,6 +55,14 @@ describe("session actions", () => {
 		});
 	});
 
+	it("classifies broker reconnects as Codex authentication", () => {
+		expect(classifyMessage("codex-auth-reconnect-required", "codex")).toEqual({
+			kind: "auth",
+			providerId: "codex",
+			message: "codex-auth-reconnect-required",
+		});
+	});
+
 	it("classifies reconnect failures without clearing canonical data", () => {
 		expect(
 			classifyMessage("WebSocket closed while the laptop was offline"),

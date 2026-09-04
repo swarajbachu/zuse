@@ -12,6 +12,10 @@ import {
 import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
+	beforeCodexExternalAuthDeadline,
+	setDefaultCodexExternalAuthProvider,
+} from "@zuse/agents/drivers/codex-app-server-client";
+import {
 	type CloudMessageSendPayload,
 	type CloudMessageSendResult,
 	cloudCommandEligibility,
@@ -39,6 +43,7 @@ import {
 	RuntimeAcknowledgment,
 	RuntimeLease,
 	RuntimeMode,
+	SealedCodexGrant,
 	SessionId,
 	WIRE_PROTOCOL_VERSION,
 	WORKSPACE_GATEWAY_AUTH_EXPIRED_CLOSE,
@@ -85,13 +90,17 @@ import {
 	ChatService,
 	type ChatServiceShape,
 	MessageService,
+	SessionService,
+	type SessionServiceShape,
 } from "../conversation/services/conversation-services.ts";
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
+import { isProviderAuthenticationRequired } from "../provider/provider-auth-failure.ts";
 import { CredentialsService } from "../provider/services/credentials-service.ts";
 import {
 	WorkspaceService,
 	type WorkspaceServiceShape,
 } from "../workspace/services/workspace-service.ts";
+import { CloudCodexAuth } from "./cloud-codex-auth.ts";
 import { cloudStorageIncarnationId } from "./cloud-storage-incarnation.ts";
 
 const CREDENTIALS_READY_MARKER = "/var/lib/zuse/workspace/credentials-ready";
@@ -219,6 +228,7 @@ export const bufferWorkspaceLocalFrame = (
 
 const BootstrapResponse = Schema.Struct({
 	workspaceId: Schema.String,
+	zuseAccountId: Schema.optional(Schema.String),
 	providerSandboxId: Schema.String,
 	runtimeCredential: Schema.String,
 	runtimeGatewayCredential: Schema.String,
@@ -229,6 +239,9 @@ const BootstrapResponse = Schema.Struct({
 	gatewayProtocol: Schema.String,
 	chatId: Schema.String,
 	initialSessionId: Schema.String,
+	codexAuthMode: Schema.optional(
+		Schema.Literals(["legacy-image", "broker-v1"]),
+	),
 	launchIntent: Schema.optional(
 		Schema.Struct({
 			commandId: Schema.String,
@@ -846,7 +859,18 @@ const requestJson = <A, I>(input: {
 			} catch {
 				throw fail("api_request_failed");
 			}
-			if (!response.ok) throw fail("api_http_rejected", response.status);
+			if (!response.ok) {
+				let reason = "api_http_rejected";
+				try {
+					const error = (await response.json()) as { readonly error?: unknown };
+					if (typeof error.error === "string" && error.error.length <= 128)
+						reason = error.error;
+				} catch {
+					// The status still carries the durable classification when an older API
+					// does not return its typed JSON error body.
+				}
+				throw fail(reason, response.status);
+			}
 			try {
 				return (await response.json()) as unknown;
 			} catch {
@@ -1735,6 +1759,44 @@ const waitForRepository = Effect.callback<void, CloudWorkspaceRuntimeError>(
 	},
 );
 
+const recoverCodexAuthFailedSessions = Effect.fn(
+	"CloudWorkspaceRuntime.recoverCodexAuthFailedSessions",
+)(function* (input: {
+	readonly workspaces: WorkspaceServiceShape;
+	readonly sessions: SessionServiceShape;
+	readonly messages: MessageService["Service"];
+	readonly consumerIds?: ReadonlyArray<string>;
+}) {
+	const consumerIds =
+		input.consumerIds === undefined ? null : new Set(input.consumerIds);
+	const folders = yield* input.workspaces.list();
+	const sessions = (yield* Effect.forEach(
+		folders,
+		(folder) => input.sessions.listSessions(folder.id, false),
+		{ concurrency: 2 },
+	)).flat();
+	yield* Effect.forEach(
+		sessions.filter(
+			(session) =>
+				session.providerId === "codex" &&
+				session.status === "error" &&
+				(consumerIds === null || consumerIds.has(session.id)),
+		),
+		(session) =>
+			input.messages.listMessages(session.id).pipe(
+				Effect.flatMap((history) => {
+					const last = history.at(-1)?.content;
+					return last?._tag === "error" &&
+						isProviderAuthenticationRequired(last.message)
+						? input.sessions.resumeSession(session.id).pipe(Effect.asVoid)
+						: Effect.void;
+				}),
+				Effect.catch(() => Effect.void),
+			),
+		{ concurrency: 2, discard: true },
+	);
+});
+
 const removeBootToken = (path: string | undefined) =>
 	path === undefined
 		? Effect.void
@@ -1851,6 +1913,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 	| WorkspaceService
 	| ChatService
 	| MessageService
+	| SessionService
 	| CredentialsService
 	| SessionDomain
 	| SqlClient.SqlClient
@@ -1863,6 +1926,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const workspaces = yield* WorkspaceService;
 					const chats = yield* ChatService;
 					const messages = yield* MessageService;
+					const sessions = yield* SessionService;
 					const sql = yield* SqlClient.SqlClient;
 					const credentials = yield* CredentialsService;
 					yield* installImageProviderSecrets(credentials);
@@ -1905,6 +1969,114 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						generation: bootstrap.runtimeGeneration,
 						gatewayEpoch: bootstrap.gatewayEpoch,
 					};
+					yield* writeGithubBrokerState(config, runtimeCredential.credential);
+					yield* superviseRuntimeCredential({
+						config,
+						signingPrivateKey: signingKeyPair.privateKey,
+						state: runtimeCredential,
+					}).pipe(Effect.forkScoped({ startImmediately: true }));
+					if (bootstrap.codexAuthMode === "broker-v1") {
+						if (bootstrap.zuseAccountId === undefined)
+							return yield* Effect.fail(fail("codex-auth-update-required"));
+						const cloudCodexAuth = new CloudCodexAuth({
+							zuseAccountId: bootstrap.zuseAccountId,
+							workspaceId: config.workspaceId,
+							runtimeGeneration: bootstrap.runtimeGeneration,
+							credentialPublicJwk,
+							credentialPrivateKey: credentialKeyPair.privateKey,
+							issueGrant: (request) =>
+								Effect.runPromise(
+									Effect.suspend(() =>
+										requestJson({
+											schema: SealedCodexGrant,
+											url: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCodexGrant(config.workspaceId)}`,
+											token: runtimeCredential.credential,
+											method: "POST",
+											body: request,
+											timeoutMs: 30_000,
+										}),
+									).pipe(
+										Effect.retry({
+											while: (error) =>
+												error.reason !== "codex-auth-update-required" &&
+												error.reason !== "codex-auth-reconnect-required" &&
+												error.reason !== "codex-auth-legacy-workspace" &&
+												error.reason !== "workspace_runtime_fenced" &&
+												error.reason !==
+													"runtime_credential_key_binding_mismatch",
+											schedule: cloudRuntimeRetrySchedule,
+										}),
+									),
+								),
+							onStatus: (status) =>
+								console.info("[cloud-codex-auth] status", { status }),
+							onConsumersRecovered: (consumerIds) => {
+								void Effect.runPromise(
+									recoverCodexAuthFailedSessions({
+										workspaces,
+										sessions,
+										messages,
+										...(consumerIds.length === 0 ? {} : { consumerIds }),
+									}).pipe(
+										Effect.catch((cause) =>
+											Effect.logWarning("Codex auth recovery scan failed", {
+												cause: String(cause),
+											}),
+										),
+									),
+								);
+							},
+						});
+						yield* Effect.acquireRelease(
+							Effect.tryPromise({
+								try: async () => {
+									let initialized = false;
+									try {
+										await beforeCodexExternalAuthDeadline(
+											cloudCodexAuth.initialize(),
+										);
+										initialized = true;
+									} catch (cause) {
+										const reason =
+											typeof cause === "object" &&
+											cause !== null &&
+											"reason" in cause &&
+											typeof cause.reason === "string"
+												? cause.reason
+												: cause instanceof Error
+													? cause.message
+													: "codex-auth-reconnecting";
+										if (reason === "codex-auth-update-required") throw cause;
+										console.warn("[cloud-codex-auth] initial grant deferred", {
+											reason,
+										});
+									}
+									setDefaultCodexExternalAuthProvider(cloudCodexAuth);
+									if (initialized) {
+										void Effect.runPromise(
+											recoverCodexAuthFailedSessions({
+												workspaces,
+												sessions,
+												messages,
+											}).pipe(Effect.catch(() => Effect.void)),
+										);
+									}
+									return cloudCodexAuth;
+								},
+								catch: (cause) =>
+									fail(
+										cause instanceof Error
+											? cause.message
+											: "codex-auth-reconnecting",
+									),
+							}),
+							(auth) =>
+								Effect.sync(() => {
+									auth.close();
+									setDefaultCodexExternalAuthProvider(null);
+								}),
+						);
+					}
 					const postCurrentRuntimeReady = (
 						phase: "repository-ready" | "agent-started" | "launch-failed",
 						launchCommandId?: string,
@@ -1921,12 +2093,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								sessionHeadVersion,
 							),
 						);
-					yield* writeGithubBrokerState(config, runtimeCredential.credential);
-					yield* superviseRuntimeCredential({
-						config,
-						signingPrivateKey: signingKeyPair.privateKey,
-						state: runtimeCredential,
-					}).pipe(Effect.forkScoped({ startImmediately: true }));
 					const transcriptKey = yield* Effect.tryPromise({
 						try: async () => {
 							const decrypted = await compactDecrypt(

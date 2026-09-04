@@ -2,6 +2,9 @@ import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 import { CloudWorkspaceOpError } from "./cloud-workspaces.ts";
 
+/** Codex release whose experimental external-auth protocol is contract-tested. */
+export const CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION = "0.144.5";
+
 /** Agent providers that can be selected by an E2B cloud workspace. */
 export const CloudAuthProvider = Schema.Literals([
 	"claude",
@@ -37,6 +40,52 @@ export const CloudAuthAuthorityState = Schema.Literals([
 	"error",
 ]);
 export type CloudAuthAuthorityState = typeof CloudAuthAuthorityState.Type;
+
+export const CloudCodexAuthFailureCode = Schema.Literals([
+	"codex-auth-reconnecting",
+	"codex-auth-reconnect-required",
+	"codex-auth-update-required",
+	"codex-auth-legacy-workspace",
+	"codex-auth-outcome-unknown",
+]);
+export type CloudCodexAuthFailureCode = typeof CloudCodexAuthFailureCode.Type;
+
+export const CodexGrantRefreshReason = Schema.Literals([
+	"initial",
+	"proactive",
+	"unauthorized",
+]);
+export type CodexGrantRefreshReason = typeof CodexGrantRefreshReason.Type;
+
+export class CodexGrantRequest extends Schema.Class<CodexGrantRequest>(
+	"CodexGrantRequest",
+)({
+	requestId: Schema.String,
+	protocolVersion: Schema.Literal(1),
+	runtimeGeneration: Schema.Number,
+	credentialPublicJwk: Schema.String,
+	reason: CodexGrantRefreshReason,
+	previousChatgptAccountId: Schema.optional(Schema.String),
+}) {}
+
+/** API-routed ciphertext. Only the enrolled runtime RSA key can open it. */
+export class SealedCodexGrant extends Schema.Class<SealedCodexGrant>(
+	"SealedCodexGrant",
+)({
+	protocolVersion: Schema.Literal(1),
+	requestId: Schema.String,
+	keyThumbprint: Schema.String,
+	authorityIncarnationId: Schema.String,
+	authorityEpoch: Schema.Number,
+	/** RSA-OAEP wrapped AES-256 key, base64url. */
+	wrappedKey: Schema.String,
+	/** AES-GCM nonce, base64url. */
+	iv: Schema.String,
+	/** AES-GCM ciphertext, including no plaintext provider data. */
+	ciphertext: Schema.String,
+	/** AES-GCM authentication tag, base64url. */
+	tag: Schema.String,
+}) {}
 
 export class CloudAuthProviderStatus extends Schema.Class<CloudAuthProviderStatus>(
 	"CloudAuthProviderStatus",

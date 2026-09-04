@@ -58,6 +58,10 @@ const apiNamingMigrationUrl = new URL(
 	"../../drizzle/migrations/0016_api_naming.sql",
 	import.meta.url,
 );
+const cloudCodexAuthBrokerMigrationUrl = new URL(
+	"../../drizzle/migrations/0017_cloud_codex_auth_broker.sql",
+	import.meta.url,
+);
 
 describe("api migration reconciliation", () => {
 	test("keeps the main migration history before managed cloud machines", async () => {
@@ -86,7 +90,24 @@ describe("api migration reconciliation", () => {
 			{ idx: 14, tag: "0014_cloud_project_selection" },
 			{ idx: 15, tag: "0015_github_app_installations" },
 			{ idx: 16, tag: "0016_api_naming" },
+			{ idx: 17, tag: "0017_cloud_codex_auth_broker" },
 		]);
+	});
+
+	test("stores only authority location and fencing metadata", async () => {
+		const migration = await readFile(cloudCodexAuthBrokerMigrationUrl, "utf8");
+		expect(migration).toContain('CREATE TABLE "api_cloud_auth_authorities"');
+		for (const column of [
+			"provider_sandbox_id",
+			"storage_incarnation_id",
+			"auth_epoch",
+			"toolchain_version",
+			"provisioning_lease_owner",
+		])
+			expect(migration).toContain(`"${column}"`);
+		expect(migration).not.toMatch(
+			/access_token|refresh_token|auth_json|private_key/iu,
+		);
 	});
 
 	test("renames all current Relay relations without dropping data", async () => {

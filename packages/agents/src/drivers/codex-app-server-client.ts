@@ -20,6 +20,68 @@ type ServerRequestHandler = (
 
 type NotificationHandler = (notification: ServerNotification) => void;
 
+export interface CodexChatgptAuthTokens {
+	readonly accessToken: string;
+	readonly chatgptAccountId: string;
+	readonly chatgptPlanType: string | null;
+	readonly expiresAt: number;
+}
+
+export interface CodexExternalAuthProvider {
+	readonly getTokens: (input: {
+		readonly reason: "initial" | "proactive" | "unauthorized";
+		readonly previousChatgptAccountId?: string;
+	}) => Promise<CodexChatgptAuthTokens>;
+	readonly onDeliveryFailure?: (input: {
+		readonly consumerId?: string;
+		readonly reason: string;
+	}) => void;
+}
+
+let defaultExternalAuthProvider: CodexExternalAuthProvider | null = null;
+
+/** One cloud runtime process owns one workspace, so every launch shares this. */
+export const setDefaultCodexExternalAuthProvider = (
+	provider: CodexExternalAuthProvider | null,
+): void => {
+	defaultExternalAuthProvider = provider;
+};
+
+export const CODEX_EXTERNAL_AUTH_CALLBACK_DEADLINE_MS = 8_000;
+
+export const beforeCodexExternalAuthDeadline = async <A>(
+	operation: Promise<A>,
+): Promise<A> => {
+	let timer: NodeJS.Timeout | undefined;
+	try {
+		return await Promise.race([
+			operation,
+			new Promise<never>((_resolve, reject) => {
+				timer = setTimeout(
+					() => reject(new Error("codex-auth-reconnecting")),
+					CODEX_EXTERNAL_AUTH_CALLBACK_DEADLINE_MS,
+				);
+				timer.unref();
+			}),
+		]);
+	} finally {
+		if (timer !== undefined) clearTimeout(timer);
+	}
+};
+
+/**
+ * Lets other Codex-backed capabilities in the same workspace runtime reuse the
+ * brokered, memory-only access grant without reaching into native auth files.
+ */
+export const getDefaultCodexExternalAuthTokens = async (
+	reason: "proactive" | "unauthorized",
+): Promise<CodexChatgptAuthTokens | null> => {
+	if (defaultExternalAuthProvider === null) return null;
+	return beforeCodexExternalAuthDeadline(
+		defaultExternalAuthProvider.getTokens({ reason }),
+	);
+};
+
 type CodexGoalRequestMethod =
 	| "thread/goal/get"
 	| "thread/goal/set"
@@ -120,7 +182,51 @@ export class CodexAppServerClient {
 		readonly onStderr?: (text: string) => void;
 		readonly onNotification: NotificationHandler;
 		readonly onServerRequest: ServerRequestHandler;
+		readonly externalAuthProvider?: CodexExternalAuthProvider;
+		/** Session identity used only to resume a proven auth-blocked consumer. */
+		readonly externalAuthConsumerId?: string;
 	}): Promise<CodexAppServerClient> {
+		const externalAuthProvider =
+			options.externalAuthProvider ?? defaultExternalAuthProvider;
+		const handleServerRequest: ServerRequestHandler = (request, respond) => {
+			if (
+				externalAuthProvider !== null &&
+				request.method === "account/chatgptAuthTokens/refresh"
+			) {
+				void beforeCodexExternalAuthDeadline(
+					externalAuthProvider.getTokens({
+						reason: "unauthorized",
+						...(request.params.previousAccountId === null ||
+						request.params.previousAccountId === undefined
+							? {}
+							: {
+									previousChatgptAccountId: request.params.previousAccountId,
+								}),
+					}),
+				)
+					.then((tokens) =>
+						respond({
+							accessToken: tokens.accessToken,
+							chatgptAccountId: tokens.chatgptAccountId,
+							chatgptPlanType: tokens.chatgptPlanType,
+						}),
+					)
+					.catch((cause) => {
+						externalAuthProvider.onDeliveryFailure?.({
+							...(options.externalAuthConsumerId === undefined
+								? {}
+								: { consumerId: options.externalAuthConsumerId }),
+							reason:
+								cause instanceof Error
+									? cause.message
+									: "codex-auth-reconnecting",
+						});
+						respond(null);
+					});
+				return;
+			}
+			options.onServerRequest(request, respond);
+		};
 		const child = spawn(
 			options.codexPath ?? "codex",
 			[...codexAppServerLaunchArgs(options.mcp)],
@@ -144,7 +250,7 @@ export class CodexAppServerClient {
 				platformOs: "",
 			},
 			options.onNotification,
-			options.onServerRequest,
+			handleServerRequest,
 		);
 		rl.on("line", (line) => bootstrap.handleLine(line));
 		child.stderr.on("data", (chunk) => {
@@ -193,6 +299,31 @@ export class CodexAppServerClient {
 							}),
 						]);
 			bootstrap.initializeResponse = init;
+			if (externalAuthProvider !== null) {
+				let tokens: CodexChatgptAuthTokens;
+				try {
+					tokens = await beforeCodexExternalAuthDeadline(
+						externalAuthProvider.getTokens({ reason: "initial" }),
+					);
+				} catch (cause) {
+					externalAuthProvider.onDeliveryFailure?.({
+						...(options.externalAuthConsumerId === undefined
+							? {}
+							: { consumerId: options.externalAuthConsumerId }),
+						reason:
+							cause instanceof Error
+								? cause.message
+								: "codex-auth-reconnecting",
+					});
+					throw cause;
+				}
+				await bootstrap.request("account/login/start", {
+					type: "chatgptAuthTokens",
+					accessToken: tokens.accessToken,
+					chatgptAccountId: tokens.chatgptAccountId,
+					chatgptPlanType: tokens.chatgptPlanType,
+				});
+			}
 			return bootstrap;
 		} catch (cause) {
 			bootstrap.close();

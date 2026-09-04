@@ -8,6 +8,7 @@ import {
 } from "@zuse/contracts";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import { Cause, Effect } from "effect";
+import { isProviderAuthenticationRequired } from "../../provider/provider-auth-failure.ts";
 import type { makeReactorEffectJournal } from "../../provider/reactor-effect-journal.ts";
 import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
 import type { ConversationOperations } from "../services/conversation-services.ts";
@@ -19,9 +20,6 @@ import {
 	decodeProviderStartRequest,
 	decodeProviderTurnInput,
 } from "./provider-turn-request.ts";
-
-const isAuthenticationRequired = (reason: string): boolean =>
-	/\bauthentication required\b/i.test(reason);
 
 const PROVIDER_DELIVERY_OUTCOME_UNKNOWN =
 	"Zuse could not confirm whether the agent received this message before the runtime stopped. Zuse did not send it again to avoid a duplicate. Retry the message if no response appears.";
@@ -353,7 +351,7 @@ export const makeProviderReactorHandlers = (
 				// Authentication is recoverable through explicit resume, which replays
 				// this same durable turn. Completing the receipt prevents catch-up from
 				// racing that user-driven retry; other transient failures stay replayable.
-				if (!isAuthenticationRequired(restarted.error.reason)) {
+				if (!isProviderAuthenticationRequired(restarted.error.reason)) {
 					// ProviderService.send can fail only with AgentSessionNotFoundError,
 					// and ensureForTurn reports this branch only when its replacement send
 					// also never reached a live provider handle. That is positive evidence

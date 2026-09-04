@@ -6,6 +6,8 @@ import {
 	CloudAuthConfigureRequest,
 	CloudAuthProviderStatus,
 	CloudAuthStatus,
+	CodexGrantRequest,
+	SealedCodexGrant,
 } from "../../src/index.ts";
 
 describe("E2B cloud authentication contracts", () => {
@@ -90,5 +92,31 @@ describe("E2B cloud authentication contracts", () => {
 
 		expect(provider.accountLabel).toBe("xAI account");
 		expect("secret" in provider).toBe(false);
+	});
+
+	it("routes only fenced Codex grant ciphertext through the API", () => {
+		const request = Schema.decodeUnknownSync(CodexGrantRequest)({
+			requestId: "4d2e6635-0f48-4aca-9d58-9942f08b1659",
+			protocolVersion: 1,
+			runtimeGeneration: 4,
+			credentialPublicJwk: '{"kty":"RSA"}',
+			reason: "initial",
+		});
+		const sealed = Schema.decodeUnknownSync(SealedCodexGrant)({
+			protocolVersion: 1,
+			requestId: request.requestId,
+			keyThumbprint: "runtime-key",
+			authorityIncarnationId: "authority-storage",
+			authorityEpoch: 2,
+			wrappedKey: "wrapped",
+			iv: "nonce",
+			ciphertext: "opaque",
+			tag: "authenticated",
+		});
+
+		expect(JSON.stringify(sealed)).not.toMatch(
+			/accessToken|refreshToken|chatgptAccountId/,
+		);
+		expect(request.reason).toBe("initial");
 	});
 });

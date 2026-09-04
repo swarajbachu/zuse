@@ -85,6 +85,23 @@ describe("cloud failure presentation", () => {
 		expect(missing?.message).not.toContain("SessionNotFoundError");
 	});
 
+	it.each([
+		["codex-auth-reconnect-required", "sign-in-required"],
+		["codex-auth-legacy-workspace", "sign-in-required"],
+		["codex-auth-update-required", "update-required"],
+		["codex-auth-reconnecting", "network"],
+	] as const)("maps broker status %s to %s", (cause, kind) => {
+		expect(cloudFailurePresentation({ cause })).toMatchObject({ kind });
+	});
+
+	it("recognizes a consumed Codex refresh token as account authentication", () => {
+		expect(
+			cloudFailurePresentation({
+				cause: "refresh token was already used",
+			}),
+		).toMatchObject({ kind: "sign-in-required" });
+	});
+
 	it("presents a cached response to a missing session as an expired interaction", () => {
 		expect(
 			cloudInteractionFailure({

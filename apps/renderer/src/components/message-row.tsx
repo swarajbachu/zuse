@@ -32,13 +32,19 @@ import {
 import { memo, useEffect, useState } from "react";
 
 import { FileIcon } from "~/components/file-icon";
+import {
+	localProjectForCloudEnvironment,
+	useCloudChatCatalogStore,
+} from "~/lib/cloud-workspace-catalog.ts";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
+import { openNewChatLanding } from "~/lib/open-new-chat-landing.ts";
 import {
 	orchestrationToolName,
 	parseOrchestrationResult,
 } from "~/lib/orchestration-tools";
 import { attachmentUrl } from "~/lib/platform-capabilities";
 import { resumeAfterProviderLogin } from "~/lib/provider-auth-recovery";
+import { isCloudWorkspaceEnvironment } from "~/lib/rpc-client.ts";
 import {
 	type ChatError,
 	classifyMessage,
@@ -998,6 +1004,83 @@ function ProviderAuthCard({
 	);
 }
 
+function CloudCodexAuthCard({
+	authMode,
+	environmentId,
+	onOpenCloudSettings,
+	onDismiss,
+}: {
+	authMode: "legacy-image" | "broker-v1" | "unknown";
+	environmentId: EnvironmentId;
+	onOpenCloudSettings: () => void;
+	onDismiss?: () => void;
+}) {
+	const replacementProjectId = localProjectForCloudEnvironment(environmentId);
+	const legacy = authMode === "legacy-image";
+	const broker = authMode === "broker-v1";
+	return (
+		<div className="px-4 py-2">
+			<div className="w-fit max-w-[80%] rounded-lg bg-alert-error-bg px-3 py-2.5 text-xs text-foreground">
+				<div className="flex items-center justify-between gap-2">
+					<span className="inline-flex items-center gap-1.5 font-medium">
+						<HugeiconsIcon
+							icon={AlertCircleIcon}
+							className="size-3.5 text-destructive"
+							aria-hidden
+						/>
+						{legacy
+							? "This cloud chat uses legacy Codex authentication"
+							: broker
+								? "Codex account needs reconnecting"
+								: "Codex authentication is unavailable"}
+					</span>
+					{onDismiss !== undefined && (
+						<button
+							type="button"
+							onClick={onDismiss}
+							className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+						>
+							Dismiss
+						</button>
+					)}
+				</div>
+				<p className="mt-1.5 max-w-[32rem] text-[11px] leading-4 text-muted-foreground">
+					{legacy
+						? "Its copied refresh token cannot be recovered safely. Reconnect Codex once, then create a replacement cloud chat that uses account-level authentication."
+						: broker
+							? "Reconnect Codex once in Cloud Workspace settings. The login is shared by your new Codex cloud chats; this sandbox never stores the refresh token."
+							: "Open Cloud Workspace settings to restore the account-level Codex login. Zuse will identify legacy chats after cloud metadata finishes syncing."}
+				</p>
+				<div className="mt-2 flex flex-wrap items-center gap-1.5">
+					{legacy && replacementProjectId !== null ? (
+						<Button
+							type="button"
+							size="xs"
+							variant="outline"
+							onClick={() => openNewChatLanding(replacementProjectId)}
+						>
+							Create replacement chat
+						</Button>
+					) : null}
+					<Button
+						type="button"
+						size="xs"
+						variant={legacy ? "ghost" : "outline"}
+						onClick={onOpenCloudSettings}
+					>
+						<HugeiconsIcon
+							icon={Settings01Icon}
+							className="size-3"
+							aria-hidden
+						/>
+						Open Cloud Authentication
+					</Button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 const GEMINI_UPGRADE_COMMAND = "npm i -g @google/gemini-cli@latest";
 
 const isGeminiAcpUpgradeError = (text: string): boolean =>
@@ -1074,6 +1157,13 @@ export function ErrorBubble({
 }) {
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
+	const cloudSummary = useCloudChatCatalogStore((state) =>
+		environmentId === undefined
+			? null
+			: (state.summaries.find(
+					(summary) => summary.workspaceId === environmentId,
+				) ?? null),
+	);
 
 	const onRetry = () => {
 		if (sessionId !== undefined && environmentId !== undefined) {
@@ -1090,6 +1180,10 @@ export function ErrorBubble({
 	const onOpenSettings = () => {
 		setView("settings");
 		setSettingsSection({ kind: "providers" });
+	};
+	const onOpenCloudSettings = () => {
+		setView("settings");
+		setSettingsSection({ kind: "machines" });
 	};
 
 	if (isGeminiAcpUpgradeError(error.message)) {
@@ -1167,6 +1261,20 @@ export function ErrorBubble({
 		error.providerId !== undefined &&
 		supportsProviderLogin(error.providerId)
 	) {
+		if (
+			error.providerId === "codex" &&
+			environmentId !== undefined &&
+			isCloudWorkspaceEnvironment(environmentId)
+		) {
+			return (
+				<CloudCodexAuthCard
+					authMode={cloudSummary?.codexAuthMode ?? "unknown"}
+					environmentId={environmentId}
+					onOpenCloudSettings={onOpenCloudSettings}
+					onDismiss={onDismiss}
+				/>
+			);
+		}
 		return (
 			<ProviderAuthCard
 				providerId={error.providerId}

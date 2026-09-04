@@ -152,6 +152,8 @@ interface Env {
 	readonly CLOUD_BILLING_CUTOVER_AT?: string;
 	/** Additive rollout gate. Accepted rows continue draining when disabled. */
 	readonly CLOUD_COMMAND_MAILBOX_ENABLED?: string;
+	readonly CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED?: string;
+	readonly CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED?: string;
 }
 
 const flushMailboxLifecycleOutbox = (
@@ -413,6 +415,10 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 		cloudBillingEnforcementEnabled,
 		cloudBillingExportEnabled,
 		cloudCommandMailboxEnabled: env.CLOUD_COMMAND_MAILBOX_ENABLED === "true",
+		cloudCodexAuthBrokerEnrollmentEnabled:
+			env.CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED === "true",
+		cloudCodexAuthBrokerServingEnabled:
+			env.CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED === "true",
 		cloudBillingCutoverAtMs,
 		cloudBillingPolarMeterId: isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID)
 			? env.POLAR_CLOUD_OVERAGE_METER_ID

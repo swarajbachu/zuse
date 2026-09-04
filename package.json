@@ -94,7 +94,7 @@
 		"react-dom": "19.2.3"
 	},
 	"dependencies": {
-		"@openai/codex": "^0.144.5"
+		"@openai/codex": "0.144.5"
 	},
 	"patchedDependencies": {
 		"@legendapp/list@3.3.3": "patches/@legendapp%2Flist@3.3.3.patch",

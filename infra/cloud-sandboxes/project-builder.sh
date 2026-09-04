@@ -72,8 +72,9 @@ phase=cleaning-credentials
 rm -f /run/zuse-secrets/github-installation-*
 unset GIT_ASKPASS ZUSE_GIT_TOKEN_FILE
 
-# GitHub and runtime identity are never baked in. Agent credentials created in
-# this private account image are intentionally retained.
+# GitHub and runtime identity are never baked in. Broker-capable images retain
+# Codex configuration, skills, and MCP settings, but the rotating native login
+# remains solely in the account authority.
 phase=sanitizing-snapshot
 rm -rf /home/zuse/.config/gh /home/zuse/.zuse-data /home/zuse/.cache/zuse \
 	/tmp/zuse-* 2>/dev/null || true
@@ -85,6 +86,9 @@ fi
 rm -rf /home/zuse/.zuse/cloud-auth/operations /home/zuse/.zuse/cloud-auth/status
 rm -f /home/zuse/.zuse/cloud-auth/private.pem \
   /home/zuse/.zuse/cloud-auth/public.jwk.json /home/zuse/.zuse/cloud-auth/key-id
+if [[ "${ZUSE_CODEX_AUTH_DELIVERY_VERSION:-0}" == "1" ]]; then
+	rm -f /home/zuse/.codex/auth.json
+fi
 find /home/zuse -type f \( \
 	-name '.env' -o -name '.env.local' -o -name '.env.*.local' -o \
 	-name 'credentials.json' \
@@ -115,19 +119,21 @@ node --input-type=module -e '
     const [projectId, defaultBranch, sourceCommit, workspacePath] = line.split("\t");
     return { projectId, defaultBranch, sourceCommit, workspacePath };
   });
+  const codexAuthDeliveryVersion = process.env.ZUSE_CODEX_AUTH_DELIVERY_VERSION === "1" ? 1 : undefined;
   const providers = ["claude", "codex", "cursor", "grok"].map((providerId) => ({
     providerId,
     state: existsSync(`/home/zuse/.zuse/cloud-auth/providers/${providerId}.json`) ||
-      (providerId === "codex" && existsSync("/home/zuse/.codex/auth.json"))
+      (providerId === "codex" && codexAuthDeliveryVersion === undefined && existsSync("/home/zuse/.codex/auth.json"))
       ? "connected"
       : "disconnected",
   }));
   writeFileSync(process.argv[2], JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: codexAuthDeliveryVersion === 1 ? 2 : 1,
     runtimeVersion: process.env.ZUSE_TEMPLATE_VERSION,
     configurationDigest: process.env.ZUSE_CONFIGURATION_DIGEST,
     repositories: rows,
     providers,
+    ...(codexAuthDeliveryVersion === undefined ? {} : { codexAuthDeliveryVersion }),
   }), { mode: 0o600 });
 ' "$commit_manifest" /var/lib/zuse/account-image/manifest.json
 # Authority bookkeeping is not runtime authentication. Native provider homes

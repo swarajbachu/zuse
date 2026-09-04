@@ -316,6 +316,40 @@ export const apiCloudGithubInstallations = pgTable(
 	],
 );
 
+/**
+ * Stable account-level provider authority locator. Its identity deliberately
+ * excludes the mutable sandbox template version.
+ */
+export const apiCloudAuthAuthorities = pgTable(
+	"api_cloud_auth_authorities",
+	{
+		accountId: text("account_id").primaryKey(),
+		provider: text("provider").notNull(),
+		providerSandboxId: text("provider_sandbox_id"),
+		storageIncarnationId: text("storage_incarnation_id").notNull(),
+		authEpoch: bigint("auth_epoch", { mode: "number" }).notNull().default(1),
+		toolchainVersion: text("toolchain_version").notNull(),
+		state: text("state").notNull(),
+		provisioningLeaseOwner: text("provisioning_lease_owner"),
+		provisioningLeaseExpiresAt: bigint("provisioning_lease_expires_at", {
+			mode: "number",
+		}),
+		revision: bigint("revision", { mode: "number" }).notNull().default(0),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		index("api_cloud_auth_authorities_state_idx").on(
+			table.state,
+			table.provisioningLeaseExpiresAt,
+		),
+		check(
+			"api_cloud_auth_authorities_state_check",
+			sql`${table.state} IN ('provisioning', 'ready', 'error')`,
+		),
+	],
+);
+
 export const apiCloudProjectBuilds = pgTable(
 	"api_cloud_project_builds",
 	{

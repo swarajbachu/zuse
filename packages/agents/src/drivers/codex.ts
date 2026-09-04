@@ -1509,6 +1509,7 @@ export const startCodexSession = (
 			try: () =>
 				CodexAppServerClient.start({
 					codexPath,
+					externalAuthConsumerId: sessionId,
 					env: { ...process.env, ZUSE_MCP_TOKEN: mcpGatewaySession.token },
 					mcp: {
 						transport: "http",
@@ -1609,6 +1610,7 @@ export const startCodexSession = (
 					}
 					app = await CodexAppServerClient.start({
 						codexPath,
+						externalAuthConsumerId: sessionId,
 						env: process.env,
 						mcp: {
 							transport: "stdio",

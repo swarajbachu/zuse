@@ -418,7 +418,7 @@ export function CloudWorkspaceAuth() {
 		<>
 			<CloudSettingsGroup
 				title="Agent authentication"
-				description="Authorize agents once for every new cloud chat. Credentials stay in your private account image."
+				description="Authorize agents once. One ChatGPT login is shared by all new Codex cloud chats; other provider credentials stay in your private account image."
 				action={
 					<span className="text-[11px] text-muted-foreground">
 						{loading
@@ -462,11 +462,14 @@ export function CloudWorkspaceAuth() {
 							title={LABEL[providerId]}
 							description={
 								providerStatus?.state === "connected"
-									? `Ready for new cloud chats via ${providerStatus.method ?? "provider authentication"}.`
+									? providerId === "codex" &&
+										providerStatus.method === "subscription"
+										? "One ChatGPT login is shared by all new Codex cloud chats."
+										: `Ready for new cloud chats via ${providerStatus.method ?? "provider authentication"}.`
 									: providerId === "claude"
 										? "Claude Code subscription, Anthropic API key, or custom endpoint."
 										: providerId === "codex"
-											? "ChatGPT subscription, OpenAI API key, or custom endpoint."
+											? "One account-level ChatGPT subscription login, OpenAI API key, or custom endpoint."
 											: providerId === "cursor"
 												? "Cursor API key for cloud chat sandboxes."
 												: "Grok device login, xAI API key, or custom endpoint."
@@ -536,7 +539,9 @@ export function CloudWorkspaceAuth() {
 						<DialogDescription>
 							{selectedProvider === null
 								? "Choose an authentication method."
-								: `Choose how new cloud sandboxes authenticate with ${LABEL[selectedProvider]}.`}
+								: selectedProvider === "codex"
+									? "Connect Codex once for your Zuse account. Compatible cloud chats receive short-lived access without copied refresh tokens."
+									: `Choose how new cloud sandboxes authenticate with ${LABEL[selectedProvider]}.`}
 						</DialogDescription>
 					</DialogHeader>
 					<form className="contents" onSubmit={submitProviderSetup}>

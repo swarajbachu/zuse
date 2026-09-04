@@ -123,6 +123,8 @@ export const ApiPaths = {
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/credentials/renew`,
 	cloudWorkspaceRuntimeGithubCredential: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/github-credential`,
+	cloudWorkspaceRuntimeCodexGrant: (workspaceId: string) =>
+		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/providers/codex/grant`,
 	cloudWorkspaceActivity: (workspaceId: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/runtime/activity`,
 	cloudWorkspaceSummary: (workspaceId: string) =>

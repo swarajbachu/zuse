@@ -16,6 +16,7 @@ import {
 	CloudWorkspaceResumeRequest,
 	CloudWorkspaceRuntimeSummary,
 	CloudWorkspaceStartupTimings,
+	CodexGrantRequest,
 	DEFAULT_RUNTIME_MODE,
 	RuntimeAcknowledgment,
 	RuntimeMode,
@@ -33,6 +34,7 @@ import {
 	cloudAuthStatus,
 	configureCloudAuth,
 	disconnectCloudAuth,
+	issueCodexGrant,
 	pollCloudAuthLogin,
 	provisionCloudAuth,
 	startCloudAuthLogin,
@@ -458,7 +460,12 @@ export const isCloudAccountImageOutdated = (input: {
 		readonly state: string;
 		readonly updatedAtMs: number;
 	}>;
-	readonly providers: ReadonlyArray<{ readonly verifiedAt?: number }>;
+	readonly providers: ReadonlyArray<{
+		readonly providerId?: string;
+		readonly verifiedAt?: number;
+	}>;
+	readonly codexAuthDeliveryVersion?: 1;
+	readonly requiredCodexAuthDeliveryVersion?: 1;
 }) =>
 	input.projects.some(
 		(project) =>
@@ -467,10 +474,15 @@ export const isCloudAccountImageOutdated = (input: {
 	) ||
 	input.providers.some(
 		(status) =>
+			!(
+				input.codexAuthDeliveryVersion === 1 && status.providerId === "codex"
+			) &&
 			status.verifiedAt !== undefined &&
 			status.verifiedAt > input.imagePromotedAtMs,
 	) ||
-	input.imageTemplateVersion !== input.currentTemplateVersion;
+	input.imageTemplateVersion !== input.currentTemplateVersion ||
+	(input.requiredCodexAuthDeliveryVersion === 1 &&
+		input.codexAuthDeliveryVersion !== 1);
 
 export const selectActiveAccountImageBuild = (
 	builds: ReadonlyArray<CloudProjectBuildRecord>,
@@ -483,10 +495,33 @@ export const selectActiveAccountImageBuild = (
 			candidate.templateVersion === currentTemplateVersion,
 	);
 
+export const codexAuthModeForAccountBuild = (
+	build: CloudProjectBuildRecord,
+	brokerEnrollmentEnabled: boolean,
+): "legacy-image" | "broker-v1" => {
+	if (
+		!brokerEnrollmentEnabled ||
+		build.settings?.codexAuthDeliveryVersion !== 1
+	)
+		return "legacy-image";
+	const providers = build.settings.providers;
+	if (!Array.isArray(providers)) return "legacy-image";
+	return providers.some(
+		(provider) =>
+			typeof provider === "object" &&
+			provider !== null &&
+			Reflect.get(provider, "providerId") === "codex" &&
+			Reflect.get(provider, "method") === "subscription",
+	)
+		? "broker-v1"
+		: "legacy-image";
+};
+
 const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 	accountId: string,
 ) {
 	const store = yield* CloudWorkspaceStore;
+	const apiConfiguration = yield* ApiConfiguration;
 	const sandboxProviders = yield* SandboxProviders;
 	const provider = sandboxProviders.availableProviders.find(
 		(candidate) => candidate.providerId === "e2b",
@@ -521,6 +556,10 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 	}));
 	const authBroken = providers.some(
 		(status) =>
+			!(
+				active?.settings?.codexAuthDeliveryVersion === 1 &&
+				status.providerId === "codex"
+			) &&
 			status.method !== undefined &&
 			(status.state === "expired" || status.state === "error"),
 	);
@@ -532,6 +571,12 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 			currentTemplateVersion: provider?.templateVersion,
 			projects,
 			providers,
+			...(active.settings?.codexAuthDeliveryVersion === 1
+				? { codexAuthDeliveryVersion: 1 as const }
+				: {}),
+			...(apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled
+				? { requiredCodexAuthDeliveryVersion: 1 as const }
+				: {}),
 		});
 	const latestFailedAfterActive =
 		latest?.state === "failed" &&
@@ -582,6 +627,9 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 			createdAt: build.createdAtMs,
 			updatedAt: build.updatedAtMs,
 		})),
+		...(active?.settings?.codexAuthDeliveryVersion === 1
+			? { codexAuthDeliveryVersion: 1 as const }
+			: {}),
 		builtAt: active?.updatedAtMs,
 		updatedAt:
 			statusBuild?.updatedAtMs ??
@@ -664,6 +712,10 @@ const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	buildId: workspace.buildId,
 	imageGeneration: workspace.buildId,
 	providerId: workspace.provider,
+	codexAuthMode:
+		workspace.requestConfig.codexAuthMode === "broker-v1"
+			? ("broker-v1" as const)
+			: ("legacy-image" as const),
 	branch: workspace.branch,
 	baseRef: workspace.baseRef,
 	state: workspace.state,
@@ -713,6 +765,10 @@ export const publicCloudWorkspaceSummary = (
 			: workspace.branch),
 	branch: workspace.branch,
 	providerId: workspace.provider,
+	codexAuthMode:
+		workspace.requestConfig.codexAuthMode === "broker-v1"
+			? ("broker-v1" as const)
+			: ("legacy-image" as const),
 	agent:
 		typeof workspace.requestConfig.agent === "string"
 			? workspace.requestConfig.agent
@@ -883,6 +939,29 @@ const runtimeGeneration = (workspace: CloudWorkspaceRecord): number =>
 	typeof workspace.requestConfig.runtimeGeneration === "number"
 		? workspace.requestConfig.runtimeGeneration
 		: 1;
+
+export const codexGrantRuntimeBindingError = (
+	workspace: CloudWorkspaceRecord,
+	request: Pick<CodexGrantRequest, "runtimeGeneration">,
+	keyThumbprint: string,
+):
+	| "codex-auth-legacy-workspace"
+	| "workspace_runtime_fenced"
+	| "runtime_credential_key_binding_mismatch"
+	| null => {
+	if (workspace.requestConfig.codexAuthMode !== "broker-v1")
+		return "codex-auth-legacy-workspace";
+	if (request.runtimeGeneration !== runtimeGeneration(workspace))
+		return "workspace_runtime_fenced";
+	const receipt = runtimeBootstrapReceiptFromConfig(workspace.requestConfig);
+	if (
+		receipt === null ||
+		receipt.generation !== request.runtimeGeneration ||
+		receipt.credentialKeyThumbprint !== keyThumbprint
+	)
+		return "runtime_credential_key_binding_mismatch";
+	return null;
+};
 
 const attachMailboxLifecycle = (
 	response: Response,
@@ -1190,6 +1269,7 @@ export const routeCloudWorkspaceRequest = (
 			});
 			return json({
 				workspaceId,
+				zuseAccountId: workspace.accountId,
 				providerSandboxId,
 				runtimeCredential,
 				runtimeGatewayCredential,
@@ -1202,6 +1282,10 @@ export const routeCloudWorkspaceRequest = (
 				gatewayProtocol: WORKSPACE_GATEWAY_PROTOCOL,
 				chatId: workspace.chatId,
 				initialSessionId: workspace.initialSessionId,
+				codexAuthMode:
+					enrolled.workspace.requestConfig.codexAuthMode === "broker-v1"
+						? "broker-v1"
+						: "legacy-image",
 				runtimeGeneration: enrolled.receipt.generation,
 				gatewayEpoch: enrolled.receipt.gatewayEpoch,
 				runtimeCredentialExpiresAt:
@@ -1300,6 +1384,47 @@ export const routeCloudWorkspaceRequest = (
 				generation: receipt.generation,
 				gatewayEpoch: receipt.gatewayEpoch,
 			});
+		}
+
+		const runtimeCodexGrantMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/providers\/codex\/grant$/u.exec(
+				path,
+			);
+		if (method === "POST" && runtimeCodexGrantMatch !== null) {
+			const workspaceId = decodeURIComponent(runtimeCodexGrantMatch[1] ?? "");
+			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
+			if (!apiConfiguration.cloudCodexAuthBrokerServingEnabled)
+				return yield* Effect.fail(
+					serviceUnavailable("codex-auth-update-required"),
+				);
+			const body = yield* decodeBody(CodexGrantRequest, request);
+			const publicJwk = yield* parseJwk(body.credentialPublicJwk);
+			const keyThumbprint = yield* runtimeCredentialKeyThumbprint(publicJwk);
+			const bindingError = codexGrantRuntimeBindingError(
+				workspace,
+				body,
+				keyThumbprint,
+			);
+			if (bindingError === "codex-auth-legacy-workspace")
+				return yield* Effect.fail(conflict(bindingError));
+			if (bindingError !== null)
+				return yield* Effect.fail(unauthorized(bindingError));
+			return json(
+				yield* issueCodexGrant({
+					accountId: workspace.accountId,
+					workspaceId,
+					runtimeGeneration: body.runtimeGeneration,
+					recipientPublicJwk: body.credentialPublicJwk,
+					recipientKeyThumbprint: keyThumbprint,
+					requestId: body.requestId,
+					reason: body.reason,
+					...(body.previousChatgptAccountId === undefined
+						? {}
+						: {
+								previousChatgptAccountId: body.previousChatgptAccountId,
+							}),
+				}),
+			);
 		}
 
 		const runtimeGithubCredentialMatch =
@@ -2202,6 +2327,10 @@ export const routeCloudWorkspaceRequest = (
 			const auth = yield* cloudAuthStatus(principal.accountId);
 			const authenticationChanged = auth.providers.some(
 				(status) =>
+					!(
+						apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled &&
+						status.providerId === "codex"
+					) &&
 					status.verifiedAt !== undefined &&
 					activeBuild !== null &&
 					status.verifiedAt > activeBuild.updatedAtMs,
@@ -2222,6 +2351,8 @@ export const routeCloudWorkspaceRequest = (
 				JSON.stringify({
 					mode: effectiveMode,
 					templateVersion: provider.templateVersion,
+					codexAuthDeliveryVersion:
+						apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled ? 1 : 0,
 					repositories: projects
 						.map((project) => ({
 							projectId: project.projectId,
@@ -2242,6 +2373,9 @@ export const routeCloudWorkspaceRequest = (
 				configurationDigest,
 				settings: {
 					mode: effectiveMode,
+					...(apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled
+						? { codexAuthDeliveryVersion: 1 }
+						: {}),
 					repositories: accountImageRepositories(projects),
 					providers: auth.providers.map((status) => ({
 						providerId: status.providerId,
@@ -2648,6 +2782,15 @@ export const routeCloudWorkspaceRequest = (
 			)
 				return yield* Effect.fail(conflict("cloud_project_not_ready"));
 			const build = accountBuild;
+			if (
+				apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled &&
+				build.settings?.codexAuthDeliveryVersion !== 1
+			)
+				return yield* Effect.fail(conflict("codex-auth-update-required"));
+			const codexAuthMode = codexAuthModeForAccountBuild(
+				build,
+				apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled,
+			);
 			const workspaceId = yield* randomToken("workspace", 12);
 			const chatId = `chat_${crypto.randomUUID()}`;
 			const initialSessionId = `s_${crypto.randomUUID()}`;
@@ -2707,6 +2850,7 @@ export const routeCloudWorkspaceRequest = (
 				requestConfig: {
 					title,
 					agent: body.agent,
+					codexAuthMode,
 					authGrantRequired: false,
 					model: body.model,
 					runtimeMode: body.runtimeMode ?? DEFAULT_RUNTIME_MODE,

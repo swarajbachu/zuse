@@ -41,6 +41,26 @@ export interface CloudGithubInstallationRecord {
 	readonly updatedAtMs: number;
 }
 
+export interface CloudAuthAuthorityRecord {
+	readonly accountId: string;
+	readonly provider: string;
+	readonly providerSandboxId?: string;
+	readonly storageIncarnationId: string;
+	readonly authEpoch: number;
+	readonly toolchainVersion: string;
+	readonly state: "provisioning" | "ready" | "error";
+	readonly provisioningLeaseOwner?: string;
+	readonly provisioningLeaseExpiresAtMs?: number;
+	readonly revision: number;
+	readonly createdAtMs: number;
+	readonly updatedAtMs: number;
+}
+
+export interface CloudAuthAuthorityClaim {
+	readonly record: CloudAuthAuthorityRecord;
+	readonly acquired: boolean;
+}
+
 export interface CloudProjectBuildRecord {
 	readonly buildId: string;
 	readonly projectId: string;
@@ -317,6 +337,33 @@ export type CreateCloudWorkspaceOutcome =
 	  };
 
 export interface CloudWorkspaceStoreApi {
+	readonly getCloudAuthAuthority: (
+		accountId: string,
+	) => Effect.Effect<CloudAuthAuthorityRecord | null>;
+	readonly claimCloudAuthAuthority: (input: {
+		readonly accountId: string;
+		readonly provider: string;
+		readonly candidateStorageIncarnationId: string;
+		readonly toolchainVersion: string;
+		readonly leaseOwner: string;
+		readonly nowMs: number;
+		readonly leaseExpiresAtMs: number;
+		/** Explicit account reconnect may replace a ready locator whose storage is gone. */
+		readonly replaceReady?: boolean;
+	}) => Effect.Effect<CloudAuthAuthorityClaim>;
+	readonly completeCloudAuthAuthorityProvisioning: (input: {
+		readonly accountId: string;
+		readonly providerSandboxId: string;
+		readonly storageIncarnationId: string;
+		readonly toolchainVersion: string;
+		readonly leaseOwner: string;
+		readonly nowMs: number;
+	}) => Effect.Effect<CloudAuthAuthorityRecord | null>;
+	readonly advanceCloudAuthEpoch: (input: {
+		readonly accountId: string;
+		readonly providerSandboxId: string;
+		readonly nowMs: number;
+	}) => Effect.Effect<CloudAuthAuthorityRecord | null>;
 	readonly listGithubInstallations: (
 		accountId: string,
 	) => Effect.Effect<ReadonlyArray<CloudGithubInstallationRecord>>;
@@ -546,6 +593,7 @@ export class CloudWorkspaceStore extends Context.Service<
 >()("@zuse/api/CloudWorkspaceStore") {}
 
 interface MemoryState {
+	readonly authAuthorities: Map<string, CloudAuthAuthorityRecord>;
 	readonly githubInstallations: Map<string, CloudGithubInstallationRecord>;
 	readonly projects: Map<string, CloudProjectRecord>;
 	readonly builds: Map<string, CloudProjectBuildRecord>;
@@ -966,6 +1014,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 	CloudWorkspaceStore,
 	Effect.gen(function* () {
 		const state = yield* Ref.make<MemoryState>({
+			authAuthorities: new Map(),
 			githubInstallations: new Map(),
 			projects: new Map(),
 			builds: new Map(),
@@ -979,6 +1028,112 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 			lifecycleCommands: new Map(),
 		});
 		return CloudWorkspaceStore.of({
+			getCloudAuthAuthority: (accountId) =>
+				Ref.get(state).pipe(
+					Effect.map(
+						(current) => current.authAuthorities.get(accountId) ?? null,
+					),
+				),
+			claimCloudAuthAuthority: (input) =>
+				Ref.modify(
+					state,
+					(current): readonly [CloudAuthAuthorityClaim, MemoryState] => {
+						const existing = current.authAuthorities.get(input.accountId);
+						if (
+							(existing?.state === "ready" && input.replaceReady !== true) ||
+							(existing?.provisioningLeaseExpiresAtMs !== undefined &&
+								existing.provisioningLeaseExpiresAtMs > input.nowMs &&
+								existing.provisioningLeaseOwner !== input.leaseOwner)
+						)
+							return [{ record: existing, acquired: false }, current] as const;
+						const replacingReady =
+							existing?.state === "ready" && input.replaceReady === true;
+						const record: CloudAuthAuthorityRecord = {
+							accountId: input.accountId,
+							provider: input.provider,
+							storageIncarnationId: replacingReady
+								? input.candidateStorageIncarnationId
+								: (existing?.storageIncarnationId ??
+									input.candidateStorageIncarnationId),
+							authEpoch: replacingReady
+								? existing.authEpoch + 1
+								: (existing?.authEpoch ?? 1),
+							toolchainVersion: input.toolchainVersion,
+							state: "provisioning",
+							provisioningLeaseOwner: input.leaseOwner,
+							provisioningLeaseExpiresAtMs: input.leaseExpiresAtMs,
+							revision: (existing?.revision ?? -1) + 1,
+							createdAtMs: existing?.createdAtMs ?? input.nowMs,
+							updatedAtMs: input.nowMs,
+						};
+						return [
+							{ record, acquired: true },
+							{
+								...current,
+								authAuthorities: new Map(current.authAuthorities).set(
+									input.accountId,
+									record,
+								),
+							},
+						] as const;
+					},
+				),
+			completeCloudAuthAuthorityProvisioning: (input) =>
+				Ref.modify(state, (current) => {
+					const existing = current.authAuthorities.get(input.accountId);
+					if (
+						existing === undefined ||
+						(existing.state !== "ready" &&
+							existing.provisioningLeaseOwner !== input.leaseOwner)
+					)
+						return [null, current] as const;
+					const record: CloudAuthAuthorityRecord = {
+						...existing,
+						providerSandboxId: input.providerSandboxId,
+						storageIncarnationId: input.storageIncarnationId,
+						toolchainVersion: input.toolchainVersion,
+						state: "ready",
+						provisioningLeaseOwner: undefined,
+						provisioningLeaseExpiresAtMs: undefined,
+						revision: existing.revision + 1,
+						updatedAtMs: input.nowMs,
+					};
+					return [
+						record,
+						{
+							...current,
+							authAuthorities: new Map(current.authAuthorities).set(
+								input.accountId,
+								record,
+							),
+						},
+					] as const;
+				}),
+			advanceCloudAuthEpoch: (input) =>
+				Ref.modify(state, (current) => {
+					const existing = current.authAuthorities.get(input.accountId);
+					if (
+						existing?.state !== "ready" ||
+						existing.providerSandboxId !== input.providerSandboxId
+					)
+						return [null, current] as const;
+					const record: CloudAuthAuthorityRecord = {
+						...existing,
+						authEpoch: existing.authEpoch + 1,
+						revision: existing.revision + 1,
+						updatedAtMs: input.nowMs,
+					};
+					return [
+						record,
+						{
+							...current,
+							authAuthorities: new Map(current.authAuthorities).set(
+								input.accountId,
+								record,
+							),
+						},
+					] as const;
+				}),
 			listGithubInstallations: (accountId) =>
 				Ref.get(state).pipe(
 					Effect.map((current) =>
@@ -2287,6 +2442,8 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							([, installation]) => installation.accountId !== accountId,
 						),
 					);
+					const authAuthorities = new Map(current.authAuthorities);
+					authAuthorities.delete(accountId);
 					const projects = new Map(
 						[...current.projects].filter(
 							([, project]) => project.accountId !== accountId,
@@ -2330,6 +2487,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						true,
 						{
 							...current,
+							authAuthorities,
 							githubInstallations,
 							projects,
 							builds,
@@ -2411,6 +2569,22 @@ const buildFromRow = (row: Row): CloudProjectBuildRecord => ({
 	nextActionAtMs: numberValue(row.next_action_at),
 	leaseOwner: optionalString(row.lease_owner),
 	leaseExpiresAtMs: optionalNumber(row.lease_expires_at),
+	revision: numberValue(row.revision),
+	createdAtMs: numberValue(row.created_at),
+	updatedAtMs: numberValue(row.updated_at),
+});
+const authAuthorityFromRow = (row: Row): CloudAuthAuthorityRecord => ({
+	accountId: String(row.account_id),
+	provider: String(row.provider),
+	providerSandboxId: optionalString(row.provider_sandbox_id),
+	storageIncarnationId: String(row.storage_incarnation_id),
+	authEpoch: numberValue(row.auth_epoch),
+	toolchainVersion: String(row.toolchain_version),
+	state: row.state as CloudAuthAuthorityRecord["state"],
+	provisioningLeaseOwner: optionalString(row.provisioning_lease_owner),
+	provisioningLeaseExpiresAtMs: optionalNumber(
+		row.provisioning_lease_expires_at,
+	),
 	revision: numberValue(row.revision),
 	createdAtMs: numberValue(row.created_at),
 	updatedAtMs: numberValue(row.updated_at),
@@ -2561,6 +2735,89 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			);
 		};
 		return CloudWorkspaceStore.of({
+			getCloudAuthAuthority: (accountId) =>
+				orDie(
+					sql`SELECT * FROM api_cloud_auth_authorities WHERE account_id=${accountId}`.pipe(
+						Effect.map((rows) =>
+							rows[0] ? authAuthorityFromRow(rows[0] as Row) : null,
+						),
+					),
+				),
+			claimCloudAuthAuthority: (input) =>
+				orDie(
+					Effect.gen(function* () {
+						const rows = yield* sql`
+							INSERT INTO api_cloud_auth_authorities
+								(account_id, provider, storage_incarnation_id, auth_epoch,
+								 toolchain_version, state, provisioning_lease_owner,
+								 provisioning_lease_expires_at, revision, created_at, updated_at)
+							VALUES (${input.accountId}, ${input.provider},
+								${input.candidateStorageIncarnationId}, 1,
+								${input.toolchainVersion}, 'provisioning', ${input.leaseOwner},
+								${input.leaseExpiresAtMs}, 0, ${input.nowMs}, ${input.nowMs})
+							ON CONFLICT (account_id) DO UPDATE SET
+								provider=EXCLUDED.provider,
+								provider_sandbox_id=CASE WHEN ${input.replaceReady === true} THEN NULL ELSE api_cloud_auth_authorities.provider_sandbox_id END,
+								storage_incarnation_id=CASE WHEN ${input.replaceReady === true} THEN EXCLUDED.storage_incarnation_id ELSE api_cloud_auth_authorities.storage_incarnation_id END,
+								auth_epoch=CASE WHEN ${input.replaceReady === true} THEN api_cloud_auth_authorities.auth_epoch + 1 ELSE api_cloud_auth_authorities.auth_epoch END,
+								toolchain_version=EXCLUDED.toolchain_version,
+								state='provisioning',
+								provisioning_lease_owner=EXCLUDED.provisioning_lease_owner,
+								provisioning_lease_expires_at=EXCLUDED.provisioning_lease_expires_at,
+								revision=api_cloud_auth_authorities.revision + 1,
+								updated_at=EXCLUDED.updated_at
+							WHERE (${input.replaceReady === true} OR api_cloud_auth_authorities.state <> 'ready')
+								AND (api_cloud_auth_authorities.provisioning_lease_expires_at IS NULL
+									OR api_cloud_auth_authorities.provisioning_lease_expires_at <= ${input.nowMs}
+									OR api_cloud_auth_authorities.provisioning_lease_owner = ${input.leaseOwner})
+							RETURNING *
+						`;
+						const row =
+							rows[0] ??
+							(yield* sql`SELECT * FROM api_cloud_auth_authorities WHERE account_id=${input.accountId}`)[0];
+						const record = authAuthorityFromRow(row as Row);
+						return {
+							record,
+							acquired:
+								record.state === "provisioning" &&
+								record.provisioningLeaseOwner === input.leaseOwner,
+						};
+					}).pipe(sql.withTransaction),
+				),
+			completeCloudAuthAuthorityProvisioning: (input) =>
+				orDie(
+					sql`
+						UPDATE api_cloud_auth_authorities SET
+							provider_sandbox_id=${input.providerSandboxId},
+							storage_incarnation_id=${input.storageIncarnationId},
+							toolchain_version=${input.toolchainVersion},
+							state='ready', provisioning_lease_owner=NULL,
+							provisioning_lease_expires_at=NULL, revision=revision + 1,
+							updated_at=${input.nowMs}
+						WHERE account_id=${input.accountId}
+							AND (provisioning_lease_owner=${input.leaseOwner}
+								OR (state='ready' AND provider_sandbox_id=${input.providerSandboxId}))
+						RETURNING *
+					`.pipe(
+						Effect.map((rows) =>
+							rows[0] ? authAuthorityFromRow(rows[0] as Row) : null,
+						),
+					),
+				),
+			advanceCloudAuthEpoch: (input) =>
+				orDie(
+					sql`
+						UPDATE api_cloud_auth_authorities SET auth_epoch=auth_epoch + 1,
+							revision=revision + 1, updated_at=${input.nowMs}
+						WHERE account_id=${input.accountId} AND state='ready'
+							AND provider_sandbox_id=${input.providerSandboxId}
+						RETURNING *
+					`.pipe(
+						Effect.map((rows) =>
+							rows[0] ? authAuthorityFromRow(rows[0] as Row) : null,
+						),
+					),
+				),
 			listGithubInstallations: (accountId) =>
 				orDie(
 					sql`SELECT * FROM api_cloud_github_installations WHERE account_id=${accountId} ORDER BY created_at`.pipe(
@@ -3430,6 +3687,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						yield* sql`DELETE FROM api_cloud_project_builds WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_projects WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_github_installations WHERE account_id=${accountId}`;
+						yield* sql`DELETE FROM api_cloud_auth_authorities WHERE account_id=${accountId}`;
 						return true;
 					}).pipe(sql.withTransaction),
 				),
