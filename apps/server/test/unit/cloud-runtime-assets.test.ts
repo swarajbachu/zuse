@@ -31,10 +31,70 @@ describe("cloud runtime assets", () => {
 		expect(builder).not.toContain("repository-script.ts setup");
 		expect(builder).not.toContain("ZUSE_SETUP_COMMAND");
 		expect(reconciler).not.toContain("ZUSE_SETUP_COMMAND");
-		expect(builder).toContain("repositories.tsv");
+		expect(builder).toContain("repositories.jsonl");
 		expect(builder).toContain("repository-commits.tsv");
 		expect(builder).toContain("/var/lib/zuse/account-image/manifest.json");
 		expect(builder).not.toContain("ZUSE_REPOSITORY_URL");
+	});
+
+	test("preserves a tokenless public repository manifest record", () => {
+		const builderPath = fileURLToPath(
+			workspaceFileUrl("infra/cloud-sandboxes/project-builder.sh"),
+		);
+		const record = JSON.stringify({
+			projectId: "project_public",
+			repositoryUrl: "https://github.com/example/public.git",
+			defaultBranch: "main",
+			visibility: "public",
+			tokenFile: null,
+			workspacePath: "/home/repos/example/public",
+		});
+		const parsed = spawnSync(
+			"bash",
+			[
+				"-c",
+				'source "$1"; parse_repository_record "$2"; printf "%s\\n%s\\n" "$token_file" "$workspace_path"',
+				"bash",
+				builderPath,
+				record,
+			],
+			{ encoding: "utf8" },
+		);
+
+		expect(parsed.status, parsed.stderr).toBe(0);
+		expect(parsed.stdout).toBe("\n/home/repos/example/public\n");
+	});
+
+	test("records explicit project-builder validation failures", async () => {
+		const builderPath = fileURLToPath(
+			workspaceFileUrl("infra/cloud-sandboxes/project-builder.sh"),
+		);
+		const temporaryRoot = await mkdtemp(
+			join(tmpdir(), "zuse-project-builder-failure-"),
+		);
+		try {
+			const failed = spawnSync(
+				"bash",
+				[
+					"-c",
+					'source "$1"; status_dir="$2"; phase=validating-input; mark_failed 64',
+					"bash",
+					builderPath,
+					temporaryRoot,
+				],
+				{ encoding: "utf8" },
+			);
+
+			expect(failed.status).toBe(64);
+			expect(failed.stderr).toContain(
+				"Build failed during validating-input (exit 64).",
+			);
+			expect(await readFile(join(temporaryRoot, "failure-phase"), "utf8")).toBe(
+				"validating-input\n",
+			);
+		} finally {
+			await rm(temporaryRoot, { recursive: true, force: true });
+		}
 	});
 
 	test("keeps rotating Codex login out of broker-capable account images", async () => {
@@ -49,6 +109,35 @@ describe("cloud runtime assets", () => {
 		expect(builder).toContain("codexAuthDeliveryVersion");
 		expect(reconciler).toContain('"/home/zuse/.codex/auth.json"');
 		expect(reconciler).toContain("Codex auth delivery capability mismatch");
+	});
+
+	test("keeps every provider credential out of provider-broker account images", async () => {
+		const builder = await readWorkspaceFile(
+			"infra/cloud-sandboxes/project-builder.sh",
+		);
+		const reconciler = await readWorkspaceFile(
+			"infra/api/src/cloud-workspace-reconciler.ts",
+		);
+		expect(builder).toContain("ZUSE_PROVIDER_AUTH_DELIVERY_VERSION");
+		expect(builder).toContain("/home/zuse/.grok/auth.json");
+		expect(builder).toContain("/home/zuse/.zuse-image/provider-secrets.json");
+		expect(builder).toContain("rm -rf /home/zuse/.zuse/cloud-auth");
+		expect(builder).toContain("providerAuthDeliveryVersion");
+		expect(reconciler).toContain('"/home/zuse/.grok/auth.json"');
+		expect(reconciler).toContain(
+			'"/home/zuse/.zuse-image/provider-secrets.json"',
+		);
+		expect(reconciler).toContain('"/home/zuse/.zuse/cloud-auth"');
+		expect(reconciler).toContain("ZUSE_PROVIDER_STATUS_JSON");
+		expect(reconciler).toContain("Provider auth delivery capability mismatch");
+	});
+
+	test("pins the contract-tested Grok external-auth runtime in the base image", async () => {
+		const dockerfile = await readWorkspaceFile(
+			"infra/cloud-sandboxes/Dockerfile",
+		);
+		expect(dockerfile).toContain("install-grok.sh 1.0.13");
+		expect(dockerfile).toContain("GROK_BIN_DIR=/usr/local/bin");
 	});
 
 	test("uses the image checkout directly without launch-time Git networking", async () => {

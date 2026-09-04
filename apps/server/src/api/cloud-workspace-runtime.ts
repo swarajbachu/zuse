@@ -29,6 +29,7 @@ import {
 	ChatId,
 	CLOUD_COMMAND_PROTOCOL_VERSION,
 	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
+	type CloudAuthProvider,
 	CloudTranscriptCheckpointPayload,
 	CloudTranscriptMessagePagePayload,
 	CloudWorkspaceRuntimeSummary,
@@ -44,6 +45,7 @@ import {
 	RuntimeLease,
 	RuntimeMode,
 	SealedCodexGrant,
+	SealedProviderGrant,
 	SessionId,
 	WIRE_PROTOCOL_VERSION,
 	WORKSPACE_GATEWAY_AUTH_EXPIRED_CLOSE,
@@ -96,11 +98,13 @@ import {
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
 import { isProviderAuthenticationRequired } from "../provider/provider-auth-failure.ts";
 import { CredentialsService } from "../provider/services/credentials-service.ts";
+import { RuntimeProviderCredentials } from "../provider/services/runtime-provider-credentials.ts";
 import {
 	WorkspaceService,
 	type WorkspaceServiceShape,
 } from "../workspace/services/workspace-service.ts";
 import { CloudCodexAuth } from "./cloud-codex-auth.ts";
+import { CloudProviderAuth } from "./cloud-provider-auth.ts";
 import { cloudStorageIncarnationId } from "./cloud-storage-incarnation.ts";
 
 const CREDENTIALS_READY_MARKER = "/var/lib/zuse/workspace/credentials-ready";
@@ -240,6 +244,9 @@ const BootstrapResponse = Schema.Struct({
 	chatId: Schema.String,
 	initialSessionId: Schema.String,
 	codexAuthMode: Schema.optional(
+		Schema.Literals(["legacy-image", "broker-v1"]),
+	),
+	providerAuthMode: Schema.optional(
 		Schema.Literals(["legacy-image", "broker-v1"]),
 	),
 	launchIntent: Schema.optional(
@@ -1759,12 +1766,13 @@ const waitForRepository = Effect.callback<void, CloudWorkspaceRuntimeError>(
 	},
 );
 
-const recoverCodexAuthFailedSessions = Effect.fn(
-	"CloudWorkspaceRuntime.recoverCodexAuthFailedSessions",
+const recoverProviderAuthFailedSessions = Effect.fn(
+	"CloudWorkspaceRuntime.recoverProviderAuthFailedSessions",
 )(function* (input: {
 	readonly workspaces: WorkspaceServiceShape;
 	readonly sessions: SessionServiceShape;
 	readonly messages: MessageService["Service"];
+	readonly providerId: CloudAuthProvider;
 	readonly consumerIds?: ReadonlyArray<string>;
 }) {
 	const consumerIds =
@@ -1778,7 +1786,7 @@ const recoverCodexAuthFailedSessions = Effect.fn(
 	yield* Effect.forEach(
 		sessions.filter(
 			(session) =>
-				session.providerId === "codex" &&
+				session.providerId === input.providerId &&
 				session.status === "error" &&
 				(consumerIds === null || consumerIds.has(session.id)),
 		),
@@ -1915,6 +1923,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 	| MessageService
 	| SessionService
 	| CredentialsService
+	| RuntimeProviderCredentials
 	| SessionDomain
 	| SqlClient.SqlClient
 > =>
@@ -1929,7 +1938,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const sessions = yield* SessionService;
 					const sql = yield* SqlClient.SqlClient;
 					const credentials = yield* CredentialsService;
-					yield* installImageProviderSecrets(credentials);
+					const runtimeProviderCredentials = yield* RuntimeProviderCredentials;
 					const sessionDomain = yield* SessionDomain;
 					const storageIncarnationId = yield* cloudStorageIncarnationId.pipe(
 						Effect.mapError(() =>
@@ -1969,12 +1978,100 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						generation: bootstrap.runtimeGeneration,
 						gatewayEpoch: bootstrap.gatewayEpoch,
 					};
+					if (bootstrap.providerAuthMode !== "broker-v1")
+						yield* installImageProviderSecrets(credentials);
 					yield* writeGithubBrokerState(config, runtimeCredential.credential);
 					yield* superviseRuntimeCredential({
 						config,
 						signingPrivateKey: signingKeyPair.privateKey,
 						state: runtimeCredential,
 					}).pipe(Effect.forkScoped({ startImmediately: true }));
+					if (bootstrap.providerAuthMode === "broker-v1") {
+						if (bootstrap.zuseAccountId === undefined)
+							return yield* Effect.fail(fail("provider-auth-update-required"));
+						const cloudProviderAuth = new CloudProviderAuth({
+							zuseAccountId: bootstrap.zuseAccountId,
+							workspaceId: config.workspaceId,
+							runtimeGeneration: bootstrap.runtimeGeneration,
+							credentialPublicJwk,
+							credentialPrivateKey: credentialKeyPair.privateKey,
+							issueGrant: (providerId, request) =>
+								Effect.runPromise(
+									Effect.suspend(() =>
+										requestJson({
+											schema: SealedProviderGrant,
+											url: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeProviderGrant(config.workspaceId, providerId)}`,
+											token: runtimeCredential.credential,
+											method: "POST",
+											body: request,
+											timeoutMs: 30_000,
+										}),
+									).pipe(
+										Effect.retry({
+											while: (error) =>
+												!error.reason.includes("reconnect-required") &&
+												!error.reason.includes("update-required") &&
+												!error.reason.includes("legacy-workspace") &&
+												error.reason !== "workspace_runtime_fenced" &&
+												error.reason !==
+													"runtime_credential_key_binding_mismatch",
+											schedule: cloudRuntimeRetrySchedule,
+										}),
+									),
+								),
+							onStatus: (providerId, status) =>
+								console.info("[cloud-provider-auth] status", {
+									providerId,
+									status,
+								}),
+							onRecovered: (providerId) => {
+								void Effect.runPromise(
+									recoverProviderAuthFailedSessions({
+										workspaces,
+										sessions,
+										messages,
+										providerId,
+									}).pipe(Effect.catch(() => Effect.void)),
+								);
+							},
+						});
+						yield* Effect.acquireRelease(
+							Effect.tryPromise({
+								try: async () => {
+									await cloudProviderAuth.startGrokBridge();
+									const supported = new Set<CloudAuthProvider>([
+										"claude",
+										"codex",
+										"cursor",
+										"grok",
+									]);
+									const uninstall = runtimeProviderCredentials.install(
+										(providerId) =>
+											providerId === "codex" &&
+											bootstrap.codexAuthMode === "broker-v1"
+												? Promise.resolve(null)
+												: supported.has(providerId as CloudAuthProvider)
+													? cloudProviderAuth.resolve(
+															providerId as CloudAuthProvider,
+														)
+													: Promise.resolve(null),
+									);
+									return { uninstall };
+								},
+								catch: (cause) =>
+									fail(
+										cause instanceof Error
+											? cause.message
+											: "provider-auth-reconnecting",
+									),
+							}),
+							({ uninstall }) =>
+								Effect.sync(() => {
+									uninstall();
+									cloudProviderAuth.close();
+								}),
+						);
+					}
 					if (bootstrap.codexAuthMode === "broker-v1") {
 						if (bootstrap.zuseAccountId === undefined)
 							return yield* Effect.fail(fail("codex-auth-update-required"));
@@ -2012,10 +2109,11 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								console.info("[cloud-codex-auth] status", { status }),
 							onConsumersRecovered: (consumerIds) => {
 								void Effect.runPromise(
-									recoverCodexAuthFailedSessions({
+									recoverProviderAuthFailedSessions({
 										workspaces,
 										sessions,
 										messages,
+										providerId: "codex",
 										...(consumerIds.length === 0 ? {} : { consumerIds }),
 									}).pipe(
 										Effect.catch((cause) =>
@@ -2054,10 +2152,11 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									setDefaultCodexExternalAuthProvider(cloudCodexAuth);
 									if (initialized) {
 										void Effect.runPromise(
-											recoverCodexAuthFailedSessions({
+											recoverProviderAuthFailedSessions({
 												workspaces,
 												sessions,
 												messages,
+												providerId: "codex",
 											}).pipe(Effect.catch(() => Effect.void)),
 										);
 									}

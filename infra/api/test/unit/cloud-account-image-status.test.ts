@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
 	codexAuthModeForAccountBuild,
 	isCloudAccountImageOutdated,
+	providerAuthModeForAccountBuild,
 	selectActiveAccountImageBuild,
 } from "../../src/cloud-workspace-routes.ts";
 import type { CloudProjectBuildRecord } from "../../src/cloud-workspace-store.ts";
@@ -73,6 +74,35 @@ describe("cloud account image status", () => {
 		).toBe(true);
 	});
 
+	test("does not rebuild provider-broker images when account auth changes", () => {
+		expect(
+			isCloudAccountImageOutdated({
+				imagePromotedAtMs: 200,
+				imageTemplateVersion: "runtime-v2",
+				currentTemplateVersion: "runtime-v2",
+				projects: [{ state: "ready", updatedAtMs: 200 }],
+				providers: [
+					{ providerId: "claude", verifiedAt: 201 },
+					{ providerId: "grok", verifiedAt: 202 },
+				],
+				providerAuthDeliveryVersion: 1,
+			}),
+		).toBe(false);
+	});
+
+	test("requires explicit provider-broker image capability", () => {
+		expect(
+			isCloudAccountImageOutdated({
+				imagePromotedAtMs: 200,
+				imageTemplateVersion: "runtime-v2",
+				currentTemplateVersion: "runtime-v2",
+				projects: [{ state: "ready", updatedAtMs: 200 }],
+				providers: [],
+				requiredProviderAuthDeliveryVersion: 1,
+			}),
+		).toBe(true);
+	});
+
 	test("enrolls only subscription-backed Codex images in the broker", () => {
 		const build = (method: "subscription" | "api-key") =>
 			({
@@ -102,6 +132,18 @@ describe("cloud account image status", () => {
 		expect(codexAuthModeForAccountBuild(build("subscription"), false)).toBe(
 			"legacy-image",
 		);
+		expect(providerAuthModeForAccountBuild(build("subscription"), true)).toBe(
+			"legacy-image",
+		);
+		expect(
+			providerAuthModeForAccountBuild(
+				{
+					...build("subscription"),
+					settings: { providerAuthDeliveryVersion: 1 },
+				},
+				true,
+			),
+		).toBe("broker-v1");
 	});
 
 	test("is outdated when the runtime template changes", () => {

@@ -70,14 +70,18 @@ describe("Grok native ACP protocol", () => {
 	it("decodes initialization capabilities and the agent version", () => {
 		const result = decodeGrokInitializeResult({
 			meta: { agentVersion: "0.2.101" },
-			authMethods: [{ id: "cached_token" }],
+			authMethods: [
+				{ id: "cached_token" },
+				{ id: "grok.com", _meta: { external_provider: true } },
+			],
 			agentCapabilities: {
 				loadSession: true,
 				mcpCapabilities: { http: true, sse: true },
 			},
 		});
 		expect(result.agentVersion).toBe("0.2.101");
-		expect(result.authMethods).toEqual(["cached_token"]);
+		expect(result.authMethods).toEqual(["cached_token", "grok.com"]);
+		expect(result.externalAuthMethods).toEqual(["grok.com"]);
 		expect(result.mcp).toEqual({ http: true, sse: true });
 	});
 
@@ -94,6 +98,10 @@ describe("Grok native ACP protocol", () => {
 	});
 
 	it("distinguishes browser auth from an unavailable configuration", () => {
+		expect(selectGrokHandshakeAuth(["grok.com"], false, ["grok.com"])).toEqual({
+			kind: "method",
+			methodId: "grok.com",
+		});
 		expect(selectGrokHandshakeAuth(["grok.com"], false)).toEqual({
 			kind: "interactive",
 			methodId: "grok.com",

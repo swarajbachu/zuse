@@ -90,6 +90,10 @@ describe("cloud failure presentation", () => {
 		["codex-auth-legacy-workspace", "sign-in-required"],
 		["codex-auth-update-required", "update-required"],
 		["codex-auth-reconnecting", "network"],
+		["claude-auth-reconnect-required", "sign-in-required"],
+		["grok-auth-legacy-workspace", "sign-in-required"],
+		["cursor-auth-update-required", "update-required"],
+		["grok-auth-reconnecting", "network"],
 	] as const)("maps broker status %s to %s", (cause, kind) => {
 		expect(cloudFailurePresentation({ cause })).toMatchObject({ kind });
 	});

@@ -7,6 +7,8 @@ describe("provider auth failure classification", () => {
 		"Authentication required",
 		"Auth(AuthorizationRequired)",
 		"codex-auth-reconnect-required",
+		"claude-auth-reconnect-required",
+		"grok-auth-reconnecting",
 		"Your refresh token was already used",
 		"401 Unauthorized",
 		"Invalid authentication credentials",

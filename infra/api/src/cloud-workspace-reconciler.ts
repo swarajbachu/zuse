@@ -212,6 +212,8 @@ export const snapshotSanitizationFailures = (input: {
 	readonly expectedConfigurationDigest: string;
 	readonly codexAuthDeliveryVersion?: number;
 	readonly expectedCodexAuthDeliveryVersion?: number;
+	readonly providerAuthDeliveryVersion?: number;
+	readonly expectedProviderAuthDeliveryVersion?: number;
 }): ReadonlyArray<string> => {
 	const failures = input.forbiddenPaths.filter(
 		(_path, index) => input.forbiddenResults[index] === true,
@@ -224,6 +226,11 @@ export const snapshotSanitizationFailures = (input: {
 		failures.push("configuration digest mismatch");
 	if (input.codexAuthDeliveryVersion !== input.expectedCodexAuthDeliveryVersion)
 		failures.push("Codex auth delivery capability mismatch");
+	if (
+		input.providerAuthDeliveryVersion !==
+		input.expectedProviderAuthDeliveryVersion
+	)
+		failures.push("Provider auth delivery capability mismatch");
 	return failures;
 };
 
@@ -651,13 +658,22 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					const repositoryName = candidate.repositoryIdentity
 						.replace(/^github\.com\//u, "")
 						.toLowerCase();
-					return `${candidate.projectId}\t${candidate.repositoryUrl}\t${candidate.defaultBranch}\t${candidate.visibility}\t${tokenFileByRepository.get(repositoryName) ?? ""}\t${cloudRepositoryWorkspacePath(candidate.repositoryIdentity)}`;
+					return JSON.stringify({
+						projectId: candidate.projectId,
+						repositoryUrl: candidate.repositoryUrl,
+						defaultBranch: candidate.defaultBranch,
+						visibility: candidate.visibility,
+						tokenFile: tokenFileByRepository.get(repositoryName) ?? null,
+						workspacePath: cloudRepositoryWorkspacePath(
+							candidate.repositoryIdentity,
+						),
+					});
 				})
 				.join("\n");
 			yield* provider
 				.writeTextFile(
 					sandbox.providerSandboxId,
-					"/var/lib/zuse/project-build/repositories.tsv",
+					"/var/lib/zuse/project-build/repositories.jsonl",
 					`${repositoryManifest}\n`,
 					"zuse",
 				)
@@ -674,6 +690,14 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						ZUSE_CONFIGURATION_DIGEST: build.configurationDigest,
 						...(build.settings?.codexAuthDeliveryVersion === 1
 							? { ZUSE_CODEX_AUTH_DELIVERY_VERSION: "1" }
+							: {}),
+						...(build.settings?.providerAuthDeliveryVersion === 1
+							? {
+									ZUSE_PROVIDER_AUTH_DELIVERY_VERSION: "1",
+									ZUSE_PROVIDER_STATUS_JSON: JSON.stringify(
+										build.settings.providers ?? [],
+									),
+								}
 							: {}),
 						ZUSE_REPOSITORY_CACHE_MAX_BYTES: String(
 							apiConfig.cloudRepositoryCacheMaxBytes,
@@ -804,6 +828,14 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 				...(build.settings?.codexAuthDeliveryVersion === 1
 					? ["/home/zuse/.codex/auth.json"]
 					: []),
+				...(build.settings?.providerAuthDeliveryVersion === 1
+					? [
+							"/home/zuse/.codex/auth.json",
+							"/home/zuse/.grok/auth.json",
+							"/home/zuse/.zuse-image/provider-secrets.json",
+							"/home/zuse/.zuse/cloud-auth",
+						]
+					: []),
 			];
 			const forbiddenResults = yield* Effect.forEach(forbiddenPaths, (path) =>
 				provider.pathExists(build.providerSandboxId as string, path, "zuse"),
@@ -853,6 +885,12 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						: undefined,
 				expectedCodexAuthDeliveryVersion:
 					build.settings?.codexAuthDeliveryVersion === 1 ? 1 : undefined,
+				providerAuthDeliveryVersion:
+					typeof manifest.providerAuthDeliveryVersion === "number"
+						? manifest.providerAuthDeliveryVersion
+						: undefined,
+				expectedProviderAuthDeliveryVersion:
+					build.settings?.providerAuthDeliveryVersion === 1 ? 1 : undefined,
 			});
 			if (sanitizationFailures.length > 0) {
 				const sanitizationDiagnostic = `Snapshot validation failed: ${sanitizationFailures.join(", ")}.`;

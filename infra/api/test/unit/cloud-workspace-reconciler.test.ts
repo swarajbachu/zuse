@@ -378,6 +378,21 @@ describe("cloud workspace reconciler", () => {
 		]);
 	});
 
+	test("rejects an image missing the provider-auth sanitation capability", () => {
+		expect(
+			snapshotSanitizationFailures({
+				forbiddenPaths: [],
+				forbiddenResults: [],
+				sourceCommit: "a".repeat(64),
+				templateVersion: "runtime",
+				expectedTemplateVersion: "runtime",
+				configurationDigest: "config",
+				expectedConfigurationDigest: "config",
+				expectedProviderAuthDeliveryVersion: 1,
+			}),
+		).toEqual(["Provider auth delivery capability mismatch"]);
+	});
+
 	test("reuses account snapshots only from the current template", () => {
 		const build = {
 			templateVersion: "old-template",

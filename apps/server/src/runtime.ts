@@ -71,6 +71,10 @@ import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-servi
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import type { CredentialsService } from "./provider/services/credentials-service.ts";
+import {
+	makeRuntimeProviderCredentials,
+	RuntimeProviderCredentials,
+} from "./provider/services/runtime-provider-credentials.ts";
 import { TitleGeneratorLive } from "./provider/title-generator.ts";
 import { PtyServiceLive } from "./pty/layers/pty-service.ts";
 import { RepositorySettingsServiceLive } from "./repository-settings/layers/repository-settings-service.ts";
@@ -424,6 +428,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
 	);
+	const RuntimeProviderCredentialsLayer = Layer.succeed(
+		RuntimeProviderCredentials,
+		makeRuntimeProviderCredentials(),
+	);
 
 	// ProviderService probes installed CLIs via CommandExecutor, consults
 	// CredentialsService for SDK keys, resolves folderId → cwd via
@@ -431,6 +439,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// PermissionService.
 	const ProviderLayer = ProviderServiceLive.pipe(
 		Layer.provide(CredentialsLayer),
+		Layer.provide(RuntimeProviderCredentialsLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(PermissionLayer),
 		Layer.provide(AttachmentLayer),
@@ -529,6 +538,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		deps.cloudWorkspaceRuntime,
 	).pipe(
 		Layer.provide(CredentialsLayer),
+		Layer.provide(RuntimeProviderCredentialsLayer),
 		Layer.provide(EnrolledLanAuthLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(ConversationServicesLayer),

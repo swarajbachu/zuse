@@ -60,6 +60,12 @@ const CATEGORY_KIND: Readonly<Record<string, CloudFailureKind>> = {
 	"authentication-required": "sign-in-required",
 	"codex-auth-reconnect-required": "sign-in-required",
 	"codex-auth-legacy-workspace": "sign-in-required",
+	"claude-auth-reconnect-required": "sign-in-required",
+	"claude-auth-legacy-workspace": "sign-in-required",
+	"cursor-auth-reconnect-required": "sign-in-required",
+	"cursor-auth-legacy-workspace": "sign-in-required",
+	"grok-auth-reconnect-required": "sign-in-required",
+	"grok-auth-legacy-workspace": "sign-in-required",
 	"not-allowed": "sign-in-required",
 	"billing-blocked": "billing-blocked",
 	"billing-hold": "billing-blocked",
@@ -70,6 +76,10 @@ const CATEGORY_KIND: Readonly<Record<string, CloudFailureKind>> = {
 	"command-schema-not-supported": "update-required",
 	"command-dependencies-not-supported": "update-required",
 	"codex-auth-update-required": "update-required",
+	"claude-auth-update-required": "update-required",
+	"cursor-auth-update-required": "update-required",
+	"grok-auth-update-required": "update-required",
+	"provider-auth-update-required": "update-required",
 	"beta-access-required": "cloud-access-required",
 	"beta-access-unavailable": "cloud-access-unavailable",
 	"credential-required": "credentials-required",
@@ -85,6 +95,9 @@ const CATEGORY_KIND: Readonly<Record<string, CloudFailureKind>> = {
 	"session-not-found": "session-unavailable",
 	"session-unavailable": "session-unavailable",
 	"codex-auth-reconnecting": "network",
+	"claude-auth-reconnecting": "network",
+	"cursor-auth-reconnecting": "network",
+	"grok-auth-reconnecting": "network",
 };
 
 const BLOCKED_KIND: Partial<

@@ -314,6 +314,7 @@ const refreshSummaryFromWorkspace = (
 ): CloudChatSummary => ({
 	...summary,
 	codexAuthMode: workspace.codexAuthMode,
+	providerAuthMode: workspace.providerAuthMode,
 	state: workspace.state,
 	runtimeState: workspace.runtimeState,
 	statusCode: workspace.statusCode,
@@ -613,6 +614,7 @@ export const summaryFromLaunch = (input: {
 	branch: input.workspace.branch,
 	providerId: input.workspace.providerId,
 	codexAuthMode: input.workspace.codexAuthMode,
+	providerAuthMode: input.workspace.providerAuthMode,
 	agent: input.agent,
 	model: input.model,
 	runtimeMode: input.runtimeMode,

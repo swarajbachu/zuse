@@ -8,6 +8,7 @@ import {
 	type SealedCodexGrant,
 } from "@zuse/contracts";
 import { type CryptoKey, calculateJwkThumbprint, type JWK } from "jose";
+import { openCloudAuthGrant } from "./cloud-grant-crypto.ts";
 
 const PROACTIVE_REFRESH_WINDOW_MS = 5 * 60 * 1_000;
 const MINIMUM_GRANT_LIFETIME_MS = 60 * 1_000;
@@ -46,9 +47,6 @@ export interface CloudCodexAuthInput {
 	readonly onConsumersRecovered?: (consumerIds: ReadonlyArray<string>) => void;
 }
 
-const fromBase64Url = (value: string): Uint8Array =>
-	new Uint8Array(Buffer.from(value, "base64url"));
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null;
 
@@ -83,52 +81,6 @@ const decodeGrantPlaintext = (value: unknown): CodexGrantPlaintext => {
 	)
 		throw new Error("codex-auth-update-required");
 	return value as unknown as CodexGrantPlaintext;
-};
-
-const additionalData = (sealed: SealedCodexGrant): Uint8Array =>
-	new TextEncoder().encode(
-		JSON.stringify({
-			protocolVersion: sealed.protocolVersion,
-			requestId: sealed.requestId,
-			keyThumbprint: sealed.keyThumbprint,
-			authorityIncarnationId: sealed.authorityIncarnationId,
-			authorityEpoch: sealed.authorityEpoch,
-		}),
-	);
-
-const openGrant = async (
-	sealed: SealedCodexGrant,
-	privateKey: CryptoKey,
-): Promise<CodexGrantPlaintext> => {
-	const rawKey = await crypto.subtle.decrypt(
-		{ name: "RSA-OAEP" },
-		privateKey,
-		fromBase64Url(sealed.wrappedKey),
-	);
-	const contentKey = await crypto.subtle.importKey(
-		"raw",
-		rawKey,
-		{ name: "AES-GCM" },
-		false,
-		["decrypt"],
-	);
-	const ciphertext = Buffer.concat([
-		Buffer.from(sealed.ciphertext, "base64url"),
-		Buffer.from(sealed.tag, "base64url"),
-	]);
-	const plaintext = await crypto.subtle.decrypt(
-		{
-			name: "AES-GCM",
-			iv: fromBase64Url(sealed.iv),
-			additionalData: additionalData(sealed),
-			tagLength: 128,
-		},
-		contentKey,
-		ciphertext,
-	);
-	return decodeGrantPlaintext(
-		JSON.parse(new TextDecoder().decode(plaintext)) as unknown,
-	);
 };
 
 /**
@@ -224,7 +176,11 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 				sealed.keyThumbprint !== keyThumbprint
 			)
 				throw new Error("codex-auth-update-required");
-			const grant = await openGrant(sealed, this.input.credentialPrivateKey);
+			const grant = await openCloudAuthGrant(
+				sealed,
+				this.input.credentialPrivateKey,
+				decodeGrantPlaintext,
+			);
 			const nowMs = Date.now();
 			if (
 				grant.zuseAccountId !== this.input.zuseAccountId ||

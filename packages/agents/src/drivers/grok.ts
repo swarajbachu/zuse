@@ -910,6 +910,7 @@ export const startGrokSession = (
 			const authSelection = selectGrokHandshakeAuth(
 				init.authMethods,
 				apiKey !== null,
+				init.externalAuthMethods,
 			);
 			if (authSelection.kind === "interactive") {
 				throw new GrokProtocolError(

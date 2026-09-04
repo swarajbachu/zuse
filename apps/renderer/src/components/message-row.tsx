@@ -1004,17 +1004,20 @@ function ProviderAuthCard({
 	);
 }
 
-function CloudCodexAuthCard({
+function CloudProviderAuthCard({
+	providerId,
 	authMode,
 	environmentId,
 	onOpenCloudSettings,
 	onDismiss,
 }: {
+	providerId: ProviderId;
 	authMode: "legacy-image" | "broker-v1" | "unknown";
 	environmentId: EnvironmentId;
 	onOpenCloudSettings: () => void;
 	onDismiss?: () => void;
 }) {
+	const providerLabel = PROVIDER_LABEL_FOR_ERROR[providerId];
 	const replacementProjectId = localProjectForCloudEnvironment(environmentId);
 	const legacy = authMode === "legacy-image";
 	const broker = authMode === "broker-v1";
@@ -1029,10 +1032,10 @@ function CloudCodexAuthCard({
 							aria-hidden
 						/>
 						{legacy
-							? "This cloud chat uses legacy Codex authentication"
+							? `This cloud chat uses legacy ${providerLabel} authentication`
 							: broker
-								? "Codex account needs reconnecting"
-								: "Codex authentication is unavailable"}
+								? `${providerLabel} account needs reconnecting`
+								: `${providerLabel} authentication is unavailable`}
 					</span>
 					{onDismiss !== undefined && (
 						<button
@@ -1046,10 +1049,10 @@ function CloudCodexAuthCard({
 				</div>
 				<p className="mt-1.5 max-w-[32rem] text-[11px] leading-4 text-muted-foreground">
 					{legacy
-						? "Its copied refresh token cannot be recovered safely. Reconnect Codex once, then create a replacement cloud chat that uses account-level authentication."
+						? `Its image-owned ${providerLabel} credential cannot be migrated safely. Reconnect once, then create a replacement cloud chat that uses account-level authentication.`
 						: broker
-							? "Reconnect Codex once in Cloud Workspace settings. The login is shared by your new Codex cloud chats; this sandbox never stores the refresh token."
-							: "Open Cloud Workspace settings to restore the account-level Codex login. Zuse will identify legacy chats after cloud metadata finishes syncing."}
+							? `Reconnect ${providerLabel} once in Cloud Workspace settings. The account credential is shared by new cloud chats and is never baked into this sandbox.`
+							: `Open Cloud Workspace settings to restore account-level ${providerLabel} authentication. Zuse will identify legacy chats after cloud metadata finishes syncing.`}
 				</p>
 				<div className="mt-2 flex flex-wrap items-center gap-1.5">
 					{legacy && replacementProjectId !== null ? (
@@ -1256,34 +1259,36 @@ export function ErrorBubble({
 	// "Authentication required" card with the one-click OAuth button. Other
 	// providers (or auth errors without a provider) fall through to the generic
 	// bubble below with a "Open Provider Settings" link.
-	if (
-		error.kind === "auth" &&
-		error.providerId !== undefined &&
-		supportsProviderLogin(error.providerId)
-	) {
+	if (error.kind === "auth" && error.providerId !== undefined) {
 		if (
-			error.providerId === "codex" &&
 			environmentId !== undefined &&
-			isCloudWorkspaceEnvironment(environmentId)
+			isCloudWorkspaceEnvironment(environmentId) &&
+			["claude", "codex", "cursor", "grok"].includes(error.providerId)
 		) {
 			return (
-				<CloudCodexAuthCard
-					authMode={cloudSummary?.codexAuthMode ?? "unknown"}
+				<CloudProviderAuthCard
+					providerId={error.providerId}
+					authMode={
+						error.providerId === "codex"
+							? (cloudSummary?.codexAuthMode ?? "unknown")
+							: (cloudSummary?.providerAuthMode ?? "unknown")
+					}
 					environmentId={environmentId}
 					onOpenCloudSettings={onOpenCloudSettings}
 					onDismiss={onDismiss}
 				/>
 			);
 		}
-		return (
-			<ProviderAuthCard
-				providerId={error.providerId}
-				sessionId={sessionId}
-				environmentId={environmentId}
-				onOpenSettings={onOpenSettings}
-				onDismiss={onDismiss}
-			/>
-		);
+		if (supportsProviderLogin(error.providerId))
+			return (
+				<ProviderAuthCard
+					providerId={error.providerId}
+					sessionId={sessionId}
+					environmentId={environmentId}
+					onOpenSettings={onOpenSettings}
+					onDismiss={onDismiss}
+				/>
+			);
 	}
 
 	const headline =

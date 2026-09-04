@@ -418,7 +418,7 @@ export function CloudWorkspaceAuth() {
 		<>
 			<CloudSettingsGroup
 				title="Agent authentication"
-				description="Authorize agents once. One ChatGPT login is shared by all new Codex cloud chats; other provider credentials stay in your private account image."
+				description="Authorize each provider once. Account credentials are shared by new cloud chats and never baked into chat sandboxes."
 				action={
 					<span className="text-[11px] text-muted-foreground">
 						{loading
@@ -462,10 +462,7 @@ export function CloudWorkspaceAuth() {
 							title={LABEL[providerId]}
 							description={
 								providerStatus?.state === "connected"
-									? providerId === "codex" &&
-										providerStatus.method === "subscription"
-										? "One ChatGPT login is shared by all new Codex cloud chats."
-										: `Ready for new cloud chats via ${providerStatus.method ?? "provider authentication"}.`
+									? `Shared account-wide with new ${LABEL[providerId]} cloud chats via ${providerStatus.method ?? "provider authentication"}.`
 									: providerId === "claude"
 										? "Claude Code subscription, Anthropic API key, or custom endpoint."
 										: providerId === "codex"

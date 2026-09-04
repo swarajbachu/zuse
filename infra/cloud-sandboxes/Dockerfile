@@ -31,6 +31,15 @@ RUN npm install --global \
 		corepack@0.34.1 \
 	&& npm cache clean --force
 
+# Grok's external-auth provider contract is versioned independently of the
+# Node CLIs. Pin the contract-tested build in the base image so cloud chats do
+# not download tools during bootstrap.
+RUN mkdir -p /opt/grok \
+	&& curl -fsSL https://x.ai/cli/install.sh -o /tmp/install-grok.sh \
+	&& HOME=/opt/grok GROK_BIN_DIR=/usr/local/bin bash /tmp/install-grok.sh 1.0.13 \
+	&& grok --version \
+	&& rm /tmp/install-grok.sh
+
 # These tarballs are built from this checkout. The current server/serve release
 # is intentionally not fetched from npm: the sandbox external-bind behavior
 # must ship atomically with the api that depends on it.

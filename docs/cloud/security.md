@@ -63,14 +63,17 @@ data key; decryption and authoritative application happen in the runtime.
 
 - Repository and agent credentials are encrypted in the cloud credential vault
   and delivered only to the authenticated workspace runtime.
-- One account-scoped `CloudAuthAuthority` owns the Codex subscription refresh
-  token. It serializes managed refresh, then hybrid-encrypts an access-only
-  grant directly to the workspace runtime's enrolled RSA key. API and Durable
-  Objects never receive either plaintext token.
-- Broker-capable account images are rejected if `.codex/auth.json` exists.
-  Runtime access grants are memory-only, generation/key/account fenced, and
-  supplied through Codex app-server external authentication. Existing
-  `legacy-image` workspaces are never silently migrated.
+- One account-scoped `CloudAuthAuthority` owns reusable provider credentials,
+  including the only Codex and Grok refresh-token copies. It serializes refresh
+  per provider, then hybrid-encrypts a short-lived grant directly to the
+  workspace runtime's enrolled RSA key. API and Durable Objects never receive
+  plaintext credentials.
+- Broker-capable account images are rejected if `.codex/auth.json`,
+  `.grok/auth.json`, or the legacy provider-secret bundle exists. Runtime grants
+  are process-memory-only and generation/key/account/provider fenced. Grok's
+  unavoidable CLI access-token cache is redirected to `/dev/shm`; its durable
+  session/config directory remains credential-free. Existing `legacy-image`
+  workspaces are never silently migrated.
 - The base template and prepared project snapshots are credential-free.
 - Project snapshot sanitation removes repository tokens, agent credentials,
   runtime identity, authorized keys, and shell history.

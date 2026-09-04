@@ -34,19 +34,22 @@ added projects.
    keys are sealed to that environment. A successful managed-account read is
    required for Codex subscription authentication; `codex login status` alone
    is not considered proof that the token can be used.
-5. The authentication authority is the sole owner of a Codex subscription
-   refresh token. Broker-capable account images prove that `.codex/auth.json`
-   is absent before promotion. A workspace receives only a short-lived access
-   token sealed directly to its runtime key and supplies it to Codex in memory
-   through app-server external authentication. API routes only ciphertext.
-   Refresh is serialized in the authority, and account-image freshness ignores
-   brokered Codex rotation. Codex API-key/custom modes and other providers keep
-   their existing private-image behavior.
+5. The authentication authority is the sole owner of reusable provider
+   credentials. Broker-capable account images prove that `.codex/auth.json`,
+   `.grok/auth.json`, and the legacy provider-secret bundle are absent before
+   promotion. A workspace receives only a short-lived grant sealed directly to
+   its runtime key. Codex uses app-server external authentication; Grok uses its
+   external-provider protocol with the CLI cache isolated in `/dev/shm`; Claude,
+   Cursor, and static API-key flows resolve through the same process-memory
+   credential seam. API routes only ciphertext. Rotating Codex and Grok refresh
+   tokens never leave the authority, refreshes serialize per provider, and
+   account-image freshness ignores brokered auth rotation.
 6. Existing workspaces retain their immutable `legacy-image` authentication
-   mode. New subscription-backed workspaces opt into `broker-v1` only from an
-   image advertising `codexAuthDeliveryVersion: 1`. Lost authority storage
-   requires one account-level reconnect; it never triggers per-chat login or a
-   silent migration.
+   mode. New workspaces opt into `broker-v1` only from an image advertising
+   `providerAuthDeliveryVersion: 1`; the separate Codex marker remains for
+   wire compatibility with retained Codex-broker runtimes. Lost authority
+   storage requires one account-level reconnect; it never triggers per-chat
+   login or a silent migration.
 7. GitHub is the exception: users install the Zuse GitHub App and grant selected
    repositories. Relay retains only installation metadata and mints short-lived
    installation access tokens when needed. These tokens are never baked into
@@ -71,9 +74,9 @@ added projects.
   account image outdated and requires one update, not another project image.
 - Repository freshness is controlled by image update. There is intentionally no
   slow clone/fetch fallback when a repository is absent from the active image.
-- Provider-native credentials other than brokered Codex subscription auth can
-  still become stale in retained legacy images. Brokered Codex recovery is one
-  account reconnect; a legacy chat offers creation of a replacement chat.
+- Provider-native credentials can still become stale in retained legacy
+  images. Brokered recovery is one account reconnect; a legacy chat offers
+  creation of a replacement chat.
 - During atomic replacement a candidate snapshot may coexist briefly with the
   active snapshot. This is not a second maintained user image.
 

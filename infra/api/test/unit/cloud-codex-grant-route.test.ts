@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { codexGrantRuntimeBindingError } from "../../src/cloud-workspace-routes.ts";
+import {
+	codexGrantRuntimeBindingError,
+	providerGrantRuntimeBindingError,
+} from "../../src/cloud-workspace-routes.ts";
 import type { CloudWorkspaceRecord } from "../../src/cloud-workspace-store.ts";
 
 const workspace = (
@@ -77,5 +80,24 @@ describe("Codex runtime grant binding", () => {
 				"runtime-key",
 			),
 		).toBe("codex-auth-legacy-workspace");
+	});
+});
+
+describe("provider runtime grant binding", () => {
+	test("uses a separate immutable provider capability", () => {
+		expect(
+			providerGrantRuntimeBindingError(
+				workspace({ providerAuthMode: "broker-v1" }),
+				{ runtimeGeneration: 4 },
+				"runtime-key",
+			),
+		).toBeNull();
+		expect(
+			providerGrantRuntimeBindingError(
+				workspace({ providerAuthMode: undefined }),
+				{ runtimeGeneration: 4 },
+				"runtime-key",
+			),
+		).toBe("provider-auth-legacy-workspace");
 	});
 });

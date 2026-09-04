@@ -115,7 +115,7 @@ describe("api deployment safety", () => {
 		expect(config.vars.E2B_ADAPTER_ENABLED).toBe("true");
 		expect(config.vars.E2B_TEMPLATE_ID).toBe("zuse-cloud-sandbox");
 		expect(config.vars.E2B_TEMPLATE_VERSION).toBe(
-			"e147c717-5a91-4d68-a244-f1ca65034a3d",
+			"648f48a9-e3d4-4341-9a70-17474248a548",
 		);
 		expect(config.placement).toEqual({ region: "aws:ap-southeast-1" });
 		expect(config.vars.E2B_VCPU_COUNT).toBe("2");

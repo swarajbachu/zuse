@@ -54,6 +54,7 @@ import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
 import { PermissionService } from "../services/permission-service.ts";
 import { ProviderService } from "../services/provider-service.ts";
+import { RuntimeProviderCredentials } from "../services/runtime-provider-credentials.ts";
 
 /**
  * Live provider runtime. Handles own their scopes and are published through a
@@ -86,6 +87,7 @@ export const ProviderServiceLive = Layer.effect(
 		const executor = yield* CommandExecutor.ChildProcessSpawner;
 		const fs = yield* FileSystem.FileSystem;
 		const credentials = yield* CredentialsService;
+		const runtimeCredentials = yield* RuntimeProviderCredentials;
 		const workspace = yield* WorkspaceService;
 		const permissions = yield* PermissionService;
 		const attachmentService = yield* AttachmentService;
@@ -316,10 +318,31 @@ export const ProviderServiceLive = Layer.effect(
 							cwd,
 						}),
 					};
-					const managedCredential = yield* credentials
-						.getProviderCredential(input.providerId)
-						.pipe(Effect.catch(() => Effect.succeed(null)));
-					const apiKey = managedCredential?.secret ?? null;
+					const brokeredCredential = yield* Effect.tryPromise({
+						try: () => runtimeCredentials.resolve(input.providerId),
+						catch: (cause) =>
+							new AgentSessionStartError({
+								providerId: input.providerId,
+								reason:
+									typeof cause === "object" &&
+									cause !== null &&
+									"reason" in cause &&
+									typeof cause.reason === "string"
+										? cause.reason
+										: cause instanceof Error
+											? cause.message
+											: `${input.providerId}-auth-reconnecting`,
+							}),
+					});
+					const managedCredential =
+						brokeredCredential ??
+						(yield* credentials
+							.getProviderCredential(input.providerId)
+							.pipe(Effect.catch(() => Effect.succeed(null))));
+					const apiKey =
+						managedCredential?.kind === "api-key"
+							? managedCredential.secret
+							: null;
 					let providerHandle: ProviderSessionHandle;
 					if (input.providerId === "gemini") {
 						// Same story as Grok: hand the driver the user's installed

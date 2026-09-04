@@ -57,6 +57,10 @@ export interface ApiConfig {
 	readonly cloudCodexAuthBrokerEnrollmentEnabled: boolean;
 	/** Must remain enabled while any broker-v1 workspace exists. */
 	readonly cloudCodexAuthBrokerServingEnabled: boolean;
+	/** Allows new workspaces to keep all reusable provider auth out of images. */
+	readonly cloudProviderAuthBrokerEnrollmentEnabled: boolean;
+	/** Must remain enabled while any provider-broker-v1 workspace exists. */
+	readonly cloudProviderAuthBrokerServingEnabled: boolean;
 	readonly cloudTranscriptObjects?: CloudTranscriptObjectStore;
 	readonly challengeTtlMs: number;
 	readonly connectTokenTtlMs: number;
@@ -95,6 +99,8 @@ const DEFAULTS = {
 	cloudCommandMailboxEnabled: false,
 	cloudCodexAuthBrokerEnrollmentEnabled: false,
 	cloudCodexAuthBrokerServingEnabled: false,
+	cloudProviderAuthBrokerEnrollmentEnabled: false,
+	cloudProviderAuthBrokerServingEnabled: false,
 } as const;
 
 export const layer = (

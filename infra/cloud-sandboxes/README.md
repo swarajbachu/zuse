@@ -6,10 +6,13 @@ with the [Zuse Cloud documentation](../../docs/cloud/README.md).
 The credential-free base template contains the Zuse runtime, supported developer
 toolchain, and preconfigured Git and `gh` credential broker. An account-image
 build adds the user's selected normal Git checkouts below
-`/home/repos/<owner>/<repository>` and provider authentication. Each chat forks
-that account image, starts the runtime from `/home/zuse`, and selects one
-existing checkout without cloning, fetching, copying, or creating a worktree.
-Its inert `sleep infinity` base command is deliberate.
+`/home/repos/<owner>/<repository>`. Broker-capable images keep reusable agent
+credentials in the account authentication authority and retain only non-secret
+provider status; legacy images may still contain their historical provider
+authentication. Each chat forks that account image, starts the runtime from
+`/home/zuse`, and selects one existing checkout without cloning, fetching,
+copying, or creating a worktree. Its inert `sleep infinity` base command is
+deliberate.
 
 SSH access does not run a listening daemon. The runtime's `/ssh` WebSocket
 route (ticket-gated, cloud-environment role only) spawns `sshd -i` per
@@ -81,6 +84,8 @@ template or account snapshot.
 
 The runtime exchanges the one-time token for a renewable workspace credential,
 installs any runtime-scoped credential grant, opens the selected local branch,
-and acknowledges the durable start command. The account snapshot contains
-provider authentication by design, but no GitHub installation token, runtime
-identity, shell history, or authenticated process.
+and acknowledges the durable start command. Broker-capable account snapshots
+contain neither provider authentication nor GitHub installation tokens, runtime
+identity, shell history, or authenticated processes. Provider grants are sealed
+directly to the enrolled runtime key and remain process-local; Grok's access-only
+CLI cache is redirected to sandbox tmpfs.

@@ -5,6 +5,9 @@ import { CloudWorkspaceOpError } from "./cloud-workspaces.ts";
 /** Codex release whose experimental external-auth protocol is contract-tested. */
 export const CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION = "0.144.5";
 
+/** Grok release whose external-provider ACP contract is exercised by Zuse. */
+export const GROK_EXTERNAL_AUTH_TOOLCHAIN_VERSION = "1.0.13";
+
 /** Agent providers that can be selected by an E2B cloud workspace. */
 export const CloudAuthProvider = Schema.Literals([
 	"claude",
@@ -50,6 +53,24 @@ export const CloudCodexAuthFailureCode = Schema.Literals([
 ]);
 export type CloudCodexAuthFailureCode = typeof CloudCodexAuthFailureCode.Type;
 
+/** Typed failures for account-owned provider credentials used by cloud runtimes. */
+export const CloudProviderAuthFailureCode = Schema.Literals([
+	"claude-auth-reconnecting",
+	"claude-auth-reconnect-required",
+	"claude-auth-update-required",
+	"claude-auth-legacy-workspace",
+	"grok-auth-reconnecting",
+	"grok-auth-reconnect-required",
+	"grok-auth-update-required",
+	"grok-auth-legacy-workspace",
+	"cursor-auth-reconnecting",
+	"cursor-auth-reconnect-required",
+	"cursor-auth-update-required",
+	"cursor-auth-legacy-workspace",
+]);
+export type CloudProviderAuthFailureCode =
+	typeof CloudProviderAuthFailureCode.Type;
+
 export const CodexGrantRefreshReason = Schema.Literals([
 	"initial",
 	"proactive",
@@ -84,6 +105,37 @@ export class SealedCodexGrant extends Schema.Class<SealedCodexGrant>(
 	/** AES-GCM ciphertext, including no plaintext provider data. */
 	ciphertext: Schema.String,
 	/** AES-GCM authentication tag, base64url. */
+	tag: Schema.String,
+}) {}
+
+export const ProviderGrantRefreshReason = CodexGrantRefreshReason;
+export type ProviderGrantRefreshReason = CodexGrantRefreshReason;
+
+/** Request for a provider grant whose provider identity is bound by the route. */
+export class ProviderGrantRequest extends Schema.Class<ProviderGrantRequest>(
+	"ProviderGrantRequest",
+)({
+	requestId: Schema.String,
+	protocolVersion: Schema.Literal(1),
+	runtimeGeneration: Schema.Number,
+	credentialPublicJwk: Schema.String,
+	reason: ProviderGrantRefreshReason,
+	previousProviderAccountId: Schema.optional(Schema.String),
+}) {}
+
+/** API-routed provider ciphertext, additionally bound to the provider ID. */
+export class SealedProviderGrant extends Schema.Class<SealedProviderGrant>(
+	"SealedProviderGrant",
+)({
+	protocolVersion: Schema.Literal(1),
+	providerId: CloudAuthProvider,
+	requestId: Schema.String,
+	keyThumbprint: Schema.String,
+	authorityIncarnationId: Schema.String,
+	authorityEpoch: Schema.Number,
+	wrappedKey: Schema.String,
+	iv: Schema.String,
+	ciphertext: Schema.String,
 	tag: Schema.String,
 }) {}
 

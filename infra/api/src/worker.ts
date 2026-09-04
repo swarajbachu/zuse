@@ -154,6 +154,8 @@ interface Env {
 	readonly CLOUD_COMMAND_MAILBOX_ENABLED?: string;
 	readonly CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED?: string;
 	readonly CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED?: string;
+	readonly CLOUD_PROVIDER_AUTH_BROKER_ENROLLMENT_ENABLED?: string;
+	readonly CLOUD_PROVIDER_AUTH_BROKER_SERVING_ENABLED?: string;
 }
 
 const flushMailboxLifecycleOutbox = (
@@ -419,6 +421,10 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 			env.CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED === "true",
 		cloudCodexAuthBrokerServingEnabled:
 			env.CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED === "true",
+		cloudProviderAuthBrokerEnrollmentEnabled:
+			env.CLOUD_PROVIDER_AUTH_BROKER_ENROLLMENT_ENABLED === "true",
+		cloudProviderAuthBrokerServingEnabled:
+			env.CLOUD_PROVIDER_AUTH_BROKER_SERVING_ENABLED === "true",
 		cloudBillingCutoverAtMs,
 		cloudBillingPolarMeterId: isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID)
 			? env.POLAR_CLOUD_OVERAGE_METER_ID

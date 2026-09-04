@@ -63,6 +63,17 @@ describe("session actions", () => {
 		});
 	});
 
+	it("classifies account-broker reconnects for every cloud provider", () => {
+		for (const providerId of ["claude", "cursor", "grok"] as const)
+			expect(
+				classifyMessage(`${providerId}-auth-reconnect-required`, providerId),
+			).toEqual({
+				kind: "auth",
+				providerId,
+				message: `${providerId}-auth-reconnect-required`,
+			});
+	});
+
 	it("classifies reconnect failures without clearing canonical data", () => {
 		expect(
 			classifyMessage("WebSocket closed while the laptop was offline"),
