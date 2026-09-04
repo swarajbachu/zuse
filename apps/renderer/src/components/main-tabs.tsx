@@ -25,6 +25,7 @@ import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import { closeChatTab } from "../lib/close-chat-tab.ts";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
+import { selectAuthenticatedProvider } from "../lib/model-picker-availability.ts";
 import {
 	type RendererSessionTimeline,
 	useRendererSessionTimelines,
@@ -44,6 +45,7 @@ import { RenameDialog } from "./rename-dialog.tsx";
 import { TypewriterText } from "./typewriter-text.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Spinner } from "./ui/spinner";
+import { toastManager } from "./ui/toast.tsx";
 
 type Props = {
 	readonly projectId: FolderId | null;
@@ -401,45 +403,70 @@ function NewChatTabButton({
 	environmentId: EnvironmentId;
 	projectId: FolderId | null;
 }) {
-	const refresh = useProvidersStore((s) => s.refresh);
+	const loadAvailability = useProvidersStore((s) => s.loadFor);
 	const create = useSessionsStore((s) => s.create);
 	const creating = useSessionsStore((s) => s.creatingByChat[chatId] === true);
+	const [preparing, setPreparing] = useState(false);
+	const busy = creating || preparing;
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
 	const defaultModelByProvider = useSettingsStore(
 		(s) => s.defaultModelByProvider,
 	);
+	const providerEnabled = useSettingsStore((s) => s.providerEnabled);
 
 	// Creates a new session inside the active chat. Worktree is inherited
-	// from the chat row server-side. Skip the awaited provider refresh when
-	// we already have a default model cached — saves 100–500ms per click on
-	// the warm path; cold cache still pays for the round-trip.
+	// from the chat row server-side. Availability is cached per environment,
+	// so only the first click probes the runtime; importantly, a local default
+	// can never select a provider that is signed out in this cloud workspace.
 	const onClick = async () => {
-		if (creating) return;
-		if (defaultModelByProvider[defaultProviderId] === undefined) {
-			await refresh();
+		if (busy) return;
+		setPreparing(true);
+		try {
+			await loadAvailability(environmentId);
+			const environmentAvailability =
+				useProvidersStore.getState().availabilityByEnvironment[environmentId]
+					?.availability ?? [];
+			const providerId = selectAuthenticatedProvider({
+				preferredProviderId: defaultProviderId,
+				providerIds: Object.keys(
+					MODELS_BY_PROVIDER,
+				) as ReadonlyArray<ProviderId>,
+				availability: environmentAvailability,
+				providerEnabled,
+			});
+			if (providerId === null) {
+				toastManager.add({
+					type: "error",
+					title: "No authenticated agent",
+					description:
+						"Connect an agent in Cloud Authentication before opening a new tab.",
+				});
+				return;
+			}
+			const model =
+				defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
+			const runtimeMode =
+				projectId === null
+					? useSettingsStore.getState().defaultRuntimeMode
+					: await resolveChatRuntimeMode(environmentId, projectId);
+			await create(chatId, providerId, model, {
+				runtimeMode,
+			});
+		} finally {
+			setPreparing(false);
 		}
-		const model =
-			defaultModelByProvider[defaultProviderId] ??
-			defaultModelFor(defaultProviderId);
-		const runtimeMode =
-			projectId === null
-				? useSettingsStore.getState().defaultRuntimeMode
-				: await resolveChatRuntimeMode(environmentId, projectId);
-		void create(chatId, defaultProviderId, model, {
-			runtimeMode,
-		});
 	};
 
 	return (
 		<button
 			type="button"
 			onClick={() => void onClick()}
-			disabled={creating}
+			disabled={busy}
 			title="New tab in this chat"
 			aria-label="New tab in this chat"
 			className="relative flex shrink-0 items-center justify-center rounded px-2 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
 		>
-			{creating ? (
+			{busy ? (
 				<span className="inline-flex size-3.5 items-center justify-center">
 					<Spinner className="size-3.5" />
 				</span>

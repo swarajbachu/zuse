@@ -33,7 +33,7 @@ import { installClientBusOnlineBridge } from "./lib/client-bus-online.ts";
 import { closeActiveChatTab } from "./lib/close-chat-tab.ts";
 import {
 	cloudSessionPlaceholder,
-	useCloudChatSummaryForSession,
+	useCloudChatSummaryForSelection,
 } from "./lib/cloud-workspaces.ts";
 import { useActiveSessionById } from "./lib/environment-entity-hooks.ts";
 import { useGitWorkspaceResource } from "./lib/git-workspace-client-bus.ts";
@@ -436,7 +436,10 @@ function MainShell() {
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
-	const selectedCloudSummary = useCloudChatSummaryForSession(selectedSessionId);
+	const selectedCloudSummary = useCloudChatSummaryForSelection({
+		chatId: selectedChatId,
+		sessionId: selectedSessionId,
+	});
 	const selectedEnvironmentId = EnvironmentId.make(
 		selectedCloudSummary?.workspaceId ?? activeEnvironmentId,
 	);

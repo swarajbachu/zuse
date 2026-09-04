@@ -136,7 +136,9 @@ export function PlanApprovalTray({
 		if (ref !== null) attachFileWhenReady(ref);
 		if (pendingRequest !== null) {
 			await decide(pendingRequest.id, { _tag: "Deny" });
-			await useSessionsStore.getState().setPermissionMode(sessionId, "default");
+			await useSessionsStore
+				.getState()
+				.setPermissionMode(sessionId, "default", environmentId);
 		} else if (nativeRequest !== null) {
 			await respondToPlan(
 				sessionId,

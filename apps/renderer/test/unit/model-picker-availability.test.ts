@@ -1,7 +1,10 @@
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
-import { isModelPickerProviderVisible } from "../../src/lib/model-picker-availability.ts";
+import {
+	isModelPickerProviderVisible,
+	selectAuthenticatedProvider,
+} from "../../src/lib/model-picker-availability.ts";
 
 const availabilityFor = (
 	providerId: ProviderId,
@@ -76,6 +79,18 @@ describe("model picker provider visibility", () => {
 		).toBe(false);
 	});
 
+	it("does not reveal unverified cloud providers while availability loads", () => {
+		expect(
+			isModelPickerProviderVisible({
+				providerId: "claude",
+				availability: undefined,
+				providerEnabled: { claude: true },
+				availabilityLoaded: false,
+				revealBeforeAvailabilityLoaded: false,
+			}),
+		).toBe(false);
+	});
+
 	it("hides providers whose CLI is not installed", () => {
 		expect(
 			isModelPickerProviderVisible({
@@ -131,5 +146,22 @@ describe("model picker provider visibility", () => {
 				providerEnabled: { cursor: true },
 			}),
 		).toBe(true);
+	});
+
+	it("falls back from an unauthenticated default to an authenticated provider", () => {
+		expect(
+			selectAuthenticatedProvider({
+				preferredProviderId: "grok",
+				providerIds: ["claude", "codex", "grok"],
+				availability: [
+					availabilityFor("grok", {
+						authStatus: "unauthenticated",
+						cliLoggedIn: false,
+					}),
+					availabilityFor("codex"),
+				],
+				providerEnabled: {},
+			}),
+		).toBe("codex");
 	});
 });

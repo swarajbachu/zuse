@@ -96,17 +96,36 @@ describe("closing chat tabs", () => {
 		const active = session("session-only", 0);
 		const archive = vi.fn(async () => undefined);
 		const create = vi.fn(async () => null);
-		const refresh = vi.fn(async () => undefined);
+		const loadFor = vi.fn(async () => undefined);
 		canonical.sessionsByProject = { [projectId]: [active] };
 		useSessionsStore.setState({
 			archive,
 			create,
 		});
-		useProvidersStore.setState({ refresh });
+		useProvidersStore.setState({
+			loadFor,
+			availabilityByEnvironment: {
+				local: {
+					availability: [
+						{
+							providerId: "codex",
+							displayName: "Codex",
+							cliInstalled: true,
+							cliLoggedIn: true,
+							hasApiKey: false,
+							authStatus: "authenticated",
+						},
+					],
+					loading: false,
+					availabilityLoaded: true,
+					error: null,
+				},
+			},
+		});
 
 		await closeChatTab(active.id);
 
-		expect(refresh).toHaveBeenCalledOnce();
+		expect(loadFor).toHaveBeenCalledOnce();
 		expect(create).toHaveBeenCalledExactlyOnceWith(chatId, "codex", "gpt-5.4", {
 			runtimeMode: "full-access",
 		});
@@ -121,7 +140,26 @@ describe("closing chat tabs", () => {
 		const select = vi.fn();
 		canonical.sessionsByProject = { [projectId]: [active] };
 		useSessionsStore.setState({ archive, create, select });
-		useProvidersStore.setState({ refresh: vi.fn(async () => undefined) });
+		useProvidersStore.setState({
+			loadFor: vi.fn(async () => undefined),
+			availabilityByEnvironment: {
+				local: {
+					availability: [
+						{
+							providerId: "codex",
+							displayName: "Codex",
+							cliInstalled: true,
+							cliLoggedIn: true,
+							hasApiKey: false,
+							authStatus: "authenticated",
+						},
+					],
+					loading: false,
+					availabilityLoaded: true,
+					error: null,
+				},
+			},
+		});
 
 		await closeChatTab(active.id);
 

@@ -253,6 +253,13 @@ describe("chat creation handoff", () => {
 				hasPendingCreation: true,
 			}),
 		).toBe(false);
+		expect(
+			shouldRenderGenericAgentStartup({
+				inFlight: false,
+				agentStarting: true,
+				hasPendingCreation: false,
+			}),
+		).toBe(true);
 	});
 
 	it("does not turn an intentional stream replacement into a chat error", () => {

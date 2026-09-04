@@ -12,6 +12,7 @@ import { cloudConnectionPresentation } from "../../src/lib/cloud-connection-pres
 import {
 	cloudSummaryForChat,
 	cloudSummaryForEnvironment,
+	cloudSummaryForSelection,
 	cloudSummaryForSession,
 	compareCloudChatSummaryVersion,
 	localProjectForCloudChat,
@@ -99,6 +100,23 @@ describe("cloud chat catalog", () => {
 		expect(cloudSummaryForSession(current.initialSessionId)).toBe(current);
 		expect(localProjectForCloudChat("chat-a")).toBe("local-project-a");
 		expect(localProjectForCloudChat("chat-b")).toBe("local-project-b");
+	});
+
+	it("keeps secondary sessions qualified by their owning cloud chat", () => {
+		const current = summary({
+			workspaceId: "environment-a",
+			chatId: "chat-a",
+			sessionId: "initial-session-a",
+			revision: 1,
+		});
+		registerCloudChat(current, FolderId.make("local-project-a"));
+
+		expect(
+			cloudSummaryForSelection({
+				chatId: ChatId.make("chat-a"),
+				sessionId: AgentSessionId.make("secondary-session-a"),
+			}),
+		).toBe(current);
 	});
 
 	it("derives attachment activity from the shared connection supervisor", () => {

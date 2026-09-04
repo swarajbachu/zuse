@@ -5,6 +5,9 @@ import type {
 } from "@zuse/contracts";
 import { CommandId, EnvironmentId } from "@zuse/contracts";
 import { toastManager } from "../components/ui/toast.tsx";
+import { applyCloudProviderAuthentication } from "../lib/cloud-provider-availability.ts";
+import { cloudSummaryForEnvironment } from "../lib/cloud-workspace-catalog.ts";
+import { runControlPlane } from "../lib/control-plane-client.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
 import { getProviderStatusNotice } from "../lib/provider-status.ts";
@@ -26,17 +29,17 @@ export const IDLE_PROVIDER_UPDATE_STATE: ProviderUpdateState = {
 	kind: "idle",
 };
 
-let pendingAvailabilityLoad: Promise<void> | null = null;
+const pendingAvailabilityLoads = new Map<string, Promise<void>>();
 let activeProviderStatusNotice: string | null = null;
 
 const activeEnvironmentId = (): EnvironmentId =>
 	EnvironmentId.make(useEnvironmentCatalogStore.getState().activeEnvironmentId);
 
 const providerCommand = async <Payload, Result>(
+	environmentId: EnvironmentId,
 	kind: string,
 	payload: Payload,
 ): Promise<Result> => {
-	const environmentId = activeEnvironmentId();
 	const receipt = await dispatchEnvironmentShellCommand<Payload, Result>({
 		environmentId,
 		kind,
@@ -44,6 +47,20 @@ const providerCommand = async <Payload, Result>(
 		payload,
 	});
 	return receipt.result;
+};
+
+export type ProviderAvailabilitySnapshot = Readonly<{
+	availability: ReadonlyArray<AgentAvailability>;
+	loading: boolean;
+	availabilityLoaded: boolean;
+	error: string | null;
+}>;
+
+const EMPTY_AVAILABILITY_SNAPSHOT: ProviderAvailabilitySnapshot = {
+	availability: [],
+	loading: false,
+	availabilityLoaded: false,
+	error: null,
 };
 
 const notifyProviderStatus = (
@@ -78,11 +95,19 @@ type ProvidersState = {
 	readonly loading: boolean;
 	readonly availabilityLoaded: boolean;
 	readonly error: string | null;
+	readonly availabilityByEnvironment: Readonly<
+		Record<string, ProviderAvailabilitySnapshot>
+	>;
 	readonly updateStateByProvider: Partial<
 		Record<ProviderId, ProviderUpdateState>
 	>;
 	readonly load: () => Promise<void>;
+	readonly loadFor: (environmentId: EnvironmentId) => Promise<void>;
 	readonly refresh: (force?: boolean) => Promise<void>;
+	readonly refreshFor: (
+		environmentId: EnvironmentId,
+		force?: boolean,
+	) => Promise<void>;
 	readonly setProviderUpdateState: (
 		providerId: ProviderId,
 		state: ProviderUpdateState,
@@ -93,7 +118,10 @@ type ProvidersState = {
 	 * isn't probed yet or declares no gated features. Used to show/hide feature
 	 * controls (e.g. Codex goal/fast toggles) before a session exists.
 	 */
-	readonly capabilitiesFor: (providerId: ProviderId) => ReadonlyArray<string>;
+	readonly capabilitiesFor: (
+		providerId: ProviderId,
+		environmentId?: EnvironmentId,
+	) => ReadonlyArray<string>;
 	readonly setCredential: (
 		providerId: ProviderId,
 		apiKey: string,
@@ -106,34 +134,116 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 	loading: false,
 	availabilityLoaded: false,
 	error: null,
+	availabilityByEnvironment: {},
 	updateStateByProvider: {},
 	load: async () => {
-		if (get().availabilityLoaded) return;
-		if (pendingAvailabilityLoad !== null) {
-			await pendingAvailabilityLoad;
+		await get().loadFor(activeEnvironmentId());
+	},
+	loadFor: async (environmentId) => {
+		const key = environmentId as string;
+		const snapshot = get().availabilityByEnvironment[key];
+		if (snapshot?.availabilityLoaded === true) {
+			if (environmentId === activeEnvironmentId()) {
+				set({
+					availability: snapshot.availability,
+					loading: snapshot.loading,
+					availabilityLoaded: true,
+					error: snapshot.error,
+				});
+			}
+			return;
+		}
+		const pending = pendingAvailabilityLoads.get(key);
+		if (pending !== undefined) {
+			await pending;
 			return;
 		}
 		const load = get()
-			.refresh(false)
+			.refreshFor(environmentId, false)
 			.finally(() => {
-				if (pendingAvailabilityLoad === load) pendingAvailabilityLoad = null;
+				if (pendingAvailabilityLoads.get(key) === load) {
+					pendingAvailabilityLoads.delete(key);
+				}
 			});
-		pendingAvailabilityLoad = load;
+		pendingAvailabilityLoads.set(key, load);
 		await load;
 	},
 	refresh: async (force = true) => {
-		set({ loading: true, error: null });
+		await get().refreshFor(activeEnvironmentId(), force);
+	},
+	refreshFor: async (environmentId, force = true) => {
+		const key = environmentId as string;
+		const isActive = environmentId === activeEnvironmentId();
+		set((state) => ({
+			availabilityByEnvironment: {
+				...state.availabilityByEnvironment,
+				[key]: {
+					...(state.availabilityByEnvironment[key] ??
+						EMPTY_AVAILABILITY_SNAPSHOT),
+					loading: true,
+					error: null,
+				},
+			},
+			...(isActive ? { loading: true, error: null } : {}),
+		}));
 		try {
-			const environmentId = activeEnvironmentId();
-			const list = await providerCommand<
+			const cloudSummary = cloudSummaryForEnvironment(environmentId);
+			const brokered =
+				cloudSummary?.providerAuthMode === "broker-v1" ||
+				cloudSummary?.codexAuthMode === "broker-v1";
+			const rawRequest = providerCommand<
 				{ readonly refresh: boolean },
 				ReadonlyArray<AgentAvailability>
-			>("provider.availability", { refresh: force });
-			if (environmentId !== activeEnvironmentId()) return;
-			set({ availability: list, loading: false, availabilityLoaded: true });
-			notifyProviderStatus(list);
+			>(environmentId, "provider.availability", { refresh: force });
+			const list = brokered
+				? await Promise.all([
+						rawRequest,
+						runControlPlane((client) => client["cloud.auth.status"]()),
+					]).then(([availability, auth]) =>
+						applyCloudProviderAuthentication({
+							availability,
+							auth,
+							codexAuthMode: cloudSummary?.codexAuthMode,
+							providerAuthMode: cloudSummary?.providerAuthMode,
+						}),
+					)
+				: await rawRequest;
+			const publishActive = environmentId === activeEnvironmentId();
+			set((state) => ({
+				availabilityByEnvironment: {
+					...state.availabilityByEnvironment,
+					[key]: {
+						availability: list,
+						loading: false,
+						availabilityLoaded: true,
+						error: null,
+					},
+				},
+				...(publishActive
+					? {
+							availability: list,
+							loading: false,
+							availabilityLoaded: true,
+							error: null,
+						}
+					: {}),
+			}));
+			if (publishActive) notifyProviderStatus(list);
 		} catch (err) {
-			set({ error: formatError(err), loading: false });
+			const error = formatError(err);
+			const publishActive = environmentId === activeEnvironmentId();
+			set((state) => ({
+				availabilityByEnvironment: {
+					...state.availabilityByEnvironment,
+					[key]: {
+						...(state.availabilityByEnvironment[key] ??
+							EMPTY_AVAILABILITY_SNAPSHOT),
+						loading: false,
+						error,
+					},
+				},
+				...(publishActive ? { error, loading: false } : {}),
+			}));
 		}
 	},
 	setProviderUpdateState: (providerId, state) =>
@@ -143,15 +253,23 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 				[providerId]: state,
 			},
 		})),
-	capabilitiesFor: (providerId) =>
-		get().availability.find((a) => a.providerId === providerId)?.capabilities ??
-		EMPTY_CAPABILITIES,
+	capabilitiesFor: (providerId, environmentId) => {
+		const availability =
+			environmentId === undefined
+				? get().availability
+				: (get().availabilityByEnvironment[environmentId]?.availability ?? []);
+		return (
+			availability.find((a) => a.providerId === providerId)?.capabilities ??
+			EMPTY_CAPABILITIES
+		);
+	},
 	setCredential: async (providerId, apiKey) => {
 		try {
+			const environmentId = activeEnvironmentId();
 			const result = await providerCommand<
 				{ readonly providerId: ProviderId; readonly apiKey: string },
 				CredentialSetResult
-			>("provider.setCredential", { providerId, apiKey });
+			>(environmentId, "provider.setCredential", { providerId, apiKey });
 			await get().refresh();
 			return result;
 		} catch (err) {
@@ -161,7 +279,13 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 	},
 	removeCredential: async (providerId) => {
 		try {
-			await providerCommand("provider.removeCredential", { providerId });
+			await providerCommand(
+				activeEnvironmentId(),
+				"provider.removeCredential",
+				{
+					providerId,
+				},
+			);
 			await get().refresh();
 		} catch (err) {
 			set({ error: formatError(err) });

@@ -8,12 +8,8 @@ vi.mock("../../src/lib/session-timeline-hooks.ts", () => ({
 	useRendererSessionTimeline: timelineRetain,
 }));
 
-vi.mock("../../src/lib/environment-entity-hooks.ts", () => ({
-	useActiveSessionById: () => null,
-}));
-
-vi.mock("../../src/lib/cloud-workspace-catalog.ts", () => ({
-	cloudSummaryForSession: () => ({ startupPhase: "ready" }),
+vi.mock("../../src/lib/cloud-workspaces.ts", () => ({
+	useCloudChatSummaryForSelection: () => ({ startupPhase: "ready" }),
 }));
 
 import { ChatWorkingRow } from "../../src/components/chat-working-row.tsx";
@@ -24,6 +20,7 @@ describe("ChatWorkingRow cloud delivery", () => {
 		const markup = renderToStaticMarkup(
 			<ChatWorkingRow
 				messages={[]}
+				chatId={null}
 				pendingCommands={[
 					{
 						commandId,
@@ -35,6 +32,7 @@ describe("ChatWorkingRow cloud delivery", () => {
 				]}
 				runtimeState="starting"
 				sessionId={SessionId.make("sleeping-cloud-session")}
+				providerId="codex"
 			/>,
 		);
 

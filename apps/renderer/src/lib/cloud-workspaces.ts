@@ -6,6 +6,7 @@ import type {
 import type { SessionTimelineProjection } from "@zuse/contracts";
 import {
 	Chat,
+	type ChatId,
 	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
 	type CloudChatSummary,
 	CloudTranscriptCheckpointPayload,
@@ -59,8 +60,8 @@ import { useWorkspaceStore } from "../store/workspace.ts";
 import {
 	cloudSummaryForChat,
 	cloudSummaryForEnvironment,
-	cloudSummaryForSession,
 	compareCloudChatSummaryVersion,
+	findCloudSummaryForSelection,
 	hydrateCloudChatCatalogPersistence,
 	localProjectForCloudChat,
 	localProjectForCloudEnvironment,
@@ -790,16 +791,19 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 
 registerCloudChatCatalogRefresh(() => useCloudChatsStore.getState().hydrate());
 
-export const useCloudChatSummaryForSession = (
-	sessionId: SessionId | null,
-): CloudChatSummary | null => {
-	const registered =
-		sessionId === null ? null : cloudSummaryForSession(sessionId);
+export const useCloudChatSummaryForSelection = ({
+	chatId,
+	sessionId,
+}: {
+	readonly chatId: ChatId | null;
+	readonly sessionId: SessionId | null;
+}): CloudChatSummary | null => {
 	return useCloudChatCatalogStore((state) =>
-		sessionId === null
-			? null
-			: (state.summaries.find(
-					(summary) => summary.initialSessionId === sessionId,
-				) ?? registered),
+		findCloudSummaryForSelection(state.summaries, { chatId, sessionId }),
 	);
 };
+
+export const useCloudChatSummaryForSession = (
+	sessionId: SessionId | null,
+): CloudChatSummary | null =>
+	useCloudChatSummaryForSelection({ chatId: null, sessionId });

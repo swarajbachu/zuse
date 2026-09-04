@@ -16,6 +16,7 @@ import { CommandId, EnvironmentId, Session, SessionId } from "@zuse/contracts";
 import { cloudInteractionFailure } from "../lib/cloud-failure-presentation.ts";
 import { cloudSummaryForChat } from "../lib/cloud-workspace-catalog.ts";
 import {
+	activeSessionById,
 	activeSessionsByProject,
 	overlayActiveEnvironmentShell,
 	overlayEnvironmentShell,
@@ -127,10 +128,15 @@ type SessionsState = {
 		status: Session["status"],
 	) => void;
 	readonly rename: (sessionId: SessionId, title: string) => Promise<void>;
-	readonly setModel: (sessionId: SessionId, model: string) => Promise<void>;
+	readonly setModel: (
+		sessionId: SessionId,
+		model: string,
+		environmentId?: EnvironmentId,
+	) => Promise<void>;
 	readonly setRuntimeMode: (
 		sessionId: SessionId,
 		runtimeMode: RuntimeMode,
+		environmentId?: EnvironmentId,
 	) => Promise<void>;
 	/**
 	 * Switch the SDK lifecycle mode (plan / default / acceptEdits) on a
@@ -140,6 +146,7 @@ type SessionsState = {
 	readonly setPermissionMode: (
 		sessionId: SessionId,
 		mode: PermissionMode,
+		environmentId?: EnvironmentId,
 	) => Promise<void>;
 	/**
 	 * Resolve a pending in-process AskUserQuestion call. Routes the
@@ -171,6 +178,7 @@ type SessionsState = {
 		sessionId: SessionId,
 		providerId: ProviderId,
 		model: string,
+		environmentId?: EnvironmentId,
 	) => Promise<{ readonly ok: true } | { readonly ok: false; reason: string }>;
 	readonly refreshOne: (sessionId: SessionId) => Promise<void>;
 	readonly archive: (sessionId: SessionId) => Promise<void>;
@@ -196,13 +204,28 @@ const nextCommandId = (kind: string): CommandId =>
 		`${kind}:${Date.now().toString(36)}:${(commandCounter++).toString(36)}`,
 	);
 
+/**
+ * Resolve execution ownership from the session's owning chat. Cloud catalog
+ * rows only identify the initial session directly, so looking up by session id
+ * alone misroutes every later tab to the active local renderer shell.
+ */
+const environmentForSessionCommand = (
+	sessionId: SessionId,
+	explicit?: EnvironmentId,
+): EnvironmentId => {
+	if (explicit !== undefined) return explicit;
+	const session = activeSessionById(sessionId);
+	const cloud = session === null ? null : cloudSummaryForChat(session.chatId);
+	return EnvironmentId.make(cloud?.workspaceId ?? getActiveEnvironment());
+};
+
 const dispatchTimelineCommand = <Payload, Result>(
 	sessionId: SessionId,
 	kind: string,
 	commandId: CommandId,
 	payload: Payload,
 	retry: "safe" | "never" = "safe",
-	environmentId = EnvironmentId.make(getActiveEnvironment()),
+	environmentId = environmentForSessionCommand(sessionId),
 ) =>
 	dispatchSessionCommand<Payload, Result>({
 		ref: {
@@ -591,7 +614,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			throw err;
 		}
 	},
-	setModel: async (sessionId, model) => {
+	setModel: async (sessionId, model, environmentId) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
 			set({ draftSession: Session.make({ ...draft, model }) });
@@ -606,6 +629,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				commandId,
 				{ sessionId, model },
 				"never",
+				environmentId,
 			);
 			patchActiveSession(sessionId, (session) =>
 				Session.make({ ...session, model }),
@@ -614,7 +638,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			set({ error: formatError(err) });
 		}
 	},
-	setRuntimeMode: async (sessionId, runtimeMode) => {
+	setRuntimeMode: async (sessionId, runtimeMode, environmentId) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
 			set({ draftSession: Session.make({ ...draft, runtimeMode }) });
@@ -638,6 +662,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					sessionId,
 					runtimeMode,
 				},
+				"safe",
+				environmentId,
 			);
 		} catch (err) {
 			set({ error: formatError(err) });
@@ -649,7 +675,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			if (projectId !== null) await get().hydrate(projectId);
 		}
 	},
-	setPermissionMode: async (sessionId, mode) => {
+	setPermissionMode: async (sessionId, mode, environmentId) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
 			set({ draftSession: Session.make({ ...draft, permissionMode: mode }) });
@@ -666,6 +692,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				"session.setPermissionMode",
 				commandId,
 				{ commandId, sessionId, mode },
+				"safe",
+				environmentId,
 			);
 		} catch (err) {
 			set({ error: formatError(err) });
@@ -723,7 +751,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			return "failed";
 		}
 	},
-	setProvider: async (sessionId, providerId, model) => {
+	setProvider: async (sessionId, providerId, model, environmentId) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
 			set({ draftSession: Session.make({ ...draft, providerId, model }) });
@@ -738,6 +766,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				commandId,
 				{ sessionId, providerId, model },
 				"never",
+				environmentId,
 			);
 			patchActiveSession(sessionId, (session) =>
 				Session.make({ ...session, providerId, model }),

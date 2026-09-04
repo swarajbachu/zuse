@@ -1,7 +1,11 @@
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
-import type { ChatId, Command, Session } from "@zuse/contracts";
-import { defaultModelFor, EnvironmentId } from "@zuse/contracts";
-
+import type { ChatId, Command, ProviderId, Session } from "@zuse/contracts";
+import {
+	defaultModelFor,
+	EnvironmentId,
+	MODELS_BY_PROVIDER,
+} from "@zuse/contracts";
+import { toastManager } from "../components/ui/toast.tsx";
 import { useChatsStore } from "../store/chats";
 import { useComposerBridge } from "../store/composer-bridge";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
@@ -12,11 +16,15 @@ import { rightPaneKey, useUiStore } from "../store/ui";
 import { useWorkspaceStore } from "../store/workspace";
 import { captureAnalytics } from "./analytics";
 import { resolveChatRuntimeMode } from "./auto-worktree.ts";
-import { localProjectForCloudChat } from "./cloud-workspace-catalog.ts";
+import {
+	cloudSummaryForChat,
+	localProjectForCloudChat,
+} from "./cloud-workspace-catalog.ts";
 import {
 	activeChatsByProject,
 	activeSessionsByProject,
 } from "./environment-entities.ts";
+import { selectAuthenticatedProvider } from "./model-picker-availability.ts";
 import { openNewChatLanding } from "./open-new-chat-landing.ts";
 import { openProjectSetupDialog } from "./project-setup-dialog-state.ts";
 import { getLocalEnvironmentId } from "./rpc-client.ts";
@@ -52,7 +60,8 @@ function currentChatRef(): ChatRef | null {
 		? null
 		: {
 				environmentId: EnvironmentId.make(
-					useEnvironmentCatalogStore.getState().activeEnvironmentId,
+					cloudSummaryForChat(chatId)?.workspaceId ??
+						useEnvironmentCatalogStore.getState().activeEnvironmentId,
 				),
 				chatId,
 			};
@@ -88,20 +97,34 @@ function selectLastTab(): void {
 async function newTabInActiveChat(): Promise<void> {
 	const chatId = currentChatId();
 	if (chatId === null) return;
+	const environmentId = EnvironmentId.make(
+		cloudSummaryForChat(chatId)?.workspaceId ??
+			useEnvironmentCatalogStore.getState().activeEnvironmentId,
+	);
 	const settings = useSettingsStore.getState();
-	const providerId = settings.defaultProviderId;
-	// Warm path skips the provider refresh when a default model is cached;
-	// cold path pays the round-trip first so `create` gets a real model id.
-	if (settings.defaultModelByProvider[providerId] === undefined) {
-		await useProvidersStore.getState().refresh();
+	await useProvidersStore.getState().loadFor(environmentId);
+	const environmentAvailability =
+		useProvidersStore.getState().availabilityByEnvironment[environmentId]
+			?.availability ?? [];
+	const providerId = selectAuthenticatedProvider({
+		preferredProviderId: settings.defaultProviderId,
+		providerIds: Object.keys(MODELS_BY_PROVIDER) as ReadonlyArray<ProviderId>,
+		availability: environmentAvailability,
+		providerEnabled: settings.providerEnabled ?? {},
+	});
+	if (providerId === null) {
+		toastManager.add({
+			type: "error",
+			title: "No authenticated agent",
+			description:
+				"Connect an agent in Cloud Authentication before opening a new tab.",
+		});
+		return;
 	}
 	const fresh = useSettingsStore.getState();
 	const model =
 		fresh.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
 	const projectId = useWorkspaceStore.getState().selectedFolderId;
-	const environmentId = EnvironmentId.make(
-		useEnvironmentCatalogStore.getState().activeEnvironmentId,
-	);
 	const runtimeMode =
 		projectId === null
 			? fresh.defaultRuntimeMode

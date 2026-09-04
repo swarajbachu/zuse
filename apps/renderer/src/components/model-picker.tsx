@@ -131,6 +131,8 @@ export function ModelPicker(props: ModelPickerProps) {
 	const optionsPanel =
 		props.mode === "session" ? props.optionsPanel : undefined;
 	const sessionId = props.mode === "session" ? props.sessionId : null;
+	const providerEnvironmentId =
+		props.mode === "session" ? props.environmentId : null;
 	const timeline = useOptionalRendererSessionTimeline(
 		sessionId,
 		sessionId === null ? "cache-only" : "connect",
@@ -169,10 +171,37 @@ export function ModelPicker(props: ModelPickerProps) {
 		(s) => s.setDefaultProviderAndModel,
 	);
 
-	const availability = useProvidersStore((s) => s.availability);
-	const availabilityLoaded = useProvidersStore((s) => s.availabilityLoaded);
-	const availabilityLoading = useProvidersStore((s) => s.loading);
-	const refreshAvailability = useProvidersStore((s) => s.refresh);
+	const defaultAvailability = useProvidersStore((s) => s.availability);
+	const defaultAvailabilityLoaded = useProvidersStore(
+		(s) => s.availabilityLoaded,
+	);
+	const defaultAvailabilityLoading = useProvidersStore((s) => s.loading);
+	const environmentAvailability = useProvidersStore((s) =>
+		providerEnvironmentId !== null
+			? s.availabilityByEnvironment[providerEnvironmentId]
+			: undefined,
+	);
+	const refresh = useProvidersStore((s) => s.refresh);
+	const refreshFor = useProvidersStore((s) => s.refreshFor);
+	const availability =
+		props.mode === "session"
+			? (environmentAvailability?.availability ?? [])
+			: defaultAvailability;
+	const availabilityLoaded =
+		props.mode === "session"
+			? (environmentAvailability?.availabilityLoaded ?? false)
+			: defaultAvailabilityLoaded;
+	const availabilityLoading =
+		props.mode === "session"
+			? (environmentAvailability?.loading ?? false)
+			: defaultAvailabilityLoading;
+	const refreshAvailability = useCallback(
+		() =>
+			providerEnvironmentId === null
+				? refresh()
+				: refreshFor(providerEnvironmentId),
+		[providerEnvironmentId, refresh, refreshFor],
+	);
 	const opencodeInventory = useOpencodeInventory((s) => s.inventory);
 	const ensureOpencodeInventory = useOpencodeInventory((s) => s.ensureLoaded);
 	const kiroInventory = useKiroInventory((s) => s.inventory);
@@ -338,6 +367,7 @@ export function ModelPicker(props: ModelPickerProps) {
 				availability: availabilityById.get(pid),
 				providerEnabled,
 				availabilityLoaded,
+				revealBeforeAvailabilityLoaded: isDefault,
 			});
 		});
 	}, [
@@ -434,7 +464,7 @@ export function ModelPicker(props: ModelPickerProps) {
 		}
 
 		if (props.mode !== "session") return;
-		const { sessionId, chatId, runtimeMode } = props;
+		const { environmentId, sessionId, chatId, runtimeMode } = props;
 
 		const isCross = pid !== providerId;
 		// Await whatever store call we kick off so we can keep the popover
@@ -456,13 +486,18 @@ export function ModelPicker(props: ModelPickerProps) {
 					return;
 				}
 			} else if (isCross) {
-				const result = await setSessionProvider(sessionId, pid, modelId);
+				const result = await setSessionProvider(
+					sessionId,
+					pid,
+					modelId,
+					environmentId,
+				);
 				if (!result.ok) {
 					setPickError(result.reason);
 					return;
 				}
 			} else if (modelId !== currentModel) {
-				await setSessionModel(sessionId, modelId);
+				await setSessionModel(sessionId, modelId, environmentId);
 				const reason = useSessionsStore.getState().error;
 				if (reason !== null) {
 					setPickError(reason);
@@ -639,8 +674,16 @@ export function ModelPicker(props: ModelPickerProps) {
 								)}
 							>
 								{showEmpty && (
-									<div className="px-3 py-6 text-center text-muted-foreground text-xs">
-										No models match.
+									<div
+										className="px-3 py-6 text-center text-muted-foreground text-xs"
+										role="status"
+										aria-live="polite"
+									>
+										{availabilityLoading || !availabilityLoaded
+											? "Checking available agents…"
+											: isDefault
+												? "No models match."
+												: "No authenticated agents."}
 									</div>
 								)}
 

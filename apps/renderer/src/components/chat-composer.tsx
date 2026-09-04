@@ -117,7 +117,7 @@ import {
 	cloudWorkspaceIsStarting,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
-import { useCloudChatSummaryForSession } from "../lib/cloud-workspaces.ts";
+import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import {
 	cloudComposerSubmissionBlocked,
 	commitAcceptedComposerDelivery,
@@ -272,7 +272,7 @@ export function ChatComposer({
 	// Provider features the installed CLI supports (from the availability
 	// probe). Codex goal mode is version-gated; Grok advertises it natively.
 	const capabilities = useProvidersStore((s) =>
-		s.capabilitiesFor(session.providerId),
+		s.capabilitiesFor(session.providerId, qualifiedEnvironmentId),
 	);
 	const goalCapable =
 		session.providerId === "grok" ||
@@ -291,7 +291,10 @@ export function ChatComposer({
 		isDraft ? "cache-only" : "connect",
 	);
 	const runtimeState = timeline.runtime;
-	const cloudSummary = useCloudChatSummaryForSession(sessionId);
+	const cloudSummary = useCloudChatSummaryForSelection({
+		chatId: session.chatId,
+		sessionId,
+	});
 	const isCloudSession = cloudSummary !== null;
 	const cloudShell = useEnvironmentShellResource(
 		cloudSummary === null ? null : qualifiedEnvironmentId,
@@ -786,7 +789,9 @@ export function ChatComposer({
 				// Editor is already cleared by the caller; nothing else to do.
 				break;
 			case "model":
-				if (parsed.args) void setModel(sessionId, parsed.args);
+				if (parsed.args) {
+					void setModel(sessionId, parsed.args, qualifiedEnvironmentId);
+				}
 				break;
 			case "mode":
 				if (session.providerId === "cursor") {
@@ -803,14 +808,14 @@ export function ChatComposer({
 					parsed.args === "auto-accept-edits" ||
 					parsed.args === "full-access"
 				) {
-					void setRuntimeMode(sessionId, parsed.args);
+					void setRuntimeMode(sessionId, parsed.args, qualifiedEnvironmentId);
 				}
 				break;
 			case "plan":
-				void setPermissionMode(sessionId, "plan");
+				void setPermissionMode(sessionId, "plan", qualifiedEnvironmentId);
 				break;
 			case "run":
-				void setPermissionMode(sessionId, "default");
+				void setPermissionMode(sessionId, "default", qualifiedEnvironmentId);
 				break;
 			case "goal":
 				if (parsed.args.length > 0) {
@@ -1222,6 +1227,7 @@ export function ChatComposer({
 		void setPermissionMode(
 			sessionId,
 			session.permissionMode === "plan" ? "default" : "plan",
+			qualifiedEnvironmentId,
 		);
 	};
 	filesDroppedRef.current = (files) => {
@@ -1241,12 +1247,12 @@ export function ChatComposer({
 	const inPlanMode = session.permissionMode === "plan";
 	const approveEmulatedPlan = () => {
 		void (async () => {
-			await setPermissionMode(sessionId, "default");
+			await setPermissionMode(sessionId, "default", qualifiedEnvironmentId);
 			await send(EMULATED_PLAN_APPROVAL_PROMPT);
 		})();
 	};
 	const cancelEmulatedPlan = () => {
-		void setPermissionMode(sessionId, "default");
+		void setPermissionMode(sessionId, "default", qualifiedEnvironmentId);
 	};
 	const inUltracodeMode = reasoningLevel === "ultracode";
 	const requestInterrupt = async () => {
@@ -1486,6 +1492,7 @@ export function ChatComposer({
 									</Tooltip>
 									<RuntimeAccessPicker
 										sessionId={sessionId}
+										environmentId={qualifiedEnvironmentId}
 										providerId={session.providerId}
 										current={session.runtimeMode}
 									/>
@@ -1501,6 +1508,7 @@ export function ChatComposer({
 										true) && (
 										<PlanModeToggle
 											sessionId={sessionId}
+											environmentId={qualifiedEnvironmentId}
 											current={session.permissionMode}
 										/>
 									)}
@@ -1634,10 +1642,12 @@ export function ChatComposer({
 
 function RuntimeAccessPicker({
 	sessionId,
+	environmentId,
 	providerId,
 	current,
 }: {
 	sessionId: SessionId;
+	environmentId: EnvironmentId;
 	providerId: ProviderId;
 	current: RuntimeMode;
 }) {
@@ -1671,7 +1681,7 @@ function RuntimeAccessPicker({
 				<MenuRadioGroup
 					value={current}
 					onValueChange={(value) =>
-						void setRuntimeMode(sessionId, value as RuntimeMode)
+						void setRuntimeMode(sessionId, value as RuntimeMode, environmentId)
 					}
 				>
 					{MODES_ORDER.map((mode) => {
@@ -1794,9 +1804,11 @@ function FastModeToggle({
  */
 function PlanModeToggle({
 	sessionId,
+	environmentId,
 	current,
 }: {
 	sessionId: SessionId;
+	environmentId: EnvironmentId;
 	current: PermissionMode;
 }) {
 	const setPermissionMode = useSessionsStore((s) => s.setPermissionMode);
@@ -1806,7 +1818,11 @@ function PlanModeToggle({
 	// wider mode space (`acceptEdits`) lives on the runtime-mode chip — a
 	// user wanting auto-accept-edits goes there, not here.
 	const onClick = () => {
-		void setPermissionMode(sessionId, isPlan ? "default" : "plan");
+		void setPermissionMode(
+			sessionId,
+			isPlan ? "default" : "plan",
+			environmentId,
+		);
 	};
 
 	return (

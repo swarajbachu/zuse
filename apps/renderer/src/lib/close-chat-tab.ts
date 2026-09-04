@@ -2,15 +2,20 @@ import {
 	defaultModelFor,
 	EnvironmentId,
 	type FolderId,
+	MODELS_BY_PROVIDER,
+	type ProviderId,
 	type Session,
 	type SessionId,
 } from "@zuse/contracts";
 
+import { toastManager } from "../components/ui/toast.tsx";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { resolveChatRuntimeMode } from "./auto-worktree.ts";
+import { cloudSummaryForChat } from "./cloud-workspace-catalog.ts";
 import { activeSessionsByProject } from "./environment-entities.ts";
+import { selectAuthenticatedProvider } from "./model-picker-availability.ts";
 import { useSettingsStore } from "./settings-client-bus.ts";
 
 const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
@@ -69,16 +74,31 @@ export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 	}
 
 	const settings = useSettingsStore.getState();
-	await useProvidersStore.getState().refresh();
-	const providerId = settings.defaultProviderId;
+	const environmentId = EnvironmentId.make(
+		cloudSummaryForChat(currentSession.chatId)?.workspaceId ??
+			useEnvironmentCatalogStore.getState().activeEnvironmentId,
+	);
+	await useProvidersStore.getState().loadFor(environmentId);
+	const providerId = selectAuthenticatedProvider({
+		preferredProviderId: settings.defaultProviderId,
+		providerIds: Object.keys(MODELS_BY_PROVIDER) as ReadonlyArray<ProviderId>,
+		availability:
+			useProvidersStore.getState().availabilityByEnvironment[environmentId]
+				?.availability ?? [],
+		providerEnabled: settings.providerEnabled ?? {},
+	});
+	if (providerId === null) {
+		toastManager.add({
+			type: "error",
+			title: "No authenticated agent",
+			description:
+				"Connect an agent in Cloud Authentication before replacing this tab.",
+		});
+		return;
+	}
 	const model =
 		settings.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
-	const runtimeMode = await resolveChatRuntimeMode(
-		EnvironmentId.make(
-			useEnvironmentCatalogStore.getState().activeEnvironmentId,
-		),
-		projectId,
-	);
+	const runtimeMode = await resolveChatRuntimeMode(environmentId, projectId);
 	const replacementId = await sessions.create(
 		currentSession.chatId,
 		providerId,

@@ -38,7 +38,7 @@ import {
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
 import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
-import { useCloudChatSummaryForSession } from "../lib/cloud-workspaces.ts";
+import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
@@ -109,8 +109,10 @@ export const resolveAgentStarting = (input: {
 
 export const shouldRenderGenericAgentStartup = (input: {
 	readonly inFlight: boolean;
+	readonly agentStarting?: boolean;
 	readonly hasPendingCreation: boolean;
-}): boolean => input.inFlight && !input.hasPendingCreation;
+}): boolean =>
+	(input.inFlight || input.agentStarting === true) && !input.hasPendingCreation;
 
 export const shouldRenderEmptyChatState = (input: {
 	readonly messageCount: number;
@@ -165,7 +167,10 @@ export function ChatView({
 		markRendererInteraction(sessionId, "first-react-commit");
 	}, [sessionId]);
 	const prefersReducedMotion = usePrefersReducedMotion();
-	const cloudSummary = useCloudChatSummaryForSession(sessionId);
+	const cloudSummary = useCloudChatSummaryForSelection({
+		chatId: session.chatId,
+		sessionId,
+	});
 	const timeline = useRendererSessionTimeline(
 		sessionId,
 		cloudSummary === null ? "connect" : cloudTranscriptActivation(cloudSummary),
@@ -282,6 +287,7 @@ export function ChatView({
 				// in-flight UI resumes only after that lifecycle projection is gone.
 				inFlight: shouldRenderGenericAgentStartup({
 					inFlight,
+					agentStarting,
 					hasPendingCreation: workspaceProgressActive || cloudSetupActive,
 				}),
 				awaitingPlanApproval: awaitingUserAction,
@@ -289,6 +295,7 @@ export function ChatView({
 		[
 			awaitingUserAction,
 			cloudSetupActive,
+			agentStarting,
 			inFlight,
 			messages,
 			workspaceProgressActive,
@@ -953,7 +960,9 @@ function TimelineRow({
 			content = (
 				<ChatWorkingRow
 					messages={row.messages}
+					chatId={chatId}
 					pendingCommands={pendingCommands}
+					providerId={providerId}
 					runtimeState={runtimeState}
 					sessionId={sessionId}
 				/>

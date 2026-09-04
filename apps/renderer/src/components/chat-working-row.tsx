@@ -1,11 +1,10 @@
 import type { PendingCommand } from "@zuse/client-runtime/resource-state";
-import type { Message, SessionId } from "@zuse/contracts";
+import type { ChatId, Message, ProviderId, SessionId } from "@zuse/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import { deriveAgentActivityState } from "../lib/agent-activity-state.ts";
-import { cloudSummaryForSession } from "../lib/cloud-workspace-catalog.ts";
+import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { waitingCloudMessagePresentation } from "../lib/composer-delivery.ts";
-import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import {
 	providerStartupLabel,
@@ -38,22 +37,22 @@ export const providerStartupIsActive = ({
 
 export function ChatWorkingRow({
 	messages,
+	chatId,
 	sessionId,
+	providerId,
 	pendingCommands,
 	runtimeState,
 }: {
 	readonly messages: ReadonlyArray<Message>;
+	readonly chatId: ChatId | null;
 	readonly sessionId: SessionId;
+	readonly providerId: ProviderId;
 	readonly pendingCommands: readonly PendingCommand[];
 	readonly runtimeState: SessionRuntimeState;
 }) {
 	const waitingCommand = waitingCloudMessagePresentation(pendingCommands);
-	const session = useActiveSessionById(sessionId);
-	const providerLabel =
-		session === null || session === undefined
-			? "Agent"
-			: (PROVIDER_LABEL[session.providerId] ?? session.providerId);
-	const cloudSummary = cloudSummaryForSession(sessionId);
+	const providerLabel = PROVIDER_LABEL[providerId] ?? providerId;
+	const cloudSummary = useCloudChatSummaryForSelection({ chatId, sessionId });
 	const initialCloudAgentStart =
 		cloudSummary !== null && cloudSummary.startupPhase === "starting-agent";
 	const providerOutputStarted = messages.some(
@@ -66,7 +65,7 @@ export function ChatWorkingRow({
 	});
 	const delayed = useProviderStartupDelay(
 		showStartup,
-		`${sessionId}:${session?.providerId ?? "unknown"}:${session?.model ?? "unknown"}`,
+		`${sessionId}:${providerId}`,
 	);
 	const anchorMs = useMemo(() => {
 		for (let index = messages.length - 1; index >= 0; index -= 1) {
