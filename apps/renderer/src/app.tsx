@@ -31,6 +31,7 @@ import { AppearanceController } from "./lib/appearance.tsx";
 import { selectChatSurface } from "./lib/chat-surface-selection.ts";
 import { installClientBusOnlineBridge } from "./lib/client-bus-online.ts";
 import { closeActiveChatTab } from "./lib/close-chat-tab.ts";
+import { cloudSummaryActiveSessionId } from "./lib/cloud-workspace-catalog.ts";
 import {
 	cloudSessionPlaceholder,
 	useCloudChatSummaryForSelection,
@@ -463,9 +464,24 @@ function MainShell() {
 	const activeSelectedSession = useActiveSessionById(selectedSessionId);
 	const selectedSession = useMemo<Session | null>(() => {
 		if (activeSelectedSession !== null) return activeSelectedSession;
-		if (selectedCloudSummary === null || selectedFolderId === null) return null;
-		return cloudSessionPlaceholder(selectedCloudSummary, selectedFolderId);
-	}, [activeSelectedSession, selectedCloudSummary, selectedFolderId]);
+		if (
+			selectedCloudSummary === null ||
+			selectedFolderId === null ||
+			selectedSessionId === null ||
+			cloudSummaryActiveSessionId(selectedCloudSummary) !== selectedSessionId
+		)
+			return null;
+		return cloudSessionPlaceholder(
+			selectedCloudSummary,
+			selectedFolderId,
+			selectedSessionId,
+		);
+	}, [
+		activeSelectedSession,
+		selectedCloudSummary,
+		selectedFolderId,
+		selectedSessionId,
+	]);
 	const directoryStatus = useChatDirectoryStatus(
 		selectedEnvironmentId,
 		pendingCreation === null ? (selectedSession?.chatId ?? null) : null,

@@ -213,6 +213,7 @@ export const decodeRuntimeSummary = (
 						"summaryRevision",
 						"title",
 						"lastActivityAt",
+						"activeSessionId",
 						"sessionHeadVersion",
 					]).has(key),
 			)
@@ -789,6 +790,10 @@ export const publicCloudWorkspaceSummary = (
 	repositoryDisplayName: project.displayName,
 	chatId: workspace.chatId,
 	initialSessionId: workspace.initialSessionId,
+	activeSessionId:
+		runtimeSummary === null || runtimeSummary === undefined
+			? workspace.initialSessionId
+			: runtimeSummary.activeSessionId,
 	title:
 		runtimeSummary?.title ??
 		(typeof workspace.requestConfig.title === "string"
@@ -1597,6 +1602,10 @@ export const routeCloudWorkspaceRequest = (
 				summaryRevision: body.summaryRevision,
 				title: body.title,
 				lastActivityAtMs: body.lastActivityAt,
+				activeSessionId:
+					body.activeSessionId === undefined
+						? workspace.initialSessionId
+						: body.activeSessionId,
 				sessionHeadVersion: body.sessionHeadVersion,
 				updatedAtMs: nowMs,
 			});

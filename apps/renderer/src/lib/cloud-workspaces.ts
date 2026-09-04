@@ -58,6 +58,7 @@ import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import {
+	cloudSummaryActiveSessionId,
 	cloudSummaryForChat,
 	cloudSummaryForEnvironment,
 	compareCloudChatSummaryVersion,
@@ -351,10 +352,11 @@ const sessionStatus = (summary: CloudChatSummary): Session["status"] =>
 export const cloudSessionPlaceholder = (
 	summary: CloudChatSummary,
 	projectId: FolderId,
+	sessionId: SessionId = summary.initialSessionId,
 ): Session => {
 	const now = new Date(summary.createdAt);
 	return Session.make({
-		id: summary.initialSessionId,
+		id: sessionId,
 		projectId,
 		title: summary.title,
 		titleProvenance: "manual",
@@ -397,13 +399,14 @@ export const stageCloudChat = (
 	const now = new Date(accepted.createdAt);
 	const archivedAt =
 		accepted.archivedAt === undefined ? null : new Date(accepted.archivedAt);
+	const activeSessionId = cloudSummaryActiveSessionId(accepted);
 	const chat = Chat.make({
 		id: accepted.chatId,
 		projectId,
 		worktreeId: null,
 		title: accepted.title,
 		titleProvenance: "manual",
-		activeSessionId: accepted.initialSessionId,
+		activeSessionId,
 		originSessionId: null,
 		archivedAt,
 		lastMessageAt:
@@ -412,7 +415,10 @@ export const stageCloudChat = (
 		createdAt: now,
 		updatedAt: new Date(accepted.updatedAt),
 	});
-	const session = cloudSessionPlaceholder(accepted, projectId);
+	const session =
+		activeSessionId === null
+			? null
+			: cloudSessionPlaceholder(accepted, projectId, activeSessionId);
 	overlayActiveEnvironmentShell((shell) => ({
 		...shell,
 		chatsByProject: {
@@ -426,12 +432,15 @@ export const stageCloudChat = (
 		},
 		sessionsByProject: {
 			...shell.sessionsByProject,
-			[projectId]: [
-				session,
-				...(shell.sessionsByProject[projectId] ?? []).filter(
-					(candidate) => candidate.id !== session.id,
-				),
-			],
+			[projectId]:
+				session === null
+					? (shell.sessionsByProject[projectId] ?? [])
+					: [
+							session,
+							...(shell.sessionsByProject[projectId] ?? []).filter(
+								(candidate) => candidate.id !== session.id,
+							),
+						],
 		},
 	}));
 	// Compatibility only: an API that did not acknowledge mailbox-v1 still owns
@@ -463,6 +472,7 @@ export const openCloudChat = (
 	if (existing !== undefined) return existing;
 	const operation = Promise.resolve().then(() => {
 		stageCloudChat(summary, projectId);
+		const activeSessionId = cloudSummaryActiveSessionId(summary);
 		// Catalog selection must not depend on a paused runtime shell. Select the
 		// durable ids now so the qualified timeline cache can hydrate immediately.
 		useUiStore.getState().setActiveMainTab("chat");
@@ -474,10 +484,10 @@ export const openCloudChat = (
 			},
 		}));
 		useSessionsStore.setState((state) => ({
-			selectedSessionId: summary.initialSessionId,
+			selectedSessionId: activeSessionId,
 			selectedSessionByProject: {
 				...state.selectedSessionByProject,
-				[projectId]: summary.initialSessionId,
+				[projectId]: activeSessionId,
 			},
 		}));
 		if (useWorkspaceStore.getState().selectedFolderId !== projectId) {

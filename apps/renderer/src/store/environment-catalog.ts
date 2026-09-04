@@ -17,6 +17,7 @@ import {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
+	cloudSummaryActiveSessionId,
 	cloudSummaryForChat,
 	localProjectForCloudChat,
 } from "../lib/cloud-workspace-catalog.ts";
@@ -274,7 +275,7 @@ export const projectEnvironmentShell = (
 			selectedCloudSummary.archivedAt === undefined &&
 			localProjectForCloudChat(selectedCloudSummary.chatId) === selectedFolderId
 		) {
-			return selectedCloudSummary.initialSessionId;
+			return cloudSummaryActiveSessionId(selectedCloudSummary);
 		}
 		if (selectedChat === null) return null;
 		const sessions = sessionsByProject[selectedFolderId] ?? [];

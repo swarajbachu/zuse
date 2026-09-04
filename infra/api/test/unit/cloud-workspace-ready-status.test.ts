@@ -16,6 +16,7 @@ describe("cloud workspace runtime ready status", () => {
 						summaryRevision: 3,
 						title: "Current title",
 						lastActivityAt: 1_000,
+						activeSessionId: "session-current",
 						sessionHeadVersion: 9,
 					}),
 				}),
@@ -24,6 +25,7 @@ describe("cloud workspace runtime ready status", () => {
 		expect(valid).toMatchObject({
 			summaryRevision: 3,
 			title: "Current title",
+			activeSessionId: "session-current",
 			sessionHeadVersion: 9,
 		});
 
@@ -98,6 +100,7 @@ describe("cloud workspace runtime ready status", () => {
 			workspaceId: "workspace-1",
 			title: "Public title",
 			runtimeMode: "full-access",
+			activeSessionId: "session-1",
 		});
 		expect(summary).not.toHaveProperty("firstMessage");
 		expect(JSON.stringify(summary)).not.toContain("private");

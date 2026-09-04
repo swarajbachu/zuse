@@ -10,6 +10,7 @@ import {
 } from "../lib/cloud-connection-presentation.ts";
 import { cloudFailurePresentation } from "../lib/cloud-failure-presentation.ts";
 import {
+	cloudSummaryActiveSessionId,
 	cloudSummaryForChat,
 	useCloudChatCatalogStore,
 } from "../lib/cloud-workspace-catalog.ts";
@@ -90,7 +91,7 @@ export function CloudConnectionNotice() {
 		"cache-only",
 	);
 	const timeline = useOptionalRendererSessionTimeline(
-		summary?.initialSessionId ?? null,
+		summary === null ? null : cloudSummaryActiveSessionId(summary),
 		summary === null ? "cache-only" : cloudTranscriptActivation(summary),
 		summary === null ? null : EnvironmentId.make(summary.workspaceId),
 	);

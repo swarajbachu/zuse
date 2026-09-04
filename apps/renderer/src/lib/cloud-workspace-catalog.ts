@@ -384,13 +384,24 @@ export const cloudSummaryForChat = (chatId: string): CloudChatSummary | null =>
 		.getState()
 		.summaries.find((summary) => summary.chatId === chatId) ?? null;
 
+/** Legacy catalog rows predate active-session summaries and use the launch id. */
+export const cloudSummaryActiveSessionId = (
+	summary: CloudChatSummary,
+): SessionId | null =>
+	summary.activeSessionId === undefined
+		? summary.initialSessionId
+		: summary.activeSessionId;
+
 export const cloudSummaryForSession = (
 	sessionId: SessionId,
 ): CloudChatSummary | null =>
 	useCloudChatCatalogStore
 		.getState()
-		.summaries.find((summary) => summary.initialSessionId === sessionId) ??
-	null;
+		.summaries.find(
+			(summary) =>
+				summary.initialSessionId === sessionId ||
+				cloudSummaryActiveSessionId(summary) === sessionId,
+		) ?? null;
 
 /**
  * Resolve cloud ownership for a selected chat surface.
@@ -417,8 +428,11 @@ export const findCloudSummaryForSelection = (
 	}
 	return sessionId === null
 		? null
-		: (summaries.find((summary) => summary.initialSessionId === sessionId) ??
-				null);
+		: (summaries.find(
+				(summary) =>
+					summary.initialSessionId === sessionId ||
+					cloudSummaryActiveSessionId(summary) === sessionId,
+			) ?? null);
 };
 
 export const cloudSummaryForSelection = (input: {

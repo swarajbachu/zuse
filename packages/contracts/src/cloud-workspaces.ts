@@ -358,6 +358,8 @@ export class CloudWorkspaceRuntimeSummary extends Schema.Class<CloudWorkspaceRun
 	summaryRevision: Schema.Number,
 	title: Schema.String,
 	lastActivityAt: Schema.Number,
+	/** Optional during the additive rollout; null means the chat has no live thread. */
+	activeSessionId: Schema.optional(Schema.NullOr(AgentSessionId)),
 	sessionHeadVersion: Schema.Number,
 }) {}
 
@@ -371,6 +373,8 @@ export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 	repositoryDisplayName: Schema.String,
 	chatId: ChatId,
 	initialSessionId: AgentSessionId,
+	/** Current live thread. Missing rows are legacy summaries and use the initial id. */
+	activeSessionId: Schema.optional(Schema.NullOr(AgentSessionId)),
 	title: Schema.String,
 	branch: Schema.String,
 	providerId: Schema.String,
@@ -400,7 +404,7 @@ export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 		Schema.withConstructorDefault(Effect.succeed(0)),
 		Schema.withDecodingDefaultType(Effect.succeed(0)),
 	),
-	/** Authoritative runtime session head represented by this summary. */
+	/** Authoritative head for activeSessionId represented by this summary. */
 	sessionHeadVersion: Schema.Number.pipe(
 		Schema.withConstructorDefault(Effect.succeed(0)),
 		Schema.withDecodingDefaultType(Effect.succeed(0)),

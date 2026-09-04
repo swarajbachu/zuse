@@ -91,6 +91,7 @@ describe("api migration reconciliation", () => {
 			{ idx: 15, tag: "0015_github_app_installations" },
 			{ idx: 16, tag: "0016_api_naming" },
 			{ idx: 17, tag: "0017_cloud_codex_auth_broker" },
+			{ idx: 18, tag: "0018_cloud_active_session_summary" },
 		]);
 	});
 

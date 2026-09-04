@@ -127,6 +127,13 @@
 			"when": 1788523200000,
 			"tag": "0017_cloud_codex_auth_broker",
 			"breakpoints": true
+		},
+		{
+			"idx": 18,
+			"version": "7",
+			"when": 1788566400000,
+			"tag": "0018_cloud_active_session_summary",
+			"breakpoints": true
 		}
 	]
 }

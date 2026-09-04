@@ -68,7 +68,10 @@ import {
 } from "../lib/cloud-chat-activity.ts";
 import { cloudChatRowPresentation } from "../lib/cloud-chat-row-presentation.ts";
 import { cloudWorkspaceBetaAvailable } from "../lib/cloud-machines-availability.ts";
-import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
+import {
+	cloudSummaryActiveSessionId,
+	useCloudChatCatalogStore,
+} from "../lib/cloud-workspace-catalog.ts";
 import {
 	openCloudChat,
 	repositoryIdentityForOrigin,
@@ -97,7 +100,7 @@ import {
 import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
 import { isSessionRuntimeBusy } from "../lib/session-runtime-state.ts";
 import {
-	useRendererSessionTimeline,
+	useOptionalRendererSessionTimeline,
 	useRendererSessionTimelines,
 } from "../lib/session-timeline-hooks.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
@@ -1483,8 +1486,8 @@ function CloudChatRow({
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
 	const archive = useCloudChatsStore((state) => state.archive);
 	const [archiving, setArchiving] = useState(false);
-	const timeline = useRendererSessionTimeline(
-		summary.initialSessionId,
+	const timeline = useOptionalRendererSessionTimeline(
+		cloudSummaryActiveSessionId(summary),
 		"cache-only",
 		EnvironmentId.make(summary.workspaceId),
 	);

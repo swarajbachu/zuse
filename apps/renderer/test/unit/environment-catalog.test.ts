@@ -333,7 +333,8 @@ describe("environment catalog", () => {
 	it("keeps a selected cloud chat open while its runtime shell is resuming", () => {
 		const folderId = FolderId.make("cloud-project-selection");
 		const chatId = ChatId.make("cloud-chat-selection");
-		const sessionId = AgentSessionId.make("cloud-session-selection");
+		const initialSessionId = AgentSessionId.make("cloud-session-removed");
+		const activeSessionId = AgentSessionId.make("cloud-session-selection");
 		const now = new Date("2026-08-14T00:00:00.000Z");
 		registerCloudChat(
 			CloudChatSummary.make({
@@ -342,7 +343,8 @@ describe("environment catalog", () => {
 				repositoryIdentity: "github.com/zuse/repository",
 				repositoryDisplayName: "repository",
 				chatId,
-				initialSessionId: sessionId,
+				initialSessionId,
+				activeSessionId,
 				title: "Cloud chat",
 				branch: "zuse/cloud",
 				providerId: "e2b",
@@ -379,8 +381,8 @@ describe("environment catalog", () => {
 			selectedChatByProject: { [folderId]: chatId },
 		});
 		useSessionsStore.setState({
-			selectedSessionId: sessionId,
-			selectedSessionByProject: { [folderId]: sessionId },
+			selectedSessionId: activeSessionId,
+			selectedSessionByProject: { [folderId]: activeSessionId },
 		});
 
 		projectEnvironmentShell({
@@ -392,7 +394,7 @@ describe("environment catalog", () => {
 		});
 
 		expect(useChatsStore.getState().selectedChatId).toBe(chatId);
-		expect(useSessionsStore.getState().selectedSessionId).toBe(sessionId);
+		expect(useSessionsStore.getState().selectedSessionId).toBe(activeSessionId);
 		useCloudChatCatalogStore.setState({
 			summaries: [],
 			localProjectByEnvironment: {},

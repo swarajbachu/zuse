@@ -19,6 +19,27 @@ export type SqlSessionProjectorError = SqlError | SessionProjectionDecodeError;
 
 const decodeCreated = Schema.decodeUnknownEffect(CompleteSessionCreatedEvent);
 
+/** Keep the denormalized chat selection pointed at a live sibling session. */
+const replaceUnavailableActiveSession = (
+	sql: SqlClient.SqlClient,
+	sessionId: string,
+	updatedAt: string,
+) =>
+	sql`
+		UPDATE chats
+		SET active_session_id = (
+				SELECT replacement.id
+				FROM sessions AS replacement
+				WHERE replacement.chat_id = chats.id
+					AND replacement.id <> ${sessionId}
+					AND replacement.archived_at IS NULL
+				ORDER BY replacement.updated_at DESC, replacement.id ASC
+				LIMIT 1
+			),
+			updated_at = ${updatedAt}
+		WHERE active_session_id = ${sessionId}
+	`;
+
 export const makeSqlSessionProjector = (
 	sql: SqlClient.SqlClient,
 ): ProjectorDefinition<StoredEvent, SqlSessionProjectorError> => ({
@@ -209,6 +230,11 @@ export const makeSqlSessionProjector = (
 					SET archived_at = ${archivedAt}, updated_at = ${archivedAt}
 					WHERE id = ${record.streamId}
 				`;
+				yield* replaceUnavailableActiveSession(
+					sql,
+					record.streamId,
+					archivedAt,
+				);
 				return;
 			}
 			case "SessionUnarchived": {
@@ -217,11 +243,22 @@ export const makeSqlSessionProjector = (
 					UPDATE sessions SET archived_at = NULL, updated_at = ${unarchivedAt}
 					WHERE id = ${record.streamId}
 				`;
+				yield* sql`
+					UPDATE chats
+					SET active_session_id = ${record.streamId}, updated_at = ${unarchivedAt}
+					WHERE active_session_id IS NULL
+						AND id = (
+							SELECT chat_id FROM sessions WHERE id = ${record.streamId}
+						)
+				`;
 				return;
 			}
-			case "SessionDeleted":
+			case "SessionDeleted": {
+				const deletedAt = new Date(event.deletedAt).toISOString();
+				yield* replaceUnavailableActiveSession(sql, record.streamId, deletedAt);
 				yield* sql`DELETE FROM sessions WHERE id = ${record.streamId}`;
 				return;
+			}
 			case "TurnStarted": {
 				const startedAt = new Date(event.startedAt).toISOString();
 				yield* sql`

@@ -1115,6 +1115,7 @@ describe("cloud workspace store", () => {
 					summaryRevision: 1,
 					title: "Fresh title",
 					lastActivityAtMs: 1_000,
+					activeSessionId: "session-summary",
 					sessionHeadVersion: 8,
 					updatedAtMs: 1_000,
 					...overrides,
@@ -1152,8 +1153,27 @@ describe("cloud workspace store", () => {
 			},
 		});
 		expect(
+			await save({
+				summaryRevision: 3,
+				title: "Newest title",
+				activeSessionId: "session-replacement",
+				sessionHeadVersion: 2,
+				updatedAtMs: 1_200,
+			}),
+		).toMatchObject({
+			kind: "applied",
+			summary: {
+				activeSessionId: "session-replacement",
+				sessionHeadVersion: 2,
+			},
+		});
+		expect(
 			await runtime.runPromise(store.getRuntimeSummary(workspace.workspaceId)),
-		).toMatchObject({ summaryRevision: 2, title: "Newest title" });
+		).toMatchObject({
+			summaryRevision: 3,
+			title: "Newest title",
+			activeSessionId: "session-replacement",
+		});
 		await runtime.dispose();
 	});
 

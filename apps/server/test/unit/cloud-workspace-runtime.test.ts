@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import {
 	AgentSessionId,
+	ChatId,
 	CloudCommandEnvelope,
 	CommandId,
 	Message,
@@ -11,6 +12,7 @@ import {
 	QueueState,
 	RuntimeAcknowledgment,
 	RuntimeLease,
+	SessionId,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
 import {
@@ -37,6 +39,7 @@ import {
 	decodeImageProviderSecrets,
 	makeCloudRuntimeCheckpointPublisher,
 	makeCloudRuntimeSummaryPublisher,
+	resolveCloudRuntimeActiveSession,
 	retryCloudWorkspaceBootstrap,
 	runCloudMailboxConsumerCycle,
 	runtimeCredentialRenewalDelayMs,
@@ -325,6 +328,7 @@ describe("cloud workspace bootstrap", () => {
 				read: Effect.sync(() => ({
 					title,
 					lastActivityAt: now,
+					activeSessionId: SessionId.make("session-1"),
 					sessionHeadVersion: head,
 				})),
 				write: (summary) =>
@@ -351,18 +355,21 @@ describe("cloud workspace bootstrap", () => {
 				summaryRevision: 1,
 				title: "Initial title",
 				lastActivityAt: 1_000,
+				activeSessionId: "session-1",
 				sessionHeadVersion: 4,
 			},
 			{
 				summaryRevision: 2,
 				title: "Renamed immediately",
 				lastActivityAt: 2_000,
+				activeSessionId: "session-1",
 				sessionHeadVersion: 7,
 			},
 			{
 				summaryRevision: 3,
 				title: "Renamed immediately",
 				lastActivityAt: 2_000,
+				activeSessionId: "session-1",
 				sessionHeadVersion: 7,
 			},
 		]);
@@ -380,6 +387,7 @@ describe("cloud workspace bootstrap", () => {
 				read: Effect.succeed({
 					title: "Preserved runtime",
 					lastActivityAt: 1_000,
+					activeSessionId: SessionId.make("session-1"),
 					sessionHeadVersion: 9,
 				}),
 				write: (summary) =>
@@ -394,6 +402,30 @@ describe("cloud workspace bootstrap", () => {
 
 		expect(await Effect.runPromise(publisher.publish("initial"))).toBe(true);
 		expect(revisions).toEqual([1, 13]);
+	});
+
+	it("replaces a stale active-session pointer with the newest live sibling", () => {
+		const chatId = ChatId.make("chat-1");
+		const removed = SessionId.make("session-removed");
+		const replacement = SessionId.make("session-replacement");
+		expect(
+			resolveCloudRuntimeActiveSession(
+				{ id: chatId, activeSessionId: removed },
+				[
+					{
+						id: SessionId.make("other-chat-session"),
+						chatId: ChatId.make("chat-2"),
+					},
+					{ id: replacement, chatId },
+				],
+			),
+		).toBe(replacement);
+		expect(
+			resolveCloudRuntimeActiveSession(
+				{ id: chatId, activeSessionId: removed },
+				[],
+			),
+		).toBeNull();
 	});
 
 	it("announces readiness when a preserved runtime reconnects", () => {

@@ -16,17 +16,69 @@ const run = <A, E>(program: Effect.Effect<A, E, SqlClient.SqlClient>) =>
 const stored = (
 	sequence: number,
 	event: StoredEvent["event"],
+	streamId = "session-1",
 ): StoredEvent => ({
 	eventId: `event-${sequence}`,
 	correlationId: "command-1",
 	causationEventId: null,
-	streamId: "session-1",
+	streamId,
 	streamVersion: sequence,
 	sequence,
 	event,
 });
 
 describe("SqlSessionProjector", () => {
+	test("repairs the active chat session when a thread is archived or deleted", async () => {
+		const activeSessionIds = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					INSERT INTO chats (id, updated_at)
+					VALUES ('chat-1', '1970-01-01T00:00:00.000Z')
+				`;
+				const projector = makeSqlSessionProjector(sql);
+				yield* projector.apply(
+					stored(1, { _tag: "SessionCreated", ...sessionCreation }),
+				);
+				yield* projector.apply(
+					stored(
+						2,
+						{
+							_tag: "SessionCreated",
+							...sessionCreation,
+							sessionId: "session-2",
+							createdAt: 2,
+						},
+						"session-2",
+					),
+				);
+				const readActive = Effect.gen(function* () {
+					const rows = yield* sql<{
+						readonly active_session_id: string | null;
+					}>`SELECT active_session_id FROM chats WHERE id = 'chat-1'`;
+					return rows[0]?.active_session_id ?? null;
+				});
+				const afterCreate = yield* readActive;
+				yield* projector.apply(
+					stored(3, { _tag: "SessionArchived", archivedAt: 3 }, "session-2"),
+				);
+				const afterArchive = yield* readActive;
+				yield* projector.apply(
+					stored(4, { _tag: "SessionDeleted", deletedAt: 4 }, "session-1"),
+				);
+				const afterDelete = yield* readActive;
+				return { afterCreate, afterArchive, afterDelete };
+			}),
+		);
+
+		expect(activeSessionIds).toEqual({
+			afterCreate: "session-2",
+			afterArchive: "session-1",
+			afterDelete: null,
+		});
+	});
+
 	test("rebuilds a complete session and byte-identical message row", async () => {
 		const result = await run(
 			Effect.gen(function* () {

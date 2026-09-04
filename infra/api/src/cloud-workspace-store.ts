@@ -207,6 +207,7 @@ export interface CloudWorkspaceRuntimeSummaryRecord {
 	readonly summaryRevision: number;
 	readonly title: string;
 	readonly lastActivityAtMs: number;
+	readonly activeSessionId: string | null;
 	readonly sessionHeadVersion: number;
 	readonly updatedAtMs: number;
 }
@@ -560,6 +561,7 @@ export interface CloudWorkspaceStoreApi {
 		readonly summaryRevision: number;
 		readonly title: string;
 		readonly lastActivityAtMs: number;
+		readonly activeSessionId: string | null;
 		readonly sessionHeadVersion: number;
 		readonly updatedAtMs: number;
 	}) => Effect.Effect<RuntimeSummaryWriteOutcome>;
@@ -2366,12 +2368,14 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							lastActivityAtMs: sameGeneration
 								? Math.max(previous.lastActivityAtMs, input.lastActivityAtMs)
 								: input.lastActivityAtMs,
-							sessionHeadVersion: sameGeneration
-								? Math.max(
-										previous.sessionHeadVersion,
-										input.sessionHeadVersion,
-									)
-								: input.sessionHeadVersion,
+							sessionHeadVersion:
+								sameGeneration &&
+								previous.activeSessionId === input.activeSessionId
+									? Math.max(
+											previous.sessionHeadVersion,
+											input.sessionHeadVersion,
+										)
+									: input.sessionHeadVersion,
 						};
 						return [
 							{ kind: "applied" as const, summary },
@@ -2674,6 +2678,7 @@ const runtimeSummaryFromRow = (
 	summaryRevision: numberValue(row.summary_revision),
 	title: String(row.title),
 	lastActivityAtMs: numberValue(row.last_activity_at),
+	activeSessionId: optionalString(row.active_session_id) ?? null,
 	sessionHeadVersion: numberValue(row.session_head_version),
 	updatedAtMs: numberValue(row.updated_at),
 });
@@ -3574,8 +3579,8 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					Effect.gen(function* () {
 						const rows = yield* sql`
 							INSERT INTO api_cloud_workspace_runtime_summaries
-								(workspace_id, runtime_generation, summary_revision, title, last_activity_at, session_head_version, updated_at)
-							SELECT ${input.workspaceId}, ${input.runtimeGeneration}, ${input.summaryRevision}, ${input.title}, ${input.lastActivityAtMs}, ${input.sessionHeadVersion}, ${input.updatedAtMs}
+								(workspace_id, runtime_generation, summary_revision, title, last_activity_at, active_session_id, session_head_version, updated_at)
+							SELECT ${input.workspaceId}, ${input.runtimeGeneration}, ${input.summaryRevision}, ${input.title}, ${input.lastActivityAtMs}, ${input.activeSessionId}, ${input.sessionHeadVersion}, ${input.updatedAtMs}
 							FROM api_cloud_workspaces AS workspace
 							WHERE workspace.workspace_id=${input.workspaceId}
 								AND COALESCE((workspace.request_config->>'runtimeGeneration')::bigint, 1)=${input.runtimeGeneration}
@@ -3588,8 +3593,10 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 									THEN GREATEST(api_cloud_workspace_runtime_summaries.last_activity_at, EXCLUDED.last_activity_at)
 									ELSE EXCLUDED.last_activity_at
 								END,
+								active_session_id=EXCLUDED.active_session_id,
 								session_head_version=CASE
 									WHEN api_cloud_workspace_runtime_summaries.runtime_generation=EXCLUDED.runtime_generation
+										AND api_cloud_workspace_runtime_summaries.active_session_id IS NOT DISTINCT FROM EXCLUDED.active_session_id
 									THEN GREATEST(api_cloud_workspace_runtime_summaries.session_head_version, EXCLUDED.session_head_version)
 									ELSE EXCLUDED.session_head_version
 								END,

@@ -26,6 +26,7 @@ import {
 	AgentSessionId,
 	AgentTurnId,
 	ApiPaths,
+	type Chat,
 	ChatId,
 	CLOUD_COMMAND_PROTOCOL_VERSION,
 	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
@@ -46,6 +47,7 @@ import {
 	RuntimeMode,
 	SealedCodexGrant,
 	SealedProviderGrant,
+	type Session,
 	SessionId,
 	WIRE_PROTOCOL_VERSION,
 	WORKSPACE_GATEWAY_AUTH_EXPIRED_CLOSE,
@@ -484,7 +486,12 @@ interface RuntimeCredentialState {
 	gatewayEpoch: number;
 }
 
-type RuntimeSummaryReason = "initial" | "activity" | "title" | "settled";
+type RuntimeSummaryReason =
+	| "initial"
+	| "activity"
+	| "title"
+	| "settled"
+	| "session";
 
 interface CloudRuntimeSummaryPublisher {
 	readonly publish: (
@@ -665,6 +672,7 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 		{
 			readonly title: string;
 			readonly lastActivityAt: number;
+			readonly activeSessionId: SessionId | null;
 			readonly sessionHeadVersion: number;
 		},
 		CloudWorkspaceRuntimeError
@@ -685,6 +693,7 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 		snapshot: {
 			readonly title: string;
 			readonly lastActivityAt: number;
+			readonly activeSessionId: SessionId | null;
 			readonly sessionHeadVersion: number;
 		},
 		summaryRevision: number,
@@ -714,6 +723,20 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 		);
 	return { publish } satisfies CloudRuntimeSummaryPublisher;
 });
+
+/** Resolve stale chat pointers against the authoritative runtime session rows. */
+export const resolveCloudRuntimeActiveSession = (
+	chat: Pick<Chat, "activeSessionId" | "id">,
+	sessions: ReadonlyArray<Pick<Session, "chatId" | "id">>,
+): SessionId | null => {
+	const live = sessions.filter((session) => session.chatId === chat.id);
+	if (
+		chat.activeSessionId !== null &&
+		live.some((session) => session.id === chat.activeSessionId)
+	)
+		return chat.activeSessionId;
+	return live[0]?.id ?? null;
+};
 
 export const signRuntimeRenewalProof = (input: {
 	readonly privateKey: CryptoKey;
@@ -2258,28 +2281,40 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					console.info("[cloud-workspace-runtime] local rpc auth ready");
 
 					const readRuntimeSummary = Effect.gen(function* () {
-						const [chat, sessionHeadVersion, lastActivityAt] =
-							yield* Effect.all(
-								[
-									chats
-										.getChat(ChatId.make(bootstrap.chatId))
-										.pipe(
-											Effect.mapError(() =>
-												fail("workspace_summary_chat_unavailable"),
-											),
-										),
-									sessionDomain
-										.currentStreamVersion(bootstrap.initialSessionId)
+						const chat = yield* chats
+							.getChat(ChatId.make(bootstrap.chatId))
+							.pipe(
+								Effect.mapError(() =>
+									fail("workspace_summary_chat_unavailable"),
+								),
+							);
+						const [liveSessions, lastActivityAt] = yield* Effect.all(
+							[
+								sessions.listSessions(chat.projectId, false),
+								Clock.currentTimeMillis,
+							],
+							{ concurrency: "unbounded" },
+						);
+						const activeSessionId = resolveCloudRuntimeActiveSession(
+							chat,
+							liveSessions,
+						);
+						const sessionHeadVersion =
+							activeSessionId === null
+								? 0
+								: yield* sessionDomain
+										.currentStreamVersion(activeSessionId)
 										.pipe(
 											Effect.mapError(() =>
 												fail("workspace_summary_head_unavailable"),
 											),
-										),
-									Clock.currentTimeMillis,
-								],
-								{ concurrency: "unbounded" },
-							);
-						return { title: chat.title, lastActivityAt, sessionHeadVersion };
+										);
+						return {
+							title: chat.title,
+							lastActivityAt,
+							activeSessionId,
+							sessionHeadVersion,
+						};
 					});
 					const summaryPublisher = yield* makeCloudRuntimeSummaryPublisher({
 						now: Clock.currentTimeMillis,
@@ -2575,11 +2610,33 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const sessionEventCursor = yield* sessionDomain.currentSequence.pipe(
 						Effect.mapError(() => fail("workspace_summary_cursor_unavailable")),
 					);
+					const knownChatSessionIds = new Set<string>([
+						bootstrap.initialSessionId,
+					]);
+					const existingRuntimeChat = yield* chats
+						.getChat(ChatId.make(bootstrap.chatId))
+						.pipe(Effect.result);
+					if (existingRuntimeChat._tag === "Success") {
+						const existingSessions = yield* sessions.listSessions(
+							existingRuntimeChat.success.projectId,
+							true,
+						);
+						for (const session of existingSessions) {
+							if (session.chatId === bootstrap.chatId)
+								knownChatSessionIds.add(session.id);
+						}
+					}
 					yield* sessionDomain
 						.allEvents({ afterSequence: sessionEventCursor })
 						.pipe(
 							Stream.runForEach((record) =>
 								Effect.gen(function* () {
+									const createdForWorkspace =
+										record.event._tag === "SessionCreated" &&
+										record.event.chatId === bootstrap.chatId;
+									if (createdForWorkspace)
+										knownChatSessionIds.add(record.streamId);
+									if (!knownChatSessionIds.has(record.streamId)) return;
 									const reason: RuntimeSummaryReason | null =
 										record.event._tag === "SessionTitleSet"
 											? "title"
@@ -2587,22 +2644,29 @@ export const makeCloudWorkspaceRuntimeLayer = (
 												? "settled"
 												: record.event._tag === "MessagePersisted"
 													? "activity"
-													: null;
+													: record.event._tag === "SessionCreated" ||
+															record.event._tag === "SessionArchived" ||
+															record.event._tag === "SessionUnarchived" ||
+															record.event._tag === "SessionDeleted"
+														? "session"
+														: null;
 									if (reason === null) return;
-									const checkpointPublisher = yield* checkpointPublisherFor(
-										record.streamId,
-									);
-									checkpointPublisher.mark(reason === "settled");
-									if (reason === "settled") {
-										void Effect.runPromise(
-											checkpointPublisher.flush.pipe(Effect.ignore),
+									if (reason !== "session") {
+										const checkpointPublisher = yield* checkpointPublisherFor(
+											record.streamId,
 										);
+										checkpointPublisher.mark(reason === "settled");
+										if (reason === "settled") {
+											void Effect.runPromise(
+												checkpointPublisher.flush.pipe(Effect.ignore),
+											);
+										}
 									}
-									if (record.streamId === bootstrap.initialSessionId) {
-										yield* summaryPublisher
-											.publish(reason)
-											.pipe(Effect.retry(cloudRuntimeRetrySchedule));
-									}
+									yield* summaryPublisher
+										.publish(reason)
+										.pipe(Effect.retry(cloudRuntimeRetrySchedule));
+									if (record.event._tag === "SessionDeleted")
+										knownChatSessionIds.delete(record.streamId);
 								}),
 							),
 							Effect.forkScoped({ startImmediately: true }),

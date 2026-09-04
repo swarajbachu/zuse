@@ -1423,12 +1423,20 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				},
 			};
 		});
-		// Cloud chat/session selection is projected from the control plane. The
-		// sandbox-local conversation row may not exist while compute is paused,
-		// so selecting a durable transcript must never issue this local RPC.
-		if (cloudSummaryForChat(chatId) !== null) return;
+		// Persist cloud selection whenever compute is already online so the
+		// metadata-only catalog can restore the same live thread after sleep. A
+		// cache-only selection while paused still must not wake the sandbox.
+		const cloudSummary = cloudSummaryForChat(chatId);
+		if (
+			cloudSummary !== null &&
+			(cloudSummary.state !== "ready" || cloudSummary.runtimeState !== "online")
+		)
+			return;
 		try {
 			await dispatchChatCommand({
+				...(cloudSummary === null
+					? {}
+					: { environmentId: cloudSummary.workspaceId }),
 				kind: "chat.setActiveSession",
 				payload: { chatId, sessionId },
 			});

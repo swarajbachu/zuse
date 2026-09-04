@@ -578,6 +578,7 @@ export const apiCloudWorkspaceRuntimeSummaries = pgTable(
 		summaryRevision: bigint("summary_revision", { mode: "number" }).notNull(),
 		title: text("title").notNull(),
 		lastActivityAt: bigint("last_activity_at", { mode: "number" }).notNull(),
+		activeSessionId: text("active_session_id"),
 		sessionHeadVersion: bigint("session_head_version", {
 			mode: "number",
 		}).notNull(),
