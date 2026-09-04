@@ -40,6 +40,7 @@ import {
 	makeCloudRuntimeCheckpointPublisher,
 	makeCloudRuntimeSummaryPublisher,
 	resolveCloudRuntimeActiveSession,
+	retainedCloudRuntimeStorageFailure,
 	retryCloudWorkspaceBootstrap,
 	runCloudMailboxConsumerCycle,
 	runtimeCredentialRenewalDelayMs,
@@ -426,6 +427,14 @@ describe("cloud workspace bootstrap", () => {
 				[],
 			),
 		).toBeNull();
+	});
+
+	it("rejects an empty replacement runtime before announcing retained readiness", () => {
+		expect(retainedCloudRuntimeStorageFailure(false, false)).toBe(
+			"runtime-storage-replaced",
+		);
+		expect(retainedCloudRuntimeStorageFailure(false, true)).toBeNull();
+		expect(retainedCloudRuntimeStorageFailure(true, false)).toBeNull();
 	});
 
 	it("announces readiness when a preserved runtime reconnects", () => {

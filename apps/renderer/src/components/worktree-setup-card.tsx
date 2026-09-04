@@ -4,6 +4,7 @@ import { Alert01Icon, Tick01Icon } from "@zuse/icons/solid-rounded";
 import { type ReactNode, useState } from "react";
 import { useWorktreeSetupLifecycle } from "../hooks/use-worktree-setup-lifecycle.ts";
 import { cloudWorkspaceIsStarting } from "../lib/cloud-chat-activity.ts";
+import { cloudFailurePresentation } from "../lib/cloud-failure-presentation.ts";
 import {
 	refreshCloudChatCatalog,
 	useCloudChatCatalogStore,
@@ -194,6 +195,8 @@ const cloudFailureRank = (statusCode: string): number => {
 };
 
 export const cloudFailureMessage = (statusCode: string): string => {
+	const failure = cloudFailurePresentation({ category: statusCode });
+	if (failure?.kind === "workspace-storage-unavailable") return failure.message;
 	switch (statusCode) {
 		case "updating-runtime-failed":
 			return "The secure runtime is incompatible with the cloud control plane. Retry after the cloud service finishes updating.";
@@ -221,6 +224,11 @@ export function CloudWorkspaceSetupCard({
 	readonly summary: CloudChatSummary;
 }) {
 	const [busy, setBusy] = useState<"retry" | "delete" | null>(null);
+	const typedFailure = cloudFailurePresentation({
+		category: summary.failureDiagnostic ?? summary.statusCode,
+	});
+	const storageUnavailable =
+		typedFailure?.kind === "workspace-storage-unavailable";
 	const runAction = async (action: "resume" | "delete") => {
 		setBusy(action === "resume" ? "retry" : "delete");
 		try {
@@ -252,17 +260,21 @@ export function CloudWorkspaceSetupCard({
 		<CloudWorkspaceSetupView
 			phase={summary.startupPhase}
 			statusCode={summary.statusCode}
-			failureDiagnostic={summary.failureDiagnostic}
+			failureDiagnostic={
+				storageUnavailable ? undefined : summary.failureDiagnostic
+			}
 			actions={
 				summary.startupPhase === "failed" ? (
 					<>
-						<Button
-							size="xs"
-							loading={busy === "retry"}
-							onClick={() => void runAction("resume")}
-						>
-							Retry
-						</Button>
+						{storageUnavailable ? null : (
+							<Button
+								size="xs"
+								loading={busy === "retry"}
+								onClick={() => void runAction("resume")}
+							>
+								Retry
+							</Button>
+						)}
 						<Button
 							size="xs"
 							variant="ghost"

@@ -117,10 +117,14 @@ export function CloudConnectionNotice() {
 	const connectionError = getRendererClientBus().connection(
 		EnvironmentId.make(summary.workspaceId),
 	).error;
-	const typedFailure =
+	const connectionFailure =
 		connectionError === null
 			? null
 			: cloudFailurePresentation({ cause: connectionError });
+	const workspaceFailure = cloudFailurePresentation({
+		category: summary.failureDiagnostic ?? summary.statusCode,
+	});
+	const typedFailure = workspaceFailure ?? connectionFailure;
 	const inviteRequired = typedFailure?.kind === "cloud-access-required";
 	const betaCheckUnavailable =
 		typedFailure?.kind === "cloud-access-unavailable";
@@ -135,6 +139,7 @@ export function CloudConnectionNotice() {
 		blockedAuth || typedConnectionFailure?.kind === "sign-in-required";
 	const terminalConnectionFailure =
 		typedConnectionFailure?.kind === "workspace-deleted" ||
+		typedConnectionFailure?.kind === "workspace-storage-unavailable" ||
 		typedConnectionFailure?.kind === "session-unavailable" ||
 		typedConnectionFailure?.kind === "interaction-expired" ||
 		typedConnectionFailure?.kind === "outcome-unknown";

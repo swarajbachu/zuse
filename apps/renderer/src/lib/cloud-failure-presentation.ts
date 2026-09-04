@@ -11,6 +11,7 @@ export type CloudFailureKind =
 	| "cloud-access-unavailable"
 	| "credentials-required"
 	| "workspace-deleted"
+	| "workspace-storage-unavailable"
 	| "interaction-expired"
 	| "session-unavailable"
 	| "outcome-unknown"
@@ -90,6 +91,8 @@ const CATEGORY_KIND: Readonly<Record<string, CloudFailureKind>> = {
 	"workspace-deleted-after-lease": "workspace-deleted",
 	"workspace-archived-after-lease": "workspace-deleted",
 	"workspace-destruction-fence-advanced-after-lease": "workspace-deleted",
+	"runtime-storage-replaced": "workspace-storage-unavailable",
+	"runtime-storage-incarnation-mismatch": "workspace-storage-unavailable",
 	"interaction-expired": "interaction-expired",
 	"reservation-expired": "interaction-expired",
 	"session-not-found": "session-unavailable",
@@ -245,6 +248,12 @@ const FAILURE_COPY: Readonly<Record<CloudFailureKind, FailureCopy>> = {
 		message:
 			"This workspace was archived or deleted before the command could finish.",
 	},
+	"workspace-storage-unavailable": {
+		label: "Workspace data unavailable",
+		headline: "Workspace data unavailable",
+		message:
+			"This sandbox no longer has this chat's runtime data. Your cached transcript is still available; start a replacement chat to continue.",
+	},
 	"interaction-expired": {
 		label: "Interaction expired",
 		headline: "Interaction expired",
@@ -322,6 +331,7 @@ export const cloudInteractionFailure = (
 	const presentation = cloudFailurePresentation({ cause });
 	const expired =
 		presentation?.kind === "session-unavailable" ||
+		presentation?.kind === "workspace-storage-unavailable" ||
 		presentation?.kind === "interaction-expired";
 	return {
 		expired,

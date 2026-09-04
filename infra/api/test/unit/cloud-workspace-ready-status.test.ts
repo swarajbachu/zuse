@@ -159,6 +159,78 @@ describe("cloud workspace runtime ready status", () => {
 		expect(summary.startupPhase).toBe("running");
 	});
 
+	it("does not project a stale runtime generation while retained storage is recovering", () => {
+		const summary = publicCloudWorkspaceSummary(
+			{
+				workspaceId: "workspace-1",
+				accountId: "account-1",
+				projectId: "project-1",
+				buildId: "build-1",
+				provider: "fake",
+				state: "setup",
+				desiredState: "ready",
+				runtimeState: "connecting",
+				statusCode: "agent-starting",
+				chatId: "chat-1",
+				initialSessionId: "session-initial",
+				branch: "zuse/workspace-1",
+				baseRef: "origin/main",
+				idempotencyKey: "workspace-key",
+				requestConfig: {
+					runtimeGeneration: 3,
+					runtimeSessionRecoveryPending: true,
+					sessionHeadVersion: 5,
+					title: "Current title",
+					agent: "codex",
+					model: "gpt-5",
+				},
+				nextActionAtMs: 3,
+				revision: 4,
+				createdAtMs: 1,
+				updatedAtMs: 3_000,
+				lastActivityAtMs: 2_000,
+			},
+			{
+				projectId: "project-1",
+				accountId: "account-1",
+				repositoryIdentity: "github.com/acme/app",
+				repositoryUrl: "https://github.com/acme/app.git",
+				displayName: "app",
+				defaultBranch: "main",
+				visibility: "private",
+				gitConnectionKind: "github-app",
+				cloudEnvironment: {},
+				secretBindings: [],
+				configurationDigest: "digest",
+				state: "ready",
+				idempotencyKey: "project-key",
+				createdAtMs: 1,
+				updatedAtMs: 1,
+			},
+			false,
+			2_000,
+			{
+				workspaceId: "workspace-1",
+				runtimeGeneration: 1,
+				summaryRevision: 62,
+				title: "Stale title",
+				lastActivityAtMs: 2_500,
+				activeSessionId: "session-stale",
+				sessionHeadVersion: 89,
+				updatedAtMs: 2_500,
+			},
+		);
+
+		expect(summary).toMatchObject({
+			title: "Current title",
+			activeSessionId: null,
+			summaryRevision: 0,
+			sessionHeadVersion: 0,
+			lastMessageAt: 2_000,
+			updatedAt: 3_000,
+		});
+	});
+
 	it("treats authenticated runtime traffic as a successful warm resume", () => {
 		expect(
 			runtimeActivityLifecycle({

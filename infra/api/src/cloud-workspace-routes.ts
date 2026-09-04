@@ -734,6 +734,15 @@ export const runtimeUnavailableResumeTarget = (
 				providerSandboxId: workspace.providerSandboxId,
 			} as const);
 
+const workspaceFailureDiagnostic = (
+	workspace: CloudWorkspaceRecord,
+): string | undefined =>
+	typeof workspace.requestConfig.startupFailureDiagnostic === "string"
+		? workspace.requestConfig.startupFailureDiagnostic
+		: typeof workspace.requestConfig.launchErrorCode === "string"
+			? workspace.requestConfig.launchErrorCode
+			: undefined;
+
 const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	workspaceId: workspace.workspaceId,
 	projectId: workspace.projectId,
@@ -753,10 +762,7 @@ const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
 	state: workspace.state,
 	desiredState: workspace.desiredState,
 	statusCode: workspace.statusCode,
-	failureDiagnostic:
-		typeof workspace.requestConfig.startupFailureDiagnostic === "string"
-			? workspace.requestConfig.startupFailureDiagnostic
-			: undefined,
+	failureDiagnostic: workspaceFailureDiagnostic(workspace),
 	startupPhase: startupPhase(workspace),
 	startupTimings: startupTimings(workspace),
 	runtimeState: workspace.runtimeState,
@@ -777,73 +783,102 @@ const runtimeModeFromRequestConfig = (
 	return decoded._tag === "Some" ? decoded.value : DEFAULT_RUNTIME_MODE;
 };
 
+const runtimeGeneration = (workspace: CloudWorkspaceRecord): number =>
+	typeof workspace.requestConfig.runtimeGeneration === "number"
+		? workspace.requestConfig.runtimeGeneration
+		: 1;
+
+/** Runtime-derived metadata is authoritative only inside its generation fence. */
+export const currentCloudRuntimeSummary = (
+	workspace: CloudWorkspaceRecord,
+	runtimeSummary?: CloudWorkspaceRuntimeSummaryRecord | null,
+): CloudWorkspaceRuntimeSummaryRecord | null =>
+	runtimeSummary?.runtimeGeneration === runtimeGeneration(workspace)
+		? runtimeSummary
+		: null;
+
+const workspaceRuntimeStorageUnavailable = (
+	workspace: CloudWorkspaceRecord,
+): boolean =>
+	workspace.statusCode === "runtime-storage-replaced" ||
+	workspace.requestConfig.launchErrorCode === "runtime-storage-replaced";
+
 export const publicCloudWorkspaceSummary = (
 	workspace: CloudWorkspaceRecord,
 	project: CloudProjectRecord,
 	unread: boolean,
 	lastMessageAt: number | null,
 	runtimeSummary?: CloudWorkspaceRuntimeSummaryRecord | null,
-) => ({
-	workspaceId: workspace.workspaceId,
-	projectId: project.projectId,
-	repositoryIdentity: project.repositoryIdentity,
-	repositoryDisplayName: project.displayName,
-	chatId: workspace.chatId,
-	initialSessionId: workspace.initialSessionId,
-	activeSessionId:
-		runtimeSummary === null || runtimeSummary === undefined
-			? workspace.initialSessionId
-			: runtimeSummary.activeSessionId,
-	title:
-		runtimeSummary?.title ??
-		(typeof workspace.requestConfig.title === "string"
-			? workspace.requestConfig.title
-			: workspace.branch),
-	branch: workspace.branch,
-	providerId: workspace.provider,
-	codexAuthMode:
-		workspace.requestConfig.codexAuthMode === "broker-v1"
-			? ("broker-v1" as const)
-			: ("legacy-image" as const),
-	providerAuthMode:
-		workspace.requestConfig.providerAuthMode === "broker-v1"
-			? ("broker-v1" as const)
-			: ("legacy-image" as const),
-	agent:
-		typeof workspace.requestConfig.agent === "string"
-			? workspace.requestConfig.agent
-			: "codex",
-	model:
-		typeof workspace.requestConfig.model === "string"
-			? workspace.requestConfig.model
-			: "",
-	runtimeMode: runtimeModeFromRequestConfig(workspace.requestConfig),
-	state: workspace.state,
-	desiredState: workspace.desiredState,
-	runtimeState: workspace.runtimeState,
-	statusCode: workspace.statusCode,
-	failureDiagnostic:
-		typeof workspace.requestConfig.startupFailureDiagnostic === "string"
-			? workspace.requestConfig.startupFailureDiagnostic
-			: undefined,
-	startupPhase: startupPhase(workspace),
-	revision: workspace.revision,
-	summaryRevision: runtimeSummary?.summaryRevision ?? 0,
-	sessionHeadVersion:
-		runtimeSummary?.sessionHeadVersion ??
-		(typeof workspace.requestConfig.sessionHeadVersion === "number"
-			? workspace.requestConfig.sessionHeadVersion
-			: 0),
-	unread,
-	lastMessageAt: runtimeSummary?.lastActivityAtMs ?? lastMessageAt,
-	...(workspace.state === "archived" || workspace.desiredState === "archived"
-		? {
-				archivedAt: workspace.archiveRequestedAtMs ?? workspace.updatedAtMs,
-			}
-		: {}),
-	createdAt: workspace.createdAtMs,
-	updatedAt: Math.max(workspace.updatedAtMs, runtimeSummary?.updatedAtMs ?? 0),
-});
+) => {
+	const currentSummary = currentCloudRuntimeSummary(workspace, runtimeSummary);
+	const recoveringRetainedStorage =
+		workspace.requestConfig.runtimeSessionRecoveryPending === true;
+	return {
+		workspaceId: workspace.workspaceId,
+		projectId: project.projectId,
+		repositoryIdentity: project.repositoryIdentity,
+		repositoryDisplayName: project.displayName,
+		chatId: workspace.chatId,
+		initialSessionId: workspace.initialSessionId,
+		activeSessionId:
+			currentSummary === null
+				? recoveringRetainedStorage
+					? null
+					: workspace.initialSessionId
+				: currentSummary.activeSessionId,
+		title:
+			currentSummary?.title ??
+			(typeof workspace.requestConfig.title === "string"
+				? workspace.requestConfig.title
+				: workspace.branch),
+		branch: workspace.branch,
+		providerId: workspace.provider,
+		codexAuthMode:
+			workspace.requestConfig.codexAuthMode === "broker-v1"
+				? ("broker-v1" as const)
+				: ("legacy-image" as const),
+		providerAuthMode:
+			workspace.requestConfig.providerAuthMode === "broker-v1"
+				? ("broker-v1" as const)
+				: ("legacy-image" as const),
+		agent:
+			typeof workspace.requestConfig.agent === "string"
+				? workspace.requestConfig.agent
+				: "codex",
+		model:
+			typeof workspace.requestConfig.model === "string"
+				? workspace.requestConfig.model
+				: "",
+		runtimeMode: runtimeModeFromRequestConfig(workspace.requestConfig),
+		state: workspace.state,
+		desiredState: workspace.desiredState,
+		runtimeState: workspace.runtimeState,
+		statusCode: workspace.statusCode,
+		failureDiagnostic: workspaceFailureDiagnostic(workspace),
+		startupPhase: startupPhase(workspace),
+		revision: workspace.revision,
+		summaryRevision: currentSummary?.summaryRevision ?? 0,
+		sessionHeadVersion:
+			currentSummary?.sessionHeadVersion ??
+			(recoveringRetainedStorage
+				? 0
+				: typeof workspace.requestConfig.sessionHeadVersion === "number"
+					? workspace.requestConfig.sessionHeadVersion
+					: 0),
+		unread,
+		lastMessageAt: currentSummary?.lastActivityAtMs ?? lastMessageAt,
+		...(workspace.state === "archived" || workspace.desiredState === "archived"
+			? {
+					archivedAt: workspace.archiveRequestedAtMs ?? workspace.updatedAtMs,
+				}
+			: {}),
+		createdAt: workspace.createdAtMs,
+		updatedAt: Math.max(
+			workspace.updatedAtMs,
+			currentSummary?.updatedAtMs ?? 0,
+		),
+	};
+};
 
 const selectedProvider = Effect.fn("selectedCloudProvider")(function* (
 	requested?: string,
@@ -974,11 +1009,6 @@ const RuntimeCredentialRenewRequest = Schema.Struct({
 const RuntimeCommandLeaseRequest = Schema.Struct({
 	storageIncarnationId: Schema.String,
 });
-
-const runtimeGeneration = (workspace: CloudWorkspaceRecord): number =>
-	typeof workspace.requestConfig.runtimeGeneration === "number"
-		? workspace.requestConfig.runtimeGeneration
-		: 1;
 
 export const codexGrantRuntimeBindingError = (
 	workspace: CloudWorkspaceRecord,
@@ -1209,8 +1239,17 @@ export const routeCloudWorkspaceRequest = (
 			},
 		);
 		const repairAcknowledgedLaunch = Effect.fn("repairAcknowledgedLaunch")(
-			function* (workspace: CloudWorkspaceRecord, sessionHeadVersion = 0) {
+			function* (
+				workspace: CloudWorkspaceRecord,
+				runtimeSummary?: CloudWorkspaceRuntimeSummaryRecord | null,
+			) {
 				if (workspace.statusCode !== "agent-starting") return workspace;
+				const currentSummary = currentCloudRuntimeSummary(
+					workspace,
+					runtimeSummary,
+				);
+				if (currentSummary === null || currentSummary.sessionHeadVersion <= 0)
+					return workspace;
 				const launchIntent = yield* store.getLaunchIntent(
 					workspace.workspaceId,
 					nowMs,
@@ -1219,7 +1258,7 @@ export const routeCloudWorkspaceRequest = (
 				const completion = yield* store.completeLaunchIntent({
 					workspaceId: workspace.workspaceId,
 					commandId: `launch:${workspace.workspaceId}`,
-					sessionHeadVersion,
+					sessionHeadVersion: currentSummary.sessionHeadVersion,
 					nowMs,
 					nextActionAtMs: nowMs + idlePauseMs,
 				});
@@ -1789,7 +1828,14 @@ export const routeCloudWorkspaceRequest = (
 				const updated: CloudWorkspaceRecord = {
 					...workspace,
 					state: "failed",
-					statusCode: "launch-failed",
+					runtimeState: "offline",
+					runtimeBootTokenHash: undefined,
+					runtimeBootTokenExpiresAtMs: undefined,
+					runtimeCredentialHash: undefined,
+					statusCode:
+						body.errorCode === "runtime-storage-replaced"
+							? "runtime-storage-replaced"
+							: "launch-failed",
 					requestConfig: {
 						...workspace.requestConfig,
 						launchErrorCode: body.errorCode ?? "workspace_launch_failed",
@@ -2104,6 +2150,7 @@ export const routeCloudWorkspaceRequest = (
 				destructionFence: workspaceDestructionFence(workspace),
 				mailboxEnabled:
 					apiConfiguration.cloudCommandMailboxEnabled &&
+					!workspaceRuntimeStorageUnavailable(workspace) &&
 					workspaceAcceptsCloudCommandMailbox(workspace),
 			});
 		}
@@ -2123,6 +2170,8 @@ export const routeCloudWorkspaceRequest = (
 					workspace.desiredState === "archived"
 				)
 					return yield* Effect.fail(conflict("cloud_workspace_unavailable"));
+				if (workspaceRuntimeStorageUnavailable(workspace))
+					return yield* Effect.fail(conflict("runtime-storage-replaced"));
 				if (!workspaceAcceptsCloudCommandMailbox(workspace))
 					return yield* Effect.fail(
 						conflict("cloud_command_runtime_update_required"),
@@ -2597,7 +2646,7 @@ export const routeCloudWorkspaceRequest = (
 						]);
 						const repaired = yield* repairAcknowledgedLaunch(
 							workspace,
-							runtimeSummary?.sessionHeadVersion ?? 0,
+							runtimeSummary,
 						);
 						return project === null
 							? null
@@ -2730,9 +2779,7 @@ export const routeCloudWorkspaceRequest = (
 				url.searchParams.get("projectId") ?? undefined,
 			);
 			return json({
-				workspaces: yield* Effect.forEach(workspaces, (workspace) =>
-					repairAcknowledgedLaunch(workspace).pipe(Effect.map(publicWorkspace)),
-				),
+				workspaces: workspaces.map(publicWorkspace),
 			});
 		}
 
@@ -2743,7 +2790,7 @@ export const routeCloudWorkspaceRequest = (
 			);
 			if (workspace === null || workspace.accountId !== principal.accountId)
 				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
-			return json(publicWorkspace(yield* repairAcknowledgedLaunch(workspace)));
+			return json(publicWorkspace(workspace));
 		}
 
 		const connectionTicketMatch =

@@ -28,6 +28,9 @@ pairing, and user-managed remote environments keep their existing paths.
   into the transcript.
 - Every resource identity includes its environment. Old generations and
   regressing cursors are rejected before they reach UI state.
+- Once runtime SQLite becomes authoritative, a missing provider sandbox is a
+  terminal storage-loss condition. Zuse preserves cached transcript data and
+  never forks an empty replacement or replays uncertain commands as recovery.
 
 ## Documentation map
 

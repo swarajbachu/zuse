@@ -738,6 +738,13 @@ export const resolveCloudRuntimeActiveSession = (
 	return live[0]?.id ?? null;
 };
 
+/** A retained runtime without its control-plane chat proves SQLite was replaced. */
+export const retainedCloudRuntimeStorageFailure = (
+	hasLaunchIntent: boolean,
+	hasRuntimeChat: boolean,
+): "runtime-storage-replaced" | null =>
+	!hasLaunchIntent && !hasRuntimeChat ? "runtime-storage-replaced" : null;
+
 export const signRuntimeRenewalProof = (input: {
 	readonly privateKey: CryptoKey;
 	readonly apiIssuer: string;
@@ -2592,6 +2599,22 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					// not on the disposable UI gateway. A gateway outage must never stop
 					// this runtime from draining its workspace mailbox.
 					yield* waitForRepository;
+					const launchIntent = bootstrap.launchIntent;
+					const existingRuntimeChat = yield* chats
+						.getChat(ChatId.make(bootstrap.chatId))
+						.pipe(Effect.result);
+					const storageFailure = retainedCloudRuntimeStorageFailure(
+						launchIntent !== undefined,
+						existingRuntimeChat._tag === "Success",
+					);
+					if (storageFailure !== null) {
+						yield* postCurrentRuntimeReady(
+							"launch-failed",
+							undefined,
+							storageFailure,
+						).pipe(Effect.retry(cloudRuntimeRetrySchedule));
+						return yield* Effect.fail(fail(storageFailure));
+					}
 					// Record the local prerequisite first. If the gateway opens while the
 					// control-plane update is in flight, its callback publishes another
 					// ready revision after the socket is actually usable.
@@ -2613,9 +2636,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const knownChatSessionIds = new Set<string>([
 						bootstrap.initialSessionId,
 					]);
-					const existingRuntimeChat = yield* chats
-						.getChat(ChatId.make(bootstrap.chatId))
-						.pipe(Effect.result);
 					if (existingRuntimeChat._tag === "Success") {
 						const existingSessions = yield* sessions.listSessions(
 							existingRuntimeChat.success.projectId,
@@ -2672,7 +2692,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							Effect.forkScoped({ startImmediately: true }),
 						);
 
-					const launchIntent = bootstrap.launchIntent;
 					if (launchIntent !== undefined) {
 						const started = yield* startCloudWorkspaceLaunchIntent({
 							workspaces,

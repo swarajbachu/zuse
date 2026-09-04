@@ -9,6 +9,7 @@ import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts
 import { cloudRepositoryWorkspacePath } from "../../src/cloud-workspace-paths.ts";
 import {
 	ARCHIVED_WORKSPACE_RETENTION_MS,
+	cloudWorkspaceHasRetainedRuntimeData,
 	cloudWorkspaceStartupNeedsObservation,
 	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	RUNTIME_CONNECTION_TIMEOUT_MS,
@@ -153,6 +154,27 @@ const seedWorkspace = Effect.fn("seedArchiveWorkspace")(function* (
 });
 
 describe("cloud workspace reconciler", () => {
+	test("recognizes established runtime storage before provider replacement", () => {
+		expect(
+			cloudWorkspaceHasRetainedRuntimeData({
+				statusCode: "agent-running",
+				requestConfig: {},
+			}),
+		).toBe(true);
+		expect(
+			cloudWorkspaceHasRetainedRuntimeData({
+				statusCode: "runtime-starting",
+				requestConfig: { sessionHeadVersion: 0 },
+			}),
+		).toBe(true);
+		expect(
+			cloudWorkspaceHasRetainedRuntimeData({
+				statusCode: "runtime-starting",
+				requestConfig: {},
+			}),
+		).toBe(false);
+	});
+
 	test("maps GitHub repositories to stable folders outside the runtime home", () => {
 		expect(cloudRepositoryWorkspacePath("github.com/swarajbachu/zuse")).toBe(
 			"/home/repos/swarajbachu/zuse",
@@ -497,7 +519,7 @@ describe("cloud workspace reconciler", () => {
 		expect(result.sandboxes.has("source-expired-archive")).toBe(false);
 	});
 
-	test("preserves a paused runtime before falling back to a restart", async () => {
+	test("preserves a paused runtime and refuses a storage-destructive replacement", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -551,7 +573,7 @@ describe("cloud workspace reconciler", () => {
 					desiredState: "paused" as const,
 					statusCode: "agent-running",
 					idempotencyKey: "workspace-resume-key",
-					requestConfig: {},
+					requestConfig: { sessionHeadVersion: 5 },
 					nextActionAtMs: nowMs,
 					revision: 1,
 					createdAtMs: nowMs,
@@ -657,10 +679,11 @@ describe("cloud workspace reconciler", () => {
 			kind: "open",
 		});
 		expect(result.missing).toMatchObject({
-			state: "queued",
+			state: "failed",
 			providerSandboxId: undefined,
-			statusCode: "provider-sandbox-replacing",
+			statusCode: "runtime-storage-replaced",
 			runtimeState: "offline",
+			nextActionAtMs: Number.MAX_SAFE_INTEGER,
 		});
 		expect(result.missing?.leaseOwner).toBeUndefined();
 	});
