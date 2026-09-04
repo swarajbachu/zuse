@@ -2,11 +2,29 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
 	decodeRuntimeSummary,
+	launchFailureNextActionAt,
 	publicCloudWorkspaceSummary,
 	runtimeActivityLifecycle,
 } from "../../src/cloud-workspace-routes.ts";
 
 describe("cloud workspace runtime ready status", () => {
+	it("retires terminal storage loss without changing ordinary launch timing", () => {
+		expect(
+			launchFailureNextActionAt({
+				errorCode: "runtime-storage-replaced",
+				nowMs: 1_000,
+				idlePauseMs: 5_000,
+			}),
+		).toBe(Number.MAX_SAFE_INTEGER);
+		expect(
+			launchFailureNextActionAt({
+				errorCode: "provider-auth-reconnect-required",
+				nowMs: 1_000,
+				idlePauseMs: 5_000,
+			}),
+		).toBe(6_000);
+	});
+
 	it("accepts only the metadata-only runtime summary route body", async () => {
 		const valid = await Effect.runPromise(
 			decodeRuntimeSummary(

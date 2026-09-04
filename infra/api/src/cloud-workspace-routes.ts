@@ -1033,6 +1033,15 @@ export const codexGrantRuntimeBindingError = (
 	return null;
 };
 
+export const launchFailureNextActionAt = (input: {
+	readonly errorCode?: string;
+	readonly nowMs: number;
+	readonly idlePauseMs: number;
+}): number =>
+	input.errorCode === "runtime-storage-replaced"
+		? Number.MAX_SAFE_INTEGER
+		: input.nowMs + input.idlePauseMs;
+
 export const providerGrantRuntimeBindingError = (
 	workspace: CloudWorkspaceRecord,
 	request: Pick<ProviderGrantRequest, "runtimeGeneration">,
@@ -1844,7 +1853,11 @@ export const routeCloudWorkspaceRequest = (
 							connectedAt: timings.connectedAt ?? nowMs,
 						},
 					},
-					nextActionAtMs: nowMs + idlePauseMs,
+					nextActionAtMs: launchFailureNextActionAt({
+						errorCode: body.errorCode,
+						nowMs,
+						idlePauseMs,
+					}),
 					lastActivityAtMs: nowMs,
 					revision: workspace.revision + 1,
 					updatedAtMs: nowMs,
