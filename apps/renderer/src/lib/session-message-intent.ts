@@ -1,5 +1,12 @@
-import type { OutboxEntry } from "@zuse/client-runtime/client-persistence";
+import type {
+	ClientCommand,
+	OutboxEntry,
+} from "@zuse/client-runtime/client-persistence";
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
+import type {
+	ResourceCursor,
+	ResourceView,
+} from "@zuse/client-runtime/resource-state";
 import { decodeCloudMessageSendPayload } from "@zuse/cloud-commands";
 import {
 	type ComposerInput,
@@ -8,7 +15,53 @@ import {
 	type MessageContent,
 	type MessageId,
 	type SessionId,
+	type SessionTimelineProjection,
 } from "@zuse/contracts";
+
+const cursorChanged = (
+	left: ResourceCursor | null,
+	right: ResourceView<unknown>["cursor"],
+): boolean =>
+	right !== null &&
+	(left === null ||
+		left.epoch !== right.epoch ||
+		left.version !== right.version);
+
+/**
+ * A send receipt proves runtime SQLite accepted the command, while this proof
+ * closes the later UI handoff to the authoritative timeline. Optimistic user
+ * messages retain the old cursor, so they cannot satisfy the fence themselves.
+ */
+export const sessionMessageCommandReflected = (
+	command: ClientCommand,
+	view: ResourceView<unknown>,
+): boolean => {
+	if (
+		command.kind !== "messages.send" ||
+		command.resourceReflection === undefined ||
+		view.data === null ||
+		!cursorChanged(command.resourceReflection.cursor, view.cursor)
+	)
+		return false;
+	const payload = decodeCloudMessageSendPayload(command.payload);
+	if (payload === null) return false;
+	const projection = view.data as SessionTimelineProjection;
+	const messageIndex = projection.messages.findIndex(
+		(message) => message.id === payload.clientMessageId,
+	);
+	if (messageIndex < 0) return false;
+	if (
+		projection.currentTurn !== null ||
+		projection.status === "booting" ||
+		projection.status === "running" ||
+		projection.status === "error" ||
+		projection.status === "closed"
+	)
+		return true;
+	return projection.messages
+		.slice(messageIndex + 1)
+		.some((message) => message.role !== "user");
+};
 
 export const optimisticSessionMessageContent = (
 	input: string | ComposerInput,

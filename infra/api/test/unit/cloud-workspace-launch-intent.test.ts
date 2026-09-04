@@ -4,6 +4,7 @@ import {
 	CloudWorkspaceLaunchIntentCipher,
 	CloudWorkspaceLaunchIntentCipherLive,
 	makeCloudWorkspaceLaunchIntent,
+	selectCloudWorkspaceInitialMessageDelivery,
 } from "../../src/cloud-workspace-launch-intent.ts";
 import * as Config from "../../src/config.ts";
 
@@ -24,6 +25,21 @@ const layer = Layer.effect(
 ).pipe(Layer.provide(config));
 
 describe("cloud workspace launch intent encryption", () => {
+	test("lets the server control initial mailbox delivery", () => {
+		expect(
+			selectCloudWorkspaceInitialMessageDelivery({
+				mailboxEnabled: false,
+				requested: "mailbox-v1",
+			}),
+		).toBeUndefined();
+		expect(
+			selectCloudWorkspaceInitialMessageDelivery({
+				mailboxEnabled: true,
+				requested: "mailbox-v1",
+			}),
+		).toBe("mailbox-v1");
+	});
+
 	test("derives bounded catalog metadata only inside the launch-intent boundary", () => {
 		expect(
 			makeCloudWorkspaceLaunchIntent({
@@ -46,6 +62,31 @@ describe("cloud workspace launch intent encryption", () => {
 			runtimeMode: "full-access",
 			permissions: [],
 			firstMessage: `${"x".repeat(90)}\nprivate second line`,
+		});
+	});
+
+	test("creates only the session shell when the first message uses the mailbox", () => {
+		expect(
+			makeCloudWorkspaceLaunchIntent({
+				workspaceId: "workspace-1",
+				branch: "zuse/workspace-1",
+				agent: "codex",
+				model: "gpt-5",
+				runtimeMode: "full-access",
+				permissions: [],
+				request: {
+					firstMessage: "Durable initial prompt",
+					initialMessageDelivery: "mailbox-v1",
+				},
+			}),
+		).toEqual({
+			commandId: "launch:workspace-1",
+			turnId: "turn:workspace-1",
+			title: "Durable initial prompt",
+			agent: "codex",
+			model: "gpt-5",
+			runtimeMode: "full-access",
+			permissions: [],
 		});
 	});
 

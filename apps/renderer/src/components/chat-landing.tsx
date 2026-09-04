@@ -80,7 +80,7 @@ import {
 	preferredGroupMember,
 } from "~/lib/project-groups";
 import { getLocalEnvironmentId } from "~/lib/rpc-client";
-import { updateQueuedMessage } from "~/lib/session-actions";
+import { sendSessionMessage, updateQueuedMessage } from "~/lib/session-actions";
 import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { switchToEnvironment } from "~/lib/switch-environment";
 import { cn } from "~/lib/utils";
@@ -830,6 +830,7 @@ export function ChatLanding() {
 						model: draft.model,
 						runtimeMode: draft.runtimeMode,
 						firstMessage: input.text,
+						initialMessageDelivery: "mailbox-v1",
 						idempotencyKey: crypto.randomUUID(),
 					}),
 				);
@@ -847,8 +848,24 @@ export function ChatLanding() {
 				});
 				if (selectedFolderId === null)
 					throw new Error("Select a repository before starting a cloud chat.");
-				stageCloudChat(summary, selectedFolderId, input.text);
+				const usesDurableInitialMessage =
+					launch.initialMessageDelivery === "mailbox-v1";
+				stageCloudChat(
+					summary,
+					selectedFolderId,
+					usesDurableInitialMessage ? undefined : input.text,
+				);
 				useChatsStore.getState().select(summary.chatId);
+				const accepted = usesDurableInitialMessage
+					? await sendSessionMessage(
+							{
+								environmentId: EnvironmentId.make(summary.workspaceId),
+								sessionId: summary.initialSessionId,
+							},
+							input,
+							{ providerId: draft.providerId },
+						)
+					: true;
 				void ensureCloudWorkspaceAttached(summary).catch((cause) =>
 					toastManager.add({
 						type: "error",
@@ -856,6 +873,7 @@ export function ChatLanding() {
 						description: formatError(cause),
 					}),
 				);
+				if (!accepted) return;
 				useSessionsStore.getState().clearDraft();
 				setSelectedCloudProviderId(null);
 			} catch (cause) {

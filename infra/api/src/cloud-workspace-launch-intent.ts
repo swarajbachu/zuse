@@ -19,6 +19,14 @@ export interface CloudWorkspaceLaunchIntent {
 	readonly pendingRename?: string;
 }
 
+export const selectCloudWorkspaceInitialMessageDelivery = (input: {
+	readonly mailboxEnabled: boolean;
+	readonly requested?: "mailbox-v1";
+}): "mailbox-v1" | undefined =>
+	input.mailboxEnabled && input.requested === "mailbox-v1"
+		? "mailbox-v1"
+		: undefined;
+
 export const makeCloudWorkspaceLaunchIntent = (input: {
 	readonly workspaceId: string;
 	readonly branch: string;
@@ -26,7 +34,10 @@ export const makeCloudWorkspaceLaunchIntent = (input: {
 	readonly model: string;
 	readonly runtimeMode: RuntimeMode;
 	readonly permissions: ReadonlyArray<string>;
-	readonly request: { readonly firstMessage?: string };
+	readonly request: {
+		readonly firstMessage?: string;
+		readonly initialMessageDelivery?: "mailbox-v1";
+	};
 }): CloudWorkspaceLaunchIntent => {
 	const firstLine = input.request.firstMessage
 		?.trim()
@@ -46,7 +57,8 @@ export const makeCloudWorkspaceLaunchIntent = (input: {
 		model: input.model,
 		runtimeMode: input.runtimeMode,
 		permissions: input.permissions,
-		...(input.request.firstMessage === undefined
+		...(input.request.firstMessage === undefined ||
+		input.request.initialMessageDelivery === "mailbox-v1"
 			? {}
 			: { firstMessage: input.request.firstMessage }),
 	};

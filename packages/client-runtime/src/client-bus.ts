@@ -147,6 +147,11 @@ export type ClientBusOptions<Client> = Readonly<{
 	) => CloudCommandTransport | undefined;
 	/** Maps transport-level command failures into the shared connection state. */
 	commandFaultFor?: (cause: unknown) => EnvironmentFault | null;
+	/** Proves that an applied command is present in its authoritative resource. */
+	commandReflected?: (
+		command: ClientCommand,
+		view: ResourceView<unknown>,
+	) => boolean;
 	driverFor?: ResourceDriverFactory<Client>;
 	synchronizer?: ResourceSynchronizer;
 	runtime?: EnvironmentRuntimeOptions;
@@ -190,6 +195,13 @@ type CommandAcceptanceOwner = Readonly<{
 	readonly accepted: Promise<CommandAcceptance>;
 	readonly resolveAccepted: (acceptance: CommandAcceptance) => void;
 	readonly rejectAccepted: (cause: unknown) => void;
+}>;
+
+type CommandReflectionWaiter = Readonly<{
+	command: ClientCommand;
+	promise: Promise<void>;
+	resolve: () => void;
+	reject: (cause: unknown) => void;
 }>;
 
 /** Internal attempt outcome; the original dispatch promise owns the retry. */
@@ -296,6 +308,10 @@ export class ClientBus<Client> {
 	private readonly commandCancels = new Map<
 		CommandId,
 		() => Promise<import("@zuse/contracts").CommandStatus>
+	>();
+	private readonly commandReflectionWaiters = new Map<
+		CommandId,
+		CommandReflectionWaiter
 	>();
 	private readonly cloudCommandAttemptDisposers = new Set<() => void>();
 	private readonly disposalListeners = new Set<(cause: Error) => void>();
@@ -598,9 +614,11 @@ export class ClientBus<Client> {
 		command: ClientCommand<unknown, Result>,
 	): Promise<CommandReceipt<Result>> {
 		this.assertActive();
+		const effectiveCommand = this.withResourceReflectionFence(command);
 		if (
-			command.resource !== null &&
-			command.resource.ref.environmentId !== command.environmentId
+			effectiveCommand.resource !== null &&
+			effectiveCommand.resource.ref.environmentId !==
+				effectiveCommand.environmentId
 		) {
 			return Promise.reject(
 				new Error("Command resource belongs to another environment"),
@@ -608,15 +626,15 @@ export class ClientBus<Client> {
 		}
 		let fingerprint: CommandFingerprint;
 		try {
-			fingerprint = commandFingerprint(command);
+			fingerprint = commandFingerprint(effectiveCommand);
 		} catch (cause) {
 			return Promise.reject(cause);
 		}
-		const existing = this.commands.get(command.commandId);
+		const existing = this.commands.get(effectiveCommand.commandId);
 		if (existing !== undefined) {
 			try {
 				assertCommandFingerprint(
-					command.commandId,
+					effectiveCommand.commandId,
 					existing.fingerprint,
 					fingerprint,
 				);
@@ -625,11 +643,11 @@ export class ClientBus<Client> {
 			}
 			return existing.receipt as Promise<CommandReceipt<Result>>;
 		}
-		const completed = this.completedReceipts.get(command.commandId);
+		const completed = this.completedReceipts.get(effectiveCommand.commandId);
 		if (completed !== undefined) {
 			try {
 				assertCommandFingerprint(
-					command.commandId,
+					effectiveCommand.commandId,
 					completed.fingerprint,
 					fingerprint,
 				);
@@ -643,17 +661,17 @@ export class ClientBus<Client> {
 		// The durable mailbox owns per-session ordering, so cloud commands must be
 		// accepted concurrently instead of waiting for an earlier command's final
 		// result in the local live-RPC lane.
-		const durable = this.cloudTransport(command) !== undefined;
+		const durable = this.cloudTransport(effectiveCommand) !== undefined;
 		const liveFallbackReservation = durable
-			? this.reserveCommandLane(command)
+			? this.reserveCommandLane(effectiveCommand)
 			: undefined;
 		const execution = durable
 			? this.dispatchWithPersistedReceipt(
-					command,
+					effectiveCommand,
 					fingerprint,
 					liveFallbackReservation?.waitForTurn,
 				)
-			: this.enqueueCommand(command, fingerprint);
+			: this.enqueueCommand(effectiveCommand, fingerprint);
 		const pending = this.untilDisposed(execution);
 		if (liveFallbackReservation !== undefined) {
 			void pending.then(
@@ -661,18 +679,18 @@ export class ClientBus<Client> {
 				liveFallbackReservation.release,
 			);
 		}
-		this.commands.set(command.commandId, {
+		this.commands.set(effectiveCommand.commandId, {
 			fingerprint,
 			receipt: pending as Promise<CommandReceipt<unknown>>,
 		});
 		void pending.then(
 			(receipt) => {
 				if (!this.disposed) {
-					this.completedReceipts.set(command.commandId, receipt);
+					this.completedReceipts.set(effectiveCommand.commandId, receipt);
 				}
-				this.commands.delete(command.commandId);
+				this.commands.delete(effectiveCommand.commandId);
 			},
-			() => this.commands.delete(command.commandId),
+			() => this.commands.delete(effectiveCommand.commandId),
 		);
 		return pending;
 	}
@@ -945,6 +963,10 @@ export class ClientBus<Client> {
 			disposeAttempt();
 		this.cloudCommandAttemptDisposers.clear();
 		this.commandCancels.clear();
+		for (const waiter of this.commandReflectionWaiters.values()) {
+			waiter.reject(disposed);
+		}
+		this.commandReflectionWaiters.clear();
 		this.commands.clear();
 		for (const entry of this.entries.values()) this.stopDriver(entry);
 		for (const binding of this.environments.values()) binding.unsubscribe();
@@ -983,6 +1005,74 @@ export class ClientBus<Client> {
 			this.entries.set(id, entry);
 		}
 		return entry;
+	}
+
+	private withResourceReflectionFence<Result>(
+		command: ClientCommand<unknown, Result>,
+	): ClientCommand<unknown, Result> {
+		if (
+			command.awaitResourceReflection !== true ||
+			command.resource === null ||
+			command.resourceReflection !== undefined
+		)
+			return command;
+		return {
+			...command,
+			resourceReflection: {
+				cursor: this.entry(command.resource).view.cursor,
+			},
+		};
+	}
+
+	private waitForResourceReflection(command: ClientCommand): Promise<void> {
+		if (
+			command.awaitResourceReflection !== true ||
+			command.resource === null ||
+			this.options.commandReflected === undefined
+		)
+			return Promise.resolve();
+		const entry = this.entry(command.resource);
+		if (this.commandIsReflected(command, entry.view)) return Promise.resolve();
+		const existing = this.commandReflectionWaiters.get(command.commandId);
+		if (existing !== undefined) return existing.promise;
+		let resolve!: () => void;
+		let reject!: (cause: unknown) => void;
+		const promise = new Promise<void>((onResolve, onReject) => {
+			resolve = onResolve;
+			reject = onReject;
+		});
+		this.commandReflectionWaiters.set(command.commandId, {
+			command,
+			promise,
+			resolve,
+			reject,
+		});
+		this.updateCommandResource(command, (view) => ({
+			...view,
+			pendingCommands: view.pendingCommands.map((pending) =>
+				pending.commandId === command.commandId
+					? {
+							...pending,
+							deliveryPhase: "applied",
+							category: undefined,
+							blockedUntil: undefined,
+							cancellable: false,
+						}
+					: pending,
+			),
+		}));
+		return promise;
+	}
+
+	private commandIsReflected(
+		command: ClientCommand,
+		view: ResourceView<unknown>,
+	): boolean {
+		try {
+			return this.options.commandReflected?.(command, view) === true;
+		} catch {
+			return false;
+		}
 	}
 
 	private environment(
@@ -1564,6 +1654,7 @@ export class ClientBus<Client> {
 							// resurrect a command that is already terminal.
 							await statusPersistence;
 						}
+						await this.waitForResourceReflection(command);
 						await outbox?.completeOutbox(receipt);
 						this.updateCommandResource(command, (view) => ({
 							...view,
@@ -1616,6 +1707,7 @@ export class ClientBus<Client> {
 					receivedAt: executionReceipt.receivedAt,
 					result: executionReceipt.result as Result,
 				};
+				await this.waitForResourceReflection(command);
 				if (command.retry === "safe") {
 					await outbox?.completeOutbox(receipt);
 				} else {
@@ -1712,9 +1804,28 @@ export class ClientBus<Client> {
 	}
 
 	private setView(entry: ResourceEntry, view: ResourceView<unknown>): void {
-		if (view === entry.view) return;
-		entry.view = view;
-		for (const listener of entry.listeners) listener(view);
+		let next = view;
+		const reflected: CommandReflectionWaiter[] = [];
+		if (view.data !== null && view.pendingCommands.length > 0) {
+			const pendingCommands = view.pendingCommands.filter((pending) => {
+				const waiter = this.commandReflectionWaiters.get(pending.commandId);
+				if (
+					waiter === undefined ||
+					!this.commandIsReflected(waiter.command, view)
+				)
+					return true;
+				this.commandReflectionWaiters.delete(pending.commandId);
+				reflected.push(waiter);
+				return false;
+			});
+			if (pendingCommands.length !== view.pendingCommands.length) {
+				next = { ...view, pendingCommands };
+			}
+		}
+		if (next === entry.view) return;
+		entry.view = next;
+		for (const listener of entry.listeners) listener(next);
+		for (const waiter of reflected) waiter.resolve();
 	}
 
 	private commandOutbox(): CommandOutbox | undefined {

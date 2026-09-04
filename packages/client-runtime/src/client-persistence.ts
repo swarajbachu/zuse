@@ -38,6 +38,14 @@ export type ClientCommand<Payload = unknown, Result = unknown> = Readonly<{
 	payload: Payload;
 	retry: CommandRetryPolicy;
 	createdAt: number;
+	/**
+	 * Keep optimistic command state until the authoritative resource projection
+	 * contains the applied effect. This closes the receipt-before-stream gap for
+	 * turn starts without delaying mailbox acceptance.
+	 */
+	awaitResourceReflection?: boolean;
+	/** ClientBus-owned durable fence captured before command dispatch. */
+	resourceReflection?: Readonly<{ cursor: ResourceCursor | null }>;
 	/** Carries the expected receipt type without adding wire data. */
 	readonly __result?: Result;
 }>;

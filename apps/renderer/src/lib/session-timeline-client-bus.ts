@@ -51,7 +51,10 @@ import {
 	markCloudWorkspaceConnectionHealthy,
 	type RendererRpcSession,
 } from "./rpc-client.ts";
-import { durableOptimisticSessionMessage } from "./session-message-intent.ts";
+import {
+	durableOptimisticSessionMessage,
+	sessionMessageCommandReflected,
+} from "./session-message-intent.ts";
 import { sessionTimelineCache } from "./session-timeline-cache.ts";
 
 export type SessionTimelineResourceKey = ResourceKey<SessionTimelineProjection>;
@@ -1165,6 +1168,7 @@ const createBus = (): ClientBus<MemoizeClient> => {
 				: undefined,
 		commandFaultFor: (cause) =>
 			isRpcClientTransportError(cause) ? faultFor(cause) : null,
+		commandReflected: sessionMessageCommandReflected,
 		runtime: {
 			isOnline: () => globalThis.navigator?.onLine !== false,
 		},
@@ -1364,6 +1368,7 @@ export const dispatchSessionCommand = <Payload, Result>(input: {
 		payload: input.payload,
 		retry: input.retry ?? "safe",
 		createdAt: Date.now(),
+		awaitResourceReflection: input.kind === "messages.send",
 	});
 
 export const dispatchSessionCommandHandle = <Payload, Result>(input: {
@@ -1381,6 +1386,7 @@ export const dispatchSessionCommandHandle = <Payload, Result>(input: {
 		payload: input.payload,
 		retry: input.retry ?? "safe",
 		createdAt: Date.now(),
+		awaitResourceReflection: input.kind === "messages.send",
 	});
 
 export const cancelSessionCommand = (commandId: ClientCommand["commandId"]) =>

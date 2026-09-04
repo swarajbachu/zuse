@@ -383,7 +383,7 @@ export const cloudSessionPlaceholder = (
 export const stageCloudChat = (
 	summary: CloudChatSummary,
 	projectId: FolderId,
-	firstMessage?: string,
+	legacyFirstMessage?: string,
 ): void => {
 	const previous = cloudSummaryForEnvironment(summary.workspaceId);
 	if (
@@ -434,7 +434,10 @@ export const stageCloudChat = (
 			],
 		},
 	}));
-	if (firstMessage !== undefined) {
+	// Compatibility only: an API that did not acknowledge mailbox-v1 still owns
+	// the prompt in its encrypted launch intent. The stable ID is replaced by the
+	// authoritative launch message rather than producing a duplicate.
+	if (legacyFirstMessage !== undefined) {
 		addOptimisticSessionMessage(
 			{
 				environmentId: EnvironmentId.make(accepted.workspaceId),
@@ -444,7 +447,7 @@ export const stageCloudChat = (
 				id: MessageId.make(`launch:${accepted.workspaceId}:message`),
 				sessionId: accepted.initialSessionId,
 				role: "user",
-				content: { _tag: "user", text: firstMessage, goal: false },
+				content: { _tag: "user", text: legacyFirstMessage, goal: false },
 				createdAt: now,
 			}),
 		);

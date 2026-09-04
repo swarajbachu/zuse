@@ -829,6 +829,163 @@ describe("ClientBus", () => {
 		await bus.dispose();
 	});
 
+	it("keeps an applied turn command pending until its resource reflects it", async () => {
+		const persistence = new MemoryPersistence();
+		const commandId = CommandId.make("command-awaiting-resource-reflection");
+		let context: ResourceDriverContext<Client, Timeline> | null = null;
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async (_client, command) => ({
+					commandId: command.commandId,
+					receivedAt: 2,
+					result: undefined,
+				}),
+			},
+			commandReflected: (_command, view) =>
+				(view.data as Timeline | null)?.text === "turn-reflected",
+			driverFor: () => ({
+				start: (next) => {
+					context = next as ResourceDriverContext<Client, Timeline>;
+				},
+				stop: () => undefined,
+			}),
+		});
+		bus.retain(timelineKey, { activation: "connect" });
+		await waitUntil(() => context !== null);
+		(context as unknown as ResourceDriverContext<Client, Timeline>).emit({
+			data: { text: "before-turn" },
+			cursor: { epoch: "epoch", version: 1 },
+			sync: "live",
+		});
+
+		const result = bus.dispatch({
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: timelineKey,
+			payload: { text: "hello" },
+			retry: "safe",
+			createdAt: 1,
+			awaitResourceReflection: true,
+		});
+
+		await waitUntil(
+			() =>
+				bus.snapshot(timelineKey).pendingCommands[0]?.deliveryPhase ===
+				"applied",
+		);
+		expect(bus.snapshot(timelineKey).pendingCommands).toEqual([
+			expect.objectContaining({
+				commandId,
+				deliveryPhase: "applied",
+			}),
+		]);
+		(context as unknown as ResourceDriverContext<Client, Timeline>).emit({
+			data: { text: "turn-reflected" },
+			cursor: { epoch: "epoch", version: 2 },
+			sync: "live",
+		});
+		expect(bus.snapshot(timelineKey).pendingCommands).toEqual([]);
+		await expect(result).resolves.toMatchObject({ commandId });
+		await bus.dispose();
+	});
+
+	it("restores an applied turn fence from the outbox after a client restart", async () => {
+		const persistence = new MemoryPersistence();
+		const commandId = CommandId.make("command-reflection-restart");
+		const command = {
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: timelineKey,
+			payload: { text: "hello" },
+			retry: "safe" as const,
+			createdAt: 1,
+			awaitResourceReflection: true,
+		};
+		let firstContext: ResourceDriverContext<Client, Timeline> | null = null;
+		const first = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async (_client, replayed) => ({
+					commandId: replayed.commandId,
+					receivedAt: 2,
+					result: undefined,
+				}),
+			},
+			commandReflected: (_command, view) =>
+				(view.data as Timeline | null)?.text === "turn-reflected",
+			driverFor: () => ({
+				start: (context) => {
+					firstContext = context as ResourceDriverContext<Client, Timeline>;
+				},
+				stop: () => undefined,
+			}),
+		});
+		first.retain(timelineKey, { activation: "connect" });
+		await waitUntil(() => firstContext !== null);
+		(firstContext as unknown as ResourceDriverContext<Client, Timeline>).emit({
+			data: { text: "before-turn" },
+			cursor: { epoch: "epoch", version: 1 },
+			sync: "live",
+		});
+		const firstResult = first.dispatch(command);
+		await waitUntil(
+			() =>
+				first.snapshot(timelineKey).pendingCommands[0]?.deliveryPhase ===
+				"applied",
+		);
+		expect(
+			persistence.outbox.get(commandId)?.command.resourceReflection,
+		).toEqual({ cursor: { epoch: "epoch", version: 1 } });
+		await first.dispose();
+		await expect(firstResult).rejects.toThrow("ClientBus disposed");
+
+		let replayed = 0;
+		let secondContext: ResourceDriverContext<Client, Timeline> | null = null;
+		const second = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async (_client, restored) => {
+					replayed += 1;
+					return {
+						commandId: restored.commandId,
+						receivedAt: 3,
+						result: undefined,
+					};
+				},
+			},
+			commandReflected: (_command, view) =>
+				(view.data as Timeline | null)?.text === "turn-reflected",
+			driverFor: () => ({
+				start: (context) => {
+					secondContext = context as ResourceDriverContext<Client, Timeline>;
+				},
+				stop: () => undefined,
+			}),
+		});
+		second.retain(timelineKey, { activation: "connect" });
+		await waitUntil(() => secondContext !== null && replayed === 1);
+		await waitUntil(
+			() =>
+				second.snapshot(timelineKey).pendingCommands[0]?.deliveryPhase ===
+				"applied",
+		);
+		expect(persistence.outbox.has(commandId)).toBe(true);
+		(secondContext as unknown as ResourceDriverContext<Client, Timeline>).emit({
+			data: { text: "turn-reflected" },
+			cursor: { epoch: "epoch", version: 2 },
+			sync: "live",
+		});
+		await waitUntil(() => !persistence.outbox.has(commandId));
+		expect(second.snapshot(timelineKey).pendingCommands).toEqual([]);
+		await second.dispose();
+	});
+
 	it("accepts cloud commands without waking the live runtime", async () => {
 		const persistence = new MemoryPersistence();
 		let runtimeResolutions = 0;

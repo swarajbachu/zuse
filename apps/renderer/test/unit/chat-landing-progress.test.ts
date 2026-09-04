@@ -122,6 +122,12 @@ describe("chat landing progress", () => {
 
 	test("stages the durable chat before attaching the workspace gateway", () => {
 		expect(chatLandingSource).toContain("stageCloudChat(");
+		expect(chatLandingSource).toContain('initialMessageDelivery: "mailbox-v1"');
+		expect(chatLandingSource).toContain(
+			'launch.initialMessageDelivery === "mailbox-v1"',
+		);
+		expect(chatLandingSource).toContain("await sendSessionMessage(");
+		expect(cloudChatsSource).toContain("Compatibility only:");
 		expect(chatLandingSource).toContain("ensureCloudWorkspaceAttached(");
 		expect(chatLandingSource).not.toContain(
 			'control["cloud.workspaces.connect"]',

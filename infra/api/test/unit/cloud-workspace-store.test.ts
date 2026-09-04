@@ -5,6 +5,7 @@ import {
 	CloudWorkspaceStoreMemory,
 	mailboxLifecycleToDeliver,
 	withPendingMailboxLifecycle,
+	workspaceAcceptsCloudCommandMailbox,
 	workspaceDeletionIsDurablyFenced,
 	workspaceDestructionFence,
 	workspaceSupportsCloudCommandMailbox,
@@ -864,6 +865,17 @@ describe("cloud workspace store", () => {
 				? true
 				: workspaceSupportsCloudCommandMailbox(retainedV2Runtime),
 		).toBe(false);
+		expect(
+			retainedV2Runtime === null
+				? false
+				: workspaceAcceptsCloudCommandMailbox({
+						...retainedV2Runtime,
+						requestConfig: {
+							...retainedV2Runtime.requestConfig,
+							cloudCommandEnrollmentProtocolVersion: 3,
+						},
+					}),
+		).toBe(true);
 		const checkpoint = {
 			workspaceId: workspace.workspaceId,
 			sessionId: workspace.initialSessionId,

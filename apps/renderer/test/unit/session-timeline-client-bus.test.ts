@@ -8,6 +8,7 @@ import {
 	resourceKeyId,
 } from "@zuse/client-runtime/resource-ref";
 import {
+	AgentTurnId,
 	CloudWorkspaceOpError,
 	CommandAcceptance,
 	CommandId,
@@ -26,6 +27,7 @@ import { Effect, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createClientCommandOutbox } from "../../src/lib/client-command-outbox.ts";
 import { cloudCommandTransport } from "../../src/lib/cloud-command-transport.ts";
+import { sessionMessageCommandReflected } from "../../src/lib/session-message-intent.ts";
 import {
 	addOptimisticSessionMessage,
 	completeOlderSessionMessages,
@@ -85,6 +87,70 @@ describe("renderer session timeline ClientBus adapter", () => {
 		expect(send.input).toBeInstanceOf(ComposerInput);
 		expect(create.startupInput).toBeInstanceOf(ComposerInput);
 		expect(send.input).toMatchObject(plainInput);
+	});
+
+	it("retains a sent-message fence until the authoritative turn is visible", () => {
+		const messageId = MessageId.make("first-message");
+		const command: ClientCommand = {
+			kind: "messages.send",
+			commandId: CommandId.make(`message-send:${messageId}`),
+			environmentId,
+			resource: sessionTimelineResourceKey(ref),
+			payload: {
+				commandId: CommandId.make(`message-send:${messageId}`),
+				sessionId,
+				text: "hello",
+				clientMessageId: messageId,
+			},
+			retry: "safe",
+			createdAt: 1,
+			awaitResourceReflection: true,
+			resourceReflection: { cursor: { epoch: "epoch-1", version: 1 } },
+		};
+		const userMessage = Message.make({
+			id: messageId,
+			sessionId,
+			role: "user",
+			content: { _tag: "user", text: "hello", goal: false },
+			createdAt: new Date(1),
+		});
+		const projection = SessionTimelineProjection.make({
+			messages: [userMessage],
+			status: "idle",
+			currentTurn: null,
+			queue: QueueState.make({ items: [], paused: false }),
+			permissionMode: "default",
+			runtimeMode: "full-access",
+		});
+
+		expect(
+			sessionMessageCommandReflected(command, {
+				data: projection,
+				origin: "runtime",
+				connection: "connected",
+				cursor: { epoch: "epoch-1", version: 2 },
+				sync: "live",
+				generation: 1,
+				pendingCommands: [],
+				failedCommands: [],
+			}),
+		).toBe(false);
+		expect(
+			sessionMessageCommandReflected(command, {
+				data: SessionTimelineProjection.make({
+					...projection,
+					status: "running",
+					currentTurn: { turnId: AgentTurnId.make("turn-1"), phase: "running" },
+				}),
+				origin: "runtime",
+				connection: "connected",
+				cursor: { epoch: "epoch-1", version: 3 },
+				sync: "live",
+				generation: 1,
+				pendingCommands: [],
+				failedCommands: [],
+			}),
+		).toBe(true);
 	});
 
 	it("atomically replaces resource registrations during hot reload", () => {

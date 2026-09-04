@@ -624,6 +624,17 @@ export const workspaceSupportsCloudCommandMailbox = (
 	workspace.requestConfig.cloudCommandRuntimeGeneration ===
 		workspaceRuntimeGeneration(workspace);
 
+/**
+ * New workspaces can durably accept commands before their first runtime has
+ * connected. Leasing remains fenced by the generation-scoped runtime proof.
+ */
+export const workspaceAcceptsCloudCommandMailbox = (
+	workspace: CloudWorkspaceRecord,
+): boolean =>
+	workspaceSupportsCloudCommandMailbox(workspace) ||
+	workspace.requestConfig.cloudCommandEnrollmentProtocolVersion ===
+		CLOUD_COMMAND_PROTOCOL_VERSION;
+
 const transcriptCheckpointKey = (
 	workspaceId: string,
 	sessionId: string,

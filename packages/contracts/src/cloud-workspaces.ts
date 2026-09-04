@@ -331,6 +331,8 @@ export class CloudWorkspaceLaunch extends Schema.Class<CloudWorkspaceLaunch>(
 	workspace: CloudWorkspace,
 	chatId: ChatId,
 	initialSessionId: AgentSessionId,
+	/** Server acknowledgment that the launch intent excludes the first prompt. */
+	initialMessageDelivery: Schema.optional(Schema.Literal("mailbox-v1")),
 }) {}
 
 export class CloudWorkspaceConnection extends Schema.Class<CloudWorkspaceConnection>(
@@ -517,6 +519,11 @@ export class CloudWorkspaceCreateRequest extends Schema.Class<CloudWorkspaceCrea
 	secretBindings: Schema.optional(Schema.Array(Schema.String)),
 	permissions: Schema.optional(Schema.Array(Schema.String)),
 	firstMessage: Schema.optional(Schema.String),
+	/**
+	 * The client will deliver the initial prompt through the durable workspace
+	 * mailbox after the launch intent creates the session shell.
+	 */
+	initialMessageDelivery: Schema.optional(Schema.Literal("mailbox-v1")),
 	idempotencyKey: Schema.String,
 }) {}
 

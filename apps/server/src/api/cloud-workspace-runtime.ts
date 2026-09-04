@@ -2564,15 +2564,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					yield* postCurrentRuntimeReady("repository-ready").pipe(
 						Effect.retry(cloudRuntimeRetrySchedule),
 					);
-					yield* runCloudMailboxConsumer({
-						config,
-						runtimeCredential,
-						providerSandboxId: bootstrap.providerSandboxId,
-						transcriptKey,
-						storageIncarnationId,
-						messages,
-						sql,
-					}).pipe(Effect.forkScoped({ startImmediately: true }));
 					yield* acknowledgeBootstrap.pipe(
 						Effect.forkScoped({ startImmediately: true }),
 					);
@@ -2648,6 +2639,18 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								),
 						).pipe(Effect.retry(cloudRuntimeRetrySchedule));
 					}
+					// The launch intent creates the deterministic chat/session shell. Only
+					// then may the mailbox lease the independently accepted first message;
+					// otherwise messages.send can race the session transaction by milliseconds.
+					yield* runCloudMailboxConsumer({
+						config,
+						runtimeCredential,
+						providerSandboxId: bootstrap.providerSandboxId,
+						transcriptKey,
+						storageIncarnationId,
+						messages,
+						sql,
+					}).pipe(Effect.forkScoped({ startImmediately: true }));
 					yield* summaryPublisher
 						.publish("initial")
 						.pipe(Effect.retry(cloudRuntimeRetrySchedule));

@@ -72,6 +72,7 @@ import {
 import {
 	CloudWorkspaceLaunchIntentCipher,
 	makeCloudWorkspaceLaunchIntent,
+	selectCloudWorkspaceInitialMessageDelivery,
 } from "./cloud-workspace-launch-intent.ts";
 import { cloudRepositoryWorkspacePath } from "./cloud-workspace-paths.ts";
 import {
@@ -87,6 +88,7 @@ import {
 	CloudWorkspaceStore,
 	mailboxLifecycleToDeliver,
 	runtimeBootstrapReceiptFromConfig,
+	workspaceAcceptsCloudCommandMailbox,
 	workspaceDeletionRequested,
 	workspaceDestructionFence,
 	workspaceSupportsCloudCommandMailbox,
@@ -2093,7 +2095,7 @@ export const routeCloudWorkspaceRequest = (
 				destructionFence: workspaceDestructionFence(workspace),
 				mailboxEnabled:
 					apiConfiguration.cloudCommandMailboxEnabled &&
-					workspaceSupportsCloudCommandMailbox(workspace),
+					workspaceAcceptsCloudCommandMailbox(workspace),
 			});
 		}
 		if (
@@ -2112,7 +2114,7 @@ export const routeCloudWorkspaceRequest = (
 					workspace.desiredState === "archived"
 				)
 					return yield* Effect.fail(conflict("cloud_workspace_unavailable"));
-				if (!workspaceSupportsCloudCommandMailbox(workspace))
+				if (!workspaceAcceptsCloudCommandMailbox(workspace))
 					return yield* Effect.fail(
 						conflict("cloud_command_runtime_update_required"),
 					);
@@ -2959,6 +2961,12 @@ export const routeCloudWorkspaceRequest = (
 				!/^[A-Za-z0-9._/#-]+$/u.test(body.baseRef)
 			)
 				return yield* Effect.fail(badRequest("invalid_git_ref"));
+			const initialMessageDelivery = selectCloudWorkspaceInitialMessageDelivery(
+				{
+					mailboxEnabled: apiConfiguration.cloudCommandMailboxEnabled,
+					requested: body.initialMessageDelivery,
+				},
+			);
 			const launchIntent = makeCloudWorkspaceLaunchIntent({
 				workspaceId,
 				branch,
@@ -2966,7 +2974,7 @@ export const routeCloudWorkspaceRequest = (
 				model: body.model,
 				runtimeMode: body.runtimeMode ?? DEFAULT_RUNTIME_MODE,
 				permissions: body.permissions ?? [],
-				request: body,
+				request: { ...body, initialMessageDelivery },
 			});
 			const { commandId, turnId, title } = launchIntent;
 			const transcriptKey = yield* createCloudTranscriptKey(
@@ -3004,6 +3012,12 @@ export const routeCloudWorkspaceRequest = (
 					permissions: body.permissions ?? [],
 					repositoryCache: "account-image",
 					startupTimings: { requestedAt: nowMs },
+					...(initialMessageDelivery === undefined
+						? {}
+						: {
+								cloudCommandEnrollmentProtocolVersion:
+									CLOUD_COMMAND_PROTOCOL_VERSION,
+							}),
 				},
 				nextActionAtMs: nowMs,
 				revision: 0,
@@ -3068,6 +3082,11 @@ export const routeCloudWorkspaceRequest = (
 					workspace: publicWorkspace(launchedWorkspace),
 					chatId: launchedWorkspace.chatId,
 					initialSessionId: launchedWorkspace.initialSessionId,
+					...(launchedWorkspace.requestConfig
+						.cloudCommandEnrollmentProtocolVersion ===
+					CLOUD_COMMAND_PROTOCOL_VERSION
+						? { initialMessageDelivery: "mailbox-v1" as const }
+						: {}),
 				},
 				outcome.kind === "created" ? 201 : 200,
 			);
