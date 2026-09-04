@@ -1,3 +1,8 @@
+import { cloudSessionPlaceholder } from "@zuse/client-runtime/cloud-catalog";
+import {
+	openCloudTranscriptCheckpoint,
+	openCloudTranscriptPage,
+} from "@zuse/client-runtime/cloud-transcript";
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type {
 	ConnectionView,
@@ -7,26 +12,16 @@ import type { SessionTimelineProjection } from "@zuse/contracts";
 import {
 	Chat,
 	type ChatId,
-	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
 	type CloudChatSummary,
-	CloudTranscriptCheckpointPayload,
-	CloudTranscriptMessagePagePayload,
 	type CloudWorkspace,
 	EnvironmentId,
 	type FolderId,
 	type GitOriginInfo,
 	Message,
 	MessageId,
-	type ProviderId,
-	Session,
 	type SessionId,
 } from "@zuse/contracts";
-import {
-	cloudTranscriptAdditionalData,
-	decryptCloudTranscript,
-	sha256Base64Url,
-} from "@zuse/utils/cloud-transcript-crypto";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import {
 	cloudWorkspaceStartupError,
 	isCloudWorkspaceReady,
@@ -183,34 +178,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 			);
 			const checkpoint = result.checkpoint;
 			if (checkpoint === null) return null;
-			if (
-				checkpoint.metadata.workspaceId !== summary.workspaceId ||
-				checkpoint.metadata.sessionId !== ref.sessionId ||
-				(await sha256Base64Url(checkpoint.ciphertext)) !==
-					checkpoint.metadata.ciphertextSha256
-			)
-				throw new Error("Cloud transcript checkpoint failed integrity checks");
-			const plaintext = await decryptCloudTranscript({
-				encodedKey: checkpoint.transcriptKey,
-				additionalData: cloudTranscriptAdditionalData({
-					workspaceId: summary.workspaceId,
-					sessionId: ref.sessionId,
-					epoch: checkpoint.metadata.cursor.epoch,
-					version: checkpoint.metadata.cursor.version,
-					schemaVersion: CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
-				}),
-				ciphertext: checkpoint.ciphertext,
-			});
-			const payload = Schema.decodeUnknownSync(
-				CloudTranscriptCheckpointPayload,
-			)(JSON.parse(new TextDecoder().decode(plaintext)));
-			if (
-				payload.workspaceId !== summary.workspaceId ||
-				payload.sessionId !== ref.sessionId ||
-				payload.cursor.epoch !== checkpoint.metadata.cursor.epoch ||
-				payload.cursor.version !== checkpoint.metadata.cursor.version
-			)
-				throw new Error("Cloud transcript checkpoint metadata mismatch");
+			const payload = await openCloudTranscriptCheckpoint(ref, checkpoint);
 			if (
 				current.connection === "dormant" &&
 				payload.projection.olderMessageSequence != null
@@ -246,41 +214,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 			);
 			const encrypted = result.page;
 			if (encrypted === null) return null;
-			if (
-				encrypted.beforeSequence !== beforeSequence ||
-				encrypted.cursor.epoch !== cursor.epoch ||
-				encrypted.cursor.version !== cursor.version ||
-				(await sha256Base64Url(encrypted.ciphertext)) !==
-					encrypted.ciphertextSha256
-			)
-				throw new Error("Cloud transcript page failed integrity checks");
-			const plaintext = await decryptCloudTranscript({
-				encodedKey: encrypted.transcriptKey,
-				additionalData: cloudTranscriptAdditionalData({
-					workspaceId: summary.workspaceId,
-					sessionId: ref.sessionId,
-					epoch: cursor.epoch,
-					version: cursor.version,
-					schemaVersion: CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
-					pageBeforeSequence: beforeSequence,
-				}),
-				ciphertext: encrypted.ciphertext,
-			});
-			const page = Schema.decodeUnknownSync(CloudTranscriptMessagePagePayload)(
-				JSON.parse(new TextDecoder().decode(plaintext)) as unknown,
-			);
-			if (
-				page.workspaceId !== summary.workspaceId ||
-				page.sessionId !== ref.sessionId ||
-				page.beforeSequence !== beforeSequence ||
-				page.cursor.epoch !== cursor.epoch ||
-				page.cursor.version !== cursor.version
-			)
-				throw new Error("Cloud transcript page belongs to another resource");
-			return {
-				messages: page.messages,
-				olderMessageSequence: page.olderMessageSequence,
-			};
+			return openCloudTranscriptPage(ref, cursor, beforeSequence, encrypted);
 		},
 	);
 	registerEnvironmentActivation(
@@ -345,38 +279,7 @@ export const repositoryIdentityForOrigin = (
 		? null
 		: `${origin.host.toLowerCase()}/${origin.owner.toLowerCase()}/${origin.repo.toLowerCase()}`;
 
-const sessionStatus = (summary: CloudChatSummary): Session["status"] =>
-	summary.state === "failed" ? "error" : "idle";
-
-/** Metadata fallback for rendering a cached transcript without a live shell. */
-export const cloudSessionPlaceholder = (
-	summary: CloudChatSummary,
-	projectId: FolderId,
-	sessionId: SessionId = summary.initialSessionId,
-): Session => {
-	const now = new Date(summary.createdAt);
-	return Session.make({
-		id: sessionId,
-		projectId,
-		title: summary.title,
-		titleProvenance: "manual",
-		providerId: summary.agent,
-		model: summary.model,
-		status: sessionStatus(summary),
-		archivedAt: null,
-		cursor: null,
-		resumeStrategy: "none",
-		runtimeMode: summary.runtimeMode,
-		worktreeId: null,
-		chatId: summary.chatId,
-		forkedFromSessionId: null,
-		forkedFromMessageId: null,
-		permissionMode: "default",
-		toolSearch: false,
-		createdAt: now,
-		updatedAt: new Date(summary.updatedAt),
-	});
-};
+export { cloudSessionPlaceholder } from "@zuse/client-runtime/cloud-catalog";
 
 /**
  * API catalog rows are placeholders only. The environment runtime timeline
@@ -607,45 +510,8 @@ const ensureCloudWorkspaceEnvironment = (
 	activation: "connect" | "wake",
 ): Promise<void> => ensureCloudWorkspaceAttached(summary, activation);
 
+export { summaryFromLaunch } from "@zuse/client-runtime/cloud-catalog";
 export { cloudSummaryForChat, localProjectForCloudChat };
-
-export const summaryFromLaunch = (input: {
-	readonly workspace: CloudWorkspace;
-	readonly repositoryIdentity: string;
-	readonly repositoryDisplayName: string;
-	readonly title: string;
-	readonly agent: ProviderId;
-	readonly model: string;
-	readonly runtimeMode: CloudChatSummary["runtimeMode"];
-}): CloudChatSummary => ({
-	workspaceId: input.workspace.workspaceId,
-	projectId: input.workspace.projectId,
-	repositoryIdentity: input.repositoryIdentity,
-	repositoryDisplayName: input.repositoryDisplayName,
-	chatId: input.workspace.chatId,
-	initialSessionId: input.workspace.initialSessionId,
-	title: input.title,
-	branch: input.workspace.branch,
-	providerId: input.workspace.providerId,
-	codexAuthMode: input.workspace.codexAuthMode,
-	providerAuthMode: input.workspace.providerAuthMode,
-	agent: input.agent,
-	model: input.model,
-	runtimeMode: input.runtimeMode,
-	state: input.workspace.state,
-	runtimeState: input.workspace.runtimeState,
-	statusCode: input.workspace.statusCode,
-	failureDiagnostic: input.workspace.failureDiagnostic,
-	startupPhase: input.workspace.startupPhase,
-	desiredState: input.workspace.desiredState,
-	revision: input.workspace.revision,
-	summaryRevision: 0,
-	sessionHeadVersion: 0,
-	unread: false,
-	lastMessageAt: input.workspace.createdAt,
-	createdAt: input.workspace.createdAt,
-	updatedAt: input.workspace.updatedAt,
-});
 
 const removeDeletedCloudPlaceholders = (
 	removed: ReadonlyArray<CloudChatSummary>,

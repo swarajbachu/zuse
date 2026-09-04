@@ -7,6 +7,8 @@ import { withWireProtocolVersion } from "./connection.ts";
 export type WsProtocolOptions = {
 	readonly key?: string;
 	readonly environmentId?: string;
+	/** Account cloud workspace: mint a gateway ticket, never a device grant. */
+	readonly cloudWorkspaceId?: string;
 	readonly host: string;
 	readonly port: number;
 	readonly token?: string | null;
@@ -28,6 +30,7 @@ export type WsProtocolLayerOptions = {
 		protocols?: string | Array<string>,
 	) => globalThis.WebSocket;
 	readonly onClose?: (event: WebSocketCloseInfo) => void;
+	readonly protocols?: readonly string[];
 };
 
 export type WebSocketCloseInfo = {
@@ -81,11 +84,20 @@ export const wsClientProtocolLayer = (
 	endpoint: string | WsProtocolOptions,
 	options?: WsProtocolLayerOptions,
 ): Layer.Layer<RpcClient.Protocol> => {
+	const protocols = options?.protocols;
+	const baseConstructor =
+		protocols === undefined
+			? options?.makeWebSocket
+			: (url: string) =>
+					(
+						options?.makeWebSocket ??
+						((target, values) => new globalThis.WebSocket(target, values))
+					)(url, [...protocols]);
 	const makeWebSocket =
 		options?.onClose === undefined
-			? options?.makeWebSocket
+			? baseConstructor
 			: observeWebSocketConstructor(
-					options.makeWebSocket ??
+					baseConstructor ??
 						((url, protocols) => new globalThis.WebSocket(url, protocols)),
 					options.onClose,
 				);

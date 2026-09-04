@@ -24,10 +24,7 @@ import {
 	type SessionRef,
 } from "@zuse/client-runtime/resource-ref";
 import type { ResourceView } from "@zuse/client-runtime/resource-state";
-import {
-	prependSessionTimelineMessages,
-	restoreSessionTimelineState,
-} from "@zuse/client-runtime/session-timeline";
+import { makeSessionMessagePager } from "@zuse/client-runtime/session-message-pager";
 import { makeSessionTimelineCacheEntry } from "@zuse/client-runtime/session-timeline-cache";
 import { makeSessionTimelineResourceDriver } from "@zuse/client-runtime/session-timeline-driver";
 import { cloudCommandEligibility } from "@zuse/cloud-commands";
@@ -1213,111 +1210,30 @@ reportPassiveSessionFault = (environmentId, fault, expectedGeneration) =>
 		expectedGeneration,
 	);
 
-export type OlderSessionMessagesResult = Readonly<{
-	applied: boolean;
-	loaded: number;
-	hasMore: boolean;
-}>;
-
-const olderSessionMessageLoads = new Map<
-	string,
-	Promise<OlderSessionMessagesResult>
->();
+export type { OlderSessionMessagesResult } from "@zuse/client-runtime/session-message-pager";
 
 export const getRendererClientBus = (): ClientBus<MemoizeClient> =>
 	rendererClientBus;
-
-/**
- * Loads one bounded older page into the canonical timeline resource. Requests
- * for the same qualified session key are single-flighted. A reconnect, stream
- * advance, reset, or a newer page cursor fences the response before mutation;
- * pagination never owns or advances the durable event cursor.
- */
-export const loadOlderSessionMessages = (
-	ref: SessionRef,
-): Promise<OlderSessionMessagesResult> => {
-	const key = sessionTimelineResourceKey(ref);
-	const id = resourceKeyId(key);
-	const inFlight = olderSessionMessageLoads.get(id);
-	if (inFlight !== undefined) return inFlight;
-
-	const bus = rendererClientBus;
-	const initial = bus.snapshot(key);
-	const beforeSequence = initial.data?.olderMessageSequence ?? null;
-	if (initial.data === null || beforeSequence === null) {
-		return Promise.resolve({
-			applied: false,
-			loaded: 0,
-			hasMore: beforeSequence !== null,
-		});
-	}
-	const expectedGeneration = initial.generation;
-	const expectedCursor = initial.cursor;
-
-	const request = (async (): Promise<OlderSessionMessagesResult> => {
-		const client = bus.client(ref.environmentId);
-		const page =
-			client === null
-				? expectedCursor === null
-					? null
-					: await olderPageSynchronizers.get(ref.environmentId)?.(
-							ref,
-							expectedCursor,
-							beforeSequence,
-						)
-				: await Effect.runPromise(
-						client["session.messages.page"]({
-							sessionId: ref.sessionId,
-							beforeSequence,
-							limit: 100,
-						}),
-					);
-		if (page === null || page === undefined) {
-			return { applied: false, loaded: 0, hasMore: true };
-		}
-		if (bus !== rendererClientBus) {
-			return { applied: false, loaded: 0, hasMore: true };
-		}
-
-		let loaded = 0;
-		const applied = bus.update(key, {
-			expectedGeneration,
-			expectedCursor,
-			persist: page.olderMessageSequence === null,
-			update: (projection) => {
-				// A prior page can change this cursor without changing the stream
-				// cursor. Never apply a response to a different pagination head.
-				if ((projection.olderMessageSequence ?? null) !== beforeSequence) {
-					return undefined;
-				}
-				const merged = prependSessionTimelineMessages(
-					restoreSessionTimelineState(projection, expectedCursor),
-					page.messages,
-					page.olderMessageSequence,
-				);
-				loaded = Math.max(
-					0,
-					(merged.projection?.messages.length ?? 0) -
-						projection.messages.length,
-				);
-				return merged.projection ?? undefined;
-			},
-		});
-		return {
-			applied,
-			loaded: applied ? loaded : 0,
-			hasMore: applied ? page.olderMessageSequence !== null : true,
-		};
-	})();
-	olderSessionMessageLoads.set(id, request);
-	const clear = (): void => {
-		if (olderSessionMessageLoads.get(id) === request) {
-			olderSessionMessageLoads.delete(id);
-		}
-	};
-	void request.then(clear, clear);
-	return request;
-};
+const olderSessionMessageLoads = makeSessionMessagePager({
+	getBus: getRendererClientBus,
+	readPage: async (ref, client, cursor, beforeSequence) =>
+		client === null
+			? cursor === null
+				? null
+				: olderPageSynchronizers.get(ref.environmentId)?.(
+						ref,
+						cursor,
+						beforeSequence,
+					)
+			: Effect.runPromise(
+					client["session.messages.page"]({
+						sessionId: ref.sessionId,
+						beforeSequence,
+						limit: 100,
+					}),
+				),
+});
+export const loadOlderSessionMessages = olderSessionMessageLoads.load;
 
 export const completeOlderSessionMessages = async (
 	ref: SessionRef,

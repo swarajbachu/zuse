@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./cloud-auth-crypto": "./src/cloud-auth-crypto.ts",
 		"./browser-page": "./src/browser-page.ts",
 		"./cloud-transcript-crypto": "./src/cloud-transcript-crypto.ts",
 		"./cloud-command-crypto": "./src/cloud-command-crypto.ts",
@@ -25,6 +26,7 @@
 		"test:integration": "vitest run test/integration --passWithNoTests"
 	},
 	"dependencies": {
+		"fflate": "0.8.2",
 		"effect": "catalog:"
 	},
 	"devDependencies": {

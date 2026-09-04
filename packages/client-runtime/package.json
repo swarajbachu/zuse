@@ -4,6 +4,15 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./cloud-gateway-recovery": "./src/cloud-gateway-recovery.ts",
+		"./session-message-pager": "./src/session-message-pager.ts",
+		"./session-message-intent": "./src/session-message-intent.ts",
+		"./cloud-transcript": "./src/cloud-transcript.ts",
+		"./cloud-catalog": "./src/cloud-catalog.ts",
+		"./cloud-provider-availability": "./src/cloud-provider-availability.ts",
+		"./cloud-command-transport": "./src/cloud-command-transport.ts",
+		"./cloud-control-client": "./src/cloud-control-client.ts",
+		"./cloud-failure-presentation": "./src/cloud-failure-presentation.ts",
 		"./chat-threads": "./src/chat-threads.ts",
 		"./client-bus": "./src/client-bus.ts",
 		"./client-persistence": "./src/client-persistence.ts",
@@ -36,6 +45,7 @@
 		"test:integration": "vitest run test/integration --passWithNoTests"
 	},
 	"dependencies": {
+		"@zuse/cloud-commands": "*",
 		"@noble/hashes": "^1.8.0",
 		"@zuse/contracts": "*",
 		"@zuse/domain": "*",

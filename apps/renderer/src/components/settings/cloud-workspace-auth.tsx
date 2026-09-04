@@ -6,6 +6,7 @@ import {
 	type CloudAuthStatus,
 	CloudWorkspaceOpError,
 } from "@zuse/contracts";
+import { sealCloudAuthSecret as sealSecret } from "@zuse/utils/cloud-auth-crypto";
 import {
 	Check,
 	ChevronRight,
@@ -184,35 +185,6 @@ const authFailureMessage = (cause: unknown, fallback: string): string => {
 	if (cause.code === "not-allowed")
 		return "Your Zuse session could not authorize this action. Refresh your session and try again.";
 	return fallback;
-};
-
-const base64Url = (bytes: ArrayBuffer): string => {
-	let binary = "";
-	for (const byte of new Uint8Array(bytes)) binary += String.fromCharCode(byte);
-	return btoa(binary)
-		.replace(/\+/gu, "-")
-		.replace(/\//gu, "_")
-		.replace(/=+$/u, "");
-};
-
-const sealSecret = async (
-	publicJwk: string,
-	secret: string,
-): Promise<string> => {
-	const key = await crypto.subtle.importKey(
-		"jwk",
-		JSON.parse(publicJwk) as JsonWebKey,
-		{ name: "RSA-OAEP", hash: "SHA-256" },
-		false,
-		["encrypt"],
-	);
-	return base64Url(
-		await crypto.subtle.encrypt(
-			{ name: "RSA-OAEP" },
-			key,
-			new TextEncoder().encode(secret),
-		),
-	);
 };
 
 export function CloudWorkspaceAuth() {

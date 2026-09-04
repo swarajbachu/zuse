@@ -2,7 +2,7 @@ import {
 	base64UrlToBytes,
 	bytesToBase64Url,
 	importCloudTranscriptKey,
-} from "./cloud-transcript-crypto.js";
+} from "./cloud-transcript-crypto.ts";
 
 type CommandAadEnvelope = Readonly<{
 	workspaceId: string;

@@ -69,10 +69,10 @@ export const encryptCloudTranscript = async (input: {
 	readonly plaintext: Uint8Array;
 }): Promise<string> => {
 	const key = await importCloudTranscriptKey(input.encodedKey);
-	const compressed = await transform(
-		input.plaintext,
-		new CompressionStream("gzip"),
-	);
+	const compressed =
+		typeof CompressionStream === "undefined"
+			? (await import("fflate")).gzipSync(input.plaintext)
+			: await transform(input.plaintext, new CompressionStream("gzip"));
 	const iv = crypto.getRandomValues(new Uint8Array(12));
 	const ciphertext = await crypto.subtle.encrypt(
 		{
@@ -110,7 +110,12 @@ export const decryptCloudTranscript = async (input: {
 		key,
 		ownedBuffer(base64UrlToBytes(envelope.ciphertext)),
 	);
-	return transform(new Uint8Array(compressed), new DecompressionStream("gzip"));
+	// Hermes provides WebCrypto through the native adapter, but does not expose
+	// browser compression streams. Keep wire-format compatibility without
+	// requiring a live runtime merely to read an encrypted checkpoint.
+	return typeof DecompressionStream === "undefined"
+		? (await import("fflate")).gunzipSync(new Uint8Array(compressed))
+		: transform(new Uint8Array(compressed), new DecompressionStream("gzip"));
 };
 
 export const sha256Base64Url = async (

@@ -14,7 +14,6 @@ import {
 	type CloudWorkspaceConnection,
 	MemoizeRpcs,
 	WIRE_PROTOCOL_VERSION,
-	WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
 } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import {
@@ -108,29 +107,16 @@ const recordCloudWorkspaceGatewayClose = (
 	workspaceId: string,
 	close: Pick<WebSocketCloseInfo, "code">,
 ): void => {
-	const runtimeMissing =
-		close.code === WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code;
-	const abnormalCloseCount =
-		close.code === 1006
-			? (cloudWorkspaceAbnormalCloseCounts.get(workspaceId) ?? 0) + 1
-			: 0;
-	if (abnormalCloseCount === 0)
+	const result = cloudGatewayCloseRecovery(
+		close.code,
+		cloudWorkspaceHealthyConnections.has(workspaceId),
+		cloudWorkspaceAbnormalCloseCounts.get(workspaceId) ?? 0,
+	);
+	if (result.abnormalCloses === 0)
 		cloudWorkspaceAbnormalCloseCounts.delete(workspaceId);
-	else cloudWorkspaceAbnormalCloseCounts.set(workspaceId, abnormalCloseCount);
-	// Cloudflare may surface an immediate Durable Object close as browser code
-	// 1006 instead of preserving the gateway's private 4100 code. Before the
-	// first successful handshake, recover immediately: retrying the same absent
-	// runtime only adds a full reconnect cycle. Once this registration has been
-	// healthy, retain one retry so an ordinary network flap does not restart it.
-	const missingBeforeFirstHandshake =
-		close.code === 1006 && !cloudWorkspaceHealthyConnections.has(workspaceId);
-	if (
-		runtimeMissing ||
-		missingBeforeFirstHandshake ||
-		abnormalCloseCount >= 2
-	) {
-		requestCloudWorkspaceRuntimeRecovery(workspaceId);
-	}
+	else
+		cloudWorkspaceAbnormalCloseCounts.set(workspaceId, result.abnormalCloses);
+	if (result.recover) requestCloudWorkspaceRuntimeRecovery(workspaceId);
 };
 
 export const markCloudWorkspaceConnectionHealthy = (
@@ -757,3 +743,5 @@ if (typeof window !== "undefined") {
 		void disposeRpcClient();
 	});
 }
+
+import { cloudGatewayCloseRecovery } from "@zuse/client-runtime/cloud-gateway-recovery";

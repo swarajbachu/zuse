@@ -1,3 +1,4 @@
+import { compareCloudChatSummaryVersion } from "@zuse/client-runtime/cloud-catalog";
 import {
 	type ChatId,
 	CloudChatSummary,
@@ -121,17 +122,7 @@ const sortSummaries = (
  * revision, API's runtime summary revision owns title/activity metadata and
  * its represented session head. `updatedAt` is only a compatibility fallback
  * for summaries decoded before runtime revisions were introduced. */
-export const compareCloudChatSummaryVersion = (
-	left: CloudChatSummary,
-	right: CloudChatSummary,
-): number =>
-	left.revision !== right.revision
-		? left.revision - right.revision
-		: left.summaryRevision !== right.summaryRevision
-			? left.summaryRevision - right.summaryRevision
-			: left.sessionHeadVersion !== right.sessionHeadVersion
-				? left.sessionHeadVersion - right.sessionHeadVersion
-				: left.updatedAt - right.updatedAt;
+export { compareCloudChatSummaryVersion } from "@zuse/client-runtime/cloud-catalog";
 
 export const mergeCloudChatSummaries = (
 	current: ReadonlyArray<CloudChatSummary>,
