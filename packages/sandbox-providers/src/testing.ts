@@ -29,6 +29,7 @@ export interface FakeSandboxProviderControl {
 	>;
 	readonly startProcessCalls: Ref.Ref<ReadonlyArray<string>>;
 	readonly failNextCreateAfterProvision: Ref.Ref<boolean>;
+	readonly failNextInspect: Ref.Ref<boolean>;
 	readonly failNextSnapshot: Ref.Ref<boolean>;
 }
 
@@ -62,6 +63,7 @@ const FakeSandboxProviderControlLive = Layer.effect(
 			>([]),
 			startProcessCalls: yield* Ref.make<ReadonlyArray<string>>([]),
 			failNextCreateAfterProvision: yield* Ref.make(false),
+			failNextInspect: yield* Ref.make(false),
 			failNextSnapshot: yield* Ref.make(false),
 		});
 	}),
@@ -165,7 +167,12 @@ const makeSandboxProvidersFakeFromControl = (
 				readTextFile: () => Effect.succeed(""),
 				writeTextFile: () => Effect.void,
 				inspect: (providerSandboxId) =>
-					Ref.get(control.sandboxes).pipe(
+					Ref.getAndSet(control.failNextInspect, false).pipe(
+						Effect.flatMap((fail) =>
+							fail
+								? Effect.fail(new SandboxProviderError({ code: "transient" }))
+								: Ref.get(control.sandboxes),
+						),
 						Effect.map((items) => items.get(providerSandboxId) ?? null),
 					),
 				resolveEndpoint: (providerSandboxId, port) =>

@@ -1,6 +1,10 @@
-import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
+import {
+	CLOUD_COMMAND_LEASE_TTL_MS,
+	WIRE_PROTOCOL_VERSION,
+} from "@zuse/contracts";
 import {
 	type SandboxProviderAdapter,
+	SandboxProviderError,
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
 import { Clock, Data, Duration, Effect } from "effect";
@@ -16,6 +20,14 @@ import {
 	type CloudProjectBuildRecord,
 	type CloudWorkspaceRecord,
 	CloudWorkspaceStore,
+	deliveredMailboxLifecycle,
+	destructiveMailboxLifecycle,
+	mailboxLifecycleCovers,
+	mailboxLifecycleTombstoneConfig,
+	pendingMailboxLifecycle,
+	withPendingMailboxLifecycle,
+	workspaceDestructionFence,
+	workspaceSupportsCloudCommandMailbox,
 } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { randomToken, sha256Hex } from "./crypto.ts";
@@ -32,6 +44,9 @@ const PROJECT_BUILD_TIMEOUT_MS = 15 * 60 * 1_000;
 export const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TTL_MS = 30 * 60 * 1_000;
 const WARM_RUNTIME_RECONNECT_GRACE_MS = 500;
+const MAILBOX_RUNTIME_RESPONSE_GRACE_MS = 2_500;
+export const MAILBOX_RUNTIME_STALL_TIMEOUT_MS =
+	CLOUD_COMMAND_LEASE_TTL_MS + 5_000;
 const ARCHIVE_QUIESCE_GRACE_MS = 1_500;
 const BILLING_RESERVATION_REFRESH_MS = 60_000;
 const RUNTIME_SIGNING_PUBLIC_JWK_FILE =
@@ -47,12 +62,13 @@ const WORKSPACE_REPOSITORY_READY_MARKER =
 const WORKSPACE_CREDENTIALS_READY_MARKER =
 	"/var/lib/zuse/workspace/credentials-ready";
 const WORKSPACE_START_OBSERVATION_INTERVAL_MS = 250;
+
 // A resume first gives the preserved runtime a warm-reconnect grace period,
 // then starts the bounded runtime connection window. Keep the request observer
 // alive through both phases and one final poll so it publishes the timeout
 // instead of leaving the client on a stale "waking up" state.
 export const WORKSPACE_START_OBSERVATION_MS =
-	WARM_RUNTIME_RECONNECT_GRACE_MS +
+	MAILBOX_RUNTIME_RESPONSE_GRACE_MS +
 	RUNTIME_CONNECTION_TIMEOUT_MS +
 	WORKSPACE_START_OBSERVATION_INTERVAL_MS;
 
@@ -223,15 +239,38 @@ export const reusableAccountBuildSnapshot = (
 	build?.templateVersion === templateVersion ? build.snapshotId : undefined;
 
 export const cloudWorkspaceStartupNeedsObservation = (
-	workspace: Pick<CloudWorkspaceRecord, "state" | "runtimeState"> | null,
+	workspace:
+		| (Pick<CloudWorkspaceRecord, "state" | "runtimeState"> &
+				Partial<Pick<CloudWorkspaceRecord, "requestConfig">>)
+		| null,
 ): boolean =>
 	workspace !== null &&
-	((workspace.runtimeState === "offline" &&
-		(workspace.state === "queued" ||
-			workspace.state === "provisioning" ||
-			workspace.state === "setup")) ||
+	((workspace.requestConfig?.cloudMailboxWakePending === true &&
+		typeof workspace.requestConfig.cloudMailboxRuntimeSeenAt !== "number") ||
+		(workspace.runtimeState === "offline" &&
+			(workspace.state === "queued" ||
+				workspace.state === "provisioning" ||
+				workspace.state === "setup")) ||
 		(workspace.state === "resuming" &&
 			workspace.runtimeState === "connecting"));
+
+const resetMailboxWakeObservation = (
+	requestConfig: Readonly<Record<string, unknown>>,
+	nowMs: number,
+): Readonly<Record<string, unknown>> => {
+	if (requestConfig.cloudMailboxWakePending !== true) return requestConfig;
+	const {
+		cloudMailboxRuntimeSeenAt: _cloudMailboxRuntimeSeenAt,
+		cloudMailboxProgressAt: _cloudMailboxProgressAt,
+		cloudMailboxProgressRevision: _cloudMailboxProgressRevision,
+		cloudMailboxFenceRequired: _cloudMailboxFenceRequired,
+		...pendingConfig
+	} = requestConfig;
+	return {
+		...pendingConfig,
+		cloudMailboxWakeRequestedAt: nowMs,
+	};
+};
 
 class CloudWorkspaceLeaseLostError extends Data.TaggedError(
 	"CloudWorkspaceLeaseLostError",
@@ -1012,6 +1051,37 @@ const pauseWorkspace = (
 		});
 	});
 
+const wakePreservedWorkspaceRuntime = (
+	workspace: CloudWorkspaceRecord,
+	providerSandboxId: string,
+	provider: SandboxProviderAdapter,
+	nowMs: number,
+	keepAliveTimeoutSeconds: number,
+	saveWorkspace: SaveClaimedWorkspace,
+) =>
+	Effect.gen(function* () {
+		yield* recordLifecycle(workspace, "resume", nowMs);
+		// Provider pause preserves memory and processes. Wake the sandbox first
+		// and give its existing runtime a brief window to reconnect. If it does
+		// not reconnect, the resuming branch performs a fenced hard restart.
+		yield* provider.resume(providerSandboxId, keepAliveTimeoutSeconds, "pause");
+		yield* saveWorkspace({
+			...workspace,
+			runtimeState: "connecting",
+			state: "resuming",
+			statusCode: "resume-runtime-waking",
+			requestConfig: resetMailboxWakeObservation(
+				workspace.requestConfig,
+				nowMs,
+			),
+			nextActionAtMs: nowMs + WARM_RUNTIME_RECONNECT_GRACE_MS,
+			lastActivityAtMs: nowMs,
+			runningSinceMs: workspace.runningSinceMs ?? nowMs,
+			revision: workspace.revision + 1,
+			updatedAtMs: nowMs,
+		});
+	});
+
 const discardUnsafeWorkspaceSandbox = (
 	provider: SandboxProviderAdapter,
 	workspace: CloudWorkspaceRecord,
@@ -1089,7 +1159,10 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			state: "provisioning",
 			statusCode: "resume-runtime-restarting",
 			requestConfig: {
-				...withoutRuntimeBootstrapReceipt(workspace.requestConfig),
+				...resetMailboxWakeObservation(
+					withoutRuntimeBootstrapReceipt(workspace.requestConfig),
+					nowMs,
+				),
 				...runtimeFence,
 				runtimeSessionRecoveryPending: true,
 				startupTimings: { ...timings, allocatedAt: nowMs },
@@ -1153,6 +1226,58 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		const config = yield* SandboxOfferConfiguration;
 		const apiConfig = yield* ApiConfiguration;
 		const nowMs = yield* Clock.currentTimeMillis;
+		const destructiveLifecycle = destructiveMailboxLifecycle(workspace);
+		if (destructiveLifecycle !== null) {
+			const destructionFence = workspaceDestructionFence(workspace);
+			let lifecyclePrepared = workspace;
+			// Delete is irreversible. Repair legacy/stale rows from the durable fence
+			// before any provider work can accidentally revive their runtime.
+			if (
+				destructiveLifecycle === "delete" &&
+				workspace.desiredState !== "deleted"
+			)
+				lifecyclePrepared = {
+					...lifecyclePrepared,
+					desiredState: "deleted",
+					statusCode: "delete-queued",
+					nextActionAtMs: nowMs,
+				};
+			if (
+				!mailboxLifecycleCovers(
+					pendingMailboxLifecycle(workspace),
+					destructiveLifecycle,
+					destructionFence,
+				) &&
+				!mailboxLifecycleCovers(
+					deliveredMailboxLifecycle(workspace),
+					destructiveLifecycle,
+					destructionFence,
+				)
+			) {
+				const nextDestructionFence =
+					destructionFence < Number.MAX_SAFE_INTEGER
+						? destructionFence + 1
+						: destructionFence;
+				lifecyclePrepared = {
+					...lifecyclePrepared,
+					requestConfig: withPendingMailboxLifecycle(
+						lifecyclePrepared.requestConfig,
+						destructiveLifecycle,
+						nextDestructionFence,
+					),
+					nextActionAtMs: nowMs,
+				};
+			}
+			if (lifecyclePrepared !== workspace) {
+				lifecyclePrepared = {
+					...lifecyclePrepared,
+					revision: workspace.revision + 1,
+					updatedAtMs: Math.max(nowMs, workspace.updatedAtMs + 1),
+				};
+				yield* saveWorkspace(lifecyclePrepared);
+				workspace = lifecyclePrepared;
+			}
+		}
 		const archiveDeleteAtMs = workspace.archiveDeleteAtMs;
 		const workspaceBillingHold = yield* reserveProviderCost({
 			accountId: workspace.accountId,
@@ -1164,6 +1289,30 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			vcpuCount: config.vcpuCount,
 			memoryMib: config.memoryMib,
 		});
+		const mailboxWakePending =
+			workspace.requestConfig.cloudMailboxWakePending === true;
+		if (workspaceBillingHold && mailboxWakePending) {
+			if (
+				workspace.providerSandboxId !== undefined &&
+				workspace.runningSinceMs !== undefined
+			)
+				yield* provider.pause(workspace.providerSandboxId).pipe(Effect.ignore);
+			yield* saveWorkspace({
+				...workspace,
+				state:
+					workspace.providerSandboxId === undefined
+						? workspace.state
+						: "paused",
+				desiredState: "ready",
+				runtimeState: "offline",
+				statusCode: "billing-hold",
+				runningSinceMs: undefined,
+				nextActionAtMs: nowMs + RETRY_MS,
+				revision: workspace.revision + 1,
+				updatedAtMs: nowMs,
+			});
+			return;
+		}
 		if (
 			workspaceBillingHold &&
 			workspace.providerSandboxId !== undefined &&
@@ -1190,10 +1339,16 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			nowMs >= archiveDeleteAtMs &&
 			workspace.desiredState !== "deleted"
 		) {
+			const destructionFence = workspaceDestructionFence(workspace) + 1;
 			yield* saveWorkspace({
 				...workspace,
 				desiredState: "deleted",
 				statusCode: "archive-retention-expired",
+				requestConfig: withPendingMailboxLifecycle(
+					workspace.requestConfig,
+					"delete",
+					destructionFence,
+				),
 				nextActionAtMs: nowMs,
 				revision: workspace.revision + 1,
 				updatedAtMs: nowMs,
@@ -1228,7 +1383,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				runtimeBootTokenExpiresAtMs: undefined,
 				runtimeCredentialHash: undefined,
 				wrappedTranscriptKey: undefined,
-				requestConfig: {},
+				requestConfig: mailboxLifecycleTombstoneConfig(workspace),
 				deletionTombstoneExpiresAtMs: nowMs + ARCHIVED_WORKSPACE_RETENTION_MS,
 				runningSinceMs: undefined,
 				deletedAtMs: nowMs,
@@ -1264,6 +1419,82 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				nowMs,
 				true,
 				saveWorkspace,
+			);
+		}
+
+		if (
+			mailboxWakePending &&
+			workspace.state === "ready" &&
+			workspace.runtimeState === "online" &&
+			workspace.desiredState === "ready" &&
+			workspace.providerSandboxId !== undefined
+		) {
+			const sandbox = yield* provider.inspect(workspace.providerSandboxId);
+			if (sandbox === null)
+				return yield* Effect.fail(
+					new SandboxProviderError({ code: "not-found" }),
+				);
+			if (workspace.requestConfig.cloudMailboxFenceRequired === true)
+				return yield* restartWorkspaceRuntime(
+					workspace,
+					workspace.providerSandboxId,
+					provider,
+					nowMs,
+					saveWorkspace,
+					sandbox.state === "running",
+				);
+			if (sandbox.state === "paused")
+				return yield* wakePreservedWorkspaceRuntime(
+					workspace,
+					workspace.providerSandboxId,
+					provider,
+					nowMs,
+					config.keepAliveTimeoutSeconds,
+					saveWorkspace,
+				);
+
+			const requestedAt =
+				typeof workspace.requestConfig.cloudMailboxWakeRequestedAt === "number"
+					? Math.min(nowMs, workspace.requestConfig.cloudMailboxWakeRequestedAt)
+					: workspace.updatedAtMs;
+			const runtimeSeenAt =
+				typeof workspace.requestConfig.cloudMailboxRuntimeSeenAt === "number"
+					? Math.min(nowMs, workspace.requestConfig.cloudMailboxRuntimeSeenAt)
+					: undefined;
+			const progressAt =
+				typeof workspace.requestConfig.cloudMailboxProgressAt === "number"
+					? Math.min(nowMs, workspace.requestConfig.cloudMailboxProgressAt)
+					: undefined;
+			const recoveryAt =
+				(progressAt ?? runtimeSeenAt ?? requestedAt) +
+				(runtimeSeenAt === undefined
+					? MAILBOX_RUNTIME_RESPONSE_GRACE_MS
+					: MAILBOX_RUNTIME_STALL_TIMEOUT_MS);
+			if (nowMs < recoveryAt) {
+				yield* provider
+					.extendTimeout(
+						workspace.providerSandboxId,
+						config.keepAliveTimeoutSeconds,
+					)
+					.pipe(Effect.ignore);
+				yield* saveWorkspace({
+					...workspace,
+					nextActionAtMs: recoveryAt,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
+			// An authenticated lease poll records runtime liveness but the marker stays
+			// pending until the durable mailbox is empty. An unseen consumer gets the
+			// short startup grace; a consumer that was seen gets a full lease window to
+			// finish its in-flight apply before a fenced replacement is permitted.
+			return yield* restartWorkspaceRuntime(
+				workspace,
+				workspace.providerSandboxId,
+				provider,
+				nowMs,
+				saveWorkspace,
+				true,
 			);
 		}
 
@@ -1368,7 +1599,10 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				state: "provisioning",
 				statusCode: "runtime-starting",
 				requestConfig: {
-					...withoutRuntimeBootstrapReceipt(workspace.requestConfig),
+					...resetMailboxWakeObservation(
+						withoutRuntimeBootstrapReceipt(workspace.requestConfig),
+						allocatedAtMs,
+					),
 					...runtimeFence,
 					...(typeof workspace.requestConfig.sessionHeadVersion === "number"
 						? { runtimeSessionRecoveryPending: true }
@@ -1515,6 +1749,37 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		}
 
 		if (
+			(workspace.state === "paused" ||
+				(workspace.state === "ready" && workspace.runtimeState !== "online")) &&
+			workspace.desiredState === "ready" &&
+			workspace.providerSandboxId !== undefined
+		) {
+			// Mailbox rollout deliberately upgrades retained v2 processes through the
+			// existing fenced restart path. A warm E2B resume preserves the old process,
+			// so it would otherwise never run the signed runtime updater or advertise v3.
+			// The server capability flag keeps production on warm resume until rollout.
+			if (
+				apiConfig.cloudCommandMailboxEnabled &&
+				!workspaceSupportsCloudCommandMailbox(workspace)
+			)
+				return yield* restartWorkspaceRuntime(
+					workspace,
+					workspace.providerSandboxId,
+					provider,
+					nowMs,
+					saveWorkspace,
+				);
+			return yield* wakePreservedWorkspaceRuntime(
+				workspace,
+				workspace.providerSandboxId,
+				provider,
+				nowMs,
+				config.keepAliveTimeoutSeconds,
+				saveWorkspace,
+			);
+		}
+
+		if (
 			workspace.state === "ready" &&
 			nowMs >=
 				workspace.lastActivityAtMs + apiConfig.cloudWorkspaceIdleTimeoutMs
@@ -1537,34 +1802,6 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				updatedAtMs: nowMs,
 			});
 			return;
-		}
-
-		if (
-			workspace.state === "paused" &&
-			workspace.desiredState === "ready" &&
-			workspace.providerSandboxId !== undefined
-		) {
-			yield* recordLifecycle(workspace, "resume", nowMs);
-			// Provider pause preserves memory and processes. Wake the sandbox first
-			// and give its existing runtime a brief window to reconnect to the
-			// gateway. That preserves an active agent turn across laptop sleep and
-			// avoids manufacturing an orphaned running turn on every resume.
-			yield* provider.resume(
-				workspace.providerSandboxId,
-				config.keepAliveTimeoutSeconds,
-				"pause",
-			);
-			return yield* saveWorkspace({
-				...workspace,
-				runtimeState: "connecting",
-				state: "resuming",
-				statusCode: "resume-runtime-waking",
-				nextActionAtMs: nowMs + WARM_RUNTIME_RECONNECT_GRACE_MS,
-				lastActivityAtMs: nowMs,
-				runningSinceMs: workspace.runningSinceMs ?? nowMs,
-				revision: workspace.revision + 1,
-				updatedAtMs: nowMs,
-			});
 		}
 	},
 );
@@ -1645,6 +1882,31 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 			Effect.catchTag("SandboxProviderError", (error) =>
 				Effect.gen(function* () {
 					const failedAtMs = yield* Clock.currentTimeMillis;
+					const destructiveLifecycle =
+						destructiveMailboxLifecycle(currentWorkspace);
+					if (destructiveLifecycle !== null) {
+						// Provider failures may delay an accepted destructive transition, but
+						// must never turn it back into a runnable workspace. A missing sandbox
+						// is cleared so the next pass can finish the archive/delete locally.
+						yield* saveWorkspace({
+							...currentWorkspace,
+							...(error.code === "not-found"
+								? {
+										providerSandboxId: undefined,
+										runtimeBootTokenHash: undefined,
+										runtimeBootTokenExpiresAtMs: undefined,
+										runtimeCredentialHash: undefined,
+										runtimeState: "offline" as const,
+									}
+								: {}),
+							statusCode: `${destructiveLifecycle}-retrying`,
+							nextActionAtMs:
+								error.code === "not-found" ? failedAtMs : failedAtMs + RETRY_MS,
+							revision: currentWorkspace.revision + 1,
+							updatedAtMs: failedAtMs,
+						});
+						return;
+					}
 					if (error.code === "not-found") {
 						yield* saveWorkspace({
 							...currentWorkspace,
@@ -1657,6 +1919,15 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 							statusCode: "provider-sandbox-replacing",
 							runtimeState: "offline",
 							nextActionAtMs: failedAtMs,
+							revision: currentWorkspace.revision + 1,
+							updatedAtMs: failedAtMs,
+						});
+						return;
+					}
+					if (error.code === "transient") {
+						yield* saveWorkspace({
+							...currentWorkspace,
+							nextActionAtMs: failedAtMs + RETRY_MS,
 							revision: currentWorkspace.revision + 1,
 							updatedAtMs: failedAtMs,
 						});

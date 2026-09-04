@@ -10,8 +10,8 @@ import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, test } from "vitest";
 import { AppPaths } from "../../src/app-paths.ts";
 import { PermissionServiceLive } from "../../src/provider/layers/permission-service.ts";
-import { PermissionService } from "../../src/provider/services/permission-service.ts";
 import type { PermissionServiceShape } from "../../src/provider/services/permission-service.ts";
+import { PermissionService } from "../../src/provider/services/permission-service.ts";
 
 const directories: string[] = [];
 
@@ -91,7 +91,9 @@ const createSchema = Effect.gen(function* () {
 		CREATE TABLE command_receipts (
 			command_id TEXT PRIMARY KEY, stream_kind TEXT NOT NULL,
 			stream_id TEXT NOT NULL, stream_version INTEGER NOT NULL,
-			event_ids_json TEXT NOT NULL, result_json TEXT, created_at TEXT NOT NULL
+			event_ids_json TEXT NOT NULL, result_json TEXT,
+			fingerprint TEXT, command_kind TEXT, schema_version INTEGER,
+			storage_incarnation_id TEXT, created_at TEXT NOT NULL
 		)
 	`;
 	yield* sql`

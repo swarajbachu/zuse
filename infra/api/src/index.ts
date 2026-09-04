@@ -1,4 +1,5 @@
 import { Effect, type Layer, ManagedRuntime } from "effect";
+import { cloudBillingCapacity } from "./cloud-billing-capacity.ts";
 import {
 	ingestE2bLifecycleEvent,
 	normalizeE2bLifecycleEvent,
@@ -6,13 +7,17 @@ import {
 import { maintainCloudBilling } from "./cloud-billing-outbox.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
 import {
+	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	reconcileCloudBuild,
 	reconcileCloudPool,
 	reconcileCloudResources,
 	reconcileCloudWorkspace,
 	reconcileCloudWorkspaceStartup,
 } from "./cloud-workspace-reconciler.ts";
-import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
+import {
+	type CloudMailboxLifecycleFence,
+	CloudWorkspaceStore,
+} from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { type ApiContext, handleRequest } from "./handler.ts";
 import { reconcileMachine, reconcileMachines } from "./machine-reconciler.ts";
@@ -74,6 +79,27 @@ export const makeApi = (
 		workspaceId: string,
 		accountId: string,
 	) => Promise<"ready" | "blocked" | "destroyed">;
+	readonly completeCloudMailboxDrain: (
+		workspaceId: string,
+		accountId: string,
+		runtimeGeneration: number,
+		wakeRevision: number,
+	) => Promise<boolean>;
+	readonly recordCloudMailboxRuntimeProgress: (
+		workspaceId: string,
+		accountId: string,
+		runtimeGeneration: number,
+		wakeRevision: number,
+		mailboxRevision: number,
+		fenceRequired: boolean,
+	) => Promise<boolean>;
+	readonly listPendingCloudMailboxLifecycles: (
+		limit: number,
+	) => Promise<ReadonlyArray<CloudMailboxLifecycleFence>>;
+	readonly acknowledgeCloudMailboxLifecycle: (
+		lifecycle: CloudMailboxLifecycleFence,
+		nowMs: number,
+	) => Promise<boolean>;
 	readonly maintainCloudBilling: (nowMs: number) => Promise<{
 		readonly exported: number;
 		readonly meterReconciled: number;
@@ -122,15 +148,79 @@ export const makeApi = (
 						return "destroyed" as const;
 					const nowMs = Date.now();
 					const configuration = yield* ApiConfiguration;
+					const billingCapacity = yield* cloudBillingCapacity(accountId, nowMs);
 					const updated = yield* store.requestMailboxWake(
 						workspaceId,
 						accountId,
 						nowMs,
 						nowMs + configuration.cloudWorkspaceIdleTimeoutMs,
 					);
-					return updated?.desiredState === "ready"
-						? ("ready" as const)
-						: ("blocked" as const);
+					return updated?.desiredState !== "ready" ||
+						billingCapacity !== "available"
+						? ("blocked" as const)
+						: ("ready" as const);
+				}),
+			),
+		completeCloudMailboxDrain: (
+			workspaceId,
+			accountId,
+			runtimeGeneration,
+			wakeRevision,
+		) =>
+			runtime.runPromise(
+				Effect.gen(function* () {
+					const store = yield* CloudWorkspaceStore;
+					const configuration = yield* ApiConfiguration;
+					const nowMs = Date.now();
+					return yield* store.completeMailboxDrain(
+						workspaceId,
+						accountId,
+						runtimeGeneration,
+						wakeRevision,
+						nowMs,
+						nowMs + configuration.cloudWorkspaceIdleTimeoutMs,
+					);
+				}),
+			),
+		recordCloudMailboxRuntimeProgress: (
+			workspaceId,
+			accountId,
+			runtimeGeneration,
+			wakeRevision,
+			mailboxRevision,
+			fenceRequired,
+		) =>
+			runtime.runPromise(
+				Effect.gen(function* () {
+					const store = yield* CloudWorkspaceStore;
+					const nowMs = Date.now();
+					return yield* store.recordMailboxRuntimeProgress(
+						workspaceId,
+						accountId,
+						runtimeGeneration,
+						wakeRevision,
+						mailboxRevision,
+						fenceRequired,
+						nowMs,
+						nowMs + MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
+					);
+				}),
+			),
+		listPendingCloudMailboxLifecycles: (limit) =>
+			runtime.runPromise(
+				Effect.gen(function* () {
+					return yield* (yield* CloudWorkspaceStore).listPendingMailboxLifecycles(
+						limit,
+					);
+				}),
+			),
+		acknowledgeCloudMailboxLifecycle: (lifecycle, nowMs) =>
+			runtime.runPromise(
+				Effect.gen(function* () {
+					return yield* (yield* CloudWorkspaceStore).acknowledgeMailboxLifecycle(
+						lifecycle,
+						nowMs,
+					);
 				}),
 			),
 		maintainCloudBilling: (nowMs) =>

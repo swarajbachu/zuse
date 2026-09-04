@@ -119,6 +119,11 @@ import {
 } from "../lib/cloud-chat-activity.ts";
 import { useCloudChatSummaryForSession } from "../lib/cloud-workspaces.ts";
 import {
+	cloudComposerSubmissionBlocked,
+	commitAcceptedComposerDelivery,
+	shouldQueueComposerMessage,
+} from "../lib/composer-delivery.ts";
+import {
 	decideEnvironmentPermission,
 	useEnvironmentPermissions,
 } from "../lib/environment-permissions-client-bus.ts";
@@ -301,6 +306,9 @@ export function ChatComposer({
 					runtime: runtimeState,
 				});
 	const turnStartPending = hasPendingTurnStart(timeline.view.pendingCommands);
+	const durableCloudSendPending =
+		isCloudSession &&
+		cloudComposerSubmissionBlocked(timeline.view.pendingCommands);
 	const interrupting =
 		cloudActivity === null
 			? runtimeState === "stopping"
@@ -312,11 +320,9 @@ export function ChatComposer({
 				(isCloudSession && runtimeState === "starting") ||
 				turnStartPending
 			: cloudChatShowsWorking(cloudActivity) || turnStartPending;
-	// Hold messages only while the provider is unavailable or an earlier message
-	// is already queued. Worktree setup is independent background work and must
-	// not delay an agent that has finished booting.
+	// Existing queued work still owns ordering. A merely sleeping cloud runtime
+	// does not: its next message can go straight to the durable mailbox.
 	const hasQueued = (timeline.projection?.queue.items.length ?? 0) > 0;
-	const holdForAgent = hasQueued || runtimeState === "starting";
 	const goal = goalView.data?.goal ?? null;
 	const respondToPlan = useSessionsStore((s) => s.respondToPlan);
 	const send = (
@@ -437,6 +443,7 @@ export function ChatComposer({
 	const headPermission = pendingPermissions[0];
 
 	const [hasText, setHasText] = useState(false);
+	const [submitting, setSubmitting] = useState(false);
 	const hasTextRef = useRef(false);
 	const [uploadingAttachmentCount, setUploadingAttachmentCount] = useState(0);
 	const [goalSendMode, setGoalSendMode] = useState(false);
@@ -501,6 +508,8 @@ export function ChatComposer({
 	const canSend =
 		!directoryUnavailable &&
 		!submitDisabled &&
+		!submitting &&
+		!durableCloudSendPending &&
 		uploadingAttachmentCount === 0 &&
 		(hasText || annotationCount > 0);
 
@@ -1064,7 +1073,8 @@ export function ChatComposer({
 	};
 
 	const submit = (): boolean => {
-		if (directoryUnavailable) return false;
+		if (directoryUnavailable || submitting || durableCloudSendPending)
+			return false;
 		// Don't submit while a popover is open — Enter belongs to the popover.
 		if (trigger !== null || modelPickerOpen) return false;
 		if (uploadingAttachmentCount > 0) return false;
@@ -1104,23 +1114,33 @@ export function ChatComposer({
 				? chooseComposerSubmitRoute({
 						sendPlanFeedbackNow,
 						goalSendMode,
-						shouldQueue:
-							inFlight || holdForAgent || timeline.view.sync !== "live",
+						shouldQueue: shouldQueueComposerMessage({
+							isCloudSession,
+							turnInFlight: inFlight,
+							hasQueuedMessage: hasQueued,
+							runtimeStarting: !isCloudSession && runtimeState === "starting",
+							timelineLive: timeline.view.sync === "live",
+						}),
 					})
 				: null;
-		clearComposer(view, {
-			clearPendingAttachments: onDraftSubmit === undefined,
-		});
-		clearComposerDraft(draftKey);
-		setGoalSendMode(false);
-		// Drain the tray: the annotations now live on `input` (carried into the
-		// queue too, so a mid-turn submit flushes them intact).
-		useAnnotationsStore.getState().clear(sessionId);
-		editingQueuedItemRef.current = null;
-		setEditingQueuedItem(null);
+		const commitComposerSubmission = () => {
+			if (editorViewRef.current === view) {
+				clearComposer(view, {
+					clearPendingAttachments: onDraftSubmit === undefined,
+				});
+			}
+			clearComposerDraft(draftKey);
+			setGoalSendMode(false);
+			// Drain the tray only once the input has a durable owner. Before cloud
+			// acceptance, it remains the user's recoverable draft.
+			useAnnotationsStore.getState().clear(sessionId);
+			editingQueuedItemRef.current = null;
+			setEditingQueuedItem(null);
+		};
 		// Draft mode (new-chat landing): hand the input back to the landing, which
 		// creates the worktree + chat and queues this as the first message.
 		if (onDraftSubmit !== undefined) {
+			commitComposerSubmission();
 			const pendingDraftAttachments = pendingDraftAttachmentsRef.current;
 			const pendingDraftContextFiles = pendingDraftContextFilesRef.current;
 			pendingDraftAttachmentsRef.current = [];
@@ -1132,8 +1152,24 @@ export function ChatComposer({
 			});
 			return true;
 		}
+		const sendAndCommitAfterAcceptance = (options?: {
+			readonly asGoal?: boolean;
+		}) => {
+			setSubmitting(true);
+			view.contentDOM.blur();
+			void commitAcceptedComposerDelivery(
+				send(input, options),
+				commitComposerSubmission,
+			)
+				.catch(() => undefined)
+				.finally(() => {
+					setSubmitting(false);
+					editorViewRef.current?.focus();
+				});
+		};
 		switch (route) {
 			case "planFeedback":
+				commitComposerSubmission();
 				void (async () => {
 					if (pendingNativePlanApproval !== null) {
 						await deliverNativePlanFeedback({
@@ -1161,18 +1197,19 @@ export function ChatComposer({
 				})();
 				break;
 			case "goal":
-				void send(input, { asGoal: true });
+				sendAndCommitAfterAcceptance({ asGoal: true });
 				break;
 			case "queue":
 				// Mid-turn submit — or a submit while the provider is still coming up
 				// — becomes a queue chip; auto-flushed when the turn ends or steered
 				// manually.
+				commitComposerSubmission();
 				queue(
 					goalSendMode ? ComposerInput.make({ ...input, asGoal: true }) : input,
 				);
 				break;
 			case "send":
-				void send(input);
+				sendAndCommitAfterAcceptance();
 				break;
 		}
 		return true;
@@ -1406,7 +1443,11 @@ export function ChatComposer({
 								{/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: CodeMirror owns keyboard semantics; clicking host padding forwards focus to its editor. */}
 								<div
 									ref={editorHostRef}
-									className="flex-1 overflow-y-auto bg-transparent text-sm leading-relaxed outline-none"
+									className={cn(
+										"flex-1 overflow-y-auto bg-transparent text-sm leading-relaxed outline-none",
+										submitting && "pointer-events-none opacity-80",
+									)}
+									aria-busy={submitting}
 									style={{
 										minHeight: MIN_HEIGHT,
 										maxHeight: MAX_HEIGHT,

@@ -11,6 +11,7 @@ import { Migration0031BackfillRuns } from "../../src/persistence/migrations/0031
 import { Migration0032ReactorEffectReceipts } from "../../src/persistence/migrations/0032_reactor_effect_receipts.ts";
 import { Migration0033ReactorEffectSteps } from "../../src/persistence/migrations/0033_reactor_effect_steps.ts";
 import { Migration0034ToolEventLookup } from "../../src/persistence/migrations/0034_tool_event_lookup.ts";
+import { Migration0054ProviderEffectOutcomes } from "../../src/persistence/migrations/0054_provider_effect_outcomes.ts";
 
 describe("CQRS migrations", () => {
 	test("adds durable CQRS state and indexed tool-event lookup", async () => {
@@ -56,6 +57,7 @@ describe("CQRS migrations", () => {
 					yield* Migration0032ReactorEffectReceipts;
 					yield* Migration0033ReactorEffectSteps;
 					yield* Migration0034ToolEventLookup;
+					yield* Migration0054ProviderEffectOutcomes;
 					const sql = yield* SqlClient.SqlClient;
 					const event = yield* sql<{
 						readonly correlation_id: string;
@@ -75,6 +77,9 @@ describe("CQRS migrations", () => {
 						SELECT name FROM sqlite_master
 						WHERE type = 'index' AND name = 'idx_messages_tool_item'
 					`;
+					const reactorReceiptColumns = yield* sql<{
+						readonly name: string;
+					}>`PRAGMA table_info(reactor_effect_receipts)`;
 					const malformedLookup = yield* sql<{ readonly id: string }>`
             SELECT id FROM messages
             WHERE session_id = 'session-1'
@@ -82,7 +87,14 @@ describe("CQRS migrations", () => {
               AND json_valid(content_json)
               AND json_extract(content_json, '$.itemId') = 'missing'
           `;
-					return { event, cursor, tables, indexes, malformedLookup };
+					return {
+						event,
+						cursor,
+						tables,
+						indexes,
+						reactorReceiptColumns,
+						malformedLookup,
+					};
 				}),
 			);
 
@@ -99,6 +111,12 @@ describe("CQRS migrations", () => {
 				"reactor_effect_steps",
 			]);
 			expect(snapshot.indexes).toEqual([{ name: "idx_messages_tool_item" }]);
+			expect(snapshot.reactorReceiptColumns.map(({ name }) => name)).toEqual([
+				"effect_id",
+				"completed_at",
+				"state",
+				"started_at",
+			]);
 			expect(snapshot.malformedLookup).toEqual([]);
 		} finally {
 			await runtime.dispose();

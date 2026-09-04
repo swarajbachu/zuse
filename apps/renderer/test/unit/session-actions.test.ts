@@ -20,6 +20,7 @@ import {
 	pendingSessionCommandError,
 	persistQueuedMessage,
 	queueSessionMessage,
+	sendSessionMessage,
 	updateQueuedMessage,
 } from "../../src/lib/session-actions.ts";
 import {
@@ -74,9 +75,26 @@ describe("session actions", () => {
 			),
 		).toEqual({
 			kind: "terminal",
+			category: "workspace-deleted",
 			headline: "Workspace unavailable",
 			message:
-				"This workspace was archived or deleted before the command was accepted.",
+				"This workspace was archived or deleted before the command could finish.",
+		});
+	});
+
+	it("presents Codex authentication and missing sessions as typed actions", () => {
+		expect(
+			classifyMessage("codex: Auth(AuthorizationRequired)", "codex"),
+		).toEqual({
+			kind: "auth",
+			providerId: "codex",
+			message: "codex: Auth(AuthorizationRequired)",
+		});
+		expect(classifyError(new SessionNotFoundError({ sessionId }))).toEqual({
+			kind: "terminal",
+			category: "session-unavailable",
+			headline: "Session unavailable",
+			message: "This chat session is no longer available in the agent runtime.",
 		});
 	});
 
@@ -108,6 +126,41 @@ describe("session actions", () => {
 				sync: "live",
 			}),
 		).toBe(false);
+	});
+
+	it("keeps the composer submission unaccepted after a retryable transport failure", async () => {
+		const frames = Effect.runSync(Queue.unbounded());
+		let streamStarts = 0;
+		setSessionTimelineRpcClientForTest(
+			async () =>
+				({
+					"session.events": () => {
+						streamStarts += 1;
+						return Stream.fromQueue(frames);
+					},
+					"messages.send": () =>
+						Effect.fail({
+							_tag: "RpcClientError",
+							reason: { _tag: "SocketError", message: "offline" },
+						}),
+				}) as never,
+		);
+
+		const retained = retainSessionTimeline(ref, "connect");
+		await waitUntil(() => streamStarts === 1);
+		await expect(sendSessionMessage(ref, "keep this draft")).resolves.toBe(
+			false,
+		);
+
+		const view = getRendererClientBus().snapshot(retained.key);
+		expect(view.data?.messages).toHaveLength(1);
+		expect(view.data?.messages[0]?.content).toMatchObject({
+			_tag: "user",
+			text: "keep this draft",
+		});
+		expect(view.failedCommands).toHaveLength(1);
+		expect(view.failedCommands[0]?.retryable).toBe(true);
+		retained.lease.release();
 	});
 
 	it("converges when a queued message was consumed before its final update", async () => {
@@ -232,9 +285,12 @@ describe("session actions", () => {
 		expect(
 			getRendererClientBus().snapshot(retained.key).data?.queue.items,
 		).toEqual([]);
-		expect(pendingSessionCommandError(ref)?.message).toContain(
-			"SessionNotFoundError",
-		);
+		expect(pendingSessionCommandError(ref)).toMatchObject({
+			kind: "terminal",
+			category: "session-unavailable",
+			headline: "Session unavailable",
+			message: "This chat session is no longer available in the agent runtime.",
+		});
 		retained.lease.release();
 	});
 });

@@ -533,6 +533,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(ConversationServicesLayer),
 		Layer.provide(SessionDomainLayer),
+		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
 	);
 

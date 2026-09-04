@@ -8,6 +8,7 @@ import {
 	type CloudConnectionPresentation,
 	cloudConnectionPresentation,
 } from "../lib/cloud-connection-presentation.ts";
+import { cloudFailurePresentation } from "../lib/cloud-failure-presentation.ts";
 import {
 	cloudSummaryForChat,
 	useCloudChatCatalogStore,
@@ -43,6 +44,10 @@ const copy: Record<
 	updating: {
 		title: "Updating cloud runtime",
 		detail: "Zuse will reconnect after the compatible runtime starts.",
+	},
+	"update-required": {
+		title: "Update required",
+		detail: "Update Zuse or the cloud runtime before reconnecting.",
 	},
 	detached: {
 		title: "Reconnect needed",
@@ -111,15 +116,33 @@ export function CloudConnectionNotice() {
 	const connectionError = getRendererClientBus().connection(
 		EnvironmentId.make(summary.workspaceId),
 	).error;
-	const inviteRequired =
-		connectionError?.includes("beta-access-required") === true;
+	const typedFailure =
+		connectionError === null
+			? null
+			: cloudFailurePresentation({ cause: connectionError });
+	const inviteRequired = typedFailure?.kind === "cloud-access-required";
 	const betaCheckUnavailable =
-		connectionError?.includes("beta-access-unavailable") === true;
+		typedFailure?.kind === "cloud-access-unavailable";
+	const typedConnectionFailure =
+		typedFailure !== null &&
+		typedFailure.kind !== "network" &&
+		!inviteRequired &&
+		!betaCheckUnavailable
+			? typedFailure
+			: null;
+	const signInRequired =
+		blockedAuth || typedConnectionFailure?.kind === "sign-in-required";
+	const terminalConnectionFailure =
+		typedConnectionFailure?.kind === "workspace-deleted" ||
+		typedConnectionFailure?.kind === "session-unavailable" ||
+		typedConnectionFailure?.kind === "interaction-expired" ||
+		typedConnectionFailure?.kind === "outcome-unknown";
 	if (
 		presentation === "hidden" &&
 		!blockedAuth &&
 		!inviteRequired &&
-		!betaCheckUnavailable
+		!betaCheckUnavailable &&
+		typedConnectionFailure === null
 	)
 		return null;
 	const retry = () => {
@@ -135,18 +158,24 @@ export function CloudConnectionNotice() {
 					title: "Cloud access could not be verified",
 					detail: "Try again shortly. Your cached chat is still available.",
 				}
-			: blockedAuth
+			: signInRequired
 				? {
 						title: "Sign in required",
 						detail:
 							"Your session expired — sign in to reconnect this cloud workspace.",
 					}
-				: presentation === "hidden"
-					? null
-					: copy[presentation];
+				: typedConnectionFailure !== null
+					? {
+							title: typedConnectionFailure.headline,
+							detail: typedConnectionFailure.message,
+						}
+					: presentation === "hidden"
+						? null
+						: copy[presentation];
 	if (value === null) return null;
 	const busy =
 		!blockedAuth &&
+		typedConnectionFailure === null &&
 		!inviteRequired &&
 		!betaCheckUnavailable &&
 		(presentation === "resuming" || presentation === "updating");
@@ -169,21 +198,22 @@ export function CloudConnectionNotice() {
 				)}
 				<p className="truncate text-muted-foreground">{value.detail}</p>
 			</div>
-			{blockedAuth ||
+			{signInRequired ||
 			betaCheckUnavailable ||
-			((presentation === "failed" || presentation === "detached") &&
+			(!terminalConnectionFailure &&
+				(presentation === "failed" || presentation === "detached") &&
 				!inviteRequired) ? (
 				<button
 					type="button"
 					disabled={signingIn}
 					className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					onClick={() => {
-						if (blockedAuth) void signIn();
+						if (signInRequired) void signIn();
 						else retry();
 					}}
 				>
 					<HugeiconsIcon icon={RefreshIcon} className="size-3.5" />
-					{blockedAuth ? (signingIn ? "Signing in…" : "Sign in") : "Retry"}
+					{signInRequired ? (signingIn ? "Signing in…" : "Sign in") : "Retry"}
 				</button>
 			) : null}
 		</div>

@@ -1,10 +1,16 @@
-import type { PersistedResource } from "@zuse/client-runtime/client-persistence";
+import {
+	type ClientCommand,
+	commandFingerprint,
+	type PersistedResource,
+} from "@zuse/client-runtime/client-persistence";
 import {
 	makeResourceKey,
 	resourceKeyId,
 } from "@zuse/client-runtime/resource-ref";
 import {
 	CloudWorkspaceOpError,
+	CommandAcceptance,
+	CommandId,
 	ComposerInput,
 	EnvironmentId,
 	Message,
@@ -17,7 +23,9 @@ import {
 	SessionTimelineProjection,
 } from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createClientCommandOutbox } from "../../src/lib/client-command-outbox.ts";
+import { cloudCommandTransport } from "../../src/lib/cloud-command-transport.ts";
 import {
 	addOptimisticSessionMessage,
 	completeOlderSessionMessages,
@@ -29,6 +37,7 @@ import {
 	registerSessionTimelineCheckpointSynchronizer,
 	registerSessionTimelineOlderPageSynchronizer,
 	rehydrateRendererCommandPayload,
+	resetSessionTimelineClientBus,
 	resetSessionTimelineClientBusForTest,
 	restartProvisionalSessionTimeline,
 	retainSessionTimeline,
@@ -52,6 +61,7 @@ const ref = { environmentId, sessionId } as const;
 
 describe("renderer session timeline ClientBus adapter", () => {
 	afterEach(() => {
+		vi.restoreAllMocks();
 		resetSessionTimelineClientBusForTest();
 	});
 
@@ -372,6 +382,134 @@ describe("renderer session timeline ClientBus adapter", () => {
 		]);
 	});
 
+	it("restores an accepted optimistic prompt from the durable outbox", async () => {
+		const key = sessionTimelineResourceKey(ref);
+		const messageId = MessageId.make("accepted-after-restart");
+		const commandId = CommandId.make(`message-send:${messageId}`);
+		const command: ClientCommand = {
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: key,
+			payload: {
+				commandId,
+				sessionId,
+				input: structuredClone(
+					ComposerInput.make({
+						text: "survives the restart",
+						attachments: [],
+						fileRefs: [],
+						skillRefs: [],
+						annotations: [],
+					}),
+				),
+				asGoal: true,
+				clientMessageId: messageId,
+			},
+			retry: "safe",
+			createdAt: 123,
+		};
+		const fingerprint = commandFingerprint(command);
+		await createClientCommandOutbox().putOutbox({
+			command,
+			fingerprint,
+			acceptance: CommandAcceptance.make({
+				commandId,
+				workspaceSequence: 4,
+				revision: 8,
+				acceptedAt: 120,
+				state: "waiting-for-runtime",
+			}),
+			attempts: 1,
+			lastAttemptAt: 121,
+		});
+		await resetSessionTimelineClientBus();
+
+		const retained = retainSessionTimeline(ref, "cache-only");
+		await waitUntil(
+			() =>
+				getRendererClientBus().snapshot(key).data?.messages[0]?.id ===
+				messageId,
+		);
+
+		expect(
+			getRendererClientBus().snapshot(key).data?.messages[0],
+		).toMatchObject({
+			id: messageId,
+			sessionId,
+			role: "user",
+			content: {
+				_tag: "user",
+				text: "survives the restart",
+				goal: true,
+			},
+			createdAt: new Date(123),
+		});
+		retained.lease.release();
+	});
+
+	it("restores the same prompt after a crash before acceptance was recorded", async () => {
+		const key = sessionTimelineResourceKey(ref);
+		const messageId = MessageId.make("accepted-response-lost");
+		const commandId = CommandId.make(`message-send:${messageId}`);
+		const command: ClientCommand = {
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: key,
+			payload: {
+				commandId,
+				sessionId,
+				input: structuredClone(
+					ComposerInput.make({
+						text: "recover the exact pending prompt",
+						attachments: [],
+						fileRefs: [],
+						skillRefs: [],
+						annotations: [],
+					}),
+				),
+				clientMessageId: messageId,
+			},
+			retry: "safe",
+			createdAt: 456,
+		};
+		await createClientCommandOutbox().putOutbox({
+			command,
+			fingerprint: commandFingerprint(command),
+			attempts: 1,
+			lastAttemptAt: 457,
+		});
+		await resetSessionTimelineClientBus();
+
+		const retained = retainSessionTimeline(ref, "cache-only");
+		await waitUntil(
+			() =>
+				getRendererClientBus().snapshot(key).data?.messages[0]?.id ===
+				messageId,
+		);
+
+		expect(
+			getRendererClientBus()
+				.snapshot(key)
+				.data?.messages.filter((message) => message.id === messageId),
+		).toHaveLength(1);
+		expect(
+			getRendererClientBus().snapshot(key).data?.messages[0],
+		).toMatchObject({
+			id: messageId,
+			sessionId,
+			role: "user",
+			content: {
+				_tag: "user",
+				text: "recover the exact pending prompt",
+				goal: false,
+			},
+			createdAt: new Date(456),
+		});
+		retained.lease.release();
+	});
+
 	it("prepares a woken environment on the same passive session", async () => {
 		let sessions = 0;
 		let preparedClient: unknown = null;
@@ -399,6 +537,81 @@ describe("renderer session timeline ClientBus adapter", () => {
 		expect(sessions).toBe(1);
 		expect(preparedClient).toBe(client);
 		retained.lease.release();
+	});
+
+	it("uses the mailbox for a sleeping cloud workspace before gateway attachment", async () => {
+		const bus = getRendererClientBus();
+		const flush = vi
+			.spyOn(bus, "flushDurableOutbox")
+			.mockResolvedValue(undefined);
+		let prepareCalls = 0;
+		registerEnvironmentActivationForTest(
+			environmentId,
+			async () => {
+				prepareCalls += 1;
+			},
+			undefined,
+			"cloud-workspace",
+		);
+		expect(flush).toHaveBeenCalledWith(environmentId);
+		flush.mockRestore();
+
+		const messageId = MessageId.make("sleeping-mailbox-message");
+		const commandId = CommandId.make(`message-send:${messageId}`);
+		const command: ClientCommand = {
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: sessionTimelineResourceKey(ref),
+			payload: {
+				commandId,
+				sessionId,
+				clientMessageId: messageId,
+				input: ComposerInput.make({
+					text: "deliver while sleeping",
+					attachments: [],
+					fileRefs: [],
+					skillRefs: [],
+					annotations: [],
+				}),
+			},
+			retry: "safe",
+			createdAt: 10,
+		};
+		const start = vi.fn();
+		const dispose = vi.fn();
+		const dispatch = vi
+			.spyOn(cloudCommandTransport, "dispatch")
+			.mockImplementation(({ fingerprint }) => ({
+				accepted: Promise.resolve(
+					CommandAcceptance.make({
+						commandId,
+						workspaceSequence: 1,
+						revision: 1,
+						acceptedAt: 11,
+						state: "waiting-for-runtime",
+					}),
+				),
+				result: Promise.resolve({
+					commandId,
+					fingerprint,
+					receivedAt: 12,
+					result: { accepted: true },
+				}),
+				encryptedEnvelope: Promise.resolve({ opaque: true }),
+				deliveryFingerprint: Promise.resolve("hmac-sha256:sleeping"),
+				start,
+				dispose,
+				cancel: async () => ({}) as never,
+				subscribeStatus: () => () => undefined,
+			}));
+
+		await expect(bus.dispatch(command)).resolves.toMatchObject({ commandId });
+		expect(dispatch).toHaveBeenCalledTimes(1);
+		expect(start).toHaveBeenCalledTimes(1);
+		expect(dispose).toHaveBeenCalledTimes(1);
+		expect(prepareCalls).toBe(0);
+		expect(bus.connection(environmentId).phase).toBe("dormant");
 	});
 
 	it("prepares a connected environment before acquiring its socket", async () => {

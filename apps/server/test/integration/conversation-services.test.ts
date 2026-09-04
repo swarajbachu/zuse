@@ -97,6 +97,8 @@ import { Migration0043NameProvenance } from "../../src/persistence/migrations/00
 import { Migration0045ChatCatalogRevision } from "../../src/persistence/migrations/0045_chat_catalog_revision.ts";
 import { Migration0046SessionTimelineHead } from "../../src/persistence/migrations/0046_session_timeline_head.ts";
 import { Migration0047MessageCheckpoints } from "../../src/persistence/migrations/0047_message_checkpoints.ts";
+import { Migration0053CloudCommandReceipts } from "../../src/persistence/migrations/0053_cloud_command_receipts.ts";
+import { Migration0054ProviderEffectOutcomes } from "../../src/persistence/migrations/0054_provider_effect_outcomes.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -578,6 +580,8 @@ const runAllMigrations = Effect.all(
 		Migration0045ChatCatalogRevision,
 		Migration0046SessionTimelineHead,
 		Migration0047MessageCheckpoints,
+		Migration0053CloudCommandReceipts,
+		Migration0054ProviderEffectOutcomes,
 	],
 	{ discard: true },
 );

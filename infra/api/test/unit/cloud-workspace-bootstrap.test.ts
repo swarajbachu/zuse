@@ -11,6 +11,7 @@ import {
 } from "../../src/account-identity.ts";
 import { BetaAccessAllowAll } from "../../src/beta-access.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
+import { takeCloudMailboxDirective } from "../../src/cloud-mailbox-directive.ts";
 import {
 	CloudWorkspaceLaunchIntentCipher,
 	CloudWorkspaceLaunchIntentCipherLive,
@@ -242,6 +243,7 @@ describe("cloud workspace runtime bootstrap", () => {
 		).toMatchObject({ wrappedTranscriptKey: expect.any(String) });
 		const first = (await firstResponse.json()) as Record<string, unknown>;
 		expect(first.cloudCredentials).toEqual([]);
+		expect(first.providerSandboxId).toBe("fake-sandbox");
 		const replayResponse = await bootstrap();
 		expect(replayResponse.status).toBe(200);
 		expect(await replayResponse.json()).toEqual(first);
@@ -344,6 +346,126 @@ describe("cloud workspace runtime bootstrap", () => {
 		expect(
 			await runtime.runPromise(store.getLaunchIntent(workspaceId, now + 1)),
 		).toMatchObject({ commandId: "launch-1" });
+		const mailboxWakeAt = Date.now();
+		expect(
+			await runtime.runPromise(
+				store.requestMailboxWake(
+					workspaceId,
+					"account-1",
+					mailboxWakeAt,
+					mailboxWakeAt + 60_000,
+				),
+			),
+		).toMatchObject({
+			desiredState: "ready",
+			nextActionAtMs: mailboxWakeAt,
+			requestConfig: { cloudMailboxWakePending: true },
+		});
+		const pauseDuringMailboxDrain = await runtime.runPromise(
+			handleRequest(
+				new Request(
+					`${ISSUER}${ApiPaths.cloudWorkspaceAction(workspaceId, "pause")}`,
+					{
+						method: "POST",
+						headers: {
+							authorization: "Bearer test-token:account-1",
+							"content-type": "application/json",
+						},
+						body: JSON.stringify({
+							workspaceId,
+							commandId: "pause-during-mailbox-drain",
+						}),
+					},
+				),
+			),
+		);
+		expect(pauseDuringMailboxDrain.status).toBe(409);
+		expect(await pauseDuringMailboxDrain.json()).toMatchObject({
+			error: "cloud_workspace_mailbox_wake_pending",
+		});
+		expect(
+			await runtime.runPromise(store.getWorkspace(workspaceId)),
+		).toMatchObject({
+			desiredState: "ready",
+			nextActionAtMs: mailboxWakeAt,
+			requestConfig: { cloudMailboxWakePending: true },
+		});
+
+		const beforeDelete = await runtime.runPromise(
+			store.getWorkspace(workspaceId),
+		);
+		if (beforeDelete === null)
+			throw new Error("workspace disappeared before delete-fence test");
+		const deleteTransition = await runtime.runPromise(
+			store.transitionWorkspaceLifecycle({
+				workspace: {
+					...beforeDelete,
+					desiredState: "deleted",
+					statusCode: "delete-queued",
+					nextActionAtMs: now + 2,
+					revision: beforeDelete.revision + 1,
+					updatedAtMs: now + 2,
+				},
+				expectedRevision: beforeDelete.revision,
+				expectedUpdatedAtMs: beforeDelete.updatedAtMs,
+				expectedState: beforeDelete.state,
+				expectedDesiredState: beforeDelete.desiredState,
+				commandId: "delete-for-runtime-receipt",
+				action: "delete",
+				createdAtMs: now + 2,
+			}),
+		);
+		expect(deleteTransition).toMatchObject({
+			kind: "applied",
+			workspace: { desiredState: "deleted" },
+		});
+
+		const runtimeCommandAck = {
+			commandId: "leased-command",
+			leaseToken: "original-lease-token",
+			fingerprint: "hmac-sha256:leased-command",
+			state: "applied",
+		};
+		const receiptDuringDelete = await runtime.runPromise(
+			handleRequest(
+				new Request(
+					`${ISSUER}${ApiPaths.cloudWorkspaceRuntimeCommandAck(workspaceId)}`,
+					{
+						method: "POST",
+						headers: {
+							authorization: `Bearer ${credential}`,
+							"content-type": "application/json",
+						},
+						body: JSON.stringify(runtimeCommandAck),
+					},
+				),
+			),
+		);
+		expect(receiptDuringDelete.status).toBe(200);
+		expect(takeCloudMailboxDirective(receiptDuringDelete)).toEqual({
+			kind: "directive",
+			directive: {
+				command: { action: "ack", workspaceId },
+			},
+		});
+		expect(await receiptDuringDelete.json()).toEqual(runtimeCommandAck);
+
+		const leaseDuringDelete = await runtime.runPromise(
+			handleRequest(
+				new Request(
+					`${ISSUER}${ApiPaths.cloudWorkspaceRuntimeCommandLease(workspaceId)}`,
+					{
+						method: "POST",
+						headers: {
+							authorization: `Bearer ${credential}`,
+							"content-type": "application/json",
+						},
+						body: JSON.stringify({ storageIncarnationId: "storage-1" }),
+					},
+				),
+			),
+		);
+		expect(leaseDuringDelete.status).toBe(401);
 		await runtime.dispose();
 	});
 });

@@ -1,3 +1,4 @@
+import { CLOUD_COMMAND_PROTOCOL_VERSION } from "@zuse/contracts";
 import {
 	FakeSandboxProviderControlService,
 	SandboxProvidersFake,
@@ -9,6 +10,7 @@ import { cloudRepositoryWorkspacePath } from "../../src/cloud-workspace-paths.ts
 import {
 	ARCHIVED_WORKSPACE_RETENTION_MS,
 	cloudWorkspaceStartupNeedsObservation,
+	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	RUNTIME_CONNECTION_TIMEOUT_MS,
 	reconcileCloudWorkspace,
 	reusableAccountBuildSnapshot,
@@ -28,25 +30,34 @@ import {
 import * as Config from "../../src/config.ts";
 import { SandboxOfferConfiguration } from "../../src/sandbox-provider-module.ts";
 
-const testLayer = Layer.mergeAll(
-	Config.layer({
-		apiIssuer: "https://api.test",
-		workosJwksUrl: "https://unused.test/jwks",
-		workosIssuer: "https://unused.test",
-		mintPrivateKey: Redacted.make("{}"),
-		mintPublicKey: '{"kty":"OKP"}',
-	}),
-	CloudWorkspaceStoreMemory,
-	CloudBillingStoreMemory,
-	SandboxProvidersFake,
-	Layer.succeed(SandboxOfferConfiguration, {
-		port: 47_837,
-		vcpuCount: 2,
-		memoryMib: 1_024,
-		createTimeoutSeconds: 3_600,
-		keepAliveTimeoutSeconds: 600,
-	}),
-);
+const apiTestConfig = {
+	apiIssuer: "https://api.test",
+	workosJwksUrl: "https://unused.test/jwks",
+	workosIssuer: "https://unused.test",
+	mintPrivateKey: Redacted.make("{}"),
+	mintPublicKey: '{"kty":"OKP"}',
+} as const;
+
+const makeTestLayer = (cloudCommandMailboxEnabled = false) =>
+	Layer.mergeAll(
+		Config.layer({
+			...apiTestConfig,
+			cloudCommandMailboxEnabled,
+		}),
+		CloudWorkspaceStoreMemory,
+		CloudBillingStoreMemory,
+		SandboxProvidersFake,
+		Layer.succeed(SandboxOfferConfiguration, {
+			port: 47_837,
+			vcpuCount: 2,
+			memoryMib: 1_024,
+			createTimeoutSeconds: 3_600,
+			keepAliveTimeoutSeconds: 600,
+		}),
+	);
+
+const testLayer = makeTestLayer();
+const mailboxEnabledTestLayer = makeTestLayer(true);
 
 const seedWorkspace = Effect.fn("seedArchiveWorkspace")(function* (
 	input: Pick<
@@ -194,6 +205,16 @@ describe("cloud workspace reconciler", () => {
 		).toBe(true);
 		expect(
 			cloudWorkspaceStartupNeedsObservation({
+				state: "ready",
+				runtimeState: "online",
+				requestConfig: {
+					cloudMailboxWakePending: true,
+					cloudMailboxRuntimeSeenAt: Date.now(),
+				},
+			}),
+		).toBe(false);
+		expect(
+			cloudWorkspaceStartupNeedsObservation({
 				state: "provisioning",
 				runtimeState: "offline",
 			}),
@@ -210,6 +231,13 @@ describe("cloud workspace reconciler", () => {
 				runtimeState: "offline",
 			}),
 		).toBe(false);
+		expect(
+			cloudWorkspaceStartupNeedsObservation({
+				state: "ready",
+				runtimeState: "online",
+				requestConfig: { cloudMailboxWakePending: true },
+			}),
+		).toBe(true);
 	});
 
 	test("gives an enrolled runtime a fresh gateway connection window", async () => {
@@ -391,6 +419,13 @@ describe("cloud workspace reconciler", () => {
 			state: "archived",
 			desiredState: "archived",
 			statusCode: "archived",
+			requestConfig: {
+				destructionFence: 1,
+				cloudMailboxLifecyclePending: {
+					action: "archive",
+					destructionFence: 1,
+				},
+			},
 			nextActionAtMs: expect.any(Number),
 			providerSandboxId: "source-archive-paused",
 		});
@@ -425,10 +460,24 @@ describe("cloud workspace reconciler", () => {
 		expect(result.expiring).toMatchObject({
 			desiredState: "deleted",
 			statusCode: "archive-retention-expired",
+			requestConfig: {
+				destructionFence: 2,
+				cloudMailboxLifecyclePending: {
+					action: "delete",
+					destructionFence: 2,
+				},
+			},
 		});
 		expect(result.deleted).toMatchObject({
 			state: "deleted",
 			providerSandboxId: undefined,
+			requestConfig: {
+				destructionFence: 2,
+				cloudMailboxLifecyclePending: {
+					action: "delete",
+					destructionFence: 2,
+				},
+			},
 		});
 		expect(result.sandboxes.has("source-expired-archive")).toBe(false);
 	});
@@ -632,5 +681,377 @@ describe("cloud workspace reconciler", () => {
 			runtimeState: "offline",
 		});
 		expect(result.workspace?.runtimeBootTokenHash).toBeTruthy();
+	});
+
+	test("wakes a ready workspace whose preserved runtime is offline", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-ready-offline",
+					state: "ready",
+					desiredState: "ready",
+					runtimeState: "offline",
+					statusCode: "resume-queued",
+					requestConfig: {},
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					resumeInputs: yield* Ref.get(control.resumeInputs),
+					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.resumeInputs).toHaveLength(1);
+		expect(result.startProcessCalls).toHaveLength(0);
+		expect(result.workspace).toMatchObject({
+			state: "resuming",
+			runtimeState: "connecting",
+			statusCode: "resume-runtime-waking",
+		});
+	});
+
+	test("restarts a retained v2 runtime when mailbox rollout is enabled", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-mailbox-v2-upgrade",
+					state: "paused",
+					desiredState: "ready",
+					runtimeState: "offline",
+					statusCode: "resume-queued",
+					requestConfig: { runtimeGeneration: 2, gatewayEpoch: 2 },
+				});
+				const providerSandboxId = workspace.providerSandboxId;
+				if (providerSandboxId === undefined)
+					return yield* Effect.die("seeded workspace has no sandbox");
+				yield* Ref.update(control.sandboxes, (sandboxes) =>
+					new Map(sandboxes).set(providerSandboxId, {
+						providerSandboxId,
+						providerLabel: `zuse-cloud-workspace-${workspace.workspaceId}`,
+						state: "paused",
+					}),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					resumeInputs: yield* Ref.get(control.resumeInputs),
+					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(mailboxEnabledTestLayer)),
+		);
+
+		expect(result.resumeInputs).toHaveLength(1);
+		expect(result.startProcessCalls).toEqual([
+			"source-workspace-mailbox-v2-upgrade",
+		]);
+		expect(result.workspace).toMatchObject({
+			state: "provisioning",
+			runtimeState: "offline",
+			statusCode: "resume-runtime-restarting",
+			requestConfig: { runtimeGeneration: 3, gatewayEpoch: 3 },
+		});
+	});
+
+	test("warm-resumes a retained v3 runtime when mailbox rollout is enabled", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-mailbox-v3-warm",
+					state: "paused",
+					desiredState: "ready",
+					runtimeState: "offline",
+					statusCode: "resume-queued",
+					requestConfig: {
+						runtimeGeneration: 2,
+						gatewayEpoch: 2,
+						cloudCommandProtocolVersion: CLOUD_COMMAND_PROTOCOL_VERSION,
+						cloudCommandRuntimeGeneration: 2,
+					},
+				});
+				const providerSandboxId = workspace.providerSandboxId;
+				if (providerSandboxId === undefined)
+					return yield* Effect.die("seeded workspace has no sandbox");
+				yield* Ref.update(control.sandboxes, (sandboxes) =>
+					new Map(sandboxes).set(providerSandboxId, {
+						providerSandboxId,
+						providerLabel: `zuse-cloud-workspace-${workspace.workspaceId}`,
+						state: "paused",
+					}),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					resumeInputs: yield* Ref.get(control.resumeInputs),
+					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(mailboxEnabledTestLayer)),
+		);
+
+		expect(result.resumeInputs).toHaveLength(1);
+		expect(result.startProcessCalls).toHaveLength(0);
+		expect(result.workspace).toMatchObject({
+			state: "resuming",
+			runtimeState: "connecting",
+			statusCode: "resume-runtime-waking",
+			requestConfig: {
+				cloudCommandProtocolVersion: CLOUD_COMMAND_PROTOCOL_VERSION,
+				cloudCommandRuntimeGeneration: 2,
+			},
+		});
+	});
+
+	test("inspects and wakes a provider-paused runtime after mailbox acceptance", async () => {
+		const staleObservationAt = Date.now() - 60_000;
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-mailbox-provider-paused",
+					state: "ready",
+					desiredState: "ready",
+					runtimeState: "online",
+					statusCode: "agent-running",
+					requestConfig: {
+						cloudMailboxWakePending: true,
+						cloudMailboxWakeRequestedAt: staleObservationAt,
+						cloudMailboxRuntimeSeenAt: staleObservationAt,
+						cloudMailboxProgressAt: staleObservationAt,
+						cloudMailboxProgressRevision: 4,
+					},
+				});
+				const providerSandboxId = workspace.providerSandboxId;
+				if (providerSandboxId === undefined)
+					return yield* Effect.die("seeded workspace has no sandbox");
+				yield* Ref.update(control.sandboxes, (sandboxes) =>
+					new Map(sandboxes).set(providerSandboxId, {
+						providerSandboxId,
+						providerLabel: `zuse-cloud-workspace-${workspace.workspaceId}`,
+						state: "paused",
+					}),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					resumeInputs: yield* Ref.get(control.resumeInputs),
+					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.resumeInputs).toHaveLength(1);
+		expect(result.startProcessCalls).toHaveLength(0);
+		expect(result.workspace).toMatchObject({
+			state: "resuming",
+			runtimeState: "connecting",
+			statusCode: "resume-runtime-waking",
+			requestConfig: {
+				cloudMailboxWakePending: true,
+				cloudMailboxWakeRequestedAt: expect.any(Number),
+			},
+		});
+		expect(result.workspace?.requestConfig).not.toHaveProperty(
+			"cloudMailboxRuntimeSeenAt",
+		);
+		expect(result.workspace?.requestConfig).not.toHaveProperty(
+			"cloudMailboxProgressAt",
+		);
+	});
+
+	test("gives a running mailbox consumer time to acknowledge before replacement", async () => {
+		const requestedAt = Date.now();
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-mailbox-consumer-starting",
+					state: "ready",
+					desiredState: "ready",
+					runtimeState: "online",
+					statusCode: "agent-running",
+					requestConfig: {
+						cloudMailboxWakePending: true,
+						cloudMailboxWakeRequestedAt: requestedAt,
+					},
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					resumeInputs: yield* Ref.get(control.resumeInputs),
+					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.resumeInputs).toHaveLength(0);
+		expect(result.startProcessCalls).toHaveLength(0);
+		expect(result.workspace).toMatchObject({
+			state: "ready",
+			runtimeState: "online",
+			requestConfig: { cloudMailboxWakePending: true },
+		});
+		expect(result.workspace?.nextActionAtMs).toBeGreaterThan(requestedAt);
+	});
+
+	test("extends liveness only when the durable mailbox revision progresses", async () => {
+		const nowMs = Date.now();
+		const progressAt = nowMs - 1_000;
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-mailbox-progressing",
+					state: "ready",
+					desiredState: "ready",
+					runtimeState: "online",
+					statusCode: "agent-running",
+					requestConfig: {
+						cloudMailboxWakePending: true,
+						cloudMailboxWakeRequestedAt: nowMs - 60_000,
+						cloudMailboxRuntimeSeenAt: nowMs - 60_000,
+						cloudMailboxProgressAt: progressAt,
+						cloudMailboxProgressRevision: 9,
+					},
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.startProcessCalls).toHaveLength(0);
+		expect(result.workspace?.nextActionAtMs).toBe(
+			progressAt + MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
+		);
+	});
+
+	test("fences a runtime after durable mailbox progress stalls", async () => {
+		const stalledAt = Date.now() - MAILBOX_RUNTIME_STALL_TIMEOUT_MS - 1;
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-mailbox-progress-stalled",
+					state: "ready",
+					desiredState: "ready",
+					runtimeState: "online",
+					statusCode: "agent-running",
+					requestConfig: {
+						runtimeGeneration: 8,
+						gatewayEpoch: 8,
+						cloudMailboxWakePending: true,
+						cloudMailboxWakeRequestedAt: stalledAt,
+						cloudMailboxRuntimeSeenAt: stalledAt,
+						cloudMailboxProgressAt: stalledAt,
+						cloudMailboxProgressRevision: 12,
+					},
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.startProcessCalls).toHaveLength(1);
+		expect(result.workspace).toMatchObject({
+			state: "provisioning",
+			requestConfig: {
+				runtimeGeneration: 9,
+				cloudMailboxWakePending: true,
+			},
+		});
+		expect(result.workspace?.requestConfig).not.toHaveProperty(
+			"cloudMailboxProgressAt",
+		);
+	});
+
+	test("retries a transient provider probe without stranding an accepted command", async () => {
+		const before = Date.now();
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-mailbox-provider-transient",
+					state: "ready",
+					desiredState: "ready",
+					runtimeState: "online",
+					statusCode: "agent-running",
+					requestConfig: {
+						cloudMailboxWakePending: true,
+						cloudMailboxWakeRequestedAt: Date.now(),
+					},
+				});
+				yield* Ref.set(control.failNextInspect, true);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return yield* store.getWorkspace(workspace.workspaceId);
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result).toMatchObject({
+			state: "ready",
+			runtimeState: "online",
+			statusCode: "agent-running",
+			requestConfig: { cloudMailboxWakePending: true },
+		});
+		expect(result?.nextActionAtMs).toBeGreaterThanOrEqual(before + 5_000);
+		expect(result?.nextActionAtMs).not.toBe(Number.MAX_SAFE_INTEGER);
+	});
+
+	test("fences and replaces a running process that never reaches its mailbox", async () => {
+		const requestedAt = Date.now() - 5_000;
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-mailbox-consumer-missing",
+					state: "ready",
+					desiredState: "ready",
+					runtimeState: "online",
+					statusCode: "agent-running",
+					requestConfig: {
+						runtimeGeneration: 4,
+						gatewayEpoch: 4,
+						cloudMailboxWakePending: true,
+						cloudMailboxWakeRequestedAt: requestedAt,
+					},
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					resumeInputs: yield* Ref.get(control.resumeInputs),
+					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.resumeInputs).toHaveLength(0);
+		expect(result.startProcessCalls).toHaveLength(1);
+		expect(result.workspace).toMatchObject({
+			state: "provisioning",
+			runtimeState: "offline",
+			statusCode: "resume-runtime-restarting",
+			requestConfig: {
+				runtimeGeneration: 5,
+				gatewayEpoch: 5,
+				cloudMailboxWakePending: true,
+			},
+		});
 	});
 });

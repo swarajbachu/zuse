@@ -57,6 +57,15 @@ export type CommandReceipt<Result = unknown> = Readonly<{
 	fingerprint: CommandFingerprint;
 	receivedAt: number;
 	result: Result;
+	/**
+	 * An authoritative terminal mailbox outcome. When present, `result` is only a
+	 * backwards-compatible storage slot and must never be returned to callers.
+	 */
+	terminalError?: Readonly<{
+		state: CommandStatus["state"];
+		category?: string;
+		message: string;
+	}>;
 }>;
 
 export type OutboxEntry = Readonly<{
@@ -82,7 +91,7 @@ export class CommandIdentityCollisionError extends Error {
 	}
 }
 
-const canonicalJson = (value: unknown): string => {
+export const canonicalClientCommandJson = (value: unknown): string => {
 	const ancestors = new Set<object>();
 	const encode = (
 		input: unknown,
@@ -156,7 +165,7 @@ const canonicalJson = (value: unknown): string => {
 export const commandFingerprint = (
 	command: ClientCommand,
 ): CommandFingerprint => {
-	const identity = canonicalJson([
+	const identity = canonicalClientCommandJson([
 		"zuse-client-command-v1",
 		command.kind,
 		command.environmentId,
@@ -187,8 +196,8 @@ export interface CommandOutbox {
 		fingerprint: CommandFingerprint,
 	) => Promise<void>;
 	/** Persist the receipt and remove the matching outbox row atomically. */
-	readonly completeOutbox?: (receipt: CommandReceipt) => Promise<void>;
-	readonly findReceipt?: (
+	readonly completeOutbox: (receipt: CommandReceipt) => Promise<void>;
+	readonly findReceipt: (
 		commandId: CommandId,
 	) => Promise<CommandReceipt | null>;
 	readonly putReceipt?: (receipt: CommandReceipt) => Promise<void>;
@@ -215,11 +224,42 @@ export type CommandDispatchHandle<Result = unknown> = Readonly<{
 	subscribeStatus?: (listener: (status: CommandStatus) => void) => () => void;
 }>;
 
+/**
+ * A cloud delivery is prepared before it is started so the encrypted envelope
+ * can reach local durable storage before the first enqueue request leaves the
+ * client. This ordering closes the crash window between encryption and mailbox
+ * acceptance without exposing the start gate to renderer call sites.
+ */
+export type PreparedCloudCommandHandle<Result = unknown> =
+	CommandDispatchHandle<Result> &
+		Readonly<{
+			encryptedEnvelope: Promise<unknown>;
+			/** Keyed identity that binds persisted delivery states to this envelope. */
+			deliveryFingerprint: Promise<string>;
+			start: () => void;
+			/** Stop this in-memory attempt without removing its durable outbox row. */
+			dispose: () => void;
+		}>;
+
 export interface CloudCommandTransport {
+	/** Whether this exact payload is implemented by the current rollout slice. */
+	readonly supports: (command: ClientCommand) => boolean;
 	readonly dispatch: <Result>(input: {
 		readonly command: ClientCommand<unknown, Result>;
 		readonly fingerprint: CommandFingerprint;
-	}) => CommandDispatchHandle<Result>;
+	}) => PreparedCloudCommandHandle<Result>;
+	/**
+	 * Reuse an opaque envelope already persisted by the client. With an
+	 * acceptance this only resumes observation; without one it idempotently
+	 * retries enqueueing those exact bytes.
+	 */
+	readonly resume: <Result>(input: {
+		readonly command: ClientCommand<unknown, Result>;
+		readonly fingerprint: CommandFingerprint;
+		readonly encryptedEnvelope: unknown;
+		readonly acceptance?: CommandAcceptance;
+		readonly deliveryStatus?: CommandStatus;
+	}) => PreparedCloudCommandHandle<Result>;
 }
 
 export class CloudCommandTransportUnavailableError extends Error {
@@ -233,7 +273,41 @@ export class CloudCommandTerminalError extends Error {
 		readonly state: CommandStatus["state"],
 		readonly category: string | undefined,
 		message: string,
+		readonly occurredAt?: number,
 	) {
 		super(message);
 	}
 }
+
+/** Encode a typed terminal failure in the same durable receipt log as success. */
+export const terminalCommandReceipt = (
+	commandId: CommandId,
+	fingerprint: CommandFingerprint,
+	error: CloudCommandTerminalError,
+): CommandReceipt<undefined> => ({
+	commandId,
+	fingerprint,
+	receivedAt: error.occurredAt ?? Date.now(),
+	result: undefined,
+	terminalError: {
+		state: error.state,
+		...(error.category === undefined ? {} : { category: error.category }),
+		message: error.message,
+	},
+});
+
+/** Reconstruct the public typed failure from a persisted terminal receipt. */
+export const terminalErrorFromReceipt = (
+	receipt: CommandReceipt | null | undefined,
+): CloudCommandTerminalError | null => {
+	if (receipt === null || receipt === undefined) return null;
+	const terminal = receipt.terminalError;
+	return terminal === undefined
+		? null
+		: new CloudCommandTerminalError(
+				terminal.state,
+				terminal.category,
+				terminal.message,
+				receipt.receivedAt,
+			);
+};

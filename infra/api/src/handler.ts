@@ -18,7 +18,10 @@ import {
 	type CloudWorkspaceRouteContext,
 	routeCloudWorkspaceRequest,
 } from "./cloud-workspace-routes.ts";
-import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
+import {
+	CloudWorkspaceStore,
+	workspaceDeletionIsDurablyFenced,
+} from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import {
 	parseJwk,
@@ -706,19 +709,56 @@ const route = (
 				principal.accountId,
 			);
 			for (const workspace of cloudWorkspaces) {
-				if (workspace.state === "deleted") continue;
-				yield* cloudStore.saveWorkspace({
-					...workspace,
-					desiredState: "deleted",
-					statusCode: "delete-queued",
-					nextActionAtMs: nowMs,
-					revision: workspace.revision + 1,
-					updatedAtMs: nowMs,
-				});
+				let current = workspace;
+				let destructionScheduled = false;
+				for (let attempt = 0; attempt < 3; attempt += 1) {
+					const transition = yield* cloudStore.transitionWorkspaceLifecycle({
+						workspace: {
+							...current,
+							desiredState: "deleted",
+							statusCode:
+								current.state === "deleted"
+									? current.statusCode
+									: "delete-queued",
+							nextActionAtMs:
+								current.state === "deleted" ? current.nextActionAtMs : nowMs,
+						},
+						expectedRevision: current.revision,
+						expectedUpdatedAtMs: current.updatedAtMs,
+						expectedState: current.state,
+						expectedDesiredState: current.desiredState,
+						action: "delete",
+						createdAtMs: nowMs,
+					});
+					if (transition.kind === "contended") {
+						current = transition.workspace;
+						continue;
+					}
+					if (
+						transition.kind === "applied" ||
+						transition.kind === "replay" ||
+						transition.kind === "missing"
+					) {
+						destructionScheduled = true;
+						break;
+					}
+					return yield* Effect.fail(
+						serviceUnavailable("cloud_workspace_transition_rejected"),
+					);
+				}
+				if (!destructionScheduled)
+					return yield* Effect.fail(
+						serviceUnavailable("cloud_workspace_transition_contended"),
+					);
 			}
+			const currentCloudWorkspaces = yield* cloudStore.listWorkspaces(
+				principal.accountId,
+			);
 			if (
 				machines.some((machine) => machine.state !== "destroyed") ||
-				cloudWorkspaces.some((workspace) => workspace.state !== "deleted")
+				currentCloudWorkspaces.some(
+					(workspace) => !workspaceDeletionIsDurablyFenced(workspace),
+				)
 			) {
 				return json({ ok: true, cleanupPending: true }, 202);
 			}
@@ -754,7 +794,8 @@ const route = (
 						);
 				}
 			}
-			yield* cloudStore.deleteAccountData(principal.accountId);
+			if (!(yield* cloudStore.deleteAccountData(principal.accountId)))
+				return json({ ok: true, cleanupPending: true }, 202);
 			const environments = yield* store.listEnvironments(principal.accountId);
 			const tunnel = yield* ManagedTunnelProvider;
 			yield* Effect.forEach(

@@ -1,4 +1,5 @@
 import type {
+	CloudCommandBlockedReason,
 	CloudCommandState,
 	CommandId,
 	EnvironmentId,
@@ -50,6 +51,8 @@ export type PendingCommand = Readonly<{
 	kind: string;
 	submittedAt: number;
 	deliveryPhase?: "persisting" | CloudCommandState;
+	category?: string;
+	blockedUntil?: CloudCommandBlockedReason;
 	cancellable?: boolean;
 }>;
 
@@ -59,6 +62,11 @@ export type FailedCommand = Readonly<{
 	failedAt: number;
 	error: string;
 	retryable: boolean;
+	/** Preserves authoritative mailbox semantics through the client/UI boundary. */
+	terminal?: Readonly<{
+		state: CloudCommandState;
+		category?: string;
+	}>;
 }>;
 
 export type ResourceView<Data> = Readonly<{

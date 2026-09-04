@@ -7,6 +7,7 @@ export type CloudConnectionPresentation =
 	| "paused"
 	| "resuming"
 	| "updating"
+	| "update-required"
 	| "detached"
 	| "failed";
 
@@ -15,6 +16,7 @@ export const cloudConnectionPresentation = (
 	activity: CloudChatActivity,
 	connection: ConnectionPhase,
 ): CloudConnectionPresentation => {
+	if (connection === "update-required") return "update-required";
 	if (activity === "failed") {
 		// The control plane can recover a warm workspace after the retained socket
 		// has exhausted its retry ladder. The compute is still healthy; describe the
@@ -32,7 +34,6 @@ export const cloudConnectionPresentation = (
 			summary.state !== "failed" &&
 			connection !== "failed" &&
 			connection !== "blocked-auth" &&
-			connection !== "update-required" &&
 			connection !== "revoked"
 		)
 			return "hidden";

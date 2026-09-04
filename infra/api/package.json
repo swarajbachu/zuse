@@ -51,6 +51,7 @@
 	"dependencies": {
 		"@zuse/analytics": "*",
 		"@zuse/billing-providers": "*",
+		"@zuse/cloud-commands": "*",
 		"@zuse/contracts": "*",
 		"@zuse/machine-providers": "*",
 		"@zuse/pokemon-data": "*",

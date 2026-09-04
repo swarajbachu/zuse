@@ -1,7 +1,10 @@
 import type { ClientCommand } from "@zuse/client-runtime/client-persistence";
 import {
+	CloudCommandTerminalError,
 	CommandIdentityCollisionError,
 	commandFingerprint,
+	terminalCommandReceipt,
+	terminalErrorFromReceipt,
 } from "@zuse/client-runtime/client-persistence";
 import { CommandId, EnvironmentId, SessionId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
@@ -90,6 +93,39 @@ describe("renderer command outbox", () => {
 		expect(await outbox.listOutbox(environmentId)).toEqual([
 			{ command, fingerprint, attempts: 1, lastAttemptAt: 2 },
 		]);
+	});
+
+	it("atomically replaces a pending row with a typed terminal receipt", async () => {
+		resetMemoryCommandOutboxForTest();
+		const outbox = createClientCommandOutbox();
+		await outbox.putOutbox({
+			command,
+			fingerprint,
+			attempts: 1,
+			lastAttemptAt: 2,
+		});
+		const receipt = terminalCommandReceipt(
+			commandId,
+			fingerprint,
+			new CloudCommandTerminalError(
+				"cancelled",
+				"cancelled-before-lease",
+				"The queued command was cancelled.",
+				3,
+			),
+		);
+
+		await outbox.completeOutbox(receipt);
+
+		await expect(outbox.listOutbox(environmentId)).resolves.toEqual([]);
+		const restored = await outbox.findReceipt(commandId);
+		expect(restored).toEqual(receipt);
+		expect(terminalErrorFromReceipt(restored)).toMatchObject({
+			state: "cancelled",
+			category: "cancelled-before-lease",
+			message: "The queued command was cancelled.",
+			occurredAt: 3,
+		});
 	});
 
 	it("upgrades a legacy IndexedDB outbox row without changing its command identity", () => {

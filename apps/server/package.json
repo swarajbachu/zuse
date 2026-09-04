@@ -68,6 +68,7 @@
 		"@zuse/agents": "*",
 		"@zuse/analytics": "*",
 		"@zuse/client-runtime": "*",
+		"@zuse/cloud-commands": "*",
 		"@zuse/contracts": "*",
 		"@zuse/domain": "*",
 		"@zuse/git": "*",

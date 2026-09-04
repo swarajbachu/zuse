@@ -303,6 +303,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 			// sandbox repository-ready. Never manufacture a second, placeholder root.
 			rootPrepared = folders.length > 0;
 		},
+		"cloud-workspace",
 	);
 	rearmRegisteredCloudConnection(summary);
 };

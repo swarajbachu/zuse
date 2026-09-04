@@ -1,28 +1,27 @@
 import type { DurableObjectState } from "@cloudflare/workers-types";
+import { cloudCommandLane } from "@zuse/cloud-commands";
 import {
+	CLOUD_COMMAND_LEASE_TTL_MS,
 	CLOUD_COMMAND_MAX_ENVELOPE_BYTES,
 	CLOUD_COMMAND_MAX_MAILBOX_BYTES,
 	CLOUD_COMMAND_MAX_NONTERMINAL,
 	CLOUD_COMMAND_WATCH_MAX_CHANGES,
 	CLOUD_COMMAND_WATCH_MAX_WAIT_MS,
 	type CloudCommandEnvelope,
-	type CloudCommandState,
+	isCloudCommandTerminalState,
 	type RuntimeAcknowledgment,
 } from "@zuse/contracts";
 
 type SqlRow = Record<string, string | number | null>;
 
-const TERMINAL = new Set<CloudCommandState>([
-	"applied",
-	"rejected",
-	"expired",
-	"cancelled",
-	"outcome-unknown",
-]);
 const RESERVATION_TTL_MS = 60_000;
-const LEASE_TTL_MS = 30_000;
 const RESULT_RETENTION_MS = 30 * 24 * 60 * 60_000;
 const CHANGE_HISTORY_LIMIT = 10_000;
+const DESTRUCTIVE_LEASE_CATEGORIES = [
+	"workspace-destruction-fence-advanced-after-lease",
+	"workspace-archived-after-lease",
+	"workspace-deleted-after-lease",
+] as const;
 
 const json = (value: unknown, status = 200, headers?: HeadersInit) =>
 	new Response(JSON.stringify(value), {
@@ -99,6 +98,24 @@ export class WorkspaceMailbox {
 		return value;
 	}
 
+	private metaNumber(name: string): number | null {
+		const value = this.rows(
+			"SELECT value FROM mailbox_meta WHERE key = ?",
+			name,
+		)[0]?.value;
+		if (value === undefined || value === null) return null;
+		const parsed = Number(value);
+		return Number.isSafeInteger(parsed) ? parsed : null;
+	}
+
+	private setMeta(name: string, value: string | number): void {
+		this.sql.exec(
+			"INSERT INTO mailbox_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+			name,
+			String(value),
+		);
+	}
+
 	private changed(commandId: string): number {
 		const revision = this.next("revision");
 		this.sql.exec(
@@ -110,6 +127,10 @@ export class WorkspaceMailbox {
 			"DELETE FROM mailbox_changes WHERE revision <= ?",
 			revision - CHANGE_HISTORY_LIMIT,
 		);
+		// Change history is bounded, while command tombstones live for the
+		// workspace lifetime. Preserve the latest command revision separately so
+		// targeted status recovery remains useful after a watch cursor reset.
+		this.setMeta(`command-revision:${commandId}`, revision);
 		for (const wake of this.waiters) wake();
 		this.waiters.clear();
 		return revision;
@@ -121,14 +142,19 @@ export class WorkspaceMailbox {
 			commandId,
 		)[0];
 		if (row === undefined) return null;
-		const change = this.rows(
-			"SELECT MAX(revision) AS revision FROM mailbox_changes WHERE command_id = ?",
-			commandId,
-		)[0];
+		const revision =
+			this.metaNumber(`command-revision:${commandId}`) ??
+			Number(
+				this.rows(
+					"SELECT MAX(revision) AS revision FROM mailbox_changes WHERE command_id = ?",
+					commandId,
+				)[0]?.revision ?? 0,
+			);
 		return {
 			commandId: row.command_id,
 			workspaceSequence: row.workspace_sequence,
-			revision: Number(change?.revision ?? 0),
+			revision,
+			fingerprint: row.fingerprint,
 			state: row.state,
 			everLeased: row.ever_leased === 1,
 			updatedAt: row.updated_at,
@@ -144,21 +170,212 @@ export class WorkspaceMailbox {
 		};
 	}
 
+	private envelopeFence(row: SqlRow): number | null {
+		try {
+			const parsed = JSON.parse(String(row.envelope_json)) as {
+				destructionFence?: unknown;
+			};
+			return typeof parsed.destructionFence === "number" &&
+				Number.isSafeInteger(parsed.destructionFence) &&
+				parsed.destructionFence >= 0
+				? parsed.destructionFence
+				: null;
+		} catch {
+			return null;
+		}
+	}
+
+	private commandIdentity(envelope: CloudCommandEnvelope): string {
+		return JSON.stringify([
+			envelope.protocolVersion,
+			envelope.workspaceId,
+			envelope.sessionId,
+			envelope.commandId,
+			envelope.kind,
+			envelope.fingerprint,
+			envelope.schemaVersion,
+			envelope.keyVersion,
+			envelope.destructionFence,
+			envelope.createdAt,
+			envelope.dependencies,
+		]);
+	}
+
+	private identityFromEnvelopeJson(storedEnvelopeJson: string): string | null {
+		try {
+			const stored = JSON.parse(storedEnvelopeJson) as CloudCommandEnvelope;
+			return this.commandIdentity(stored);
+		} catch {
+			return null;
+		}
+	}
+
+	private terminalizeUnsafe(
+		rows: SqlRow[],
+		categories: { neverLeased: string; everLeased: string },
+	): void {
+		const now = Date.now();
+		for (const row of rows) {
+			const commandId = String(row.command_id);
+			const everLeased = row.ever_leased === 1;
+			const canStillReceiveOriginalReceipt =
+				everLeased &&
+				row.state === "leased" &&
+				typeof row.lease_token === "string" &&
+				row.lease_token.length > 0 &&
+				typeof row.lease_deadline === "number" &&
+				row.lease_deadline > now &&
+				typeof row.runtime_generation === "number" &&
+				typeof row.storage_incarnation_id === "string";
+			if (canStillReceiveOriginalReceipt) {
+				// Destruction prevents any replay, but it does not erase knowledge held
+				// by the runtime that already owned this exact lease. Keep the original
+				// token only through its existing deadline so a durable receipt can
+				// settle the outcome without weakening terminal-state immutability.
+				this.sql.exec(
+					`UPDATE mailbox_commands SET category = ?, updated_at = ?
+					 WHERE command_id = ? AND state = 'leased'`,
+					categories.everLeased,
+					now,
+					commandId,
+				);
+				this.changed(commandId);
+				continue;
+			}
+			this.sql.exec(
+				`UPDATE mailbox_commands SET state = ?, category = ?, updated_at = ?, terminal_at = ?,
+				 lease_token = NULL, lease_deadline = NULL
+				 WHERE command_id = ?
+				 AND state NOT IN ('applied','rejected','expired','cancelled','outcome-unknown')`,
+				everLeased ? "outcome-unknown" : "cancelled",
+				everLeased ? categories.everLeased : categories.neverLeased,
+				now,
+				now,
+				commandId,
+			);
+			this.changed(commandId);
+		}
+	}
+
+	private terminalizeBelowFenceUnsafe(
+		destructionFence: number,
+		categories: { neverLeased: string; everLeased: string },
+	): void {
+		const stale = this.rows(
+			`SELECT command_id, ever_leased, state, lease_token, lease_deadline,
+				runtime_generation, storage_incarnation_id, envelope_json
+			 FROM mailbox_commands
+			 WHERE state NOT IN ('applied','rejected','expired','cancelled','outcome-unknown')`,
+		).filter((row) => {
+			const commandFence = this.envelopeFence(row);
+			return commandFence === null || commandFence < destructionFence;
+		});
+		this.terminalizeUnsafe(stale, categories);
+	}
+
+	private nonterminalCountUnsafe(): number {
+		return Number(
+			this.rows(
+				`SELECT COUNT(*) AS count FROM mailbox_commands
+				 WHERE state NOT IN ('applied','rejected','expired','cancelled','outcome-unknown')`,
+			)[0]?.count ?? 0,
+		);
+	}
+
+	private mailboxRevisionUnsafe(): number {
+		return this.metaNumber("revision") ?? 0;
+	}
+
+	private expireLeasesUnsafe(now: number): void {
+		const expiredLeases = this.rows(
+			"SELECT command_id FROM mailbox_commands WHERE state = 'leased' AND lease_deadline <= ?",
+			now,
+		);
+		this.sql.exec(
+			`UPDATE mailbox_commands SET state = 'outcome-unknown', updated_at = ?,
+				terminal_at = ?, lease_token = NULL, lease_deadline = NULL
+			 WHERE state = 'leased' AND lease_deadline <= ?
+				AND category IN (?, ?, ?)`,
+			now,
+			now,
+			now,
+			...DESTRUCTIVE_LEASE_CATEGORIES,
+		);
+		this.sql.exec(
+			`UPDATE mailbox_commands SET state = 'lease-expired-awaiting-fence',
+				category = 'runtime-fence-required', updated_at = ?
+			 WHERE state = 'leased' AND lease_deadline <= ?
+				AND (category IS NULL OR category NOT IN (?, ?, ?))`,
+			now,
+			now,
+			...DESTRUCTIVE_LEASE_CATEGORIES,
+		);
+		for (const row of expiredLeases) this.changed(String(row.command_id));
+	}
+
+	private runtimeFenceRequiredUnsafe(
+		runtimeGeneration: number,
+		storageIncarnationId: string,
+	): boolean {
+		return (
+			Number(
+				this.rows(
+					`SELECT COUNT(*) AS count FROM mailbox_commands
+				 WHERE state = 'lease-expired-awaiting-fence'
+					AND runtime_generation = ? AND storage_incarnation_id = ?`,
+					runtimeGeneration,
+					storageIncarnationId,
+				)[0]?.count ?? 0,
+			) > 0
+		);
+	}
+
+	private observeDestructionFenceUnsafe(destructionFence: number): void {
+		const current = this.metaNumber("destruction-fence");
+		if (current !== null && destructionFence <= current) return;
+		this.setMeta("destruction-fence", destructionFence);
+		this.terminalizeBelowFenceUnsafe(destructionFence, {
+			neverLeased: "workspace-destruction-fence-advanced",
+			everLeased: "workspace-destruction-fence-advanced-after-lease",
+		});
+	}
+
 	private reserveUnsafe(envelope: CloudCommandEnvelope): Response {
 		const bytes = envelopeBytes(envelope);
+		const lane = cloudCommandLane(envelope);
+		if (lane === undefined)
+			return json({ code: "cloud-command-not-eligible" }, 400);
 		if (bytes > CLOUD_COMMAND_MAX_ENVELOPE_BYTES)
 			return json({ code: "command-envelope-too-large" }, 413);
+		if (
+			!Number.isSafeInteger(envelope.destructionFence) ||
+			envelope.destructionFence < 0
+		)
+			return json({ code: "command-destruction-fence-invalid" }, 400);
+		const currentFence = this.metaNumber("destruction-fence");
+		if (currentFence !== null && envelope.destructionFence < currentFence)
+			return json({ code: "command-destruction-fence-stale" }, 409);
+		this.observeDestructionFenceUnsafe(envelope.destructionFence);
+		const identity = this.commandIdentity(envelope);
 		const existing = this.rows(
-			"SELECT fingerprint, kind, schema_version, state FROM mailbox_commands WHERE command_id = ?",
+			"SELECT envelope_json FROM mailbox_commands WHERE command_id = ?",
 			envelope.commandId,
 		)[0];
 		if (existing !== undefined) {
-			if (
-				existing.fingerprint !== envelope.fingerprint ||
-				existing.kind !== envelope.kind ||
-				existing.schema_version !== envelope.schemaVersion
-			)
+			const storedIdentity = this.rows(
+				"SELECT value FROM mailbox_meta WHERE key = ?",
+				`command-identity:${envelope.commandId}`,
+			)[0]?.value;
+			const comparableIdentity =
+				typeof storedIdentity === "string"
+					? storedIdentity
+					: typeof existing.envelope_json === "string"
+						? this.identityFromEnvelopeJson(existing.envelope_json)
+						: null;
+			if (comparableIdentity !== identity)
 				return json({ code: "command-identity-collision" }, 409);
+			if (storedIdentity === undefined)
+				this.setMeta(`command-identity:${envelope.commandId}`, identity);
 			return json({
 				reserved: true,
 				existing: true,
@@ -181,7 +398,7 @@ export class WorkspaceMailbox {
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)`,
 			envelope.commandId,
 			sequence,
-			`session:${envelope.sessionId}`,
+			lane,
 			envelope.kind,
 			envelope.fingerprint,
 			envelope.schemaVersion,
@@ -190,6 +407,7 @@ export class WorkspaceMailbox {
 			now,
 			now,
 		);
+		this.setMeta(`command-identity:${envelope.commandId}`, identity);
 		this.changed(envelope.commandId);
 		return json({
 			reserved: true,
@@ -199,14 +417,17 @@ export class WorkspaceMailbox {
 	}
 
 	private async reserve(envelope: CloudCommandEnvelope): Promise<Response> {
+		// Arm first: a DO eviction between SQLite commit and alarm scheduling must
+		// not leave an abandoned reservation consuming capacity forever.
+		await this.schedule(Date.now() + RESERVATION_TTL_MS);
 		const response = this.state.storage.transactionSync(() =>
 			this.reserveUnsafe(envelope),
 		);
-		if (response.ok) await this.schedule(Date.now() + RESERVATION_TTL_MS);
+		if (response.ok) await this.scheduleNext();
 		return response;
 	}
 
-	private commitUnsafe(commandId: string): Response {
+	private commitUnsafe(commandId: string, blockedUntil?: string): Response {
 		const now = Date.now();
 		const before = this.rows(
 			"SELECT state, accepted_at FROM mailbox_commands WHERE command_id = ?",
@@ -214,13 +435,25 @@ export class WorkspaceMailbox {
 		)[0];
 		if (before === undefined) return json({ code: "command-not-found" }, 404);
 		this.sql.exec(
-			"UPDATE mailbox_commands SET state = 'accepted', accepted_at = ?, updated_at = ? WHERE command_id = ? AND state = 'reserved'",
+			`UPDATE mailbox_commands SET state = ?, accepted_at = ?, updated_at = ?, blocked_until = ?
+			 WHERE command_id = ? AND state = 'reserved'`,
+			blockedUntil === undefined ? "accepted" : "blocked",
 			now,
 			now,
+			blockedUntil ?? null,
 			commandId,
 		);
 		if (before.state === "reserved") this.changed(commandId);
 		const current = this.status(commandId) as Record<string, unknown>;
+		const acceptedAt = current.acceptedAt ?? before.accepted_at;
+		if (typeof acceptedAt !== "number")
+			return json(
+				{
+					code: "command-not-accepted",
+					status: current,
+				},
+				409,
+			);
 		const acceptanceState =
 			current.state === "waiting-for-runtime" || current.state === "blocked"
 				? current.state
@@ -230,7 +463,7 @@ export class WorkspaceMailbox {
 				commandId,
 				workspaceSequence: current.workspaceSequence,
 				revision: current.revision,
-				acceptedAt: current.acceptedAt ?? before.accepted_at ?? now,
+				acceptedAt,
 				// Enqueue acknowledges durable acceptance even when this is a retry
 				// after the command already reached a terminal state. The client checks
 				// status before watching, so no terminal revision can be missed.
@@ -240,16 +473,140 @@ export class WorkspaceMailbox {
 		);
 	}
 
-	private commit(commandId: string): Response {
+	private async commit(
+		commandId: string,
+		blockedUntil?: string,
+	): Promise<Response> {
 		const response = this.state.storage.transactionSync(() =>
-			this.commitUnsafe(commandId),
+			this.commitUnsafe(commandId, blockedUntil),
 		);
+		await this.scheduleNext();
 		const status = this.status(commandId);
-		console.info("[workspace-mailbox] command accepted", {
+		if (response.ok)
+			console.info("[workspace-mailbox] command accepted", {
+				commandId,
+				workspaceSequence: status?.workspaceSequence,
+				revision: status?.revision,
+			});
+		return response;
+	}
+
+	private blockUnsafe(
+		commandId: string | undefined,
+		blockedUntil: string,
+	): Response {
+		if (commandId === undefined) {
+			const candidates = this.rows(
+				`SELECT command_id, state, blocked_until FROM mailbox_commands
+				 WHERE ever_leased = 0
+				 AND state IN ('accepted','waiting-for-runtime','blocked')
+				 ORDER BY workspace_sequence`,
+			);
+			const now = Date.now();
+			let changed = 0;
+			for (const candidate of candidates) {
+				if (
+					candidate.state === "blocked" &&
+					candidate.blocked_until === blockedUntil
+				)
+					continue;
+				const blockedCommandId = String(candidate.command_id);
+				this.sql.exec(
+					`UPDATE mailbox_commands SET state = 'blocked', blocked_until = ?, updated_at = ?
+					 WHERE command_id = ? AND ever_leased = 0
+					 AND state IN ('accepted','waiting-for-runtime','blocked')`,
+					blockedUntil,
+					now,
+					blockedCommandId,
+				);
+				this.changed(blockedCommandId);
+				changed += 1;
+			}
+			return json({ blocked: changed }, 202);
+		}
+		const before = this.status(commandId);
+		if (before === null) return json({ code: "command-not-found" }, 404);
+		if (isCloudCommandTerminalState(before.state)) return json(before);
+		if (before.state === "reserved")
+			return json({ code: "command-not-accepted", status: before }, 409);
+		if (before.state === "leased" || before.everLeased === true)
+			return json({ code: "command-already-leased", status: before }, 409);
+		const now = Date.now();
+		this.sql.exec(
+			`UPDATE mailbox_commands SET state = 'blocked', blocked_until = ?, updated_at = ?
+			 WHERE command_id = ? AND state IN ('accepted','waiting-for-runtime','blocked')`,
+			blockedUntil,
+			now,
 			commandId,
-			workspaceSequence: status?.workspaceSequence,
-			revision: status?.revision,
-		});
+		);
+		if (before.state !== "blocked" || before.blockedUntil !== blockedUntil)
+			this.changed(commandId);
+		return json(this.status(commandId), 202);
+	}
+
+	private async block(
+		commandId: string | undefined,
+		blockedUntil: string,
+	): Promise<Response> {
+		const response = this.state.storage.transactionSync(() =>
+			this.blockUnsafe(commandId, blockedUntil),
+		);
+		await this.scheduleNext();
+		return response;
+	}
+
+	private unblockUnsafe(commandId?: string, blockedUntil?: string): Response {
+		if (commandId === undefined) {
+			const blocked =
+				blockedUntil === undefined
+					? this.rows(
+							"SELECT command_id FROM mailbox_commands WHERE state = 'blocked' ORDER BY workspace_sequence",
+						)
+					: this.rows(
+							`SELECT command_id FROM mailbox_commands
+							 WHERE state = 'blocked' AND blocked_until = ? ORDER BY workspace_sequence`,
+							blockedUntil,
+						);
+			const now = Date.now();
+			for (const row of blocked) {
+				const blockedCommandId = String(row.command_id);
+				this.sql.exec(
+					`UPDATE mailbox_commands SET state = 'waiting-for-runtime', blocked_until = NULL,
+					 updated_at = ? WHERE command_id = ? AND state = 'blocked'`,
+					now,
+					blockedCommandId,
+				);
+				this.changed(blockedCommandId);
+			}
+			return json({ unblocked: blocked.length });
+		}
+		const before = this.status(commandId);
+		if (before === null) return json({ code: "command-not-found" }, 404);
+		if (before.state !== "blocked") return json(before);
+		if (blockedUntil !== undefined && before.blockedUntil !== blockedUntil)
+			return json(
+				{ code: "command-block-reason-mismatch", status: before },
+				409,
+			);
+		const now = Date.now();
+		this.sql.exec(
+			`UPDATE mailbox_commands SET state = 'waiting-for-runtime', blocked_until = NULL,
+			 updated_at = ? WHERE command_id = ? AND state = 'blocked'`,
+			now,
+			commandId,
+		);
+		this.changed(commandId);
+		return json(this.status(commandId));
+	}
+
+	private async unblock(
+		commandId?: string,
+		blockedUntil?: string,
+	): Promise<Response> {
+		const response = this.state.storage.transactionSync(() =>
+			this.unblockUnsafe(commandId, blockedUntil),
+		);
+		await this.scheduleNext();
 		return response;
 	}
 
@@ -271,23 +628,73 @@ export class WorkspaceMailbox {
 		const status = this.status(commandId) as Record<string, unknown>;
 		if (before.state !== "cancelled" && status.state === "cancelled")
 			this.changed(commandId);
-		return TERMINAL.has(status.state as CloudCommandState)
+		return isCloudCommandTerminalState(status.state)
 			? json(this.status(commandId))
 			: json({ code: "command-already-leased", status }, 409);
 	}
 
-	private cancel(commandId: string, category = "cancelled-by-user"): Response {
-		return this.state.storage.transactionSync(() =>
+	private async cancel(
+		commandId: string,
+		category = "cancelled-by-user",
+	): Promise<Response> {
+		await this.schedule(Date.now() + RESULT_RETENTION_MS);
+		const response = this.state.storage.transactionSync(() =>
 			this.cancelUnsafe(commandId, category),
 		);
+		await this.scheduleNext();
+		return response;
 	}
 
 	private leaseUnsafe(input: {
 		runtimeGeneration: number;
 		providerSandboxId: string;
 		storageIncarnationId: string;
+		destructionFence: number;
 	}): Response {
 		const now = Date.now();
+		if (
+			!Number.isSafeInteger(input.runtimeGeneration) ||
+			input.runtimeGeneration < 1 ||
+			!Number.isSafeInteger(input.destructionFence) ||
+			input.destructionFence < 0
+		)
+			return json({ code: "runtime-fence-invalid" }, 400);
+		this.expireLeasesUnsafe(now);
+		const knownRuntimeGeneration = this.metaNumber("runtime-generation");
+		if (
+			knownRuntimeGeneration !== null &&
+			input.runtimeGeneration < knownRuntimeGeneration
+		)
+			return json({
+				leases: [],
+				fenced: true,
+				nonterminalCount: this.nonterminalCountUnsafe(),
+				mailboxRevision: this.mailboxRevisionUnsafe(),
+				fenceRequired: false,
+			});
+		if (
+			knownRuntimeGeneration === null ||
+			input.runtimeGeneration > knownRuntimeGeneration
+		)
+			this.setMeta("runtime-generation", input.runtimeGeneration);
+		const knownDestructionFence = this.metaNumber("destruction-fence");
+		if (
+			knownDestructionFence !== null &&
+			input.destructionFence < knownDestructionFence
+		) {
+			// A runtime authenticated against an older lifecycle view must not see
+			// work from the new incarnation. An empty successful poll lets that old
+			// consumer stop cleanly once its credential is fenced without spinning
+			// on a permanent request failure.
+			return json({
+				leases: [],
+				fenced: true,
+				nonterminalCount: this.nonterminalCountUnsafe(),
+				mailboxRevision: this.mailboxRevisionUnsafe(),
+				fenceRequired: false,
+			});
+		}
+		this.observeDestructionFenceUnsafe(input.destructionFence);
 		const previousIncarnation = this.rows(
 			"SELECT value FROM mailbox_meta WHERE key = 'storage-incarnation'",
 		)[0]?.value;
@@ -302,7 +709,8 @@ export class WorkspaceMailbox {
 			);
 			this.sql.exec(
 				`UPDATE mailbox_commands SET state = 'outcome-unknown', category = 'runtime-storage-replaced',
-				 updated_at = ?, terminal_at = ? WHERE ever_leased = 1
+				 updated_at = ?, terminal_at = ?, lease_token = NULL, lease_deadline = NULL
+				 WHERE ever_leased = 1
 				 AND state NOT IN ('applied','rejected','expired','cancelled','outcome-unknown')`,
 				now,
 				now,
@@ -333,6 +741,17 @@ export class WorkspaceMailbox {
 			input.runtimeGeneration,
 		);
 		for (const row of fenced) this.changed(String(row.command_id));
+		const fenceRequired = this.runtimeFenceRequiredUnsafe(
+			input.runtimeGeneration,
+			input.storageIncarnationId,
+		);
+		if (fenceRequired)
+			return json({
+				leases: [],
+				nonterminalCount: this.nonterminalCountUnsafe(),
+				mailboxRevision: this.mailboxRevisionUnsafe(),
+				fenceRequired: true,
+			});
 		const candidates = this.rows(`SELECT command_id FROM mailbox_commands c
 			WHERE c.state IN ('accepted','waiting-for-runtime')
 			AND NOT EXISTS (
@@ -345,7 +764,7 @@ export class WorkspaceMailbox {
 		for (const candidate of candidates) {
 			const commandId = String(candidate.command_id);
 			const token = crypto.randomUUID();
-			const deadline = now + LEASE_TTL_MS;
+			const deadline = now + CLOUD_COMMAND_LEASE_TTL_MS;
 			this.sql.exec(
 				`UPDATE mailbox_commands SET state = 'leased', ever_leased = 1, lease_token = ?,
 				 lease_deadline = ?, runtime_generation = ?, provider_sandbox_id = ?, storage_incarnation_id = ?, updated_at = ?
@@ -371,6 +790,7 @@ export class WorkspaceMailbox {
 				leaseToken: token,
 				leaseDeadline: deadline,
 				runtimeGeneration: input.runtimeGeneration,
+				providerSandboxId: input.providerSandboxId,
 				storageIncarnationId: input.storageIncarnationId,
 			});
 		}
@@ -380,22 +800,34 @@ export class WorkspaceMailbox {
 				storageIncarnationId: input.storageIncarnationId,
 				count: leases.length,
 			});
-		return json({ leases });
+		return json({
+			leases,
+			nonterminalCount: this.nonterminalCountUnsafe(),
+			mailboxRevision: this.mailboxRevisionUnsafe(),
+			fenceRequired: false,
+		});
 	}
 
-	private lease(input: {
+	private async lease(input: {
 		runtimeGeneration: number;
 		providerSandboxId: string;
 		storageIncarnationId: string;
-	}): Response {
+		destructionFence: number;
+	}): Promise<Response> {
+		await this.schedule(Date.now() + CLOUD_COMMAND_LEASE_TTL_MS);
 		const response = this.state.storage.transactionSync(() =>
 			this.leaseUnsafe(input),
 		);
-		void this.schedule(Date.now() + LEASE_TTL_MS);
+		await this.scheduleNext();
 		return response;
 	}
 
 	private acknowledgeUnsafe(ack: RuntimeAcknowledgment): Response {
+		const now = Date.now();
+		// Enforce the bounded destructive-lifecycle grace window even when an ACK
+		// races the alarm. Ordinary expired leases remain receipt-eligible until
+		// their runtime generation is fenced; lifecycle-fenced leases do not.
+		this.expireLeasesUnsafe(now);
 		if (
 			(ack.resultIv?.length ?? 0) + (ack.resultCiphertext?.length ?? 0) >
 			CLOUD_COMMAND_MAX_ENVELOPE_BYTES
@@ -406,13 +838,22 @@ export class WorkspaceMailbox {
 			ack.commandId,
 		)[0];
 		if (row === undefined) return json({ code: "command-not-found" }, 404);
-		if (TERMINAL.has(row.state as CloudCommandState))
-			return json(this.status(ack.commandId));
 		if (row.fingerprint !== ack.fingerprint)
 			return json({ code: "command-fingerprint-mismatch" }, 409);
-		if (row.state !== "leased" || row.lease_token !== ack.leaseToken)
-			return json({ code: "stale-runtime-lease" }, 409);
-		const now = Date.now();
+		if (isCloudCommandTerminalState(row.state))
+			return json(this.status(ack.commandId));
+		if (
+			(row.state !== "leased" &&
+				row.state !== "lease-expired-awaiting-fence") ||
+			row.lease_token !== ack.leaseToken
+		)
+			// This is a permanent receipt outcome, not a retryable transport error.
+			// A newer fenced lease (or lifecycle transition) now owns the command.
+			return json({
+				acknowledged: false,
+				code: "stale-runtime-lease",
+				status: this.status(ack.commandId),
+			});
 		this.sql.exec(
 			`UPDATE mailbox_commands SET state = ?, category = ?, result_iv = ?, result_ciphertext = ?,
 			 updated_at = ?, terminal_at = ?, lease_token = NULL, lease_deadline = NULL WHERE command_id = ?`,
@@ -428,49 +869,65 @@ export class WorkspaceMailbox {
 		return json(this.status(ack.commandId));
 	}
 
-	private acknowledge(ack: RuntimeAcknowledgment): Response {
+	private async acknowledge(ack: RuntimeAcknowledgment): Promise<Response> {
+		await this.schedule(Date.now() + RESULT_RETENTION_MS);
 		const response = this.state.storage.transactionSync(() =>
 			this.acknowledgeUnsafe(ack),
 		);
-		console.info("[workspace-mailbox] command terminal", {
+		await this.scheduleNext();
+		console.info("[workspace-mailbox] command acknowledgment processed", {
 			commandId: ack.commandId,
-			state: ack.state,
+			requestedState: ack.state,
 			category: ack.category,
+			httpStatus: response.status,
 		});
 		return response;
 	}
 
-	private lifecycle(action: "archive" | "delete"): Response {
-		return this.state.storage.transactionSync(() => {
-			const now = Date.now();
-			const neverLeased = this.rows(
-				`SELECT command_id FROM mailbox_commands WHERE ever_leased = 0
-				 AND state NOT IN ('applied','rejected','expired','cancelled','outcome-unknown')`,
-			);
-			this.sql.exec(
-				`UPDATE mailbox_commands SET state = 'cancelled', category = ?, updated_at = ?, terminal_at = ?
-				 WHERE ever_leased = 0 AND state NOT IN ('applied','rejected','expired','cancelled','outcome-unknown')`,
-				`workspace-${action}d`,
-				now,
-				now,
-			);
-			for (const row of neverLeased) this.changed(String(row.command_id));
-			if (action === "delete") {
-				const leased = this.rows(
-					`SELECT command_id FROM mailbox_commands WHERE ever_leased = 1
-					 AND state NOT IN ('applied','rejected','expired','cancelled','outcome-unknown')`,
+	private async lifecycle(
+		action: "archive" | "delete",
+		destructionFence?: number,
+	): Promise<Response> {
+		await this.schedule(Date.now() + RESULT_RETENTION_MS);
+		const response = this.state.storage.transactionSync(() => {
+			if (
+				destructionFence !== undefined &&
+				(!Number.isSafeInteger(destructionFence) || destructionFence < 0)
+			)
+				return json({ code: "workspace-destruction-fence-invalid" }, 400);
+
+			if (destructionFence !== undefined) {
+				const processedFence = this.metaNumber("lifecycle-fence");
+				if (processedFence !== null && destructionFence <= processedFence)
+					return json({ ok: true, duplicate: true });
+				const knownFence = this.metaNumber("destruction-fence");
+				if (knownFence !== null && destructionFence < knownFence)
+					return json({ ok: true, stale: true });
+				this.setMeta("destruction-fence", destructionFence);
+				this.setMeta("lifecycle-fence", destructionFence);
+				this.terminalizeBelowFenceUnsafe(destructionFence, {
+					neverLeased: `workspace-${action}d-before-lease`,
+					everLeased: `workspace-${action}d-after-lease`,
+				});
+			} else {
+				// Compatibility for a control plane deployed before lifecycle fences
+				// were forwarded. It is intentionally conservative: no accepted work
+				// may remain replayable after a destructive lifecycle request.
+				const nonterminal = this.rows(
+					`SELECT command_id, ever_leased, state, lease_token, lease_deadline,
+						runtime_generation, storage_incarnation_id
+					 FROM mailbox_commands
+					 WHERE state NOT IN ('applied','rejected','expired','cancelled','outcome-unknown')`,
 				);
-				this.sql.exec(
-					`UPDATE mailbox_commands SET state = 'outcome-unknown', category = 'workspace-deleted-after-lease',
-					 updated_at = ?, terminal_at = ? WHERE ever_leased = 1
-					 AND state NOT IN ('applied','rejected','expired','cancelled','outcome-unknown')`,
-					now,
-					now,
-				);
-				for (const row of leased) this.changed(String(row.command_id));
+				this.terminalizeUnsafe(nonterminal, {
+					neverLeased: `workspace-${action}d-before-lease`,
+					everLeased: `workspace-${action}d-after-lease`,
+				});
 			}
 			return json({ ok: true });
 		});
+		await this.scheduleNext();
+		return response;
 	}
 
 	private async watch(afterRevision: number): Promise<Response> {
@@ -484,26 +941,43 @@ export class WorkspaceMailbox {
 					?.value ?? 0,
 			);
 			const resetRequired = oldest > 0 && afterRevision < oldest - 1;
-			const ids = resetRequired
-				? this.rows(
-						"SELECT command_id FROM mailbox_commands ORDER BY workspace_sequence DESC LIMIT ?",
-						CLOUD_COMMAND_WATCH_MAX_CHANGES,
-					)
-				: this.rows(
-						"SELECT DISTINCT command_id, MAX(revision) AS revision FROM mailbox_changes WHERE revision > ? GROUP BY command_id ORDER BY revision LIMIT ?",
-						afterRevision,
-						CLOUD_COMMAND_WATCH_MAX_CHANGES,
-					);
+			// A reset is a handshake, not a partial workspace snapshot. There can be
+			// 256 pending commands but a page holds only 100, so returning an arbitrary
+			// subset and advancing to `current` would silently lose pending IDs. The
+			// caller recovers its own durable pending IDs through /status, then resumes
+			// from nextRevision.
+			if (resetRequired)
+				return {
+					changes: [],
+					nextRevision: current,
+					resetRequired: true,
+				};
+			const ids = this.rows(
+				`SELECT command_id, MAX(revision) AS revision FROM mailbox_changes
+				 WHERE revision > ? GROUP BY command_id ORDER BY revision LIMIT ?`,
+				afterRevision,
+				CLOUD_COMMAND_WATCH_MAX_CHANGES,
+			);
+			const lastRevision = ids.at(-1)?.revision;
 			return {
 				changes: ids
 					.map((row) => this.status(String(row.command_id)))
 					.filter(Boolean),
-				nextRevision: current,
-				resetRequired,
+				// Advance only through the last command represented in this page. A
+				// second page therefore cannot be skipped when >100 commands changed.
+				nextRevision:
+					lastRevision === undefined || lastRevision === null
+						? current
+						: Number(lastRevision),
+				resetRequired: false,
 			};
 		};
 		let page = read();
-		if (page.changes.length === 0 && page.nextRevision <= afterRevision) {
+		if (
+			!page.resetRequired &&
+			page.changes.length === 0 &&
+			page.nextRevision <= afterRevision
+		) {
 			await new Promise<void>((resolve) => {
 				const timer = setTimeout(() => {
 					this.waiters.delete(wake);
@@ -522,12 +996,39 @@ export class WorkspaceMailbox {
 
 	private async schedule(at: number): Promise<void> {
 		const current = await this.state.storage.getAlarm();
-		if (current === null || at < current) await this.state.storage.setAlarm(at);
+		if (current === null || current <= Date.now() || at < current)
+			await this.state.storage.setAlarm(at);
+	}
+
+	private nextAlarmDeadline(): number | null {
+		const deadline = this.rows(
+			`SELECT MIN(deadline) AS deadline FROM (
+				SELECT updated_at + ? AS deadline FROM mailbox_commands WHERE state = 'reserved'
+				UNION ALL SELECT lease_deadline AS deadline FROM mailbox_commands WHERE state = 'leased'
+				UNION ALL SELECT terminal_at + ? AS deadline FROM mailbox_commands
+					WHERE terminal_at IS NOT NULL
+					AND (envelope_json != '' OR result_iv IS NOT NULL OR result_ciphertext IS NOT NULL)
+			)`,
+			RESERVATION_TTL_MS,
+			RESULT_RETENTION_MS,
+		)[0]?.deadline;
+		return deadline === undefined || deadline === null
+			? null
+			: Number(deadline);
+	}
+
+	private async scheduleNext(): Promise<void> {
+		const deadline = this.nextAlarmDeadline();
+		if (deadline === null) {
+			await this.state.storage.deleteAlarm();
+			return;
+		}
+		await this.schedule(Math.max(Date.now() + 1, deadline));
 	}
 
 	async alarm(): Promise<void> {
 		const now = Date.now();
-		const pendingDeadline = this.state.storage.transactionSync(() => {
+		this.state.storage.transactionSync(() => {
 			const expiredReservations = this.rows(
 				"SELECT command_id FROM mailbox_commands WHERE state = 'reserved' AND updated_at <= ?",
 				now - RESERVATION_TTL_MS,
@@ -540,16 +1041,7 @@ export class WorkspaceMailbox {
 			);
 			for (const row of expiredReservations)
 				this.changed(String(row.command_id));
-			const expiredLeases = this.rows(
-				"SELECT command_id FROM mailbox_commands WHERE state = 'leased' AND lease_deadline <= ?",
-				now,
-			);
-			this.sql.exec(
-				"UPDATE mailbox_commands SET state = 'lease-expired-awaiting-fence', category = 'runtime-fence-required', updated_at = ? WHERE state = 'leased' AND lease_deadline <= ?",
-				now,
-				now,
-			);
-			for (const row of expiredLeases) this.changed(String(row.command_id));
+			this.expireLeasesUnsafe(now);
 			this.sql.exec(
 				`UPDATE mailbox_commands SET result_iv = NULL, result_ciphertext = NULL,
 				 envelope_json = '', envelope_bytes = 0,
@@ -557,16 +1049,8 @@ export class WorkspaceMailbox {
 				 WHERE terminal_at IS NOT NULL AND terminal_at <= ?`,
 				now - RESULT_RETENTION_MS,
 			);
-			return this.rows(
-				`SELECT MIN(deadline) AS deadline FROM (
-			SELECT updated_at + ? AS deadline FROM mailbox_commands WHERE state = 'reserved'
-			UNION ALL SELECT lease_deadline AS deadline FROM mailbox_commands WHERE state = 'leased'
-		)`,
-				RESERVATION_TTL_MS,
-			)[0]?.deadline;
 		});
-		if (pendingDeadline !== null && pendingDeadline !== undefined)
-			await this.schedule(Math.max(now + 1_000, Number(pendingDeadline)));
+		await this.scheduleNext();
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -575,8 +1059,30 @@ export class WorkspaceMailbox {
 			if (request.method === "POST" && url.pathname === "/reserve")
 				return this.reserve((await request.json()) as CloudCommandEnvelope);
 			if (request.method === "POST" && url.pathname === "/commit") {
-				const body = (await request.json()) as { commandId: string };
-				return this.commit(body.commandId);
+				const body = (await request.json()) as {
+					commandId: string;
+					blockedUntil?: string;
+				};
+				return this.commit(body.commandId, body.blockedUntil);
+			}
+			if (request.method === "POST" && url.pathname === "/block") {
+				const body = (await request.json()) as {
+					commandId?: string;
+					blockedUntil: string;
+				};
+				if (
+					typeof body.blockedUntil !== "string" ||
+					body.blockedUntil.length === 0
+				)
+					return json({ code: "command-block-reason-invalid" }, 400);
+				return this.block(body.commandId, body.blockedUntil);
+			}
+			if (request.method === "POST" && url.pathname === "/unblock") {
+				const body = (await request.json()) as {
+					commandId?: string;
+					blockedUntil?: string;
+				};
+				return this.unblock(body.commandId, body.blockedUntil);
 			}
 			if (request.method === "POST" && url.pathname === "/cancel") {
 				const body = (await request.json()) as {
@@ -592,10 +1098,13 @@ export class WorkspaceMailbox {
 					(await request.json()) as RuntimeAcknowledgment,
 				);
 			if (request.method === "POST" && url.pathname === "/lifecycle") {
-				const body = (await request.json()) as { action: "archive" | "delete" };
+				const body = (await request.json()) as {
+					action: "archive" | "delete";
+					destructionFence?: number;
+				};
 				if (body.action !== "archive" && body.action !== "delete")
 					return json({ code: "invalid-lifecycle-action" }, 400);
-				return this.lifecycle(body.action);
+				return this.lifecycle(body.action, body.destructionFence);
 			}
 			if (request.method === "GET" && url.pathname === "/status") {
 				const status = this.status(url.searchParams.get("commandId") ?? "");

@@ -13,6 +13,7 @@ import type {
 	WorktreeId,
 } from "@zuse/contracts";
 import { CommandId, EnvironmentId, Session, SessionId } from "@zuse/contracts";
+import { cloudInteractionFailure } from "../lib/cloud-failure-presentation.ts";
 import { cloudSummaryForChat } from "../lib/cloud-workspace-catalog.ts";
 import {
 	activeSessionsByProject,
@@ -688,7 +689,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				environmentId,
 			);
 		} catch (err) {
-			set({ error: formatError(err) });
+			const failure = cloudInteractionFailure(err);
+			set({ error: failure.presentation?.message ?? formatError(err) });
 		}
 	},
 	respondToPlan: async (sessionId, toolCallId, outcome, feedback, options) => {
@@ -711,8 +713,9 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			);
 			return "accepted";
 		} catch (error) {
-			const message = formatError(error);
-			if (message.includes("SessionNotFoundError")) {
+			const failure = cloudInteractionFailure(error);
+			const message = failure.presentation?.message ?? formatError(error);
+			if (failure.expired) {
 				if (options?.silent !== true) set({ error: message });
 				return "session-not-found";
 			}

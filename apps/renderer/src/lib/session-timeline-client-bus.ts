@@ -12,7 +12,6 @@ import type {
 	PersistedResource,
 	ResourcePersistence,
 } from "@zuse/client-runtime/client-persistence";
-import { cloudCommandEligibility } from "@zuse/client-runtime/cloud-command-registry";
 import type {
 	EnvironmentFault,
 	EnvironmentResolver,
@@ -31,6 +30,7 @@ import {
 } from "@zuse/client-runtime/session-timeline";
 import { makeSessionTimelineCacheEntry } from "@zuse/client-runtime/session-timeline-cache";
 import { makeSessionTimelineResourceDriver } from "@zuse/client-runtime/session-timeline-driver";
+import { cloudCommandEligibility } from "@zuse/cloud-commands";
 import type { EnvironmentId, Message } from "@zuse/contracts";
 import { ComposerInput, SessionTimelineProjection } from "@zuse/contracts";
 import { emptyTimelineProjection } from "@zuse/domain/projectors/timeline-reducer";
@@ -41,6 +41,7 @@ import {
 	resetMemoryCommandOutboxForTest,
 } from "./client-command-outbox.ts";
 import { cloudCommandTransport } from "./cloud-command-transport.ts";
+import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
 import {
 	acquireRendererRpcSession,
 	isAuthCodedConnectionError,
@@ -50,6 +51,7 @@ import {
 	markCloudWorkspaceConnectionHealthy,
 	type RendererRpcSession,
 } from "./rpc-client.ts";
+import { durableOptimisticSessionMessage } from "./session-message-intent.ts";
 import { sessionTimelineCache } from "./session-timeline-cache.ts";
 
 export type SessionTimelineResourceKey = ResourceKey<SessionTimelineProjection>;
@@ -990,6 +992,8 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 let commandOutbox = createClientCommandOutbox();
 
 type EnvironmentActivation = Readonly<{
+	/** The catalog authority that registered this resolver. */
+	readonly environmentKind: "cloud-workspace" | "other";
 	prepare: (activation: "connect" | "wake") => Promise<void>;
 	prepareClient?: (client: MemoizeClient) => Promise<void>;
 }>;
@@ -1015,9 +1019,18 @@ export const registerEnvironmentActivation = (
 	environmentId: EnvironmentId,
 	prepare: EnvironmentActivation["prepare"],
 	prepareClient?: EnvironmentActivation["prepareClient"],
+	environmentKind: EnvironmentActivation["environmentKind"] = "other",
 ): (() => void) => {
-	const registration = { prepare, prepareClient };
+	const registration = { environmentKind, prepare, prepareClient };
 	activationByEnvironment.set(environmentId, registration);
+	if (environmentKind === "cloud-workspace") {
+		// Catalog hydration can happen after ClientBus's initial outbox scan. Resume
+		// durable rows as soon as their stable environment identity is known; this
+		// does not acquire a gateway ticket or wake compute.
+		void rendererClientBus
+			.flushDurableOutbox(environmentId)
+			.catch(() => undefined);
+	}
 	return () => {
 		if (activationByEnvironment.get(environmentId) === registration) {
 			activationByEnvironment.delete(environmentId);
@@ -1030,22 +1043,22 @@ const faultFor = (cause: unknown): EnvironmentFault => {
 		typeof cause === "object" && cause !== null && "code" in cause
 			? String(cause.code)
 			: "";
+	const presentation = cloudFailurePresentation({ cause });
 	const message =
 		code ||
 		(cause instanceof Error && cause.message !== ""
 			? cause.message
-			: String(cause));
-	const lower = message.toLowerCase();
+			: (presentation?.kind ?? String(cause)));
 	const phase: EnvironmentFault["phase"] =
 		globalThis.navigator?.onLine === false
 			? "offline"
-			: lower.includes("update required") || lower.includes("protocol")
+			: presentation?.kind === "update-required"
 				? "update-required"
-				: code === "beta-access-required" || lower.includes("revoked")
+				: presentation?.kind === "cloud-access-required" ||
+						presentation?.kind === "cloud-access-unavailable"
 					? "revoked"
 					: isAuthCodedConnectionError(cause) ||
-							lower.includes("unauthorized") ||
-							lower.includes("authentication")
+							presentation?.kind === "sign-in-required"
 						? "blocked-auth"
 						: "failed";
 	return { phase, message };
@@ -1144,7 +1157,8 @@ const createBus = (): ClientBus<MemoizeClient> => {
 		outbox: commandOutbox,
 		commandExecutor: executeSessionCommand,
 		commandTransportFor: (environmentId, kind) =>
-			isCloudWorkspaceEnvironment(environmentId) &&
+			activationByEnvironment.get(environmentId)?.environmentKind ===
+				"cloud-workspace" &&
 			kind === "messages.send" &&
 			cloudCommandEligibility(kind) !== undefined
 				? cloudCommandTransport
@@ -1187,6 +1201,7 @@ const createBus = (): ClientBus<MemoizeClient> => {
 };
 
 let rendererClientBus = createBus();
+const optimisticRestorationByResource = new Map<string, Promise<void>>();
 reportPassiveSessionFault = (environmentId, fault, expectedGeneration) =>
 	rendererClientBus.reportConnectionFault(
 		environmentId,
@@ -1400,6 +1415,87 @@ export const addOptimisticSessionMessage = (
 	});
 };
 
+const waitForTimelineHydration = async (
+	bus: ClientBus<MemoizeClient>,
+	key: SessionTimelineResourceKey,
+): Promise<void> => {
+	if (bus.snapshot(key).sync !== "hydrating-cache") return;
+	await new Promise<void>((resolve) => {
+		const unsubscribe = bus.subscribe(key, (view) => {
+			if (view.sync === "hydrating-cache") return;
+			unsubscribe();
+			resolve();
+		});
+	});
+};
+
+export const restoreDurableOptimisticSessionMessages = async (
+	ref: SessionRef,
+	bus: ClientBus<MemoizeClient> = rendererClientBus,
+): Promise<void> => {
+	const key = sessionTimelineResourceKey(ref);
+	await waitForTimelineHydration(bus, key);
+	const entries = await commandOutbox.listOutbox(ref.environmentId);
+	for (const entry of entries) {
+		const message = durableOptimisticSessionMessage(entry, ref);
+		if (message === null) continue;
+		let sawPending = false;
+		let unsubscribe: () => void = () => undefined;
+		const reconcileSettlement = (
+			view: ResourceView<SessionTimelineProjection>,
+		): void => {
+			const pending = view.pendingCommands.some(
+				(command) => command.commandId === entry.command.commandId,
+			);
+			sawPending ||= pending;
+			const failure = view.failedCommands.find(
+				(command) => command.commandId === entry.command.commandId,
+			);
+			if (failure !== undefined && !failure.retryable) {
+				unsubscribe();
+				bus.overlay(key, {
+					update: (projection) =>
+						SessionTimelineProjection.make({
+							...projection,
+							messages: projection.messages.filter(
+								(candidate) => candidate.id !== message.id,
+							),
+						}),
+				});
+				return;
+			}
+			if (sawPending && !pending && failure === undefined) unsubscribe();
+		};
+		bus.overlay(key, {
+			initialData: emptyTimelineProjection(),
+			update: (projection) => {
+				if (
+					projection.messages.some((candidate) => candidate.id === message.id)
+				)
+					return undefined;
+				return SessionTimelineProjection.make({
+					...projection,
+					messages: [...projection.messages, message],
+				});
+			},
+		});
+		unsubscribe = bus.subscribe(key, reconcileSettlement);
+		reconcileSettlement(bus.snapshot(key));
+	}
+};
+
+const scheduleDurableOptimisticSessionMessageRestoration = (
+	ref: SessionRef,
+	bus: ClientBus<MemoizeClient>,
+): void => {
+	const id = resourceKeyId(sessionTimelineResourceKey(ref));
+	if (optimisticRestorationByResource.has(id)) return;
+	const restoration = restoreDurableOptimisticSessionMessages(ref, bus).catch(
+		() => undefined,
+	);
+	optimisticRestorationByResource.set(id, restoration);
+};
+
 export const removeOptimisticSessionMessage = (
 	ref: SessionRef,
 	messageId: Message["id"],
@@ -1457,9 +1553,12 @@ export const retainSessionTimeline = (
 	lease: ResourceLease;
 }> => {
 	const key = sessionTimelineResourceKey(ref);
+	const bus = rendererClientBus;
+	const lease = bus.retain(key, { activation });
+	scheduleDurableOptimisticSessionMessageRestoration(ref, bus);
 	return {
 		key,
-		lease: rendererClientBus.retain(key, { activation }),
+		lease,
 	};
 };
 
@@ -1495,6 +1594,9 @@ export const useSessionTimelineResource = (
 	useEffect(() => {
 		if (key === null) return;
 		const lease = bus.retain(key, { activation });
+		const qualifiedRef = sessionRef(key);
+		if (qualifiedRef !== null)
+			scheduleDurableOptimisticSessionMessageRestoration(qualifiedRef, bus);
 		return lease.release;
 	}, [activation, bus, key]);
 	const subscribe = useCallback(
@@ -1538,6 +1640,7 @@ export const retryRendererEnvironmentConnection = (
 export const resetSessionTimelineClientBus = async (): Promise<void> => {
 	await rendererClientBus.dispose();
 	rendererClientBus = createBus();
+	optimisticRestorationByResource.clear();
 	olderSessionMessageLoads.clear();
 	checkpointSynchronizers.clear();
 	olderPageSynchronizers.clear();
@@ -1549,6 +1652,7 @@ export const resetSessionTimelineClientBusForTest = (): void => {
 	resetMemoryCommandOutboxForTest();
 	commandOutbox = createClientCommandOutbox();
 	rendererClientBus = createBus();
+	optimisticRestorationByResource.clear();
 	olderSessionMessageLoads.clear();
 	activationByEnvironment.clear();
 	resolveRendererSession = defaultResolveRendererSession;

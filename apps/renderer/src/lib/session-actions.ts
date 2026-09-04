@@ -7,8 +7,6 @@ import type { SyncPhase } from "@zuse/client-runtime/resource-state";
 import {
 	CommandId,
 	ComposerInput,
-	Message,
-	type MessageContent,
 	MessageId,
 	type ProviderId,
 	QueuedMessage,
@@ -17,11 +15,16 @@ import {
 } from "@zuse/contracts";
 
 import { createAtomStore as create } from "../state/atom-store.ts";
+import {
+	type CloudFailurePresentation,
+	cloudFailurePresentation,
+} from "./cloud-failure-presentation.ts";
 import { formatError } from "./format-error.ts";
 import {
 	markRendererInteraction,
 	trackRendererRpc,
 } from "./performance-marks.ts";
+import { makeOptimisticSessionMessage } from "./session-message-intent.ts";
 import {
 	addOptimisticSessionMessage,
 	dispatchSessionCommand,
@@ -42,15 +45,38 @@ export type ChatError =
 	| { readonly kind: "network"; readonly message: string }
 	| {
 			readonly kind: "terminal";
+			readonly category: CloudFailurePresentation["kind"];
 			readonly headline: string;
 			readonly message: string;
 	  }
 	| { readonly kind: "generic"; readonly message: string };
 
-const AUTH_PATTERN =
-	/\b401\b|\bunauthorized\b|expired token|invalid_grant|signed?\s?out|sign\s?in required|please log in|please run \/login|not logged in|invalid authentication credentials|invalid api key|authorizationrequired|auth\(authorizationrequired\)|authentication (?:failed|required)/i;
-const NETWORK_PATTERN =
-	/\b(network|fetch|econn|enotfound|etimedout|timeout|getaddrinfo|offline|socket|websocket)\b/i;
+const chatErrorForPresentation = (
+	presentation: CloudFailurePresentation,
+	providerId?: ProviderId,
+	originalMessage?: string,
+): ChatError => {
+	if (presentation.kind === "sign-in-required") {
+		return providerId === undefined
+			? { kind: "auth", message: originalMessage ?? presentation.message }
+			: {
+					kind: "auth",
+					providerId,
+					message: originalMessage ?? presentation.message,
+				};
+	}
+	if (presentation.kind === "network")
+		return {
+			kind: "network",
+			message: originalMessage ?? presentation.message,
+		};
+	return {
+		kind: "terminal",
+		category: presentation.kind,
+		headline: presentation.headline,
+		message: presentation.message,
+	};
+};
 
 export const classifyMessage = (
 	message: string,
@@ -60,13 +86,9 @@ export const classifyMessage = (
 		message.trim().length > 0
 			? message
 			: "The command was rejected without an error description.";
-	if (AUTH_PATTERN.test(readable)) {
-		return providerId === undefined
-			? { kind: "auth", message: readable }
-			: { kind: "auth", providerId, message: readable };
-	}
-	if (NETWORK_PATTERN.test(readable))
-		return { kind: "network", message: readable };
+	const presentation = cloudFailurePresentation({ cause: readable });
+	if (presentation !== null)
+		return chatErrorForPresentation(presentation, providerId, readable);
 	return { kind: "generic", message: readable };
 };
 
@@ -75,16 +97,16 @@ export const classifyError = (
 	providerId?: ProviderId,
 ): ChatError => {
 	if (cause instanceof CloudCommandTerminalError) {
-		const headline =
-			cause.category === "workspace-deleted"
-				? "Workspace unavailable"
-				: cause.category === "interaction-expired"
-					? "Interaction expired"
-					: cause.state === "outcome-unknown"
-						? "Command outcome unknown"
-						: "Command not delivered";
-		return { kind: "terminal", headline, message: cause.message };
+		const presentation = cloudFailurePresentation({
+			state: cause.state,
+			category: cause.category,
+		});
+		if (presentation !== null)
+			return chatErrorForPresentation(presentation, providerId);
 	}
+	const presentation = cloudFailurePresentation({ cause });
+	if (presentation !== null)
+		return chatErrorForPresentation(presentation, providerId);
 	return classifyMessage(formatError(cause), providerId);
 };
 
@@ -123,12 +145,18 @@ export const clearSessionCommandError = (ref: SessionRef): void => {
 };
 
 export const isRecoveredPreAckSessionError = (
-	message: string,
+	error: ChatError | string,
 	timeline: Readonly<{ data: unknown | null; sync: SyncPhase }>,
-): boolean =>
-	message.includes("SessionNotFoundError") &&
-	timeline.data !== null &&
-	timeline.sync === "live";
+): boolean => {
+	const sessionUnavailable =
+		typeof error === "string"
+			? cloudFailurePresentation({ cause: error })?.kind ===
+				"session-unavailable"
+			: error.kind === "terminal" && error.category === "session-unavailable";
+	return (
+		sessionUnavailable && timeline.data !== null && timeline.sync === "live"
+	);
+};
 
 /** A persisted optimistic row is runnable only after its durable add receipt. */
 export const optimisticQueuedMessageReady = (options?: {
@@ -162,7 +190,17 @@ export const pendingSessionCommandError = (
 	// Retriable failures remain in the durable outbox and are represented by the
 	// shared stale/connection phase. A destructive error bubble would imply the
 	// prompt was rejected even though reconnect will replay it.
-	return failed.retryable ? null : classifyMessage(failed.error);
+	if (failed.retryable) return null;
+	return failed.terminal === undefined
+		? classifyMessage(failed.error)
+		: classifyError(
+				new CloudCommandTerminalError(
+					failed.terminal.state,
+					failed.terminal.category,
+					failed.error,
+					failed.failedAt,
+				),
+			);
 };
 
 const dispatch = <Payload, Result>(
@@ -212,44 +250,17 @@ const readSessionModelOptions = (
 	return Object.keys(result).length === 0 ? null : result;
 };
 
-const optimisticContent = (
-	input: string | ComposerInput,
-	asGoal: boolean,
-): MessageContent => {
-	if (typeof input === "string") {
-		return { _tag: "user", text: input, goal: asGoal };
-	}
-	const annotations = input.annotations ?? [];
-	if (
-		input.attachments.length === 0 &&
-		input.fileRefs.length === 0 &&
-		input.skillRefs.length === 0 &&
-		annotations.length === 0
-	) {
-		return { _tag: "user", text: input.text, goal: asGoal };
-	}
-	return {
-		_tag: "user_rich",
-		text: input.text,
-		attachments: input.attachments,
-		fileRefs: input.fileRefs,
-		skillRefs: input.skillRefs,
-		annotations,
-		goal: asGoal,
-	};
-};
-
 export const sendSessionMessage = async (
 	ref: SessionRef,
 	input: string | ComposerInput,
 	options?: { readonly asGoal?: boolean; readonly providerId?: ProviderId },
 ): Promise<boolean> => {
 	const messageId = MessageId.make(crypto.randomUUID());
-	const message = Message.make({
-		id: messageId,
+	const message = makeOptimisticSessionMessage({
 		sessionId: ref.sessionId,
-		role: "user",
-		content: optimisticContent(input, options?.asGoal === true),
+		messageId,
+		content: input,
+		asGoal: options?.asGoal === true,
 		createdAt: new Date(),
 	});
 	addOptimisticSessionMessage(ref, message);
@@ -279,10 +290,10 @@ export const sendSessionMessage = async (
 		});
 		return true;
 	} catch (cause) {
-		// A transport failure is ambiguous, but the command is already durable in
-		// the ClientBus outbox. Keep the stable-id overlay and let reconnect replay
-		// it. Only an authoritative rejection removes the optimistic prompt.
-		if (retryableFailure(ref, commandId)) return true;
+		// A transport failure is ambiguous, but there is no locally durable mailbox
+		// acceptance confirmation yet. Keep the outbox and optimistic prompt for
+		// retry while reporting false so the composer remains recoverable.
+		if (retryableFailure(ref, commandId)) return false;
 		removeOptimisticSessionMessage(ref, messageId);
 		setSessionError(ref, classifyError(cause, options?.providerId));
 		return false;

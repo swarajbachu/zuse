@@ -144,6 +144,9 @@ describe("cloud chat catalog", () => {
 		expect(cloudConnectionPresentation(row, "attaching", "waking")).toBe(
 			"hidden",
 		);
+		expect(cloudConnectionPresentation(row, "failed", "update-required")).toBe(
+			"update-required",
+		);
 	});
 
 	it("does not present a provider failure as a cloud connection failure", () => {

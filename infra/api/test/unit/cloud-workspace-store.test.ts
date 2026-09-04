@@ -3,6 +3,11 @@ import { describe, expect, test } from "vitest";
 import {
 	CloudWorkspaceStore,
 	CloudWorkspaceStoreMemory,
+	mailboxLifecycleToDeliver,
+	withPendingMailboxLifecycle,
+	workspaceDeletionIsDurablyFenced,
+	workspaceDestructionFence,
+	workspaceSupportsCloudCommandMailbox,
 } from "../../src/cloud-workspace-store.ts";
 
 const project = {
@@ -50,6 +55,29 @@ const startCommand = (workspaceId: string, accountId = "account-1") => ({
 	createdAtMs: 100,
 });
 
+const workspaceRecord = (workspaceId: string) => ({
+	workspaceId,
+	accountId: "account-1",
+	projectId: project.projectId,
+	buildId: build.buildId,
+	provider: build.provider,
+	runtimeState: "offline" as const,
+	chatId: `chat-${workspaceId}`,
+	initialSessionId: `session-${workspaceId}`,
+	branch: `task/${workspaceId}`,
+	baseRef: "origin/main",
+	state: "queued" as const,
+	desiredState: "ready" as const,
+	statusCode: "queued",
+	idempotencyKey: `key-${workspaceId}`,
+	requestConfig: {},
+	nextActionAtMs: 100,
+	revision: 0,
+	createdAtMs: 100,
+	updatedAtMs: 100,
+	lastActivityAtMs: 100,
+});
+
 describe("cloud workspace store", () => {
 	test("soft-removes repositories and lets the same repository be added again", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
@@ -80,6 +108,299 @@ describe("cloud workspace store", () => {
 		expect(
 			await runtime.runPromise(store.listProjects("account-1")),
 		).toHaveLength(1);
+		await runtime.dispose();
+	});
+
+	test("retains destructive mailbox lifecycle work until delivery is acknowledged", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		const workspace = {
+			workspaceId: "workspace-lifecycle-outbox",
+			accountId: "account-1",
+			projectId: project.projectId,
+			buildId: build.buildId,
+			provider: build.provider,
+			runtimeState: "offline" as const,
+			chatId: "chat-lifecycle-outbox",
+			initialSessionId: "session-lifecycle-outbox",
+			branch: "task/lifecycle-outbox",
+			baseRef: "origin/main",
+			state: "queued" as const,
+			desiredState: "archived" as const,
+			statusCode: "archive-queued",
+			idempotencyKey: "workspace-lifecycle-outbox-key",
+			requestConfig: withPendingMailboxLifecycle({}, "archive", 3),
+			nextActionAtMs: 100,
+			revision: 1,
+			createdAtMs: 100,
+			updatedAtMs: 100,
+			lastActivityAtMs: 100,
+		};
+		await runtime.runPromise(
+			store.createWorkspace(workspace, startCommand(workspace.workspaceId)),
+		);
+
+		const [pending] = await runtime.runPromise(
+			store.listPendingMailboxLifecycles(10),
+		);
+		expect(pending).toEqual({
+			workspaceId: workspace.workspaceId,
+			action: "archive",
+			destructionFence: 3,
+		});
+		if (pending === undefined)
+			throw new Error("lifecycle fence was not queued");
+		expect(
+			await runtime.runPromise(
+				store.acknowledgeMailboxLifecycle(
+					{ ...pending, destructionFence: 2 },
+					200,
+				),
+			),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(store.acknowledgeMailboxLifecycle(pending, 200)),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(store.listPendingMailboxLifecycles(10)),
+		).toEqual([]);
+		expect(
+			(await runtime.runPromise(store.getWorkspace(workspace.workspaceId)))
+				?.requestConfig,
+		).toMatchObject({
+			destructionFence: 3,
+			cloudMailboxLifecycleDelivered: {
+				action: "archive",
+				destructionFence: 3,
+			},
+		});
+		await runtime.dispose();
+	});
+
+	test("serializes competing lifecycle commands and makes delete irreversible", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		const workspace = workspaceRecord("workspace-lifecycle-race");
+		await runtime.runPromise(
+			store.createWorkspace(workspace, startCommand(workspace.workspaceId)),
+		);
+		const expected = {
+			expectedRevision: workspace.revision,
+			expectedUpdatedAtMs: workspace.updatedAtMs,
+			expectedState: workspace.state,
+			expectedDesiredState: workspace.desiredState,
+			createdAtMs: 200,
+		};
+		const [archive, deletion] = await Promise.all([
+			runtime.runPromise(
+				store.transitionWorkspaceLifecycle({
+					...expected,
+					workspace: {
+						...workspace,
+						desiredState: "archived",
+						statusCode: "archive-queued",
+					},
+					commandId: "archive-race",
+					action: "archive",
+				}),
+			),
+			runtime.runPromise(
+				store.transitionWorkspaceLifecycle({
+					...expected,
+					workspace: {
+						...workspace,
+						desiredState: "deleted",
+						statusCode: "delete-queued",
+					},
+					commandId: "delete-race",
+					action: "delete",
+				}),
+			),
+		]);
+		expect([archive.kind, deletion.kind].sort()).toEqual([
+			"applied",
+			"contended",
+		]);
+
+		let current = await runtime.runPromise(
+			store.getWorkspace(workspace.workspaceId),
+		);
+		if (current === null) throw new Error("workspace disappeared during race");
+		if (current.desiredState !== "deleted") {
+			const retry = await runtime.runPromise(
+				store.transitionWorkspaceLifecycle({
+					workspace: {
+						...current,
+						desiredState: "deleted",
+						statusCode: "delete-queued",
+					},
+					expectedRevision: current.revision,
+					expectedUpdatedAtMs: current.updatedAtMs,
+					expectedState: current.state,
+					expectedDesiredState: current.desiredState,
+					commandId: "delete-race",
+					action: "delete",
+					createdAtMs: 201,
+				}),
+			);
+			expect(retry.kind).toBe("applied");
+			current = await runtime.runPromise(
+				store.getWorkspace(workspace.workspaceId),
+			);
+			if (current === null)
+				throw new Error("deleted workspace tombstone missing");
+		}
+		expect(current.desiredState).toBe("deleted");
+		expect(mailboxLifecycleToDeliver(current)).toMatchObject({
+			action: "delete",
+			destructionFence: expect.any(Number),
+		});
+		await runtime.runPromise(
+			store.saveWorkspace({
+				...workspace,
+				revision: current.revision + 1,
+				updatedAtMs: current.updatedAtMs + 1,
+			}),
+		);
+		current = await runtime.runPromise(
+			store.getWorkspace(workspace.workspaceId),
+		);
+		if (current === null)
+			throw new Error("delete fence was removed by stale save");
+		expect(current.desiredState).toBe("deleted");
+		expect(mailboxLifecycleToDeliver(current)?.action).toBe("delete");
+
+		const regressed = await runtime.runPromise(
+			store.transitionWorkspaceLifecycle({
+				workspace: {
+					...current,
+					desiredState: "archived",
+					statusCode: "archive-queued",
+				},
+				expectedRevision: current.revision,
+				expectedUpdatedAtMs: current.updatedAtMs,
+				expectedState: current.state,
+				expectedDesiredState: current.desiredState,
+				commandId: "archive-after-delete",
+				action: "archive",
+				createdAtMs: 202,
+			}),
+		);
+		expect(regressed).toMatchObject({
+			kind: "rejected",
+			reason: "workspace-deleted",
+		});
+		await runtime.dispose();
+	});
+
+	test("atomically receipts an already-requested resume without rewriting it", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		const workspace = {
+			...workspaceRecord("workspace-resume-receipt"),
+			state: "paused" as const,
+			desiredState: "ready" as const,
+			statusCode: "resume-queued",
+			revision: 4,
+			updatedAtMs: 200,
+		};
+		await runtime.runPromise(
+			store.createWorkspace(workspace, startCommand(workspace.workspaceId)),
+		);
+		const input = {
+			workspace: { ...workspace, statusCode: "resume-queued" },
+			expectedRevision: workspace.revision,
+			expectedUpdatedAtMs: workspace.updatedAtMs,
+			expectedState: workspace.state,
+			expectedDesiredState: workspace.desiredState,
+			commandId: "resume-receipt",
+			action: "resume" as const,
+			deduplicateRequestedResume: true,
+			createdAtMs: 300,
+		};
+		expect(
+			await runtime.runPromise(store.transitionWorkspaceLifecycle(input)),
+		).toMatchObject({
+			kind: "applied",
+			workspace: { revision: 4, updatedAtMs: 200 },
+		});
+		expect(
+			await runtime.runPromise(store.transitionWorkspaceLifecycle(input)),
+		).toMatchObject({ kind: "replay", action: "resume" });
+		expect(
+			await runtime.runPromise(
+				store.transitionWorkspaceLifecycle({
+					...input,
+					action: "pause",
+				}),
+			),
+		).toMatchObject({ kind: "rejected", reason: "command-id-reused" });
+		await runtime.dispose();
+	});
+
+	test("retains account rows until the delete fence is acknowledged", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		const workspace = workspaceRecord("workspace-account-delete");
+		await runtime.runPromise(
+			store.createWorkspace(workspace, startCommand(workspace.workspaceId)),
+		);
+		const transition = await runtime.runPromise(
+			store.transitionWorkspaceLifecycle({
+				workspace: {
+					...workspace,
+					desiredState: "deleted",
+					statusCode: "delete-queued",
+				},
+				expectedRevision: workspace.revision,
+				expectedUpdatedAtMs: workspace.updatedAtMs,
+				expectedState: workspace.state,
+				expectedDesiredState: workspace.desiredState,
+				action: "delete",
+				createdAtMs: 200,
+			}),
+		);
+		expect(transition.kind).toBe("applied");
+		expect(await runtime.runPromise(store.deleteAccountData("account-1"))).toBe(
+			false,
+		);
+		const [pending] = await runtime.runPromise(
+			store.listPendingMailboxLifecycles(10),
+		);
+		if (pending === undefined) throw new Error("delete fence was not retained");
+		await runtime.runPromise(store.acknowledgeMailboxLifecycle(pending, 300));
+		const acknowledged = await runtime.runPromise(
+			store.getWorkspace(workspace.workspaceId),
+		);
+		if (acknowledged === null) throw new Error("workspace tombstone missing");
+		await runtime.runPromise(
+			store.saveWorkspace({
+				...acknowledged,
+				state: "deleted",
+				revision: acknowledged.revision + 1,
+				updatedAtMs: acknowledged.updatedAtMs + 1,
+			}),
+		);
+		const deleted = await runtime.runPromise(
+			store.getWorkspace(workspace.workspaceId),
+		);
+		expect(
+			deleted === null ? false : workspaceDeletionIsDurablyFenced(deleted),
+		).toBe(true);
+		expect(await runtime.runPromise(store.deleteAccountData("account-1"))).toBe(
+			true,
+		);
+		expect(
+			await runtime.runPromise(store.getWorkspace(workspace.workspaceId)),
+		).toBeNull();
 		await runtime.dispose();
 	});
 
@@ -175,22 +496,26 @@ describe("cloud workspace store", () => {
 			workspaceId: workspace.workspaceId,
 			commandId: `launch:${workspace.workspaceId}`,
 		});
-		await runtime.runPromise(
-			store.saveWorkspaceLifecycleCommand({
-				workspace,
-				commandId: "archive-command-1",
-				action: "archive",
-				createdAtMs: 200,
-			}),
-		);
+		const archive = {
+			workspace: {
+				...workspace,
+				desiredState: "archived" as const,
+				statusCode: "archive-queued",
+			},
+			expectedRevision: workspace.revision,
+			expectedUpdatedAtMs: workspace.updatedAtMs,
+			expectedState: workspace.state,
+			expectedDesiredState: workspace.desiredState,
+			commandId: "archive-command-1",
+			action: "archive" as const,
+			createdAtMs: 200,
+		};
 		expect(
-			await runtime.runPromise(
-				store.getWorkspaceLifecycleCommand(
-					workspace.workspaceId,
-					"archive-command-1",
-				),
-			),
-		).toBe("archive");
+			await runtime.runPromise(store.transitionWorkspaceLifecycle(archive)),
+		).toMatchObject({ kind: "applied", action: "archive" });
+		expect(
+			await runtime.runPromise(store.transitionWorkspaceLifecycle(archive)),
+		).toMatchObject({ kind: "replay", action: "archive" });
 		const claimed = await runtime.runPromise(
 			store.claimWorkspace(workspace.workspaceId, "worker-a", 100, 200),
 		);
@@ -374,23 +699,57 @@ describe("cloud workspace store", () => {
 				}),
 			),
 		).toBeNull();
-		expect(
-			await runtime.runPromise(
-				store.markRuntimeRepositoryReady({
-					workspaceId: workspace.workspaceId,
-					currentCredentialHash: "runtime-hash",
-					nowMs: 220,
-					nextIdleAtMs: 2_000,
-				}),
-			),
-		).toMatchObject({
+		const repositoryReady = await runtime.runPromise(
+			store.markRuntimeRepositoryReady({
+				workspaceId: workspace.workspaceId,
+				currentCredentialHash: "runtime-hash",
+				commandProtocolVersion: 3,
+				nowMs: 220,
+				nextIdleAtMs: 2_000,
+			}),
+		);
+		expect(repositoryReady).toMatchObject({
 			runtimeState: "online",
 			state: "setup",
 			statusCode: "agent-starting",
 			requestConfig: {
+				cloudCommandProtocolVersion: 3,
+				cloudCommandRuntimeGeneration: 1,
 				startupTimings: { connectedAt: 220, repositoryReadyAt: 220 },
 			},
 		});
+		expect(
+			repositoryReady === null
+				? false
+				: workspaceSupportsCloudCommandMailbox(repositoryReady),
+		).toBe(true);
+		expect(
+			repositoryReady === null
+				? true
+				: workspaceSupportsCloudCommandMailbox({
+						...repositoryReady,
+						requestConfig: {
+							...repositoryReady.requestConfig,
+							runtimeGeneration: 2,
+						},
+					}),
+		).toBe(false);
+		const retainedV2Runtime = await runtime.runPromise(
+			store.markRuntimeRepositoryReady({
+				workspaceId: workspace.workspaceId,
+				currentCredentialHash: "runtime-hash",
+				nowMs: 221,
+				nextIdleAtMs: 2_000,
+			}),
+		);
+		expect(retainedV2Runtime?.requestConfig).not.toHaveProperty(
+			"cloudCommandProtocolVersion",
+		);
+		expect(
+			retainedV2Runtime === null
+				? true
+				: workspaceSupportsCloudCommandMailbox(retainedV2Runtime),
+		).toBe(false);
 		const checkpoint = {
 			workspaceId: workspace.workspaceId,
 			sessionId: workspace.initialSessionId,
@@ -841,7 +1200,6 @@ describe("cloud workspace store", () => {
 				startCommand("workspace-paused"),
 			),
 		);
-
 		const resumed = await runtime.runPromise(
 			store.recordActivity("workspace-paused", "account-1", 500, 3_600_500),
 		);
@@ -864,6 +1222,7 @@ describe("cloud workspace store", () => {
 		for (const [workspaceId, state, desiredState] of [
 			["workspace-pausing", "pausing", "paused"],
 			["workspace-archiving", "archiving", "archived"],
+			["workspace-ready-offline", "ready", "ready"],
 		] as const) {
 			await runtime.runPromise(
 				store.createWorkspace(
@@ -893,6 +1252,51 @@ describe("cloud workspace store", () => {
 				),
 			);
 		}
+		await runtime.runPromise(
+			store.createWorkspace(
+				{
+					workspaceId: "workspace-ready-online",
+					accountId: "account-1",
+					projectId: project.projectId,
+					buildId: build.buildId,
+					provider: build.provider,
+					runtimeState: "online",
+					chatId: "chat:workspace-ready-online",
+					initialSessionId: "session:workspace-ready-online",
+					branch: "task/workspace-ready-online",
+					baseRef: "origin/main",
+					state: "ready",
+					desiredState: "ready",
+					statusCode: "agent-running",
+					idempotencyKey: "workspace-ready-online-key",
+					requestConfig: {},
+					nextActionAtMs: 10_000,
+					revision: 1,
+					createdAtMs: 100,
+					updatedAtMs: 200,
+					lastActivityAtMs: 200,
+				},
+				startCommand("workspace-ready-online"),
+			),
+		);
+		await runtime.runPromise(
+			store.createWorkspace(
+				{
+					...workspaceRecord("workspace-stale-delete-fence"),
+					state: "ready",
+					desiredState: "ready",
+					runtimeState: "online",
+					requestConfig: {
+						destructionFence: 2,
+						cloudMailboxLifecycleDelivered: {
+							action: "delete",
+							destructionFence: 3,
+						},
+					},
+				},
+				startCommand("workspace-stale-delete-fence"),
+			),
+		);
 
 		const resumed = await runtime.runPromise(
 			store.requestMailboxWake(
@@ -907,10 +1311,264 @@ describe("cloud workspace store", () => {
 			statusCode: "resume-queued",
 			nextActionAtMs: 500,
 		});
+		expect(
+			await runtime.runPromise(
+				store.requestMailboxWake(
+					"workspace-ready-offline",
+					"account-1",
+					500,
+					3_600_500,
+				),
+			),
+		).toMatchObject({
+			desiredState: "ready",
+			statusCode: "resume-queued",
+			nextActionAtMs: 500,
+			requestConfig: {
+				startupTimings: { requestedAt: 500, resumeRequestedAt: 500 },
+			},
+		});
+		const onlineWake = await runtime.runPromise(
+			store.requestMailboxWake(
+				"workspace-ready-online",
+				"account-1",
+				500,
+				3_600_500,
+			),
+		);
+		expect(onlineWake).toMatchObject({
+			nextActionAtMs: 500,
+			requestConfig: {
+				cloudMailboxWakePending: true,
+				cloudMailboxWakeRequestedAt: 500,
+			},
+		});
+		if (onlineWake === null) throw new Error("mailbox wake was not recorded");
+		const pauseDuringDrain = await runtime.runPromise(
+			store.transitionWorkspaceLifecycle({
+				workspace: {
+					...onlineWake,
+					desiredState: "paused",
+					statusCode: "pause-queued",
+					nextActionAtMs: 550,
+					revision: onlineWake.revision + 1,
+					updatedAtMs: 550,
+				},
+				expectedRevision: onlineWake.revision,
+				expectedUpdatedAtMs: onlineWake.updatedAtMs,
+				expectedState: onlineWake.state,
+				expectedDesiredState: onlineWake.desiredState,
+				commandId: "pause-after-mailbox-acceptance",
+				action: "pause",
+				createdAtMs: 550,
+			}),
+		);
+		expect(pauseDuringDrain).toMatchObject({
+			kind: "rejected",
+			reason: "mailbox-wake-pending",
+			workspace: {
+				desiredState: "ready",
+				nextActionAtMs: 500,
+				requestConfig: { cloudMailboxWakePending: true },
+			},
+		});
+		expect(
+			await runtime.runPromise(store.getWorkspace("workspace-ready-online")),
+		).toMatchObject({
+			desiredState: "ready",
+			nextActionAtMs: 500,
+			requestConfig: { cloudMailboxWakePending: true },
+		});
+		expect(
+			await runtime.runPromise(
+				store.recordActivity(
+					"workspace-ready-online",
+					"account-1",
+					550,
+					3_600_550,
+				),
+			),
+		).toMatchObject({
+			nextActionAtMs: 500,
+			requestConfig: { cloudMailboxWakePending: true },
+		});
+		expect(
+			await runtime.runPromise(
+				store.recordMailboxRuntimePoll(
+					"workspace-ready-online",
+					"account-1",
+					1,
+					600,
+					35_600,
+				),
+			),
+		).toBe(1);
+		expect(
+			await runtime.runPromise(store.getWorkspace("workspace-ready-online")),
+		).toMatchObject({
+			nextActionAtMs: 35_600,
+			requestConfig: {
+				cloudMailboxWakePending: true,
+				cloudMailboxWakeRevision: 1,
+				cloudMailboxRuntimeSeenAt: 600,
+			},
+		});
+		// Empty polls prove the consumer exists but are not progress: sliding this
+		// deadline would strand a lease whose response was lost.
+		expect(
+			await runtime.runPromise(
+				store.recordMailboxRuntimePoll(
+					"workspace-ready-online",
+					"account-1",
+					1,
+					700,
+					35_700,
+				),
+			),
+		).toBe(1);
+		expect(
+			await runtime.runPromise(store.getWorkspace("workspace-ready-online")),
+		).toMatchObject({
+			nextActionAtMs: 35_600,
+			requestConfig: { cloudMailboxRuntimeSeenAt: 600 },
+		});
+		expect(
+			await runtime.runPromise(
+				store.recordMailboxRuntimeProgress(
+					"workspace-ready-online",
+					"account-1",
+					1,
+					1,
+					10,
+					false,
+					800,
+					35_800,
+				),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(
+				store.requestMailboxWake(
+					"workspace-ready-online",
+					"account-1",
+					900,
+					3_600_900,
+				),
+			),
+		).toMatchObject({
+			nextActionAtMs: 900,
+			requestConfig: {
+				cloudMailboxWakeRevision: 2,
+				cloudMailboxProgressRevision: 10,
+			},
+		});
+		// An older empty lease response cannot clear the newer accepted wake.
+		expect(
+			await runtime.runPromise(
+				store.completeMailboxDrain(
+					"workspace-ready-online",
+					"account-1",
+					1,
+					1,
+					950,
+					3_600_950,
+				),
+			),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(
+				store.recordMailboxRuntimeProgress(
+					"workspace-ready-online",
+					"account-1",
+					1,
+					2,
+					11,
+					true,
+					960,
+					35_960,
+				),
+			),
+		).toBe(true);
+		await runtime.runPromise(
+			store.recordMailboxRuntimeProgress(
+				"workspace-ready-online",
+				"account-1",
+				1,
+				2,
+				12,
+				false,
+				970,
+				35_970,
+			),
+		);
+		expect(
+			await runtime.runPromise(store.getWorkspace("workspace-ready-online")),
+		).toMatchObject({
+			nextActionAtMs: 960,
+			requestConfig: {
+				cloudMailboxFenceRequired: true,
+				cloudMailboxProgressRevision: 11,
+			},
+		});
+		expect(
+			await runtime.runPromise(
+				store.completeMailboxDrain(
+					"workspace-ready-online",
+					"account-1",
+					1,
+					2,
+					1_000,
+					3_601_000,
+				),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(store.getWorkspace("workspace-ready-online")),
+		).toMatchObject({
+			nextActionAtMs: 3_601_000,
+			requestConfig: { cloudMailboxWakeRevision: 2 },
+		});
+		expect(
+			await runtime.runPromise(
+				store.recordMailboxRuntimePoll(
+					"workspace-ready-online",
+					"account-1",
+					1,
+					1_100,
+					36_100,
+				),
+			),
+		).toBeNull();
 		await expect(
 			runtime.runPromise(
 				store.requestMailboxWake(
 					"workspace-archiving",
+					"account-1",
+					500,
+					3_600_500,
+				),
+			),
+		).resolves.toBeNull();
+		const staleDelete = await runtime.runPromise(
+			store.getWorkspace("workspace-stale-delete-fence"),
+		);
+		expect(
+			staleDelete === null ? 0 : workspaceDestructionFence(staleDelete),
+		).toBe(3);
+		await expect(
+			runtime.runPromise(
+				store.requestMailboxWake(
+					"workspace-stale-delete-fence",
+					"account-1",
+					500,
+					3_600_500,
+				),
+			),
+		).resolves.toBeNull();
+		await expect(
+			runtime.runPromise(
+				store.recordActivity(
+					"workspace-stale-delete-fence",
 					"account-1",
 					500,
 					3_600_500,

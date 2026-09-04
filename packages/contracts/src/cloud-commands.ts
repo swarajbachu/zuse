@@ -8,30 +8,7 @@ export const CLOUD_COMMAND_MAX_NONTERMINAL = 256;
 export const CLOUD_COMMAND_MAX_MAILBOX_BYTES = 8 * 1024 * 1024;
 export const CLOUD_COMMAND_WATCH_MAX_CHANGES = 100;
 export const CLOUD_COMMAND_WATCH_MAX_WAIT_MS = 25_000;
-
-export const CloudMailboxEligibleKind = Schema.Literals([
-	"session.rename",
-	"session.setRuntimeMode",
-	"messages.queue.add",
-	"messages.queue.update",
-	"messages.queue.delete",
-	"messages.queue.reorder",
-	"messages.send",
-	"messages.queue.runNext",
-	"messages.queue.flush",
-	"messages.queue.resume",
-	"session.create",
-	"session.setModel",
-	"session.setProvider",
-	"messages.interrupt",
-	"session.setPermissionMode",
-	"session.answerQuestion",
-	"session.plan.respond",
-	"session.resume",
-	"session.goal.set",
-	"session.goal.clear",
-]);
-export type CloudMailboxEligibleKind = typeof CloudMailboxEligibleKind.Type;
+export const CLOUD_COMMAND_LEASE_TTL_MS = 30_000;
 
 export const CloudCommandState = Schema.Literals([
 	"reserved",
@@ -48,14 +25,32 @@ export const CloudCommandState = Schema.Literals([
 ]);
 export type CloudCommandState = typeof CloudCommandState.Type;
 
-export const CloudCommandTerminalState = Schema.Literals([
+export const CLOUD_COMMAND_TERMINAL_STATES = [
 	"applied",
 	"rejected",
 	"expired",
 	"cancelled",
 	"outcome-unknown",
-]);
+] as const;
+
+export const CloudCommandTerminalState = Schema.Literals(
+	CLOUD_COMMAND_TERMINAL_STATES,
+);
 export type CloudCommandTerminalState = typeof CloudCommandTerminalState.Type;
+
+export const isCloudCommandTerminalState = (
+	state: unknown,
+): state is CloudCommandTerminalState =>
+	typeof state === "string" &&
+	(CLOUD_COMMAND_TERMINAL_STATES as readonly string[]).includes(state);
+
+export const isCloudCommandFailureState = (
+	state: CloudCommandState,
+): state is Exclude<CloudCommandTerminalState, "applied"> =>
+	state === "rejected" ||
+	state === "expired" ||
+	state === "cancelled" ||
+	state === "outcome-unknown";
 
 export const CloudCommandBlockedReason = Schema.Literals([
 	"auth-restored",
@@ -110,6 +105,8 @@ export class CommandStatus extends Schema.Class<CommandStatus>("CommandStatus")(
 		commandId: CommandId,
 		workspaceSequence: Schema.Number,
 		revision: Schema.Number,
+		/** Keyed command identity. Optional only for additive v2/v3 compatibility. */
+		fingerprint: Schema.optional(Schema.String),
 		state: CloudCommandState,
 		everLeased: Schema.Boolean,
 		updatedAt: Schema.Number,
@@ -134,6 +131,8 @@ export class RuntimeLease extends Schema.Class<RuntimeLease>("RuntimeLease")({
 	leaseToken: Schema.String,
 	leaseDeadline: Schema.Number,
 	runtimeGeneration: Schema.Number,
+	/** Immutable compute identity returned to this runtime during bootstrap. */
+	providerSandboxId: Schema.String,
 	storageIncarnationId: Schema.String,
 }) {}
 

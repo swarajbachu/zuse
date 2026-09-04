@@ -10,11 +10,20 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import {
+	type CloudMessageSendPayload,
+	type CloudMessageSendResult,
+	cloudCommandEligibility,
+	cloudMessageSendPayloadLimitation,
+	decodeCloudMessageSendPayload,
+} from "@zuse/cloud-commands";
 import {
 	AgentSessionId,
 	AgentTurnId,
 	ApiPaths,
 	ChatId,
+	CLOUD_COMMAND_PROTOCOL_VERSION,
 	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
 	CloudTranscriptCheckpointPayload,
 	CloudTranscriptMessagePagePayload,
@@ -24,8 +33,10 @@ import {
 	decodeWorkspaceGatewayFrame,
 	encodeWorkspaceGatewayFrame,
 	FolderId,
+	MessageContent,
 	MessageId,
 	ProviderId,
+	RuntimeAcknowledgment,
 	RuntimeLease,
 	RuntimeMode,
 	SessionId,
@@ -35,6 +46,7 @@ import {
 	WORKSPACE_GATEWAY_UPDATE_REQUIRED_CLOSE,
 	workspaceGatewayArrayBuffer,
 } from "@zuse/contracts";
+import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import {
 	cloudCommandAdditionalData,
@@ -48,11 +60,12 @@ import {
 	sha256Base64Url,
 } from "@zuse/utils/cloud-transcript-crypto";
 import {
+	Cause,
 	Clock,
-	Deferred,
 	Duration,
 	Effect,
 	Layer,
+	Option,
 	Redacted,
 	Schedule,
 	Schema,
@@ -67,6 +80,7 @@ import {
 	generateKeyPair,
 	SignJWT,
 } from "jose";
+import { serializeAnnotations } from "../conversation/core/conversation-input.ts";
 import {
 	ChatService,
 	type ChatServiceShape,
@@ -134,10 +148,17 @@ export interface CloudWorkspaceRuntimeConfig {
 
 export class CloudWorkspaceRuntimeError extends Schema.TaggedErrorClass<CloudWorkspaceRuntimeError>()(
 	"CloudWorkspaceRuntimeError",
-	{ reason: Schema.String },
+	{
+		reason: Schema.String,
+		httpStatus: Schema.optional(Schema.Number),
+	},
 ) {}
 
-const fail = (reason: string) => new CloudWorkspaceRuntimeError({ reason });
+const fail = (reason: string, httpStatus?: number) =>
+	new CloudWorkspaceRuntimeError({
+		reason,
+		...(httpStatus === undefined ? {} : { httpStatus }),
+	});
 
 /** A capped, jittered retry policy shared by enrollment and gateway recovery. */
 export const cloudRuntimeRetrySchedule = Schedule.exponential(
@@ -198,6 +219,7 @@ export const bufferWorkspaceLocalFrame = (
 
 const BootstrapResponse = Schema.Struct({
 	workspaceId: Schema.String,
+	providerSandboxId: Schema.String,
 	runtimeCredential: Schema.String,
 	runtimeGatewayCredential: Schema.String,
 	runtimeCredentialExpiresAt: Schema.Number,
@@ -803,24 +825,38 @@ const requestJson = <A, I>(input: {
 	readonly token: string;
 	readonly method?: "GET" | "POST";
 	readonly body?: unknown;
+	readonly timeoutMs?: number;
 }): Effect.Effect<A, CloudWorkspaceRuntimeError> =>
 	Effect.tryPromise({
 		try: async () => {
-			const response = await fetch(input.url, {
-				method: input.method ?? "GET",
-				headers: {
-					authorization: `Bearer ${input.token}`,
-					...(input.body === undefined
-						? {}
-						: { "content-type": "application/json" }),
-				},
-				body: input.body === undefined ? undefined : JSON.stringify(input.body),
-			});
-			if (!response.ok) throw new Error(`api_${response.status}`);
-			return response.json() as Promise<unknown>;
+			let response: Response;
+			try {
+				response = await fetch(input.url, {
+					method: input.method ?? "GET",
+					signal: AbortSignal.timeout(input.timeoutMs ?? 30_000),
+					headers: {
+						authorization: `Bearer ${input.token}`,
+						...(input.body === undefined
+							? {}
+							: { "content-type": "application/json" }),
+					},
+					body:
+						input.body === undefined ? undefined : JSON.stringify(input.body),
+				});
+			} catch {
+				throw fail("api_request_failed");
+			}
+			if (!response.ok) throw fail("api_http_rejected", response.status);
+			try {
+				return (await response.json()) as unknown;
+			} catch {
+				throw fail("api_invalid_response");
+			}
 		},
 		catch: (cause) =>
-			fail(cause instanceof Error ? cause.message : "api_request_failed"),
+			cause instanceof CloudWorkspaceRuntimeError
+				? cause
+				: fail("api_request_failed"),
 	}).pipe(
 		Effect.flatMap(Schema.decodeUnknownEffect(input.schema)),
 		Effect.mapError((error) =>
@@ -830,148 +866,796 @@ const requestJson = <A, I>(input: {
 		),
 	);
 
-const RuntimeLeasePage = Schema.Struct({ leases: Schema.Array(RuntimeLease) });
-const DurableMessagePayload = Schema.Struct({
-	commandId: Schema.String,
-	sessionId: SessionId,
-	text: Schema.optional(Schema.String),
-	input: Schema.optional(ComposerInput),
-	asGoal: Schema.optional(Schema.Boolean),
-	clientMessageId: Schema.optional(MessageId),
+const RuntimeLeasePage = Schema.Struct({
+	leases: Schema.Array(RuntimeLease),
+	// Optional for additive compatibility with the first v3-capable API build.
+	fenceRequired: Schema.optional(Schema.Boolean),
+});
+
+const ReceiptMessageEvent = Schema.Struct({
+	_tag: Schema.Literal("MessagePersisted"),
+	messageId: MessageId,
+	turnId: Schema.String,
+	role: Schema.Literal("user"),
+	kind: Schema.Literals(["user", "user_rich"]),
+	contentJson: Schema.String,
+	parentItemId: Schema.Null,
+});
+
+const ReceiptProviderTurnEvent = Schema.Struct({
+	_tag: Schema.Literal("ProviderTurnRequested"),
+	turnId: Schema.String,
+	providerInputJson: Schema.String,
+});
+
+const CloudMailboxCommandRejectionCategory = Schema.Literals([
+	"command-decryption-failed",
+	"command-fingerprint-mismatch",
+	"command-kind-not-supported",
+	"command-schema-not-supported",
+	"command-payload-invalid",
+	"command-payload-too-large",
+	"command-payload-identity-mismatch",
+	"command-dependencies-not-supported",
+	"command-goal-mode-not-supported",
+	"runtime-generation-mismatch",
+	"runtime-provider-sandbox-mismatch",
+	"runtime-lease-expired",
+	"runtime-storage-incarnation-mismatch",
+	"runtime-receipt-conflict",
+	"runtime-receipt-invalid",
+	"runtime-receipt-missing",
+	"runtime-receipt-store-unavailable",
+	"session-not-found",
+	"workspace-directory-unavailable",
+	"result-encryption-failed",
+	"runtime-apply-failed",
+]);
+export type CloudMailboxCommandRejectionCategory =
+	typeof CloudMailboxCommandRejectionCategory.Type;
+
+export class CloudMailboxApplyError extends Schema.TaggedErrorClass<CloudMailboxApplyError>()(
+	"CloudMailboxApplyError",
+	{ category: CloudMailboxCommandRejectionCategory },
+) {}
+
+const rejectCloudMailboxCommand = (
+	category: CloudMailboxCommandRejectionCategory,
+) => new CloudMailboxApplyError({ category });
+
+export interface CloudMailboxCommandReceipt {
+	readonly commandId: string;
+	readonly streamKind: string;
+	readonly streamId: string;
+	readonly streamVersion: number;
+	readonly eventIdsJson: string;
+	readonly resultJson: string | null;
+	readonly fingerprint: string | null;
+	readonly commandKind: string | null;
+	readonly schemaVersion: number | null;
+	readonly storageIncarnationId: string | null;
+	readonly messageEventJson: string | null;
+	readonly providerTurnEventJson: string | null;
+}
+
+export interface CloudMailboxCommandIdentity extends CommandReceiptIdentity {
+	readonly commandId: string;
+	readonly streamId: string;
+}
+
+export interface CloudMailboxReceiptStore {
+	readonly read: (
+		commandId: string,
+	) => Effect.Effect<CloudMailboxCommandReceipt | null, CloudMailboxApplyError>;
+	readonly bindIdentity: (
+		input: CloudMailboxCommandIdentity,
+	) => Effect.Effect<void, CloudMailboxApplyError>;
+}
+
+const makeCloudMailboxReceiptStore = (
+	sql: SqlClient.SqlClient,
+): CloudMailboxReceiptStore => ({
+	read: (commandId) =>
+		sql<{
+			readonly command_id: string;
+			readonly stream_kind: string;
+			readonly stream_id: string;
+			readonly stream_version: number;
+			readonly event_ids_json: string;
+			readonly result_json: string | null;
+			readonly fingerprint: string | null;
+			readonly command_kind: string | null;
+			readonly schema_version: number | null;
+			readonly storage_incarnation_id: string | null;
+			readonly message_event_json: string | null;
+			readonly provider_turn_event_json: string | null;
+		}>`
+			SELECT receipt.command_id, receipt.stream_kind, receipt.stream_id,
+				receipt.stream_version, receipt.event_ids_json, receipt.result_json,
+				receipt.fingerprint, receipt.command_kind, receipt.schema_version,
+				receipt.storage_incarnation_id,
+				(
+					SELECT event.payload_json
+					FROM events AS event
+					WHERE event.stream_kind = 'session'
+						AND event.stream_id = receipt.stream_id
+						AND event.type = 'MessagePersisted'
+						AND event.event_id IN (
+							SELECT value FROM json_each(receipt.event_ids_json)
+						)
+					ORDER BY event.stream_version
+					LIMIT 1
+				) AS message_event_json,
+				(
+					SELECT event.payload_json
+					FROM events AS event
+					WHERE event.stream_kind = 'session'
+						AND event.stream_id = receipt.stream_id
+						AND event.type = 'ProviderTurnRequested'
+						AND event.event_id IN (
+							SELECT value FROM json_each(receipt.event_ids_json)
+						)
+					ORDER BY event.stream_version
+					LIMIT 1
+				) AS provider_turn_event_json
+			FROM command_receipts AS receipt
+			WHERE receipt.command_id = ${commandId}
+			LIMIT 1
+		`.pipe(
+			Effect.map((rows) => {
+				const row = rows[0];
+				return row === undefined
+					? null
+					: {
+							commandId: row.command_id,
+							streamKind: row.stream_kind,
+							streamId: row.stream_id,
+							streamVersion: row.stream_version,
+							eventIdsJson: row.event_ids_json,
+							resultJson: row.result_json,
+							fingerprint: row.fingerprint,
+							commandKind: row.command_kind,
+							schemaVersion: row.schema_version,
+							storageIncarnationId: row.storage_incarnation_id,
+							messageEventJson: row.message_event_json,
+							providerTurnEventJson: row.provider_turn_event_json,
+						};
+			}),
+			Effect.mapError(() =>
+				rejectCloudMailboxCommand("runtime-receipt-store-unavailable"),
+			),
+		),
+	bindIdentity: (identity) =>
+		sql`
+			UPDATE command_receipts SET
+				fingerprint = COALESCE(fingerprint, ${identity.fingerprint}),
+				command_kind = COALESCE(command_kind, ${identity.commandKind}),
+				schema_version = COALESCE(schema_version, ${identity.schemaVersion}),
+				storage_incarnation_id = COALESCE(
+					storage_incarnation_id,
+					${identity.storageIncarnationId}
+				)
+			WHERE command_id = ${identity.commandId}
+				AND stream_kind = 'session'
+				AND stream_id = ${identity.streamId}
+				AND (fingerprint IS NULL OR fingerprint = ${identity.fingerprint})
+				AND (command_kind IS NULL OR command_kind = ${identity.commandKind})
+				AND (schema_version IS NULL OR schema_version = ${identity.schemaVersion})
+				AND (
+					storage_incarnation_id IS NULL OR
+					storage_incarnation_id = ${identity.storageIncarnationId}
+				)
+		`.pipe(
+			Effect.mapError(() =>
+				rejectCloudMailboxCommand("runtime-receipt-store-unavailable"),
+			),
+			Effect.asVoid,
+		),
+});
+
+const receiptConflict = (
+	receipt: CloudMailboxCommandReceipt,
+	identity: CloudMailboxCommandIdentity,
+): boolean =>
+	receipt.commandId !== identity.commandId ||
+	receipt.streamKind !== "session" ||
+	receipt.streamId !== identity.streamId ||
+	(receipt.fingerprint !== null &&
+		receipt.fingerprint !== identity.fingerprint) ||
+	(receipt.commandKind !== null &&
+		receipt.commandKind !== identity.commandKind) ||
+	(receipt.schemaVersion !== null &&
+		receipt.schemaVersion !== identity.schemaVersion) ||
+	(receipt.storageIncarnationId !== null &&
+		receipt.storageIncarnationId !== identity.storageIncarnationId);
+
+const receiptMatchesMessagePayload = (
+	receipt: CloudMailboxCommandReceipt,
+	payload: CloudMessageSendPayload,
+): boolean => {
+	if (
+		receipt.messageEventJson === null ||
+		receipt.providerTurnEventJson === null
+	)
+		return false;
+	try {
+		const messageEvent = Schema.decodeUnknownOption(ReceiptMessageEvent)(
+			JSON.parse(receipt.messageEventJson),
+		);
+		const providerEvent = Schema.decodeUnknownOption(ReceiptProviderTurnEvent)(
+			JSON.parse(receipt.providerTurnEventJson),
+		);
+		if (Option.isNone(messageEvent) || Option.isNone(providerEvent))
+			return false;
+		const content = Schema.decodeUnknownOption(MessageContent)(
+			JSON.parse(messageEvent.value.contentJson),
+		);
+		const providerInput = Schema.decodeUnknownOption(ComposerInput)(
+			JSON.parse(providerEvent.value.providerInputJson),
+		);
+		if (Option.isNone(content) || Option.isNone(providerInput)) return false;
+
+		const composer = payload.input;
+		const text = composer?.text ?? payload.text ?? "";
+		const attachments = (composer?.attachments ?? []).filter(
+			(attachment) => !attachment.id.startsWith("pending-"),
+		);
+		const fileRefs = composer?.fileRefs ?? [];
+		const skillRefs = composer?.skillRefs ?? [];
+		const annotations = composer?.annotations ?? [];
+		const rich =
+			attachments.length > 0 ||
+			fileRefs.length > 0 ||
+			skillRefs.length > 0 ||
+			annotations.length > 0;
+		const persisted = content.value;
+		if (persisted._tag !== "user" && persisted._tag !== "user_rich")
+			return false;
+		if (
+			messageEvent.value.turnId !== providerEvent.value.turnId ||
+			messageEvent.value.messageId !== payload.clientMessageId ||
+			messageEvent.value.kind !== persisted._tag ||
+			persisted.text !== text ||
+			persisted.goal !== false ||
+			persisted.origin !== undefined
+		)
+			return false;
+		if (rich) {
+			if (
+				persisted._tag !== "user_rich" ||
+				!isDeepStrictEqual(persisted.attachments, attachments) ||
+				!isDeepStrictEqual(persisted.fileRefs, fileRefs) ||
+				!isDeepStrictEqual(persisted.skillRefs, skillRefs) ||
+				!isDeepStrictEqual(persisted.annotations, annotations)
+			)
+				return false;
+		} else if (persisted._tag !== "user") return false;
+
+		const expectedProviderText = [
+			annotations.length > 0 ? serializeAnnotations(annotations) : null,
+			text,
+		]
+			.filter((part): part is string => part !== null && part.length > 0)
+			.join("\n\n")
+			.trim();
+		return (
+			providerInput.value.text === expectedProviderText &&
+			providerInput.value.asGoal === undefined &&
+			isDeepStrictEqual(providerInput.value.attachments, attachments) &&
+			isDeepStrictEqual(providerInput.value.fileRefs, fileRefs) &&
+			isDeepStrictEqual(providerInput.value.skillRefs, skillRefs) &&
+			isDeepStrictEqual(providerInput.value.annotations, annotations)
+		);
+	} catch {
+		return false;
+	}
+};
+
+const receiptProvesDurableMessage = (
+	receipt: CloudMailboxCommandReceipt,
+	payload: CloudMessageSendPayload,
+): boolean => {
+	if (
+		!Number.isSafeInteger(receipt.streamVersion) ||
+		receipt.streamVersion < 1 ||
+		receipt.resultJson === null
+	)
+		return false;
+	try {
+		const eventIds = JSON.parse(receipt.eventIdsJson) as unknown;
+		const result = JSON.parse(receipt.resultJson) as unknown;
+		if (
+			!Array.isArray(eventIds) ||
+			eventIds.length === 0 ||
+			!eventIds.every((eventId) => typeof eventId === "string") ||
+			typeof result !== "object" ||
+			result === null
+		)
+			return false;
+		if (!receiptMatchesMessagePayload(receipt, payload)) return false;
+		const durableResult = result as Record<string, unknown>;
+		const durableEventIds = durableResult.eventIds;
+		return (
+			durableResult.commandId === receipt.commandId &&
+			durableResult.streamId === receipt.streamId &&
+			durableResult.streamVersion === receipt.streamVersion &&
+			Array.isArray(durableEventIds) &&
+			durableEventIds.length === eventIds.length &&
+			durableEventIds.every((eventId, index) => eventId === eventIds[index])
+		);
+	} catch {
+		return false;
+	}
+};
+
+const receiptIsDurableAndBound = (
+	receipt: CloudMailboxCommandReceipt,
+	identity: CloudMailboxCommandIdentity,
+	payload: CloudMessageSendPayload,
+): boolean =>
+	!receiptConflict(receipt, identity) &&
+	receipt.fingerprint === identity.fingerprint &&
+	receipt.commandKind === identity.commandKind &&
+	receipt.schemaVersion === identity.schemaVersion &&
+	receipt.storageIncarnationId === identity.storageIncarnationId &&
+	receiptProvesDurableMessage(receipt, payload);
+
+const verifyAndBindCloudMailboxReceipt = Effect.fn(
+	"CloudWorkspaceRuntime.verifyAndBindMailboxReceipt",
+)(function* (input: {
+	readonly receipt: CloudMailboxCommandReceipt;
+	readonly identity: CloudMailboxCommandIdentity;
+	readonly payload: CloudMessageSendPayload;
+	readonly receipts: CloudMailboxReceiptStore;
+}) {
+	if (receiptConflict(input.receipt, input.identity))
+		return yield* Effect.fail(
+			rejectCloudMailboxCommand("runtime-receipt-conflict"),
+		);
+	if (!receiptProvesDurableMessage(input.receipt, input.payload))
+		return yield* Effect.fail(
+			rejectCloudMailboxCommand("runtime-receipt-invalid"),
+		);
+	if (receiptIsDurableAndBound(input.receipt, input.identity, input.payload))
+		return;
+
+	// Matching legacy v2 receipts predate the identity columns. Binding is a CAS:
+	// a concurrent incompatible claimant cannot overwrite any populated field.
+	yield* input.receipts.bindIdentity(input.identity);
+	const bound = yield* input.receipts.read(input.identity.commandId);
+	if (
+		bound === null ||
+		!receiptIsDurableAndBound(bound, input.identity, input.payload)
+	)
+		return yield* Effect.fail(
+			rejectCloudMailboxCommand("runtime-receipt-invalid"),
+		);
+});
+
+const messageFailureCategory = (error: {
+	readonly _tag?: string;
+}): CloudMailboxCommandRejectionCategory => {
+	if (error._tag === "SessionNotFoundError") return "session-not-found";
+	if (error._tag === "DirectoryUnavailableError")
+		return "workspace-directory-unavailable";
+	return "runtime-apply-failed";
+};
+
+const rejectionCategoryFromCause = (
+	cause: Cause.Cause<CloudMailboxApplyError>,
+): CloudMailboxCommandRejectionCategory => {
+	const error = Cause.findErrorOption(cause);
+	if (
+		Option.isSome(error) &&
+		typeof error.value === "object" &&
+		error.value !== null &&
+		"_tag" in error.value &&
+		error.value._tag === "CloudMailboxApplyError"
+	)
+		return (error.value as CloudMailboxApplyError).category;
+	return "runtime-apply-failed";
+};
+
+export const applyCloudMailboxLease = Effect.fn(
+	"CloudWorkspaceRuntime.applyMailboxLease",
+)(function* (input: {
+	readonly config: Pick<CloudWorkspaceRuntimeConfig, "workspaceId">;
+	readonly lease: typeof RuntimeLease.Type;
+	readonly runtimeGeneration: number;
+	readonly providerSandboxId: string;
+	readonly nowMs: Effect.Effect<number>;
+	readonly transcriptKey: string;
+	readonly storageIncarnationId: string;
+	readonly sendMessage: MessageService["Service"]["sendMessage"];
+	readonly receipts: CloudMailboxReceiptStore;
+}) {
+	const { command: envelope } = input.lease;
+	const applied = Effect.gen(function* () {
+		if (input.lease.runtimeGeneration !== input.runtimeGeneration)
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("runtime-generation-mismatch"),
+			);
+		if (input.lease.providerSandboxId !== input.providerSandboxId)
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("runtime-provider-sandbox-mismatch"),
+			);
+		if (input.lease.storageIncarnationId !== input.storageIncarnationId)
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("runtime-storage-incarnation-mismatch"),
+			);
+		if (envelope.workspaceId !== input.config.workspaceId)
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("command-payload-identity-mismatch"),
+			);
+		const eligibility = cloudCommandEligibility(envelope.kind);
+		if (eligibility === undefined)
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("command-kind-not-supported"),
+			);
+		if (eligibility.dependencies !== "none" || envelope.dependencies.length > 0)
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("command-dependencies-not-supported"),
+			);
+		if (envelope.schemaVersion !== eligibility.schemaVersion)
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("command-schema-not-supported"),
+			);
+		// Eligibility is shared rollout policy; this guard is the runtime's
+		// executable handler dispatch and remains closed to newly registered kinds.
+		if (envelope.kind !== "messages.send")
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("command-kind-not-supported"),
+			);
+
+		const aad = cloudCommandAdditionalData(envelope);
+		const plaintext = yield* Effect.tryPromise({
+			try: () =>
+				decryptCloudCommandBody({
+					encodedKey: input.transcriptKey,
+					additionalData: aad,
+					iv: envelope.iv,
+					ciphertext: envelope.ciphertext,
+				}),
+			catch: () => rejectCloudMailboxCommand("command-decryption-failed"),
+		});
+		if (plaintext.byteLength > eligibility.maxPlaintextBytes)
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("command-payload-too-large"),
+			);
+		const fingerprint = yield* Effect.tryPromise({
+			try: () =>
+				keyedCloudCommandFingerprint({
+					encodedKey: input.transcriptKey,
+					canonicalPlaintext: plaintext,
+				}),
+			catch: () => rejectCloudMailboxCommand("command-decryption-failed"),
+		});
+		if (fingerprint !== envelope.fingerprint)
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("command-fingerprint-mismatch"),
+			);
+		const decodedPayload = yield* Effect.try({
+			try: () => JSON.parse(new TextDecoder().decode(plaintext)) as unknown,
+			catch: () => rejectCloudMailboxCommand("command-payload-invalid"),
+		});
+		const payload = decodeCloudMessageSendPayload(decodedPayload);
+		if (payload === null)
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("command-payload-invalid"),
+			);
+		if (
+			payload.commandId !== envelope.commandId ||
+			payload.sessionId !== envelope.sessionId
+		)
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("command-payload-identity-mismatch"),
+			);
+		const limitation = cloudMessageSendPayloadLimitation(payload);
+		if (limitation !== null) {
+			const category =
+				limitation === "attachments-not-supported"
+					? "command-dependencies-not-supported"
+					: "command-goal-mode-not-supported";
+			return yield* Effect.fail(rejectCloudMailboxCommand(category));
+		}
+		const composer = payload.input;
+		// Prepare the terminal result before crossing the apply boundary. Once the
+		// domain receipt exists, a local encryption failure must not turn an applied
+		// provider workflow into a false `rejected` terminal outcome.
+		const encryptedResult = yield* Effect.tryPromise({
+			try: () =>
+				encryptCloudCommandBody({
+					encodedKey: input.transcriptKey,
+					additionalData: aad,
+					plaintext: new TextEncoder().encode(
+						JSON.stringify({
+							commandId: envelope.commandId,
+							result: null,
+						} satisfies CloudMessageSendResult),
+					),
+				}),
+			catch: () => rejectCloudMailboxCommand("result-encryption-failed"),
+		});
+		const receiptIdentity = {
+			commandId: envelope.commandId,
+			streamId: envelope.sessionId,
+			fingerprint: envelope.fingerprint,
+			commandKind: envelope.kind,
+			schemaVersion: envelope.schemaVersion,
+			storageIncarnationId: input.storageIncarnationId,
+		} satisfies CloudMailboxCommandIdentity;
+		const existing = yield* input.receipts.read(envelope.commandId);
+		if (existing !== null) {
+			yield* verifyAndBindCloudMailboxReceipt({
+				receipt: existing,
+				identity: receiptIdentity,
+				payload,
+				receipts: input.receipts,
+			});
+			// The authoritative SQLite receipt proves this exact encrypted command
+			// already applied. Startup reactor recovery owns any downstream catch-up;
+			// do not re-enter MessageService or the provider from mailbox replay.
+			return encryptedResult;
+		}
+		if ((yield* input.nowMs) >= input.lease.leaseDeadline)
+			return yield* Effect.fail(
+				rejectCloudMailboxCommand("runtime-lease-expired"),
+			);
+
+		const domainReceiptIdentity = {
+			fingerprint: receiptIdentity.fingerprint,
+			commandKind: receiptIdentity.commandKind,
+			schemaVersion: receiptIdentity.schemaVersion,
+			storageIncarnationId: receiptIdentity.storageIncarnationId,
+		} satisfies CommandReceiptIdentity;
+		const sendOutcome = yield* input
+			.sendMessage(
+				envelope.commandId,
+				payload.sessionId,
+				composer?.text ?? payload.text ?? "",
+				composer?.attachments,
+				composer?.fileRefs,
+				composer?.skillRefs,
+				composer?.annotations,
+				false,
+				payload.clientMessageId,
+				undefined,
+				domainReceiptIdentity,
+			)
+			.pipe(
+				Effect.mapError((error) =>
+					rejectCloudMailboxCommand(messageFailureCategory(error)),
+				),
+				Effect.exit,
+			);
+		const receipt = yield* input.receipts.read(envelope.commandId);
+		if (receipt !== null) {
+			yield* verifyAndBindCloudMailboxReceipt({
+				receipt,
+				identity: receiptIdentity,
+				payload,
+				receipts: input.receipts,
+			});
+			return encryptedResult;
+		}
+		if (sendOutcome._tag === "Failure")
+			return yield* Effect.failCause(sendOutcome.cause);
+		return yield* Effect.fail(
+			rejectCloudMailboxCommand("runtime-receipt-missing"),
+		);
+	});
+
+	const outcome = yield* Effect.exit(applied);
+	if (outcome._tag === "Success")
+		return RuntimeAcknowledgment.make({
+			commandId: envelope.commandId,
+			leaseToken: input.lease.leaseToken,
+			fingerprint: envelope.fingerprint,
+			state: "applied",
+			resultIv: outcome.value.iv,
+			resultCiphertext: outcome.value.ciphertext,
+		});
+	const category = rejectionCategoryFromCause(outcome.cause);
+	const retryWithoutAcknowledgment =
+		category === "runtime-receipt-store-unavailable" ||
+		category === "runtime-lease-expired";
+	if (retryWithoutAcknowledgment) return null;
+	const outcomeIsUnknown =
+		category === "runtime-receipt-missing" ||
+		category === "runtime-receipt-invalid" ||
+		category === "runtime-apply-failed";
+	return RuntimeAcknowledgment.make({
+		commandId: envelope.commandId,
+		leaseToken: input.lease.leaseToken,
+		fingerprint: envelope.fingerprint,
+		state: outcomeIsUnknown ? "outcome-unknown" : "rejected",
+		category,
+	});
+});
+
+export const classifyCloudMailboxAckFailure = (
+	error: CloudWorkspaceRuntimeError,
+): "retry" | "stop-retrying" => {
+	if (
+		error.reason === "api_request_failed" ||
+		error.reason === "api_invalid_response"
+	)
+		return "retry";
+	const status = error.httpStatus;
+	// Each retry builds a new request from the mutable credential state, so a 401
+	// can be the response from the token that raced a successful renewal. The
+	// credential supervisor terminates the process if renewal itself is fenced.
+	if (
+		status === 401 ||
+		status === 408 ||
+		status === 425 ||
+		status === 429 ||
+		(status !== undefined && status >= 500 && status <= 599)
+	)
+		return "retry";
+	return "stop-retrying";
+};
+
+export interface CloudMailboxConsumerState {
+	readonly pendingApplications: Map<string, typeof RuntimeLease.Type>;
+	readonly pendingAcknowledgments: Map<
+		string,
+		typeof RuntimeAcknowledgment.Type
+	>;
+}
+
+export const runCloudMailboxConsumerCycle = Effect.fn(
+	"CloudWorkspaceRuntime.runMailboxConsumerCycle",
+)(function* (input: {
+	readonly state: CloudMailboxConsumerState;
+	readonly lease: Effect.Effect<
+		Readonly<{
+			leases: ReadonlyArray<typeof RuntimeLease.Type>;
+			fenceRequired?: boolean;
+		}>,
+		CloudWorkspaceRuntimeError
+	>;
+	readonly apply: (
+		lease: typeof RuntimeLease.Type,
+	) => Effect.Effect<typeof RuntimeAcknowledgment.Type | null>;
+	readonly acknowledge: (
+		acknowledgment: typeof RuntimeAcknowledgment.Type,
+	) => Effect.Effect<unknown, CloudWorkspaceRuntimeError>;
+	readonly onRuntimeFenceRequired?: Effect.Effect<void>;
+}) {
+	let runtimeFenceRequested = false;
+	const requestRuntimeFence = Effect.suspend(() => {
+		if (runtimeFenceRequested) return Effect.void;
+		runtimeFenceRequested = true;
+		return input.onRuntimeFenceRequired ?? Effect.void;
+	});
+	const acknowledge = Effect.fn(
+		"CloudWorkspaceRuntime.acknowledgeMailboxCommand",
+	)(function* (acknowledgment: typeof RuntimeAcknowledgment.Type) {
+		const result = yield* input.acknowledge(acknowledgment).pipe(Effect.result);
+		if (result._tag === "Success") {
+			input.state.pendingAcknowledgments.delete(acknowledgment.commandId);
+			return;
+		}
+		const disposition = classifyCloudMailboxAckFailure(result.failure);
+		const metadata = {
+			commandId: acknowledgment.commandId,
+			reason: result.failure.reason,
+			httpStatus: result.failure.httpStatus,
+			disposition,
+		};
+		if (disposition === "stop-retrying") {
+			yield* Effect.logError(
+				"cloud mailbox permanent acknowledgment failure",
+				metadata,
+			);
+			input.state.pendingAcknowledgments.delete(acknowledgment.commandId);
+			// The mailbox reserves 409 for an impossible fingerprint/token
+			// invariant. Terminate the production runtime so the control plane can
+			// fence its generation instead of stranding the lane. The injected test
+			// hook returns normally, proving a permanent ACK never blocks polling.
+			if (result.failure.httpStatus === 409) yield* requestRuntimeFence;
+			return;
+		}
+		yield* Effect.logWarning(
+			"cloud mailbox acknowledgment temporarily failed",
+			metadata,
+		);
+	});
+
+	for (const acknowledgment of [...input.state.pendingAcknowledgments.values()])
+		yield* acknowledge(acknowledgment);
+
+	const apply = Effect.fn("CloudWorkspaceRuntime.applyPendingMailboxCommand")(
+		function* (lease: typeof RuntimeLease.Type) {
+			const acknowledgment = yield* input.apply(lease);
+			if (acknowledgment === null) {
+				if ((yield* Clock.currentTimeMillis) >= lease.leaseDeadline) {
+					input.state.pendingApplications.delete(lease.command.commandId);
+					// The DO will not re-lease an uncertain command until this runtime
+					// generation is provably fenced. Recycle now instead of leaving the
+					// session lane parked in lease-expired-awaiting-fence indefinitely.
+					yield* requestRuntimeFence;
+				}
+				return;
+			}
+			input.state.pendingApplications.delete(lease.command.commandId);
+			input.state.pendingAcknowledgments.set(
+				acknowledgment.commandId,
+				acknowledgment,
+			);
+			yield* acknowledge(acknowledgment);
+		},
+	);
+	for (const lease of [...input.state.pendingApplications.values()])
+		yield* apply(lease);
+
+	const leasePage = yield* input.lease;
+	if (leasePage.fenceRequired) {
+		// A process restart can forget the expired lease held by its previous
+		// incarnation while retaining the same control-plane generation. The
+		// mailbox refuses to replay until that generation is fenced; honor the
+		// explicit signal instead of silently polling an empty page forever.
+		yield* requestRuntimeFence;
+		return;
+	}
+	for (const lease of leasePage.leases) {
+		if (input.state.pendingApplications.has(lease.command.commandId)) continue;
+		input.state.pendingApplications.set(lease.command.commandId, lease);
+		yield* apply(lease);
+	}
 });
 
 const runCloudMailboxConsumer = (input: {
 	readonly config: CloudWorkspaceRuntimeConfig;
 	readonly runtimeCredential: RuntimeCredentialState;
+	readonly providerSandboxId: string;
 	readonly transcriptKey: string;
 	readonly storageIncarnationId: string;
 	readonly messages: MessageService["Service"];
 	readonly sql: SqlClient.SqlClient;
 }): Effect.Effect<never, never> => {
-	const poll = Effect.gen(function* () {
-		const page = yield* requestJson({
-			schema: RuntimeLeasePage,
-			url: `${input.config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCommandLease(input.config.workspaceId)}`,
-			token: input.runtimeCredential.credential,
-			method: "POST",
-			body: { storageIncarnationId: input.storageIncarnationId },
-		});
-		for (const lease of page.leases) {
-			const envelope = lease.command;
-			const aad = cloudCommandAdditionalData(envelope);
-			let acknowledgment: {
-				readonly commandId: typeof envelope.commandId;
-				readonly leaseToken: string;
-				readonly fingerprint: string;
-				readonly state: "applied" | "rejected";
-				readonly category?: string;
-				readonly resultIv?: string;
-				readonly resultCiphertext?: string;
-			};
-			const applied = yield* Effect.tryPromise({
-				try: async () => {
-					const plaintext = await decryptCloudCommandBody({
-						encodedKey: input.transcriptKey,
-						additionalData: aad,
-						iv: envelope.iv,
-						ciphertext: envelope.ciphertext,
-					});
-					const fingerprint = await keyedCloudCommandFingerprint({
-						encodedKey: input.transcriptKey,
-						canonicalPlaintext: plaintext,
-					});
-					if (fingerprint !== envelope.fingerprint)
-						throw new Error("command-fingerprint-mismatch");
-					if (envelope.kind !== "messages.send")
-						throw new Error("command-kind-not-runtime-enabled");
-					const payload = Schema.decodeUnknownSync(DurableMessagePayload)(
-						JSON.parse(new TextDecoder().decode(plaintext)),
-					);
-					if (
-						payload.commandId !== envelope.commandId ||
-						payload.sessionId !== envelope.sessionId
-					)
-						throw new Error("command-payload-identity-mismatch");
-					const receipts = await Effect.runPromise(
-						input.sql<{ readonly fingerprint: string | null }>`
-							SELECT fingerprint FROM command_receipts
-							WHERE command_id = ${envelope.commandId} LIMIT 1
-						`,
-					);
-					if (
-						receipts[0]?.fingerprint !== null &&
-						receipts[0]?.fingerprint !== undefined &&
-						receipts[0]?.fingerprint !== envelope.fingerprint
-					)
-						throw new Error("runtime-command-receipt-fingerprint-mismatch");
-					const composer = payload.input;
-					await Effect.runPromise(
-						input.messages.sendMessage(
-							envelope.commandId,
-							payload.sessionId,
-							composer?.text ?? payload.text ?? "",
-							composer?.attachments,
-							composer?.fileRefs,
-							composer?.skillRefs,
-							composer?.annotations,
-							composer?.asGoal ?? payload.asGoal,
-							payload.clientMessageId,
-						),
-					);
-					await Effect.runPromise(
-						input.sql`
-							UPDATE command_receipts SET
-								fingerprint = ${envelope.fingerprint},
-								command_kind = ${envelope.kind},
-								schema_version = ${envelope.schemaVersion},
-								storage_incarnation_id = ${input.storageIncarnationId}
-							WHERE command_id = ${envelope.commandId}
-								AND (fingerprint IS NULL OR fingerprint = ${envelope.fingerprint})
-						`,
-					);
-					const result = await encryptCloudCommandBody({
-						encodedKey: input.transcriptKey,
-						additionalData: aad,
-						plaintext: new TextEncoder().encode(
-							JSON.stringify({ commandId: envelope.commandId, result: null }),
-						),
-					});
-					return result;
-				},
-				catch: (cause) =>
-					cause instanceof Error ? cause : new Error(String(cause)),
-			}).pipe(Effect.result);
-			if (applied._tag === "Success") {
-				acknowledgment = {
-					commandId: envelope.commandId,
-					leaseToken: lease.leaseToken,
-					fingerprint: envelope.fingerprint,
-					state: "applied",
-					resultIv: applied.success.iv,
-					resultCiphertext: applied.success.ciphertext,
-				};
-			} else {
-				acknowledgment = {
-					commandId: envelope.commandId,
-					leaseToken: lease.leaseToken,
-					fingerprint: envelope.fingerprint,
-					state: "rejected",
-					category: applied.failure.message,
-				};
-			}
-			// Applying and acknowledging are separate durability boundaries. Keep
-			// retrying the identical lease receipt until the mailbox has it; a lost
-			// HTTP response must not turn successfully applied work into ambiguity.
-			yield* Effect.suspend(() =>
-				requestJson({
-					schema: Schema.Unknown,
-					url: `${input.config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCommandAck(input.config.workspaceId)}`,
-					token: input.runtimeCredential.credential,
-					method: "POST",
-					body: acknowledgment,
-				}),
-			).pipe(Effect.retry(cloudRuntimeRetrySchedule));
-		}
+	const state: CloudMailboxConsumerState = {
+		pendingApplications: new Map(),
+		pendingAcknowledgments: new Map(),
+	};
+	const receipts = makeCloudMailboxReceiptStore(input.sql);
+	const poll = runCloudMailboxConsumerCycle({
+		state,
+		lease: Effect.suspend(() =>
+			requestJson({
+				schema: RuntimeLeasePage,
+				url: `${input.config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCommandLease(input.config.workspaceId)}`,
+				token: input.runtimeCredential.credential,
+				method: "POST",
+				body: { storageIncarnationId: input.storageIncarnationId },
+				timeoutMs: 10_000,
+			}),
+		),
+		apply: (lease) =>
+			applyCloudMailboxLease({
+				config: input.config,
+				lease,
+				runtimeGeneration: input.runtimeCredential.generation,
+				providerSandboxId: input.providerSandboxId,
+				nowMs: Clock.currentTimeMillis,
+				transcriptKey: input.transcriptKey,
+				storageIncarnationId: input.storageIncarnationId,
+				sendMessage: input.messages.sendMessage,
+				receipts,
+			}),
+		acknowledge: (acknowledgment) =>
+			requestJson({
+				schema: Schema.Unknown,
+				url: `${input.config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCommandAck(input.config.workspaceId)}`,
+				token: input.runtimeCredential.credential,
+				method: "POST",
+				body: acknowledgment,
+				timeoutMs: 10_000,
+			}),
+		onRuntimeFenceRequired: Effect.sync(() => {
+			process.kill(process.pid, "SIGTERM");
+		}),
 	}).pipe(
 		Effect.catch((error) =>
 			Effect.logWarning("cloud mailbox poll failed", { reason: error.reason }),
@@ -994,7 +1678,15 @@ const postReady = (
 		url: `${config.apiUrl}${ApiPaths.cloudWorkspaceReady(config.workspaceId)}`,
 		token: runtimeCredential,
 		method: "POST",
-		body: { phase, launchCommandId, errorCode, sessionHeadVersion },
+		body: {
+			phase,
+			launchCommandId,
+			errorCode,
+			sessionHeadVersion,
+			...(phase === "repository-ready"
+				? { commandProtocolVersion: CLOUD_COMMAND_PROTOCOL_VERSION }
+				: {}),
+		},
 	}).pipe(Effect.asVoid);
 
 const writeCredentialsReady = Effect.tryPromise({
@@ -1213,6 +1905,22 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						generation: bootstrap.runtimeGeneration,
 						gatewayEpoch: bootstrap.gatewayEpoch,
 					};
+					const postCurrentRuntimeReady = (
+						phase: "repository-ready" | "agent-started" | "launch-failed",
+						launchCommandId?: string,
+						errorCode?: string,
+						sessionHeadVersion?: number,
+					) =>
+						Effect.suspend(() =>
+							postReady(
+								config,
+								runtimeCredential.credential,
+								phase,
+								launchCommandId,
+								errorCode,
+								sessionHeadVersion,
+							),
+						);
 					yield* writeGithubBrokerState(config, runtimeCredential.credential);
 					yield* superviseRuntimeCredential({
 						config,
@@ -1264,16 +1972,18 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					yield* writeCredentialsReady;
 					console.info("[cloud-workspace-runtime] credentials ready");
 					const acknowledgeBootstrap = retryCloudWorkspaceBootstrap(
-						requestJson({
-							schema: RuntimeBootstrapAckResponse,
-							url: `${config.apiUrl}${ApiPaths.cloudWorkspaceBootstrapAck(config.workspaceId)}`,
-							token: runtimeCredential.credential,
-							method: "POST",
-							body: {
-								runtimeGeneration: runtimeCredential.generation,
-								gatewayEpoch: runtimeCredential.gatewayEpoch,
-							},
-						}),
+						Effect.suspend(() =>
+							requestJson({
+								schema: RuntimeBootstrapAckResponse,
+								url: `${config.apiUrl}${ApiPaths.cloudWorkspaceBootstrapAck(config.workspaceId)}`,
+								token: runtimeCredential.credential,
+								method: "POST",
+								body: {
+									runtimeGeneration: runtimeCredential.generation,
+									gatewayEpoch: runtimeCredential.gatewayEpoch,
+								},
+							}),
+						),
 					).pipe(Effect.andThen(removeBootToken(config.bootTokenFile)));
 					const localCredential = yield* auth
 						.mintToken("cloud workspace gateway")
@@ -1424,7 +2134,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					>();
 					let gateway: WebSocket | null = null;
 					let repositoryReady = false;
-					const gatewayOpened = yield* Deferred.make<void>();
 					const sendGateway = (message: unknown) => {
 						if (gateway?.readyState === WebSocket.OPEN)
 							gateway.send(
@@ -1500,18 +2209,11 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						],
 						(socket) => {
 							gateway = socket;
-							void Effect.runPromise(
-								Deferred.succeed(gatewayOpened, undefined),
-							);
 							const reconnectPhase =
 								runtimeReadyPhaseOnGatewayOpen(repositoryReady);
 							if (reconnectPhase !== null)
 								void Effect.runPromise(
-									postReady(
-										config,
-										runtimeCredential.credential,
-										reconnectPhase,
-									).pipe(Effect.ignore),
+									postCurrentRuntimeReady(reconnectPhase).pipe(Effect.ignore),
 								);
 							socket.addEventListener("message", (event) => {
 								if (
@@ -1586,19 +2288,21 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						Effect.forkScoped({ startImmediately: true }),
 					);
 
-					yield* Effect.all(
-						[waitForRepository, Deferred.await(gatewayOpened)],
-						{ concurrency: "unbounded" },
-					);
-					yield* postReady(
-						config,
-						runtimeCredential.credential,
-						"repository-ready",
-					).pipe(Effect.retry(cloudRuntimeRetrySchedule));
+					// Durable commands depend on the repository and runtime credential,
+					// not on the disposable UI gateway. A gateway outage must never stop
+					// this runtime from draining its workspace mailbox.
+					yield* waitForRepository;
+					// Record the local prerequisite first. If the gateway opens while the
+					// control-plane update is in flight, its callback publishes another
+					// ready revision after the socket is actually usable.
 					repositoryReady = true;
+					yield* postCurrentRuntimeReady("repository-ready").pipe(
+						Effect.retry(cloudRuntimeRetrySchedule),
+					);
 					yield* runCloudMailboxConsumer({
 						config,
 						runtimeCredential,
+						providerSandboxId: bootstrap.providerSandboxId,
 						transcriptKey,
 						storageIncarnationId,
 						messages,
@@ -1609,8 +2313,8 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					);
 
 					// Transcript and summary maintenance are not prerequisites for a usable
-					// sandbox. Start them after the gateway and worktree are ready so they
-					// never extend workspace setup latency.
+					// sandbox. Start them after the worktree is ready so they never extend
+					// workspace setup latency.
 					yield* checkpointPublisherFor(bootstrap.initialSessionId);
 					const sessionEventCursor = yield* sessionDomain.currentSequence.pipe(
 						Effect.mapError(() => fail("workspace_summary_cursor_unavailable")),
@@ -1659,18 +2363,14 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							launchIntent,
 						}).pipe(Effect.result);
 						if (started._tag === "Failure") {
-							yield* postReady(
-								config,
-								runtimeCredential.credential,
+							yield* postCurrentRuntimeReady(
 								"launch-failed",
 								launchIntent.commandId,
 								started.failure.reason,
 							).pipe(Effect.retry(cloudRuntimeRetrySchedule));
 							return yield* Effect.fail(started.failure);
 						}
-						yield* postReady(
-							config,
-							runtimeCredential.credential,
+						yield* postCurrentRuntimeReady(
 							"agent-started",
 							launchIntent.commandId,
 							undefined,

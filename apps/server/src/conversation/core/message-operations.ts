@@ -16,6 +16,7 @@ import {
 	type TurnInterruptReceipt,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
+import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
 import { Deferred, Effect, type FileSystem, type Scope } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { ConversationOperations } from "../services/conversation-services.ts";
@@ -58,6 +59,7 @@ export interface MessageOperationsOptions {
 		providerInputJson: string,
 		idOverride?: MessageId,
 		commandId?: string,
+		receiptIdentity?: CommandReceiptIdentity,
 	) => Effect.Effect<PersistedMessage>;
 	readonly ndjsonAppend: (
 		sessionId: SessionId,
@@ -245,6 +247,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			asGoal?: boolean,
 			clientMessageId?: MessageId,
 			origin?: MessageOrigin,
+			receiptIdentity?: CommandReceiptIdentity,
 		): Effect.Effect<
 			boolean,
 			SessionNotFoundError | DirectoryUnavailableError
@@ -371,6 +374,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 								JSON.stringify(providerInput),
 								clientMessageId,
 								commandId,
+								receiptIdentity,
 							);
 				// Pin the attachments so the GC sweep treats them as referenced —
 				// a separate row per (message, attachment) keeps the existing
@@ -437,6 +441,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			asGoal,
 			clientMessageId,
 			origin,
+			receiptIdentity,
 		) =>
 			Effect.gen(function* () {
 				const accepted = yield* submitUserMessage(
@@ -450,6 +455,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					asGoal,
 					clientMessageId,
 					origin,
+					receiptIdentity,
 				);
 				if (!accepted) {
 					const turnId = yield* resolveActiveTurn(sessionId);

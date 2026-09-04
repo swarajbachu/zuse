@@ -50,6 +50,7 @@ import type {
 	UserQuestionAnswer,
 	WorktreeId,
 } from "@zuse/contracts";
+import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
 import { Context, type Effect, type Stream } from "effect";
 
 /**
@@ -514,6 +515,7 @@ export interface ConversationOperations {
 		asGoal?: boolean,
 		clientMessageId?: MessageId,
 		origin?: MessageOrigin,
+		receiptIdentity?: CommandReceiptIdentity,
 	) => Effect.Effect<void, SessionNotFoundError | DirectoryUnavailableError>;
 
 	readonly interruptSession: (

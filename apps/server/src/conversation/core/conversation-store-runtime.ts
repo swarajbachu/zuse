@@ -13,6 +13,7 @@ import {
 	ThreadGoal,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
+import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import type { SqlSessionQueriesApi } from "@zuse/domain/queries/sql-session-queries";
 import { Effect, PubSub, type Scope } from "effect";
@@ -94,6 +95,7 @@ export interface ConversationStoreRuntime {
 		providerInputJson: string,
 		idOverride?: MessageId,
 		commandId?: string,
+		receiptIdentity?: CommandReceiptIdentity,
 	) => Effect.Effect<PersistedMessage>;
 	readonly setStatus: (
 		sessionId: SessionId,
@@ -431,6 +433,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 		providerInputJson: string,
 		idOverride?: MessageId,
 		commandId?: string,
+		receiptIdentity?: CommandReceiptIdentity,
 	): Effect.Effect<PersistedMessage> =>
 		Effect.gen(function* () {
 			const id = idOverride ?? MessageId.make(crypto.randomUUID());
@@ -440,6 +443,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 				.dispatch({
 					commandId: commandId ?? `turn:submit:${id}`,
 					streamId: sessionId,
+					...(receiptIdentity === undefined ? {} : { receiptIdentity }),
 					command: {
 						_tag: "SubmitTurn",
 						turnId,

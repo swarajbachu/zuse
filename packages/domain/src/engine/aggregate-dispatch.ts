@@ -4,9 +4,12 @@ import { Effect, Result } from "effect";
 import type {
 	AppendInput,
 	CommandReceipt,
+	CommandReceiptConflict,
+	CommandReceiptIdentityConflict,
 	DispatchInput,
 	DispatchStorage,
 } from "./dispatch.js";
+import { validateCommandReceipt } from "./dispatch.js";
 
 export type AggregateDefinition<State, Command, Event, DomainError> = {
 	readonly initialState: State;
@@ -48,7 +51,11 @@ export class AggregateDispatchEngine<
 		input: DispatchInput<Command>,
 	): Effect.Effect<
 		CommandReceipt,
-		DomainError | StorageError | EventIdError,
+		| DomainError
+		| StorageError
+		| EventIdError
+		| CommandReceiptConflict
+		| CommandReceiptIdentityConflict,
 		EventIdRequirements
 	> {
 		return this.worker.run(input.streamId, this.run(input));
@@ -67,7 +74,8 @@ export class AggregateDispatchEngine<
 		input: DispatchInput<Command>,
 	) {
 		const existing = yield* this.storage.receipt(input.commandId);
-		if (existing !== null) return existing;
+		if (existing !== null)
+			return yield* validateCommandReceipt(input, existing);
 
 		const stored = yield* this.storage.events(input.streamId);
 		const state = this.aggregate.evolveAll(
@@ -89,6 +97,9 @@ export class AggregateDispatchEngine<
 			causationEventId: input.causationEventId ?? null,
 			expectedVersion: this.aggregate.version(state),
 			events,
+			...(input.receiptIdentity === undefined
+				? {}
+				: { receiptIdentity: input.receiptIdentity }),
 		};
 		return yield* this.storage.append(append);
 	});

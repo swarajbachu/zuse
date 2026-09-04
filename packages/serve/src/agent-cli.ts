@@ -1082,6 +1082,7 @@ const execute = async (
 				);
 			await rpc(
 				client["session.plan.respond"]({
+					commandId: commandId("session-plan-response"),
 					sessionId: selectedSessionId,
 					toolCallId: required(one(args, "tool-call"), "--tool-call"),
 					outcome: outcome as "approved" | "cancelled" | "abandoned",
@@ -1099,6 +1100,7 @@ const execute = async (
 				);
 			await rpc(
 				client["session.answerQuestion"]({
+					commandId: commandId("session-answer-question"),
 					sessionId: selectedSessionId,
 					itemId: required(one(args, "item"), "--item"),
 					answers: answers as Array<{

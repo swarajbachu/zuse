@@ -38,6 +38,16 @@ interface WranglerTarget {
 		readonly binding: string;
 		readonly id: string;
 	}>;
+	readonly durable_objects: {
+		readonly bindings: ReadonlyArray<{
+			readonly name: string;
+			readonly class_name: string;
+		}>;
+	};
+	readonly migrations: ReadonlyArray<{
+		readonly tag: string;
+		readonly new_sqlite_classes?: readonly string[];
+	}>;
 }
 
 describe("api deployment safety", () => {
@@ -73,6 +83,7 @@ describe("api deployment safety", () => {
 			{ pattern: "api-staging.stuff.md", custom_domain: true },
 		]);
 		expect(config.vars.API_ISSUER).toBe(STAGING_API_URL);
+		expect(config.vars.CLOUD_COMMAND_MAILBOX_ENABLED).toBe("true");
 		expect(`https://${config.routes[0]?.pattern}`).toBe(STAGING_API_URL);
 		expect(config.vars.MANAGED_TUNNEL_NAMESPACE).toBe("zenv-staging");
 		expect(config.vars.WORKOS_JWKS_URL).toBe(
@@ -123,6 +134,14 @@ describe("api deployment safety", () => {
 				id: "dfc67e0586ff4c288cb645ed63c65d9a",
 			},
 		]);
+		expect(config.durable_objects.bindings).toContainEqual({
+			name: "WORKSPACE_MAILBOX",
+			class_name: "WorkspaceMailbox",
+		});
+		expect(config.migrations).toContainEqual({
+			tag: "v2-workspace-mailbox",
+			new_sqlite_classes: ["WorkspaceMailbox"],
+		});
 		expect(config).not.toHaveProperty("env");
 	});
 
@@ -136,6 +155,7 @@ describe("api deployment safety", () => {
 			{ pattern: "api.zuse.sh", custom_domain: true },
 		]);
 		expect(production.vars.MACHINE_PROVIDER).toBe("fake");
+		expect(production.vars.CLOUD_COMMAND_MAILBOX_ENABLED).toBe("true");
 		expect(production.vars.HETZNER_ADAPTER_ENABLED).toBe("false");
 		expect(production.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("true");
 		expect(production.vars.MACHINE_RUNTIME_MANIFEST_URL).toBe("");
@@ -179,6 +199,14 @@ describe("api deployment safety", () => {
 				id: "c49c02e939494a958fb5fe6805e7b0f2",
 			},
 		]);
+		expect(production.durable_objects.bindings).toContainEqual({
+			name: "WORKSPACE_MAILBOX",
+			class_name: "WorkspaceMailbox",
+		});
+		expect(production.migrations).toContainEqual({
+			tag: "v2-workspace-mailbox",
+			new_sqlite_classes: ["WorkspaceMailbox"],
+		});
 		const deploymentScript = await readFile(productionDeployScriptUrl, "utf8");
 		expect(deploymentScript).toContain(
 			'["wrangler", "deploy", "--config", configPath]',
@@ -211,6 +239,8 @@ describe("api deployment safety", () => {
 	test("publishes production runtimes only from a version tag with a separate key", async () => {
 		const workflow = await readFile(runtimeWorkflowUrl, "utf8");
 		expect(workflow).toContain('tags: ["v*"]');
+		expect(workflow).toContain("confirm_non_main_staging");
+		expect(workflow).toContain('"$CONFIRM_NON_MAIN_STAGING" != "true"');
 		expect(workflow).toContain("release_tag=cloud-runtime-$target");
 		expect(workflow).toContain("ZUSE_PRODUCTION_RUNTIME_SIGNING_PRIVATE_JWK");
 		expect(

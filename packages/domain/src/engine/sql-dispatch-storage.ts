@@ -6,10 +6,13 @@ import { SessionEvent } from "../core/events.js";
 import {
 	type AppendInput,
 	CommandReceipt,
-	CommandReceiptConflict,
+	type CommandReceiptConflict,
+	type CommandReceiptIdentity,
+	type CommandReceiptIdentityConflict,
 	ConcurrencyConflict,
 	type DispatchStorage,
 	type StoredEvent,
+	validateCommandReceipt,
 } from "./dispatch.js";
 import {
 	decodePersistedEvent,
@@ -29,6 +32,7 @@ export type SqlDispatchStorageError =
 	| SqlError
 	| ConcurrencyConflict
 	| CommandReceiptConflict
+	| CommandReceiptIdentityConflict
 	| DispatchPersistenceDecodeError;
 
 interface ReceiptRow {
@@ -37,6 +41,10 @@ interface ReceiptRow {
 	readonly stream_version: number;
 	readonly event_ids_json: string;
 	readonly result_json: string | null;
+	readonly fingerprint: string | null;
+	readonly command_kind: string | null;
+	readonly schema_version: number | null;
+	readonly storage_incarnation_id: string | null;
 }
 
 const decodeSessionEvent = Schema.decodeUnknownEffect(
@@ -56,22 +64,55 @@ const receiptDecodeError = (recordId: string, cause: unknown) =>
 		reason: String(cause),
 	});
 
+const receiptIdentityFromRow = (
+	row: ReceiptRow,
+): CommandReceiptIdentity | null | "invalid" => {
+	const fields = [
+		row.fingerprint,
+		row.command_kind,
+		row.schema_version,
+		row.storage_incarnation_id,
+	];
+	if (fields.every((field) => field === null)) return null;
+	if (fields.some((field) => field === null)) return "invalid";
+	return {
+		fingerprint: row.fingerprint as string,
+		commandKind: row.command_kind as string,
+		schemaVersion: row.schema_version as number,
+		storageIncarnationId: row.storage_incarnation_id as string,
+	};
+};
+
 const receiptFromRow = Effect.fn("SqlDispatchStorage.receiptFromRow")(
 	function* (row: ReceiptRow) {
+		const receiptIdentity = receiptIdentityFromRow(row);
+		if (receiptIdentity === "invalid")
+			return yield* receiptDecodeError(
+				row.command_id,
+				"partially bound command receipt identity",
+			);
+		const withIdentity = (receipt: CommandReceipt): CommandReceipt => {
+			const { receiptIdentity: _persistedIdentity, ...authoritativeReceipt } =
+				receipt;
+			return receiptIdentity === null
+				? authoritativeReceipt
+				: { ...authoritativeReceipt, receiptIdentity };
+		};
 		if (row.result_json !== null) {
 			return yield* decodeReceipt(row.result_json).pipe(
 				Effect.mapError((cause) => receiptDecodeError(row.command_id, cause)),
+				Effect.map(withIdentity),
 			);
 		}
 		const eventIds = yield* decodeEventIds(row.event_ids_json).pipe(
 			Effect.mapError((cause) => receiptDecodeError(row.command_id, cause)),
 		);
-		return {
+		return withIdentity({
 			commandId: row.command_id,
 			streamId: row.stream_id,
 			streamVersion: row.stream_version,
 			eventIds,
-		};
+		});
 	},
 );
 
@@ -116,7 +157,8 @@ export const makeSqlDispatchStorage = <
 		commandId: string,
 	) {
 		const rows = yield* sql<ReceiptRow>`
-			SELECT command_id, stream_id, stream_version, event_ids_json, result_json
+			SELECT command_id, stream_id, stream_version, event_ids_json, result_json,
+			       fingerprint, command_kind, schema_version, storage_incarnation_id
 			FROM command_receipts
 			WHERE command_id = ${commandId}
 			LIMIT 1
@@ -201,14 +243,17 @@ export const makeSqlDispatchStorage = <
 			Effect.gen(function* () {
 				const existing = yield* receipt(input.commandId);
 				if (existing !== null) {
-					if (existing.streamId !== input.streamId) {
-						return yield* new CommandReceiptConflict({
+					return yield* validateCommandReceipt(
+						{
 							commandId: input.commandId,
-							expectedStreamId: input.streamId,
-							actualStreamId: existing.streamId,
-						});
-					}
-					return existing;
+							streamId: input.streamId,
+							command: undefined,
+							...(input.receiptIdentity === undefined
+								? {}
+								: { receiptIdentity: input.receiptIdentity }),
+						},
+						existing,
+					);
 				}
 
 				const versions = yield* sql<{ readonly version: number }>`
@@ -240,22 +285,34 @@ export const makeSqlDispatchStorage = <
 					`;
 				}
 
-				const result: CommandReceipt = {
+				const persistedResult: CommandReceipt = {
 					commandId: input.commandId,
 					streamId: input.streamId,
 					streamVersion,
 					eventIds: input.events.map((item) => item.eventId),
 					...(input.result === undefined ? {} : { result: input.result }),
 				};
+				const result: CommandReceipt =
+					input.receiptIdentity === undefined
+						? persistedResult
+						: {
+								...persistedResult,
+								receiptIdentity: input.receiptIdentity,
+							};
 				yield* sql`
-					INSERT INTO command_receipts
-						(command_id, stream_kind, stream_id, stream_version,
-						 event_ids_json, result_json, created_at)
-					VALUES
-						(${result.commandId}, ${streamKind}, ${result.streamId},
-						 ${result.streamVersion}, ${JSON.stringify(result.eventIds)},
-						 ${JSON.stringify(result)}, ${occurredAt})
-				`;
+						INSERT INTO command_receipts
+							(command_id, stream_kind, stream_id, stream_version,
+							 event_ids_json, result_json, created_at, fingerprint,
+							 command_kind, schema_version, storage_incarnation_id)
+						VALUES
+							(${result.commandId}, ${streamKind}, ${result.streamId},
+							 ${result.streamVersion}, ${JSON.stringify(result.eventIds)},
+							 ${JSON.stringify(persistedResult)}, ${occurredAt},
+							 ${input.receiptIdentity?.fingerprint ?? null},
+							 ${input.receiptIdentity?.commandKind ?? null},
+							 ${input.receiptIdentity?.schemaVersion ?? null},
+							 ${input.receiptIdentity?.storageIncarnationId ?? null})
+					`;
 				return result;
 			}),
 		);

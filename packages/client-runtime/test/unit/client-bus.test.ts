@@ -1,6 +1,6 @@
 import { CommandId, EnvironmentId, SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
 	ClientBus,
@@ -8,7 +8,10 @@ import {
 	type ResourceSynchronization,
 } from "../../src/client-bus.ts";
 import type {
+	ClientCommand,
 	ClientPersistence,
+	CloudCommandTransport,
+	CommandDispatchHandle,
 	CommandFingerprint,
 	CommandReceipt,
 	OutboxEntry,
@@ -16,8 +19,10 @@ import type {
 } from "../../src/client-persistence.ts";
 import {
 	CloudCommandTerminalError,
+	CloudCommandTransportUnavailableError,
 	CommandIdentityCollisionError,
 	commandFingerprint,
+	terminalErrorFromReceipt,
 } from "../../src/client-persistence.ts";
 import type { EnvironmentResolver } from "../../src/environment-runtime.ts";
 import {
@@ -43,6 +48,43 @@ const waitUntil = async (predicate: () => boolean): Promise<void> => {
 		await Promise.resolve();
 	}
 	throw new Error("condition was not reached");
+};
+
+type TestCloudDispatchInput = {
+	readonly command: ClientCommand;
+	readonly fingerprint: CommandFingerprint;
+};
+
+type TestCloudResumeInput = TestCloudDispatchInput & {
+	readonly encryptedEnvelope: unknown;
+	readonly acceptance?: import("@zuse/contracts").CommandAcceptance;
+	readonly deliveryStatus?: import("@zuse/contracts").CommandStatus;
+};
+
+const testCloudTransport = (
+	dispatch: (input: TestCloudDispatchInput) => CommandDispatchHandle,
+	resume:
+		| ((input: TestCloudResumeInput) => CommandDispatchHandle)
+		| null = null,
+): CloudCommandTransport => {
+	const prepare = (
+		handle: CommandDispatchHandle,
+		encryptedEnvelope: unknown,
+	) => ({
+		...handle,
+		encryptedEnvelope:
+			handle.encryptedEnvelope ?? Promise.resolve(encryptedEnvelope),
+		deliveryFingerprint: Promise.resolve("hmac-sha256:test-envelope"),
+		start: () => undefined,
+		dispose: () => undefined,
+	});
+	return {
+		supports: () => true,
+		dispatch: ((input: TestCloudDispatchInput) =>
+			prepare(dispatch(input), { test: "fresh" })) as never,
+		resume: ((input: TestCloudResumeInput) =>
+			prepare((resume ?? dispatch)(input), input.encryptedEnvelope)) as never,
+	};
 };
 
 const environmentId = EnvironmentId.make("environment-1");
@@ -802,8 +844,8 @@ describe("ClientBus", () => {
 					throw new Error("live executor must not run");
 				},
 			},
-			commandTransportFor: () => ({
-				dispatch: ({ command, fingerprint }) => ({
+			commandTransportFor: () =>
+				testCloudTransport(({ command, fingerprint }) => ({
 					accepted: Promise.resolve({
 						commandId: command.commandId,
 						workspaceSequence: 4,
@@ -818,8 +860,7 @@ describe("ClientBus", () => {
 						result: undefined as never,
 					})),
 					cancel: () => Promise.reject(new Error("not needed")),
-				}),
-			}),
+				})),
 		});
 		const handle = bus.dispatchHandle({
 			kind: "messages.send",
@@ -855,9 +896,111 @@ describe("ClientBus", () => {
 		await bus.dispose();
 	});
 
-	it("removes authoritative mailbox terminal failures from the retry outbox", async () => {
+	it("preserves the resource lane when concurrent cloud commands fall back to live RPC", async () => {
 		const persistence = new MemoryPersistence();
-		const commandId = CommandId.make("durable-rejected-command");
+		const firstFallback = deferred<void>();
+		const secondFallback = deferred<void>();
+		const firstExecution = deferred<void>();
+		const mailboxSelections: string[] = [];
+		const liveExecutions: string[] = [];
+		let concurrentExecutions = 0;
+		let maximumConcurrentExecutions = 0;
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async (_client, command) => {
+					liveExecutions.push(command.commandId);
+					concurrentExecutions += 1;
+					maximumConcurrentExecutions = Math.max(
+						maximumConcurrentExecutions,
+						concurrentExecutions,
+					);
+					if (command.commandId === "fallback-first") {
+						await firstExecution.promise;
+					}
+					concurrentExecutions -= 1;
+					return {
+						commandId: command.commandId,
+						receivedAt: Date.now(),
+						result: command.commandId,
+					};
+				},
+			},
+			commandTransportFor: () =>
+				testCloudTransport(({ command }) => {
+					mailboxSelections.push(command.commandId);
+					const unavailable = (
+						command.commandId === "fallback-first"
+							? firstFallback.promise
+							: secondFallback.promise
+					).then(() => {
+						throw new CloudCommandTransportUnavailableError(
+							"runtime does not support the mailbox",
+						);
+					});
+					return {
+						accepted: unavailable,
+						result: unavailable,
+						encryptedEnvelope: unavailable,
+						cancel: () => Promise.reject(new Error("not accepted")),
+					};
+				}),
+		});
+		const makeCommand = (commandId: string) => ({
+			kind: "messages.send",
+			commandId: CommandId.make(commandId),
+			environmentId,
+			resource: timelineKey,
+			payload: { commandId, sessionId: "session-1", text: commandId },
+			retry: "safe" as const,
+			createdAt: Date.now(),
+		});
+
+		const first = bus.dispatch(makeCommand("fallback-first"));
+		const second = bus.dispatch(makeCommand("fallback-second"));
+		await waitUntil(() => mailboxSelections.length === 2);
+		expect(mailboxSelections).toEqual(["fallback-first", "fallback-second"]);
+
+		// Even when the second capability check loses the race first, its live RPC
+		// cannot overtake the command submitted ahead of it.
+		secondFallback.resolve();
+		await Promise.resolve();
+		expect(liveExecutions).toEqual([]);
+		firstFallback.resolve();
+		await waitUntil(() => liveExecutions.length === 1);
+		expect(liveExecutions).toEqual(["fallback-first"]);
+		expect(maximumConcurrentExecutions).toBe(1);
+
+		firstExecution.resolve();
+		await expect(first).resolves.toMatchObject({ commandId: "fallback-first" });
+		await expect(second).resolves.toMatchObject({
+			commandId: "fallback-second",
+		});
+		expect(liveExecutions).toEqual(["fallback-first", "fallback-second"]);
+		expect(maximumConcurrentExecutions).toBe(1);
+		await bus.dispose();
+	});
+
+	it("keeps accepted delivery visible without resurrecting a completed outbox row", async () => {
+		const statusWriteStarted = deferred<void>();
+		const releaseStatusWrite = deferred<void>();
+		class DelayedStatusPersistence extends MemoryPersistence {
+			override async putOutbox(entry: OutboxEntry): Promise<void> {
+				if (entry.deliveryStatus?.state === "leased") {
+					statusWriteStarted.resolve();
+					await releaseStatusWrite.promise;
+				}
+				await super.putOutbox(entry);
+			}
+		}
+		const persistence = new DelayedStatusPersistence();
+		const commandId = CommandId.make("durable-command-status");
+		const resultGate = deferred<void>();
+		let publishStatus:
+			| ((status: import("@zuse/contracts").CommandStatus) => void)
+			| undefined;
+		let cancelCalls = 0;
 		const bus = new ClientBus<Client>({
 			resolver: immediateResolver(),
 			persistence,
@@ -866,8 +1009,295 @@ describe("ClientBus", () => {
 					throw new Error("live executor must not run");
 				},
 			},
-			commandTransportFor: () => ({
-				dispatch: ({ command }) => ({
+			commandTransportFor: () =>
+				testCloudTransport(({ command, fingerprint }) => ({
+					accepted: Promise.resolve({
+						commandId: command.commandId,
+						workspaceSequence: 4,
+						revision: 9,
+						acceptedAt: 10,
+						state: "accepted",
+					}),
+					result: resultGate.promise.then(() => ({
+						commandId: command.commandId,
+						fingerprint,
+						receivedAt: 12,
+						result: undefined,
+					})),
+					cancel: async () => {
+						cancelCalls += 1;
+						throw new Error("not expected");
+					},
+					subscribeStatus: (listener) => {
+						publishStatus = listener;
+						return () => {
+							if (publishStatus === listener) publishStatus = undefined;
+						};
+					},
+				})),
+		});
+		const handle = bus.dispatchHandle({
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: timelineKey,
+			payload: { commandId, sessionId: "session-1", text: "hello" },
+			retry: "safe",
+			createdAt: 1,
+		});
+
+		await expect(handle.accepted).resolves.toMatchObject({ revision: 9 });
+		await waitUntil(() => publishStatus !== undefined);
+		expect(bus.snapshot(timelineKey).pendingCommands).toEqual([
+			expect.objectContaining({
+				commandId,
+				deliveryPhase: "waiting-for-runtime",
+				cancellable: true,
+			}),
+		]);
+
+		publishStatus?.({
+			commandId,
+			workspaceSequence: 4,
+			revision: 10,
+			state: "blocked",
+			everLeased: false,
+			updatedAt: 11,
+			category: "sign-in-required",
+			blockedUntil: "auth-restored",
+		});
+		expect(bus.snapshot(timelineKey).pendingCommands).toEqual([
+			expect.objectContaining({
+				commandId,
+				deliveryPhase: "blocked",
+				category: "sign-in-required",
+				blockedUntil: "auth-restored",
+				cancellable: true,
+			}),
+		]);
+
+		publishStatus?.({
+			commandId,
+			workspaceSequence: 4,
+			revision: 11,
+			state: "leased",
+			everLeased: true,
+			updatedAt: 12,
+		});
+		const leased = bus.snapshot(timelineKey).pendingCommands;
+		expect(leased).toEqual([
+			expect.objectContaining({
+				commandId,
+				deliveryPhase: "leased",
+				cancellable: false,
+			}),
+		]);
+		expect(leased[0]?.category).toBeUndefined();
+		expect(leased[0]?.blockedUntil).toBeUndefined();
+		await expect(handle.cancel()).rejects.toThrow(
+			"This command can no longer be cancelled",
+		);
+		expect(cancelCalls).toBe(0);
+
+		await statusWriteStarted.promise;
+		let resultSettled = false;
+		const result = handle.result.finally(() => {
+			resultSettled = true;
+		});
+		resultGate.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(resultSettled).toBe(false);
+		expect(persistence.outbox.has(commandId)).toBe(true);
+
+		releaseStatusWrite.resolve();
+		await result;
+		expect(persistence.outbox.has(commandId)).toBe(false);
+		expect(persistence.receipts.has(commandId)).toBe(true);
+		await bus.dispose();
+	});
+
+	it("persists the encrypted envelope before starting mailbox acceptance", async () => {
+		const persistence = new MemoryPersistence();
+		const commandId = CommandId.make("durable-envelope-first");
+		let startedWithEnvelope = false;
+		const acceptance = deferred<import("@zuse/contracts").CommandAcceptance>();
+		const transport: CloudCommandTransport = {
+			supports: () => true,
+			dispatch: <Result>({
+				command,
+				fingerprint,
+			}: {
+				readonly command: ClientCommand<unknown, Result>;
+				readonly fingerprint: CommandFingerprint;
+			}) => ({
+				accepted: acceptance.promise,
+				result: acceptance.promise.then(() => ({
+					commandId: command.commandId,
+					fingerprint,
+					receivedAt: 5,
+					result: undefined as Result,
+				})),
+				encryptedEnvelope: Promise.resolve({ opaque: "ciphertext" }),
+				deliveryFingerprint: Promise.resolve("hmac-sha256:envelope-first"),
+				dispose: () => undefined,
+				start: () => {
+					startedWithEnvelope =
+						persistence.outbox.get(command.commandId)?.encryptedEnvelope !==
+						undefined;
+					acceptance.resolve({
+						commandId: command.commandId,
+						workspaceSequence: 1,
+						revision: 2,
+						acceptedAt: 3,
+						state: "accepted",
+					});
+				},
+				cancel: () => Promise.reject(new Error("not needed")),
+			}),
+			resume: () => {
+				throw new Error("fresh command must not resume");
+			},
+		};
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async () => {
+					throw new Error("live executor must not run");
+				},
+			},
+			commandTransportFor: () => transport,
+		});
+
+		const handle = bus.dispatchHandle({
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: timelineKey,
+			payload: { commandId, sessionId: "session-1", text: "hello" },
+			retry: "safe",
+			createdAt: 1,
+		});
+		await expect(handle.accepted).resolves.toMatchObject({ revision: 2 });
+		expect(startedWithEnvelope).toBe(true);
+		await handle.result;
+		await bus.dispose();
+	});
+
+	it("persists keyed delivery identity across termination immediately after acceptance", async () => {
+		const persistence = new MemoryPersistence();
+		const commandId = CommandId.make("durable-accepted-before-termination");
+		const deliveryFingerprint = "hmac-sha256:accepted-before-termination";
+		const acceptance = {
+			commandId,
+			workspaceSequence: 1,
+			revision: 2,
+			acceptedAt: 3,
+			state: "accepted" as const,
+		};
+		const never = new Promise<never>(() => undefined);
+		const firstTransport: CloudCommandTransport = {
+			supports: () => true,
+			dispatch: (() => ({
+				accepted: Promise.resolve(acceptance),
+				result: never,
+				encryptedEnvelope: Promise.resolve({ opaque: "ciphertext" }),
+				deliveryFingerprint: Promise.resolve(deliveryFingerprint),
+				start: () => undefined,
+				dispose: () => undefined,
+				cancel: () => Promise.reject(new Error("not needed")),
+			})) as never,
+			resume: (() => {
+				throw new Error("fresh command must not resume");
+			}) as never,
+		};
+		const firstBus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async () => {
+					throw new Error("live executor must not run");
+				},
+			},
+			commandTransportFor: () => firstTransport,
+		});
+		const firstHandle = firstBus.dispatchHandle({
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: timelineKey,
+			payload: { commandId, sessionId: "session-1", text: "accepted" },
+			retry: "safe",
+			createdAt: 1,
+		});
+		void firstHandle.result.catch(() => undefined);
+		await expect(firstHandle.accepted).resolves.toEqual(acceptance);
+		await waitUntil(
+			() => persistence.outbox.get(commandId)?.acceptance !== undefined,
+		);
+		expect(persistence.outbox.get(commandId)?.deliveryStatus).toMatchObject({
+			commandId,
+			fingerprint: deliveryFingerprint,
+			state: "accepted",
+		});
+		await firstBus.dispose();
+
+		let resumes = 0;
+		const secondTransport: CloudCommandTransport = {
+			supports: () => false,
+			dispatch: (() => {
+				throw new Error("accepted command must not enqueue again");
+			}) as never,
+			resume: (<Result>(input: TestCloudResumeInput) => {
+				resumes += 1;
+				if (input.deliveryStatus?.fingerprint !== deliveryFingerprint) {
+					throw new Error("persisted delivery status lost keyed identity");
+				}
+				return {
+					accepted: Promise.resolve(acceptance),
+					result: Promise.resolve({
+						commandId,
+						fingerprint: input.fingerprint,
+						receivedAt: 4,
+						result: undefined as Result,
+					}),
+					encryptedEnvelope: Promise.resolve(input.encryptedEnvelope),
+					deliveryFingerprint: Promise.resolve(deliveryFingerprint),
+					start: () => undefined,
+					dispose: () => undefined,
+					cancel: () => Promise.reject(new Error("not needed")),
+				};
+			}) as never,
+		};
+		const secondBus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async () => {
+					throw new Error("live executor must not run");
+				},
+			},
+			commandTransportFor: () => secondTransport,
+		});
+		await secondBus.flushDurableOutbox(environmentId);
+		await waitUntil(() => resumes === 1 && !persistence.outbox.has(commandId));
+		await secondBus.dispose();
+	});
+
+	it("removes an unreadable applied result from the retry outbox", async () => {
+		const persistence = new MemoryPersistence();
+		const commandId = CommandId.make("durable-result-invalid-command");
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async () => {
+					throw new Error("live executor must not run");
+				},
+			},
+			commandTransportFor: () =>
+				testCloudTransport(({ command }) => ({
 					accepted: Promise.resolve({
 						commandId: command.commandId,
 						workspaceSequence: 1,
@@ -877,14 +1307,13 @@ describe("ClientBus", () => {
 					}),
 					result: Promise.reject(
 						new CloudCommandTerminalError(
-							"rejected",
-							"interaction-expired",
-							"This interaction expired.",
+							"outcome-unknown",
+							"result-invalid",
+							"The command was applied, but its encrypted result could not be recovered.",
 						),
 					),
 					cancel: () => Promise.reject(new Error("not needed")),
-				}),
-			}),
+				})),
 		});
 		const handle = bus.dispatchHandle({
 			kind: "messages.send",
@@ -896,14 +1325,206 @@ describe("ClientBus", () => {
 			createdAt: 1,
 		});
 		await expect(handle.accepted).resolves.toBeDefined();
-		await expect(handle.result).rejects.toBeInstanceOf(
-			CloudCommandTerminalError,
-		);
+		await expect(handle.result).rejects.toMatchObject({
+			name: "CloudCommandTerminalError",
+			state: "outcome-unknown",
+			category: "result-invalid",
+		});
 		expect(persistence.outbox.has(commandId)).toBe(false);
+		expect(
+			terminalErrorFromReceipt(persistence.receipts.get(commandId)),
+		).toMatchObject({
+			state: "outcome-unknown",
+			category: "result-invalid",
+		});
 		expect(bus.snapshot(timelineKey).failedCommands.at(-1)?.retryable).toBe(
 			false,
 		);
+		expect(bus.snapshot(timelineKey).failedCommands.at(-1)?.terminal).toEqual({
+			state: "outcome-unknown",
+			category: "result-invalid",
+		});
 		await bus.dispose();
+	});
+
+	it("keeps an accepted command pending through a transient result-watch retry", async () => {
+		vi.useFakeTimers();
+		try {
+			const persistence = new MemoryPersistence();
+			const commandId = CommandId.make("durable-accepted-watch-retry");
+			const acceptance = {
+				commandId,
+				workspaceSequence: 1,
+				revision: 2,
+				acceptedAt: 3,
+				state: "accepted" as const,
+			};
+			let dispatches = 0;
+			let resumes = 0;
+			const bus = new ClientBus<Client>({
+				resolver: immediateResolver(),
+				persistence,
+				commandExecutor: {
+					execute: async () => {
+						throw new Error("live executor must not run");
+					},
+				},
+				commandTransportFor: () =>
+					testCloudTransport(
+						() => {
+							dispatches += 1;
+							return {
+								accepted: Promise.resolve(acceptance),
+								result: Promise.reject(
+									new Error("result watch temporarily disconnected"),
+								),
+								cancel: () => Promise.reject(new Error("not needed")),
+							};
+						},
+						({ command, fingerprint }) => {
+							resumes += 1;
+							return {
+								accepted: Promise.resolve(acceptance),
+								result: Promise.resolve({
+									commandId: command.commandId,
+									fingerprint,
+									receivedAt: 4,
+									result: "applied",
+								}),
+								cancel: () => Promise.reject(new Error("not needed")),
+							};
+						},
+					),
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			const command = {
+				kind: "messages.send",
+				commandId,
+				environmentId,
+				resource: timelineKey,
+				payload: { commandId, sessionId: "session-1", text: "accepted" },
+				retry: "safe" as const,
+				createdAt: 1,
+			};
+
+			const handle = bus.dispatchHandle(command);
+			const originalResult = bus.dispatch(command);
+			expect(handle.result).toBe(originalResult);
+			await expect(handle.accepted).resolves.toEqual(acceptance);
+			await waitUntil(
+				() => persistence.outbox.get(commandId)?.acceptance !== undefined,
+			);
+			await Promise.resolve();
+			expect(bus.snapshot(timelineKey).pendingCommands).toEqual([
+				expect.objectContaining({
+					commandId,
+					deliveryPhase: "waiting-for-runtime",
+				}),
+			]);
+			expect(bus.snapshot(timelineKey).failedCommands).toEqual([]);
+			expect(dispatches).toBe(1);
+			expect(resumes).toBe(0);
+
+			await vi.advanceTimersByTimeAsync(2_000);
+			await expect(handle.result).resolves.toMatchObject({
+				commandId,
+				result: "applied",
+			});
+			expect(dispatches).toBe(1);
+			expect(resumes).toBe(1);
+			expect(bus.snapshot(timelineKey).pendingCommands).toEqual([]);
+			expect(bus.snapshot(timelineKey).failedCommands).toEqual([]);
+			expect(persistence.outbox.has(commandId)).toBe(false);
+			await bus.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("reconstructs a persisted terminal outcome without dispatching the same ID", async () => {
+		const persistence = new MemoryPersistence();
+		const commandId = CommandId.make("durable-terminal-receipt-restart");
+		const command = {
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: timelineKey,
+			payload: { commandId, sessionId: "session-1", text: "terminal" },
+			retry: "safe" as const,
+			createdAt: 1,
+		};
+		let mailboxDispatches = 0;
+		const first = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async () => {
+					throw new Error("live executor must not run");
+				},
+			},
+			commandTransportFor: () =>
+				testCloudTransport(({ command: sent }) => {
+					mailboxDispatches += 1;
+					return {
+						accepted: Promise.resolve({
+							commandId: sent.commandId,
+							workspaceSequence: 1,
+							revision: 2,
+							acceptedAt: 3,
+							state: "accepted",
+						}),
+						result: Promise.reject(
+							new CloudCommandTerminalError(
+								"rejected",
+								"interaction-expired",
+								"The interaction expired.",
+								4,
+							),
+						),
+						cancel: () => Promise.reject(new Error("not needed")),
+					};
+				}),
+		});
+		await expect(first.dispatch(command)).rejects.toMatchObject({
+			state: "rejected",
+			category: "interaction-expired",
+			occurredAt: 4,
+		});
+		expect(persistence.outbox.has(commandId)).toBe(false);
+		expect(persistence.receipts.get(commandId)).toMatchObject({
+			commandId,
+			receivedAt: 4,
+			terminalError: {
+				state: "rejected",
+				category: "interaction-expired",
+				message: "The interaction expired.",
+			},
+		});
+		await first.dispose();
+
+		const restored = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async () => {
+					throw new Error("live executor must not run");
+				},
+			},
+			commandTransportFor: () =>
+				testCloudTransport(() => {
+					mailboxDispatches += 1;
+					throw new Error("persisted terminal receipt must win");
+				}),
+		});
+		await expect(restored.dispatch(command)).rejects.toMatchObject({
+			name: "CloudCommandTerminalError",
+			state: "rejected",
+			category: "interaction-expired",
+			message: "The interaction expired.",
+			occurredAt: 4,
+		});
+		expect(mailboxDispatches).toBe(1);
+		await restored.dispose();
 	});
 
 	it("replays a persisted durable command after the client restarts without waking compute", async () => {
@@ -937,33 +1558,909 @@ describe("ClientBus", () => {
 					throw new Error("live executor must not run");
 				},
 			},
-			commandTransportFor: () => ({
-				dispatch: ({ command: restored, fingerprint: restoredFingerprint }) => {
-					mailboxDispatches += 1;
-					return {
-						accepted: Promise.resolve({
-							commandId: restored.commandId,
-							workspaceSequence: 1,
-							revision: 2,
-							acceptedAt: 3,
-							state: "accepted",
-						}),
-						result: Promise.resolve({
-							commandId: restored.commandId,
-							fingerprint: restoredFingerprint,
-							receivedAt: 4,
-							result: undefined as never,
-						}),
-						cancel: () => Promise.reject(new Error("not needed")),
-					};
-				},
-			}),
+			commandTransportFor: () =>
+				testCloudTransport(
+					({ command: restored, fingerprint: restoredFingerprint }) => {
+						mailboxDispatches += 1;
+						return {
+							accepted: Promise.resolve({
+								commandId: restored.commandId,
+								workspaceSequence: 1,
+								revision: 2,
+								acceptedAt: 3,
+								state: "accepted",
+							}),
+							result: Promise.resolve({
+								commandId: restored.commandId,
+								fingerprint: restoredFingerprint,
+								receivedAt: 4,
+								result: undefined as never,
+							}),
+							cancel: () => Promise.reject(new Error("not needed")),
+						};
+					},
+				),
 		});
 		await new Promise((resolve) => setTimeout(resolve, 10));
 		expect(mailboxDispatches).toBe(1);
 		expect(runtimeResolutions).toBe(0);
 		expect(persistence.outbox.has(commandId)).toBe(false);
 		await bus.dispose();
+	});
+
+	it("keeps one dispatch handle through a transient mailbox retry", async () => {
+		vi.useFakeTimers();
+		try {
+			const persistence = new MemoryPersistence();
+			const commandId = CommandId.make("durable-transient-enqueue");
+			let mailboxDispatches = 0;
+			let providerApplications = 0;
+			let runtimeResolutions = 0;
+			const bus = new ClientBus<Client>({
+				resolver: immediateResolver(() => {
+					runtimeResolutions += 1;
+				}),
+				persistence,
+				commandExecutor: {
+					execute: async () => {
+						throw new Error("live executor must not run");
+					},
+				},
+				commandTransportFor: () =>
+					testCloudTransport(({ command, fingerprint }) => {
+						mailboxDispatches += 1;
+						if (mailboxDispatches === 1) {
+							const unavailable = Promise.reject(
+								new Error("control plane temporarily unavailable"),
+							);
+							return {
+								accepted: unavailable,
+								result: unavailable,
+								cancel: () => Promise.reject(new Error("not accepted")),
+							};
+						}
+						return {
+							accepted: Promise.resolve({
+								commandId: command.commandId,
+								workspaceSequence: 1,
+								revision: 2,
+								acceptedAt: 3,
+								state: "accepted",
+							}),
+							result: Promise.resolve().then(() => {
+								providerApplications += 1;
+								return {
+									commandId: command.commandId,
+									fingerprint,
+									receivedAt: 4,
+									result: undefined as never,
+								};
+							}),
+							cancel: () => Promise.reject(new Error("not needed")),
+						};
+					}),
+			});
+			// Drain the constructor's empty startup scan before creating fresh work.
+			await vi.advanceTimersByTimeAsync(0);
+			const command = {
+				kind: "messages.send",
+				commandId,
+				environmentId,
+				resource: timelineKey,
+				payload: { commandId, sessionId: "session-1", text: "retry me" },
+				retry: "safe" as const,
+				createdAt: 1,
+			};
+
+			const handle = bus.dispatchHandle(command);
+			let acceptanceSettlements = 0;
+			let resultSettlements = 0;
+			void handle.accepted.then(
+				() => {
+					acceptanceSettlements += 1;
+				},
+				() => {
+					acceptanceSettlements += 1;
+				},
+			);
+			void handle.result.then(
+				() => {
+					resultSettlements += 1;
+				},
+				() => {
+					resultSettlements += 1;
+				},
+			);
+			await waitUntil(() => mailboxDispatches === 1);
+			expect(persistence.outbox.has(commandId)).toBe(true);
+			expect(bus.snapshot(timelineKey).pendingCommands).toEqual([
+				expect.objectContaining({ commandId }),
+			]);
+			expect(bus.snapshot(timelineKey).failedCommands).toEqual([]);
+			expect(mailboxDispatches).toBe(1);
+			expect(runtimeResolutions).toBe(0);
+			expect(acceptanceSettlements).toBe(0);
+			expect(resultSettlements).toBe(0);
+
+			await vi.advanceTimersByTimeAsync(1_999);
+			expect(mailboxDispatches).toBe(1);
+			await vi.advanceTimersByTimeAsync(1);
+			await waitUntil(() => mailboxDispatches === 2);
+			await expect(handle.accepted).resolves.toMatchObject({ revision: 2 });
+			await expect(handle.result).resolves.toMatchObject({ commandId });
+			expect(acceptanceSettlements).toBe(1);
+			expect(resultSettlements).toBe(1);
+			expect(providerApplications).toBe(1);
+			expect(persistence.outbox.has(commandId)).toBe(false);
+			expect(runtimeResolutions).toBe(0);
+			await bus.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps the original resource lane while a mailbox command retries", async () => {
+		vi.useFakeTimers();
+		try {
+			const persistence = new MemoryPersistence();
+			const firstExecution = deferred<void>();
+			const mailboxAttempts = new Map<string, number>();
+			const mailboxSelections: string[] = [];
+			const liveExecutions: string[] = [];
+			const bus = new ClientBus<Client>({
+				resolver: immediateResolver(),
+				persistence,
+				commandExecutor: {
+					execute: async (_client, command) => {
+						liveExecutions.push(command.commandId);
+						if (command.commandId === "retry-lane-first") {
+							await firstExecution.promise;
+						}
+						return {
+							commandId: command.commandId,
+							receivedAt: 3,
+							result: undefined,
+						};
+					},
+				},
+				commandTransportFor: () =>
+					testCloudTransport(({ command }) => {
+						mailboxSelections.push(command.commandId);
+						const attempts = (mailboxAttempts.get(command.commandId) ?? 0) + 1;
+						mailboxAttempts.set(command.commandId, attempts);
+						const cause =
+							command.commandId === "retry-lane-first" && attempts === 1
+								? new Error("control plane temporarily unavailable")
+								: new CloudCommandTransportUnavailableError(
+										"mailbox capability is unavailable",
+									);
+						const failure = Promise.reject(cause);
+						return {
+							accepted: failure,
+							result: failure,
+							encryptedEnvelope: failure,
+							cancel: () => Promise.reject(new Error("not accepted")),
+						};
+					}),
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			const command = (commandId: string) => ({
+				kind: "messages.send",
+				commandId: CommandId.make(commandId),
+				environmentId,
+				resource: timelineKey,
+				payload: { commandId, sessionId: "session-1", text: commandId },
+				retry: "safe" as const,
+				createdAt: 1,
+			});
+
+			const first = bus.dispatchHandle(command("retry-lane-first"));
+			await waitUntil(() => mailboxSelections.length === 1);
+			expect(bus.snapshot(timelineKey).pendingCommands).toEqual([
+				expect.objectContaining({ commandId: "retry-lane-first" }),
+			]);
+			expect(bus.snapshot(timelineKey).failedCommands).toEqual([]);
+			const second = bus.dispatchHandle(command("retry-lane-second"));
+			await waitUntil(() => mailboxSelections.length === 2);
+			expect(liveExecutions).toEqual([]);
+
+			await vi.advanceTimersByTimeAsync(2_000);
+			await waitUntil(() => liveExecutions.length === 1);
+			expect(mailboxSelections).toEqual([
+				"retry-lane-first",
+				"retry-lane-second",
+				"retry-lane-first",
+			]);
+			expect(liveExecutions).toEqual(["retry-lane-first"]);
+
+			firstExecution.resolve();
+			await expect(first.result).resolves.toMatchObject({
+				commandId: "retry-lane-first",
+			});
+			await expect(second.result).resolves.toMatchObject({
+				commandId: "retry-lane-second",
+			});
+			expect(liveExecutions).toEqual(["retry-lane-first", "retry-lane-second"]);
+			await bus.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("rejects the original dispatch handle when its mailbox retry is terminal", async () => {
+		vi.useFakeTimers();
+		try {
+			const persistence = new MemoryPersistence();
+			const commandId = CommandId.make("durable-terminal-retry");
+			let mailboxDispatches = 0;
+			let liveExecutions = 0;
+			const bus = new ClientBus<Client>({
+				resolver: immediateResolver(),
+				persistence,
+				commandExecutor: {
+					execute: async () => {
+						liveExecutions += 1;
+						throw new Error("live executor must not run");
+					},
+				},
+				commandTransportFor: () =>
+					testCloudTransport(() => {
+						mailboxDispatches += 1;
+						const cause =
+							mailboxDispatches === 1
+								? new Error("control plane temporarily unavailable")
+								: new CloudCommandTerminalError(
+										"rejected",
+										"workspace-deleted",
+										"Workspace was deleted",
+									);
+						const failure = Promise.reject(cause);
+						return {
+							accepted: failure,
+							result: failure,
+							cancel: () => Promise.reject(new Error("not accepted")),
+						};
+					}),
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			const handle = bus.dispatchHandle({
+				kind: "messages.send",
+				commandId,
+				environmentId,
+				resource: timelineKey,
+				payload: { commandId, sessionId: "session-1", text: "retry me" },
+				retry: "safe",
+				createdAt: 1,
+			});
+			const accepted = expect(handle.accepted).rejects.toMatchObject({
+				state: "rejected",
+				category: "workspace-deleted",
+			});
+			const result = expect(handle.result).rejects.toMatchObject({
+				state: "rejected",
+				category: "workspace-deleted",
+			});
+			await waitUntil(() => mailboxDispatches === 1);
+			expect(bus.snapshot(timelineKey).pendingCommands).toEqual([
+				expect.objectContaining({ commandId }),
+			]);
+			expect(bus.snapshot(timelineKey).failedCommands).toEqual([]);
+			expect(mailboxDispatches).toBe(1);
+
+			await vi.advanceTimersByTimeAsync(2_000);
+			await Promise.all([accepted, result]);
+			expect(mailboxDispatches).toBe(2);
+			expect(liveExecutions).toBe(0);
+			expect(persistence.outbox.has(commandId)).toBe(false);
+			expect(bus.snapshot(timelineKey).failedCommands).toHaveLength(1);
+			await vi.advanceTimersByTimeAsync(4_000);
+			expect(mailboxDispatches).toBe(2);
+			await bus.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not retry the mailbox after durable-unavailable live fallback", async () => {
+		vi.useFakeTimers();
+		try {
+			const persistence = new MemoryPersistence();
+			const commandId = CommandId.make("durable-live-fallback-once");
+			let mailboxDispatches = 0;
+			let liveExecutions = 0;
+			const bus = new ClientBus<Client>({
+				resolver: immediateResolver(),
+				persistence,
+				commandExecutor: {
+					execute: async (_client, command) => {
+						liveExecutions += 1;
+						return {
+							commandId: command.commandId,
+							receivedAt: 2,
+							result: undefined,
+						};
+					},
+				},
+				commandTransportFor: () =>
+					testCloudTransport(() => {
+						mailboxDispatches += 1;
+						const unavailable = Promise.reject(
+							new CloudCommandTransportUnavailableError(
+								"mailbox capability is unavailable",
+							),
+						);
+						return {
+							accepted: unavailable,
+							result: unavailable,
+							encryptedEnvelope: unavailable,
+							cancel: () => Promise.reject(new Error("not accepted")),
+						};
+					}),
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			const handle = bus.dispatchHandle({
+				kind: "messages.send",
+				commandId,
+				environmentId,
+				resource: timelineKey,
+				payload: { commandId, sessionId: "session-1", text: "fallback" },
+				retry: "safe",
+				createdAt: 1,
+			});
+
+			await expect(handle.accepted).resolves.toMatchObject({ commandId });
+			await expect(handle.result).resolves.toMatchObject({ commandId });
+			expect(mailboxDispatches).toBe(1);
+			expect(liveExecutions).toBe(1);
+			expect(persistence.outbox.has(commandId)).toBe(false);
+			await vi.advanceTimersByTimeAsync(4_000);
+			expect(mailboxDispatches).toBe(1);
+			expect(liveExecutions).toBe(1);
+			await bus.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not repeat a failed live fallback from the durable retry timer", async () => {
+		vi.useFakeTimers();
+		try {
+			const persistence = new MemoryPersistence();
+			const commandId = CommandId.make("durable-live-fallback-failure");
+			let mailboxDispatches = 0;
+			let liveExecutions = 0;
+			const bus = new ClientBus<Client>({
+				resolver: immediateResolver(),
+				persistence,
+				commandFaultFor: () => ({
+					phase: "offline",
+					message: "socket closed",
+				}),
+				commandExecutor: {
+					execute: async () => {
+						liveExecutions += 1;
+						throw new Error("socket closed");
+					},
+				},
+				commandTransportFor: () =>
+					testCloudTransport(() => {
+						mailboxDispatches += 1;
+						const cause =
+							mailboxDispatches === 1
+								? new Error("control plane temporarily unavailable")
+								: new CloudCommandTransportUnavailableError(
+										"mailbox capability is unavailable",
+									);
+						const failure = Promise.reject(cause);
+						return {
+							accepted: failure,
+							result: failure,
+							encryptedEnvelope: failure,
+							cancel: () => Promise.reject(new Error("not accepted")),
+						};
+					}),
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			const handle = bus.dispatchHandle({
+				kind: "messages.send",
+				commandId,
+				environmentId,
+				resource: timelineKey,
+				payload: { commandId, sessionId: "session-1", text: "fallback" },
+				retry: "safe",
+				createdAt: 1,
+			});
+			const accepted = expect(handle.accepted).rejects.toThrow("socket closed");
+			const result = expect(handle.result).rejects.toThrow("socket closed");
+			await waitUntil(() => mailboxDispatches === 1);
+			expect(bus.snapshot(timelineKey).pendingCommands).toEqual([
+				expect.objectContaining({ commandId }),
+			]);
+			expect(bus.snapshot(timelineKey).failedCommands).toEqual([]);
+
+			// A catalog/reconnect scan must not create another attempt while the
+			// original dispatch promise owns its retry delay.
+			await bus.flushDurableOutbox(environmentId);
+			expect(mailboxDispatches).toBe(1);
+			expect(liveExecutions).toBe(0);
+			await vi.advanceTimersByTimeAsync(2_000);
+			await Promise.all([accepted, result]);
+			expect(mailboxDispatches).toBe(2);
+			expect(liveExecutions).toBe(1);
+			expect(persistence.outbox.has(commandId)).toBe(true);
+			await vi.advanceTimersByTimeAsync(6_000);
+			expect(mailboxDispatches).toBe(2);
+			expect(liveExecutions).toBe(1);
+			await bus.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("settles a retry-owned handle when the client bus is disposed", async () => {
+		vi.useFakeTimers();
+		try {
+			const persistence = new MemoryPersistence();
+			const commandId = CommandId.make("durable-retry-dispose");
+			let mailboxDispatches = 0;
+			const bus = new ClientBus<Client>({
+				resolver: immediateResolver(),
+				persistence,
+				commandExecutor: {
+					execute: async () => {
+						throw new Error("live executor must not run");
+					},
+				},
+				commandTransportFor: () =>
+					testCloudTransport(() => {
+						mailboxDispatches += 1;
+						const failure = Promise.reject(
+							new Error("control plane temporarily unavailable"),
+						);
+						return {
+							accepted: failure,
+							result: failure,
+							cancel: () => Promise.reject(new Error("not accepted")),
+						};
+					}),
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			const handle = bus.dispatchHandle({
+				kind: "messages.send",
+				commandId,
+				environmentId,
+				resource: timelineKey,
+				payload: { commandId, sessionId: "session-1", text: "retry me" },
+				retry: "safe",
+				createdAt: 1,
+			});
+			const accepted = expect(handle.accepted).rejects.toThrow(
+				"ClientBus disposed",
+			);
+			const result = expect(handle.result).rejects.toThrow(
+				"ClientBus disposed",
+			);
+			await waitUntil(() => mailboxDispatches === 1);
+			expect(bus.snapshot(timelineKey).pendingCommands).toEqual([
+				expect.objectContaining({ commandId }),
+			]);
+			expect(bus.snapshot(timelineKey).failedCommands).toEqual([]);
+
+			await bus.dispose();
+			await Promise.all([accepted, result]);
+			expect(persistence.outbox.has(commandId)).toBe(true);
+			await vi.advanceTimersByTimeAsync(4_000);
+			expect(mailboxDispatches).toBe(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("resumes an accepted persisted command without enqueueing it again", async () => {
+		const persistence = new MemoryPersistence();
+		const commandId = CommandId.make("durable-accepted-command");
+		const command = {
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: timelineKey,
+			payload: { commandId, sessionId: "session-1", text: "accepted" },
+			retry: "safe" as const,
+			createdAt: 1,
+		};
+		const fingerprint = commandFingerprint(command);
+		const acceptance = {
+			commandId,
+			workspaceSequence: 1,
+			revision: 8,
+			acceptedAt: 9,
+			state: "accepted" as const,
+		};
+		await persistence.putOutbox({
+			command,
+			fingerprint,
+			encryptedEnvelope: { opaque: "persisted-ciphertext" },
+			acceptance,
+			attempts: 1,
+			lastAttemptAt: 2,
+		});
+		let dispatches = 0;
+		let resumes = 0;
+		const transport: CloudCommandTransport = {
+			// Accepted rows remain drainable even after a rollout narrows support.
+			supports: () => false,
+			dispatch: () => {
+				dispatches += 1;
+				throw new Error("accepted command must not enqueue again");
+			},
+			resume: <Result>(input: {
+				readonly command: ClientCommand<unknown, Result>;
+				readonly fingerprint: CommandFingerprint;
+				readonly encryptedEnvelope: unknown;
+				readonly acceptance?: import("@zuse/contracts").CommandAcceptance;
+				readonly deliveryStatus?: import("@zuse/contracts").CommandStatus;
+			}) => {
+				resumes += 1;
+				if (input.acceptance === undefined)
+					throw new Error("expected persisted acceptance");
+				return {
+					accepted: Promise.resolve(input.acceptance),
+					result: Promise.resolve({
+						commandId: input.command.commandId,
+						fingerprint: input.fingerprint,
+						receivedAt: 10,
+						result: undefined as Result,
+					}),
+					encryptedEnvelope: Promise.resolve(input.encryptedEnvelope),
+					deliveryFingerprint: Promise.resolve(
+						"hmac-sha256:persisted-accepted",
+					),
+					start: () => undefined,
+					dispose: () => undefined,
+					cancel: () => Promise.reject(new Error("not needed")),
+				};
+			},
+		};
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async () => {
+					throw new Error("live executor must not run");
+				},
+			},
+			commandTransportFor: () => transport,
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		expect(persistence.outbox.size).toBe(0);
+		expect(dispatches).toBe(0);
+		expect(resumes).toBe(1);
+		await bus.dispose();
+	});
+
+	it("retries an unaccepted command with the exact persisted envelope", async () => {
+		const persistence = new MemoryPersistence();
+		const commandId = CommandId.make("durable-prepared-command");
+		const command = {
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: timelineKey,
+			payload: { commandId, sessionId: "session-1", text: "prepared" },
+			retry: "safe" as const,
+			createdAt: 1,
+		};
+		const fingerprint = commandFingerprint(command);
+		const persistedEnvelope = {
+			iv: "original-iv",
+			ciphertext: "original-ciphertext",
+		};
+		await persistence.putOutbox({
+			command,
+			fingerprint,
+			encryptedEnvelope: persistedEnvelope,
+			attempts: 1,
+			lastAttemptAt: 2,
+		});
+		let dispatches = 0;
+		let resumedEnvelope: unknown;
+		let resumedAcceptance: unknown = "not-called";
+		const transport: CloudCommandTransport = {
+			// Prepared rows remain owned by v3 even if a later rollout narrows new
+			// command eligibility; falling back would create a second execution path.
+			supports: () => false,
+			dispatch: () => {
+				dispatches += 1;
+				throw new Error("persisted envelope must not be regenerated");
+			},
+			resume: <Result>(input: TestCloudResumeInput) => {
+				resumedEnvelope = input.encryptedEnvelope;
+				resumedAcceptance = input.acceptance;
+				return {
+					accepted: Promise.resolve({
+						commandId,
+						workspaceSequence: 1,
+						revision: 3,
+						acceptedAt: 4,
+						state: "accepted" as const,
+					}),
+					result: Promise.resolve({
+						commandId,
+						fingerprint,
+						receivedAt: 5,
+						result: undefined as Result,
+					}),
+					encryptedEnvelope: Promise.resolve(input.encryptedEnvelope),
+					deliveryFingerprint: Promise.resolve(
+						"hmac-sha256:persisted-prepared",
+					),
+					start: () => undefined,
+					dispose: () => undefined,
+					cancel: () => Promise.reject(new Error("not needed")),
+				};
+			},
+		};
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async () => {
+					throw new Error("live executor must not run");
+				},
+			},
+			commandTransportFor: () => transport,
+		});
+
+		await bus.flushDurableOutbox(environmentId);
+		await waitUntil(() => persistence.outbox.size === 0);
+		expect(dispatches).toBe(0);
+		expect(resumedEnvelope).toBe(persistedEnvelope);
+		expect(resumedAcceptance).toBeUndefined();
+		await bus.dispose();
+	});
+
+	it("keeps mailbox ownership when unavailability follows envelope persistence", async () => {
+		vi.useFakeTimers();
+		try {
+			const persistence = new MemoryPersistence();
+			const commandId = CommandId.make("durable-envelope-before-unavailable");
+			const persistedEnvelope = { opaque: "possible-server-identity" };
+			let mailboxDispatches = 0;
+			let liveExecutions = 0;
+			const bus = new ClientBus<Client>({
+				resolver: immediateResolver(),
+				persistence,
+				commandExecutor: {
+					execute: async () => {
+						liveExecutions += 1;
+						return { commandId, receivedAt: 3, result: undefined };
+					},
+				},
+				commandTransportFor: () =>
+					testCloudTransport(() => {
+						mailboxDispatches += 1;
+						const unavailable = Promise.reject(
+							new CloudCommandTransportUnavailableError(
+								"enqueue eligibility changed after preparation",
+							),
+						);
+						return {
+							accepted: unavailable,
+							result: unavailable,
+							encryptedEnvelope: Promise.resolve(persistedEnvelope),
+							cancel: () => Promise.reject(new Error("not accepted")),
+						};
+					}),
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			const command = {
+				kind: "messages.send",
+				commandId,
+				environmentId,
+				resource: timelineKey,
+				payload: { commandId, sessionId: "session-1", text: "prepared" },
+				retry: "safe" as const,
+				createdAt: 1,
+			};
+
+			const result = bus.dispatch(command);
+			let settled = false;
+			void result.then(
+				() => {
+					settled = true;
+				},
+				() => {
+					settled = true;
+				},
+			);
+			await waitUntil(
+				() =>
+					persistence.outbox.get(commandId)?.encryptedEnvelope !== undefined,
+			);
+			await Promise.resolve();
+			expect(settled).toBe(false);
+			expect(mailboxDispatches).toBe(1);
+			expect(liveExecutions).toBe(0);
+			expect(persistence.outbox.get(commandId)?.encryptedEnvelope).toBe(
+				persistedEnvelope,
+			);
+
+			// Discovery cannot create a second attempt while the original promise owns it.
+			await bus.flushDurableOutbox(environmentId);
+			expect(mailboxDispatches).toBe(1);
+			await bus.dispose();
+			await expect(result).rejects.toThrow("ClientBus disposed");
+			await vi.advanceTimersByTimeAsync(4_000);
+			expect(mailboxDispatches).toBe(1);
+			expect(liveExecutions).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not start a prepared mailbox request after disposal", async () => {
+		const persistence = new MemoryPersistence();
+		const commandId = CommandId.make("durable-dispose-before-start");
+		const envelope = deferred<unknown>();
+		const never = new Promise<never>(() => undefined);
+		let starts = 0;
+		let disposals = 0;
+		const transport: CloudCommandTransport = {
+			supports: () => true,
+			dispatch: (() => ({
+				accepted: never,
+				result: never,
+				encryptedEnvelope: envelope.promise,
+				deliveryFingerprint: Promise.resolve(
+					"hmac-sha256:disposed-before-start",
+				),
+				start: () => {
+					starts += 1;
+				},
+				dispose: () => {
+					disposals += 1;
+				},
+				cancel: () => Promise.reject(new Error("not accepted")),
+			})) as never,
+			resume: (() => {
+				throw new Error("fresh command must not resume");
+			}) as never,
+		};
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async () => {
+					throw new Error("live executor must not run");
+				},
+			},
+			commandTransportFor: () => transport,
+		});
+		const result = bus.dispatch({
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: timelineKey,
+			payload: { commandId, sessionId: "session-1", text: "prepared" },
+			retry: "safe",
+			createdAt: 1,
+		});
+		const rejected = expect(result).rejects.toThrow("ClientBus disposed");
+		await waitUntil(() => persistence.outbox.has(commandId));
+
+		await bus.dispose();
+		envelope.resolve({ opaque: "persisted-before-network" });
+		await rejected;
+		await waitUntil(
+			() => persistence.outbox.get(commandId)?.encryptedEnvelope !== undefined,
+		);
+		expect(starts).toBe(0);
+		expect(disposals).toBe(1);
+		expect(persistence.outbox.get(commandId)?.encryptedEnvelope).toEqual({
+			opaque: "persisted-before-network",
+		});
+	});
+
+	it("falls back once when transport preparation is synchronously unavailable", async () => {
+		const persistence = new MemoryPersistence();
+		const commandId = CommandId.make("durable-sync-unavailable");
+		let mailboxDispatches = 0;
+		let liveExecutions = 0;
+		const unavailable = () => {
+			mailboxDispatches += 1;
+			throw new CloudCommandTransportUnavailableError(
+				"mailbox capability is unavailable",
+			);
+		};
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async (_client, command) => {
+					liveExecutions += 1;
+					return {
+						commandId: command.commandId,
+						receivedAt: 2,
+						result: undefined,
+					};
+				},
+			},
+			commandTransportFor: () => ({
+				supports: () => true,
+				dispatch: unavailable as never,
+				resume: unavailable as never,
+			}),
+		});
+
+		const handle = bus.dispatchHandle({
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: timelineKey,
+			payload: { commandId, sessionId: "session-1", text: "fallback" },
+			retry: "safe",
+			createdAt: 1,
+		});
+
+		await expect(handle.accepted).resolves.toMatchObject({ commandId });
+		await expect(handle.result).resolves.toMatchObject({ commandId });
+		expect(mailboxDispatches).toBe(1);
+		expect(liveExecutions).toBe(1);
+		expect(persistence.outbox.has(commandId)).toBe(false);
+		await bus.dispose();
+	});
+
+	it("never falls back to live RPC after a mailbox envelope exists", async () => {
+		const persistence = new MemoryPersistence();
+		const commandId = CommandId.make("durable-prepared-without-transport");
+		const command = {
+			kind: "messages.send",
+			commandId,
+			environmentId,
+			resource: timelineKey,
+			payload: { commandId, sessionId: "session-1", text: "prepared" },
+			retry: "safe" as const,
+			createdAt: 1,
+		};
+		const fingerprint = commandFingerprint(command);
+		await persistence.putOutbox({
+			command,
+			fingerprint,
+			encryptedEnvelope: { opaque: "possible-server-identity" },
+			attempts: 1,
+			lastAttemptAt: 2,
+		});
+		let liveExecutions = 0;
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async () => {
+					liveExecutions += 1;
+					return { commandId, receivedAt: 3, result: undefined };
+				},
+			},
+		});
+
+		const result = bus.dispatch(command);
+		let settled = false;
+		void result.then(
+			() => {
+				settled = true;
+			},
+			() => {
+				settled = true;
+			},
+		);
+		await Promise.resolve();
+		expect(settled).toBe(false);
+		expect(liveExecutions).toBe(0);
+		expect(persistence.outbox.get(commandId)?.encryptedEnvelope).toEqual({
+			opaque: "possible-server-identity",
+		});
+		await bus.dispose();
+		await expect(result).rejects.toThrow("ClientBus disposed");
 	});
 
 	it("rejects an in-flight command ID collision before executing another payload", async () => {

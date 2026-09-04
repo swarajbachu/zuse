@@ -1,11 +1,13 @@
 import {
+	type AgentSessionNotFoundError,
 	AgentTurnId,
 	type MessageContent,
+	MessageId,
 	SessionId,
 	SessionStartError,
 } from "@zuse/contracts";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import type { makeReactorEffectJournal } from "../../provider/reactor-effect-journal.ts";
 import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
 import type { ConversationOperations } from "../services/conversation-services.ts";
@@ -21,6 +23,21 @@ import {
 const isAuthenticationRequired = (reason: string): boolean =>
 	/\bauthentication required\b/i.test(reason);
 
+const PROVIDER_DELIVERY_OUTCOME_UNKNOWN =
+	"Zuse could not confirm whether the agent received this message before the runtime stopped. Zuse did not send it again to avoid a duplicate. Retry the message if no response appears.";
+
+const isProvenUndeliveredProviderSend = (
+	cause: Cause.Cause<AgentSessionNotFoundError>,
+): boolean => {
+	const reason = cause.reasons[0];
+	return (
+		cause.reasons.length === 1 &&
+		reason !== undefined &&
+		Cause.isFailReason(reason) &&
+		reason.error._tag === "AgentSessionNotFoundError"
+	);
+};
+
 export interface ProviderReactorHandlersOptions {
 	readonly reactorEffects: ReturnType<typeof makeReactorEffectJournal>;
 	readonly getSession: ConversationOperations["getSession"];
@@ -31,6 +48,8 @@ export interface ProviderReactorHandlersOptions {
 	readonly persistMessage: (
 		sessionId: SessionId,
 		content: MessageContent,
+		idOverride?: MessageId,
+		turnIdOverride?: AgentTurnId,
 	) => Effect.Effect<PersistedMessage>;
 	readonly ndjsonAppend: (
 		sessionId: SessionId,
@@ -83,6 +102,24 @@ export const makeProviderReactorHandlers = (
 		sessionDomain,
 		autoNameChat,
 	} = options;
+	const recoverUnknownProviderDelivery = (
+		effectId: string,
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+	) =>
+		Effect.gen(function* () {
+			// The provider call is outside SQLite. An ambiguous failure or retained
+			// `started` row may have crossed the external side-effect boundary. Recover
+			// the local stream idempotently, but never send the request again.
+			yield* persistMessage(
+				sessionId,
+				{ _tag: "error", message: PROVIDER_DELIVERY_OUTCOME_UNKNOWN },
+				MessageId.make(`provider-outcome-unknown:${effectId}`),
+				turnId,
+			);
+			yield* settleTurnFromReactor(sessionId, turnId, "error");
+			yield* reactorEffects.markOutcomeUnknown(effectId);
+		});
 	const handleProviderStart: ConversationReactorHandlers["providerStart"] = (
 		reactorInput,
 	) =>
@@ -126,6 +163,23 @@ export const makeProviderReactorHandlers = (
 									}),
 							),
 						);
+			const carriesLegacyPrompt =
+				request.initialPrompt !== null && request.initialPrompt.length > 0;
+			if (carriesLegacyPrompt) {
+				// Retained pre-atomic-creation rows can still carry their user prompt in
+				// provider.start. Fence that legacy external send exactly like a normal
+				// provider turn; a crash cannot safely distinguish accepted from unsent.
+				const effect = yield* reactorEffects.begin(reactorInput.commandId);
+				if (effect === "completed" || effect === "outcome-unknown") return;
+				if (effect === "already-started") {
+					yield* recoverUnknownProviderDelivery(
+						reactorInput.commandId,
+						sessionId,
+						activeTurnId,
+					);
+					return;
+				}
+			}
 			const start = ensureForTurn(sessionId, {
 				initialPrompt: request.initialPrompt ?? undefined,
 				initialTurnId: request.initialTurnId ?? activeTurnId,
@@ -138,6 +192,14 @@ export const makeProviderReactorHandlers = (
 				yield* start.pipe(
 					Effect.catch((error) =>
 						Effect.gen(function* () {
+							if (carriesLegacyPrompt) {
+								yield* recoverUnknownProviderDelivery(
+									reactorInput.commandId,
+									sessionId,
+									activeTurnId,
+								);
+								return;
+							}
 							yield* Effect.logWarning(
 								`[ConversationServices] provider.start failed for session ${sessionId} (${session.providerId}): ${error.reason}`,
 							);
@@ -191,11 +253,21 @@ export const makeProviderReactorHandlers = (
 		reactorInput,
 	) =>
 		Effect.gen(function* () {
-			if (yield* reactorEffects.isCompleted(reactorInput.commandId)) return;
 			const sessionId = SessionId.make(reactorInput.streamId);
 			const resolvedTurnId = yield* resolveActiveTurn(sessionId);
 			if (resolvedTurnId !== AgentTurnId.make(reactorInput.command.turnId)) {
 				yield* reactorEffects.complete(reactorInput.commandId);
+				return;
+			}
+			const effect = yield* reactorEffects.begin(reactorInput.commandId);
+			if (effect === "completed" || effect === "outcome-unknown") return;
+			if (effect === "already-started") {
+				const turnId = AgentTurnId.make(reactorInput.command.turnId);
+				yield* recoverUnknownProviderDelivery(
+					reactorInput.commandId,
+					sessionId,
+					turnId,
+				);
 				return;
 			}
 			const input = yield* decodeProviderTurnInput(
@@ -227,9 +299,21 @@ export const makeProviderReactorHandlers = (
 				)
 				.pipe(Effect.exit);
 			if (sent._tag === "Success") {
+				// Close the ambiguity window before projection/status bookkeeping. A
+				// restart after this point observes completion and cannot resend.
+				yield* reactorEffects.complete(reactorInput.commandId);
 				yield* setStatus(sessionId, "running");
+				return;
 			}
 			if (sent._tag === "Failure") {
+				if (!isProvenUndeliveredProviderSend(sent.cause)) {
+					yield* recoverUnknownProviderDelivery(
+						reactorInput.commandId,
+						sessionId,
+						AgentTurnId.make(reactorInput.command.turnId),
+					);
+					return;
+				}
 				const restarted = yield* ensureForTurn(sessionId, {
 					modelOptions: startupModelOptions,
 					enableSubagents: startupRequest?.enableSubagents,
@@ -270,6 +354,12 @@ export const makeProviderReactorHandlers = (
 				// this same durable turn. Completing the receipt prevents catch-up from
 				// racing that user-driven retry; other transient failures stay replayable.
 				if (!isAuthenticationRequired(restarted.error.reason)) {
+					// ProviderService.send can fail only with AgentSessionNotFoundError,
+					// and ensureForTurn reports this branch only when its replacement send
+					// also never reached a live provider handle. That is positive evidence
+					// that delivery did not occur, so this exact durable turn remains safe
+					// for explicit retry. All interrupted/uncertain paths retain `started`.
+					yield* reactorEffects.releaseUndelivered(reactorInput.commandId);
 					return yield* Effect.die(
 						new Error(
 							`Provider turn could not be started after durable intent: ${restarted.error.reason}`,

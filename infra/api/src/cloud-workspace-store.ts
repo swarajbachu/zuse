@@ -1,8 +1,9 @@
-import type {
-	CloudProjectBuildState,
-	CloudProjectState,
-	CloudWorkspaceDesiredState,
-	CloudWorkspaceState,
+import {
+	CLOUD_COMMAND_PROTOCOL_VERSION,
+	type CloudProjectBuildState,
+	type CloudProjectState,
+	type CloudWorkspaceDesiredState,
+	type CloudWorkspaceState,
 } from "@zuse/contracts";
 import { Context, Effect, Layer, Ref, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -108,6 +109,59 @@ export interface CloudWorkspaceRecord {
 	readonly lastActivityAtMs: number;
 	readonly runningSinceMs?: number;
 	readonly deletedAtMs?: number;
+}
+
+export type CloudMailboxLifecycleAction = "archive" | "delete";
+
+export type CloudWorkspaceLifecycleAction =
+	| "pause"
+	| "resume"
+	| "restart"
+	| "archive"
+	| "unarchive"
+	| "delete";
+
+export interface CloudMailboxLifecycleFence {
+	readonly workspaceId: string;
+	readonly action: CloudMailboxLifecycleAction;
+	readonly destructionFence: number;
+}
+
+export type CloudWorkspaceLifecycleTransitionOutcome =
+	| {
+			readonly kind: "applied" | "replay";
+			readonly workspace: CloudWorkspaceRecord;
+			readonly action: CloudWorkspaceLifecycleAction;
+	  }
+	| {
+			readonly kind: "contended";
+			readonly workspace: CloudWorkspaceRecord;
+	  }
+	| {
+			readonly kind: "rejected";
+			readonly workspace: CloudWorkspaceRecord;
+			readonly reason:
+				| "command-id-reused"
+				| "destruction-fence-exhausted"
+				| "workspace-archived"
+				| "workspace-deleted"
+				| "mailbox-wake-pending"
+				| "workspace-not-running"
+				| "workspace-not-archived";
+	  }
+	| { readonly kind: "missing" };
+
+export interface CloudWorkspaceLifecycleTransitionInput {
+	readonly workspace: CloudWorkspaceRecord;
+	readonly expectedRevision: number;
+	readonly expectedUpdatedAtMs: number;
+	readonly expectedState: CloudWorkspaceState;
+	readonly expectedDesiredState: CloudWorkspaceDesiredState;
+	readonly commandId?: string;
+	readonly action: CloudWorkspaceLifecycleAction;
+	/** Persist the receipt without rewriting an already-requested normal resume. */
+	readonly deduplicateRequestedResume?: boolean;
+	readonly createdAtMs: number;
 }
 
 export interface CloudWorkspaceLaunchIntentRecord {
@@ -352,16 +406,16 @@ export interface CloudWorkspaceStoreApi {
 	readonly saveWorkspace: (
 		workspace: CloudWorkspaceRecord,
 	) => Effect.Effect<void>;
-	readonly getWorkspaceLifecycleCommand: (
-		workspaceId: string,
-		commandId: string,
-	) => Effect.Effect<string | null>;
-	readonly saveWorkspaceLifecycleCommand: (input: {
-		readonly workspace: CloudWorkspaceRecord;
-		readonly commandId: string;
-		readonly action: string;
-		readonly createdAtMs: number;
-	}) => Effect.Effect<void>;
+	readonly transitionWorkspaceLifecycle: (
+		input: CloudWorkspaceLifecycleTransitionInput,
+	) => Effect.Effect<CloudWorkspaceLifecycleTransitionOutcome>;
+	readonly listPendingMailboxLifecycles: (
+		limit: number,
+	) => Effect.Effect<ReadonlyArray<CloudMailboxLifecycleFence>>;
+	readonly acknowledgeMailboxLifecycle: (
+		lifecycle: CloudMailboxLifecycleFence,
+		nowMs: number,
+	) => Effect.Effect<boolean>;
 	readonly saveClaimedWorkspace: (input: {
 		readonly workspace: CloudWorkspaceRecord;
 		readonly leaseOwner: string;
@@ -386,6 +440,7 @@ export interface CloudWorkspaceStoreApi {
 	readonly markRuntimeRepositoryReady: (input: {
 		readonly workspaceId: string;
 		readonly currentCredentialHash: string;
+		readonly commandProtocolVersion?: number;
 		readonly nowMs: number;
 		readonly nextIdleAtMs: number;
 	}) => Effect.Effect<CloudWorkspaceRecord | null>;
@@ -418,6 +473,31 @@ export interface CloudWorkspaceStoreApi {
 		nowMs: number,
 		nextIdleAtMs: number,
 	) => Effect.Effect<CloudWorkspaceRecord | null>;
+	readonly recordMailboxRuntimePoll: (
+		workspaceId: string,
+		accountId: string,
+		runtimeGeneration: number,
+		nowMs: number,
+		nextCheckAtMs: number,
+	) => Effect.Effect<number | null>;
+	readonly recordMailboxRuntimeProgress: (
+		workspaceId: string,
+		accountId: string,
+		runtimeGeneration: number,
+		wakeRevision: number,
+		mailboxRevision: number,
+		fenceRequired: boolean,
+		nowMs: number,
+		nextCheckAtMs: number,
+	) => Effect.Effect<boolean>;
+	readonly completeMailboxDrain: (
+		workspaceId: string,
+		accountId: string,
+		runtimeGeneration: number,
+		wakeRevision: number,
+		nowMs: number,
+		nextIdleAtMs: number,
+	) => Effect.Effect<boolean>;
 	readonly installWrappedTranscriptKey: (
 		workspaceId: string,
 		accountId: string,
@@ -446,7 +526,8 @@ export interface CloudWorkspaceStoreApi {
 	readonly deleteTranscriptCheckpoints: (
 		workspaceId: string,
 	) => Effect.Effect<void>;
-	readonly deleteAccountData: (accountId: string) => Effect.Effect<void>;
+	/** Refuses cleanup while any workspace lifecycle fence remains unsafe. */
+	readonly deleteAccountData: (accountId: string) => Effect.Effect<boolean>;
 	readonly recordUsage: (event: {
 		readonly eventId: string;
 		readonly workspaceId: string;
@@ -486,6 +567,15 @@ const workspaceRuntimeGeneration = (workspace: CloudWorkspaceRecord): number =>
 		? workspace.requestConfig.runtimeGeneration
 		: 1;
 
+/** A runtime capability is valid only for the generation that advertised it. */
+export const workspaceSupportsCloudCommandMailbox = (
+	workspace: CloudWorkspaceRecord,
+): boolean =>
+	workspace.requestConfig.cloudCommandProtocolVersion ===
+		CLOUD_COMMAND_PROTOCOL_VERSION &&
+	workspace.requestConfig.cloudCommandRuntimeGeneration ===
+		workspaceRuntimeGeneration(workspace);
+
 const transcriptCheckpointKey = (
 	workspaceId: string,
 	sessionId: string,
@@ -495,6 +585,325 @@ const recordOrEmpty = (value: unknown): Readonly<Record<string, unknown>> =>
 	typeof value === "object" && value !== null && !Array.isArray(value)
 		? (value as Readonly<Record<string, unknown>>)
 		: {};
+
+const destructionFenceFromUnknown = (value: unknown): number | null =>
+	typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+		? value
+		: null;
+
+const mailboxLifecycleFenceFromConfig = (
+	workspaceId: string,
+	value: unknown,
+): CloudMailboxLifecycleFence | null => {
+	const record = recordOrEmpty(value);
+	const action = record.action;
+	const destructionFence = destructionFenceFromUnknown(record.destructionFence);
+	return (action === "archive" || action === "delete") &&
+		destructionFence !== null
+		? {
+				workspaceId,
+				action,
+				destructionFence,
+			}
+		: null;
+};
+
+export const pendingMailboxLifecycle = (
+	workspace: CloudWorkspaceRecord,
+): CloudMailboxLifecycleFence | null =>
+	mailboxLifecycleFenceFromConfig(
+		workspace.workspaceId,
+		workspace.requestConfig.cloudMailboxLifecyclePending,
+	);
+
+export const deliveredMailboxLifecycle = (
+	workspace: CloudWorkspaceRecord,
+): CloudMailboxLifecycleFence | null =>
+	mailboxLifecycleFenceFromConfig(
+		workspace.workspaceId,
+		workspace.requestConfig.cloudMailboxLifecycleDelivered,
+	);
+
+export const workspaceDestructionFence = (
+	workspace: Pick<CloudWorkspaceRecord, "requestConfig">,
+): number =>
+	Math.max(
+		destructionFenceFromUnknown(workspace.requestConfig.destructionFence) ?? 0,
+		destructionFenceFromUnknown(
+			recordOrEmpty(workspace.requestConfig.cloudMailboxLifecyclePending)
+				.destructionFence,
+		) ?? 0,
+		destructionFenceFromUnknown(
+			recordOrEmpty(workspace.requestConfig.cloudMailboxLifecycleDelivered)
+				.destructionFence,
+		) ?? 0,
+	);
+
+export const mailboxLifecycleCovers = (
+	candidate: CloudMailboxLifecycleFence | null,
+	action: CloudMailboxLifecycleAction,
+	destructionFence: number,
+): boolean =>
+	candidate !== null &&
+	candidate.destructionFence >= destructionFence &&
+	(candidate.action === action || candidate.action === "delete");
+
+/** Delete metadata is irreversible even if a stale writer regressed row state. */
+export const workspaceDeletionRequested = (
+	workspace: CloudWorkspaceRecord,
+): boolean =>
+	workspace.state === "deleted" ||
+	workspace.state === "deleting" ||
+	workspace.desiredState === "deleted" ||
+	pendingMailboxLifecycle(workspace)?.action === "delete" ||
+	deliveredMailboxLifecycle(workspace)?.action === "delete";
+
+export const destructiveMailboxLifecycle = (
+	workspace: CloudWorkspaceRecord,
+): CloudMailboxLifecycleAction | null =>
+	workspaceDeletionRequested(workspace)
+		? "delete"
+		: workspace.state === "archived" ||
+				workspace.state === "archiving" ||
+				workspace.desiredState === "archived"
+			? "archive"
+			: null;
+
+/** The one canonical lifecycle notification callers may forward to the DO. */
+export const mailboxLifecycleToDeliver = (
+	workspace: CloudWorkspaceRecord,
+): CloudMailboxLifecycleFence | null => {
+	const pending = pendingMailboxLifecycle(workspace);
+	if (pending !== null) {
+		// Delete dominates an older archived outbox row. The reconciler will replace
+		// that stale row with a canonical delete fence; never deliver archive using
+		// lifecycle metadata from the newer deletion state.
+		if (workspaceDeletionRequested(workspace) && pending.action !== "delete")
+			return null;
+		return pending;
+	}
+	const action = destructiveMailboxLifecycle(workspace);
+	if (action === null) return null;
+	const destructionFence = Math.max(workspaceDestructionFence(workspace), 1);
+	return mailboxLifecycleCovers(
+		deliveredMailboxLifecycle(workspace),
+		action,
+		destructionFence,
+	)
+		? null
+		: { workspaceId: workspace.workspaceId, action, destructionFence };
+};
+
+export const workspaceDeletionIsDurablyFenced = (
+	workspace: CloudWorkspaceRecord,
+): boolean =>
+	workspace.state === "deleted" &&
+	pendingMailboxLifecycle(workspace) === null &&
+	mailboxLifecycleCovers(
+		deliveredMailboxLifecycle(workspace),
+		"delete",
+		workspaceDestructionFence(workspace),
+	);
+
+export const withPendingMailboxLifecycle = (
+	requestConfig: Readonly<Record<string, unknown>>,
+	action: CloudMailboxLifecycleAction,
+	destructionFence: number,
+): Readonly<Record<string, unknown>> => ({
+	...requestConfig,
+	destructionFence,
+	cloudMailboxLifecyclePending: { action, destructionFence },
+});
+
+const preserveMailboxLifecycle = (
+	requestConfig: Readonly<Record<string, unknown>>,
+	workspace: CloudWorkspaceRecord,
+): Readonly<Record<string, unknown>> => {
+	const {
+		destructionFence: _destructionFence,
+		cloudMailboxLifecyclePending: _pending,
+		cloudMailboxLifecycleDelivered: _delivered,
+		...rest
+	} = requestConfig;
+	const pending = pendingMailboxLifecycle(workspace);
+	const delivered = deliveredMailboxLifecycle(workspace);
+	return {
+		...rest,
+		destructionFence: workspaceDestructionFence(workspace),
+		...(pending === null
+			? {}
+			: {
+					cloudMailboxLifecyclePending: {
+						action: pending.action,
+						destructionFence: pending.destructionFence,
+					},
+				}),
+		...(delivered === null
+			? {}
+			: {
+					cloudMailboxLifecycleDelivered: {
+						action: delivered.action,
+						destructionFence: delivered.destructionFence,
+					},
+				}),
+	};
+};
+
+/** Reject stale generic writers once the irreversible delete fence exists. */
+const prepareWorkspaceSave = (
+	current: CloudWorkspaceRecord,
+	proposed: CloudWorkspaceRecord,
+): CloudWorkspaceRecord | null => {
+	if (!workspaceDeletionRequested(current)) return proposed;
+	if (proposed.desiredState !== "deleted") return null;
+	if (current.state === "deleted" && proposed.state !== "deleted") return null;
+	if (
+		current.state === "deleting" &&
+		proposed.state !== "deleting" &&
+		proposed.state !== "deleted"
+	)
+		return null;
+	return {
+		...proposed,
+		requestConfig: preserveMailboxLifecycle(proposed.requestConfig, current),
+	};
+};
+
+const prepareWorkspaceLifecycleTransition = (
+	current: CloudWorkspaceRecord,
+	input: CloudWorkspaceLifecycleTransitionInput,
+):
+	| { readonly kind: "ready"; readonly workspace: CloudWorkspaceRecord }
+	| {
+			readonly kind: "rejected";
+			readonly reason: Extract<
+				CloudWorkspaceLifecycleTransitionOutcome,
+				{ readonly kind: "rejected" }
+			>["reason"];
+	  } => {
+	const lifecycle = destructiveMailboxLifecycle(current);
+	if (input.action !== "delete" && lifecycle === "delete")
+		return { kind: "rejected", reason: "workspace-deleted" };
+	if (
+		(input.action === "pause" ||
+			input.action === "resume" ||
+			input.action === "restart") &&
+		lifecycle === "archive"
+	)
+		return { kind: "rejected", reason: "workspace-archived" };
+	// A durably accepted command owns readiness until its mailbox drain reaches a
+	// terminal state. Letting a later manual pause overwrite desiredState would
+	// strand that command with no finite reconciliation deadline. Archive/delete
+	// remain allowed because their destruction fence terminalizes mailbox work.
+	if (
+		input.action === "pause" &&
+		current.requestConfig.cloudMailboxWakePending === true
+	)
+		return { kind: "rejected", reason: "mailbox-wake-pending" };
+	if (input.action === "unarchive" && lifecycle !== "archive")
+		return { kind: "rejected", reason: "workspace-not-archived" };
+	if (
+		input.action === "restart" &&
+		(current.state !== "ready" || current.providerSandboxId === undefined)
+	)
+		return { kind: "rejected", reason: "workspace-not-running" };
+	if (
+		input.action === "resume" &&
+		input.deduplicateRequestedResume === true &&
+		current.desiredState === "ready" &&
+		current.state !== "failed"
+	)
+		return { kind: "ready", workspace: current };
+
+	const currentFence = workspaceDestructionFence(current);
+	const destructiveAction =
+		input.action === "archive" || input.action === "delete"
+			? input.action
+			: null;
+	const lifecycleAlreadyRequestedInRow =
+		destructiveAction === "delete"
+			? current.state === "deleted" ||
+				current.state === "deleting" ||
+				current.desiredState === "deleted"
+			: destructiveAction === "archive"
+				? current.state === "archived" ||
+					current.state === "archiving" ||
+					current.desiredState === "archived"
+				: false;
+	if (
+		destructiveAction !== null &&
+		lifecycle === destructiveAction &&
+		lifecycleAlreadyRequestedInRow &&
+		(mailboxLifecycleCovers(
+			pendingMailboxLifecycle(current),
+			destructiveAction,
+			currentFence,
+		) ||
+			mailboxLifecycleCovers(
+				deliveredMailboxLifecycle(current),
+				destructiveAction,
+				currentFence,
+			))
+	)
+		return { kind: "ready", workspace: current };
+
+	if (destructiveAction !== null && currentFence >= Number.MAX_SAFE_INTEGER)
+		return { kind: "rejected", reason: "destruction-fence-exhausted" };
+
+	const baseRequestConfig = preserveMailboxLifecycle(
+		input.workspace.requestConfig,
+		current,
+	);
+	const requestConfig =
+		destructiveAction === null
+			? baseRequestConfig
+			: withPendingMailboxLifecycle(
+					baseRequestConfig,
+					destructiveAction,
+					currentFence + 1,
+				);
+	return {
+		kind: "ready",
+		workspace: {
+			...input.workspace,
+			requestConfig,
+			leaseOwner: current.leaseOwner,
+			leaseExpiresAtMs: current.leaseExpiresAtMs,
+			revision: current.revision + 1,
+			updatedAtMs: Math.max(input.createdAtMs, current.updatedAtMs + 1),
+		},
+	};
+};
+
+/** Preserve only irreversible mailbox metadata when workspace data is erased. */
+export const mailboxLifecycleTombstoneConfig = (
+	workspace: CloudWorkspaceRecord,
+): Readonly<Record<string, unknown>> => {
+	const pending = pendingMailboxLifecycle(workspace);
+	const delivered = deliveredMailboxLifecycle(workspace);
+	return {
+		destructionFence:
+			typeof workspace.requestConfig.destructionFence === "number"
+				? workspace.requestConfig.destructionFence
+				: 0,
+		...(pending === null
+			? {}
+			: {
+					cloudMailboxLifecyclePending: {
+						action: pending.action,
+						destructionFence: pending.destructionFence,
+					},
+				}),
+		...(delivered === null
+			? {}
+			: {
+					cloudMailboxLifecycleDelivered: {
+						action: delivered.action,
+						destructionFence: delivered.destructionFence,
+					},
+				}),
+	};
+};
 
 const completeLaunchWorkspace = (
 	workspace: CloudWorkspaceRecord,
@@ -534,7 +943,10 @@ const completeLaunchWorkspace = (
 						}),
 			},
 		},
-		nextActionAtMs: input.nextActionAtMs,
+		nextActionAtMs:
+			workspace.requestConfig.cloudMailboxWakePending === true
+				? Math.min(workspace.nextActionAtMs, input.nowMs)
+				: input.nextActionAtMs,
 		runningSinceMs: workspace.runningSinceMs ?? input.nowMs,
 		revision: workspace.revision + 1,
 		updatedAtMs: input.nowMs,
@@ -1088,23 +1500,38 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					const launchPending =
 						typeof workspace.requestConfig.sessionHeadVersion !== "number" ||
 						workspace.requestConfig.runtimeSessionRecoveryPending === true;
+					const {
+						cloudCommandProtocolVersion: _priorCommandProtocolVersion,
+						cloudCommandRuntimeGeneration: _priorCommandRuntimeGeneration,
+						...runtimeConfig
+					} = workspace.requestConfig;
 					const updated: CloudWorkspaceRecord = {
 						...workspace,
 						runtimeState: "online",
 						state: launchPending ? "setup" : "ready",
 						statusCode: launchPending ? "agent-starting" : "agent-running",
 						requestConfig: {
-							...workspace.requestConfig,
+							...runtimeConfig,
 							runtimeProcessManaged: true,
+							...(typeof input.commandProtocolVersion === "number"
+								? {
+										cloudCommandProtocolVersion: input.commandProtocolVersion,
+										cloudCommandRuntimeGeneration:
+											workspaceRuntimeGeneration(workspace),
+									}
+								: {}),
 							startupTimings: {
 								...timings,
 								connectedAt: timings.connectedAt ?? input.nowMs,
 								repositoryReadyAt: timings.repositoryReadyAt ?? input.nowMs,
 							},
 						},
-						nextActionAtMs: launchPending
-							? input.nowMs + 30_000
-							: input.nextIdleAtMs,
+						nextActionAtMs:
+							workspace.requestConfig.cloudMailboxWakePending === true
+								? Math.min(workspace.nextActionAtMs, input.nowMs)
+								: launchPending
+									? input.nowMs + 30_000
+									: input.nextIdleAtMs,
 						runningSinceMs: workspace.runningSinceMs ?? input.nowMs,
 						revision: workspace.revision + 1,
 						updatedAtMs: input.nowMs,
@@ -1232,38 +1659,143 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 								saved.updatedAtMs >= workspace.updatedAtMs))
 					)
 						return current;
+					const prepared =
+						saved === undefined
+							? workspace
+							: prepareWorkspaceSave(saved, workspace);
+					if (prepared === null) return current;
 					return {
 						...current,
-						workspaces: new Map(current.workspaces).set(workspace.workspaceId, {
-							...workspace,
+						workspaces: new Map(current.workspaces).set(prepared.workspaceId, {
+							...prepared,
 							leaseOwner: saved?.leaseOwner,
 							leaseExpiresAtMs: saved?.leaseExpiresAtMs,
 						}),
 					};
 				}),
-			getWorkspaceLifecycleCommand: (workspaceId, commandId) =>
+			transitionWorkspaceLifecycle: (input) =>
+				Ref.modify(
+					state,
+					(
+						current,
+					): readonly [
+						CloudWorkspaceLifecycleTransitionOutcome,
+						MemoryState,
+					] => {
+						const stored = current.workspaces.get(input.workspace.workspaceId);
+						if (stored === undefined)
+							return [{ kind: "missing" } as const, current] as const;
+						const receiptKey =
+							input.commandId === undefined
+								? undefined
+								: `${stored.workspaceId}:${input.commandId}`;
+						const receivedAction =
+							receiptKey === undefined
+								? undefined
+								: current.lifecycleCommands.get(receiptKey);
+						if (receivedAction !== undefined)
+							return [
+								receivedAction === input.action
+									? ({
+											kind: "replay",
+											workspace: stored,
+											action: input.action,
+										} as const)
+									: ({
+											kind: "rejected",
+											workspace: stored,
+											reason: "command-id-reused",
+										} as const),
+								current,
+							] as const;
+						if (
+							stored.revision !== input.expectedRevision ||
+							stored.updatedAtMs !== input.expectedUpdatedAtMs ||
+							stored.state !== input.expectedState ||
+							stored.desiredState !== input.expectedDesiredState
+						)
+							return [
+								{ kind: "contended", workspace: stored } as const,
+								current,
+							] as const;
+						const prepared = prepareWorkspaceLifecycleTransition(stored, input);
+						if (prepared.kind === "rejected")
+							return [
+								{
+									kind: "rejected",
+									workspace: stored,
+									reason: prepared.reason,
+								} as const,
+								current,
+							] as const;
+						const nextCommands = new Map(current.lifecycleCommands);
+						if (receiptKey !== undefined)
+							nextCommands.set(receiptKey, input.action);
+						return [
+							{
+								kind: "applied",
+								workspace: prepared.workspace,
+								action: input.action,
+							} as const,
+							{
+								...current,
+								workspaces: new Map(current.workspaces).set(
+									stored.workspaceId,
+									prepared.workspace,
+								),
+								lifecycleCommands: nextCommands,
+							},
+						] as const;
+					},
+				),
+			listPendingMailboxLifecycles: (limit) =>
 				Ref.get(state).pipe(
-					Effect.map(
-						(current) =>
-							current.lifecycleCommands.get(`${workspaceId}:${commandId}`) ??
-							null,
+					Effect.map((current) =>
+						[...current.workspaces.values()]
+							.map(mailboxLifecycleToDeliver)
+							.filter(
+								(lifecycle): lifecycle is CloudMailboxLifecycleFence =>
+									lifecycle !== null,
+							)
+							.slice(0, limit),
 					),
 				),
-			saveWorkspaceLifecycleCommand: ({ workspace, commandId, action }) =>
-				Ref.update(state, (current) => ({
-					...current,
-					workspaces: new Map(current.workspaces).set(workspace.workspaceId, {
+			acknowledgeMailboxLifecycle: (lifecycle, nowMs) =>
+				Ref.modify(state, (current) => {
+					const workspace = current.workspaces.get(lifecycle.workspaceId);
+					const pending =
+						workspace === undefined ? null : pendingMailboxLifecycle(workspace);
+					if (
+						workspace === undefined ||
+						pending?.action !== lifecycle.action ||
+						pending.destructionFence !== lifecycle.destructionFence
+					)
+						return [false, current] as const;
+					const { cloudMailboxLifecyclePending: _pending, ...requestConfig } =
+						workspace.requestConfig;
+					const updated: CloudWorkspaceRecord = {
 						...workspace,
-						leaseOwner: current.workspaces.get(workspace.workspaceId)
-							?.leaseOwner,
-						leaseExpiresAtMs: current.workspaces.get(workspace.workspaceId)
-							?.leaseExpiresAtMs,
-					}),
-					lifecycleCommands: new Map(current.lifecycleCommands).set(
-						`${workspace.workspaceId}:${commandId}`,
-						action,
-					),
-				})),
+						requestConfig: {
+							...requestConfig,
+							cloudMailboxLifecycleDelivered: {
+								action: lifecycle.action,
+								destructionFence: lifecycle.destructionFence,
+							},
+						},
+						revision: workspace.revision + 1,
+						updatedAtMs: Math.max(nowMs, workspace.updatedAtMs + 1),
+					};
+					return [
+						true,
+						{
+							...current,
+							workspaces: new Map(current.workspaces).set(
+								workspace.workspaceId,
+								updated,
+							),
+						},
+					] as const;
+				}),
 			saveClaimedWorkspace: ({
 				workspace,
 				leaseOwner,
@@ -1325,7 +1857,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 			recordActivity: (workspaceId, accountId, nowMs, nextIdleAtMs) =>
 				Ref.modify(state, (current) => {
 					const workspace = current.workspaces.get(workspaceId);
-					if (workspace?.accountId !== accountId)
+					if (
+						workspace?.accountId !== accountId ||
+						workspaceDeletionRequested(workspace)
+					)
 						return [null, current] as const;
 					const updated: CloudWorkspaceRecord = {
 						...workspace,
@@ -1345,7 +1880,12 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 										},
 									}
 								: workspace.requestConfig,
-						nextActionAtMs: workspace.state === "paused" ? nowMs : nextIdleAtMs,
+						nextActionAtMs:
+							workspace.requestConfig.cloudMailboxWakePending === true
+								? workspace.nextActionAtMs
+								: workspace.state === "paused"
+									? nowMs
+									: nextIdleAtMs,
 						lastActivityAtMs: nowMs,
 						revision: workspace.revision + 1,
 						updatedAtMs: nowMs,
@@ -1361,42 +1901,236 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						},
 					] as const;
 				}),
-			requestMailboxWake: (workspaceId, accountId, nowMs, nextIdleAtMs) =>
+			requestMailboxWake: (workspaceId, accountId, nowMs, _nextIdleAtMs) =>
 				Ref.modify(state, (current) => {
 					const workspace = current.workspaces.get(workspaceId);
 					if (
 						workspace?.accountId !== accountId ||
+						workspaceDeletionRequested(workspace) ||
 						workspace.state === "archived" ||
 						workspace.state === "archiving" ||
-						workspace.state === "deleted" ||
-						workspace.state === "deleting" ||
-						workspace.desiredState === "archived" ||
-						workspace.desiredState === "deleted"
+						workspace.desiredState === "archived"
 					)
 						return [null, current] as const;
-					const alreadyReady = workspace.state === "ready";
 					const resuming =
-						workspace.state === "paused" || workspace.state === "pausing";
+						workspace.state === "paused" ||
+						workspace.state === "pausing" ||
+						(workspace.state === "ready" &&
+							workspace.runtimeState !== "online");
+					const alreadyPending =
+						workspace.requestConfig.cloudMailboxWakePending === true;
+					const previousWakeRevision =
+						typeof workspace.requestConfig.cloudMailboxWakeRevision ===
+							"number" &&
+						Number.isSafeInteger(
+							workspace.requestConfig.cloudMailboxWakeRevision,
+						)
+							? workspace.requestConfig.cloudMailboxWakeRevision
+							: 0;
+					const {
+						cloudMailboxRuntimeSeenAt: _cloudMailboxRuntimeSeenAt,
+						cloudMailboxProgressAt: _cloudMailboxProgressAt,
+						cloudMailboxProgressRevision: _cloudMailboxProgressRevision,
+						cloudMailboxFenceRequired: _cloudMailboxFenceRequired,
+						...requestConfigWithoutRuntimeObservation
+					} = workspace.requestConfig;
+					const wakeConfig = alreadyPending
+						? workspace.requestConfig
+						: requestConfigWithoutRuntimeObservation;
 					const updated: CloudWorkspaceRecord = {
 						...workspace,
 						desiredState: "ready",
 						statusCode: resuming ? "resume-queued" : workspace.statusCode,
-						requestConfig: resuming
-							? {
-									...workspace.requestConfig,
-									startupTimings: {
-										requestedAt: nowMs,
-										resumeRequestedAt: nowMs,
-									},
-								}
-							: workspace.requestConfig,
-						nextActionAtMs: alreadyReady ? nextIdleAtMs : nowMs,
+						requestConfig: {
+							...(resuming
+								? {
+										...wakeConfig,
+										startupTimings: {
+											requestedAt: nowMs,
+											resumeRequestedAt: nowMs,
+										},
+									}
+								: wakeConfig),
+							cloudMailboxWakePending: true,
+							cloudMailboxWakeRequestedAt:
+								alreadyPending &&
+								typeof workspace.requestConfig.cloudMailboxWakeRequestedAt ===
+									"number"
+									? workspace.requestConfig.cloudMailboxWakeRequestedAt
+									: nowMs,
+							cloudMailboxWakeRevision: previousWakeRevision + 1,
+						},
+						nextActionAtMs: nowMs,
 						lastActivityAtMs: nowMs,
 						revision: workspace.revision + 1,
 						updatedAtMs: nowMs,
 					};
 					return [
 						updated,
+						{
+							...current,
+							workspaces: new Map(current.workspaces).set(workspaceId, updated),
+						},
+					] as const;
+				}),
+			recordMailboxRuntimePoll: (
+				workspaceId,
+				accountId,
+				runtimeGeneration,
+				nowMs,
+				nextCheckAtMs,
+			) =>
+				Ref.modify(state, (current) => {
+					const workspace = current.workspaces.get(workspaceId);
+					if (
+						workspace?.accountId !== accountId ||
+						workspace.requestConfig.cloudMailboxWakePending !== true ||
+						workspace.state !== "ready" ||
+						workspace.desiredState !== "ready" ||
+						workspace.runtimeState !== "online" ||
+						workspaceRuntimeGeneration(workspace) !== runtimeGeneration
+					)
+						return [null, current] as const;
+					const wakeRevision =
+						typeof workspace.requestConfig.cloudMailboxWakeRevision ===
+							"number" &&
+						Number.isSafeInteger(
+							workspace.requestConfig.cloudMailboxWakeRevision,
+						)
+							? workspace.requestConfig.cloudMailboxWakeRevision
+							: 1;
+					const priorSeenAt =
+						typeof workspace.requestConfig.cloudMailboxRuntimeSeenAt ===
+						"number"
+							? workspace.requestConfig.cloudMailboxRuntimeSeenAt
+							: undefined;
+					if (priorSeenAt !== undefined)
+						return [wakeRevision, current] as const;
+					const updated: CloudWorkspaceRecord = {
+						...workspace,
+						requestConfig: {
+							...workspace.requestConfig,
+							cloudMailboxWakeRevision: wakeRevision,
+							cloudMailboxRuntimeSeenAt: nowMs,
+						},
+						nextActionAtMs: nextCheckAtMs,
+						revision: workspace.revision + 1,
+						updatedAtMs: nowMs,
+					};
+					return [
+						wakeRevision,
+						{
+							...current,
+							workspaces: new Map(current.workspaces).set(workspaceId, updated),
+						},
+					] as const;
+				}),
+			recordMailboxRuntimeProgress: (
+				workspaceId,
+				accountId,
+				runtimeGeneration,
+				wakeRevision,
+				mailboxRevision,
+				fenceRequired,
+				nowMs,
+				nextCheckAtMs,
+			) =>
+				Ref.modify(state, (current) => {
+					const workspace = current.workspaces.get(workspaceId);
+					if (
+						workspace?.accountId !== accountId ||
+						workspace.requestConfig.cloudMailboxWakePending !== true ||
+						workspace.requestConfig.cloudMailboxWakeRevision !== wakeRevision ||
+						workspace.state !== "ready" ||
+						workspace.desiredState !== "ready" ||
+						workspace.runtimeState !== "online" ||
+						workspaceRuntimeGeneration(workspace) !== runtimeGeneration
+					)
+						return [false, current] as const;
+					const priorProgressRevision =
+						typeof workspace.requestConfig.cloudMailboxProgressRevision ===
+						"number"
+							? workspace.requestConfig.cloudMailboxProgressRevision
+							: undefined;
+					if (
+						!fenceRequired &&
+						workspace.requestConfig.cloudMailboxFenceRequired === true
+					)
+						return [true, current] as const;
+					if (
+						!fenceRequired &&
+						priorProgressRevision !== undefined &&
+						priorProgressRevision >= mailboxRevision
+					)
+						return [true, current] as const;
+					if (
+						fenceRequired &&
+						workspace.requestConfig.cloudMailboxFenceRequired === true
+					)
+						return [true, current] as const;
+					const updated: CloudWorkspaceRecord = {
+						...workspace,
+						requestConfig: {
+							...workspace.requestConfig,
+							...(priorProgressRevision === undefined ||
+							mailboxRevision > priorProgressRevision
+								? {
+										cloudMailboxProgressRevision: mailboxRevision,
+										cloudMailboxProgressAt: nowMs,
+									}
+								: {}),
+							...(fenceRequired ? { cloudMailboxFenceRequired: true } : {}),
+						},
+						nextActionAtMs: fenceRequired ? nowMs : nextCheckAtMs,
+						revision: workspace.revision + 1,
+						updatedAtMs: nowMs,
+					};
+					return [
+						true,
+						{
+							...current,
+							workspaces: new Map(current.workspaces).set(workspaceId, updated),
+						},
+					] as const;
+				}),
+			completeMailboxDrain: (
+				workspaceId,
+				accountId,
+				runtimeGeneration,
+				wakeRevision,
+				nowMs,
+				nextIdleAtMs,
+			) =>
+				Ref.modify(state, (current) => {
+					const workspace = current.workspaces.get(workspaceId);
+					if (
+						workspace?.accountId !== accountId ||
+						workspace.requestConfig.cloudMailboxWakePending !== true ||
+						workspace.requestConfig.cloudMailboxWakeRevision !== wakeRevision ||
+						workspace.state !== "ready" ||
+						workspace.desiredState !== "ready" ||
+						workspace.runtimeState !== "online" ||
+						workspaceRuntimeGeneration(workspace) !== runtimeGeneration
+					)
+						return [false, current] as const;
+					const {
+						cloudMailboxWakePending: _cloudMailboxWakePending,
+						cloudMailboxWakeRequestedAt: _cloudMailboxWakeRequestedAt,
+						cloudMailboxRuntimeSeenAt: _cloudMailboxRuntimeSeenAt,
+						cloudMailboxProgressAt: _cloudMailboxProgressAt,
+						cloudMailboxProgressRevision: _cloudMailboxProgressRevision,
+						cloudMailboxFenceRequired: _cloudMailboxFenceRequired,
+						...requestConfig
+					} = workspace.requestConfig;
+					const updated: CloudWorkspaceRecord = {
+						...workspace,
+						requestConfig,
+						nextActionAtMs: nextIdleAtMs,
+						revision: workspace.revision + 1,
+						updatedAtMs: nowMs,
+					};
+					return [
+						true,
 						{
 							...current,
 							workspaces: new Map(current.workspaces).set(workspaceId, updated),
@@ -1538,7 +2272,16 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					),
 				})),
 			deleteAccountData: (accountId) =>
-				Ref.update(state, (current) => {
+				Ref.modify(state, (current) => {
+					const accountWorkspaces = [...current.workspaces.values()].filter(
+						(workspace) => workspace.accountId === accountId,
+					);
+					if (
+						accountWorkspaces.some(
+							(workspace) => !workspaceDeletionIsDurablyFenced(workspace),
+						)
+					)
+						return [false, current] as const;
 					const githubInstallations = new Map(
 						[...current.githubInstallations].filter(
 							([, installation]) => installation.accountId !== accountId,
@@ -1574,16 +2317,29 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							workspaces.has(checkpoint.workspaceId),
 						),
 					);
-					return {
-						...current,
-						githubInstallations,
-						projects,
-						builds,
-						workspaces,
-						launchIntents,
-						runtimeSummaries,
-						transcriptCheckpoints,
-					};
+					const removedWorkspaceIds = new Set(
+						accountWorkspaces.map((workspace) => workspace.workspaceId),
+					);
+					const lifecycleCommands = new Map(
+						[...current.lifecycleCommands].filter(([key]) => {
+							const separator = key.indexOf(":");
+							return !removedWorkspaceIds.has(key.slice(0, separator));
+						}),
+					);
+					return [
+						true,
+						{
+							...current,
+							githubInstallations,
+							projects,
+							builds,
+							workspaces,
+							launchIntents,
+							runtimeSummaries,
+							transcriptCheckpoints,
+							lifecycleCommands,
+						},
+					] as const;
 				}),
 			recordUsage: (event) =>
 				Ref.modify(state, (current) => {
@@ -1773,11 +2529,23 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					Effect.asVoid,
 				),
 			);
+		const saveWorkspaceReturning = (w: CloudWorkspaceRecord) =>
+			orDie(
+				sql`UPDATE api_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, runtime_boot_token_hash=${w.runtimeBootTokenHash ?? null}, runtime_boot_token_expires_at=${w.runtimeBootTokenExpiresAtMs ?? null}, runtime_credential_hash=${w.runtimeCredentialHash ?? null}, runtime_state=${w.runtimeState}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, wrapped_transcript_key=${w.wrappedTranscriptKey ?? null}, archive_requested_at=${w.archiveRequestedAtMs ?? null}, archive_delete_at=${w.archiveDeleteAtMs ?? null}, deletion_tombstone_expires_at=${w.deletionTombstoneExpiresAtMs ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId} AND (revision < ${w.revision} OR (revision = ${w.revision} AND updated_at < ${w.updatedAtMs})) RETURNING *`,
+			);
 		const saveWorkspace = (w: CloudWorkspaceRecord) =>
 			orDie(
-				sql`UPDATE api_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, runtime_boot_token_hash=${w.runtimeBootTokenHash ?? null}, runtime_boot_token_expires_at=${w.runtimeBootTokenExpiresAtMs ?? null}, runtime_credential_hash=${w.runtimeCredentialHash ?? null}, runtime_state=${w.runtimeState}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, wrapped_transcript_key=${w.wrappedTranscriptKey ?? null}, archive_requested_at=${w.archiveRequestedAtMs ?? null}, archive_delete_at=${w.archiveDeleteAtMs ?? null}, deletion_tombstone_expires_at=${w.deletionTombstoneExpiresAtMs ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId} AND (revision < ${w.revision} OR (revision = ${w.revision} AND updated_at < ${w.updatedAtMs}))`.pipe(
-					Effect.asVoid,
-				),
+				Effect.gen(function* () {
+					const rows =
+						yield* sql`SELECT * FROM api_cloud_workspaces WHERE workspace_id=${w.workspaceId} FOR UPDATE`;
+					if (rows[0] === undefined) return;
+					const prepared = prepareWorkspaceSave(
+						workspaceFromRow(rows[0] as Row),
+						w,
+					);
+					if (prepared === null) return;
+					yield* saveWorkspaceReturning(prepared);
+				}).pipe(sql.withTransaction),
 			);
 		const saveClaimedWorkspace = (input: {
 			readonly workspace: CloudWorkspaceRecord;
@@ -1994,20 +2762,97 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					),
 				),
 			saveWorkspace,
-			getWorkspaceLifecycleCommand: (workspaceId, commandId) =>
+			transitionWorkspaceLifecycle: (input) =>
 				orDie(
-					sql`SELECT action FROM api_cloud_workspace_command_receipts WHERE workspace_id=${workspaceId} AND command_id=${commandId}`.pipe(
+					Effect.gen(function* () {
+						const locked =
+							yield* sql`SELECT * FROM api_cloud_workspaces WHERE workspace_id=${input.workspace.workspaceId} FOR UPDATE`;
+						if (locked[0] === undefined) return { kind: "missing" } as const;
+						const current = workspaceFromRow(locked[0] as Row);
+						if (input.commandId !== undefined) {
+							const receipts =
+								yield* sql`SELECT action FROM api_cloud_workspace_command_receipts WHERE workspace_id=${current.workspaceId} AND command_id=${input.commandId}`;
+							if (receipts[0] !== undefined)
+								return String(receipts[0].action) === input.action
+									? ({
+											kind: "replay",
+											workspace: current,
+											action: input.action,
+										} as const)
+									: ({
+											kind: "rejected",
+											workspace: current,
+											reason: "command-id-reused",
+										} as const);
+						}
+						if (
+							current.revision !== input.expectedRevision ||
+							current.updatedAtMs !== input.expectedUpdatedAtMs ||
+							current.state !== input.expectedState ||
+							current.desiredState !== input.expectedDesiredState
+						)
+							return { kind: "contended", workspace: current } as const;
+						const prepared = prepareWorkspaceLifecycleTransition(
+							current,
+							input,
+						);
+						if (prepared.kind === "rejected")
+							return {
+								kind: "rejected",
+								workspace: current,
+								reason: prepared.reason,
+							} as const;
+						let saved = current;
+						if (prepared.workspace !== current) {
+							const updated = yield* saveWorkspaceReturning(prepared.workspace);
+							if (updated[0] === undefined)
+								return { kind: "contended", workspace: current } as const;
+							saved = workspaceFromRow(updated[0] as Row);
+						}
+						if (input.commandId !== undefined)
+							yield* sql`INSERT INTO api_cloud_workspace_command_receipts (workspace_id, command_id, action, workspace_revision, created_at) VALUES (${current.workspaceId}, ${input.commandId}, ${input.action}, ${saved.revision}, ${input.createdAtMs})`;
+						return {
+							kind: "applied",
+							workspace: saved,
+							action: input.action,
+						} as const;
+					}).pipe(sql.withTransaction),
+				),
+			listPendingMailboxLifecycles: (limit) =>
+				orDie(
+					sql`SELECT * FROM api_cloud_workspaces
+						WHERE request_config #>> '{cloudMailboxLifecyclePending,action}' IN ('archive', 'delete')
+							AND jsonb_typeof(request_config #> '{cloudMailboxLifecyclePending,destructionFence}')='number'
+						ORDER BY updated_at
+						LIMIT ${limit}`.pipe(
 						Effect.map((rows) =>
-							rows[0] === undefined ? null : String(rows[0].action),
+							rows.flatMap((row) => {
+								const lifecycle = mailboxLifecycleToDeliver(
+									workspaceFromRow(row as Row),
+								);
+								return lifecycle === null ? [] : [lifecycle];
+							}),
 						),
 					),
 				),
-			saveWorkspaceLifecycleCommand: (input) =>
+			acknowledgeMailboxLifecycle: (lifecycle, nowMs) =>
 				orDie(
-					Effect.gen(function* () {
-						yield* saveWorkspace(input.workspace);
-						yield* sql`INSERT INTO api_cloud_workspace_command_receipts (workspace_id, command_id, action, workspace_revision, created_at) VALUES (${input.workspace.workspaceId}, ${input.commandId}, ${input.action}, ${input.workspace.revision}, ${input.createdAtMs}) ON CONFLICT (workspace_id, command_id) DO NOTHING`;
-					}).pipe(sql.withTransaction),
+					sql`UPDATE api_cloud_workspaces
+						SET request_config=(request_config - 'cloudMailboxLifecyclePending') || jsonb_build_object(
+								'cloudMailboxLifecycleDelivered',
+								jsonb_build_object(
+									'action', ${lifecycle.action}::text,
+									'destructionFence', ${lifecycle.destructionFence}::bigint
+								)
+							),
+							revision=revision+1,
+							updated_at=GREATEST(${nowMs}::bigint, updated_at+1)
+						WHERE workspace_id=${lifecycle.workspaceId}
+							AND request_config #>> '{cloudMailboxLifecyclePending,action}'=${lifecycle.action}
+							AND request_config #> '{cloudMailboxLifecyclePending,destructionFence}'=to_jsonb(${lifecycle.destructionFence}::bigint)
+						RETURNING workspace_id`.pipe(
+						Effect.map((rows) => rows.length === 1),
+					),
 				),
 			saveClaimedWorkspace,
 			releaseWorkspaceLease: (workspaceId, leaseOwner) =>
@@ -2190,14 +3035,17 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					SET runtime_state='online',
 						state=CASE WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'ready' ELSE 'setup' END,
 						status_code=CASE WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'agent-running' ELSE 'agent-starting' END,
-						request_config=request_config || jsonb_build_object(
+						request_config=(request_config - 'cloudCommandProtocolVersion' - 'cloudCommandRuntimeGeneration') || jsonb_build_object(
 							'runtimeProcessManaged', true,
 							'startupTimings', COALESCE(request_config->'startupTimings', '{}'::jsonb) || jsonb_build_object(
 								'connectedAt', COALESCE(request_config #> '{startupTimings,connectedAt}', to_jsonb(${input.nowMs}::bigint)),
 								'repositoryReadyAt', COALESCE(request_config #> '{startupTimings,repositoryReadyAt}', to_jsonb(${input.nowMs}::bigint))
 							)
-						),
-						next_action_at=CASE WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN ${input.nextIdleAtMs}::bigint ELSE ${input.nowMs + 30_000}::bigint END,
+						) || CASE WHEN ${input.commandProtocolVersion ?? null}::integer IS NULL THEN '{}'::jsonb ELSE jsonb_build_object(
+							'cloudCommandProtocolVersion', ${input.commandProtocolVersion ?? null}::integer,
+							'cloudCommandRuntimeGeneration', COALESCE((request_config->>'runtimeGeneration')::bigint, 1)
+						) END,
+						next_action_at=CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN LEAST(next_action_at, ${input.nowMs}::bigint) WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN ${input.nextIdleAtMs}::bigint ELSE ${input.nowMs + 30_000}::bigint END,
 						running_since=COALESCE(running_since, ${input.nowMs}),
 						revision=revision+1,
 						updated_at=${input.nowMs},
@@ -2301,27 +3149,129 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				),
 			recordActivity: (workspaceId, accountId, nowMs, nextIdleAtMs) =>
 				orDie(
-					sql`UPDATE api_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END, next_action_at=CASE WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE workspace_id=${workspaceId} AND account_id=${accountId} AND state <> 'deleted' RETURNING *`.pipe(
+					sql`UPDATE api_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END, next_action_at=CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN next_action_at WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE workspace_id=${workspaceId} AND account_id=${accountId} AND state <> 'deleted' AND desired_state <> 'deleted' AND (request_config #>> '{cloudMailboxLifecyclePending,action}') IS DISTINCT FROM 'delete' AND (request_config #>> '{cloudMailboxLifecycleDelivered,action}') IS DISTINCT FROM 'delete' RETURNING *`.pipe(
 						Effect.map((rows) =>
 							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
 						),
 					),
 				),
-			requestMailboxWake: (workspaceId, accountId, nowMs, nextIdleAtMs) =>
+			requestMailboxWake: (workspaceId, accountId, nowMs, _nextIdleAtMs) =>
 				orDie(
 					sql`UPDATE api_cloud_workspaces SET
 						desired_state='ready',
-						status_code=CASE WHEN state IN ('paused','pausing') THEN 'resume-queued' ELSE status_code END,
-						request_config=CASE WHEN state IN ('paused','pausing') THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END,
-						next_action_at=CASE WHEN state='ready' THEN ${nextIdleAtMs} ELSE ${nowMs} END,
+						status_code=CASE WHEN state IN ('paused','pausing') OR (state='ready' AND runtime_state <> 'online') THEN 'resume-queued' ELSE status_code END,
+						request_config=(CASE
+							WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN
+								CASE WHEN state IN ('paused','pausing') OR (state='ready' AND runtime_state <> 'online') THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END
+							ELSE
+								(CASE WHEN state IN ('paused','pausing') OR (state='ready' AND runtime_state <> 'online') THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END) - 'cloudMailboxRuntimeSeenAt' - 'cloudMailboxProgressAt' - 'cloudMailboxProgressRevision' - 'cloudMailboxFenceRequired'
+						END) || jsonb_build_object(
+							'cloudMailboxWakePending', true,
+							'cloudMailboxWakeRequestedAt', CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true AND jsonb_typeof(request_config->'cloudMailboxWakeRequestedAt')='number' THEN request_config->'cloudMailboxWakeRequestedAt' ELSE to_jsonb(${nowMs}::bigint) END,
+							'cloudMailboxWakeRevision', CASE WHEN jsonb_typeof(request_config->'cloudMailboxWakeRevision')='number' THEN (request_config->>'cloudMailboxWakeRevision')::bigint + 1 ELSE 1 END
+						),
+						next_action_at=${nowMs},
 						last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs}
 					 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
 						AND state NOT IN ('archived','archiving','deleted','deleting')
 						AND desired_state NOT IN ('archived','deleted')
+						AND (request_config #>> '{cloudMailboxLifecyclePending,action}') IS DISTINCT FROM 'delete'
+						AND (request_config #>> '{cloudMailboxLifecycleDelivered,action}') IS DISTINCT FROM 'delete'
 					 RETURNING *`.pipe(
 						Effect.map((rows) =>
 							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
 						),
+					),
+				),
+			recordMailboxRuntimePoll: (
+				workspaceId,
+				accountId,
+				runtimeGeneration,
+				nowMs,
+				nextCheckAtMs,
+			) =>
+				orDie(
+					Effect.gen(function* () {
+						const observed = yield* sql`UPDATE api_cloud_workspaces SET
+								request_config=jsonb_set(jsonb_set(request_config, '{cloudMailboxWakeRevision}', to_jsonb(CASE WHEN jsonb_typeof(request_config->'cloudMailboxWakeRevision')='number' THEN (request_config->>'cloudMailboxWakeRevision')::bigint ELSE 1 END), true), '{cloudMailboxRuntimeSeenAt}', to_jsonb(${nowMs}::bigint), true),
+								next_action_at=${nextCheckAtMs}, revision=revision+1, updated_at=${nowMs}
+							 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
+								AND COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true
+								AND state='ready' AND desired_state='ready' AND runtime_state='online'
+								AND COALESCE((request_config->>'runtimeGeneration')::bigint, 1)=${runtimeGeneration}
+								AND jsonb_typeof(request_config->'cloudMailboxRuntimeSeenAt') IS DISTINCT FROM 'number'
+							 RETURNING (request_config->>'cloudMailboxWakeRevision')::bigint AS wake_revision`;
+						const rows =
+							observed.length > 0
+								? observed
+								: yield* sql`SELECT (request_config->>'cloudMailboxWakeRevision')::bigint AS wake_revision
+									 FROM api_cloud_workspaces
+									 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
+										AND COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true
+										AND state='ready' AND desired_state='ready' AND runtime_state='online'
+										AND COALESCE((request_config->>'runtimeGeneration')::bigint, 1)=${runtimeGeneration}`;
+						const wakeRevision = rows[0]?.wake_revision;
+						return typeof wakeRevision === "number"
+							? wakeRevision
+							: wakeRevision === undefined
+								? null
+								: Number(wakeRevision);
+					}).pipe(sql.withTransaction),
+				),
+			recordMailboxRuntimeProgress: (
+				workspaceId,
+				accountId,
+				runtimeGeneration,
+				wakeRevision,
+				mailboxRevision,
+				fenceRequired,
+				nowMs,
+				nextCheckAtMs,
+			) =>
+				orDie(
+					(fenceRequired
+						? sql`UPDATE api_cloud_workspaces SET
+								request_config=request_config || jsonb_build_object('cloudMailboxFenceRequired', true, 'cloudMailboxProgressRevision', ${mailboxRevision}::bigint, 'cloudMailboxProgressAt', ${nowMs}::bigint),
+								next_action_at=${nowMs}, revision=revision+1, updated_at=${nowMs}
+							 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
+								AND COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true
+								AND (request_config->>'cloudMailboxWakeRevision')::bigint=${wakeRevision}
+								AND state='ready' AND desired_state='ready' AND runtime_state='online'
+								AND COALESCE((request_config->>'runtimeGeneration')::bigint, 1)=${runtimeGeneration}
+								AND COALESCE((request_config->>'cloudMailboxFenceRequired')::boolean, false)=false
+							 RETURNING workspace_id`
+						: sql`UPDATE api_cloud_workspaces SET
+								request_config=request_config || jsonb_build_object('cloudMailboxProgressRevision', ${mailboxRevision}::bigint, 'cloudMailboxProgressAt', ${nowMs}::bigint),
+								next_action_at=${nextCheckAtMs}, revision=revision+1, updated_at=${nowMs}
+							 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
+								AND COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true
+								AND (request_config->>'cloudMailboxWakeRevision')::bigint=${wakeRevision}
+								AND state='ready' AND desired_state='ready' AND runtime_state='online'
+								AND COALESCE((request_config->>'runtimeGeneration')::bigint, 1)=${runtimeGeneration}
+								AND COALESCE((request_config->>'cloudMailboxFenceRequired')::boolean, false)=false
+								AND (jsonb_typeof(request_config->'cloudMailboxProgressRevision') IS DISTINCT FROM 'number' OR (request_config->>'cloudMailboxProgressRevision')::bigint < ${mailboxRevision})
+							 RETURNING workspace_id`
+					).pipe(Effect.map((rows) => rows.length === 1)),
+				),
+			completeMailboxDrain: (
+				workspaceId,
+				accountId,
+				runtimeGeneration,
+				wakeRevision,
+				nowMs,
+				nextIdleAtMs,
+			) =>
+				orDie(
+					sql`UPDATE api_cloud_workspaces SET
+						request_config=request_config - 'cloudMailboxWakePending' - 'cloudMailboxWakeRequestedAt' - 'cloudMailboxRuntimeSeenAt' - 'cloudMailboxProgressAt' - 'cloudMailboxProgressRevision' - 'cloudMailboxFenceRequired',
+						next_action_at=${nextIdleAtMs}, revision=revision+1, updated_at=${nowMs}
+					 WHERE workspace_id=${workspaceId} AND account_id=${accountId}
+						AND COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true
+						AND (request_config->>'cloudMailboxWakeRevision')::bigint=${wakeRevision}
+						AND state='ready' AND desired_state='ready' AND runtime_state='online'
+						AND COALESCE((request_config->>'runtimeGeneration')::bigint, 1)=${runtimeGeneration}
+					 RETURNING workspace_id`.pipe(
+						Effect.map((rows) => rows.length === 1),
 					),
 				),
 			installWrappedTranscriptKey: (
@@ -2458,11 +3408,29 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			deleteAccountData: (accountId) =>
 				orDie(
 					Effect.gen(function* () {
+						const locked =
+							yield* sql`SELECT * FROM api_cloud_workspaces WHERE account_id=${accountId} FOR UPDATE`;
+						if (
+							locked.some(
+								(row) =>
+									!workspaceDeletionIsDurablyFenced(
+										workspaceFromRow(row as Row),
+									),
+							)
+						)
+							return false;
+						for (const row of locked)
+							yield* sql`DELETE FROM api_cloud_workspaces WHERE workspace_id=${String(row.workspace_id)}`;
+						// A workspace created after the row lock must keep account cleanup from
+						// cascading through a live workspace. Project FKs close the final race.
+						const remaining =
+							yield* sql`SELECT workspace_id FROM api_cloud_workspaces WHERE account_id=${accountId} LIMIT 1`;
+						if (remaining.length > 0) return false;
 						yield* sql`DELETE FROM api_cloud_workspace_usage WHERE account_id=${accountId}`;
-						yield* sql`DELETE FROM api_cloud_workspaces WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_project_builds WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_projects WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_github_installations WHERE account_id=${accountId}`;
+						return true;
 					}).pipe(sql.withTransaction),
 				),
 			recordUsage: (event) =>

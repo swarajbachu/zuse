@@ -26,6 +26,7 @@ import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 
 import type { RpcBridge } from "./bridge.ts";
 import { requestBrowserWebSocketUrl } from "./browser-session.ts";
+import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
 import {
@@ -291,7 +292,13 @@ export const isIgnorableRendererFailure = (cause: unknown): boolean =>
 export const isAuthCodedConnectionError = (cause: unknown): boolean => {
 	if (typeof cause !== "object" || cause === null) return false;
 	const coded = cause as { readonly code?: unknown; readonly reason?: unknown };
-	return coded.code === "not-allowed" || coded.reason === "not-allowed";
+	const category =
+		typeof coded.code === "string"
+			? coded.code
+			: typeof coded.reason === "string"
+				? coded.reason
+				: undefined;
+	return cloudFailurePresentation({ category })?.kind === "sign-in-required";
 };
 
 const makeRendererRpcSession = async (

@@ -202,6 +202,7 @@
         "@xterm/xterm": "^6.0.0",
         "@zuse/analytics": "workspace:*",
         "@zuse/client-runtime": "*",
+        "@zuse/cloud-commands": "*",
         "@zuse/contracts": "*",
         "@zuse/domain": "*",
         "@zuse/icons": "workspace:*",
@@ -272,6 +273,7 @@
         "@zuse/agents": "*",
         "@zuse/analytics": "*",
         "@zuse/client-runtime": "*",
+        "@zuse/cloud-commands": "*",
         "@zuse/contracts": "*",
         "@zuse/domain": "*",
         "@zuse/git": "*",
@@ -338,6 +340,7 @@
         "@effect/sql-pg": "catalog:",
         "@zuse/analytics": "*",
         "@zuse/billing-providers": "*",
+        "@zuse/cloud-commands": "*",
         "@zuse/contracts": "*",
         "@zuse/machine-providers": "*",
         "@zuse/pokemon-data": "*",
@@ -430,6 +433,19 @@
         "@zuse/contracts": "*",
         "@zuse/domain": "*",
         "@zuse/utils": "*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/cloud-commands": {
+      "name": "@zuse/cloud-commands",
+      "version": "0.0.0",
+      "dependencies": {
+        "@zuse/contracts": "*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -2177,6 +2193,8 @@
     "@zuse/billing-providers": ["@zuse/billing-providers@workspace:packages/billing-providers"],
 
     "@zuse/client-runtime": ["@zuse/client-runtime@workspace:packages/client-runtime"],
+
+    "@zuse/cloud-commands": ["@zuse/cloud-commands@workspace:packages/cloud-commands"],
 
     "@zuse/contracts": ["@zuse/contracts@workspace:packages/contracts"],
 
