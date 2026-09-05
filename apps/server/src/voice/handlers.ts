@@ -122,7 +122,7 @@ const upload = async (
 		const form = new FormData();
 		form.append(
 			"file",
-			new Blob([bytes], { type: mimeType }),
+			new Blob([new Uint8Array(bytes)], { type: mimeType }),
 			mimeType.includes("mp4") ? "recording.m4a" : "recording.audio",
 		);
 		const response = await fetch(TRANSCRIPTION_ENDPOINT, {

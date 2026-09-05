@@ -7,29 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0]
+
 ### Added
-- Cmd+K quick open has a rounded, height-limited, scrollable dialog with five recent chats, quick actions, settings destinations, workspace/navigation commands, and keyboard hints; search together, or start with `>` for commands only
-- Search project/worktree files with Cmd+P or the Search files quick action, using the same live file source and dialog as the file-tree search
-- New chats can now choose between the main checkout and a fresh isolated worktree directly from the composer
+- Find chats, application commands, settings, and workspace actions together with Cmd/Ctrl+K; use `>` to search commands only, or Cmd/Ctrl+P to search project and worktree files
+- Organize sidebar projects into named groups with colored folder icons, and drag projects or groups to reorder them
+- Choose the main checkout or a fresh isolated worktree directly from the composer when starting a chat
+- Select Fable 5.1 and GPT-6 Astra, now the defaults for Claude and Codex respectively
+- Access account cloud chats from mobile without an online desktop, read saved history while compute sleeps, and start chats in existing cloud projects; availability depends on compatible cloud services and workspace images
 
 ### Changed
-- The desktop interface now uses a darker green-neutral design system with a bottom-docked composer, compact settings and authentication dialogs, consistent segmented tabs, and cleaner project, computer, model, and reasoning controls
-- Imported chats, Cloud Workspace setup, approval questions, and permission prompts are denser and easier to scan
+- Model choices refresh from a cached online catalog and provider inventories, allowing catalog additions without a desktop update while retaining an offline fallback
+- The desktop interface has a bottom-docked composer, compact settings and authentication dialogs, and clearer project, computer, model, and reasoning controls
+- Service URLs appear as compact clickable links in the composer and user messages, with clearer skill references
 
 ### Fixed
-- Mermaid diagrams on desktop and mobile now reject external-resource syntax before rendering and lock security-sensitive configuration
-- Codex sessions now surface unexpected app-server exits, retire dead provider handles, and allow durable work to restart on a fresh process
-- Desktop packages now include Zuse's license and third-party attribution notices
-- Cloud sandbox images now preconfigure authenticated Git and GitHub CLI access, lazily minting and caching renewable repository credentials only when a GitHub command runs
-- Composer queues now stay held while the app is offline, resume on reconnect, and keep local desktop transports from being marked offline when only browser network connectivity drops
-- Cloud text messages can now be accepted while compute sleeps, wake the workspace through a durable encrypted mailbox, survive client/runtime restarts without duplicate provider sends, and report queued, cancelled, expired, or unknown outcomes explicitly
-- Cloud chats now automatically reconnect a failed client when the control plane reports that sandbox compute is ready, instead of showing a dead chat beside a working cloud terminal
-- The packaged `zusehq` CLI now discovers and authenticates to a foreground Serve process, reconnects after Serve restarts, and reports protocol mismatch, rejected credentials, and unavailable servers distinctly
-- Cloud chats now show Codex authentication recovery when OpenAI rejects saved credentials instead of mislabeling the provider failure as a workspace connection failure
-- Recovered Cloud Workspaces now show that only the live client needs reconnecting, and Retry restores that client instead of leaving a stale connection failure
-- Established Cloud Workspaces no longer replace missing runtime storage with an empty sandbox or project stale session metadata across runtime generations; cached transcripts remain visible with an explicit workspace-data error
-- One malformed legacy cloud resource can no longer cancel the reconciliation batch and leave unrelated workspaces stuck waiting; unsupported providers are retired explicitly while every other due resource continues independently
-- New Cloud Workspaces now carry the resolved global or repository permission default into the agent session instead of falling back to approval-required mode
+- Eligible cloud text messages can be accepted while compute sleeps and survive reconnects and restarts, with explicit delivery outcomes and protection against duplicate sends
+- Offline composer queues resume after reconnecting, and recovered Cloud Workspaces reconnect their chat client instead of leaving a stale connection error
+- Cloud chats distinguish rejected Codex credentials from connection failures, and new workspaces preserve configured permission defaults
+- Cloud workspaces report missing runtime data while preserving cached transcripts, and malformed legacy resources no longer block recovery of unrelated workspaces
+- Cloud sandbox images preconfigure authenticated Git and GitHub CLI access with renewable repository credentials
+- Active chats recover when their tabs are missing, archived project chats remain accessible, and startup progress hands off more reliably
+- Unexpected Codex process exits settle active turns and release crashed provider handles so subsequent work can start a fresh process
+- Mermaid diagrams on desktop and mobile reject external-resource syntax and enforce security-sensitive rendering settings
+- The packaged zusehq CLI discovers and authenticates to a foreground Serve process, reconnects after restarts, and distinguishes connection and authentication errors
+- Desktop packages include the application license and third-party attribution notices
 
 ## [0.20.13]
 
