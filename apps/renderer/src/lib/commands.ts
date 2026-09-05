@@ -184,6 +184,7 @@ function stepPanel(delta: 1 | -1): void {
  * anything — it just fires effects.
  */
 const HANDLERS: Record<Command, () => void> = {
+	"search-files": () => useUiStore.getState().setFileSearchOpen(true),
 	"new-chat": () => {
 		const selectedChatId = useChatsStore.getState().selectedChatId;
 		const cloudProjectId =
@@ -297,6 +298,7 @@ export function dispatchCommand(command: Command): void {
  * would (a) submit twice and (b) preventDefault on the native typing event.
  */
 export const APPLICATION_COMMANDS: ReadonlySet<Command> = new Set<Command>([
+	"search-files",
 	"new-chat",
 	"open-project",
 	"settings",

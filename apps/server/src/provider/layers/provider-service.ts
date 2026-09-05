@@ -661,6 +661,9 @@ export const ProviderServiceLive = Layer.effect(
 							mcpProxyCommand ?? process.execPath,
 							orchestrationTools,
 							resumeCursor,
+							() => {
+								registry.invalidateIfCurrent(sessionId, generation);
+							},
 						).pipe(Effect.provideService(AttachmentService, attachmentService));
 					}
 					const handle = yield* makeTurnScopedSessionHandle(

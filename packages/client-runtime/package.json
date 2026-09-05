@@ -34,6 +34,7 @@
 		"./terminal-resource": "./src/terminal-resource.ts",
 		"./terminal-resource-driver": "./src/terminal-resource-driver.ts",
 		"./media": "./src/media.ts",
+		"./mermaid-source-policy": "./src/mermaid-source-policy.ts",
 		"./terminal-input-pump": "./src/terminal-input-pump.ts",
 		"./tool-image-result": "./src/tool-image-result.ts",
 		"./ws-protocol": "./src/ws-protocol.ts"

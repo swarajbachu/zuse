@@ -27,31 +27,16 @@ import {
 	PencilEdit01Icon,
 	Search01Icon,
 } from "@zuse/icons/solid-rounded";
-import fuzzysort from "fuzzysort";
 import { ChevronRight } from "lucide-react";
-import {
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-	useSyncExternalStore,
-} from "react";
-
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OpenTarget } from "../lib/bridge.ts";
-import {
-	dispatchFileTreeCommand,
-	fileTreeResourceKey,
-	fileTreeResourceSnapshot,
-	retainFileTreeResource,
-	subscribeFileTreeResource,
-} from "../lib/file-tree-client-bus.ts";
+import { dispatchFileTreeCommand } from "../lib/file-tree-client-bus.ts";
+import { useFileTreeResource } from "../lib/file-tree-resource-hooks.ts";
 import { useGitChangesResource } from "../lib/git-workspace-client-bus.ts";
 import { useSettingsStore } from "../lib/settings-client-bus.ts";
 import { cn } from "../lib/utils.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import { useUiStore } from "../store/ui.ts";
-import { FileIcon } from "./file-icon.tsx";
 import { OpenTargetIcon } from "./open-target-icon.tsx";
 import {
 	AlertDialog,
@@ -196,22 +181,12 @@ export function FileTree({
 	rootPath: string;
 	worktreeId: WorktreeId | null;
 }) {
-	const key = useMemo(
-		() =>
-			fileTreeResourceKey({ environmentId, folderId, worktreeId, rootPath }),
-		[environmentId, folderId, rootPath, worktreeId],
-	);
-	useEffect(() => {
-		const retained = retainFileTreeResource(key);
-		return () => {
-			retained.lease.release();
-		};
-	}, [key]);
-	const view = useSyncExternalStore(
-		(listener) => subscribeFileTreeResource(key, listener),
-		() => fileTreeResourceSnapshot(key),
-		() => fileTreeResourceSnapshot(key),
-	);
+	const view = useFileTreeResource({
+		environmentId,
+		folderId,
+		worktreeId,
+		rootPath,
+	});
 
 	if (view.data === null) {
 		if (view.sync === "failed" || view.connection === "failed") {
@@ -300,12 +275,6 @@ function TreeView({
 			setOpenTargets(targets.filter((target) => target.available));
 		});
 	}, [folderRoot]);
-
-	// Non-null while the file-search command palette is open; holds the current
-	// file list (dirs excluded) captured from the live known-paths set.
-	const [searchFiles, setSearchFiles] = useState<ReadonlyArray<string> | null>(
-		null,
-	);
 
 	// Directory paths carry a trailing "/" in the server listing. Keep a set of
 	// their canonical (slash-stripped) form so selection can tell files from
@@ -652,13 +621,6 @@ function TreeView({
 		],
 	);
 
-	const openSearch = useCallback(() => {
-		const files = Array.from(knownPathsRef.current)
-			.filter((p) => !p.endsWith("/"))
-			.sort((a, b) => a.localeCompare(b));
-		setSearchFiles(files);
-	}, []);
-
 	const header = (
 		<div className="flex items-center gap-1 px-2 py-1.5">
 			<span className="flex-1 truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -677,7 +639,7 @@ function TreeView({
 			<HeaderButton
 				label="Search files"
 				icon={Search01Icon}
-				onClick={openSearch}
+				onClick={() => useUiStore.getState().setFileSearchOpen(true)}
 			/>
 		</div>
 	);
@@ -705,145 +667,7 @@ function TreeView({
 				}}
 				onConfirm={confirmDelete}
 			/>
-			{searchFiles !== null ? (
-				<FileSearchPalette
-					files={searchFiles}
-					onClose={() => setSearchFiles(null)}
-					onSelect={(path) => {
-						setSearchFiles(null);
-						openFile(path, basename(path));
-					}}
-				/>
-			) : null}
 		</div>
-	);
-}
-
-/**
- * Command-palette file finder opened from the tree header's search button.
- * Fuzzy-matches the workspace's file list and opens the picked file. Separate
- * from the tree's own row filter so search is a fast global jump, not an
- * in-place filter.
- */
-function FileSearchPalette({
-	files,
-	onSelect,
-	onClose,
-}: {
-	files: ReadonlyArray<string>;
-	onSelect: (path: string) => void;
-	onClose: () => void;
-}) {
-	const [query, setQuery] = useState("");
-	const [highlight, setHighlight] = useState(0);
-	const inputRef = useRef<HTMLInputElement | null>(null);
-	const listRef = useRef<HTMLDivElement | null>(null);
-
-	useEffect(() => {
-		inputRef.current?.focus();
-	}, []);
-
-	const results = useMemo<ReadonlyArray<string>>(() => {
-		const q = query.trim();
-		if (q === "") return files.slice(0, 100);
-		return fuzzysort
-			.go(q, files as string[], { limit: 100, threshold: 0.4 })
-			.map((r) => r.target);
-	}, [files, query]);
-
-	useEffect(() => {
-		setHighlight(0);
-	}, [results]);
-
-	useEffect(() => {
-		const el = listRef.current?.querySelector(`[data-idx="${highlight}"]`);
-		el?.scrollIntoView({ block: "nearest" });
-	}, [highlight]);
-
-	const commit = (idx: number) => {
-		const path = results[idx];
-		if (path !== undefined) onSelect(path);
-	};
-
-	return (
-		<dialog
-			open
-			aria-label="Search project files"
-			className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[12vh]"
-			onMouseDown={(event) => {
-				if (event.target === event.currentTarget) onClose();
-			}}
-		>
-			<div
-				className={cn(
-					"flex max-h-[62vh] w-[min(680px,92vw)] flex-col overflow-hidden",
-					overlaySurface,
-				)}
-			>
-				<div className="flex items-center gap-2 border-b border-border/60 px-3">
-					<HugeiconsIcon
-						icon={Search01Icon}
-						className="size-4 shrink-0 text-muted-foreground"
-					/>
-					<input
-						ref={inputRef}
-						value={query}
-						onChange={(e) => setQuery(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Escape") {
-								e.preventDefault();
-								onClose();
-							} else if (e.key === "ArrowDown") {
-								e.preventDefault();
-								setHighlight((h) => Math.min(h + 1, results.length - 1));
-							} else if (e.key === "ArrowUp") {
-								e.preventDefault();
-								setHighlight((h) => Math.max(h - 1, 0));
-							} else if (e.key === "Enter") {
-								e.preventDefault();
-								commit(highlight);
-							}
-						}}
-						placeholder="Search files…"
-						className="flex-1 bg-transparent py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground"
-					/>
-				</div>
-				<div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1">
-					{results.length === 0 ? (
-						<p className="px-3 py-6 text-center text-xs text-muted-foreground">
-							No files match “{query}”.
-						</p>
-					) : (
-						results.map((path, idx) => {
-							const name = basename(path);
-							const dir = parentPathOf(path);
-							return (
-								<button
-									key={path}
-									data-idx={idx}
-									type="button"
-									onMouseEnter={() => setHighlight(idx)}
-									onClick={() => commit(idx)}
-									className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left ${
-										idx === highlight ? "bg-accent text-accent-foreground" : ""
-									}`}
-								>
-									<FileIcon name={name} kind="file" />
-									<span className="truncate font-mono text-[13px] text-foreground">
-										{name}
-									</span>
-									{dir !== "" ? (
-										<span className="truncate font-mono text-[11px] text-muted-foreground">
-											{dir}
-										</span>
-									) : null}
-								</button>
-							);
-						})
-					)}
-				</div>
-			</div>
-		</dialog>
 	);
 }
 

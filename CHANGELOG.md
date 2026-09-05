@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Cmd+K quick open has a rounded, height-limited, scrollable dialog with five recent chats, quick actions, settings destinations, workspace/navigation commands, and keyboard hints; search together, or start with `>` for commands only
+- Search project/worktree files with Cmd+P or the Search files quick action, using the same live file source and dialog as the file-tree search
 - New chats can now choose between the main checkout and a fresh isolated worktree directly from the composer
 
 ### Changed
@@ -15,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Imported chats, Cloud Workspace setup, approval questions, and permission prompts are denser and easier to scan
 
 ### Fixed
+- Mermaid diagrams on desktop and mobile now reject external-resource syntax before rendering and lock security-sensitive configuration
+- Codex sessions now surface unexpected app-server exits, retire dead provider handles, and allow durable work to restart on a fresh process
+- Desktop packages now include Zuse's license and third-party attribution notices
 - Cloud sandbox images now preconfigure authenticated Git and GitHub CLI access, lazily minting and caching renewable repository credentials only when a GitHub command runs
 - Composer queues now stay held while the app is offline, resume on reconnect, and keep local desktop transports from being marked offline when only browser network connectivity drops
 - Cloud text messages can now be accepted while compute sleeps, wake the workspace through a durable encrypted mailbox, survive client/runtime restarts without duplicate provider sends, and report queued, cancelled, expired, or unknown outcomes explicitly

@@ -10,9 +10,11 @@ import {
 	CodexAppServerRequestError,
 } from "@zuse/agents/drivers/codex-app-server-client";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
+import { makeTurnScopedSessionHandle } from "@zuse/agents/kernel/turn-protocol";
 import type {
 	AgentEvent,
 	AgentSessionId,
+	AgentTurnId,
 	FolderId,
 	StartSessionInput,
 } from "@zuse/contracts";
@@ -41,17 +43,29 @@ const input = (
 const installAppServer = (
 	missingResume: boolean,
 	initialMissingMcpInventories = 0,
+	terminateOnMcpInventory = false,
 ) => {
 	let mcpInventoryReads = 0;
+	let startupTerminated = false;
+	let terminate: ((error: Error) => void) | undefined;
 	vi.spyOn(CodexAppServerClient, "start").mockImplementation(
-		async (options) =>
-			({
+		async (options) => {
+			terminate = options.onUnexpectedTermination;
+			return {
 				request: vi.fn(async (method: string, params?: unknown) => {
 					const record = (params ?? {}) as Record<string, unknown>;
 					switch (method) {
 						case "config/mcpServer/reload":
 							return {};
 						case "mcpServerStatus/list":
+							if (terminateOnMcpInventory && !startupTerminated) {
+								startupTerminated = true;
+								const error = new Error(
+									"Codex app-server exited with code 17 during startup",
+								);
+								options.onUnexpectedTermination?.(error);
+								throw error;
+							}
 							mcpInventoryReads += 1;
 							return {
 								data: [
@@ -118,8 +132,15 @@ const installAppServer = (
 					}
 				}),
 				close: vi.fn(),
-			}) as unknown as CodexAppServerClient,
+			} as unknown as CodexAppServerClient;
+		},
 	);
+	return {
+		terminate: (error: Error) => {
+			if (terminate === undefined) throw new Error("App server is not running");
+			terminate(error);
+		},
+	};
 };
 
 const withSession = async <A>(
@@ -128,14 +149,20 @@ const withSession = async <A>(
 		readonly forkFromResume?: boolean;
 		readonly missingResume?: boolean;
 		readonly initialMissingMcpInventories?: number;
+		readonly terminateOnMcpInventory?: boolean;
+		readonly onUnexpectedTermination?: (error: Error) => void;
 	},
-	use: (handle: CodexSessionHandle) => Promise<A>,
+	use: (
+		handle: CodexSessionHandle,
+		appServer: ReturnType<typeof installAppServer>,
+	) => Promise<A>,
 ): Promise<A> => {
 	const cwd = mkdtempSync(join(tmpdir(), "zuse-codex-lifecycle-"));
 	try {
-		installAppServer(
+		const appServer = installAppServer(
 			options.missingResume ?? false,
 			options.initialMissingMcpInventories ?? 0,
+			options.terminateOnMcpInventory ?? false,
 		);
 		const handle = await Effect.runPromise(
 			startCodexSession(
@@ -150,10 +177,11 @@ const withSession = async <A>(
 				"bun",
 				null,
 				options.resumeCursor ?? null,
+				options.onUnexpectedTermination,
 			).pipe(Effect.provide(AttachmentsTest)),
 		);
 		try {
-			return await use(handle);
+			return await use(handle, appServer);
 		} finally {
 			await Effect.runPromise(handle.close());
 		}
@@ -180,6 +208,85 @@ afterEach(() => {
 });
 
 describe("Codex session cursor persistence", () => {
+	it("ends an idle stream once without inventing a turn failure", async () => {
+		const onUnexpectedTermination = vi.fn();
+		await withSession(
+			{ onUnexpectedTermination },
+			async (handle, appServer) => {
+				const scoped = await Effect.runPromise(
+					makeTurnScopedSessionHandle(handle),
+				);
+				const collected = Effect.runFork(Stream.runCollect(scoped.events));
+				appServer.terminate(new Error("idle process exited"));
+				appServer.terminate(new Error("duplicate exit signal"));
+				const events = await Effect.runPromise(
+					Fiber.join(collected).pipe(Effect.timeout("2 seconds")),
+				);
+				expect(events.some((event) => event.scope === "turn")).toBe(false);
+				expect(onUnexpectedTermination).toHaveBeenCalledTimes(1);
+				expect(onUnexpectedTermination.mock.calls[0]?.[0].message).toBe(
+					"idle process exited",
+				);
+			},
+		);
+	});
+
+	it("does not start a compatibility fallback after the HTTP process dies", async () => {
+		await expect(
+			withSession({ terminateOnMcpInventory: true }, async () => undefined),
+		).rejects.toMatchObject({
+			reason: expect.stringContaining(
+				"Codex app-server exited with code 17 during startup",
+			),
+		});
+		expect(CodexAppServerClient.start).toHaveBeenCalledTimes(1);
+	});
+
+	it("publishes one terminal error and ends after app-server termination", async () => {
+		const onUnexpectedTermination = vi.fn();
+		await withSession(
+			{ onUnexpectedTermination },
+			async (handle, appServer) => {
+				const scoped = await Effect.runPromise(
+					makeTurnScopedSessionHandle(handle),
+				);
+				const collected = Effect.runFork(Stream.runCollect(scoped.events));
+				const turnId = "turn-crashed" as AgentTurnId;
+				await Effect.runPromise(scoped.send(turnId, "hello"));
+				await Effect.runPromise(Effect.sleep("30 millis"));
+
+				appServer.terminate(
+					new Error(
+						"Codex app-server exited with code 17\nCodex stderr (tail):\nfatal marker",
+					),
+				);
+				const events = Array.from(
+					await Effect.runPromise(
+						Fiber.join(collected).pipe(Effect.timeout("2 seconds")),
+					),
+				);
+
+				expect(events.slice(-2)).toEqual([
+					{
+						scope: "turn",
+						turnId,
+						event: {
+							_tag: "Error",
+							message:
+								"Codex app-server exited with code 17\nCodex stderr (tail):\nfatal marker",
+						},
+					},
+					{
+						scope: "turn",
+						turnId,
+						event: { _tag: "Completed", reason: "error" },
+					},
+				]);
+				expect(onUnexpectedTermination).toHaveBeenCalledTimes(1);
+			},
+		);
+	});
+
 	it("waits for the process-scoped MCP inventory to finish loading", async () => {
 		await withSession({ initialMissingMcpInventories: 1 }, async (handle) => {
 			const events = await takeEvents(handle.events, 1);

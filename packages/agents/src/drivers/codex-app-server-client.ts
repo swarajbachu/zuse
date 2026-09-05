@@ -19,6 +19,9 @@ type ServerRequestHandler = (
 ) => void;
 
 type NotificationHandler = (notification: ServerNotification) => void;
+type UnexpectedTerminationHandler = (error: Error) => void;
+
+const STDERR_TAIL_LIMIT_BYTES = 4 * 1024;
 
 export interface CodexChatgptAuthTokens {
 	readonly accessToken: string;
@@ -159,6 +162,7 @@ export class CodexAppServerClient {
 	private readonly child: ChildProcessWithoutNullStreams;
 	private readonly rl: readline.Interface;
 	private closed = false;
+	private stderrTail = Buffer.alloc(0);
 
 	initializeResponse: InitializeResponse;
 
@@ -168,6 +172,7 @@ export class CodexAppServerClient {
 		initializeResponse: InitializeResponse,
 		readonly onNotification: NotificationHandler,
 		readonly onServerRequest: ServerRequestHandler,
+		readonly onUnexpectedTermination?: UnexpectedTerminationHandler,
 	) {
 		this.child = child;
 		this.rl = rl;
@@ -185,6 +190,7 @@ export class CodexAppServerClient {
 		readonly externalAuthProvider?: CodexExternalAuthProvider;
 		/** Session identity used only to resume a proven auth-blocked consumer. */
 		readonly externalAuthConsumerId?: string;
+		readonly onUnexpectedTermination?: UnexpectedTerminationHandler;
 	}): Promise<CodexAppServerClient> {
 		const externalAuthProvider =
 			options.externalAuthProvider ?? defaultExternalAuthProvider;
@@ -251,9 +257,11 @@ export class CodexAppServerClient {
 			},
 			options.onNotification,
 			handleServerRequest,
+			options.onUnexpectedTermination,
 		);
 		rl.on("line", (line) => bootstrap.handleLine(line));
 		child.stderr.on("data", (chunk) => {
+			bootstrap.appendStderr(String(chunk));
 			const text = String(chunk).trim();
 			if (text.length === 0) return;
 			if (options.onStderr !== undefined) options.onStderr(text);
@@ -264,18 +272,13 @@ export class CodexAppServerClient {
 		// that crashes the whole process. Surface it as a rejection of every
 		// pending request — including the `initialize` we're about to await —
 		// so callers see a normal Effect failure they already know how to catch.
-		child.once("error", (err) => {
-			bootstrap.closed = true;
-			for (const p of bootstrap.pending.values()) p.reject(err as Error);
-			bootstrap.pending.clear();
-		});
-		child.once("exit", (code, signal) => {
-			bootstrap.closed = true;
-			const reason = new Error(
-				`Codex app-server exited with ${signal ?? `code ${code ?? 0}`}`,
+		child.once("error", (err) => bootstrap.handleUnexpectedTermination(err));
+		child.once("close", (code, signal) => {
+			bootstrap.handleUnexpectedTermination(
+				new Error(
+					`Codex app-server exited with ${signal ?? `code ${code ?? 0}`}`,
+				),
 			);
-			for (const p of bootstrap.pending.values()) p.reject(reason);
-			bootstrap.pending.clear();
 		});
 
 		let timer: NodeJS.Timeout | undefined;
@@ -369,7 +372,54 @@ export class CodexAppServerClient {
 		if (this.closed) return;
 		this.closed = true;
 		this.rl.close();
+		this.rejectPending(new Error("Codex app-server is closed"));
 		this.child.kill();
+	}
+
+	private appendStderr(text: string): void {
+		const incoming = Buffer.from(text, "utf8");
+		if (incoming.length >= STDERR_TAIL_LIMIT_BYTES) {
+			this.stderrTail = Buffer.from(
+				incoming.subarray(incoming.length - STDERR_TAIL_LIMIT_BYTES),
+			);
+			return;
+		}
+		const retained = this.stderrTail.subarray(
+			Math.max(
+				0,
+				this.stderrTail.length - (STDERR_TAIL_LIMIT_BYTES - incoming.length),
+			),
+		);
+		this.stderrTail = Buffer.concat([retained, incoming]);
+	}
+
+	private handleUnexpectedTermination(error: Error): void {
+		// `error` and `close` may both fire for one failed child. The first signal
+		// owns termination; an explicit close sets `closed` before killing the child
+		// and therefore remains intentionally quiet.
+		if (this.closed) return;
+		this.closed = true;
+		this.rl.close();
+		const stderr = this.stderrTail.toString("utf8").trim();
+		const reason =
+			stderr.length === 0
+				? error
+				: new Error(`${error.message}\nCodex stderr (tail):\n${stderr}`, {
+						cause: error,
+					});
+		this.rejectPending(reason);
+		try {
+			this.onUnexpectedTermination?.(reason);
+		} catch (cause) {
+			reportCodexStderr(
+				`unexpected termination handler failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+			);
+		}
+	}
+
+	private rejectPending(reason: Error): void {
+		for (const pending of this.pending.values()) pending.reject(reason);
+		this.pending.clear();
 	}
 
 	private handleLine(line: string): void {

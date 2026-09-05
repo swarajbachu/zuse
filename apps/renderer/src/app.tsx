@@ -118,6 +118,11 @@ const ChatSwitcher = lazy(() =>
 		default: module.ChatSwitcher,
 	})),
 );
+const FileSearch = lazy(() =>
+	import("./components/file-search.tsx").then((module) => ({
+		default: module.FileSearch,
+	})),
+);
 const CloudConnectionNotice = lazy(() =>
 	import("./components/cloud-connection-notice.tsx").then((module) => ({
 		default: module.CloudConnectionNotice,
@@ -916,6 +921,7 @@ function MainShell() {
 				<SidebarPeekTrigger />
 				<SidebarPeekOverlay />
 				<ChatSwitcher />
+				<FileSearch />
 			</Suspense>
 		</div>
 	);

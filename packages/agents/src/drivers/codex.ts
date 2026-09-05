@@ -1396,6 +1396,7 @@ export const startCodexSession = (
 	mcpProxyCommand: string,
 	orchestrationTools: OrchestrationSessionTools | null = null,
 	resumeCursor: string | null = null,
+	onUnexpectedTermination?: (error: Error) => void,
 ): Effect.Effect<
 	CodexSessionHandle,
 	AgentSessionStartError,
@@ -1505,6 +1506,28 @@ export const startCodexSession = (
 			endpoint: mcpGatewaySession.endpoint,
 			token: mcpGatewaySession.token,
 		});
+		const handleUnexpectedTermination = (error: Error): void => {
+			if (closed) return;
+			// Publish the concrete transport error before ending the stream. The shared
+			// turn protocol scopes it to the active durable turn and synthesizes its
+			// terminal; when idle, ending the stream still retires the dead handle.
+			emit({ _tag: "Error", message: error.message });
+			closed = true;
+			for (const waiter of questionWaiters.values()) waiter.resolve([]);
+			questionWaiters.clear();
+			for (const resolve of gatewayQuestionWaiters.values()) resolve(null);
+			gatewayQuestionWaiters.clear();
+			void mcpGatewaySession.close();
+			void stdioMcpFallback.close();
+			Queue.endUnsafe(events);
+			try {
+				onUnexpectedTermination?.(error);
+			} catch (cause) {
+				reportCodexStderr(
+					`unexpected termination callback failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+				);
+			}
+		};
 
 		let app = yield* Effect.tryPromise({
 			try: () =>
@@ -1533,6 +1556,7 @@ export const startCodexSession = (
 								respond(defaultServerRequestResponse(request));
 							});
 					},
+					onUnexpectedTermination: handleUnexpectedTermination,
 				}),
 			catch: (cause) =>
 				new AgentSessionStartError({
@@ -1600,6 +1624,7 @@ export const startCodexSession = (
 					await expectCodexMcpServer(app);
 					console.info(`[mcp-gateway] session ${sessionId} connected via http`);
 				} catch (httpCause) {
+					if (closed) throw httpCause;
 					console.warn(
 						`[mcp-gateway] session ${sessionId} HTTP setup failed; retrying with stdio compatibility transport`,
 						httpCause,
@@ -1636,6 +1661,7 @@ export const startCodexSession = (
 									respond(defaultServerRequestResponse(request));
 								});
 						},
+						onUnexpectedTermination: handleUnexpectedTermination,
 					});
 					await expectCodexMcpServer(app);
 					console.info(

@@ -16,19 +16,9 @@ import {
 } from "@zuse/contracts";
 import {
 	Alert01Icon,
-	BrowserIcon,
-	ConnectIcon,
 	Delete02Icon,
-	DocumentAttachmentIcon,
 	Folder01Icon,
-	KeyboardIcon,
-	PackageIcon,
 	PencilEdit01Icon,
-	PlugSocketIcon,
-	Settings01Icon,
-	SmartPhone01Icon,
-	TaskDone01Icon,
-	TestTubeIcon,
 	Tick01Icon,
 	VolumeHighIcon,
 } from "@zuse/icons/solid-rounded";
@@ -39,6 +29,7 @@ import { displayPath } from "~/lib/display-path";
 import { hasHostCapability, isMacHost } from "~/lib/host-platform";
 import { rendererPlatformCapabilities } from "~/lib/platform-capabilities.ts";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
+import { SETTINGS_NAVIGATION as VISIBLE_RAIL } from "~/lib/settings-navigation.ts";
 import {
 	formatRelativeTime,
 	useRelativeTimeTick,
@@ -108,98 +99,7 @@ import {
 } from "./ui/select.tsx";
 import { Switch } from "./ui/switch";
 
-type RailItemBase = {
-	readonly id: string;
-	readonly label: string;
-	readonly Icon: IconSvgElement;
-	readonly section: SettingsSection;
-};
-
-const TOP_RAIL: ReadonlyArray<RailItemBase> = [
-	{
-		id: "general",
-		label: "General",
-		Icon: Settings01Icon,
-		section: { kind: "general" },
-	},
-	{
-		id: "providers",
-		label: "Providers",
-		Icon: PackageIcon,
-		section: { kind: "providers" },
-	},
-	{
-		id: "defaults",
-		label: "Default models",
-		Icon: TaskDone01Icon,
-		section: { kind: "defaults" },
-	},
-	{
-		id: "mcp",
-		label: "MCP Servers",
-		Icon: PlugSocketIcon,
-		section: { kind: "mcp" },
-	},
-	{
-		id: "integrations",
-		label: "Integrations",
-		Icon: ConnectIcon,
-		section: { kind: "integrations" },
-	},
-	{
-		id: "devices",
-		label: "Remote access",
-		Icon: SmartPhone01Icon,
-		section: { kind: "devices" },
-	},
-	{
-		id: "machines",
-		label: "Cloud workspaces · Beta",
-		Icon: ConnectIcon,
-		section: { kind: "machines" },
-	},
-	{
-		id: "browser",
-		label: "Browser",
-		Icon: BrowserIcon,
-		section: { kind: "browser" },
-	},
-	{
-		id: "pokedex",
-		label: "Pokedex",
-		Icon: TaskDone01Icon,
-		section: { kind: "pokedex" },
-	},
-	{
-		id: "shortcuts",
-		label: "Keyboard shortcuts",
-		Icon: KeyboardIcon,
-		section: { kind: "shortcuts" },
-	},
-	{
-		id: "diagnostics",
-		label: "Diagnostics",
-		Icon: DocumentAttachmentIcon,
-		section: { kind: "diagnostics" },
-	},
-	// Dev-only visual playground (accent swatches + workflow chip/button
-	// showcase). Filtered out of production bundles below.
-	{
-		id: "developer",
-		label: "Developer",
-		Icon: TestTubeIcon,
-		section: { kind: "developer" },
-	},
-];
-
 const CLOUD_MACHINES_AVAILABLE = cloudWorkspaceBetaAvailable();
-
-const VISIBLE_RAIL: ReadonlyArray<RailItemBase> = TOP_RAIL.filter(
-	(item) =>
-		(item.id !== "developer" || import.meta.env.DEV) &&
-		(item.id !== "machines" || CLOUD_MACHINES_AVAILABLE),
-);
-
 /**
  * Two-pane settings surface. The left rail navigates between global
  * sections (General / Models & Providers / Workspace) and per-repository

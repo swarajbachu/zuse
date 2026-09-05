@@ -1,5 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+	containsUnsafeMermaidSource,
+	mermaidSecurityConfig,
+} from "@zuse/client-runtime/mermaid-source-policy";
+import {
 	Maximize02Icon,
 	MoveIcon,
 	UndoIcon,
@@ -201,13 +205,7 @@ let mermaidId = 0;
 const getMermaid = (): Promise<MermaidApi> => {
 	mermaidPromise ??= import("mermaid").then(({ default: mermaid }) => {
 		mermaid.initialize({
-			startOnLoad: false,
-			securityLevel: "strict",
-			// Never let mermaid draw its built-in "bomb" error graphic into the DOM.
-			// On a parse failure it otherwise appends that SVG to document.body,
-			// which renders as a bar below the app and shoves the window upward.
-			// With this on, render() just throws and our own error UI takes over.
-			suppressErrorRendering: true,
+			...mermaidSecurityConfig(),
 			theme: "base",
 			themeVariables: {
 				background: "transparent",
@@ -428,6 +426,7 @@ function MermaidViewerDialog({
 }
 
 function MermaidDiagram({ source }: { source: string }) {
+	const unsafeSource = containsUnsafeMermaidSource(source);
 	const id = useMemo(() => {
 		mermaidId += 1;
 		return `markdown-mermaid-${mermaidId}`;
@@ -441,6 +440,15 @@ function MermaidDiagram({ source }: { source: string }) {
 
 	useEffect(() => {
 		let cancelled = false;
+		if (unsafeSource) {
+			setState({
+				status: "error",
+				message: "External content is disabled in diagrams.",
+			});
+			return () => {
+				cancelled = true;
+			};
+		}
 		setState({ status: "loading" });
 
 		void getMermaid()
@@ -470,7 +478,7 @@ function MermaidDiagram({ source }: { source: string }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [id, source]);
+	}, [id, source, unsafeSource]);
 
 	if (state.status === "error") {
 		return (
