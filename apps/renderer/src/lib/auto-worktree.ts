@@ -10,7 +10,10 @@ import {
 	repositorySettingsKey,
 	useRepositorySettingsStore,
 } from "../store/repository-settings.ts";
-import { useSettingsStore } from "./settings-client-bus.ts";
+import {
+	resolveEnvironmentSettings,
+	useSettingsStore,
+} from "./settings-client-bus.ts";
 
 const repositorySettingsFor = async (
 	environmentId: EnvironmentId,
@@ -34,9 +37,13 @@ export async function resolveChatRuntimeMode(
 	environmentId: EnvironmentId,
 	projectId: FolderId,
 ): Promise<RuntimeMode> {
+	const [settings, repositorySettings] = await Promise.all([
+		resolveEnvironmentSettings(environmentId),
+		repositorySettingsFor(environmentId, projectId),
+	]);
 	return effectiveChatRuntimeMode(
-		useSettingsStore.getState().defaultRuntimeMode,
-		await repositorySettingsFor(environmentId, projectId),
+		settings.defaultRuntimeMode,
+		repositorySettings,
 	);
 }
 

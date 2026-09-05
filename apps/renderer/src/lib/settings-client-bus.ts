@@ -431,6 +431,29 @@ const activeResource = () => {
 	};
 };
 
+/** Creation must not interpret an unhydrated settings cell as user intent. */
+export const resolveEnvironmentSettings = async (
+	environmentId: EnvironmentId,
+): Promise<SettingsSlice> => {
+	const bus = getRendererClientBus();
+	const key = keyFor(environmentId);
+	const cached = bus.snapshot(key).data;
+	if (cached !== null) return cached;
+	const { result } = await bus.dispatch<SettingsFile>({
+		kind: "settings.get",
+		commandId: CommandId.make(`settings-get:${crypto.randomUUID()}`),
+		environmentId,
+		resource: key,
+		payload: {},
+		retry: "safe",
+		createdAt: Date.now(),
+	});
+	return (
+		bus.snapshot(key).data ??
+		withPendingPatches(environmentId, fromFile(result))
+	);
+};
+
 const update = (patchFor: (current: SettingsSlice) => SettingsPatch): void => {
 	const { environmentId, key, bus } = activeResource();
 	const current = bus.snapshot(key)?.data ?? FALLBACK;

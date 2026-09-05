@@ -12,6 +12,9 @@ const canonical = vi.hoisted(() => ({
 }));
 
 vi.mock("../../src/lib/settings-client-bus.ts", () => ({
+	resolveEnvironmentSettings: async () => ({
+		defaultRuntimeMode: "full-access",
+	}),
 	useSettingsStore: {
 		getState: () => ({
 			defaultProviderId: "codex",

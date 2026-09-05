@@ -35,6 +35,7 @@ import {
 	useMemo,
 	useState,
 } from "react";
+import { Button } from "~/components/ui/button.tsx";
 import {
 	Menu,
 	MenuItem,
@@ -258,6 +259,7 @@ export function ChatLanding() {
 	const draftSession = useSessionsStore((s) => s.draftSession);
 
 	const [submitError, setSubmitError] = useState<string | null>(null);
+	const [draftAttempt, setDraftAttempt] = useState(0);
 	// Local "submit in flight" flag. Covers the whole creation window —
 	// including the worktree-create step — so the bridge shows the moment the
 	// user hits send rather than after the worktree exists.
@@ -598,13 +600,19 @@ export function ChatLanding() {
 					runtimeMode,
 				});
 			},
+			(cause) => {
+				if (cancelled) return;
+				setSubmitError(
+					`Couldn't load chat access settings. ${formatError(cause)}`,
+				);
+			},
 		);
 		return () => {
 			cancelled = true;
 			clearDraft();
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [activeEnvironmentId, selectedFolderId, remoteAnchor]);
+	}, [activeEnvironmentId, selectedFolderId, remoteAnchor, draftAttempt]);
 
 	const headline =
 		anchoredGroup !== null
@@ -1348,6 +1356,19 @@ export function ChatLanding() {
 						<div className="mx-auto flex w-full max-w-2xl items-start gap-2 rounded-lg border border-rose-400/30 bg-rose-500/[0.08] px-3 py-2 text-[12px] text-rose-200">
 							<span className="mt-px shrink-0">⚠</span>
 							<span className="flex-1 leading-snug">{submitError}</span>
+							{draftSession === null ? (
+								<Button
+									className="h-7"
+									size="xs"
+									variant="ghost"
+									onClick={() => {
+										setSubmitError(null);
+										setDraftAttempt((attempt) => attempt + 1);
+									}}
+								>
+									Retry
+								</Button>
+							) : null}
 							<button
 								type="button"
 								onClick={() => setSubmitError(null)}

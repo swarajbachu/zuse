@@ -516,6 +516,9 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["keybindings.replace"](payload as never),
 				);
 				break;
+			case "settings.get":
+				result = await Effect.runPromise(client["settings.get"]());
+				break;
 			case "settings.update":
 				result = await Effect.runPromise(
 					client["settings.update"](payload as never),
