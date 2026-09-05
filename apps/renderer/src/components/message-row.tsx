@@ -76,6 +76,7 @@ import { useChatLookups } from "./chat-lookups.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { SkillIcon } from "./skill-icon.tsx";
+import { UserMessageText } from "./user-message-text.tsx";
 
 const isBrowserAnnotation = (
 	annotation: ComposerAnnotation,
@@ -669,9 +670,7 @@ function UserBubble({
 							))}
 						</div>
 					) : null}
-					{display.length > 0 ? (
-						<div className="whitespace-pre-wrap break-words">{display}</div>
-					) : null}
+					{display.length > 0 ? <UserMessageText text={display} /> : null}
 					{goal ? (
 						<div className="mt-2 flex items-center gap-1.5 text-xs text-user-bubble-foreground/65">
 							<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />

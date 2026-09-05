@@ -1,3 +1,15 @@
+import { hostnameFromLink } from "./site-favicon";
+
+/** HTTP links and their original offsets, shared by drafts and sent messages. */
+export function* siteLinksInText(text: string) {
+	for (const match of text.matchAll(/\bhttps?:\/\/[^\s<>"'`]+/giu)) {
+		const url = match[0].replace(/[.,;:!?\])}]+$/u, "");
+		if (hostnameFromLink(url) !== null) {
+			yield { url, from: match.index, to: match.index + url.length };
+		}
+	}
+}
+
 export type KnownSite = "github" | "gitlab" | "linear" | "figma" | "notion";
 
 /** Local URL formatting only: the original URL remains the navigation target. */

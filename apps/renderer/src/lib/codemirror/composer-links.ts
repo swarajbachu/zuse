@@ -11,7 +11,7 @@ import {
 import { openExternal } from "../platform-capabilities";
 import { hostnameFromLink } from "../site-favicon";
 import { mountSiteFavicon } from "../site-favicon-dom";
-import { knownSiteLink } from "../site-link";
+import { knownSiteLink, siteLinksInText } from "../site-link";
 
 const cleanups = new WeakMap<HTMLElement, () => void>();
 
@@ -32,7 +32,7 @@ class ComposerLinkWidget extends WidgetType {
 	}
 	toDOM(view: EditorView): HTMLElement {
 		const icon = document.createElement("span");
-		icon.className = "site-favicon composer-link-favicon";
+		icon.className = "site-favicon site-link-favicon";
 		icon.setAttribute("aria-hidden", "true");
 		const cleanup = mountSiteFavicon(icon, this.url);
 		if (this.label === null) {
@@ -40,7 +40,7 @@ class ComposerLinkWidget extends WidgetType {
 			return icon;
 		}
 		const link = document.createElement("a");
-		link.className = "composer-link composer-link-widget";
+		link.className = "composer-link compact-site-link";
 		link.href = this.url;
 		link.title = `${this.url}\nAlt-click to edit link`;
 		link.setAttribute(
@@ -58,7 +58,7 @@ class ComposerLinkWidget extends WidgetType {
 			}
 		};
 		const label = document.createElement("span");
-		label.className = "composer-link-label";
+		label.className = "site-link-label";
 		label.textContent = this.label;
 		link.append(icon, label);
 		cleanups.set(link, cleanup);
@@ -80,10 +80,8 @@ export const composerLinkDecorations = (
 	const ranges: Range<Decoration>[] = [];
 	for (const { from, to } of view.visibleRanges) {
 		const text = view.state.doc.sliceString(from, to);
-		for (const match of text.matchAll(/\bhttps?:\/\/[^\s<>"'`]+/giu)) {
-			const url = match[0].replace(/[.,;:!?\])}]+$/u, "");
-			if (hostnameFromLink(url) === null) continue;
-			const start = from + match.index;
+		for (const { url, from: offset } of siteLinksInText(text)) {
+			const start = from + offset;
 			const end = start + url.length;
 			const editing = view.state.selection.ranges.some(
 				({ anchor, head }) =>

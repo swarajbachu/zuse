@@ -791,6 +791,7 @@ body,
 		font-weight: 600;
 	}
 	.fz-prose a,
+	.compact-site-link,
 	.composer-link {
 		color: color-mix(in oklch, var(--info) 92%, var(--foreground));
 		text-decoration: underline;
@@ -798,6 +799,7 @@ body,
 		text-underline-offset: 0.2em;
 	}
 	.fz-prose a:has(.markdown-link-favicon),
+	.compact-site-link,
 	.composer-link {
 		font-weight: 500;
 		overflow-wrap: anywhere;
@@ -820,13 +822,13 @@ body,
 		border-radius: 2px;
 	}
 	.markdown-link-favicon,
-	.composer-link-favicon {
+	.site-link-favicon {
 		margin-right: 0.3em;
 	}
-	.composer-link-favicon {
+	.site-link-favicon {
 		user-select: none;
 	}
-	.composer-link-widget {
+	.compact-site-link {
 		display: inline-flex;
 		align-items: center;
 		max-width: 100%;
@@ -834,12 +836,12 @@ body,
 		cursor: pointer;
 		text-decoration: none;
 	}
-	.composer-link-label {
+	.site-link-label {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.composer-link-widget:hover .composer-link-label {
+	.compact-site-link:hover .site-link-label {
 		text-decoration: underline;
 	}
 	.fz-prose a:hover {
