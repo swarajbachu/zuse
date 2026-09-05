@@ -1,6 +1,13 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
-import { CloudWorkspaceOpError } from "./cloud-workspaces.ts";
+import {
+	CloudProjectState,
+	CloudWorkspaceOpError,
+	CloudWorkspaceRuntimeState,
+	CloudWorkspaceStartupPhase,
+	CloudWorkspaceState,
+} from "./cloud-workspaces.ts";
+import { TurnSettlementOutcome } from "./session.ts";
 
 // ---------------------------------------------------------------------------
 // Cloud Workspaces public API contract
@@ -69,7 +76,7 @@ export class ApiWorkspaceLastTurn extends Schema.Class<ApiWorkspaceLastTurn>(
 	"ApiWorkspaceLastTurn",
 )({
 	turnId: Schema.String,
-	outcome: Schema.String,
+	outcome: TurnSettlementOutcome,
 	completedAt: Schema.Number,
 }) {}
 
@@ -80,10 +87,10 @@ export class ApiWorkspaceStatus extends Schema.Class<ApiWorkspaceStatus>(
 	projectId: Schema.String,
 	branch: Schema.String,
 	baseRef: Schema.String,
-	state: Schema.String,
+	state: CloudWorkspaceState,
 	statusCode: Schema.String,
-	startupPhase: Schema.String,
-	runtimeState: Schema.String,
+	startupPhase: CloudWorkspaceStartupPhase,
+	runtimeState: CloudWorkspaceRuntimeState,
 	agentStatus: ApiAgentStatus,
 	/** Highest conversation-ledger sequence; poll messages with `afterSeq`. */
 	latestSeq: Schema.Number,
@@ -101,7 +108,7 @@ export class ApiProject extends Schema.Class<ApiProject>("ApiProject")({
 	repository: Schema.String,
 	displayName: Schema.String,
 	defaultBranch: Schema.String,
-	state: Schema.String,
+	state: CloudProjectState,
 }) {}
 
 export class ApiProjectList extends Schema.Class<ApiProjectList>(
@@ -111,7 +118,8 @@ export class ApiProjectList extends Schema.Class<ApiProjectList>(
 export class ApiWorkspaceCreateRequest extends Schema.Class<ApiWorkspaceCreateRequest>(
 	"ApiWorkspaceCreateRequest",
 )({
-	prompt: Schema.String,
+	/** Omit to create an idle workspace before uploading rich context. */
+	prompt: Schema.optional(Schema.String),
 	/** Defaults to the account's only ready project when unambiguous. */
 	projectId: Schema.optional(Schema.String),
 	providerId: Schema.optional(Schema.String),
@@ -123,10 +131,22 @@ export class ApiWorkspaceCreateRequest extends Schema.Class<ApiWorkspaceCreateRe
 	idempotencyKey: Schema.optional(Schema.String),
 }) {}
 
+export class ApiAsset extends Schema.Class<ApiAsset>("ApiAsset")({
+	assetId: Schema.String,
+	mimeType: Schema.String,
+	originalName: Schema.String,
+	sizeBytes: Schema.Number,
+}) {}
+
+export class ApiAssetCreated extends Schema.Class<ApiAssetCreated>(
+	"ApiAssetCreated",
+)({ asset: ApiAsset }) {}
+
 export class ApiSendMessageRequest extends Schema.Class<ApiSendMessageRequest>(
 	"ApiSendMessageRequest",
 )({
 	text: Schema.String,
+	attachments: Schema.optional(Schema.Array(Schema.String)),
 	/** Falls back to the `Idempotency-Key` header. */
 	idempotencyKey: Schema.optional(Schema.String),
 }) {}
@@ -153,8 +173,9 @@ export class ApiMessage extends Schema.Class<ApiMessage>("ApiMessage")({
 		"expired",
 	]),
 	turnId: Schema.optional(Schema.String),
-	outcome: Schema.optional(Schema.String),
+	outcome: Schema.optional(TurnSettlementOutcome),
 	createdAt: Schema.Number,
+	attachments: Schema.optional(Schema.Array(ApiAsset)),
 }) {}
 
 export class ApiMessageList extends Schema.Class<ApiMessageList>(
@@ -206,17 +227,21 @@ export class ApiWebhookTurnCompletedEvent extends Schema.Class<ApiWebhookTurnCom
 	workspaceId: Schema.String,
 	branch: Schema.String,
 	turnId: Schema.String,
-	outcome: Schema.String,
+	outcome: TurnSettlementOutcome,
 	reply: Schema.Struct({
 		text: Schema.String,
 		truncated: Schema.Boolean,
 	}),
-	messageSeq: Schema.Number,
+	/** Deterministic assistant-ledger message identifier for this turn. */
+	messageId: Schema.String,
 }) {}
 
 // ---------------------------------------------------------------------------
 // Runtime command-pump shapes (API ⇄ in-sandbox runtime)
 // ---------------------------------------------------------------------------
+
+/** Capabilities advertised by a workspace runtime during bootstrap. */
+export const CLOUD_RUNTIME_API_ASSETS_CAPABILITY = "api-assets-v1";
 
 export class CloudRuntimeCommand extends Schema.Class<CloudRuntimeCommand>(
 	"CloudRuntimeCommand",
@@ -224,8 +249,14 @@ export class CloudRuntimeCommand extends Schema.Class<CloudRuntimeCommand>(
 	messageId: Schema.String,
 	/** Domain command id (`api:<messageId>`) so redelivery stays idempotent. */
 	commandId: Schema.String,
+	/**
+	 * Stable domain turn id paired with this API message across redelivery.
+	 * Optional only while new runtimes can still connect to a pre-change API.
+	 */
+	turnId: Schema.optional(Schema.String),
 	sessionId: Schema.String,
 	text: Schema.String,
+	attachments: Schema.optional(Schema.Array(ApiAsset)),
 	seq: Schema.Number,
 }) {}
 
@@ -233,9 +264,30 @@ export class CloudRuntimeCommandList extends Schema.Class<CloudRuntimeCommandLis
 	"CloudRuntimeCommandList",
 )({ commands: Schema.Array(CloudRuntimeCommand) }) {}
 
+export class CloudRuntimeAssetDownload extends Schema.Class<CloudRuntimeAssetDownload>(
+	"CloudRuntimeAssetDownload",
+)({
+	asset: ApiAsset,
+	/** Base64url bytes; the authenticated runtime materializes them locally. */
+	bytes: Schema.String,
+}) {}
+
 export class CloudRuntimeCommandAck extends Schema.Class<CloudRuntimeCommandAck>(
 	"CloudRuntimeCommandAck",
-)({ messageId: Schema.String }) {}
+)({
+	messageId: Schema.String,
+	/**
+	 * Added with deterministic API turn ids. Optional during the rolling upgrade:
+	 * pre-change runtimes acknowledge by message id and the API binds their
+	 * runtime-generated turn when the corresponding settlement arrives.
+	 */
+	turnId: Schema.optional(Schema.String),
+	/**
+	 * Turn id carried by the fetched command. When domain idempotency returns an
+	 * older durable turn, this positively fences the provisional API binding.
+	 */
+	commandTurnId: Schema.optional(Schema.String),
+}) {}
 
 /** Bounded excerpt cap for turn-event reply text (UTF-16 code units). */
 export const CLOUD_RUNTIME_TURN_REPLY_MAX_LENGTH = 16_384;
@@ -245,7 +297,7 @@ export class CloudRuntimeTurnEventUpload extends Schema.Class<CloudRuntimeTurnEv
 )({
 	sessionId: Schema.String,
 	turnId: Schema.String,
-	outcome: Schema.String,
+	outcome: TurnSettlementOutcome,
 	settledAt: Schema.Number,
 	replyText: Schema.String,
 	replyTruncated: Schema.Boolean,

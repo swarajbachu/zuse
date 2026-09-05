@@ -4,9 +4,14 @@ import {
 	type CloudProjectState,
 	type CloudWorkspaceDesiredState,
 	type CloudWorkspaceState,
+	type TurnSettlementOutcome,
 } from "@zuse/contracts";
 import { Context, Effect, Layer, Ref, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import {
+	cloudWorkspaceGatewayEpoch,
+	cloudWorkspaceRuntimeGeneration,
+} from "./cloud-workspace-runtime-fence.ts";
 
 export interface CloudProjectRecord {
 	readonly projectId: string;
@@ -197,7 +202,7 @@ export interface CloudWorkspaceLaunchIntentRecord {
 }
 
 /**
- * The only session-derived state retained by API after runtime bootstrap.
+ * The only session-derived state retained by Api after runtime bootstrap.
  * It is metadata-only and fenced independently from workspace lifecycle
  * revisions so reconciler writes cannot regress a newer runtime summary.
  */
@@ -270,6 +275,7 @@ const RuntimeBootstrapReceiptSchema = Schema.Struct({
 	generation: Schema.Number,
 	gatewayEpoch: Schema.Number,
 	sealedTranscriptKey: Schema.String,
+	capabilities: Schema.optional(Schema.Array(Schema.String)),
 	enrolledAtMs: Schema.Number,
 	acknowledgedAtMs: Schema.optional(Schema.Number),
 });
@@ -303,6 +309,7 @@ export interface RuntimeBootstrapEnrollmentInput {
 	readonly generation: number;
 	readonly gatewayEpoch: number;
 	readonly sealedTranscriptKey: string;
+	readonly capabilities?: ReadonlyArray<string>;
 	readonly nowMs: number;
 }
 
@@ -371,7 +378,7 @@ export type ApiMessageStatus =
  * One row of the public-API conversation ledger. User rows double as the
  * pending-command queue drained by the in-sandbox runtime; assistant rows are
  * appended from runtime turn events. `sealedContent` is encrypted with the
- * API data-encryption key.
+ * api data-encryption key.
  */
 export interface CloudWorkspaceApiMessageRecord {
 	readonly messageId: string;
@@ -382,9 +389,11 @@ export interface CloudWorkspaceApiMessageRecord {
 	readonly sealedContent: string;
 	readonly commandId?: string;
 	readonly turnId?: string;
-	readonly outcome?: string;
+	readonly outcome?: TurnSettlementOutcome;
 	readonly status: ApiMessageStatus;
 	readonly createdAtMs: number;
+	/** Api receive time of the latest runtime command fetch while pending. */
+	readonly deliveryAttemptedAtMs?: number;
 	readonly deliveredAtMs?: number;
 	readonly expiresAtMs?: number;
 }
@@ -396,6 +405,8 @@ export interface AppendApiMessageInput {
 	readonly role: ApiMessageRole;
 	readonly sealedContent: string;
 	readonly commandId?: string;
+	readonly turnId?: string;
+	readonly outcome?: TurnSettlementOutcome;
 	readonly status: ApiMessageStatus;
 	readonly createdAtMs: number;
 	readonly expiresAtMs?: number;
@@ -406,19 +417,85 @@ export interface AppendApiMessageOutcome {
 	readonly message: CloudWorkspaceApiMessageRecord;
 }
 
+export type CloudWorkspaceVersion = Pick<
+	CloudWorkspaceRecord,
+	"workspaceId" | "revision" | "updatedAtMs"
+>;
+
+export interface WorkspaceLifecycleCommandWrite {
+	readonly workspace: CloudWorkspaceRecord;
+	readonly commandId: string;
+	readonly action: string;
+	readonly createdAtMs: number;
+}
+
+export interface AppendApiMessageGuardedInput {
+	readonly message: AppendApiMessageInput;
+	readonly expectedWorkspace: CloudWorkspaceVersion;
+	readonly lifecycleCommand?: WorkspaceLifecycleCommandWrite;
+}
+
+export type AppendApiMessageGuardedOutcome =
+	| {
+			readonly kind: "committed";
+			readonly append: AppendApiMessageOutcome;
+			readonly workspace: CloudWorkspaceRecord;
+			readonly lifecycleCommandSaved: boolean;
+	  }
+	| {
+			readonly kind: "workspace-contended";
+			readonly workspace: CloudWorkspaceRecord | null;
+	  };
+
 export interface RecordApiTurnEventInput {
 	readonly messageId: string;
 	readonly workspaceId: string;
 	readonly accountId: string;
 	readonly turnId: string;
-	readonly outcome: string;
+	readonly outcome: TurnSettlementOutcome;
 	readonly sealedContent: string;
+	readonly contentDigest: string;
 	readonly nowMs: number;
+	/** Api receive time, independent from the runtime-authored settlement time. */
+	readonly receivedAtMs: number;
+	readonly webhookFanout?: ApiTurnWebhookFanout;
+	/** Route-verified adoption of an assistant row written before turn receipts. */
+	readonly adoptLegacyReplay?: boolean;
 }
 
-export interface RecordApiTurnEventOutcome {
-	readonly kind: "created" | "replay";
-	readonly message: CloudWorkspaceApiMessageRecord;
+export interface ApiTurnWebhookFanout {
+	readonly eventId: string;
+	readonly eventType: "workspace.turn.completed";
+	readonly sealedPayload: string;
+	readonly enqueuedAtMs: number;
+	readonly targets: ReadonlyArray<{
+		readonly webhookId: string;
+		readonly deliveryId: string;
+	}>;
+}
+
+export interface ApiTurnReceipt {
+	readonly workspaceId: string;
+	readonly turnId: string;
+	readonly outcome: TurnSettlementOutcome;
+	readonly settledAtMs: number;
+	readonly receivedAtMs: number;
+	readonly contentDigest: string;
+}
+
+export type RecordApiTurnEventOutcome =
+	| {
+			readonly kind: "created" | "replay";
+			readonly message: CloudWorkspaceApiMessageRecord;
+			readonly receipt: ApiTurnReceipt;
+	  }
+	| { readonly kind: "pruned-replay"; readonly receipt: ApiTurnReceipt }
+	| { readonly kind: "conflict"; readonly receipt: ApiTurnReceipt };
+
+export interface ApiWorkspaceLedgerSummary {
+	readonly latestSeq: number;
+	readonly hasOutstanding: boolean;
+	readonly lastAssistant: CloudWorkspaceApiMessageRecord | null;
 }
 
 export interface ApiWebhookDeliveryRecord {
@@ -569,6 +646,13 @@ export interface CloudWorkspaceStoreApi {
 		lifecycle: CloudMailboxLifecycleFence,
 		nowMs: number,
 	) => Effect.Effect<boolean>;
+	readonly getWorkspaceLifecycleCommand: (
+		workspaceId: string,
+		commandId: string,
+	) => Effect.Effect<string | null>;
+	readonly saveWorkspaceLifecycleCommand: (
+		input: WorkspaceLifecycleCommandWrite,
+	) => Effect.Effect<boolean>;
 	readonly saveClaimedWorkspace: (input: {
 		readonly workspace: CloudWorkspaceRecord;
 		readonly leaseOwner: string;
@@ -705,7 +789,10 @@ export interface CloudWorkspaceStoreApi {
 		secretHash: string,
 	) => Effect.Effect<ApiKeyRecord | null>;
 	readonly touchApiKey: (keyId: string, nowMs: number) => Effect.Effect<void>;
-	readonly createApiWebhook: (webhook: ApiWebhookRecord) => Effect.Effect<void>;
+	readonly createApiWebhook: (
+		webhook: ApiWebhookRecord,
+		activeLimit: number,
+	) => Effect.Effect<boolean>;
 	readonly listApiWebhooks: (
 		accountId: string,
 	) => Effect.Effect<ReadonlyArray<ApiWebhookRecord>>;
@@ -716,18 +803,29 @@ export interface CloudWorkspaceStoreApi {
 	readonly appendApiMessage: (
 		input: AppendApiMessageInput,
 	) => Effect.Effect<AppendApiMessageOutcome>;
+	readonly appendApiMessageGuarded: (
+		input: AppendApiMessageGuardedInput,
+	) => Effect.Effect<AppendApiMessageGuardedOutcome>;
+	readonly getApiMessage: (
+		messageId: string,
+	) => Effect.Effect<CloudWorkspaceApiMessageRecord | null>;
 	readonly listApiMessages: (
 		workspaceId: string,
 		afterSeq: number,
 		limit: number,
 	) => Effect.Effect<ReadonlyArray<CloudWorkspaceApiMessageRecord>>;
-	readonly listPendingApiCommands: (
+	readonly getApiWorkspaceLedgerSummary: (
+		workspaceId: string,
+	) => Effect.Effect<ApiWorkspaceLedgerSummary>;
+	readonly claimNextApiCommand: (
 		workspaceId: string,
 		nowMs: number,
-	) => Effect.Effect<ReadonlyArray<CloudWorkspaceApiMessageRecord>>;
+	) => Effect.Effect<CloudWorkspaceApiMessageRecord | null>;
 	readonly ackApiCommand: (
 		workspaceId: string,
 		messageId: string,
+		turnId: string | undefined,
+		commandTurnId: string | undefined,
 		nowMs: number,
 	) => Effect.Effect<boolean>;
 	readonly recordApiTurnEvent: (
@@ -737,9 +835,7 @@ export interface CloudWorkspaceStoreApi {
 	readonly listWorkspacesWithStalePendingApiCommands: (
 		cutoffMs: number,
 	) => Effect.Effect<ReadonlyArray<string>>;
-	readonly enqueueApiWebhookDeliveries: (
-		deliveries: ReadonlyArray<ApiWebhookDeliveryRecord>,
-	) => Effect.Effect<void>;
+	readonly pruneApiData: (beforeMs: number) => Effect.Effect<void>;
 	readonly claimDueApiWebhookDeliveries: (
 		nowMs: number,
 		limit: number,
@@ -779,16 +875,12 @@ interface MemoryState {
 	readonly apiKeys: Map<string, ApiKeyRecord>;
 	readonly apiWebhooks: Map<string, ApiWebhookRecord>;
 	readonly apiMessages: Map<string, CloudWorkspaceApiMessageRecord>;
+	readonly apiTurnReceipts: Map<string, ApiTurnReceipt>;
 	readonly apiDeliveries: Map<string, ApiWebhookDeliveryRecord>;
 }
 
 const activeBranch = (workspace: CloudWorkspaceRecord): boolean =>
 	workspace.state !== "deleted";
-
-const workspaceRuntimeGeneration = (workspace: CloudWorkspaceRecord): number =>
-	typeof workspace.requestConfig.runtimeGeneration === "number"
-		? workspace.requestConfig.runtimeGeneration
-		: 1;
 
 /** A runtime capability is valid only for the generation that advertised it. */
 export const workspaceSupportsCloudCommandMailbox = (
@@ -797,7 +889,7 @@ export const workspaceSupportsCloudCommandMailbox = (
 	workspace.requestConfig.cloudCommandProtocolVersion ===
 		CLOUD_COMMAND_PROTOCOL_VERSION &&
 	workspace.requestConfig.cloudCommandRuntimeGeneration ===
-		workspaceRuntimeGeneration(workspace);
+		cloudWorkspaceRuntimeGeneration(workspace);
 
 /**
  * New workspaces can durably accept commands before their first runtime has
@@ -809,11 +901,66 @@ export const workspaceAcceptsCloudCommandMailbox = (
 	workspaceSupportsCloudCommandMailbox(workspace) ||
 	workspace.requestConfig.cloudCommandEnrollmentProtocolVersion ===
 		CLOUD_COMMAND_PROTOCOL_VERSION;
-
 const transcriptCheckpointKey = (
 	workspaceId: string,
 	sessionId: string,
 ): string => `${workspaceId}\u0000${sessionId}`;
+
+const apiTurnReceiptKey = (workspaceId: string, turnId: string): string =>
+	`${workspaceId}\u0000${turnId}`;
+
+const apiTurnReceiptMatchesInput = (
+	receipt: ApiTurnReceipt,
+	input: RecordApiTurnEventInput,
+): boolean =>
+	receipt.outcome === input.outcome &&
+	receipt.settledAtMs === input.nowMs &&
+	receipt.contentDigest === input.contentDigest;
+
+const applyApiWebhookFanoutInMemory = (
+	current: MemoryState,
+	input: RecordApiTurnEventInput,
+	receipt: ApiTurnReceipt,
+): MemoryState => {
+	const fanout = input.webhookFanout;
+	if (fanout === undefined || fanout.targets.length === 0) return current;
+	const apiDeliveries = new Map(current.apiDeliveries);
+	for (const target of fanout.targets) {
+		const webhook = current.apiWebhooks.get(target.webhookId);
+		if (
+			webhook === undefined ||
+			webhook.accountId !== input.accountId ||
+			webhook.disabledAtMs !== undefined ||
+			webhook.createdAtMs > receipt.settledAtMs
+		)
+			continue;
+		const duplicate = [...apiDeliveries.values()].some(
+			(delivery) =>
+				delivery.webhookId === target.webhookId &&
+				delivery.eventId === fanout.eventId,
+		);
+		if (duplicate) continue;
+		const collidingId = apiDeliveries.get(target.deliveryId);
+		if (collidingId !== undefined)
+			throw new Error(
+				`API webhook delivery id collision: ${target.deliveryId}`,
+			);
+		apiDeliveries.set(target.deliveryId, {
+			deliveryId: target.deliveryId,
+			webhookId: target.webhookId,
+			accountId: input.accountId,
+			eventId: fanout.eventId,
+			eventType: fanout.eventType,
+			sealedPayload: fanout.sealedPayload,
+			status: "pending",
+			attempts: 0,
+			nextAttemptAtMs: fanout.enqueuedAtMs,
+			createdAtMs: fanout.enqueuedAtMs,
+			updatedAtMs: fanout.enqueuedAtMs,
+		});
+	}
+	return { ...current, apiDeliveries };
+};
 
 const nextApiMessageSeq = (
 	messages: ReadonlyMap<string, CloudWorkspaceApiMessageRecord>,
@@ -826,6 +973,199 @@ const nextApiMessageSeq = (
 			.filter((message) => message.workspaceId === workspaceId)
 			.map((message) => message.seq),
 	);
+
+const workspaceVersionMatches = (
+	workspace: CloudWorkspaceRecord,
+	expected: CloudWorkspaceVersion,
+): boolean =>
+	workspace.workspaceId === expected.workspaceId &&
+	workspace.revision === expected.revision &&
+	workspace.updatedAtMs === expected.updatedAtMs;
+
+const guardedAppendTargetsWorkspace = (
+	input: AppendApiMessageGuardedInput,
+	workspace: CloudWorkspaceRecord,
+): boolean =>
+	input.message.workspaceId === workspace.workspaceId &&
+	input.message.accountId === workspace.accountId &&
+	(input.lifecycleCommand === undefined ||
+		(input.lifecycleCommand.workspace.workspaceId === workspace.workspaceId &&
+			input.lifecycleCommand.workspace.accountId === workspace.accountId));
+
+const apiMessageBelongsToWorkspace = (
+	message: CloudWorkspaceApiMessageRecord,
+	workspace: CloudWorkspaceRecord,
+): boolean =>
+	message.workspaceId === workspace.workspaceId &&
+	message.accountId === workspace.accountId;
+
+const workspaceLifecycleLockKey = (workspaceId: string): string =>
+	`workspace-lifecycle:${workspaceId}`;
+
+const apiMessagesLockKey = (workspaceId: string): string =>
+	`api-messages:${workspaceId}`;
+
+const apiWebhooksLockKey = (accountId: string): string =>
+	`api-webhooks:${accountId}`;
+
+const saveWorkspaceLifecycleCommandInMemory = (
+	current: MemoryState,
+	input: WorkspaceLifecycleCommandWrite,
+): readonly [boolean, MemoryState] => {
+	const { workspace, commandId, action } = input;
+	const commandKey = `${workspace.workspaceId}:${commandId}`;
+	const saved = current.workspaces.get(workspace.workspaceId);
+	if (
+		saved === undefined ||
+		current.lifecycleCommands.has(commandKey) ||
+		saved.revision > workspace.revision ||
+		(saved.revision === workspace.revision &&
+			saved.updatedAtMs >= workspace.updatedAtMs)
+	)
+		return [false, current];
+	const prepared = prepareWorkspaceSave(saved, workspace);
+	if (prepared === null) return [false, current];
+	return [
+		true,
+		{
+			...current,
+			workspaces: new Map(current.workspaces).set(workspace.workspaceId, {
+				...prepared,
+				leaseOwner: saved.leaseOwner,
+				leaseExpiresAtMs: saved.leaseExpiresAtMs,
+			}),
+			lifecycleCommands: new Map(current.lifecycleCommands).set(
+				commandKey,
+				action,
+			),
+		},
+	];
+};
+
+const appendApiMessageInMemory = (
+	current: MemoryState,
+	input: AppendApiMessageInput,
+): readonly [AppendApiMessageOutcome, MemoryState] => {
+	const existing = current.apiMessages.get(input.messageId);
+	if (existing !== undefined)
+		return [{ kind: "existing", message: existing }, current];
+	const assistantAlreadyRecorded =
+		input.role === "user" &&
+		input.status === "delivered" &&
+		input.turnId !== undefined &&
+		([...current.apiMessages.values()].some(
+			(candidate) =>
+				candidate.workspaceId === input.workspaceId &&
+				candidate.role === "assistant" &&
+				candidate.turnId === input.turnId,
+		) ||
+			current.apiTurnReceipts.has(
+				apiTurnReceiptKey(input.workspaceId, input.turnId),
+			));
+	const message: CloudWorkspaceApiMessageRecord = {
+		...input,
+		status: assistantAlreadyRecorded ? "settled" : input.status,
+		seq: nextApiMessageSeq(current.apiMessages, input.workspaceId),
+	};
+	return [
+		{ kind: "created", message },
+		{
+			...current,
+			apiMessages: new Map(current.apiMessages).set(message.messageId, message),
+		},
+	];
+};
+
+/**
+ * Associate one causal user row with a settlement. Upgraded runtimes match the
+ * api-assigned turn id exactly. During rollout, a pre-change runtime clears
+ * that provisional id when it ACKs; its next settlement may then claim only
+ * the oldest delivered, unbound row. Strict FIFO ensures there is at most one
+ * such active legacy command.
+ */
+const settleApiTurnUserMessageInMemory = (
+	apiMessages: ReadonlyMap<string, CloudWorkspaceApiMessageRecord>,
+	workspaceId: string,
+	turnId: string,
+): Map<string, CloudWorkspaceApiMessageRecord> => {
+	const next = new Map(apiMessages);
+	const candidates = [...next.values()]
+		.filter(
+			(message) =>
+				message.workspaceId === workspaceId &&
+				message.role === "user" &&
+				message.status !== "settled" &&
+				(message.turnId === turnId ||
+					(message.turnId === undefined && message.status === "delivered")),
+		)
+		.sort((left, right) => {
+			const leftExact = left.turnId === turnId ? 0 : 1;
+			const rightExact = right.turnId === turnId ? 0 : 1;
+			return leftExact - rightExact || left.seq - right.seq;
+		});
+	const candidate = candidates[0];
+	if (candidate !== undefined)
+		next.set(candidate.messageId, {
+			...candidate,
+			turnId,
+			status: "settled",
+		});
+	return next;
+};
+
+/**
+ * A pre-turn-id runtime ACK identifies only the command message. If its turn
+ * event won the race, claim that turn only when FIFO and the durable receipt
+ * place it inside the latest command-fetch attempt. Both api receive time
+ * and runtime settlement time are fenced: this excludes an unrelated turn
+ * that either arrived before the latest retry or was published late from an
+ * earlier session turn.
+ */
+const legacyAckSettlementTurnInMemory = (
+	current: MemoryState,
+	message: CloudWorkspaceApiMessageRecord,
+	acknowledgedAtMs: number,
+): string | undefined => {
+	const attemptedAtMs = message.deliveryAttemptedAtMs;
+	if (attemptedAtMs === undefined) return undefined;
+	const workspaceMessages = [...current.apiMessages.values()].filter(
+		(candidate) => candidate.workspaceId === message.workspaceId,
+	);
+	const hasEarlierOutstanding = workspaceMessages.some(
+		(candidate) =>
+			candidate.role === "user" &&
+			candidate.seq < message.seq &&
+			(candidate.status === "pending" || candidate.status === "delivered") &&
+			(candidate.expiresAtMs === undefined ||
+				candidate.expiresAtMs > acknowledgedAtMs),
+	);
+	if (hasEarlierOutstanding) return undefined;
+	const candidates = workspaceMessages.filter((candidate) => {
+		if (
+			candidate.role !== "assistant" ||
+			candidate.status !== "settled" ||
+			candidate.seq <= message.seq ||
+			candidate.turnId === undefined
+		)
+			return false;
+		const receipt = current.apiTurnReceipts.get(
+			apiTurnReceiptKey(message.workspaceId, candidate.turnId),
+		);
+		return (
+			receipt !== undefined &&
+			receipt.receivedAtMs >= attemptedAtMs &&
+			receipt.receivedAtMs <= acknowledgedAtMs &&
+			receipt.settledAtMs >= attemptedAtMs &&
+			!workspaceMessages.some(
+				(claimed) =>
+					claimed.role === "user" &&
+					claimed.messageId !== message.messageId &&
+					claimed.turnId === candidate.turnId,
+			)
+		);
+	});
+	return candidates.length === 1 ? candidates[0]?.turnId : undefined;
+};
 
 const recordOrEmpty = (value: unknown): Readonly<Record<string, unknown>> =>
 	typeof value === "object" && value !== null && !Array.isArray(value)
@@ -1227,6 +1567,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 			apiKeys: new Map(),
 			apiWebhooks: new Map(),
 			apiMessages: new Map(),
+			apiTurnReceipts: new Map(),
 			apiDeliveries: new Map(),
 		});
 		return CloudWorkspaceStore.of({
@@ -1759,11 +2100,9 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							workspace.state === "deleted"
 						)
 							return [null, current] as const;
-						const currentGeneration = workspaceRuntimeGeneration(workspace);
-						const currentGatewayEpoch =
-							typeof workspace.requestConfig.gatewayEpoch === "number"
-								? workspace.requestConfig.gatewayEpoch
-								: currentGeneration;
+						const currentGeneration =
+							cloudWorkspaceRuntimeGeneration(workspace);
+						const currentGatewayEpoch = cloudWorkspaceGatewayEpoch(workspace);
 						if (
 							input.generation !== currentGeneration ||
 							input.gatewayEpoch !== currentGatewayEpoch
@@ -1784,6 +2123,9 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							generation: input.generation,
 							gatewayEpoch: input.gatewayEpoch,
 							sealedTranscriptKey: input.sealedTranscriptKey,
+							...(input.capabilities === undefined
+								? {}
+								: { capabilities: input.capabilities }),
 							enrolledAtMs: input.nowMs,
 						};
 						const updated: CloudWorkspaceRecord = {
@@ -1874,7 +2216,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 								? {
 										cloudCommandProtocolVersion: input.commandProtocolVersion,
 										cloudCommandRuntimeGeneration:
-											workspaceRuntimeGeneration(workspace),
+											cloudWorkspaceRuntimeGeneration(workspace),
 									}
 								: {}),
 							startupTimings: {
@@ -1918,7 +2260,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						receipt.runtimeCredentialHash !== input.currentCredentialHash ||
 						receipt.generation !== input.generation ||
 						receipt.gatewayEpoch !== input.gatewayEpoch ||
-						workspaceRuntimeGeneration(workspace) !== input.generation ||
+						cloudWorkspaceRuntimeGeneration(workspace) !== input.generation ||
 						workspace.requestConfig.gatewayEpoch !== input.gatewayEpoch ||
 						workspace.state === "deleted"
 					)
@@ -2153,6 +2495,18 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						},
 					] as const;
 				}),
+			getWorkspaceLifecycleCommand: (workspaceId, commandId) =>
+				Ref.get(state).pipe(
+					Effect.map(
+						(current) =>
+							current.lifecycleCommands.get(`${workspaceId}:${commandId}`) ??
+							null,
+					),
+				),
+			saveWorkspaceLifecycleCommand: (input) =>
+				Ref.modify(state, (current) =>
+					saveWorkspaceLifecycleCommandInMemory(current, input),
+				),
 			saveClaimedWorkspace: ({
 				workspace,
 				leaseOwner,
@@ -2345,7 +2699,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						workspace.state !== "ready" ||
 						workspace.desiredState !== "ready" ||
 						workspace.runtimeState !== "online" ||
-						workspaceRuntimeGeneration(workspace) !== runtimeGeneration
+						cloudWorkspaceRuntimeGeneration(workspace) !== runtimeGeneration
 					)
 						return [null, current] as const;
 					const wakeRevision =
@@ -2401,7 +2755,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						workspace.state !== "ready" ||
 						workspace.desiredState !== "ready" ||
 						workspace.runtimeState !== "online" ||
-						workspaceRuntimeGeneration(workspace) !== runtimeGeneration
+						cloudWorkspaceRuntimeGeneration(workspace) !== runtimeGeneration
 					)
 						return [false, current] as const;
 					const priorProgressRevision =
@@ -2467,7 +2821,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						workspace.state !== "ready" ||
 						workspace.desiredState !== "ready" ||
 						workspace.runtimeState !== "online" ||
-						workspaceRuntimeGeneration(workspace) !== runtimeGeneration
+						cloudWorkspaceRuntimeGeneration(workspace) !== runtimeGeneration
 					)
 						return [false, current] as const;
 					const {
@@ -2534,7 +2888,8 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						if (workspace === undefined)
 							return [{ kind: "workspace-missing" as const }, current] as const;
 						if (
-							workspaceRuntimeGeneration(workspace) !== input.runtimeGeneration
+							cloudWorkspaceRuntimeGeneration(workspace) !==
+							input.runtimeGeneration
 						)
 							return [
 								{ kind: "rejected-generation" as const },
@@ -2592,7 +2947,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					const workspace = current.workspaces.get(checkpoint.workspaceId);
 					if (
 						workspace === undefined ||
-						workspaceRuntimeGeneration(workspace) !==
+						cloudWorkspaceRuntimeGeneration(workspace) !==
 							checkpoint.runtimeGeneration
 					)
 						return [false, current] as const;
@@ -2693,6 +3048,11 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							workspaces.has(message.workspaceId),
 						),
 					);
+					const apiTurnReceipts = new Map(
+						[...current.apiTurnReceipts].filter(([, receipt]) =>
+							workspaces.has(receipt.workspaceId),
+						),
+					);
 					const apiDeliveries = new Map(
 						[...current.apiDeliveries].filter(([, delivery]) =>
 							apiWebhooks.has(delivery.webhookId),
@@ -2723,6 +3083,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							apiKeys,
 							apiWebhooks,
 							apiMessages,
+							apiTurnReceipts,
 							apiDeliveries,
 						},
 					] as const;
@@ -2791,14 +3152,29 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						}),
 					};
 				}),
-			createApiWebhook: (webhook) =>
-				Ref.update(state, (current) => ({
-					...current,
-					apiWebhooks: new Map(current.apiWebhooks).set(
-						webhook.webhookId,
-						webhook,
-					),
-				})),
+			createApiWebhook: (webhook, activeLimit) =>
+				Ref.modify(state, (current) => {
+					const activeCount = [...current.apiWebhooks.values()].filter(
+						(existing) =>
+							existing.accountId === webhook.accountId &&
+							existing.disabledAtMs === undefined,
+					).length;
+					if (
+						current.apiWebhooks.has(webhook.webhookId) ||
+						activeCount >= activeLimit
+					)
+						return [false, current] as const;
+					return [
+						true,
+						{
+							...current,
+							apiWebhooks: new Map(current.apiWebhooks).set(
+								webhook.webhookId,
+								webhook,
+							),
+						},
+					] as const;
+				}),
 			listApiWebhooks: (accountId) =>
 				Ref.get(state).pipe(
 					Effect.map((current) =>
@@ -2826,31 +3202,81 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					return [true, { ...current, apiWebhooks, apiDeliveries }] as const;
 				}),
 			appendApiMessage: (input) =>
-				Ref.modify(state, (current) => {
-					const existing = current.apiMessages.get(input.messageId);
-					if (existing !== undefined) {
-						const outcome: AppendApiMessageOutcome = {
-							kind: "existing",
-							message: existing,
+				Ref.modify(state, (current) =>
+					appendApiMessageInMemory(current, input),
+				),
+			appendApiMessageGuarded: (input) =>
+				Ref.modify(
+					state,
+					(current): readonly [AppendApiMessageGuardedOutcome, MemoryState] => {
+						const saved = current.workspaces.get(
+							input.expectedWorkspace.workspaceId,
+						);
+						const existing = current.apiMessages.get(input.message.messageId);
+						if (
+							saved !== undefined &&
+							existing !== undefined &&
+							existing.status !== "pending" &&
+							guardedAppendTargetsWorkspace(input, saved) &&
+							apiMessageBelongsToWorkspace(existing, saved)
+						) {
+							const [append] = appendApiMessageInMemory(current, input.message);
+							return [
+								{
+									kind: "committed",
+									append,
+									workspace: saved,
+									lifecycleCommandSaved: false,
+								},
+								current,
+							];
+						}
+						if (
+							saved === undefined ||
+							!workspaceVersionMatches(saved, input.expectedWorkspace) ||
+							!guardedAppendTargetsWorkspace(input, saved)
+						) {
+							const outcome: AppendApiMessageGuardedOutcome = {
+								kind: "workspace-contended",
+								workspace: saved ?? null,
+							};
+							return [outcome, current] as const;
+						}
+
+						let next = current;
+						let lifecycleCommandSaved = false;
+						if (input.lifecycleCommand !== undefined) {
+							[lifecycleCommandSaved, next] =
+								saveWorkspaceLifecycleCommandInMemory(
+									next,
+									input.lifecycleCommand,
+								);
+							if (!lifecycleCommandSaved) {
+								const outcome: AppendApiMessageGuardedOutcome = {
+									kind: "workspace-contended",
+									workspace: saved,
+								};
+								return [outcome, current] as const;
+							}
+						}
+
+						const [append, appended] = appendApiMessageInMemory(
+							next,
+							input.message,
+						);
+						const outcome: AppendApiMessageGuardedOutcome = {
+							kind: "committed",
+							append,
+							workspace: appended.workspaces.get(saved.workspaceId) ?? saved,
+							lifecycleCommandSaved,
 						};
-						return [outcome, current] as const;
-					}
-					const message: CloudWorkspaceApiMessageRecord = {
-						...input,
-						seq: nextApiMessageSeq(current.apiMessages, input.workspaceId),
-					};
-					const outcome: AppendApiMessageOutcome = { kind: "created", message };
-					return [
-						outcome,
-						{
-							...current,
-							apiMessages: new Map(current.apiMessages).set(
-								message.messageId,
-								message,
-							),
-						},
-					] as const;
-				}),
+						return [outcome, appended];
+					},
+				),
+			getApiMessage: (messageId) =>
+				Ref.get(state).pipe(
+					Effect.map((current) => current.apiMessages.get(messageId) ?? null),
+				),
 			listApiMessages: (workspaceId, afterSeq, limit) =>
 				Ref.get(state).pipe(
 					Effect.map((current) =>
@@ -2863,22 +3289,63 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							.slice(0, limit),
 					),
 				),
-			listPendingApiCommands: (workspaceId, nowMs) =>
+			getApiWorkspaceLedgerSummary: (workspaceId) =>
 				Ref.get(state).pipe(
-					Effect.map((current) =>
-						[...current.apiMessages.values()]
-							.filter(
+					Effect.map((current) => {
+						const messages = [...current.apiMessages.values()].filter(
+							(message) => message.workspaceId === workspaceId,
+						);
+						const lastAssistant = messages
+							.filter((message) => message.role === "assistant")
+							.sort((left, right) => right.seq - left.seq)[0];
+						return {
+							latestSeq: messages.reduce(
+								(latest, message) => Math.max(latest, message.seq),
+								0,
+							),
+							hasOutstanding: messages.some(
 								(message) =>
-									message.workspaceId === workspaceId &&
 									message.role === "user" &&
-									message.status === "pending" &&
-									(message.expiresAtMs === undefined ||
-										message.expiresAtMs > nowMs),
-							)
-							.sort((a, b) => a.seq - b.seq),
-					),
+									(message.status === "pending" ||
+										message.status === "delivered"),
+							),
+							lastAssistant: lastAssistant ?? null,
+						} satisfies ApiWorkspaceLedgerSummary;
+					}),
 				),
-			ackApiCommand: (workspaceId, messageId, nowMs) =>
+			claimNextApiCommand: (workspaceId, nowMs) =>
+				Ref.modify(state, (current) => {
+					const pending = [...current.apiMessages.values()]
+						.filter(
+							(message) =>
+								message.workspaceId === workspaceId &&
+								message.role === "user" &&
+								message.status === "pending" &&
+								(message.expiresAtMs === undefined ||
+									message.expiresAtMs > nowMs),
+						)
+						.sort((a, b) => a.seq - b.seq);
+					const first = pending[0];
+					if (first === undefined) return [null, current] as const;
+					const attempted = {
+						...first,
+						deliveryAttemptedAtMs: Math.max(
+							first.deliveryAttemptedAtMs ?? 0,
+							nowMs,
+						),
+					};
+					return [
+						attempted,
+						{
+							...current,
+							apiMessages: new Map(current.apiMessages).set(
+								attempted.messageId,
+								attempted,
+							),
+						},
+					] as const;
+				}),
+			ackApiCommand: (workspaceId, messageId, turnId, commandTurnId, nowMs) =>
 				Ref.modify(state, (current) => {
 					const message = current.apiMessages.get(messageId);
 					if (
@@ -2888,11 +3355,35 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					)
 						return [false, current] as const;
 					if (message.status === "delivered" || message.status === "settled")
-						return [true, current] as const;
+						return [
+							turnId === undefined || message.turnId === turnId,
+							current,
+						] as const;
 					if (message.status !== "pending") return [false, current] as const;
+					if (
+						turnId !== undefined &&
+						message.turnId !== undefined &&
+						message.turnId !== turnId &&
+						message.turnId !== commandTurnId
+					)
+						return [false, current] as const;
+					const legacySettlementTurn =
+						turnId === undefined
+							? legacyAckSettlementTurnInMemory(current, message, nowMs)
+							: undefined;
+					const settled =
+						legacySettlementTurn !== undefined ||
+						(turnId !== undefined &&
+							[...current.apiMessages.values()].some(
+								(candidate) =>
+									candidate.workspaceId === workspaceId &&
+									candidate.role === "assistant" &&
+									candidate.turnId === turnId,
+							));
 					const delivered = {
 						...message,
-						status: "delivered" as const,
+						turnId: legacySettlementTurn ?? turnId,
+						status: settled ? ("settled" as const) : ("delivered" as const),
 						deliveredAtMs: nowMs,
 					};
 					return [
@@ -2907,7 +3398,9 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					] as const;
 				}),
 			recordApiTurnEvent: (input) =>
-				Ref.modify(state, (current) => {
+				Ref.modify<MemoryState, RecordApiTurnEventOutcome>(state, (current) => {
+					const receiptKey = apiTurnReceiptKey(input.workspaceId, input.turnId);
+					const storedReceipt = current.apiTurnReceipts.get(receiptKey);
 					const replay = [...current.apiMessages.values()].find(
 						(message) =>
 							message.workspaceId === input.workspaceId &&
@@ -2915,11 +3408,78 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							message.turnId === input.turnId,
 					);
 					if (replay !== undefined) {
+						if (storedReceipt === undefined) {
+							if (
+								input.adoptLegacyReplay !== true ||
+								replay.messageId !== input.messageId ||
+								replay.accountId !== input.accountId ||
+								replay.outcome !== input.outcome
+							)
+								throw new Error(
+									`API assistant turn is missing its receipt: ${input.workspaceId}/${input.turnId}`,
+								);
+							const adoptedReceipt: ApiTurnReceipt = {
+								workspaceId: input.workspaceId,
+								turnId: input.turnId,
+								outcome: input.outcome,
+								settledAtMs: input.nowMs,
+								receivedAtMs: input.receivedAtMs,
+								contentDigest: input.contentDigest,
+							};
+							const adopted = {
+								...current,
+								apiMessages: settleApiTurnUserMessageInMemory(
+									current.apiMessages,
+									input.workspaceId,
+									input.turnId,
+								),
+								apiTurnReceipts: new Map(current.apiTurnReceipts).set(
+									receiptKey,
+									adoptedReceipt,
+								),
+							};
+							return [
+								{
+									kind: "replay",
+									message: replay,
+									receipt: adoptedReceipt,
+								},
+								applyApiWebhookFanoutInMemory(adopted, input, adoptedReceipt),
+							] as const;
+						}
+						if (
+							!apiTurnReceiptMatchesInput(storedReceipt, input) ||
+							replay.messageId !== input.messageId ||
+							replay.accountId !== input.accountId
+						)
+							return [
+								{ kind: "conflict", receipt: storedReceipt },
+								current,
+							] as const;
 						const outcome: RecordApiTurnEventOutcome = {
 							kind: "replay",
 							message: replay,
+							receipt: storedReceipt,
 						};
-						return [outcome, current] as const;
+						return [
+							outcome,
+							applyApiWebhookFanoutInMemory(current, input, storedReceipt),
+						] as const;
+					}
+					if (storedReceipt !== undefined) {
+						if (!apiTurnReceiptMatchesInput(storedReceipt, input))
+							return [
+								{ kind: "conflict", receipt: storedReceipt },
+								current,
+							] as const;
+						const outcome: RecordApiTurnEventOutcome = {
+							kind: "pruned-replay",
+							receipt: storedReceipt,
+						};
+						return [
+							outcome,
+							applyApiWebhookFanoutInMemory(current, input, storedReceipt),
+						] as const;
 					}
 					const message: CloudWorkspaceApiMessageRecord = {
 						messageId: input.messageId,
@@ -2933,21 +3493,38 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						status: "settled",
 						createdAtMs: input.nowMs,
 					};
-					const apiMessages = new Map(current.apiMessages);
-					for (const [id, candidate] of apiMessages) {
-						if (
-							candidate.workspaceId === input.workspaceId &&
-							candidate.role === "user" &&
-							candidate.status === "delivered"
-						)
-							apiMessages.set(id, { ...candidate, status: "settled" });
-					}
+					const apiMessages = settleApiTurnUserMessageInMemory(
+						current.apiMessages,
+						input.workspaceId,
+						input.turnId,
+					);
 					apiMessages.set(message.messageId, message);
+					const receipt: ApiTurnReceipt = {
+						workspaceId: input.workspaceId,
+						turnId: input.turnId,
+						outcome: input.outcome,
+						settledAtMs: input.nowMs,
+						receivedAtMs: input.receivedAtMs,
+						contentDigest: input.contentDigest,
+					};
+					const apiTurnReceipts = new Map(current.apiTurnReceipts).set(
+						receiptKey,
+						receipt,
+					);
 					const outcome: RecordApiTurnEventOutcome = {
 						kind: "created",
 						message,
+						receipt,
 					};
-					return [outcome, { ...current, apiMessages }] as const;
+					const recorded = {
+						...current,
+						apiMessages,
+						apiTurnReceipts,
+					};
+					return [
+						outcome,
+						applyApiWebhookFanoutInMemory(recorded, input, receipt),
+					] as const;
 				}),
 			expireApiCommands: (nowMs) =>
 				Ref.update(state, (current) => {
@@ -2955,11 +3532,15 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 					for (const [id, message] of apiMessages) {
 						if (
 							message.role === "user" &&
-							message.status === "pending" &&
+							(message.status === "pending" ||
+								message.status === "delivered") &&
 							message.expiresAtMs !== undefined &&
 							message.expiresAtMs <= nowMs
 						)
-							apiMessages.set(id, { ...message, status: "expired" });
+							apiMessages.set(id, {
+								...message,
+								status: message.status === "pending" ? "expired" : "failed",
+							});
 					}
 					return { ...current, apiMessages };
 				}),
@@ -2980,18 +3561,49 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						),
 					]),
 				),
-			enqueueApiWebhookDeliveries: (deliveries) =>
+			pruneApiData: (beforeMs) =>
 				Ref.update(state, (current) => {
-					const apiDeliveries = new Map(current.apiDeliveries);
-					for (const delivery of deliveries) {
-						const duplicate = [...apiDeliveries.values()].some(
-							(existing) =>
-								existing.webhookId === delivery.webhookId &&
-								existing.eventId === delivery.eventId,
-						);
-						if (!duplicate) apiDeliveries.set(delivery.deliveryId, delivery);
+					const protectedMessageIds = new Set<string>();
+					const messagesByWorkspace = new Map<
+						string,
+						Array<CloudWorkspaceApiMessageRecord>
+					>();
+					for (const message of current.apiMessages.values()) {
+						const messages = messagesByWorkspace.get(message.workspaceId) ?? [];
+						messages.push(message);
+						messagesByWorkspace.set(message.workspaceId, messages);
 					}
-					return { ...current, apiDeliveries };
+					for (const messages of messagesByWorkspace.values())
+						for (const message of messages
+							.sort((left, right) => right.seq - left.seq)
+							.slice(0, 1_000))
+							protectedMessageIds.add(message.messageId);
+
+					const apiMessages = new Map(
+						[...current.apiMessages].filter(
+							([messageId, message]) =>
+								protectedMessageIds.has(messageId) ||
+								message.createdAtMs >= beforeMs ||
+								(message.role === "assistant" &&
+									(message.turnId === undefined ||
+										!current.apiTurnReceipts.has(
+											apiTurnReceiptKey(message.workspaceId, message.turnId),
+										))) ||
+								(message.status !== "settled" &&
+									message.status !== "failed" &&
+									message.status !== "expired"),
+						),
+					);
+					const apiDeliveries = new Map(
+						[...current.apiDeliveries].map(([deliveryId, delivery]) => [
+							deliveryId,
+							delivery.updatedAtMs < beforeMs &&
+							(delivery.status === "delivered" || delivery.status === "failed")
+								? { ...delivery, sealedPayload: "", lastError: undefined }
+								: delivery,
+						]),
+					);
+					return { ...current, apiMessages, apiDeliveries };
 				}),
 			claimDueApiWebhookDeliveries: (nowMs, limit, leaseMs) =>
 				Ref.modify(state, (current) => {
@@ -3262,11 +3874,21 @@ const apiMessageFromRow = (row: Row): CloudWorkspaceApiMessageRecord => ({
 	sealedContent: String(row.sealed_content),
 	commandId: optionalString(row.command_id),
 	turnId: optionalString(row.turn_id),
-	outcome: optionalString(row.outcome),
+	outcome: optionalString(row.outcome) as TurnSettlementOutcome | undefined,
 	status: row.status as ApiMessageStatus,
 	createdAtMs: numberValue(row.created_at),
+	deliveryAttemptedAtMs: optionalNumber(row.delivery_attempted_at),
 	deliveredAtMs: optionalNumber(row.delivered_at),
 	expiresAtMs: optionalNumber(row.expires_at),
+});
+
+const apiTurnReceiptFromRow = (row: Row): ApiTurnReceipt => ({
+	workspaceId: String(row.workspace_id),
+	turnId: String(row.turn_id),
+	outcome: String(row.outcome) as TurnSettlementOutcome,
+	settledAtMs: numberValue(row.settled_at),
+	receivedAtMs: numberValue(row.received_at),
+	contentDigest: String(row.content_digest),
 });
 
 const apiDeliveryFromRow = (row: Row): ApiWebhookDeliveryRecord => ({
@@ -3310,20 +3932,110 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			orDie(
 				sql`UPDATE api_cloud_workspaces SET provider_sandbox_id=${w.providerSandboxId ?? null}, runtime_boot_token_hash=${w.runtimeBootTokenHash ?? null}, runtime_boot_token_expires_at=${w.runtimeBootTokenExpiresAtMs ?? null}, runtime_credential_hash=${w.runtimeCredentialHash ?? null}, runtime_state=${w.runtimeState}, state=${w.state}, desired_state=${w.desiredState}, status_code=${w.statusCode}, wrapped_transcript_key=${w.wrappedTranscriptKey ?? null}, archive_requested_at=${w.archiveRequestedAtMs ?? null}, archive_delete_at=${w.archiveDeleteAtMs ?? null}, deletion_tombstone_expires_at=${w.deletionTombstoneExpiresAtMs ?? null}, request_config=${JSON.stringify(w.requestConfig)}::jsonb, next_action_at=${w.nextActionAtMs}, revision=${w.revision}, updated_at=${w.updatedAtMs}, last_activity_at=${w.lastActivityAtMs}, running_since=${w.runningSinceMs ?? null}, deleted_at=${w.deletedAtMs ?? null} WHERE workspace_id=${w.workspaceId} AND (revision < ${w.revision} OR (revision = ${w.revision} AND updated_at < ${w.updatedAtMs})) RETURNING *`,
 			);
+		const saveWorkspaceIfNewer = (w: CloudWorkspaceRecord) =>
+			Effect.gen(function* () {
+				const rows =
+					yield* sql`SELECT * FROM api_cloud_workspaces WHERE workspace_id=${w.workspaceId} FOR UPDATE`;
+				if (rows[0] === undefined) return false;
+				const prepared = prepareWorkspaceSave(
+					workspaceFromRow(rows[0] as Row),
+					w,
+				);
+				if (prepared === null) return false;
+				return (yield* saveWorkspaceReturning(prepared)).length === 1;
+			}).pipe(sql.withTransaction, Effect.orDie);
 		const saveWorkspace = (w: CloudWorkspaceRecord) =>
-			orDie(
-				Effect.gen(function* () {
-					const rows =
-						yield* sql`SELECT * FROM api_cloud_workspaces WHERE workspace_id=${w.workspaceId} FOR UPDATE`;
-					if (rows[0] === undefined) return;
-					const prepared = prepareWorkspaceSave(
-						workspaceFromRow(rows[0] as Row),
-						w,
-					);
-					if (prepared === null) return;
-					yield* saveWorkspaceReturning(prepared);
-				}).pipe(sql.withTransaction),
+			saveWorkspaceIfNewer(w).pipe(Effect.asVoid);
+		const saveWorkspaceLifecycleCommandTransaction = (
+			input: WorkspaceLifecycleCommandWrite,
+		) =>
+			Effect.gen(function* () {
+				const receipt =
+					yield* sql`INSERT INTO api_cloud_workspace_command_receipts (workspace_id, command_id, action, workspace_revision, created_at) VALUES (${input.workspace.workspaceId}, ${input.commandId}, ${input.action}, ${input.workspace.revision}, ${input.createdAtMs}) ON CONFLICT (workspace_id, command_id) DO NOTHING RETURNING command_id`;
+				if (receipt.length === 0) return false;
+				if (yield* saveWorkspaceIfNewer(input.workspace)) return true;
+				// Keep the receipt and state transition atomic. A stale write must
+				// remain retryable instead of looking successfully consumed.
+				yield* sql`DELETE FROM api_cloud_workspace_command_receipts WHERE workspace_id=${input.workspace.workspaceId} AND command_id=${input.commandId}`;
+				return false;
+			});
+		const getApiMessageTransaction = (messageId: string) =>
+			sql`SELECT * FROM api_cloud_workspace_api_messages WHERE message_id=${messageId}`.pipe(
+				Effect.map((rows) =>
+					rows[0] ? apiMessageFromRow(rows[0] as Row) : null,
+				),
 			);
+		const appendApiMessageTransaction = (
+			input: AppendApiMessageInput,
+			loaded?: CloudWorkspaceApiMessageRecord | null,
+		) =>
+			Effect.gen(function* () {
+				const existing =
+					loaded === undefined
+						? yield* getApiMessageTransaction(input.messageId)
+						: loaded;
+				if (existing !== null)
+					return {
+						kind: "existing",
+						message: existing,
+					} satisfies AppendApiMessageOutcome;
+				let status = input.status;
+				if (
+					input.role === "user" &&
+					input.status === "delivered" &&
+					input.turnId !== undefined
+				) {
+					const settled =
+						yield* sql`SELECT 1 FROM api_cloud_workspace_api_messages WHERE workspace_id=${input.workspaceId} AND role='assistant' AND turn_id=${input.turnId} UNION ALL SELECT 1 FROM api_cloud_workspace_api_turn_receipts WHERE workspace_id=${input.workspaceId} AND turn_id=${input.turnId} LIMIT 1`;
+					if (settled.length > 0) status = "settled";
+				}
+				const created =
+					yield* sql`INSERT INTO api_cloud_workspace_api_messages (message_id, workspace_id, account_id, seq, role, sealed_content, command_id, turn_id, outcome, status, created_at, expires_at) SELECT ${input.messageId}, ${input.workspaceId}, ${input.accountId}, COALESCE(MAX(seq), 0) + 1, ${input.role}, ${input.sealedContent}, ${input.commandId ?? null}, ${input.turnId ?? null}, ${input.outcome ?? null}, ${status}, ${input.createdAtMs}, ${input.expiresAtMs ?? null} FROM api_cloud_workspace_api_messages WHERE workspace_id=${input.workspaceId} RETURNING *`;
+				return {
+					kind: "created",
+					message: apiMessageFromRow(created[0] as Row),
+				} satisfies AppendApiMessageOutcome;
+			});
+		const insertApiWebhookFanoutTransaction = (
+			input: RecordApiTurnEventInput,
+			receipt: ApiTurnReceipt,
+		) => {
+			const fanout = input.webhookFanout;
+			if (fanout === undefined || fanout.targets.length === 0)
+				return Effect.void;
+			return Effect.forEach(
+				fanout.targets,
+				(target) =>
+					sql`INSERT INTO api_api_webhook_deliveries (delivery_id, webhook_id, account_id, event_id, event_type, sealed_payload, status, attempts, next_attempt_at, created_at, updated_at)
+						SELECT ${target.deliveryId}, webhook_id, ${input.accountId}, ${fanout.eventId}, ${fanout.eventType}, ${fanout.sealedPayload}, 'pending', 0, ${fanout.enqueuedAtMs}, ${fanout.enqueuedAtMs}, ${fanout.enqueuedAtMs}
+						FROM api_api_webhooks
+						WHERE webhook_id=${target.webhookId}
+							AND account_id=${input.accountId}
+							AND disabled_at IS NULL
+							AND created_at <= ${receipt.settledAtMs}
+						ON CONFLICT (webhook_id, event_id) DO NOTHING`,
+				{ discard: true },
+			);
+		};
+		const settleApiTurnUserMessageTransaction = (
+			workspaceId: string,
+			turnId: string,
+		) =>
+			sql`WITH candidate AS (
+				SELECT message_id
+				FROM api_cloud_workspace_api_messages
+				WHERE workspace_id=${workspaceId}
+					AND role='user'
+					AND status <> 'settled'
+					AND (turn_id=${turnId} OR (turn_id IS NULL AND status='delivered'))
+				ORDER BY CASE WHEN turn_id=${turnId} THEN 0 ELSE 1 END, seq
+				LIMIT 1
+				FOR UPDATE
+			)
+			UPDATE api_cloud_workspace_api_messages AS message
+			SET status='settled', turn_id=${turnId}
+			FROM candidate
+			WHERE message.message_id=candidate.message_id`.pipe(Effect.asVoid);
 		const saveClaimedWorkspace = (input: {
 			readonly workspace: CloudWorkspaceRecord;
 			readonly leaseOwner: string;
@@ -3568,7 +4280,11 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			createWorkspace: (w, launchIntent) =>
 				orDie(
 					Effect.gen(function* () {
-						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${w.projectId}:${w.branch}`}, 0))`;
+						// Idempotent callers can independently choose different randomized
+						// branches before reaching the store. Serialize by operation identity
+						// first so the loser observes the existing workspace instead of racing
+						// the account/idempotency unique constraint.
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`cloud-workspace-idempotency:${w.accountId}:${w.idempotencyKey}`}, 0))`;
 						const existing =
 							yield* sql`SELECT * FROM api_cloud_workspaces WHERE account_id=${w.accountId} AND idempotency_key=${w.idempotencyKey}`;
 						if (existing[0]) {
@@ -3577,6 +4293,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 								workspace: workspaceFromRow(existing[0] as Row),
 							} satisfies CreateCloudWorkspaceOutcome;
 						}
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${w.projectId}:${w.branch}`}, 0))`;
 						const conflicts =
 							yield* sql`SELECT * FROM api_cloud_workspaces WHERE project_id=${w.projectId} AND branch=${w.branch} AND state <> 'deleted' LIMIT 1`;
 						if (conflicts[0]) {
@@ -3714,6 +4431,21 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						Effect.map((rows) => rows.length === 1),
 					),
 				),
+			getWorkspaceLifecycleCommand: (workspaceId, commandId) =>
+				orDie(
+					sql`SELECT action FROM api_cloud_workspace_command_receipts WHERE workspace_id=${workspaceId} AND command_id=${commandId}`.pipe(
+						Effect.map((rows) =>
+							rows[0] === undefined ? null : String(rows[0].action),
+						),
+					),
+				),
+			saveWorkspaceLifecycleCommand: (input) =>
+				orDie(
+					Effect.gen(function* () {
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${workspaceLifecycleLockKey(input.workspace.workspaceId)}, 0))`;
+						return yield* saveWorkspaceLifecycleCommandTransaction(input);
+					}).pipe(sql.withTransaction),
+				),
 			saveClaimedWorkspace,
 			releaseWorkspaceLease: (workspaceId, leaseOwner) =>
 				orDie(
@@ -3798,6 +4530,9 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							generation: input.generation,
 							gatewayEpoch: input.gatewayEpoch,
 							sealedTranscriptKey: input.sealedTranscriptKey,
+							...(input.capabilities === undefined
+								? {}
+								: { capabilities: input.capabilities }),
 							enrolledAtMs: input.nowMs,
 						};
 						const configPatch = {
@@ -3938,7 +4673,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							receipt.runtimeCredentialHash !== input.currentCredentialHash ||
 							receipt.generation !== input.generation ||
 							receipt.gatewayEpoch !== input.gatewayEpoch ||
-							workspaceRuntimeGeneration(workspace) !== input.generation ||
+							cloudWorkspaceRuntimeGeneration(workspace) !== input.generation ||
 							workspace.requestConfig.gatewayEpoch !== input.gatewayEpoch ||
 							workspace.state === "deleted"
 						)
@@ -4338,11 +5073,20 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						Effect.asVoid,
 					),
 				),
-			createApiWebhook: (webhook) =>
+			createApiWebhook: (webhook, activeLimit) =>
 				orDie(
-					sql`INSERT INTO api_api_webhooks (webhook_id, account_id, url, sealed_secret, description, created_at, disabled_at) VALUES (${webhook.webhookId}, ${webhook.accountId}, ${webhook.url}, ${webhook.sealedSecret}, ${webhook.description ?? null}, ${webhook.createdAtMs}, ${webhook.disabledAtMs ?? null})`.pipe(
-						Effect.asVoid,
-					),
+					Effect.gen(function* () {
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${apiWebhooksLockKey(webhook.accountId)}, 0))`;
+						const rows =
+							yield* sql`SELECT COUNT(*)::int AS active_count FROM api_api_webhooks WHERE account_id=${webhook.accountId} AND disabled_at IS NULL`;
+						const activeCount = Number(
+							(rows[0] as Row | undefined)?.active_count ?? 0,
+						);
+						if (activeCount >= activeLimit) return false;
+						const inserted =
+							yield* sql`INSERT INTO api_api_webhooks (webhook_id, account_id, url, sealed_secret, description, created_at, disabled_at) VALUES (${webhook.webhookId}, ${webhook.accountId}, ${webhook.url}, ${webhook.sealedSecret}, ${webhook.description ?? null}, ${webhook.createdAtMs}, ${webhook.disabledAtMs ?? null}) ON CONFLICT (webhook_id) DO NOTHING RETURNING webhook_id`;
+						return inserted.length === 1;
+					}).pipe(sql.withTransaction),
 				),
 			listApiWebhooks: (accountId) =>
 				orDie(
@@ -4361,21 +5105,88 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			appendApiMessage: (input) =>
 				orDie(
 					Effect.gen(function* () {
-						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`api-messages:${input.workspaceId}`}, 0))`;
-						const existing =
-							yield* sql`SELECT * FROM api_cloud_workspace_api_messages WHERE message_id=${input.messageId}`;
-						if (existing[0])
-							return {
-								kind: "existing",
-								message: apiMessageFromRow(existing[0] as Row),
-							} satisfies AppendApiMessageOutcome;
-						const created =
-							yield* sql`INSERT INTO api_cloud_workspace_api_messages (message_id, workspace_id, account_id, seq, role, sealed_content, command_id, status, created_at, expires_at) SELECT ${input.messageId}, ${input.workspaceId}, ${input.accountId}, COALESCE(MAX(seq), 0) + 1, ${input.role}, ${input.sealedContent}, ${input.commandId ?? null}, ${input.status}, ${input.createdAtMs}, ${input.expiresAtMs ?? null} FROM api_cloud_workspace_api_messages WHERE workspace_id=${input.workspaceId} RETURNING *`;
-						return {
-							kind: "created",
-							message: apiMessageFromRow(created[0] as Row),
-						} satisfies AppendApiMessageOutcome;
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${apiMessagesLockKey(input.workspaceId)}, 0))`;
+						return yield* appendApiMessageTransaction(input);
 					}).pipe(sql.withTransaction),
+				),
+			appendApiMessageGuarded: (input) =>
+				orDie(
+					Effect.gen(function* () {
+						const workspaceId = input.expectedWorkspace.workspaceId;
+						// All operations needing both locks acquire lifecycle first, then
+						// the API ledger lock. Single-resource writes use their one lock.
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${workspaceLifecycleLockKey(workspaceId)}, 0))`;
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${apiMessagesLockKey(workspaceId)}, 0))`;
+						const existing = yield* getApiMessageTransaction(
+							input.message.messageId,
+						);
+						const rows =
+							yield* sql`SELECT * FROM api_cloud_workspaces WHERE workspace_id=${workspaceId} FOR UPDATE`;
+						const saved = rows[0] ? workspaceFromRow(rows[0] as Row) : null;
+						if (
+							saved !== null &&
+							existing !== null &&
+							existing.status !== "pending" &&
+							guardedAppendTargetsWorkspace(input, saved) &&
+							apiMessageBelongsToWorkspace(existing, saved)
+						)
+							return {
+								kind: "committed",
+								append: { kind: "existing", message: existing },
+								workspace: saved,
+								lifecycleCommandSaved: false,
+							} satisfies AppendApiMessageGuardedOutcome;
+						if (
+							saved === null ||
+							!workspaceVersionMatches(saved, input.expectedWorkspace) ||
+							!guardedAppendTargetsWorkspace(input, saved)
+						) {
+							return {
+								kind: "workspace-contended",
+								workspace: saved,
+							} satisfies AppendApiMessageGuardedOutcome;
+						}
+
+						let lifecycleCommandSaved = false;
+						if (input.lifecycleCommand !== undefined) {
+							lifecycleCommandSaved =
+								yield* saveWorkspaceLifecycleCommandTransaction(
+									input.lifecycleCommand,
+								);
+							if (!lifecycleCommandSaved)
+								return {
+									kind: "workspace-contended",
+									workspace: saved,
+								} satisfies AppendApiMessageGuardedOutcome;
+						}
+
+						const append = yield* appendApiMessageTransaction(
+							input.message,
+							existing,
+						);
+						const workspace =
+							input.lifecycleCommand === undefined
+								? saved
+								: {
+										...input.lifecycleCommand.workspace,
+										leaseOwner: saved.leaseOwner,
+										leaseExpiresAtMs: saved.leaseExpiresAtMs,
+									};
+						return {
+							kind: "committed",
+							append,
+							workspace,
+							lifecycleCommandSaved,
+						} satisfies AppendApiMessageGuardedOutcome;
+					}).pipe(sql.withTransaction),
+				),
+			getApiMessage: (messageId) =>
+				orDie(
+					sql`SELECT * FROM api_cloud_workspace_api_messages WHERE message_id=${messageId}`.pipe(
+						Effect.map((rows) =>
+							rows[0] ? apiMessageFromRow(rows[0] as Row) : null,
+						),
+					),
 				),
 			listApiMessages: (workspaceId, afterSeq, limit) =>
 				orDie(
@@ -4385,49 +5196,202 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						),
 					),
 				),
-			listPendingApiCommands: (workspaceId, nowMs) =>
+			getApiWorkspaceLedgerSummary: (workspaceId) =>
 				orDie(
-					sql`SELECT * FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId} AND role='user' AND status='pending' AND (expires_at IS NULL OR expires_at > ${nowMs}) ORDER BY seq`.pipe(
-						Effect.map((rows) =>
-							rows.map((row) => apiMessageFromRow(row as Row)),
-						),
+					sql`SELECT
+						COALESCE((SELECT MAX(seq) FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId}), 0) AS latest_seq,
+						EXISTS(SELECT 1 FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId} AND role='user' AND status IN ('pending', 'delivered')) AS outstanding,
+						(SELECT row_to_json(assistant) FROM (SELECT * FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId} AND role='assistant' ORDER BY seq DESC LIMIT 1) AS assistant) AS last_assistant`.pipe(
+						Effect.map((rows) => {
+							const row = rows[0] as Row;
+							const lastAssistant = row.last_assistant;
+							return {
+								latestSeq: numberValue(row.latest_seq),
+								hasOutstanding: row.outstanding === true,
+								lastAssistant:
+									typeof lastAssistant === "object" && lastAssistant !== null
+										? apiMessageFromRow(lastAssistant as Row)
+										: null,
+							} satisfies ApiWorkspaceLedgerSummary;
+						}),
 					),
 				),
-			ackApiCommand: (workspaceId, messageId, nowMs) =>
+			claimNextApiCommand: (workspaceId, nowMs) =>
 				orDie(
-					sql`UPDATE api_cloud_workspace_api_messages SET status='delivered', delivered_at=${nowMs} WHERE workspace_id=${workspaceId} AND message_id=${messageId} AND role='user' AND status='pending' RETURNING message_id`.pipe(
-						Effect.flatMap((rows) =>
-							rows.length === 1
-								? Effect.succeed(true)
-								: sql`SELECT message_id FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId} AND message_id=${messageId} AND status IN ('delivered', 'settled')`.pipe(
-										Effect.map((found) => found.length === 1),
-									),
-						),
-					),
+					Effect.gen(function* () {
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${apiMessagesLockKey(workspaceId)}, 0))`;
+						const rows =
+							yield* sql`SELECT * FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId} AND role='user' AND status='pending' AND (expires_at IS NULL OR expires_at > ${nowMs}) ORDER BY seq`;
+						const first = rows[0] as Row | undefined;
+						if (first === undefined) return null;
+						const attemptedRows =
+							yield* sql`UPDATE api_cloud_workspace_api_messages SET delivery_attempted_at=GREATEST(COALESCE(delivery_attempted_at, 0), ${nowMs}) WHERE message_id=${String(first.message_id)} AND workspace_id=${workspaceId} AND role='user' AND status='pending' RETURNING *`;
+						const attempted = attemptedRows[0] as Row | undefined;
+						if (attempted === undefined) return null;
+						return apiMessageFromRow(attempted);
+					}).pipe(sql.withTransaction),
+				),
+			ackApiCommand: (workspaceId, messageId, turnId, commandTurnId, nowMs) =>
+				orDie(
+					Effect.gen(function* () {
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${apiMessagesLockKey(workspaceId)}, 0))`;
+						if (turnId === undefined) {
+							const pendingRows =
+								yield* sql`SELECT * FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId} AND message_id=${messageId} AND role='user' AND status='pending'`;
+							const pending = pendingRows[0]
+								? apiMessageFromRow(pendingRows[0] as Row)
+								: null;
+							if (pending === null) {
+								const legacyFound =
+									yield* sql`SELECT message_id FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId} AND message_id=${messageId} AND role='user' AND status IN ('delivered', 'settled')`;
+								return legacyFound.length === 1;
+							}
+							const candidateRows =
+								pending.deliveryAttemptedAtMs === undefined
+									? []
+									: yield* sql`SELECT assistant.turn_id
+									FROM api_cloud_workspace_api_messages AS assistant
+									INNER JOIN api_cloud_workspace_api_turn_receipts AS receipt
+										ON receipt.workspace_id=assistant.workspace_id
+										AND receipt.turn_id=assistant.turn_id
+									WHERE assistant.workspace_id=${workspaceId}
+										AND assistant.role='assistant'
+										AND assistant.status='settled'
+										AND assistant.seq > ${pending.seq}
+										AND receipt.received_at >= ${pending.deliveryAttemptedAtMs}
+										AND receipt.received_at <= ${nowMs}
+										AND receipt.settled_at >= ${pending.deliveryAttemptedAtMs}
+										AND NOT EXISTS (
+											SELECT 1
+											FROM api_cloud_workspace_api_messages AS claimed
+											WHERE claimed.workspace_id=${workspaceId}
+												AND claimed.role='user'
+												AND claimed.message_id <> ${messageId}
+												AND claimed.turn_id=assistant.turn_id
+										)
+										AND NOT EXISTS (
+											SELECT 1
+											FROM api_cloud_workspace_api_messages AS earlier
+											WHERE earlier.workspace_id=${workspaceId}
+												AND earlier.role='user'
+												AND earlier.seq < ${pending.seq}
+												AND earlier.status IN ('pending', 'delivered')
+												AND (earlier.expires_at IS NULL OR earlier.expires_at > ${nowMs})
+										)
+									ORDER BY assistant.seq
+									LIMIT 2`;
+							const legacySettlementTurn =
+								candidateRows.length === 1
+									? String((candidateRows[0] as Row).turn_id)
+									: undefined;
+							const legacyRows =
+								yield* sql`UPDATE api_cloud_workspace_api_messages SET status=${legacySettlementTurn === undefined ? "delivered" : "settled"}, delivered_at=${nowMs}, turn_id=${legacySettlementTurn ?? null} WHERE workspace_id=${workspaceId} AND message_id=${messageId} AND role='user' AND status='pending' RETURNING message_id`;
+							if (legacyRows.length === 1) return true;
+							return false;
+						}
+						const rows =
+							yield* sql`UPDATE api_cloud_workspace_api_messages AS message SET status=CASE WHEN EXISTS (SELECT 1 FROM api_cloud_workspace_api_messages AS assistant WHERE assistant.workspace_id=${workspaceId} AND assistant.role='assistant' AND assistant.turn_id=${turnId}) THEN 'settled' ELSE 'delivered' END, delivered_at=${nowMs}, turn_id=${turnId} WHERE message.workspace_id=${workspaceId} AND message.message_id=${messageId} AND message.role='user' AND message.status='pending' AND (message.turn_id IS NULL OR message.turn_id=${turnId} OR (${commandTurnId ?? null} IS NOT NULL AND message.turn_id=${commandTurnId ?? null})) RETURNING message_id`;
+						if (rows.length === 1) return true;
+						const found =
+							yield* sql`SELECT message_id FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId} AND message_id=${messageId} AND role='user' AND turn_id=${turnId} AND status IN ('delivered', 'settled')`;
+						return found.length === 1;
+					}).pipe(sql.withTransaction),
 				),
 			recordApiTurnEvent: (input) =>
 				orDie(
 					Effect.gen(function* () {
-						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`api-messages:${input.workspaceId}`}, 0))`;
-						const replay =
+						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${apiMessagesLockKey(input.workspaceId)}, 0))`;
+						const replayRows =
 							yield* sql`SELECT * FROM api_cloud_workspace_api_messages WHERE workspace_id=${input.workspaceId} AND role='assistant' AND turn_id=${input.turnId}`;
-						if (replay[0])
-							return {
+						const receiptRow =
+							(yield* sql`SELECT * FROM api_cloud_workspace_api_turn_receipts WHERE workspace_id=${input.workspaceId} AND turn_id=${input.turnId}`)[0];
+						const replayRow = replayRows[0] as Row | undefined;
+						let receipt: ApiTurnReceipt;
+						let outcome: RecordApiTurnEventOutcome;
+						if (replayRow !== undefined) {
+							const replay = apiMessageFromRow(replayRow);
+							if (receiptRow === undefined) {
+								if (
+									input.adoptLegacyReplay !== true ||
+									replay.messageId !== input.messageId ||
+									replay.accountId !== input.accountId ||
+									replay.outcome !== input.outcome
+								)
+									return yield* Effect.die(
+										new Error(
+											`API assistant turn is missing its receipt: ${input.workspaceId}/${input.turnId}`,
+										),
+									);
+								yield* sql`INSERT INTO api_cloud_workspace_api_turn_receipts (workspace_id, turn_id, outcome, settled_at, received_at, content_digest) VALUES (${input.workspaceId}, ${input.turnId}, ${input.outcome}, ${input.nowMs}, ${input.receivedAtMs}, ${input.contentDigest})`;
+								yield* settleApiTurnUserMessageTransaction(
+									input.workspaceId,
+									input.turnId,
+								);
+								receipt = {
+									workspaceId: input.workspaceId,
+									turnId: input.turnId,
+									outcome: input.outcome,
+									settledAtMs: input.nowMs,
+									receivedAtMs: input.receivedAtMs,
+									contentDigest: input.contentDigest,
+								};
+							} else {
+								receipt = apiTurnReceiptFromRow(receiptRow as Row);
+							}
+							if (
+								!apiTurnReceiptMatchesInput(receipt, input) ||
+								replay.messageId !== input.messageId ||
+								replay.accountId !== input.accountId
+							)
+								return {
+									kind: "conflict",
+									receipt,
+								} satisfies RecordApiTurnEventOutcome;
+							outcome = {
 								kind: "replay",
-								message: apiMessageFromRow(replay[0] as Row),
+								message: replay,
+								receipt,
 							} satisfies RecordApiTurnEventOutcome;
-						const created =
-							yield* sql`INSERT INTO api_cloud_workspace_api_messages (message_id, workspace_id, account_id, seq, role, sealed_content, turn_id, outcome, status, created_at) SELECT ${input.messageId}, ${input.workspaceId}, ${input.accountId}, COALESCE(MAX(seq), 0) + 1, 'assistant', ${input.sealedContent}, ${input.turnId}, ${input.outcome}, 'settled', ${input.nowMs} FROM api_cloud_workspace_api_messages WHERE workspace_id=${input.workspaceId} RETURNING *`;
-						yield* sql`UPDATE api_cloud_workspace_api_messages SET status='settled' WHERE workspace_id=${input.workspaceId} AND role='user' AND status='delivered'`;
-						return {
-							kind: "created",
-							message: apiMessageFromRow(created[0] as Row),
-						} satisfies RecordApiTurnEventOutcome;
+						} else if (receiptRow !== undefined) {
+							receipt = apiTurnReceiptFromRow(receiptRow as Row);
+							if (!apiTurnReceiptMatchesInput(receipt, input))
+								return {
+									kind: "conflict",
+									receipt,
+								} satisfies RecordApiTurnEventOutcome;
+							outcome = {
+								kind: "pruned-replay",
+								receipt,
+							} satisfies RecordApiTurnEventOutcome;
+						} else {
+							const created =
+								yield* sql`INSERT INTO api_cloud_workspace_api_messages (message_id, workspace_id, account_id, seq, role, sealed_content, turn_id, outcome, status, created_at) SELECT ${input.messageId}, ${input.workspaceId}, ${input.accountId}, COALESCE(MAX(seq), 0) + 1, 'assistant', ${input.sealedContent}, ${input.turnId}, ${input.outcome}, 'settled', ${input.nowMs} FROM api_cloud_workspace_api_messages WHERE workspace_id=${input.workspaceId} RETURNING *`;
+							yield* sql`INSERT INTO api_cloud_workspace_api_turn_receipts (workspace_id, turn_id, outcome, settled_at, received_at, content_digest) VALUES (${input.workspaceId}, ${input.turnId}, ${input.outcome}, ${input.nowMs}, ${input.receivedAtMs}, ${input.contentDigest})`;
+							yield* settleApiTurnUserMessageTransaction(
+								input.workspaceId,
+								input.turnId,
+							);
+							receipt = {
+								workspaceId: input.workspaceId,
+								turnId: input.turnId,
+								outcome: input.outcome,
+								settledAtMs: input.nowMs,
+								receivedAtMs: input.receivedAtMs,
+								contentDigest: input.contentDigest,
+							};
+							outcome = {
+								kind: "created",
+								message: apiMessageFromRow(created[0] as Row),
+								receipt,
+							} satisfies RecordApiTurnEventOutcome;
+						}
+						yield* insertApiWebhookFanoutTransaction(input, receipt);
+						return outcome;
 					}).pipe(sql.withTransaction),
 				),
 			expireApiCommands: (nowMs) =>
 				orDie(
-					sql`UPDATE api_cloud_workspace_api_messages SET status='expired' WHERE role='user' AND status='pending' AND expires_at IS NOT NULL AND expires_at <= ${nowMs}`.pipe(
+					sql`UPDATE api_cloud_workspace_api_messages SET status=CASE WHEN status='pending' THEN 'expired' ELSE 'failed' END WHERE role='user' AND status IN ('pending', 'delivered') AND expires_at IS NOT NULL AND expires_at <= ${nowMs}`.pipe(
 						Effect.asVoid,
 					),
 				),
@@ -4439,14 +5403,33 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						),
 					),
 				),
-			enqueueApiWebhookDeliveries: (deliveries) =>
+			pruneApiData: (beforeMs) =>
 				orDie(
-					Effect.forEach(
-						deliveries,
-						(delivery) =>
-							sql`INSERT INTO api_api_webhook_deliveries (delivery_id, webhook_id, account_id, event_id, event_type, sealed_payload, status, attempts, next_attempt_at, last_error, created_at, updated_at) VALUES (${delivery.deliveryId}, ${delivery.webhookId}, ${delivery.accountId}, ${delivery.eventId}, ${delivery.eventType}, ${delivery.sealedPayload}, ${delivery.status}, ${delivery.attempts}, ${delivery.nextAttemptAtMs}, ${delivery.lastError ?? null}, ${delivery.createdAtMs}, ${delivery.updatedAtMs}) ON CONFLICT DO NOTHING`,
-						{ discard: true },
-					),
+					Effect.gen(function* () {
+						yield* sql`WITH ranked AS (
+							SELECT message_id, row_number() OVER (PARTITION BY workspace_id ORDER BY seq DESC) AS recency_rank
+							FROM api_cloud_workspace_api_messages
+						)
+						DELETE FROM api_cloud_workspace_api_messages AS message
+						USING ranked
+						WHERE message.message_id=ranked.message_id
+							AND ranked.recency_rank > 1000
+							AND message.created_at < ${beforeMs}
+							AND message.status IN ('settled', 'failed', 'expired')
+							AND (
+								message.role <> 'assistant'
+								OR EXISTS (
+									SELECT 1
+									FROM api_cloud_workspace_api_turn_receipts AS receipt
+									WHERE receipt.workspace_id=message.workspace_id
+										AND receipt.turn_id=message.turn_id
+								)
+							)`;
+						// Preserve the compact (webhook_id,event_id) tombstone: runtimes
+						// replay durable turn events after restarts, so deleting it would
+						// resurrect an already delivered webhook. Only discard old payloads.
+						yield* sql`UPDATE api_api_webhook_deliveries SET sealed_payload='', last_error=NULL WHERE updated_at < ${beforeMs} AND status IN ('delivered', 'failed') AND sealed_payload <> ''`;
+					}).pipe(sql.withTransaction, Effect.asVoid),
 				),
 			claimDueApiWebhookDeliveries: (nowMs, limit, leaseMs) =>
 				orDie(

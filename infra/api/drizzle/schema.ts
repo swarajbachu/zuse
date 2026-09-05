@@ -991,7 +991,7 @@ export const apiApiKeys = pgTable(
 
 // Outbound webhook endpoints registered through the public API. The signing
 // secret must be recoverable to sign deliveries, so it is stored sealed with
-// the API data-encryption key rather than hashed.
+// the api data-encryption key rather than hashed.
 export const apiApiWebhooks = pgTable(
 	"api_api_webhooks",
 	{
@@ -1010,7 +1010,7 @@ export const apiApiWebhooks = pgTable(
  * Bounded per-workspace conversation ledger for the public API: user rows
  * double as the pending-command queue delivered to the in-sandbox runtime,
  * assistant rows are appended from runtime turn events. Content is sealed
- * with the API data-encryption key like launch intents.
+ * with the api data-encryption key like launch intents.
  */
 export const apiCloudWorkspaceApiMessages = pgTable(
 	"api_cloud_workspace_api_messages",
@@ -1030,6 +1030,9 @@ export const apiCloudWorkspaceApiMessages = pgTable(
 		outcome: text("outcome"),
 		status: text("status").notNull(),
 		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		deliveryAttemptedAt: bigint("delivery_attempted_at", {
+			mode: "number",
+		}),
 		deliveredAt: bigint("delivered_at", { mode: "number" }),
 		expiresAt: bigint("expires_at", { mode: "number" }),
 	},
@@ -1040,11 +1043,19 @@ export const apiCloudWorkspaceApiMessages = pgTable(
 		),
 		uniqueIndex("api_cloud_workspace_api_messages_turn_idx")
 			.on(table.workspaceId, table.turnId)
-			.where(sql`${table.turnId} IS NOT NULL`),
+			.where(sql`${table.role} = 'assistant' AND ${table.turnId} IS NOT NULL`),
 		index("api_cloud_workspace_api_messages_pending_idx").on(
 			table.workspaceId,
 			table.status,
 		),
+		index("api_cloud_workspace_api_messages_pending_expiry_idx")
+			.on(table.expiresAt)
+			.where(
+				sql`${table.role} = 'user' AND ${table.status} IN ('pending', 'delivered') AND ${table.expiresAt} IS NOT NULL`,
+			),
+		index("api_cloud_workspace_api_messages_pending_stale_idx")
+			.on(table.createdAt, table.workspaceId)
+			.where(sql`${table.role} = 'user' AND ${table.status} = 'pending'`),
 		check(
 			"api_cloud_workspace_api_messages_role_check",
 			sql`${table.role} IN ('user', 'assistant')`,
@@ -1052,6 +1063,37 @@ export const apiCloudWorkspaceApiMessages = pgTable(
 		check(
 			"api_cloud_workspace_api_messages_status_check",
 			sql`${table.status} IN ('pending', 'delivered', 'settled', 'failed', 'expired')`,
+		),
+	],
+);
+
+/**
+ * Compact, content-free idempotency receipts survive message retention. The
+ * runtime can replay its durable event log from zero after a restart without
+ * resurrecting an old assistant row at a new ledger sequence.
+ */
+export const apiCloudWorkspaceApiTurnReceipts = pgTable(
+	"api_cloud_workspace_api_turn_receipts",
+	{
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => apiCloudWorkspaces.workspaceId, {
+				onDelete: "cascade",
+			}),
+		turnId: text("turn_id").notNull(),
+		outcome: text("outcome").notNull(),
+		settledAt: bigint("settled_at", { mode: "number" }).notNull(),
+		receivedAt: bigint("received_at", { mode: "number" }).notNull(),
+		contentDigest: text("content_digest").notNull(),
+	},
+	(table) => [
+		primaryKey({
+			name: "api_cloud_workspace_api_turn_receipts_pk",
+			columns: [table.workspaceId, table.turnId],
+		}),
+		check(
+			"api_cloud_workspace_api_turn_receipts_outcome_check",
+			sql`${table.outcome} IN ('completed', 'interrupted', 'error')`,
 		),
 	],
 );

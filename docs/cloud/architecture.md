@@ -43,16 +43,35 @@ There are two distinct planes:
 The only pre-runtime content exception is the encrypted, expiring launch
 intent. It lets an initial prompt survive the interval between workspace
 creation and runtime enrollment. The runtime consumes it through the normal
-idempotent command path and API removes it only after receipt.
+idempotent command path and Api removes it only after receipt.
+
+The public automation API has one additional, deliberately narrow exception:
+an account-authorized, row-bound encrypted command outbox and content-bounded
+result ledger for the workspace's initial session. These rows are delivery receipts
+and reply excerpts for polling/webhooks, not the authoritative chat transcript.
+Workspace-scoped automation assets are sealed in object storage rather than
+Postgres; only the authenticated owning runtime can materialize them into its
+normal `.context/files/` attachment path.
+The runtime still commits every accepted command through `SessionDomain`, and a
+stable command/turn id ties each Api receipt to exactly one domain turn.
+Api commits the assistant excerpt, compact turn receipt, and eligible webhook
+delivery rows atomically. Exact runtime replays repair missing delivery rows;
+replays whose canonical event digest differs are rejected without mutation.
+Terminal message ciphertext is pruned after the retention window once it falls
+outside the newest 1,000 rows. Compact turn receipts and payload-scrubbed
+webhook tombstones remain until their workspace or endpoint is deleted because
+runtimes deliberately replay the durable domain log from zero after restart.
+This bounds retained content bytes, not receipt-row cardinality; operations must
+monitor those compact tables as automation volume grows.
 
 ## Component responsibilities
 
 | Component | Owns | Must not own |
 | --- | --- | --- |
 | ClientBus | Qualified cached projections, resource leases, command outbox, one connection supervisor per environment | Server authority, feature-specific sockets, inferred active environment |
-| API Worker | WorkOS auth, beta authorization, lifecycle, catalog, tickets, checkpoint metadata, billing | Normal transcript content, file state, terminal output |
+| API Worker | WorkOS/API-key auth, beta authorization, lifecycle, catalog, tickets, checkpoint metadata, billing, sealed public-automation outbox | Canonical transcript content, file state, terminal output |
 | CloudAuthAuthority | Account-level provider credentials, serialized Codex/Grok refresh, provider-bound grant sealing | Workspace session state, per-chat credential copies |
-| Postgres | Control-plane records, command receipts, lifecycle revisions, immutable billing ledger | Writable chat projection |
+| Postgres | Control-plane records, command receipts, lifecycle revisions, immutable billing ledger, content-bounded sealed public-automation receipts | Authoritative or interactive chat projection |
 | WorkspaceGateway Durable Object | Authenticated live attachments and opaque frame forwarding | Replay log, transcript, pending command buffer |
 | WorkspaceMailbox Durable Object | Encrypted command envelopes, ordering, leases, lifecycle status, encrypted terminal results | Command plaintext, transcript projection, provider state |
 | Workspace runtime | Provider process, `SessionDomain`, SQLite, repository, Git, PTYs, checkpoint production | Account policy or billing decisions |

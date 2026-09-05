@@ -2990,6 +2990,95 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("sendMessageWithInput preserves causal message and turn identities", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const messageId = MessageId.make("message-cloud-api-causal");
+			const turnId = AgentTurnId.make("turn-cloud-api-causal");
+			await run(
+				Effect.flatMap(store, (messages) =>
+					messages.sendMessageWithInput({
+						commandId: "api:message-cloud-api-causal",
+						sessionId: initialSession.id,
+						text: "keep this command and turn paired",
+						messageId,
+						turnId,
+					}),
+				),
+			);
+
+			const persisted = await run(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.events({ streamId: initialSession.id }).pipe(
+						Stream.filter(
+							(record) =>
+								record.event._tag === "MessagePersisted" &&
+								record.event.messageId === messageId,
+						),
+						Stream.runHead,
+					),
+				),
+			);
+			expect(persisted).toMatchObject({
+				_tag: "Some",
+				value: { event: { turnId } },
+			});
+		});
+	});
+
+	it("sendMessageWithInput returns the original causal identities on command replay", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const commandId = "api:message-cloud-api-upgrade-replay";
+			const original = await run(
+				Effect.flatMap(store, (messages) =>
+					messages.sendMessageWithInput({
+						commandId,
+						sessionId: initialSession.id,
+						text: "accepted before the runtime upgrade",
+					}),
+				),
+			);
+
+			const attemptedMessageId = MessageId.make("message-upgraded-attempt");
+			const attemptedTurnId = AgentTurnId.make("turn-upgraded-attempt");
+			const replayed = await run(
+				Effect.flatMap(store, (messages) =>
+					messages.sendMessageWithInput({
+						commandId,
+						sessionId: initialSession.id,
+						text: "accepted before the runtime upgrade",
+						messageId: attemptedMessageId,
+						turnId: attemptedTurnId,
+					}),
+				),
+			);
+
+			expect(original.accepted).toBe(true);
+			expect(original.messageId).toBeDefined();
+			expect(original.turnId).toBeDefined();
+			expect(replayed).toEqual(original);
+			expect(replayed.messageId).not.toBe(attemptedMessageId);
+			expect(replayed.turnId).not.toBe(attemptedTurnId);
+		});
+	});
+
 	it("sendMessage stores human annotations and sends them as provider context", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(

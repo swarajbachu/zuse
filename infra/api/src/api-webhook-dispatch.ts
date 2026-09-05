@@ -4,11 +4,13 @@ import {
 	apiWebhookSecretSealContext,
 	openApiString,
 } from "./api-sealing.ts";
+import { safeApiWebhookTarget } from "./api-webhook-target.ts";
+import { cloudWorkspaceGatewayEpoch } from "./cloud-workspace-runtime-fence.ts";
 import {
 	CloudWorkspaceStore,
 	type DueApiWebhookDelivery,
 } from "./cloud-workspace-store.ts";
-import type { ApiConfiguration } from "./config.ts";
+import { ApiConfiguration } from "./config.ts";
 
 // Webhook deliveries follow the house async pattern: durable Postgres rows
 // swept by the cron reconciler, with a response-header fast path
@@ -21,11 +23,13 @@ const DELIVERY_TIMEOUT_MS = 10_000;
 const DELIVERY_LEASE_MS = 2 * 60_000;
 const DELIVERY_BATCH_LIMIT = 32;
 const MAX_DELIVERY_ATTEMPTS = 20;
+const DELIVERY_CONCURRENCY = 8;
 /** How long an API command may sit pending before the cron re-nudges. */
 const STALE_COMMAND_NUDGE_MS = 60_000;
+const API_DATA_RETENTION_MS = 30 * 24 * 60 * 60_000;
 
-const backoffMs = (attempts: number): number =>
-	Math.min(2 ** attempts * 30_000, 60 * 60_000);
+export const apiWebhookRetryDelayMs = (attempts: number): number =>
+	Math.min(2 ** Math.max(0, attempts - 1) * 30_000, 60 * 60_000);
 
 export const signWebhookPayload = async (
 	secret: string,
@@ -51,18 +55,26 @@ export const signWebhookPayload = async (
 
 const deliverOne = Effect.fn("deliverApiWebhook")(function* (
 	due: DueApiWebhookDelivery,
-	nowMs: number,
 ) {
 	const store = yield* CloudWorkspaceStore;
+	const config = yield* ApiConfiguration;
+	const nowMs = yield* Clock.currentTimeMillis;
 	const { delivery } = due;
-	const terminalFailure = (error: string) =>
-		store.failApiWebhookDelivery({
+	const recordFailure = (error: string, terminal = false) => {
+		const attempts = delivery.attempts + 1;
+		return store.failApiWebhookDelivery({
 			deliveryId: delivery.deliveryId,
 			nowMs,
 			error,
-			nextAttemptAtMs: nowMs + backoffMs(delivery.attempts + 1),
-			terminal: true,
+			nextAttemptAtMs: nowMs + apiWebhookRetryDelayMs(attempts),
+			terminal: terminal || attempts >= MAX_DELIVERY_ATTEMPTS,
 		});
+	};
+	const target = safeApiWebhookTarget(due.url, config.apiIssuer);
+	if (target === null) {
+		yield* recordFailure("unsafe_webhook_url", true);
+		return false;
+	}
 	const opened = yield* Effect.all({
 		body: openApiString(
 			apiWebhookPayloadSealContext(delivery.accountId, delivery.eventId),
@@ -74,8 +86,9 @@ const deliverOne = Effect.fn("deliverApiWebhook")(function* (
 		),
 	}).pipe(Effect.option);
 	if (opened._tag === "None") {
-		// Undecryptable content never becomes deliverable; drop it.
-		yield* terminalFailure("payload_unsealable");
+		// Configuration can be transiently unavailable during a deploy. Keep the
+		// durable row retryable instead of irreversibly dropping every claimed event.
+		yield* recordFailure("payload_unsealable");
 		return false;
 	}
 	const timestampSeconds = Math.floor(nowMs / 1_000);
@@ -87,7 +100,7 @@ const deliverOne = Effect.fn("deliverApiWebhook")(function* (
 					timestampSeconds,
 					opened.value.body,
 				);
-				const response = await fetch(due.url, {
+				const response = await fetch(target, {
 					method: "POST",
 					headers: {
 						"content-type": "application/json",
@@ -98,8 +111,11 @@ const deliverOne = Effect.fn("deliverApiWebhook")(function* (
 					},
 					body: opened.value.body,
 					signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+					redirect: "manual",
 				});
-				return { ok: response.ok, status: response.status };
+				const result = { ok: response.ok, status: response.status };
+				await response.body?.cancel().catch(() => undefined);
+				return result;
 			},
 			catch: (error) =>
 				error instanceof Error ? error.message : "fetch_failed",
@@ -112,17 +128,11 @@ const deliverOne = Effect.fn("deliverApiWebhook")(function* (
 		yield* store.completeApiWebhookDelivery(delivery.deliveryId, nowMs);
 		return true;
 	}
-	const attempts = delivery.attempts + 1;
-	yield* store.failApiWebhookDelivery({
-		deliveryId: delivery.deliveryId,
-		nowMs,
-		error:
-			typeof outcome === "string"
-				? outcome.slice(0, 500)
-				: `http_${outcome.status}`,
-		nextAttemptAtMs: nowMs + backoffMs(attempts),
-		terminal: attempts >= MAX_DELIVERY_ATTEMPTS,
-	});
+	yield* recordFailure(
+		typeof outcome === "string"
+			? outcome.slice(0, 500)
+			: `http_${outcome.status}`,
+	);
 	return false;
 });
 
@@ -143,12 +153,12 @@ export const deliverPendingApiWebhooks: Effect.Effect<
 		DELIVERY_BATCH_LIMIT,
 		DELIVERY_LEASE_MS,
 	);
-	let delivered = 0;
-	for (const item of due) {
-		if (yield* deliverOne(item, nowMs).pipe(Effect.orElseSucceed(() => false)))
-			delivered++;
-	}
-	return delivered;
+	const outcomes = yield* Effect.forEach(
+		due,
+		(item) => deliverOne(item).pipe(Effect.orElseSucceed(() => false)),
+		{ concurrency: DELIVERY_CONCURRENCY },
+	);
+	return outcomes.filter(Boolean).length;
 });
 
 export interface ApiCommandNudgeTarget {
@@ -169,6 +179,10 @@ export const sweepApiCommands: Effect.Effect<
 	const store = yield* CloudWorkspaceStore;
 	const nowMs = yield* Clock.currentTimeMillis;
 	yield* store.expireApiCommands(nowMs);
+	// The cron runs every minute; hourly pruning keeps the sealed ledger bounded
+	// without paying a ranking scan on every command nudge sweep.
+	if (new Date(nowMs).getUTCMinutes() === 0)
+		yield* store.pruneApiData(nowMs - API_DATA_RETENTION_MS);
 	const staleWorkspaceIds =
 		yield* store.listWorkspacesWithStalePendingApiCommands(
 			nowMs - STALE_COMMAND_NUDGE_MS,
@@ -179,12 +193,7 @@ export const sweepApiCommands: Effect.Effect<
 		if (workspace === null || workspace.runtimeState !== "online") continue;
 		targets.push({
 			workspaceId,
-			gatewayEpoch:
-				typeof workspace.requestConfig.gatewayEpoch === "number"
-					? workspace.requestConfig.gatewayEpoch
-					: typeof workspace.requestConfig.runtimeGeneration === "number"
-						? workspace.requestConfig.runtimeGeneration
-						: 1,
+			gatewayEpoch: cloudWorkspaceGatewayEpoch(workspace),
 		});
 	}
 	return targets;

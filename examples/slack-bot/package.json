@@ -7,12 +7,17 @@
 	"scripts": {
 		"dev": "wrangler dev",
 		"deploy": "wrangler deploy",
+		"check-types": "tsc --noEmit -p tsconfig.json",
+		"test": "vitest run",
 		"secret:slack-signing": "wrangler secret put SLACK_SIGNING_SECRET",
 		"secret:slack-bot-token": "wrangler secret put SLACK_BOT_TOKEN",
+		"secret:slack-user-token": "wrangler secret put SLACK_USER_TOKEN",
 		"secret:zuse-api-key": "wrangler secret put ZUSE_API_KEY",
 		"secret:zuse-webhook": "wrangler secret put ZUSE_WEBHOOK_SECRET"
 	},
 	"devDependencies": {
+		"typescript": "5.9.2",
+		"vitest": "4.1.10",
 		"wrangler": "^4.0.0"
 	}
 }

@@ -19,6 +19,8 @@ export interface AttachmentServiceShape {
 		mimeType: string,
 		originalName: string,
 		rootPath?: string,
+		/** Stable transport identity for retry-safe external materialization. */
+		stableId?: string,
 	) => Effect.Effect<
 		{
 			readonly id: string;

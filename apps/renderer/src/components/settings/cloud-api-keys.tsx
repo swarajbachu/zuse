@@ -2,6 +2,16 @@ import type { CloudApiKey } from "@zuse/contracts";
 import { Check, Copy, KeyRound } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { runControlPlane } from "../../lib/control-plane-client.ts";
+import { copyText } from "../../lib/platform-capabilities.ts";
+import {
+	AlertDialog,
+	AlertDialogClose,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogPopup,
+	AlertDialogTitle,
+} from "../ui/alert-dialog.tsx";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 import {
@@ -28,8 +38,10 @@ export function CloudApiKeys() {
 	const [name, setName] = useState("");
 	const [createdSecret, setCreatedSecret] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
+	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [revokeTarget, setRevokeTarget] = useState<CloudApiKey | null>(null);
 
 	const load = useCallback(async () => {
 		try {
@@ -40,6 +52,8 @@ export function CloudApiKeys() {
 			setError(null);
 		} catch {
 			setError("API keys could not be loaded. Try again.");
+		} finally {
+			setLoading(false);
 		}
 	}, []);
 
@@ -47,15 +61,20 @@ export function CloudApiKeys() {
 		void load();
 	}, [load]);
 
-	const run = async (id: string, operation: () => Promise<unknown>) => {
-		if (busy !== null) return;
+	const run = async (
+		id: string,
+		operation: () => Promise<unknown>,
+	): Promise<boolean> => {
+		if (busy !== null) return false;
 		setBusy(id);
 		setError(null);
 		try {
 			await operation();
 			await load();
+			return true;
 		} catch {
 			setError("That API key action could not be completed. Try again.");
+			return false;
 		} finally {
 			setBusy(null);
 		}
@@ -73,15 +92,22 @@ export function CloudApiKeys() {
 			setCreatedSecret(created.secret);
 		});
 
-	const revokeKey = (keyId: string) =>
-		run(`revoke:${keyId}`, () =>
+	const revokeKey = async (keyId: string) => {
+		const revoked = await run(`revoke:${keyId}`, () =>
 			runControlPlane((client) => client["cloud.apiKeys.revoke"]({ keyId })),
 		);
+		if (revoked) setRevokeTarget(null);
+	};
 
 	const copySecret = async () => {
 		if (createdSecret === null) return;
-		await navigator.clipboard.writeText(createdSecret);
-		setCopied(true);
+		try {
+			await copyText(createdSecret);
+			setCopied(true);
+			setError(null);
+		} catch {
+			setError("The key could not be copied. Select it and copy it manually.");
+		}
 	};
 
 	return (
@@ -92,6 +118,8 @@ export function CloudApiKeys() {
 				<>
 					<Input
 						value={name}
+						maxLength={100}
+						disabled={createdSecret !== null}
 						onChange={(event) => setName(event.currentTarget.value)}
 						placeholder="Key name"
 						className="h-7 w-32"
@@ -101,7 +129,7 @@ export function CloudApiKeys() {
 						size="xs"
 						className={COMPACT_CLOUD_ACTION}
 						loading={busy === "create"}
-						disabled={name.trim().length === 0}
+						disabled={createdSecret !== null || name.trim().length === 0}
 						onClick={() => void createKey()}
 					>
 						Create key
@@ -152,7 +180,12 @@ export function CloudApiKeys() {
 					}
 				/>
 			)}
-			{keys.length === 0 && createdSecret === null ? (
+			{loading ? (
+				<CloudSettingsRow
+					title="Loading API keys…"
+					description="Checking this account's active integration keys."
+				/>
+			) : keys.length === 0 && createdSecret === null ? (
 				<CloudSettingsRow
 					title="No API keys yet"
 					description="Create a key to call the public API. Keys inherit this account's cloud access."
@@ -172,7 +205,7 @@ export function CloudApiKeys() {
 								variant="ghost"
 								className={COMPACT_CLOUD_ACTION}
 								loading={busy === `revoke:${key.keyId}`}
-								onClick={() => void revokeKey(key.keyId)}
+								onClick={() => setRevokeTarget(key)}
 							>
 								Revoke
 							</Button>
@@ -180,6 +213,48 @@ export function CloudApiKeys() {
 					/>
 				))
 			)}
+			<AlertDialog
+				open={revokeTarget !== null}
+				onOpenChange={(open) => {
+					if (!open && busy === null) setRevokeTarget(null);
+				}}
+			>
+				<AlertDialogPopup className="max-w-sm">
+					<AlertDialogHeader>
+						<AlertDialogTitle>Revoke API key?</AlertDialogTitle>
+						<AlertDialogDescription>
+							{revokeTarget?.name ?? "This integration"} will immediately lose
+							public API access. This cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogClose
+							render={
+								<Button
+									size="xs"
+									variant="ghost"
+									className={COMPACT_CLOUD_ACTION}
+								/>
+							}
+						>
+							Cancel
+						</AlertDialogClose>
+						<Button
+							size="xs"
+							variant="destructive"
+							className={COMPACT_CLOUD_ACTION}
+							loading={
+								revokeTarget !== null && busy === `revoke:${revokeTarget.keyId}`
+							}
+							onClick={() => {
+								if (revokeTarget !== null) void revokeKey(revokeTarget.keyId);
+							}}
+						>
+							Revoke key
+						</Button>
+					</AlertDialogFooter>
+				</AlertDialogPopup>
+			</AlertDialog>
 		</CloudSettingsGroup>
 	);
 }

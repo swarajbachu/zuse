@@ -11,12 +11,15 @@
 		}
 	],
 	"vars": {
-		// Base URL of the Zuse API hosting the public API.
+		// Base URL of the Zuse api hosting the public API.
 		"ZUSE_API_URL": "https://api.zuse.sh"
+		// Set ZUSE_AGENT and ZUSE_MODEL to the provider/model configured for
+		// your cloud account. Set ZUSE_PROJECT_ID if more than one project is ready.
 	}
 	// Secrets (set with the package.json scripts):
 	//   SLACK_SIGNING_SECRET  — Slack app signing secret
 	//   SLACK_BOT_TOKEN       — xoxb- bot token with chat:write
+	//   SLACK_USER_TOKEN      — xoxp- installer token for existing channel threads
 	//   ZUSE_API_KEY          — zk_… key from Zuse Settings → Cloud → API keys
 	//   ZUSE_WEBHOOK_SECRET   — whsec_… secret from POST /v1/api/webhooks
 }

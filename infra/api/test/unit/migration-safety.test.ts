@@ -66,8 +66,12 @@ const publicApiMigrationUrl = new URL(
 	"../../drizzle/migrations/0019_public_api.sql",
 	import.meta.url,
 );
+const publicApiReliabilityMigrationUrl = new URL(
+	"../../drizzle/migrations/0020_public_api_reliability.sql",
+	import.meta.url,
+);
 
-describe("api migration reconciliation", () => {
+describe("relay migration reconciliation", () => {
 	test("keeps the main migration history before managed cloud machines", async () => {
 		const journal = JSON.parse(await readFile(journalUrl, "utf8")) as {
 			readonly entries: ReadonlyArray<{
@@ -97,6 +101,7 @@ describe("api migration reconciliation", () => {
 			{ idx: 17, tag: "0017_cloud_codex_auth_broker" },
 			{ idx: 18, tag: "0018_cloud_active_session_summary" },
 			{ idx: 19, tag: "0019_public_api" },
+			{ idx: 20, tag: "0020_public_api_reliability" },
 		]);
 	});
 
@@ -125,25 +130,61 @@ describe("api migration reconciliation", () => {
 		expect(migration).toContain("RENAME CONSTRAINT");
 		expect(migration).not.toMatch(/\b(?:DROP|DELETE|TRUNCATE)\b/iu);
 	});
-
 	test("stores public-api credentials hashed and webhook/ledger content sealed", async () => {
-		const migration = await readFile(publicApiMigrationUrl, "utf8");
+		const publicApiMigration = await readFile(publicApiMigrationUrl, "utf8");
+		const reliabilityMigration = await readFile(
+			publicApiReliabilityMigrationUrl,
+			"utf8",
+		);
+		const migrations = `${publicApiMigration}\n${reliabilityMigration}`;
 		for (const table of [
 			"api_api_keys",
 			"api_api_webhooks",
 			"api_cloud_workspace_api_messages",
+			"api_cloud_workspace_api_turn_receipts",
 			"api_api_webhook_deliveries",
 		])
-			expect(migration).toContain(`CREATE TABLE "${table}"`);
+			expect(migrations).toContain(`CREATE TABLE "${table}"`);
 		// API-key secrets are stored hashed only; webhook secrets and message
 		// content are sealed, never plaintext.
-		expect(migration).toContain('"secret_hash" text NOT NULL');
-		expect(migration).toContain('"sealed_secret" text NOT NULL');
-		expect(migration).toContain('"sealed_content" text NOT NULL');
-		expect(migration).toContain('"sealed_payload" text NOT NULL');
-		expect(migration).not.toMatch(/"secret" text|"content" text|plaintext/iu);
-		expect(migration).toContain("api_cloud_workspace_api_messages_seq_idx");
-		expect(migration).toContain("api_api_webhook_deliveries_due_idx");
+		expect(migrations).toContain('"secret_hash" text NOT NULL');
+		expect(migrations).toContain('"sealed_secret" text NOT NULL');
+		expect(migrations).toContain('"sealed_content" text NOT NULL');
+		expect(migrations).toContain('"sealed_payload" text NOT NULL');
+		expect(migrations).toContain('"content_digest" text NOT NULL');
+		expect(migrations).not.toMatch(/"secret" text|"content" text|plaintext/iu);
+		expect(migrations).toContain("api_cloud_workspace_api_messages_seq_idx");
+		expect(reliabilityMigration).toMatch(
+			/api_cloud_workspace_api_messages_turn_idx[\s\S]*WHERE[^;]*"role" = 'assistant'[^;]*"turn_id" IS NOT NULL/u,
+		);
+		expect(reliabilityMigration).toContain(
+			"api_cloud_workspace_api_messages_pending_expiry_idx",
+		);
+		expect(reliabilityMigration).toContain(
+			"api_cloud_workspace_api_messages_pending_stale_idx",
+		);
+		expect(reliabilityMigration).toContain(
+			"api_cloud_workspace_api_turn_receipts_outcome_check",
+		);
+		expect(reliabilityMigration).toContain('"received_at" bigint NOT NULL');
+		expect(reliabilityMigration).toContain(
+			'ADD COLUMN "delivery_attempted_at" bigint',
+		);
+		expect(migrations).toContain("api_api_webhook_deliveries_due_idx");
+	});
+
+	test("keeps the published public API migration immutable", async () => {
+		const migration = await readFile(publicApiMigrationUrl, "utf8");
+		expect(migration).not.toContain("api_cloud_workspace_api_turn_receipts");
+		expect(migration).not.toContain(
+			"api_cloud_workspace_api_messages_pending_expiry_idx",
+		);
+		expect(migration).not.toContain(
+			"api_cloud_workspace_api_messages_pending_stale_idx",
+		);
+		expect(migration).toContain(
+			`WHERE "api_cloud_workspace_api_messages"."turn_id" IS NOT NULL`,
+		);
 	});
 
 	test("stores GitHub App installation metadata without access tokens", async () => {

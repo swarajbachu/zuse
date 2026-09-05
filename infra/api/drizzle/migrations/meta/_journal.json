@@ -141,6 +141,13 @@
 			"when": 1788566460000,
 			"tag": "0019_public_api",
 			"breakpoints": true
+		},
+		{
+			"idx": 20,
+			"version": "7",
+			"when": 1788566461000,
+			"tag": "0020_public_api_reliability",
+			"breakpoints": true
 		}
 	]
 }

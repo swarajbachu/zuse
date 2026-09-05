@@ -16,7 +16,7 @@ import {
 } from "@zuse/contracts";
 import { MachineProviders } from "@zuse/machine-providers";
 import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
-import { Clock, Effect, Redacted, Schema } from "effect";
+import { Clock, Effect, Redacted } from "effect";
 import { AccountIdentity } from "./account-identity.ts";
 import { requireWorkos } from "./auth.ts";
 import {
@@ -47,6 +47,7 @@ import {
 	serviceUnavailable,
 	unauthorized,
 } from "./errors.ts";
+import { decodeBody, json } from "./http.ts";
 import { MachineControlConfiguration } from "./machine-config.ts";
 import { requestMachineDestruction } from "./machine-lifecycle.ts";
 import {
@@ -86,12 +87,6 @@ const offerIsAvailable = (
 ): boolean =>
 	(findMachineOffer(offerId)?.available ?? false) &&
 	(config.availableOfferIds?.has(offerId) ?? true);
-
-const json = (body: unknown, status = 200): Response =>
-	new Response(JSON.stringify(body), {
-		status,
-		headers: { "content-type": "application/json" },
-	});
 
 /** Polar substitutes this in the success URL; treat an unsubstituted one as absent. */
 const CHECKOUT_ID_PLACEHOLDER = "{CHECKOUT_ID}";
@@ -206,18 +201,6 @@ const matchBillingWebhookPath = (
 		? { providerId }
 		: null;
 };
-
-const decodeBody = <A, I>(
-	schema: Schema.Codec<A, I>,
-	request: Request,
-): Effect.Effect<A, ApiError> =>
-	Effect.tryPromise({
-		try: (): Promise<unknown> => request.json(),
-		catch: () => badRequest("invalid_json"),
-	}).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(schema)),
-		Effect.mapError(() => badRequest("invalid_request")),
-	);
 
 const toPublicMachine = (machine: MachinePersistenceRecord): MachineRecord => {
 	const offer = findMachineOffer(machine.offerId);

@@ -20,14 +20,22 @@ provider / client command
 | Chats, sessions, messages, turns, queues, command receipts | Environment SQLite |
 | Files and Git | Environment filesystem and repository |
 | Terminal process/output ordering | Environment PTY runtime |
-| Workspace lifecycle, identity, tickets, encrypted launch intent and command mailbox coordination | API control plane |
+| Workspace lifecycle, identity, tickets, encrypted launch intent, encrypted command mailbox coordination, sealed public-automation delivery receipts | API control plane |
 | Cached client projection and safe command outbox | Platform client persistence |
 
-The API catalog carries only last-known metadata for discovery and never
-projects normal transcript events. Cloud mailbox commands and launch intents
-are opaque encrypted envelopes, not writable transcript projections. The
-runtime consumes both through idempotent command paths and remains the only
-authority that can apply them to SQLite.
+The API catalog carries only last-known metadata for discovery. It never
+becomes the authority for interactive transcript events or client commands.
+Encrypted launch intents and the durable mailbox bridge client commands to runtime enrollment.
+The public automation API also maintains a content-bounded, row-bound encrypted
+outbox and reply-excerpt ledger so machine callers can survive paused runtimes and
+poll or receive webhooks. Both paths use stable domain command and turn IDs;
+the workspace runtime consumes them through `SessionDomain`, which remains the
+only transcript and execution authority. Sealed workspace-scoped automation
+assets live in object storage and become ordinary runtime attachments only
+after authenticated materialization. Full message payloads are retained on
+a bounded horizon; compact idempotency receipts and scrubbed delivery
+tombstones remain for restart replay until the owning workspace/endpoint is
+deleted, so this boundary is content-bounded rather than row-count-bounded.
 
 ## Disconnect and catch-up
 
@@ -74,5 +82,6 @@ into a connection failure.
 
 `bun run check:architecture` ratchets renderer raw-RPC and stream ownership,
 unqualified resource keys, cloud-specific session pipelines, SessionDomain
-bypasses, and API message-content schemas. New behavior must move those
-counts toward zero; it may not introduce a new parallel path.
+bypasses, and Api message-content schemas. Its named public-automation
+exception is limited to the sealed outbox/receipt implementation; new behavior
+must not turn that delivery view into a second execution authority.

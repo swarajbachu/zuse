@@ -332,6 +332,15 @@
         "vitest": "catalog:",
       },
     },
+    "examples/slack-bot": {
+      "name": "zuse-slack-bot-example",
+      "version": "0.0.0",
+      "devDependencies": {
+        "typescript": "5.9.2",
+        "vitest": "4.1.10",
+        "wrangler": "^4.0.0",
+      },
+    },
     "infra/api": {
       "name": "@zuse/api",
       "version": "0.0.0",
@@ -4690,6 +4699,8 @@
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "http://registry.npmjs.org/zod-to-json-schema/-/zod-to-json-schema-3.25.2.tgz", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
 
     "zod-validation-error": ["zod-validation-error@4.0.2", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-Q6/nZLe6jxuU80qb/4uJ4t5v2VEZ44lzQjPDhYJNztRQ4wyWc6VF3D3Kb/fAuPetZQnhS3hnajCf9CsWesghLQ=="],
+
+    "zuse-slack-bot-example": ["zuse-slack-bot-example@workspace:examples/slack-bot"],
 
     "zusehq": ["zusehq@workspace:packages/zusehq"],
 

@@ -15,6 +15,7 @@ import {
 	beforeCodexExternalAuthDeadline,
 	setDefaultCodexExternalAuthProvider,
 } from "@zuse/agents/drivers/codex-app-server-client";
+import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import {
 	type CloudMessageSendPayload,
 	type CloudMessageSendResult,
@@ -29,8 +30,10 @@ import {
 	type Chat,
 	ChatId,
 	CLOUD_COMMAND_PROTOCOL_VERSION,
+	CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
 	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
 	type CloudAuthProvider,
+	CloudRuntimeAssetDownload,
 	CloudRuntimeCommandList,
 	CloudTranscriptCheckpointPayload,
 	CloudTranscriptMessagePagePayload,
@@ -65,6 +68,7 @@ import {
 	keyedCloudCommandFingerprint,
 } from "@zuse/utils/cloud-command-crypto";
 import {
+	base64UrlToBytes,
 	cloudTranscriptAdditionalData,
 	encryptCloudTranscript,
 	sha256Base64Url,
@@ -110,8 +114,8 @@ import { CloudCodexAuth } from "./cloud-codex-auth.ts";
 import { CloudProviderAuth } from "./cloud-provider-auth.ts";
 import { cloudStorageIncarnationId } from "./cloud-storage-incarnation.ts";
 import {
-	cloudTurnReplyExcerpt,
 	makeCloudApiCommandPump,
+	runCloudApiTurnEventStream,
 } from "./cloud-workspace-api-commands.ts";
 
 const CREDENTIALS_READY_MARKER = "/var/lib/zuse/workspace/credentials-ready";
@@ -1953,6 +1957,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 	never,
 	CloudWorkspaceRuntimeError,
 	| LanAuthService
+	| AttachmentService
 	| WorkspaceService
 	| ChatService
 	| MessageService
@@ -1967,6 +1972,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 		: Layer.effectDiscard(
 				Effect.gen(function* () {
 					const auth = yield* LanAuthService;
+					const attachments = yield* AttachmentService;
 					const workspaces = yield* WorkspaceService;
 					const chats = yield* ChatService;
 					const messages = yield* MessageService;
@@ -2003,7 +2009,11 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							url: `${config.apiUrl}${ApiPaths.cloudWorkspaceBootstrap(config.workspaceId)}`,
 							token: Redacted.value(config.bootToken),
 							method: "POST",
-							body: { credentialPublicJwk, signingPublicJwk },
+							body: {
+								credentialPublicJwk,
+								signingPublicJwk,
+								capabilities: [CLOUD_RUNTIME_API_ASSETS_CAPABILITY],
+							},
 						}),
 					);
 					const runtimeCredential: RuntimeCredentialState = {
@@ -2448,49 +2458,93 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							}),
 						),
 						deliver: (command) =>
-							messages.sendMessage(
-								command.commandId,
-								SessionId.make(command.sessionId),
-								command.text,
-							),
-						ack: (messageId) =>
+							Effect.gen(function* () {
+								const sessionId = SessionId.make(command.sessionId);
+								const materialized = yield* Effect.forEach(
+									command.attachments ?? [],
+									(asset) =>
+										requestJson({
+											schema: CloudRuntimeAssetDownload,
+											url: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeAsset(config.workspaceId, asset.assetId)}`,
+											token: runtimeCredential.credential,
+										}).pipe(
+											Effect.flatMap((download) =>
+												attachments.upload(
+													sessionId,
+													base64UrlToBytes(download.bytes),
+													download.asset.mimeType,
+													download.asset.originalName,
+													config.workspaceRoot,
+													download.asset.assetId,
+												),
+											),
+											Effect.map((uploaded) => ({
+												attachment: {
+													id: uploaded.id,
+													mimeType: asset.mimeType,
+													originalName: asset.originalName,
+												},
+												path: `.context/files/${uploaded.id}.${uploaded.ext}`,
+											})),
+											Effect.mapError(() =>
+												fail("workspace_api_attachment_materialization_failed"),
+											),
+										),
+									{ concurrency: 2 },
+								);
+								return yield* messages
+									.sendMessageWithInput({
+										commandId: command.commandId,
+										sessionId,
+										text:
+											materialized.length === 0
+												? command.text
+												: `${command.text}\n\nMaterialized attachment files:\n${materialized
+														.map(
+															(item) =>
+																`- ${item.attachment.originalName}: ${item.path}`,
+														)
+														.join("\n")}`.trim(),
+										attachments: materialized.map((item) => item.attachment),
+										messageId: MessageId.make(command.messageId),
+										turnId: AgentTurnId.make(command.turnId),
+									})
+									.pipe(
+										Effect.flatMap((result) =>
+											result.turnId === undefined
+												? Effect.fail(
+														fail("workspace_api_command_turn_missing"),
+													)
+												: Effect.succeed(result.turnId),
+										),
+									);
+							}),
+						ack: (messageId, turnId, commandTurnId) =>
 							Effect.suspend(() =>
 								requestJson({
 									schema: Schema.Unknown,
 									url: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeCommandAck(config.workspaceId)}`,
 									token: runtimeCredential.credential,
 									method: "POST",
-									body: { messageId },
+									body: { messageId, turnId, commandTurnId },
 								}),
 							),
 					});
 					const drainApiCommands = () => {
 						// Before the repository/launch handshake the initial chat may not
-						// exist yet; undelivered rows are drained by the post-launch drain.
+						// exist yet; the idle-head check or settlement stream drains later.
 						if (!repositoryReady) return;
 						void Effect.runPromise(apiCommandPump.drain);
 					};
 					const publishApiTurnEvent = (event: {
 						readonly turnId: string;
-						readonly outcome: string;
+						readonly outcome: "completed" | "interrupted" | "error";
 						readonly settledAt: number;
+						readonly replyText: string;
+						readonly replyTruncated: boolean;
 					}) =>
-						Effect.gen(function* () {
-							const page = yield* sessionDomain
-								.timelineMessagePage(
-									AgentSessionId.make(bootstrap.initialSessionId),
-									Number.MAX_SAFE_INTEGER,
-									50,
-								)
-								.pipe(
-									Effect.mapError(() =>
-										fail("workspace_turn_reply_unavailable"),
-									),
-								);
-							const reply = cloudTurnReplyExcerpt(
-								page.items.map((item) => item.message),
-							);
-							yield* requestJson({
+						Effect.suspend(() =>
+							requestJson({
 								schema: Schema.Unknown,
 								url: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeTurnEvents(config.workspaceId)}`,
 								token: runtimeCredential.credential,
@@ -2500,11 +2554,11 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									turnId: event.turnId,
 									outcome: event.outcome,
 									settledAt: event.settledAt,
-									replyText: reply.text,
-									replyTruncated: reply.truncated,
+									replyText: event.replyText,
+									replyTruncated: event.replyTruncated,
 								},
-							});
-						}).pipe(Effect.retry(cloudRuntimeRetrySchedule), Effect.ignore);
+							}),
+						).pipe(Effect.retry(cloudRuntimeRetrySchedule), Effect.ignore);
 					const localSockets = new Map<string, WebSocket>();
 					const pendingLocalFrames = new Map<
 						string,
@@ -2705,6 +2759,23 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					// sandbox. Start them after the worktree is ready so they never extend
 					// workspace setup latency.
 					yield* checkpointPublisherFor(bootstrap.initialSessionId);
+					yield* runCloudApiTurnEventStream({
+						events: sessionDomain.events({
+							streamId: bootstrap.initialSessionId,
+							afterSequence: 0,
+						}),
+						publish: publishApiTurnEvent,
+						onSettled: apiCommandPump.drainAfterSettlement,
+					}).pipe(
+						Effect.sandbox,
+						Effect.retry({
+							schedule: cloudRuntimeRetrySchedule,
+							while: (cause: Cause.Cause<unknown>) =>
+								!Cause.hasInterruptsOnly(cause),
+						}),
+						Effect.catch((cause) => Effect.failCause(cause)),
+						Effect.forkScoped({ startImmediately: true }),
+					);
 					const sessionEventCursor = yield* sessionDomain.currentSequence.pipe(
 						Effect.mapError(() => fail("workspace_summary_cursor_unavailable")),
 					);
@@ -2756,10 +2827,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 												checkpointPublisher.flush.pipe(Effect.ignore),
 											);
 										}
-									}
-									if (record.streamId === bootstrap.initialSessionId) {
-										if (record.event._tag === "TurnSettled")
-											void Effect.runPromise(publishApiTurnEvent(record.event));
 									}
 									yield* summaryPublisher
 										.publish(reason)
@@ -2813,11 +2880,21 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						messages,
 						sql,
 					}).pipe(Effect.forkScoped({ startImmediately: true }));
-					// Commands accepted while the workspace was paused or still booting
-					// are drained once the initial chat is guaranteed to exist.
-					yield* apiCommandPump.drain.pipe(
-						Effect.forkScoped({ startImmediately: true }),
-					);
+					// A launch prompt is an active durable turn. Only perform the initial
+					// pending-command drain if the session is actually idle; otherwise the
+					// replay/tail above drains exactly once settlement is published.
+					const initialTimeline = yield* sessionDomain
+						.timelineSnapshot(SessionId.make(bootstrap.initialSessionId))
+						.pipe(
+							Effect.mapError(() =>
+								fail("workspace_api_command_head_unavailable"),
+							),
+						);
+					if (initialTimeline.projection.currentTurn === null) {
+						yield* apiCommandPump.drain.pipe(
+							Effect.forkScoped({ startImmediately: true }),
+						);
+					}
 					yield* summaryPublisher
 						.publish("initial")
 						.pipe(Effect.retry(cloudRuntimeRetrySchedule));

@@ -15,22 +15,9 @@ import { CloudBillingStore } from "./cloud-billing-store.ts";
 import type { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { type ApiError, badRequest, conflict, unauthorized } from "./errors.ts";
+import { decodeBody, json } from "./http.ts";
 import type { MachineStore } from "./machine-store.ts";
 import type { WorkosVerifier } from "./workos.ts";
-
-const json = (body: unknown, status = 200) =>
-	new Response(JSON.stringify(body), {
-		status,
-		headers: { "content-type": "application/json" },
-	});
-const decodeBody = <A, I>(schema: Schema.Codec<A, I>, request: Request) =>
-	Effect.tryPromise({
-		try: () => request.json(),
-		catch: () => badRequest("invalid_json"),
-	}).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(schema)),
-		Effect.mapError(() => badRequest("invalid_request")),
-	);
 
 export const verifyE2bSignature = (
 	body: string,

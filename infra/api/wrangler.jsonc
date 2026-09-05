@@ -6,7 +6,7 @@
 	"name": "zuse-relay-staging",
 	"main": "src/worker.ts",
 	"compatibility_date": "2026-06-01",
-	"compatibility_flags": ["nodejs_compat"],
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 	"observability": { "enabled": true },
 	// The staging Postgres origin is in AWS Singapore. Cloud workspace startup
 	// performs ordered writes, so run API beside Hyperdrive's origin pool

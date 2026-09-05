@@ -35,6 +35,27 @@ export const randomToken = (
 		return `${prefix}_${b64}`;
 	});
 
+const BASE62_ALPHABET =
+	"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+/** Fixed-width base62 encoding of random bytes for human-carried API keys. */
+export const randomBase62Token = (
+	prefix: string,
+	bytes = 32,
+): Effect.Effect<string> =>
+	Effect.sync(() => {
+		const raw = crypto.getRandomValues(new Uint8Array(bytes));
+		let value = 0n;
+		for (const byte of raw) value = (value << 8n) | BigInt(byte);
+		let encoded = "";
+		do {
+			encoded = BASE62_ALPHABET[Number(value % 62n)] + encoded;
+			value /= 62n;
+		} while (value > 0n);
+		const width = Math.ceil((bytes * 8) / Math.log2(62));
+		return `${prefix}_${encoded.padStart(width, BASE62_ALPHABET[0])}`;
+	});
+
 const importEd25519 = (
 	jwk: JWK,
 	usage: "verify" | "sign",

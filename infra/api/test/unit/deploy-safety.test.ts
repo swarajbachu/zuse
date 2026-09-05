@@ -31,6 +31,7 @@ const apiDirectory = fileURLToPath(new URL("../..", import.meta.url));
 
 interface WranglerTarget {
 	readonly name: string;
+	readonly compatibility_flags: ReadonlyArray<string>;
 	readonly placement?: { readonly region: string };
 	readonly routes: ReadonlyArray<{ readonly pattern: string }>;
 	readonly vars: Readonly<Record<string, string>>;
@@ -79,6 +80,12 @@ describe("api deployment safety", () => {
 		) as WranglerTarget;
 
 		expect(config.name).toBe("zuse-relay-staging");
+		expect(config.compatibility_flags).toContain(
+			"global_fetch_strictly_public",
+		);
+		expect(config.compatibility_flags).not.toContain(
+			"global_fetch_private_origin",
+		);
 		expect(config.routes).toEqual([
 			{ pattern: "api-staging.stuff.md", custom_domain: true },
 		]);
@@ -153,6 +160,12 @@ describe("api deployment safety", () => {
 		) as WranglerTarget;
 
 		expect(production.name).toBe("zuse-relay");
+		expect(production.compatibility_flags).toContain(
+			"global_fetch_strictly_public",
+		);
+		expect(production.compatibility_flags).not.toContain(
+			"global_fetch_private_origin",
+		);
 		expect(production.routes).toEqual([
 			{ pattern: "api.zuse.sh", custom_domain: true },
 		]);

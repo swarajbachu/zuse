@@ -1,0 +1,45 @@
+display_information:
+  name: Zuse
+  description: Start a cloud coding workspace from any Slack thread
+  background_color: "#111111"
+features:
+  bot_user:
+    display_name: Zuse
+    always_online: false
+  shortcuts:
+    - name: Open thread in Zuse
+      type: message
+      callback_id: open_in_zuse
+      description: Send this complete thread and its files to a cloud workspace
+  slash_commands:
+    - command: /zuse
+      url: https://YOUR_WORKER/slack/commands
+      description: Start a Zuse cloud workspace
+      usage_hint: <what the agent should do>
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - commands
+      - channels:history
+      - groups:history
+      - im:history
+      - mpim:history
+    user:
+      - channels:history
+      - groups:history
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://YOUR_WORKER/slack/interactions
+  event_subscriptions:
+    request_url: https://YOUR_WORKER/slack/events
+    bot_events:
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

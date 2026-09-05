@@ -1,6 +1,6 @@
 # Public API
 
-The public API (`/v1/api/**` on the API) lets external integrations — Slack
+The public API (`/v1/api/**` on the api) lets external integrations — Slack
 bots, CI, scripts — drive Cloud Workspaces without first-party auth. It covers
 the core loop only: create a workspace with a prompt, send follow-up messages,
 read replies, and check status. Everything else (SSH, previews, transcripts,
@@ -19,25 +19,29 @@ Authorization: Bearer zk_…
 
 Keys are minted in Zuse under **Settings → Cloud Workspace → API keys** (or via
 the WorkOS-gated `POST /v1/cloud/api-keys`). The secret is shown once; the
-API stores only its SHA-256 hash. Revoking a key takes effect immediately.
+`zk_` secret contains 32 random bytes encoded as fixed-width base62, and the
+api stores only its SHA-256 hash. Revoking a key takes effect immediately.
 A key inherits the full cloud access of its account — treat it like a
-password.
+password. Every request rechecks the account's current beta access and cloud
+entitlement; removing either blocks new reads and mutations even if a key has
+not yet been revoked. Webhook deletion remains available as cleanup.
 
 ## Endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/v1/api/projects` | Connected repositories to target |
-| `POST` | `/v1/api/workspaces` | Create a workspace running a prompt |
+| `POST` | `/v1/api/workspaces` | Create a workspace, optionally running a prompt |
 | `GET` | `/v1/api/workspaces` | List workspaces with status |
 | `GET` | `/v1/api/workspaces/{id}` | Status: `state`, `startupPhase`, `agentStatus`, `lastTurn`, `latestSeq` |
 | `POST` | `/v1/api/workspaces/{id}/messages` | Send a follow-up message to the agent |
+| `POST` | `/v1/api/workspaces/{id}/attachments` | Upload a sealed image/file for a message |
 | `GET` | `/v1/api/workspaces/{id}/messages?afterSeq=&limit=` | Poll the conversation ledger |
 | `POST` | `/v1/api/webhooks` | Register a webhook endpoint (secret shown once) |
 | `GET` | `/v1/api/webhooks` | List webhook endpoints |
 | `DELETE` | `/v1/api/webhooks/{id}` | Remove a webhook endpoint |
 
-Errors use the API convention: an HTTP status plus `{"error": "<code>"}`.
+Errors use the api convention: an HTTP status plus `{"error": "<code>"}`.
 Notable codes: `workspace_not_accepting_messages` (409 — archived, deleting, or
 failed), `cloud_project_required` (400 — several ready projects, pass
 `projectId`), `agent_and_model_required` (400 — no prior workspace to default
@@ -46,14 +50,17 @@ from).
 ### Create a workspace
 
 ```sh
-curl -X POST "$ZUSE_API_URL/v1/api/workspaces" \
+curl -X POST "$API_BASE/v1/api/workspaces" \
   -H "Authorization: Bearer $ZUSE_API_KEY" \
   -H "Idempotency-Key: task-42" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Fix the login redirect bug"}'
 ```
 
-`projectId`, `providerId`, `agent`, `model`, `baseRef`, and `branch` are
+`prompt` may be omitted when an integration needs the workspace identity
+before uploading rich context. Such a workspace starts idle; upload its assets
+and then send the first message. `projectId`, `providerId`, `agent`, `model`,
+`baseRef`, and `branch` are
 optional: the project defaults when the account has exactly one ready project,
 agent/model default from the account's most recent workspace, and `baseRef`
 defaults to the project's default branch. The response is the workspace status
@@ -62,12 +69,28 @@ as first-party creates.
 
 ### Send a follow-up message
 
+Upload each attachment first using its raw bytes:
+
 ```sh
-curl -X POST "$ZUSE_API_URL/v1/api/workspaces/$WS/messages" \
+curl -X POST "$API_BASE/v1/api/workspaces/$WS/attachments" \
+  -H "Authorization: Bearer $ZUSE_API_KEY" \
+  -H "Idempotency-Key: slack-file-F123" \
+  -H "Content-Type: image/png" \
+  -H "X-Zuse-File-Name: screenshot.png" \
+  --data-binary @screenshot.png
+```
+
+The response is `{asset: {assetId, mimeType, originalName, sizeBytes}}`. Asset
+bytes are sealed in workspace-scoped object storage and can only be fetched by
+that workspace's authenticated runtime. Individual assets are capped at 20
+MiB; messages may reference at most eight assets.
+
+```sh
+curl -X POST "$API_BASE/v1/api/workspaces/$WS/messages" \
   -H "Authorization: Bearer $ZUSE_API_KEY" \
   -H "Idempotency-Key: reply-1" \
   -H "Content-Type: application/json" \
-  -d '{"text": "Also add a regression test"}'
+  -d '{"text": "Also add a regression test", "attachments": ["asset_…"]}'
 ```
 
 Returns `{messageId, seq, status, resumeTriggered}`. Messages are stored
@@ -82,12 +105,20 @@ turn. Sending to a paused workspace queues the message and triggers a resume
 
 `POST /v1/api/workspaces` and `POST …/messages` accept an `Idempotency-Key`
 header (or `idempotencyKey` body field). Retries with the same key return the
-original workspace or message instead of creating a duplicate.
+original workspace or message instead of creating a duplicate. Keys must be
+non-empty and at most 200 characters. If both locations are present they must
+match, and reusing a key with a different normalized request returns `409`
+instead of silently dropping the new work.
+
+Workspace-create receipts live with the workspace. Message receipts are kept
+for at least 30 days and longer while they remain among the workspace's newest
+1,000 terminal ledger rows. Callers must not reuse a message idempotency key
+after that retention window.
 
 ### Poll replies
 
 ```sh
-curl "$ZUSE_API_URL/v1/api/workspaces/$WS/messages?afterSeq=0" \
+curl "$API_BASE/v1/api/workspaces/$WS/messages?afterSeq=0" \
   -H "Authorization: Bearer $ZUSE_API_KEY"
 ```
 
@@ -103,14 +134,18 @@ The ledger follows the workspace's initial session.
 Register an endpoint once per account:
 
 ```sh
-curl -X POST "$ZUSE_API_URL/v1/api/webhooks" \
+curl -X POST "$API_BASE/v1/api/webhooks" \
   -H "Authorization: Bearer $ZUSE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com/zuse-hook"}'
 ```
 
+Webhook targets must be public HTTPS hostnames (no credentials, fragments,
+literal/private/loopback addresses, or redirects). An account may keep up to
+20 active endpoints.
+
 The response includes a `whsec_…` signing secret, shown once. Each time an
-agent turn completes, the API POSTs a `workspace.turn.completed` event:
+agent turn completes, the api POSTs a `workspace.turn.completed` event:
 
 ```json
 {
@@ -122,9 +157,12 @@ agent turn completes, the API POSTs a `workspace.turn.completed` event:
   "turnId": "…",
   "outcome": "completed",
   "reply": { "text": "Done — the redirect now …", "truncated": false },
-  "messageSeq": 3
+  "messageId": "msg_turn_…"
 }
 ```
+
+`messageId` is deterministic for the completed turn and identifies the
+assistant row returned by the conversation-ledger endpoint.
 
 Deliveries carry:
 
@@ -146,9 +184,9 @@ remains available as a fallback if your endpoint is down.
 
 ## Delivery model
 
-- The API is the durable queue: messages and webhook deliveries are Postgres
+- The api is the durable queue: messages and webhook deliveries are Postgres
   rows; the workspace gateway only nudges the runtime that work is waiting.
 - The runtime pulls pending commands, injects them idempotently, and acks;
   a missed nudge is recovered on gateway reconnect and by the cron sweep.
-- Message content, webhook payloads, and webhook secrets are sealed at rest
-  with the API data-encryption key, bound to their owning account and row.
+- Message content, attachment bytes, webhook payloads, and webhook secrets are sealed at rest
+  with the api data-encryption key, bound to their owning account and row.

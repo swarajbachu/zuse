@@ -1,13 +1,14 @@
 import { ApiPaths, CloudApiKeyCreateRequest } from "@zuse/contracts";
-import { Clock, Effect, Schema } from "effect";
+import { Clock, Effect } from "effect";
 import { requireWorkos } from "./auth.ts";
 import { type BetaAccess, requireCloudBetaAccess } from "./beta-access.ts";
 import {
 	type ApiKeyRecord,
 	CloudWorkspaceStore,
 } from "./cloud-workspace-store.ts";
-import { randomToken, sha256Hex } from "./crypto.ts";
+import { randomBase62Token, randomToken, sha256Hex } from "./crypto.ts";
 import { type ApiError, badRequest, notFound } from "./errors.ts";
+import { decodeBody, decodePathSegment, json } from "./http.ts";
 import type { WorkosVerifier } from "./workos.ts";
 
 export type ApiKeyRouteContext =
@@ -17,12 +18,6 @@ export type ApiKeyRouteContext =
 
 /** Number of secret characters echoed back for display (`zk_` + 9). */
 const API_KEY_PREFIX_LENGTH = 12;
-
-const json = (body: unknown, status = 200): Response =>
-	new Response(JSON.stringify(body), {
-		status,
-		headers: { "content-type": "application/json" },
-	});
 
 const publicApiKey = (key: ApiKeyRecord) => ({
 	keyId: key.keyId,
@@ -56,17 +51,11 @@ export const routeApiKeyRequest = (
 
 		if (method === "POST" && path === ApiPaths.cloudApiKeys) {
 			yield* requireCloudBetaAccess(principal.accountId);
-			const body = yield* Effect.tryPromise({
-				try: (): Promise<unknown> => request.json(),
-				catch: () => badRequest("invalid_json"),
-			}).pipe(
-				Effect.flatMap(Schema.decodeUnknownEffect(CloudApiKeyCreateRequest)),
-				Effect.mapError(() => badRequest("invalid_request")),
-			);
+			const body = yield* decodeBody(CloudApiKeyCreateRequest, request);
 			const name = body.name.trim();
 			if (name.length === 0 || name.length > 100)
 				return yield* Effect.fail(badRequest("invalid_api_key_name"));
-			const secret = yield* randomToken("zk", 32);
+			const secret = yield* randomBase62Token("zk", 32);
 			const key: ApiKeyRecord = {
 				keyId: yield* randomToken("key", 8),
 				accountId: principal.accountId,
@@ -81,7 +70,7 @@ export const routeApiKeyRequest = (
 
 		const keyMatch = /^\/v1\/cloud\/api-keys\/([^/]+)$/u.exec(path);
 		if (method === "DELETE" && keyMatch !== null) {
-			const keyId = decodeURIComponent(keyMatch[1] ?? "");
+			const keyId = yield* decodePathSegment(keyMatch[1] ?? "");
 			const revoked = yield* store.revokeApiKey(
 				principal.accountId,
 				keyId,

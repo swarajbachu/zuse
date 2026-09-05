@@ -140,6 +140,8 @@ describe("isPrivateOrLocalHost", () => {
 	it.each([
 		["127.0.0.1", true],
 		["localhost", true],
+		["worker.localhost", true],
+		["worker.localhost.", true],
 		["::1", true],
 		["[::1]", true],
 		["10.1.2.3", true],

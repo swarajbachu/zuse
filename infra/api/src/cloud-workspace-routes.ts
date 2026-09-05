@@ -2,6 +2,7 @@ import { cloudCommandEnvelopeEligibility } from "@zuse/cloud-commands";
 import {
 	ApiPaths,
 	CLOUD_COMMAND_PROTOCOL_VERSION,
+	CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
 	CLOUD_RUNTIME_TURN_REPLY_MAX_LENGTH,
 	CloudAccountImageBuildRequest,
 	CloudAuthConfigureRequest,
@@ -28,13 +29,21 @@ import {
 import { POKEMON_BRANCH_CATALOG } from "@zuse/pokemon-data/branch-catalog";
 import { allocatePokemonName } from "@zuse/pokemon-data/name-allocator";
 import { SandboxProviders } from "@zuse/sandbox-providers";
-import { sha256Base64Url } from "@zuse/utils/cloud-transcript-crypto";
+import { cloudRuntimeCommandTurnId } from "@zuse/utils/cloud-api";
+import {
+	bytesToBase64Url,
+	sha256Base64Url,
+} from "@zuse/utils/cloud-transcript-crypto";
 import { Clock, Effect, Redacted, Schema } from "effect";
 import { CompactEncrypt, importJWK, type JWK } from "jose";
+import { getApiAsset } from "./api-assets.ts";
+import { decodeApiMessageContent } from "./api-message-content.ts";
 import {
 	apiMessageSealContext,
+	apiTurnReceiptDigestContext,
 	apiWebhookPayloadSealContext,
-	openApiString,
+	digestApiString,
+	openApiMessageString,
 	sealApiString,
 } from "./api-sealing.ts";
 import { requireWorkos } from "./auth.ts";
@@ -60,7 +69,6 @@ import {
 	completeGithubInstallation,
 	githubInstallationCredentialForRepository,
 	githubInstallationGrants,
-	githubInstallCallbackForwardUrl,
 	makeGithubInstallUrl,
 } from "./cloud-github-app.ts";
 import {
@@ -89,7 +97,10 @@ import {
 	withoutRuntimeBootstrapReceipt,
 } from "./cloud-workspace-reconciler.ts";
 import {
-	type ApiWebhookDeliveryRecord,
+	cloudWorkspaceGatewayEpoch,
+	cloudWorkspaceRuntimeGeneration,
+} from "./cloud-workspace-runtime-fence.ts";
+import {
 	type CloudProjectBuildRecord,
 	type CloudProjectRecord,
 	type CloudWorkspaceLifecycleAction,
@@ -129,6 +140,7 @@ import {
 	githubCallbackPageHeaders,
 	renderGithubConnectedPage,
 } from "./github-callback-page.ts";
+import { decodeBody, json } from "./http.ts";
 import { MachineControlConfiguration } from "./machine-config.ts";
 import { MachineStore } from "./machine-store.ts";
 import { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
@@ -187,24 +199,6 @@ const githubCallbackPage = (input: {
 			headers: githubCallbackPageHeaders,
 		},
 	);
-const json = (body: unknown, status = 200): Response =>
-	new Response(JSON.stringify(body), {
-		status,
-		headers: { "content-type": "application/json" },
-	});
-
-const decodeBody = <A, I>(
-	schema: Schema.Codec<A, I>,
-	request: Request,
-): Effect.Effect<A, ApiError> =>
-	Effect.tryPromise({
-		try: (): Promise<unknown> => request.json(),
-		catch: () => badRequest("invalid_json"),
-	}).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(schema)),
-		Effect.mapError(() => badRequest("invalid_request")),
-	);
-
 export const decodeRuntimeSummary = (
 	request: Request,
 ): Effect.Effect<CloudWorkspaceRuntimeSummary, ApiError> =>
@@ -793,17 +787,13 @@ const runtimeModeFromRequestConfig = (
 	return decoded._tag === "Some" ? decoded.value : DEFAULT_RUNTIME_MODE;
 };
 
-const runtimeGeneration = (workspace: CloudWorkspaceRecord): number =>
-	typeof workspace.requestConfig.runtimeGeneration === "number"
-		? workspace.requestConfig.runtimeGeneration
-		: 1;
-
 /** Runtime-derived metadata is authoritative only inside its generation fence. */
 export const currentCloudRuntimeSummary = (
 	workspace: CloudWorkspaceRecord,
 	runtimeSummary?: CloudWorkspaceRuntimeSummaryRecord | null,
 ): CloudWorkspaceRuntimeSummaryRecord | null =>
-	runtimeSummary?.runtimeGeneration === runtimeGeneration(workspace)
+	runtimeSummary?.runtimeGeneration ===
+	cloudWorkspaceRuntimeGeneration(workspace)
 		? runtimeSummary
 		: null;
 
@@ -941,18 +931,21 @@ const hasEntitlement = Effect.fn("hasCloudWorkspaceEntitlement")(function* (
 	return hasUsableCloudWorkspaceEntitlement(entitlements, nowMs);
 });
 
+/** Shared fail-closed entitlement gate for WorkOS and API-key callers. */
+export const requireCloudWorkspaceEntitlement = Effect.fn(
+	"requireCloudWorkspaceEntitlement",
+)(function* (accountId: string, nowMs: number) {
+	if (!(yield* hasEntitlement(accountId, nowMs)))
+		return yield* Effect.fail(forbidden("cloud_entitlement_required"));
+});
+
 export const requireCloudBillingCapacity = Effect.fn(
 	"requireCloudBillingCapacity",
 )(function* (accountId: string, nowMs: number) {
-	if (!(yield* ApiConfiguration).cloudBillingEnforcementEnabled) return;
-	const billingStore = yield* CloudBillingStore;
-	const period = yield* ensureAccountCloudBillingPeriod(accountId, nowMs).pipe(
-		Effect.provideService(CloudBillingStore, billingStore),
-	);
-	if (period === null)
+	const capacity = yield* cloudBillingCapacity(accountId, nowMs);
+	if (capacity === "period-missing")
 		return yield* Effect.fail(forbidden("cloud_billing_period_missing"));
-	const summary = yield* billingStore.summary(period);
-	if (summary.status === "billing-hold" || summary.status === "ended")
+	if (capacity === "billing-hold")
 		return yield* Effect.fail(forbidden("cloud_billing_hold"));
 });
 
@@ -1019,6 +1012,7 @@ export const runtimeActivityLifecycle = (
 const RuntimeBootstrapRequest = Schema.Struct({
 	credentialPublicJwk: Schema.String,
 	signingPublicJwk: Schema.String,
+	capabilities: Schema.optional(Schema.Array(Schema.String)),
 });
 
 const RuntimeBootstrapAckRequest = Schema.Struct({
@@ -1046,7 +1040,7 @@ export const codexGrantRuntimeBindingError = (
 	| null => {
 	if (workspace.requestConfig.codexAuthMode !== "broker-v1")
 		return "codex-auth-legacy-workspace";
-	if (request.runtimeGeneration !== runtimeGeneration(workspace))
+	if (request.runtimeGeneration !== cloudWorkspaceRuntimeGeneration(workspace))
 		return "workspace_runtime_fenced";
 	const receipt = runtimeBootstrapReceiptFromConfig(workspace.requestConfig);
 	if (
@@ -1078,7 +1072,7 @@ export const providerGrantRuntimeBindingError = (
 	| null => {
 	if (workspace.requestConfig.providerAuthMode !== "broker-v1")
 		return "provider-auth-legacy-workspace";
-	if (request.runtimeGeneration !== runtimeGeneration(workspace))
+	if (request.runtimeGeneration !== cloudWorkspaceRuntimeGeneration(workspace))
 		return "workspace_runtime_fenced";
 	const receipt = runtimeBootstrapReceiptFromConfig(workspace.requestConfig);
 	if (
@@ -1147,11 +1141,6 @@ const attachMailboxBillingPolicy = (
 	});
 };
 
-const gatewayEpoch = (workspace: CloudWorkspaceRecord): number =>
-	typeof workspace.requestConfig.gatewayEpoch === "number"
-		? workspace.requestConfig.gatewayEpoch
-		: runtimeGeneration(workspace);
-
 const authenticateRuntime = Effect.fn("authenticateCloudWorkspaceRuntime")(
 	function* (request: Request, workspaceId: string, nowMs: number) {
 		const store = yield* CloudWorkspaceStore;
@@ -1169,7 +1158,6 @@ const authenticateRuntime = Effect.fn("authenticateCloudWorkspaceRuntime")(
 		return workspace;
 	},
 );
-
 const requireRuntime = Effect.fn("requireCloudWorkspaceRuntime")(function* (
 	request: Request,
 	workspaceId: string,
@@ -1186,6 +1174,23 @@ export interface CloudWorkspaceCreateOutcome {
 	readonly created: boolean;
 }
 
+/** Pure lifecycle target shared by HTTP resume and atomic message+resume. */
+export const cloudWorkspaceResumeTarget = (
+	workspace: CloudWorkspaceRecord,
+	nowMs: number,
+): CloudWorkspaceRecord => ({
+	...workspace,
+	requestConfig: {
+		...workspace.requestConfig,
+		startupTimings: { requestedAt: nowMs, resumeRequestedAt: nowMs },
+	},
+	desiredState: "ready",
+	statusCode: "resume-queued",
+	nextActionAtMs: nowMs,
+	revision: workspace.revision + 1,
+	updatedAtMs: nowMs,
+});
+
 /**
  * Shared cloud-workspace creation used by the first-party (WorkOS) route and
  * the API-key `/v1/api/workspaces` surface: entitlement + billing gates,
@@ -1199,13 +1204,14 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	accountId: string,
 	body: Omit<CloudWorkspaceCreateRequest, "providerId"> & {
 		readonly providerId?: string;
+		/** Canonical public-API request fingerprint, absent for first-party calls. */
+		readonly publicApiRequestDigest?: string;
 	},
 	nowMs: number,
 ) {
 	const store = yield* CloudWorkspaceStore;
 	const launchIntentCipher = yield* CloudWorkspaceLaunchIntentCipher;
-	if (!(yield* hasEntitlement(accountId, nowMs)))
-		return yield* Effect.fail(forbidden("cloud_entitlement_required"));
+	yield* requireCloudWorkspaceEntitlement(accountId, nowMs);
 	yield* requireCloudBillingCapacity(accountId, nowMs);
 	const apiConfiguration = yield* ApiConfiguration;
 	const project = yield* store.getProject(body.projectId);
@@ -1245,10 +1251,9 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	const chatId = `chat_${crypto.randomUUID()}`;
 	const initialSessionId = `s_${crypto.randomUUID()}`;
 	const unavailableBranches = new Set(
-		(yield* store.listWorkspaces(
-			accountId,
-			project.projectId,
-		)).map((workspace) => workspace.branch),
+		(yield* store.listWorkspaces(accountId, project.projectId)).map(
+			(workspace) => workspace.branch,
+		),
 	);
 	const branch =
 		body.branch ??
@@ -1263,12 +1268,10 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		!/^[A-Za-z0-9._/#-]+$/u.test(body.baseRef)
 	)
 		return yield* Effect.fail(badRequest("invalid_git_ref"));
-	const initialMessageDelivery = selectCloudWorkspaceInitialMessageDelivery(
-		{
-			mailboxEnabled: apiConfiguration.cloudCommandMailboxEnabled,
-			requested: body.initialMessageDelivery,
-		},
-	);
+	const initialMessageDelivery = selectCloudWorkspaceInitialMessageDelivery({
+		mailboxEnabled: apiConfiguration.cloudCommandMailboxEnabled,
+		requested: body.initialMessageDelivery,
+	});
 	const launchIntent = makeCloudWorkspaceLaunchIntent({
 		workspaceId,
 		branch,
@@ -1308,10 +1311,14 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 			agent: body.agent,
 			codexAuthMode,
 			providerAuthMode,
+			initialTurnId: turnId,
 			authGrantRequired: false,
 			model: body.model,
 			runtimeMode: body.runtimeMode ?? DEFAULT_RUNTIME_MODE,
 			permissions: body.permissions ?? [],
+			...(body.publicApiRequestDigest === undefined
+				? {}
+				: { publicApiRequestDigest: body.publicApiRequestDigest }),
 			repositoryCache: "account-image",
 			startupTimings: { requestedAt: nowMs },
 			...(initialMessageDelivery === undefined
@@ -1344,10 +1351,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		expiresAtMs: nowMs + 24 * 60 * 60 * 1_000,
 		createdAtMs: nowMs,
 	};
-	const outcome = yield* store.createWorkspace(
-		workspace,
-		launchIntentRecord,
-	);
+	const outcome = yield* store.createWorkspace(workspace, launchIntentRecord);
 	if (outcome.kind === "branch-in-use")
 		return yield* Effect.fail(
 			conflict(`cloud_branch_in_use:${outcome.workspace.workspaceId}`),
@@ -1405,25 +1409,15 @@ export const queueCloudWorkspaceResume = Effect.fn("queueCloudWorkspaceResume")(
 			commandId,
 		);
 		if (receivedAction !== null) return workspace;
-		const updated: CloudWorkspaceRecord = {
-			...workspace,
-			requestConfig: {
-				...workspace.requestConfig,
-				startupTimings: { requestedAt: nowMs, resumeRequestedAt: nowMs },
-			},
-			desiredState: "ready",
-			statusCode: "resume-queued",
-			nextActionAtMs: nowMs,
-			revision: workspace.revision + 1,
-			updatedAtMs: nowMs,
-		};
-		yield* store.saveWorkspaceLifecycleCommand({
+		const updated = cloudWorkspaceResumeTarget(workspace, nowMs);
+		const saved = yield* store.saveWorkspaceLifecycleCommand({
 			workspace: updated,
 			commandId,
 			action: "resume",
 			createdAtMs: nowMs,
 		});
-		return updated;
+		if (saved) return updated;
+		return (yield* store.getWorkspace(workspace.workspaceId)) ?? workspace;
 	},
 );
 
@@ -1435,7 +1429,7 @@ export const routeCloudWorkspaceRequest = (
 		const path = url.pathname;
 		const method = request.method.toUpperCase();
 		if (!path.startsWith("/v1/cloud/")) return null;
-		if (method === "GET" && path === ApiPaths.cloudGithubCallback) {
+		if (method === "GET" && path === "/v1/cloud/github/callback") {
 			const state = url.searchParams.get("state");
 			const installationId = Number(url.searchParams.get("installation_id"));
 			if (
@@ -1448,17 +1442,6 @@ export const routeCloudWorkspaceRequest = (
 					message:
 						"The GitHub App was installed, but this installation was not started from Zuse. Return to Cloud Workspace settings and choose Install GitHub App so Zuse can link it securely.",
 					success: false,
-				});
-			const apiConfiguration = yield* ApiConfiguration;
-			const forwardUrl = githubInstallCallbackForwardUrl(
-				state,
-				installationId,
-				apiConfiguration.apiIssuer,
-			);
-			if (forwardUrl !== null)
-				return new Response(null, {
-					status: 302,
-					headers: { location: forwardUrl },
 				});
 			return yield* completeGithubInstallation(state, installationId).pipe(
 				Effect.tapError((error) =>
@@ -1574,8 +1557,8 @@ export const routeCloudWorkspaceRequest = (
 				workspace.providerSandboxId === undefined
 			)
 				return yield* Effect.fail(unauthorized("workspace_bootstrap_rejected"));
-			const generation = runtimeGeneration(workspace);
-			const epoch = gatewayEpoch(workspace);
+			const generation = cloudWorkspaceRuntimeGeneration(workspace);
+			const epoch = cloudWorkspaceGatewayEpoch(workspace);
 			const prior = runtimeBootstrapReceiptFromConfig(workspace.requestConfig);
 			if (
 				prior !== null &&
@@ -1641,6 +1624,7 @@ export const routeCloudWorkspaceRequest = (
 				generation,
 				gatewayEpoch: epoch,
 				sealedTranscriptKey,
+				capabilities: body.capabilities,
 				nowMs,
 			});
 			if (enrolled === null)
@@ -1774,13 +1758,13 @@ export const routeCloudWorkspaceRequest = (
 					apiIssuer: (yield* ApiConfiguration).apiIssuer,
 					workspaceId,
 					requestId: body.requestId,
-					generation: runtimeGeneration(workspace),
-					gatewayEpoch: gatewayEpoch(workspace),
+					generation: cloudWorkspaceRuntimeGeneration(workspace),
+					gatewayEpoch: cloudWorkspaceGatewayEpoch(workspace),
 					nowMs,
 				});
 			}
 			// A deterministic value lets a retry recover the exact credential after
-			// response loss without storing plaintext at API.
+			// response loss without storing plaintext at Api.
 			const runtimeCredential = `workspace_runtime_${yield* sha256Hex(
 				`${currentCredential}:${workspaceId}:${body.requestId}`,
 			)}`;
@@ -1791,8 +1775,8 @@ export const routeCloudWorkspaceRequest = (
 				requestId: body.requestId,
 				nextCredentialHash: yield* sha256Hex(runtimeCredential),
 				expiresAtMs: expiresAt,
-				generation: runtimeGeneration(workspace),
-				gatewayEpoch: gatewayEpoch(workspace),
+				generation: cloudWorkspaceRuntimeGeneration(workspace),
+				gatewayEpoch: cloudWorkspaceGatewayEpoch(workspace),
 				nowMs,
 			});
 			if (receipt === null)
@@ -1917,7 +1901,7 @@ export const routeCloudWorkspaceRequest = (
 				return yield* Effect.fail(badRequest("invalid_runtime_summary"));
 			const outcome = yield* store.saveRuntimeSummary({
 				workspaceId,
-				runtimeGeneration: runtimeGeneration(workspace),
+				runtimeGeneration: cloudWorkspaceRuntimeGeneration(workspace),
 				summaryRevision: body.summaryRevision,
 				title: body.title,
 				lastActivityAtMs: body.lastActivityAt,
@@ -1982,36 +1966,92 @@ export const routeCloudWorkspaceRequest = (
 
 		const runtimeCommandsMatch =
 			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/commands$/u.exec(path);
+		const runtimeAssetMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/attachments\/([^/]+)$/u.exec(
+				path,
+			);
+		if (method === "GET" && runtimeAssetMatch !== null) {
+			const workspaceId = decodeURIComponent(runtimeAssetMatch[1] ?? "");
+			const assetId = decodeURIComponent(runtimeAssetMatch[2] ?? "");
+			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
+			const stored = yield* getApiAsset(
+				workspace.accountId,
+				workspaceId,
+				assetId,
+			);
+			if (stored === null)
+				return yield* Effect.fail(notFound("api_asset_not_found"));
+			return json({
+				asset: stored.asset,
+				bytes: bytesToBase64Url(stored.bytes),
+			});
+		}
 		if (method === "GET" && runtimeCommandsMatch !== null) {
 			const workspaceId = decodeURIComponent(runtimeCommandsMatch[1] ?? "");
 			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
-			const pending = yield* store.listPendingApiCommands(workspaceId, nowMs);
-			const commands = yield* Effect.forEach(pending, (message) =>
-				openApiString(
-					apiMessageSealContext(workspace.accountId, workspaceId),
-					message.sealedContent,
-				).pipe(
-					Effect.map((text) => ({
-						messageId: message.messageId,
-						commandId: message.commandId ?? `api:${message.messageId}`,
-						sessionId: workspace.initialSessionId,
-						text,
-						seq: message.seq,
-					})),
-				),
+			const pending = yield* store.claimNextApiCommand(workspaceId, nowMs);
+			const supportsApiAssets =
+				runtimeBootstrapReceiptFromConfig(
+					workspace.requestConfig,
+				)?.capabilities?.includes(CLOUD_RUNTIME_API_ASSETS_CAPABILITY) === true;
+			// SessionDomain accepts one active turn at a time. Strict FIFO keeps a
+			// second durable command from colliding with the turn just started here.
+			const commands = yield* Effect.forEach(
+				pending === null ? [] : [pending],
+				(message) =>
+					Effect.gen(function* () {
+						const content = decodeApiMessageContent(
+							yield* openApiMessageString(
+								workspace.accountId,
+								workspaceId,
+								message.messageId,
+								message.sealedContent,
+							),
+						);
+						// Keep attachment commands pending until an upgraded runtime is active.
+						// Older runtimes ignore the optional wire field and would otherwise ACK
+						// the command after silently dropping its files.
+						if (content.attachments.length > 0 && !supportsApiAssets)
+							return null;
+						return {
+							messageId: message.messageId,
+							commandId: message.commandId ?? `api:${message.messageId}`,
+							turnId:
+								message.turnId ?? cloudRuntimeCommandTurnId(message.messageId),
+							sessionId: workspace.initialSessionId,
+							text: content.text,
+							...(content.attachments.length === 0
+								? {}
+								: { attachments: content.attachments }),
+							seq: message.seq,
+						};
+					}),
 			);
-			return json({ commands });
+			return json({ commands: commands.filter((command) => command !== null) });
 		}
 
 		const runtimeCommandAckMatch =
 			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/commands\/ack$/u.exec(path);
-		if (method === "POST" && runtimeCommandAckMatch !== null) {
+		const runtimeAcknowledgment =
+			method === "POST" && runtimeCommandAckMatch !== null
+				? yield* decodeBody(
+						Schema.Union([CloudRuntimeCommandAck, RuntimeAcknowledgment]),
+						request.clone(),
+					)
+				: null;
+		if (
+			runtimeCommandAckMatch !== null &&
+			runtimeAcknowledgment !== null &&
+			"messageId" in runtimeAcknowledgment
+		) {
 			const workspaceId = decodeURIComponent(runtimeCommandAckMatch[1] ?? "");
 			yield* requireRuntime(request, workspaceId, nowMs);
-			const body = yield* decodeBody(CloudRuntimeCommandAck, request);
+			const body = runtimeAcknowledgment;
 			const acknowledged = yield* store.ackApiCommand(
 				workspaceId,
 				body.messageId,
+				body.turnId,
+				body.commandTurnId,
 				nowMs,
 			);
 			return json({ ok: acknowledged });
@@ -2023,18 +2063,90 @@ export const routeCloudWorkspaceRequest = (
 			const workspaceId = decodeURIComponent(runtimeTurnEventsMatch[1] ?? "");
 			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
 			const body = yield* decodeBody(CloudRuntimeTurnEventUpload, request);
-			if (body.replyText.length > CLOUD_RUNTIME_TURN_REPLY_MAX_LENGTH)
+			if (
+				body.replyText.length > CLOUD_RUNTIME_TURN_REPLY_MAX_LENGTH ||
+				!Number.isSafeInteger(body.settledAt) ||
+				body.settledAt < 0 ||
+				body.settledAt > nowMs + 5 * 60_000
+			)
 				return yield* Effect.fail(badRequest("invalid_turn_event"));
 			// v1 of the public API follows the initial session only.
 			if (body.sessionId !== workspace.initialSessionId)
 				return json({ recorded: false });
-			const sealedReply = yield* sealApiString(
-				apiMessageSealContext(workspace.accountId, workspaceId),
-				body.replyText,
-			);
 			const messageId = `msg_turn_${(
 				yield* sha256Hex(`${workspaceId}\n${body.turnId}`)
 			).slice(0, 40)}`;
+			const priorAssistant = yield* store.getApiMessage(messageId);
+			if (priorAssistant !== null) {
+				if (
+					priorAssistant.workspaceId !== workspaceId ||
+					priorAssistant.accountId !== workspace.accountId ||
+					priorAssistant.role !== "assistant" ||
+					priorAssistant.turnId !== body.turnId ||
+					priorAssistant.outcome !== body.outcome ||
+					priorAssistant.status !== "settled"
+				)
+					return yield* Effect.fail(conflict("turn_event_reused"));
+				const priorReply = yield* openApiMessageString(
+					priorAssistant.accountId,
+					priorAssistant.workspaceId,
+					priorAssistant.messageId,
+					priorAssistant.sealedContent,
+				);
+				if (priorReply !== body.replyText)
+					return yield* Effect.fail(conflict("turn_event_reused"));
+			}
+			const eventId = `evt_${(
+				yield* sha256Hex(`turn-completed\n${workspaceId}\n${body.turnId}`)
+			).slice(0, 40)}`;
+			const webhookPayload = JSON.stringify({
+				eventId,
+				type: "workspace.turn.completed",
+				createdAt: body.settledAt,
+				workspaceId,
+				branch: workspace.branch,
+				turnId: body.turnId,
+				outcome: body.outcome,
+				reply: { text: body.replyText, truncated: body.replyTruncated },
+				messageId,
+			});
+			const contentDigest = yield* digestApiString(
+				apiTurnReceiptDigestContext(
+					workspace.accountId,
+					workspaceId,
+					body.turnId,
+				),
+				webhookPayload,
+			);
+			const sealedReply = yield* sealApiString(
+				apiMessageSealContext(workspace.accountId, workspaceId, messageId),
+				body.replyText,
+			);
+			const webhooks = (yield* store.listApiWebhooks(
+				workspace.accountId,
+			)).filter((webhook) => webhook.createdAtMs <= body.settledAt);
+			const webhookFanout =
+				webhooks.length === 0
+					? undefined
+					: {
+							eventId,
+							eventType: "workspace.turn.completed" as const,
+							sealedPayload: yield* sealApiString(
+								apiWebhookPayloadSealContext(workspace.accountId, eventId),
+								webhookPayload,
+							),
+							enqueuedAtMs: nowMs,
+							targets: yield* Effect.forEach(webhooks, (webhook) =>
+								sha256Hex(
+									`webhook-delivery\n${webhook.webhookId}\n${eventId}`,
+								).pipe(
+									Effect.map((digest) => ({
+										deliveryId: `whd_${digest.slice(0, 40)}`,
+										webhookId: webhook.webhookId,
+									})),
+								),
+							),
+						};
 			const outcome = yield* store.recordApiTurnEvent({
 				messageId,
 				workspaceId,
@@ -2042,56 +2154,41 @@ export const routeCloudWorkspaceRequest = (
 				turnId: body.turnId,
 				outcome: body.outcome,
 				sealedContent: sealedReply,
-				nowMs,
+				contentDigest,
+				nowMs: body.settledAt,
+				receivedAtMs: nowMs,
+				webhookFanout,
+				...(priorAssistant === null ? {} : { adoptLegacyReplay: true }),
 			});
-			const response = json({ recorded: outcome.kind === "created" });
-			if (outcome.kind === "created") {
-				const webhooks = yield* store.listApiWebhooks(workspace.accountId);
-				if (webhooks.length > 0) {
-					const eventId = `evt_${(
-						yield* sha256Hex(`turn-completed\n${workspaceId}\n${body.turnId}`)
-					).slice(0, 40)}`;
-					const payload = JSON.stringify({
-						eventId,
-						type: "workspace.turn.completed",
-						createdAt: nowMs,
-						workspaceId,
-						branch: workspace.branch,
-						turnId: body.turnId,
-						outcome: body.outcome,
-						reply: { text: body.replyText, truncated: body.replyTruncated },
-						messageSeq: outcome.message.seq,
-					});
-					const sealedPayload = yield* sealApiString(
-						apiWebhookPayloadSealContext(workspace.accountId, eventId),
-						payload,
-					);
-					const deliveries = yield* Effect.forEach(webhooks, (webhook) =>
-						randomToken("whd", 8).pipe(
-							Effect.map(
-								(deliveryId): ApiWebhookDeliveryRecord => ({
-									deliveryId,
-									webhookId: webhook.webhookId,
-									accountId: workspace.accountId,
-									eventId,
-									eventType: "workspace.turn.completed",
-									sealedPayload,
-									status: "pending",
-									attempts: 0,
-									nextAttemptAtMs: nowMs,
-									createdAtMs: nowMs,
-									updatedAtMs: nowMs,
-								}),
-							),
-						),
-					);
-					yield* store.enqueueApiWebhookDeliveries(deliveries);
-					response.headers.set(
-						"x-zuse-deliver-cloud-webhooks",
-						workspace.accountId,
-					);
-				}
+			if (outcome.kind === "conflict")
+				return yield* Effect.fail(conflict("turn_event_reused"));
+			if (
+				outcome.receipt.outcome !== body.outcome ||
+				outcome.receipt.settledAtMs !== body.settledAt ||
+				outcome.receipt.contentDigest !== contentDigest
+			)
+				return yield* Effect.fail(conflict("turn_event_reused"));
+			if (outcome.kind === "replay") {
+				const recordedReply = yield* openApiMessageString(
+					outcome.message.accountId,
+					outcome.message.workspaceId,
+					outcome.message.messageId,
+					outcome.message.sealedContent,
+				);
+				if (
+					recordedReply !== body.replyText ||
+					outcome.message.outcome !== body.outcome ||
+					(priorAssistant === null &&
+						outcome.message.createdAtMs !== body.settledAt)
+				)
+					return yield* Effect.fail(conflict("turn_event_reused"));
 			}
+			const response = json({ recorded: outcome.kind === "created" });
+			if (webhookFanout !== undefined)
+				response.headers.set(
+					"x-zuse-deliver-cloud-webhooks",
+					workspace.accountId,
+				);
 			return response;
 		}
 
@@ -2115,7 +2212,7 @@ export const routeCloudWorkspaceRequest = (
 					body.ciphertextSha256
 			)
 				return yield* Effect.fail(badRequest("invalid_transcript_checkpoint"));
-			const generation = runtimeGeneration(workspace);
+			const generation = cloudWorkspaceRuntimeGeneration(workspace);
 			const objectKey = cloudTranscriptObjectKey({
 				workspaceId,
 				sessionId: body.sessionId,
@@ -2165,7 +2262,8 @@ export const routeCloudWorkspaceRequest = (
 			).byteLength;
 			if (
 				checkpoint === null ||
-				checkpoint.runtimeGeneration !== runtimeGeneration(workspace) ||
+				checkpoint.runtimeGeneration !==
+					cloudWorkspaceRuntimeGeneration(workspace) ||
 				checkpoint.streamEpoch !== body.cursor.epoch ||
 				checkpoint.streamVersion !== body.cursor.version ||
 				!Number.isSafeInteger(body.beforeSequence) ||
@@ -2287,7 +2385,8 @@ export const routeCloudWorkspaceRequest = (
 				action === "ack"
 					? yield* authenticateRuntime(request, workspaceId, nowMs)
 					: yield* requireRuntime(request, workspaceId, nowMs);
-			const currentRuntimeGeneration = runtimeGeneration(workspace);
+			const currentRuntimeGeneration =
+				cloudWorkspaceRuntimeGeneration(workspace);
 			if (
 				action === "lease" &&
 				(workspace.state !== "ready" ||
@@ -2413,8 +2512,8 @@ export const routeCloudWorkspaceRequest = (
 						expectedAccountId: workspace.accountId,
 						expectedWorkspaceId: workspaceId,
 						expectedProtocol: protocol,
-						expectedGeneration: runtimeGeneration(workspace),
-						expectedGatewayEpoch: gatewayEpoch(workspace),
+						expectedGeneration: cloudWorkspaceRuntimeGeneration(workspace),
+						expectedGatewayEpoch: cloudWorkspaceGatewayEpoch(workspace),
 						nowMs,
 					}).pipe(
 						Effect.as(true),
@@ -2450,19 +2549,19 @@ export const routeCloudWorkspaceRequest = (
 			console.info("[cloud-workspace] gateway upgrade accepted", {
 				workspaceId,
 				protocol,
-				generation: runtimeGeneration(workspace),
-				gatewayEpoch: gatewayEpoch(workspace),
+				generation: cloudWorkspaceRuntimeGeneration(workspace),
+				gatewayEpoch: cloudWorkspaceGatewayEpoch(workspace),
 				role: runtime ? "runtime" : "client",
 			});
 			const response = new Response(null, { status: 204 });
 			response.headers.set("x-zuse-gateway-workspace", workspaceId);
 			response.headers.set(
 				"x-zuse-gateway-generation",
-				String(runtimeGeneration(workspace)),
+				String(cloudWorkspaceRuntimeGeneration(workspace)),
 			);
 			response.headers.set(
 				"x-zuse-gateway-epoch",
-				String(gatewayEpoch(workspace)),
+				String(cloudWorkspaceGatewayEpoch(workspace)),
 			);
 			response.headers.set(
 				"x-zuse-gateway-role",
@@ -3202,8 +3301,8 @@ export const routeCloudWorkspaceRequest = (
 					request.headers.get("x-zuse-device-id") ?? principal.accountId,
 				workspaceId,
 				protocol: WORKSPACE_GATEWAY_PROTOCOL,
-				generation: runtimeGeneration(workspace),
-				gatewayEpoch: gatewayEpoch(workspace),
+				generation: cloudWorkspaceRuntimeGeneration(workspace),
+				gatewayEpoch: cloudWorkspaceGatewayEpoch(workspace),
 				ttlMs: WORKSPACE_CLIENT_TICKET_TTL_MS,
 				nowMs,
 			});
@@ -3216,8 +3315,8 @@ export const routeCloudWorkspaceRequest = (
 				wsUrl: gatewayUrl(api.apiIssuer, workspaceId),
 				protocol: WORKSPACE_GATEWAY_PROTOCOL,
 				role: "client",
-				generation: runtimeGeneration(workspace),
-				gatewayEpoch: gatewayEpoch(workspace),
+				generation: cloudWorkspaceRuntimeGeneration(workspace),
+				gatewayEpoch: cloudWorkspaceGatewayEpoch(workspace),
 				credential,
 				expiresAt,
 			});
@@ -3465,19 +3564,6 @@ export const routeCloudWorkspaceRequest = (
 							requestConfig: {
 								...withoutRuntimeBootstrapReceipt(workspace.requestConfig),
 								runtimeSessionRecoveryPending: true,
-								startupTimings: {
-									requestedAt: nowMs,
-									resumeRequestedAt: nowMs,
-								},
-							},
-						}
-					: {}),
-				...(action === "resume" &&
-				!recoverRuntime &&
-				workspace.state !== "failed"
-					? {
-							requestConfig: {
-								...workspace.requestConfig,
 								startupTimings: {
 									requestedAt: nowMs,
 									resumeRequestedAt: nowMs,
