@@ -1,5 +1,4 @@
-import { formatKeyForDisplay } from "@zuse/contracts";
-import type { MenuAction } from "./bridge";
+import { type Command, formatKeyForDisplay } from "@zuse/contracts";
 import { isMacHost } from "./host-platform";
 import { keybindingsSnapshot } from "./keybindings-client-bus.ts";
 
@@ -15,7 +14,7 @@ const IS_MAC = isMacHost();
  * `<TooltipShortcut shortcut={…}>`, and React expects a string. Wrapping
  * it in a hook would require every caller to subscribe.
  */
-export function formatShortcut(id: MenuAction): string {
+export function formatShortcut(id: Command): string {
 	const rules = keybindingsSnapshot().resolvedRules;
 	// Prefer an unconditional rule (matches menu accelerator semantics).
 	for (let i = rules.length - 1; i >= 0; i--) {

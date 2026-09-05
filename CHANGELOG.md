@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Cmd+K quick open now switches into a fuzzy-searchable application command mode when the query starts with `>`
+- Cmd+K quick open has a height-limited, grouped dialog with five recent chats, quick actions, settings, and keyboard hints; search chats and commands together, or start with `>` for commands only
 - New chats can now choose between the main checkout and a fresh isolated worktree directly from the composer
 
 ### Changed
