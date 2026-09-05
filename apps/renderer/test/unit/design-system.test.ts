@@ -89,15 +89,12 @@ describe("renderer design system", () => {
 		expect(composer).not.toContain("<SessionTimer");
 		expect(composer).not.toContain("<ReasoningPicker");
 		expect(composer).toContain("triggerDetail={activeLabel}");
-		expect(composer).toContain('metalFx={level === "ultra"}');
-		expect(composer).toContain("reflectionTargets={ultraReflectionTargets}");
 		expect(composer).toContain("<Slider");
 		expect(composer).toContain("aria-valuetext={activeLabel}");
 		expect(modelPicker).toContain('label.replace(/^gpt[-\\s]*/i, "")');
 		expect(modelPicker).toContain("<ProviderIcon providerId={providerId}");
 		expect(modelPicker).toContain("flex h-7 w-40 max-w-[40vw] items-center");
 		expect(modelPicker).toContain("{optionsPanel}");
-		expect(modelPicker).toContain('<MetalFx\n\t\t\t\t\tpreset="silver"');
 		expect(trays).toContain("composer-attached-rail mx-auto w-14/15");
 		expect(composer).toContain(
 			"flex min-w-0 flex-1 items-center gap-1 overflow-x-auto",
