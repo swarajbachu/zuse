@@ -1,5 +1,9 @@
 "use dom";
 
+import {
+	containsUnsafeMermaidSource,
+	mermaidSecurityConfig,
+} from "@zuse/client-runtime/mermaid-source-policy";
 import type { DOMProps } from "expo/dom";
 import mermaid from "mermaid";
 import { useEffect, useId, useState } from "react";
@@ -23,16 +27,22 @@ const disableNetworkAccess = (): void => {
 
 export default function MermaidDiagram({ source, dark }: MermaidDiagramProps) {
 	const id = useId().replaceAll(":", "");
+	const unsafeSource = containsUnsafeMermaidSource(source);
 	const [svg, setSvg] = useState<string>();
 	const [error, setError] = useState<string>();
 
 	useEffect(() => {
 		let cancelled = false;
+		if (unsafeSource) {
+			setSvg(undefined);
+			setError("External content is disabled in diagrams.");
+			return () => {
+				cancelled = true;
+			};
+		}
 		disableNetworkAccess();
 		mermaid.initialize({
-			startOnLoad: false,
-			securityLevel: "strict",
-			htmlLabels: false,
+			...mermaidSecurityConfig(),
 			theme: dark ? "dark" : "default",
 		});
 		void mermaid
@@ -53,7 +63,7 @@ export default function MermaidDiagram({ source, dark }: MermaidDiagramProps) {
 		return () => {
 			cancelled = true;
 		};
-	}, [dark, id, source]);
+	}, [dark, id, source, unsafeSource]);
 
 	return (
 		<main data-theme={dark ? "dark" : "light"}>

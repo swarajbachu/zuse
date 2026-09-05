@@ -53,6 +53,10 @@ extraResources:
   - from: resources/skills
     to: app/skills
     filter: ["**/*"]
+  - from: ../../LICENSE
+    to: app/legal/LICENSE
+  - from: ../../THIRD_PARTY_NOTICES.md
+    to: app/legal/THIRD_PARTY_NOTICES.md
 
 # Native bindings can't load from inside an asar; they need to live as
 # real files on disk. electron-builder writes these to app.asar.unpacked/

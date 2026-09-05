@@ -21,7 +21,7 @@ copied; it records where comparison influenced a decision:
 | [#71](https://github.com/swarajbachu/zuse/pull/71) | Keybinding parser structure and settings interaction patterns; persistence and implementation remain project-specific. |
 | [#72](https://github.com/swarajbachu/zuse/pull/72) | Per-model capability descriptors used as a product/API pattern. |
 | [#111](https://github.com/swarajbachu/zuse/pull/111) | Model catalog, aliases, and capability presentation were cross-checked for feature parity. |
-| [#525](https://github.com/swarajbachu/zuse/pull/525) | macOS awake behavior follows Orca's public Electron power-blocker and `caffeinate` approach; the implementation is project-specific. |
+| [#525](https://github.com/swarajbachu/zuse/pull/525) | macOS awake behavior was cross-checked against public Electron power-blocker and `caffeinate` usage; the implementation is project-specific. |
 
 [PR #79](https://github.com/swarajbachu/zuse/pull/79) separately records a
 deliberate move to a custom diff presentation so the product would have its own
@@ -38,6 +38,22 @@ software:
 The MIT notice below is retained conservatively for the two areas above. It does
 not make Zuse's original code MIT-licensed, and it does not imply that the
 repository as a whole was copied or forked.
+
+## Diagram source validation
+
+The Mermaid unsafe-source policy, tests, and hardened initialization in
+`packages/client-runtime/src/mermaid-source-policy.ts`,
+`packages/client-runtime/test/unit/mermaid-source-policy.test.ts`,
+`apps/renderer/src/components/markdown-body.tsx`, and
+`apps/mobile/src/components/messages/mermaid-diagram.tsx` include adapted
+third-party code.
+
+Copyright (c) 2025-present Mohamed Boudra.
+
+The original material is licensed under `AGPL-3.0-or-later`. Zuse selected version 3,
+modified the material on 2026-08-23, and distributes the resulting work under
+`AGPL-3.0-only`. The complete GNU Affero General Public License version 3 is
+reproduced in [`LICENSE`](LICENSE).
 
 ## Library and framework foundations
 
