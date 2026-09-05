@@ -290,3 +290,96 @@ lines.on("line", (line) => {
 		}
 	});
 });
+
+describe("Codex app-server process lifecycle", () => {
+	it("reports one unexpected exit with a bounded stderr tail", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-app-server-exit-"));
+		const executable = join(directory, "fake-app-server.mjs");
+		const terminations: Array<Error> = [];
+		let client: CodexAppServerClient | null = null;
+		try {
+			writeFileSync(
+				executable,
+				`#!/usr/bin/env node
+import readline from "node:readline";
+const lines = readline.createInterface({ input: process.stdin });
+lines.on("line", (line) => {
+	const request = JSON.parse(line);
+	if (request.method === "initialize") {
+		process.stdout.write(JSON.stringify({
+			id: request.id,
+			result: { userAgent: "test", codexHome: "", platformFamily: "", platformOs: "" },
+		}) + "\\n");
+		return;
+	}
+	process.stderr.write("discarded-prefix:" + "x".repeat(5000) + ":fatal-tail-marker\\n", () => {
+		process.exit(17);
+	});
+});
+`,
+				{ mode: 0o755 },
+			);
+
+			client = await CodexAppServerClient.start({
+				codexPath: executable,
+				startupTimeoutMs: 2_000,
+				onStderr: () => {},
+				onNotification: () => {},
+				onServerRequest: () => {},
+				onUnexpectedTermination: (error) => terminations.push(error),
+			});
+			await expect(client.request("model/list", {})).rejects.toThrow(
+				/Codex app-server exited with code 17[\s\S]*fatal-tail-marker/,
+			);
+			expect(terminations).toHaveLength(1);
+			expect(terminations[0]?.message).not.toContain("discarded-prefix");
+			expect(
+				Buffer.byteLength(terminations[0]?.message ?? "", "utf8"),
+			).toBeLessThan(4_300);
+		} finally {
+			client?.close();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps explicit close silent", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-app-server-close-"));
+		const executable = join(directory, "fake-app-server.mjs");
+		const terminations: Array<Error> = [];
+		let client: CodexAppServerClient | null = null;
+		try {
+			writeFileSync(
+				executable,
+				`#!/usr/bin/env node
+import readline from "node:readline";
+const lines = readline.createInterface({ input: process.stdin });
+lines.on("line", (line) => {
+	const request = JSON.parse(line);
+	if (request.method !== "initialize") return;
+	process.stdout.write(JSON.stringify({
+		id: request.id,
+		result: { userAgent: "test", codexHome: "", platformFamily: "", platformOs: "" },
+	}) + "\\n");
+});
+`,
+				{ mode: 0o755 },
+			);
+
+			client = await CodexAppServerClient.start({
+				codexPath: executable,
+				startupTimeoutMs: 2_000,
+				onNotification: () => {},
+				onServerRequest: () => {},
+				onUnexpectedTermination: (error) => terminations.push(error),
+			});
+			const pending = client.request("model/list", {});
+			client.close();
+			await expect(pending).rejects.toThrow("Codex app-server is closed");
+			await new Promise((resolve) => setTimeout(resolve, 30));
+			expect(terminations).toEqual([]);
+		} finally {
+			client?.close();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+});
