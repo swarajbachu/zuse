@@ -5,6 +5,7 @@ import * as NodePath from "node:path";
 import {
 	type AppearanceMode,
 	type BranchNamingStyle,
+	BUNDLED_MODEL_CATALOG,
 	type Command,
 	type CompletionSoundPreset,
 	defaultModelEnabledByProvider,
@@ -13,7 +14,8 @@ import {
 	KeybindingsFile,
 	MAX_KEYBINDING_RULES,
 	type MergePrefs,
-	MODELS_BY_PROVIDER,
+	modelsForProvider,
+	PROVIDER_IDS,
 	type ProviderId,
 	resolveModelSlug,
 	SettingsFile,
@@ -48,25 +50,15 @@ const KEYBINDINGS_FILENAME = "keybindings.json";
 const USER_CONFIG_DIRNAME = ".zuse";
 const DEV_USER_CONFIG_DIRNAME = ".zuse-dev";
 
-const PROVIDER_IDS: ProviderId[] = [
-	"claude",
-	"codex",
-	"grok",
-	"cursor",
-	"gemini",
-	"opencode",
-	"kiro",
-];
-
-const seedModels = (): Record<ProviderId, string> => ({
-	claude: defaultModelFor("claude"),
-	codex: defaultModelFor("codex"),
-	grok: defaultModelFor("grok"),
-	cursor: defaultModelFor("cursor"),
-	gemini: defaultModelFor("gemini"),
-	opencode: defaultModelFor("opencode"),
-	kiro: defaultModelFor("kiro"),
-});
+// First-run seeds come from the bundled catalog snapshot; the resolved
+// (remote + live) catalog only matters once a session actually starts.
+const seedModels = (): Record<ProviderId, string> => {
+	const out = {} as Record<ProviderId, string>;
+	for (const id of PROVIDER_IDS) {
+		out[id] = defaultModelFor(BUNDLED_MODEL_CATALOG, id);
+	}
+	return out;
+};
 
 const seedProviderEnabled = (): Record<ProviderId, boolean> => {
 	const out = {} as Record<ProviderId, boolean>;
@@ -74,7 +66,8 @@ const seedProviderEnabled = (): Record<ProviderId, boolean> => {
 	return out;
 };
 
-const seedModelEnabledByProvider = defaultModelEnabledByProvider;
+const seedModelEnabledByProvider = () =>
+	defaultModelEnabledByProvider(BUNDLED_MODEL_CATALOG);
 
 const seedCustomModelIdsByProvider = (): Record<ProviderId, string[]> => {
 	const out = {} as Record<ProviderId, string[]>;
@@ -225,7 +218,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 	for (const id of PROVIDER_IDS) {
 		const v = inputModels[id];
 		if (typeof v === "string" && v.length > 0) {
-			models[id] = resolveModelSlug(id, v);
+			models[id] = resolveModelSlug(BUNDLED_MODEL_CATALOG, id, v);
 		}
 	}
 
@@ -285,9 +278,11 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 				continue;
 			}
 			const flags = providerModels as Record<string, unknown>;
-			const knownModelIds = new Set(MODELS_BY_PROVIDER[id].map((m) => m.id));
+			// Keep every boolean flag: the resolved catalog can know models the
+			// bundled snapshot doesn't (remote additions, live inventory), and a
+			// visibility choice for one must survive restarts.
 			for (const [modelId, value] of Object.entries(flags)) {
-				if (!knownModelIds.has(modelId)) continue;
+				if (modelId.length === 0 || modelId.length > 200) continue;
 				if (typeof value === "boolean") {
 					modelEnabledByProvider[id][modelId] = value;
 				}
@@ -305,7 +300,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 			const values = byProvider[id];
 			if (!Array.isArray(values)) continue;
 			const knownModelIds = new Set(
-				MODELS_BY_PROVIDER[id].map((model) => model.id),
+				modelsForProvider(BUNDLED_MODEL_CATALOG, id).map((model) => model.id),
 			);
 			customModelIdsByProvider[id] = [
 				...new Set(

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://zuse.dev/schemas/settings.schema.json",
+  "$id": "https://zuse.sh/schemas/settings.schema.json",
   "title": "Zuse User Settings",
   "description": "User-level settings stored in ~/.zuse/settings.json.",
   "type": "object",

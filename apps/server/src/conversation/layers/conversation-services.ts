@@ -19,6 +19,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { ApiActivityPublisher } from "../../api/activity-publisher.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { LinearService } from "../../linear/services/linear-service.ts";
+import { ModelCatalogService } from "../../model-catalog/services/model-catalog-service.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { makeReactorEffectJournal } from "../../provider/reactor-effect-journal.ts";
 import { ProviderService } from "../../provider/services/provider-service.ts";
@@ -132,6 +133,7 @@ const ConversationRuntimeLive = Layer.effect(
 		const git = yield* GitService;
 		const titleGen = yield* TitleGenerator;
 		const configStore = yield* ConfigStoreService;
+		const modelCatalog = yield* ModelCatalogService;
 		// Captured once so the control-plane orchestration tools — which the
 		// Claude SDK invokes as plain async functions — can bridge back into
 		// these Effect methods via `Runtime.runPromise`. Same shape as the
@@ -255,6 +257,7 @@ const ConversationRuntimeLive = Layer.effect(
 			cwdForWorktree,
 			runtime,
 			configStore,
+			modelCatalog,
 			worktrees,
 			createChat: (input) => Effect.suspend(() => createChat(input)),
 			getChat: (chatId) => Effect.suspend(() => lookupChat(chatId)),

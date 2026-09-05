@@ -39,12 +39,12 @@ import { displayPath } from "~/lib/display-path";
 import { hasHostCapability, isMacHost } from "~/lib/host-platform";
 import { rendererPlatformCapabilities } from "~/lib/platform-capabilities.ts";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
-
 import {
 	formatRelativeTime,
 	useRelativeTimeTick,
 } from "~/lib/use-relative-time.ts";
 import { cn } from "~/lib/utils";
+import { useModelCatalogStore } from "~/store/model-catalog";
 import { useAuth } from "../hooks/use-auth.ts";
 import type { BrowserCookieImportStatus } from "../lib/bridge.ts";
 import {
@@ -1996,9 +1996,13 @@ export function ModelSelect({
 	const modelEnabledByProvider = useSettingsStore(
 		(s) => s.modelEnabledByProvider,
 	);
-	const models = visibleModelsForProvider(providerId, modelEnabledByProvider, {
-		includeModelId: value,
-	});
+	const catalog = useModelCatalogStore((s) => s.catalog);
+	const models = visibleModelsForProvider(
+		catalog,
+		providerId,
+		modelEnabledByProvider,
+		{ includeModelId: value },
+	);
 	const normalizedValue =
 		value !== null &&
 		(models.some((m) => m.id === value) || models.length === 0)

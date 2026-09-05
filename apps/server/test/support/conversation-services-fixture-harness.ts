@@ -87,6 +87,7 @@ import { ProviderService } from "../../src/provider/services/provider-service.ts
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
 import { PtyService } from "../../src/pty/services/pty-service.ts";
 import { RepositorySettingsService } from "../../src/repository-settings/services/repository-settings-service.ts";
+import { StubModelCatalogLive } from "./model-catalog-stub.ts";
 
 export const FIXTURE_PROJECT_ID = "fixture-project" as FolderId;
 export const FIXTURE_PROJECT_PATH = "/tmp/zuse-fixture-project";
@@ -396,6 +397,7 @@ export const makeConversationFixtureRuntime = (
 		Layer.provide(StubGitLive),
 		Layer.provide(StubTitleGeneratorLive),
 		Layer.provide(StubConfigStoreLive),
+		Layer.provide(StubModelCatalogLive),
 		Layer.provide(StubApiActivityPublisherLive),
 		Layer.provide(DomainLive),
 		Layer.provide(ChatDomainLive),

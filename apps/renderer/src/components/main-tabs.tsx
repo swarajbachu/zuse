@@ -3,7 +3,8 @@ import {
 	defaultModelFor,
 	type EnvironmentId,
 	type FolderId,
-	MODELS_BY_PROVIDER,
+	findModelDescriptor,
+	PROVIDER_IDS,
 	type ProviderId,
 	type Session,
 	type SessionId,
@@ -16,6 +17,7 @@ import {
 } from "@zuse/icons/solid-rounded";
 import { Plus, X } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
+import { currentModelCatalog } from "~/store/model-catalog";
 import {
 	type AgentActivityState,
 	deriveAgentActivityState,
@@ -69,7 +71,7 @@ const lookupModelLabel = (
 	model: string | undefined,
 ): string | null => {
 	if (providerId === undefined || model === undefined) return null;
-	const opt = MODELS_BY_PROVIDER[providerId].find((m) => m.id === model);
+	const opt = findModelDescriptor(currentModelCatalog(), providerId, model);
 	return opt?.label ?? model;
 };
 
@@ -430,9 +432,7 @@ function NewChatTabButton({
 					?.availability ?? [];
 			const providerId = selectAuthenticatedProvider({
 				preferredProviderId: defaultProviderId,
-				providerIds: Object.keys(
-					MODELS_BY_PROVIDER,
-				) as ReadonlyArray<ProviderId>,
+				providerIds: PROVIDER_IDS,
 				availability: environmentAvailability,
 				providerEnabled,
 			});
@@ -446,7 +446,8 @@ function NewChatTabButton({
 				return;
 			}
 			const model =
-				defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
+				defaultModelByProvider[providerId] ??
+				defaultModelFor(currentModelCatalog(), providerId);
 			const runtimeMode =
 				projectId === null
 					? useSettingsStore.getState().defaultRuntimeMode

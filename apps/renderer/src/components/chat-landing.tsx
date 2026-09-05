@@ -92,6 +92,7 @@ import {
 } from "~/store/composer-drafts";
 import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
 import { useExternalThreadsStore } from "~/store/external-threads";
+import { currentModelCatalog } from "~/store/model-catalog";
 import {
 	repositorySettingsKey,
 	useRepositorySettingsStore,
@@ -593,7 +594,7 @@ export function ChatLanding() {
 					providerId: defaultProviderId,
 					model:
 						defaultModelByProvider[defaultProviderId] ??
-						defaultModelFor(defaultProviderId),
+						defaultModelFor(currentModelCatalog(), defaultProviderId),
 					runtimeMode,
 				});
 			},

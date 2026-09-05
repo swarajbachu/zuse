@@ -8,10 +8,11 @@ import type {
 	SessionId,
 } from "@zuse/contracts";
 import {
+	catalogProviderIds,
 	findModelDescriptor,
 	isModelVisible,
-	MODELS_BY_PROVIDER,
 	type ModelOption,
+	PROVIDER_LABELS,
 	type SelectOptionDescriptor,
 } from "@zuse/contracts";
 import {
@@ -36,23 +37,14 @@ import { isModelPickerProviderVisible } from "~/lib/model-picker-availability";
 import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks.ts";
 import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { cn } from "~/lib/utils";
-import { useKiroInventory } from "~/store/kiro-inventory";
-import { useOpencodeInventory } from "~/store/opencode-inventory";
+import { useModelCatalogStore } from "~/store/model-catalog";
 import { useProvidersStore } from "~/store/providers";
 import { useSessionsStore } from "~/store/sessions";
 import { ProviderIcon } from "./provider-icons";
 import { Popover, PopoverPrimitive, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
-const PROVIDER_LABEL: Record<ProviderId, string> = {
-	claude: "Claude Code",
-	codex: "Codex",
-	grok: "Grok",
-	cursor: "Cursor",
-	gemini: "Gemini",
-	opencode: "OpenCode",
-	kiro: "Kiro",
-};
+const PROVIDER_LABEL = PROVIDER_LABELS;
 
 const PROVIDER_CHIP_LABEL: Record<ProviderId, string> = {
 	claude: "Claude",
@@ -81,19 +73,6 @@ type Scope = ProviderId | "all";
 
 export const compactModelLabel = (label: string): string =>
 	label.replace(/^gpt[-\s]*/i, "").trim();
-
-const RETIRED_KIRO_MODEL_IDS = new Set([
-	"claude-opus-4.8",
-	"claude-opus-4.7",
-	"claude-opus-4.6",
-	"claude-sonnet-4.6",
-	"claude-sonnet-4.5",
-	"claude-haiku-4.5",
-	"minimax-m2.5",
-	"glm-5",
-	"deepseek-3.2",
-	"qwen3-coder-next",
-]);
 
 type ModelPickerProps =
 	| {
@@ -196,10 +175,8 @@ export function ModelPicker(props: ModelPickerProps) {
 				: refreshFor(providerEnvironmentId),
 		[providerEnvironmentId, refresh, refreshFor],
 	);
-	const opencodeInventory = useOpencodeInventory((s) => s.inventory);
-	const ensureOpencodeInventory = useOpencodeInventory((s) => s.ensureLoaded);
-	const kiroInventory = useKiroInventory((s) => s.inventory);
-	const ensureKiroInventory = useKiroInventory((s) => s.ensureLoaded);
+	const catalog = useModelCatalogStore((s) => s.catalog);
+	const ensureCatalog = useModelCatalogStore((s) => s.ensureLoaded);
 
 	let userMessageCount = 0;
 	if (!isDefault) {
@@ -210,9 +187,8 @@ export function ModelPicker(props: ModelPickerProps) {
 	const isFresh = isDefault ? true : userMessageCount === 0;
 
 	useEffect(() => {
-		void ensureOpencodeInventory();
-		void ensureKiroInventory();
-	}, [ensureOpencodeInventory, ensureKiroInventory]);
+		void ensureCatalog();
+	}, [ensureCatalog]);
 
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
@@ -242,103 +218,64 @@ export function ModelPicker(props: ModelPickerProps) {
 			if (!availabilityLoaded && !availabilityLoading) {
 				void refreshAvailability();
 			}
+			// Live inventories finish in the background after boot; a cheap
+			// re-check on open picks them up without blocking first paint.
+			void ensureCatalog({ maxAgeMs: 30_000 });
 		}
-	}, [open, availabilityLoaded, availabilityLoading, refreshAvailability]);
+	}, [
+		open,
+		availabilityLoaded,
+		availabilityLoading,
+		refreshAvailability,
+		ensureCatalog,
+	]);
 
 	const modelsForProvider = useCallback(
 		(
 			pid: ProviderId,
-		): ReadonlyArray<
-			Pick<ModelOption, "id" | "label" | "badgeLabel"> & {
-				contextWindowLabel?: string;
-			}
-		> => {
-			const appendCustomModels = (
-				models: ReadonlyArray<
-					Pick<ModelOption, "id" | "label" | "badgeLabel"> & {
-						contextWindowLabel?: string;
-					}
-				>,
-			) => {
-				const existingIds = new Set(models.map((model) => model.id));
-				return [
-					...models,
-					...customModelIdsByProvider[pid]
-						.filter((modelId) => !existingIds.has(modelId))
-						.map((modelId) => ({ id: modelId, label: modelId })),
-				];
-			};
-			if (pid === "kiro" && kiroInventory !== null) {
-				// Live Kiro catalog from control-plane / CLI. Prefer it over the
-				// static seed so tier/region-gated models appear correctly.
-				// Keep curated labels from the seed when present (e.g. "GPT-5.6 Sol"
-				// instead of inventory's "Gpt 5.6 Sol").
-				const seedById = new Map(
-					(MODELS_BY_PROVIDER.kiro ?? []).map((m) => [m.id, m] as const),
-				);
-				return appendCustomModels(
-					kiroInventory.models
-						.filter((model) => !RETIRED_KIRO_MODEL_IDS.has(model.id))
-						.map((m) => {
-							const seed = seedById.get(m.id);
-							const contextWindowLabel =
-								typeof m.contextWindow === "number" &&
-								m.contextWindow >= 1_000_000
-									? "1M"
-									: undefined;
-							// Live inventory owns the badge column: credit multipliers only.
-							// Do not fall back to seed "Experimental" — that mixed badge types
-							// (2.4× next to EXPERIMENTAL) when a model had a 1× / missing rate.
-							const badgeLabel =
-								m.rateMultiplier !== null && m.rateMultiplier !== 1
-									? `${m.rateMultiplier}×`
-									: undefined;
-							return {
-								id: m.id,
-								label: seed?.label ?? m.label,
-								...(badgeLabel !== undefined ? { badgeLabel } : {}),
-								...(contextWindowLabel !== undefined
-									? { contextWindowLabel }
-									: {}),
-							};
-						}),
-				);
-			}
-			if (pid !== "opencode" || opencodeInventory === null) {
-				return appendCustomModels(MODELS_BY_PROVIDER[pid] ?? []);
-			}
-			const seedById = new Map(
-				MODELS_BY_PROVIDER.opencode.map((m) => [m.id, m] as const),
+		): ReadonlyArray<Pick<ModelOption, "id" | "label" | "badgeLabel">> => {
+			const provider = catalog.providers[pid];
+			const selectedId = pid === providerId ? currentModel : null;
+			// Authoritative live inventories (Codex, Cursor, Kiro, OpenCode) mark
+			// curated models the account can't use as unavailable; keep the
+			// current selection visible so the user can see what they're on.
+			const available = provider.models.filter(
+				(m) => m.available || m.id === selectedId,
 			);
-			// Only connected providers carry usable models, and the OpenCode
-			// provider manager lets the user hide connected providers / individual
-			// models from the picker. Respect both here (missing entry ⇒ visible),
-			// while retaining curated launch labels and badges for known live models.
-			return opencodeInventory.providers
-				.filter((p) => p.connected && opencodeProviderVisible[p.id] !== false)
-				.flatMap((p) =>
-					p.models
-						.filter(
-							(m) => opencodeModelVisibleByProvider[p.id]?.[m.id] !== false,
-						)
-						.map((m) => {
-							const seed = seedById.get(m.id);
-							return {
-								id: m.id,
-								label: seed?.label ?? m.label,
-								...(seed?.badgeLabel !== undefined
-									? { badgeLabel: seed.badgeLabel }
-									: {}),
-							};
-						}),
-				);
+			// OpenCode ids are `<provider>/<model>`. The provider manager lets the
+			// user hide connected providers / individual models from the picker;
+			// respect both here (missing entry ⇒ visible).
+			const visible =
+				pid === "opencode"
+					? available.filter((m) => {
+							const slash = m.id.indexOf("/");
+							const opencodeProvider = slash > 0 ? m.id.slice(0, slash) : m.id;
+							return (
+								opencodeProviderVisible[opencodeProvider] !== false &&
+								opencodeModelVisibleByProvider[opencodeProvider]?.[m.id] !==
+									false
+							);
+						})
+					: available;
+			const existingIds = new Set(visible.map((m) => m.id));
+			return [
+				...visible.map((m) => ({
+					id: m.id,
+					label: m.label,
+					...(m.badgeLabel !== undefined ? { badgeLabel: m.badgeLabel } : {}),
+				})),
+				...customModelIdsByProvider[pid]
+					.filter((modelId) => !existingIds.has(modelId))
+					.map((modelId) => ({ id: modelId, label: modelId })),
+			];
 		},
 		[
+			catalog,
+			currentModel,
 			customModelIdsByProvider,
-			kiroInventory,
-			opencodeInventory,
 			opencodeProviderVisible,
 			opencodeModelVisibleByProvider,
+			providerId,
 		],
 	);
 
@@ -349,9 +286,7 @@ export function ModelPicker(props: ModelPickerProps) {
 	}, [availability]);
 
 	const pickableProviders = useMemo<ReadonlyArray<ProviderId>>(() => {
-		return (
-			Object.keys(MODELS_BY_PROVIDER) as ReadonlyArray<ProviderId>
-		).filter((pid) => {
+		return catalogProviderIds(catalog).filter((pid) => {
 			// Settings must keep the selected provider's catalog editable even when
 			// its local runtime is signed out. Session pickers remain restricted to
 			// providers that can actually start a session.
@@ -365,6 +300,7 @@ export function ModelPicker(props: ModelPickerProps) {
 			});
 		});
 	}, [
+		catalog,
 		isDefault,
 		providerId,
 		providerEnabled,
@@ -375,14 +311,19 @@ export function ModelPicker(props: ModelPickerProps) {
 		const out: ModelPickerEntry[] = [];
 		for (const pid of pickableProviders) {
 			for (const m of modelsForProvider(pid)) {
-				const visible = isModelVisible(pid, m.id, modelEnabledByProvider);
+				const visible = isModelVisible(
+					catalog,
+					pid,
+					m.id,
+					modelEnabledByProvider,
+				);
 				const selectedHidden = pid === providerId && m.id === currentModel;
 				if (!visible && !selectedHidden) continue;
-				// Inventory may already supply a context-window pill (Kiro live
-				// catalog). Fall back to the static descriptor default when not.
-				let contextWindowLabel = m.contextWindowLabel;
-				if (contextWindowLabel === undefined) {
-					const descriptor = findModelDescriptor(pid, m.id);
+				// The resolved catalog folds live context-window facts into the
+				// descriptor, so one lookup covers curated and live models alike.
+				let contextWindowLabel: string | undefined;
+				{
+					const descriptor = findModelDescriptor(catalog, pid, m.id);
 					const ctxDescriptor = descriptor?.optionDescriptors?.find(
 						(d): d is SelectOptionDescriptor =>
 							d.kind === "select" && d.id === "contextWindow",
@@ -409,6 +350,7 @@ export function ModelPicker(props: ModelPickerProps) {
 		}
 		return out;
 	}, [
+		catalog,
 		pickableProviders,
 		modelsForProvider,
 		modelEnabledByProvider,
@@ -616,9 +558,7 @@ export function ModelPicker(props: ModelPickerProps) {
 								count={totalCount}
 							/>
 							{pickableProviders.map((pid) => {
-								const live =
-									(pid === "opencode" && opencodeInventory !== null) ||
-									(pid === "kiro" && kiroInventory !== null);
+								const live = catalog.providers[pid].live.status === "ok";
 								return (
 									<ProviderSidebarItem
 										key={pid}

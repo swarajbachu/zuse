@@ -26,6 +26,7 @@ export * from "./keybindings-parse.ts";
 export * from "./linear.ts";
 export * from "./machines.ts";
 export * from "./mcp.ts";
+export * from "./model-catalog/index.ts";
 export * from "./naming.ts";
 export * from "./network-access.ts";
 export * from "./pairing.ts";

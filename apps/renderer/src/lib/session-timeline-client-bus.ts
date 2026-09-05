@@ -546,9 +546,9 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["provider.removeCredential"](payload as never),
 				);
 				break;
-			case "provider.opencode.inventory":
+			case "model.catalog":
 				result = await Effect.runPromise(
-					client["provider.opencode.inventory"](payload as never),
+					client["model.catalog"](payload as never),
 				);
 				break;
 			case "provider.opencode.setAuth":
@@ -569,11 +569,6 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 			case "provider.opencode.removeCustom":
 				result = await Effect.runPromise(
 					client["provider.opencode.removeCustom"](payload as never),
-				);
-				break;
-			case "provider.kiro.inventory":
-				result = await Effect.runPromise(
-					client["provider.kiro.inventory"](payload as never),
 				);
 				break;
 			case "pokemon.pokedex":

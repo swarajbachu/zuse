@@ -91,6 +91,11 @@ import {
 	refreshConnectionLabel,
 } from "~/store/connections";
 import {
+	activeModelCatalog,
+	activeModelCatalogAtom,
+	hydrateModelCatalog,
+} from "~/store/model-catalog";
+import {
 	bundlesByConnectionAtom,
 	createChat,
 	createSession,
@@ -134,19 +139,24 @@ export default function NewChatScreen() {
 	// it snap back to "Work locally". `sourceKind` is the source of truth for
 	// which work mode is selected.
 	const [sourceKind, setSourceKind] = useState<NewChatSourceKind>("main");
-	const initialModel = defaultModelForProvider("codex");
+	const initialModel = defaultModelForProvider(activeModelCatalog(), "codex");
 	const [modelMode, setModelMode] = useState<ModelModeValue>({
 		providerId: "codex",
 		model: initialModel,
 		runtimeMode: "approval-required",
 		permissionMode: "default",
-		modelOptions: defaultModelOptions("codex", initialModel),
+		modelOptions: defaultModelOptions(
+			activeModelCatalog(),
+			"codex",
+			initialModel,
+		),
 	});
 	const [worktrees, setWorktrees] = useState<readonly Worktree[]>([]);
 	const [branches, setBranches] = useState<readonly GitBranchInfo[]>([]);
 	const [prs, setPrs] = useState<readonly GitPrSummary[]>([]);
 
 	const allConnections = useAtomValue(connectionsAtom);
+	useAtomValue(activeModelCatalogAtom);
 	const hydrated = useAtomValue(connectionsHydratedAtom);
 	const account = useAtomValue(authAccountAtom);
 	const connections = useMemo(
@@ -265,6 +275,7 @@ export default function NewChatScreen() {
 	useEffect(() => {
 		if (effectiveConnectionKey === null || selectedOptions === null) return;
 		void hydrateAvailability(effectiveConnectionKey, selectedOptions);
+		void hydrateModelCatalog(effectiveConnectionKey, selectedOptions);
 	}, [effectiveConnectionKey, selectedOptions]);
 	const cloudProviders = useAtomValue(cloudAuthenticatedProvidersAtom);
 	const availableProviders = useMemo(
@@ -285,7 +296,11 @@ export default function NewChatScreen() {
 			model: active.model,
 			runtimeMode: active.runtimeMode,
 			permissionMode: active.permissionMode,
-			modelOptions: defaultModelOptions(active.providerId, active.model),
+			modelOptions: defaultModelOptions(
+				activeModelCatalog(),
+				active.providerId,
+				active.model,
+			),
 		});
 	}, [threadContext?.activeThread]);
 
@@ -304,12 +319,16 @@ export default function NewChatScreen() {
 		}
 		const providerId = availableProviders[0];
 		if (providerId === undefined) return modelMode;
-		const model = defaultModelForProvider(providerId);
+		const model = defaultModelForProvider(activeModelCatalog(), providerId);
 		return {
 			...modelMode,
 			providerId,
 			model,
-			modelOptions: defaultModelOptions(providerId, model),
+			modelOptions: defaultModelOptions(
+				activeModelCatalog(),
+				providerId,
+				model,
+			),
 		};
 	}, [availableProviders, modelMode]);
 	const goalSupported =

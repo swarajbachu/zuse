@@ -16,14 +16,14 @@ import {
 	type AgentSessionId,
 	AgentSessionStartError,
 	type AttachmentRef,
+	BUNDLED_MODEL_CATALOG,
 	defaultModelFor,
 	type FileRef,
-	findModelDescriptor,
+	type ModelOption,
 	type PermissionDecision,
 	type PermissionKind,
 	type PermissionMode,
 	type RuntimeMode,
-	resolveModelSlug,
 	type SkillRef,
 	type StartSessionInput,
 	ThreadGoal,
@@ -79,7 +79,7 @@ export type CodexReasoningEffort =
 
 /** Keep the user-selected reasoning tier intact when Codex supports it. */
 export const codexReasoningEffort = (
-	model: string | undefined,
+	descriptor: ModelOption | undefined,
 	value: string | undefined,
 ): CodexReasoningEffort | null => {
 	if (
@@ -93,10 +93,10 @@ export const codexReasoningEffort = (
 		return null;
 	}
 
-	const descriptor =
-		model === undefined
-			? undefined
-			: findModelDescriptor("codex", resolveModelSlug("codex", model));
+	// The server resolves the descriptor from the live catalog (curated seed
+	// merged with `model/list`), so its reasoning options are the
+	// authoritative per-model gate. Custom slugs carry no descriptor and keep
+	// the standard tiers.
 	if (descriptor === undefined) {
 		return value === "low" || value === "medium" || value === "high"
 			? value
@@ -1408,7 +1408,8 @@ export const startCodexSession = (
 		const statusLog = createCodexStatusLogger(cwd, sessionId);
 		const rawProtocolLog = createCodexRawProtocolLogger(cwd, sessionId);
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
-		let activeModel = input.model ?? defaultModelFor("codex");
+		let activeModel =
+			input.model ?? defaultModelFor(BUNDLED_MODEL_CATALOG, "codex");
 		let activeThreadId = resumeCursor;
 		const cursorLifecycle = new CodexCursorLifecycle(resumeCursor);
 		let currentTurnId: string | null = null;
@@ -1838,7 +1839,7 @@ export const startCodexSession = (
 			// Reasoning effort is part of native collaboration-mode settings because
 			// that payload takes precedence over the top-level turn fields.
 			const effort = codexReasoningEffort(
-				input.model,
+				input.modelDescriptor,
 				input.modelOptions?.["reasoning"],
 			);
 			const turnMode = buildCodexTurnMode({

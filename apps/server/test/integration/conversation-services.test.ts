@@ -15,6 +15,7 @@ import {
 	AgentSessionNotFoundError,
 	AgentSessionStartError,
 	AgentTurnId,
+	BUNDLED_MODEL_CATALOG,
 	ChatId,
 	ComposerInput,
 	defaultModelFor,
@@ -104,6 +105,7 @@ import { ProviderService } from "../../src/provider/services/provider-service.ts
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
 import { PtyService } from "../../src/pty/services/pty-service.ts";
 import { RepositorySettingsService } from "../../src/repository-settings/services/repository-settings-service.ts";
+import { StubModelCatalogLive } from "../support/model-catalog-stub.ts";
 
 const PROJECT_ID = "proj-test" as FolderId;
 const TEST_WORKTREE_ID = "wt-pikachu" as WorktreeId;
@@ -459,13 +461,13 @@ const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {
 		Effect.succeed({
 			defaultAutonomyLevel: testAutonomyLevel,
 			defaultModelByProvider: {
-				claude: defaultModelFor("claude"),
-				codex: defaultModelFor("codex"),
-				grok: defaultModelFor("grok"),
-				cursor: defaultModelFor("cursor"),
-				gemini: defaultModelFor("gemini"),
-				opencode: defaultModelFor("opencode"),
-				kiro: defaultModelFor("kiro"),
+				claude: defaultModelFor(BUNDLED_MODEL_CATALOG, "claude"),
+				codex: defaultModelFor(BUNDLED_MODEL_CATALOG, "codex"),
+				grok: defaultModelFor(BUNDLED_MODEL_CATALOG, "grok"),
+				cursor: defaultModelFor(BUNDLED_MODEL_CATALOG, "cursor"),
+				gemini: defaultModelFor(BUNDLED_MODEL_CATALOG, "gemini"),
+				opencode: defaultModelFor(BUNDLED_MODEL_CATALOG, "opencode"),
+				kiro: defaultModelFor(BUNDLED_MODEL_CATALOG, "kiro"),
 			},
 			branchNamingStyle: "slug",
 			branchNamingPrefix: "",
@@ -613,6 +615,7 @@ const makeRuntime = (dbPath: string, migrate = true) => {
 		Layer.provide(StubGitLive),
 		Layer.provide(StubTitleGeneratorLive),
 		Layer.provide(StubConfigStoreLive),
+		Layer.provide(StubModelCatalogLive),
 		Layer.provide(StubApiActivityPublisherLive),
 		Layer.provideMerge(DomainLive),
 		Layer.provide(ChatDomainLive),
@@ -2147,7 +2150,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(models.providers).toHaveLength(1);
 			expect(models.providers[0]?.providerId).toBe("codex");
 			expect(models.providers[0]?.models.map((m) => m.id)).toContain(
-				defaultModelFor("codex"),
+				defaultModelFor(BUNDLED_MODEL_CATALOG, "codex"),
 			);
 
 			const created = await tools!.deps.createThread({
@@ -2168,7 +2171,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				),
 			);
 			expect(child.providerId).toBe("codex");
-			expect(child.model).toBe(defaultModelFor("codex"));
+			expect(child.model).toBe(defaultModelFor(BUNDLED_MODEL_CATALOG, "codex"));
 			expect(child.worktreeId).toBe(created.worktreeId as WorktreeId);
 			expect(parent.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
 			await expect
@@ -2179,7 +2182,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				)
 				.toMatchObject({
 					providerId: "codex",
-					model: defaultModelFor("codex"),
+					model: defaultModelFor(BUNDLED_MODEL_CATALOG, "codex"),
 				});
 			const replayed = await run(
 				Effect.flatMap(store, (s) =>

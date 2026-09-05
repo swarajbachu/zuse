@@ -9,6 +9,7 @@ import {
 	CommandId,
 	EnvironmentId,
 	MessageEnvelope,
+	ResolvedModelCatalog,
 	SessionStreamCursor,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
@@ -129,6 +130,31 @@ export const writeJson = (path: string, value: unknown) =>
 		try: () => FileSystem.writeAsStringAsync(path, JSON.stringify(value)),
 		catch: (cause) => cause,
 	});
+
+export const modelCatalogPath = (connKey: string) =>
+	`${ROOT}/${slugConnectionKey(connKey)}/model-catalog.json`;
+
+export const readModelCatalogSnapshot = (connKey: string) =>
+	readJson(modelCatalogPath(connKey), (u) =>
+		Schema.decodeUnknownSync(ResolvedModelCatalog)(u),
+	).pipe(
+		Effect.catchTag("CacheCorrupt", (error) =>
+			Effect.andThen(deletePath(error.path), Effect.succeed(null)),
+		),
+	);
+
+export const writeModelCatalogSnapshot = (
+	connKey: string,
+	catalog: ResolvedModelCatalog,
+) =>
+	ensureDir(`${ROOT}/${slugConnectionKey(connKey)}`).pipe(
+		Effect.andThen(
+			writeJson(
+				modelCatalogPath(connKey),
+				Schema.encodeSync(ResolvedModelCatalog)(catalog),
+			),
+		),
+	);
 
 export const sessionsPath = (connKey: string) =>
 	`${ROOT}/${slugConnectionKey(connKey)}/sessions.json`;

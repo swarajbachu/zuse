@@ -16,6 +16,8 @@
 		"postinstall": "node scripts/install-paid-icons.mjs",
 		"kill-port": "node scripts/kill-port.mjs",
 		"lint": "biome check .",
+		"catalog:generate": "tsx scripts/generate-model-catalog.ts",
+		"catalog:check": "tsx scripts/generate-model-catalog.ts --check",
 		"format": "biome format --write .",
 		"check-types": "node scripts/check-architecture-boundaries.mjs && node scripts/check-api-terminology.mjs && turbo run check-types",
 		"check:api-terminology": "node scripts/check-api-terminology.mjs",

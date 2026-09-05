@@ -58,6 +58,8 @@ import {
 import { MachineResourceServiceLive } from "./machine/machine-resource-service.ts";
 import { MachineRuntimeRole } from "./machine/machine-runtime-role.ts";
 import { McpServiceLive } from "./mcp/layers/mcp-service.ts";
+import { ModelCatalogPollerLive } from "./model-catalog/layers/model-catalog-poller.ts";
+import { ModelCatalogServiceLive } from "./model-catalog/layers/model-catalog-service.ts";
 import { RuntimePerformanceMonitorLive } from "./observability/runtime-performance-monitor.ts";
 import { TelemetryObservabilityLive } from "./observability/telemetry-layer.ts";
 import { TelemetryStoreLive } from "./observability/telemetry-store.ts";
@@ -437,7 +439,18 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// CredentialsService for SDK keys, resolves folderId → cwd via
 	// WorkspaceService, and forwards the SDK's tool-permission callback to
 	// PermissionService.
+	// ModelCatalogService merges the curated catalog (bundled / disk / zuse.sh)
+	// with live provider inventories. ProviderService resolves the model
+	// descriptor from it at session start; handlers stream it to the picker.
+	const ModelCatalogLayer = ModelCatalogServiceLive.pipe(
+		Layer.provide(AppPathsLayer),
+		Layer.provide(CredentialsLayer),
+		Layer.provide(ConfigStoreLayer),
+		Layer.provide(NodeServices.layer),
+	);
+
 	const ProviderLayer = ProviderServiceLive.pipe(
+		Layer.provide(ModelCatalogLayer),
 		Layer.provide(CredentialsLayer),
 		Layer.provide(RuntimeProviderCredentialsLayer),
 		Layer.provide(WorkspaceLayer),
@@ -517,6 +530,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const ConversationServicesLayer = ConversationServicesLive.pipe(
 		Layer.provide(ConversationState.layer),
 		Layer.provide(ProviderLayer),
+		Layer.provide(ModelCatalogLayer),
 		Layer.provide(WorktreeLayer),
 		Layer.provide(RepositorySettingsLayer),
 		Layer.provide(PtyLayer),
@@ -555,6 +569,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const ExternalThreadLayer = ExternalThreadServiceLive.pipe(
+		Layer.provide(ModelCatalogLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(WorktreeLayer),
 		Layer.provide(ConversationServicesLayer),
@@ -651,6 +666,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		FileSearchLayer,
 		ProjectScaffoldLayer,
 		ProviderLayer,
+		ModelCatalogLayer,
 		McpLayer,
 		SessionDomainLayer,
 		SessionQueriesLayer,
@@ -711,10 +727,14 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(AppPathsLayer),
 	);
+	const ModelCatalogPoller = ModelCatalogPollerLive.pipe(
+		Layer.provide(ModelCatalogLayer),
+	);
 	return Layer.mergeAll(
 		ServerLayer,
 		NodeServices.layer,
 		UsagePoller,
+		ModelCatalogPoller,
 		AutoApiLinkLayer,
 		CloudWorkspaceRuntimeLayer,
 		RuntimePerformanceLayer,

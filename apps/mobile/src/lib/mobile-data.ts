@@ -12,6 +12,7 @@ import { clearConnections, currentConnections } from "../store/connections";
 import { resetEnvironmentsRuntime } from "../store/environments";
 import { resetGoalsRuntime } from "../store/goals";
 import { resetMessagesRuntime } from "../store/messages";
+import { resetModelCatalogRuntime } from "../store/model-catalog";
 import { resetOutboxRuntime } from "../store/outbox";
 import { resetPermissionsRuntime } from "../store/permissions";
 import { clearPinnedChats } from "../store/pinned-chats";
@@ -30,6 +31,7 @@ const resetDownloadedMemory = async (): Promise<void> => {
 		resetPermissionsRuntime(),
 	]);
 	resetAvailabilityRuntime();
+	resetModelCatalogRuntime();
 	resetPrStateRuntime();
 	resetProjectOriginRuntime();
 };

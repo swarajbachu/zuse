@@ -46,6 +46,10 @@ import {
 	readNativeServers,
 } from "../../mcp/native-config.ts";
 import { McpService } from "../../mcp/services/mcp-service.ts";
+import {
+	ModelCatalogService,
+	toDriverModelDescriptor,
+} from "../../model-catalog/services/model-catalog-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { validateApiKey } from "../api-key-validation.ts";
 import { probeAllProviders, resolveCliPath } from "../availability.ts";
@@ -88,6 +92,7 @@ export const ProviderServiceLive = Layer.effect(
 		const fs = yield* FileSystem.FileSystem;
 		const credentials = yield* CredentialsService;
 		const runtimeCredentials = yield* RuntimeProviderCredentials;
+		const modelCatalog = yield* ModelCatalogService;
 		const workspace = yield* WorkspaceService;
 		const permissions = yield* PermissionService;
 		const attachmentService = yield* AttachmentService;
@@ -311,8 +316,26 @@ export const ProviderServiceLive = Layer.effect(
 						);
 					}
 					const cwd = input.cwdOverride ?? folder.path;
+					// Canonicalize retired / shorthand slugs and attach the resolved
+					// descriptor (curated seed merged with the live inventory) so
+					// drivers never read a static model list.
+					const canonicalModel =
+						input.model === undefined
+							? undefined
+							: yield* modelCatalog.resolveSlug(input.providerId, input.model);
+					const modelDescriptor =
+						canonicalModel === undefined
+							? undefined
+							: toDriverModelDescriptor(
+									yield* modelCatalog.findModel(
+										input.providerId,
+										canonicalModel,
+									),
+								);
 					const driverInput = {
 						...input,
+						...(canonicalModel !== undefined ? { model: canonicalModel } : {}),
+						...(modelDescriptor !== undefined ? { modelDescriptor } : {}),
 						workspaceInstructions: zuseWorkspaceInstructions({
 							projectPath: folder.path,
 							cwd,
@@ -898,6 +921,7 @@ export const ProviderServiceLive = Layer.effect(
 					if (providerId !== "cursor") {
 						yield* credentials.set(providerId, normalized);
 						yield* Cache.invalidateAll(availabilityCache);
+						yield* modelCatalog.invalidateLive(providerId);
 						return { verification: "notChecked" as const };
 					}
 					const validation = yield* validateApiKey(normalized);
@@ -911,6 +935,7 @@ export const ProviderServiceLive = Layer.effect(
 					}
 					yield* credentials.set(providerId, normalized);
 					yield* Cache.invalidateAll(availabilityCache);
+					yield* modelCatalog.invalidateLive(providerId);
 					return validation.status === "verified"
 						? { verification: "verified" as const }
 						: {
@@ -921,7 +946,10 @@ export const ProviderServiceLive = Layer.effect(
 			removeCredential: (providerId) =>
 				credentials
 					.remove(providerId)
-					.pipe(Effect.andThen(Cache.invalidateAll(availabilityCache))),
+					.pipe(
+						Effect.andThen(Cache.invalidateAll(availabilityCache)),
+						Effect.andThen(modelCatalog.invalidateLive(providerId)),
+					),
 			setPermissionMode: (sessionId, mode) =>
 				Effect.flatMap(lookup(sessionId), ({ handle }) =>
 					handle.setPermissionMode(mode),

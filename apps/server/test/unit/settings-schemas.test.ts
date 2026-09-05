@@ -27,11 +27,11 @@ describe("public settings schemas", () => {
 		) as { $id?: string };
 
 		expect(repository.$id).toBe(
-			"https://zuse.dev/schemas/repository-settings.schema.json",
+			"https://zuse.sh/schemas/repository-settings.schema.json",
 		);
-		expect(settings.$id).toBe("https://zuse.dev/schemas/settings.schema.json");
+		expect(settings.$id).toBe("https://zuse.sh/schemas/settings.schema.json");
 		expect(keybindings.$id).toBe(
-			"https://zuse.dev/schemas/keybindings.schema.json",
+			"https://zuse.sh/schemas/keybindings.schema.json",
 		);
 	});
 });

@@ -1,14 +1,11 @@
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
-import type { ChatId, Command, ProviderId, Session } from "@zuse/contracts";
-import {
-	defaultModelFor,
-	EnvironmentId,
-	MODELS_BY_PROVIDER,
-} from "@zuse/contracts";
+import type { ChatId, Command, Session } from "@zuse/contracts";
+import { defaultModelFor, EnvironmentId, PROVIDER_IDS } from "@zuse/contracts";
 import { toastManager } from "../components/ui/toast.tsx";
 import { useChatsStore } from "../store/chats";
 import { useComposerBridge } from "../store/composer-bridge";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
+import { currentModelCatalog } from "../store/model-catalog.ts";
 import { usePaneFocus } from "../store/pane-focus";
 import { useProvidersStore } from "../store/providers";
 import { useSessionsStore } from "../store/sessions";
@@ -108,7 +105,7 @@ async function newTabInActiveChat(): Promise<void> {
 			?.availability ?? [];
 	const providerId = selectAuthenticatedProvider({
 		preferredProviderId: settings.defaultProviderId,
-		providerIds: Object.keys(MODELS_BY_PROVIDER) as ReadonlyArray<ProviderId>,
+		providerIds: PROVIDER_IDS,
 		availability: environmentAvailability,
 		providerEnabled: settings.providerEnabled ?? {},
 	});
@@ -123,7 +120,8 @@ async function newTabInActiveChat(): Promise<void> {
 	}
 	const fresh = useSettingsStore.getState();
 	const model =
-		fresh.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
+		fresh.defaultModelByProvider[providerId] ??
+		defaultModelFor(currentModelCatalog(), providerId);
 	const projectId = useWorkspaceStore.getState().selectedFolderId;
 	const runtimeMode =
 		projectId === null

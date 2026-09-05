@@ -11,6 +11,7 @@ import {
 import type { WorktreeServiceShape } from "@zuse/git/worktree-service";
 import { Effect } from "effect";
 import type { ConfigStoreServiceShape } from "../../config-store/services/config-store-service.ts";
+import type { ModelCatalogServiceShape } from "../../model-catalog/services/model-catalog-service.ts";
 import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
 import type {
 	ConversationOperations,
@@ -49,6 +50,7 @@ export interface ProviderSessionRuntimeOptions {
 		typeof makeConversationOrchestration
 	>[0]["runtime"];
 	readonly configStore: ConfigStoreServiceShape;
+	readonly modelCatalog: ModelCatalogServiceShape;
 	readonly worktrees: WorktreeServiceShape;
 	readonly createChat: (
 		input: CreateChatInput,
@@ -84,6 +86,7 @@ export const makeProviderSessionRuntime = (
 		cwdForWorktree,
 		runtime,
 		configStore,
+		modelCatalog,
 		worktrees,
 		createChat,
 		createSession,
@@ -122,6 +125,7 @@ export const makeProviderSessionRuntime = (
 				{
 					runtime,
 					getSettings: configStore.getSettings,
+					getModelCatalog: modelCatalog.current,
 					createWorktree: (projectId, source) =>
 						worktrees.create(projectId, source),
 					createChat: (input) => createChat(input),

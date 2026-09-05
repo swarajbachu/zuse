@@ -11,13 +11,15 @@ import {
 } from "@zuse/agents/drivers/orchestration-tools";
 import {
 	type AutonomyLevel,
+	bundledResolvedModelCatalog,
 	type Chat,
 	type ChatId,
 	defaultModelFor,
 	type FolderId,
 	type Message,
-	MODELS_BY_PROVIDER,
+	PROVIDER_IDS,
 	type ProviderId,
+	type ResolvedModelCatalog,
 	type Session,
 	type SessionId,
 	type SettingsFile,
@@ -44,6 +46,8 @@ export interface ConversationOrchestrationContext {
 export interface ConversationOrchestrationDependencies {
 	readonly runtime: Context.Context<never>;
 	readonly getSettings: () => Effect.Effect<SettingsFile, unknown>;
+	/** Resolved model catalog (curated + live); falls back to the bundled snapshot. */
+	readonly getModelCatalog: () => Effect.Effect<ResolvedModelCatalog, unknown>;
 	readonly createWorktree: (
 		projectId: FolderId,
 		source?: WorktreeCreateSource,
@@ -104,6 +108,11 @@ export const makeConversationOrchestration = (
 		const settings = yield* dependencies
 			.getSettings()
 			.pipe(Effect.catchCause(() => Effect.succeed(null)));
+		const modelCatalog = yield* dependencies
+			.getModelCatalog()
+			.pipe(
+				Effect.catchCause(() => Effect.succeed(bundledResolvedModelCatalog())),
+			);
 		const autonomyLevel: AutonomyLevel = "approval-gated";
 		const run = Effect.runPromiseWith(dependencies.runtime);
 		const providerModelFor = (input: {
@@ -117,7 +126,7 @@ export const makeConversationOrchestration = (
 				(providerId === context.providerId
 					? context.model
 					: (settings?.defaultModelByProvider[providerId] ??
-						defaultModelFor(providerId)));
+						defaultModelFor(modelCatalog, providerId)));
 			return { providerId, model };
 		};
 		const sourceForBaseBranch = (
@@ -384,9 +393,7 @@ export const makeConversationOrchestration = (
 				),
 			listModels: (input) =>
 				Promise.resolve().then(() => {
-					const allProviderIds = Object.keys(
-						MODELS_BY_PROVIDER,
-					) as ProviderId[];
+					const allProviderIds = [...PROVIDER_IDS];
 					const providerIds =
 						input.providerId !== undefined
 							? allProviderIds.includes(input.providerId as ProviderId)
@@ -402,8 +409,9 @@ export const makeConversationOrchestration = (
 					const providers = providerIds.map((providerId) => {
 						const defaultModel =
 							settings?.defaultModelByProvider[providerId] ??
-							defaultModelFor(providerId);
+							defaultModelFor(modelCatalog, providerId);
 						const models = visibleModelsForProvider(
+							modelCatalog,
 							providerId,
 							settings?.modelEnabledByProvider,
 							{ includeModelId: defaultModel },

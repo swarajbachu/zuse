@@ -65,9 +65,9 @@ private config files. Do not commit secrets themselves.
 
 Public schemas are served by the Zuse website:
 
-- `https://zuse.dev/schemas/settings.schema.json`
-- `https://zuse.dev/schemas/repository-settings.schema.json`
-- `https://zuse.dev/schemas/keybindings.schema.json`
+- `https://zuse.sh/schemas/settings.schema.json`
+- `https://zuse.sh/schemas/repository-settings.schema.json`
+- `https://zuse.sh/schemas/keybindings.schema.json`
 
 Use these URLs in editor configuration and documentation examples.
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://zuse.dev/schemas/repository-settings.schema.json",
+  "$id": "https://zuse.sh/schemas/repository-settings.schema.json",
   "title": "Zuse Repository Settings",
   "description": "Committed repository settings for .zuse/settings.toml.",
   "type": "object",

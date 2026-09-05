@@ -1830,7 +1830,7 @@ export const startClaudeSession = (
 				: {}),
 			// Reasoning effort: mapped from FE picker via `input.modelOptions
 			// .effort` (or legacy `reasoning`). The per-model descriptor in
-			// `MODELS_BY_PROVIDER[claude]` declares which tiers each model
+			// the resolved model catalog declares which tiers each model
 			// exposes. Special values:
 			//   - `ultracode`  → SDK `effort: "xhigh"` + `settings.ultracode: true`
 			//   - `ultrathink` → prompt-injected at `send()` time; SDK `effort`
