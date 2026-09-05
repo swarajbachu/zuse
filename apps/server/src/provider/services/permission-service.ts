@@ -4,6 +4,7 @@ import type {
 	PermissionKind,
 	PermissionRequest,
 	PermissionRequestChange,
+	PermissionRequestExpiredError,
 	PermissionRequestNotFoundError,
 	SavedDecision,
 	SessionId,
@@ -49,7 +50,10 @@ export interface PermissionServiceShape {
 	readonly decide: (
 		requestId: string,
 		decision: PermissionDecision,
-	) => Effect.Effect<void, PermissionRequestNotFoundError>;
+	) => Effect.Effect<
+		void,
+		PermissionRequestNotFoundError | PermissionRequestExpiredError
+	>;
 
 	readonly listPending: (
 		sessionId: SessionId,

@@ -6,6 +6,7 @@ import {
 	type PermissionKind,
 	PermissionRequest,
 	type PermissionRequestChange,
+	PermissionRequestExpiredError,
 	PermissionRequestNotFoundError,
 	SavedDecision,
 	type SessionId,
@@ -40,7 +41,6 @@ interface PendingEntry {
 	readonly request: PermissionRequest;
 	readonly deferred: Deferred.Deferred<PermissionDecision>;
 	readonly projectId: FolderId;
-	readonly recovered: boolean;
 }
 
 interface DecisionRow {
@@ -58,6 +58,7 @@ interface DecisionRow {
 interface PendingRequestRow {
 	readonly request_json: string;
 	readonly project_id: string;
+	readonly abandoned_turn_id: string | null;
 }
 
 /**
@@ -294,12 +295,24 @@ export const PermissionServiceLive = Layer.effect(
 		);
 
 		// The driver Deferred is process-local, but the prompt itself is durable.
-		// Recover unresolved entries in quarantine: the original provider process is
-		// gone, so the UI must not see the prompt until a matching replacement
-		// callback reattaches and can consume its decision.
+		// A restart destroys its provider callback, not its audit record. Keep the
+		// request visible as expired. Never attach a later, merely similar tool call
+		// to an old approval (a FileWrite key can match every edit in a checkout).
 		const unresolved = yield* sql<PendingRequestRow>`
       SELECT json_extract(requested.payload_json, '$.payloadJson') AS request_json,
-             sessions.project_id
+             sessions.project_id,
+             CASE WHEN sessions.current_turn_id IS NOT NULL AND (
+               json_extract(requested.payload_json, '$.turnId') = sessions.current_turn_id
+               OR (
+                 json_extract(requested.payload_json, '$.turnId') =
+                   json_extract(requested.payload_json, '$.requestId')
+                 AND NOT EXISTS (
+                   SELECT 1 FROM events AS later
+                   WHERE later.stream_kind = 'session' AND later.stream_id = requested.stream_id
+                     AND later.type = 'TurnStarted' AND later.sequence > requested.sequence
+                 )
+               )
+             ) THEN sessions.current_turn_id ELSE NULL END AS abandoned_turn_id
       FROM events AS requested
       JOIN sessions ON sessions.id = requested.stream_id
       WHERE requested.stream_kind = 'session'
@@ -323,10 +336,12 @@ export const PermissionServiceLive = Layer.effect(
 			yield* Ref.update(pending, (current) => {
 				const next = new Map(current);
 				next.set(recovered.id, {
-					request: recovered,
+					request: PermissionRequest.make({
+						...recovered,
+						recoveryState: "expired",
+					}),
 					deferred,
 					projectId: row.project_id as FolderId,
-					recovered: true,
 				});
 				return next;
 			});
@@ -335,6 +350,20 @@ export const PermissionServiceLive = Layer.effect(
 				sessionId: recovered.sessionId,
 				projectId: row.project_id,
 			});
+			if (row.abandoned_turn_id !== null) {
+				yield* sessionDomain
+					.dispatch({
+						commandId: `permission:expired-turn:${recovered.sessionId}:${row.abandoned_turn_id}`,
+						streamId: recovered.sessionId,
+						command: {
+							_tag: "SettleTurn",
+							turnId: row.abandoned_turn_id,
+							outcome: "interrupted",
+							settledAt: Date.now(),
+						},
+					})
+					.pipe(Effect.orDie);
+			}
 		}
 		yield* runPermissionReactor;
 
@@ -344,39 +373,6 @@ export const PermissionServiceLive = Layer.effect(
 			options,
 		) =>
 			Effect.gen(function* () {
-				const recovered = yield* Ref.modify(pending, (entries) => {
-					const entry = [...entries.values()].find(
-						(candidate) =>
-							candidate.recovered &&
-							candidate.request.sessionId === sessionId &&
-							candidate.projectId === options.projectId &&
-							candidate.request.kind._tag === kind._tag &&
-							kindKey(candidate.request.kind) === kindKey(kind) &&
-							candidate.request.forcePrompt === (options.forcePrompt === true),
-					);
-					if (entry === undefined) return [undefined, entries] as const;
-					const next = new Map(entries);
-					next.set(entry.request.id, { ...entry, recovered: false });
-					return [entry, next] as const;
-				});
-				if (recovered !== undefined) {
-					log("request.reattached", {
-						requestId: recovered.request.id,
-						sessionId,
-						projectId: options.projectId,
-						kindTag: kind._tag,
-						kindKey: kindKey(kind),
-					});
-					// A recovered request has no live provider callback until this
-					// matching request reattaches. Publish it only now so the renderer
-					// cannot resolve a prompt whose original turn is already gone.
-					yield* PubSub.publish(pubsub, {
-						_tag: "change",
-						request: recovered.request,
-					});
-					return yield* Deferred.await(recovered.deferred);
-				}
-
 				if (options.forcePrompt !== true) {
 					const allowed = yield* findExistingAllow(
 						sessionId,
@@ -409,7 +405,6 @@ export const PermissionServiceLive = Layer.effect(
 						request: req,
 						deferred,
 						projectId: options.projectId,
-						recovered: false,
 					});
 					log("request.pending_added", {
 						requestId: id,
@@ -422,6 +417,9 @@ export const PermissionServiceLive = Layer.effect(
 					});
 					return next;
 				});
+				const [owner] = yield* sql<{ readonly current_turn_id: string | null }>`
+					SELECT current_turn_id FROM sessions WHERE id = ${sessionId}
+				`.pipe(Effect.orDie);
 				yield* sessionDomain
 					.dispatch({
 						commandId: `permission:request:${id}`,
@@ -429,7 +427,7 @@ export const PermissionServiceLive = Layer.effect(
 						command: {
 							_tag: "RequestPermission",
 							requestId: id,
-							turnId: id,
+							turnId: owner?.current_turn_id ?? id,
 							payloadJson: JSON.stringify(req),
 							requestedAt: req.requestedAt.getTime(),
 						},
@@ -459,6 +457,14 @@ export const PermissionServiceLive = Layer.effect(
 						new PermissionRequestNotFoundError({ requestId }),
 					);
 				}
+				if (
+					entry.request.recoveryState === "expired" &&
+					decision._tag !== "Deny"
+				) {
+					return yield* Effect.fail(
+						new PermissionRequestExpiredError({ requestId }),
+					);
+				}
 				yield* sessionDomain
 					.dispatch({
 						commandId: `permission:resolve:${requestId}`,
@@ -480,7 +486,7 @@ export const PermissionServiceLive = Layer.effect(
 				const map = yield* Ref.get(pending);
 				const out: PermissionRequest[] = [];
 				for (const entry of map.values()) {
-					if (!entry.recovered && entry.request.sessionId === sessionId) {
+					if (entry.request.sessionId === sessionId) {
 						out.push(entry.request);
 					}
 				}
@@ -497,9 +503,9 @@ export const PermissionServiceLive = Layer.effect(
 				Effect.gen(function* () {
 					const dequeue = yield* PubSub.subscribe(pubsub);
 					const map = yield* Ref.get(pending);
-					const current = Array.from(map.values())
-						.filter((entry) => !entry.recovered)
-						.map((entry) => entry.request);
+					const current = Array.from(map.values()).map(
+						(entry) => entry.request,
+					);
 					log("stream.subscribe", {
 						replayCount: current.length,
 						requestIds: current.map((req) => req.id),

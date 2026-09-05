@@ -65,6 +65,8 @@ export class PermissionRequest extends Schema.Class<PermissionRequest>(
 	 * bash/network prompts almost never are; they usually mean plan mode.
 	 */
 	forcePrompt: Schema.Boolean,
+	/** The original process-local provider callback no longer exists. */
+	recoveryState: Schema.optional(Schema.Literal("expired")),
 }) {}
 
 /**
@@ -91,6 +93,11 @@ export class SavedDecision extends Schema.Class<SavedDecision>("SavedDecision")(
 
 export class PermissionRequestNotFoundError extends Schema.TaggedErrorClass<PermissionRequestNotFoundError>()(
 	"PermissionRequestNotFoundError",
+	{ requestId: Schema.String },
+) {}
+
+export class PermissionRequestExpiredError extends Schema.TaggedErrorClass<PermissionRequestExpiredError>()(
+	"PermissionRequestExpiredError",
 	{ requestId: Schema.String },
 ) {}
 
@@ -132,7 +139,10 @@ export const PermissionDecideRpc = Rpc.make("permission.decide", {
 		decision: PermissionDecision,
 	}),
 	success: Schema.Void,
-	error: PermissionRequestNotFoundError,
+	error: Schema.Union([
+		PermissionRequestNotFoundError,
+		PermissionRequestExpiredError,
+	]),
 });
 
 /**
