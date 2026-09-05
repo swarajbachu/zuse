@@ -1,4 +1,9 @@
-import { MODELS_BY_PROVIDER, type ProviderId } from "@zuse/contracts";
+import {
+	BUNDLED_MODEL_CATALOG,
+	modelsForProvider,
+	PROVIDER_IDS,
+	type ProviderId,
+} from "@zuse/contracts";
 import { Predicate, Schema } from "effect";
 
 export const ANALYTICS_SCHEMA_VERSION = 2;
@@ -273,15 +278,22 @@ export const sanitizeAnalyticsProperties = (
 	return output;
 };
 
+// Allowlists come from the bundled snapshot: telemetry must never leak a
+// user-typed custom slug, and live-only ids are reported as `custom` until
+// they land in the curated catalog.
 const knownModelIds = new Map<ProviderId, ReadonlySet<string>>(
-	(Object.keys(MODELS_BY_PROVIDER) as ProviderId[]).map((provider) => [
+	PROVIDER_IDS.map((provider) => [
 		provider,
-		new Set(MODELS_BY_PROVIDER[provider].map((model) => model.id)),
+		new Set(
+			modelsForProvider(BUNDLED_MODEL_CATALOG, provider).map(
+				(model) => model.id,
+			),
+		),
 	]),
 );
 const allKnownModelIds = new Set(
-	Object.values(MODELS_BY_PROVIDER).flatMap((models) =>
-		models.map((model) => model.id),
+	PROVIDER_IDS.flatMap((provider) =>
+		modelsForProvider(BUNDLED_MODEL_CATALOG, provider).map((model) => model.id),
 	),
 );
 
@@ -289,7 +301,9 @@ const normalizeStringProperty = (key: string, value: string): string | null => {
 	if (key === "model")
 		return value === "custom" || allKnownModelIds.has(value) ? value : "custom";
 	if (key === "provider") {
-		return Object.hasOwn(MODELS_BY_PROVIDER, value) ? value : "other";
+		return (PROVIDER_IDS as ReadonlyArray<string>).includes(value)
+			? value
+			: "other";
 	}
 	if (key === "screen") return KNOWN_SCREENS.has(value) ? value : "other";
 	if (key === "control") return CONTROL_ID.test(value) ? value : null;

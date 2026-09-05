@@ -18,7 +18,13 @@ import {
 	translateCodexItem,
 	translateCodexStatusNotification,
 } from "@zuse/agents/drivers/codex";
-import { type AgentEvent, AgentItemId } from "@zuse/contracts";
+import {
+	type AgentEvent,
+	AgentItemId,
+	BUNDLED_MODEL_CATALOG,
+	findModelDescriptor,
+	resolveModelCatalog,
+} from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
 const tags = (events: ReadonlyArray<AgentEvent>): string[] =>
@@ -707,20 +713,46 @@ describe("codexWritableRootsForCwd", () => {
 });
 
 describe("codexReasoningEffort", () => {
+	const descriptor = (modelId: string) =>
+		findModelDescriptor(BUNDLED_MODEL_CATALOG, "codex", modelId);
+	const liveDescriptor = (efforts: ReadonlyArray<string>) =>
+		resolveModelCatalog(BUNDLED_MODEL_CATALOG, {
+			codex: {
+				status: "ok",
+				authoritative: true,
+				fetchedAt: 1,
+				error: null,
+				models: [{ id: "gpt-7-nova", liveMeta: { reasoningEfforts: efforts } }],
+			},
+		}).providers.codex.models.find((m) => m.id === "gpt-7-nova");
+
 	it("passes only the selected model's supported efforts through to Codex", () => {
-		expect(codexReasoningEffort("gpt-5.5", "xhigh")).toBeNull();
-		expect(codexReasoningEffort("gpt-5.5", "max")).toBeNull();
-		expect(codexReasoningEffort("gpt-5.6-sol", "xhigh")).toBe("xhigh");
-		expect(codexReasoningEffort("gpt-5.6-sol", "max")).toBe("max");
-		expect(codexReasoningEffort("gpt-5.6-terra", "ultra")).toBe("ultra");
-		expect(codexReasoningEffort("gpt-5.4", "xhigh")).toBeNull();
+		expect(codexReasoningEffort(descriptor("gpt-5.5"), "xhigh")).toBeNull();
+		expect(codexReasoningEffort(descriptor("gpt-5.5"), "max")).toBeNull();
+		expect(codexReasoningEffort(descriptor("gpt-5.6-sol"), "xhigh")).toBe(
+			"xhigh",
+		);
+		expect(codexReasoningEffort(descriptor("gpt-5.6-sol"), "max")).toBe("max");
+		expect(codexReasoningEffort(descriptor("gpt-5.6-terra"), "ultra")).toBe(
+			"ultra",
+		);
+		expect(codexReasoningEffort(descriptor("gpt-5.4"), "xhigh")).toBeNull();
+		expect(codexReasoningEffort(descriptor("gpt-6-astra"), "max")).toBe("max");
+		expect(codexReasoningEffort(liveDescriptor(["low", "high"]), "xhigh")).toBe(
+			null,
+		);
+		expect(codexReasoningEffort(liveDescriptor(["low", "high"]), "high")).toBe(
+			"high",
+		);
 	});
 
 	it("keeps standard efforts for custom models and drops unknown values", () => {
-		expect(codexReasoningEffort("custom-model", "high")).toBe("high");
-		expect(codexReasoningEffort("custom-model", "ultra")).toBeNull();
+		expect(codexReasoningEffort(undefined, "high")).toBe("high");
+		expect(codexReasoningEffort(undefined, "ultra")).toBeNull();
 		expect(codexReasoningEffort(undefined, undefined)).toBeNull();
-		expect(codexReasoningEffort("gpt-5.6-luna", "turbo")).toBeNull();
+		expect(
+			codexReasoningEffort(descriptor("gpt-5.6-luna"), "turbo"),
+		).toBeNull();
 	});
 });
 

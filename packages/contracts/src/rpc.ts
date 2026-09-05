@@ -1,9 +1,7 @@
 import { RpcGroup } from "effect/unstable/rpc";
 import {
 	ProviderAvailabilityRpc,
-	ProviderKiroInventoryRpc,
 	ProviderOpencodeAddCustomRpc,
-	ProviderOpencodeInventoryRpc,
 	ProviderOpencodeRemoveAuthRpc,
 	ProviderOpencodeRemoveCustomRpc,
 	ProviderOpencodeSetAuthRpc,
@@ -207,6 +205,7 @@ import {
 	McpRefreshRpc,
 	McpSetEnabledRpc,
 } from "./mcp.ts";
+import { ModelCatalogRpc, ModelCatalogStreamRpc } from "./model-catalog/rpc.ts";
 import {
 	PairingListNearbyRequestsRpc,
 	PairingListTokensRpc,
@@ -515,8 +514,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	ProviderAvailabilityRpc,
 	ProviderRemoveCredentialRpc,
 	ProviderSetCredentialRpc,
-	ProviderOpencodeInventoryRpc,
-	ProviderKiroInventoryRpc,
+	ModelCatalogRpc,
+	ModelCatalogStreamRpc,
 	ProviderOpencodeSetAuthRpc,
 	ProviderOpencodeRemoveAuthRpc,
 	ProviderOpencodeAddCustomRpc,

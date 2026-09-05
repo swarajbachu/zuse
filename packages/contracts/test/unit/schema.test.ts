@@ -10,21 +10,16 @@ import {
 	Chat,
 	ComposerInput,
 	defaultModelEnabledByProvider,
-	defaultModelFor,
 	EnvironmentDescriptor,
 	FsFileContent,
 	GitBranchInfo,
 	GitReviewSummary,
-	isModelVisible,
 	Message,
-	MODELS_BY_PROVIDER,
 	PokemonPokedexEntry,
 	RepositorySettingsFile,
-	resolveModelSlug,
 	Session,
 	SessionTimelineFrame,
 	SettingsFile,
-	visibleModelsForProvider,
 	Worktree,
 } from "../../src/index.ts";
 
@@ -807,136 +802,6 @@ describe("SettingsFile round-trip", () => {
 				notchTrayPinned: false,
 			}),
 		).toThrow();
-	});
-});
-
-describe("model visibility helpers", () => {
-	it("exposes GPT-5.6 variants in quality order with their supported reasoning efforts", () => {
-		expect(MODELS_BY_PROVIDER.codex.map((model) => model.id)).toEqual([
-			"gpt-5.6-sol",
-			"gpt-5.6-terra",
-			"gpt-5.6-luna",
-		]);
-		expect(defaultModelFor("codex")).toBe("gpt-5.6-sol");
-
-		const reasoningOptions = (modelId: string) => {
-			const descriptor = MODELS_BY_PROVIDER.codex
-				.find((model) => model.id === modelId)
-				?.optionDescriptors?.find(
-					(option) => option.kind === "select" && option.id === "reasoning",
-				);
-			return descriptor?.kind === "select"
-				? descriptor.options.map(({ id, label }) => ({ id, label }))
-				: [];
-		};
-
-		const gpt56Options = [
-			{ id: "low", label: "Low" },
-			{ id: "medium", label: "Medium" },
-			{ id: "high", label: "High" },
-			{ id: "xhigh", label: "Extra High" },
-			{ id: "max", label: "Max" },
-			{ id: "ultra", label: "Ultra" },
-		];
-		for (const modelId of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]) {
-			expect(reasoningOptions(modelId)).toEqual(gpt56Options);
-		}
-	});
-
-	it("uses Sonnet 5 as the default visible Claude model", () => {
-		expect(defaultModelFor("claude")).toBe("claude-sonnet-5");
-		expect(visibleModelsForProvider("claude")[0]?.id).toBe("claude-fable-5");
-		expect(visibleModelsForProvider("claude")[1]?.id).toBe("claude-opus-5");
-		expect(isModelVisible("claude", "claude-sonnet-5")).toBe(true);
-		expect(isModelVisible("claude", "claude-fable-5")).toBe(true);
-		expect(isModelVisible("claude", "claude-opus-5")).toBe(true);
-		expect(resolveModelSlug("claude", "fable")).toBe("claude-fable-5");
-		expect(resolveModelSlug("claude", "opus")).toBe("claude-opus-5");
-		expect(resolveModelSlug("claude", "opus-5")).toBe("claude-opus-5");
-		expect(
-			MODELS_BY_PROVIDER.claude.find((m) => m.id === "claude-sonnet-5")
-				?.badgeLabel,
-		).toBe("New");
-		expect(
-			MODELS_BY_PROVIDER.claude.find((m) => m.id === "claude-fable-5")
-				?.badgeLabel,
-		).toBe("Available now");
-		expect(
-			MODELS_BY_PROVIDER.claude.find((m) => m.id === "claude-opus-5")
-				?.badgeLabel,
-		).toBe("New");
-		expect(MODELS_BY_PROVIDER.claude.map((model) => model.id)).toEqual([
-			"claude-fable-5",
-			"claude-opus-5",
-			"claude-sonnet-5",
-		]);
-	});
-
-	it("keeps retired models out of every built-in catalog", () => {
-		for (const models of Object.values(MODELS_BY_PROVIDER)) {
-			expect(models.every((model) => model.defaultVisible !== false)).toBe(
-				true,
-			);
-		}
-		expect(MODELS_BY_PROVIDER.kiro.map((model) => model.id)).toEqual([
-			"auto",
-			"claude-opus-5",
-			"claude-sonnet-5",
-			"gpt-5.6-sol",
-			"gpt-5.6-terra",
-			"gpt-5.6-luna",
-		]);
-	});
-
-	it("surfaces current Grok models without changing the Grok default", () => {
-		expect(defaultModelFor("grok")).toBe("grok-build");
-		expect(MODELS_BY_PROVIDER.grok.some((m) => m.id === "grok-4.6")).toBe(true);
-		expect(
-			visibleModelsForProvider("grok").some((m) => m.id === "grok-4.6"),
-		).toBe(true);
-		expect(MODELS_BY_PROVIDER.grok.some((m) => m.id === "grok-4.5")).toBe(
-			false,
-		);
-		expect(resolveModelSlug("grok", "grok-4.6-latest")).toBe("grok-4.6");
-		expect(resolveModelSlug("grok", "grok-build-latest")).toBe("grok-4.6");
-	});
-
-	it("promotes Ox Alpha alongside the current OpenCode default", () => {
-		expect(defaultModelFor("opencode")).toBe("opencode/claude-sonnet-5");
-		const oxAlpha = MODELS_BY_PROVIDER.opencode.find(
-			(model) => model.id === "opencode/x-preview-f-free",
-		);
-		expect(oxAlpha).toMatchObject({
-			label: "OpenCode · Ox Alpha Free",
-			badgeLabel: "Free",
-			supportsPlanMode: true,
-		});
-		expect(oxAlpha?.optionDescriptors).toEqual([
-			{
-				kind: "select",
-				id: "contextWindow",
-				label: "Context Window",
-				options: [{ id: "1m", label: "1M" }],
-				defaultId: "1m",
-			},
-		]);
-	});
-
-	it("uses the current Cursor catalog and Composer 2.5 default", () => {
-		expect(defaultModelFor("cursor")).toBe("composer-2.5");
-		expect(MODELS_BY_PROVIDER.cursor.map((model) => model.id)).toEqual([
-			"default",
-			"composer-2.5",
-			"claude-fable-5",
-			"claude-opus-5",
-			"claude-sonnet-5",
-			"gpt-5.6-sol",
-			"gpt-5.6-terra",
-			"gpt-5.6-luna",
-			"gemini-3.1-pro",
-			"gemini-3.7-flash",
-			"grok-4.6",
-		]);
 	});
 });
 

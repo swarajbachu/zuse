@@ -2,14 +2,14 @@ import {
 	defaultModelFor,
 	EnvironmentId,
 	type FolderId,
-	MODELS_BY_PROVIDER,
-	type ProviderId,
+	PROVIDER_IDS,
 	type Session,
 	type SessionId,
 } from "@zuse/contracts";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
+import { currentModelCatalog } from "../store/model-catalog.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { resolveChatRuntimeMode } from "./auto-worktree.ts";
@@ -88,7 +88,7 @@ export const closeChatTab = async (
 	await useProvidersStore.getState().loadFor(environmentId);
 	const providerId = selectAuthenticatedProvider({
 		preferredProviderId: settings.defaultProviderId,
-		providerIds: Object.keys(MODELS_BY_PROVIDER) as ReadonlyArray<ProviderId>,
+		providerIds: PROVIDER_IDS,
 		availability:
 			useProvidersStore.getState().availabilityByEnvironment[environmentId]
 				?.availability ?? [],
@@ -104,7 +104,8 @@ export const closeChatTab = async (
 		return;
 	}
 	const model =
-		settings.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
+		settings.defaultModelByProvider[providerId] ??
+		defaultModelFor(currentModelCatalog(), providerId);
 	const runtimeMode = await resolveChatRuntimeMode(environmentId, projectId);
 	const replacementId = await sessions.create(
 		currentSession.chatId,

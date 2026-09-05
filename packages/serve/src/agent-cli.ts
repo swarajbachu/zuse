@@ -15,13 +15,16 @@ import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
 import {
 	type AttachmentRef,
 	type ChatId,
+	BUNDLED_MODEL_CATALOG,
+	catalogProviderIds,
 	CommandId,
 	ComposerInput,
 	type FileRef,
 	type LinearIssueRef,
+	defaultModelFor,
 	MemoizeRpcs,
+	modelsForProvider,
 	type MessageId,
-	MODELS_BY_PROVIDER,
 	type PermissionMode,
 	type ProviderId,
 	type RuntimeMode,
@@ -436,17 +439,15 @@ const resolveProject = async (client: RpcClient, args: Args) => {
 
 const provider = (args: Args): ProviderId => {
 	const value = one(args, "provider") ?? "codex";
-	if (!(value in MODELS_BY_PROVIDER))
+	const providers = catalogProviderIds(BUNDLED_MODEL_CATALOG);
+	if (!(providers as ReadonlyArray<string>).includes(value))
 		throw new CliError("invalid_provider", `Unknown provider ${value}.`, {
-			providers: Object.keys(MODELS_BY_PROVIDER),
+			providers,
 		});
 	return value as ProviderId;
 };
 const model = (args: Args, p: ProviderId): string =>
-	one(args, "model") ??
-	MODELS_BY_PROVIDER[p].find((m) => m.defaultModel)?.id ??
-	MODELS_BY_PROVIDER[p][0]?.id ??
-	"default";
+	one(args, "model") ?? defaultModelFor(BUNDLED_MODEL_CATALOG, p) ?? "default";
 const permission = (args: Args): PermissionMode => {
 	const raw = one(args, "permission") ?? "default";
 	const value = raw === "accept-edits" ? "acceptEdits" : raw;
@@ -701,14 +702,24 @@ const execute = async (
 			const availability = await rpc(
 				client["provider.availability"]({ refresh: bool(args, "refresh") }),
 			);
+			// Prefer the desktop's resolved catalog (remote + live inventories);
+			// an older server without the RPC falls back to the bundled snapshot.
+			const catalog = await rpc(client["model.catalog"]({})).catch(
+				() => null,
+			);
 			return {
-				providers: Object.entries(MODELS_BY_PROVIDER).map(
-					([providerId, models]) => ({
+				providers: catalogProviderIds(BUNDLED_MODEL_CATALOG).map(
+					(providerId) => ({
 						providerId,
 						availability:
 							availability.find((item) => item.providerId === providerId) ??
 							null,
-						models,
+						models:
+							catalog === null
+								? modelsForProvider(BUNDLED_MODEL_CATALOG, providerId)
+								: catalog.providers[providerId].models.filter(
+										(model) => model.available,
+									),
 					}),
 				),
 			};

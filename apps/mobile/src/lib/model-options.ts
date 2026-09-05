@@ -1,23 +1,18 @@
 import {
 	type AgentAvailability,
+	catalogProviderIds,
 	defaultModelFor,
 	findModelDescriptor,
-	MODELS_BY_PROVIDER,
+	type ModelCatalogView,
+	modelsForProvider,
 	type PermissionMode,
+	PROVIDER_LABELS,
 	type ProviderId,
 	type RuntimeMode,
 	type SelectOptionDescriptor,
 } from "@zuse/contracts";
 
-export const PROVIDER_LABEL: Record<ProviderId, string> = {
-	claude: "Claude Code",
-	codex: "Codex",
-	grok: "Grok",
-	cursor: "Cursor",
-	gemini: "Gemini",
-	opencode: "OpenCode",
-	kiro: "Kiro",
-};
+export const PROVIDER_LABEL = PROVIDER_LABELS;
 
 export type RuntimeOption = {
 	value: RuntimeMode;
@@ -70,26 +65,40 @@ export const PERMISSION_OPTIONS: readonly {
 	{ value: "acceptEdits", label: "Accept edits" },
 ];
 
-export const providerOptions = () =>
-	(Object.keys(MODELS_BY_PROVIDER) as ProviderId[]).map((providerId) => ({
+// Every helper takes the resolved catalog first (see `~/store/model-catalog`)
+// so pickers reflect the desktop's live inventory, not a compiled-in list.
+export const providerOptions = (catalog: ModelCatalogView) =>
+	catalogProviderIds(catalog).map((providerId) => ({
 		value: providerId,
 		label: PROVIDER_LABEL[providerId],
 	}));
 
-export const modelOptionsForProvider = (providerId: ProviderId) =>
-	(MODELS_BY_PROVIDER[providerId] ?? []).map((model) => ({
-		value: model.id,
-		label: model.label,
-	}));
+export const modelOptionsForProvider = (
+	catalog: ModelCatalogView,
+	providerId: ProviderId,
+) =>
+	modelsForProvider(catalog, providerId)
+		.filter((model) => model.available !== false)
+		.map((model) => ({ value: model.id, label: model.label }));
 
-export const defaultModelForProvider = (providerId: ProviderId): string =>
-	defaultModelFor(providerId);
+/** Display label for a model id, even when it is no longer in the picker. */
+export const modelLabelFor = (
+	catalog: ModelCatalogView,
+	providerId: ProviderId,
+	model: string,
+): string => findModelDescriptor(catalog, providerId, model)?.label ?? model;
+
+export const defaultModelForProvider = (
+	catalog: ModelCatalogView,
+	providerId: ProviderId,
+): string => defaultModelFor(catalog, providerId);
 
 export const reasoningDescriptorForModel = (
+	catalog: ModelCatalogView,
 	providerId: ProviderId,
 	model: string,
 ): SelectOptionDescriptor | null => {
-	const descriptor = findModelDescriptor(providerId, model);
+	const descriptor = findModelDescriptor(catalog, providerId, model);
 	const option = descriptor?.optionDescriptors?.find(
 		(item): item is SelectOptionDescriptor =>
 			item.kind === "select" &&
@@ -104,10 +113,11 @@ export const reasoningDescriptorForModel = (
  * selection. Shared by new-chat and the composer model menu.
  */
 export const defaultModelOptions = (
+	catalog: ModelCatalogView,
 	providerId: ProviderId,
 	model: string,
 ): Record<string, string> | undefined => {
-	const descriptor = reasoningDescriptorForModel(providerId, model);
+	const descriptor = reasoningDescriptorForModel(catalog, providerId, model);
 	const value = descriptor?.defaultId ?? descriptor?.options[0]?.id;
 	return descriptor !== null && value !== undefined
 		? { [descriptor.id]: value }
@@ -141,6 +151,7 @@ export const availableProviderIds = (
 };
 
 export const reasoningValueForModel = (
+	catalog: ModelCatalogView,
 	providerId: ProviderId,
 	model: string,
 	modelOptions: Readonly<Record<string, string>> | undefined,
@@ -149,7 +160,7 @@ export const reasoningValueForModel = (
 	value: string;
 	label: string;
 } | null => {
-	const descriptor = reasoningDescriptorForModel(providerId, model);
+	const descriptor = reasoningDescriptorForModel(catalog, providerId, model);
 	if (descriptor === null) return null;
 	const requestedValue = modelOptions?.[descriptor.id];
 	const requestedOption = descriptor.options.find(

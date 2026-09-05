@@ -1,3 +1,4 @@
+import type { ResolvedModelCatalog } from "@zuse/contracts";
 import {
 	type AgentAvailability,
 	type AttachmentRef,
@@ -602,6 +603,28 @@ export const fetchAgentAvailability = (options: {
 	const program = Effect.gen(function* () {
 		const client = yield* getConnectionClient(options.connection);
 		return yield* client["provider.availability"]({});
+	});
+	return program.pipe(
+		Effect.catch((cause) =>
+			Effect.sync(() => {
+				reportConnectionFailure(options.connection, cause);
+				return null;
+			}),
+		),
+	);
+};
+
+/**
+ * Resolved model catalog (curated + live inventories) from the desktop.
+ * Resolves to `null` on any failure — including an older server without the
+ * RPC — so callers fall back to the bundled snapshot.
+ */
+export const fetchModelCatalog = (options: {
+	connection: WsProtocolOptions;
+}): Effect.Effect<ResolvedModelCatalog | null, never, never> => {
+	const program = Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["model.catalog"]({});
 	});
 	return program.pipe(
 		Effect.catch((cause) =>

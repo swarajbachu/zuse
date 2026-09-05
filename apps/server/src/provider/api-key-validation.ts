@@ -5,12 +5,12 @@ import { join } from "node:path";
 import {
 	Agent,
 	AuthenticationError,
-	Cursor,
 	CursorSdkError,
 	JsonlLocalAgentStore,
 	type Run,
 	type SDKAgent,
 } from "@cursor/sdk";
+import { listCursorModels } from "@zuse/agents/drivers/cursor-models";
 import { Effect } from "effect";
 
 export type ApiKeyValidationResult =
@@ -88,7 +88,7 @@ const runMessageProbe = async (apiKey: string): Promise<void> => {
 	};
 
 	const probe = async () => {
-		const models = await Cursor.models.list({ apiKey });
+		const models = await listCursorModels(apiKey);
 		ensureWithinDeadline();
 		const selected =
 			models.find((model) => model.id === "composer-2") ?? models[0];

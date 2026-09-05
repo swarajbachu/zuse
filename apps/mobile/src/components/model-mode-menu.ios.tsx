@@ -17,6 +17,7 @@ import {
 	reasoningValueForModel,
 	runtimeOptionFor,
 } from "~/lib/model-options";
+import { activeModelCatalog } from "~/store/model-catalog";
 import { NEON_GREEN } from "~/theme";
 
 export type ModelModeValue = {
@@ -375,7 +376,7 @@ function ProviderModelMenus({
 	availableProviders?: readonly ProviderId[] | null;
 	canChangeProvider?: boolean;
 }) {
-	const providers = providerOptions().filter((provider) => {
+	const providers = providerOptions(activeModelCatalog()).filter((provider) => {
 		// Locked to the current provider mid-session (provider swaps need a fresh
 		// chat) — show only its model submenu.
 		if (!canChangeProvider) return provider.value === value.providerId;
@@ -395,30 +396,33 @@ function ProviderModelMenus({
 					label={provider.label}
 					systemImage={providerSystemImage(provider.value)}
 				>
-					{modelOptionsForProvider(provider.value).map((model) => (
-						<NativeButton
-							key={model.value}
-							label={model.label}
-							systemImage={
-								value.providerId === provider.value &&
-								value.model === model.value
-									? sf("checkmark")
-									: undefined
-							}
-							onPress={() => {
-								if (!editable) return;
-								onChange({
-									...value,
-									providerId: provider.value,
-									model: model.value,
-									modelOptions: defaultModelOptions(
-										provider.value,
-										model.value,
-									),
-								});
-							}}
-						/>
-					))}
+					{modelOptionsForProvider(activeModelCatalog(), provider.value).map(
+						(model) => (
+							<NativeButton
+								key={model.value}
+								label={model.label}
+								systemImage={
+									value.providerId === provider.value &&
+									value.model === model.value
+										? sf("checkmark")
+										: undefined
+								}
+								onPress={() => {
+									if (!editable) return;
+									onChange({
+										...value,
+										providerId: provider.value,
+										model: model.value,
+										modelOptions: defaultModelOptions(
+											activeModelCatalog(),
+											provider.value,
+											model.value,
+										),
+									});
+								}}
+							/>
+						),
+					)}
 				</Menu>
 			))}
 		</Section>
@@ -456,6 +460,7 @@ function ReasoningButtons({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	const reasoning = reasoningValueForModel(
+		activeModelCatalog(),
 		value.providerId,
 		value.model,
 		value.modelOptions,
@@ -546,15 +551,19 @@ function PermissionButtons({
 }
 
 const modelLabel = (value: ModelModeValue): string =>
-	modelOptionsForProvider(value.providerId).find(
+	modelOptionsForProvider(activeModelCatalog(), value.providerId).find(
 		(model) => model.value === value.model,
 	)?.label ?? value.model;
 
 const compactModelLabel = (value: ModelModeValue): string =>
 	[
 		shortModelLabel(modelLabel(value)),
-		reasoningValueForModel(value.providerId, value.model, value.modelOptions)
-			?.label,
+		reasoningValueForModel(
+			activeModelCatalog(),
+			value.providerId,
+			value.model,
+			value.modelOptions,
+		)?.label,
 	]
 		.filter((part): part is string => part !== undefined)
 		.join(" ");

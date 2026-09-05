@@ -14,6 +14,7 @@ import { LanAuthHandlersLayer } from "./lan-auth/handlers.ts";
 import { LinearHandlersLayer } from "./linear/handlers.ts";
 import { MachineHandlersLayer } from "./machine/handlers.ts";
 import { McpHandlersLayer } from "./mcp/handlers.ts";
+import { ModelCatalogHandlersLayer } from "./model-catalog/handlers.ts";
 import { PingHandlersLayer } from "./ping/handlers.ts";
 import { PokemonHandlersLayer } from "./pokemon/handlers.ts";
 import { PreviewsHandlersLayer } from "./previews/handlers.ts";
@@ -51,6 +52,7 @@ export const HandlersLayer = Layer.mergeAll(
 	ConfigStoreHandlersLayer,
 	ProviderHandlersLayer,
 	McpHandlersLayer,
+	ModelCatalogHandlersLayer,
 	FsHandlersLayer,
 	AttachmentHandlersLayer,
 	SkillHandlersLayer,

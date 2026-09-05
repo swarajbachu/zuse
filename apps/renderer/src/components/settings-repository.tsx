@@ -1,8 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+	catalogProviderIds,
 	EnvironmentId,
 	type FolderId,
-	MODELS_BY_PROVIDER,
+	findModelDescriptor,
 	type ProviderId,
 	visibleModelsForProvider,
 } from "@zuse/contracts";
@@ -11,6 +12,7 @@ import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { displayPath } from "~/lib/display-path";
 import { cn } from "~/lib/utils";
+import { useModelCatalogStore } from "~/store/model-catalog";
 import { useSettingsStore } from "../lib/settings-client-bus.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import {
@@ -178,25 +180,23 @@ function ProviderOverrideSection({
 	);
 	const effectiveProvider: ProviderId = defaultProviderId ?? globalProviderId;
 	const globalModel = globalModelByProvider[globalProviderId];
+	const catalog = useModelCatalogStore((s) => s.catalog);
 	const globalModelLabel =
-		MODELS_BY_PROVIDER[globalProviderId].find((m) => m.id === globalModel)
-			?.label ??
+		findModelDescriptor(catalog, globalProviderId, globalModel)?.label ??
 		globalModel ??
 		"—";
 	const isOverridden = defaultProviderId !== null || defaultModel !== null;
 
 	// Mirror the global "Default agent" filter: skip providers the user
 	// toggled off.
-	const availableProviders = (
-		["claude", "codex", "grok", "gemini", "cursor", "opencode", "kiro"] as const
-	).filter((pid) => {
+	const availableProviders = catalogProviderIds(catalog).filter((pid) => {
 		if (providerEnabled[pid] === false) return false;
 		return true;
 	});
 
 	const firstModelFor = (pid: ProviderId): string | null =>
-		visibleModelsForProvider(pid, modelEnabledByProvider)[0]?.id ??
-		MODELS_BY_PROVIDER[pid]?.[0]?.id ??
+		visibleModelsForProvider(catalog, pid, modelEnabledByProvider)[0]?.id ??
+		catalog.providers[pid].models[0]?.id ??
 		null;
 
 	const onToggle = (next: boolean) => {
@@ -243,6 +243,7 @@ function ProviderOverrideSection({
 					{availableProviders.map((pid) => {
 						const selected = effectiveProvider === pid;
 						const models = visibleModelsForProvider(
+							catalog,
 							pid,
 							modelEnabledByProvider,
 							{

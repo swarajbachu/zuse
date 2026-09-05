@@ -148,7 +148,10 @@ import {
 	composerDraftKeyForSession,
 	useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
-import { useOpencodeInventory } from "../store/opencode-inventory.ts";
+import {
+	currentModelCatalog,
+	useModelCatalogStore,
+} from "../store/model-catalog.ts";
 import { usePaneFocus } from "../store/pane-focus.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { AnnotationTray } from "./composer/annotation-tray.tsx";
@@ -269,6 +272,7 @@ export function ChatComposer({
 	const capabilities = useProvidersStore((s) =>
 		s.capabilitiesFor(session.providerId, qualifiedEnvironmentId),
 	);
+	const composerCatalog = useModelCatalogStore((s) => s.catalog);
 	const goalCapable =
 		session.providerId === "grok" ||
 		(session.providerId === "codex" && capabilities.includes("goalMode"));
@@ -1507,8 +1511,11 @@ export function ChatComposer({
 											onClick={() => setGoalSendMode((v) => !v)}
 										/>
 									) : null}
-									{(findModelDescriptor(session.providerId, session.model)
-										?.supportsPlanMode ??
+									{(findModelDescriptor(
+										composerCatalog,
+										session.providerId,
+										session.model,
+									)?.supportsPlanMode ??
 										true) && (
 										<PlanModeToggle
 											sessionId={sessionId}
@@ -1527,6 +1534,7 @@ export function ChatComposer({
 										session={session}
 										fastModeAvailable={
 											findModelDescriptor(
+												composerCatalog,
 												session.providerId,
 												session.model,
 											)?.optionDescriptors?.some(
@@ -2096,12 +2104,11 @@ function GoalEditorDialog({
 }
 
 /**
- * Reasoning / variant selector. For non-opencode providers this reads
- * the static `reasoning` SelectOptionDescriptor from `MODELS_BY_PROVIDER`.
- * For opencode, the per-model variant list comes from the live inventory
- * (`useOpencodeInventory`) so models like `anthropic/claude-sonnet-4-5`
- * show their actual variants (`high`/`medium`/…) and models without
- * variants render nothing.
+ * Reasoning / variant selector. Reads the model's `reasoning` / `effort`
+ * SelectOptionDescriptor from the resolved model catalog. For opencode the
+ * server folds each model's live variant list into that descriptor, so
+ * models like `anthropic/claude-sonnet-4-5` show their actual variants and
+ * models without variants render nothing.
  *
  * Selection persists per-session; the messages store reads it back at
  * send time and forwards it as `modelOptions.reasoning` — which the
@@ -2123,40 +2130,17 @@ function ComposerModelPicker({
 	const sessionId = session.id;
 	const providerId = session.providerId;
 	const model = session.model;
-	const opencodeInventory = useOpencodeInventory((s) => s.inventory);
+	const catalog = useModelCatalogStore((s) => s.catalog);
 
-	// For opencode, the variant list is per-model and lives on the live
-	// inventory (`provider.list()` → `model.variants`). For other providers
-	// it's the static reasoning/effort descriptor curated in
-	// `MODELS_BY_PROVIDER`. Claude's descriptor is keyed `effort` (with
-	// tiers up through ultracode); everything else uses
-	// `reasoning`.
+	// Claude's descriptor is keyed `effort` (with tiers up through
+	// ultracode); everything else uses `reasoning`.
 	const resolved = useMemo((): {
 		label: string;
 		options: ReadonlyArray<{ id: string; label: string }>;
 		defaultId: string;
 		descriptorId: string;
 	} | null => {
-		if (providerId === "opencode") {
-			if (opencodeInventory === null) return null;
-			for (const p of opencodeInventory.providers) {
-				const m = p.models.find((mm) => mm.id === model);
-				if (m === undefined) continue;
-				if (m.variants.length === 0) return null;
-				return {
-					label: "Reasoning",
-					options: m.variants.map((v) => ({ id: v, label: v })),
-					defaultId: m.variants.includes("medium")
-						? "medium"
-						: m.variants.includes("high")
-							? "high"
-							: m.variants[0]!,
-					descriptorId: "reasoning",
-				};
-			}
-			return null;
-		}
-		const descriptor = findModelDescriptor(providerId, model);
+		const descriptor = findModelDescriptor(catalog, providerId, model);
 		const selectDescriptor = descriptor?.optionDescriptors?.find(
 			(d): d is SelectOptionDescriptor =>
 				d.kind === "select" && (d.id === "reasoning" || d.id === "effort"),
@@ -2168,7 +2152,7 @@ function ComposerModelPicker({
 			defaultId: selectDescriptor.defaultId ?? "medium",
 			descriptorId: selectDescriptor.id,
 		};
-	}, [providerId, model, opencodeInventory]);
+	}, [catalog, providerId, model]);
 
 	const defaultId = resolved?.defaultId ?? "medium";
 	const descriptorId = resolved?.descriptorId ?? "reasoning";
@@ -2328,7 +2312,11 @@ const descriptorContextWindowTokens = (
 	providerId: ProviderId,
 	model: string,
 ): number | null => {
-	const descriptor = findModelDescriptor(providerId, model);
+	const descriptor = findModelDescriptor(
+		currentModelCatalog(),
+		providerId,
+		model,
+	);
 	const contextDescriptor = descriptor?.optionDescriptors?.find(
 		(d): d is SelectOptionDescriptor =>
 			d.kind === "select" && d.id === "contextWindow",

@@ -73,6 +73,10 @@ import {
 	addOptimisticMessage,
 	removeOptimisticMessage,
 } from "~/store/messages";
+import {
+	activeModelCatalogAtom,
+	hydrateModelCatalog,
+} from "~/store/model-catalog";
 import { enqueueOutboxMessage } from "~/store/outbox";
 import {
 	setPermissionMode as setPermissionModeOptimistic,
@@ -218,8 +222,10 @@ export const Composer = ({
 	};
 
 	const availability = useAtomValue(connectionAvailabilityAtom(connKey));
+	useAtomValue(activeModelCatalogAtom);
 	useEffect(() => {
 		void hydrateAvailability(connKey, connection);
+		void hydrateModelCatalog(connKey, connection);
 	}, [connKey, connection]);
 	const cloudProviders = useAtomValue(cloudAuthenticatedProvidersAtom);
 	const availableProviders = useMemo(

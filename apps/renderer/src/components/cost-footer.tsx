@@ -1,24 +1,18 @@
 import {
 	type AgentItemId,
 	type EnvironmentId,
+	labelForModelId,
 	type Message,
-	MODEL_PRICING,
+	pricingFor,
 	type SessionId,
 } from "@zuse/contracts";
 import { useMemo } from "react";
 
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
+import { currentModelCatalog } from "../store/model-catalog.ts";
 
-const MODEL_LABEL: Record<string, string> = {
-	"claude-sonnet-5": "Sonnet",
-	"claude-fable-5": "Fable",
-	"claude-opus-5": "Opus",
-	"claude-opus-4-7": "Opus",
-	"claude-sonnet-4-6": "Sonnet",
-	"claude-haiku-4-5": "Haiku",
-};
-
-const labelForModel = (model: string): string => MODEL_LABEL[model] ?? model;
+const labelForModel = (model: string): string =>
+	labelForModelId(currentModelCatalog(), model);
 
 const formatTokens = (n: number): string => {
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -61,7 +55,7 @@ const addBucket = (
 };
 
 const usdFor = (model: string, b: UsageBucket): number => {
-	const p = MODEL_PRICING[model];
+	const p = pricingFor(currentModelCatalog(), model);
 	if (!p) return 0;
 	return (
 		(b.inputTokens * p.input +

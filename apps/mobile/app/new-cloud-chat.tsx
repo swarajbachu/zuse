@@ -35,7 +35,10 @@ import {
 	setComposerDraft,
 } from "~/store/composer-drafts";
 
+import { activeModelCatalogAtom } from "~/store/model-catalog";
+
 export default function NewCloudChatScreen() {
+	const modelCatalog = useAtomValue(activeModelCatalogAtom);
 	const account = useAtomValue(authAccountAtom);
 	const catalog = useAtomValue(cloudCatalogAtom);
 	const providers = useAtomValue(cloudAuthenticatedProvidersAtom);
@@ -66,9 +69,11 @@ export default function NewCloudChatScreen() {
 			? ""
 			: agent === provider &&
 					model !== null &&
-					modelOptionsForProvider(provider).some((row) => row.value === model)
+					modelOptionsForProvider(modelCatalog, provider).some(
+						(row) => row.value === model,
+					)
 				? model
-				: defaultModelFor(provider);
+				: defaultModelFor(modelCatalog, provider);
 	useEffect(() => {
 		void refreshCloudCatalog();
 	}, []);
@@ -178,15 +183,17 @@ export default function NewCloudChatScreen() {
 							symbol="sparkles"
 							label={selectedModel}
 							disabled={busy}
-							options={modelOptionsForProvider(provider).map((row) => ({
-								key: row.value,
-								label: row.label,
-								selected: row.value === selectedModel,
-								onSelect: () => {
-									setAgent(provider);
-									setModel(row.value);
-								},
-							}))}
+							options={modelOptionsForProvider(modelCatalog, provider).map(
+								(row) => ({
+									key: row.value,
+									label: row.label,
+									selected: row.value === selectedModel,
+									onSelect: () => {
+										setAgent(provider);
+										setModel(row.value);
+									},
+								}),
+							)}
 						/>
 					) : null}
 					<SelectorRow

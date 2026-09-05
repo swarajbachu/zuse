@@ -1,6 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
-import type { AgentItemId, Message } from "@zuse/contracts";
+import {
+	type AgentItemId,
+	labelForModelId,
+	type Message,
+} from "@zuse/contracts";
 import { ClipboardIcon } from "@zuse/icons/solid-rounded";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
@@ -8,26 +12,18 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui";
 
+import { currentModelCatalog } from "../store/model-catalog.ts";
 import { CopyButton } from "./copy-button.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import { MessageRow } from "./message-row.tsx";
 import { SubagentAvatar } from "./subagent-identity";
 import { Spinner } from "./ui/spinner";
 
-const MODEL_LABEL: Record<string, string> = {
-	"claude-sonnet-5": "Sonnet 5",
-	"claude-fable-5": "Fable 5",
-	"claude-opus-5": "Opus 5",
-	"claude-opus-4-7": "Opus 4.7",
-	"claude-sonnet-4-6": "Sonnet 4.6",
-	"claude-haiku-4-5": "Haiku 4.5",
-};
-
 const AGENT_ACTIVITY_WINDOW_MS = 10_000;
 
 const labelForModel = (model: string | undefined): string => {
 	if (!model) return "inherit";
-	return MODEL_LABEL[model] ?? model;
+	return labelForModelId(currentModelCatalog(), model);
 };
 
 const formatDuration = (ms: number): string => {

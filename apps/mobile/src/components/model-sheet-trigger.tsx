@@ -4,11 +4,12 @@ import {
 	modelOptionsForProvider,
 	reasoningValueForModel,
 } from "~/lib/model-options";
+import { activeModelCatalog } from "~/store/model-catalog";
 import type { ModelModeValue } from "./model-mode-menu";
 import { ProviderLogo } from "./provider-logo";
 
 const labelForModel = (value: ModelModeValue): string =>
-	modelOptionsForProvider(value.providerId).find(
+	modelOptionsForProvider(activeModelCatalog(), value.providerId).find(
 		(model) => model.value === value.model,
 	)?.label ?? value.model;
 
@@ -21,6 +22,7 @@ export function ModelSheetTrigger({
 	onPress: () => void;
 }) {
 	const reasoning = reasoningValueForModel(
+		activeModelCatalog(),
 		value.providerId,
 		value.model,
 		value.modelOptions,

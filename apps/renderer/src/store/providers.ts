@@ -13,6 +13,7 @@ import { formatError } from "../lib/format-error.ts";
 import { getProviderStatusNotice } from "../lib/provider-status.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
+import { useModelCatalogStore } from "./model-catalog.ts";
 
 // Stable reference for the "no capabilities" case so the `capabilitiesFor`
 // selector doesn't return a fresh array each call (which would churn the
@@ -271,6 +272,8 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 				CredentialSetResult
 			>(environmentId, "provider.setCredential", { providerId, apiKey });
 			await get().refresh();
+			// A new key can unlock a different live model list (Cursor).
+			void useModelCatalogStore.getState().refresh();
 			return result;
 		} catch (err) {
 			set({ error: formatError(err) });
@@ -287,6 +290,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 				},
 			);
 			await get().refresh();
+			void useModelCatalogStore.getState().refresh();
 		} catch (err) {
 			set({ error: formatError(err) });
 			throw err;

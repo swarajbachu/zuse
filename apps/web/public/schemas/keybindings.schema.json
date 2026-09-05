@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://zuse.dev/schemas/keybindings.schema.json",
+  "$id": "https://zuse.sh/schemas/keybindings.schema.json",
   "title": "Zuse Keybindings",
   "description": "User keybinding overrides stored in ~/.zuse/keybindings.json.",
   "type": "object",

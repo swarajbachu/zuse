@@ -20,6 +20,7 @@ import {
 	runtimeOptionFor,
 } from "~/lib/model-options";
 import { PROVIDER_NATIVE_ASSET_NAMES } from "~/lib/provider-logos";
+import { activeModelCatalog } from "~/store/model-catalog";
 import { colors } from "~/theme";
 import type { ModelModeValue } from "./model-mode-menu";
 
@@ -52,11 +53,12 @@ export function ModelSheet({
 }) {
 	const runtimeOption = runtimeOptionFor(value.runtimeMode);
 	const reasoning = reasoningValueForModel(
+		activeModelCatalog(),
 		value.providerId,
 		value.model,
 		value.modelOptions,
 	);
-	const providers = providerOptions().filter((provider) => {
+	const providers = providerOptions(activeModelCatalog()).filter((provider) => {
 		if (strictProviders && !availableProviders?.includes(provider.value))
 			return false;
 		if (!canChangeProvider) return provider.value === value.providerId;
@@ -69,7 +71,7 @@ export function ModelSheet({
 	const models =
 		strictProviders && !availableProviders?.includes(value.providerId)
 			? []
-			: modelOptionsForProvider(value.providerId);
+			: modelOptionsForProvider(activeModelCatalog(), value.providerId);
 
 	return (
 		<Host matchContents seedColor={colors.fg}>
@@ -89,12 +91,17 @@ export function ModelSheet({
 									if (!canChangeProvider) return;
 									const id = providerId as ProviderId;
 									const nextModel =
-										modelOptionsForProvider(id)[0]?.value ?? value.model;
+										modelOptionsForProvider(activeModelCatalog(), id)[0]
+											?.value ?? value.model;
 									onChange({
 										...value,
 										providerId: id,
 										model: nextModel,
-										modelOptions: defaultModelOptions(id, nextModel),
+										modelOptions: defaultModelOptions(
+											activeModelCatalog(),
+											id,
+											nextModel,
+										),
 									});
 								}}
 								modifiers={[pickerStyle("menu")]}
@@ -125,6 +132,7 @@ export function ModelSheet({
 									...value,
 									model: model as string,
 									modelOptions: defaultModelOptions(
+										activeModelCatalog(),
 										value.providerId,
 										model as string,
 									),

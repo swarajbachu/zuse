@@ -1,9 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	type AgentAvailability,
-	MODELS_BY_PROVIDER,
-	type ProviderId,
-	type ProviderUpdateEvent,
+import type {
+	AgentAvailability,
+	ProviderId,
+	ProviderUpdateEvent,
 } from "@zuse/contracts";
 import {
 	Add01Icon,
@@ -43,6 +42,7 @@ import {
 	useProviderLogin,
 } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
+import { useProviderModels } from "~/store/model-catalog";
 import {
 	IDLE_PROVIDER_UPDATE_STATE,
 	useProvidersStore,
@@ -318,7 +318,7 @@ function ModelVisibilitySettings({ providerId }: { providerId: ProviderId }) {
 	const setModelEnabled = useSettingsStore((s) => s.setModelEnabled);
 	const addCustomModelId = useSettingsStore((s) => s.addCustomModelId);
 	const removeCustomModelId = useSettingsStore((s) => s.removeCustomModelId);
-	const models = MODELS_BY_PROVIDER[providerId] ?? [];
+	const models = useProviderModels(providerId);
 	const normalizedCustomModelId = customModelId.trim();
 	const modelIdAlreadyExists =
 		models.some((model) => model.id === normalizedCustomModelId) ||

@@ -12,6 +12,7 @@ import {
 	AppearanceMode,
 	AutonomyLevel,
 	BranchNamingStyle,
+	BUNDLED_MODEL_CATALOG,
 	CommandId,
 	CompletionSoundPreset,
 	defaultModelEnabledByProvider,
@@ -124,15 +125,16 @@ const PROVIDERS: ReadonlyArray<ProviderId> = [
 	"kiro",
 ];
 
-const seedModels = (): Record<ProviderId, string> => ({
-	claude: defaultModelFor("claude"),
-	codex: defaultModelFor("codex"),
-	grok: defaultModelFor("grok"),
-	cursor: defaultModelFor("cursor"),
-	gemini: defaultModelFor("gemini"),
-	opencode: defaultModelFor("opencode"),
-	kiro: defaultModelFor("kiro"),
-});
+// Seeds and alias resolution use the bundled snapshot: this module runs at
+// startup before the catalog store has answered, and the server already
+// canonicalizes slugs against the resolved catalog at session start.
+const seedModels = (): Record<ProviderId, string> =>
+	Object.fromEntries(
+		PROVIDERS.map((provider) => [
+			provider,
+			defaultModelFor(BUNDLED_MODEL_CATALOG, provider),
+		]),
+	) as Record<ProviderId, string>;
 
 const seedProviderEnabled = (): Record<ProviderId, boolean> =>
 	Object.fromEntries(PROVIDERS.map((provider) => [provider, true])) as Record<
@@ -236,7 +238,11 @@ registerRendererResourcePersistence(
 const fromFile = (file: SettingsFile): SettingsSlice => {
 	const models = { ...seedModels(), ...file.defaultModelByProvider };
 	for (const provider of PROVIDERS) {
-		models[provider] = resolveModelSlug(provider, models[provider]);
+		models[provider] = resolveModelSlug(
+			BUNDLED_MODEL_CATALOG,
+			provider,
+			models[provider],
+		);
 	}
 	return {
 		defaultProviderId: file.defaultProviderId,
