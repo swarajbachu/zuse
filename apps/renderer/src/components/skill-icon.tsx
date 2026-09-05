@@ -4,7 +4,7 @@ import { cn } from "~/lib/utils";
 export function SkillIcon({ className }: { readonly className?: string }) {
 	return (
 		<svg
-			aria-hidden
+			aria-hidden="true"
 			viewBox="0 0 24 24"
 			fill="none"
 			stroke="currentColor"

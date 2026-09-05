@@ -80,16 +80,12 @@ export function SlashCommandPopover({
 
 	const builtins = useMemo(
 		() =>
-			trigger.kind === "slash"
-				? filterBuiltins(trigger.query, providerId)
-				: [],
+			trigger.kind === "slash" ? filterBuiltins(trigger.query, providerId) : [],
 		[trigger.kind, trigger.query, providerId],
 	);
 	const skills = useMemo(
 		() =>
-			trigger.kind === "dollar"
-				? filterSkills(allSkills, trigger.query)
-				: [],
+			trigger.kind === "dollar" ? filterSkills(allSkills, trigger.query) : [],
 		[allSkills, trigger.kind, trigger.query],
 	);
 

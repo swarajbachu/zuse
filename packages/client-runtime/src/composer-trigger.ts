@@ -10,7 +10,7 @@ export interface ComposerTrigger {
 const TRIGGER_CHARS: Readonly<Record<string, ComposerTriggerKind>> = {
 	"/": "slash",
 	"@": "at",
-	"$": "dollar",
+	$: "dollar",
 };
 
 /**

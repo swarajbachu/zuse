@@ -17,7 +17,7 @@ export function SiteFavicon({
 	if (!showImage) {
 		return (
 			<svg
-				aria-hidden
+				aria-hidden="true"
 				viewBox="0 0 24 24"
 				fill="none"
 				stroke="currentColor"
@@ -36,7 +36,7 @@ export function SiteFavicon({
 		<img
 			src={src}
 			alt=""
-			aria-hidden
+			aria-hidden="true"
 			className={cn("shrink-0 rounded-[2px] object-contain", className)}
 			onError={() => setFailedSrc(src)}
 			title={hostnameFromLink(url) ?? undefined}

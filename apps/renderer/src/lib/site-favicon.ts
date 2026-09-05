@@ -1,3 +1,5 @@
+import { rendererPlatformCapabilities } from "./platform-capabilities";
+
 const HTTP_PROTOCOLS = new Set(["http:", "https:"]);
 
 export const hostnameFromLink = (value: string): string | null => {
@@ -17,8 +19,7 @@ export const faviconUrlForLink = (value: string): string | null => {
 	const hostname = hostnameFromLink(value);
 	if (hostname === null) return null;
 	const encoded = encodeURIComponent(hostname);
-	const desktop = globalThis.window?.zuse ?? globalThis.window?.memoize;
-	return desktop === undefined
-		? `/assets/site-favicon/${encoded}`
-		: `zuse://site-favicon/${encoded}`;
+	return rendererPlatformCapabilities().desktop
+		? `zuse://site-favicon/${encoded}`
+		: `/assets/site-favicon/${encoded}`;
 };

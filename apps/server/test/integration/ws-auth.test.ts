@@ -219,6 +219,65 @@ const upgradeStatus = (
 	upgradeResponse(port, path, headers).then((response) => response.status);
 
 describe("WS LAN auth", () => {
+	it("serves favicon images through the authenticated asset route", async () => {
+		const port = await freePort();
+		const runtime = makeRuntime({ policy: "protected", port });
+		const originalFetch = globalThis.fetch;
+		const imageBytes = new Uint8Array([137, 80, 78, 71]);
+		const upstream = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation((input, init) => {
+				if (String(input).startsWith("https://www.google.com/s2/favicons?")) {
+					return Promise.resolve(
+						new Response(imageBytes, {
+							headers: { "content-type": "image/png" },
+						}),
+					);
+				}
+				return originalFetch(input, init);
+			});
+		try {
+			const pairing = await runtime.runPromise(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					return yield* auth.createPairingCode();
+				}),
+			);
+			const origin = `http://127.0.0.1:${port}`;
+			const url = `${origin}/assets/site-favicon/github.com`;
+			expect((await originalFetch(url)).status).toBe(401);
+			expect(upstream).not.toHaveBeenCalled();
+			const paired = await originalFetch(`${origin}/auth/browser-session`, {
+				method: "POST",
+				headers: { "content-type": "application/json", origin },
+				body: JSON.stringify({ credential: pairing.code }),
+			});
+			expect(paired.status).toBe(200);
+			const cookie = paired.headers.get("set-cookie")?.split(";")[0] ?? "";
+			const response = await originalFetch(url, { headers: { cookie } });
+			expect(response.status).toBe(200);
+			expect(response.headers.get("content-type")).toBe("image/png");
+			expect(response.headers.get("cache-control")).toContain("max-age=86400");
+			expect(new Uint8Array(await response.arrayBuffer())).toEqual(imageBytes);
+			for (const [hostname, status] of [
+				["%", 404],
+				["github.com%2Fsecret", 400],
+			] as const) {
+				expect(
+					(
+						await originalFetch(`${origin}/assets/site-favicon/${hostname}`, {
+							headers: { cookie },
+						})
+					).status,
+				).toBe(status);
+			}
+			expect(upstream).toHaveBeenCalledTimes(1);
+		} finally {
+			upstream.mockRestore();
+			await disposeRuntime(runtime);
+		}
+	});
+
 	it("negotiates bounded per-message compression when clients offer it", async () => {
 		const port = await freePort();
 		const runtime = makeRuntime({ policy: "local", port });

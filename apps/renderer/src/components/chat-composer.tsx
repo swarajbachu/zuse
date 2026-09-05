@@ -1426,8 +1426,7 @@ export function ChatComposer({
 							/>
 							<CardPanel className="relative flex items-stretch gap-2 px-3 pb-2 pt-3">
 								{trigger !== null && editorViewRef.current !== null ? (
-									trigger.kind === "slash" ||
-									trigger.kind === "dollar" ? (
+									trigger.kind === "slash" || trigger.kind === "dollar" ? (
 										<SlashCommandPopover
 											trigger={trigger}
 											view={editorViewRef.current}

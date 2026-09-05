@@ -577,7 +577,7 @@ export const Composer = ({
 								setSkillRefs((current) =>
 									current.filter((item) => item.name !== name),
 								);
-				removeToken(`$${name}`);
+								removeToken(`$${name}`);
 							}}
 						/>
 						<ComposerAttachmentStrip
@@ -619,7 +619,7 @@ export const Composer = ({
 											retainComposerReferences(
 												current,
 												text,
-											(skill) => `$${skill.name}`,
+												(skill) => `$${skill.name}`,
 											),
 										);
 									}}

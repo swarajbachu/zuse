@@ -76,6 +76,7 @@ import {
 	type TailnetShareOptions,
 } from "@zuse/tailnet";
 import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
+import { fetchSiteFavicon } from "@zuse/utils/site-favicon";
 import { zuseDesktopProfileName } from "@zuse/utils/zuse-user-data";
 import {
 	CredentialsServiceLive,
@@ -3643,21 +3644,9 @@ const registerZuseProtocol = (): void => {
 	const handleAssetRequest = async (request: Request) => {
 		const url = new URL(request.url);
 		if (url.host === SITE_FAVICON_HOST) {
-			const hostname = decodeURIComponent(url.pathname.replace(/^\//, ""));
-			if (!/^[a-z0-9.-]{1,253}$/iu.test(hostname)) {
-				return new Response(null, { status: 400 });
-			}
-			try {
-				const response = await net.fetch(
-					`https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=64`,
-				);
-				if (!response.ok) return new Response(null, { status: 404 });
-				const headers = new Headers(response.headers);
-				headers.set("cache-control", "public, max-age=86400");
-				return new Response(response.body, { status: 200, headers });
-			} catch {
-				return new Response(null, { status: 404 });
-			}
+			return fetchSiteFavicon(url.pathname.slice(1), (input, init) =>
+				net.fetch(input, init),
+			);
 		}
 		if (url.host === LINEAR_CONTEXT_HOST) {
 			try {

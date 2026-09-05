@@ -13,6 +13,7 @@ import {
 	makeMeasuredJsonRpcSerialization,
 	makeRpcPayloadReporter,
 } from "@zuse/utils/rpc-payload-metrics";
+import { fetchSiteFavicon } from "@zuse/utils/site-favicon";
 import { Effect, Layer, Schema } from "effect";
 import {
 	HttpRouter,
@@ -713,33 +714,10 @@ export const wsServerProtocolLayer = (
 						}
 					}
 					const pathname = new URL(request.url, "http://localhost").pathname;
-					let hostname: string;
-					try {
-						hostname = decodeURIComponent(
-							pathname.slice("/assets/site-favicon/".length),
-						);
-					} catch {
-						return yield* json({ error: "bad_request" }, 400);
-					}
-					if (!/^[a-z0-9.-]{1,253}$/iu.test(hostname)) {
-						return yield* json({ error: "bad_request" }, 400);
-					}
-					const remote = yield* Effect.promise(() =>
-						fetch(
-							`https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=64`,
-						).catch(() => null),
+					const response = yield* Effect.promise(() =>
+						fetchSiteFavicon(pathname.slice("/assets/site-favicon/".length)),
 					);
-					if (remote === null || !remote.ok) {
-						return yield* json({ error: "not_found" }, 404);
-					}
-					const bytes = new Uint8Array(
-						yield* Effect.promise(() => remote.arrayBuffer()),
-					);
-					return HttpServerResponse.uint8Array(bytes, {
-						contentType:
-							remote.headers.get("content-type") ?? "image/x-icon",
-						headers: { "cache-control": "public, max-age=86400" },
-					});
+					return HttpServerResponse.fromWeb(response);
 				}),
 			);
 			yield* router.add("GET", "/assets/attachments/*", (request) =>

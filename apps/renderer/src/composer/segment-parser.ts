@@ -1,8 +1,8 @@
 import type { EditorState } from "@codemirror/state";
 
 import {
-	ComposerInput,
 	type AttachmentRef,
+	ComposerInput,
 	type FileRef,
 	type ProviderId,
 	type SkillRef,
