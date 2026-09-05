@@ -26,10 +26,14 @@ vi.mock("../../src/store/repository-settings.ts", () => ({
 	},
 }));
 
-afterEach(() => resetSessionTimelineClientBusForTest());
+afterEach(() => {
+	resetSessionTimelineClientBusForTest();
+	vi.unstubAllGlobals();
+});
 
 describe("effectiveChatRuntimeMode", () => {
 	it("loads the user's Full Access default before creating a cloud draft", async () => {
+		vi.stubGlobal("location", new URL("http://localhost"));
 		const requested: EnvironmentId[] = [];
 		setSessionTimelineRpcClientForTest(async (environmentId) => {
 			requested.push(environmentId);
