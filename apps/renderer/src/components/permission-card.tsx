@@ -4,13 +4,14 @@ import type {
 	PermissionKind,
 	PermissionRequest,
 } from "@zuse/contracts";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import {
 	decideEnvironmentPermission,
 	denyEnvironmentPermissionAndInterrupt,
 } from "../lib/environment-permissions-client-bus.ts";
+import { formatError } from "../lib/format-error.ts";
 import { Button } from "./ui/button.tsx";
 
 const kindHeadline = (kind: PermissionKind): string => {
@@ -74,14 +75,31 @@ export function PermissionCard({
 	readonly queueSize: number;
 	readonly environmentId: EnvironmentId;
 }) {
+	const expired = head.recoveryState === "expired";
+	const [pending, setPending] = useState(false);
+	const [error, setError] = useState<string | null>(null);
 	const decide = useCallback(
-		(requestId: string, decision: PermissionDecision): Promise<void> =>
-			decideEnvironmentPermission(requestId, decision, environmentId),
-		[environmentId],
+		async (requestId: string, decision: PermissionDecision): Promise<void> => {
+			if (pending || (expired && decision._tag !== "Deny")) return;
+			setPending(true);
+			setError(null);
+			try {
+				if (decision._tag === "Deny" && !expired) {
+					await denyEnvironmentPermissionAndInterrupt(head, environmentId);
+				} else {
+					await decideEnvironmentPermission(requestId, decision, environmentId);
+				}
+			} catch (cause) {
+				setError(formatError(cause));
+			} finally {
+				setPending(false);
+			}
+		},
+		[environmentId, expired, head, pending],
 	);
 	const deny = useCallback(
-		() => denyEnvironmentPermissionAndInterrupt(head, environmentId),
-		[environmentId, head],
+		() => decide(head.id, { _tag: "Deny" }),
+		[decide, head.id],
 	);
 	const persistentDisabled = head.forcePrompt;
 
@@ -92,7 +110,7 @@ export function PermissionCard({
 				void deny();
 				return;
 			}
-			if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+			if (!expired && (e.metaKey || e.ctrlKey) && e.key === "Enter") {
 				e.preventDefault();
 				void decide(head.id, ALLOW_ONCE);
 				return;
@@ -100,13 +118,15 @@ export function PermissionCard({
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
-	}, [head.id, decide, deny]);
+	}, [head.id, decide, deny, expired]);
 
 	return (
 		<div className="rounded-xl bg-card/95 p-3 shadow-overlay-sm ring-1 ring-border/70">
 			<div className="flex items-center gap-2">
 				<div className="truncate text-[13px] font-medium leading-5 text-foreground">
-					{kindHeadline(head.kind)}
+					{expired
+						? "Approval expired after agent restart"
+						: kindHeadline(head.kind)}
 				</div>
 				{queueSize > 1 ? (
 					<span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground shrink-0">
@@ -114,6 +134,21 @@ export function PermissionCard({
 					</span>
 				) : null}
 			</div>
+			{expired ? (
+				<p
+					className="mt-2 text-xs text-muted-foreground"
+					role="status"
+					aria-live="polite"
+				>
+					The agent restarted while waiting for this approval. It cannot consume
+					the old response. Dismiss this request and send a message to continue.
+				</p>
+			) : null}
+			{error ? (
+				<p role="alert" className="mt-2 text-xs text-destructive">
+					{error}
+				</p>
+			) : null}
 
 			<div className="mt-2 max-h-24 overflow-y-auto break-all rounded-md bg-muted/45 px-2.5 py-1.5 font-mono text-[11px] leading-4 text-foreground/90">
 				{kindDetail(head.kind)}
@@ -129,37 +164,50 @@ export function PermissionCard({
 				<Button
 					size="xs"
 					variant="ghost"
+					disabled={pending}
+					className="h-7"
 					onClick={() => void deny()}
 					title="Esc"
 				>
-					Deny
+					{expired ? "Dismiss" : "Deny"}
 				</Button>
-				<Button
-					size="xs"
-					variant="ghost"
-					disabled={persistentDisabled}
-					onClick={() => void decide(head.id, ALLOW_FOR_SESSION)}
-					className={cn(persistentDisabled && "pointer-events-none opacity-40")}
-				>
-					Allow for session
-				</Button>
-				<Button
-					size="xs"
-					variant="ghost"
-					disabled={persistentDisabled}
-					onClick={() => void decide(head.id, ALWAYS_ALLOW_FOLDER)}
-					className={cn(persistentDisabled && "pointer-events-none opacity-40")}
-				>
-					Always allow
-				</Button>
-				<Button
-					size="xs"
-					onClick={() => void decide(head.id, ALLOW_ONCE)}
-					className="ml-1"
-					title="⌘+Enter"
-				>
-					Allow once
-				</Button>
+				{expired ? null : (
+					<>
+						<Button
+							size="xs"
+							variant="ghost"
+							disabled={persistentDisabled || pending}
+							onClick={() => void decide(head.id, ALLOW_FOR_SESSION)}
+							className={cn(
+								"h-7",
+								persistentDisabled && "pointer-events-none opacity-40",
+							)}
+						>
+							Allow for session
+						</Button>
+						<Button
+							size="xs"
+							variant="ghost"
+							disabled={persistentDisabled || pending}
+							onClick={() => void decide(head.id, ALWAYS_ALLOW_FOLDER)}
+							className={cn(
+								"h-7",
+								persistentDisabled && "pointer-events-none opacity-40",
+							)}
+						>
+							Always allow
+						</Button>
+						<Button
+							size="xs"
+							disabled={pending}
+							onClick={() => void decide(head.id, ALLOW_ONCE)}
+							className="ml-1 h-7"
+							title="⌘+Enter"
+						>
+							Allow once
+						</Button>
+					</>
+				)}
 			</div>
 		</div>
 	);

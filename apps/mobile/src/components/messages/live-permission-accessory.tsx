@@ -83,6 +83,41 @@ export function LivePermissionAccessory({
 		);
 	};
 
+	if (request.recoveryState === "expired") {
+		return (
+			<View
+				style={{ paddingBottom: Math.max(bottomInset, 8) }}
+				className="px-3 pt-2"
+			>
+				<GlassSurface style={{ padding: 16, gap: 12 }}>
+					<Text
+						accessibilityRole="text"
+						className="font-sans-bold text-foreground"
+					>
+						Approval expired after agent restart
+					</Text>
+					<Text
+						accessibilityLiveRegion="polite"
+						className="font-sans text-muted-foreground"
+					>
+						The agent can no longer consume this response. Dismiss it and send a
+						message to continue.
+					</Text>
+					<Text selectable className="font-mono text-muted-foreground">
+						{detail}
+					</Text>
+					{error === null ? null : <ErrorText message={error} />}
+					<PrimaryButton
+						label="Dismiss"
+						busy={busy}
+						loading={pendingAction === "deny"}
+						onPress={() => decide("deny", { _tag: "Deny" })}
+					/>
+				</GlassSurface>
+			</View>
+		);
+	}
+
 	return (
 		<View
 			pointerEvents="box-none"

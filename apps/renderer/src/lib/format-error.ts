@@ -20,6 +20,10 @@ const diagnosticErrorType = (value: unknown): string => {
 // fall through to a raw JSON dump like `{ "folderId": "…" }`. Map them to
 // human copy here so any surface that formats them stays readable.
 const TAG_MESSAGES: Record<string, string> = {
+	PermissionRequestExpiredError:
+		"The agent restarted and this approval expired. Dismiss it and send a message to continue.",
+	PermissionRequestNotFoundError:
+		"This approval is no longer pending. It may have been resolved on another device.",
 	GitNotARepoError: "This folder isn't a Git repository.",
 	DirectoryUnavailableError: "This directory is unavailable.",
 	GitFolderNotFoundError: "Project folder not found.",
