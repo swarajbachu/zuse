@@ -6,7 +6,9 @@ import { useSessionsStore } from "../../src/store/sessions.ts";
 
 // Provider/model inventory is independent of applied access and requires a live client.
 vi.mock("../../src/components/model-picker.tsx", () => ({
-	ModelPicker: () => null,
+	ModelPicker: ({ runtimeMode }: { runtimeMode: string }) => (
+		<span data-runtime-mode={runtimeMode} />
+	),
 }));
 
 vi.mock("../../src/lib/session-timeline-hooks.ts", async (original) => ({
@@ -41,5 +43,6 @@ describe("composer applied access", () => {
 		);
 		expect(html).toContain("Supervised");
 		expect(html).not.toContain("Full access");
+		expect(html).toContain('data-runtime-mode="approval-required"');
 	});
 });

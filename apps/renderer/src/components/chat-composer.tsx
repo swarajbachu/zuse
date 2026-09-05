@@ -1552,6 +1552,7 @@ export function ChatComposer({
 									<ComposerModelPicker
 										environmentId={qualifiedEnvironmentId}
 										session={session}
+										runtimeMode={appliedRuntimeMode}
 										fastModeAvailable={
 											findModelDescriptor(
 												composerCatalog,
@@ -2152,12 +2153,14 @@ function GoalEditorDialog({
 function ComposerModelPicker({
 	environmentId,
 	session,
+	runtimeMode,
 	fastModeAvailable,
 	onLevelChange,
 	onOpenChange,
 }: {
 	environmentId: EnvironmentId;
 	session: Session;
+	runtimeMode: RuntimeMode;
 	fastModeAvailable: boolean;
 	onLevelChange?: (level: string | null) => void;
 	onOpenChange?: (open: boolean) => void;
@@ -2234,7 +2237,7 @@ function ComposerModelPicker({
 		mode: "session" as const,
 		sessionId,
 		chatId: session.chatId,
-		runtimeMode: session.runtimeMode,
+		runtimeMode,
 		providerId,
 		currentModel: model,
 		onOpenChange,

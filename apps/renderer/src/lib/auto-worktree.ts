@@ -1,15 +1,16 @@
-import type {
-	ChatWorkspacePolicy,
+import {
+	type ChatWorkspacePolicy,
 	EnvironmentId,
-	FolderId,
-	RepositorySettings,
-	RuntimeMode,
+	type FolderId,
+	type RepositorySettings,
+	type RuntimeMode,
 } from "@zuse/contracts";
 
 import {
 	repositorySettingsKey,
 	useRepositorySettingsStore,
 } from "../store/repository-settings.ts";
+import { getActiveEnvironment } from "./rpc-client.ts";
 import {
 	resolveEnvironmentSettings,
 	useSettingsStore,
@@ -38,7 +39,9 @@ export async function resolveChatRuntimeMode(
 	projectId: FolderId,
 ): Promise<RuntimeMode> {
 	const [settings, repositorySettings] = await Promise.all([
-		resolveEnvironmentSettings(environmentId),
+		// Global preferences belong to the settings surface the user configured,
+		// not the destination sandbox's image. Capture that owner before awaiting.
+		resolveEnvironmentSettings(EnvironmentId.make(getActiveEnvironment())),
 		repositorySettingsFor(environmentId, projectId),
 	]);
 	return effectiveChatRuntimeMode(

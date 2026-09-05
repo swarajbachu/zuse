@@ -11,6 +11,7 @@ import {
 	effectiveChatRuntimeMode,
 	resolveChatRuntimeMode,
 } from "../../src/lib/auto-worktree.ts";
+import { getActiveEnvironment } from "../../src/lib/rpc-client.ts";
 import {
 	resetSessionTimelineClientBusForTest,
 	setSessionTimelineRpcClientForTest,
@@ -28,7 +29,7 @@ vi.mock("../../src/store/repository-settings.ts", () => ({
 afterEach(() => resetSessionTimelineClientBusForTest());
 
 describe("effectiveChatRuntimeMode", () => {
-	it("loads the selected environment's Full Access default before creating a draft", async () => {
+	it("loads the user's Full Access default before creating a cloud draft", async () => {
 		const requested: EnvironmentId[] = [];
 		setSessionTimelineRpcClientForTest(async (environmentId) => {
 			requested.push(environmentId);
@@ -49,7 +50,7 @@ describe("effectiveChatRuntimeMode", () => {
 		expect(
 			await resolveChatRuntimeMode(environmentId, FolderId.make("project-1")),
 		).toBe("full-access");
-		expect(requested).toEqual([environmentId]);
+		expect(requested).toEqual([getActiveEnvironment()]);
 	});
 	it("uses a repository permission override for new chats", () => {
 		expect(
