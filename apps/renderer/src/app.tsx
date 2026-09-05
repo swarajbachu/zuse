@@ -39,6 +39,7 @@ import {
 import { useActiveSessionById } from "./lib/environment-entity-hooks.ts";
 import { useGitWorkspaceResource } from "./lib/git-workspace-client-bus.ts";
 import { markRendererStartupMilestone } from "./lib/performance-marks.ts";
+import { installQueueOnlineRecovery } from "./lib/queue-recovery.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
 import {
@@ -316,6 +317,7 @@ function ReadyApp({
 	readonly onboardingCompleted: boolean;
 }) {
 	useEffect(() => installClientBusOnlineBridge(), []);
+	useEffect(() => installQueueOnlineRecovery(), []);
 	useEffect(() => {
 		let stop: (() => void) | undefined;
 		void startDesktopAnalytics().then((cleanup) => {

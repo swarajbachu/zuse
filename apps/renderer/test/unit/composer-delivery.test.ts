@@ -46,6 +46,7 @@ describe("composer cloud delivery routing", () => {
 				hasQueuedMessage: false,
 				runtimeStarting: false,
 				timelineLive: false,
+				platformOffline: false,
 			}),
 		).toBe(false);
 	});
@@ -58,6 +59,7 @@ describe("composer cloud delivery routing", () => {
 				hasQueuedMessage: false,
 				runtimeStarting: false,
 				timelineLive: true,
+				platformOffline: false,
 			}),
 		).toBe(true);
 	});
@@ -70,8 +72,32 @@ describe("composer cloud delivery routing", () => {
 				hasQueuedMessage: false,
 				runtimeStarting: false,
 				timelineLive: false,
+				platformOffline: false,
 			}),
 		).toBe(true);
+	});
+
+	it("holds a local send in the queue while the platform is offline", () => {
+		expect(
+			shouldQueueComposerMessage({
+				isCloudSession: false,
+				turnInFlight: false,
+				hasQueuedMessage: false,
+				runtimeStarting: false,
+				timelineLive: true,
+				platformOffline: true,
+			}),
+		).toBe(true);
+		expect(
+			shouldQueueComposerMessage({
+				isCloudSession: true,
+				turnInFlight: false,
+				hasQueuedMessage: false,
+				runtimeStarting: false,
+				timelineLive: true,
+				platformOffline: true,
+			}),
+		).toBe(false);
 	});
 
 	it("clears a draft only after delivery acceptance", async () => {

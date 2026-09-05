@@ -37,6 +37,7 @@ const makeHarness = (input?: {
 		previous: Options,
 		next: Options,
 	) => boolean;
+	requiresNetwork?: (options: Options) => boolean;
 }) => {
 	let online = input?.online ?? true;
 	let nextId = 0;
@@ -47,6 +48,7 @@ const makeHarness = (input?: {
 	const supervisor = createConnectionSupervisor<Options, Client>({
 		keyOf: (options) => options.key,
 		isOnline: () => online,
+		requiresNetwork: input?.requiresNetwork,
 		maxAutomaticAttempts: input?.maxAutomaticAttempts,
 		prepareOptions: input?.prepareOptions,
 		isRetryableCommandError: input?.isRetryableCommandError,
@@ -119,6 +121,65 @@ describe("connection supervisor", () => {
 			{ id: 1 },
 		]);
 		expect(calls).toBe(1);
+	});
+
+	test("keeps a network-free connection alive across platform offline edges", async () => {
+		const harness = makeHarness({
+			requiresNetwork: (options) => options.key !== "local",
+		});
+		const entry = harness.supervisor.get({ key: "local" });
+		const client = await runClient(entry.getClient());
+		expect(entry.snapshot()).toMatchObject({
+			status: "connected",
+			generation: 1,
+		});
+
+		harness.setOnline(false);
+
+		expect(entry.snapshot()).toMatchObject({
+			status: "connected",
+			generation: 1,
+		});
+		expect(harness.disposed).toEqual([]);
+		expect(harness.scheduled).toEqual([]);
+		await expect(runClient(entry.getClient())).resolves.toBe(client);
+
+		harness.setOnline(true);
+		expect(entry.snapshot()).toMatchObject({
+			status: "connected",
+			generation: 1,
+		});
+		expect(harness.created).toHaveLength(1);
+	});
+
+	test("connects a network-free connection while the platform is offline", async () => {
+		const harness = makeHarness({
+			online: false,
+			requiresNetwork: () => false,
+		});
+		const entry = harness.supervisor.get({ key: "local" });
+		expect(entry.snapshot().status).toBe("connecting");
+		await expect(runClient(entry.getClient())).resolves.toEqual({ id: 1 });
+		expect(entry.snapshot().status).toBe("connected");
+	});
+
+	test("gates only network connections on the platform online state", async () => {
+		const harness = makeHarness({
+			requiresNetwork: (options) => options.key === "remote",
+		});
+		const local = harness.supervisor.get({ key: "local" });
+		const remote = harness.supervisor.get({ key: "remote" });
+		const localClient = await runClient(local.getClient());
+		const remoteClient = await runClient(remote.getClient());
+
+		harness.setOnline(false);
+
+		expect(remote.snapshot().status).toBe("offline");
+		await waitUntil(() => harness.disposed.length === 1);
+		expect(harness.disposed).toEqual([remoteClient.id]);
+		await expect(runClient(remote.getClient())).rejects.toThrow("offline");
+		expect(local.snapshot().status).toBe("connected");
+		await expect(runClient(local.getClient())).resolves.toBe(localClient);
 	});
 
 	test("starts offline and connects on online wakeup without consuming retries", async () => {

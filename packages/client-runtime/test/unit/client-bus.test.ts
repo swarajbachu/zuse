@@ -783,6 +783,33 @@ describe("ClientBus", () => {
 		await bus.dispose();
 	});
 
+	it("passes the command's environment to commandFaultFor", async () => {
+		const faultFor = vi.fn(() => null);
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence: new MemoryPersistence(),
+			commandExecutor: {
+				execute: async () => {
+					throw new Error("socket closed");
+				},
+			},
+			commandFaultFor: faultFor,
+		});
+		await expect(
+			bus.dispatch({
+				kind: "messages.send",
+				commandId: CommandId.make("command-fault-environment"),
+				environmentId,
+				resource: timelineKey,
+				payload: { text: "hello" },
+				retry: "safe" as const,
+				createdAt: 1,
+			}),
+		).rejects.toThrow("socket closed");
+		expect(faultFor).toHaveBeenCalledWith(expect.any(Error), environmentId);
+		await bus.dispose();
+	});
+
 	it("persists safe commands before send and removes them after receipt", async () => {
 		const persistence = new MemoryPersistence();
 		const commandId = CommandId.make("command-1");

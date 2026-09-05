@@ -31,6 +31,7 @@ import { sessionMessageCommandReflected } from "../../src/lib/session-message-in
 import {
 	addOptimisticSessionMessage,
 	completeOlderSessionMessages,
+	environmentFaultFor,
 	getRendererClientBus,
 	loadOlderSessionMessages,
 	registerEnvironmentActivationForTest,
@@ -941,5 +942,25 @@ describe("renderer session timeline ClientBus adapter", () => {
 		});
 		lease.release();
 		unregister();
+	});
+});
+
+describe("environmentFaultFor", () => {
+	it("classifies a transport failure as failed unless the environment's network is down", () => {
+		const closed = new Error("WebSocket closed (1006).");
+		expect(environmentFaultFor(closed, false)).toEqual({
+			phase: "failed",
+			message: "WebSocket closed (1006).",
+		});
+		expect(environmentFaultFor(closed, true).phase).toBe("offline");
+	});
+
+	it("keeps auth-coded rejections as blocked-auth", () => {
+		expect(
+			environmentFaultFor(
+				new CloudWorkspaceOpError({ code: "not-allowed" }),
+				false,
+			).phase,
+		).toBe("blocked-auth");
 	});
 });

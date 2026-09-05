@@ -28,6 +28,7 @@ import { requestBrowserWebSocketUrl } from "./browser-session.ts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
+import { isPlatformOnline, subscribePlatformOnline } from "./network-status.ts";
 import {
 	LOCAL_RENDERER_STORAGE_SCOPE,
 	setActiveEnvironmentStorageScope,
@@ -73,6 +74,11 @@ export type PassiveRendererSessionHooks = Readonly<{
 }>;
 
 export const LOCAL_ENVIRONMENT_KEY = "local";
+
+/** Only WebSocket transports cross the network; the Electron bridge is in-process. */
+export const connectionRequiresNetwork = (
+	options: Pick<RendererConnectionOptions, "kind">,
+): boolean => options.kind === "websocket";
 
 const environmentConnections = new Map<string, RendererConnectionOptions>();
 type CloudWorkspaceRegistration = {
@@ -245,6 +251,18 @@ const optionsForEnvironment = (
 	return connectionOptions();
 };
 
+/**
+ * Whether reaching this environment depends on the network. Unknown ids are
+ * treated as network-backed: cloud workspaces register their transport inside
+ * the resolver's prepare step, after the platform offline check runs.
+ */
+export const environmentRequiresNetwork = (environmentId: string): boolean => {
+	const options =
+		environmentConnections.get(environmentId) ??
+		(environmentId === LOCAL_ENVIRONMENT_KEY ? connectionOptions() : undefined);
+	return options === undefined || connectionRequiresNetwork(options);
+};
+
 const prepareRendererConnectionOptions = async (
 	options: RendererConnectionOptions,
 ): Promise<RendererConnectionOptions> => {
@@ -262,7 +280,6 @@ const prepareRendererConnectionOptions = async (
 		: { ...options, wsUrl: await options.refreshWsUrl() };
 };
 
-let online = globalThis.navigator?.onLine ?? true;
 export const RENDERER_WEBSOCKET_OPEN_TIMEOUT = "3 seconds" as const;
 
 export const isIgnorableRendererFailure = (cause: unknown): boolean =>
@@ -327,7 +344,8 @@ const supervisor = createConnectionSupervisor<
 >({
 	keyOf: (options) => options.key,
 	prepareOptions: prepareRendererConnectionOptions,
-	isOnline: () => online,
+	isOnline: isPlatformOnline,
+	requiresNetwork: connectionRequiresNetwork,
 	isIgnorableFailure: isIgnorableRendererFailure,
 	maxAutomaticAttempts: 6,
 	schedule: (delayMs, reconnect) => {
@@ -730,15 +748,9 @@ export const disposeRpcClient = async (): Promise<void> => {
 	await supervisor.dispose();
 };
 
+subscribePlatformOnline(() => supervisor.setOnline(isPlatformOnline()));
+
 if (typeof window !== "undefined") {
-	window.addEventListener("online", () => {
-		online = true;
-		supervisor.setOnline(true);
-	});
-	window.addEventListener("offline", () => {
-		online = false;
-		supervisor.setOnline(false);
-	});
 	window.addEventListener("pagehide", () => {
 		void disposeRpcClient();
 	});

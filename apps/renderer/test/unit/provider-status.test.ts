@@ -12,6 +12,7 @@ const toast = vi.hoisted(() => ({
 
 vi.mock("../../src/lib/rpc-client.ts", () => ({
 	LOCAL_ENVIRONMENT_KEY: "local",
+	environmentRequiresNetwork: () => false,
 	getActiveEnvironment: () => "local",
 }));
 

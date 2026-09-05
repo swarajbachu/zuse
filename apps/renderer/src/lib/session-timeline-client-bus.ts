@@ -39,8 +39,10 @@ import {
 } from "./client-command-outbox.ts";
 import { cloudCommandTransport } from "./cloud-command-transport.ts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
+import { isPlatformOnline } from "./network-status.ts";
 import {
 	acquireRendererRpcSession,
+	environmentRequiresNetwork,
 	isAuthCodedConnectionError,
 	isCloudWorkspaceEnvironment,
 	isRpcClientTransportError,
@@ -1038,7 +1040,12 @@ export const registerEnvironmentActivation = (
 	};
 };
 
-const faultFor = (cause: unknown): EnvironmentFault => {
+/** Classify a transport failure; `networkOffline` is true only when the
+ * environment's transport crosses the network and the platform is offline. */
+export const environmentFaultFor = (
+	cause: unknown,
+	networkOffline: boolean,
+): EnvironmentFault => {
 	const code =
 		typeof cause === "object" && cause !== null && "code" in cause
 			? String(cause.code)
@@ -1049,20 +1056,28 @@ const faultFor = (cause: unknown): EnvironmentFault => {
 		(cause instanceof Error && cause.message !== ""
 			? cause.message
 			: (presentation?.kind ?? String(cause)));
-	const phase: EnvironmentFault["phase"] =
-		globalThis.navigator?.onLine === false
-			? "offline"
-			: presentation?.kind === "update-required"
-				? "update-required"
-				: presentation?.kind === "cloud-access-required" ||
-						presentation?.kind === "cloud-access-unavailable"
-					? "revoked"
-					: isAuthCodedConnectionError(cause) ||
-							presentation?.kind === "sign-in-required"
-						? "blocked-auth"
-						: "failed";
+	const phase: EnvironmentFault["phase"] = networkOffline
+		? "offline"
+		: presentation?.kind === "update-required"
+			? "update-required"
+			: presentation?.kind === "cloud-access-required" ||
+					presentation?.kind === "cloud-access-unavailable"
+				? "revoked"
+				: isAuthCodedConnectionError(cause) ||
+						presentation?.kind === "sign-in-required"
+					? "blocked-auth"
+					: "failed";
 	return { phase, message };
 };
+
+const faultFor = (
+	environmentId: EnvironmentId,
+	cause: unknown,
+): EnvironmentFault =>
+	environmentFaultFor(
+		cause,
+		environmentRequiresNetwork(environmentId) && !isPlatformOnline(),
+	);
 
 const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 	resolve: (environmentId, activation) =>
@@ -1080,7 +1095,11 @@ const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 						pendingFault = cause;
 						return;
 					}
-					reportPassiveSessionFault(environmentId, faultFor(cause), generation);
+					reportPassiveSessionFault(
+						environmentId,
+						faultFor(environmentId, cause),
+						generation,
+					);
 				});
 				try {
 					await registered?.prepareClient?.(session.client);
@@ -1102,14 +1121,14 @@ const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 						queueMicrotask(() => {
 							reportPassiveSessionFault(
 								environmentId,
-								faultFor(fault),
+								faultFor(environmentId, fault),
 								activeGeneration,
 							);
 						});
 					},
 				};
 			},
-			catch: faultFor,
+			catch: (cause) => faultFor(environmentId, cause),
 		}),
 };
 
@@ -1163,11 +1182,12 @@ const createBus = (): ClientBus<MemoizeClient> => {
 			cloudCommandEligibility(kind) !== undefined
 				? cloudCommandTransport
 				: undefined,
-		commandFaultFor: (cause) =>
-			isRpcClientTransportError(cause) ? faultFor(cause) : null,
+		commandFaultFor: (cause, environmentId) =>
+			isRpcClientTransportError(cause) ? faultFor(environmentId, cause) : null,
 		commandReflected: sessionMessageCommandReflected,
 		runtime: {
-			isOnline: () => globalThis.navigator?.onLine !== false,
+			isOnline: isPlatformOnline,
+			requiresNetwork: environmentRequiresNetwork,
 		},
 		synchronizer: {
 			synchronize: async <Data>(
@@ -1190,7 +1210,10 @@ const createBus = (): ClientBus<MemoizeClient> => {
 					if (!isRpcClientTransportError(cause)) return;
 					bus.reportConnectionFault(
 						environmentId,
-						{ phase: "failed", message: faultFor(cause).message },
+						{
+							phase: "failed",
+							message: faultFor(environmentId, cause).message,
+						},
 						generation,
 					);
 				}) as ResourceDriver<MemoizeClient, unknown>;

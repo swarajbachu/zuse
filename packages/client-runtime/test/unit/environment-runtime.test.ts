@@ -453,6 +453,47 @@ describe("EnvironmentRuntimeRegistry", () => {
 		await registry.dispose();
 	});
 
+	it("resolves a network-free environment while the platform is offline", async () => {
+		let resolves = 0;
+		const scheduled: Array<{ task: () => void; cancelled: boolean }> = [];
+		const registry = new EnvironmentRuntimeRegistry<{ id: number }>(
+			{
+				resolve: () =>
+					Effect.sync(() => ({
+						client: { id: ++resolves },
+						dispose: async () => undefined,
+					})),
+			},
+			{
+				isOnline: () => false,
+				requiresNetwork: (environmentId) =>
+					environmentId !== "environment-local",
+				schedule: (_delay, task) => {
+					const item = { task, cancelled: false };
+					scheduled.push(item);
+					return () => {
+						item.cancelled = true;
+					};
+				},
+			},
+		);
+		const local = registry.get(EnvironmentId.make("environment-local"));
+		const localLease = local.retain("connect");
+		await waitUntil(() => local.snapshot().phase === "connected");
+		expect(resolves).toBe(1);
+		expect(scheduled).toHaveLength(0);
+
+		const remote = registry.get(EnvironmentId.make("environment-remote"));
+		const remoteLease = remote.retain("connect");
+		await waitUntil(() => remote.snapshot().phase === "offline");
+		expect(resolves).toBe(1);
+		expect(scheduled).toHaveLength(1);
+
+		localLease.release();
+		remoteLease.release();
+		await registry.dispose();
+	});
+
 	it("recomputes activation per lease and closes after final network downgrade", async () => {
 		const activations: string[] = [];
 		let disposals = 0;
