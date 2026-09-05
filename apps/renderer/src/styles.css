@@ -790,25 +790,57 @@ body,
 		color: var(--message-heading);
 		font-weight: 600;
 	}
-	.fz-prose a {
+	.fz-prose a,
+	.composer-link {
 		color: color-mix(in oklch, var(--info) 92%, var(--foreground));
 		text-decoration: underline;
 		text-decoration-color: color-mix(in oklch, var(--info) 52%, transparent);
 		text-underline-offset: 0.2em;
 	}
-	.fz-prose a:has(.markdown-link-favicon) {
+	.fz-prose a:has(.markdown-link-favicon),
+	.composer-link {
 		font-weight: 500;
 		overflow-wrap: anywhere;
 		word-break: break-word;
 		text-decoration-color: color-mix(in oklch, currentColor 35%, transparent);
 		text-underline-offset: 0.18em;
 	}
-	.markdown-link-favicon {
+	.site-favicon {
 		display: inline-block;
 		width: 1em;
 		height: 1em;
-		margin-right: 0.3em;
 		vertical-align: -0.12em;
+	}
+	.site-favicon > img,
+	.site-favicon > svg {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		border-radius: 2px;
+	}
+	.markdown-link-favicon,
+	.composer-link-favicon {
+		margin-right: 0.3em;
+	}
+	.composer-link-favicon {
+		user-select: none;
+	}
+	.composer-link-widget {
+		display: inline-flex;
+		align-items: center;
+		max-width: 100%;
+		vertical-align: bottom;
+		cursor: pointer;
+		text-decoration: none;
+	}
+	.composer-link-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.composer-link-widget:hover .composer-link-label {
+		text-decoration: underline;
 	}
 	.fz-prose a:hover {
 		color: var(--info);

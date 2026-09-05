@@ -25,6 +25,7 @@ import remarkGfm from "remark-gfm";
 
 import { resolveMarkdownPreviewUrl } from "~/lib/file-preview";
 import { openExternal } from "~/lib/platform-capabilities";
+import { knownSiteLink } from "~/lib/site-link";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
@@ -101,7 +102,9 @@ function MarkdownLink({
 				{/^https?:\/\//i.test(href) ? (
 					<SiteFavicon url={href} className="markdown-link-favicon" />
 				) : null}
-				{children}
+				{typeof children === "string" && children === href
+					? (knownSiteLink(href)?.label ?? children)
+					: children}
 			</a>
 			<MenuPopup anchor={virtualAnchor} align="start" side="bottom">
 				<MenuItem
