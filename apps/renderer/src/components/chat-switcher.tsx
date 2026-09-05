@@ -1,4 +1,4 @@
-import type { IconSvgElement } from "@hugeicons/react";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import type { ChatId, Command, FolderId } from "@zuse/contracts";
 import {
 	Add01Icon,
@@ -105,12 +105,19 @@ export function ChatSwitcherDialog({
 								: row.command,
 					value: row,
 					label: row.kind === "chat" ? row.title : row.label,
-					icon:
-						row.kind === "chat"
-							? BubbleChatIcon
-							: row.kind === "settings"
-								? row.icon
-								: (COMMAND_ICONS[row.command] ?? CommandIcon),
+					icon: (
+						<HugeiconsIcon
+							icon={
+								row.kind === "chat"
+									? BubbleChatIcon
+									: row.kind === "settings"
+										? row.icon
+										: (COMMAND_ICONS[row.command] ?? CommandIcon)
+							}
+							aria-hidden
+							className="size-4 shrink-0 text-muted-foreground"
+						/>
+					),
 					shortcut:
 						row.kind === "command" ? formatShortcut(row.command) : undefined,
 					detail:

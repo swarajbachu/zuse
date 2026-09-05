@@ -1,6 +1,5 @@
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type { FolderId } from "@zuse/contracts";
-import { File01Icon } from "@zuse/icons/solid-rounded";
 import { useMemo, useState } from "react";
 import {
 	fileSearchFeedback,
@@ -12,6 +11,7 @@ import { useFileTreeResource } from "../lib/file-tree-resource-hooks.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
+import { FileIcon } from "./file-icon.tsx";
 import { CommandPaletteDialog } from "./ui/command-palette.tsx";
 
 const close = () => useUiStore.getState().setFileSearchOpen(false);
@@ -101,7 +101,13 @@ export function FileSearchDialog({
 					id: path,
 					value: path,
 					label: path.split("/").at(-1) ?? path,
-					icon: File01Icon,
+					icon: (
+						<FileIcon
+							name={path}
+							kind="file"
+							className="inline-flex size-4 shrink-0 items-center justify-center"
+						/>
+					),
 					detail: (
 						<span className="max-w-[45%] truncate text-xs text-muted-foreground">
 							{path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""}

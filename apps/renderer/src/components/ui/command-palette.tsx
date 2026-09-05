@@ -1,4 +1,4 @@
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	ArrowDown02Icon,
 	ArrowTurnDownIcon,
@@ -22,7 +22,7 @@ import { Kbd, KbdGroup } from "./kbd";
 export interface CommandPaletteItem<Value> {
 	readonly id: string;
 	readonly label: string;
-	readonly icon: IconSvgElement;
+	readonly icon: ReactNode;
 	readonly value: Value;
 	readonly detail?: ReactNode;
 	readonly shortcut?: string;
@@ -189,11 +189,7 @@ export function CommandPaletteDialog<Value>({
 																: "hover:bg-muted/60",
 														)}
 													>
-														<HugeiconsIcon
-															icon={item.icon}
-															aria-hidden
-															className="size-4 shrink-0 text-muted-foreground"
-														/>
+														{item.icon}
 														<span className="min-w-0 flex-1 truncate">
 															{item.label}
 														</span>
