@@ -530,6 +530,13 @@ body,
 	}
 }
 
+/* The drag gesture owns the cursor, including over child buttons and gaps. */
+html[data-sidebar-dragging],
+html[data-sidebar-dragging] * {
+	cursor: grabbing;
+	user-select: none;
+}
+
 /* Applied only while a sidebar is programmatically opened or closed, so
    manual resizing stays directly under the pointer. */
 .fz-sidebar-panel-motion {

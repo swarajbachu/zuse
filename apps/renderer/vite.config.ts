@@ -78,6 +78,8 @@ export default defineConfig({
 			...iconAliases,
 			"~": fileURLToPath(new URL("./src", import.meta.url)),
 		},
+		// One React instance across workspace packages and @base-ui entry
+		// points. A second copy makes `useEffect` read a null dispatcher.
 		dedupe: ["react", "react-dom"],
 	},
 	optimizeDeps: {

@@ -4,6 +4,7 @@ import {
 	type ChatId,
 	type CloudChatSummary,
 	EnvironmentId,
+	type Folder,
 	type FolderId,
 	type GitOriginInfo,
 	type ProviderId,
@@ -33,8 +34,8 @@ import {
 } from "@zuse/icons/solid-rounded";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
-	Fragment,
 	lazy,
+	type ReactNode,
 	Suspense,
 	useEffect,
 	useMemo,
@@ -42,10 +43,17 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "react";
+import { createPortal } from "react-dom";
 import { TypewriterText } from "~/components/typewriter-text.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { CompactEmptyState } from "~/components/ui/compact-empty-state";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
+import {
+	Menu,
+	MenuItem,
+	MenuPopup,
+	MenuSeparator,
+	MenuTrigger,
+} from "~/components/ui/menu";
 import { toastManager } from "~/components/ui/toast.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useAuth } from "~/hooks/use-auth.ts";
@@ -104,7 +112,16 @@ import {
 	useRendererSessionTimelines,
 } from "../lib/session-timeline-hooks.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
+import {
+	PROJECT_ICON_COLOR_IDS,
+	PROJECT_ICON_COLOR_STYLES,
+	type ProjectIconColorId,
+} from "../lib/sidebar-project-icon.ts";
 import { switchToEnvironment } from "../lib/switch-environment.ts";
+import {
+	type SidebarDropLine,
+	useSidebarOrganize,
+} from "../lib/use-sidebar-organize.ts";
 import { useArchivePreviewStore } from "../store/archive-preview.ts";
 import {
 	archiveChatWithConfirm,
@@ -344,6 +361,14 @@ export function ProjectsSidebar() {
 			shellViews,
 		],
 	);
+	const projectKeys = useMemo(
+		() =>
+			desktopCatalogEnabled
+				? logicalGroups.map((group) => group.key)
+				: folders.map((folder) => folder.id),
+		[desktopCatalogEnabled, folders, logicalGroups],
+	);
+	const organize = useSidebarOrganize(projectKeys);
 	const catalogViewState = environmentCatalogViewState({
 		initialized: catalogInitialized,
 		initializing: catalogInitializing,
@@ -379,14 +404,24 @@ export function ProjectsSidebar() {
 			) : null}
 			<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
 				<span>Projects</span>
-				<ProjectAddMenu />
+				<div className="flex items-center">
+					<NewProjectGroupButton
+						onCreate={() =>
+							organize.setGroupDialog({ kind: "create", projectKeys: [] })
+						}
+					/>
+					<ProjectAddMenu />
+				</div>
 			</div>
 			{showComputerControls ? (
 				<CatalogConnectionNotice entries={catalogEntries} />
 			) : null}
 			<SidebarErrorToasts />
 
-			<ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5">
+			<ul
+				data-sidebar-scroll
+				className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5"
+			>
 				{desktopCatalogEnabled ? (
 					<>
 						{catalogViewState === "loading" ? (
@@ -421,53 +456,97 @@ export function ProjectsSidebar() {
 								/>
 							</li>
 						) : null}
-						{logicalGroups.map((group) => {
-							const activeMember = group.members.find(
-								(member) => member.isActive,
-							);
-							const folder =
-								activeMember === undefined
-									? undefined
-									: folders.find((f) => f.id === activeMember.folderId);
-							if (activeMember !== undefined && folder !== undefined) {
-								return (
-									<ProjectGroup
-										key={group.key}
-										id={folder.id}
-										name={folder.name}
-										path={folder.path}
-										origin={origins[folder.id] ?? null}
-										isExpanded={
-											expanded[
-												environmentProjectKey(activeEnvironmentId, folder.id)
-											] === true
-										}
-										chats={chatsByProject[folder.id] ?? []}
-										projectSessions={sessionsByProject[folder.id] ?? []}
-										remoteChats={remoteChatRows(group)}
-										cloudChats={cloudChats.filter(
-											(chat) =>
-												chat.repositoryIdentity ===
-												repositoryIdentityForOrigin(origins[folder.id]),
-										)}
-										environmentId={EnvironmentId.make(activeEnvironmentId)}
-										onSelect={() => void select(folder.id)}
-										onToggleExpanded={() =>
-											onToggleExpanded(activeEnvironmentId, folder.id)
-										}
-										onRemove={() => void remove(folder.id)}
-									/>
-								);
-							}
-							return (
-								<LogicalCatalogGroup
-									key={group.key}
-									group={group}
-									isExpanded={expanded[group.key] === true}
-									onToggle={() => onToggleKey(group.key)}
-								/>
-							);
-						})}
+						{organize.nodes.map((node) =>
+							node.kind === "group" ? (
+								<UserProjectGroup
+									key={organize.sidebarGroupItemKey(node.group.id)}
+									group={node.group}
+									dropLine={organize.dropLineFor(
+										organize.sidebarGroupItemKey(node.group.id),
+									)}
+									dragProps={organize.groupDragProps(node.group.id)}
+									emptyDropActive={organize.isEmptyGroupDropActive(
+										node.group.id,
+									)}
+									emptyDropProps={organize.emptyGroupDropProps(node.group.id)}
+									onToggleCollapsed={() =>
+										organize.setGroupCollapsed(
+											node.group.id,
+											!node.group.collapsed,
+										)
+									}
+									onRename={() =>
+										organize.setGroupDialog({
+											kind: "rename",
+											groupId: node.group.id,
+											name: node.group.name,
+										})
+									}
+									onDissolve={() => organize.dissolveGroup(node.group.id)}
+									onSetIconColor={(color) =>
+										organize.setGroupIconColor(node.group.id, color)
+									}
+								>
+									{node.group.projectKeys.map((key) => {
+										const logical = logicalGroups.find(
+											(group) => group.key === key,
+										);
+										if (logical === undefined) return null;
+										return (
+											<SidebarLogicalRow
+												key={key}
+												group={logical}
+												folders={folders}
+												origins={origins}
+												chatsByProject={chatsByProject}
+												sessionsByProject={sessionsByProject}
+												cloudChats={cloudChats}
+												activeEnvironmentId={activeEnvironmentId}
+												expanded={expanded}
+												nested
+												dropLine={organize.dropLineFor(key)}
+												dragProps={organize.projectDragProps(
+													key,
+													node.group.id,
+												)}
+												onToggleExpanded={onToggleExpanded}
+												onToggleKey={onToggleKey}
+												onSelect={select}
+												onRemove={remove}
+												organize={organize}
+											/>
+										);
+									})}
+								</UserProjectGroup>
+							) : (
+								(() => {
+									const logical = logicalGroups.find(
+										(group) => group.key === node.key,
+									);
+									if (logical === undefined) return null;
+									return (
+										<SidebarLogicalRow
+											key={node.key}
+											group={logical}
+											folders={folders}
+											origins={origins}
+											chatsByProject={chatsByProject}
+											sessionsByProject={sessionsByProject}
+											cloudChats={cloudChats}
+											activeEnvironmentId={activeEnvironmentId}
+											expanded={expanded}
+											dropLine={organize.dropLineFor(node.key)}
+											dragProps={organize.projectDragProps(node.key, null)}
+											onToggleExpanded={onToggleExpanded}
+											onToggleKey={onToggleKey}
+											onSelect={select}
+											onRemove={remove}
+											organize={organize}
+										/>
+									);
+								})()
+							),
+						)}
 					</>
 				) : (
 					<>
@@ -479,38 +558,488 @@ export function ProjectsSidebar() {
 								/>
 							</li>
 						) : null}
-						{folders.map((folder) => (
-							<ProjectGroup
-								key={folder.id}
-								id={folder.id}
-								name={folder.name}
-								path={folder.path}
-								origin={origins[folder.id] ?? null}
-								isExpanded={
-									expanded[
-										environmentProjectKey(activeEnvironmentId, folder.id)
-									] === true
-								}
-								chats={chatsByProject[folder.id] ?? []}
-								projectSessions={sessionsByProject[folder.id] ?? []}
-								cloudChats={cloudChats.filter(
-									(chat) =>
-										chat.repositoryIdentity ===
-										repositoryIdentityForOrigin(origins[folder.id]),
-								)}
-								environmentId={EnvironmentId.make(activeEnvironmentId)}
-								onSelect={() => void select(folder.id)}
-								onToggleExpanded={() =>
-									onToggleExpanded(activeEnvironmentId, folder.id)
-								}
-								onRemove={() => void remove(folder.id)}
-							/>
-						))}
+						{organize.nodes.map((node) =>
+							node.kind === "group" ? (
+								<UserProjectGroup
+									key={organize.sidebarGroupItemKey(node.group.id)}
+									group={node.group}
+									dropLine={organize.dropLineFor(
+										organize.sidebarGroupItemKey(node.group.id),
+									)}
+									dragProps={organize.groupDragProps(node.group.id)}
+									emptyDropActive={organize.isEmptyGroupDropActive(
+										node.group.id,
+									)}
+									emptyDropProps={organize.emptyGroupDropProps(node.group.id)}
+									onToggleCollapsed={() =>
+										organize.setGroupCollapsed(
+											node.group.id,
+											!node.group.collapsed,
+										)
+									}
+									onRename={() =>
+										organize.setGroupDialog({
+											kind: "rename",
+											groupId: node.group.id,
+											name: node.group.name,
+										})
+									}
+									onDissolve={() => organize.dissolveGroup(node.group.id)}
+									onSetIconColor={(color) =>
+										organize.setGroupIconColor(node.group.id, color)
+									}
+								>
+									{node.group.projectKeys.map((key) => {
+										const folder = folders.find((entry) => entry.id === key);
+										if (folder === undefined) return null;
+										return (
+											<SidebarFolderRow
+												key={folder.id}
+												folder={folder}
+												origins={origins}
+												chatsByProject={chatsByProject}
+												sessionsByProject={sessionsByProject}
+												cloudChats={cloudChats}
+												activeEnvironmentId={activeEnvironmentId}
+												expanded={expanded}
+												nested
+												dropLine={organize.dropLineFor(folder.id)}
+												dragProps={organize.projectDragProps(
+													folder.id,
+													node.group.id,
+												)}
+												onToggleExpanded={onToggleExpanded}
+												onSelect={select}
+												onRemove={remove}
+												organize={organize}
+											/>
+										);
+									})}
+								</UserProjectGroup>
+							) : (
+								(() => {
+									const folder = folders.find((entry) => entry.id === node.key);
+									if (folder === undefined) return null;
+									return (
+										<SidebarFolderRow
+											key={folder.id}
+											folder={folder}
+											origins={origins}
+											chatsByProject={chatsByProject}
+											sessionsByProject={sessionsByProject}
+											cloudChats={cloudChats}
+											activeEnvironmentId={activeEnvironmentId}
+											expanded={expanded}
+											dropLine={organize.dropLineFor(folder.id)}
+											dragProps={organize.projectDragProps(folder.id, null)}
+											onToggleExpanded={onToggleExpanded}
+											onSelect={select}
+											onRemove={remove}
+											organize={organize}
+										/>
+									);
+								})()
+							),
+						)}
 					</>
 				)}
 			</ul>
 			<SidebarFooter />
+			{organize.groupDialog !== null ? (
+				<Suspense fallback={null}>
+					<RenameDialog
+						open
+						title={
+							organize.groupDialog.kind === "create"
+								? "New project group"
+								: "Rename group"
+						}
+						description={
+							organize.groupDialog.kind === "create"
+								? "Name a group to collect projects in the sidebar."
+								: "This name is only shown in the sidebar."
+						}
+						label="Group name"
+						value={
+							organize.groupDialog.kind === "rename"
+								? organize.groupDialog.name
+								: "New group"
+						}
+						onOpenChange={(open) => {
+							if (!open) organize.setGroupDialog(null);
+						}}
+						onRename={async (name) => {
+							const dialog = organize.groupDialog;
+							if (dialog === null) return;
+							if (dialog.kind === "create") {
+								organize.createGroup(name, dialog.projectKeys);
+							} else {
+								organize.renameGroup(dialog.groupId, name);
+							}
+							organize.setGroupDialog(null);
+						}}
+					/>
+				</Suspense>
+			) : null}
 		</aside>
+	);
+}
+
+function NewProjectGroupButton({ onCreate }: { onCreate: () => void }) {
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<button
+						type="button"
+						className="rounded p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+						aria-label="New project group"
+						onClick={onCreate}
+					>
+						<HugeiconsIcon icon={FolderAddIcon} className="size-3.5" />
+					</button>
+				}
+			/>
+			<TooltipPopup>New group</TooltipPopup>
+		</Tooltip>
+	);
+}
+
+type Organize = ReturnType<typeof useSidebarOrganize>;
+
+function IconColorPicker({
+	value,
+	onChange,
+}: {
+	value?: ProjectIconColorId;
+	onChange: (color: ProjectIconColorId | null) => void;
+}) {
+	return (
+		<div className="px-2 py-1.5">
+			<div className="mb-1.5 text-[11px] text-muted-foreground">Icon color</div>
+			<div className="flex flex-wrap gap-1.5">
+				<button
+					type="button"
+					aria-label="Default icon color"
+					aria-pressed={value === undefined}
+					onClick={() => onChange(null)}
+					className={cn(
+						"size-4 rounded-full border border-border bg-muted",
+						value === undefined && "ring-2 ring-foreground/70",
+					)}
+				/>
+				{PROJECT_ICON_COLOR_IDS.map((id) => (
+					<button
+						key={id}
+						type="button"
+						aria-label={`${id} icon color`}
+						aria-pressed={value === id}
+						onClick={() => onChange(id)}
+						className={cn(
+							"size-4 rounded-full",
+							PROJECT_ICON_COLOR_STYLES[id].swatch,
+							value === id && "ring-2 ring-foreground/70",
+						)}
+					/>
+				))}
+			</div>
+		</div>
+	);
+}
+
+function DropLine({ line }: { line: SidebarDropLine | null }) {
+	if (line === null) return null;
+	if (line === "into") {
+		return (
+			<span className="pointer-events-none absolute inset-0 rounded-md ring-1 ring-foreground/40" />
+		);
+	}
+	return (
+		<span
+			className={cn(
+				"pointer-events-none absolute inset-x-2 h-0.5 rounded bg-foreground/80",
+				line === "before" ? "-top-0.5" : "-bottom-0.5",
+			)}
+		/>
+	);
+}
+
+function UserProjectGroup({
+	group,
+	dropLine,
+	dragProps,
+	emptyDropActive,
+	emptyDropProps,
+	onToggleCollapsed,
+	onRename,
+	onDissolve,
+	onSetIconColor,
+	children,
+}: {
+	group: Organize["groups"][number];
+	dropLine: SidebarDropLine | null;
+	dragProps: ReturnType<Organize["groupDragProps"]>;
+	emptyDropActive: boolean;
+	emptyDropProps: ReturnType<Organize["emptyGroupDropProps"]>;
+	onToggleCollapsed: () => void;
+	onRename: () => void;
+	onDissolve: () => void;
+	onSetIconColor: (color: ProjectIconColorId | null) => void;
+	children: ReactNode;
+}) {
+	const [menuOpen, setMenuOpen] = useState(false);
+	const anchorRef = useRef<{ getBoundingClientRect: () => DOMRect } | null>(
+		null,
+	);
+	const Chevron = group.collapsed ? ChevronRight : ChevronDown;
+	return (
+		<li>
+			{/* biome-ignore lint/a11y/useSemanticElements: nested menu + drag handle. */}
+			<div
+				role="button"
+				tabIndex={0}
+				{...dragProps}
+				onClick={() => {
+					onToggleCollapsed();
+				}}
+				onKeyDown={(event) => {
+					if (event.key === "Enter" || event.key === " ") {
+						event.preventDefault();
+						onToggleCollapsed();
+					}
+				}}
+				onContextMenu={(event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					const rect = new DOMRect(event.clientX, event.clientY, 0, 0);
+					anchorRef.current = { getBoundingClientRect: () => rect };
+					setMenuOpen(true);
+				}}
+				className="group relative flex cursor-pointer select-none items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] transition-colors hover:bg-sidebar-accent/30"
+			>
+				<DropLine line={dropLine} />
+				<HugeiconsIcon
+					icon={Folder01Icon}
+					className={cn(
+						"size-3.5 shrink-0",
+						group.iconColor === undefined
+							? "text-muted-foreground"
+							: PROJECT_ICON_COLOR_STYLES[group.iconColor].icon,
+					)}
+				/>
+				<span className="min-w-0 flex-1 truncate">{group.name}</span>
+				<span className="tabular-nums text-[10px] text-muted-foreground/70">
+					{group.projectKeys.length}
+				</span>
+				<Chevron
+					aria-hidden="true"
+					className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100"
+				/>
+			</div>
+			<Menu open={menuOpen} onOpenChange={setMenuOpen}>
+				<MenuPopup
+					anchor={anchorRef.current ?? undefined}
+					align="start"
+					side="bottom"
+					className="min-w-[180px]"
+				>
+					<MenuItem onClick={onRename}>
+						<HugeiconsIcon icon={PencilIcon} className="size-3.5" />
+						Rename
+					</MenuItem>
+					<MenuSeparator />
+					<IconColorPicker value={group.iconColor} onChange={onSetIconColor} />
+					<MenuSeparator />
+					<MenuItem onClick={onDissolve}>
+						<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
+						Ungroup
+					</MenuItem>
+				</MenuPopup>
+			</Menu>
+			{group.collapsed ? null : (
+				<ul className="ms-2 flex flex-col gap-0.5 border-s border-sidebar-border/50 ps-1">
+					{group.projectKeys.length === 0 ? (
+						<li
+							{...emptyDropProps}
+							className={cn(
+								"rounded-md px-2 py-1 text-[12px] text-muted-foreground transition-colors",
+								emptyDropActive &&
+									"bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-inset ring-foreground/30",
+							)}
+						>
+							Drag projects here
+						</li>
+					) : (
+						children
+					)}
+				</ul>
+			)}
+		</li>
+	);
+}
+
+function SidebarLogicalRow({
+	group,
+	folders,
+	origins,
+	chatsByProject,
+	sessionsByProject,
+	cloudChats,
+	activeEnvironmentId,
+	expanded,
+	nested = false,
+	dropLine,
+	dragProps,
+	onToggleExpanded,
+	onToggleKey,
+	onSelect,
+	onRemove,
+	organize,
+}: {
+	group: LogicalProjectGroup;
+	folders: ReturnType<typeof useWorkspaceStore.getState>["folders"];
+	origins: Readonly<Record<string, GitOriginInfo | null>>;
+	chatsByProject: Readonly<Record<string, ReadonlyArray<Chat>>>;
+	sessionsByProject: Readonly<
+		Record<
+			string,
+			ReadonlyArray<{
+				readonly id: SessionId;
+				readonly chatId: ChatId;
+				readonly archivedAt: Date | null;
+				readonly status: SessionStatus;
+			}>
+		>
+	>;
+	cloudChats: ReadonlyArray<CloudChatSummary>;
+	activeEnvironmentId: string;
+	expanded: Record<string, boolean>;
+	nested?: boolean;
+	dropLine: SidebarDropLine | null;
+	dragProps: ReturnType<Organize["projectDragProps"]>;
+	onToggleExpanded: (environmentId: string, id: FolderId) => void;
+	onToggleKey: (key: string) => void;
+	onSelect: (folderId: FolderId) => Promise<void>;
+	onRemove: (folderId: FolderId) => Promise<void>;
+	organize: Organize;
+}) {
+	const activeMember = group.members.find((member) => member.isActive);
+	const folder =
+		activeMember === undefined
+			? undefined
+			: folders.find((entry) => entry.id === activeMember.folderId);
+	if (activeMember !== undefined && folder !== undefined) {
+		return (
+			<ProjectGroup
+				id={folder.id}
+				name={folder.name}
+				path={folder.path}
+				origin={origins[folder.id] ?? null}
+				isExpanded={
+					expanded[environmentProjectKey(activeEnvironmentId, folder.id)] ===
+					true
+				}
+				chats={chatsByProject[folder.id] ?? []}
+				projectSessions={sessionsByProject[folder.id] ?? []}
+				remoteChats={remoteChatRows(group)}
+				cloudChats={cloudChats.filter(
+					(chat) =>
+						chat.repositoryIdentity ===
+						repositoryIdentityForOrigin(origins[folder.id]),
+				)}
+				environmentId={EnvironmentId.make(activeEnvironmentId)}
+				nested={nested}
+				dropLine={dropLine}
+				dragProps={dragProps}
+				organize={organize}
+				projectKey={group.key}
+				onSelect={() => void onSelect(folder.id)}
+				onToggleExpanded={() =>
+					onToggleExpanded(activeEnvironmentId, folder.id)
+				}
+				onRemove={() => void onRemove(folder.id)}
+			/>
+		);
+	}
+	return (
+		<LogicalCatalogGroup
+			group={group}
+			isExpanded={expanded[group.key] === true}
+			nested={nested}
+			dropLine={dropLine}
+			dragProps={dragProps}
+			onToggle={() => onToggleKey(group.key)}
+		/>
+	);
+}
+
+function SidebarFolderRow({
+	folder,
+	origins,
+	chatsByProject,
+	sessionsByProject,
+	cloudChats,
+	activeEnvironmentId,
+	expanded,
+	nested = false,
+	dropLine,
+	dragProps,
+	onToggleExpanded,
+	onSelect,
+	onRemove,
+	organize,
+}: {
+	folder: Folder;
+	origins: Readonly<Record<string, GitOriginInfo | null>>;
+	chatsByProject: Readonly<Record<string, ReadonlyArray<Chat>>>;
+	sessionsByProject: Readonly<
+		Record<
+			string,
+			ReadonlyArray<{
+				readonly id: SessionId;
+				readonly chatId: ChatId;
+				readonly archivedAt: Date | null;
+				readonly status: SessionStatus;
+			}>
+		>
+	>;
+	cloudChats: ReadonlyArray<CloudChatSummary>;
+	activeEnvironmentId: string;
+	expanded: Record<string, boolean>;
+	nested?: boolean;
+	dropLine: SidebarDropLine | null;
+	dragProps: ReturnType<Organize["projectDragProps"]>;
+	onToggleExpanded: (environmentId: string, id: FolderId) => void;
+	onSelect: (folderId: FolderId) => Promise<void>;
+	onRemove: (folderId: FolderId) => Promise<void>;
+	organize: Organize;
+}) {
+	return (
+		<ProjectGroup
+			id={folder.id}
+			name={folder.name}
+			path={folder.path}
+			origin={origins[folder.id] ?? null}
+			isExpanded={
+				expanded[environmentProjectKey(activeEnvironmentId, folder.id)] === true
+			}
+			chats={chatsByProject[folder.id] ?? []}
+			projectSessions={sessionsByProject[folder.id] ?? []}
+			cloudChats={cloudChats.filter(
+				(chat) =>
+					chat.repositoryIdentity ===
+					repositoryIdentityForOrigin(origins[folder.id]),
+			)}
+			environmentId={EnvironmentId.make(activeEnvironmentId)}
+			nested={nested}
+			dropLine={dropLine}
+			dragProps={dragProps}
+			organize={organize}
+			projectKey={folder.id}
+			onSelect={() => void onSelect(folder.id)}
+			onToggleExpanded={() => onToggleExpanded(activeEnvironmentId, folder.id)}
+			onRemove={() => void onRemove(folder.id)}
+		/>
 	);
 }
 
@@ -955,10 +1484,16 @@ function LogicalCatalogGroup({
 	group,
 	isExpanded,
 	onToggle,
+	nested = false,
+	dropLine = null,
+	dragProps,
 }: {
 	group: LogicalProjectGroup;
 	isExpanded: boolean;
 	onToggle: () => void;
+	nested?: boolean;
+	dropLine?: SidebarDropLine | null;
+	dragProps?: ReturnType<Organize["projectDragProps"]>;
 }) {
 	const preferred = preferredGroupMember(group);
 	const rows = remoteChatRows(group);
@@ -970,59 +1505,67 @@ function LogicalCatalogGroup({
 		.join(", ");
 
 	return (
-		<Fragment>
-			<li>
-				<div className="group flex min-h-7 items-center gap-1.5 rounded-md px-2 transition-colors hover:bg-sidebar-accent/30 motion-reduce:transition-none">
+		<li>
+			<div
+				className={cn(
+					"group relative flex min-h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-2 transition-colors hover:bg-sidebar-accent/30 motion-reduce:transition-none",
+					nested && "ms-0",
+				)}
+				{...dragProps}
+			>
+				<DropLine line={dropLine} />
+				<button
+					type="button"
+					aria-expanded={isExpanded}
+					aria-controls={listId}
+					className="flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					onClick={() => {
+						onToggle();
+					}}
+				>
+					<span className="relative grid size-5 shrink-0 place-items-center">
+						<Avatar className="col-start-1 row-start-1 size-5 rounded transition-opacity duration-150 ease-out group-hover:opacity-0 motion-reduce:transition-none">
+							{avatarUrl !== null && (
+								<AvatarImage src={avatarUrl} alt={group.displayName} />
+							)}
+							<AvatarFallback className="rounded text-[10px]">
+								{initialsOf(group.origin?.owner ?? group.displayName)}
+							</AvatarFallback>
+						</Avatar>
+						<Chevron
+							aria-hidden="true"
+							className="col-start-1 row-start-1 size-3.5 text-muted-foreground opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100 motion-reduce:transition-none"
+						/>
+					</span>
+					<span className="min-w-0 flex-1 truncate text-[12px]">
+						{group.displayName}
+					</span>
+				</button>
+				{group.environmentPresence === "remote-only" ? (
+					<RemoteComputerIndicator label={memberLabels} />
+				) : null}
+				{preferred?.connected ? (
 					<button
 						type="button"
-						aria-expanded={isExpanded}
-						aria-controls={listId}
-						className="flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-						onClick={onToggle}
+						aria-label={`New chat in ${group.displayName}`}
+						onPointerDown={(event) => event.stopPropagation()}
+						className="rounded-md p-1 text-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
+						onClick={(event) => {
+							event.stopPropagation();
+							void switchToEnvironment({
+								environmentId: preferred.environmentId,
+								folderId: preferred.folderId,
+							}).then((result) => {
+								if (result.switched && result.selectedFolderId !== null)
+									openNewChatLanding(result.selectedFolderId);
+							});
+						}}
 					>
-						<span className="relative grid size-5 shrink-0 place-items-center">
-							<Avatar className="col-start-1 row-start-1 size-5 rounded transition-opacity duration-150 ease-out group-hover:opacity-0 motion-reduce:transition-none">
-								{avatarUrl !== null && (
-									<AvatarImage src={avatarUrl} alt={group.displayName} />
-								)}
-								<AvatarFallback className="rounded text-[10px]">
-									{initialsOf(group.origin?.owner ?? group.displayName)}
-								</AvatarFallback>
-							</Avatar>
-							<Chevron
-								aria-hidden="true"
-								className="col-start-1 row-start-1 size-3.5 text-muted-foreground opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100 motion-reduce:transition-none"
-							/>
-						</span>
-						<span className="min-w-0 flex-1 truncate text-[12px]">
-							{group.displayName}
-						</span>
+						<HugeiconsIcon icon={Edit01Icon} className="size-3.5" />
 					</button>
-					{group.environmentPresence === "remote-only" ? (
-						<RemoteComputerIndicator label={memberLabels} />
-					) : null}
-					{preferred?.connected ? (
-						<button
-							type="button"
-							aria-label={`New chat in ${group.displayName}`}
-							className="rounded-md p-1 text-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
-							onClick={(event) => {
-								event.stopPropagation();
-								void switchToEnvironment({
-									environmentId: preferred.environmentId,
-									folderId: preferred.folderId,
-								}).then((result) => {
-									if (result.switched && result.selectedFolderId !== null)
-										openNewChatLanding(result.selectedFolderId);
-								});
-							}}
-						>
-							<HugeiconsIcon icon={Edit01Icon} className="size-3.5" />
-						</button>
-					) : null}
-				</div>
-			</li>
-			<li id={listId} className="list-none" hidden={!isExpanded}>
+				) : null}
+			</div>
+			<div id={listId} hidden={!isExpanded}>
 				<ul aria-label={`${group.displayName} chats`}>
 					{rows.length === 0 ? (
 						<li className="px-12 py-1 text-[12px] text-muted-foreground">
@@ -1038,8 +1581,8 @@ function LogicalCatalogGroup({
 						/>
 					))}
 				</ul>
-			</li>
-		</Fragment>
+			</div>
+		</li>
 	);
 }
 
@@ -1162,6 +1705,11 @@ function ProjectGroup({
 	onSelect,
 	onToggleExpanded,
 	onRemove,
+	nested = false,
+	dropLine = null,
+	dragProps,
+	organize,
+	projectKey,
 }: {
 	id: FolderId;
 	name: string;
@@ -1183,6 +1731,11 @@ function ProjectGroup({
 	onSelect: () => void;
 	onToggleExpanded: () => void;
 	onRemove: () => void;
+	nested?: boolean;
+	dropLine?: SidebarDropLine | null;
+	dragProps?: ReturnType<Organize["projectDragProps"]>;
+	organize?: Organize;
+	projectKey?: string;
 }) {
 	const displayName = origin?.repo ?? name;
 	const avatarUrl = avatarUrlFor(origin);
@@ -1194,11 +1747,6 @@ function ProjectGroup({
 	const hiddenArchivedChatIds = useChatsStore(
 		(state) => state.hiddenArchivedChatIds,
 	);
-	const [menuOpen, setMenuOpen] = useState(false);
-	const anchorRef = useRef<{ getBoundingClientRect: () => DOMRect } | null>(
-		null,
-	);
-
 	const openRepositorySettings = () => {
 		setSettingsSection({ kind: "repository", projectId: id });
 		setView("settings");
@@ -1214,14 +1762,6 @@ function ProjectGroup({
 	const openProjectUsage = () => {
 		onSelect();
 		openUsage("project");
-	};
-
-	const onContextMenu = (e: React.MouseEvent) => {
-		e.preventDefault();
-		e.stopPropagation();
-		const rect = new DOMRect(e.clientX, e.clientY, 0, 0);
-		anchorRef.current = { getBoundingClientRect: () => rect };
-		setMenuOpen(true);
 	};
 
 	const visibleChats = useMemo(() => {
@@ -1319,129 +1859,167 @@ function ProjectGroup({
 	]);
 	const showHeaderAttention = headerAttention !== "idle" && !isExpanded;
 
+	const [menuOpen, setMenuOpen] = useState(false);
+	const anchorRef = useRef<{ getBoundingClientRect: () => DOMRect } | null>(
+		null,
+	);
 	const Chevron = isExpanded ? ChevronDown : ChevronRight;
 
 	return (
-		<Fragment>
+		<li>
 			{/* Project header toggles expansion only. Explicit actions below select
           the project when they need project context. */}
-			<li>
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							/* biome-ignore lint/a11y/useSemanticElements: this row contains nested action buttons. */
-							<div
-								role="button"
-								tabIndex={0}
-								onContextMenu={onContextMenu}
-								onClick={() => {
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						/* biome-ignore lint/a11y/useSemanticElements: this row contains nested action buttons. */
+						<div
+							role="button"
+							tabIndex={0}
+							{...dragProps}
+							onContextMenu={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								const rect = new DOMRect(event.clientX, event.clientY, 0, 0);
+								anchorRef.current = { getBoundingClientRect: () => rect };
+								setMenuOpen(true);
+							}}
+							onClick={() => {
+								onToggleExpanded();
+							}}
+							onKeyDown={(e) => {
+								if (e.key === "Enter" || e.key === " ") {
+									e.preventDefault();
 									onToggleExpanded();
-								}}
-								onKeyDown={(e) => {
-									if (e.key === "Enter" || e.key === " ") {
-										e.preventDefault();
-										onToggleExpanded();
-									}
-								}}
-								className="group flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent/40 focus-visible:bg-sidebar-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-							>
-								{/* Single 20px slot holds avatar (idle) and chevron (hover). Both
+								}
+							}}
+							className={cn(
+								"group relative flex cursor-pointer select-none items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent/40 focus-visible:bg-sidebar-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+								nested && "ms-0",
+							)}
+						>
+							<DropLine line={dropLine} />
+							{/* Single 20px slot holds avatar (idle) and chevron (hover). Both
               live in the same grid cell so the row never reflows; opacity
               fades between them. motion-reduce drops the transition. */}
-								<div className="relative grid size-5 shrink-0 place-items-center">
-									<Avatar
-										className={cn(
-											"col-start-1 row-start-1 size-5 rounded transition-opacity duration-150 ease-out",
-											"group-hover:opacity-0 motion-reduce:transition-none",
-											showHeaderAttention && "opacity-0",
-										)}
-									>
-										{avatarUrl !== null && (
-											<AvatarImage src={avatarUrl} alt={displayName} />
-										)}
-										<AvatarFallback className="rounded text-[10px]">
-											{fallbackText}
-										</AvatarFallback>
-									</Avatar>
-									{showHeaderAttention && (
-										<ChatAttentionIcon
-											state={headerAttention}
-											className={cn(
-												"col-start-1 row-start-1 transition-opacity duration-150 ease-out",
-												"group-hover:opacity-0 motion-reduce:transition-none",
-											)}
-											context="project"
-										/>
+							<div className="relative grid size-5 shrink-0 place-items-center">
+								<Avatar
+									className={cn(
+										"col-start-1 row-start-1 size-5 rounded transition-opacity duration-150 ease-out",
+										"group-hover:opacity-0 motion-reduce:transition-none",
+										showHeaderAttention && "opacity-0",
 									)}
-									<Chevron
-										aria-hidden="true"
-										className={cn(
-											"col-start-1 row-start-1 size-3.5 text-muted-foreground opacity-0 transition-opacity duration-150 ease-out",
-											"group-hover:opacity-100 motion-reduce:transition-none",
-										)}
-									/>
-								</div>
-								<span
-									className="min-w-0 flex-1 truncate text-[12px]"
-									title={
-										origin
-											? `${origin.owner}/${origin.repo} · ${displayPath(path)}`
-											: displayPath(path)
-									}
 								>
-									{displayName}
-								</span>
-								<Tooltip>
-									<TooltipTrigger
-										render={
-											<button
-												type="button"
-												onClick={(event) => {
-													event.stopPropagation();
-													openRepositorySettings();
-												}}
-												className="rounded-md p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
-												aria-label={`Settings for ${displayName}`}
-											>
-												<HugeiconsIcon
-													icon={Settings01Icon}
-													className="size-3.5"
-												/>
-											</button>
-										}
+									{avatarUrl !== null && (
+										<AvatarImage src={avatarUrl} alt={displayName} />
+									)}
+									<AvatarFallback className="rounded text-[10px]">
+										{fallbackText}
+									</AvatarFallback>
+								</Avatar>
+								{showHeaderAttention && (
+									<ChatAttentionIcon
+										state={headerAttention}
+										className={cn(
+											"col-start-1 row-start-1 transition-opacity duration-150 ease-out",
+											"group-hover:opacity-0 motion-reduce:transition-none",
+										)}
+										context="project"
 									/>
-									<TooltipPopup>Repository settings</TooltipPopup>
-								</Tooltip>
-								<NewChatButton projectId={id} />
+								)}
+								<Chevron
+									aria-hidden="true"
+									className={cn(
+										"col-start-1 row-start-1 size-3.5 text-muted-foreground opacity-0 transition-opacity duration-150 ease-out",
+										"group-hover:opacity-100 motion-reduce:transition-none",
+									)}
+								/>
 							</div>
-						}
-					/>
-					<TooltipPopup
-						side="right"
-						align="start"
-						sideOffset={8}
-						className="border border-border/60 bg-popover/95 shadow-overlay-md backdrop-blur-xl"
-					>
-						<SidebarProjectHoverCard
-							name={displayName}
-							path={path}
-							chatCount={chatRows.length}
-						/>
-					</TooltipPopup>
-				</Tooltip>
-
-				<ProjectContextMenu
-					open={menuOpen}
-					anchor={anchorRef.current}
-					onOpenSettings={openRepositorySettings}
-					onOpenArchives={openArchives}
-					onOpenUsage={openProjectUsage}
-					onRemove={onRemove}
-					onOpenChange={setMenuOpen}
+							<span
+								className="min-w-0 flex-1 truncate text-[12px]"
+								title={
+									origin
+										? `${origin.owner}/${origin.repo} · ${displayPath(path)}`
+										: displayPath(path)
+								}
+							>
+								{displayName}
+							</span>
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<button
+											type="button"
+											onClick={(event) => {
+												event.stopPropagation();
+												openRepositorySettings();
+											}}
+											className="rounded-md p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
+											onPointerDown={(event) => event.stopPropagation()}
+											aria-label={`Settings for ${displayName}`}
+										>
+											<HugeiconsIcon
+												icon={Settings01Icon}
+												className="size-3.5"
+											/>
+										</button>
+									}
+								/>
+								<TooltipPopup>Repository settings</TooltipPopup>
+							</Tooltip>
+							<NewChatButton projectId={id} />
+						</div>
+					}
 				/>
-			</li>
+				<TooltipPopup
+					side="right"
+					align="start"
+					sideOffset={8}
+					className="border border-border/60 bg-popover/95 shadow-overlay-md backdrop-blur-xl"
+				>
+					<SidebarProjectHoverCard
+						name={displayName}
+						path={path}
+						chatCount={chatRows.length}
+					/>
+				</TooltipPopup>
+			</Tooltip>
 
-			<li className="list-none" hidden={!isExpanded}>
+			<ProjectContextMenu
+				open={menuOpen}
+				anchor={anchorRef.current}
+				onOpenChange={setMenuOpen}
+				onOpenSettings={openRepositorySettings}
+				onOpenArchives={openArchives}
+				onOpenUsage={openProjectUsage}
+				onRemove={onRemove}
+				groups={organize?.groups ?? []}
+				currentGroupId={
+					projectKey === undefined
+						? null
+						: (organize?.inGroupId(projectKey) ?? null)
+				}
+				onNewGroup={
+					projectKey === undefined
+						? undefined
+						: () =>
+								organize?.setGroupDialog({
+									kind: "create",
+									projectKeys: [projectKey],
+								})
+				}
+				onAddToGroup={
+					projectKey === undefined
+						? undefined
+						: (groupId) => organize?.addToGroup(projectKey, groupId)
+				}
+				onRemoveFromGroup={
+					projectKey === undefined
+						? undefined
+						: () => organize?.removeFromGroup(projectKey)
+				}
+			/>
+			<div hidden={!isExpanded}>
 				<ul aria-label={`${displayName} chats`}>
 					{chatRows.length === 0 && (
 						<li className="px-12 py-1 text-[12px] text-muted-foreground">
@@ -1471,8 +2049,8 @@ function ProjectGroup({
 						),
 					)}
 				</ul>
-			</li>
-		</Fragment>
+			</div>
+		</li>
 	);
 }
 
@@ -1643,30 +2221,106 @@ function CloudChatRow({
 	);
 }
 
+function AddToGroupFlyout({
+	groups,
+	onAddToGroup,
+	onClose,
+}: {
+	groups: Organize["groups"];
+	onAddToGroup: (groupId: string) => void;
+	onClose: () => void;
+}) {
+	const itemRef = useRef<HTMLDivElement>(null);
+	const [open, setOpen] = useState(false);
+	const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+	const closeTimer = useRef<number | null>(null);
+
+	const show = () => {
+		if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+		const rect = itemRef.current?.getBoundingClientRect();
+		if (rect !== undefined) {
+			setPos({ top: rect.top, left: rect.right + 4 });
+		}
+		setOpen(true);
+	};
+	const hide = () => {
+		closeTimer.current = window.setTimeout(() => setOpen(false), 120);
+	};
+
+	return (
+		<div
+			ref={itemRef}
+			onPointerEnter={show}
+			onPointerLeave={hide}
+			className="flex min-h-7 w-full cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-accent hover:text-accent-foreground"
+		>
+			<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
+			<span className="min-w-0 flex-1">Add to group</span>
+			<ChevronRight className="size-3.5 opacity-80" />
+			{open && pos !== null
+				? createPortal(
+						<div
+							onPointerEnter={show}
+							onPointerLeave={hide}
+							className="fixed z-50 min-w-[160px] rounded-lg border-glass bg-glass p-1 text-popover-foreground"
+							style={{ top: pos.top, left: pos.left }}
+						>
+							{groups.map((group) => (
+								<button
+									key={group.id}
+									type="button"
+									onClick={() => {
+										onAddToGroup(group.id);
+										onClose();
+									}}
+									className="flex min-h-7 w-full items-center rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-accent hover:text-accent-foreground"
+								>
+									{group.name}
+								</button>
+							))}
+						</div>,
+						document.body,
+					)
+				: null}
+		</div>
+	);
+}
+
 function ProjectContextMenu({
 	open,
 	anchor,
+	onOpenChange,
 	onOpenSettings,
 	onOpenArchives,
 	onOpenUsage,
 	onRemove,
-	onOpenChange,
+	groups,
+	currentGroupId,
+	onNewGroup,
+	onAddToGroup,
+	onRemoveFromGroup,
 }: {
 	open: boolean;
 	anchor: { getBoundingClientRect: () => DOMRect } | null;
+	onOpenChange: (open: boolean) => void;
 	onOpenSettings: () => void;
 	onOpenArchives: () => void;
 	onOpenUsage: () => void;
 	onRemove: () => void;
-	onOpenChange: (open: boolean) => void;
+	groups: Organize["groups"];
+	currentGroupId: string | null;
+	onNewGroup?: () => void;
+	onAddToGroup?: (groupId: string) => void;
+	onRemoveFromGroup?: () => void;
 }) {
+	const otherGroups = groups.filter((group) => group.id !== currentGroupId);
 	return (
-		<Menu open={open} onOpenChange={onOpenChange}>
+		<Menu open={open} onOpenChange={onOpenChange} modal={false}>
 			<MenuPopup
 				anchor={anchor ?? undefined}
 				align="start"
 				side="bottom"
-				className="min-w-[180px]"
+				className="min-w-[196px]"
 			>
 				<MenuItem
 					onClick={onOpenSettings}
@@ -1689,6 +2343,32 @@ function ProjectContextMenu({
 					<HugeiconsIcon icon={Analytics01Icon} className="size-3.5" />
 					Usage
 				</MenuItem>
+				<MenuSeparator />
+				{onNewGroup !== undefined ? (
+					<MenuItem
+						onClick={onNewGroup}
+						className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
+					>
+						<HugeiconsIcon icon={FolderAddIcon} className="size-3.5" />
+						New group
+					</MenuItem>
+				) : null}
+				{onAddToGroup !== undefined && otherGroups.length > 0 ? (
+					<AddToGroupFlyout
+						groups={otherGroups}
+						onAddToGroup={onAddToGroup}
+						onClose={() => onOpenChange(false)}
+					/>
+				) : null}
+				{currentGroupId !== null && onRemoveFromGroup !== undefined ? (
+					<MenuItem
+						onClick={onRemoveFromGroup}
+						className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
+					>
+						Remove from group
+					</MenuItem>
+				) : null}
+				<MenuSeparator />
 				<MenuItem
 					onClick={onRemove}
 					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-red-300 hover:bg-red-500/20"
@@ -1739,6 +2419,7 @@ function NewChatButton({ projectId }: { projectId: FolderId }) {
 					<button
 						type="button"
 						onClick={onClick}
+						onPointerDown={(event) => event.stopPropagation()}
 						className="rounded-md p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
 						aria-label="New chat"
 					>
