@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
 	dispatch: vi.fn(),
+	patchActive: vi.fn(),
 }));
 
 vi.mock("../../src/lib/environment-entities.ts", () => ({
 	activeSessionById: () => null,
 	activeSessionsByProject: () => ({}),
-	overlayActiveEnvironmentShell: () => false,
+	overlayActiveEnvironmentShell: mocks.patchActive,
 	overlayEnvironmentShell: () => false,
 }));
 
@@ -36,8 +37,30 @@ const { useSessionsStore } = await import("../../src/store/sessions.ts");
 describe("session command environment routing", () => {
 	beforeEach(() => {
 		mocks.dispatch.mockReset();
+		mocks.patchActive.mockReset();
 		mocks.dispatch.mockResolvedValue({ result: undefined });
 		useSessionsStore.setState({ draftSession: null, error: null });
+	});
+
+	it("does not claim Full Access before a cloud mode change is applied", async () => {
+		let reject!: (cause: Error) => void;
+		mocks.dispatch.mockReturnValueOnce(
+			new Promise((_, fail) => {
+				reject = fail;
+			}),
+		);
+		const changing = useSessionsStore
+			.getState()
+			.setRuntimeMode(
+				SessionId.make("cloud-session"),
+				"full-access",
+				EnvironmentId.make("cloud-workspace"),
+			);
+		expect(mocks.patchActive).not.toHaveBeenCalled();
+		reject(new Error("Runtime unavailable"));
+		await changing;
+		expect(mocks.patchActive).not.toHaveBeenCalled();
+		expect(useSessionsStore.getState().error).toBe("Runtime unavailable");
 	});
 
 	it("keeps a new cloud tab's provider mutation in its explicit workspace", async () => {

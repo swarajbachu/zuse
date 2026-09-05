@@ -694,13 +694,9 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			set({ draftSession: Session.make({ ...draft, runtimeMode }) });
 			return;
 		}
-		// Optimistic — patch the local row before the RPC settles so the toggle
-		// feels instant. Server-side update is also fast (single SQL UPDATE +
-		// in-memory cache poke), so the round-trip is invisible in practice.
+		// Access is an applied runtime setting, not optimistic intent. The
+		// qualified timeline publishes RuntimeModeSet after the command commits.
 		set({ error: null });
-		patchActiveSession(sessionId, (session) =>
-			Session.make({ ...session, runtimeMode }),
-		);
 		try {
 			const commandId = nextCommandId("session-runtime-mode");
 			await dispatchTimelineCommand(
@@ -717,12 +713,6 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			);
 		} catch (err) {
 			set({ error: formatError(err) });
-			// Best-effort revert via re-hydrate of the affected project.
-			const projectId = findSessionProject(
-				activeSessionsByProject(),
-				sessionId,
-			);
-			if (projectId !== null) await get().hydrate(projectId);
 		}
 	},
 	setPermissionMode: async (sessionId, mode, environmentId) => {

@@ -281,6 +281,14 @@ export function ChatComposer({
 		isDraft ? "cache-only" : "connect",
 		qualifiedEnvironmentId,
 	);
+	// Catalog placeholders describe launch intent. Only the session timeline
+	// knows which access mode the runtime actually applied (also across devices).
+	const appliedRuntimeMode = isDraft
+		? session.runtimeMode
+		: (timeline.projection?.runtimeMode ?? session.runtimeMode);
+	const runtimeModePending = timeline.view.pendingCommands.some(
+		(command) => command.kind === "session.setRuntimeMode",
+	);
 	const goalRef = useMemo(
 		() => ({ environmentId: qualifiedEnvironmentId, sessionId }),
 		[qualifiedEnvironmentId, sessionId],
@@ -392,12 +400,21 @@ export function ChatComposer({
 		for (const req of Object.values(requestsById)) {
 			if (req.sessionId !== sessionId) continue;
 			// ExitPlanMode is approved on the plan card itself.
-			if (req.kind._tag === "Other" && req.kind.tool === "ExitPlanMode") {
+			if (
+				req.recoveryState !== "expired" &&
+				req.kind._tag === "Other" &&
+				req.kind.tool === "ExitPlanMode"
+			) {
 				continue;
 			}
 			out.push(req);
 		}
-		out.sort((a, b) => a.requestedAt.getTime() - b.requestedAt.getTime());
+		out.sort(
+			(a, b) =>
+				Number(a.recoveryState === "expired") -
+					Number(b.recoveryState === "expired") ||
+				a.requestedAt.getTime() - b.requestedAt.getTime(),
+		);
 		return out;
 	}, [requestsById, sessionId]);
 	const pendingPlanApprovalRequest = useMemo(
@@ -1282,6 +1299,7 @@ export function ChatComposer({
 					<div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
 						{headPermission !== undefined ? (
 							<PermissionCard
+								key={`${qualifiedEnvironmentId}:${headPermission.id}:${headPermission.recoveryState ?? "live"}`}
 								head={headPermission}
 								queueSize={pendingPermissions.length}
 								environmentId={qualifiedEnvironmentId}
@@ -1502,7 +1520,9 @@ export function ChatComposer({
 										sessionId={sessionId}
 										environmentId={qualifiedEnvironmentId}
 										providerId={session.providerId}
-										current={session.runtimeMode}
+										current={appliedRuntimeMode}
+										pending={runtimeModePending}
+										confirmed={isDraft || timeline.projection !== null}
 									/>
 									{goalCapable ? (
 										<GoalModeToggle
@@ -1655,21 +1675,25 @@ function RuntimeAccessPicker({
 	environmentId,
 	providerId,
 	current,
+	pending,
+	confirmed,
 }: {
 	sessionId: SessionId;
 	environmentId: EnvironmentId;
 	providerId: ProviderId;
 	current: RuntimeMode;
+	pending: boolean;
+	confirmed: boolean;
 }) {
 	const setRuntimeMode = useSessionsStore((state) => state.setRuntimeMode);
 	const meta = MODE_META[current];
 	const fixedSandbox = providerId === "cursor";
-	const highlighted = current === "full-access";
+	const highlighted = confirmed && current === "full-access";
 
 	return (
 		<Menu>
 			<MenuTrigger
-				disabled={fixedSandbox}
+				disabled={fixedSandbox || pending}
 				aria-label={
 					fixedSandbox ? "Cursor uses fixed sandbox access" : "Agent access"
 				}
@@ -1681,7 +1705,18 @@ function RuntimeAccessPicker({
 				)}
 			>
 				<HugeiconsIcon icon={meta.Icon} className="size-3.5" />
-				<span>{fixedSandbox ? "Sandboxed" : meta.label}</span>
+				<span>
+					{fixedSandbox
+						? "Sandboxed"
+						: confirmed
+							? meta.label
+							: "Checking access…"}
+				</span>
+				{pending ? (
+					<span role="status" aria-live="polite">
+						Updating…
+					</span>
+				) : null}
 				{fixedSandbox ? null : <ChevronDown className="size-3 opacity-60" />}
 			</MenuTrigger>
 			<MenuPopup side="top" align="start" className="w-64 p-1">
@@ -1700,7 +1735,7 @@ function RuntimeAccessPicker({
 							<MenuRadioItem
 								key={mode}
 								value={mode}
-								className="h-8 px-2 text-xs"
+								className="h-7 px-2 text-xs"
 							>
 								<span className="flex min-w-0 items-center gap-2 font-medium text-foreground">
 									<HugeiconsIcon icon={option.Icon} className="size-3.5" />

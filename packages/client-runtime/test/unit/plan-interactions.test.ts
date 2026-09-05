@@ -1,8 +1,13 @@
-import type { Message, SessionId } from "@zuse/contracts";
+import {
+	type Message,
+	PermissionRequest,
+	type SessionId,
+} from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
 	findPendingNativePlanApproval,
+	findPendingPlanApprovalRequest,
 	findPendingPlanInteraction,
 } from "../../src/plan-interactions";
 
@@ -17,6 +22,17 @@ const message = (id: string, content: Message["content"]): Message =>
 	}) as Message;
 
 describe("pending plan interactions", () => {
+	it("does not route an expired permission into an actionable plan card", () => {
+		const request = PermissionRequest.make({
+			id: "expired-plan",
+			sessionId,
+			kind: { _tag: "Other", tool: "ExitPlanMode", summary: "Plan" },
+			requestedAt: new Date(),
+			forcePrompt: true,
+			recoveryState: "expired",
+		});
+		expect(findPendingPlanApprovalRequest([request], sessionId)).toBeNull();
+	});
 	it("selects only the newest unresolved exact plan", () => {
 		const old = message("old", {
 			_tag: "tool_use",
