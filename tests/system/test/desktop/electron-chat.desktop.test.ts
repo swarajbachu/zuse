@@ -60,9 +60,43 @@ describe("built Electron application", () => {
 				.getByText(conversation.chat.title, { exact: true })
 				.first()
 				.click();
+			await electron.page.keyboard.press("ControlOrMeta+k");
+			const quickOpen = electron.page.getByRole("combobox", {
+				name: "Search chats and commands",
+			});
+			await quickOpen.fill(">settings");
+			await electron.page.keyboard.press("Enter");
+			await expect.poll(() => quickOpen.count()).toBe(0);
+			await electron.page.keyboard.press("ControlOrMeta+k");
+			await quickOpen.fill(">");
+			await electron.page.keyboard.press("Tab");
+			await expect
+				.poll(() => quickOpen.evaluate((el) => el === document.activeElement))
+				.toBe(true);
+			await electron.page.keyboard.press("ArrowDown");
+			await expect
+				.poll(() =>
+					electron.page.getByRole("option", { selected: true }).textContent(),
+				)
+				.toContain("Open project");
+			await quickOpen.fill(">settings");
+			await electron.page.keyboard.press("Enter");
+			await expect.poll(() => quickOpen.count()).toBe(0);
+			await electron.page.keyboard.press("ControlOrMeta+k");
+			await quickOpen.fill("no-matching-chat-ship-check");
+			await electron.page.keyboard.press("Enter");
+			await expect.poll(() => quickOpen.count()).toBe(1);
+			await electron.page.keyboard.press("Escape");
+			await expect.poll(() => quickOpen.count()).toBe(0);
 			const composer = electron.page
 				.locator(".cm-content[contenteditable='true']")
 				.last();
+			await electron.page.keyboard.press("ControlOrMeta+k");
+			await quickOpen.fill(">focus composer");
+			await electron.page.keyboard.press("Enter");
+			await expect
+				.poll(() => composer.evaluate((el) => el === document.activeElement))
+				.toBe(true);
 			await composer.fill("Electron system message");
 			await electron.page.getByRole("button", { name: "Send" }).click();
 			try {

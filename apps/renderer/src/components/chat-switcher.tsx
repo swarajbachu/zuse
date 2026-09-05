@@ -1,19 +1,33 @@
 import type { Chat, FolderId } from "@zuse/contracts";
 import fuzzysort from "fuzzysort";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { overlaySurface } from "~/components/ui/overlay-surface";
+import {
+	type KeyboardEvent,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { flushSync } from "react-dom";
+import { Dialog, DialogPopup } from "~/components/ui/dialog";
 import { cn } from "~/lib/utils";
+import {
+	type ChatSwitcherCommandRow,
+	commandRowsForQuery,
+	commandSearchQuery,
+} from "../lib/chat-switcher-commands.ts";
+import { dispatchCommand } from "../lib/commands.ts";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 
 /**
- * Cross-project chat quick-switcher (Cmd+K). Lists every non-archived chat
- * across every project; fuzzy-search by chat title or project name, then jump
- * with Enter. Selecting a chat in another project automatically switches the
- * active project too — that's handled inside `useChatsStore.select`, so this
- * component just decides *which* chat and calls it.
+ * Cross-project quick open (Cmd+K). Its default mode lists every non-archived
+ * chat across every project; prefixing the query with `>` instead searches
+ * safe application commands from the shared command registry. Selecting a
+ * chat in another project automatically switches the active project too —
+ * that's handled inside `useChatsStore.select`.
  *
  * Modeled on the keyboard-list pattern in `composer/slash-command-popover.tsx`
  * (fuzzysort + arrow-key highlight) but presented as a centered modal.
@@ -24,13 +38,16 @@ export function ChatSwitcher() {
 	return <ChatSwitcherInner />;
 }
 
-interface Row {
+interface ChatRow {
+	readonly kind: "chat";
 	readonly chat: Chat;
 	readonly projectId: FolderId;
 	readonly projectName: string;
 	/** Pre-lowercased title used for the empty-query recents label / fuzzy keys. */
 	readonly title: string;
 }
+
+type Row = ChatRow | ChatSwitcherCommandRow;
 
 const recencyOf = (chat: Chat): number =>
 	(chat.lastMessageAt ?? chat.updatedAt ?? chat.createdAt).getTime();
@@ -39,30 +56,24 @@ function ChatSwitcherInner() {
 	const folders = useWorkspaceStore((s) => s.folders);
 	const { chatsByProject } = useActiveEnvironmentEntities();
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
+	const inputRef = useRef<HTMLInputElement | null>(null);
+	const listId = useId();
+	const confirmedRef = useRef(false);
 
 	const close = () => useUiStore.getState().setChatSwitcherOpen(false);
 
-	// Restore focus to wherever the user was when they opened the switcher,
-	// but only when they dismiss without picking (selecting navigates focus).
-	const prevFocusRef = useRef<HTMLElement | null>(null);
-	useEffect(() => {
-		prevFocusRef.current = document.activeElement as HTMLElement | null;
-		return () => {
-			// no-op cleanup; explicit restore happens in `dismiss`.
-		};
-	}, []);
-
 	// All non-archived chats across all projects, with their project name.
-	const allRows = useMemo<ReadonlyArray<Row>>(() => {
+	const allRows = useMemo<ReadonlyArray<ChatRow>>(() => {
 		const projectName = new Map<FolderId, string>(
 			folders.map((f) => [f.id, f.name]),
 		);
-		const rows: Row[] = [];
+		const rows: ChatRow[] = [];
 		for (const [pid, chats] of Object.entries(chatsByProject)) {
 			const folderId = pid as FolderId;
 			for (const chat of chats) {
 				if (chat.archivedAt !== null) continue;
 				rows.push({
+					kind: "chat",
 					chat,
 					projectId: folderId,
 					projectName: projectName.get(folderId) ?? "Unknown project",
@@ -74,8 +85,10 @@ function ChatSwitcherInner() {
 	}, [folders, chatsByProject]);
 
 	const [query, setQuery] = useState("");
+	const commandMode = commandSearchQuery(query) !== null;
 
 	const rows = useMemo<ReadonlyArray<Row>>(() => {
+		if (commandMode) return commandRowsForQuery(query);
 		if (query.trim().length === 0) {
 			// Recents first across all projects.
 			return allRows
@@ -88,7 +101,7 @@ function ChatSwitcherInner() {
 			limit: 50,
 		});
 		return ranked.map((r) => r.obj);
-	}, [allRows, query]);
+	}, [allRows, commandMode, query]);
 
 	const [highlight, setHighlight] = useState(0);
 	useEffect(() => setHighlight(0), [rows]);
@@ -98,109 +111,140 @@ function ChatSwitcherInner() {
 		itemRefs.current[highlight]?.scrollIntoView({ block: "nearest" });
 	}, [highlight]);
 
-	const dismiss = () => {
-		close();
-		prevFocusRef.current?.focus?.();
-	};
-
 	const confirm = (row: Row | undefined) => {
 		if (row === undefined) return;
-		close();
+		confirmedRef.current = true;
+		// Focus commands target content made inert by the modal. Unmount the
+		// dialog before dispatch so its focus guard cannot steal the handoff.
+		flushSync(close);
+		if (row.kind === "command") {
+			dispatchCommand(row.command);
+			return;
+		}
 		useChatsStore.getState().select(row.chat.id);
 	};
 
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.preventDefault();
-				e.stopPropagation();
-				dismiss();
-				return;
-			}
-			if (rows.length === 0) return;
-			if (e.key === "ArrowDown") {
-				e.preventDefault();
-				e.stopPropagation();
-				setHighlight((h) => (h + 1) % rows.length);
-			} else if (e.key === "ArrowUp") {
-				e.preventDefault();
-				e.stopPropagation();
-				setHighlight((h) => (h - 1 + rows.length) % rows.length);
-			} else if (e.key === "Enter") {
-				e.preventDefault();
-				e.stopPropagation();
-				confirm(rows[highlight]);
-			}
-		};
-		window.addEventListener("keydown", onKey, true);
-		return () => window.removeEventListener("keydown", onKey, true);
-	}, [rows, highlight]);
+	const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+		if (e.nativeEvent.isComposing) return;
+		if (rows.length === 0) return;
+		if (e.key === "ArrowDown") {
+			e.preventDefault();
+			e.stopPropagation();
+			setHighlight((h) => (h + 1) % rows.length);
+		} else if (e.key === "ArrowUp") {
+			e.preventDefault();
+			e.stopPropagation();
+			setHighlight((h) => (h - 1 + rows.length) % rows.length);
+		} else if (e.key === "Enter") {
+			e.preventDefault();
+			e.stopPropagation();
+			confirm(rows[highlight]);
+		}
+	};
 
 	return (
-		<div
-			className="fixed inset-0 z-50 flex justify-center bg-black/40 px-4 py-[12vh] backdrop-blur-sm"
-			onMouseDown={dismiss}
+		<Dialog
+			open
+			onOpenChange={(open) => {
+				if (!open) close();
+			}}
 		>
-			<div
-				role="dialog"
-				aria-label="Switch chat"
-				className={cn(
-					"flex h-fit max-h-full w-full max-w-xl flex-col overflow-hidden",
-					overlaySurface,
-				)}
-				onMouseDown={(e) => e.stopPropagation()}
+			<DialogPopup
+				aria-label="Quick open"
+				className="max-w-xl overflow-hidden"
+				showCloseButton={false}
+				bottomStickOnMobile={false}
+				initialFocus={inputRef}
+				finalFocus={() => !confirmedRef.current}
 			>
 				<input
-					autoFocus
+					ref={inputRef}
+					role="combobox"
+					aria-expanded
+					aria-controls={listId}
+					aria-autocomplete="list"
+					aria-activedescendant={
+						rows[highlight] === undefined ? undefined : `${listId}-${highlight}`
+					}
+					onKeyDown={onKey}
 					value={query}
 					onChange={(e) => setQuery(e.target.value)}
-					placeholder="Search chats across all projects…"
-					className="w-full shrink-0 border-b border-border/60 bg-transparent px-3.5 py-2.5 text-sm outline-none placeholder:text-muted-foreground"
+					aria-label="Search chats and commands"
+					placeholder="Search chats… Type > for commands"
+					className="h-7 w-full shrink-0 border-b border-border/60 bg-transparent px-3.5 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring placeholder:text-muted-foreground"
 				/>
-				<div role="listbox" className="min-h-0 flex-1 overflow-y-auto p-1.5">
+				<div
+					id={listId}
+					role="listbox"
+					tabIndex={-1}
+					aria-label={commandMode ? "Commands" : "Chats"}
+					className="min-h-0 flex-1 overflow-y-auto p-1.5"
+				>
 					{rows.length === 0 ? (
 						<p className="px-4 py-6 text-center text-sm text-muted-foreground">
-							No chats found.
+							{commandMode ? "No commands found." : "No chats found."}
 						</p>
 					) : (
 						rows.map((row, i) => {
 							const active = i === highlight;
-							const isCurrent = row.chat.id === selectedChatId;
+							const isCurrent =
+								row.kind === "chat" && row.chat.id === selectedChatId;
 							return (
 								<button
-									key={row.chat.id}
+									key={
+										row.kind === "chat" ? row.chat.id : `command:${row.command}`
+									}
 									ref={(el) => {
 										itemRefs.current[i] = el;
 									}}
 									type="button"
 									role="option"
+									id={`${listId}-${i}`}
+									tabIndex={-1}
+									onMouseDown={(e) => e.preventDefault()}
 									aria-selected={active}
 									onMouseEnter={() => setHighlight(i)}
 									onClick={() => confirm(row)}
 									className={cn(
-										"flex min-h-8 w-full items-center gap-3 rounded-lg px-2.5 py-1.5 text-left text-sm",
+										"flex h-7 w-full items-center gap-3 rounded-lg px-2.5 text-left text-sm",
 										active
 											? "bg-accent text-accent-foreground"
 											: "hover:bg-muted/60",
 									)}
 								>
-									<span className="min-w-0 flex-1 truncate text-foreground">
-										{row.title}
-									</span>
-									{isCurrent && (
-										<span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
-											current
-										</span>
+									{row.kind === "command" ? (
+										<>
+											<span className="min-w-0 flex-1 truncate text-foreground">
+												{row.label}
+												<span className="ml-2 text-xs text-muted-foreground">
+													{row.description}
+												</span>
+											</span>
+											<span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
+												{row.group}
+											</span>
+										</>
+									) : (
+										<>
+											<span className="min-w-0 flex-1 truncate text-foreground">
+												{row.title}
+											</span>
+											{isCurrent && (
+												<span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
+													current
+												</span>
+											)}
+											<span className="shrink-0 truncate text-xs text-muted-foreground">
+												{row.projectName}
+											</span>
+										</>
 									)}
-									<span className="shrink-0 truncate text-xs text-muted-foreground">
-										{row.projectName}
-									</span>
 								</button>
 							);
 						})
 					)}
 				</div>
-			</div>
-		</div>
+			</DialogPopup>
+		</Dialog>
 	);
 }
