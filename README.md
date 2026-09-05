@@ -111,6 +111,7 @@ settings.
 
 ### Layout & UI
 - Three-pane layout: sidebar / chat / files+terminal
+- `Cmd+K` quick open searches chats across projects; type `>` to fuzzy-search application and navigation commands
 - Resizable panes
 - Top bar with active session info
 - PTY terminal (xterm.js + node-pty)
