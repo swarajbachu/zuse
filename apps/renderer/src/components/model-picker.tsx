@@ -21,12 +21,10 @@ import {
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
 import { ChevronDown } from "lucide-react";
-import { MetalFx } from "metal-fx";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 	type ReactNode,
-	type RefObject,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -110,16 +108,12 @@ type ModelPickerProps =
 			triggerDetail?: string;
 			optionsPanel?: ReactNode;
 			triggerClassName?: string;
-			metalFx?: boolean;
-			reflectionTargets?: ReadonlyArray<RefObject<HTMLElement | null>>;
 			onOpenChange?: (open: boolean) => void;
 	  }
 	| {
 			mode: "default";
 			composer?: boolean;
 			triggerClassName?: string;
-			metalFx?: boolean;
-			reflectionTargets?: ReadonlyArray<RefObject<HTMLElement | null>>;
 			onOpenChange?: (open: boolean) => void;
 	  };
 
@@ -595,18 +589,7 @@ export function ModelPicker(props: ModelPickerProps) {
 
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
-			{props.metalFx ? (
-				<MetalFx
-					preset="silver"
-					borderRadius={999}
-					reflectionTargets={props.reflectionTargets}
-					className="shrink-0"
-				>
-					{trigger}
-				</MetalFx>
-			) : (
-				trigger
-			)}
+			{trigger}
 			<PopoverPrimitive.Portal>
 				<PopoverPrimitive.Positioner
 					align="start"

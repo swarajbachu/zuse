@@ -797,15 +797,63 @@ html[data-sidebar-dragging] * {
 		color: var(--message-heading);
 		font-weight: 600;
 	}
-	.fz-prose a {
-		color: color-mix(in oklch, var(--info) 78%, var(--foreground));
+	.fz-prose a,
+	.compact-site-link,
+	.composer-link {
+		color: color-mix(in oklch, var(--info) 92%, var(--foreground));
 		text-decoration: underline;
-		text-decoration-color: color-mix(in oklch, var(--info) 36%, transparent);
+		text-decoration-color: color-mix(in oklch, var(--info) 52%, transparent);
 		text-underline-offset: 0.2em;
 	}
+	.fz-prose a:has(.markdown-link-favicon),
+	.compact-site-link,
+	.composer-link {
+		font-weight: 500;
+		overflow-wrap: anywhere;
+		word-break: break-word;
+		text-decoration-color: color-mix(in oklch, currentColor 35%, transparent);
+		text-underline-offset: 0.18em;
+	}
+	.site-favicon {
+		display: inline-block;
+		width: 1em;
+		height: 1em;
+		vertical-align: -0.12em;
+	}
+	.site-favicon > img,
+	.site-favicon > svg {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		border-radius: 2px;
+	}
+	.markdown-link-favicon,
+	.site-link-favicon {
+		margin-right: 0.3em;
+	}
+	.site-link-favicon {
+		user-select: none;
+	}
+	.compact-site-link {
+		display: inline-flex;
+		align-items: center;
+		max-width: 100%;
+		vertical-align: bottom;
+		cursor: pointer;
+		text-decoration: none;
+	}
+	.site-link-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.compact-site-link:hover .site-link-label {
+		text-decoration: underline;
+	}
 	.fz-prose a:hover {
-		color: color-mix(in oklch, var(--info) 88%, var(--foreground));
-		text-decoration-color: color-mix(in oklch, var(--info) 68%, transparent);
+		color: var(--info);
+		text-decoration-color: color-mix(in oklch, var(--info) 78%, transparent);
 	}
 	.fz-prose ul,
 	.fz-prose ol {
@@ -1142,6 +1190,32 @@ html[data-sidebar-dragging] * {
 	}
 	.fz-chip[data-kind="file"] {
 		cursor: pointer;
+	}
+	.fz-chip[data-kind="skill"] {
+		gap: 0.3rem;
+		padding-inline: 0.1rem;
+		border-color: transparent;
+		background-color: transparent;
+		box-shadow: none;
+		color: color-mix(in oklch, var(--lime) 72%, var(--foreground));
+		font-size: 0.92em;
+		font-weight: 500;
+	}
+	.fz-chip[data-kind="skill"] .fz-chip-icon {
+		width: 1.15em;
+		height: 1.15em;
+		color: color-mix(in oklch, var(--lime) 78%, var(--foreground));
+		background-color: transparent;
+	}
+	.fz-chip[data-kind="skill"] .fz-chip-label {
+		color: inherit;
+	}
+	.fz-chip[data-kind="skill"] .fz-chip-icon svg {
+		width: 1em;
+		height: 1em;
+	}
+	.dark .fz-chip[data-kind="skill"] {
+		box-shadow: none;
 	}
 	.fz-chip[data-kind="file"]:hover,
 	.fz-chip[data-kind="image"]:hover {

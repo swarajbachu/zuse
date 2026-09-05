@@ -76,6 +76,7 @@ import {
 	type TailnetShareOptions,
 } from "@zuse/tailnet";
 import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
+import { fetchSiteFavicon } from "@zuse/utils/site-favicon";
 import { zuseDesktopProfileName } from "@zuse/utils/zuse-user-data";
 import {
 	CredentialsServiceLive,
@@ -3523,6 +3524,7 @@ async function createMainWindow() {
 const ATTACHMENTS_HOST = "attachments";
 const POKEMON_HOST = "pokemon";
 const LINEAR_CONTEXT_HOST = "linear-context";
+const SITE_FAVICON_HOST = "site-favicon";
 
 const MIME_BY_EXT: Record<string, string> = {
 	png: "image/png",
@@ -3641,6 +3643,11 @@ const registerZuseProtocol = (): void => {
 
 	const handleAssetRequest = async (request: Request) => {
 		const url = new URL(request.url);
+		if (url.host === SITE_FAVICON_HOST) {
+			return fetchSiteFavicon(url.pathname.slice(1), (input, init) =>
+				net.fetch(input, init),
+			);
+		}
 		if (url.host === LINEAR_CONTEXT_HOST) {
 			try {
 				const requestedPath = decodeURIComponent(url.pathname);

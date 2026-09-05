@@ -92,7 +92,6 @@ export default defineConfig({
 			"react-dom",
 			"react-dom/client",
 			"@legendapp/list/react",
-			"metal-fx",
 			"effect",
 			"@pierre/diffs",
 			"@xterm/xterm",

@@ -8,6 +8,7 @@ import {
 	userBubbleColumnClass,
 	userBubbleRowClass,
 } from "./user-bubble-frame.tsx";
+import { UserMessageText } from "./user-message-text.tsx";
 import { SetupCardView } from "./worktree-setup-card.tsx";
 
 /**
@@ -83,7 +84,7 @@ export function ChatCreationPromptBubble({
 		<div className={userBubbleRowClass}>
 			<div className={userBubbleColumnClass}>
 				<div data-chat-user-bubble className={userBubbleClass}>
-					<div className="whitespace-pre-wrap break-words">{prompt}</div>
+					<UserMessageText text={prompt} />
 				</div>
 			</div>
 		</div>

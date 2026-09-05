@@ -33,14 +33,7 @@ import {
 	Upload01Icon,
 } from "@zuse/icons/solid-rounded";
 import { ChevronDown } from "lucide-react";
-import {
-	type ReactNode,
-	type RefObject,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { Card, CardPanel } from "~/components/ui/card";
 import {
@@ -469,8 +462,6 @@ export function ChatComposer({
 	const editorHostRef = useRef<HTMLDivElement | null>(null);
 	const editorViewRef = useRef<EditorView | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
-	const sendButtonRef = useRef<HTMLButtonElement | null>(null);
-	const ultraReflectionTargets = useMemo(() => [sendButtonRef], []);
 	const dragDepthRef = useRef(0);
 	const uploadOne = uploadAttachment;
 	const hydrateDraftSkills = useSessionsStore((s) => s.loadDraftSkills);
@@ -1439,7 +1430,7 @@ export function ChatComposer({
 							/>
 							<CardPanel className="relative flex items-stretch gap-2 px-3 pb-2 pt-3">
 								{trigger !== null && editorViewRef.current !== null ? (
-									trigger.kind === "slash" ? (
+									trigger.kind === "slash" || trigger.kind === "dollar" ? (
 										<SlashCommandPopover
 											trigger={trigger}
 											view={editorViewRef.current}
@@ -1547,7 +1538,6 @@ export function ChatComposer({
 										}
 										onLevelChange={setReasoningLevel}
 										onOpenChange={setModelPickerOpen}
-										reflectionTargets={ultraReflectionTargets}
 									/>
 									{!isDraft ? (
 										<ContextStatusPopover
@@ -1611,7 +1601,6 @@ export function ChatComposer({
 											<TooltipTrigger
 												render={
 													<DitherButton
-														ref={sendButtonRef}
 														variant="gradient"
 														className="size-6 border border-primary/40 text-white"
 														onClick={() => void submit()}
@@ -2124,14 +2113,12 @@ function ComposerModelPicker({
 	fastModeAvailable,
 	onLevelChange,
 	onOpenChange,
-	reflectionTargets,
 }: {
 	environmentId: EnvironmentId;
 	session: Session;
 	fastModeAvailable: boolean;
 	onLevelChange?: (level: string | null) => void;
 	onOpenChange?: (open: boolean) => void;
-	reflectionTargets?: ReadonlyArray<RefObject<HTMLElement | null>>;
 }) {
 	const sessionId = session.id;
 	const providerId = session.providerId;
@@ -2255,8 +2242,6 @@ function ComposerModelPicker({
 		<ModelPicker
 			{...modelPickerProps}
 			triggerDetail={activeLabel}
-			metalFx={level === "ultra"}
-			reflectionTargets={reflectionTargets}
 			onOpenChange={onOpenChange}
 			optionsPanel={
 				<div className="space-y-2">

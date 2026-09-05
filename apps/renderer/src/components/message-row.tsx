@@ -75,6 +75,8 @@ import {
 import { useChatLookups } from "./chat-lookups.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
+import { SkillIcon } from "./skill-icon.tsx";
+import { UserMessageText } from "./user-message-text.tsx";
 
 const isBrowserAnnotation = (
 	annotation: ComposerAnnotation,
@@ -466,7 +468,7 @@ function CompactRow({
 }
 
 /**
- * Strip the inline chip tokens (`[image:<id>]`, `@<path>`, `/<skill>`) from
+ * Strip the inline chip tokens (`[image:<id>]`, `@<path>`, `$<skill>`) from
  * text we render in the user bubble. The chips are surfaced as visual
  * thumbnails / chips below the bubble, so showing the raw token in-line is
  * just noise. Tokens for chip kinds the row didn't receive (legacy `user`
@@ -490,7 +492,8 @@ const stripChipTokens = (
 		out = out.replaceAll(`@${f.relPath}`, "");
 	}
 	for (const s of skillRefs) {
-		out = out.replaceAll(`/${s.name}`, `/${s.name}`);
+		out = out.replaceAll(`$${s.name}`, "");
+		out = out.replaceAll(`/${s.name}`, "");
 	}
 	return out.replace(/[ \t]{2,}/g, " ").trim();
 };
@@ -659,16 +662,15 @@ function UserBubble({
 							{(skillRefs ?? []).map((s) => (
 								<span
 									key={s.name}
-									className="inline-flex items-center rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]"
+									className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground/90"
 								>
-									/{s.name}
+									<SkillIcon className="size-3 text-primary/75" />
+									{s.name}
 								</span>
 							))}
 						</div>
 					) : null}
-					{display.length > 0 ? (
-						<div className="whitespace-pre-wrap break-words">{display}</div>
-					) : null}
+					{display.length > 0 ? <UserMessageText text={display} /> : null}
 					{goal ? (
 						<div className="mt-2 flex items-center gap-1.5 text-xs text-user-bubble-foreground/65">
 							<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />

@@ -25,6 +25,7 @@ import remarkGfm from "remark-gfm";
 
 import { resolveMarkdownPreviewUrl } from "~/lib/file-preview";
 import { openExternal } from "~/lib/platform-capabilities";
+import { knownSiteLink } from "~/lib/site-link";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
@@ -32,6 +33,7 @@ import { useWorktreesStore } from "~/store/worktrees";
 
 import { CodeBlock } from "./code-block.tsx";
 import { resolveFileOpenTarget, useFileChipContext } from "./file-chip.tsx";
+import { SiteFavicon } from "./site-favicon.tsx";
 import { Button } from "./ui/button.tsx";
 import {
 	Dialog,
@@ -97,7 +99,12 @@ function MarkdownLink({
 				}}
 				title={title}
 			>
-				{children}
+				{/^https?:\/\//i.test(href) ? (
+					<SiteFavicon url={href} className="markdown-link-favicon" />
+				) : null}
+				{typeof children === "string" && children === href
+					? (knownSiteLink(href)?.label ?? children)
+					: children}
 			</a>
 			<MenuPopup anchor={virtualAnchor} align="start" side="bottom">
 				<MenuItem

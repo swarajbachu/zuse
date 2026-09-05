@@ -17,14 +17,6 @@ describe("renderer dependency optimization", () => {
 		expect(viteConfig).not.toContain('"codemirror"');
 	});
 
-	it("prebundles the hook-based effect imported by the lazy composer", () => {
-		const modelPicker = rendererFile("src/components/model-picker.tsx");
-		const viteConfig = rendererFile("vite.config.ts");
-
-		expect(modelPicker).toContain('from "metal-fx"');
-		expect(viteConfig).toContain('"metal-fx"');
-	});
-
 	it("keeps the lazy chat list in the initial React dependency graph", () => {
 		const chatView = rendererFile("src/components/chat-view.tsx");
 		const viteConfig = rendererFile("vite.config.ts");

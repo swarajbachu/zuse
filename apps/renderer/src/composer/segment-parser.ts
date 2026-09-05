@@ -1,8 +1,8 @@
 import type { EditorState } from "@codemirror/state";
 
 import {
-	ComposerInput,
 	type AttachmentRef,
+	ComposerInput,
 	type FileRef,
 	type ProviderId,
 	type SkillRef,
@@ -12,7 +12,7 @@ import { allChips } from "../lib/codemirror/composer-chips.ts";
 
 /**
  * Walk the editor state and assemble a wire-shaped `ComposerInput`. The
- * returned `text` keeps `@<relPath>` / `/<skill>` chip tokens inline (drivers
+ * returned `text` keeps `@<relPath>` / `$<skill>` chip tokens inline (drivers
  * read them as plain text) but strips `[image:<id>]` markers — image
  * attachments cross the wire as real Anthropic image content blocks built
  * from the `attachments` array, so the inline marker would be redundant

@@ -13,6 +13,7 @@ import {
 	makeMeasuredJsonRpcSerialization,
 	makeRpcPayloadReporter,
 } from "@zuse/utils/rpc-payload-metrics";
+import { fetchSiteFavicon } from "@zuse/utils/site-favicon";
 import { Effect, Layer, Schema } from "effect";
 import {
 	HttpRouter,
@@ -693,6 +694,32 @@ export const wsServerProtocolLayer = (
 			if (opts.sshBridge === true) {
 				yield* router.add("GET", "/ssh", sshBridgeApp(log));
 			}
+			yield* router.add("GET", "/assets/site-favicon/*", (request) =>
+				Effect.gen(function* () {
+					const credential = sessionCredential(request, cookieName);
+					if (
+						requestRequiresAuthentication(
+							auth.policy,
+							request.headers,
+							browserSecurity.trustProxy,
+						)
+					) {
+						const authenticated =
+							credential !== null &&
+							(yield* auth
+								.verifyToken(credential)
+								.pipe(Effect.orElseSucceed(() => false)));
+						if (!authenticated) {
+							return yield* json({ error: "unauthorized" }, 401);
+						}
+					}
+					const pathname = new URL(request.url, "http://localhost").pathname;
+					const response = yield* Effect.promise(() =>
+						fetchSiteFavicon(pathname.slice("/assets/site-favicon/".length)),
+					);
+					return HttpServerResponse.fromWeb(response);
+				}),
+			);
 			yield* router.add("GET", "/assets/attachments/*", (request) =>
 				Effect.gen(function* () {
 					const credential = sessionCredential(request, cookieName);
