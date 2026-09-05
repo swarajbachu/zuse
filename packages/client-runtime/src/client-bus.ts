@@ -146,7 +146,10 @@ export type ClientBusOptions<Client> = Readonly<{
 		kind: string,
 	) => CloudCommandTransport | undefined;
 	/** Maps transport-level command failures into the shared connection state. */
-	commandFaultFor?: (cause: unknown) => EnvironmentFault | null;
+	commandFaultFor?: (
+		cause: unknown,
+		environmentId: EnvironmentId,
+	) => EnvironmentFault | null;
 	/** Proves that an applied command is present in its authoritative resource. */
 	commandReflected?: (
 		command: ClientCommand,
@@ -1685,7 +1688,9 @@ export class ClientBus<Client> {
 					try {
 						executionReceipt = await executor.execute(client, command);
 					} catch (cause) {
-						const fault = this.options.commandFaultFor?.(cause) ?? null;
+						const fault =
+							this.options.commandFaultFor?.(cause, command.environmentId) ??
+							null;
 						if (fault !== null) {
 							binding.runtime.reportFault(fault, generation);
 						} else {

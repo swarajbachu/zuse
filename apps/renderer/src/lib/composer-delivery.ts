@@ -61,7 +61,9 @@ export const waitingCloudMessagePresentation = (
 
 /**
  * A live turn still owns queue semantics. A disconnected local/SSH session also
- * queues until its runtime stream is authoritative. Cloud sessions are
+ * queues until its runtime stream is authoritative, and so does a local session
+ * while the platform is offline: the agent provider needs the network, so the
+ * message waits in the queue and drains on the online edge. Cloud sessions are
  * different: their control-plane mailbox is authoritative while compute sleeps,
  * so lack of a live stream must not divert a new turn back to live RPC.
  */
@@ -71,11 +73,12 @@ export const shouldQueueComposerMessage = (input: {
 	readonly hasQueuedMessage: boolean;
 	readonly runtimeStarting: boolean;
 	readonly timelineLive: boolean;
+	readonly platformOffline: boolean;
 }): boolean =>
 	input.turnInFlight ||
 	input.hasQueuedMessage ||
 	input.runtimeStarting ||
-	(!input.isCloudSession && !input.timelineLive);
+	(!input.isCloudSession && (!input.timelineLive || input.platformOffline));
 
 /** Keep the recoverable draft intact until the mailbox (or live runtime) acks. */
 export const commitAcceptedComposerDelivery = async (

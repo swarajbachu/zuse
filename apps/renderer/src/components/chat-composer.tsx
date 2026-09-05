@@ -129,6 +129,7 @@ import {
 } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { subscribeKeybindings } from "../lib/keybindings-client-bus.ts";
+import { usePlatformOnline } from "../lib/network-status.ts";
 import {
 	interruptSession,
 	queueSessionMessage,
@@ -161,6 +162,7 @@ import { AnnotationTray } from "./composer/annotation-tray.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { ContextTray } from "./composer/context-tray.tsx";
 import { FileTagPopover } from "./composer/file-tag-popover.tsx";
+import { NoConnectionTray } from "./composer/no-connection-tray.tsx";
 import {
 	EMULATED_PLAN_APPROVAL_PROMPT,
 	PlanApprovalTray,
@@ -336,8 +338,15 @@ export function ChatComposer({
 			...options,
 			providerId: session.providerId,
 		});
+	const platformOnline = usePlatformOnline();
+	// A message queued while offline must wait for the network. The server has
+	// no connectivity signal, so its immediate flush is suppressed here and the
+	// held queue drains through the shared online-edge recovery.
 	const queue = (input: ComposerInput) =>
-		queueSessionMessage(goalRef, input, { providerId: session.providerId });
+		queueSessionMessage(goalRef, input, {
+			providerId: session.providerId,
+			...(platformOnline ? {} : { flush: false }),
+		});
 	const saveComposerDraft = useComposerDraftsStore((s) => s.save);
 	const clearComposerDraft = useComposerDraftsStore((s) => s.clear);
 
@@ -1125,6 +1134,7 @@ export function ChatComposer({
 							hasQueuedMessage: hasQueued,
 							runtimeStarting: !isCloudSession && runtimeState === "starting",
 							timelineLive: timeline.view.sync === "live",
+							platformOffline: !platformOnline,
 						}),
 					})
 				: null;
@@ -1309,72 +1319,75 @@ export function ChatComposer({
 						/>
 					) : null}
 					<div className="relative">
-						{!isDraft ? (
-							<div
-								className={cn(
-									composerTraySurfaceClass,
-									"relative z-10 rounded-b-none rounded-t-[1.2rem] empty:hidden",
-								)}
-							>
-								<PlanApprovalTray
-									environmentId={qualifiedEnvironmentId}
-									sessionId={sessionId}
-									emulatedPlanReady={emulatedPlanReady}
-									onApproveEmulatedPlan={approveEmulatedPlan}
-									onCancelEmulatedPlan={cancelEmulatedPlan}
-								/>
-								{goalCapable && goal !== null ? (
-									<GoalBanner
-										goal={goal}
-										inPlanMode={inPlanMode}
-										onPause={() =>
-											void setSessionGoal({
-												ref: goalRef,
-												goal: {
-													status:
-														goal.status === "active" ? "paused" : "active",
-												},
-											}).catch(() => undefined)
-										}
-										onSave={(objective, tokenBudget) =>
-											void setSessionGoal({
-												ref: goalRef,
-												goal: {
-													objective,
-													status: "active",
-													tokenBudget,
-												},
-											}).catch(() => undefined)
-										}
-										onClear={() =>
-											void clearSessionGoal({ ref: goalRef }).catch(
-												() => undefined,
-											)
-										}
-									/>
-								) : null}
-								<ContextTray
-									environmentId={qualifiedEnvironmentId}
-									sessionId={sessionId}
-								/>
-								{!inPlanMode ? (
-									<ProjectPlanTray
+						<div
+							className={cn(
+								composerTraySurfaceClass,
+								"relative z-10 rounded-b-none rounded-t-[1.2rem] empty:hidden",
+							)}
+						>
+							<NoConnectionTray />
+							{!isDraft ? (
+								<>
+									<PlanApprovalTray
 										environmentId={qualifiedEnvironmentId}
-										key={sessionId}
+										sessionId={sessionId}
+										emulatedPlanReady={emulatedPlanReady}
+										onApproveEmulatedPlan={approveEmulatedPlan}
+										onCancelEmulatedPlan={cancelEmulatedPlan}
+									/>
+									{goalCapable && goal !== null ? (
+										<GoalBanner
+											goal={goal}
+											inPlanMode={inPlanMode}
+											onPause={() =>
+												void setSessionGoal({
+													ref: goalRef,
+													goal: {
+														status:
+															goal.status === "active" ? "paused" : "active",
+													},
+												}).catch(() => undefined)
+											}
+											onSave={(objective, tokenBudget) =>
+												void setSessionGoal({
+													ref: goalRef,
+													goal: {
+														objective,
+														status: "active",
+														tokenBudget,
+													},
+												}).catch(() => undefined)
+											}
+											onClear={() =>
+												void clearSessionGoal({ ref: goalRef }).catch(
+													() => undefined,
+												)
+											}
+										/>
+									) : null}
+									<ContextTray
+										environmentId={qualifiedEnvironmentId}
 										sessionId={sessionId}
 									/>
-								) : null}
-								<QueueTray
-									environmentId={qualifiedEnvironmentId}
-									sessionId={sessionId}
-									creationInProgress={creationInProgress}
-									waitingForSandbox={
-										cloudSummary !== null &&
-										cloudWorkspaceIsStarting(cloudSummary)
-									}
-								/>
-							</div>
-						) : null}
+									{!inPlanMode ? (
+										<ProjectPlanTray
+											environmentId={qualifiedEnvironmentId}
+											key={sessionId}
+											sessionId={sessionId}
+										/>
+									) : null}
+									<QueueTray
+										environmentId={qualifiedEnvironmentId}
+										sessionId={sessionId}
+										creationInProgress={creationInProgress}
+										waitingForSandbox={
+											cloudSummary !== null &&
+											cloudWorkspaceIsStarting(cloudSummary)
+										}
+									/>
+								</>
+							) : null}
+						</div>
 						{editingQueuedItem !== null ? (
 							<div className="mb-1 flex h-7 items-center justify-between rounded-md bg-muted/35 px-2.5 text-xs text-muted-foreground">
 								<span>Editing queued message</span>

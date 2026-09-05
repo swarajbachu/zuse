@@ -1,5 +1,11 @@
 import type { EnvironmentId, SessionId } from "@zuse/contracts";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { usePlatformOnline } from "../../lib/network-status.ts";
+import {
+	canResumeQueue,
+	holdQueueUntilOnline,
+	queueHoldReason,
+} from "../../lib/queue-recovery.ts";
 import {
 	reorderSessionQueue,
 	resumeSessionQueue,
@@ -34,6 +40,22 @@ export function QueueTray({
 	// Animate add / remove / reorder of queued rows. Clean default ease, no
 	// spring — keeps the tray feeling crisp rather than bouncy.
 	const listRef = useAutoAnimate<HTMLDivElement>();
+	const holdReason = queueHoldReason({ paused, runtime: timeline.runtime });
+	const resumable = canResumeQueue({
+		itemCount: items.length,
+		paused,
+		runtime: timeline.runtime,
+		creationInProgress,
+		waitingForSandbox,
+	});
+	// Messages queued while offline, or held by a turn that failed offline,
+	// should just go once the network is back. Register the queue with the
+	// shared recovery so it drains even after the user opens another chat.
+	const online = usePlatformOnline();
+	useEffect(() => {
+		if (!online && resumable)
+			holdQueueUntilOnline({ environmentId, sessionId });
+	}, [online, resumable, environmentId, sessionId]);
 	if (items.length === 0) return null;
 
 	const move = (from: number, to: number) => {
@@ -48,17 +70,25 @@ export function QueueTray({
 		);
 	};
 
-	const showPausedPill = paused && !running && !creationInProgress;
+	const showHeldPill = holdReason !== null && !running && !creationInProgress;
 
 	return (
 		<div ref={listRef}>
 			<div className="border-b border-border/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-				{waitingForSandbox ? "Waiting for sandbox" : "Queued"}
+				{waitingForSandbox
+					? "Waiting for sandbox"
+					: online
+						? "Queued"
+						: "Waiting for connection"}
 			</div>
-			{showPausedPill ? (
+			{showHeldPill ? (
 				<TrayPill
 					flush
-					title="Queue paused because you interrupted"
+					title={
+						holdReason === "paused"
+							? "Queue paused because you interrupted"
+							: "Queue held because the last turn failed"
+					}
 					actions={
 						<button
 							type="button"

@@ -56,6 +56,12 @@ export type ConnectionSupervisorDeps<Options, Client> = {
 	readonly createClient: (options: Options) => Promise<ClientSession<Client>>;
 	readonly validateClient?: (client: Client) => Promise<void>;
 	readonly isOnline: () => boolean;
+	/**
+	 * Whether this connection's transport crosses the network. In-process
+	 * transports (an Electron IPC bridge) ignore platform offline edges.
+	 * Default: true.
+	 */
+	readonly requiresNetwork?: (options: Options) => boolean;
 	readonly schedule: (delayMs: number, fn: () => void) => () => void;
 	readonly classifyError?: (cause: unknown) => "auth" | "transient";
 	readonly isRetryableCommandError?: (cause: unknown) => boolean;
@@ -146,7 +152,7 @@ class SupervisorEntryImpl<Options, Client>
 		this.options = options;
 		this.state = {
 			key,
-			status: deps.isOnline() ? "connecting" : "offline",
+			status: this.isOnline() ? "connecting" : "offline",
 			generation: 0,
 			attempt: 0,
 			error: null,
@@ -164,11 +170,11 @@ class SupervisorEntryImpl<Options, Client>
 		this.clearRetry();
 		this.invalidateClient();
 		this.emit({
-			status: this.deps.isOnline() ? "reconnecting" : "offline",
+			status: this.isOnline() ? "reconnecting" : "offline",
 			attempt: 0,
 			error: null,
 		});
-		if (this.deps.isOnline()) void this.ensureClient().catch(() => undefined);
+		if (this.isOnline()) void this.ensureClient().catch(() => undefined);
 	}
 
 	snapshot(): ConnectionSnapshot {
@@ -246,7 +252,7 @@ class SupervisorEntryImpl<Options, Client>
 	retryNow(): void {
 		if (this.removed) return;
 		this.clearRetry();
-		if (!this.deps.isOnline()) {
+		if (!this.isOnline()) {
 			this.emit({ status: "offline", error: null });
 			return;
 		}
@@ -262,6 +268,7 @@ class SupervisorEntryImpl<Options, Client>
 	setOnline(online: boolean): void {
 		if (this.removed) return;
 		if (!online) {
+			if (!this.needsNetwork()) return;
 			this.clearRetry();
 			this.invalidateClient();
 			this.emit({ status: "offline", error: null });
@@ -286,9 +293,18 @@ class SupervisorEntryImpl<Options, Client>
 		this.diagnostic("entry.removed");
 	}
 
+	private needsNetwork(): boolean {
+		return this.deps.requiresNetwork?.(this.options) ?? true;
+	}
+
+	/** Platform connectivity only gates transports that cross the network. */
+	private isOnline(): boolean {
+		return !this.needsNetwork() || this.deps.isOnline();
+	}
+
 	private async ensureClient(): Promise<Client> {
 		if (this.removed) throw new Error("connection removed");
-		if (!this.deps.isOnline()) {
+		if (!this.isOnline()) {
 			this.emit({ status: "offline", error: null });
 			throw new Error("offline");
 		}
@@ -359,7 +375,7 @@ class SupervisorEntryImpl<Options, Client>
 	}
 
 	private markFailure(cause: unknown): void {
-		if (!this.deps.isOnline()) {
+		if (!this.isOnline()) {
 			this.emit({ status: "offline", error: null });
 			return;
 		}
