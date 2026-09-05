@@ -28,6 +28,11 @@ export const COMMAND_META: Record<Command, CommandMeta> = {
 		description: "Open or close the settings page",
 		group: "Application",
 	},
+	"search-files": {
+		label: "Search files",
+		description: "Find and open a file in the current project or worktree",
+		group: "Application",
+	},
 	"close-tab": {
 		label: "Close tab",
 		description: "Close the active chat tab",
@@ -233,6 +238,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
 	{ key: "ctrl+`", command: "focus-next-pane" },
 	{ key: "ctrl+shift+`", command: "focus-prev-pane" },
 	{ key: "mod+k", command: "open-chat-switcher" },
+	{ key: "mod+p", command: "search-files" },
 	{ key: "enter", command: "composer.submit" },
 	{ key: "shift+enter", command: "composer.newline" },
 	{ key: "mod+enter", command: "composer.forceSubmit" },

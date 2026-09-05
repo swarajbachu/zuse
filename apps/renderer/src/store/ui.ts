@@ -188,6 +188,8 @@ type UiState = {
 	readonly view: View;
 	readonly setView: (view: View) => void;
 	readonly settingsSection: SettingsSection;
+	readonly fileSearchOpen: boolean;
+	readonly setFileSearchOpen: (open: boolean) => void;
 	readonly setSettingsSection: (section: SettingsSection) => void;
 	readonly activeMainTab: MainTab;
 	readonly usageScope: UsageScope;
@@ -435,6 +437,13 @@ export const useUiStore = create<UiState>((set, get) => ({
 	view: "chat",
 	setView: (view) => set({ view }),
 	settingsSection: { kind: "general" },
+	fileSearchOpen: false,
+	setFileSearchOpen: (fileSearchOpen) =>
+		set(
+			fileSearchOpen
+				? { fileSearchOpen, chatSwitcherOpen: false }
+				: { fileSearchOpen },
+		),
 	setSettingsSection: (section) => set({ settingsSection: section }),
 	activeMainTab: "chat",
 	usageScope: "global",
@@ -552,9 +561,18 @@ export const useUiStore = create<UiState>((set, get) => ({
 			persistRightPaneWidths(rightPaneLayoutByChat);
 			return { rightPaneLayoutByChat };
 		}),
-	setChatSwitcherOpen: (open) => set({ chatSwitcherOpen: open }),
+	setChatSwitcherOpen: (open) =>
+		set(
+			open
+				? { chatSwitcherOpen: open, fileSearchOpen: false }
+				: { chatSwitcherOpen: open },
+		),
 	toggleChatSwitcher: () =>
-		set((s) => ({ chatSwitcherOpen: !s.chatSwitcherOpen })),
+		set((s) =>
+			s.chatSwitcherOpen
+				? { chatSwitcherOpen: false }
+				: { chatSwitcherOpen: true, fileSearchOpen: false },
+		),
 	setFullScreen: (full) => set({ isFullScreen: full }),
 	setEnvironmentSummaryOpen: (open) => {
 		persistEnvironmentSummaryOpen(open);

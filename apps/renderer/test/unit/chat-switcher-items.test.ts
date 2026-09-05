@@ -4,6 +4,7 @@ import {
 	type ChatSwitcherChatRow,
 	chatSwitcherSections,
 } from "../../src/lib/chat-switcher-items.ts";
+import { SETTINGS_NAVIGATION } from "../../src/lib/settings-navigation.ts";
 
 const chatRow = (
 	index: number,
@@ -85,12 +86,36 @@ describe("quick open sections", () => {
 			"Recent chats",
 			"Quick actions",
 			"Settings",
+			"Workspace",
+			"Navigation",
 		]);
 		expect(
 			sections[1]?.rows.map((row) => row.kind === "command" && row.command),
-		).toEqual(["new-chat", "open-project", "toggle-terminal"]);
-		expect(sections[2]?.rows).toHaveLength(1);
-		expect(sections[2]?.rows[0]).toMatchObject({ command: "settings" });
+		).toEqual([
+			"new-chat",
+			"open-project",
+			"search-files",
+			"toggle-terminal",
+			"new-tab",
+		]);
+		expect(
+			sections[2]?.rows.map((row) => row.kind === "settings" && row.section),
+		).toEqual(SETTINGS_NAVIGATION.map((item) => item.section));
+		expect(sections[3]?.rows.length).toBeGreaterThan(1);
+		expect(sections[4]?.rows.length).toBeGreaterThan(1);
+	});
+
+	it("finds settings destinations without loading the settings page", () => {
+		expect(
+			chatSwitcherSections([], "Keyboard shortcuts").flatMap(
+				(section) => section.rows,
+			),
+		).toContainEqual(
+			expect.objectContaining({
+				kind: "settings",
+				section: { kind: "shortcuts" },
+			}),
+		);
 	});
 
 	it("bounds chat search results and returns no matches for an unknown query", () => {

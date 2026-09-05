@@ -88,6 +88,23 @@ describe("built Electron application", () => {
 			await expect.poll(() => quickOpen.count()).toBe(1);
 			await electron.page.keyboard.press("Escape");
 			await expect.poll(() => quickOpen.count()).toBe(0);
+			await electron.page.keyboard.press("ControlOrMeta+k");
+			await quickOpen.fill("Search files");
+			await electron.page.keyboard.press("Enter");
+			const fileSearch = electron.page.getByRole("combobox", {
+				name: "Search files",
+				exact: true,
+			});
+			await fileSearch.waitFor({ state: "visible" });
+			await expect.poll(() => quickOpen.count()).toBe(0);
+			await fileSearch.fill("README.md");
+			await electron.page
+				.getByRole("option", { name: "README.md", exact: true })
+				.waitFor({ state: "visible" });
+			await electron.page.keyboard.press("Escape");
+			await electron.page.keyboard.press("ControlOrMeta+p");
+			await fileSearch.waitFor({ state: "visible" });
+			await electron.page.keyboard.press("Escape");
 			const composer = electron.page
 				.locator(".cm-content[contenteditable='true']")
 				.last();

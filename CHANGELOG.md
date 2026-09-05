@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Cmd+K quick open has a height-limited, grouped dialog with five recent chats, quick actions, settings, and keyboard hints; search chats and commands together, or start with `>` for commands only
+- Cmd+K quick open has a rounded, height-limited, scrollable dialog with five recent chats, quick actions, settings destinations, workspace/navigation commands, and keyboard hints; search together, or start with `>` for commands only
+- Search project/worktree files with Cmd+P or the Search files quick action, using the same live file source and dialog as the file-tree search
 - New chats can now choose between the main checkout and a fresh isolated worktree directly from the composer
 
 ### Changed

@@ -1,10 +1,13 @@
+import type { IconSvgElement } from "@hugeicons/react";
 import type { Chat, Command } from "@zuse/contracts";
 import fuzzysort from "fuzzysort";
+import type { SettingsSection } from "../store/ui.ts";
 import {
 	type ChatSwitcherCommandRow,
 	commandRowsForQuery,
 	commandSearchQuery,
 } from "./chat-switcher-commands.ts";
+import { SETTINGS_NAVIGATION } from "./settings-navigation.ts";
 
 export interface ChatSwitcherChatRow {
 	readonly kind: "chat";
@@ -13,7 +16,16 @@ export interface ChatSwitcherChatRow {
 	readonly title: string;
 }
 
-export type ChatSwitcherRow = ChatSwitcherChatRow | ChatSwitcherCommandRow;
+export interface ChatSwitcherSettingsRow {
+	readonly kind: "settings";
+	readonly label: string;
+	readonly icon: IconSvgElement;
+	readonly section: SettingsSection;
+}
+export type ChatSwitcherRow =
+	| ChatSwitcherChatRow
+	| ChatSwitcherCommandRow
+	| ChatSwitcherSettingsRow;
 
 export interface ChatSwitcherSection {
 	readonly label: string;
@@ -25,8 +37,18 @@ const SEARCH_LIMIT = 20;
 const QUICK_ACTIONS: ReadonlySet<Command> = new Set([
 	"new-chat",
 	"open-project",
+	"search-files",
+	"new-tab",
 	"toggle-terminal",
 ]);
+
+const SETTINGS_ROWS: ReadonlyArray<ChatSwitcherSettingsRow> =
+	SETTINGS_NAVIGATION.map((item) => ({
+		kind: "settings",
+		label: item.label,
+		icon: item.Icon,
+		section: item.section,
+	}));
 
 const recencyOf = ({ chat }: ChatSwitcherChatRow): number =>
 	(chat.lastMessageAt ?? chat.updatedAt ?? chat.createdAt).getTime();
@@ -55,6 +77,12 @@ export function chatSwitcherSections(
 					.map((result) => result.obj),
 			},
 			{ label: "Commands", rows: commandRowsForQuery(`>${search}`) },
+			{
+				label: "Settings",
+				rows: fuzzysort
+					.go(search, SETTINGS_ROWS, { key: "label", threshold: 0.3 })
+					.map((result) => result.obj),
+			},
 		];
 	}
 
@@ -72,7 +100,22 @@ export function chatSwitcherSections(
 		},
 		{
 			label: "Settings",
-			rows: commands.filter((row) => row.command === "settings"),
+			rows: SETTINGS_ROWS,
+		},
+		{
+			label: "Workspace",
+			rows: commands.filter(
+				(row) =>
+					row.group === "Application" &&
+					!QUICK_ACTIONS.has(row.command) &&
+					row.command !== "settings",
+			),
+		},
+		{
+			label: "Navigation",
+			rows: commands.filter(
+				(row) => row.group === "Navigation" && !QUICK_ACTIONS.has(row.command),
+			),
 		},
 	];
 }

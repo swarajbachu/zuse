@@ -111,7 +111,8 @@ settings.
 
 ### Layout & UI
 - Three-pane layout: sidebar / chat / files+terminal
-- `Cmd+K` opens a compact palette with five recent chats, quick actions, and settings; search chats and commands together, or type `>` for commands only
+- `Cmd+K` opens a compact, scrollable palette with five recent chats, quick actions, settings destinations, and workspace/navigation commands; search together, or type `>` for commands only
+- `Cmd+P` searches files in the current project or worktree, also available from quick actions and the file-tree header
 - Resizable panes
 - Top bar with active session info
 - PTY terminal (xterm.js + node-pty)
