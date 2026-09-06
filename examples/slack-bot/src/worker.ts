@@ -4,14 +4,15 @@
 //   reply in that thread    → forwarded as a follow-up message to the agent
 //   Zuse webhook delivery   → agent replies posted back into the thread
 //
-// The bot deliberately uses only the public API (`zk_` key + signed webhooks),
-// never first-party API auth — it is the integration model, not a shortcut.
+// Uses the public API (`zk_` key + signed webhooks).
 
 import {
 	downloadSlackFile,
+	parseSlackFiles,
 	postSlackMessage,
 	readSlackThread,
 	type SlackFile,
+	type SlackFileMetadata,
 	verifySlackSignature,
 	verifyZuseSignature,
 } from "./slack.ts";
@@ -49,7 +50,6 @@ export interface ExecutionContext {
 	readonly waitUntil: (promise: Promise<unknown>) => void;
 }
 
-/** Thread mappings outlive any realistic workspace by a wide margin. */
 const MAPPING_TTL_SECONDS = 30 * 24 * 60 * 60;
 const EVENT_DEDUPE_TTL_SECONDS = 24 * 60 * 60;
 /** Leave Slack enough of its three-second acknowledgement window to retry. */
@@ -71,6 +71,24 @@ const zuseConfig = (env: Env, requestTimeoutMs?: number): ZuseClientConfig => ({
 
 const errorMessage = (error: unknown): string =>
 	error instanceof Error ? error.message : "unknown error";
+
+const saveThreadMapping = async (
+	env: Env,
+	workspaceId: string,
+	channel: string,
+	threadTs: string,
+): Promise<void> => {
+	await Promise.all([
+		env.THREADS.put(
+			`workspace:${workspaceId}`,
+			JSON.stringify({ channel, threadTs }),
+			{ expirationTtl: MAPPING_TTL_SECONDS },
+		),
+		env.THREADS.put(`thread:${channel}:${threadTs}`, workspaceId, {
+			expirationTtl: MAPPING_TTL_SECONDS,
+		}),
+	]);
+};
 
 const notifyCommandFailure = async (
 	responseUrl: string,
@@ -120,18 +138,12 @@ const startWorkspaceFromCommand = async (
 			text: `Started cloud workspace \`${workspace.branch}\` — the agent's replies will appear in this thread. Reply here to send follow-ups.`,
 			idempotencyKey: `workspace:${command.triggerId}`,
 		});
-		await Promise.all([
-			env.THREADS.put(
-				`workspace:${workspace.workspaceId}`,
-				JSON.stringify({ channel: command.channel, threadTs: posted.ts }),
-				{ expirationTtl: MAPPING_TTL_SECONDS },
-			),
-			env.THREADS.put(
-				`thread:${command.channel}:${posted.ts}`,
-				workspace.workspaceId,
-				{ expirationTtl: MAPPING_TTL_SECONDS },
-			),
-		]);
+		await saveThreadMapping(
+			env,
+			workspace.workspaceId,
+			command.channel,
+			posted.ts,
+		);
 	} catch (error) {
 		console.error("[slack-bot] slash command processing failed", {
 			error: errorMessage(error),
@@ -148,22 +160,24 @@ const uploadSlackFiles = async (
 ): Promise<ReadonlyArray<string>> => {
 	// Prefer the newest files when a long thread exceeds the API batch limit.
 	const selected = files.slice(-SLACK_MESSAGE_MAX_FILES);
-	const assets = await Promise.all(
-		selected.map(async (file) => {
-			const bytes = await downloadSlackFile({
-				botToken: env.SLACK_BOT_TOKEN,
-				file,
-			});
-			return uploadAsset(zuseConfig(env, 30_000), {
-				workspaceId,
-				bytes,
-				mimeType: file.mimetype,
-				originalName: file.name,
-				idempotencyKey: `${idempotencyPrefix}:file:${file.id}`,
-			});
-		}),
-	);
-	return assets.map((asset) => asset.assetId);
+	const assetIds: string[] = [];
+	// Buffer one file at a time; eight simultaneous 20 MiB downloads exceed
+	// the Worker's memory budget before their upload copies are allocated.
+	for (const file of selected) {
+		const bytes = await downloadSlackFile({
+			botToken: env.SLACK_BOT_TOKEN,
+			file,
+		});
+		const asset = await uploadAsset(zuseConfig(env, 30_000), {
+			workspaceId,
+			bytes,
+			mimeType: file.mimetype,
+			originalName: file.name,
+			idempotencyKey: `${idempotencyPrefix}:file:${file.id}`,
+		});
+		assetIds.push(asset.assetId);
+	}
+	return assetIds;
 };
 
 const slackThreadPrompt = (
@@ -200,25 +214,19 @@ const startWorkspaceFromThread = async (
 		const { workspace } = await createWorkspace(zuseConfig(env), {
 			idempotencyKey: `slack-thread:${input.channel}:${input.threadTs}`,
 		});
-		const posted = await postSlackMessage({
+		await postSlackMessage({
 			botToken: env.SLACK_BOT_TOKEN,
 			channel: input.channel,
 			threadTs: input.threadTs,
 			text: `Started cloud workspace \`${workspace.branch}\` with this thread and its supported files. Continue replying here to work with the agent.`,
 			idempotencyKey: `thread-workspace:${input.triggerId}`,
 		});
-		await Promise.all([
-			env.THREADS.put(
-				`workspace:${workspace.workspaceId}`,
-				JSON.stringify({ channel: input.channel, threadTs: input.threadTs }),
-				{ expirationTtl: MAPPING_TTL_SECONDS },
-			),
-			env.THREADS.put(
-				`thread:${input.channel}:${input.threadTs}`,
-				workspace.workspaceId,
-				{ expirationTtl: MAPPING_TTL_SECONDS },
-			),
-		]);
+		await saveThreadMapping(
+			env,
+			workspace.workspaceId,
+			input.channel,
+			input.threadTs,
+		);
 		const files = thread.flatMap((message) => message.files);
 		const assetIds = await uploadSlackFiles(
 			env,
@@ -232,7 +240,6 @@ const startWorkspaceFromThread = async (
 			attachments: assetIds,
 			idempotencyKey: `slack-thread-context:${input.channel}:${input.threadTs}`,
 		});
-		void posted;
 	} catch (error) {
 		console.error("[slack-bot] thread import failed", {
 			error: errorMessage(error),
@@ -360,13 +367,7 @@ const handleSlackEvent = async (
 			readonly text?: string;
 			readonly bot_id?: string | null;
 			readonly subtype?: string;
-			readonly files?: ReadonlyArray<{
-				readonly id?: string;
-				readonly name?: string;
-				readonly mimetype?: string;
-				readonly size?: number;
-				readonly url_private_download?: string;
-			}>;
+			readonly files?: ReadonlyArray<SlackFileMetadata>;
 		};
 	};
 	try {
@@ -396,23 +397,7 @@ const handleSlackEvent = async (
 				`thread:${channel}:${threadTs}`,
 			);
 			if (workspaceId === null) return new Response("ok");
-			const files = (event.files ?? []).flatMap((file): SlackFile[] =>
-				typeof file.id === "string" &&
-				typeof file.name === "string" &&
-				typeof file.mimetype === "string" &&
-				typeof file.size === "number" &&
-				typeof file.url_private_download === "string"
-					? [
-							{
-								id: file.id,
-								name: file.name,
-								mimetype: file.mimetype,
-								size: file.size,
-								urlPrivateDownload: file.url_private_download,
-							},
-						]
-					: [],
-			);
+			const files = parseSlackFiles(event.files);
 			const assetIds = await uploadSlackFiles(
 				env,
 				workspaceId,

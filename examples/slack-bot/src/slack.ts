@@ -1,6 +1,4 @@
-// Minimal Slack helpers: request-signature verification and the one Web API
-// call this bot needs. No SDK — everything is fetch + WebCrypto so the example
-// runs on any Workers-compatible runtime.
+// Slack signature verification, thread/file reads, and replies.
 
 const encoder = new TextEncoder();
 const SLACK_REQUEST_TIMEOUT_MS = 10_000;
@@ -21,6 +19,37 @@ export interface SlackThreadMessage {
 	readonly text: string;
 	readonly files: ReadonlyArray<SlackFile>;
 }
+
+export interface SlackFileMetadata {
+	readonly id?: string;
+	readonly name?: string;
+	readonly mimetype?: string;
+	readonly size?: number;
+	readonly url_private_download?: string;
+}
+
+export const parseSlackFiles = (
+	files: ReadonlyArray<SlackFileMetadata> | null = [],
+): ReadonlyArray<SlackFile> =>
+	(files ?? []).flatMap((file): SlackFile[] =>
+		file !== null &&
+		typeof file === "object" &&
+		typeof file.id === "string" &&
+		typeof file.name === "string" &&
+		typeof file.mimetype === "string" &&
+		typeof file.size === "number" &&
+		typeof file.url_private_download === "string"
+			? [
+					{
+						id: file.id,
+						name: file.name,
+						mimetype: file.mimetype,
+						size: file.size,
+						urlPrivateDownload: file.url_private_download,
+					},
+				]
+			: [],
+	);
 
 const slackClientMessageId = async (
 	idempotencyKey: string,
@@ -215,13 +244,7 @@ export const readSlackThread = async (input: {
 				readonly ts?: string;
 				readonly user?: string;
 				readonly text?: string;
-				readonly files?: ReadonlyArray<{
-					readonly id?: string;
-					readonly name?: string;
-					readonly mimetype?: string;
-					readonly size?: number;
-					readonly url_private_download?: string;
-				}>;
+				readonly files?: ReadonlyArray<SlackFileMetadata>;
 			}>;
 			readonly response_metadata?: { readonly next_cursor?: string };
 		};
@@ -231,28 +254,11 @@ export const readSlackThread = async (input: {
 			);
 		for (const message of body.messages ?? []) {
 			if (typeof message.ts !== "string") continue;
-			const files = (message.files ?? []).flatMap((file): SlackFile[] =>
-				typeof file.id === "string" &&
-				typeof file.name === "string" &&
-				typeof file.mimetype === "string" &&
-				typeof file.size === "number" &&
-				typeof file.url_private_download === "string"
-					? [
-							{
-								id: file.id,
-								name: file.name,
-								mimetype: file.mimetype,
-								size: file.size,
-								urlPrivateDownload: file.url_private_download,
-							},
-						]
-					: [],
-			);
 			messages.push({
 				ts: message.ts,
 				...(message.user === undefined ? {} : { user: message.user }),
 				text: message.text ?? "",
-				files,
+				files: parseSlackFiles(message.files),
 			});
 			if (messages.length > SLACK_THREAD_MAX_MESSAGES)
 				messages.splice(0, messages.length - SLACK_THREAD_MAX_MESSAGES);

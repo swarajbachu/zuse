@@ -106,16 +106,16 @@ can access cloud chats once that control-plane connection is established.
 | Thread reply | `POST /v1/api/workspaces/{id}/messages` with `Idempotency-Key: slack-event:<event_id>` |
 | Agent reply | `workspace.turn.completed` webhook, verified via `zuse-signature` |
 
-The `workspaceId ↔ (channel, thread_ts)` mapping lives in Workers KV. KV is a
-best-effort fast dedupe layer for webhook `eventId` values; every Slack post
-also carries a deterministic `client_msg_id`, so a retry after Slack accepted
-the message cannot duplicate it even if the KV write failed. Everything else
-is stateless.
+The `workspaceId ↔ (channel, thread_ts)` mapping lives in Workers KV for 30
+days. Webhook deduplication is best-effort: posts use a stable `client_msg_id`,
+but KV checks and Slack delivery are not atomic. Do not rely on exactly-once
+replies. Workspace creation and message submission use Zuse idempotency keys.
 
-The app reads only the thread explicitly selected by a user, and Slack still
-enforces the bot's channel membership and granted history scopes. Imports are
-bounded to 500 thread messages, 60,000 text characters, and the newest eight
-supported images, documents, or text archives. Each asset is limited to 20
-MiB. Zuse seals asset bytes before placing them in the workspace-scoped object
+The app imports the selected thread and forwards human replies in mapped
+threads, subject to Slack channel membership and granted history scopes.
+Thread pagination retains the latest 500 messages; the prompt keeps up to
+60,000 characters plus a truncation notice and includes the newest eight files. Files are processed
+sequentially and each is limited to 20 MiB. Unsupported file types fail the
+import rather than being silently skipped. Zuse seals asset bytes in the workspace-scoped object
 store, and the authenticated runtime materializes them through the same
 attachment module used by the desktop composer.

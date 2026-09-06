@@ -3,6 +3,7 @@ import {
 	type CloudRuntimeCommand,
 	type CloudRuntimeCommandList,
 	MessageContent,
+	type TurnSettlementOutcome,
 } from "@zuse/contracts";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import { cloudRuntimeCommandTurnId } from "@zuse/utils/cloud-api";
@@ -130,7 +131,7 @@ const decodeMessageContent = Schema.decodeUnknownResult(
 
 export interface CloudApiTurnEvent {
 	readonly turnId: string;
-	readonly outcome: "completed" | "interrupted" | "error";
+	readonly outcome: TurnSettlementOutcome;
 	readonly settledAt: number;
 	readonly replyText: string;
 	readonly replyTruncated: boolean;

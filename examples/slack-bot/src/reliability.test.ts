@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { postSlackMessage } from "./slack.ts";
+import { parseSlackFiles, postSlackMessage } from "./slack.ts";
 import worker, {
 	type Env,
 	type ExecutionContext,
 	type KvNamespace,
 } from "./worker.ts";
-import { createWorkspace, normalizeZuseApiUrl } from "./zuse.ts";
+import {
+	createWorkspace,
+	normalizeZuseApiUrl,
+	uploadAsset,
+	ZuseApiError,
+	type ZuseClientConfig,
+} from "./zuse.ts";
 
 const encoder = new TextEncoder();
 
@@ -124,6 +130,32 @@ afterEach(() => {
 });
 
 describe("Slack API reliability", () => {
+	it("normalizes complete file metadata and skips incomplete entries", () => {
+		expect(
+			parseSlackFiles([
+				{ id: "incomplete" },
+				{
+					id: "F1",
+					name: "bug.png",
+					mimetype: "image/png",
+					size: 4,
+					url_private_download: "https://files.slack.com/files-pri/F1",
+				},
+			]),
+		).toEqual([
+			{
+				id: "F1",
+				name: "bug.png",
+				mimetype: "image/png",
+				size: 4,
+				urlPrivateDownload: "https://files.slack.com/files-pri/F1",
+			},
+		]);
+		expect(parseSlackFiles()).toEqual([]);
+		expect(parseSlackFiles(null)).toEqual([]);
+		expect(parseSlackFiles(JSON.parse('[null, {}, "invalid"]'))).toEqual([]);
+	});
+
 	it("throws when Slack returns an application-level failure", async () => {
 		vi.stubGlobal(
 			"fetch",
@@ -156,6 +188,44 @@ describe("Slack API reliability", () => {
 });
 
 describe("Zuse client reliability", () => {
+	it("uploads only the selected byte view through the shared request handler", async () => {
+		const asset = {
+			assetId: "asset_1",
+			mimeType: "image/png",
+			originalName: "bug.png",
+			sizeBytes: 2,
+		};
+		const fetchMock = vi.fn(async () => Response.json({ asset }));
+		vi.stubGlobal("fetch", fetchMock);
+		const backing = new Uint8Array([99, 1, 2, 99]);
+		await expect(
+			uploadAsset(
+				{ apiUrl: "https://api.zuse.sh/", apiKey: "zk_test" },
+				{
+					workspaceId: "workspace_1",
+					bytes: backing.subarray(1, 3),
+					mimeType: "image/png",
+					originalName: "bug.png",
+					idempotencyKey: "upload-1",
+				},
+			),
+		).resolves.toEqual(asset);
+		expect(fetchMock).toHaveBeenCalledWith(
+			"https://api.zuse.sh/v1/api/workspaces/workspace_1/attachments",
+			expect.objectContaining({
+				method: "POST",
+				body: new Uint8Array([1, 2]).buffer,
+				headers: {
+					authorization: "Bearer zk_test",
+					"content-type": "image/png",
+					"x-zuse-file-name": "bug.png",
+					"idempotency-key": "upload-1",
+				},
+				signal: expect.any(AbortSignal),
+			}),
+		);
+	});
+
 	it("normalizes the API base URL and attaches a timeout signal", async () => {
 		let requestedUrl = "";
 		let signal: AbortSignal | null | undefined;
@@ -185,7 +255,115 @@ describe("Zuse client reliability", () => {
 	});
 });
 
+describe.each([
+	{
+		name: "workspace creation",
+		call: (config: ZuseClientConfig) =>
+			createWorkspace(config, { prompt: "test", idempotencyKey: "create-1" }),
+	},
+	{
+		name: "asset upload",
+		call: (config: ZuseClientConfig) =>
+			uploadAsset(config, {
+				workspaceId: "workspace_1",
+				bytes: new Uint8Array([1]),
+				mimeType: "image/png",
+				originalName: "bug.png",
+				idempotencyKey: "upload-1",
+			}),
+	},
+])("shared request policy: $name", ({ call }) => {
+	const config = { apiUrl: "https://api.zuse.sh", apiKey: "zk_test" };
+	it.each([
+		0,
+		-1,
+		1.5,
+		Number.NaN,
+		Number.POSITIVE_INFINITY,
+	])("rejects invalid timeout %s before sending", async (requestTimeoutMs) => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+		await expect(call({ ...config, requestTimeoutMs })).rejects.toThrow(
+			"zuse_api_timeout_invalid",
+		);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+	it("preserves retryable errors", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("unavailable", { status: 503 })),
+		);
+		await expect(call(config)).rejects.toMatchObject({
+			name: "ZuseApiError",
+			status: 503,
+			retryable: true,
+		});
+		expect(new ZuseApiError(400, "invalid input").retryable).toBe(false);
+	});
+	it("reports malformed JSON consistently", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("not JSON")),
+		);
+		await expect(call(config)).rejects.toThrow("zuse_api_invalid_response:200");
+	});
+});
+
 describe("Slack event acknowledgement", () => {
+	it("downloads and uploads attachment batches one file at a time", async () => {
+		const kv = new MemoryKv();
+		kv.values.set("thread:C1:123.456", "workspace_1");
+		let buffered = 0;
+		let maxBuffered = 0;
+		let uploaded = 0;
+		const files = Array.from({ length: 8 }, (_, index) => ({
+			id: `F${index}`,
+			name: `${index}.png`,
+			mimetype: "image/png",
+			size: 4,
+			url_private_download: `https://files.slack.com/files-pri/F${index}`,
+		}));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+				const url = String(input);
+				if (url.startsWith("https://files.slack.com/")) {
+					maxBuffered = Math.max(maxBuffered, ++buffered);
+					return new Response(new Uint8Array([1, 2, 3, 4]));
+				}
+				if (url.endsWith("/attachments")) {
+					buffered--;
+					return Response.json({ asset: { assetId: `asset_${++uploaded}` } });
+				}
+				if (url.endsWith("/messages")) {
+					expect(JSON.parse(String(init?.body)).attachments).toHaveLength(8);
+					return Response.json({ messageId: "message_1", status: "queued" });
+				}
+				throw new Error(`Unexpected request: ${url}`);
+			}),
+		);
+		const response = await worker.fetch(
+			await slackEventRequest(
+				JSON.stringify({
+					type: "event_callback",
+					event_id: "files-event",
+					event: {
+						type: "message",
+						channel: "C1",
+						thread_ts: "123.456",
+						files,
+					},
+				}),
+			),
+			makeEnv(kv),
+			context,
+		);
+		expect(response.status).toBe(200);
+		expect(uploaded).toBe(8);
+		expect(buffered).toBe(0);
+		expect(maxBuffered).toBe(1);
+	});
+
 	it("returns a retryable response when forwarding a follow-up fails transiently", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const kv = new MemoryKv();

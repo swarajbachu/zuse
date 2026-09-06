@@ -59,27 +59,24 @@ export interface ZuseAsset {
 const request = async <T>(
 	config: ZuseClientConfig,
 	path: string,
-	init?: {
-		readonly method?: "POST" | "DELETE";
-		readonly body?: unknown;
-		readonly idempotencyKey?: string;
+	init: {
+		readonly body: BodyInit;
+		readonly headers?: Readonly<Record<string, string>>;
+		readonly idempotencyKey: string;
 	},
 ): Promise<T> => {
 	const timeoutMs = config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 	if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
 		throw new Error("zuse_api_timeout_invalid");
 	const response = await fetch(`${normalizeZuseApiUrl(config.apiUrl)}${path}`, {
-		method: init?.method ?? (init?.body === undefined ? "GET" : "POST"),
+		method: "POST",
 		headers: {
 			authorization: `Bearer ${config.apiKey}`,
-			...(init?.body === undefined
-				? {}
-				: { "content-type": "application/json" }),
-			...(init?.idempotencyKey === undefined
-				? {}
-				: { "idempotency-key": init.idempotencyKey }),
+			"content-type": "application/json",
+			"idempotency-key": init.idempotencyKey,
+			...init.headers,
 		},
-		body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+		body: init.body,
 		signal: AbortSignal.timeout(timeoutMs),
 	});
 	const rawBody = await response.text();
@@ -100,10 +97,10 @@ export const createWorkspace = (
 	input: { readonly prompt?: string; readonly idempotencyKey: string },
 ): Promise<{ readonly workspace: ZuseWorkspace }> =>
 	request(config, "/v1/api/workspaces", {
-		body: {
+		body: JSON.stringify({
 			...config.workspaceDefaults,
 			...(input.prompt === undefined ? {} : { prompt: input.prompt }),
-		},
+		}),
 		idempotencyKey: input.idempotencyKey,
 	});
 
@@ -120,12 +117,12 @@ export const sendMessage = (
 		config,
 		`/v1/api/workspaces/${encodeURIComponent(input.workspaceId)}/messages`,
 		{
-			body: {
+			body: JSON.stringify({
 				text: input.text,
 				...(input.attachments === undefined
 					? {}
 					: { attachments: input.attachments }),
-			},
+			}),
 			idempotencyKey: input.idempotencyKey,
 		},
 	);
@@ -140,40 +137,17 @@ export const uploadAsset = async (
 		readonly idempotencyKey: string;
 	},
 ): Promise<ZuseAsset> => {
-	const timeoutMs = config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-	const body = input.bytes.buffer.slice(
-		input.bytes.byteOffset,
-		input.bytes.byteOffset + input.bytes.byteLength,
-	) as ArrayBuffer;
-	const response = await fetch(
-		`${normalizeZuseApiUrl(config.apiUrl)}/v1/api/workspaces/${encodeURIComponent(input.workspaceId)}/attachments`,
+	const { asset } = await request<{ readonly asset: ZuseAsset }>(
+		config,
+		`/v1/api/workspaces/${encodeURIComponent(input.workspaceId)}/attachments`,
 		{
-			method: "POST",
 			headers: {
-				authorization: `Bearer ${config.apiKey}`,
 				"content-type": input.mimeType,
 				"x-zuse-file-name": input.originalName,
-				"idempotency-key": input.idempotencyKey,
 			},
-			body,
-			signal: AbortSignal.timeout(timeoutMs),
+			body: new Uint8Array(input.bytes).buffer,
+			idempotencyKey: input.idempotencyKey,
 		},
 	);
-	const rawBody = await response.text();
-	if (!response.ok)
-		throw new ZuseApiError(
-			response.status,
-			rawBody.slice(0, MAX_ERROR_BODY_LENGTH),
-		);
-	try {
-		return (JSON.parse(rawBody) as { readonly asset: ZuseAsset }).asset;
-	} catch {
-		throw new Error(`zuse_api_invalid_response:${response.status}`);
-	}
+	return asset;
 };
-
-export const getWorkspace = (
-	config: ZuseClientConfig,
-	workspaceId: string,
-): Promise<{ readonly workspace: ZuseWorkspace }> =>
-	request(config, `/v1/api/workspaces/${encodeURIComponent(workspaceId)}`);
