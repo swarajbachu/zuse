@@ -61,10 +61,14 @@ bun run deploy
 
 Staging is the unnamed Wrangler default, so these commands and even an
 unqualified `wrangler deploy` use the immutable `zuse-relay-staging` Worker,
-`api-staging.stuff.md`, a separate Hyperdrive binding, the `zenv-staging`
+`api-staging.zuse.sh`, a separate Hyperdrive binding, the `zenv-staging`
 tunnel namespace, sandbox billing, the allowlisted Hetzner adapter, and live
 sandbox checkout. The secret scripts in this package also target staging by
-default. Production remains separately configured and disabled.
+default. Production remains separately configured and guarded.
+
+Both API hostnames are Cloudflare Worker Custom Domains, not Vercel projects.
+See the [API domain cutover](../../docs/cloud/api-domain-cutover.md) before
+deploying the staging hostname change or updating DNS.
 
 An intentional production deployment is guarded and requires both the explicit
 script and confirmation value:
@@ -164,7 +168,7 @@ binding requires separate, explicit approval.
      valid JSON. Production checkout remains disabled while the fake adapter is
      selected.
 8. Deploy staging with `bun run deploy`. Development desktop and renderer
-   builds default to `https://api-staging.stuff.md` and the staging WorkOS
+   builds default to `https://api-staging.zuse.sh` and the staging WorkOS
    client; explicit `ZUSE_API_URL`, `VITE_ZUSE_API_URL`,
    `WORKOS_CLIENT_ID`, and `VITE_WORKOS_CLIENT_ID` values still override those
    defaults. Mobile development and preview profiles pin the same staging pair.

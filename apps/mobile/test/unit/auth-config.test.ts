@@ -17,7 +17,7 @@ describe("mobile api configuration", () => {
 		expect(defaultWorkosClientId(false)).toBe(
 			"client_01KWGQ818571ARFATQ3G9AR2Y2",
 		);
-		expect(defaultApiBaseUrl(true)).toBe("https://api-staging.stuff.md");
+		expect(defaultApiBaseUrl(true)).toBe("https://api-staging.zuse.sh");
 		expect(defaultApiBaseUrl(false)).toBe("https://api.zuse.sh");
 	});
 
@@ -35,7 +35,7 @@ describe("mobile api configuration", () => {
 		for (const profile of ["development", "preview"]) {
 			expect(eas.build[profile]?.env).toMatchObject({
 				EXPO_PUBLIC_WORKOS_CLIENT_ID: "client_01KW6ZEZKVMZ0G429A89XZD83Q",
-				EXPO_PUBLIC_ZUSE_API_URL: "https://api-staging.stuff.md",
+				EXPO_PUBLIC_ZUSE_API_URL: "https://api-staging.zuse.sh",
 			});
 		}
 		expect(eas.build.production?.env?.EXPO_PUBLIC_WORKOS_CLIENT_ID).toBe(

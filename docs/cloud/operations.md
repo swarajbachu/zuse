@@ -12,7 +12,7 @@ Staging and production are isolated deployments:
 
 | Resource | Staging | Production |
 | --- | --- | --- |
-| API | immutable Worker `zuse-relay-staging`, `api-staging.stuff.md` | immutable Worker `zuse-relay`, `api.zuse.sh` |
+| API | immutable Worker `zuse-relay-staging`, `api-staging.zuse.sh` | immutable Worker `zuse-relay`, `api.zuse.sh` |
 | Wrangler config | default `infra/api/wrangler.jsonc` | `infra/api/wrangler.production.jsonc` |
 | Database | approved staging Neon identity | separately approved production identity |
 | Runtime channel | `cloud-runtime-staging` | signed `cloud-runtime-production` |
@@ -23,6 +23,10 @@ Staging and production are isolated deployments:
 Never use a staging command against production by changing an incidental
 environment variable. Production migrations, secrets, and deploys have
 separate scripts, explicit configs, identity checks, and confirmation phrases.
+
+Both API hostnames belong to Cloudflare Workers. The production browser app
+at `code.zuse.sh` belongs to Vercel. See the [API domain cutover](api-domain-cutover.md)
+for DNS ownership, issuer migration, deployment order, and verification.
 
 ## Runtime and template release
 

@@ -55,6 +55,7 @@ import { Migration0051LegacyChatCreationPhaseRepair } from "./migrations/0051_le
 import { Migration0052ApiConfig } from "./migrations/0052_api_config.ts";
 import { Migration0053CloudCommandReceipts } from "./migrations/0053_cloud_command_receipts.ts";
 import { Migration0054ProviderEffectOutcomes } from "./migrations/0054_provider_effect_outcomes.ts";
+import { Migration0055StagingApiOrigin } from "./migrations/0055_staging_api_origin.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -131,6 +132,7 @@ const MigrationDefinitions = {
 	"0052_api_config": Migration0052ApiConfig,
 	"0053_cloud_command_receipts": Migration0053CloudCommandReceipts,
 	"0054_provider_effect_outcomes": Migration0054ProviderEffectOutcomes,
+	"0055_staging_api_origin": Migration0055StagingApiOrigin,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */

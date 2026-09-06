@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import {
+	PRODUCTION_API_URL,
 	STAGING_API_URL,
 	WORKOS_STAGING_PUBLIC_CLIENT_ID,
 } from "@zuse/contracts";
@@ -87,7 +88,7 @@ describe("api deployment safety", () => {
 			"global_fetch_private_origin",
 		);
 		expect(config.routes).toEqual([
-			{ pattern: "api-staging.stuff.md", custom_domain: true },
+			{ pattern: "api-staging.zuse.sh", custom_domain: true },
 		]);
 		expect(config.vars.API_ISSUER).toBe(STAGING_API_URL);
 		expect(config.vars.CLOUD_COMMAND_MAILBOX_ENABLED).toBe("true");
@@ -169,6 +170,8 @@ describe("api deployment safety", () => {
 		expect(production.routes).toEqual([
 			{ pattern: "api.zuse.sh", custom_domain: true },
 		]);
+		expect(production.vars.API_ISSUER).toBe(PRODUCTION_API_URL);
+		expect(`https://${production.routes[0]?.pattern}`).toBe(PRODUCTION_API_URL);
 		expect(production.vars.MACHINE_PROVIDER).toBe("fake");
 		expect(production.vars.CLOUD_COMMAND_MAILBOX_ENABLED).toBe("true");
 		expect(production.vars.CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED).toBe(
