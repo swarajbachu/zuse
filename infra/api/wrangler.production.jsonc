@@ -14,7 +14,8 @@
 				"**/*.yaml.tmpl",
 				"**/runtime-updater.mjs",
 				"**/project-builder.sh",
-				"**/workspace-bootstrap.sh"
+				"**/workspace-bootstrap.sh",
+				"**/github-auth.sh"
 			],
 			"fallthrough": true
 		}

@@ -23,18 +23,21 @@ refresh_token() {
 		printf '%s\n' 'GitHub access is not ready in this cloud workspace.' >&2
 		return 1
 	}
-	endpoint=$(jq -er '.credentialUrl' "$broker_config_file")
-	runtime_credential=$(<"$runtime_credential_file")
+	# Called from an `if`, so Bash disables errexit throughout this function.
+	# Check every fallible operation explicitly before replacing cached access.
+	endpoint=$(jq -er '.credentialUrl | select(type == "string" and length > 0)' "$broker_config_file") || return 1
+	runtime_credential=$(<"$runtime_credential_file") || return 1
 	response=$(curl --fail --silent --show-error --max-time 15 \
 		-X POST -H "Authorization: Bearer $runtime_credential" "$endpoint") || return 1
-	token=$(jq -er '.token' <<<"$response")
-	expires_at=$(jq -er '.expiresAtMs' <<<"$response")
+	token=$(jq -er '.token | select(type == "string" and length > 0)' <<<"$response") || return 1
+	expires_at=$(jq -er '.expiresAtMs | select(type == "number")' <<<"$response") || return 1
 	[[ "$expires_at" =~ ^[0-9]+$ && -n "$token" ]] || return 1
+	(( expires_at > $(date +%s%3N) )) || return 1
 	umask 077
-	printf '%s\n' "$token" >"$token_file.next"
-	printf '%s\n' "$expires_at" >"$token_expiry_file.next"
-	mv "$token_file.next" "$token_file"
-	mv "$token_expiry_file.next" "$token_expiry_file"
+	printf '%s\n' "$token" >"$token_file.next" || return 1
+	printf '%s\n' "$expires_at" >"$token_expiry_file.next" || return 1
+	mv "$token_file.next" "$token_file" || return 1
+	mv "$token_expiry_file.next" "$token_expiry_file" || return 1
 }
 
 ensure_token() {
@@ -72,8 +75,11 @@ fi
 
 case "${1:-}" in
 	install)
-		git config --global credential.https://github.com.username x-access-token
-		git config --global credential.https://github.com.helper \
+		git config --global --replace-all credential.https://github.com.username x-access-token
+		# An empty helper resets inherited helpers before installing ours. Replace
+		# all saved entries so persisted homes and repeated starts repair cleanly.
+		git config --global --replace-all credential.https://github.com.helper ""
+		git config --global --add credential.https://github.com.helper \
 			"$auth_binary credential"
 		;;
 	credential)
