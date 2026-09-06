@@ -108,3 +108,22 @@ export const reconcileFileTreePaths = async (input: {
 		requiresFullReconciliation: false,
 	};
 };
+
+/** Translate canonical snapshots into mutations without resetting tree UI state. */
+export const fileTreeSnapshotOperations = (
+	knownPaths: ReadonlySet<string>,
+	paths: ReadonlyArray<string>,
+): FileTreePathOperation[] => {
+	const next = new Set(paths);
+	// Children must disappear before their parents. Remove before adding so a
+	// file can become a directory (or vice versa) in the same watcher batch.
+	return [
+		...[...knownPaths]
+			.filter((path) => !next.has(path))
+			.sort((a, b) => b.length - a.length)
+			.map((path) => ({ type: "remove" as const, path })),
+		...paths
+			.filter((path) => !knownPaths.has(path))
+			.map((path) => ({ type: "add" as const, path })),
+	];
+};

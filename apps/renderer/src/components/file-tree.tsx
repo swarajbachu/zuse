@@ -31,6 +31,7 @@ import { ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OpenTarget } from "../lib/bridge.ts";
 import { dispatchFileTreeCommand } from "../lib/file-tree-client-bus.ts";
+import { fileTreeSnapshotOperations } from "../lib/file-tree-reconciliation.ts";
 import { useFileTreeResource } from "../lib/file-tree-resource-hooks.ts";
 import { useGitChangesResource } from "../lib/git-workspace-client-bus.ts";
 import { useSettingsStore } from "../lib/settings-client-bus.ts";
@@ -423,14 +424,7 @@ function TreeView({
 	// expansion and selection survive live filesystem updates.
 	useEffect(() => {
 		const next = new Set(paths);
-		const operations = [
-			...paths
-				.filter((path) => !knownPathsRef.current.has(path))
-				.map((path) => ({ type: "add" as const, path })),
-			...[...knownPathsRef.current]
-				.filter((path) => !next.has(path))
-				.map((path) => ({ type: "remove" as const, path })),
-		];
+		const operations = fileTreeSnapshotOperations(knownPathsRef.current, paths);
 		if (operations.length > 0) model.batch(operations);
 		knownPathsRef.current = next;
 		dirPathsRef.current = new Set(

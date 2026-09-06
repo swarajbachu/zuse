@@ -1,6 +1,10 @@
+import { FileTree } from "@pierre/trees";
 import { FsEntry } from "@zuse/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { reconcileFileTreePaths } from "../../src/lib/file-tree-reconciliation.ts";
+import {
+	fileTreeSnapshotOperations,
+	reconcileFileTreePaths,
+} from "../../src/lib/file-tree-reconciliation.ts";
 
 const file = (path: string) =>
 	FsEntry.make({
@@ -85,5 +89,38 @@ describe("file tree reconciliation", () => {
 				},
 			}),
 		).rejects.toThrow("filesystem busy");
+	});
+});
+
+describe("file tree snapshot mutations", () => {
+	it.each([
+		{
+			before: [
+				"target/",
+				"target/debug/",
+				"target/debug/deps/",
+				"target/debug/deps/rmetaPSTA5C/",
+				"target/debug/deps/rmetaPSTA5C/lib.rmeta",
+			],
+			after: ["target/", "target/debug/", "target/debug/deps/"],
+		},
+		{ before: ["entry/", "entry/child.txt"], after: ["entry"] },
+		{ before: ["entry"], after: ["entry/", "entry/child.txt"] },
+	])("applies a snapshot without crashing: $before", ({ before, after }) => {
+		const model = new FileTree({ paths: [...before, "keep.txt"] });
+		model.getItem("keep.txt")?.select();
+		model.batch(
+			fileTreeSnapshotOperations(new Set([...before, "keep.txt"]), [
+				...after,
+				"keep.txt",
+			]),
+		);
+		for (const path of after)
+			expect(model.getItem(path)?.isDirectory()).toBe(path.endsWith("/"));
+		model.setSearch("lib.rmeta");
+		expect(model.getSearchMatchingPaths()).toEqual([]);
+		expect(model.getItem("keep.txt")).not.toBeNull();
+		expect(model.getSelectedPaths()).toEqual(["keep.txt"]);
+		model.cleanUp();
 	});
 });
