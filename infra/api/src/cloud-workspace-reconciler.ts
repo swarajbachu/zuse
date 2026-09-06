@@ -8,6 +8,7 @@ import {
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
 import { Cause, Clock, Data, Duration, Effect } from "effect";
+import GITHUB_AUTH_SOURCE from "../../cloud-sandboxes/github-auth.sh";
 import PROJECT_BUILDER_SOURCE from "../../cloud-sandboxes/project-builder.sh";
 import WORKSPACE_BOOTSTRAP_SOURCE from "../../cloud-sandboxes/workspace-bootstrap.sh";
 import { snapshotCloudAuthAuthority } from "./cloud-auth-authority.ts";
@@ -57,6 +58,10 @@ const PROJECT_BUILD_LOG_MAX_LENGTH = 256 * 1_024;
 const PROJECT_BUILDER_FILE = "/var/lib/zuse/project-build/builder.sh";
 const WORKSPACE_BOOTSTRAP_FILE =
 	"/var/lib/zuse/project-build/workspace-bootstrap.sh";
+// GitHub auth ships with the build for the same reason the bootstrap does:
+// base images are republished by hand, so an image older than the `gh` shim
+// would otherwise leave every workspace with an unauthenticated `gh`.
+const GITHUB_AUTH_FILE = "/var/lib/zuse/project-build/github-auth.sh";
 const WORKSPACE_REPOSITORY_READY_MARKER =
 	"/var/lib/zuse/workspace/repository-ready";
 const WORKSPACE_CREDENTIALS_READY_MARKER =
@@ -612,6 +617,12 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						WORKSPACE_BOOTSTRAP_SOURCE,
 						"zuse",
 					),
+					provider.writeTextFile(
+						sandbox.providerSandboxId,
+						GITHUB_AUTH_FILE,
+						GITHUB_AUTH_SOURCE,
+						"zuse",
+					),
 					config.runtimeSigningPublicJwk === undefined
 						? Effect.void
 						: provider.writeTextFile(
@@ -626,7 +637,12 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			yield* provider
 				.startProcess(sandbox.providerSandboxId, {
 					command: "/usr/bin/chmod",
-					args: ["0700", PROJECT_BUILDER_FILE, WORKSPACE_BOOTSTRAP_FILE],
+					args: [
+						"0700",
+						PROJECT_BUILDER_FILE,
+						WORKSPACE_BOOTSTRAP_FILE,
+						GITHUB_AUTH_FILE,
+					],
 					user: "zuse",
 				})
 				.pipe(Effect.orDie);
