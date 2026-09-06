@@ -22,7 +22,7 @@ import { toastManager } from "../components/ui/toast.tsx";
 import { nextChatCreateCommandId } from "../lib/chat-create-command-id.ts";
 import {
 	cloudSummaryForChat,
-	optimisticallyUnarchiveCloudChat,
+	confirmCloudChatUnarchive,
 } from "../lib/cloud-workspace-catalog.ts";
 import {
 	activeChatsByProject,
@@ -1712,15 +1712,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 						cloudWorkspaceModule.localProjectForCloudChat(chatId);
 					if (projectId === null)
 						throw new Error("Cloud chat project is not available.");
-					const optimisticSummary = optimisticallyUnarchiveCloudChat(cloud);
-					cloudWorkspaceModule.stageCloudChat(optimisticSummary, projectId);
-					archives.removeChat(chatId, projectId);
-					set((state) => {
-						const hiddenArchivedChatIds = new Set(state.hiddenArchivedChatIds);
-						hiddenArchivedChatIds.delete(chatId);
-						return { hiddenArchivedChatIds };
-					});
-					get().select(chatId);
+
 					const [{ runControlPlane }, cloudChats] = await Promise.all([
 						import("../lib/control-plane-client.ts"),
 						import("../lib/cloud-workspaces.ts"),
@@ -1743,7 +1735,15 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 						updatedAt: workspace.updatedAt,
 						archivedAt: undefined,
 					};
+					confirmCloudChatUnarchive(restoredSummary);
 					cloudChats.stageCloudChat(restoredSummary, projectId);
+					archives.removeChat(chatId, projectId);
+					set((state) => {
+						const hiddenArchivedChatIds = new Set(state.hiddenArchivedChatIds);
+						hiddenArchivedChatIds.delete(chatId);
+						return { hiddenArchivedChatIds };
+					});
+					get().select(chatId);
 					const shell = activeChatsByProject();
 					const chat = shell[projectId]?.find(
 						(candidate) => candidate.id === chatId,

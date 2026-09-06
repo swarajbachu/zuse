@@ -238,29 +238,17 @@ export const optimisticallyArchiveCloudChat = (
 	return optimistic;
 };
 
-export const optimisticallyUnarchiveCloudChat = (
-	summary: CloudChatSummary,
-): CloudChatSummary => {
-	const optimistic = {
-		...summary,
-		state: "paused" as const,
-		desiredState: "paused" as const,
-		runtimeState: "offline" as const,
-		statusCode: "unarchive-queued",
-		archivedAt: undefined,
-	};
+/** Publish a restore only after the control plane has accepted it. */
+export const confirmCloudChatUnarchive = (summary: CloudChatSummary): void => {
 	useCloudChatCatalogStore.setState((state) => {
 		const archiveIntents = { ...state.archiveIntents };
 		delete archiveIntents[summary.workspaceId];
 		return {
 			...state,
 			archiveIntents,
-			summaries: state.summaries.map((candidate) =>
-				candidate.workspaceId === summary.workspaceId ? optimistic : candidate,
-			),
+			summaries: mergeCloudChatSummaries(state.summaries, [summary]),
 		};
 	});
-	return optimistic;
 };
 
 export const registerCloudChat = (

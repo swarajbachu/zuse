@@ -15,9 +15,9 @@ import {
 	cloudSummaryForSelection,
 	cloudSummaryForSession,
 	compareCloudChatSummaryVersion,
+	confirmCloudChatUnarchive,
 	localProjectForCloudChat,
 	optimisticallyArchiveCloudChat,
-	optimisticallyUnarchiveCloudChat,
 	reconcileCloudChatCatalog,
 	registerCloudChat,
 	useCloudChatCatalogStore,
@@ -373,7 +373,7 @@ describe("cloud chat catalog", () => {
 		expect(cloudSummaryForChat("chat-a")?.state).toBe("archived");
 	});
 
-	it("moves an archived chat back immediately without waking compute", () => {
+	it("publishes a confirmed restore and clears the previous archive intent", () => {
 		const archived = {
 			...summary({
 				workspaceId: "environment-a",
@@ -387,12 +387,17 @@ describe("cloud chat catalog", () => {
 		};
 		registerCloudChat(archived);
 
-		expect(optimisticallyUnarchiveCloudChat(archived)).toMatchObject({
+		optimisticallyArchiveCloudChat(archived, 123, "archive-command");
+		confirmCloudChatUnarchive({
+			...archived,
 			state: "paused",
 			desiredState: "paused",
 			runtimeState: "offline",
 			archivedAt: undefined,
+			revision: 3,
 		});
+		expect(useCloudChatCatalogStore.getState().archiveIntents).toEqual({});
+
 		expect(cloudSummaryForChat("chat-a")).toMatchObject({
 			state: "paused",
 			desiredState: "paused",
