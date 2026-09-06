@@ -8,7 +8,10 @@ import {
 import chatLandingSource from "../../src/components/chat-landing.tsx?raw";
 import queueChipSource from "../../src/components/composer/queue-chip.tsx?raw";
 import workspacePickerSource from "../../src/components/composer/workspace-picker.tsx?raw";
-import { chatLandingProgress } from "../../src/lib/chat-landing-progress.ts";
+import {
+	chatLandingProgress,
+	cloudLaunchStepLabel,
+} from "../../src/lib/chat-landing-progress.ts";
 import cloudChatsSource from "../../src/lib/cloud-workspaces.ts?raw";
 import externalThreadsSource from "../../src/store/external-threads.ts?raw";
 
@@ -147,17 +150,25 @@ describe("chat landing progress", () => {
 	test("keeps the submitted cloud message in the queued composer surface", () => {
 		const message = chatLandingSource.indexOf("<QueuedComposerPreview");
 		const cloudLifecycle = chatLandingSource.indexOf(
-			'<CloudWorkspaceSetupView phase="allocating" />',
+			"<CloudWorkspaceSetupView",
 		);
 
 		expect(message).toBeGreaterThan(-1);
 		expect(message).toBeGreaterThan(cloudLifecycle);
-		expect(chatLandingSource).toContain(
-			'waitingForSandbox={progress.kind === "cloud"}',
-		);
-		expect(chatLandingSource).toContain("Waiting for sandbox");
+		expect(chatLandingSource).toContain("cloudLaunchStepLabel(progress.step)");
+		expect(cloudLaunchStepLabel("starting")).toBe("Waiting for sandbox");
 		expect(chatLandingSource).not.toContain("Starting Cloud Sandbox");
 		expect(queueChipSource).not.toContain("Saving message");
+	});
+
+	test("shows the sandbox's own boot phase while the workspace starts", () => {
+		expect(chatLandingSource).toContain(
+			'phase={pendingCloudSummary?.startupPhase ?? "allocating"}',
+		);
+		expect(cloudLaunchStepLabel("preparing")).toBe(
+			"Copying files to the sandbox",
+		);
+		expect(cloudLaunchStepLabel("sending")).toBe("Sending message");
 	});
 
 	test("owns lifecycle polling behind the control-plane stream", () => {
@@ -171,16 +182,16 @@ describe("chat landing progress", () => {
 	test("shows only cloud progress while a cloud workspace is starting", () => {
 		expect(
 			chatLandingProgress({
-				cloudStatus: "Allocating cloud sandbox…",
+				cloudStep: "starting",
 				hasPendingWorktree: true,
 			}),
-		).toEqual({ kind: "cloud", status: "Allocating cloud sandbox…" });
+		).toEqual({ kind: "cloud", step: "starting" });
 	});
 
 	test("shows worktree progress for local workspace creation", () => {
 		expect(
 			chatLandingProgress({
-				cloudStatus: null,
+				cloudStep: null,
 				hasPendingWorktree: true,
 			}),
 		).toEqual({ kind: "worktree" });
@@ -189,7 +200,7 @@ describe("chat landing progress", () => {
 	test("shows no setup progress when neither operation is active", () => {
 		expect(
 			chatLandingProgress({
-				cloudStatus: null,
+				cloudStep: null,
 				hasPendingWorktree: false,
 			}),
 		).toEqual({ kind: "none" });

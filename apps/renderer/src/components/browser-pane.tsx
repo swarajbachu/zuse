@@ -1465,7 +1465,10 @@ export function BrowserPane({
 				`browser-annotation-${Date.now()}.png`,
 			);
 			const screenshotAttachment = await uploadAttachment(
-				selectedSessionId as SessionId,
+				{
+					environmentId: chatRef.environmentId,
+					sessionId: selectedSessionId as SessionId,
+				},
 				file,
 			);
 			addBrowserAnnotation(selectedSessionId, {

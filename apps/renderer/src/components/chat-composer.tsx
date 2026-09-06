@@ -936,7 +936,11 @@ export function ChatComposer({
 			}
 
 			setUploadingAttachmentCount((count) => count + 1);
-			void uploadOne(sessionId, file, workspaceRoot ?? undefined)
+			void uploadOne(
+				{ environmentId: qualifiedEnvironmentId, sessionId },
+				file,
+				workspaceRoot ?? undefined,
+			)
 				.then((ref) => {
 					const finalUrl = isImage ? attachmentUrl(ref.id) : "";
 					editorViewRef.current?.dispatch({

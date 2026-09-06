@@ -1,5 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
+import {
+	resourceRefKey,
+	type SessionRef,
+} from "@zuse/client-runtime/resource-ref";
 import {
 	type AttachmentRef,
 	type ChatId,
@@ -46,24 +49,33 @@ import {
 } from "~/components/ui/menu";
 import { Spinner } from "~/components/ui/spinner";
 import { toastManager } from "~/components/ui/toast.tsx";
-import {
-	appendContextFileRef,
-	finalizeDraftAttachments,
-	finalizeDraftContextFiles,
-	type PendingDraftAttachment,
-	type PendingDraftContextFile,
+import type {
+	PendingDraftAttachment,
+	PendingDraftContextFile,
 } from "~/composer/draft-attachments";
 import { applyPreparedLinearContext } from "~/composer/linear-context-input";
-import { uploadAttachment } from "~/lib/attachments";
+import {
+	finalizeStartupInput,
+	finalizeStartupInputWhenReady,
+	releaseDraftAttachmentPreviews,
+	StartupInputError,
+	type StartupInputOptions,
+	startupInputNeedsPreparation,
+} from "~/composer/startup-input";
 import { resolveChatRuntimeMode } from "~/lib/auto-worktree";
-import { chatLandingProgress } from "~/lib/chat-landing-progress";
+import {
+	type CloudLaunchStep,
+	chatLandingProgress,
+	cloudLaunchStepLabel,
+} from "~/lib/chat-landing-progress";
+import { cloudLaunchRequestForSource } from "~/lib/cloud-launch-source";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
 import {
 	ensureCloudWorkspaceAttached,
 	stageCloudChat,
 	summaryFromLaunch,
+	useCloudChatSummaryForSelection,
 } from "~/lib/cloud-workspaces.ts";
-import { saveContextFile, saveContextText } from "~/lib/context-handoff";
 import { runControlPlane } from "~/lib/control-plane-client.ts";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import {
@@ -72,6 +84,11 @@ import {
 } from "~/lib/environment-shell-client-bus";
 import { formatError } from "~/lib/format-error";
 import { dispatchGitWorkspaceCommand } from "~/lib/git-workspace-client-bus";
+import {
+	linearContextTransferIo,
+	type PreparedLinearContext,
+	transferLinearContext,
+} from "~/lib/linear-cloud-context";
 import {
 	buildLogicalProjectGroups,
 	defaultNewChatTarget,
@@ -250,7 +267,6 @@ export function ChatLanding() {
 	);
 
 	const create = useChatsStore((s) => s.create);
-	const uploadOne = uploadAttachment;
 	const beginDraft = useSessionsStore((s) => s.beginDraft);
 	const clearDraft = useSessionsStore((s) => s.clearDraft);
 	// The synthetic draft session that drives the real ChatComposer below. Its
@@ -273,19 +289,30 @@ export function ChatLanding() {
 	const [pendingWorktreeId, setPendingWorktreeId] = useState<WorktreeId | null>(
 		null,
 	);
-	const [pendingCloudStatus, setPendingCloudStatus] = useState<string | null>(
+	// Renderer-owned cloud launch step. Sandbox boot phases in between come
+	// from the staged chat's live summary (`pendingCloudChatId`).
+	const [pendingCloudStep, setPendingCloudStep] =
+		useState<CloudLaunchStep | null>(null);
+	const [pendingCloudChatId, setPendingCloudChatId] = useState<ChatId | null>(
 		null,
 	);
+	const pendingCloudSummary = useCloudChatSummaryForSelection({
+		chatId: pendingCloudChatId,
+		sessionId: null,
+	});
 	// The provider chosen in the composer for this submit (may differ from the
 	// default — e.g. the user switched to Grok). Drives the bridge card's
 	// "Starting <provider>" label so it matches what's actually booting.
 
 	// The PR / branch / issue the user chose via "Create from…", if any. For a
-	// PR/branch we eagerly check out a worktree (or reuse an "In use" one) and
-	// pin `worktreeId`; the first send binds the chat to it. For an issue we
-	// stash its Markdown + prefill the composer with the title — no worktree.
+	// PR/branch on this computer we eagerly check out a worktree (or reuse an
+	// "In use" one) and pin `worktreeId`; the first send binds the chat to it.
+	// For a cloud target the raw selection maps to the sandbox's checkout ref
+	// instead. For an issue we stash its Markdown + prefill the composer with
+	// the title — no worktree.
 	const [createSource, setCreateSource] = useState<{
 		readonly kind: CreateFromSelection["kind"];
+		readonly selection: CreateFromSelection;
 		readonly worktreeId: WorktreeId | null;
 		readonly label: string;
 		readonly issue: {
@@ -654,6 +681,7 @@ export function ChatLanding() {
 				.join(", ");
 			setCreateSource({
 				kind: "linear",
+				selection: sel,
 				worktreeId: null,
 				label: identifiers,
 				issue: null,
@@ -687,6 +715,7 @@ export function ChatLanding() {
 				});
 				setCreateSource({
 					kind: "issue",
+					selection: sel,
 					worktreeId: null,
 					label: `#${sel.number}`,
 					issue: { markdown: res.markdown, title: res.title || sel.title },
@@ -706,9 +735,22 @@ export function ChatLanding() {
 		// otherwise check one out now against that ref.
 		const label =
 			sel.kind === "pr" ? `PR #${sel.number} · ${sel.headRefName}` : sel.branch;
+		// A cloud sandbox checks the ref out itself; never touch local worktrees.
+		if (selectedCloudProviderId !== null) {
+			setCreateSource({
+				kind: sel.kind,
+				selection: sel,
+				worktreeId: null,
+				label,
+				issue: null,
+				linear: null,
+			});
+			return;
+		}
 		if (sel.existingWorktreeId !== null) {
 			setCreateSource({
 				kind: sel.kind,
+				selection: sel,
 				worktreeId: sel.existingWorktreeId,
 				label,
 				issue: null,
@@ -733,10 +775,62 @@ export function ChatLanding() {
 		}
 		setCreateSource({
 			kind: sel.kind,
+			selection: sel,
 			worktreeId: wt.id,
 			label,
 			issue: null,
 			linear: null,
+		});
+	};
+
+	// Linear credentials live on this computer, so context is always rendered
+	// here — into the session's own workspace for a local chat, into the local
+	// checkout for a cloud one (from where it is copied to the sandbox).
+	const fetchLinearContext = async (
+		sessionId: SessionId,
+		issues: ReadonlyArray<LinearIssueSummary>,
+		rootPath?: string,
+	): Promise<PreparedLinearContext> =>
+		(
+			await dispatchEnvironmentShellCommand<
+				{
+					readonly sessionId: SessionId;
+					readonly issues: ReadonlyArray<{
+						readonly workspaceId: string;
+						readonly issueId: string;
+						readonly identifier: string;
+					}>;
+					readonly rootPath?: string;
+				},
+				{
+					readonly files: ReadonlyArray<LinearContextFile>;
+					readonly attachments: ReadonlyArray<AttachmentRef>;
+					readonly warnings: ReadonlyArray<LinearContextWarning>;
+				}
+			>({
+				environmentId: EnvironmentId.make(activeEnvironmentId),
+				kind: "linear.prepareContext",
+				commandId: CommandId.make(`linear-context:${crypto.randomUUID()}`),
+				payload: {
+					sessionId,
+					issues: issues.map((issue) => ({
+						workspaceId: issue.workspaceId,
+						issueId: issue.issueId,
+						identifier: issue.identifier,
+					})),
+					...(rootPath === undefined ? {} : { rootPath }),
+				},
+			})
+		).result;
+
+	const warnAboutLinearContext = (
+		warnings: ReadonlyArray<LinearContextWarning>,
+	): void => {
+		if (warnings.length === 0) return;
+		toastManager.add({
+			type: "error",
+			title: "Some Linear context was incomplete",
+			description: warnings.map((warning) => warning.message).join(" · "),
 		});
 	};
 
@@ -745,44 +839,61 @@ export function ChatLanding() {
 		issues: ReadonlyArray<LinearIssueSummary>,
 		input: ComposerInput,
 	): Promise<ComposerInput> => {
-		const { result: prepared } = await dispatchEnvironmentShellCommand<
-			{
-				readonly sessionId: SessionId;
-				readonly issues: ReadonlyArray<{
-					readonly workspaceId: string;
-					readonly issueId: string;
-					readonly identifier: string;
-				}>;
-			},
-			{
-				readonly files: ReadonlyArray<LinearContextFile>;
-				readonly attachments: ReadonlyArray<AttachmentRef>;
-				readonly warnings: ReadonlyArray<LinearContextWarning>;
-			}
-		>({
-			environmentId: EnvironmentId.make(activeEnvironmentId),
-			kind: "linear.prepareContext",
-			commandId: CommandId.make(`linear-context:${crypto.randomUUID()}`),
-			payload: {
-				sessionId,
-				issues: issues.map((issue) => ({
-					workspaceId: issue.workspaceId,
-					issueId: issue.issueId,
-					identifier: issue.identifier,
-				})),
-			},
-		});
-		if (prepared.warnings.length > 0) {
-			toastManager.add({
-				type: "error",
-				title: "Some Linear context was incomplete",
-				description: prepared.warnings
-					.map((warning) => warning.message)
-					.join(" · "),
-			});
-		}
+		const prepared = await fetchLinearContext(sessionId, issues);
+		warnAboutLinearContext(prepared.warnings);
 		return applyPreparedLinearContext(input, prepared);
 	};
+
+	// Cloud variant: render against the local checkout under the draft session,
+	// then copy the Markdown and images into the sandbox's own workspace.
+	const prepareLinearInputForCloud = async (
+		target: SessionRef,
+		issues: ReadonlyArray<LinearIssueSummary>,
+		input: ComposerInput,
+	): Promise<ComposerInput> => {
+		if (selectedFolderId === null || selectedFolder === null) return input;
+		const local = {
+			environmentId: EnvironmentId.make(activeEnvironmentId),
+			sessionId: DRAFT_SESSION_ID,
+		};
+		const prepared = await fetchLinearContext(
+			DRAFT_SESSION_ID,
+			issues,
+			selectedFolder.path,
+		);
+		const transferred = await transferLinearContext(
+			prepared,
+			linearContextTransferIo({
+				source: {
+					environmentId: local.environmentId,
+					folderId: selectedFolderId,
+					worktreeId: null,
+					rootPath: selectedFolder.path,
+				},
+				sourceSession: local,
+				target,
+			}),
+		);
+		warnAboutLinearContext(transferred.warnings);
+		return applyPreparedLinearContext(input, transferred);
+	};
+
+	// Linear context is supporting material: a ticket that fails to render must
+	// not lose the message the user already sent.
+	const tolerantLinearPreparation =
+		(prepare: (input: ComposerInput) => Promise<ComposerInput>) =>
+		async (input: ComposerInput): Promise<ComposerInput> => {
+			try {
+				return await prepare(input);
+			} catch (error) {
+				toastManager.add({
+					type: "error",
+					title: "Linear context could not be fully prepared",
+					description: error instanceof Error ? error.message : String(error),
+				});
+				return input;
+			}
+		};
 
 	// Driven by the real ChatComposer (draft mode): it hands back the parsed
 	// input (file refs / attachments / skills / annotations intact) and whether
@@ -808,33 +919,50 @@ export function ChatLanding() {
 				);
 				return;
 			}
+			if (selectedFolderId === null) {
+				setSubmitError("Select a repository before starting a cloud chat.");
+				return;
+			}
 			if (draft.providerId !== "claude" && draft.providerId !== "codex") {
 				setSubmitError("Cloud Sandbox currently supports Claude and Codex.");
 				return;
 			}
-			if (
-				opts.pendingAttachments.length > 0 ||
-				opts.pendingContextFiles.length > 0 ||
-				createSource !== null ||
-				opts.asGoal
-			) {
+			if (createSource?.linear?.mode === "separate") {
 				setSubmitError(
-					"Attachments, context files, goals, and Create-from aren't supported yet when starting a cloud workspace.",
+					"A cloud workspace per Linear ticket isn't supported yet. Turn off “Separate threads” to run the selected tickets in one cloud workspace.",
 				);
 				return;
 			}
+			// "Create from…" in the cloud picks the ref the sandbox checks out.
+			const launchSource = cloudLaunchRequestForSource(
+				createSource?.selection ?? null,
+				cloudProject.defaultBranch,
+			);
+			if (!launchSource.ok) {
+				setSubmitError(launchSource.message);
+				return;
+			}
+			const folderId = selectedFolderId;
+			const startupInput = ComposerInput.make({
+				...input,
+				asGoal: opts.asGoal,
+			});
 			setSubmitError(null);
 			setSubmitting(true);
 			setPendingPrompt(
 				input.text.trim().length > 0 ? input.text.trim() : "New chat",
 			);
-			setPendingCloudStatus("Creating cloud workspace…");
+			setPendingCloudStep("creating");
+			let staged = false;
 			try {
 				const launch = await runControlPlane((control) =>
 					control["cloud.workspaces.create"]({
 						projectId: cloudProject.projectId,
 						providerId: selectedCloudProviderId,
-						baseRef: `origin/${cloudProject.defaultBranch}`,
+						baseRef: launchSource.ref.baseRef,
+						...(launchSource.ref.branch === undefined
+							? {}
+							: { branch: launchSource.ref.branch }),
 						agent: draft.providerId,
 						model: draft.model,
 						runtimeMode: draft.runtimeMode,
@@ -855,41 +983,116 @@ export function ChatLanding() {
 					model: draft.model,
 					runtimeMode: draft.runtimeMode,
 				});
-				if (selectedFolderId === null)
-					throw new Error("Select a repository before starting a cloud chat.");
+				const sandboxSession: SessionRef = {
+					environmentId: EnvironmentId.make(summary.workspaceId),
+					sessionId: summary.initialSessionId,
+				};
+				const linearIssues =
+					createSource?.linear?.mode === "combined"
+						? createSource.linear.issues
+						: null;
+				const startupOptions: StartupInputOptions = {
+					issueMarkdown: createSource?.issue?.markdown ?? null,
+					prepareLinear:
+						linearIssues === null
+							? null
+							: tolerantLinearPreparation((current) =>
+									prepareLinearInputForCloud(
+										sandboxSession,
+										linearIssues,
+										current,
+									),
+								),
+					pendingContextFiles: opts.pendingContextFiles,
+					pendingAttachments: opts.pendingAttachments,
+				};
+				// Files have to be written into the sandbox itself, and goal mode
+				// is not a durable-mailbox payload: both need the runtime online
+				// before the first message can be sent.
+				const needsRuntime =
+					startupInputNeedsPreparation(startupOptions) || startupInput.asGoal;
 				const usesDurableInitialMessage =
 					launch.initialMessageDelivery === "mailbox-v1";
 				stageCloudChat(
 					summary,
-					selectedFolderId,
+					folderId,
 					usesDurableInitialMessage ? undefined : input.text,
 				);
+				staged = true;
+				setPendingCloudChatId(summary.chatId);
 				useChatsStore.getState().select(summary.chatId);
-				const accepted = usesDurableInitialMessage
-					? await sendSessionMessage(
-							{
-								environmentId: EnvironmentId.make(summary.workspaceId),
-								sessionId: summary.initialSessionId,
-							},
-							input,
-							{ providerId: draft.providerId },
-						)
-					: true;
-				void ensureCloudWorkspaceAttached(summary).catch((cause) =>
-					toastManager.add({
-						type: "error",
-						title: "Cloud workspace needs attention",
-						description: formatError(cause),
-					}),
-				);
+				if (!usesDurableInitialMessage) {
+					// This control plane delivered the prompt with the launch intent,
+					// so there is no first message left for us to enrich.
+					if (needsRuntime) {
+						toastManager.add({
+							type: "error",
+							title: "Cloud workspace started without your attachments",
+							description:
+								"This cloud API version delivers the first message itself. Send the files again once the workspace is ready.",
+						});
+					}
+					void ensureCloudWorkspaceAttached(summary).catch((cause) =>
+						toastManager.add({
+							type: "error",
+							title: "Cloud workspace needs attention",
+							description: formatError(cause),
+						}),
+					);
+					useSessionsStore.getState().clearDraft();
+					setSelectedCloudProviderId(null);
+					setCreateSource(null);
+					return;
+				}
+				let finalInput = startupInput;
+				if (needsRuntime) {
+					setPendingCloudStep("starting");
+					await ensureCloudWorkspaceAttached(summary);
+					setPendingCloudStep("preparing");
+					finalInput = await finalizeStartupInputWhenReady(
+						startupInput,
+						{ ref: sandboxSession, uploadRoot: null },
+						startupOptions,
+					);
+				} else {
+					void ensureCloudWorkspaceAttached(summary).catch((cause) =>
+						toastManager.add({
+							type: "error",
+							title: "Cloud workspace needs attention",
+							description: formatError(cause),
+						}),
+					);
+				}
+				setPendingCloudStep("sending");
+				const accepted = await sendSessionMessage(sandboxSession, finalInput, {
+					asGoal: startupInput.asGoal,
+					providerId: draft.providerId,
+				});
 				if (!accepted) return;
 				useSessionsStore.getState().clearDraft();
 				setSelectedCloudProviderId(null);
+				setCreateSource(null);
 			} catch (cause) {
-				setSubmitError(formatError(cause));
+				const message =
+					cause instanceof StartupInputError
+						? cause.message
+						: formatError(cause);
+				// Once the chat is staged the lander is gone: the open chat is the
+				// only surface left that can carry the failure.
+				if (staged) {
+					toastManager.add({
+						type: "error",
+						title: "Couldn't send your first cloud message",
+						description: message,
+					});
+				} else {
+					setSubmitError(message);
+				}
 				setPendingPrompt(null);
 			} finally {
-				setPendingCloudStatus(null);
+				releaseDraftAttachmentPreviews(opts.pendingAttachments);
+				setPendingCloudStep(null);
+				setPendingCloudChatId(null);
 				setSubmitting(false);
 			}
 			return;
@@ -971,10 +1174,26 @@ export function ChatLanding() {
 		}
 		if (selectedFolderId === null) return;
 		const startupInput = ComposerInput.make({ ...input, asGoal: opts.asGoal });
-		const startupNeedsPreparation =
-			createSource !== null ||
-			opts.pendingAttachments.length > 0 ||
-			opts.pendingContextFiles.length > 0;
+		const combinedLinearIssues =
+			createSource?.linear?.mode === "combined"
+				? createSource.linear.issues
+				: null;
+		const startupOptionsFor = (sessionId: SessionId): StartupInputOptions => ({
+			issueMarkdown: createSource?.issue?.markdown ?? null,
+			prepareLinear:
+				combinedLinearIssues === null
+					? null
+					: tolerantLinearPreparation((current) =>
+							prepareLinearInput(sessionId, combinedLinearIssues, current),
+						),
+			pendingContextFiles: opts.pendingContextFiles,
+			pendingAttachments: opts.pendingAttachments,
+		});
+		// The draft session stands in for the not-yet-created one: what matters
+		// here is only whether the first message references bytes at all.
+		const startupNeedsPreparation = startupInputNeedsPreparation(
+			startupOptionsFor(DRAFT_SESSION_ID),
+		);
 		setSubmitError(null);
 		setSubmitting(true);
 		setPendingPrompt(
@@ -1022,11 +1241,6 @@ export function ChatLanding() {
 				});
 				try {
 					const worktreeId = result.worktreeId;
-					let ticketInput = await prepareLinearInput(
-						result.initialSessionId,
-						[issue],
-						startupInput,
-					);
 					const uploadRoot =
 						worktreeId === null
 							? (selectedFolder?.path ?? null)
@@ -1036,29 +1250,22 @@ export function ChatLanding() {
 								).find((worktree) => worktree.id === worktreeId)?.path ??
 								selectedFolder?.path ??
 								null);
-					ticketInput = await finalizeDraftContextFiles(
-						ticketInput,
-						opts.pendingContextFiles,
-						async (pending) => {
-							const saved = await saveContextText({
+					const ticketInput = await finalizeStartupInput(
+						startupInput,
+						{
+							ref: {
 								environmentId: EnvironmentId.make(activeEnvironmentId),
 								sessionId: result.initialSessionId,
-								text: pending.text,
-								ext: pending.ext,
-								...(uploadRoot ? { rootPath: uploadRoot } : {}),
-							});
-							return { relPath: saved.relPath, absPath: saved.absPath };
+							},
+							uploadRoot,
 						},
-					);
-					ticketInput = await finalizeDraftAttachments(
-						ticketInput,
-						opts.pendingAttachments,
-						(pending) =>
-							uploadOne(
-								result.initialSessionId,
-								pending.file,
-								uploadRoot ?? undefined,
-							),
+						{
+							issueMarkdown: null,
+							prepareLinear: (current) =>
+								prepareLinearInput(result.initialSessionId, [issue], current),
+							pendingContextFiles: opts.pendingContextFiles,
+							pendingAttachments: opts.pendingAttachments,
+						},
 					);
 					if (startupQueueId !== null) {
 						await updateQueuedMessage(
@@ -1086,9 +1293,7 @@ export function ChatLanding() {
 				},
 			);
 			await Promise.all(workers);
-			for (const pending of opts.pendingAttachments) {
-				if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
-			}
+			releaseDraftAttachmentPreviews(opts.pendingAttachments);
 			if (failures.length > 0) {
 				toastManager.add({
 					type: "error",
@@ -1148,35 +1353,9 @@ export function ChatLanding() {
 			DRAFT_SESSION_ID,
 			sessionId,
 		);
-		// Issue source: write its Markdown into the chat's real worktree cwd and
-		// attach it as an `@`-file so the agent reads it from its own cwd (works
-		// for both the Claude `@relPath` and Codex `absPath` mention paths).
-		let finalInput = startupInput;
-		if (createSource?.issue != null) {
-			const ref = await saveContextFile(
-				EnvironmentId.make(activeEnvironmentId),
-				sessionId,
-				createSource.issue.markdown,
-			);
-			if (ref !== null) {
-				finalInput = appendContextFileRef(startupInput, ref);
-			}
-		}
-		if (createSource?.linear?.mode === "combined") {
-			try {
-				finalInput = await prepareLinearInput(
-					sessionId,
-					createSource.linear.issues,
-					finalInput,
-				);
-			} catch (error) {
-				toastManager.add({
-					type: "error",
-					title: "Linear context could not be fully prepared",
-					description: error instanceof Error ? error.message : String(error),
-				});
-			}
-		}
+		// Everything the first message referenced — the "Create from…" issue body,
+		// Linear context, pasted text, dropped files — is written into the chat's
+		// real cwd now, so the agent reads it from its own workspace.
 		const uploadRoot = (() => {
 			if (worktreeId === null) return selectedFolder?.path ?? null;
 			const wt = (
@@ -1185,51 +1364,30 @@ export function ChatLanding() {
 			).find((w) => w.id === worktreeId);
 			return wt?.path ?? selectedFolder?.path ?? null;
 		})();
-		if (opts.pendingContextFiles.length > 0) {
-			try {
-				finalInput = await finalizeDraftContextFiles(
-					finalInput,
-					opts.pendingContextFiles,
-					async (pending) => {
-						const res = await saveContextText({
-							environmentId: EnvironmentId.make(activeEnvironmentId),
-							sessionId,
-							text: pending.text,
-							ext: pending.ext,
-							...(uploadRoot ? { rootPath: uploadRoot } : {}),
-						});
-						return { relPath: res.relPath, absPath: res.absPath };
+		let finalInput = startupInput;
+		try {
+			finalInput = await finalizeStartupInput(
+				startupInput,
+				{
+					ref: {
+						environmentId: EnvironmentId.make(activeEnvironmentId),
+						sessionId,
 					},
-				);
-			} catch (err) {
-				console.error("[chat-landing] deferred context file failed", err);
-				setSubmitError("Couldn't attach pasted text. Please try again.");
-				setPendingPrompt(null);
-				setPendingWorktreeId(null);
-				setSubmitting(false);
-				return;
-			}
-		}
-		if (opts.pendingAttachments.length > 0) {
-			try {
-				finalInput = await finalizeDraftAttachments(
-					finalInput,
-					opts.pendingAttachments,
-					(pending) =>
-						uploadOne(sessionId, pending.file, uploadRoot ?? undefined),
-				);
-			} catch (err) {
-				console.error("[chat-landing] deferred upload failed", err);
-				setSubmitError("Couldn't attach one of those files. Please try again.");
-				setPendingPrompt(null);
-				setPendingWorktreeId(null);
-				setSubmitting(false);
-				return;
-			} finally {
-				for (const pending of opts.pendingAttachments) {
-					if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
-				}
-			}
+					uploadRoot,
+				},
+				startupOptionsFor(sessionId),
+			);
+		} catch (err) {
+			console.error("[chat-landing] startup input preparation failed", err);
+			setSubmitError(
+				err instanceof StartupInputError ? err.message : formatError(err),
+			);
+			setPendingPrompt(null);
+			setPendingWorktreeId(null);
+			setSubmitting(false);
+			return;
+		} finally {
+			releaseDraftAttachmentPreviews(opts.pendingAttachments);
 		}
 		if (startupNeedsPreparation && startupQueueId !== null) {
 			// Finalization is the release edge. If the provider became ready first,
@@ -1251,7 +1409,7 @@ export function ChatLanding() {
 	// pinned at the bottom — so the handoff to the live card is seamless.
 	if (submitting && pendingPrompt !== null) {
 		const progress = chatLandingProgress({
-			cloudStatus: pendingCloudStatus,
+			cloudStep: pendingCloudStep,
 			hasPendingWorktree:
 				pendingWorktreeId !== null ||
 				workspaceMode === "worktree" ||
@@ -1261,7 +1419,13 @@ export function ChatLanding() {
 			<div className="flex min-h-0 flex-1 flex-col">
 				<div className="min-h-0 flex-1 overflow-y-auto">
 					{progress.kind === "cloud" ? (
-						<CloudWorkspaceSetupView phase="allocating" />
+						<CloudWorkspaceSetupView
+							phase={pendingCloudSummary?.startupPhase ?? "allocating"}
+							statusCode={pendingCloudSummary?.statusCode}
+							failureDiagnostic={
+								pendingCloudSummary?.failureDiagnostic ?? undefined
+							}
+						/>
 					) : null}
 					{progress.kind === "worktree" ? (
 						<SetupCardView
@@ -1283,7 +1447,11 @@ export function ChatLanding() {
 				<div className="px-4 pb-4">
 					<QueuedComposerPreview
 						prompt={pendingPrompt}
-						waitingForSandbox={progress.kind === "cloud"}
+						status={
+							progress.kind === "cloud"
+								? cloudLaunchStepLabel(progress.step)
+								: "Queued"
+						}
 					/>
 				</div>
 			</div>
@@ -1433,6 +1601,10 @@ export function ChatLanding() {
 													target={resolvedTarget}
 													entries={catalogEntries}
 													onPickTarget={(target) => {
+														// A create-from pick is bound to the kind of
+														// target it was made for (cloud ref vs worktree).
+														if (selectedCloudProviderId !== null)
+															setCreateSource(null);
 														setSelectedCloudProviderId(null);
 														setTargetOverride(target);
 													}}
@@ -1444,6 +1616,8 @@ export function ChatLanding() {
 															setView("settings");
 															return;
 														}
+														if (selectedCloudProviderId === null)
+															setCreateSource(null);
 														setTargetOverride(null);
 														setSelectedCloudProviderId(providerId);
 													}}
@@ -1760,15 +1934,15 @@ function providerThreadLabel(providerId: ProviderId): string {
 
 function QueuedComposerPreview({
 	prompt,
-	waitingForSandbox,
+	status,
 }: {
 	readonly prompt: string;
-	readonly waitingForSandbox: boolean;
+	readonly status: string;
 }) {
 	return (
 		<div className="mx-auto w-full max-w-3xl overflow-hidden rounded-md border border-border/50 bg-muted/20 text-[11px]">
 			<div className="border-b border-border/40 px-3 py-1.5 font-medium text-muted-foreground">
-				{waitingForSandbox ? "Waiting for sandbox" : "Queued"}
+				{status}
 			</div>
 			<div className="px-3 py-2 text-foreground/80">{prompt}</div>
 		</div>

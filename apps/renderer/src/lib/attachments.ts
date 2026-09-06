@@ -1,10 +1,5 @@
-import {
-	type AttachmentRef,
-	CommandId,
-	EnvironmentId,
-	type SessionId,
-} from "@zuse/contracts";
-import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
+import type { SessionRef } from "@zuse/client-runtime/resource-ref";
+import { type AttachmentRef, CommandId } from "@zuse/contracts";
 import { dispatchSessionCommand } from "./session-timeline-client-bus.ts";
 
 /**
@@ -27,31 +22,33 @@ const fileToBytes = (file: File): Promise<Uint8Array> =>
 		reader.readAsArrayBuffer(file);
 	});
 
-export const uploadAttachment = async (
-	sessionId: SessionId,
-	file: File,
-	rootPath?: string,
+/**
+ * Upload bytes into the session's workspace on the environment that owns it.
+ * The environment is explicit because a cloud workspace's session lives on
+ * the sandbox, never on the active local environment.
+ */
+export const uploadAttachmentBytes = async (
+	ref: SessionRef,
+	input: {
+		readonly bytes: Uint8Array;
+		readonly mimeType: string;
+		readonly originalName: string;
+		readonly rootPath?: string;
+	},
 ): Promise<AttachmentRef> => {
-	if (file.size > MAX_IMAGE_BYTES) {
-		throw new Error("Image too large (max 100 MB)");
-	}
-	const environmentId = EnvironmentId.make(
-		useEnvironmentCatalogStore.getState().activeEnvironmentId,
-	);
-	const ref = { environmentId, sessionId };
 	const result = (
 		await dispatchSessionCommand({
 			ref,
 			kind: "attachments.upload",
 			commandId: CommandId.make(
-				`attachment-upload:${sessionId}:${Date.now().toString(36)}`,
+				`attachment-upload:${ref.sessionId}:${crypto.randomUUID()}`,
 			),
 			payload: {
-				sessionId,
-				bytes: await fileToBytes(file),
-				mimeType: file.type || "application/octet-stream",
-				originalName: file.name || "image",
-				...(rootPath ? { rootPath } : {}),
+				sessionId: ref.sessionId,
+				bytes: input.bytes,
+				mimeType: input.mimeType,
+				originalName: input.originalName,
+				...(input.rootPath ? { rootPath: input.rootPath } : {}),
 			},
 			retry: "never",
 		})
@@ -59,6 +56,45 @@ export const uploadAttachment = async (
 	return {
 		id: result.id,
 		mimeType: result.mimeType,
-		originalName: file.name || "image",
+		originalName: input.originalName,
 	};
 };
+
+export const uploadAttachment = async (
+	ref: SessionRef,
+	file: File,
+	rootPath?: string,
+): Promise<AttachmentRef> => {
+	if (file.size > MAX_IMAGE_BYTES) {
+		throw new Error("Image too large (max 100 MB)");
+	}
+	return uploadAttachmentBytes(ref, {
+		bytes: await fileToBytes(file),
+		mimeType: file.type || "application/octet-stream",
+		originalName: file.name || "image",
+		...(rootPath ? { rootPath } : {}),
+	});
+};
+
+/** Read an attachment's bytes back from the environment that stores it. */
+export const readAttachment = async (
+	ref: SessionRef,
+	id: string,
+): Promise<
+	Readonly<{ bytes: Uint8Array; mimeType: string; originalName: string }>
+> =>
+	(
+		await dispatchSessionCommand({
+			ref,
+			kind: "attachments.read",
+			commandId: CommandId.make(
+				`attachment-read:${ref.sessionId}:${crypto.randomUUID()}`,
+			),
+			payload: { sessionId: ref.sessionId, id },
+			retry: "never",
+		})
+	).result as Readonly<{
+		bytes: Uint8Array;
+		mimeType: string;
+		originalName: string;
+	}>;
