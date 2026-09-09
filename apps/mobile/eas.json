@@ -8,28 +8,55 @@
 			"developmentClient": true,
 			"distribution": "internal",
 			"env": {
+				"APP_VARIANT": "development",
+				"EXPO_PUBLIC_APP_SCHEME": "zuse-dev",
 				"EXPO_PUBLIC_WORKOS_CLIENT_ID": "client_01KW6ZEZKVMZ0G429A89XZD83Q",
 				"EXPO_PUBLIC_ZUSE_API_URL": "https://api-staging.zuse.sh"
 			},
 			"ios": {
+				"buildConfiguration": "Debug",
 				"simulator": false
 			}
 		},
-		"preview": {
-			"distribution": "internal",
+		"testflight": {
+			"autoIncrement": true,
+			"environment": "preview",
 			"env": {
+				"APP_VARIANT": "testflight",
+				"EXPO_NO_BUNDLE_SPLITTING": "1",
+				"EXPO_PUBLIC_APP_SCHEME": "zuse",
 				"EXPO_PUBLIC_WORKOS_CLIENT_ID": "client_01KW6ZEZKVMZ0G429A89XZD83Q",
 				"EXPO_PUBLIC_ZUSE_API_URL": "https://api-staging.zuse.sh"
+			},
+			"ios": {
+				"buildConfiguration": "Release"
 			}
 		},
 		"production": {
 			"autoIncrement": true,
+			"environment": "production",
 			"env": {
-				"EXPO_PUBLIC_WORKOS_CLIENT_ID": "client_01KWGQ818571ARFATQ3G9AR2Y2"
+				"APP_VARIANT": "production",
+				"EXPO_NO_BUNDLE_SPLITTING": "1",
+				"EXPO_PUBLIC_APP_SCHEME": "zuse",
+				"EXPO_PUBLIC_WORKOS_CLIENT_ID": "client_01KWGQ818571ARFATQ3G9AR2Y2",
+				"EXPO_PUBLIC_ZUSE_API_URL": "https://api.zuse.sh"
+			},
+			"ios": {
+				"buildConfiguration": "Release"
 			}
 		}
 	},
 	"submit": {
-		"production": {}
+		"testflight": {
+			"ios": {
+				"ascAppId": "6810182019"
+			}
+		},
+		"production": {
+			"ios": {
+				"ascAppId": "6810182019"
+			}
+		}
 	}
 }

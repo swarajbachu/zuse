@@ -13,8 +13,9 @@ EXPO_PUBLIC_WORKOS_CLIENT_ID=<the same WorkOS client the desktop uses>
 EXPO_PUBLIC_ZUSE_API_URL=https://api.zuse.sh
 ```
 
-The redirect URI is `zuse://auth` (from `app.json` `scheme`); register it in the
-WorkOS dashboard as an allowed redirect for this client.
+The store redirect URI is `zuse://auth`. Local development builds use
+`zuse-dev://auth` so they can coexist with the store app. Register both as
+allowed redirects for this client in the WorkOS dashboard.
 
 ## ⚠️ Requires a dev client (not Expo Go)
 DPoP proofs are **ES256** signatures. React Native has no WebCrypto `subtle`, so
