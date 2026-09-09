@@ -11,9 +11,7 @@ import {
 	useProviderStartupDelay,
 } from "../lib/provider-startup-delay.ts";
 import type { SessionRuntimeState } from "../lib/session-runtime-state.ts";
-import { cancelSessionCommand } from "../lib/session-timeline-client-bus.ts";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
-import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
 const formatElapsed = (ms: number): string => {
@@ -112,19 +110,6 @@ export function ChatWorkingRow({
 							})
 						: `${providerLabel} is working`}
 			</span>
-			{waitingCommand?.cancellable === true ? (
-				<Button
-					size="xs"
-					variant="ghost"
-					onClick={() =>
-						void cancelSessionCommand(waitingCommand.commandId).catch(
-							() => undefined,
-						)
-					}
-				>
-					Cancel
-				</Button>
-			) : null}
 			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}
 			</ShimmerText>

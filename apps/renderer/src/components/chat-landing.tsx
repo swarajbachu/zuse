@@ -19,6 +19,7 @@ import {
 	type LinearContextFile,
 	type LinearContextWarning,
 	type LinearIssueSummary,
+	type MessageId,
 	type ProviderId,
 	type SessionId,
 	type WorktreeCreateSource,
@@ -62,11 +63,14 @@ import {
 	type StartupInputOptions,
 	startupInputNeedsPreparation,
 } from "~/composer/startup-input";
+import {
+	cacheAttachmentPreview,
+	forgetAttachmentPreview,
+} from "~/lib/attachments.ts";
 import { resolveChatRuntimeMode } from "~/lib/auto-worktree";
 import {
 	type CloudLaunchStep,
 	chatLandingProgress,
-	cloudLaunchStepLabel,
 } from "~/lib/chat-landing-progress";
 import { cloudLaunchRequestForSource } from "~/lib/cloud-launch-source";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
@@ -98,7 +102,12 @@ import {
 	preferredGroupMember,
 } from "~/lib/project-groups";
 import { getLocalEnvironmentId } from "~/lib/rpc-client";
-import { sendSessionMessage, updateQueuedMessage } from "~/lib/session-actions";
+import {
+	discardStagedSessionMessage,
+	sendSessionMessage,
+	stageSessionMessage,
+	updateQueuedMessage,
+} from "~/lib/session-actions";
 import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { switchToEnvironment } from "~/lib/switch-environment";
 import { cn } from "~/lib/utils";
@@ -120,6 +129,7 @@ import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
 import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
+import { ChatStartupView } from "./chat-startup-view.tsx";
 import {
 	type CloudComputerPickerItem,
 	ComputerPicker,
@@ -283,6 +293,10 @@ export function ChatLanding() {
 	// Snapshot of the prompt the user just submitted. Drives the inline
 	// setup-card bridge so the form can be hidden during the RPC without the
 	// user losing visual continuity with what they sent (shown as queued).
+	const [pendingInput, setPendingInput] = useState<ComposerInput | null>(null);
+	const [pendingPreviews, setPendingPreviews] = useState<
+		Readonly<Record<string, string>>
+	>({});
 	const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
 	// The worktree resolved for this submit (null = main checkout). Lets the
 	// bridge card show the real worktree name/branch the instant it exists.
@@ -952,8 +966,15 @@ export function ChatLanding() {
 			setPendingPrompt(
 				input.text.trim().length > 0 ? input.text.trim() : "New chat",
 			);
+			setPendingInput(startupInput);
+			setPendingPreviews(
+				Object.fromEntries(
+					opts.pendingAttachments.map((item) => [item.tempId, item.previewUrl]),
+				),
+			);
 			setPendingCloudStep("creating");
 			let staged = false;
+			let stagedMessage: { ref: SessionRef; id: MessageId } | null = null;
 			try {
 				const launch = await runControlPlane((control) =>
 					control["cloud.workspaces.create"]({
@@ -1018,6 +1039,16 @@ export function ChatLanding() {
 					folderId,
 					usesDurableInitialMessage ? undefined : input.text,
 				);
+				for (const item of opts.pendingAttachments) {
+					cacheAttachmentPreview(sandboxSession, item.tempId, item.previewUrl);
+				}
+				const messageId = usesDurableInitialMessage
+					? stageSessionMessage(sandboxSession, startupInput, {
+							asGoal: startupInput.asGoal,
+						})
+					: undefined;
+				if (messageId !== undefined)
+					stagedMessage = { ref: sandboxSession, id: messageId };
 				staged = true;
 				setPendingCloudChatId(summary.chatId);
 				useChatsStore.getState().select(summary.chatId);
@@ -1044,6 +1075,7 @@ export function ChatLanding() {
 					setCreateSource(null);
 					return;
 				}
+
 				let finalInput = startupInput;
 				if (needsRuntime) {
 					setPendingCloudStep("starting");
@@ -1067,12 +1099,15 @@ export function ChatLanding() {
 				const accepted = await sendSessionMessage(sandboxSession, finalInput, {
 					asGoal: startupInput.asGoal,
 					providerId: draft.providerId,
+					messageId,
 				});
 				if (!accepted) return;
 				useSessionsStore.getState().clearDraft();
 				setSelectedCloudProviderId(null);
 				setCreateSource(null);
 			} catch (cause) {
+				if (stagedMessage !== null)
+					discardStagedSessionMessage(stagedMessage.ref, stagedMessage.id);
 				const message =
 					cause instanceof StartupInputError
 						? cause.message
@@ -1090,6 +1125,12 @@ export function ChatLanding() {
 				}
 				setPendingPrompt(null);
 			} finally {
+				if (stagedMessage !== null) {
+					for (const item of opts.pendingAttachments)
+						forgetAttachmentPreview(stagedMessage.ref, item.tempId);
+				}
+				setPendingInput(null);
+				setPendingPreviews({});
 				releaseDraftAttachmentPreviews(opts.pendingAttachments);
 				setPendingCloudStep(null);
 				setPendingCloudChatId(null);
@@ -1405,8 +1446,195 @@ export function ChatLanding() {
 
 	// Bridge: covers the brief create() RPC window (worktree → chat) before the
 	// session exists and MainShell swaps us for the real ChatView + composer.
-	// Mirrors that layout — the unified setup card on top, the queued message
-	// pinned at the bottom — so the handoff to the live card is seamless.
+	const composer =
+		draftSession !== null ? (
+			<Suspense fallback={<div className="h-28" aria-busy="true" />}>
+				<ChatComposer
+					constrain={!submitting}
+					submitDisabled={submitting || pendingProjectSetup !== null}
+					// Keyed by the draft's anchor — NOT by the "Run on" target,
+					// so picking a computer never remounts the editor and the
+					// typed text stays exactly where it is.
+					key={
+						remoteAnchor !== null
+							? `remote:${remoteAnchor.member.environmentId}:${remoteAnchor.member.folderId}`
+							: `${activeEnvironmentId}:${selectedFolderId ?? "none"}`
+					}
+					session={draftSession}
+					environmentId={EnvironmentId.make(
+						remoteAnchor?.member.environmentId ?? activeEnvironmentId,
+					)}
+					composerDraftKey={
+						remoteAnchor !== null
+							? composerDraftKeyForRemoteLanding(
+									EnvironmentId.make(remoteAnchor.member.environmentId),
+									remoteAnchor.member.folderId,
+								)
+							: composerDraftKeyForLanding(
+									EnvironmentId.make(activeEnvironmentId),
+									selectedFolderId,
+								)
+					}
+					onDraftSubmit={(input, opts) => void handleDraftSubmit(input, opts)}
+					headerSlot={
+						submitting ? undefined : (
+							<div className="flex w-full items-center justify-between gap-2">
+								<div className="flex min-w-0 items-center gap-1.5">
+									<ProjectPicker
+										groups={projectGroups}
+										selectedFolderId={selectedFolderId}
+										selectedName={
+											anchoredGroup?.displayName ?? selectedFolder?.name ?? null
+										}
+										onPickGroup={onPickGroup}
+										onAdd={onAdd}
+									/>
+									{desktopCatalogEnabled || cloudPickerItems.length > 0 ? (
+										<ComputerPicker
+											group={pickerGroup}
+											target={resolvedTarget}
+											entries={catalogEntries}
+											onPickTarget={(target) => {
+												// A create-from pick is bound to the kind of
+												// target it was made for (cloud ref vs worktree).
+												if (selectedCloudProviderId !== null)
+													setCreateSource(null);
+												setSelectedCloudProviderId(null);
+												setTargetOverride(target);
+											}}
+											cloudItems={cloudPickerItems}
+											selectedCloudProviderId={selectedCloudProviderId}
+											onPickCloud={(providerId) => {
+												if (cloudProject === null) {
+													setSettingsSection({ kind: "machines" });
+													setView("settings");
+													return;
+												}
+												if (selectedCloudProviderId === null)
+													setCreateSource(null);
+												setTargetOverride(null);
+												setSelectedCloudProviderId(providerId);
+											}}
+											onRetryEnvironment={retryComputer}
+										/>
+									) : null}
+									{selectedCloudProviderId === null ? (
+										<WorkspacePicker
+											value={workspaceMode}
+											onValueChange={(mode) =>
+												setWorkspaceChoice({
+													key: workspaceChoiceKey,
+													mode,
+												})
+											}
+										/>
+									) : null}
+									<ImportChatMenu
+										threads={externalThreads}
+										loading={externalThreadsLoading}
+										error={externalThreadsError}
+										continuingId={continuingExternalThreadId}
+										onOpen={() =>
+											void hydrateExternalThreads(importEnvironmentId)
+										}
+										onImport={(thread) =>
+											void continueExternalThread(thread, importEnvironmentId)
+										}
+									/>
+								</div>
+								<div className="flex min-w-0 items-center gap-1.5">
+									{createSource !== null && (
+										<span className="flex min-w-0 items-center gap-1 overflow-x-auto">
+											{createSource.linear !== null ? (
+												createSource.linear.issues.map((issue) => (
+													<span
+														key={`${issue.workspaceId}:${issue.issueId}`}
+														className="flex shrink-0 items-center gap-1 rounded-md bg-muted/60 py-1 pl-2 pr-1 text-[11px] text-muted-foreground"
+													>
+														<span>{issue.identifier}</span>
+														<button
+															type="button"
+															aria-label={`Remove ${issue.identifier}`}
+															onClick={() =>
+																setCreateSource((current) => {
+																	if (
+																		current?.linear === null ||
+																		current === null
+																	)
+																		return current;
+																	const issues = current.linear.issues.filter(
+																		(candidate) =>
+																			candidate.workspaceId !==
+																				issue.workspaceId ||
+																			candidate.issueId !== issue.issueId,
+																	);
+																	return issues.length === 0
+																		? null
+																		: {
+																				...current,
+																				label: issues
+																					.map(
+																						(candidate) => candidate.identifier,
+																					)
+																					.join(", "),
+																				linear: {
+																					...current.linear,
+																					issues,
+																				},
+																			};
+																})
+															}
+															className="rounded p-0.5 hover:bg-muted hover:text-foreground"
+														>
+															<X className="size-3" strokeWidth={2} />
+														</button>
+													</span>
+												))
+											) : createSource.kind === "issue" ? (
+												<span>Issue {createSource.label} attached</span>
+											) : (
+												<span className="max-w-[16rem] truncate">
+													{createSource.label}
+												</span>
+											)}
+											{createSource.linear === null && (
+												<button
+													type="button"
+													onClick={() => setCreateSource(null)}
+													aria-label="Clear create-from source"
+													className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground"
+												>
+													<X className="size-3" strokeWidth={2} />
+												</button>
+											)}
+										</span>
+									)}
+									{creatingSource && (
+										<Spinner className="size-3.5 text-muted-foreground" />
+									)}
+									{/* Create-from browses the ACTIVE environment's PRs and
+										    branches — hidden for a remote-anchored draft. */}
+									{remoteAnchor === null ? (
+										<CreateFromMenu
+											environmentId={EnvironmentId.make(activeEnvironmentId)}
+											folderId={selectedFolderId}
+											rootPath={selectedFolder?.path ?? ""}
+											onSelect={(sel) => void handleCreateFromSelect(sel)}
+										/>
+									) : null}
+								</div>
+							</div>
+						)
+					}
+				/>
+			</Suspense>
+		) : (
+			<p className="text-center text-sm text-muted-foreground">
+				Pick a project below to start a new chat.
+			</p>
+		);
+
+	// Show the submitted bubble before the cloud chat has an identity.
 	if (submitting && pendingPrompt !== null) {
 		const progress = chatLandingProgress({
 			cloudStep: pendingCloudStep,
@@ -1415,10 +1643,21 @@ export function ChatLanding() {
 				workspaceMode === "worktree" ||
 				(createSource !== null && createSource.worktreeId !== null),
 		});
-		return (
-			<div className="flex min-h-0 flex-1 flex-col">
-				<div className="min-h-0 flex-1 overflow-y-auto">
-					{progress.kind === "cloud" ? (
+		if (progress.kind === "cloud") {
+			return (
+				<ChatStartupView
+					input={
+						pendingInput ??
+						ComposerInput.make({
+							text: pendingPrompt,
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						})
+					}
+					previews={pendingPreviews}
+					composer={composer}
+					progress={
 						<CloudWorkspaceSetupView
 							phase={pendingCloudSummary?.startupPhase ?? "allocating"}
 							statusCode={pendingCloudSummary?.statusCode}
@@ -1426,7 +1665,13 @@ export function ChatLanding() {
 								pendingCloudSummary?.failureDiagnostic ?? undefined
 							}
 						/>
-					) : null}
+					}
+				/>
+			);
+		}
+		return (
+			<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1 flex-col [container-type:inline-size]">
+				<div className="min-h-0 flex-1 overflow-y-auto">
 					{progress.kind === "worktree" ? (
 						<SetupCardView
 							data={{
@@ -1445,14 +1690,7 @@ export function ChatLanding() {
 					) : null}
 				</div>
 				<div className="px-4 pb-4">
-					<QueuedComposerPreview
-						prompt={pendingPrompt}
-						status={
-							progress.kind === "cloud"
-								? cloudLaunchStepLabel(progress.step)
-								: "Queued"
-						}
-					/>
+					<QueuedComposerPreview prompt={pendingPrompt} status="Queued" />
 				</div>
 			</div>
 		);
@@ -1551,200 +1789,7 @@ export function ChatLanding() {
 					{/* The REAL ChatComposer in draft mode — one source of truth for file
             tagging, model/thinking, fast mode, plan mode, runtime, etc. On
             send it hands the parsed input back to `handleDraftSubmit`. */}
-					{draftSession !== null ? (
-						<Suspense fallback={<div className="h-28" aria-busy="true" />}>
-							<ChatComposer
-								submitDisabled={pendingProjectSetup !== null}
-								// Keyed by the draft's anchor — NOT by the "Run on" target,
-								// so picking a computer never remounts the editor and the
-								// typed text stays exactly where it is.
-								key={
-									remoteAnchor !== null
-										? `remote:${remoteAnchor.member.environmentId}:${remoteAnchor.member.folderId}`
-										: `${activeEnvironmentId}:${selectedFolderId ?? "none"}`
-								}
-								session={draftSession}
-								environmentId={EnvironmentId.make(
-									remoteAnchor?.member.environmentId ?? activeEnvironmentId,
-								)}
-								composerDraftKey={
-									remoteAnchor !== null
-										? composerDraftKeyForRemoteLanding(
-												EnvironmentId.make(remoteAnchor.member.environmentId),
-												remoteAnchor.member.folderId,
-											)
-										: composerDraftKeyForLanding(
-												EnvironmentId.make(activeEnvironmentId),
-												selectedFolderId,
-											)
-								}
-								onDraftSubmit={(input, opts) =>
-									void handleDraftSubmit(input, opts)
-								}
-								headerSlot={
-									<div className="flex w-full items-center justify-between gap-2">
-										<div className="flex min-w-0 items-center gap-1.5">
-											<ProjectPicker
-												groups={projectGroups}
-												selectedFolderId={selectedFolderId}
-												selectedName={
-													anchoredGroup?.displayName ??
-													selectedFolder?.name ??
-													null
-												}
-												onPickGroup={onPickGroup}
-												onAdd={onAdd}
-											/>
-											{desktopCatalogEnabled || cloudPickerItems.length > 0 ? (
-												<ComputerPicker
-													group={pickerGroup}
-													target={resolvedTarget}
-													entries={catalogEntries}
-													onPickTarget={(target) => {
-														// A create-from pick is bound to the kind of
-														// target it was made for (cloud ref vs worktree).
-														if (selectedCloudProviderId !== null)
-															setCreateSource(null);
-														setSelectedCloudProviderId(null);
-														setTargetOverride(target);
-													}}
-													cloudItems={cloudPickerItems}
-													selectedCloudProviderId={selectedCloudProviderId}
-													onPickCloud={(providerId) => {
-														if (cloudProject === null) {
-															setSettingsSection({ kind: "machines" });
-															setView("settings");
-															return;
-														}
-														if (selectedCloudProviderId === null)
-															setCreateSource(null);
-														setTargetOverride(null);
-														setSelectedCloudProviderId(providerId);
-													}}
-													onRetryEnvironment={retryComputer}
-												/>
-											) : null}
-											{selectedCloudProviderId === null ? (
-												<WorkspacePicker
-													value={workspaceMode}
-													onValueChange={(mode) =>
-														setWorkspaceChoice({
-															key: workspaceChoiceKey,
-															mode,
-														})
-													}
-												/>
-											) : null}
-											<ImportChatMenu
-												threads={externalThreads}
-												loading={externalThreadsLoading}
-												error={externalThreadsError}
-												continuingId={continuingExternalThreadId}
-												onOpen={() =>
-													void hydrateExternalThreads(importEnvironmentId)
-												}
-												onImport={(thread) =>
-													void continueExternalThread(
-														thread,
-														importEnvironmentId,
-													)
-												}
-											/>
-										</div>
-										<div className="flex min-w-0 items-center gap-1.5">
-											{createSource !== null && (
-												<span className="flex min-w-0 items-center gap-1 overflow-x-auto">
-													{createSource.linear !== null ? (
-														createSource.linear.issues.map((issue) => (
-															<span
-																key={`${issue.workspaceId}:${issue.issueId}`}
-																className="flex shrink-0 items-center gap-1 rounded-md bg-muted/60 py-1 pl-2 pr-1 text-[11px] text-muted-foreground"
-															>
-																<span>{issue.identifier}</span>
-																<button
-																	type="button"
-																	aria-label={`Remove ${issue.identifier}`}
-																	onClick={() =>
-																		setCreateSource((current) => {
-																			if (
-																				current?.linear === null ||
-																				current === null
-																			)
-																				return current;
-																			const issues =
-																				current.linear.issues.filter(
-																					(candidate) =>
-																						candidate.workspaceId !==
-																							issue.workspaceId ||
-																						candidate.issueId !== issue.issueId,
-																				);
-																			return issues.length === 0
-																				? null
-																				: {
-																						...current,
-																						label: issues
-																							.map(
-																								(candidate) =>
-																									candidate.identifier,
-																							)
-																							.join(", "),
-																						linear: {
-																							...current.linear,
-																							issues,
-																						},
-																					};
-																		})
-																	}
-																	className="rounded p-0.5 hover:bg-muted hover:text-foreground"
-																>
-																	<X className="size-3" strokeWidth={2} />
-																</button>
-															</span>
-														))
-													) : createSource.kind === "issue" ? (
-														<span>Issue {createSource.label} attached</span>
-													) : (
-														<span className="max-w-[16rem] truncate">
-															{createSource.label}
-														</span>
-													)}
-													{createSource.linear === null && (
-														<button
-															type="button"
-															onClick={() => setCreateSource(null)}
-															aria-label="Clear create-from source"
-															className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground"
-														>
-															<X className="size-3" strokeWidth={2} />
-														</button>
-													)}
-												</span>
-											)}
-											{creatingSource && (
-												<Spinner className="size-3.5 text-muted-foreground" />
-											)}
-											{/* Create-from browses the ACTIVE environment's PRs and
-										    branches — hidden for a remote-anchored draft. */}
-											{remoteAnchor === null ? (
-												<CreateFromMenu
-													environmentId={EnvironmentId.make(
-														activeEnvironmentId,
-													)}
-													folderId={selectedFolderId}
-													rootPath={selectedFolder?.path ?? ""}
-													onSelect={(sel) => void handleCreateFromSelect(sel)}
-												/>
-											) : null}
-										</div>
-									</div>
-								}
-							/>
-						</Suspense>
-					) : (
-						<p className="text-center text-sm text-muted-foreground">
-							Pick a project below to start a new chat.
-						</p>
-					)}
+					{composer}
 				</div>
 			</div>
 			{projectSetupOpen && pendingProjectSetup !== null ? (

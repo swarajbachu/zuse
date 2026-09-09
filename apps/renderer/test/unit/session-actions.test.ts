@@ -11,6 +11,12 @@ import {
 } from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
+import {
+	clearPendingSessionMessage,
+	mergePendingSessionMessages,
+	pendingSessionMessages,
+	usePendingSessionMessages,
+} from "../../src/lib/pending-session-messages.ts";
 
 import {
 	classifyError,
@@ -21,10 +27,12 @@ import {
 	persistQueuedMessage,
 	queueSessionMessage,
 	sendSessionMessage,
+	stageSessionMessage,
 	updateQueuedMessage,
 } from "../../src/lib/session-actions.ts";
 import {
 	getRendererClientBus,
+	registerSessionTimelineCheckpointSynchronizer,
 	resetSessionTimelineClientBusForTest,
 	retainSessionTimeline,
 	setSessionTimelineRpcClientForTest,
@@ -45,6 +53,7 @@ const ref = { environmentId, sessionId } as const;
 describe("session actions", () => {
 	afterEach(() => {
 		resetSessionTimelineClientBusForTest();
+		usePendingSessionMessages.setState({ byResource: {} });
 	});
 
 	it("classifies provider authentication failures once at the boundary", () => {
@@ -145,6 +154,96 @@ describe("session actions", () => {
 				sync: "live",
 			}),
 		).toBe(false);
+	});
+
+	it("shows a cloud startup message before uploads finish and replaces its pending attachment in place", () => {
+		const input = ComposerInput.make({
+			text: "Describe this image",
+			fileRefs: [],
+			skillRefs: [],
+			attachments: [
+				{
+					id: "pending-image",
+					mimeType: "image/png",
+					originalName: "screenshot.png",
+				},
+			],
+		});
+		const messageId = stageSessionMessage(ref, input);
+		const retained = retainSessionTimeline(ref, "cache-only");
+		expect(
+			getRendererClientBus().snapshot(retained.key).data?.messages,
+		).toMatchObject([
+			{
+				id: messageId,
+				content: { text: input.text, attachments: input.attachments },
+			},
+		]);
+		stageSessionMessage(
+			ref,
+			ComposerInput.make({
+				...input,
+				attachments: [
+					{
+						mimeType: "image/png",
+						originalName: "screenshot.png",
+						id: "uploaded-image",
+					},
+				],
+			}),
+			{ messageId },
+		);
+		expect(
+			getRendererClientBus().snapshot(retained.key).data?.messages,
+		).toMatchObject([
+			{ id: messageId, content: { attachments: [{ id: "uploaded-image" }] } },
+		]);
+		expect(
+			getRendererClientBus().snapshot(retained.key).data?.messages,
+		).toHaveLength(1);
+		retained.lease.release();
+	});
+	it("keeps the submitted prompt visible when an empty cloud checkpoint arrives during upload", async () => {
+		const unregister = registerSessionTimelineCheckpointSynchronizer(
+			environmentId,
+			async () => ({
+				data: SessionTimelineProjection.make({
+					messages: [],
+					status: "idle",
+					currentTurn: null,
+					queue: QueueState.make({ items: [], paused: false }),
+					permissionMode: "default",
+					runtimeMode: "approval-required",
+				}),
+				cursor: { epoch: "startup-checkpoint", version: 0 },
+				origin: "checkpoint",
+			}),
+		);
+		const messageId = stageSessionMessage(ref, "Describe this image");
+		const retained = retainSessionTimeline(ref, "sync");
+		await waitUntil(
+			() =>
+				getRendererClientBus().snapshot(retained.key).origin === "checkpoint",
+		);
+		const history =
+			getRendererClientBus().snapshot(retained.key).data?.messages ?? [];
+		// This is the startup gap: persisted history legitimately has no message yet.
+		expect(history).toHaveLength(0);
+		const visible = mergePendingSessionMessages(
+			history,
+			pendingSessionMessages(ref),
+		);
+		expect(visible).toMatchObject([
+			{ id: messageId, content: { text: "Describe this image" } },
+		]);
+		// Durable reflection replaces the pending row without duplicating it.
+		expect(
+			mergePendingSessionMessages(visible, pendingSessionMessages(ref)),
+		).toHaveLength(1);
+		clearPendingSessionMessage(ref, messageId);
+		expect(pendingSessionMessages(ref)).toHaveLength(0);
+		unregister();
+		retained.lease.release();
 	});
 
 	it("keeps the composer submission unaccepted after a retryable transport failure", async () => {

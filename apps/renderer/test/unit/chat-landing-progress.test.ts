@@ -1,4 +1,6 @@
-import { ExternalThread } from "@zuse/contracts";
+import { ComposerInput, ExternalThread } from "@zuse/contracts";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import {
 	filterImportThreads,
@@ -6,7 +8,7 @@ import {
 	workspacePolicyForMode,
 } from "../../src/components/chat-landing.tsx";
 import chatLandingSource from "../../src/components/chat-landing.tsx?raw";
-import queueChipSource from "../../src/components/composer/queue-chip.tsx?raw";
+import { ChatStartupView } from "../../src/components/chat-startup-view.tsx";
 import workspacePickerSource from "../../src/components/composer/workspace-picker.tsx?raw";
 import {
 	chatLandingProgress,
@@ -87,11 +89,11 @@ describe("chat landing progress", () => {
 	});
 
 	test("routes thread discovery through the computer selected in the composer", () => {
-		expect(chatLandingSource).toContain(
-			"hydrateExternalThreads(importEnvironmentId)",
+		expect(chatLandingSource).toMatch(
+			/hydrateExternalThreads\(\s*importEnvironmentId,?\s*\)/,
 		);
 		expect(chatLandingSource).toMatch(
-			/continueExternalThread\(\s*thread,\s*importEnvironmentId,\s*\)/,
+			/continueExternalThread\(\s*thread,\s*importEnvironmentId,?\s*\)/,
 		);
 		expect(externalThreadsSource).not.toContain("getActiveEnvironment");
 		expect(externalThreadsSource).toContain("environmentId: EnvironmentId");
@@ -147,18 +149,30 @@ describe("chat landing progress", () => {
 		);
 	});
 
-	test("keeps the submitted cloud message in the queued composer surface", () => {
-		const message = chatLandingSource.indexOf("<QueuedComposerPreview");
-		const cloudLifecycle = chatLandingSource.indexOf(
-			"<CloudWorkspaceSetupView",
+	test("renders the submitted cloud message, one progress row, and the composer", () => {
+		const html = renderToStaticMarkup(
+			createElement(ChatStartupView, {
+				input: ComposerInput.make({
+					text: "Please read my image",
+					attachments: [],
+					fileRefs: [],
+					skillRefs: [],
+				}),
+				previews: {},
+				progress: createElement(
+					"div",
+					{ role: "status" },
+					"Preparing workspace",
+				),
+				composer: createElement("textarea", { "aria-label": "Chat composer" }),
+			}),
 		);
-
-		expect(message).toBeGreaterThan(-1);
-		expect(message).toBeGreaterThan(cloudLifecycle);
-		expect(chatLandingSource).toContain("cloudLaunchStepLabel(progress.step)");
-		expect(cloudLaunchStepLabel("starting")).toBe("Waiting for sandbox");
-		expect(chatLandingSource).not.toContain("Starting Cloud Sandbox");
-		expect(queueChipSource).not.toContain("Saving message");
+		expect(html.match(/Please read my image/g)).toHaveLength(1);
+		expect(html.match(/role="status"/g)).toHaveLength(1);
+		expect(html.indexOf("Chat composer")).toBeGreaterThan(
+			html.indexOf("Preparing workspace"),
+		);
+		expect(html).not.toContain("Type a message below to get started");
 	});
 
 	test("shows the sandbox's own boot phase while the workspace starts", () => {

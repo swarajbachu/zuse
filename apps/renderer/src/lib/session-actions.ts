@@ -21,6 +21,10 @@ import {
 } from "./cloud-failure-presentation.ts";
 import { formatError } from "./format-error.ts";
 import {
+	clearPendingSessionMessage,
+	putPendingSessionMessage,
+} from "./pending-session-messages.ts";
+import {
 	markRendererInteraction,
 	trackRendererRpc,
 } from "./performance-marks.ts";
@@ -250,12 +254,12 @@ const readSessionModelOptions = (
 	return Object.keys(result).length === 0 ? null : result;
 };
 
-export const sendSessionMessage = async (
+export const stageSessionMessage = (
 	ref: SessionRef,
 	input: string | ComposerInput,
-	options?: { readonly asGoal?: boolean; readonly providerId?: ProviderId },
-): Promise<boolean> => {
-	const messageId = MessageId.make(crypto.randomUUID());
+	options?: { readonly asGoal?: boolean; readonly messageId?: MessageId },
+): MessageId => {
+	const messageId = options?.messageId ?? MessageId.make(crypto.randomUUID());
 	const message = makeOptimisticSessionMessage({
 		sessionId: ref.sessionId,
 		messageId,
@@ -263,7 +267,29 @@ export const sendSessionMessage = async (
 		asGoal: options?.asGoal === true,
 		createdAt: new Date(),
 	});
+	putPendingSessionMessage(ref, message);
 	addOptimisticSessionMessage(ref, message);
+	return messageId;
+};
+
+export const discardStagedSessionMessage = (
+	ref: SessionRef,
+	messageId: MessageId,
+): void => {
+	clearPendingSessionMessage(ref, messageId);
+	removeOptimisticSessionMessage(ref, messageId);
+};
+
+export const sendSessionMessage = async (
+	ref: SessionRef,
+	input: string | ComposerInput,
+	options?: {
+		readonly asGoal?: boolean;
+		readonly providerId?: ProviderId;
+		readonly messageId?: MessageId;
+	},
+): Promise<boolean> => {
+	const messageId = stageSessionMessage(ref, input, options);
 	setSessionError(ref, null);
 	const commandId = CommandId.make(`message-send:${messageId}`);
 	const modelOptions = readSessionModelOptions(ref);
@@ -283,18 +309,20 @@ export const sendSessionMessage = async (
 			payload,
 		});
 		await handle.accepted;
-		void handle.result.catch((cause) => {
-			if (retryableFailure(ref, commandId)) return;
-			removeOptimisticSessionMessage(ref, messageId);
-			setSessionError(ref, classifyError(cause, options?.providerId));
-		});
+		void handle.result
+			.then(() => clearPendingSessionMessage(ref, messageId))
+			.catch((cause) => {
+				if (retryableFailure(ref, commandId)) return;
+				discardStagedSessionMessage(ref, messageId);
+				setSessionError(ref, classifyError(cause, options?.providerId));
+			});
 		return true;
 	} catch (cause) {
 		// A transport failure is ambiguous, but there is no locally durable mailbox
 		// acceptance confirmation yet. Keep the outbox and optimistic prompt for
 		// retry while reporting false so the composer remains recoverable.
 		if (retryableFailure(ref, commandId)) return false;
-		removeOptimisticSessionMessage(ref, messageId);
+		discardStagedSessionMessage(ref, messageId);
 		setSessionError(ref, classifyError(cause, options?.providerId));
 		return false;
 	}

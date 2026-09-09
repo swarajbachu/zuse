@@ -1122,12 +1122,15 @@ function SidebarFooter() {
 }
 
 function SidebarAgentCount() {
-	const activeAgents = useSyncExternalStore(
+	const activity = useSyncExternalStore(
 		subscribePowerRuntimeActivity,
-		() => getPowerRuntimeActivity().activeAgents,
-		() => 0,
+		getPowerRuntimeActivity,
+		getPowerRuntimeActivity,
 	);
-	const label = activeAgentCountLabel(activeAgents);
+	const { activeAgents, agentsConfirmed } = activity;
+	const label = agentsConfirmed
+		? activeAgentCountLabel(activeAgents)
+		: "Local agent status unavailable — reconnecting to this computer";
 
 	return (
 		<Tooltip>
@@ -1138,12 +1141,12 @@ function SidebarAgentCount() {
 						aria-label={label}
 						className="inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-md px-1.5 text-sm leading-none tabular-nums text-muted-foreground"
 					>
-						{activeAgents > 0 ? (
+						{agentsConfirmed && activeAgents > 0 ? (
 							<AgentActivityOrb state="working" label={label} />
 						) : (
 							<HugeiconsIcon icon={Robot01Icon} className="size-3.5" />
 						)}
-						<span>{activeAgents}</span>
+						<span>{agentsConfirmed ? activeAgents : "—"}</span>
 					</span>
 				}
 			/>

@@ -1,4 +1,7 @@
-import type { PendingCommand } from "@zuse/client-runtime/resource-state";
+import type {
+	PendingCommand,
+	ResourceView,
+} from "@zuse/client-runtime/resource-state";
 import type { SessionStatus, SessionTimelineProjection } from "@zuse/contracts";
 
 export type SessionRuntimeState =
@@ -58,6 +61,36 @@ export const runtimeStateFromTimeline = (
 	}
 	if (projection.currentTurn !== null || projection.status === "running") {
 		return "running";
+	}
+	return "idle";
+};
+
+export const runtimeStateFromResource = (
+	view: ResourceView<SessionTimelineProjection>,
+	fallback: SessionRuntimeState,
+): SessionRuntimeState => {
+	// Cached transcripts describe history, not whether a provider is working now.
+	if (view.connection !== "connected") return "idle";
+	if (
+		view.pendingCommands.some(
+			(command) => command.kind === "messages.interrupt",
+		)
+	) {
+		return "stopping";
+	}
+	const runtime =
+		view.data === null || view.sync !== "live"
+			? fallback
+			: runtimeStateFromTimeline(view.data);
+	if (runtime !== "idle") return runtime;
+	if (
+		view.pendingCommands.some((command) => command.kind === "messages.send") &&
+		(view.data === null ||
+			view.data.messages.findLast(
+				(message) => message.role === "user" || message.role === "assistant",
+			)?.role === "user")
+	) {
+		return "starting";
 	}
 	return "idle";
 };

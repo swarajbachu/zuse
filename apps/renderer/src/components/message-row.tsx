@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type {
 	AttachmentRef,
 	BrowserAnnotation,
@@ -30,8 +31,8 @@ import {
 	RefreshCw as RefreshIcon,
 } from "lucide-react";
 import { memo, useEffect, useState } from "react";
-
 import { FileIcon } from "~/components/file-icon";
+import { attachmentDataUrl, useAttachmentUrl } from "~/lib/attachments";
 import {
 	localProjectForCloudEnvironment,
 	useCloudChatCatalogStore,
@@ -211,6 +212,11 @@ function MessageRowImpl({
 				<UserBubble
 					text={message.content.text}
 					attachments={message.content.attachments}
+					attachmentSession={
+						environmentId !== undefined
+							? { environmentId, sessionId: message.sessionId }
+							: undefined
+					}
 					fileRefs={message.content.fileRefs}
 					skillRefs={message.content.skillRefs}
 					annotations={message.content.annotations}
@@ -498,9 +504,11 @@ const stripChipTokens = (
 	return out.replace(/[ \t]{2,}/g, " ").trim();
 };
 
-function UserBubble({
+export function UserBubble({
 	text,
 	attachments,
+	attachmentSession,
+	attachmentPreviews,
 	fileRefs,
 	skillRefs,
 	annotations,
@@ -509,6 +517,8 @@ function UserBubble({
 	createdAt,
 }: {
 	text: string;
+	attachmentSession?: SessionRef;
+	attachmentPreviews?: Readonly<Record<string, string>>;
 	attachments?: ReadonlyArray<AttachmentRef>;
 	fileRefs?: ReadonlyArray<FileRef>;
 	skillRefs?: ReadonlyArray<SkillRef>;
@@ -532,8 +542,6 @@ function UserBubble({
 	const display = hasChips
 		? stripChipTokens(text, attachments ?? [], fileRefs ?? [], skillRefs ?? [])
 		: text;
-	const truncate = (name: string): string =>
-		name.length > 28 ? `${name.slice(0, 25)}...` : name;
 	return (
 		<div className={userBubbleRowClass}>
 			<div className={userBubbleColumnClass}>
@@ -596,61 +604,14 @@ function UserBubble({
 					) : null}
 					{hasChips ? (
 						<div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-							{(attachments ?? []).map((a) => {
-								const isImage = a.mimeType.startsWith("image/");
-								const src = attachmentUrl(a.id);
-								const className =
-									"inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]";
-								const inner = (
-									<>
-										{isImage ? (
-											<img
-												src={src}
-												alt=""
-												className="size-4 rounded object-cover"
-											/>
-										) : (
-											<FileIcon
-												name={a.originalName}
-												kind="file"
-												className="inline-flex size-4 shrink-0 items-center justify-center"
-											/>
-										)}
-										<span className="truncate">{truncate(a.originalName)}</span>
-									</>
-								);
-								if (isImage) {
-									return (
-										<button
-											key={a.id}
-											type="button"
-											title={a.originalName}
-											className={className}
-											onClick={() =>
-												useUiStore.getState().openFileInTab({
-													kind: "image",
-													src,
-													name: a.originalName,
-												})
-											}
-										>
-											{inner}
-										</button>
-									);
-								}
-								return (
-									<a
-										key={a.id}
-										href={src}
-										target="_blank"
-										rel="noreferrer"
-										title={a.originalName}
-										className={className}
-									>
-										{inner}
-									</a>
-								);
-							})}
+							{(attachments ?? []).map((attachment) => (
+								<AttachmentChip
+									key={attachment.id}
+									attachment={attachment}
+									sessionRef={attachmentSession ?? null}
+									previewUrl={attachmentPreviews?.[attachment.id]}
+								/>
+							))}
 							{(fileRefs ?? []).map((f) => (
 								<FileChip
 									key={f.relPath}
@@ -1384,5 +1345,119 @@ export function ErrorBubble({
 				</div>
 			</div>
 		</div>
+	);
+}
+
+const truncate = (name: string): string =>
+	name.length > 28 ? `${name.slice(0, 25)}...` : name;
+
+function AttachmentChip({
+	attachment: a,
+	sessionRef,
+	previewUrl,
+}: {
+	attachment: AttachmentRef;
+	previewUrl?: string;
+	sessionRef: SessionRef | null;
+}) {
+	const isImage = a.mimeType.startsWith("image/");
+	const preview = useAttachmentUrl(isImage ? sessionRef : null, a.id);
+	const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
+	const candidate =
+		previewUrl ??
+		(sessionRef === null || !isImage
+			? a.id.startsWith("pending-")
+				? null
+				: attachmentUrl(a.id)
+			: preview.src);
+	const src = candidate === brokenSrc ? null : candidate;
+	const className =
+		"inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]";
+	const inner = (
+		<>
+			{isImage && src !== null ? (
+				<img
+					src={src}
+					alt=""
+					onError={() => setBrokenSrc(src)}
+					className="size-4 shrink-0 rounded object-cover"
+				/>
+			) : isImage ? (
+				<span
+					className="flex size-4 shrink-0 items-center justify-center rounded bg-muted/30 text-[10px] text-muted-foreground"
+					role="status"
+					aria-label={
+						preview.failed || brokenSrc !== null
+							? "Retry preview"
+							: "Preparing image"
+					}
+				>
+					{preview.failed || brokenSrc !== null ? "↻" : "…"}
+				</span>
+			) : (
+				<FileIcon
+					name={a.originalName}
+					kind="file"
+					className="inline-flex size-4 shrink-0 items-center justify-center"
+				/>
+			)}
+			<span className="truncate">{truncate(a.originalName)}</span>
+		</>
+	);
+	if (isImage) {
+		return (
+			<button
+				key={a.id}
+				type="button"
+				title={
+					preview.failed || brokenSrc !== null
+						? "Could not load image. Click to retry."
+						: a.originalName
+				}
+				className={className}
+				disabled={src === null && !preview.failed && brokenSrc === null}
+				onClick={() => {
+					if (src === null) {
+						setBrokenSrc(null);
+						preview.retry();
+						return;
+					}
+					const open = (previewSrc: string) =>
+						useUiStore.getState().openFileInTab({
+							kind: "image",
+							src: previewSrc,
+							name: a.originalName,
+						});
+					if (src.startsWith("blob:")) {
+						// The draft owns this URL and releases it after upload. An open
+						// image tab needs its own portable copy.
+						void fetch(src)
+							.then((response) => response.arrayBuffer())
+							.then((bytes) =>
+								open(attachmentDataUrl(new Uint8Array(bytes), a.mimeType)),
+							)
+							.catch(() => setBrokenSrc(src));
+					} else open(src);
+				}}
+			>
+				{inner}
+			</button>
+		);
+	}
+	return (
+		<a
+			key={a.id}
+			href={src ?? undefined}
+			target="_blank"
+			rel="noreferrer"
+			title={
+				preview.failed || brokenSrc !== null
+					? "Could not load image. Click to retry."
+					: a.originalName
+			}
+			className={className}
+		>
+			{inner}
+		</a>
 	);
 }
