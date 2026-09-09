@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { NOT_FOUND_MARKDOWN } from "@/lib/agent-content";
 import { jsonError } from "@/lib/api-error";
 import { appendVary, negotiateContent } from "@/lib/content-negotiation";
+import { LEGAL_PAGE_PATHS } from "@/lib/legal-pages";
 
 const MARKDOWN_ALTERNATE = '</home.md>; rel="alternate"; type="text/markdown"';
 
@@ -11,7 +12,7 @@ const knownPage = (pathname: string) =>
 	pathname.startsWith("/blog/") ||
 	pathname === "/changelog" ||
 	pathname === "/developers" ||
-	pathname === "/privacy" ||
+	LEGAL_PAGE_PATHS.has(pathname) ||
 	pathname === "/docs" ||
 	pathname.startsWith("/docs/");
 
