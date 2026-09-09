@@ -1221,7 +1221,11 @@ export class ClientBus<Client> {
 			.synchronize(entry.key, entry.view)
 			.then(async (result) => {
 				if (result === null) {
-					if (epoch === entry.synchronizationEpoch) {
+					if (
+						epoch === entry.synchronizationEpoch &&
+						entry.runtimeUpdates === runtimeUpdates &&
+						entry.driverGeneration === 0
+					) {
 						this.setView(entry, {
 							...entry.view,
 							sync: entry.view.data === null ? "empty" : "cached",
