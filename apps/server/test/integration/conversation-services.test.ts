@@ -22,6 +22,7 @@ import {
 	MessageId,
 	RepositorySettings,
 	SessionId,
+	ThreadGoal,
 	Worktree,
 	WorktreeCheckpointError,
 	WorktreeRestoreError,
@@ -140,6 +141,7 @@ const TestConversationLive = Layer.effect(
 let scriptedEvents: ReadonlyArray<AgentEvent> = [];
 let providerStartInputs: StartSessionInput[] = [];
 let providerStartCursors: Array<string | null> = [];
+const providerGoals = new Map<string, ThreadGoal>();
 let providerSentTexts: string[] = [];
 let providerSendAttempts = 0;
 let activeProviderSessions = new Set<AgentSessionId>();
@@ -271,8 +273,24 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 	answerQuestion: () => Effect.void,
 	respondToPlan: (sessionId) =>
 		Effect.fail(new AgentSessionNotFoundError({ sessionId })),
-	getGoal: () => Effect.succeed(null),
-	setGoal: () => Effect.die("not used"),
+	getGoal: (sessionId) =>
+		Effect.sync(() => providerGoals.get(sessionId) ?? null),
+	setGoal: (sessionId, input) =>
+		Effect.sync(() => {
+			const previous = providerGoals.get(sessionId);
+			const goal = ThreadGoal.make({
+				threadId: sessionId,
+				objective: input.objective ?? previous?.objective ?? "Test goal",
+				status: input.status ?? previous?.status ?? "active",
+				tokenBudget: input.tokenBudget ?? null,
+				tokensUsed: 0,
+				timeUsedSeconds: 0,
+				createdAt: 1,
+				updatedAt: Date.now(),
+			});
+			providerGoals.set(sessionId, goal);
+			return goal;
+		}),
 	clearGoal: () => Effect.void,
 });
 
@@ -694,6 +712,7 @@ const withRuntime = async <A>(
 const store = TestConversation;
 
 beforeEach(() => {
+	providerGoals.clear();
 	testCommandSequence = 0;
 	providerStartInputs = [];
 	providerStartCursors = [];
@@ -4757,6 +4776,49 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		}
 	});
 
+	it("manual interrupt pauses the active goal and publishes the paused state", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "codex",
+						model: "gpt-5.6-sol",
+						initialPrompt: "pursue this goal",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.setGoal(initialSession.id, {
+						objective: "Test interrupt goal",
+						status: "active",
+					}),
+				),
+			);
+			const paused = run(
+				Effect.flatMap(store, (s) =>
+					Stream.runHead(
+						s
+							.streamGoal(initialSession.id)
+							.pipe(Stream.filter((event) => event.goal?.status === "paused")),
+					),
+				),
+			).catch(() => null);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.interruptSession(
+						testCommandId("messages.interrupt"),
+						initialSession.id,
+					),
+				),
+			);
+			expect(providerGoals.get(initialSession.id)?.status).toBe("paused");
+			await expect(paused).resolves.toMatchObject({
+				value: { goal: { status: "paused" } },
+			});
+		});
+	});
 	it("manual interrupt pauses queued messages and blocks auto-flush", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
@@ -4849,9 +4911,17 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (s) =>
 					s.createChat({
 						projectId: PROJECT_ID,
-						providerId: "claude",
-						model: "claude-opus-4-8",
+						providerId: "codex",
+						model: "gpt-5.6-sol",
 						initialPrompt: "first turn",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.setGoal(initialSession.id, {
+						objective: "Keep pursuing the successor",
+						status: "active",
 					}),
 				),
 			);
@@ -4901,6 +4971,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				actualTurnId: successorTurn,
 			});
 			expect(providerInterruptCalls).toEqual([]);
+			expect(providerGoals.get(initialSession.id)?.status).toBe("active");
 
 			const accepted = await run(
 				Effect.flatMap(store, (s) =>
@@ -4911,6 +4982,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					),
 				),
 			);
+			expect(providerGoals.get(initialSession.id)?.status).toBe("paused");
 			expect(accepted).toEqual({
 				_tag: "requested",
 				turnId: successorTurn,

@@ -614,7 +614,18 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 				}
 				if (outcome._tag === "not-active") return outcome;
 				yield* queueRuntime.pauseAfterInterrupt(sessionId);
-				yield* runSessionReactors;
+				// A manual stop must suspend autonomous goal continuation as well
+				// as the current turn. Ignore rejected/stale interrupts above.
+				const goal = goalState.current(sessionId);
+				const pauseGoal =
+					goal?.status === "active"
+						? setGoal(sessionId, { status: "paused" })
+						: Effect.void;
+				// Even if pausing the provider goal fails, still deliver Stop.
+				yield* pauseGoal.pipe(
+					Effect.ensuring(runSessionReactors),
+					Effect.orDie,
+				);
 				return outcome;
 			});
 
