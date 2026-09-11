@@ -102,6 +102,7 @@ describe("relay migration reconciliation", () => {
 			{ idx: 18, tag: "0018_cloud_active_session_summary" },
 			{ idx: 19, tag: "0019_public_api" },
 			{ idx: 20, tag: "0020_public_api_reliability" },
+			{ idx: 21, tag: "0021_link_challenge_api_issuer" },
 		]);
 	});
 

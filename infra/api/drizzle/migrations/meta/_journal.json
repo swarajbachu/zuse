@@ -148,6 +148,13 @@
 			"when": 1788566461000,
 			"tag": "0020_public_api_reliability",
 			"breakpoints": true
+		},
+		{
+			"idx": 21,
+			"version": "7",
+			"when": 1789142000000,
+			"tag": "0021_link_challenge_api_issuer",
+			"breakpoints": true
 		}
 	]
 }
