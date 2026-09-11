@@ -4,7 +4,7 @@ import type {
 	PermissionKind,
 	PermissionRequest,
 } from "@zuse/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import {
@@ -75,7 +75,46 @@ export function PermissionCard({
 	readonly queueSize: number;
 	readonly environmentId: EnvironmentId;
 }) {
-	const expired = head.recoveryState === "expired";
+	return (
+		<PermissionPrompt
+			requestId={head.id}
+			kind={head.kind}
+			queueSize={queueSize}
+			expired={head.recoveryState === "expired"}
+			persistentDisabled={head.forcePrompt}
+			onDecision={async (requestId, decision) => {
+				if (decision._tag === "Deny" && head.recoveryState !== "expired")
+					await denyEnvironmentPermissionAndInterrupt(head, environmentId);
+				else
+					await decideEnvironmentPermission(requestId, decision, environmentId);
+			}}
+		/>
+	);
+}
+
+/** One permission surface and keyboard/action behavior for provider and device approvals. */
+export function PermissionPrompt({
+	requestId,
+	kind,
+	queueSize,
+	expired = false,
+	persistentDisabled = false,
+	onDecision,
+	headline,
+	context,
+}: {
+	requestId: string;
+	kind: PermissionKind;
+	queueSize: number;
+	expired?: boolean;
+	persistentDisabled?: boolean;
+	onDecision: (
+		requestId: string,
+		decision: PermissionDecision,
+	) => Promise<void>;
+	headline?: ReactNode;
+	context?: ReactNode;
+}) {
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const decide = useCallback(
@@ -84,24 +123,19 @@ export function PermissionCard({
 			setPending(true);
 			setError(null);
 			try {
-				if (decision._tag === "Deny" && !expired) {
-					await denyEnvironmentPermissionAndInterrupt(head, environmentId);
-				} else {
-					await decideEnvironmentPermission(requestId, decision, environmentId);
-				}
+				await onDecision(requestId, decision);
 			} catch (cause) {
 				setError(formatError(cause));
 			} finally {
 				setPending(false);
 			}
 		},
-		[environmentId, expired, head, pending],
+		[onDecision, expired, pending],
 	);
 	const deny = useCallback(
-		() => decide(head.id, { _tag: "Deny" }),
-		[decide, head.id],
+		() => decide(requestId, { _tag: "Deny" }),
+		[decide, requestId],
 	);
-	const persistentDisabled = head.forcePrompt;
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
@@ -112,13 +146,13 @@ export function PermissionCard({
 			}
 			if (!expired && (e.metaKey || e.ctrlKey) && e.key === "Enter") {
 				e.preventDefault();
-				void decide(head.id, ALLOW_ONCE);
+				void decide(requestId, ALLOW_ONCE);
 				return;
 			}
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
-	}, [head.id, decide, deny, expired]);
+	}, [requestId, decide, deny, expired]);
 
 	return (
 		<div className="rounded-xl bg-card/95 p-3 shadow-overlay-sm ring-1 ring-border/70">
@@ -126,7 +160,7 @@ export function PermissionCard({
 				<div className="truncate text-[13px] font-medium leading-5 text-foreground">
 					{expired
 						? "Approval expired after agent restart"
-						: kindHeadline(head.kind)}
+						: (headline ?? kindHeadline(kind))}
 				</div>
 				{queueSize > 1 ? (
 					<span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground shrink-0">
@@ -134,6 +168,7 @@ export function PermissionCard({
 					</span>
 				) : null}
 			</div>
+			{context}
 			{expired ? (
 				<p
 					className="mt-2 text-xs text-muted-foreground"
@@ -151,12 +186,12 @@ export function PermissionCard({
 			) : null}
 
 			<div className="mt-2 max-h-24 overflow-y-auto break-all rounded-md bg-muted/45 px-2.5 py-1.5 font-mono text-[11px] leading-4 text-foreground/90">
-				{kindDetail(head.kind)}
+				{kindDetail(kind)}
 			</div>
 
 			{persistentDisabled ? (
 				<div className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
-					{forcePromptHint(head.kind)}
+					{forcePromptHint(kind)}
 				</div>
 			) : null}
 
@@ -177,7 +212,7 @@ export function PermissionCard({
 							size="xs"
 							variant="ghost"
 							disabled={persistentDisabled || pending}
-							onClick={() => void decide(head.id, ALLOW_FOR_SESSION)}
+							onClick={() => void decide(requestId, ALLOW_FOR_SESSION)}
 							className={cn(
 								"h-7",
 								persistentDisabled && "pointer-events-none opacity-40",
@@ -189,7 +224,7 @@ export function PermissionCard({
 							size="xs"
 							variant="ghost"
 							disabled={persistentDisabled || pending}
-							onClick={() => void decide(head.id, ALWAYS_ALLOW_FOLDER)}
+							onClick={() => void decide(requestId, ALWAYS_ALLOW_FOLDER)}
 							className={cn(
 								"h-7",
 								persistentDisabled && "pointer-events-none opacity-40",
@@ -200,7 +235,7 @@ export function PermissionCard({
 						<Button
 							size="xs"
 							disabled={pending}
-							onClick={() => void decide(head.id, ALLOW_ONCE)}
+							onClick={() => void decide(requestId, ALLOW_ONCE)}
 							className="ml-1 h-7"
 							title="⌘+Enter"
 						>
