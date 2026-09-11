@@ -15,6 +15,7 @@ import {
 	beforeCodexExternalAuthDeadline,
 	setDefaultCodexExternalAuthProvider,
 } from "@zuse/agents/drivers/codex-app-server-client";
+import { setDefaultDeviceCommandClient } from "@zuse/agents/drivers/device-command-tools";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import {
 	type CloudMessageSendPayload,
@@ -40,6 +41,7 @@ import {
 	CloudWorkspaceRuntimeSummary,
 	ComposerInput,
 	DEFAULT_RUNTIME_MODE,
+	DEVICE_BRIDGE_VERSION,
 	decodeWorkspaceGatewayFrame,
 	encodeWorkspaceGatewayFrame,
 	FolderId,
@@ -102,6 +104,7 @@ import {
 	SessionService,
 	type SessionServiceShape,
 } from "../conversation/services/conversation-services.ts";
+import { CloudDeviceCommandClient } from "../device-bridge/cloud-client.ts";
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
 import { isProviderAuthenticationRequired } from "../provider/provider-auth-failure.ts";
 import { CredentialsService } from "../provider/services/credentials-service.ts";
@@ -1754,7 +1757,10 @@ const postReady = (
 			errorCode,
 			sessionHeadVersion,
 			...(phase === "repository-ready"
-				? { commandProtocolVersion: CLOUD_COMMAND_PROTOCOL_VERSION }
+				? {
+						commandProtocolVersion: CLOUD_COMMAND_PROTOCOL_VERSION,
+						deviceBridgeVersion: DEVICE_BRIDGE_VERSION,
+					}
 				: {}),
 		},
 	}).pipe(Effect.asVoid);
@@ -2023,6 +2029,17 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						generation: bootstrap.runtimeGeneration,
 						gatewayEpoch: bootstrap.gatewayEpoch,
 					};
+					const deviceClient = new CloudDeviceCommandClient(
+						`${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeDeviceBridge(config.workspaceId)}`,
+						() => runtimeCredential.credential,
+					);
+					setDefaultDeviceCommandClient(deviceClient);
+					yield* Effect.addFinalizer(() =>
+						Effect.sync(() => {
+							deviceClient.close();
+							setDefaultDeviceCommandClient(undefined);
+						}),
+					);
 					if (bootstrap.providerAuthMode !== "broker-v1")
 						yield* installImageProviderSecrets(credentials);
 					yield* writeGithubBrokerState(config, runtimeCredential.credential);

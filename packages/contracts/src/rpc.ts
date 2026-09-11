@@ -100,6 +100,10 @@ import {
 } from "./connect.ts";
 import { ContextSaveTextRpc } from "./context.ts";
 import {
+	CloudDeviceBridgeRpc,
+	DeviceBridgeControlRpc,
+} from "./device-bridge.ts";
+import {
 	DiagnosticsCaptureRpc,
 	DiagnosticsEventsRpc,
 	DiagnosticsExportRpc,
@@ -351,6 +355,8 @@ import {
  * Add new RPCs by importing them here and including them in the group.
  */
 export const MemoizeRpcs = RpcGroup.make(
+	DeviceBridgeControlRpc,
+	CloudDeviceBridgeRpc,
 	PingRpc,
 	PreviewsListServersRpc,
 	AnalyticsGetContextRpc,

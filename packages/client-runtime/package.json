@@ -37,7 +37,9 @@
 		"./mermaid-source-policy": "./src/mermaid-source-policy.ts",
 		"./terminal-input-pump": "./src/terminal-input-pump.ts",
 		"./tool-image-result": "./src/tool-image-result.ts",
-		"./ws-protocol": "./src/ws-protocol.ts"
+		"./ws-protocol": "./src/ws-protocol.ts",
+		"./device-permission-presentation": "./src/device-permission-presentation.ts",
+		"./device-bridge-controller": "./src/device-bridge-controller.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",

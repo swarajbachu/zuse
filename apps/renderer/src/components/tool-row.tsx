@@ -1,5 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+	type ChatId,
+	isRedundantShellDescription,
+	type SessionId,
+	type UserQuestion,
+	type UserQuestionAnswer,
+} from "@zuse/contracts";
+import {
 	Brain01Icon,
 	BrowserIcon,
 	BubbleChatIcon,
@@ -17,14 +24,7 @@ import {
 	Tick02Icon,
 	Wrench01Icon,
 } from "@zuse/icons/solid-rounded";
-import {
-	type ChatId,
-	isRedundantShellDescription,
-	type SessionId,
-	type UserQuestion,
-	type UserQuestionAnswer,
-} from "@zuse/contracts";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Laptop } from "lucide-react";
 import { useEffect, useState } from "react";
 import { displayPath } from "~/lib/display-path";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
@@ -64,8 +64,12 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
 type IconHandle = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
-const normalizeToolName = (tool: string): string =>
-	tool.replace(/^mcp__memoize__/, "mcp__zuse__");
+const normalizeToolName = (tool: string): string => {
+	const normalized = tool.replace(/^mcp__memoize__/, "mcp__zuse__");
+	return /(?:^|__)local_command_execute$/.test(normalized)
+		? "local_command_execute"
+		: normalized;
+};
 
 /**
  * Map a tool name to the same Hugeicon used in its expanded ToolRow. Other
@@ -75,6 +79,7 @@ const normalizeToolName = (tool: string): string =>
 export const iconForTool = (tool: string): IconHandle => {
 	const normalizedTool = normalizeToolName(tool);
 	switch (normalizedTool) {
+		case "local_command_execute":
 		case "Bash":
 			return TerminalIcon;
 		case "Read":
@@ -606,8 +611,10 @@ function ExpandableIconRow({
 	body,
 	hasContent,
 	pending = false,
+	localDevice = false,
 }: {
 	icon: IconHandle;
+	localDevice?: boolean;
 	label: string;
 	detail?: React.ReactNode;
 	body: React.ReactNode;
@@ -627,6 +634,12 @@ function ExpandableIconRow({
 					hasContent ? "cursor-pointer" : "cursor-default",
 				)}
 			>
+				{localDevice && (
+					<Laptop
+						aria-label="Local computer"
+						className="size-3.5 shrink-0 text-muted-foreground"
+					/>
+				)}
 				<div className="relative grid size-4 shrink-0 place-items-center">
 					<HugeiconsIcon
 						icon={icon}
@@ -737,6 +750,7 @@ const buildToolView = (
 	}
 
 	switch (normalizedTool) {
+		case "local_command_execute":
 		case "Bash":
 		case "Shell":
 		case "shell":
@@ -755,11 +769,13 @@ const buildToolView = (
 				asString(input);
 			const desc = asString(obj.description);
 			const fallbackLabel =
-				normalizedTool === "Bash"
-					? "Bash"
-					: normalizedTool === "Shell"
-						? "Shell"
-						: "Execute";
+				normalizedTool === "local_command_execute"
+					? "Local command"
+					: normalizedTool === "Bash"
+						? "Bash"
+						: normalizedTool === "Shell"
+							? "Shell"
+							: "Execute";
 			// Keep a genuine human summary as the label; fall back to the tool
 			// name when description is missing or just echoes the command (also
 			// covers old persisted Codex/ACP sessions that stored the echo).
@@ -772,6 +788,12 @@ const buildToolView = (
 			return {
 				icon: TerminalIcon,
 				label,
+				detail:
+					normalizedTool === "local_command_execute" && cmd ? (
+						<code className="min-w-0 truncate rounded bg-muted/50 px-1.5 py-0.5 font-mono text-muted-foreground">
+							{cmd}
+						</code>
+					) : undefined,
 				fallbackBody:
 					cmd === null ? (
 						<PreBlock text={stringifyJson(input)} />
@@ -1840,6 +1862,7 @@ export function ToolRow({
 	return (
 		<ExpandableIconRow
 			icon={view.icon}
+			localDevice={normalizeToolName(tool) === "local_command_execute"}
 			label={view.label}
 			detail={detail}
 			pending={pending}

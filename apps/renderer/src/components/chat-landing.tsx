@@ -128,6 +128,7 @@ import { DRAFT_SESSION_ID, useSessionsStore } from "~/store/sessions";
 import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
 import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
+import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { ChatStartupView } from "./chat-startup-view.tsx";
 import {
@@ -142,6 +143,7 @@ import {
 	type ComposerWorkspaceMode,
 	WorkspacePicker,
 } from "./composer/workspace-picker.tsx";
+import { localDeviceBridge } from "./device-bridge-panel.tsx";
 import { ProviderIcon } from "./provider-icons";
 import {
 	CloudWorkspaceSetupView,
@@ -976,8 +978,20 @@ export function ChatLanding() {
 			let staged = false;
 			let stagedMessage: { ref: SessionRef; id: MessageId } | null = null;
 			try {
+				const localDevice = rendererPlatformCapabilities().desktop
+					? await Promise.race([
+							localDeviceBridge({ _tag: "status" }).catch(() => null),
+							new Promise<null>((resolve) =>
+								setTimeout(() => resolve(null), 500),
+							),
+						])
+					: null;
 				const launch = await runControlPlane((control) =>
 					control["cloud.workspaces.create"]({
+						localDeviceId:
+							localDevice && "version" in localDevice && localDevice.connected
+								? localDevice.deviceId
+								: undefined,
 						projectId: cloudProject.projectId,
 						providerId: selectedCloudProviderId,
 						baseRef: launchSource.ref.baseRef,

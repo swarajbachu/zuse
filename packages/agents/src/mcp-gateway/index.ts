@@ -5,19 +5,22 @@ import {
 	type IncomingMessage,
 	type ServerResponse,
 } from "node:http";
-
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
 	CallToolRequestSchema,
 	ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-
 import {
 	BROWSER_MCP_TOOLS,
 	type BrowserMcpToolOptions,
 	handleBrowserTool,
 } from "../drivers/browser-mcp-tools.ts";
+import {
+	DEVICE_COMMAND_TOOLS,
+	type DeviceCommandClient,
+	handleDeviceCommandTool,
+} from "../drivers/device-command-tools.ts";
 import {
 	handleImageTool,
 	IMAGE_MCP_TOOLS,
@@ -67,6 +70,8 @@ export interface AppMcpInteractionOptions {
 }
 
 export interface McpGatewaySessionContext {
+	readonly deviceCommands?: DeviceCommandClient;
+	readonly getPermissionMode?: () => string;
 	readonly browser?: BrowserMcpToolOptions;
 	readonly orchestration?: OrchestrationPermissionOptions & {
 		readonly deps: OrchestrationToolDeps;
@@ -83,6 +88,7 @@ export interface McpGatewayIssueInput {
 		readonly orchestration: boolean;
 		readonly linear?: boolean;
 		readonly images?: boolean;
+		readonly deviceCommands?: boolean;
 		readonly interaction?: boolean;
 	};
 	readonly ctx: McpGatewaySessionContext;
@@ -122,6 +128,7 @@ interface RegistryRecord {
 		readonly orchestration: boolean;
 		readonly linear?: boolean;
 		readonly images?: boolean;
+		readonly deviceCommands?: boolean;
 		readonly interaction?: boolean;
 	};
 	readonly ctx: McpGatewaySessionContext;
@@ -308,6 +315,9 @@ type AppToolDefinition = {
 
 const buildAppServer = (record: RegistryRecord): Server => {
 	const definitions: AppToolDefinition[] = [
+		...(record.scopes.deviceCommands && record.ctx.deviceCommands
+			? DEVICE_COMMAND_TOOLS
+			: []),
 		...(record.scopes.browser && record.ctx.browser !== undefined
 			? BROWSER_MCP_TOOLS
 			: []),
@@ -378,6 +388,16 @@ const buildAppServer = (record: RegistryRecord): Server => {
 					throw new Error("Connector unavailable");
 				await ensureLinearToolPermission(name, args, record.ctx.linear);
 				return await callLinearTool(record.ctx.linear.deps, name, args);
+			}
+			if (DEVICE_COMMAND_TOOLS.some((tool) => tool.name === name)) {
+				if (!record.scopes.deviceCommands || !record.ctx.deviceCommands)
+					throw new Error("Local computer unavailable");
+				return await handleDeviceCommandTool(
+					record.ctx.deviceCommands,
+					name,
+					args,
+					record.ctx.getPermissionMode?.() === "plan",
+				);
 			}
 			if (IMAGE_MCP_TOOLS.some((tool) => tool.name === name)) {
 				if (record.ctx.images === undefined)

@@ -633,6 +633,13 @@ export interface CloudWorkspaceStoreApi {
 		nowMs: number,
 		leaseExpiresAtMs: number,
 	) => Effect.Effect<CloudWorkspaceRecord | null>;
+	readonly bindLocalDevice: (input: {
+		readonly workspaceId: string;
+		readonly accountId: string;
+		readonly expectedRevision: number;
+		readonly deviceId: string;
+		readonly nowMs: number;
+	}) => Effect.Effect<CloudWorkspaceRecord | null>;
 	readonly saveWorkspace: (
 		workspace: CloudWorkspaceRecord,
 	) => Effect.Effect<void>;
@@ -678,6 +685,7 @@ export interface CloudWorkspaceStoreApi {
 		readonly workspaceId: string;
 		readonly currentCredentialHash: string;
 		readonly commandProtocolVersion?: number;
+		readonly deviceBridgeVersion?: number;
 		readonly nowMs: number;
 		readonly nextIdleAtMs: number;
 	}) => Effect.Effect<CloudWorkspaceRecord | null>;
@@ -1340,6 +1348,13 @@ const prepareWorkspaceSave = (
 	current: CloudWorkspaceRecord,
 	proposed: CloudWorkspaceRecord,
 ): CloudWorkspaceRecord | null => {
+	proposed = {
+		...proposed,
+		requestConfig: {
+			...proposed.requestConfig,
+			localDeviceId: current.requestConfig.localDeviceId,
+		},
+	};
 	if (!workspaceDeletionRequested(current)) return proposed;
 	if (proposed.desiredState !== "deleted") return null;
 	if (current.state === "deleted" && proposed.state !== "deleted") return null;
@@ -1437,7 +1452,10 @@ const prepareWorkspaceLifecycleTransition = (
 		return { kind: "rejected", reason: "destruction-fence-exhausted" };
 
 	const baseRequestConfig = preserveMailboxLifecycle(
-		input.workspace.requestConfig,
+		{
+			...input.workspace.requestConfig,
+			localDeviceId: current.requestConfig.localDeviceId,
+		},
 		current,
 	);
 	const requestConfig =
@@ -2212,6 +2230,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						requestConfig: {
 							...runtimeConfig,
 							runtimeProcessManaged: true,
+							deviceBridgeVersion: input.deviceBridgeVersion ?? null,
 							...(typeof input.commandProtocolVersion === "number"
 								? {
 										cloudCommandProtocolVersion: input.commandProtocolVersion,
@@ -2344,6 +2363,36 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							runtimeRenewals: new Map(current.runtimeRenewals).set(
 								receiptKey,
 								receipt,
+							),
+						},
+					] as const;
+				}),
+			bindLocalDevice: (input) =>
+				Ref.modify(state, (current) => {
+					const workspace = current.workspaces.get(input.workspaceId);
+					if (
+						!workspace ||
+						workspace.accountId !== input.accountId ||
+						workspace.revision !== input.expectedRevision ||
+						workspace.desiredState !== "ready"
+					)
+						return [null, current] as const;
+					const updated = {
+						...workspace,
+						requestConfig: {
+							...workspace.requestConfig,
+							localDeviceId: input.deviceId,
+						},
+						revision: workspace.revision + 1,
+						updatedAtMs: Math.max(workspace.updatedAtMs + 1, input.nowMs),
+					};
+					return [
+						updated,
+						{
+							...current,
+							workspaces: new Map(current.workspaces).set(
+								input.workspaceId,
+								updated,
 							),
 						},
 					] as const;
@@ -4338,6 +4387,13 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						),
 					),
 				),
+			bindLocalDevice: (input) =>
+				orDie(
+					sql`UPDATE api_cloud_workspaces SET request_config = request_config || jsonb_build_object('localDeviceId', ${input.deviceId}::text), revision = revision + 1, updated_at = GREATEST(updated_at + 1, ${input.nowMs}::bigint) WHERE workspace_id = ${input.workspaceId} AND account_id = ${input.accountId} AND revision = ${input.expectedRevision} AND desired_state = 'ready' RETURNING *`.pipe(
+						Effect.map((rows) => (rows[0] ? workspaceFromRow(rows[0]) : null)),
+					),
+				),
+
 			saveWorkspace,
 			transitionWorkspaceLifecycle: (input) =>
 				orDie(
@@ -4632,6 +4688,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						status_code=CASE WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'agent-running' ELSE 'agent-starting' END,
 						request_config=(request_config - 'cloudCommandProtocolVersion' - 'cloudCommandRuntimeGeneration') || jsonb_build_object(
 							'runtimeProcessManaged', true,
+ 'deviceBridgeVersion', ${input.deviceBridgeVersion ?? null}::integer,
 							'startupTimings', COALESCE(request_config->'startupTimings', '{}'::jsonb) || jsonb_build_object(
 								'connectedAt', COALESCE(request_config #> '{startupTimings,connectedAt}', to_jsonb(${input.nowMs}::bigint)),
 								'repositoryReadyAt', COALESCE(request_config #> '{startupTimings,repositoryReadyAt}', to_jsonb(${input.nowMs}::bigint))

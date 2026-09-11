@@ -16,6 +16,7 @@ import {
 	useDefaultLayout,
 	usePanelRef,
 } from "react-resizable-panels";
+import { DeviceBridgePanel } from "./components/device-bridge-panel.tsx";
 import { PendingChatCreationSurface } from "./components/pending-chat-creation.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { useChatDirectoryStatus } from "./hooks/use-chat-directory-status.ts";
@@ -300,6 +301,7 @@ function AmbientSurfaces() {
 		<Suspense fallback={null}>
 			<NotchTrayBridge />
 			<NearbyPairingApproval />
+			<DeviceBridgePanel approvalsOnly />
 			<PairingLinkAccept />
 		</Suspense>
 	);

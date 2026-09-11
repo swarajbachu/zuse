@@ -40,6 +40,8 @@ import {
 	CommandAcceptance,
 	CommandChangePage,
 	CommandStatus,
+	type DeviceBridgeAction,
+	DeviceBridgeResult,
 	EntitlementList,
 	type EnvironmentId,
 	type MachineCreateRequest,
@@ -137,6 +139,11 @@ export interface MachineControlServiceShape {
 	readonly prepareCloudProject: (
 		input: CloudProjectPrepareRequest,
 	) => Effect.Effect<CloudProjectBuild, MachineControlError>;
+	readonly deviceBridge: (
+		workspaceId: string,
+		action: DeviceBridgeAction,
+		targetDeviceId?: string,
+	) => Effect.Effect<typeof DeviceBridgeResult.Type, MachineControlError>;
 	readonly cloudWorkspaces: (
 		projectId?: string,
 	) => Effect.Effect<CloudWorkspaceList, MachineControlError>;
@@ -509,6 +516,13 @@ export const MachineControlServiceLive: Layer.Layer<
 					CloudProjectBuild,
 					"POST",
 					input,
+				),
+			deviceBridge: (workspaceId, action, targetDeviceId) =>
+				request(
+					ApiPaths.cloudWorkspaceDeviceBridge(workspaceId),
+					DeviceBridgeResult,
+					"POST",
+					{ action, targetDeviceId },
 				),
 			cloudWorkspaces: (projectId) =>
 				request(

@@ -22,6 +22,8 @@ import {
 	CloudWorkspaceStartupTimings,
 	CodexGrantRequest,
 	DEFAULT_RUNTIME_MODE,
+	DEVICE_BRIDGE_VERSION,
+	DeviceBridgeAction,
 	ProviderGrantRequest,
 	RuntimeAcknowledgment,
 	RuntimeMode,
@@ -127,6 +129,7 @@ import {
 	verifyWorkspaceClientTicket,
 	verifyWorkspaceRuntimeTicket,
 } from "./crypto.ts";
+import { forwardDeviceBridge } from "./device-bridge.ts";
 import {
 	type ApiError,
 	badRequest,
@@ -144,6 +147,7 @@ import { decodeBody, json } from "./http.ts";
 import { MachineControlConfiguration } from "./machine-config.ts";
 import { MachineStore } from "./machine-store.ts";
 import { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
+import { ApiStore } from "./store.ts";
 import type { WorkosVerifier } from "./workos.ts";
 import {
 	WORKSPACE_GATEWAY_PROTOCOL,
@@ -152,6 +156,7 @@ import {
 } from "./workspace-gateway-protocol.ts";
 
 export type CloudWorkspaceRouteContext =
+	| ApiStore
 	| CloudWorkspaceStore
 	| CloudWorkspaceLaunchIntentCipher
 	| MachineStore
@@ -977,6 +982,7 @@ const sealRuntimeSecret = Effect.fn("sealRuntimeSecret")(function* (
 });
 
 const RuntimeReadyRequest = Schema.Struct({
+	deviceBridgeVersion: Schema.optional(Schema.Literal(DEVICE_BRIDGE_VERSION)),
 	phase: Schema.Literals([
 		"repository-ready",
 		"agent-started",
@@ -1214,6 +1220,16 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	yield* requireCloudWorkspaceEntitlement(accountId, nowMs);
 	yield* requireCloudBillingCapacity(accountId, nowMs);
 	const apiConfiguration = yield* ApiConfiguration;
+	if (body.localDeviceId !== undefined) {
+		const devices = yield* ApiStore;
+		const device = yield* devices.getEnvironment(body.localDeviceId);
+		if (
+			!device ||
+			device.accountId !== accountId ||
+			device.providerKind !== "desktop"
+		)
+			return yield* Effect.fail(forbidden("device_bridge_target_rejected"));
+	}
 	const project = yield* store.getProject(body.projectId);
 	if (project === null || project.accountId !== accountId)
 		return yield* Effect.fail(notFound("cloud_project_not_found"));
@@ -1307,6 +1323,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		wrappedTranscriptKey: transcriptKey.envelope,
 		idempotencyKey: body.idempotencyKey,
 		requestConfig: {
+			localDeviceId: body.localDeviceId,
 			title,
 			agent: body.agent,
 			codexAuthMode,
@@ -1476,6 +1493,56 @@ export const routeCloudWorkspaceRequest = (
 		const launchIntentCipher = yield* CloudWorkspaceLaunchIntentCipher;
 		const apiConfiguration = yield* ApiConfiguration;
 		const idlePauseMs = apiConfiguration.cloudWorkspaceIdleTimeoutMs;
+		const deviceBridgeMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/(runtime\/)?device-bridge$/u.exec(
+				path,
+			);
+		if (method === "POST" && deviceBridgeMatch) {
+			const workspaceId = decodeURIComponent(deviceBridgeMatch[1] ?? "");
+			const actor = deviceBridgeMatch[2] ? "runtime" : "user";
+			let workspace =
+				actor === "runtime"
+					? yield* requireRuntime(request, workspaceId, nowMs)
+					: yield* store.getWorkspace(workspaceId);
+			if (!workspace)
+				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+			if (actor === "user") {
+				const principal = yield* requireWorkos(request);
+				if (principal.accountId !== workspace.accountId)
+					return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+			}
+			const body = yield* decodeBody(
+				Schema.Struct({
+					action: DeviceBridgeAction,
+					targetDeviceId: Schema.optional(Schema.String),
+				}),
+				request,
+			);
+			if (body.targetDeviceId !== undefined) {
+				if (actor !== "user" || body.action._tag !== "status")
+					return yield* Effect.fail(forbidden("device_bridge_user_required"));
+				const devices = yield* ApiStore;
+				const device = yield* devices.getEnvironment(body.targetDeviceId);
+				if (
+					!device ||
+					device.accountId !== workspace.accountId ||
+					device.providerKind !== "desktop"
+				)
+					return yield* Effect.fail(forbidden("device_bridge_target_rejected"));
+				const bound = yield* store.bindLocalDevice({
+					workspaceId,
+					accountId: workspace.accountId,
+					expectedRevision: workspace.revision,
+					deviceId: body.targetDeviceId,
+					nowMs,
+				});
+				if (!bound)
+					return yield* Effect.fail(conflict("device_bridge_binding_changed"));
+				workspace = bound;
+			}
+			return yield* forwardDeviceBridge(workspace, body.action, actor);
+		}
+
 		const recordWorkspaceActivity = Effect.fn("recordWorkspaceActivity")(
 			function* (workspace: CloudWorkspaceRecord) {
 				const updated = yield* store.recordActivity(
@@ -2303,6 +2370,7 @@ export const routeCloudWorkspaceRequest = (
 					workspaceId,
 					currentCredentialHash: yield* sha256Hex(credential),
 					commandProtocolVersion: body.commandProtocolVersion,
+					deviceBridgeVersion: body.deviceBridgeVersion,
 					nowMs,
 					nextIdleAtMs: nowMs + idlePauseMs,
 				});

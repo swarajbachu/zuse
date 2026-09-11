@@ -9,8 +9,8 @@ import type {
 } from "@zuse/contracts";
 import { AgentSessionStartError as StartError } from "@zuse/contracts";
 import { Effect } from "effect";
-
 import type { BrowserSend } from "../drivers/browser-tools.ts";
+import { getDefaultDeviceCommandClient } from "../drivers/device-command-tools.ts";
 import type { OrchestrationSessionTools } from "../drivers/orchestration-tools.ts";
 import {
 	type AppMcpInteractionOptions,
@@ -46,10 +46,13 @@ export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 						orchestration: options.orchestrationTools !== null,
 						linear: options.orchestrationTools?.linearTools !== undefined,
 						images: true,
+						deviceCommands: getDefaultDeviceCommandClient() !== undefined,
 						interaction: options.interaction !== undefined,
 					},
 					ctx: {
 						images: { cwd: options.cwd },
+						deviceCommands: getDefaultDeviceCommandClient(),
+						getPermissionMode: options.getPermissionMode,
 						browser: {
 							send: options.browserSend,
 							requestPermission: options.requestPermission,

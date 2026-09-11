@@ -1,6 +1,7 @@
 import {
 	CloudWorkspaceOpError,
 	ConnectAuthError,
+	DeviceBridgeError,
 	MachineOpError,
 	MemoizeRpcs,
 } from "@zuse/contracts";
@@ -399,7 +400,22 @@ const ResourcesWatch = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const CloudDeviceBridge = MemoizeRpcs.toLayerHandler(
+	"deviceBridge.cloud",
+	(input) =>
+		Effect.gen(function* () {
+			const service = yield* MachineControlService;
+			return yield* service
+				.deviceBridge(input.workspaceId, input.action, input.targetDeviceId)
+				.pipe(
+					Effect.mapError(
+						(error) => new DeviceBridgeError({ reason: error.code }),
+					),
+				);
+		}),
+);
 export const MachineHandlersLayer = Layer.mergeAll(
+	CloudDeviceBridge,
 	CloudAuthStatus,
 	CloudAuthProvision,
 	CloudAuthConfigure,

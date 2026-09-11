@@ -5,6 +5,7 @@ import { ApiHandlersLayer } from "./api/handlers.ts";
 import { AttachmentHandlersLayer } from "./attachment/handlers.ts";
 import { AuthHandlersLayer } from "./auth/handlers.ts";
 import { ConfigStoreHandlersLayer } from "./config-store/handlers.ts";
+import { DeviceBridgeHandlersLayer } from "./device-bridge/handlers.ts";
 import { DiagnosticsHandlersLayer } from "./diagnostics/handlers.ts";
 import { ExternalThreadHandlersLayer } from "./external-thread/handlers.ts";
 import { FsHandlersLayer } from "./fs/handlers.ts";
@@ -34,6 +35,7 @@ import { WorktreeHandlersLayer } from "./worktree/handlers.ts";
  * sneaking into the handler boundary.
  */
 export const HandlersLayer = Layer.mergeAll(
+	DeviceBridgeHandlersLayer,
 	PingHandlersLayer,
 	PreviewsHandlersLayer,
 	AccountAccessHandlersLayer,

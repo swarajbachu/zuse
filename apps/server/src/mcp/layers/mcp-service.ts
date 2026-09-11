@@ -1,4 +1,8 @@
 import { BROWSER_MCP_TOOLS } from "@zuse/agents/drivers/browser-mcp-tools";
+import {
+	DEVICE_COMMAND_TOOLS,
+	getDefaultDeviceCommandClient,
+} from "@zuse/agents/drivers/device-command-tools";
 import { IMAGE_MCP_TOOLS } from "@zuse/agents/drivers/image-mcp-tools";
 import { LINEAR_MCP_TOOLS } from "@zuse/agents/drivers/linear-tools";
 import { ORCHESTRATION_MCP_TOOLS } from "@zuse/agents/drivers/orchestration-tools";
@@ -540,7 +544,12 @@ export const McpServiceLive = Layer.effect(
 				if (descriptor.source === "builtin") {
 					return builtinStatus(
 						BUILTIN_ZUSE,
-						BUILTIN_TOOL_NAMES,
+						getDefaultDeviceCommandClient()
+							? [
+									...BUILTIN_TOOL_NAMES,
+									...DEVICE_COMMAND_TOOLS.map((tool) => tool.name),
+								]
+							: BUILTIN_TOOL_NAMES,
 						mcpGatewayDiagnostics().activeSessionCount > 0 &&
 							connectedRendererCount > 0
 							? "connected"

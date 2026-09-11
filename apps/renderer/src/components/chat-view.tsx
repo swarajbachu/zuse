@@ -17,7 +17,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-
 import { usePrefersReducedMotion } from "../hooks/use-media-query.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import {
@@ -42,6 +41,7 @@ import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
+import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import {
 	clearSessionCommandError,
 	isRecoveredPreAckSessionError,
@@ -78,6 +78,7 @@ import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
 import { ChatTurnNavigator } from "./chat-turn-navigator.tsx";
 import { ChatWorkingRow } from "./chat-working-row.tsx";
+import { DeviceBridgePanel } from "./device-bridge-panel.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import { ErrorBubble, MessageRow } from "./message-row.tsx";
@@ -748,6 +749,12 @@ export function ChatView({
 				className="relative flex min-h-0 min-w-0 flex-1 [container-type:inline-size]"
 			>
 				<div className="relative flex h-full min-h-0 flex-1 flex-col">
+					{cloudSummary && !rendererPlatformCapabilities().desktop && (
+						<DeviceBridgePanel
+							workspaceId={cloudSummary.workspaceId}
+							approvalsOnly
+						/>
+					)}
 					{messages.length === 0 ? (
 						<div
 							data-pane="chat"
