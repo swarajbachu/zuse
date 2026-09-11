@@ -20,10 +20,22 @@ the historical naming cutover and remain unchanged.
 
 ## Cutover status
 
-The new staging domain was attached on 2026-09-05 without deploying code or
-changing the issuer. At that point the old domain and issuer remained active.
-Confirm current settings before deployment; DNS attachment alone does not
-verify authenticated access through the new origin.
+The new staging domain was restored on 2026-09-11 after its missing Worker
+binding caused requests to reach Vercel (`DEPLOYMENT_NOT_FOUND`). Migrations
+0019 and 0020 and the public API Worker were subsequently deployed to staging.
+Both staging domains and the `https://api-staging.stuff.md` issuer remain active.
+The signed cloud runtime rollout and issuer cutover are separate steps; confirm
+current settings and authenticated behavior before promoting the release.
+
+**Before another staging deployment from `main`:** reconcile its Wrangler
+routes with both live staging hostnames. At the time of repair, `main` declared
+only `api-staging.stuff.md`. Preserve both custom domains and the existing
+issuer for a routing-only deployment. Use the coordinated release below to
+switch the issuer; do not deploy this feature branch just to preserve a domain.
+
+After a routing repair, compare authoritative DNS with the client's resolver.
+Cached Vercel addresses may remain until their DNS TTL expires. Verify the
+normal hostname after propagation, not just a request pinned to a Cloudflare IP.
 
 ## Preflight
 
@@ -50,8 +62,11 @@ verify authenticated access through the new origin.
    issuer before staging starts GitHub installations. The GitHub App's Setup
    URL remains `https://api.zuse.sh/v1/cloud/github/callback`. Do not deploy
    unrelated branch functionality to production for this step.
-4. Deploy staging with `bun run deploy:staging` from `infra/api`. The tracked
-   route and `API_ISSUER` select `api-staging.zuse.sh`. Keep production isolated.
+4. Once the preceding prerequisites are complete, change staging's tracked
+   `API_ISSUER` to `https://api-staging.zuse.sh`, update its deployment-safety
+   assertion, and deploy with `bun run deploy:staging` from `infra/api`.
+   The current config deliberately preserves the old issuer and both domains.
+   Keep production isolated.
 5. Update existing staging runtime/service API URLs, restart through the normal
    lifecycle, and renew issuer-bound credentials. Re-enroll provider-auth
    brokers whose authority labels depend on the issuer. Refresh browser/mobile

@@ -25,7 +25,10 @@
 			"fallthrough": true
 		}
 	],
-	"routes": [{ "pattern": "api-staging.zuse.sh", "custom_domain": true }],
+	"routes": [
+		{ "pattern": "api-staging.zuse.sh", "custom_domain": true },
+		{ "pattern": "api-staging.stuff.md", "custom_domain": true }
+	],
 	"triggers": { "crons": ["* * * * *"] },
 	"vars": {
 		"CLOUD_COMMAND_MAILBOX_ENABLED": "true",
@@ -33,7 +36,9 @@
 		"CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED": "true",
 		"CLOUD_PROVIDER_AUTH_BROKER_ENROLLMENT_ENABLED": "true",
 		"CLOUD_PROVIDER_AUTH_BROKER_SERVING_ENABLED": "true",
-		"API_ISSUER": "https://api-staging.zuse.sh",
+		// Preserve existing runtime and broker credentials until the coordinated
+		// issuer cutover in docs/cloud/api-domain-cutover.md is complete.
+		"API_ISSUER": "https://api-staging.stuff.md",
 		"WORKOS_ISSUER": "https://api.workos.com",
 		"WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/client_01KW6ZEZKVMZ0G429A89XZD83Q",
 		"API_MINT_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"rLuckqLkdtwPKtradClTam6ovMItDJZ3SNbBQXFjJWw\",\"kty\":\"OKP\"}",
