@@ -67,6 +67,13 @@ defaults to the project's default branch. The response is the workspace status
 object; the prompt is delivered through the same sealed one-shot launch intent
 as first-party creates.
 
+API-created workspaces default to `runtimeMode: "full-access"` for unattended
+execution. Set `runtimeMode` explicitly to `approval-required`,
+`auto-accept-edits`, or `auto-accept-edits-and-bash` for stricter approval rules.
+Full access uses the existing runtime policy, including sensitive-path and
+plan-mode safeguards. Desktop/web creation defaults are unchanged. Replaying
+an existing creation request does not change that workspace's access mode.
+
 ### Send a follow-up message
 
 Upload each attachment first using its raw bytes:

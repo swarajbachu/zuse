@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
+import { RuntimeMode } from "./agent.ts";
 import {
 	CloudProjectState,
 	CloudWorkspaceOpError,
@@ -125,6 +126,8 @@ export class ApiWorkspaceCreateRequest extends Schema.Class<ApiWorkspaceCreateRe
 	providerId: Schema.optional(Schema.String),
 	agent: Schema.optional(Schema.String),
 	model: Schema.optional(Schema.String),
+	/** API-created workspaces default to full-access for unattended execution. */
+	runtimeMode: Schema.optional(RuntimeMode),
 	baseRef: Schema.optional(Schema.String),
 	branch: Schema.optional(Schema.String),
 	/** Falls back to the `Idempotency-Key` header. */

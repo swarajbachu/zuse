@@ -282,6 +282,110 @@ describe("public API (/v1/api)", () => {
 		vi.unstubAllGlobals();
 	});
 
+	test.each([
+		[undefined, "full-access"],
+		["approval-required", "approval-required"],
+		["auto-accept-edits", "auto-accept-edits"],
+		["auto-accept-edits-and-bash", "auto-accept-edits-and-bash"],
+		["full-access", "full-access"],
+	])("creates API workspaces with access %s resolved to %s", async (requested, expected) => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await seedReadyProject(runtime, store);
+			const secret = await createApiKey(runtime);
+			const headers = {
+				authorization: `Bearer ${secret}`,
+				"content-type": "application/json",
+				"idempotency-key": "access-mode",
+			};
+			const body = {
+				agent: "codex",
+				model: "gpt-5",
+				prompt: "Inspect the repository",
+				runtimeMode: requested,
+			};
+			const created = await json<{ workspace: { workspaceId: string } }>(
+				await serve(runtime, "/v1/api/workspaces", {
+					method: "POST",
+					headers,
+					body: JSON.stringify(body),
+				}),
+				201,
+			);
+			const workspace = await runtime.runPromise(
+				store.getWorkspace(created.workspace.workspaceId),
+			);
+			expect(workspace?.requestConfig.runtimeMode).toBe(expected);
+			const launch = await runtime.runPromise(
+				store.getLaunchIntent(created.workspace.workspaceId, Date.now()),
+			);
+			if (launch === null) throw new Error("launch intent missing");
+			const cipher = await runtime.runPromise(CloudWorkspaceLaunchIntentCipher);
+			const intent = await runtime.runPromise(
+				cipher.decrypt(
+					ACCOUNT,
+					created.workspace.workspaceId,
+					launch.ciphertext,
+				),
+			);
+			expect(intent.runtimeMode).toBe(expected);
+			expect(
+				(
+					await serve(runtime, "/v1/api/workspaces", {
+						method: "POST",
+						headers,
+						body: JSON.stringify(body),
+					})
+				).status,
+			).toBe(200);
+			expect(
+				(
+					await serve(runtime, "/v1/api/workspaces", {
+						method: "POST",
+						headers,
+						body: JSON.stringify({
+							...body,
+							runtimeMode:
+								expected === "approval-required"
+									? "full-access"
+									: "approval-required",
+						}),
+					})
+				).status,
+			).toBe(409);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
+	test("rejects invalid API access modes", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await seedReadyProject(runtime, store);
+			const secret = await createApiKey(runtime);
+			expect(
+				(
+					await serve(runtime, "/v1/api/workspaces", {
+						method: "POST",
+						headers: {
+							authorization: `Bearer ${secret}`,
+							"content-type": "application/json",
+						},
+						body: JSON.stringify({
+							agent: "codex",
+							model: "gpt-5",
+							runtimeMode: "unsafe-typo",
+						}),
+					})
+				).status,
+			).toBe(400);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
 	test("mints, authenticates, and revokes account API keys", async () => {
 		const runtime = await makeRuntime();
 		const secret = await createApiKey(runtime);
@@ -414,7 +518,10 @@ describe("public API (/v1/api)", () => {
 		await runtime.runPromise(
 			store.saveWorkspace({
 				...storedWorkspace,
-				requestConfig: legacyRequestConfig,
+				requestConfig: {
+					...legacyRequestConfig,
+					runtimeMode: "approval-required",
+				},
 				revision: storedWorkspace.revision + 1,
 				updatedAtMs: storedWorkspace.updatedAtMs + 1,
 			}),
@@ -431,6 +538,22 @@ describe("public API (/v1/api)", () => {
 				})
 			).status,
 		).toBe(200);
+		expect(
+			(
+				await runtime.runPromise(
+					store.getWorkspace(created.workspace.workspaceId),
+				)
+			)?.requestConfig.runtimeMode,
+		).toBe("approval-required");
+		expect(
+			(
+				await serve(runtime, "/v1/api/workspaces", {
+					method: "POST",
+					headers: { ...apiHeaders, "idempotency-key": "same-create" },
+					body: JSON.stringify({ ...createBody, runtimeMode: "full-access" }),
+				})
+			).status,
+		).toBe(409);
 		expect(
 			(
 				await serve(runtime, "/v1/api/workspaces", {
@@ -591,6 +714,7 @@ describe("public API (/v1/api)", () => {
 			store.getWorkspace(firstParty.workspace.workspaceId),
 		);
 		expect(firstPartyRecord?.requestConfig).toMatchObject({
+			runtimeMode: "approval-required",
 			codexAuthMode: "broker-v1",
 			providerAuthMode: "broker-v1",
 			cloudCommandEnrollmentProtocolVersion: CLOUD_COMMAND_PROTOCOL_VERSION,

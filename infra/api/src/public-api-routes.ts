@@ -263,6 +263,11 @@ export const routePublicApiRequest = (
 					branch: body.branch ?? null,
 					agent: body.agent ?? null,
 					model: body.model ?? null,
+					// Keep omitted-mode receipts compatible with requests made before
+					// API callers could select access. Retries never upgrade old workspaces.
+					...(body.runtimeMode === undefined
+						? {}
+						: { runtimeMode: body.runtimeMode }),
 				}),
 			);
 			const accountWorkspaces = yield* store.listWorkspaces(
@@ -301,7 +306,10 @@ export const routePublicApiRequest = (
 						(body.agent === undefined ||
 							body.agent === requestConfigString(existingWorkspace, "agent")) &&
 						(body.model === undefined ||
-							body.model === requestConfigString(existingWorkspace, "model"));
+							body.model === requestConfigString(existingWorkspace, "model")) &&
+						(body.runtimeMode === undefined ||
+							body.runtimeMode ===
+								requestConfigString(existingWorkspace, "runtimeMode"));
 					if (
 						!suppliedConfigurationMatches ||
 						prompt === undefined ||
@@ -371,6 +379,7 @@ export const routePublicApiRequest = (
 						...(body.branch === undefined ? {} : { branch: body.branch }),
 						agent,
 						model,
+						runtimeMode: body.runtimeMode ?? "full-access",
 						...(prompt === undefined
 							? {}
 							: {
