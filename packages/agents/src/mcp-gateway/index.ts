@@ -353,7 +353,7 @@ const buildAppServer = (record: RegistryRecord): Server => {
 			inputSchema: definition.inputSchema,
 		})),
 	}));
-	server.setRequestHandler(CallToolRequestSchema, async (request) => {
+	server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 		const name = request.params.name;
 		const args = asJsonObject(request.params.arguments ?? {});
 		if (!names.has(name)) {
@@ -397,6 +397,7 @@ const buildAppServer = (record: RegistryRecord): Server => {
 					name,
 					args,
 					record.ctx.getPermissionMode?.() === "plan",
+					extra.signal,
 				);
 			}
 			if (IMAGE_MCP_TOOLS.some((tool) => tool.name === name)) {

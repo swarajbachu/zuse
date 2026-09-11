@@ -1,4 +1,7 @@
+import { setTimeout as delay } from "node:timers/promises";
 import type { DeviceBridgeAction, DeviceBridgeResult } from "@zuse/contracts";
+
+export const DEVICE_COMMAND_TOOL_TIMEOUT_SECONDS = 3600;
 
 export interface DeviceCommandClient {
 	request(action: DeviceBridgeAction): Promise<DeviceBridgeResult>;
@@ -27,7 +30,7 @@ export const DEVICE_COMMAND_TOOLS = [
 	{
 		name: "local_command_execute",
 		description:
-			"Request a shell command on the user's bound desktop. Returns a command ID; use local_command_status for output and completion. Permission is enforced by the desktop even in unrestricted mode. Commands can read and modify local files. Use an absolute LOCAL working directory.",
+			"Request a shell command on the user's bound desktop. Waits for the user to approve or deny, then waits for command completion and returns output. Do not send a separate confirmation message or report a pending ID. Permission is enforced by the desktop even in unrestricted mode. Commands can read and modify local files. Use an absolute LOCAL working directory.",
 		inputSchema: inputSchema(
 			{ command: { type: "string" }, cwd: { type: "string" } },
 			["command", "cwd"],
@@ -50,6 +53,7 @@ export const handleDeviceCommandTool = async (
 	name: string,
 	args: Record<string, unknown>,
 	planMode: boolean,
+	signal?: AbortSignal,
 ) => {
 	let action: DeviceBridgeAction;
 	if (name === "local_device") action = { _tag: "status" };
@@ -69,6 +73,28 @@ export const handleDeviceCommandTool = async (
 			id: args.id,
 		};
 	}
-	const result = await client.request(action);
+	signal?.throwIfAborted();
+	let result = await client.request(action);
+	if (action._tag === "execute") {
+		try {
+			while (
+				"state" in result &&
+				(result.state === "pending" || result.state === "running")
+			) {
+				await delay(1000, undefined, { signal });
+				result = await client.request({ _tag: "poll", id: action.input.id });
+			}
+			signal?.throwIfAborted();
+		} catch (cause) {
+			// Stop only this command; cancellation never authorizes or replays it.
+			await client
+				.request({ _tag: "cancel", id: action.input.id })
+				.catch(() => undefined);
+			throw new Error(
+				`Local command ${action.input.id} was interrupted. Its outcome may be unknown; inspect its status before requesting another command.`,
+				{ cause },
+			);
+		}
+	}
 	return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
 };
