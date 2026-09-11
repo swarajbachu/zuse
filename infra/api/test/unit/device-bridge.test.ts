@@ -107,7 +107,28 @@ describe("device bridge API authority", () => {
 				actor: "runtime",
 				bodyHash: await Effect.runPromise(sha256Hex(JSON.stringify(action))),
 			});
-			expect(options.redirect).toBe("error");
+			expect(options.redirect).toBe("manual");
+		} finally {
+			await runtime.dispose();
+		}
+	});
+	it("rejects redirects without forwarding the bridge credential", async () => {
+		const { runtime } = await setup();
+		try {
+			const fetch = vi.fn().mockResolvedValue(
+				new Response(null, {
+					status: 302,
+					headers: { location: "https://other.test" },
+				}),
+			);
+			vi.stubGlobal("fetch", fetch);
+			await expect(
+				runtime.runPromise(
+					forwardDeviceBridge(workspace, { _tag: "status" }, "runtime"),
+				),
+			).rejects.toThrow();
+			expect(fetch).toHaveBeenCalledTimes(1);
+			expect(fetch.mock.calls[0]?.[1].redirect).toBe("manual");
 		} finally {
 			await runtime.dispose();
 		}

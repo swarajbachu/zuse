@@ -555,14 +555,19 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		const recoverStaleSessions = Effect.gen(function* () {
 			const staleSessions = yield* sql<{
 				readonly id: string;
-				readonly status: "running" | "booting";
+				readonly status: "running" | "booting" | "idle";
 			}>`
 				SELECT id, status FROM sessions
-				WHERE status IN ('running', 'booting') AND archived_at IS NULL
+				WHERE archived_at IS NULL AND (
+					status IN ('running', 'booting')
+					OR (status = 'idle' AND current_turn_id IS NOT NULL)
+				)
 			`.pipe(Effect.orDie);
 			for (const stale of staleSessions) {
 				const sessionId = SessionId.make(stale.id);
-				if (stale.status === "running") {
+				// Provider startup can publish idle before its durable turn settles.
+				// After a crash the turn, rather than that status, is the authority.
+				if (stale.status !== "booting") {
 					const turnId = yield* resolveActiveTurn(sessionId);
 					if (turnId !== undefined) {
 						// Catch-up may have just recreated this provider and replayed the

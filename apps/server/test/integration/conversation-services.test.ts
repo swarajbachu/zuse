@@ -4780,6 +4780,96 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		}
 	});
 
+	it("settles an orphaned turn after restart even when its status is idle", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-orphaned-idle-turn-"));
+		const dbPath = join(directory, "test.sqlite");
+		const first = makeRuntime(dbPath);
+		const runFirst = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
+			first.runPromise(effect as Effect.Effect<A, unknown, never>);
+		try {
+			await runFirst(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const now = new Date().toISOString();
+					yield* sql`INSERT INTO projects (id, path, name, created_at, updated_at)
+					VALUES (${PROJECT_ID}, ${directory}, ${"Test"}, ${now}, ${now})`;
+				}),
+			);
+			const { initialSession } = await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.sendMessage(
+						testCommandId("messages.send"),
+						initialSession.id,
+						"do not replay this command",
+					),
+				),
+			);
+			await runFirst(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.dispatch({
+						commandId: "test:orphaned-idle",
+						streamId: initialSession.id,
+						command: {
+							_tag: "SetStatus",
+							status: "idle",
+							updatedAt: Date.now(),
+						},
+					}),
+				),
+			);
+			await first.dispose();
+			activeProviderSessions.clear();
+			providerTurnIds.clear();
+			// The first recovery opens a legacy pending provider-start intent in idle
+			// state, while the already-delivered turn remains durably active.
+			const intermediate = makeRuntime(dbPath, false);
+			try {
+				await intermediate.runPromise(
+					Effect.flatMap(store, (service) =>
+						service.resumeSession(initialSession.id),
+					),
+				);
+			} finally {
+				await intermediate.dispose();
+			}
+			activeProviderSessions.clear();
+			providerTurnIds.clear();
+			const restarted = makeRuntime(dbPath, false);
+			try {
+				await restarted.runPromise(
+					Effect.flatMap(store, (service) =>
+						service.getSession(initialSession.id),
+					),
+				);
+				await expect
+					.poll(() =>
+						restarted.runPromise(
+							Effect.gen(function* () {
+								const sql = yield* SqlClient.SqlClient;
+								return yield* sql`SELECT status, current_turn_id FROM sessions WHERE id = ${initialSession.id}`;
+							}),
+						),
+					)
+					.toEqual([{ status: "error", current_turn_id: null }]);
+				expect(providerSentTexts).toEqual(["do not replay this command"]);
+			} finally {
+				await restarted.dispose();
+			}
+		} finally {
+			await first.dispose();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
 	it("replays an unreceipted startup turn once without settling it on restart", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-turn-restart-"));
 		const dbPath = join(directory, "test.sqlite");

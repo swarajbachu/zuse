@@ -86,10 +86,14 @@ export const forwardDeviceBridge = Effect.fn("forwardDeviceBridge")(function* (
 						"content-type": "application/json",
 					},
 					body,
-					redirect: "error",
+					redirect: "manual",
 					signal: AbortSignal.timeout(8000),
 				},
 			);
+			// Workers supports only follow/manual. Never forward the scoped bridge
+			// credential through a redirect or return a redirect for clients to follow.
+			if (response.status >= 300 && response.status < 400)
+				throw new Error("Device bridge endpoint redirected");
 			return new Response(await response.text(), {
 				status: response.status,
 				headers: {
@@ -98,6 +102,13 @@ export const forwardDeviceBridge = Effect.fn("forwardDeviceBridge")(function* (
 				},
 			});
 		},
-		catch: () => serviceUnavailable("device_bridge_desktop_unavailable"),
+		catch: (cause) => {
+			console.warn("Device bridge forwarding failed", {
+				workspaceId: workspace.workspaceId,
+				reason:
+					cause instanceof Error ? cause.message : "Unknown fetch failure",
+			});
+			return serviceUnavailable("device_bridge_desktop_unavailable");
+		},
 	});
 });
