@@ -1,6 +1,9 @@
+import { formatNumber as formatUiNumber } from "@zuse/i18n";
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { GitBranchInfo, GitPrCheckRun, Message } from "@zuse/contracts";
 import { CommandId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Alert01Icon,
 	CheckListIcon,
@@ -67,7 +70,7 @@ import {
 } from "./ui/preview-card.tsx";
 
 const compactNumber = (value: number): string =>
-	new Intl.NumberFormat("en", { notation: "compact" }).format(value);
+	formatUiNumber(value, { notation: "compact" });
 
 const latestAssistantText = (
 	messages: ReadonlyArray<Message>,
@@ -82,6 +85,8 @@ const latestAssistantText = (
 };
 
 export function EnvironmentSummary() {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const ctx = useActiveContext();
 	const folderId = ctx.status === "ready" ? ctx.folderId : null;
 	const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
@@ -157,9 +162,18 @@ export function EnvironmentSummary() {
 				session.permissionMode === "plan" &&
 				!isRunning &&
 				latestAssistantText(messages) !== null),
-		[isRunning, messages, session?.permissionMode, session?.providerId],
+		[
+			isRunning,
+			messages,
+			session?.permissionMode,
+			session?.providerId,
+			uiMessage,
+		],
 	);
-	const subagents = useMemo(() => detachedSubagentGroups(messages), [messages]);
+	const subagents = useMemo(
+		() => detachedSubagentGroups(messages),
+		[messages, uiMessage],
+	);
 	const activeSubagents = subagents.filter(
 		(group) => group.summary === null,
 	).length;
@@ -257,34 +271,34 @@ export function EnvironmentSummary() {
 		if (pr === null) {
 			return {
 				icon: Loading02Icon,
-				label: "Loading pull request",
+				label: uiMessage("chat:environment_summary_loading_pull_request"),
 				className: "animate-spin text-muted-foreground",
 			};
 		}
 		if (pr.state === "merged") {
 			return {
 				icon: GitMergeIcon,
-				label: "Pull request merged",
+				label: uiMessage("chat:environment_summary_pull_request_merged"),
 				className: "text-primary",
 			};
 		}
 		if (pr.state === "closed") {
 			return {
 				icon: Alert01Icon,
-				label: "Pull request closed",
+				label: uiMessage("chat:environment_summary_pull_request_closed"),
 				className: "text-muted-foreground",
 			};
 		}
 		if (pr.state === "open") {
 			return {
 				icon: Tick02Icon,
-				label: "Pull request open",
+				label: uiMessage("chat:environment_summary_pull_request_open"),
 				className: "text-[var(--accent-green)]",
 			};
 		}
 		return {
 			icon: GitPullRequestIcon,
-			label: "No pull request",
+			label: uiMessage("chat:environment_summary_no_pull_request"),
 			className: "text-muted-foreground",
 		};
 	})();
@@ -308,11 +322,11 @@ export function EnvironmentSummary() {
 
 	return (
 		<aside
-			aria-label="Environment summary"
+			aria-label={uiMessage("chat:environment_summary_environment_summary")}
 			className="pointer-events-auto max-h-[calc(100dvh-7rem)] w-64 shrink-0 overflow-y-auto rounded-lg border border-border/70 bg-card/95 p-1 shadow-overlay-sm backdrop-blur-md"
 		>
 			<h2 className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">
-				Summary
+				{uiMessage("chat:environment_summary_summary")}
 			</h2>
 			<button
 				type="button"
@@ -350,13 +364,13 @@ export function EnvironmentSummary() {
 					className="min-w-72 p-1"
 				>
 					<div className="px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
-						Running on
+						{uiMessage("chat:environment_summary_running_on")}
 					</div>
 					<MenuItem className="gap-2.5 px-2.5 py-2 text-[13px]">
 						<EnvironmentIcon className="size-4" />
 						<span className="flex-1">{environmentLocation.menuLabel}</span>
 						<span className="text-[11px] text-[var(--accent-green)]">
-							Active
+							{uiMessage("chat:environment_summary_active")}
 						</span>
 					</MenuItem>
 					<MenuSeparator />
@@ -365,14 +379,18 @@ export function EnvironmentSummary() {
 						className="gap-2.5 px-2.5 py-2 text-[13px]"
 					>
 						<MonitorSmartphone className="size-4" />
-						<span className="flex-1">Connected devices</span>
+						<span className="flex-1">
+							{uiMessage("chat:environment_summary_connected_devices")}
+						</span>
 					</MenuItem>
 					<MenuItem
 						onClick={openDevices}
 						className="gap-2.5 px-2.5 py-2 text-[13px]"
 					>
 						<ArrowLeftRight className="size-4" />
-						<span className="flex-1">Worktree handoff</span>
+						<span className="flex-1">
+							{uiMessage("chat:environment_summary_worktree_handoff")}
+						</span>
 					</MenuItem>
 				</MenuPopup>
 			</Menu>
@@ -404,7 +422,9 @@ export function EnvironmentSummary() {
 				/>
 				<span className="min-w-0 flex-1 truncate">{prLabel}</span>
 				<span className="shrink-0 text-[10px] text-muted-foreground">
-					{pr?.state === "none" ? "Create PR" : "Open"}
+					{pr?.state === "none"
+						? uiMessage("chat:environment_summary_create_pr")
+						: uiMessage("common:open")}
 				</span>
 			</button>
 			{prRows.checks !== null ? (
@@ -419,7 +439,7 @@ export function EnvironmentSummary() {
 								>
 									<ChecksStatusIcon kind={prRows.checks.kind} />
 									<span className="min-w-0 flex-1 truncate">
-										GitHub Actions
+										{uiMessage("chat:environment_summary_github_actions")}
 									</span>
 									<span className="shrink-0 text-[10px] text-muted-foreground">
 										{prRows.checks.label}
@@ -466,7 +486,9 @@ export function EnvironmentSummary() {
 							icon={Alert01Icon}
 							className="size-4 shrink-0 text-[var(--accent-red)]"
 						/>
-						<span className="min-w-0 flex-1 truncate">Merge conflicts</span>
+						<span className="min-w-0 flex-1 truncate">
+							{uiMessage("chat:environment_summary_merge_conflicts")}
+						</span>
 					</button>
 					<span className="pointer-events-none shrink-0 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 motion-reduce:transition-none">
 						<ResolveConflictsButton presentation="inline" />
@@ -485,14 +507,16 @@ export function EnvironmentSummary() {
 							icon={CheckListIcon}
 							className="size-4 shrink-0 text-primary"
 						/>
-						<span className="min-w-0 flex-1 truncate">Plan</span>
+						<span className="min-w-0 flex-1 truncate">
+							{uiMessage("chat:environment_summary_plan")}
+						</span>
 					</button>
 				</>
 			) : null}
 			{subagents.length > 0 ? (
 				<section className="mx-2 mt-2 border-border/70 border-t px-0.5 pb-1 pt-3">
 					<h3 className="mb-2 text-xs font-medium text-muted-foreground">
-						Subagents
+						{uiMessage("chat:environment_summary_subagents")}
 					</h3>
 					<button
 						type="button"
@@ -513,8 +537,12 @@ export function EnvironmentSummary() {
 						</span>
 						<span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
 							{activeSubagents > 0
-								? `${activeSubagents} active`
-								: `${subagents.length} done`}
+								? uiMessage("chat:environment_summary_active_2", {
+										activeSubagents: String(activeSubagents),
+									})
+								: uiMessage("chat:environment_summary_done", {
+										value1: String(subagents.length),
+									})}
 						</span>
 					</button>
 				</section>
@@ -584,11 +612,13 @@ function ChecksPreview({
 	checks: ReadonlyArray<GitPrCheckRun> | null;
 	loading: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	if (loading) {
 		return (
 			<div className="flex min-h-24 items-center justify-center gap-2 text-xs text-muted-foreground">
 				<HugeiconsIcon icon={Loading02Icon} className="size-4 animate-spin" />
-				Loading checks…
+				{uiMessage("chat:environment_summary_loading_checks")}
 			</div>
 		);
 	}
@@ -596,8 +626,8 @@ function ChecksPreview({
 		return (
 			<div className="flex min-h-24 items-center justify-center text-xs text-muted-foreground">
 				{checks === null
-					? "Check details unavailable."
-					: "No check details available."}
+					? uiMessage("chat:environment_summary_check_details_unavailable")
+					: uiMessage("chat:environment_summary_no_check_details_available")}
 			</div>
 		);
 	}

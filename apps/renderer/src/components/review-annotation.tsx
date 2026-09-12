@@ -1,4 +1,7 @@
+import { isInputComposing } from "../lib/input-composition.ts";
+import "@zuse/i18n/english/chat";
 import type { CodeAnnotation } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ArrowUp,
 	Bot,
@@ -41,6 +44,8 @@ export function DraftReviewAnnotation({
 		destination: AnnotationDestination,
 	) => Promise<boolean>;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [message, setMessage] = useState("");
 	const [destination, setDestination] = useState<AnnotationDestination>("ai");
 	const [submitting, setSubmitting] = useState(false);
@@ -86,6 +91,8 @@ export function DraftReviewAnnotation({
 					value={message}
 					onChange={(event) => setMessage(event.target.value)}
 					onKeyDown={(event) => {
+						if (isInputComposing(event)) return;
+
 						if (event.key === "Escape") {
 							event.preventDefault();
 							tryCancel();
@@ -100,10 +107,10 @@ export function DraftReviewAnnotation({
 					}}
 					placeholder={
 						disabled
-							? "Chat session required"
+							? uiMessage("chat:review_annotation_chat_session_required")
 							: destination === "github"
-								? "Post a review comment…"
-								: "Add an annotation for AI…"
+								? uiMessage("chat:review_annotation_post_a_review_comment")
+								: uiMessage("chat:review_annotation_add_an_annotation_for_ai")
 					}
 					disabled={disabled || submitting}
 					rows={2}
@@ -118,18 +125,20 @@ export function DraftReviewAnnotation({
 				<div className="mt-2 flex items-center justify-end gap-1">
 					{githubEnabled ? (
 						<fieldset
-							aria-label="Annotation destination"
+							aria-label={uiMessage(
+								"chat:review_annotation_annotation_destination",
+							)}
 							className="mr-0.5 flex shrink-0 items-center rounded-md border-0 bg-foreground/5 p-0.5"
 						>
 							<DestinationOption
 								active={destination === "ai"}
-								label="AI"
+								label={uiMessage("chat:review_annotation_ai")}
 								onClick={() => setDestination("ai")}
 								icon={Bot}
 							/>
 							<DestinationOption
 								active={destination === "github"}
-								label="GitHub"
+								label={uiMessage("chat:review_annotation_github")}
 								onClick={() => setDestination("github")}
 								icon={GitPullRequest}
 							/>
@@ -137,8 +146,8 @@ export function DraftReviewAnnotation({
 					) : null}
 					<button
 						type="button"
-						aria-label="Cancel annotation"
-						title="Cancel annotation (Esc)"
+						aria-label={uiMessage("chat:review_annotation_cancel_annotation")}
+						title={uiMessage("chat:review_annotation_cancel_annotation_esc")}
 						onClick={tryCancel}
 						disabled={submitting}
 						className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground disabled:opacity-50"
@@ -147,8 +156,8 @@ export function DraftReviewAnnotation({
 					</button>
 					<button
 						type="submit"
-						aria-label="Save annotation"
-						title="Save annotation (Enter)"
+						aria-label={uiMessage("chat:review_annotation_save_annotation")}
+						title={uiMessage("chat:review_annotation_save_annotation_enter")}
 						disabled={disabled || submitting || trimmedMessage.length === 0}
 						className="grid size-7 place-items-center rounded-md bg-foreground text-background hover:bg-foreground/90 disabled:cursor-not-allowed disabled:bg-foreground/10 disabled:text-muted-foreground"
 					>
@@ -171,12 +180,18 @@ function DestinationOption({
 	readonly icon: LucideIcon;
 	readonly onClick: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	return (
 		<button
 			type="button"
 			aria-pressed={active}
-			aria-label={`Send annotation to ${label}`}
-			title={`Send to ${label}`}
+			aria-label={uiMessage("chat:review_annotation_send_annotation_to", {
+				label: String(label),
+			})}
+			title={uiMessage("chat:review_annotation_send_to", {
+				label: String(label),
+			})}
 			onClick={onClick}
 			className={`flex h-6 items-center gap-1 rounded px-1.5 text-[10px] ${active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
 		>
@@ -217,6 +232,8 @@ export function SavedReviewAnnotation({
 		typeof useSessionsStore.getState
 	>["selectedSessionId"];
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [editing, setEditing] = useState(false);
 	const [comment, setComment] = useState(annotation.comment);
 	useEffect(() => {
@@ -234,20 +251,26 @@ export function SavedReviewAnnotation({
 						{author.name}
 					</strong>
 					<span className="inline-flex items-center gap-1 rounded-full bg-foreground/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-						<Sparkles className="size-2.5" aria-hidden="true" /> For AI
+						<Sparkles className="size-2.5" aria-hidden="true" />
+						{uiMessage("chat:review_annotation_for_ai")}
 					</span>
 					<span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">
 						{annotation.startLine === annotation.endLine
-							? `Line ${annotation.startLine}`
-							: `Lines ${annotation.startLine}–${annotation.endLine}`}
+							? uiMessage("chat:review_annotation_line", {
+									startLine: String(annotation.startLine),
+								})
+							: uiMessage("chat:review_annotation_lines", {
+									startLine: String(annotation.startLine),
+									endLine: String(annotation.endLine),
+								})}
 					</span>
 					{!editing ? (
 						<div className="flex items-center gap-0.5">
 							<button
 								type="button"
 								onClick={() => setEditing(true)}
-								aria-label="Edit annotation"
-								title="Edit annotation"
+								aria-label={uiMessage("chat:review_annotation_edit_annotation")}
+								title={uiMessage("chat:review_annotation_edit_annotation")}
 								className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
 							>
 								<Pencil className="size-3" aria-hidden="true" />
@@ -263,8 +286,10 @@ export function SavedReviewAnnotation({
 										useUiStore.getState().clearRevealedAnnotation();
 									}
 								}}
-								aria-label="Delete annotation"
-								title="Delete annotation"
+								aria-label={uiMessage(
+									"chat:review_annotation_delete_annotation",
+								)}
+								title={uiMessage("chat:review_annotation_delete_annotation")}
 								className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400"
 							>
 								<Trash2 className="size-3" aria-hidden="true" />
@@ -300,14 +325,14 @@ export function SavedReviewAnnotation({
 									setEditing(false);
 								}}
 							>
-								Cancel
+								{uiMessage("common:cancel")}
 							</Button>
 							<Button
 								type="submit"
 								size="sm"
 								disabled={comment.trim().length === 0}
 							>
-								Save annotation
+								{uiMessage("chat:review_annotation_save_annotation")}
 							</Button>
 						</div>
 					</form>

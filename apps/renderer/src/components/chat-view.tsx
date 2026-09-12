@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import type { PendingCommand } from "@zuse/client-runtime/resource-state";
@@ -7,6 +8,7 @@ import type {
 	Session,
 	SessionId,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Message01Icon } from "@zuse/icons/solid-rounded";
 import {
 	type ReactNode,
@@ -162,6 +164,8 @@ export function ChatView({
 	/** Height of the floating composer overlay; padded into the scroll range. */
 	readonly endInset?: number;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	useLayoutEffect(() => {
 		markRendererInteraction(sessionId, "first-react-commit");
 	}, [sessionId]);
@@ -298,6 +302,7 @@ export function ChatView({
 			inFlight,
 			messages,
 			workspaceProgressActive,
+			uiMessage,
 		],
 	);
 	const timelineFooter = useMemo(
@@ -312,12 +317,15 @@ export function ChatView({
 				<div className="h-2" />
 			</>
 		),
-		[pendingCreation, providerOutputStarted],
+		[pendingCreation, providerOutputStarted, uiMessage],
 	);
-	const turns = useMemo(() => deriveChatTurnNavigationEntries(rows), [rows]);
+	const turns = useMemo(
+		() => deriveChatTurnNavigationEntries(rows),
+		[rows, uiMessage],
+	);
 	const latestUserMessageId = useMemo(
 		() => resolveLatestUserMessageId(rows),
-		[rows],
+		[rows, uiMessage],
 	);
 
 	const [timelineAnchorMessageId, setTimelineAnchorMessageId] = useState<
@@ -328,7 +336,7 @@ export function ChatView({
 			resolveChatListAnchoredEndSpace(rows, timelineAnchorMessageId, (row) =>
 				rowAnchorMessageId(row),
 			),
-		[rows, timelineAnchorMessageId],
+		[rows, timelineAnchorMessageId, uiMessage],
 	);
 	const listRef = useRef<LegendListRef | null>(null);
 	const scrollElementRef = useRef<HTMLDivElement | null>(null);
@@ -366,7 +374,7 @@ export function ChatView({
 					setScrollSnapshot(snapshot);
 				},
 			}),
-		[sessionId],
+		[sessionId, uiMessage],
 	);
 	useRegisterPane("chat", scrollElementRef);
 
@@ -699,7 +707,10 @@ export function ChatView({
 		if (scrollSnapshot.mode === "following") setHasOutOfViewUpdates(false);
 	}, [scrollSnapshot.mode]);
 
-	const chatLookups = useMemo(() => deriveChatLookups(messages), [messages]);
+	const chatLookups = useMemo(
+		() => deriveChatLookups(messages),
+		[messages, uiMessage],
+	);
 	const renderTimelineRow = useCallback(
 		({ item }: { item: ChatTimelineRow }) => (
 			<TimelineRow
@@ -772,9 +783,13 @@ export function ChatView({
 										className="size-10 opacity-40"
 									/>
 									<div>
-										<p className="text-sm">{session?.title ?? "New chat"}</p>
+										<p className="text-sm">
+											{session?.title ?? uiMessage("chat:chat_view_new_chat")}
+										</p>
 										<p className="mt-1 text-xs">
-											Type a message below to get started.
+											{uiMessage(
+												"chat:chat_view_type_a_message_below_to_get_started",
+											)}
 										</p>
 									</div>
 								</div>
@@ -886,7 +901,7 @@ export function ChatView({
 					</div>
 					<p className="sr-only" aria-live="polite" aria-atomic="true">
 						{showPill && inFlight && hasOutOfViewUpdates
-							? "Response is streaming out of view."
+							? uiMessage("chat:chat_view_response_is_streaming_out_of_view")
 							: ""}
 					</p>
 				</div>

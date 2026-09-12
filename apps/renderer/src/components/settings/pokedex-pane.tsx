@@ -1,3 +1,7 @@
+import "@zuse/i18n/english/settings";
+
+import type { PokemonPokedexEntry, PokemonRarity } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	type CSSProperties,
 	useCallback,
@@ -6,9 +10,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-
-import type { PokemonPokedexEntry, PokemonRarity } from "@zuse/contracts";
-
+import { usePokemonStore } from "../../store/pokemon.ts";
 import { PokemonRarityText } from "../pokemon.tsx";
 import {
 	Dialog,
@@ -27,7 +29,6 @@ import {
 	SelectValue,
 } from "../ui/select.tsx";
 import { Slider } from "../ui/slider.tsx";
-import { usePokemonStore } from "../../store/pokemon.ts";
 
 type UnlockFilter = "all" | "unlocked" | "locked";
 type GenerationFilter = "all" | `${number}`;
@@ -46,6 +47,8 @@ const TILE_HEIGHT = 148;
 const GRID_OVERSCAN_ROWS = 4;
 
 export function PokedexPane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const storedEntries = usePokemonStore((s) => s.entries);
 	const loading = usePokemonStore((s) => s.loading);
 	const error = usePokemonStore((s) => s.error);
@@ -81,7 +84,7 @@ export function PokedexPane() {
 				spriteUrl: entry.silhouetteUrl,
 			};
 		});
-	}, [storedEntries]);
+	}, [storedEntries, uiMessage]);
 
 	const stats = useMemo(() => {
 		let unlocked = 0;
@@ -92,7 +95,7 @@ export function PokedexPane() {
 			points += entry.points;
 		}
 		return { unlocked, points, total: entries.length };
-	}, [entries]);
+	}, [entries, uiMessage]);
 
 	const filtered = useMemo(() => {
 		const needle = query.trim().toLowerCase();
@@ -110,12 +113,12 @@ export function PokedexPane() {
 				String(entry.number).includes(needle)
 			);
 		});
-	}, [entries, generation, query, rarity, unlockFilter]);
+	}, [entries, generation, query, rarity, unlockFilter, uiMessage]);
 
 	const selected = useMemo(() => {
 		if (selectedNumber === null) return null;
 		return entries.find((entry) => entry.number === selectedNumber) ?? null;
-	}, [entries, selectedNumber]);
+	}, [entries, selectedNumber, uiMessage]);
 
 	const virtualGrid = useMemo(() => {
 		const columnCount = Math.max(
@@ -145,7 +148,7 @@ export function PokedexPane() {
 			totalHeight: rowCount * TILE_HEIGHT,
 			visible,
 		};
-	}, [filtered, viewport]);
+	}, [filtered, viewport, uiMessage]);
 
 	const handleGridScroll = useCallback(() => {
 		const node = scrollRef.current;
@@ -231,14 +234,20 @@ export function PokedexPane() {
 			<div className="flex flex-wrap items-end justify-between gap-4">
 				<div>
 					<h1 className="truncate text-base font-semibold tracking-normal">
-						Pokedex
+						{uiMessage("settings:pokedex_pane_pokedex")}
 					</h1>
 					<p className="mt-1 text-sm text-muted-foreground">
-						{stats.unlocked}/{stats.total} unlocked · {stats.points} points
+						{uiMessage("settings:pokedex_pane_unlocked_points_sentence", {
+							value: stats.unlocked,
+							value2: stats.total,
+							value3: stats.points,
+						})}
 					</p>
 				</div>
 				{loading ? (
-					<span className="text-xs text-muted-foreground">Loading…</span>
+					<span className="text-xs text-muted-foreground">
+						{uiMessage("common:loading")}
+					</span>
 				) : error !== null ? (
 					<span className="text-xs text-destructive">{error}</span>
 				) : null}
@@ -248,7 +257,9 @@ export function PokedexPane() {
 				<Input
 					value={query}
 					onChange={(event) => setQuery(event.target.value)}
-					placeholder="Search by name or number"
+					placeholder={uiMessage(
+						"settings:pokedex_pane_search_by_name_or_number",
+					)}
 				/>
 				<Select
 					value={unlockFilter}
@@ -258,9 +269,15 @@ export function PokedexPane() {
 						<SelectValue />
 					</SelectTrigger>
 					<SelectPopup>
-						<SelectItem value="all">All</SelectItem>
-						<SelectItem value="unlocked">Unlocked</SelectItem>
-						<SelectItem value="locked">Locked</SelectItem>
+						<SelectItem value="all">
+							{uiMessage("settings:pokedex_pane_all")}
+						</SelectItem>
+						<SelectItem value="unlocked">
+							{uiMessage("settings:pokedex_pane_unlocked_2")}
+						</SelectItem>
+						<SelectItem value="locked">
+							{uiMessage("settings:pokedex_pane_locked")}
+						</SelectItem>
 					</SelectPopup>
 				</Select>
 				<Select
@@ -271,10 +288,12 @@ export function PokedexPane() {
 						<SelectValue />
 					</SelectTrigger>
 					<SelectPopup>
-						<SelectItem value="all">All generations</SelectItem>
+						<SelectItem value="all">
+							{uiMessage("settings:pokedex_pane_all_generations")}
+						</SelectItem>
 						{Array.from({ length: 9 }, (_, i) => String(i + 1)).map((gen) => (
 							<SelectItem key={gen} value={gen}>
-								Gen {gen}
+								{uiMessage("settings:pokedex_pane_gen_sentence", { gen: gen })}
 							</SelectItem>
 						))}
 					</SelectPopup>
@@ -287,7 +306,9 @@ export function PokedexPane() {
 						<SelectValue />
 					</SelectTrigger>
 					<SelectPopup>
-						<SelectItem value="all">All rarity</SelectItem>
+						<SelectItem value="all">
+							{uiMessage("settings:pokedex_pane_all_rarity")}
+						</SelectItem>
 						{rarityOrder.map((value) => (
 							<SelectItem key={value} value={value}>
 								{value}
@@ -347,6 +368,8 @@ function PokedexTile({
 	readonly onSelect: () => void;
 	readonly style: CSSProperties;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	return (
 		<button
 			type="button"
@@ -387,7 +410,10 @@ function PokedexTile({
 			<div className="mt-1.5 min-w-0">
 				<div className="truncate text-[13px] font-medium">{entry.name}</div>
 				<div className="text-[11px] text-muted-foreground">
-					Gen {entry.generation} · {entry.points} pts
+					{uiMessage("settings:pokedex_pane_gen_pts_sentence", {
+						value: entry.generation,
+						value2: entry.points,
+					})}
 				</div>
 			</div>
 		</button>
@@ -405,6 +431,8 @@ function PokemonDetailDialog({
 	readonly onZoomChange: (zoom: number) => void;
 	readonly onOpenChange: (open: boolean) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const open = entry !== null;
 	const spriteSrc =
 		entry !== null && entry.unlocked && entry.spriteUrl !== null
@@ -422,8 +450,11 @@ function PokemonDetailDialog({
 								<div className="min-w-0">
 									<DialogTitle>{entry.name}</DialogTitle>
 									<DialogDescription>
-										#{String(entry.number).padStart(4, "0")} · Gen{" "}
-										{entry.generation} · {entry.points} pts
+										{uiMessage("settings:pokedex_pane_gen_pts_sentence_2", {
+											value: String(entry.number).padStart(4, "0"),
+											value2: entry.generation,
+											value3: entry.points,
+										})}
 									</DialogDescription>
 								</div>
 								<PokemonRarityText rarity={entry.rarity} />
@@ -451,13 +482,17 @@ function PokemonDetailDialog({
 							</div>
 							<div className="space-y-2">
 								<div className="flex items-center justify-between gap-3 text-sm">
-									<span className="font-medium">Zoom</span>
-									<span className="text-muted-foreground">
-										{Math.round(zoom * 100)}%
-									</span>
+									<RichMessage
+										id="settings:pokedex_pane_zoom_sentence"
+										values={{ value: Math.round(zoom * 100) }}
+										components={{
+											part0: <span className="font-medium" />,
+											part1: <span className="text-muted-foreground" />,
+										}}
+									/>
 								</div>
 								<Slider
-									aria-label="Sprite zoom"
+									aria-label={uiMessage("settings:pokedex_pane_sprite_zoom")}
 									max={5}
 									min={1}
 									onValueChange={(value) => {
@@ -469,7 +504,9 @@ function PokemonDetailDialog({
 							</div>
 							{entry.evolutionLine.length > 1 ? (
 								<div className="space-y-2">
-									<div className="text-sm font-medium">Evolution</div>
+									<div className="text-sm font-medium">
+										{uiMessage("settings:pokedex_pane_evolution")}
+									</div>
 									<div className="grid grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))] gap-2">
 										{entry.evolutionLine.map((step) => {
 											const stepSrc =
@@ -513,7 +550,9 @@ function PokemonDetailDialog({
 							{entry.unlocked &&
 							entry.variants.some((variant) => variant.spriteUrl !== null) ? (
 								<div className="space-y-2">
-									<div className="text-sm font-medium">Variants</div>
+									<div className="text-sm font-medium">
+										{uiMessage("settings:pokedex_pane_variants")}
+									</div>
 									<div className="grid grid-cols-[repeat(auto-fit,minmax(6rem,1fr))] gap-2">
 										{entry.variants
 											.filter((variant) => variant.spriteUrl !== null)
@@ -544,13 +583,19 @@ function PokemonDetailDialog({
 							) : null}
 							<div className="grid gap-2 text-sm sm:grid-cols-2">
 								<div className="rounded-md border border-border/50 p-3">
-									<div className="text-xs text-muted-foreground">Status</div>
+									<div className="text-xs text-muted-foreground">
+										{uiMessage("settings:pokedex_pane_status")}
+									</div>
 									<div className="mt-1 font-medium">
-										{entry.unlocked ? "Unlocked" : "Locked"}
+										{entry.unlocked
+											? uiMessage("settings:pokedex_pane_unlocked_2")
+											: uiMessage("settings:pokedex_pane_locked")}
 									</div>
 								</div>
 								<div className="rounded-md border border-border/50 p-3">
-									<div className="text-xs text-muted-foreground">Slug</div>
+									<div className="text-xs text-muted-foreground">
+										{uiMessage("settings:pokedex_pane_slug")}
+									</div>
 									<div className="mt-1 truncate font-medium">{entry.slug}</div>
 								</div>
 							</div>

@@ -1,3 +1,5 @@
+import { isInputComposing } from "../lib/input-composition.ts";
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import {
@@ -13,6 +15,8 @@ import {
 	type BrowserViewportMode,
 	type SessionId,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { StarIcon } from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
 import {
@@ -132,10 +136,34 @@ const annotationTools: ReadonlyArray<{
 	readonly label: string;
 	readonly icon: ComponentType<{ className?: string; strokeWidth?: number }>;
 }> = [
-	{ id: "select", label: "Select", icon: MousePointer2 },
-	{ id: "region", label: "Region", icon: SquareDashedMousePointer },
-	{ id: "draw", label: "Draw", icon: PencilLine },
-	{ id: "erase", label: "Erase", icon: Eraser },
+	{
+		id: "select",
+		get label() {
+			return uiMessage("chat:browser_pane_select");
+		},
+		icon: MousePointer2,
+	},
+	{
+		id: "region",
+		get label() {
+			return uiMessage("chat:browser_pane_region_2");
+		},
+		icon: SquareDashedMousePointer,
+	},
+	{
+		id: "draw",
+		get label() {
+			return uiMessage("chat:browser_pane_draw");
+		},
+		icon: PencilLine,
+	},
+	{
+		id: "erase",
+		get label() {
+			return uiMessage("chat:browser_pane_erase");
+		},
+		icon: Eraser,
+	},
 ];
 
 /** A dev server row rendered by the empty state (see `PreviewServer`). */
@@ -404,6 +432,8 @@ export function BrowserPane({
 	readonly sessionId: SessionId | null;
 	readonly visible: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const { chatId, environmentId } = chatRef;
 	const isLocalEnvironment = environmentId === getLocalEnvironmentId();
 	const isCloudEnvironment = isCloudWorkspaceEnvironment(environmentId);
@@ -1547,7 +1577,7 @@ export function BrowserPane({
 					type="text"
 					value={inputValue}
 					onChange={(e) => setInputValue(e.target.value)}
-					placeholder="Search or enter URL"
+					placeholder={uiMessage("chat:browser_pane_search_or_enter_url")}
 					spellCheck={false}
 					className="flex-1 rounded bg-transparent px-2 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/70 focus:bg-muted/40"
 				/>
@@ -1556,15 +1586,23 @@ export function BrowserPane({
 					onChange={(event) =>
 						changeViewportMode(event.target.value as BrowserViewportMode)
 					}
-					aria-label="Browser viewport"
+					aria-label={uiMessage("chat:browser_pane_browser_viewport")}
 					className="h-8 rounded-md border border-border/70 bg-background px-2 text-[11px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 				>
-					<option value="fill">Fill</option>
-					<option value="phone">Phone</option>
-					<option value="tablet">Tablet</option>
-					<option value="laptop">Laptop</option>
-					<option value="desktop">Desktop</option>
-					<option value="custom">Custom</option>
+					<option value="fill">{uiMessage("chat:browser_pane_fill")}</option>
+					<option value="phone">{uiMessage("chat:browser_pane_phone")}</option>
+					<option value="tablet">
+						{uiMessage("chat:browser_pane_tablet")}
+					</option>
+					<option value="laptop">
+						{uiMessage("chat:browser_pane_laptop")}
+					</option>
+					<option value="desktop">
+						{uiMessage("chat:browser_pane_desktop")}
+					</option>
+					<option value="custom">
+						{uiMessage("chat:browser_pane_custom")}
+					</option>
 				</select>
 				{viewport.mode === "custom" ? (
 					<div className="flex h-8 items-center rounded-md border border-border/70 bg-background">
@@ -1576,7 +1614,7 @@ export function BrowserPane({
 							onChange={(event) =>
 								updateViewportDimension("width", event.target.valueAsNumber)
 							}
-							aria-label="Viewport width"
+							aria-label={uiMessage("chat:browser_pane_viewport_width")}
 							className="h-full w-14 bg-transparent px-1 text-center text-[11px] tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 						/>
 						<span className="text-[10px] text-muted-foreground">×</span>
@@ -1588,13 +1626,15 @@ export function BrowserPane({
 							onChange={(event) =>
 								updateViewportDimension("height", event.target.valueAsNumber)
 							}
-							aria-label="Viewport height"
+							aria-label={uiMessage("chat:browser_pane_viewport_height")}
 							className="h-full w-14 bg-transparent px-1 text-center text-[11px] tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 						/>
 						<button
 							type="button"
 							aria-pressed={viewport.lockAspectRatio}
-							aria-label="Lock viewport aspect ratio"
+							aria-label={uiMessage(
+								"chat:browser_pane_lock_viewport_aspect_ratio",
+							)}
 							onClick={() =>
 								setViewport((current) => ({
 									...current,
@@ -1603,7 +1643,7 @@ export function BrowserPane({
 							}
 							className={`h-full px-2 text-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${viewport.lockAspectRatio ? "text-primary" : "text-muted-foreground"}`}
 						>
-							Ratio
+							{uiMessage("chat:browser_pane_ratio")}
 						</button>
 					</div>
 				) : null}
@@ -1620,7 +1660,7 @@ export function BrowserPane({
 							}))
 						}
 						className="h-8 rounded-md px-2 text-[11px] tabular-nums text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-						aria-label="Rotate browser viewport"
+						aria-label={uiMessage("chat:browser_pane_rotate_browser_viewport")}
 					>
 						{viewport.width}×{viewport.height}
 					</button>
@@ -1631,14 +1671,16 @@ export function BrowserPane({
 						aria-live="polite"
 					>
 						<span className="size-2 rounded-full bg-red-500" />
-						{recordingState === "recording" ? "Recording" : recordingState}
+						{recordingState === "recording"
+							? uiMessage("chat:browser_pane_recording")
+							: recordingState}
 					</span>
 				) : lastRecording !== null ? (
 					<span
 						className="max-w-24 truncate text-[10px] text-muted-foreground"
 						title={lastRecording.id}
 					>
-						Saved
+						{uiMessage("chat:browser_pane_saved")}
 					</span>
 				) : null}
 				<ToolbarButton
@@ -1680,16 +1722,18 @@ export function BrowserPane({
 			{passwordFieldOrigin !== null ? (
 				<section
 					className="flex min-h-8 shrink-0 items-center gap-2 border-b border-border/70 bg-card/80 px-3 py-1 text-xs"
-					aria-label="Password autofill"
+					aria-label={uiMessage("chat:browser_pane_password_autofill")}
 				>
 					<div className="min-w-0 flex-1">
 						<p className="font-medium text-foreground">
-							Password field detected
+							{uiMessage("chat:browser_pane_password_field_detected")}
 						</p>
 						<p className="truncate text-muted-foreground">
 							{nativeCredentialError ??
 								nativeCredentialCapability?.reason ??
-								`Use the saved test login for ${passwordFieldOrigin}.`}
+								uiMessage("chat:browser_pane_use_the_saved_test_login_for", {
+									passwordFieldOrigin: String(passwordFieldOrigin),
+								})}
 						</p>
 					</div>
 					<button
@@ -1701,24 +1745,29 @@ export function BrowserPane({
 						className="h-8 rounded-md bg-primary px-2.5 font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
 						onClick={() => void fillNativeCredential()}
 					>
-						{nativeCredentialBusy ? "Filling…" : "Fill saved login"}
+						{nativeCredentialBusy
+							? uiMessage("chat:browser_pane_filling")
+							: uiMessage("chat:browser_pane_fill_saved_login")}
 					</button>
 				</section>
 			) : null}
 			{domainAccessRequest !== null ? (
 				<section
 					className="shrink-0 border-b border-border/70 bg-card/80 px-3 py-2 text-xs"
-					aria-label="Browser session access"
+					aria-label={uiMessage("chat:browser_pane_browser_session_access")}
 				>
 					<div className="flex flex-wrap items-center gap-2">
 						<div className="min-w-0 flex-1">
 							<p className="font-medium text-foreground">
-								Allow this task to use the signed-in session for{" "}
-								{domainAccessRequest.domain}?
+								{uiMessage(
+									"chat:browser_pane_allow_this_task_to_use_the_signed_in_session_for_sentence",
+									{ value: domainAccessRequest.domain },
+								)}
 							</p>
 							<p className="mt-0.5 text-muted-foreground">
-								The grant stays in memory and applies only to this task and
-								domain.
+								{uiMessage(
+									"chat:browser_pane_the_grant_stays_in_memory_and_applies_only_to_this_task_and_domain",
+								)}
 							</p>
 						</div>
 						<button
@@ -1729,7 +1778,7 @@ export function BrowserPane({
 								setDomainAccessRequest(null);
 							}}
 						>
-							Deny
+							{uiMessage("chat:browser_pane_deny")}
 						</button>
 						<button
 							type="button"
@@ -1742,7 +1791,7 @@ export function BrowserPane({
 								setDomainAccessRequest(null);
 							}}
 						>
-							Allow for task
+							{uiMessage("chat:browser_pane_allow_for_task")}
 						</button>
 					</div>
 				</section>
@@ -1823,7 +1872,9 @@ export function BrowserPane({
 							<button
 								type="button"
 								onPointerDown={beginViewportResize}
-								aria-label="Resize browser viewport"
+								aria-label={uiMessage(
+									"chat:browser_pane_resize_browser_viewport",
+								)}
 								className="absolute bottom-0 right-0 z-30 size-8 cursor-nwse-resize touch-none bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 after:absolute after:bottom-1 after:right-1 after:size-3 after:border-b-2 after:border-r-2 after:border-muted-foreground/60"
 							/>
 						) : null}
@@ -2009,7 +2060,10 @@ async function resolveBrowserTarget(
 			ok: true,
 			cx: target.x,
 			cy: target.y,
-			label: `point (${target.x}, ${target.y})`,
+			label: uiMessage("chat:browser_pane_point", {
+				x: String(target.x),
+				y: String(target.y),
+			}),
 		};
 	}
 	if (target._tag === "Ref") {
@@ -3768,6 +3822,8 @@ function BrowserEmptyState({
 	/** Cloud workspaces only: mint and copy the public preview link. */
 	onCopyPublicLink: ((server: PreviewServerInfo) => Promise<void>) | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [busyPort, setBusyPort] = useState<number | null>(null);
 	const [copiedPort, setCopiedPort] = useState<number | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -3778,11 +3834,15 @@ function BrowserEmptyState({
 			<div className="mx-auto max-w-3xl">
 				<div className="mb-5 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
 					<Server className="size-4" strokeWidth={1.8} />
-					{isRemote ? "Dev servers on this environment" : "Local servers"}
+					{isRemote
+						? uiMessage("chat:browser_pane_dev_servers_on_this_environment")
+						: uiMessage("chat:browser_pane_local_servers")}
 				</div>
 				{servers.length === 0 && isRemote ? (
 					<div className="rounded-xl border border-border/70 bg-card/70 px-4 py-6 text-sm text-muted-foreground">
-						No dev servers detected on this environment.
+						{uiMessage(
+							"chat:browser_pane_no_dev_servers_detected_on_this_environment",
+						)}
 					</div>
 				) : (
 					<div className="overflow-hidden rounded-xl border border-border/70 bg-card/70">
@@ -3812,9 +3872,11 @@ function BrowserEmptyState({
 										</span>
 										<span className="text-sm text-muted-foreground">
 											{busyPort === server.port
-												? "Connecting…"
+												? uiMessage("chat:browser_pane_connecting")
 												: isRemote
-													? `port ${server.port}`
+													? uiMessage("chat:browser_pane_port", {
+															value1: String(server.port),
+														})
 													: `localhost:${server.port}`}
 										</span>
 									</span>
@@ -3825,8 +3887,12 @@ function BrowserEmptyState({
 										disabled={server.loopbackOnly || busyPort !== null}
 										title={
 											server.loopbackOnly
-												? "This server only listens on 127.0.0.1 — restart it with --host 0.0.0.0 to share a public link."
-												: "Copy public link — anyone with the link can access it."
+												? uiMessage(
+														"chat:browser_pane_this_server_only_listens_on_127_0_0_1_restart_it_with_host_0_0_0_0_to",
+													)
+												: uiMessage(
+														"chat:browser_pane_copy_public_link_anyone_with_the_link_can_access_it",
+													)
 										}
 										onClick={() => {
 											setError(null);
@@ -3902,6 +3968,8 @@ function BrowserAnnotationOverlay({
 	onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
 	onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const maxLeft =
 		typeof window === "undefined" ? 16 : Math.max(16, window.innerWidth - 452);
 	const maxTop =
@@ -3953,7 +4021,7 @@ function BrowserAnnotationOverlay({
 					type="button"
 					onClick={onCancel}
 					className="ml-1 flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-					aria-label="Cancel annotation"
+					aria-label={uiMessage("chat:browser_pane_cancel_annotation")}
 				>
 					<X className="size-4" strokeWidth={1.8} />
 				</button>
@@ -3974,10 +4042,18 @@ function BrowserAnnotationOverlay({
 				/>
 			))}
 			{regions.map((region) => (
-				<AnnotationRect key={region.id} rect={region.rect} label="region" />
+				<AnnotationRect
+					key={region.id}
+					rect={region.rect}
+					label={uiMessage("chat:browser_pane_region")}
+				/>
 			))}
 			{dragRect !== null ? (
-				<AnnotationRect rect={dragRect} label="region" subtle />
+				<AnnotationRect
+					rect={dragRect}
+					label={uiMessage("chat:browser_pane_region")}
+					subtle
+				/>
 			) : null}
 
 			<svg
@@ -4016,7 +4092,7 @@ function BrowserAnnotationOverlay({
 					<button
 						type="button"
 						className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"
-						aria-label="Annotation details"
+						aria-label={uiMessage("chat:browser_pane_annotation_details")}
 					>
 						<MousePointerClick className="size-4" strokeWidth={1.8} />
 					</button>
@@ -4024,12 +4100,14 @@ function BrowserAnnotationOverlay({
 						value={comment}
 						onChange={(event) => setComment(event.target.value)}
 						onKeyDown={(event) => {
+							if (isInputComposing(event)) return;
+
 							if (event.key === "Enter" && !event.shiftKey && canAttach) {
 								event.preventDefault();
 								onAttach();
 							}
 						}}
-						placeholder="Describe the change..."
+						placeholder={uiMessage("chat:browser_pane_describe_the_change")}
 						rows={1}
 						className="min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground"
 					/>
@@ -4040,7 +4118,9 @@ function BrowserAnnotationOverlay({
 						className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-50"
 					>
 						<SendHorizontal className="size-3.5" strokeWidth={1.8} />
-						{attaching ? "Attaching" : "Attach"}
+						{attaching
+							? uiMessage("chat:browser_pane_attaching")
+							: uiMessage("chat:browser_pane_attach")}
 					</button>
 				</div>
 			) : null}

@@ -1,3 +1,5 @@
+import { formatDate as formatUiDate } from "@zuse/i18n";
+import "@zuse/i18n/english/settings";
 import {
 	type MachineOffer,
 	MachineOpError,
@@ -7,6 +9,7 @@ import {
 	type MachineSshKey,
 	type SshMode,
 } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ExternalLink, KeyRound, LoaderCircle, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../hooks/use-auth.ts";
@@ -69,9 +72,7 @@ import { CloudWorkspacePool } from "./cloud-workspace-pool.tsx";
 const formatDate = (value: number | undefined, fallback: string): string =>
 	value === undefined
 		? fallback
-		: new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
-				new Date(value),
-			);
+		: formatUiDate(new Date(value), { dateStyle: "medium" });
 
 const progressVariant = (
 	tone: ReturnType<typeof cloudMachineProgress>["tone"],
@@ -117,6 +118,8 @@ export const runtimeVersionDescription = (
 };
 
 export function CloudMachinesPane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const { isLoading: authLoading, isSignedIn } = useAuth();
 	const [offer, setOffer] = useState<MachineOffer | null>(null);
 	const [machine, setMachine] = useState<MachineRecord | null>(null);
@@ -270,7 +273,7 @@ export function CloudMachinesPane() {
 				const created = await runControlPlane((client) =>
 					client["machines.create"]({
 						offerId: offer.offerId,
-						label: "Cloud machine",
+						label: uiMessage("settings:cloud_machines_pane_cloud_machine"),
 						idempotencyKey: crypto.randomUUID(),
 					}),
 				);
@@ -523,7 +526,9 @@ export function CloudMachinesPane() {
 		return (
 			<div className="flex min-h-32 items-center justify-center" role="status">
 				<Spinner className="text-muted-foreground" />
-				<span className="sr-only">Loading cloud machine</span>
+				<span className="sr-only">
+					{uiMessage("settings:cloud_machines_pane_loading_cloud_machine")}
+				</span>
 			</div>
 		);
 	}
@@ -564,19 +569,36 @@ export function CloudMachinesPane() {
 
 			{machine === null && offer !== null ? (
 				<CloudSettingsGroup
-					title="Persistent cloud machine"
-					description="A private, always-on development computer managed by Zuse."
+					title={uiMessage(
+						"settings:cloud_machines_pane_persistent_cloud_machine",
+					)}
+					description={uiMessage(
+						"settings:cloud_machines_pane_a_private_always_on_development_computer_managed_by_zuse",
+					)}
 				>
 					<CloudSettingsRow
 						title={offer.displayName}
-						description={`${offer.vcpuCount} vCPU · ${offer.memoryMib / 1024} GB memory · ${offer.diskGib} GB disk · ${offer.location}`}
+						description={uiMessage(
+							"settings:cloud_machines_pane_vcpu_gb_memory_gb_disk",
+							{
+								value1: String(offer.vcpuCount),
+								value2: String(offer.memoryMib / 1024),
+								value3: String(offer.diskGib),
+								value4: String(offer.location),
+							},
+						)}
 						action={
 							<div className="flex items-center gap-2">
 								<p className="whitespace-nowrap text-[11px] text-muted-foreground">
-									<span className="font-medium text-foreground">
-										${(offer.monthlyPriceCents / 100).toFixed(0)}
-									</span>{" "}
-									/ month
+									<RichMessage
+										id="settings:cloud_machines_pane_month_sentence"
+										values={{
+											value: (offer.monthlyPriceCents / 100).toFixed(0),
+										}}
+										components={{
+											part0: <span className="font-medium text-foreground" />,
+										}}
+									/>
 								</p>
 								<Button
 									size="xs"
@@ -584,21 +606,39 @@ export function CloudMachinesPane() {
 									onClick={() => void beginPurchase()}
 								>
 									<ExternalLink aria-hidden />
-									{checkoutUrl === null ? "Checkout" : "Reopen"}
+									{checkoutUrl === null
+										? uiMessage("settings:cloud_machines_pane_checkout")
+										: uiMessage("settings:cloud_machines_pane_reopen")}
 								</Button>
 							</div>
 						}
 					/>
 					<CloudSettingsRow
-						title="Backups and network"
-						description="Automatic backups included. Public inbound traffic is blocked."
-						action={<Badge variant="success">Included</Badge>}
+						title={uiMessage(
+							"settings:cloud_machines_pane_backups_and_network",
+						)}
+						description={uiMessage(
+							"settings:cloud_machines_pane_automatic_backups_included_public_inbound_traffic_is_blocked",
+						)}
+						action={
+							<Badge variant="success">
+								{uiMessage("settings:cloud_machines_pane_included")}
+							</Badge>
+						}
 					/>
 					{checkoutUrl === null ? null : (
 						<CloudSettingsRow
-							title="Waiting for payment"
-							description="Provisioning begins automatically when payment is confirmed. You can close this window."
-							action={<Badge variant="warning">Checking</Badge>}
+							title={uiMessage(
+								"settings:cloud_machines_pane_waiting_for_payment",
+							)}
+							description={uiMessage(
+								"settings:cloud_machines_pane_provisioning_begins_automatically_when_payment_is_confirmed_you_can_cl",
+							)}
+							action={
+								<Badge variant="warning">
+									{uiMessage("settings:cloud_machines_pane_checking")}
+								</Badge>
+							}
 						/>
 					)}
 				</CloudSettingsGroup>
@@ -606,13 +646,21 @@ export function CloudMachinesPane() {
 
 			{machine === null && offer === null && loadError === null ? (
 				<CloudSettingsGroup
-					title="Cloud machines"
-					description="Persistent cloud machines are currently invite-only."
+					title={uiMessage("settings:cloud_machines_pane_cloud_machines")}
+					description={uiMessage(
+						"settings:cloud_machines_pane_persistent_cloud_machines_are_currently_invite_only",
+					)}
 				>
 					<CloudSettingsRow
-						title="No offer available"
-						description="This account does not currently have access to a cloud-machine offer."
-						action={<Badge variant="outline">Unavailable</Badge>}
+						title={uiMessage("settings:cloud_machines_pane_no_offer_available")}
+						description={uiMessage(
+							"settings:cloud_machines_pane_this_account_does_not_currently_have_access_to_a_cloud_machine_offer",
+						)}
+						action={
+							<Badge variant="outline">
+								{uiMessage("settings:cloud_machines_pane_unavailable")}
+							</Badge>
+						}
 					/>
 				</CloudSettingsGroup>
 			) : null}
@@ -621,7 +669,9 @@ export function CloudMachinesPane() {
 				<>
 					<CloudSettingsGroup
 						title={machine.label ?? machine.offer.displayName}
-						description="Your persistent provider-managed development computer."
+						description={uiMessage(
+							"settings:cloud_machines_pane_your_persistent_provider_managed_development_computer",
+						)}
 						action={
 							<Badge variant={progressVariant(progress.tone)}>
 								{progress.label}
@@ -629,8 +679,15 @@ export function CloudMachinesPane() {
 						}
 					>
 						<CloudSettingsRow
-							title="Machine"
-							description={`${machine.offer.vcpuCount} vCPU · ${machine.offer.memoryMib / 1024} GB memory · ${machine.offer.diskGib} GB disk`}
+							title={uiMessage("settings:cloud_machines_pane_machine")}
+							description={uiMessage(
+								"settings:cloud_machines_pane_vcpu_gb_memory_gb_disk_2",
+								{
+									value1: String(machine.offer.vcpuCount),
+									value2: String(machine.offer.memoryMib / 1024),
+									value3: String(machine.offer.diskGib),
+								},
+							)}
 							action={
 								<span className="text-[11px] text-muted-foreground">
 									{machine.offer.location}
@@ -649,7 +706,14 @@ export function CloudMachinesPane() {
 							{activeProgressStep === null ? null : (
 								<div
 									className="grid grid-cols-7 gap-1"
-									aria-label={`Provisioning step ${activeProgressStep + 1} of ${progressSteps.length}: ${progressSteps[activeProgressStep]}`}
+									aria-label={uiMessage(
+										"settings:cloud_machines_pane_provisioning_step_of",
+										{
+											value1: String(activeProgressStep + 1),
+											value2: String(progressSteps.length),
+											value3: String(progressSteps[activeProgressStep]),
+										},
+									)}
 									aria-valuemax={progressSteps.length}
 									aria-valuemin={1}
 									aria-valuenow={activeProgressStep + 1}
@@ -678,7 +742,9 @@ export function CloudMachinesPane() {
 						{machine.state !== "ready" ? null : (
 							<>
 								<CloudSettingsRow
-									title="Managed connection"
+									title={uiMessage(
+										"settings:cloud_machines_pane_managed_connection",
+									)}
 									description={connection.description}
 									action={
 										<>
@@ -695,7 +761,9 @@ export function CloudMachinesPane() {
 													loading={connectionBusy}
 													onClick={() => void openMachine()}
 												>
-													Open machine
+													{uiMessage(
+														"settings:cloud_machines_pane_open_machine",
+													)}
 												</Button>
 											) : (
 												<Button
@@ -704,19 +772,25 @@ export function CloudMachinesPane() {
 													loading={connectionBusy}
 													onClick={() => void retryMachineConnection()}
 												>
-													Retry
+													{uiMessage("common:retry")}
 												</Button>
 											)}
 										</>
 									}
 								/>
 								<CloudSettingsRow
-									title="Cloud runtime"
+									title={uiMessage(
+										"settings:cloud_machines_pane_cloud_runtime",
+									)}
 									description={
 										runtimeStatus === null
 											? runtimeStatusUnavailable
-												? "This machine cannot report runtime updates yet. Older machines need one manual updater run."
-												: "Checks automatically against this version of Zuse."
+												? uiMessage(
+														"settings:cloud_machines_pane_runtime_updates_require_upgrade",
+													)
+												: uiMessage(
+														"settings:cloud_machines_pane_checks_automatically_against_this_version_of_zuse",
+													)
 											: runtimeVersionDescription(runtimeStatus)
 									}
 									action={
@@ -734,8 +808,10 @@ export function CloudMachinesPane() {
 											>
 												{runtimeStatus === null
 													? runtimeStatusUnavailable
-														? "Manual update needed"
-														: "Checking"
+														? uiMessage(
+																"settings:cloud_machines_pane_manual_update_needed",
+															)
+														: uiMessage("settings:cloud_machines_pane_checking")
 													: runtimePhaseLabel(runtimeStatus)}
 											</Badge>
 											{runtimeStatus?.state === "update-available" ||
@@ -746,7 +822,7 @@ export function CloudMachinesPane() {
 													disabled={!connected || runtimeUpdateBusy}
 													onClick={() => setRuntimeUpdateDialogOpen(true)}
 												>
-													Update now
+													{uiMessage("settings:cloud_machines_pane_update_now")}
 												</Button>
 											) : null}
 										</>
@@ -776,15 +852,21 @@ export function CloudMachinesPane() {
 					</CloudSettingsGroup>
 					{connected && machineEnvironmentId !== undefined ? (
 						<CloudSettingsGroup
-							title="Private access"
-							description="Optional private networking and SSH access for this machine."
+							title={uiMessage("settings:cloud_machines_pane_private_access")}
+							description={uiMessage(
+								"settings:cloud_machines_pane_optional_private_networking_and_ssh_access_for_this_machine",
+							)}
 						>
 							<CloudSettingsRow
-								title="Private network"
+								title={uiMessage(
+									"settings:cloud_machines_pane_private_network",
+								)}
 								description={
 									network?.enabled === true
 										? (network.dnsName ?? "Connected to your private network")
-										: "Connect once with a reusable or ephemeral network auth key."
+										: uiMessage(
+												"settings:cloud_machines_pane_connect_once_with_a_reusable_or_ephemeral_network_auth_key",
+											)
 								}
 								action={
 									<>
@@ -793,24 +875,34 @@ export function CloudMachinesPane() {
 												network?.enabled === true ? "success" : "outline"
 											}
 										>
-											{network?.enabled === true ? "Enabled" : "Not configured"}
+											{network?.enabled === true
+												? uiMessage("settings:cloud_machines_pane_enabled")
+												: uiMessage(
+														"settings:cloud_machines_pane_not_configured",
+													)}
 										</Badge>
 										<Button
 											size="xs"
 											variant="outline"
 											onClick={() => setNetworkDialogOpen(true)}
 										>
-											{network?.enabled === true ? "Reconnect" : "Set up"}
+											{network?.enabled === true
+												? uiMessage("settings:cloud_machines_pane_reconnect")
+												: uiMessage("settings:cloud_machines_pane_set_up")}
 										</Button>
 									</>
 								}
 							/>
 							<CloudSettingsRow
-								title="SSH mode"
+								title={uiMessage("settings:cloud_machines_pane_ssh_mode")}
 								description={
 									sshMode === "tailnet-identity"
-										? "Network identity controls SSH access. Explicit ACL rules are required."
-										: "Standard public keys authorize SSH access."
+										? uiMessage(
+												"settings:cloud_machines_pane_network_identity_controls_ssh_access_explicit_acl_rules_are_required",
+											)
+										: uiMessage(
+												"settings:cloud_machines_pane_standard_public_keys_authorize_ssh_access",
+											)
 								}
 								action={
 									<Select
@@ -824,20 +916,31 @@ export function CloudMachinesPane() {
 											<SelectValue />
 										</SelectTrigger>
 										<SelectPopup>
-											<SelectItem value="authorized-keys">SSH keys</SelectItem>
+											<SelectItem value="authorized-keys">
+												{uiMessage("settings:cloud_machines_pane_ssh_keys")}
+											</SelectItem>
 											<SelectItem value="tailnet-identity">
-												Network identity
+												{uiMessage(
+													"settings:cloud_machines_pane_network_identity",
+												)}
 											</SelectItem>
 										</SelectPopup>
 									</Select>
 								}
 							/>
 							<CloudSettingsRow
-								title="Authorized keys"
+								title={uiMessage(
+									"settings:cloud_machines_pane_authorized_keys",
+								)}
 								description={
 									sshKeys.length === 0
-										? "No SSH public keys have been added."
-										: `${sshKeys.length} ${sshKeys.length === 1 ? "key" : "keys"} authorized`
+										? uiMessage(
+												"settings:cloud_machines_pane_no_ssh_public_keys_have_been_added",
+											)
+										: uiMessage("settings:cloud_machines_pane_authorized", {
+												value1: String(sshKeys.length),
+												value2: String(sshKeys.length === 1 ? "key" : "keys"),
+											})
 								}
 								action={
 									<Button
@@ -847,7 +950,7 @@ export function CloudMachinesPane() {
 										onClick={() => setKeysDialogOpen(true)}
 									>
 										<KeyRound aria-hidden />
-										Manage
+										{uiMessage("settings:cloud_machines_pane_manage")}
 									</Button>
 								}
 							/>
@@ -855,32 +958,40 @@ export function CloudMachinesPane() {
 					) : null}
 
 					<CloudSettingsGroup
-						title="Plan and billing"
-						description="Subscription dates and lifecycle controls for this machine."
+						title={uiMessage("settings:cloud_machines_pane_plan_and_billing")}
+						description={uiMessage(
+							"settings:cloud_machines_pane_subscription_dates_and_lifecycle_controls_for_this_machine",
+						)}
 					>
 						<CloudSettingsRow
-							title="Monthly plan"
+							title={uiMessage("settings:cloud_machines_pane_monthly_plan")}
 							description={machine.offer.displayName}
 							action={
 								<span className="font-medium text-[11px]">
-									${(machine.offer.monthlyPriceCents / 100).toFixed(0)} / month
+									{uiMessage("settings:cloud_machines_pane_month_sentence_2", {
+										value: (machine.offer.monthlyPriceCents / 100).toFixed(0),
+									})}
 								</span>
 							}
 						/>
 						<CloudSettingsRow
-							title="Paid through"
+							title={uiMessage("settings:cloud_machines_pane_paid_through")}
 							description={formatDate(machine.paidThrough, "Manual alpha")}
 						/>
 						<CloudSettingsRow
-							title="Recovery deadline"
+							title={uiMessage(
+								"settings:cloud_machines_pane_recovery_deadline",
+							)}
 							description={formatDate(
 								machine.recoveryDeadline,
 								"Not scheduled",
 							)}
 						/>
 						<CloudSettingsRow
-							title="Billing"
-							description="Manage payment details and invoices in the billing portal."
+							title={uiMessage("settings:cloud_machines_pane_billing")}
+							description={uiMessage(
+								"settings:cloud_machines_pane_manage_payment_details_and_invoices_in_the_billing_portal",
+							)}
 							action={
 								<Button
 									size="xs"
@@ -907,14 +1018,18 @@ export function CloudMachinesPane() {
 									}}
 								>
 									<ExternalLink aria-hidden />
-									Open portal
+									{uiMessage("settings:cloud_machines_pane_open_portal")}
 								</Button>
 							}
 						/>
 						{machine.state === "suspended" ? (
 							<CloudSettingsRow
-								title="Recover machine"
-								description="Restore access before the recovery deadline."
+								title={uiMessage(
+									"settings:cloud_machines_pane_recover_machine",
+								)}
+								description={uiMessage(
+									"settings:cloud_machines_pane_restore_access_before_the_recovery_deadline",
+								)}
 								action={
 									<Button
 										size="xs"
@@ -930,14 +1045,16 @@ export function CloudMachinesPane() {
 											})
 										}
 									>
-										Recover
+										{uiMessage("settings:cloud_machines_pane_recover")}
 									</Button>
 								}
 							/>
 						) : machine.desiredState === "ready" ? (
 							<CloudSettingsRow
-								title="Subscription"
-								description="Keep using the machine until the end of the paid period."
+								title={uiMessage("settings:cloud_machines_pane_subscription")}
+								description={uiMessage(
+									"settings:cloud_machines_pane_keep_using_the_machine_until_the_end_of_the_paid_period",
+								)}
 								action={
 									<Button
 										size="xs"
@@ -954,7 +1071,9 @@ export function CloudMachinesPane() {
 											})
 										}
 									>
-										Cancel at period end
+										{uiMessage(
+											"settings:cloud_machines_pane_cancel_at_period_end",
+										)}
 									</Button>
 								}
 							/>
@@ -962,12 +1081,16 @@ export function CloudMachinesPane() {
 					</CloudSettingsGroup>
 
 					<CloudSettingsGroup
-						title="Danger zone"
-						description="Permanent actions for this cloud machine."
+						title={uiMessage("settings:cloud_machines_pane_danger_zone")}
+						description={uiMessage(
+							"settings:cloud_machines_pane_permanent_actions_for_this_cloud_machine",
+						)}
 					>
 						<CloudSettingsRow
-							title="Destroy machine"
-							description="Immediately revoke access, sanitize credentials, and schedule provider cleanup."
+							title={uiMessage("settings:cloud_machines_pane_destroy_machine")}
+							description={uiMessage(
+								"settings:cloud_machines_pane_immediately_revoke_access_sanitize_credentials_and_schedule_provider_c",
+							)}
 							action={
 								<Button
 									size="xs"
@@ -976,7 +1099,7 @@ export function CloudMachinesPane() {
 									onClick={() => setDestroyDialogOpen(true)}
 								>
 									<Trash2 aria-hidden />
-									Destroy
+									{uiMessage("settings:cloud_machines_pane_destroy")}
 								</Button>
 							}
 						/>
@@ -991,10 +1114,15 @@ export function CloudMachinesPane() {
 					>
 						<DialogPopup className="max-w-sm">
 							<DialogHeader>
-								<DialogTitle>Connect private network</DialogTitle>
+								<DialogTitle>
+									{uiMessage(
+										"settings:cloud_machines_pane_connect_private_network",
+									)}
+								</DialogTitle>
 								<DialogDescription>
-									The auth key goes directly to this machine and is discarded
-									after setup.
+									{uiMessage(
+										"settings:cloud_machines_pane_the_auth_key_goes_directly_to_this_machine_and_is_discarded_after_setu",
+									)}
 								</DialogDescription>
 							</DialogHeader>
 							<DialogPanel className="space-y-3">
@@ -1002,13 +1130,17 @@ export function CloudMachinesPane() {
 									className="block space-y-1"
 									htmlFor="private-network-key"
 								>
-									<span className="text-[11px] font-medium">Auth key</span>
+									<span className="text-[11px] font-medium">
+										{uiMessage("settings:cloud_machines_pane_auth_key")}
+									</span>
 									<Input
 										id="private-network-key"
 										type="password"
 										value={networkKey}
 										onChange={(event) => setNetworkKey(event.target.value)}
-										placeholder="Paste an auth key"
+										placeholder={uiMessage(
+											"settings:cloud_machines_pane_paste_an_auth_key",
+										)}
 										autoComplete="off"
 										spellCheck={false}
 										data-1p-ignore
@@ -1018,7 +1150,9 @@ export function CloudMachinesPane() {
 									className="block space-y-1"
 									htmlFor="private-network-ssh-mode"
 								>
-									<span className="text-[11px] font-medium">SSH mode</span>
+									<span className="text-[11px] font-medium">
+										{uiMessage("settings:cloud_machines_pane_ssh_mode")}
+									</span>
 									<Select
 										value={sshMode}
 										onValueChange={(value) => setSshMode(value as SshMode)}
@@ -1028,10 +1162,14 @@ export function CloudMachinesPane() {
 										</SelectTrigger>
 										<SelectPopup>
 											<SelectItem value="authorized-keys">
-												Standard SSH keys
+												{uiMessage(
+													"settings:cloud_machines_pane_standard_ssh_keys",
+												)}
 											</SelectItem>
 											<SelectItem value="tailnet-identity">
-												Network identity SSH
+												{uiMessage(
+													"settings:cloud_machines_pane_network_identity_ssh",
+												)}
 											</SelectItem>
 										</SelectPopup>
 									</Select>
@@ -1039,7 +1177,7 @@ export function CloudMachinesPane() {
 							</DialogPanel>
 							<DialogFooter>
 								<DialogClose render={<Button size="xs" variant="ghost" />}>
-									Cancel
+									{uiMessage("common:cancel")}
 								</DialogClose>
 								<Button
 									size="xs"
@@ -1047,7 +1185,7 @@ export function CloudMachinesPane() {
 									disabled={action !== null || networkKey.trim().length === 0}
 									onClick={() => void enablePrivateNetwork()}
 								>
-									Connect
+									{uiMessage("common:connect")}
 								</Button>
 							</DialogFooter>
 						</DialogPopup>
@@ -1056,10 +1194,15 @@ export function CloudMachinesPane() {
 					<Dialog open={keysDialogOpen} onOpenChange={setKeysDialogOpen}>
 						<DialogPopup className="max-w-md">
 							<DialogHeader>
-								<DialogTitle>Authorized SSH keys</DialogTitle>
+								<DialogTitle>
+									{uiMessage(
+										"settings:cloud_machines_pane_authorized_ssh_keys",
+									)}
+								</DialogTitle>
 								<DialogDescription>
-									Only these public keys can access the machine over its private
-									network.
+									{uiMessage(
+										"settings:cloud_machines_pane_only_these_public_keys_can_access_the_machine_over_its_private_network",
+									)}
 								</DialogDescription>
 							</DialogHeader>
 							<DialogPanel className="space-y-3">
@@ -1071,13 +1214,15 @@ export function CloudMachinesPane() {
 									}}
 								>
 									<label className="sr-only" htmlFor="ssh-public-key">
-										SSH public key
+										{uiMessage("settings:cloud_machines_pane_ssh_public_key")}
 									</label>
 									<Input
 										id="ssh-public-key"
 										value={sshPublicKey}
 										onChange={(event) => setSshPublicKey(event.target.value)}
-										placeholder="ssh-ed25519 …"
+										placeholder={uiMessage(
+											"settings:cloud_machines_pane_ssh_ed25519",
+										)}
 										autoComplete="off"
 										spellCheck={false}
 									/>
@@ -1089,13 +1234,15 @@ export function CloudMachinesPane() {
 											action !== null || sshPublicKey.trim().length === 0
 										}
 									>
-										Add
+										{uiMessage("common:add")}
 									</Button>
 								</form>
 								<div className="overflow-hidden rounded-md border border-border/60">
 									{sshKeys.length === 0 ? (
 										<p className="px-3 py-3 text-[11px] text-muted-foreground">
-											No keys added yet.
+											{uiMessage(
+												"settings:cloud_machines_pane_no_keys_added_yet",
+											)}
 										</p>
 									) : (
 										<div className="divide-y divide-border/40">
@@ -1106,7 +1253,10 @@ export function CloudMachinesPane() {
 												>
 													<div className="min-w-0 flex-1">
 														<p className="truncate text-xs font-medium">
-															{key.label ?? "SSH key"}
+															{key.label ??
+																uiMessage(
+																	"settings:cloud_machines_pane_ssh_key",
+																)}
 														</p>
 														<p className="truncate text-[10px] text-muted-foreground">
 															{key.fingerprint}
@@ -1119,7 +1269,7 @@ export function CloudMachinesPane() {
 														disabled={action !== null}
 														onClick={() => void removeSshKey(key.fingerprint)}
 													>
-														Remove
+														{uiMessage("common:remove")}
 													</Button>
 												</div>
 											))}
@@ -1129,7 +1279,7 @@ export function CloudMachinesPane() {
 							</DialogPanel>
 							<DialogFooter>
 								<DialogClose render={<Button size="xs" variant="ghost" />}>
-									Done
+									{uiMessage("common:done")}
 								</DialogClose>
 							</DialogFooter>
 						</DialogPopup>
@@ -1141,23 +1291,28 @@ export function CloudMachinesPane() {
 					>
 						<AlertDialogPopup className="max-w-sm">
 							<AlertDialogHeader>
-								<AlertDialogTitle>Update cloud runtime?</AlertDialogTitle>
+								<AlertDialogTitle>
+									{uiMessage(
+										"settings:cloud_machines_pane_update_cloud_runtime",
+									)}
+								</AlertDialogTitle>
 								<AlertDialogDescription>
-									The signed runtime and developer tools will be updated to
-									match Zuse {runtimeTargetVersion ?? ""}. Active terminals and
-									agents may briefly reconnect during the service restart.
+									{uiMessage(
+										"settings:cloud_machines_pane_the_signed_runtime_and_developer_tools_will_be_updated_to_ma_sentence",
+										{ value: runtimeTargetVersion ?? "" },
+									)}
 								</AlertDialogDescription>
 							</AlertDialogHeader>
 							<AlertDialogFooter>
 								<AlertDialogClose render={<Button size="xs" variant="ghost" />}>
-									Cancel
+									{uiMessage("common:cancel")}
 								</AlertDialogClose>
 								<Button
 									size="xs"
 									loading={runtimeUpdateBusy}
 									onClick={() => void updateRuntime()}
 								>
-									Update runtime
+									{uiMessage("settings:cloud_machines_pane_update_runtime")}
 								</Button>
 							</AlertDialogFooter>
 						</AlertDialogPopup>
@@ -1169,15 +1324,20 @@ export function CloudMachinesPane() {
 					>
 						<AlertDialogPopup>
 							<AlertDialogHeader>
-								<AlertDialogTitle>Destroy this cloud machine?</AlertDialogTitle>
+								<AlertDialogTitle>
+									{uiMessage(
+										"settings:cloud_machines_pane_destroy_this_cloud_machine",
+									)}
+								</AlertDialogTitle>
 								<AlertDialogDescription>
-									Access ends immediately. Credentials are removed before any
-									final snapshot, and provider cleanup is scheduled.
+									{uiMessage(
+										"settings:cloud_machines_pane_access_ends_immediately_credentials_are_removed_before_any_final_snaps",
+									)}
 								</AlertDialogDescription>
 							</AlertDialogHeader>
 							<AlertDialogFooter>
 								<AlertDialogClose render={<Button size="xs" variant="ghost" />}>
-									Keep machine
+									{uiMessage("settings:cloud_machines_pane_keep_machine")}
 								</AlertDialogClose>
 								<Button
 									size="xs"
@@ -1197,7 +1357,7 @@ export function CloudMachinesPane() {
 										});
 									}}
 								>
-									Destroy machine
+									{uiMessage("settings:cloud_machines_pane_destroy_machine")}
 								</Button>
 							</AlertDialogFooter>
 						</AlertDialogPopup>

@@ -1,3 +1,5 @@
+import { isInputComposing } from "../lib/input-composition.ts";
+import "@zuse/i18n/english/projects";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import {
 	type Chat,
@@ -11,6 +13,8 @@ import {
 	type SessionId,
 	type SessionStatus,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Analytics01Icon,
 	ArchiveArrowDownIcon,
@@ -258,6 +262,8 @@ function useSessionRuntimeEffects(): void {
 }
 
 export function ProjectsSidebar() {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	useSessionRuntimeEffects();
 	const paneRef = useRef<HTMLElement>(null);
 	useRegisterPane("sidebar", paneRef);
@@ -359,6 +365,7 @@ export function ProjectsSidebar() {
 			origins,
 			chatsByProject,
 			shellViews,
+			uiMessage,
 		],
 	);
 	const projectKeys = useMemo(
@@ -366,7 +373,7 @@ export function ProjectsSidebar() {
 			desktopCatalogEnabled
 				? logicalGroups.map((group) => group.key)
 				: folders.map((folder) => folder.id),
-		[desktopCatalogEnabled, folders, logicalGroups],
+		[desktopCatalogEnabled, folders, logicalGroups, uiMessage],
 	);
 	const organize = useSidebarOrganize(projectKeys);
 	const catalogViewState = environmentCatalogViewState({
@@ -396,14 +403,14 @@ export function ProjectsSidebar() {
 			<SidebarActions />
 			{showComputerControls ? (
 				<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
-					<span>Computers</span>
+					<span>{uiMessage("projects:projects_sidebar_computers")}</span>
 					<Suspense fallback={<span className="size-8" />}>
 						<ComputerSwitcher />
 					</Suspense>
 				</div>
 			) : null}
 			<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
-				<span>Projects</span>
+				<span>{uiMessage("projects:projects_sidebar_projects")}</span>
 				<div className="flex items-center">
 					<NewProjectGroupButton
 						onCreate={() =>
@@ -430,12 +437,16 @@ export function ProjectsSidebar() {
 								aria-busy="true"
 							>
 								<Spinner className="size-3.5" />
-								Loading projects…
+								{uiMessage("projects:projects_sidebar_loading_projects")}
 							</li>
 						) : null}
 						{catalogViewState === "unavailable" ? (
 							<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
-								<p role="alert">This computer couldn’t load its projects.</p>
+								<p role="alert">
+									{uiMessage(
+										"projects:projects_sidebar_this_computer_couldn_t_load_its_projects",
+									)}
+								</p>
 								<p className="mt-1 text-[12px]">{catalogInitializationError}</p>
 								<button
 									type="button"
@@ -444,15 +455,17 @@ export function ProjectsSidebar() {
 										void initializeEnvironmentCatalog().catch(() => undefined);
 									}}
 								>
-									Retry
+									{uiMessage("common:retry")}
 								</button>
 							</li>
 						) : null}
 						{catalogViewState === "empty" ? (
 							<li>
 								<CompactEmptyState
-									title="No projects yet"
-									description="Use + to add a repository."
+									title={uiMessage("projects:projects_sidebar_no_projects_yet")}
+									description={uiMessage(
+										"projects:projects_sidebar_use_to_add_a_repository",
+									)}
 								/>
 							</li>
 						) : null}
@@ -553,8 +566,10 @@ export function ProjectsSidebar() {
 						{folders.length === 0 && !loading ? (
 							<li>
 								<CompactEmptyState
-									title="No projects yet"
-									description="Use + to add a repository."
+									title={uiMessage("projects:projects_sidebar_no_projects_yet")}
+									description={uiMessage(
+										"projects:projects_sidebar_use_to_add_a_repository",
+									)}
 								/>
 							</li>
 						) : null}
@@ -651,15 +666,19 @@ export function ProjectsSidebar() {
 						open
 						title={
 							organize.groupDialog.kind === "create"
-								? "New project group"
-								: "Rename group"
+								? uiMessage("projects:projects_sidebar_new_project_group")
+								: uiMessage("projects:projects_sidebar_rename_group")
 						}
 						description={
 							organize.groupDialog.kind === "create"
-								? "Name a group to collect projects in the sidebar."
-								: "This name is only shown in the sidebar."
+								? uiMessage(
+										"projects:projects_sidebar_name_a_group_to_collect_projects_in_the_sidebar",
+									)
+								: uiMessage(
+										"projects:projects_sidebar_this_name_is_only_shown_in_the_sidebar",
+									)
 						}
-						label="Group name"
+						label={uiMessage("projects:projects_sidebar_group_name")}
 						value={
 							organize.groupDialog.kind === "rename"
 								? organize.groupDialog.name
@@ -686,6 +705,8 @@ export function ProjectsSidebar() {
 }
 
 function NewProjectGroupButton({ onCreate }: { onCreate: () => void }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	return (
 		<Tooltip>
 			<TooltipTrigger
@@ -693,14 +714,18 @@ function NewProjectGroupButton({ onCreate }: { onCreate: () => void }) {
 					<button
 						type="button"
 						className="rounded p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-						aria-label="New project group"
+						aria-label={uiMessage(
+							"projects:projects_sidebar_new_project_group",
+						)}
 						onClick={onCreate}
 					>
 						<HugeiconsIcon icon={FolderAddIcon} className="size-3.5" />
 					</button>
 				}
 			/>
-			<TooltipPopup>New group</TooltipPopup>
+			<TooltipPopup>
+				{uiMessage("projects:projects_sidebar_new_group")}
+			</TooltipPopup>
 		</Tooltip>
 	);
 }
@@ -714,13 +739,17 @@ function IconColorPicker({
 	value?: ProjectIconColorId;
 	onChange: (color: ProjectIconColorId | null) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	return (
 		<div className="px-2 py-1.5">
-			<div className="mb-1.5 text-[11px] text-muted-foreground">Icon color</div>
+			<div className="mb-1.5 text-[11px] text-muted-foreground">
+				{uiMessage("projects:projects_sidebar_icon_color")}
+			</div>
 			<div className="flex flex-wrap gap-1.5">
 				<button
 					type="button"
-					aria-label="Default icon color"
+					aria-label={uiMessage("projects:projects_sidebar_default_icon_color")}
 					aria-pressed={value === undefined}
 					onClick={() => onChange(null)}
 					className={cn(
@@ -732,7 +761,9 @@ function IconColorPicker({
 					<button
 						key={id}
 						type="button"
-						aria-label={`${id} icon color`}
+						aria-label={uiMessage("projects:projects_sidebar_icon_color_2", {
+							id: String(id),
+						})}
 						aria-pressed={value === id}
 						onClick={() => onChange(id)}
 						className={cn(
@@ -787,6 +818,8 @@ function UserProjectGroup({
 	onSetIconColor: (color: ProjectIconColorId | null) => void;
 	children: ReactNode;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const [menuOpen, setMenuOpen] = useState(false);
 	const anchorRef = useRef<{ getBoundingClientRect: () => DOMRect } | null>(
 		null,
@@ -803,6 +836,8 @@ function UserProjectGroup({
 					onToggleCollapsed();
 				}}
 				onKeyDown={(event) => {
+					if (isInputComposing(event)) return;
+
 					if (event.key === "Enter" || event.key === " ") {
 						event.preventDefault();
 						onToggleCollapsed();
@@ -845,14 +880,14 @@ function UserProjectGroup({
 				>
 					<MenuItem onClick={onRename}>
 						<HugeiconsIcon icon={PencilIcon} className="size-3.5" />
-						Rename
+						{uiMessage("projects:projects_sidebar_rename")}
 					</MenuItem>
 					<MenuSeparator />
 					<IconColorPicker value={group.iconColor} onChange={onSetIconColor} />
 					<MenuSeparator />
 					<MenuItem onClick={onDissolve}>
 						<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
-						Ungroup
+						{uiMessage("projects:projects_sidebar_ungroup")}
 					</MenuItem>
 				</MenuPopup>
 			</Menu>
@@ -867,7 +902,7 @@ function UserProjectGroup({
 									"bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-inset ring-foreground/30",
 							)}
 						>
-							Drag projects here
+							{uiMessage("projects:projects_sidebar_drag_projects_here")}
 						</li>
 					) : (
 						children
@@ -1049,17 +1084,19 @@ function SidebarFolderRow({
  * hunting for the small + icons.
  */
 function SidebarActions() {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	return (
 		<div className="flex flex-col gap-0.5 border-b border-sidebar-border/40 px-1.5 py-1.5">
 			<SidebarActionRow
 				icon={Edit01Icon}
-				label="New chat"
+				label={uiMessage("projects:projects_sidebar_new_chat")}
 				shortcut={formatShortcut("new-chat")}
 				onClick={() => dispatchCommand("new-chat")}
 			/>
 			<SidebarActionRow
 				icon={FolderAddIcon}
-				label="New project"
+				label={uiMessage("projects:projects_sidebar_new_project")}
 				onClick={() => dispatchCommand("open-project")}
 			/>
 		</div>
@@ -1095,6 +1132,8 @@ function SidebarActionRow({
 }
 
 function SidebarFooter() {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const setView = useUiStore((state) => state.setView);
 	const openUsage = useUiStore((state) => state.openUsage);
 	const prefetchUsage = useUsageStore((state) => state.prefetch);
@@ -1106,14 +1145,14 @@ function SidebarFooter() {
 				<SidebarAgentCount />
 				<SidebarFooterIcon
 					icon={Analytics01Icon}
-					label="Usage"
+					label={uiMessage("projects:projects_sidebar_usage")}
 					onPointerEnter={() => void prefetchUsage(null)}
 					onFocus={() => void prefetchUsage(null)}
 					onClick={() => openUsage("global")}
 				/>
 				<SidebarFooterIcon
 					icon={Settings01Icon}
-					label="Settings"
+					label={uiMessage("common:settings")}
 					onClick={() => setView("settings")}
 				/>
 			</div>
@@ -1160,6 +1199,8 @@ function SidebarAgentCount() {
  * settings, keeping the sidebar footer free of a second navigation menu.
  */
 function SidebarAccount() {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const {
 		isSignedIn,
 		isLoading,
@@ -1184,7 +1225,7 @@ function SidebarAccount() {
 						>
 							<HugeiconsIcon icon={UserCircleIcon} className="size-4" />
 							<span className="min-w-0 flex-1 truncate text-left">
-								Zuse account
+								{uiMessage("projects:projects_sidebar_zuse_account")}
 							</span>
 						</button>
 					}
@@ -1201,7 +1242,7 @@ function SidebarAccount() {
 						className="min-h-9 rounded-lg px-2.5 text-[13px]"
 					>
 						<HugeiconsIcon icon={Logout01Icon} />
-						Sign out of this browser
+						{uiMessage("projects:projects_sidebar_sign_out_of_this_browser")}
 					</MenuItem>
 				</MenuPopup>
 			</Menu>
@@ -1416,7 +1457,7 @@ function SidebarChatHoverCard({
 	return (
 		<div className="min-w-48 max-w-72 space-y-1 px-1 py-0.5 text-[12px]">
 			<div className="mb-1.5 truncate text-[13px] font-medium text-foreground">
-				{title || "New chat"}
+				{title || uiMessage("projects:projects_sidebar_new_chat")}
 			</div>
 			<div className="flex items-center gap-2 text-muted-foreground">
 				<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
@@ -1454,6 +1495,8 @@ function SidebarProjectHoverCard({
 	readonly path: string;
 	readonly chatCount: number;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	return (
 		<div className="min-w-52 max-w-72 space-y-1 px-1 py-0.5 text-xs">
 			<div className="mb-1.5 flex items-center gap-2 truncate text-[13px] font-medium text-foreground">
@@ -1463,7 +1506,9 @@ function SidebarProjectHoverCard({
 			<div className="flex items-center gap-2 text-muted-foreground">
 				<HugeiconsIcon icon={TaskDone01Icon} className="size-3.5" />
 				<span>
-					{chatCount} {chatCount === 1 ? "chat" : "chats"}
+					{uiMessage("projects:projects_sidebar_chat_count", {
+						count: chatCount,
+					})}
 				</span>
 			</div>
 			<div className="flex items-center gap-2 border-t border-border/35 pt-1.5 text-muted-foreground">
@@ -1472,7 +1517,7 @@ function SidebarProjectHoverCard({
 			</div>
 			<div className="flex items-center gap-2 border-t border-border/35 pt-1.5 text-muted-foreground">
 				<HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
-				<span>Project settings</span>
+				<span>{uiMessage("projects:projects_sidebar_project_settings")}</span>
 			</div>
 		</div>
 	);
@@ -1498,6 +1543,8 @@ function LogicalCatalogGroup({
 	dropLine?: SidebarDropLine | null;
 	dragProps?: ReturnType<Organize["projectDragProps"]>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const preferred = preferredGroupMember(group);
 	const rows = remoteChatRows(group);
 	const Chevron = isExpanded ? ChevronDown : ChevronRight;
@@ -1550,7 +1597,9 @@ function LogicalCatalogGroup({
 				{preferred?.connected ? (
 					<button
 						type="button"
-						aria-label={`New chat in ${group.displayName}`}
+						aria-label={uiMessage("projects:projects_sidebar_new_chat_in", {
+							value1: String(group.displayName),
+						})}
 						onPointerDown={(event) => event.stopPropagation()}
 						className="rounded-md p-1 text-muted-foreground opacity-0 outline-none transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
 						onClick={(event) => {
@@ -1569,10 +1618,14 @@ function LogicalCatalogGroup({
 				) : null}
 			</div>
 			<div id={listId} hidden={!isExpanded}>
-				<ul aria-label={`${group.displayName} chats`}>
+				<ul
+					aria-label={uiMessage("projects:projects_sidebar_chats_2", {
+						displayName: String(group.displayName),
+					})}
+				>
 					{rows.length === 0 ? (
 						<li className="px-12 py-1 text-[12px] text-muted-foreground">
-							No chats yet.
+							{uiMessage("projects:projects_sidebar_no_chats_yet")}
 						</li>
 					) : null}
 					{rows.map((row) => (
@@ -1605,6 +1658,8 @@ function CatalogChatRow({
 	connected: boolean;
 	repositoryName: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const { chat, environmentId, environmentLabel, remote, busy } = chatRef;
 	const isArchived = chat.archivedAt !== null;
 	// Sidebar discovery is cache-only and must never wake a remote environment.
@@ -1641,7 +1696,9 @@ function CatalogChatRow({
 											aria-hidden="true"
 											className="size-1.5 rounded-full bg-emerald-500"
 										/>
-										<span className="sr-only">Agent running</span>
+										<span className="sr-only">
+											{uiMessage("projects:projects_sidebar_agent_running")}
+										</span>
 									</>
 								) : (
 									<BranchIcon
@@ -1651,7 +1708,7 @@ function CatalogChatRow({
 								)}
 							</span>
 							<span className="min-w-0 flex-1 truncate">
-								{chat.title || "New chat"}
+								{chat.title || uiMessage("projects:projects_sidebar_new_chat")}
 							</span>
 							<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
 								{remote ? (
@@ -1740,6 +1797,8 @@ function ProjectGroup({
 	organize?: Organize;
 	projectKey?: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const displayName = origin?.repo ?? name;
 	const avatarUrl = avatarUrlFor(origin);
 	const fallbackText = initialsOf(origin?.owner ?? name);
@@ -1775,7 +1834,7 @@ function ProjectGroup({
 				!cloudIds.has(chat.id) &&
 				!hiddenArchivedChatIds.has(chat.id),
 		);
-	}, [chats, cloudChats, hiddenArchivedChatIds]);
+	}, [chats, cloudChats, hiddenArchivedChatIds, uiMessage]);
 
 	// One merged timeline inside the group: local chats and same-repo chats on
 	// other computers interleave by recency instead of forming sections.
@@ -1805,21 +1864,21 @@ function ProjectGroup({
 		return [...local, ...remote, ...cloud].sort(
 			(left, right) => right.updatedAt - left.updatedAt,
 		);
-	}, [visibleChats, remoteChats, cloudChats, hiddenArchivedChatIds]);
+	}, [visibleChats, remoteChats, cloudChats, hiddenArchivedChatIds, uiMessage]);
 
 	// Surface the highest-priority attention hint on the collapsed project
 	// header when any session inside this project needs attention.
 	const liveSessions = useMemo(
 		() => projectSessions.filter((session) => session.archivedAt === null),
-		[projectSessions],
+		[projectSessions, uiMessage],
 	);
 	const liveSessionIds = useMemo(
 		() => liveSessions.map((session) => session.id),
-		[liveSessions],
+		[liveSessions, uiMessage],
 	);
 	const liveTimelineRefs = useMemo(
 		() => liveSessionIds.map((sessionId) => ({ environmentId, sessionId })),
-		[environmentId, liveSessionIds],
+		[environmentId, liveSessionIds, uiMessage],
 	);
 	const liveTimelines = useRendererSessionTimelines(
 		liveTimelineRefs,
@@ -1832,7 +1891,7 @@ function ProjectGroup({
 					isSessionRuntimeBusy(timeline.runtime) ? "running" : "idle",
 				),
 			),
-		[liveTimelines],
+		[liveTimelines, uiMessage],
 	);
 	const headerMessageAttention = useMemo(
 		() =>
@@ -1841,11 +1900,11 @@ function ProjectGroup({
 					deriveChatAttentionState(timeline.messages, false),
 				),
 			),
-		[liveTimelines],
+		[liveTimelines, uiMessage],
 	);
 	const liveSessionIdSet = useMemo(
 		() => new Set(liveSessionIds),
-		[liveSessionIds],
+		[liveSessionIds, uiMessage],
 	);
 	// Pending permission prompts never become messages, so they bypass
 	// `headerMessageAttention`. Pull them straight from the permissions store.
@@ -1891,6 +1950,8 @@ function ProjectGroup({
 								onToggleExpanded();
 							}}
 							onKeyDown={(e) => {
+								if (isInputComposing(e)) return;
+
 								if (e.key === "Enter" || e.key === " ") {
 									e.preventDefault();
 									onToggleExpanded();
@@ -1959,7 +2020,10 @@ function ProjectGroup({
 											}}
 											className="rounded-md p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
 											onPointerDown={(event) => event.stopPropagation()}
-											aria-label={`Settings for ${displayName}`}
+											aria-label={uiMessage(
+												"projects:projects_sidebar_settings_for",
+												{ displayName: String(displayName) },
+											)}
 										>
 											<HugeiconsIcon
 												icon={Settings01Icon}
@@ -1968,7 +2032,9 @@ function ProjectGroup({
 										</button>
 									}
 								/>
-								<TooltipPopup>Repository settings</TooltipPopup>
+								<TooltipPopup>
+									{uiMessage("projects:projects_sidebar_repository_settings")}
+								</TooltipPopup>
 							</Tooltip>
 							<NewChatButton projectId={id} />
 						</div>
@@ -2023,10 +2089,14 @@ function ProjectGroup({
 				}
 			/>
 			<div hidden={!isExpanded}>
-				<ul aria-label={`${displayName} chats`}>
+				<ul
+					aria-label={uiMessage("projects:projects_sidebar_chats_2", {
+						displayName: String(displayName),
+					})}
+				>
 					{chatRows.length === 0 && (
 						<li className="px-12 py-1 text-[12px] text-muted-foreground">
-							No chats yet.
+							{uiMessage("projects:projects_sidebar_no_chats_yet")}
 						</li>
 					)}
 					{chatRows.map((entry) =>
@@ -2064,6 +2134,8 @@ function CloudChatRow({
 	readonly summary: CloudChatSummary;
 	readonly projectId: FolderId;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
 	const archive = useCloudChatsStore((state) => state.archive);
 	const [archiving, setArchiving] = useState(false);
@@ -2106,7 +2178,9 @@ function CloudChatRow({
 		void openCloudChat(summary, projectId).catch((cause) =>
 			toastManager.add({
 				type: "error",
-				title: "Cloud chat could not refresh",
+				title: uiMessage(
+					"projects:projects_sidebar_cloud_chat_could_not_refresh",
+				),
 				description: formatError(cause),
 			}),
 		);
@@ -2118,7 +2192,9 @@ function CloudChatRow({
 			.catch((cause) =>
 				toastManager.add({
 					type: "error",
-					title: "Cloud chat could not be archived",
+					title: uiMessage(
+						"projects:projects_sidebar_cloud_chat_could_not_be_archived",
+					),
 					description: formatError(cause),
 				}),
 			)
@@ -2141,6 +2217,8 @@ function CloudChatRow({
 							)}
 							onClick={open}
 							onKeyDown={(event) => {
+								if (isInputComposing(event)) return;
+
 								if (event.key === "Enter" || event.key === " ") {
 									event.preventDefault();
 									open();
@@ -2186,8 +2264,8 @@ function CloudChatRow({
 									title={
 										summary.state === "failed" &&
 										summary.desiredState === "archived"
-											? "Retry archive"
-											: "Archive"
+											? uiMessage("projects:projects_sidebar_retry_archive")
+											: uiMessage("projects:projects_sidebar_archive")
 									}
 								>
 									{archiving ? (
@@ -2233,6 +2311,8 @@ function AddToGroupFlyout({
 	onAddToGroup: (groupId: string) => void;
 	onClose: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const itemRef = useRef<HTMLDivElement>(null);
 	const [open, setOpen] = useState(false);
 	const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -2258,7 +2338,9 @@ function AddToGroupFlyout({
 			className="flex min-h-7 w-full cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-accent hover:text-accent-foreground"
 		>
 			<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
-			<span className="min-w-0 flex-1">Add to group</span>
+			<span className="min-w-0 flex-1">
+				{uiMessage("projects:projects_sidebar_add_to_group")}
+			</span>
 			<ChevronRight className="size-3.5 opacity-80" />
 			{open && pos !== null
 				? createPortal(
@@ -2316,6 +2398,8 @@ function ProjectContextMenu({
 	onAddToGroup?: (groupId: string) => void;
 	onRemoveFromGroup?: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const otherGroups = groups.filter((group) => group.id !== currentGroupId);
 	return (
 		<Menu open={open} onOpenChange={onOpenChange} modal={false}>
@@ -2330,21 +2414,21 @@ function ProjectContextMenu({
 					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 				>
 					<HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
-					Settings
+					{uiMessage("common:settings")}
 				</MenuItem>
 				<MenuItem
 					onClick={onOpenArchives}
 					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 				>
 					<HugeiconsIcon icon={ArchiveIcon} className="size-3.5" />
-					Archived chats
+					{uiMessage("projects:projects_sidebar_archived_chats")}
 				</MenuItem>
 				<MenuItem
 					onClick={onOpenUsage}
 					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 				>
 					<HugeiconsIcon icon={Analytics01Icon} className="size-3.5" />
-					Usage
+					{uiMessage("projects:projects_sidebar_usage")}
 				</MenuItem>
 				<MenuSeparator />
 				{onNewGroup !== undefined ? (
@@ -2353,7 +2437,7 @@ function ProjectContextMenu({
 						className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 					>
 						<HugeiconsIcon icon={FolderAddIcon} className="size-3.5" />
-						New group
+						{uiMessage("projects:projects_sidebar_new_group")}
 					</MenuItem>
 				) : null}
 				{onAddToGroup !== undefined && otherGroups.length > 0 ? (
@@ -2368,7 +2452,7 @@ function ProjectContextMenu({
 						onClick={onRemoveFromGroup}
 						className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 					>
-						Remove from group
+						{uiMessage("projects:projects_sidebar_remove_from_group")}
 					</MenuItem>
 				) : null}
 				<MenuSeparator />
@@ -2377,7 +2461,7 @@ function ProjectContextMenu({
 					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-red-300 hover:bg-red-500/20"
 				>
 					<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
-					Remove project
+					{uiMessage("projects:projects_sidebar_remove_project")}
 				</MenuItem>
 			</MenuPopup>
 		</Menu>
@@ -2410,6 +2494,8 @@ export function createNewSession(projectId: FolderId): void {
 }
 
 function NewChatButton({ projectId }: { projectId: FolderId }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const onClick = (e: React.MouseEvent) => {
 		e.stopPropagation();
 		openNewChatLanding(projectId);
@@ -2424,7 +2510,7 @@ function NewChatButton({ projectId }: { projectId: FolderId }) {
 						onClick={onClick}
 						onPointerDown={(event) => event.stopPropagation()}
 						className="rounded-md p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
-						aria-label="New chat"
+						aria-label={uiMessage("projects:projects_sidebar_new_chat")}
 					>
 						<HugeiconsIcon icon={Edit01Icon} className="size-3.5" />
 					</button>
@@ -2432,7 +2518,7 @@ function NewChatButton({ projectId }: { projectId: FolderId }) {
 			/>
 			<TooltipPopup>
 				<TooltipShortcut
-					label="New chat"
+					label={uiMessage("projects:projects_sidebar_new_chat")}
 					shortcut={formatShortcut("new-chat")}
 				/>
 			</TooltipPopup>
@@ -2462,6 +2548,8 @@ export function TooltipShortcut({
 }
 
 function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const { sessionsByProject } = useActiveEnvironmentEntities();
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
@@ -2522,11 +2610,11 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 			(sessionsByProject[chat.projectId] ?? []).filter(
 				(row) => row.chatId === chat.id && row.archivedAt === null,
 			),
-		[sessionsByProject, chat.projectId, chat.id],
+		[sessionsByProject, chat.projectId, chat.id, uiMessage],
 	);
 	const sessionIds = useMemo(
 		() => chatSessions.map((session) => session.id),
-		[chatSessions],
+		[chatSessions, uiMessage],
 	);
 	const timelineRefs = useMemo(
 		() =>
@@ -2534,7 +2622,7 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 				environmentId: EnvironmentId.make(activeEnvironmentId),
 				sessionId,
 			})),
-		[activeEnvironmentId, sessionIds],
+		[activeEnvironmentId, sessionIds, uiMessage],
 	);
 	const timelines = useRendererSessionTimelines(timelineRefs, "cache-only");
 	const runningAttention = useMemo(
@@ -2544,7 +2632,7 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 					isSessionRuntimeBusy(timeline.runtime) ? "running" : "idle",
 				),
 			),
-		[timelines],
+		[timelines, uiMessage],
 	);
 	const messageAttention = useMemo(
 		() =>
@@ -2553,9 +2641,12 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 					deriveChatAttentionState(timeline.messages, false),
 				),
 			),
-		[timelines],
+		[timelines, uiMessage],
 	);
-	const sessionIdSet = useMemo(() => new Set(sessionIds), [sessionIds]);
+	const sessionIdSet = useMemo(
+		() => new Set(sessionIds),
+		[sessionIds, uiMessage],
+	);
 	// Supervised-mode permission prompts live only in the permissions store —
 	// they never arrive as messages, so they'd otherwise leave the row dark.
 	const permissionRequests =
@@ -2592,7 +2683,7 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 	const sessionBelongsToChat = useMemo(() => {
 		if (selectedSessionId === null) return false;
 		return sessionIds.includes(selectedSessionId);
-	}, [selectedSessionId, sessionIds]);
+	}, [selectedSessionId, sessionIds, uiMessage]);
 	const isSelected = selectedChatId === chat.id || sessionBelongsToChat;
 	const isArchived = chat.archivedAt !== null;
 	// Unread = new activity the user hasn't seen. A pending permission prompt
@@ -2653,7 +2744,9 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 			if (!outcome.ok) {
 				toastManager.add({
 					type: "error",
-					title: "Chat could not be restored",
+					title: uiMessage(
+						"projects:projects_sidebar_chat_could_not_be_restored",
+					),
 					description: outcome.reason,
 				});
 			}
@@ -2665,9 +2758,11 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 			{renameOpen ? (
 				<Suspense fallback={null}>
 					<RenameDialog
-						title="Rename chat"
-						description="Change the name shown in the projects sidebar."
-						label="Chat name"
+						title={uiMessage("projects:projects_sidebar_rename_chat")}
+						description={uiMessage(
+							"projects:projects_sidebar_change_the_name_shown_in_the_projects_sidebar",
+						)}
+						label={uiMessage("projects:projects_sidebar_chat_name")}
 						value={chat.title}
 						open
 						onOpenChange={setRenameOpen}
@@ -2686,6 +2781,8 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 								onClick={() => selectChat(chat.id)}
 								onContextMenu={onContextMenu}
 								onKeyDown={(e) => {
+									if (isInputComposing(e)) return;
+
 									if (e.key === "Enter" || e.key === " ") {
 										e.preventDefault();
 										selectChat(chat.id);
@@ -2710,7 +2807,10 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 								)}
 								title={
 									onRemoteEnvironment
-										? `${chat.title}\nRuns on ${environmentLabel}`
+										? uiMessage("projects:projects_sidebar_runs_on", {
+												title: String(chat.title),
+												environmentLabel: String(environmentLabel),
+											})
 										: chat.title
 								}
 							>
@@ -2812,7 +2912,7 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 						className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 					>
 						<HugeiconsIcon icon={PencilIcon} className="size-3.5" />
-						Rename
+						{uiMessage("projects:projects_sidebar_rename")}
 					</MenuItem>
 					{isArchived ? (
 						<MenuItem
@@ -2825,7 +2925,7 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 							) : (
 								<HugeiconsIcon icon={ArchiveArrowUpIcon} className="size-3.5" />
 							)}
-							Unarchive
+							{uiMessage("projects:projects_sidebar_unarchive")}
 						</MenuItem>
 					) : (
 						<MenuItem
@@ -2841,7 +2941,8 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 									className="size-3.5"
 								/>
 							)}
-							{archiveProgressText ?? "Archive"}
+							{archiveProgressText ??
+								uiMessage("projects:projects_sidebar_archive")}
 						</MenuItem>
 					)}
 					<MenuItem
@@ -2849,7 +2950,7 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 						className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-red-300 hover:bg-red-500/20"
 					>
 						<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
-						Delete
+						{uiMessage("common:delete")}
 					</MenuItem>
 				</MenuPopup>
 			</Menu>

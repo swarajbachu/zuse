@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/shell";
 import type { CompletionSoundPreset } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 
 import { useSettingsStore } from "./settings-client-bus.ts";
 
@@ -6,12 +8,42 @@ export const COMPLETION_SOUND_PRESETS: ReadonlyArray<{
 	readonly value: CompletionSoundPreset;
 	readonly label: string;
 }> = [
-	{ value: "chime", label: "Chime" },
-	{ value: "soft", label: "Soft" },
-	{ value: "pop", label: "Pop" },
-	{ value: "bell", label: "Bell" },
-	{ value: "rise", label: "Rise" },
-	{ value: "bloom", label: "Bloom" },
+	{
+		value: "chime",
+		get label() {
+			return uiMessage("shell:completion_sounds_chime");
+		},
+	},
+	{
+		value: "soft",
+		get label() {
+			return uiMessage("shell:completion_sounds_soft");
+		},
+	},
+	{
+		value: "pop",
+		get label() {
+			return uiMessage("shell:completion_sounds_pop");
+		},
+	},
+	{
+		value: "bell",
+		get label() {
+			return uiMessage("shell:completion_sounds_bell");
+		},
+	},
+	{
+		value: "rise",
+		get label() {
+			return uiMessage("shell:completion_sounds_rise");
+		},
+	},
+	{
+		value: "bloom",
+		get label() {
+			return uiMessage("shell:completion_sounds_bloom");
+		},
+	},
 ];
 
 let audioContext: AudioContext | null = null;

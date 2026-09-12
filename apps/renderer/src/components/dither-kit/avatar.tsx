@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/chat";
+import { message as uiMessage } from "@zuse/i18n";
 import { useEffect, useRef } from "react";
 import { cn } from "./lib";
 import { rgb } from "./palette";
@@ -189,7 +191,7 @@ export function DitherAvatar({
 	return (
 		<div
 			role="img"
-			aria-label={`${name} avatar`}
+			aria-label={uiMessage("chat:avatar_avatar", { name: String(name) })}
 			className={cn("relative", className)}
 			style={size != null ? { width: size, height: size } : undefined}
 		>

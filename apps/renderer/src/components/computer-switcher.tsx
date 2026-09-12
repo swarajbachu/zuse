@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	environmentRoute,
@@ -10,6 +11,7 @@ import {
 	EnvironmentId,
 	HOSTED_APP_URL,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ComputerIcon } from "@zuse/icons/solid-rounded";
 import { ChevronDown, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -32,6 +34,8 @@ export function ComputerSwitcher() {
 }
 
 function DesktopComputerSwitcher() {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const initialize = useEnvironmentCatalogStore((state) => state.initialize);
 
 	useEffect(() => {
@@ -47,7 +51,7 @@ function DesktopComputerSwitcher() {
 					render={
 						<button
 							type="button"
-							aria-label="Add computer"
+							aria-label={uiMessage("chat:computer_switcher_add_computer")}
 							className="relative flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
 							onClick={() => openAddComputerDialog()}
 						>
@@ -55,7 +59,9 @@ function DesktopComputerSwitcher() {
 						</button>
 					}
 				/>
-				<TooltipPopup>Add computer</TooltipPopup>
+				<TooltipPopup>
+					{uiMessage("chat:computer_switcher_add_computer")}
+				</TooltipPopup>
 			</Tooltip>
 			<AddComputerDialogHost />
 		</>
@@ -92,6 +98,8 @@ const openEnvironment = (environmentId: string): void => {
 };
 
 function HostedComputerSwitcher() {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [environments, setEnvironments] = useState<
 		ReadonlyArray<ApiEnvironmentRecord>
 	>([]);
@@ -148,7 +156,7 @@ function HostedComputerSwitcher() {
 			environments.find(
 				(environment) => environment.environmentId === selectedId,
 			) ?? null,
-		[environments, selectedId],
+		[environments, selectedId, uiMessage],
 	);
 
 	if (failed && environments.length === 0) return null;
@@ -157,7 +165,7 @@ function HostedComputerSwitcher() {
 		<div className="border-b border-sidebar-border/40 px-2 py-2">
 			<Menu>
 				<MenuTrigger
-					aria-label="Switch computer"
+					aria-label={uiMessage("chat:computer_switcher_switch_computer")}
 					className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
 				>
 					<span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-accent-foreground">
@@ -165,16 +173,19 @@ function HostedComputerSwitcher() {
 					</span>
 					<span className="min-w-0 flex-1">
 						<span className="block truncate text-xs font-medium">
-							{selected?.label ?? "This computer"}
+							{selected?.label ??
+								uiMessage("chat:computer_switcher_this_computer")}
 						</span>
 						<span className="block truncate text-[10px] text-muted-foreground">
 							{selected === null
-								? "Local workspace"
+								? uiMessage("chat:computer_switcher_local_workspace")
 								: selected.lastHeartbeat !== undefined &&
 										Date.now() - selected.lastHeartbeat <=
 											ENVIRONMENT_PRESENCE_STALE_MS
-									? "Online"
-									: `Offline · ${relativeTime(selected.lastHeartbeat)}`}
+									? uiMessage("chat:computer_switcher_online")
+									: uiMessage("chat:computer_switcher_offline", {
+											value1: String(relativeTime(selected.lastHeartbeat)),
+										})}
 						</span>
 					</span>
 					<ChevronDown
@@ -188,7 +199,7 @@ function HostedComputerSwitcher() {
 					side="bottom"
 				>
 					<div className="px-2 pb-1 pt-1 text-[11px] font-medium text-muted-foreground">
-						Computers
+						{uiMessage("chat:computer_switcher_computers")}
 					</div>
 					{environments.map((environment) => {
 						const online =
@@ -213,17 +224,18 @@ function HostedComputerSwitcher() {
 								<span className="min-w-0 flex-1">
 									<span className="flex items-center gap-2">
 										<span className="truncate font-medium">
-											{environment.label ?? "Unnamed computer"}
+											{environment.label ??
+												uiMessage("chat:computer_switcher_unnamed_computer")}
 										</span>
 										{active ? (
 											<span className="text-[10px] text-muted-foreground">
-												Current
+												{uiMessage("chat:computer_switcher_current")}
 											</span>
 										) : null}
 									</span>
 									<span className="block truncate text-[11px] text-muted-foreground">
 										{online
-											? "Online"
+											? uiMessage("chat:computer_switcher_online")
 											: relativeTime(environment.lastHeartbeat)}
 										{environment.runtimeVersion
 											? ` · v${environment.runtimeVersion}`
@@ -235,7 +247,9 @@ function HostedComputerSwitcher() {
 					})}
 					{environments.length === 0 ? (
 						<div className="px-2 py-3 text-xs text-muted-foreground">
-							No served computers are linked to this account yet.
+							{uiMessage(
+								"chat:computer_switcher_no_served_computers_are_linked_to_this_account_yet",
+							)}
 						</div>
 					) : null}
 				</MenuPopup>

@@ -1,9 +1,11 @@
+import "@zuse/i18n/english/usage";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
 	ProviderId,
 	ProviderUsageLimits,
 	UsageLimitWindow,
 } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Analytics01Icon } from "@zuse/icons/solid-rounded";
 
 import { PROVIDER_DISPLAY } from "~/lib/provider-status";
@@ -122,6 +124,8 @@ function WindowDetail({
 	value: UsageLimitWindow;
 	creditsRemaining: number | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["usage"]);
+
 	const left = percentLeft(value.usedPercent);
 	const reset = resetsInLabel(value.resetsAt);
 	const pace = usagePace(
@@ -135,7 +139,11 @@ function WindowDetail({
 			<div className="flex items-center justify-between gap-4 text-xs">
 				<span className="font-medium">{value.label}</span>
 				<span className="tabular-nums text-muted-foreground">
-					{left === null ? "—" : `${left}% left`}
+					{left === null
+						? "—"
+						: uiMessage("usage:usage_limits_submenu_left_2", {
+								left: String(left),
+							})}
 				</span>
 			</div>
 			<StickMeter
@@ -144,15 +152,25 @@ function WindowDetail({
 			/>
 			{credits !== null ? (
 				<div className="flex justify-between gap-4 text-[11px] text-muted-foreground tabular-nums">
-					<span>
-						{formatCredits(credits.used)} used ·{" "}
-						{formatCredits(credits.remaining)} left
-					</span>
-					<span>{formatCredits(credits.limit)} total</span>
+					<RichMessage
+						id="usage:usage_limits_submenu_used_left_total_sentence"
+						values={{
+							value: formatCredits(credits.used),
+							value2: formatCredits(credits.remaining),
+							value3: formatCredits(credits.limit),
+						}}
+						components={{ part0: <span />, part1: <span /> }}
+					/>
 				</div>
 			) : null}
 			<div className="flex justify-between gap-4 text-[11px] text-muted-foreground">
-				<span>{reset ? `Resets in ${reset}` : "Reset unavailable"}</span>
+				<span>
+					{reset
+						? uiMessage("usage:usage_limits_submenu_resets_in", {
+								reset: String(reset),
+							})
+						: uiMessage("usage:usage_limits_submenu_reset_unavailable")}
+				</span>
 				{pace ? (
 					<span
 						className={
@@ -168,6 +186,8 @@ function WindowDetail({
 }
 
 function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
+	const { message: uiMessage } = useUiMessages(["usage"]);
+
 	const provider =
 		useUsageLimitsStore((state) =>
 			state.providers.find((item) => item.providerId === providerId),
@@ -220,7 +240,7 @@ function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
 					) : (
 						<div className="py-6 text-center text-xs text-muted-foreground">
 							{loading
-								? "Loading usage…"
+								? uiMessage("usage:usage_limits_submenu_loading_usage")
 								: usageLimitsUnavailableLabel(
 										providerId,
 										provider.unavailableReason,
@@ -229,20 +249,29 @@ function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
 					)}
 					{provider.creditsRemaining !== null ? (
 						<div className="border-t py-2 text-xs">
-							<span className="text-muted-foreground">Credits remaining</span>
-							<span className="float-right font-medium tabular-nums">
-								{formatCredits(provider.creditsRemaining)}
-							</span>
+							<RichMessage
+								id="usage:usage_limits_submenu_credits_remaining_sentence"
+								values={{ value: formatCredits(provider.creditsRemaining) }}
+								components={{
+									part0: <span className="text-muted-foreground" />,
+									part1: (
+										<span className="float-right font-medium tabular-nums" />
+									),
+								}}
+							/>
 						</div>
 					) : null}
 					{provider.fetchedAt !== PLACEHOLDER_FETCHED_AT ? (
 						<div className="border-t pt-1.5 text-[10px] text-muted-foreground">
-							Updated {formatRelativeTime(provider.fetchedAt) ?? "just now"} ·{" "}
+							{uiMessage("usage:usage_limits_submenu_updated")}
+							{formatRelativeTime(provider.fetchedAt) ??
+								uiMessage("usage:usage_limits_submenu_just_now")}{" "}
+							·{" "}
 							{provider.source === "session-event"
-								? "session"
+								? uiMessage("usage:usage_limits_submenu_session")
 								: provider.source === "api"
-									? "live"
-									: "cached"}
+									? uiMessage("usage:usage_limits_submenu_live")
+									: uiMessage("usage:usage_limits_submenu_cached")}
 						</div>
 					) : null}
 				</div>
@@ -252,6 +281,8 @@ function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
 }
 
 export function UsageLimitsMenuItems() {
+	const { message: uiMessage } = useUiMessages(["usage"]);
+
 	const openUsage = useUiStore((state) => state.openUsage);
 	const prefetchUsage = useUsageStore((state) => state.prefetch);
 	return (
@@ -266,7 +297,7 @@ export function UsageLimitsMenuItems() {
 				onClick={() => openUsage("global")}
 			>
 				<HugeiconsIcon icon={Analytics01Icon} />
-				Full usage
+				{uiMessage("usage:usage_limits_submenu_full_usage")}
 			</MenuItem>
 			<MenuSeparator />
 		</>

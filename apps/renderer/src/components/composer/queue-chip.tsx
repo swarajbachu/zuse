@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { EnvironmentId, QueuedMessage, SessionId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ArrowTurnDownIcon,
 	Chat01Icon,
@@ -65,6 +67,8 @@ export function QueueChip({
 	onDragOver: () => void;
 	onDrop: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const ref = { environmentId, sessionId };
 	const [runningNow, setRunningNow] = useState(false);
 	const text = previewText(item);
@@ -109,7 +113,7 @@ export function QueueChip({
 				<button
 					type="button"
 					className="-ml-1 flex size-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100 active:cursor-grabbing"
-					aria-label="Drag queued message"
+					aria-label={uiMessage("chat:queue_chip_drag_queued_message")}
 				>
 					<HugeiconsIcon icon={DragDropVerticalIcon} className="size-3.5" />
 				</button>
@@ -129,8 +133,8 @@ export function QueueChip({
 									)}
 									aria-label={
 										running
-											? "Steer to queued message"
-											: "Send queued message now"
+											? uiMessage("chat:queue_chip_steer_to_queued_message")
+											: uiMessage("chat:queue_chip_send_queued_message_now")
 									}
 								>
 									<HugeiconsIcon
@@ -138,15 +142,21 @@ export function QueueChip({
 										className="size-3.5"
 									/>
 									<span className="text-[10px]">
-										{runningNow ? "Starting…" : running ? "Steer" : "Send now"}
+										{runningNow
+											? uiMessage("chat:queue_chip_starting")
+											: running
+												? uiMessage("chat:queue_chip_steer")
+												: uiMessage("chat:queue_chip_send_now")}
 									</span>
 								</button>
 							}
 						/>
 						<TooltipPopup>
 							{running
-								? "Steer the agent to this message next"
-								: "Send this message now"}
+								? uiMessage(
+										"chat:queue_chip_steer_the_agent_to_this_message_next",
+									)
+								: uiMessage("chat:queue_chip_send_this_message_now")}
 						</TooltipPopup>
 					</Tooltip>
 					<Tooltip>
@@ -156,13 +166,13 @@ export function QueueChip({
 									type="button"
 									onClick={edit}
 									className={trayPillActionClass}
-									aria-label="Edit queued message"
+									aria-label={uiMessage("chat:queue_chip_edit_queued_message")}
 								>
 									<Pencil className="size-3.5" strokeWidth={1.8} />
 								</button>
 							}
 						/>
-						<TooltipPopup>Edit</TooltipPopup>
+						<TooltipPopup>{uiMessage("common:edit")}</TooltipPopup>
 					</Tooltip>
 					<Tooltip>
 						<TooltipTrigger
@@ -171,13 +181,15 @@ export function QueueChip({
 									type="button"
 									onClick={() => dropQueuedMessage(ref, item.id)}
 									className={cn(trayPillActionClass, "hover:text-destructive")}
-									aria-label="Remove queued message"
+									aria-label={uiMessage(
+										"chat:queue_chip_remove_queued_message",
+									)}
 								>
 									<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
 								</button>
 							}
 						/>
-						<TooltipPopup>Remove</TooltipPopup>
+						<TooltipPopup>{uiMessage("common:remove")}</TooltipPopup>
 					</Tooltip>
 					<Menu>
 						<MenuTrigger
@@ -185,7 +197,7 @@ export function QueueChip({
 								<button
 									type="button"
 									className={trayPillActionClass}
-									aria-label="More queue actions"
+									aria-label={uiMessage("chat:queue_chip_more_queue_actions")}
 								>
 									<HugeiconsIcon
 										icon={MoreHorizontalIcon}
@@ -200,14 +212,14 @@ export function QueueChip({
 								disabled={index === 0}
 							>
 								<ChevronUp />
-								Move up
+								{uiMessage("chat:queue_chip_move_up")}
 							</MenuItem>
 							<MenuItem
 								onClick={() => onMove(index, index + 1)}
 								disabled={index >= count - 1}
 							>
 								<ChevronDown />
-								Move down
+								{uiMessage("chat:queue_chip_move_down")}
 							</MenuItem>
 						</MenuPopup>
 					</Menu>

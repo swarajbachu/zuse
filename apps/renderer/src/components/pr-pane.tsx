@@ -1,3 +1,5 @@
+import { formatDate as formatUiDate } from "@zuse/i18n";
+import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type {
@@ -8,6 +10,7 @@ import type {
 	GitPrReviewState,
 } from "@zuse/contracts";
 import { GitPrInfo } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	CircleIcon,
 	GitPullRequestIcon,
@@ -65,7 +68,7 @@ const formatRelative = (date: Date): string => {
 	if (hr < 24) return `${hr}h ago`;
 	const day = Math.round(hr / 24);
 	if (day < 30) return `${day}d ago`;
-	return date.toLocaleDateString();
+	return formatUiDate(date);
 };
 
 type PrMarkdownContext = {
@@ -181,6 +184,8 @@ export function PrPane({
 }: {
 	executionRef: ExecutionRef | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const workspaceView = useGitWorkspaceResource(executionRef, "connect");
 	const detailsView = useGitPrDetailsResource(executionRef, "connect");
 	const status = workspaceView.data?.status ?? null;
@@ -190,7 +195,11 @@ export function PrPane({
 	const detailsLoading = detailsView.sync === "synchronizing";
 
 	if (executionRef === null) {
-		return <Empty>Select a project to see its PR here.</Empty>;
+		return (
+			<Empty>
+				{uiMessage("projects:pr_pane_select_a_project_to_see_its_pr_here")}
+			</Empty>
+		);
 	}
 	if (noRepo) {
 		return (
@@ -200,7 +209,7 @@ export function PrPane({
 		);
 	}
 	if (status === null) {
-		return <Empty>Reading branch state…</Empty>;
+		return <Empty>{uiMessage("projects:pr_pane_reading_branch_state")}</Empty>;
 	}
 
 	const detailsPr =
@@ -238,35 +247,47 @@ function NoPrState({
 	dirtyFiles: number;
 	ahead: number;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	return (
 		<>
-			<Section title="Branch">
-				<Row label="Name">
+			<Section title={uiMessage("projects:pr_pane_branch")}>
+				<Row label={uiMessage("projects:pr_pane_name")}>
 					<span className="font-mono text-[11px] text-foreground">
-						{branch ?? "(detached)"}
+						{branch ?? uiMessage("projects:pr_pane_detached")}
 					</span>
 				</Row>
-				<Row label="Local changes">
+				<Row label={uiMessage("projects:pr_pane_local_changes")}>
 					{dirtyFiles > 0 ? (
 						<Pill tone="amber">
-							{dirtyFiles} file{dirtyFiles === 1 ? "" : "s"}
+							{uiMessage("projects:pr_pane_file_plural0_sentence", {
+								dirtyFiles: dirtyFiles ?? "",
+								count: dirtyFiles,
+							})}
 						</Pill>
 					) : (
-						<span className="text-muted-foreground">clean</span>
+						<span className="text-muted-foreground">
+							{uiMessage("projects:pr_pane_clean")}
+						</span>
 					)}
 				</Row>
-				<Row label="Ahead of upstream">
+				<Row label={uiMessage("projects:pr_pane_ahead_of_upstream")}>
 					{ahead > 0 ? (
 						<Pill tone="sky">
-							{ahead} commit{ahead === 1 ? "" : "s"}
+							{uiMessage("projects:pr_pane_commit_plural0_sentence", {
+								ahead: ahead ?? "",
+								count: ahead,
+							})}
 						</Pill>
 					) : (
-						<span className="text-muted-foreground">in sync</span>
+						<span className="text-muted-foreground">
+							{uiMessage("projects:pr_pane_in_sync")}
+						</span>
 					)}
 				</Row>
 			</Section>
 			<p className="text-muted-foreground">
-				No pull request open for this branch.
+				{uiMessage("projects:pr_pane_no_pull_request_open_for_this_branch")}
 			</p>
 		</>
 	);
@@ -283,6 +304,8 @@ function PrBody({
 	details: GitPrDetails | null;
 	detailsLoading: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const title = details?.title ?? "";
 	const body = details?.body ?? "";
 	const headBranch = details?.headBranch ?? pr.branch;
@@ -309,7 +332,7 @@ function PrBody({
 			if (chip.meta.kind === "file") paths.add(chip.meta.relPath);
 		}
 		return paths;
-	}, [composerDraft]);
+	}, [composerDraft, uiMessage]);
 	const [feedbackFilesByKey, setFeedbackFilesByKey] = useState<
 		Record<string, string>
 	>({});
@@ -333,8 +356,10 @@ function PrBody({
 		if (selectedSessionId === null) {
 			toastManager.add({
 				type: "error",
-				title: "No active chat",
-				description: "Open a chat before attaching PR feedback.",
+				title: uiMessage("projects:pr_pane_no_active_chat"),
+				description: uiMessage(
+					"projects:pr_pane_open_a_chat_before_attaching_pr_feedback",
+				),
 			});
 			return null;
 		}
@@ -346,8 +371,10 @@ function PrBody({
 		if (ref === null) {
 			toastManager.add({
 				type: "error",
-				title: "Couldn't attach feedback",
-				description: "The PR feedback file could not be created.",
+				title: uiMessage("projects:pr_pane_couldn_t_attach_feedback"),
+				description: uiMessage(
+					"projects:pr_pane_the_pr_feedback_file_could_not_be_created",
+				),
 			});
 			return null;
 		}
@@ -357,8 +384,10 @@ function PrBody({
 		if (options.toast !== false) {
 			toastManager.add({
 				type: "success",
-				title: `${label} attached`,
-				description: `Added ${ref.relPath} to the composer.`,
+				title: uiMessage("projects:pr_pane_attached", { label: String(label) }),
+				description: uiMessage("projects:pr_pane_added_to_the_composer", {
+					relPath: String(ref.relPath),
+				}),
 			});
 		}
 		return ref.relPath;
@@ -424,8 +453,10 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 		if (count > 0) {
 			toastManager.add({
 				type: "success",
-				title: "Feedback attached",
-				description: `Added ${count} file${count === 1 ? "" : "s"} to the composer.`,
+				title: uiMessage("projects:pr_pane_feedback_attached"),
+				description: uiMessage("projects:pr_pane_added_file_to_the_composer", {
+					count: count,
+				}),
 			});
 		}
 	};
@@ -455,7 +486,9 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 									</span>
 								) : null}
 								<FrameTitle className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-									{title.length > 0 ? title : "(no title)"}
+									{title.length > 0
+										? title
+										: uiMessage("projects:pr_pane_no_title")}
 								</FrameTitle>
 							</div>
 						</div>
@@ -483,7 +516,7 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 							className="-mx-1 flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
 						>
 							<ArrowUpRight className="size-3" strokeWidth={1.8} />
-							Open in browser
+							{uiMessage("projects:pr_pane_open_in_browser")}
 						</button>
 					</FrameFooter>
 				) : null}
@@ -491,30 +524,39 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 
 			{detailsLoading && details === null ? (
 				<ShimmerText as="p" className="text-muted-foreground">
-					Loading PR details…
+					{uiMessage("projects:pr_pane_loading_pr_details")}
 				</ShimmerText>
 			) : details === null ? (
 				<p className="text-amber-300/80">
-					<code className="font-mono">gh</code> couldn't read PR details.
+					<RichMessage
+						id="projects:pr_pane_gh_couldn_t_read_pr_details_sentence"
+						components={{ part0: <code className="font-mono" /> }}
+						values={{ code0: "gh" }}
+					/>
 				</p>
 			) : (
 				<>
 					{body.trim().length > 0 ? (
-						<Section title="Description" panelClassName="p-3">
+						<Section
+							title={uiMessage("projects:pr_pane_description")}
+							panelClassName="p-3"
+						>
 							<PlainTextPreview text={body} />
 						</Section>
 					) : null}
 
 					{feedbackCount > 0 ? (
 						<Section
-							title={`Feedback (${feedbackCount})`}
+							title={uiMessage("projects:pr_pane_feedback", {
+								feedbackCount: String(feedbackCount),
+							})}
 							action={
 								<AttachButton
-									label="Add all feedback to chat"
+									label={uiMessage("projects:pr_pane_add_all_feedback_to_chat")}
 									onClick={() => void attachAllFeedback()}
 									attached={allFeedbackAttached}
 								>
-									Add all
+									{uiMessage("projects:pr_pane_add_all")}
 								</AttachButton>
 							}
 							panelClassName="p-0"
@@ -580,8 +622,10 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 					<Section
 						title={
 							orderedChecks.length > 0
-								? `Checks (${orderedChecks.length})`
-								: "Checks"
+								? uiMessage("projects:pr_pane_checks_2", {
+										value1: String(orderedChecks.length),
+									})
+								: uiMessage("projects:pr_pane_checks")
 						}
 						panelClassName={
 							orderedChecks.length > 0 && !pr.isDraft ? "p-0" : "p-3"
@@ -600,7 +644,7 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 										className="size-4 text-zinc-400"
 									/>
 								}
-								title="Draft"
+								title={uiMessage("projects:pr_pane_draft")}
 								body="Mark the PR as ready for review to start running checks."
 							/>
 						) : orderedChecks.length === 0 ? (
@@ -611,7 +655,7 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 										className="size-4 text-muted-foreground"
 									/>
 								}
-								title="No checks configured"
+								title={uiMessage("projects:pr_pane_no_checks_configured")}
 								body="There aren't any required status checks on this branch."
 							/>
 						) : (
@@ -655,6 +699,8 @@ function FeedbackReviewRow({
 	onAttach: () => void;
 	onResolve: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	if (state === "pending") return null;
 	if (state === "commented" && body.trim().length === 0) return null;
 
@@ -681,20 +727,22 @@ function FeedbackReviewRow({
 			</div>
 			<div className="flex shrink-0 items-center gap-1">
 				<AttachButton
-					label="Resolve review feedback"
+					label={uiMessage("projects:pr_pane_resolve_review_feedback")}
 					attached={resolveAttached}
 					hideUntilHover
 					onClick={onResolve}
 				>
-					Resolve
+					{uiMessage("projects:pr_pane_resolve")}
 				</AttachButton>
 				<AttachButton
-					label="Add review to chat"
+					label={uiMessage("projects:pr_pane_add_review_to_chat")}
 					attached={attached}
 					hideUntilHover
 					onClick={onAttach}
 				>
-					{attached ? "Added" : "Add to chat"}
+					{attached
+						? uiMessage("projects:pr_pane_added")
+						: uiMessage("projects:pr_pane_add_to_chat")}
 				</AttachButton>
 			</div>
 		</article>
@@ -702,11 +750,17 @@ function FeedbackReviewRow({
 }
 
 function ReviewStatePill({ state }: { state: GitPrReviewState }) {
-	if (state === "approved") return <Pill tone="emerald">Approved</Pill>;
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
+	if (state === "approved")
+		return <Pill tone="emerald">{uiMessage("projects:pr_pane_approved")}</Pill>;
 	if (state === "changes_requested")
-		return <Pill tone="red">Changes requested</Pill>;
-	if (state === "dismissed") return <Pill tone="zinc">Dismissed</Pill>;
-	return <Pill tone="sky">Commented</Pill>;
+		return (
+			<Pill tone="red">{uiMessage("projects:pr_pane_changes_requested")}</Pill>
+		);
+	if (state === "dismissed")
+		return <Pill tone="zinc">{uiMessage("projects:pr_pane_dismissed")}</Pill>;
+	return <Pill tone="sky">{uiMessage("projects:pr_pane_commented")}</Pill>;
 }
 
 function FeedbackCommentRow({
@@ -728,6 +782,8 @@ function FeedbackCommentRow({
 	onAttach: () => void;
 	onResolve: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	return (
 		<article className="group flex min-w-0 items-center gap-2 border-b border-border/45 px-3 py-2 transition-colors last:border-b-0 hover:bg-muted/35">
 			<ReviewerAvatar name={author} avatarUrl={authorAvatarUrl} />
@@ -743,20 +799,22 @@ function FeedbackCommentRow({
 			</div>
 			<div className="flex shrink-0 items-center gap-1">
 				<AttachButton
-					label="Resolve comment feedback"
+					label={uiMessage("projects:pr_pane_resolve_comment_feedback")}
 					attached={resolveAttached}
 					hideUntilHover
 					onClick={onResolve}
 				>
-					Resolve
+					{uiMessage("projects:pr_pane_resolve")}
 				</AttachButton>
 				<AttachButton
-					label="Add comment to chat"
+					label={uiMessage("projects:pr_pane_add_comment_to_chat")}
 					attached={attached}
 					hideUntilHover
 					onClick={onAttach}
 				>
-					{attached ? "Added" : "Add to chat"}
+					{attached
+						? uiMessage("projects:pr_pane_added")
+						: uiMessage("projects:pr_pane_add_to_chat")}
 				</AttachButton>
 			</div>
 		</article>
@@ -772,6 +830,8 @@ function ServiceMark({
 	name: string;
 	className?: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const lower = name.toLowerCase();
 	const githubLogo = githubServiceLogo(name);
 	if (githubLogo !== null) {
@@ -788,7 +848,7 @@ function ServiceMark({
 		return (
 			<span
 				className={`${className} flex shrink-0 items-center justify-center rounded-full bg-orange-500/15 text-orange-400`}
-				title="Claude"
+				title={uiMessage("projects:pr_pane_claude")}
 			>
 				<ClaudeIcon className="size-3" />
 			</span>
@@ -863,6 +923,8 @@ function ChecksPanel({ checks }: { checks: ReadonlyArray<GitPrCheckRun> }) {
 }
 
 function CheckRunRow({ run }: { run: GitPrCheckRun }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const kind = checkKind(run);
 	const duration = formatCheckDuration(run);
 	const runner = [run.runnerGroupName ?? null, run.runnerName ?? null]
@@ -894,13 +956,13 @@ function CheckRunRow({ run }: { run: GitPrCheckRun }) {
 			<div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
 				{run.runUrl !== null && run.runUrl !== undefined ? (
 					<IconLinkButton
-						label="Open workflow run"
+						label={uiMessage("projects:pr_pane_open_workflow_run")}
 						onClick={() => openExternal(run.runUrl!)}
 					/>
 				) : null}
 				{run.url !== null ? (
 					<IconLinkButton
-						label="Open check details"
+						label={uiMessage("projects:pr_pane_open_check_details")}
 						onClick={() => openExternal(run.url!)}
 					/>
 				) : null}
@@ -927,6 +989,8 @@ function checkKind(
 }
 
 function CheckSummary({ checks }: { checks: ReadonlyArray<GitPrCheckRun> }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const counts = checks.reduce(
 		(acc, run) => {
 			const kind = checkKind(run);
@@ -941,18 +1005,36 @@ function CheckSummary({ checks }: { checks: ReadonlyArray<GitPrCheckRun> }) {
 	);
 	return (
 		<div className="flex flex-wrap items-center gap-1.5">
-			<StatusPill tone="zinc">{counts.total} total</StatusPill>
+			<StatusPill tone="zinc">
+				{uiMessage("projects:pr_pane_total_sentence", { value: counts.total })}
+			</StatusPill>
 			{counts.failure > 0 ? (
-				<StatusPill tone="red">{counts.failure} failing</StatusPill>
+				<StatusPill tone="red">
+					{uiMessage("projects:pr_pane_failing_sentence", {
+						value: counts.failure,
+					})}
+				</StatusPill>
 			) : null}
 			{counts.pending > 0 ? (
-				<StatusPill tone="amber">{counts.pending} running</StatusPill>
+				<StatusPill tone="amber">
+					{uiMessage("projects:pr_pane_running_sentence", {
+						value: counts.pending,
+					})}
+				</StatusPill>
 			) : null}
 			{counts.success > 0 ? (
-				<StatusPill tone="emerald">{counts.success} passed</StatusPill>
+				<StatusPill tone="emerald">
+					{uiMessage("projects:pr_pane_passed_sentence", {
+						value: counts.success,
+					})}
+				</StatusPill>
 			) : null}
 			{counts.neutral > 0 ? (
-				<StatusPill tone="zinc">{counts.neutral} skipped</StatusPill>
+				<StatusPill tone="zinc">
+					{uiMessage("projects:pr_pane_skipped_sentence", {
+						value: counts.neutral,
+					})}
+				</StatusPill>
 			) : null}
 		</div>
 	);
@@ -1179,16 +1261,29 @@ function Pill({ tone, children }: { tone: Tone; children: React.ReactNode }) {
 }
 
 function PrStatePill({ pr }: { pr: GitPrInfo }) {
-	if (pr.isDraft) return <Pill tone="zinc">Draft</Pill>;
-	if (pr.state === "merged") return <Pill tone="violet">Merged</Pill>;
-	if (pr.state === "closed") return <Pill tone="rose">Closed</Pill>;
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
+	if (pr.isDraft)
+		return <Pill tone="zinc">{uiMessage("projects:pr_pane_draft")}</Pill>;
+	if (pr.state === "merged")
+		return <Pill tone="violet">{uiMessage("projects:pr_pane_merged")}</Pill>;
+	if (pr.state === "closed")
+		return <Pill tone="rose">{uiMessage("projects:pr_pane_closed")}</Pill>;
 	if (pr.mergeable === "conflicting")
-		return <Pill tone="red">Open · conflicts</Pill>;
+		return (
+			<Pill tone="red">{uiMessage("projects:pr_pane_open_conflicts")}</Pill>
+		);
 	if (pr.checks === "failure")
-		return <Pill tone="red">Open · checks failed</Pill>;
+		return (
+			<Pill tone="red">{uiMessage("projects:pr_pane_open_checks_failed")}</Pill>
+		);
 	if (pr.checks === "pending")
-		return <Pill tone="amber">Open · checks running</Pill>;
-	return <Pill tone="emerald">Open</Pill>;
+		return (
+			<Pill tone="amber">
+				{uiMessage("projects:pr_pane_open_checks_running")}
+			</Pill>
+		);
+	return <Pill tone="emerald">{uiMessage("common:open")}</Pill>;
 }
 
 function Indicator({

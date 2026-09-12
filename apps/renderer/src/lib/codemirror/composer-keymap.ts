@@ -54,7 +54,7 @@ const makeComposerBinding = (
 			return {
 				key,
 				preventDefault: true,
-				run: () => callbacks.onSubmit(),
+				run: (view) => !view.composing && callbacks.onSubmit(),
 			};
 		case "composer.newline":
 			return { key, run: insertNewlineAndIndent };
@@ -62,7 +62,8 @@ const makeComposerBinding = (
 			return {
 				key,
 				preventDefault: true,
-				run: () => {
+				run: (view) => {
+					if (view.composing) return false;
 					// Force-submit ignores submit guards (popover open, etc.) since
 					// users pressing this chord explicitly want to send.
 					callbacks.onSubmit();
@@ -73,7 +74,8 @@ const makeComposerBinding = (
 			return {
 				key,
 				preventDefault: true,
-				run: () => {
+				run: (view) => {
+					if (view.composing) return false;
 					const cb = callbacks.onTogglePlanMode;
 					if (cb === undefined) return false;
 					cb();

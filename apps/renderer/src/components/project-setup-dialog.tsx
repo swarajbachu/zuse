@@ -1,8 +1,10 @@
+import "@zuse/i18n/english/projects";
 import type {
 	GithubRepoSummary,
 	ProjectTemplate,
 	Folder as WorkspaceFolder,
 } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Check, Folder, Lock } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -82,10 +84,12 @@ export function ProjectSetupDialog({
 		environmentId: string,
 	) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const entries = useEnvironmentCatalogStore((state) => state.entries);
 	const connected = useMemo(
 		() => entries.filter((entry) => entry.status === "connected"),
-		[entries],
+		[entries, uiMessage],
 	);
 	const catalogInitializing = useEnvironmentCatalogStore(
 		(state) => state.initializing,
@@ -254,22 +258,30 @@ export function ProjectSetupDialog({
 				<DialogHeader>
 					<DialogTitle>
 						{mode === "choose"
-							? "Add project"
+							? uiMessage("projects:project_setup_dialog_add_project")
 							: mode === "clone"
-								? `Clone ${sourceName ?? "repository"}`
+								? uiMessage("projects:project_setup_dialog_clone", {
+										value1: String(sourceName ?? "repository"),
+									})
 								: mode === "create"
-									? "Quick start"
-									: "Add existing folder"}
+									? uiMessage("projects:project_setup_dialog_quick_start")
+									: uiMessage(
+											"projects:project_setup_dialog_add_existing_folder",
+										)}
 					</DialogTitle>
 					<DialogDescription className="sr-only">
-						Choose a computer and prepare a project on it.
+						{uiMessage(
+							"projects:project_setup_dialog_choose_a_computer_and_prepare_a_project_on_it",
+						)}
 					</DialogDescription>
 				</DialogHeader>
 
 				<DialogPanel>
 					<div className="flex flex-col gap-4">
 						<div className="flex flex-col gap-1.5 text-xs font-medium">
-							<span>Create on</span>
+							<span>
+								{uiMessage("projects:project_setup_dialog_create_on")}
+							</span>
 							<Select
 								value={environmentId}
 								disabled={connected.length === 0}
@@ -285,7 +297,7 @@ export function ProjectSetupDialog({
 								<SelectTrigger>
 									<SelectValue>
 										{selectedEnvironment?.connectionKind === "local"
-											? "This computer"
+											? uiMessage("projects:project_setup_dialog_this_computer")
 											: (selectedEnvironment?.label ?? "Choose a computer")}
 									</SelectValue>
 								</SelectTrigger>
@@ -296,7 +308,9 @@ export function ProjectSetupDialog({
 											value={entry.environmentId}
 										>
 											{entry.connectionKind === "local"
-												? "This computer"
+												? uiMessage(
+														"projects:project_setup_dialog_this_computer",
+													)
 												: entry.label}
 										</SelectItem>
 									))}
@@ -309,7 +323,9 @@ export function ProjectSetupDialog({
 								role="alert"
 							>
 								<p className="font-medium text-foreground">
-									This computer is unavailable.
+									{uiMessage(
+										"projects:project_setup_dialog_this_computer_is_unavailable",
+									)}
 								</p>
 								<p className="mt-1 text-muted-foreground">
 									{unavailableMessage}
@@ -325,8 +341,10 @@ export function ProjectSetupDialog({
 									}}
 								>
 									{catalogInitializing || retryingConnection
-										? "Retrying…"
-										: "Retry connection"}
+										? uiMessage("projects:project_setup_dialog_retrying")
+										: uiMessage(
+												"projects:project_setup_dialog_retry_connection",
+											)}
 								</Button>
 							</div>
 						) : null}
@@ -335,24 +353,34 @@ export function ProjectSetupDialog({
 							<div className="grid gap-2 sm:grid-cols-3">
 								<SetupChoice
 									art="quick"
-									label="Quick start"
-									description="Create from a template"
+									label={uiMessage("projects:project_setup_dialog_quick_start")}
+									description={uiMessage(
+										"projects:project_setup_dialog_create_from_a_template",
+									)}
 									accent="violet"
 									disabled={connected.length === 0}
 									onClick={() => setMode("create")}
 								/>
 								<SetupChoice
 									art="github"
-									label="Clone repository"
-									description="Clone with Git or GitHub"
+									label={uiMessage(
+										"projects:project_setup_dialog_clone_repository",
+									)}
+									description={uiMessage(
+										"projects:project_setup_dialog_clone_with_git_or_github",
+									)}
 									accent="blue"
 									disabled={connected.length === 0}
 									onClick={() => setMode("clone")}
 								/>
 								<SetupChoice
 									art="folder"
-									label="Existing folder"
-									description="Open a project on disk"
+									label={uiMessage(
+										"projects:project_setup_dialog_existing_folder",
+									)}
+									description={uiMessage(
+										"projects:project_setup_dialog_open_a_project_on_disk",
+									)}
 									accent="amber"
 									disabled={connected.length === 0}
 									onClick={() => setMode("existing")}
@@ -365,13 +393,17 @@ export function ProjectSetupDialog({
 								{sourceUrl === undefined ? (
 									<div className="flex flex-col gap-1.5 text-xs font-medium">
 										<label htmlFor="project-repository-url">
-											Repository URL
+											{uiMessage(
+												"projects:project_setup_dialog_repository_url",
+											)}
 										</label>
 										<Input
 											id="project-repository-url"
 											value={url}
 											onChange={(event) => setUrl(event.currentTarget.value)}
-											placeholder="git@github.com:owner/project.git"
+											placeholder={uiMessage(
+												"projects:project_setup_dialog_git_github_com_owner_project_git",
+											)}
 											spellCheck={false}
 											autoFocus
 										/>
@@ -394,13 +426,16 @@ export function ProjectSetupDialog({
 									<div className="max-h-28 min-h-11 overflow-y-auto rounded-lg border border-border">
 										{loadingRepos ? (
 											<p className="p-3 text-xs text-muted-foreground">
-												Loading repositories…
+												{uiMessage(
+													"projects:project_setup_dialog_loading_repositories",
+												)}
 											</p>
 										) : reposError ? (
 											<div className="flex min-h-11 items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
 												<span className="min-w-0 flex-1">
-													GitHub is unavailable. You can still paste a
-													repository URL.
+													{uiMessage(
+														"projects:project_setup_dialog_github_is_unavailable_you_can_still_paste_a_repository_url",
+													)}
 												</span>
 												<Button
 													type="button"
@@ -408,7 +443,7 @@ export function ProjectSetupDialog({
 													size="sm"
 													onClick={() => setReposRequest((value) => value + 1)}
 												>
-													Retry
+													{uiMessage("common:retry")}
 												</Button>
 											</div>
 										) : repos.length > 0 ? (
@@ -429,8 +464,9 @@ export function ProjectSetupDialog({
 											))
 										) : (
 											<p className="p-3 text-xs text-muted-foreground">
-												Enter a repository URL. Sign in with the GitHub CLI on
-												this computer to see recent repositories.
+												{uiMessage(
+													"projects:project_setup_dialog_enter_a_repository_url_sign_in_with_the_github_cli_on_this_computer_to",
+												)}
 											</p>
 										)}
 									</div>
@@ -441,12 +477,16 @@ export function ProjectSetupDialog({
 						{mode === "create" ? (
 							<>
 								<div className="flex flex-col gap-1.5 text-xs font-medium">
-									<label htmlFor="quick-project-name">Project name</label>
+									<label htmlFor="quick-project-name">
+										{uiMessage("projects:project_setup_dialog_project_name")}
+									</label>
 									<Input
 										id="quick-project-name"
 										value={name}
 										onChange={(event) => setName(event.currentTarget.value)}
-										placeholder="my-project"
+										placeholder={uiMessage(
+											"projects:project_setup_dialog_my_project",
+										)}
 										autoFocus
 										aria-invalid={
 											name.length > 0 && !nameValid(name.trim())
@@ -456,12 +496,18 @@ export function ProjectSetupDialog({
 									/>
 									{name.length > 0 && !nameValid(name.trim()) ? (
 										<span className="text-[11px] text-destructive">
-											Use lowercase letters, numbers, dashes, or underscores.
+											{uiMessage(
+												"projects:project_setup_dialog_use_lowercase_letters_numbers_dashes_or_underscores",
+											)}
 										</span>
 									) : null}
 								</div>
 								<fieldset className="grid grid-cols-3 gap-2">
-									<legend className="sr-only">Project template</legend>
+									<legend className="sr-only">
+										{uiMessage(
+											"projects:project_setup_dialog_project_template",
+										)}
+									</legend>
 									{(["empty", "nextjs", "turborepo"] as const).map((value) => {
 										const label =
 											value === "empty"
@@ -510,7 +556,11 @@ export function ProjectSetupDialog({
 										onChange={setAlsoCreateGithubRepo}
 										disabled={!ghAuthenticated}
 									/>
-									<span>Also create a private GitHub repository</span>
+									<span>
+										{uiMessage(
+											"projects:project_setup_dialog_also_create_a_private_github_repository",
+										)}
+									</span>
 								</div>
 							</>
 						) : null}
@@ -518,7 +568,9 @@ export function ProjectSetupDialog({
 						{mode !== "choose" && selectedEnvironment !== undefined ? (
 							<div className="flex flex-col gap-1.5 text-xs font-medium">
 								<span>
-									{mode === "existing" ? "Project folder" : "Parent folder"}
+									{mode === "existing"
+										? uiMessage("projects:project_setup_dialog_project_folder")
+										: uiMessage("projects:project_setup_dialog_parent_folder")}
 								</span>
 								<EnvironmentPathBrowser
 									environmentId={environmentId}
@@ -532,7 +584,11 @@ export function ProjectSetupDialog({
 
 						{mode === "clone" || mode === "create" ? (
 							<p className="truncate text-[11px] text-muted-foreground">
-								Creates <code>{joinPreview(parent, projectName)}</code>
+								<RichMessage
+									id="projects:project_setup_dialog_creates_sentence"
+									values={{ value: joinPreview(parent, projectName) }}
+									components={{ part0: <code /> }}
+								/>
 							</p>
 						) : null}
 						{error !== null ? (
@@ -554,13 +610,13 @@ export function ProjectSetupDialog({
 								setError(null);
 							}}
 						>
-							Back
+							{uiMessage("common:back")}
 						</Button>
 					) : (
 						<DialogClose
 							render={
 								<Button type="button" variant="ghost" disabled={submitting}>
-									Cancel
+									{uiMessage("common:cancel")}
 								</Button>
 							}
 						/>
@@ -574,12 +630,12 @@ export function ProjectSetupDialog({
 						>
 							{submitting ? <Spinner className="size-3.5" /> : null}
 							{submitting
-								? "Working…"
+								? uiMessage("projects:project_setup_dialog_working")
 								: mode === "clone"
-									? "Clone project"
+									? uiMessage("projects:project_setup_dialog_clone_project")
 									: mode === "create"
-										? "Create project"
-										: "Add project"}
+										? uiMessage("projects:project_setup_dialog_create_project")
+										: uiMessage("projects:project_setup_dialog_add_project")}
 						</Button>
 					) : null}
 				</DialogFooter>

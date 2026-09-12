@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/settings";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Info } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
@@ -16,6 +18,8 @@ export function RemoteAccessSectionHeader({
 	readonly action?: ReactNode;
 	readonly className?: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+
 	return (
 		<FrameHeader
 			className={cn(
@@ -32,7 +36,9 @@ export function RemoteAccessSectionHeader({
 						render={
 							<button
 								type="button"
-								aria-label={`About ${title}`}
+								aria-label={uiMessage("settings:section_header_about", {
+									title: String(title),
+								})}
 								className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 outline-none hover:bg-muted hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
 							>
 								<Info className="size-3.5" aria-hidden />

@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/settings";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Check,
 	Cookie,
@@ -49,6 +51,8 @@ export function BrowserSettingsMenu({
 	onClearBrowsingData: () => Promise<void>;
 	onOpenSettings: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const [importOpen, setImportOpen] = useState(false);
 	const [clearOpen, setClearOpen] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -100,28 +104,30 @@ export function BrowserSettingsMenu({
 			<Menu>
 				<MenuTrigger
 					className="flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-					aria-label="Browser menu"
+					aria-label={uiMessage("settings:browser_settings_menu_browser_menu")}
 				>
 					<EllipsisVertical className="size-3.5" />
 				</MenuTrigger>
 				<MenuPopup align="end" className="w-60 rounded-xl">
 					<MenuItem onClick={openImport}>
 						<Cookie />
-						Import browser sessions…
+						{uiMessage(
+							"settings:browser_settings_menu_import_browser_sessions",
+						)}
 					</MenuItem>
 					<MenuItem onClick={openSettings}>
 						<KeyRound />
-						Passwords and autofill
+						{uiMessage("settings:browser_settings_menu_passwords_and_autofill")}
 					</MenuItem>
 					<MenuSeparator />
 					<MenuItem onClick={openClear}>
 						<Trash2 />
-						Clear browsing data…
+						{uiMessage("settings:browser_settings_menu_clear_browsing_data")}
 					</MenuItem>
 					<MenuSeparator />
 					<MenuItem onClick={openSettings}>
 						<Settings />
-						Browser settings
+						{uiMessage("settings:browser_settings_menu_browser_settings")}
 					</MenuItem>
 				</MenuPopup>
 			</Menu>
@@ -130,15 +136,21 @@ export function BrowserSettingsMenu({
 				<DialogPopup className="max-w-md rounded-xl">
 					<DialogHeader className="gap-1 px-4 pb-3 pt-4">
 						<DialogTitle className="text-lg">
-							Import from your browser
+							{uiMessage(
+								"settings:browser_settings_menu_import_from_your_browser",
+							)}
 						</DialogTitle>
 						<DialogDescription className="text-xs">
-							Bring signed-in sessions into the built-in browser.
+							{uiMessage(
+								"settings:browser_settings_menu_bring_signed_in_sessions_into_the_built_in_browser",
+							)}
 						</DialogDescription>
 					</DialogHeader>
 					<DialogPanel className="space-y-3 px-4 pb-4 pt-0" scrollFade={false}>
 						<div className="grid grid-cols-[4rem_1fr] items-center gap-2 text-xs">
-							<span className="text-muted-foreground">Browser</span>
+							<span className="text-muted-foreground">
+								{uiMessage("settings:browser_settings_menu_browser")}
+							</span>
 							<BrowserProfileSelect
 								profiles={status.availableProfiles}
 								value={selectedProfileId}
@@ -148,25 +160,31 @@ export function BrowserSettingsMenu({
 						</div>
 						<p className="text-[11px] text-muted-foreground">
 							{selectedProfile
-								? `Close ${selectedProfile.source} completely before importing.`
+								? uiMessage(
+										"settings:browser_settings_menu_close_completely_before_importing",
+										{ source: String(selectedProfile.source) },
+									)
 								: (status.message ?? "No supported browser profile was found.")}
 						</p>
 						{selectedProfile ? (
 							<p className="rounded-md bg-muted/45 px-2.5 py-2 text-[11px] text-muted-foreground">
-								macOS may ask Zuse—or Electron in development—to access{" "}
-								{selectedProfile.source} Safe Storage. This unlocks cookie
-								decryption only; passwords are never imported.
+								{uiMessage(
+									"settings:browser_settings_menu_macos_may_ask_zuse_or_electron_in_development_to_access_safe_sentence",
+									{ value: selectedProfile.source },
+								)}
 							</p>
 						) : null}
 						<div className="divide-y divide-border/60 rounded-lg bg-muted/45 px-3">
 							<ImportDataRow
 								icon={<Cookie className="size-3.5" />}
-								label="Cookies and signed-in sessions"
+								label={uiMessage(
+									"settings:browser_settings_menu_cookies_and_signed_in_sessions",
+								)}
 								detail="Valid cookies from the selected profile"
 							/>
 							<ImportDataRow
 								icon={<KeyRound className="size-3.5" />}
-								label="Passwords"
+								label={uiMessage("settings:browser_settings_menu_passwords")}
 								detail="Never imported — requested per site from macOS"
 								enabled={false}
 							/>
@@ -181,7 +199,7 @@ export function BrowserSettingsMenu({
 							variant="ghost"
 							onClick={() => setImportOpen(false)}
 						>
-							Cancel
+							{uiMessage("common:cancel")}
 						</Button>
 						<Button
 							size="xs"
@@ -194,7 +212,7 @@ export function BrowserSettingsMenu({
 								)
 							}
 						>
-							Import sessions
+							{uiMessage("settings:browser_settings_menu_import_sessions")}
 						</Button>
 					</DialogFooter>
 				</DialogPopup>
@@ -204,11 +222,14 @@ export function BrowserSettingsMenu({
 				<AlertDialogPopup className="max-w-sm rounded-xl">
 					<AlertDialogHeader className="gap-1 px-4 pb-3 pt-4">
 						<AlertDialogTitle className="text-lg">
-							Clear browsing data?
+							{uiMessage(
+								"settings:browser_settings_menu_clear_browsing_data_2",
+							)}
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-xs">
-							This removes cookies, site storage, and cache from the built-in
-							browser. It does not change your other browser.
+							{uiMessage(
+								"settings:browser_settings_menu_this_removes_cookies_site_storage_and_cache_from_the_built_in_browser",
+							)}
 						</AlertDialogDescription>
 						{error ? (
 							<p className="text-[11px] text-destructive-foreground">{error}</p>
@@ -216,7 +237,7 @@ export function BrowserSettingsMenu({
 					</AlertDialogHeader>
 					<AlertDialogFooter className="px-4 py-2">
 						<AlertDialogClose render={<Button size="xs" variant="ghost" />}>
-							Cancel
+							{uiMessage("common:cancel")}
 						</AlertDialogClose>
 						<Button
 							size="xs"
@@ -226,7 +247,7 @@ export function BrowserSettingsMenu({
 								void run(onClearBrowsingData, () => setClearOpen(false))
 							}
 						>
-							Clear data
+							{uiMessage("settings:browser_settings_menu_clear_data")}
 						</Button>
 					</AlertDialogFooter>
 				</AlertDialogPopup>
@@ -246,6 +267,8 @@ function ImportDataRow({
 	detail: string;
 	enabled?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	return (
 		<div className="flex min-h-12 items-center gap-2.5 py-2">
 			<span className="text-muted-foreground">{icon}</span>
@@ -254,10 +277,13 @@ function ImportDataRow({
 				<p className="truncate text-[11px] text-muted-foreground">{detail}</p>
 			</div>
 			{enabled ? (
-				<Check className="size-3.5 text-primary" aria-label="Included" />
+				<Check
+					className="size-3.5 text-primary"
+					aria-label={uiMessage("settings:browser_settings_menu_included")}
+				/>
 			) : (
 				<span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-					Per site
+					{uiMessage("settings:browser_settings_menu_per_site")}
 				</span>
 			)}
 		</div>

@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/connections";
 import type { MachineRecord } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 
 const persistentProgressSteps = [
 	"Payment confirmed",
@@ -67,7 +69,7 @@ export const cloudMachineProgress = (
 				activeStep,
 				detail: "Your server is queued and will be created automatically.",
 				headline: "Payment confirmed",
-				label: "Provisioning",
+				label: uiMessage("connections:cloud_machine_progress_provisioning"),
 				tone: "progress",
 			};
 		case "provider-provisioning":
@@ -75,7 +77,7 @@ export const cloudMachineProgress = (
 				activeStep,
 				detail: "The provider is allocating your server now.",
 				headline: "Creating your server",
-				label: "Provisioning",
+				label: uiMessage("connections:cloud_machine_progress_provisioning"),
 				tone: "progress",
 			};
 		case "provider-unavailable":
@@ -84,7 +86,9 @@ export const cloudMachineProgress = (
 				detail:
 					"The provider connection was interrupted. We are retrying automatically; no action is needed.",
 				headline: "Still creating your server",
-				label: "Retrying automatically",
+				label: uiMessage(
+					"connections:cloud_machine_progress_retrying_automatically",
+				),
 				tone: "warning",
 			};
 		case "bootstrap-pending":
@@ -94,7 +98,9 @@ export const cloudMachineProgress = (
 					detail:
 						"The runtime is verified. Developer tools are being installed.",
 					headline: "Installing developer tools",
-					label: "Installing tools",
+					label: uiMessage(
+						"connections:cloud_machine_progress_installing_tools",
+					),
 					tone: "progress",
 				};
 			}
@@ -104,7 +110,7 @@ export const cloudMachineProgress = (
 					detail:
 						"Git, agent CLIs, and build tools are ready. Zuse is starting.",
 					headline: "Starting Zuse",
-					label: "Starting",
+					label: uiMessage("connections:cloud_machine_progress_starting"),
 					tone: "progress",
 				};
 			}
@@ -112,7 +118,7 @@ export const cloudMachineProgress = (
 				activeStep,
 				detail: "The server is online. We are installing and verifying Zuse.",
 				headline: "Installing the runtime",
-				label: "Installing",
+				label: uiMessage("connections:cloud_machine_progress_installing"),
 				tone: "progress",
 			};
 		case "enrollment-pending":
@@ -120,7 +126,7 @@ export const cloudMachineProgress = (
 				activeStep,
 				detail: "The runtime is installed. We are securing its connection.",
 				headline: "Connecting your machine",
-				label: "Connecting",
+				label: uiMessage("connections:cloud_machine_progress_connecting"),
 				tone: "progress",
 			};
 		case "ready":
@@ -128,7 +134,7 @@ export const cloudMachineProgress = (
 				activeStep,
 				detail: "Open it to start working with its files and terminals.",
 				headline: "Your cloud machine is ready",
-				label: "Ready",
+				label: uiMessage("connections:cloud_machine_progress_ready"),
 				tone: "success",
 			};
 		case "bootstrap-failed":
@@ -137,7 +143,9 @@ export const cloudMachineProgress = (
 				detail:
 					"The server was created, but its runtime could not be installed.",
 				headline: "Runtime setup needs attention",
-				label: "Setup interrupted",
+				label: uiMessage(
+					"connections:cloud_machine_progress_setup_interrupted",
+				),
 				tone: "error",
 			};
 		case "enrollment-failed":
@@ -145,7 +153,9 @@ export const cloudMachineProgress = (
 				activeStep,
 				detail: "The runtime was installed, but its secure connection failed.",
 				headline: "Connection setup needs attention",
-				label: "Setup interrupted",
+				label: uiMessage(
+					"connections:cloud_machine_progress_setup_interrupted",
+				),
 				tone: "error",
 			};
 		case "reconciliation-failed":
@@ -154,7 +164,9 @@ export const cloudMachineProgress = (
 				detail:
 					"Automatic setup could not continue. Your payment and machine record are safe.",
 				headline: "Provisioning needs attention",
-				label: "Setup interrupted",
+				label: uiMessage(
+					"connections:cloud_machine_progress_setup_interrupted",
+				),
 				tone: "error",
 			};
 		case "suspension-queued":
@@ -163,7 +175,9 @@ export const cloudMachineProgress = (
 				activeStep,
 				detail: "You can continue using it through the paid period.",
 				headline: "Cancellation scheduled",
-				label: "Cancellation scheduled",
+				label: uiMessage(
+					"connections:cloud_machine_progress_cancellation_scheduled",
+				),
 				tone: "warning",
 			};
 		case "suspended":
@@ -172,7 +186,7 @@ export const cloudMachineProgress = (
 				activeStep,
 				detail: "Recover it before the deadline to restore access.",
 				headline: "Your cloud machine is suspended",
-				label: "Suspended",
+				label: uiMessage("connections:cloud_machine_progress_suspended"),
 				tone: "warning",
 			};
 		case "resume-queued":
@@ -181,7 +195,7 @@ export const cloudMachineProgress = (
 				detail:
 					"Your machine is being restored and will reconnect automatically.",
 				headline: "Restoring your machine",
-				label: "Restoring",
+				label: uiMessage("connections:cloud_machine_progress_restoring"),
 				tone: "progress",
 			};
 		case "destruction-queued":
@@ -189,7 +203,7 @@ export const cloudMachineProgress = (
 				activeStep,
 				detail: "Access has ended and provider cleanup is in progress.",
 				headline: "Removing your machine",
-				label: "Removing",
+				label: uiMessage("connections:cloud_machine_progress_removing"),
 				tone: "warning",
 			};
 		case "destroyed":
@@ -197,7 +211,7 @@ export const cloudMachineProgress = (
 				activeStep,
 				detail: "The server and its access credentials have been removed.",
 				headline: "Cloud machine removed",
-				label: "Removed",
+				label: uiMessage("connections:cloud_machine_progress_removed"),
 				tone: "success",
 			};
 	}

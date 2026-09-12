@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/onboarding";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Tick01Icon } from "@zuse/icons/solid-rounded";
 import { MODE_META, MODES_ORDER } from "~/components/runtime-mode-meta";
 import { ModelSelect } from "~/components/settings-page";
@@ -8,6 +10,8 @@ import { useSettingsStore } from "../../../lib/settings-client-bus.ts";
 import { StepHeader } from "./shared.tsx";
 
 export function DefaultsStep() {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
 	const defaultModelByProvider = useSettingsStore(
 		(s) => s.defaultModelByProvider,
@@ -27,12 +31,12 @@ export function DefaultsStep() {
 	return (
 		<div className="flex flex-col gap-7">
 			<StepHeader
-				title="A few quick defaults"
+				title={uiMessage("onboarding:defaults_a_few_quick_defaults")}
 				subtitle="Tweak any of these later in Settings. Per-chat overrides always win."
 			/>
 
 			<div className="flex flex-col gap-5">
-				<FieldRow label="Default model">
+				<FieldRow label={uiMessage("onboarding:defaults_default_model")}>
 					<ModelSelect
 						providerId={defaultProviderId}
 						value={defaultModelByProvider[defaultProviderId]}
@@ -42,7 +46,7 @@ export function DefaultsStep() {
 
 				<div className="flex flex-col gap-2.5">
 					<span className="text-[12px] font-medium text-foreground">
-						Permission mode
+						{uiMessage("onboarding:defaults_permission_mode")}
 					</span>
 					<div className="flex flex-col gap-1.5">
 						{MODES_ORDER.map((mode) => {
@@ -93,20 +97,23 @@ export function DefaultsStep() {
 
 				<div className="flex items-start gap-3 rounded-lg border border-border bg-card px-3.5 py-3">
 					<span className="flex min-w-0 flex-1 flex-col gap-1">
-						<span className="flex items-center gap-2">
-							<span className="text-[13px] font-medium leading-none text-foreground">
-								New worktree per chat
-							</span>
-							<span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-primary">
-								Recommended
-							</span>
-						</span>
-						<span className="text-[11px] leading-snug text-muted-foreground">
-							A git worktree is a second checkout of your repo on its own
-							branch. Each chat gets one under <code>~/.zuse/</code>, so agents
-							can run in parallel without stepping on each other or your working
-							tree. You merge the branches you like.
-						</span>
+						<RichMessage
+							id="onboarding:defaults_new_worktree_per_chatrecommendeda_git_worktree_is_a_second_c_sentence"
+							components={{
+								part0: <span className="flex items-center gap-2" />,
+								part1: (
+									<span className="text-[13px] font-medium leading-none text-foreground" />
+								),
+								part2: (
+									<span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-primary" />
+								),
+								part3: (
+									<span className="text-[11px] leading-snug text-muted-foreground" />
+								),
+								part4: <code />,
+							}}
+							values={{ code0: "~/.zuse/" }}
+						/>
 					</span>
 					<Switch
 						checked={defaultAutoCreateWorktree}

@@ -43,6 +43,9 @@ jobs:
       - name: Verify licensed icons
         run: bun run icons:status --expect=paid
 
+      - name: Verify localization
+        run: bun run check:i18n
+
       - name: Build
         env:
           # Renderer bundling pulls in the Hugeicons Pro ESM package and can
@@ -128,6 +131,9 @@ jobs:
 
       - name: Verify licensed icons
         run: bun run icons:status --expect=paid
+
+      - name: Verify localization
+        run: bun run check:i18n
 
       - name: Build
         env:

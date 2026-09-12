@@ -1,29 +1,42 @@
+import "@zuse/i18n/english/onboarding";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
+import { LanguageSelector } from "../../language-selector.tsx";
 export function WelcomeStep() {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	return (
 		<div className="flex h-full flex-col gap-10">
+			<LanguageSelector />
 			<div className="flex flex-col gap-3">
 				<span className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/80">
-					Welcome to Zuse (Beta)
+					{uiMessage("onboarding:welcome_welcome_to_zuse_beta")}
 				</span>
 				<h1 className="text-4xl font-semibold leading-[1.05] tracking-tight text-foreground">
-					Every agent,
-					<br />
-					one workspace.
+					<RichMessage
+						id="onboarding:welcome_every_agent_one_workspace_sentence"
+						components={{ part0: <br /> }}
+					/>
 				</h1>
 				<p className="max-w-md pt-1 text-[15px] leading-relaxed text-muted-foreground">
-					Run Claude, Codex, Grok and more on your repos, side by side.
+					{uiMessage(
+						"onboarding:welcome_run_claude_codex_grok_and_more_on_your_repos_side_by_side",
+					)}
 				</p>
 			</div>
 
 			<ul className="flex flex-col gap-0.5 text-sm">
-				<Row title="Credentials stay local">
-					Reuses supported CLI auth or API keys stored in your OS keychain.
+				<Row title={uiMessage("onboarding:welcome_credentials_stay_local")}>
+					{uiMessage(
+						"onboarding:welcome_reuses_supported_cli_auth_or_api_keys_stored_in_your_os_keychain",
+					)}
 				</Row>
-				<Row title="A worktree per chat">
-					Each agent runs on its own branch.
+				<Row title={uiMessage("onboarding:welcome_a_worktree_per_chat")}>
+					{uiMessage("onboarding:welcome_each_agent_runs_on_its_own_branch")}
 				</Row>
-				<Row title="Built for token maxers">
-					Run agents in parallel, get more from every plan.
+				<Row title={uiMessage("onboarding:welcome_built_for_token_maxers")}>
+					{uiMessage(
+						"onboarding:welcome_run_agents_in_parallel_get_more_from_every_plan",
+					)}
 				</Row>
 			</ul>
 		</div>

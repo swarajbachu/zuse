@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/onboarding";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -43,6 +45,8 @@ const STEPS: ReadonlyArray<StepId> = [
  * once on mount so the Provider and Project steps render fresh state.
  */
 export function OnboardingWizard() {
+	const { message: uiMessage } = useUiMessages(["common", "onboarding"]);
+
 	const loadProviders = useProvidersStore((s) => s.load);
 	const loadWorkspace = useWorkspaceStore((s) => s.load);
 	const folders = useWorkspaceStore((s) => s.folders);
@@ -64,7 +68,7 @@ export function OnboardingWizard() {
 	const canAdvance = useMemo(() => {
 		if (stepId === "project") return folders.length > 0;
 		return true;
-	}, [stepId, folders.length]);
+	}, [stepId, folders.length, uiMessage]);
 
 	useEffect(() => {
 		captureAnalytics("onboarding step viewed", { step: stepId });
@@ -105,8 +109,8 @@ export function OnboardingWizard() {
 			{/* Drag region so users can move the Electron window. */}
 			<div className="h-8 shrink-0 [-webkit-app-region:drag]" />
 
-			<div className="flex min-h-0 flex-1 items-center justify-center px-5 pb-8">
-				<div className="flex w-full max-w-xl flex-col gap-4">
+			<div className="flex min-h-0 flex-1 overflow-y-auto px-5 pb-8">
+				<div className="m-auto flex w-full max-w-xl shrink-0 flex-col gap-4">
 					<StepIndicator stepIndex={stepIndex} />
 
 					<div
@@ -137,7 +141,7 @@ export function OnboardingWizard() {
 								)}
 							>
 								<ChevronLeft />
-								Back
+								{uiMessage("common:back")}
 							</Button>
 							<div className="flex items-center gap-1">
 								{skippable && (
@@ -148,7 +152,7 @@ export function OnboardingWizard() {
 										onClick={goNext}
 										className="px-2.5 text-muted-foreground hover:text-foreground"
 									>
-										Skip
+										{uiMessage("onboarding:onboarding_wizard_skip")}
 									</Button>
 								)}
 								<Button
@@ -158,7 +162,9 @@ export function OnboardingWizard() {
 									disabled={!canAdvance}
 									className="px-4"
 								>
-									{isFirst ? "Get started" : "Continue"}
+									{isFirst
+										? uiMessage("onboarding:onboarding_wizard_get_started")
+										: uiMessage("common:continue")}
 									<ChevronRight />
 								</Button>
 							</div>

@@ -1,5 +1,8 @@
+import { isInputComposing } from "../lib/input-composition.ts";
+import "@zuse/i18n/english/chat";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { EnvironmentId, PtyId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useCloudSyncStatus } from "../lib/cloud-sync-client-bus.ts";
 import {
@@ -62,6 +65,8 @@ function PlainTerminalSlot({
 	rootPath: string;
 	slot: number;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const key = terminalsKey(chatRef);
 	const registeredCloudSummaryCandidate = cloudSummaryForChat(chatRef.chatId);
 	const registeredCloudSummary =
@@ -127,7 +132,9 @@ function PlainTerminalSlot({
 	if (cloudAttachment === "attaching")
 		return (
 			<TerminalPlaceholder>
-				<ShimmerText>Reconnecting cloud terminal…</ShimmerText>
+				<ShimmerText>
+					{uiMessage("chat:terminal_pane_reconnecting_cloud_terminal")}
+				</ShimmerText>
 			</TerminalPlaceholder>
 		);
 	if (cloudSummary !== null && cloudAttachment !== "ready")
@@ -138,7 +145,9 @@ function PlainTerminalSlot({
 		)
 			return (
 				<TerminalPlaceholder>
-					<ShimmerText>Resuming cloud workspace…</ShimmerText>
+					<ShimmerText>
+						{uiMessage("chat:terminal_pane_resuming_cloud_workspace")}
+					</ShimmerText>
 				</TerminalPlaceholder>
 			);
 	if (cloudSummary !== null && cloudAttachment !== "ready")
@@ -147,16 +156,24 @@ function PlainTerminalSlot({
 				<textarea
 					value=""
 					onChange={() => undefined}
-					aria-label="Cloud terminal. Type to resume the workspace."
+					aria-label={uiMessage(
+						"chat:terminal_pane_cloud_terminal_type_to_resume_the_workspace",
+					)}
 					placeholder={
 						cloudAttachment === "failed"
-							? "Cloud terminal could not connect. Type here to try again."
+							? uiMessage(
+									"chat:terminal_pane_cloud_terminal_could_not_connect_type_here_to_try_again",
+								)
 							: cloudSummary.state === "paused"
-								? "Workspace paused — type here to resume the terminal."
-								: "Cloud terminal is unavailable."
+								? uiMessage(
+										"chat:terminal_pane_workspace_paused_type_here_to_resume_the_terminal",
+									)
+								: uiMessage("chat:terminal_pane_cloud_terminal_is_unavailable")
 					}
 					className="h-full min-h-11 w-full resize-none cursor-text content-center border-0 bg-transparent px-6 text-center text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
 					onKeyDown={(event) => {
+						if (isInputComposing(event)) return;
+
 						const input =
 							event.key.length === 1
 								? event.key
@@ -198,10 +215,10 @@ function PlainTerminalSlot({
 						}`}
 					/>
 					{localSyncState === "in-sync"
-						? "File changes synced to local"
+						? uiMessage("chat:terminal_pane_file_changes_synced_to_local")
 						: localSyncState === "error"
-							? "Local file sync failed"
-							: "Syncing files to local…"}
+							? uiMessage("chat:terminal_pane_local_file_sync_failed")
+							: uiMessage("chat:terminal_pane_syncing_files_to_local")}
 				</div>
 			) : null}
 			<div className="min-h-0 flex-1">

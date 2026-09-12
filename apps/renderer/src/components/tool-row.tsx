@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/tools";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	type ChatId,
@@ -6,6 +7,8 @@ import {
 	type UserQuestion,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Brain01Icon,
 	BrowserIcon,
@@ -268,6 +271,8 @@ function MutedFilePath({
 	view?: FileView;
 	suffix?: React.ReactNode;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "tools"]);
+
 	const name = basename(path);
 	const { folderId, worktreeId } = useFileChipContext();
 	const openFileInTab = useUiStore((s) => s.openFileInTab);
@@ -344,7 +349,11 @@ function MutedFilePath({
 					</button>
 				}
 			/>
-			<TooltipPopup>{canOpen ? `Open ${shownPath}` : shownPath}</TooltipPopup>
+			<TooltipPopup>
+				{canOpen
+					? uiMessage("tools:tool_row_open", { shownPath: String(shownPath) })
+					: shownPath}
+			</TooltipPopup>
 		</Tooltip>
 	);
 }
@@ -389,9 +398,11 @@ function TerminalBlock({
 }
 
 function ErrorPill() {
+	const { message: uiMessage } = useUiMessages(["common", "tools"]);
+
 	return (
 		<span className="mr-2 rounded bg-destructive/12 px-1.5 py-0.5 font-medium text-[10px] text-destructive">
-			Error
+			{uiMessage("tools:tool_row_error")}
 		</span>
 	);
 }
@@ -416,9 +427,13 @@ function ToolImagePreview({
 }
 
 function FileListBlock({ paths }: { paths: ReadonlyArray<string> }) {
+	const { message: uiMessage } = useUiMessages(["common", "tools"]);
+
 	if (paths.length === 0) {
 		return (
-			<p className="text-[11px] italic text-muted-foreground">No matches.</p>
+			<p className="text-[11px] italic text-muted-foreground">
+				{uiMessage("tools:tool_row_no_matches")}
+			</p>
 		);
 	}
 	return (
@@ -443,12 +458,14 @@ function FileListBlock({ paths }: { paths: ReadonlyArray<string> }) {
  * instead of a raw JSON dump. Indentation is preserved verbatim.
  */
 function DirTreeBlock({ text }: { text: string }) {
+	const { message: uiMessage } = useUiMessages(["common", "tools"]);
+
 	const lines = text.replace(/\n+$/, "").split("\n");
 	const hasContent = lines.some((l) => l.trim().length > 0);
 	if (!hasContent) {
 		return (
 			<p className="text-[11px] italic text-muted-foreground">
-				Empty directory.
+				{uiMessage("tools:tool_row_empty_directory")}
 			</p>
 		);
 	}
@@ -512,7 +529,7 @@ function PreBlock({ text, isError }: { text: string; isError?: boolean }) {
 					: "border-message-rule bg-message-pre-bg",
 			)}
 		>
-			{text || "(empty)"}
+			{text || uiMessage("tools:tool_row_empty")}
 		</pre>
 	);
 }
@@ -536,11 +553,11 @@ function CombinedPreBlock({
 			)}
 		>
 			<pre className="overflow-x-auto whitespace-pre-wrap break-words px-3 py-2">
-				{input || "(empty)"}
+				{input || uiMessage("tools:tool_row_empty")}
 			</pre>
 			{output !== undefined ? (
 				<pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words border-message-rule border-t px-3 py-2 text-muted-foreground">
-					{output || "(empty)"}
+					{output || uiMessage("tools:tool_row_empty")}
 				</pre>
 			) : null}
 		</div>
@@ -718,7 +735,7 @@ const buildToolView = (
 			asString(obj.command) ?? asString(obj.cmd) ?? asString(obj.shell_command);
 		return {
 			icon: PlayIcon,
-			label: "Background Task",
+			label: uiMessage("tools:tool_row_background_task"),
 			detail:
 				cmd === null && result?.isError !== true ? undefined : (
 					<>
@@ -728,7 +745,9 @@ const buildToolView = (
 							</span>
 						)}
 						{result?.isError === true ? (
-							<span className="text-[11px] text-destructive">failed</span>
+							<span className="text-[11px] text-destructive">
+								{uiMessage("tools:tool_row_failed")}
+							</span>
 						) : null}
 					</>
 				),
@@ -832,7 +851,11 @@ const buildToolView = (
 						<ToolImagePreview
 							image={image}
 							alt={
-								path === null ? "Viewed image" : `Preview of ${basename(path)}`
+								path === null
+									? uiMessage("tools:tool_row_viewed_image")
+									: uiMessage("tools:tool_row_preview_of", {
+											value1: String(basename(path)),
+										})
 							}
 						/>
 					);
@@ -893,7 +916,10 @@ const buildToolView = (
 					<SoftDiffStats added={stats.added} removed={stats.removed} />
 				) : editCount > 0 ? (
 					<span className="tabular-nums text-muted-foreground/80">
-						{editCount} edit{editCount === 1 ? "" : "s"}
+						{uiMessage("tools:tool_row_edit_plural0_sentence", {
+							editCount: editCount ?? "",
+							count: editCount,
+						})}
 					</span>
 				) : null;
 			return {
@@ -950,7 +976,7 @@ const buildToolView = (
 				files !== null ? (files === 0 ? "no matches" : `${files}`) : null;
 			return {
 				icon: SearchIcon,
-				label: "Grep",
+				label: uiMessage("tools:tool_row_grep"),
 				// Pattern/scope live under the chevron; count sits next to the label.
 				detail:
 					matchesHint !== null ? (
@@ -962,13 +988,23 @@ const buildToolView = (
 					pattern !== null ? (
 						<div className="text-[11px] text-muted-foreground space-y-0.5">
 							<div>
-								pattern{" "}
-								<span className="font-mono text-foreground/90">{pattern}</span>
+								<RichMessage
+									id="tools:tool_row_pattern_sentence"
+									values={{ pattern: pattern }}
+									components={{
+										part0: <span className="font-mono text-foreground/90" />,
+									}}
+								/>
 							</div>
 							{where !== null ? (
 								<div>
-									scope{" "}
-									<span className="font-mono text-foreground/90">{where}</span>
+									<RichMessage
+										id="tools:tool_row_scope_sentence"
+										values={{ where: where }}
+										components={{
+											part0: <span className="font-mono text-foreground/90" />,
+										}}
+									/>
 								</div>
 							) : null}
 						</div>
@@ -999,7 +1035,7 @@ const buildToolView = (
 				matches !== null ? (matches === 0 ? "no matches" : `${matches}`) : null;
 			return {
 				icon: SearchIcon,
-				label: "Glob",
+				label: uiMessage("tools:tool_row_glob"),
 				detail:
 					matchesHint !== null ? (
 						<span className="tabular-nums text-[11px] text-muted-foreground">
@@ -1040,7 +1076,7 @@ const buildToolView = (
 				files !== null ? (files === 0 ? "empty" : `${files}`) : null;
 			return {
 				icon: Folder01Icon,
-				label: "List",
+				label: uiMessage("tools:tool_row_list"),
 				detail:
 					filesHint !== null ? (
 						<span className="tabular-nums text-[11px] text-muted-foreground">
@@ -1067,7 +1103,7 @@ const buildToolView = (
 			const prompt = asString(obj.prompt);
 			return {
 				icon: Robot01Icon,
-				label: "Agent",
+				label: uiMessage("tools:tool_row_agent"),
 				inputPanel:
 					desc !== null || prompt !== null ? (
 						<div className="space-y-1">
@@ -1079,7 +1115,7 @@ const buildToolView = (
 							{prompt !== null ? (
 								<>
 									<p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-										Prompt
+										{uiMessage("tools:tool_row_prompt")}
 									</p>
 									<PreBlock text={prompt} />
 								</>
@@ -1092,7 +1128,7 @@ const buildToolView = (
 					return (
 						<div className="space-y-1">
 							<p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-								Reply
+								{uiMessage("tools:tool_row_reply")}
 							</p>
 							<MarkdownBlock text={text || "(empty)"} />
 						</div>
@@ -1105,7 +1141,7 @@ const buildToolView = (
 			const url = asString(obj.url);
 			return {
 				icon: GlobeIcon,
-				label: "WebFetch",
+				label: uiMessage("tools:tool_row_webfetch"),
 				inputPanel:
 					url !== null ? (
 						<p className="font-mono text-[11px] text-muted-foreground break-all">
@@ -1125,7 +1161,7 @@ const buildToolView = (
 			const q = asString(obj.query);
 			return {
 				icon: GlobeIcon,
-				label: "WebSearch",
+				label: uiMessage("tools:tool_row_websearch"),
 				inputPanel:
 					q !== null ? (
 						<p className="text-[11px] text-muted-foreground">{q}</p>
@@ -1135,7 +1171,7 @@ const buildToolView = (
 					if (text.trim().length === 0 && !result.isError) {
 						return (
 							<p className="px-1 text-[11px] text-muted-foreground italic">
-								(no results returned)
+								{uiMessage("tools:tool_row_no_results_returned")}
 							</p>
 						);
 					}
@@ -1150,7 +1186,7 @@ const buildToolView = (
 			const todos = Array.isArray(obj.todos) ? obj.todos : null;
 			return {
 				icon: CheckListIcon,
-				label: "TodoWrite",
+				label: uiMessage("tools:tool_row_todowrite"),
 				detail:
 					todos !== null ? (
 						<span className="tabular-nums text-[11px] text-muted-foreground">
@@ -1193,12 +1229,19 @@ const buildToolView = (
 
 			return {
 				icon: Robot01Icon,
-				label: `Spawn ${n} agent${n === 1 ? "" : "s"}`,
+				label: uiMessage("tools:tool_row_spawn_agent", {
+					n: String(n),
+					count: n,
+				}),
 				fallbackBody: (
 					<div className="space-y-1.5 text-[12px]">
 						{model && (
 							<div className="text-muted-foreground">
-								Model: <span className="font-mono">{model}</span>
+								<RichMessage
+									id="tools:tool_row_model_sentence"
+									values={{ model: model }}
+									components={{ part0: <span className="font-mono" /> }}
+								/>
 							</div>
 						)}
 						{promptText && (
@@ -1210,13 +1253,16 @@ const buildToolView = (
 						)}
 						{receivers.length > 0 && (
 							<div className="text-[10px] text-muted-foreground">
-								Threads: {receivers.slice(0, 4).join(", ")}
+								{uiMessage("tools:tool_row_threads")}
+								{receivers.slice(0, 4).join(", ")}
 								{receivers.length > 4 ? ` +${receivers.length - 4}` : ""}
 							</div>
 						)}
 						{Object.keys(states).length > 0 && (
 							<div className="text-[10px] text-muted-foreground">
-								Live states: {Object.keys(states).length} tracked
+								{uiMessage("tools:tool_row_live_states_tracked_sentence", {
+									value: Object.keys(states).length,
+								})}
 							</div>
 						)}
 					</div>
@@ -1236,7 +1282,7 @@ const buildToolView = (
 			const targetUrl = asString(obj.url);
 			return {
 				icon: BrowserIcon,
-				label: "Browse",
+				label: uiMessage("tools:tool_row_browse"),
 				inputPanel:
 					targetUrl !== null ? (
 						<p className="text-[11px] text-muted-foreground break-all">
@@ -1255,7 +1301,7 @@ const buildToolView = (
 		case "mcp__zuse__browser_screenshot": {
 			return {
 				icon: Camera01Icon,
-				label: "Screenshot",
+				label: uiMessage("tools:tool_row_screenshot"),
 				resultPanel: (result) => {
 					if (result.isError) {
 						return <PreBlock text={toResultText(result.output)} isError />;
@@ -1263,10 +1309,13 @@ const buildToolView = (
 					const image = toolImageResult(result.output);
 					return image === null ? (
 						<span className="text-[11px] text-muted-foreground">
-							Captured the visible page.
+							{uiMessage("tools:tool_row_captured_the_visible_page")}
 						</span>
 					) : (
-						<ToolImagePreview image={image} alt="Browser screenshot" />
+						<ToolImagePreview
+							image={image}
+							alt={uiMessage("tools:tool_row_browser_screenshot")}
+						/>
 					);
 				},
 			};
@@ -1275,7 +1324,7 @@ const buildToolView = (
 		case "mcp__zuse__browser_snapshot": {
 			return {
 				icon: BrowserIcon,
-				label: "Read page",
+				label: uiMessage("tools:tool_row_read_page"),
 				resultPanel: (result) => (
 					<PreBlock
 						text={toResultText(result.output)}
@@ -1289,7 +1338,7 @@ const buildToolView = (
 			const ref = asString(obj.ref);
 			return {
 				icon: BrowserIcon,
-				label: "Click",
+				label: uiMessage("tools:tool_row_click"),
 				inputPanel:
 					ref !== null ? (
 						<p className="font-mono text-[11px] text-muted-foreground">{ref}</p>
@@ -1307,7 +1356,7 @@ const buildToolView = (
 			const typed = asString(obj.text);
 			return {
 				icon: BrowserIcon,
-				label: "Type",
+				label: uiMessage("tools:tool_row_type"),
 				inputPanel:
 					typed !== null ? (
 						<p className="text-[11px] text-muted-foreground">{typed}</p>
@@ -1327,7 +1376,7 @@ const buildToolView = (
 			const hint = sel ?? ms ?? "settle";
 			return {
 				icon: BrowserIcon,
-				label: "Wait",
+				label: uiMessage("tools:tool_row_wait"),
 				inputPanel: <p className="text-[11px] text-muted-foreground">{hint}</p>,
 			};
 		}
@@ -1338,7 +1387,7 @@ const buildToolView = (
 			const hint = ref ?? dir ?? "down";
 			return {
 				icon: BrowserIcon,
-				label: "Scroll",
+				label: uiMessage("tools:tool_row_scroll"),
 				inputPanel: <p className="text-[11px] text-muted-foreground">{hint}</p>,
 			};
 		}
@@ -1347,7 +1396,7 @@ const buildToolView = (
 			const ref = asString(obj.ref);
 			return {
 				icon: BrowserIcon,
-				label: "Hover",
+				label: uiMessage("tools:tool_row_hover"),
 				inputPanel:
 					ref !== null ? (
 						<p className="font-mono text-[11px] text-muted-foreground">{ref}</p>
@@ -1359,7 +1408,7 @@ const buildToolView = (
 			const value = asString(obj.value);
 			return {
 				icon: BrowserIcon,
-				label: "Select",
+				label: uiMessage("tools:tool_row_select"),
 				inputPanel:
 					value !== null ? (
 						<p className="text-[11px] text-muted-foreground">{value}</p>
@@ -1377,7 +1426,7 @@ const buildToolView = (
 			const key = asString(obj.key);
 			return {
 				icon: BrowserIcon,
-				label: "Press",
+				label: uiMessage("tools:tool_row_press"),
 				inputPanel:
 					key !== null ? (
 						<p className="font-mono text-[11px] text-muted-foreground">{key}</p>
@@ -1388,7 +1437,7 @@ const buildToolView = (
 		case "mcp__zuse__browser_read": {
 			return {
 				icon: File01Icon,
-				label: "Read page",
+				label: uiMessage("tools:tool_row_read_page"),
 				resultPanel: (result) => (
 					<PreBlock
 						text={toResultText(result.output)}
@@ -1414,7 +1463,7 @@ const buildToolView = (
 		case "mcp__zuse__browser_console": {
 			return {
 				icon: TerminalIcon,
-				label: "Console",
+				label: uiMessage("tools:tool_row_console"),
 				resultPanel: (result) => (
 					<PreBlock
 						text={toResultText(result.output)}
@@ -1428,7 +1477,7 @@ const buildToolView = (
 			const origin = asString(obj.origin);
 			return {
 				icon: BrowserIcon,
-				label: "Log in",
+				label: uiMessage("tools:tool_row_log_in"),
 				inputPanel:
 					origin !== null ? (
 						<p className="text-[11px] text-muted-foreground break-all">
@@ -1492,6 +1541,8 @@ export function ExitPlanModeRow({
 	input: unknown;
 	result?: ToolResult;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "tools"]);
+
 	const plan =
 		typeof input === "object" && input !== null && "plan" in input
 			? typeof (input as { plan?: unknown }).plan === "string"
@@ -1517,11 +1568,11 @@ export function ExitPlanModeRow({
 			<div className="px-4 py-2">
 				<div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
 					<HugeiconsIcon icon={CheckListIcon} size={14} strokeWidth={2} />
-					<span>Plan</span>
+					<span>{uiMessage("tools:tool_row_plan")}</span>
 				</div>
 				{plan === null ? (
 					<p className="text-sm italic text-muted-foreground">
-						(No plan body.)
+						{uiMessage("tools:tool_row_no_plan_body")}
 					</p>
 				) : (
 					<MarkdownBody>{plan}</MarkdownBody>
@@ -1534,7 +1585,9 @@ export function ExitPlanModeRow({
 	const body = (
 		<>
 			{plan === null ? (
-				<p className="text-sm italic text-muted-foreground">(No plan body.)</p>
+				<p className="text-sm italic text-muted-foreground">
+					{uiMessage("tools:tool_row_no_plan_body")}
+				</p>
 			) : (
 				<MarkdownBody>{plan}</MarkdownBody>
 			)}
@@ -1547,7 +1600,9 @@ export function ExitPlanModeRow({
 							: "text-muted-foreground",
 					)}
 				>
-					{status === "approved" ? "Approved" : "Cancelled"}
+					{status === "approved"
+						? uiMessage("tools:tool_row_approved")
+						: uiMessage("tools:tool_row_cancelled")}
 				</span>
 			</div>
 		</>
@@ -1556,7 +1611,7 @@ export function ExitPlanModeRow({
 	return (
 		<ExpandableIconRow
 			icon={CheckListIcon}
-			label="Plan"
+			label={uiMessage("tools:tool_row_plan")}
 			detail={<InlineTextHint value={teaser} />}
 			hasContent
 			body={body}
@@ -1575,6 +1630,8 @@ export function OrchestrationThreadRow({
 		| "send_to_thread";
 	result?: ToolResult;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "tools"]);
+
 	const parsed =
 		result !== undefined ? parseOrchestrationResult(result.output) : null;
 	const chatId = parsed?.chatId;
@@ -1593,10 +1650,10 @@ export function OrchestrationThreadRow({
 					<HugeiconsIcon icon={BubbleChatIcon} size={14} strokeWidth={2} />
 					<span>
 						{variant === "send_to_thread"
-							? "Sending to thread..."
+							? uiMessage("tools:tool_row_sending_to_thread")
 							: variant === "create_session"
-								? "Creating session tab..."
-								: "Creating chat..."}
+								? uiMessage("tools:tool_row_creating_session_tab")
+								: uiMessage("tools:tool_row_creating_chat")}
 					</span>
 				</div>
 			</div>
@@ -1650,10 +1707,14 @@ export function OrchestrationThreadRow({
 						size="sm"
 						variant="outline"
 						disabled={!chatLoaded}
-						title={chatLoaded ? "Open chat" : "Chat not loaded yet"}
+						title={
+							chatLoaded
+								? uiMessage("tools:tool_row_open_chat")
+								: uiMessage("tools:tool_row_chat_not_loaded_yet")
+						}
 						onClick={openChat}
 					>
-						Open chat
+						{uiMessage("tools:tool_row_open_chat")}
 					</Button>
 				</div>
 			</div>
@@ -1676,6 +1737,8 @@ export function UserInputRow({
 	readonly questions: ReadonlyArray<UserQuestion>;
 	readonly answers: ReadonlyArray<UserQuestionAnswer>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "tools"]);
+
 	const [copied, setCopied] = useState(false);
 
 	const copy = () => {
@@ -1714,7 +1777,7 @@ export function UserInputRow({
 							<div className="mt-1 pl-3 text-foreground">
 								{summary === null ? (
 									<span className="italic text-muted-foreground">
-										(cancelled)
+										{uiMessage("tools:tool_row_cancelled_2")}
 									</span>
 								) : (
 									summary
@@ -1729,13 +1792,21 @@ export function UserInputRow({
 				<div className="flex items-center gap-2">
 					<span>
 						{questions.length}{" "}
-						{questions.length === 1 ? "question" : "questions"}
+						{questions.length === 1
+							? uiMessage("tools:tool_row_question")
+							: uiMessage("tools:tool_row_questions")}
 					</span>
 					<button
 						type="button"
 						onClick={copy}
-						aria-label={copied ? "Copied" : "Copy Q&A"}
-						title={copied ? "Copied" : "Copy"}
+						aria-label={
+							copied
+								? uiMessage("common:copied")
+								: uiMessage("tools:tool_row_copy_q_a")
+						}
+						title={
+							copied ? uiMessage("common:copied") : uiMessage("common:copy")
+						}
 						className="rounded p-0.5 text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"
 					>
 						<HugeiconsIcon
@@ -1746,7 +1817,7 @@ export function UserInputRow({
 					</button>
 				</div>
 				<span className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-500/90">
-					Answered
+					{uiMessage("tools:tool_row_answered")}
 				</span>
 			</div>
 		</>
@@ -1755,7 +1826,7 @@ export function UserInputRow({
 	return (
 		<ExpandableIconRow
 			icon={BubbleChatIcon}
-			label="User input"
+			label={uiMessage("tools:tool_row_user_input")}
 			detail={<InlineTextHint value={teaser} />}
 			hasContent
 			body={body}
@@ -1817,6 +1888,8 @@ export function ToolRow({
 	result?: ToolResult;
 	presentation?: "background-task";
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "tools"]);
+
 	const view = buildToolView(tool, input, result, presentation);
 	const pending = result === undefined;
 
@@ -1836,12 +1909,12 @@ export function ToolRow({
 						<div className="mb-1 flex items-center">
 							<ErrorPill />
 							<span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-								Result
+								{uiMessage("tools:tool_row_result")}
 							</span>
 						</div>
 					) : (
 						<p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-							Result
+							{uiMessage("tools:tool_row_result")}
 						</p>
 					)}
 					{rendered}
@@ -1856,7 +1929,9 @@ export function ToolRow({
 		view.detail !== undefined ? (
 			view.detail
 		) : result?.isError === true ? (
-			<span className="text-[11px] text-destructive">error</span>
+			<span className="text-[11px] text-destructive">
+				{uiMessage("tools:tool_row_error_2")}
+			</span>
 		) : undefined;
 
 	return (
@@ -1922,6 +1997,8 @@ export function SubagentWaitRow({
 }
 
 function SubagentWaitDetail({ view }: { readonly view: SubagentWaitView }) {
+	const { message: uiMessage } = useUiMessages(["common", "tools"]);
+
 	return (
 		<>
 			<span className="sr-only">{subagentWaitAccessibleTiming(view)}</span>
@@ -1933,7 +2010,9 @@ function SubagentWaitDetail({ view }: { readonly view: SubagentWaitView }) {
 				className="min-w-[7.5rem] shrink-0 text-right tabular-nums text-[11px] text-muted-foreground/70"
 			>
 				{view.status === "waiting" && view.timeoutMs > 0
-					? `${formatSubagentWaitDuration(view.timeoutMs)} max · `
+					? uiMessage("tools:tool_row_max", {
+							value1: String(formatSubagentWaitDuration(view.timeoutMs)),
+						})
 					: null}
 				{formatSubagentWaitDuration(view.elapsedMs)}
 			</span>
@@ -1951,6 +2030,8 @@ export function ThinkingRow({
 	/** True while this thinking block is the live tip of a running turn. */
 	pending?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "tools"]);
+
 	// Three states:
 	// 1. redacted — model thought but content is policy-hidden (rare;
 	//    `redacted_thinking` content blocks).
@@ -1962,14 +2043,13 @@ export function ThinkingRow({
 	const isEmpty = !redacted && text.length === 0;
 	const body = redacted ? (
 		<p className="whitespace-pre-wrap text-[11px] italic leading-relaxed text-muted-foreground/70">
-			Thought content was redacted by the model.
+			{uiMessage("tools:tool_row_thought_content_was_redacted_by_the_model")}
 		</p>
 	) : isEmpty ? (
 		<p className="whitespace-pre-wrap text-[11px] italic leading-relaxed text-muted-foreground/70">
-			The model produced a thinking block (the SDK forwarded its signed receipt)
-			but the underlying text was filtered out by Anthropic&apos;s agent SDK
-			before it reached us. We can&apos;t expose the actual thoughts without
-			bypassing the official SDK.
+			{uiMessage(
+				"tools:tool_row_the_model_produced_a_thinking_block_the_sdk_forwarded_its_signed_recei",
+			)}
 		</p>
 	) : (
 		<MarkdownBlock text={text} />
@@ -1977,7 +2057,7 @@ export function ThinkingRow({
 	return (
 		<ExpandableIconRow
 			icon={Brain01Icon}
-			label="Thinking"
+			label={uiMessage("tools:tool_row_thinking")}
 			pending={pending}
 			hasContent
 			body={body}

@@ -1,9 +1,12 @@
+import { isInputComposing } from "../../lib/input-composition.ts";
+import "@zuse/i18n/english/settings";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	type Command,
 	type KeybindingRule,
 	keyStringFromEvent,
 } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Alert01Icon,
 	MoreHorizontalIcon,
@@ -118,6 +121,8 @@ function RecordingSurface({
 	readonly onCapture: (key: string) => void;
 	readonly onExit: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const [pending, setPending] = useState<string | null>(null);
 
 	const updatePending = (event: ReactKeyboardEvent<HTMLElement>) => {
@@ -179,7 +184,7 @@ function RecordingSurface({
 					<span className="text-primary/60">…</span>
 				</>
 			) : (
-				<span>Press shortcut…</span>
+				<span>{uiMessage("settings:keybindings_editor_press_shortcut")}</span>
 			)}
 		</div>
 	);
@@ -188,6 +193,8 @@ function RecordingSurface({
 /* ─────────────────────────── Editor entrypoint ───────────────────────────── */
 
 export function KeybindingsEditor() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const resolved = useKeybindings((s) => s.resolvedRules);
 	const userRules = useKeybindings((s) => s.userRules);
 	const loaded = useKeybindings((s) => s.loaded);
@@ -216,7 +223,7 @@ export function KeybindingsEditor() {
 			});
 		}
 		return out;
-	}, [resolved, userRules]);
+	}, [resolved, userRules, uiMessage]);
 
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -229,20 +236,23 @@ export function KeybindingsEditor() {
 				row.key.toLowerCase().includes(q)
 			);
 		});
-	}, [rows, query]);
+	}, [rows, query, uiMessage]);
 
 	return (
 		<div className="flex flex-col gap-4">
 			{error !== null && (
 				<div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-					Failed to load keybindings: {error}
+					{uiMessage(
+						"settings:keybindings_editor_failed_to_load_keybindings_sentence",
+						{ error: error },
+					)}
 				</div>
 			)}
 
 			<Frame>
 				<FrameHeader className="flex flex-row items-center justify-between px-2 py-2 w-full">
 					<p className="text-sm font-semibold text-foreground">
-						Keyboard shortcuts
+						{uiMessage("settings:keybindings_editor_keyboard_shortcuts")}
 					</p>
 					<div className="flex items-center gap-1.5">
 						<ExpandableSearch
@@ -263,34 +273,42 @@ export function KeybindingsEditor() {
 										className="text-muted-foreground hover:text-foreground"
 										onClick={() => setIsAdding(true)}
 										disabled={isAdding}
-										aria-label="Add keybinding"
+										aria-label={uiMessage(
+											"settings:keybindings_editor_add_keybinding",
+										)}
 									>
 										<Plus className="size-3.5" strokeWidth={1.8} />
 									</Button>
 								}
 							/>
-							<TooltipPopup side="top">Add keybinding</TooltipPopup>
+							<TooltipPopup side="top">
+								{uiMessage("settings:keybindings_editor_add_keybinding")}
+							</TooltipPopup>
 						</Tooltip>
 					</div>
 				</FrameHeader>
 
 				<Card>
 					<div className="grid grid-cols-[minmax(140px,1fr)_minmax(200px,1.2fr)_44px] border-b border-border/40 bg-muted/25 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
-						<div>Command</div>
-						<div>Keybinding</div>
-						<div className="text-right">Status</div>
+						<div>{uiMessage("settings:keybindings_editor_command")}</div>
+						<div>{uiMessage("settings:keybindings_editor_keybinding")}</div>
+						<div className="text-right">
+							{uiMessage("settings:keybindings_editor_status")}
+						</div>
 					</div>
 					<div className="divide-y divide-border/40">
 						{!loaded && (
 							<div className="px-4 py-12 text-center text-sm text-muted-foreground">
-								Loading…
+								{uiMessage("common:loading")}
 							</div>
 						)}
 						{loaded && filtered.length === 0 && !isAdding && (
 							<div className="px-4 py-12 text-center text-sm text-muted-foreground">
 								{query.trim().length > 0
-									? "No keybindings match your search."
-									: "No keybindings."}
+									? uiMessage(
+											"settings:keybindings_editor_no_keybindings_match_your_search",
+										)
+									: uiMessage("settings:keybindings_editor_no_keybindings")}
 							</div>
 						)}
 						{filtered.map((row) => (
@@ -308,12 +326,15 @@ export function KeybindingsEditor() {
 
 				<FrameFooter className="px-2 py-1 w-full">
 					<p className="text-xs leading-relaxed text-muted-foreground">
-						Click the pencil on any row to record a new chord. Bindings persist
-						to{" "}
-						<code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">
-							keybindings.json
-						</code>{" "}
-						in your app data folder; hand-edit there for advanced scoping.
+						<RichMessage
+							id="settings:keybindings_editor_click_the_pencil_on_any_row_to_record_a_new_chord_bindings_p_sentence"
+							components={{
+								part0: (
+									<code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]" />
+								),
+							}}
+							values={{ code0: "keybindings.json" }}
+						/>
 					</p>
 				</FrameFooter>
 			</Frame>
@@ -332,6 +353,8 @@ function RowEditor({
 	readonly row: EditorRow;
 	readonly allRows: ReadonlyArray<EditorRow>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const [draft, dispatch] = useReducer(draftReducer, row, draftFromRow);
 	const addRule = useKeybindings((s) => s.addRule);
 	const replaceUserRuleAt = useKeybindings((s) => s.replaceUserRuleAt);
@@ -412,13 +435,18 @@ function RowEditor({
 												patch: { isRecording: true },
 											})
 										}
-										aria-label={`Edit shortcut for ${meta.label}`}
+										aria-label={uiMessage(
+											"settings:keybindings_editor_edit_shortcut_for",
+											{ value1: String(meta.label) },
+										)}
 									>
 										<HugeiconsIcon icon={PencilIcon} className="size-3.5" />
 									</Button>
 								}
 							/>
-							<TooltipPopup side="top">Record new chord</TooltipPopup>
+							<TooltipPopup side="top">
+								{uiMessage("settings:keybindings_editor_record_new_chord")}
+							</TooltipPopup>
 						</Tooltip>
 						{isDirty && (
 							<>
@@ -431,13 +459,17 @@ function RowEditor({
 												variant="ghost"
 												className="shrink-0 text-muted-foreground hover:text-foreground"
 												onClick={() => dispatch({ type: "reset", row })}
-												aria-label="Discard pending changes"
+												aria-label={uiMessage(
+													"settings:keybindings_editor_discard_pending_changes",
+												)}
 											>
 												<HugeiconsIcon icon={UndoIcon} className="size-3.5" />
 											</Button>
 										}
 									/>
-									<TooltipPopup side="top">Discard changes</TooltipPopup>
+									<TooltipPopup side="top">
+										{uiMessage("settings:keybindings_editor_discard_changes")}
+									</TooltipPopup>
 								</Tooltip>
 								<Button
 									size="xs"
@@ -445,7 +477,7 @@ function RowEditor({
 									disabled={draft.keyDraft.trim().length === 0}
 									onClick={() => void save()}
 								>
-									Save
+									{uiMessage("common:save")}
 								</Button>
 							</>
 						)}
@@ -477,7 +509,10 @@ function RowEditor({
 									variant="ghost"
 									size="icon-sm"
 									className="size-7 text-muted-foreground hover:text-foreground"
-									aria-label={`Actions for ${meta.label}`}
+									aria-label={uiMessage(
+										"settings:keybindings_editor_actions_for",
+										{ value1: String(meta.label) },
+									)}
 								/>
 							}
 						>
@@ -486,7 +521,7 @@ function RowEditor({
 						<MenuPopup align="end" className="min-w-36">
 							{canReset && (
 								<MenuItem onClick={() => void resetCommand(row.command)}>
-									Reset to default
+									{uiMessage("settings:keybindings_editor_reset_to_default")}
 								</MenuItem>
 							)}
 							{canRemove && (
@@ -497,7 +532,7 @@ function RowEditor({
 											void removeUserRuleAt(row.userIndex);
 									}}
 								>
-									Remove
+									{uiMessage("common:remove")}
 								</MenuItem>
 							)}
 						</MenuPopup>
@@ -519,6 +554,8 @@ function NewRow({
 	readonly onCancel: () => void;
 	readonly onSaved: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const addRule = useKeybindings((s) => s.addRule);
 	const [command, setCommand] = useState<Command>(
 		COMMANDS_IN_ORDER[0] ?? "new-chat",
@@ -545,7 +582,8 @@ function NewRow({
 	return (
 		<div className="flex flex-col gap-2 bg-accent/20 px-3 py-3 text-sm">
 			<div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.07em] text-muted-foreground">
-				<Plus className="size-3" strokeWidth={1.8} /> New binding
+				<Plus className="size-3" strokeWidth={1.8} />
+				{uiMessage("settings:keybindings_editor_new_binding")}
 			</div>
 			<div className="flex flex-wrap items-center gap-2">
 				<Select value={command} onValueChange={(v) => setCommand(v as Command)}>
@@ -602,13 +640,17 @@ function NewRow({
 													patch: { isRecording: true },
 												})
 											}
-											aria-label="Re-record shortcut for new binding"
+											aria-label={uiMessage(
+												"settings:keybindings_editor_re_record_shortcut_for_new_binding",
+											)}
 										>
 											<HugeiconsIcon icon={PencilIcon} className="size-3.5" />
 										</Button>
 									}
 								/>
-								<TooltipPopup side="top">Record again</TooltipPopup>
+								<TooltipPopup side="top">
+									{uiMessage("settings:keybindings_editor_record_again")}
+								</TooltipPopup>
 							</Tooltip>
 						</>
 					) : (
@@ -617,11 +659,13 @@ function NewRow({
 							onClick={() =>
 								dispatch({ type: "patch", patch: { isRecording: true } })
 							}
-							aria-label="Record shortcut for new binding"
+							aria-label={uiMessage(
+								"settings:keybindings_editor_record_shortcut_for_new_binding",
+							)}
 							className="inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-border/70 bg-background px-2 text-[11px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
 						>
 							<HugeiconsIcon icon={PencilIcon} className="size-3" />
-							Click to record
+							{uiMessage("settings:keybindings_editor_click_to_record")}
 						</button>
 					)}
 				</div>
@@ -635,7 +679,7 @@ function NewRow({
 						className="h-7 px-2 text-muted-foreground hover:text-foreground"
 						onClick={onCancel}
 					>
-						Cancel
+						{uiMessage("common:cancel")}
 					</Button>
 					<Button
 						size="xs"
@@ -643,7 +687,7 @@ function NewRow({
 						disabled={!canSave}
 						onClick={() => void save()}
 					>
-						Add
+						{uiMessage("common:add")}
 					</Button>
 				</div>
 			</div>
@@ -658,6 +702,8 @@ function ConflictWarning({
 }: {
 	readonly labels: ReadonlyArray<string>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	if (labels.length === 0) return null;
 	const description =
 		labels.length === 1
@@ -680,8 +726,10 @@ function ConflictWarning({
 				side="top"
 				className="max-w-72 whitespace-normal leading-relaxed"
 			>
-				{description} The most recent matching binding wins when both fire on
-				the same chord.
+				{uiMessage(
+					"settings:keybindings_editor_the_most_recent_matching_binding_wins_when_both_fire_on_the_sentence",
+					{ description: description },
+				)}
 			</TooltipPopup>
 		</Tooltip>
 	);
@@ -704,6 +752,8 @@ function ExpandableSearch({
 	readonly inputRef: React.RefObject<HTMLInputElement | null>;
 	readonly countLabel: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	if (!isOpen) {
 		return (
 			<>
@@ -719,13 +769,17 @@ function ExpandableSearch({
 								variant="ghost"
 								className="text-muted-foreground hover:text-foreground"
 								onClick={() => onOpenChange(true)}
-								aria-label="Search keybindings"
+								aria-label={uiMessage(
+									"settings:keybindings_editor_search_keybindings",
+								)}
 							>
 								<HugeiconsIcon icon={Search01Icon} className="size-3.5" />
 							</Button>
 						}
 					/>
-					<TooltipPopup side="top">Search keybindings</TooltipPopup>
+					<TooltipPopup side="top">
+						{uiMessage("settings:keybindings_editor_search_keybindings")}
+					</TooltipPopup>
 				</Tooltip>
 			</>
 		);
@@ -747,14 +801,18 @@ function ExpandableSearch({
 					if (query.length === 0) onOpenChange(false);
 				}}
 				onKeyDown={(e) => {
+					if (isInputComposing(e)) return;
+
 					if (e.key === "Escape") {
 						e.preventDefault();
 						onQueryChange("");
 						onOpenChange(false);
 					}
 				}}
-				placeholder="Search keybindings"
-				aria-label="Search keybindings"
+				placeholder={uiMessage(
+					"settings:keybindings_editor_search_keybindings",
+				)}
+				aria-label={uiMessage("settings:keybindings_editor_search_keybindings")}
 				className="h-6 w-44 rounded-md border border-input bg-background pl-7 pr-2 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
 			/>
 		</div>
@@ -764,16 +822,21 @@ function ExpandableSearch({
 /* ─────────────────── Reset-all footer (only with overrides) ────────────── */
 
 function ResetAllFooter() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const userRulesCount = useKeybindings((s) => s.userRules.length);
 	const resetAll = useKeybindings((s) => s.resetAll);
 	if (userRulesCount === 0) return null;
 	return (
 		<div className="flex items-center justify-between rounded-md border border-border/40 bg-muted/20 px-3 py-2 text-xs">
 			<span className="text-muted-foreground">
-				{userRulesCount} custom rule{userRulesCount === 1 ? "" : "s"} active.
+				{uiMessage(
+					"settings:keybindings_editor_custom_rule_plural0_active_sentence",
+					{ userRulesCount: userRulesCount ?? "", count: userRulesCount },
+				)}
 			</span>
 			<Button variant="settings" size="sm" onClick={() => void resetAll()}>
-				Reset all to defaults
+				{uiMessage("settings:keybindings_editor_reset_all_to_defaults")}
 			</Button>
 		</div>
 	);

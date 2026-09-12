@@ -1,3 +1,6 @@
+import { formatNumber as formatUiNumber } from "@zuse/i18n";
+import { isInputComposing } from "../lib/input-composition.ts";
+import "@zuse/i18n/english/projects";
 import type {
 	AnnotationSide,
 	DiffLineAnnotation,
@@ -8,23 +11,24 @@ import type {
 import { Editor } from "@pierre/diffs/edit";
 import { EditProvider, File, PatchDiff } from "@pierre/diffs/react";
 import {
-	CommandId,
 	type CodeAnnotation,
+	CommandId,
 	EnvironmentId,
-	FsFileContent,
+	type FsFileContent,
 	type GitDiffResult,
 } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { cn } from "~/lib/utils";
 import { useAuth } from "../hooks/use-auth.ts";
 import { useZuseDiffTheme } from "../lib/diffs-theme.ts";
-import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts";
 import {
 	dispatchFileTreeCommand,
 	fileWriteCommandId,
 } from "../lib/file-tree-client-bus.ts";
+import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts";
 import {
 	bytesForImageContent,
 	imageMimeForFile,
@@ -154,11 +158,17 @@ const htmlWithBaseHref = (html: string, baseHref: string): string => {
  * a quick peek at the diff.
  */
 export function FileEditor() {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const openFile = useUiStore((s) => s.openFile);
 	const closeFileTab = useUiStore((s) => s.closeFileTab);
 
 	if (openFile === null) {
-		return <Placeholder>No file open.</Placeholder>;
+		return (
+			<Placeholder>
+				{uiMessage("projects:file_editor_no_file_open")}
+			</Placeholder>
+		);
 	}
 
 	if (openFile.kind === "image") {
@@ -227,6 +237,8 @@ type FileImageState =
 /** Loads project and external images through the same path-validated fs RPC
  * as the editor, then gives the browser a short-lived local object URL. */
 function FileImageBody({ openFile }: { openFile: EditableFile }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const [state, setState] = useState<FileImageState>({ status: "loading" });
 
 	useEffect(() => {
@@ -287,7 +299,9 @@ function FileImageBody({ openFile }: { openFile: EditableFile }) {
 	if (state.status === "loading") {
 		return (
 			<Placeholder>
-				<ShimmerText>Loading image…</ShimmerText>
+				<ShimmerText>
+					{uiMessage("projects:file_editor_loading_image")}
+				</ShimmerText>
 			</Placeholder>
 		);
 	}
@@ -330,6 +344,8 @@ function PierreEditBody({
 	hidden: boolean;
 	onClose: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const diffTheme = useZuseDiffTheme();
 	const setFileDirty = useUiStore((s) => s.setFileDirty);
 	const [state, setState] = useState<EditorState>({ status: "loading" });
@@ -353,7 +369,7 @@ function PierreEditBody({
 			avatarUrl: authUser?.profilePictureUrl ?? null,
 			initial: (name || authUser?.email || "?").charAt(0).toUpperCase(),
 		};
-	}, [authName, authUser?.email, authUser?.profilePictureUrl]);
+	}, [authName, authUser?.email, authUser?.profilePictureUrl, uiMessage]);
 	const draftAnnotations = useAnnotationsStore((s) =>
 		selectedSessionId === null
 			? EMPTY_ANNOTATIONS
@@ -399,6 +415,7 @@ function PierreEditBody({
 			draftAnnotations,
 			matchesRevealedAnnotation,
 			revealedAnnotation,
+			uiMessage,
 		],
 	);
 
@@ -574,7 +591,14 @@ function PierreEditBody({
 			contents: docRef.current,
 			cacheKey: `${annotationPath}:${mtimeRef.current}:${reloadCount}`,
 		}),
-		[annotationPath, annotationRevision, openFile.name, reloadCount, state],
+		[
+			annotationPath,
+			annotationRevision,
+			openFile.name,
+			reloadCount,
+			state,
+			uiMessage,
+		],
 	);
 	const lineAnnotations = useMemo<LineAnnotation<FileAnnotationMetadata>[]>(
 		() => [
@@ -591,7 +615,7 @@ function PierreEditBody({
 						},
 					]),
 		],
-		[pendingComment, visibleAnnotations],
+		[pendingComment, visibleAnnotations, uiMessage],
 	);
 
 	const createPierreEditor = useCallback(
@@ -702,13 +726,15 @@ function PierreEditBody({
 			) : null}
 			{state.status === "loading" && (
 				<Placeholder>
-					<ShimmerText>Loading…</ShimmerText>
+					<ShimmerText>{uiMessage("common:loading")}</ShimmerText>
 				</Placeholder>
 			)}
 			{state.status === "binary" && (
 				<Placeholder>
-					Binary file ({state.size.toLocaleString()} bytes) — preview not
-					supported.
+					{uiMessage(
+						"projects:file_editor_binary_file_bytes_preview_not_supported_sentence",
+						{ value: formatUiNumber(state.size) },
+					)}
 				</Placeholder>
 			)}
 			{state.status === "error" && (
@@ -719,7 +745,7 @@ function PierreEditBody({
 						onClick={onClose}
 						className="rounded bg-muted px-2 py-1 text-xs hover:bg-muted/70"
 					>
-						Close
+						{uiMessage("common:close")}
 					</button>
 				</Placeholder>
 			)}
@@ -759,6 +785,8 @@ function InlineAnnotationEditor({
 	onConfirm: (comment: string) => void;
 	onCancel: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const [comment, setComment] = useState("");
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	useEffect(() => {
@@ -789,6 +817,8 @@ function InlineAnnotationEditor({
 				value={comment}
 				onChange={(e) => setComment(e.target.value)}
 				onKeyDown={(e) => {
+					if (isInputComposing(e)) return;
+
 					if (e.key === "Escape") {
 						e.preventDefault();
 						onCancel();
@@ -798,7 +828,7 @@ function InlineAnnotationEditor({
 					}
 				}}
 				rows={2}
-				placeholder="Add a comment…"
+				placeholder={uiMessage("projects:file_editor_add_a_comment")}
 				className="max-h-32 min-h-14 w-full resize-y rounded-md bg-background/80 px-2 py-1.5 text-xs leading-relaxed text-foreground caret-foreground outline-none ring-0 placeholder:text-muted-foreground/70 focus:bg-background"
 			/>
 			<div className="mt-1.5 flex items-center justify-end gap-1">
@@ -807,7 +837,7 @@ function InlineAnnotationEditor({
 					onClick={onCancel}
 					className="flex h-6 items-center rounded px-2 text-xs text-muted-foreground hover:bg-background hover:text-foreground"
 				>
-					Cancel
+					{uiMessage("common:cancel")}
 				</button>
 				<button
 					type="button"
@@ -815,7 +845,7 @@ function InlineAnnotationEditor({
 					disabled={comment.trim().length === 0}
 					className="flex h-6 items-center rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
 				>
-					Add
+					{uiMessage("common:add")}
 				</button>
 			</div>
 		</div>
@@ -827,6 +857,8 @@ function DiffViewBody({
 }: {
 	openFile: Extract<OpenFile, { kind: "text" }>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const diffTheme = useZuseDiffTheme();
 	const [state, setState] = useState<DiffState>({ status: "loading" });
 	// Bumped after an in-place `git init` from the no-repo CTA so the diff
@@ -865,7 +897,7 @@ function DiffViewBody({
 			lineHoverHighlight: "number" as const,
 			onGutterUtilityClick,
 		}),
-		[diffTheme, onGutterUtilityClick],
+		[diffTheme, onGutterUtilityClick, uiMessage],
 	);
 
 	const lineAnnotations = useMemo<DiffLineAnnotation<{ kind: "editor" }>[]>(
@@ -879,7 +911,7 @@ function DiffViewBody({
 							metadata: { kind: "editor" },
 						},
 					],
-		[pending],
+		[pending, uiMessage],
 	);
 
 	const renderAnnotation = useCallback(
@@ -955,7 +987,9 @@ function DiffViewBody({
 	if (state.status === "loading") {
 		return (
 			<Placeholder>
-				<ShimmerText>Loading diff…</ShimmerText>
+				<ShimmerText>
+					{uiMessage("projects:file_editor_loading_diff")}
+				</ShimmerText>
 			</Placeholder>
 		);
 	}
@@ -987,13 +1021,27 @@ function DiffViewBody({
 
 	const { mode, patch, truncated } = state.result;
 	if (mode === "unchanged") {
-		return <Placeholder>No changes vs HEAD.</Placeholder>;
+		return (
+			<Placeholder>
+				{uiMessage("projects:file_editor_no_changes_vs_head")}
+			</Placeholder>
+		);
 	}
 	if (mode === "binary") {
-		return <Placeholder>Binary file — diff preview not supported.</Placeholder>;
+		return (
+			<Placeholder>
+				{uiMessage(
+					"projects:file_editor_binary_file_diff_preview_not_supported",
+				)}
+			</Placeholder>
+		);
 	}
 	if (patch.length === 0) {
-		return <Placeholder>No diff content.</Placeholder>;
+		return (
+			<Placeholder>
+				{uiMessage("projects:file_editor_no_diff_content")}
+			</Placeholder>
+		);
 	}
 
 	return (
@@ -1025,6 +1073,8 @@ function DiffViewBody({
 // ---------------------------------------------------------------------------
 
 function PreviewViewBody({ openFile }: { openFile: EditableFile }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const [state, setState] = useState<PreviewState>({ status: "loading" });
 	const workspaceRoot = useActiveWorkspaceRoot(
 		openFile.kind === "text" ? openFile.folderId : null,
@@ -1105,15 +1155,19 @@ function PreviewViewBody({ openFile }: { openFile: EditableFile }) {
 	if (state.status === "loading") {
 		return (
 			<Placeholder>
-				<ShimmerText>Loading preview…</ShimmerText>
+				<ShimmerText>
+					{uiMessage("projects:file_editor_loading_preview")}
+				</ShimmerText>
 			</Placeholder>
 		);
 	}
 	if (state.status === "binary") {
 		return (
 			<Placeholder>
-				Binary file ({state.size.toLocaleString()} bytes) — preview not
-				supported.
+				{uiMessage(
+					"projects:file_editor_binary_file_bytes_preview_not_supported_sentence",
+					{ value: formatUiNumber(state.size) },
+				)}
 			</Placeholder>
 		);
 	}
@@ -1139,7 +1193,9 @@ function PreviewViewBody({ openFile }: { openFile: EditableFile }) {
 
 	return (
 		<iframe
-			title={`${openFile.name} preview`}
+			title={uiMessage("projects:file_editor_preview_2", {
+				name: String(openFile.name),
+			})}
 			sandbox=""
 			srcDoc={htmlWithBaseHref(state.content, state.baseHref)}
 			className="min-h-0 flex-1 border-0 bg-white"
@@ -1164,6 +1220,8 @@ function Toolbar({
 	showDiff: boolean;
 	showPreview: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const dirty = useUiStore((s) => s.fileDirty);
 	const setOpenFileView = useUiStore((s) => s.setOpenFileView);
 	return (
@@ -1174,11 +1232,16 @@ function Toolbar({
 			<span className="ml-auto flex items-center gap-2">
 				{dirty ? (
 					<span className="text-muted-foreground">
-						<span className="text-warning">●</span> modified
+						<RichMessage
+							id="projects:file_editor_modified_sentence"
+							components={{ part0: <span className="text-warning" /> }}
+						/>
 					</span>
 				) : null}
 				{view === "edit" ? (
-					<span className="opacity-60">⌘S to save</span>
+					<span className="opacity-60">
+						{uiMessage("projects:file_editor_s_to_save")}
+					</span>
 				) : null}
 				{showDiff || showPreview ? (
 					<ViewToggle
@@ -1204,6 +1267,8 @@ function ViewToggle({
 	showDiff: boolean;
 	showPreview: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	return (
 		<div
 			role="tablist"
@@ -1213,19 +1278,19 @@ function ViewToggle({
 				<ToggleButton
 					active={value === "diff"}
 					onClick={() => onChange("diff")}
-					label="Diff"
+					label={uiMessage("projects:file_editor_diff")}
 				/>
 			) : null}
 			<ToggleButton
 				active={value === "edit"}
 				onClick={() => onChange("edit")}
-				label="Edit"
+				label={uiMessage("common:edit")}
 			/>
 			{showPreview ? (
 				<ToggleButton
 					active={value === "preview"}
 					onClick={() => onChange("preview")}
-					label="Preview"
+					label={uiMessage("projects:file_editor_preview")}
 				/>
 			) : null}
 		</div>
@@ -1260,10 +1325,12 @@ function ToggleButton({
 }
 
 function SavingIndicator({ saving }: { saving: boolean }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	if (!saving) return null;
 	return (
 		<div className="shrink-0 px-3 py-0.5 text-right text-[10px] text-muted-foreground">
-			saving…
+			{uiMessage("projects:file_editor_saving")}
 		</div>
 	);
 }
@@ -1279,6 +1346,8 @@ function Banner({
 	onAction: () => void;
 	onDismiss: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	return (
 		<div className="flex shrink-0 items-center gap-2 bg-alert-warning-bg px-3 py-1.5 text-[11px] text-foreground">
 			<span className="flex-1 text-muted-foreground">{message}</span>
@@ -1294,7 +1363,7 @@ function Banner({
 			<button
 				type="button"
 				onClick={onDismiss}
-				aria-label="Dismiss"
+				aria-label={uiMessage("projects:file_editor_dismiss")}
 				className="rounded px-1 text-muted-foreground hover:text-foreground"
 			>
 				×

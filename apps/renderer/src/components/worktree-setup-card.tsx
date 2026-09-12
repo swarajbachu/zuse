@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { CloudChatSummary } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Alert01Icon, Tick01Icon } from "@zuse/icons/solid-rounded";
 import { type ReactNode, useState } from "react";
 import { useWorktreeSetupLifecycle } from "../hooks/use-worktree-setup-lifecycle.ts";
@@ -223,6 +225,8 @@ export function CloudWorkspaceSetupCard({
 }: {
 	readonly summary: CloudChatSummary;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const [busy, setBusy] = useState<"retry" | "delete" | null>(null);
 	const typedFailure = cloudFailurePresentation({
 		category: summary.failureDiagnostic ?? summary.statusCode,
@@ -249,7 +253,9 @@ export function CloudWorkspaceSetupCard({
 		} catch (cause) {
 			toastManager.add({
 				type: "error",
-				title: "Couldn't retry cloud workspace",
+				title: uiMessage(
+					"projects:worktree_setup_card_couldn_t_retry_cloud_workspace",
+				),
 				description: formatError(cause),
 			});
 		} finally {
@@ -272,7 +278,7 @@ export function CloudWorkspaceSetupCard({
 								loading={busy === "retry"}
 								onClick={() => void runAction("resume")}
 							>
-								Retry
+								{uiMessage("common:retry")}
 							</Button>
 						)}
 						<Button
@@ -281,7 +287,7 @@ export function CloudWorkspaceSetupCard({
 							loading={busy === "delete"}
 							onClick={() => void runAction("delete")}
 						>
-							Delete workspace
+							{uiMessage("projects:worktree_setup_card_delete_workspace")}
 						</Button>
 					</>
 				) : undefined
@@ -324,6 +330,8 @@ export function CloudWorkspaceSetupView({
 	readonly failureDiagnostic?: string;
 	readonly actions?: ReactNode;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const failed = phase === "failed";
 	const rank = failed ? cloudFailureRank(statusCode) : cloudPhaseRank[phase];
 	const step = (index: number): StepState =>
@@ -373,9 +381,24 @@ export function CloudWorkspaceSetupView({
 			</summary>
 			<div className="ml-1.5 border-l border-border/50 py-1.5 pl-4">
 				<div className="flex flex-col gap-1.5">
-					<StepRow state={step(0)} label="Preparing cloud workspace" />
-					<StepRow state={step(1)} label="Starting secure cloud runtime" />
-					<StepRow state={step(2)} label="Preparing repository" />
+					<StepRow
+						state={step(0)}
+						label={uiMessage(
+							"projects:worktree_setup_card_preparing_cloud_workspace",
+						)}
+					/>
+					<StepRow
+						state={step(1)}
+						label={uiMessage(
+							"projects:worktree_setup_card_starting_secure_cloud_runtime",
+						)}
+					/>
+					<StepRow
+						state={step(2)}
+						label={uiMessage(
+							"projects:worktree_setup_card_preparing_repository",
+						)}
+					/>
 				</div>
 				{failureDiagnostic === undefined ? null : (
 					<p className="mt-2 font-mono text-[10px] text-muted-foreground">
@@ -395,6 +418,8 @@ export function CloudWorkspaceSetupView({
  * card and the landing bridge share one source of truth for the markup.
  */
 export function SetupCardView({ data }: { data: SetupCardData }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const {
 		repoName,
 		hasWorktree,
@@ -474,21 +499,35 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 								state={wtReady ? "done" : "active"}
 								label={
 									worktreeName === null
-										? `Creating a new copy of ${repoName}…`
-										: `Created a new copy of ${repoName} called ${name}`
+										? uiMessage(
+												"projects:worktree_setup_card_creating_a_new_copy_of",
+												{ repoName: String(repoName) },
+											)
+										: uiMessage(
+												"projects:worktree_setup_card_created_a_new_copy_of_called",
+												{ repoName: String(repoName), name: String(name) },
+											)
 								}
 							/>
 							<StepRow
 								state={branch !== null ? "done" : "pending"}
 								label={
 									branch !== null
-										? `Branched ${branch} from ${baseBranch ?? "origin/main"}`
-										: "Branching a fresh worktree…"
+										? uiMessage("projects:worktree_setup_card_branched_from", {
+												branch: String(branch),
+												value2: String(baseBranch ?? "origin/main"),
+											})
+										: uiMessage(
+												"projects:worktree_setup_card_branching_a_fresh_worktree",
+											)
 								}
 							/>
 							<StepRow
 								state={setupStarted ? "done" : wtReady ? "active" : "pending"}
-								label={`Created ${name} and copying files…`}
+								label={uiMessage(
+									"projects:worktree_setup_card_created_and_copying_files",
+									{ name: String(name) },
+								)}
 							/>
 							<StepRow
 								state={
@@ -502,12 +541,20 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 								}
 								label={
 									setupStatus === "failed"
-										? "Environment setup failed"
+										? uiMessage(
+												"projects:worktree_setup_card_environment_setup_failed",
+											)
 										: setupStatus === "succeeded" || setupStatus === "skipped"
-											? "Environment setup complete"
+											? uiMessage(
+													"projects:worktree_setup_card_environment_setup_complete",
+												)
 											: setupStatus === "running"
-												? "Running environment setup"
-												: "Detecting setup script…"
+												? uiMessage(
+														"projects:worktree_setup_card_running_environment_setup",
+													)
+												: uiMessage(
+														"projects:worktree_setup_card_detecting_setup_script",
+													)
 								}
 							/>
 						</>
@@ -516,7 +563,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 				{setupOutput.trim().length > 0 ? (
 					<div className="mt-2">
 						<p className="mb-1 text-[11px] text-muted-foreground">
-							Setup output
+							{uiMessage("projects:worktree_setup_card_setup_output")}
 						</p>
 						<pre className="max-h-48 overflow-auto font-mono text-[11px] leading-5 whitespace-pre-wrap text-foreground/70">
 							{setupOutput}
@@ -526,7 +573,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 				{onRerun !== null ? (
 					<div className="mt-2 flex justify-end">
 						<Button variant="settings" size="sm" onClick={onRerun}>
-							Rerun setup
+							{uiMessage("projects:worktree_setup_card_rerun_setup")}
 						</Button>
 					</div>
 				) : null}

@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import type { ChatId, Command, FolderId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Add01Icon,
 	BubbleChatIcon,
@@ -91,6 +93,8 @@ export function ChatSwitcherDialog({
 	onClose: () => void;
 	onSelect: (row: ChatSwitcherRow) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [query, setQuery] = useState("");
 	const groups = useMemo<ReadonlyArray<CommandPaletteGroup<ChatSwitcherRow>>>(
 		() =>
@@ -125,7 +129,7 @@ export function ChatSwitcherDialog({
 							<>
 								{row.chat.id === selectedChatId && (
 									<span className="shrink-0 text-[11px] text-muted-foreground">
-										Current
+										{uiMessage("chat:chat_switcher_current")}
 									</span>
 								)}
 								<span className="max-w-[30%] truncate text-xs text-muted-foreground">
@@ -135,19 +139,23 @@ export function ChatSwitcherDialog({
 						) : undefined,
 				})),
 			})),
-		[chats, query, selectedChatId],
+		[chats, query, selectedChatId, uiMessage],
 	);
 	return (
 		<CommandPaletteDialog
-			label="Quick open"
+			label={uiMessage("chat:chat_switcher_quick_open")}
 			inputLabel="Search chats and commands"
-			placeholder="Search chats or run a command…"
+			placeholder={uiMessage(
+				"chat:chat_switcher_search_chats_or_run_a_command",
+			)}
 			query={query}
 			onQueryChange={setQuery}
 			groups={groups}
 			onClose={onClose}
 			onSelect={onSelect}
-			emptyMessage="No results found. Try another chat, project, or command name."
+			emptyMessage={uiMessage(
+				"chat:chat_switcher_no_results_found_try_another_chat_project_or_command_name",
+			)}
 		/>
 	);
 }

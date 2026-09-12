@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/settings";
 import type { IconSvgElement } from "@hugeicons/react";
+import { message as uiMessage } from "@zuse/i18n";
 import {
 	BrowserIcon,
 	ConnectIcon,
@@ -24,67 +26,89 @@ export type SettingsNavigationItem = {
 const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 	{
 		id: "general",
-		label: "General",
+		get label() {
+			return uiMessage("settings:settings_navigation_general");
+		},
 		Icon: Settings01Icon,
 		section: { kind: "general" },
 	},
 	{
 		id: "providers",
-		label: "Providers",
+		get label() {
+			return uiMessage("settings:settings_navigation_providers");
+		},
 		Icon: PackageIcon,
 		section: { kind: "providers" },
 	},
 	{
 		id: "defaults",
-		label: "Default models",
+		get label() {
+			return uiMessage("settings:settings_navigation_default_models");
+		},
 		Icon: TaskDone01Icon,
 		section: { kind: "defaults" },
 	},
 	{
 		id: "mcp",
-		label: "MCP Servers",
+		get label() {
+			return uiMessage("settings:settings_navigation_mcp_servers");
+		},
 		Icon: PlugSocketIcon,
 		section: { kind: "mcp" },
 	},
 	{
 		id: "integrations",
-		label: "Integrations",
+		get label() {
+			return uiMessage("settings:settings_navigation_integrations");
+		},
 		Icon: ConnectIcon,
 		section: { kind: "integrations" },
 	},
 	{
 		id: "devices",
-		label: "Remote access",
+		get label() {
+			return uiMessage("settings:settings_navigation_remote_access");
+		},
 		Icon: SmartPhone01Icon,
 		section: { kind: "devices" },
 	},
 	{
 		id: "machines",
-		label: "Cloud workspaces · Beta",
+		get label() {
+			return uiMessage("settings:settings_navigation_cloud_workspaces_beta");
+		},
 		Icon: ConnectIcon,
 		section: { kind: "machines" },
 	},
 	{
 		id: "browser",
-		label: "Browser",
+		get label() {
+			return uiMessage("settings:settings_navigation_browser");
+		},
 		Icon: BrowserIcon,
 		section: { kind: "browser" },
 	},
 	{
 		id: "pokedex",
-		label: "Pokedex",
+		get label() {
+			return uiMessage("settings:settings_navigation_pokedex");
+		},
 		Icon: TaskDone01Icon,
 		section: { kind: "pokedex" },
 	},
 	{
 		id: "shortcuts",
-		label: "Keyboard shortcuts",
+		get label() {
+			return uiMessage("settings:settings_navigation_keyboard_shortcuts");
+		},
 		Icon: KeyboardIcon,
 		section: { kind: "shortcuts" },
 	},
 	{
 		id: "diagnostics",
-		label: "Diagnostics",
+		get label() {
+			return uiMessage("settings:settings_navigation_diagnostics");
+		},
 		Icon: DocumentAttachmentIcon,
 		section: { kind: "diagnostics" },
 	},
@@ -92,7 +116,9 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 	// showcase). Filtered out of production bundles below.
 	{
 		id: "developer",
-		label: "Developer",
+		get label() {
+			return uiMessage("settings:settings_navigation_developer");
+		},
 		Icon: TestTubeIcon,
 		section: { kind: "developer" },
 	},

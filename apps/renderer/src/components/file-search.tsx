@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/projects";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type { FolderId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useMemo, useState } from "react";
 import {
 	fileSearchFeedback,
@@ -92,11 +94,13 @@ export function FileSearchDialog({
 	emptyMessage?: string;
 	notice?: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["projects"]);
+
 	const [query, setQuery] = useState("");
 	const groups = useMemo(
 		() => [
 			{
-				label: "Project files",
+				label: uiMessage("projects:file_search_project_files"),
 				items: fileSearchResults(files, query).map((path) => ({
 					id: path,
 					value: path,
@@ -116,13 +120,13 @@ export function FileSearchDialog({
 				})),
 			},
 		],
-		[files, query],
+		[files, query, uiMessage],
 	);
 	return (
 		<CommandPaletteDialog
-			label="Search project files"
+			label={uiMessage("projects:file_search_search_project_files")}
 			inputLabel="Search files"
-			placeholder="Search files…"
+			placeholder={uiMessage("projects:file_search_search_files")}
 			query={query}
 			onQueryChange={setQuery}
 			groups={groups}

@@ -1,4 +1,7 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Folder01Icon, GitBranchIcon } from "@zuse/icons/solid-rounded";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
@@ -14,13 +17,21 @@ export type ComposerWorkspaceMode = "worktree" | "local";
 
 const OPTIONS = {
 	worktree: {
-		label: "Worktree",
-		description: "Fresh isolated branch",
+		get label() {
+			return uiMessage("chat:workspace_picker_worktree");
+		},
+		get description() {
+			return uiMessage("chat:workspace_picker_fresh_isolated_branch");
+		},
 		icon: GitBranchIcon,
 	},
 	local: {
-		label: "Local",
-		description: "Use the main checkout",
+		get label() {
+			return uiMessage("chat:workspace_picker_local");
+		},
+		get description() {
+			return uiMessage("chat:workspace_picker_use_the_main_checkout");
+		},
 		icon: Folder01Icon,
 	},
 } as const;
@@ -32,13 +43,15 @@ export function WorkspacePicker({
 	readonly value: ComposerWorkspaceMode;
 	readonly onValueChange: (value: ComposerWorkspaceMode) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [open, setOpen] = useState(false);
 	const current = OPTIONS[value];
 	return (
 		<Menu open={open} onOpenChange={setOpen}>
 			<MenuTrigger
 				className="flex h-7 min-w-0 items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] text-foreground transition-colors hover:bg-accent data-[popup-open]:bg-accent"
-				aria-label="Choose workspace"
+				aria-label={uiMessage("chat:workspace_picker_choose_workspace")}
 			>
 				<HugeiconsIcon icon={current.icon} className="size-3.5" />
 				<span>{current.label}</span>
@@ -46,7 +59,7 @@ export function WorkspacePicker({
 			</MenuTrigger>
 			<MenuPopup side="top" align="start" className="w-56 p-1">
 				<div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-					Workspace
+					{uiMessage("chat:workspace_picker_workspace")}
 				</div>
 				<MenuRadioGroup
 					value={value}

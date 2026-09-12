@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
 	CommandId,
@@ -11,6 +12,8 @@ import type {
 	Worktree,
 	WorktreeId,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	CancelCircleIcon,
 	CheckmarkCircle01Icon,
@@ -83,10 +86,30 @@ interface Row {
 }
 
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
-	{ id: "prs", label: "PRs" },
-	{ id: "branches", label: "Branches" },
-	{ id: "issues", label: "Issues" },
-	{ id: "linear", label: "Linear" },
+	{
+		id: "prs",
+		get label() {
+			return uiMessage("chat:create_from_menu_prs");
+		},
+	},
+	{
+		id: "branches",
+		get label() {
+			return uiMessage("chat:create_from_menu_branches");
+		},
+	},
+	{
+		id: "issues",
+		get label() {
+			return uiMessage("chat:create_from_menu_issues");
+		},
+	},
+	{
+		id: "linear",
+		get label() {
+			return uiMessage("chat:create_from_menu_linear");
+		},
+	},
 ];
 
 const linearStateIcon = (stateType: string) => {
@@ -133,6 +156,8 @@ export function CreateFromMenu({
 	rootPath,
 	onSelect,
 }: CreateFromMenuProps) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const setView = useUiStore((state) => state.setView);
 	const setSettingsSection = useUiStore((state) => state.setSettingsSection);
 	const [open, setOpen] = useState(false);
@@ -404,14 +429,14 @@ export function CreateFromMenu({
 				haystack: `${issue.number} ${issue.title} ${issue.author}`,
 			}));
 		return [];
-	}, [tab, prs, branches, issues, worktreeByBranch]);
+	}, [tab, prs, branches, issues, worktreeByBranch, uiMessage]);
 
 	const filtered = useMemo(() => {
 		if (tab === "linear") return [];
 		const q = query.trim().toLowerCase();
 		if (q.length === 0) return rows;
 		return rows.filter((r) => r.haystack.toLowerCase().includes(q));
-	}, [rows, query, tab]);
+	}, [rows, query, tab, uiMessage]);
 
 	useEffect(() => setHighlight(0), [filtered]);
 
@@ -496,13 +521,15 @@ export function CreateFromMenu({
 					"hover:bg-accent data-[popup-open]:bg-accent",
 					folderId === null && "pointer-events-none opacity-50",
 				)}
-				aria-label="Create from an existing PR, branch, or issue tracker ticket"
+				aria-label={uiMessage(
+					"chat:create_from_menu_create_from_an_existing_pr_branch_or_issue_tracker_ticket",
+				)}
 			>
 				<HugeiconsIcon
 					icon={GitPullRequestIcon}
 					className="size-3.5 text-muted-foreground"
 				/>
-				<span>Create from…</span>
+				<span>{uiMessage("chat:create_from_menu_create_from")}</span>
 				<ChevronDown className="size-3 opacity-60" />
 			</PopoverPrimitive.Trigger>
 			<PopoverPrimitive.Portal>
@@ -530,10 +557,14 @@ export function CreateFromMenu({
 								onChange={(e) => setQuery(e.target.value)}
 								placeholder={
 									tab === "branches"
-										? "Search by name"
+										? uiMessage("chat:create_from_menu_search_by_name")
 										: tab === "linear"
-											? "Search ticker or title"
-											: "Search by title, number, or author"
+											? uiMessage(
+													"chat:create_from_menu_search_ticker_or_title",
+												)
+											: uiMessage(
+													"chat:create_from_menu_search_by_title_number_or_author",
+												)
 								}
 								className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
 							/>
@@ -561,12 +592,16 @@ export function CreateFromMenu({
 						{tab === "linear" && (linearConnections?.length ?? 0) > 1 && (
 							<div className="border-b border-border/50 px-3 py-2">
 								<select
-									aria-label="Filter by Linear workspace"
+									aria-label={uiMessage(
+										"chat:create_from_menu_filter_by_linear_workspace",
+									)}
 									value={linearWorkspaceId}
 									onChange={(event) => setLinearWorkspaceId(event.target.value)}
 									className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ring"
 								>
-									<option value="">All workspaces</option>
+									<option value="">
+										{uiMessage("chat:create_from_menu_all_workspaces")}
+									</option>
 									{linearConnections?.map((connection) => (
 										<option
 											key={connection.workspaceId}
@@ -581,19 +616,21 @@ export function CreateFromMenu({
 						<div className="max-h-80 min-h-24 overflow-y-auto py-1">
 							{loading ? (
 								<div className="px-3 py-6 text-center text-sm text-muted-foreground">
-									Loading…
+									{uiMessage("common:loading")}
 								</div>
 							) : tab === "linear" && (linearConnections?.length ?? 0) === 0 ? (
 								<div className="flex min-h-24 flex-col items-center justify-center gap-3 px-3 py-5 text-center">
 									<p className="text-sm text-muted-foreground">
-										Connect a workspace to start from Linear issues.
+										{uiMessage(
+											"chat:create_from_menu_connect_a_workspace_to_start_from_linear_issues",
+										)}
 									</p>
 									<Button
 										type="button"
 										variant="outline"
 										onClick={openIntegrations}
 									>
-										Open integrations
+										{uiMessage("chat:create_from_menu_open_integrations")}
 									</Button>
 								</div>
 							) : tab === "linear" && linearError !== null ? (
@@ -607,8 +644,10 @@ export function CreateFromMenu({
 								(linearIssues ?? []).length === 0 ? (
 									<div className="px-3 py-6 text-center text-sm text-muted-foreground">
 										{query.trim() === ""
-											? "No assigned open issues."
-											: "No matching issues."}
+											? uiMessage(
+													"chat:create_from_menu_no_assigned_open_issues",
+												)
+											: uiMessage("chat:create_from_menu_no_matching_issues")}
 									</div>
 								) : (
 									(linearIssues ?? []).map((issue, index) => {
@@ -627,7 +666,13 @@ export function CreateFromMenu({
 													type="checkbox"
 													checked={checked}
 													onChange={() => toggleLinear(issue)}
-													aria-label={`Select ${issue.identifier}: ${issue.title}`}
+													aria-label={uiMessage(
+														"chat:create_from_menu_select_2",
+														{
+															value1: String(issue.identifier),
+															value2: String(issue.title),
+														},
+													)}
 													className="sr-only"
 												/>
 												<span
@@ -643,8 +688,14 @@ export function CreateFromMenu({
 												</span>
 												<span
 													role="img"
-													aria-label={`Status: ${issue.state || "Unknown"}`}
-													title={issue.state || "Unknown status"}
+													aria-label={uiMessage(
+														"chat:create_from_menu_status",
+														{ value1: String(issue.state || "Unknown") },
+													)}
+													title={
+														issue.state ||
+														uiMessage("chat:create_from_menu_unknown_status")
+													}
 													className={cn(
 														"grid size-4 shrink-0 place-items-center",
 														issue.stateColor === null &&
@@ -670,8 +721,14 @@ export function CreateFromMenu({
 												</span>
 												{issue.assignee !== null && (
 													<Avatar
-														aria-label={`Assigned to ${issue.assignee}`}
-														title={`Assigned to ${issue.assignee}`}
+														aria-label={uiMessage(
+															"chat:create_from_menu_assigned_to",
+															{ value1: String(issue.assignee) },
+														)}
+														title={uiMessage(
+															"chat:create_from_menu_assigned_to",
+															{ value1: String(issue.assignee) },
+														)}
 														className="size-5 border border-border/60"
 													>
 														{issue.assigneeAvatarUrl !== null && (
@@ -695,8 +752,12 @@ export function CreateFromMenu({
 							) : filtered.length === 0 ? (
 								<div className="px-3 py-6 text-center text-sm text-muted-foreground">
 									{tab === "branches"
-										? "No other branches."
-										: `No ${tab === "prs" ? "open PRs" : "open issues"} found.`}
+										? uiMessage("chat:create_from_menu_no_other_branches")
+										: uiMessage("chat:create_from_menu_no_found", {
+												value1: String(
+													tab === "prs" ? "open PRs" : "open issues",
+												),
+											})}
 								</div>
 							) : (
 								filtered.map((row, i) => {
@@ -727,7 +788,11 @@ export function CreateFromMenu({
 												{row.label}
 											</span>
 											<span className="shrink-0 text-xs text-muted-foreground">
-												{row.inUse ? "In use" : active ? "Select ↵" : ""}
+												{row.inUse
+													? uiMessage("chat:create_from_menu_in_use")
+													: active
+														? uiMessage("chat:create_from_menu_select")
+														: ""}
 											</span>
 										</button>
 									);
@@ -737,7 +802,9 @@ export function CreateFromMenu({
 						{tab === "linear" && (
 							<div className="flex items-center gap-2 border-t border-border/50 px-3 py-2">
 								<span className="mr-auto text-xs text-muted-foreground">
-									{selectedLinear.size} selected
+									{uiMessage("chat:create_from_menu_selected_sentence", {
+										value: selectedLinear.size,
+									})}
 								</span>
 								{selectedLinear.size > 1 && (
 									<label className="flex min-h-8 cursor-pointer select-none items-center gap-2 rounded-md px-1 text-xs text-muted-foreground pointer-coarse:min-h-11">
@@ -749,7 +816,9 @@ export function CreateFromMenu({
 											}
 											className="size-4 shrink-0 cursor-pointer accent-primary"
 										/>
-										<span>Separate threads</span>
+										<span>
+											{uiMessage("chat:create_from_menu_separate_threads")}
+										</span>
 									</label>
 								)}
 								<button
@@ -758,7 +827,7 @@ export function CreateFromMenu({
 									onClick={confirmLinear}
 									className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-40"
 								>
-									Stage
+									{uiMessage("chat:create_from_menu_stage")}
 								</button>
 							</div>
 						)}

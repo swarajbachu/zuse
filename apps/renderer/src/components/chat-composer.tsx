@@ -1,3 +1,5 @@
+import { formatNumber as formatUiNumber } from "@zuse/i18n";
+import "@zuse/i18n/english/chat";
 import type { EditorView } from "@codemirror/view";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { DitherButton } from "@repo/ui/dither";
@@ -19,6 +21,7 @@ import {
 	type SessionId,
 	type ThreadGoal,
 } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	AttachmentIcon,
 	DashboardSpeedIcon,
@@ -257,6 +260,8 @@ export function ChatComposer({
 		},
 	) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const sessionId: SessionId = session.id;
 	const qualifiedEnvironmentId = environmentId;
 	const draftKey =
@@ -296,7 +301,7 @@ export function ChatComposer({
 	);
 	const goalRef = useMemo(
 		() => ({ environmentId: qualifiedEnvironmentId, sessionId }),
-		[qualifiedEnvironmentId, sessionId],
+		[qualifiedEnvironmentId, sessionId, uiMessage],
 	);
 	// Existing goals are authoritative runtime state, independent of the
 	// lazily loaded CLI inventory used to offer creation controls.
@@ -396,7 +401,7 @@ export function ChatComposer({
 			}
 		}
 		return null;
-	}, [sessionMessages]);
+	}, [sessionMessages, uiMessage]);
 
 	// Pending permission requests also take over the composer slot. Same
 	// motivation as AskUserQuestion: the user's eyes are already on the
@@ -430,18 +435,18 @@ export function ChatComposer({
 				a.requestedAt.getTime() - b.requestedAt.getTime(),
 		);
 		return out;
-	}, [requestsById, sessionId]);
+	}, [requestsById, sessionId, uiMessage]);
 	const pendingPlanApprovalRequest = useMemo(
 		() =>
 			findPendingPlanApprovalRequest(Object.values(requestsById), sessionId),
-		[requestsById, sessionId],
+		[requestsById, sessionId, uiMessage],
 	);
 	const pendingNativePlanApproval = useMemo(
 		() =>
 			pendingPlanApprovalRequest === null
 				? findPendingNativePlanApproval(sessionMessages ?? [])
 				: null,
-		[pendingPlanApprovalRequest, sessionMessages],
+		[pendingPlanApprovalRequest, sessionMessages, uiMessage],
 	);
 	const usesEmulatedPlanMode = providerUsesEmulatedPlanMode(session.providerId);
 	const sendPlanFeedbackNow = useMemo(
@@ -461,6 +466,7 @@ export function ChatComposer({
 			sessionMessages,
 			usesEmulatedPlanMode,
 			inFlight,
+			uiMessage,
 		],
 	);
 	const emulatedPlanReady = useMemo(
@@ -478,6 +484,7 @@ export function ChatComposer({
 			sessionMessages,
 			usesEmulatedPlanMode,
 			inFlight,
+			uiMessage,
 		],
 	);
 	const headPermission = pendingPermissions[0];
@@ -678,9 +685,10 @@ export function ChatComposer({
 			if (hasComposerDraft || editingQueuedItemRef.current !== null) {
 				toastManager.add({
 					type: "info",
-					title: "Composer already has a draft",
-					description:
-						"Send or clear the current draft before editing a queued message.",
+					title: uiMessage("chat:chat_composer_composer_already_has_a_draft"),
+					description: uiMessage(
+						"chat:chat_composer_send_or_clear_the_current_draft_before_editing_a_queued_message",
+					),
 				});
 				v.focus();
 				return;
@@ -715,9 +723,10 @@ export function ChatComposer({
 						});
 						toastManager.add({
 							type: "info",
-							title: "Composer draft changed",
-							description:
-								"The queued message was restored so your current draft stays untouched.",
+							title: uiMessage("chat:chat_composer_composer_draft_changed"),
+							description: uiMessage(
+								"chat:chat_composer_the_queued_message_was_restored_so_your_current_draft_stays_untou",
+							),
 						});
 						return;
 					}
@@ -779,7 +788,7 @@ export function ChatComposer({
 			view.destroy();
 			editorViewRef.current = null;
 		};
-	}, [draftKey, saveComposerDraft]);
+	}, [draftKey, saveComposerDraft, uiMessage]);
 
 	// Picker-triggered session changes (model / provider) can shift the
 	// composer's surrounding layout — chip icon swap, CliUpgradeBanner
@@ -849,9 +858,10 @@ export function ChatComposer({
 				if (session.providerId === "cursor") {
 					toastManager.add({
 						type: "info",
-						title: "Sandboxed with auto-review",
-						description:
-							"This provider uses a fixed local sandbox and does not support interactive permission modes.",
+						title: uiMessage("chat:chat_composer_sandboxed_with_auto_review"),
+						description: uiMessage(
+							"chat:chat_composer_this_provider_uses_a_fixed_local_sandbox_and_does_not_support_int",
+						),
 					});
 					break;
 				}
@@ -1010,8 +1020,10 @@ export function ChatComposer({
 					}
 					toastManager.add({
 						type: "error",
-						title: "Image upload failed",
-						description: "The image was removed. Try attaching it again.",
+						title: uiMessage("chat:chat_composer_image_upload_failed"),
+						description: uiMessage(
+							"chat:chat_composer_the_image_was_removed_try_attaching_it_again",
+						),
 					});
 				})
 				.finally(() => {
@@ -1458,13 +1470,15 @@ export function ChatComposer({
 						</div>
 						{editingQueuedItem !== null ? (
 							<div className="mb-1 flex h-7 items-center justify-between rounded-md bg-muted/35 px-2.5 text-xs text-muted-foreground">
-								<span>Editing queued message</span>
+								<span>
+									{uiMessage("chat:chat_composer_editing_queued_message")}
+								</span>
 								<button
 									type="button"
 									onClick={cancelQueuedEdit}
 									className="rounded px-1.5 py-0.5 text-foreground hover:bg-muted/70"
 								>
-									Cancel
+									{uiMessage("common:cancel")}
 								</button>
 							</div>
 						) : null}
@@ -1494,7 +1508,9 @@ export function ChatComposer({
 								<div className="pointer-events-none absolute inset-1 z-40 flex items-center justify-center rounded-lg border border-dashed border-accent-foreground/40 bg-popover">
 									<div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
 										<HugeiconsIcon icon={Upload01Icon} className="size-3.5" />
-										<span>Drop files to attach</span>
+										<span>
+											{uiMessage("chat:chat_composer_drop_files_to_attach")}
+										</span>
 									</div>
 								</div>
 							)}
@@ -1557,7 +1573,9 @@ export function ChatComposer({
 												<button
 													type="button"
 													onClick={() => fileInputRef.current?.click()}
-													aria-label="Attach files"
+													aria-label={uiMessage(
+														"chat:chat_composer_attach_files",
+													)}
 													className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
 												>
 													<HugeiconsIcon
@@ -1568,7 +1586,9 @@ export function ChatComposer({
 											}
 										/>
 										<TooltipPopup>
-											Attach files (paste / drop also work)
+											{uiMessage(
+												"chat:chat_composer_attach_files_paste_drop_also_work",
+											)}
 										</TooltipPopup>
 									</Tooltip>
 									<RuntimeAccessPicker
@@ -1635,9 +1655,11 @@ export function ChatComposer({
 											size="sm"
 											onClick={() => void submit()}
 											disabled={!canSend}
-											aria-label="Request changes to plan"
+											aria-label={uiMessage(
+												"chat:chat_composer_request_changes_to_plan",
+											)}
 										>
-											Request changes
+											{uiMessage("chat:chat_composer_request_changes")}
 										</Button>
 									) : inFlight ? (
 										<div className="flex items-center gap-1.5">
@@ -1648,9 +1670,11 @@ export function ChatComposer({
 													onClick={() => void submit()}
 													disabled={!canSend}
 													loading={uploadingAttachmentCount > 0}
-													aria-label="Add message to queue"
+													aria-label={uiMessage(
+														"chat:chat_composer_add_message_to_queue",
+													)}
 												>
-													Queue
+													{uiMessage("chat:chat_composer_queue")}
 												</Button>
 											) : null}
 											<Tooltip>
@@ -1664,8 +1688,12 @@ export function ChatComposer({
 															loading={interrupting}
 															aria-label={
 																interrupting
-																	? "Stopping current turn"
-																	: "Stop current turn"
+																	? uiMessage(
+																			"chat:chat_composer_stopping_current_turn",
+																		)
+																	: uiMessage(
+																			"chat:chat_composer_stop_current_turn",
+																		)
 															}
 														>
 															<HugeiconsIcon
@@ -1676,7 +1704,9 @@ export function ChatComposer({
 													}
 												/>
 												<TooltipPopup>
-													{interrupting ? "Stopping…" : "Stop current turn"}
+													{interrupting
+														? uiMessage("chat:chat_composer_stopping")
+														: uiMessage("chat:chat_composer_stop_current_turn")}
 												</TooltipPopup>
 											</Tooltip>
 										</div>
@@ -1694,8 +1724,10 @@ export function ChatComposer({
 														}
 														aria-label={
 															uploadingAttachmentCount > 0
-																? "Uploading image"
-																: "Send"
+																? uiMessage(
+																		"chat:chat_composer_uploading_image",
+																	)
+																: uiMessage("chat:chat_composer_send")
 														}
 													>
 														{uploadingAttachmentCount > 0 ? (
@@ -1711,8 +1743,8 @@ export function ChatComposer({
 											/>
 											<TooltipPopup>
 												{uploadingAttachmentCount > 0
-													? "Uploading image…"
-													: "Send (Enter)"}
+													? uiMessage("chat:chat_composer_uploading_image_2")
+													: uiMessage("chat:chat_composer_send_enter")}
 											</TooltipPopup>
 										</Tooltip>
 									)}
@@ -1741,6 +1773,8 @@ function RuntimeAccessPicker({
 	pending: boolean;
 	confirmed: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const setRuntimeMode = useSessionsStore((state) => state.setRuntimeMode);
 	const meta = MODE_META[current];
 	const fixedSandbox = providerId === "cursor";
@@ -1751,7 +1785,9 @@ function RuntimeAccessPicker({
 			<MenuTrigger
 				disabled={fixedSandbox || pending}
 				aria-label={
-					fixedSandbox ? "Cursor uses fixed sandbox access" : "Agent access"
+					fixedSandbox
+						? uiMessage("chat:chat_composer_cursor_uses_fixed_sandbox_access")
+						: uiMessage("chat:chat_composer_agent_access")
 				}
 				className={cn(
 					"flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors hover:bg-muted/60 data-[popup-open]:bg-muted/70 disabled:cursor-default disabled:opacity-60",
@@ -1763,21 +1799,21 @@ function RuntimeAccessPicker({
 				<HugeiconsIcon icon={meta.Icon} className="size-3.5" />
 				<span>
 					{fixedSandbox
-						? "Sandboxed"
+						? uiMessage("chat:chat_composer_sandboxed")
 						: confirmed
 							? meta.label
-							: "Checking access…"}
+							: uiMessage("chat:chat_composer_checking_access")}
 				</span>
 				{pending ? (
 					<span role="status" aria-live="polite">
-						Updating…
+						{uiMessage("chat:chat_composer_updating")}
 					</span>
 				) : null}
 				{fixedSandbox ? null : <ChevronDown className="size-3 opacity-60" />}
 			</MenuTrigger>
 			<MenuPopup side="top" align="start" className="w-64 p-1">
 				<div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-					Agent access
+					{uiMessage("chat:chat_composer_agent_access")}
 				</div>
 				<MenuRadioGroup
 					value={current}
@@ -1819,6 +1855,8 @@ function FastModeToggle({
 	environmentId: EnvironmentId;
 	compact?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const storageKey = sessionModelOptionStorageKey(
 		{ environmentId, sessionId },
 		"fastMode",
@@ -1864,7 +1902,11 @@ function FastModeToggle({
 					<button
 						type="button"
 						onClick={onClick}
-						aria-label={enabled ? "Disable fast mode" : "Enable fast mode"}
+						aria-label={
+							enabled
+								? uiMessage("chat:chat_composer_disable_fast_mode")
+								: uiMessage("chat:chat_composer_enable_fast_mode")
+						}
 						aria-pressed={enabled}
 						className={cn(
 							compact
@@ -1876,20 +1918,24 @@ function FastModeToggle({
 						)}
 					>
 						<HugeiconsIcon icon={FlashIcon} className="size-3.5" />
-						{enabled && !compact ? <span>Fast</span> : null}
+						{enabled && !compact ? (
+							<span>{uiMessage("chat:chat_composer_fast")}</span>
+						) : null}
 					</button>
 				}
 			/>
 			<TooltipPopup className={compact ? "space-y-0.5" : undefined}>
 				{compact ? (
 					<>
-						<div>1.5× speed</div>
-						<div className="text-muted-foreground">More usage</div>
+						<div>{uiMessage("chat:chat_composer_1_5_speed")}</div>
+						<div className="text-muted-foreground">
+							{uiMessage("chat:chat_composer_more_usage")}
+						</div>
 					</>
 				) : enabled ? (
-					"Disable Claude fast mode"
+					uiMessage("chat:chat_composer_disable_claude_fast_mode")
 				) : (
-					"Enable Claude fast mode"
+					uiMessage("chat:chat_composer_enable_claude_fast_mode")
 				)}
 			</TooltipPopup>
 		</Tooltip>
@@ -1912,6 +1958,8 @@ function PlanModeToggle({
 	environmentId: EnvironmentId;
 	current: PermissionMode;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const setPermissionMode = useSessionsStore((s) => s.setPermissionMode);
 	const isPlan = current === "plan";
 
@@ -1933,7 +1981,11 @@ function PlanModeToggle({
 					<button
 						type="button"
 						onClick={onClick}
-						aria-label={isPlan ? "Exit plan mode" : "Enter plan mode"}
+						aria-label={
+							isPlan
+								? uiMessage("chat:chat_composer_exit_plan_mode")
+								: uiMessage("chat:chat_composer_enter_plan_mode")
+						}
 						aria-pressed={isPlan}
 						className={cn(
 							"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
@@ -1943,13 +1995,19 @@ function PlanModeToggle({
 						)}
 					>
 						<HugeiconsIcon icon={MapsIcon} className="size-3.5" />
-						{isPlan ? <span>Plan</span> : null}
+						{isPlan ? (
+							<span>{uiMessage("chat:chat_composer_plan")}</span>
+						) : null}
 					</button>
 				}
 			/>
 			<TooltipPopup>
-				{isPlan ? "Exit plan mode" : "Enter plan mode"}
-				<span className="ml-2 opacity-60">⇧Tab</span>
+				{isPlan
+					? uiMessage("chat:chat_composer_exit_plan_mode")
+					: uiMessage("chat:chat_composer_enter_plan_mode")}
+				<span className="ml-2 opacity-60">
+					{uiMessage("chat:chat_composer_tab")}
+				</span>
 			</TooltipPopup>
 		</Tooltip>
 	);
@@ -1964,6 +2022,8 @@ function GoalModeToggle({
 	hasGoal: boolean;
 	onClick: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	return (
 		<Tooltip>
 			<TooltipTrigger
@@ -1971,7 +2031,11 @@ function GoalModeToggle({
 					<button
 						type="button"
 						onClick={onClick}
-						aria-label={active ? "Send next message as goal" : "Set goal"}
+						aria-label={
+							active
+								? uiMessage("chat:chat_composer_send_next_message_as_goal")
+								: uiMessage("chat:chat_composer_set_goal")
+						}
 						aria-pressed={active}
 						className={cn(
 							"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
@@ -1983,12 +2047,16 @@ function GoalModeToggle({
 						)}
 					>
 						<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />
-						{active ? <span>Goal</span> : null}
+						{active ? (
+							<span>{uiMessage("chat:chat_composer_goal")}</span>
+						) : null}
 					</button>
 				}
 			/>
 			<TooltipPopup>
-				{active ? "Next send sets a goal" : "Send next message as goal"}
+				{active
+					? uiMessage("chat:chat_composer_next_send_sets_a_goal")
+					: uiMessage("chat:chat_composer_send_next_message_as_goal")}
 			</TooltipPopup>
 		</Tooltip>
 	);
@@ -2016,6 +2084,8 @@ function GoalBanner({
 	onSave: (objective: string, tokenBudget: number | null) => void;
 	onClear: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [open, setOpen] = useState(false);
 	const objective = goal.objective.trim();
 	const elapsed =
@@ -2047,7 +2117,9 @@ function GoalBanner({
 										onClick={onPause}
 										className={trayPillActionClass}
 										aria-label={
-											goal.status === "active" ? "Pause goal" : "Resume goal"
+											goal.status === "active"
+												? uiMessage("chat:chat_composer_pause_goal")
+												: uiMessage("chat:chat_composer_resume_goal")
 										}
 									>
 										<HugeiconsIcon
@@ -2058,7 +2130,9 @@ function GoalBanner({
 								}
 							/>
 							<TooltipPopup>
-								{goal.status === "active" ? "Pause goal" : "Resume goal"}
+								{goal.status === "active"
+									? uiMessage("chat:chat_composer_pause_goal")
+									: uiMessage("chat:chat_composer_resume_goal")}
 							</TooltipPopup>
 						</Tooltip>
 						<Tooltip>
@@ -2068,7 +2142,7 @@ function GoalBanner({
 										type="button"
 										onClick={() => setOpen(true)}
 										className={trayPillActionClass}
-										aria-label="Edit goal"
+										aria-label={uiMessage("chat:chat_composer_edit_goal")}
 									>
 										<HugeiconsIcon
 											icon={PencilEdit01Icon}
@@ -2077,7 +2151,9 @@ function GoalBanner({
 									</button>
 								}
 							/>
-							<TooltipPopup>Edit goal</TooltipPopup>
+							<TooltipPopup>
+								{uiMessage("chat:chat_composer_edit_goal")}
+							</TooltipPopup>
 						</Tooltip>
 						<Tooltip>
 							<TooltipTrigger
@@ -2089,13 +2165,15 @@ function GoalBanner({
 											trayPillActionClass,
 											"hover:bg-destructive/10 hover:text-destructive",
 										)}
-										aria-label="Delete goal"
+										aria-label={uiMessage("chat:chat_composer_delete_goal")}
 									>
 										<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
 									</button>
 								}
 							/>
-							<TooltipPopup>Delete goal</TooltipPopup>
+							<TooltipPopup>
+								{uiMessage("chat:chat_composer_delete_goal")}
+							</TooltipPopup>
 						</Tooltip>
 					</>
 				}
@@ -2107,7 +2185,7 @@ function GoalBanner({
 					icon={
 						<HugeiconsIcon icon={InformationCircleIcon} className="size-3.5" />
 					}
-					title="Plan mode active"
+					title={uiMessage("chat:chat_composer_plan_mode_active")}
 					subtitle="Codex won't continue this goal until plan mode exits."
 				/>
 			) : null}
@@ -2135,6 +2213,8 @@ function GoalEditorDialog({
 	elapsed: string;
 	onSave: (objective: string, tokenBudget: number | null) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [objective, setObjective] = useState(goal.objective);
 	const [budget, setBudget] = useState(
 		goal.tokenBudget === null ? "" : String(goal.tokenBudget),
@@ -2152,10 +2232,13 @@ function GoalEditorDialog({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogPopup>
 				<DialogHeader>
-					<DialogTitle>Edit Goal</DialogTitle>
+					<DialogTitle>
+						{uiMessage("chat:chat_composer_edit_goal_2")}
+					</DialogTitle>
 					<DialogDescription>
-						Changing the objective replaces the Codex goal and resets goal
-						usage.
+						{uiMessage(
+							"chat:chat_composer_changing_the_objective_replaces_the_codex_goal_and_resets_goal_usage",
+						)}
 					</DialogDescription>
 				</DialogHeader>
 				<DialogPanel className="space-y-3">
@@ -2163,13 +2246,18 @@ function GoalEditorDialog({
 						value={objective}
 						onChange={(event) => setObjective(event.currentTarget.value)}
 						maxLength={4000}
-						aria-label="Goal objective"
+						aria-label={uiMessage("chat:chat_composer_goal_objective")}
 					/>
 					<div className="flex items-center justify-between text-xs text-muted-foreground">
-						<span>{objective.length}/4000</span>
-						<span>
-							{goal.tokensUsed.toLocaleString()} tokens · {elapsed}
-						</span>
+						<RichMessage
+							id="chat:chat_composer_4000_tokens_sentence"
+							values={{
+								value: objective.length,
+								value2: formatUiNumber(goal.tokensUsed),
+								elapsed: elapsed,
+							}}
+							components={{ part0: <span />, part1: <span /> }}
+						/>
 					</div>
 					<Input
 						nativeInput
@@ -2177,13 +2265,13 @@ function GoalEditorDialog({
 						min={1}
 						value={budget}
 						onChange={(event) => setBudget(event.currentTarget.value)}
-						placeholder="Token budget"
-						aria-label="Token budget"
+						placeholder={uiMessage("chat:chat_composer_token_budget")}
+						aria-label={uiMessage("chat:chat_composer_token_budget")}
 					/>
 				</DialogPanel>
 				<DialogFooter>
 					<Button variant="outline" onClick={() => onOpenChange(false)}>
-						Cancel
+						{uiMessage("common:cancel")}
 					</Button>
 					<Button
 						disabled={!canSave}
@@ -2195,7 +2283,7 @@ function GoalEditorDialog({
 							onOpenChange(false);
 						}}
 					>
-						Save Goal
+						{uiMessage("chat:chat_composer_save_goal")}
 					</Button>
 				</DialogFooter>
 			</DialogPopup>
@@ -2229,6 +2317,8 @@ function ComposerModelPicker({
 	onLevelChange?: (level: string | null) => void;
 	onOpenChange?: (open: boolean) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const sessionId = session.id;
 	const providerId = session.providerId;
 	const model = session.model;
@@ -2254,7 +2344,7 @@ function ComposerModelPicker({
 			defaultId: selectDescriptor.defaultId ?? "medium",
 			descriptorId: selectDescriptor.id,
 		};
-	}, [catalog, providerId, model]);
+	}, [catalog, providerId, model, uiMessage]);
 
 	const defaultId = resolved?.defaultId ?? "medium";
 	const descriptorId = resolved?.descriptorId ?? "reasoning";
@@ -2333,7 +2423,7 @@ function ComposerModelPicker({
 				<div className="space-y-2">
 					<div className="flex items-center justify-between gap-2">
 						<span className="text-xs font-medium text-muted-foreground">
-							Advanced
+							{uiMessage("chat:chat_composer_advanced")}
 						</span>
 						{fastModeAvailable ? (
 							<FastModeToggle
@@ -2511,6 +2601,8 @@ function ContextStatusPopover({
 	session: Session;
 	environmentId: EnvironmentId;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const { messages } = useRendererSessionTimeline(
 		session.id,
 		"connect",
@@ -2563,7 +2655,7 @@ function ContextStatusPopover({
 			};
 		}
 		return latestUsage;
-	}, [messages, session.providerId]);
+	}, [messages, session.providerId, uiMessage]);
 
 	const usageLimits = useMemo(() => {
 		const latestByKey = new Map<
@@ -2586,7 +2678,7 @@ function ContextStatusPopover({
 			}
 		}
 		return [...latestByKey.values()].reverse();
-	}, [messages, session.providerId]);
+	}, [messages, session.providerId, uiMessage]);
 
 	const usedTokens = latestContext?.usedTokens ?? null;
 	const reportedWindowTokens = latestContext?.windowTokens ?? null;
@@ -2634,7 +2726,9 @@ function ContextStatusPopover({
 								? "text-amber-400 hover:text-amber-300"
 								: "text-muted-foreground hover:text-foreground",
 						)}
-						aria-label="Context and usage status"
+						aria-label={uiMessage(
+							"chat:chat_composer_context_and_usage_status",
+						)}
 					>
 						<ContextRing percent={percent} />
 					</button>
@@ -2649,10 +2743,16 @@ function ContextStatusPopover({
 				{hasContext ? (
 					<div className="flex flex-col gap-3 p-3.5">
 						<div className="flex items-baseline justify-between gap-3">
-							<span className="font-medium text-foreground">Context</span>
-							<span className="tabular-nums text-muted-foreground">
-								{headerValue}
-							</span>
+							<RichMessage
+								id="chat:chat_composer_context_sentence"
+								values={{ headerValue: headerValue }}
+								components={{
+									part0: <span className="font-medium text-foreground" />,
+									part1: (
+										<span className="tabular-nums text-muted-foreground" />
+									),
+								}}
+							/>
 						</div>
 						{percent !== null ? (
 							<>
@@ -2661,11 +2761,17 @@ function ContextStatusPopover({
 									tone={high ? "warning" : "default"}
 								/>
 								<div className="flex items-center justify-between text-muted-foreground">
-									<span>Window used</span>
-									<span className="tabular-nums">{percent.toFixed(1)}%</span>
+									<RichMessage
+										id="chat:chat_composer_window_used_sentence"
+										values={{ value: percent.toFixed(1) }}
+										components={{
+											part0: <span />,
+											part1: <span className="tabular-nums" />,
+										}}
+									/>
 								</div>
 								<div className="flex items-center justify-between text-muted-foreground/70">
-									<span>Available</span>
+									<span>{uiMessage("chat:chat_composer_available")}</span>
 									{freeTokens !== null ? (
 										<span className="tabular-nums">
 											{formatTokens(freeTokens)}
@@ -2675,7 +2781,9 @@ function ContextStatusPopover({
 							</>
 						) : (
 							<div className="text-muted-foreground/70">
-								Usage appears after the first response
+								{uiMessage(
+									"chat:chat_composer_usage_appears_after_the_first_response",
+								)}
 							</div>
 						)}
 					</div>
@@ -2719,9 +2827,11 @@ function ContextStatusPopover({
 										/>
 									) : null}
 									<div className="flex items-center justify-between text-muted-foreground/70">
-										<span>Reset</span>
+										<span>{uiMessage("chat:chat_composer_reset")}</span>
 										<span className="tabular-nums">
-											{reset !== null ? reset : "unknown"}
+											{reset !== null
+												? reset
+												: uiMessage("chat:chat_composer_unknown")}
 										</span>
 									</div>
 								</div>

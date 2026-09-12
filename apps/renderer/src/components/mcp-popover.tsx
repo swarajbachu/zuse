@@ -1,5 +1,12 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown } from "lucide-react";
+import type {
+	FolderId,
+	McpServerDescriptor,
+	McpServerStatus,
+	ProviderId,
+} from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Alert02Icon,
 	Key01Icon,
@@ -8,12 +15,7 @@ import {
 	RefreshIcon,
 	Tick02Icon,
 } from "@zuse/icons/solid-rounded";
-import type {
-	FolderId,
-	McpServerDescriptor,
-	McpServerStatus,
-	ProviderId,
-} from "@zuse/contracts";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -117,6 +119,8 @@ function ServerRow({
 	providerId: ProviderId;
 	indented?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const authenticate = useMcpStore((state) => state.authenticate);
 	const authenticating = useMcpStore((state) =>
 		state.authenticating.has(server.key),
@@ -163,11 +167,13 @@ function ServerRow({
 						onClick={() => void authenticate(server.key, projectId, providerId)}
 						className="h-6 shrink-0 rounded-sm border border-border/60 px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-60"
 					>
-						{authenticating ? "Waiting…" : "Connect"}
+						{authenticating
+							? uiMessage("chat:mcp_popover_waiting")
+							: uiMessage("common:connect")}
 					</button>
 				) : status.state === "needs-auth" ? (
 					<span className="shrink-0 text-[10px] text-amber-500/80">
-						Needs auth
+						{uiMessage("chat:mcp_popover_needs_auth")}
 					</span>
 				) : !available ? (
 					<span className="shrink-0 text-[11px] text-muted-foreground">
@@ -175,11 +181,14 @@ function ServerRow({
 					</span>
 				) : status.state === "connecting" ? (
 					<span className="shrink-0 text-[10px] text-muted-foreground">
-						Checking…
+						{uiMessage("chat:mcp_popover_checking")}
 					</span>
 				) : status.toolCount !== null ? (
 					<span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-						{status.toolCount} {status.toolCount === 1 ? "tool" : "tools"}
+						{status.toolCount}{" "}
+						{status.toolCount === 1
+							? uiMessage("chat:mcp_popover_tool")
+							: uiMessage("chat:mcp_popover_tools")}
 					</span>
 				) : null}
 			</div>
@@ -210,6 +219,8 @@ function AppGroup({
 	projectId: FolderId | undefined;
 	providerId: ProviderId;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [expanded, setExpanded] = useState(true);
 	const available = server.availableProviders.includes(providerId);
 	return (
@@ -234,7 +245,10 @@ function AppGroup({
 					{server.name}
 				</span>
 				<span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-					{status.toolCount ?? 0} tools · {children.length} apps
+					{uiMessage("chat:mcp_popover_tools_apps_sentence", {
+						value: status.toolCount ?? 0,
+						value2: children.length,
+					})}
 				</span>
 			</button>
 			{mcpChildrenForParent(children, server.key, expanded).map((child) => (
@@ -258,6 +272,8 @@ export function McpPopover({
 	projectId: FolderId | undefined;
 	providerId: ProviderId;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [open, setOpen] = useState(false);
 	const servers = useMcpStore((state) => state.servers);
 	const statuses = useMcpStore((state) => state.statuses);
@@ -268,7 +284,7 @@ export function McpPopover({
 	const setSettingsSection = useUiStore((state) => state.setSettingsSection);
 	const scope = useMemo(
 		() => ({ projectId, provider: providerId }),
-		[projectId, providerId],
+		[projectId, providerId, uiMessage],
 	);
 
 	useEffect(() => {
@@ -291,7 +307,7 @@ export function McpPopover({
 				<TooltipTrigger
 					render={
 						<PopoverTrigger
-							aria-label="MCP servers"
+							aria-label={uiMessage("chat:mcp_popover_mcp_servers")}
 							className={cn(
 								"flex size-5 items-center justify-center rounded-sm transition-colors hover:bg-muted/60",
 								open
@@ -303,7 +319,7 @@ export function McpPopover({
 						</PopoverTrigger>
 					}
 				/>
-				<TooltipPopup>MCP servers</TooltipPopup>
+				<TooltipPopup>{uiMessage("chat:mcp_popover_mcp_servers")}</TooltipPopup>
 			</Tooltip>
 			<PopoverPopup
 				side="top"
@@ -311,10 +327,12 @@ export function McpPopover({
 				className="w-80 [&_[data-slot=popover-viewport]]:!overflow-hidden [&_[data-slot=popover-viewport]]:p-px [&_[data-slot=popover-viewport]]:[--viewport-inline-padding:1px]"
 			>
 				<div className="flex h-8 shrink-0 items-center justify-between border-border/40 border-b px-2">
-					<span className="text-[13px] font-medium text-foreground">MCPs</span>
+					<span className="text-[13px] font-medium text-foreground">
+						{uiMessage("chat:mcp_popover_mcps")}
+					</span>
 					<button
 						type="button"
-						aria-label="Refresh MCP server status"
+						aria-label={uiMessage("chat:mcp_popover_refresh_mcp_server_status")}
 						disabled={refreshing}
 						onClick={() => void refresh(scope)}
 						className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-60"
@@ -331,7 +349,7 @@ export function McpPopover({
 				<div className="max-h-[min(24rem,calc(var(--available-height)-4rem))] overflow-y-auto overscroll-y-contain">
 					{topLevel.length === 0 ? (
 						<p className="px-2 py-2.5 text-[12px] leading-relaxed text-muted-foreground">
-							No MCP servers discovered.
+							{uiMessage("chat:mcp_popover_no_mcp_servers_discovered")}
 						</p>
 					) : (
 						MCP_DISPLAY_GROUPS.map((group) => {
@@ -385,10 +403,14 @@ export function McpPopover({
 						}}
 						className="flex min-h-8 w-full items-center justify-between rounded-md px-2 text-[12px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 					>
-						<span>Manage MCP servers</span>
-						<span className="text-[11px] tabular-nums">
-							{connectedCount}/{leaves.length} connected
-						</span>
+						<RichMessage
+							id="chat:mcp_popover_manage_mcp_servers_connected_sentence"
+							values={{ connectedCount: connectedCount, value: leaves.length }}
+							components={{
+								part0: <span />,
+								part1: <span className="text-[11px] tabular-nums" />,
+							}}
+						/>
 					</button>
 				</div>
 			</PopoverPopup>

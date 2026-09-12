@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/chat";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Children,
 	type ComponentType,
@@ -96,6 +98,8 @@ export function CartesianRoot<TData extends Row>({
 	chartType: ChartType;
 	Canvas: ComponentType;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const { ref, size } = useChartDimensions<HTMLDivElement>();
 	const margins = { ...DEFAULT_MARGINS, ...marginsProp };
 
@@ -173,7 +177,7 @@ export function CartesianRoot<TData extends Row>({
 							height={size.height}
 							className="absolute inset-0 overflow-visible"
 							role="img"
-							aria-label="Chart"
+							aria-label={uiMessage("chat:cartesian_root_chart")}
 						>
 							<g transform={`translate(${margins.left},${margins.top})`}>
 								{svgChildren}

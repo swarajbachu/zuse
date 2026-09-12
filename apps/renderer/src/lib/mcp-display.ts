@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/shell";
 import type { McpServerDescriptor, ProviderId } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 
 export const MCP_PROVIDER_LABEL: Record<ProviderId, string> = {
 	claude: "Claude",
@@ -12,20 +14,28 @@ export const MCP_PROVIDER_LABEL: Record<ProviderId, string> = {
 
 export const MCP_DISPLAY_GROUPS = [
 	{
-		label: "Built-in",
+		get label() {
+			return uiMessage("shell:mcp_display_built_in");
+		},
 		matches: (server: McpServerDescriptor) => server.source === "builtin",
 	},
 	{
-		label: "Claude",
+		get label() {
+			return uiMessage("shell:mcp_display_claude");
+		},
 		matches: (server: McpServerDescriptor) =>
 			server.source.startsWith("claude-"),
 	},
 	{
-		label: "Codex",
+		get label() {
+			return uiMessage("shell:mcp_display_codex");
+		},
 		matches: (server: McpServerDescriptor) => server.source === "codex",
 	},
 	{
-		label: "Provider apps",
+		get label() {
+			return uiMessage("shell:mcp_display_provider_apps");
+		},
 		matches: (server: McpServerDescriptor) => server.kind === "app-group",
 	},
 ] as const;

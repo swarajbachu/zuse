@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/tools";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useMemo, useState } from "react";
 import type { BundledLanguage } from "shiki";
 import {
@@ -148,31 +150,33 @@ export function CodeBlock({
 	isError = false,
 	variant = "framed",
 }: Props) {
+	const { message: uiMessage } = useUiMessages(["tools"]);
+
 	// This theme emits CSS variables, so appearance changes recolor existing
 	// markup immediately instead of replacing every code block asynchronously.
 	const theme = SHIKI_THEME;
 	const lang = useMemo(
 		() => langForLanguage(language) ?? langForFilename(filename),
-		[filename, language],
+		[filename, language, uiMessage],
 	);
 	const safeText = useMemo(
 		() =>
 			text.length > MAX_HIGHLIGHT_BYTES
 				? `${text.slice(0, MAX_HIGHLIGHT_BYTES)}\n… (truncated)`
 				: text,
-		[text],
+		[text, uiMessage],
 	);
 
 	const highlightInput = useMemo(
 		() => (lang === null ? null : { code: safeText, lang, theme }),
-		[lang, safeText],
+		[lang, safeText, uiMessage],
 	);
 	const highlightKey = useMemo(
 		() =>
 			highlightInput === null
 				? null
 				: codeHighlightKey({ code: safeText, lang: highlightInput.lang }),
-		[highlightInput, safeText],
+		[highlightInput, safeText, uiMessage],
 	);
 	const [highlightResult, setHighlightResult] =
 		useState<CodeHighlightResult | null>(null);
@@ -228,14 +232,14 @@ export function CodeBlock({
 					</span>
 					<CopyButton
 						text={text}
-						label={`Copy ${name}`}
+						label={uiMessage("tools:code_block_copy", { name: String(name) })}
 						className="size-5 rounded text-muted-foreground/60 hover:bg-muted/60"
 					/>
 				</div>
 			) : (
 				<CopyButton
 					text={text}
-					label="Copy code"
+					label={uiMessage("tools:code_block_copy_code")}
 					className="absolute end-1.5 top-1.5 z-10 size-6 rounded-md bg-message-pre-bg/80 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/code:opacity-100"
 				/>
 			)}
@@ -244,7 +248,7 @@ export function CodeBlock({
 					"code-block-scroll overflow-auto overscroll-x-contain bg-message-pre-bg text-[12px] leading-[1.3] [overflow-anchor:none]",
 					isError ? "bg-alert-error-bg/40" : undefined,
 				)}
-				aria-label={`${name} code`}
+				aria-label={uiMessage("tools:code_block_code", { name: String(name) })}
 				// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable code region needs one stable keyboard focus target
 				tabIndex={0}
 				style={{ maxHeight }}
@@ -258,7 +262,9 @@ export function CodeBlock({
 					{html === null ? (
 						<pre className="shiki">
 							<code>
-								<span className="line">{safeText || "(empty)"}</span>
+								<span className="line">
+									{safeText || uiMessage("tools:code_block_empty")}
+								</span>
 							</code>
 						</pre>
 					) : undefined}

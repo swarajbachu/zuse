@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/chat";
 import type { WorkspaceDirectoryListing } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ChevronRight, File, Folder, MoveUp } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
@@ -40,6 +42,8 @@ export function EnvironmentPathBrowser({
 	readonly allowNativePicker: boolean;
 	readonly onReadyChange?: (ready: boolean) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [listing, setListing] = useState<WorkspaceDirectoryListing | null>(
 		null,
 	);
@@ -106,19 +110,21 @@ export function EnvironmentPathBrowser({
 		<div className="flex flex-col gap-2">
 			<form className="flex items-center gap-2" onSubmit={submitPath}>
 				<label className="sr-only" htmlFor="project-parent-path">
-					Parent folder
+					{uiMessage("chat:environment_path_browser_parent_folder")}
 				</label>
 				<Input
 					id="project-parent-path"
 					value={value}
 					onChange={(event) => changePath(event.currentTarget.value)}
-					placeholder="~/Developer"
+					placeholder={uiMessage("chat:environment_path_browser_developer")}
 					spellCheck={false}
 					autoComplete="off"
 					aria-invalid={error !== null ? true : undefined}
 				/>
 				<Button type="submit" size="sm" variant="secondary" disabled={loading}>
-					{loading ? "Loading…" : "Go"}
+					{loading
+						? uiMessage("common:loading")
+						: uiMessage("chat:environment_path_browser_go")}
 				</Button>
 				{allowNativePicker ? (
 					<Button
@@ -127,7 +133,7 @@ export function EnvironmentPathBrowser({
 						variant="secondary"
 						onClick={() => void useNativePicker()}
 					>
-						Choose…
+						{uiMessage("chat:environment_path_browser_choose")}
 					</Button>
 				) : null}
 			</form>
@@ -140,7 +146,9 @@ export function EnvironmentPathBrowser({
 								type="button"
 								className="mr-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
 								onClick={() => void browse(listing.parent ?? listing.path)}
-								aria-label="Go to parent folder"
+								aria-label={uiMessage(
+									"chat:environment_path_browser_go_to_parent_folder",
+								)}
 							>
 								<MoveUp className="size-3.5" />
 							</button>
@@ -165,11 +173,15 @@ export function EnvironmentPathBrowser({
 					</div>
 					<ul
 						className="min-h-0 flex-1 overflow-y-auto p-1"
-						aria-label="Folder contents"
+						aria-label={uiMessage(
+							"chat:environment_path_browser_folder_contents",
+						)}
 					>
 						{listing.entries.length === 0 ? (
 							<li className="flex h-full items-center justify-center text-xs text-muted-foreground">
-								This folder is empty
+								{uiMessage(
+									"chat:environment_path_browser_this_folder_is_empty",
+								)}
 							</li>
 						) : (
 							listing.entries.map((entry) => (
@@ -194,7 +206,9 @@ export function EnvironmentPathBrowser({
 				</div>
 			) : (
 				<div className="flex h-56 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground">
-					{loading ? "Loading folder…" : "Enter a folder path"}
+					{loading
+						? uiMessage("chat:environment_path_browser_loading_folder")
+						: uiMessage("chat:environment_path_browser_enter_a_folder_path")}
 				</div>
 			)}
 

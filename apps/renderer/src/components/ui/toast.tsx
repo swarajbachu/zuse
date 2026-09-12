@@ -1,7 +1,10 @@
 "use client";
 
+import "@zuse/i18n/english/shell";
+
 import { Toast } from "@base-ui/react/toast";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Alert02Icon,
 	AlertCircleIcon,
@@ -60,6 +63,8 @@ function Toasts({
 	position: ToastPosition;
 	portalProps?: React.ComponentProps<typeof Toast.Portal>;
 }): React.ReactElement {
+	const { message: uiMessage } = useUiMessages(["shell"]);
+
 	const { toasts } = Toast.useToastManager();
 	const swipeDirection = getSwipeDirection(position);
 
@@ -170,7 +175,7 @@ function Toasts({
 									</Toast.Action>
 								)}
 								<Toast.Close
-									aria-label="Dismiss notification"
+									aria-label={uiMessage("shell:toast_dismiss_notification")}
 									className="-my-2 -mr-2 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-offset-2 transition-colors duration-150 ease-out pointer-coarse:min-h-11 pointer-coarse:min-w-11 hover:text-foreground focus-visible:outline-2 focus-visible:outline-foreground/60"
 									data-slot="toast-close"
 								>

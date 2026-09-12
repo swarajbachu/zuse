@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/settings";
 import type { CloudAccountImage, CloudProject } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { AlertTriangle, CircleX, LoaderCircle, RefreshCw } from "lucide-react";
 
 import { Badge } from "../ui/badge.tsx";
@@ -52,6 +54,8 @@ export function CloudImageReadiness({
 	readonly unavailable: boolean;
 	readonly onBuild: (mode: "update" | "rebuild") => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+
 	const state = image?.state ?? "not-built";
 	const building = state === "building";
 	const disabled = projects.length === 0 || unavailable || building;
@@ -59,11 +63,19 @@ export function CloudImageReadiness({
 	if (state === "ready") {
 		return (
 			<CloudSettingsRow
-				title="Cloud image ready"
-				description={`${projects.length} repositories · runtime ${image?.runtimeVersion ?? "current"}`}
+				title={uiMessage("settings:cloud_image_readiness_cloud_image_ready")}
+				description={uiMessage(
+					"settings:cloud_image_readiness_repositories_runtime",
+					{
+						length: String(projects.length),
+						value2: String(image?.runtimeVersion ?? "current"),
+					},
+				)}
 				action={
 					<>
-						<Badge variant="success">Ready</Badge>
+						<Badge variant="success">
+							{uiMessage("settings:cloud_image_readiness_ready")}
+						</Badge>
 						<Button
 							size="lg"
 							variant="ghost"
@@ -72,7 +84,7 @@ export function CloudImageReadiness({
 							disabled={disabled}
 							onClick={() => onBuild("rebuild")}
 						>
-							Rebuild
+							{uiMessage("settings:cloud_image_readiness_rebuild")}
 						</Button>
 					</>
 				}
@@ -88,12 +100,19 @@ export function CloudImageReadiness({
 					aria-hidden
 				/>
 				<div className="min-w-0 flex-1">
-					<p className="text-xs font-medium">Building cloud image</p>
+					<p className="text-xs font-medium">
+						{uiMessage("settings:cloud_image_readiness_building_cloud_image")}
+					</p>
 					<p className="mt-0.5 text-[11px] text-muted-foreground">
-						{image?.progressPhase ?? "Preparing repositories and agents"}
+						{image?.progressPhase ??
+							uiMessage(
+								"settings:cloud_image_readiness_preparing_repositories_and_agents",
+							)}
 					</p>
 				</div>
-				<Badge variant="warning">In progress</Badge>
+				<Badge variant="warning">
+					{uiMessage("settings:cloud_image_readiness_in_progress")}
+				</Badge>
 			</div>
 		);
 	}
@@ -149,7 +168,9 @@ export function CloudImageReadiness({
 				</p>
 			</div>
 			{state === "auth-broken" ? (
-				<Badge variant="error">Authentication</Badge>
+				<Badge variant="error">
+					{uiMessage("settings:cloud_image_readiness_authentication")}
+				</Badge>
 			) : null}
 			<Button
 				size="lg"

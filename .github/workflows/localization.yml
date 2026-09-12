@@ -1,0 +1,25 @@
+name: Localization
+on:
+  pull_request:
+    paths:
+      - 'apps/renderer/**'
+      - 'apps/desktop/**'
+      - 'packages/i18n/**'
+      - 'packages/contracts/src/locale.ts'
+      - 'scripts/*i18n*'
+      - '.github/workflows/localization.yml'
+      - 'bun.lock'
+permissions:
+  contents: read
+jobs:
+  catalogs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run check:i18n
+      - run: bun run test:i18n
+      - run: bun run --filter @zuse/i18n check-types

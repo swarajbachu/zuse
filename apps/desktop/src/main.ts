@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/desktop";
 import {
 	type ChildProcessWithoutNullStreams,
 	execFile,
@@ -65,6 +66,11 @@ import {
 	TailnetShareState,
 } from "@zuse/contracts";
 import {
+	activateLocale,
+	prepareLocale,
+	message as uiMessage,
+} from "@zuse/i18n";
+import {
 	authorizeTailnetOperator,
 	inspectTailnetShare,
 	isTailnetOperatorPermissionError,
@@ -112,6 +118,11 @@ import {
 	renderAuthCallbackPage,
 	renderNotFoundPage,
 } from "./auth-callback-page.ts";
+import {
+	createLocaleController,
+	readLocalePreference,
+	writeLocalePreference,
+} from "./locale-preference.ts";
 import {
 	createTitleBarOverlay,
 	createWindowTitleBarOptions,
@@ -3369,8 +3380,11 @@ async function createMainWindow() {
 						if (Notification.isSupported()) {
 							try {
 								const notification = new Notification({
-									title: "Phone wants to connect",
-									body: `${request.deviceLabel} · Device ${request.deviceIdentifier}`,
+									title: uiMessage("desktop:pairingTitle"),
+									body: uiMessage("desktop:pairingBody", {
+										deviceLabel: request.deviceLabel,
+										deviceIdentifier: request.deviceIdentifier,
+									}),
 								});
 								notification.on("click", focusMainWindow);
 								notification.show();
@@ -3866,10 +3880,39 @@ ipcMain.handle(
 		},
 );
 
+let localeController: ReturnType<typeof createLocaleController> | undefined;
+
 void app.whenReady().then(async () => {
 	// Non-primary instance is on its way out (lost the single-instance lock) —
 	// don't build a window or boot the runtime.
 	if (!gotSingleInstanceLock) return;
+	localeController = createLocaleController({
+		preference: await readLocalePreference(app.getPath("userData")),
+		languages: () => app.getPreferredSystemLanguages(),
+		preview: isDevelopment,
+		persist: (preference) =>
+			writeLocalePreference(app.getPath("userData"), preference),
+		prepare: (locale) => prepareLocale(locale, ["common", "desktop"]),
+		publish: async (snapshot) => {
+			await activateLocale(snapshot.locale);
+			installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
+			for (const window of BrowserWindow.getAllWindows()) {
+				if (!window.isDestroyed())
+					window.webContents.send("locale:changed", snapshot);
+			}
+		},
+	});
+	await prepareLocale(localeController.get().locale, ["common", "desktop"]);
+	await activateLocale(localeController.get().locale);
+	ipcMain.handle("locale:get", () => localeController?.get());
+	ipcMain.handle("locale:set", (event, preference: unknown) => {
+		// Only top-level application windows receive the privileged preload bridge.
+		const owner = BrowserWindow.fromWebContents(event.sender);
+		if (!owner || event.senderFrame !== event.sender.mainFrame)
+			throw new Error("Untrusted locale sender");
+		return localeController?.set(preference);
+	});
+
 	appendRemoteConnectionLog("desktop.startup.app_ready", {
 		elapsedMs: Math.round(performance.now() - desktopProcessStartedAt),
 	});
@@ -3961,6 +4004,9 @@ void app.whenReady().then(async () => {
 	}
 
 	app.on("activate", () => {
+		void localeController
+			?.refresh()
+			.catch((error) => console.error("Could not refresh language", error));
 		if (mainWindow === null) {
 			void createMainWindow();
 		}
@@ -3999,10 +4045,6 @@ ipcMain.on(AGENTS_RUNNING_COUNT_CHANNEL, (_event, payload: unknown) => {
 		app.quit();
 	}
 });
-
-function pluralAgents(count: number): string {
-	return count === 1 ? "1 agent is running" : `${count} agents are running`;
-}
 
 /** Close the local port forwards owned by a saved SSH profile's environment. */
 const closeSshProfileForwards = async (profileId: string): Promise<void> => {
@@ -4072,13 +4114,16 @@ app.on("before-quit", (event) => {
 
 	const choice = dialog.showMessageBoxSync({
 		type: "warning",
-		buttons: ["Cancel", "Quit anyway", "Quit when idle"],
+		buttons: [
+			uiMessage("common:cancel"),
+			uiMessage("desktop:quitAnyway"),
+			uiMessage("desktop:quitWhenIdle"),
+		],
 		defaultId: 0,
 		cancelId: 0,
-		title: "Quit Zuse (Beta)?",
-		message: `${pluralAgents(runningAgentCount)} currently.`,
-		detail:
-			"Quitting now will stop them mid-turn. You can quit anyway, or have Zuse quit automatically once they finish.",
+		title: uiMessage("desktop:quitTitle"),
+		message: uiMessage("desktop:runningAgents", { count: runningAgentCount }),
+		detail: uiMessage("desktop:quitDetail"),
 	});
 
 	if (choice === 1) {

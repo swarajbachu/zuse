@@ -1,5 +1,9 @@
+import { isInputComposing } from "../lib/input-composition.ts";
+import "@zuse/i18n/english/providers";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { OpencodeInventoryProvider } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Add01Icon,
 	AlertCircleIcon,
@@ -192,16 +196,21 @@ function ProvidersSection({
 	error: string | null;
 	onRefresh: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "providers"]);
+
 	return (
 		<div className="flex flex-col gap-2.5">
 			<div className="flex items-center justify-between">
 				<div className="flex items-baseline gap-2">
 					<span className="text-xs font-semibold text-foreground">
-						Providers
+						{uiMessage("providers:opencode_provider_manager_providers")}
 					</span>
 					{loaded && (
 						<span className="text-[11px] text-muted-foreground/70">
-							{connected.length} configured
+							{uiMessage(
+								"providers:opencode_provider_manager_configured_sentence",
+								{ value: connected.length },
+							)}
 						</span>
 					)}
 				</div>
@@ -209,7 +218,9 @@ function ProvidersSection({
 					type="button"
 					onClick={onRefresh}
 					disabled={loading}
-					aria-label="Refresh providers"
+					aria-label={uiMessage(
+						"providers:opencode_provider_manager_refresh_providers",
+					)}
 					className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
 				>
 					<HugeiconsIcon
@@ -236,7 +247,7 @@ function ProvidersSection({
 						className="self-start"
 						onClick={onRefresh}
 					>
-						Retry
+						{uiMessage("common:retry")}
 					</Button>
 				</div>
 			) : !loaded ? (
@@ -246,7 +257,9 @@ function ProvidersSection({
 						className="size-3.5 animate-spin"
 						aria-hidden
 					/>
-					<ShimmerText as="span">Loading providers…</ShimmerText>
+					<ShimmerText as="span">
+						{uiMessage("providers:opencode_provider_manager_loading_providers")}
+					</ShimmerText>
 				</div>
 			) : connected.length === 0 ? (
 				<ProviderBrowserDialog
@@ -254,7 +267,9 @@ function ProvidersSection({
 					onChanged={onRefresh}
 					trigger={
 						<Button size="sm" className="self-start">
-							Add your first provider
+							{uiMessage(
+								"providers:opencode_provider_manager_add_your_first_provider",
+							)}
 						</Button>
 					}
 				/>
@@ -280,7 +295,9 @@ function ProvidersSection({
 										className="mr-1 size-3"
 										aria-hidden
 									/>
-									Add provider
+									{uiMessage(
+										"providers:opencode_provider_manager_add_provider",
+									)}
 								</Button>
 							}
 						/>
@@ -293,7 +310,9 @@ function ProvidersSection({
 										className="mr-1 size-3"
 										aria-hidden
 									/>
-									Custom endpoint
+									{uiMessage(
+										"providers:opencode_provider_manager_custom_endpoint",
+									)}
 								</Button>
 							}
 						/>
@@ -312,6 +331,8 @@ function ConnectedProviderRow({
 	provider: OpencodeInventoryProvider;
 	onChanged: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "providers"]);
+
 	const [busy, setBusy] = useState(false);
 	const remove = async () => {
 		setBusy(true);
@@ -348,8 +369,11 @@ function ConnectedProviderRow({
 					/>
 				</div>
 				<span className="text-[10px] text-muted-foreground/70">
-					{provider.custom ? "Custom · " : ""}
-					{provider.models.length} model
+					{provider.custom
+						? uiMessage("providers:opencode_provider_manager_custom")
+						: ""}
+					{provider.models.length}
+					{uiMessage("providers:opencode_provider_manager_model")}
 					{provider.models.length === 1 ? "" : "s"}
 				</span>
 			</div>
@@ -357,8 +381,12 @@ function ConnectedProviderRow({
 				type="button"
 				onClick={() => void remove()}
 				disabled={busy}
-				aria-label={`Remove ${provider.name}`}
-				title="Remove credential"
+				aria-label={uiMessage("providers:opencode_provider_manager_remove", {
+					name: String(provider.name),
+				})}
+				title={uiMessage(
+					"providers:opencode_provider_manager_remove_credential",
+				)}
 				className="rounded p-1.5 text-muted-foreground opacity-0 transition-all hover:bg-muted/60 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-50"
 			>
 				<HugeiconsIcon
@@ -398,6 +426,8 @@ function ProviderBrowserDialog({
 	onChanged: () => void;
 	trigger: React.ReactElement;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "providers"]);
+
 	const [query, setQuery] = useState("");
 	const [showAll, setShowAll] = useState(false);
 	// Single-open accordion — opening one provider collapses the others so the
@@ -416,14 +446,14 @@ function ProviderBrowserDialog({
 			if (ra !== rb) return ra - rb;
 			return a.name.localeCompare(b.name);
 		});
-	}, [providers]);
+	}, [providers, uiMessage]);
 
 	const filtered = useMemo(() => {
 		if (!searching) return sorted;
 		return sorted.filter(
 			(p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q),
 		);
-	}, [sorted, searching, q]);
+	}, [sorted, searching, q, uiMessage]);
 
 	const CURATED = 6;
 	const shown = searching || showAll ? filtered : filtered.slice(0, CURATED);
@@ -444,11 +474,11 @@ function ProviderBrowserDialog({
 				<div className="flex flex-col gap-3 p-4">
 					<div className="flex items-center justify-between">
 						<span className="text-sm font-semibold text-foreground">
-							Providers
+							{uiMessage("providers:opencode_provider_manager_providers")}
 						</span>
 						<DialogClose
 							render={<Button size="icon-xs" variant="ghost" />}
-							aria-label="Close"
+							aria-label={uiMessage("common:close")}
 						>
 							<HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
 						</DialogClose>
@@ -462,7 +492,9 @@ function ProviderBrowserDialog({
 						/>
 						<Input
 							autoFocus
-							placeholder="Search providers"
+							placeholder={uiMessage(
+								"providers:opencode_provider_manager_search_providers",
+							)}
 							value={query}
 							onChange={(e) => setQuery(e.target.value)}
 							className="h-9 rounded-md ps-8"
@@ -472,7 +504,10 @@ function ProviderBrowserDialog({
 					<div className="-mx-1 max-h-[22rem] overflow-y-auto px-1">
 						{shown.length === 0 ? (
 							<p className="px-3 py-10 text-center text-xs text-muted-foreground">
-								No providers match “{query}”.
+								{uiMessage(
+									"providers:opencode_provider_manager_no_providers_match_sentence",
+									{ query: query },
+								)}
 							</p>
 						) : (
 							<div className="flex flex-col gap-0.5">
@@ -495,7 +530,10 @@ function ProviderBrowserDialog({
 							onClick={() => setShowAll(true)}
 							className="rounded-md py-1 text-center text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
 						>
-							View all {filtered.length} providers
+							{uiMessage(
+								"providers:opencode_provider_manager_view_all_providers_sentence",
+								{ value: filtered.length },
+							)}
 						</button>
 					)}
 				</div>
@@ -516,6 +554,8 @@ function ProviderBrowserRow({
 	onOpenChange: (open: boolean) => void;
 	onChanged: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "providers"]);
+
 	const ref = useRef<HTMLDivElement>(null);
 
 	const toggle = () => {
@@ -560,7 +600,7 @@ function ProviderBrowserRow({
 							className="size-3"
 							aria-hidden
 						/>
-						Connected
+						{uiMessage("providers:opencode_provider_manager_connected")}
 					</span>
 				) : (
 					<span
@@ -569,7 +609,7 @@ function ProviderBrowserRow({
 							open ? "text-foreground" : "text-muted-foreground/70",
 						)}
 					>
-						{open ? "Close" : "Connect"}
+						{open ? uiMessage("common:close") : uiMessage("common:connect")}
 					</span>
 				)}
 			</button>
@@ -581,7 +621,7 @@ function ProviderBrowserRow({
 							onClick={() => openExternal(provider.apiKeyUrl)}
 							className="inline-flex w-fit items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
 						>
-							Get an API key
+							{uiMessage("providers:opencode_provider_manager_get_an_api_key")}
 							<HugeiconsIcon
 								icon={ArrowUpRight01Icon}
 								className="size-3"
@@ -592,7 +632,9 @@ function ProviderBrowserRow({
 					<ConnectKeyForm
 						providerId={provider.id}
 						placeholder={
-							provider.apiKeyEnv.length > 0 ? provider.apiKeyEnv : "API key"
+							provider.apiKeyEnv.length > 0
+								? provider.apiKeyEnv
+								: uiMessage("providers:opencode_provider_manager_api_key")
 						}
 						connected={provider.connected}
 						onChanged={onChanged}
@@ -617,6 +659,8 @@ function ConnectKeyForm({
 	onChanged: () => void;
 	onSaved?: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "providers"]);
+
 	const [value, setValue] = useState("");
 	const [reveal, setReveal] = useState(false);
 	const [busy, setBusy] = useState(false);
@@ -667,6 +711,8 @@ function ConnectKeyForm({
 						value={value}
 						onChange={(e) => setValue(e.target.value)}
 						onKeyDown={(e) => {
+							if (isInputComposing(e)) return;
+
 							if (e.key === "Enter") void save();
 						}}
 						disabled={busy}
@@ -676,7 +722,11 @@ function ConnectKeyForm({
 						type="button"
 						onClick={() => setReveal((r) => !r)}
 						className="absolute end-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
-						aria-label={reveal ? "Hide key" : "Reveal key"}
+						aria-label={
+							reveal
+								? uiMessage("providers:opencode_provider_manager_hide_key")
+								: uiMessage("providers:opencode_provider_manager_reveal_key")
+						}
 						tabIndex={-1}
 					>
 						<HugeiconsIcon
@@ -696,7 +746,7 @@ function ConnectKeyForm({
 							className="size-3.5 animate-spin"
 						/>
 					) : (
-						"Save"
+						uiMessage("common:save")
 					)}
 				</Button>
 				{connected && (
@@ -706,7 +756,7 @@ function ConnectKeyForm({
 						onClick={() => void disconnect()}
 						disabled={busy}
 					>
-						Remove
+						{uiMessage("common:remove")}
 					</Button>
 				)}
 			</div>
@@ -731,11 +781,40 @@ const slugify = (name: string): string =>
 // OpenAI API); the rest are for endpoints that mimic a specific vendor's shape.
 const CUSTOM_NPM_OTHER = "__other__";
 const PROVIDER_TYPES: { value: string; label: string }[] = [
-	{ value: "@ai-sdk/openai-compatible", label: "OpenAI-compatible" },
-	{ value: "@openrouter/ai-sdk-provider", label: "OpenRouter-compatible" },
-	{ value: "@ai-sdk/anthropic", label: "Anthropic-compatible" },
-	{ value: "@ai-sdk/google", label: "Google-compatible" },
-	{ value: CUSTOM_NPM_OTHER, label: "Other npm package…" },
+	{
+		value: "@ai-sdk/openai-compatible",
+		get label() {
+			return uiMessage("providers:opencode_provider_manager_openai_compatible");
+		},
+	},
+	{
+		value: "@openrouter/ai-sdk-provider",
+		get label() {
+			return uiMessage(
+				"providers:opencode_provider_manager_openrouter_compatible",
+			);
+		},
+	},
+	{
+		value: "@ai-sdk/anthropic",
+		get label() {
+			return uiMessage(
+				"providers:opencode_provider_manager_anthropic_compatible",
+			);
+		},
+	},
+	{
+		value: "@ai-sdk/google",
+		get label() {
+			return uiMessage("providers:opencode_provider_manager_google_compatible");
+		},
+	},
+	{
+		value: CUSTOM_NPM_OTHER,
+		get label() {
+			return uiMessage("providers:opencode_provider_manager_other_npm_package");
+		},
+	},
 ];
 
 function CustomProviderDialog({
@@ -745,6 +824,8 @@ function CustomProviderDialog({
 	onChanged: () => void;
 	trigger: React.ReactElement;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "providers"]);
+
 	const [open, setOpen] = useState(false);
 	const [name, setName] = useState("");
 	const [type, setType] = useState(PROVIDER_TYPES[0]!.value);
@@ -816,36 +897,43 @@ function CustomProviderDialog({
 				<div className="flex flex-col gap-3 p-4">
 					<div className="flex items-center justify-between">
 						<span className="text-sm font-semibold text-foreground">
-							Custom endpoint
+							{uiMessage("providers:opencode_provider_manager_custom_endpoint")}
 						</span>
 						<DialogClose
 							render={<Button size="icon-xs" variant="ghost" />}
-							aria-label="Close"
+							aria-label={uiMessage("common:close")}
 						>
 							<HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
 						</DialogClose>
 					</div>
 					<p className="text-[11px] text-muted-foreground">
-						Bring any endpoint that speaks a known API shape — vLLM, LM Studio,
-						Groq, LiteLLM, a gateway or proxy.
+						{uiMessage(
+							"providers:opencode_provider_manager_bring_any_endpoint_that_speaks_a_known_api_shape_vllm_lm_studio_groq_l",
+						)}
 					</p>
 
-					<Field label="Name">
+					<Field label={uiMessage("providers:opencode_provider_manager_name")}>
 						<Input
 							autoFocus
-							placeholder="My Gateway"
+							placeholder={uiMessage(
+								"providers:opencode_provider_manager_my_gateway",
+							)}
 							value={name}
 							onChange={(e) => setName(e.target.value)}
 							className="h-9 rounded-md"
 						/>
 						{name.trim().length > 0 && (
 							<span className="text-[10px] text-muted-foreground/70">
-								id: <code className="font-mono">{id || "—"}</code>
+								<RichMessage
+									id="providers:opencode_provider_manager_id_sentence"
+									values={{ value: id || "—" }}
+									components={{ part0: <code className="font-mono" /> }}
+								/>
 							</span>
 						)}
 					</Field>
 
-					<Field label="Type">
+					<Field label={uiMessage("providers:opencode_provider_manager_type")}>
 						<Select
 							value={type}
 							onValueChange={(v) => setType(v as string)}
@@ -872,7 +960,9 @@ function CustomProviderDialog({
 						)}
 					</Field>
 
-					<Field label="Base URL">
+					<Field
+						label={uiMessage("providers:opencode_provider_manager_base_url")}
+					>
 						<Input
 							placeholder="https://api.example.com/v1"
 							value={baseURL}
@@ -881,22 +971,28 @@ function CustomProviderDialog({
 						/>
 					</Field>
 
-					<Field label="API key">
+					<Field
+						label={uiMessage("providers:opencode_provider_manager_api_key")}
+					>
 						<Input
 							type="password"
-							placeholder="sk-…"
+							placeholder={uiMessage("providers:opencode_provider_manager_sk")}
 							value={apiKey}
 							onChange={(e) => setApiKey(e.target.value)}
 							className="h-9 rounded-md font-mono text-[11px]"
 						/>
 					</Field>
 
-					<Field label="Models">
+					<Field
+						label={uiMessage("providers:opencode_provider_manager_models")}
+					>
 						<div className="flex flex-col gap-1.5">
 							{models.map((m, i) => (
 								<div key={i} className="flex items-center gap-2">
 									<Input
-										placeholder="model-id"
+										placeholder={uiMessage(
+											"providers:opencode_provider_manager_model_id",
+										)}
 										value={m.id}
 										onChange={(e) =>
 											setModels((cur) =>
@@ -908,7 +1004,9 @@ function CustomProviderDialog({
 										className="h-8 rounded-md font-mono text-[11px]"
 									/>
 									<Input
-										placeholder="Display name (optional)"
+										placeholder={uiMessage(
+											"providers:opencode_provider_manager_display_name_optional",
+										)}
 										value={m.name}
 										onChange={(e) =>
 											setModels((cur) =>
@@ -928,7 +1026,9 @@ function CustomProviderDialog({
 													: cur.filter((_, j) => j !== i),
 											)
 										}
-										aria-label="Remove model"
+										aria-label={uiMessage(
+											"providers:opencode_provider_manager_remove_model",
+										)}
 										className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 									>
 										<HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
@@ -944,7 +1044,7 @@ function CustomProviderDialog({
 								}
 							>
 								<HugeiconsIcon icon={Add01Icon} className="mr-1 size-3" />
-								Add model
+								{uiMessage("providers:opencode_provider_manager_add_model")}
 							</Button>
 						</div>
 					</Field>
@@ -955,7 +1055,7 @@ function CustomProviderDialog({
 
 					<div className="flex justify-end gap-2 pt-1">
 						<DialogClose render={<Button size="sm" variant="ghost" />}>
-							Cancel
+							{uiMessage("common:cancel")}
 						</DialogClose>
 						<Button
 							size="sm"
@@ -963,9 +1063,11 @@ function CustomProviderDialog({
 							onClick={() => void submit()}
 						>
 							{busy ? (
-								<ShimmerText as="span">Saving…</ShimmerText>
+								<ShimmerText as="span">
+									{uiMessage("providers:opencode_provider_manager_saving")}
+								</ShimmerText>
 							) : (
-								"Add endpoint"
+								uiMessage("providers:opencode_provider_manager_add_endpoint")
 							)}
 						</Button>
 					</div>
@@ -999,6 +1101,8 @@ function ModelsSection({
 }: {
 	connected: ReadonlyArray<OpencodeInventoryProvider>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "providers"]);
+
 	const modelVisible = useSettingsStore(
 		(s) => s.opencodeModelVisibleByProvider,
 	);
@@ -1013,15 +1117,19 @@ function ModelsSection({
 			}
 		}
 		return { selected: sel, total: tot };
-	}, [connected, modelVisible]);
+	}, [connected, modelVisible, uiMessage]);
 
 	return (
 		<div className="flex items-center justify-between">
 			<div className="flex items-baseline gap-2">
-				<span className="text-xs font-semibold text-foreground">Models</span>
-				<span className="text-[11px] text-muted-foreground/70">
-					{selected} of {total} shown
-				</span>
+				<RichMessage
+					id="providers:opencode_provider_manager_models_of_shown_sentence"
+					values={{ selected: selected, total: total }}
+					components={{
+						part0: <span className="text-xs font-semibold text-foreground" />,
+						part1: <span className="text-[11px] text-muted-foreground/70" />,
+					}}
+				/>
 			</div>
 			<ModelFilterDialog connected={connected} />
 		</div>
@@ -1033,6 +1141,8 @@ function ModelFilterDialog({
 }: {
 	connected: ReadonlyArray<OpencodeInventoryProvider>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "providers"]);
+
 	const [query, setQuery] = useState("");
 	const modelVisible = useSettingsStore(
 		(s) => s.opencodeModelVisibleByProvider,
@@ -1050,7 +1160,7 @@ function ModelFilterDialog({
 					),
 				}))
 				.filter((g) => g.models.length > 0),
-		[connected, q],
+		[connected, q, uiMessage],
 	);
 
 	return (
@@ -1058,7 +1168,7 @@ function ModelFilterDialog({
 			<DialogTrigger
 				render={
 					<Button size="xs" variant="outline">
-						Configure
+						{uiMessage("providers:opencode_provider_manager_configure")}
 					</Button>
 				}
 			/>
@@ -1066,11 +1176,11 @@ function ModelFilterDialog({
 				<div className="flex flex-col gap-3 p-4">
 					<div className="flex items-center justify-between">
 						<span className="text-sm font-semibold text-foreground">
-							Models
+							{uiMessage("providers:opencode_provider_manager_models")}
 						</span>
 						<DialogClose
 							render={<Button size="icon-xs" variant="ghost" />}
-							aria-label="Close"
+							aria-label={uiMessage("common:close")}
 						>
 							<HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
 						</DialogClose>
@@ -1084,7 +1194,9 @@ function ModelFilterDialog({
 						/>
 						<Input
 							autoFocus
-							placeholder="Filter models"
+							placeholder={uiMessage(
+								"providers:opencode_provider_manager_filter_models",
+							)}
 							value={query}
 							onChange={(e) => setQuery(e.target.value)}
 							className="h-9 rounded-md ps-8"
@@ -1094,7 +1206,10 @@ function ModelFilterDialog({
 					<div className="flex max-h-[24rem] flex-col gap-4 overflow-y-auto">
 						{groups.length === 0 ? (
 							<p className="px-1 py-6 text-center text-xs text-muted-foreground">
-								No models match “{query}”.
+								{uiMessage(
+									"providers:opencode_provider_manager_no_models_match_sentence",
+									{ query: query },
+								)}
 							</p>
 						) : (
 							groups.map(({ provider, models }) => (
@@ -1149,6 +1264,8 @@ function AdvancedSection({
 }: {
 	connected: ReadonlyArray<OpencodeInventoryProvider>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "providers"]);
+
 	const providerVisible = useSettingsStore((s) => s.opencodeProviderVisible);
 	const setProviderVisible = useSettingsStore(
 		(s) => s.setOpencodeProviderVisible,
@@ -1163,7 +1280,7 @@ function AdvancedSection({
 						size="xs"
 						className="-ml-2 self-start text-muted-foreground"
 					>
-						Advanced
+						{uiMessage("providers:opencode_provider_manager_advanced")}
 					</Button>
 				}
 			/>
@@ -1171,7 +1288,7 @@ function AdvancedSection({
 				<div className="mt-2 flex flex-col gap-4">
 					<div className="flex flex-col gap-1.5">
 						<span className="text-[11px] font-medium text-muted-foreground">
-							Show in picker
+							{uiMessage("providers:opencode_provider_manager_show_in_picker")}
 						</span>
 						<div className="flex flex-col gap-1.5">
 							{connected.map((p) => {

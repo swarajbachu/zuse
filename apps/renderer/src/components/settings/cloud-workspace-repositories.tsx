@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/settings";
 import type { CloudProject, GithubRepoSummary } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Check, Lock, Plus, RefreshCw, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -24,6 +26,8 @@ function RepositoryAvatar({
 	repository?: GithubRepoSummary;
 	readonly name: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+
 	const owner = name.split("/")[0] ?? name;
 	const avatarUrl =
 		repository?.ownerAvatarUrl ??
@@ -32,7 +36,9 @@ function RepositoryAvatar({
 		<Avatar
 			className="size-6 rounded-md"
 			role="img"
-			aria-label={`${owner} avatar`}
+			aria-label={uiMessage("settings:cloud_workspace_repositories_avatar", {
+				owner: String(owner),
+			})}
 		>
 			<AvatarImage src={avatarUrl} alt="" referrerPolicy="no-referrer" />
 			<AvatarFallback className="rounded-md text-[9px]">
@@ -63,6 +69,8 @@ export function CloudWorkspaceRepositories({
 	readonly onAdd: (names: ReadonlyArray<string>) => void;
 	readonly onRemove: (project: CloudProject) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+
 	const [search, setSearch] = useState("");
 	const [selected, setSelected] = useState<ReadonlyArray<string>>([]);
 	const connected = useMemo(
@@ -74,7 +82,7 @@ export function CloudWorkspaceRepositories({
 						.toLowerCase(),
 				),
 			),
-		[projects],
+		[projects, uiMessage],
 	);
 	const available = repositories.filter(
 		(repository) => !connected.has(repository.nameWithOwner.toLowerCase()),
@@ -91,8 +99,10 @@ export function CloudWorkspaceRepositories({
 
 	return (
 		<CloudSettingsGroup
-			title="Repositories"
-			description="Choose the personal, organization, and collaborator repositories included in your private cloud image."
+			title={uiMessage("settings:cloud_workspace_repositories_repositories")}
+			description={uiMessage(
+				"settings:cloud_workspace_repositories_choose_the_personal_organization_and_collaborator_repositories_include",
+			)}
 			action={
 				<Popover>
 					<PopoverTrigger
@@ -100,7 +110,7 @@ export function CloudWorkspaceRepositories({
 						disabled={!githubAuthenticated || loading}
 					>
 						<Plus className="size-3.5" aria-hidden />
-						Repository
+						{uiMessage("settings:cloud_workspace_repositories_repository")}
 					</PopoverTrigger>
 					<PopoverPopup
 						align="end"
@@ -112,14 +122,18 @@ export function CloudWorkspaceRepositories({
 								className="h-7"
 								value={search}
 								onChange={(event) => setSearch(event.currentTarget.value)}
-								placeholder="Search personal and organization repositories"
+								placeholder={uiMessage(
+									"settings:cloud_workspace_repositories_search_personal_and_organization_repositories",
+								)}
 								autoFocus
 							/>
 							<Button
 								size="icon"
 								className={`size-7 ${COMPACT_CLOUD_ACTION}`}
 								variant="ghost"
-								aria-label="Refresh GitHub repositories"
+								aria-label={uiMessage(
+									"settings:cloud_workspace_repositories_refresh_github_repositories",
+								)}
 								loading={loading}
 								onClick={onRefresh}
 							>
@@ -130,8 +144,12 @@ export function CloudWorkspaceRepositories({
 							{filtered.length === 0 ? (
 								<p className="px-2 py-5 text-center text-[11px] text-muted-foreground">
 									{available.length === 0
-										? "Every available repository is already included."
-										: "No repositories match this search."}
+										? uiMessage(
+												"settings:cloud_workspace_repositories_every_available_repository_is_already_included",
+											)
+										: uiMessage(
+												"settings:cloud_workspace_repositories_no_repositories_match_this_search",
+											)}
 								</p>
 							) : (
 								filtered.map((repository) => {
@@ -163,7 +181,9 @@ export function CloudWorkspaceRepositories({
 											{repository.isPrivate ? (
 												<Lock
 													className="size-3 text-muted-foreground"
-													aria-label="Private"
+													aria-label={uiMessage(
+														"settings:cloud_workspace_repositories_private",
+													)}
 												/>
 											) : null}
 											{isSelected ? (
@@ -177,8 +197,14 @@ export function CloudWorkspaceRepositories({
 						<div className="mt-2 flex h-7 items-center justify-between gap-3 px-1">
 							<span className="text-[11px] text-muted-foreground">
 								{selected.length === 0
-									? `${available.length} available`
-									: `${selected.length} selected`}
+									? uiMessage(
+											"settings:cloud_workspace_repositories_available",
+											{ length: String(available.length) },
+										)
+									: uiMessage(
+											"settings:cloud_workspace_repositories_selected",
+											{ length: String(selected.length) },
+										)}
 							</span>
 							<PopoverClose
 								className={`inline-flex items-center rounded-md bg-primary px-4 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 ${COMPACT_CLOUD_ACTION}`}
@@ -188,7 +214,10 @@ export function CloudWorkspaceRepositories({
 									setSelected([]);
 								}}
 							>
-								Add {selected.length || ""}
+								{uiMessage(
+									"settings:cloud_workspace_repositories_add_sentence",
+									{ value: selected.length || "" },
+								)}
 							</PopoverClose>
 						</div>
 					</PopoverPopup>
@@ -198,8 +227,12 @@ export function CloudWorkspaceRepositories({
 			<div className="divide-y divide-border/40">
 				{projects.length === 0 ? (
 					<CompactEmptyState
-						title="No repositories included"
-						description="Use + Repository to choose a personal or organization repo."
+						title={uiMessage(
+							"settings:cloud_workspace_repositories_no_repositories_included",
+						)}
+						description={uiMessage(
+							"settings:cloud_workspace_repositories_use_repository_to_choose_a_personal_or_organization_repo",
+						)}
 					/>
 				) : (
 					projects.map((project) => {
@@ -220,14 +253,20 @@ export function CloudWorkspaceRepositories({
 										{project.displayName}
 									</p>
 									<p className="text-[10px] text-muted-foreground">
-										{project.defaultBranch} · selected for cloud image
+										{uiMessage(
+											"settings:cloud_workspace_repositories_selected_for_cloud_image_sentence",
+											{ value: project.defaultBranch },
+										)}
 									</p>
 								</div>
 								<Button
 									size="icon"
 									variant="ghost"
 									className={`size-7 ${COMPACT_CLOUD_ACTION}`}
-									aria-label={`Remove ${project.displayName}`}
+									aria-label={uiMessage(
+										"settings:cloud_workspace_repositories_remove",
+										{ value1: String(project.displayName) },
+									)}
 									loading={busy === `remove:${project.projectId}`}
 									onClick={() => onRemove(project)}
 								>

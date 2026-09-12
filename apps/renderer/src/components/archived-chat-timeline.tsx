@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/chat";
 import { LegendList } from "@legendapp/list/react";
 import type { FolderId, Message, SessionId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useCallback, useMemo } from "react";
 
 import {
@@ -21,6 +23,8 @@ export function ArchivedChatTimeline({
 	readonly sessionId: SessionId;
 	readonly messages: ReadonlyArray<Message>;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const rows = useMemo(
 		() =>
 			deriveChatTimelineRows({
@@ -28,9 +32,12 @@ export function ArchivedChatTimeline({
 				inFlight: false,
 				awaitingPlanApproval: false,
 			}),
-		[messages],
+		[messages, uiMessage],
 	);
-	const lookups = useMemo(() => deriveChatLookups(messages), [messages]);
+	const lookups = useMemo(
+		() => deriveChatLookups(messages),
+		[messages, uiMessage],
+	);
 	const renderRow = useCallback(
 		({ item }: { item: ChatTimelineRow }) => (
 			<ArchivedTimelineRow
@@ -55,7 +62,9 @@ export function ArchivedChatTimeline({
 					initialScrollAtEnd
 					maintainVisibleContentPosition={{ data: true, size: false }}
 					className="h-full min-h-0 flex-1 overflow-x-hidden outline-none"
-					aria-label="Archived chat transcript"
+					aria-label={uiMessage(
+						"chat:archived_chat_timeline_archived_chat_transcript",
+					)}
 					tabIndex={0}
 					ListHeaderComponent={<div className="h-2" />}
 					ListFooterComponent={<div className="h-2" />}

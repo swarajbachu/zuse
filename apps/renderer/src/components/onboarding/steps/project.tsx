@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/onboarding";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Folder01Icon,
 	FolderAddIcon,
@@ -11,6 +13,8 @@ import { useWorkspaceStore } from "../../../store/workspace.ts";
 import { StepHeader } from "./shared.tsx";
 
 export function ProjectStep() {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	const folders = useWorkspaceStore((s) => s.folders);
 	const add = useWorkspaceStore((s) => s.add);
 	const error = useWorkspaceStore((s) => s.error);
@@ -30,7 +34,7 @@ export function ProjectStep() {
 	return (
 		<div className="flex flex-col gap-7">
 			<StepHeader
-				title="Add your first project"
+				title={uiMessage("onboarding:project_add_your_first_project")}
 				subtitle="Any folder on your machine. We'll list it in the sidebar, no copies made."
 			/>
 
@@ -46,10 +50,12 @@ export function ProjectStep() {
 					</span>
 					<span className="flex flex-col gap-1">
 						<span className="text-[14px] font-medium text-foreground">
-							{busy ? "Opening picker…" : "Choose a folder"}
+							{busy
+								? uiMessage("onboarding:project_opening_picker")
+								: uiMessage("onboarding:project_choose_a_folder")}
 						</span>
 						<span className="text-[11px] text-muted-foreground">
-							Click to browse, or drag one in
+							{uiMessage("onboarding:project_click_to_browse_or_drag_one_in")}
 						</span>
 					</span>
 				</button>
@@ -79,7 +85,7 @@ export function ProjectStep() {
 							disabled={busy}
 							className="rounded-full px-3 text-[12px] text-muted-foreground hover:text-foreground"
 						>
-							Pick a different folder
+							{uiMessage("onboarding:project_pick_a_different_folder")}
 						</Button>
 					</div>
 				</div>

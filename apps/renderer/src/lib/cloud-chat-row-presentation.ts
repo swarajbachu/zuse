@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/connections";
 import type { CloudChatSummary } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 import type { CloudChatActivity } from "./cloud-chat-activity.ts";
 
 export type CloudChatRowPresentation = {
@@ -14,26 +16,63 @@ export const cloudChatRowPresentation = (
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";
 	if (summary.desiredState === "archived" && summary.state === "failed")
-		return { label: "Archive failed", busy: false };
-	if (archivePending) return { label: "Archiving…", busy: true };
+		return {
+			label: uiMessage(
+				"connections:cloud_chat_row_presentation_archive_failed",
+			),
+			busy: false,
+		};
+	if (archivePending)
+		return {
+			label: uiMessage("connections:cloud_chat_row_presentation_archiving"),
+			busy: true,
+		};
 	if (summary.state === "failed")
-		return { label: "Needs attention", busy: false };
+		return {
+			label: uiMessage(
+				"connections:cloud_chat_row_presentation_needs_attention",
+			),
+			busy: false,
+		};
 
 	switch (activity) {
 		case "failed":
-			return { label: "Needs attention", busy: false };
+			return {
+				label: uiMessage(
+					"connections:cloud_chat_row_presentation_needs_attention",
+				),
+				busy: false,
+			};
 		case "paused":
-			return { label: "Paused", busy: false };
+			return {
+				label: uiMessage("connections:cloud_chat_row_presentation_paused"),
+				busy: false,
+			};
 		case "resuming":
-			return { label: "Resuming", busy: true };
+			return {
+				label: uiMessage("connections:cloud_chat_row_presentation_resuming"),
+				busy: true,
+			};
 		case "attaching":
-			return { label: "Connecting", busy: true };
+			return {
+				label: uiMessage("connections:cloud_chat_row_presentation_connecting"),
+				busy: true,
+			};
 		case "starting-agent":
 		case "running":
-			return { label: "Working", busy: true };
+			return {
+				label: uiMessage("connections:cloud_chat_row_presentation_working"),
+				busy: true,
+			};
 		case "stopping":
-			return { label: "Stopping", busy: true };
+			return {
+				label: uiMessage("connections:cloud_chat_row_presentation_stopping"),
+				busy: true,
+			};
 		case "idle":
-			return { label: "Active", busy: false };
+			return {
+				label: uiMessage("connections:cloud_chat_row_presentation_active"),
+				busy: false,
+			};
 	}
 };

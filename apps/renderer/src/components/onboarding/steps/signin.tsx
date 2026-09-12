@@ -1,6 +1,8 @@
+import "@zuse/i18n/english/onboarding";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronRight } from "lucide-react";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Tick01Icon, UserCircleIcon } from "@zuse/icons/solid-rounded";
+import { ChevronRight } from "lucide-react";
 import { BlurredEmail } from "~/components/blurred-email";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
@@ -8,13 +10,15 @@ import { useAuth } from "~/hooks/use-auth.ts";
 import { StepHeader } from "./shared.tsx";
 
 export function SigninStep() {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	const { isSignedIn, name, user, signIn, signingIn, error } = useAuth();
 	const nameIsEmail = Boolean(user?.email && name === user.email);
 
 	return (
 		<div className="flex h-full flex-col gap-6">
 			<StepHeader
-				title="Connect your account"
+				title={uiMessage("onboarding:signin_connect_your_account")}
 				subtitle="Sign in with WorkOS to sync this Mac with future remote agents and mobile controls. You can skip it for now and connect later from Settings."
 			/>
 
@@ -29,11 +33,13 @@ export function SigninStep() {
 					</span>
 					<div className="flex min-w-0 flex-col gap-1">
 						<span className="text-sm font-medium text-foreground">
-							{isSignedIn ? "Account connected" : "WorkOS sign-in"}
+							{isSignedIn
+								? uiMessage("onboarding:signin_account_connected")
+								: uiMessage("onboarding:signin_workos_sign_in")}
 						</span>
 						{isSignedIn ? (
 							<p className="flex max-w-sm flex-wrap items-center gap-1 text-[12px] leading-relaxed text-muted-foreground">
-								<span>Signed in as</span>
+								<span>{uiMessage("onboarding:signin_signed_in_as")}</span>
 								{nameIsEmail && user?.email ? (
 									<BlurredEmail email={user.email} />
 								) : (
@@ -51,8 +57,9 @@ export function SigninStep() {
 							</p>
 						) : (
 							<p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
-								A browser window opens for authentication and returns here
-								automatically.
+								{uiMessage(
+									"onboarding:signin_a_browser_window_opens_for_authentication_and_returns_here_automatical",
+								)}
 							</p>
 						)}
 					</div>
@@ -60,7 +67,7 @@ export function SigninStep() {
 
 				{isSignedIn ? (
 					<span className="inline-flex h-9 items-center justify-center rounded-lg border border-success/20 bg-alert-success-bg px-3 text-[12px] font-medium text-success">
-						Signed in
+						{uiMessage("onboarding:signin_signed_in")}
 					</span>
 				) : (
 					<Button
@@ -72,11 +79,11 @@ export function SigninStep() {
 						{signingIn ? (
 							<>
 								<Spinner className="size-4" />
-								Signing in
+								{uiMessage("onboarding:signin_signing_in")}
 							</>
 						) : (
 							<>
-								Sign in with WorkOS
+								{uiMessage("onboarding:signin_sign_in_with_workos")}
 								<ChevronRight />
 							</>
 						)}
@@ -94,14 +101,20 @@ export function SigninStep() {
 			) : null}
 
 			<div className="grid gap-2 text-[12px] text-muted-foreground sm:grid-cols-3">
-				<Hint title="Identity">
-					Same account on desktop, mobile, and future cloud workers.
+				<Hint title={uiMessage("onboarding:signin_identity")}>
+					{uiMessage(
+						"onboarding:signin_same_account_on_desktop_mobile_and_future_cloud_workers",
+					)}
 				</Hint>
-				<Hint title="Secure handoff">
-					Auth completes in your browser; tokens stay out of the renderer.
+				<Hint title={uiMessage("onboarding:signin_secure_handoff")}>
+					{uiMessage(
+						"onboarding:signin_auth_completes_in_your_browser_tokens_stay_out_of_the_renderer",
+					)}
 				</Hint>
-				<Hint title="Optional today">
-					Local agents still work if you skip this step.
+				<Hint title={uiMessage("onboarding:signin_optional_today")}>
+					{uiMessage(
+						"onboarding:signin_local_agents_still_work_if_you_skip_this_step",
+					)}
 				</Hint>
 			</div>
 		</div>

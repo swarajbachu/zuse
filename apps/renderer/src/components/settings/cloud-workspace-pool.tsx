@@ -1,3 +1,5 @@
+import { formatNumber as formatUiNumber } from "@zuse/i18n";
+import "@zuse/i18n/english/settings";
 import {
 	CLOUD_WORKSPACE_OFFER_ID,
 	type CloudAccountImage,
@@ -10,6 +12,7 @@ import {
 	CloudWorkspaceOpError,
 	type GithubRepoSummary,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Cloud } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../hooks/use-auth.ts";
@@ -44,14 +47,16 @@ const stateVariant = (
 				: "warning";
 
 const formatUsdMicros = (micros: number): string =>
-	new Intl.NumberFormat(undefined, {
+	formatUiNumber(micros / 1_000_000, {
 		style: "currency",
 		currency: "USD",
 		minimumFractionDigits: 2,
 		maximumFractionDigits: 2,
-	}).format(micros / 1_000_000);
+	});
 
 export function CloudWorkspacePool() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const { isLoading: authLoading, isSignedIn, signIn, signingIn } = useAuth();
 	const [entitlementSubscribed, setEntitlementSubscribed] = useState(false);
 	const [serviceAvailable, setServiceAvailable] = useState(true);
@@ -378,15 +383,19 @@ export function CloudWorkspacePool() {
 			<section className="flex items-center gap-4 rounded-lg bg-card px-3 py-3 ring-1 ring-inset ring-border/70">
 				<div className="min-w-0 flex-1">
 					<h2 className="text-xs font-medium text-foreground">
-						Sign in to set up cloud workspaces
+						{uiMessage(
+							"settings:cloud_workspace_pool_sign_in_to_set_up_cloud_workspaces",
+						)}
 					</h2>
 					<p className="mt-0.5 max-w-xl text-[11px] leading-4 text-muted-foreground">
-						Choose a plan, connect repositories, and authorize your coding
-						agents from one account.
+						{uiMessage(
+							"settings:cloud_workspace_pool_choose_a_plan_connect_repositories_and_authorize_your_coding_agents_fr",
+						)}
 					</p>
 					<p className="mt-1 text-[10px] text-muted-foreground/75">
-						Local chats stay on this computer and remain available without an
-						account.
+						{uiMessage(
+							"settings:cloud_workspace_pool_local_chats_stay_on_this_computer_and_remain_available_without_an_acco",
+						)}
 					</p>
 				</div>
 				<div className="shrink-0">
@@ -396,7 +405,7 @@ export function CloudWorkspacePool() {
 						loading={signingIn}
 						onClick={() => void signIn()}
 					>
-						Sign in
+						{uiMessage("common:signIn")}
 					</Button>
 				</div>
 			</section>
@@ -435,12 +444,16 @@ export function CloudWorkspacePool() {
 				</div>
 			)}
 			<CloudSettingsGroup
-				title="Cloud access"
-				description="Cloud workspaces keep agents running when this app or your laptop is offline."
+				title={uiMessage("settings:cloud_workspace_pool_cloud_access")}
+				description={uiMessage(
+					"settings:cloud_workspace_pool_cloud_workspaces_keep_agents_running_when_this_app_or_your_laptop_is_o",
+				)}
 				action={
 					subscribed ? (
 						<Badge variant={serviceAvailable ? "success" : "warning"}>
-							{serviceAvailable ? "Ready" : "Update required"}
+							{serviceAvailable
+								? uiMessage("settings:cloud_workspace_pool_ready")
+								: uiMessage("settings:cloud_workspace_pool_update_required")}
 						</Badge>
 					) : (
 						<Button
@@ -449,16 +462,24 @@ export function CloudWorkspacePool() {
 							loading={busy === "checkout"}
 							onClick={() => void checkout()}
 						>
-							Subscribe · $40/month
+							{uiMessage("settings:cloud_workspace_pool_subscribe_40_month")}
 						</Button>
 					)
 				}
 			>
 				<CloudSettingsRow
 					title={
-						subscribed ? "Cloud workspace is ready" : "Enable Cloud Workspace"
+						subscribed
+							? uiMessage(
+									"settings:cloud_workspace_pool_cloud_workspace_is_ready",
+								)
+							: uiMessage(
+									"settings:cloud_workspace_pool_enable_cloud_workspace",
+								)
 					}
-					description="Each chat gets an isolated workspace. Compute pauses when it is not needed."
+					description={uiMessage(
+						"settings:cloud_workspace_pool_each_chat_gets_an_isolated_workspace_compute_pauses_when_it_is_not_nee",
+					)}
 					action={
 						<Cloud className="size-4 text-muted-foreground" aria-hidden />
 					}
@@ -506,8 +527,10 @@ export function CloudWorkspacePool() {
 					<CloudWorkspaceAuth />
 					<CloudApiKeys />
 					<CloudSettingsGroup
-						title="Cloud image"
-						description="Build the reusable environment that starts every new cloud chat."
+						title={uiMessage("settings:cloud_workspace_pool_cloud_image")}
+						description={uiMessage(
+							"settings:cloud_workspace_pool_build_the_reusable_environment_that_starts_every_new_cloud_chat",
+						)}
 					>
 						<CloudImageReadiness
 							image={accountImage}
@@ -527,7 +550,7 @@ export function CloudWorkspacePool() {
 									className={COMPACT_CLOUD_ACTION}
 									onClick={() => void load()}
 								>
-									Retry
+									{uiMessage("common:retry")}
 								</Button>
 							</div>
 						)}
@@ -539,12 +562,18 @@ export function CloudWorkspacePool() {
 			{subscribed && serviceAvailable && view === "usage" ? (
 				billing === null ? (
 					<CloudSettingsGroup
-						title="Usage and billing"
-						description="Usage details are temporarily unavailable."
+						title={uiMessage("settings:cloud_workspace_pool_usage_and_billing")}
+						description={uiMessage(
+							"settings:cloud_workspace_pool_usage_details_are_temporarily_unavailable",
+						)}
 					>
 						<CloudSettingsRow
-							title="Could not load billing"
-							description="Refresh cloud settings to try again. Existing workspaces are unaffected."
+							title={uiMessage(
+								"settings:cloud_workspace_pool_could_not_load_billing",
+							)}
+							description={uiMessage(
+								"settings:cloud_workspace_pool_refresh_cloud_settings_to_try_again_existing_workspaces_are_unaffected",
+							)}
 							action={
 								<Button
 									size="xs"
@@ -552,41 +581,65 @@ export function CloudWorkspacePool() {
 									className={COMPACT_CLOUD_ACTION}
 									onClick={() => void load()}
 								>
-									Retry
+									{uiMessage("common:retry")}
 								</Button>
 							}
 						/>
 					</CloudSettingsGroup>
 				) : (
 					<CloudSettingsGroup
-						title="Usage and billing"
-						description="$40/month includes $35 of sandbox compute. Additional compute is billed at provider cost + 5%."
+						title={uiMessage("settings:cloud_workspace_pool_usage_and_billing")}
+						description={uiMessage(
+							"settings:cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a",
+						)}
 						action={
 							<Badge
 								variant={
 									billing.status === "billing-hold" ? "warning" : "success"
 								}
 							>
-								{billing.status === "billing-hold" ? "Paused" : "Active"}
+								{billing.status === "billing-hold"
+									? uiMessage("settings:cloud_workspace_pool_paused")
+									: uiMessage("settings:cloud_workspace_pool_active")}
 							</Badge>
 						}
 					>
 						{overageWarning === null ? null : (
 							<CloudSettingsRow
 								title={
-									overageCapPercent >= 100 ? "Billing hold" : "Usage warning"
+									overageCapPercent >= 100
+										? uiMessage("settings:cloud_workspace_pool_billing_hold")
+										: uiMessage("settings:cloud_workspace_pool_usage_warning")
 								}
 								description={overageWarning}
 								action={<Badge variant="warning">{overageCapPercent}%</Badge>}
 							/>
 						)}
 						<CloudSettingsRow
-							title={`${formatUsdMicros(billing.includedUsedMicros)} of $35.00 included used`}
-							description={`${formatUsdMicros(billing.includedRemainingMicros)} remaining · ${formatUsdMicros(billing.overageChargeMicros)} overage · ${formatUsdMicros(billing.currentInvoiceEstimateMicros)} invoice estimate before tax`}
+							title={uiMessage(
+								"settings:cloud_workspace_pool_of_35_00_included_used",
+								{ value1: String(formatUsdMicros(billing.includedUsedMicros)) },
+							)}
+							description={uiMessage(
+								"settings:cloud_workspace_pool_remaining_overage_invoice_estimate_before_tax",
+								{
+									value1: String(
+										formatUsdMicros(billing.includedRemainingMicros),
+									),
+									value2: String(formatUsdMicros(billing.overageChargeMicros)),
+									value3: String(
+										formatUsdMicros(billing.currentInvoiceEstimateMicros),
+									),
+								},
+							)}
 						/>
 						<CloudSettingsRow
-							title="Monthly overage cap"
-							description="Builds and running workspaces pause when this pre-tax limit is reached."
+							title={uiMessage(
+								"settings:cloud_workspace_pool_monthly_overage_cap",
+							)}
+							description={uiMessage(
+								"settings:cloud_workspace_pool_builds_and_running_workspaces_pause_when_this_pre_tax_limit_is_reached",
+							)}
 							action={
 								<>
 									<Input
@@ -598,7 +651,9 @@ export function CloudWorkspacePool() {
 											setCapDollars(event.currentTarget.value)
 										}
 										className="h-7 w-20"
-										aria-label="Monthly overage cap in dollars"
+										aria-label={uiMessage(
+											"settings:cloud_workspace_pool_monthly_overage_cap_in_dollars",
+										)}
 									/>
 									<Button
 										size="xs"
@@ -606,16 +661,18 @@ export function CloudWorkspacePool() {
 										loading={busy === "billing-cap"}
 										onClick={() => void saveOverageCap()}
 									>
-										Save
+										{uiMessage("common:save")}
 									</Button>
 								</>
 							}
 						/>
 						<CloudSettingsRow
-							title="Recent usage"
+							title={uiMessage("settings:cloud_workspace_pool_recent_usage")}
 							description={
 								billingUsage.length === 0
-									? "No completed sandbox runs in this billing period."
+									? uiMessage(
+											"settings:cloud_workspace_pool_no_completed_sandbox_runs_in_this_billing_period",
+										)
 									: billingUsage
 											.slice(0, 3)
 											.map(
@@ -632,7 +689,7 @@ export function CloudWorkspacePool() {
 									loading={busy === "billing-portal"}
 									onClick={() => void openBillingPortal()}
 								>
-									Invoices
+									{uiMessage("settings:cloud_workspace_pool_invoices")}
 								</Button>
 							}
 						/>
@@ -642,14 +699,20 @@ export function CloudWorkspacePool() {
 
 			{subscribed && serviceAvailable && view === "activity" ? (
 				<CloudSettingsGroup
-					title="Workspace activity"
-					description="Current and recent cloud workspaces for this account."
+					title={uiMessage("settings:cloud_workspace_pool_workspace_activity")}
+					description={uiMessage(
+						"settings:cloud_workspace_pool_current_and_recent_cloud_workspaces_for_this_account",
+					)}
 					action={<Badge variant="outline">{workspaces.length}</Badge>}
 				>
 					{workspaces.length === 0 ? (
 						<CloudSettingsRow
-							title="No cloud workspaces yet"
-							description="Start a cloud chat and its workspace will appear here."
+							title={uiMessage(
+								"settings:cloud_workspace_pool_no_cloud_workspaces_yet",
+							)}
+							description={uiMessage(
+								"settings:cloud_workspace_pool_start_a_cloud_chat_and_its_workspace_will_appear_here",
+							)}
 						/>
 					) : (
 						workspaces.map((workspace) => (

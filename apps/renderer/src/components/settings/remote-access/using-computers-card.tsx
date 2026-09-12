@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/settings";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { MonitorCog, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
@@ -31,6 +33,8 @@ const connectionDescription = (entry: EnvironmentCatalogEntry): string => {
 
 /** Compact summary of computers available in the unified sidebar. */
 export function UsingComputersCard() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const entries = useEnvironmentCatalogStore((state) => state.entries);
 	const initialize = useEnvironmentCatalogStore((state) => state.initialize);
 	const retry = useEnvironmentCatalogStore((state) => state.retry);
@@ -58,12 +62,14 @@ export function UsingComputersCard() {
 		<>
 			<Frame>
 				<RemoteAccessSectionHeader
-					title="Computers"
-					tooltip="Projects and chats from connected computers stay in the same sidebar."
+					title={uiMessage("settings:using_computers_card_computers")}
+					tooltip={uiMessage(
+						"settings:using_computers_card_projects_and_chats_from_connected_computers_stay_in_the_same_sidebar",
+					)}
 					action={
 						<Button size="sm" onClick={() => openAddComputerDialog()}>
 							<Plus aria-hidden />
-							Add computer
+							{uiMessage("settings:using_computers_card_add_computer")}
 						</Button>
 					}
 				/>
@@ -90,7 +96,7 @@ export function UsingComputersCard() {
 											variant="outline"
 											onClick={() => retryEntry(entry)}
 										>
-											Retry
+											{uiMessage("common:retry")}
 										</Button>
 									) : null}
 								</div>
@@ -102,9 +108,13 @@ export function UsingComputersCard() {
 								<MonitorCog className="size-4" aria-hidden />
 							</div>
 							<div className="min-w-0">
-								<p className="text-xs font-medium">No other computers yet</p>
+								<p className="text-xs font-medium">
+									{uiMessage(
+										"settings:using_computers_card_no_other_computers_yet",
+									)}
+								</p>
 								<p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-									Signed-in computers appear automatically, or you can add one.
+									{uiMessage("settings:using_computers_card_add_computer_help")}
 								</p>
 							</div>
 						</div>
@@ -121,14 +131,16 @@ export function UsingComputersCard() {
 				{computers.length > 0 ? (
 					<FrameFooter className="flex items-center justify-between gap-2 px-2 py-1.5">
 						<p className="text-[11px] text-muted-foreground">
-							Removing a computer does not delete its remote data.
+							{uiMessage(
+								"settings:using_computers_card_removing_a_computer_does_not_delete_its_remote_data",
+							)}
 						</p>
 						<Button
 							size="xs"
 							variant="ghost"
 							onClick={() => openAddComputerDialog({ view: "manage" })}
 						>
-							Manage
+							{uiMessage("settings:using_computers_card_manage")}
 						</Button>
 					</FrameFooter>
 				) : null}

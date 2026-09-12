@@ -1,8 +1,10 @@
+import "@zuse/i18n/english/providers";
 import {
 	type DiscoveredSshHost,
 	ENVIRONMENT_PRESENCE_STALE_MS,
 	type SshEnvironmentTarget,
 } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Pencil, RotateCw, Trash2, Unplug } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 
@@ -166,6 +168,8 @@ export function AddComputerDialog({
 	readonly initialLink?: string;
 	readonly initialView?: DialogView;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "providers"]);
+
 	const entries = useEnvironmentCatalogStore((state) => state.entries);
 	const activeId = useEnvironmentCatalogStore(
 		(state) => state.activeEnvironmentId,
@@ -268,7 +272,9 @@ export function AddComputerDialog({
 				.getState()
 				.addTailnet(trimmedLink, label.trim() || undefined);
 			toastManager.add({
-				title: `Connected to ${connectedLabel}`,
+				title: uiMessage("providers:add_computer_dialog_connected_to", {
+					connectedLabel: String(connectedLabel),
+				}),
 				type: "success",
 			});
 			setPairingLink("");
@@ -333,14 +339,22 @@ export function AddComputerDialog({
 				<DialogPopup className="max-w-xl">
 					<DialogHeader className="pb-3">
 						<DialogTitle>
-							{view === "manage" ? "Your computers" : "Connect a computer"}
+							{view === "manage"
+								? uiMessage("providers:add_computer_dialog_your_computers")
+								: uiMessage("providers:add_computer_dialog_connect_a_computer")}
 						</DialogTitle>
 						<DialogDescription>
 							{view === "manage"
-								? "Rename, reconnect, or remove computers saved on this device."
+								? uiMessage(
+										"providers:add_computer_dialog_rename_reconnect_or_remove_computers_saved_on_this_device",
+									)
 								: initialLink !== undefined && pairingLink === initialLink
-									? "Review this link, then press Connect to pair with the other computer."
-									: "Use a connect link or your existing SSH setup."}
+									? uiMessage(
+											"providers:add_computer_dialog_review_this_link_then_press_connect_to_pair_with_the_other_computer",
+										)
+									: uiMessage(
+											"providers:add_computer_dialog_use_a_connect_link_or_your_existing_ssh_setup",
+										)}
 						</DialogDescription>
 					</DialogHeader>
 					<div className="min-h-0 space-y-3 overflow-y-auto px-4 pb-3">
@@ -379,7 +393,9 @@ export function AddComputerDialog({
 										setManageError(null);
 									}}
 								>
-									{view === "manage" ? "Add computer" : "Manage"}
+									{view === "manage"
+										? uiMessage("providers:add_computer_dialog_add_computer")
+										: uiMessage("providers:add_computer_dialog_manage")}
 								</Button>
 							) : null}
 						</div>
@@ -392,7 +408,9 @@ export function AddComputerDialog({
 											id="saved-computers-heading"
 											className="mb-2 text-xs font-medium text-muted-foreground"
 										>
-											Saved computers
+											{uiMessage(
+												"providers:add_computer_dialog_saved_computers",
+											)}
 										</h3>
 										<div className="space-y-1">
 											{profileEntries.map((entry) => (
@@ -415,7 +433,10 @@ export function AddComputerDialog({
 																}}
 															>
 																<Input
-																	aria-label={`Label for ${entry.label}`}
+																	aria-label={uiMessage(
+																		"providers:add_computer_dialog_label_for",
+																		{ value1: String(entry.label) },
+																	)}
 																	autoFocus
 																	value={editedLabel}
 																	onChange={(event) =>
@@ -423,7 +444,7 @@ export function AddComputerDialog({
 																	}
 																/>
 																<Button size="sm" type="submit">
-																	Save
+																	{uiMessage("common:save")}
 																</Button>
 															</form>
 														) : (
@@ -437,7 +458,10 @@ export function AddComputerDialog({
 														</div>
 													</div>
 													<Button
-														aria-label={`Edit label for ${entry.label}`}
+														aria-label={uiMessage(
+															"providers:add_computer_dialog_edit_label_for",
+															{ value1: String(entry.label) },
+														)}
 														size="icon-sm"
 														variant="ghost"
 														onClick={() => {
@@ -449,7 +473,10 @@ export function AddComputerDialog({
 													</Button>
 													{entry.status !== "connected" ? (
 														<Button
-															aria-label={`Retry ${entry.label}`}
+															aria-label={uiMessage(
+																"providers:add_computer_dialog_retry",
+																{ value1: String(entry.label) },
+															)}
 															size="icon-sm"
 															variant="ghost"
 															onClick={() =>
@@ -462,7 +489,10 @@ export function AddComputerDialog({
 														</Button>
 													) : (
 														<Button
-															aria-label={`Disconnect ${entry.label}`}
+															aria-label={uiMessage(
+																"providers:add_computer_dialog_disconnect",
+																{ value1: String(entry.label) },
+															)}
 															disabled={entry.environmentId === activeId}
 															size="icon-sm"
 															variant="ghost"
@@ -478,7 +508,10 @@ export function AddComputerDialog({
 														</Button>
 													)}
 													<Button
-														aria-label={`Remove ${entry.label}`}
+														aria-label={uiMessage(
+															"providers:add_computer_dialog_remove",
+															{ value1: String(entry.label) },
+														)}
 														disabled={entry.environmentId === activeId}
 														size="icon-sm"
 														variant="ghost"
@@ -502,7 +535,9 @@ export function AddComputerDialog({
 											id="account-computers-heading"
 											className="mb-2 text-xs font-medium text-muted-foreground"
 										>
-											On your account
+											{uiMessage(
+												"providers:add_computer_dialog_on_your_account",
+											)}
 										</h3>
 										<div className="space-y-1">
 											{apiEntries.map((entry) => (
@@ -531,7 +566,7 @@ export function AddComputerDialog({
 																)
 															}
 														>
-															Retry
+															{uiMessage("common:retry")}
 														</Button>
 													) : null}
 													<Button
@@ -546,7 +581,7 @@ export function AddComputerDialog({
 															)
 														}
 													>
-														Hide
+														{uiMessage("providers:add_computer_dialog_hide")}
 													</Button>
 												</div>
 											))}
@@ -563,7 +598,10 @@ export function AddComputerDialog({
 											)
 										}
 									>
-										Show hidden computers ({hiddenApiIds.length})
+										{uiMessage(
+											"providers:add_computer_dialog_show_hidden_computers_sentence",
+											{ value: hiddenApiIds.length },
+										)}
 									</Button>
 								) : null}
 								{manageError !== null ? (
@@ -572,8 +610,9 @@ export function AddComputerDialog({
 									</p>
 								) : null}
 								<p className="text-xs text-muted-foreground">
-									Removing a computer only forgets it here; its projects and
-									data remain untouched.
+									{uiMessage(
+										"providers:add_computer_dialog_removing_a_computer_only_forgets_it_here_its_projects_and_data_remain",
+									)}
 								</p>
 							</>
 						) : null}
@@ -586,16 +625,16 @@ export function AddComputerDialog({
 									onSubmit={(event) => void submitLink(event)}
 								>
 									<div className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
-										On the other computer, open Settings → Remote access →
-										Connect a device, then copy the link. Any Zuse connect link
-										works here.
+										{uiMessage(
+											"providers:add_computer_dialog_on_the_other_computer_open_settings_remote_access_connect_a_device_the",
+										)}
 									</div>
 									<div>
 										<label
 											htmlFor="add-computer-link"
 											className="mb-1 block text-xs font-medium"
 										>
-											Connect link
+											{uiMessage("providers:add_computer_dialog_connect_link")}
 										</label>
 										<Input
 											id="add-computer-link"
@@ -603,7 +642,9 @@ export function AddComputerDialog({
 											autoComplete="off"
 											value={pairingLink}
 											onChange={(event) => setPairingLink(event.target.value)}
-											placeholder="zuse:///connect/pair?..."
+											placeholder={uiMessage(
+												"providers:add_computer_dialog_zuse_connect_pair",
+											)}
 											aria-invalid={linkError !== null || undefined}
 										/>
 										<p
@@ -618,16 +659,22 @@ export function AddComputerDialog({
 											htmlFor="add-computer-name"
 											className="mb-1 block text-xs font-medium"
 										>
-											Computer name{" "}
-											<span className="font-normal text-muted-foreground">
-												Optional
-											</span>
+											<RichMessage
+												id="providers:add_computer_dialog_computer_name_optional_sentence"
+												components={{
+													part0: (
+														<span className="font-normal text-muted-foreground" />
+													),
+												}}
+											/>
 										</label>
 										<Input
 											id="add-computer-name"
 											value={label}
 											onChange={(event) => setLabel(event.target.value)}
-											placeholder="Linux computer"
+											placeholder={uiMessage(
+												"providers:add_computer_dialog_linux_computer",
+											)}
 										/>
 									</div>
 								</form>
@@ -641,7 +688,7 @@ export function AddComputerDialog({
 										id="account-computers-list-heading"
 										className="mb-2 text-xs font-medium text-muted-foreground"
 									>
-										On your account
+										{uiMessage("providers:add_computer_dialog_on_your_account")}
 									</h3>
 									{accountDiscoveryError !== null ? (
 										<p
@@ -649,13 +696,23 @@ export function AddComputerDialog({
 											role="alert"
 										>
 											{accountDiscoveryError.toLowerCase().includes("auth")
-												? "Sign in to see the computers on your Zuse account."
-												: `Could not load account computers: ${accountDiscoveryError}`}
+												? uiMessage(
+														"providers:add_computer_dialog_sign_in_to_see_the_computers_on_your_zuse_account",
+													)
+												: uiMessage(
+														"providers:add_computer_dialog_could_not_load_account_computers",
+														{
+															accountDiscoveryError: String(
+																accountDiscoveryError,
+															),
+														},
+													)}
 										</p>
 									) : apiEntries.length === 0 ? (
 										<p className="rounded-lg border border-dashed border-border/60 px-3 py-3 text-xs text-muted-foreground">
-											Computers signed in to your Zuse account appear here
-											automatically.
+											{uiMessage(
+												"providers:add_computer_dialog_computers_signed_in_to_your_zuse_account_appear_here_automatically",
+											)}
 										</p>
 									) : (
 										<div className="space-y-1">
@@ -685,7 +742,7 @@ export function AddComputerDialog({
 																)
 															}
 														>
-															Retry
+															{uiMessage("common:retry")}
 														</Button>
 													) : null}
 												</div>
@@ -704,7 +761,7 @@ export function AddComputerDialog({
 											id="suggested-computers-heading"
 											className="mb-2 text-xs font-medium text-muted-foreground"
 										>
-											Suggestions
+											{uiMessage("providers:add_computer_dialog_suggestions")}
 										</h3>
 										<div className="grid gap-1 sm:grid-cols-2">
 											{suggestions.map((host) => (
@@ -720,8 +777,12 @@ export function AddComputerDialog({
 														</span>
 														<span className="block truncate text-xs font-normal text-muted-foreground">
 															{host.source === "tailscale"
-																? "Tailnet"
-																: "SSH config"}{" "}
+																? uiMessage(
+																		"providers:add_computer_dialog_tailnet",
+																	)
+																: uiMessage(
+																		"providers:add_computer_dialog_ssh_config",
+																	)}{" "}
 															· {host.hostname}
 														</span>
 													</span>
@@ -740,7 +801,7 @@ export function AddComputerDialog({
 											htmlFor="computer-host"
 											className="mb-1 block text-xs font-medium"
 										>
-											Host
+											{uiMessage("providers:add_computer_dialog_host")}
 										</label>
 										<Input
 											id="computer-host"
@@ -754,7 +815,9 @@ export function AddComputerDialog({
 												}))
 											}
 											aria-invalid={sshError !== null || undefined}
-											placeholder="server.example.com"
+											placeholder={uiMessage(
+												"providers:add_computer_dialog_server_example_com",
+											)}
 										/>
 									</div>
 									<div className="grid gap-3 sm:grid-cols-2">
@@ -763,10 +826,14 @@ export function AddComputerDialog({
 												htmlFor="computer-user"
 												className="mb-1 block text-xs font-medium"
 											>
-												Username{" "}
-												<span className="font-normal text-muted-foreground">
-													Optional
-												</span>
+												<RichMessage
+													id="providers:add_computer_dialog_username_optional_sentence"
+													components={{
+														part0: (
+															<span className="font-normal text-muted-foreground" />
+														),
+													}}
+												/>
 											</label>
 											<Input
 												id="computer-user"
@@ -785,10 +852,14 @@ export function AddComputerDialog({
 												htmlFor="computer-port"
 												className="mb-1 block text-xs font-medium"
 											>
-												Port{" "}
-												<span className="font-normal text-muted-foreground">
-													Optional
-												</span>
+												<RichMessage
+													id="providers:add_computer_dialog_port_optional_sentence"
+													components={{
+														part0: (
+															<span className="font-normal text-muted-foreground" />
+														),
+													}}
+												/>
 											</label>
 											<Input
 												id="computer-port"
@@ -810,16 +881,22 @@ export function AddComputerDialog({
 												htmlFor="computer-label"
 												className="mb-1 block text-xs font-medium"
 											>
-												Label{" "}
-												<span className="font-normal text-muted-foreground">
-													Optional
-												</span>
+												<RichMessage
+													id="providers:add_computer_dialog_label_optional_sentence"
+													components={{
+														part0: (
+															<span className="font-normal text-muted-foreground" />
+														),
+													}}
+												/>
 											</label>
 											<Input
 												id="computer-label"
 												value={label}
 												onChange={(event) => setLabel(event.target.value)}
-												placeholder="Build computer"
+												placeholder={uiMessage(
+													"providers:add_computer_dialog_build_computer",
+												)}
 											/>
 										</div>
 									</div>
@@ -834,11 +911,13 @@ export function AddComputerDialog({
 					</div>
 					<DialogFooter className="py-2">
 						{view === "manage" ? (
-							<Button onClick={() => onOpenChange(false)}>Done</Button>
+							<Button onClick={() => onOpenChange(false)}>
+								{uiMessage("common:done")}
+							</Button>
 						) : (
 							<>
 								<Button variant="ghost" onClick={() => onOpenChange(false)}>
-									Cancel
+									{uiMessage("common:cancel")}
 								</Button>
 								<Button
 									form={
@@ -849,7 +928,7 @@ export function AddComputerDialog({
 									type="submit"
 									loading={view === "link" ? submittingLink : submittingSsh}
 								>
-									Connect
+									{uiMessage("common:connect")}
 								</Button>
 							</>
 						)}
@@ -864,18 +943,24 @@ export function AddComputerDialog({
 			>
 				<AlertDialogPopup className="max-w-sm">
 					<AlertDialogHeader>
-						<AlertDialogTitle>Remove {pendingRemoval?.label}?</AlertDialogTitle>
+						<AlertDialogTitle>
+							{uiMessage("providers:add_computer_dialog_remove_sentence", {
+								value: pendingRemoval?.label ?? "",
+							})}
+						</AlertDialogTitle>
 						<AlertDialogDescription>
-							Zuse will forget this computer on this device. Projects and data
-							on {pendingRemoval?.label} are not deleted.
+							{uiMessage(
+								"providers:add_computer_dialog_zuse_will_forget_this_computer_on_this_device_projects_and_d_sentence",
+								{ value: pendingRemoval?.label ?? "" },
+							)}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<Button variant="ghost" onClick={() => setPendingRemoval(null)}>
-							Cancel
+							{uiMessage("common:cancel")}
 						</Button>
 						<Button variant="destructive" onClick={confirmRemoval}>
-							Remove
+							{uiMessage("common:remove")}
 						</Button>
 					</AlertDialogFooter>
 				</AlertDialogPopup>

@@ -1,4 +1,7 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { ProviderId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	AlertCircleIcon,
 	LinkSquare01Icon,
@@ -6,7 +9,6 @@ import {
 	ViewIcon,
 	ViewOffIcon,
 } from "@zuse/icons/bulk-rounded";
-import type { ProviderId } from "@zuse/contracts";
 import { useId, useState } from "react";
 
 import {
@@ -44,6 +46,8 @@ export function ApiKeyRow({
 	providerId: ProviderId;
 	required?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const inputId = useId();
 	const feedbackId = `${inputId}-feedback`;
 	const availability = useProvidersStore((state) =>
@@ -145,7 +149,7 @@ export function ApiKeyRow({
 							setEditing(true);
 						}}
 					>
-						Replace key
+						{uiMessage("chat:api_key_row_replace_key")}
 					</Button>
 					<Button
 						type="button"
@@ -153,7 +157,7 @@ export function ApiKeyRow({
 						variant="ghost"
 						onClick={() => setRemoveOpen(true)}
 					>
-						Remove
+						{uiMessage("common:remove")}
 					</Button>
 					<Button
 						type="button"
@@ -162,7 +166,7 @@ export function ApiKeyRow({
 						onClick={() => openExternal(API_KEY_SETTINGS_URL)}
 						className="gap-1"
 					>
-						Get an API key
+						{uiMessage("chat:api_key_row_get_an_api_key")}
 						<HugeiconsIcon
 							icon={LinkSquare01Icon}
 							className="size-3"
@@ -173,22 +177,27 @@ export function ApiKeyRow({
 				<AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
 					<AlertDialogPopup className="max-w-sm">
 						<AlertDialogHeader>
-							<AlertDialogTitle>Remove API key?</AlertDialogTitle>
+							<AlertDialogTitle>
+								{uiMessage("chat:api_key_row_remove_api_key")}
+							</AlertDialogTitle>
 							<AlertDialogDescription>
-								New sessions will stop working until another key is added.
-								Existing sessions continue until they are closed.
+								{uiMessage(
+									"chat:api_key_row_new_sessions_will_stop_working_until_another_key_is_added_existing_ses",
+								)}
 							</AlertDialogDescription>
 						</AlertDialogHeader>
 						<AlertDialogFooter>
 							<AlertDialogClose render={<Button variant="ghost" />}>
-								Cancel
+								{uiMessage("common:cancel")}
 							</AlertDialogClose>
 							<Button
 								variant="destructive"
 								disabled={busy}
 								onClick={() => void onRemove()}
 							>
-								{busy ? "Removing…" : "Remove key"}
+								{busy
+									? uiMessage("chat:api_key_row_removing")
+									: uiMessage("chat:api_key_row_remove_key")}
 							</Button>
 						</AlertDialogFooter>
 					</AlertDialogPopup>
@@ -212,14 +221,14 @@ export function ApiKeyRow({
 						htmlFor={inputId}
 						className="text-[11px] font-medium text-muted-foreground"
 					>
-						API key
+						{uiMessage("chat:api_key_row_api_key")}
 					</label>
 					<button
 						type="button"
 						onClick={() => openExternal(API_KEY_SETTINGS_URL)}
 						className="inline-flex items-center gap-1 rounded text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
 					>
-						Get an API key
+						{uiMessage("chat:api_key_row_get_an_api_key")}
 						<HugeiconsIcon
 							icon={LinkSquare01Icon}
 							className="size-3"
@@ -233,7 +242,7 @@ export function ApiKeyRow({
 					<Input
 						id={inputId}
 						type={reveal ? "text" : "password"}
-						placeholder="Paste API key"
+						placeholder={uiMessage("chat:api_key_row_paste_api_key")}
 						value={value}
 						onChange={(event) => setValue(event.target.value)}
 						disabled={busy}
@@ -252,7 +261,11 @@ export function ApiKeyRow({
 						onClick={() => setReveal((current) => !current)}
 						disabled={busy}
 						className="absolute end-0 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px]"
-						aria-label={reveal ? "Hide API key" : "Reveal API key"}
+						aria-label={
+							reveal
+								? uiMessage("chat:api_key_row_hide_api_key")
+								: uiMessage("chat:api_key_row_reveal_api_key")
+						}
 					>
 						<HugeiconsIcon
 							icon={reveal ? ViewOffIcon : ViewIcon}
@@ -266,7 +279,11 @@ export function ApiKeyRow({
 					size="default"
 					disabled={busy || value.trim().length === 0}
 				>
-					{busy ? "Verifying…" : required ? "Verify and save" : "Save"}
+					{busy
+						? uiMessage("chat:api_key_row_verifying")
+						: required
+							? uiMessage("chat:api_key_row_verify_and_save")
+							: uiMessage("common:save")}
 				</Button>
 				{required && hasKey && (
 					<Button
@@ -280,7 +297,7 @@ export function ApiKeyRow({
 							setEditing(false);
 						}}
 					>
-						Cancel
+						{uiMessage("common:cancel")}
 					</Button>
 				)}
 			</div>

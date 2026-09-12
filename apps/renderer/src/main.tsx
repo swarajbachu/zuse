@@ -1,3 +1,11 @@
+import "@zuse/i18n/english/errors";
+import { message as uiMessage } from "@zuse/i18n";
+import {
+	LocalizationProvider,
+	useMessages as useUiMessages,
+} from "@zuse/i18n/react";
+import { Suspense } from "react";
+import { initializeLocalization } from "./lib/localization.ts";
 import "./lib/crypto-compatibility.ts";
 
 import React from "react";
@@ -54,6 +62,8 @@ const sanitizedComponentDiagnostics = (componentStack?: string): string =>
 	componentStack ? `React component stack:\n${componentStack}` : "";
 
 function RootCrashFallback({ error }: { readonly error: Error }) {
+	const { message: uiMessage } = useUiMessages(["common", "errors"]);
+
 	const details = formatCrashDetails(error);
 	const copyDetails = () => {
 		void navigator.clipboard?.writeText(details);
@@ -67,14 +77,15 @@ function RootCrashFallback({ error }: { readonly error: Error }) {
 			>
 				<div className="space-y-2">
 					<p className="font-medium text-destructive text-sm">
-						Renderer crashed
+						{uiMessage("errors:main_renderer_crashed")}
 					</p>
 					<h1 id="root-crash-title" className="font-semibold text-xl">
-						Zuse hit a UI error.
+						{uiMessage("errors:main_zuse_hit_a_ui_error")}
 					</h1>
 					<p className="text-muted-foreground text-sm">
-						Your local data is still on disk. Reload the window, or copy these
-						crash details for debugging.
+						{uiMessage(
+							"errors:main_your_local_data_is_still_on_disk_reload_the_window_or_copy_these_crash",
+						)}
 					</p>
 				</div>
 				<pre className="mt-4 max-h-48 overflow-auto rounded-md border border-border/60 bg-muted/60 p-3 text-muted-foreground text-xs leading-5">
@@ -86,14 +97,14 @@ function RootCrashFallback({ error }: { readonly error: Error }) {
 						type="button"
 						onClick={() => window.location.reload()}
 					>
-						Reload
+						{uiMessage("errors:main_reload")}
 					</button>
 					<button
 						className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-muted px-3 font-medium text-foreground text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
 						type="button"
 						onClick={copyDetails}
 					>
-						Copy crash details
+						{uiMessage("errors:main_copy_crash_details")}
 					</button>
 				</div>
 			</main>
@@ -101,38 +112,46 @@ function RootCrashFallback({ error }: { readonly error: Error }) {
 	);
 }
 
-ReactDOM.createRoot(root).render(
-	<React.StrictMode>
-		<ErrorBoundary
-			fallback={(error) => <RootCrashFallback error={error} />}
-			onError={(error, info) => {
-				persistFatalRendererDiagnostic("renderer.react.root", error);
-				const summary = summarizeDiagnosticError(error, "ReactError");
-				recordDiagnosticEvent({
-					level: "error",
-					source: "renderer.react.root",
-					message: summary.message,
-					detail: [
-						summary.detail,
-						sanitizedComponentDiagnostics(info.componentStack),
-					]
-						.filter(Boolean)
-						.join("\n\n"),
-				});
-			}}
-		>
-			{import.meta.env.DEV ? (
-				<React.Profiler
-					id="app.root"
-					onRender={(id, phase, actualDuration, baseDuration) => {
-						recordReactCommit(id, phase, actualDuration, baseDuration);
-					}}
+void initializeLocalization().then(() =>
+	ReactDOM.createRoot(root).render(
+		<React.StrictMode>
+			<LocalizationProvider>
+				<Suspense
+					fallback={<div role="status">{uiMessage("common:loading")}</div>}
 				>
-					<ApplicationBootstrap />
-				</React.Profiler>
-			) : (
-				<ApplicationBootstrap />
-			)}
-		</ErrorBoundary>
-	</React.StrictMode>,
+					<ErrorBoundary
+						fallback={(error) => <RootCrashFallback error={error} />}
+						onError={(error, info) => {
+							persistFatalRendererDiagnostic("renderer.react.root", error);
+							const summary = summarizeDiagnosticError(error, "ReactError");
+							recordDiagnosticEvent({
+								level: "error",
+								source: "renderer.react.root",
+								message: summary.message,
+								detail: [
+									summary.detail,
+									sanitizedComponentDiagnostics(info.componentStack),
+								]
+									.filter(Boolean)
+									.join("\n\n"),
+							});
+						}}
+					>
+						{import.meta.env.DEV ? (
+							<React.Profiler
+								id="app.root"
+								onRender={(id, phase, actualDuration, baseDuration) => {
+									recordReactCommit(id, phase, actualDuration, baseDuration);
+								}}
+							>
+								<ApplicationBootstrap />
+							</React.Profiler>
+						) : (
+							<ApplicationBootstrap />
+						)}
+					</ErrorBoundary>
+				</Suspense>
+			</LocalizationProvider>
+		</React.StrictMode>,
+	),
 );

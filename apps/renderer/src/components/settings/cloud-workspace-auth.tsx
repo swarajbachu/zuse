@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/settings";
 import {
 	type CloudAuthLoginOperation,
 	type CloudAuthMethod,
@@ -6,6 +7,8 @@ import {
 	type CloudAuthStatus,
 	CloudWorkspaceOpError,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { sealCloudAuthSecret as sealSecret } from "@zuse/utils/cloud-auth-crypto";
 import {
 	Check,
@@ -80,13 +83,21 @@ function InstructionStep({
 }
 
 export function CodexDeviceLoginInstructions() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	return (
 		<div className="space-y-2.5">
-			<InstructionStep number={1} title="Allow device-code login">
+			<InstructionStep
+				number={1}
+				title={uiMessage(
+					"settings:cloud_workspace_auth_allow_device_code_login",
+				)}
+			>
 				<p>
-					In ChatGPT, open <strong>Settings → Security</strong> and enable
-					device-code authorization. Managed workspaces may require an admin to
-					enable it.
+					<RichMessage
+						id="settings:cloud_workspace_auth_in_chatgpt_open_settings_security_and_enable_device_code_aut_sentence"
+						components={{ part0: <strong /> }}
+					/>
 				</p>
 				<Button
 					className={`mt-1.5 ${COMPACT_AUTH_ACTION}`}
@@ -95,17 +106,30 @@ export function CodexDeviceLoginInstructions() {
 					onClick={() => void openExternal(CODEX_SECURITY_SETTINGS_URL)}
 				>
 					<ExternalLink aria-hidden />
-					Open ChatGPT security settings
+					{uiMessage(
+						"settings:cloud_workspace_auth_open_chatgpt_security_settings",
+					)}
 				</Button>
 			</InstructionStep>
-			<InstructionStep number={2} title="Start the login below">
-				Zuse runs the official <code>codex login --device-auth</code> flow
-				inside your private E2B authentication sandbox.
+			<InstructionStep
+				number={2}
+				title={uiMessage("settings:cloud_workspace_auth_start_the_login_below")}
+			>
+				<RichMessage
+					id="settings:cloud_workspace_auth_zuse_runs_the_official_codex_login_device_auth_flow_inside_y_sentence"
+					components={{ part0: <code /> }}
+					values={{ code0: "codex login --device-auth" }}
+				/>
 			</InstructionStep>
-			<InstructionStep number={3} title="Approve the one-time code">
-				Open the authorization page, sign in to the intended ChatGPT workspace,
-				and enter the code shown below. It expires after 15 minutes. Only
-				approve a login you started here.
+			<InstructionStep
+				number={3}
+				title={uiMessage(
+					"settings:cloud_workspace_auth_approve_the_one_time_code",
+				)}
+			>
+				{uiMessage(
+					"settings:cloud_workspace_auth_open_the_authorization_page_sign_in_to_the_intended_chatgpt_workspace",
+				)}
 			</InstructionStep>
 		</div>
 	);
@@ -162,18 +186,39 @@ const statusPresentation = (
 	readonly variant: "success" | "warning" | "outline";
 } => {
 	if (status?.state === "connected")
-		return { label: "Ready", variant: "success" };
+		return {
+			label: uiMessage("settings:cloud_workspace_auth_ready"),
+			variant: "success",
+		};
 	if (status?.state === "authorizing")
-		return { label: "Authorizing", variant: "warning" };
+		return {
+			label: uiMessage("settings:cloud_workspace_auth_authorizing"),
+			variant: "warning",
+		};
 	if (status?.state === "expired")
-		return { label: "Reconnect", variant: "warning" };
+		return {
+			label: uiMessage("settings:cloud_workspace_auth_reconnect"),
+			variant: "warning",
+		};
 	if (status?.state === "missing-tool")
-		return { label: "Tool unavailable", variant: "warning" };
+		return {
+			label: uiMessage("settings:cloud_workspace_auth_tool_unavailable"),
+			variant: "warning",
+		};
 	if (status?.state === "error")
-		return { label: "Needs attention", variant: "warning" };
+		return {
+			label: uiMessage("settings:cloud_workspace_auth_needs_attention"),
+			variant: "warning",
+		};
 	if (status?.state === "unsupported-for-sandbox")
-		return { label: "Unavailable", variant: "warning" };
-	return { label: "Not connected", variant: "outline" };
+		return {
+			label: uiMessage("settings:cloud_workspace_auth_unavailable"),
+			variant: "warning",
+		};
+	return {
+		label: uiMessage("settings:cloud_workspace_auth_not_connected"),
+		variant: "outline",
+	};
 };
 
 const authFailureMessage = (cause: unknown, fallback: string): string => {
@@ -188,6 +233,8 @@ const authFailureMessage = (cause: unknown, fallback: string): string => {
 };
 
 export function CloudWorkspaceAuth() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const [status, setStatus] = useState<CloudAuthStatus | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState<string | null>(null);
@@ -241,7 +288,7 @@ export function CloudWorkspaceAuth() {
 
 	const statusByProvider = useMemo(
 		() => new Map(status?.providers.map((item) => [item.providerId, item])),
-		[status],
+		[status, uiMessage],
 	);
 
 	const openProviderSetup = async (providerId: CloudAuthProvider) => {
@@ -389,19 +436,26 @@ export function CloudWorkspaceAuth() {
 	return (
 		<>
 			<CloudSettingsGroup
-				title="Agent authentication"
-				description="Authorize each provider once. Account credentials are shared by new cloud chats and never baked into chat sandboxes."
+				title={uiMessage("settings:cloud_workspace_auth_agent_authentication")}
+				description={uiMessage(
+					"settings:cloud_workspace_auth_authorize_each_provider_once_account_credentials_are_shared_by_new_clo",
+				)}
 				action={
 					<span className="text-[11px] text-muted-foreground">
 						{loading
-							? "Checking…"
-							: `${connectedCount ?? 0} of ${PROVIDERS.length} connected`}
+							? uiMessage("settings:cloud_workspace_auth_checking")
+							: uiMessage("settings:cloud_workspace_auth_of_connected", {
+									value1: String(connectedCount ?? 0),
+									length: String(PROVIDERS.length),
+								})}
 					</span>
 				}
 			>
 				{displayedError === null ? null : (
 					<CloudSettingsRow
-						title="Cloud authentication needs attention"
+						title={uiMessage(
+							"settings:cloud_workspace_auth_cloud_authentication_needs_attention",
+						)}
 						description={displayedError}
 						className="bg-destructive/5"
 						action={
@@ -416,7 +470,7 @@ export function CloudWorkspaceAuth() {
 								}}
 							>
 								<RefreshCw aria-hidden />
-								Try again
+								{uiMessage("settings:cloud_workspace_auth_try_again")}
 							</Button>
 						}
 					/>
@@ -434,14 +488,30 @@ export function CloudWorkspaceAuth() {
 							title={LABEL[providerId]}
 							description={
 								providerStatus?.state === "connected"
-									? `Shared account-wide with new ${LABEL[providerId]} cloud chats via ${providerStatus.method ?? "provider authentication"}.`
+									? uiMessage(
+											"settings:cloud_workspace_auth_shared_account_wide_with_new_cloud_chats_via",
+											{
+												value1: String(LABEL[providerId]),
+												value2: String(
+													providerStatus.method ?? "provider authentication",
+												),
+											},
+										)
 									: providerId === "claude"
-										? "Claude Code subscription, Anthropic API key, or custom endpoint."
+										? uiMessage(
+												"settings:cloud_workspace_auth_claude_code_subscription_anthropic_api_key_or_custom_endpoint",
+											)
 										: providerId === "codex"
-											? "One account-level ChatGPT subscription login, OpenAI API key, or custom endpoint."
+											? uiMessage(
+													"settings:cloud_workspace_auth_one_account_level_chatgpt_subscription_login_openai_api_key_or_custom",
+												)
 											: providerId === "cursor"
-												? "Cursor API key for cloud chat sandboxes."
-												: "Grok device login, xAI API key, or custom endpoint."
+												? uiMessage(
+														"settings:cloud_workspace_auth_cursor_api_key_for_cloud_chat_sandboxes",
+													)
+												: uiMessage(
+														"settings:cloud_workspace_auth_grok_device_login_xai_api_key_or_custom_endpoint",
+													)
 							}
 							action={
 								<>
@@ -459,7 +529,7 @@ export function CloudWorkspaceAuth() {
 											loading={busy === `disconnect:${providerId}`}
 											onClick={() => void disconnect(providerId)}
 										>
-											Disconnect
+											{uiMessage("common:disconnect")}
 										</Button>
 									) : null}
 									<Button
@@ -471,10 +541,10 @@ export function CloudWorkspaceAuth() {
 										onClick={() => void openProviderSetup(providerId)}
 									>
 										{isConnected
-											? "Reauthorize"
+											? uiMessage("settings:cloud_workspace_auth_reauthorize")
 											: needsReconnect
-												? "Reconnect"
-												: "Connect"}
+												? uiMessage("settings:cloud_workspace_auth_reconnect")
+												: uiMessage("common:connect")}
 										<ChevronRight aria-hidden />
 									</Button>
 								</>
@@ -501,16 +571,27 @@ export function CloudWorkspaceAuth() {
 							)}
 							<DialogTitle>
 								{selectedProvider === null
-									? "Agent authentication"
-									: `Set up ${LABEL[selectedProvider]}`}
+									? uiMessage(
+											"settings:cloud_workspace_auth_agent_authentication",
+										)
+									: uiMessage("settings:cloud_workspace_auth_set_up", {
+											value1: String(LABEL[selectedProvider]),
+										})}
 							</DialogTitle>
 						</div>
 						<DialogDescription>
 							{selectedProvider === null
-								? "Choose an authentication method."
+								? uiMessage(
+										"settings:cloud_workspace_auth_choose_an_authentication_method",
+									)
 								: selectedProvider === "codex"
-									? "Connect Codex once for your Zuse account. Compatible cloud chats receive short-lived access without copied refresh tokens."
-									: `Choose how new cloud sandboxes authenticate with ${LABEL[selectedProvider]}.`}
+									? uiMessage(
+											"settings:cloud_workspace_auth_connect_codex_once_for_your_zuse_account_compatible_cloud_chats_receiv",
+										)
+									: uiMessage(
+											"settings:cloud_workspace_auth_choose_how_new_cloud_sandboxes_authenticate_with",
+											{ value1: String(LABEL[selectedProvider]) },
+										)}
 						</DialogDescription>
 					</DialogHeader>
 					<form className="contents" onSubmit={submitProviderSetup}>
@@ -518,7 +599,9 @@ export function CloudWorkspaceAuth() {
 							{selectedProvider === "cursor" ? null : (
 								<div className="space-y-1.5">
 									<p className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-										Authentication method
+										{uiMessage(
+											"settings:cloud_workspace_auth_authentication_method",
+										)}
 									</p>
 									<CloudAuthMethodTabs
 										value={method}
@@ -533,31 +616,44 @@ export function CloudWorkspaceAuth() {
 							{method === "subscription" && selectedProvider === "claude" ? (
 								<div className="space-y-3 rounded-lg bg-background/55 p-3">
 									<div>
-										<p className="font-medium text-xs">Create a setup token</p>
+										<p className="font-medium text-xs">
+											{uiMessage(
+												"settings:cloud_workspace_auth_create_a_setup_token",
+											)}
+										</p>
 										<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-											Run this official command on a trusted computer, then
-											paste the new machine-purpose token below.
+											{uiMessage(
+												"settings:cloud_workspace_auth_run_this_official_command_on_a_trusted_computer_then_paste_the_new_mac",
+											)}
 										</p>
 									</div>
 									<div className="flex h-7 items-center gap-2 rounded-md bg-muted/60 px-2">
 										<Terminal className="text-muted-foreground" aria-hidden />
 										<code className="min-w-0 flex-1 select-all text-xs">
-											claude setup-token
+											{uiMessage(
+												"settings:cloud_workspace_auth_claude_setup_token",
+											)}
 										</code>
 										<CopyAction
 											text="claude setup-token"
-											label="Copy command"
+											label={uiMessage(
+												"settings:cloud_workspace_auth_copy_command",
+											)}
 											compact
 										/>
 									</div>
 									<label className="block space-y-1" htmlFor="cloud-auth-token">
-										<span className="text-[11px] font-medium">Setup token</span>
+										<span className="text-[11px] font-medium">
+											{uiMessage("settings:cloud_workspace_auth_setup_token")}
+										</span>
 										<Input
 											id="cloud-auth-token"
 											type="password"
 											value={secret}
 											onChange={(event) => setSecret(event.currentTarget.value)}
-											placeholder="Paste setup token"
+											placeholder={uiMessage(
+												"settings:cloud_workspace_auth_paste_setup_token",
+											)}
 											autoComplete="off"
 										/>
 									</label>
@@ -579,8 +675,10 @@ export function CloudWorkspaceAuth() {
 												aria-hidden
 											/>
 											<span className="min-w-0 flex-1">
-												{LABEL[selectedProvider]} is authorized and ready for
-												new cloud chats.
+												{uiMessage(
+													"settings:cloud_workspace_auth_is_authorized_and_ready_for_new_cloud_chats_sentence",
+													{ value: LABEL[selectedProvider] },
+												)}
 											</span>
 										</div>
 									) : null}
@@ -590,11 +688,14 @@ export function CloudWorkspaceAuth() {
 									) : (
 										<div>
 											<p className="font-medium text-xs">
-												Device authorization
+												{uiMessage(
+													"settings:cloud_workspace_auth_device_authorization",
+												)}
 											</p>
 											<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-												Start the official Grok login, open the authorization
-												page, and enter the code shown here.
+												{uiMessage(
+													"settings:cloud_workspace_auth_start_the_official_grok_login_open_the_authorization_page_and_enter_th",
+												)}
 											</p>
 										</div>
 									)}
@@ -606,7 +707,9 @@ export function CloudWorkspaceAuth() {
 											</code>
 											<CopyAction
 												text={operation.verificationCode}
-												label="Copy code"
+												label={uiMessage(
+													"settings:cloud_workspace_auth_copy_code",
+												)}
 											/>
 										</div>
 									)}
@@ -614,7 +717,10 @@ export function CloudWorkspaceAuth() {
 									operation.verificationCode === undefined ? (
 										<div className="flex h-7 items-center gap-2 rounded-md bg-muted/55 px-2 text-[11px] text-muted-foreground">
 											<RefreshCw className="animate-spin" aria-hidden />
-											Requesting a one-time code from {LABEL[selectedProvider]}…
+											{uiMessage(
+												"settings:cloud_workspace_auth_requesting_a_one_time_code_from",
+											)}
+											{LABEL[selectedProvider]}…
 										</div>
 									) : null}
 									{operation?.state === "error" ? (
@@ -622,13 +728,16 @@ export function CloudWorkspaceAuth() {
 											role="alert"
 											className="rounded-md bg-destructive/8 px-2.5 py-2 text-[11px] leading-4"
 										>
-											Authorization did not finish. Start a new login and try
-											again.
+											{uiMessage(
+												"settings:cloud_workspace_auth_authorization_did_not_finish_start_a_new_login_and_try_again",
+											)}
 										</p>
 									) : null}
 									{operation?.state === "cancelled" ? (
 										<p className="rounded-md bg-muted/55 px-2.5 py-2 text-[11px] leading-4 text-muted-foreground">
-											Login cancelled. No credentials were changed.
+											{uiMessage(
+												"settings:cloud_workspace_auth_login_cancelled_no_credentials_were_changed",
+											)}
 										</p>
 									) : null}
 								</div>
@@ -637,23 +746,32 @@ export function CloudWorkspaceAuth() {
 							{method === "api-key" ? (
 								<div className="space-y-3 rounded-lg bg-background/55 p-3">
 									<div>
-										<p className="font-medium text-xs">Provider API key</p>
+										<p className="font-medium text-xs">
+											{uiMessage(
+												"settings:cloud_workspace_auth_provider_api_key",
+											)}
+										</p>
 										<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-											The key is encrypted directly to your private cloud image
-											and never returned by API.
+											{uiMessage(
+												"settings:cloud_workspace_auth_the_key_is_encrypted_directly_to_your_private_cloud_image_and_never_re",
+											)}
 										</p>
 									</div>
 									<label
 										className="block space-y-1"
 										htmlFor="cloud-auth-api-key"
 									>
-										<span className="text-[11px] font-medium">API key</span>
+										<span className="text-[11px] font-medium">
+											{uiMessage("settings:cloud_workspace_auth_api_key")}
+										</span>
 										<Input
 											id="cloud-auth-api-key"
 											type="password"
 											value={secret}
 											onChange={(event) => setSecret(event.currentTarget.value)}
-											placeholder="Paste API key"
+											placeholder={uiMessage(
+												"settings:cloud_workspace_auth_paste_api_key",
+											)}
 											autoComplete="off"
 										/>
 									</label>
@@ -663,16 +781,24 @@ export function CloudWorkspaceAuth() {
 							{method === "custom" ? (
 								<div className="space-y-3 rounded-lg bg-background/55 p-3">
 									<div>
-										<p className="font-medium text-xs">Compatible endpoint</p>
+										<p className="font-medium text-xs">
+											{uiMessage(
+												"settings:cloud_workspace_auth_compatible_endpoint",
+											)}
+										</p>
 										<p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-											Connect an HTTPS endpoint supported by this agent.
+											{uiMessage(
+												"settings:cloud_workspace_auth_connect_an_https_endpoint_supported_by_this_agent",
+											)}
 										</p>
 									</div>
 									<label
 										className="block space-y-1"
 										htmlFor="cloud-auth-base-url"
 									>
-										<span className="text-[11px] font-medium">Base URL</span>
+										<span className="text-[11px] font-medium">
+											{uiMessage("settings:cloud_workspace_auth_base_url")}
+										</span>
 										<Input
 											id="cloud-auth-base-url"
 											type="url"
@@ -688,10 +814,14 @@ export function CloudWorkspaceAuth() {
 										htmlFor="cloud-auth-provider-name"
 									>
 										<span className="text-[11px] font-medium">
-											Provider name
-											<span className="ml-1 font-normal text-muted-foreground">
-												Optional
-											</span>
+											<RichMessage
+												id="settings:cloud_workspace_auth_provider_nameoptional_sentence"
+												components={{
+													part0: (
+														<span className="ml-1 font-normal text-muted-foreground" />
+													),
+												}}
+											/>
 										</span>
 										<Input
 											id="cloud-auth-provider-name"
@@ -699,7 +829,9 @@ export function CloudWorkspaceAuth() {
 											onChange={(event) =>
 												setModelProvider(event.currentTarget.value)
 											}
-											placeholder="Provider identifier"
+											placeholder={uiMessage(
+												"settings:cloud_workspace_auth_provider_identifier",
+											)}
 										/>
 									</label>
 									<label
@@ -707,14 +839,18 @@ export function CloudWorkspaceAuth() {
 										htmlFor="cloud-auth-secret"
 									>
 										<span className="text-[11px] font-medium">
-											Provider secret
+											{uiMessage(
+												"settings:cloud_workspace_auth_provider_secret",
+											)}
 										</span>
 										<Input
 											id="cloud-auth-secret"
 											type="password"
 											value={secret}
 											onChange={(event) => setSecret(event.currentTarget.value)}
-											placeholder="Provider secret"
+											placeholder={uiMessage(
+												"settings:cloud_workspace_auth_provider_secret",
+											)}
 											autoComplete="off"
 										/>
 									</label>
@@ -724,7 +860,9 @@ export function CloudWorkspaceAuth() {
 						<DialogFooter>
 							<div className="flex w-full items-center justify-end gap-3 sm:justify-between">
 								<p className="hidden text-[10px] text-muted-foreground sm:block">
-									Stored only in your private cloud image.
+									{uiMessage(
+										"settings:cloud_workspace_auth_stored_only_in_your_private_cloud_image",
+									)}
 								</p>
 								<div className="flex items-center justify-end gap-1.5">
 									{operation?.state === "authorizing" ? (
@@ -736,7 +874,7 @@ export function CloudWorkspaceAuth() {
 											onClick={() => void cancelLogin()}
 											loading={busy?.startsWith("cancel:") === true}
 										>
-											Cancel login
+											{uiMessage("settings:cloud_workspace_auth_cancel_login")}
 										</Button>
 									) : (
 										<DialogClose
@@ -749,7 +887,7 @@ export function CloudWorkspaceAuth() {
 												/>
 											}
 										>
-											Cancel
+											{uiMessage("common:cancel")}
 										</DialogClose>
 									)}
 									{usesDeviceLogin &&
@@ -765,7 +903,9 @@ export function CloudWorkspaceAuth() {
 											}
 										>
 											<ExternalLink aria-hidden />
-											Open authorization
+											{uiMessage(
+												"settings:cloud_workspace_auth_open_authorization",
+											)}
 										</Button>
 									) : usesDeviceLogin ? (
 										<Button
@@ -776,13 +916,19 @@ export function CloudWorkspaceAuth() {
 											disabled={operation?.state === "authorizing"}
 										>
 											{operation?.state === "connected"
-												? "Reauthorize"
+												? uiMessage("settings:cloud_workspace_auth_reauthorize")
 												: operation?.state === "authorizing"
-													? "Requesting code…"
+													? uiMessage(
+															"settings:cloud_workspace_auth_requesting_code",
+														)
 													: operation?.state === "error" ||
 															operation?.state === "cancelled"
-														? "Try again"
-														: "Start device login"}
+														? uiMessage(
+																"settings:cloud_workspace_auth_try_again",
+															)
+														: uiMessage(
+																"settings:cloud_workspace_auth_start_device_login",
+															)}
 										</Button>
 									) : (
 										<Button
@@ -792,7 +938,9 @@ export function CloudWorkspaceAuth() {
 											loading={busy?.startsWith("configure:") === true}
 											disabled={!canConfigure}
 										>
-											Save and verify
+											{uiMessage(
+												"settings:cloud_workspace_auth_save_and_verify",
+											)}
 										</Button>
 									)}
 								</div>
