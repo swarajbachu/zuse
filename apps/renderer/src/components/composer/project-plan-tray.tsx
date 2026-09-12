@@ -279,7 +279,11 @@ export function ProjectPlanTray({
 			subtitle={`${done} of ${total} Done`}
 			onPillClick={() => setExpanded((v) => !v)}
 			ariaExpanded={expanded}
-			ariaLabel={expanded ? "Collapse plan" : "Expand plan"}
+			ariaLabel={
+				expanded
+					? uiMessage("common:collapse_plan")
+					: uiMessage("common:expand_plan")
+			}
 			actions={
 				<ChevronDown
 					className={cn(

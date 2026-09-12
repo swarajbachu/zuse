@@ -3,10 +3,12 @@ on:
   pull_request:
     paths:
       - 'apps/renderer/**'
+      - 'apps/web/**'
       - 'apps/desktop/**'
       - 'packages/i18n/**'
       - 'packages/contracts/src/locale.ts'
       - 'scripts/*i18n*'
+      - 'scripts/website-localization-sources.mjs'
       - '.github/workflows/localization.yml'
       - 'bun.lock'
 permissions:
@@ -23,3 +25,5 @@ jobs:
       - run: bun run check:i18n
       - run: bun run test:i18n
       - run: bun run --filter @zuse/i18n check-types
+      - run: bun run --cwd apps/web test
+      - run: bun run --cwd apps/web check-types

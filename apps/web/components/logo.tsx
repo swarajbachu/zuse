@@ -1,3 +1,6 @@
+"use client";
+import { websitePath } from "@zuse/i18n/registry";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import Image from "next/image";
 import Link from "next/link";
 import { SITE_NAME } from "@/lib/site";
@@ -26,8 +29,9 @@ export const Logo = ({
 	showWordmark?: boolean;
 	wordmarkClassName?: string;
 }) => {
+	const { locale } = useWebsiteMessages();
 	return (
-		<Link href="/" className="flex items-center gap-2">
+		<Link href={websitePath(locale)} className="flex items-center gap-2">
 			<LogoMark className={className} />
 			{showWordmark && (
 				<span

@@ -47,18 +47,21 @@ const defaultRouteAssets = collectRouteAssets(
 );
 
 // Offline catalogs must be packaged, without pulling inactive languages into startup.
-const localizationRoot = resolve(import.meta.dirname, "../packages/i18n/src");
-const localeNames = JSON.parse(
-	readFileSync(resolve(localizationRoot, "locales.json"), "utf8"),
+const localizationRoot = resolve(
+	import.meta.dirname,
+	"../packages/i18n/locales",
 );
-const namespaces = readdirSync(resolve(localizationRoot, "catalogs/en")).filter(
+const localeNames = JSON.parse(
+	readFileSync(resolve(localizationRoot, "registry.json"), "utf8"),
+);
+const namespaces = readdirSync(resolve(localizationRoot, "en/desktop")).filter(
 	(file) => file.endsWith(".json"),
 );
 for (const locale of Object.keys(localeNames).filter(
 	(locale) => locale !== "en",
 )) {
 	for (const namespace of namespaces) {
-		const suffix = `/packages/i18n/src/catalogs/${locale}/${namespace}`;
+		const suffix = `/packages/i18n/locales/${locale}/desktop/${namespace}`;
 		const key = Object.keys(manifest).find((key) => key.endsWith(suffix));
 		const chunk = key && manifest[key];
 		if (!chunk?.isDynamicEntry)

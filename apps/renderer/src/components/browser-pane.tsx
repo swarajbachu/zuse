@@ -1543,21 +1543,25 @@ export function BrowserPane({
 				<ToolbarButton
 					onClick={() => go("back")}
 					disabled={!canGoBack}
-					ariaLabel="Back"
+					ariaLabel={uiMessage("common:back")}
 				>
 					<ChevronLeft className="size-3.5" strokeWidth={1.8} />
 				</ToolbarButton>
 				<ToolbarButton
 					onClick={() => go("forward")}
 					disabled={!canGoForward}
-					ariaLabel="Forward"
+					ariaLabel={uiMessage("common:forward")}
 				>
 					<ChevronRight className="size-3.5" strokeWidth={1.8} />
 				</ToolbarButton>
 				<ToolbarButton
 					onClick={reload}
 					disabled={url === ""}
-					ariaLabel={isLoading ? "Stop" : "Reload"}
+					ariaLabel={
+						isLoading
+							? uiMessage("common:stop")
+							: uiMessage("chat:startup_surface_reload")
+					}
 				>
 					<RefreshCw
 						className={`size-3.5 ${isLoading ? "animate-spin" : ""}`}
@@ -1569,7 +1573,7 @@ export function BrowserPane({
 						/* bookmark placeholder */
 					}}
 					disabled={true}
-					ariaLabel="Bookmark"
+					ariaLabel={uiMessage("common:bookmark")}
 				>
 					<HugeiconsIcon icon={StarIcon} className="size-3.5" />
 				</ToolbarButton>
@@ -1693,7 +1697,11 @@ export function BrowserPane({
 						});
 					}}
 					disabled={!hasLoadedPage}
-					ariaLabel={annotating ? "Cancel annotation" : "Annotate page"}
+					ariaLabel={
+						annotating
+							? uiMessage("chat:browser_pane_cancel_annotation")
+							: uiMessage("common:annotate_page")
+					}
 				>
 					<MousePointerClick
 						className={`size-3.5 ${annotating ? "text-primary" : ""}`}
@@ -1703,7 +1711,7 @@ export function BrowserPane({
 				<ToolbarButton
 					onClick={() => setShutterNonce((n) => n + 1)}
 					disabled={!hasLoadedPage}
-					ariaLabel="Capture screenshot"
+					ariaLabel={uiMessage("common:capture_screenshot")}
 				>
 					<Camera className="size-3.5" strokeWidth={1.8} />
 				</ToolbarButton>

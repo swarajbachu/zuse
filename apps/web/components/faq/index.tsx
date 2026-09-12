@@ -1,3 +1,9 @@
+"use client";
+import {
+	useWebsiteMessages,
+	type WebsiteMessage,
+	WebsiteRichMessage,
+} from "@zuse/i18n/website/react";
 import Link from "next/link";
 import React from "react";
 import { Container } from "@/components/container";
@@ -10,76 +16,91 @@ import {
 } from "@/components/ui/accordion";
 import { GITHUB_URL } from "@/lib/site";
 
-const data = [
+const getData = (t: WebsiteMessage) => [
 	{
-		question: "What does Zuse actually do?",
-		answer:
-			"Zuse puts your coding agents, repositories, terminals, files, and diffs in one workspace. You can run several tasks in parallel, keep each one isolated in its own git worktree, and carry selected context from one agent session to another.",
+		question: t("faq:what_does_zuse_actually_do"),
+		answer: t(
+			"faq:zuse_puts_your_coding_agents_repositories_terminals_files_and_diffs_in",
+		),
 	},
 	{
-		question: "What happens when I want to switch agents?",
-		answer:
-			"You choose the next provider instead of Zuse silently routing your message. Start or fork a session, then attach the plan, transcript, diff, or files the next agent needs. If one subscription reaches its limit, you can continue with another provider you have access to.",
+		question: t("faq:what_happens_when_i_want_to_switch_agents"),
+		answer: t(
+			"faq:you_choose_the_next_provider_instead_of_zuse_silently_routing_your_mes",
+		),
 	},
 	{
-		question: "Which agents are supported?",
-		answer:
-			"Zuse supports seven coding-agent CLIs in one workspace. Connect the providers you use, run them side by side, and choose which provider handles each session.",
+		question: t("faq:which_agents_are_supported"),
+		answer: t(
+			"faq:zuse_supports_seven_coding_agent_clis_in_one_workspace_connect_the_pro",
+		),
 	},
 	{
-		question: "Do I need my own API keys or subscriptions?",
-		answer:
-			"Yes. Zuse is bring your own keys. You plug in your own provider keys or subscriptions, and Zuse talks to them directly. It never resells tokens and adds $0 markup, so you only pay the agent providers.",
+		question: t("faq:do_i_need_my_own_api_keys_or_subscriptions"),
+		answer: t(
+			"faq:yes_zuse_is_bring_your_own_keys_you_plug_in_your_own_provider_keys_or",
+		),
 	},
 	{
-		question: "Is my code or data sent anywhere?",
-		answer:
-			"Local and SSH chats stay on the computers you choose. When you use the optional Zuse Cloud private beta, its workspace runs in E2B and encrypted transcript checkpoints are stored for fast reconnects. Model requests go only to the providers you configure. Pseudonymous usage analytics never include prompts, responses, code, paths, commands, account details, or error stacks, and you can turn them off in Settings.",
+		question: t("faq:is_my_code_or_data_sent_anywhere"),
+		answer: t(
+			"faq:local_and_ssh_chats_stay_on_the_computers_you_choose_when_you_use_the",
+		),
 	},
 	{
-		question: "Which operating systems are supported?",
-		answer:
-			"Zuse (Beta) ships for macOS and x64 Linux. The Download button selects the macOS disk image or Linux AppImage automatically, and Debian and Ubuntu users can also get the .deb package from GitHub Releases.",
+		question: t("faq:which_operating_systems_are_supported"),
+		answer: t(
+			"faq:zuse_beta_ships_for_macos_and_x64_linux_the_download_button_selects_th",
+		),
 	},
 	{
-		question: "How much does it cost?",
-		answer:
-			"The Zuse desktop beta is available now and uses your own agent subscriptions or API keys. Zuse Cloud is a private, invite-only beta: Cloud Workspace costs $40/month, includes $35 of attributable E2B compute, and bills additional provider cost plus 5% up to your overage cap.",
+		question: t("faq:how_much_does_it_cost"),
+		answer: t(
+			"faq:the_zuse_desktop_beta_is_available_now_and_uses_your_own_agent_subscri",
+		),
 	},
 	{
-		question: "Can I run multiple agents at once?",
-		answer:
-			"Yes. You can run several agents in parallel, each in its own chat with its own git worktree, so their changes stay isolated. Review and commit each one from the PR and Changes pane.",
+		question: t("faq:can_i_run_multiple_agents_at_once"),
+		answer: t(
+			"faq:yes_you_can_run_several_agents_in_parallel_each_in_its_own_chat_with_i",
+		),
 	},
 	{
-		question: "What is sub-agent delegation?",
-		answer:
-			"A lead agent can spawn sub-agents to handle parts of a task, including cheaper models for the simpler work. That keeps the expensive model focused on the hard parts and lowers your overall token cost.",
+		question: t("faq:what_is_sub_agent_delegation"),
+		answer: t(
+			"faq:a_lead_agent_can_spawn_sub_agents_to_handle_parts_of_a_task_including",
+		),
 	},
 ];
 
 export const FAQ = () => {
+	const { message: t } = useWebsiteMessages();
+
 	return (
 		<section id="faq" className="w-full scroll-mt-24">
 			<Container className="grid grid-cols-1 gap-15 py-20 md:py-30 lg:grid-cols-2">
 				<div className="flex flex-col gap-4 pt-8">
-					<Header>Questions devs ask first</Header>
+					<Header>{t("faq:questions_devs_ask_first")}</Header>
 					<div className="-tracking-xs text-muted-foreground text-base leading-6 font-medium">
-						More questions? See the project on{" "}
-						<Link
-							href={GITHUB_URL}
-							target="_blank"
-							rel="noopener noreferrer"
-							className="text-primary underline underline-offset-3"
-						>
-							GitHub
-						</Link>
-						.
+						<WebsiteRichMessage
+							id="faq:more_questions_see_the_project_on_github"
+							values={{}}
+							components={{
+								part0: (
+									<Link
+										href={GITHUB_URL}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-primary underline underline-offset-3"
+									/>
+								),
+							}}
+						/>
 					</div>
 				</div>
 				<div className="h-full w-full">
-					<Accordion defaultValue={[data[0].question]}>
-						{data.map((item, index) => (
+					<Accordion defaultValue={[getData(t)[0].question]}>
+						{getData(t).map((item, index) => (
 							<React.Fragment key={item.question}>
 								<AccordionItem value={item.question} className="py-4">
 									<AccordionTrigger className="-tracking-xs text-foreground text-base leading-6 font-medium">
@@ -89,7 +110,7 @@ export const FAQ = () => {
 										{item.answer}
 									</AccordionContent>
 								</AccordionItem>
-								{data.length - 1 !== index && (
+								{getData(t).length - 1 !== index && (
 									<div className="bg-white/10 h-px w-full" />
 								)}
 							</React.Fragment>

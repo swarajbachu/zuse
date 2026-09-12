@@ -1,10 +1,10 @@
 "use client";
-
 import {
 	IconBrandAppleFilled,
 	IconDownload,
 	IconTerminal2,
 } from "@tabler/icons-react";
+import type { WebsiteMessage } from "@zuse/i18n/website/react";
 import { useEffect, useState } from "react";
 import { resolveDownloadTarget } from "@/lib/download";
 import { DOWNLOAD_URL } from "@/lib/site";
@@ -43,11 +43,14 @@ export const getDownloadHref = (platform: DownloadPlatform) => {
 	return DOWNLOAD_URL;
 };
 
-export const getDownloadLabel = (platform: DownloadPlatform) => {
-	if (platform === "macos") return "Download for macOS";
-	if (platform === "linux") return "Download for Linux";
-	if (platform === "other") return "View downloads";
-	return "Download Zuse";
+export const getDownloadLabel = (
+	platform: DownloadPlatform,
+	t: WebsiteMessage,
+) => {
+	if (platform === "macos") return t("navigation:download_for_macos");
+	if (platform === "linux") return t("navigation:download_for_linux");
+	if (platform === "other") return t("navigation:view_downloads");
+	return t("navigation:download_zuse");
 };
 
 export const PlatformDownloadIcon = ({

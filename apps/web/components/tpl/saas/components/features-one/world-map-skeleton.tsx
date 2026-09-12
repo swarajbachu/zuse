@@ -1,5 +1,4 @@
 "use client";
-
 import {
 	IconCheck,
 	IconClick,
@@ -7,22 +6,37 @@ import {
 	IconRoute,
 	IconTarget,
 } from "@tabler/icons-react";
+import {
+	useWebsiteMessages,
+	type WebsiteMessage,
+} from "@zuse/i18n/website/react";
 import { motion, useReducedMotion } from "motion/react";
 
-const STEPS = [
-	{ icon: IconRoute, label: "Open /checkout", detail: "navigation" },
-	{ icon: IconForms, label: "Enter card", detail: "input" },
-	{ icon: IconClick, label: "Place order", detail: "click" },
-	{ icon: IconTarget, label: "Receipt visible", detail: "assert" },
-] as const;
+const getSTEPS = (t: WebsiteMessage) =>
+	[
+		{
+			icon: IconRoute,
+			label: t("showcase:open_checkout"),
+			detail: "navigation",
+		},
+		{ icon: IconForms, label: t("showcase:enter_card"), detail: "input" },
+		{ icon: IconClick, label: t("showcase:place_order"), detail: "click" },
+		{
+			icon: IconTarget,
+			label: t("showcase:receipt_visible_2"),
+			detail: "assert",
+		},
+	] as const;
 
 export function WorldMapSkeleton() {
+	const { message: t } = useWebsiteMessages();
+
 	const reduceMotion = useReducedMotion();
 	return (
 		<div className="relative mx-auto w-full max-w-2xl overflow-hidden px-5 pb-5 mask-radial-from-50% mask-t-from-90%">
 			<div className="absolute top-1/2 right-8 left-8 h-px -translate-y-1/2 border-t border-dashed border-neutral-300 dark:border-neutral-700" />
 			<div className="relative grid grid-cols-4 gap-2">
-				{STEPS.map((step, index) => (
+				{getSTEPS(t).map((step, index) => (
 					<motion.div
 						key={step.label}
 						initial={false}

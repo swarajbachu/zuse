@@ -305,6 +305,7 @@
         "@tabler/icons-react": "^3.36.0",
         "@tailwindcss/typography": "^0.5.20",
         "@types/mdx": "^2.0.13",
+        "@zuse/i18n": "workspace:*",
         "clsx": "^2.1.1",
         "fumadocs-core": "^16.9.1",
         "fumadocs-mdx": "^15.0.8",

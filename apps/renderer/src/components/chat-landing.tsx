@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -857,7 +858,11 @@ export function ChatLanding() {
 		if (warnings.length === 0) return;
 		toastManager.add({
 			type: "error",
-			title: "Some Linear context was incomplete",
+			get title() {
+				return uiMessage(
+					"chat:chat_landing_some_linear_context_was_incomplete",
+				);
+			},
 			description: warnings.map((warning) => warning.message).join(" · "),
 		});
 	};
@@ -916,7 +921,11 @@ export function ChatLanding() {
 			} catch (error) {
 				toastManager.add({
 					type: "error",
-					title: "Linear context could not be fully prepared",
+					get title() {
+						return uiMessage(
+							"chat:chat_landing_linear_context_could_not_be_fully_prepared",
+						);
+					},
 					description: error instanceof Error ? error.message : String(error),
 				});
 				return input;
@@ -1084,15 +1093,26 @@ export function ChatLanding() {
 					if (needsRuntime) {
 						toastManager.add({
 							type: "error",
-							title: "Cloud workspace started without your attachments",
-							description:
-								"This cloud API version delivers the first message itself. Send the files again once the workspace is ready.",
+							get title() {
+								return uiMessage(
+									"chat:chat_landing_cloud_workspace_started_without_your_attachments",
+								);
+							},
+							get description() {
+								return uiMessage(
+									"chat:chat_landing_this_cloud_api_version_delivers_the_first_message_itself_send_the",
+								);
+							},
 						});
 					}
 					void ensureCloudWorkspaceAttached(summary).catch((cause) =>
 						toastManager.add({
 							type: "error",
-							title: "Cloud workspace needs attention",
+							get title() {
+								return uiMessage(
+									"chat:chat_landing_cloud_workspace_needs_attention",
+								);
+							},
 							description: formatError(cause),
 						}),
 					);
@@ -1116,7 +1136,11 @@ export function ChatLanding() {
 					void ensureCloudWorkspaceAttached(summary).catch((cause) =>
 						toastManager.add({
 							type: "error",
-							title: "Cloud workspace needs attention",
+							get title() {
+								return uiMessage(
+									"chat:chat_landing_cloud_workspace_needs_attention",
+								);
+							},
 							description: formatError(cause),
 						}),
 					);
@@ -1143,7 +1167,11 @@ export function ChatLanding() {
 				if (staged) {
 					toastManager.add({
 						type: "error",
-						title: "Couldn't send your first cloud message",
+						get title() {
+							return uiMessage(
+								"chat:chat_landing_couldn_t_send_your_first_cloud_message",
+							);
+						},
 						description: message,
 					});
 				} else {
@@ -1583,7 +1611,10 @@ export function ChatLanding() {
 														<span>{issue.identifier}</span>
 														<button
 															type="button"
-															aria-label={`Remove ${issue.identifier}`}
+															aria-label={uiMessage(
+																"chat:chat_landing_remove",
+																{ value1: String(issue.identifier) },
+															)}
 															onClick={() =>
 																setCreateSource((current) => {
 																	if (
@@ -1620,7 +1651,12 @@ export function ChatLanding() {
 													</span>
 												))
 											) : createSource.kind === "issue" ? (
-												<span>Issue {createSource.label} attached</span>
+												<span>
+													{uiMessage(
+														"chat:chat_landing_issueattached_sentence",
+														{ value: createSource.label ?? "" },
+													)}
+												</span>
 											) : (
 												<span className="max-w-[16rem] truncate">
 													{createSource.label}
@@ -1630,7 +1666,9 @@ export function ChatLanding() {
 												<button
 													type="button"
 													onClick={() => setCreateSource(null)}
-													aria-label="Clear create-from source"
+													aria-label={uiMessage(
+														"chat:chat_landing_clear_create_from_source",
+													)}
 													className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground"
 												>
 													<X className="size-3" strokeWidth={2} />
@@ -1659,7 +1697,9 @@ export function ChatLanding() {
 			</Suspense>
 		) : (
 			<p className="text-center text-sm text-muted-foreground">
-				Pick a project below to start a new chat.
+				{uiMessage(
+					"chat:chat_landing_pick_a_project_below_to_start_a_new_chat",
+				)}
 			</p>
 		);
 
@@ -2028,8 +2068,6 @@ function QueuedComposerPreview({
 	readonly prompt: string;
 	readonly status: string;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat", "common"]);
-
 	return (
 		<div className="mx-auto w-full max-w-3xl overflow-hidden rounded-md border border-border/50 bg-muted/20 text-[11px]">
 			<div className="border-b border-border/40 px-3 py-1.5 font-medium text-muted-foreground">

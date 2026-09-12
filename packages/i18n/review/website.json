@@ -1,0 +1,44 @@
+{
+	"en": {
+		"status": "reviewed",
+		"sourceRevision": "c325fafc3ff5dc32dece7bd73abf85567f2aa7740542e69a8ea5208ee7921ba2",
+		"reviewer": "source",
+		"provenance": "English source"
+	},
+	"fr": {
+		"status": "draft",
+		"sourceRevision": "",
+		"reviewer": null,
+		"provenance": "Machine translation draft; native-speaker review pending."
+	},
+	"de": {
+		"status": "draft",
+		"sourceRevision": "",
+		"reviewer": null,
+		"provenance": "Machine translation draft; native-speaker review pending."
+	},
+	"zh-Hans": {
+		"status": "draft",
+		"sourceRevision": "",
+		"reviewer": null,
+		"provenance": "Machine translation draft; native-speaker review pending."
+	},
+	"zh-Hant": {
+		"status": "draft",
+		"sourceRevision": "",
+		"reviewer": null,
+		"provenance": "Machine translation draft; native-speaker review pending."
+	},
+	"ja": {
+		"status": "draft",
+		"sourceRevision": "",
+		"reviewer": null,
+		"provenance": "Machine translation draft; native-speaker review pending."
+	},
+	"ko": {
+		"status": "draft",
+		"sourceRevision": "",
+		"reviewer": null,
+		"provenance": "Machine translation draft; native-speaker review pending."
+	}
+}

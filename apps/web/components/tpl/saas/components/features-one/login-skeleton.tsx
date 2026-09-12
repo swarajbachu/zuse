@@ -1,3 +1,4 @@
+"use client";
 import {
 	IconBrandChrome,
 	IconBrandSafari,
@@ -6,9 +7,12 @@ import {
 	IconLock,
 	IconWorld,
 } from "@tabler/icons-react";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { cn } from "@/components/tpl/saas/lib/utils";
 
 export function LoginSkeleton({ className }: { className?: string }) {
+	const { message: t } = useWebsiteMessages();
+
 	return (
 		<div
 			className={cn(
@@ -20,7 +24,7 @@ export function LoginSkeleton({ className }: { className?: string }) {
 			<div className="relative mx-auto mt-4 h-52 max-w-md">
 				<div className="border-border bg-card absolute top-7 left-0 w-[48%] -rotate-3 rounded-2xl border p-3 shadow-lg">
 					<p className="text-muted-foreground text-[8px] font-medium uppercase">
-						Local profiles
+						{t("showcase:local_profiles")}
 					</p>
 					<Browser icon={IconBrandChrome} name="Chrome · Profile 1" active />
 					<Browser icon={IconBrandSafari} name="Safari" />
@@ -32,17 +36,20 @@ export function LoginSkeleton({ className }: { className?: string }) {
 						</span>
 						<div>
 							<p className="text-heading text-[10px] font-semibold">
-								Zuse browser
+								{t("showcase:zuse_browser")}
 							</p>
-							<p className="text-primary text-[8px]">Session ready</p>
+							<p className="text-primary text-[8px]">
+								{t("showcase:session_ready")}
+							</p>
 						</div>
 					</div>
 					<div className="border-border mt-3 rounded-xl border p-2.5">
 						<p className="text-heading flex items-center gap-1.5 text-[9px] font-medium">
-							<IconCheck className="text-primary size-3" /> 3 signed-in sites
+							<IconCheck className="text-primary size-3" />
+							{t("showcase:3_signed_in_sites")}
 						</p>
 						<p className="text-muted-foreground mt-1 text-[8px]">
-							12 valid cookies copied
+							{t("showcase:12_valid_cookies_copied")}
 						</p>
 					</div>
 				</div>
@@ -52,12 +59,12 @@ export function LoginSkeleton({ className }: { className?: string }) {
 				<div className="border-border bg-card absolute inset-x-4 bottom-0 grid grid-cols-2 divide-x overflow-hidden rounded-xl border shadow-lg">
 					<Note
 						icon={IconCookie}
-						title="Cookies only"
+						title={t("showcase:cookies_only")}
 						detail="Passwords stay in your browser"
 					/>
 					<Note
 						icon={IconLock}
-						title="Local transfer"
+						title={t("showcase:local_transfer")}
 						detail="Never written into agent chat"
 					/>
 				</div>

@@ -1,6 +1,6 @@
 import type { DesktopLocale, LocalePreference } from "@zuse/contracts";
-import names from "./locales.json";
-import review from "./review.json";
+import names from "../locales/registry.json";
+import review from "../review/desktop.json";
 
 export const localeNames: Readonly<Record<DesktopLocale, string>> = names;
 export const isLocale = (value: unknown): value is DesktopLocale =>

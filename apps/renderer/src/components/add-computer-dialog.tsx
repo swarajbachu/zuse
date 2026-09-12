@@ -362,7 +362,7 @@ export function AddComputerDialog({
 							{view !== "manage" ? (
 								<SegmentedTabs
 									value={view}
-									ariaLabel="Connection method"
+									ariaLabel={uiMessage("common:connection_method")}
 									className="w-48"
 									options={[
 										{ value: "link", label: "Connect link" },

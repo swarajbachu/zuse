@@ -1,3 +1,4 @@
+import { useMessages } from "@zuse/i18n/react";
 import "@zuse/i18n/english/settings";
 import type { AccountAccessAuthKind } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
@@ -31,12 +32,15 @@ export function CloudAuthMethodTabs({
 	readonly value: AccountAccessAuthKind;
 	readonly onValueChange: (value: AccountAccessAuthKind) => void;
 }) {
+	useMessages("settings");
 	return (
 		<SegmentedTabs
 			value={value}
 			options={AUTH_METHOD_OPTIONS}
 			onValueChange={onValueChange}
-			ariaLabel="Authentication method"
+			ariaLabel={uiMessage(
+				"settings:cloud_workspace_auth_authentication_method",
+			)}
 			className="w-full"
 		/>
 	);

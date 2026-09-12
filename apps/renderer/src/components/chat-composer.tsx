@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import "@zuse/i18n/english/chat";
 import type { EditorView } from "@codemirror/view";
@@ -2105,7 +2106,7 @@ function GoalBanner({
 					<>
 						<span
 							className="shrink-0 text-muted-foreground tabular-nums"
-							title="Goal time used"
+							title={uiMessage("chat:chat_composer_goal_time_used")}
 						>
 							{elapsed}
 						</span>

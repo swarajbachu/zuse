@@ -1,0 +1,2715 @@
+{
+	"demo:default": {
+		"source": "Default",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 84
+			}
+		]
+	},
+	"demo:new_chat": {
+		"source": "New chat",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 129
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 776
+			}
+		]
+	},
+	"demo:polish_the_chat_landing": {
+		"source": "Polish the chat landing",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 131
+			}
+		]
+	},
+	"demo:implement_cloud_environments": {
+		"source": "Implement cloud environments",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 141
+			}
+		]
+	},
+	"demo:fix_composer_focus": {
+		"source": "Fix composer focus",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 146
+			}
+		]
+	},
+	"demo:review_current_changes": {
+		"source": "Review current changes",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 151
+			}
+		]
+	},
+	"demo:zus_184_composer_polish": {
+		"source": "ZUS-184 Composer polish",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 175
+			}
+		]
+	},
+	"demo:zus_179_cloud_reconnect": {
+		"source": "ZUS-179 Cloud reconnect",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 179
+			}
+		]
+	},
+	"demo:improve_the_chat_landing_background": {
+		"source": "Improve the chat landing background",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 188
+			}
+		]
+	},
+	"demo:generate_a_concise_semantic_branch_name": {
+		"source": "Generate a concise semantic branch name",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 195
+			}
+		]
+	},
+	"demo:review_the_current_implementation": {
+		"source": "Review the current implementation",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 202
+			}
+		]
+	},
+	"demo:show_projects_panel": {
+		"source": "Show projects panel",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 367
+			}
+		]
+	},
+	"demo:what_should_we_build_in": {
+		"source": "What should we build in {{value0}}?",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 394
+			}
+		]
+	},
+	"demo:local": {
+		"source": "Local",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 413
+			}
+		]
+	},
+	"demo:cloud": {
+		"source": "Cloud",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 414
+			}
+		]
+	},
+	"demo:clear_create_from_source": {
+		"source": "Clear create-from source",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 436
+			}
+		]
+	},
+	"demo:create_from": {
+		"source": "Create from…",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 445
+			}
+		]
+	},
+	"demo:add_project": {
+		"source": "Add project…",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 473
+			}
+		]
+	},
+	"demo:local_workspace": {
+		"source": "Local workspace",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 489
+			}
+		]
+	},
+	"demo:cloud_workspace": {
+		"source": "Cloud workspace",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 500
+			}
+		]
+	},
+	"demo:search_create_from_sources": {
+		"source": "Search create-from sources",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 516
+			}
+		]
+	},
+	"demo:search_by_title_number_or_author": {
+		"source": "Search by title, number, or author",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 518
+			}
+		]
+	},
+	"demo:pull_requests": {
+		"source": "Pull requests",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 537
+			}
+		]
+	},
+	"demo:message": {
+		"source": "Message",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 591
+			}
+		]
+	},
+	"demo:ask_to_make_changes_at_the_mentioned_files_or_run_slash_commands_shift": {
+		"source": "Ask to make changes at the @ mentioned files or run slash commands, shift enter for next line.",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 593
+			}
+		]
+	},
+	"demo:attach_files": {
+		"source": "Attach files",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 601
+			}
+		]
+	},
+	"demo:change_model": {
+		"source": "Change model",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 606
+			}
+		]
+	},
+	"demo:reasoning": {
+		"source": "Reasoning",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 622
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 686
+			}
+		]
+	},
+	"demo:exit_plan_mode": {
+		"source": "Exit plan mode",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 645
+			}
+		]
+	},
+	"demo:enter_plan_mode": {
+		"source": "Enter plan mode",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 646
+			}
+		]
+	},
+	"demo:mcp_servers": {
+		"source": "MCP servers",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 656
+			}
+		]
+	},
+	"demo:send": {
+		"source": "Send",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 663
+			}
+		]
+	},
+	"demo:zuse_beta": {
+		"source": "Zuse (Beta)",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 761
+			}
+		]
+	},
+	"demo:hide_projects_panel": {
+		"source": "Hide projects panel",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 766
+			}
+		]
+	},
+	"demo:new_project": {
+		"source": "New project",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 781
+			}
+		]
+	},
+	"demo:projects": {
+		"source": "Projects",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 785
+			}
+		]
+	},
+	"demo:add_project_2": {
+		"source": "Add project",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 788
+			}
+		]
+	},
+	"demo:settings_for": {
+		"source": "Settings for {{value0}}",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 831
+			}
+		]
+	},
+	"demo:new_chat_in": {
+		"source": "New chat in {{value0}}",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 838
+			}
+		]
+	},
+	"demo:chats": {
+		"source": "{{value0}} chats",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 845
+			}
+		]
+	},
+	"demo:zuse_workspace": {
+		"source": "Zuse workspace",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 881
+			}
+		]
+	},
+	"demo:continue_threads": {
+		"source": "Continue Threads",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 904
+			}
+		]
+	},
+	"demo:choose_a_model": {
+		"source": "Choose a model",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1053
+			}
+		]
+	},
+	"demo:model_provider": {
+		"source": "Model provider",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1058
+			}
+		]
+	},
+	"demo:all_models": {
+		"source": "All models",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1065
+			}
+		]
+	},
+	"demo:all": {
+		"source": "All",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1074
+			}
+		]
+	},
+	"demo:models": {
+		"source": "{{value0}} models",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1082
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1085
+			}
+		]
+	},
+	"demo:search_models": {
+		"source": "Search models",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1105
+			}
+		]
+	},
+	"demo:search_models_2": {
+		"source": "Search {{value0}} models",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1112
+			}
+		]
+	},
+	"demo:in": {
+		"source": "in {{value0}}…",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1113
+			}
+		]
+	},
+	"demo:recents": {
+		"source": "Recents",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1123
+			}
+		]
+	},
+	"demo:models_2": {
+		"source": "Models",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1142
+			}
+		]
+	},
+	"demo:current": {
+		"source": "Current",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1158
+			}
+		]
+	},
+	"demo:no_models_match": {
+		"source": "No models match.",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1180
+			}
+		]
+	},
+	"demo:light_theme": {
+		"source": "Switch to light theme",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 378
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 886
+			}
+		]
+	},
+	"demo:dark_theme": {
+		"source": "Switch to dark theme",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 378
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 886
+			}
+		]
+	},
+	"demo:last_30_days": {
+		"source": "last 30 days",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1124
+			}
+		]
+	},
+	"demo:reasoning_low": {
+		"source": "Low",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 634
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 699
+			}
+		]
+	},
+	"demo:reasoning_medium": {
+		"source": "Medium",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 180
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 637
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 701
+			}
+		]
+	},
+	"demo:reasoning_high": {
+		"source": "High",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 176
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 636
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 703
+			}
+		]
+	},
+	"demo:reasoning_extra_high": {
+		"source": "Extra High",
+		"locations": []
+	},
+	"demo:starting": {
+		"source": "Starting {{model}} in {{project}} on {{environment}}…",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 719
+			}
+		]
+	},
+	"demo:environment_local": {
+		"source": "your computer",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 724
+			}
+		]
+	},
+	"demo:environment_cloud": {
+		"source": "a cloud workspace",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 725
+			}
+		]
+	},
+	"demo:pick_project": {
+		"source": "Pick a project",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 403
+			}
+		]
+	},
+	"demo:choose_environment": {
+		"source": "Choose local or cloud environment",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 416
+			}
+		]
+	},
+	"demo:create_from_source": {
+		"source": "Create from an existing PR, branch, or issue",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 446
+			}
+		]
+	},
+	"demo:this_mac": {
+		"source": "This Mac",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 483
+			}
+		]
+	},
+	"demo:live_beta": {
+		"source": "Live beta",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 494
+			}
+		]
+	},
+	"demo:commits_ahead": {
+		"source": "{{count}} ahead",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 170
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 171
+			}
+		]
+	},
+	"demo:now": {
+		"source": "now",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 192
+			}
+		]
+	},
+	"demo:branches": {
+		"source": "Branches",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 537
+			}
+		]
+	},
+	"demo:issues": {
+		"source": "Issues",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 537
+			}
+		]
+	},
+	"faq:what_does_zuse_actually_do": {
+		"source": "What does Zuse actually do?",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 21
+			}
+		]
+	},
+	"faq:zuse_puts_your_coding_agents_repositories_terminals_files_and_diffs_in": {
+		"source": "Zuse puts your coding agents, repositories, terminals, files, and diffs in one workspace. You can run several tasks in parallel, keep each one isolated in its own git worktree, and carry selected context from one agent session to another.",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 23
+			}
+		]
+	},
+	"faq:what_happens_when_i_want_to_switch_agents": {
+		"source": "What happens when I want to switch agents?",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 27
+			}
+		]
+	},
+	"faq:you_choose_the_next_provider_instead_of_zuse_silently_routing_your_mes": {
+		"source": "You choose the next provider instead of Zuse silently routing your message. Start or fork a session, then attach the plan, transcript, diff, or files the next agent needs. If one subscription reaches its limit, you can continue with another provider you have access to.",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 29
+			}
+		]
+	},
+	"faq:which_agents_are_supported": {
+		"source": "Which agents are supported?",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 33
+			}
+		]
+	},
+	"faq:zuse_supports_seven_coding_agent_clis_in_one_workspace_connect_the_pro": {
+		"source": "Zuse supports seven coding-agent CLIs in one workspace. Connect the providers you use, run them side by side, and choose which provider handles each session.",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 35
+			}
+		]
+	},
+	"faq:do_i_need_my_own_api_keys_or_subscriptions": {
+		"source": "Do I need my own API keys or subscriptions?",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 39
+			}
+		]
+	},
+	"faq:yes_zuse_is_bring_your_own_keys_you_plug_in_your_own_provider_keys_or": {
+		"source": "Yes. Zuse is bring your own keys. You plug in your own provider keys or subscriptions, and Zuse talks to them directly. It never resells tokens and adds $0 markup, so you only pay the agent providers.",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 41
+			}
+		]
+	},
+	"faq:is_my_code_or_data_sent_anywhere": {
+		"source": "Is my code or data sent anywhere?",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 45
+			}
+		]
+	},
+	"faq:local_and_ssh_chats_stay_on_the_computers_you_choose_when_you_use_the": {
+		"source": "Local and SSH chats stay on the computers you choose. When you use the optional Zuse Cloud private beta, its workspace runs in E2B and encrypted transcript checkpoints are stored for fast reconnects. Model requests go only to the providers you configure. Pseudonymous usage analytics never include prompts, responses, code, paths, commands, account details, or error stacks, and you can turn them off in Settings.",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 47
+			}
+		]
+	},
+	"faq:which_operating_systems_are_supported": {
+		"source": "Which operating systems are supported?",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 51
+			}
+		]
+	},
+	"faq:zuse_beta_ships_for_macos_and_x64_linux_the_download_button_selects_th": {
+		"source": "Zuse (Beta) ships for macOS and x64 Linux. The Download button selects the macOS disk image or Linux AppImage automatically, and Debian and Ubuntu users can also get the .deb package from GitHub Releases.",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 53
+			}
+		]
+	},
+	"faq:how_much_does_it_cost": {
+		"source": "How much does it cost?",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 57
+			}
+		]
+	},
+	"faq:the_zuse_desktop_beta_is_available_now_and_uses_your_own_agent_subscri": {
+		"source": "The Zuse desktop beta is available now and uses your own agent subscriptions or API keys. Zuse Cloud is a private, invite-only beta: Cloud Workspace costs $40/month, includes $35 of attributable E2B compute, and bills additional provider cost plus 5% up to your overage cap.",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 59
+			}
+		]
+	},
+	"faq:can_i_run_multiple_agents_at_once": {
+		"source": "Can I run multiple agents at once?",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 63
+			}
+		]
+	},
+	"faq:yes_you_can_run_several_agents_in_parallel_each_in_its_own_chat_with_i": {
+		"source": "Yes. You can run several agents in parallel, each in its own chat with its own git worktree, so their changes stay isolated. Review and commit each one from the PR and Changes pane.",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 65
+			}
+		]
+	},
+	"faq:what_is_sub_agent_delegation": {
+		"source": "What is sub-agent delegation?",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 69
+			}
+		]
+	},
+	"faq:a_lead_agent_can_spawn_sub_agents_to_handle_parts_of_a_task_including": {
+		"source": "A lead agent can spawn sub-agents to handle parts of a task, including cheaper models for the simpler work. That keeps the expensive model focused on the hard parts and lowers your overall token cost.",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 71
+			}
+		]
+	},
+	"faq:questions_devs_ask_first": {
+		"source": "Questions devs ask first",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 83
+			}
+		]
+	},
+	"faq:more_questions_see_the_project_on_github": {
+		"source": "More questions? See the project on <part0>GitHub</part0>.",
+		"locations": [
+			{
+				"path": "apps/web/components/faq/index.tsx",
+				"line": 86
+			}
+		]
+	},
+	"landing:open_source_cloud_beta_live": {
+		"source": "<part0></part0>Open source · Cloud beta live",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/hero.tsx",
+				"line": 19
+			}
+		]
+	},
+	"landing:all_your_coding_agents_one_workspace": {
+		"source": "All your coding agents. <part0>One workspace.</part0>",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/hero.tsx",
+				"line": 28
+			}
+		]
+	},
+	"landing:run_agents_side_by_side_carry_context_between_them_and_keep_every_task": {
+		"source": "Run agents side by side, carry context between them, and keep every task isolated in its own git worktree.",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/hero.tsx",
+				"line": 35
+			}
+		]
+	},
+	"landing:see_how_it_works": {
+		"source": "See how it works",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/hero.tsx",
+				"line": 44
+			}
+		]
+	},
+	"landing:free_in_beta_no_token_markup": {
+		"source": "Free in beta · no token markup",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/hero.tsx",
+				"line": 48
+			}
+		]
+	},
+	"landing:meta_title": {
+		"source": "Zuse — All your coding agents in one workspace",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/page.tsx",
+				"line": 18
+			}
+		]
+	},
+	"landing:meta_description": {
+		"source": "Run coding agents side by side, carry context between them, and isolate every task in its own git worktree with Zuse.",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/page.tsx",
+				"line": 19
+			},
+			{
+				"path": "apps/web/components/seo/homepage-structured-data.tsx",
+				"line": 32
+			},
+			{
+				"path": "apps/web/components/seo/homepage-structured-data.tsx",
+				"line": 40
+			}
+		]
+	},
+	"landing:schema_parallel": {
+		"source": "Run multiple coding agents from one workspace",
+		"locations": [
+			{
+				"path": "apps/web/components/seo/homepage-structured-data.tsx",
+				"line": 55
+			}
+		]
+	},
+	"landing:schema_worktrees": {
+		"source": "Isolated Git worktrees for parallel agent runs",
+		"locations": [
+			{
+				"path": "apps/web/components/seo/homepage-structured-data.tsx",
+				"line": 56
+			}
+		]
+	},
+	"landing:schema_environments": {
+		"source": "Local and cloud execution environments",
+		"locations": [
+			{
+				"path": "apps/web/components/seo/homepage-structured-data.tsx",
+				"line": 57
+			}
+		]
+	},
+	"landing:schema_tools": {
+		"source": "Built-in diff, terminal, browser, and pull-request review",
+		"locations": [
+			{
+				"path": "apps/web/components/seo/homepage-structured-data.tsx",
+				"line": 58
+			}
+		]
+	},
+	"landing:schema_subscriptions": {
+		"source": "Bring your existing model subscriptions",
+		"locations": [
+			{
+				"path": "apps/web/components/seo/homepage-structured-data.tsx",
+				"line": 59
+			}
+		]
+	},
+	"navigation:download_for_macos": {
+		"source": "Download for macOS",
+		"locations": [
+			{
+				"path": "apps/web/components/platform-download.tsx",
+				"line": 50
+			}
+		]
+	},
+	"navigation:download_for_linux": {
+		"source": "Download for Linux",
+		"locations": [
+			{
+				"path": "apps/web/components/platform-download.tsx",
+				"line": 51
+			}
+		]
+	},
+	"navigation:view_downloads": {
+		"source": "View downloads",
+		"locations": [
+			{
+				"path": "apps/web/components/platform-download.tsx",
+				"line": 52
+			}
+		]
+	},
+	"navigation:download_zuse": {
+		"source": "Download Zuse",
+		"locations": [
+			{
+				"path": "apps/web/components/platform-download.tsx",
+				"line": 53
+			}
+		]
+	},
+	"navigation:how_it_works": {
+		"source": "How it works",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 29
+			}
+		]
+	},
+	"navigation:docs": {
+		"source": "Docs",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 30
+			}
+		]
+	},
+	"navigation:cloud": {
+		"source": "Cloud",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 31
+			}
+		]
+	},
+	"navigation:changelog": {
+		"source": "Changelog",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 32
+			}
+		]
+	},
+	"navigation:close_menu": {
+		"source": "Close menu",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 92
+			}
+		]
+	},
+	"navigation:open_menu": {
+		"source": "Open menu",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 93
+			}
+		]
+	},
+	"navigation:star_zuse_on_github": {
+		"source": "Star Zuse on GitHub",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 156
+			}
+		]
+	},
+	"navigation:star_zuse_on_github_stars": {
+		"source": "Star Zuse on GitHub, {{value0}} stars",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 157
+			}
+		]
+	},
+	"navigation:star": {
+		"source": "Star",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 165
+			}
+		]
+	},
+	"navigation:download": {
+		"source": "Download",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 48
+			},
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 192
+			}
+		]
+	},
+	"navigation:join_the_zuse_discord": {
+		"source": "Join the Zuse Discord",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 207
+			}
+		]
+	},
+	"navigation:developers": {
+		"source": "Developers",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 49
+			}
+		]
+	},
+	"navigation:change_log": {
+		"source": "Change Log",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 50
+			}
+		]
+	},
+	"navigation:blog": {
+		"source": "Blog",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 51
+			}
+		]
+	},
+	"navigation:releases": {
+		"source": "Releases",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 64
+			}
+		]
+	},
+	"navigation:2026_zuse_all_rights_reserved": {
+		"source": "2026 Zuse — All Rights Reserved",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 113
+			}
+		]
+	},
+	"navigation:language": {
+		"source": "Language",
+		"locations": [
+			{
+				"path": "apps/web/components/language-selector.tsx",
+				"line": 13
+			}
+		]
+	},
+	"navigation:product": {
+		"source": "Product",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 41
+			}
+		]
+	},
+	"navigation:legal": {
+		"source": "Legal",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 42
+			}
+		]
+	},
+	"navigation:trust": {
+		"source": "Trust",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 43
+			}
+		]
+	},
+	"navigation:community": {
+		"source": "Community",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 44
+			}
+		]
+	},
+	"navigation:privacy": {
+		"source": "Privacy Policy",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 31
+			}
+		]
+	},
+	"navigation:terms": {
+		"source": "Terms of Service",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 32
+			}
+		]
+	},
+	"navigation:cookies": {
+		"source": "Cookie Policy",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 33
+			}
+		]
+	},
+	"navigation:acceptable_use": {
+		"source": "Acceptable Use",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 34
+			}
+		]
+	},
+	"navigation:security": {
+		"source": "Security",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 35
+			}
+		]
+	},
+	"navigation:data_rights": {
+		"source": "Data Rights",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 36
+			}
+		]
+	},
+	"navigation:subprocessors": {
+		"source": "Subprocessors",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 37
+			}
+		]
+	},
+	"navigation:accessibility": {
+		"source": "Accessibility",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 38
+			}
+		]
+	},
+	"navigation:tagline": {
+		"source": "All your coding agents in one workspace, with isolated tasks and shared context.",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 80
+			}
+		]
+	},
+	"navigation:light_theme": {
+		"source": "Switch to light theme",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 225
+			}
+		]
+	},
+	"navigation:dark_theme": {
+		"source": "Switch to dark theme",
+		"locations": [
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 225
+			}
+		]
+	},
+	"showcase:agent_handoff": {
+		"source": "Agent handoff",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/product-showcase.tsx",
+				"line": 25
+			}
+		]
+	},
+	"showcase:continue_the_work_with_another_agent": {
+		"source": "Continue the work with another agent",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/product-showcase.tsx",
+				"line": 26
+			}
+		]
+	},
+	"showcase:fork_a_session_or_start_a_new_provider_with_the_plan_transcript_and_fi": {
+		"source": "Fork a session or start a new provider with the plan, transcript, and files it needs. You choose what moves forward.",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/product-showcase.tsx",
+				"line": 28
+			}
+		]
+	},
+	"showcase:review": {
+		"source": "Review",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/product-showcase.tsx",
+				"line": 43
+			}
+		]
+	},
+	"showcase:from_changed_files_to_a_verified_pull_request": {
+		"source": "From changed files to a verified pull request",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/product-showcase.tsx",
+				"line": 44
+			}
+		]
+	},
+	"showcase:inspect_the_complete_branch_commit_deliberately_push_when_it_is_ready": {
+		"source": "Inspect the complete branch, commit deliberately, push when it is ready, and send failed checks back to the active agent.",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/product-showcase.tsx",
+				"line": 46
+			}
+		]
+	},
+	"showcase:parallel_work_without_branch_chaos": {
+		"source": "Parallel work without <part0/> branch chaos.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/index.tsx",
+				"line": 25
+			}
+		]
+	},
+	"showcase:every_task_gets_an_isolated_branch_and_working_tree_run_several_agents": {
+		"source": "Every task gets an isolated branch and working tree. Run several agents at once without mixing their changes together.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/index.tsx",
+				"line": 32
+			}
+		]
+	},
+	"showcase:every_run_stays_isolated": {
+		"source": "Every run stays isolated",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/index.tsx",
+				"line": 42
+			}
+		]
+	},
+	"showcase:hand_off_the_complete_context": {
+		"source": "Hand off the complete context",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/index.tsx",
+				"line": 50
+			}
+		]
+	},
+	"showcase:reclaim_disk_without_losing_work": {
+		"source": "Reclaim disk without losing work",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/index.tsx",
+				"line": 59
+			}
+		]
+	},
+	"showcase:claude_codex_handoff": {
+		"source": "Claude → Codex handoff",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/second.tsx",
+				"line": 33
+			}
+		]
+	},
+	"showcase:same_worktree_same_branch": {
+		"source": "same worktree · same branch",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/second.tsx",
+				"line": 36
+			}
+		]
+	},
+	"showcase:1_8_gb_reclaimed": {
+		"source": "1.8 GB reclaimed",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features/skeletons/third.tsx",
+				"line": 34
+			}
+		]
+	},
+	"showcase:plan_with_one_model_continue_with_another": {
+		"source": "Plan with one model, continue with another",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
+				"line": 27
+			}
+		]
+	},
+	"showcase:start_another_provider_session_for_implementation_and_attach_the_plan": {
+		"source": "Start another provider session for implementation and attach the plan, transcript, or files it needs.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
+				"line": 31
+			}
+		]
+	},
+	"showcase:fork_when_a_provider_hits_its_limit": {
+		"source": "Fork when a provider hits its limit",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
+				"line": 42
+			}
+		]
+	},
+	"showcase:fork_the_session_to_another_provider_and_carry_forward_a_copied_transc": {
+		"source": "Fork the session to another provider and carry forward a copied transcript or explicit handoff context.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
+				"line": 46
+			}
+		]
+	},
+	"showcase:pick_a_model_per_step": {
+		"source": "Pick a model per step",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
+				"line": 61
+			}
+		]
+	},
+	"showcase:choose_which_agent_handles_planning_coding_and_review_per_task_not_per": {
+		"source": "Choose which agent handles planning, coding, and review — per task, not per project.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
+				"line": 67
+			}
+		]
+	},
+	"showcase:attach_the_right_context": {
+		"source": "Attach the right context",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
+				"line": 75
+			}
+		]
+	},
+	"showcase:add_a_plan_transcript_diff_or_focused_files_when_starting_the_next_ses": {
+		"source": "Add a plan, transcript, diff, or focused files when starting the next session.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
+				"line": 81
+			}
+		]
+	},
+	"showcase:you_stay_in_control": {
+		"source": "You stay in control",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
+				"line": 89
+			}
+		]
+	},
+	"showcase:choose_the_provider_and_model_for_each_session_then_decide_what_contex": {
+		"source": "Choose the provider and model for each session, then decide what context to carry forward.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
+				"line": 95
+			}
+		]
+	},
+	"showcase:planning_session": {
+		"source": "Planning session",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/first.tsx",
+				"line": 20
+			}
+		]
+	},
+	"showcase:implementation_session": {
+		"source": "Implementation session",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/first.tsx",
+				"line": 27
+			}
+		]
+	},
+	"showcase:handoff_context": {
+		"source": "Handoff context",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/first.tsx",
+				"line": 35
+			}
+		]
+	},
+	"showcase:plan": {
+		"source": "Plan",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/first.tsx",
+				"line": 40
+			}
+		]
+	},
+	"showcase:diff": {
+		"source": "Diff",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/first.tsx",
+				"line": 41
+			}
+		]
+	},
+	"showcase:tests": {
+		"source": "Tests",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/first.tsx",
+				"line": 42
+			}
+		]
+	},
+	"showcase:continue_this_work": {
+		"source": "Continue this work",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/second.tsx",
+				"line": 24
+			}
+		]
+	},
+	"showcase:choose_a_provider_and_context": {
+		"source": "Choose a provider and context",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/second.tsx",
+				"line": 27
+			}
+		]
+	},
+	"showcase:new_codex_session": {
+		"source": "New Codex session",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/second.tsx",
+				"line": 43
+			}
+		]
+	},
+	"showcase:fork_from_here": {
+		"source": "Fork from here",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/second.tsx",
+				"line": 46
+			}
+		]
+	},
+	"showcase:transcript": {
+		"source": "Transcript",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/second.tsx",
+				"line": 61
+			}
+		]
+	},
+	"showcase:copied": {
+		"source": "Copied",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/second.tsx",
+				"line": 64
+			}
+		]
+	},
+	"showcase:files": {
+		"source": "Files",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/second.tsx",
+				"line": 72
+			}
+		]
+	},
+	"showcase:select_to_attach": {
+		"source": "Select to attach",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/second.tsx",
+				"line": 75
+			}
+		]
+	},
+	"showcase:review_every_changed_file": {
+		"source": "Review every changed file",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
+				"line": 21
+			}
+		]
+	},
+	"showcase:see_the_branch_diff_changed_files_and_line_totals_before_anything_leav": {
+		"source": "See the branch diff, changed files, and line totals before anything leaves your machine.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
+				"line": 25
+			}
+		]
+	},
+	"showcase:inline_diff_review_before_push": {
+		"source": "Inline diff review before push",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
+				"line": 36
+			}
+		]
+	},
+	"showcase:review_additions_deletions_files_and_agent_findings_without_leaving_zu": {
+		"source": "Review additions, deletions, files, and agent findings without leaving Zuse.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
+				"line": 40
+			}
+		]
+	},
+	"showcase:commit_selected_files_push": {
+		"source": "Commit selected files & push",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
+				"line": 51
+			}
+		]
+	},
+	"showcase:choose_exactly_which_files_enter_the_commit_write_the_message_and_push": {
+		"source": "Choose exactly which files enter the commit, write the message, and push the branch when it is ready.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
+				"line": 55
+			}
+		]
+	},
+	"showcase:send_failing_checks_to_the_agent": {
+		"source": "Send failing checks to the agent",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
+				"line": 66
+			}
+		]
+	},
+	"showcase:collect_failed_github_actions_logs_and_attach_them_to_the_agent_thread": {
+		"source": "Collect failed GitHub Actions logs and attach them to the agent thread so it can diagnose and fix the branch.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
+				"line": 70
+			}
+		]
+	},
+	"showcase:branch": {
+		"source": "Branch",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 20
+			}
+		]
+	},
+	"showcase:4_commits": {
+		"source": "4 COMMITS",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 22
+			}
+		]
+	},
+	"showcase:changed_files": {
+		"source": "Changed files",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 26
+			}
+		]
+	},
+	"showcase:12_files": {
+		"source": "12 FILES",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 28
+			}
+		]
+	},
+	"showcase:branch_diff": {
+		"source": "Branch diff",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 32
+			}
+		]
+	},
+	"showcase:diff_2": {
+		"source": "DIFF",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 34
+			}
+		]
+	},
+	"showcase:uncommitted_work": {
+		"source": "Uncommitted work",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 38
+			}
+		]
+	},
+	"showcase:local": {
+		"source": "LOCAL",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 40
+			}
+		]
+	},
+	"showcase:review_range_ready": {
+		"source": "Review range ready",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 44
+			}
+		]
+	},
+	"showcase:ready": {
+		"source": "READY",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 46
+			}
+		]
+	},
+	"showcase:branch_review": {
+		"source": "Branch review",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/first.tsx",
+				"line": 60
+			}
+		]
+	},
+	"showcase:github_actions_failed": {
+		"source": "GitHub Actions · failed",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/four.tsx",
+				"line": 28
+			}
+		]
+	},
+	"showcase:fail_tests_auth_recovery_spec_ts": {
+		"source": "<part0>FAIL</part0> tests/auth-recovery.spec.ts",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/four.tsx",
+				"line": 38
+			}
+		]
+	},
+	"showcase:36_log_lines_collected": {
+		"source": "36 log lines collected",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/four.tsx",
+				"line": 48
+			}
+		]
+	},
+	"showcase:agent_thread": {
+		"source": "Agent thread",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/four.tsx",
+				"line": 60
+			}
+		]
+	},
+	"showcase:failed_check_attached": {
+		"source": "Failed check attached",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/four.tsx",
+				"line": 71
+			}
+		]
+	},
+	"showcase:failing_checks_0821_txt_36_lines": {
+		"source": "failing-checks-0821.txt · 36 lines",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/four.tsx",
+				"line": 74
+			}
+		]
+	},
+	"showcase:diagnosing_session_redirect": {
+		"source": "Diagnosing session redirect…",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/four.tsx",
+				"line": 80
+			}
+		]
+	},
+	"showcase:codex_review_retry_only_after_the_persisted_checkout_state_is_restored": {
+		"source": "<part0>Codex review:</part0> Retry only after the persisted checkout state is restored.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/second.tsx",
+				"line": 47
+			}
+		]
+	},
+	"showcase:3_selected": {
+		"source": "3 selected",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/third.tsx",
+				"line": 28
+			}
+		]
+	},
+	"showcase:commit_3_files": {
+		"source": "Commit 3 files",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/third.tsx",
+				"line": 56
+			}
+		]
+	},
+	"showcase:push": {
+		"source": " Push",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/third.tsx",
+				"line": 60
+			}
+		]
+	},
+	"showcase:bring_the_subscriptions_you_already_pay_for_zuse_orchestrates_them_no": {
+		"source": "Bring the subscriptions you already pay for. <part0>Zuse orchestrates them — no token markup.</part0>",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/agenforce/components/logo-cloud.tsx",
+				"line": 20
+			}
+		]
+	},
+	"showcase:claude_code_implementation": {
+		"source": "Claude Code · implementation",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
+				"line": 31
+			}
+		]
+	},
+	"showcase:build_the_change_in_one_tab_while_every_file_lands_in_the_shared_workt": {
+		"source": "Build the change in one tab while every file lands in the shared worktree.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
+				"line": 33
+			}
+		]
+	},
+	"showcase:codex_diff_review": {
+		"source": "Codex · diff review",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
+				"line": 40
+			},
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 218
+			}
+		]
+	},
+	"showcase:review_the_same_branch_and_transcript_in_a_second_tab_without_copying": {
+		"source": "Review the same branch and transcript in a second tab without copying context.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
+				"line": 42
+			}
+		]
+	},
+	"showcase:checks_terminal": {
+		"source": "Checks · terminal",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
+				"line": 49
+			}
+		]
+	},
+	"showcase:keep_typecheck_focused_tests_and_terminal_output_beside_both_agent_ses": {
+		"source": "Keep typecheck, focused tests, and terminal output beside both agent sessions.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
+				"line": 51
+			}
+		]
+	},
+	"showcase:one_worktree": {
+		"source": "One worktree",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
+				"line": 80
+			}
+		]
+	},
+	"showcase:multiple_tabs_shared_context": {
+		"source": "Multiple tabs, shared context",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
+				"line": 82
+			}
+		]
+	},
+	"showcase:implementation_review_and_checks_stay_side_by_side_on_the_same_branch": {
+		"source": "Implementation, review, and checks stay side by side on the same branch and working tree.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
+				"line": 87
+			}
+		]
+	},
+	"showcase:terminal": {
+		"source": "Terminal",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 46
+			}
+		]
+	},
+	"showcase:shared_context": {
+		"source": "Shared context",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 87
+			}
+		]
+	},
+	"showcase:worktree_tabs": {
+		"source": "Worktree tabs",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 151
+			}
+		]
+	},
+	"showcase:codex_review": {
+		"source": "Codex · review",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 162
+			}
+		]
+	},
+	"showcase:connected": {
+		"source": "Connected",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 167
+			},
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 179
+			},
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/iphone-skeleton.tsx",
+				"line": 108
+			}
+		]
+	},
+	"showcase:claude_code_build": {
+		"source": "Claude Code · build",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 174
+			}
+		]
+	},
+	"showcase:claude_implementation": {
+		"source": "Claude · implementation",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 213
+			}
+		]
+	},
+	"showcase:terminal_focused_tests": {
+		"source": "Terminal · focused tests",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 224
+			}
+		]
+	},
+	"showcase:changes_12_files": {
+		"source": "Changes · 12 files",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 230
+			}
+		]
+	},
+	"showcase:codex_review_resolved": {
+		"source": "Codex · review resolved",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 236
+			}
+		]
+	},
+	"showcase:pr_814_ready": {
+		"source": "PR #814 · ready",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+				"line": 242
+			}
+		]
+	},
+	"showcase:browser_verification_built_in": {
+		"source": "Browser verification, built in",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 21
+			}
+		]
+	},
+	"showcase:let_an_agent_drive_a_real_browser_and_verify_the_flow_inside_zuse": {
+		"source": "Let an agent drive a real browser and verify the flow inside Zuse",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 24
+			}
+		]
+	},
+	"showcase:import_browser_sessions": {
+		"source": "Import browser sessions",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 31
+			}
+		]
+	},
+	"showcase:copy_valid_cookies_from_a_local_browser_profile_into_zuse_s_built_in_b": {
+		"source": "Copy valid cookies from a local browser profile into Zuse's built-in browser. Passwords are never imported.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 34
+			}
+		]
+	},
+	"showcase:drive_the_whole_flow": {
+		"source": "Drive the whole flow",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 47
+			}
+		]
+	},
+	"showcase:navigate_fill_forms_click_controls_and_inspect_the_resulting_page_stat": {
+		"source": "Navigate, fill forms, click controls, and inspect the resulting page state.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 50
+			}
+		]
+	},
+	"showcase:watch_browser_actions_live": {
+		"source": "Watch browser actions live",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 63
+			}
+		]
+	},
+	"showcase:see_the_page_as_the_agent_works_and_keep_screenshots_and_results_in_th": {
+		"source": "See the page as the agent works and keep screenshots and results in the thread.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 66
+			}
+		]
+	},
+	"showcase:describe_what_to_verify": {
+		"source": "Describe what to verify",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 83
+			}
+		]
+	},
+	"showcase:give_the_agent_the_flow_and_expected_result_it_performs_the_browser_ac": {
+		"source": "Give the agent the flow and expected result; it performs the browser actions for you.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 86
+			}
+		]
+	},
+	"showcase:signed_in_sessions": {
+		"source": "Signed-in sessions",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 100
+			}
+		]
+	},
+	"showcase:copy_valid_cookies_from_a_local_browser_profile_passwords_are_never_im": {
+		"source": "Copy valid cookies from a local browser profile. Passwords are never imported.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 102
+			}
+		]
+	},
+	"showcase:a_real_headless_browser": {
+		"source": "A real, headless browser",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 107
+			}
+		]
+	},
+	"showcase:tests_drive_an_actual_browser_clicks_typing_navigation_and_assertions": {
+		"source": "Tests drive an actual browser — clicks, typing, navigation, and assertions.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 109
+			}
+		]
+	},
+	"showcase:inspect_and_retry": {
+		"source": "Inspect and retry",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 114
+			}
+		]
+	},
+	"showcase:the_agent_can_inspect_the_current_page_state_adjust_the_implementation": {
+		"source": "The agent can inspect the current page state, adjust the implementation, and try the flow again.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
+				"line": 116
+			}
+		]
+	},
+	"showcase:step_3_failed_checkout_button_selector_changed": {
+		"source": "Step 3 failed: checkout button selector changed.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/chat.tsx",
+				"line": 16
+			}
+		]
+	},
+	"showcase:updated_the_selector_from_the_trace_retrying_now": {
+		"source": "Updated the selector from the trace. Retrying now.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/chat.tsx",
+				"line": 22
+			}
+		]
+	},
+	"showcase:receipt_visible": {
+		"source": " receipt visible",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/flipping-images.tsx",
+				"line": 36
+			}
+		]
+	},
+	"showcase:trace_captured": {
+		"source": " trace captured",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/flipping-images.tsx",
+				"line": 52
+			}
+		]
+	},
+	"showcase:sign_in_finish_checkout_verify_the_receipt": {
+		"source": "“Sign in, finish checkout, verify the receipt.”",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/keyboard-skeleton.tsx",
+				"line": 18
+			}
+		]
+	},
+	"showcase:checkout_spec_ts_generated": {
+		"source": "checkout.spec.ts · generated",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/keyboard-skeleton.tsx",
+				"line": 21
+			}
+		]
+	},
+	"showcase:local_profiles": {
+		"source": "Local profiles",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
+				"line": 27
+			}
+		]
+	},
+	"showcase:zuse_browser": {
+		"source": "Zuse browser",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
+				"line": 39
+			}
+		]
+	},
+	"showcase:session_ready": {
+		"source": "Session ready",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
+				"line": 42
+			}
+		]
+	},
+	"showcase:3_signed_in_sites": {
+		"source": " 3 signed-in sites",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
+				"line": 49
+			}
+		]
+	},
+	"showcase:12_valid_cookies_copied": {
+		"source": "12 valid cookies copied",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
+				"line": 52
+			}
+		]
+	},
+	"showcase:cookies_only": {
+		"source": "Cookies only",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
+				"line": 62
+			}
+		]
+	},
+	"showcase:local_transfer": {
+		"source": "Local transfer",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/login-skeleton.tsx",
+				"line": 67
+			}
+		]
+	},
+	"showcase:open_checkout": {
+		"source": "Open /checkout",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/world-map-skeleton.tsx",
+				"line": 19
+			}
+		]
+	},
+	"showcase:enter_card": {
+		"source": "Enter card",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/world-map-skeleton.tsx",
+				"line": 22
+			}
+		]
+	},
+	"showcase:place_order": {
+		"source": "Place order",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/world-map-skeleton.tsx",
+				"line": 23
+			}
+		]
+	},
+	"showcase:receipt_visible_2": {
+		"source": "Receipt visible",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-one/world-map-skeleton.tsx",
+				"line": 26
+			}
+		]
+	},
+	"showcase:keep_agent_work_moving_anywhere": {
+		"source": "Keep agent work moving anywhere",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 21
+			}
+		]
+	},
+	"showcase:run_agents_from_your_desktop_today_keep_them_working_in_persistent_clo": {
+		"source": "Run agents from your desktop today, keep them working in persistent cloud environments, and follow them from mobile soon.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 25
+			}
+		]
+	},
+	"showcase:agents_in_your_pocket": {
+		"source": "Agents in your pocket",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 54
+			}
+		]
+	},
+	"showcase:coming_soon": {
+		"source": "Coming soon",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 55
+			}
+		]
+	},
+	"showcase:follow_runs_and_approve_decisions_from_your_phone": {
+		"source": "Follow runs and approve decisions from your phone.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 57
+			}
+		]
+	},
+	"showcase:full_control_at_your_desk": {
+		"source": "Full control at your desk",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 62
+			}
+		]
+	},
+	"showcase:available_now": {
+		"source": "Available now",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 63
+			}
+		]
+	},
+	"showcase:run_agents_inspect_changes_and_manage_worktrees_in_zuse_desktop": {
+		"source": "Run agents, inspect changes, and manage worktrees in Zuse Desktop.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 66
+			}
+		]
+	},
+	"showcase:agents_that_keep_running": {
+		"source": "Agents that keep running",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 72
+			}
+		]
+	},
+	"showcase:live_beta": {
+		"source": "Live beta",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 73
+			}
+		]
+	},
+	"showcase:run_isolated_cloud_workspaces_even_after_your_computer_goes_offline": {
+		"source": "Run isolated cloud workspaces even after your computer goes offline.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 76
+			}
+		]
+	},
+	"showcase:cloud_beta": {
+		"source": "Cloud beta",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 88
+			}
+		]
+	},
+	"showcase:interested_in_a_hosted_workspace": {
+		"source": "Interested in a hosted workspace?",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 91
+			}
+		]
+	},
+	"showcase:register_your_interest_as_we_open_beta_capacity_to_more_developers": {
+		"source": "Register your interest as we open beta capacity to more developers.",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 95
+			}
+		]
+	},
+	"showcase:interest_registered_we_ll_email_you_about_beta_access": {
+		"source": "Interest registered. We'll email you about beta access.",
+		"locations": [
+			{
+				"path": "apps/web/components/cloud-teaser/waitlist-form.tsx",
+				"line": 50
+			}
+		]
+	},
+	"showcase:email_address": {
+		"source": "Email address",
+		"locations": [
+			{
+				"path": "apps/web/components/cloud-teaser/waitlist-form.tsx",
+				"line": 67
+			}
+		]
+	},
+	"showcase:sending": {
+		"source": "Sending…",
+		"locations": [
+			{
+				"path": "apps/web/components/cloud-teaser/waitlist-form.tsx",
+				"line": 83
+			}
+		]
+	},
+	"showcase:request_access": {
+		"source": "Request access",
+		"locations": [
+			{
+				"path": "apps/web/components/cloud-teaser/waitlist-form.tsx",
+				"line": 83
+			}
+		]
+	},
+	"showcase:zuse_desktop_workspace": {
+		"source": "Zuse desktop workspace",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/macbook-skeleton.tsx",
+				"line": 55
+			}
+		]
+	},
+	"showcase:agent_finished": {
+		"source": "Agent finished",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/macbook-skeleton.tsx",
+				"line": 121
+			}
+		]
+	},
+	"showcase:three_rack_mounted_servers_online": {
+		"source": "Three rack-mounted servers online",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/server-hardware.tsx",
+				"line": 16
+			}
+		]
+	},
+	"showcase:bring_the_agents_you_already_use": {
+		"source": "Bring the agents you already use",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/workflow-overview.tsx",
+				"line": 16
+			}
+		]
+	},
+	"showcase:connect_your_existing_coding_agent_subscriptions_and_choose_the_right": {
+		"source": "Connect your existing coding-agent subscriptions and choose the right provider for each session.",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/workflow-overview.tsx",
+				"line": 18
+			}
+		]
+	},
+	"showcase:run_work_in_parallel": {
+		"source": "Run work in parallel",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/workflow-overview.tsx",
+				"line": 24
+			}
+		]
+	},
+	"showcase:give_every_task_its_own_chat_branch_and_git_worktree_so_multiple_attem": {
+		"source": "Give every task its own chat, branch, and git worktree so multiple attempts never overwrite each other.",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/workflow-overview.tsx",
+				"line": 26
+			}
+		]
+	},
+	"showcase:carry_context_then_review": {
+		"source": "Carry context, then review",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/workflow-overview.tsx",
+				"line": 32
+			}
+		]
+	},
+	"showcase:continue_with_another_agent_using_the_plan_transcript_or_files_it_need": {
+		"source": "Continue with another agent using the plan, transcript, or files it needs, then inspect the diff before anything ships.",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/workflow-overview.tsx",
+				"line": 34
+			}
+		]
+	},
+	"showcase:how_zuse_works": {
+		"source": "How Zuse works",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/workflow-overview.tsx",
+				"line": 47
+			}
+		]
+	},
+	"showcase:one_repo_many_agents_no_lost_context": {
+		"source": "One repo. Many agents. No lost context.",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/workflow-overview.tsx",
+				"line": 50
+			}
+		]
+	},
+	"showcase:zuse_keeps_every_agent_session_connected_to_the_code_branch_and_review": {
+		"source": "Zuse keeps every agent session connected to the code, branch, and review state it belongs to.",
+		"locations": [
+			{
+				"path": "apps/web/components/landing/workflow-overview.tsx",
+				"line": 54
+			}
+		]
+	},
+	"showcase:submit_error": {
+		"source": "Something went wrong. Please try again.",
+		"locations": [
+			{
+				"path": "apps/web/components/cloud-teaser/waitlist-form.tsx",
+				"line": 33
+			},
+			{
+				"path": "apps/web/components/cloud-teaser/waitlist-form.tsx",
+				"line": 42
+			}
+		]
+	}
+}

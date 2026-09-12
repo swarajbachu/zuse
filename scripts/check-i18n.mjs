@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import ts from "typescript";
 
 const root = resolve(import.meta.dirname, "..");
-const catalogRoot = resolve(root, "packages/i18n/src/catalogs");
+const catalogRoot = resolve(root, "packages/i18n/locales");
 const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
 export function sourceRevision(catalogs) {
 	return createHash("sha256")
@@ -112,6 +112,7 @@ export function findLiteralCopy(file, source) {
 		"description",
 		"placeholder",
 		"aria-label",
+		"ariaLabel",
 		"alt",
 		"emptyMessage",
 		"searchPlaceholder",
@@ -154,6 +155,11 @@ export function findLiteralCopy(file, source) {
 		"buttons",
 	]);
 	const visit = (node) => {
+		if (
+			ts.isJsxElement(node) &&
+			["style", "script"].includes(node.openingElement.tagName.getText(ast))
+		)
+			return;
 		if (
 			file.includes("apps/desktop/") &&
 			ts.isPropertyAssignment(node) &&
@@ -204,20 +210,22 @@ export function findLiteralCopy(file, source) {
 export function checkLocalization() {
 	const errors = [];
 	const english = Object.fromEntries(
-		readdirSync(`${catalogRoot}/en`)
+		readdirSync(`${catalogRoot}/en/desktop`)
 			.filter((file) => file.endsWith(".json"))
 			.map((file) => [
 				file.slice(0, -5),
-				readJson(`${catalogRoot}/en/${file}`),
+				readJson(`${catalogRoot}/en/desktop/${file}`),
 			]),
 	);
 	const revision = sourceRevision(english);
-	const reviews = readJson(resolve(root, "packages/i18n/src/review.json"));
+	const reviews = readJson(resolve(root, "packages/i18n/review/desktop.json"));
 	for (const locale of Object.keys(
-		readJson(resolve(root, "packages/i18n/src/locales.json")),
+		readJson(resolve(root, "packages/i18n/locales/registry.json")),
 	)) {
 		for (const [namespace, source] of Object.entries(english)) {
-			const target = readJson(`${catalogRoot}/${locale}/${namespace}.json`);
+			const target = readJson(
+				`${catalogRoot}/${locale}/desktop/${namespace}.json`,
+			);
 			for (const [key, text] of Object.entries(source)) {
 				const problem = validateMessage(text, target[key]);
 				if (problem) errors.push(`${locale}/${namespace}:${key}: ${problem}`);

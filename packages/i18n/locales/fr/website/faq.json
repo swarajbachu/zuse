@@ -1,0 +1,22 @@
+{
+	"what_does_zuse_actually_do": "Que fait réellement Zuse ?",
+	"zuse_supports_seven_coding_agent_clis_in_one_workspace_connect_the_pro": "Zuse prend en charge sept CLI d’agent de codage dans un seul espace de travail. Connectez les fournisseurs que vous utilisez, exécutez-les côte à côte et choisissez quel fournisseur gère chaque session.",
+	"do_i_need_my_own_api_keys_or_subscriptions": "Ai-je besoin de mes propres clés ou abonnements API ?",
+	"you_choose_the_next_provider_instead_of_zuse_silently_routing_your_mes": "Vous choisissez le prochain fournisseur au lieu de Zuse acheminant silencieusement votre message. Démarrez ou créez une session, puis joignez le plan, la transcription, le diff ou les fichiers dont l'agent suivant a besoin. Si un abonnement atteint sa limite, vous pouvez continuer avec un autre fournisseur auquel vous avez accès.",
+	"zuse_puts_your_coding_agents_repositories_terminals_files_and_diffs_in": "Zuse place vos agents de codage, référentiels, terminaux, fichiers et différences dans un seul espace de travail. Vous pouvez exécuter plusieurs tâches en parallèle, garder chacune isolée dans sa propre arborescence git et transférer le contexte sélectionné d'une session d'agent à une autre.",
+	"how_much_does_it_cost": "Combien ça coûte?",
+	"is_my_code_or_data_sent_anywhere": "Mon code ou mes données sont-ils envoyés quelque part ?",
+	"yes_zuse_is_bring_your_own_keys_you_plug_in_your_own_provider_keys_or": "Oui. Le Zuse consiste à apporter vos propres clés. Vous branchez vos propres clés ou abonnements de fournisseur, et Zuse leur parle directement. Il ne revend jamais de jetons et ajoute une majoration de 0 $, vous ne payez donc que les fournisseurs d'agents.",
+	"what_happens_when_i_want_to_switch_agents": "Que se passe-t-il lorsque je souhaite changer d'agent ?",
+	"which_operating_systems_are_supported": "Quels systèmes d'exploitation sont pris en charge ?",
+	"which_agents_are_supported": "Quels agents sont pris en charge ?",
+	"the_zuse_desktop_beta_is_available_now_and_uses_your_own_agent_subscri": "La version bêta de bureau Zuse est disponible dès maintenant et utilise vos propres abonnements d'agent ou vos clés API. Zuse Cloud est une version bêta privée sur invitation uniquement : Cloud Workspace coûte 40 $/mois, comprend 35 $ de calcul E2B attribuable et facture des frais supplémentaires du fournisseur plus 5 % jusqu'à votre plafond de dépassement.",
+	"local_and_ssh_chats_stay_on_the_computers_you_choose_when_you_use_the": "Les discussions locales et SSH restent sur les ordinateurs de votre choix. Lorsque vous utilisez la version bêta privée facultative de Zuse Cloud, son espace de travail s'exécute en E2B et les points de contrôle de transcription chiffrés sont stockés pour des reconnexions rapides. Les demandes de modèles sont adressées uniquement aux fournisseurs que vous configurez. Les analyses d'utilisation pseudonyme n'incluent jamais d'invites, de réponses, de code, de chemins, de commandes, de détails de compte ou de piles d'erreurs, et vous pouvez les désactiver dans Paramètres.",
+	"yes_you_can_run_several_agents_in_parallel_each_in_its_own_chat_with_i": "Oui. Vous pouvez exécuter plusieurs agents en parallèle, chacun dans sa propre discussion avec son propre arbre de travail git, afin que leurs modifications restent isolées. Examinez et validez chacun d’entre eux à partir du volet PR et modifications.",
+	"a_lead_agent_can_spawn_sub_agents_to_handle_parts_of_a_task_including": "Un agent principal peut générer des sous-agents pour gérer certaines parties d'une tâche, y compris des modèles moins chers pour le travail le plus simple. Cela permet au modèle coûteux de se concentrer sur les parties difficiles et de réduire le coût global de votre jeton.",
+	"questions_devs_ask_first": "Questions que les développeurs posent en premier",
+	"zuse_beta_ships_for_macos_and_x64_linux_the_download_button_selects_th": "Zuse (bêta) est livré pour macOS et x64 Linux. Le bouton Télécharger sélectionne automatiquement l'image disque macOS ou Linux AppImage, et les utilisateurs Debian et Ubuntu peuvent également obtenir le package .deb à partir de GitHub versions.",
+	"can_i_run_multiple_agents_at_once": "Puis-je exécuter plusieurs agents à la fois ?",
+	"what_is_sub_agent_delegation": "Qu’est-ce que la délégation de sous-agents ?",
+	"more_questions_see_the_project_on_github": "D'autres questions ? Voir le projet sur <part0>GitHub</part0>."
+}

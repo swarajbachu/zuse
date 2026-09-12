@@ -1,0 +1,22 @@
+{
+	"which_agents_are_supported": "Welche Agenten werden unterstützt?",
+	"what_happens_when_i_want_to_switch_agents": "Was passiert, wenn ich den Agenten wechseln möchte?",
+	"what_does_zuse_actually_do": "Was macht Zuse eigentlich?",
+	"zuse_supports_seven_coding_agent_clis_in_one_workspace_connect_the_pro": "Zuse unterstützt sieben Coding-Agent-CLIs in einem Arbeitsbereich. Verbinden Sie die von Ihnen verwendeten Anbieter, führen Sie sie nebeneinander aus und wählen Sie aus, welcher Anbieter die einzelnen Sitzungen abwickelt.",
+	"you_choose_the_next_provider_instead_of_zuse_silently_routing_your_mes": "Sie wählen den nächsten Anbieter, anstatt Zuse Ihre Nachricht stillschweigend weiterzuleiten. Starten oder teilen Sie eine Sitzung und hängen Sie dann den Plan, das Transkript, die Differenz oder die Dateien an, die der nächste Agent benötigt. Wenn ein Abonnement sein Limit erreicht, können Sie mit einem anderen Anbieter fortfahren, auf den Sie Zugriff haben.",
+	"do_i_need_my_own_api_keys_or_subscriptions": "Benötige ich eigene API-Schlüssel oder Abonnements?",
+	"how_much_does_it_cost": "Wie viel kostet es?",
+	"local_and_ssh_chats_stay_on_the_computers_you_choose_when_you_use_the": "Lokale und SSH Chats bleiben auf den von Ihnen ausgewählten Computern. Wenn Sie die optionale Cloud Private Beta Zuse verwenden, wird der Arbeitsbereich unter E2B ausgeführt und verschlüsselte Transkript-Prüfpunkte werden für schnelle Wiederherstellungen gespeichert. Modellanfragen gehen nur an die von Ihnen konfigurierten Anbieter. Pseudonyme Nutzungsanalysen umfassen niemals Eingabeaufforderungen, Antworten, Code, Pfade, Befehle, Kontodetails oder Fehlerstapel und Sie können sie in den Einstellungen deaktivieren.",
+	"zuse_puts_your_coding_agents_repositories_terminals_files_and_diffs_in": "Zuse vereint Ihre Programmieragenten, Repositorys, Terminals, Dateien und Diffs in einem Arbeitsbereich. Sie können mehrere Aufgaben parallel ausführen, jede einzelne in ihrem eigenen Git-Worktree isoliert halten und ausgewählten Kontext von einer Agentensitzung zur anderen übertragen.",
+	"which_operating_systems_are_supported": "Welche Betriebssysteme werden unterstützt?",
+	"can_i_run_multiple_agents_at_once": "Kann ich mehrere Agenten gleichzeitig ausführen?",
+	"yes_zuse_is_bring_your_own_keys_you_plug_in_your_own_provider_keys_or": "Ja. Zuse bedeutet, dass Sie Ihre eigenen Schlüssel mitbringen. Sie schließen Ihre eigenen Anbieterschlüssel oder Abonnements an und Zuse kommuniziert direkt mit ihnen. Es werden niemals Token weiterverkauft und es wird ein Aufschlag von 0 $ erhoben, sodass Sie nur die Agentenanbieter bezahlen.",
+	"is_my_code_or_data_sent_anywhere": "Werden mein Code oder meine Daten irgendwohin gesendet?",
+	"a_lead_agent_can_spawn_sub_agents_to_handle_parts_of_a_task_including": "Ein Hauptagent kann Unteragenten hervorbringen, die Teile einer Aufgabe erledigen, einschließlich günstigerer Modelle für die einfachere Arbeit. Dadurch bleibt der Schwerpunkt des teuren Modells auf den schwierigen Teilen und die Gesamtkosten für das Token werden gesenkt.",
+	"yes_you_can_run_several_agents_in_parallel_each_in_its_own_chat_with_i": "Ja. Sie können mehrere Agenten parallel ausführen, jeder in seinem eigenen Chat mit seinem eigenen Git-Worktree, sodass ihre Änderungen isoliert bleiben. Überprüfen Sie jeden einzelnen Schritt im Bereich „PR“ und „Änderungen“ und übernehmen Sie ihn.",
+	"questions_devs_ask_first": "Fragen, die Entwickler zuerst stellen",
+	"more_questions_see_the_project_on_github": "Weitere Fragen? Sehen Sie sich das Projekt unter <part0>GitHub</part0> an.",
+	"zuse_beta_ships_for_macos_and_x64_linux_the_download_button_selects_th": "Zuse (Beta) wird für macOS und x64 Linux ausgeliefert. Die Schaltfläche „Herunterladen“ wählt automatisch das Disk-Image macOS oder das AppImage Linux aus. Debian- und Ubuntu-Benutzer können das .deb-Paket auch von herunterladen GitHub Veröffentlichungen.",
+	"the_zuse_desktop_beta_is_available_now_and_uses_your_own_agent_subscri": "Die Desktop-Betaversion Zuse ist ab sofort verfügbar und verwendet Ihre eigenen Agentenabonnements oder API-Schlüssel. Zuse Cloud ist eine private, nur auf Einladung erhältliche Betaversion: Cloud Workspace kostet 40 US-Dollar pro Monat, beinhaltet 35 US-Dollar an anrechenbarer E2B-Rechenleistung und berechnet zusätzliche Anbieterkosten plus 5 % bis zu Ihrer Überschreitungsobergrenze.",
+	"what_is_sub_agent_delegation": "Was ist Subagentendelegation?"
+}

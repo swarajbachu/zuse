@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/settings";
 import { type CloudApiKey, CloudWorkspaceOpError } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Check, Copy, KeyRound } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { runControlPlane } from "../../lib/control-plane-client.ts";
@@ -50,11 +52,15 @@ export function CloudApiKeyList({
 	busy: string | null;
 	onRevoke: (key: CloudApiKey) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+
 	if (loading) {
 		return (
 			<CloudSettingsRow
-				title="Loading API keys…"
-				description="Checking this account's active integration keys."
+				title={uiMessage("settings:cloud_api_keys_loading_api_keys")}
+				description={uiMessage(
+					"settings:cloud_api_keys_checking_this_account_s_active_integration_keys",
+				)}
 			/>
 		);
 	}
@@ -62,8 +68,10 @@ export function CloudApiKeyList({
 	if (keys.length === 0 && !hasCreatedSecret) {
 		return (
 			<CloudSettingsRow
-				title="No API keys yet"
-				description="Create a key to call the public API. Keys inherit this account's cloud access."
+				title={uiMessage("settings:cloud_api_keys_no_api_keys_yet")}
+				description={uiMessage(
+					"settings:cloud_api_keys_create_a_key_to_call_the_public_api_keys_inherit_this_account_s_cloud_access",
+				)}
 				action={
 					<KeyRound className="size-4 text-muted-foreground" aria-hidden />
 				}
@@ -84,7 +92,7 @@ export function CloudApiKeyList({
 					disabled={busy !== null}
 					onClick={() => onRevoke(key)}
 				>
-					Revoke
+					{uiMessage("settings:cloud_api_keys_revoke")}
 				</Button>
 			}
 		/>
@@ -97,6 +105,8 @@ export function CloudApiKeyList({
  * display prefix remains.
  */
 export function CloudApiKeys() {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+
 	const [keys, setKeys] = useState<ReadonlyArray<CloudApiKey> | null>(null);
 	const [name, setName] = useState("");
 	const [createdSecret, setCreatedSecret] = useState<string | null>(null);
@@ -190,8 +200,10 @@ export function CloudApiKeys() {
 
 	return (
 		<CloudSettingsGroup
-			title="API keys"
-			description="API keys let Slack bots, scripts, and other integrations start cloud workspaces and exchange messages over the public API."
+			title={uiMessage("settings:cloud_api_keys_api_keys")}
+			description={uiMessage(
+				"settings:cloud_api_keys_api_keys_let_slack_bots_scripts_and_other_integrations_start_cloud_workspaces_and_exchange_messages_over_the_public_api",
+			)}
 			action={
 				<>
 					<Input
@@ -199,9 +211,9 @@ export function CloudApiKeys() {
 						maxLength={100}
 						disabled={createdSecret !== null}
 						onChange={(event) => setName(event.currentTarget.value)}
-						placeholder="Key name"
+						placeholder={uiMessage("settings:cloud_api_keys_key_name")}
 						className="h-7 w-32"
-						aria-label="New API key name"
+						aria-label={uiMessage("settings:cloud_api_keys_new_api_key_name")}
 					/>
 					<Button
 						size="xs"
@@ -216,7 +228,7 @@ export function CloudApiKeys() {
 						}
 						onClick={() => void createKey()}
 					>
-						Create key
+						{uiMessage("settings:cloud_api_keys_create_key")}
 					</Button>
 				</>
 			}
@@ -234,7 +246,7 @@ export function CloudApiKeys() {
 						disabled={busy !== null}
 						onClick={() => void load()}
 					>
-						Retry
+						{uiMessage("settings:cloud_api_keys_retry")}
 					</Button>
 				</div>
 			)}
@@ -245,15 +257,19 @@ export function CloudApiKeys() {
 			)}
 			{createdSecret === null ? null : (
 				<CloudSettingsRow
-					title="Copy your new key now"
-					description="This secret is shown only once. Store it where your integration can read it."
+					title={uiMessage("settings:cloud_api_keys_copy_your_new_key_now")}
+					description={uiMessage(
+						"settings:cloud_api_keys_this_secret_is_shown_only_once_store_it_where_your_integration_can_read_it",
+					)}
 					action={
 						<>
 							<Input
 								readOnly
 								value={createdSecret}
 								className="h-7 w-56 font-mono text-[11px]"
-								aria-label="New API key secret"
+								aria-label={uiMessage(
+									"settings:cloud_api_keys_new_api_key_secret",
+								)}
 								onFocus={(event) => event.currentTarget.select()}
 							/>
 							<Button
@@ -267,7 +283,9 @@ export function CloudApiKeys() {
 								) : (
 									<Copy className="size-3.5" aria-hidden />
 								)}
-								{copied ? "Copied" : "Copy"}
+								{copied
+									? uiMessage("settings:cloud_api_keys_copied")
+									: uiMessage("settings:cloud_api_keys_copy")}
 							</Button>
 							<Button
 								size="xs"
@@ -275,7 +293,7 @@ export function CloudApiKeys() {
 								className={COMPACT_CLOUD_ACTION}
 								onClick={() => setCreatedSecret(null)}
 							>
-								Done
+								{uiMessage("settings:cloud_api_keys_done")}
 							</Button>
 						</>
 					}
@@ -296,10 +314,19 @@ export function CloudApiKeys() {
 			>
 				<AlertDialogPopup className="max-w-sm">
 					<AlertDialogHeader>
-						<AlertDialogTitle>Revoke API key?</AlertDialogTitle>
+						<AlertDialogTitle>
+							{uiMessage("settings:cloud_api_keys_revoke_api_key")}
+						</AlertDialogTitle>
 						<AlertDialogDescription>
-							{revokeTarget?.name ?? "This integration"} will immediately lose
-							public API access. This cannot be undone.
+							{uiMessage(
+								"settings:cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undon_sentence",
+								{
+									value:
+										revokeTarget?.name ??
+										uiMessage("settings:cloud_api_keys_this_integration") ??
+										"",
+								},
+							)}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -312,7 +339,7 @@ export function CloudApiKeys() {
 								/>
 							}
 						>
-							Cancel
+							{uiMessage("settings:cloud_api_keys_cancel")}
 						</AlertDialogClose>
 						<Button
 							size="xs"
@@ -325,7 +352,7 @@ export function CloudApiKeys() {
 								if (revokeTarget !== null) void revokeKey(revokeTarget.keyId);
 							}}
 						>
-							Revoke key
+							{uiMessage("settings:cloud_api_keys_revoke_key")}
 						</Button>
 					</AlertDialogFooter>
 				</AlertDialogPopup>

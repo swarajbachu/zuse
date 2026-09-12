@@ -1,9 +1,13 @@
 import type { DesktopLocale } from "@zuse/contracts";
 import { type BackendModule, createInstance, type i18n as I18n } from "i18next";
-import common from "./catalogs/en/common.json";
-import { loaders, type MessageKey, type Namespace } from "./catalogs.ts";
+import common from "../locales/en/desktop/common.json";
+import {
+	loaders,
+	type MessageKey,
+	type Namespace,
+} from "./generated/desktop.ts";
 
-export type { MessageKey, Namespace } from "./catalogs.ts";
+export type { MessageKey, Namespace } from "./generated/desktop.ts";
 export {
 	availableLocales,
 	isLocale,

@@ -7,7 +7,11 @@
 		".": "./src/index.ts",
 		"./react": "./src/react.tsx",
 		"./locales": "./src/locales.ts",
-		"./english/*": "./src/english/*.ts"
+		"./english/*": "./src/generated/english/*.ts",
+		"./registry": "./src/registry.ts",
+		"./website/react": "./src/website/react.tsx",
+		"./website/server": "./src/website/server.ts",
+		"./website/types": "./src/generated/website.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",

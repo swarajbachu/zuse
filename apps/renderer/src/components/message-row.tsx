@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -1420,6 +1421,8 @@ function AttachmentChip({
 	previewUrl?: string;
 	sessionRef: SessionRef | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const isImage = a.mimeType.startsWith("image/");
 	const preview = useAttachmentUrl(isImage ? sessionRef : null, a.id);
 	const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
@@ -1448,8 +1451,8 @@ function AttachmentChip({
 					role="status"
 					aria-label={
 						preview.failed || brokenSrc !== null
-							? "Retry preview"
-							: "Preparing image"
+							? uiMessage("chat:message_row_retry_preview")
+							: uiMessage("chat:message_row_preparing_image")
 					}
 				>
 					{preview.failed || brokenSrc !== null ? "↻" : "…"}
@@ -1471,7 +1474,7 @@ function AttachmentChip({
 				type="button"
 				title={
 					preview.failed || brokenSrc !== null
-						? "Could not load image. Click to retry."
+						? uiMessage("chat:message_row_could_not_load_image_click_to_retry")
 						: a.originalName
 				}
 				className={className}
@@ -1512,7 +1515,7 @@ function AttachmentChip({
 			rel="noreferrer"
 			title={
 				preview.failed || brokenSrc !== null
-					? "Could not load image. Click to retry."
+					? uiMessage("chat:message_row_could_not_load_image_click_to_retry")
 					: a.originalName
 			}
 			className={className}

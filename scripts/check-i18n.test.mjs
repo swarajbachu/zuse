@@ -113,3 +113,13 @@ test("native menu and dialog display strings are checked without flagging diagno
 		["Settings"],
 	);
 });
+
+test("checks custom accessibility props while ignoring embedded CSS", () => {
+	assert.deepEqual(
+		findLiteralCopy(
+			"control.tsx",
+			'<><Control ariaLabel="Choose environment" /><style>{`body { color: red; }`}</style></>',
+		).map(({ text }) => text),
+		["Choose environment"],
+	);
+});

@@ -490,7 +490,7 @@ export function CloudWorkspacePool() {
 				<SegmentedTabs
 					value={view}
 					onValueChange={setView}
-					ariaLabel="Cloud workspace settings"
+					ariaLabel={uiMessage("common:cloud_workspace_settings")}
 					className="max-w-sm"
 					options={[
 						{ value: "setup", label: "Setup" },

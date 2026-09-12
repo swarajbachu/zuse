@@ -484,7 +484,9 @@ function RowEditor({
 					</>
 				) : (
 					<RecordingSurface
-						ariaLabel={`Recording shortcut for ${meta.label}`}
+						ariaLabel={uiMessage("common:recording_shortcut", {
+							label: meta.label,
+						})}
 						onCapture={(key) =>
 							dispatch({
 								type: "patch",
@@ -610,7 +612,7 @@ function NewRow({
 				<div className="flex min-w-0 items-center gap-1">
 					{draft.isRecording ? (
 						<RecordingSurface
-							ariaLabel="Recording shortcut for new binding"
+							ariaLabel={uiMessage("common:recording_new_shortcut")}
 							onCapture={(key) =>
 								dispatch({
 									type: "patch",

@@ -1,3 +1,4 @@
+import { isWebsiteLocale } from "@zuse/i18n/registry";
 import { type NextRequest, NextResponse } from "next/server";
 import { NOT_FOUND_MARKDOWN } from "@/lib/agent-content";
 import { jsonError } from "@/lib/api-error";
@@ -8,6 +9,7 @@ const MARKDOWN_ALTERNATE = '</home.md>; rel="alternate"; type="text/markdown"';
 
 const knownPage = (pathname: string) =>
 	pathname === "/" ||
+	isWebsiteLocale(pathname.slice(1)) ||
 	pathname === "/blog" ||
 	pathname.startsWith("/blog/") ||
 	pathname === "/changelog" ||

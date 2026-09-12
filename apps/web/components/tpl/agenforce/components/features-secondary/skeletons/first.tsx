@@ -1,5 +1,4 @@
 "use client";
-
 import {
 	IconCheck,
 	IconFileDiff,
@@ -7,39 +6,45 @@ import {
 	IconPaperclip,
 	IconTestPipe,
 } from "@tabler/icons-react";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import Image from "next/image";
 
-export const SkeletonOne = () => (
-	<div className="relative mx-auto h-full w-full max-w-lg overflow-hidden px-5 pt-5">
-		<div className="bg-primary/10 absolute top-16 left-1/2 h-40 w-52 -translate-x-1/2 rounded-full blur-3xl" />
-		<AgentCard
-			className="absolute top-5 left-5 -rotate-2"
-			logo="/logos/claude.svg"
-			label="Planning session"
-			title="Claude Code"
-			footer="Plan complete"
-		/>
-		<AgentCard
-			className="absolute right-5 bottom-5 rotate-2"
-			logo="/logos/openai.svg"
-			label="Implementation session"
-			title="Codex"
-			footer="Ready to start"
-		/>
-		<div className="border-primary/30 bg-card absolute top-[42%] left-1/2 z-10 w-44 -translate-x-1/2 rounded-xl border p-2.5 shadow-xl">
-			<div className="flex items-center gap-2">
-				<IconPaperclip className="text-primary size-3.5" />
-				<p className="text-heading text-[9px] font-semibold">Handoff context</p>
-				<IconCheck className="text-primary ml-auto size-3" />
-			</div>
-			<div className="mt-2 grid grid-cols-3 gap-1">
-				<Context icon={IconMessage} label="Plan" />
-				<Context icon={IconFileDiff} label="Diff" />
-				<Context icon={IconTestPipe} label="Tests" />
+export const SkeletonOne = () => {
+	const { message: t } = useWebsiteMessages();
+	return (
+		<div className="relative mx-auto h-full w-full max-w-lg overflow-hidden px-5 pt-5">
+			<div className="bg-primary/10 absolute top-16 left-1/2 h-40 w-52 -translate-x-1/2 rounded-full blur-3xl" />
+			<AgentCard
+				className="absolute top-5 left-5 -rotate-2"
+				logo="/logos/claude.svg"
+				label={t("showcase:planning_session")}
+				title="Claude Code"
+				footer="Plan complete"
+			/>
+			<AgentCard
+				className="absolute right-5 bottom-5 rotate-2"
+				logo="/logos/openai.svg"
+				label={t("showcase:implementation_session")}
+				title="Codex"
+				footer="Ready to start"
+			/>
+			<div className="border-primary/30 bg-card absolute top-[42%] left-1/2 z-10 w-44 -translate-x-1/2 rounded-xl border p-2.5 shadow-xl">
+				<div className="flex items-center gap-2">
+					<IconPaperclip className="text-primary size-3.5" />
+					<p className="text-heading text-[9px] font-semibold">
+						{t("showcase:handoff_context")}
+					</p>
+					<IconCheck className="text-primary ml-auto size-3" />
+				</div>
+				<div className="mt-2 grid grid-cols-3 gap-1">
+					<Context icon={IconMessage} label={t("showcase:plan")} />
+					<Context icon={IconFileDiff} label={t("showcase:diff")} />
+					<Context icon={IconTestPipe} label={t("showcase:tests")} />
+				</div>
 			</div>
 		</div>
-	</div>
-);
+	);
+};
 
 function AgentCard({
 	className,

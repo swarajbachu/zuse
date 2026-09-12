@@ -1637,7 +1637,7 @@ function ProvidersPane() {
 					<SegmentedTabs
 						value={selectedProvider}
 						onValueChange={setSelectedProvider}
-						ariaLabel="Provider settings"
+						ariaLabel={uiMessage("common:provider_settings")}
 						equalWidth={false}
 						className="w-max min-w-full"
 						options={providers.map((pid) => ({

@@ -1,4 +1,5 @@
 "use client";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { Cookie, Monitor, RefreshCw } from "lucide-react";
 import type React from "react";
 import { cn } from "@/components/tpl/saas/lib/utils";
@@ -13,20 +14,25 @@ import { VerticalPulseLines } from "./vertical-pulse-lines";
 import { WorldMapSkeleton } from "./world-map-skeleton";
 
 export function FeaturesOne() {
+	const { message: t } = useWebsiteMessages();
+
 	return (
 		<Container as="section" id="product" className="py-10 md:py-20 lg:py-32">
-			<Heading as="h2">Browser verification, built in</Heading>
+			<Heading as="h2">{t("showcase:browser_verification_built_in")}</Heading>
 			<Subheading className="mt-2">
-				Let an agent drive a real browser and verify the flow inside Zuse
+				{t(
+					"showcase:let_an_agent_drive_a_real_browser_and_verify_the_flow_inside_zuse",
+				)}
 			</Subheading>
 			<div className="mx-auto mt-8 grid grid-cols-1 gap-4 md:mt-12 md:grid-cols-3 md:grid-rows-2">
 				<Card className="md:row-span-2">
 					<CardContent className="flex h-full flex-col">
 						<CardHeader>
-							<CardTitle>Import browser sessions</CardTitle>
+							<CardTitle>{t("showcase:import_browser_sessions")}</CardTitle>
 							<CardDescription>
-								Copy valid cookies from a local browser profile into Zuse's
-								built-in browser. Passwords are never imported.
+								{t(
+									"showcase:copy_valid_cookies_from_a_local_browser_profile_into_zuse_s_built_in_b",
+								)}
 							</CardDescription>
 						</CardHeader>
 						<CardSkeleton className="mt-auto flex flex-1 items-center justify-center overflow-hidden pt-4">
@@ -38,10 +44,11 @@ export function FeaturesOne() {
 				<Card>
 					<CardContent className="flex h-full flex-col">
 						<CardHeader>
-							<CardTitle>Drive the whole flow</CardTitle>
+							<CardTitle>{t("showcase:drive_the_whole_flow")}</CardTitle>
 							<CardDescription>
-								Navigate, fill forms, click controls, and inspect the resulting
-								page state.
+								{t(
+									"showcase:navigate_fill_forms_click_controls_and_inspect_the_resulting_page_stat",
+								)}
 							</CardDescription>
 						</CardHeader>
 						<CardSkeleton className="mt-auto flex flex-1 items-center justify-center pt-4">
@@ -53,10 +60,11 @@ export function FeaturesOne() {
 				<Card className="md:row-span-2">
 					<CardContent className="flex h-full flex-col">
 						<CardHeader>
-							<CardTitle>Watch browser actions live</CardTitle>
+							<CardTitle>{t("showcase:watch_browser_actions_live")}</CardTitle>
 							<CardDescription>
-								See the page as the agent works and keep screenshots and results
-								in the thread.
+								{t(
+									"showcase:see_the_page_as_the_agent_works_and_keep_screenshots_and_results_in_th",
+								)}
 							</CardDescription>
 						</CardHeader>
 						<CardSkeleton className="mt-auto flex flex-1 flex-col items-center justify-between gap-2 overflow-hidden pt-4">
@@ -72,10 +80,11 @@ export function FeaturesOne() {
 				<Card>
 					<CardContent className="flex h-full flex-col">
 						<CardHeader>
-							<CardTitle>Describe what to verify</CardTitle>
+							<CardTitle>{t("showcase:describe_what_to_verify")}</CardTitle>
 							<CardDescription>
-								Give the agent the flow and expected result; it performs the
-								browser actions for you.
+								{t(
+									"showcase:give_the_agent_the_flow_and_expected_result_it_performs_the_browser_ac",
+								)}
 							</CardDescription>
 						</CardHeader>
 						<CardSkeleton className="mask-r-from-50% mt-auto flex flex-1 items-center justify-center overflow-hidden pt-4">
@@ -88,18 +97,24 @@ export function FeaturesOne() {
 			<div className="mx-auto mt-4 grid grid-cols-1 gap-4 md:mt-12 md:grid-cols-3">
 				<FeatureCard
 					icon={<Cookie className="group-hover:text-primary size-5" />}
-					title="Signed-in sessions"
-					description="Copy valid cookies from a local browser profile. Passwords are never imported."
+					title={t("showcase:signed_in_sessions")}
+					description={t(
+						"showcase:copy_valid_cookies_from_a_local_browser_profile_passwords_are_never_im",
+					)}
 				/>
 				<FeatureCard
 					icon={<Monitor className="group-hover:text-primary size-5" />}
-					title="A real, headless browser"
-					description="Tests drive an actual browser — clicks, typing, navigation, and assertions."
+					title={t("showcase:a_real_headless_browser")}
+					description={t(
+						"showcase:tests_drive_an_actual_browser_clicks_typing_navigation_and_assertions",
+					)}
 				/>
 				<FeatureCard
 					icon={<RefreshCw className="group-hover:text-primary size-5" />}
-					title="Inspect and retry"
-					description="The agent can inspect the current page state, adjust the implementation, and try the flow again."
+					title={t("showcase:inspect_and_retry")}
+					description={t(
+						"showcase:the_agent_can_inspect_the_current_page_state_adjust_the_implementation",
+					)}
 				/>
 			</div>
 		</Container>

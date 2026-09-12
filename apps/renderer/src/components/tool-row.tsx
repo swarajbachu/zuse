@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/common";
+import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/tools";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -520,6 +522,8 @@ function MarkdownBlock({ text }: { text: string }) {
 }
 
 function PreBlock({ text, isError }: { text: string; isError?: boolean }) {
+	const { message: uiMessage } = useUiMessages(["tools", "chat", "common"]);
+
 	return (
 		<pre
 			className={cn(
@@ -543,6 +547,8 @@ function CombinedPreBlock({
 	output?: string;
 	isError?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["tools", "chat", "common"]);
+
 	return (
 		<div
 			className={cn(
@@ -639,6 +645,8 @@ function ExpandableIconRow({
 	/** True while the tool/thinking is still running — label shimmers. */
 	pending?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["tools", "chat", "common"]);
+
 	const [expanded, setExpanded] = useState(false);
 	const Chevron = expanded ? ChevronDown : ChevronRight;
 	return (
@@ -653,7 +661,7 @@ function ExpandableIconRow({
 			>
 				{localDevice && (
 					<Laptop
-						aria-label="Local computer"
+						aria-label={uiMessage("chat:tool_row_local_computer")}
 						className="size-3.5 shrink-0 text-muted-foreground"
 					/>
 				)}

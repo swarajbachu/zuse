@@ -1,4 +1,4 @@
-# Desktop localization
+# Localization
 
 Zuse ships offline interface catalogs for English, French, German, Simplified Chinese,
 Traditional Chinese, Japanese, and Korean. English is enabled for production. The six
@@ -28,6 +28,50 @@ catalogs load by language and namespace through bundled dynamic imports, with En
 fallback. No runtime translation service or network connection is required. Inactive
 catalogs must stay out of startup chunks; renderer bundle budgets remain unchanged.
 
+## Catalog organization
+
+All editable copy lives in `packages/i18n/locales/<locale>/<surface>/<feature>.json`.
+`desktop` and `website` use independent namespaces and review records. The shared
+`locales/registry.json` stores native language names without flags. Generated loaders,
+key types, and desktop English registrations live in `src/generated`; regenerate
+these instead of editing them. `context/` holds translator context and source references;
+`review/` holds source revision hashes, provenance, and review status for each surface.
+
+## Public landing page
+
+The website supports `/` (English), `/fr`, `/de`, `/zh-Hans`, `/zh-Hant`, `/ja`, and `/ko`.
+`/en` redirects permanently to `/`. Unsupported locale paths return 404. The compact
+language selector navigates to the selected landing page and preserves section hashes.
+Website language follows the URL, independently of desktop settings and connected devices.
+
+Each page is statically generated with its language, canonical URL, reciprocal hreflang
+links, localized metadata, and structured data. The sitemap includes every language.
+Only the selected website catalog (merged with English fallback on the server) is sent
+to the browser. Each React tree owns an isolated i18next instance, so concurrent server
+requests cannot leak languages across users. Catalogs are bundled; no runtime translation
+API is used. Public documentation, legal pages, release notes, and machine-readable
+Markdown routes retain their existing English content and URLs.
+
+Website translations are publicly available drafts. Their status remains `draft` in
+`review/website.json` until native review; public availability does not certify review.
+Desktop activation still requires review. Review checks reject stale source revisions
+for either surface once a locale is marked reviewed.
+
+Website components use `useWebsiteMessages()` from `@zuse/i18n/website/react`.
+Translate complete messages from the `landing`, `navigation`, `demo`, `showcase`, or `faq`
+namespace; use locale-aware data factories instead of frozen module labels. Use
+`WebsiteRichMessage` with explicitly mapped components for emphasis and links. Keep
+provider names, source code, paths, keyboard legends, and sample user prompts intact.
+Server components load typed catalogs through `@zuse/i18n/website/server`.
+
+After editing website catalogs, run `bun run i18n:generate`, `bun run check:i18n`,
+`bun run --cwd apps/web test`, `bun run --cwd apps/web check-types`, and
+`bun run --cwd apps/web build`. The website copy check follows the landing page's import
+graph, including shared navigation and footer; technical exceptions need a specific
+entry in `scripts/website-i18n-exceptions.json`. Review all seven languages at narrow
+and wide widths, keyboard navigation, the selector, download links, FAQ, interactive
+demo, composition behavior, and waitlist error states before release.
+
 ## Adding or changing interface text
 
 1. Add a stable, descriptive key to the appropriate English feature catalog. Translate
@@ -56,7 +100,7 @@ specific. Do not exempt an entire component to bypass translation.
 
 ## Translator context and glossary
 
-`packages/i18n/src/context.json` records English copy and source locations. Open the
+`packages/i18n/context/desktop.json` records English copy and source locations. Open the
 referenced screen and retain screenshots with the review evidence. Preserve `{{name}}`
 values and rich component markers exactly; components may move to suit grammar.
 
@@ -75,7 +119,7 @@ individual strings. Current drafts are not evidence of terminology approval.
 
 ## Review and progressive release
 
-`src/review.json` is the activation gate. Each translation starts with `status: "draft"`,
+`packages/i18n/review/desktop.json` is the activation gate. Each translation starts with `status: "draft"`,
 a null reviewer, and draft provenance. `draftSourceRevision` records the English version
 used for the initial draft; it is not automatically advanced during regeneration.
 After native-speaker review and acceptance checks, set `status: "reviewed"`, record the
@@ -88,7 +132,7 @@ the pseudolocale; packaged production exposes only reviewed languages.
 For an additional language, extend the locale wire union and locale registry, add
 catalogs and draft review metadata, update negotiation/plural tests, and regenerate.
 Arabic and Hebrew remain disabled until a dedicated RTL layout and interaction pass.
-Mobile, marketing, documentation translation, and translated release notes are separate.
+Mobile, documentation, legal documents, blog posts, and translated release notes are separate.
 
 ## Acceptance checklist
 
