@@ -150,6 +150,20 @@ test("adopts GitHub manifest names only for matching archive contents and blockm
 			);
 		// Preparation remains safe when publication is retried after an upload failure.
 		prepareReleaseAssets(directory, metadata);
+		// An interruption after moving the archive must not publish its old-named blockmap.
+		renameSync(
+			join(directory, `${zip.url}.blockmap`),
+			join(directory, `${zip.local}.blockmap`),
+		);
+		prepareReleaseAssets(directory, metadata);
+		assert.throws(
+			() => verifyReleaseAssets(directory, metadata),
+			/Orphaned blockmap/,
+		);
+		renameSync(
+			join(directory, `${zip.local}.blockmap`),
+			join(directory, `${zip.url}.blockmap`),
+		);
 		renameSync(join(directory, zip.url), join(directory, zip.local));
 		assert.throws(
 			() => prepareReleaseAssets(directory, metadata),

@@ -111,6 +111,13 @@ export function prepareReleaseAssets(directory, metadata) {
 
 export function verifyReleaseAssets(directory, metadata) {
 	const names = readdirSync(directory);
+	for (const name of names) {
+		if (
+			name.endsWith(".blockmap") &&
+			!names.includes(name.slice(0, -".blockmap".length))
+		)
+			throw new Error(`Orphaned blockmap: ${name}`);
+	}
 	for (const suffix of [".dmg", ".zip", ".AppImage", ".deb"]) {
 		if (
 			!names.some(
