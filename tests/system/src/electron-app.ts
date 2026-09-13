@@ -27,7 +27,7 @@ export type ElectronHarness = {
 	readonly close: () => Promise<void>;
 };
 
-const closeElectronApplication = async (
+export const closeElectronApplication = async (
 	app: ElectronApplication,
 ): Promise<void> => {
 	const child = app.process();

@@ -13,6 +13,7 @@ import { resetEnvironmentsRuntime } from "../store/environments";
 import { resetGoalsRuntime } from "../store/goals";
 import { resetMessagesRuntime } from "../store/messages";
 import { resetModelCatalogRuntime } from "../store/model-catalog";
+import { clearOnboarding } from "../store/onboarding";
 import { resetOutboxRuntime } from "../store/outbox";
 import { resetPermissionsRuntime } from "../store/permissions";
 import { clearPinnedChats } from "../store/pinned-chats";
@@ -66,8 +67,13 @@ export const resetLocalMobileData = async (): Promise<void> => {
 		clearLastCrashReport(),
 		resetMobileAnalyticsIdentity(),
 	]);
+	const onboardingCleanup = await Promise.allSettled([clearOnboarding()]);
 	resetApiAccessToken();
-	if (cleanup.some((result) => result.status === "rejected")) {
+	if (
+		[...cleanup, ...onboardingCleanup].some(
+			(result) => result.status === "rejected",
+		)
+	) {
 		throw new Error(
 			"Some local files could not be cleared. Restart the app and try again.",
 		);

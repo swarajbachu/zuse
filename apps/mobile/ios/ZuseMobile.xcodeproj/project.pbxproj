@@ -379,9 +379,10 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = CBB105AA93F745D24B3B4DA7 /* Pods-ZuseMobile.debug.xcconfig */;
 			buildSettings = {
+				APP_URL_SCHEME = "zuse-dev";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = ZuseMobile/ZuseMobile.entitlements;
+				CODE_SIGN_ENTITLEMENTS = ZuseMobile/ZuseMobile.debug.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -405,8 +406,8 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = com.zuse.sh;
-				PRODUCT_NAME = Zuse;
+				PRODUCT_BUNDLE_IDENTIFIER = com.zuse.sh.dev;
+				PRODUCT_NAME = "Zuse Dev";
 				SWIFT_OBJC_BRIDGING_HEADER = "ZuseMobile/ZuseMobile-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -419,6 +420,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 0F9CB3F965A2E409095364AB /* Pods-ZuseMobile.release.xcconfig */;
 			buildSettings = {
+				APP_URL_SCHEME = zuse;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = ZuseMobile/ZuseMobile.entitlements;

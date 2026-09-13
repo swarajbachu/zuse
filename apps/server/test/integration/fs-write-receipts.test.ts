@@ -11,7 +11,7 @@ import {
 } from "@zuse/contracts";
 import { WorktreeService } from "@zuse/git/worktree-service";
 import { layer as sqliteLayer } from "@zuse/sqlite";
-import { Effect, Layer, ManagedRuntime, Result, Stream } from "effect";
+import { Effect, Fiber, Layer, ManagedRuntime, Result, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -86,6 +86,45 @@ describe("filesystem write receipts", () => {
 	afterEach(async () => {
 		await runtime.dispose();
 		await nodeFs.rm(root, { recursive: true, force: true });
+	});
+
+	it("reports change batches before continuous editing stops", async () => {
+		const events: string[] = [];
+		const fiber = runtime.runFork(
+			Effect.gen(function* () {
+				const fs = yield* FsService;
+				yield* Stream.runForEach(fs.watchTree(folderId, null), (event) =>
+					Effect.sync(() => {
+						events.push(event._tag);
+					}),
+				);
+			}),
+		);
+		try {
+			await new Promise<void>((resolve, reject) => {
+				const deadline = Date.now() + 2_000;
+				const check = () => {
+					if (events.includes("ready")) resolve();
+					else if (Date.now() > deadline)
+						reject(new Error("Watcher did not become ready"));
+					else setTimeout(check, 10);
+				};
+				check();
+			});
+			// Write faster than the frame window for several windows; activity must not starve.
+			for (let index = 0; index < 30; index++) {
+				await nodeFs.writeFile(
+					nodePath.join(root, "changing.txt"),
+					String(index),
+				);
+				await new Promise((resolve) => setTimeout(resolve, 20));
+			}
+			expect(
+				events.filter((tag) => tag === "changed").length,
+			).toBeGreaterThanOrEqual(2);
+		} finally {
+			await runtime.runPromise(Fiber.interrupt(fiber));
+		}
 	});
 
 	it("creates the durable intent and identity columns", async () => {

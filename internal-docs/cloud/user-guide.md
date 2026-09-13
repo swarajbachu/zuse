@@ -73,6 +73,13 @@ not uploaded and may be overwritten by the next sync. Zuse stops the transfer
 when the environment disconnects, keeps the enabled preference, and prepares
 fresh access before syncing again after reconnect.
 
+Automatic file sync waits for five seconds without observed changes and at least
+15 seconds after the previous batch finishes. While files keep changing, the
+local terminal shows “Waiting for changes to settle…”. Downloads are staged
+before changed files are applied together; unchanged files are left untouched
+to avoid unnecessary dev-server reloads. Individual app watchers may still
+produce more than one reload for a batch.
+
 Open via SSH uses the managed `ssh zuse-<workspace>` host alias and does not
 publish an SSH listener. Dev-server previews open through a private forward on
 Mac `localhost`; copying a public E2B preview URL remains a separate action.

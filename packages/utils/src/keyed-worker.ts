@@ -81,6 +81,35 @@ export class KeyedCoalescingWorker<K, A> {
 	}
 }
 
+/** Promise-based keyed FIFO serialization, with a drainable shutdown. */
+export class KeyedSerialWorker<K = string> {
+	private readonly entries = new Map<K, DrainableWorker>();
+	private accepting = true;
+
+	run<A>(key: K, operation: () => PromiseLike<A> | A): Promise<A> {
+		if (!this.accepting) return Promise.reject(new WorkerClosedError());
+		let worker = this.entries.get(key);
+		if (worker === undefined) {
+			worker = new DrainableWorker();
+			this.entries.set(key, worker);
+		}
+		const current = worker;
+		const result = current.run(operation);
+		void current.drain().then(() => {
+			if (current.size === 0 && this.entries.get(key) === current)
+				this.entries.delete(key);
+		});
+		return result;
+	}
+
+	async close(): Promise<void> {
+		this.accepting = false;
+		await Promise.all(
+			[...this.entries.values()].map((worker) => worker.close()),
+		);
+	}
+}
+
 type EffectSerialEntry = {
 	readonly semaphore: Semaphore.Semaphore;
 	users: number;

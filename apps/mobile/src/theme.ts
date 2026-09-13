@@ -1,9 +1,9 @@
 import { Color } from "expo-router";
-import { DynamicColorIOS, Platform } from "react-native";
+import { type ColorValue, DynamicColorIOS, Platform } from "react-native";
 
-/** The single product accent used across native controls and utility styles. */
-export const NEON_GREEN = "#c8ff00";
-export const PRIMARY_FOREGROUND = "#11130a";
+/** Brand fill; use the adaptive accent for text and standalone icons. */
+export const APP_TINT = "hsl(83 74% 43%)";
+export const PRIMARY_FOREGROUND = "#ffffff";
 
 export const glass = {
 	borderDark: "rgba(255,255,255,0.16)",
@@ -62,7 +62,11 @@ export const colors = {
 		Color.android.dynamic.outlineVariant,
 		"rgba(0,0,0,0.08)",
 	),
-	accent: platformColor(NEON_GREEN, NEON_GREEN, NEON_GREEN),
+	accent: platformColor<ColorValue>(
+		DynamicColorIOS({ light: "#486900", dark: "hsl(83 72% 46%)" }),
+		undefined,
+		APP_TINT,
+	),
 	primaryForeground: PRIMARY_FOREGROUND,
 	danger: platformColor(
 		Color.ios.systemRed,
@@ -74,7 +78,11 @@ export const colors = {
 		Color.android.material.yellow600,
 		"#d97706",
 	),
-	success: platformColor(NEON_GREEN, NEON_GREEN, NEON_GREEN),
+	success: platformColor(
+		Color.ios.systemGreen,
+		Color.android.material.green600,
+		"#248a3d",
+	),
 	diffAdded: "#269a3b",
 	diffRemoved: "#d93f4c",
 	diffHunk: "#a63aa5",

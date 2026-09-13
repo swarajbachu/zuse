@@ -18,7 +18,7 @@ import {
 	runtimeOptionFor,
 } from "~/lib/model-options";
 import { activeModelCatalog } from "~/store/model-catalog";
-import { NEON_GREEN } from "~/theme";
+import { APP_TINT } from "~/theme";
 
 export type ModelModeValue = {
 	providerId: ProviderId;
@@ -38,7 +38,7 @@ export function ModelModePill({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu
 				label={modelLabel(value)}
 				systemImage={providerSystemImage(value.providerId)}
@@ -86,7 +86,7 @@ export function ComposerModelMenu({
 		<Host
 			key={`${value.providerId}:${value.model}`}
 			matchContents
-			seedColor={NEON_GREEN}
+			seedColor={APP_TINT}
 		>
 			<Menu
 				label={compactModelLabel(value)}
@@ -121,7 +121,7 @@ export function ComposerSettingsMenu({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu label="" systemImage="gearshape">
 				<Menu label="Mode" systemImage="slider.horizontal.3">
 					<ModeButtons value={value} editable={editable} onChange={onChange} />
@@ -151,7 +151,7 @@ export function ModePill({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu
 				label={modeLabel(value)}
 				systemImage="chevron.left.forwardslash.chevron.right"
@@ -172,7 +172,7 @@ export function RuntimePill({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu label={runtimeLabel(value)} systemImage="lock.open">
 				<PermissionButtons
 					value={value}
@@ -194,7 +194,7 @@ export function StaticModelTitle({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu
 				label={modelLabel(value)}
 				systemImage={providerSystemImage(value.providerId)}
@@ -219,7 +219,7 @@ export function HeaderModePill({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu
 				label={modeLabel(value)}
 				systemImage="chevron.left.forwardslash.chevron.right"
@@ -251,7 +251,7 @@ export function ProjectPill({
 	);
 
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu label={label} systemImage="folder">
 				{projects.length === 0 ? (
 					<NativeButton
@@ -282,7 +282,7 @@ export function SourcePill({
 	children: React.ReactNode;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu
 				label={label}
 				systemImage="point.topleft.down.curvedto.point.bottomright.up"
@@ -309,7 +309,7 @@ export function ProjectMenuRow({
 	onSelect: (connectionKey: string, projectId: string) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu label={`${label} · ${subtitle}`} systemImage="desktopcomputer">
 				{options.map((group) => (
 					<Menu
@@ -350,7 +350,7 @@ export function SourceMenuRow({
 	children: React.ReactNode;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu
 				label={`${label} · ${subtitle}`}
 				systemImage="bubble.left.and.bubble.right"

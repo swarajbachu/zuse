@@ -152,8 +152,8 @@ export default function AcceptableUsePage() {
 								Platform and infrastructure abuse.
 							</strong>{" "}
 							Introducing malicious dependencies or scripts; using a workspace
-							as a command-and-control host, proxy, relay, open scanner, or
-							public file mirror; mining cryptocurrency; launching
+							as a command-and-control host, proxy, traffic forwarder, open
+							scanner, or public file mirror; mining cryptocurrency; launching
 							denial-of-service traffic; crawling or sending requests at abusive
 							volume; consuming shared compute, storage, network, model, or API
 							resources in a way that interferes with others; or testing service

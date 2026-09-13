@@ -1,4 +1,6 @@
+import { useAtomValue } from "@effect/atom-react";
 import type { PendingPlanInteraction } from "@zuse/client-runtime/plan-interactions";
+import { Atom } from "effect/unstable/reactivity";
 import { Pencil } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
@@ -10,12 +12,8 @@ import {
 	TextInput,
 	View,
 } from "react-native";
-import { useAtomValue } from "@effect/atom-react";
-import { Atom } from "effect/unstable/reactivity";
-
-import { appAtomRegistry } from "~/store/registry";
-
 import { GlassSurface } from "~/components/ui/glass-surface";
+import { appAtomRegistry } from "~/store/registry";
 import { colors } from "~/theme";
 
 type PlanAction = "approve" | "feedback" | "handoff" | "abandon";
@@ -109,7 +107,7 @@ export function PlanReviewCard({
 					</Text>
 				) : null}
 				{success ? (
-					<Text className="font-sans text-[13px] text-primary">{success}</Text>
+					<Text className="font-sans text-[13px] text-accent">{success}</Text>
 				) : null}
 				<View className="flex-row gap-2">
 					<View className="flex-1">

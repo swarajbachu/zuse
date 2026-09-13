@@ -71,6 +71,7 @@ import { captureMobileError } from "~/lib/crash-reporting";
 import { scrollListToLatest } from "~/lib/legend-list-scroll";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
+import { mobileReleaseFeatures } from "~/lib/release-features";
 import { connectionSessionKey } from "~/lib/session-key";
 import { transcriptEndRunwayHeight } from "~/lib/thread-runway";
 import { shouldRestoreThreadPosition } from "~/lib/thread-switching";
@@ -1049,8 +1050,9 @@ function ThreadScreen() {
 							onChanges={openChanges}
 							onFiles={openFiles}
 							onTerminal={
-								options?.cloudWorkspaceId !== undefined ||
-								connectionSupports(connectionRecord, "mobile-terminal-v1")
+								mobileReleaseFeatures.terminal &&
+								(options?.cloudWorkspaceId !== undefined ||
+									connectionSupports(connectionRecord, "mobile-terminal-v1"))
 									? () => void onOpenTerminal()
 									: undefined
 							}

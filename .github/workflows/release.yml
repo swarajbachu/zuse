@@ -1,134 +1,166 @@
 name: release
 
-# Tag-driven release. Push `v0.1.0` (or any `v*` tag) to trigger a build,
-# notarize, and publish a public GitHub Release (auto-published, no draft).
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel
+        type: choice
+        options: [preview, stable]
+        default: preview
+        required: true
+      ref:
+        description: Preview source commit on main (defaults to main)
+        type: string
+      version:
+        description: Preview target Stable version (for example 0.22.0)
+        type: string
+      preview_tag:
+        description: Published Preview tag to promote to Stable
+        type: string
+      notes:
+        description: Curated Markdown notes with Added, Changed, or Fixed sections (Stable notes cover changes since previous Stable)
+        type: string
+        required: true
+
+# Serialize allocation and publication across channels. Do not interrupt uploads.
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+  queue: max
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  RELEASE_METADATA: ${{ github.workspace }}/desktop-release.json
 
 jobs:
-  macos:
-    name: macOS universal .dmg
-    runs-on: macos-14
-    timeout-minutes: 45
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+      stableSha: ${{ steps.release.outputs.stableSha }}
+      channel: ${{ steps.release.outputs.channel }}
+      updateChannel: ${{ steps.release.outputs.updateChannel }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup bun
-        uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.10
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - id: release
+        name: Resolve and validate release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+          RELEASE_REF: ${{ inputs.ref }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_PREVIEW_TAG: ${{ inputs.preview_tag }}
+          RELEASE_NOTES: ${{ inputs.notes }}
+        run: node scripts/desktop-release.mjs resolve
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-metadata
+          path: ${{ env.RELEASE_METADATA }}
 
-      # Cache the electron-builder download dir so subsequent runs don't
-      # re-fetch the universal Electron framework + signing helpers.
-      - name: Cache electron-builder
-        uses: actions/cache@v4
+  verify:
+    needs: resolve
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
+      - run: bun install --frozen-lockfile
+        env:
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
+      - name: Release behavior tests and types
+        run: |
+          node --test scripts/desktop-release.test.mjs
+          bun run --cwd apps/desktop test:unit
+          bun run --cwd apps/server test
+          bun run check-types
+      - name: Check channel code with Biome
+        run: bunx biome check apps/desktop/src/updater.ts apps/desktop/src/update-channel.ts apps/desktop/src/update-provider.ts apps/desktop/src/atomic-preference.ts apps/renderer/src/components/settings/update-channel-settings.tsx packages/utils/src/release-version.mjs scripts/desktop-release.mjs apps/server/scripts/desktop-data-probe.ts
+      - uses: actions/checkout@v4
+        if: needs.resolve.outputs.channel == 'preview'
+        with:
+          ref: ${{ needs.resolve.outputs.stableSha }}
+          path: .compat-stable
+      - name: Install current Stable dependencies
+        if: needs.resolve.outputs.channel == 'preview'
+        working-directory: .compat-stable
+        env:
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
+        run: bun install --frozen-lockfile
+      - name: Stable → Preview → Stable data compatibility
+        if: needs.resolve.outputs.channel == 'preview'
+        env:
+          COMPAT_DATA: ${{ runner.temp }}/desktop-compatibility
+        run: |
+          mkdir -p .compat-stable/apps/server/scripts
+          cp apps/server/scripts/desktop-data-probe.ts .compat-stable/apps/server/scripts/desktop-data-probe.ts
+          cd .compat-stable
+          node --import tsx apps/server/scripts/desktop-data-probe.ts "$COMPAT_DATA" stable-create
+          cd ..
+          node --import tsx apps/server/scripts/desktop-data-probe.ts "$COMPAT_DATA" preview
+          cd .compat-stable
+          node --import tsx apps/server/scripts/desktop-data-probe.ts "$COMPAT_DATA" stable-return
+
+  build:
+    needs: [resolve, verify]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: mac
+          - os: ubuntu-24.04
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev xvfb
+      - uses: actions/cache@v4
         with:
           path: |
             ~/Library/Caches/electron
             ~/Library/Caches/electron-builder
-          key: ${{ runner.os }}-electron-builder-${{ hashFiles('**/bun.lock') }}
-
-      - name: Install
-        env:
-          # Required by .npmrc for @hugeicons-pro packages.
-          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
-        run: bun install --frozen-lockfile "--cpu=*"
-
-      - name: Verify licensed icons
-        run: bun run icons:status --expect=paid
-
-      - name: Build
-        env:
-          # Renderer bundling pulls in the Hugeicons Pro ESM package and can
-          # exceed Node's default ~2GB heap on the macOS release runner.
-          NODE_OPTIONS: --max-old-space-size=6144
-          # Public WorkOS client id, inlined into the bundle by tsdown at build
-          # time (apps/desktop/.env is gitignored, so CI must supply it here).
-          # Not sensitive — a repo variable would also work.
-          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
-          # Public OAuth client id for the issue-tracker integration. The
-          # desktop bundle intentionally contains the id, never a client secret.
-          LINEAR_CLIENT_ID: ${{ secrets.LINEAR_CLIENT_ID }}
-          # Analytics keys are injected at build time and never committed.
-          ZUSE_POSTHOG_KEY: ${{ secrets.ZUSE_POSTHOG_KEY }}
-          VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
-          NODE_ENV: production
-        run: |
-          test -n "$LINEAR_CLIENT_ID"
-          test -n "$ZUSE_POSTHOG_KEY"
-          test -n "$VITE_POSTHOG_KEY"
-          bun run build
-
-      - name: Package + sign + notarize + publish
-        working-directory: apps/desktop
-        env:
-          # GitHub Releases — `electron-updater` reads `latest-mac.yml` from
-          # the release this token publishes to. The default GITHUB_TOKEN is
-          # sufficient for releases in this same repo.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Code signing — base64 .p12 from a Developer ID Application cert.
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          # Notarization (notarytool) — Apple ID + app-specific password +
-          # 10-char team ID from developer.apple.com.
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          bun run native:build:universal
-          for attempt in 1 2 3; do
-            if bunx electron-builder --mac --universal --publish always; then
-              exit 0
-            fi
-
-            if [ "$attempt" -eq 3 ]; then
-              echo "Packaging failed after $attempt attempts."
-              exit 1
-            fi
-
-            delay=$((attempt * 30))
-            echo "Packaging attempt $attempt failed; retrying in ${delay}s."
-            sleep "$delay"
-          done
-
-  linux:
-    name: Linux AppImage + deb
-    runs-on: ubuntu-24.04
-    timeout-minutes: 35
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.10
-
-      - name: Install native build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
-
-      - name: Cache electron-builder
-        uses: actions/cache@v4
-        with:
-          path: |
             ~/.cache/electron
             ~/.cache/electron-builder
           key: ${{ runner.os }}-electron-builder-${{ hashFiles('**/bun.lock') }}
-
-      - name: Install
+      - run: bun install --frozen-lockfile "--cpu=*"
         env:
           HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
-        run: bun install --frozen-lockfile
-
-      - name: Verify licensed icons
-        run: bun run icons:status --expect=paid
-
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-release-metadata
+          path: ${{ github.workspace }}
+      - name: Set packaged version
+        run: node scripts/desktop-release.mjs version
+      - run: bun run icons:status --expect=paid
       - name: Build
         env:
           NODE_OPTIONS: --max-old-space-size=6144
@@ -141,22 +173,76 @@ jobs:
           test -n "$LINEAR_CLIENT_ID"
           test -n "$ZUSE_POSTHOG_KEY"
           test -n "$VITE_POSTHOG_KEY"
-          bun run build
-
-      - name: Package + publish
+          bun run build:desktop
+      - name: Package, sign, and notarize macOS
+        if: matrix.platform == 'mac'
         working-directory: apps/desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          UPDATE_CHANNEL: ${{ needs.resolve.outputs.updateChannel }}
         run: |
-          for attempt in 1 2 3; do
-            if bunx electron-builder --linux AppImage deb --x64 --publish always; then
-              exit 0
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Packaging failed after $attempt attempts."
-              exit 1
-            fi
-            delay=$((attempt * 30))
-            echo "Packaging attempt $attempt failed; retrying in ${delay}s."
-            sleep "$delay"
-          done
+          bun run native:build:universal
+          bunx electron-builder --mac --universal --publish never -c.publish.channel="$UPDATE_CHANNEL"
+          codesign --verify --deep --strict "../../dist/mac-universal/Zuse (Beta).app"
+          xcrun stapler validate "../../dist/mac-universal/Zuse (Beta).app"
+      - name: Package Linux
+        if: matrix.platform == 'linux'
+        working-directory: apps/desktop
+        env:
+          UPDATE_CHANNEL: ${{ needs.resolve.outputs.updateChannel }}
+        run: bunx electron-builder --linux AppImage deb --x64 --publish never -c.publish.channel="$UPDATE_CHANNEL"
+      - name: Smoke test packaged Linux app
+        if: matrix.platform == 'linux'
+        env:
+          RELEASE_METADATA: desktop-release.json
+        run: xvfb-run -a node --import tsx tests/system/scripts/packaged-desktop-smoke.ts dist/*.AppImage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.deb
+            dist/latest*.yml
+            dist/preview*.yml
+            dist/*.blockmap
+
+  publish:
+    needs: [resolve, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Promotion builds the Preview source, but publication uses the
+          # current workflow tooling so older Preview tags can receive fixes.
+          ref: ${{ github.sha }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-release-metadata
+          path: ${{ github.workspace }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-mac
+          path: release-assets
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-linux
+          path: release-assets
+          merge-multiple: true
+      - name: Verify all artifacts and publish atomically
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/desktop-release.mjs publish release-assets

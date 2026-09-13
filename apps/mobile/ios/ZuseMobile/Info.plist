@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Zuse</string>
+	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -27,8 +27,8 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>zuse</string>
-				<string>com.zuse.sh</string>
+				<string>$(APP_URL_SCHEME)</string>
+				<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 			</array>
 		</dict>
 	</array>
@@ -50,6 +50,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_zuse._tcp</string>
+		<string>_expo._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to a local Zuse server on your network.</string>

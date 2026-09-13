@@ -175,7 +175,7 @@ export default function AccessibilityPage() {
 						also need improvement in particular views.
 					</p>
 					<p className="mt-2">
-						Zuse can render or relay material from model providers,
+						Zuse can render or forward material from model providers,
 						source-control services, terminals, repositories, browser sessions,
 						remote machines, and Cloud Workspaces. Provider-generated text,
 						code, images, diagrams, terminal output, and other third-party
