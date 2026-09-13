@@ -5,7 +5,16 @@ const outDir = join(process.cwd(), "apps", "web", "public", "schemas");
 const check = process.argv.includes("--check");
 const pending = [];
 
-const providerIds = ["claude", "codex", "grok", "gemini", "cursor", "opencode"];
+const providerIds = [
+	"claude",
+	"codex",
+	"grok",
+	"gemini",
+	"cursor",
+	"opencode",
+	"kiro",
+	"pi",
+];
 const runtimeModes = [
 	"approval-required",
 	"auto-accept-edits",
@@ -165,6 +174,15 @@ writeSchema("settings.schema.json", {
 		completionSoundPreset: { enum: completionSounds },
 		analyticsEnabled: { type: "boolean" },
 		providerEnabled: boolMap,
+		providerBinaryPaths: {
+			type: "object",
+			propertyNames: { enum: providerIds },
+			additionalProperties: {
+				type: "string",
+				description:
+					"Absolute CLI executable path; empty means PATH discovery.",
+			},
+		},
 		modelEnabledByProvider: {
 			type: "object",
 			additionalProperties: boolMap,

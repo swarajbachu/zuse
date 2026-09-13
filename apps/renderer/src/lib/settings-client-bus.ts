@@ -21,6 +21,7 @@ import {
 	GitMergeMethod,
 	type ModelEnabledByProvider,
 	OpencodeCustomProvider,
+	PROVIDER_IDS,
 	ProviderId,
 	RuntimeMode,
 	resolveModelSlug,
@@ -51,6 +52,7 @@ export interface SettingsSlice {
 	readonly appearanceMode: AppearanceMode;
 	readonly onboardingCompleted: boolean;
 	readonly providerEnabled: Record<ProviderId, boolean>;
+	readonly providerBinaryPaths?: Record<string, string>;
 	readonly modelEnabledByProvider: ModelEnabledByProvider;
 	readonly customModelIdsByProvider: Record<ProviderId, ReadonlyArray<string>>;
 	readonly opencodeProviderVisible: Record<string, boolean>;
@@ -85,6 +87,10 @@ type SettingsState = SettingsSlice & {
 	readonly setCompletionSoundPreset: (preset: CompletionSoundPreset) => void;
 	readonly setAppearanceMode: (mode: AppearanceMode) => void;
 	readonly setOnboardingCompleted: (value: boolean) => void;
+	readonly setProviderBinaryPath: (
+		providerId: ProviderId,
+		path: string,
+	) => void;
 	readonly setProviderEnabled: (providerId: ProviderId, value: boolean) => void;
 	readonly setModelEnabled: (
 		providerId: ProviderId,
@@ -115,15 +121,7 @@ type SettingsState = SettingsSlice & {
 	readonly setNotchTrayPinned: (value: boolean) => void;
 };
 
-const PROVIDERS: ReadonlyArray<ProviderId> = [
-	"claude",
-	"codex",
-	"grok",
-	"cursor",
-	"gemini",
-	"opencode",
-	"kiro",
-];
+const PROVIDERS = PROVIDER_IDS;
 
 // Seeds and alias resolution use the bundled snapshot: this module runs at
 // startup before the catalog store has answered, and the server already
@@ -198,6 +196,9 @@ const SettingsSliceSchema = Schema.Struct({
 	appearanceMode: AppearanceMode,
 	onboardingCompleted: Schema.Boolean,
 	providerEnabled: Schema.Record(ProviderId, Schema.Boolean),
+	providerBinaryPaths: Schema.optional(
+		Schema.Record(Schema.String, Schema.String),
+	),
 	modelEnabledByProvider: Schema.Record(
 		ProviderId,
 		Schema.Record(Schema.String, Schema.Boolean),
@@ -255,6 +256,7 @@ const fromFile = (file: SettingsFile): SettingsSlice => {
 		appearanceMode: file.appearanceMode,
 		onboardingCompleted: file.onboardingCompleted,
 		providerEnabled: { ...seedProviderEnabled(), ...file.providerEnabled },
+		providerBinaryPaths: file.providerBinaryPaths ?? {},
 		modelEnabledByProvider: mergeModelEnabled(file.modelEnabledByProvider),
 		customModelIdsByProvider: copyCustomModelIds(file.customModelIdsByProvider),
 		opencodeProviderVisible: { ...file.opencodeProviderVisible },
@@ -538,6 +540,13 @@ const ACTIONS = {
 		update(() => ({ appearanceMode })),
 	setOnboardingCompleted: (onboardingCompleted: boolean) =>
 		update(() => ({ onboardingCompleted })),
+	setProviderBinaryPath: (providerId: ProviderId, path: string) =>
+		update((state) => ({
+			providerBinaryPaths: {
+				...state.providerBinaryPaths,
+				[providerId]: path.trim(),
+			},
+		})),
 	setProviderEnabled: (providerId: ProviderId, value: boolean) =>
 		update((state) => ({
 			providerEnabled: { ...state.providerEnabled, [providerId]: value },

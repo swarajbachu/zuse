@@ -30,6 +30,12 @@ export interface ParsedBuiltin {
  * popover; selecting them sends the literal token to the provider as user text.
  */
 const COMMANDS: readonly BuiltinCommand[] = [
+	{
+		name: "compact",
+		description: "Compact the Pi conversation.",
+		kind: "forward",
+		appliesTo: "pi",
+	},
 	// Client-handled.
 	{
 		name: "clear",
@@ -402,7 +408,11 @@ const COMMANDS: readonly BuiltinCommand[] = [
 export const builtinsForProvider = (
 	providerId: ProviderId,
 ): readonly BuiltinCommand[] =>
-	COMMANDS.filter((c) => c.appliesTo === null || c.appliesTo === providerId);
+	COMMANDS.filter(
+		(c) =>
+			(c.appliesTo === null || c.appliesTo === providerId) &&
+			!(providerId === "pi" && ["mode", "plan", "run"].includes(c.name)),
+	);
 
 /**
  * Detect a leading client-handled built-in (`/clear`, `/model`, etc.).

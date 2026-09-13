@@ -7,6 +7,7 @@ const AGENTS = [
 	{ name: "Grok", src: "/logos/grok.svg" },
 	{ name: "Gemini", src: "/logos/gemini.svg" },
 	{ name: "OpenCode", src: "/logos/opencode.svg" },
+	{ name: "Pi", src: "/logos/pi.svg" },
 	{ name: "Kiro", src: "/logos/kiro.svg" },
 ];
 

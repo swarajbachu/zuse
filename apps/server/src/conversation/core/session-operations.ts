@@ -14,6 +14,7 @@ import {
 	Session,
 	SessionAlreadyStartedError,
 	SessionId,
+	SessionModeUnsupportedError,
 	SessionNotFoundError,
 	SessionStartError,
 	type WorktreeId,
@@ -429,7 +430,12 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		commandId,
 	) =>
 		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
+			const session = yield* lookupSession(sessionId);
+			if (session.providerId === "pi")
+				return yield* new SessionModeUnsupportedError({
+					message:
+						"Pi manages permissions natively; Zuse permission modes are unsupported.",
+				});
 			yield* dispatchSessionCommandWithId(sessionId, commandId, {
 				_tag: "SetRuntimeMode",
 				runtimeMode,
@@ -452,7 +458,12 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		commandId,
 	) =>
 		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
+			const session = yield* lookupSession(sessionId);
+			if (session.providerId === "pi")
+				return yield* new SessionModeUnsupportedError({
+					message:
+						"Pi manages permissions natively; Zuse permission modes are unsupported.",
+				});
 			yield* dispatchSessionCommandWithId(sessionId, commandId, {
 				_tag: "SetPermissionMode",
 				permissionMode: mode,

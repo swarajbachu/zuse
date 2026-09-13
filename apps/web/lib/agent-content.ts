@@ -2,7 +2,7 @@ import { siteConfig } from "@/lib/seo";
 
 export const HOME_MARKDOWN = `# Zuse — All your coding agents in one workspace
 
-Zuse is an open-source desktop workspace for running and managing coding agents across real Git repositories. Use Claude Code, Codex, Cursor, Gemini, Grok, OpenCode, and Kiro from one place while keeping conversations, files, terminal output, diffs, checks, and pull-request context attached to the work.
+Zuse is an open-source desktop workspace for running and managing coding agents across real Git repositories. Use Claude Code, Codex, Cursor, Gemini, Grok, OpenCode, Kiro, and Pi from one place while keeping conversations, files, terminal output, diffs, checks, and pull-request context attached to the work.
 
 ## How Zuse works
 
@@ -73,7 +73,7 @@ Use Zuse when a developer needs to run multiple coding-agent tasks in parallel, 
 
 ## Supported agents
 
-Claude Code, Codex, Cursor, Gemini, Grok, OpenCode, and Kiro.
+Claude Code, Codex, Cursor, Gemini, Grok, OpenCode, Kiro, and Pi.
 `;
 
 export const NOT_FOUND_MARKDOWN = `# 404 — Page not found

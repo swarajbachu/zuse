@@ -55,8 +55,11 @@ settings.
 | Gemini | `gemini` |
 | Cursor | `cursor` |
 | OpenCode | `opencode` |
+| Pi | `pi` |
 
 ---
+
+Pi: install with `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`, then run `pi` and `/login`. See the [Pi provider guide](apps/docs/content/docs/providers/pi.mdx) for binary settings and native permissions.
 
 ## What's shipped
 

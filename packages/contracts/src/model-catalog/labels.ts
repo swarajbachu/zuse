@@ -12,6 +12,7 @@ export const PROVIDER_LABELS: Readonly<Record<ProviderId, string>> = {
 	cursor: "Cursor",
 	opencode: "OpenCode",
 	kiro: "Kiro",
+	pi: "Pi",
 };
 
 export const providerLabel = (providerId: ProviderId): string =>

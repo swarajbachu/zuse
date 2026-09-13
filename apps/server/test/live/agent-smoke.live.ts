@@ -15,6 +15,7 @@ import { startGeminiSession } from "@zuse/agents/drivers/gemini";
 import { startGrokSession } from "@zuse/agents/drivers/grok";
 import { startKiroSession } from "@zuse/agents/drivers/kiro";
 import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
+import { startPiSession } from "@zuse/agents/drivers/pi";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import {
 	type AgentEvent,
@@ -204,6 +205,8 @@ const startProvider = async (
 		}
 		case "opencode":
 			return startOpencodeSession(input, cwd, [], binaryPath, sessionId);
+		case "pi":
+			return startPiSession(input, cwd, binaryPath, sessionId);
 		case "kiro":
 			return startKiroSession(
 				input,

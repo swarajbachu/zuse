@@ -2705,6 +2705,36 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("rejects Pi permission changes without persisting them", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "pi",
+						model: "auto",
+					}),
+				),
+			);
+			const runtimeResult = await run(
+				Effect.flatMap(store, (s) =>
+					s.setRuntimeMode(initialSession.id, "full-access", "pi-runtime"),
+				).pipe(Effect.result),
+			);
+			const permissionResult = await run(
+				Effect.flatMap(store, (s) =>
+					s.setPermissionMode(initialSession.id, "plan", "pi-plan"),
+				).pipe(Effect.result),
+			);
+			expect(runtimeResult._tag).toBe("Failure");
+			expect(permissionResult._tag).toBe("Failure");
+			const session = await run(
+				Effect.flatMap(store, (s) => s.getSession(initialSession.id)),
+			);
+			expect(session.runtimeMode).toBe(initialSession.runtimeMode);
+			expect(session.permissionMode).toBe(initialSession.permissionMode);
+		});
+	});
 	it("renameSession, setRuntimeMode and setPermissionMode persist", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(

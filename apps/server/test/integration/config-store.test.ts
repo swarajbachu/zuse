@@ -274,3 +274,27 @@ describe("config-store user JSON storage", () => {
 		});
 	});
 });
+
+describe("Pi settings compatibility", () => {
+	it("defaults missing overrides and Pi models for older settings", () => {
+		const settings = coerceSettings({ schemaVersion: 1 });
+		expect(settings.providerBinaryPaths).toEqual({});
+		expect(settings.defaultModelByProvider.pi).toBe("auto");
+		expect(settings.providerEnabled.pi).toBe(true);
+	});
+	it("persists provider paths through a settings update", async () => {
+		await withRuntime(async ({ run }) => {
+			await run(
+				Effect.flatMap(ConfigStoreService, (service) =>
+					service.updateSettings({
+						providerBinaryPaths: { pi: "/opt/pi/bin/pi" },
+					}),
+				),
+			);
+			const settings = await run(
+				Effect.flatMap(ConfigStoreService, (service) => service.getSettings()),
+			);
+			expect(settings.providerBinaryPaths?.pi).toBe("/opt/pi/bin/pi");
+		});
+	});
+});

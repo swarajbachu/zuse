@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
+import { PROVIDER_IDS } from "@zuse/contracts";
 import { LinkSquare01Icon, Tick01Icon } from "@zuse/icons/bulk-rounded";
 
 import { ApiKeyRow } from "~/components/api-key-row";
@@ -127,15 +128,7 @@ export function ProviderStep() {
 	const loading = useProvidersStore((s) => s.loading);
 	const availabilityLoaded = useProvidersStore((s) => s.availabilityLoaded);
 
-	const providers: ReadonlyArray<ProviderId> = [
-		"claude",
-		"codex",
-		"grok",
-		"gemini",
-		"cursor",
-		"opencode",
-		"kiro",
-	];
+	const providers = PROVIDER_IDS;
 
 	const initialLoading = isInitialProviderAvailabilityLoading(
 		loading,

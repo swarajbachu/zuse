@@ -6,6 +6,7 @@ import { startGeminiSession } from "@zuse/agents/drivers/gemini";
 import { startGrokSession } from "@zuse/agents/drivers/grok";
 import { startKiroSession } from "@zuse/agents/drivers/kiro";
 import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
+import { startPiSession } from "@zuse/agents/drivers/pi";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import type {
 	GoalCapableSessionHandle,
@@ -52,7 +53,7 @@ import {
 } from "../../model-catalog/services/model-catalog-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { validateApiKey } from "../api-key-validation.ts";
-import { probeAllProviders, resolveCliPath } from "../availability.ts";
+import { probeProvidersWithPaths, resolveCliPath } from "../availability.ts";
 import { makeProviderSessionRegistry } from "../provider-session-registry.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
@@ -134,7 +135,9 @@ export const ProviderServiceLive = Layer.effect(
 			capacity: 1,
 			lookup: () =>
 				Effect.gen(function* () {
-					const list = yield* probeAllProviders.pipe(
+					const paths =
+						(yield* configStore.getSettings()).providerBinaryPaths ?? {};
+					const list = yield* probeProvidersWithPaths(paths).pipe(
 						Effect.provideService(
 							CommandExecutor.ChildProcessSpawner,
 							executor,
@@ -223,8 +226,11 @@ export const ProviderServiceLive = Layer.effect(
 
 		const availability = (refresh = false) =>
 			Effect.gen(function* () {
-				if (refresh) yield* Cache.invalidate(availabilityCache, "providers");
-				return yield* Cache.get(availabilityCache, "providers");
+				const key = JSON.stringify(
+					(yield* configStore.getSettings()).providerBinaryPaths ?? {},
+				);
+				if (refresh) yield* Cache.invalidate(availabilityCache, key);
+				return yield* Cache.get(availabilityCache, key);
 			});
 
 		const lookup = (
@@ -267,6 +273,8 @@ export const ProviderServiceLive = Layer.effect(
 					: "custom";
 				const startupKey = `${sessionId}\u0000${input.providerId}\u0000${requestedModel}`;
 				const start = Effect.gen(function* () {
+					const binaryPaths =
+						(yield* configStore.getSettings()).providerBinaryPaths ?? {};
 					// Reserve ownership before awaiting process teardown. If `begin` moved
 					// below `handle.close()`, an older startup could outrank a later switch.
 					const reservation = yield* lifecycleWorker.run(
@@ -338,6 +346,7 @@ export const ProviderServiceLive = Layer.effect(
 						...(modelDescriptor !== undefined ? { modelDescriptor } : {}),
 						workspaceInstructions: zuseWorkspaceInstructions({
 							projectPath: folder.path,
+							includeAppTools: input.providerId !== "pi",
 							cwd,
 						}),
 					};
@@ -371,7 +380,10 @@ export const ProviderServiceLive = Layer.effect(
 						// Same story as Grok: hand the driver the user's installed
 						// `gemini` binary. Surface a clean install message rather than
 						// letting spawn fail with ENOENT inside the driver.
-						const geminiPath = yield* resolveCliPath("gemini").pipe(
+						const geminiPath = yield* resolveCliPath(
+							"gemini",
+							binaryPaths,
+						).pipe(
 							Effect.provideService(
 								CommandExecutor.ChildProcessSpawner,
 								executor,
@@ -386,7 +398,10 @@ export const ProviderServiceLive = Layer.effect(
 								}),
 							);
 						}
-						const geminiMcpCommand = yield* resolveCliPath("bun").pipe(
+						const geminiMcpCommand = yield* resolveCliPath(
+							"bun",
+							binaryPaths,
+						).pipe(
 							Effect.provideService(
 								CommandExecutor.ChildProcessSpawner,
 								executor,
@@ -417,10 +432,34 @@ export const ProviderServiceLive = Layer.effect(
 							orchestrationTools,
 							resumeCursor,
 						).pipe(Effect.provideService(AttachmentService, attachmentService));
+					} else if (input.providerId === "pi") {
+						const binary = yield* resolveCliPath("pi", binaryPaths).pipe(
+							Effect.provideService(
+								CommandExecutor.ChildProcessSpawner,
+								executor,
+							),
+						);
+						if (binary === null)
+							return yield* new AgentSessionStartError({
+								providerId: "pi",
+								reason: binaryPaths.pi
+									? "Invalid Pi binary path. Choose an absolute executable path in provider settings."
+									: "Pi CLI not found. Install @earendil-works/pi-coding-agent or set its absolute binary path.",
+							});
+						providerHandle = yield* startPiSession(
+							driverInput,
+							cwd,
+							binary,
+							sessionId,
+							resumeCursor,
+						).pipe(Effect.provideService(AttachmentService, attachmentService));
 					} else if (input.providerId === "kiro") {
 						// Kiro CLI exposes ACP via `kiro-cli acp`. Auth is out-of-band
 						// (`kiro-cli login`); we only need the binary on PATH.
-						const kiroPath = yield* resolveCliPath("kiro-cli").pipe(
+						const kiroPath = yield* resolveCliPath(
+							"kiro-cli",
+							binaryPaths,
+						).pipe(
 							Effect.provideService(
 								CommandExecutor.ChildProcessSpawner,
 								executor,
@@ -435,7 +474,10 @@ export const ProviderServiceLive = Layer.effect(
 								}),
 							);
 						}
-						const kiroMcpCommand = yield* resolveCliPath("bun").pipe(
+						const kiroMcpCommand = yield* resolveCliPath(
+							"bun",
+							binaryPaths,
+						).pipe(
 							Effect.provideService(
 								CommandExecutor.ChildProcessSpawner,
 								executor,
@@ -470,7 +512,7 @@ export const ProviderServiceLive = Layer.effect(
 						// installed `grok` binary (no bundled CLI in our package).
 						// Surface a clean install message rather than letting spawn
 						// fail with ENOENT inside the driver.
-						const grokPath = yield* resolveCliPath("grok").pipe(
+						const grokPath = yield* resolveCliPath("grok", binaryPaths).pipe(
 							Effect.provideService(
 								CommandExecutor.ChildProcessSpawner,
 								executor,
@@ -485,7 +527,10 @@ export const ProviderServiceLive = Layer.effect(
 								}),
 							);
 						}
-						const mcpProxyCommand = yield* resolveCliPath("bun").pipe(
+						const mcpProxyCommand = yield* resolveCliPath(
+							"bun",
+							binaryPaths,
+						).pipe(
 							Effect.provideService(
 								CommandExecutor.ChildProcessSpawner,
 								executor,
@@ -513,7 +558,10 @@ export const ProviderServiceLive = Layer.effect(
 						// drive it via @opencode-ai/sdk. Same install-message pattern
 						// as the other CLI-backed drivers — surface a clean error
 						// before the driver tries to spawn.
-						const opencodePath = yield* resolveCliPath("opencode").pipe(
+						const opencodePath = yield* resolveCliPath(
+							"opencode",
+							binaryPaths,
+						).pipe(
 							Effect.provideService(
 								CommandExecutor.ChildProcessSpawner,
 								executor,
@@ -558,7 +606,10 @@ export const ProviderServiceLive = Layer.effect(
 						// throw a cryptic "Native CLI binary for darwin-arm64 not
 						// found" error. Surface a clean install-Claude-Code message
 						// instead.
-						const claudePath = yield* resolveCliPath("claude").pipe(
+						const claudePath = yield* resolveCliPath(
+							"claude",
+							binaryPaths,
+						).pipe(
 							Effect.provideService(
 								CommandExecutor.ChildProcessSpawner,
 								executor,
@@ -596,7 +647,7 @@ export const ProviderServiceLive = Layer.effect(
 						// CLI, so hand it the user's installed `codex` binary. Surface a
 						// clean install message if it's missing instead of the SDK's
 						// "Unable to locate Codex CLI binaries" error.
-						const codexPath = yield* resolveCliPath("codex").pipe(
+						const codexPath = yield* resolveCliPath("codex", binaryPaths).pipe(
 							Effect.provideService(
 								CommandExecutor.ChildProcessSpawner,
 								executor,
@@ -611,7 +662,10 @@ export const ProviderServiceLive = Layer.effect(
 								}),
 							);
 						}
-						const mcpProxyCommand = yield* resolveCliPath("bun").pipe(
+						const mcpProxyCommand = yield* resolveCliPath(
+							"bun",
+							binaryPaths,
+						).pipe(
 							Effect.provideService(
 								CommandExecutor.ChildProcessSpawner,
 								executor,

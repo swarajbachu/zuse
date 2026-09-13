@@ -18,7 +18,9 @@
             "grok",
             "gemini",
             "cursor",
-            "opencode"
+            "opencode",
+            "kiro",
+            "pi"
           ]
         },
         {

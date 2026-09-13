@@ -84,6 +84,7 @@ export const PROVIDER_DISPLAY: Record<ProviderId, string> = {
 	cursor: "Cursor",
 	opencode: "OpenCode",
 	kiro: "Kiro CLI",
+	pi: "Pi",
 };
 
 /**
@@ -181,6 +182,14 @@ export function getProviderSummary(
 			actionable: true,
 		};
 	}
+	if (a.providerId === "pi")
+		return {
+			statusKey: "ready",
+			headline: "Available",
+			detail: "Authentication and permissions are managed by Pi.",
+			authEmail: null,
+			actionable: false,
+		};
 	if (a.cliLoggedIn || a.hasApiKey) {
 		return {
 			statusKey: "warning",

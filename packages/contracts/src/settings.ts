@@ -89,6 +89,9 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 	 * provider from the new-session picker without uninstalling its CLI.
 	 */
 	providerEnabled: Schema.Record(ProviderId, Schema.Boolean),
+	providerBinaryPaths: Schema.optional(
+		Schema.Record(Schema.String, Schema.String),
+	),
 	/**
 	 * Per-model visibility toggles from provider settings. Missing entries are
 	 * filled from each model's catalog `defaultVisible` flag by config-store.
@@ -115,6 +118,7 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 				cursor: [],
 				opencode: [],
 				kiro: [],
+				pi: [],
 			}),
 		),
 	),
@@ -193,6 +197,9 @@ export const SettingsPatch = Schema.Struct({
 	completionSoundEnabled: Schema.optional(Schema.Boolean),
 	completionSoundPreset: Schema.optional(CompletionSoundPreset),
 	providerEnabled: Schema.optional(Schema.Record(ProviderId, Schema.Boolean)),
+	providerBinaryPaths: Schema.optional(
+		Schema.Record(Schema.String, Schema.String),
+	),
 	modelEnabledByProvider: Schema.optional(
 		Schema.Record(ProviderId, Schema.Record(Schema.String, Schema.Boolean)),
 	),

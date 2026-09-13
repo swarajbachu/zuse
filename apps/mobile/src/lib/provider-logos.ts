@@ -11,6 +11,7 @@ export const PROVIDER_LOGOS: Record<ProviderId, ImageSourcePropType> = {
 	gemini: require("../../assets/providers/gemini.png"),
 	grok: require("../../assets/providers/grok.png"),
 	opencode: require("../../assets/providers/opencode.png"),
+	pi: require("../../assets/providers/pi.png"),
 	kiro: require("../../assets/providers/kiro.png"),
 };
 
@@ -23,4 +24,5 @@ export const PROVIDER_NATIVE_ASSET_NAMES: Record<ProviderId, string> = {
 	grok: "provider-grok",
 	opencode: "provider-opencode",
 	kiro: "provider-kiro",
+	pi: "provider-pi",
 };
