@@ -227,6 +227,23 @@ export class WorkspaceGateway {
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		// API-internal nudge: tell the connected runtime that pending public-API
+		// commands are waiting. Only the worker can reach this DO, so the header
+		// check just routes; it is not an auth boundary.
+		if (
+			request.method === "POST" &&
+			request.headers.get("x-zuse-gateway-nudge") === "command"
+		) {
+			const delivered = this.runtimeSockets().some(
+				(runtime) =>
+					attachment(runtime)?.role === "runtime" &&
+					sendControl(
+						runtime,
+						encodeGatewayMessage({ type: "runtime.command" }),
+					),
+			);
+			return new Response(null, { status: delivered ? 204 : 503 });
+		}
 		if (
 			request.method !== "GET" ||
 			request.headers.get("upgrade")?.toLowerCase() !== "websocket"

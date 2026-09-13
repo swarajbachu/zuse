@@ -1,14 +1,8 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-
 import type { ComputerAwakeMode } from "@zuse/contracts";
+import { readPreference, writePreference } from "./atomic-preference.ts";
 
 const PREFERENCE_FILE = "computer-awake.json";
 export const DEFAULT_COMPUTER_AWAKE_MODE: ComputerAwakeMode = "auto";
-
-const preferencePath = (userData: string): string =>
-	join(userData, PREFERENCE_FILE);
 
 const isComputerAwakeMode = (value: unknown): value is ComputerAwakeMode =>
 	value === "off" || value === "auto" || value === "always";
@@ -17,8 +11,10 @@ export const readComputerAwakePreference = async (
 	userData: string,
 ): Promise<ComputerAwakeMode> => {
 	try {
-		const parsed: unknown = JSON.parse(
-			await readFile(preferencePath(userData), "utf8"),
+		const parsed = await readPreference(
+			userData,
+			PREFERENCE_FILE,
+			(value) => value,
 		);
 		if (
 			typeof parsed === "object" &&
@@ -38,12 +34,5 @@ export const writeComputerAwakePreference = async (
 	userData: string,
 	mode: ComputerAwakeMode,
 ): Promise<void> => {
-	await mkdir(userData, { recursive: true });
-	const destination = preferencePath(userData);
-	const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
-	await writeFile(temporary, `${JSON.stringify({ mode }, null, 2)}\n`, {
-		encoding: "utf8",
-		mode: 0o600,
-	});
-	await rename(temporary, destination);
+	await writePreference(userData, PREFERENCE_FILE, { mode });
 };

@@ -60,6 +60,8 @@ import {
 	type PowerSnapshot,
 	type PowerThermalState,
 	PowerWorkloadState,
+	PRODUCTION_API_URL,
+	STAGING_API_URL,
 	TailnetShareState,
 } from "@zuse/contracts";
 import {
@@ -2203,7 +2205,7 @@ async function createMainWindow() {
 				typeof input.hostAlias !== "string" ||
 				!/^zuse-[A-Za-z0-9_-]+$/u.test(input.hostAlias) ||
 				typeof input.remotePath !== "string" ||
-				!input.remotePath.startsWith("/")
+				(input.enabled && !input.remotePath.startsWith("/"))
 			)
 				return null;
 			return cloudSyncManager.configure({
@@ -3303,6 +3305,11 @@ async function createMainWindow() {
 			makeMainLayer({
 				userData,
 				telemetryIdentity: { kind: "desktop", instance: "local" },
+				autoApiLink: {
+					apiUrl:
+						process.env.ZUSE_API_URL?.trim() ||
+						(isDevelopment ? STAGING_API_URL : PRODUCTION_API_URL),
+				},
 				folderPicker,
 				serverProtocol,
 				additionalServerProtocols: [

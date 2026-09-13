@@ -59,6 +59,7 @@ export const AttachmentServiceLive = Layer.effect(
 			mimeType,
 			originalName,
 			rootPath,
+			stableId,
 		) =>
 			Effect.gen(function* () {
 				if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
@@ -85,7 +86,11 @@ export const AttachmentServiceLive = Layer.effect(
 				}
 				const dir = yield* ensureContextFilesDir(fs, pathSvc, cwd);
 
-				const id = `${sessionSegment(sessionId)}-${randomUUID()}`;
+				const stableSegment = stableId
+					?.toLowerCase()
+					.replace(/[^a-z0-9-]+/g, "-")
+					.slice(0, 96);
+				const id = `${sessionSegment(sessionId)}-${stableSegment || randomUUID()}`;
 				const ext = extForUpload(mimeType, originalName);
 				const absPath = pathSvc.join(dir, blobFilename(id, ext));
 
@@ -93,7 +98,7 @@ export const AttachmentServiceLive = Layer.effect(
 
 				const now = new Date().toISOString();
 				yield* sql`
-          INSERT INTO attachments (
+				INSERT OR IGNORE INTO attachments (
             id, session_id, mime_type, size_bytes, original_name, created_at,
             abs_path
           )

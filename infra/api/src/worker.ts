@@ -5,6 +5,7 @@ import {
 	PERSISTENT_STANDARD_OFFER_ID,
 	PRODUCTION_API_URL,
 } from "@zuse/contracts";
+import type { QueueMessage } from "@zuse/slack/types";
 import { Effect, Layer, Redacted } from "effect";
 import { Pool } from "pg";
 import runtimeInstallerSource from "../../../apps/server/scripts/runtime-updater.mjs";
@@ -42,6 +43,11 @@ import {
 	resolveSandboxProviderRuntime,
 	SandboxOfferConfiguration,
 } from "./sandbox-provider-config.ts";
+import {
+	resolveSlackConfiguration,
+	type SlackBindings,
+} from "./slack/config.ts";
+import { SlackPersistenceLive } from "./slack/persistence.ts";
 import { ApiStorePg } from "./store.ts";
 import { WorkosVerifierLive } from "./workos.ts";
 
@@ -53,7 +59,7 @@ export { WorkspaceMailbox } from "./workspace-mailbox.ts";
  * `wrangler secret put`; the rest are `vars` in wrangler.jsonc. `HYPERDRIVE`
  * is the Hyperdrive binding fronting PlanetScale Postgres.
  */
-interface Env {
+interface Env extends SlackBindings {
 	readonly HYPERDRIVE: { readonly connectionString: string };
 	readonly WORKSPACE_GATEWAY: {
 		readonly idFromName: (name: string) => unknown;
@@ -276,6 +282,27 @@ const managedTunnelConfig = (
 		baseDomain: env.MANAGED_TUNNEL_BASE_DOMAIN,
 		namespace: env.MANAGED_TUNNEL_NAMESPACE,
 	};
+};
+
+/**
+ * Tell a workspace's gateway Durable Object that pending public-API commands
+ * are waiting so it pushes a `runtime.command` control frame to the runtime.
+ * Best-effort: a missed nudge is recovered by the cron sweep and by the
+ * runtime's reconnect drain.
+ */
+const nudgeWorkspaceGateway = (env: Env, target: string): Promise<unknown> => {
+	const id = env.WORKSPACE_GATEWAY.idFromName(target);
+	return env.WORKSPACE_GATEWAY.get(id)
+		.fetch(
+			new Request("https://workspace-gateway.internal/nudge", {
+				method: "POST",
+				headers: { "x-zuse-gateway-nudge": "command" },
+			}),
+		)
+		.catch((error) => {
+			console.warn("[public-api] gateway nudge failed", error);
+			return undefined;
+		});
 };
 
 const build = (env: Env): ReturnType<typeof makeApi> => {
@@ -508,6 +535,7 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 	};
 	const appLayer = Layer.mergeAll(
 		configLayer,
+		SlackPersistenceLive.pipe(Layer.provide(Layer.merge(dbLayer, configLayer))),
 		betaAccessLayer,
 		WorkosVerifierLive.pipe(Layer.provide(configLayer)),
 		AccountIdentityLive.pipe(Layer.provide(configLayer)),
@@ -527,7 +555,125 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 		ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),
 		PushDeliveryLive,
 	).pipe(Layer.orDie);
-	return makeApi(appLayer);
+
+	const pending = new Set<Promise<unknown>>();
+	const context = {
+		waitUntil(task: Promise<unknown>) {
+			const tracked = task.catch(() => {
+				console.error("[slack-app] background work failed");
+			});
+			pending.add(tracked);
+			void tracked.finally(() => pending.delete(tracked));
+		},
+	};
+	const slackConfig = resolveSlackConfiguration(
+		env,
+		isConfigured(cloudDataEncryptionKey),
+	);
+	const api: ReturnType<typeof makeApi> = makeApi(appLayer, {
+		slackPublicOrigin: env.SLACK_PUBLIC_ORIGIN,
+		slack: slackConfig
+			? {
+					...slackConfig,
+					dispatch: async (response) => {
+						// The outer request/queue owns the runtime. Individual operations must not dispose it.
+						const scoped = { ...api, dispose: async () => {} };
+						return (
+							(await coordinateCloudMailboxResponse({
+								response,
+								mailboxes: env.WORKSPACE_MAILBOX,
+								mailboxEnabled: env.CLOUD_COMMAND_MAILBOX_ENABLED === "true",
+								api: scoped,
+								context,
+							})) ?? applyResponseEffects(response, scoped, env, context)
+						);
+					},
+				}
+			: undefined,
+	});
+	return {
+		...api,
+		dispose: async () => {
+			while (pending.size > 0) await Promise.allSettled([...pending]);
+			await api.dispose();
+		},
+	};
+};
+
+/** Shared post-operation work for public requests and first-party integrations. */
+const applyResponseEffects = async (
+	response: Response,
+	api: ReturnType<typeof makeApi>,
+	env: Env,
+	context: { waitUntil(promise: Promise<unknown>): void },
+): Promise<Response> => {
+	const machineId = response.headers.get("x-zuse-reconcile-machine");
+	const cloudBuildId = response.headers.get("x-zuse-reconcile-cloud-build");
+	const cloudBuildIds =
+		cloudBuildId
+			?.split(",")
+			.map((value) => value.trim())
+			.filter(Boolean) ?? [];
+	const cloudWorkspaceId = response.headers.get(
+		"x-zuse-reconcile-cloud-workspace",
+	);
+	const cloudPoolAccountId = response.headers.get(
+		"x-zuse-reconcile-cloud-pool",
+	);
+	const gatewayNudgeTarget = response.headers.get(
+		"x-zuse-nudge-cloud-workspace",
+	);
+	const webhookDeliveryAccountId = response.headers.get(
+		"x-zuse-deliver-cloud-webhooks",
+	);
+	response.headers.delete("x-zuse-reconcile-machine");
+	response.headers.delete("x-zuse-reconcile-cloud-build");
+	response.headers.delete("x-zuse-reconcile-cloud-workspace");
+	response.headers.delete("x-zuse-reconcile-cloud-pool");
+	response.headers.delete("x-zuse-nudge-cloud-workspace");
+	response.headers.delete("x-zuse-deliver-cloud-webhooks");
+	if (
+		machineId === null &&
+		cloudBuildId === null &&
+		cloudWorkspaceId === null &&
+		cloudPoolAccountId === null &&
+		gatewayNudgeTarget === null &&
+		webhookDeliveryAccountId === null
+	) {
+		await api.dispose();
+		return response;
+	}
+	context.waitUntil(
+		Promise.allSettled([
+			machineId === null
+				? Promise.resolve()
+				: api.reconcileMachine(machineId, `webhook-${crypto.randomUUID()}`),
+			...cloudBuildIds.map((buildId) => api.reconcileCloudBuild(buildId)),
+			cloudWorkspaceId === null
+				? Promise.resolve()
+				: api.reconcileCloudWorkspaceStartup(cloudWorkspaceId),
+			cloudPoolAccountId === null
+				? Promise.resolve()
+				: api.reconcileCloudPool(cloudPoolAccountId),
+			gatewayNudgeTarget === null
+				? Promise.resolve()
+				: nudgeWorkspaceGateway(env, gatewayNudgeTarget),
+			webhookDeliveryAccountId === null
+				? Promise.resolve()
+				: api.deliverApiWebhooks().catch((error) => {
+						console.error("[public-api] webhook delivery failed", error);
+						return 0;
+					}),
+		])
+			.then((results) => {
+				if (results.some((result) => result.status === "rejected"))
+					console.error(
+						"[api] background reconciliation failed; maintenance will retry",
+					);
+			})
+			.finally(() => api.dispose()),
+	);
+	return response;
 };
 
 export default {
@@ -585,47 +731,18 @@ export default {
 				new Request(request, { headers }),
 			);
 		}
-		const machineId = response.headers.get("x-zuse-reconcile-machine");
-		const cloudBuildId = response.headers.get("x-zuse-reconcile-cloud-build");
-		const cloudBuildIds =
-			cloudBuildId
-				?.split(",")
-				.map((value) => value.trim())
-				.filter(Boolean) ?? [];
-		const cloudWorkspaceId = response.headers.get(
-			"x-zuse-reconcile-cloud-workspace",
-		);
-		const cloudPoolAccountId = response.headers.get(
-			"x-zuse-reconcile-cloud-pool",
-		);
-		response.headers.delete("x-zuse-reconcile-machine");
-		response.headers.delete("x-zuse-reconcile-cloud-build");
-		response.headers.delete("x-zuse-reconcile-cloud-workspace");
-		response.headers.delete("x-zuse-reconcile-cloud-pool");
-		if (
-			machineId === null &&
-			cloudBuildId === null &&
-			cloudWorkspaceId === null &&
-			cloudPoolAccountId === null
-		) {
+		return applyResponseEffects(response, api, env, context);
+	},
+	async queue(
+		batch: { readonly messages: ReadonlyArray<QueueMessage> },
+		env: Env,
+	): Promise<void> {
+		const api = build(env);
+		try {
+			await api.consumeSlackJobs(batch);
+		} finally {
 			await api.dispose();
-			return response;
 		}
-		context.waitUntil(
-			Promise.all([
-				machineId === null
-					? Promise.resolve()
-					: api.reconcileMachine(machineId, `webhook-${crypto.randomUUID()}`),
-				...cloudBuildIds.map((buildId) => api.reconcileCloudBuild(buildId)),
-				cloudWorkspaceId === null
-					? Promise.resolve()
-					: api.reconcileCloudWorkspaceStartup(cloudWorkspaceId),
-				cloudPoolAccountId === null
-					? Promise.resolve()
-					: api.reconcileCloudPool(cloudPoolAccountId),
-			]).finally(() => api.dispose()),
-		);
-		return response;
 	},
 	async scheduled(
 		controller: { readonly scheduledTime: number },
@@ -646,6 +763,26 @@ export default {
 						),
 				}),
 				api.maintainCloudBilling(controller.scheduledTime),
+				api.deliverApiWebhooks().catch((error) => {
+					console.error("[public-api] webhook delivery sweep failed", error);
+					return 0;
+				}),
+				api
+					.sweepApiCommands()
+					.then((targets) =>
+						Promise.all(
+							targets.map((target) =>
+								nudgeWorkspaceGateway(
+									env,
+									`${target.workspaceId}:${target.gatewayEpoch}`,
+								),
+							),
+						),
+					)
+					.catch((error) => {
+						console.error("[public-api] command sweep failed", error);
+						return [];
+					}),
 				pollE2bLifecycleEvents(env, api, controller.scheduledTime).catch(
 					(error) => {
 						console.error(

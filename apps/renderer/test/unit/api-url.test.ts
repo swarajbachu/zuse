@@ -5,7 +5,7 @@ import { resolveRendererApiUrl } from "../../src/lib/api-url.ts";
 describe("renderer api URL", () => {
 	it("defaults development to staging and production to the live api", () => {
 		expect(resolveRendererApiUrl(undefined, true)).toBe(
-			"https://api-staging.stuff.md",
+			"https://api-staging.zuse.sh",
 		);
 		expect(resolveRendererApiUrl(undefined, false)).toBe("https://api.zuse.sh");
 	});

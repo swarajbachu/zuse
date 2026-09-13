@@ -14,8 +14,9 @@ import {
 	makeRpcPayloadReporter,
 } from "@zuse/utils/rpc-payload-metrics";
 import { fetchSiteFavicon } from "@zuse/utils/site-favicon";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, FileSystem, Layer, Schema } from "effect";
 import {
+	HttpIncomingMessage,
 	HttpRouter,
 	HttpServer,
 	HttpServerRequest,
@@ -23,6 +24,7 @@ import {
 } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import { CompactSign, importJWK } from "jose";
+import { DeviceBridgeService } from "../device-bridge/service.ts";
 import {
 	LanAuthService,
 	type LanAuthServiceShape,
@@ -510,6 +512,7 @@ export const wsServerProtocolLayer = (
 	Layer.effect(
 		RpcServer.Protocol,
 		Effect.gen(function* () {
+			const bridge = yield* Effect.serviceOption(DeviceBridgeService);
 			const auth = yield* LanAuthService;
 			const attachments = yield* AttachmentService;
 			const log = opts.onDiagnostic ?? (() => {});
@@ -634,6 +637,32 @@ export const wsServerProtocolLayer = (
 			});
 
 			const router = yield* HttpRouter.make;
+			yield* router.add("POST", "/device-bridge", (request) =>
+				Effect.gen(function* () {
+					if (bridge._tag === "None")
+						return yield* json({ error: "device_bridge_unavailable" }, 503);
+					const body = yield* request.text.pipe(
+						Effect.provideService(
+							HttpIncomingMessage.MaxBodySize,
+							FileSystem.Size(128 * 1024),
+						),
+						Effect.orElseSucceed(() => ""),
+					);
+					if (body.length > 40000)
+						return yield* json({ error: "request_too_large" }, 413);
+					return yield* Effect.tryPromise({
+						try: () =>
+							bridge.value.receive(
+								(request.headers.authorization ?? "").replace(/^Bearer /, ""),
+								body,
+							),
+						catch: () => "rejected",
+					}).pipe(
+						Effect.flatMap((result) => json(result, 200)),
+						Effect.catch(() => json({ error: "device_bridge_rejected" }, 403)),
+					);
+				}),
+			);
 			yield* router.add("GET", "/healthz", () =>
 				json(
 					{

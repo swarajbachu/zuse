@@ -1,0 +1,75 @@
+---
+title: "Let cloud agents run commands on your computer"
+description: "Enable desktop command access, approve a cloud chat, and revoke access."
+section: how-to
+order: 24
+platforms: [desktop, browser, mobile]
+providers: []
+prerequisites: [/how-to/remote-hosted-access]
+related: [/how-to/remote-hosted-access, /how-to/remote-recover-connection]
+next: /how-to/remote-hosted-access
+lastVerified: latest
+---
+
+Cloud chats can ask to run shell commands on your desktop while Zuse is open
+and signed in. Shell access includes reading and changing files as your desktop
+user. It is separate from the agent's cloud workspace permissions.
+
+## Connect your desktop
+
+1. Sign in to the same Zuse account on your desktop and other clients.
+2. Enable hosted access in **Settings → Devices**.
+3. Start a cloud chat from that desktop. Command access is available by default;
+   each command requires approval unless you have saved a permission.
+4. Local commands appear in the conversation with a computer icon.
+
+The chat keeps its target when you open it on your phone or another computer.
+Opening a chat elsewhere does not silently change where commands run.
+
+Both the API and the cloud runtime must support device commands. Older retained
+cloud runtimes show local access as unavailable; they are not replaced or
+recreated automatically. Update your account image for new chats.
+
+## Approve a request
+
+The request shows the computer, chat, command, and absolute local working
+directory. Approve on the target desktop, in the cloud chat, or from the mobile
+chat:
+
+- **Allow once** approves only that command request.
+- **Allow for this session** grants command access to this computer for this
+  chat. It survives reconnects and app restarts. Archiving or deleting the chat
+  ends that session grant.
+- **Always allow** grants your account's cloud chats command access to this
+  computer until revoked.
+- **Deny** rejects this request without running it.
+
+Full-access mode in the cloud does not bypass device approval. Local execution is blocked
+in plan mode.
+
+## Watch or stop commands
+
+Expand a local command in the conversation, or open **Settings → Devices → Cloud agent
+access**, to inspect requests, output, and exit status. Choose **Stop command**
+to terminate a running command and its process group.
+
+The bridge supports four active commands at a time and captures up to 1 MiB of
+combined output per command. The UI shows an output preview; the agent's command
+status tool returns the captured output. Excess output is marked truncated.
+Commands are noninteractive; interactive terminals and dedicated file-transfer
+or desktop-automation tools are not part of this feature.
+
+## Revoke access and recover
+
+Choose **Revoke** next to a saved permission, or **Turn off** to stop all active
+commands and clear saved grants on the computer. Signing out or changing the
+linked account also disables access and clears grants.
+
+Cloud commands hold a short lease. If the bridge connection disappears, pending
+requests and running commands are interrupted within 15 seconds of their last
+successful lease renewal. A server crash also closes a supervisor pipe that
+terminates its command process group. Session grants survive an ordinary
+restart, but an unfinished command is recorded with an unknown outcome.
+
+Zuse never automatically runs an interrupted or unknown command again. Inspect
+any effects already made before asking the agent to retry with a new command.

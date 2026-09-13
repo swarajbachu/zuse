@@ -17,6 +17,7 @@ import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { githubInstallationGrants } from "./cloud-github-app.ts";
 import { deleteCloudTranscriptObjects } from "./cloud-transcript.ts";
 import { cloudRepositoryWorkspacePath } from "./cloud-workspace-paths.ts";
+import { nextCloudWorkspaceRuntimeFence } from "./cloud-workspace-runtime-fence.ts";
 import {
 	type CloudProjectBuildRecord,
 	type CloudWorkspaceRecord,
@@ -324,19 +325,6 @@ export const cloudWorkspaceHasRetainedRuntimeData = (
 export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed /var/lib/zuse/workspace/credentials-ready /var/lib/zuse/workspace/credentials-ready-event; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >> "$log" 2>&1; fi; if [ -f "$runtime" ]; then exec node "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
-
-const nextRuntimeFence = (
-	workspace: CloudWorkspaceRecord,
-): { readonly runtimeGeneration: number; readonly gatewayEpoch: number } => ({
-	runtimeGeneration:
-		(typeof workspace.requestConfig.runtimeGeneration === "number"
-			? workspace.requestConfig.runtimeGeneration
-			: 0) + 1,
-	gatewayEpoch:
-		(typeof workspace.requestConfig.gatewayEpoch === "number"
-			? workspace.requestConfig.gatewayEpoch
-			: 0) + 1,
-});
 
 export const withoutRuntimeBootstrapReceipt = (
 	config: Readonly<Record<string, unknown>>,
@@ -1254,7 +1242,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			(workspace.requestConfig.startupTimings as
 				| Readonly<Record<string, number>>
 				| undefined) ?? {};
-		const runtimeFence = nextRuntimeFence(workspace);
+		const runtimeFence = nextCloudWorkspaceRuntimeFence(workspace);
 		// Authorize the exact token written above before the detached runtime can
 		// read it. Repeated resume requests are idempotent, so releasing the lease
 		// here cannot replace this token while startup is in flight.
@@ -1695,7 +1683,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				(workspace.requestConfig.startupTimings as
 					| Readonly<Record<string, number>>
 					| undefined) ?? {};
-			const runtimeFence = nextRuntimeFence(workspace);
+			const runtimeFence = nextCloudWorkspaceRuntimeFence(workspace);
 			yield* saveWorkspace({
 				...workspace,
 				providerSandboxId: sandbox.providerSandboxId,

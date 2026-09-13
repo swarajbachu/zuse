@@ -4,7 +4,7 @@ import {
 	BillingProviders,
 	BillingProvidersManual,
 } from "@zuse/billing-providers";
-import { ApiPaths, PRODUCTION_API_URL, STAGING_API_URL } from "@zuse/contracts";
+import { ApiPaths } from "@zuse/contracts";
 import { MachineProvidersFake } from "@zuse/machine-providers/testing";
 import {
 	type SandboxProviderAdapter,
@@ -131,7 +131,6 @@ const makeLayer = async (
 	machineControlOverrides: Partial<MachineControlConfig> = {},
 	sandboxProvidersLayer: Layer.Layer<SandboxProviders> = SandboxProvidersFake,
 	betaAccessLayer: Layer.Layer<BetaAccess> = BetaAccessAllowAll,
-	apiIssuer: string = API_ISSUER,
 ): Promise<Layer.Layer<ApiContext>> => {
 	const billingLayer =
 		typeof billingLayerOrMaxEnvironments === "number"
@@ -143,7 +142,7 @@ const makeLayer = async (
 			: undefined;
 	mintKey = (await eddsa()) as KeyPair;
 	const configLayer = Config.layer({
-		apiIssuer,
+		apiIssuer: API_ISSUER,
 		workosJwksUrl: "https://unused.test/jwks",
 		workosIssuer: "https://unused.test",
 		mintPrivateKey: Redacted.make(
@@ -357,33 +356,6 @@ describe("@zuse/api", () => {
 		expect(invalidState.status).toBe(400);
 		expect(await invalidState.text()).toContain(
 			"GitHub could not be connected",
-		);
-	});
-
-	test("brokers an exact staging GitHub callback through production", async () => {
-		const productionApi = makeApi(
-			await makeLayer(
-				undefined,
-				BillingProvidersManual,
-				false,
-				{},
-				SandboxProvidersFake,
-				BetaAccessAllowAll,
-				PRODUCTION_API_URL,
-			),
-		);
-		const encode = (value: unknown) =>
-			Buffer.from(JSON.stringify(value)).toString("base64url");
-		const state = `${encode({ alg: "EdDSA", typ: "github-install+jwt" })}.${encode({ iss: STAGING_API_URL })}.invalid`;
-		const response = await productionApi.fetch(
-			new Request(
-				`${PRODUCTION_API_URL}${ApiPaths.cloudGithubCallback}?installation_id=123&state=${encodeURIComponent(state)}`,
-			),
-		);
-
-		expect(response.status).toBe(302);
-		expect(response.headers.get("location")).toBe(
-			`${STAGING_API_URL}${ApiPaths.cloudGithubCallback}?state=${encodeURIComponent(state)}&installation_id=123`,
 		);
 	});
 
@@ -1481,6 +1453,18 @@ describe("@zuse/api", () => {
 	});
 
 	test("revokes account access immediately and defers identity deletion until machine cleanup", async () => {
+		const apiKeyResponse = await api.fetch(
+			new Request(`${API_ISSUER}/v1/cloud/api-keys`, {
+				method: "POST",
+				headers: {
+					authorization: "Bearer test-token:user_a",
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ name: "delete lifecycle" }),
+			}),
+		);
+		expect(apiKeyResponse.status).toBe(201);
+		const apiKey = (await apiKeyResponse.json()) as { readonly secret: string };
 		const create = await api.fetch(
 			new Request(`${API_ISSUER}/v1/machines`, {
 				method: "POST",
@@ -1509,6 +1493,15 @@ describe("@zuse/api", () => {
 			cleanupPending: true,
 		});
 		expect(identityDeletes).toEqual([]);
+		expect(
+			(
+				await api.fetch(
+					new Request(`${API_ISSUER}/v1/api/projects`, {
+						headers: { authorization: `Bearer ${apiKey.secret}` },
+					}),
+				)
+			).status,
+		).toBe(401);
 
 		await api.reconcile("account-cleanup");
 		expect(identityDeletes).toEqual(["user_a"]);

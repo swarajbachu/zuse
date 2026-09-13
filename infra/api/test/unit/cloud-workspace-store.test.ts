@@ -705,6 +705,174 @@ describe("cloud workspace store", () => {
 		await runtime.dispose();
 	});
 
+	test("atomically guards an API append with its workspace resume", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(store.connectProject(project));
+		await runtime.runPromise(store.createBuild(build));
+		const pausedWorkspace = {
+			workspaceId: "workspace-guarded-append",
+			accountId: "account-1",
+			projectId: project.projectId,
+			buildId: build.buildId,
+			provider: build.provider,
+			runtimeState: "offline" as const,
+			chatId: "chat-guarded-append",
+			initialSessionId: "session-guarded-append",
+			branch: "task/guarded-append",
+			baseRef: "origin/main",
+			state: "paused" as const,
+			desiredState: "paused" as const,
+			statusCode: "paused",
+			idempotencyKey: "workspace-guarded-append-key",
+			requestConfig: {},
+			nextActionAtMs: 10_000,
+			revision: 1,
+			createdAtMs: 100,
+			updatedAtMs: 200,
+			lastActivityAtMs: 200,
+		};
+		await runtime.runPromise(
+			store.createWorkspace(
+				pausedWorkspace,
+				startCommand(pausedWorkspace.workspaceId),
+			),
+		);
+		await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: "message-assistant-before-user",
+				workspaceId: pausedWorkspace.workspaceId,
+				accountId: pausedWorkspace.accountId,
+				role: "assistant",
+				sealedContent: "sealed:assistant",
+				turnId: "turn-guarded-append",
+				status: "settled",
+				createdAtMs: 250,
+			}),
+		);
+		const resumedWorkspace = {
+			...pausedWorkspace,
+			desiredState: "ready" as const,
+			statusCode: "resume-queued",
+			nextActionAtMs: 300,
+			revision: 2,
+			updatedAtMs: 300,
+		};
+		const userMessage = {
+			messageId: "message-guarded-user",
+			workspaceId: pausedWorkspace.workspaceId,
+			accountId: pausedWorkspace.accountId,
+			role: "user" as const,
+			sealedContent: "sealed:user",
+			commandId: "api-command-guarded",
+			turnId: "turn-guarded-append",
+			status: "delivered" as const,
+			createdAtMs: 300,
+		};
+		const committed = await runtime.runPromise(
+			store.appendApiMessageGuarded({
+				message: userMessage,
+				expectedWorkspace: pausedWorkspace,
+				lifecycleCommand: {
+					workspace: resumedWorkspace,
+					commandId: "resume-for-api-command",
+					action: "resume",
+					createdAtMs: 300,
+				},
+			}),
+		);
+		expect(committed).toMatchObject({
+			kind: "committed",
+			append: {
+				kind: "created",
+				message: { seq: 2, status: "settled" },
+			},
+			workspace: { revision: 2, statusCode: "resume-queued" },
+			lifecycleCommandSaved: true,
+		});
+		expect(
+			await runtime.runPromise(
+				store.getWorkspaceLifecycleCommand(
+					pausedWorkspace.workspaceId,
+					"resume-for-api-command",
+				),
+			),
+		).toBe("resume");
+
+		const stale = await runtime.runPromise(
+			store.appendApiMessageGuarded({
+				message: {
+					...userMessage,
+					messageId: "message-stale-guard",
+					turnId: undefined,
+					status: "pending",
+				},
+				expectedWorkspace: pausedWorkspace,
+				lifecycleCommand: {
+					workspace: {
+						...resumedWorkspace,
+						revision: 3,
+						updatedAtMs: 400,
+					},
+					commandId: "stale-resume-for-api-command",
+					action: "resume",
+					createdAtMs: 400,
+				},
+			}),
+		);
+		expect(stale).toMatchObject({
+			kind: "workspace-contended",
+			workspace: { revision: 2, statusCode: "resume-queued" },
+		});
+		expect(
+			await runtime.runPromise(store.getApiMessage("message-stale-guard")),
+		).toBeNull();
+		expect(
+			await runtime.runPromise(
+				store.getWorkspaceLifecycleCommand(
+					pausedWorkspace.workspaceId,
+					"stale-resume-for-api-command",
+				),
+			),
+		).toBeNull();
+
+		expect(
+			await runtime.runPromise(
+				store.appendApiMessageGuarded({
+					message: userMessage,
+					expectedWorkspace: pausedWorkspace,
+					lifecycleCommand: {
+						workspace: {
+							...resumedWorkspace,
+							revision: 3,
+							updatedAtMs: 500,
+						},
+						commandId: "terminal-message-must-not-resume",
+						action: "resume",
+						createdAtMs: 500,
+					},
+				}),
+			),
+		).toMatchObject({
+			kind: "committed",
+			append: { kind: "existing", message: { seq: 2, status: "settled" } },
+			workspace: { revision: 2, statusCode: "resume-queued" },
+			lifecycleCommandSaved: false,
+		});
+		expect(
+			await runtime.runPromise(
+				store.getWorkspaceLifecycleCommand(
+					pausedWorkspace.workspaceId,
+					"terminal-message-must-not-resume",
+				),
+			),
+		).toBeNull();
+		expect(
+			await runtime.runPromise(store.getWorkspace(pausedWorkspace.workspaceId)),
+		).toMatchObject({ revision: 2, statusCode: "resume-queued" });
+		await runtime.dispose();
+	});
+
 	test("deduplicates usage events", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);
@@ -719,6 +887,968 @@ describe("cloud workspace store", () => {
 		};
 		expect(await runtime.runPromise(store.recordUsage(event))).toBe(true);
 		expect(await runtime.runPromise(store.recordUsage(event))).toBe(false);
+		await runtime.dispose();
+	});
+
+	test("settles API commands by turn and projects the full ledger summary", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		const appendUser = (messageId: string, createdAtMs: number) =>
+			runtime.runPromise(
+				store.appendApiMessage({
+					messageId,
+					workspaceId: "workspace-api",
+					accountId: "account-1",
+					role: "user",
+					sealedContent: `sealed:${messageId}`,
+					commandId: `command:${messageId}`,
+					status: "pending",
+					createdAtMs,
+				}),
+			);
+
+		expect(
+			await runtime.runPromise(
+				store.getApiWorkspaceLedgerSummary("workspace-api"),
+			),
+		).toEqual({
+			latestSeq: 0,
+			hasOutstanding: false,
+			lastAssistant: null,
+		});
+		await appendUser("message-user-1", 100);
+		await appendUser("message-user-2", 110);
+		expect(
+			await runtime.runPromise(
+				store.ackApiCommand(
+					"workspace-api",
+					"message-user-1",
+					"turn-1",
+					undefined,
+					200,
+				),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(
+				store.ackApiCommand(
+					"workspace-api",
+					"message-user-2",
+					"turn-2",
+					undefined,
+					210,
+				),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(
+				store.ackApiCommand(
+					"workspace-api",
+					"message-user-1",
+					"different-turn",
+					undefined,
+					220,
+				),
+			),
+		).toBe(false);
+
+		const turn2 = await runtime.runPromise(
+			store.recordApiTurnEvent({
+				messageId: "message-assistant-2",
+				workspaceId: "workspace-api",
+				accountId: "account-1",
+				turnId: "turn-2",
+				outcome: "completed",
+				sealedContent: "sealed:assistant-2",
+				contentDigest: "digest:assistant-2",
+				nowMs: 300,
+				receivedAtMs: 300,
+			}),
+		);
+		expect(turn2.kind).toBe("created");
+		if (turn2.kind !== "created" && turn2.kind !== "replay")
+			throw new Error("unexpected replay");
+		expect(
+			await runtime.runPromise(store.listApiMessages("workspace-api", 0, 10)),
+		).toEqual([
+			expect.objectContaining({
+				messageId: "message-user-1",
+				turnId: "turn-1",
+				status: "delivered",
+			}),
+			expect.objectContaining({
+				messageId: "message-user-2",
+				turnId: "turn-2",
+				status: "settled",
+			}),
+			expect.objectContaining({
+				messageId: "message-assistant-2",
+				turnId: "turn-2",
+				status: "settled",
+			}),
+		]);
+		expect(
+			await runtime.runPromise(
+				store.getApiWorkspaceLedgerSummary("workspace-api"),
+			),
+		).toEqual({
+			latestSeq: 3,
+			hasOutstanding: true,
+			lastAssistant: turn2.message,
+		});
+
+		const turn1 = await runtime.runPromise(
+			store.recordApiTurnEvent({
+				messageId: "message-assistant-1",
+				workspaceId: "workspace-api",
+				accountId: "account-1",
+				turnId: "turn-1",
+				outcome: "completed",
+				sealedContent: "sealed:assistant-1",
+				contentDigest: "digest:assistant-1",
+				nowMs: 310,
+				receivedAtMs: 310,
+			}),
+		);
+		if (turn1.kind !== "created" && turn1.kind !== "replay")
+			throw new Error("unexpected replay");
+		expect(
+			await runtime.runPromise(
+				store.getApiWorkspaceLedgerSummary("workspace-api"),
+			),
+		).toEqual({
+			latestSeq: 4,
+			hasOutstanding: false,
+			lastAssistant: turn1.message,
+		});
+
+		await appendUser("message-user-3", 320);
+		await runtime.runPromise(
+			store.recordApiTurnEvent({
+				messageId: "message-assistant-3",
+				workspaceId: "workspace-api",
+				accountId: "account-1",
+				turnId: "turn-3",
+				outcome: "completed",
+				sealedContent: "sealed:assistant-3",
+				contentDigest: "digest:assistant-3",
+				nowMs: 330,
+				receivedAtMs: 330,
+			}),
+		);
+		expect(
+			await runtime.runPromise(
+				store.ackApiCommand(
+					"workspace-api",
+					"message-user-3",
+					"turn-3",
+					undefined,
+					340,
+				),
+			),
+		).toBe(true);
+		expect(
+			(
+				await runtime.runPromise(store.listApiMessages("workspace-api", 0, 10))
+			).find((message) => message.messageId === "message-user-3"),
+		).toMatchObject({ turnId: "turn-3", status: "settled" });
+
+		// A launch turn may reach API before the public create response appends
+		// its mirror user row. The late append must converge immediately instead
+		// of leaving a permanently outstanding delivered command.
+		await runtime.runPromise(
+			store.recordApiTurnEvent({
+				messageId: "message-assistant-launch",
+				workspaceId: "workspace-api",
+				accountId: "account-1",
+				turnId: "turn-launch",
+				outcome: "completed",
+				sealedContent: "sealed:assistant-launch",
+				contentDigest: "digest:assistant-launch",
+				nowMs: 360,
+				receivedAtMs: 360,
+			}),
+		);
+		const lateLaunch = await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: "message-user-launch",
+				workspaceId: "workspace-api",
+				accountId: "account-1",
+				role: "user",
+				sealedContent: "sealed:user-launch",
+				turnId: "turn-launch",
+				status: "delivered",
+				createdAtMs: 350,
+			}),
+		);
+		expect(lateLaunch.message.status).toBe("settled");
+
+		await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: "message-user-expired-pending",
+				workspaceId: "workspace-api",
+				accountId: "account-1",
+				role: "user",
+				sealedContent: "sealed:user-expired-pending",
+				turnId: "turn-expired-pending",
+				status: "pending",
+				createdAtMs: 370,
+				expiresAtMs: 400,
+			}),
+		);
+		await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: "message-user-expired-delivered",
+				workspaceId: "workspace-api",
+				accountId: "account-1",
+				role: "user",
+				sealedContent: "sealed:user-expired-delivered",
+				turnId: "turn-expired-delivered",
+				status: "pending",
+				createdAtMs: 370,
+				expiresAtMs: 400,
+			}),
+		);
+		await runtime.runPromise(
+			store.ackApiCommand(
+				"workspace-api",
+				"message-user-expired-delivered",
+				"turn-expired-delivered",
+				undefined,
+				380,
+			),
+		);
+		await runtime.runPromise(store.expireApiCommands(400));
+		const expired = await runtime.runPromise(
+			store.listApiMessages("workspace-api", 0, 20),
+		);
+		expect(
+			expired.find(
+				(message) => message.messageId === "message-user-expired-delivered",
+			),
+		).toMatchObject({ status: "failed" });
+		expect(
+			expired.find(
+				(message) => message.messageId === "message-user-expired-pending",
+			),
+		).toMatchObject({ status: "expired" });
+		await runtime.runPromise(
+			store.recordApiTurnEvent({
+				messageId: "message-assistant-expired-delivered",
+				workspaceId: "workspace-api",
+				accountId: "account-1",
+				turnId: "turn-expired-delivered",
+				outcome: "completed",
+				sealedContent: "sealed:assistant-expired-delivered",
+				contentDigest: "digest:assistant-expired-delivered",
+				nowMs: 410,
+				receivedAtMs: 410,
+			}),
+		);
+		expect(
+			(
+				await runtime.runPromise(store.listApiMessages("workspace-api", 0, 20))
+			).find(
+				(message) => message.messageId === "message-user-expired-delivered",
+			),
+		).toMatchObject({ status: "settled" });
+		expect(
+			await runtime.runPromise(
+				store.ackApiCommand(
+					"workspace-api",
+					"message-assistant-3",
+					"turn-3",
+					undefined,
+					350,
+				),
+			),
+		).toBe(false);
+		await runtime.dispose();
+	});
+
+	test("associates legacy ACKs and adopts pre-receipt assistant turns", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+
+		await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: "legacy-command",
+				workspaceId: "workspace-legacy",
+				accountId: "account-1",
+				role: "user",
+				sealedContent: "sealed:legacy-command",
+				turnId: "turn_API-assigned",
+				status: "pending",
+				createdAtMs: 10,
+			}),
+		);
+		expect(
+			await runtime.runPromise(
+				store.ackApiCommand(
+					"workspace-legacy",
+					"legacy-command",
+					undefined,
+					undefined,
+					20,
+				),
+			),
+		).toBe(true);
+		await runtime.runPromise(
+			store.recordApiTurnEvent({
+				messageId: "legacy-command-assistant",
+				workspaceId: "workspace-legacy",
+				accountId: "account-1",
+				turnId: "turn-generated-by-legacy-runtime",
+				outcome: "completed",
+				sealedContent: "sealed:legacy-command-assistant",
+				contentDigest: "digest:legacy-command-assistant",
+				nowMs: 30,
+				receivedAtMs: 30,
+			}),
+		);
+		expect(
+			(
+				await runtime.runPromise(
+					store.listApiMessages("workspace-legacy", 0, 10),
+				)
+			).find((message) => message.messageId === "legacy-command"),
+		).toMatchObject({
+			status: "settled",
+			turnId: "turn-generated-by-legacy-runtime",
+		});
+
+		// The event stream can beat an old runtime's message-id-only ACK. A prior
+		// human turn may also be published late, so only a turn settled and received
+		// inside the latest command-fetch attempt is claimable.
+		await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: "legacy-racing-command",
+				workspaceId: "workspace-legacy-race",
+				accountId: "account-1",
+				role: "user",
+				sealedContent: "sealed:legacy-racing-command",
+				turnId: "turn_API-assigned-racing",
+				status: "pending",
+				createdAtMs: 40,
+			}),
+		);
+		await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: "unrelated-pending-command",
+				workspaceId: "workspace-legacy-race",
+				accountId: "account-1",
+				role: "user",
+				sealedContent: "sealed:unrelated-pending-command",
+				turnId: "turn_API-assigned-unrelated",
+				status: "pending",
+				createdAtMs: 41,
+			}),
+		);
+		await runtime.runPromise(
+			store.claimNextApiCommand("workspace-legacy-race", 42),
+		);
+		await runtime.runPromise(
+			store.recordApiTurnEvent({
+				messageId: "unrelated-delayed-assistant",
+				workspaceId: "workspace-legacy-race",
+				accountId: "account-1",
+				turnId: "turn-unrelated-human",
+				outcome: "completed",
+				sealedContent: "sealed:unrelated-delayed-assistant",
+				contentDigest: "digest:unrelated-delayed-assistant",
+				nowMs: 39,
+				receivedAtMs: 43,
+			}),
+		);
+		const retriedClaim = await runtime.runPromise(
+			store.claimNextApiCommand("workspace-legacy-race", 44),
+		);
+		expect(retriedClaim).toMatchObject({
+			messageId: "legacy-racing-command",
+			deliveryAttemptedAtMs: 44,
+		});
+		await runtime.runPromise(
+			store.recordApiTurnEvent({
+				messageId: "legacy-racing-command-assistant",
+				workspaceId: "workspace-legacy-race",
+				accountId: "account-1",
+				turnId: "turn-generated-before-legacy-ack",
+				outcome: "completed",
+				sealedContent: "sealed:legacy-racing-command-assistant",
+				contentDigest: "digest:legacy-racing-command-assistant",
+				nowMs: 45,
+				receivedAtMs: 45,
+			}),
+		);
+		expect(
+			await runtime.runPromise(
+				store.ackApiCommand(
+					"workspace-legacy-race",
+					"legacy-racing-command",
+					undefined,
+					undefined,
+					46,
+				),
+			),
+		).toBe(true);
+		const racedMessages = await runtime.runPromise(
+			store.listApiMessages("workspace-legacy-race", 0, 10),
+		);
+		expect(
+			racedMessages.find(
+				(message) => message.messageId === "legacy-racing-command",
+			),
+		).toMatchObject({
+			status: "settled",
+			turnId: "turn-generated-before-legacy-ack",
+		});
+		expect(
+			racedMessages.find(
+				(message) => message.messageId === "unrelated-pending-command",
+			),
+		).toMatchObject({
+			status: "pending",
+			turnId: "turn_API-assigned-unrelated",
+		});
+
+		// A restarted upgraded runtime can recover an older domain turn for the
+		// same command. Rebinding is permitted only when the ACK echoes the exact
+		// provisional turn that API issued for this command.
+		await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: "recovered-command",
+				workspaceId: "workspace-recovered-command",
+				accountId: "account-1",
+				role: "user",
+				sealedContent: "sealed:recovered-command",
+				turnId: "turn_API-provisional",
+				status: "pending",
+				createdAtMs: 50,
+			}),
+		);
+		await runtime.runPromise(
+			store.recordApiTurnEvent({
+				messageId: "recovered-command-assistant",
+				workspaceId: "workspace-recovered-command",
+				accountId: "account-1",
+				turnId: "turn_domain-recovered",
+				outcome: "completed",
+				sealedContent: "sealed:recovered-command-assistant",
+				contentDigest: "digest:recovered-command-assistant",
+				nowMs: 51,
+				receivedAtMs: 51,
+			}),
+		);
+		expect(
+			await runtime.runPromise(
+				store.ackApiCommand(
+					"workspace-recovered-command",
+					"recovered-command",
+					"turn_domain-recovered",
+					"turn_not-issued",
+					52,
+				),
+			),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(
+				store.ackApiCommand(
+					"workspace-recovered-command",
+					"recovered-command",
+					"turn_domain-recovered",
+					"turn_API-provisional",
+					53,
+				),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(store.getApiMessage("recovered-command")),
+		).toMatchObject({
+			status: "settled",
+			turnId: "turn_domain-recovered",
+		});
+
+		// Migration 0017 adds the compact receipt table after assistant rows may
+		// already exist. A verified historical replay adopts one receipt and also
+		// binds the unique delivered launch row that predated deterministic turns.
+		await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: "legacy-launch",
+				workspaceId: "workspace-adoption",
+				accountId: "account-1",
+				role: "user",
+				sealedContent: "sealed:legacy-launch",
+				status: "delivered",
+				createdAtMs: 40,
+			}),
+		);
+		await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: "legacy-assistant",
+				workspaceId: "workspace-adoption",
+				accountId: "account-1",
+				role: "assistant",
+				sealedContent: "sealed:legacy-assistant",
+				turnId: "legacy-turn",
+				outcome: "completed",
+				status: "settled",
+				createdAtMs: 50,
+			}),
+		);
+		const adopted = await runtime.runPromise(
+			store.recordApiTurnEvent({
+				messageId: "legacy-assistant",
+				workspaceId: "workspace-adoption",
+				accountId: "account-1",
+				turnId: "legacy-turn",
+				outcome: "completed",
+				sealedContent: "new-seal-is-not-used-for-replay",
+				contentDigest: "digest:adopted",
+				nowMs: 45,
+				receivedAtMs: 60,
+				adoptLegacyReplay: true,
+			}),
+		);
+		expect(adopted).toMatchObject({
+			kind: "replay",
+			receipt: { contentDigest: "digest:adopted", settledAtMs: 45 },
+		});
+		expect(
+			await runtime.runPromise(
+				store.getApiWorkspaceLedgerSummary("workspace-adoption"),
+			),
+		).toMatchObject({ hasOutstanding: false });
+		expect(
+			(
+				await runtime.runPromise(
+					store.listApiMessages("workspace-adoption", 0, 10),
+				)
+			).find((message) => message.messageId === "legacy-launch"),
+		).toMatchObject({ status: "settled", turnId: "legacy-turn" });
+		expect(
+			await runtime.runPromise(
+				store.recordApiTurnEvent({
+					messageId: "legacy-assistant",
+					workspaceId: "workspace-adoption",
+					accountId: "account-1",
+					turnId: "legacy-turn",
+					outcome: "completed",
+					sealedContent: "ignored",
+					contentDigest: "digest:changed-after-adoption",
+					nowMs: 45,
+					receivedAtMs: 61,
+					adoptLegacyReplay: true,
+				}),
+			),
+		).toMatchObject({ kind: "conflict" });
+		await runtime.dispose();
+	});
+
+	test("records turn receipts and webhook outbox rows atomically across replays", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(
+			store.createApiWebhook(
+				{
+					webhookId: "webhook-atomic",
+					accountId: "account-1",
+					url: "https://example.test/webhook",
+					sealedSecret: "sealed:webhook-secret",
+					createdAtMs: 1,
+				},
+				20,
+			),
+		);
+		const fanout = (eventId: string, deliveryId: string) => ({
+			eventId,
+			eventType: "workspace.turn.completed" as const,
+			sealedPayload: `sealed:${eventId}`,
+			enqueuedAtMs: 10,
+			targets: [{ webhookId: "webhook-atomic", deliveryId }],
+		});
+		const turn = {
+			messageId: "assistant-atomic",
+			workspaceId: "workspace-atomic",
+			accountId: "account-1",
+			turnId: "turn-atomic",
+			outcome: "completed",
+			sealedContent: "sealed:assistant-atomic",
+			contentDigest: "digest:assistant-atomic",
+			nowMs: 5,
+			receivedAtMs: 5,
+			webhookFanout: fanout("event-atomic", "delivery-atomic"),
+		} as const;
+
+		expect(
+			(await runtime.runPromise(store.recordApiTurnEvent(turn))).kind,
+		).toBe("created");
+		expect(
+			(await runtime.runPromise(store.recordApiTurnEvent(turn))).kind,
+		).toBe("replay");
+		expect(
+			await runtime.runPromise(
+				store.recordApiTurnEvent({
+					...turn,
+					contentDigest: "digest:changed",
+					webhookFanout: fanout("event-poison", "delivery-poison"),
+				}),
+			),
+		).toMatchObject({ kind: "conflict" });
+
+		const repairTurn = {
+			...turn,
+			messageId: "assistant-repair",
+			workspaceId: "workspace-repair",
+			turnId: "turn-repair",
+			sealedContent: "sealed:assistant-repair",
+			contentDigest: "digest:assistant-repair",
+			webhookFanout: undefined,
+		} as const;
+		expect(
+			(await runtime.runPromise(store.recordApiTurnEvent(repairTurn))).kind,
+		).toBe("created");
+		expect(
+			(
+				await runtime.runPromise(
+					store.recordApiTurnEvent({
+						...repairTurn,
+						webhookFanout: fanout("event-repair", "delivery-repair"),
+					}),
+				)
+			).kind,
+		).toBe("replay");
+
+		expect(
+			(
+				await runtime.runPromise(
+					store.claimDueApiWebhookDeliveries(10, 10, 100),
+				)
+			).map(({ delivery }) => delivery.deliveryId),
+		).toEqual(["delivery-atomic", "delivery-repair"]);
+		expect(
+			await runtime.runPromise(
+				store.listApiMessages("workspace-atomic", 0, 10),
+			),
+		).toHaveLength(1);
+		await runtime.dispose();
+	});
+
+	test("atomically enforces the active webhook limit per account", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		const registrations = await Promise.all(
+			Array.from({ length: 30 }, (_, index) =>
+				runtime.runPromise(
+					store.createApiWebhook(
+						{
+							webhookId: `webhook-limit-${index}`,
+							accountId: "account-limit",
+							url: `https://example.test/webhook/${index}`,
+							sealedSecret: `sealed:webhook-secret-${index}`,
+							createdAtMs: index,
+						},
+						20,
+					),
+				),
+			),
+		);
+
+		expect(registrations.filter(Boolean)).toHaveLength(20);
+		expect(
+			await runtime.runPromise(store.listApiWebhooks("account-limit")),
+		).toHaveLength(20);
+		expect(
+			await runtime.runPromise(
+				store.createApiWebhook(
+					{
+						webhookId: "webhook-other-account",
+						accountId: "account-other",
+						url: "https://example.test/webhook/other",
+						sealedSecret: "sealed:webhook-secret-other",
+						createdAtMs: 1,
+					},
+					20,
+				),
+			),
+		).toBe(true);
+		expect(
+			await runtime.runPromise(store.listApiWebhooks("account-other")),
+		).toHaveLength(1);
+		await runtime.dispose();
+	});
+
+	test("compacts terminal API data without losing ledger high-water marks or webhook tombstones", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: "pending-old",
+				workspaceId: "workspace-retention",
+				accountId: "account-1",
+				role: "user",
+				sealedContent: "sealed:pending-old",
+				status: "pending",
+				createdAtMs: 1,
+			}),
+		);
+		const legacyUnreceiptedTurn = {
+			messageId: "assistant-legacy-unreceipted",
+			workspaceId: "workspace-retention",
+			accountId: "account-1",
+			turnId: "turn-legacy-unreceipted",
+			outcome: "completed",
+			sealedContent: "sealed:assistant-legacy-unreceipted",
+			contentDigest: "digest:assistant-legacy-unreceipted",
+			nowMs: 1,
+			receivedAtMs: 1,
+		} as const;
+		await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: legacyUnreceiptedTurn.messageId,
+				workspaceId: legacyUnreceiptedTurn.workspaceId,
+				accountId: legacyUnreceiptedTurn.accountId,
+				role: "assistant",
+				sealedContent: legacyUnreceiptedTurn.sealedContent,
+				turnId: legacyUnreceiptedTurn.turnId,
+				outcome: legacyUnreceiptedTurn.outcome,
+				status: "settled",
+				createdAtMs: 1,
+			}),
+		);
+		const oldTurn = {
+			messageId: "assistant-old",
+			workspaceId: "workspace-retention",
+			accountId: "account-1",
+			turnId: "turn-old",
+			outcome: "completed",
+			sealedContent: "sealed:assistant-old",
+			contentDigest: "digest:assistant-old",
+			nowMs: 1,
+			receivedAtMs: 1,
+		} as const;
+		await runtime.runPromise(store.recordApiTurnEvent(oldTurn));
+		for (let index = 0; index < 1_001; index += 1)
+			await runtime.runPromise(
+				store.appendApiMessage({
+					messageId: `terminal-${index}`,
+					workspaceId: "workspace-retention",
+					accountId: "account-1",
+					role: "user",
+					sealedContent: `sealed:terminal-${index}`,
+					status: "settled",
+					createdAtMs: 1,
+				}),
+			);
+
+		await runtime.runPromise(
+			store.createApiWebhook(
+				{
+					webhookId: "webhook-retention",
+					accountId: "account-1",
+					url: "https://example.test/webhook",
+					sealedSecret: "sealed:webhook-secret",
+					createdAtMs: 1,
+				},
+				20,
+			),
+		);
+		const deliveryTurn = (
+			deliveryId: string,
+			eventId: string,
+			enqueuedAtMs: number,
+		) =>
+			({
+				messageId: `assistant-${eventId}`,
+				workspaceId: `workspace-${eventId}`,
+				accountId: "account-1",
+				turnId: `turn-${eventId}`,
+				outcome: "completed",
+				sealedContent: `sealed:assistant-${eventId}`,
+				contentDigest: `digest:${eventId}`,
+				nowMs: 1,
+				receivedAtMs: 1,
+				webhookFanout: {
+					eventId,
+					eventType: "workspace.turn.completed" as const,
+					sealedPayload: `sealed:${eventId}`,
+					enqueuedAtMs,
+					targets: [{ webhookId: "webhook-retention", deliveryId }],
+				},
+			}) as const;
+		const deliveredOld = deliveryTurn(
+			"delivery-delivered-old",
+			"event-delivered-old",
+			1,
+		);
+		await runtime.runPromise(store.recordApiTurnEvent(deliveredOld));
+		const [claimedDeliveredOld] = await runtime.runPromise(
+			store.claimDueApiWebhookDeliveries(1, 1, 100),
+		);
+		if (claimedDeliveredOld === undefined)
+			throw new Error("delivery not queued");
+		await runtime.runPromise(
+			store.completeApiWebhookDelivery(
+				claimedDeliveredOld.delivery.deliveryId,
+				1,
+			),
+		);
+		const failedOld = deliveryTurn(
+			"delivery-failed-old",
+			"event-failed-old",
+			1,
+		);
+		await runtime.runPromise(store.recordApiTurnEvent(failedOld));
+		const [claimedFailedOld] = await runtime.runPromise(
+			store.claimDueApiWebhookDeliveries(1, 1, 100),
+		);
+		if (claimedFailedOld === undefined) throw new Error("delivery not queued");
+		await runtime.runPromise(
+			store.failApiWebhookDelivery({
+				deliveryId: claimedFailedOld.delivery.deliveryId,
+				nowMs: 1,
+				error: "terminal",
+				nextAttemptAtMs: 1,
+				terminal: true,
+			}),
+		);
+		const deliveredCurrent = deliveryTurn(
+			"delivery-delivered-current",
+			"event-delivered-current",
+			100,
+		);
+		await runtime.runPromise(store.recordApiTurnEvent(deliveredCurrent));
+		const [claimedDeliveredCurrent] = await runtime.runPromise(
+			store.claimDueApiWebhookDeliveries(100, 1, 100),
+		);
+		if (claimedDeliveredCurrent === undefined)
+			throw new Error("delivery not queued");
+		await runtime.runPromise(
+			store.completeApiWebhookDelivery(
+				claimedDeliveredCurrent.delivery.deliveryId,
+				100,
+			),
+		);
+		const pendingOld = deliveryTurn(
+			"delivery-pending-old",
+			"event-pending-old",
+			1,
+		);
+		await runtime.runPromise(store.recordApiTurnEvent(pendingOld));
+
+		await runtime.runPromise(store.pruneApiData(100));
+		const retained = await runtime.runPromise(
+			store.listApiMessages("workspace-retention", 0, 2_000),
+		);
+		expect(retained).toHaveLength(1_002);
+		expect(retained.some(({ messageId }) => messageId === "pending-old")).toBe(
+			true,
+		);
+		expect(retained.some(({ messageId }) => messageId === "terminal-0")).toBe(
+			false,
+		);
+		expect(
+			retained.some(({ messageId }) => messageId === "assistant-old"),
+		).toBe(false);
+		expect(
+			retained.some(
+				({ messageId }) => messageId === legacyUnreceiptedTurn.messageId,
+			),
+		).toBe(true);
+		expect(
+			(
+				await runtime.runPromise(
+					store.recordApiTurnEvent({
+						...legacyUnreceiptedTurn,
+						adoptLegacyReplay: true,
+					}),
+				)
+			).kind,
+		).toBe("replay");
+		await runtime.runPromise(store.pruneApiData(100));
+		expect(
+			(
+				await runtime.runPromise(
+					store.listApiMessages("workspace-retention", 0, 2_000),
+				)
+			).some(({ messageId }) => messageId === legacyUnreceiptedTurn.messageId),
+		).toBe(false);
+		expect(
+			await runtime.runPromise(
+				store.recordApiTurnEvent({
+					...oldTurn,
+					webhookFanout: {
+						eventId: "event-pruned-repair",
+						eventType: "workspace.turn.completed",
+						sealedPayload: "sealed:event-pruned-repair",
+						enqueuedAtMs: 200,
+						targets: [
+							{
+								webhookId: "webhook-retention",
+								deliveryId: "delivery-pruned-repair",
+							},
+						],
+					},
+				}),
+			),
+		).toEqual({
+			kind: "pruned-replay",
+			receipt: {
+				workspaceId: oldTurn.workspaceId,
+				turnId: oldTurn.turnId,
+				outcome: oldTurn.outcome,
+				settledAtMs: oldTurn.nowMs,
+				receivedAtMs: oldTurn.receivedAtMs,
+				contentDigest: oldTurn.contentDigest,
+			},
+		});
+		expect(
+			await runtime.runPromise(
+				store.listApiMessages("workspace-retention", 0, 2_000),
+			),
+		).toHaveLength(1_001);
+		const appended = await runtime.runPromise(
+			store.appendApiMessage({
+				messageId: "after-prune",
+				workspaceId: "workspace-retention",
+				accountId: "account-1",
+				role: "user",
+				sealedContent: "sealed:after-prune",
+				status: "pending",
+				createdAtMs: 200,
+			}),
+		);
+		expect(appended.message.seq).toBe(1_005);
+
+		for (const [input, replacementId] of [
+			[deliveredOld, "replacement-delivered-old"],
+			[failedOld, "replacement-failed-old"],
+			[pendingOld, "replacement-pending-old"],
+			[deliveredCurrent, "replacement-delivered-current"],
+		] as const)
+			await runtime.runPromise(
+				store.recordApiTurnEvent({
+					...input,
+					webhookFanout: {
+						...input.webhookFanout,
+						enqueuedAtMs: 200,
+						targets: [
+							{
+								webhookId: "webhook-retention",
+								deliveryId: replacementId,
+							},
+						],
+					},
+				}),
+			);
+		expect(
+			new Set(
+				(
+					await runtime.runPromise(
+						store.claimDueApiWebhookDeliveries(300, 10, 100),
+					)
+				).map(({ delivery: claimed }) => claimed.deliveryId),
+			),
+		).toEqual(new Set(["delivery-pending-old", "delivery-pruned-repair"]));
 		await runtime.dispose();
 	});
 

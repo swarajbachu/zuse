@@ -538,6 +538,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 					createdAt: new Date(row.created_at),
 				}),
 				sequence: row.sequence,
+				turnId: AgentTurnId.make(row.turn_id),
 			};
 		});
 

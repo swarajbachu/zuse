@@ -43,6 +43,20 @@ export const importAesGcmKey = async (
 	);
 };
 
+export const importHmacSha256Key = async (
+	encodedKey: string,
+): Promise<CryptoKey> => {
+	const bytes = base64UrlToBytes(encodedKey);
+	if (bytes.byteLength !== 32) throw new Error("invalid HMAC key");
+	return crypto.subtle.importKey(
+		"raw",
+		ownedBuffer(bytes),
+		{ name: "HMAC", hash: "SHA-256" },
+		false,
+		["sign"],
+	);
+};
+
 export const encryptAesGcmEnvelope = async (input: {
 	readonly key: CryptoKey;
 	readonly keyId?: string;

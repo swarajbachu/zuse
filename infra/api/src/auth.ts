@@ -1,5 +1,6 @@
 import { Clock, Effect, Redacted } from "effect";
 
+import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import {
 	parseJwk,
@@ -82,6 +83,37 @@ export const requireEnvironmentCredential = (
 			return yield* Effect.fail(forbidden("credential_environment_mismatch"));
 		}
 		return { accountId: credential.accountId, environmentId };
+	});
+
+export interface ApiKeyPrincipal {
+	readonly accountId: string;
+	readonly keyId: string;
+}
+
+/**
+ * Require a valid public-API key (Authorization: Bearer zk_…), used on the
+ * `/v1/api/**` machine-caller surface. Secrets are compared by hash only;
+ * `last_used_at` is refreshed at most once a minute per key.
+ */
+export const requireApiKey = (
+	request: Request,
+): Effect.Effect<ApiKeyPrincipal, ApiError, CloudWorkspaceStore> =>
+	Effect.gen(function* () {
+		const store = yield* CloudWorkspaceStore;
+		const header = request.headers.get("authorization") ?? "";
+		const match = /^Bearer (zk_.+)$/i.exec(header);
+		const secret = match?.[1];
+		if (secret === undefined) {
+			return yield* Effect.fail(unauthorized("missing_api_key"));
+		}
+		const hash = yield* sha256Hex(secret);
+		const key = yield* store.findActiveApiKeyByHash(hash);
+		if (key === null) {
+			return yield* Effect.fail(unauthorized("invalid_api_key"));
+		}
+		const nowMs = yield* Clock.currentTimeMillis;
+		yield* store.touchApiKey(key.keyId, nowMs);
+		return { accountId: key.accountId, keyId: key.keyId };
 	});
 
 export interface DpopPrincipal {

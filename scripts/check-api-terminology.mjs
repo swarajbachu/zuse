@@ -1,12 +1,13 @@
 import { spawnSync } from "node:child_process";
 
 const historicalPaths = [
+	/^infra\/api\/drizzle\/migrations\/0021_link_challenge_api_issuer\.sql$/u,
 	/^infra\/api\/drizzle\/migrations\/(?:000\d|001[0-5])_/u,
 	/^infra\/api\/drizzle\/migrations\/meta\//u,
 	/^apps\/server\/src\/persistence\/migrations\/002[4-8]_/u,
 	/^apps\/server\/src\/persistence\/migrations\/0052_api_config\.ts$/u,
-	/^docs\/adr\/000[12]-/u,
-	/^docs\/adr\/0003-api-control-plane-naming\.md$/u,
+	/^internal-docs\/adr\/000[12]-/u,
+	/^internal-docs\/adr\/0003-api-control-plane-naming\.md$/u,
 	/^infra\/api\/drizzle\/migrations\/0016_api_naming\.sql$/u,
 	/^infra\/api\/test\/unit\/migration-safety\.test\.ts$/u,
 	/^apps\/server\/test\/integration\/api-config-migration\.test\.ts$/u,

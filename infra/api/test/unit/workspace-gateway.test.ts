@@ -100,6 +100,36 @@ const makeGateway = (input?: {
 };
 
 describe("workspace gateway", () => {
+	test("delivers a command nudge to the connected runtime", async () => {
+		const runtime = new FakeSocket({ role: "runtime", ...fence });
+		const { gateway } = makeGateway({ runtimes: [runtime] });
+		const response = await gateway.fetch(
+			new Request("https://gateway.internal/nudge", {
+				method: "POST",
+				headers: { "x-zuse-gateway-nudge": "command" },
+			}),
+		);
+		expect(response.status).toBe(204);
+		expect(runtime.sent).toEqual([JSON.stringify({ type: "runtime.command" })]);
+	});
+
+	test("reports 503 for a command nudge with no runtime attached", async () => {
+		const { gateway } = makeGateway();
+		const response = await gateway.fetch(
+			new Request("https://gateway.internal/nudge", {
+				method: "POST",
+				headers: { "x-zuse-gateway-nudge": "command" },
+			}),
+		);
+		expect(response.status).toBe(503);
+	});
+
+	test("never decodes runtime.command as an inbound peer message", () => {
+		expect(
+			decodeGatewayMessage(JSON.stringify({ type: "runtime.command" })),
+		).toBeNull();
+	});
+
 	test("closes a client instead of buffering a frame when no runtime exists", async () => {
 		const client = new FakeSocket({
 			role: "client",

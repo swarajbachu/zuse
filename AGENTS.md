@@ -34,15 +34,19 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues; external pull requests are not a triage request surface. See `docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues; external pull requests are not a triage request surface. See `internal-docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Triage uses the standard `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix` labels. See `docs/agents/triage-labels.md`.
+Triage uses the standard `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix` labels. See `internal-docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-This monorepo uses a multi-context domain-documentation layout. See `docs/agents/domain.md`.
+This monorepo uses a multi-context domain-documentation layout. See `internal-docs/agents/domain.md`.
+
+## Documentation Boundaries
+
+- Public documentation lives in `apps/docs/content/docs`. Keep repository guides, runbooks, architecture notes, decisions, specifications, and contributor instructions in top-level `internal-docs/`.
 
 ## Workspace Boundaries
 

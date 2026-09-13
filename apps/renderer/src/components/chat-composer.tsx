@@ -203,8 +203,10 @@ const attachmentsWithBrowserAnnotations = (
 	return next;
 };
 
+import { useChatDeviceApproval } from "../lib/chat-device-approval.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
+import { DevicePermissionCard } from "./device-permission-card.tsx";
 import { PermissionCard } from "./permission-card.tsx";
 import { QuestionCard } from "./question-card.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
@@ -310,6 +312,11 @@ export function ChatComposer({
 		sessionId,
 	});
 	const isCloudSession = cloudSummary !== null;
+	const deviceApproval = useChatDeviceApproval(
+		cloudSummary?.workspaceId,
+		session.chatId,
+	);
+	const headDeviceCommand = deviceApproval.commands[0];
 	const cloudShell = useEnvironmentShellResource(
 		cloudSummary === null ? null : qualifiedEnvironmentId,
 		"cache-only",
@@ -1331,7 +1338,10 @@ export function ChatComposer({
 	// re-runs to re-attach it — so the host reappears blank: no placeholder,
 	// cursor won't land. Staying mounted also preserves any in-progress draft
 	// when a permission prompt interrupts mid-typing.
-	const showCard = headPermission !== undefined || pendingQuestion !== null;
+	const showCard =
+		headPermission !== undefined ||
+		headDeviceCommand !== undefined ||
+		pendingQuestion !== null;
 
 	return (
 		<TooltipProvider delay={0}>
@@ -1346,6 +1356,13 @@ export function ChatComposer({
 								head={headPermission}
 								queueSize={pendingPermissions.length}
 								environmentId={qualifiedEnvironmentId}
+							/>
+						) : headDeviceCommand !== undefined ? (
+							<DevicePermissionCard
+								key={headDeviceCommand.id}
+								command={headDeviceCommand}
+								queueSize={deviceApproval.commands.length}
+								onDecision={deviceApproval.decide}
 							/>
 						) : pendingQuestion !== null ? (
 							<QuestionCard

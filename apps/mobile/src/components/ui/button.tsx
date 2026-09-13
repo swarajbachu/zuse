@@ -13,9 +13,11 @@ type ButtonProps = PressableProps & {
 function textClassName(variant: NonNullable<ButtonProps["variant"]>) {
 	return cn(
 		"font-sans-medium text-[16px]",
-		variant === "primary" || variant === "danger"
-			? "text-primary-foreground"
-			: "text-foreground",
+		variant === "danger"
+			? "text-white"
+			: variant === "primary"
+				? "text-primary-foreground"
+				: "text-foreground",
 	);
 }
 

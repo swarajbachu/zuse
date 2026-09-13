@@ -27,10 +27,13 @@ import {
 	type PowerMonitorState,
 	type PowerRecordingDurationMinutes,
 	type PowerWorkloadState,
+	UPDATE_CHANNEL_GET,
+	UPDATE_CHANNEL_SET,
 	UPDATE_CHECK_CHANNEL,
 	UPDATE_DOWNLOAD_CHANNEL,
 	UPDATE_INSTALL_CHANNEL,
 	UPDATE_STATUS_CHANNEL,
+	type UpdateChannel,
 	type UpdateStatus,
 } from "@zuse/contracts";
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
@@ -483,6 +486,10 @@ const bridge = {
 			) as Promise<import("@zuse/contracts").TailnetEnvironmentProfile>,
 	},
 	updates: {
+		getChannel: () =>
+			ipcRenderer.invoke(UPDATE_CHANNEL_GET) as Promise<UpdateChannel>,
+		setChannel: (channel: UpdateChannel) =>
+			ipcRenderer.invoke(UPDATE_CHANNEL_SET, channel) as Promise<UpdateChannel>,
 		onStatus: (handler: (status: UpdateStatus) => void) => {
 			const wrapped = (_event: IpcRendererEvent, status: UpdateStatus) =>
 				handler(status);

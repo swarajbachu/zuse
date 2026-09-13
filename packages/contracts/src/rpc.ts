@@ -37,6 +37,11 @@ import {
 	BrowserSetCredentialRpc,
 } from "./browser.ts";
 import {
+	CloudApiKeysCreateRpc,
+	CloudApiKeysListRpc,
+	CloudApiKeysRevokeRpc,
+} from "./cloud-api.ts";
+import {
 	CloudAuthConfigureRpc,
 	CloudAuthDisconnectRpc,
 	CloudAuthLoginCancelRpc,
@@ -94,6 +99,10 @@ import {
 	ConnectLinkProofRpc,
 } from "./connect.ts";
 import { ContextSaveTextRpc } from "./context.ts";
+import {
+	CloudDeviceBridgeRpc,
+	DeviceBridgeControlRpc,
+} from "./device-bridge.ts";
 import {
 	DiagnosticsCaptureRpc,
 	DiagnosticsEventsRpc,
@@ -346,6 +355,8 @@ import {
  * Add new RPCs by importing them here and including them in the group.
  */
 export const MemoizeRpcs = RpcGroup.make(
+	DeviceBridgeControlRpc,
+	CloudDeviceBridgeRpc,
 	PingRpc,
 	PreviewsListServersRpc,
 	AnalyticsGetContextRpc,
@@ -414,6 +425,9 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudWorkspaceDataKeyRpc,
 	CloudTranscriptCheckpointGetRpc,
 	CloudTranscriptMessagePageGetRpc,
+	CloudApiKeysListRpc,
+	CloudApiKeysCreateRpc,
+	CloudApiKeysRevokeRpc,
 	MachinesOffersRpc,
 	MachinesListRpc,
 	MachinesGetRpc,

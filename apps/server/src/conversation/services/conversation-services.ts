@@ -198,6 +198,31 @@ export interface ForkSessionResult {
 	readonly forkMode: ForkMode;
 }
 
+/** Named-input boundary shared by RPC sends and durable internal transports. */
+export interface MessageSendInput {
+	readonly commandId: string;
+	readonly sessionId: SessionId;
+	readonly text: string;
+	readonly attachments?: ReadonlyArray<AttachmentRef>;
+	readonly fileRefs?: ReadonlyArray<FileRef>;
+	readonly skillRefs?: ReadonlyArray<SkillRef>;
+	readonly annotations?: ReadonlyArray<ComposerAnnotation>;
+	readonly asGoal?: boolean;
+	/** Stable persisted user-message identity, when supplied by the caller. */
+	readonly messageId?: MessageId;
+	readonly origin?: MessageOrigin;
+	/** Stable domain turn identity for a causally correlated transport command. */
+	readonly turnId?: AgentTurnId;
+	readonly receiptIdentity?: CommandReceiptIdentity;
+}
+
+/** Durable identities accepted for a message send, including idempotent replay. */
+export interface MessageSendResult {
+	readonly accepted: boolean;
+	readonly messageId?: MessageId;
+	readonly turnId?: AgentTurnId;
+}
+
 export interface ConversationOperations {
 	readonly listSessions: (
 		projectId: FolderId,
@@ -505,6 +530,14 @@ export interface ConversationOperations {
 		SessionNotFoundError | GoalUnsupportedError
 	>;
 
+	/** Internal named-input path for durable transports and other services. */
+	readonly sendMessageWithInput: (
+		input: MessageSendInput,
+	) => Effect.Effect<
+		MessageSendResult,
+		SessionNotFoundError | DirectoryUnavailableError
+	>;
+
 	readonly sendMessage: (
 		commandId: string,
 		sessionId: SessionId,
@@ -637,7 +670,7 @@ export type TranscriptServiceShape = Pick<
 
 export type MessageServiceShape = Pick<
 	ConversationOperations,
-	"listMessages" | "sendMessage" | "interruptSession"
+	"listMessages" | "sendMessage" | "sendMessageWithInput" | "interruptSession"
 >;
 
 export type QueueServiceShape = Pick<

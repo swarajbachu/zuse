@@ -4,13 +4,97 @@ import {
 	bigserial,
 	boolean,
 	check,
+	foreignKey,
 	index,
+	integer,
 	jsonb,
 	pgTable,
 	primaryKey,
 	text,
+	unique,
 	uniqueIndex,
 } from "drizzle-orm/pg-core";
+
+export const apiSlackInstallations = pgTable(
+	"api_slack_installations",
+	{
+		teamId: text("team_id").primaryKey(),
+		ownerId: text("owner_id").notNull(),
+		generation: text("generation").notNull(),
+		accountId: text("account_id"),
+		revision: integer("revision").notNull().default(0),
+		sealed: text("sealed").notNull(),
+	},
+	(table) => [
+		unique().on(table.teamId, table.generation),
+		index("api_slack_installations_account_idx").on(table.accountId),
+	],
+);
+
+export const apiSlackMembers = pgTable(
+	"api_slack_members",
+	{
+		teamId: text("team_id").notNull(),
+		generation: text("generation").notNull(),
+		userId: text("user_id").notNull(),
+		accountId: text("account_id"),
+		revision: integer("revision").notNull().default(0),
+		sealed: text("sealed").notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.teamId, table.generation, table.userId] }),
+		foreignKey({
+			columns: [table.teamId, table.generation],
+			foreignColumns: [
+				apiSlackInstallations.teamId,
+				apiSlackInstallations.generation,
+			],
+		}).onDelete("cascade"),
+		index("api_slack_members_account_idx").on(table.accountId),
+	],
+);
+
+export const apiSlackSessions = pgTable(
+	"api_slack_sessions",
+	{
+		tokenHash: text("token_hash").primaryKey(),
+		kind: text("kind").notNull(),
+		teamId: text("team_id").notNull(),
+		ownerId: text("owner_id").notNull(),
+		generation: text("generation").notNull(),
+		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+		payload: text("payload").notNull(),
+	},
+	(table) => [
+		check(
+			"api_slack_sessions_kind_check",
+			sql`${table.kind} IN ('oauth', 'login', 'settings', 'workos')`,
+		),
+		index("api_slack_sessions_expiry_idx").on(table.expiresAt),
+	],
+);
+
+export const apiSlackState = pgTable(
+	"api_slack_state",
+	{
+		teamId: text("team_id").notNull(),
+		generation: text("generation").notNull(),
+		key: text("key").notNull(),
+		value: text("value").notNull(),
+		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.teamId, table.generation, table.key] }),
+		foreignKey({
+			columns: [table.teamId, table.generation],
+			foreignColumns: [
+				apiSlackInstallations.teamId,
+				apiSlackInstallations.generation,
+			],
+		}).onDelete("cascade"),
+		index("api_slack_state_expiry_idx").on(table.expiresAt),
+	],
+);
 
 export const apiLinkChallenges = pgTable(
 	"api_link_challenges",
@@ -969,6 +1053,167 @@ export const apiBillingEvents = pgTable(
 		processedAt: bigint("processed_at", { mode: "number" }),
 	},
 	(table) => [primaryKey({ columns: [table.provider, table.eventId] })],
+);
+
+export const apiApiKeys = pgTable(
+	"api_api_keys",
+	{
+		keyId: text("key_id").primaryKey(),
+		accountId: text("account_id").notNull(),
+		name: text("name").notNull(),
+		secretHash: text("secret_hash").notNull(),
+		prefix: text("prefix").notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		lastUsedAt: bigint("last_used_at", { mode: "number" }),
+		revokedAt: bigint("revoked_at", { mode: "number" }),
+	},
+	(table) => [
+		index("api_api_keys_account_idx").on(table.accountId),
+		uniqueIndex("api_api_keys_secret_hash_idx").on(table.secretHash),
+	],
+);
+
+// Outbound webhook endpoints registered through the public API. The signing
+// secret must be recoverable to sign deliveries, so it is stored sealed with
+// the api data-encryption key rather than hashed.
+export const apiApiWebhooks = pgTable(
+	"api_api_webhooks",
+	{
+		webhookId: text("webhook_id").primaryKey(),
+		accountId: text("account_id").notNull(),
+		url: text("url").notNull(),
+		sealedSecret: text("sealed_secret").notNull(),
+		description: text("description"),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		disabledAt: bigint("disabled_at", { mode: "number" }),
+	},
+	(table) => [index("api_api_webhooks_account_idx").on(table.accountId)],
+);
+
+/**
+ * Bounded per-workspace conversation ledger for the public API: user rows
+ * double as the pending-command queue delivered to the in-sandbox runtime,
+ * assistant rows are appended from runtime turn events. Content is sealed
+ * with the api data-encryption key like launch intents.
+ */
+export const apiCloudWorkspaceApiMessages = pgTable(
+	"api_cloud_workspace_api_messages",
+	{
+		messageId: text("message_id").primaryKey(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => apiCloudWorkspaces.workspaceId, {
+				onDelete: "cascade",
+			}),
+		accountId: text("account_id").notNull(),
+		seq: bigint("seq", { mode: "number" }).notNull(),
+		role: text("role").notNull(),
+		sealedContent: text("sealed_content").notNull(),
+		commandId: text("command_id"),
+		turnId: text("turn_id"),
+		outcome: text("outcome"),
+		status: text("status").notNull(),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		deliveryAttemptedAt: bigint("delivery_attempted_at", {
+			mode: "number",
+		}),
+		deliveredAt: bigint("delivered_at", { mode: "number" }),
+		expiresAt: bigint("expires_at", { mode: "number" }),
+	},
+	(table) => [
+		uniqueIndex("api_cloud_workspace_api_messages_seq_idx").on(
+			table.workspaceId,
+			table.seq,
+		),
+		uniqueIndex("api_cloud_workspace_api_messages_turn_idx")
+			.on(table.workspaceId, table.turnId)
+			.where(sql`${table.role} = 'assistant' AND ${table.turnId} IS NOT NULL`),
+		index("api_cloud_workspace_api_messages_pending_idx").on(
+			table.workspaceId,
+			table.status,
+		),
+		index("api_cloud_workspace_api_messages_pending_expiry_idx")
+			.on(table.expiresAt)
+			.where(
+				sql`${table.role} = 'user' AND ${table.status} IN ('pending', 'delivered') AND ${table.expiresAt} IS NOT NULL`,
+			),
+		index("api_cloud_workspace_api_messages_pending_stale_idx")
+			.on(table.createdAt, table.workspaceId)
+			.where(sql`${table.role} = 'user' AND ${table.status} = 'pending'`),
+		check(
+			"api_cloud_workspace_api_messages_role_check",
+			sql`${table.role} IN ('user', 'assistant')`,
+		),
+		check(
+			"api_cloud_workspace_api_messages_status_check",
+			sql`${table.status} IN ('pending', 'delivered', 'settled', 'failed', 'expired')`,
+		),
+	],
+);
+
+/**
+ * Compact, content-free idempotency receipts survive message retention. The
+ * runtime can replay its durable event log from zero after a restart without
+ * resurrecting an old assistant row at a new ledger sequence.
+ */
+export const apiCloudWorkspaceApiTurnReceipts = pgTable(
+	"api_cloud_workspace_api_turn_receipts",
+	{
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => apiCloudWorkspaces.workspaceId, {
+				onDelete: "cascade",
+			}),
+		turnId: text("turn_id").notNull(),
+		outcome: text("outcome").notNull(),
+		settledAt: bigint("settled_at", { mode: "number" }).notNull(),
+		receivedAt: bigint("received_at", { mode: "number" }).notNull(),
+		contentDigest: text("content_digest").notNull(),
+	},
+	(table) => [
+		primaryKey({
+			name: "api_cloud_workspace_api_turn_receipts_pk",
+			columns: [table.workspaceId, table.turnId],
+		}),
+		check(
+			"api_cloud_workspace_api_turn_receipts_outcome_check",
+			sql`${table.outcome} IN ('completed', 'interrupted', 'error')`,
+		),
+	],
+);
+
+export const apiApiWebhookDeliveries = pgTable(
+	"api_api_webhook_deliveries",
+	{
+		deliveryId: text("delivery_id").primaryKey(),
+		webhookId: text("webhook_id")
+			.notNull()
+			.references(() => apiApiWebhooks.webhookId, { onDelete: "cascade" }),
+		accountId: text("account_id").notNull(),
+		eventId: text("event_id").notNull(),
+		eventType: text("event_type").notNull(),
+		sealedPayload: text("sealed_payload").notNull(),
+		status: text("status").notNull(),
+		attempts: bigint("attempts", { mode: "number" }).notNull().default(0),
+		nextAttemptAt: bigint("next_attempt_at", { mode: "number" }).notNull(),
+		lastError: text("last_error"),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		uniqueIndex("api_api_webhook_deliveries_event_idx").on(
+			table.webhookId,
+			table.eventId,
+		),
+		index("api_api_webhook_deliveries_due_idx").on(
+			table.status,
+			table.nextAttemptAt,
+		),
+		check(
+			"api_api_webhook_deliveries_status_check",
+			sql`${table.status} IN ('pending', 'delivered', 'failed')`,
+		),
+	],
 );
 
 export const apiAgentActivity = pgTable(

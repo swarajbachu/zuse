@@ -1,4 +1,12 @@
-import { Effect, type Layer, ManagedRuntime } from "effect";
+import type { QueueMessage } from "@zuse/slack/types";
+import { isSlackWebhookTarget } from "@zuse/slack/webhook-target";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { ApiInternalWebhooks } from "./api-internal-webhooks.ts";
+import {
+	type ApiCommandNudgeTarget,
+	deliverPendingApiWebhooks,
+	sweepApiCommands,
+} from "./api-webhook-dispatch.ts";
 import { cloudBillingCapacity } from "./cloud-billing-capacity.ts";
 import {
 	ingestE2bLifecycleEvent,
@@ -21,8 +29,10 @@ import {
 import { ApiConfiguration } from "./config.ts";
 import { type ApiContext, handleRequest } from "./handler.ts";
 import { reconcileMachine, reconcileMachines } from "./machine-reconciler.ts";
+import { makeSlackModule, type SlackOptions } from "./slack/module.ts";
 
 export * from "./account-identity.ts";
+export * from "./api-webhook-dispatch.ts";
 export { API_SCOPES } from "./auth.ts";
 export * from "./beta-access.ts";
 export * from "./cloud-billing.ts";
@@ -52,8 +62,16 @@ export * from "./workos.ts";
  */
 export const makeApi = (
 	layer: Layer.Layer<ApiContext>,
+	options?: {
+		readonly slack?: SlackOptions;
+		/** Retain the receiver's identity while disabled so pending deliveries retry. */
+		readonly slackPublicOrigin?: string;
+	},
 ): {
 	readonly fetch: (request: Request) => Promise<Response>;
+	readonly consumeSlackJobs: (batch: {
+		readonly messages: ReadonlyArray<QueueMessage>;
+	}) => Promise<void>;
 	readonly reconcile: (owner: string) => Promise<{
 		readonly claimed: number;
 		readonly processed: number;
@@ -113,11 +131,49 @@ export const makeApi = (
 		events: ReadonlyArray<unknown>,
 		nowMs: number,
 	) => Promise<number>;
+	readonly deliverApiWebhooks: () => Promise<number>;
+	readonly sweepApiCommands: () => Promise<
+		ReadonlyArray<ApiCommandNudgeTarget>
+	>;
 	readonly dispose: () => Promise<void>;
 } => {
-	const runtime = ManagedRuntime.make(layer);
+	const slackOptions = options?.slack;
+	const slackPublicOrigin =
+		slackOptions?.publicOrigin ?? options?.slackPublicOrigin;
+	const internalWebhooks = Layer.succeed(ApiInternalWebhooks, {
+		accepts: (url) =>
+			slackPublicOrigin !== undefined &&
+			isSlackWebhookTarget(url, slackPublicOrigin),
+		receive: async (request): Promise<Response> =>
+			slackOptions
+				? (await slack()).fetch(request)
+				: new Response("Slack integration is not enabled.", { status: 503 }),
+	});
+	const runtime = ManagedRuntime.make(Layer.merge(layer, internalWebhooks));
+	const slack = () => {
+		if (!options?.slack) throw new Error("slack_not_configured");
+		return runtime.runPromise(makeSlackModule(options.slack));
+	};
 	return {
-		fetch: (request) => runtime.runPromise(handleRequest(request)),
+		fetch: async (request) => {
+			const path = new URL(request.url).pathname;
+			if (path === "/slack" || path.startsWith("/slack/")) {
+				if (!options?.slack)
+					return new Response("Slack integration is not enabled.", {
+						status: 503,
+					});
+				try {
+					return await (await slack()).fetch(request);
+				} catch {
+					console.error("[slack-app] integration initialization failed");
+					return new Response("Slack integration is unavailable.", {
+						status: 503,
+					});
+				}
+			}
+			return runtime.runPromise(handleRequest(request));
+		},
+		consumeSlackJobs: async (batch) => (await slack()).queue(batch),
 		reconcile: (owner) => runtime.runPromise(reconcileMachines({ owner })),
 		reconcileMachine: (machineId, owner) =>
 			runtime.runPromise(reconcileMachine({ machineId, owner })),
@@ -254,6 +310,8 @@ export const makeApi = (
 					return metered;
 				}),
 			),
+		deliverApiWebhooks: () => runtime.runPromise(deliverPendingApiWebhooks),
+		sweepApiCommands: () => runtime.runPromise(sweepApiCommands),
 		dispose: () => runtime.dispose(),
 	};
 };

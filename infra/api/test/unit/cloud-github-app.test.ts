@@ -73,20 +73,20 @@ describe("GitHub App installation callback routing", () => {
 		`${Buffer.from(JSON.stringify({ alg: "EdDSA" })).toString("base64url")}.${Buffer.from(JSON.stringify({ iss: issuer })).toString("base64url")}.signature`;
 
 	test("forwards an exact staging issuer from the production callback", () => {
-		const token = state("https://api-staging.stuff.md");
+		const token = state("https://api-staging.zuse.sh");
 		const result = githubInstallCallbackForwardUrl(
 			token,
 			123,
 			"https://api.zuse.sh",
 		);
 		expect(result).toBe(
-			`https://api-staging.stuff.md/v1/cloud/github/callback?state=${encodeURIComponent(token)}&installation_id=123`,
+			`https://api-staging.zuse.sh/v1/cloud/github/callback?state=${encodeURIComponent(token)}&installation_id=123`,
 		);
 	});
 
 	test("never forwards unknown issuers or callbacks already on staging", () => {
 		const unknown = state("https://attacker.example");
-		const staging = state("https://api-staging.stuff.md");
+		const staging = state("https://api-staging.zuse.sh");
 		expect(
 			githubInstallCallbackForwardUrl(unknown, 123, "https://api.zuse.sh"),
 		).toBeNull();
@@ -94,11 +94,26 @@ describe("GitHub App installation callback routing", () => {
 			githubInstallCallbackForwardUrl(
 				staging,
 				123,
-				"https://api-staging.stuff.md",
+				"https://api-staging.zuse.sh",
 			),
 		).toBeNull();
 		expect(
 			githubInstallCallbackForwardUrl("not-a-jwt", 123, "https://api.zuse.sh"),
+		).toBeNull();
+	});
+
+	test.each([
+		"https://api-staging.stuff.md",
+		"https://api-staging.zuse.sh.attacker.example",
+		"https://api-staging.zuse.sh/",
+		"http://api-staging.zuse.sh",
+	])("rejects retired and non-exact staging issuer %s", (issuer) => {
+		expect(
+			githubInstallCallbackForwardUrl(
+				state(issuer),
+				123,
+				"https://api.zuse.sh",
+			),
 		).toBeNull();
 	});
 });

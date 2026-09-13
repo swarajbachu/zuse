@@ -20,6 +20,7 @@ import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 import { SegmentedTabs } from "../ui/segmented-tabs.tsx";
+import { CloudApiKeys } from "./cloud-api-keys.tsx";
 import { CloudImageBuildHistory } from "./cloud-image-build-history.tsx";
 import { CloudImageReadiness } from "./cloud-image-readiness.tsx";
 import {
@@ -503,6 +504,7 @@ export function CloudWorkspacePool() {
 						onRemove={(project) => void removeProject(project)}
 					/>
 					<CloudWorkspaceAuth />
+					<CloudApiKeys />
 					<CloudSettingsGroup
 						title="Cloud image"
 						description="Build the reusable environment that starts every new cloud chat."

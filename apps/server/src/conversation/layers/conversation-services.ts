@@ -516,6 +516,7 @@ const ConversationRuntimeLive = Layer.effect(
 		const {
 			resumeSession,
 			sendMessage,
+			sendMessageWithInput,
 			interruptSession,
 			queueRuntime,
 			runStartupRecovery,
@@ -575,6 +576,8 @@ const ConversationRuntimeLive = Layer.effect(
 		const messageService = {
 			listMessages,
 			sendMessage: (...args) => withStartupRecovery(sendMessage(...args)),
+			sendMessageWithInput: (input) =>
+				withStartupRecovery(sendMessageWithInput(input)),
 			interruptSession,
 		} satisfies MessageServiceShape;
 		const queueService = queueRuntime.service;

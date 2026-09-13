@@ -103,6 +103,66 @@ afterAll(async () => {
 });
 
 describe("MCP gateway", () => {
+	test("keeps the MCP tool call unresolved until device approval and execution finish", async () => {
+		let approved = false;
+		let requests = 0;
+		let finished = false;
+		const command = {
+			id: "cmd",
+			accountId: "account",
+			workspaceId: "cloud",
+			chatId: "chat",
+			chatTitle: "Test",
+			grantEpoch: 0,
+			sessionId: "session",
+			deviceId: "mac",
+			deviceName: "Mac",
+			command: "pwd",
+			cwd: "/Users/test",
+			stdout: "",
+			stderr: "",
+			exitCode: null,
+			truncated: false,
+			createdAt: 0,
+		};
+		const issued = await issueMcpGatewaySession({
+			sessionId: "device-wait-test",
+			scopes: { browser: false, orchestration: false, deviceCommands: true },
+			ctx: {
+				deviceCommands: {
+					request: async () => {
+						requests++;
+						return {
+							...command,
+							state: approved ? ("completed" as const) : ("pending" as const),
+							stdout: approved ? "/Users/test" : "",
+							exitCode: approved ? 0 : null,
+						};
+					},
+				},
+			},
+		});
+		try {
+			const running = callTool(
+				issued.endpoint,
+				issued.token,
+				"local_command_execute",
+				{ command: "pwd", cwd: "/Users/test" },
+			).then((result) => {
+				finished = true;
+				return result;
+			});
+			await expect.poll(() => requests).toBeGreaterThan(0);
+			expect(finished).toBe(false);
+			approved = true;
+			const response = await running;
+			expect(response.status).toBe(200);
+			expect(response.raw).toContain("/Users/test");
+			expect(response.raw).not.toContain("pending");
+		} finally {
+			await issued.close();
+		}
+	});
 	test("rejects missing, malformed, invalid, and revoked bearer tokens", async () => {
 		const issued = await issueMcpGatewaySession({
 			sessionId: "auth-test",

@@ -29,6 +29,14 @@ export type WorkspaceGatewayControlMessage =
 	| {
 			readonly type: "client.close";
 			readonly connectionId: string;
+	  }
+	| {
+			/**
+			 * API → runtime only: pending public-API commands are waiting; the
+			 * runtime should drain `GET …/runtime/commands`. Deliberately absent
+			 * from `decodeGatewayMessage` so peers cannot inject it upward.
+			 */
+			readonly type: "runtime.command";
 	  };
 
 export const encodeGatewayMessage = (

@@ -17,7 +17,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-
 import { usePrefersReducedMotion } from "../hooks/use-media-query.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import {

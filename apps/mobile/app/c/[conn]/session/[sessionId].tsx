@@ -43,6 +43,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwind } from "uniwind";
 import { CloudChatStatus } from "~/components/cloud-chat-status";
+import { CloudDeviceAccess } from "~/components/cloud-device-access";
 import { Composer } from "~/components/composer";
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { InlineErrorNotice } from "~/components/inline-error-notice";
@@ -70,6 +71,7 @@ import { captureMobileError } from "~/lib/crash-reporting";
 import { scrollListToLatest } from "~/lib/legend-list-scroll";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
+import { mobileReleaseFeatures } from "~/lib/release-features";
 import { connectionSessionKey } from "~/lib/session-key";
 import { transcriptEndRunwayHeight } from "~/lib/thread-runway";
 import { shouldRestoreThreadPosition } from "~/lib/thread-switching";
@@ -1048,8 +1050,9 @@ function ThreadScreen() {
 							onChanges={openChanges}
 							onFiles={openFiles}
 							onTerminal={
-								options?.cloudWorkspaceId !== undefined ||
-								connectionSupports(connectionRecord, "mobile-terminal-v1")
+								mobileReleaseFeatures.terminal &&
+								(options?.cloudWorkspaceId !== undefined ||
+									connectionSupports(connectionRecord, "mobile-terminal-v1"))
 									? () => void onOpenTerminal()
 									: undefined
 							}
@@ -1150,6 +1153,9 @@ function ThreadScreen() {
 				}
 				ListFooterComponent={
 					<View style={{ minHeight: endRunwayHeight, paddingTop: 4 }}>
+						{options?.cloudWorkspaceId && (
+							<CloudDeviceAccess workspaceId={options.cloudWorkspaceId} />
+						)}
 						{workingActive ? <WorkingIndicator since={workingSince} /> : null}
 					</View>
 				}

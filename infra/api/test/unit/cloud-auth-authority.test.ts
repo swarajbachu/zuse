@@ -53,7 +53,7 @@ describe("cloud auth authority identity", () => {
 
 		expect(production).toMatch(/^zuse-auth-[a-f0-9]{32}$/u);
 		await expect(label("https://api.zuse.sh")).resolves.toBe(production);
-		await expect(label("https://api-staging.stuff.md")).resolves.not.toBe(
+		await expect(label("https://api-staging.zuse.sh")).resolves.not.toBe(
 			production,
 		);
 	});

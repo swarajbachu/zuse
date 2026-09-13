@@ -99,7 +99,7 @@ test("detects direct server transcript writes but excludes migrations", () => {
 	);
 });
 
-test("allows API content only in the named launch-intent module", () => {
+test("allows Api content only in named sealed boundaries", () => {
 	const source = "firstMessage: Schema.String";
 	assert.equal(
 		count(
@@ -156,6 +156,30 @@ test("allows API content only in the named launch-intent module", () => {
 			"api-message-content",
 		),
 		0,
+	);
+	assert.equal(
+		count(
+			"infra/api/src/cloud-workspace-store.ts",
+			"SELECT * FROM api_cloud_workspace_api_messages",
+			"api-message-content",
+		),
+		0,
+	);
+	assert.equal(
+		count(
+			"infra/api/src/public-api-routes.ts",
+			"decodeBody(ApiSendMessageRequest, request)",
+			"api-message-content",
+		),
+		0,
+	);
+	assert.equal(
+		count(
+			"infra/api/src/cloud-workspace-store.ts",
+			"export const CloudChatsHistoryRpc = {};",
+			"api-message-content",
+		),
+		1,
 	);
 });
 

@@ -54,8 +54,9 @@
 		"tsx": "4.23.0",
 		"turbo": "catalog:",
 		"typescript": "catalog:",
+		"vite-plus": "0.2.5",
 		"vitest": "4.1.10",
-		"vite-plus": "0.2.5"
+		"yaml": "2.9.0"
 	},
 	"engines": {
 		"node": ">=22.13"
@@ -64,6 +65,7 @@
 	"workspaces": {
 		"packages": [
 			"apps/*",
+			"examples/*",
 			"infra/*",
 			"packages/*",
 			"tests/*",

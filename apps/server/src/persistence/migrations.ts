@@ -1,6 +1,5 @@
 import { Layer } from "effect";
 import * as Migrator from "effect/unstable/sql/Migrator";
-
 import { Migration0001Initial } from "./migrations/0001_initial.ts";
 import { Migration0002Permissions } from "./migrations/0002_permissions.ts";
 import { Migration0003ResumeAndExport } from "./migrations/0003_resume_and_export.ts";
@@ -55,6 +54,9 @@ import { Migration0051LegacyChatCreationPhaseRepair } from "./migrations/0051_le
 import { Migration0052ApiConfig } from "./migrations/0052_api_config.ts";
 import { Migration0053CloudCommandReceipts } from "./migrations/0053_cloud_command_receipts.ts";
 import { Migration0054ProviderEffectOutcomes } from "./migrations/0054_provider_effect_outcomes.ts";
+import { Migration0055StagingApiOrigin } from "./migrations/0055_staging_api_origin.ts";
+import { Migration0056DeviceBridge } from "./migrations/0056_device_bridge.ts";
+import { Migration0057DeviceBridgeDefaultAccess } from "./migrations/0057_device_bridge_default_access.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -131,6 +133,9 @@ const MigrationDefinitions = {
 	"0052_api_config": Migration0052ApiConfig,
 	"0053_cloud_command_receipts": Migration0053CloudCommandReceipts,
 	"0054_provider_effect_outcomes": Migration0054ProviderEffectOutcomes,
+	"0055_staging_api_origin": Migration0055StagingApiOrigin,
+	"0056_device_bridge": Migration0056DeviceBridge,
+	"0057_device_bridge_default_access": Migration0057DeviceBridgeDefaultAccess,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */

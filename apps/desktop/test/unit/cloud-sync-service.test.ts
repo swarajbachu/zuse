@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
 	CloudSyncManager,
@@ -15,7 +15,17 @@ import {
 	supportsGitignoreFilter,
 } from "../../src/sync/cloud-sync-service.ts";
 
+const createManager = (
+	...args: ConstructorParameters<typeof CloudSyncManager>
+) =>
+	new CloudSyncManager(args[0], args[1], args[2], async () => ({
+		code: 0,
+		stderr: "",
+	}));
+
 describe("cloud sync service", () => {
+	beforeEach(() => vi.useFakeTimers());
+	afterEach(() => vi.useRealTimers());
 	test("uses the managed repository and branch path", () => {
 		expect(cloudSyncDefaultPath("/Users/me", "owner/zuse.git", "pikachu")).toBe(
 			"/Users/me/.zuse/cloud/zuse/pikachu",
@@ -33,6 +43,7 @@ describe("cloud sync service", () => {
 		});
 		expect(args).toEqual([
 			"-az",
+			"--checksum",
 			"--delay-updates",
 			"--delete-delay",
 			"--partial-dir=.zuse-rsync-partial",
@@ -91,7 +102,7 @@ describe("cloud sync service", () => {
 		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
 		await writeFile(join(dir, "precious.txt"), "do not clobber");
 		const events: Array<CloudSyncStatus> = [];
-		const manager = new CloudSyncManager(
+		const manager = createManager(
 			(status) => events.push(status),
 			async () => ({ code: 0, stderr: "" }),
 		);
@@ -110,7 +121,7 @@ describe("cloud sync service", () => {
 	test("syncs an empty directory and reaches in-sync", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
 		const runs: Array<ReadonlyArray<string>> = [];
-		const manager = new CloudSyncManager(
+		const manager = createManager(
 			() => {},
 			async (args) => {
 				runs.push(args);
@@ -124,7 +135,10 @@ describe("cloud sync service", () => {
 			hostAlias: "zuse-workspace_abc",
 			remotePath: "/home/zuse/workspace",
 		});
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await vi.advanceTimersByTimeAsync(5_000);
+		await vi.waitFor(() =>
+			expect(manager.status("workspace_abc").state).not.toBe("syncing"),
+		);
 		expect(runs.length).toBe(1);
 		expect(manager.status("workspace_abc").state).toBe("in-sync");
 		expect(manager.status("workspace_abc").lastSyncedAt).not.toBeNull();
@@ -134,7 +148,7 @@ describe("cloud sync service", () => {
 	test("falls back for old sandboxes without rsync", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
 		let fallbackRuns = 0;
-		const manager = new CloudSyncManager(
+		const manager = createManager(
 			() => {},
 			async () => ({
 				code: 127,
@@ -152,8 +166,11 @@ describe("cloud sync service", () => {
 			hostAlias: "zuse-workspace_old",
 			remotePath: "/home/zuse/workspace",
 		});
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(fallbackRuns).toBe(1);
+		await vi.advanceTimersByTimeAsync(5_000);
+		await vi.waitFor(() =>
+			expect(manager.status("workspace_abc").state).not.toBe("syncing"),
+		);
+		await vi.waitFor(() => expect(fallbackRuns).toBe(1));
 		expect(manager.status("workspace_old").state).toBe("in-sync");
 		await manager.dispose();
 	});
@@ -164,7 +181,7 @@ describe("cloud sync service", () => {
 			const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
 			let finishFirst = () => {};
 			let runs = 0;
-			const manager = new CloudSyncManager(
+			const manager = createManager(
 				() => {},
 				async () => {
 					runs += 1;
@@ -181,13 +198,14 @@ describe("cloud sync service", () => {
 				hostAlias: "zuse-workspace_debounce",
 				remotePath: "/home/zuse/workspace",
 			});
+			await vi.advanceTimersByTimeAsync(5_000);
 			await vi.waitFor(() => expect(runs).toBe(1));
 			manager.requestSync("workspace_debounce");
 			finishFirst();
 			await vi.waitFor(() =>
-				expect(manager.status("workspace_debounce").state).toBe("in-sync"),
+				expect(manager.status("workspace_debounce").state).toBe("pending"),
 			);
-			await vi.advanceTimersByTimeAsync(1_600);
+			await vi.advanceTimersByTimeAsync(5_000);
 			await vi.waitFor(() => expect(runs).toBe(2));
 			await manager.dispose();
 		} finally {
@@ -197,7 +215,7 @@ describe("cloud sync service", () => {
 
 	test("reports rsync failures with stderr tail and recovers on disable", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
-		const manager = new CloudSyncManager(
+		const manager = createManager(
 			() => {},
 			async () => ({
 				code: 12,
@@ -211,7 +229,10 @@ describe("cloud sync service", () => {
 			hostAlias: "zuse-workspace_abc",
 			remotePath: "/home/zuse/workspace",
 		});
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await vi.advanceTimersByTimeAsync(5_000);
+		await vi.waitFor(() =>
+			expect(manager.status("workspace_abc").state).not.toBe("syncing"),
+		);
 		expect(manager.status("workspace_abc").state).toBe("error");
 		expect(manager.status("workspace_abc").error).toContain(
 			"connection unexpectedly closed",
@@ -232,7 +253,7 @@ describe("cloud sync service", () => {
 	test("cancels an in-flight transfer when sync is disabled", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
 		let observedSignal: AbortSignal | undefined;
-		const manager = new CloudSyncManager(
+		const manager = createManager(
 			() => {},
 			async (_args, signal) => {
 				observedSignal = signal;
@@ -252,6 +273,7 @@ describe("cloud sync service", () => {
 			hostAlias: "zuse-workspace_cancel",
 			remotePath: "/home/zuse/workspace",
 		});
+		await vi.advanceTimersByTimeAsync(5_000);
 		await vi.waitFor(() => expect(observedSignal).toBeDefined());
 		await manager.configure({
 			workspaceId: "workspace_cancel",

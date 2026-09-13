@@ -29,5 +29,5 @@ export const apiBaseUrl = (): string =>
 		defaultApiBaseUrl(typeof __DEV__ !== "undefined" && __DEV__)
 	).replace(/\/$/, "");
 
-/** App deep-link scheme (matches app.json `scheme`). */
-export const APP_SCHEME = "zuse";
+/** App deep-link scheme injected by the active Expo/EAS build profile. */
+export const APP_SCHEME = process.env.EXPO_PUBLIC_APP_SCHEME ?? "zuse";

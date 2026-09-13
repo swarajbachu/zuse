@@ -45,8 +45,16 @@ const RFC1918_PATTERN =
  * else must use TLS.
  */
 export const isPrivateOrLocalHost = (hostname: string): boolean => {
-	const host = hostname.replace(/^\[|\]$/gu, "").toLowerCase();
-	if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+	const host = hostname
+		.replace(/^\[|\]$/gu, "")
+		.toLowerCase()
+		.replace(/\.+$/u, "");
+	if (
+		host === "localhost" ||
+		host.endsWith(".localhost") ||
+		host === "127.0.0.1" ||
+		host === "::1"
+	) {
 		return true;
 	}
 	if (host.endsWith(".local")) return true;
