@@ -11,7 +11,7 @@ a number such as `0.22.0` is its target Stable version. Publish Stable only when
 the user explicitly requests Stable or promotion. Keep an explicitly selected
 channel for the current release; subsequent unspecified releases default to Preview.
 
-Read [the desktop release guide](../../../docs/desktop-release-channels.md) for
+Read [the desktop release guide](../../../internal-docs/desktop-release-channels.md) for
 workflow inputs, compatibility gates, bootstrap behavior, and recovery. Use the
 existing release workflow and shared version tooling as the source of truth.
 
