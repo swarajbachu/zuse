@@ -173,7 +173,7 @@ jobs:
           test -n "$LINEAR_CLIENT_ID"
           test -n "$ZUSE_POSTHOG_KEY"
           test -n "$VITE_POSTHOG_KEY"
-          bun run build
+          bun run build:desktop
       - name: Package, sign, and notarize macOS
         if: matrix.platform == 'mac'
         working-directory: apps/desktop
@@ -187,6 +187,8 @@ jobs:
         run: |
           bun run native:build:universal
           bunx electron-builder --mac --universal --publish never -c.publish.channel="$UPDATE_CHANNEL"
+          codesign --verify --deep --strict "../../dist/mac-universal/Zuse (Beta).app"
+          xcrun stapler validate "../../dist/mac-universal/Zuse (Beta).app"
       - name: Package Linux
         if: matrix.platform == 'linux'
         working-directory: apps/desktop

@@ -3651,9 +3651,10 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						).items.length,
 				)
 				.toBe(0);
-			expect(
-				providerSentTexts.filter((text) => text === input.text),
-			).toHaveLength(1);
+			// Queue removal records durable intent before asynchronous provider delivery.
+			await expect
+				.poll(() => providerSentTexts.filter((text) => text === input.text))
+				.toHaveLength(1);
 		});
 	});
 

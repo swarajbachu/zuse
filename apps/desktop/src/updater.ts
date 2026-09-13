@@ -328,6 +328,7 @@ export function startAutoUpdater(window: UpdaterWindow): void {
 	// platforms can safely retain electron-updater's normal install-on-quit.
 	autoUpdater.autoInstallOnAppQuit = false;
 	initialization = initializeChannels(true);
+	registerChannelHandlers();
 
 	autoUpdater.on("checking-for-update", () => {
 		if (coordinator.switching) return;
@@ -429,6 +430,7 @@ export function registerUpdaterDemo(window: UpdaterWindow): void {
 	// Plumb the renderer so demo-pushed statuses reach the banner.
 	attachRenderer(window);
 	initialization = initializeChannels(false);
+	registerChannelHandlers();
 	ipcMain.handle("zuse:update-demo-set", (_event, status: UpdateStatus) => {
 		if (window.isDestroyed()) return;
 		// Push through `emit` so the menu listener and any other subscribers
@@ -472,18 +474,20 @@ async function initializeChannels(packaged: boolean): Promise<void> {
 	}
 }
 
-ipcMain.handle(UPDATE_CHANNEL_GET, async () => {
-	await initialization;
-	return coordinator.channel;
-});
-ipcMain.handle(UPDATE_CHANNEL_SET, async (_event, channel: unknown) => {
-	await initialization;
-	if (installingUpdate) throw new Error("An update is already installing");
-	await coordinator.setChannel(channel);
-	await updateCheckInFlight;
-	if (app.isPackaged) void runUpdateCheck("manual");
-	return coordinator.channel;
-});
+function registerChannelHandlers(): void {
+	ipcMain.handle(UPDATE_CHANNEL_GET, async () => {
+		await initialization;
+		return coordinator.channel;
+	});
+	ipcMain.handle(UPDATE_CHANNEL_SET, async (_event, channel: unknown) => {
+		await initialization;
+		if (installingUpdate) throw new Error("An update is already installing");
+		await coordinator.setChannel(channel);
+		await updateCheckInFlight;
+		if (app.isPackaged) void runUpdateCheck("manual");
+		return coordinator.channel;
+	});
+}
 
 async function downloadUpdate(): Promise<void> {
 	stallRetried = false;
