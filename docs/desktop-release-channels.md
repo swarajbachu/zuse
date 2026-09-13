@@ -33,7 +33,9 @@ GitHub's current Stable release is the authoritative release baseline.
 
 Both platform builds and verification must finish before publication. macOS
 retains the signed, notarized universal DMG and updater ZIP; Linux retains
-AppImage and deb packages. The final job verifies manifest versions, sizes, and
+AppImage and deb packages. Before upload, CI extracts and launches the AppImage,
+checks renderer startup, and verifies the channel preference across relaunch.
+The final job verifies manifest versions, sizes, and
 SHA-512 hashes, uploads to a draft, verifies the uploaded asset inventory, then
 publishes. Preview releases are explicitly prereleases and never marked Latest.
 Allocation and publication are serialized across both channels.

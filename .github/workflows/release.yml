@@ -142,7 +142,7 @@ jobs:
         with:
           bun-version: 1.3.10
       - if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev xvfb
       - uses: actions/cache@v4
         with:
           path: |
@@ -195,6 +195,11 @@ jobs:
         env:
           UPDATE_CHANNEL: ${{ needs.resolve.outputs.updateChannel }}
         run: bunx electron-builder --linux AppImage deb --x64 --publish never -c.publish.channel="$UPDATE_CHANNEL"
+      - name: Smoke test packaged Linux app
+        if: matrix.platform == 'linux'
+        env:
+          RELEASE_METADATA: desktop-release.json
+        run: xvfb-run -a node --import tsx tests/system/scripts/packaged-desktop-smoke.ts dist/*.AppImage
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.platform }}
