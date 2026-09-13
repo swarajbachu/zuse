@@ -1,8 +1,13 @@
-import { isWebsiteLocale } from "@zuse/i18n/registry";
+import { isWebsiteLocale, websitePath } from "@zuse/i18n/registry";
 import { type NextRequest, NextResponse } from "next/server";
 import { NOT_FOUND_MARKDOWN } from "@/lib/agent-content";
 import { jsonError } from "@/lib/api-error";
 import { appendVary, negotiateContent } from "@/lib/content-negotiation";
+import {
+	LANGUAGE_COOKIE,
+	LANGUAGE_COOKIE_MAX_AGE,
+	resolveWebsiteLanguage,
+} from "@/lib/language-preference";
 import { LEGAL_PAGE_PATHS } from "@/lib/legal-pages";
 
 const MARKDOWN_ALTERNATE = '</home.md>; rel="alternate"; type="text/markdown"';
@@ -46,6 +51,24 @@ const withNegotiationHeaders = (response: NextResponse) => {
 export function proxy(request: NextRequest) {
 	const { pathname } = request.nextUrl;
 
+	// An explicit English link must not loop through automatic root detection.
+	if (
+		pathname === "/en" &&
+		(request.method === "GET" || request.method === "HEAD")
+	) {
+		const url = request.nextUrl.clone();
+		url.pathname = "/";
+		const response = NextResponse.redirect(url, 307);
+		response.cookies.set(LANGUAGE_COOKIE, "en", {
+			path: "/",
+			maxAge: LANGUAGE_COOKIE_MAX_AGE,
+			sameSite: "lax",
+			secure: request.nextUrl.protocol === "https:",
+		});
+		response.headers.set("Cache-Control", "private, no-store");
+		return response;
+	}
+
 	if (pathname.startsWith("/api/") && !publicApiRoute(pathname)) {
 		return jsonError(
 			404,
@@ -77,7 +100,25 @@ export function proxy(request: NextRequest) {
 			return response;
 		}
 
-		return withNegotiationHeaders(NextResponse.next());
+		const locale = resolveWebsiteLanguage(
+			request.cookies.get(LANGUAGE_COOKIE)?.value,
+			request.headers.get("accept-language"),
+			request.headers.get("x-vercel-ip-country"),
+		);
+		const url = request.nextUrl.clone();
+		url.pathname = websitePath(locale);
+		const response = withNegotiationHeaders(
+			locale === "en" ? NextResponse.next() : NextResponse.redirect(url, 307),
+		);
+		// Never share a visitor's redirect or English response with another visitor.
+		response.headers.set("Cache-Control", "private, no-store");
+		for (const header of ["Accept-Language", "Cookie", "X-Vercel-IP-Country"]) {
+			response.headers.set(
+				"Vary",
+				appendVary(response.headers.get("Vary"), header),
+			);
+		}
+		return response;
 	}
 
 	const isKnownRoute =

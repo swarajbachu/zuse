@@ -18,6 +18,9 @@ loads and share one runtime per window. Switching does not recreate the applicat
 change action IDs, discard drafts, or alter agent instructions.
 
 System mode uses Electron's preferred system languages at launch and activation.
+If none match an enabled language, the OS country/region is a fallback hint, followed
+by English. An explicit saved choice always wins. Desktop detection stays offline
+and requests neither GPS permissions nor an IP lookup.
 Explicit Chinese scripts take precedence over region: Taiwan, Hong Kong, and Macao
 resolve to Traditional; China, Singapore, and bare `zh` resolve to Simplified.
 Unsupported or unreviewed languages fall back to English. OS-owned controls can follow
@@ -40,9 +43,20 @@ these instead of editing them. `context/` holds translator context and source re
 ## Public landing page
 
 The website supports `/` (English), `/fr`, `/de`, `/zh-Hans`, `/zh-Hant`, `/ja`, and `/ko`.
-`/en` redirects permanently to `/`. Unsupported locale paths return 404. The compact
-language selector navigates to the selected landing page and preserves section hashes.
-Website language follows the URL, independently of desktop settings and connected devices.
+Unsupported locale paths return 404. The compact language selector shows short labels,
+keeps full native names in its menu, and saves manual choices in the `zuse-language`
+first-party cookie for one year (Path=/, SameSite=Lax, Secure on HTTPS). It preserves
+section hashes when navigating. Website preferences are independent of desktop settings.
+
+For HTML requests to `/`, precedence is saved choice, quality-ranked `Accept-Language`,
+Vercel's IP-country hint, then English. Country is used only if no browser language matches;
+ambiguous countries without a configured hint fall back to English. Direct localized URLs
+such as `/fr` take precedence for that visit and do not overwrite the saved preference.
+`/en` saves English before a temporary redirect to `/`, preventing a browser-language loop.
+Personalized root responses/redirects are private and non-cacheable, with language/cookie/
+country Vary headers on redirects. Markdown, API, downloads, legal, and documentation routes are excluded.
+The IP hint uses the hosting request header, not a GPS permission or external lookup service.
+Clearing/blocking cookies resets remembered website choices; desktop preferences stay local.
 
 Each page is statically generated with its language, canonical URL, reciprocal hreflang
 links, localized metadata, and structured data. The sitemap includes every language.

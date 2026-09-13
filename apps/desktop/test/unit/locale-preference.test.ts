@@ -117,3 +117,39 @@ describe("installation-local language preference", () => {
 		).toMatchObject({ preference: "system", locale: "en" });
 	});
 });
+
+describe("automatic region fallback", () => {
+	it("uses the OS region when no system language matches, then remembers an override", async () => {
+		const state = controller({ languages: () => ["ru"], country: () => "TW" });
+		expect(state.get().locale).toBe("zh-Hant");
+		await state.set("en");
+		await state.refresh();
+		expect(state.get()).toMatchObject({ locale: "en", preference: "en" });
+		await state.set("system");
+		expect(state.get().locale).toBe("zh-Hant");
+	});
+	it("does not let region override system languages or release gates", () => {
+		expect(controller({ country: () => "DE" }).get().locale).toBe("fr");
+		expect(
+			controller({
+				languages: () => ["ru"],
+				country: () => "TW",
+				preview: false,
+			}).get().locale,
+		).toBe("en");
+	});
+	it("retains a stored choice after restarting with a different region", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "zuse-locale-restart-"));
+		try {
+			await writeLocalePreference(directory, "ja");
+			const state = controller({
+				preference: await readLocalePreference(directory),
+				languages: () => ["de"],
+				country: () => "KR",
+			});
+			expect(state.get()).toMatchObject({ locale: "ja", preference: "ja" });
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+});

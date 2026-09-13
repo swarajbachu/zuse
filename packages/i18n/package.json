@@ -11,7 +11,8 @@
 		"./registry": "./src/registry.ts",
 		"./website/react": "./src/website/react.tsx",
 		"./website/server": "./src/website/server.ts",
-		"./website/types": "./src/generated/website.ts"
+		"./website/types": "./src/generated/website.ts",
+		"./detection": "./src/detection.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",

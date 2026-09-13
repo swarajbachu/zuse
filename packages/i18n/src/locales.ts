@@ -1,6 +1,7 @@
 import type { DesktopLocale, LocalePreference } from "@zuse/contracts";
 import names from "../locales/registry.json";
 import review from "../review/desktop.json";
+import { detectLocale } from "./detection.ts";
 
 export const localeNames: Readonly<Record<DesktopLocale, string>> = names;
 export const isLocale = (value: unknown): value is DesktopLocale =>
@@ -18,27 +19,9 @@ export function resolveLocale(
 	preference: LocalePreference,
 	systemLanguages: readonly string[],
 	available = availableLocales(),
+	country?: string,
 ): DesktopLocale {
 	if (preference !== "system" && available.includes(preference))
 		return preference;
-	for (const language of systemLanguages) {
-		try {
-			const parsed = new Intl.Locale(language.replaceAll("_", "-"));
-			let locale: string = parsed.language;
-			if (locale === "zh") {
-				locale =
-					parsed.script === "Hant"
-						? "zh-Hant"
-						: parsed.script === "Hans"
-							? "zh-Hans"
-							: ["TW", "HK", "MO"].includes(parsed.region ?? "")
-								? "zh-Hant"
-								: "zh-Hans";
-			}
-			if (isLocale(locale) && available.includes(locale)) return locale;
-		} catch {
-			/* Invalid OS tags do not prevent startup. */
-		}
-	}
-	return "en";
+	return detectLocale(systemLanguages, available, country);
 }

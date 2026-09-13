@@ -52,6 +52,7 @@ export async function writeLocalePreference(
 export function createLocaleController(options: {
 	preference: LocalePreference;
 	languages: () => readonly string[];
+	country?: () => string;
 	preview?: boolean;
 	persist: (preference: LocalePreference) => Promise<void>;
 	prepare: (locale: LocaleSnapshot["locale"]) => Promise<void>;
@@ -66,7 +67,12 @@ export function createLocaleController(options: {
 		version: 1,
 		revision: 0,
 		preference,
-		locale: resolveLocale(preference, options.languages(), available),
+		locale: resolveLocale(
+			preference,
+			options.languages(),
+			available,
+			options.country?.(),
+		),
 		available,
 	};
 	let queue = Promise.resolve();
@@ -81,7 +87,12 @@ export function createLocaleController(options: {
 				(preference !== "system" && !available.includes(preference))
 			)
 				throw new Error("Unsupported language preference");
-			const locale = resolveLocale(preference, options.languages(), available);
+			const locale = resolveLocale(
+				preference,
+				options.languages(),
+				available,
+				options.country?.(),
+			);
 			if (
 				!persist &&
 				preference === snapshot.preference &&

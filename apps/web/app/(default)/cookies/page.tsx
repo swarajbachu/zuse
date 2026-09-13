@@ -105,8 +105,9 @@ export default function CookiesPage() {
 							<dd className="mt-1">
 								Storage that remembers a choice, such as the website’s
 								appearance, so you do not have to make it again on every visit.
-								The current site can store the selected theme in browser
-								storage; this is not a tracking cookie.
+								The current site can store the selected theme in browser storage
+								and the selected language in a first-party cookie; these
+								preferences are not used for tracking.
 							</dd>
 						</div>
 						<div>
@@ -144,6 +145,15 @@ export default function CookiesPage() {
 						needed by the web framework or a feature you request. For example,
 						the appearance preference can be kept in local storage rather than a
 						server cookie.
+					</p>
+					<p className="mt-3">
+						The language selector stores your choice in the zuse-language cookie
+						for up to one year. Without a saved choice, the landing page uses
+						your browser’s preferred languages, then an approximate country hint
+						supplied by the hosting service from your IP address. This feature
+						does not request precise location access. Clearing or blocking
+						cookies prevents the site from remembering your language across
+						visits.
 					</p>
 					<p className="mt-3">
 						The Zuse desktop and mobile apps have separate product behavior.

@@ -16,6 +16,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { rememberWebsiteLanguage } from "@/lib/language-preference";
 
 const shortNames: Record<WebsiteLocale, string> = {
 	en: "EN",
@@ -35,8 +36,11 @@ export function LanguageSelector() {
 			value={locale}
 			items={languageNames}
 			onValueChange={(value) => {
-				if (value && isWebsiteLocale(value) && value !== locale)
-					window.location.assign(websitePath(value) + window.location.hash);
+				if (value && isWebsiteLocale(value)) {
+					rememberWebsiteLanguage(value);
+					if (value !== locale)
+						window.location.assign(websitePath(value) + window.location.hash);
+				}
 			}}
 		>
 			<SelectTrigger

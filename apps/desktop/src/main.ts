@@ -3889,6 +3889,7 @@ void app.whenReady().then(async () => {
 	localeController = createLocaleController({
 		preference: await readLocalePreference(app.getPath("userData")),
 		languages: () => app.getPreferredSystemLanguages(),
+		country: () => app.getLocaleCountryCode(),
 		preview: isDevelopment,
 		persist: (preference) =>
 			writeLocalePreference(app.getPath("userData"), preference),
