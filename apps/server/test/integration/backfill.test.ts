@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { makeChatDomain } from "@zuse/domain/engine/chat-domain";
 import { makeSessionDomain } from "@zuse/domain/engine/session-domain";
 import { makeSqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { layer as nodeSqliteLayer } from "@zuse/sqlite";
@@ -11,6 +12,7 @@ import { describe, expect, test } from "vitest";
 import { runLifecycleBackfill } from "../../src/persistence/backfill.ts";
 import { Migration0030CqrsEngine } from "../../src/persistence/migrations/0030_cqrs_engine.ts";
 import { Migration0031BackfillRuns } from "../../src/persistence/migrations/0031_backfill_runs.ts";
+import { Migration0053CloudCommandReceipts } from "../../src/persistence/migrations/0053_cloud_command_receipts.ts";
 
 describe("lifecycle backfill", () => {
 	test("appends missing lifecycle events once and advances all cursors", async () => {
@@ -283,6 +285,58 @@ describe("lifecycle backfill", () => {
 				status: "already-completed",
 				eventCount: 5,
 			});
+			// Imported rows can retain a completion marker without chat events.
+			await runtime.runPromise(
+				Effect.scoped(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						for (const id of ["legacy-normal", "legacy-force"]) {
+							yield* sql`INSERT INTO chats (id, project_id, title, created_at)
+					VALUES (${id}, 'project-1', 'Imported chat', '2026-01-01T00:00:00.000Z')`;
+						}
+						const existingEvents =
+							yield* sql`SELECT * FROM events ORDER BY sequence`;
+						const cursors =
+							yield* sql`SELECT * FROM projector_cursors ORDER BY projector_name`;
+						const receipts =
+							yield* sql`SELECT * FROM command_receipts ORDER BY command_id`;
+						yield* runLifecycleBackfill;
+						expect(
+							yield* sql`SELECT * FROM events WHERE stream_id NOT IN ('legacy-normal', 'legacy-force') ORDER BY sequence`,
+						).toEqual(existingEvents);
+						expect(
+							yield* sql`SELECT * FROM projector_cursors ORDER BY projector_name`,
+						).toEqual(cursors);
+						expect(
+							yield* sql`SELECT * FROM command_receipts ORDER BY command_id`,
+						).toEqual(receipts);
+						expect((yield* runLifecycleBackfill).status).toBe(
+							"already-completed",
+						);
+						yield* Migration0053CloudCommandReceipts;
+						const domain = yield* makeChatDomain(sql, () =>
+							Effect.succeed(crypto.randomUUID()),
+						);
+						for (const [id, force] of [
+							["legacy-normal", false],
+							["legacy-force", true],
+						] as const) {
+							yield* domain.dispatch({
+								commandId: `archive-${id}`,
+								streamId: id,
+								command: {
+									_tag: "RequestArchiveChat",
+									requestedAt: Date.now(),
+									force,
+								},
+							});
+						}
+						const requests =
+							yield* sql`SELECT event_id FROM events WHERE type = 'ChatArchiveRequested'`;
+						expect(requests).toHaveLength(2);
+					}),
+				),
+			);
 		} finally {
 			await runtime.dispose();
 			rmSync(directory, { recursive: true, force: true });

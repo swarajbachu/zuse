@@ -4,8 +4,14 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./release-version": "./src/release-version.mjs",
+		"./cloud-auth-crypto": "./src/cloud-auth-crypto.ts",
 		"./browser-page": "./src/browser-page.ts",
+		"./integration-page": "./src/integration-page.ts",
+		"./site-favicon": "./src/site-favicon.ts",
+		"./cloud-api": "./src/cloud-api.ts",
 		"./cloud-transcript-crypto": "./src/cloud-transcript-crypto.ts",
+		"./cloud-command-crypto": "./src/cloud-command-crypto.ts",
 		"./drainable-worker": "./src/drainable-worker.ts",
 		"./keyed-worker": "./src/keyed-worker.ts",
 		"./network-address": "./src/network-address.ts",
@@ -27,7 +33,8 @@
 	},
 	"dependencies": {
 		"effect": "catalog:",
-		"ignore": "^7.0.0"
+		"ignore": "^7.0.0",
+		"fflate": "0.8.2"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",

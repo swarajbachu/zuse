@@ -1,7 +1,7 @@
-import type { EnvironmentEndpoint, RelayConnectGrant } from "@zuse/contracts";
+import type { ApiConnectGrant, EnvironmentEndpoint } from "@zuse/contracts";
 
 export const choosePreferredEndpoint = async (
-	grant: RelayConnectGrant,
+	grant: ApiConnectGrant,
 	probePrivateEndpoint: (
 		endpoint: EnvironmentEndpoint,
 		token: string,

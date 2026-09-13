@@ -11,7 +11,7 @@ import { PingResult, PingRpc, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { Rpc, RpcGroup, RpcServer } from "effect/unstable/rpc";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { LanAuthServiceLive } from "../../src/lan-auth/layers/lan-auth-service.ts";
 import type { LanAuthPolicy } from "../../src/lan-auth/policy.ts";
@@ -25,6 +25,7 @@ import { Migration0025RelayEnvironmentKeys } from "../../src/persistence/migrati
 import { Migration0028RelayMintPublicKey } from "../../src/persistence/migrations/0028_relay_mint_public_key.ts";
 import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
 import { Migration0040BlockedNearbyDevices } from "../../src/persistence/migrations/0040_blocked_nearby_devices.ts";
+import { Migration0052ApiConfig } from "../../src/persistence/migrations/0052_api_config.ts";
 import { wsServerProtocolLayer } from "../../src/transports/ws.ts";
 
 const LargePayloadRpc = Rpc.make("test.largePayload", {
@@ -77,6 +78,7 @@ const makeRuntime = (opts: {
 		event: string,
 		fields?: Record<string, unknown>,
 	) => void;
+	readonly onAuthenticatedConnection?: () => () => void;
 }) => {
 	const SqlLive = sqliteLayer({ filename: ":memory:" });
 	const Migrated = Layer.effectDiscard(
@@ -86,6 +88,7 @@ const makeRuntime = (opts: {
 			Effect.andThen(Migration0028RelayMintPublicKey),
 			Effect.andThen(Migration0039AuthTokenDevices),
 			Effect.andThen(Migration0040BlockedNearbyDevices),
+			Effect.andThen(Migration0052ApiConfig),
 		),
 	).pipe(Layer.provideMerge(SqlLive));
 	const ConfigLive = Layer.succeed(LanAuthConfig, {
@@ -132,6 +135,7 @@ const makeRuntime = (opts: {
 		compression: opts.compression,
 		maxPayloadBytes: opts.maxPayloadBytes,
 		onDiagnostic: opts.onDiagnostic,
+		onAuthenticatedConnection: opts.onAuthenticatedConnection,
 	}).pipe(Layer.provide(Layer.merge(LanAuthLayer, AttachmentLayer)));
 	const ServerLayer = RpcServer.layer(TestRpcs).pipe(
 		Layer.provide(Layer.merge(PingHandler, LargePayloadHandler)),
@@ -215,6 +219,65 @@ const upgradeStatus = (
 	upgradeResponse(port, path, headers).then((response) => response.status);
 
 describe("WS LAN auth", () => {
+	it("serves favicon images through the authenticated asset route", async () => {
+		const port = await freePort();
+		const runtime = makeRuntime({ policy: "protected", port });
+		const originalFetch = globalThis.fetch;
+		const imageBytes = new Uint8Array([137, 80, 78, 71]);
+		const upstream = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation((input, init) => {
+				if (String(input).startsWith("https://www.google.com/s2/favicons?")) {
+					return Promise.resolve(
+						new Response(imageBytes, {
+							headers: { "content-type": "image/png" },
+						}),
+					);
+				}
+				return originalFetch(input, init);
+			});
+		try {
+			const pairing = await runtime.runPromise(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					return yield* auth.createPairingCode();
+				}),
+			);
+			const origin = `http://127.0.0.1:${port}`;
+			const url = `${origin}/assets/site-favicon/github.com`;
+			expect((await originalFetch(url)).status).toBe(401);
+			expect(upstream).not.toHaveBeenCalled();
+			const paired = await originalFetch(`${origin}/auth/browser-session`, {
+				method: "POST",
+				headers: { "content-type": "application/json", origin },
+				body: JSON.stringify({ credential: pairing.code }),
+			});
+			expect(paired.status).toBe(200);
+			const cookie = paired.headers.get("set-cookie")?.split(";")[0] ?? "";
+			const response = await originalFetch(url, { headers: { cookie } });
+			expect(response.status).toBe(200);
+			expect(response.headers.get("content-type")).toBe("image/png");
+			expect(response.headers.get("cache-control")).toContain("max-age=86400");
+			expect(new Uint8Array(await response.arrayBuffer())).toEqual(imageBytes);
+			for (const [hostname, status] of [
+				["%", 404],
+				["github.com%2Fsecret", 400],
+			] as const) {
+				expect(
+					(
+						await originalFetch(`${origin}/assets/site-favicon/${hostname}`, {
+							headers: { cookie },
+						})
+					).status,
+				).toBe(status);
+			}
+			expect(upstream).toHaveBeenCalledTimes(1);
+		} finally {
+			upstream.mockRestore();
+			await disposeRuntime(runtime);
+		}
+	});
+
 	it("negotiates bounded per-message compression when clients offer it", async () => {
 		const port = await freePort();
 		const runtime = makeRuntime({ policy: "local", port });
@@ -522,16 +585,19 @@ describe("WS LAN auth", () => {
 
 	it("rejects unauthenticated protected requests before upgrade", async () => {
 		const port = await freePort();
+		const connected = vi.fn(() => vi.fn());
 		const runtime = makeRuntime({
 			policy: "protected",
 			port,
 			pairingBootstrap: true,
+			onAuthenticatedConnection: connected,
 		});
 		try {
 			await runtime.runPromise(Effect.void);
 			const response = await fetch(`http://127.0.0.1:${port}/`);
 			expect(response.status).toBe(401);
 			await expect(upgradeStatus(port, "/")).resolves.toBe(401);
+			expect(connected).not.toHaveBeenCalled();
 		} finally {
 			await disposeRuntime(runtime);
 		}
@@ -543,6 +609,12 @@ describe("WS LAN auth", () => {
 			readonly event: string;
 			readonly fields: Record<string, unknown>;
 		}> = [];
+		const releases: Array<ReturnType<typeof vi.fn>> = [];
+		const connected = vi.fn(() => {
+			const release = vi.fn();
+			releases.push(release);
+			return release;
+		});
 		const runtime = makeRuntime({
 			policy: "protected",
 			port,
@@ -550,6 +622,7 @@ describe("WS LAN auth", () => {
 			onDiagnostic: (event, fields = {}) => {
 				diagnostics.push({ event, fields });
 			},
+			onAuthenticatedConnection: connected,
 		});
 		try {
 			const pairing = await runtime.runPromise(
@@ -611,6 +684,13 @@ describe("WS LAN auth", () => {
 					`/rpc?token=${encodeURIComponent(body.token)}&wireVersion=${WIRE_PROTOCOL_VERSION}`,
 				),
 			).resolves.toBe(101);
+			await vi.waitFor(() => {
+				expect(connected).toHaveBeenCalledTimes(2);
+				expect(releases).toHaveLength(2);
+				expect(
+					releases.every((release) => release.mock.calls.length === 1),
+				).toBe(true);
+			});
 			const authDiagnostics = diagnostics.filter(
 				(entry) =>
 					entry.event === "ws.request" || entry.event.startsWith("ws.auth."),
@@ -653,6 +733,43 @@ describe("WS LAN auth", () => {
 					Authorization: `Bearer ${token}`,
 				}),
 			).resolves.toBe(101);
+		} finally {
+			await disposeRuntime(runtime);
+		}
+	});
+
+	it("diagnoses CLI protocol and credential compatibility over HTTP", async () => {
+		const port = await freePort();
+		const runtime = makeRuntime({ policy: "protected", port });
+		try {
+			const token = await runtime.runPromise(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					return (yield* auth.mintToken("CLI diagnostics")).token;
+				}),
+			);
+			const endpoint = `http://127.0.0.1:${port}/auth/cli-session`;
+
+			const missing = await fetch(endpoint);
+			expect(missing.status).toBe(401);
+			await expect(missing.json()).resolves.toMatchObject({
+				error: "unauthorized",
+				protocolVersion: WIRE_PROTOCOL_VERSION,
+			});
+
+			const stale = await fetch(endpoint, {
+				headers: { authorization: "Bearer stale-token" },
+			});
+			expect(stale.status).toBe(401);
+
+			const authenticated = await fetch(endpoint, {
+				headers: { authorization: `Bearer ${token}` },
+			});
+			expect(authenticated.status).toBe(200);
+			await expect(authenticated.json()).resolves.toEqual({
+				authenticated: true,
+				protocolVersion: WIRE_PROTOCOL_VERSION,
+			});
 		} finally {
 			await disposeRuntime(runtime);
 		}

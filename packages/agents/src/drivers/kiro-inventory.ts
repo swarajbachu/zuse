@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { KiroInventory, KiroInventoryModel } from "@zuse/contracts";
+import { humanizeModelId } from "@zuse/contracts";
 import { Effect } from "effect";
 
 import {
@@ -44,34 +45,6 @@ interface CliListModelsResponse {
 	}>;
 	readonly default_model?: string;
 }
-
-const humanizeModelId = (id: string): string => {
-	// claude-opus-4.8 → Claude Opus 4.8; gpt-5.6-sol → GPT-5.6 Sol
-	const acronyms = new Set(["gpt", "glm"]);
-	const parts = id.split(/[-_]/).filter((part) => part.length > 0);
-	const words: string[] = [];
-	for (let i = 0; i < parts.length; i++) {
-		const part = parts[i];
-		if (part === undefined) continue;
-		if (acronyms.has(part.toLowerCase())) {
-			const next = parts[i + 1];
-			// Keep "GPT-5.6" as one token when the next segment is a version.
-			if (next !== undefined && /^\d/.test(next)) {
-				words.push(`${part.toUpperCase()}-${next}`);
-				i += 1;
-				continue;
-			}
-			words.push(part.toUpperCase());
-			continue;
-		}
-		if (/^\d/.test(part)) {
-			words.push(part);
-			continue;
-		}
-		words.push(part.charAt(0).toUpperCase() + part.slice(1));
-	}
-	return words.join(" ");
-};
 
 const fromApiModel = (model: ListModelsApiModel): KiroInventoryModel | null => {
 	const id = model.modelId?.trim();

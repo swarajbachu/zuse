@@ -8,7 +8,7 @@ import {
 
 import type { LanAuthConfigShape } from "./services/lan-auth-service.ts";
 
-export interface RelayEndpointConfig {
+export interface ApiEndpointConfig {
 	readonly tunnelHostname?: string;
 	readonly linked: boolean;
 	readonly heartbeatActive: boolean;
@@ -72,7 +72,7 @@ const coreEndpoint = (input: {
 
 export const buildAdvertisedEndpoints = (input: {
 	readonly lan: LanAuthConfigShape;
-	readonly relay?: RelayEndpointConfig | null;
+	readonly api?: ApiEndpointConfig | null;
 }): ReadonlyArray<AdvertisedEndpoint> => {
 	const endpoints: AdvertisedEndpoint[] = [];
 	const port = input.lan.port;
@@ -102,19 +102,19 @@ export const buildAdvertisedEndpoints = (input: {
 		);
 	}
 
-	const tunnelHostname = input.relay?.tunnelHostname?.trim();
+	const tunnelHostname = input.api?.tunnelHostname?.trim();
 	if (tunnelHostname) {
 		const httpBaseUrl = `https://${tunnelHostname}`;
 		const wsBaseUrl = `wss://${tunnelHostname}`;
 		const status: AdvertisedEndpointStatus =
-			input.relay?.linked === true
-				? input.relay.heartbeatActive
+			input.api?.linked === true
+				? input.api.heartbeatActive
 					? "available"
 					: "unknown"
 				: "unavailable";
 		endpoints.push(
 			AdvertisedEndpoint.make({
-				id: "tunnel:managed-relay",
+				id: "tunnel:managed-api",
 				label: "Managed tunnel",
 				providerKind: "tunnel",
 				httpBaseUrl,

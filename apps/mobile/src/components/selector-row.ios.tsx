@@ -1,5 +1,7 @@
 import { Host } from "@expo/ui";
-import { Menu, Button as NativeButton } from "@expo/ui/swift-ui";
+import { Label, Menu, Button as NativeButton } from "@expo/ui/swift-ui";
+import { frame } from "@expo/ui/swift-ui/modifiers";
+import { useState } from "react";
 
 import { colors } from "~/theme";
 
@@ -11,9 +13,9 @@ export type SelectorOption = {
 };
 
 /**
- * Uses Menu's stable string/system-image label rather than HStackView. The
- * latter is unavailable in older development clients and can crash before the
- * React Native fallback renders.
+ * Uses the supported native Label primitive rather than HStackView. Giving the
+ * host the React row width and the menu a leading-aligned SwiftUI frame avoids
+ * intrinsic Menu padding escaping the host and clipping the leading content.
  */
 export function SelectorRow({
 	symbol,
@@ -21,20 +23,46 @@ export function SelectorRow({
 	options,
 	disabled = false,
 	emptyLabel = "None",
+	compact = false,
 }: {
 	symbol: string;
 	label: string;
 	options: readonly SelectorOption[];
 	disabled?: boolean;
 	emptyLabel?: string;
+	compact?: boolean;
 }) {
+	const [rowWidth, setRowWidth] = useState(1);
+
 	return (
 		<Host
-			matchContents
+			className={compact ? "h-7" : undefined}
+			matchContents={compact ? true : { vertical: true }}
 			seedColor={colors.fg}
-			style={{ alignSelf: "flex-start", height: 48 }}
+			style={{
+				alignSelf: compact ? "flex-start" : "stretch",
+				height: compact ? 28 : 48,
+			}}
+			onLayout={
+				compact
+					? undefined
+					: (event) => setRowWidth(event.nativeEvent.layout.width)
+			}
 		>
-			<Menu label={label} systemImage={sf(symbol)}>
+			<Menu
+				label={<Label title={label} systemImage={sf(symbol)} />}
+				modifiers={
+					compact
+						? [frame({ height: 28, alignment: "leading" })]
+						: [
+								frame({
+									width: rowWidth,
+									height: 48,
+									alignment: "leading",
+								}),
+							]
+				}
+			>
 				{disabled || options.length === 0 ? (
 					<NativeButton label={emptyLabel} onPress={() => {}} />
 				) : (

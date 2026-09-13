@@ -9,6 +9,11 @@ on:
         default: verify
         type: choice
         options: [verify, staging, production]
+      confirm_non_main_staging:
+        description: Explicitly allow a manually dispatched branch build to replace the staging channel
+        required: false
+        default: false
+        type: boolean
   pull_request:
     paths:
       - ".github/workflows/cloud-runtime-staging.yml"
@@ -47,6 +52,7 @@ jobs:
         id: publication
         env:
           REQUESTED_TARGET: ${{ inputs.publish_target }}
+          CONFIRM_NON_MAIN_STAGING: ${{ inputs.confirm_non_main_staging }}
         run: |
           enabled=false
           target=verify
@@ -57,8 +63,8 @@ jobs:
             enabled=true
             target=production
           elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$REQUESTED_TARGET" != "verify" ]]; then
-            if [[ "$REQUESTED_TARGET" == "staging" && "$GITHUB_REF" != "refs/heads/main" ]]; then
-              echo "Staging publication requires main" >&2
+            if [[ "$REQUESTED_TARGET" == "staging" && "$GITHUB_REF" != "refs/heads/main" && "$CONFIRM_NON_MAIN_STAGING" != "true" ]]; then
+              echo "Non-main staging publication requires explicit confirmation" >&2
               exit 1
             fi
             if [[ "$REQUESTED_TARGET" == "production" && "$GITHUB_REF" != refs/tags/v* ]]; then

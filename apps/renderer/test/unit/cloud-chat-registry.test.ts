@@ -12,11 +12,12 @@ import { cloudConnectionPresentation } from "../../src/lib/cloud-connection-pres
 import {
 	cloudSummaryForChat,
 	cloudSummaryForEnvironment,
+	cloudSummaryForSelection,
 	cloudSummaryForSession,
 	compareCloudChatSummaryVersion,
+	confirmCloudChatUnarchive,
 	localProjectForCloudChat,
 	optimisticallyArchiveCloudChat,
-	optimisticallyUnarchiveCloudChat,
 	reconcileCloudChatCatalog,
 	registerCloudChat,
 	useCloudChatCatalogStore,
@@ -34,7 +35,7 @@ const summary = (input: {
 }) =>
 	CloudChatSummary.make({
 		workspaceId: input.workspaceId,
-		projectId: `relay-${input.workspaceId}`,
+		projectId: `api-${input.workspaceId}`,
 		repositoryIdentity: "github.com/zuse/repository",
 		repositoryDisplayName: "repository",
 		chatId: ChatId.make(input.chatId),
@@ -101,6 +102,23 @@ describe("cloud chat catalog", () => {
 		expect(localProjectForCloudChat("chat-b")).toBe("local-project-b");
 	});
 
+	it("keeps secondary sessions qualified by their owning cloud chat", () => {
+		const current = summary({
+			workspaceId: "environment-a",
+			chatId: "chat-a",
+			sessionId: "initial-session-a",
+			revision: 1,
+		});
+		registerCloudChat(current, FolderId.make("local-project-a"));
+
+		expect(
+			cloudSummaryForSelection({
+				chatId: ChatId.make("chat-a"),
+				sessionId: AgentSessionId.make("secondary-session-a"),
+			}),
+		).toBe(current);
+	});
+
 	it("derives attachment activity from the shared connection supervisor", () => {
 		const row = summary({
 			workspaceId: "environment-a",
@@ -123,6 +141,17 @@ describe("cloud chat catalog", () => {
 				runtime: "idle",
 			}),
 		).toBe("failed");
+		expect(cloudConnectionPresentation(row, "failed", "failed")).toBe(
+			"detached",
+		);
+		const failedWorkspace = CloudChatSummary.make({
+			...row,
+			state: "failed",
+			runtimeState: "offline",
+		});
+		expect(
+			cloudConnectionPresentation(failedWorkspace, "failed", "failed"),
+		).toBe("failed");
 		expect(
 			deriveCloudChatActivity({
 				summary: row,
@@ -130,7 +159,31 @@ describe("cloud chat catalog", () => {
 				runtime: "running",
 			}),
 		).toBe("running");
-		expect(cloudConnectionPresentation(row, "attaching")).toBe("hidden");
+		expect(cloudConnectionPresentation(row, "attaching", "waking")).toBe(
+			"hidden",
+		);
+		expect(cloudConnectionPresentation(row, "failed", "update-required")).toBe(
+			"update-required",
+		);
+	});
+
+	it("does not present a provider failure as a cloud connection failure", () => {
+		const row = summary({
+			workspaceId: "environment-a",
+			chatId: "chat-a",
+			sessionId: "session-a",
+			revision: 1,
+		});
+		const activity = deriveCloudChatActivity({
+			summary: row,
+			connection: "connected",
+			runtime: "failed",
+		});
+
+		expect(activity).toBe("failed");
+		expect(cloudConnectionPresentation(row, activity, "connected")).toBe(
+			"hidden",
+		);
 	});
 
 	it("does not keep a settled turn working from stale bootstrap metadata", () => {
@@ -320,7 +373,7 @@ describe("cloud chat catalog", () => {
 		expect(cloudSummaryForChat("chat-a")?.state).toBe("archived");
 	});
 
-	it("moves an archived chat back immediately without waking compute", () => {
+	it("publishes a confirmed restore and clears the previous archive intent", () => {
 		const archived = {
 			...summary({
 				workspaceId: "environment-a",
@@ -334,12 +387,17 @@ describe("cloud chat catalog", () => {
 		};
 		registerCloudChat(archived);
 
-		expect(optimisticallyUnarchiveCloudChat(archived)).toMatchObject({
+		optimisticallyArchiveCloudChat(archived, 123, "archive-command");
+		confirmCloudChatUnarchive({
+			...archived,
 			state: "paused",
 			desiredState: "paused",
 			runtimeState: "offline",
 			archivedAt: undefined,
+			revision: 3,
 		});
+		expect(useCloudChatCatalogStore.getState().archiveIntents).toEqual({});
+
 		expect(cloudSummaryForChat("chat-a")).toMatchObject({
 			state: "paused",
 			desiredState: "paused",

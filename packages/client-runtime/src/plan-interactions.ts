@@ -25,6 +25,7 @@ export const isPlanApprovalRequest = (
 	sessionId: SessionId,
 ): boolean =>
 	request.sessionId === sessionId &&
+	request.recoveryState !== "expired" &&
 	request.kind._tag === "Other" &&
 	request.kind.tool === "ExitPlanMode";
 

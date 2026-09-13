@@ -16,17 +16,17 @@ export const buttonVariants = cva(
 		},
 		variants: {
 			size: {
-				default: "h-7 px-[calc(--spacing(2.5)-1px)]",
+				default: "h-7 px-[calc(--spacing(4)-1px)]",
 				icon: "size-7",
 				"icon-lg": "size-8",
 				"icon-sm": "size-6",
 				"icon-xl": "size-9 [&_svg:not([class*='size-'])]:size-4",
 				"icon-xs":
 					"size-6 not-in-data-[slot=input-group]:[&_svg:not([class*='size-'])]:size-3",
-				lg: "h-8 px-[calc(--spacing(3)-1px)]",
-				sm: "h-6 gap-1 px-[calc(--spacing(2)-1px)] text-[11px]",
-				xl: "h-9 px-[calc(--spacing(3.5)-1px)] text-[13px] [&_svg:not([class*='size-'])]:size-4",
-				xs: "h-6 gap-1 px-[calc(--spacing(1.5)-1px)] text-[10px] [&_svg:not([class*='size-'])]:size-3",
+				lg: "h-8 px-[calc(--spacing(4.5)-1px)]",
+				sm: "h-6 gap-1 px-[calc(--spacing(3.5)-1px)] text-[11px]",
+				xl: "h-9 px-[calc(--spacing(5)-1px)] text-[13px] [&_svg:not([class*='size-'])]:size-4",
+				xs: "h-6 gap-1 px-[calc(--spacing(3)-1px)] text-[10px] [&_svg:not([class*='size-'])]:size-3",
 			},
 			variant: {
 				default:
@@ -34,22 +34,20 @@ export const buttonVariants = cva(
 				destructive:
 					"not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] border-destructive bg-destructive text-white shadow-destructive/24 shadow-xs hover:bg-destructive/90 data-pressed:bg-destructive/90 *:data-[slot=button-loading-indicator]:text-white [:active,[data-pressed]]:inset-shadow-[0_1px_--theme(--color-black/8%)] [:disabled,:active,[data-pressed]]:shadow-none",
 				"destructive-outline":
-					"border-transparent bg-alert-error-bg text-destructive-foreground shadow-xs/5 ring-1 ring-inset ring-destructive/10 not-disabled:not-active:not-data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] hover:bg-alert-error-bg data-pressed:bg-alert-error-bg *:data-[slot=button-loading-indicator]:text-foreground dark:not-disabled:before:shadow-[0_-1px_--theme(--color-white/2%)] dark:not-disabled:not-active:not-data-pressed:before:shadow-[0_-1px_--theme(--color-white/5%)] [:disabled,:active,[data-pressed]]:shadow-none",
+					"border-transparent bg-alert-error-bg text-destructive shadow-xs/5 ring-1 ring-inset ring-destructive/10 not-disabled:not-active:not-data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] hover:bg-alert-error-bg data-pressed:bg-alert-error-bg *:data-[slot=button-loading-indicator]:text-destructive dark:not-disabled:before:shadow-[0_-1px_--theme(--color-white/2%)] dark:not-disabled:not-active:not-data-pressed:before:shadow-[0_-1px_--theme(--color-white/5%)] [:disabled,:active,[data-pressed]]:shadow-none",
 				ghost:
 					"border-transparent text-foreground hover:bg-accent data-pressed:bg-accent *:data-[slot=button-loading-indicator]:text-foreground",
 				link: "border-transparent text-foreground underline-offset-4 hover:underline data-pressed:underline *:data-[slot=button-loading-indicator]:text-foreground",
 				outline:
-					"border-transparent bg-muted not-dark:bg-clip-padding text-foreground shadow-xs/5 ring-1 ring-inset ring-border/45 not-disabled:not-active:not-data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] hover:bg-accent data-pressed:bg-accent *:data-[slot=button-loading-indicator]:text-foreground dark:not-disabled:before:shadow-[0_-1px_--theme(--color-white/2%)] dark:not-disabled:not-active:not-data-pressed:before:shadow-[0_-1px_--theme(--color-white/5%)] [:disabled,:active,[data-pressed]]:shadow-none",
+					"border-border bg-card text-foreground shadow-xs/5 hover:border-input hover:bg-muted data-pressed:bg-accent *:data-[slot=button-loading-indicator]:text-foreground dark:border-white/10 [:disabled,:active,[data-pressed]]:shadow-none",
 				secondary:
 					"border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/90 data-pressed:bg-secondary/90 *:data-[slot=button-loading-indicator]:text-secondary-foreground [:active,[data-pressed]]:bg-secondary/80",
 
-				/* Subtle glass button (glassmorphic secondary) */
 				subtle:
-					"rounded-md border border-white/10 bg-neutral-primary-reverted-5 px-2.5 text-xs font-semibold text-foreground shadow-none backdrop-blur-[12px] hover:bg-white/8 active:bg-white/12 data-pressed:bg-white/12 *:data-[slot=button-loading-indicator]:text-foreground before:hidden",
+					"border-border/80 bg-card px-4 text-xs text-foreground shadow-none hover:bg-muted active:bg-accent data-pressed:bg-accent *:data-[slot=button-loading-indicator]:text-foreground before:hidden",
 
-				/* Settings: flat translucent action button used on settings rows. */
 				settings:
-					"h-7 rounded-md border-white/8 bg-neutral-primary-reverted-20 px-2.5 text-xs text-foreground/90 shadow-none hover:bg-white/14 active:bg-white/16 data-pressed:bg-white/16 *:data-[slot=button-loading-indicator]:text-foreground before:hidden",
+					"h-7 border-border bg-card px-4 text-xs text-foreground shadow-none hover:bg-muted active:bg-accent data-pressed:bg-accent *:data-[slot=button-loading-indicator]:text-foreground before:hidden",
 			},
 		},
 	},

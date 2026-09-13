@@ -1,9 +1,19 @@
-import { ExternalThread } from "@zuse/contracts";
+import { ComposerInput, ExternalThread } from "@zuse/contracts";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
-import { filterImportThreads } from "../../src/components/chat-landing.tsx";
+import {
+	filterImportThreads,
+	isImportableThread,
+	workspacePolicyForMode,
+} from "../../src/components/chat-landing.tsx";
 import chatLandingSource from "../../src/components/chat-landing.tsx?raw";
-import queueChipSource from "../../src/components/composer/queue-chip.tsx?raw";
-import { chatLandingProgress } from "../../src/lib/chat-landing-progress.ts";
+import { ChatStartupView } from "../../src/components/chat-startup-view.tsx";
+import workspacePickerSource from "../../src/components/composer/workspace-picker.tsx?raw";
+import {
+	chatLandingProgress,
+	cloudLaunchStepLabel,
+} from "../../src/lib/chat-landing-progress.ts";
 import cloudChatsSource from "../../src/lib/cloud-workspaces.ts?raw";
 import externalThreadsSource from "../../src/store/external-threads.ts?raw";
 
@@ -14,7 +24,9 @@ describe("chat landing progress", () => {
 		expect(chatLandingSource).toContain("ImportChatMenu");
 		expect(chatLandingSource).toContain('aria-label="Import an existing chat"');
 		expect(chatLandingSource).toContain('aria-label="Search imported chats"');
-		expect(chatLandingSource).toContain("max-h-64 overflow-y-auto");
+		expect(chatLandingSource).toContain(
+			"max-h-52 overflow-x-hidden overflow-y-auto",
+		);
 	});
 
 	test("searches imported chats across conversation and provider metadata", () => {
@@ -52,15 +64,51 @@ describe("chat landing progress", () => {
 		expect(filterImportThreads(threads, "console")).toEqual([threads[1]]);
 	});
 
-	test("routes thread discovery through the computer selected in the composer", () => {
-		expect(chatLandingSource).toContain(
-			"hydrateExternalThreads(importEnvironmentId)",
+	test("hides missing and temporary provider threads from import", () => {
+		const makeThread = (projectName: string, available: boolean) =>
+			ExternalThread.make({
+				id: `${projectName}-${available}`,
+				providerId: "codex",
+				title: "Imported chat",
+				preview: "",
+				projectPath: "/work/project",
+				projectName,
+				updatedAt: new Date("2026-08-21T00:00:00Z"),
+				sourcePath: null,
+				cursor: "cursor",
+				resumeStrategy: "codex-thread-id",
+				available,
+			});
+
+		expect(isImportableThread(makeThread("Zuse", true))).toBe(true);
+		expect(isImportableThread(makeThread("Temporary folder", true))).toBe(
+			false,
 		);
-		expect(chatLandingSource).toContain(
-			"continueExternalThread(thread, importEnvironmentId)",
+		expect(isImportableThread(makeThread("T", true))).toBe(false);
+		expect(isImportableThread(makeThread("Zuse", false))).toBe(false);
+	});
+
+	test("routes thread discovery through the computer selected in the composer", () => {
+		expect(chatLandingSource).toMatch(
+			/hydrateExternalThreads\(\s*importEnvironmentId,?\s*\)/,
+		);
+		expect(chatLandingSource).toMatch(
+			/continueExternalThread\(\s*thread,\s*importEnvironmentId,?\s*\)/,
 		);
 		expect(externalThreadsSource).not.toContain("getActiveEnvironment");
 		expect(externalThreadsSource).toContain("environmentId: EnvironmentId");
+	});
+
+	test("lets each new chat explicitly choose a local checkout or worktree", () => {
+		expect(workspacePolicyForMode("local")).toEqual({ _tag: "main" });
+		expect(workspacePolicyForMode("worktree")).toEqual({ _tag: "fresh" });
+		expect(chatLandingSource).toContain("<WorkspacePicker");
+		expect(chatLandingSource).toContain(
+			"workspacePolicyForMode(workspaceMode)",
+		);
+		expect(workspacePickerSource).toContain("Fresh isolated branch");
+		expect(workspacePickerSource).toContain("Use the main checkout");
+		expect(workspacePickerSource).toContain("<MenuRadioGroup");
 	});
 
 	test("initializes the active environment before selectors consume it", () => {
@@ -79,6 +127,12 @@ describe("chat landing progress", () => {
 
 	test("stages the durable chat before attaching the workspace gateway", () => {
 		expect(chatLandingSource).toContain("stageCloudChat(");
+		expect(chatLandingSource).toContain('initialMessageDelivery: "mailbox-v1"');
+		expect(chatLandingSource).toContain(
+			'launch.initialMessageDelivery === "mailbox-v1"',
+		);
+		expect(chatLandingSource).toContain("await sendSessionMessage(");
+		expect(cloudChatsSource).toContain("Compatibility only:");
 		expect(chatLandingSource).toContain("ensureCloudWorkspaceAttached(");
 		expect(chatLandingSource).not.toContain(
 			'control["cloud.workspaces.connect"]',
@@ -95,20 +149,40 @@ describe("chat landing progress", () => {
 		);
 	});
 
-	test("keeps the submitted cloud message in the queued composer surface", () => {
-		const message = chatLandingSource.indexOf("<QueuedComposerPreview");
-		const cloudLifecycle = chatLandingSource.indexOf(
-			'<CloudWorkspaceSetupView phase="allocating" />',
+	test("renders the submitted cloud message, one progress row, and the composer", () => {
+		const html = renderToStaticMarkup(
+			createElement(ChatStartupView, {
+				input: ComposerInput.make({
+					text: "Please read my image",
+					attachments: [],
+					fileRefs: [],
+					skillRefs: [],
+				}),
+				previews: {},
+				progress: createElement(
+					"div",
+					{ role: "status" },
+					"Preparing workspace",
+				),
+				composer: createElement("textarea", { "aria-label": "Chat composer" }),
+			}),
 		);
+		expect(html.match(/Please read my image/g)).toHaveLength(1);
+		expect(html.match(/role="status"/g)).toHaveLength(1);
+		expect(html.indexOf("Chat composer")).toBeGreaterThan(
+			html.indexOf("Preparing workspace"),
+		);
+		expect(html).not.toContain("Type a message below to get started");
+	});
 
-		expect(message).toBeGreaterThan(-1);
-		expect(message).toBeGreaterThan(cloudLifecycle);
+	test("shows the sandbox's own boot phase while the workspace starts", () => {
 		expect(chatLandingSource).toContain(
-			'waitingForSandbox={progress.kind === "cloud"}',
+			'phase={pendingCloudSummary?.startupPhase ?? "allocating"}',
 		);
-		expect(chatLandingSource).toContain("Waiting for sandbox");
-		expect(chatLandingSource).not.toContain("Starting Cloud Sandbox");
-		expect(queueChipSource).not.toContain("Saving message");
+		expect(cloudLaunchStepLabel("preparing")).toBe(
+			"Copying files to the sandbox",
+		);
+		expect(cloudLaunchStepLabel("sending")).toBe("Sending message");
 	});
 
 	test("owns lifecycle polling behind the control-plane stream", () => {
@@ -122,16 +196,16 @@ describe("chat landing progress", () => {
 	test("shows only cloud progress while a cloud workspace is starting", () => {
 		expect(
 			chatLandingProgress({
-				cloudStatus: "Allocating cloud sandbox…",
+				cloudStep: "starting",
 				hasPendingWorktree: true,
 			}),
-		).toEqual({ kind: "cloud", status: "Allocating cloud sandbox…" });
+		).toEqual({ kind: "cloud", step: "starting" });
 	});
 
 	test("shows worktree progress for local workspace creation", () => {
 		expect(
 			chatLandingProgress({
-				cloudStatus: null,
+				cloudStep: null,
 				hasPendingWorktree: true,
 			}),
 		).toEqual({ kind: "worktree" });
@@ -140,7 +214,7 @@ describe("chat landing progress", () => {
 	test("shows no setup progress when neither operation is active", () => {
 		expect(
 			chatLandingProgress({
-				cloudStatus: null,
+				cloudStep: null,
 				hasPendingWorktree: false,
 			}),
 		).toEqual({ kind: "none" });

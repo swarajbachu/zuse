@@ -33,11 +33,11 @@ event against the current subscription before changing an entitlement.
 Configure the webhook endpoint as:
 
 ```text
-https://<relay-host>/v1/billing/webhook/polar
+https://<api-host>/v1/billing/webhook/polar
 ```
 
 Subscribe it to subscription created, updated, active, past due, canceled,
-revoked, and uncanceled events. The relay keeps the manual adapter registered
+revoked, and uncanceled events. The api keeps the manual adapter registered
 for existing manual alpha entitlements, so the provider-qualified webhook URL
 is required.
 

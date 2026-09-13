@@ -45,7 +45,7 @@ vi.mock("../../src/lib/control-plane-client.ts", () => ({
 						await new Promise((resolve) => setTimeout(resolve, 10));
 						return {
 							workspaceId: "workspace_a",
-							wsUrl: "wss://relay.example/ssh",
+							wsUrl: "wss://api.example/ssh",
 							ticket: "ticket",
 							expiresAt: Date.now() + 60_000,
 							user: "zuse",

@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type {
 	AttachmentRef,
 	BrowserAnnotation,
@@ -30,15 +31,21 @@ import {
 	RefreshCw as RefreshIcon,
 } from "lucide-react";
 import { memo, useEffect, useState } from "react";
-
 import { FileIcon } from "~/components/file-icon";
+import { attachmentDataUrl, useAttachmentUrl } from "~/lib/attachments";
+import {
+	localProjectForCloudEnvironment,
+	useCloudChatCatalogStore,
+} from "~/lib/cloud-workspace-catalog.ts";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
+import { openNewChatLanding } from "~/lib/open-new-chat-landing.ts";
 import {
 	orchestrationToolName,
 	parseOrchestrationResult,
 } from "~/lib/orchestration-tools";
 import { attachmentUrl } from "~/lib/platform-capabilities";
 import { resumeAfterProviderLogin } from "~/lib/provider-auth-recovery";
+import { isCloudWorkspaceEnvironment } from "~/lib/rpc-client.ts";
 import {
 	type ChatError,
 	classifyMessage,
@@ -69,6 +76,8 @@ import {
 import { useChatLookups } from "./chat-lookups.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
+import { SkillIcon } from "./skill-icon.tsx";
+import { UserMessageText } from "./user-message-text.tsx";
 
 const isBrowserAnnotation = (
 	annotation: ComposerAnnotation,
@@ -100,6 +109,11 @@ import {
 } from "./tool-row.tsx";
 import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
+import {
+	userBubbleClass,
+	userBubbleColumnClass,
+	userBubbleRowClass,
+} from "./user-bubble-frame.tsx";
 
 export type { ToolResultRecord } from "./chat-lookups.tsx";
 
@@ -168,6 +182,7 @@ function MessageRowImpl({
 	message,
 	sessionId,
 	environmentId,
+	providerId,
 	readOnly = false,
 	showAssistantCommands = false,
 	forkDestination,
@@ -176,6 +191,7 @@ function MessageRowImpl({
 	message: Message;
 	sessionId?: SessionId;
 	environmentId?: EnvironmentId;
+	providerId?: ProviderId;
 	readOnly?: boolean;
 	showAssistantCommands?: boolean;
 	forkDestination?: ForkDestination;
@@ -196,6 +212,11 @@ function MessageRowImpl({
 				<UserBubble
 					text={message.content.text}
 					attachments={message.content.attachments}
+					attachmentSession={
+						environmentId !== undefined
+							? { environmentId, sessionId: message.sessionId }
+							: undefined
+					}
 					fileRefs={message.content.fileRefs}
 					skillRefs={message.content.skillRefs}
 					annotations={message.content.annotations}
@@ -263,9 +284,10 @@ function MessageRowImpl({
 			// button rather than a bare generic error.
 			return (
 				<ErrorBubble
-					error={classifyMessage(message.content.message)}
+					error={classifyMessage(message.content.message, providerId)}
 					sessionId={sessionId}
 					environmentId={environmentId}
+					providerId={providerId}
 				/>
 			);
 		case "interrupted":
@@ -452,7 +474,7 @@ function CompactRow({
 }
 
 /**
- * Strip the inline chip tokens (`[image:<id>]`, `@<path>`, `/<skill>`) from
+ * Strip the inline chip tokens (`[image:<id>]`, `@<path>`, `$<skill>`) from
  * text we render in the user bubble. The chips are surfaced as visual
  * thumbnails / chips below the bubble, so showing the raw token in-line is
  * just noise. Tokens for chip kinds the row didn't receive (legacy `user`
@@ -476,14 +498,17 @@ const stripChipTokens = (
 		out = out.replaceAll(`@${f.relPath}`, "");
 	}
 	for (const s of skillRefs) {
-		out = out.replaceAll(`/${s.name}`, `/${s.name}`);
+		out = out.replaceAll(`$${s.name}`, "");
+		out = out.replaceAll(`/${s.name}`, "");
 	}
 	return out.replace(/[ \t]{2,}/g, " ").trim();
 };
 
-function UserBubble({
+export function UserBubble({
 	text,
 	attachments,
+	attachmentSession,
+	attachmentPreviews,
 	fileRefs,
 	skillRefs,
 	annotations,
@@ -492,6 +517,8 @@ function UserBubble({
 	createdAt,
 }: {
 	text: string;
+	attachmentSession?: SessionRef;
+	attachmentPreviews?: Readonly<Record<string, string>>;
 	attachments?: ReadonlyArray<AttachmentRef>;
 	fileRefs?: ReadonlyArray<FileRef>;
 	skillRefs?: ReadonlyArray<SkillRef>;
@@ -515,15 +542,10 @@ function UserBubble({
 	const display = hasChips
 		? stripChipTokens(text, attachments ?? [], fileRefs ?? [], skillRefs ?? [])
 		: text;
-	const truncate = (name: string): string =>
-		name.length > 28 ? `${name.slice(0, 25)}...` : name;
 	return (
-		<div className="group/message flex justify-end px-3 py-1.5">
-			<div className="flex max-w-[80%] flex-col items-end">
-				<div
-					data-chat-user-bubble
-					className="rounded-xl rounded-tr-sm bg-user-bubble px-2.5 py-1.5 text-xs leading-relaxed text-user-bubble-foreground"
-				>
+		<div className={userBubbleRowClass}>
+			<div className={userBubbleColumnClass}>
+				<div data-chat-user-bubble className={userBubbleClass}>
 					{origin !== undefined ? (
 						<button
 							type="button"
@@ -582,61 +604,14 @@ function UserBubble({
 					) : null}
 					{hasChips ? (
 						<div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-							{(attachments ?? []).map((a) => {
-								const isImage = a.mimeType.startsWith("image/");
-								const src = attachmentUrl(a.id);
-								const className =
-									"inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]";
-								const inner = (
-									<>
-										{isImage ? (
-											<img
-												src={src}
-												alt=""
-												className="size-4 rounded object-cover"
-											/>
-										) : (
-											<FileIcon
-												name={a.originalName}
-												kind="file"
-												className="inline-flex size-4 shrink-0 items-center justify-center"
-											/>
-										)}
-										<span className="truncate">{truncate(a.originalName)}</span>
-									</>
-								);
-								if (isImage) {
-									return (
-										<button
-											key={a.id}
-											type="button"
-											title={a.originalName}
-											className={className}
-											onClick={() =>
-												useUiStore.getState().openFileInTab({
-													kind: "image",
-													src,
-													name: a.originalName,
-												})
-											}
-										>
-											{inner}
-										</button>
-									);
-								}
-								return (
-									<a
-										key={a.id}
-										href={src}
-										target="_blank"
-										rel="noreferrer"
-										title={a.originalName}
-										className={className}
-									>
-										{inner}
-									</a>
-								);
-							})}
+							{(attachments ?? []).map((attachment) => (
+								<AttachmentChip
+									key={attachment.id}
+									attachment={attachment}
+									sessionRef={attachmentSession ?? null}
+									previewUrl={attachmentPreviews?.[attachment.id]}
+								/>
+							))}
 							{(fileRefs ?? []).map((f) => (
 								<FileChip
 									key={f.relPath}
@@ -648,16 +623,15 @@ function UserBubble({
 							{(skillRefs ?? []).map((s) => (
 								<span
 									key={s.name}
-									className="inline-flex items-center rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]"
+									className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground/90"
 								>
-									/{s.name}
+									<SkillIcon className="size-3 text-primary/75" />
+									{s.name}
 								</span>
 							))}
 						</div>
 					) : null}
-					{display.length > 0 ? (
-						<div className="whitespace-pre-wrap break-words">{display}</div>
-					) : null}
+					{display.length > 0 ? <UserMessageText text={display} /> : null}
 					{goal ? (
 						<div className="mt-2 flex items-center gap-1.5 text-xs text-user-bubble-foreground/65">
 							<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />
@@ -993,6 +967,86 @@ function ProviderAuthCard({
 	);
 }
 
+function CloudProviderAuthCard({
+	providerId,
+	authMode,
+	environmentId,
+	onOpenCloudSettings,
+	onDismiss,
+}: {
+	providerId: ProviderId;
+	authMode: "legacy-image" | "broker-v1" | "unknown";
+	environmentId: EnvironmentId;
+	onOpenCloudSettings: () => void;
+	onDismiss?: () => void;
+}) {
+	const providerLabel = PROVIDER_LABEL_FOR_ERROR[providerId];
+	const replacementProjectId = localProjectForCloudEnvironment(environmentId);
+	const legacy = authMode === "legacy-image";
+	const broker = authMode === "broker-v1";
+	return (
+		<div className="px-4 py-2">
+			<div className="w-fit max-w-[80%] rounded-lg bg-alert-error-bg px-3 py-2.5 text-xs text-foreground">
+				<div className="flex items-center justify-between gap-2">
+					<span className="inline-flex items-center gap-1.5 font-medium">
+						<HugeiconsIcon
+							icon={AlertCircleIcon}
+							className="size-3.5 text-destructive"
+							aria-hidden
+						/>
+						{legacy
+							? `This cloud chat uses legacy ${providerLabel} authentication`
+							: broker
+								? `${providerLabel} account needs reconnecting`
+								: `${providerLabel} authentication is unavailable`}
+					</span>
+					{onDismiss !== undefined && (
+						<button
+							type="button"
+							onClick={onDismiss}
+							className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+						>
+							Dismiss
+						</button>
+					)}
+				</div>
+				<p className="mt-1.5 max-w-[32rem] text-[11px] leading-4 text-muted-foreground">
+					{legacy
+						? `Its image-owned ${providerLabel} credential cannot be migrated safely. Reconnect once, then create a replacement cloud chat that uses account-level authentication.`
+						: broker
+							? `Reconnect ${providerLabel} once in Cloud Workspace settings. The account credential is shared by new cloud chats and is never baked into this sandbox.`
+							: `Open Cloud Workspace settings to restore account-level ${providerLabel} authentication. Zuse will identify legacy chats after cloud metadata finishes syncing.`}
+				</p>
+				<div className="mt-2 flex flex-wrap items-center gap-1.5">
+					{legacy && replacementProjectId !== null ? (
+						<Button
+							type="button"
+							size="xs"
+							variant="outline"
+							onClick={() => openNewChatLanding(replacementProjectId)}
+						>
+							Create replacement chat
+						</Button>
+					) : null}
+					<Button
+						type="button"
+						size="xs"
+						variant={legacy ? "ghost" : "outline"}
+						onClick={onOpenCloudSettings}
+					>
+						<HugeiconsIcon
+							icon={Settings01Icon}
+							className="size-3"
+							aria-hidden
+						/>
+						Open Cloud Authentication
+					</Button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 const GEMINI_UPGRADE_COMMAND = "npm i -g @google/gemini-cli@latest";
 
 const isGeminiAcpUpgradeError = (text: string): boolean =>
@@ -1069,6 +1123,13 @@ export function ErrorBubble({
 }) {
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
+	const cloudSummary = useCloudChatCatalogStore((state) =>
+		environmentId === undefined
+			? null
+			: (state.summaries.find(
+					(summary) => summary.workspaceId === environmentId,
+				) ?? null),
+	);
 
 	const onRetry = () => {
 		if (sessionId !== undefined && environmentId !== undefined) {
@@ -1085,6 +1146,10 @@ export function ErrorBubble({
 	const onOpenSettings = () => {
 		setView("settings");
 		setSettingsSection({ kind: "providers" });
+	};
+	const onOpenCloudSettings = () => {
+		setView("settings");
+		setSettingsSection({ kind: "machines" });
 	};
 
 	if (isGeminiAcpUpgradeError(error.message)) {
@@ -1157,20 +1222,36 @@ export function ErrorBubble({
 	// "Authentication required" card with the one-click OAuth button. Other
 	// providers (or auth errors without a provider) fall through to the generic
 	// bubble below with a "Open Provider Settings" link.
-	if (
-		error.kind === "auth" &&
-		error.providerId !== undefined &&
-		supportsProviderLogin(error.providerId)
-	) {
-		return (
-			<ProviderAuthCard
-				providerId={error.providerId}
-				sessionId={sessionId}
-				environmentId={environmentId}
-				onOpenSettings={onOpenSettings}
-				onDismiss={onDismiss}
-			/>
-		);
+	if (error.kind === "auth" && error.providerId !== undefined) {
+		if (
+			environmentId !== undefined &&
+			isCloudWorkspaceEnvironment(environmentId) &&
+			["claude", "codex", "cursor", "grok"].includes(error.providerId)
+		) {
+			return (
+				<CloudProviderAuthCard
+					providerId={error.providerId}
+					authMode={
+						error.providerId === "codex"
+							? (cloudSummary?.codexAuthMode ?? "unknown")
+							: (cloudSummary?.providerAuthMode ?? "unknown")
+					}
+					environmentId={environmentId}
+					onOpenCloudSettings={onOpenCloudSettings}
+					onDismiss={onDismiss}
+				/>
+			);
+		}
+		if (supportsProviderLogin(error.providerId))
+			return (
+				<ProviderAuthCard
+					providerId={error.providerId}
+					sessionId={sessionId}
+					environmentId={environmentId}
+					onOpenSettings={onOpenSettings}
+					onDismiss={onDismiss}
+				/>
+			);
 	}
 
 	const headline =
@@ -1182,7 +1263,9 @@ export function ErrorBubble({
 				}`
 			: error.kind === "network"
 				? "Connection lost"
-				: null;
+				: error.kind === "terminal"
+					? error.headline
+					: null;
 
 	const iconTone =
 		error.kind === "auth"
@@ -1219,7 +1302,7 @@ export function ErrorBubble({
 						<pre className="min-w-0 max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
 							{error.message || "(empty)"}
 						</pre>
-						{sessionId !== undefined && (
+						{sessionId !== undefined && error.kind !== "terminal" && (
 							<div className="mt-1.5 flex flex-wrap items-center gap-1.5">
 								<Button
 									type="button"
@@ -1262,5 +1345,119 @@ export function ErrorBubble({
 				</div>
 			</div>
 		</div>
+	);
+}
+
+const truncate = (name: string): string =>
+	name.length > 28 ? `${name.slice(0, 25)}...` : name;
+
+function AttachmentChip({
+	attachment: a,
+	sessionRef,
+	previewUrl,
+}: {
+	attachment: AttachmentRef;
+	previewUrl?: string;
+	sessionRef: SessionRef | null;
+}) {
+	const isImage = a.mimeType.startsWith("image/");
+	const preview = useAttachmentUrl(isImage ? sessionRef : null, a.id);
+	const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
+	const candidate =
+		previewUrl ??
+		(sessionRef === null || !isImage
+			? a.id.startsWith("pending-")
+				? null
+				: attachmentUrl(a.id)
+			: preview.src);
+	const src = candidate === brokenSrc ? null : candidate;
+	const className =
+		"inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]";
+	const inner = (
+		<>
+			{isImage && src !== null ? (
+				<img
+					src={src}
+					alt=""
+					onError={() => setBrokenSrc(src)}
+					className="size-4 shrink-0 rounded object-cover"
+				/>
+			) : isImage ? (
+				<span
+					className="flex size-4 shrink-0 items-center justify-center rounded bg-muted/30 text-[10px] text-muted-foreground"
+					role="status"
+					aria-label={
+						preview.failed || brokenSrc !== null
+							? "Retry preview"
+							: "Preparing image"
+					}
+				>
+					{preview.failed || brokenSrc !== null ? "↻" : "…"}
+				</span>
+			) : (
+				<FileIcon
+					name={a.originalName}
+					kind="file"
+					className="inline-flex size-4 shrink-0 items-center justify-center"
+				/>
+			)}
+			<span className="truncate">{truncate(a.originalName)}</span>
+		</>
+	);
+	if (isImage) {
+		return (
+			<button
+				key={a.id}
+				type="button"
+				title={
+					preview.failed || brokenSrc !== null
+						? "Could not load image. Click to retry."
+						: a.originalName
+				}
+				className={className}
+				disabled={src === null && !preview.failed && brokenSrc === null}
+				onClick={() => {
+					if (src === null) {
+						setBrokenSrc(null);
+						preview.retry();
+						return;
+					}
+					const open = (previewSrc: string) =>
+						useUiStore.getState().openFileInTab({
+							kind: "image",
+							src: previewSrc,
+							name: a.originalName,
+						});
+					if (src.startsWith("blob:")) {
+						// The draft owns this URL and releases it after upload. An open
+						// image tab needs its own portable copy.
+						void fetch(src)
+							.then((response) => response.arrayBuffer())
+							.then((bytes) =>
+								open(attachmentDataUrl(new Uint8Array(bytes), a.mimeType)),
+							)
+							.catch(() => setBrokenSrc(src));
+					} else open(src);
+				}}
+			>
+				{inner}
+			</button>
+		);
+	}
+	return (
+		<a
+			key={a.id}
+			href={src ?? undefined}
+			target="_blank"
+			rel="noreferrer"
+			title={
+				preview.failed || brokenSrc !== null
+					? "Could not load image. Click to retry."
+					: a.originalName
+			}
+			className={className}
+		>
+			{inner}
+		</a>
 	);
 }

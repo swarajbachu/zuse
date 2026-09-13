@@ -21,7 +21,7 @@ import {
 
 import { eventToContent } from "./conversation-message-mapping.ts";
 
-type RelayActivity =
+type ApiActivity =
 	| "approval-needed"
 	| "question-needed"
 	| "completed"
@@ -57,9 +57,9 @@ export interface ConversationEventRuntimeOptions {
 		sessionId: SessionId,
 		goal: ThreadGoal | null,
 	) => Effect.Effect<void>;
-	readonly publishRelayActivity: (
+	readonly publishApiActivity: (
 		sessionId: SessionId,
-		activity: RelayActivity,
+		activity: ApiActivity,
 	) => Effect.Effect<void>;
 	readonly ignoreError: (providerId: ProviderId, message: string) => boolean;
 	readonly isDuplicateToolUse: (
@@ -158,7 +158,7 @@ export const makeConversationEventRuntime = Effect.fn(
 									}
 									if (event._tag === "Status") {
 										if (event.status === "running") {
-											yield* options.publishRelayActivity(sessionId, "running");
+											yield* options.publishApiActivity(sessionId, "running");
 										}
 										return;
 									}
@@ -175,7 +175,7 @@ export const makeConversationEventRuntime = Effect.fn(
 											envelope.turnId,
 											outcome,
 										);
-										yield* options.publishRelayActivity(
+										yield* options.publishApiActivity(
 											sessionId,
 											event.reason === "error" ? "error" : "completed",
 										);
@@ -215,13 +215,13 @@ export const makeConversationEventRuntime = Effect.fn(
 									}
 									if (envelope.scope !== "turn") return;
 									if (event._tag === "PermissionRequest") {
-										yield* options.publishRelayActivity(
+										yield* options.publishApiActivity(
 											sessionId,
 											"approval-needed",
 										);
 									}
 									if (event._tag === "UserQuestion") {
-										yield* options.publishRelayActivity(
+										yield* options.publishApiActivity(
 											sessionId,
 											"question-needed",
 										);
@@ -243,7 +243,7 @@ export const makeConversationEventRuntime = Effect.fn(
 											: undefined,
 									);
 									if (event._tag === "Error") {
-										yield* options.publishRelayActivity(sessionId, "error");
+										yield* options.publishApiActivity(sessionId, "error");
 									}
 								}),
 							),

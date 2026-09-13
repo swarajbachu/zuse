@@ -1,0 +1,55 @@
+import type { EnvironmentId } from "@zuse/contracts";
+import { Effect } from "effect";
+import { exportJWK, generateKeyPair, importJWK, SignJWT } from "jose";
+
+/**
+ * The environment's asymmetric identity for api linking. The private key never
+ * leaves the desktop; the public key is handed to the api, which verifies
+ * every proof (link, and later health/connect) against it. Ed25519 is required
+ * because the api must verify without holding a shared secret — see
+ * specs/remote-multiclient.
+ */
+export interface EnvironmentKeypair {
+	readonly privateJwk: string;
+	readonly publicJwk: string;
+}
+
+export const generateEnvironmentKeypair =
+	(): Effect.Effect<EnvironmentKeypair> =>
+		Effect.promise(async () => {
+			const { privateKey, publicKey } = await generateKeyPair("EdDSA", {
+				extractable: true,
+			});
+			return {
+				privateJwk: JSON.stringify(await exportJWK(privateKey)),
+				publicJwk: JSON.stringify(await exportJWK(publicKey)),
+			};
+		});
+
+/**
+ * Sign the Ed25519 link proof: a JWT over { challenge, environmentId } with
+ * `aud = apiIssuer` and `typ = "environment-link-proof+jwt"`, exactly what the
+ * api's verifier checks.
+ */
+export const signEnvironmentLinkProof = (input: {
+	readonly privateJwk: string;
+	readonly challenge: string;
+	readonly environmentId: EnvironmentId;
+	readonly apiIssuer: string;
+	readonly nowMs: number;
+}): Effect.Effect<string> =>
+	Effect.promise(async () => {
+		const key = await importJWK(
+			JSON.parse(input.privateJwk) as Record<string, unknown>,
+			"EdDSA",
+		);
+		return new SignJWT({
+			challenge: input.challenge,
+			environmentId: input.environmentId,
+		})
+			.setProtectedHeader({ alg: "EdDSA", typ: "environment-link-proof+jwt" })
+			.setAudience(input.apiIssuer)
+			.setIssuedAt(Math.floor(input.nowMs / 1000))
+			.setExpirationTime(Math.floor(input.nowMs / 1000) + 300)
+			.sign(key);
+	});

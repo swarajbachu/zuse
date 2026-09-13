@@ -8,6 +8,7 @@ import { Button } from "@/components/button";
 import { Container } from "@/components/container";
 import { CopyRightIcon, XformerlyTwitter } from "@/components/icons/general";
 import { Logo } from "@/components/logo";
+import { legalPageLinks } from "@/lib/legal-pages";
 import {
 	DISCORD_URL,
 	DOWNLOAD_URL,
@@ -26,8 +27,9 @@ const data = {
 		{ label: "Developers", href: "/developers" },
 		{ label: "Change Log", href: "/changelog" },
 		{ label: "Blog", href: "/blog" },
-		{ label: "Privacy Policy", href: "/privacy" },
 	],
+	Legal: legalPageLinks("Legal"),
+	Trust: legalPageLinks("Trust"),
 	Community: [
 		{ label: "GitHub", href: GITHUB_URL },
 		{ label: "Discord", href: DISCORD_URL },
@@ -51,7 +53,7 @@ export const Footer = () => {
 								<Button />
 							</div>
 						</div>
-						<div className="grid grid-cols-2 gap-10 md:gap-0">
+						<div className="grid grid-cols-2 gap-x-10 gap-y-12 md:gap-x-8">
 							{Object.entries(data).map(([key, value]) => (
 								<div key={key} className="flex flex-col gap-4">
 									<h3 className="text-muted-foreground -tracking-sm text-xs leading-5 font-medium">

@@ -7,6 +7,7 @@ import {
 	errorByConnectionAtom,
 	markChatRead,
 	type ProjectBundle,
+	runtimeBundlesByConnectionAtom,
 	setPermissionMode,
 	statusBySessionAtom,
 } from "../../../src/store/sessions";
@@ -92,7 +93,7 @@ const seedBundles = () => {
 		chats: [makeChat()],
 		sessions: [makeSession()],
 	};
-	appAtomRegistry.set(bundlesByConnectionAtom, { conn: [bundle] });
+	appAtomRegistry.set(runtimeBundlesByConnectionAtom, { conn: [bundle] });
 };
 
 describe("sessions atom actions", () => {
@@ -100,7 +101,7 @@ describe("sessions atom actions", () => {
 		rpc.archiveShouldFail = false;
 		rpc.markChatReadShouldFail = false;
 		rpc.permissionModeShouldFail = false;
-		appAtomRegistry.set(bundlesByConnectionAtom, {});
+		appAtomRegistry.set(runtimeBundlesByConnectionAtom, {});
 		appAtomRegistry.set(statusBySessionAtom, {});
 		appAtomRegistry.set(errorByConnectionAtom, {});
 		seedBundles();

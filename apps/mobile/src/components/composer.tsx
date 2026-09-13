@@ -37,6 +37,7 @@ import {
 	pickComposerImages,
 	uploadComposerAttachment,
 } from "~/lib/composer-attachments";
+import { composerSendFailureDisposition } from "~/lib/composer-send-failure";
 import {
 	type ComposerActivity,
 	composerExpanded,
@@ -46,12 +47,14 @@ import {
 import { createComposerSubmitGate } from "~/lib/composer-submit-gate";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { availableProviderIds } from "~/lib/model-options";
+import { mobileReleaseFeatures } from "~/lib/release-features";
 import { connectionSessionKey } from "~/lib/session-key";
 import {
 	flushServerQueue,
 	interruptSession,
 	makeTextInput,
 	queueMessage,
+	sendCloudMessage,
 	sendMessage,
 	setSessionModel,
 	setSessionProvider,
@@ -61,6 +64,7 @@ import {
 	connectionAvailabilityAtom,
 	hydrateAvailability,
 } from "~/store/availability";
+import { cloudAuthenticatedProvidersAtom } from "~/store/cloud-catalog";
 import {
 	clearComposerDraft,
 	composerDraft,
@@ -71,6 +75,10 @@ import {
 	addOptimisticMessage,
 	removeOptimisticMessage,
 } from "~/store/messages";
+import {
+	activeModelCatalogAtom,
+	hydrateModelCatalog,
+} from "~/store/model-catalog";
 import { enqueueOutboxMessage } from "~/store/outbox";
 import {
 	setPermissionMode as setPermissionModeOptimistic,
@@ -216,12 +224,18 @@ export const Composer = ({
 	};
 
 	const availability = useAtomValue(connectionAvailabilityAtom(connKey));
+	useAtomValue(activeModelCatalogAtom);
 	useEffect(() => {
 		void hydrateAvailability(connKey, connection);
+		void hydrateModelCatalog(connKey, connection);
 	}, [connKey, connection]);
+	const cloudProviders = useAtomValue(cloudAuthenticatedProvidersAtom);
 	const availableProviders = useMemo(
-		() => availableProviderIds(availability),
-		[availability],
+		() =>
+			connection.cloudWorkspaceId === undefined
+				? availableProviderIds(availability)
+				: cloudProviders,
+		[availability, cloudProviders, connection.cloudWorkspaceId],
 	);
 	const goalSupported =
 		availability
@@ -270,7 +284,7 @@ export const Composer = ({
 		if (!canSend) return;
 		const value = (inputRef.current?.getText() ?? "").trim();
 		if (value.length === 0 && attachments.length === 0) return;
-		if (!online) {
+		if (!online && connection.cloudWorkspaceId === undefined) {
 			if (attachments.length > 0) {
 				setComposerError("Attachments require an active connection.");
 				return;
@@ -318,7 +332,7 @@ export const Composer = ({
 			// row. LegendList's anchored-end contract uses the pre-append index.
 			onMessageWillAppend?.();
 			didPrepareAppend = true;
-				optimisticMessageId = messageId;
+			optimisticMessageId = messageId;
 			const optimisticContent: MessageContent =
 				uploaded.length > 0 || fileRefs.length > 0 || skillRefs.length > 0
 					? {
@@ -331,31 +345,44 @@ export const Composer = ({
 							goal: goalMode,
 						}
 					: {
-					_tag: "user",
-					text: value,
-					goal: goalMode,
-				};
-				addOptimisticMessage(
-					stateKey,
-					Message.make({
-						id: messageId,
-						sessionId,
-						role: "user",
-						content: optimisticContent,
-						createdAt: new Date(),
-					}),
-				);
-			await Effect.runPromise(
-				sendMessage({
-					connection,
+							_tag: "user",
+							text: value,
+							goal: goalMode,
+						};
+			addOptimisticMessage(
+				stateKey,
+				Message.make({
+					id: messageId,
 					sessionId,
-					input,
-					asGoal: goalMode,
-					clientMessageId: messageId,
+					role: "user",
+					content: optimisticContent,
+					createdAt: new Date(),
 				}),
 			);
+			const messageOptions = {
+				connection,
+				sessionId,
+				input,
+				asGoal: goalMode,
+				clientMessageId: messageId,
+			};
+			if (connection.cloudWorkspaceId !== undefined) {
+				const handle = sendCloudMessage(messageOptions);
+				void handle.result.catch(() => undefined); // ClientBus owns terminal UI state and receipt recovery.
+				await handle.accepted;
+			} else await Effect.runPromise(sendMessage(messageOptions));
 			finishSuccessfulSubmission({ dismissKeyboard: false });
 		} catch (cause) {
+			if (
+				composerSendFailureDisposition(cause, optimisticMessageId !== null) ===
+				"retrying"
+			) {
+				// ClientBus has already persisted this command and will replay it with
+				// the same ID. Keep the truthful optimistic row and don't flash a false
+				// terminal error during a brief route/socket handoff.
+				finishSuccessfulSubmission({ dismissKeyboard: false });
+				return;
+			}
 			setComposerError(connectionErrorMessage(cause));
 			if (optimisticMessageId !== null) {
 				removeOptimisticMessage(stateKey, optimisticMessageId);
@@ -388,7 +415,7 @@ export const Composer = ({
 			);
 			inputRef.current?.replaceRange(trigger.from, trigger.to, `${token} `);
 		} else if (row.kind === "skill") {
-			const token = `/${row.value.name}`;
+			const token = `$${row.value.name}`;
 			setSkillRefs((current) =>
 				current.some((item) => item.name === row.value.name)
 					? current
@@ -568,7 +595,7 @@ export const Composer = ({
 								setSkillRefs((current) =>
 									current.filter((item) => item.name !== name),
 								);
-								removeToken(`/${name}`);
+								removeToken(`$${name}`);
 							}}
 						/>
 						<ComposerAttachmentStrip
@@ -610,7 +637,7 @@ export const Composer = ({
 											retainComposerReferences(
 												current,
 												text,
-												(skill) => `/${skill.name}`,
+												(skill) => `$${skill.name}`,
 											),
 										);
 									}}
@@ -664,15 +691,17 @@ export const Composer = ({
 											onPress={() => setModelSheetOpen(true)}
 										/>
 									)}
-									<ComposerVoiceButton
-										connection={connection}
-										enabled={voiceEnabled}
-										online={online}
-										onTranscript={(text) =>
-											inputRef.current?.insertAtCursor(text)
-										}
-										onError={setComposerError}
-									/>
+									{mobileReleaseFeatures.voice ? (
+										<ComposerVoiceButton
+											connection={connection}
+											enabled={voiceEnabled}
+											online={online}
+											onTranscript={(text) =>
+												inputRef.current?.insertAtCursor(text)
+											}
+											onError={setComposerError}
+										/>
+									) : null}
 									<SendButton
 										showInterrupt={showInterrupt}
 										online={online}
@@ -744,6 +773,7 @@ export const Composer = ({
 					onOpenChange={setModelSheetOpen}
 					value={modelValue}
 					availableProviders={availableProviders}
+					strictProviders={connection.cloudWorkspaceId !== undefined}
 					canChangeProvider={fresh}
 					canChangeReasoning={fresh}
 					onChange={(next) => void changeModelMode(next)}

@@ -9,6 +9,13 @@ import { Effect, Layer } from "effect";
 import type { RpcClient, RpcGroup } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import { verifyPinnedLocalServer } from "../lib/nearby-pairing";
+import { connectEnvironment } from "./api-client";
+import {
+	connectCloudRuntime,
+	markCloudGatewayHealthy,
+	recordCloudGatewayClose,
+	requestCloudRuntimeWake,
+} from "./cloud-runtime";
 import {
 	logConnectionDiagnostic,
 	logConnectionProblem,
@@ -19,7 +26,6 @@ import {
 } from "./connection-failures";
 import { ConnectionFailed } from "./errors";
 import { makeMobileWebSocket } from "./mobile-websocket";
-import { connectEnvironment } from "./relay-client";
 import { type WsProtocolOptions, wsClientProtocolLayer } from "./ws-protocol";
 
 export type MemoizeClient = RpcClient.RpcClient<
@@ -34,10 +40,14 @@ const runtimeKey = (options: WsProtocolOptions) =>
 	options.environmentId ??
 	`${options.wsBaseUrl ?? `${options.host}:${options.port}`}`;
 
-const makeClientSession = (options: WsProtocolOptions) => {
+type PreparedOptions = WsProtocolOptions & {
+	readonly cloudProtocols?: readonly string[];
+};
+const makeClientSession = (options: PreparedOptions) => {
+	const workspaceId = options.cloudWorkspaceId;
 	logConnectionDiagnostic("runtime.create", {
 		key: runtimeKey(options),
-		relay: options.environmentId !== undefined,
+		api: options.environmentId !== undefined,
 		wsBaseUrl: options.wsBaseUrl ?? null,
 		host: options.host,
 		port: options.port,
@@ -48,6 +58,11 @@ const makeClientSession = (options: WsProtocolOptions) => {
 		// default of ten seconds was too aggressive on physical devices.
 		openTimeout: "25 seconds",
 		makeWebSocket: makeMobileWebSocket,
+		protocols: options.cloudProtocols,
+		onClose:
+			workspaceId === undefined
+				? undefined
+				: (event) => recordCloudGatewayClose(workspaceId, event.code),
 	}).pipe(Layer.orDie);
 	return makeRpcClientSession(protocolLayer, MemoizeRpcs, {
 		protocolVersion: WIRE_PROTOCOL_VERSION,
@@ -57,7 +72,16 @@ const makeClientSession = (options: WsProtocolOptions) => {
 
 const prepareOptions = async (
 	options: WsProtocolOptions,
-): Promise<WsProtocolOptions> => {
+): Promise<PreparedOptions> => {
+	if (options.cloudWorkspaceId !== undefined) {
+		const ticket = await connectCloudRuntime(options.cloudWorkspaceId);
+		return {
+			...options,
+			wsBaseUrl: ticket.wsUrl,
+			token: null,
+			cloudProtocols: [ticket.protocol, ticket.credential],
+		};
+	}
 	if (
 		options.serverPublicKey !== undefined &&
 		options.serverKeyPin !== undefined
@@ -75,12 +99,12 @@ const prepareOptions = async (
 	) {
 		return options;
 	}
-	logConnectionDiagnostic("relay.connect_grant.start", {
+	logConnectionDiagnostic("api.connect_grant.start", {
 		key: runtimeKey(options),
 		environmentId: options.environmentId,
 	});
 	const grant = await connectEnvironment(options.environmentId);
-	logConnectionDiagnostic("relay.connect_grant.ok", {
+	logConnectionDiagnostic("api.connect_grant.ok", {
 		key: runtimeKey(options),
 		environmentId: options.environmentId,
 		wsBaseUrl: grant.endpoint.wsBaseUrl,
@@ -102,8 +126,13 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 		keyOf: runtimeKey,
 		prepareOptions,
 		createClient: makeClientSession,
-		validateClient: (client) =>
-			Effect.runPromise(client["connect.describe"]().pipe(Effect.asVoid)),
+		validateClient: async (client) => {
+			const descriptor = await Effect.runPromise(client["connect.describe"]());
+			markCloudGatewayHealthy(
+				descriptor.environmentId,
+				descriptor.capabilities,
+			);
+		},
 		isOnline: () => currentOnline,
 		shouldReconnectOnOptionsChange: (previous, next) =>
 			previous.host !== next.host ||
@@ -134,14 +163,23 @@ const connectionEntry = (
 
 export const getConnectionClient = (
 	options: WsProtocolOptions,
+	wake = true,
 ): Effect.Effect<MemoizeClient, ConnectionFailed> =>
-	connectionEntry(options)
-		.getClient()
-		.pipe(
-			Effect.mapError(
-				(cause) => new ConnectionFailed({ message: cause.message }),
-			),
-		);
+	Effect.suspend(() => {
+		if (
+			wake &&
+			options.cloudWorkspaceId !== undefined &&
+			getConnectionSnapshot(options).status !== "connected"
+		)
+			requestCloudRuntimeWake(options.cloudWorkspaceId);
+		return connectionEntry(options)
+			.getClient()
+			.pipe(
+				Effect.mapError(
+					(cause) => new ConnectionFailed({ message: cause.message }),
+				),
+			);
+	});
 
 export const disposeConnection = (options: WsProtocolOptions): Promise<void> =>
 	connectionEntry(options).remove();

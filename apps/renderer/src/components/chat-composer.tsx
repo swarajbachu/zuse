@@ -13,6 +13,7 @@ import {
 	type PermissionRequest,
 	type ProviderId,
 	type QueuedMessage,
+	type RuntimeMode,
 	type SelectOptionDescriptor,
 	type Session,
 	type SessionId,
@@ -25,7 +26,7 @@ import {
 	FlashIcon,
 	InformationCircleIcon,
 	MapsIcon,
-	PencilIcon,
+	PencilEdit01Icon,
 	PlayIcon,
 	SentIcon,
 	SquareIcon,
@@ -33,7 +34,6 @@ import {
 } from "@zuse/icons/solid-rounded";
 import { ChevronDown } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { CostChip } from "~/components/cost-footer";
 import { Button } from "~/components/ui/button";
 import { Card, CardPanel } from "~/components/ui/card";
 import {
@@ -45,17 +45,15 @@ import {
 	DialogPopup,
 	DialogTitle,
 } from "~/components/ui/dialog";
-import { Frame, FrameFooter } from "~/components/ui/frame";
 import { Input } from "~/components/ui/input";
 import {
 	Menu,
-	MenuGroup,
-	MenuGroupLabel,
 	MenuPopup,
 	MenuRadioGroup,
 	MenuRadioItem,
 	MenuTrigger,
 } from "~/components/ui/menu";
+import { Slider } from "~/components/ui/slider";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast.tsx";
@@ -93,7 +91,6 @@ import {
 	providerUsesEmulatedPlanMode,
 	shouldSendPlanFeedbackNow,
 } from "~/lib/plan-feedback-routing";
-import { attachmentUrl } from "~/lib/platform-capabilities";
 import { readStorageWithLegacy } from "~/lib/storage-keys";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
@@ -106,13 +103,22 @@ import type {
 } from "../composer/draft-attachments.ts";
 import { composerSnapshotFromInput } from "../composer/input-snapshot.ts";
 import { parseComposerInput } from "../composer/segment-parser.ts";
-import { uploadAttachment } from "../lib/attachments.ts";
+import {
+	cachedAttachmentUrl,
+	resolveAttachmentUrl,
+	uploadAttachment,
+} from "../lib/attachments.ts";
 import {
 	cloudChatShowsWorking,
 	cloudWorkspaceIsStarting,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
-import { useCloudChatSummaryForSession } from "../lib/cloud-workspaces.ts";
+import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
+import {
+	cloudComposerSubmissionBlocked,
+	commitAcceptedComposerDelivery,
+	shouldQueueComposerMessage,
+} from "../lib/composer-delivery.ts";
 import {
 	decideEnvironmentPermission,
 	useEnvironmentPermissions,
@@ -123,6 +129,7 @@ import {
 	registerExtensionComposer,
 } from "../lib/extension-composer.ts";
 import { subscribeKeybindings } from "../lib/keybindings-client-bus.ts";
+import { usePlatformOnline } from "../lib/network-status.ts";
 import {
 	interruptSession,
 	queueSessionMessage,
@@ -148,14 +155,18 @@ import {
 	composerDraftKeyForSession,
 	useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
-import { useOpencodeInventory } from "../store/opencode-inventory.ts";
+import {
+	currentModelCatalog,
+	useModelCatalogStore,
+} from "../store/model-catalog.ts";
 import { usePaneFocus } from "../store/pane-focus.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { AnnotationTray } from "./composer/annotation-tray.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { ContextTray } from "./composer/context-tray.tsx";
-import { ExtensionAttachmentPicker } from "./composer/extension-attachment-picker.tsx";
+import { ExtensionAttachmentAction } from "./composer/extension-attachment-action.tsx";
 import { FileTagPopover } from "./composer/file-tag-popover.tsx";
+import { NoConnectionTray } from "./composer/no-connection-tray.tsx";
 import {
 	EMULATED_PLAN_APPROVAL_PROMPT,
 	PlanApprovalTray,
@@ -163,7 +174,11 @@ import {
 import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
 import { SlashCommandPopover } from "./composer/slash-command-popover.tsx";
-import { TrayPill, trayPillActionClass } from "./composer/tray-pill.tsx";
+import {
+	composerTraySurfaceClass,
+	TrayPill,
+	trayPillActionClass,
+} from "./composer/tray-pill.tsx";
 
 const EMPTY_PERMISSION_REQUESTS: Readonly<Record<string, PermissionRequest>> =
 	{};
@@ -193,12 +208,15 @@ const attachmentsWithBrowserAnnotations = (
 	return next;
 };
 
+import { useChatDeviceApproval } from "../lib/chat-device-approval.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
+import { DevicePermissionCard } from "./device-permission-card.tsx";
 import { PermissionCard } from "./permission-card.tsx";
 import { QuestionCard } from "./question-card.tsx";
+import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
 
-const MIN_HEIGHT = 56;
+const MIN_HEIGHT = 44;
 const MAX_HEIGHT = 240;
 const MAX_ATTACHMENTS_PER_TURN = 20;
 
@@ -262,8 +280,9 @@ export function ChatComposer({
 	// Provider features the installed CLI supports (from the availability
 	// probe). Codex goal mode is version-gated; Grok advertises it natively.
 	const capabilities = useProvidersStore((s) =>
-		s.capabilitiesFor(session.providerId),
+		s.capabilitiesFor(session.providerId, qualifiedEnvironmentId),
 	);
+	const composerCatalog = useModelCatalogStore((s) => s.catalog);
 	const goalCapable =
 		session.providerId === "grok" ||
 		(session.providerId === "codex" && capabilities.includes("goalMode"));
@@ -272,17 +291,37 @@ export function ChatComposer({
 		isDraft ? "cache-only" : "connect",
 		qualifiedEnvironmentId,
 	);
+	// Catalog placeholders describe launch intent. Only the session timeline
+	// knows which access mode the runtime actually applied (also across devices).
+	const appliedRuntimeMode = isDraft
+		? session.runtimeMode
+		: (timeline.projection?.runtimeMode ?? session.runtimeMode);
+	const runtimeModePending = timeline.view.pendingCommands.some(
+		(command) => command.kind === "session.setRuntimeMode",
+	);
 	const goalRef = useMemo(
 		() => ({ environmentId: qualifiedEnvironmentId, sessionId }),
 		[qualifiedEnvironmentId, sessionId],
 	);
+	// Existing goals are authoritative runtime state, independent of the
+	// lazily loaded CLI inventory used to offer creation controls.
+	const tracksGoals =
+		session.providerId === "codex" || session.providerId === "grok";
 	const goalView = useSessionGoalResource(
-		isDraft || !goalCapable ? null : goalRef,
+		isDraft || !tracksGoals ? null : goalRef,
 		isDraft ? "cache-only" : "connect",
 	);
 	const runtimeState = timeline.runtime;
-	const cloudSummary = useCloudChatSummaryForSession(sessionId);
+	const cloudSummary = useCloudChatSummaryForSelection({
+		chatId: session.chatId,
+		sessionId,
+	});
 	const isCloudSession = cloudSummary !== null;
+	const deviceApproval = useChatDeviceApproval(
+		cloudSummary?.workspaceId,
+		session.chatId,
+	);
+	const headDeviceCommand = deviceApproval.commands[0];
 	const cloudShell = useEnvironmentShellResource(
 		cloudSummary === null ? null : qualifiedEnvironmentId,
 		"cache-only",
@@ -296,6 +335,9 @@ export function ChatComposer({
 					runtime: runtimeState,
 				});
 	const turnStartPending = hasPendingTurnStart(timeline.view.pendingCommands);
+	const durableCloudSendPending =
+		isCloudSession &&
+		cloudComposerSubmissionBlocked(timeline.view.pendingCommands);
 	const interrupting =
 		cloudActivity === null
 			? runtimeState === "stopping"
@@ -307,17 +349,9 @@ export function ChatComposer({
 				(isCloudSession && runtimeState === "starting") ||
 				turnStartPending
 			: cloudChatShowsWorking(cloudActivity) || turnStartPending;
-	const showActiveTimer =
-		cloudActivity === null
-			? inFlight
-			: cloudActivity !== "idle" &&
-				cloudActivity !== "paused" &&
-				cloudActivity !== "failed";
-	// Hold messages only while the provider is unavailable or an earlier message
-	// is already queued. Worktree setup is independent background work and must
-	// not delay an agent that has finished booting.
+	// Existing queued work still owns ordering. A merely sleeping cloud runtime
+	// does not: its next message can go straight to the durable mailbox.
 	const hasQueued = (timeline.projection?.queue.items.length ?? 0) > 0;
-	const holdForAgent = hasQueued || runtimeState === "starting";
 	const goal = goalView.data?.goal ?? null;
 	const respondToPlan = useSessionsStore((s) => s.respondToPlan);
 	const send = (
@@ -328,8 +362,15 @@ export function ChatComposer({
 			...options,
 			providerId: session.providerId,
 		});
+	const platformOnline = usePlatformOnline();
+	// A message queued while offline must wait for the network. The server has
+	// no connectivity signal, so its immediate flush is suppressed here and the
+	// held queue drains through the shared online-edge recovery.
 	const queue = (input: ComposerInput) =>
-		queueSessionMessage(goalRef, input, { providerId: session.providerId });
+		queueSessionMessage(goalRef, input, {
+			providerId: session.providerId,
+			...(platformOnline ? {} : { flush: false }),
+		});
 	const saveComposerDraft = useComposerDraftsStore((s) => s.save);
 	const clearComposerDraft = useComposerDraftsStore((s) => s.clear);
 
@@ -378,12 +419,21 @@ export function ChatComposer({
 		for (const req of Object.values(requestsById)) {
 			if (req.sessionId !== sessionId) continue;
 			// ExitPlanMode is approved on the plan card itself.
-			if (req.kind._tag === "Other" && req.kind.tool === "ExitPlanMode") {
+			if (
+				req.recoveryState !== "expired" &&
+				req.kind._tag === "Other" &&
+				req.kind.tool === "ExitPlanMode"
+			) {
 				continue;
 			}
 			out.push(req);
 		}
-		out.sort((a, b) => a.requestedAt.getTime() - b.requestedAt.getTime());
+		out.sort(
+			(a, b) =>
+				Number(a.recoveryState === "expired") -
+					Number(b.recoveryState === "expired") ||
+				a.requestedAt.getTime() - b.requestedAt.getTime(),
+		);
 		return out;
 	}, [requestsById, sessionId]);
 	const pendingPlanApprovalRequest = useMemo(
@@ -438,6 +488,7 @@ export function ChatComposer({
 	const headPermission = pendingPermissions[0];
 
 	const [hasText, setHasText] = useState(false);
+	const [submitting, setSubmitting] = useState(false);
 	const hasTextRef = useRef(false);
 	const [uploadingAttachmentCount, setUploadingAttachmentCount] = useState(0);
 	const [goalSendMode, setGoalSendMode] = useState(false);
@@ -500,6 +551,8 @@ export function ChatComposer({
 	const canSend =
 		!directoryUnavailable &&
 		!submitDisabled &&
+		!submitting &&
+		!durableCloudSendPending &&
 		uploadingAttachmentCount === 0 &&
 		(hasText || annotationCount > 0);
 
@@ -673,10 +726,27 @@ export function ChatComposer({
 						});
 						return;
 					}
-					const snapshot = composerSnapshotFromInput(taken.input);
+					const snapshot = composerSnapshotFromInput(
+						taken.input,
+						(id) => cachedAttachmentUrl(goalRef, id) ?? "",
+					);
 					activeView.dispatch({ effects: clearChipsEffect.of() });
 					setComposerDoc(activeView, snapshot.doc);
 					restoreComposerChips(activeView, snapshot.chips);
+					for (const attachment of taken.input.attachments) {
+						if (!attachment.mimeType.startsWith("image/")) continue;
+						void resolveAttachmentUrl(goalRef, attachment.id)
+							.then((src) => {
+								if (editorViewRef.current !== activeView) return;
+								activeView.dispatch({
+									effects: updateImageChipEffect.of({
+										previousId: attachment.id,
+										meta: { kind: "image", ...attachment, previewUrl: src },
+									}),
+								});
+							})
+							.catch(() => undefined);
+					}
 					const nextHasText = snapshot.doc.trim().length > 0;
 					hasTextRef.current = nextHasText;
 					setHasText(nextHasText);
@@ -776,7 +846,9 @@ export function ChatComposer({
 				// Editor is already cleared by the caller; nothing else to do.
 				break;
 			case "model":
-				if (parsed.args) void setModel(sessionId, parsed.args);
+				if (parsed.args) {
+					void setModel(sessionId, parsed.args, qualifiedEnvironmentId);
+				}
 				break;
 			case "mode":
 				if (session.providerId === "cursor") {
@@ -793,14 +865,14 @@ export function ChatComposer({
 					parsed.args === "auto-accept-edits" ||
 					parsed.args === "full-access"
 				) {
-					void setRuntimeMode(sessionId, parsed.args);
+					void setRuntimeMode(sessionId, parsed.args, qualifiedEnvironmentId);
 				}
 				break;
 			case "plan":
-				void setPermissionMode(sessionId, "plan");
+				void setPermissionMode(sessionId, "plan", qualifiedEnvironmentId);
 				break;
 			case "run":
-				void setPermissionMode(sessionId, "default");
+				void setPermissionMode(sessionId, "default", qualifiedEnvironmentId);
 				break;
 			case "goal":
 				if (parsed.args.length > 0) {
@@ -900,9 +972,18 @@ export function ChatComposer({
 			}
 
 			setUploadingAttachmentCount((count) => count + 1);
-			void uploadOne(sessionId, file, workspaceRoot ?? undefined)
+			void uploadOne(
+				{ environmentId: qualifiedEnvironmentId, sessionId },
+				file,
+				workspaceRoot ?? undefined,
+			)
 				.then((ref) => {
-					const finalUrl = isImage ? attachmentUrl(ref.id) : "";
+					const finalUrl = isImage
+						? (cachedAttachmentUrl(
+								{ environmentId: qualifiedEnvironmentId, sessionId },
+								ref.id,
+							) ?? "")
+						: "";
 					editorViewRef.current?.dispatch({
 						effects: updateImageChipEffect.of({
 							previousId: tempId,
@@ -1070,7 +1151,13 @@ export function ChatComposer({
 	};
 
 	const submit = (): boolean => {
-		if (directoryUnavailable) return false;
+		if (
+			submitDisabled ||
+			directoryUnavailable ||
+			submitting ||
+			durableCloudSendPending
+		)
+			return false;
 		// Don't submit while a popover is open — Enter belongs to the popover.
 		if (trigger !== null || modelPickerOpen) return false;
 		if (uploadingAttachmentCount > 0) return false;
@@ -1110,23 +1197,34 @@ export function ChatComposer({
 				? chooseComposerSubmitRoute({
 						sendPlanFeedbackNow,
 						goalSendMode,
-						shouldQueue:
-							inFlight || holdForAgent || timeline.view.sync !== "live",
+						shouldQueue: shouldQueueComposerMessage({
+							isCloudSession,
+							turnInFlight: inFlight,
+							hasQueuedMessage: hasQueued,
+							runtimeStarting: !isCloudSession && runtimeState === "starting",
+							timelineLive: timeline.view.sync === "live",
+							platformOffline: !platformOnline,
+						}),
 					})
 				: null;
-		clearComposer(view, {
-			clearPendingAttachments: onDraftSubmit === undefined,
-		});
-		clearComposerDraft(draftKey);
-		setGoalSendMode(false);
-		// Drain the tray: the annotations now live on `input` (carried into the
-		// queue too, so a mid-turn submit flushes them intact).
-		useAnnotationsStore.getState().clear(sessionId);
-		editingQueuedItemRef.current = null;
-		setEditingQueuedItem(null);
+		const commitComposerSubmission = () => {
+			if (editorViewRef.current === view) {
+				clearComposer(view, {
+					clearPendingAttachments: onDraftSubmit === undefined,
+				});
+			}
+			clearComposerDraft(draftKey);
+			setGoalSendMode(false);
+			// Drain the tray only once the input has a durable owner. Before cloud
+			// acceptance, it remains the user's recoverable draft.
+			useAnnotationsStore.getState().clear(sessionId);
+			editingQueuedItemRef.current = null;
+			setEditingQueuedItem(null);
+		};
 		// Draft mode (new-chat landing): hand the input back to the landing, which
 		// creates the worktree + chat and queues this as the first message.
 		if (onDraftSubmit !== undefined) {
+			commitComposerSubmission();
 			const pendingDraftAttachments = pendingDraftAttachmentsRef.current;
 			const pendingDraftContextFiles = pendingDraftContextFilesRef.current;
 			pendingDraftAttachmentsRef.current = [];
@@ -1138,8 +1236,24 @@ export function ChatComposer({
 			});
 			return true;
 		}
+		const sendAndCommitAfterAcceptance = (options?: {
+			readonly asGoal?: boolean;
+		}) => {
+			setSubmitting(true);
+			view.contentDOM.blur();
+			void commitAcceptedComposerDelivery(
+				send(input, options),
+				commitComposerSubmission,
+			)
+				.catch(() => undefined)
+				.finally(() => {
+					setSubmitting(false);
+					editorViewRef.current?.focus();
+				});
+		};
 		switch (route) {
 			case "planFeedback":
+				commitComposerSubmission();
 				void (async () => {
 					if (pendingNativePlanApproval !== null) {
 						await deliverNativePlanFeedback({
@@ -1149,7 +1263,10 @@ export function ChatComposer({
 									pendingNativePlanApproval.toolCallId,
 									"cancelled",
 									docText,
-									{ silent: true },
+									{
+										silent: true,
+										environmentId: qualifiedEnvironmentId,
+									},
 								),
 							fallbackSend: () => send(input),
 						});
@@ -1164,18 +1281,19 @@ export function ChatComposer({
 				})();
 				break;
 			case "goal":
-				void send(input, { asGoal: true });
+				sendAndCommitAfterAcceptance({ asGoal: true });
 				break;
 			case "queue":
 				// Mid-turn submit — or a submit while the provider is still coming up
 				// — becomes a queue chip; auto-flushed when the turn ends or steered
 				// manually.
+				commitComposerSubmission();
 				queue(
 					goalSendMode ? ComposerInput.make({ ...input, asGoal: true }) : input,
 				);
 				break;
 			case "send":
-				void send(input);
+				sendAndCommitAfterAcceptance();
 				break;
 		}
 		return true;
@@ -1188,6 +1306,7 @@ export function ChatComposer({
 		void setPermissionMode(
 			sessionId,
 			session.permissionMode === "plan" ? "default" : "plan",
+			qualifiedEnvironmentId,
 		);
 	};
 	filesDroppedRef.current = (files) => {
@@ -1207,12 +1326,12 @@ export function ChatComposer({
 	const inPlanMode = session.permissionMode === "plan";
 	const approveEmulatedPlan = () => {
 		void (async () => {
-			await setPermissionMode(sessionId, "default");
+			await setPermissionMode(sessionId, "default", qualifiedEnvironmentId);
 			await send(EMULATED_PLAN_APPROVAL_PROMPT);
 		})();
 	};
 	const cancelEmulatedPlan = () => {
-		void setPermissionMode(sessionId, "default");
+		void setPermissionMode(sessionId, "default", qualifiedEnvironmentId);
 	};
 	const inUltracodeMode = reasoningLevel === "ultracode";
 	const requestInterrupt = async () => {
@@ -1226,7 +1345,10 @@ export function ChatComposer({
 	// re-runs to re-attach it — so the host reappears blank: no placeholder,
 	// cursor won't land. Staying mounted also preserves any in-progress draft
 	// when a permission prompt interrupts mid-typing.
-	const showCard = headPermission !== undefined || pendingQuestion !== null;
+	const showCard =
+		headPermission !== undefined ||
+		headDeviceCommand !== undefined ||
+		pendingQuestion !== null;
 
 	return (
 		<TooltipProvider delay={0}>
@@ -1237,12 +1359,21 @@ export function ChatComposer({
 					<div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
 						{headPermission !== undefined ? (
 							<PermissionCard
+								key={`${qualifiedEnvironmentId}:${headPermission.id}:${headPermission.recoveryState ?? "live"}`}
 								head={headPermission}
 								queueSize={pendingPermissions.length}
 								environmentId={qualifiedEnvironmentId}
 							/>
+						) : headDeviceCommand !== undefined ? (
+							<DevicePermissionCard
+								key={headDeviceCommand.id}
+								command={headDeviceCommand}
+								queueSize={deviceApproval.commands.length}
+								onDecision={deviceApproval.decide}
+							/>
 						) : pendingQuestion !== null ? (
 							<QuestionCard
+								environmentId={qualifiedEnvironmentId}
 								sessionId={sessionId}
 								itemId={pendingQuestion.itemId}
 								questions={pendingQuestion.questions}
@@ -1267,71 +1398,76 @@ export function ChatComposer({
 							worktreeId={session.worktreeId}
 						/>
 					) : null}
-					<Frame className="composer-glass bg-transparent">
-						{headerSlot !== undefined ? (
-							<div className="mb-1 flex items-center px-1">{headerSlot}</div>
-						) : null}
-						{!isDraft ? (
-							<div className="mb-1 overflow-hidden rounded-md border border-border/50 bg-muted/30 empty:hidden empty:mb-0">
-								<PlanApprovalTray
-									environmentId={qualifiedEnvironmentId}
-									sessionId={sessionId}
-									emulatedPlanReady={emulatedPlanReady}
-									onApproveEmulatedPlan={approveEmulatedPlan}
-									onCancelEmulatedPlan={cancelEmulatedPlan}
-								/>
-								{goalCapable && goal !== null ? (
-									<GoalBanner
-										goal={goal}
-										inPlanMode={inPlanMode}
-										onPause={() =>
-											void setSessionGoal({
-												ref: goalRef,
-												goal: {
-													status:
-														goal.status === "active" ? "paused" : "active",
-												},
-											}).catch(() => undefined)
-										}
-										onSave={(objective, tokenBudget) =>
-											void setSessionGoal({
-												ref: goalRef,
-												goal: {
-													objective,
-													status: "active",
-													tokenBudget,
-												},
-											}).catch(() => undefined)
-										}
-										onClear={() =>
-											void clearSessionGoal({ ref: goalRef }).catch(
-												() => undefined,
-											)
-										}
-									/>
-								) : null}
-								<ContextTray
-									environmentId={qualifiedEnvironmentId}
-									sessionId={sessionId}
-								/>
-								{!inPlanMode ? (
-									<ProjectPlanTray
+					<div className="relative">
+						<div
+							className={cn(
+								composerTraySurfaceClass,
+								"relative z-10 rounded-b-none rounded-t-[1.2rem] empty:hidden",
+							)}
+						>
+							<NoConnectionTray />
+							{!isDraft ? (
+								<>
+									<PlanApprovalTray
 										environmentId={qualifiedEnvironmentId}
-										key={sessionId}
+										sessionId={sessionId}
+										emulatedPlanReady={emulatedPlanReady}
+										onApproveEmulatedPlan={approveEmulatedPlan}
+										onCancelEmulatedPlan={cancelEmulatedPlan}
+									/>
+									{goal !== null ? (
+										<GoalBanner
+											goal={goal}
+											inPlanMode={inPlanMode}
+											onPause={() =>
+												void setSessionGoal({
+													ref: goalRef,
+													goal: {
+														status:
+															goal.status === "active" ? "paused" : "active",
+													},
+												}).catch(() => undefined)
+											}
+											onSave={(objective, tokenBudget) =>
+												void setSessionGoal({
+													ref: goalRef,
+													goal: {
+														objective,
+														status: "active",
+														tokenBudget,
+													},
+												}).catch(() => undefined)
+											}
+											onClear={() =>
+												void clearSessionGoal({ ref: goalRef }).catch(
+													() => undefined,
+												)
+											}
+										/>
+									) : null}
+									<ContextTray
+										environmentId={qualifiedEnvironmentId}
 										sessionId={sessionId}
 									/>
-								) : null}
-								<QueueTray
-									environmentId={qualifiedEnvironmentId}
-									sessionId={sessionId}
-									creationInProgress={creationInProgress}
-									waitingForSandbox={
-										cloudSummary !== null &&
-										cloudWorkspaceIsStarting(cloudSummary)
-									}
-								/>
-							</div>
-						) : null}
+									{!inPlanMode ? (
+										<ProjectPlanTray
+											environmentId={qualifiedEnvironmentId}
+											key={sessionId}
+											sessionId={sessionId}
+										/>
+									) : null}
+									<QueueTray
+										environmentId={qualifiedEnvironmentId}
+										sessionId={sessionId}
+										creationInProgress={creationInProgress}
+										waitingForSandbox={
+											cloudSummary !== null &&
+											cloudWorkspaceIsStarting(cloudSummary)
+										}
+									/>
+								</>
+							) : null}
+						</div>
 						{editingQueuedItem !== null ? (
 							<div className="mb-1 flex h-7 items-center justify-between rounded-md bg-muted/35 px-2.5 text-xs text-muted-foreground">
 								<span>Editing queued message</span>
@@ -1344,16 +1480,18 @@ export function ChatComposer({
 								</button>
 							</div>
 						) : null}
+						{headerSlot !== undefined ? (
+							<div className="composer-attached-toolbar relative z-10 mx-auto flex min-h-8 w-14/15 items-center overflow-x-auto rounded-b-none rounded-t-[1.2rem] px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+								{headerSlot}
+							</div>
+						) : null}
 						<Card
 							className={cn(
-								// Light: opaque white input on the gray frame for clear
-								// separation. Dark: transparent so the single glass layer
-								// shows through (a second tint would re-opacify it).
-								"min-h-30 rounded-lg bg-card transition-colors dark:bg-transparent",
+								"composer-glass rounded-[1.2rem] border-border/70 bg-transparent shadow-overlay-sm transition-colors before:rounded-[calc(1.2rem-1px)] dark:border-white/8",
 								goalSendMode
-									? "border-2 border-dashed border-amber-300/60 dark:border-amber-300/45"
+									? "border border-amber-300/55 dark:border-amber-300/40"
 									: inPlanMode
-										? "border-2 border-dashed border-rose-300/60 dark:border-rose-300/40"
+										? "border border-rose-300/55 dark:border-rose-300/35"
 										: inUltracodeMode
 											? "border-2 border-transparent [background:linear-gradient(var(--color-card),var(--color-card))_padding-box,linear-gradient(90deg,#fb7185,#f97316,#facc15,#22c55e,#06b6d4,#8b5cf6,#d946ef)_border-box]"
 											: "border-border/50",
@@ -1379,9 +1517,9 @@ export function ChatComposer({
 								hidden
 								onChange={onPickFiles}
 							/>
-							<CardPanel className="relative flex items-stretch gap-2 px-3 py-2">
+							<CardPanel className="relative flex items-stretch gap-2 px-3 pb-2 pt-3">
 								{trigger !== null && editorViewRef.current !== null ? (
-									trigger.kind === "slash" ? (
+									trigger.kind === "slash" || trigger.kind === "dollar" ? (
 										<SlashCommandPopover
 											trigger={trigger}
 											view={editorViewRef.current}
@@ -1404,7 +1542,11 @@ export function ChatComposer({
 								{/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: CodeMirror owns keyboard semantics; clicking host padding forwards focus to its editor. */}
 								<div
 									ref={editorHostRef}
-									className="flex-1 overflow-y-auto bg-transparent text-sm leading-relaxed outline-none"
+									className={cn(
+										"flex-1 overflow-y-auto bg-transparent text-sm leading-relaxed outline-none",
+										submitting && "pointer-events-none opacity-80",
+									)}
+									aria-busy={submitting}
 									style={{
 										minHeight: MIN_HEIGHT,
 										maxHeight: MAX_HEIGHT,
@@ -1417,207 +1559,267 @@ export function ChatComposer({
 									worktreeId={session.worktreeId}
 								/>
 							</CardPanel>
-						</Card>
-						{/* Single action row: model + reasoning sit on the left, send /
-                runtime / timer sit on the right — so the user's eye lands on
-                the same line for "what model is this" and "send." Sub-agent
-                config moved to settings; it doesn't belong in the per-turn
-                strip. */}
-						<FrameFooter className="flex items-center justify-between gap-2 px-2 py-1.5">
-							<div className="flex items-center gap-1.5">
-								<Tooltip>
-									<TooltipTrigger
-										render={
-											<button
-												type="button"
-												onClick={() => fileInputRef.current?.click()}
-												aria-label="Attach files"
-												className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-											>
-												<HugeiconsIcon
-													icon={AttachmentIcon}
-													className="size-3.5"
-												/>
-											</button>
-										}
-									/>
-									<TooltipPopup>
-										Attach files (paste / drop also work)
-									</TooltipPopup>
-								</Tooltip>
-								<ExtensionAttachmentPicker
-									onSelect={(snapshot) =>
-										attachExtensionSnapshot(sessionId, snapshot)
-									}
-								/>
-								<ModelPicker
-									environmentId={qualifiedEnvironmentId}
-									mode="session"
-									sessionId={sessionId}
-									chatId={session.chatId}
-									runtimeMode={session.runtimeMode}
-									providerId={session.providerId}
-									currentModel={session.model}
-									onOpenChange={setModelPickerOpen}
-								/>
-								<ReasoningPicker
-									environmentId={qualifiedEnvironmentId}
-									sessionId={sessionId}
-									providerId={session.providerId}
-									model={session.model}
-									onLevelChange={setReasoningLevel}
-								/>
-								{findModelDescriptor(
-									session.providerId,
-									session.model,
-								)?.optionDescriptors?.some(
-									(d): d is BooleanOptionDescriptor =>
-										d.kind === "boolean" && d.id === "fastMode",
-								) === true &&
-									// For Codex, the fast tier also requires a new-enough CLI
-									// (the `fastMode` capability). Claude declares its own
-									// `fastMode` descriptor and isn't version-gated, so only
-									// filter when the provider gates it.
-									(session.providerId !== "codex" ||
-										capabilities.includes("fastMode")) && (
-										<FastModeToggle
-											environmentId={qualifiedEnvironmentId}
-											sessionId={sessionId}
-										/>
-									)}
-								{goalCapable ? (
-									<GoalModeToggle
-										active={goalSendMode}
-										hasGoal={goal !== null}
-										onClick={() => setGoalSendMode((v) => !v)}
-									/>
-								) : null}
-								{(findModelDescriptor(session.providerId, session.model)
-									?.supportsPlanMode ??
-									true) && (
-									<PlanModeToggle
-										sessionId={sessionId}
-										current={session.permissionMode}
-									/>
-								)}
-								<McpPopover
-									projectId={session.projectId}
-									providerId={session.providerId}
-								/>
-							</div>
-							<div className="flex items-center gap-2">
-								{!isDraft ? (
-									<ContextStatusPopover
-										environmentId={qualifiedEnvironmentId}
-										session={session}
-									/>
-								) : null}
-								{!isDraft ? (
-									<CostChip
-										environmentId={qualifiedEnvironmentId}
-										sessionId={sessionId}
-									/>
-								) : null}
-								{!isDraft ? (
-									<SessionTimer
-										environmentId={qualifiedEnvironmentId}
-										sessionId={sessionId}
-										inFlight={showActiveTimer}
-									/>
-								) : null}
-								{sendPlanFeedbackNow && hasText ? (
-									<Button
-										variant="default"
-										size="sm"
-										onClick={() => void submit()}
-										disabled={!canSend}
-										aria-label="Request changes to plan"
-									>
-										Request changes
-									</Button>
-								) : inFlight ? (
-									<div className="flex items-center gap-1.5">
-										{canSend ? (
-											<Button
-												variant="default"
-												size="sm"
-												onClick={() => void submit()}
-												disabled={!canSend}
-												loading={uploadingAttachmentCount > 0}
-												aria-label="Add message to queue"
-											>
-												Queue
-											</Button>
-										) : null}
-										<Tooltip>
-											<TooltipTrigger
-												render={
-													<Button
-														variant="outline"
-														size="icon-sm"
-														onClick={() => void requestInterrupt()}
-														disabled={interrupting}
-														loading={interrupting}
-														aria-label={
-															interrupting
-																? "Stopping current turn"
-																: "Stop current turn"
-														}
-													>
-														<HugeiconsIcon
-															icon={SquareIcon}
-															className="size-3.5"
-														/>
-													</Button>
-												}
-											/>
-											<TooltipPopup>
-												{interrupting ? "Stopping…" : "Stop current turn"}
-											</TooltipPopup>
-										</Tooltip>
-									</div>
-								) : (
+							{/* One bottom action row. Access and tools lead; the combined
+							    model/reasoning control stays beside the send action. */}
+							<div className="relative z-10 flex items-center justify-between gap-2 px-2.5 pb-2 pt-1">
+								<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 									<Tooltip>
 										<TooltipTrigger
 											render={
-												<DitherButton
-													variant="gradient"
-													className="size-6 border border-primary/40 text-white"
-													onClick={() => void submit()}
-													disabled={!canSend || uploadingAttachmentCount > 0}
-													aria-disabled={
-														uploadingAttachmentCount > 0 || undefined
-													}
-													aria-label={
-														uploadingAttachmentCount > 0
-															? "Uploading image"
-															: "Send"
-													}
+												<button
+													type="button"
+													onClick={() => fileInputRef.current?.click()}
+													aria-label="Attach files"
+													className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
 												>
-													{uploadingAttachmentCount > 0 ? (
-														<Spinner className="size-3.5" />
-													) : (
-														<HugeiconsIcon
-															icon={SentIcon}
-															className="size-3.5"
-														/>
-													)}
-												</DitherButton>
+													<HugeiconsIcon
+														icon={AttachmentIcon}
+														className="size-3.5"
+													/>
+												</button>
 											}
 										/>
 										<TooltipPopup>
-											{uploadingAttachmentCount > 0
-												? "Uploading image…"
-												: "Send (Enter)"}
+											Attach files (paste / drop also work)
 										</TooltipPopup>
 									</Tooltip>
-								)}
+									<RuntimeAccessPicker
+										sessionId={sessionId}
+										environmentId={qualifiedEnvironmentId}
+										providerId={session.providerId}
+										current={appliedRuntimeMode}
+										pending={runtimeModePending}
+										confirmed={isDraft || timeline.projection !== null}
+									/>
+									{goalCapable ? (
+										<GoalModeToggle
+											active={goalSendMode}
+											hasGoal={goal !== null}
+											onClick={() => setGoalSendMode((v) => !v)}
+										/>
+									) : null}
+									{(findModelDescriptor(
+										composerCatalog,
+										session.providerId,
+										session.model,
+									)?.supportsPlanMode ??
+										true) && (
+										<PlanModeToggle
+											sessionId={sessionId}
+											environmentId={qualifiedEnvironmentId}
+											current={session.permissionMode}
+										/>
+									)}
+									<ExtensionAttachmentAction
+										onSelect={(snapshot) =>
+											attachExtensionSnapshot(sessionId, snapshot)
+										}
+									/>
+									<McpPopover
+										projectId={session.projectId}
+										providerId={session.providerId}
+									/>
+								</div>
+								<div className="flex shrink-0 items-center gap-2">
+									<ComposerModelPicker
+										environmentId={qualifiedEnvironmentId}
+										session={session}
+										runtimeMode={appliedRuntimeMode}
+										fastModeAvailable={
+											findModelDescriptor(
+												composerCatalog,
+												session.providerId,
+												session.model,
+											)?.optionDescriptors?.some(
+												(d): d is BooleanOptionDescriptor =>
+													d.kind === "boolean" && d.id === "fastMode",
+											) === true &&
+											(session.providerId !== "codex" ||
+												capabilities.includes("fastMode"))
+										}
+										onLevelChange={setReasoningLevel}
+										onOpenChange={setModelPickerOpen}
+									/>
+									{!isDraft ? (
+										<ContextStatusPopover
+											environmentId={qualifiedEnvironmentId}
+											session={session}
+										/>
+									) : null}
+									{sendPlanFeedbackNow && hasText ? (
+										<Button
+											variant="default"
+											size="sm"
+											onClick={() => void submit()}
+											disabled={!canSend}
+											aria-label="Request changes to plan"
+										>
+											Request changes
+										</Button>
+									) : inFlight ? (
+										<div className="flex items-center gap-1.5">
+											{canSend ? (
+												<Button
+													variant="default"
+													size="sm"
+													onClick={() => void submit()}
+													disabled={!canSend}
+													loading={uploadingAttachmentCount > 0}
+													aria-label="Add message to queue"
+												>
+													Queue
+												</Button>
+											) : null}
+											<Tooltip>
+												<TooltipTrigger
+													render={
+														<Button
+															variant="outline"
+															size="icon-sm"
+															onClick={() => void requestInterrupt()}
+															disabled={interrupting}
+															loading={interrupting}
+															aria-label={
+																interrupting
+																	? "Stopping current turn"
+																	: "Stop current turn"
+															}
+														>
+															<HugeiconsIcon
+																icon={SquareIcon}
+																className="size-3.5"
+															/>
+														</Button>
+													}
+												/>
+												<TooltipPopup>
+													{interrupting ? "Stopping…" : "Stop current turn"}
+												</TooltipPopup>
+											</Tooltip>
+										</div>
+									) : (
+										<Tooltip>
+											<TooltipTrigger
+												render={
+													<DitherButton
+														variant="gradient"
+														className="size-6 border border-primary/40 text-white"
+														onClick={() => void submit()}
+														disabled={!canSend || uploadingAttachmentCount > 0}
+														aria-disabled={
+															uploadingAttachmentCount > 0 || undefined
+														}
+														aria-label={
+															uploadingAttachmentCount > 0
+																? "Uploading image"
+																: "Send"
+														}
+													>
+														{uploadingAttachmentCount > 0 ? (
+															<Spinner className="size-3.5" />
+														) : (
+															<HugeiconsIcon
+																icon={SentIcon}
+																className="size-3.5"
+															/>
+														)}
+													</DitherButton>
+												}
+											/>
+											<TooltipPopup>
+												{uploadingAttachmentCount > 0
+													? "Uploading image…"
+													: "Send (Enter)"}
+											</TooltipPopup>
+										</Tooltip>
+									)}
+								</div>
 							</div>
-						</FrameFooter>
-					</Frame>
+						</Card>
+					</div>
 				</div>
 			</div>
 		</TooltipProvider>
+	);
+}
+
+function RuntimeAccessPicker({
+	sessionId,
+	environmentId,
+	providerId,
+	current,
+	pending,
+	confirmed,
+}: {
+	sessionId: SessionId;
+	environmentId: EnvironmentId;
+	providerId: ProviderId;
+	current: RuntimeMode;
+	pending: boolean;
+	confirmed: boolean;
+}) {
+	const setRuntimeMode = useSessionsStore((state) => state.setRuntimeMode);
+	const meta = MODE_META[current];
+	const fixedSandbox = providerId === "cursor";
+	const highlighted = confirmed && current === "full-access";
+
+	return (
+		<Menu>
+			<MenuTrigger
+				disabled={fixedSandbox || pending}
+				aria-label={
+					fixedSandbox ? "Cursor uses fixed sandbox access" : "Agent access"
+				}
+				className={cn(
+					"flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors hover:bg-muted/60 data-[popup-open]:bg-muted/70 disabled:cursor-default disabled:opacity-60",
+					highlighted
+						? "text-warning"
+						: "text-muted-foreground hover:text-foreground",
+				)}
+			>
+				<HugeiconsIcon icon={meta.Icon} className="size-3.5" />
+				<span>
+					{fixedSandbox
+						? "Sandboxed"
+						: confirmed
+							? meta.label
+							: "Checking access…"}
+				</span>
+				{pending ? (
+					<span role="status" aria-live="polite">
+						Updating…
+					</span>
+				) : null}
+				{fixedSandbox ? null : <ChevronDown className="size-3 opacity-60" />}
+			</MenuTrigger>
+			<MenuPopup side="top" align="start" className="w-64 p-1">
+				<div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+					Agent access
+				</div>
+				<MenuRadioGroup
+					value={current}
+					onValueChange={(value) =>
+						void setRuntimeMode(sessionId, value as RuntimeMode, environmentId)
+					}
+				>
+					{MODES_ORDER.map((mode) => {
+						const option = MODE_META[mode];
+						return (
+							<MenuRadioItem
+								key={mode}
+								value={mode}
+								className="h-7 px-2 text-xs"
+							>
+								<span className="flex min-w-0 items-center gap-2 font-medium text-foreground">
+									<HugeiconsIcon icon={option.Icon} className="size-3.5" />
+									{option.label}
+								</span>
+							</MenuRadioItem>
+						);
+					})}
+				</MenuRadioGroup>
+			</MenuPopup>
+		</Menu>
 	);
 }
 
@@ -1628,9 +1830,11 @@ export function ChatComposer({
 function FastModeToggle({
 	sessionId,
 	environmentId,
+	compact = false,
 }: {
 	sessionId: SessionId;
 	environmentId: EnvironmentId;
+	compact?: boolean;
 }) {
 	const storageKey = sessionModelOptionStorageKey(
 		{ environmentId, sessionId },
@@ -1677,24 +1881,33 @@ function FastModeToggle({
 					<button
 						type="button"
 						onClick={onClick}
-						aria-label={
-							enabled ? "Disable Claude fast mode" : "Enable Claude fast mode"
-						}
+						aria-label={enabled ? "Disable fast mode" : "Enable fast mode"}
 						aria-pressed={enabled}
 						className={cn(
-							"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
+							compact
+								? "flex size-7 items-center justify-center rounded-md transition-colors"
+								: "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
 							enabled
 								? "bg-amber-400/20 text-amber-700 hover:bg-amber-400/30 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
 								: "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
 						)}
 					>
 						<HugeiconsIcon icon={FlashIcon} className="size-3.5" />
-						{enabled ? <span>Fast</span> : null}
+						{enabled && !compact ? <span>Fast</span> : null}
 					</button>
 				}
 			/>
-			<TooltipPopup>
-				{enabled ? "Disable Claude fast mode" : "Enable Claude fast mode"}
+			<TooltipPopup className={compact ? "space-y-0.5" : undefined}>
+				{compact ? (
+					<>
+						<div>1.5× speed</div>
+						<div className="text-muted-foreground">More usage</div>
+					</>
+				) : enabled ? (
+					"Disable Claude fast mode"
+				) : (
+					"Enable Claude fast mode"
+				)}
 			</TooltipPopup>
 		</Tooltip>
 	);
@@ -1709,9 +1922,11 @@ function FastModeToggle({
  */
 function PlanModeToggle({
 	sessionId,
+	environmentId,
 	current,
 }: {
 	sessionId: SessionId;
+	environmentId: EnvironmentId;
 	current: PermissionMode;
 }) {
 	const setPermissionMode = useSessionsStore((s) => s.setPermissionMode);
@@ -1721,7 +1936,11 @@ function PlanModeToggle({
 	// wider mode space (`acceptEdits`) lives on the runtime-mode chip — a
 	// user wanting auto-accept-edits goes there, not here.
 	const onClick = () => {
-		void setPermissionMode(sessionId, isPlan ? "default" : "plan");
+		void setPermissionMode(
+			sessionId,
+			isPlan ? "default" : "plan",
+			environmentId,
+		);
 	};
 
 	return (
@@ -1831,6 +2050,12 @@ function GoalBanner({
 				subtitle={objective}
 				actions={
 					<>
+						<span
+							className="shrink-0 text-muted-foreground tabular-nums"
+							title="Goal time used"
+						>
+							{elapsed}
+						</span>
 						<Tooltip>
 							<TooltipTrigger
 								render={
@@ -1862,7 +2087,10 @@ function GoalBanner({
 										className={trayPillActionClass}
 										aria-label="Edit goal"
 									>
-										<HugeiconsIcon icon={PencilIcon} className="size-3.5" />
+										<HugeiconsIcon
+											icon={PencilEdit01Icon}
+											className="size-3.5"
+										/>
 									</button>
 								}
 							/>
@@ -1993,64 +2221,45 @@ function GoalEditorDialog({
 }
 
 /**
- * Reasoning / variant selector. For non-opencode providers this reads
- * the static `reasoning` SelectOptionDescriptor from `MODELS_BY_PROVIDER`.
- * For opencode, the per-model variant list comes from the live inventory
- * (`useOpencodeInventory`) so models like `anthropic/claude-sonnet-4-5`
- * show their actual variants (`high`/`medium`/…) and models without
- * variants render nothing.
+ * Reasoning / variant selector. Reads the model's `reasoning` / `effort`
+ * SelectOptionDescriptor from the resolved model catalog. For opencode the
+ * server folds each model's live variant list into that descriptor, so
+ * models like `anthropic/claude-sonnet-4-5` show their actual variants and
+ * models without variants render nothing.
  *
  * Selection persists per-session; the messages store reads it back at
  * send time and forwards it as `modelOptions.reasoning` — which the
  * opencode driver in turn translates into the prompt body's `model.variant`.
  */
-function ReasoningPicker({
+function ComposerModelPicker({
 	environmentId,
-	sessionId,
-	providerId,
-	model,
+	session,
+	runtimeMode,
+	fastModeAvailable,
 	onLevelChange,
+	onOpenChange,
 }: {
 	environmentId: EnvironmentId;
-	sessionId: SessionId;
-	providerId: ProviderId;
-	model: string;
+	session: Session;
+	runtimeMode: RuntimeMode;
+	fastModeAvailable: boolean;
 	onLevelChange?: (level: string | null) => void;
+	onOpenChange?: (open: boolean) => void;
 }) {
-	const opencodeInventory = useOpencodeInventory((s) => s.inventory);
+	const sessionId = session.id;
+	const providerId = session.providerId;
+	const model = session.model;
+	const catalog = useModelCatalogStore((s) => s.catalog);
 
-	// For opencode, the variant list is per-model and lives on the live
-	// inventory (`provider.list()` → `model.variants`). For other providers
-	// it's the static reasoning/effort descriptor curated in
-	// `MODELS_BY_PROVIDER`. Claude's descriptor is keyed `effort` (with
-	// tiers up through ultracode); everything else uses
-	// `reasoning`.
+	// Claude's descriptor is keyed `effort` (with tiers up through
+	// ultracode); everything else uses `reasoning`.
 	const resolved = useMemo((): {
 		label: string;
 		options: ReadonlyArray<{ id: string; label: string }>;
 		defaultId: string;
 		descriptorId: string;
 	} | null => {
-		if (providerId === "opencode") {
-			if (opencodeInventory === null) return null;
-			for (const p of opencodeInventory.providers) {
-				const m = p.models.find((mm) => mm.id === model);
-				if (m === undefined) continue;
-				if (m.variants.length === 0) return null;
-				return {
-					label: "Reasoning",
-					options: m.variants.map((v) => ({ id: v, label: v })),
-					defaultId: m.variants.includes("medium")
-						? "medium"
-						: m.variants.includes("high")
-							? "high"
-							: m.variants[0]!,
-					descriptorId: "reasoning",
-				};
-			}
-			return null;
-		}
-		const descriptor = findModelDescriptor(providerId, model);
+		const descriptor = findModelDescriptor(catalog, providerId, model);
 		const selectDescriptor = descriptor?.optionDescriptors?.find(
 			(d): d is SelectOptionDescriptor =>
 				d.kind === "select" && (d.id === "reasoning" || d.id === "effort"),
@@ -2062,7 +2271,7 @@ function ReasoningPicker({
 			defaultId: selectDescriptor.defaultId ?? "medium",
 			descriptorId: selectDescriptor.id,
 		};
-	}, [providerId, model, opencodeInventory]);
+	}, [catalog, providerId, model]);
 
 	const defaultId = resolved?.defaultId ?? "medium";
 	const descriptorId = resolved?.descriptorId ?? "reasoning";
@@ -2103,7 +2312,18 @@ function ReasoningPicker({
 		onLevelChange?.(level);
 	}, [defaultId, level, onLevelChange, resolved, storageKey]);
 
-	if (resolved === null) return null;
+	const modelPickerProps = {
+		composer: true,
+		environmentId,
+		mode: "session" as const,
+		sessionId,
+		chatId: session.chatId,
+		runtimeMode,
+		providerId,
+		currentModel: model,
+		onOpenChange,
+	};
+	if (resolved === null) return <ModelPicker {...modelPickerProps} />;
 
 	const options = resolved.options;
 
@@ -2116,48 +2336,83 @@ function ReasoningPicker({
 	};
 
 	const activeLabel = options.find((o) => o.id === level)?.label ?? level;
-	const isUltracode = level === "ultracode";
+	const activeIndex = Math.max(
+		0,
+		options.findIndex((option) => option.id === level),
+	);
 
 	return (
-		<Menu>
-			<MenuTrigger
-				className={cn(
-					"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors data-[popup-open]:bg-muted/60",
-					isUltracode
-						? "bg-gradient-to-r from-rose-400/90 via-amber-300/90 via-emerald-400/90 via-sky-400/90 to-violet-400/90 text-white shadow-sm/10 hover:opacity-95"
-						: "text-foreground hover:bg-muted/60",
-				)}
-				aria-label={resolved.label}
-				title={
-					isUltracode
-						? "Ultracode — max reasoning + automatic workflow orchestration."
-						: `${resolved.label} for the next message`
-				}
-			>
-				<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3" />
-				<span>{activeLabel}</span>
-				{isUltracode && (
-					<HugeiconsIcon
-						icon={InformationCircleIcon}
-						className="size-3 opacity-90"
-						aria-hidden
+		<ModelPicker
+			{...modelPickerProps}
+			triggerDetail={activeLabel}
+			onOpenChange={onOpenChange}
+			optionsPanel={
+				<div className="space-y-2">
+					<div className="flex items-center justify-between gap-2">
+						<span className="text-xs font-medium text-muted-foreground">
+							Advanced
+						</span>
+						{fastModeAvailable ? (
+							<FastModeToggle
+								compact
+								environmentId={environmentId}
+								sessionId={sessionId}
+							/>
+						) : null}
+					</div>
+					<ReasoningSlider
+						label={resolved.label}
+						options={options}
+						activeIndex={activeIndex}
+						onChange={(index) => {
+							const option = options[index];
+							if (option !== undefined) onChange(option.id);
+						}}
 					/>
-				)}
-				<ChevronDown className="size-3 opacity-60" />
-			</MenuTrigger>
-			<MenuPopup side="top" align="start" className="w-44">
-				<MenuGroup>
-					<MenuGroupLabel>{resolved.label}</MenuGroupLabel>
-					<MenuRadioGroup value={level} onValueChange={onChange}>
-						{options.map((o) => (
-							<MenuRadioItem key={o.id} value={o.id}>
-								{o.label}
-							</MenuRadioItem>
-						))}
-					</MenuRadioGroup>
-				</MenuGroup>
-			</MenuPopup>
-		</Menu>
+				</div>
+			}
+		/>
+	);
+}
+
+function ReasoningSlider({
+	label,
+	options,
+	activeIndex,
+	onChange,
+}: {
+	readonly label: string;
+	readonly options: ReadonlyArray<{ id: string; label: string }>;
+	readonly activeIndex: number;
+	readonly onChange: (index: number) => void;
+}) {
+	const lastIndex = Math.max(0, options.length - 1);
+	const activeLabel = options[activeIndex]?.label ?? "";
+
+	return (
+		<div className="relative py-1">
+			<Slider
+				min={0}
+				max={lastIndex}
+				step={1}
+				value={activeIndex}
+				onValueChange={(value) =>
+					onChange(Array.isArray(value) ? (value[0] ?? 0) : value)
+				}
+				aria-label={label}
+				aria-valuetext={activeLabel}
+				className="relative z-10 [&_[data-slot=slider-control]]:min-w-0 [&_[data-slot=slider-track]]:h-5 [&_[data-slot=slider-indicator]]:bg-[hsl(83_100%_50%)] [&_[data-slot=slider-thumb]]:!size-6 [&_[data-slot=slider-thumb]]:border-[hsl(83_100%_50%)] [&_[data-slot=slider-thumb]]:shadow-[0_0_0_3px_hsl(83_100%_50%/0.12)]"
+			/>
+			<div className="pointer-events-none absolute inset-x-2 top-1/2 z-20 -translate-y-1/2">
+				{options.slice(1, -1).map((option, index) => (
+					<span
+						key={option.id}
+						className="absolute size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground/65"
+						style={{ left: `${((index + 1) / lastIndex) * 100}%` }}
+					/>
+				))}
+			</div>
+		</div>
 	);
 }
 
@@ -2176,7 +2431,11 @@ const descriptorContextWindowTokens = (
 	providerId: ProviderId,
 	model: string,
 ): number | null => {
-	const descriptor = findModelDescriptor(providerId, model);
+	const descriptor = findModelDescriptor(
+		currentModelCatalog(),
+		providerId,
+		model,
+	);
 	const contextDescriptor = descriptor?.optionDescriptors?.find(
 		(d): d is SelectOptionDescriptor =>
 			d.kind === "select" && d.id === "contextWindow",
@@ -2489,88 +2748,5 @@ function ContextStatusPopover({
 				) : null}
 			</TooltipPopup>
 		</Tooltip>
-	);
-}
-
-const formatCoarse = (ms: number): string => {
-	const totalSec = Math.floor(ms / 1000);
-	if (totalSec < 60) return `${totalSec}s`;
-	const min = Math.floor(totalSec / 60);
-	if (min < 60) return `${min}m`;
-	const hours = Math.floor(min / 60);
-	const mins = min - hours * 60;
-	return mins === 0 ? `${hours}h` : `${hours}h ${mins}m`;
-};
-
-/**
- * Sum of every turn's duration in this session — start = user message,
- * end = last message of that turn (or `now` for the in-flight turn). Idle
- * gaps between a finished assistant reply and the next user prompt are
- * NOT counted, so an old session that's been sitting open doesn't claim
- * "47h" of work.
- */
-function SessionTimer({
-	sessionId,
-	environmentId,
-	inFlight,
-}: {
-	sessionId: SessionId;
-	environmentId: EnvironmentId;
-	inFlight: boolean;
-}) {
-	const { messages } = useRendererSessionTimeline(
-		sessionId,
-		"connect",
-		environmentId,
-	);
-
-	const [now, setNow] = useState(() => Date.now());
-	useEffect(() => {
-		if (!inFlight) return;
-		const id = window.setInterval(() => setNow(Date.now()), 1000);
-		return () => window.clearInterval(id);
-	}, [inFlight]);
-
-	const totalElapsed = useMemo(() => {
-		let total = 0;
-		let turnStart: number | null = null;
-		let turnLastMs: number | null = null;
-		let turnIsLast = false;
-
-		const closeTurn = (endOverride?: number) => {
-			if (turnStart === null) return;
-			const end = endOverride ?? turnLastMs ?? turnStart;
-			total += Math.max(0, end - turnStart);
-		};
-
-		for (let i = 0; i < messages.length; i++) {
-			const m = messages[i]!;
-			if (m.content._tag === "user" || m.content._tag === "user_rich") {
-				if (turnStart !== null) closeTurn();
-				turnStart = m.createdAt.getTime();
-				turnLastMs = turnStart;
-				turnIsLast = i === messages.length - 1;
-			} else if (turnStart !== null) {
-				turnLastMs = m.createdAt.getTime();
-				turnIsLast = i === messages.length - 1;
-			}
-		}
-		if (turnStart !== null) {
-			// The in-flight turn keeps growing until the next message lands; for
-			// a completed last turn we freeze at its final message timestamp.
-			closeTurn(inFlight && turnIsLast !== false ? now : undefined);
-		}
-		return total;
-	}, [messages, inFlight, now]);
-
-	if (messages.length === 0) return null;
-
-	return (
-		<span
-			className="rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground"
-			title="Total time spent across all turns in this session"
-		>
-			{formatCoarse(totalElapsed)}
-		</span>
 	);
 }

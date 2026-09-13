@@ -1,14 +1,14 @@
 import * as Notifications from "expo-notifications";
 import { Linking, Platform } from "react-native";
 
-import { relayBaseUrl } from "../auth/config.ts";
+import { apiBaseUrl } from "../auth/config.ts";
 import type { WorkosAccount } from "../auth/workos.ts";
 import { captureMobileAnalytics } from "../lib/analytics.ts";
 import {
 	clearDeviceIdentity,
 	getOrCreateDeviceId,
 } from "../lib/device-identity.ts";
-import { registerDevice } from "../rpc/relay-client.ts";
+import { registerDevice } from "../rpc/api-client.ts";
 import { registerPushTokenForAccount } from "./registration.ts";
 
 export const clearPushRegistration = (): Promise<void> => clearDeviceIdentity();
@@ -31,7 +31,7 @@ export const registerCurrentDeviceForPush = async (
 ): Promise<boolean> => {
 	try {
 		return await registerPushTokenForAccount(account, {
-			relayUrl: relayBaseUrl,
+			apiUrl: apiBaseUrl,
 			platform:
 				Platform.OS === "android"
 					? "android"

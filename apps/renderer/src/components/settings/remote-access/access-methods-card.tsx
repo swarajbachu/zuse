@@ -1,6 +1,6 @@
 import type {
+	ApiLinkStatus,
 	NetworkAccessState,
-	RelayLinkStatus,
 	TailnetShareState,
 } from "@zuse/contracts";
 import { Server, ShieldCheck, Wifi } from "lucide-react";
@@ -65,7 +65,7 @@ export function AccessMethodsCard({
 	onOpenAccessDialog,
 	onRequestNetworkMode,
 }: {
-	readonly status: RelayLinkStatus | null;
+	readonly status: ApiLinkStatus | null;
 	readonly tailnet: TailnetShareState | null;
 	readonly network: NetworkAccessState | null;
 	readonly networkEnabled: boolean;

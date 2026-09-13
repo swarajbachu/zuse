@@ -283,6 +283,41 @@ describe("environment shell ClientBus driver", () => {
 		driver.stop();
 	});
 
+	it("retries missing repository origins from a cached shell", async () => {
+		const cached: EnvironmentShellData = {
+			folders: [folder("one")],
+			originsByFolder: { one: null },
+			chatsByProject: {},
+			sessionsByProject: {},
+			creationOperationsByProject: {},
+		};
+		const origin = vi.fn(() => Effect.succeed(null));
+		const driver = makeEnvironmentShellResourceDriver({
+			reportConnectionFailure: vi.fn(),
+		});
+		try {
+			driver.start({
+				key: environmentShellResourceKey(ref),
+				client: {
+					"workspace.streamChanges": () => Stream.make(cached.folders),
+					"chat.streamChanges": () => Stream.never,
+					"session.streamChanges": () => Stream.never,
+					"chat.creation.stream": () => Stream.never,
+					"git.origin": origin,
+				} as unknown as EnvironmentShellDriverClient,
+				generation: 1,
+				data: cached,
+				cursor: null,
+				snapshot: () => null,
+				isCurrent: () => true,
+				emit: () => true,
+			});
+			await vi.waitFor(() => expect(origin).toHaveBeenCalledOnce());
+		} finally {
+			driver.stop();
+		}
+	});
+
 	it("drops a late materialization from an older generation", async () => {
 		const workspace = Effect.runSync(
 			Queue.unbounded<ReadonlyArray<ReturnType<typeof folder>>>(),

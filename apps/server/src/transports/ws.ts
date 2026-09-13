@@ -13,8 +13,10 @@ import {
 	makeMeasuredJsonRpcSerialization,
 	makeRpcPayloadReporter,
 } from "@zuse/utils/rpc-payload-metrics";
-import { Effect, Layer, Schema } from "effect";
+import { fetchSiteFavicon } from "@zuse/utils/site-favicon";
+import { Effect, FileSystem, Layer, Schema } from "effect";
 import {
+	HttpIncomingMessage,
 	HttpRouter,
 	HttpServer,
 	HttpServerRequest,
@@ -22,6 +24,7 @@ import {
 } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import { CompactSign, importJWK } from "jose";
+import { DeviceBridgeService } from "../device-bridge/service.ts";
 import {
 	LanAuthService,
 	type LanAuthServiceShape,
@@ -84,6 +87,12 @@ export type WsServerProtocolOptions = {
 	readonly maxPayloadBytes?: number;
 	readonly onDiagnostic?: WsDiagnostic;
 	readonly onListening?: (address: WsServerListeningAddress) => void;
+	/**
+	 * Desktop-host lifecycle seam for accepted remote RPC sockets. The callback
+	 * runs only after authentication and protocol-version checks pass; its
+	 * returned release function runs exactly once when that socket closes.
+	 */
+	readonly onAuthenticatedConnection?: () => () => void;
 	readonly onPairing?: (pairing: {
 		readonly browserUrl: string;
 		readonly baseUrl: string;
@@ -93,8 +102,8 @@ export type WsServerProtocolOptions = {
 	}) => void;
 	/** Public HTTPS origin when a trusted private proxy fronts this listener. */
 	readonly pairingPublicBaseUrl?: string;
-	/** Whether a persisted managed-relay origin may be advertised. Defaults to true. */
-	readonly relayEnabled?: boolean;
+	/** Whether a persisted managed-api origin may be advertised. Defaults to true. */
+	readonly apiEnabled?: boolean;
 	/** Production client root. Missing files fall back to index.html for the SPA. */
 	readonly staticDir?: string;
 	/** In development, browser navigations are redirected to this Vite origin. */
@@ -107,7 +116,7 @@ export type WsServerProtocolOptions = {
 	};
 	/**
 	 * Mounts the ticket-gated `/ssh` WebSocket↔sshd bridge. Enabled only for
-	 * cloud-environment runtimes; the relay stages the ticket hash in-sandbox.
+	 * cloud-environment runtimes; the api stages the ticket hash in-sandbox.
 	 */
 	readonly sshBridge?: boolean;
 };
@@ -323,6 +332,33 @@ const browserSessionStatusApp = (
 		});
 	});
 
+const cliSessionStatusApp = (
+	auth: LanAuthServiceShape,
+	security: BrowserRequestSecurity,
+) =>
+	Effect.gen(function* () {
+		const request = yield* HttpServerRequest.HttpServerRequest;
+		const authRequired = requestRequiresAuthentication(
+			auth.policy,
+			request.headers,
+			security.trustProxy,
+		);
+		const credential = bearerFromRequest(request);
+		const authenticated =
+			!authRequired ||
+			(credential !== null &&
+				(yield* auth
+					.verifyToken(credential)
+					.pipe(Effect.orElseSucceed(() => false))));
+		return yield* jsonWithHeaders(
+			authenticated
+				? { authenticated: true, protocolVersion: WIRE_PROTOCOL_VERSION }
+				: { error: "unauthorized", protocolVersion: WIRE_PROTOCOL_VERSION },
+			authenticated ? 200 : 401,
+			{ "cache-control": "no-store" },
+		);
+	});
+
 const browserSessionExchangeApp = (
 	auth: LanAuthServiceShape,
 	cookieName: string,
@@ -476,19 +512,20 @@ export const wsServerProtocolLayer = (
 	Layer.effect(
 		RpcServer.Protocol,
 		Effect.gen(function* () {
+			const bridge = yield* Effect.serviceOption(DeviceBridgeService);
 			const auth = yield* LanAuthService;
 			const attachments = yield* AttachmentService;
 			const log = opts.onDiagnostic ?? (() => {});
 			const environmentId = yield* auth.environmentId();
-			const relay =
-				opts.relayEnabled === false
+			const api =
+				opts.apiEnabled === false
 					? null
-					: yield* auth.getRelayConfig().pipe(Effect.orElseSucceed(() => null));
+					: yield* auth.getApiConfig().pipe(Effect.orElseSucceed(() => null));
 			const browserSecurity: BrowserRequestSecurity = {
 				tls: opts.tls !== undefined,
 				// Forwarding headers are security-sensitive and are honored only for
-				// the managed relay connection configured by this environment.
-				trustProxy: opts.trustProxy ?? relay?.tunnelHostname !== undefined,
+				// the managed api connection configured by this environment.
+				trustProxy: opts.trustProxy ?? api?.tunnelHostname !== undefined,
 			};
 			const cookieName = browserCookieName(environmentId);
 			const tickets = new WebSocketTicketStore();
@@ -576,10 +613,56 @@ export const wsServerProtocolLayer = (
 						426,
 					);
 				}
-				return yield* httpEffect;
+				// Upgrade here so lifecycle accounting starts only after Node has
+				// accepted the WebSocket. The RPC helper receives the already-created
+				// socket through a request view and continues to own its full lifetime.
+				const socket = yield* Effect.orDie(request.upgrade);
+				const upgradedRequest = new Proxy(request, {
+					get(target, property) {
+						return property === "upgrade"
+							? Effect.succeed(socket)
+							: Reflect.get(target, property, target);
+					},
+				});
+				const release = opts.onAuthenticatedConnection?.();
+				return yield* httpEffect.pipe(
+					Effect.provideService(
+						HttpServerRequest.HttpServerRequest,
+						upgradedRequest,
+					),
+					Effect.ensuring(
+						release === undefined ? Effect.void : Effect.sync(release),
+					),
+				);
 			});
 
 			const router = yield* HttpRouter.make;
+			yield* router.add("POST", "/device-bridge", (request) =>
+				Effect.gen(function* () {
+					if (bridge._tag === "None")
+						return yield* json({ error: "device_bridge_unavailable" }, 503);
+					const body = yield* request.text.pipe(
+						Effect.provideService(
+							HttpIncomingMessage.MaxBodySize,
+							FileSystem.Size(128 * 1024),
+						),
+						Effect.orElseSucceed(() => ""),
+					);
+					if (body.length > 40000)
+						return yield* json({ error: "request_too_large" }, 413);
+					return yield* Effect.tryPromise({
+						try: () =>
+							bridge.value.receive(
+								(request.headers.authorization ?? "").replace(/^Bearer /, ""),
+								body,
+							),
+						catch: () => "rejected",
+					}).pipe(
+						Effect.flatMap((result) => json(result, 200)),
+						Effect.catch(() => json({ error: "device_bridge_rejected" }, 403)),
+					);
+				}),
+			);
 			yield* router.add("GET", "/healthz", () =>
 				json(
 					{
@@ -590,7 +673,7 @@ export const wsServerProtocolLayer = (
 				),
 			);
 			yield* router.add("GET", "/", guarded);
-			// Existing relay deployments and previously linked environments may
+			// Existing api deployments and previously linked environments may
 			// still advertise `/rpc`. Keep accepting it while newer links use `/`.
 			yield* router.add("GET", "/rpc", guarded);
 			yield* router.add("POST", "/pair", pairApp(auth, log));
@@ -610,6 +693,11 @@ export const wsServerProtocolLayer = (
 				"GET",
 				"/auth/session",
 				browserSessionStatusApp(auth, cookieName, browserSecurity),
+			);
+			yield* router.add(
+				"GET",
+				"/auth/cli-session",
+				cliSessionStatusApp(auth, browserSecurity),
 			);
 			yield* router.add(
 				"POST",
@@ -635,6 +723,32 @@ export const wsServerProtocolLayer = (
 			if (opts.sshBridge === true) {
 				yield* router.add("GET", "/ssh", sshBridgeApp(log));
 			}
+			yield* router.add("GET", "/assets/site-favicon/*", (request) =>
+				Effect.gen(function* () {
+					const credential = sessionCredential(request, cookieName);
+					if (
+						requestRequiresAuthentication(
+							auth.policy,
+							request.headers,
+							browserSecurity.trustProxy,
+						)
+					) {
+						const authenticated =
+							credential !== null &&
+							(yield* auth
+								.verifyToken(credential)
+								.pipe(Effect.orElseSucceed(() => false)));
+						if (!authenticated) {
+							return yield* json({ error: "unauthorized" }, 401);
+						}
+					}
+					const pathname = new URL(request.url, "http://localhost").pathname;
+					const response = yield* Effect.promise(() =>
+						fetchSiteFavicon(pathname.slice("/assets/site-favicon/".length)),
+					);
+					return HttpServerResponse.fromWeb(response);
+				}),
+			);
 			yield* router.add("GET", "/assets/attachments/*", (request) =>
 				Effect.gen(function* () {
 					const credential = sessionCredential(request, cookieName);
@@ -707,7 +821,7 @@ export const wsServerProtocolLayer = (
 			});
 
 			if (
-				(auth.policy === "protected" || relay?.tunnelHostname !== undefined) &&
+				(auth.policy === "protected" || api?.tunnelHostname !== undefined) &&
 				auth.pairingBootstrap
 			) {
 				const pairing = yield* auth.createPairingCode();
@@ -718,8 +832,8 @@ export const wsServerProtocolLayer = (
 				const publicBaseUrl = opts.pairingPublicBaseUrl?.replace(/\/$/u, "");
 				const httpBaseUrl =
 					publicBaseUrl ??
-					(relay?.tunnelHostname !== undefined
-						? `https://${relay.tunnelHostname}`
+					(api?.tunnelHostname !== undefined
+						? `https://${api.tunnelHostname}`
 						: opts.port === 0 && listeningAddress !== null
 							? `${opts.tls === undefined ? "http" : "https"}://${listeningAddress.host}:${listeningAddress.port}`
 							: null);
@@ -740,7 +854,7 @@ export const wsServerProtocolLayer = (
 					);
 					console.log(`Expires: ${pairing.expiresAt.toISOString()}`);
 					console.log(
-						`Remote access: ${relay?.tunnelHostname === undefined ? "inactive" : "active"}`,
+						`Remote access: ${api?.tunnelHostname === undefined ? "inactive" : "active"}`,
 					);
 					console.log(
 						`Redeem with: POST ${redeemBaseUrl}/pair {"code":"${pairing.code}"}`,

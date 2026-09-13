@@ -556,7 +556,7 @@ export function CloudMachinesPane() {
 			{error === null ? null : (
 				<div
 					role="alert"
-					className="rounded-md bg-alert-error-bg px-3 py-2 text-[11px] text-destructive-foreground ring-1 ring-inset ring-destructive/10"
+					className="rounded-md bg-alert-error-bg px-3 py-2 text-[11px] text-destructive ring-1 ring-inset ring-destructive/10"
 				>
 					{error}
 				</div>

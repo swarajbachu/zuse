@@ -30,6 +30,11 @@ export interface EnvironmentResolver<Client> {
 
 export type EnvironmentRuntimeOptions = Readonly<{
 	isOnline?: () => boolean;
+	/**
+	 * Whether this environment's transport crosses the network. Environments
+	 * reached in-process ignore platform offline edges. Default: true.
+	 */
+	requiresNetwork?: (environmentId: EnvironmentId) => boolean;
 	schedule?: (delayMs: number, task: () => void) => () => void;
 	random?: () => number;
 }>;
@@ -151,7 +156,7 @@ export class EnvironmentRuntime<Client> {
 			this.retryAttempt = 0;
 		}
 		this.clearRetry();
-		if ((this.options.isOnline?.() ?? true) === false) {
+		if (this.platformOffline()) {
 			this.emit({ phase: "offline", error: null });
 			this.scheduleRetry();
 			return Promise.reject(new Error("offline"));
@@ -222,6 +227,14 @@ export class EnvironmentRuntime<Client> {
 		this.closeCurrent();
 		await this.disposeInFlight;
 		this.listeners.clear();
+	}
+
+	/** Platform connectivity only gates environments reached over the network. */
+	private platformOffline(): boolean {
+		return (
+			(this.options.requiresNetwork?.(this.environmentId) ?? true) &&
+			(this.options.isOnline?.() ?? true) === false
+		);
 	}
 
 	private async resolveDesired(): Promise<Client | null> {

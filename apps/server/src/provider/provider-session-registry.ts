@@ -16,6 +16,10 @@ export interface ProviderSessionRegistry<SessionId, Entry> {
 		entry: Entry,
 	) => boolean;
 	readonly invalidate: (sessionId: SessionId) => Entry | undefined;
+	readonly invalidateIfCurrent: (
+		sessionId: SessionId,
+		generation: number,
+	) => Entry | undefined;
 }
 
 export const makeProviderSessionRegistry = <
@@ -24,6 +28,12 @@ export const makeProviderSessionRegistry = <
 >(): ProviderSessionRegistry<SessionId, Entry> => {
 	const sessions = new Map<SessionId, Entry>();
 	const generations = new Map<SessionId, number>();
+	const invalidate = (sessionId: SessionId): Entry | undefined => {
+		const entry = sessions.get(sessionId);
+		sessions.delete(sessionId);
+		generations.set(sessionId, (generations.get(sessionId) ?? 0) + 1);
+		return entry;
+	};
 	return {
 		lookup: (sessionId) => sessions.get(sessionId),
 		currentGeneration: (sessionId) => generations.get(sessionId),
@@ -39,11 +49,10 @@ export const makeProviderSessionRegistry = <
 			sessions.set(sessionId, entry);
 			return true;
 		},
-		invalidate: (sessionId) => {
-			const entry = sessions.get(sessionId);
-			sessions.delete(sessionId);
-			generations.set(sessionId, (generations.get(sessionId) ?? 0) + 1);
-			return entry;
-		},
+		invalidate,
+		invalidateIfCurrent: (sessionId, generation) =>
+			generations.get(sessionId) === generation
+				? invalidate(sessionId)
+				: undefined,
 	};
 };

@@ -5,6 +5,8 @@ import {
 	type BranchNamingStyle,
 	CommandId,
 	type CompletionSoundPreset,
+	type ComputerAwakeMode,
+	type ComputerAwakeStatus,
 	EnvironmentId,
 	type ExtensionProviderDescriptor,
 	type Folder,
@@ -15,20 +17,9 @@ import {
 } from "@zuse/contracts";
 import {
 	Alert01Icon,
-	BrowserIcon,
-	ConnectIcon,
 	Delete02Icon,
-	DocumentAttachmentIcon,
 	Folder01Icon,
-	InformationCircleIcon,
-	KeyboardIcon,
-	PackageIcon,
 	PencilEdit01Icon,
-	PlugSocketIcon,
-	Settings01Icon,
-	SmartPhone01Icon,
-	TaskDone01Icon,
-	TestTubeIcon,
 	Tick01Icon,
 	VolumeHighIcon,
 } from "@zuse/icons/solid-rounded";
@@ -36,15 +27,16 @@ import { ChevronLeft, Plus, RefreshCw as RefreshIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
 import { displayPath } from "~/lib/display-path";
-import { hasHostCapability } from "~/lib/host-platform";
+import { hasHostCapability, isMacHost } from "~/lib/host-platform";
 import { rendererPlatformCapabilities } from "~/lib/platform-capabilities.ts";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
-
+import { SETTINGS_NAVIGATION as VISIBLE_RAIL } from "~/lib/settings-navigation.ts";
 import {
 	formatRelativeTime,
 	useRelativeTimeTick,
 } from "~/lib/use-relative-time.ts";
 import { cn } from "~/lib/utils";
+import { useModelCatalogStore } from "~/store/model-catalog";
 import { useAuth } from "../hooks/use-auth.ts";
 import type { BrowserCookieImportStatus } from "../lib/bridge.ts";
 import {
@@ -52,6 +44,10 @@ import {
 	playCompletionSound,
 	prepareCompletionSound,
 } from "../lib/completion-sounds.ts";
+import {
+	computerAwakeModeDescription,
+	computerAwakeStatusText,
+} from "../lib/computer-awake.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { useExtensionCatalog } from "../lib/extension-client-bus.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
@@ -75,6 +71,7 @@ import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { LinearIntegrationsPane } from "./settings/linear-integrations-pane.tsx";
 import { McpServersPane } from "./settings/mcp-servers-pane.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
+import { UpdateChannelSettings } from "./settings/update-channel-settings.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
 import {
 	AlertDialog,
@@ -87,8 +84,16 @@ import {
 } from "./ui/alert-dialog.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar.tsx";
 import { Button } from "./ui/button.tsx";
-import { Card } from "./ui/card.tsx";
-import { Frame, FrameHeader } from "./ui/frame.tsx";
+import { SegmentedTabs } from "./ui/segmented-tabs.tsx";
+import {
+	SettingsCard,
+	SettingsGroup,
+	SettingsRow,
+	SettingsFrame as SharedSettingsFrame,
+} from "./ui/settings-panel.tsx";
+
+export { SettingsGroup, SettingsRow } from "./ui/settings-panel.tsx";
+
 import {
 	Select,
 	SelectItem,
@@ -97,106 +102,8 @@ import {
 	SelectValue,
 } from "./ui/select.tsx";
 import { Switch } from "./ui/switch";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
-
-type RailItemBase = {
-	readonly id: string;
-	readonly label: string;
-	readonly Icon: IconSvgElement;
-	readonly section: SettingsSection;
-};
-
-const TOP_RAIL: ReadonlyArray<RailItemBase> = [
-	{
-		id: "general",
-		label: "General",
-		Icon: Settings01Icon,
-		section: { kind: "general" },
-	},
-	{
-		id: "providers",
-		label: "Providers",
-		Icon: PackageIcon,
-		section: { kind: "providers" },
-	},
-	{
-		id: "extensions",
-		label: "Extensions",
-		Icon: PlugSocketIcon,
-		section: { kind: "extensions" },
-	},
-	{
-		id: "defaults",
-		label: "Default models",
-		Icon: TaskDone01Icon,
-		section: { kind: "defaults" },
-	},
-	{
-		id: "mcp",
-		label: "MCP Servers",
-		Icon: PlugSocketIcon,
-		section: { kind: "mcp" },
-	},
-	{
-		id: "integrations",
-		label: "Integrations",
-		Icon: ConnectIcon,
-		section: { kind: "integrations" },
-	},
-	{
-		id: "devices",
-		label: "Remote access",
-		Icon: SmartPhone01Icon,
-		section: { kind: "devices" },
-	},
-	{
-		id: "machines",
-		label: "Cloud workspaces · Beta",
-		Icon: ConnectIcon,
-		section: { kind: "machines" },
-	},
-	{
-		id: "browser",
-		label: "Browser",
-		Icon: BrowserIcon,
-		section: { kind: "browser" },
-	},
-	{
-		id: "pokedex",
-		label: "Pokedex",
-		Icon: TaskDone01Icon,
-		section: { kind: "pokedex" },
-	},
-	{
-		id: "shortcuts",
-		label: "Keyboard shortcuts",
-		Icon: KeyboardIcon,
-		section: { kind: "shortcuts" },
-	},
-	{
-		id: "diagnostics",
-		label: "Diagnostics",
-		Icon: DocumentAttachmentIcon,
-		section: { kind: "diagnostics" },
-	},
-	// Dev-only visual playground (accent swatches + workflow chip/button
-	// showcase). Filtered out of production bundles below.
-	{
-		id: "developer",
-		label: "Developer",
-		Icon: TestTubeIcon,
-		section: { kind: "developer" },
-	},
-];
 
 const CLOUD_MACHINES_AVAILABLE = cloudWorkspaceBetaAvailable();
-
-const VISIBLE_RAIL: ReadonlyArray<RailItemBase> = TOP_RAIL.filter(
-	(item) =>
-		(item.id !== "developer" || import.meta.env.DEV) &&
-		(item.id !== "machines" || CLOUD_MACHINES_AVAILABLE),
-);
-
 /**
  * Two-pane settings surface. The left rail navigates between global
  * sections (General / Models & Providers / Workspace) and per-repository
@@ -226,7 +133,7 @@ export function SettingsPage() {
 
 	return (
 		<div className="settings-surface flex min-h-0 flex-1 flex-col bg-background [&_button[data-slot=button]:not([class*='size-'])]:h-7 [&_button[data-slot=button]:not([class*='size-'])]:text-[11px]">
-			<header className="flex h-8 shrink-0 items-center px-3 text-xs text-muted-foreground [-webkit-app-region:drag]">
+			<header className="flex h-9 shrink-0 items-center border-b border-border bg-background/90 px-3 text-xs text-muted-foreground backdrop-blur-md [-webkit-app-region:drag]">
 				<div className="w-16 shrink-0" />
 				<button
 					type="button"
@@ -245,17 +152,16 @@ export function SettingsPage() {
 					folders={folders}
 					desktop={desktop}
 				/>
-				<div className="flex min-h-0 flex-1 flex-col overflow-y-auto scroll-smooth overscroll-contain px-6 py-5">
+				<div className="flex min-h-0 flex-1 flex-col overflow-y-auto scroll-smooth overscroll-contain px-6 py-6 max-[800px]:px-4 max-[800px]:py-4">
 					<div
 						className={cn(
-							"mx-auto flex w-full flex-col gap-4",
+							"mx-auto flex w-full flex-col gap-5",
 							visibleSection.kind === "diagnostics" ||
-								visibleSection.kind === "providers" ||
-								visibleSection.kind === "defaults"
+								visibleSection.kind === "shortcuts"
 								? "max-w-6xl"
 								: visibleSection.kind === "pokedex"
 									? "max-w-5xl"
-									: "max-w-2xl",
+									: "max-w-3xl",
 						)}
 					>
 						<SectionTitle section={visibleSection} folders={folders} />
@@ -279,7 +185,7 @@ function Rail({
 	desktop: boolean;
 }) {
 	return (
-		<nav className="flex w-52 shrink-0 flex-col gap-3 border-r border-border/40 bg-sidebar px-2.5 py-3 text-xs text-sidebar-foreground">
+		<nav className="flex w-52 shrink-0 flex-col gap-4 border-r border-sidebar-border bg-sidebar px-2.5 py-3 text-xs text-sidebar-foreground max-[800px]:w-12 max-[800px]:px-1.5">
 			<div className="flex flex-col gap-0.5">
 				{VISIBLE_RAIL.filter(
 					(item) => desktop || item.section.kind !== "machines",
@@ -298,7 +204,7 @@ function Rail({
 				})}
 			</div>
 			{folders.length > 0 && (
-				<div className="flex flex-col gap-2">
+				<div className="flex flex-col gap-2 max-[800px]:hidden">
 					<div className="flex items-center justify-between px-2">
 						<span className="text-[11px] font-medium tracking-wide text-muted-foreground/80">
 							Repositories
@@ -353,14 +259,16 @@ function RailButton({
 			onClick={onClick}
 			title={title}
 			className={cn(
-				"flex min-h-7 items-center gap-2 rounded-md px-2.5 py-1 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+				"flex min-h-7 items-center gap-2 rounded-md px-2.5 py-1 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-[800px]:justify-center max-[800px]:px-1.5",
 				active
 					? "bg-sidebar-accent text-sidebar-accent-foreground"
 					: "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
 			)}
 		>
 			<HugeiconsIcon icon={Icon} className="size-4 shrink-0" />
-			<span className={cn(truncate && "truncate")}>{label}</span>
+			<span className={cn("max-[800px]:sr-only", truncate && "truncate")}>
+				{label}
+			</span>
 		</button>
 	);
 }
@@ -466,36 +374,16 @@ function SectionTitle({
 		};
 	}, [section, folders]);
 	return (
-		<div className="flex min-w-0 items-center gap-1.5">
-			<h1 className="truncate text-sm font-semibold tracking-tight text-foreground">
+		<div className="flex min-w-0 flex-col gap-1 border-b border-border pb-4">
+			<h1 className="truncate text-xl font-medium tracking-[-0.01em] text-foreground">
 				{title}
 			</h1>
-			{subtitle && <InfoTip content={subtitle} />}
+			{subtitle && (
+				<p className="max-w-2xl text-xs leading-5 text-muted-foreground">
+					{subtitle}
+				</p>
+			)}
 		</div>
-	);
-}
-
-/**
- * Small info affordance carrying explanatory copy that used to render as a
- * visible subtitle/description. Keeps headers to a single clean line.
- */
-function InfoTip({ content }: { content: React.ReactNode }) {
-	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<button
-						type="button"
-						tabIndex={-1}
-						aria-label="More info"
-						className="inline-flex shrink-0 cursor-default items-center text-muted-foreground/50 hover:text-muted-foreground"
-					>
-						<HugeiconsIcon icon={InformationCircleIcon} className="size-3.5" />
-					</button>
-				}
-			/>
-			<TooltipPopup className="max-w-72">{content}</TooltipPopup>
-		</Tooltip>
 	);
 }
 
@@ -509,7 +397,7 @@ function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "devices") return <DevicesPane />;
 	if (section.kind === "machines") {
 		return (
-			<section className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3 text-xs">
+			<section className="flex min-h-0 flex-1 flex-col gap-4 text-xs">
 				<CloudWorkspacePool />
 			</section>
 		);
@@ -1006,6 +894,102 @@ const APPEARANCE_OPTIONS: ReadonlyArray<{
 	{ value: "dark", label: "Dark" },
 ];
 
+const COMPUTER_AWAKE_OPTIONS: ReadonlyArray<{
+	readonly value: ComputerAwakeMode;
+	readonly label: string;
+}> = [
+	{ value: "off", label: "Off" },
+	{ value: "auto", label: "Auto" },
+	{ value: "always", label: "Always" },
+];
+
+function ComputerAwakeSettings() {
+	const [status, setStatus] = useState<ComputerAwakeStatus | null>(null);
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		const awake = window.zuse?.computerAwake;
+		if (awake === undefined) return;
+		let mounted = true;
+		const unsubscribe = awake.onChanged((next) => {
+			if (mounted) setStatus(next);
+		});
+		void awake
+			.getStatus()
+			.then((next) => {
+				if (mounted) setStatus(next);
+			})
+			.catch((cause) => {
+				if (mounted)
+					setError(cause instanceof Error ? cause.message : String(cause));
+			});
+		return () => {
+			mounted = false;
+			unsubscribe();
+		};
+	}, []);
+
+	if (!isMacHost()) return null;
+
+	const mode = status?.mode ?? "auto";
+	const setMode = async (next: ComputerAwakeMode): Promise<void> => {
+		const awake = window.zuse?.computerAwake;
+		if (awake === undefined || saving) return;
+		setSaving(true);
+		setError(null);
+		try {
+			setStatus(await awake.setMode(next));
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : String(cause));
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	return (
+		<SettingsGroup
+			title="Power"
+			description="Keep this Mac available for local agents and remote control."
+		>
+			<SettingsRow
+				title="Keep Mac awake"
+				description={computerAwakeModeDescription(mode)}
+				action={
+					<Select
+						value={mode}
+						onValueChange={(value) => void setMode(value as ComputerAwakeMode)}
+						items={COMPUTER_AWAKE_OPTIONS}
+					>
+						<SelectTrigger
+							className="h-7 w-28"
+							disabled={saving}
+							aria-label="Keep Mac awake"
+						>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectPopup>
+							{COMPUTER_AWAKE_OPTIONS.map((option) => (
+								<SelectItem key={option.value} value={option.value}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectPopup>
+					</Select>
+				}
+			>
+				<div className="flex flex-col gap-1 text-[11px] leading-snug text-muted-foreground">
+					<p>{error ?? computerAwakeStatusText(status)}</p>
+					<p>
+						The display may turn off. Closed-lid operation is best effort and
+						depends on macOS hardware and power policy.
+					</p>
+				</div>
+			</SettingsRow>
+		</SettingsGroup>
+	);
+}
+
 function GeneralPane() {
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
 	const setAppearanceMode = useSettingsStore((s) => s.setAppearanceMode);
@@ -1198,6 +1182,10 @@ function GeneralPane() {
 				/>
 			</SettingsGroup>
 
+			<UpdateChannelSettings />
+
+			<ComputerAwakeSettings />
+
 			<SettingsGroup title="Notifications">
 				<SettingsRow
 					title="Agent completion sound"
@@ -1318,7 +1306,7 @@ function GeneralPane() {
 										setBranchNamingPrefix(prefixDraft);
 									}
 								}}
-								className="h-8 w-full max-w-[260px] rounded-lg border border-border/50 bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-border"
+								className="h-7 w-full max-w-[260px] rounded-md border border-input bg-card px-2.5 text-xs text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24"
 							/>
 							<p className="text-xs leading-snug text-muted-foreground">
 								Slash-joined before the slug. Letters, digits, slashes and
@@ -1361,17 +1349,19 @@ function DefaultModelsPane() {
 	);
 
 	return (
-		<SettingsCard className="divide-y divide-border/60 bg-transparent">
+		<SettingsGroup
+			title="Chat defaults"
+			description="These choices apply when you start a new chat. You can still change either one from the composer."
+		>
 			<SettingsRow
 				title="Default model"
 				description={`Model for new chats · ${PROVIDER_LABEL[defaultProviderId] ?? defaultProviderId}`}
 				action={
 					<ModelPicker
 						mode="default"
-						triggerClassName="h-9 min-w-72 justify-between rounded-lg border border-border/70 bg-background px-3 text-sm hover:bg-muted/40"
+						triggerClassName="h-7 w-64 max-w-[40vw] justify-between rounded-md border border-input bg-card px-2.5 text-xs hover:bg-muted"
 					/>
 				}
-				className="min-h-24 justify-center px-5 py-5"
 			/>
 			<SettingsRow
 				title="Default permission mode"
@@ -1387,7 +1377,10 @@ function DefaultModelsPane() {
 							value: mode,
 						}))}
 					>
-						<SelectTrigger size="sm" className="h-9 w-72 rounded-lg px-3">
+						<SelectTrigger
+							size="sm"
+							className="h-7 w-64 max-w-[40vw] rounded-md px-2.5"
+						>
 							<SelectValue />
 						</SelectTrigger>
 						<SelectPopup>
@@ -1399,9 +1392,8 @@ function DefaultModelsPane() {
 						</SelectPopup>
 					</Select>
 				}
-				className="min-h-24 justify-center px-5 py-5"
 			/>
-		</SettingsCard>
+		</SettingsGroup>
 	);
 }
 
@@ -1485,42 +1477,13 @@ function ProvidersPane() {
 					: "Not checked yet";
 
 	return (
-		<div className="flex min-h-0 flex-col">
-			<div className="flex min-h-10 items-center justify-between border-b border-border/60">
-				<div
-					role="tablist"
-					aria-label="Provider settings"
-					className="flex min-w-0 flex-1 gap-5 overflow-x-auto"
-				>
-					{providers.map((pid) => {
-						const selected = selectedProvider === pid;
-						const extensionProvider = extensionProviderOwners.get(pid);
-						return (
-							<button
-								key={pid}
-								type="button"
-								role="tab"
-								aria-selected={selected}
-								onClick={() => setSelectedProvider(pid)}
-								className={cn(
-									"flex min-h-10 shrink-0 items-center gap-2 border-b-2 px-0.5 text-sm transition-colors",
-									selected
-										? "border-primary text-foreground"
-										: "border-transparent text-muted-foreground hover:text-foreground",
-								)}
-							>
-								<ProviderIcon providerId={pid} className="size-4" />
-								<span>
-									{extensionProvider?.descriptor.displayName ??
-										PROVIDER_LABEL[pid] ??
-										pid}
-								</span>
-							</button>
-						);
-					})}
-				</div>
-				<div className="ml-4 flex shrink-0 items-center gap-2">
-					<span className="text-[11px] text-muted-foreground/80">
+		<SettingsFrame
+			title="Agent providers"
+			description="Enable the coding agents you use, verify their local setup, and control which models appear in Zuse."
+			flush
+			trailing={
+				<div className="flex items-center gap-2">
+					<span className="max-w-48 truncate text-[10px] text-muted-foreground">
 						{statusLabel}
 					</span>
 					<Button
@@ -1536,9 +1499,34 @@ function ProvidersPane() {
 						/>
 					</Button>
 				</div>
+			}
+		>
+			<div className="flex min-h-10 items-center border-b border-border/60 px-3 py-1.5">
+				<div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+					<SegmentedTabs
+						value={selectedProvider}
+						onValueChange={setSelectedProvider}
+						ariaLabel="Provider settings"
+						equalWidth={false}
+						className="w-max min-w-full"
+						options={providers.map((pid) => ({
+							value: pid,
+							label: (
+								<>
+									<ProviderIcon providerId={pid} className="size-3.5" />
+									<span>
+										{extensionProviderOwners.get(pid)?.descriptor.displayName ??
+											PROVIDER_LABEL[pid] ??
+											pid}
+									</span>
+								</>
+							),
+						}))}
+					/>
+				</div>
 			</div>
 
-			<div className="min-h-0 py-5">
+			<div className="min-h-0 px-4 pb-1">
 				<ProviderCard
 					environmentId={environmentId}
 					providerId={selectedProvider}
@@ -1551,7 +1539,7 @@ function ProvidersPane() {
 					layout="page"
 				/>
 			</div>
-		</div>
+		</SettingsFrame>
 	);
 }
 
@@ -1603,155 +1591,15 @@ export function SettingsFrame({
 	children?: React.ReactNode;
 }) {
 	return (
-		<Frame>
-			<FrameHeader className="flex w-full flex-row items-center justify-between px-2 py-1.5">
-				<div className="flex min-w-0 items-center gap-1.5">
-					<p className="truncate text-[13px] font-medium text-foreground">
-						{title}
-					</p>
-					{description && <InfoTip content={description} />}
-				</div>
-				{trailing}
-			</FrameHeader>
-			{children && (
-				<Card className={bodyClassName}>
-					{flush ? children : <div className="px-4 py-3">{children}</div>}
-				</Card>
-			)}
-		</Frame>
-	);
-}
-
-/**
- * Grouped settings section: muted outer frame, compact header, one inner
- * card split into rows. Use when several related settings should read as a
- * single decision area instead of separate cards.
- */
-export function SettingsGroup({
-	title,
-	description,
-	trailing,
-	children,
-}: {
-	title: string;
-	description?: React.ReactNode;
-	trailing?: React.ReactNode;
-	children: React.ReactNode;
-}) {
-	return (
-		<Frame>
-			<FrameHeader className="flex w-full flex-row items-center justify-between gap-3 px-2 py-1.5">
-				<div className="flex min-w-0 items-center gap-1.5">
-					<p className="truncate text-[13px] font-medium text-foreground">
-						{title}
-					</p>
-					{description && <InfoTip content={description} />}
-				</div>
-				{trailing && <div className="shrink-0">{trailing}</div>}
-			</FrameHeader>
-			<Card className="overflow-hidden">
-				<div className="flex flex-col divide-y divide-border/40">
-					{children}
-				</div>
-			</Card>
-		</Frame>
-	);
-}
-
-/**
- * Single-surface container for a group of settings rows. Renders one
- * rounded panel with a subtle muted background — no inner card, no double
- * nesting. Pair with `SettingsRow` for the row layout.
- */
-export function SettingsCard({
-	className,
-	children,
-}: {
-	className?: string;
-	children: React.ReactNode;
-}) {
-	return (
-		<div
-			className={cn(
-				"flex flex-col divide-y divide-border/40 overflow-hidden rounded-lg border border-border/60 bg-muted/30",
-				className,
-			)}
+		<SharedSettingsFrame
+			title={title}
+			action={trailing}
+			description={description}
+			bodyClassName={bodyClassName}
+			flush={flush}
 		>
 			{children}
-		</div>
-	);
-}
-
-/**
- * Compact uppercase header bar for a `SettingsCard`. Single line, optional
- * leading icon, optional trailing slot (status text, refresh button,
- * toggle). Renders above the rest of the card content with a bottom
- * divider courtesy of the parent's `divide-y`.
- */
-export function SettingsCardHeader({
-	icon: Icon,
-	title,
-	trailing,
-}: {
-	icon?: IconSvgElement;
-	title: string;
-	trailing?: React.ReactNode;
-}) {
-	return (
-		<header className="flex h-8 shrink-0 items-center gap-2 px-3 text-muted-foreground">
-			{Icon && <HugeiconsIcon icon={Icon} className="size-3.5" aria-hidden />}
-			<span className="min-w-0 flex-1 truncate text-[11px] font-medium text-muted-foreground">
-				{title}
-			</span>
-			{trailing && (
-				<div className="flex shrink-0 items-center gap-2">{trailing}</div>
-			)}
-		</header>
-	);
-}
-
-/**
- * Settings row: title + (optional) description on the left, action on the
- * right. When `children` are passed instead of `action`, they render under
- * the title/description (for cases like radio-group pickers).
- */
-export function SettingsRow({
-	icon: Icon,
-	title,
-	description,
-	action,
-	className,
-	children,
-}: {
-	icon?: IconSvgElement;
-	title: string;
-	description?: string;
-	action?: React.ReactNode;
-	className?: string;
-	children?: React.ReactNode;
-}) {
-	return (
-		<div className={cn("flex flex-col gap-2 px-3 py-2.5", className)}>
-			<div className="flex items-start gap-2.5">
-				{Icon && (
-					<HugeiconsIcon
-						icon={Icon}
-						className="size-4 shrink-0 text-muted-foreground"
-						aria-hidden
-					/>
-				)}
-				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-					<div className="text-xs font-medium text-foreground">{title}</div>
-					{description && (
-						<div className="text-[11px] leading-snug text-muted-foreground">
-							{description}
-						</div>
-					)}
-				</div>
-				{action && <div className="shrink-0">{action}</div>}
-			</div>
-			{children}
-		</div>
+		</SharedSettingsFrame>
 	);
 }
 
@@ -2087,9 +1935,13 @@ export function ModelSelect({
 	const modelEnabledByProvider = useSettingsStore(
 		(s) => s.modelEnabledByProvider,
 	);
-	const models = visibleModelsForProvider(providerId, modelEnabledByProvider, {
-		includeModelId: value,
-	});
+	const catalog = useModelCatalogStore((s) => s.catalog);
+	const models = visibleModelsForProvider(
+		catalog,
+		providerId,
+		modelEnabledByProvider,
+		{ includeModelId: value },
+	);
 	const normalizedValue =
 		value !== null &&
 		(models.some((m) => m.id === value) || models.length === 0)

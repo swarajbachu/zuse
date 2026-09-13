@@ -15,6 +15,8 @@ const {
 	acquireRendererRpcSession,
 	canReuseCloudWorkspaceTicket,
 	clearCloudWorkspaceRuntimeRecovery,
+	connectionRequiresNetwork,
+	environmentRequiresNetwork,
 	cloudWorkspaceRequiresRuntimeRecovery,
 	cloudWorkspaceRuntimeRecoveryCommandId,
 	requestCloudWorkspaceRuntimeRecovery,
@@ -25,6 +27,7 @@ const {
 	refreshCloudWorkspaceConnectionWithRecovery,
 	RENDERER_WEBSOCKET_OPEN_TIMEOUT,
 	registerLocalEnvironment,
+	registerWebSocketEnvironment,
 	resolveRendererRpcTransportForTest,
 	setActiveEnvironment,
 	shouldReconnectRendererConnection,
@@ -93,6 +96,24 @@ describe("renderer RPC transport selection", () => {
 		});
 
 		expect(resolveRendererRpcTransportForTest()).toEqual({ kind: "electron" });
+	});
+
+	it("treats only WebSocket transports as network-backed", () => {
+		Object.defineProperty(globalThis, "window", {
+			value: { zuse: { rpc: {} } },
+			configurable: true,
+		});
+
+		expect(connectionRequiresNetwork({ kind: "electron" })).toBe(false);
+		expect(connectionRequiresNetwork({ kind: "websocket" })).toBe(true);
+
+		registerLocalEnvironment("env_local");
+		registerWebSocketEnvironment("env_ssh", "ws://example.test/rpc");
+
+		expect(environmentRequiresNetwork("local")).toBe(false);
+		expect(environmentRequiresNetwork("env_local")).toBe(false);
+		expect(environmentRequiresNetwork("env_ssh")).toBe(true);
+		expect(environmentRequiresNetwork("env_unknown")).toBe(true);
 	});
 
 	it("classifies coded auth rejections that carry no message text", async () => {

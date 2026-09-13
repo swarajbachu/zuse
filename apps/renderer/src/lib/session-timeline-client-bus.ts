@@ -7,6 +7,7 @@ import {
 import type {
 	ClientCommand,
 	ClientCommandExecutor,
+	CommandDispatchHandle,
 	CommandReceipt,
 	PersistedResource,
 	ResourcePersistence,
@@ -23,12 +24,10 @@ import {
 	type SessionRef,
 } from "@zuse/client-runtime/resource-ref";
 import type { ResourceView } from "@zuse/client-runtime/resource-state";
-import {
-	prependSessionTimelineMessages,
-	restoreSessionTimelineState,
-} from "@zuse/client-runtime/session-timeline";
+import { makeSessionMessagePager } from "@zuse/client-runtime/session-message-pager";
 import { makeSessionTimelineCacheEntry } from "@zuse/client-runtime/session-timeline-cache";
 import { makeSessionTimelineResourceDriver } from "@zuse/client-runtime/session-timeline-driver";
+import { cloudCommandEligibility } from "@zuse/cloud-commands";
 import type { EnvironmentId, Message } from "@zuse/contracts";
 import { ComposerInput, SessionTimelineProjection } from "@zuse/contracts";
 import { emptyTimelineProjection } from "@zuse/domain/projectors/timeline-reducer";
@@ -38,8 +37,12 @@ import {
 	createClientCommandOutbox,
 	resetMemoryCommandOutboxForTest,
 } from "./client-command-outbox.ts";
+import { cloudCommandTransport } from "./cloud-command-transport.ts";
+import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
+import { isPlatformOnline } from "./network-status.ts";
 import {
 	acquireRendererRpcSession,
+	environmentRequiresNetwork,
 	isAuthCodedConnectionError,
 	isCloudWorkspaceEnvironment,
 	isRpcClientTransportError,
@@ -47,6 +50,10 @@ import {
 	markCloudWorkspaceConnectionHealthy,
 	type RendererRpcSession,
 } from "./rpc-client.ts";
+import {
+	durableOptimisticSessionMessage,
+	sessionMessageCommandReflected,
+} from "./session-message-intent.ts";
 import { sessionTimelineCache } from "./session-timeline-cache.ts";
 
 export type SessionTimelineResourceKey = ResourceKey<SessionTimelineProjection>;
@@ -293,6 +300,11 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["extension.invoke"](payload as never),
 				);
 				break;
+			case "deviceBridge.control":
+				result = await Effect.runPromise(
+					client["deviceBridge.control"](payload as never),
+				);
+				break;
 			case "workspace.setSelected":
 				result = await Effect.runPromise(
 					client["workspace.setSelected"](payload as never),
@@ -346,6 +358,11 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 			case "attachments.upload":
 				result = await Effect.runPromise(
 					client["attachments.upload"](payload as never),
+				);
+				break;
+			case "attachments.read":
+				result = await Effect.runPromise(
+					client["attachments.read"](payload as never),
 				);
 				break;
 			case "externalThreads.list":
@@ -574,6 +591,9 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["keybindings.replace"](payload as never),
 				);
 				break;
+			case "settings.get":
+				result = await Effect.runPromise(client["settings.get"]());
+				break;
 			case "settings.update":
 				result = await Effect.runPromise(
 					client["settings.update"](payload as never),
@@ -604,9 +624,9 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["provider.removeCredential"](payload as never),
 				);
 				break;
-			case "provider.opencode.inventory":
+			case "model.catalog":
 				result = await Effect.runPromise(
-					client["provider.opencode.inventory"](payload as never),
+					client["model.catalog"](payload as never),
 				);
 				break;
 			case "provider.opencode.setAuth":
@@ -627,11 +647,6 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 			case "provider.opencode.removeCustom":
 				result = await Effect.runPromise(
 					client["provider.opencode.removeCustom"](payload as never),
-				);
-				break;
-			case "provider.kiro.inventory":
-				result = await Effect.runPromise(
-					client["provider.kiro.inventory"](payload as never),
 				);
 				break;
 			case "pokemon.pokedex":
@@ -904,19 +919,17 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["usage.report"](payload as never),
 				);
 				break;
-			case "relay.status":
-				result = await Effect.runPromise(client["relay.status"]());
+			case "api.status":
+				result = await Effect.runPromise(client["api.status"]());
 				break;
-			case "relay.environments":
-				result = await Effect.runPromise(client["relay.environments"]());
+			case "api.environments":
+				result = await Effect.runPromise(client["api.environments"]());
 				break;
-			case "relay.link":
-				result = await Effect.runPromise(
-					client["relay.link"](payload as never),
-				);
+			case "api.link":
+				result = await Effect.runPromise(client["api.link"](payload as never));
 				break;
-			case "relay.unlink":
-				result = await Effect.runPromise(client["relay.unlink"]());
+			case "api.unlink":
+				result = await Effect.runPromise(client["api.unlink"]());
 				break;
 			case "pairing.start":
 				result = await Effect.runPromise(
@@ -1054,6 +1067,8 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 let commandOutbox = createClientCommandOutbox();
 
 type EnvironmentActivation = Readonly<{
+	/** The catalog authority that registered this resolver. */
+	readonly environmentKind: "cloud-workspace" | "other";
 	prepare: (activation: "connect" | "wake") => Promise<void>;
 	prepareClient?: (client: MemoizeClient) => Promise<void>;
 }>;
@@ -1079,9 +1094,18 @@ export const registerEnvironmentActivation = (
 	environmentId: EnvironmentId,
 	prepare: EnvironmentActivation["prepare"],
 	prepareClient?: EnvironmentActivation["prepareClient"],
+	environmentKind: EnvironmentActivation["environmentKind"] = "other",
 ): (() => void) => {
-	const registration = { prepare, prepareClient };
+	const registration = { environmentKind, prepare, prepareClient };
 	activationByEnvironment.set(environmentId, registration);
+	if (environmentKind === "cloud-workspace") {
+		// Catalog hydration can happen after ClientBus's initial outbox scan. Resume
+		// durable rows as soon as their stable environment identity is known; this
+		// does not acquire a gateway ticket or wake compute.
+		void rendererClientBus
+			.flushDurableOutbox(environmentId)
+			.catch(() => undefined);
+	}
 	return () => {
 		if (activationByEnvironment.get(environmentId) === registration) {
 			activationByEnvironment.delete(environmentId);
@@ -1089,31 +1113,44 @@ export const registerEnvironmentActivation = (
 	};
 };
 
-const faultFor = (cause: unknown): EnvironmentFault => {
+/** Classify a transport failure; `networkOffline` is true only when the
+ * environment's transport crosses the network and the platform is offline. */
+export const environmentFaultFor = (
+	cause: unknown,
+	networkOffline: boolean,
+): EnvironmentFault => {
 	const code =
 		typeof cause === "object" && cause !== null && "code" in cause
 			? String(cause.code)
 			: "";
+	const presentation = cloudFailurePresentation({ cause });
 	const message =
 		code ||
 		(cause instanceof Error && cause.message !== ""
 			? cause.message
-			: String(cause));
-	const lower = message.toLowerCase();
-	const phase: EnvironmentFault["phase"] =
-		globalThis.navigator?.onLine === false
-			? "offline"
-			: lower.includes("update required") || lower.includes("protocol")
-				? "update-required"
-				: code === "beta-access-required" || lower.includes("revoked")
-					? "revoked"
-					: isAuthCodedConnectionError(cause) ||
-							lower.includes("unauthorized") ||
-							lower.includes("authentication")
-						? "blocked-auth"
-						: "failed";
+			: (presentation?.kind ?? String(cause)));
+	const phase: EnvironmentFault["phase"] = networkOffline
+		? "offline"
+		: presentation?.kind === "update-required"
+			? "update-required"
+			: presentation?.kind === "cloud-access-required" ||
+					presentation?.kind === "cloud-access-unavailable"
+				? "revoked"
+				: isAuthCodedConnectionError(cause) ||
+						presentation?.kind === "sign-in-required"
+					? "blocked-auth"
+					: "failed";
 	return { phase, message };
 };
+
+const faultFor = (
+	environmentId: EnvironmentId,
+	cause: unknown,
+): EnvironmentFault =>
+	environmentFaultFor(
+		cause,
+		environmentRequiresNetwork(environmentId) && !isPlatformOnline(),
+	);
 
 const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 	resolve: (environmentId, activation) =>
@@ -1131,7 +1168,11 @@ const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 						pendingFault = cause;
 						return;
 					}
-					reportPassiveSessionFault(environmentId, faultFor(cause), generation);
+					reportPassiveSessionFault(
+						environmentId,
+						faultFor(environmentId, cause),
+						generation,
+					);
 				});
 				try {
 					await registered?.prepareClient?.(session.client);
@@ -1153,14 +1194,14 @@ const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 						queueMicrotask(() => {
 							reportPassiveSessionFault(
 								environmentId,
-								faultFor(fault),
+								faultFor(environmentId, fault),
 								activeGeneration,
 							);
 						});
 					},
 				};
 			},
-			catch: faultFor,
+			catch: (cause) => faultFor(environmentId, cause),
 		}),
 };
 
@@ -1207,10 +1248,19 @@ const createBus = (): ClientBus<MemoizeClient> => {
 		persistence: rendererResourcePersistence,
 		outbox: commandOutbox,
 		commandExecutor: executeSessionCommand,
-		commandFaultFor: (cause) =>
-			isRpcClientTransportError(cause) ? faultFor(cause) : null,
+		commandTransportFor: (environmentId, kind) =>
+			activationByEnvironment.get(environmentId)?.environmentKind ===
+				"cloud-workspace" &&
+			kind === "messages.send" &&
+			cloudCommandEligibility(kind) !== undefined
+				? cloudCommandTransport
+				: undefined,
+		commandFaultFor: (cause, environmentId) =>
+			isRpcClientTransportError(cause) ? faultFor(environmentId, cause) : null,
+		commandReflected: sessionMessageCommandReflected,
 		runtime: {
-			isOnline: () => globalThis.navigator?.onLine !== false,
+			isOnline: isPlatformOnline,
+			requiresNetwork: environmentRequiresNetwork,
 		},
 		synchronizer: {
 			synchronize: async <Data>(
@@ -1233,7 +1283,10 @@ const createBus = (): ClientBus<MemoizeClient> => {
 					if (!isRpcClientTransportError(cause)) return;
 					bus.reportConnectionFault(
 						environmentId,
-						{ phase: "failed", message: faultFor(cause).message },
+						{
+							phase: "failed",
+							message: faultFor(environmentId, cause).message,
+						},
 						generation,
 					);
 				}) as ResourceDriver<MemoizeClient, unknown>;
@@ -1245,6 +1298,7 @@ const createBus = (): ClientBus<MemoizeClient> => {
 };
 
 let rendererClientBus = createBus();
+const optimisticRestorationByResource = new Map<string, Promise<void>>();
 reportPassiveSessionFault = (environmentId, fault, expectedGeneration) =>
 	rendererClientBus.reportConnectionFault(
 		environmentId,
@@ -1252,111 +1306,30 @@ reportPassiveSessionFault = (environmentId, fault, expectedGeneration) =>
 		expectedGeneration,
 	);
 
-export type OlderSessionMessagesResult = Readonly<{
-	applied: boolean;
-	loaded: number;
-	hasMore: boolean;
-}>;
-
-const olderSessionMessageLoads = new Map<
-	string,
-	Promise<OlderSessionMessagesResult>
->();
+export type { OlderSessionMessagesResult } from "@zuse/client-runtime/session-message-pager";
 
 export const getRendererClientBus = (): ClientBus<MemoizeClient> =>
 	rendererClientBus;
-
-/**
- * Loads one bounded older page into the canonical timeline resource. Requests
- * for the same qualified session key are single-flighted. A reconnect, stream
- * advance, reset, or a newer page cursor fences the response before mutation;
- * pagination never owns or advances the durable event cursor.
- */
-export const loadOlderSessionMessages = (
-	ref: SessionRef,
-): Promise<OlderSessionMessagesResult> => {
-	const key = sessionTimelineResourceKey(ref);
-	const id = resourceKeyId(key);
-	const inFlight = olderSessionMessageLoads.get(id);
-	if (inFlight !== undefined) return inFlight;
-
-	const bus = rendererClientBus;
-	const initial = bus.snapshot(key);
-	const beforeSequence = initial.data?.olderMessageSequence ?? null;
-	if (initial.data === null || beforeSequence === null) {
-		return Promise.resolve({
-			applied: false,
-			loaded: 0,
-			hasMore: beforeSequence !== null,
-		});
-	}
-	const expectedGeneration = initial.generation;
-	const expectedCursor = initial.cursor;
-
-	const request = (async (): Promise<OlderSessionMessagesResult> => {
-		const client = bus.client(ref.environmentId);
-		const page =
-			client === null
-				? expectedCursor === null
-					? null
-					: await olderPageSynchronizers.get(ref.environmentId)?.(
-							ref,
-							expectedCursor,
-							beforeSequence,
-						)
-				: await Effect.runPromise(
-						client["session.messages.page"]({
-							sessionId: ref.sessionId,
-							beforeSequence,
-							limit: 100,
-						}),
-					);
-		if (page === null || page === undefined) {
-			return { applied: false, loaded: 0, hasMore: true };
-		}
-		if (bus !== rendererClientBus) {
-			return { applied: false, loaded: 0, hasMore: true };
-		}
-
-		let loaded = 0;
-		const applied = bus.update(key, {
-			expectedGeneration,
-			expectedCursor,
-			persist: page.olderMessageSequence === null,
-			update: (projection) => {
-				// A prior page can change this cursor without changing the stream
-				// cursor. Never apply a response to a different pagination head.
-				if ((projection.olderMessageSequence ?? null) !== beforeSequence) {
-					return undefined;
-				}
-				const merged = prependSessionTimelineMessages(
-					restoreSessionTimelineState(projection, expectedCursor),
-					page.messages,
-					page.olderMessageSequence,
-				);
-				loaded = Math.max(
-					0,
-					(merged.projection?.messages.length ?? 0) -
-						projection.messages.length,
-				);
-				return merged.projection ?? undefined;
-			},
-		});
-		return {
-			applied,
-			loaded: applied ? loaded : 0,
-			hasMore: applied ? page.olderMessageSequence !== null : true,
-		};
-	})();
-	olderSessionMessageLoads.set(id, request);
-	const clear = (): void => {
-		if (olderSessionMessageLoads.get(id) === request) {
-			olderSessionMessageLoads.delete(id);
-		}
-	};
-	void request.then(clear, clear);
-	return request;
-};
+const olderSessionMessageLoads = makeSessionMessagePager({
+	getBus: getRendererClientBus,
+	readPage: async (ref, client, cursor, beforeSequence) =>
+		client === null
+			? cursor === null
+				? null
+				: olderPageSynchronizers.get(ref.environmentId)?.(
+						ref,
+						cursor,
+						beforeSequence,
+					)
+			: Effect.runPromise(
+					client["session.messages.page"]({
+						sessionId: ref.sessionId,
+						beforeSequence,
+						limit: 100,
+					}),
+				),
+});
+export const loadOlderSessionMessages = olderSessionMessageLoads.load;
 
 export const completeOlderSessionMessages = async (
 	ref: SessionRef,
@@ -1407,7 +1380,29 @@ export const dispatchSessionCommand = <Payload, Result>(input: {
 		payload: input.payload,
 		retry: input.retry ?? "safe",
 		createdAt: Date.now(),
+		awaitResourceReflection: input.kind === "messages.send",
 	});
+
+export const dispatchSessionCommandHandle = <Payload, Result>(input: {
+	readonly ref: SessionRef;
+	readonly kind: string;
+	readonly commandId: ClientCommand["commandId"];
+	readonly payload: Payload;
+	readonly retry?: ClientCommand["retry"];
+}): CommandDispatchHandle<Result> =>
+	rendererClientBus.dispatchHandle({
+		kind: input.kind,
+		commandId: input.commandId,
+		environmentId: input.ref.environmentId,
+		resource: sessionTimelineResourceKey(input.ref),
+		payload: input.payload,
+		retry: input.retry ?? "safe",
+		createdAt: Date.now(),
+		awaitResourceReflection: input.kind === "messages.send",
+	});
+
+export const cancelSessionCommand = (commandId: ClientCommand["commandId"]) =>
+	rendererClientBus.cancelCommand(commandId);
 
 /** Adds a stable-id optimistic message to the canonical timeline cell. */
 export const addOptimisticSessionMessage = (
@@ -1436,6 +1431,87 @@ export const addOptimisticSessionMessage = (
 			return SessionTimelineProjection.make({ ...projection, messages });
 		},
 	});
+};
+
+const waitForTimelineHydration = async (
+	bus: ClientBus<MemoizeClient>,
+	key: SessionTimelineResourceKey,
+): Promise<void> => {
+	if (bus.snapshot(key).sync !== "hydrating-cache") return;
+	await new Promise<void>((resolve) => {
+		const unsubscribe = bus.subscribe(key, (view) => {
+			if (view.sync === "hydrating-cache") return;
+			unsubscribe();
+			resolve();
+		});
+	});
+};
+
+export const restoreDurableOptimisticSessionMessages = async (
+	ref: SessionRef,
+	bus: ClientBus<MemoizeClient> = rendererClientBus,
+): Promise<void> => {
+	const key = sessionTimelineResourceKey(ref);
+	await waitForTimelineHydration(bus, key);
+	const entries = await commandOutbox.listOutbox(ref.environmentId);
+	for (const entry of entries) {
+		const message = durableOptimisticSessionMessage(entry, ref);
+		if (message === null) continue;
+		let sawPending = false;
+		let unsubscribe: () => void = () => undefined;
+		const reconcileSettlement = (
+			view: ResourceView<SessionTimelineProjection>,
+		): void => {
+			const pending = view.pendingCommands.some(
+				(command) => command.commandId === entry.command.commandId,
+			);
+			sawPending ||= pending;
+			const failure = view.failedCommands.find(
+				(command) => command.commandId === entry.command.commandId,
+			);
+			if (failure !== undefined && !failure.retryable) {
+				unsubscribe();
+				bus.overlay(key, {
+					update: (projection) =>
+						SessionTimelineProjection.make({
+							...projection,
+							messages: projection.messages.filter(
+								(candidate) => candidate.id !== message.id,
+							),
+						}),
+				});
+				return;
+			}
+			if (sawPending && !pending && failure === undefined) unsubscribe();
+		};
+		bus.overlay(key, {
+			initialData: emptyTimelineProjection(),
+			update: (projection) => {
+				if (
+					projection.messages.some((candidate) => candidate.id === message.id)
+				)
+					return undefined;
+				return SessionTimelineProjection.make({
+					...projection,
+					messages: [...projection.messages, message],
+				});
+			},
+		});
+		unsubscribe = bus.subscribe(key, reconcileSettlement);
+		reconcileSettlement(bus.snapshot(key));
+	}
+};
+
+const scheduleDurableOptimisticSessionMessageRestoration = (
+	ref: SessionRef,
+	bus: ClientBus<MemoizeClient>,
+): void => {
+	const id = resourceKeyId(sessionTimelineResourceKey(ref));
+	if (optimisticRestorationByResource.has(id)) return;
+	const restoration = restoreDurableOptimisticSessionMessages(ref, bus).catch(
+		() => undefined,
+	);
+	optimisticRestorationByResource.set(id, restoration);
 };
 
 export const removeOptimisticSessionMessage = (
@@ -1495,9 +1571,12 @@ export const retainSessionTimeline = (
 	lease: ResourceLease;
 }> => {
 	const key = sessionTimelineResourceKey(ref);
+	const bus = rendererClientBus;
+	const lease = bus.retain(key, { activation });
+	scheduleDurableOptimisticSessionMessageRestoration(ref, bus);
 	return {
 		key,
-		lease: rendererClientBus.retain(key, { activation }),
+		lease,
 	};
 };
 
@@ -1533,6 +1612,9 @@ export const useSessionTimelineResource = (
 	useEffect(() => {
 		if (key === null) return;
 		const lease = bus.retain(key, { activation });
+		const qualifiedRef = sessionRef(key);
+		if (qualifiedRef !== null)
+			scheduleDurableOptimisticSessionMessageRestoration(qualifiedRef, bus);
 		return lease.release;
 	}, [activation, bus, key]);
 	const subscribe = useCallback(
@@ -1576,6 +1658,7 @@ export const retryRendererEnvironmentConnection = (
 export const resetSessionTimelineClientBus = async (): Promise<void> => {
 	await rendererClientBus.dispose();
 	rendererClientBus = createBus();
+	optimisticRestorationByResource.clear();
 	olderSessionMessageLoads.clear();
 	checkpointSynchronizers.clear();
 	olderPageSynchronizers.clear();
@@ -1587,6 +1670,7 @@ export const resetSessionTimelineClientBusForTest = (): void => {
 	resetMemoryCommandOutboxForTest();
 	commandOutbox = createClientCommandOutbox();
 	rendererClientBus = createBus();
+	optimisticRestorationByResource.clear();
 	olderSessionMessageLoads.clear();
 	activationByEnvironment.clear();
 	resolveRendererSession = defaultResolveRendererSession;

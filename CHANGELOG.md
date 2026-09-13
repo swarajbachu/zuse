@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0]
+
+### Added
+- Find chats, application commands, settings, and workspace actions together with Cmd/Ctrl+K; use `>` to search commands only, or Cmd/Ctrl+P to search project and worktree files
+- Organize sidebar projects into named groups with colored folder icons, and drag projects or groups to reorder them
+- Choose the main checkout or a fresh isolated worktree directly from the composer when starting a chat
+- Select Fable 5.1 and GPT-6 Astra, now the defaults for Claude and Codex respectively
+- Access account cloud chats from mobile without an online desktop, read saved history while compute sleeps, and start chats in existing cloud projects; availability depends on compatible cloud services and workspace images
+
+### Changed
+- Model choices refresh from a cached online catalog and provider inventories, allowing catalog additions without a desktop update while retaining an offline fallback
+- The desktop interface has a bottom-docked composer, compact settings and authentication dialogs, and clearer project, computer, model, and reasoning controls
+- Service URLs appear as compact clickable links in the composer and user messages, with clearer skill references
+
+### Fixed
+- Eligible cloud text messages can be accepted while compute sleeps and survive reconnects and restarts, with explicit delivery outcomes and protection against duplicate sends
+- Offline composer queues resume after reconnecting, and recovered Cloud Workspaces reconnect their chat client instead of leaving a stale connection error
+- Cloud chats distinguish rejected Codex credentials from connection failures, and new workspaces preserve configured permission defaults
+- Cloud workspaces report missing runtime data while preserving cached transcripts, and malformed legacy resources no longer block recovery of unrelated workspaces
+- Cloud sandbox images preconfigure authenticated Git and GitHub CLI access with renewable repository credentials
+- Active chats recover when their tabs are missing, archived project chats remain accessible, and startup progress hands off more reliably
+- Unexpected Codex process exits settle active turns and release crashed provider handles so subsequent work can start a fresh process
+- Mermaid diagrams on desktop and mobile reject external-resource syntax and enforce security-sensitive rendering settings
+- The packaged zusehq CLI discovers and authenticates to a foreground Serve process, reconnects after restarts, and distinguishes connection and authentication errors
+- Desktop packages include the application license and third-party attribution notices
+
+## [0.20.13]
+
+### Changed
+- Cloud Workspaces now have unrestricted outbound internet access by default
+
+### Fixed
+- New production workspaces can sync repositories without failing to create `/home/repos`
+- Retry now wakes paused Cloud Workspace compute before reconnecting
+- Production and staging cloud-agent authentication are isolated so credentials cannot contaminate each other
+
+## [0.20.12]
+
+### Added
+- Keep your Mac awake automatically while local agents or authenticated remote clients are active, or choose Always or Off in General settings; the sidebar now also shows the active-agent count
+
+### Changed
+- Cloud Workspaces and remote access now connect through `api.zuse.sh`; this update is required because the retired `relay.stuff.md` hostname is no longer supported
+
+### Fixed
+- Resumed Cloud Workspaces no longer remain stuck authenticating because of stale credential markers, and gateway authentication now gets a fresh timeout after enrollment
+- OpenCode provider settings now select the correct installed CLI, handle OpenCode 1.18 inventory responses reliably, and show a retryable error instead of an endless loading state
+- New chats now honor repository permission defaults and stop cleanly after a denied permission request
+
 ## [0.20.11]
 
 ### Fixed

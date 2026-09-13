@@ -43,8 +43,8 @@ import { openExternal } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
 import {
 	dispatchOpencodeProviderCommand,
-	useOpencodeInventory,
-} from "~/store/opencode-inventory";
+	useModelCatalogStore,
+} from "~/store/model-catalog";
 
 /**
  * OpenCode is a meta-harness fronting ~150 model providers (models.dev) plus
@@ -58,11 +58,17 @@ import {
  *  - **Advanced** — default model + per-provider picker visibility.
  */
 export function OpencodeProviderManager() {
-	const inventory = useOpencodeInventory((s) => s.inventory);
-	const invLoading = useOpencodeInventory((s) => s.loading);
-	const invError = useOpencodeInventory((s) => s.error);
-	const ensureLoaded = useOpencodeInventory((s) => s.ensureLoaded);
-	const refreshInventory = useOpencodeInventory((s) => s.refresh);
+	// The server's OpenCode live listing carries the raw inventory the
+	// provider manager needs (connected + available providers, agents).
+	const opencode = useModelCatalogStore((s) => s.catalog.providers.opencode);
+	const invLoading = useModelCatalogStore((s) => s.loading);
+	const catalogError = useModelCatalogStore((s) => s.error);
+	const ensureLoaded = useModelCatalogStore((s) => s.ensureLoaded);
+	const refreshInventory = useModelCatalogStore((s) => s.refresh);
+	const inventory = opencode.opencode ?? null;
+	const invError =
+		catalogError ??
+		(opencode.live.status === "error" ? opencode.live.error : null);
 
 	useEffect(() => {
 		void ensureLoaded();

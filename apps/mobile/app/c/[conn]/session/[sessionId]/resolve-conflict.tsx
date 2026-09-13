@@ -18,7 +18,7 @@ import {
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { readGitReviewFileContents, resolveGitConflict } from "~/rpc/actions";
-import { connectionsAtom } from "~/store/connections";
+import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
 import { colors } from "~/theme";
 

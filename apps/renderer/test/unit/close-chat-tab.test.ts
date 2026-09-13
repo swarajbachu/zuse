@@ -1,4 +1,10 @@
-import type { ChatId, FolderId, Session, SessionId } from "@zuse/contracts";
+import {
+	type ChatId,
+	EnvironmentId,
+	type FolderId,
+	type Session,
+	type SessionId,
+} from "@zuse/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const canonical = vi.hoisted(() => ({
@@ -6,6 +12,9 @@ const canonical = vi.hoisted(() => ({
 }));
 
 vi.mock("../../src/lib/settings-client-bus.ts", () => ({
+	resolveEnvironmentSettings: async () => ({
+		defaultRuntimeMode: "full-access",
+	}),
 	useSettingsStore: {
 		getState: () => ({
 			defaultProviderId: "codex",
@@ -26,6 +35,10 @@ import {
 	closeActiveChatTab,
 	closeChatTab,
 } from "../../src/lib/close-chat-tab.ts";
+import {
+	chatRecoveryIsCurrentSelection,
+	resolveChatSessionSelection,
+} from "../../src/store/chats.ts";
 import { useProvidersStore } from "../../src/store/providers.ts";
 import { useSessionsStore } from "../../src/store/sessions.ts";
 
@@ -82,9 +95,12 @@ describe("closing chat tabs", () => {
 			select,
 		});
 
-		await closeActiveChatTab();
+		await closeActiveChatTab(EnvironmentId.make("local"));
 
-		expect(archive).toHaveBeenCalledExactlyOnceWith(active.id);
+		expect(archive).toHaveBeenCalledExactlyOnceWith(
+			active.id,
+			EnvironmentId.make("local"),
+		);
 		expect(select).toHaveBeenCalledExactlyOnceWith(right.id);
 	});
 
@@ -92,20 +108,113 @@ describe("closing chat tabs", () => {
 		const active = session("session-only", 0);
 		const archive = vi.fn(async () => undefined);
 		const create = vi.fn(async () => null);
-		const refresh = vi.fn(async () => undefined);
+		const loadFor = vi.fn(async () => undefined);
 		canonical.sessionsByProject = { [projectId]: [active] };
 		useSessionsStore.setState({
 			archive,
 			create,
 		});
-		useProvidersStore.setState({ refresh });
+		useProvidersStore.setState({
+			loadFor,
+			availabilityByEnvironment: {
+				local: {
+					availability: [
+						{
+							providerId: "codex",
+							displayName: "Codex",
+							cliInstalled: true,
+							cliLoggedIn: true,
+							hasApiKey: false,
+							authStatus: "authenticated",
+						},
+					],
+					loading: false,
+					availabilityLoaded: true,
+					error: null,
+				},
+			},
+		});
 
 		await closeChatTab(active.id);
 
-		expect(refresh).toHaveBeenCalledOnce();
-		expect(archive).toHaveBeenCalledExactlyOnceWith(active.id);
+		expect(loadFor).toHaveBeenCalledOnce();
 		expect(create).toHaveBeenCalledExactlyOnceWith(chatId, "codex", "gpt-5.4", {
 			runtimeMode: "full-access",
 		});
+		expect(archive).not.toHaveBeenCalled();
+	});
+
+	it("archives the final tab only after its replacement exists", async () => {
+		const active = session("session-only", 0);
+		const replacementId = "session-replacement" as SessionId;
+		const archive = vi.fn(async () => undefined);
+		const create = vi.fn(async () => replacementId);
+		const select = vi.fn();
+		canonical.sessionsByProject = { [projectId]: [active] };
+		useSessionsStore.setState({ archive, create, select });
+		useProvidersStore.setState({
+			loadFor: vi.fn(async () => undefined),
+			availabilityByEnvironment: {
+				local: {
+					availability: [
+						{
+							providerId: "codex",
+							displayName: "Codex",
+							cliInstalled: true,
+							cliLoggedIn: true,
+							hasApiKey: false,
+							authStatus: "authenticated",
+						},
+					],
+					loading: false,
+					availabilityLoaded: true,
+					error: null,
+				},
+			},
+		});
+
+		await closeChatTab(active.id);
+
+		expect(create.mock.invocationCallOrder[0]).toBeLessThan(
+			archive.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+		);
+		expect(archive).toHaveBeenCalledExactlyOnceWith(
+			active.id,
+			EnvironmentId.make("local"),
+		);
+		expect(select).toHaveBeenCalledExactlyOnceWith(replacementId);
+	});
+
+	it("qualifies a removed cloud tab with its cloud environment", async () => {
+		const active = session("session-cloud", 0);
+		const sibling = session("session-cloud-sibling", 1);
+		const archive = vi.fn(async () => undefined);
+		const environmentId = EnvironmentId.make("cloud-workspace");
+		canonical.sessionsByProject = { [projectId]: [active, sibling] };
+		useSessionsStore.setState({ archive });
+
+		await closeChatTab(active.id, environmentId);
+
+		expect(archive).toHaveBeenCalledExactlyOnceWith(active.id, environmentId);
+	});
+
+	it("recovers the archived active tab when an active chat has no live tab", () => {
+		const archivedActiveId = "session-archived" as SessionId;
+
+		expect(resolveChatSessionSelection(archivedActiveId, [])).toEqual({
+			sessionId: null,
+			recoverArchivedSessionId: archivedActiveId,
+		});
+	});
+
+	it("does not report a stale recovery failure after opening new chat", () => {
+		expect(
+			chatRecoveryIsCurrentSelection({
+				chatId,
+				projectId,
+				selectedChatId: null,
+				selectedProjectId: projectId,
+			}),
+		).toBe(false);
 	});
 });

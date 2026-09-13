@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import type { PendingCommand } from "@zuse/client-runtime/resource-state";
 import type {
 	ChatCreationPhase,
 	EnvironmentId,
@@ -18,7 +19,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-
 import { usePrefersReducedMotion } from "../hooks/use-media-query.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import {
@@ -39,7 +39,7 @@ import {
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
 import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
-import { useCloudChatSummaryForSession } from "../lib/cloud-workspaces.ts";
+import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import {
@@ -55,10 +55,12 @@ import {
 	sessionCommandErrorKey,
 	useSessionCommandErrors,
 } from "../lib/session-actions.ts";
+import type { SessionRuntimeState } from "../lib/session-runtime-state.ts";
 import { hasPendingTurnStart } from "../lib/session-runtime-state.ts";
 import { timelineReadingPositionStore } from "../lib/session-timeline-cache.ts";
 import { restartProvisionalSessionTimeline } from "../lib/session-timeline-client-bus.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
+import { workspaceCreationProgressIsActive } from "../lib/setup-card-visibility.ts";
 import {
 	resolveInitialTimelineTarget,
 	resolveTimelineReadingPosition,
@@ -113,8 +115,21 @@ export const resolveAgentStarting = (input: {
 
 export const shouldRenderGenericAgentStartup = (input: {
 	readonly inFlight: boolean;
+	readonly agentStarting?: boolean;
 	readonly hasPendingCreation: boolean;
-}): boolean => input.inFlight && !input.hasPendingCreation;
+}): boolean =>
+	(input.inFlight || input.agentStarting === true) && !input.hasPendingCreation;
+
+export const shouldRenderEmptyChatState = (input: {
+	readonly messageCount: number;
+	readonly hasPendingCreation: boolean;
+	readonly setupActive: boolean;
+	readonly agentStarting: boolean;
+}): boolean =>
+	input.messageCount === 0 &&
+	!input.hasPendingCreation &&
+	!input.setupActive &&
+	!input.agentStarting;
 
 export const resolvePendingStartupTranscriptPrompt = (
 	creation: PendingChatCreation | null,
@@ -158,7 +173,10 @@ export function ChatView({
 		markRendererInteraction(sessionId, "first-react-commit");
 	}, [sessionId]);
 	const prefersReducedMotion = usePrefersReducedMotion();
-	const cloudSummary = useCloudChatSummaryForSession(sessionId);
+	const cloudSummary = useCloudChatSummaryForSelection({
+		chatId: session.chatId,
+		sessionId,
+	});
 	const timeline = useRendererSessionTimeline(
 		sessionId,
 		cloudSummary === null ? "connect" : cloudTranscriptActivation(cloudSummary),
@@ -176,9 +194,7 @@ export function ChatView({
 	const commandError = localError ?? pendingSessionCommandError(sessionRef);
 	const recoveredPreAckError =
 		commandError !== null &&
-		(isRecoveredPreAckSessionError(commandError.message, timeline.view) ||
-			(session !== null &&
-				commandError.message.includes("SessionNotFoundError")));
+		isRecoveredPreAckSessionError(commandError, timeline.view);
 	const error = recoveredPreAckError ? null : commandError;
 	useEffect(() => {
 		if (recoveredPreAckError) clearSessionCommandError(sessionRef);
@@ -224,21 +240,21 @@ export function ChatView({
 	const awaitingUserAction =
 		awaitingPlanApproval || sessionPermissionRequests.length > 0;
 	const worktreeId = session?.worktreeId ?? null;
-	const setupActive = useWorktreesStore((state) => {
-		if (worktreeId === null) return false;
+	const worktreeSetupStatus = useWorktreesStore((state) => {
+		if (worktreeId === null) return null;
 		for (const list of Object.values(state.byProject)) {
 			const worktree = (list ?? EMPTY_WORKTREES).find(
 				(candidate) => candidate.id === worktreeId,
 			);
 			if (worktree === undefined) continue;
-			return (
-				worktree.setupStatus === "running" ||
-				worktree.setupStatus === "pending" ||
-				worktree.setupStatus === "failed"
-			);
+			return worktree.setupStatus;
 		}
-		return false;
+		return null;
 	});
+	const setupActive =
+		worktreeSetupStatus === "running" ||
+		worktreeSetupStatus === "pending" ||
+		worktreeSetupStatus === "failed";
 	const providerOutputStarted = messages.some(
 		(message) => message.role !== "user",
 	);
@@ -257,6 +273,11 @@ export function ChatView({
 	}, [providerOutputStarted, session.chatId]);
 	const cloudSetupActive =
 		cloudSummary !== null && cloudWorkspaceIsStarting(cloudSummary);
+	const workspaceProgressActive = workspaceCreationProgressIsActive({
+		workspaceRequested: pendingCreation?.workspaceRequested === true,
+		setupStatus: worktreeSetupStatus,
+		creationPhase: pendingCreation?.phase ?? null,
+	});
 	const agentStarting = resolveAgentStarting({
 		providerOutputStarted,
 		creationPhase: pendingCreation?.phase ?? null,
@@ -272,20 +293,25 @@ export function ChatView({
 				// in-flight UI resumes only after that lifecycle projection is gone.
 				inFlight: shouldRenderGenericAgentStartup({
 					inFlight,
-					hasPendingCreation: pendingCreation !== null || cloudSetupActive,
+					agentStarting,
+					hasPendingCreation: workspaceProgressActive || cloudSetupActive,
 				}),
 				awaitingPlanApproval: awaitingUserAction,
 			}),
-		[awaitingUserAction, cloudSetupActive, inFlight, messages, pendingCreation],
+		[
+			awaitingUserAction,
+			cloudSetupActive,
+			agentStarting,
+			inFlight,
+			messages,
+			workspaceProgressActive,
+		],
 	);
 	const timelineFooter = useMemo(
 		() => (
 			<>
 				<div className="px-[var(--chat-row-gutter,0.75rem)]">
-					<WorktreeSetupCard
-						agentStarting={agentStarting ? true : undefined}
-						providerOutputStarted={providerOutputStarted}
-					/>
+					<WorktreeSetupCard providerOutputStarted={providerOutputStarted} />
 					{pendingCreation?.phase === "failed" ? (
 						<ChatCreationFailureActions creation={pendingCreation} />
 					) : null}
@@ -293,7 +319,7 @@ export function ChatView({
 				<div className="h-2" />
 			</>
 		),
-		[agentStarting, pendingCreation, providerOutputStarted],
+		[pendingCreation, providerOutputStarted],
 	);
 	const turns = useMemo(() => deriveChatTurnNavigationEntries(rows), [rows]);
 	const latestUserMessageId = useMemo(
@@ -686,11 +712,21 @@ export function ChatView({
 			<TimelineRow
 				chatId={session?.chatId ?? null}
 				environmentId={timeline.ref.environmentId}
+				providerId={session.providerId}
+				pendingCommands={timeline.view.pendingCommands}
 				row={item}
+				runtimeState={timeline.runtime}
 				sessionId={sessionId}
 			/>
 		),
-		[session?.chatId, sessionId, timeline.ref.environmentId],
+		[
+			session.chatId,
+			session.providerId,
+			sessionId,
+			timeline.ref.environmentId,
+			timeline.runtime,
+			timeline.view.pendingCommands,
+		],
 	);
 	const readingReady = readingState?.sessionId === sessionId;
 	const effectiveReadingPosition =
@@ -729,11 +765,14 @@ export function ChatView({
 								<ChatCreationPromptBubble
 									prompt={pendingStartupTranscriptPrompt}
 								/>
-								<WorktreeSetupCard
-									agentStarting={agentStarting ? true : undefined}
-								/>
+								<WorktreeSetupCard />
 							</div>
-							{setupActive || agentStarting ? null : (
+							{shouldRenderEmptyChatState({
+								messageCount: messages.length,
+								hasPendingCreation: pendingCreation !== null,
+								setupActive,
+								agentStarting,
+							}) ? (
 								<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
 									<HugeiconsIcon
 										icon={Message01Icon}
@@ -746,7 +785,7 @@ export function ChatView({
 										</p>
 									</div>
 								</div>
-							)}
+							) : null}
 						</div>
 					) : !readingReady ? (
 						<div
@@ -868,11 +907,17 @@ function TimelineRow({
 	row,
 	sessionId,
 	environmentId,
+	providerId,
+	pendingCommands,
+	runtimeState,
 }: {
 	readonly chatId: import("@zuse/contracts").ChatId | null;
 	readonly row: ChatTimelineRow;
 	readonly sessionId: SessionId;
 	readonly environmentId: EnvironmentId;
+	readonly providerId: import("@zuse/contracts").ProviderId;
+	readonly pendingCommands: readonly PendingCommand[];
+	readonly runtimeState: SessionRuntimeState;
 }) {
 	let content: ReactNode;
 	switch (row.kind) {
@@ -882,6 +927,7 @@ function TimelineRow({
 					message={row.message}
 					sessionId={sessionId}
 					environmentId={environmentId}
+					providerId={providerId}
 					showAssistantCommands={row.showAssistantCommands}
 				/>
 			);
@@ -919,8 +965,11 @@ function TimelineRow({
 		case "working":
 			content = (
 				<ChatWorkingRow
-					environmentId={environmentId}
 					messages={row.messages}
+					chatId={chatId}
+					pendingCommands={pendingCommands}
+					providerId={providerId}
+					runtimeState={runtimeState}
 					sessionId={sessionId}
 				/>
 			);

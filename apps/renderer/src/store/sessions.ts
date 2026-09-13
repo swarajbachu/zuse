@@ -13,8 +13,13 @@ import type {
 	WorktreeId,
 } from "@zuse/contracts";
 import { CommandId, EnvironmentId, Session, SessionId } from "@zuse/contracts";
+import {
+	cloudFailurePresentation,
+	cloudInteractionFailure,
+} from "../lib/cloud-failure-presentation.ts";
 import { cloudSummaryForChat } from "../lib/cloud-workspace-catalog.ts";
 import {
+	activeSessionById,
 	activeSessionsByProject,
 	overlayActiveEnvironmentShell,
 	overlayEnvironmentShell,
@@ -125,11 +130,20 @@ type SessionsState = {
 		sessionId: SessionId,
 		status: Session["status"],
 	) => void;
-	readonly rename: (sessionId: SessionId, title: string) => Promise<void>;
-	readonly setModel: (sessionId: SessionId, model: string) => Promise<void>;
+	readonly rename: (
+		sessionId: SessionId,
+		title: string,
+		environmentId?: EnvironmentId,
+	) => Promise<void>;
+	readonly setModel: (
+		sessionId: SessionId,
+		model: string,
+		environmentId?: EnvironmentId,
+	) => Promise<void>;
 	readonly setRuntimeMode: (
 		sessionId: SessionId,
 		runtimeMode: RuntimeMode,
+		environmentId?: EnvironmentId,
 	) => Promise<void>;
 	/**
 	 * Switch the SDK lifecycle mode (plan / default / acceptEdits) on a
@@ -139,12 +153,14 @@ type SessionsState = {
 	readonly setPermissionMode: (
 		sessionId: SessionId,
 		mode: PermissionMode,
+		environmentId?: EnvironmentId,
 	) => Promise<void>;
 	/**
 	 * Resolve a pending in-process AskUserQuestion call. Routes the
 	 * answers to the driver, which returns them as the tool result.
 	 */
 	readonly answerQuestion: (
+		environmentId: EnvironmentId,
 		sessionId: SessionId,
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
@@ -154,7 +170,10 @@ type SessionsState = {
 		toolCallId: AgentItemId,
 		outcome: PlanApprovalOutcome,
 		feedback?: string,
-		options?: { readonly silent?: boolean },
+		options?: {
+			readonly silent?: boolean;
+			readonly environmentId?: EnvironmentId;
+		},
 	) => Promise<"accepted" | "session-not-found" | "failed">;
 	/**
 	 * Switch the session's provider and model. Allowed only before the first
@@ -166,10 +185,20 @@ type SessionsState = {
 		sessionId: SessionId,
 		providerId: ProviderId,
 		model: string,
+		environmentId?: EnvironmentId,
 	) => Promise<{ readonly ok: true } | { readonly ok: false; reason: string }>;
-	readonly refreshOne: (sessionId: SessionId) => Promise<void>;
-	readonly archive: (sessionId: SessionId) => Promise<void>;
-	readonly remove: (sessionId: SessionId) => Promise<void>;
+	readonly refreshOne: (
+		sessionId: SessionId,
+		environmentId?: EnvironmentId,
+	) => Promise<void>;
+	readonly archive: (
+		sessionId: SessionId,
+		environmentId?: EnvironmentId,
+	) => Promise<void>;
+	readonly remove: (
+		sessionId: SessionId,
+		environmentId?: EnvironmentId,
+	) => Promise<void>;
 	readonly resume: (
 		sessionId: SessionId,
 		environmentId?: EnvironmentId,
@@ -191,13 +220,28 @@ const nextCommandId = (kind: string): CommandId =>
 		`${kind}:${Date.now().toString(36)}:${(commandCounter++).toString(36)}`,
 	);
 
+/**
+ * Resolve execution ownership from the session's owning chat. Cloud catalog
+ * rows only identify the initial session directly, so looking up by session id
+ * alone misroutes every later tab to the active local renderer shell.
+ */
+const environmentForSessionCommand = (
+	sessionId: SessionId,
+	explicit?: EnvironmentId,
+): EnvironmentId => {
+	if (explicit !== undefined) return explicit;
+	const session = activeSessionById(sessionId);
+	const cloud = session === null ? null : cloudSummaryForChat(session.chatId);
+	return EnvironmentId.make(cloud?.workspaceId ?? getActiveEnvironment());
+};
+
 const dispatchTimelineCommand = <Payload, Result>(
 	sessionId: SessionId,
 	kind: string,
 	commandId: CommandId,
 	payload: Payload,
 	retry: "safe" | "never" = "safe",
-	environmentId = EnvironmentId.make(getActiveEnvironment()),
+	environmentId = environmentForSessionCommand(sessionId),
 ) =>
 	dispatchSessionCommand<Payload, Result>({
 		ref: {
@@ -239,9 +283,12 @@ const patchActiveSession = (
 	});
 };
 
-const removeActiveSession = (sessionId: SessionId): FolderId | null => {
+const removeEnvironmentSession = (
+	environmentId: EnvironmentId,
+	sessionId: SessionId,
+): FolderId | null => {
 	let owningProject: FolderId | null = null;
-	overlayActiveEnvironmentShell((shell) => {
+	overlayEnvironmentShell(environmentId, (shell) => {
 		owningProject = findSessionProject(shell.sessionsByProject, sessionId);
 		if (owningProject === null) return undefined;
 		return {
@@ -255,6 +302,26 @@ const removeActiveSession = (sessionId: SessionId): FolderId | null => {
 		};
 	});
 	return owningProject;
+};
+
+const selectionAfterSessionRemoval = (
+	state: SessionsState,
+	sessionId: SessionId,
+	projectId: FolderId | null,
+): Partial<SessionsState> => {
+	const selectedSessionByProject =
+		projectId !== null &&
+		state.selectedSessionByProject[projectId] === sessionId
+			? { ...state.selectedSessionByProject, [projectId]: null }
+			: state.selectedSessionByProject;
+	const selectedSessionId =
+		state.selectedSessionId === sessionId ? null : state.selectedSessionId;
+	if (
+		selectedSessionId === state.selectedSessionId &&
+		selectedSessionByProject === state.selectedSessionByProject
+	)
+		return {};
+	return { selectedSessionId, selectedSessionByProject };
 };
 
 export const useSessionsStore = create<SessionsState>((set, get) => ({
@@ -549,8 +616,12 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			};
 		});
 	},
-	rename: async (sessionId, title) => {
+	rename: async (sessionId, title, explicitEnvironmentId) => {
 		set({ error: null });
+		const environmentId = environmentForSessionCommand(
+			sessionId,
+			explicitEnvironmentId,
+		);
 		try {
 			const commandId = nextCommandId("session-rename");
 			const { result: renamed } = await dispatchTimelineCommand<
@@ -560,12 +631,19 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					readonly title: string;
 				},
 				Session
-			>(sessionId, "session.rename", commandId, {
-				commandId,
+			>(
 				sessionId,
-				title,
-			});
-			overlayActiveEnvironmentShell((shell) => {
+				"session.rename",
+				commandId,
+				{
+					commandId,
+					sessionId,
+					title,
+				},
+				"safe",
+				environmentId,
+			);
+			overlayEnvironmentShell(environmentId, (shell) => {
 				const projectId = findSessionProject(
 					shell.sessionsByProject,
 					sessionId,
@@ -586,7 +664,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			throw err;
 		}
 	},
-	setModel: async (sessionId, model) => {
+	setModel: async (sessionId, model, environmentId) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
 			set({ draftSession: Session.make({ ...draft, model }) });
@@ -601,6 +679,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				commandId,
 				{ sessionId, model },
 				"never",
+				environmentId,
 			);
 			patchActiveSession(sessionId, (session) =>
 				Session.make({ ...session, model }),
@@ -609,19 +688,15 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			set({ error: formatError(err) });
 		}
 	},
-	setRuntimeMode: async (sessionId, runtimeMode) => {
+	setRuntimeMode: async (sessionId, runtimeMode, environmentId) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
 			set({ draftSession: Session.make({ ...draft, runtimeMode }) });
 			return;
 		}
-		// Optimistic — patch the local row before the RPC settles so the toggle
-		// feels instant. Server-side update is also fast (single SQL UPDATE +
-		// in-memory cache poke), so the round-trip is invisible in practice.
+		// Access is an applied runtime setting, not optimistic intent. The
+		// qualified timeline publishes RuntimeModeSet after the command commits.
 		set({ error: null });
-		patchActiveSession(sessionId, (session) =>
-			Session.make({ ...session, runtimeMode }),
-		);
 		try {
 			const commandId = nextCommandId("session-runtime-mode");
 			await dispatchTimelineCommand(
@@ -633,18 +708,14 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					sessionId,
 					runtimeMode,
 				},
+				"safe",
+				environmentId,
 			);
 		} catch (err) {
 			set({ error: formatError(err) });
-			// Best-effort revert via re-hydrate of the affected project.
-			const projectId = findSessionProject(
-				activeSessionsByProject(),
-				sessionId,
-			);
-			if (projectId !== null) await get().hydrate(projectId);
 		}
 	},
-	setPermissionMode: async (sessionId, mode) => {
+	setPermissionMode: async (sessionId, mode, environmentId) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
 			set({ draftSession: Session.make({ ...draft, permissionMode: mode }) });
@@ -661,6 +732,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				"session.setPermissionMode",
 				commandId,
 				{ commandId, sessionId, mode },
+				"safe",
+				environmentId,
 			);
 		} catch (err) {
 			set({ error: formatError(err) });
@@ -671,7 +744,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			if (projectId !== null) await get().hydrate(projectId);
 		}
 	},
-	answerQuestion: async (sessionId, itemId, answers) => {
+	answerQuestion: async (environmentId, sessionId, itemId, answers) => {
 		set({ error: null });
 		try {
 			const commandId = nextCommandId("session-answer-question");
@@ -679,11 +752,13 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				sessionId,
 				"session.answerQuestion",
 				commandId,
-				{ sessionId, itemId, answers },
-				"never",
+				{ commandId, sessionId, itemId, answers },
+				"safe",
+				environmentId,
 			);
 		} catch (err) {
-			set({ error: formatError(err) });
+			const failure = cloudInteractionFailure(err);
+			set({ error: failure.presentation?.message ?? formatError(err) });
 		}
 	},
 	respondToPlan: async (sessionId, toolCallId, outcome, feedback, options) => {
@@ -698,14 +773,17 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					sessionId,
 					toolCallId,
 					outcome,
+					commandId,
 					...(feedback === undefined ? {} : { feedback }),
 				},
-				"never",
+				"safe",
+				options?.environmentId,
 			);
 			return "accepted";
 		} catch (error) {
-			const message = formatError(error);
-			if (message.includes("SessionNotFoundError")) {
+			const failure = cloudInteractionFailure(error);
+			const message = failure.presentation?.message ?? formatError(error);
+			if (failure.expired) {
 				if (options?.silent !== true) set({ error: message });
 				return "session-not-found";
 			}
@@ -713,7 +791,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			return "failed";
 		}
 	},
-	setProvider: async (sessionId, providerId, model) => {
+	setProvider: async (sessionId, providerId, model, environmentId) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
 			set({ draftSession: Session.make({ ...draft, providerId, model }) });
@@ -728,6 +806,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				commandId,
 				{ sessionId, providerId, model },
 				"never",
+				environmentId,
 			);
 			patchActiveSession(sessionId, (session) =>
 				Session.make({ ...session, providerId, model }),
@@ -743,9 +822,12 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			return { ok: false, reason } as const;
 		}
 	},
-	archive: async (sessionId) => {
+	archive: async (sessionId, explicitEnvironmentId) => {
 		set({ error: null });
-		const projectId = findSessionProject(activeSessionsByProject(), sessionId);
+		const environmentId = environmentForSessionCommand(
+			sessionId,
+			explicitEnvironmentId,
+		);
 		try {
 			const commandId = nextCommandId("session-archive");
 			await dispatchTimelineCommand(
@@ -754,29 +836,31 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				commandId,
 				{ sessionId },
 				"never",
+				environmentId,
 			);
-			removeActiveSession(sessionId);
-			set((s) => {
-				const wasSelected = s.selectedSessionId === sessionId;
-				const selectedSessionByProject =
-					projectId !== null &&
-					s.selectedSessionByProject[projectId] === sessionId
-						? { ...s.selectedSessionByProject, [projectId]: null }
-						: s.selectedSessionByProject;
-				const clearPerProject =
-					selectedSessionByProject !== s.selectedSessionByProject;
-				if (!wasSelected && !clearPerProject) return s;
-				return {
-					selectedSessionId: wasSelected ? null : s.selectedSessionId,
-					selectedSessionByProject,
-				};
-			});
+			const projectId = removeEnvironmentSession(environmentId, sessionId);
+			set((state) => selectionAfterSessionRemoval(state, sessionId, projectId));
 		} catch (err) {
-			set({ error: formatError(err) });
+			const presentation = cloudFailurePresentation({ cause: err });
+			if (presentation?.kind === "session-unavailable") {
+				// Archive is idempotent from the user's perspective. If another device
+				// or a live summary already removed the session, the requested state is
+				// satisfied and a raw SessionNotFoundError would be misleading.
+				const projectId = removeEnvironmentSession(environmentId, sessionId);
+				set((state) =>
+					selectionAfterSessionRemoval(state, sessionId, projectId),
+				);
+				return;
+			}
+			set({ error: presentation?.message ?? formatError(err) });
 		}
 	},
-	remove: async (sessionId) => {
+	remove: async (sessionId, explicitEnvironmentId) => {
 		set({ error: null });
+		const environmentId = environmentForSessionCommand(
+			sessionId,
+			explicitEnvironmentId,
+		);
 		try {
 			const commandId = nextCommandId("session-delete");
 			await dispatchTimelineCommand(
@@ -785,22 +869,20 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				commandId,
 				{ sessionId },
 				"never",
+				environmentId,
 			);
-			const projectId = removeActiveSession(sessionId);
-			set((s) => {
-				if (projectId === null) return {};
-				const perProject =
-					s.selectedSessionByProject[projectId] === sessionId
-						? { ...s.selectedSessionByProject, [projectId]: null }
-						: s.selectedSessionByProject;
-				return {
-					selectedSessionId:
-						s.selectedSessionId === sessionId ? null : s.selectedSessionId,
-					selectedSessionByProject: perProject,
-				};
-			});
+			const projectId = removeEnvironmentSession(environmentId, sessionId);
+			set((state) => selectionAfterSessionRemoval(state, sessionId, projectId));
 		} catch (err) {
-			set({ error: formatError(err) });
+			const presentation = cloudFailurePresentation({ cause: err });
+			if (presentation?.kind === "session-unavailable") {
+				const projectId = removeEnvironmentSession(environmentId, sessionId);
+				set((state) =>
+					selectionAfterSessionRemoval(state, sessionId, projectId),
+				);
+				return;
+			}
+			set({ error: presentation?.message ?? formatError(err) });
 		}
 	},
 	resume: async (
@@ -845,13 +927,20 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			return false;
 		}
 	},
-	refreshOne: async (sessionId) => {
+	refreshOne: async (sessionId, environmentId) => {
 		try {
 			const commandId = nextCommandId("session-get");
 			const { result: session } = await dispatchTimelineCommand<
 				{ readonly sessionId: SessionId },
 				Session
-			>(sessionId, "session.get", commandId, { sessionId }, "never");
+			>(
+				sessionId,
+				"session.get",
+				commandId,
+				{ sessionId },
+				"never",
+				environmentId,
+			);
 			patchActiveSession(sessionId, () => session);
 		} catch {
 			// Silent — refreshOne is a best-effort follow-up after send().

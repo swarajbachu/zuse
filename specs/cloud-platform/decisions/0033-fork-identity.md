@@ -8,9 +8,9 @@ Status: Accepted
 The fork spike (zuse #338) proved live-process snapshot/fork of a running cloud
 machine works on both shortlisted providers — and that a fork is a bit-for-bit
 copy. The clone wakes up holding everything the parent held: the per-environment
-Ed25519 private key (private key never leaves the machine; relay holds only the
-public key — Relay-PR2, migration 0025), the persistent `zenv_` credential
-(stored hashed at the relay), the managed-tunnel connector credentials on disk,
+Ed25519 private key (private key never leaves the machine; api holds only the
+public key — API-PR2, migration 0025), the persistent `zenv_` credential
+(stored hashed at the api), the managed-tunnel connector credentials on disk,
 and the full append-only SQLite event log (global monotonic `sequence`, clients
 resume via a per-environment `sinceSequence` cursor).
 
@@ -38,7 +38,7 @@ with the parent's secrets in memory and possibly live connections. In-guest
 cleanup alone is therefore not a security barrier. The barrier is external:
 
 1. **Network-blocked start.** The provider starts the clone with its network
-   blocked at the host level. The clone physically cannot reach the relay,
+   blocked at the host level. The clone physically cannot reach the api,
    tunnel, or anything else as the parent. (Provider capability requirement —
    see Verification below.)
 2. **Inside the quarantine:** shred the inherited private key, `zenv_`
@@ -50,18 +50,18 @@ cleanup alone is therefore not a security barrier. The barrier is external:
    short-lived, single-use enrollment token bound to that ID *and to this
    specific fork operation*, delivered via the provider exec/env channel —
    never baked into the snapshot, never reusable across forks. The clone
-   presents token + new public key to the relay's existing link endpoint as a
+   presents token + new public key to the api's existing link endpoint as a
    new grant path (alternative link proof). Private keys still never travel.
 4. **Open the network** only after enrollment completes, onto the clone's new
    tunnel and credentials only.
 
 The rejected alternative — the hosted service generating the keypair and
 pushing the private key in — is simpler to orchestrate but breaks the
-asymmetric-trust property (relay can never impersonate a machine).
+asymmetric-trust property (api can never impersonate a machine).
 
 ### 3. Fail closed; parent untouched
 
-A clone performs no agent work, no tunnel traffic, and no relay traffic until
+A clone performs no agent work, no tunnel traffic, and no api traffic until
 enrollment completes. Any failure (wipe, keygen, expired token, quarantine
 window exceeded) destroys the machine and re-forks from the snapshot — forks
 are ~1 s, so throw-away-and-retry beats any repair path. A fork never affects
@@ -121,5 +121,5 @@ on wayfinder map #336.
   trust: a URL is pinned to one machine for its lifetime.
 - Client sync code needs no fork awareness: new environment ID ⇒ new cursor,
   full replay, no gap/dupe cases across the divergence point.
-- Relay gains one new grant path (enrollment-token link proof) instead of a
+- API gains one new grant path (enrollment-token link proof) instead of a
   parallel identity scheme.

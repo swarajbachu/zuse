@@ -20,6 +20,10 @@ const diagnosticErrorType = (value: unknown): string => {
 // fall through to a raw JSON dump like `{ "folderId": "…" }`. Map them to
 // human copy here so any surface that formats them stays readable.
 const TAG_MESSAGES: Record<string, string> = {
+	PermissionRequestExpiredError:
+		"The agent restarted and this approval expired. Dismiss it and send a message to continue.",
+	PermissionRequestNotFoundError:
+		"This approval is no longer pending. It may have been resolved on another device.",
 	GitNotARepoError: "This folder isn't a Git repository.",
 	DirectoryUnavailableError: "This directory is unavailable.",
 	GitFolderNotFoundError: "Project folder not found.",
@@ -57,7 +61,7 @@ const CLOUD_WORKSPACE_CODE_MESSAGES: Readonly<Record<string, string>> = {
 		"The cloud workspace changed while starting. Refresh and try again.",
 };
 
-// `environments.list` / `environments.connect` surface relay failures as
+// `environments.list` / `environments.connect` surface api failures as
 // ConnectAuthError with a machine-readable reason. Map the reasons a user can
 // actually act on; unknown reasons fall through to the generic formatting.
 const CONNECT_AUTH_REASON_MESSAGES: Readonly<Record<string, string>> = {
@@ -67,7 +71,7 @@ const CONNECT_AUTH_REASON_MESSAGES: Readonly<Record<string, string>> = {
 	"not-found":
 		"This computer is no longer linked to your account. Run `zuse serve` on it again.",
 	"provider-unavailable":
-		"Zuse's relay is temporarily unavailable. Try again shortly.",
+		"Zuse's api is temporarily unavailable. Try again shortly.",
 };
 
 const parseJsonRecord = (

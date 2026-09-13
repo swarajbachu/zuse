@@ -3,7 +3,8 @@ import {
 	defaultModelFor,
 	type EnvironmentId,
 	type FolderId,
-	modelsForProvider,
+	findModelDescriptor,
+	PROVIDER_IDS,
 	type ProviderId,
 	type Session,
 	type SessionId,
@@ -17,15 +18,18 @@ import {
 } from "@zuse/icons/solid-rounded";
 import { Plus, X } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
+import { currentModelCatalog } from "~/store/model-catalog";
 import {
 	type AgentActivityState,
 	deriveAgentActivityState,
 } from "../lib/agent-activity-state.ts";
+import { resolveChatRuntimeMode } from "../lib/auto-worktree.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import { closeChatTab } from "../lib/close-chat-tab.ts";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
 import { useExtensionContributions } from "../lib/extension-registry.tsx";
+import { selectAuthenticatedProvider } from "../lib/model-picker-availability.ts";
 import {
 	type RendererSessionTimeline,
 	useRendererSessionTimelines,
@@ -45,6 +49,7 @@ import { RenameDialog } from "./rename-dialog.tsx";
 import { TypewriterText } from "./typewriter-text.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Spinner } from "./ui/spinner";
+import { toastManager } from "./ui/toast.tsx";
 
 type Props = {
 	readonly projectId: FolderId | null;
@@ -68,7 +73,7 @@ const lookupModelLabel = (
 	model: string | undefined,
 ): string | null => {
 	if (providerId === undefined || model === undefined) return null;
-	const opt = modelsForProvider(providerId).find((m) => m.id === model);
+	const opt = findModelDescriptor(currentModelCatalog(), providerId, model);
 	return opt?.label ?? model;
 };
 
@@ -183,7 +188,9 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 					onOpenChange={(open) => {
 						if (!open) setRenamingSession(null);
 					}}
-					onRename={(title) => renameSession(renamingSession.id, title)}
+					onRename={(title) =>
+						renameSession(renamingSession.id, title, environmentId)
+					}
 				/>
 			) : null}
 			<header className="flex h-9 min-w-0 max-w-full shrink-0 items-center overflow-hidden pt-1.5">
@@ -275,7 +282,7 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 									setActiveMainTab("chat");
 								}}
 								onClose={() => {
-									void closeChatTab(session.id);
+									void closeChatTab(session.id, environmentId);
 								}}
 								onRename={() => setRenamingSession(session)}
 							/>
@@ -284,7 +291,11 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 					{projectId !== null &&
 						activeChatId !== null &&
 						pendingCreationByChat[activeChatId] === undefined && (
-							<NewChatTabButton chatId={activeChatId} />
+							<NewChatTabButton
+								chatId={activeChatId}
+								environmentId={environmentId}
+								projectId={projectId}
+							/>
 						)}
 				</div>
 			</header>
@@ -416,45 +427,76 @@ export function ChatTabButton({
 
 function NewChatTabButton({
 	chatId,
+	environmentId,
+	projectId,
 }: {
 	chatId: import("@zuse/contracts").ChatId;
+	environmentId: EnvironmentId;
+	projectId: FolderId | null;
 }) {
-	const refresh = useProvidersStore((s) => s.refresh);
+	const loadAvailability = useProvidersStore((s) => s.loadFor);
 	const create = useSessionsStore((s) => s.create);
 	const creating = useSessionsStore((s) => s.creatingByChat[chatId] === true);
+	const [preparing, setPreparing] = useState(false);
+	const busy = creating || preparing;
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
 	const defaultModelByProvider = useSettingsStore(
 		(s) => s.defaultModelByProvider,
 	);
-	const defaultRuntimeMode = useSettingsStore((s) => s.defaultRuntimeMode);
+	const providerEnabled = useSettingsStore((s) => s.providerEnabled);
 
 	// Creates a new session inside the active chat. Worktree is inherited
-	// from the chat row server-side. Skip the awaited provider refresh when
-	// we already have a default model cached — saves 100–500ms per click on
-	// the warm path; cold cache still pays for the round-trip.
+	// from the chat row server-side. Availability is cached per environment,
+	// so only the first click probes the runtime; importantly, a local default
+	// can never select a provider that is signed out in this cloud workspace.
 	const onClick = async () => {
-		if (creating) return;
-		if (defaultModelByProvider[defaultProviderId] === undefined) {
-			await refresh();
+		if (busy) return;
+		setPreparing(true);
+		try {
+			await loadAvailability(environmentId);
+			const environmentAvailability =
+				useProvidersStore.getState().availabilityByEnvironment[environmentId]
+					?.availability ?? [];
+			const providerId = selectAuthenticatedProvider({
+				preferredProviderId: defaultProviderId,
+				providerIds: PROVIDER_IDS,
+				availability: environmentAvailability,
+				providerEnabled,
+			});
+			if (providerId === null) {
+				toastManager.add({
+					type: "error",
+					title: "No authenticated agent",
+					description:
+						"Connect an agent in Cloud Authentication before opening a new tab.",
+				});
+				return;
+			}
+			const model =
+				defaultModelByProvider[providerId] ??
+				defaultModelFor(currentModelCatalog(), providerId);
+			const runtimeMode =
+				projectId === null
+					? useSettingsStore.getState().defaultRuntimeMode
+					: await resolveChatRuntimeMode(environmentId, projectId);
+			await create(chatId, providerId, model, {
+				runtimeMode,
+			});
+		} finally {
+			setPreparing(false);
 		}
-		const model =
-			defaultModelByProvider[defaultProviderId] ??
-			defaultModelFor(defaultProviderId);
-		void create(chatId, defaultProviderId, model, {
-			runtimeMode: defaultRuntimeMode,
-		});
 	};
 
 	return (
 		<button
 			type="button"
 			onClick={() => void onClick()}
-			disabled={creating}
+			disabled={busy}
 			title="New tab in this chat"
 			aria-label="New tab in this chat"
 			className="relative flex shrink-0 items-center justify-center rounded px-2 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
 		>
-			{creating ? (
+			{busy ? (
 				<span className="inline-flex size-3.5 items-center justify-center">
 					<Spinner className="size-3.5" />
 				</span>

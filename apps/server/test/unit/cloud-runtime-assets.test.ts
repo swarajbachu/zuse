@@ -1,9 +1,23 @@
-import { readFile } from "node:fs/promises";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
+const workspaceFileUrl = (relativePath: string) =>
+	new URL(`../../../../${relativePath}`, import.meta.url);
+
 const readWorkspaceFile = (relativePath: string) =>
-	readFile(new URL(`../../../../${relativePath}`, import.meta.url), "utf8");
+	readFile(workspaceFileUrl(relativePath), "utf8");
 
 describe("cloud runtime assets", () => {
 	test("prepares repository snapshots without installing project dependencies", async () => {
@@ -11,16 +25,119 @@ describe("cloud runtime assets", () => {
 			"infra/cloud-sandboxes/project-builder.sh",
 		);
 		const reconciler = await readWorkspaceFile(
-			"infra/relay/src/cloud-workspace-reconciler.ts",
+			"infra/api/src/cloud-workspace-reconciler.ts",
 		);
 
 		expect(builder).not.toContain("repository-script.ts setup");
 		expect(builder).not.toContain("ZUSE_SETUP_COMMAND");
 		expect(reconciler).not.toContain("ZUSE_SETUP_COMMAND");
-		expect(builder).toContain("repositories.tsv");
+		expect(builder).toContain("repositories.jsonl");
 		expect(builder).toContain("repository-commits.tsv");
 		expect(builder).toContain("/var/lib/zuse/account-image/manifest.json");
 		expect(builder).not.toContain("ZUSE_REPOSITORY_URL");
+	});
+
+	test("preserves a tokenless public repository manifest record", () => {
+		const builderPath = fileURLToPath(
+			workspaceFileUrl("infra/cloud-sandboxes/project-builder.sh"),
+		);
+		const record = JSON.stringify({
+			projectId: "project_public",
+			repositoryUrl: "https://github.com/example/public.git",
+			defaultBranch: "main",
+			visibility: "public",
+			tokenFile: null,
+			workspacePath: "/home/repos/example/public",
+		});
+		const parsed = spawnSync(
+			"bash",
+			[
+				"-c",
+				'source "$1"; parse_repository_record "$2"; printf "%s\\n%s\\n" "$token_file" "$workspace_path"',
+				"bash",
+				builderPath,
+				record,
+			],
+			{ encoding: "utf8" },
+		);
+
+		expect(parsed.status, parsed.stderr).toBe(0);
+		expect(parsed.stdout).toBe("\n/home/repos/example/public\n");
+	});
+
+	test("records explicit project-builder validation failures", async () => {
+		const builderPath = fileURLToPath(
+			workspaceFileUrl("infra/cloud-sandboxes/project-builder.sh"),
+		);
+		const temporaryRoot = await mkdtemp(
+			join(tmpdir(), "zuse-project-builder-failure-"),
+		);
+		try {
+			const failed = spawnSync(
+				"bash",
+				[
+					"-c",
+					'source "$1"; status_dir="$2"; phase=validating-input; mark_failed 64',
+					"bash",
+					builderPath,
+					temporaryRoot,
+				],
+				{ encoding: "utf8" },
+			);
+
+			expect(failed.status).toBe(64);
+			expect(failed.stderr).toContain(
+				"Build failed during validating-input (exit 64).",
+			);
+			expect(await readFile(join(temporaryRoot, "failure-phase"), "utf8")).toBe(
+				"validating-input\n",
+			);
+		} finally {
+			await rm(temporaryRoot, { recursive: true, force: true });
+		}
+	});
+
+	test("keeps rotating Codex login out of broker-capable account images", async () => {
+		const builder = await readWorkspaceFile(
+			"infra/cloud-sandboxes/project-builder.sh",
+		);
+		const reconciler = await readWorkspaceFile(
+			"infra/api/src/cloud-workspace-reconciler.ts",
+		);
+		expect(builder).toContain("rm -f /home/zuse/.codex/auth.json");
+		expect(builder).toContain("ZUSE_CODEX_AUTH_DELIVERY_VERSION");
+		expect(builder).toContain("codexAuthDeliveryVersion");
+		expect(reconciler).toContain('"/home/zuse/.codex/auth.json"');
+		expect(reconciler).toContain("Codex auth delivery capability mismatch");
+	});
+
+	test("keeps every provider credential out of provider-broker account images", async () => {
+		const builder = await readWorkspaceFile(
+			"infra/cloud-sandboxes/project-builder.sh",
+		);
+		const reconciler = await readWorkspaceFile(
+			"infra/api/src/cloud-workspace-reconciler.ts",
+		);
+		expect(builder).toContain("ZUSE_PROVIDER_AUTH_DELIVERY_VERSION");
+		expect(builder).toContain("/home/zuse/.grok/auth.json");
+		expect(builder).toContain("/home/zuse/.zuse-image/provider-secrets.json");
+		expect(builder).toContain("rm -rf /home/zuse/.zuse/cloud-auth");
+		expect(builder).toContain("providerAuthDeliveryVersion");
+		expect(reconciler).toContain('"/home/zuse/.grok/auth.json"');
+		expect(reconciler).toContain(
+			'"/home/zuse/.zuse-image/provider-secrets.json"',
+		);
+		expect(reconciler).toContain('"/home/zuse/.zuse/cloud-auth"');
+		expect(reconciler).toContain("ZUSE_PROVIDER_STATUS_JSON");
+		expect(reconciler).toContain("Provider auth delivery capability mismatch");
+	});
+
+	test("pins the contract-tested Grok external-auth runtime in the base image", async () => {
+		const dockerfile = await readWorkspaceFile(
+			"infra/cloud-sandboxes/Dockerfile",
+		);
+		expect(dockerfile).toContain("install-grok.sh 1.0.13");
+		expect(dockerfile).toContain("GROK_BIN_DIR=/usr/local/bin");
 	});
 
 	test("uses the image checkout directly without launch-time Git networking", async () => {
@@ -39,15 +156,271 @@ describe("cloud runtime assets", () => {
 		);
 	});
 
+	test("repairs GitHub authentication on every workspace start", async () => {
+		const bootstrap = await readWorkspaceFile(
+			"infra/cloud-sandboxes/workspace-bootstrap.sh",
+		);
+		const reconciler = await readWorkspaceFile(
+			"infra/api/src/cloud-workspace-reconciler.ts",
+		);
+
+		// The API ships the current auth script with the project build, so a base
+		// image older than the `gh` shim cannot strand a workspace.
+		expect(reconciler).toContain(
+			'GITHUB_AUTH_SOURCE from "../../cloud-sandboxes/github-auth.sh"',
+		);
+		expect(reconciler).toContain(
+			'const GITHUB_AUTH_FILE = "/var/lib/zuse/project-build/github-auth.sh"',
+		);
+		expect(bootstrap).toContain(
+			"github_auth=/var/lib/zuse/project-build/github-auth.sh",
+		);
+		expect(bootstrap).toContain(
+			'[[ -x "$github_auth" ]] || github_auth=/usr/local/bin/zuse-github-auth',
+		);
+
+		// The shim has to win PATH resolution, and the credential helper has to be
+		// reinstalled in case a persisted home shadowed the image's git config.
+		expect(bootstrap).toContain(
+			'ln -sf "$github_auth" /home/zuse/.local/bin/gh',
+		);
+		expect(bootstrap).toContain('export PATH="/home/zuse/.local/bin:$PATH"');
+		expect(bootstrap).toContain('"$github_auth" install');
+
+		// A terminal opened over the SSH bridge reads the shell profile rather
+		// than the runtime's environment, and must resolve the same shim.
+		expect(bootstrap).toContain(
+			"for rc in /home/zuse/.profile /home/zuse/.bashrc; do",
+		);
+		expect(bootstrap).toContain("grep -qs 'zuse-github-auth shim' \"$rc\"");
+
+		// Agents inherit this environment from the runtime, so the repair must
+		// land before the runtime starts.
+		expect(bootstrap.indexOf('ln -sf "$github_auth"')).toBeLessThan(
+			bootstrap.indexOf("phase=starting-runtime"),
+		);
+
+		// `gh auth login` is never the fix in a cloud workspace.
+		expect(bootstrap).toContain("gh auth login is never the fix");
+		expect(bootstrap).not.toMatch(/run\s+`?gh auth login`?\.?$/mu);
+	});
+
+	test("keeps a PATH-preferred gh shim authenticated without a stored login", async () => {
+		const githubAuthPath = fileURLToPath(
+			workspaceFileUrl("infra/cloud-sandboxes/github-auth.sh"),
+		);
+		const temporaryRoot = await mkdtemp(join(tmpdir(), "zuse-gh-shim-"));
+		try {
+			// Stands in for /home/zuse/.local/bin: the shim the bootstrap links
+			// ahead of a stale image's stock gh.
+			const shimDir = join(temporaryRoot, "local-bin");
+			const tokenFile = join(temporaryRoot, "token");
+			const stockGh = join(temporaryRoot, "stock-gh");
+			await mkdir(shimDir);
+			await writeFile(tokenFile, "installation-token\n", { mode: 0o600 });
+			await writeFile(
+				stockGh,
+				`#!/usr/bin/env bash\nprintf 'token=%s\\n' "\${GH_TOKEN:-none}"\n`,
+				{ mode: 0o755 },
+			);
+			await symlink(githubAuthPath, join(shimDir, "gh"));
+
+			expect(
+				execFileSync("gh", ["pr", "create"], {
+					env: {
+						...process.env,
+						HOME: join(temporaryRoot),
+						PATH: `${shimDir}:${process.env.PATH ?? ""}`,
+						ZUSE_GITHUB_TOKEN_FILE: tokenFile,
+						ZUSE_GH_BINARY: stockGh,
+					},
+					encoding: "utf8",
+				}),
+			).toBe("token=installation-token\n");
+		} finally {
+			await rm(temporaryRoot, { recursive: true, force: true });
+		}
+	});
+
+	test("preconfigures lazy renewable GitHub authentication in the image", async () => {
+		const githubAuthPath = fileURLToPath(
+			workspaceFileUrl("infra/cloud-sandboxes/github-auth.sh"),
+		);
+		const githubAuth = await readWorkspaceFile(
+			"infra/cloud-sandboxes/github-auth.sh",
+		);
+		const dockerfile = await readWorkspaceFile(
+			"infra/cloud-sandboxes/Dockerfile",
+		);
+		const runtime = await readWorkspaceFile(
+			"apps/server/src/api/cloud-workspace-runtime.ts",
+		);
+		const routes = await readWorkspaceFile(
+			"infra/api/src/cloud-workspace-routes.ts",
+		);
+
+		expect(dockerfile).toContain(
+			"github-auth.sh /usr/local/bin/zuse-github-auth",
+		);
+		expect(dockerfile).toContain(
+			"/usr/local/bin/zuse-github-auth /usr/local/bin/gh",
+		);
+		expect(dockerfile).toContain("RUN /usr/local/bin/zuse-github-auth install");
+		expect(githubAuth).toContain("ZUSE_GITHUB_TOKEN_FILE");
+		expect(githubAuth).toContain('exec "$gh_binary" "$@"');
+		expect(githubAuth).toContain("printf 'password=%s\\n'");
+		expect(githubAuth).toContain("credentialUrl");
+		expect(runtime).toContain("writeGithubBrokerState");
+		expect(runtime).toContain("cloud-runtime-credential");
+		expect(routes).toContain("githubInstallationCredentialForRepository");
+
+		const temporaryRoot = await mkdtemp(join(tmpdir(), "zuse-github-auth-"));
+		try {
+			const testHome = join(temporaryRoot, "home");
+			const tokenFile = join(temporaryRoot, "token");
+			const ghWrapper = join(temporaryRoot, "gh");
+			await mkdir(testHome);
+			await writeFile(tokenFile, "test-installation-token\n", { mode: 0o600 });
+			await symlink(githubAuthPath, ghWrapper);
+			const realGh = execFileSync("which", ["gh"], { encoding: "utf8" }).trim();
+			const env = {
+				...process.env,
+				HOME: testHome,
+				GIT_CONFIG_NOSYSTEM: "1",
+				ZUSE_GITHUB_TOKEN_FILE: tokenFile,
+				ZUSE_GITHUB_AUTH_BIN: githubAuthPath,
+				ZUSE_GH_BINARY: realGh,
+			};
+
+			execFileSync("bash", [githubAuthPath, "install"], { env });
+			expect(
+				execFileSync(
+					"git",
+					[
+						"config",
+						"--global",
+						"--get",
+						"credential.https://github.com.helper",
+					],
+					{ env, encoding: "utf8" },
+				).trim(),
+			).toBe(`${githubAuthPath} credential`);
+			expect(
+				execFileSync("bash", [githubAuthPath, "credential", "get"], {
+					env,
+					encoding: "utf8",
+					input: "protocol=https\nhost=github.com\n\n",
+				}),
+			).toBe("username=x-access-token\npassword=test-installation-token\n");
+			expect(
+				execFileSync("git", ["credential", "fill"], {
+					env,
+					encoding: "utf8",
+					input: "protocol=https\nhost=github.com\n\n",
+				}),
+			).toContain("password=test-installation-token");
+			await writeFile(tokenFile, "rotated-installation-token\n", {
+				mode: 0o600,
+			});
+			const rotatedCredential = execFileSync("git", ["credential", "fill"], {
+				env,
+				encoding: "utf8",
+				input: "protocol=https\nhost=github.com\n\n",
+			});
+			expect(rotatedCredential).toContain(
+				"password=rotated-installation-token",
+			);
+			expect(rotatedCredential).not.toContain("test-installation-token");
+			expect(
+				execFileSync(ghWrapper, ["--version"], {
+					env,
+					encoding: "utf8",
+				}),
+			).toContain("gh version");
+
+			const runtimeData = join(temporaryRoot, "runtime-data");
+			const fakeBin = join(temporaryRoot, "fake-bin");
+			const curlCountFile = join(temporaryRoot, "curl-count");
+			const curlFailFile = join(temporaryRoot, "curl-fail");
+			await mkdir(runtimeData);
+			await mkdir(fakeBin);
+			await writeFile(
+				join(runtimeData, "github-broker.json"),
+				'{"credentialUrl":"https://api.test/v1/cloud/workspaces/workspace-1/runtime/github-credential"}\n',
+			);
+			await writeFile(
+				join(runtimeData, "cloud-runtime-credential"),
+				"runtime-credential\n",
+				{ mode: 0o600 },
+			);
+			await writeFile(
+				join(fakeBin, "curl"),
+				`#!/usr/bin/env bash
+set -euo pipefail
+count=0
+[[ ! -f "$CURL_COUNT_FILE" ]] || count=$(<"$CURL_COUNT_FILE")
+printf '%s\n' "$((count + 1))" >"$CURL_COUNT_FILE"
+[[ ! -f "$CURL_FAIL_FILE" ]] || exit 22
+printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
+`,
+				{ mode: 0o755 },
+			);
+			const managedEnv = {
+				...process.env,
+				HOME: testHome,
+				PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+				ZUSE_USER_DATA: runtimeData,
+				CURL_COUNT_FILE: curlCountFile,
+				CURL_FAIL_FILE: curlFailFile,
+			};
+			const lazyCredential = () =>
+				execFileSync("bash", [githubAuthPath, "credential", "get"], {
+					env: managedEnv,
+					encoding: "utf8",
+					input: "protocol=https\nhost=github.com\n\n",
+				});
+			expect(lazyCredential()).toContain("password=lazy-installation-token");
+			expect(lazyCredential()).toContain("password=lazy-installation-token");
+			expect(await readFile(curlCountFile, "utf8")).toBe("1\n");
+
+			await writeFile(curlFailFile, "fail\n");
+			await writeFile(
+				join(runtimeData, "github-installation-token-expires-at"),
+				`${Date.now() + 60_000}\n`,
+			);
+			expect(lazyCredential()).toContain("password=lazy-installation-token");
+			expect(await readFile(curlCountFile, "utf8")).toBe("2\n");
+			await writeFile(
+				join(runtimeData, "github-installation-token-expires-at"),
+				`${Date.now() - 1}\n`,
+			);
+			const expiredCredential = spawnSync(
+				"bash",
+				[githubAuthPath, "credential", "get"],
+				{
+					env: managedEnv,
+					encoding: "utf8",
+					input: "protocol=https\nhost=github.com\n\n",
+				},
+			);
+			expect(expiredCredential.status).not.toBe(0);
+			expect(expiredCredential.stderr).toContain(
+				"Could not obtain GitHub access",
+			);
+		} finally {
+			await rm(temporaryRoot, { recursive: true, force: true });
+		}
+	});
+
 	test("boots workspace-native runtime without an inbound provider endpoint", async () => {
 		const bootstrap = await readWorkspaceFile(
 			"infra/cloud-sandboxes/workspace-bootstrap.sh",
 		);
 		const reconciler = await readWorkspaceFile(
-			"infra/relay/src/cloud-workspace-reconciler.ts",
+			"infra/api/src/cloud-workspace-reconciler.ts",
 		);
 		const runtime = await readWorkspaceFile(
-			"apps/server/src/relay/cloud-workspace-runtime.ts",
+			"apps/server/src/api/cloud-workspace-runtime.ts",
 		);
 
 		expect(runtime).toContain("bootTokenFile");
@@ -243,7 +616,7 @@ describe("cloud runtime assets", () => {
 
 		expect(cloudInit).toContain("trap bootstrap_failed EXIT");
 		expect(cloudInit).toContain(
-			'"$ZUSE_RELAY_URL/v1/machines/$ZUSE_MACHINE_ID/boot-status"',
+			'"$ZUSE_API_URL/v1/machines/$ZUSE_MACHINE_ID/boot-status"',
 		);
 		expect(cloudInit).toContain('report_boot_status failed "bootstrap-failed"');
 		expect(cloudInit).toContain("report_boot_status runtime-installed");
@@ -391,6 +764,6 @@ describe("cloud runtime assets", () => {
 		expect(workflow).toContain("--clobber");
 		expect(workflow).not.toContain("if: github.event_name != 'pull_request'");
 		expect(workflow).not.toContain("wrangler deploy");
-		expect(workflow).not.toContain("relay.stuff.md");
+		expect(workflow).not.toContain("api.zuse.sh");
 	});
 });

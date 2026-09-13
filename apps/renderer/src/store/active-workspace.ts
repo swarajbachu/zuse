@@ -5,7 +5,7 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import { useEffect, useMemo } from "react";
-import { cloudSummaryForSession } from "../lib/cloud-workspace-catalog.ts";
+import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { useChatsStore } from "./chats.ts";
@@ -99,6 +99,11 @@ export const useActiveContext = (): ActiveContext => {
 			? (s.selectedSessionByProject[selectedFolderId] ?? null)
 			: null,
 	);
+	const selectedChatId = useChatsStore((state) => state.selectedChatId);
+	const cloudSummary = useCloudChatSummaryForSelection({
+		chatId: selectedChatId,
+		sessionId,
+	});
 	const pendingCreation = useChatsStore((state) => {
 		const chatId = state.selectedChatId;
 		return chatId === null
@@ -134,10 +139,7 @@ export const useActiveContext = (): ActiveContext => {
 		// context cannot remain stuck in `worktree-pending` after creation settles.
 		void refreshWorktrees(selectedFolderId);
 	}, [selectedFolderId, activeWorktreeId, worktreePath, refreshWorktrees]);
-	const cloudWorkspaceId =
-		sessionId === null
-			? null
-			: (cloudSummaryForSession(sessionId)?.workspaceId ?? null);
+	const cloudWorkspaceId = cloudSummary?.workspaceId ?? null;
 	const cloudShell = useEnvironmentShellResource(
 		cloudWorkspaceId === null ? null : EnvironmentId.make(cloudWorkspaceId),
 		cloudWorkspaceId === null ? "cache-only" : "connect",

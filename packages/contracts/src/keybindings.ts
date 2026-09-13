@@ -1,5 +1,5 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 /**
  * Every action the renderer can dispatch via a keybinding or menu click. The
@@ -14,43 +14,44 @@ import { Schema } from "effect";
  *   - `editor.*` commands fire inside the file editor (CodeMirror).
  */
 export const Command = Schema.Literals([
-  // menu / global
-  "new-chat",
-  "open-project",
-  "settings",
-  "close-tab",
-  "toggle-left-sidebar",
-  "toggle-right-sidebar",
-  "toggle-terminal",
-  "focus-composer",
-  // navigation — drive tabs / chats / panes from the keyboard
-  "next-tab",
-  "prev-tab",
-  "select-tab-1",
-  "select-tab-2",
-  "select-tab-3",
-  "select-tab-4",
-  "select-tab-5",
-  "select-tab-6",
-  "select-tab-7",
-  "select-tab-8",
-  "select-last-tab",
-  "new-tab",
-  "next-chat",
-  "prev-chat",
-  "next-panel",
-  "prev-panel",
-  "focus-next-pane",
-  "focus-prev-pane",
-  "open-chat-switcher",
-  // composer (chat input)
-  "composer.submit",
-  "composer.newline",
-  "composer.forceSubmit",
-  "composer.togglePlanMode",
-  // file editor
-  "editor.save",
-  "editor.annotate",
+	// menu / global
+	"new-chat",
+	"open-project",
+	"settings",
+	"close-tab",
+	"toggle-left-sidebar",
+	"toggle-right-sidebar",
+	"toggle-terminal",
+	"focus-composer",
+	// navigation — drive tabs / chats / panes from the keyboard
+	"next-tab",
+	"prev-tab",
+	"select-tab-1",
+	"select-tab-2",
+	"select-tab-3",
+	"select-tab-4",
+	"select-tab-5",
+	"select-tab-6",
+	"select-tab-7",
+	"select-tab-8",
+	"select-last-tab",
+	"new-tab",
+	"next-chat",
+	"prev-chat",
+	"next-panel",
+	"prev-panel",
+	"focus-next-pane",
+	"focus-prev-pane",
+	"open-chat-switcher",
+	"search-files",
+	// composer (chat input)
+	"composer.submit",
+	"composer.newline",
+	"composer.forceSubmit",
+	"composer.togglePlanMode",
+	// file editor
+	"editor.save",
+	"editor.annotate",
 ]);
 export type Command = typeof Command.Type;
 
@@ -70,9 +71,9 @@ export type Command = typeof Command.Type;
  * actual class instances. Matches the `RepositorySettingsPatch` convention.
  */
 export const KeybindingRule = Schema.Struct({
-  key: Schema.String,
-  command: Command,
-  when: Schema.optional(Schema.String),
+	key: Schema.String,
+	command: Command,
+	when: Schema.optional(Schema.String),
 });
 export type KeybindingRule = typeof KeybindingRule.Type;
 
@@ -82,22 +83,22 @@ export type KeybindingRule = typeof KeybindingRule.Type;
  * build can change them without rewriting the user's file.
  */
 export class KeybindingsFile extends Schema.Class<KeybindingsFile>(
-  "KeybindingsFile",
+	"KeybindingsFile",
 )({
-  schemaVersion: Schema.Literal(1),
-  rules: Schema.Array(KeybindingRule),
+	schemaVersion: Schema.Literal(1),
+	rules: Schema.Array(KeybindingRule),
 }) {}
 
 /** Safety cap. Truncates oldest if exceeded. */
 export const MAX_KEYBINDING_RULES = 256;
 
 export const KeybindingsGetRpc = Rpc.make("keybindings.get", {
-  success: KeybindingsFile,
+	success: KeybindingsFile,
 });
 
 export const KeybindingsReplaceRpc = Rpc.make("keybindings.replace", {
-  payload: Schema.Struct({ rules: Schema.Array(KeybindingRule) }),
-  success: KeybindingsFile,
+	payload: Schema.Struct({ rules: Schema.Array(KeybindingRule) }),
+	success: KeybindingsFile,
 });
 
 /**
@@ -106,6 +107,6 @@ export const KeybindingsReplaceRpc = Rpc.make("keybindings.replace", {
  * external hand-edit picked up by the file watcher).
  */
 export const KeybindingsStreamRpc = Rpc.make("keybindings.stream", {
-  success: KeybindingsFile,
-  stream: true,
+	success: KeybindingsFile,
+	stream: true,
 });

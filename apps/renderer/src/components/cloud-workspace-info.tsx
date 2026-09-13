@@ -390,7 +390,7 @@ export function CloudWorkspaceInfo({
 					side="left"
 					align="start"
 					sideOffset={8}
-					className="w-72 rounded-2xl p-1.5"
+					className="w-72 p-1"
 				>
 					<div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
 						Performance

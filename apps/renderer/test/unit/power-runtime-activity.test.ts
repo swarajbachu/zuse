@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	activeAgentCountLabel,
 	getPowerRuntimeActivity,
 	reportPowerBrowserRecordingStarted,
 	reportPowerBrowserRecordingStopped,
@@ -12,6 +13,12 @@ import {
 } from "../../src/lib/power-runtime-activity.ts";
 
 describe("power runtime activity", () => {
+	it("formats the footer agent count", () => {
+		expect(activeAgentCountLabel(0)).toBe("0 local agents running");
+		expect(activeAgentCountLabel(1)).toBe("1 local agent running");
+		expect(activeAgentCountLabel(3)).toBe("3 local agents running");
+	});
+
 	it("publishes lightweight workload counts and cleans up subscriptions", () => {
 		const listener = vi.fn();
 		const unsubscribe = subscribePowerRuntimeActivity(listener);
@@ -25,6 +32,7 @@ describe("power runtime activity", () => {
 
 		expect(getPowerRuntimeActivity()).toEqual({
 			activeAgents: 3,
+			agentsConfirmed: true,
 			activeTerminals: 2,
 			browserSessions: 2,
 			activeBrowserSessions: 1,
@@ -44,12 +52,27 @@ describe("power runtime activity", () => {
 		expect(listener).toHaveBeenCalledTimes(6);
 	});
 
+	it("marks disconnected counts unconfirmed without declaring existing workload idle", () => {
+		setPowerActiveAgentCount(2);
+		setPowerActiveAgentCount(null);
+		expect(getPowerRuntimeActivity()).toMatchObject({
+			activeAgents: 2,
+			agentsConfirmed: false,
+		});
+		setPowerActiveAgentCount(0);
+		expect(getPowerRuntimeActivity()).toMatchObject({
+			activeAgents: 0,
+			agentsConfirmed: true,
+		});
+	});
+
 	it("never reports negative counts", () => {
 		reportPowerBrowserRecordingStopped();
 		setPowerActiveTerminalCount(-1);
 
 		expect(getPowerRuntimeActivity()).toEqual({
 			activeAgents: 0,
+			agentsConfirmed: true,
 			activeTerminals: 0,
 			browserSessions: 0,
 			activeBrowserSessions: 0,

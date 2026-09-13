@@ -1,15 +1,16 @@
-import type { EnvironmentId, Message, SessionId } from "@zuse/contracts";
+import type { PendingCommand } from "@zuse/client-runtime/resource-state";
+import type { ChatId, Message, ProviderId, SessionId } from "@zuse/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import { deriveAgentActivityState } from "../lib/agent-activity-state.ts";
-import { cloudSummaryForSession } from "../lib/cloud-workspace-catalog.ts";
-import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
+import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
+import { waitingCloudMessagePresentation } from "../lib/composer-delivery.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import {
 	providerStartupLabel,
 	useProviderStartupDelay,
 } from "../lib/provider-startup-delay.ts";
-import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
+import type { SessionRuntimeState } from "../lib/session-runtime-state.ts";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
@@ -21,34 +22,48 @@ const formatElapsed = (ms: number): string => {
 	return `${min}m ${sec.toFixed(1)}s`;
 };
 
+export const providerStartupIsActive = ({
+	runtimeState,
+	providerOutputStarted,
+	startupContextActive,
+}: {
+	readonly runtimeState: SessionRuntimeState;
+	readonly providerOutputStarted: boolean;
+	readonly startupContextActive: boolean;
+}): boolean =>
+	runtimeState === "starting" && !providerOutputStarted && startupContextActive;
+
 export function ChatWorkingRow({
 	messages,
+	chatId,
 	sessionId,
-	environmentId,
+	providerId,
+	pendingCommands,
+	runtimeState,
 }: {
 	readonly messages: ReadonlyArray<Message>;
+	readonly chatId: ChatId | null;
 	readonly sessionId: SessionId;
-	readonly environmentId: EnvironmentId;
+	readonly providerId: ProviderId;
+	readonly pendingCommands: readonly PendingCommand[];
+	readonly runtimeState: SessionRuntimeState;
 }) {
-	const { runtime: runtimeState } = useRendererSessionTimeline(
-		sessionId,
-		"connect",
-		environmentId,
-	);
-	const session = useActiveSessionById(sessionId);
-	const providerLabel =
-		session === null || session === undefined
-			? "Agent"
-			: (PROVIDER_LABEL[session.providerId] ?? session.providerId);
-	const cloudSummary = cloudSummaryForSession(sessionId);
+	const waitingCommand = waitingCloudMessagePresentation(pendingCommands);
+	const providerLabel = PROVIDER_LABEL[providerId] ?? providerId;
+	const cloudSummary = useCloudChatSummaryForSelection({ chatId, sessionId });
 	const initialCloudAgentStart =
 		cloudSummary !== null && cloudSummary.startupPhase === "starting-agent";
-	const showStartup =
-		runtimeState === "starting" &&
-		(cloudSummary === null || initialCloudAgentStart);
+	const providerOutputStarted = messages.some(
+		(message) => message.role === "assistant" || message.role === "tool",
+	);
+	const showStartup = providerStartupIsActive({
+		runtimeState,
+		providerOutputStarted,
+		startupContextActive: cloudSummary === null || initialCloudAgentStart,
+	});
 	const delayed = useProviderStartupDelay(
 		showStartup,
-		`${sessionId}:${session?.providerId ?? "unknown"}:${session?.model ?? "unknown"}`,
+		`${sessionId}:${providerId}`,
 	);
 	const anchorMs = useMemo(() => {
 		for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -85,13 +100,15 @@ export function ChatWorkingRow({
 					showStartup && delayed ? "text-warning" : "text-muted-foreground"
 				}
 			>
-				{showStartup
-					? providerStartupLabel({
-							providerLabel,
-							failed: false,
-							delayed,
-						})
-					: `${providerLabel} is working`}
+				{waitingCommand !== null
+					? waitingCommand.label
+					: showStartup
+						? providerStartupLabel({
+								providerLabel,
+								failed: false,
+								delayed,
+							})
+						: `${providerLabel} is working`}
 			</span>
 			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}

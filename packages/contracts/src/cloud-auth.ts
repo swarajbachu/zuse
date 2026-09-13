@@ -2,6 +2,12 @@ import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 import { CloudWorkspaceOpError } from "./cloud-workspaces.ts";
 
+/** Codex release whose experimental external-auth protocol is contract-tested. */
+export const CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION = "0.144.5";
+
+/** Grok release whose external-provider ACP contract is exercised by Zuse. */
+export const GROK_EXTERNAL_AUTH_TOOLCHAIN_VERSION = "1.0.13";
+
 /** Agent providers that can be selected by an E2B cloud workspace. */
 export const CloudAuthProvider = Schema.Literals([
 	"claude",
@@ -38,6 +44,101 @@ export const CloudAuthAuthorityState = Schema.Literals([
 ]);
 export type CloudAuthAuthorityState = typeof CloudAuthAuthorityState.Type;
 
+export const CloudCodexAuthFailureCode = Schema.Literals([
+	"codex-auth-reconnecting",
+	"codex-auth-reconnect-required",
+	"codex-auth-update-required",
+	"codex-auth-legacy-workspace",
+	"codex-auth-outcome-unknown",
+]);
+export type CloudCodexAuthFailureCode = typeof CloudCodexAuthFailureCode.Type;
+
+/** Typed failures for account-owned provider credentials used by cloud runtimes. */
+export const CloudProviderAuthFailureCode = Schema.Literals([
+	"claude-auth-reconnecting",
+	"claude-auth-reconnect-required",
+	"claude-auth-update-required",
+	"claude-auth-legacy-workspace",
+	"grok-auth-reconnecting",
+	"grok-auth-reconnect-required",
+	"grok-auth-update-required",
+	"grok-auth-legacy-workspace",
+	"cursor-auth-reconnecting",
+	"cursor-auth-reconnect-required",
+	"cursor-auth-update-required",
+	"cursor-auth-legacy-workspace",
+]);
+export type CloudProviderAuthFailureCode =
+	typeof CloudProviderAuthFailureCode.Type;
+
+export const CodexGrantRefreshReason = Schema.Literals([
+	"initial",
+	"proactive",
+	"unauthorized",
+]);
+export type CodexGrantRefreshReason = typeof CodexGrantRefreshReason.Type;
+
+export class CodexGrantRequest extends Schema.Class<CodexGrantRequest>(
+	"CodexGrantRequest",
+)({
+	requestId: Schema.String,
+	protocolVersion: Schema.Literal(1),
+	runtimeGeneration: Schema.Number,
+	credentialPublicJwk: Schema.String,
+	reason: CodexGrantRefreshReason,
+	previousChatgptAccountId: Schema.optional(Schema.String),
+}) {}
+
+/** API-routed ciphertext. Only the enrolled runtime RSA key can open it. */
+export class SealedCodexGrant extends Schema.Class<SealedCodexGrant>(
+	"SealedCodexGrant",
+)({
+	protocolVersion: Schema.Literal(1),
+	requestId: Schema.String,
+	keyThumbprint: Schema.String,
+	authorityIncarnationId: Schema.String,
+	authorityEpoch: Schema.Number,
+	/** RSA-OAEP wrapped AES-256 key, base64url. */
+	wrappedKey: Schema.String,
+	/** AES-GCM nonce, base64url. */
+	iv: Schema.String,
+	/** AES-GCM ciphertext, including no plaintext provider data. */
+	ciphertext: Schema.String,
+	/** AES-GCM authentication tag, base64url. */
+	tag: Schema.String,
+}) {}
+
+export const ProviderGrantRefreshReason = CodexGrantRefreshReason;
+export type ProviderGrantRefreshReason = CodexGrantRefreshReason;
+
+/** Request for a provider grant whose provider identity is bound by the route. */
+export class ProviderGrantRequest extends Schema.Class<ProviderGrantRequest>(
+	"ProviderGrantRequest",
+)({
+	requestId: Schema.String,
+	protocolVersion: Schema.Literal(1),
+	runtimeGeneration: Schema.Number,
+	credentialPublicJwk: Schema.String,
+	reason: ProviderGrantRefreshReason,
+	previousProviderAccountId: Schema.optional(Schema.String),
+}) {}
+
+/** API-routed provider ciphertext, additionally bound to the provider ID. */
+export class SealedProviderGrant extends Schema.Class<SealedProviderGrant>(
+	"SealedProviderGrant",
+)({
+	protocolVersion: Schema.Literal(1),
+	providerId: CloudAuthProvider,
+	requestId: Schema.String,
+	keyThumbprint: Schema.String,
+	authorityIncarnationId: Schema.String,
+	authorityEpoch: Schema.Number,
+	wrappedKey: Schema.String,
+	iv: Schema.String,
+	ciphertext: Schema.String,
+	tag: Schema.String,
+}) {}
+
 export class CloudAuthProviderStatus extends Schema.Class<CloudAuthProviderStatus>(
 	"CloudAuthProviderStatus",
 )({
@@ -51,7 +152,7 @@ export class CloudAuthProviderStatus extends Schema.Class<CloudAuthProviderStatu
 
 /**
  * Account-owned E2B auth authority status. The public key encrypts credentials
- * directly to the authority; Relay never receives the corresponding private
+ * directly to the authority; API never receives the corresponding private
  * key or plaintext secret.
  */
 export class CloudAuthStatus extends Schema.Class<CloudAuthStatus>(

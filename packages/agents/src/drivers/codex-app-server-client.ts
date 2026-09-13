@@ -5,6 +5,7 @@ import type { InitializeResponse } from "@zuse/agents/codex-generated/Initialize
 import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
 import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
 import { reportCodexStderr } from "./codex-stderr-reporter.ts";
+import { DEVICE_COMMAND_TOOL_TIMEOUT_SECONDS } from "./device-command-tools.ts";
 
 type RequestId = number;
 
@@ -19,6 +20,71 @@ type ServerRequestHandler = (
 ) => void;
 
 type NotificationHandler = (notification: ServerNotification) => void;
+type UnexpectedTerminationHandler = (error: Error) => void;
+
+const STDERR_TAIL_LIMIT_BYTES = 4 * 1024;
+
+export interface CodexChatgptAuthTokens {
+	readonly accessToken: string;
+	readonly chatgptAccountId: string;
+	readonly chatgptPlanType: string | null;
+	readonly expiresAt: number;
+}
+
+export interface CodexExternalAuthProvider {
+	readonly getTokens: (input: {
+		readonly reason: "initial" | "proactive" | "unauthorized";
+		readonly previousChatgptAccountId?: string;
+	}) => Promise<CodexChatgptAuthTokens>;
+	readonly onDeliveryFailure?: (input: {
+		readonly consumerId?: string;
+		readonly reason: string;
+	}) => void;
+}
+
+let defaultExternalAuthProvider: CodexExternalAuthProvider | null = null;
+
+/** One cloud runtime process owns one workspace, so every launch shares this. */
+export const setDefaultCodexExternalAuthProvider = (
+	provider: CodexExternalAuthProvider | null,
+): void => {
+	defaultExternalAuthProvider = provider;
+};
+
+export const CODEX_EXTERNAL_AUTH_CALLBACK_DEADLINE_MS = 8_000;
+
+export const beforeCodexExternalAuthDeadline = async <A>(
+	operation: Promise<A>,
+): Promise<A> => {
+	let timer: NodeJS.Timeout | undefined;
+	try {
+		return await Promise.race([
+			operation,
+			new Promise<never>((_resolve, reject) => {
+				timer = setTimeout(
+					() => reject(new Error("codex-auth-reconnecting")),
+					CODEX_EXTERNAL_AUTH_CALLBACK_DEADLINE_MS,
+				);
+				timer.unref();
+			}),
+		]);
+	} finally {
+		if (timer !== undefined) clearTimeout(timer);
+	}
+};
+
+/**
+ * Lets other Codex-backed capabilities in the same workspace runtime reuse the
+ * brokered, memory-only access grant without reaching into native auth files.
+ */
+export const getDefaultCodexExternalAuthTokens = async (
+	reason: "proactive" | "unauthorized",
+): Promise<CodexChatgptAuthTokens | null> => {
+	if (defaultExternalAuthProvider === null) return null;
+	return beforeCodexExternalAuthDeadline(
+		defaultExternalAuthProvider.getTokens({ reason }),
+	);
+};
 
 type CodexGoalRequestMethod =
 	| "thread/goal/get"
@@ -46,6 +112,13 @@ export const codexAppServerLaunchArgs = (
 	"app-server",
 	"--listen",
 	"stdio://",
+	// App tools can wait for a human approval before command execution.
+	...(mcp === undefined
+		? []
+		: [
+				"-c",
+				`mcp_servers.zuse.tool_timeout_sec=${DEVICE_COMMAND_TOOL_TIMEOUT_SECONDS}`,
+			]),
 	...(mcp === undefined
 		? []
 		: mcp.transport === "http"
@@ -97,6 +170,7 @@ export class CodexAppServerClient {
 	private readonly child: ChildProcessWithoutNullStreams;
 	private readonly rl: readline.Interface;
 	private closed = false;
+	private stderrTail = Buffer.alloc(0);
 
 	initializeResponse: InitializeResponse;
 
@@ -106,6 +180,7 @@ export class CodexAppServerClient {
 		initializeResponse: InitializeResponse,
 		readonly onNotification: NotificationHandler,
 		readonly onServerRequest: ServerRequestHandler,
+		readonly onUnexpectedTermination?: UnexpectedTerminationHandler,
 	) {
 		this.child = child;
 		this.rl = rl;
@@ -120,7 +195,52 @@ export class CodexAppServerClient {
 		readonly onStderr?: (text: string) => void;
 		readonly onNotification: NotificationHandler;
 		readonly onServerRequest: ServerRequestHandler;
+		readonly externalAuthProvider?: CodexExternalAuthProvider;
+		/** Session identity used only to resume a proven auth-blocked consumer. */
+		readonly externalAuthConsumerId?: string;
+		readonly onUnexpectedTermination?: UnexpectedTerminationHandler;
 	}): Promise<CodexAppServerClient> {
+		const externalAuthProvider =
+			options.externalAuthProvider ?? defaultExternalAuthProvider;
+		const handleServerRequest: ServerRequestHandler = (request, respond) => {
+			if (
+				externalAuthProvider !== null &&
+				request.method === "account/chatgptAuthTokens/refresh"
+			) {
+				void beforeCodexExternalAuthDeadline(
+					externalAuthProvider.getTokens({
+						reason: "unauthorized",
+						...(request.params.previousAccountId === null ||
+						request.params.previousAccountId === undefined
+							? {}
+							: {
+									previousChatgptAccountId: request.params.previousAccountId,
+								}),
+					}),
+				)
+					.then((tokens) =>
+						respond({
+							accessToken: tokens.accessToken,
+							chatgptAccountId: tokens.chatgptAccountId,
+							chatgptPlanType: tokens.chatgptPlanType,
+						}),
+					)
+					.catch((cause) => {
+						externalAuthProvider.onDeliveryFailure?.({
+							...(options.externalAuthConsumerId === undefined
+								? {}
+								: { consumerId: options.externalAuthConsumerId }),
+							reason:
+								cause instanceof Error
+									? cause.message
+									: "codex-auth-reconnecting",
+						});
+						respond(null);
+					});
+				return;
+			}
+			options.onServerRequest(request, respond);
+		};
 		const child = spawn(
 			options.codexPath ?? "codex",
 			[...codexAppServerLaunchArgs(options.mcp)],
@@ -144,10 +264,12 @@ export class CodexAppServerClient {
 				platformOs: "",
 			},
 			options.onNotification,
-			options.onServerRequest,
+			handleServerRequest,
+			options.onUnexpectedTermination,
 		);
 		rl.on("line", (line) => bootstrap.handleLine(line));
 		child.stderr.on("data", (chunk) => {
+			bootstrap.appendStderr(String(chunk));
 			const text = String(chunk).trim();
 			if (text.length === 0) return;
 			if (options.onStderr !== undefined) options.onStderr(text);
@@ -158,18 +280,13 @@ export class CodexAppServerClient {
 		// that crashes the whole process. Surface it as a rejection of every
 		// pending request — including the `initialize` we're about to await —
 		// so callers see a normal Effect failure they already know how to catch.
-		child.once("error", (err) => {
-			bootstrap.closed = true;
-			for (const p of bootstrap.pending.values()) p.reject(err as Error);
-			bootstrap.pending.clear();
-		});
-		child.once("exit", (code, signal) => {
-			bootstrap.closed = true;
-			const reason = new Error(
-				`Codex app-server exited with ${signal ?? `code ${code ?? 0}`}`,
+		child.once("error", (err) => bootstrap.handleUnexpectedTermination(err));
+		child.once("close", (code, signal) => {
+			bootstrap.handleUnexpectedTermination(
+				new Error(
+					`Codex app-server exited with ${signal ?? `code ${code ?? 0}`}`,
+				),
 			);
-			for (const p of bootstrap.pending.values()) p.reject(reason);
-			bootstrap.pending.clear();
 		});
 
 		let timer: NodeJS.Timeout | undefined;
@@ -193,6 +310,31 @@ export class CodexAppServerClient {
 							}),
 						]);
 			bootstrap.initializeResponse = init;
+			if (externalAuthProvider !== null) {
+				let tokens: CodexChatgptAuthTokens;
+				try {
+					tokens = await beforeCodexExternalAuthDeadline(
+						externalAuthProvider.getTokens({ reason: "initial" }),
+					);
+				} catch (cause) {
+					externalAuthProvider.onDeliveryFailure?.({
+						...(options.externalAuthConsumerId === undefined
+							? {}
+							: { consumerId: options.externalAuthConsumerId }),
+						reason:
+							cause instanceof Error
+								? cause.message
+								: "codex-auth-reconnecting",
+					});
+					throw cause;
+				}
+				await bootstrap.request("account/login/start", {
+					type: "chatgptAuthTokens",
+					accessToken: tokens.accessToken,
+					chatgptAccountId: tokens.chatgptAccountId,
+					chatgptPlanType: tokens.chatgptPlanType,
+				});
+			}
 			return bootstrap;
 		} catch (cause) {
 			bootstrap.close();
@@ -238,7 +380,54 @@ export class CodexAppServerClient {
 		if (this.closed) return;
 		this.closed = true;
 		this.rl.close();
+		this.rejectPending(new Error("Codex app-server is closed"));
 		this.child.kill();
+	}
+
+	private appendStderr(text: string): void {
+		const incoming = Buffer.from(text, "utf8");
+		if (incoming.length >= STDERR_TAIL_LIMIT_BYTES) {
+			this.stderrTail = Buffer.from(
+				incoming.subarray(incoming.length - STDERR_TAIL_LIMIT_BYTES),
+			);
+			return;
+		}
+		const retained = this.stderrTail.subarray(
+			Math.max(
+				0,
+				this.stderrTail.length - (STDERR_TAIL_LIMIT_BYTES - incoming.length),
+			),
+		);
+		this.stderrTail = Buffer.concat([retained, incoming]);
+	}
+
+	private handleUnexpectedTermination(error: Error): void {
+		// `error` and `close` may both fire for one failed child. The first signal
+		// owns termination; an explicit close sets `closed` before killing the child
+		// and therefore remains intentionally quiet.
+		if (this.closed) return;
+		this.closed = true;
+		this.rl.close();
+		const stderr = this.stderrTail.toString("utf8").trim();
+		const reason =
+			stderr.length === 0
+				? error
+				: new Error(`${error.message}\nCodex stderr (tail):\n${stderr}`, {
+						cause: error,
+					});
+		this.rejectPending(reason);
+		try {
+			this.onUnexpectedTermination?.(reason);
+		} catch (cause) {
+			reportCodexStderr(
+				`unexpected termination handler failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+			);
+		}
+	}
+
+	private rejectPending(reason: Error): void {
+		for (const pending of this.pending.values()) pending.reject(reason);
+		this.pending.clear();
 	}
 
 	private handleLine(line: string): void {

@@ -211,7 +211,7 @@ describe("E2B sandbox provider", () => {
 				...createInput,
 				network: {
 					kind: "restricted",
-					allowOut: ["relay.zuse.test"],
+					allowOut: ["api.zuse.test"],
 					denyOut: ["10.0.0.0/8"],
 				},
 			}),
@@ -219,7 +219,7 @@ describe("E2B sandbox provider", () => {
 
 		const body = JSON.parse(String(http.calls[0]?.init?.body));
 		expect(body.network).toEqual({
-			allowOut: ["relay.zuse.test"],
+			allowOut: ["api.zuse.test"],
 			denyOut: ["10.0.0.0/8"],
 		});
 		expect(body.allow_internet_access).toBeUndefined();
@@ -237,7 +237,7 @@ describe("E2B sandbox provider", () => {
 				...createInput,
 				network: {
 					kind: "restricted",
-					allowOut: ["relay.zuse.test"],
+					allowOut: ["api.zuse.test"],
 					denyOut: ["0.0.0.0/0", "::/0"],
 				},
 			}),
@@ -245,17 +245,17 @@ describe("E2B sandbox provider", () => {
 		await Effect.runPromise(
 			adapter.setNetwork("sbx_1", {
 				kind: "restricted",
-				allowOut: ["relay.zuse.test"],
+				allowOut: ["api.zuse.test"],
 				denyOut: ["0.0.0.0/0", "::/0"],
 			}),
 		);
 
 		expect(JSON.parse(String(http.calls[0]?.init?.body)).network).toEqual({
-			allowOut: ["relay.zuse.test"],
+			allowOut: ["api.zuse.test"],
 			denyOut: ["0.0.0.0/0"],
 		});
 		expect(JSON.parse(String(http.calls[1]?.init?.body))).toEqual({
-			allowOut: ["relay.zuse.test"],
+			allowOut: ["api.zuse.test"],
 			denyOut: ["0.0.0.0/0"],
 		});
 	});
@@ -769,7 +769,7 @@ describe("E2B sandbox provider", () => {
 		await Effect.runPromise(
 			adapter.setNetwork("sbx_1", {
 				kind: "restricted",
-				allowOut: ["relay.zuse.test"],
+				allowOut: ["api.zuse.test"],
 				denyOut: [],
 			}),
 		);
@@ -794,7 +794,7 @@ describe("E2B sandbox provider", () => {
 			{
 				url: "https://sandbox.test/sandboxes/sbx_1/network",
 				method: "PUT",
-				body: { allowOut: ["relay.zuse.test"], denyOut: [] },
+				body: { allowOut: ["api.zuse.test"], denyOut: [] },
 			},
 		]);
 	});

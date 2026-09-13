@@ -157,6 +157,7 @@ describe("ExtensionHost", () => {
 		}
 	}, 20_000);
 
+	// This exercises several real process starts, rollback, and an application restart.
 	it("does not commit candidate storage when initialization fails", async () => {
 		const { root, extension } = await fixture();
 		await writeFile(
@@ -206,7 +207,7 @@ export default function setup(e) {
 		} finally {
 			await host.stop();
 		}
-	});
+	}, 20_000);
 
 	it("stops recovering an extension that repeatedly becomes ready then crashes", async () => {
 		const { root, extension } = await fixture();

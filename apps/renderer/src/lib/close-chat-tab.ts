@@ -1,25 +1,37 @@
 import {
 	defaultModelFor,
+	EnvironmentId,
 	type FolderId,
+	PROVIDER_IDS,
 	type Session,
 	type SessionId,
 } from "@zuse/contracts";
 
+import { toastManager } from "../components/ui/toast.tsx";
+import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
+import { currentModelCatalog } from "../store/model-catalog.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSessionsStore } from "../store/sessions.ts";
+import { resolveChatRuntimeMode } from "./auto-worktree.ts";
+import { cloudSummaryForChat } from "./cloud-workspace-catalog.ts";
 import { activeSessionsByProject } from "./environment-entities.ts";
-import { resolveReadyProvider } from "./model-picker-availability.ts";
+import { selectAuthenticatedProvider } from "./model-picker-availability.ts";
 import { useSettingsStore } from "./settings-client-bus.ts";
 
 const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
 
-export const closeActiveChatTab = async (): Promise<void> => {
+export const closeActiveChatTab = async (
+	environmentId?: EnvironmentId,
+): Promise<void> => {
 	const sessionId = useSessionsStore.getState().selectedSessionId;
 	if (sessionId === null) return;
-	await closeChatTab(sessionId);
+	await closeChatTab(sessionId, environmentId);
 };
 
-export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
+export const closeChatTab = async (
+	sessionId: SessionId,
+	explicitEnvironmentId?: EnvironmentId,
+): Promise<void> => {
 	const sessions = useSessionsStore.getState();
 	const sessionsByProject = activeSessionsByProject();
 	let projectId: FolderId | null = null;
@@ -34,6 +46,12 @@ export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 	}
 	if (projectId === null || session === null) return;
 	const currentSession = session;
+	const environmentId =
+		explicitEnvironmentId ??
+		EnvironmentId.make(
+			cloudSummaryForChat(currentSession.chatId)?.workspaceId ??
+				useEnvironmentCatalogStore.getState().activeEnvironmentId,
+		);
 	const projectRows = sessionsByProject[projectId] ?? EMPTY_SESSIONS;
 	const siblings = projectRows
 		.filter(
@@ -61,24 +79,43 @@ export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 			.findIndex((row) => row.id === currentSession.id);
 		const ordered = siblings;
 		const next = ordered[idx] ?? ordered[idx - 1] ?? ordered[0] ?? null;
-		await sessions.archive(sessionId);
+		await sessions.archive(sessionId, environmentId);
 		sessions.select(next?.id ?? null);
 		return;
 	}
 
 	const settings = useSettingsStore.getState();
-	await useProvidersStore.getState().refresh();
-	const providers = useProvidersStore.getState();
-	const providerId = resolveReadyProvider({
-		preferred: settings.defaultProviderId,
-		availability: providers.availability,
-		providerEnabled: settings.providerEnabled,
-		availabilityLoaded: providers.availabilityLoaded,
+	await useProvidersStore.getState().loadFor(environmentId);
+	const providerId = selectAuthenticatedProvider({
+		preferredProviderId: settings.defaultProviderId,
+		providerIds: PROVIDER_IDS,
+		availability:
+			useProvidersStore.getState().availabilityByEnvironment[environmentId]
+				?.availability ?? [],
+		providerEnabled: settings.providerEnabled ?? {},
 	});
+	if (providerId === null) {
+		toastManager.add({
+			type: "error",
+			title: "No authenticated agent",
+			description:
+				"Connect an agent in Cloud Authentication before replacing this tab.",
+		});
+		return;
+	}
 	const model =
-		settings.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
-	await sessions.archive(currentSession.id);
-	await sessions.create(currentSession.chatId, providerId, model, {
-		runtimeMode: settings.defaultRuntimeMode,
-	});
+		settings.defaultModelByProvider[providerId] ??
+		defaultModelFor(currentModelCatalog(), providerId);
+	const runtimeMode = await resolveChatRuntimeMode(environmentId, projectId);
+	const replacementId = await sessions.create(
+		currentSession.chatId,
+		providerId,
+		model,
+		{
+			runtimeMode,
+		},
+	);
+	if (replacementId === null) return;
+	await sessions.archive(currentSession.id, environmentId);
+	sessions.select(replacementId);
 };

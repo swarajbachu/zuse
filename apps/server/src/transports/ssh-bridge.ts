@@ -12,7 +12,7 @@ import { Socket } from "effect/unstable/socket";
  *
  * There is no listening SSH daemon in the sandbox. Each authorized WebSocket
  * connection spawns `sshd -i` (single-connection inetd mode) and pipes frames
- * to its stdio. Access requires a relay-issued ticket: the relay stages the
+ * to its stdio. Access requires a api-issued ticket: the api stages the
  * ticket's SHA-256 hash and expiry in a sandbox file (like the runtime boot
  * token) and hands the plain ticket to the desktop's ProxyCommand bridge.
  */

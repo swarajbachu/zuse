@@ -99,21 +99,21 @@ test("detects direct server transcript writes but excludes migrations", () => {
 	);
 });
 
-test("allows Relay content only in the named launch-intent module", () => {
+test("allows Api content only in named sealed boundaries", () => {
 	const source = "firstMessage: Schema.String";
 	assert.equal(
 		count(
-			"infra/relay/src/cloud-workspace-routes.ts",
+			"infra/api/src/cloud-workspace-routes.ts",
 			source,
-			"relay-message-content",
+			"api-message-content",
 		),
 		1,
 	);
 	assert.equal(
 		count(
-			"infra/relay/src/cloud-workspace-launch-intent.ts",
+			"infra/api/src/cloud-workspace-launch-intent.ts",
 			source,
-			"relay-message-content",
+			"api-message-content",
 		),
 		0,
 	);
@@ -121,7 +121,7 @@ test("allows Relay content only in the named launch-intent module", () => {
 		count(
 			"packages/contracts/src/cloud-workspaces.ts",
 			"firstMessage: Schema.optional(Schema.String)",
-			"relay-message-content",
+			"api-message-content",
 		),
 		0,
 	);
@@ -129,7 +129,7 @@ test("allows Relay content only in the named launch-intent module", () => {
 		count(
 			"packages/contracts/src/cloud-workspaces.ts",
 			"const firstMessage = plaintext;",
-			"relay-message-content",
+			"api-message-content",
 		),
 		1,
 	);
@@ -137,7 +137,7 @@ test("allows Relay content only in the named launch-intent module", () => {
 		count(
 			"packages/contracts/src/cloud-workspaces.ts",
 			"export const CloudChatsSendRpc = {};",
-			"relay-message-content",
+			"api-message-content",
 		),
 		1,
 	);
@@ -145,17 +145,41 @@ test("allows Relay content only in the named launch-intent module", () => {
 		count(
 			"packages/contracts/src/cloud-workspaces.ts",
 			"export class CloudChatEvent {}",
-			"relay-message-content",
+			"api-message-content",
 		),
 		1,
 	);
 	assert.equal(
 		count(
-			"infra/relay/src/cloud-workspace-routes.ts",
+			"infra/api/src/cloud-workspace-routes.ts",
 			'import { CloudWorkspaceLaunchIntent } from "./cloud-workspace-launch-intent.ts";',
-			"relay-message-content",
+			"api-message-content",
 		),
 		0,
+	);
+	assert.equal(
+		count(
+			"infra/api/src/cloud-workspace-store.ts",
+			"SELECT * FROM api_cloud_workspace_api_messages",
+			"api-message-content",
+		),
+		0,
+	);
+	assert.equal(
+		count(
+			"infra/api/src/public-api-routes.ts",
+			"decodeBody(ApiSendMessageRequest, request)",
+			"api-message-content",
+		),
+		0,
+	);
+	assert.equal(
+		count(
+			"infra/api/src/cloud-workspace-store.ts",
+			"export const CloudChatsHistoryRpc = {};",
+			"api-message-content",
+		),
+		1,
 	);
 });
 
@@ -183,10 +207,10 @@ test("ratchets every rule and rejects missing budgets", () => {
 		},
 	};
 	assert.deepEqual(architectureRegressions(violations, baseline), []);
-	delete baseline.rules["relay-message-content"];
+	delete baseline.rules["api-message-content"];
 	assert.match(
 		architectureRegressions(violations, baseline).join("\n"),
-		/relay-message-content: baseline is missing per-file budgets/u,
+		/api-message-content: baseline is missing per-file budgets/u,
 	);
 });
 

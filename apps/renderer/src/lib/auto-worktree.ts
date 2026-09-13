@@ -1,14 +1,54 @@
-import type {
-	ChatWorkspacePolicy,
+import {
+	type ChatWorkspacePolicy,
 	EnvironmentId,
-	FolderId,
+	type FolderId,
+	type RepositorySettings,
+	type RuntimeMode,
 } from "@zuse/contracts";
 
 import {
 	repositorySettingsKey,
 	useRepositorySettingsStore,
 } from "../store/repository-settings.ts";
-import { useSettingsStore } from "./settings-client-bus.ts";
+import { getActiveEnvironment } from "./rpc-client.ts";
+import {
+	resolveEnvironmentSettings,
+	useSettingsStore,
+} from "./settings-client-bus.ts";
+
+const repositorySettingsFor = async (
+	environmentId: EnvironmentId,
+	projectId: FolderId,
+): Promise<RepositorySettings | null> => {
+	const repositorySettings = useRepositorySettingsStore.getState();
+	return (
+		repositorySettings.byProject[
+			repositorySettingsKey(environmentId, projectId)
+		] ?? (await repositorySettings.refresh(environmentId, projectId))
+	);
+};
+
+export const effectiveChatRuntimeMode = (
+	globalDefault: RuntimeMode,
+	repositorySettings: Pick<RepositorySettings, "defaultRuntimeMode"> | null,
+): RuntimeMode => repositorySettings?.defaultRuntimeMode ?? globalDefault;
+
+/** Resolve the repository override before creating a new chat/session. */
+export async function resolveChatRuntimeMode(
+	environmentId: EnvironmentId,
+	projectId: FolderId,
+): Promise<RuntimeMode> {
+	const [settings, repositorySettings] = await Promise.all([
+		// Global preferences belong to the settings surface the user configured,
+		// not the destination sandbox's image. Capture that owner before awaiting.
+		resolveEnvironmentSettings(EnvironmentId.make(getActiveEnvironment())),
+		repositorySettingsFor(environmentId, projectId),
+	]);
+	return effectiveChatRuntimeMode(
+		settings.defaultRuntimeMode,
+		repositorySettings,
+	);
+}
 
 /**
  * Resolve the worktree a freshly-created chat should run in. When per-repo
@@ -26,11 +66,7 @@ export async function resolveChatWorkspacePolicy(
 	projectId: FolderId,
 ): Promise<ChatWorkspacePolicy> {
 	const settings = useSettingsStore.getState();
-	const repositorySettings = useRepositorySettingsStore.getState();
-	const repoSettings =
-		repositorySettings.byProject[
-			repositorySettingsKey(environmentId, projectId)
-		] ?? (await repositorySettings.refresh(environmentId, projectId));
+	const repoSettings = await repositorySettingsFor(environmentId, projectId);
 	const shouldAutoCreate =
 		repoSettings?.autoCreateWorktree === true ||
 		settings.defaultAutoCreateWorktree === true;

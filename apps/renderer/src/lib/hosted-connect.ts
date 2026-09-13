@@ -1,15 +1,15 @@
 import {
+	type ApiAuthTokenGrant,
+	type ApiConnectGrant,
+	type ApiEnvironmentList,
+	ApiPaths,
 	HOSTED_APP_URL,
-	type RelayAuthTokenGrant,
-	type RelayConnectGrant,
-	type RelayEnvironmentList,
-	RelayPaths,
 	WIRE_PROTOCOL_VERSION,
 	WORKOS_PUBLIC_CLIENT_ID,
 	WORKOS_STAGING_PUBLIC_CLIENT_ID,
 } from "@zuse/contracts";
 
-import { rendererRelayUrl } from "./relay-url.ts";
+import { rendererApiUrl } from "./api-url.ts";
 
 const WORKOS_API = "https://api.workos.com";
 const SESSION_KEY = "zuse.hosted.session.v1";
@@ -30,7 +30,7 @@ type StoredDpopKey = {
 	readonly publicJwk: JsonWebKey;
 };
 
-let relayAccess: { readonly token: string; readonly expiresAt: number } | null =
+let apiAccess: { readonly token: string; readonly expiresAt: number } | null =
 	null;
 
 export type HostedEndpointLease = {
@@ -161,11 +161,11 @@ const writeSession = (session: HostedSession): HostedSession => {
 	return session;
 };
 
-export const hostedAuthTokenEndpoint = (baseUrl = rendererRelayUrl()): string =>
-	`${baseUrl.replace(/\/$/u, "")}${RelayPaths.authToken}`;
+export const hostedAuthTokenEndpoint = (baseUrl = rendererApiUrl()): string =>
+	`${baseUrl.replace(/\/$/u, "")}${ApiPaths.authToken}`;
 
 const authenticate = async (
-	grant: RelayAuthTokenGrant,
+	grant: ApiAuthTokenGrant,
 ): Promise<HostedSession> => {
 	const response = await fetch(hostedAuthTokenEndpoint(), {
 		method: "POST",
@@ -366,7 +366,7 @@ const signDpopProof = async (input: {
 	return `${unsigned}.${base64url(new Uint8Array(signature))}`;
 };
 
-const relayFetch = async (
+const apiFetch = async (
 	path: string,
 	init: {
 		readonly method: "POST";
@@ -374,7 +374,7 @@ const relayFetch = async (
 		readonly body?: unknown;
 	},
 ): Promise<Response> => {
-	const target = `${rendererRelayUrl()}${path}`;
+	const target = `${rendererApiUrl()}${path}`;
 	const proof = await signDpopProof({ method: init.method, url: target });
 	const workosToken = init.token === undefined ? await accessToken() : null;
 	if (init.token === undefined && workosToken === null) {
@@ -396,11 +396,11 @@ const relayFetch = async (
 	});
 };
 
-const ensureRelayAccess = async (): Promise<string> => {
-	if (relayAccess !== null && relayAccess.expiresAt - Date.now() > 60_000) {
-		return relayAccess.token;
+const ensureApiAccess = async (): Promise<string> => {
+	if (apiAccess !== null && apiAccess.expiresAt - Date.now() > 60_000) {
+		return apiAccess.token;
 	}
-	const response = await relayFetch(RelayPaths.dpopToken, { method: "POST" });
+	const response = await apiFetch(ApiPaths.dpopToken, { method: "POST" });
 	const body = (await response.json().catch(() => ({}))) as {
 		readonly accessToken?: unknown;
 		readonly expiresIn?: unknown;
@@ -410,44 +410,40 @@ const ensureRelayAccess = async (): Promise<string> => {
 		throw new Error(
 			typeof body.error === "string"
 				? body.error
-				: `relay_token_${response.status}`,
+				: `api_token_${response.status}`,
 		);
 	}
-	relayAccess = {
+	apiAccess = {
 		token: body.accessToken,
 		expiresAt:
 			Date.now() +
 			(typeof body.expiresIn === "number" ? body.expiresIn : 30 * 60_000),
 	};
-	return relayAccess.token;
+	return apiAccess.token;
 };
 
 export const hostedSignedIn = async (): Promise<boolean> =>
 	(await accessToken()) !== null;
 
-export const listHostedEnvironments =
-	async (): Promise<RelayEnvironmentList> => {
-		const token = await accessToken();
-		if (token === null) throw new Error("hosted_signed_out");
-		const response = await fetch(
-			`${rendererRelayUrl()}${RelayPaths.environments}`,
-			{
-				headers: { authorization: `Bearer ${token}` },
-			},
-		);
-		if (!response.ok) throw new Error(`relay_environments_${response.status}`);
-		return (await response.json()) as RelayEnvironmentList;
-	};
+export const listHostedEnvironments = async (): Promise<ApiEnvironmentList> => {
+	const token = await accessToken();
+	if (token === null) throw new Error("hosted_signed_out");
+	const response = await fetch(`${rendererApiUrl()}${ApiPaths.environments}`, {
+		headers: { authorization: `Bearer ${token}` },
+	});
+	if (!response.ok) throw new Error(`api_environments_${response.status}`);
+	return (await response.json()) as ApiEnvironmentList;
+};
 
 export const registerHostedClient = async (): Promise<void> => {
-	const token = await ensureRelayAccess();
+	const token = await ensureApiAccess();
 	const key = await dpopKey();
 	let deviceId = localStorage.getItem(DEVICE_ID_KEY);
 	if (deviceId === null) {
 		deviceId = crypto.randomUUID();
 		localStorage.setItem(DEVICE_ID_KEY, deviceId);
 	}
-	const target = `${rendererRelayUrl()}${RelayPaths.devices}`;
+	const target = `${rendererApiUrl()}${ApiPaths.devices}`;
 	const response = await fetch(target, {
 		method: "POST",
 		headers: {
@@ -461,14 +457,14 @@ export const registerHostedClient = async (): Promise<void> => {
 			dpopJwk: key.publicJwk,
 		}),
 	});
-	if (!response.ok) throw new Error(`relay_device_${response.status}`);
+	if (!response.ok) throw new Error(`api_device_${response.status}`);
 };
 
 export const connectHostedEnvironment = async (
 	environmentId: string,
-): Promise<RelayConnectGrant> => {
-	const token = await ensureRelayAccess();
-	const response = await relayFetch(RelayPaths.connect(environmentId), {
+): Promise<ApiConnectGrant> => {
+	const token = await ensureApiAccess();
+	const response = await apiFetch(ApiPaths.connect(environmentId), {
 		method: "POST",
 		token,
 		body: {
@@ -477,13 +473,13 @@ export const connectHostedEnvironment = async (
 		},
 	});
 	const body = (await response.json().catch(() => ({}))) as
-		| RelayConnectGrant
+		| ApiConnectGrant
 		| { readonly error?: unknown };
 	if (!response.ok || !("connectToken" in body)) {
 		throw new Error(
 			"error" in body && typeof body.error === "string"
 				? body.error
-				: `relay_connect_${response.status}`,
+				: `api_connect_${response.status}`,
 		);
 	}
 	const url = new URL(body.endpoint.wsBaseUrl);
@@ -502,7 +498,7 @@ export const signOutHostedProduct = async (): Promise<void> => {
 	const token = await accessToken();
 	const deviceId = localStorage.getItem(DEVICE_ID_KEY);
 	if (token !== null && deviceId !== null) {
-		await fetch(`${rendererRelayUrl()}${RelayPaths.client(deviceId)}`, {
+		await fetch(`${rendererApiUrl()}${ApiPaths.client(deviceId)}`, {
 			method: "DELETE",
 			headers: { authorization: `Bearer ${token}` },
 		}).catch(() => undefined);
@@ -510,7 +506,7 @@ export const signOutHostedProduct = async (): Promise<void> => {
 	sessionStorage.removeItem(SESSION_KEY);
 	sessionStorage.removeItem(PKCE_KEY);
 	localStorage.removeItem(DEVICE_ID_KEY);
-	relayAccess = null;
+	apiAccess = null;
 	rpcEndpointLease.clear();
 	await new Promise<void>((resolve) => {
 		const request = indexedDB.deleteDatabase(DPOP_DATABASE);

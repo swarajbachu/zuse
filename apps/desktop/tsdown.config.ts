@@ -47,11 +47,11 @@ const WORKOS_CLIENT_ID =
 	(NODE_ENV === "production"
 		? deploymentProfiles.production.workosPublicClientId
 		: deploymentProfiles.staging.workosPublicClientId);
-const ZUSE_RELAY_URL =
-	resolveBuildEnv("ZUSE_RELAY_URL") ||
+const ZUSE_API_URL =
+	resolveBuildEnv("ZUSE_API_URL") ||
 	(NODE_ENV === "production"
-		? deploymentProfiles.production.relayUrl
-		: deploymentProfiles.staging.relayUrl);
+		? deploymentProfiles.production.apiUrl
+		: deploymentProfiles.staging.apiUrl);
 
 const shared = {
 	format: "cjs" as const,
@@ -69,7 +69,7 @@ const shared = {
 		"process.env.ZUSE_POSTHOG_ENABLE_DEV": JSON.stringify(
 			ZUSE_POSTHOG_ENABLE_DEV,
 		),
-		"process.env.ZUSE_RELAY_URL": JSON.stringify(ZUSE_RELAY_URL),
+		"process.env.ZUSE_API_URL": JSON.stringify(ZUSE_API_URL),
 		"process.env.NODE_ENV": JSON.stringify(NODE_ENV),
 	},
 	// Workspace packages ship as raw .ts source — bundle them in instead of

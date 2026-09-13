@@ -15,6 +15,58 @@ const run = <A, E>(
 	);
 
 describe("SqlDispatchStorage", () => {
+	test("commits command identity with the authoritative receipt and rejects collisions", async () => {
+		const result = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				const storage = makeSqlDispatchStorage(sql);
+				const engine = new DispatchEngine(storage, () =>
+					Effect.succeed("event-identity"),
+				);
+				const receiptIdentity = {
+					fingerprint: "hmac-sha256:command-1",
+					commandKind: "messages.send",
+					schemaVersion: 1,
+					storageIncarnationId: "storage-1",
+				} as const;
+				const first = yield* engine.dispatch({
+					commandId: "command-identity",
+					streamId: "session-1",
+					command: createSessionCommand,
+					receiptIdentity,
+				});
+				const persisted = yield* storage.receipt("command-identity");
+				const collision = yield* Effect.flip(
+					engine.dispatch({
+						commandId: "command-identity",
+						streamId: "session-1",
+						command: createSessionCommand,
+						receiptIdentity: {
+							...receiptIdentity,
+							fingerprint: "hmac-sha256:other",
+						},
+					}),
+				);
+				const events = yield* storage.events("session-1");
+				return { first, persisted, collision, events };
+			}),
+		);
+
+		expect(result.first.receiptIdentity).toEqual({
+			fingerprint: "hmac-sha256:command-1",
+			commandKind: "messages.send",
+			schemaVersion: 1,
+			storageIncarnationId: "storage-1",
+		});
+		expect(result.persisted).toEqual(result.first);
+		expect(result.collision).toMatchObject({
+			_tag: "CommandReceiptIdentityConflict",
+			commandId: "command-identity",
+		});
+		expect(result.events).toHaveLength(1);
+	});
+
 	test("persists receipts so a new engine replays without appending", async () => {
 		const result = await run(
 			Effect.gen(function* () {
@@ -72,6 +124,12 @@ describe("SqlDispatchStorage", () => {
 						correlationId: "command-1",
 						causationEventId: null,
 						expectedVersion: 0,
+						receiptIdentity: {
+							fingerprint: "hmac-sha256:rollback",
+							commandKind: "messages.send",
+							schemaVersion: 1,
+							storageIncarnationId: "storage-1",
+						},
 						events: [
 							{
 								eventId: "duplicate-event",

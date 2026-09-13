@@ -105,7 +105,7 @@ describe("config-store settings coercion", () => {
 		expect(settings.customModelIdsByProvider.claude).toEqual([]);
 	});
 
-	it("keeps valid visibility overrides and stores explicit custom ids", () => {
+	it("keeps every visibility override and stores explicit custom ids", () => {
 		const settings = coerceSettings({
 			modelEnabledByProvider: {
 				codex: {
@@ -119,7 +119,9 @@ describe("config-store settings coercion", () => {
 		});
 
 		expect(settings.modelEnabledByProvider.codex["gpt-5.6-luna"]).toBe(false);
-		expect(settings.modelEnabledByProvider.codex["not-real"]).toBeUndefined();
+		// Ids the bundled snapshot doesn't know may come from the remote catalog
+		// or a live inventory, so their flags must survive a restart.
+		expect(settings.modelEnabledByProvider.codex["not-real"]).toBe(true);
 		expect(settings.customModelIdsByProvider.codex).toEqual(["gpt-future"]);
 	});
 

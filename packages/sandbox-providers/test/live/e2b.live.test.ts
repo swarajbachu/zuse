@@ -64,7 +64,7 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 			expect(inspected?.state).toBe("running");
 			expect(inspected?.providerLabel).toBe(label);
 
-			// envd process start — this is the same control path the relay uses to
+			// envd process start — this is the same control path the api uses to
 			// launch the managed server after create-time enrollment values exist.
 			await Effect.runPromise(
 				adapter.startProcess(created.providerSandboxId, {

@@ -1,17 +1,24 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { EnvironmentId } from "@zuse/contracts";
-import { CloudIcon, RefreshIcon } from "@zuse/icons/solid-rounded";
+import { type CloudChatSummary, EnvironmentId } from "@zuse/contracts";
+import { RefreshIcon } from "@zuse/icons/solid-rounded";
+import { useEffect } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
 import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
 import {
 	type CloudConnectionPresentation,
 	cloudConnectionPresentation,
 } from "../lib/cloud-connection-presentation.ts";
+import { cloudFailurePresentation } from "../lib/cloud-failure-presentation.ts";
 import {
+	cloudSummaryActiveSessionId,
 	cloudSummaryForChat,
 	useCloudChatCatalogStore,
 } from "../lib/cloud-workspace-catalog.ts";
 import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
+import {
+	ensureCloudWorkspaceAttached,
+	rearmRegisteredCloudConnection,
+} from "../lib/cloud-workspaces.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import {
 	getRendererClientBus,
@@ -19,6 +26,7 @@ import {
 } from "../lib/session-timeline-client-bus.ts";
 import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useChatsStore } from "../store/chats.ts";
+import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner.tsx";
 
@@ -38,10 +46,33 @@ const copy: Record<
 		title: "Updating cloud runtime",
 		detail: "Zuse will reconnect after the compatible runtime starts.",
 	},
+	"update-required": {
+		title: "Update required",
+		detail: "Update Zuse or the cloud runtime before reconnecting.",
+	},
+	detached: {
+		title: "Reconnect needed",
+		detail: "The workspace is still running. Retry the live connection.",
+	},
 	failed: {
 		title: "Connection failed",
 		detail: "Your cached chat is still available.",
 	},
+};
+
+type AttachCloudWorkspace = (
+	summary: CloudChatSummary,
+	activation: "connect" | "wake",
+) => Promise<void>;
+type RetryRendererConnection = (environmentId: EnvironmentId) => void;
+
+export const retryCloudConnection = async (
+	summary: CloudChatSummary,
+	attach: AttachCloudWorkspace = ensureCloudWorkspaceAttached,
+	retryConnection: RetryRendererConnection = retryRendererEnvironmentConnection,
+): Promise<void> => {
+	await attach(summary, "wake");
+	retryConnection(EnvironmentId.make(summary.workspaceId));
 };
 
 export function CloudConnectionNotice() {
@@ -60,18 +91,25 @@ export function CloudConnectionNotice() {
 		"cache-only",
 	);
 	const timeline = useOptionalRendererSessionTimeline(
-		summary?.initialSessionId ?? null,
+		summary === null ? null : cloudSummaryActiveSessionId(summary),
 		summary === null ? "cache-only" : cloudTranscriptActivation(summary),
 		summary === null ? null : EnvironmentId.make(summary.workspaceId),
 	);
 	const runtime = timeline.runtime;
+	useEffect(() => {
+		if (summary !== null) rearmRegisteredCloudConnection(summary);
+	}, [summary, shell.connection]);
 	if (summary === null) return null;
 	const activity = deriveCloudChatActivity({
 		summary,
 		connection: shell.connection,
 		runtime,
 	});
-	const presentation = cloudConnectionPresentation(summary, activity);
+	const presentation = cloudConnectionPresentation(
+		summary,
+		activity,
+		shell.connection,
+	);
 	// A signed-out session can never reconnect a cloud workspace, so it shows
 	// one steady sign-in banner immediately — never the reconnect states.
 	const blockedAuth =
@@ -79,19 +117,43 @@ export function CloudConnectionNotice() {
 	const connectionError = getRendererClientBus().connection(
 		EnvironmentId.make(summary.workspaceId),
 	).error;
-	const inviteRequired =
-		connectionError?.includes("beta-access-required") === true;
+	const connectionFailure =
+		connectionError === null
+			? null
+			: cloudFailurePresentation({ cause: connectionError });
+	const workspaceFailure = cloudFailurePresentation({
+		category: summary.failureDiagnostic ?? summary.statusCode,
+	});
+	const typedFailure = workspaceFailure ?? connectionFailure;
+	const inviteRequired = typedFailure?.kind === "cloud-access-required";
 	const betaCheckUnavailable =
-		connectionError?.includes("beta-access-unavailable") === true;
+		typedFailure?.kind === "cloud-access-unavailable";
+	const typedConnectionFailure =
+		typedFailure !== null &&
+		typedFailure.kind !== "network" &&
+		!inviteRequired &&
+		!betaCheckUnavailable
+			? typedFailure
+			: null;
+	const signInRequired =
+		blockedAuth || typedConnectionFailure?.kind === "sign-in-required";
+	const terminalConnectionFailure =
+		typedConnectionFailure?.kind === "workspace-deleted" ||
+		typedConnectionFailure?.kind === "workspace-storage-unavailable" ||
+		typedConnectionFailure?.kind === "session-unavailable" ||
+		typedConnectionFailure?.kind === "interaction-expired" ||
+		typedConnectionFailure?.kind === "outcome-unknown";
 	if (
 		presentation === "hidden" &&
 		!blockedAuth &&
 		!inviteRequired &&
-		!betaCheckUnavailable
+		!betaCheckUnavailable &&
+		typedConnectionFailure === null
 	)
 		return null;
-	const retry = () =>
-		retryRendererEnvironmentConnection(EnvironmentId.make(summary.workspaceId));
+	const retry = () => {
+		void retryCloudConnection(summary).catch(() => undefined);
+	};
 	const value = inviteRequired
 		? {
 				title: "Zuse Cloud is invite-only",
@@ -102,18 +164,24 @@ export function CloudConnectionNotice() {
 					title: "Cloud access could not be verified",
 					detail: "Try again shortly. Your cached chat is still available.",
 				}
-			: blockedAuth
+			: signInRequired
 				? {
 						title: "Sign in required",
 						detail:
 							"Your session expired — sign in to reconnect this cloud workspace.",
 					}
-				: presentation === "hidden"
-					? null
-					: copy[presentation];
+				: typedConnectionFailure !== null
+					? {
+							title: typedConnectionFailure.headline,
+							detail: typedConnectionFailure.message,
+						}
+					: presentation === "hidden"
+						? null
+						: copy[presentation];
 	if (value === null) return null;
 	const busy =
 		!blockedAuth &&
+		typedConnectionFailure === null &&
 		!inviteRequired &&
 		!betaCheckUnavailable &&
 		(presentation === "resuming" || presentation === "updating");
@@ -126,10 +194,7 @@ export function CloudConnectionNotice() {
 			{busy ? (
 				<Spinner className="size-4 shrink-0 text-muted-foreground motion-reduce:animate-none" />
 			) : (
-				<HugeiconsIcon
-					icon={CloudIcon}
-					className="size-4 shrink-0 text-muted-foreground"
-				/>
+				<DitherCloudIcon className="size-4 text-muted-foreground" />
 			)}
 			<div className="min-w-0 flex-1">
 				{busy ? (
@@ -139,20 +204,22 @@ export function CloudConnectionNotice() {
 				)}
 				<p className="truncate text-muted-foreground">{value.detail}</p>
 			</div>
-			{blockedAuth ||
+			{signInRequired ||
 			betaCheckUnavailable ||
-			(presentation === "failed" && !inviteRequired) ? (
+			(!terminalConnectionFailure &&
+				(presentation === "failed" || presentation === "detached") &&
+				!inviteRequired) ? (
 				<button
 					type="button"
 					disabled={signingIn}
 					className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					onClick={() => {
-						if (blockedAuth) void signIn();
+						if (signInRequired) void signIn();
 						else retry();
 					}}
 				>
 					<HugeiconsIcon icon={RefreshIcon} className="size-3.5" />
-					{blockedAuth ? (signingIn ? "Signing in…" : "Sign in") : "Retry"}
+					{signInRequired ? (signingIn ? "Signing in…" : "Sign in") : "Retry"}
 				</button>
 			) : null}
 		</div>

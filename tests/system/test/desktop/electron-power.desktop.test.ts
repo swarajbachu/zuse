@@ -7,6 +7,109 @@ import { launchElectronApp } from "../../src/electron-app.ts";
 import { withSystemTest } from "../../src/system-scope.ts";
 
 describe("Electron performance measurement bridge", () => {
+	it.runIf(process.platform === "darwin")(
+		"starts and releases the macOS awake assertion through the preload bridge",
+		async () => {
+			await withSystemTest("zuse-electron-awake-", async (scope) => {
+				const userData = scope.path("user-data");
+				mkdirSync(userData, { recursive: true });
+				const server = await scope.server();
+				const rpc = await scope.rpc(server.endpoint);
+				await Effect.runPromise(
+					rpc.client["settings.update"]({
+						patch: { onboardingCompleted: true },
+					}),
+				);
+				await rpc.dispose();
+				await server.stop();
+				const provider = installFakeAcpProvider({ root: scope.root });
+				const electron = await scope.acquire(
+					() =>
+						launchElectronApp({
+							root: scope.root,
+							userData,
+							providerBinDirectory: provider.binDirectory,
+						}),
+					(value) => value.close(),
+				);
+
+				await electron.page.evaluate(async () => {
+					const target = window as typeof window & {
+						zuse?: {
+							computerAwake?: {
+								setMode: (
+									mode: "off" | "always",
+								) => Promise<import("@zuse/contracts").ComputerAwakeStatus>;
+							};
+						};
+					};
+					await target.zuse?.computerAwake?.setMode("off");
+				});
+				await electron.app.evaluate(({ powerSaveBlocker }) => {
+					const root = globalThis as typeof globalThis & {
+						__zuseAwakeProbe?: {
+							starts: number[];
+							stops: number[];
+						};
+					};
+					root.__zuseAwakeProbe = { starts: [], stops: [] };
+					const start = powerSaveBlocker.start.bind(powerSaveBlocker);
+					const stop = powerSaveBlocker.stop.bind(powerSaveBlocker);
+					powerSaveBlocker.start = ((type) => {
+						const id = start(type);
+						root.__zuseAwakeProbe?.starts.push(id);
+						return id;
+					}) as typeof powerSaveBlocker.start;
+					powerSaveBlocker.stop = ((id) => {
+						root.__zuseAwakeProbe?.stops.push(id);
+						return stop(id);
+					}) as typeof powerSaveBlocker.stop;
+				});
+
+				const active = await electron.page.evaluate(async () => {
+					const target = window as typeof window & {
+						zuse?: {
+							computerAwake?: {
+								setMode: (
+									mode: "off" | "always",
+								) => Promise<import("@zuse/contracts").ComputerAwakeStatus>;
+							};
+						};
+					};
+					return target.zuse?.computerAwake?.setMode("always");
+				});
+				expect(active).toMatchObject({
+					supported: true,
+					mode: "always",
+					active: true,
+					electronBlockerActive: true,
+				});
+				const inactive = await electron.page.evaluate(async () => {
+					const target = window as typeof window & {
+						zuse?: {
+							computerAwake?: {
+								setMode: (
+									mode: "off" | "always",
+								) => Promise<import("@zuse/contracts").ComputerAwakeStatus>;
+							};
+						};
+					};
+					return target.zuse?.computerAwake?.setMode("off");
+				});
+				expect(inactive).toMatchObject({ mode: "off", active: false });
+				const probe = await electron.app.evaluate(() => {
+					const root = globalThis as typeof globalThis & {
+						__zuseAwakeProbe?: { starts: number[]; stops: number[] };
+					};
+					return root.__zuseAwakeProbe;
+				});
+				expect(probe?.starts).toHaveLength(1);
+				expect(probe?.stops).toEqual(probe?.starts);
+			});
+		},
+		40_000,
+	);
+
 	it("samples locally, records on demand, and removes renderer subscriptions", async () => {
 		await withSystemTest("zuse-electron-power-", async (scope) => {
 			const userData = scope.path("user-data");

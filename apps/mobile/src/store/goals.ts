@@ -7,9 +7,9 @@ import { Effect, Fiber, Stream } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 
 import { connectionSessionKey } from "~/lib/session-key";
+import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
 import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
-
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
 
 export const goalBySessionAtom = Atom.make<Record<string, ThreadGoal | null>>(
@@ -18,9 +18,9 @@ export const goalBySessionAtom = Atom.make<Record<string, ThreadGoal | null>>(
 export const goalLoadingBySessionAtom = Atom.make<Record<string, boolean>>(
 	{},
 ).pipe(Atom.keepAlive);
-export const goalErrorBySessionAtom = Atom.make<
-	Record<string, string | null>
->({}).pipe(Atom.keepAlive);
+export const goalErrorBySessionAtom = Atom.make<Record<string, string | null>>(
+	{},
+).pipe(Atom.keepAlive);
 
 /** Per-session goal; notifies only when this session's goal changes. */
 export const sessionGoalAtom = Atom.family((key: string) =>
@@ -68,6 +68,11 @@ export const hydrateGoal = async (
 	options: WsProtocolOptions,
 	sessionId: SessionId,
 ): Promise<void> => {
+	if (
+		options.cloudWorkspaceId !== undefined &&
+		!cloudRuntimeReady(options.cloudWorkspaceId)
+	)
+		return;
 	const key = connectionSessionKey(connKey, sessionId);
 	const generation = (hydrationGeneration.get(key) ?? 0) + 1;
 	hydrationGeneration.set(key, generation);

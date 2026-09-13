@@ -4,18 +4,18 @@ import { createTerminalInputPump } from "@zuse/client-runtime/terminal-input-pum
 import type { PtyId, PtySummary } from "@zuse/contracts";
 import { Effect } from "effect";
 import * as Linking from "expo-linking";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Redirect, Stack, useLocalSearchParams } from "expo-router";
 import { Minus, Plus, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { getOrCreateDeviceId } from "~/lib/device-identity";
+import { mobileReleaseFeatures } from "~/lib/release-features";
 import {
 	type TerminalInputEvent,
 	type TerminalLinkEvent,
@@ -23,7 +23,7 @@ import {
 	ZuseMobileTerminalView,
 } from "~/native/mobile-terminal";
 import { listOwnedTerminals, openMobileTerminal } from "~/rpc/actions";
-import { connectionsAtom } from "~/store/connections";
+import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import {
 	dispatchMobileTerminalClose,
 	dispatchMobileTerminalInput,
@@ -59,6 +59,14 @@ const paramValue = (value: string | string[] | undefined): string =>
 	Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 
 export default function MobileTerminalScreen() {
+	return mobileReleaseFeatures.terminal ? (
+		<MobileTerminalContent />
+	) : (
+		<Redirect href="/" />
+	);
+}
+
+function MobileTerminalContent() {
 	const params = useLocalSearchParams<{
 		conn?: string | string[];
 		sessionId?: string | string[];

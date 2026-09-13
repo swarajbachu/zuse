@@ -1,3 +1,4 @@
+import { CloudCommandTerminalError } from "@zuse/client-runtime/client-persistence";
 import {
 	ComposerInput,
 	EnvironmentId,
@@ -10,18 +11,28 @@ import {
 } from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
+import {
+	clearPendingSessionMessage,
+	mergePendingSessionMessages,
+	pendingSessionMessages,
+	usePendingSessionMessages,
+} from "../../src/lib/pending-session-messages.ts";
 
 import {
+	classifyError,
 	classifyMessage,
 	isRecoveredPreAckSessionError,
 	optimisticQueuedMessageReady,
 	pendingSessionCommandError,
 	persistQueuedMessage,
 	queueSessionMessage,
+	sendSessionMessage,
+	stageSessionMessage,
 	updateQueuedMessage,
 } from "../../src/lib/session-actions.ts";
 import {
 	getRendererClientBus,
+	registerSessionTimelineCheckpointSynchronizer,
 	resetSessionTimelineClientBusForTest,
 	retainSessionTimeline,
 	setSessionTimelineRpcClientForTest,
@@ -42,6 +53,7 @@ const ref = { environmentId, sessionId } as const;
 describe("session actions", () => {
 	afterEach(() => {
 		resetSessionTimelineClientBusForTest();
+		usePendingSessionMessages.setState({ byResource: {} });
 	});
 
 	it("classifies provider authentication failures once at the boundary", () => {
@@ -52,12 +64,65 @@ describe("session actions", () => {
 		});
 	});
 
+	it("classifies broker reconnects as Codex authentication", () => {
+		expect(classifyMessage("codex-auth-reconnect-required", "codex")).toEqual({
+			kind: "auth",
+			providerId: "codex",
+			message: "codex-auth-reconnect-required",
+		});
+	});
+
+	it("classifies account-broker reconnects for every cloud provider", () => {
+		for (const providerId of ["claude", "cursor", "grok"] as const)
+			expect(
+				classifyMessage(`${providerId}-auth-reconnect-required`, providerId),
+			).toEqual({
+				kind: "auth",
+				providerId,
+				message: `${providerId}-auth-reconnect-required`,
+			});
+	});
+
 	it("classifies reconnect failures without clearing canonical data", () => {
 		expect(
 			classifyMessage("WebSocket closed while the laptop was offline"),
 		).toEqual({
 			kind: "network",
 			message: "WebSocket closed while the laptop was offline",
+		});
+	});
+
+	it("classifies terminal cloud lifecycle failures without exposing internals", () => {
+		expect(
+			classifyError(
+				new CloudCommandTerminalError(
+					"cancelled",
+					"workspace-deleted",
+					"This workspace was archived or deleted before the command was accepted.",
+				),
+			),
+		).toEqual({
+			kind: "terminal",
+			category: "workspace-deleted",
+			headline: "Workspace unavailable",
+			message:
+				"This workspace was archived or deleted before the command could finish.",
+		});
+	});
+
+	it("presents Codex authentication and missing sessions as typed actions", () => {
+		expect(
+			classifyMessage("codex: Auth(AuthorizationRequired)", "codex"),
+		).toEqual({
+			kind: "auth",
+			providerId: "codex",
+			message: "codex: Auth(AuthorizationRequired)",
+		});
+		expect(classifyError(new SessionNotFoundError({ sessionId }))).toEqual({
+			kind: "terminal",
+			category: "session-unavailable",
+			headline: "Session unavailable",
+			message: "This chat session is no longer available in the agent runtime.",
 		});
 	});
 
@@ -89,6 +154,131 @@ describe("session actions", () => {
 				sync: "live",
 			}),
 		).toBe(false);
+	});
+
+	it("shows a cloud startup message before uploads finish and replaces its pending attachment in place", () => {
+		const input = ComposerInput.make({
+			text: "Describe this image",
+			fileRefs: [],
+			skillRefs: [],
+			attachments: [
+				{
+					id: "pending-image",
+					mimeType: "image/png",
+					originalName: "screenshot.png",
+				},
+			],
+		});
+		const messageId = stageSessionMessage(ref, input);
+		const retained = retainSessionTimeline(ref, "cache-only");
+		expect(
+			getRendererClientBus().snapshot(retained.key).data?.messages,
+		).toMatchObject([
+			{
+				id: messageId,
+				content: { text: input.text, attachments: input.attachments },
+			},
+		]);
+		stageSessionMessage(
+			ref,
+			ComposerInput.make({
+				...input,
+				attachments: [
+					{
+						mimeType: "image/png",
+						originalName: "screenshot.png",
+						id: "uploaded-image",
+					},
+				],
+			}),
+			{ messageId },
+		);
+		expect(
+			getRendererClientBus().snapshot(retained.key).data?.messages,
+		).toMatchObject([
+			{ id: messageId, content: { attachments: [{ id: "uploaded-image" }] } },
+		]);
+		expect(
+			getRendererClientBus().snapshot(retained.key).data?.messages,
+		).toHaveLength(1);
+		retained.lease.release();
+	});
+	it("keeps the submitted prompt visible when an empty cloud checkpoint arrives during upload", async () => {
+		const unregister = registerSessionTimelineCheckpointSynchronizer(
+			environmentId,
+			async () => ({
+				data: SessionTimelineProjection.make({
+					messages: [],
+					status: "idle",
+					currentTurn: null,
+					queue: QueueState.make({ items: [], paused: false }),
+					permissionMode: "default",
+					runtimeMode: "approval-required",
+				}),
+				cursor: { epoch: "startup-checkpoint", version: 0 },
+				origin: "checkpoint",
+			}),
+		);
+		const messageId = stageSessionMessage(ref, "Describe this image");
+		const retained = retainSessionTimeline(ref, "sync");
+		await waitUntil(
+			() =>
+				getRendererClientBus().snapshot(retained.key).origin === "checkpoint",
+		);
+		const history =
+			getRendererClientBus().snapshot(retained.key).data?.messages ?? [];
+		// This is the startup gap: persisted history legitimately has no message yet.
+		expect(history).toHaveLength(0);
+		const visible = mergePendingSessionMessages(
+			history,
+			pendingSessionMessages(ref),
+		);
+		expect(visible).toMatchObject([
+			{ id: messageId, content: { text: "Describe this image" } },
+		]);
+		// Durable reflection replaces the pending row without duplicating it.
+		expect(
+			mergePendingSessionMessages(visible, pendingSessionMessages(ref)),
+		).toHaveLength(1);
+		clearPendingSessionMessage(ref, messageId);
+		expect(pendingSessionMessages(ref)).toHaveLength(0);
+		unregister();
+		retained.lease.release();
+	});
+
+	it("keeps the composer submission unaccepted after a retryable transport failure", async () => {
+		const frames = Effect.runSync(Queue.unbounded());
+		let streamStarts = 0;
+		setSessionTimelineRpcClientForTest(
+			async () =>
+				({
+					"session.events": () => {
+						streamStarts += 1;
+						return Stream.fromQueue(frames);
+					},
+					"messages.send": () =>
+						Effect.fail({
+							_tag: "RpcClientError",
+							reason: { _tag: "SocketError", message: "offline" },
+						}),
+				}) as never,
+		);
+
+		const retained = retainSessionTimeline(ref, "connect");
+		await waitUntil(() => streamStarts === 1);
+		await expect(sendSessionMessage(ref, "keep this draft")).resolves.toBe(
+			false,
+		);
+
+		const view = getRendererClientBus().snapshot(retained.key);
+		expect(view.data?.messages).toHaveLength(1);
+		expect(view.data?.messages[0]?.content).toMatchObject({
+			_tag: "user",
+			text: "keep this draft",
+		});
+		expect(view.failedCommands).toHaveLength(1);
+		expect(view.failedCommands[0]?.retryable).toBe(true);
+		retained.lease.release();
 	});
 
 	it("converges when a queued message was consumed before its final update", async () => {
@@ -213,9 +403,12 @@ describe("session actions", () => {
 		expect(
 			getRendererClientBus().snapshot(retained.key).data?.queue.items,
 		).toEqual([]);
-		expect(pendingSessionCommandError(ref)?.message).toContain(
-			"SessionNotFoundError",
-		);
+		expect(pendingSessionCommandError(ref)).toMatchObject({
+			kind: "terminal",
+			category: "session-unavailable",
+			headline: "Session unavailable",
+			message: "This chat session is no longer available in the agent runtime.",
+		});
 		retained.lease.release();
 	});
 });

@@ -12,6 +12,7 @@ import {
 	AppearanceMode,
 	AutonomyLevel,
 	BranchNamingStyle,
+	BUNDLED_MODEL_CATALOG,
 	CommandId,
 	CompletionSoundPreset,
 	defaultModelEnabledByProvider,
@@ -127,15 +128,16 @@ const PROVIDERS: ReadonlyArray<ProviderId> = [
 	"kiro",
 ];
 
-const seedModels = (): Record<ProviderId, string> => ({
-	claude: defaultModelFor("claude"),
-	codex: defaultModelFor("codex"),
-	grok: defaultModelFor("grok"),
-	cursor: defaultModelFor("cursor"),
-	gemini: defaultModelFor("gemini"),
-	opencode: defaultModelFor("opencode"),
-	kiro: defaultModelFor("kiro"),
-});
+// Seeds and alias resolution use the bundled snapshot: this module runs at
+// startup before the catalog store has answered, and the server already
+// canonicalizes slugs against the resolved catalog at session start.
+const seedModels = (): Record<ProviderId, string> =>
+	Object.fromEntries(
+		PROVIDERS.map((provider) => [
+			provider,
+			defaultModelFor(BUNDLED_MODEL_CATALOG, provider),
+		]),
+	) as Record<ProviderId, string>;
 
 const seedProviderEnabled = (): Record<ProviderId, boolean> =>
 	Object.fromEntries(PROVIDERS.map((provider) => [provider, true])) as Record<
@@ -248,6 +250,7 @@ const fromFile = (file: SettingsFile): SettingsSlice => {
 	const models = { ...seedModels(), ...file.defaultModelByProvider };
 	for (const provider of PROVIDERS) {
 		models[provider] = resolveModelSlug(
+			BUNDLED_MODEL_CATALOG,
 			provider,
 			models[provider] ?? "default",
 		);
@@ -441,6 +444,29 @@ const activeResource = () => {
 		key: keyFor(environmentId),
 		bus: getRendererClientBus(),
 	};
+};
+
+/** Creation must not interpret an unhydrated settings cell as user intent. */
+export const resolveEnvironmentSettings = async (
+	environmentId: EnvironmentId,
+): Promise<SettingsSlice> => {
+	const bus = getRendererClientBus();
+	const key = keyFor(environmentId);
+	const cached = bus.snapshot(key).data;
+	if (cached !== null) return cached;
+	const { result } = await bus.dispatch<SettingsFile>({
+		kind: "settings.get",
+		commandId: CommandId.make(`settings-get:${crypto.randomUUID()}`),
+		environmentId,
+		resource: key,
+		payload: {},
+		retry: "safe",
+		createdAt: Date.now(),
+	});
+	return (
+		bus.snapshot(key).data ??
+		withPendingPatches(environmentId, fromFile(result))
+	);
 };
 
 const update = (patchFor: (current: SettingsSlice) => SettingsPatch): void => {

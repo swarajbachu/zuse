@@ -16,7 +16,7 @@ export type TriggerListener = (trigger: ActiveTrigger | null) => void;
 
 /**
  * Walk left from `pos` looking for an unescaped trigger char that starts a
- * slash or at-mention. The trigger only fires when the char is at the
+ * slash command, skill, or at-mention. The trigger only fires when the char is at the
  * start of input or preceded by whitespace — so a URL like `a@b` does not
  * pop the file picker.
  *

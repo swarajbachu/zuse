@@ -2,9 +2,9 @@ import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
 export {
-	PRODUCTION_RELAY_URL,
+	PRODUCTION_API_URL,
 	PUBLIC_DEPLOYMENT_PROFILES,
-	STAGING_RELAY_URL,
+	STAGING_API_URL,
 	WORKOS_PUBLIC_CLIENT_ID,
 	WORKOS_STAGING_PUBLIC_CLIENT_ID,
 } from "./deployment.ts";

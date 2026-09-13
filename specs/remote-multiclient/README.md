@@ -83,30 +83,30 @@ same link/connect + WS flow as desktop or SSH.
 
 Design rules to hold from day one (so cloud drops in with no refactor):
 - Nothing in `apps/server` assumes the worktree/project root is on the user's machine.
-- The relay keys everything by `environmentId`, never "this laptop."
+- The api keys everything by `environmentId`, never "this laptop."
 - Connect/link wire methods carry `providerKind` + endpoint.
 - Worktree lifecycle stays a server-side RPC capability — clients never touch the filesystem.
 
-### D4 — Cloud reach: WorkOS + thin relay + managed tunnel
-Mobile reaches the desktop from anywhere via a **control-plane relay** that links
+### D4 — Cloud reach: WorkOS + thin api + managed tunnel
+Mobile reaches the desktop from anywhere via a **control-plane api** that links
 devices↔environments, issues short-lived connect tokens, and provisions a **managed tunnel**
-(Cloudflare) — then steps aside. The relay is **never in the data path**; chat traffic goes
+(Cloudflare) — then steps aside. The api is **never in the data path**; chat traffic goes
 directly client↔environment over WS. Identity is **WorkOS** (reuse the existing login;
 PKCE/keychain, `getAccessToken` seam), with a **device DPoP** proof-of-possession key.
 
 **Concretised while building (2026-07-06):**
 - **Model chosen: account-based discovery**, not LAN-QR pairing. Sign in once with WorkOS on
-  laptop + phone; the laptop **self-registers** with the relay and every computer **auto-appears**
+  laptop + phone; the laptop **self-registers** with the api and every computer **auto-appears**
   on the phone with live online/offline presence. QR/manual host entry is a fallback.
-- **Relay stack:** Effect on **Cloudflare Workers** + **PlanetScale Postgres via Hyperdrive**,
+- **API stack:** Effect on **Cloudflare Workers** + **PlanetScale Postgres via Hyperdrive**,
   every record scoped by WorkOS `accountId`. Migrations via **Drizzle**; deploy via **wrangler**
   (not alchemy). Live at a Cloudflare custom-domain route.
-- **Link proof is Ed25519 (asymmetric), NOT a local bearer/HMAC** — the relay never sees the
+- **Link proof is Ed25519 (asymmetric), NOT a local bearer/HMAC** — the api never sees the
   desktop's secret, so it can't verify a symmetric signature. The desktop holds a per-environment
-  Ed25519 private key and sends its public key at link; the relay verifies every proof against it.
+  Ed25519 private key and sends its public key at link; the api verifies every proof against it.
 - **Desktop self-registers directly** (it is already WorkOS-signed-in), so the server runs the
-  whole link flow — no browser mediator. The renderer's **Devices** pane just drives `relay.*` RPCs.
-- **Presence** = the desktop heartbeats to the relay; the phone polls per-environment status.
+  whole link flow — no browser mediator. The renderer's **Devices** pane just drives `api.*` RPCs.
+- **Presence** = the desktop heartbeats to the api; the phone polls per-environment status.
 - Three-tier auth: WorkOS token → DPoP-bound short-lived access token (replay-guarded) →
   persistent per-environment credential (`zenv_…`, stored hashed).
 
@@ -123,7 +123,7 @@ the **native `ssh` binary** (no `ssh2` library): `ssh -G` to resolve `~/.ssh/con
 One server, multiple process shapes, multiple client surfaces, one control plane.
 
 ```
-            ┌────────────────── Relay (control plane only) ──────────────────┐
+            ┌────────────────── API (control plane only) ──────────────────┐
             │  WorkOS identity · device↔environment link · short-lived tokens │
             │  managed-tunnel provisioning (Cloudflare) · push (APNs) fan-out │
             │  NOT in the data path — issues credentials, then steps aside    │
@@ -145,7 +145,7 @@ One server, multiple process shapes, multiple client surfaces, one control plane
 1. **In-process** — Electron today; `serverProtocol = electronServerProtocolLayer`. Stays working throughout.
 2. **Headless WS** — `bin.ts` (`zuse serve`); `serverProtocol = wsServerProtocolLayer({port})`, file-backed AppPaths, no-op FolderPicker. One binary; runs on SSH dev-boxes and cloud containers.
 3. **Remote-over-SSH** — shape 2 launched on a remote machine by the desktop, tunneled to `127.0.0.1:localPort`.
-4. **Cloud-hosted** — shape 2 on a cloud container with a persistent volume (sqlite + worktrees), reached via the relay's managed endpoint.
+4. **Cloud-hosted** — shape 2 on a cloud container with a persistent volume (sqlite + worktrees), reached via the api's managed endpoint.
 
 **Client surfaces:** desktop renderer (IPC now, WS-capable), browser (WS), mobile Expo (WS), CLI (future, same WS client).
 
@@ -160,12 +160,12 @@ Effect-style I/O only — wrap all I/O in `Effect.try/tryPromise`, no raw try/ca
 | **A** | Sync core (event sourcing + `node:sqlite`) | `events` table + projector + monotonic `sequence`; `streamMessages(sinceSequence)` gap-free resume; driver→`node:sqlite` | `message-store.ts`, the migrator, `@effect/sql` template queries | PR0 ✅ |
 | **B** | WebSocket transport | server reachable over WS; headless boot; renderer can pick WS vs IPC | `electron-server-protocol.ts` template, `MainLayerDeps.serverProtocol` seam | PR0 ✅ (server side ✅ done) |
 | **C** | Auth & pairing | LAN pairing (QR + bearer) + cloud identity (WorkOS) + device DPoP | existing WorkOS login, `credentials-service.ts` | B |
-| **D** | Relay (control plane) | link devices↔environments, issue connect tokens, push fan-out | WorkOS as IdP | C |
+| **D** | API (control plane) | link devices↔environments, issue connect tokens, push fan-out | WorkOS as IdP | C |
 | **E** | Managed tunnel | reach the desktop from anywhere (Cloudflare Tunnel) | — | B, D |
 | **F** | Mobile app (Expo) | same wire RPC; QR pairing; cloud link; offline snapshots; full interact | **`packages/contracts` types directly**, WS client from B | B (LAN), C/D (cloud) |
 | **G** | SSH remote dev-boxes | launch headless server remotely + tunnel back | native `ssh` wrapper pattern | B (`bin.ts`) ✅ |
-| **H** | Push & notifications | notify on approval/input/turn-complete/failure; iOS Live Activities | relay APNs | D, F |
-| **I** | Cloud environments (deferred) | provisioner that boots `zuse serve` on a cloud container + volume | headless `bin.ts`, relay, `providerKind` seam | B, D |
+| **H** | Push & notifications | notify on approval/input/turn-complete/failure; iOS Live Activities | api APNs | D, F |
+| **I** | Cloud environments (deferred) | provisioner that boots `zuse serve` on a cloud container + volume | headless `bin.ts`, api, `providerKind` seam | B, D |
 
 Per-workstream file lists, code sketches, and risks are in [Appendix A](#appendix-a--core-design-file-grounded).
 
@@ -178,8 +178,8 @@ PR0 wire-contract ✅ ── enables everything
    ├──► A  sync-core (event sourcing + node:sqlite)        ── persistence track
    ├──► B  ws-transport (server ✅) ─► B-renderer (WS client)
    │         └──► G  ssh (uses bin.ts ✅)
-   │         └──► F  mobile (LAN/bearer) ─► C auth ─► D relay ─► E tunnel ─► H push
-   └──► D  relay (standalone, stub env until C)
+   │         └──► F  mobile (LAN/bearer) ─► C auth ─► D api ─► E tunnel ─► H push
+   └──► D  api (standalone, stub env until C)
 ```
 
 **Concurrent lanes (independent agents, worktree-isolated):**
@@ -190,7 +190,7 @@ PR0 wire-contract ✅ ── enables everything
 | 2 | **B-renderer** WS client | `remote-multiclient-ws-client` | now | `apps/renderer/src/lib/rpc-client.ts` (+ new file), renderer `package.json` |
 | 3 | **F** mobile scaffold | `remote-multiclient-mobile` | now | new `apps/mobile/**` (no overlap) |
 | 4 | **G** SSH | `remote-multiclient-ssh` | now | new `packages/ssh/**`, `apps/desktop/src/ssh/**` |
-| 5 | **D** relay | `remote-multiclient-relay` | now | new `infra/relay/**` (no overlap) |
+| 5 | **D** api | `remote-multiclient-api` | now | new `infra/api/**` (no overlap) |
 
 A, B-renderer, F, G, D are **five genuinely parallel tracks**. C/E/H serialize after
 (auth → tunnel → push). I (cloud) is deferred. Hand-off prompts and the
@@ -212,21 +212,21 @@ A, B-renderer, F, G, D are **five genuinely parallel tracks**. C/E/H serialize a
 | PR-C | LAN auth/pairing (QR + bearer, `connect.*`) | ✅ landed (#259) |
 | PR-F1 | mobile scaffold (Expo + WS wire client + LAN QR + read-only views) | ✅ landed (#259) |
 | PR-F2 | mobile interact (send/approve/answer/interrupt; reconcile via `sinceSequence`) | ✅ send/interrupt landed; approve/answer UI todo |
-| Relay-PR1 | relay → account-scoped control plane (WorkOS + Ed25519 + DPoP, Postgres) | ✅ landed |
-| Relay-PR2 | desktop self-registration (Ed25519 link + heartbeat presence + Devices pane) | ✅ landed |
-| Relay-PR3 | mobile WorkOS sign-in + device DPoP | ✅ landed |
-| Relay-PR4 | mobile discovery UI ("Your computers" + presence + connect) | ✅ landed |
-| PR-E | managed tunnel (Cloudflare connector + relay mapping) — off-LAN reach | ✅ landed (#266) |
+| API-PR1 | api → account-scoped control plane (WorkOS + Ed25519 + DPoP, Postgres) | ✅ landed |
+| API-PR2 | desktop self-registration (Ed25519 link + heartbeat presence + Devices pane) | ✅ landed |
+| API-PR3 | mobile WorkOS sign-in + device DPoP | ✅ landed |
+| API-PR4 | mobile discovery UI ("Your computers" + presence + connect) | ✅ landed |
+| PR-E | managed tunnel (Cloudflare connector + api mapping) — off-LAN reach | ✅ landed (#266) |
 | PR-H | push (`agent-activity` publish + Expo push) | ✅ landed (#272); Live Activities todo |
 | PR-I | cloud environments provisioner (deferred) | deferred |
 
-**Deploy status:** relay is **live** on Cloudflare Workers (custom-domain route, Hyperdrive →
+**Deploy status:** api is **live** on Cloudflare Workers (custom-domain route, Hyperdrive →
 PlanetScale); the unauthenticated gate is verified (`GET /v1/environments` → `401 missing_bearer`).
-Managed tunnel provisioning is configured on the deployed relay (`MANAGED_TUNNEL_*` +
-`CF_API_TOKEN`) and the full provision → link → connector loop has run end-to-end: the relay
+Managed tunnel provisioning is configured on the deployed api (`MANAGED_TUNNEL_*` +
+`CF_API_TOKEN`) and the full provision → link → connector loop has run end-to-end: the api
 minted a per-environment hostname, the desktop launched `cloudflared`, and the environment
 reported `status.linked` with an active heartbeat (verified 2026-07-18). Push rides Expo's push
-service — the relay needs no APNs secrets; devices register tokens via
+service — the api needs no APNs secrets; devices register tokens via
 `POST /v1/mobile/devices`, and the server publishes `approval-needed` / `question-needed` /
 `completed` / `error` / `running` activity. Still open: an end-to-end confirmation from a phone
 on cellular (needs the environment re-linked plus a dev-client build with `EXPO_PUBLIC_*` set),
@@ -241,7 +241,7 @@ Spin these into `specs/remote-multiclient/decisions/` as each workstream lands:
 - **`node:sqlite` persistence driver** (ABI-split finding; D2).
 - **WebSocket transport & headless boot** (extends ADR 0007).
 - **Environment abstraction & cloud-hosted worktrees** (`providerKind`; provisioner deferred).
-- **Cloud reach: relay + managed tunnel + WorkOS** (control plane only; DPoP).
+- **Cloud reach: api + managed tunnel + WorkOS** (control plane only; DPoP).
 - **SSH remote environments** (native-binary wrapper; tunnel lifecycle).
 
 ---
@@ -265,7 +265,7 @@ Spin these into `specs/remote-multiclient/decisions/` as each workstream lands:
   the renderer consumer (single repo, ~1); grep before landing PR-A2.
 - **R7 `node:sqlite` availability** — verify Electron 42's bundled Node exposes it (D2
   prerequisite); fallback documented.
-- **R8 Relay attack surface** — short-lived DPoP tokens, WorkOS-gated, relay never sees
+- **R8 API attack surface** — short-lived DPoP tokens, WorkOS-gated, api never sees
   chat data. Pen-test before exposing.
 
 ---
@@ -282,7 +282,7 @@ Spin these into `specs/remote-multiclient/decisions/` as each workstream lands:
 - **F:** Expo on LAN, QR-pair, view a live chat, send, approve a tool; airplane-mode →
   snapshot renders → reconnect reconciles.
 - **D/E:** link an environment, fetch a connect token, reach the desktop through the tunnel
-  from cellular; confirm the relay never proxies chat bytes.
+  from cellular; confirm the api never proxies chat bytes.
 - **H:** trigger an approval; assert APNs delivery + Live Activity update.
 - Gate every PR on `turbo build lint check-types test`.
 
@@ -312,19 +312,19 @@ Spin these into `specs/remote-multiclient/decisions/` as each workstream lands:
   than this doc assumed) track per-session cursors and resume on resubscribe. Reconnect,
   live-tail exactly-once, and cross-session isolation tests green.
 - **2026-07-06 — #259 foundations**: a broad first-cut PR landed the renderer WS client (B),
-  LAN auth + `connect.*` (C), an in-memory relay stub (D), the mobile Expo app incl. iOS project
+  LAN auth + `connect.*` (C), an in-memory api stub (D), the mobile Expo app incl. iOS project
   (F), and SSH `packages/ssh` + desktop env service (G). Read-only + send/interrupt work on LAN.
-- **2026-07-06 — account-relay discovery (Relay-PR1..4)**: chose the account-based discovery
-  model over LAN-QR (see D4). **PR1** rewrote `infra/relay` into an Effect account-scoped control
+- **2026-07-06 — account-api discovery (API-PR1..4)**: chose the account-based discovery
+  model over LAN-QR (see D4). **PR1** rewrote `infra/api` into an Effect account-scoped control
   plane on Cloudflare Workers + PlanetScale/Hyperdrive (WorkOS JWKS verify, Ed25519 link-proof
   verify, DPoP verify + replay guard, signed connect/access tokens, Drizzle migrations) — 6 tests
   green. **PR2** desktop self-registration: migration `0025` (env Ed25519 keypair), `linkProof`
-  HMAC→Ed25519, `RelayLinkService` (challenge→sign→link→persist→heartbeat), `relay.*` RPCs, a
+  HMAC→Ed25519, `ApiLinkService` (challenge→sign→link→persist→heartbeat), `api.*` RPCs, a
   renderer **Devices** pane — 235 server tests green. **PR3+4** mobile: WorkOS PKCE, ES256 device
-  DPoP (react-native-quick-crypto), relay HTTP client, and a **"Your computers"** discovery screen
-  with presence. Relay **deployed** (custom-domain Worker); `401` gate verified.
+  DPoP (react-native-quick-crypto), api HTTP client, and a **"Your computers"** discovery screen
+  with presence. API **deployed** (custom-domain Worker); `401` gate verified.
   **Correction to this doc:** the link proof is **Ed25519 (asymmetric)**, not the local-bearer/HMAC
-  originally sketched — the relay can't verify a secret it never holds.
+  originally sketched — the api can't verify a secret it never holds.
 
 ---
 

@@ -13,7 +13,7 @@ export const cloudWorkspaceAccessPresentation = (input: {
 		serviceError: input.serviceAvailable
 			? null
 			: subscribed
-				? "Your subscription is active. Cloud workspace controls require the relay update."
+				? "Your subscription is active. Cloud workspace controls require the api update."
 				: "Cloud workspace services are temporarily unavailable.",
 	};
 };

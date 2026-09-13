@@ -12,7 +12,7 @@ describe("Zuse Serve service definitions", () => {
 			executable: "/opt/zuse/bin/zuse",
 			dataDir: "/Users/dev/.local/share/zuse",
 			logDir: "/Users/dev/Library/Logs/Zuse",
-			relayUrl: "http://127.0.0.1:8790",
+			apiUrl: "http://127.0.0.1:8790",
 		});
 
 		expect(definition.label).toBe("sh.zuse.serve");
@@ -61,7 +61,7 @@ describe("Zuse Serve service definitions", () => {
 		expect(systemd.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
 	});
 
-	it("keeps the account relay active alongside Tailnet sharing", () => {
+	it("keeps the account api active alongside Tailnet sharing", () => {
 		const input = {
 			nodeExecutable: "/opt/node/bin/node",
 			executable: "/opt/zuse/bin/zuse",
@@ -76,7 +76,7 @@ describe("Zuse Serve service definitions", () => {
 		expect(systemd.contents).toContain("ZUSE_SERVE_AUTO_LINK");
 	});
 
-	it("disables the account relay only on explicit opt-out", () => {
+	it("disables the account api only on explicit opt-out", () => {
 		const input = {
 			nodeExecutable: "/opt/node/bin/node",
 			executable: "/opt/zuse/bin/zuse",

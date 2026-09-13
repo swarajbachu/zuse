@@ -8,7 +8,6 @@ import type {
 	Folder,
 	GitBranchInfo,
 	GitPrSummary,
-	Worktree,
 } from "@zuse/contracts";
 import { ArrowUpIcon, CloudOffIcon } from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
@@ -68,7 +67,6 @@ import {
 	createWorktree,
 	listBranches,
 	listPullRequests,
-	listWorktrees,
 	makeTextInput,
 	sendMessage,
 } from "~/rpc/actions";
@@ -77,6 +75,7 @@ import {
 	connectionAvailabilityAtom,
 	hydrateAvailability,
 } from "~/store/availability";
+import { cloudAuthenticatedProvidersAtom } from "~/store/cloud-catalog";
 import {
 	clearComposerDraft,
 	composerDraft,
@@ -84,11 +83,20 @@ import {
 	setComposerDraft,
 } from "~/store/composer-drafts";
 import {
-	connectionsAtom,
+	allConnectionsAtom as connectionsAtom,
 	connectionsHydratedAtom,
 	hydrateConnections,
 	refreshConnectionLabel,
 } from "~/store/connections";
+import {
+	activeModelCatalog,
+	activeModelCatalogAtom,
+	hydrateModelCatalog,
+} from "~/store/model-catalog";
+import {
+	readNewChatPreferences,
+	saveNewChatPreferences,
+} from "~/store/new-chat-preferences";
 import {
 	bundlesByConnectionAtom,
 	createChat,
@@ -113,6 +121,7 @@ export default function NewChatScreen() {
 	const submitGateRef = useRef(false);
 	const [text, setText] = useState(initialDraft.text);
 	const [draftHydrated, setDraftHydrated] = useState(false);
+	const [preferencesHydrated, setPreferencesHydrated] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 	const [modelSheetOpen, setModelSheetOpen] = useState(false);
 	const [attachments, setAttachments] = useState<LocalComposerAttachment[]>([
@@ -133,24 +142,33 @@ export default function NewChatScreen() {
 	// it snap back to "Work locally". `sourceKind` is the source of truth for
 	// which work mode is selected.
 	const [sourceKind, setSourceKind] = useState<NewChatSourceKind>("main");
-	const initialModel = defaultModelForProvider("codex");
+	const initialModel = defaultModelForProvider(activeModelCatalog(), "codex");
 	const [modelMode, setModelMode] = useState<ModelModeValue>({
 		providerId: "codex",
 		model: initialModel,
 		runtimeMode: "approval-required",
 		permissionMode: "default",
-		modelOptions: defaultModelOptions("codex", initialModel),
+		modelOptions: defaultModelOptions(
+			activeModelCatalog(),
+			"codex",
+			initialModel,
+		),
 	});
-	const [worktrees, setWorktrees] = useState<readonly Worktree[]>([]);
 	const [branches, setBranches] = useState<readonly GitBranchInfo[]>([]);
 	const [prs, setPrs] = useState<readonly GitPrSummary[]>([]);
 
 	const allConnections = useAtomValue(connectionsAtom);
+	useAtomValue(activeModelCatalogAtom);
 	const hydrated = useAtomValue(connectionsHydratedAtom);
 	const account = useAtomValue(authAccountAtom);
 	const connections = useMemo(
-		() => availableConnections(allConnections, account !== null),
-		[account, allConnections],
+		() =>
+			availableConnections(allConnections, account !== null).filter(
+				(connection) =>
+					connection.source !== "cloud" ||
+					connection.key === requestedConnectionKey,
+			),
+		[account, allConnections, requestedConnectionKey],
 	);
 	const bundlesByConnection = useAtomValue(bundlesByConnectionAtom);
 	const loadingByConnection = useAtomValue(loadingByConnectionAtom);
@@ -204,8 +222,11 @@ export default function NewChatScreen() {
 		}
 	}, [connections]);
 
+	const selectedConnectionAvailable =
+		selectedConnectionKey !== null &&
+		connections.some((connection) => connection.key === selectedConnectionKey);
 	const effectiveConnectionKey =
-		selectedConnectionKey ??
+		(selectedConnectionAvailable ? selectedConnectionKey : null) ??
 		(requestedConnectionKey.length > 0 ? requestedConnectionKey : null) ??
 		connections[0]?.key ??
 		null;
@@ -228,6 +249,28 @@ export default function NewChatScreen() {
 	}, [bundlesByConnection, effectiveConnectionKey, requestedChatId]);
 	const threadMode = requestedChatId.length > 0;
 
+	useEffect(() => {
+		if (threadMode) {
+			setPreferencesHydrated(true);
+			return;
+		}
+		let active = true;
+		void readNewChatPreferences().then((preferences) => {
+			if (!active) return;
+			if (requestedConnectionKey.length === 0) {
+				setSelectedConnectionKey(preferences.connectionKey);
+				setSelectedProjectId(preferences.projectId);
+			} else if (preferences.connectionKey === requestedConnectionKey) {
+				setSelectedProjectId(preferences.projectId);
+			}
+			setSourceKind(preferences.sourceKind);
+			setPreferencesHydrated(true);
+		});
+		return () => {
+			active = false;
+		};
+	}, [requestedConnectionKey, threadMode]);
+
 	const projectChoices = useMemo(() => {
 		if (effectiveConnectionKey === null) return [];
 		return (bundlesByConnection[effectiveConnectionKey] ?? []).map(
@@ -245,6 +288,28 @@ export default function NewChatScreen() {
 			? selectedProjectId
 			: (projectChoices[0]?.project.id ?? null));
 
+	useEffect(() => {
+		if (
+			!preferencesHydrated ||
+			threadMode ||
+			effectiveConnectionKey === null ||
+			effectiveProjectId === null
+		) {
+			return;
+		}
+		void saveNewChatPreferences({
+			connectionKey: effectiveConnectionKey,
+			projectId: effectiveProjectId,
+			sourceKind,
+		}).catch(() => undefined);
+	}, [
+		effectiveConnectionKey,
+		effectiveProjectId,
+		preferencesHydrated,
+		sourceKind,
+		threadMode,
+	]);
+
 	const selectedOptions = useMemo(
 		() =>
 			effectiveConnectionKey === null
@@ -259,10 +324,15 @@ export default function NewChatScreen() {
 	useEffect(() => {
 		if (effectiveConnectionKey === null || selectedOptions === null) return;
 		void hydrateAvailability(effectiveConnectionKey, selectedOptions);
+		void hydrateModelCatalog(effectiveConnectionKey, selectedOptions);
 	}, [effectiveConnectionKey, selectedOptions]);
+	const cloudProviders = useAtomValue(cloudAuthenticatedProvidersAtom);
 	const availableProviders = useMemo(
-		() => availableProviderIds(availability),
-		[availability],
+		() =>
+			requestedConnectionKey.startsWith("cloud:")
+				? cloudProviders
+				: availableProviderIds(availability),
+		[availability, cloudProviders, requestedConnectionKey],
 	);
 
 	useEffect(() => {
@@ -275,7 +345,11 @@ export default function NewChatScreen() {
 			model: active.model,
 			runtimeMode: active.runtimeMode,
 			permissionMode: active.permissionMode,
-			modelOptions: defaultModelOptions(active.providerId, active.model),
+			modelOptions: defaultModelOptions(
+				activeModelCatalog(),
+				active.providerId,
+				active.model,
+			),
 		});
 	}, [threadContext?.activeThread]);
 
@@ -294,12 +368,16 @@ export default function NewChatScreen() {
 		}
 		const providerId = availableProviders[0];
 		if (providerId === undefined) return modelMode;
-		const model = defaultModelForProvider(providerId);
+		const model = defaultModelForProvider(activeModelCatalog(), providerId);
 		return {
 			...modelMode,
 			providerId,
 			model,
-			modelOptions: defaultModelOptions(providerId, model),
+			modelOptions: defaultModelOptions(
+				activeModelCatalog(),
+				providerId,
+				model,
+			),
 		};
 	}, [availableProviders, modelMode]);
 	const goalSupported =
@@ -313,12 +391,6 @@ export default function NewChatScreen() {
 		let cancelled = false;
 		void Promise.all([
 			Effect.runPromise(
-				listWorktrees({
-					connection: selectedOptions,
-					projectId: effectiveProjectId,
-				}),
-			).catch(() => [] as readonly Worktree[]),
-			Effect.runPromise(
 				listBranches({
 					connection: selectedOptions,
 					projectId: effectiveProjectId,
@@ -330,9 +402,8 @@ export default function NewChatScreen() {
 					projectId: effectiveProjectId,
 				}),
 			),
-		]).then(([nextWorktrees, nextBranches, nextPrs]) => {
+		]).then(([nextBranches, nextPrs]) => {
 			if (cancelled) return;
-			setWorktrees(nextWorktrees);
 			setBranches(nextBranches);
 			setPrs(nextPrs);
 		});
@@ -377,8 +448,25 @@ export default function NewChatScreen() {
 		selectedProject?.name ?? (loading ? "Loading projects" : "Project");
 
 	const firstSourceForKind = (kind: NewChatSourceKind): NewChatSource =>
-		sourceOptionsForKind(kind, worktrees, branches, prs)[0]?.source ??
-		MAIN_SOURCE;
+		sourceOptionsForKind(kind, branches, prs)[0]?.source ?? MAIN_SOURCE;
+	const sourceChoices = useMemo(
+		() => sourceOptionsForKind(sourceKind, branches, prs),
+		[branches, prs, sourceKind],
+	);
+	useEffect(() => {
+		if (sourceKind === "main") {
+			if (source.kind !== "main") setSource(MAIN_SOURCE);
+			return;
+		}
+		const sourceStillAvailable = sourceChoices.some(
+			(option) =>
+				option.source.kind === source.kind &&
+				option.source.label === source.label,
+		);
+		if (!sourceStillAvailable) {
+			setSource(sourceChoices[0]?.source ?? MAIN_SOURCE);
+		}
+	}, [source.kind, source.label, sourceChoices, sourceKind]);
 	const workModeOptions = WORK_MODE_OPTIONS.map((option) => ({
 		key: option.kind,
 		label: option.label,
@@ -393,16 +481,11 @@ export default function NewChatScreen() {
 		branches.find((branch) => branch.current)?.name ?? "main";
 	const emptyBranchLabel =
 		sourceKind === "worktree"
-			? "No worktrees"
+			? "Default branch"
 			: sourceKind === "pr"
 				? "No pull requests"
 				: "No branches";
-	const branchOptions = sourceOptionsForKind(
-		sourceKind,
-		worktrees,
-		branches,
-		prs,
-	).map((option) => ({
+	const branchOptions = sourceChoices.map((option) => ({
 		key: option.key,
 		label: option.label,
 		selected:
@@ -491,18 +574,19 @@ export default function NewChatScreen() {
 				return;
 			}
 
-			const worktreeId =
-				payload.createSource === null
-					? payload.worktreeId
-					: (
-							await Effect.runPromise(
-								createWorktree({
-									connection: selectedOptions,
-									projectId: payload.projectId,
-									source: payload.createSource,
-								}),
-							)
-						).id;
+			const worktreeId = payload.createWorktree
+				? (
+						await Effect.runPromise(
+							createWorktree({
+								connection: selectedOptions,
+								projectId: payload.projectId,
+								...(payload.createSource === null
+									? {}
+									: { source: payload.createSource }),
+							}),
+						)
+					).id
+				: payload.worktreeId;
 			const result = await createChat(effectiveConnectionKey, selectedOptions, {
 				projectId: payload.projectId,
 				providerId: payload.providerId,
@@ -650,7 +734,7 @@ export default function NewChatScreen() {
 						</Text>
 					</View>
 				) : (
-					<View className="mb-4 gap-3 px-1">
+					<View className="mb-4 gap-1 px-1">
 						<SelectorRow
 							symbol="laptopcomputer"
 							label={machineLabel}
@@ -788,6 +872,7 @@ export default function NewChatScreen() {
 					onOpenChange={setModelSheetOpen}
 					value={effectiveModelMode}
 					availableProviders={availableProviders}
+					strictProviders={selectedOptions?.cloudWorkspaceId !== undefined}
 					canChangeProvider
 					canChangeReasoning
 					onChange={setModelMode}

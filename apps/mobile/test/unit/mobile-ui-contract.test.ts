@@ -5,7 +5,21 @@ const appFile = (relativePath: string): string =>
 	readFileSync(`${process.cwd()}/app/${relativePath}`, "utf8");
 
 describe("mobile UI contracts", () => {
-	test("keeps light surfaces light and uses one neon accent in both themes", () => {
+	test("declares local pairing and Expo development discovery services", () => {
+		const config = JSON.parse(
+			readFileSync(`${process.cwd()}/app.json`, "utf8"),
+		);
+		const nativeInfo = readFileSync(
+			`${process.cwd()}/ios/ZuseMobile/Info.plist`,
+			"utf8",
+		);
+		for (const service of ["_zuse._tcp", "_expo._tcp"]) {
+			expect(config.expo.ios.infoPlist.NSBonjourServices).toContain(service);
+			expect(nativeInfo).toContain(`<string>${service}</string>`);
+		}
+	});
+
+	test("keeps light surfaces light and uses adaptive native tints", () => {
 		const css = readFileSync(`${process.cwd()}/global.css`, "utf8");
 		expect(css).toContain("@variant light");
 		expect(css).toContain("@variant dark");
@@ -19,7 +33,13 @@ describe("mobile UI contracts", () => {
 		expect(css).toContain("--color-card: hsl(0 0% 12%)");
 		expect(css).toContain("--color-foreground-faint: hsl(0 0% 43%)");
 		expect(css).toContain("--color-input: rgba(255, 255, 255, 0.2)");
-		expect(css.match(/--color-primary: #c8ff00/g)).toHaveLength(2);
+		expect(css).toContain("--color-primary: hsl(83 74% 43%)");
+		expect(css).toContain("--color-primary: hsl(83 72% 46%)");
+		expect(css.match(/--color-primary-foreground: #ffffff/g)).toHaveLength(2);
+		expect(css).toContain("--color-accent: #486900");
+		expect(css).toContain("font-weight: 700");
+		expect(css).not.toContain("#007aff");
+		expect(css).not.toContain("#0a84ff");
 		expect(css).not.toContain("@media (prefers-color-scheme:");
 		expect(css).not.toContain("#34c759");
 	});
@@ -71,6 +91,23 @@ describe("mobile UI contracts", () => {
 		expect(modelSheet).toContain(
 			"PROVIDER_NATIVE_ASSET_NAMES[value.providerId]",
 		);
+		expect(newChat).toContain('className="mb-4 gap-1 px-1"');
+		expect(newChat).toContain("readNewChatPreferences");
+		expect(newChat).toContain("saveNewChatPreferences");
+		const savedDefaults = newChat.slice(
+			newChat.indexOf("void saveNewChatPreferences"),
+			newChat.indexOf(
+				").catch",
+				newChat.indexOf("void saveNewChatPreferences"),
+			),
+		);
+		expect(savedDefaults).toContain("connectionKey: effectiveConnectionKey");
+		expect(savedDefaults).toContain("projectId: effectiveProjectId");
+		expect(savedDefaults).toContain("sourceKind,");
+		expect(savedDefaults).not.toContain("source:");
+		expect(savedDefaults).not.toContain("branchLabel");
+		expect(newChat).toContain("const worktreeId = payload.createWorktree");
+		expect(newChat).not.toContain("listWorktrees");
 	});
 
 	test("keeps plan and attachment actions directly on the composer plus menu", () => {
@@ -178,7 +215,58 @@ describe("mobile UI contracts", () => {
 		expect(scanner).toContain("style={StyleSheet.absoluteFill}");
 	});
 
-	test("makes native nearby discovery the primary pairing path", () => {
+	test("uses visible native header symbols with transparent targets", () => {
+		const home = appFile("index.tsx");
+		const qrIcon = home.slice(
+			home.indexOf('name="qrcode.viewfinder"'),
+			home.indexOf("</Pressable>", home.indexOf('name="qrcode.viewfinder"')),
+		);
+		expect(home).toContain("width: 40");
+		expect(home).toContain("height: 40");
+		expect(home).not.toContain("backgroundColor");
+		expect(home).not.toContain("borderWidth");
+		expect(home).toContain('name="qrcode.viewfinder"');
+		expect(qrIcon).toContain("size={19}");
+		expect(qrIcon).toContain("tintColor={colors.fg}");
+		expect(home).toContain('name="gearshape.fill"');
+		expect(home).toContain("size={20}");
+		expect(home).not.toContain('color="#ffffff"');
+	});
+
+	test("gates fresh installs through a replayable end-to-end onboarding", () => {
+		const layout = appFile("_layout.tsx");
+		const home = appFile("index.tsx");
+		const onboarding = readFileSync(
+			`${process.cwd()}/src/components/onboarding/onboarding-flow.tsx`,
+			"utf8",
+		);
+		const settings = appFile("settings.tsx");
+		expect(layout).toContain('name="onboarding"');
+		expect(layout).toContain('presentation: "fullScreenModal"');
+		expect(home).toContain("onboardingHydratedAtom");
+		expect(home).toContain('router.replace("/onboarding")');
+		expect(onboarding).toContain(
+			'"Connection", "Desktop", "Settings", "Connect"',
+		);
+		expect(onboarding).toContain("Zuse is open on my computer");
+		expect(onboarding).toContain("Cloud sandboxes");
+		expect(onboarding).toContain("Local connection");
+		expect(onboarding).toContain("You can use both");
+		expect(onboarding).toContain("Settings → Connections");
+		expect(onboarding).toContain("Restart and turn on");
+		expect(onboarding).not.toContain("Set up Zuse Serve");
+		expect(onboarding).toContain("No desktop pairing");
+		expect(onboarding).toContain(
+			'const cloudReady = step === 1 && path === "cloud"',
+		);
+		expect(onboarding).toContain("Create link");
+		expect(onboarding).toContain("Show QR");
+		expect(onboarding).toContain('router.push("/connect/scan")');
+		expect(onboarding).toContain('router.push("/connect/nearby")');
+		expect(settings).toContain('title="Getting started"');
+	});
+
+	test("offers sign-in, QR scanning, and nearby discovery in the empty state", () => {
 		const home = appFile("index.tsx");
 		const nearby = appFile("connect/nearby.tsx");
 		const nativeModule = readFileSync(
@@ -191,6 +279,15 @@ describe("mobile UI contracts", () => {
 		);
 		expect(home).toContain('onPress={() => router.push("/connect/nearby")}');
 		expect(home).toContain("Find nearby Mac");
+		const emptyActions = home.slice(
+			home.indexOf("!searching && reachableConnections.length === 0"),
+		);
+		expect(emptyActions).toContain('"Sign in"');
+		expect(emptyActions).toContain("Scan QR code");
+		expect(emptyActions.indexOf('"Sign in"')).toBeLessThan(
+			emptyActions.indexOf("Scan QR code"),
+		);
+		expect(emptyActions).toContain('router.push("/connect/scan")');
 		expect(nearby).toContain("<ScrollView");
 		expect(nearby).toContain("useHeaderHeight");
 		expect(nearby).toContain('contentInsetAdjustmentBehavior="never"');
@@ -351,6 +448,73 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("initialTranscriptLoading");
 		expect(thread).toContain("transcriptEndRunwayHeight");
 		expect(thread).not.toContain("onLayout={onTranscriptLayout}");
+	});
+
+	test("uses an icon-only native fork menu and backgroundless standalone loaders", () => {
+		const messageRow = readFileSync(
+			`${process.cwd()}/src/components/messages/message-row.tsx`,
+			"utf8",
+		);
+		const forkMenu = readFileSync(
+			`${process.cwd()}/src/components/messages/fork-from-message-menu.ios.tsx`,
+			"utf8",
+		);
+		const threads = appFile("c/[conn]/chat/[chatId]/threads.tsx");
+		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		const recovery = readFileSync(
+			`${process.cwd()}/src/components/connection-recovery-banner.tsx`,
+			"utf8",
+		);
+		const attachment = readFileSync(
+			`${process.cwd()}/src/components/messages/attachment-media.tsx`,
+			"utf8",
+		);
+		const homeSkeleton = readFileSync(
+			`${process.cwd()}/src/components/home/home-skeleton.tsx`,
+			"utf8",
+		);
+		const loader = threads.slice(
+			threads.indexOf('accessibilityLabel="Loading selected thread"'),
+			threads.indexOf("<Stack.Toolbar", threads.indexOf("switchingThread")),
+		);
+		const transcriptLoader = thread.slice(
+			thread.indexOf("function TranscriptLoadingState"),
+			thread.indexOf("class ThreadScreenBoundary"),
+		);
+		const reconnectingLoader = recovery.slice(
+			recovery.indexOf("{recovering ? ("),
+			recovery.indexOf(") : (", recovery.indexOf("{recovering ? (")),
+		);
+		const attachmentLoader = attachment.slice(
+			attachment.indexOf("if (uri === null)"),
+			attachment.indexOf(
+				"\n\treturn (",
+				attachment.indexOf("if (uri === null)") + 1,
+			),
+		);
+		expect(messageRow).toContain("<ForkFromMessageMenu");
+		expect(messageRow).not.toContain("Fork from here</Text>");
+		expect(messageRow).toContain("createdAt={message.createdAt}");
+		expect(messageRow).toContain('accessibilityLabel="Copy response"');
+		expect(messageRow).toContain("Clipboard.setStringAsync(text)");
+		expect(messageRow).toContain("formatMessageTime(createdAt)");
+		const assistantActions = messageRow.slice(
+			messageRow.indexOf('<View className="mt-1 flex-row items-center">'),
+			messageRow.indexOf("</View>", messageRow.indexOf("<ForkFromMessageMenu")),
+		);
+		expect(assistantActions.indexOf("<ForkFromMessageMenu")).toBeLessThan(
+			assistantActions.indexOf(
+				'<Pressable\n\t\t\t\t\taccessibilityRole="button"',
+			),
+		);
+		expect(forkMenu).toContain('systemName={sf("arrow.triangle.branch")}');
+		expect(forkMenu).toContain('label="Fork in this chat"');
+		expect(forkMenu).toContain('label="Fork to a new chat"');
+		expect(loader).not.toContain("backgroundColor");
+		expect(transcriptLoader).not.toContain("bg-");
+		expect(reconnectingLoader).not.toContain("bg-");
+		expect(attachmentLoader).not.toContain("bg-");
+		expect(homeSkeleton).not.toContain("bg-");
 	});
 
 	test("uses a synchronous composer submission gate", () => {

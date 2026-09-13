@@ -1,5 +1,7 @@
 import type {
 	CloudWorkspaceSshAccess,
+	ComputerAwakeMode,
+	ComputerAwakeStatus,
 	DiscoveredSshHost,
 	EnsureSshEnvironmentInput,
 	EnsureTailnetEnvironmentInput,
@@ -18,6 +20,7 @@ import type {
 	TailnetEnvironmentConnection,
 	TailnetEnvironmentProfile,
 	TailnetShareState,
+	UpdateChannel,
 	UpdateStatus,
 } from "@zuse/contracts";
 
@@ -144,7 +147,7 @@ export interface CloudSyncConfigure {
 export interface CloudSyncStatus {
 	readonly workspaceId: string;
 	readonly enabled: boolean;
-	readonly state: "idle" | "syncing" | "in-sync" | "error";
+	readonly state: "idle" | "pending" | "syncing" | "in-sync" | "error";
 	readonly localPath: string | null;
 	readonly lastSyncedAt: number | null;
 	readonly error: string | null;
@@ -152,6 +155,8 @@ export interface CloudSyncStatus {
 }
 
 export interface UpdatesBridge {
+	readonly getChannel: () => Promise<UpdateChannel>;
+	readonly setChannel: (channel: UpdateChannel) => Promise<UpdateChannel>;
 	readonly onStatus: (handler: (status: UpdateStatus) => void) => () => void;
 	readonly check: () => Promise<void>;
 	readonly download: () => Promise<void>;
@@ -180,6 +185,14 @@ export interface PowerBridge {
 	readonly clearHistory: () => Promise<void>;
 	readonly reportLagSamples: (samples: ReadonlyArray<LagSample>) => void;
 	readonly reportWorkload: (workload: PowerWorkloadState) => void;
+}
+
+export interface ComputerAwakeBridge {
+	readonly getStatus: () => Promise<ComputerAwakeStatus>;
+	readonly setMode: (mode: ComputerAwakeMode) => Promise<ComputerAwakeStatus>;
+	readonly onChanged: (
+		handler: (status: ComputerAwakeStatus) => void,
+	) => () => void;
 }
 
 /**
@@ -478,6 +491,7 @@ export interface ZuseBridge {
 	readonly network?: NetworkBridge;
 	readonly updates?: UpdatesBridge;
 	readonly power?: PowerBridge;
+	readonly computerAwake?: ComputerAwakeBridge;
 	readonly browser?: BrowserBridge;
 	readonly notch?: NotchBridge;
 	readonly ssh?: SshBridge;

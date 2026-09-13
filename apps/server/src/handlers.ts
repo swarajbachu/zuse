@@ -1,9 +1,11 @@
 import { Layer } from "effect";
 import { AccountAccessHandlersLayer } from "./account-access/handlers.ts";
 import { AnalyticsHandlersLayer } from "./analytics/handlers.ts";
+import { ApiHandlersLayer } from "./api/handlers.ts";
 import { AttachmentHandlersLayer } from "./attachment/handlers.ts";
 import { AuthHandlersLayer } from "./auth/handlers.ts";
 import { ConfigStoreHandlersLayer } from "./config-store/handlers.ts";
+import { DeviceBridgeHandlersLayer } from "./device-bridge/handlers.ts";
 import { DiagnosticsHandlersLayer } from "./diagnostics/handlers.ts";
 import { ExtensionHandlersLayer } from "./extension/handlers.ts";
 import { ExternalThreadHandlersLayer } from "./external-thread/handlers.ts";
@@ -14,12 +16,12 @@ import { LanAuthHandlersLayer } from "./lan-auth/handlers.ts";
 import { LinearHandlersLayer } from "./linear/handlers.ts";
 import { MachineHandlersLayer } from "./machine/handlers.ts";
 import { McpHandlersLayer } from "./mcp/handlers.ts";
+import { ModelCatalogHandlersLayer } from "./model-catalog/handlers.ts";
 import { PingHandlersLayer } from "./ping/handlers.ts";
 import { PokemonHandlersLayer } from "./pokemon/handlers.ts";
 import { PreviewsHandlersLayer } from "./previews/handlers.ts";
 import { ProviderHandlersLayer } from "./provider/handlers.ts";
 import { PtyHandlersLayer } from "./pty/handlers.ts";
-import { RelayHandlersLayer } from "./relay/handlers.ts";
 import { RepositorySettingsHandlersLayer } from "./repository-settings/handlers.ts";
 import { SkillHandlersLayer } from "./skill/handlers.ts";
 import { UsageHandlersLayer } from "./usage/handlers.ts";
@@ -34,12 +36,13 @@ import { WorktreeHandlersLayer } from "./worktree/handlers.ts";
  * sneaking into the handler boundary.
  */
 export const HandlersLayer = Layer.mergeAll(
+	DeviceBridgeHandlersLayer,
 	PingHandlersLayer,
 	PreviewsHandlersLayer,
 	AccountAccessHandlersLayer,
 	AnalyticsHandlersLayer,
 	LanAuthHandlersLayer,
-	RelayHandlersLayer,
+	ApiHandlersLayer,
 	AuthHandlersLayer,
 	LinearHandlersLayer,
 	MachineHandlersLayer,
@@ -52,6 +55,7 @@ export const HandlersLayer = Layer.mergeAll(
 	ConfigStoreHandlersLayer,
 	ProviderHandlersLayer,
 	McpHandlersLayer,
+	ModelCatalogHandlersLayer,
 	FsHandlersLayer,
 	AttachmentHandlersLayer,
 	SkillHandlersLayer,

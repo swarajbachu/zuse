@@ -126,7 +126,7 @@
   <p>Zuse today is a single Electron process: the renderer talks to <code>@zusehq/server</code> over Electron IPC, chats live in SQLite as mutable CRUD rows, and live updates come from an in-memory pub/sub. We want the same server to be driven by <b>many clients</b> (desktop, mobile, browser) running on <b>many hosts</b> (laptop, SSH dev-box, cloud container) — all over one WebSocket contract.</p>
   <div class="box key">
     <div class="t">The central insight</div>
-    <p style="margin:0">This is <b>additive, not a rewrite.</b> <code>@zusehq/server</code> is already an Effect app on <code>@effect/rpc</code> / <code>@effect/sql</code> / <code>@effect/platform-node</code>. <a href="../0.01-MVP/decisions/0007-server-as-code-only-app.md">ADR 0007</a> already forbids <code>electron</code> imports in <code>apps/server</code>, mandates a pure <code>makeMainLayer(deps)</code> factory, and makes the transport pluggable. The base server stays. We add a WebSocket transport, an event-sourced sync core, a cloud relay, an Expo client, and SSH launch — each an independent track.</p>
+    <p style="margin:0">This is <b>additive, not a rewrite.</b> <code>@zusehq/server</code> is already an Effect app on <code>@effect/rpc</code> / <code>@effect/sql</code> / <code>@effect/platform-node</code>. <a href="../0.01-MVP/decisions/0007-server-as-code-only-app.md">ADR 0007</a> already forbids <code>electron</code> imports in <code>apps/server</code>, mandates a pure <code>makeMainLayer(deps)</code> factory, and makes the transport pluggable. The base server stays. We add a WebSocket transport, an event-sourced sync core, a cloud api, an Expo client, and SSH launch — each an independent track.</p>
   </div>
   <p>The single genuine architectural gap is <b>persistence</b>: mutable CRUD + in-memory pub/sub cannot give a mobile client gap-free reconnect, offline snapshots, or multi-writer ordering. We close it with <b>event sourcing</b> (an append-only log with a global <code>sequence</code>, projected into the existing tables) and, in the same pass, swap the SQLite driver to Node's built-in <b><code>node:sqlite</code></b> so one persistence layer runs identically under Electron and headless Node.</p>
 
@@ -195,12 +195,12 @@ Electron main
     <tr><th><code>providerKind</code></th><th>Where the server runs</th><th>How clients reach it</th></tr>
     <tr><td><code>"desktop"</code></td><td>The user's laptop</td><td>Electron IPC in-process; or WS + managed tunnel for remote reach</td></tr>
     <tr><td><code>"ssh"</code></td><td>A remote dev-box, launched by the desktop</td><td>SSH <code>-L</code> tunnel to <code>127.0.0.1:&lt;local&gt;</code></td></tr>
-    <tr><td><code>"cloud"</code></td><td>A cloud container + persistent volume</td><td>Relay-provisioned managed endpoint (= <b>cloud worktrees</b>)</td></tr>
+    <tr><td><code>"cloud"</code></td><td>A cloud container + persistent volume</td><td>API-provisioned managed endpoint (= <b>cloud worktrees</b>)</td></tr>
   </table>
-  <div class="box key"><div class="t">Why this matters</div><p style="margin:0">Everything above the transport — persistence, projector, providers, <b>git worktree management</b> — is host-agnostic (ADR 0007; worktrees are on-disk checkouts under the project path). So a <b>cloud worktree is not a new code path</b>: it is the headless server running on a cloud volume, registered with <code>providerKind:"cloud"</code>, reached through the same link/connect + WS flow as desktop or SSH. We get cloud by holding four rules from day one: nothing in <code>apps/server</code> assumes a local machine; the relay keys by <code>environmentId</code>; connect/link methods carry <code>providerKind</code> + endpoint; worktree lifecycle stays a server-side RPC capability.</p></div>
+  <div class="box key"><div class="t">Why this matters</div><p style="margin:0">Everything above the transport — persistence, projector, providers, <b>git worktree management</b> — is host-agnostic (ADR 0007; worktrees are on-disk checkouts under the project path). So a <b>cloud worktree is not a new code path</b>: it is the headless server running on a cloud volume, registered with <code>providerKind:"cloud"</code>, reached through the same link/connect + WS flow as desktop or SSH. We get cloud by holding four rules from day one: nothing in <code>apps/server</code> assumes a local machine; the api keys by <code>environmentId</code>; connect/link methods carry <code>providerKind</code> + endpoint; worktree lifecycle stays a server-side RPC capability.</p></div>
 
   <h3 id="future-shapes">Process shapes &amp; the full picture</h3>
-  <div class="diagram"><pre>            ┌────────────── Relay (control plane only) ──────────────┐
+  <div class="diagram"><pre>            ┌────────────── API (control plane only) ──────────────┐
             │  WorkOS identity · device↔environment link              │
             │  short-lived connect tokens · managed-tunnel provision  │
             │  push (APNs) fan-out · NOT in the data path             │
@@ -221,13 +221,13 @@ Electron main
     <li><b>In-process</b> (today) — Electron; <code>serverProtocol = electronServerProtocolLayer</code>. Never stops working.</li>
     <li><b>Headless WS</b> — <code>bin.ts</code> / <code>zuse serve</code>; <code>serverProtocol = wsServerProtocolLayer({port})</code>, file-backed AppPaths, no-op FolderPicker. <span class="pill done">landed</span></li>
     <li><b>Remote-over-SSH</b> — shape 2 launched on a remote box, tunneled back.</li>
-    <li><b>Cloud-hosted</b> — shape 2 on a cloud container + volume, reached via the relay's managed endpoint.</li>
+    <li><b>Cloud-hosted</b> — shape 2 on a cloud container + volume, reached via the api's managed endpoint.</li>
   </ol>
 
   <h3 id="future-life">A day in the life</h3>
   <div class="grid2">
     <div class="box note"><div class="t">Mobile on the LAN</div><p style="margin:0">Open the desktop → it shows a QR. Phone scans <code>zuse://?pairingUrl=&lt;host&gt;#token=&lt;code&gt;</code>, stores host+bearer in secure storage, opens a WS straight to the laptop, streams the chat from <code>sinceSequence</code>.</p></div>
-    <div class="box note"><div class="t">Mobile from anywhere</div><p style="margin:0">The phone (WorkOS-signed) links the environment to the relay with a DPoP key; the relay returns a managed Cloudflare endpoint + short-lived token; the phone connects directly to the laptop through the tunnel. The relay never sees chat bytes.</p></div>
+    <div class="box note"><div class="t">Mobile from anywhere</div><p style="margin:0">The phone (WorkOS-signed) links the environment to the api with a DPoP key; the api returns a managed Cloudflare endpoint + short-lived token; the phone connects directly to the laptop through the tunnel. The api never sees chat bytes.</p></div>
     <div class="box note"><div class="t">SSH dev-box</div><p style="margin:0">Pick a host from <code>~/.ssh/config</code>; the desktop runs <code>zuse serve</code> there over SSH, opens a <code>-L</code> tunnel, and the renderer talks to <code>ws://127.0.0.1:&lt;local&gt;/rpc</code> as if local.</p></div>
     <div class="box note"><div class="t">Cloud worktree</div><p style="margin:0">A provisioner boots <code>zuse serve</code> in a container with a persistent volume, clones the repo / creates the worktree on it, registers <code>providerKind:"cloud"</code>. Identical UI, identical sync — the laptop can be asleep.</p></div>
   </div>
@@ -269,17 +269,17 @@ Electron main
     <h4>Decision</h4>
     <p>Model "a host running the server" as an <b>environment</b> with <code>providerKind: "desktop" | "ssh" | "cloud"</code> and an endpoint <code>{ httpBaseUrl, wsBaseUrl }</code>. Carry it through the connect/link wire methods from day one (done in PR0).</p>
     <h4>Consequences</h4>
-    <p>Cloud-hosted worktrees become a <b>provisioner bolt-on</b> rather than a rearchitecture (see <a href="#future-env">§2</a>). The four design rules (no laptop assumption; relay keys by <code>environmentId</code>; methods carry <code>providerKind</code>; worktree ops stay server-side RPC) are the only cost paid now.</p>
+    <p>Cloud-hosted worktrees become a <b>provisioner bolt-on</b> rather than a rearchitecture (see <a href="#future-env">§2</a>). The four design rules (no laptop assumption; api keys by <code>environmentId</code>; methods carry <code>providerKind</code>; worktree ops stay server-side RPC) are the only cost paid now.</p>
   </div>
 
   <div class="adr" id="d4">
-    <h3><span class="badge">D4</span> Cloud reach: WorkOS + thin relay + managed tunnel</h3>
+    <h3><span class="badge">D4</span> Cloud reach: WorkOS + thin api + managed tunnel</h3>
     <h4>Decision</h4>
-    <p>A <b>control-plane relay</b> links devices↔environments, issues short-lived connect tokens, and provisions a <b>Cloudflare managed tunnel</b> — then steps aside. Chat traffic is always <b>direct</b> client↔environment over WS; the relay is never in the data path. Identity reuses the existing <b>WorkOS</b> login (PKCE/keychain, <code>getAccessToken</code> seam), with a per-device <b>DPoP</b> proof-of-possession key. The environment proves control during linking by signing the relay's challenge with its local bearer token.</p>
+    <p>A <b>control-plane api</b> links devices↔environments, issues short-lived connect tokens, and provisions a <b>Cloudflare managed tunnel</b> — then steps aside. Chat traffic is always <b>direct</b> client↔environment over WS; the api is never in the data path. Identity reuses the existing <b>WorkOS</b> login (PKCE/keychain, <code>getAccessToken</code> seam), with a per-device <b>DPoP</b> proof-of-possession key. The environment proves control during linking by signing the api's challenge with its local bearer token.</p>
     <h4>Alternatives</h4>
-    <p>A new IdP (Clerk, etc.) — rejected; we already run WorkOS. Relaying chat data through the cloud — rejected (privacy, cost, latency, scaling).</p>
+    <p>A new IdP (Clerk, etc.) — rejected; we already run WorkOS. Apiing chat data through the cloud — rejected (privacy, cost, latency, scaling).</p>
     <h4>Consequences</h4>
-    <p>(+) Reach-anywhere with minimal trust surface; relay stays small and stateless-ish. (−) A new deployable + a new attack surface (mitigated: short-lived DPoP tokens, WorkOS-gated, no chat data — see R8).</p>
+    <p>(+) Reach-anywhere with minimal trust surface; api stays small and stateless-ish. (−) A new deployable + a new attack surface (mitigated: short-lived DPoP tokens, WorkOS-gated, no chat data — see R8).</p>
   </div>
 
   <div class="adr" id="d5">
@@ -301,9 +301,9 @@ Electron main
   <div class="adr" id="d7">
     <h3><span class="badge">D7</span> Auth model: LAN bearer + cloud DPoP</h3>
     <h4>Decision</h4>
-    <p>Two tiers. <b>LAN:</b> the environment mints a bearer token shown as a QR; a paired client sends it as <code>Authorization: Bearer</code> over WS. <b>Cloud:</b> the user authenticates to the relay with WorkOS; the device holds a DPoP keypair; linking binds device→environment by having the environment sign a relay challenge with its local bearer; thereafter the relay issues short-lived DPoP-bound connect tokens for the managed endpoint.</p>
+    <p>Two tiers. <b>LAN:</b> the environment mints a bearer token shown as a QR; a paired client sends it as <code>Authorization: Bearer</code> over WS. <b>Cloud:</b> the user authenticates to the api with WorkOS; the device holds a DPoP keypair; linking binds device→environment by having the environment sign a api challenge with its local bearer; thereafter the api issues short-lived DPoP-bound connect tokens for the managed endpoint.</p>
     <h4>Consequences</h4>
-    <p>No long-lived secrets on the device; revocation is per-device at the relay; the LAN path works with zero cloud dependency.</p>
+    <p>No long-lived secrets on the device; revocation is per-device at the api; the LAN path works with zero cloud dependency.</p>
   </div>
 
   <!-- ============================ CHANGES ============================ -->
@@ -321,7 +321,7 @@ Electron main
     <tr><td>Renderer transport</td><td><code>apps/renderer/src/lib/ws-client-protocol.ts</code>, <code>rpc-client.ts</code>, <code>package.json</code></td><td><span class="add">+ WS client layer; select WS vs IPC by <code>window.zuse</code>; add <code>@effect/platform</code></span></td><td>B</td></tr>
     <tr><td>SSH</td><td><code>packages/ssh/**</code>, <code>apps/desktop/src/ssh/**</code></td><td><span class="add">+ native-ssh wrapper (command/auth/config/tunnel/errors), desktop environment service + IPC, remote launch script</span></td><td>G</td></tr>
     <tr><td>Mobile</td><td><code>apps/mobile/**</code></td><td><span class="add">+ Expo app: WS RpcClient, QR pairing, secure-store catalog, snapshot cache, chat views, interact</span></td><td>F</td></tr>
-    <tr><td>Relay</td><td><code>infra/relay/**</code></td><td><span class="add">+ Cloudflare Worker control plane: link/connect/device/agent-activity endpoints, WorkOS + DPoP</span></td><td>D</td></tr>
+    <tr><td>API</td><td><code>infra/api/**</code></td><td><span class="add">+ Cloudflare Worker control plane: link/connect/device/agent-activity endpoints, WorkOS + DPoP</span></td><td>D</td></tr>
     <tr><td>Auth/pairing</td><td><code>apps/server</code> connect handlers, <code>credentials-service.ts</code></td><td><span class="add">+ register <code>connect.*</code>, bearer/QR pairing, device DPoP, WorkOS wiring</span></td><td>C</td></tr>
   </table>
 
@@ -400,14 +400,14 @@ export const wsClientProtocolLayer = (url) =&gt;
   <p><code>bin.ts</code> builds host deps without Electron — <code>userData</code> from <code>ZUSE_USER_DATA</code>/<code>$XDG_DATA_HOME</code>, a no-op <code>FolderPicker</code>, the WS transport — and boots via <code>NodeRuntime.runMain</code>, guarded so importing stays side-effect free.</p>
 
   <h3>5.4 Cloud link / connect protocol</h3>
-  <div class="diagram"><pre>device (WorkOS JWT + DPoP)        relay                       environment (local bearer)
+  <div class="diagram"><pre>device (WorkOS JWT + DPoP)        api                       environment (local bearer)
    │  POST link-challenge ───────►  │                                  │
    │  ◄──────── challenge ───────── │                                  │
    │  connect.linkProof(challenge) ──────────────────────────────────► │  sign w/ local bearer
    │  ◄──────────────────────────────────────────── proof ─────────── │
    │  POST environment-links {proof, deviceId} ►  │  verify, mint creds │
    │  ◄── {environmentId, managedEndpoint, environmentCredential} ──── │
-   │  connect.relayConfig(creds) ────────────────────────────────────► │  persist for reuse
+   │  connect.apiConfig(creds) ────────────────────────────────────► │  persist for reuse
    │  POST /environments/{id}/connect ►  │  short-lived DPoP token       │
    │  ◄──────────── token + wsBaseUrl ─ │                                │
    │  WS connect (DPoP token) ═══════════════════════════════════════► │  DIRECT data path</pre></div>
@@ -437,8 +437,8 @@ export const wsClientProtocolLayer = (url) =&gt;
    ├──► A  sync-core (event sourcing + node:sqlite)     ── persistence track
    ├──► B  ws-transport (server ✅) ─► B-renderer (WS client)
    │         └──► G  ssh (uses bin.ts ✅)
-   │         └──► F  mobile (LAN/bearer) ─► C auth ─► D relay ─► E tunnel ─► H push
-   └──► D  relay (standalone, stub env until C)</pre></div>
+   │         └──► F  mobile (LAN/bearer) ─► C auth ─► D api ─► E tunnel ─► H push
+   └──► D  api (standalone, stub env until C)</pre></div>
   <p>Five tracks run concurrently in their own worktrees. Boundaries (the "don't touch" list per track) keep diffs disjoint; ready-to-paste agent prompts live in <a href="./parallel-handoffs.md"><code>parallel-handoffs.md</code></a>.</p>
   <table>
     <tr><th>Lane</th><th>Track</th><th>Branch</th><th>Conflict surface</th></tr>
@@ -446,7 +446,7 @@ export const wsClientProtocolLayer = (url) =&gt;
     <tr><td>2</td><td><b>B-renderer</b> WS client</td><td><code>remote-multiclient-ws-client</code></td><td><code>renderer/lib/rpc-client.ts</code> (+ new), renderer <code>package.json</code></td></tr>
     <tr><td>3</td><td><b>F</b> mobile scaffold</td><td><code>remote-multiclient-mobile</code></td><td><code>apps/mobile/**</code> (disjoint)</td></tr>
     <tr><td>4</td><td><b>G</b> SSH</td><td><code>remote-multiclient-ssh</code></td><td><code>packages/ssh/**</code>, <code>apps/desktop/src/ssh/**</code></td></tr>
-    <tr><td>5</td><td><b>D</b> relay</td><td><code>remote-multiclient-relay</code></td><td><code>infra/relay/**</code> (disjoint)</td></tr>
+    <tr><td>5</td><td><b>D</b> api</td><td><code>remote-multiclient-api</code></td><td><code>infra/api/**</code> (disjoint)</td></tr>
   </table>
   <h4>PR breakdown</h4>
   <table>
@@ -459,7 +459,7 @@ export const wsClientProtocolLayer = (url) =&gt;
     <tr><td>PR-G</td><td>SSH package + desktop env + remote launch</td><td><span class="pill todo">todo</span></td></tr>
     <tr><td>PR-C</td><td>auth/pairing (bearer + QR, device DPoP, WorkOS)</td><td><span class="pill todo">todo</span></td></tr>
     <tr><td>PR-F1 / F2</td><td>mobile scaffold / interact</td><td><span class="pill todo">todo</span></td></tr>
-    <tr><td>PR-D / PR-E</td><td>relay / managed tunnel</td><td><span class="pill todo">todo</span></td></tr>
+    <tr><td>PR-D / PR-E</td><td>api / managed tunnel</td><td><span class="pill todo">todo</span></td></tr>
     <tr><td>PR-H</td><td>push + Live Activities</td><td><span class="pill todo">todo</span></td></tr>
     <tr><td>PR-I</td><td>cloud-environment provisioner</td><td><span class="pill defer">deferred</span></td></tr>
   </table>
@@ -476,7 +476,7 @@ export const wsClientProtocolLayer = (url) =&gt;
     <tr><td>R5</td><td>Event committed but broadcast lost on crash.</td><td>Append+project in one txn; broadcast <b>after</b> commit; <code>sinceSequence</code> resume reads the committed row.</td></tr>
     <tr><td>R6</td><td><code>messages.stream</code> success type flip is a typed flag-day.</td><td>Single repo, ~1 consumer; grep before landing PR-A2.</td></tr>
     <tr><td>R7</td><td>Electron's bundled Node may predate <code>node:sqlite</code>.</td><td>Verify first (D2 prerequisite); documented better-sqlite3 Node-ABI fallback for headless.</td></tr>
-    <tr><td>R8</td><td>Relay is a new attack surface.</td><td>Short-lived DPoP tokens, WorkOS-gated, no chat data in path; pen-test before exposing.</td></tr>
+    <tr><td>R8</td><td>API is a new attack surface.</td><td>Short-lived DPoP tokens, WorkOS-gated, no chat data in path; pen-test before exposing.</td></tr>
   </table>
 
   <!-- ============================ VERIFY ============================ -->
@@ -486,7 +486,7 @@ export const wsClientProtocolLayer = (url) =&gt;
     <li><b>B</b> — boot <code>zuse serve</code>, point the renderer at <code>ws://127.0.0.1:&lt;port&gt;/rpc</code>, run a chat; confirm IPC path unaffected.</li>
     <li><b>G</b> — <code>ssh -G</code> resolve a fixture host; launch + tunnel + drive a chat on a real box; kill tunnel → assert Scope teardown.</li>
     <li><b>F</b> — Expo on LAN, QR-pair, view a live chat, send + approve; airplane-mode → snapshot renders → reconnect reconciles.</li>
-    <li><b>D/E</b> — link a stub environment, fetch a connect token, reach the desktop through the tunnel from cellular; assert no chat bytes traverse the relay.</li>
+    <li><b>D/E</b> — link a stub environment, fetch a connect token, reach the desktop through the tunnel from cellular; assert no chat bytes traverse the api.</li>
     <li><b>H</b> — trigger an approval; assert APNs delivery + Live Activity update.</li>
     <li>Gate every PR: <code>turbo build lint check-types test</code>.</li>
   </ul>
@@ -496,11 +496,11 @@ export const wsClientProtocolLayer = (url) =&gt;
   <h2 id="future-scope">10 · Future / explicitly out of scope (v1)</h2>
   <table>
     <tr><th>Item</th><th>Why deferred</th></tr>
-    <tr><td><b>Cloud-environment provisioner</b> (PR-I)</td><td>Rides entirely on the headless server + relay + <code>providerKind</code> seam; build when cloud worktrees are prioritized. Host pick (Fly / Firecracker / containers), persistent volume, git auth, idle suspend/resume decided then.</td></tr>
+    <tr><td><b>Cloud-environment provisioner</b> (PR-I)</td><td>Rides entirely on the headless server + api + <code>providerKind</code> seam; build when cloud worktrees are prioritized. Host pick (Fly / Firecracker / containers), persistent volume, git auth, idle suspend/resume decided then.</td></tr>
     <tr><td><b>CLI client</b></td><td>Same WS wire client as mobile/browser; trivial once the WS client exists.</td></tr>
     <tr><td><b>Multi-window desktop</b></td><td>The Electron transport is single-window today; WS multi-client makes this straightforward later.</td></tr>
     <tr><td><b>Lifecycle events through the log</b></td><td>v1 routes only <code>MessagePersisted</code>; status/cursor stay inline and migrate to events when convenient.</td></tr>
-    <tr><td><b>Relay-mediated folder prompts</b></td><td>Headless FolderPicker returns null in v1; forwarding the prompt to a connected client is a later refinement.</td></tr>
+    <tr><td><b>API-mediated folder prompts</b></td><td>Headless FolderPicker returns null in v1; forwarding the prompt to a connected client is a later refinement.</td></tr>
   </table>
 
   <!-- ============================ GLOSSARY ============================ -->
@@ -511,7 +511,7 @@ export const wsClientProtocolLayer = (url) =&gt;
     <tr><td><b><code>sequence</code></b></td><td>Global monotonic cursor (events PK); the unit of resume.</td></tr>
     <tr><td><b><code>stream_version</code></b></td><td>Per-stream counter; the optimistic-concurrency guard for multi-writer ordering.</td></tr>
     <tr><td><b>DPoP</b></td><td>Demonstrating Proof-of-Possession — binds a token to a device-held key.</td></tr>
-    <tr><td><b>Relay</b></td><td>Control-plane service for linking + token issuance; never in the data path.</td></tr>
+    <tr><td><b>API</b></td><td>Control-plane service for linking + token issuance; never in the data path.</td></tr>
     <tr><td><b>Managed tunnel</b></td><td>Cloudflare Tunnel that exposes the environment's WS endpoint for reach-anywhere.</td></tr>
   </table>
 

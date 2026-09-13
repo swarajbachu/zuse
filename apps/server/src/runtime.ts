@@ -15,6 +15,21 @@ import {
 	AccountAccessServiceLive,
 } from "./account-access/service.ts";
 import { AnalyticsServiceLive } from "./analytics/layers/analytics-service.ts";
+import { ApiActivityPublisherLive } from "./api/activity-publisher.ts";
+import {
+	ApiLinkService,
+	ApiLinkServiceLive,
+	makeDisabledApiLinkService,
+} from "./api/api-link-service.ts";
+import {
+	type CloudEnrollmentConfig,
+	makeCloudEnrollmentLayer,
+} from "./api/cloud-enrollment.ts";
+import {
+	type CloudWorkspaceRuntimeConfig,
+	makeCloudWorkspaceRuntimeLayer,
+} from "./api/cloud-workspace-runtime.ts";
+import { ManagedTunnelRuntimeLive } from "./api/managed-tunnel-runtime.ts";
 import { AppPaths, type TelemetryIdentity } from "./app-paths.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
 import { AuthServiceLive } from "./auth/layers/auth-service.ts";
@@ -23,6 +38,7 @@ import { AuthShell } from "./auth/services/auth-shell.ts";
 import { ConfigStoreServiceLive } from "./config-store/layers/config-store-service.ts";
 import { ConversationState } from "./conversation/core/conversation-state.ts";
 import { ConversationServicesLive } from "./conversation/layers/conversation-services.ts";
+import { DeviceBridgeServiceLive } from "./device-bridge/service.ts";
 import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
 import { ExtensionServiceLive } from "./extension/layers/extension-service.ts";
 import { ExternalThreadServiceLive } from "./external-thread/layers/external-thread-service.ts";
@@ -44,6 +60,8 @@ import {
 import { MachineResourceServiceLive } from "./machine/machine-resource-service.ts";
 import { MachineRuntimeRole } from "./machine/machine-runtime-role.ts";
 import { McpServiceLive } from "./mcp/layers/mcp-service.ts";
+import { ModelCatalogPollerLive } from "./model-catalog/layers/model-catalog-poller.ts";
+import { ModelCatalogServiceLive } from "./model-catalog/layers/model-catalog-service.ts";
 import { RuntimePerformanceMonitorLive } from "./observability/runtime-performance-monitor.ts";
 import { TelemetryObservabilityLive } from "./observability/telemetry-layer.ts";
 import { TelemetryStoreLive } from "./observability/telemetry-store.ts";
@@ -57,23 +75,12 @@ import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-servi
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import type { CredentialsService } from "./provider/services/credentials-service.ts";
+import {
+	makeRuntimeProviderCredentials,
+	RuntimeProviderCredentials,
+} from "./provider/services/runtime-provider-credentials.ts";
 import { TitleGeneratorLive } from "./provider/title-generator.ts";
 import { PtyServiceLive } from "./pty/layers/pty-service.ts";
-import { RelayActivityPublisherLive } from "./relay/activity-publisher.ts";
-import {
-	type CloudEnrollmentConfig,
-	makeCloudEnrollmentLayer,
-} from "./relay/cloud-enrollment.ts";
-import {
-	type CloudWorkspaceRuntimeConfig,
-	makeCloudWorkspaceRuntimeLayer,
-} from "./relay/cloud-workspace-runtime.ts";
-import { ManagedTunnelRuntimeLive } from "./relay/managed-tunnel-runtime.ts";
-import {
-	makeDisabledRelayLinkService,
-	RelayLinkService,
-	RelayLinkServiceLive,
-} from "./relay/relay-link-service.ts";
 import { RepositorySettingsServiceLive } from "./repository-settings/layers/repository-settings-service.ts";
 import { SkillBridgeLive } from "./skill/layers/skill-bridge.ts";
 import { SkillDiscoveryServiceLive } from "./skill/layers/skill-discovery.ts";
@@ -106,7 +113,7 @@ import {
  *   IPC protocol; a headless server supplies a WebSocket protocol.
  * - `additionalServerProtocols`: optional secondary transports that serve the
  *   same RPC handlers from the same runtime, for example Electron IPC plus a
- *   protected local WebSocket origin for relay tunnels.
+ *   protected local WebSocket origin for api tunnels.
  * - `authShell`: the WorkOS OAuth deep-link seam. Electron opens the system
  *   browser via `shell.openExternal` and funnels the `zuse://auth/callback`
  *   deep link back in; a headless server supplies a loopback-HTTP variant.
@@ -144,11 +151,11 @@ export interface MainLayerDeps {
 		sessionId: string,
 		chatId: string,
 	) => void | Promise<void>;
-	readonly autoRelayLink?: {
-		readonly relayUrl: string;
+	readonly autoApiLink?: {
+		readonly apiUrl: string;
 		readonly label?: string;
 	};
-	readonly relayEnabled?: boolean;
+	readonly apiEnabled?: boolean;
 	readonly cliAccess?: {
 		readonly path: string;
 		readonly wsUrl: string;
@@ -429,14 +436,30 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
 	);
+	const RuntimeProviderCredentialsLayer = Layer.succeed(
+		RuntimeProviderCredentials,
+		makeRuntimeProviderCredentials(),
+	);
 
 	// ProviderService probes installed CLIs via CommandExecutor, consults
 	// CredentialsService for SDK keys, resolves folderId → cwd via
 	// WorkspaceService, and forwards the SDK's tool-permission callback to
 	// PermissionService.
+	// ModelCatalogService merges the curated catalog (bundled / disk / zuse.sh)
+	// with live provider inventories. ProviderService resolves the model
+	// descriptor from it at session start; handlers stream it to the picker.
+	const ModelCatalogLayer = ModelCatalogServiceLive.pipe(
+		Layer.provide(AppPathsLayer),
+		Layer.provide(CredentialsLayer),
+		Layer.provide(ConfigStoreLayer),
+		Layer.provide(NodeServices.layer),
+	);
+
 	const ProviderLayer = ProviderServiceLive.pipe(
 		Layer.provide(ExtensionLayer),
+		Layer.provide(ModelCatalogLayer),
 		Layer.provide(CredentialsLayer),
+		Layer.provide(RuntimeProviderCredentialsLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(PermissionLayer),
 		Layer.provide(AttachmentLayer),
@@ -481,7 +504,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(SessionQueriesLayer),
 	);
 
-	const RelayActivityPublisherLayer = RelayActivityPublisherLive.pipe(
+	const ApiActivityPublisherLayer = ApiActivityPublisherLive.pipe(
 		Layer.provide(EnrolledLanAuthLayer),
 	);
 	const LinearLayer = LinearServiceLive.pipe(
@@ -514,6 +537,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const ConversationServicesLayer = ConversationServicesLive.pipe(
 		Layer.provide(ConversationState.layer),
 		Layer.provide(ProviderLayer),
+		Layer.provide(ModelCatalogLayer),
 		Layer.provide(WorktreeLayer),
 		Layer.provide(RepositorySettingsLayer),
 		Layer.provide(PtyLayer),
@@ -522,7 +546,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(GitLayer),
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(TitleGeneratorLayer),
-		Layer.provide(RelayActivityPublisherLayer),
+		Layer.provide(ApiActivityPublisherLayer),
 		Layer.provide(LinearLayer),
 		Layer.provide(ProjectorCatchup),
 		Layer.provide(SessionDomainLayer),
@@ -535,10 +559,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		deps.cloudWorkspaceRuntime,
 	).pipe(
 		Layer.provide(CredentialsLayer),
+		Layer.provide(AttachmentLayer),
+		Layer.provide(RuntimeProviderCredentialsLayer),
 		Layer.provide(EnrolledLanAuthLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(ConversationServicesLayer),
 		Layer.provide(SessionDomainLayer),
+		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
 	);
 
@@ -550,6 +577,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const ExternalThreadLayer = ExternalThreadServiceLive.pipe(
+		Layer.provide(ModelCatalogLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(WorktreeLayer),
 		Layer.provide(ConversationServicesLayer),
@@ -569,14 +597,14 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(ConversationServicesLayer),
 		Layer.provide(WorkspaceLayer),
 	);
-	// RelayLinkService orchestrates the desktop's self-registration with the
-	// account relay (challenge → Ed25519 proof → link → persist → heartbeat). It
+	// ApiLinkService orchestrates the desktop's self-registration with the
+	// account api (challenge → Ed25519 proof → link → persist → heartbeat). It
 	// reuses the environment identity (LanAuthService) and the WorkOS token
-	// (AuthService); the renderer's Devices pane drives it via relay.* RPCs.
-	const RelayLinkLayer =
-		deps.relayEnabled === false
-			? makeDisabledRelayLinkService(lanAuthConfig)
-			: RelayLinkServiceLive.pipe(
+	// (AuthService); the renderer's Devices pane drives it via api.* RPCs.
+	const ApiLinkLayer =
+		deps.apiEnabled === false
+			? makeDisabledApiLinkService(lanAuthConfig)
+			: ApiLinkServiceLive.pipe(
 					Layer.provide(AccountAccessLayer),
 					Layer.provide(EnrolledLanAuthLayer),
 					Layer.provide(LanAuthConfigLayer),
@@ -586,24 +614,24 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 					Layer.provide(AppPathsLayer),
 					Layer.provide(TelemetryStoreLayer),
 				);
-	const autoRelayLink = deps.autoRelayLink;
+	const autoApiLink = deps.autoApiLink;
 	// Linking must never block or fail server boot: it runs in a background
 	// fiber and retries with capped backoff until it sticks. Persistent causes
-	// (signed out, relay down) self-heal on a later attempt without a restart.
-	const AutoRelayLinkLayer =
-		autoRelayLink === undefined
+	// (signed out, api down) self-heal on a later attempt without a restart.
+	const AutoApiLinkLayer =
+		autoApiLink === undefined
 			? Layer.empty
 			: Layer.effectDiscard(
 					Effect.gen(function* () {
-						const relay = yield* RelayLinkService;
+						const api = yield* ApiLinkService;
 						yield* Effect.gen(function* () {
-							const status = yield* relay.status();
+							const status = yield* api.status();
 							if (!status.linked) {
-								yield* relay.link(autoRelayLink);
+								yield* api.link(autoApiLink);
 							}
 						}).pipe(
 							Effect.tapError((error) =>
-								Effect.logWarning("relay auto-link attempt failed", error),
+								Effect.logWarning("api auto-link attempt failed", error),
 							),
 							Effect.retry(
 								Schedule.exponential("3 seconds").pipe(
@@ -620,7 +648,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 							Effect.forkScoped({ startImmediately: true }),
 						);
 					}),
-				).pipe(Layer.provide(RelayLinkLayer));
+				).pipe(Layer.provide(ApiLinkLayer));
 
 	const HandlerSupportLayer = Layer.mergeAll(
 		AppPathsLayer,
@@ -633,7 +661,14 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		AuthLayer,
 	);
 
+	const DeviceBridgeLayer = DeviceBridgeServiceLive.pipe(
+		Layer.provide(EnrolledLanAuthLayer),
+		Layer.provide(MigratedSqlite),
+		Layer.provide(AuthLayer),
+	);
+
 	const HandlerDomainLayer = Layer.mergeAll(
+		DeviceBridgeLayer,
 		WorkspaceLayer,
 		PtyLayer,
 		GitLayer,
@@ -646,6 +681,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		FileSearchLayer,
 		ProjectScaffoldLayer,
 		ProviderLayer,
+		ModelCatalogLayer,
 		McpLayer,
 		SessionDomainLayer,
 		SessionQueriesLayer,
@@ -659,7 +695,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		SkillBridgeLayer,
 		DiagnosticsLayer,
 		EnrolledLanAuthLayer,
-		RelayLinkLayer,
+		ApiLinkLayer,
 		ExternalThreadLayer,
 		LinearLayer,
 		MachineControlLayer,
@@ -693,7 +729,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 			Layer.provide(Handlers),
 			Layer.provide(
 				serverProtocol.pipe(
-					Layer.provide(Layer.merge(EnrolledLanAuthLayer, AttachmentLayer)),
+					Layer.provide(
+						Layer.mergeAll(
+							EnrolledLanAuthLayer,
+							AttachmentLayer,
+							DeviceBridgeLayer,
+						),
+					),
 				),
 			),
 		);
@@ -707,11 +749,15 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(AppPathsLayer),
 	);
+	const ModelCatalogPoller = ModelCatalogPollerLive.pipe(
+		Layer.provide(ModelCatalogLayer),
+	);
 	return Layer.mergeAll(
 		ServerLayer,
 		NodeServices.layer,
 		UsagePoller,
-		AutoRelayLinkLayer,
+		ModelCatalogPoller,
+		AutoApiLinkLayer,
 		CloudWorkspaceRuntimeLayer,
 		RuntimePerformanceLayer,
 		CliAccessLayer,

@@ -17,7 +17,8 @@ import {
 	reasoningValueForModel,
 	runtimeOptionFor,
 } from "~/lib/model-options";
-import { NEON_GREEN } from "~/theme";
+import { activeModelCatalog } from "~/store/model-catalog";
+import { APP_TINT } from "~/theme";
 
 export type ModelModeValue = {
 	providerId: ProviderId;
@@ -37,7 +38,7 @@ export function ModelModePill({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu
 				label={modelLabel(value)}
 				systemImage={providerSystemImage(value.providerId)}
@@ -85,7 +86,7 @@ export function ComposerModelMenu({
 		<Host
 			key={`${value.providerId}:${value.model}`}
 			matchContents
-			seedColor={NEON_GREEN}
+			seedColor={APP_TINT}
 		>
 			<Menu
 				label={compactModelLabel(value)}
@@ -120,7 +121,7 @@ export function ComposerSettingsMenu({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu label="" systemImage="gearshape">
 				<Menu label="Mode" systemImage="slider.horizontal.3">
 					<ModeButtons value={value} editable={editable} onChange={onChange} />
@@ -150,7 +151,7 @@ export function ModePill({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu
 				label={modeLabel(value)}
 				systemImage="chevron.left.forwardslash.chevron.right"
@@ -171,7 +172,7 @@ export function RuntimePill({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu label={runtimeLabel(value)} systemImage="lock.open">
 				<PermissionButtons
 					value={value}
@@ -193,7 +194,7 @@ export function StaticModelTitle({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu
 				label={modelLabel(value)}
 				systemImage={providerSystemImage(value.providerId)}
@@ -218,7 +219,7 @@ export function HeaderModePill({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu
 				label={modeLabel(value)}
 				systemImage="chevron.left.forwardslash.chevron.right"
@@ -250,7 +251,7 @@ export function ProjectPill({
 	);
 
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu label={label} systemImage="folder">
 				{projects.length === 0 ? (
 					<NativeButton
@@ -281,7 +282,7 @@ export function SourcePill({
 	children: React.ReactNode;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu
 				label={label}
 				systemImage="point.topleft.down.curvedto.point.bottomright.up"
@@ -308,7 +309,7 @@ export function ProjectMenuRow({
 	onSelect: (connectionKey: string, projectId: string) => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu label={`${label} · ${subtitle}`} systemImage="desktopcomputer">
 				{options.map((group) => (
 					<Menu
@@ -349,7 +350,7 @@ export function SourceMenuRow({
 	children: React.ReactNode;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
+		<Host matchContents seedColor={APP_TINT}>
 			<Menu
 				label={`${label} · ${subtitle}`}
 				systemImage="bubble.left.and.bubble.right"
@@ -375,7 +376,7 @@ function ProviderModelMenus({
 	availableProviders?: readonly ProviderId[] | null;
 	canChangeProvider?: boolean;
 }) {
-	const providers = providerOptions().filter((provider) => {
+	const providers = providerOptions(activeModelCatalog()).filter((provider) => {
 		// Locked to the current provider mid-session (provider swaps need a fresh
 		// chat) — show only its model submenu.
 		if (!canChangeProvider) return provider.value === value.providerId;
@@ -395,30 +396,33 @@ function ProviderModelMenus({
 					label={provider.label}
 					systemImage={providerSystemImage(provider.value)}
 				>
-					{modelOptionsForProvider(provider.value).map((model) => (
-						<NativeButton
-							key={model.value}
-							label={model.label}
-							systemImage={
-								value.providerId === provider.value &&
-								value.model === model.value
-									? sf("checkmark")
-									: undefined
-							}
-							onPress={() => {
-								if (!editable) return;
-								onChange({
-									...value,
-									providerId: provider.value,
-									model: model.value,
-									modelOptions: defaultModelOptions(
-										provider.value,
-										model.value,
-									),
-								});
-							}}
-						/>
-					))}
+					{modelOptionsForProvider(activeModelCatalog(), provider.value).map(
+						(model) => (
+							<NativeButton
+								key={model.value}
+								label={model.label}
+								systemImage={
+									value.providerId === provider.value &&
+									value.model === model.value
+										? sf("checkmark")
+										: undefined
+								}
+								onPress={() => {
+									if (!editable) return;
+									onChange({
+										...value,
+										providerId: provider.value,
+										model: model.value,
+										modelOptions: defaultModelOptions(
+											activeModelCatalog(),
+											provider.value,
+											model.value,
+										),
+									});
+								}}
+							/>
+						),
+					)}
 				</Menu>
 			))}
 		</Section>
@@ -456,6 +460,7 @@ function ReasoningButtons({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	const reasoning = reasoningValueForModel(
+		activeModelCatalog(),
 		value.providerId,
 		value.model,
 		value.modelOptions,
@@ -546,15 +551,19 @@ function PermissionButtons({
 }
 
 const modelLabel = (value: ModelModeValue): string =>
-	modelOptionsForProvider(value.providerId).find(
+	modelOptionsForProvider(activeModelCatalog(), value.providerId).find(
 		(model) => model.value === value.model,
 	)?.label ?? value.model;
 
 const compactModelLabel = (value: ModelModeValue): string =>
 	[
 		shortModelLabel(modelLabel(value)),
-		reasoningValueForModel(value.providerId, value.model, value.modelOptions)
-			?.label,
+		reasoningValueForModel(
+			activeModelCatalog(),
+			value.providerId,
+			value.model,
+			value.modelOptions,
+		)?.label,
 	]
 		.filter((part): part is string => part !== undefined)
 		.join(" ");

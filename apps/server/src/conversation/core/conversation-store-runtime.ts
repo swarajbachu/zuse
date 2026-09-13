@@ -13,13 +13,14 @@ import {
 	ThreadGoal,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
+import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import type { SqlSessionQueriesApi } from "@zuse/domain/queries/sql-session-queries";
 import { Effect, PubSub, type Scope } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
+import type { ApiActivityPublisherApi } from "../../api/activity-publisher.ts";
 import type { NdjsonLoggerShape } from "../../persistence/ndjson-logger.ts";
 import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
-import type { RelayActivityPublisherApi } from "../../relay/activity-publisher.ts";
 import type { ConversationOperations } from "../services/conversation-services.ts";
 import type { ChatChangeEvent } from "./chat-change-event.ts";
 import { makeConversationEventRuntime } from "./conversation-event-runtime.ts";
@@ -41,7 +42,7 @@ export interface ConversationStoreRuntimeOptions {
 	readonly sessionDomain: SessionDomainApi;
 	readonly currentTimestamp: Effect.Effect<number>;
 	readonly ndjson: NdjsonLoggerShape;
-	readonly relayActivity: RelayActivityPublisherApi;
+	readonly apiActivity: ApiActivityPublisherApi;
 	readonly provider: ProviderServiceShape;
 	readonly dispatchSessionCommand: (
 		sessionId: SessionId,
@@ -94,6 +95,7 @@ export interface ConversationStoreRuntime {
 		providerInputJson: string,
 		idOverride?: MessageId,
 		commandId?: string,
+		receiptIdentity?: CommandReceiptIdentity,
 	) => Effect.Effect<PersistedMessage>;
 	readonly setStatus: (
 		sessionId: SessionId,
@@ -117,7 +119,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 		sessionDomain,
 		currentTimestamp,
 		ndjson,
-		relayActivity,
+		apiActivity,
 		provider,
 		dispatchSessionCommand,
 		runSessionReactors,
@@ -431,6 +433,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 		providerInputJson: string,
 		idOverride?: MessageId,
 		commandId?: string,
+		receiptIdentity?: CommandReceiptIdentity,
 	): Effect.Effect<PersistedMessage> =>
 		Effect.gen(function* () {
 			const id = idOverride ?? MessageId.make(crypto.randomUUID());
@@ -440,6 +443,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 				.dispatch({
 					commandId: commandId ?? `turn:submit:${id}`,
 					streamId: sessionId,
+					...(receiptIdentity === undefined ? {} : { receiptIdentity }),
 					command: {
 						_tag: "SubmitTurn",
 						turnId,
@@ -534,6 +538,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 					createdAt: new Date(row.created_at),
 				}),
 				sequence: row.sequence,
+				turnId: AgentTurnId.make(row.turn_id),
 			};
 		});
 
@@ -552,7 +557,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 			}
 		});
 
-	const publishRelayActivity = (
+	const publishApiActivity = (
 		sessionId: SessionId,
 		kind:
 			| "approval-needed"
@@ -561,12 +566,12 @@ export const makeConversationStoreRuntime = Effect.fn(
 			| "error"
 			| "running",
 	): Effect.Effect<void> =>
-		relayActivity
+		apiActivity
 			.publish({ sessionId, kind })
 			.pipe(
 				Effect.catch((error) =>
 					Effect.logDebug(
-						`[ConversationServices] relay activity publish failed: ${error.reason}`,
+						`[ConversationServices] api activity publish failed: ${error.reason}`,
 					),
 				),
 			);
@@ -623,7 +628,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 				sessionId,
 				goal === null ? null : ThreadGoal.make(goal),
 			),
-		publishRelayActivity,
+		publishApiActivity,
 		ignoreError: () => false,
 		isDuplicateToolUse,
 		persist: (sessionId, turnId, content, providerItemIdentity) =>

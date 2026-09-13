@@ -112,6 +112,10 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 			stream_version INTEGER NOT NULL,
 			event_ids_json TEXT NOT NULL,
 			result_json TEXT,
+			fingerprint TEXT,
+			command_kind TEXT,
+			schema_version INTEGER,
+			storage_incarnation_id TEXT,
 			created_at TEXT NOT NULL
 		)
 	`;

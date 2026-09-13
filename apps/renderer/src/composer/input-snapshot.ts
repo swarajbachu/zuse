@@ -10,6 +10,7 @@ import type { ComposerDraftSnapshot } from "../store/composer-drafts.ts";
  */
 export const composerSnapshotFromInput = (
 	input: ComposerInput,
+	previewFor: (id: string) => string = attachmentUrl,
 ): ComposerDraftSnapshot => {
 	let doc = input.text;
 	const chips: ComposerDraftSnapshot["chips"][number][] = [];
@@ -41,7 +42,12 @@ export const composerSnapshotFromInput = (
 		});
 	}
 	for (const ref of input.skillRefs) {
-		addToken(`/${ref.name}`, {
+		const token = `$${ref.name}`;
+		const legacyToken = `/${ref.name}`;
+		if (!doc.includes(token) && doc.includes(legacyToken)) {
+			doc = doc.replace(legacyToken, token);
+		}
+		addToken(token, {
 			kind: "skill",
 			name: ref.name,
 			scope: ref.scope,
@@ -54,7 +60,7 @@ export const composerSnapshotFromInput = (
 			mimeType: attachment.mimeType,
 			originalName: attachment.originalName,
 			previewUrl: attachment.mimeType.startsWith("image/")
-				? attachmentUrl(attachment.id)
+				? previewFor(attachment.id)
 				: "",
 		});
 	}

@@ -149,6 +149,127 @@ const decodeChatEvent = Schema.decodeUnknownEffect(
 	Schema.fromJsonString(ChatEvent),
 );
 
+const synthesizeChatBackfill = (
+	chats: ReadonlyArray<ChatRow>,
+	existingEventIds: ReadonlySet<string>,
+	existingTransitions: ReadonlySet<string>,
+) => {
+	const chatEvents: Array<ChatBackfillEvent> = [];
+	const postSessionChatEvents: Array<ChatBackfillEvent> = [];
+	for (const chat of chats) {
+		const createdAt = requiredTimestamp(chat.created_at, "chats.created_at");
+		const createdEventId = `backfill:chat-created:${chat.id}`;
+		if (
+			!existingEventIds.has(createdEventId) &&
+			!existingTransitions.has(`chat:${chat.id}:ChatCreated`)
+		) {
+			chatEvents.push({
+				eventId: createdEventId,
+				streamId: chat.id,
+				occurredAt: createdAt,
+				event: {
+					_tag: "ChatCreated",
+					chatId: chat.id,
+					projectId: chat.project_id,
+					worktreeId: chat.worktree_id,
+					title: chat.title,
+					originSessionId: chat.origin_session_id,
+					lastReadAt: timestamp(chat.last_read_at, "chats.last_read_at"),
+					createdAt,
+				},
+			});
+		}
+		const archivedAt = timestamp(chat.archived_at, "chats.archived_at");
+		const archivedEventId = `backfill:chat-archived:${chat.id}`;
+		if (
+			archivedAt !== null &&
+			!existingEventIds.has(archivedEventId) &&
+			!existingTransitions.has(`chat:${chat.id}:ChatArchived`)
+		) {
+			chatEvents.push({
+				eventId: archivedEventId,
+				streamId: chat.id,
+				occurredAt: archivedAt,
+				event: {
+					_tag: "ChatArchived",
+					archivedAt,
+					archivedWorktreeJson: chat.archived_worktree_json,
+				},
+			});
+		}
+		const activeEventId = `backfill:chat-active:${chat.id}`;
+		if (
+			!existingEventIds.has(activeEventId) &&
+			!existingTransitions.has(`chat:${chat.id}:ChatActiveSessionSet`)
+		) {
+			const updatedAt = requiredTimestamp(chat.updated_at, "chats.updated_at");
+			postSessionChatEvents.push({
+				eventId: activeEventId,
+				streamId: chat.id,
+				occurredAt: updatedAt,
+				event: {
+					_tag: "ChatActiveSessionSet",
+					sessionId: chat.active_session_id,
+					updatedAt,
+				},
+			});
+		}
+		const lastMessageEventId = `backfill:chat-last-message:${chat.id}`;
+		if (
+			!existingEventIds.has(lastMessageEventId) &&
+			!existingTransitions.has(`chat:${chat.id}:ChatLastMessageSet`)
+		) {
+			const updatedAt = requiredTimestamp(chat.updated_at, "chats.updated_at");
+			postSessionChatEvents.push({
+				eventId: lastMessageEventId,
+				streamId: chat.id,
+				occurredAt: updatedAt,
+				event: {
+					_tag: "ChatLastMessageSet",
+					messageAt: timestamp(chat.last_message_at, "chats.last_message_at"),
+				},
+			});
+		}
+	}
+
+	return { chatEvents, postSessionChatEvents };
+};
+
+const appendChatBackfillEvents = (
+	sql: SqlClient.SqlClient,
+	items: ReadonlyArray<ChatBackfillEvent>,
+) =>
+	Effect.gen(function* () {
+		const chatVersionRows = yield* sql<StreamVersionRow>`
+				SELECT stream_id, MAX(stream_version) AS stream_version
+				FROM events WHERE stream_kind = 'chat'
+				GROUP BY stream_id
+			`;
+		const chatVersions = new Map(
+			chatVersionRows.map((row) => [row.stream_id, row.stream_version]),
+		);
+		const appendChatEvents = (items: ReadonlyArray<ChatBackfillEvent>) =>
+			Effect.forEach(
+				items,
+				(item) => {
+					const streamVersion = (chatVersions.get(item.streamId) ?? 0) + 1;
+					chatVersions.set(item.streamId, streamVersion);
+					return sql`
+					INSERT INTO events
+						(event_id, correlation_id, causation_event_id, stream_kind,
+						 stream_id, stream_version, type, occurred_at, actor, payload_json)
+					VALUES
+						(${item.eventId}, ${item.eventId}, NULL, 'chat', ${item.streamId},
+						 ${streamVersion}, ${item.event._tag},
+						 ${new Date(item.occurredAt).toISOString()}, 'backfill',
+						 ${JSON.stringify(item.event)})
+						`;
+				},
+				{ discard: true },
+			);
+		yield* appendChatEvents(items);
+	});
+
 export const runLifecycleBackfill = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	return yield* sql.withTransaction(
@@ -159,10 +280,30 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			`;
 			const completed = markers.find((marker) => marker.status === "completed");
 			if (completed !== undefined) {
-				return {
-					status: "already-completed",
-					eventCount: completed.event_count,
-				} as const;
+				// Restore/import tools can retain the completion marker while omitting
+				// entire chat streams. Repair only those streams; leave existing event
+				// history, command receipts, and consumer cursors untouched.
+				const missing = yield* sql<ChatRow>`
+					SELECT c.* FROM chats c WHERE NOT EXISTS (
+						SELECT 1 FROM events e WHERE e.stream_kind = 'chat'
+						AND e.stream_id = c.id
+					)
+				`;
+				if (missing.length === 0)
+					return {
+						status: "already-completed",
+						eventCount: completed.event_count,
+					} as const;
+				const { chatEvents, postSessionChatEvents } = synthesizeChatBackfill(
+					missing,
+					new Set(),
+					new Set(),
+				);
+				const repairs = [...chatEvents, ...postSessionChatEvents];
+				yield* appendChatBackfillEvents(sql, repairs);
+				yield* sql`UPDATE backfill_runs SET event_count = event_count + ${repairs.length}
+					WHERE backfill_name = ${BACKFILL_NAME}`;
+				return { status: "completed", eventCount: repairs.length } as const;
 			}
 
 			const startedAt = (yield* DateTime.nowAsDate).toISOString();
@@ -454,124 +595,13 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 					),
 				),
 			});
-			const chatEvents: Array<ChatBackfillEvent> = [];
-			const postSessionChatEvents: Array<ChatBackfillEvent> = [];
-			for (const chat of chats) {
-				const createdAt = requiredTimestamp(
-					chat.created_at,
-					"chats.created_at",
-				);
-				const createdEventId = `backfill:chat-created:${chat.id}`;
-				if (
-					!existingEventIds.has(createdEventId) &&
-					!existingTransitions.has(`chat:${chat.id}:ChatCreated`)
-				) {
-					chatEvents.push({
-						eventId: createdEventId,
-						streamId: chat.id,
-						occurredAt: createdAt,
-						event: {
-							_tag: "ChatCreated",
-							chatId: chat.id,
-							projectId: chat.project_id,
-							worktreeId: chat.worktree_id,
-							title: chat.title,
-							originSessionId: chat.origin_session_id,
-							lastReadAt: timestamp(chat.last_read_at, "chats.last_read_at"),
-							createdAt,
-						},
-					});
-				}
-				const archivedAt = timestamp(chat.archived_at, "chats.archived_at");
-				const archivedEventId = `backfill:chat-archived:${chat.id}`;
-				if (
-					archivedAt !== null &&
-					!existingEventIds.has(archivedEventId) &&
-					!existingTransitions.has(`chat:${chat.id}:ChatArchived`)
-				) {
-					chatEvents.push({
-						eventId: archivedEventId,
-						streamId: chat.id,
-						occurredAt: archivedAt,
-						event: {
-							_tag: "ChatArchived",
-							archivedAt,
-							archivedWorktreeJson: chat.archived_worktree_json,
-						},
-					});
-				}
-				const activeEventId = `backfill:chat-active:${chat.id}`;
-				if (
-					!existingEventIds.has(activeEventId) &&
-					!existingTransitions.has(`chat:${chat.id}:ChatActiveSessionSet`)
-				) {
-					const updatedAt = requiredTimestamp(
-						chat.updated_at,
-						"chats.updated_at",
-					);
-					postSessionChatEvents.push({
-						eventId: activeEventId,
-						streamId: chat.id,
-						occurredAt: updatedAt,
-						event: {
-							_tag: "ChatActiveSessionSet",
-							sessionId: chat.active_session_id,
-							updatedAt,
-						},
-					});
-				}
-				const lastMessageEventId = `backfill:chat-last-message:${chat.id}`;
-				if (
-					!existingEventIds.has(lastMessageEventId) &&
-					!existingTransitions.has(`chat:${chat.id}:ChatLastMessageSet`)
-				) {
-					const updatedAt = requiredTimestamp(
-						chat.updated_at,
-						"chats.updated_at",
-					);
-					postSessionChatEvents.push({
-						eventId: lastMessageEventId,
-						streamId: chat.id,
-						occurredAt: updatedAt,
-						event: {
-							_tag: "ChatLastMessageSet",
-							messageAt: timestamp(
-								chat.last_message_at,
-								"chats.last_message_at",
-							),
-						},
-					});
-				}
-			}
-
-			const chatVersionRows = yield* sql<StreamVersionRow>`
-				SELECT stream_id, MAX(stream_version) AS stream_version
-				FROM events WHERE stream_kind = 'chat'
-				GROUP BY stream_id
-			`;
-			const chatVersions = new Map(
-				chatVersionRows.map((row) => [row.stream_id, row.stream_version]),
+			const { chatEvents, postSessionChatEvents } = synthesizeChatBackfill(
+				chats,
+				existingEventIds,
+				existingTransitions,
 			);
-			const appendChatEvents = (items: ReadonlyArray<ChatBackfillEvent>) =>
-				Effect.forEach(
-					items,
-					(item) => {
-						const streamVersion = (chatVersions.get(item.streamId) ?? 0) + 1;
-						chatVersions.set(item.streamId, streamVersion);
-						return sql`
-					INSERT INTO events
-						(event_id, correlation_id, causation_event_id, stream_kind,
-						 stream_id, stream_version, type, occurred_at, actor, payload_json)
-					VALUES
-						(${item.eventId}, ${item.eventId}, NULL, 'chat', ${item.streamId},
-						 ${streamVersion}, ${item.event._tag},
-						 ${new Date(item.occurredAt).toISOString()}, 'backfill',
-						 ${JSON.stringify(item.event)})
-						`;
-					},
-					{ discard: true },
-				);
-			yield* appendChatEvents(chatEvents);
+
+			yield* appendChatBackfillEvents(sql, chatEvents);
 
 			const versionRows = yield* sql<StreamVersionRow>`
 				SELECT stream_id, MAX(stream_version) AS stream_version
@@ -595,7 +625,7 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 						 ${JSON.stringify(item.event)})
 				`;
 			}
-			yield* appendChatEvents(postSessionChatEvents);
+			yield* appendChatBackfillEvents(sql, postSessionChatEvents);
 			yield* sql`
 				UPDATE messages
 				SET sequence = COALESCE(

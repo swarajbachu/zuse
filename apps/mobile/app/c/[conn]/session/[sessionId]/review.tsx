@@ -53,7 +53,7 @@ import {
 	stashGitChanges,
 	switchGitBranch,
 } from "~/rpc/actions";
-import { connectionsAtom } from "~/store/connections";
+import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import { sessionMessagesAtom } from "~/store/messages";
 import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
 import { colors } from "~/theme";

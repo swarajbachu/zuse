@@ -7,6 +7,14 @@ const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
 const isRendererOwner = (path) =>
 	/^apps\/renderer\/src\/(?:components|hooks|shell|state|store)\//u.test(path);
 
+const isSealedPublicAutomationBoundary = (path, line) =>
+	(path === "infra/api/src/cloud-workspace-store.ts" &&
+		/\bapi_cloud_workspace_api_messages\b/u.test(line)) ||
+	(path === "infra/api/src/public-api-routes.ts" &&
+		/\bApiSendMessageRequest\b/u.test(line)) ||
+	(path === "packages/contracts/src/cloud-api.ts" &&
+		/\b(?:ApiSendMessageRequest|CloudRuntimeCommand)\b/u.test(line));
+
 const rule = (id, description, owns, patterns, exclude = () => false) => ({
 	id,
 	description,
@@ -61,7 +69,7 @@ export const architectureRules = [
 		"cloud-chat-pipeline",
 		"Cloud capability must not introduce a second chat or execution data plane.",
 		(path) =>
-			/^(?:apps\/(?:renderer|server)|infra\/relay|packages\/contracts)\/src\//u.test(
+			/^(?:apps\/(?:renderer|server)|infra\/api|packages\/contracts)\/src\//u.test(
 				path,
 			),
 		[
@@ -83,22 +91,30 @@ export const architectureRules = [
 			),
 	),
 	rule(
-		"relay-message-content",
-		"Relay schemas may carry content only in the named one-shot launch intent.",
-		(path) => /^(?:infra\/relay|packages\/contracts)\/src\//u.test(path),
+		"api-message-content",
+		"Api schemas may carry content only in the named sealed launch/public-automation envelopes.",
+		(path) => /^(?:infra\/api|packages\/contracts)\/src\//u.test(path),
 		[
 			/\bfirstMessage\b/u,
 			/\bchat_metadata_ciphertext\b/u,
-			/\brelay_cloud_workspace_(?:commands|events)\b/u,
+			/\bapi_cloud_workspace_(?:commands|events)\b/u,
+			/\bapi_cloud_workspace_api_messages\b/u,
+			/\b(?:ApiSendMessageRequest|CloudRuntimeCommand)\b/u,
 			/\bCloudChats(?:History|Send|Rename)Rpc\b/u,
 			/\bCloudChat(?:Event|History|QueuedMessage|Command)\b/u,
 		],
 		(path, line) =>
 			/cloud-workspace-launch-intent\.ts$/u.test(path) ||
+			// Only the named sealed public-automation symbols/table are exempt.
+			// A file-wide exception would also hide a future parallel chat surface.
+			isSealedPublicAutomationBoundary(path, line) ||
 			(path === "packages/contracts/src/cloud-workspaces.ts" &&
 				/^\s*firstMessage:\s*Schema\.optional\(Schema\.String\),?\s*$/u.test(
 					line,
-				)),
+				)) ||
+			// The public API's create route feeds the same one-shot launch intent.
+			(path === "infra/api/src/public-api-routes.ts" &&
+				/^\s*firstMessage:\s*prompt,\s*$/u.test(line)),
 	),
 ];
 

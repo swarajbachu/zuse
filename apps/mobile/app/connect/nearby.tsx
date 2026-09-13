@@ -29,7 +29,7 @@ import {
 	ephemeralPairingPublicKey,
 	pairingDevicePublicKey,
 } from "~/lib/pairing-device-key";
-import { connectEnvironment } from "~/rpc/relay-client";
+import { connectEnvironment } from "~/rpc/api-client";
 import { authAccountAtom } from "~/store/auth";
 import { addConnection } from "~/store/connections";
 import { appAtomRegistry } from "~/store/registry";

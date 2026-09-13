@@ -23,6 +23,8 @@ export type ComposerDraft = {
 	goalMode: boolean;
 	fileRefs?: readonly FileRefValue[];
 	skillRefs?: readonly SkillRefValue[];
+	/** Stable launch identity survives a lost create response or app termination. */
+	cloudLaunch?: { idempotencyKey: string; messageId: string; request: string };
 };
 
 const EMPTY_DRAFT: ComposerDraft = {
@@ -51,6 +53,13 @@ const ComposerDraftSchema = Schema.Struct({
 	goalMode: Schema.Boolean,
 	fileRefs: Schema.optional(Schema.Array(FileRef)),
 	skillRefs: Schema.optional(Schema.Array(SkillRef)),
+	cloudLaunch: Schema.optional(
+		Schema.Struct({
+			idempotencyKey: Schema.String,
+			messageId: Schema.String,
+			request: Schema.String,
+		}),
+	),
 });
 
 const persistDraft = async (
@@ -125,6 +134,14 @@ export const setComposerDraft = (key: string, draft: ComposerDraft): void => {
 			void deleteProtectedComposerAttachment(attachment.uri);
 	}
 	queueDraftOperation(key, () => persistDraft(key, draft));
+};
+
+export const persistComposerDraft = async (
+	key: string,
+	draft: ComposerDraft,
+): Promise<void> => {
+	setComposerDraft(key, draft);
+	await persistenceTails.get(key);
 };
 
 export const clearComposerDraft = (key: string): void => {

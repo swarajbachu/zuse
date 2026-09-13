@@ -10,12 +10,12 @@ import {
 	type MessageOrigin,
 	type Session,
 	SessionId,
-	type SessionNotFoundError,
 	type SessionStartError,
 	type SkillRef,
 	type TurnInterruptReceipt,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
+import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
 import { Deferred, Effect, type FileSystem, type Scope } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { ConversationOperations } from "../services/conversation-services.ts";
@@ -58,6 +58,7 @@ export interface MessageOperationsOptions {
 		providerInputJson: string,
 		idOverride?: MessageId,
 		commandId?: string,
+		receiptIdentity?: CommandReceiptIdentity,
 	) => Effect.Effect<PersistedMessage>;
 	readonly ndjsonAppend: (
 		sessionId: SessionId,
@@ -109,6 +110,7 @@ export interface MessageOperationsOptions {
 export interface MessageOperations {
 	readonly resumeSession: ConversationOperations["resumeSession"];
 	readonly sendMessage: ConversationOperations["sendMessage"];
+	readonly sendMessageWithInput: ConversationOperations["sendMessageWithInput"];
 	readonly interruptSession: ConversationOperations["interruptSession"];
 	readonly queueRuntime: QueueServiceRuntime;
 	readonly runStartupRecovery: <E>(
@@ -245,10 +247,9 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			asGoal?: boolean,
 			clientMessageId?: MessageId,
 			origin?: MessageOrigin,
-		): Effect.Effect<
-			boolean,
-			SessionNotFoundError | DirectoryUnavailableError
-		> =>
+			receiptIdentity?: CommandReceiptIdentity,
+			turnIdOverride?: AgentTurnId,
+		): ReturnType<ConversationOperations["sendMessageWithInput"]> =>
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
 				const directoryRows = yield* sql<{
@@ -291,7 +292,12 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 						);
 					}
 				}
-				if (asGoal !== true && isGoalCapableProvider(session.providerId)) {
+				if (
+					asGoal !== true &&
+					clientMessageId === undefined &&
+					turnIdOverride === undefined &&
+					isGoalCapableProvider(session.providerId)
+				) {
 					const goal = goalState.current(sessionId);
 					const trimmed = text.trim();
 					if (
@@ -301,10 +307,11 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 						goal.objective.trim() === trimmed &&
 						(yield* goalState.latestUserMessageMatches(sessionId, trimmed))
 					) {
-						return true;
+						return { accepted: true };
 					}
 				}
-				const turnId = AgentTurnId.make(`turn_${crypto.randomUUID()}`);
+				const turnId =
+					turnIdOverride ?? AgentTurnId.make(`turn_${crypto.randomUUID()}`);
 				// Drop "pending-*" placeholder ids — those are renderer-side temp
 				// tokens for attachments whose upload didn't finish before submit.
 				// The bytes don't exist server-side, so forwarding them would just
@@ -371,6 +378,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 								JSON.stringify(providerInput),
 								clientMessageId,
 								commandId,
+								receiptIdentity,
 							);
 				// Pin the attachments so the GC sweep treats them as referenced —
 				// a separate row per (message, attachment) keeps the existing
@@ -383,7 +391,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 				}
 				if (asGoal === true) {
 					const objective = text.trim();
-					if (objective.length === 0) return false;
+					if (objective.length === 0) return { accepted: false };
 					if (!isGoalCapableProvider(session.providerId)) {
 						const persistedError = yield* persistMessage(sessionId, {
 							_tag: "error",
@@ -391,7 +399,11 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 								"Goal mode is currently only supported for Codex and Grok sessions.",
 						});
 						yield* ndjsonAppend(sessionId, persistedError);
-						return false;
+						return {
+							accepted: false,
+							messageId: persisted.message.id,
+							turnId: persisted.turnId ?? turnId,
+						};
 					}
 					const goal = yield* setGoal(sessionId, {
 						objective,
@@ -413,7 +425,12 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 							}),
 						),
 					);
-					if (goal === null) return false;
+					if (goal === null)
+						return {
+							accepted: false,
+							messageId: persisted.message.id,
+							turnId: persisted.turnId ?? turnId,
+						};
 					// Grok runs goal mode by forwarding `/goal` as a real prompt turn,
 					// so reflect the running turn the way a normal send does — the
 					// driver emits `Status: idle` when the goal run finishes. Codex
@@ -421,10 +438,43 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					if (session.providerId === "grok") {
 						yield* setStatus(sessionId, "running");
 					}
-					return true;
+					return {
+						accepted: true,
+						messageId: persisted.message.id,
+						turnId: persisted.turnId ?? turnId,
+					};
 				}
-				return true;
+				return {
+					accepted: true,
+					messageId: persisted.message.id,
+					turnId: persisted.turnId ?? turnId,
+				};
 			});
+
+		const sendMessageWithInput: ConversationOperations["sendMessageWithInput"] =
+			(input) =>
+				Effect.gen(function* () {
+					const result = yield* submitUserMessage(
+						input.commandId,
+						input.sessionId,
+						input.text,
+						input.attachments,
+						input.fileRefs,
+						input.skillRefs,
+						input.annotations,
+						input.asGoal,
+						input.messageId,
+						input.origin,
+						input.receiptIdentity,
+						input.turnId,
+					);
+					if (!result.accepted) {
+						const turnId = yield* resolveActiveTurn(input.sessionId);
+						if (turnId !== undefined)
+							yield* settleTurn(input.sessionId, turnId, "error");
+					}
+					return result;
+				});
 
 		const sendMessage: ConversationOperations["sendMessage"] = (
 			commandId,
@@ -437,26 +487,21 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			asGoal,
 			clientMessageId,
 			origin,
+			receiptIdentity,
 		) =>
-			Effect.gen(function* () {
-				const accepted = yield* submitUserMessage(
-					commandId,
-					sessionId,
-					text,
-					attachments,
-					fileRefs,
-					skillRefs,
-					annotations,
-					asGoal,
-					clientMessageId,
-					origin,
-				);
-				if (!accepted) {
-					const turnId = yield* resolveActiveTurn(sessionId);
-					if (turnId !== undefined)
-						yield* settleTurn(sessionId, turnId, "error");
-				}
-			});
+			sendMessageWithInput({
+				commandId,
+				sessionId,
+				text,
+				attachments,
+				fileRefs,
+				skillRefs,
+				annotations,
+				asGoal,
+				messageId: clientMessageId,
+				origin,
+				receiptIdentity,
+			}).pipe(Effect.asVoid);
 
 		const queueRuntime = yield* makeQueueServiceRuntime({
 			serviceScope,
@@ -473,7 +518,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					input.annotations,
 					input.asGoal,
 					clientMessageId,
-				),
+				).pipe(Effect.map((result) => result.accepted)),
 			setQueuePaused: (sessionId, paused, commandId) => {
 				const command = {
 					_tag: "SetQueuePaused" as const,
@@ -510,14 +555,19 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		const recoverStaleSessions = Effect.gen(function* () {
 			const staleSessions = yield* sql<{
 				readonly id: string;
-				readonly status: "running" | "booting";
+				readonly status: "running" | "booting" | "idle";
 			}>`
 				SELECT id, status FROM sessions
-				WHERE status IN ('running', 'booting') AND archived_at IS NULL
+				WHERE archived_at IS NULL AND (
+					status IN ('running', 'booting')
+					OR (status = 'idle' AND current_turn_id IS NOT NULL)
+				)
 			`.pipe(Effect.orDie);
 			for (const stale of staleSessions) {
 				const sessionId = SessionId.make(stale.id);
-				if (stale.status === "running") {
+				// Provider startup can publish idle before its durable turn settles.
+				// After a crash the turn, rather than that status, is the authority.
+				if (stale.status !== "booting") {
 					const turnId = yield* resolveActiveTurn(sessionId);
 					if (turnId !== undefined) {
 						// Catch-up may have just recreated this provider and replayed the
@@ -608,13 +658,25 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 				}
 				if (outcome._tag === "not-active") return outcome;
 				yield* queueRuntime.pauseAfterInterrupt(sessionId);
-				yield* runSessionReactors;
+				// A manual stop must suspend autonomous goal continuation as well
+				// as the current turn. Ignore rejected/stale interrupts above.
+				const goal = goalState.current(sessionId);
+				const pauseGoal =
+					goal?.status === "active"
+						? setGoal(sessionId, { status: "paused" })
+						: Effect.void;
+				// Even if pausing the provider goal fails, still deliver Stop.
+				yield* pauseGoal.pipe(
+					Effect.ensuring(runSessionReactors),
+					Effect.orDie,
+				);
 				return outcome;
 			});
 
 		return {
 			resumeSession,
 			sendMessage,
+			sendMessageWithInput,
 			interruptSession,
 			queueRuntime,
 			runStartupRecovery,

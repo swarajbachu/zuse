@@ -34,7 +34,7 @@ import {
 	type ScheduledSuccessorCommand,
 	scheduledSuccessorReactorDefinition,
 } from "@zuse/domain/reactors/conversation";
-import { Effect, Schema, Semaphore } from "effect";
+import { Effect, Schema, type Scope, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 export type ChatArchiveReactorError =
@@ -149,6 +149,7 @@ export const makeConversationReactorRuntime = Effect.fn(
 	"ConversationReactors.make",
 )(function* (
 	handlers: ConversationReactorHandlers,
+	serviceScope: Scope.Scope,
 ): Effect.fn.Return<ConversationReactorRuntime, never, SqlClient.SqlClient> {
 	const sql = yield* SqlClient.SqlClient;
 	const sessionStorage = makeSqlConsumerStorage(sql);
@@ -237,16 +238,24 @@ export const makeConversationReactorRuntime = Effect.fn(
 	const runProviderStop = yield* serialize(
 		providerStop.catchUp().pipe(Effect.asVoid, Effect.orDie),
 	);
-	const runSession = yield* serialize(
+	const runSessionLifecycle = yield* serialize(
 		Effect.gen(function* () {
 			yield* providerInterrupt.catchUp().pipe(Effect.orDie);
 			// Cancellation settlement makes an interrupt-then-send successor
 			// eligible, so claim it before delivering provider-turn effects.
 			yield* scheduledSuccessor.catchUp().pipe(Effect.orDie);
 			yield* providerTurn.catchUp().pipe(Effect.orDie);
-			yield* autoName.catchUp().pipe(Effect.orDie);
 		}),
 	);
+	const runAutoName = yield* serialize(autoName.catchUp().pipe(Effect.orDie));
+	const runSession = Effect.gen(function* () {
+		// Generated chat and branch names can take tens of seconds. They are
+		// durable, but they must not hold the provider-turn lane and delay the
+		// user's next message. Keep their own serialized worker in the service
+		// scope so catch-up remains reliable across overlapping turn settlements.
+		yield* runSessionLifecycle;
+		yield* Effect.forkIn(runAutoName, serviceScope);
+	});
 	const runChatArchive = yield* serialize(
 		chatArchive.catchUp().pipe(
 			Effect.asVoid,

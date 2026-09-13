@@ -7,15 +7,16 @@ import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect, Fiber, Layer, ManagedRuntime, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { AppPaths } from "../../src/app-paths.ts";
 import { PermissionServiceLive } from "../../src/provider/layers/permission-service.ts";
-import { PermissionService } from "../../src/provider/services/permission-service.ts";
 import type { PermissionServiceShape } from "../../src/provider/services/permission-service.ts";
+import { PermissionService } from "../../src/provider/services/permission-service.ts";
 
 const directories: string[] = [];
 
 afterEach(() => {
+	vi.useRealTimers();
 	for (const directory of directories.splice(0)) {
 		rmSync(directory, { recursive: true, force: true });
 	}
@@ -91,7 +92,9 @@ const createSchema = Effect.gen(function* () {
 		CREATE TABLE command_receipts (
 			command_id TEXT PRIMARY KEY, stream_kind TEXT NOT NULL,
 			stream_id TEXT NOT NULL, stream_version INTEGER NOT NULL,
-			event_ids_json TEXT NOT NULL, result_json TEXT, created_at TEXT NOT NULL
+			event_ids_json TEXT NOT NULL, result_json TEXT,
+			fingerprint TEXT, command_kind TEXT, schema_version INTEGER,
+			storage_incarnation_id TEXT, created_at TEXT NOT NULL
 		)
 	`;
 	yield* sql`
@@ -136,6 +139,11 @@ const createSession = Effect.gen(function* () {
 			createdAt: 1,
 		},
 	});
+	yield* domain.dispatch({
+		commandId: "start-turn",
+		streamId: "session-1",
+		command: { _tag: "StartTurn", turnId: "turn-1", startedAt: 2 },
+	});
 });
 
 describe("PermissionService restart recovery", () => {
@@ -152,7 +160,150 @@ describe("PermissionService restart recovery", () => {
 			),
 		);
 
-	test("publishes a recovered request only after its provider reattaches", async () => {
+	test.each([
+		false,
+		true,
+	])("recovers legacy approval records without settling a newer turn (newer=%s)", async (newer) => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-permission-legacy-"));
+		directories.push(directory);
+		const filename = join(directory, "test.sqlite");
+		const schemaRuntime = ManagedRuntime.make(sqliteLayer({ filename }));
+		await schemaRuntime.runPromise(createSchema);
+		await schemaRuntime.dispose();
+		const first = makeRuntime(filename, directory);
+		await first.runPromise(createSession);
+		// Reproduce the old runtime's event: turnId incorrectly held requestId.
+		await first.runPromise(
+			Effect.gen(function* () {
+				const domain = yield* SessionDomain;
+				yield* domain.dispatch({
+					commandId: "legacy-request",
+					streamId: "session-1",
+					command: {
+						_tag: "RequestPermission",
+						requestId: "legacy",
+						turnId: "legacy",
+						requestedAt: 3,
+						payloadJson: JSON.stringify(
+							PermissionRequest.make({
+								id: "legacy",
+								sessionId: SessionId.make("session-1"),
+								kind: { _tag: "Bash", command: "git status" },
+								requestedAt: new Date(3),
+								forcePrompt: false,
+							}),
+						),
+					},
+				});
+				if (newer) {
+					yield* domain.dispatch({
+						commandId: "settle-old",
+						streamId: "session-1",
+						command: {
+							_tag: "SettleTurn",
+							turnId: "turn-1",
+							outcome: "interrupted",
+							settledAt: 4,
+						},
+					});
+					yield* domain.dispatch({
+						commandId: "start-new",
+						streamId: "session-1",
+						command: { _tag: "StartTurn", turnId: "turn-2", startedAt: 5 },
+					});
+				}
+			}),
+		);
+		await first.dispose();
+		const restarted = makeRuntime(filename, directory);
+		try {
+			const rows = await restarted.runPromise(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`SELECT current_turn_id FROM sessions WHERE id = 'session-1'`,
+				),
+			);
+			expect(rows).toEqual([{ current_turn_id: newer ? "turn-2" : null }]);
+			expect(
+				await restarted.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						service.listPending(SessionId.make("session-1")),
+					),
+				),
+			).toEqual([
+				expect.objectContaining({ id: "legacy", recoveryState: "expired" }),
+			]);
+		} finally {
+			await restarted.dispose();
+		}
+	});
+
+	test("replays a live approval when the first client arrives thirty minutes late", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-permission-offline-"));
+		directories.push(directory);
+		const filename = join(directory, "test.sqlite");
+		const schemaRuntime = ManagedRuntime.make(sqliteLayer({ filename }));
+		await schemaRuntime.runPromise(createSchema);
+		await schemaRuntime.dispose();
+		const runtime = makeRuntime(filename, directory);
+		await runtime.runPromise(createSession);
+		const callback = runtime.runFork(
+			Effect.flatMap(PermissionService, (service) =>
+				service.request(
+					SessionId.make("session-1"),
+					{ _tag: "Bash", command: "git status" },
+					{ projectId: FolderId.make("project-1") },
+				),
+			),
+		);
+		try {
+			// No client subscription while the provider creates and persists its ask.
+			await runtime.runPromise(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					while (
+						(yield* sql`SELECT sequence FROM events WHERE type = 'PermissionRequested'`)
+							.length === 0
+					)
+						yield* Effect.yieldNow;
+				}).pipe(Effect.timeout(1_000)),
+			);
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(Date.now() + 30 * 60 * 1_000);
+			const reconnect = () =>
+				runtime.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						service.requests().pipe(Stream.take(1), Stream.runCollect),
+					),
+				);
+			const [snapshot] = await reconnect();
+			expect(snapshot?._tag).toBe("snapshot");
+			if (snapshot?._tag !== "snapshot") throw new Error("Missing snapshot");
+			const pending = snapshot.requests[0];
+			expect(pending?.recoveryState).toBeUndefined();
+			expect(pending?.requestedAt.getTime()).toBeLessThanOrEqual(
+				Date.now() - 30 * 60 * 1_000,
+			);
+			expect(await reconnect()).toEqual([snapshot]);
+			await runtime.runPromise(
+				Effect.flatMap(PermissionService, (service) =>
+					service.decide(pending?.id ?? "missing", { _tag: "AllowOnce" }),
+				),
+			);
+			expect(
+				await Effect.runPromise(
+					Fiber.join(callback).pipe(Effect.timeout(1_000)),
+				),
+			).toEqual({ _tag: "AllowOnce" });
+			expect(await reconnect()).toEqual([{ _tag: "snapshot", requests: [] }]);
+		} finally {
+			await Effect.runPromise(Fiber.interrupt(callback));
+			await runtime.dispose();
+		}
+	});
+
+	test("keeps a restarted approval visible but never reuses it for a new tool call", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-permission-restart-"));
 		directories.push(directory);
 		const filename = join(directory, "test.sqlite");
@@ -189,10 +340,41 @@ describe("PermissionService restart recovery", () => {
 					service.listPending(SessionId.make("session-1")),
 				),
 			);
-			expect(pending).toEqual([]);
+			expect(pending).toEqual([
+				expect.objectContaining({
+					id: published?.id,
+					recoveryState: "expired",
+				}),
+			]);
+			expect(
+				await restarted.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						service.requests().pipe(Stream.take(1), Stream.runCollect),
+					),
+				),
+			).toEqual([{ _tag: "snapshot", requests: pending }]);
+			await expect(
+				restarted.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						service.decide(published?.id ?? "missing", {
+							_tag: "AlwaysAllow",
+							scope: "folder",
+						}),
+					),
+				),
+			).rejects.toMatchObject({ _tag: "PermissionRequestExpiredError" });
+			const session = await restarted.runPromise(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`SELECT status, current_turn_id FROM sessions WHERE id = 'session-1'`,
+				),
+			);
+			expect(session).toEqual([{ status: "idle", current_turn_id: null }]);
 			const republished = restarted.runFork(
 				Effect.flatMap(PermissionService, (service) =>
 					permissionRequests(service.requests()).pipe(
+						Stream.filter((request) => request.id !== published?.id),
 						Stream.take(1),
 						Stream.runCollect,
 					),
@@ -211,17 +393,17 @@ describe("PermissionService restart recovery", () => {
 			const [liveRequest] = await Effect.runPromise(
 				Fiber.join(republished).pipe(Effect.timeout(1_000)),
 			);
-			expect(liveRequest?.id).toBe(published?.id);
+			expect(liveRequest?.id).not.toBe(published?.id);
 			expect(
 				await restarted.runPromise(
 					Effect.flatMap(PermissionService, (service) =>
 						service.listPending(SessionId.make("session-1")),
 					),
 				),
-			).toEqual([liveRequest]);
+			).toEqual([pending[0], liveRequest]);
 			await restarted.runPromise(
 				Effect.flatMap(PermissionService, (service) =>
-					service.decide(published?.id ?? "missing", { _tag: "AllowOnce" }),
+					service.decide(liveRequest?.id ?? "missing", { _tag: "AllowOnce" }),
 				),
 			);
 			await expect(
@@ -233,17 +415,42 @@ describe("PermissionService restart recovery", () => {
 						service.listPending(SessionId.make("session-1")),
 					),
 				),
-			).toEqual([]);
+			).toEqual(pending);
 			const decisions = await restarted.runPromise(
 				Effect.flatMap(PermissionService, (service) =>
 					service.listDecisions({ projectId: FolderId.make("project-1") }),
 				),
 			);
 			expect(decisions.map((decision) => decision.requestId)).toEqual([
-				published?.id,
+				liveRequest?.id,
 			]);
+			await restarted.runPromise(
+				Effect.flatMap(PermissionService, (service) =>
+					service.decide(published?.id ?? "missing", { _tag: "Deny" }),
+				),
+			);
 		} finally {
 			await restarted.dispose();
+		}
+		const secondRestart = makeRuntime(filename, directory);
+		try {
+			expect(
+				await secondRestart.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						service.listPending(SessionId.make("session-1")),
+					),
+				),
+			).toEqual([]);
+			const [settlements] = await secondRestart.runPromise(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`SELECT count(*) AS count FROM events WHERE type = 'TurnSettled'`,
+				),
+			);
+			expect(settlements?.count).toBe(1);
+		} finally {
+			await secondRestart.dispose();
 		}
 	});
 });

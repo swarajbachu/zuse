@@ -12,7 +12,7 @@ import {
 import type { CommandId, EnvironmentId } from "@zuse/contracts";
 
 const DATABASE_NAME = "zuse-client-runtime";
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 3;
 const OUTBOX_STORE = "command-outbox";
 const RECEIPT_STORE = "command-receipts";
 const MAX_RECEIPTS = 512;
@@ -46,6 +46,9 @@ const openDatabase = (): Promise<IDBDatabase> =>
 					unique: false,
 				});
 				store.createIndex("createdAt", "createdAt", { unique: false });
+				store.createIndex("acceptanceRevision", "acceptanceRevision", {
+					unique: false,
+				});
 			}
 			if (!database.objectStoreNames.contains(RECEIPT_STORE)) {
 				const receipts = database.createObjectStore(RECEIPT_STORE, {
@@ -73,6 +76,16 @@ const openDatabase = (): Promise<IDBDatabase> =>
 					transaction.objectStore(RECEIPT_STORE).clear();
 				}
 			}
+			if (event.oldVersion >= 1 && event.oldVersion < 3) {
+				const transaction = request.transaction;
+				if (transaction !== null) {
+					const outbox = transaction.objectStore(OUTBOX_STORE);
+					if (!outbox.indexNames.contains("acceptanceRevision"))
+						outbox.createIndex("acceptanceRevision", "acceptanceRevision", {
+							unique: false,
+						});
+				}
+			}
 		};
 		request.onsuccess = () => resolve(request.result);
 		request.onerror = () =>
@@ -86,6 +99,8 @@ type PersistedOutboxEntry = OutboxEntry &
 		commandId: CommandId;
 		environmentId: EnvironmentId;
 		createdAt: number;
+		acceptanceRevision?: number;
+		deliveryState?: string;
 	}>;
 
 export const upgradePersistedOutboxEntry = (
@@ -131,11 +146,24 @@ const persistableEntry = (entry: OutboxEntry): PersistedOutboxEntry => ({
 	commandId: entry.command.commandId,
 	environmentId: entry.command.environmentId,
 	createdAt: entry.command.createdAt,
+	...(entry.acceptance === undefined
+		? {}
+		: { acceptanceRevision: entry.acceptance.revision }),
+	...(entry.deliveryStatus === undefined
+		? {}
+		: { deliveryState: entry.deliveryStatus.state }),
 });
 
 const runtimeEntry = (entry: PersistedOutboxEntry): OutboxEntry => ({
 	command: entry.command,
 	fingerprint: entry.fingerprint,
+	...(entry.encryptedEnvelope === undefined
+		? {}
+		: { encryptedEnvelope: entry.encryptedEnvelope }),
+	...(entry.acceptance === undefined ? {} : { acceptance: entry.acceptance }),
+	...(entry.deliveryStatus === undefined
+		? {}
+		: { deliveryStatus: entry.deliveryStatus }),
 	attempts: entry.attempts,
 	lastAttemptAt: entry.lastAttemptAt,
 });

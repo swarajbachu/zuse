@@ -1,4 +1,7 @@
-import type { AgentAvailability } from "@zuse/contracts";
+import {
+	type AgentAvailability,
+	bundledResolvedModelCatalog,
+} from "@zuse/contracts";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -53,9 +56,14 @@ describe("availableProviderIds", () => {
 describe("reasoningValueForModel", () => {
 	test("falls back to the model default when a stored effort is unsupported", () => {
 		expect(
-			reasoningValueForModel("codex", "gpt-5.6-sol", {
-				reasoning: "unsupported",
-			}),
+			reasoningValueForModel(
+				bundledResolvedModelCatalog(),
+				"codex",
+				"gpt-5.6-sol",
+				{
+					reasoning: "unsupported",
+				},
+			),
 		).toMatchObject({ value: "medium", label: "Medium" });
 	});
 });

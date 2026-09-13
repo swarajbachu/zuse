@@ -1,6 +1,6 @@
 import type {
+	ApiLinkStatus,
 	PairingStartResult,
-	RelayLinkStatus,
 	TailnetShareState,
 } from "@zuse/contracts";
 import { buildBrowserPairUrl } from "@zuse/contracts";
@@ -12,7 +12,7 @@ import { buildBrowserPairUrl } from "@zuse/contracts";
 export type PairingMethod = "account" | "tailscale" | "local";
 
 export interface PairingReadiness {
-	readonly status: RelayLinkStatus | null;
+	readonly status: ApiLinkStatus | null;
 	readonly tailnet: TailnetShareState | null;
 	readonly networkEnabled: boolean;
 }
@@ -42,7 +42,7 @@ export const browserBaseUrl = (pairing: PairingStartResult): string => {
 	return url.toString().replace(/\/$/u, "");
 };
 
-export const accountPairingEndpoint = (status: RelayLinkStatus | null) =>
+export const accountPairingEndpoint = (status: ApiLinkStatus | null) =>
 	status?.advertisedEndpoints?.find(
 		(endpoint) =>
 			(endpoint.reachability === "tunnel" ||
@@ -68,7 +68,7 @@ const tailnetPairingReady = (tailnet: TailnetShareState | null): boolean =>
 export const pairingForMethod = (
 	pairing: PairingStartResult,
 	method: PairingMethod,
-	status: RelayLinkStatus | null,
+	status: ApiLinkStatus | null,
 	tailnet: TailnetShareState | null,
 ): PairingStartResult | null => {
 	if (method === "account") {

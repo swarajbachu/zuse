@@ -65,7 +65,7 @@ export function MenuPopup({
 					data-slot="menu-popup"
 					{...props}
 				>
-					<div className="max-h-(--available-height) w-full overflow-y-auto rounded-lg p-1">
+					<div className="max-h-(--available-height) w-full overflow-x-hidden overflow-y-auto rounded-lg p-1">
 						{children}
 					</div>
 				</MenuPrimitive.Popup>
@@ -116,7 +116,7 @@ export function MenuCheckboxItem({
 		<MenuPrimitive.CheckboxItem
 			checked={checked}
 			className={cn(
-				"grid min-h-8 in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)] cursor-default items-center gap-2 rounded-lg py-1 ps-2 text-base text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+				"grid min-h-8 in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)] cursor-default items-center gap-2 rounded-md py-1 ps-2 text-base text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
 				variant === "switch"
 					? "grid-cols-[1fr_auto] gap-4 pe-1.5"
 					: "grid-cols-[.75rem_1fr] pe-4",
@@ -166,6 +166,30 @@ export function MenuRadioGroup(
 	return <MenuPrimitive.RadioGroup data-slot="menu-radio-group" {...props} />;
 }
 
+export function MenuSelectionIndicator({
+	checked,
+	className,
+}: {
+	readonly checked: boolean;
+	readonly className?: string;
+}): React.ReactElement {
+	return (
+		<span
+			className={cn(
+				"flex size-3.5 shrink-0 items-center justify-center rounded-full border border-foreground/20 bg-background/60 shadow-[inset_0_1px_1px_hsl(0_0%_0%/0.16)] transition-[border-color,background-color,box-shadow] duration-150",
+				checked &&
+					"border-primary/70 bg-primary/10 shadow-[0_0_0_1px_hsl(83_100%_50%/0.08),inset_0_1px_1px_hsl(0_0%_0%/0.12)]",
+				className,
+			)}
+			aria-hidden="true"
+		>
+			{checked ? (
+				<span className="size-1.5 rounded-full bg-primary shadow-[0_0_4px_hsl(83_100%_50%/0.28)]" />
+			) : null}
+		</span>
+	);
+}
+
 export function MenuRadioItem({
 	className,
 	children,
@@ -174,29 +198,16 @@ export function MenuRadioItem({
 	return (
 		<MenuPrimitive.RadioItem
 			className={cn(
-				"grid min-h-8 in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)] cursor-default grid-cols-[.75rem_1fr] items-center gap-2 rounded-lg py-1 ps-2 pe-4 text-base text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+				"group/menu-radio grid min-h-8 in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)] cursor-default grid-cols-[1fr_.875rem] items-center gap-2 rounded-md py-1 ps-2 pe-2 text-base text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
 				className,
 			)}
 			data-slot="menu-radio-item"
 			{...props}
 		>
-			<MenuPrimitive.RadioItemIndicator className="col-start-1 -ms-0.5">
-				<svg
-					aria-hidden="true"
-					fill="none"
-					height="24"
-					stroke="currentColor"
-					strokeLinecap="round"
-					strokeLinejoin="round"
-					strokeWidth="2"
-					viewBox="0 0 24 24"
-					width="24"
-					xmlns="http://www.w3.org/2000/svg"
-				>
-					<path d="M5.252 12.7 10.2 18.63 18.748 5.37" />
-				</svg>
-			</MenuPrimitive.RadioItemIndicator>
-			<span className="col-start-2">{children}</span>
+			<span className="col-start-1 min-w-0">{children}</span>
+			<span className="col-start-2 flex size-3.5 items-center justify-center justify-self-end rounded-full border border-foreground/20 bg-background/60 shadow-[inset_0_1px_1px_hsl(0_0%_0%/0.16)] transition-[border-color,background-color,box-shadow] duration-150 group-data-checked/menu-radio:border-primary/70 group-data-checked/menu-radio:bg-primary/10 group-data-checked/menu-radio:shadow-[0_0_0_1px_hsl(83_100%_50%/0.08),inset_0_1px_1px_hsl(0_0%_0%/0.12)]">
+				<MenuPrimitive.RadioItemIndicator className="size-1.5 rounded-full bg-primary shadow-[0_0_4px_hsl(83_100%_50%/0.28)]" />
+			</span>
 		</MenuPrimitive.RadioItem>
 	);
 }

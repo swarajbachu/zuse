@@ -39,9 +39,9 @@ export function ProjectStep() {
 					type="button"
 					onClick={() => void pick()}
 					disabled={busy}
-					className="group flex flex-col items-center justify-center gap-4 rounded-2xl bg-muted/60 px-6 py-12 text-center transition-all hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+					className="group flex flex-col items-center justify-center gap-4 rounded-lg border border-border bg-card px-6 py-12 text-center transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
 				>
-					<span className="flex size-12 items-center justify-center rounded-2xl bg-background/70 text-foreground transition-transform group-hover:scale-105">
+					<span className="flex size-12 items-center justify-center rounded-lg bg-muted text-foreground">
 						<HugeiconsIcon icon={FolderAddIcon} className="size-5" />
 					</span>
 					<span className="flex flex-col gap-1">
@@ -55,7 +55,7 @@ export function ProjectStep() {
 				</button>
 			) : (
 				<div className="flex flex-col gap-3">
-					<div className="flex items-center gap-3 rounded-2xl bg-alert-success-bg px-4 py-3.5">
+					<div className="flex items-center gap-3 rounded-lg bg-alert-success-bg px-4 py-3.5">
 						<span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-background/70 text-foreground">
 							<HugeiconsIcon icon={Folder01Icon} className="size-4" />
 						</span>

@@ -7,8 +7,8 @@ import {
 import { Atom } from "effect/unstable/reactivity";
 
 import { connectionSessionKey } from "~/lib/session-key";
+import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
-
 import {
 	dispatchMobileSessionCommand,
 	mobileClientBus,
@@ -69,6 +69,11 @@ export const retainPermissionConnection = (
 	connKey: string,
 	options: WsProtocolOptions,
 ): (() => void) => {
+	if (
+		options.cloudWorkspaceId !== undefined &&
+		!cloudRuntimeReady(options.cloudWorkspaceId)
+	)
+		return () => undefined;
 	const existing = connections.get(connKey);
 	if (existing !== undefined) return () => undefined;
 	const environmentId = registerMobileEnvironment(connKey, options);

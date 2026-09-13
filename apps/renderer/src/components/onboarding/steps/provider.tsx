@@ -194,10 +194,10 @@ function ProviderCard({
 				// Tighter card: row layout (icon + text + state) instead of stacked
 				// tiles. Removes ~30% of vertical height while keeping the same
 				// information density.
-				"group relative flex items-center gap-3 overflow-hidden rounded-xl p-2.5 text-left transition-all",
+				"group relative flex items-center gap-3 overflow-hidden rounded-lg border p-2.5 text-left transition-colors",
 				active
-					? "bg-accent text-accent-foreground"
-					: "bg-muted/60 hover:bg-muted",
+					? "border-input bg-accent text-accent-foreground"
+					: "border-border bg-card hover:bg-muted",
 			)}
 		>
 			<span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background/70 text-foreground">
@@ -208,11 +208,11 @@ function ProviderCard({
 					<span className="truncate text-[13px] font-medium leading-none text-foreground">
 						{PROVIDER_LABEL[providerId]}
 					</span>
-					{/* Only show the violet "Sub" chip when the probe actually detected
+					{/* Only show the subscription chip when the probe actually detected
               an unmet plan requirement. Users with a valid tier see a clean
               card with no chip. */}
 					{state.kind === "subscription" && (
-						<span className="rounded-full bg-violet-500/[0.12] px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-violet-300">
+						<span className="rounded-full bg-info/10 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-info">
 							Sub
 						</span>
 					)}
@@ -316,7 +316,7 @@ function ProviderStatus({
 				? `${PROVIDER_LABEL[providerId]} CLI is logged in. You're all set.`
 				: `${PROVIDER_LABEL[providerId]} API key saved. You're all set.`;
 		return (
-			<div className="flex items-center gap-2 rounded-full bg-alert-success-bg px-3 py-2 text-[12px] text-success">
+			<div className="flex items-center gap-2 rounded-md bg-alert-success-bg px-3 py-2 text-[12px] text-success">
 				<HugeiconsIcon icon={Tick01Icon} className="size-3.5" strokeWidth={3} />
 				<span className="leading-none">{label}</span>
 			</div>
@@ -326,7 +326,7 @@ function ProviderStatus({
 	// Loading: a single quiet line, no big card.
 	if (state.kind === "loading") {
 		return (
-			<div className="flex items-center gap-2 rounded-full bg-muted/60 px-3 py-2 text-[12px] text-muted-foreground">
+			<div className="flex items-center gap-2 rounded-md bg-muted/60 px-3 py-2 text-[12px] text-muted-foreground">
 				<span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
 				Checking {PROVIDER_LABEL[providerId]}…
 			</div>
@@ -428,8 +428,8 @@ function SubscriptionNotice({
 	url: string;
 }) {
 	return (
-		<div className="flex flex-col gap-1.5 rounded-xl border border-violet-500/25 bg-violet-500/[0.08] px-3 py-2.5">
-			<span className="text-[11px] font-medium text-violet-700 dark:text-violet-200">
+		<div className="flex flex-col gap-1.5 rounded-lg border border-info/25 bg-alert-info-bg px-3 py-2.5">
+			<span className="text-[11px] font-medium text-info">
 				Requires {plan} subscription
 			</span>
 			<p className="text-[11px] leading-snug text-muted-foreground">
@@ -442,7 +442,7 @@ function SubscriptionNotice({
 					size="xs"
 					variant="ghost"
 					onClick={() => openExternal(url)}
-					className="gap-1.5 rounded-full bg-violet-500/15 px-2.5 text-[11px] text-violet-700 hover:bg-violet-500/25 hover:text-violet-800 dark:text-violet-200 dark:hover:text-violet-100"
+					className="gap-1.5 bg-info/10 px-2.5 text-[11px] text-info hover:bg-info/20 hover:text-info"
 				>
 					<HugeiconsIcon icon={LinkSquare01Icon} className="size-3" />
 					Subscribe to {plan}
@@ -460,13 +460,13 @@ function CodeRow({
 	onRecheck: () => void;
 }) {
 	return (
-		<div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2 font-mono text-[12px]">
+		<div className="flex h-7 items-center justify-between gap-3 rounded-md bg-muted px-2.5 font-mono text-[11px]">
 			<code className="truncate text-foreground/90">$ {command}</code>
 			<Button
 				size="xs"
 				variant="ghost"
 				onClick={onRecheck}
-				className="h-6 shrink-0 rounded-full px-2.5 text-[11px] text-muted-foreground hover:text-foreground"
+				className="h-6 shrink-0 px-2 text-[11px] text-muted-foreground hover:text-foreground"
 			>
 				Recheck
 			</Button>

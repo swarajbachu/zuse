@@ -14,12 +14,55 @@ describe("provider session registry", () => {
 		expect(registry.lookup("session-1")).toBe("grok");
 	});
 
-	it("invalidates an in-flight generation even without a published handle", () => {
+	it.each([
+		"explicit",
+		"unexpected",
+	] as const)("invalidates an in-flight generation on %s stop", (kind) => {
 		const registry = makeProviderSessionRegistry<string, string>();
 		const generation = registry.begin("session-1");
 
-		expect(registry.invalidate("session-1")).toBeUndefined();
+		expect(
+			kind === "explicit"
+				? registry.invalidate("session-1")
+				: registry.invalidateIfCurrent("session-1", generation),
+		).toBeUndefined();
 		expect(registry.publish("session-1", generation, "late")).toBe(false);
 		expect(registry.lookup("session-1")).toBeUndefined();
+	});
+
+	it("removes the current crashed handle and permits a later generation", () => {
+		const registry = makeProviderSessionRegistry<string, string>();
+		const crashedGeneration = registry.begin("session-1");
+		expect(registry.publish("session-1", crashedGeneration, "crashed")).toBe(
+			true,
+		);
+
+		expect(registry.invalidateIfCurrent("session-1", crashedGeneration)).toBe(
+			"crashed",
+		);
+		expect(registry.lookup("session-1")).toBeUndefined();
+
+		const restartedGeneration = registry.begin("session-1");
+		expect(
+			registry.publish("session-1", restartedGeneration, "restarted"),
+		).toBe(true);
+		expect(registry.lookup("session-1")).toBe("restarted");
+	});
+
+	it("does not let a stale process exit remove its replacement", () => {
+		const registry = makeProviderSessionRegistry<string, string>();
+		const staleGeneration = registry.begin("session-1");
+		expect(registry.publish("session-1", staleGeneration, "stale")).toBe(true);
+
+		registry.invalidate("session-1");
+		const replacementGeneration = registry.begin("session-1");
+		expect(
+			registry.publish("session-1", replacementGeneration, "replacement"),
+		).toBe(true);
+
+		expect(
+			registry.invalidateIfCurrent("session-1", staleGeneration),
+		).toBeUndefined();
+		expect(registry.lookup("session-1")).toBe("replacement");
 	});
 });

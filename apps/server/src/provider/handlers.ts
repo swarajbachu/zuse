@@ -1,4 +1,3 @@
-import { loadKiroInventory } from "@zuse/agents/drivers/kiro-inventory";
 import {
 	loadOpencodeInventory,
 	removeOpencodeProviderAuth,
@@ -131,27 +130,6 @@ const UpdateProvider = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-// Renderer calls this on first open of the opencode model picker to refresh
-// the static `MODELS_BY_PROVIDER.opencode` seed list with whatever
-// providers and agents the user actually has connected/configured. We
-// short-live an `opencode serve` for the SDK calls and tear it down on
-// return so we don't leave a server lingering.
-const OpencodeInventory = MemoizeRpcs.toLayerHandler(
-	"provider.opencode.inventory",
-	() =>
-		Effect.gen(function* () {
-			const opencodePath = yield* requireOpencodePath();
-			const settings = yield* ConfigStoreService.pipe(
-				Effect.flatMap((cs) => cs.getSettings()),
-			);
-			return yield* loadOpencodeInventory(
-				opencodePath,
-				process.cwd(),
-				settings.opencodeCustomProviders,
-			);
-		}),
-);
-
 const requireKiroPath = (): Effect.Effect<
 	string,
 	AgentSessionStartError,
@@ -170,25 +148,6 @@ const requireKiroPath = (): Effect.Effect<
 		}
 		return kiroPath;
 	});
-
-// Renderer refreshes the Kiro model picker from the account's live catalog
-// (control-plane ListAvailableModels, with CLI list-models fallback).
-const KiroInventory = MemoizeRpcs.toLayerHandler(
-	"provider.kiro.inventory",
-	() =>
-		Effect.gen(function* () {
-			const kiroPath = yield* requireKiroPath();
-			return yield* loadKiroInventory(kiroPath).pipe(
-				Effect.mapError(
-					(cause) =>
-						new AgentSessionStartError({
-							providerId: "kiro",
-							reason: cause instanceof Error ? cause.message : String(cause),
-						}),
-				),
-			);
-		}),
-);
 
 // ---------------------------------------------------------------------------
 // OpenCode provider management. `setProviderAuth` / `addCustomProvider` write
@@ -2094,8 +2053,6 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	RemoveCredential,
 	StartLogin,
 	UpdateProvider,
-	OpencodeInventory,
-	KiroInventory,
 	OpencodeSetProviderAuth,
 	OpencodeRemoveProviderAuth,
 	OpencodeAddCustomProvider,

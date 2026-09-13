@@ -16,14 +16,14 @@ import {
 	type AgentSessionId,
 	AgentSessionStartError,
 	type AttachmentRef,
+	BUNDLED_MODEL_CATALOG,
 	defaultModelFor,
 	type FileRef,
-	findModelDescriptor,
+	type ModelOption,
 	type PermissionDecision,
 	type PermissionKind,
 	type PermissionMode,
 	type RuntimeMode,
-	resolveModelSlug,
 	type SkillRef,
 	type StartSessionInput,
 	ThreadGoal,
@@ -79,7 +79,7 @@ export type CodexReasoningEffort =
 
 /** Keep the user-selected reasoning tier intact when Codex supports it. */
 export const codexReasoningEffort = (
-	model: string | undefined,
+	descriptor: ModelOption | undefined,
 	value: string | undefined,
 ): CodexReasoningEffort | null => {
 	if (
@@ -93,10 +93,10 @@ export const codexReasoningEffort = (
 		return null;
 	}
 
-	const descriptor =
-		model === undefined
-			? undefined
-			: findModelDescriptor("codex", resolveModelSlug("codex", model));
+	// The server resolves the descriptor from the live catalog (curated seed
+	// merged with `model/list`), so its reasoning options are the
+	// authoritative per-model gate. Custom slugs carry no descriptor and keep
+	// the standard tiers.
 	if (descriptor === undefined) {
 		return value === "low" || value === "medium" || value === "high"
 			? value
@@ -1396,6 +1396,7 @@ export const startCodexSession = (
 	mcpProxyCommand: string,
 	orchestrationTools: OrchestrationSessionTools | null = null,
 	resumeCursor: string | null = null,
+	onUnexpectedTermination?: (error: Error) => void,
 ): Effect.Effect<
 	CodexSessionHandle,
 	AgentSessionStartError,
@@ -1408,7 +1409,8 @@ export const startCodexSession = (
 		const statusLog = createCodexStatusLogger(cwd, sessionId);
 		const rawProtocolLog = createCodexRawProtocolLogger(cwd, sessionId);
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
-		let activeModel = input.model ?? defaultModelFor("codex");
+		let activeModel =
+			input.model ?? defaultModelFor(BUNDLED_MODEL_CATALOG, "codex");
 		let activeThreadId = resumeCursor;
 		const cursorLifecycle = new CodexCursorLifecycle(resumeCursor);
 		let currentTurnId: string | null = null;
@@ -1504,11 +1506,34 @@ export const startCodexSession = (
 			endpoint: mcpGatewaySession.endpoint,
 			token: mcpGatewaySession.token,
 		});
+		const handleUnexpectedTermination = (error: Error): void => {
+			if (closed) return;
+			// Publish the concrete transport error before ending the stream. The shared
+			// turn protocol scopes it to the active durable turn and synthesizes its
+			// terminal; when idle, ending the stream still retires the dead handle.
+			emit({ _tag: "Error", message: error.message });
+			closed = true;
+			for (const waiter of questionWaiters.values()) waiter.resolve([]);
+			questionWaiters.clear();
+			for (const resolve of gatewayQuestionWaiters.values()) resolve(null);
+			gatewayQuestionWaiters.clear();
+			void mcpGatewaySession.close();
+			void stdioMcpFallback.close();
+			Queue.endUnsafe(events);
+			try {
+				onUnexpectedTermination?.(error);
+			} catch (cause) {
+				reportCodexStderr(
+					`unexpected termination callback failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+				);
+			}
+		};
 
 		let app = yield* Effect.tryPromise({
 			try: () =>
 				CodexAppServerClient.start({
 					codexPath,
+					externalAuthConsumerId: sessionId,
 					env: { ...process.env, ZUSE_MCP_TOKEN: mcpGatewaySession.token },
 					mcp: {
 						transport: "http",
@@ -1531,6 +1556,7 @@ export const startCodexSession = (
 								respond(defaultServerRequestResponse(request));
 							});
 					},
+					onUnexpectedTermination: handleUnexpectedTermination,
 				}),
 			catch: (cause) =>
 				new AgentSessionStartError({
@@ -1598,6 +1624,7 @@ export const startCodexSession = (
 					await expectCodexMcpServer(app);
 					console.info(`[mcp-gateway] session ${sessionId} connected via http`);
 				} catch (httpCause) {
+					if (closed) throw httpCause;
 					console.warn(
 						`[mcp-gateway] session ${sessionId} HTTP setup failed; retrying with stdio compatibility transport`,
 						httpCause,
@@ -1609,6 +1636,7 @@ export const startCodexSession = (
 					}
 					app = await CodexAppServerClient.start({
 						codexPath,
+						externalAuthConsumerId: sessionId,
 						env: process.env,
 						mcp: {
 							transport: "stdio",
@@ -1633,6 +1661,7 @@ export const startCodexSession = (
 									respond(defaultServerRequestResponse(request));
 								});
 						},
+						onUnexpectedTermination: handleUnexpectedTermination,
 					});
 					await expectCodexMcpServer(app);
 					console.info(
@@ -1836,7 +1865,7 @@ export const startCodexSession = (
 			// Reasoning effort is part of native collaboration-mode settings because
 			// that payload takes precedence over the top-level turn fields.
 			const effort = codexReasoningEffort(
-				input.model,
+				input.modelDescriptor,
 				input.modelOptions?.["reasoning"],
 			);
 			const turnMode = buildCodexTurnMode({

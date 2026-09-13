@@ -39,6 +39,7 @@ import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process"
 import { SqlClient } from "effect/unstable/sql";
 import { eventToContent } from "../../conversation/core/conversation-message-mapping.ts";
 import { TranscriptService } from "../../conversation/services/conversation-services.ts";
+import { ModelCatalogService } from "../../model-catalog/services/model-catalog-service.ts";
 import { resolveCliPath } from "../../provider/availability.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { ExternalThreadService } from "../services/external-thread-service.ts";
@@ -849,6 +850,7 @@ export const ExternalThreadServiceLive = Layer.effect(
 		const workspace = yield* WorkspaceService;
 		const worktrees = yield* WorktreeService;
 		const messages = yield* TranscriptService;
+		const modelCatalog = yield* ModelCatalogService;
 
 		const list: ExternalThreadService["Service"]["list"] = (limit) =>
 			Effect.gen(function* () {
@@ -897,7 +899,7 @@ export const ExternalThreadServiceLive = Layer.effect(
 						projectId: binding.project.id,
 						worktreeId: binding.worktreeId,
 						providerId,
-						model: defaultModelFor(providerId),
+						model: defaultModelFor(yield* modelCatalog.current(), providerId),
 						title,
 						resumeCursor: input.cursor,
 						resumeStrategy,

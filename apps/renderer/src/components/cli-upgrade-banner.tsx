@@ -77,8 +77,8 @@ export function CliUpgradeBanner({
 		<div
 			className={
 				constrain
-					? "mx-3 mb-2 mt-1 flex flex-col gap-2 rounded-2xl bg-alert-warning-bg p-3"
-					: "mb-2 mt-1 flex flex-col gap-2 rounded-2xl bg-alert-warning-bg p-3"
+					? "mx-3 mb-2 mt-1 flex flex-col gap-2 rounded-lg bg-alert-warning-bg p-3"
+					: "mb-2 mt-1 flex flex-col gap-2 rounded-lg bg-alert-warning-bg p-3"
 			}
 		>
 			<div className="flex items-start gap-2.5">

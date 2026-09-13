@@ -4,10 +4,15 @@ import type {
 	PermissionKind,
 	PermissionRequest,
 } from "@zuse/contracts";
-import { useCallback, useEffect } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
-import { decideEnvironmentPermission } from "../lib/environment-permissions-client-bus.ts";
+import {
+	decideEnvironmentPermission,
+	denyEnvironmentPermissionAndInterrupt,
+} from "../lib/environment-permissions-client-bus.ts";
+import { formatError } from "../lib/format-error.ts";
+import { Button } from "./ui/button.tsx";
 
 const kindHeadline = (kind: PermissionKind): string => {
 	switch (kind._tag) {
@@ -61,8 +66,6 @@ const ALWAYS_ALLOW_FOLDER: PermissionDecision = {
 	_tag: "AlwaysAllow",
 	scope: "folder",
 };
-const DENY: PermissionDecision = { _tag: "Deny" };
-
 export function PermissionCard({
 	head,
 	queueSize,
@@ -72,35 +75,92 @@ export function PermissionCard({
 	readonly queueSize: number;
 	readonly environmentId: EnvironmentId;
 }) {
-	const decide = useCallback(
-		(requestId: string, decision: PermissionDecision): Promise<void> =>
-			decideEnvironmentPermission(requestId, decision, environmentId),
-		[environmentId],
+	return (
+		<PermissionPrompt
+			requestId={head.id}
+			kind={head.kind}
+			queueSize={queueSize}
+			expired={head.recoveryState === "expired"}
+			persistentDisabled={head.forcePrompt}
+			onDecision={async (requestId, decision) => {
+				if (decision._tag === "Deny" && head.recoveryState !== "expired")
+					await denyEnvironmentPermissionAndInterrupt(head, environmentId);
+				else
+					await decideEnvironmentPermission(requestId, decision, environmentId);
+			}}
+		/>
 	);
-	const persistentDisabled = head.forcePrompt;
+}
+
+/** One permission surface and keyboard/action behavior for provider and device approvals. */
+export function PermissionPrompt({
+	requestId,
+	kind,
+	queueSize,
+	expired = false,
+	persistentDisabled = false,
+	onDecision,
+	headline,
+	context,
+}: {
+	requestId: string;
+	kind: PermissionKind;
+	queueSize: number;
+	expired?: boolean;
+	persistentDisabled?: boolean;
+	onDecision: (
+		requestId: string,
+		decision: PermissionDecision,
+	) => Promise<void>;
+	headline?: ReactNode;
+	context?: ReactNode;
+}) {
+	const [pending, setPending] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const decide = useCallback(
+		async (requestId: string, decision: PermissionDecision): Promise<void> => {
+			if (pending || (expired && decision._tag !== "Deny")) return;
+			setPending(true);
+			setError(null);
+			try {
+				await onDecision(requestId, decision);
+			} catch (cause) {
+				setError(formatError(cause));
+			} finally {
+				setPending(false);
+			}
+		},
+		[onDecision, expired, pending],
+	);
+	const deny = useCallback(
+		() => decide(requestId, { _tag: "Deny" }),
+		[decide, requestId],
+	);
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
 				e.preventDefault();
-				void decide(head.id, DENY);
+				void deny();
 				return;
 			}
-			if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+			if (!expired && (e.metaKey || e.ctrlKey) && e.key === "Enter") {
 				e.preventDefault();
-				void decide(head.id, ALLOW_ONCE);
+				void decide(requestId, ALLOW_ONCE);
 				return;
 			}
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
-	}, [head.id, decide]);
+	}, [requestId, decide, deny, expired]);
 
 	return (
-		<div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+		<div className="rounded-xl bg-card/95 p-3 shadow-overlay-sm ring-1 ring-border/70">
 			<div className="flex items-center gap-2">
-				<div className="text-base text-foreground truncate">
-					{kindHeadline(head.kind)}
+				<div className="truncate text-[13px] font-medium leading-5 text-foreground">
+					{expired
+						? "Approval expired after agent restart"
+						: (headline ?? kindHeadline(kind))}
 				</div>
 				{queueSize > 1 ? (
 					<span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground shrink-0">
@@ -108,60 +168,81 @@ export function PermissionCard({
 					</span>
 				) : null}
 			</div>
+			{context}
+			{expired ? (
+				<p
+					className="mt-2 text-xs text-muted-foreground"
+					role="status"
+					aria-live="polite"
+				>
+					The agent restarted while waiting for this approval. It cannot consume
+					the old response. Dismiss this request and send a message to continue.
+				</p>
+			) : null}
+			{error ? (
+				<p role="alert" className="mt-2 text-xs text-destructive">
+					{error}
+				</p>
+			) : null}
 
-			<div className="mt-3 break-all rounded-md bg-muted/50 px-3 py-2 font-mono text-xs text-foreground/90">
-				{kindDetail(head.kind)}
+			<div className="mt-2 max-h-24 overflow-y-auto break-all rounded-md bg-muted/45 px-2.5 py-1.5 font-mono text-[11px] leading-4 text-foreground/90">
+				{kindDetail(kind)}
 			</div>
 
 			{persistentDisabled ? (
-				<div className="mt-2 text-xs text-muted-foreground">
-					{forcePromptHint(head.kind)}
+				<div className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
+					{forcePromptHint(kind)}
 				</div>
 			) : null}
 
-			<div className="mt-4 flex flex-wrap items-center justify-end gap-1">
-				<button
-					type="button"
-					onClick={() => void decide(head.id, DENY)}
-					className="rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+			<div className="mt-2.5 flex flex-wrap items-center justify-end gap-1">
+				<Button
+					size="xs"
+					variant="ghost"
+					disabled={pending}
+					className="h-7"
+					onClick={() => void deny()}
 					title="Esc"
 				>
-					Deny
-				</button>
-				<button
-					type="button"
-					disabled={persistentDisabled}
-					onClick={() => void decide(head.id, ALLOW_FOR_SESSION)}
-					className={cn(
-						"rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors",
-						persistentDisabled
-							? "pointer-events-none opacity-40"
-							: "hover:bg-accent/40 hover:text-foreground",
-					)}
-				>
-					For session
-				</button>
-				<button
-					type="button"
-					disabled={persistentDisabled}
-					onClick={() => void decide(head.id, ALWAYS_ALLOW_FOLDER)}
-					className={cn(
-						"rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors",
-						persistentDisabled
-							? "pointer-events-none opacity-40"
-							: "hover:bg-accent/40 hover:text-foreground",
-					)}
-				>
-					Always
-				</button>
-				<button
-					type="button"
-					onClick={() => void decide(head.id, ALLOW_ONCE)}
-					className="ml-1 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90"
-					title="⌘+Enter"
-				>
-					Allow once
-				</button>
+					{expired ? "Dismiss" : "Deny"}
+				</Button>
+				{expired ? null : (
+					<>
+						<Button
+							size="xs"
+							variant="ghost"
+							disabled={persistentDisabled || pending}
+							onClick={() => void decide(requestId, ALLOW_FOR_SESSION)}
+							className={cn(
+								"h-7",
+								persistentDisabled && "pointer-events-none opacity-40",
+							)}
+						>
+							Allow for session
+						</Button>
+						<Button
+							size="xs"
+							variant="ghost"
+							disabled={persistentDisabled || pending}
+							onClick={() => void decide(requestId, ALWAYS_ALLOW_FOLDER)}
+							className={cn(
+								"h-7",
+								persistentDisabled && "pointer-events-none opacity-40",
+							)}
+						>
+							Always allow
+						</Button>
+						<Button
+							size="xs"
+							disabled={pending}
+							onClick={() => void decide(requestId, ALLOW_ONCE)}
+							className="ml-1 h-7"
+							title="⌘+Enter"
+						>
+							Allow once
+						</Button>
+					</>
+				)}
 			</div>
 		</div>
 	);

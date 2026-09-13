@@ -204,15 +204,15 @@ export function ArchivedChatsPage({
 						chat.title.toLowerCase().includes(needle),
 					);
 		return (
-			<section className="flex min-h-0 flex-1 flex-col bg-background/55">
-				<header className="shrink-0 border-b border-border/50 px-8 py-4">
+			<section className="flex min-h-0 flex-1 flex-col bg-background">
+				<header className="shrink-0 border-b border-border px-8 py-5 max-[800px]:px-4">
 					<div className="flex items-center gap-3">
 						<HugeiconsIcon
 							icon={ArchiveIcon}
 							className="size-5 text-muted-foreground"
 						/>
 						<div className="min-w-0">
-							<h1 className="truncate text-lg font-semibold text-foreground">
+							<h1 className="truncate text-xl font-medium tracking-[-0.01em] text-foreground">
 								Archived chats
 							</h1>
 							<p className="truncate text-xs text-muted-foreground">
@@ -220,7 +220,7 @@ export function ArchivedChatsPage({
 							</p>
 						</div>
 					</div>
-					<label className="mt-5 flex min-h-11 max-w-xl items-center gap-2 rounded-md border border-border/70 bg-background px-3 text-sm focus-within:ring-2 focus-within:ring-ring">
+					<label className="mt-5 flex h-8 max-w-xl items-center gap-2 rounded-md border border-input bg-card px-2.5 text-xs shadow-xs/5 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/24">
 						<HugeiconsIcon
 							icon={Search01Icon}
 							className="size-4 shrink-0 text-muted-foreground"
@@ -234,7 +234,7 @@ export function ArchivedChatsPage({
 						/>
 					</label>
 				</header>
-				<div className="min-h-0 flex-1 overflow-y-auto px-8 py-5">
+				<div className="min-h-0 flex-1 overflow-y-auto px-8 py-5 max-[800px]:px-4">
 					{projectError !== null ? (
 						<CenteredState
 							text={projectError}

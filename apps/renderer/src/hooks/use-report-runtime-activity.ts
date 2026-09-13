@@ -1,52 +1,58 @@
-import { EnvironmentId, type PowerWorkloadState } from "@zuse/contracts";
+import type { PowerWorkloadState } from "@zuse/contracts";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
+import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
+import { localRuntimeEnvironmentId } from "../lib/computer-awake.ts";
+import { useEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
+import { countLocalActiveAgents } from "../lib/local-agent-activity.ts";
 import {
 	getPowerRuntimeActivity,
 	setPowerActiveAgentCount,
 	subscribePowerRuntimeActivity,
 } from "../lib/power-runtime-activity.ts";
-import { isSessionRuntimeBusy } from "../lib/session-runtime-state.ts";
-import { useRendererSessionTimelines } from "../lib/session-timeline-hooks.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 
 /** Mirror privacy-safe active workload counts to desktop-owned services. */
 export function useReportRuntimeActivity(): void {
-	const { sessionsByProject } = useActiveEnvironmentEntities();
-	const activeEnvironmentId = useEnvironmentCatalogStore(
-		(state) => state.activeEnvironmentId,
+	const localEnvironmentId = useEnvironmentCatalogStore((state) =>
+		localRuntimeEnvironmentId(state.entries, state.activeEnvironmentId),
 	);
-	const timelineRefs = useMemo(
-		() =>
-			Object.values(sessionsByProject)
-				.flat()
-				.map((session) => ({
-					environmentId: EnvironmentId.make(activeEnvironmentId),
-					sessionId: session.id,
-				})),
-		[activeEnvironmentId, sessionsByProject],
+	const hasLocalEnvironment = useEnvironmentCatalogStore((state) =>
+		state.entries.some((entry) => entry.connectionKind === "local"),
 	);
-	const timelines = useRendererSessionTimelines(timelineRefs, "cache-only");
+	const { sessionsByProject, view } =
+		useEnvironmentEntities(localEnvironmentId);
+	const summaries = useCloudChatCatalogStore((state) => state.summaries);
 	const runningCount = useMemo(
 		() =>
-			timelines.reduce(
-				(count, timeline) =>
-					count + (isSessionRuntimeBusy(timeline.runtime) ? 1 : 0),
-				0,
-			),
-		[timelines],
+			hasLocalEnvironment
+				? countLocalActiveAgents({
+						connection: view.connection,
+						sync: view.sync,
+						sessions: Object.values(sessionsByProject).flat(),
+						cloudChatIds: new Set(summaries.map((summary) => summary.chatId)),
+					})
+				: null,
+		[
+			hasLocalEnvironment,
+			view.connection,
+			view.sync,
+			sessionsByProject,
+			summaries,
+		],
 	);
+
 	const lastWorkload = useRef("");
-	const lastRunningCount = useRef(-1);
+	const lastRunningCount = useRef<number | null | undefined>(undefined);
 	const report = useCallback(() => {
 		if (runningCount !== lastRunningCount.current) {
 			lastRunningCount.current = runningCount;
 			setPowerActiveAgentCount(runningCount);
-			window.zuse?.updates?.reportRunningCount(runningCount);
+			if (runningCount !== null)
+				window.zuse?.updates?.reportRunningCount(runningCount);
 		}
 		const runtimeActivity = getPowerRuntimeActivity();
 		const workload: PowerWorkloadState = {
-			activeAgents: runningCount,
+			activeAgents: runtimeActivity.activeAgents,
 			activeTerminals: runtimeActivity.activeTerminals,
 			browserSessions: runtimeActivity.browserSessions,
 			activeBrowserSessions: runtimeActivity.activeBrowserSessions,

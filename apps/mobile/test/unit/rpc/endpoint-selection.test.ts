@@ -1,9 +1,9 @@
-import { type RelayConnectGrant, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
+import { type ApiConnectGrant, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { chooseGrantEndpoint } from "../../../src/rpc/endpoint-selection";
 
-const grant: RelayConnectGrant = {
+const grant: ApiConnectGrant = {
 	endpoint: {
 		httpBaseUrl: "https://managed.test",
 		wsBaseUrl: "wss://managed.test",

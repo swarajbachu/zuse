@@ -31,9 +31,18 @@ RUN npm install --global \
 		corepack@0.34.1 \
 	&& npm cache clean --force
 
+# Grok's external-auth provider contract is versioned independently of the
+# Node CLIs. Pin the contract-tested build in the base image so cloud chats do
+# not download tools during bootstrap.
+RUN mkdir -p /opt/grok \
+	&& curl -fsSL https://x.ai/cli/install.sh -o /tmp/install-grok.sh \
+	&& HOME=/opt/grok GROK_BIN_DIR=/usr/local/bin bash /tmp/install-grok.sh 1.0.13 \
+	&& grok --version \
+	&& rm /tmp/install-grok.sh
+
 # These tarballs are built from this checkout. The current server/serve release
 # is intentionally not fetched from npm: the sandbox external-bind behavior
-# must ship atomically with the relay that depends on it.
+# must ship atomically with the api that depends on it.
 COPY artifacts/zusehq-server.tgz /tmp/zusehq-server.tgz
 COPY artifacts/zusehq-serve.tgz /tmp/zusehq-serve.tgz
 RUN npm install --global /tmp/zusehq-server.tgz \
@@ -57,6 +66,8 @@ COPY --chown=zuse:zuse --chmod=0600 sshd_config /home/zuse/.ssh/sshd_config
 COPY --chmod=0755 project-builder.sh /usr/local/bin/zuse-project-builder
 COPY --chmod=0755 workspace-bootstrap.sh /usr/local/bin/zuse-workspace-bootstrap
 COPY --chmod=0755 git-askpass.sh /usr/local/bin/zuse-git-askpass
+COPY --chmod=0755 github-auth.sh /usr/local/bin/zuse-github-auth
+RUN ln -sf /usr/local/bin/zuse-github-auth /usr/local/bin/gh
 COPY repository-script.ts /usr/local/lib/zuse/repository-script.ts
 COPY artifacts/runtime-updater.mjs /usr/local/lib/zuse/runtime-updater.mjs
 
@@ -66,7 +77,8 @@ RUN mkdir -p /var/lib/zuse/project-build /var/lib/zuse/workspace \
 
 USER zuse
 WORKDIR /home/zuse
+RUN /usr/local/bin/zuse-github-auth install
 
-# The relay starts Zuse through envd after Sandbox.create. Create-time env vars
+# The api starts Zuse through envd after Sandbox.create. Create-time env vars
 # are intentionally not consumed by an image start command.
 CMD ["sleep", "infinity"]

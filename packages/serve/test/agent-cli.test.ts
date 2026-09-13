@@ -141,4 +141,82 @@ describe("agent CLI", () => {
 		);
 		expect(endpoint.searchParams.get("token")).toBe("zt_development");
 	});
+
+	test("explicit connection flags override a discovered descriptor", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "zuse-cli-explicit-"));
+		const accessFile = join(directory, "cli-access.json");
+		await writeFile(
+			accessFile,
+			JSON.stringify({
+				schemaVersion: 1,
+				wsUrl: "ws://127.0.0.1:4859/rpc",
+				token: "descriptor-token",
+			}),
+		);
+		const endpoint = new URL(
+			await __testing.endpoint(
+				__testing.parse([
+					"computer",
+					"list",
+					"--ws-url",
+					"wss://explicit.example/rpc",
+					"--token",
+					"explicit-token",
+				]),
+				{ ZUSE_USER_DATA_DIR: directory },
+			),
+		);
+		expect(endpoint.origin).toBe("wss://explicit.example");
+		expect(endpoint.searchParams.get("token")).toBe("explicit-token");
+	});
+
+	test("falls back to the desktop port when no valid descriptor exists", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "zuse-cli-missing-"));
+		await writeFile(join(directory, "cli-access.json"), "not-json");
+		const endpoint = new URL(
+			await __testing.endpoint(__testing.parse(["computer", "list"]), {
+				ZUSE_USER_DATA_DIR: directory,
+			}),
+		);
+		expect(endpoint.origin).toBe("ws://127.0.0.1:47837");
+		expect(endpoint.searchParams.has("token")).toBe(false);
+	});
+
+	test("classifies refused sockets separately from stale credentials", async () => {
+		await expect(
+			__testing.socketOpenFailure(
+				"ws://127.0.0.1:4859/rpc?token=secret",
+				async () => {
+					throw new Error("connection refused");
+				},
+			),
+		).resolves.toMatchObject({ code: "server_unavailable" });
+		await expect(
+			__testing.socketOpenFailure(
+				"ws://127.0.0.1:4859/rpc?token=secret",
+				async () => new Response(null, { status: 401 }),
+			),
+		).resolves.toMatchObject({ code: "unauthorized" });
+	});
+
+	test("reports an actionable wire protocol mismatch", async () => {
+		await expect(
+			__testing.socketOpenFailure(
+				`ws://127.0.0.1:4859/rpc?wireVersion=${WIRE_PROTOCOL_VERSION}&token=secret`,
+				async (input) => {
+					const url = new URL(String(input));
+					if (url.pathname === "/rpc") {
+						return Response.json(
+							{ error: "wire_protocol_mismatch", expectedVersion: 4 },
+							{ status: 426 },
+						);
+					}
+					throw new Error("diagnostic endpoint should not be needed");
+				},
+			),
+		).resolves.toMatchObject({
+			code: "update_required",
+			details: { clientVersion: WIRE_PROTOCOL_VERSION, serverVersion: 4 },
+		});
+	});
 });

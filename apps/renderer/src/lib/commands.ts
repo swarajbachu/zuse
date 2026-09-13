@@ -1,22 +1,27 @@
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { ChatId, Command, Session } from "@zuse/contracts";
-import { defaultModelFor, EnvironmentId } from "@zuse/contracts";
-
+import { defaultModelFor, EnvironmentId, PROVIDER_IDS } from "@zuse/contracts";
+import { toastManager } from "../components/ui/toast.tsx";
 import { useChatsStore } from "../store/chats";
 import { useComposerBridge } from "../store/composer-bridge";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
+import { currentModelCatalog } from "../store/model-catalog.ts";
 import { usePaneFocus } from "../store/pane-focus";
 import { useProvidersStore } from "../store/providers";
 import { useSessionsStore } from "../store/sessions";
 import { rightPaneKey, useUiStore } from "../store/ui";
 import { useWorkspaceStore } from "../store/workspace";
 import { captureAnalytics } from "./analytics";
-import { localProjectForCloudChat } from "./cloud-workspace-catalog.ts";
+import { resolveChatRuntimeMode } from "./auto-worktree.ts";
+import {
+	cloudSummaryForChat,
+	localProjectForCloudChat,
+} from "./cloud-workspace-catalog.ts";
 import {
 	activeChatsByProject,
 	activeSessionsByProject,
 } from "./environment-entities.ts";
-import { resolveReadyProvider } from "./model-picker-availability.ts";
+import { selectAuthenticatedProvider } from "./model-picker-availability.ts";
 import { openNewChatLanding } from "./open-new-chat-landing.ts";
 import { openProjectSetupDialog } from "./project-setup-dialog-state.ts";
 import { getLocalEnvironmentId } from "./rpc-client.ts";
@@ -52,7 +57,8 @@ function currentChatRef(): ChatRef | null {
 		? null
 		: {
 				environmentId: EnvironmentId.make(
-					useEnvironmentCatalogStore.getState().activeEnvironmentId,
+					cloudSummaryForChat(chatId)?.workspaceId ??
+						useEnvironmentCatalogStore.getState().activeEnvironmentId,
 				),
 				chatId,
 			};
@@ -88,25 +94,41 @@ function selectLastTab(): void {
 async function newTabInActiveChat(): Promise<void> {
 	const chatId = currentChatId();
 	if (chatId === null) return;
+	const environmentId = EnvironmentId.make(
+		cloudSummaryForChat(chatId)?.workspaceId ??
+			useEnvironmentCatalogStore.getState().activeEnvironmentId,
+	);
 	const settings = useSettingsStore.getState();
-	let providers = useProvidersStore.getState();
-	if (!providers.availabilityLoaded) {
-		await providers.refresh();
-		providers = useProvidersStore.getState();
-	}
-	const providerId = resolveReadyProvider({
-		preferred: settings.defaultProviderId,
-		availability: providers.availability,
-		providerEnabled: settings.providerEnabled,
-		availabilityLoaded: providers.availabilityLoaded,
+	await useProvidersStore.getState().loadFor(environmentId);
+	const environmentAvailability =
+		useProvidersStore.getState().availabilityByEnvironment[environmentId]
+			?.availability ?? [];
+	const providerId = selectAuthenticatedProvider({
+		preferredProviderId: settings.defaultProviderId,
+		providerIds: PROVIDER_IDS,
+		availability: environmentAvailability,
+		providerEnabled: settings.providerEnabled ?? {},
 	});
-	// Warm path skips the provider refresh when a default model is cached;
-	// cold path pays the round-trip first so `create` gets a real model id.
+	if (providerId === null) {
+		toastManager.add({
+			type: "error",
+			title: "No authenticated agent",
+			description:
+				"Connect an agent in Cloud Authentication before opening a new tab.",
+		});
+		return;
+	}
 	const fresh = useSettingsStore.getState();
 	const model =
-		fresh.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
+		fresh.defaultModelByProvider[providerId] ??
+		defaultModelFor(currentModelCatalog(), providerId);
+	const projectId = useWorkspaceStore.getState().selectedFolderId;
+	const runtimeMode =
+		projectId === null
+			? fresh.defaultRuntimeMode
+			: await resolveChatRuntimeMode(environmentId, projectId);
 	await useSessionsStore.getState().create(chatId, providerId, model, {
-		runtimeMode: fresh.defaultRuntimeMode,
+		runtimeMode,
 	});
 }
 
@@ -162,6 +184,7 @@ function stepPanel(delta: 1 | -1): void {
  * anything — it just fires effects.
  */
 const HANDLERS: Record<Command, () => void> = {
+	"search-files": () => useUiStore.getState().setFileSearchOpen(true),
 	"new-chat": () => {
 		const selectedChatId = useChatsStore.getState().selectedChatId;
 		const cloudProjectId =
@@ -275,6 +298,7 @@ export function dispatchCommand(command: Command): void {
  * would (a) submit twice and (b) preventDefault on the native typing event.
  */
 export const APPLICATION_COMMANDS: ReadonlySet<Command> = new Set<Command>([
+	"search-files",
 	"new-chat",
 	"open-project",
 	"settings",

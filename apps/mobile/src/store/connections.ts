@@ -19,7 +19,7 @@ import { serverKeyPin as serverKeyPinForPublicKey } from "~/lib/nearby-pairing";
 import { getConnectionClient } from "~/rpc/connection";
 import { redeemPairingCode } from "~/rpc/pairing-client";
 import { connectionKey, type WsProtocolOptions } from "~/rpc/ws-protocol";
-
+import { cloudConnectionsAtom } from "./cloud-catalog";
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
 
 export type { ConnectionRecord } from "~/lib/connection-records";
@@ -28,6 +28,12 @@ export const connectionsAtom = Atom.make<ConnectionRecord[]>([]).pipe(
 	Atom.keepAlive,
 );
 export const connectionsHydratedAtom = Atom.make(false).pipe(Atom.keepAlive);
+
+/** Cloud routes are account-derived, never persisted as paired computers. */
+export const allConnectionsAtom = Atom.make((get) => [
+	...get(connectionsAtom),
+	...get(cloudConnectionsAtom),
+]);
 
 const parseHostPort = (wsBaseUrl: string): { host: string; port: number } => {
 	try {
@@ -104,7 +110,7 @@ export const addConnection = async ({
 	host: string;
 	port: number;
 	token?: string | null;
-	source: Exclude<ConnectionSource, "relay">;
+	source: Exclude<ConnectionSource, "api">;
 	serverKeyPin?: string;
 	serverPublicKey?: string;
 	transportCertificatePin?: string;
@@ -177,8 +183,8 @@ export const addConnection = async ({
 	return record;
 };
 
-/** Upsert a relay-discovered environment reached via a managed endpoint. */
-export const addRelayConnection = async ({
+/** Upsert a api-discovered environment reached via a managed endpoint. */
+export const addApiConnection = async ({
 	environmentId,
 	label,
 	wsBaseUrl,
@@ -193,9 +199,9 @@ export const addRelayConnection = async ({
 	const key =
 		currentConnections().find(
 			(connection) =>
-				connection.source === "relay" &&
+				connection.source === "api" &&
 				connection.environmentId === environmentId,
-		)?.key ?? connectionStorageKey("relay", environmentId);
+		)?.key ?? connectionStorageKey("api", environmentId);
 	const record: ConnectionRecord = {
 		key,
 		environmentId,
@@ -205,7 +211,7 @@ export const addRelayConnection = async ({
 		token,
 		label: visibleConnectionLabel(label),
 		updatedAt: Date.now(),
-		source: "relay",
+		source: "api",
 		refreshAccountGrant: true,
 	};
 	const next = [
@@ -238,6 +244,7 @@ export const refreshConnectionLabel = async (
 	key: string,
 	options: WsProtocolOptions,
 ): Promise<void> => {
+	if (options.cloudWorkspaceId !== undefined) return;
 	const descriptor = await describeEnvironment(options);
 	if (descriptor === null) return;
 	const nextLabel = visibleConnectionLabel(descriptor.label, key);

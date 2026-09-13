@@ -11,6 +11,7 @@ export function ModelSheet(_props: {
 	onOpenChange: (open: boolean) => void;
 	value: ModelModeValue;
 	availableProviders?: readonly ProviderId[] | null;
+	strictProviders?: boolean;
 	canChangeProvider: boolean;
 	canChangeReasoning: boolean;
 	onChange: (value: ModelModeValue) => void;

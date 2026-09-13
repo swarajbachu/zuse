@@ -1,11 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown } from "lucide-react";
-import {
-	BubbleChatIcon,
-	CursorMagicSelection01Icon,
-	PencilEdit01Icon,
-	Tick01Icon,
-} from "@zuse/icons/solid-rounded";
 import type {
 	BrowserAnnotation,
 	CodeAnnotation,
@@ -14,7 +7,13 @@ import type {
 	SessionId,
 	WorktreeId,
 } from "@zuse/contracts";
-import { X } from "lucide-react";
+import {
+	BubbleChatIcon,
+	CursorMagicSelection01Icon,
+	PencilEdit01Icon,
+	Tick01Icon,
+} from "@zuse/icons/solid-rounded";
+import { ChevronDown, X } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -22,6 +21,7 @@ import { cn } from "~/lib/utils";
 import { useAnnotationsStore } from "../../store/annotations.ts";
 import { useRevealAnnotation } from "../annotation/annotation-navigation.ts";
 import { AnnotationFileChip } from "../file-chip.tsx";
+import { composerTraySurfaceClass } from "./tray-pill.tsx";
 
 const EMPTY: ReadonlyArray<ComposerAnnotation> = [];
 
@@ -105,8 +105,8 @@ export function AnnotationTray({
 	if (annotations.length === 0) return null;
 
 	return (
-		<div className="mb-1.5 overflow-hidden rounded-lg border border-border/50 bg-card/80 shadow-sm">
-			<div className="flex w-full items-center gap-1.5 border-b border-border/35 bg-muted/15 px-2 py-1">
+		<div className={cn(composerTraySurfaceClass, "mb-1.5 rounded-[1rem]")}>
+			<div className="flex w-full items-center gap-1.5 border-b border-border/30 bg-muted/10 px-2.5 py-1">
 				<button
 					type="button"
 					onClick={() => setExpanded((value) => !value)}
@@ -187,6 +187,7 @@ export function AnnotationTray({
 										}}
 										rows={1}
 										className="max-h-20 min-h-7 min-w-0 flex-1 resize-y rounded-md bg-background/70 px-2 py-1 text-xs leading-snug text-foreground outline-none ring-1 ring-border/50 focus:ring-ring/50"
+										// biome-ignore lint/a11y/noAutofocus: entering edit mode should immediately focus the annotation comment field.
 										autoFocus
 									/>
 								) : (

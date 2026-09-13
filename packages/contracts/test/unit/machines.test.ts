@@ -6,6 +6,7 @@ import {
 	AccountAccessSetCredentialRequest,
 	AccountAccessStatus,
 	AccountAccessTransferEvent,
+	ApiConnectGrant,
 	BillingCheckoutRequest,
 	CLOUD_WORKSPACE_OFFER_ID,
 	MachineCreateRequest,
@@ -13,7 +14,6 @@ import {
 	MachineRecord,
 	MachineRuntimeStatus,
 	PERSISTENT_STANDARD_OFFER_ID,
-	RelayConnectGrant,
 	SshMode,
 } from "../../src/index.ts";
 
@@ -120,7 +120,7 @@ describe("managed machine contracts", () => {
 	});
 
 	it("advertises a private endpoint before the managed fallback", () => {
-		const grant = Schema.decodeUnknownSync(RelayConnectGrant)({
+		const grant = Schema.decodeUnknownSync(ApiConnectGrant)({
 			endpoint: {
 				httpBaseUrl: "https://managed.example",
 				wsBaseUrl: "wss://managed.example",

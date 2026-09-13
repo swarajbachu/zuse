@@ -2,6 +2,7 @@
 
 import { Avatar as AvatarPrimitive } from "@base-ui/react/avatar";
 import type React from "react";
+import { usePlatformOnline } from "~/lib/network-status";
 import { cn } from "~/lib/utils";
 
 export function Avatar({
@@ -24,8 +25,10 @@ export function AvatarImage({
 	className,
 	...props
 }: AvatarPrimitive.Image.Props): React.ReactElement {
+	const online = usePlatformOnline();
 	return (
 		<AvatarPrimitive.Image
+			key={online ? "online" : "offline"}
 			className={cn("size-full object-cover", className)}
 			data-slot="avatar-image"
 			{...props}

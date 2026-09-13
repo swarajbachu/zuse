@@ -13,7 +13,8 @@ describe("CloudAccountAccess", () => {
 			<CloudAccountAccess environmentId="env-cloud" />,
 		);
 
-		expect(markup).toContain("Agents");
+		expect(markup).toContain("Agent access");
+		expect(markup).toContain("Nothing is copied from this Mac.");
 		expect(markup).toContain("Agent tools");
 		expect(markup).toContain("Checking installed agent tools.");
 		expect(markup).toContain("Claude Code");

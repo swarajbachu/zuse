@@ -9,14 +9,18 @@ export function isModelPickerProviderVisible({
 	availability,
 	providerEnabled,
 	availabilityLoaded = true,
+	revealBeforeAvailabilityLoaded = true,
 }: {
 	providerId: ProviderId;
 	availability: AgentAvailability | undefined;
 	providerEnabled: Partial<Record<ProviderId, boolean>>;
 	availabilityLoaded?: boolean;
+	revealBeforeAvailabilityLoaded?: boolean;
 }): boolean {
 	if (providerEnabled[providerId] === false) return false;
-	if (availability === undefined) return !availabilityLoaded;
+	if (availability === undefined) {
+		return !availabilityLoaded && revealBeforeAvailabilityLoaded;
+	}
 	if (!(availability.runtimeAvailable ?? availability.cliInstalled)) {
 		return false;
 	}
@@ -49,22 +53,41 @@ export function resolveReadyProvider({
 	readonly availabilityLoaded: boolean;
 }): ProviderId {
 	if (!availabilityLoaded) return preferred;
-	const byId = new Map(availability.map((item) => [item.providerId, item]));
-	if (
-		isModelPickerProviderVisible({
-			providerId: preferred,
-			availability: byId.get(preferred),
-			providerEnabled,
-		})
-	)
-		return preferred;
 	return (
-		BUILTIN_PROVIDER_IDS.find((providerId) =>
-			isModelPickerProviderVisible({
-				providerId,
-				availability: byId.get(providerId),
-				providerEnabled,
-			}),
-		) ?? "claude"
+		selectAuthenticatedProvider({
+			preferredProviderId: preferred,
+			providerIds: BUILTIN_PROVIDER_IDS,
+			availability,
+			providerEnabled,
+		}) ?? "claude"
 	);
 }
+export const selectAuthenticatedProvider = ({
+	preferredProviderId,
+	providerIds,
+	availability,
+	providerEnabled,
+}: {
+	readonly preferredProviderId: ProviderId;
+	readonly providerIds: ReadonlyArray<ProviderId>;
+	readonly availability: ReadonlyArray<AgentAvailability>;
+	readonly providerEnabled: Partial<Record<ProviderId, boolean>>;
+}): ProviderId | null => {
+	const availabilityById = new Map(
+		availability.map((entry) => [entry.providerId, entry] as const),
+	);
+	const ordered = [
+		preferredProviderId,
+		...providerIds.filter((providerId) => providerId !== preferredProviderId),
+	];
+	return (
+		ordered.find((providerId) =>
+			isModelPickerProviderVisible({
+				providerId,
+				availability: availabilityById.get(providerId),
+				providerEnabled,
+				availabilityLoaded: true,
+			}),
+		) ?? null
+	);
+};

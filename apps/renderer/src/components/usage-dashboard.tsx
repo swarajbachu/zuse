@@ -1038,7 +1038,7 @@ function SessionsExplorer({
 									setPageIndex(0);
 								}}
 								placeholder="Search sessions"
-								className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-foreground/30"
+								className="h-7 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24"
 								aria-label="Search sessions"
 							/>
 						</label>
@@ -1050,7 +1050,7 @@ function SessionsExplorer({
 								);
 								setPageIndex(0);
 							}}
-							className="h-8 rounded-md border border-border bg-background px-2 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-foreground/30"
+							className="h-7 rounded-md border border-input bg-card px-2 text-xs text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24"
 							aria-label="Filter sessions by provider"
 						>
 							<option value="">All providers</option>

@@ -5,7 +5,7 @@
 		"renderer-client-bus-legacy-supervisor": 0,
 		"cloud-chat-pipeline": 0,
 		"session-domain-bypass": 0,
-		"relay-message-content": 0
+		"api-message-content": 0
 	},
 	"rules": {
 		"renderer-raw-rpc": {
@@ -156,7 +156,7 @@
 			"packages/contracts/src/cloud-workspaces.ts": 12
 		},
 		"session-domain-bypass": {},
-		"relay-message-content": {}
+		"api-message-content": {}
 	},
 	"approvedInFlight": {}
 }

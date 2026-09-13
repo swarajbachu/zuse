@@ -1,4 +1,6 @@
+import { compareCloudChatSummaryVersion } from "@zuse/client-runtime/cloud-catalog";
 import {
+	type ChatId,
 	CloudChatSummary,
 	type EnvironmentId,
 	type FolderId,
@@ -117,20 +119,10 @@ const sortSummaries = (
 	);
 
 /** Lifecycle revision fences runtime generations. Within one lifecycle
- * revision, Relay's runtime summary revision owns title/activity metadata and
+ * revision, API's runtime summary revision owns title/activity metadata and
  * its represented session head. `updatedAt` is only a compatibility fallback
  * for summaries decoded before runtime revisions were introduced. */
-export const compareCloudChatSummaryVersion = (
-	left: CloudChatSummary,
-	right: CloudChatSummary,
-): number =>
-	left.revision !== right.revision
-		? left.revision - right.revision
-		: left.summaryRevision !== right.summaryRevision
-			? left.summaryRevision - right.summaryRevision
-			: left.sessionHeadVersion !== right.sessionHeadVersion
-				? left.sessionHeadVersion - right.sessionHeadVersion
-				: left.updatedAt - right.updatedAt;
+export { compareCloudChatSummaryVersion } from "@zuse/client-runtime/cloud-catalog";
 
 export const mergeCloudChatSummaries = (
 	current: ReadonlyArray<CloudChatSummary>,
@@ -246,29 +238,17 @@ export const optimisticallyArchiveCloudChat = (
 	return optimistic;
 };
 
-export const optimisticallyUnarchiveCloudChat = (
-	summary: CloudChatSummary,
-): CloudChatSummary => {
-	const optimistic = {
-		...summary,
-		state: "paused" as const,
-		desiredState: "paused" as const,
-		runtimeState: "offline" as const,
-		statusCode: "unarchive-queued",
-		archivedAt: undefined,
-	};
+/** Publish a restore only after the control plane has accepted it. */
+export const confirmCloudChatUnarchive = (summary: CloudChatSummary): void => {
 	useCloudChatCatalogStore.setState((state) => {
 		const archiveIntents = { ...state.archiveIntents };
 		delete archiveIntents[summary.workspaceId];
 		return {
 			...state,
 			archiveIntents,
-			summaries: state.summaries.map((candidate) =>
-				candidate.workspaceId === summary.workspaceId ? optimistic : candidate,
-			),
+			summaries: mergeCloudChatSummaries(state.summaries, [summary]),
 		};
 	});
-	return optimistic;
 };
 
 export const registerCloudChat = (
@@ -321,7 +301,7 @@ export const forgetCloudChat = (workspaceId: string): void => {
 };
 
 /**
- * Reconciles a successful `scope=all` response. Relay owns catalog membership,
+ * Reconciles a successful `scope=all` response. API owns catalog membership,
  * so a workspace omitted from that authoritative response was deleted and must
  * not survive as a renderer-only history row. Versions for workspaces which
  * are still present remain monotonic.
@@ -383,13 +363,65 @@ export const cloudSummaryForChat = (chatId: string): CloudChatSummary | null =>
 		.getState()
 		.summaries.find((summary) => summary.chatId === chatId) ?? null;
 
+/** Legacy catalog rows predate active-session summaries and use the launch id. */
+export const cloudSummaryActiveSessionId = (
+	summary: CloudChatSummary,
+): SessionId | null =>
+	summary.activeSessionId === undefined
+		? summary.initialSessionId
+		: summary.activeSessionId;
+
 export const cloudSummaryForSession = (
 	sessionId: SessionId,
 ): CloudChatSummary | null =>
 	useCloudChatCatalogStore
 		.getState()
-		.summaries.find((summary) => summary.initialSessionId === sessionId) ??
-	null;
+		.summaries.find(
+			(summary) =>
+				summary.initialSessionId === sessionId ||
+				cloudSummaryActiveSessionId(summary) === sessionId,
+		) ?? null;
+
+/**
+ * Resolve cloud ownership for a selected chat surface.
+ *
+ * A catalog row only carries the workspace's initial session id, while every
+ * later tab keeps the same chat id. Prefer the chat identity so secondary
+ * sessions never fall back to whichever environment happens to be globally
+ * active; retain the session lookup for startup selections whose chat row has
+ * not hydrated yet.
+ */
+export const findCloudSummaryForSelection = (
+	summaries: ReadonlyArray<CloudChatSummary>,
+	{
+		chatId,
+		sessionId,
+	}: {
+		readonly chatId: ChatId | null;
+		readonly sessionId: SessionId | null;
+	},
+): CloudChatSummary | null => {
+	if (chatId !== null) {
+		const byChat = summaries.find((summary) => summary.chatId === chatId);
+		if (byChat !== undefined) return byChat;
+	}
+	return sessionId === null
+		? null
+		: (summaries.find(
+				(summary) =>
+					summary.initialSessionId === sessionId ||
+					cloudSummaryActiveSessionId(summary) === sessionId,
+			) ?? null);
+};
+
+export const cloudSummaryForSelection = (input: {
+	readonly chatId: ChatId | null;
+	readonly sessionId: SessionId | null;
+}): CloudChatSummary | null =>
+	findCloudSummaryForSelection(
+		useCloudChatCatalogStore.getState().summaries,
+		input,
+	);
 
 export const cloudSummaryForEnvironment = (
 	environmentId: EnvironmentId | string,

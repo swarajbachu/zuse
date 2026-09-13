@@ -440,6 +440,11 @@ export class GitPrSummary extends Schema.Class<GitPrSummary>("GitPrSummary")({
 	title: Schema.String,
 	author: Schema.String,
 	headRefName: Schema.String,
+	/** True when the head branch lives in a fork rather than this repository. */
+	isCrossRepository: Schema.Boolean.pipe(
+		Schema.withConstructorDefault(Effect.succeed(false)),
+		Schema.withDecodingDefaultType(Effect.succeed(false)),
+	),
 	isDraft: Schema.Boolean,
 	state: Schema.String,
 	updatedAt: Schema.DateFromString,

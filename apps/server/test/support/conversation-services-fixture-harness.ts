@@ -30,6 +30,7 @@ import {
 	Stream,
 } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { ApiActivityPublisher } from "../../src/api/activity-publisher.ts";
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
 import { ConversationState } from "../../src/conversation/core/conversation-state.ts";
 import { ConversationServicesLive } from "../../src/conversation/layers/conversation-services.ts";
@@ -79,12 +80,14 @@ import { Migration0045ChatCatalogRevision } from "../../src/persistence/migratio
 import { Migration0046SessionTimelineHead } from "../../src/persistence/migrations/0046_session_timeline_head.ts";
 import { Migration0047MessageCheckpoints } from "../../src/persistence/migrations/0047_message_checkpoints.ts";
 import { Migration0049ChatCreationStartupReady } from "../../src/persistence/migrations/0049_chat_creation_startup_ready.ts";
+import { Migration0053CloudCommandReceipts } from "../../src/persistence/migrations/0053_cloud_command_receipts.ts";
+import { Migration0054ProviderEffectOutcomes } from "../../src/persistence/migrations/0054_provider_effect_outcomes.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
 import { PtyService } from "../../src/pty/services/pty-service.ts";
-import { RelayActivityPublisher } from "../../src/relay/activity-publisher.ts";
 import { RepositorySettingsService } from "../../src/repository-settings/services/repository-settings-service.ts";
+import { StubModelCatalogLive } from "./model-catalog-stub.ts";
 
 export const FIXTURE_PROJECT_ID = "fixture-project" as FolderId;
 export const FIXTURE_PROJECT_PATH = "/tmp/zuse-fixture-project";
@@ -160,6 +163,8 @@ const runAllMigrations = Effect.all(
 		Migration0046SessionTimelineHead,
 		Migration0047MessageCheckpoints,
 		Migration0049ChatCreationStartupReady,
+		Migration0053CloudCommandReceipts,
+		Migration0054ProviderEffectOutcomes,
 	],
 	{ discard: true },
 );
@@ -363,7 +368,7 @@ export const makeConversationFixtureRuntime = (
 		keybindingsChanges: () => Stream.die("not used"),
 	});
 
-	const StubRelayActivityPublisherLive = Layer.succeed(RelayActivityPublisher, {
+	const StubApiActivityPublisherLive = Layer.succeed(ApiActivityPublisher, {
 		publish: () => Effect.void,
 	});
 
@@ -392,7 +397,8 @@ export const makeConversationFixtureRuntime = (
 		Layer.provide(StubGitLive),
 		Layer.provide(StubTitleGeneratorLive),
 		Layer.provide(StubConfigStoreLive),
-		Layer.provide(StubRelayActivityPublisherLive),
+		Layer.provide(StubModelCatalogLive),
+		Layer.provide(StubApiActivityPublisherLive),
 		Layer.provide(DomainLive),
 		Layer.provide(ChatDomainLive),
 		Layer.provide(SessionQueriesLive),

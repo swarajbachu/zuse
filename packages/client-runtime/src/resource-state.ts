@@ -1,4 +1,9 @@
-import type { CommandId, EnvironmentId } from "@zuse/contracts";
+import type {
+	CloudCommandBlockedReason,
+	CloudCommandState,
+	CommandId,
+	EnvironmentId,
+} from "@zuse/contracts";
 
 export type ConnectionPhase =
 	| "dormant"
@@ -45,6 +50,10 @@ export type PendingCommand = Readonly<{
 	/** Stable command family used by selectors for immediate optimistic state. */
 	kind: string;
 	submittedAt: number;
+	deliveryPhase?: "persisting" | CloudCommandState;
+	category?: string;
+	blockedUntil?: CloudCommandBlockedReason;
+	cancellable?: boolean;
 }>;
 
 export type FailedCommand = Readonly<{
@@ -53,6 +62,11 @@ export type FailedCommand = Readonly<{
 	failedAt: number;
 	error: string;
 	retryable: boolean;
+	/** Preserves authoritative mailbox semantics through the client/UI boundary. */
+	terminal?: Readonly<{
+		state: CloudCommandState;
+		category?: string;
+	}>;
 }>;
 
 export type ResourceView<Data> = Readonly<{

@@ -24,6 +24,7 @@ import { noteMobileInteraction } from "~/lib/analytics";
 import { installCrashReporting } from "~/lib/crash-reporting";
 import { isLegacyPairingUrl } from "~/lib/pairing";
 import { installNotificationResponseHandler } from "~/notifications/push";
+import { useCloudRuntimeLifecycle } from "~/store/cloud-runtime-lifecycle";
 import { useLocalConnectivityRuntime } from "~/store/local-connectivity-runtime";
 import { AppAtomProvider } from "~/store/registry";
 import { colors } from "~/theme";
@@ -40,6 +41,7 @@ Uniwind.setTheme("system");
  */
 function ConnectivityRuntimeBridge() {
 	useLocalConnectivityRuntime();
+	useCloudRuntimeLifecycle();
 	const pathname = usePathname();
 	useMobileAnalytics(pathname);
 	useEffect(() => {
@@ -117,6 +119,14 @@ export default function RootLayout() {
 							}}
 						>
 							<Stack.Screen name="index" options={{ title: "Chats" }} />
+							<Stack.Screen
+								name="onboarding"
+								options={{
+									headerShown: false,
+									presentation: "fullScreenModal",
+									gestureEnabled: false,
+								}}
+							/>
 							<Stack.Screen
 								name="new-chat"
 								options={{

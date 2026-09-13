@@ -144,7 +144,7 @@ export interface LanAuthServiceShape {
 	readonly environmentId: () => Effect.Effect<EnvironmentId, LanAuthError>;
 	/**
 	 * The environment's Ed25519 keypair (generated + persisted on first use). The
-	 * private JWK signs link proofs; the public JWK is sent to the relay so it can
+	 * private JWK signs link proofs; the public JWK is sent to the api so it can
 	 * verify them.
 	 */
 	readonly environmentKeys: () => Effect.Effect<
@@ -157,12 +157,12 @@ export interface LanAuthServiceShape {
 	>;
 	readonly linkProof: (input: {
 		readonly challenge: string;
-		readonly relayIssuer: string;
+		readonly apiIssuer: string;
 		readonly endpoint: EnvironmentEndpoint;
 	}) => Effect.Effect<{ readonly proof: string }, LanAuthError>;
-	readonly saveRelayConfig: (input: {
-		readonly relayUrl: string;
-		readonly relayIssuer: string;
+	readonly saveApiConfig: (input: {
+		readonly apiUrl: string;
+		readonly apiIssuer: string;
 		readonly environmentId: EnvironmentId;
 		readonly environmentCredential: string;
 		readonly label?: string;
@@ -170,14 +170,14 @@ export interface LanAuthServiceShape {
 		readonly connectorToken?: string;
 		/** Public hostname for the managed tunnel, if provisioned. */
 		readonly tunnelHostname?: string;
-		/** Relay Ed25519 public key (JWK JSON) for verifying relay connect JWTs. */
+		/** API Ed25519 public key (JWK JSON) for verifying api connect JWTs. */
 		readonly mintPublicKey?: string;
 	}) => Effect.Effect<void, LanAuthError>;
-	/** Current relay link, or null if this environment isn't linked. */
-	readonly getRelayConfig: () => Effect.Effect<
+	/** Current api link, or null if this environment isn't linked. */
+	readonly getApiConfig: () => Effect.Effect<
 		{
-			readonly relayUrl: string;
-			readonly relayIssuer: string;
+			readonly apiUrl: string;
+			readonly apiIssuer: string;
 			readonly environmentId: EnvironmentId;
 			readonly environmentCredential: string;
 			readonly label: string | undefined;
@@ -187,8 +187,8 @@ export interface LanAuthServiceShape {
 		} | null,
 		LanAuthError
 	>;
-	/** Remove the relay link for this environment. */
-	readonly clearRelayConfig: () => Effect.Effect<void, LanAuthError>;
+	/** Remove the api link for this environment. */
+	readonly clearApiConfig: () => Effect.Effect<void, LanAuthError>;
 }
 
 export class LanAuthService extends Context.Service<

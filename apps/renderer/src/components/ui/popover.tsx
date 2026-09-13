@@ -58,7 +58,7 @@ export function PopoverPopup({
 			>
 				<PopoverPrimitive.Popup
 					className={cn(
-						"relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) rounded-2xl bg-glass border-glass text-popover-foreground outline-none transition-[width,height,scale,opacity] data-starting-style:scale-98 data-starting-style:opacity-0",
+						"relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) rounded-lg bg-glass border-glass text-popover-foreground outline-none transition-[width,height,scale,opacity] data-starting-style:scale-98 data-starting-style:opacity-0",
 						tooltipStyle && "w-fit text-balance rounded-lg text-xs",
 						className,
 					)}
@@ -67,7 +67,7 @@ export function PopoverPopup({
 				>
 					<PopoverPrimitive.Viewport
 						className={cn(
-							"relative size-full max-h-(--available-height) overflow-clip rounded-2xl px-(--viewport-inline-padding) py-3 [--viewport-inline-padding:--spacing(3)] has-data-[slot=calendar]:p-2 data-instant:transition-none **:data-current:data-ending-style:opacity-0 **:data-current:data-starting-style:opacity-0 **:data-previous:data-ending-style:opacity-0 **:data-previous:data-starting-style:opacity-0 **:data-current:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-current:opacity-100 **:data-previous:opacity-100 **:data-current:transition-opacity **:data-previous:transition-opacity",
+							"relative size-full max-h-(--available-height) overflow-clip rounded-lg px-(--viewport-inline-padding) py-2 [--viewport-inline-padding:--spacing(2)] has-data-[slot=calendar]:p-2 data-instant:transition-none **:data-current:data-ending-style:opacity-0 **:data-current:data-starting-style:opacity-0 **:data-previous:data-ending-style:opacity-0 **:data-previous:data-starting-style:opacity-0 **:data-current:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-current:opacity-100 **:data-previous:opacity-100 **:data-current:transition-opacity **:data-previous:transition-opacity",
 							tooltipStyle
 								? "py-1 [--viewport-inline-padding:--spacing(2)]"
 								: "not-data-transitioning:overflow-y-auto",
@@ -94,7 +94,10 @@ export function PopoverTitle({
 }: PopoverPrimitive.Title.Props): React.ReactElement {
 	return (
 		<PopoverPrimitive.Title
-			className={cn("font-semibold text-lg leading-none", className)}
+			className={cn(
+				"font-heading font-semibold text-[15px] leading-none",
+				className,
+			)}
 			data-slot="popover-title"
 			{...props}
 		/>
@@ -107,11 +110,11 @@ export function PopoverDescription({
 }: PopoverPrimitive.Description.Props): React.ReactElement {
 	return (
 		<PopoverPrimitive.Description
-			className={cn("text-muted-foreground text-sm", className)}
+			className={cn("text-[11px] text-muted-foreground", className)}
 			data-slot="popover-description"
 			{...props}
 		/>
 	);
 }
 
-export { PopoverPrimitive, PopoverPopup as PopoverContent };
+export { PopoverPopup as PopoverContent, PopoverPrimitive };

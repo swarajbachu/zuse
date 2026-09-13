@@ -11,7 +11,7 @@ import { getRendererClientBus } from "./session-timeline-client-bus.ts";
 
 /**
  * Orchestrates SSH access to a cloud workspace:
- * 1. `cloud.workspaces.sshAccess` (relay) stages a hashed bridge ticket in the
+ * 1. `cloud.workspaces.sshAccess` (api) stages a hashed bridge ticket in the
  *    sandbox and returns the plain ticket + bridge URL.
  * 2. The desktop main process stages key material, the managed ssh config,
  *    and the ticket file for the ProxyCommand bridge.
@@ -127,7 +127,7 @@ const prepareCloudWorkspaceSshOnce = async (
 	}
 	const retained = retainEnvironmentShell({ environmentId }, "wake");
 	try {
-		// A relay workspace can report ready before its renderer gateway lease has
+		// A api workspace can report ready before its renderer gateway lease has
 		// finished reconnecting. SSH and rsync both require that live client for
 		// key authorization, so keep a transient wake lease through the command.
 		await waitForWorkspaceGateway(environmentId, retained.key);
@@ -151,7 +151,7 @@ const prepareCloudWorkspaceSshOnce = async (
 					throw cause;
 				}
 			} else {
-				// The relay rejects unknown routes while SSH support is still rolling
+				// The api rejects unknown routes while SSH support is still rolling
 				// out; surface that as a capability gap instead of a raw RPC error.
 				const detail = cause instanceof Error ? cause.message : String(cause);
 				throw new Error(

@@ -31,9 +31,10 @@ import { AppearanceController } from "./lib/appearance.tsx";
 import { selectChatSurface } from "./lib/chat-surface-selection.ts";
 import { installClientBusOnlineBridge } from "./lib/client-bus-online.ts";
 import { closeActiveChatTab } from "./lib/close-chat-tab.ts";
+import { cloudSummaryActiveSessionId } from "./lib/cloud-workspace-catalog.ts";
 import {
 	cloudSessionPlaceholder,
-	useCloudChatSummaryForSession,
+	useCloudChatSummaryForSelection,
 } from "./lib/cloud-workspaces.ts";
 import { useActiveSessionById } from "./lib/environment-entity-hooks.ts";
 import {
@@ -43,6 +44,7 @@ import {
 } from "./lib/extension-registry.tsx";
 import { useGitWorkspaceResource } from "./lib/git-workspace-client-bus.ts";
 import { markRendererStartupMilestone } from "./lib/performance-marks.ts";
+import { installQueueOnlineRecovery } from "./lib/queue-recovery.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
 import {
@@ -119,6 +121,11 @@ const TopBarRight = lazy(() =>
 const ChatSwitcher = lazy(() =>
 	import("./components/chat-switcher.tsx").then((module) => ({
 		default: module.ChatSwitcher,
+	})),
+);
+const FileSearch = lazy(() =>
+	import("./components/file-search.tsx").then((module) => ({
+		default: module.FileSearch,
 	})),
 );
 const CloudConnectionNotice = lazy(() =>
@@ -326,6 +333,7 @@ function ReadyApp({
 	readonly onboardingCompleted: boolean;
 }) {
 	useEffect(() => installClientBusOnlineBridge(), []);
+	useEffect(() => installQueueOnlineRecovery(), []);
 	useEffect(() => {
 		let stop: (() => void) | undefined;
 		void startDesktopAnalytics().then((cleanup) => {
@@ -447,7 +455,10 @@ function MainShell() {
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
-	const selectedCloudSummary = useCloudChatSummaryForSession(selectedSessionId);
+	const selectedCloudSummary = useCloudChatSummaryForSelection({
+		chatId: selectedChatId,
+		sessionId: selectedSessionId,
+	});
 	const selectedEnvironmentId = EnvironmentId.make(
 		selectedCloudSummary?.workspaceId ?? activeEnvironmentId,
 	);
@@ -471,9 +482,24 @@ function MainShell() {
 	const activeSelectedSession = useActiveSessionById(selectedSessionId);
 	const selectedSession = useMemo<Session | null>(() => {
 		if (activeSelectedSession !== null) return activeSelectedSession;
-		if (selectedCloudSummary === null || selectedFolderId === null) return null;
-		return cloudSessionPlaceholder(selectedCloudSummary, selectedFolderId);
-	}, [activeSelectedSession, selectedCloudSummary, selectedFolderId]);
+		if (
+			selectedCloudSummary === null ||
+			selectedFolderId === null ||
+			selectedSessionId === null ||
+			cloudSummaryActiveSessionId(selectedCloudSummary) !== selectedSessionId
+		)
+			return null;
+		return cloudSessionPlaceholder(
+			selectedCloudSummary,
+			selectedFolderId,
+			selectedSessionId,
+		);
+	}, [
+		activeSelectedSession,
+		selectedCloudSummary,
+		selectedFolderId,
+		selectedSessionId,
+	]);
 	const directoryStatus = useChatDirectoryStatus(
 		selectedEnvironmentId,
 		pendingCreation === null ? (selectedSession?.chatId ?? null) : null,
@@ -570,9 +596,9 @@ function MainShell() {
 				closeChangesTab();
 				return;
 			}
-			void closeActiveChatTab();
+			void closeActiveChatTab(selectedEnvironmentId);
 		});
-	}, []);
+	}, [selectedEnvironmentId]);
 
 	const emptyTabLabel = selectedFolder
 		? selectedFolder.name
@@ -634,7 +660,7 @@ function MainShell() {
 	);
 
 	return (
-		<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden text-foreground">
+		<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 			<ActiveGitWorkspaceLease />
 			<Group
 				id={PANEL_GROUP_ID}
@@ -670,7 +696,7 @@ function MainShell() {
 						if (open !== leftSidebarOpen) setLeftSidebarOpen(open);
 					}}
 				>
-					<div className="flex h-full min-h-0 flex-col bg-background/70">
+					<div className="flex h-full min-h-0 flex-col bg-sidebar">
 						<Suspense fallback={<TopBarFallback />}>
 							<TopBarLeft />
 						</Suspense>
@@ -681,7 +707,7 @@ function MainShell() {
 						</div>
 					</div>
 				</Panel>
-				<Separator className="w-px bg-border transition-colors hover:bg-foreground/20 active:bg-foreground/30" />
+				<Separator className="w-px bg-sidebar-border transition-colors hover:bg-input active:bg-muted-foreground/40" />
 				<Panel id="main" minSize="30%">
 					<main className="flex h-full min-h-0 min-w-0 flex-col bg-background">
 						{showMainChrome ? (
@@ -864,7 +890,7 @@ function MainShell() {
 						) : null}
 					</main>
 				</Panel>
-				<Separator className="w-px bg-border transition-colors hover:bg-foreground/20 active:bg-foreground/30" />
+				<Separator className="w-px bg-sidebar-border transition-colors hover:bg-input active:bg-muted-foreground/40" />
 				<Panel
 					id="files"
 					defaultSize="22%"
@@ -900,7 +926,7 @@ function MainShell() {
 						}
 					}}
 				>
-					<div className="flex h-full min-h-0 flex-col bg-background">
+					<div className="flex h-full min-h-0 flex-col bg-sidebar">
 						<Suspense fallback={<TopBarFallback />}>
 							<TopBarRight />
 						</Suspense>
@@ -918,6 +944,7 @@ function MainShell() {
 				<SidebarPeekTrigger />
 				<SidebarPeekOverlay />
 				<ChatSwitcher />
+				<FileSearch />
 			</Suspense>
 		</div>
 	);

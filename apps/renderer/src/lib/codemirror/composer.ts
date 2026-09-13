@@ -17,6 +17,7 @@ import {
 	isChipEffect,
 } from "./composer-chips.ts";
 import { buildComposerKeymap, composerKeymap } from "./composer-keymap.ts";
+import { composerLinks } from "./composer-links.ts";
 import { composerTheme } from "./composer-theme.ts";
 import {
 	type ActiveTrigger,
@@ -104,6 +105,7 @@ export const createComposerView = ({
 		EditorView.lineWrapping,
 		composerTheme,
 		...chipExtensions,
+		composerLinks,
 		...(resolveChipToken !== undefined
 			? [chipResolverFacet.of(resolveChipToken)]
 			: []),

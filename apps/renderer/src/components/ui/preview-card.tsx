@@ -43,7 +43,7 @@ export function PreviewCardPopup({
 			>
 				<PreviewCardPrimitive.Popup
 					className={cn(
-						"relative flex w-64 origin-(--transform-origin) text-balance rounded-xl bg-glass border-glass p-3.5 text-popover-foreground text-sm transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
+						"relative flex w-64 origin-(--transform-origin) text-balance rounded-lg bg-glass border-glass p-3 text-xs text-popover-foreground transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
 						className,
 					)}
 					data-slot="preview-card-content"
@@ -57,8 +57,8 @@ export function PreviewCardPopup({
 }
 
 export {
-	PreviewCardPrimitive,
 	PreviewCard as HoverCard,
-	PreviewCardTrigger as HoverCardTrigger,
 	PreviewCardPopup as HoverCardContent,
+	PreviewCardPrimitive,
+	PreviewCardTrigger as HoverCardTrigger,
 };

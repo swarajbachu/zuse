@@ -1,37 +1,75 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
-  UPDATE_CHECK_CHANNEL,
-  UPDATE_DOWNLOAD_CHANNEL,
-  UPDATE_INSTALL_CHANNEL,
-  UPDATE_STATUS_CHANNEL,
-  type UpdateStatus,
+	UPDATE_CHANNEL_GET,
+	UPDATE_CHANNEL_SET,
+	UPDATE_CHECK_CHANNEL,
+	UPDATE_DOWNLOAD_CHANNEL,
+	UPDATE_INSTALL_CHANNEL,
+	UPDATE_STATUS_CHANNEL,
+	type UpdateStatus,
 } from "@zuse/contracts";
+import { parseReleaseVersion } from "@zuse/utils/release-version";
 import { app, type BrowserWindow, ipcMain } from "electron";
 import {
-  autoUpdater,
-  type ProgressInfo,
-  type UpdateInfo,
+	autoUpdater,
+	CancellationToken,
+	type ProgressInfo,
+	type UpdateInfo,
 } from "electron-updater";
+import { parse } from "yaml";
 import {
-  automaticUpdateRetryDelay,
-  isTransientUpdateCheckError,
-  updateCheckErrorMessage,
-  updateDownloadErrorMessage,
+	readUpdatePreference,
+	UpdateChannelCoordinator,
+	writeUpdateChannel,
+} from "./update-channel.ts";
+import { channelProvider } from "./update-provider.ts";
+import {
+	automaticUpdateRetryDelay,
+	isTransientUpdateCheckError,
+	updateCheckErrorMessage,
+	updateDownloadErrorMessage,
 } from "./updater-errors.ts";
 import {
-  shouldAutoInstallUpdateOnQuit,
-  shouldInstallPendingUpdateOnQuit,
+	shouldAutoInstallUpdateOnQuit,
+	shouldInstallPendingUpdateOnQuit,
 } from "./updater-policy.ts";
+
+let downgradeFrom: string | undefined;
+const coordinator = new UpdateChannelCoordinator(
+	async (channel) => {
+		const version =
+			channel === "stable" &&
+			parseReleaseVersion(app.getVersion()).preview !== null
+				? app.getVersion()
+				: undefined;
+		await writeUpdateChannel(app.getPath("userData"), channel, version);
+		downgradeFrom = version;
+	},
+	() => {
+		autoUpdater.autoInstallOnAppQuit = false;
+		clearAutomaticCheckRetry();
+		clearStallTimer();
+		emit({ kind: "idle" });
+	},
+);
+let initialization = Promise.resolve();
+let downloadToken: CancellationToken | null = null;
 
 // electron-updater talks to the GitHub Releases feed configured in
 // apps/desktop/electron-builder.yml (`publish.provider: github`). It reads
 // `latest-mac.yml` from the latest *published* release (drafts are invisible
 // to unauthenticated readers — see release flow note in electron-builder.yml),
-// compares versions, and downloads the .dmg. We drive the lifecycle manually
+// compares versions, and downloads the platform update archive. We drive the lifecycle manually
 // so the renderer can show download progress + a "Restart now" button instead
 // of relying on the system notification center.
 //
 // Re-poll every six hours so a long-running session picks up a release
 // pushed mid-week without requiring a manual restart-to-check.
+type UpdaterWindow = Pick<BrowserWindow, "isDestroyed"> & {
+	webContents: Pick<BrowserWindow["webContents"], "send" | "on">;
+};
+
 const UPDATE_POLL_MS = 6 * 60 * 60 * 1000;
 
 // If no `download-progress` event fires for this long while in the
@@ -57,7 +95,7 @@ let installingUpdate = false;
  * The main-process quit guard checks this to skip its agent confirmation.
  */
 export function getIsInstallingUpdate(): boolean {
-  return installingUpdate;
+	return installingUpdate;
 }
 
 /**
@@ -70,18 +108,18 @@ export function getIsInstallingUpdate(): boolean {
  * updater will start a fresh quit after Squirrel has staged the latest file.
  */
 export function installPendingUpdateOnQuit(): boolean {
-  if (
-    !shouldInstallPendingUpdateOnQuit({
-      platform: process.platform,
-      status: lastStatus,
-      installing: installingUpdate,
-    })
-  ) {
-    return false;
-  }
+	if (
+		!shouldInstallPendingUpdateOnQuit({
+			platform: process.platform,
+			status: lastStatus,
+			installing: installingUpdate,
+		})
+	) {
+		return false;
+	}
 
-  installUpdate();
-  return true;
+	installUpdate();
+	return true;
 }
 
 /**
@@ -92,23 +130,25 @@ export function installPendingUpdateOnQuit(): boolean {
  * install as a user quit and block it behind the agent confirmation.
  */
 export function installUpdate(): void {
-  installingUpdate = true;
-  autoUpdater.quitAndInstall();
+	if (coordinator.switching || lastStatus.kind !== "ready" || installingUpdate)
+		return;
+	installingUpdate = true;
+	autoUpdater.quitAndInstall();
 
-  // Relaunch watchdog. On macOS, `quitAndInstall` hands off to Squirrel.Mac
-  // (ShipIt), which waits for THIS process to terminate, swaps the bundle, and
-  // relaunches. The relaunch is scheduled the instant `quitAndInstall` runs, so
-  // once we're here the only thing that can strand it is the old process
-  // failing to exit promptly (a hung fiber teardown, a wedged child, Electron
-  // waiting on a stuck `will-quit`). If we're still alive after a short grace
-  // period, force the exit so ShipIt can proceed — the symptom this fixes is
-  // "the app quit but never reopened".
-  setTimeout(() => {
-    console.warn(
-      "[zuse:updater] still alive after quitAndInstall — forcing exit so the updater can relaunch",
-    );
-    app.exit(0);
-  }, 4000).unref();
+	// Relaunch watchdog. On macOS, `quitAndInstall` hands off to Squirrel.Mac
+	// (ShipIt), which waits for THIS process to terminate, swaps the bundle, and
+	// relaunches. The relaunch is scheduled the instant `quitAndInstall` runs, so
+	// once we're here the only thing that can strand it is the old process
+	// failing to exit promptly (a hung fiber teardown, a wedged child, Electron
+	// waiting on a stuck `will-quit`). If we're still alive after a short grace
+	// period, force the exit so ShipIt can proceed — the symptom this fixes is
+	// "the app quit but never reopened".
+	setTimeout(() => {
+		console.warn(
+			"[zuse:updater] still alive after quitAndInstall — forcing exit so the updater can relaunch",
+		);
+		app.exit(0);
+	}, 4000).unref();
 }
 
 const statusListeners = new Set<(status: UpdateStatus) => void>();
@@ -120,68 +160,54 @@ let stallTimer: NodeJS.Timeout | null = null;
 let stallRetried = false;
 
 function clearStallTimer(): void {
-  if (stallTimer !== null) {
-    clearTimeout(stallTimer);
-    stallTimer = null;
-  }
+	if (stallTimer !== null) {
+		clearTimeout(stallTimer);
+		stallTimer = null;
+	}
 }
 
 function armStallTimer(): void {
-  clearStallTimer();
-  stallTimer = setTimeout(() => {
-    stallTimer = null;
-    if (lastStatus.kind !== "downloading") return;
-    if (!stallRetried) {
-      stallRetried = true;
-      console.warn("[zuse:updater] download stalled — retrying once");
-      autoUpdater.downloadUpdate().catch((err) => {
-        console.error("[zuse:updater] stall retry failed", err);
-        emit({
-          kind: "error",
-          message: "Download stalled. Check your connection and try again.",
-          retryable: true,
-        });
-      });
-      return;
-    }
-    emit({
-      kind: "error",
-      message: "Download stalled. Check your connection and try again.",
-      retryable: true,
-    });
-  }, DOWNLOAD_STALL_MS);
+	clearStallTimer();
+	stallTimer = setTimeout(() => {
+		stallTimer = null;
+		if (lastStatus.kind !== "downloading" && lastStatus.kind !== "available")
+			return;
+		// Cancel the actual transfer before retrying; reusing downloadUpdate while
+		// its promise is pending only returns the same stalled operation.
+		downloadToken?.cancel();
+	}, DOWNLOAD_STALL_MS);
 }
 
 function emit(status: UpdateStatus): void {
-  lastStatus = status;
-  for (const listener of statusListeners) {
-    try {
-      listener(status);
-    } catch (err) {
-      console.error("[zuse:updater] listener threw", err);
-    }
-  }
+	lastStatus = status;
+	for (const listener of statusListeners) {
+		try {
+			listener(status);
+		} catch (err) {
+			console.error("[zuse:updater] listener threw", err);
+		}
+	}
 }
 
 function clearAutomaticCheckRetry(): void {
-  if (automaticCheckRetryTimer === null) return;
-  clearTimeout(automaticCheckRetryTimer);
-  automaticCheckRetryTimer = null;
+	if (automaticCheckRetryTimer === null) return;
+	clearTimeout(automaticCheckRetryTimer);
+	automaticCheckRetryTimer = null;
 }
 
 function scheduleAutomaticCheckRetry(
-  failedAttempt: number,
-  delayMs: number,
+	failedAttempt: number,
+	delayMs: number,
 ): void {
-  clearAutomaticCheckRetry();
-  console.warn(
-    `[zuse:updater] automatic check failed — retrying in ${delayMs}ms`,
-  );
-  automaticCheckRetryTimer = setTimeout(() => {
-    automaticCheckRetryTimer = null;
-    void runUpdateCheck("automatic", failedAttempt + 1);
-  }, delayMs);
-  automaticCheckRetryTimer.unref();
+	clearAutomaticCheckRetry();
+	console.warn(
+		`[zuse:updater] automatic check failed — retrying in ${delayMs}ms`,
+	);
+	automaticCheckRetryTimer = setTimeout(() => {
+		automaticCheckRetryTimer = null;
+		void runUpdateCheck("automatic", failedAttempt + 1);
+	}, delayMs);
+	automaticCheckRetryTimer.unref();
 }
 
 /**
@@ -190,39 +216,58 @@ function scheduleAutomaticCheckRetry(
  * Manual checks skip the backoff and surface a concise retryable error.
  */
 function runUpdateCheck(
-  kind: "automatic" | "manual",
-  attempt = 0,
+	kind: "automatic" | "manual",
+	attempt = 0,
 ): Promise<void> {
-  if (kind === "manual") clearAutomaticCheckRetry();
-  if (updateCheckInFlight !== null) return updateCheckInFlight;
+	if (kind === "manual") clearAutomaticCheckRetry();
+	if (updateCheckInFlight !== null) return updateCheckInFlight;
 
-  activeUpdateCheck = kind;
-  const operation = Promise.resolve()
-    .then(() => autoUpdater.checkForUpdates())
-    .then(() => undefined)
-    .catch((error: unknown) => {
-      const retryDelay =
-        kind === "automatic" && isTransientUpdateCheckError(error)
-          ? automaticUpdateRetryDelay(attempt)
-          : null;
-      if (retryDelay !== null) {
-        console.warn("[zuse:updater] transient automatic check failure", error);
-        scheduleAutomaticCheckRetry(attempt, retryDelay);
-        return;
-      }
-      console.error("[zuse:updater] check failed", error);
-      emit({
-        kind: "error",
-        message: updateCheckErrorMessage(error),
-        retryable: true,
-      });
-    })
-    .finally(() => {
-      activeUpdateCheck = null;
-      updateCheckInFlight = null;
-    });
-  updateCheckInFlight = operation;
-  return operation;
+	activeUpdateCheck = kind;
+	let downloading = false;
+	const operation = initialization
+		.then(() =>
+			coordinator.run(
+				async () => {
+					configureChannel();
+					const result = await autoUpdater.checkForUpdates();
+					if (
+						!coordinator.switching &&
+						lastStatus.kind === "available" &&
+						result !== null
+					) {
+						downloading = true;
+						await downloadUpdate();
+					}
+				},
+				() => downloadToken?.cancel(),
+			),
+		)
+		.catch((error: unknown) => {
+			if (coordinator.switching) return;
+			const retryDelay =
+				kind === "automatic" && isTransientUpdateCheckError(error)
+					? automaticUpdateRetryDelay(attempt)
+					: null;
+			if (retryDelay !== null) {
+				console.warn("[zuse:updater] transient automatic check failure", error);
+				scheduleAutomaticCheckRetry(attempt, retryDelay);
+				return;
+			}
+			console.error("[zuse:updater] check failed", error);
+			emit({
+				kind: "error",
+				message: downloading
+					? updateDownloadErrorMessage(error)
+					: updateCheckErrorMessage(error),
+				retryable: true,
+			});
+		})
+		.finally(() => {
+			activeUpdateCheck = null;
+			updateCheckInFlight = null;
+		});
+	updateCheckInFlight = operation;
+	return operation;
 }
 
 /**
@@ -230,7 +275,7 @@ function runUpdateCheck(
  * else should subscribe via `onStatusChange` instead of polling.
  */
 export function getLastStatus(): UpdateStatus {
-  return lastStatus;
+	return lastStatus;
 }
 
 /**
@@ -239,114 +284,121 @@ export function getLastStatus(): UpdateStatus {
  * label tracks the live state even when the renderer toast is dismissed.
  */
 export function onStatusChange(
-  listener: (status: UpdateStatus) => void,
+	listener: (status: UpdateStatus) => void,
 ): () => void {
-  statusListeners.add(listener);
-  return () => {
-    statusListeners.delete(listener);
-  };
+	statusListeners.add(listener);
+	return () => {
+		statusListeners.delete(listener);
+	};
 }
 
-function attachRenderer(window: BrowserWindow): void {
-  // Always re-broadcast the most recent status to a (re)attached window so a
-  // dev hot-reload or future window-recreate doesn't lose state.
-  const sendToRenderer = (status: UpdateStatus) => {
-    if (window.isDestroyed()) return;
-    window.webContents.send(UPDATE_STATUS_CHANNEL, status);
-  };
-  statusListeners.add(sendToRenderer);
-  window.webContents.on("did-finish-load", () => sendToRenderer(lastStatus));
+function attachRenderer(window: UpdaterWindow): void {
+	// Always re-broadcast the most recent status to a (re)attached window so a
+	// dev hot-reload or future window-recreate doesn't lose state.
+	const sendToRenderer = (status: UpdateStatus) => {
+		if (window.isDestroyed()) return;
+		window.webContents.send(UPDATE_STATUS_CHANNEL, status);
+	};
+	statusListeners.add(sendToRenderer);
+	window.webContents.on("did-finish-load", () => sendToRenderer(lastStatus));
 }
 
-export function startAutoUpdater(window: BrowserWindow): void {
-  attachRenderer(window);
+export function startAutoUpdater(window: UpdaterWindow): void {
+	attachRenderer(window);
 
-  if (started) return;
-  started = true;
+	if (started) return;
+	started = true;
 
-  autoUpdater.logger = {
-    info: (msg: unknown) => console.log("[zuse:updater]", msg),
-    warn: (msg: unknown) => console.warn("[zuse:updater]", msg),
-    error: (msg: unknown) => console.error("[zuse:updater]", msg),
-    debug: () => {},
-  } as unknown as typeof autoUpdater.logger;
+	autoUpdater.logger = {
+		info: (msg: unknown) => console.log("[zuse:updater]", msg),
+		warn: (msg: unknown) => console.warn("[zuse:updater]", msg),
+		error: (msg: unknown) => console.error("[zuse:updater]", msg),
+		debug: () => {},
+	} as unknown as typeof autoUpdater.logger;
 
-  // Download in the background the moment an update is detected — the user
-  // shouldn't have to click "Update now". The restart toast only appears once
-  // the download finishes (`update-downloaded` → `ready`). If they ignore the
-  // "Restart" button we still install on next quit so the update isn't
-  // stranded forever.
-  autoUpdater.autoDownload = true;
-  // Squirrel.Mac cannot supersede an update it has already staged during the
-  // current process. Keep downloads in electron-updater's replaceable cache
-  // on macOS, then stage the latest one from the before-quit handler. Other
-  // platforms can safely retain electron-updater's normal install-on-quit.
-  autoUpdater.autoInstallOnAppQuit = shouldAutoInstallUpdateOnQuit(
-    process.platform,
-  );
+	// Download in the background the moment an update is detected — the user
+	// shouldn't have to click "Update now". The restart toast only appears once
+	// the download finishes (`update-downloaded` → `ready`). If they ignore the
+	// "Restart" button we still install on next quit so the update isn't
+	// stranded forever.
+	autoUpdater.autoDownload = false;
+	// Squirrel.Mac cannot supersede an update it has already staged during the
+	// current process. Keep downloads in electron-updater's replaceable cache
+	// on macOS, then stage the latest one from the before-quit handler. Other
+	// platforms can safely retain electron-updater's normal install-on-quit.
+	autoUpdater.autoInstallOnAppQuit = false;
+	initialization = initializeChannels(true);
+	registerChannelHandlers();
 
-  autoUpdater.on("checking-for-update", () => {
-    clearStallTimer();
-    emit({ kind: "checking" });
-  });
-  autoUpdater.on("update-available", (info: UpdateInfo) => {
-    clearStallTimer();
-    emit({
-      kind: "available",
-      version: info.version,
-      releaseNotes:
-        typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
-      releaseDate: info.releaseDate,
-    });
-  });
-  autoUpdater.on("update-not-available", () => {
-    clearStallTimer();
-    emit({ kind: "not-available" });
-  });
-  autoUpdater.on("download-progress", (p: ProgressInfo) => {
-    armStallTimer();
-    emit({
-      kind: "downloading",
-      percent: p.percent,
-      bytesPerSecond: p.bytesPerSecond,
-    });
-  });
-  autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
-    clearStallTimer();
-    emit({ kind: "ready", version: info.version });
-  });
-  autoUpdater.on("error", (err: Error) => {
-    clearStallTimer();
-    // checkForUpdates emits this event before rejecting its promise. The
-    // owned check path above decides whether to retry or surface the failure,
-    // avoiding duplicate/raw error toasts.
-    if (activeUpdateCheck !== null) return;
-    emit({
-      kind: "error",
-      message: updateDownloadErrorMessage(err),
-      retryable: true,
-    });
-  });
+	autoUpdater.on("checking-for-update", () => {
+		if (coordinator.switching) return;
+		clearStallTimer();
+		emit({ kind: "checking" });
+	});
+	autoUpdater.on("update-available", (info: UpdateInfo) => {
+		if (coordinator.switching) return;
+		clearStallTimer();
+		emit({
+			kind: "available",
+			version: info.version,
+			releaseNotes:
+				typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
+			releaseDate: info.releaseDate,
+		});
+	});
+	autoUpdater.on("update-not-available", () => {
+		if (coordinator.switching) return;
+		clearStallTimer();
+		emit({ kind: "not-available" });
+	});
+	autoUpdater.on("download-progress", (p: ProgressInfo) => {
+		if (coordinator.switching) return;
+		armStallTimer();
+		emit({
+			kind: "downloading",
+			percent: p.percent,
+			bytesPerSecond: p.bytesPerSecond,
+		});
+	});
+	autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
+		if (coordinator.switching) return;
+		clearStallTimer();
+		autoUpdater.autoInstallOnAppQuit = shouldAutoInstallUpdateOnQuit(
+			process.platform,
+		);
+		emit({ kind: "ready", version: info.version });
+	});
+	autoUpdater.on("error", (err: Error) => {
+		if (coordinator.switching) return;
+		clearStallTimer();
+		// checkForUpdates emits this event before rejecting its promise. The
+		// owned check path above decides whether to retry or surface the failure,
+		// avoiding duplicate/raw error toasts.
+		if (activeUpdateCheck !== null) return;
+		emit({
+			kind: "error",
+			message: updateDownloadErrorMessage(err),
+			retryable: true,
+		});
+	});
 
-  ipcMain.handle(UPDATE_CHECK_CHANNEL, async () => {
-    await runUpdateCheck("manual");
-  });
-  ipcMain.handle(UPDATE_DOWNLOAD_CHANNEL, async () => {
-    await autoUpdater.downloadUpdate().catch((err) => {
-      console.error("[zuse:updater] download failed", err);
-    });
-  });
-  ipcMain.handle(UPDATE_INSTALL_CHANNEL, () => {
-    // Routes through `installUpdate` so the `installingUpdate` guard is set
-    // before shutdown begins — otherwise the before-quit agent guard blocks it.
-    installUpdate();
-  });
+	ipcMain.handle(UPDATE_CHECK_CHANNEL, async () => {
+		await runUpdateCheck("manual");
+	});
+	ipcMain.handle(UPDATE_DOWNLOAD_CHANNEL, async () => {
+		await runUpdateCheck("manual");
+	});
+	ipcMain.handle(UPDATE_INSTALL_CHANNEL, () => {
+		// Routes through `installUpdate` so the `installingUpdate` guard is set
+		// before shutdown begins — otherwise the before-quit agent guard blocks it.
+		installUpdate();
+	});
 
-  const check = () => {
-    void runUpdateCheck("automatic");
-  };
-  check();
-  setInterval(check, UPDATE_POLL_MS);
+	const check = () => {
+		void runUpdateCheck("automatic");
+	};
+	check();
+	setInterval(check, UPDATE_POLL_MS);
 }
 
 /**
@@ -355,19 +407,15 @@ export function startAutoUpdater(window: BrowserWindow): void {
  * routing through IPC would just bounce back to the same `autoUpdater` calls.
  */
 export function triggerUpdateCheck(): void {
-  void runUpdateCheck("manual");
+	void runUpdateCheck("manual");
 }
 
 export function triggerUpdateDownload(): void {
-  // Reset the stall retry budget so a manual retry gets a fresh chance.
-  stallRetried = false;
-  autoUpdater.downloadUpdate().catch((err) => {
-    console.error("[zuse:updater] download failed", err);
-  });
+	void runUpdateCheck("manual");
 }
 
 export function triggerUpdateInstall(): void {
-  installUpdate();
+	installUpdate();
 }
 
 /**
@@ -378,13 +426,87 @@ export function triggerUpdateInstall(): void {
  *
  * Call from `main.ts` only when `isDevelopment`. No-op in packaged builds.
  */
-export function registerUpdaterDemo(window: BrowserWindow): void {
-  // Plumb the renderer so demo-pushed statuses reach the banner.
-  attachRenderer(window);
-  ipcMain.handle("zuse:update-demo-set", (_event, status: UpdateStatus) => {
-    if (window.isDestroyed()) return;
-    // Push through `emit` so the menu listener and any other subscribers
-    // see demo events the same way they'd see real ones.
-    emit(status);
-  });
+export function registerUpdaterDemo(window: UpdaterWindow): void {
+	// Plumb the renderer so demo-pushed statuses reach the banner.
+	attachRenderer(window);
+	initialization = initializeChannels(false);
+	registerChannelHandlers();
+	ipcMain.handle("zuse:update-demo-set", (_event, status: UpdateStatus) => {
+		if (window.isDestroyed()) return;
+		// Push through `emit` so the menu listener and any other subscribers
+		// see demo events the same way they'd see real ones.
+		emit(status);
+	});
+}
+
+function configureChannel(): void {
+	autoUpdater.channel = coordinator.channel === "stable" ? "latest" : "preview";
+	autoUpdater.allowPrerelease = coordinator.channel === "preview";
+	// Only opting out of an installed Preview authorizes a downgrade.
+	autoUpdater.allowDowngrade =
+		coordinator.channel === "stable" &&
+		downgradeFrom === app.getVersion() &&
+		parseReleaseVersion(app.getVersion()).preview !== null;
+}
+
+async function initializeChannels(packaged: boolean): Promise<void> {
+	const preference = await readUpdatePreference(app.getPath("userData"));
+	coordinator.channel = preference.channel;
+	downgradeFrom = preference.downgradeFrom;
+	if (packaged) {
+		const options = parse(
+			await readFile(join(process.resourcesPath, "app-update.yml"), "utf8"),
+		);
+		if (
+			options?.provider !== "github" ||
+			typeof options.owner !== "string" ||
+			typeof options.repo !== "string"
+		)
+			throw new Error("Desktop channels require the GitHub release provider");
+		autoUpdater.setFeedURL({
+			provider: "custom",
+			updateProvider: channelProvider(
+				{ provider: "github", owner: options.owner, repo: options.repo },
+				() => coordinator.channel,
+			),
+		});
+		configureChannel();
+	}
+}
+
+function registerChannelHandlers(): void {
+	ipcMain.handle(UPDATE_CHANNEL_GET, async () => {
+		await initialization;
+		return coordinator.channel;
+	});
+	ipcMain.handle(UPDATE_CHANNEL_SET, async (_event, channel: unknown) => {
+		await initialization;
+		if (installingUpdate) throw new Error("An update is already installing");
+		await coordinator.setChannel(channel);
+		await updateCheckInFlight;
+		if (app.isPackaged) void runUpdateCheck("manual");
+		return coordinator.channel;
+	});
+}
+
+async function downloadUpdate(): Promise<void> {
+	stallRetried = false;
+	while (!coordinator.switching) {
+		downloadToken = new CancellationToken();
+		armStallTimer();
+		try {
+			await autoUpdater.downloadUpdate(downloadToken);
+			return;
+		} catch (error) {
+			if (coordinator.switching) return;
+			if (downloadToken.cancelled && !stallRetried) {
+				stallRetried = true;
+				continue;
+			}
+			throw error;
+		} finally {
+			clearStallTimer();
+			downloadToken = null;
+		}
+	}
 }

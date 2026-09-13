@@ -491,6 +491,14 @@ export class SessionTimelineProjection extends Schema.Class<SessionTimelineProje
 	runtimeMode: RuntimeMode,
 }) {}
 
+/** Canonical result of settling an agent turn. */
+export const TurnSettlementOutcome = Schema.Literals([
+	"completed",
+	"interrupted",
+	"error",
+]);
+export type TurnSettlementOutcome = typeof TurnSettlementOutcome.Type;
+
 export const SessionTimelineEvent = Schema.Union([
 	Schema.TaggedStruct("Noop", {}),
 	Schema.TaggedStruct("MessagePersisted", { message: Message }),
@@ -505,7 +513,7 @@ export const SessionTimelineEvent = Schema.Union([
 	}),
 	Schema.TaggedStruct("TurnSettled", {
 		turnId: AgentTurnId,
-		outcome: Schema.Literals(["completed", "interrupted", "error"]),
+		outcome: TurnSettlementOutcome,
 	}),
 	Schema.TaggedStruct("PermissionModeSet", { permissionMode: PermissionMode }),
 	Schema.TaggedStruct("RuntimeModeSet", { runtimeMode: RuntimeMode }),
@@ -1475,6 +1483,7 @@ export const SessionSetPermissionModeRpc = Rpc.make(
  */
 export const SessionAnswerQuestionRpc = Rpc.make("session.answerQuestion", {
 	payload: Schema.Struct({
+		commandId: CommandId,
 		sessionId: SessionId,
 		itemId: Schema.String,
 		answers: Schema.Array(
@@ -1491,6 +1500,7 @@ export const SessionAnswerQuestionRpc = Rpc.make("session.answerQuestion", {
 
 export const SessionPlanRespondRpc = Rpc.make("session.plan.respond", {
 	payload: Schema.Struct({
+		commandId: CommandId,
 		sessionId: SessionId,
 		toolCallId: Schema.String,
 		outcome: PlanApprovalOutcome,

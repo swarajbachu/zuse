@@ -1,6 +1,12 @@
 import { Effect, Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
-import { ProviderId } from "./agent.ts";
+import { DEFAULT_RUNTIME_MODE, ProviderId, RuntimeMode } from "./agent.ts";
+import {
+	CloudCommandEnvelope,
+	CommandAcceptance,
+	CommandChangePage,
+	CommandStatus,
+} from "./cloud-commands.ts";
 import { AgentSessionId, ChatId } from "./ids.ts";
 import {
 	Message,
@@ -112,6 +118,24 @@ export const CloudWorkspaceRuntimeState = Schema.Literals([
 	"online",
 ]);
 export type CloudWorkspaceRuntimeState = typeof CloudWorkspaceRuntimeState.Type;
+
+/**
+ * Codex subscription authentication ownership for a cloud workspace. Missing
+ * values decode as `legacy-image`; retained workspaces are never silently
+ * migrated onto the broker protocol.
+ */
+export const CloudCodexAuthMode = Schema.Literals([
+	"legacy-image",
+	"broker-v1",
+]);
+export type CloudCodexAuthMode = typeof CloudCodexAuthMode.Type;
+
+/**
+ * Account-provider credential ownership for a cloud workspace. Missing values
+ * are legacy so retained workspaces never begin requesting broker grants.
+ */
+export const CloudProviderAuthMode = CloudCodexAuthMode;
+export type CloudProviderAuthMode = CloudCodexAuthMode;
 
 export class CloudProviderOption extends Schema.Class<CloudProviderOption>(
 	"CloudProviderOption",
@@ -243,6 +267,8 @@ export class CloudAccountImage extends Schema.Class<CloudAccountImage>(
 	repositories: Schema.Array(CloudAccountImageRepository),
 	providers: Schema.Array(CloudAccountImageProvider),
 	builds: Schema.Array(CloudAccountImageBuildAttempt),
+	codexAuthDeliveryVersion: Schema.optional(Schema.Literal(1)),
+	providerAuthDeliveryVersion: Schema.optional(Schema.Literal(1)),
 	builtAt: Schema.optional(Schema.Number),
 	updatedAt: Schema.Number,
 }) {}
@@ -274,6 +300,14 @@ export class CloudWorkspace extends Schema.Class<CloudWorkspace>(
 		Schema.withDecodingDefaultType(Effect.succeed("legacy")),
 	),
 	providerId: Schema.String,
+	codexAuthMode: CloudCodexAuthMode.pipe(
+		Schema.withConstructorDefault(Effect.succeed("legacy-image" as const)),
+		Schema.withDecodingDefaultType(Effect.succeed("legacy-image" as const)),
+	),
+	providerAuthMode: CloudProviderAuthMode.pipe(
+		Schema.withConstructorDefault(Effect.succeed("legacy-image" as const)),
+		Schema.withDecodingDefaultType(Effect.succeed("legacy-image" as const)),
+	),
 	branch: Schema.String,
 	baseRef: Schema.String,
 	state: CloudWorkspaceState,
@@ -297,6 +331,8 @@ export class CloudWorkspaceLaunch extends Schema.Class<CloudWorkspaceLaunch>(
 	workspace: CloudWorkspace,
 	chatId: ChatId,
 	initialSessionId: AgentSessionId,
+	/** Server acknowledgment that the launch intent excludes the first prompt. */
+	initialMessageDelivery: Schema.optional(Schema.Literal("mailbox-v1")),
 }) {}
 
 export class CloudWorkspaceConnection extends Schema.Class<CloudWorkspaceConnection>(
@@ -322,6 +358,8 @@ export class CloudWorkspaceRuntimeSummary extends Schema.Class<CloudWorkspaceRun
 	summaryRevision: Schema.Number,
 	title: Schema.String,
 	lastActivityAt: Schema.Number,
+	/** Optional during the additive rollout; null means the chat has no live thread. */
+	activeSessionId: Schema.optional(Schema.NullOr(AgentSessionId)),
 	sessionHeadVersion: Schema.Number,
 }) {}
 
@@ -335,11 +373,25 @@ export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 	repositoryDisplayName: Schema.String,
 	chatId: ChatId,
 	initialSessionId: AgentSessionId,
+	/** Current live thread. Missing rows are legacy summaries and use the initial id. */
+	activeSessionId: Schema.optional(Schema.NullOr(AgentSessionId)),
 	title: Schema.String,
 	branch: Schema.String,
 	providerId: Schema.String,
+	codexAuthMode: CloudCodexAuthMode.pipe(
+		Schema.withConstructorDefault(Effect.succeed("legacy-image" as const)),
+		Schema.withDecodingDefaultType(Effect.succeed("legacy-image" as const)),
+	),
+	providerAuthMode: CloudProviderAuthMode.pipe(
+		Schema.withConstructorDefault(Effect.succeed("legacy-image" as const)),
+		Schema.withDecodingDefaultType(Effect.succeed("legacy-image" as const)),
+	),
 	agent: ProviderId,
 	model: Schema.String,
+	runtimeMode: RuntimeMode.pipe(
+		Schema.withConstructorDefault(Effect.succeed(DEFAULT_RUNTIME_MODE)),
+		Schema.withDecodingDefaultType(Effect.succeed(DEFAULT_RUNTIME_MODE)),
+	),
 	state: CloudWorkspaceState,
 	desiredState: CloudWorkspaceDesiredState,
 	runtimeState: CloudWorkspaceRuntimeState,
@@ -352,7 +404,7 @@ export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 		Schema.withConstructorDefault(Effect.succeed(0)),
 		Schema.withDecodingDefaultType(Effect.succeed(0)),
 	),
-	/** Authoritative runtime session head represented by this summary. */
+	/** Authoritative head for activeSessionId represented by this summary. */
 	sessionHeadVersion: Schema.Number.pipe(
 		Schema.withConstructorDefault(Effect.succeed(0)),
 		Schema.withDecodingDefaultType(Effect.succeed(0)),
@@ -461,15 +513,22 @@ export class CloudWorkspaceList extends Schema.Class<CloudWorkspaceList>(
 export class CloudWorkspaceCreateRequest extends Schema.Class<CloudWorkspaceCreateRequest>(
 	"CloudWorkspaceCreateRequest",
 )({
+	localDeviceId: Schema.optional(Schema.String),
 	projectId: Schema.String,
 	providerId: Schema.String,
 	baseRef: Schema.String,
 	branch: Schema.optional(Schema.String),
 	agent: Schema.String,
 	model: Schema.String,
+	runtimeMode: Schema.optional(RuntimeMode),
 	secretBindings: Schema.optional(Schema.Array(Schema.String)),
 	permissions: Schema.optional(Schema.Array(Schema.String)),
 	firstMessage: Schema.optional(Schema.String),
+	/**
+	 * The client will deliver the initial prompt through the durable workspace
+	 * mailbox after the launch intent creates the session shell.
+	 */
+	initialMessageDelivery: Schema.optional(Schema.Literal("mailbox-v1")),
 	idempotencyKey: Schema.String,
 }) {}
 
@@ -485,13 +544,13 @@ export class CloudWorkspaceResumeRequest extends Schema.Class<CloudWorkspaceResu
 )({
 	workspaceId: Schema.String,
 	commandId: Schema.optional(Schema.String),
-	/** The gateway proved that Relay's online projection has no runtime socket. */
+	/** The gateway proved that API's online projection has no runtime socket. */
 	recoverRuntime: Schema.optional(Schema.Boolean),
 }) {}
 
 /**
  * A short-lived grant for the workspace runtime's WebSocket SSH bridge. The
- * relay stages the hashed ticket inside the sandbox; the desktop's
+ * api stages the hashed ticket inside the sandbox; the desktop's
  * ProxyCommand bridge presents the plain ticket when it connects to `wsUrl`.
  */
 export class CloudWorkspaceSshAccess extends Schema.Class<CloudWorkspaceSshAccess>(
@@ -588,7 +647,7 @@ export const CloudWorkspacesGetRpc = Rpc.make("cloud.workspaces.get", {
 });
 /**
  * One monotonic lifecycle control stream for a workspace. The server adapts
- * Relay's current REST surface; clients never own lifecycle polling loops.
+ * API's current REST surface; clients never own lifecycle polling loops.
  */
 export const CloudWorkspacesWatchRpc = Rpc.make("cloud.workspaces.watch", {
 	payload: Schema.Struct({
@@ -668,6 +727,50 @@ export const CloudWorkspacesUnarchiveRpc = Rpc.make(
 export const CloudWorkspacesDeleteRpc = Rpc.make("cloud.workspaces.delete", {
 	payload: CloudWorkspaceActionRequest,
 	success: CloudWorkspace,
+	error: CloudWorkspaceOpError,
+});
+
+export const CloudCommandsEnqueueRpc = Rpc.make("cloud.commands.enqueue", {
+	payload: CloudCommandEnvelope,
+	success: CommandAcceptance,
+	error: CloudWorkspaceOpError,
+});
+export class CloudWorkspaceDataKey extends Schema.Class<CloudWorkspaceDataKey>(
+	"CloudWorkspaceDataKey",
+)({
+	workspaceId: Schema.String,
+	encodedKey: Schema.String,
+	keyVersion: Schema.Number,
+	destructionFence: Schema.Number,
+	mailboxEnabled: Schema.Boolean,
+}) {}
+export const CloudWorkspaceDataKeyRpc = Rpc.make("cloud.commands.dataKey", {
+	payload: Schema.Struct({ workspaceId: Schema.String }),
+	success: CloudWorkspaceDataKey,
+	error: CloudWorkspaceOpError,
+});
+export const CloudCommandsStatusRpc = Rpc.make("cloud.commands.status", {
+	payload: Schema.Struct({
+		workspaceId: Schema.String,
+		commandId: Schema.String,
+	}),
+	success: CommandStatus,
+	error: CloudWorkspaceOpError,
+});
+export const CloudCommandsWatchRpc = Rpc.make("cloud.commands.watch", {
+	payload: Schema.Struct({
+		workspaceId: Schema.String,
+		afterRevision: Schema.Number,
+	}),
+	success: CommandChangePage,
+	error: CloudWorkspaceOpError,
+});
+export const CloudCommandsCancelRpc = Rpc.make("cloud.commands.cancel", {
+	payload: Schema.Struct({
+		workspaceId: Schema.String,
+		commandId: Schema.String,
+	}),
+	success: CommandStatus,
 	error: CloudWorkspaceOpError,
 });
 

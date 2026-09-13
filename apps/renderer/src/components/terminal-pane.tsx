@@ -201,7 +201,9 @@ function PlainTerminalSlot({
 						? "File changes synced to local"
 						: localSyncState === "error"
 							? "Local file sync failed"
-							: "Syncing files to local…"}
+							: localSyncState === "pending"
+								? "Waiting for changes to settle…"
+								: "Syncing files to local…"}
 				</div>
 			) : null}
 			<div className="min-h-0 flex-1">

@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
 	cloudflaredAsset,
 	verifySha256,
-} from "../../src/relay/cloudflared-install.ts";
+} from "../../src/api/cloudflared-install.ts";
 
 describe("cloudflared installer", () => {
 	test("pins supported platform assets and checksums", () => {

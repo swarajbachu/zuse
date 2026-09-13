@@ -72,10 +72,10 @@ CREATE TABLE pokemon_unlocks (
   pokemon_number INTEGER PRIMARY KEY,
   worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL, unlocked_at TEXT NOT NULL
 );
-CREATE TABLE relay_config (
-  environment_id TEXT PRIMARY KEY, relay_url TEXT NOT NULL, relay_issuer TEXT NOT NULL,
+CREATE TABLE api_config (
+  environment_id TEXT PRIMARY KEY, api_url TEXT NOT NULL, api_issuer TEXT NOT NULL,
   environment_credential TEXT NOT NULL, updated_at TEXT NOT NULL, label TEXT,
-  connector_token TEXT, tunnel_hostname TEXT, relay_mint_public_key TEXT
+  connector_token TEXT, tunnel_hostname TEXT, api_mint_public_key TEXT
 );
 CREATE TABLE repository_settings (
   project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
@@ -136,8 +136,8 @@ INSERT INTO effect_sql_migrations (migration_id, created_at, name) VALUES
   (22, '2024-01-01 00:00:00', 'attachment_abs_path'),
   (23, '2024-01-01 00:00:00', 'chat_lineage'),
   (24, '2024-01-01 00:00:00', 'remote_connect_state'),
-  (25, '2024-01-01 00:00:00', 'relay_environment_keys'),
-  (26, '2024-01-01 00:00:00', 'relay_connector_token'),
-  (27, '2024-01-01 00:00:00', 'relay_tunnel_hostname'),
-  (28, '2024-01-01 00:00:00', 'relay_mint_public_key'),
+  (25, '2024-01-01 00:00:00', 'api_environment_keys'),
+  (26, '2024-01-01 00:00:00', 'api_connector_token'),
+  (27, '2024-01-01 00:00:00', 'api_tunnel_hostname'),
+  (28, '2024-01-01 00:00:00', 'api_mint_public_key'),
   (29, '2024-01-01 00:00:00', 'chat_lineage_repair');

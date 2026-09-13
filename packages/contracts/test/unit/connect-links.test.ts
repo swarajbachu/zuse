@@ -16,8 +16,8 @@ const link = (pairingUrl: string, code = "zp_code") =>
 describe("parseConnectLink", () => {
 	it.each([
 		["wss://build.example.ts.net/rpc", "tailscale"],
-		["wss://zenv-abc123.stuff.md/rpc", "relay"],
-		["wss://tunnel.trycloudflare.com/rpc", "relay"],
+		["wss://zenv-abc123.stuff.md/rpc", "api"],
+		["wss://tunnel.trycloudflare.com/rpc", "api"],
 		["wss://example.com/rpc", "remote"],
 		["ws://192.168.1.50:4859", "lan"],
 		["ws://devbox.local:4859", "lan"],
@@ -140,6 +140,8 @@ describe("isPrivateOrLocalHost", () => {
 	it.each([
 		["127.0.0.1", true],
 		["localhost", true],
+		["worker.localhost", true],
+		["worker.localhost.", true],
 		["::1", true],
 		["[::1]", true],
 		["10.1.2.3", true],

@@ -12,7 +12,7 @@ describe("describePairingLinkKind", () => {
 		["https://build.example.ts.net/#pair=zp_once", "tailscale"],
 		["http://192.168.1.50:4859/#pair=zp_once", "lan"],
 		[link("wss://build.example.ts.net/rpc"), "tailscale"],
-		[link("wss://calm-otter.trycloudflare.com/rpc"), "relay"],
+		[link("wss://calm-otter.trycloudflare.com/rpc"), "api"],
 		[link("wss://example.com/rpc"), "remote"],
 		[link("wss://192.0.2.10:8443/rpc"), "remote"],
 		[

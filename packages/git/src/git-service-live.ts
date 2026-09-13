@@ -1414,6 +1414,7 @@ export const GitServiceLive = Layer.effect(
 				title?: string;
 				author?: { login?: string };
 				headRefName?: string;
+				isCrossRepository?: boolean;
 				isDraft?: boolean;
 				state?: string;
 				updatedAt?: string;
@@ -1425,7 +1426,7 @@ export const GitServiceLive = Layer.effect(
 				"--limit",
 				"50",
 				"--json",
-				"number,title,author,headRefName,isDraft,state,updatedAt",
+				"number,title,author,headRefName,isCrossRepository,isDraft,state,updatedAt",
 			]).pipe(
 				Effect.map((rows) =>
 					rows
@@ -1436,6 +1437,7 @@ export const GitServiceLive = Layer.effect(
 								title: r.title ?? "",
 								author: r.author?.login ?? "",
 								headRefName: r.headRefName ?? "",
+								isCrossRepository: r.isCrossRepository === true,
 								isDraft: r.isDraft === true,
 								state: (r.state ?? "OPEN").toLowerCase(),
 								updatedAt: new Date(r.updatedAt ?? 0),

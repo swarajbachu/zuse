@@ -1,9 +1,13 @@
 import type {
+	DeviceCommand,
+	DeviceCommandDecision,
+	DeviceCommandGrant,
 	FolderId,
 	PermissionDecision,
 	PermissionKind,
 	PermissionRequest,
 	PermissionRequestChange,
+	PermissionRequestExpiredError,
 	PermissionRequestNotFoundError,
 	SavedDecision,
 	SessionId,
@@ -49,7 +53,10 @@ export interface PermissionServiceShape {
 	readonly decide: (
 		requestId: string,
 		decision: PermissionDecision,
-	) => Effect.Effect<void, PermissionRequestNotFoundError>;
+	) => Effect.Effect<
+		void,
+		PermissionRequestNotFoundError | PermissionRequestExpiredError
+	>;
 
 	readonly listPending: (
 		sessionId: SessionId,
@@ -73,3 +80,61 @@ export class PermissionService extends Context.Service<
 	PermissionService,
 	PermissionServiceShape
 >()("memoize/PermissionService") {}
+
+/** Device grants deliberately have no relationship to provider Bash/full-access policy. */
+export interface DevicePermissionStore {
+	readonly grants: () => Promise<ReadonlyArray<DeviceCommandGrant>>;
+	readonly saveGrant: (grant: DeviceCommandGrant) => Promise<void>;
+	readonly deleteGrant: (id: string) => Promise<void>;
+	readonly clearGrants: () => Promise<void>;
+}
+export const deviceGrantMatches = (
+	grant: DeviceCommandGrant,
+	command: DeviceCommand,
+): boolean =>
+	grant.accountId === command.accountId &&
+	grant.deviceId === command.deviceId &&
+	(grant.chatId === null ||
+		(grant.chatId === command.chatId &&
+			grant.grantEpoch === command.grantEpoch));
+
+/** Shared permission authority for foreign cloud chats, which have no local session row. */
+export class DevicePermissionAuthority {
+	constructor(private readonly store: DevicePermissionStore) {}
+	list() {
+		return this.store.grants();
+	}
+	clear() {
+		return this.store.clearGrants();
+	}
+	async allows(command: DeviceCommand): Promise<boolean> {
+		return (await this.list()).some((grant) =>
+			deviceGrantMatches(grant, command),
+		);
+	}
+	async remember(
+		command: DeviceCommand,
+		decision: DeviceCommandDecision,
+	): Promise<void> {
+		if (decision !== "AllowForSession" && decision !== "AlwaysAllow") return;
+		const chatId = decision === "AlwaysAllow" ? null : command.chatId;
+		await this.store.saveGrant({
+			id: JSON.stringify([command.accountId, command.deviceId, chatId]),
+			accountId: command.accountId,
+			deviceId: command.deviceId,
+			grantEpoch: command.grantEpoch,
+			chatId,
+			createdAt: Date.now(),
+		});
+	}
+	async revoke(id: string, accountId?: string): Promise<DeviceCommandGrant> {
+		const grant = (await this.list()).find(
+			(grant) =>
+				grant.id === id &&
+				(accountId === undefined || grant.accountId === accountId),
+		);
+		if (!grant) throw new Error("Permission not found");
+		await this.store.deleteGrant(id);
+		return grant;
+	}
+}

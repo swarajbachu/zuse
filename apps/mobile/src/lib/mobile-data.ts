@@ -4,14 +4,16 @@ import { clearDeviceKey } from "../auth/dpop";
 import { signOut as clearAccountSession } from "../auth/workos";
 import { clearPushRegistration } from "../notifications/push";
 import { clearDownloadedCache, clearOfflineCache } from "../offline/cache";
+import { resetApiAccessToken } from "../rpc/api-client";
 import { disposeConnection } from "../rpc/connection";
-import { resetRelayAccessToken } from "../rpc/relay-client";
 import { resetAvailabilityRuntime } from "../store/availability";
 import { resetConnectionRuntimeState } from "../store/connection-runtime";
 import { clearConnections, currentConnections } from "../store/connections";
 import { resetEnvironmentsRuntime } from "../store/environments";
 import { resetGoalsRuntime } from "../store/goals";
 import { resetMessagesRuntime } from "../store/messages";
+import { resetModelCatalogRuntime } from "../store/model-catalog";
+import { clearOnboarding } from "../store/onboarding";
 import { resetOutboxRuntime } from "../store/outbox";
 import { resetPermissionsRuntime } from "../store/permissions";
 import { clearPinnedChats } from "../store/pinned-chats";
@@ -30,6 +32,7 @@ const resetDownloadedMemory = async (): Promise<void> => {
 		resetPermissionsRuntime(),
 	]);
 	resetAvailabilityRuntime();
+	resetModelCatalogRuntime();
 	resetPrStateRuntime();
 	resetProjectOriginRuntime();
 };
@@ -64,8 +67,13 @@ export const resetLocalMobileData = async (): Promise<void> => {
 		clearLastCrashReport(),
 		resetMobileAnalyticsIdentity(),
 	]);
-	resetRelayAccessToken();
-	if (cleanup.some((result) => result.status === "rejected")) {
+	const onboardingCleanup = await Promise.allSettled([clearOnboarding()]);
+	resetApiAccessToken();
+	if (
+		[...cleanup, ...onboardingCleanup].some(
+			(result) => result.status === "rejected",
+		)
+	) {
 		throw new Error(
 			"Some local files could not be cleared. Restart the app and try again.",
 		);

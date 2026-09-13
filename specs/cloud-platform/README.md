@@ -13,7 +13,7 @@ This roadmap spans and sequences two existing initiatives rather than replacing
 them:
 
 - [`specs/remote-multiclient/`](../remote-multiclient/README.md) — the
-  **infrastructure spine** (headless server, event sourcing, relay, mobile,
+  **infrastructure spine** (headless server, event sourcing, api, mobile,
   SSH). Phases 1–3 here close its open workstreams (PR-E, PR-H, PR-I).
 - [`specs/self-orchestration/`](../self-orchestration/README.md) — the
   **autonomy spine** (control-plane tools, loop engine, verification, safety).
@@ -52,7 +52,7 @@ own?" decomposes into six bottlenecks:
 
 Zuse already owns the hardest substrate: a headless server with zero Electron
 imports, event-sourced persistence with gap-free reconnect, SSH remote
-execution, a **deployed** relay control plane, a mobile client that can approve
+execution, a **deployed** api control plane, a mobile client that can approve
 plans and permissions, shipped orchestration tools, native plan modes, and a
 CDP agent browser. This roadmap is therefore an **activation-and-extension
 sequence**, not a rewrite: dormant code first, then the one missing pillar
@@ -81,7 +81,7 @@ Morph / e2b / Fly Machines class) behind the existing
 ### D2 — Additive evolution over the existing spines
 Remote-multiclient's D3 already holds: *a cloud worktree is not a new code
 path*. The same `zuse serve` binary ([`apps/server/src/bin.ts`](../../apps/server/src/bin.ts))
-runs on desktop, SSH box, and cloud container; the relay keys everything by
+runs on desktop, SSH box, and cloud container; the api keys everything by
 `environmentId`. Every phase below extends landed code and cites it.
 
 ### D3 — Evidence over trust
@@ -113,33 +113,33 @@ Each phase is independently shippable and useful. Scope: S/M/L/XL.
 when an agent needs approval, finishes, or asks a question.
 
 - ✅ Managed Cloudflare named tunnel per (account, environment) — **PR-E landed**
-  (#266): [`infra/relay/src/managed-tunnel.ts`](../../infra/relay/src/managed-tunnel.ts) +
-  [`apps/server/src/relay/managed-tunnel-runtime.ts`](../../apps/server/src/relay/managed-tunnel-runtime.ts).
-  Deployed relay is configured (`MANAGED_TUNNEL_*`, `CF_API_TOKEN`) and the
+  (#266): [`infra/api/src/managed-tunnel.ts`](../../infra/api/src/managed-tunnel.ts) +
+  [`apps/server/src/api/managed-tunnel-runtime.ts`](../../apps/server/src/api/managed-tunnel-runtime.ts).
+  Deployed api is configured (`MANAGED_TUNNEL_*`, `CF_API_TOKEN`) and the
   provision → link → connector loop has run end-to-end (verified 2026-07-18).
-- ✅ Push — **PR-H landed** (#272): [`infra/relay/src/push.ts`](../../infra/relay/src/push.ts)
-  delivers via Expo's push service (no relay-side APNs secrets); the server
+- ✅ Push — **PR-H landed** (#272): [`infra/api/src/push.ts`](../../infra/api/src/push.ts)
+  delivers via Expo's push service (no api-side APNs secrets); the server
   publishes `approval-needed` / `question-needed` / `completed` / `error` /
   `running` activity. Live Activities remain unimplemented.
 - Remaining to close Phase 1: an end-to-end confirmation from a phone on
   cellular (re-link the environment, dev-client build with `EXPO_PUBLIC_*`
   set), and the Live Activities follow-up.
 
-**Why first:** near-zero design risk; exercises the relay under real load
+**Why first:** near-zero design risk; exercises the api under real load
 before cloud machines multiply environment counts; makes the mobile app a
 daily driver — every later "supervise from your phone" story depends on it.
 
 ### Phase 2 — Cloud Machines v1 (the missing pillar)
 
 **Ships:** "New cloud machine" from desktop or phone. A microVM boots with a
-persistent volume, `zuse serve` self-registers with the relay, gets a tunnel
+persistent volume, `zuse serve` self-registers with the api, gets a tunnel
 URL, and appears under "Your computers." Sessions, worktrees, and the agent
 browser work exactly as on an SSH box today. Machines idle-stop and resume
 with state on the volume.
 
 - Implement `providerKind: "cloud"` — **Workstream I / PR-I**, already designed
   in remote-multiclient (D3: cloud is not a new code path).
-- Provisioner as a relay capability: extend `infra/relay/` (environment
+- Provisioner as a api capability: extend `infra/api/` (environment
   registry, self-registration flow) with machine lifecycle endpoints; the
   microVM provider sits behind an adapter (D1).
 - Bootstrap reuses the SSH launch pattern (`packages/ssh`) and the existing
@@ -159,13 +159,13 @@ browser. The result is snapshotted **with live processes**; new sessions fork
 from the snapshot in seconds. This is the moment "every ticket gets its own
 machine" becomes physically cheap.
 
-- **Environment recipes:** a durable artifact (checked-in or relay-stored)
+- **Environment recipes:** a durable artifact (checked-in or api-stored)
   describing setup steps, so machines are reproducible, not artisanal.
 - The setup swarm is ordinary Zuse orchestration —
   [`packages/agents/src/drivers/orchestration-tools.ts`](../../packages/agents/src/drivers/orchestration-tools.ts)
   (`create_thread`, `send_to_thread`) running *on the box*, verified with
   [`packages/agents/src/drivers/browser-tools.ts`](../../packages/agents/src/drivers/browser-tools.ts).
-- Snapshot/fork surfaced in the relay as a first-class object: snapshot
+- Snapshot/fork surfaced in the api as a first-class object: snapshot
   lineage, fork-from-snapshot as the fast path of "New cloud machine."
 - **New ADR — fork identity:** a forked server must re-key (new environment
   ID, new `zenv_` credential, new tunnel) while the append-only SQLite event
@@ -259,7 +259,7 @@ callouts, inline evidence videos — with approve/redirect actions on the
 mobile approval surfaces that already exist.
 
 - Nightly runner = goal loops (Phase 5) × fork-from-snapshot (Phase 3) ×
-  relay-side scheduling in `infra/relay/`.
+  api-side scheduling in `infra/api/`.
 - Native review is primarily a renderer + `apps/mobile` feature over a new
   diff-summarization projection in `packages/domain`, emitted by the verify
   stage; push (Phase 1) delivers "3 tickets ready for review."

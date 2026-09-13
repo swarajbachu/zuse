@@ -24,12 +24,26 @@ export type StoredEvent<Event = SessionEvent> = {
 	readonly event: Event;
 };
 
+/**
+ * Optional transport identity committed in the same transaction as a command
+ * receipt. A missing identity denotes a receipt written by a pre-v3 caller and
+ * may be bound only after the caller verifies the receipt's durable events.
+ */
+export const CommandReceiptIdentity = Schema.Struct({
+	fingerprint: Schema.String,
+	commandKind: Schema.String,
+	schemaVersion: Schema.Number,
+	storageIncarnationId: Schema.String,
+});
+export type CommandReceiptIdentity = typeof CommandReceiptIdentity.Type;
+
 export const CommandReceipt = Schema.Struct({
 	commandId: Schema.String,
 	streamId: Schema.String,
 	streamVersion: Schema.Number,
 	eventIds: Schema.Array(Schema.String),
 	result: Schema.optional(TurnInterruptReceiptSchema),
+	receiptIdentity: Schema.optional(CommandReceiptIdentity),
 });
 export type CommandReceipt = typeof CommandReceipt.Type;
 
@@ -38,6 +52,7 @@ export type DispatchInput<Command = SessionCommand> = {
 	readonly streamId: string;
 	readonly correlationId?: string;
 	readonly causationEventId?: string;
+	readonly receiptIdentity?: CommandReceiptIdentity;
 	readonly command: Command;
 };
 
@@ -47,6 +62,13 @@ export class CommandReceiptConflict extends Schema.TaggedErrorClass<CommandRecei
 		commandId: Schema.String,
 		expectedStreamId: Schema.String,
 		actualStreamId: Schema.String,
+	},
+) {}
+
+export class CommandReceiptIdentityConflict extends Schema.TaggedErrorClass<CommandReceiptIdentityConflict>()(
+	"CommandReceiptIdentityConflict",
+	{
+		commandId: Schema.String,
 	},
 ) {}
 
@@ -61,6 +83,44 @@ export type AppendInput<Event = SessionEvent> = {
 		readonly event: Event;
 	}[];
 	readonly result?: TurnInterruptReceipt;
+	readonly receiptIdentity?: CommandReceiptIdentity;
+};
+
+const sameReceiptIdentity = (
+	left: CommandReceiptIdentity,
+	right: CommandReceiptIdentity,
+): boolean =>
+	left.fingerprint === right.fingerprint &&
+	left.commandKind === right.commandKind &&
+	left.schemaVersion === right.schemaVersion &&
+	left.storageIncarnationId === right.storageIncarnationId;
+
+export const validateCommandReceipt = <Command>(
+	input: DispatchInput<Command>,
+	receipt: CommandReceipt,
+): Effect.Effect<
+	CommandReceipt,
+	CommandReceiptConflict | CommandReceiptIdentityConflict
+> => {
+	if (receipt.streamId !== input.streamId) {
+		return Effect.fail(
+			new CommandReceiptConflict({
+				commandId: input.commandId,
+				expectedStreamId: input.streamId,
+				actualStreamId: receipt.streamId,
+			}),
+		);
+	}
+	if (
+		input.receiptIdentity !== undefined &&
+		receipt.receiptIdentity !== undefined &&
+		!sameReceiptIdentity(input.receiptIdentity, receipt.receiptIdentity)
+	) {
+		return Effect.fail(
+			new CommandReceiptIdentityConflict({ commandId: input.commandId }),
+		);
+	}
+	return Effect.succeed(receipt);
 };
 
 export interface DispatchStorage<StorageError = never, Event = SessionEvent> {
@@ -115,16 +175,8 @@ export class DispatchEngine<
 		input: DispatchInput,
 	) {
 		const existing = yield* this.storage.receipt(input.commandId);
-		if (existing !== null) {
-			if (existing.streamId !== input.streamId) {
-				return yield* new CommandReceiptConflict({
-					commandId: input.commandId,
-					expectedStreamId: input.streamId,
-					actualStreamId: existing.streamId,
-				});
-			}
-			return existing;
-		}
+		if (existing !== null)
+			return yield* validateCommandReceipt(input, existing);
 
 		const stored = yield* this.storage.events(input.streamId);
 		const state = evolveAll(
@@ -150,12 +202,20 @@ export class DispatchEngine<
 						result: turnInterruptReceipt(state, input.command.expectedTurnId),
 					}
 				: {}),
+			...(input.receiptIdentity === undefined
+				? {}
+				: { receiptIdentity: input.receiptIdentity }),
 		});
 	});
 }
 
 export class InMemoryDispatchStorage
-	implements DispatchStorage<ConcurrencyConflict>
+	implements
+		DispatchStorage<
+			| ConcurrencyConflict
+			| CommandReceiptConflict
+			| CommandReceiptIdentityConflict
+		>
 {
 	private readonly eventLog: StoredEvent[] = [];
 	private readonly receipts = new Map<string, CommandReceipt>();
@@ -177,7 +237,18 @@ export class InMemoryDispatchStorage
 		input: AppendInput,
 	) {
 		const existing = this.receipts.get(input.commandId);
-		if (existing !== undefined) return existing;
+		if (existing !== undefined)
+			return yield* validateCommandReceipt(
+				{
+					commandId: input.commandId,
+					streamId: input.streamId,
+					command: undefined,
+					...(input.receiptIdentity === undefined
+						? {}
+						: { receiptIdentity: input.receiptIdentity }),
+				},
+				existing,
+			);
 		const actualVersion = this.eventsFor(input.streamId).length;
 		if (actualVersion !== input.expectedVersion) {
 			return yield* new ConcurrencyConflict({
@@ -207,6 +278,9 @@ export class InMemoryDispatchStorage
 			streamVersion,
 			eventIds,
 			...(input.result === undefined ? {} : { result: input.result }),
+			...(input.receiptIdentity === undefined
+				? {}
+				: { receiptIdentity: input.receiptIdentity }),
 		};
 		this.receipts.set(input.commandId, receipt);
 		return receipt;
@@ -217,4 +291,5 @@ export type DispatchFailure<StorageError = never> =
 	| DomainError
 	| ConcurrencyConflict
 	| CommandReceiptConflict
+	| CommandReceiptIdentityConflict
 	| StorageError;

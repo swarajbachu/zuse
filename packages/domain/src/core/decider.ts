@@ -224,6 +224,14 @@ export const decide = (
 						{ _tag: "SessionArchived", archivedAt: command.archivedAt },
 					]);
 		case "ReleaseInitialTurn":
+			// Setup can finish after archive; do not release its delayed provider send.
+			if (state.archived) {
+				return Result.fail(
+					new ValidationFailed({
+						message: "cannot release an archived session",
+					}),
+				);
+			}
 			if (
 				!state.queuePaused ||
 				state.currentTurnId !== command.expectedTurnId ||

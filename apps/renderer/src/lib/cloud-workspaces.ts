@@ -1,28 +1,27 @@
+import { cloudSessionPlaceholder } from "@zuse/client-runtime/cloud-catalog";
+import {
+	openCloudTranscriptCheckpoint,
+	openCloudTranscriptPage,
+} from "@zuse/client-runtime/cloud-transcript";
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
-import type { ResourceView } from "@zuse/client-runtime/resource-state";
+import type {
+	ConnectionView,
+	ResourceView,
+} from "@zuse/client-runtime/resource-state";
 import type { SessionTimelineProjection } from "@zuse/contracts";
 import {
 	Chat,
-	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
+	type ChatId,
 	type CloudChatSummary,
-	CloudTranscriptCheckpointPayload,
-	CloudTranscriptMessagePagePayload,
 	type CloudWorkspace,
 	EnvironmentId,
 	type FolderId,
 	type GitOriginInfo,
 	Message,
 	MessageId,
-	type ProviderId,
-	Session,
 	type SessionId,
 } from "@zuse/contracts";
-import {
-	cloudTranscriptAdditionalData,
-	decryptCloudTranscript,
-	sha256Base64Url,
-} from "@zuse/utils/cloud-transcript-crypto";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import {
 	cloudWorkspaceStartupError,
 	isCloudWorkspaceReady,
@@ -42,9 +41,11 @@ import {
 import {
 	addOptimisticSessionMessage,
 	completeOlderSessionMessages,
+	getRendererClientBus,
 	registerEnvironmentActivation,
 	registerSessionTimelineCheckpointSynchronizer,
 	registerSessionTimelineOlderPageSynchronizer,
+	retryRendererEnvironmentConnection,
 } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useChatsStore } from "../store/chats.ts";
@@ -52,10 +53,11 @@ import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import {
+	cloudSummaryActiveSessionId,
 	cloudSummaryForChat,
 	cloudSummaryForEnvironment,
-	cloudSummaryForSession,
 	compareCloudChatSummaryVersion,
+	findCloudSummaryForSelection,
 	hydrateCloudChatCatalogPersistence,
 	localProjectForCloudChat,
 	localProjectForCloudEnvironment,
@@ -80,7 +82,52 @@ type CloudAttachment = {
 };
 const attaching = new Map<string, CloudAttachment>();
 const registeredCloudEnvironments = new Map<string, CloudChatSummary>();
+const rearmedClientByWorkspace = new Map<string, string>();
 let hydration: Promise<void> | null = null;
+
+/**
+ * An authoritative ready runtime is a new recovery signal for a client whose
+ * socket exhausted its retry ladder while compute was asleep. Include both
+ * lifecycle revision and client generation so each real state change gets one
+ * automatic attempt without turning a persistent outage into a retry storm.
+ */
+export const cloudConnectionRearmKey = (
+	summary: CloudChatSummary,
+	connection: ConnectionView,
+): string | null =>
+	summary.state === "ready" &&
+	summary.runtimeState === "online" &&
+	connection.phase === "failed"
+		? `${summary.workspaceId}:${summary.revision}:${connection.generation}`
+		: null;
+
+export const rearmReadyCloudConnection = (
+	summary: CloudChatSummary,
+	connection: ConnectionView,
+	attempts: Map<string, string>,
+	retry: (environmentId: EnvironmentId) => void,
+): boolean => {
+	const key = cloudConnectionRearmKey(summary, connection);
+	if (key === null || attempts.get(summary.workspaceId) === key) return false;
+	attempts.set(summary.workspaceId, key);
+	retry(EnvironmentId.make(summary.workspaceId));
+	return true;
+};
+
+export const rearmRegisteredCloudConnection = (
+	summary: CloudChatSummary,
+): void => {
+	const environmentId = EnvironmentId.make(summary.workspaceId);
+	rearmReadyCloudConnection(
+		summary,
+		getRendererClientBus().connection(environmentId),
+		rearmedClientByWorkspace,
+		(retryEnvironmentId) =>
+			queueMicrotask(() =>
+				retryRendererEnvironmentConnection(retryEnvironmentId),
+			),
+	);
+};
 
 const trackCloudAttachment = (
 	workspaceId: string,
@@ -107,6 +154,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 	if (previous !== undefined) {
 		if (compareCloudChatSummaryVersion(summary, previous) < 0) return;
 		registeredCloudEnvironments.set(summary.workspaceId, summary);
+		rearmRegisteredCloudConnection(summary);
 		return;
 	}
 	registeredCloudEnvironments.set(summary.workspaceId, summary);
@@ -119,7 +167,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 				control["cloud.transcript.get"]({
 					workspaceId: summary.workspaceId,
 					sessionId: ref.sessionId,
-					// A local IndexedDB entry is only a rendering accelerator. Relay's
+					// A local IndexedDB entry is only a rendering accelerator. API's
 					// encrypted checkpoint is authoritative, so initial hydration requests
 					// the full checkpoint even when the cache claims the same cursor.
 					cursor:
@@ -130,34 +178,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 			);
 			const checkpoint = result.checkpoint;
 			if (checkpoint === null) return null;
-			if (
-				checkpoint.metadata.workspaceId !== summary.workspaceId ||
-				checkpoint.metadata.sessionId !== ref.sessionId ||
-				(await sha256Base64Url(checkpoint.ciphertext)) !==
-					checkpoint.metadata.ciphertextSha256
-			)
-				throw new Error("Cloud transcript checkpoint failed integrity checks");
-			const plaintext = await decryptCloudTranscript({
-				encodedKey: checkpoint.transcriptKey,
-				additionalData: cloudTranscriptAdditionalData({
-					workspaceId: summary.workspaceId,
-					sessionId: ref.sessionId,
-					epoch: checkpoint.metadata.cursor.epoch,
-					version: checkpoint.metadata.cursor.version,
-					schemaVersion: CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
-				}),
-				ciphertext: checkpoint.ciphertext,
-			});
-			const payload = Schema.decodeUnknownSync(
-				CloudTranscriptCheckpointPayload,
-			)(JSON.parse(new TextDecoder().decode(plaintext)));
-			if (
-				payload.workspaceId !== summary.workspaceId ||
-				payload.sessionId !== ref.sessionId ||
-				payload.cursor.epoch !== checkpoint.metadata.cursor.epoch ||
-				payload.cursor.version !== checkpoint.metadata.cursor.version
-			)
-				throw new Error("Cloud transcript checkpoint metadata mismatch");
+			const payload = await openCloudTranscriptCheckpoint(ref, checkpoint);
 			if (
 				current.connection === "dormant" &&
 				payload.projection.olderMessageSequence != null
@@ -193,41 +214,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 			);
 			const encrypted = result.page;
 			if (encrypted === null) return null;
-			if (
-				encrypted.beforeSequence !== beforeSequence ||
-				encrypted.cursor.epoch !== cursor.epoch ||
-				encrypted.cursor.version !== cursor.version ||
-				(await sha256Base64Url(encrypted.ciphertext)) !==
-					encrypted.ciphertextSha256
-			)
-				throw new Error("Cloud transcript page failed integrity checks");
-			const plaintext = await decryptCloudTranscript({
-				encodedKey: encrypted.transcriptKey,
-				additionalData: cloudTranscriptAdditionalData({
-					workspaceId: summary.workspaceId,
-					sessionId: ref.sessionId,
-					epoch: cursor.epoch,
-					version: cursor.version,
-					schemaVersion: CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
-					pageBeforeSequence: beforeSequence,
-				}),
-				ciphertext: encrypted.ciphertext,
-			});
-			const page = Schema.decodeUnknownSync(CloudTranscriptMessagePagePayload)(
-				JSON.parse(new TextDecoder().decode(plaintext)) as unknown,
-			);
-			if (
-				page.workspaceId !== summary.workspaceId ||
-				page.sessionId !== ref.sessionId ||
-				page.beforeSequence !== beforeSequence ||
-				page.cursor.epoch !== cursor.epoch ||
-				page.cursor.version !== cursor.version
-			)
-				throw new Error("Cloud transcript page belongs to another resource");
-			return {
-				messages: page.messages,
-				olderMessageSequence: page.olderMessageSequence,
-			};
+			return openCloudTranscriptPage(ref, cursor, beforeSequence, encrypted);
 		},
 	);
 	registerEnvironmentActivation(
@@ -248,11 +235,13 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 		async (client) => {
 			if (rootPrepared) return;
 			const folders = await Effect.runPromise(client["workspace.list"]({}));
-			// The cloud runtime registers the selected checkout before Relay marks the
+			// The cloud runtime registers the selected checkout before API marks the
 			// sandbox repository-ready. Never manufacture a second, placeholder root.
 			rootPrepared = folders.length > 0;
 		},
+		"cloud-workspace",
 	);
+	rearmRegisteredCloudConnection(summary);
 };
 
 const refreshSummaryFromWorkspace = (
@@ -260,6 +249,8 @@ const refreshSummaryFromWorkspace = (
 	workspace: CloudWorkspace,
 ): CloudChatSummary => ({
 	...summary,
+	codexAuthMode: workspace.codexAuthMode,
+	providerAuthMode: workspace.providerAuthMode,
 	state: workspace.state,
 	runtimeState: workspace.runtimeState,
 	statusCode: workspace.statusCode,
@@ -288,46 +279,16 @@ export const repositoryIdentityForOrigin = (
 		? null
 		: `${origin.host.toLowerCase()}/${origin.owner.toLowerCase()}/${origin.repo.toLowerCase()}`;
 
-const sessionStatus = (summary: CloudChatSummary): Session["status"] =>
-	summary.state === "failed" ? "error" : "idle";
-
-/** Metadata fallback for rendering a cached transcript without a live shell. */
-export const cloudSessionPlaceholder = (
-	summary: CloudChatSummary,
-	projectId: FolderId,
-): Session => {
-	const now = new Date(summary.createdAt);
-	return Session.make({
-		id: summary.initialSessionId,
-		projectId,
-		title: summary.title,
-		titleProvenance: "manual",
-		providerId: summary.agent,
-		model: summary.model,
-		status: sessionStatus(summary),
-		archivedAt: null,
-		cursor: null,
-		resumeStrategy: "none",
-		runtimeMode: "approval-required",
-		worktreeId: null,
-		chatId: summary.chatId,
-		forkedFromSessionId: null,
-		forkedFromMessageId: null,
-		permissionMode: "default",
-		toolSearch: false,
-		createdAt: now,
-		updatedAt: new Date(summary.updatedAt),
-	});
-};
+export { cloudSessionPlaceholder } from "@zuse/client-runtime/cloud-catalog";
 
 /**
- * Relay catalog rows are placeholders only. The environment runtime timeline
+ * API catalog rows are placeholders only. The environment runtime timeline
  * replaces this shell as soon as the user retains the chat resource.
  */
 export const stageCloudChat = (
 	summary: CloudChatSummary,
 	projectId: FolderId,
-	firstMessage?: string,
+	legacyFirstMessage?: string,
 ): void => {
 	const previous = cloudSummaryForEnvironment(summary.workspaceId);
 	if (
@@ -341,13 +302,14 @@ export const stageCloudChat = (
 	const now = new Date(accepted.createdAt);
 	const archivedAt =
 		accepted.archivedAt === undefined ? null : new Date(accepted.archivedAt);
+	const activeSessionId = cloudSummaryActiveSessionId(accepted);
 	const chat = Chat.make({
 		id: accepted.chatId,
 		projectId,
 		worktreeId: null,
 		title: accepted.title,
 		titleProvenance: "manual",
-		activeSessionId: accepted.initialSessionId,
+		activeSessionId,
 		originSessionId: null,
 		archivedAt,
 		lastMessageAt:
@@ -356,7 +318,10 @@ export const stageCloudChat = (
 		createdAt: now,
 		updatedAt: new Date(accepted.updatedAt),
 	});
-	const session = cloudSessionPlaceholder(accepted, projectId);
+	const session =
+		activeSessionId === null
+			? null
+			: cloudSessionPlaceholder(accepted, projectId, activeSessionId);
 	overlayActiveEnvironmentShell((shell) => ({
 		...shell,
 		chatsByProject: {
@@ -370,15 +335,21 @@ export const stageCloudChat = (
 		},
 		sessionsByProject: {
 			...shell.sessionsByProject,
-			[projectId]: [
-				session,
-				...(shell.sessionsByProject[projectId] ?? []).filter(
-					(candidate) => candidate.id !== session.id,
-				),
-			],
+			[projectId]:
+				session === null
+					? (shell.sessionsByProject[projectId] ?? [])
+					: [
+							session,
+							...(shell.sessionsByProject[projectId] ?? []).filter(
+								(candidate) => candidate.id !== session.id,
+							),
+						],
 		},
 	}));
-	if (firstMessage !== undefined) {
+	// Compatibility only: an API that did not acknowledge mailbox-v1 still owns
+	// the prompt in its encrypted launch intent. The stable ID is replaced by the
+	// authoritative launch message rather than producing a duplicate.
+	if (legacyFirstMessage !== undefined) {
 		addOptimisticSessionMessage(
 			{
 				environmentId: EnvironmentId.make(accepted.workspaceId),
@@ -388,7 +359,7 @@ export const stageCloudChat = (
 				id: MessageId.make(`launch:${accepted.workspaceId}:message`),
 				sessionId: accepted.initialSessionId,
 				role: "user",
-				content: { _tag: "user", text: firstMessage, goal: false },
+				content: { _tag: "user", text: legacyFirstMessage, goal: false },
 				createdAt: now,
 			}),
 		);
@@ -404,6 +375,7 @@ export const openCloudChat = (
 	if (existing !== undefined) return existing;
 	const operation = Promise.resolve().then(() => {
 		stageCloudChat(summary, projectId);
+		const activeSessionId = cloudSummaryActiveSessionId(summary);
 		// Catalog selection must not depend on a paused runtime shell. Select the
 		// durable ids now so the qualified timeline cache can hydrate immediately.
 		useUiStore.getState().setActiveMainTab("chat");
@@ -415,10 +387,10 @@ export const openCloudChat = (
 			},
 		}));
 		useSessionsStore.setState((state) => ({
-			selectedSessionId: summary.initialSessionId,
+			selectedSessionId: activeSessionId,
 			selectedSessionByProject: {
 				...state.selectedSessionByProject,
-				[projectId]: summary.initialSessionId,
+				[projectId]: activeSessionId,
 			},
 		}));
 		if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
@@ -448,7 +420,7 @@ export const ensureCloudWorkspaceAttached = (
 		}
 		// A live command can arrive while a passive transcript attachment is still
 		// resolving. Wake is a stronger side effect: never let it inherit the
-		// passive request's failure (for example when Relay has just paused compute).
+		// passive request's failure (for example when API has just paused compute).
 		const escalated = existing.promise
 			.catch(() => undefined)
 			.then(() => attachCloudWorkspace(summary, "wake"));
@@ -538,41 +510,8 @@ const ensureCloudWorkspaceEnvironment = (
 	activation: "connect" | "wake",
 ): Promise<void> => ensureCloudWorkspaceAttached(summary, activation);
 
+export { summaryFromLaunch } from "@zuse/client-runtime/cloud-catalog";
 export { cloudSummaryForChat, localProjectForCloudChat };
-
-export const summaryFromLaunch = (input: {
-	readonly workspace: CloudWorkspace;
-	readonly repositoryIdentity: string;
-	readonly repositoryDisplayName: string;
-	readonly title: string;
-	readonly agent: ProviderId;
-	readonly model: string;
-}): CloudChatSummary => ({
-	workspaceId: input.workspace.workspaceId,
-	projectId: input.workspace.projectId,
-	repositoryIdentity: input.repositoryIdentity,
-	repositoryDisplayName: input.repositoryDisplayName,
-	chatId: input.workspace.chatId,
-	initialSessionId: input.workspace.initialSessionId,
-	title: input.title,
-	branch: input.workspace.branch,
-	providerId: input.workspace.providerId,
-	agent: input.agent,
-	model: input.model,
-	state: input.workspace.state,
-	runtimeState: input.workspace.runtimeState,
-	statusCode: input.workspace.statusCode,
-	failureDiagnostic: input.workspace.failureDiagnostic,
-	startupPhase: input.workspace.startupPhase,
-	desiredState: input.workspace.desiredState,
-	revision: input.workspace.revision,
-	summaryRevision: 0,
-	sessionHeadVersion: 0,
-	unread: false,
-	lastMessageAt: input.workspace.createdAt,
-	createdAt: input.workspace.createdAt,
-	updatedAt: input.workspace.updatedAt,
-});
 
 const removeDeletedCloudPlaceholders = (
 	removed: ReadonlyArray<CloudChatSummary>,
@@ -720,10 +659,10 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 			});
 		} catch (cause) {
 			set({ error: formatError(cause) });
-			// A response can be lost after Relay durably accepts the command. Keep
+			// A response can be lost after API durably accepts the command. Keep
 			// the persisted intent as the authoritative optimistic fence and retry
 			// it during catalog hydration instead of flashing the row back into the
-			// active list. Reconciliation clears it only after Relay publishes the
+			// active list. Reconciliation clears it only after API publishes the
 			// archived lifecycle state.
 		}
 	},
@@ -731,16 +670,19 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 
 registerCloudChatCatalogRefresh(() => useCloudChatsStore.getState().hydrate());
 
-export const useCloudChatSummaryForSession = (
-	sessionId: SessionId | null,
-): CloudChatSummary | null => {
-	const registered =
-		sessionId === null ? null : cloudSummaryForSession(sessionId);
+export const useCloudChatSummaryForSelection = ({
+	chatId,
+	sessionId,
+}: {
+	readonly chatId: ChatId | null;
+	readonly sessionId: SessionId | null;
+}): CloudChatSummary | null => {
 	return useCloudChatCatalogStore((state) =>
-		sessionId === null
-			? null
-			: (state.summaries.find(
-					(summary) => summary.initialSessionId === sessionId,
-				) ?? registered),
+		findCloudSummaryForSelection(state.summaries, { chatId, sessionId }),
 	);
 };
+
+export const useCloudChatSummaryForSession = (
+	sessionId: SessionId | null,
+): CloudChatSummary | null =>
+	useCloudChatSummaryForSelection({ chatId: null, sessionId });

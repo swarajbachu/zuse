@@ -22,7 +22,6 @@ import {
 	type AttachmentRef,
 	type FileRef,
 	type PermissionMode,
-	resolveModelSlug,
 	type SkillRef,
 	type StartSessionInput,
 } from "@zuse/contracts";
@@ -151,8 +150,10 @@ const withTimeout = async <A>(
 	}
 };
 
+// Slug aliases are already canonicalized by ProviderService against the
+// resolved model catalog; only the `default` sentinel is mapped here.
 const modelSelection = (model: string | undefined): ModelSelection => {
-	const resolved = resolveModelSlug("cursor", model ?? "composer-2.5");
+	const resolved = model ?? "composer-2.5";
 	return { id: resolved === "default" ? "composer-2.5" : resolved };
 };
 

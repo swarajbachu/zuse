@@ -19,7 +19,7 @@ schema URLs.
 Canonical repository settings live in \`.zuse/settings.toml\`. Use
 \`file_include_globs\` for files that should be linked from the main checkout
 into every worktree. Public schemas are served from
-\`https://zuse.dev/schemas/\`.
+\`https://zuse.sh/schemas/\`.
 
 ## Self-Orchestration
 

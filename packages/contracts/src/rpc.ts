@@ -1,9 +1,7 @@
 import { RpcGroup } from "effect/unstable/rpc";
 import {
 	ProviderAvailabilityRpc,
-	ProviderKiroInventoryRpc,
 	ProviderOpencodeAddCustomRpc,
-	ProviderOpencodeInventoryRpc,
 	ProviderOpencodeRemoveAuthRpc,
 	ProviderOpencodeRemoveCustomRpc,
 	ProviderOpencodeSetAuthRpc,
@@ -16,6 +14,14 @@ import {
 	AnalyticsContextChangesRpc,
 	AnalyticsGetContextRpc,
 } from "./analytics.ts";
+import {
+	ApiClientsRpc,
+	ApiConnectEnvironmentRpc,
+	ApiEnvironmentsRpc,
+	ApiRevokeClientRpc,
+	EnvironmentConnectRpc,
+	EnvironmentsListRpc,
+} from "./api.ts";
 import { AttachmentReadRpc, AttachmentUploadRpc } from "./attachment.ts";
 import {
 	AuthGetSessionRpc,
@@ -30,6 +36,11 @@ import {
 	BrowserRespondRpc,
 	BrowserSetCredentialRpc,
 } from "./browser.ts";
+import {
+	CloudApiKeysCreateRpc,
+	CloudApiKeysListRpc,
+	CloudApiKeysRevokeRpc,
+} from "./cloud-api.ts";
 import {
 	CloudAuthConfigureRpc,
 	CloudAuthDisconnectRpc,
@@ -53,6 +64,10 @@ import {
 	CloudAccountImageBuildRpc,
 	CloudAccountImageStatusRpc,
 	CloudChatsListRpc,
+	CloudCommandsCancelRpc,
+	CloudCommandsEnqueueRpc,
+	CloudCommandsStatusRpc,
+	CloudCommandsWatchRpc,
 	CloudProjectsConnectRpc,
 	CloudProjectsListRpc,
 	CloudProjectsPrepareRpc,
@@ -60,6 +75,7 @@ import {
 	CloudProvidersRpc,
 	CloudTranscriptCheckpointGetRpc,
 	CloudTranscriptMessagePageGetRpc,
+	CloudWorkspaceDataKeyRpc,
 	CloudWorkspacesArchiveRpc,
 	CloudWorkspacesConnectRpc,
 	CloudWorkspacesCreateRpc,
@@ -75,14 +91,18 @@ import {
 	CloudWorkspacesWatchRpc,
 } from "./cloud-workspaces.ts";
 import {
+	ApiLinkRpc,
+	ApiStatusRpc,
+	ApiUnlinkRpc,
+	ConnectApiConfigRpc,
 	ConnectDescribeRpc,
 	ConnectLinkProofRpc,
-	ConnectRelayConfigRpc,
-	RelayLinkRpc,
-	RelayStatusRpc,
-	RelayUnlinkRpc,
 } from "./connect.ts";
 import { ContextSaveTextRpc } from "./context.ts";
+import {
+	CloudDeviceBridgeRpc,
+	DeviceBridgeControlRpc,
+} from "./device-bridge.ts";
 import {
 	DiagnosticsCaptureRpc,
 	DiagnosticsEventsRpc,
@@ -211,6 +231,7 @@ import {
 	McpRefreshRpc,
 	McpSetEnabledRpc,
 } from "./mcp.ts";
+import { ModelCatalogRpc, ModelCatalogStreamRpc } from "./model-catalog/rpc.ts";
 import {
 	PairingListNearbyRequestsRpc,
 	PairingListTokensRpc,
@@ -236,14 +257,6 @@ import {
 	PtyResizeRpc,
 	PtyWriteRpc,
 } from "./pty.ts";
-import {
-	EnvironmentConnectRpc,
-	EnvironmentsListRpc,
-	RelayClientsRpc,
-	RelayConnectEnvironmentRpc,
-	RelayEnvironmentsRpc,
-	RelayRevokeClientRpc,
-} from "./relay.ts";
 import {
 	RepositorySettingsGetRpc,
 	RepositorySettingsUpdateRpc,
@@ -374,6 +387,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	ExtensionCancelRpc,
 	ExtensionMarketplaceListRpc,
 	ExtensionMarketplaceRefreshRpc,
+	DeviceBridgeControlRpc,
+	CloudDeviceBridgeRpc,
 	PingRpc,
 	PreviewsListServersRpc,
 	AnalyticsGetContextRpc,
@@ -395,10 +410,10 @@ export const MemoizeRpcs = RpcGroup.make(
 	ConnectHandshakeRpc,
 	ConnectDescribeRpc,
 	ConnectLinkProofRpc,
-	ConnectRelayConfigRpc,
-	RelayLinkRpc,
-	RelayStatusRpc,
-	RelayUnlinkRpc,
+	ConnectApiConfigRpc,
+	ApiLinkRpc,
+	ApiStatusRpc,
+	ApiUnlinkRpc,
 	EnvironmentsListRpc,
 	EnvironmentConnectRpc,
 	CloudBillingSummaryRpc,
@@ -435,8 +450,16 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudWorkspacesArchiveRpc,
 	CloudWorkspacesUnarchiveRpc,
 	CloudWorkspacesDeleteRpc,
+	CloudCommandsEnqueueRpc,
+	CloudCommandsStatusRpc,
+	CloudCommandsWatchRpc,
+	CloudCommandsCancelRpc,
+	CloudWorkspaceDataKeyRpc,
 	CloudTranscriptCheckpointGetRpc,
 	CloudTranscriptMessagePageGetRpc,
+	CloudApiKeysListRpc,
+	CloudApiKeysCreateRpc,
+	CloudApiKeysRevokeRpc,
 	MachinesOffersRpc,
 	MachinesListRpc,
 	MachinesGetRpc,
@@ -462,10 +485,10 @@ export const MemoizeRpcs = RpcGroup.make(
 	AccountAccessSetCredentialRpc,
 	AccountAccessConfigureCustomRpc,
 	AccountAccessDisconnectRpc,
-	RelayEnvironmentsRpc,
-	RelayConnectEnvironmentRpc,
-	RelayClientsRpc,
-	RelayRevokeClientRpc,
+	ApiEnvironmentsRpc,
+	ApiConnectEnvironmentRpc,
+	ApiClientsRpc,
+	ApiRevokeClientRpc,
 	WorkspaceAddRpc,
 	WorkspaceBrowseDirectoryRpc,
 	WorkspaceListRpc,
@@ -537,8 +560,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	ProviderAvailabilityRpc,
 	ProviderRemoveCredentialRpc,
 	ProviderSetCredentialRpc,
-	ProviderOpencodeInventoryRpc,
-	ProviderKiroInventoryRpc,
+	ModelCatalogRpc,
+	ModelCatalogStreamRpc,
 	ProviderOpencodeSetAuthRpc,
 	ProviderOpencodeRemoveAuthRpc,
 	ProviderOpencodeAddCustomRpc,

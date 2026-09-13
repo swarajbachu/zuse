@@ -31,6 +31,7 @@ import {
 	DialogTitle,
 } from "./ui/dialog.tsx";
 import { Input } from "./ui/input.tsx";
+import { SegmentedTabs } from "./ui/segmented-tabs.tsx";
 import { toastManager } from "./ui/toast.tsx";
 
 const blankTarget = (): SshEnvironmentTarget => ({
@@ -98,16 +99,16 @@ export function AddComputerDialogHost() {
 }
 
 const LINK_KIND_SUBTEXT: Record<
-	"tailscale" | "relay" | "lan" | "remote",
+	"tailscale" | "api" | "lan" | "remote",
 	{ readonly idle: string; readonly busy: string }
 > = {
 	tailscale: {
 		idle: "Connects over Tailscale.",
 		busy: "Connecting over Tailscale…",
 	},
-	relay: {
-		idle: "Connects through the Zuse relay.",
-		busy: "Connecting through the Zuse relay…",
+	api: {
+		idle: "Connects through the Zuse api.",
+		busy: "Connecting through the Zuse api…",
 	},
 	lan: {
 		idle: "Connects directly over your local network.",
@@ -119,12 +120,12 @@ const LINK_KIND_SUBTEXT: Record<
 	},
 };
 
-export const relayStatusText = (entry: EnvironmentCatalogEntry): string => {
+export const apiStatusText = (entry: EnvironmentCatalogEntry): string => {
 	if (entry.status === "connected") return "Connected";
 	if (entry.status === "connecting") return "Connecting…";
 	if (entry.status === "error") return entry.error ?? "Connection failed";
 	if (
-		entry.connectionKind === "relay" &&
+		entry.connectionKind === "api" &&
 		entry.lastHeartbeat !== undefined &&
 		Date.now() - entry.lastHeartbeat <= ENVIRONMENT_PRESENCE_STALE_MS
 	) {
@@ -169,8 +170,8 @@ export function AddComputerDialog({
 	const activeId = useEnvironmentCatalogStore(
 		(state) => state.activeEnvironmentId,
 	);
-	const hiddenRelayIds = useEnvironmentCatalogStore(
-		(state) => state.hiddenRelayEnvironmentIds,
+	const hiddenApiIds = useEnvironmentCatalogStore(
+		(state) => state.hiddenApiEnvironmentIds,
 	);
 	const accountDiscoveryError = useEnvironmentCatalogStore(
 		(state) => state.accountDiscoveryError,
@@ -183,11 +184,11 @@ export function AddComputerDialog({
 	const disconnect = useEnvironmentCatalogStore((state) => state.disconnect);
 	const remove = useEnvironmentCatalogStore((state) => state.remove);
 	const rename = useEnvironmentCatalogStore((state) => state.rename);
-	const hideRelayEnvironment = useEnvironmentCatalogStore(
-		(state) => state.hideRelayEnvironment,
+	const hideApiEnvironment = useEnvironmentCatalogStore(
+		(state) => state.hideApiEnvironment,
 	);
-	const unhideRelayEnvironments = useEnvironmentCatalogStore(
-		(state) => state.unhideRelayEnvironments,
+	const unhideApiEnvironments = useEnvironmentCatalogStore(
+		(state) => state.unhideApiEnvironments,
 	);
 
 	const [view, setView] = useState<DialogView>("link");
@@ -244,10 +245,8 @@ export function AddComputerDialog({
 	}, [open, view]);
 
 	const profileEntries = entries.filter((entry) => entry.profileId !== null);
-	const relayEntries = entries.filter(
-		(entry) => entry.connectionKind === "relay",
-	);
-	const hasManageable = profileEntries.length > 0 || relayEntries.length > 0;
+	const apiEntries = entries.filter((entry) => entry.connectionKind === "api");
+	const hasManageable = profileEntries.length > 0 || apiEntries.length > 0;
 	const trimmedLink = pairingLink.trim();
 	const linkKind = describePairingLinkKind(trimmedLink);
 	const linkSubtext =
@@ -347,37 +346,28 @@ export function AddComputerDialog({
 					<div className="min-h-0 space-y-3 overflow-y-auto px-4 pb-3">
 						<div className="flex items-center justify-between gap-2">
 							{view !== "manage" ? (
-								<fieldset className="inline-flex rounded-md bg-muted p-0.5">
-									<legend className="sr-only">Connection method</legend>
-									<Button
-										type="button"
-										size="xs"
-										variant={view === "link" ? "outline" : "ghost"}
-										aria-pressed={view === "link"}
-										onClick={() => {
+								<SegmentedTabs
+									value={view}
+									ariaLabel="Connection method"
+									className="w-48"
+									options={[
+										{ value: "link", label: "Connect link" },
+										{ value: "ssh", label: "SSH" },
+									]}
+									onValueChange={(next) => {
+										if (next === "link") {
 											setView("link");
 											setLinkError(null);
-										}}
-									>
-										Connect link
-									</Button>
-									<Button
-										type="button"
-										size="xs"
-										variant={view === "ssh" ? "outline" : "ghost"}
-										aria-pressed={view === "ssh"}
-										onClick={() => {
+										} else {
 											setView("ssh");
 											setSshError(null);
-										}}
-									>
-										SSH
-									</Button>
-								</fieldset>
+										}
+									}}
+								/>
 							) : (
 								<span />
 							)}
-							{hasManageable || hiddenRelayIds.length > 0 ? (
+							{hasManageable || hiddenApiIds.length > 0 ? (
 								<Button
 									type="button"
 									size="xs"
@@ -506,7 +496,7 @@ export function AddComputerDialog({
 										</div>
 									</section>
 								) : null}
-								{relayEntries.length > 0 ? (
+								{apiEntries.length > 0 ? (
 									<section aria-labelledby="account-computers-heading">
 										<h3
 											id="account-computers-heading"
@@ -515,7 +505,7 @@ export function AddComputerDialog({
 											On your account
 										</h3>
 										<div className="space-y-1">
-											{relayEntries.map((entry) => (
+											{apiEntries.map((entry) => (
 												<div
 													key={entry.environmentId}
 													className="flex min-h-11 items-center gap-2 rounded-lg border border-border/50 px-3 py-2"
@@ -526,7 +516,7 @@ export function AddComputerDialog({
 															{entry.label}
 														</div>
 														<div className="truncate text-xs text-muted-foreground">
-															{relayStatusText(entry)}
+															{apiStatusText(entry)}
 														</div>
 													</div>
 													{entry.status === "error" ? (
@@ -549,7 +539,7 @@ export function AddComputerDialog({
 														size="xs"
 														variant="ghost"
 														onClick={() =>
-															void hideRelayEnvironment(
+															void hideApiEnvironment(
 																entry.environmentId,
 															).catch((cause) =>
 																setManageError(errorText(cause)),
@@ -563,17 +553,17 @@ export function AddComputerDialog({
 										</div>
 									</section>
 								) : null}
-								{hiddenRelayIds.length > 0 ? (
+								{hiddenApiIds.length > 0 ? (
 									<Button
 										size="xs"
 										variant="ghost"
 										onClick={() =>
-											void unhideRelayEnvironments().catch((cause) =>
+											void unhideApiEnvironments().catch((cause) =>
 												setManageError(errorText(cause)),
 											)
 										}
 									>
-										Show hidden computers ({hiddenRelayIds.length})
+										Show hidden computers ({hiddenApiIds.length})
 									</Button>
 								) : null}
 								{manageError !== null ? (
@@ -662,14 +652,14 @@ export function AddComputerDialog({
 												? "Sign in to see the computers on your Zuse account."
 												: `Could not load account computers: ${accountDiscoveryError}`}
 										</p>
-									) : relayEntries.length === 0 ? (
+									) : apiEntries.length === 0 ? (
 										<p className="rounded-lg border border-dashed border-border/60 px-3 py-3 text-xs text-muted-foreground">
 											Computers signed in to your Zuse account appear here
 											automatically.
 										</p>
 									) : (
 										<div className="space-y-1">
-											{relayEntries.map((entry) => (
+											{apiEntries.map((entry) => (
 												<div
 													key={entry.environmentId}
 													className="flex min-h-11 items-center gap-2 rounded-lg border border-border/50 px-3 py-2"
@@ -680,7 +670,7 @@ export function AddComputerDialog({
 															{entry.label}
 														</div>
 														<div className="truncate text-xs text-muted-foreground">
-															{relayStatusText(entry)}
+															{apiStatusText(entry)}
 														</div>
 													</div>
 													{entry.status === "error" ? (

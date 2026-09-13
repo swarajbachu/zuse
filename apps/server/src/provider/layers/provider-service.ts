@@ -57,6 +57,10 @@ import {
 	readNativeServers,
 } from "../../mcp/native-config.ts";
 import { McpService } from "../../mcp/services/mcp-service.ts";
+import {
+	ModelCatalogService,
+	toDriverModelDescriptor,
+} from "../../model-catalog/services/model-catalog-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { validateApiKey } from "../api-key-validation.ts";
 import { probeAllProviders, resolveCliPath } from "../availability.ts";
@@ -65,6 +69,7 @@ import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
 import { PermissionService } from "../services/permission-service.ts";
 import { ProviderService } from "../services/provider-service.ts";
+import { RuntimeProviderCredentials } from "../services/runtime-provider-credentials.ts";
 
 /**
  * Live provider runtime. Handles own their scopes and are published through a
@@ -97,6 +102,8 @@ export const ProviderServiceLive = Layer.effect(
 		const executor = yield* CommandExecutor.ChildProcessSpawner;
 		const fs = yield* FileSystem.FileSystem;
 		const credentials = yield* CredentialsService;
+		const runtimeCredentials = yield* RuntimeProviderCredentials;
+		const modelCatalog = yield* ModelCatalogService;
 		const workspace = yield* WorkspaceService;
 		const permissions = yield* PermissionService;
 		const attachmentService = yield* AttachmentService;
@@ -381,17 +388,56 @@ export const ProviderServiceLive = Layer.effect(
 						);
 					}
 					const cwd = input.cwdOverride ?? folder.path;
+					// Canonicalize retired / shorthand slugs and attach the resolved
+					// descriptor (curated seed merged with the live inventory) so
+					// drivers never read a static model list.
+					const canonicalModel =
+						input.model === undefined
+							? undefined
+							: yield* modelCatalog.resolveSlug(input.providerId, input.model);
+					const modelDescriptor =
+						canonicalModel === undefined
+							? undefined
+							: toDriverModelDescriptor(
+									yield* modelCatalog.findModel(
+										input.providerId,
+										canonicalModel,
+									),
+								);
 					const driverInput = {
 						...input,
+						...(canonicalModel !== undefined ? { model: canonicalModel } : {}),
+						...(modelDescriptor !== undefined ? { modelDescriptor } : {}),
 						workspaceInstructions: zuseWorkspaceInstructions({
 							projectPath: folder.path,
 							cwd,
 						}),
 					};
-					const managedCredential = yield* credentials
-						.getProviderCredential(input.providerId)
-						.pipe(Effect.catch(() => Effect.succeed(null)));
-					const apiKey = managedCredential?.secret ?? null;
+					const brokeredCredential = yield* Effect.tryPromise({
+						try: () => runtimeCredentials.resolve(input.providerId),
+						catch: (cause) =>
+							new AgentSessionStartError({
+								providerId: input.providerId,
+								reason:
+									typeof cause === "object" &&
+									cause !== null &&
+									"reason" in cause &&
+									typeof cause.reason === "string"
+										? cause.reason
+										: cause instanceof Error
+											? cause.message
+											: `${input.providerId}-auth-reconnecting`,
+							}),
+					});
+					const managedCredential =
+						brokeredCredential ??
+						(yield* credentials
+							.getProviderCredential(input.providerId)
+							.pipe(Effect.catch(() => Effect.succeed(null))));
+					const apiKey =
+						managedCredential?.kind === "api-key"
+							? managedCredential.secret
+							: null;
 					let providerHandle: ProviderSessionHandle;
 					const extensionDescriptor = (yield* extensions.providers()).find(
 						(provider) => provider.id === input.providerId,
@@ -836,6 +882,9 @@ export const ProviderServiceLive = Layer.effect(
 							mcpProxyCommand ?? process.execPath,
 							orchestrationTools,
 							resumeCursor,
+							() => {
+								registry.invalidateIfCurrent(sessionId, generation);
+							},
 						).pipe(Effect.provideService(AttachmentService, attachmentService));
 					} else {
 						return yield* Effect.fail(
@@ -1103,6 +1152,7 @@ export const ProviderServiceLive = Layer.effect(
 					if (providerId !== "cursor") {
 						yield* credentials.set(providerId, normalized);
 						yield* Cache.invalidateAll(availabilityCache);
+						yield* modelCatalog.invalidateLive(providerId);
 						return { verification: "notChecked" as const };
 					}
 					const validation = yield* validateApiKey(normalized);
@@ -1116,6 +1166,7 @@ export const ProviderServiceLive = Layer.effect(
 					}
 					yield* credentials.set(providerId, normalized);
 					yield* Cache.invalidateAll(availabilityCache);
+					yield* modelCatalog.invalidateLive(providerId);
 					return validation.status === "verified"
 						? { verification: "verified" as const }
 						: {
@@ -1126,7 +1177,10 @@ export const ProviderServiceLive = Layer.effect(
 			removeCredential: (providerId) =>
 				credentials
 					.remove(providerId)
-					.pipe(Effect.andThen(Cache.invalidateAll(availabilityCache))),
+					.pipe(
+						Effect.andThen(Cache.invalidateAll(availabilityCache)),
+						Effect.andThen(modelCatalog.invalidateLive(providerId)),
+					),
 			setPermissionMode: (sessionId, mode) =>
 				Effect.flatMap(lookup(sessionId), ({ handle }) =>
 					handle.setPermissionMode(mode),

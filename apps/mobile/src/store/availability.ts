@@ -3,8 +3,8 @@ import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 
 import { fetchAgentAvailability } from "~/rpc/actions";
+import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
-
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
 
 /**
@@ -28,6 +28,11 @@ export const hydrateAvailability = async (
 	connKey: string,
 	options: WsProtocolOptions,
 ): Promise<void> => {
+	if (
+		options.cloudWorkspaceId !== undefined &&
+		!cloudRuntimeReady(options.cloudWorkspaceId)
+	)
+		return;
 	if (
 		appAtomRegistry.get(availabilityByConnectionAtom)[connKey] !== undefined ||
 		appAtomRegistry.get(availabilityLoadingByConnectionAtom)[connKey]

@@ -1,5 +1,6 @@
 export interface PowerRuntimeActivity {
 	readonly activeAgents: number;
+	readonly agentsConfirmed: boolean;
 	readonly activeTerminals: number;
 	readonly browserSessions: number;
 	readonly activeBrowserSessions: number;
@@ -7,8 +8,12 @@ export interface PowerRuntimeActivity {
 	readonly indexing: boolean;
 }
 
+export const activeAgentCountLabel = (count: number): string =>
+	`${count} local ${count === 1 ? "agent" : "agents"} running`;
+
 let activity: PowerRuntimeActivity = {
 	activeAgents: 0,
+	agentsConfirmed: false,
 	activeTerminals: 0,
 	browserSessions: 0,
 	activeBrowserSessions: 0,
@@ -30,6 +35,7 @@ export const subscribePowerRuntimeActivity = (
 const publish = (next: PowerRuntimeActivity): void => {
 	if (
 		next.activeAgents === activity.activeAgents &&
+		next.agentsConfirmed === activity.agentsConfirmed &&
 		next.activeTerminals === activity.activeTerminals &&
 		next.browserSessions === activity.browserSessions &&
 		next.activeBrowserSessions === activity.activeBrowserSessions &&
@@ -42,8 +48,12 @@ const publish = (next: PowerRuntimeActivity): void => {
 	for (const listener of listeners) listener();
 };
 
-export const setPowerActiveAgentCount = (count: number): void => {
-	publish({ ...activity, activeAgents: Math.max(0, count) });
+export const setPowerActiveAgentCount = (count: number | null): void => {
+	publish({
+		...activity,
+		activeAgents: count === null ? activity.activeAgents : Math.max(0, count),
+		agentsConfirmed: count !== null,
+	});
 };
 
 export const setPowerActiveTerminalCount = (count: number): void => {

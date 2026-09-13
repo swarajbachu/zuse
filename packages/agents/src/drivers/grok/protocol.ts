@@ -1,7 +1,12 @@
 import type { AgentEvent, AgentItemId } from "@zuse/contracts";
 import { Schema } from "effect";
 
-const AuthMethod = Schema.Struct({ id: Schema.String });
+const AuthMethod = Schema.Struct({
+	id: Schema.String,
+	_meta: Schema.optional(
+		Schema.Struct({ external_provider: Schema.optional(Schema.Boolean) }),
+	),
+});
 const McpCapabilities = Schema.Struct({
 	http: Schema.optional(Schema.Boolean),
 	sse: Schema.optional(Schema.Boolean),
@@ -27,6 +32,7 @@ const InitializeResult = Schema.Struct({
 export interface GrokInitializeResult {
 	readonly agentVersion: string;
 	readonly authMethods: ReadonlyArray<string>;
+	readonly externalAuthMethods: ReadonlyArray<string>;
 	readonly supportsSessionLoad: boolean;
 	readonly mcp: { readonly http: boolean; readonly sse: boolean };
 	readonly sessionModes: ReadonlyArray<unknown>;
@@ -46,6 +52,9 @@ export const decodeGrokInitializeResult = (
 	return {
 		agentVersion,
 		authMethods: (decoded.authMethods ?? []).map(({ id }) => id),
+		externalAuthMethods: (decoded.authMethods ?? [])
+			.filter((method) => method._meta?.external_provider === true)
+			.map(({ id }) => id),
 		supportsSessionLoad: decoded.agentCapabilities?.loadSession === true,
 		mcp: {
 			http: decoded.agentCapabilities?.mcpCapabilities?.http === true,
@@ -59,7 +68,7 @@ export const decodeGrokInitializeResult = (
 export type GrokHandshakeAuthSelection =
 	| {
 			readonly kind: "method";
-			readonly methodId: "xai.api_key" | "cached_token";
+			readonly methodId: "xai.api_key" | "cached_token" | "grok.com";
 	  }
 	| {
 			readonly kind: "interactive";
@@ -78,13 +87,18 @@ export type GrokHandshakeAuthSelection =
 export const selectGrokHandshakeAuth = (
 	authMethods: ReadonlyArray<string>,
 	hasApiKey: boolean,
+	externalAuthMethods: ReadonlyArray<string> = [],
 ): GrokHandshakeAuthSelection => {
 	const ids = new Set(authMethods);
+	const externalIds = new Set(externalAuthMethods);
 	if (hasApiKey && ids.has("xai.api_key")) {
 		return { kind: "method", methodId: "xai.api_key" };
 	}
 	if (ids.has("cached_token")) {
 		return { kind: "method", methodId: "cached_token" };
+	}
+	if (ids.has("grok.com") && externalIds.has("grok.com")) {
+		return { kind: "method", methodId: "grok.com" };
 	}
 	if (ids.has("oidc")) {
 		return { kind: "interactive", methodId: "oidc" };

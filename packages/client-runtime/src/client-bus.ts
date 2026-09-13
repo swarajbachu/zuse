@@ -1,16 +1,29 @@
-import type { CommandId, EnvironmentId } from "@zuse/contracts";
+import type {
+	CommandAcceptance,
+	CommandId,
+	CommandStatus,
+	EnvironmentId,
+} from "@zuse/contracts";
 
 import type {
 	ClientCommand,
 	ClientCommandExecutor,
+	CloudCommandTransport,
+	CommandDispatchHandle,
 	CommandFingerprint,
 	CommandOutbox,
 	CommandReceipt,
+	OutboxEntry,
+	PreparedCloudCommandHandle,
 	ResourcePersistence,
 } from "./client-persistence";
 import {
 	assertCommandFingerprint,
+	CloudCommandTerminalError,
+	CloudCommandTransportUnavailableError,
 	commandFingerprint,
+	terminalCommandReceipt,
+	terminalErrorFromReceipt,
 } from "./client-persistence";
 import {
 	type EnvironmentFault,
@@ -30,10 +43,27 @@ import {
 	type ConnectionView,
 	emptyResourceView,
 	type FailedCommand,
+	type PendingCommand,
 	type ResourceCursor,
 	type ResourceView,
 	type SyncPhase,
 } from "./resource-state";
+
+const pendingCommandWithDeliveryStatus = (
+	command: PendingCommand,
+	status: CommandStatus,
+): PendingCommand => ({
+	...command,
+	deliveryPhase:
+		status.state === "accepted" ? "waiting-for-runtime" : status.state,
+	category: status.category,
+	blockedUntil: status.blockedUntil,
+	cancellable:
+		!status.everLeased &&
+		(status.state === "accepted" ||
+			status.state === "waiting-for-runtime" ||
+			status.state === "blocked"),
+});
 
 export type ResourceDriverUpdate<Data> = Readonly<{
 	data?: Data;
@@ -110,8 +140,21 @@ export type ClientBusOptions<Client> = Readonly<{
 	persistence?: ResourcePersistence;
 	outbox?: CommandOutbox;
 	commandExecutor?: ClientCommandExecutor<Client>;
+	/** Stable control-plane transport for eligible cloud environments. */
+	commandTransportFor?: (
+		environmentId: EnvironmentId,
+		kind: string,
+	) => CloudCommandTransport | undefined;
 	/** Maps transport-level command failures into the shared connection state. */
-	commandFaultFor?: (cause: unknown) => EnvironmentFault | null;
+	commandFaultFor?: (
+		cause: unknown,
+		environmentId: EnvironmentId,
+	) => EnvironmentFault | null;
+	/** Proves that an applied command is present in its authoritative resource. */
+	commandReflected?: (
+		command: ClientCommand,
+		view: ResourceView<unknown>,
+	) => boolean;
 	driverFor?: ResourceDriverFactory<Client>;
 	synchronizer?: ResourceSynchronizer;
 	runtime?: EnvironmentRuntimeOptions;
@@ -144,6 +187,30 @@ type EnvironmentBinding<Client> = {
 	flushInFlight: Promise<void> | null;
 	readonly runtime: EnvironmentRuntime<Client>;
 };
+
+type CommandLaneReservation = Readonly<{
+	waitForTurn: Promise<void>;
+	release: () => void;
+}>;
+
+type CommandAcceptanceOwner = Readonly<{
+	readonly fingerprint: CommandFingerprint;
+	readonly accepted: Promise<CommandAcceptance>;
+	readonly resolveAccepted: (acceptance: CommandAcceptance) => void;
+	readonly rejectAccepted: (cause: unknown) => void;
+}>;
+
+type CommandReflectionWaiter = Readonly<{
+	command: ClientCommand;
+	promise: Promise<void>;
+	resolve: () => void;
+	reject: (cause: unknown) => void;
+}>;
+
+/** Internal attempt outcome; the original dispatch promise owns the retry. */
+class DurableCommandRetrySignal {
+	constructor(readonly cause: unknown) {}
+}
 
 const cursorIsAccepted = (
 	current: ResourceCursor | null,
@@ -237,6 +304,21 @@ export class ClientBus<Client> {
 		CommandId,
 		CommandReceipt<unknown>
 	>();
+	private readonly commandAcceptances = new Map<
+		CommandId,
+		CommandAcceptanceOwner
+	>();
+	private readonly commandCancels = new Map<
+		CommandId,
+		() => Promise<import("@zuse/contracts").CommandStatus>
+	>();
+	private readonly commandReflectionWaiters = new Map<
+		CommandId,
+		CommandReflectionWaiter
+	>();
+	private readonly cloudCommandAttemptDisposers = new Set<() => void>();
+	private readonly disposalListeners = new Set<(cause: Error) => void>();
+	private durableOutboxRetry: ReturnType<typeof setTimeout> | null = null;
 	private disposed = false;
 
 	constructor(private readonly options: ClientBusOptions<Client>) {
@@ -244,6 +326,8 @@ export class ClientBus<Client> {
 			options.resolver,
 			options.runtime,
 		);
+		if (options.commandTransportFor !== undefined)
+			this.scheduleDurableOutboxFlush(0);
 	}
 
 	retain<Key extends ResourceKey<unknown>>(
@@ -533,9 +617,11 @@ export class ClientBus<Client> {
 		command: ClientCommand<unknown, Result>,
 	): Promise<CommandReceipt<Result>> {
 		this.assertActive();
+		const effectiveCommand = this.withResourceReflectionFence(command);
 		if (
-			command.resource !== null &&
-			command.resource.ref.environmentId !== command.environmentId
+			effectiveCommand.resource !== null &&
+			effectiveCommand.resource.ref.environmentId !==
+				effectiveCommand.environmentId
 		) {
 			return Promise.reject(
 				new Error("Command resource belongs to another environment"),
@@ -543,15 +629,15 @@ export class ClientBus<Client> {
 		}
 		let fingerprint: CommandFingerprint;
 		try {
-			fingerprint = commandFingerprint(command);
+			fingerprint = commandFingerprint(effectiveCommand);
 		} catch (cause) {
 			return Promise.reject(cause);
 		}
-		const existing = this.commands.get(command.commandId);
+		const existing = this.commands.get(effectiveCommand.commandId);
 		if (existing !== undefined) {
 			try {
 				assertCommandFingerprint(
-					command.commandId,
+					effectiveCommand.commandId,
 					existing.fingerprint,
 					fingerprint,
 				);
@@ -560,34 +646,149 @@ export class ClientBus<Client> {
 			}
 			return existing.receipt as Promise<CommandReceipt<Result>>;
 		}
-		const completed = this.completedReceipts.get(command.commandId);
+		const completed = this.completedReceipts.get(effectiveCommand.commandId);
 		if (completed !== undefined) {
 			try {
 				assertCommandFingerprint(
-					command.commandId,
+					effectiveCommand.commandId,
 					completed.fingerprint,
 					fingerprint,
 				);
 			} catch (cause) {
 				return Promise.reject(cause);
 			}
+			const terminal = terminalErrorFromReceipt(completed);
+			if (terminal !== null) return Promise.reject(terminal);
 			return Promise.resolve(completed as CommandReceipt<Result>);
 		}
-		const pending = this.enqueueCommand(command, fingerprint);
-		this.commands.set(command.commandId, {
+		// The durable mailbox owns per-session ordering, so cloud commands must be
+		// accepted concurrently instead of waiting for an earlier command's final
+		// result in the local live-RPC lane.
+		const durable = this.cloudTransport(effectiveCommand) !== undefined;
+		const liveFallbackReservation = durable
+			? this.reserveCommandLane(effectiveCommand)
+			: undefined;
+		const execution = durable
+			? this.dispatchWithPersistedReceipt(
+					effectiveCommand,
+					fingerprint,
+					liveFallbackReservation?.waitForTurn,
+				)
+			: this.enqueueCommand(effectiveCommand, fingerprint);
+		const pending = this.untilDisposed(execution);
+		if (liveFallbackReservation !== undefined) {
+			void pending.then(
+				liveFallbackReservation.release,
+				liveFallbackReservation.release,
+			);
+		}
+		this.commands.set(effectiveCommand.commandId, {
 			fingerprint,
 			receipt: pending as Promise<CommandReceipt<unknown>>,
 		});
 		void pending.then(
 			(receipt) => {
 				if (!this.disposed) {
-					this.completedReceipts.set(command.commandId, receipt);
+					this.completedReceipts.set(effectiveCommand.commandId, receipt);
 				}
-				this.commands.delete(command.commandId);
+				this.commands.delete(effectiveCommand.commandId);
 			},
-			() => this.commands.delete(command.commandId),
+			() => this.commands.delete(effectiveCommand.commandId),
 		);
 		return pending;
+	}
+
+	dispatchHandle<Result>(
+		command: ClientCommand<unknown, Result>,
+	): CommandDispatchHandle<Result> {
+		this.assertActive();
+		const fingerprint = commandFingerprint(command);
+		let acceptance = this.commandAcceptances.get(command.commandId);
+		if (acceptance === undefined) {
+			acceptance = this.createCommandAcceptanceOwner(fingerprint);
+			this.commandAcceptances.set(command.commandId, acceptance);
+		} else {
+			assertCommandFingerprint(
+				command.commandId,
+				acceptance.fingerprint,
+				fingerprint,
+			);
+		}
+		const result = this.dispatch(command);
+		void result.then(
+			(receipt) => {
+				acceptance.resolveAccepted({
+					commandId: command.commandId,
+					workspaceSequence: 0,
+					revision: 0,
+					acceptedAt: receipt.receivedAt,
+					state: "accepted",
+				} as CommandAcceptance);
+				this.commandAcceptances.delete(command.commandId);
+				this.commandCancels.delete(command.commandId);
+			},
+			(cause) => {
+				acceptance.rejectAccepted(cause);
+				this.commandAcceptances.delete(command.commandId);
+				this.commandCancels.delete(command.commandId);
+			},
+		);
+		return {
+			accepted: acceptance.accepted,
+			result,
+			cancel: () => {
+				const cancel = this.commandCancels.get(command.commandId);
+				return cancel === undefined
+					? Promise.reject(new Error("This command can no longer be cancelled"))
+					: cancel();
+			},
+		};
+	}
+
+	private createCommandAcceptanceOwner(
+		fingerprint: CommandFingerprint,
+	): CommandAcceptanceOwner {
+		let resolveAccepted!: (acceptance: CommandAcceptance) => void;
+		let rejectAccepted!: (cause: unknown) => void;
+		const accepted = new Promise<CommandAcceptance>((resolve, reject) => {
+			resolveAccepted = resolve;
+			rejectAccepted = reject;
+		});
+		void accepted.catch(() => undefined);
+		return {
+			fingerprint,
+			accepted,
+			resolveAccepted,
+			rejectAccepted,
+		};
+	}
+
+	private ownCloudCommandAttempt(
+		handle: PreparedCloudCommandHandle<unknown>,
+	): () => void {
+		let released = false;
+		const release = () => {
+			if (released) return;
+			released = true;
+			this.cloudCommandAttemptDisposers.delete(release);
+			try {
+				handle.dispose();
+			} catch {
+				// Attempt cleanup must never replace an authoritative command outcome.
+			}
+		};
+		this.cloudCommandAttemptDisposers.add(release);
+		if (this.disposed) release();
+		return release;
+	}
+
+	cancelCommand(
+		commandId: CommandId,
+	): Promise<import("@zuse/contracts").CommandStatus> {
+		const cancel = this.commandCancels.get(commandId);
+		return cancel === undefined
+			? Promise.reject(new Error("This command can no longer be cancelled"))
+			: cancel();
 	}
 
 	/**
@@ -599,44 +800,105 @@ export class ClientBus<Client> {
 		command: ClientCommand<unknown, Result>,
 		fingerprint: CommandFingerprint,
 	): Promise<CommandReceipt<Result>> {
+		const reservation = this.reserveCommandLane(command);
+		const pending = reservation.waitForTurn.then(() =>
+			this.dispatchWithPersistedReceipt(command, fingerprint),
+		);
+		void pending.then(reservation.release, reservation.release);
+		return pending;
+	}
+
+	private reserveCommandLane(command: ClientCommand): CommandLaneReservation {
 		const lane =
 			command.resource === null
 				? `environment:${command.environmentId}:command:${command.kind}`
 				: resourceKeyId(command.resource);
-		const previous = this.commandLanes.get(lane) ?? Promise.resolve();
-		const pending = previous
-			.catch(() => undefined)
-			.then(() => this.dispatchWithPersistedReceipt(command, fingerprint));
-		const settled = pending.then(
-			() => undefined,
-			() => undefined,
-		);
-		this.commandLanes.set(lane, settled);
-		void settled.then(() => {
-			if (this.commandLanes.get(lane) === settled) {
-				this.commandLanes.delete(lane);
-			}
+		const waitForTurn = (
+			this.commandLanes.get(lane) ?? Promise.resolve()
+		).catch(() => undefined);
+		let resolveReservation!: () => void;
+		const reservation = new Promise<void>((resolve) => {
+			resolveReservation = resolve;
 		});
-		return pending;
+		this.commandLanes.set(lane, reservation);
+		let released = false;
+		return {
+			waitForTurn,
+			release: () => {
+				if (released) return;
+				released = true;
+				resolveReservation();
+				if (this.commandLanes.get(lane) === reservation) {
+					this.commandLanes.delete(lane);
+				}
+			},
+		};
 	}
 
 	private async dispatchWithPersistedReceipt<Result>(
 		command: ClientCommand<unknown, Result>,
 		fingerprint: CommandFingerprint,
+		liveFallbackTurn?: Promise<void>,
 	): Promise<CommandReceipt<Result>> {
-		const persisted = await this.commandOutbox()?.findReceipt?.(
-			command.commandId,
-		);
-		if (persisted !== null && persisted !== undefined) {
-			assertCommandFingerprint(
+		for (;;) {
+			this.assertActive();
+			const persisted = await this.commandOutbox()?.findReceipt(
 				command.commandId,
-				persisted.fingerprint,
-				fingerprint,
 			);
-			this.completedReceipts.set(command.commandId, persisted);
-			return persisted as CommandReceipt<Result>;
+			this.assertActive();
+			if (persisted !== null && persisted !== undefined) {
+				assertCommandFingerprint(
+					command.commandId,
+					persisted.fingerprint,
+					fingerprint,
+				);
+				this.completedReceipts.set(command.commandId, persisted);
+				const terminal = terminalErrorFromReceipt(persisted);
+				if (terminal !== null) throw terminal;
+				return persisted as CommandReceipt<Result>;
+			}
+			try {
+				return await this.prepareAndExecute(
+					command,
+					fingerprint,
+					liveFallbackTurn,
+				);
+			} catch (cause) {
+				if (!(cause instanceof DurableCommandRetrySignal)) throw cause;
+				await this.waitForDurableRetry(2_000);
+			}
 		}
-		return this.prepareAndExecute(command, fingerprint);
+	}
+
+	private untilDisposed<Value>(promise: Promise<Value>): Promise<Value> {
+		if (this.disposed) return Promise.reject(new Error("ClientBus disposed"));
+		return new Promise<Value>((resolve, reject) => {
+			const onDisposed = (cause: Error) => {
+				this.disposalListeners.delete(onDisposed);
+				reject(cause);
+			};
+			this.disposalListeners.add(onDisposed);
+			void promise.then(
+				(value) => {
+					if (!this.disposalListeners.delete(onDisposed)) return;
+					resolve(value);
+				},
+				(cause) => {
+					if (!this.disposalListeners.delete(onDisposed)) return;
+					reject(cause);
+				},
+			);
+		});
+	}
+
+	private waitForDurableRetry(delayMs: number): Promise<void> {
+		let timeout: ReturnType<typeof setTimeout> | undefined;
+		const delay = new Promise<void>((resolve) => {
+			timeout = setTimeout(resolve, delayMs);
+		});
+		return this.untilDisposed(delay).finally(() => {
+			if (timeout !== undefined) clearTimeout(timeout);
+		});
 	}
 
 	async flushOutbox(environmentId?: EnvironmentId): Promise<void> {
@@ -653,9 +915,62 @@ export class ClientBus<Client> {
 		);
 	}
 
+	private scheduleDurableOutboxFlush(delayMs: number): void {
+		if (this.disposed || this.durableOutboxRetry !== null) return;
+		this.durableOutboxRetry = setTimeout(() => {
+			this.durableOutboxRetry = null;
+			void this.flushDurableOutboxEntries();
+		}, delayMs);
+	}
+
+	/**
+	 * Resumes mailbox-capable rows without requiring a live environment
+	 * connection. Renderers call this when a durable environment becomes known
+	 * after ClientBus construction (for example, after catalog hydration).
+	 */
+	async flushDurableOutbox(environmentId?: EnvironmentId): Promise<void> {
+		await this.flushDurableOutboxEntries(environmentId);
+	}
+
+	private async flushDurableOutboxEntries(
+		environmentId?: EnvironmentId,
+	): Promise<void> {
+		const outbox = this.commandOutbox();
+		if (this.disposed || outbox === undefined) return;
+		const eligible = (await outbox.listOutbox(environmentId)).filter(
+			(entry) =>
+				!this.commands.has(entry.command.commandId) &&
+				this.cloudTransportForOutboxEntry(entry) !== undefined,
+		);
+		if (eligible.length === 0) return;
+		await Promise.allSettled(
+			eligible.map((entry) => this.dispatch(entry.command)),
+		);
+	}
+
 	async dispose(): Promise<void> {
 		if (this.disposed) return;
 		this.disposed = true;
+		if (this.durableOutboxRetry !== null) {
+			clearTimeout(this.durableOutboxRetry);
+			this.durableOutboxRetry = null;
+		}
+		const disposed = new Error("ClientBus disposed");
+		for (const reject of this.disposalListeners) reject(disposed);
+		this.disposalListeners.clear();
+		for (const acceptance of this.commandAcceptances.values()) {
+			acceptance.rejectAccepted(disposed);
+		}
+		this.commandAcceptances.clear();
+		for (const disposeAttempt of [...this.cloudCommandAttemptDisposers])
+			disposeAttempt();
+		this.cloudCommandAttemptDisposers.clear();
+		this.commandCancels.clear();
+		for (const waiter of this.commandReflectionWaiters.values()) {
+			waiter.reject(disposed);
+		}
+		this.commandReflectionWaiters.clear();
+		this.commands.clear();
 		for (const entry of this.entries.values()) this.stopDriver(entry);
 		for (const binding of this.environments.values()) binding.unsubscribe();
 		await Promise.all(
@@ -693,6 +1008,74 @@ export class ClientBus<Client> {
 			this.entries.set(id, entry);
 		}
 		return entry;
+	}
+
+	private withResourceReflectionFence<Result>(
+		command: ClientCommand<unknown, Result>,
+	): ClientCommand<unknown, Result> {
+		if (
+			command.awaitResourceReflection !== true ||
+			command.resource === null ||
+			command.resourceReflection !== undefined
+		)
+			return command;
+		return {
+			...command,
+			resourceReflection: {
+				cursor: this.entry(command.resource).view.cursor,
+			},
+		};
+	}
+
+	private waitForResourceReflection(command: ClientCommand): Promise<void> {
+		if (
+			command.awaitResourceReflection !== true ||
+			command.resource === null ||
+			this.options.commandReflected === undefined
+		)
+			return Promise.resolve();
+		const entry = this.entry(command.resource);
+		if (this.commandIsReflected(command, entry.view)) return Promise.resolve();
+		const existing = this.commandReflectionWaiters.get(command.commandId);
+		if (existing !== undefined) return existing.promise;
+		let resolve!: () => void;
+		let reject!: (cause: unknown) => void;
+		const promise = new Promise<void>((onResolve, onReject) => {
+			resolve = onResolve;
+			reject = onReject;
+		});
+		this.commandReflectionWaiters.set(command.commandId, {
+			command,
+			promise,
+			resolve,
+			reject,
+		});
+		this.updateCommandResource(command, (view) => ({
+			...view,
+			pendingCommands: view.pendingCommands.map((pending) =>
+				pending.commandId === command.commandId
+					? {
+							...pending,
+							deliveryPhase: "applied",
+							category: undefined,
+							blockedUntil: undefined,
+							cancellable: false,
+						}
+					: pending,
+			),
+		}));
+		return promise;
+	}
+
+	private commandIsReflected(
+		command: ClientCommand,
+		view: ResourceView<unknown>,
+	): boolean {
+		try {
+			return this.options.commandReflected?.(command, view) === true;
+		} catch {
+			return false;
+		}
 	}
 
 	private environment(
@@ -838,7 +1221,11 @@ export class ClientBus<Client> {
 			.synchronize(entry.key, entry.view)
 			.then(async (result) => {
 				if (result === null) {
-					if (epoch === entry.synchronizationEpoch) {
+					if (
+						epoch === entry.synchronizationEpoch &&
+						entry.runtimeUpdates === runtimeUpdates &&
+						entry.driverGeneration === 0
+					) {
 						this.setView(entry, {
 							...entry.view,
 							sync: entry.view.data === null ? "empty" : "cached",
@@ -1028,6 +1415,7 @@ export class ClientBus<Client> {
 	private prepareAndExecute<Result>(
 		command: ClientCommand<unknown, Result>,
 		fingerprint: CommandFingerprint,
+		liveFallbackTurn?: Promise<void>,
 	): Promise<CommandReceipt<Result>> {
 		const executor = this.options.commandExecutor;
 		if (executor === undefined) {
@@ -1045,7 +1433,9 @@ export class ClientBus<Client> {
 				...view.pendingCommands.filter(
 					(item) => item.commandId !== command.commandId,
 				),
-				pending,
+				view.pendingCommands.find(
+					(item) => item.commandId === command.commandId,
+				) ?? pending,
 			],
 			failedCommands: view.failedCommands.filter(
 				(item) => item.commandId !== command.commandId,
@@ -1057,13 +1447,18 @@ export class ClientBus<Client> {
 			// Transport loss and failures after a successful response are ambiguous:
 			// replaying the same command ID is the only safe recovery.
 			let retainForRetry = false;
+			let durableDeliveryPending = false;
+			let mailboxEnvelopePersisted = false;
+			let releaseCloudCommandAttempt: (() => void) | undefined;
 			try {
+				let previous: OutboxEntry | undefined;
+				let serializeLiveFallback = false;
 				if (command.retry === "safe") {
 					if (outbox === undefined) {
 						throw new Error("Retry-safe commands require ClientPersistence");
 					}
 					const queued = await outbox.listOutbox();
-					const previous = queued.find(
+					previous = queued.find(
 						(entry) => entry.command.commandId === command.commandId,
 					);
 					if (previous !== undefined) {
@@ -1074,6 +1469,7 @@ export class ClientBus<Client> {
 						);
 					}
 					await outbox.putOutbox({
+						...previous,
 						command,
 						fingerprint,
 						attempts: (previous?.attempts ?? 0) + 1,
@@ -1081,6 +1477,203 @@ export class ClientBus<Client> {
 					});
 					retainForRetry = true;
 				}
+				mailboxEnvelopePersisted = previous?.encryptedEnvelope !== undefined;
+				const hasPersistedMailboxIdentity =
+					mailboxEnvelopePersisted || previous?.acceptance !== undefined;
+				const durableTransport = hasPersistedMailboxIdentity
+					? this.configuredCloudTransport(command)
+					: this.cloudTransport(command);
+				if (hasPersistedMailboxIdentity && durableTransport === undefined) {
+					// Once opaque mailbox identity exists, live RPC is no longer a safe
+					// fallback: a lost response may hide an accepted server row. Catalog
+					// hydration will register the transport and resume these exact bytes.
+					durableDeliveryPending = true;
+					throw new Error(
+						"Durable cloud command transport is not available yet",
+					);
+				}
+				if (durableTransport === undefined && liveFallbackTurn !== undefined) {
+					serializeLiveFallback = true;
+				}
+				if (durableTransport !== undefined) {
+					durableDeliveryPending = true;
+					assertCommandFingerprint(
+						command.commandId,
+						fingerprint,
+						commandFingerprint(command),
+					);
+					let handle: PreparedCloudCommandHandle<Result> | undefined;
+					let acceptance: CommandAcceptance | undefined;
+					let deliveryFingerprint: string | undefined;
+					try {
+						handle = !hasPersistedMailboxIdentity
+							? durableTransport.dispatch<Result>({ command, fingerprint })
+							: durableTransport.resume<Result>({
+									command,
+									fingerprint,
+									encryptedEnvelope: previous?.encryptedEnvelope,
+									...(previous?.acceptance === undefined
+										? {}
+										: { acceptance: previous.acceptance }),
+									...(previous?.deliveryStatus === undefined
+										? {}
+										: { deliveryStatus: previous.deliveryStatus }),
+								});
+						releaseCloudCommandAttempt = this.ownCloudCommandAttempt(handle);
+						// Delivery promises can settle while local persistence is still running.
+						// Mark every branch handled immediately; callers still await the original
+						// promises and receive the same result or rejection.
+						void handle.accepted.catch(() => undefined);
+						void handle.result.catch(() => undefined);
+						void handle.encryptedEnvelope.catch(() => undefined);
+						void handle.deliveryFingerprint.catch(() => undefined);
+						const preparedIdentity = await Promise.all([
+							handle.encryptedEnvelope,
+							handle.deliveryFingerprint,
+						]);
+						const [encryptedEnvelope] = preparedIdentity;
+						deliveryFingerprint = preparedIdentity[1];
+						const current = (
+							await outbox?.listOutbox(command.environmentId)
+						)?.find((entry) => entry.command.commandId === command.commandId);
+						if (command.retry === "safe" && current === undefined) {
+							throw new Error(
+								"Durable command disappeared before its envelope was persisted",
+							);
+						}
+						if (current !== undefined) {
+							await outbox?.putOutbox({
+								...current,
+								encryptedEnvelope,
+							});
+							mailboxEnvelopePersisted = true;
+						}
+						// Fresh commands cannot leave the client until their opaque envelope is
+						// durable. Resumed commands use the same gate but never enqueue again.
+						this.assertActive();
+						handle.start();
+						acceptance = await handle.accepted;
+					} catch (cause) {
+						if (cause instanceof CloudCommandTerminalError) {
+							retainForRetry = false;
+							throw cause;
+						}
+						if (!(cause instanceof CloudCommandTransportUnavailableError))
+							throw cause;
+						if (hasPersistedMailboxIdentity || mailboxEnvelopePersisted)
+							throw cause;
+						releaseCloudCommandAttempt?.();
+						releaseCloudCommandAttempt = undefined;
+						acceptance = undefined;
+						durableDeliveryPending = false;
+						serializeLiveFallback = true;
+					}
+					if (acceptance !== undefined) {
+						if (handle === undefined) {
+							throw new Error("Cloud command handle was not prepared");
+						}
+						if (deliveryFingerprint === undefined) {
+							throw new Error("Cloud command identity was not prepared");
+						}
+						const acceptedStatus: CommandStatus =
+							previous?.deliveryStatus !== undefined &&
+							previous.deliveryStatus.revision >= acceptance.revision
+								? previous.deliveryStatus
+								: {
+										commandId: acceptance.commandId,
+										workspaceSequence: acceptance.workspaceSequence,
+										revision: acceptance.revision,
+										fingerprint: deliveryFingerprint,
+										state: acceptance.state,
+										everLeased: false,
+										updatedAt: acceptance.acceptedAt,
+									};
+						if (outbox !== undefined) {
+							const current = (
+								await outbox.listOutbox(command.environmentId)
+							).find((entry) => entry.command.commandId === command.commandId);
+							if (current !== undefined) {
+								await outbox.putOutbox({
+									...current,
+									acceptance,
+									deliveryStatus: acceptedStatus,
+								});
+							}
+						}
+						// The UI may clear its draft only after both sides have recorded the
+						// durable acceptance.
+						this.commandAcceptances
+							.get(command.commandId)
+							?.resolveAccepted(acceptance);
+						if (!this.disposed)
+							this.commandCancels.set(command.commandId, handle.cancel);
+						this.updateCommandResource(command, (view) => ({
+							...view,
+							pendingCommands: view.pendingCommands.map((item) =>
+								item.commandId === command.commandId
+									? pendingCommandWithDeliveryStatus(item, acceptedStatus)
+									: item,
+							),
+						}));
+						let statusPersistence = Promise.resolve();
+						const unsubscribeStatus = handle.subscribeStatus?.((status) => {
+							if (this.disposed) return;
+							if (status.everLeased)
+								this.commandCancels.delete(command.commandId);
+							this.updateCommandResource(command, (view) => ({
+								...view,
+								pendingCommands: view.pendingCommands.map((item) =>
+									item.commandId === command.commandId
+										? pendingCommandWithDeliveryStatus(item, status)
+										: item,
+								),
+							}));
+							statusPersistence = statusPersistence
+								.then(async () => {
+									const current = (
+										await outbox?.listOutbox(command.environmentId)
+									)?.find(
+										(entry) => entry.command.commandId === command.commandId,
+									);
+									if (
+										current !== undefined &&
+										(current.deliveryStatus?.revision ?? -1) < status.revision
+									)
+										await outbox?.putOutbox({
+											...current,
+											deliveryStatus: status,
+										});
+								})
+								.catch(() => undefined);
+						});
+						let receipt: CommandReceipt<Result>;
+						try {
+							receipt = await handle.result;
+						} catch (cause) {
+							if (cause instanceof CloudCommandTerminalError)
+								retainForRetry = false;
+							throw cause;
+						} finally {
+							unsubscribeStatus?.();
+							// A status callback can still have an IndexedDB write queued when the
+							// terminal result settles. Drain that serialized tail before atomically
+							// completing or removing the outbox row, otherwise the late write can
+							// resurrect a command that is already terminal.
+							await statusPersistence;
+						}
+						await this.waitForResourceReflection(command);
+						await outbox?.completeOutbox(receipt);
+						this.updateCommandResource(command, (view) => ({
+							...view,
+							pendingCommands: view.pendingCommands.filter(
+								(item) => item.commandId !== command.commandId,
+							),
+						}));
+						return receipt;
+					}
+				}
+				if (serializeLiveFallback) await liveFallbackTurn;
+				this.assertActive();
 				const binding = this.environment(command.environmentId);
 				const commandLease = binding.runtime.retain("wake");
 				let executionReceipt: Awaited<
@@ -1089,6 +1682,7 @@ export class ClientBus<Client> {
 				try {
 					const client = await commandLease.activate("wake");
 					if (client === null) throw new Error("environment did not connect");
+					this.assertActive();
 					const generation = binding.runtime.snapshot().generation;
 					assertCommandFingerprint(
 						command.commandId,
@@ -1098,7 +1692,9 @@ export class ClientBus<Client> {
 					try {
 						executionReceipt = await executor.execute(client, command);
 					} catch (cause) {
-						const fault = this.options.commandFaultFor?.(cause) ?? null;
+						const fault =
+							this.options.commandFaultFor?.(cause, command.environmentId) ??
+							null;
 						if (fault !== null) {
 							binding.runtime.reportFault(fault, generation);
 						} else {
@@ -1120,13 +1716,9 @@ export class ClientBus<Client> {
 					receivedAt: executionReceipt.receivedAt,
 					result: executionReceipt.result as Result,
 				};
+				await this.waitForResourceReflection(command);
 				if (command.retry === "safe") {
-					if (outbox?.completeOutbox !== undefined) {
-						await outbox.completeOutbox(receipt);
-					} else {
-						await outbox?.putReceipt?.(receipt);
-						await outbox?.removeOutbox(command.commandId, fingerprint);
-					}
+					await outbox?.completeOutbox(receipt);
 				} else {
 					await outbox?.putReceipt?.(receipt);
 				}
@@ -1138,10 +1730,42 @@ export class ClientBus<Client> {
 				}));
 				return receipt;
 			} catch (cause) {
-				if (command.retry === "safe" && !retainForRetry) {
+				let terminalPersisted = false;
+				if (
+					cause instanceof CloudCommandTerminalError &&
+					command.retry === "safe" &&
+					outbox !== undefined
+				) {
+					const receipt = terminalCommandReceipt(
+						command.commandId,
+						fingerprint,
+						cause,
+					);
+					try {
+						await outbox.completeOutbox(receipt);
+						if (!this.disposed)
+							this.completedReceipts.set(command.commandId, receipt);
+						terminalPersisted = true;
+						retainForRetry = false;
+					} catch {
+						// Never discard the accepted row if its terminal receipt could not be
+						// committed atomically. Re-observe the same mailbox identity and retry
+						// the local transaction instead.
+						retainForRetry = true;
+						durableDeliveryPending = true;
+					}
+				}
+				const awaitingDurableRetry =
+					command.retry === "safe" && retainForRetry && durableDeliveryPending;
+				if (command.retry === "safe" && !retainForRetry && !terminalPersisted) {
 					await outbox
 						?.removeOutbox(command.commandId, fingerprint)
 						.catch(() => undefined);
+				}
+				if (awaitingDurableRetry) {
+					// Preserve the same public promise, lane reservation, and pending UI
+					// while the durable owner retries this exact command identity.
+					throw new DurableCommandRetrySignal(cause);
 				}
 				const failed: FailedCommand = {
 					commandId: command.commandId,
@@ -1149,6 +1773,16 @@ export class ClientBus<Client> {
 					failedAt: Date.now(),
 					error: messageOf(cause),
 					retryable: command.retry === "safe" && retainForRetry,
+					...(cause instanceof CloudCommandTerminalError
+						? {
+								terminal: {
+									state: cause.state,
+									...(cause.category === undefined
+										? {}
+										: { category: cause.category }),
+								},
+							}
+						: {}),
 				};
 				this.updateCommandResource(command, (view) => ({
 					...view,
@@ -1163,6 +1797,8 @@ export class ClientBus<Client> {
 					],
 				}));
 				throw cause;
+			} finally {
+				releaseCloudCommandAttempt?.();
 			}
 		})();
 	}
@@ -1177,9 +1813,28 @@ export class ClientBus<Client> {
 	}
 
 	private setView(entry: ResourceEntry, view: ResourceView<unknown>): void {
-		if (view === entry.view) return;
-		entry.view = view;
-		for (const listener of entry.listeners) listener(view);
+		let next = view;
+		const reflected: CommandReflectionWaiter[] = [];
+		if (view.data !== null && view.pendingCommands.length > 0) {
+			const pendingCommands = view.pendingCommands.filter((pending) => {
+				const waiter = this.commandReflectionWaiters.get(pending.commandId);
+				if (
+					waiter === undefined ||
+					!this.commandIsReflected(waiter.command, view)
+				)
+					return true;
+				this.commandReflectionWaiters.delete(pending.commandId);
+				reflected.push(waiter);
+				return false;
+			});
+			if (pendingCommands.length !== view.pendingCommands.length) {
+				next = { ...view, pendingCommands };
+			}
+		}
+		if (next === entry.view) return;
+		entry.view = next;
+		for (const listener of entry.listeners) listener(next);
+		for (const waiter of reflected) waiter.resolve();
 	}
 
 	private commandOutbox(): CommandOutbox | undefined {
@@ -1189,9 +1844,36 @@ export class ClientBus<Client> {
 			| undefined;
 		return typeof candidate?.listOutbox === "function" &&
 			typeof candidate.putOutbox === "function" &&
-			typeof candidate.removeOutbox === "function"
+			typeof candidate.removeOutbox === "function" &&
+			typeof candidate.findReceipt === "function" &&
+			typeof candidate.completeOutbox === "function"
 			? (candidate as ResourcePersistence & CommandOutbox)
 			: undefined;
+	}
+
+	private cloudTransport(
+		command: ClientCommand,
+	): CloudCommandTransport | undefined {
+		const transport = this.configuredCloudTransport(command);
+		return transport?.supports(command) === true ? transport : undefined;
+	}
+
+	private configuredCloudTransport(
+		command: ClientCommand,
+	): CloudCommandTransport | undefined {
+		return this.options.commandTransportFor?.(
+			command.environmentId,
+			command.kind,
+		);
+	}
+
+	private cloudTransportForOutboxEntry(
+		entry: OutboxEntry,
+	): CloudCommandTransport | undefined {
+		return entry.encryptedEnvelope === undefined &&
+			entry.acceptance === undefined
+			? this.cloudTransport(entry.command)
+			: this.configuredCloudTransport(entry.command);
 	}
 
 	private assertActive(): void {

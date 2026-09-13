@@ -7,11 +7,8 @@ import {
 } from "./environment-entities.ts";
 import { useEnvironmentShellResource } from "./environment-shell-client-bus.ts";
 
-/** Active environment entities come directly from its one ClientBus shell. */
-export const useActiveEnvironmentEntities = () => {
-	const environmentId = useEnvironmentCatalogStore(
-		(state) => state.activeEnvironmentId,
-	);
+/** Environment entities come directly from that environment's ClientBus shell. */
+export const useEnvironmentEntities = (environmentId: string) => {
 	const view = useEnvironmentShellResource(
 		EnvironmentId.make(environmentId),
 		"connect",
@@ -26,6 +23,14 @@ export const useActiveEnvironmentEntities = () => {
 			view.data?.sessionsByProject ?? EMPTY_SESSIONS_BY_PROJECT,
 		creationOperationsByProject: view.data?.creationOperationsByProject ?? {},
 	};
+};
+
+/** Active environment entities come directly from its one ClientBus shell. */
+export const useActiveEnvironmentEntities = () => {
+	const environmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
+	);
+	return useEnvironmentEntities(environmentId);
 };
 
 /** Reactive lookup against the active environment's canonical shell cell. */

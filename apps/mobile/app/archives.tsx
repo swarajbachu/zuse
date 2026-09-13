@@ -1,9 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { Chat, FolderId } from "@zuse/contracts";
+import { cloudChatPlaceholder } from "@zuse/client-runtime/cloud-catalog";
+import { type Chat, type CloudChatSummary, FolderId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { Stack } from "expo-router";
 import { ArchiveRestore, Trash2 } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	ActivityIndicator,
 	Alert,
@@ -22,7 +23,10 @@ import {
 	previewArchivedChat,
 	unarchiveChat,
 } from "~/rpc/actions";
-import { connectionsAtom } from "~/store/connections";
+import { cloudControlClient } from "~/rpc/api-client";
+import { authAccountAtom } from "~/store/auth";
+import { refreshCloudCatalog } from "~/store/cloud-catalog";
+import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import { bundlesByConnectionAtom } from "~/store/sessions";
 import { colors } from "~/theme";
 
@@ -31,12 +35,28 @@ type ArchivedRow = {
 	readonly projectId: FolderId;
 	readonly projectName: string;
 	readonly chat: Chat;
+	readonly cloudWorkspaceId?: string;
+};
+
+const archivedCloudRow = (row: CloudChatSummary): ArchivedRow => {
+	const projectId = FolderId.make(`cloud:${row.projectId}`);
+	return {
+		connectionKey: `cloud:${row.workspaceId}`,
+		projectId,
+		projectName: row.repositoryDisplayName,
+		chat: cloudChatPlaceholder(row, projectId),
+		cloudWorkspaceId: row.workspaceId,
+	};
 };
 
 export default function ArchivesScreen() {
 	const connections = useAtomValue(connectionsAtom);
+	const account = useAtomValue(authAccountAtom);
+	const accountRef = useRef(account?.id);
+	accountRef.current = account?.id;
 	const bundles = useAtomValue(bundlesByConnectionAtom);
 	const [rows, setRows] = useState<readonly ArchivedRow[]>([]);
+	const [cloudRows, setCloudRows] = useState<readonly ArchivedRow[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [busyId, setBusyId] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -45,10 +65,18 @@ export default function ArchivesScreen() {
 		setLoading(true);
 		setError(null);
 		try {
+			if (account !== null) {
+				const result = await Effect.runPromise(
+					cloudControlClient["cloud.chats.list"]({ scope: "archived" }),
+				);
+				if (accountRef.current !== account.id) return;
+				setCloudRows(result.chats.map(archivedCloudRow));
+			} else setCloudRows([]);
 			const loaded = await Promise.all(
 				Object.entries(bundles).flatMap(([connectionKey, projectBundles]) => {
 					const connection = optionsForConnection(connectionKey, connections);
-					if (connection === null) return [];
+					if (connection === null || connection.cloudWorkspaceId !== undefined)
+						return [];
 					return projectBundles.map(async (bundle) => {
 						const chats = await Effect.runPromise(
 							listArchivedChats({
@@ -81,7 +109,7 @@ export default function ArchivesScreen() {
 		} finally {
 			setLoading(false);
 		}
-	}, [bundles, connections]);
+	}, [account, bundles, connections]);
 
 	useEffect(() => {
 		void refresh();
@@ -89,12 +117,25 @@ export default function ArchivesScreen() {
 
 	const restore = async (row: ArchivedRow) => {
 		const connection = optionsForConnection(row.connectionKey, connections);
-		if (connection === null) return;
+		if (connection === null && row.cloudWorkspaceId === undefined) return;
 		setBusyId(row.chat.id);
 		try {
-			await Effect.runPromise(
-				unarchiveChat({ connection, chatId: row.chat.id }),
-			);
+			if (row.cloudWorkspaceId !== undefined)
+				await Effect.runPromise(
+					cloudControlClient["cloud.workspaces.unarchive"]({
+						workspaceId: row.cloudWorkspaceId,
+					}),
+				);
+			else if (connection !== null)
+				await Effect.runPromise(
+					unarchiveChat({ connection, chatId: row.chat.id }),
+				);
+			if (row.cloudWorkspaceId !== undefined) {
+				setCloudRows((current) =>
+					current.filter((candidate) => candidate.chat.id !== row.chat.id),
+				);
+				await refreshCloudCatalog();
+			}
 			setRows((current) =>
 				current.filter((candidate) => candidate.chat.id !== row.chat.id),
 			);
@@ -107,16 +148,31 @@ export default function ArchivesScreen() {
 
 	const confirmDelete = (row: ArchivedRow) => {
 		const connection = optionsForConnection(row.connectionKey, connections);
-		if (connection === null) return;
+		if (connection === null && row.cloudWorkspaceId === undefined) return;
 		Alert.prompt(
 			"Delete permanently?",
 			`This permanently deletes “${row.chat.title}” and its sessions. Type DELETE to continue.`,
 			(value) => {
 				if (value !== "DELETE") return;
 				setBusyId(row.chat.id);
-				void Effect.runPromise(
-					deleteArchivedChat({ connection, chatId: row.chat.id }),
-				)
+				const deletion =
+					row.cloudWorkspaceId !== undefined
+						? Effect.runPromise(
+								cloudControlClient["cloud.workspaces.delete"]({
+									workspaceId: row.cloudWorkspaceId,
+								}),
+							)
+						: connection === null
+							? Promise.reject(new Error("Connection unavailable"))
+							: Effect.runPromise(
+									deleteArchivedChat({ connection, chatId: row.chat.id }),
+								);
+				void deletion
+					.then(() =>
+						setCloudRows((current) =>
+							current.filter((candidate) => candidate.chat.id !== row.chat.id),
+						),
+					)
 					.then(() =>
 						setRows((current) =>
 							current.filter((candidate) => candidate.chat.id !== row.chat.id),
@@ -132,6 +188,18 @@ export default function ArchivesScreen() {
 	};
 
 	const showPreview = async (row: ArchivedRow) => {
+		if (row.cloudWorkspaceId !== undefined) {
+			Alert.alert(row.chat.title, `Cloud workspace · ${row.projectName}`, [
+				{ text: "Cancel", style: "cancel" },
+				{ text: "Unarchive", onPress: () => void restore(row) },
+				{
+					text: "Delete",
+					style: "destructive",
+					onPress: () => confirmDelete(row),
+				},
+			]);
+			return;
+		}
 		const connection = optionsForConnection(row.connectionKey, connections);
 		if (connection === null) return;
 		try {
@@ -176,12 +244,12 @@ export default function ArchivesScreen() {
 						{error}
 					</Text>
 				)}
-				{!loading && rows.length === 0 ? (
+				{!loading && rows.length === 0 && cloudRows.length === 0 ? (
 					<Text className="py-12 text-center font-sans text-muted-foreground">
 						No archived chats
 					</Text>
 				) : null}
-				{rows.map((row) => (
+				{[...cloudRows, ...rows].map((row) => (
 					<Pressable
 						key={`${row.connectionKey}:${row.chat.id}`}
 						disabled={busyId !== null}

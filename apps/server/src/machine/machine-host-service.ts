@@ -12,11 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { MachinePrivateNetworkStatus, SshMode } from "@zuse/contracts";
-import {
-	MachineRuntimeStatus,
-	MachineSshKey,
-	RelayPaths,
-} from "@zuse/contracts";
+import { ApiPaths, MachineRuntimeStatus, MachineSshKey } from "@zuse/contracts";
 import { Context, Effect, Layer, Schema } from "effect";
 
 import { AppPaths } from "../app-paths.ts";
@@ -48,7 +44,7 @@ export const MachinePrivateEndpointPublisherLive: Layer.Layer<
 				Effect.gen(function* () {
 					if (status.enabled !== true || status.privateIp === undefined) return;
 					const config = yield* auth
-						.getRelayConfig()
+						.getApiConfig()
 						.pipe(
 							Effect.mapError(
 								() => new MachineControlError("provider-unavailable"),
@@ -63,7 +59,7 @@ export const MachinePrivateEndpointPublisherLive: Layer.Layer<
 					yield* Effect.tryPromise({
 						try: async () => {
 							const response = await fetch(
-								`${config.relayUrl}${RelayPaths.heartbeat(config.environmentId)}`,
+								`${config.apiUrl}${ApiPaths.heartbeat(config.environmentId)}`,
 								{
 									method: "POST",
 									headers: {
@@ -73,7 +69,7 @@ export const MachinePrivateEndpointPublisherLive: Layer.Layer<
 									body: JSON.stringify({ privateEndpoint: endpoint }),
 								},
 							);
-							if (!response.ok) throw new Error(`relay_${response.status}`);
+							if (!response.ok) throw new Error(`api_${response.status}`);
 						},
 						catch: () => new MachineControlError("provider-unavailable"),
 					});

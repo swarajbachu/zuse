@@ -36,6 +36,9 @@ export const ProviderId = Schema.Union([
 ]);
 export type ProviderId = typeof ProviderId.Type;
 
+/** Every provider id in canonical order (picker + settings iteration). */
+export const PROVIDER_IDS = BUILTIN_PROVIDER_IDS;
+
 /**
  * How a session is being driven. `spawn-cli` is just a PTY launch with a known
  * argv; `sdk` runs through the in-process adapter and emits structured events.
@@ -796,6 +799,50 @@ export const AgentDefinition = Schema.Struct({
 });
 export type AgentDefinition = typeof AgentDefinition.Type;
 
+/**
+ * What each model declares about itself — the source of truth the renderer
+ * uses to decide whether to show the reasoning picker, plan-mode toggle,
+ * and to label WebSearch result behavior. Driver behavior is keyed off the
+ * same descriptors so FE and BE stay in lockstep.
+ *
+ *   - `optionDescriptors`: per-model knobs the composer renders (reasoning,
+ *     etc.). Omitting the descriptor hides the control.
+ *   - `supportsPlanMode`: whether the plan-mode toggle is shown for this
+ *     model. `true` for every model today (native for Claude/Cursor,
+ *     emulated via dev-instructions prefix for Codex/Grok/Gemini); set
+ *     `false` only when there's a hard reason not to allow planning.
+ *   - `supportsWebSearch`: `"native"` (driver emits real results),
+ *     `"queryOnly"` (driver emits the query but no results), or omitted
+ *     (provider doesn't search).
+ */
+export const ModelOption = Schema.Struct({
+	id: Schema.String,
+	label: Schema.String,
+	/** Optional small picker badge for launch/newness callouts. */
+	badgeLabel: Schema.optional(Schema.String),
+	/**
+	 * Preferred default for this provider. When omitted, the first visible model
+	 * remains the fallback default.
+	 */
+	defaultModel: Schema.optional(Schema.Boolean),
+	/**
+	 * Whether this model appears in normal picker/default selectors before the
+	 * user opts it back in from provider settings. Omitted means visible.
+	 */
+	defaultVisible: Schema.optional(Schema.Boolean),
+	optionDescriptors: Schema.optional(Schema.Array(OptionDescriptor)),
+	supportsPlanMode: Schema.optional(Schema.Boolean),
+	supportsWebSearch: Schema.optional(Schema.Literals(["native", "queryOnly"])),
+});
+export type ModelOption = typeof ModelOption.Type;
+
+/**
+ * The catalog data itself (models, aliases, pricing) lives in
+ * `./model-catalog/` — see `BUNDLED_MODEL_CATALOG` and the
+ * catalog-parameterized helpers (`defaultModelFor`, `findModelDescriptor`,
+ * `resolveModelSlug`, …). Nothing here should read a static model list.
+ */
+
 export const StartSessionInput = Schema.Struct({
 	folderId: FolderId,
 	providerId: ProviderId,
@@ -866,681 +913,15 @@ export const StartSessionInput = Schema.Struct({
 	 * can't interpret.
 	 */
 	modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+	/**
+	 * Internal: the resolved catalog entry for `model`. The renderer does not
+	 * set this; ProviderService looks it up in the resolved model catalog
+	 * (curated + live inventory) so drivers gate reasoning tiers / fast mode
+	 * without reading a static list. `undefined` for custom slugs.
+	 */
+	modelDescriptor: Schema.optional(ModelOption),
 });
 export type StartSessionInput = typeof StartSessionInput.Type;
-
-/**
- * What each model declares about itself — the source of truth the renderer
- * uses to decide whether to show the reasoning picker, plan-mode toggle,
- * and to label WebSearch result behavior. Driver behavior is keyed off the
- * same descriptors so FE and BE stay in lockstep.
- *
- *   - `optionDescriptors`: per-model knobs the composer renders (reasoning,
- *     etc.). Omitting the descriptor hides the control.
- *   - `supportsPlanMode`: whether the plan-mode toggle is shown for this
- *     model. `true` for every model today (native for Claude/Cursor,
- *     emulated via dev-instructions prefix for Codex/Grok/Gemini); set
- *     `false` only when there's a hard reason not to allow planning.
- *   - `supportsWebSearch`: `"native"` (driver emits real results),
- *     `"queryOnly"` (driver emits the query but no results), or omitted
- *     (provider doesn't search).
- */
-export interface ModelOption {
-	readonly id: string;
-	readonly label: string;
-	/**
-	 * Optional small picker badge for launch/newness callouts.
-	 */
-	readonly badgeLabel?: string;
-	/**
-	 * Preferred default for this provider. When omitted, the first visible model
-	 * remains the fallback default.
-	 */
-	readonly defaultModel?: boolean;
-	/**
-	 * Whether this model appears in normal picker/default selectors before the
-	 * user opts it back in from provider settings. Omitted means visible.
-	 */
-	readonly defaultVisible?: boolean;
-	readonly optionDescriptors?: ReadonlyArray<OptionDescriptor>;
-	readonly supportsPlanMode?: boolean;
-	readonly supportsWebSearch?: "native" | "queryOnly";
-}
-
-/**
- * Reasoning descriptor for Codex/Gemini/Cursor and the `reasoning` knob name
- * used across non-Claude providers. Models can append provider-supported
- * tiers beyond the standard low/medium/high set.
- */
-const reasoningSelectDescriptor = (
-	defaultId: ReasoningLevel = "medium",
-	additionalOptions: ReadonlyArray<{ id: ReasoningLevel; label: string }> = [],
-): SelectOptionDescriptor => ({
-	kind: "select",
-	id: "reasoning",
-	label: "Reasoning",
-	options: [
-		{ id: "low", label: "Low" },
-		{ id: "medium", label: "Medium" },
-		{ id: "high", label: "High" },
-		...additionalOptions,
-	],
-	defaultId,
-});
-
-const extraHighReasoningOption = {
-	id: "xhigh",
-	label: "Extra High",
-} as const;
-
-const gpt56ExtendedReasoningOptions = [
-	extraHighReasoningOption,
-	{ id: "max", label: "Max" },
-	{ id: "ultra", label: "Ultra" },
-] as const;
-
-const gpt56Model = (
-	id: string,
-	label: string,
-	defaultModel = false,
-): ModelOption => ({
-	id,
-	label,
-	...(defaultModel ? { defaultModel: true } : {}),
-	optionDescriptors: [
-		reasoningSelectDescriptor("medium", gpt56ExtendedReasoningOptions),
-	],
-	supportsPlanMode: true,
-	supportsWebSearch: "native",
-});
-
-/**
- * Per-model effort descriptor for the Claude provider. Each model declares
- * its own supported tiers (see `MODELS_BY_PROVIDER.claude` below); `ultracode`
- * is special — see `ReasoningLevel` docs. The knob id is `effort` rather
- * than `reasoning` to make driver-side mapping explicit.
- */
-const claudeEffortDescriptor = (args: {
-	options: ReadonlyArray<{ id: string; label: string }>;
-	defaultId: string;
-	promptInjectedValues?: ReadonlyArray<string>;
-}): SelectOptionDescriptor => ({
-	kind: "select",
-	id: "effort",
-	label: "Reasoning",
-	options: args.options,
-	defaultId: args.defaultId,
-	...(args.promptInjectedValues !== undefined
-		? { promptInjectedValues: args.promptInjectedValues }
-		: {}),
-});
-
-/**
- * Boolean descriptor for a per-model toggle. Used by Claude (`fastMode` halves
- * the token cost and roughly doubles throughput at the cost of some quality;
- * `thinking` enables Haiku 4.5's always-on adaptive thinking) and by Codex
- * (`fastMode` → `serviceTier: "fast"`, the 1.5× speed tier on the latest
- * models). The driver keys behavior off the descriptor `id`.
- */
-const booleanDescriptor = (
-	id: string,
-	label: string,
-): BooleanOptionDescriptor => ({
-	kind: "boolean",
-	id,
-	label,
-});
-
-/**
- * Standard `contextWindow` descriptor used by every Claude 4.x model that
- * supports the 1M variant. Driver-side, picking `"1m"` rewrites the API
- * model id to `${slug}[1m]`. We default to `"1m"` because Anthropic now
- * routes most Claude 4.x sessions to the 1M window by default.
- */
-const claudeContextWindowDescriptor = (): SelectOptionDescriptor => ({
-	kind: "select",
-	id: "contextWindow",
-	label: "Context Window",
-	options: [
-		{ id: "200k", label: "200k" },
-		{ id: "1m", label: "1M" },
-	],
-	defaultId: "1m",
-});
-
-const staticContextWindowDescriptor = (
-	id: string,
-	label: string,
-): SelectOptionDescriptor => ({
-	kind: "select",
-	id: "contextWindow",
-	label: "Context Window",
-	options: [{ id, label }],
-	defaultId: id,
-});
-
-export const MODELS_BY_PROVIDER: Record<
-	BuiltinProviderId,
-	ReadonlyArray<ModelOption>
-> = {
-	// Claude catalog. Effort tiers and per-model knobs match
-	// the published Claude Agent SDK contract. Ordering = newest first so the
-	// picker accordion opens on the latest recommended model by default.
-	claude: [
-		{
-			id: "claude-fable-5",
-			label: "Fable 5",
-			badgeLabel: "Available now",
-			optionDescriptors: [
-				claudeEffortDescriptor({
-					options: [
-						{ id: "low", label: "Low" },
-						{ id: "medium", label: "Medium" },
-						{ id: "high", label: "High" },
-						{ id: "xhigh", label: "Extra High" },
-						{ id: "max", label: "Max" },
-						{ id: "ultracode", label: "Ultracode" },
-					],
-					defaultId: "high",
-				}),
-				booleanDescriptor("fastMode", "Fast Mode"),
-				claudeContextWindowDescriptor(),
-			],
-			supportsPlanMode: true,
-			supportsWebSearch: "native",
-		},
-		{
-			id: "claude-opus-5",
-			label: "Opus 5",
-			badgeLabel: "New",
-			optionDescriptors: [
-				claudeEffortDescriptor({
-					options: [
-						{ id: "low", label: "Low" },
-						{ id: "medium", label: "Medium" },
-						{ id: "high", label: "High" },
-						{ id: "xhigh", label: "Extra High" },
-						{ id: "max", label: "Max" },
-						{ id: "ultracode", label: "Ultracode" },
-					],
-					defaultId: "high",
-				}),
-				staticContextWindowDescriptor("1m", "1M"),
-			],
-			supportsPlanMode: true,
-			supportsWebSearch: "native",
-		},
-		{
-			id: "claude-sonnet-5",
-			label: "Sonnet 5",
-			badgeLabel: "New",
-			defaultModel: true,
-			optionDescriptors: [
-				claudeEffortDescriptor({
-					options: [
-						{ id: "low", label: "Low" },
-						{ id: "medium", label: "Medium" },
-						{ id: "high", label: "High" },
-						{ id: "max", label: "Max" },
-						{ id: "ultracode", label: "Ultracode" },
-					],
-					defaultId: "high",
-				}),
-				claudeContextWindowDescriptor(),
-			],
-			supportsPlanMode: true,
-			supportsWebSearch: "native",
-		},
-	],
-	codex: [
-		gpt56Model("gpt-5.6-sol", "GPT-5.6 Sol", true),
-		gpt56Model("gpt-5.6-terra", "GPT-5.6 Terra"),
-		gpt56Model("gpt-5.6-luna", "GPT-5.6 Luna"),
-	],
-	// Seed list — Grok CLI's `-m` flag accepts any model id it knows, so a
-	// custom slug typed by the user still works; this list is just what the
-	// picker shows by default. `grok-build` unlocks with a paid Grok entitlement
-	// such as SuperGrok or X Premium+. Passing a slug the account can't access yields
-	// a clean 403 surfaced through grok's streaming-json `type: "error"`
-	// envelope, so no client-side validation needed.
-	grok: [
-		{
-			id: "grok-build",
-			label: "Grok Build",
-			supportsPlanMode: true,
-			supportsWebSearch: "queryOnly",
-		},
-		{
-			id: "grok-4.6",
-			label: "Grok 4.6",
-			badgeLabel: "New",
-			supportsPlanMode: true,
-			supportsWebSearch: "queryOnly",
-		},
-		{
-			id: "grok-composer-2.5-fast",
-			label: "Grok Composer 2.5 Fast",
-			supportsPlanMode: true,
-			supportsWebSearch: "queryOnly",
-		},
-	],
-	// Gemini CLI accepts any model slug it knows via the ACP `_meta.model`
-	// hint; this list is just what the picker offers by default. Gemini's
-	// ACP server does not expose a runtime reasoning-effort knob (the
-	// native gemini CLI doesn't show one either), so no reasoning descriptor
-	// is declared — the FE picker is hidden across the whole provider.
-	gemini: [
-		{
-			id: "gemini-3-pro-preview",
-			label: "Gemini 3 Pro",
-			supportsPlanMode: true,
-			supportsWebSearch: "queryOnly",
-		},
-		{
-			id: "gemini-3-flash-preview",
-			label: "Gemini 3 Flash",
-			supportsPlanMode: true,
-			supportsWebSearch: "queryOnly",
-		},
-	],
-	// Kiro CLI (`kiro-cli acp`) speaks standard ACP. Model ids match
-	// `kiro-cli chat --list-models --format json`. Effort can be passed at
-	// spawn time via `kiro-cli acp --effort …` and at runtime via
-	// `session/set_model` does not carry effort — so we surface effort as a
-	// model option that the driver applies on process start / next turn.
-	kiro: [
-		{
-			id: "auto",
-			label: "Auto",
-			supportsPlanMode: true,
-		},
-		{
-			id: "claude-opus-5",
-			label: "Claude Opus 5",
-			badgeLabel: "Experimental",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{
-			id: "claude-sonnet-5",
-			label: "Claude Sonnet 5",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{
-			id: "gpt-5.6-sol",
-			label: "GPT-5.6 Sol",
-			badgeLabel: "Experimental",
-			supportsPlanMode: true,
-		},
-		{
-			id: "gpt-5.6-terra",
-			label: "GPT-5.6 Terra",
-			badgeLabel: "Experimental",
-			supportsPlanMode: true,
-		},
-		{
-			id: "gpt-5.6-luna",
-			label: "GPT-5.6 Luna",
-			badgeLabel: "Experimental",
-			supportsPlanMode: true,
-		},
-	],
-	// The bundled SDK exposes a broad model catalog. This curated shortlist is
-	// only the picker seed, not a whitelist. The `default` slug maps to the
-	// SDK's current recommended composer model.
-	cursor: [
-		{ id: "default", label: "Auto", supportsPlanMode: true },
-		{
-			id: "composer-2.5",
-			label: "Composer 2.5",
-			defaultModel: true,
-			supportsPlanMode: true,
-		},
-		{ id: "claude-fable-5", label: "Fable 5", supportsPlanMode: true },
-		{ id: "claude-opus-5", label: "Opus 5", supportsPlanMode: true },
-		{
-			id: "claude-sonnet-5",
-			label: "Sonnet 5",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol", supportsPlanMode: true },
-		{ id: "gpt-5.6-terra", label: "GPT-5.6 Terra", supportsPlanMode: true },
-		{ id: "gpt-5.6-luna", label: "GPT-5.6 Luna", supportsPlanMode: true },
-		{
-			id: "gemini-3.1-pro",
-			label: "Gemini 3.1 Pro",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{
-			id: "gemini-3.7-flash",
-			label: "Gemini 3.7 Flash",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{ id: "grok-4.6", label: "Grok 4.6", supportsPlanMode: true },
-	],
-	// OpenCode is a meta-provider: it spawns a local `opencode serve` and
-	// forwards prompts to whichever underlying provider (anthropic, openai,
-	// google, …) the user has authenticated locally via `opencode auth login`.
-	// Model ids carry a `<providerID>/<modelID>` slug so the driver can split
-	// them on the slash before calling `session.prompt`.
-	//
-	// The list below is the static seed shown when the inventory RPC hasn't
-	// resolved yet (or fails). At runtime the renderer calls
-	// `agent.opencodeInventory` and replaces this list with the
-	// dynamically-discovered set of connected providers + models. The
-	// dedicated plan-mode toggle covers build/plan agent switching, so we
-	// don't expose an agent dropdown per-model. Reasoning/variant pickers
-	// are rendered dynamically from each model's `variants` array.
-	opencode: [
-		{
-			id: "opencode/x-preview-f-free",
-			label: "OpenCode · Ox Alpha Free",
-			badgeLabel: "Free",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{
-			id: "opencode/claude-fable-5",
-			label: "OpenCode · Claude Fable 5",
-			badgeLabel: "New",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{
-			id: "opencode/claude-opus-5",
-			label: "OpenCode · Claude Opus 5",
-			badgeLabel: "New",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{
-			id: "opencode/claude-sonnet-5",
-			label: "OpenCode · Claude Sonnet 5",
-			defaultModel: true,
-			badgeLabel: "New",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{
-			id: "opencode/gpt-5.6-sol",
-			label: "OpenCode · GPT-5.6 Sol",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{
-			id: "opencode/gpt-5.6-terra",
-			label: "OpenCode · GPT-5.6 Terra",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{
-			id: "opencode/gpt-5.6-luna",
-			label: "OpenCode · GPT-5.6 Luna",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{
-			id: "opencode/gemini-3.1-pro",
-			label: "OpenCode · Gemini 3.1 Pro",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{
-			id: "opencode/gemini-3.7-flash",
-			label: "OpenCode · Gemini 3.7 Flash",
-			optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
-			supportsPlanMode: true,
-		},
-		{
-			id: "opencode/grok-4.6",
-			label: "OpenCode · Grok 4.6",
-			supportsPlanMode: true,
-		},
-	],
-};
-
-export const modelsForProvider = (
-	providerId: ProviderId,
-): ReadonlyArray<ModelOption> =>
-	isBuiltinProviderId(providerId) ? MODELS_BY_PROVIDER[providerId] : [];
-
-export const defaultModelFor = (providerId: ProviderId): string =>
-	(
-		modelsForProvider(providerId).find(
-			(m) => m.defaultModel === true && m.defaultVisible !== false,
-		) ??
-		modelsForProvider(providerId).find((m) => m.defaultVisible !== false) ??
-		modelsForProvider(providerId)[0]
-	)?.id ?? "default";
-
-export type ModelEnabledByProvider = Record<
-	ProviderId,
-	Record<string, boolean>
->;
-
-export const defaultModelEnabledByProvider = (): ModelEnabledByProvider => {
-	const out = {} as ModelEnabledByProvider;
-	for (const providerId of Object.keys(
-		MODELS_BY_PROVIDER,
-	) as BuiltinProviderId[]) {
-		out[providerId] = {};
-		for (const model of MODELS_BY_PROVIDER[providerId] ?? []) {
-			out[providerId][model.id] = model.defaultVisible !== false;
-		}
-	}
-	return out;
-};
-
-export const isModelVisible = (
-	providerId: ProviderId,
-	modelId: string,
-	modelEnabledByProvider?: Partial<
-		Record<ProviderId, Partial<Record<string, boolean>>>
-	>,
-): boolean => {
-	const override = modelEnabledByProvider?.[providerId]?.[modelId];
-	if (typeof override === "boolean") return override;
-	const descriptor = findModelDescriptor(providerId, modelId);
-	if (descriptor === undefined) return true;
-	return descriptor.defaultVisible !== false;
-};
-
-export const visibleModelsForProvider = (
-	providerId: ProviderId,
-	modelEnabledByProvider?: Partial<
-		Record<ProviderId, Partial<Record<string, boolean>>>
-	>,
-	options?: { readonly includeModelId?: string | null },
-): ReadonlyArray<ModelOption> => {
-	const includeModelId = options?.includeModelId ?? null;
-	return modelsForProvider(providerId).filter(
-		(model) =>
-			isModelVisible(providerId, model.id, modelEnabledByProvider) ||
-			model.id === includeModelId,
-	);
-};
-
-/**
- * Look up a model's descriptor by `(providerId, modelId)`. Returns
- * `undefined` when the slug isn't in our curated list (e.g. user typed
- * a custom slug), in which case the caller should fall through to
- * provider-level defaults.
- */
-export const findModelDescriptor = (
-	providerId: ProviderId,
-	modelId: string,
-): ModelOption | undefined =>
-	modelsForProvider(providerId).find((m) => m.id === modelId);
-
-/**
- * Aliases for codex model slugs that no longer work — current Codex CLI rejects
- * `gpt-5-codex` / `gpt-5` when the user is on a ChatGPT account. We rewrite
- * persisted user settings and incoming requests through this map so existing
- * sessions don't crash.
- */
-export const MODEL_ALIASES_BY_PROVIDER: Record<
-	BuiltinProviderId,
-	Record<string, string>
-> = {
-	// Short / vendor-formatted slugs and pre-pricing-reset names route to the
-	// canonical slugs above, so a user typing `opus` or `sonnet-4.6`
-	// resolves to the current model id.
-	claude: {
-		opus: "claude-opus-5",
-		"opus-5": "claude-opus-5",
-		"claude-opus-5": "claude-opus-5",
-		"opus-4.8": "claude-opus-4-8",
-		"claude-opus-4.8": "claude-opus-4-8",
-		"opus-4.7": "claude-opus-4-7",
-		"claude-opus-4.7": "claude-opus-4-7",
-		"opus-4.6": "claude-opus-4-6",
-		"claude-opus-4.6": "claude-opus-4-6",
-		fable: "claude-fable-5",
-		"fable-5": "claude-fable-5",
-		"claude-fable-5": "claude-fable-5",
-		sonnet: "claude-sonnet-5",
-		"sonnet-5": "claude-sonnet-5",
-		"claude-sonnet-5": "claude-sonnet-5",
-		"sonnet-4.6": "claude-sonnet-4-6",
-		"claude-sonnet-4.6": "claude-sonnet-4-6",
-		haiku: "claude-haiku-4-5",
-		"haiku-4.5": "claude-haiku-4-5",
-		"claude-haiku-4.5": "claude-haiku-4-5",
-	},
-	codex: {
-		"gpt-5-codex": "gpt-5.5",
-		"gpt-5": "gpt-5.5",
-	},
-	grok: {
-		"grok-4.6-latest": "grok-4.6",
-		"grok-4.5-latest": "grok-4.5",
-		"grok-build-latest": "grok-4.6",
-	},
-	gemini: {
-		"gemini-3-pro": "gemini-3-pro-preview",
-		"gemini-3.1-pro-preview": "gemini-3-pro-preview",
-	},
-	kiro: {
-		// Common shorthand / dotted-vs-hyphen variants users may persist.
-		"claude-opus-4-8": "claude-opus-4.8",
-		"claude-opus-4-7": "claude-opus-4.7",
-		"claude-opus-4-6": "claude-opus-4.6",
-		"claude-sonnet-4-6": "claude-sonnet-4.6",
-		"claude-sonnet-4-5": "claude-sonnet-4.5",
-		"claude-haiku-4-5": "claude-haiku-4.5",
-	},
-	// Cursor retired the old `gpt-5` / `sonnet-4*` / `opus-4.x` slugs sometime
-	// around 2025-11. Existing user settings persisted by earlier builds get
-	// re-aliased to current cursor catalogue entries so re-opening the app
-	// doesn't send the agent a slug it'll silently ignore.
-	cursor: {
-		// Legacy slugs persisted by earlier builds.
-		"gpt-5": "composer-2",
-		"sonnet-4": "claude-sonnet-4-6",
-		"sonnet-4-thinking": "claude-sonnet-4-6",
-		"opus-4.1": "claude-opus-4-7",
-		// Earlier runtime variants normalize to SDK-supported base models so a
-		// previously persisted choice does not fail during agent creation.
-		"composer-2-fast": "composer-2",
-		"composer-2.5-fast": "composer-2.5",
-		"gpt-5.5-medium": "gpt-5.5",
-		"gpt-5.5-medium-fast": "gpt-5.5",
-		"gpt-5.5-high": "gpt-5.5",
-		"gpt-5.5-high-fast": "gpt-5.5",
-		"gpt-5.5-low": "gpt-5.5",
-		"gpt-5.5-low-fast": "gpt-5.5",
-		"gpt-5.5-extra-high": "gpt-5.5",
-		"gpt-5.5-extra-high-fast": "gpt-5.5",
-		"gpt-5.5-none": "gpt-5.5",
-		"gpt-5.5-none-fast": "gpt-5.5",
-		"gpt-5.4-high": "gpt-5.4",
-		"gpt-5.4-high-fast": "gpt-5.4",
-		"gpt-5.3-codex-fast": "gpt-5.3-codex",
-		auto: "default",
-	},
-	opencode: {},
-};
-
-export const resolveModelSlug = (
-	providerId: ProviderId,
-	slug: string,
-): string =>
-	(isBuiltinProviderId(providerId)
-		? MODEL_ALIASES_BY_PROVIDER[providerId][slug]
-		: undefined) ?? slug;
-
-/**
- * Per-million-token USD pricing used by the renderer to compute the
- * "saved ~$X" line in the per-agent cost footer. Numbers are reference
- * values — keep aligned with vendor pricing pages. The wire stays just
- * numbers; conversion to currency happens renderer-side.
- */
-export interface ModelPricing {
-	readonly input: number;
-	readonly output: number;
-	readonly cacheRead: number;
-	readonly cacheCreate: number;
-}
-
-export const MODEL_PRICING: Record<string, ModelPricing> = {
-	// 2026-05 Anthropic pricing reset — every Opus 4.x tier landed at the
-	// same $5/$25 per-million numbers. `fastMode` (Opus only) doubles those
-	// to $10 in / $50 out for ~2.5x throughput; we don't encode that here,
-	// the renderer's cost footer applies the multiplier when the session
-	// flips the boolean. 1M context window: no per-token premium.
-	"claude-opus-5": {
-		input: 5,
-		output: 25,
-		cacheRead: 0.5,
-		cacheCreate: 6.25,
-	},
-	"claude-opus-4-8": {
-		input: 5,
-		output: 25,
-		cacheRead: 0.5,
-		cacheCreate: 6.25,
-	},
-	"claude-opus-4-7": {
-		input: 5,
-		output: 25,
-		cacheRead: 0.5,
-		cacheCreate: 6.25,
-	},
-	"claude-opus-4-6": {
-		input: 5,
-		output: 25,
-		cacheRead: 0.5,
-		cacheCreate: 6.25,
-	},
-	"claude-fable-5": {
-		input: 10,
-		output: 50,
-		cacheRead: 1,
-		cacheCreate: 12.5,
-	},
-	"claude-sonnet-5": {
-		input: 3,
-		output: 15,
-		cacheRead: 0.3,
-		cacheCreate: 3.75,
-	},
-	"claude-sonnet-4-6": {
-		input: 3,
-		output: 15,
-		cacheRead: 0.3,
-		cacheCreate: 3.75,
-	},
-	"claude-haiku-4-5": {
-		input: 1,
-		output: 5,
-		cacheRead: 0.1,
-		cacheCreate: 1.25,
-	},
-};
 
 export const SendInput = Schema.Struct({
 	sessionId: AgentSessionId,
@@ -1637,7 +1018,7 @@ export const ProviderRemoveCredentialRpc = Rpc.make(
 // opens the model picker for the opencode provider. Returns the
 // SDK-discovered set of connected providers + their models, and the set of
 // locally-defined agents (build, plan, plus any custom ones). The renderer
-// merges this into the static `MODELS_BY_PROVIDER.opencode` seed so the
+// server merges this into the curated `opencode` catalog seed so the
 // picker reflects what the user actually has connected/configured.
 //
 // Lives next to the per-provider availability probe so it's discoverable
@@ -1706,22 +1087,10 @@ export const OpencodeInventory = Schema.Struct({
 });
 export type OpencodeInventory = typeof OpencodeInventory.Type;
 
-export const ProviderOpencodeInventoryRpc = Rpc.make(
-	"provider.opencode.inventory",
-	{
-		payload: Schema.Struct({}),
-		success: OpencodeInventory,
-		// Reused — `AgentSessionStartError` already carries `providerId` + `reason`
-		// and the failure mode here ("opencode not installed", "spawn failed") is
-		// the same shape the renderer already knows how to surface.
-		error: AgentSessionStartError,
-	},
-);
-
 // ---------------------------------------------------------------------------
 // Kiro live model inventory. Prefer control-plane ListAvailableModels; fall
 // back to `kiro-cli chat --list-models`. The renderer merges this into the
-// static `MODELS_BY_PROVIDER.kiro` seed so the picker reflects the account's
+// curated `kiro` catalog seed so the picker reflects the account's
 // currently-available catalog (which varies by tier / region).
 // ---------------------------------------------------------------------------
 
@@ -1740,12 +1109,6 @@ export const KiroInventory = Schema.Struct({
 	defaultModelId: Schema.String,
 });
 export type KiroInventory = typeof KiroInventory.Type;
-
-export const ProviderKiroInventoryRpc = Rpc.make("provider.kiro.inventory", {
-	payload: Schema.Struct({}),
-	success: KiroInventory,
-	error: AgentSessionStartError,
-});
 
 // ---------------------------------------------------------------------------
 // OpenCode provider management. The settings UI lets the user connect any of

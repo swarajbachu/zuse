@@ -17,6 +17,34 @@ export const POWER_GET_HISTORY_CHANNEL = "zuse:power-get-history" as const;
 export const POWER_CLEAR_HISTORY_CHANNEL = "zuse:power-clear-history" as const;
 export const POWER_RECORDING_DURATION_MINUTES = [5, 15, 30] as const;
 
+export const COMPUTER_AWAKE_STATE_CHANNEL =
+	"zuse:computer-awake-state" as const;
+export const COMPUTER_AWAKE_GET_STATUS_CHANNEL =
+	"zuse:computer-awake-get-status" as const;
+export const COMPUTER_AWAKE_SET_MODE_CHANNEL =
+	"zuse:computer-awake-set-mode" as const;
+export const COMPUTER_AWAKE_SUBSCRIBE_CHANNEL =
+	"zuse:computer-awake-subscribe" as const;
+export const COMPUTER_AWAKE_UNSUBSCRIBE_CHANNEL =
+	"zuse:computer-awake-unsubscribe" as const;
+
+export const ComputerAwakeMode = Schema.Literals(["off", "auto", "always"]);
+export type ComputerAwakeMode = typeof ComputerAwakeMode.Type;
+
+/** Host-owned macOS sleep-inhibition state exposed through the preload bridge. */
+export class ComputerAwakeStatus extends Schema.Class<ComputerAwakeStatus>(
+	"ComputerAwakeStatus",
+)({
+	supported: Schema.Boolean,
+	mode: ComputerAwakeMode,
+	active: Schema.Boolean,
+	activeAgents: Schema.Number,
+	remoteClients: Schema.Number,
+	electronBlockerActive: Schema.Boolean,
+	caffeinateActive: Schema.Boolean,
+	warning: Schema.NullOr(Schema.String),
+}) {}
+
 export const PowerSource = Schema.Literals(["battery", "ac", "unknown"]);
 export type PowerSource = typeof PowerSource.Type;
 

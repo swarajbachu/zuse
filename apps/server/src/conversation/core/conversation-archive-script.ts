@@ -6,6 +6,7 @@ import {
 	type ChatId,
 } from "@zuse/contracts";
 import { Effect } from "effect";
+import { signalProcessGroup } from "../../process/process-group.ts";
 
 const TIMEOUT_MS = 10 * 60 * 1000;
 const INTERRUPT_GRACE_MS = 1_000;
@@ -54,11 +55,7 @@ export const runArchiveScript = (
 
 		const timer = setTimeout(() => {
 			timedOut = true;
-			try {
-				if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
-			} catch {
-				child.kill("SIGKILL");
-			}
+			signalProcessGroup(child, "SIGKILL");
 		}, TIMEOUT_MS);
 
 		child.on("error", (error) => {
@@ -125,11 +122,7 @@ export const runArchiveScript = (
 			};
 			child.once("close", finish);
 			const signalGroup = (signal: NodeJS.Signals) => {
-				try {
-					if (child.pid !== undefined) process.kill(-child.pid, signal);
-				} catch {
-					child.kill(signal);
-				}
+				signalProcessGroup(child, signal);
 			};
 			signalGroup("SIGTERM");
 			killTimer = setTimeout(() => signalGroup("SIGKILL"), INTERRUPT_GRACE_MS);

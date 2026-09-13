@@ -3,7 +3,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Account } from "@zuse/agents/codex-generated/v2/Account";
 import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
-import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
+import {
+	CodexAppServerClient,
+	getDefaultCodexExternalAuthTokens,
+} from "@zuse/agents/drivers/codex-app-server-client";
 import {
 	MemoizeRpcs,
 	VoiceFallbackTicketError,
@@ -66,6 +69,13 @@ const readAccountAuth = async (): Promise<AccountAuth> => {
 };
 
 const refreshCompatibleAccount = async (): Promise<AccountAuth> => {
+	const external = await getDefaultCodexExternalAuthTokens("proactive");
+	if (external !== null) {
+		return {
+			token: external.accessToken,
+			accountId: external.chatgptAccountId,
+		};
+	}
 	let client: CodexAppServerClient | null = null;
 	try {
 		client = await CodexAppServerClient.start({
@@ -112,7 +122,7 @@ const upload = async (
 		const form = new FormData();
 		form.append(
 			"file",
-			new Blob([bytes], { type: mimeType }),
+			new Blob([new Uint8Array(bytes)], { type: mimeType }),
 			mimeType.includes("mp4") ? "recording.m4a" : "recording.audio",
 		);
 		const response = await fetch(TRANSCRIPTION_ENDPOINT, {

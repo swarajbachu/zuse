@@ -9,7 +9,6 @@ import {
 	AgentSessionStartError,
 	type AttachmentRef,
 	type PermissionMode,
-	resolveModelSlug,
 	type StartSessionInput,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
@@ -207,10 +206,8 @@ export const startKiroSession = (
 			},
 		});
 
-		const modelId =
-			input.model !== undefined
-				? resolveModelSlug("kiro", input.model)
-				: undefined;
+		// Aliases are canonicalized by ProviderService before the driver runs.
+		const modelId = input.model;
 
 		// Spawn args: model + effort can be set at process start so the first
 		// session inherits them without an extra round-trip.

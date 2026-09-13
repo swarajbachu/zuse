@@ -25,7 +25,7 @@ import {
 	watchConnection,
 } from "~/store/connection-runtime";
 import {
-	connectionsAtom,
+	allConnectionsAtom as connectionsAtom,
 	connectionsHydratedAtom,
 	hydrateConnections,
 } from "~/store/connections";
@@ -84,7 +84,7 @@ export default function SessionsScreen() {
 			);
 			return;
 		}
-			void hydrateSessions(connKey, options);
+		void hydrateSessions(connKey, options);
 	}, [connKey, connectionSnapshot, options]);
 
 	const rows = useMemo(

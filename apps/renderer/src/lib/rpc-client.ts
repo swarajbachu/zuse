@@ -14,7 +14,6 @@ import {
 	type CloudWorkspaceConnection,
 	MemoizeRpcs,
 	WIRE_PROTOCOL_VERSION,
-	WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE,
 } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import {
@@ -26,8 +25,10 @@ import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 
 import type { RpcBridge } from "./bridge.ts";
 import { requestBrowserWebSocketUrl } from "./browser-session.ts";
+import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
+import { isPlatformOnline, subscribePlatformOnline } from "./network-status.ts";
 import {
 	LOCAL_RENDERER_STORAGE_SCOPE,
 	setActiveEnvironmentStorageScope,
@@ -74,6 +75,11 @@ export type PassiveRendererSessionHooks = Readonly<{
 
 export const LOCAL_ENVIRONMENT_KEY = "local";
 
+/** Only WebSocket transports cross the network; the Electron bridge is in-process. */
+export const connectionRequiresNetwork = (
+	options: Pick<RendererConnectionOptions, "kind">,
+): boolean => options.kind === "websocket";
+
 const environmentConnections = new Map<string, RendererConnectionOptions>();
 type CloudWorkspaceRegistration = {
 	connection: CloudWorkspaceConnection | null;
@@ -107,29 +113,16 @@ const recordCloudWorkspaceGatewayClose = (
 	workspaceId: string,
 	close: Pick<WebSocketCloseInfo, "code">,
 ): void => {
-	const runtimeMissing =
-		close.code === WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code;
-	const abnormalCloseCount =
-		close.code === 1006
-			? (cloudWorkspaceAbnormalCloseCounts.get(workspaceId) ?? 0) + 1
-			: 0;
-	if (abnormalCloseCount === 0)
+	const result = cloudGatewayCloseRecovery(
+		close.code,
+		cloudWorkspaceHealthyConnections.has(workspaceId),
+		cloudWorkspaceAbnormalCloseCounts.get(workspaceId) ?? 0,
+	);
+	if (result.abnormalCloses === 0)
 		cloudWorkspaceAbnormalCloseCounts.delete(workspaceId);
-	else cloudWorkspaceAbnormalCloseCounts.set(workspaceId, abnormalCloseCount);
-	// Cloudflare may surface an immediate Durable Object close as browser code
-	// 1006 instead of preserving the gateway's private 4100 code. Before the
-	// first successful handshake, recover immediately: retrying the same absent
-	// runtime only adds a full reconnect cycle. Once this registration has been
-	// healthy, retain one retry so an ordinary network flap does not restart it.
-	const missingBeforeFirstHandshake =
-		close.code === 1006 && !cloudWorkspaceHealthyConnections.has(workspaceId);
-	if (
-		runtimeMissing ||
-		missingBeforeFirstHandshake ||
-		abnormalCloseCount >= 2
-	) {
-		requestCloudWorkspaceRuntimeRecovery(workspaceId);
-	}
+	else
+		cloudWorkspaceAbnormalCloseCounts.set(workspaceId, result.abnormalCloses);
+	if (result.recover) requestCloudWorkspaceRuntimeRecovery(workspaceId);
 };
 
 export const markCloudWorkspaceConnectionHealthy = (
@@ -155,7 +148,7 @@ export const clearCloudWorkspaceRuntimeRecovery = (
 
 /** Consume a missing-runtime signal before issuing the next one-time gateway
  * ticket. Recovery and ticket minting stay ordered inside the same retry so a
- * healthy-looking but detached relay record cannot cause a reconnect loop. */
+ * healthy-looking but detached api record cannot cause a reconnect loop. */
 export const refreshCloudWorkspaceConnectionWithRecovery = async (
 	workspaceId: string,
 	recover: (commandId: string) => Promise<void>,
@@ -258,6 +251,18 @@ const optionsForEnvironment = (
 	return connectionOptions();
 };
 
+/**
+ * Whether reaching this environment depends on the network. Unknown ids are
+ * treated as network-backed: cloud workspaces register their transport inside
+ * the resolver's prepare step, after the platform offline check runs.
+ */
+export const environmentRequiresNetwork = (environmentId: string): boolean => {
+	const options =
+		environmentConnections.get(environmentId) ??
+		(environmentId === LOCAL_ENVIRONMENT_KEY ? connectionOptions() : undefined);
+	return options === undefined || connectionRequiresNetwork(options);
+};
+
 const prepareRendererConnectionOptions = async (
 	options: RendererConnectionOptions,
 ): Promise<RendererConnectionOptions> => {
@@ -275,7 +280,6 @@ const prepareRendererConnectionOptions = async (
 		: { ...options, wsUrl: await options.refreshWsUrl() };
 };
 
-let online = globalThis.navigator?.onLine ?? true;
 export const RENDERER_WEBSOCKET_OPEN_TIMEOUT = "3 seconds" as const;
 
 export const isIgnorableRendererFailure = (cause: unknown): boolean =>
@@ -291,7 +295,13 @@ export const isIgnorableRendererFailure = (cause: unknown): boolean =>
 export const isAuthCodedConnectionError = (cause: unknown): boolean => {
 	if (typeof cause !== "object" || cause === null) return false;
 	const coded = cause as { readonly code?: unknown; readonly reason?: unknown };
-	return coded.code === "not-allowed" || coded.reason === "not-allowed";
+	const category =
+		typeof coded.code === "string"
+			? coded.code
+			: typeof coded.reason === "string"
+				? coded.reason
+				: undefined;
+	return cloudFailurePresentation({ category })?.kind === "sign-in-required";
 };
 
 const makeRendererRpcSession = async (
@@ -334,7 +344,8 @@ const supervisor = createConnectionSupervisor<
 >({
 	keyOf: (options) => options.key,
 	prepareOptions: prepareRendererConnectionOptions,
-	isOnline: () => online,
+	isOnline: isPlatformOnline,
+	requiresNetwork: connectionRequiresNetwork,
 	isIgnorableFailure: isIgnorableRendererFailure,
 	maxAutomaticAttempts: 6,
 	schedule: (delayMs, reconnect) => {
@@ -566,7 +577,7 @@ export const registerWebSocketEnvironment = (
 	});
 };
 
-export const registerRelayEnvironment = (
+export const registerApiEnvironment = (
 	environmentId: string,
 	initialWsUrl: string,
 	refreshWsUrl: () => Promise<string>,
@@ -737,16 +748,12 @@ export const disposeRpcClient = async (): Promise<void> => {
 	await supervisor.dispose();
 };
 
+subscribePlatformOnline(() => supervisor.setOnline(isPlatformOnline()));
+
 if (typeof window !== "undefined") {
-	window.addEventListener("online", () => {
-		online = true;
-		supervisor.setOnline(true);
-	});
-	window.addEventListener("offline", () => {
-		online = false;
-		supervisor.setOnline(false);
-	});
 	window.addEventListener("pagehide", () => {
 		void disposeRpcClient();
 	});
 }
+
+import { cloudGatewayCloseRecovery } from "@zuse/client-runtime/cloud-gateway-recovery";

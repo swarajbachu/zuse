@@ -2,7 +2,6 @@ import * as HugeIconsReact from "@hugeicons/react";
 import * as UiButton from "@repo/ui/button";
 import * as UiCard from "@repo/ui/card";
 import * as UiCode from "@repo/ui/code";
-import * as UiDither from "@repo/ui/dither";
 import type {
 	ExtensionCatalog,
 	ExtensionId,
@@ -10,7 +9,6 @@ import type {
 	ExtensionManifest,
 } from "@zuse/contracts";
 import * as ExtensionSdk from "@zuse/extension-sdk";
-import * as ExtensionSdkClient from "@zuse/extension-sdk/client";
 import {
 	createExtensionClientRuntime,
 	type ExtensionRegistrationCollector,
@@ -123,6 +121,20 @@ class ExtensionRegistry {
 	private async evaluate(
 		item: ExtensionListItem & { readonly clientBundle: string },
 	): Promise<ActiveRegistration> {
+		// The official panel SDK is optional; disabled previews should not load it.
+		let sdkTimer: ReturnType<typeof setTimeout> | undefined;
+		const [ExtensionSdkClient, UiDither] = await Promise.race([
+			Promise.all([
+				import("@zuse/extension-sdk/client"),
+				import("@repo/ui/dither"),
+			]),
+			new Promise<never>((_, reject) => {
+				sdkTimer = setTimeout(
+					() => reject(new Error("Extension client SDK loading timed out.")),
+					5000,
+				);
+			}),
+		]).finally(() => clearTimeout(sdkTimer));
 		const extensionId = item.id;
 		const bundle = item.clientBundle;
 		const contributions = emptyCollector();
@@ -294,11 +306,14 @@ const validateContributions = (
 
 export const extensionRegistry = new ExtensionRegistry();
 
+const EMPTY_EXTENSION_CONTRIBUTIONS: ReadonlyArray<RegisteredExtension> = [];
+
 export const useExtensionContributions =
 	(): ReadonlyArray<RegisteredExtension> =>
 		useSyncExternalStore(
 			extensionRegistry.subscribe,
 			extensionRegistry.getSnapshot,
+			() => EMPTY_EXTENSION_CONTRIBUTIONS,
 		);
 
 export function ExtensionHostController() {

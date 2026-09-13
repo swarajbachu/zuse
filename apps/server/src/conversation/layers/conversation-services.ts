@@ -16,14 +16,15 @@ import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
 import { DateTime, Effect, FileSystem, Layer, Option } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { ApiActivityPublisher } from "../../api/activity-publisher.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { LinearService } from "../../linear/services/linear-service.ts";
+import { ModelCatalogService } from "../../model-catalog/services/model-catalog-service.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { makeReactorEffectJournal } from "../../provider/reactor-effect-journal.ts";
 import { ProviderService } from "../../provider/services/provider-service.ts";
 import { TitleGenerator } from "../../provider/title-generator.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
-import { RelayActivityPublisher } from "../../relay/activity-publisher.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
 import { makeArchiveOperations } from "../core/archive-operations.ts";
 import { makeAutoNameOperations } from "../core/auto-name-operations.ts";
@@ -132,12 +133,13 @@ const ConversationRuntimeLive = Layer.effect(
 		const git = yield* GitService;
 		const titleGen = yield* TitleGenerator;
 		const configStore = yield* ConfigStoreService;
+		const modelCatalog = yield* ModelCatalogService;
 		// Captured once so the control-plane orchestration tools — which the
 		// Claude SDK invokes as plain async functions — can bridge back into
 		// these Effect methods via `Runtime.runPromise`. Same shape as the
 		// browser-bridge tool binding in ProviderService.
 		const runtime = yield* Effect.context<never>();
-		const relayActivity = yield* RelayActivityPublisher;
+		const apiActivity = yield* ApiActivityPublisher;
 		const linear = yield* Effect.serviceOption(LinearService);
 		const settleLinear = <A>(
 			effect: Effect.Effect<A, { readonly reason: string }>,
@@ -214,7 +216,7 @@ const ConversationRuntimeLive = Layer.effect(
 				sessionDomain,
 				currentTimestamp,
 				ndjson,
-				relayActivity,
+				apiActivity,
 				provider,
 				dispatchSessionCommand: appendSessionCommand,
 				runSessionReactors: Effect.suspend(() => reactorRuntime.runSession),
@@ -255,6 +257,7 @@ const ConversationRuntimeLive = Layer.effect(
 			cwdForWorktree,
 			runtime,
 			configStore,
+			modelCatalog,
 			worktrees,
 			createChat: (input) => Effect.suspend(() => createChat(input)),
 			getChat: (chatId) => Effect.suspend(() => lookupChat(chatId)),
@@ -425,16 +428,19 @@ const ConversationRuntimeLive = Layer.effect(
 			handleChatDelete,
 		} = archiveOperations;
 		const reactorRuntime: ConversationReactorRuntime =
-			yield* makeConversationReactorRuntime({
-				providerStart: handleProviderStart,
-				providerStop: handleProviderStop,
-				providerTurn: handleProviderTurn,
-				providerInterrupt: handleProviderInterrupt,
-				scheduledSuccessor: handleScheduledSuccessor,
-				autoName: handleAutoName,
-				chatArchive: handleChatArchive,
-				chatDelete: handleChatDelete,
-			});
+			yield* makeConversationReactorRuntime(
+				{
+					providerStart: handleProviderStart,
+					providerStop: handleProviderStop,
+					providerTurn: handleProviderTurn,
+					providerInterrupt: handleProviderInterrupt,
+					scheduledSuccessor: handleScheduledSuccessor,
+					autoName: handleAutoName,
+					chatArchive: handleChatArchive,
+					chatDelete: handleChatDelete,
+				},
+				serviceScope,
+			);
 		const archiveChat: ConversationOperations["archiveChat"] = (
 			chatId,
 			force,
@@ -510,6 +516,7 @@ const ConversationRuntimeLive = Layer.effect(
 		const {
 			resumeSession,
 			sendMessage,
+			sendMessageWithInput,
 			interruptSession,
 			queueRuntime,
 			runStartupRecovery,
@@ -569,6 +576,8 @@ const ConversationRuntimeLive = Layer.effect(
 		const messageService = {
 			listMessages,
 			sendMessage: (...args) => withStartupRecovery(sendMessage(...args)),
+			sendMessageWithInput: (input) =>
+				withStartupRecovery(sendMessageWithInput(input)),
 			interruptSession,
 		} satisfies MessageServiceShape;
 		const queueService = queueRuntime.service;

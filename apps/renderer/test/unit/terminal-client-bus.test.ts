@@ -239,6 +239,8 @@ describe("terminal ClientBus adapter", () => {
 				persisted.push(entry);
 			},
 			removeOutbox: async () => undefined,
+			completeOutbox: async () => undefined,
+			findReceipt: async () => null,
 			listOutbox: async () => persisted,
 		};
 		const persistIfSafe = async (candidate: ClientCommand): Promise<void> => {

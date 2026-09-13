@@ -309,7 +309,7 @@ export function EnvironmentSummary() {
 	return (
 		<aside
 			aria-label="Environment summary"
-			className="pointer-events-auto max-h-[calc(100dvh-7rem)] w-64 shrink-0 overflow-y-auto rounded-3xl border border-border/70 bg-card/95 p-1 shadow-overlay-sm backdrop-blur-xl"
+			className="pointer-events-auto max-h-[calc(100dvh-7rem)] w-64 shrink-0 overflow-y-auto rounded-lg border border-border/70 bg-card/95 p-1 shadow-overlay-sm backdrop-blur-md"
 		>
 			<h2 className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">
 				Summary
@@ -347,7 +347,7 @@ export function EnvironmentSummary() {
 					side="left"
 					align="start"
 					sideOffset={8}
-					className="min-w-72 rounded-2xl p-1.5"
+					className="min-w-72 p-1"
 				>
 					<div className="px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
 						Running on

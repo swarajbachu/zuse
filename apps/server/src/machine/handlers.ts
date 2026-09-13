@@ -1,6 +1,7 @@
 import {
 	CloudWorkspaceOpError,
 	ConnectAuthError,
+	DeviceBridgeError,
 	MachineOpError,
 	MemoizeRpcs,
 } from "@zuse/contracts";
@@ -164,6 +165,37 @@ const CloudWorkspace = MemoizeRpcs.toLayerHandler(
 	({ workspaceId }) =>
 		withCloudControl((service) => service.cloudWorkspace(workspaceId)),
 );
+const EnqueueCloudCommand = MemoizeRpcs.toLayerHandler(
+	"cloud.commands.enqueue",
+	(envelope) =>
+		withCloudControl((service) => service.enqueueCloudCommand(envelope)),
+);
+const CloudWorkspaceDataKey = MemoizeRpcs.toLayerHandler(
+	"cloud.commands.dataKey",
+	({ workspaceId }) =>
+		withCloudControl((service) => service.cloudWorkspaceDataKey(workspaceId)),
+);
+const CloudCommandStatus = MemoizeRpcs.toLayerHandler(
+	"cloud.commands.status",
+	({ workspaceId, commandId }) =>
+		withCloudControl((service) =>
+			service.cloudCommandStatus(workspaceId, commandId),
+		),
+);
+const WatchCloudCommands = MemoizeRpcs.toLayerHandler(
+	"cloud.commands.watch",
+	({ workspaceId, afterRevision }) =>
+		withCloudControl((service) =>
+			service.watchCloudCommands(workspaceId, afterRevision),
+		),
+);
+const CancelCloudCommand = MemoizeRpcs.toLayerHandler(
+	"cloud.commands.cancel",
+	({ workspaceId, commandId }) =>
+		withCloudControl((service) =>
+			service.cancelCloudCommand(workspaceId, commandId),
+		),
+);
 const CloudTranscriptCheckpoint = MemoizeRpcs.toLayerHandler(
 	"cloud.transcript.get",
 	({ workspaceId, sessionId, cursor }) =>
@@ -197,6 +229,18 @@ const WatchCloudWorkspace = MemoizeRpcs.toLayerHandler(
 const CreateCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.create",
 	(input) => withCloudControl((service) => service.createCloudWorkspace(input)),
+);
+const CloudApiKeysList = MemoizeRpcs.toLayerHandler("cloud.apiKeys.list", () =>
+	withCloudControl((service) => service.listCloudApiKeys()),
+);
+const CloudApiKeysCreate = MemoizeRpcs.toLayerHandler(
+	"cloud.apiKeys.create",
+	({ name }) => withCloudControl((service) => service.createCloudApiKey(name)),
+);
+const CloudApiKeysRevoke = MemoizeRpcs.toLayerHandler(
+	"cloud.apiKeys.revoke",
+	({ keyId }) =>
+		withCloudControl((service) => service.revokeCloudApiKey(keyId)),
 );
 const ConnectCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	"cloud.workspaces.connect",
@@ -356,7 +400,22 @@ const ResourcesWatch = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const CloudDeviceBridge = MemoizeRpcs.toLayerHandler(
+	"deviceBridge.cloud",
+	(input) =>
+		Effect.gen(function* () {
+			const service = yield* MachineControlService;
+			return yield* service
+				.deviceBridge(input.workspaceId, input.action, input.targetDeviceId)
+				.pipe(
+					Effect.mapError(
+						(error) => new DeviceBridgeError({ reason: error.code }),
+					),
+				);
+		}),
+);
 export const MachineHandlersLayer = Layer.mergeAll(
+	CloudDeviceBridge,
 	CloudAuthStatus,
 	CloudAuthProvision,
 	CloudAuthConfigure,
@@ -379,10 +438,18 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	PrepareCloudProject,
 	CloudWorkspaces,
 	CloudWorkspace,
+	EnqueueCloudCommand,
+	CloudWorkspaceDataKey,
+	CloudCommandStatus,
+	WatchCloudCommands,
+	CancelCloudCommand,
 	CloudTranscriptCheckpoint,
 	CloudTranscriptMessagePage,
 	WatchCloudWorkspace,
 	CreateCloudWorkspace,
+	CloudApiKeysList,
+	CloudApiKeysCreate,
+	CloudApiKeysRevoke,
 	ConnectCloudWorkspace,
 	CloudChats,
 	PauseCloudWorkspace,

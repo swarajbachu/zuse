@@ -1,7 +1,7 @@
 import { choosePreferredEndpoint } from "@zuse/client-runtime/endpoint-selection";
 import {
+	type ApiConnectGrant,
 	type EnvironmentEndpoint,
-	type RelayConnectGrant,
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
 
@@ -29,6 +29,6 @@ const probePrivateEndpoint = async (
 };
 
 export const chooseGrantEndpoint = async (
-	grant: RelayConnectGrant,
+	grant: ApiConnectGrant,
 ): Promise<EnvironmentEndpoint> =>
 	choosePreferredEndpoint(grant, (endpoint) => probePrivateEndpoint(endpoint));

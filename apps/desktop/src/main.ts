@@ -26,6 +26,13 @@ import { promisify } from "node:util";
 import {
 	AGENTS_RUNNING_COUNT_CHANNEL,
 	AuthFlowError,
+	COMPUTER_AWAKE_GET_STATUS_CHANNEL,
+	COMPUTER_AWAKE_SET_MODE_CHANNEL,
+	COMPUTER_AWAKE_STATE_CHANNEL,
+	COMPUTER_AWAKE_SUBSCRIBE_CHANNEL,
+	COMPUTER_AWAKE_UNSUBSCRIBE_CHANNEL,
+	type ComputerAwakeMode,
+	type ComputerAwakeStatus,
 	type DeepEnergySummary,
 	EnsureSshEnvironmentInput,
 	EnsureTailnetEnvironmentInput,
@@ -53,6 +60,8 @@ import {
 	type PowerSnapshot,
 	type PowerThermalState,
 	PowerWorkloadState,
+	PRODUCTION_API_URL,
+	STAGING_API_URL,
 	TailnetShareState,
 } from "@zuse/contracts";
 import {
@@ -69,6 +78,7 @@ import {
 	type TailnetShareOptions,
 } from "@zuse/tailnet";
 import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
+import { fetchSiteFavicon } from "@zuse/utils/site-favicon";
 import { zuseDesktopProfileName } from "@zuse/utils/zuse-user-data";
 import {
 	CredentialsServiceLive,
@@ -87,6 +97,7 @@ import {
 	powerMonitor as nativePowerMonitor,
 	nativeTheme,
 	net,
+	powerSaveBlocker,
 	protocol,
 	session,
 	shell,
@@ -130,6 +141,7 @@ if (
 	fixPath();
 }
 
+import { resolveDesktopApiPort } from "./api-port.ts";
 import { makeBatchedLogWriter } from "./batched-log-writer.ts";
 import { type BatteryStatus, readBatteryStatus } from "./battery-status.ts";
 import {
@@ -141,6 +153,11 @@ import {
 	restoreImportedBrowserCookies,
 	watchImportedBrowserCookies,
 } from "./browser-session-service.ts";
+import { ComputerAwakeController } from "./computer-awake-controller.ts";
+import {
+	readComputerAwakePreference,
+	writeComputerAwakePreference,
+} from "./computer-awake-preference.ts";
 import {
 	type DeepEnergyProfileHandle,
 	startDeepEnergyProfile,
@@ -178,7 +195,6 @@ import {
 	powerRecordingReportMarkdown,
 } from "./power-monitor.ts";
 import { installPowerMonitorEventSampling } from "./power-monitor-events.ts";
-import { resolveDesktopRelayPort } from "./relay-port.ts";
 import {
 	sanitizeRemoteConnectionLog,
 	sanitizeRemoteDiagnosticValue,
@@ -646,7 +662,81 @@ let localConnectivityHelper: ChildProcessWithoutNullStreams | null = null;
 let localConnectivityRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let localConnectivityRestartAttempt = 0;
 let localConnectivityStopping = false;
+let computerAwakeController: ComputerAwakeController | null = null;
+let remoteComputerAwakeConnections = 0;
+const computerAwakeSubscribers = new Set<number>();
 const desktopProcessStartedAt = performance.now();
+
+const unsupportedComputerAwakeStatus = (): ComputerAwakeStatus => ({
+	supported: false,
+	mode: "off",
+	active: false,
+	activeAgents: 0,
+	remoteClients: 0,
+	electronBlockerActive: false,
+	caffeinateActive: false,
+	warning: null,
+});
+
+const currentComputerAwakeStatus = (): ComputerAwakeStatus =>
+	computerAwakeController?.getStatus() ?? unsupportedComputerAwakeStatus();
+
+const broadcastComputerAwakeStatus = (status: ComputerAwakeStatus): void => {
+	for (const webContentsId of [...computerAwakeSubscribers]) {
+		const target = webContentsModule.fromId(webContentsId);
+		if (target === undefined || target.isDestroyed()) {
+			computerAwakeSubscribers.delete(webContentsId);
+			continue;
+		}
+		target.send(COMPUTER_AWAKE_STATE_CHANNEL, status);
+	}
+};
+
+const retainRemoteComputerAwakeConnection = (): (() => void) => {
+	remoteComputerAwakeConnections += 1;
+	computerAwakeController?.setRemoteClients(remoteComputerAwakeConnections);
+	let retained = true;
+	return () => {
+		if (!retained) return;
+		retained = false;
+		remoteComputerAwakeConnections = Math.max(
+			0,
+			remoteComputerAwakeConnections - 1,
+		);
+		computerAwakeController?.setRemoteClients(remoteComputerAwakeConnections);
+	};
+};
+
+ipcMain.handle(COMPUTER_AWAKE_GET_STATUS_CHANNEL, currentComputerAwakeStatus);
+
+ipcMain.handle(
+	COMPUTER_AWAKE_SET_MODE_CHANNEL,
+	async (_event, rawMode: unknown): Promise<ComputerAwakeStatus> => {
+		if (rawMode !== "off" && rawMode !== "auto" && rawMode !== "always") {
+			throw new Error("Invalid computer-awake mode");
+		}
+		const mode: ComputerAwakeMode = rawMode;
+		const controller = computerAwakeController;
+		if (controller === null || process.platform !== "darwin") {
+			return currentComputerAwakeStatus();
+		}
+		await writeComputerAwakePreference(app.getPath("userData"), mode);
+		controller.setMode(mode);
+		return controller.getStatus();
+	},
+);
+
+ipcMain.on(COMPUTER_AWAKE_SUBSCRIBE_CHANNEL, (event) => {
+	computerAwakeSubscribers.add(event.sender.id);
+	event.sender.once("destroyed", () => {
+		computerAwakeSubscribers.delete(event.sender.id);
+	});
+	event.sender.send(COMPUTER_AWAKE_STATE_CHANNEL, currentComputerAwakeStatus());
+});
+
+ipcMain.on(COMPUTER_AWAKE_UNSUBSCRIBE_CHANNEL, (event) => {
+	computerAwakeSubscribers.delete(event.sender.id);
+});
 
 const readySshEnvironmentManager = async (): Promise<SshEnvironmentManager> => {
 	const manager = sshEnvironmentManager;
@@ -1023,6 +1113,7 @@ ipcMain.on(POWER_UNSUBSCRIBE_CHANNEL, (event) => {
 
 ipcMain.on(POWER_REPORT_WORKLOAD_CHANNEL, (_event, payload: unknown) => {
 	powerWorkload = sanitizePowerWorkload(payload);
+	computerAwakeController?.setActiveAgents(powerWorkload.activeAgents);
 	if (powerMeasurementMonitor?.getState().activeRecording !== null) {
 		powerMeasurementMonitor?.sampleNow();
 	}
@@ -1332,8 +1423,10 @@ const localConnectivityHelperPath = (): string =>
 				"local-connectivity",
 				"zuse-local-connectivity",
 			)
-		: Path.join(
-				app.getAppPath(),
+		: // Development bundles are isolated per runner, while native helpers are
+			// built once in the desktop source tree.
+			Path.join(
+				DESKTOP_SOURCE_DIR,
 				"native",
 				"local-connectivity",
 				"bin",
@@ -1794,8 +1887,8 @@ const authShell = {
 async function createMainWindow() {
 	const startupStartedAt = performance.now();
 	const userData = app.getPath("userData");
-	const [relayPort, networkAccessEnabled] = await Promise.all([
-		resolveDesktopRelayPort({
+	const [apiPort, networkAccessEnabled] = await Promise.all([
+		resolveDesktopApiPort({
 			configuredPort: process.env.ZUSE_DESKTOP_WS_PORT,
 		}),
 		readNetworkAccessPreference(userData),
@@ -1808,20 +1901,20 @@ async function createMainWindow() {
 		ownershipDir: userData,
 		probe: probeZuseLoopback,
 	};
-	// The relay port can drift between launches (fallback or ephemeral bind).
+	// The api port can drift between launches (fallback or ephemeral bind).
 	// When a persisted marker shows Zuse owns the Tailscale Serve route on the
 	// old port, repoint it in the background so sharing survives the drift.
 	void readServeOwnershipMarker(userData)
 		.then(async (markerPort) => {
-			if (markerPort === null || markerPort === relayPort.port) return;
+			if (markerPort === null || markerPort === apiPort.port) return;
 			const repaired = await repairTailnetShare(
-				relayPort.port,
+				apiPort.port,
 				tailnetShareOptions,
 				tailnetCommandRunner,
 			);
 			if (repaired.enabled && repaired.managedBy === "this-app") {
 				console.log(
-					`desktop.tailnet.serve_repaired ${markerPort} -> ${relayPort.port}`,
+					`desktop.tailnet.serve_repaired ${markerPort} -> ${apiPort.port}`,
 				);
 			}
 		})
@@ -1831,14 +1924,14 @@ async function createMainWindow() {
 	try {
 		networkAccess = resolveNetworkAccessState({
 			enabled: networkAccessEnabled,
-			port: relayPort.port,
+			port: apiPort.port,
 			interfaces: networkInterfaces(),
 		});
 	} catch (cause) {
 		recordMainDiagnostic("warn", "network-access", [cause]);
 		networkAccess = resolveNetworkAccessState({
 			enabled: false,
-			port: relayPort.port,
+			port: apiPort.port,
 			interfaces: networkInterfaces(),
 		});
 	}
@@ -2113,7 +2206,7 @@ async function createMainWindow() {
 				typeof input.hostAlias !== "string" ||
 				!/^zuse-[A-Za-z0-9_-]+$/u.test(input.hostAlias) ||
 				typeof input.remotePath !== "string" ||
-				!input.remotePath.startsWith("/")
+				(input.enabled && !input.remotePath.startsWith("/"))
 			)
 				return null;
 			return cloudSyncManager.configure({
@@ -2208,7 +2301,7 @@ async function createMainWindow() {
 	}));
 	ipcMain.handle("network:getTailnetShareState", () =>
 		inspectTailnetShare(
-			relayPort.port,
+			apiPort.port,
 			tailnetCommandRunner,
 			tailnetShareOptions,
 		),
@@ -2222,7 +2315,7 @@ async function createMainWindow() {
 			const next = await setTailnetShareEnabled(
 				{
 					enabled,
-					port: relayPort.port,
+					port: apiPort.port,
 					...tailnetShareOptions,
 				},
 				tailnetCommandRunner,
@@ -2249,7 +2342,7 @@ async function createMainWindow() {
 				return setTailnetShareEnabled(
 					{
 						enabled: true,
-						port: relayPort.port,
+						port: apiPort.port,
 						...tailnetShareOptions,
 					},
 					tailnetCommandRunner,
@@ -2269,7 +2362,7 @@ async function createMainWindow() {
 			}
 			const next = resolveNetworkAccessState({
 				enabled,
-				port: relayPort.port,
+				port: apiPort.port,
 				interfaces: networkInterfaces(),
 			});
 			await writeNetworkAccessPreference(userData, enabled);
@@ -3174,13 +3267,14 @@ async function createMainWindow() {
 		mainWindow.webContents,
 		appendRemoteConnectionLog,
 	);
-	const relayWsPort = relayPort.port;
-	const relayWsProtocol = wsServerProtocolLayer({
-		port: relayWsPort,
+	const apiWsPort = apiPort.port;
+	const apiWsProtocol = wsServerProtocolLayer({
+		port: apiWsPort,
 		host: networkAccess.bindHost,
 		staticDir: isDevelopment ? undefined : rendererDistDir(),
 		devServerUrl: isDevelopment ? DEV_SERVER_URL : undefined,
 		onDiagnostic: appendRemoteConnectionLog,
+		onAuthenticatedConnection: retainRemoteComputerAwakeConnection,
 	});
 	const nearbyWsProtocol =
 		nearbyTls === null
@@ -3193,15 +3287,16 @@ async function createMainWindow() {
 					onDiagnostic: appendRemoteConnectionLog,
 					onListening: ({ port }) =>
 						startLocalConnectivityHelper(port, systemHostname, nearbyTls.pin),
+					onAuthenticatedConnection: retainRemoteComputerAwakeConnection,
 				});
 	appendRemoteConnectionLog("desktop.runtime.start", {
-		relayWsPort,
+		apiWsPort,
 		userData: app.getPath("userData"),
 		elapsedMs: Math.round(performance.now() - startupStartedAt),
 	});
-	if (relayPort.fellBack) {
+	if (apiPort.fellBack) {
 		appendRemoteConnectionLog("desktop.runtime.port_fallback", {
-			relayWsPort,
+			apiWsPort,
 		});
 	}
 	process.env.ZUSE_APP_VERSION = ZUSE_APP_VERSION;
@@ -3211,10 +3306,15 @@ async function createMainWindow() {
 			makeMainLayer({
 				userData,
 				telemetryIdentity: { kind: "desktop", instance: "local" },
+				autoApiLink: {
+					apiUrl:
+						process.env.ZUSE_API_URL?.trim() ||
+						(isDevelopment ? STAGING_API_URL : PRODUCTION_API_URL),
+				},
 				folderPicker,
 				serverProtocol,
 				additionalServerProtocols: [
-					relayWsProtocol,
+					apiWsProtocol,
 					...(nearbyWsProtocol === null ? [] : [nearbyWsProtocol]),
 				],
 				authShell,
@@ -3229,7 +3329,7 @@ async function createMainWindow() {
 				lanAuth: {
 					policy: "protected",
 					advertisedHost: networkAccess.advertisedHost,
-					port: relayWsPort,
+					port: apiWsPort,
 					pairingBootstrap: false,
 					transportCertificatePin: nearbyTls?.pin,
 					onNearbyPairingRequest: (request) => {
@@ -3329,7 +3429,7 @@ async function createMainWindow() {
 						isDevelopment && process.env.ZUSE_DEV_CLI_ACCESS_FILE
 							? process.env.ZUSE_DEV_CLI_ACCESS_FILE
 							: Path.join(app.getPath("userData"), "cli-access.json"),
-					wsUrl: `ws://127.0.0.1:${relayWsPort}/rpc`,
+					wsUrl: `ws://127.0.0.1:${apiWsPort}/rpc`,
 				},
 			}),
 		).pipe(
@@ -3433,6 +3533,7 @@ async function createMainWindow() {
 const ATTACHMENTS_HOST = "attachments";
 const POKEMON_HOST = "pokemon";
 const LINEAR_CONTEXT_HOST = "linear-context";
+const SITE_FAVICON_HOST = "site-favicon";
 
 const MIME_BY_EXT: Record<string, string> = {
 	png: "image/png",
@@ -3553,6 +3654,11 @@ const registerZuseProtocol = (): void => {
 		const url = new URL(request.url);
 		if (url.host === "app")
 			return serveRendererAsset(rendererDistDir(), request);
+		if (url.host === SITE_FAVICON_HOST) {
+			return fetchSiteFavicon(url.pathname.slice(1), (input, init) =>
+				net.fetch(input, init),
+			);
+		}
 		if (url.host === LINEAR_CONTEXT_HOST) {
 			try {
 				const requestedPath = decodeURIComponent(url.pathname);
@@ -3807,6 +3913,16 @@ void app.whenReady().then(async () => {
 	if (initialDeepLink !== undefined) handleAuthCallback(initialDeepLink);
 
 	registerZuseProtocol();
+	if (process.platform === "darwin") {
+		const mode = await readComputerAwakePreference(app.getPath("userData"));
+		computerAwakeController = new ComputerAwakeController({
+			blocker: powerSaveBlocker,
+			initialMode: mode,
+			powerMonitor: nativePowerMonitor,
+		});
+		computerAwakeController.setRemoteClients(remoteComputerAwakeConnections);
+		computerAwakeController.subscribe(broadcastComputerAwakeStatus);
+	}
 	notchTray = new NotchTrayController({
 		preloadPath: Path.join(__dirname, "preload.cjs"),
 		devServerUrl: DEV_SERVER_URL,
@@ -3987,6 +4103,9 @@ app.on("before-quit", (event) => {
 // fires after an un-prevented `before-quit`, so a cancelled quit leaves the
 // tray untouched.
 app.on("will-quit", () => {
+	computerAwakeController?.dispose();
+	computerAwakeController = null;
+	computerAwakeSubscribers.clear();
 	if (gotSingleInstanceLock) {
 		try {
 			fsSync.unlinkSync(runMarkerPath);

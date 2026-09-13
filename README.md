@@ -91,6 +91,7 @@ settings.
 
 ### Cloud workspaces
 - Run invited coding-agent sessions in hosted E2B workspaces that continue when the desktop app closes
+- Send text messages while compute sleeps; Zuse accepts them into an encrypted durable mailbox, wakes the workspace, and shows delivery progress without duplicate provider sends
 - Open a workspace through its managed `ssh zuse-<workspace>` alias without exposing a public SSH listener
 - Keep a one-way, remote-authoritative Mac mirror under `~/.zuse/cloud/` that pauses on disconnect and resumes with fresh access
 - Open dev servers privately on Mac `localhost`; public E2B preview URLs remain an explicit copy action
@@ -110,9 +111,13 @@ settings.
 
 ### Layout & UI
 - Three-pane layout: sidebar / chat / files+terminal
+- `Cmd+K` opens a compact, scrollable palette with five recent chats, quick actions, settings destinations, and workspace/navigation commands; search together, or type `>` for commands only
+- `Cmd+P` searches files in the current project or worktree, also available from quick actions and the file-tree header
 - Resizable panes
 - Top bar with active session info
 - PTY terminal (xterm.js + node-pty)
+- macOS Keep Mac awake modes: Auto while an agent or authenticated remote
+  client is active, Always, or Off, with live status in General settings
 
 ### Persistence & distribution
 - SQLite stores projects, sessions, messages, tool calls across restarts
@@ -158,13 +163,20 @@ specs/
   sub-agents/  Sub-agent delegation
 ```
 
-## Architecture documentation
+## Documentation
 
-- [Zuse Cloud](docs/cloud/README.md) — cloud architecture, lifecycle, storage,
-  security, operations, and user guide
-- [Realtime runtime](docs/architecture/realtime-runtime.md) — the durable
+- [Public documentation](apps/docs/content/docs): published customer-facing content
+- [Repository cloud guides](internal-docs/cloud/README.md): workspace usage, public API,
+  Slack automations, and operations
+
+### Internal and contributor references
+
+- [Internal documentation map](internal-docs/README.md) — engineering and operator references
+- [Desktop design system](DESIGN.md) — visual foundations, component patterns,
+  accessibility, and responsive behavior
+- [Realtime runtime](internal-docs/architecture/realtime-runtime.md) — the durable
   session and ClientBus path shared by local, SSH, and cloud environments
-- [Unified computers](docs/specs/unified-computers.md) — environment and sandbox
+- [Unified computers](internal-docs/specs/unified-computers.md) — environment and sandbox
   domain model
 - [Context map](CONTEXT-MAP.md) — domain contexts and their ownership relationships
 
@@ -196,6 +208,10 @@ bun run dist:linux:unsigned
 ```
 
 Requires: Bun 1.3.10+, Node.js ≥ 22.13, and macOS or x64 Linux.
+
+Changes to the macOS awake controller require the
+[physical MacBook release check](internal-docs/testing/mac-computer-awake.md), including
+assertion and best-effort closed-lid verification.
 
 The default install uses the public icon set and does not require registry
 credentials. Contributors can clone the repository and run the commands above
