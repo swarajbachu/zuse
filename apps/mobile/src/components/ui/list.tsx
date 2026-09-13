@@ -11,6 +11,7 @@ import {
 
 import { cn } from "~/lib/cn";
 import { lightTap } from "~/lib/haptics";
+import { platformSymbolName } from "~/lib/symbol-names";
 import { colors } from "~/theme";
 
 // iOS "grouped inset" list — the Settings.app idiom. A rounded, hairline-bordered
@@ -134,7 +135,7 @@ export function ListRow({
 					>
 						{symbol ? (
 							<SymbolView
-								name={symbol}
+								name={platformSymbolName(symbol)}
 								size={17}
 								weight="semibold"
 								tintColor={
@@ -183,7 +184,7 @@ export function ListRow({
 			{trailing}
 			{showChevron ? (
 				<SymbolView
-					name="chevron.right"
+					name={platformSymbolName("chevron.right")}
 					size={13}
 					weight="semibold"
 					tintColor={colors.tertiaryFg}

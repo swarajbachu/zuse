@@ -64,12 +64,16 @@ export const resetLocalMobileData = async (): Promise<void> => {
 		Effect.runPromise(clearOfflineCache()),
 		clearConnections(),
 		clearPinnedChats(),
-		clearOnboarding(),
 		clearLastCrashReport(),
 		resetMobileAnalyticsIdentity(),
 	]);
+	const onboardingCleanup = await Promise.allSettled([clearOnboarding()]);
 	resetApiAccessToken();
-	if (cleanup.some((result) => result.status === "rejected")) {
+	if (
+		[...cleanup, ...onboardingCleanup].some(
+			(result) => result.status === "rejected",
+		)
+	) {
 		throw new Error(
 			"Some local files could not be cleared. Restart the app and try again.",
 		);

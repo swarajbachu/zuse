@@ -5,7 +5,7 @@ import { SymbolView } from "expo-symbols";
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { platformSymbolName } from "~/lib/symbol-names";
 import {
 	authAccountAtom,
 	authBusyAtom,
@@ -117,7 +117,11 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 					className="min-h-11 min-w-11 justify-center active:opacity-60"
 				>
 					{step > 0 ? (
-						<SymbolView name="chevron.left" size={20} tintColor={colors.fg} />
+						<SymbolView
+							name={platformSymbolName("chevron.left")}
+							size={20}
+							tintColor={colors.fg}
+						/>
 					) : (
 						<Text className="font-sans-bold text-base text-foreground">
 							Zuse
@@ -193,13 +197,13 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 												: "Local connection"}
 										</Text>
 										<SymbolView
-											name={
+											name={platformSymbolName(
 												path === value
 													? "checkmark.circle.fill"
 													: value === "cloud"
 														? "cloud.fill"
-														: "wifi"
-											}
+														: "wifi",
+											)}
 											size={22}
 											weight="light"
 											tintColor={colors.accent}

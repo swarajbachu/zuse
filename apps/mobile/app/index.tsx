@@ -156,7 +156,8 @@ export default function HomeScreen() {
 	}, [onboardingHydrated]);
 
 	useEffect(() => {
-		if (!onboardingHydrated || !authHydrated || !connectionsHydrated) return;
+		if (busy || !onboardingHydrated || !authHydrated || !connectionsHydrated)
+			return;
 		if (onboardingComplete) return;
 		if (account !== null || connections.length > 0) {
 			void completeOnboarding();
@@ -166,6 +167,7 @@ export default function HomeScreen() {
 	}, [
 		account,
 		authHydrated,
+		busy,
 		connections.length,
 		connectionsHydrated,
 		onboardingComplete,

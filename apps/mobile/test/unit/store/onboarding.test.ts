@@ -44,6 +44,34 @@ describe("mobile onboarding", () => {
 		expect(appAtomRegistry.get(onboardingCompleteAtom)).toBe(true);
 	});
 
+	it("clears after an in-flight completion write finishes", async () => {
+		let finishWrite = () => {};
+		secureStore.setItemAsync.mockImplementationOnce(
+			() =>
+				new Promise<void>((resolve) => {
+					finishWrite = () => {
+						secureStore.seed("complete");
+						resolve();
+					};
+				}),
+		);
+		const completing = completeOnboarding();
+		await Promise.resolve();
+		const clearing = clearOnboarding();
+		expect(secureStore.deleteItemAsync).not.toHaveBeenCalled();
+		finishWrite();
+		await Promise.all([completing, clearing]);
+		await hydrateOnboarding();
+		expect(appAtomRegistry.get(onboardingCompleteAtom)).toBe(false);
+	});
+
+	it("can clear after a failed completion write", async () => {
+		secureStore.setItemAsync.mockRejectedValueOnce(new Error("write failed"));
+		await completeOnboarding();
+		await expect(clearOnboarding()).resolves.toBeUndefined();
+		expect(appAtomRegistry.get(onboardingCompleteAtom)).toBe(false);
+	});
+
 	it("settles safely when secure storage is unavailable", async () => {
 		secureStore.getItemAsync.mockRejectedValueOnce(new Error("locked"));
 		await expect(hydrateOnboarding()).resolves.toBeUndefined();

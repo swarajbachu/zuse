@@ -282,6 +282,8 @@ describe("mobile UI contracts", () => {
 		const emptyActions = home.slice(
 			home.indexOf("!searching && reachableConnections.length === 0"),
 		);
+		expect(emptyActions).toContain('"Sign in"');
+		expect(emptyActions).toContain("Scan QR code");
 		expect(emptyActions.indexOf('"Sign in"')).toBeLessThan(
 			emptyActions.indexOf("Scan QR code"),
 		);
