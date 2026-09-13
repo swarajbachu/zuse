@@ -203,7 +203,7 @@ function withReleaseRepository(run) {
 		mkdirSync(join(directory, "bin"));
 		writeFileSync(
 			join(directory, "bin/gh"),
-			`#!${process.execPath}\nconst stable = {tag_name:'v0.21.0',prerelease:false,draft:false};\nconsole.log(JSON.stringify(process.argv.some(a=>a.endsWith('/latest')) ? stable : [stable,{tag_name:'v0.22.0-preview.2',prerelease:true,draft:false}]));\n`,
+			`#!${process.execPath}\nif(process.argv.includes('--slurp') && process.argv.includes('--jq')) process.exit(2);\nconst stable = {tag_name:'v0.21.0',prerelease:false,draft:false};\nconst releases = process.argv.some(a=>a.endsWith('&page=1')) ? Array(100).fill(stable) : [{tag_name:'v0.22.0-preview.2',prerelease:true,draft:false}];\nconsole.log(JSON.stringify(process.argv.some(a=>a.endsWith('/latest')) ? stable : releases));\n`,
 			{ mode: 0o755 },
 		);
 		const resolveRelease = (overrides) => {

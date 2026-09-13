@@ -92,16 +92,19 @@ export function verifyReleaseAssets(directory, metadata) {
 
 function resolveRelease() {
 	const event = process.env.GITHUB_EVENT_NAME;
-	const releases = JSON.parse(
-		gh(
-			"api",
-			"--paginate",
-			"--slurp",
-			`repos/${process.env.GITHUB_REPOSITORY}/releases?per_page=100`,
-			"--jq",
-			"map(map({tag_name, draft, prerelease})) | flatten",
-		),
-	).flat();
+	const releases = [];
+	for (let page = 1; ; page++) {
+		const batch = JSON.parse(
+			gh(
+				"api",
+				`repos/${process.env.GITHUB_REPOSITORY}/releases?per_page=100&page=${page}`,
+				"--jq",
+				"map({tag_name, draft, prerelease})",
+			),
+		);
+		releases.push(...batch);
+		if (batch.length < 100) break;
+	}
 	const stable = JSON.parse(
 		gh("api", `repos/${process.env.GITHUB_REPOSITORY}/releases/latest`),
 	);
