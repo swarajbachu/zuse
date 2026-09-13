@@ -6,7 +6,9 @@ import type {
 	Session,
 	SessionId,
 } from "@zuse/contracts";
+import type { ExtensionTimelineItem } from "@zuse/extension-sdk";
 import { Message01Icon } from "@zuse/icons/solid-rounded";
+import { Schema } from "effect";
 import {
 	type ReactNode,
 	useCallback,
@@ -40,6 +42,11 @@ import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
 import { useCloudChatSummaryForSession } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
+import {
+	ExtensionErrorBoundary,
+	extensionHostTheme,
+	useExtensionContributions,
+} from "../lib/extension-registry.tsx";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
 import {
 	clearSessionCommandError,
@@ -922,7 +929,85 @@ function TimelineRow({
 		<div className="px-[var(--chat-row-gutter,0.75rem)]">
 			<div className="mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
 				{content}
+				{row.kind === "message" ? (
+					<ExtensionTimelineContributions
+						message={row.message}
+						sessionId={sessionId}
+					/>
+				) : null}
 			</div>
 		</div>
 	);
+}
+
+function ExtensionTimelineContributions({
+	message,
+	sessionId,
+}: {
+	readonly message: import("@zuse/contracts").Message;
+	readonly sessionId: SessionId;
+}) {
+	const extensions = useExtensionContributions();
+	const rendered = useMemo(() => {
+		const output: Array<{
+			readonly extensionId: string;
+			readonly item: ExtensionTimelineItem;
+			readonly Component: import("react").ComponentType<
+				import("@zuse/extension-sdk").ExtensionTimelineRendererProps<unknown>
+			>;
+		}> = [];
+		for (const extension of extensions) {
+			for (const transformer of extension.contributions.timelineTransformers) {
+				if (
+					transformer.sourceType !== "*" &&
+					transformer.sourceType !== message.content._tag
+				)
+					continue;
+				try {
+					const first = transformer.transform(message);
+					const second = transformer.transform(message);
+					if (JSON.stringify(first) !== JSON.stringify(second)) {
+						throw new Error(
+							`Timeline transformer is not deterministic: ${transformer.id}`,
+						);
+					}
+					for (const item of first?.items ?? []) {
+						const renderer = extension.contributions.timelineRenderers.find(
+							(candidate) =>
+								candidate.kind === item.kind &&
+								candidate.version === item.version,
+						);
+						if (renderer === undefined) continue;
+						Schema.decodeUnknownSync(renderer.schema)(item.data);
+						output.push({
+							extensionId: extension.extensionId,
+							item,
+							Component: renderer.Component,
+						});
+					}
+				} catch (cause) {
+					console.error(
+						`[extensions] timeline contribution failed (${extension.extensionId})`,
+						cause,
+					);
+				}
+			}
+		}
+		return output;
+	}, [extensions, message]);
+	return rendered.map(({ extensionId, item, Component }, index) => (
+		<ExtensionErrorBoundary
+			key={`${extensionId}:${item.kind}:${item.version}:${index}`}
+			extensionId={extensionId}
+		>
+			<Component
+				extensionId={extensionId}
+				theme={extensionHostTheme}
+				layout={{ compact: false, platform: "desktop" }}
+				sessionId={sessionId}
+				item={item}
+				timestamp={message.createdAt}
+			/>
+		</ExtensionErrorBoundary>
+	));
 }

@@ -63,7 +63,8 @@
 			"infra/*",
 			"packages/*",
 			"tests/*",
-			"tools/*"
+			"tools/*",
+			"extensions/*"
 		],
 		"catalog": {
 			"@effect/platform-node": "4.0.0-beta.102",
@@ -88,6 +89,7 @@
 		"@effect/sql-pg": "4.0.0-beta.102",
 		"@effect/vitest": "4.0.0-beta.102",
 		"effect": "4.0.0-beta.102",
+		"esbuild": "^0.25.12",
 		"react": "19.2.3",
 		"react-dom": "19.2.3"
 	},

@@ -101,6 +101,7 @@ import {
 	renderAuthCallbackPage,
 	renderNotFoundPage,
 } from "./auth-callback-page.ts";
+import { serveRendererAsset } from "./renderer-assets.ts";
 import {
 	createTitleBarOverlay,
 	createWindowTitleBarOptions,
@@ -3410,8 +3411,7 @@ async function createMainWindow() {
 		// packaged bundle the renderer is shipped via `extraResources` to
 		// <app>/Contents/Resources/app/renderer/dist (see
 		// apps/desktop/electron-builder.yml).
-		const rendererIndex = Path.join(rendererDistDir(), "index.html");
-		void mainWindow.loadFile(rendererIndex);
+		void mainWindow.loadURL("zuse://app/index.html");
 	}
 
 	mainWindow.on("closed", () => {
@@ -3551,6 +3551,8 @@ const registerZuseProtocol = (): void => {
 
 	const handleAssetRequest = async (request: Request) => {
 		const url = new URL(request.url);
+		if (url.host === "app")
+			return serveRendererAsset(rendererDistDir(), request);
 		if (url.host === LINEAR_CONTEXT_HOST) {
 			try {
 				const requestedPath = decodeURIComponent(url.pathname);

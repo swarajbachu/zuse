@@ -92,6 +92,7 @@ export type ResourceKind =
 	| "environment-auth"
 	| "environment-keybindings"
 	| "environment-settings"
+	| "extension-catalog"
 	| "worktree-setup"
 	| "session-timeline"
 	| "session-goal"

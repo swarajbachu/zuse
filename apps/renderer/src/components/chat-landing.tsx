@@ -72,6 +72,7 @@ import {
 } from "~/lib/environment-shell-client-bus";
 import { formatError } from "~/lib/format-error";
 import { dispatchGitWorkspaceCommand } from "~/lib/git-workspace-client-bus";
+import { resolveReadyProvider } from "~/lib/model-picker-availability";
 import {
 	buildLogicalProjectGroups,
 	defaultNewChatTarget,
@@ -93,6 +94,7 @@ import {
 } from "~/store/composer-drafts";
 import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
 import { useExternalThreadsStore } from "~/store/external-threads";
+import { useProvidersStore } from "~/store/providers";
 import {
 	repositorySettingsKey,
 	useRepositorySettingsStore,
@@ -219,8 +221,28 @@ export function ChatLanding() {
 	);
 
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
+	const providerEnabled = useSettingsStore((s) => s.providerEnabled);
 	const defaultModelByProvider = useSettingsStore(
 		(s) => s.defaultModelByProvider,
+	);
+	const providerAvailability = useProvidersStore((s) => s.availability);
+	const providerAvailabilityLoaded = useProvidersStore(
+		(s) => s.availabilityLoaded,
+	);
+	const effectiveDefaultProviderId = useMemo(
+		() =>
+			resolveReadyProvider({
+				preferred: defaultProviderId,
+				availability: providerAvailability,
+				providerEnabled,
+				availabilityLoaded: providerAvailabilityLoaded,
+			}),
+		[
+			defaultProviderId,
+			providerAvailability,
+			providerAvailabilityLoaded,
+			providerEnabled,
+		],
 	);
 	const defaultRuntimeMode = useSettingsStore((s) => s.defaultRuntimeMode);
 	const defaultAutoCreateWorktree = useSettingsStore(
@@ -558,10 +580,10 @@ export function ChatLanding() {
 		}
 		beginDraft({
 			projectId: draftFolderId,
-			providerId: defaultProviderId,
+			providerId: effectiveDefaultProviderId,
 			model:
-				defaultModelByProvider[defaultProviderId] ??
-				defaultModelFor(defaultProviderId),
+				defaultModelByProvider[effectiveDefaultProviderId] ??
+				defaultModelFor(effectiveDefaultProviderId),
 			runtimeMode: defaultRuntimeMode,
 		});
 		return () => clearDraft();

@@ -35,7 +35,7 @@ export function DefaultsStep() {
 				<FieldRow label="Default model">
 					<ModelSelect
 						providerId={defaultProviderId}
-						value={defaultModelByProvider[defaultProviderId]}
+						value={defaultModelByProvider[defaultProviderId] ?? "default"}
 						onChange={(model) => setDefaultModel(defaultProviderId, model)}
 					/>
 				</FieldRow>
@@ -91,6 +91,8 @@ export function DefaultsStep() {
 					</div>
 				</div>
 
+				{/* Radix Switch is a button, so this label intentionally describes a composite control. */}
+				{/* biome-ignore lint/a11y/noLabelWithoutControl: the nested Switch is the labelled interactive control */}
 				<label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-muted/60 px-3.5 py-3 transition-colors hover:bg-muted">
 					<span className="flex min-w-0 flex-1 flex-col gap-1">
 						<span className="flex items-center gap-2">

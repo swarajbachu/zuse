@@ -16,6 +16,7 @@ import {
 	activeChatsByProject,
 	activeSessionsByProject,
 } from "./environment-entities.ts";
+import { resolveReadyProvider } from "./model-picker-availability.ts";
 import { openNewChatLanding } from "./open-new-chat-landing.ts";
 import { openProjectSetupDialog } from "./project-setup-dialog-state.ts";
 import { getLocalEnvironmentId } from "./rpc-client.ts";
@@ -88,12 +89,19 @@ async function newTabInActiveChat(): Promise<void> {
 	const chatId = currentChatId();
 	if (chatId === null) return;
 	const settings = useSettingsStore.getState();
-	const providerId = settings.defaultProviderId;
+	let providers = useProvidersStore.getState();
+	if (!providers.availabilityLoaded) {
+		await providers.refresh();
+		providers = useProvidersStore.getState();
+	}
+	const providerId = resolveReadyProvider({
+		preferred: settings.defaultProviderId,
+		availability: providers.availability,
+		providerEnabled: settings.providerEnabled,
+		availabilityLoaded: providers.availabilityLoaded,
+	});
 	// Warm path skips the provider refresh when a default model is cached;
 	// cold path pays the round-trip first so `create` gets a real model id.
-	if (settings.defaultModelByProvider[providerId] === undefined) {
-		await useProvidersStore.getState().refresh();
-	}
 	const fresh = useSettingsStore.getState();
 	const model =
 		fresh.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);

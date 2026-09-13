@@ -6,6 +6,7 @@ import {
 	CommandId,
 	type CompletionSoundPreset,
 	EnvironmentId,
+	type ExtensionProviderDescriptor,
 	type Folder,
 	type FolderId,
 	type ProviderId,
@@ -52,6 +53,7 @@ import {
 	prepareCompletionSound,
 } from "../lib/completion-sounds.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import { useExtensionCatalog } from "../lib/extension-client-bus.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { useSettingsStore } from "../lib/settings-client-bus.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
@@ -68,6 +70,7 @@ import { CloudWorkspacePool } from "./settings/cloud-workspace-pool.tsx";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
 import { DiagnosticsPane as FullDiagnosticsPane } from "./settings/diagnostics-pane.tsx";
+import { ExtensionsPane } from "./settings/extensions-pane.tsx";
 import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { LinearIntegrationsPane } from "./settings/linear-integrations-pane.tsx";
 import { McpServersPane } from "./settings/mcp-servers-pane.tsx";
@@ -115,6 +118,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
 		label: "Providers",
 		Icon: PackageIcon,
 		section: { kind: "providers" },
+	},
+	{
+		id: "extensions",
+		label: "Extensions",
+		Icon: PlugSocketIcon,
+		section: { kind: "extensions" },
 	},
 	{
 		id: "defaults",
@@ -377,6 +386,13 @@ function SectionTitle({
 					"Verify what's installed, signed in, and which subscription each provider runs on.",
 			};
 		}
+		if (section.kind === "extensions") {
+			return {
+				title: "Zuse Extensions",
+				subtitle:
+					"Install and manage trusted local, Git, and curated extensions.",
+			};
+		}
 		if (section.kind === "defaults") {
 			return {
 				title: "Default models",
@@ -487,6 +503,7 @@ function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "general") return <GeneralPane />;
 	if (section.kind === "defaults") return <DefaultModelsPane />;
 	if (section.kind === "providers") return <ProvidersPane />;
+	if (section.kind === "extensions") return <ExtensionsPane />;
 	if (section.kind === "integrations") return <LinearIntegrationsPane />;
 	if (section.kind === "mcp") return <McpServersPane />;
 	if (section.kind === "devices") return <DevicesPane />;
@@ -1347,7 +1364,7 @@ function DefaultModelsPane() {
 		<SettingsCard className="divide-y divide-border/60 bg-transparent">
 			<SettingsRow
 				title="Default model"
-				description={`Model for new chats · ${PROVIDER_LABEL[defaultProviderId]}`}
+				description={`Model for new chats · ${PROVIDER_LABEL[defaultProviderId] ?? defaultProviderId}`}
 				action={
 					<ModelPicker
 						mode="default"
@@ -1398,6 +1415,25 @@ function ProvidersPane() {
 	const error = useProvidersStore((s) => s.error);
 	const load = useProvidersStore((s) => s.load);
 	const refresh = useProvidersStore((s) => s.refresh);
+	const extensionCatalog = useExtensionCatalog();
+	const extensionProviderOwners = useMemo(
+		() =>
+			new Map<
+				ProviderId,
+				{
+					readonly extensionId: string;
+					readonly descriptor: ExtensionProviderDescriptor;
+				}
+			>(
+				extensionCatalog.items.flatMap((item) =>
+					item.providers.map((descriptor) => [
+						descriptor.id,
+						{ extensionId: item.id, descriptor },
+					]),
+				),
+			),
+		[extensionCatalog.items],
+	);
 
 	// Refresh once when the pane opens. We deliberately do NOT re-poll on every
 	// window focus: `refresh()` → `agent.availability` reads the OS keychain
@@ -1428,6 +1464,7 @@ function ProvidersPane() {
 		"cursor",
 		"opencode",
 		"kiro",
+		...extensionProviderOwners.keys(),
 	];
 	const [selectedProvider, setSelectedProvider] =
 		useState<ProviderId>("claude");
@@ -1457,6 +1494,7 @@ function ProvidersPane() {
 				>
 					{providers.map((pid) => {
 						const selected = selectedProvider === pid;
+						const extensionProvider = extensionProviderOwners.get(pid);
 						return (
 							<button
 								key={pid}
@@ -1472,7 +1510,11 @@ function ProvidersPane() {
 								)}
 							>
 								<ProviderIcon providerId={pid} className="size-4" />
-								<span>{PROVIDER_LABEL[pid]}</span>
+								<span>
+									{extensionProvider?.descriptor.displayName ??
+										PROVIDER_LABEL[pid] ??
+										pid}
+								</span>
 							</button>
 						);
 					})}
@@ -1505,6 +1547,7 @@ function ProvidersPane() {
 						loading,
 						availabilityLoaded,
 					)}
+					extensionProvider={extensionProviderOwners.get(selectedProvider)}
 					layout="page"
 				/>
 			</div>
@@ -2093,7 +2136,7 @@ export function ensureValidDefaultsForRuntime(
 	const provider = ready.includes(settings.defaultProviderId)
 		? settings.defaultProviderId
 		: fallbackProvider;
-	const model = settings.defaultModelByProvider[provider];
+	const model = settings.defaultModelByProvider[provider] ?? "default";
 	return {
 		providerId: provider,
 		model,

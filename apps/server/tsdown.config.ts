@@ -23,6 +23,7 @@ const shared = {
 			"@zuse/utils/**",
 		],
 		neverBundle: [
+			"esbuild",
 			"bindings",
 			"keytar",
 			"node-pty",

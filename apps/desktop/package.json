@@ -45,7 +45,8 @@
 		"tree-sitter": "^0.21.1",
 		"tree-sitter-javascript": "^0.23.1",
 		"tree-sitter-json": "^0.24.8",
-		"tree-sitter-typescript": "^0.23.2"
+		"tree-sitter-typescript": "^0.23.2",
+		"esbuild": "0.25.12"
 	},
 	"devDependencies": {
 		"@electron/rebuild": "^4.0.4",

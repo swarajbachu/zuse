@@ -1,10 +1,14 @@
 import type { Chat, FolderId } from "@zuse/contracts";
+import { Schema } from "effect";
 import fuzzysort from "fuzzysort";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { overlaySurface } from "~/components/ui/overlay-surface";
 import { cn } from "~/lib/utils";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
+import { extensionActions } from "../lib/extension-client-bus.ts";
+import { useExtensionContributions } from "../lib/extension-registry.tsx";
 import { useChatsStore } from "../store/chats.ts";
+import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 
@@ -24,13 +28,24 @@ export function ChatSwitcher() {
 	return <ChatSwitcherInner />;
 }
 
-interface Row {
+interface ChatRow {
+	readonly _tag: "chat";
 	readonly chat: Chat;
 	readonly projectId: FolderId;
 	readonly projectName: string;
 	/** Pre-lowercased title used for the empty-query recents label / fuzzy keys. */
 	readonly title: string;
 }
+
+interface CommandRow {
+	readonly _tag: "command";
+	readonly extensionId: import("@zuse/contracts").ExtensionId;
+	readonly command: import("@zuse/extension-sdk").ExtensionCommandContribution;
+	readonly title: string;
+	readonly projectName: string;
+}
+
+type Row = ChatRow | CommandRow;
 
 const recencyOf = (chat: Chat): number =>
 	(chat.lastMessageAt ?? chat.updatedAt ?? chat.createdAt).getTime();
@@ -39,14 +54,19 @@ function ChatSwitcherInner() {
 	const folders = useWorkspaceStore((s) => s.folders);
 	const { chatsByProject } = useActiveEnvironmentEntities();
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
+	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
+	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
+	const extensions = useExtensionContributions();
 
 	const close = () => useUiStore.getState().setChatSwitcherOpen(false);
 
 	// Restore focus to wherever the user was when they opened the switcher,
 	// but only when they dismiss without picking (selecting navigates focus).
 	const prevFocusRef = useRef<HTMLElement | null>(null);
+	const searchInputRef = useRef<HTMLInputElement | null>(null);
 	useEffect(() => {
 		prevFocusRef.current = document.activeElement as HTMLElement | null;
+		searchInputRef.current?.focus();
 		return () => {
 			// no-op cleanup; explicit restore happens in `dismiss`.
 		};
@@ -63,6 +83,7 @@ function ChatSwitcherInner() {
 			for (const chat of chats) {
 				if (chat.archivedAt !== null) continue;
 				rows.push({
+					_tag: "chat",
 					chat,
 					projectId: folderId,
 					projectName: projectName.get(folderId) ?? "Unknown project",
@@ -70,17 +91,41 @@ function ChatSwitcherInner() {
 				});
 			}
 		}
+		for (const extension of extensions) {
+			for (const command of extension.contributions.commands) {
+				if (command.context === "project" && selectedFolderId === null)
+					continue;
+				if (command.context === "session" && selectedSessionId === null)
+					continue;
+				rows.push({
+					_tag: "command",
+					extensionId: extension.extensionId,
+					command,
+					title: command.title,
+					projectName: "Extension command",
+				});
+			}
+		}
 		return rows;
-	}, [folders, chatsByProject]);
+	}, [
+		extensions,
+		folders,
+		chatsByProject,
+		selectedFolderId,
+		selectedSessionId,
+	]);
 
 	const [query, setQuery] = useState("");
 
 	const rows = useMemo<ReadonlyArray<Row>>(() => {
 		if (query.trim().length === 0) {
 			// Recents first across all projects.
-			return allRows
-				.slice()
-				.sort((a, b) => recencyOf(b.chat) - recencyOf(a.chat));
+			return allRows.slice().sort((a, b) => {
+				if (a._tag !== b._tag) return a._tag === "command" ? -1 : 1;
+				return a._tag === "chat" && b._tag === "chat"
+					? recencyOf(b.chat) - recencyOf(a.chat)
+					: a.title.localeCompare(b.title);
+			});
 		}
 		const ranked = fuzzysort.go(query, allRows, {
 			keys: ["title", "projectName"],
@@ -106,7 +151,35 @@ function ChatSwitcherInner() {
 	const confirm = (row: Row | undefined) => {
 		if (row === undefined) return;
 		close();
-		useChatsStore.getState().select(row.chat.id);
+		if (row._tag === "chat") {
+			useChatsStore.getState().select(row.chat.id);
+			return;
+		}
+		void row.command.run({
+			projectId: selectedFolderId,
+			sessionId: selectedSessionId,
+			invoke: async (contract, input) => {
+				const validInput = Schema.decodeUnknownSync(contract.input)(input);
+				const output = await extensionActions.invoke(
+					row.extensionId,
+					contract.name,
+					validInput,
+				);
+				return Schema.decodeUnknownSync(contract.output)(output);
+			},
+			openSurface: (surfaceId) =>
+				window.dispatchEvent(
+					new CustomEvent("zuse:extension-open-surface", {
+						detail: { extensionId: row.extensionId, surfaceId },
+					}),
+				),
+			openWorkspacePanel: (panelId) =>
+				window.dispatchEvent(
+					new CustomEvent("zuse:extension-open-workspace-panel", {
+						detail: { extensionId: row.extensionId, panelId },
+					}),
+				),
+		});
 	};
 
 	useEffect(() => {
@@ -137,21 +210,24 @@ function ChatSwitcherInner() {
 	}, [rows, highlight]);
 
 	return (
-		<div
-			className="fixed inset-0 z-50 flex justify-center bg-black/40 px-4 py-[12vh] backdrop-blur-sm"
-			onMouseDown={dismiss}
-		>
+		<div className="fixed inset-0 z-50 flex justify-center px-4 py-[12vh]">
+			<button
+				type="button"
+				aria-label="Close chat switcher"
+				className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+				onClick={dismiss}
+			/>
 			<div
 				role="dialog"
 				aria-label="Switch chat"
 				className={cn(
-					"flex h-fit max-h-full w-full max-w-xl flex-col overflow-hidden",
+					"relative flex h-fit max-h-full w-full max-w-xl flex-col overflow-hidden",
 					overlaySurface,
 				)}
 				onMouseDown={(e) => e.stopPropagation()}
 			>
 				<input
-					autoFocus
+					ref={searchInputRef}
 					value={query}
 					onChange={(e) => setQuery(e.target.value)}
 					placeholder="Search chats across all projects…"
@@ -165,10 +241,15 @@ function ChatSwitcherInner() {
 					) : (
 						rows.map((row, i) => {
 							const active = i === highlight;
-							const isCurrent = row.chat.id === selectedChatId;
+							const isCurrent =
+								row._tag === "chat" && row.chat.id === selectedChatId;
 							return (
 								<button
-									key={row.chat.id}
+									key={
+										row._tag === "chat"
+											? row.chat.id
+											: `${row.extensionId}:${row.command.id}`
+									}
 									ref={(el) => {
 										itemRefs.current[i] = el;
 									}}

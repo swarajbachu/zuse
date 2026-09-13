@@ -11,11 +11,11 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, sep } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-
 import type { CloudWorkspaceSshAccess } from "@zuse/contracts";
+import { unpackedPath } from "@zuse/utils/unpacked-path";
 
 /**
  * Desktop-side SSH access to cloud workspaces.
@@ -57,10 +57,7 @@ const resolveBridgeScript = (): string => {
 	const bundled = fileURLToPath(
 		new URL("./ssh-bridge-child.cjs", import.meta.url),
 	);
-	const unpacked = bundled.replace(
-		`${sep}app.asar${sep}`,
-		`${sep}app.asar.unpacked${sep}`,
-	);
+	const unpacked = unpackedPath(bundled);
 	return existsSync(unpacked) ? unpacked : bundled;
 };
 

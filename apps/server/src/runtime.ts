@@ -24,6 +24,7 @@ import { ConfigStoreServiceLive } from "./config-store/layers/config-store-servi
 import { ConversationState } from "./conversation/core/conversation-state.ts";
 import { ConversationServicesLive } from "./conversation/layers/conversation-services.ts";
 import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
+import { ExtensionServiceLive } from "./extension/layers/extension-service.ts";
 import { ExternalThreadServiceLive } from "./external-thread/layers/external-thread-service.ts";
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { RepositoryLocatorLive } from "./git/repository-locator-live.ts";
@@ -315,6 +316,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const CredentialsLayer = deps.credentialsLayer.pipe(
 		Layer.provide(AppPathsLayer),
 	);
+	const ExtensionLayer = ExtensionServiceLive.pipe(
+		Layer.provide(AppPathsLayer),
+		Layer.provide(CredentialsLayer),
+	);
 	const EnrolledLanAuthLayer = LanAuthLayer.pipe(
 		Layer.provideMerge(
 			makeCloudEnrollmentLayer(deps.cloudEnrollment).pipe(
@@ -430,6 +435,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// WorkspaceService, and forwards the SDK's tool-permission callback to
 	// PermissionService.
 	const ProviderLayer = ProviderServiceLive.pipe(
+		Layer.provide(ExtensionLayer),
 		Layer.provide(CredentialsLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(PermissionLayer),
@@ -649,6 +655,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		BrowserBridgeLayer,
 		// browser.* credential RPCs share the encrypted local vault.
 		CredentialsLayer,
+		ExtensionLayer,
 		SkillBridgeLayer,
 		DiagnosticsLayer,
 		EnrolledLanAuthLayer,

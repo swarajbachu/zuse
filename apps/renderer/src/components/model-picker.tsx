@@ -8,6 +8,7 @@ import type {
 	SessionId,
 } from "@zuse/contracts";
 import {
+	modelsForProvider as builtinModelsForProvider,
 	findModelDescriptor,
 	isModelVisible,
 	MODELS_BY_PROVIDER,
@@ -31,6 +32,7 @@ import {
 	useState,
 } from "react";
 import { overlaySurface } from "~/components/ui/overlay-surface";
+import { useExtensionCatalog } from "~/lib/extension-client-bus.ts";
 import { isModelPickerProviderVisible } from "~/lib/model-picker-availability";
 import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks.ts";
 import { useSettingsStore } from "~/lib/settings-client-bus.ts";
@@ -61,6 +63,18 @@ const PROVIDER_CHIP_LABEL: Record<ProviderId, string> = {
 	gemini: "Gemini",
 	opencode: "OpenCode",
 	kiro: "Kiro",
+};
+
+const useProviderDisplayName = (providerId: ProviderId | null): string => {
+	const catalog = useExtensionCatalog();
+	if (providerId === null) return "All";
+	return (
+		PROVIDER_LABEL[providerId] ??
+		(
+			catalog.knownProviders ?? catalog.items.flatMap((item) => item.providers)
+		).find((provider) => provider.id === providerId)?.displayName ??
+		providerId
+	);
 };
 
 interface ModelPickerEntry {
@@ -139,7 +153,7 @@ export function ModelPicker(props: ModelPickerProps) {
 
 	const providerId = isDefault ? defaultProviderId : props.providerId;
 	const currentModel = isDefault
-		? defaultModelByProvider[providerId]
+		? (defaultModelByProvider[providerId] ?? "default")
 		: props.currentModel;
 
 	// Setters
@@ -151,6 +165,16 @@ export function ModelPicker(props: ModelPickerProps) {
 	);
 
 	const availability = useProvidersStore((s) => s.availability);
+	const extensionCatalog = useExtensionCatalog();
+	const extensionProviderById = useMemo(
+		() =>
+			new Map(
+				extensionCatalog.items.flatMap((item) =>
+					item.providers.map((provider) => [provider.id, provider] as const),
+				),
+			),
+		[extensionCatalog.items],
+	);
 	const availabilityLoaded = useProvidersStore((s) => s.availabilityLoaded);
 	const availabilityLoading = useProvidersStore((s) => s.loading);
 	const refreshAvailability = useProvidersStore((s) => s.refresh);
@@ -221,11 +245,15 @@ export function ModelPicker(props: ModelPickerProps) {
 				const existingIds = new Set(models.map((model) => model.id));
 				return [
 					...models,
-					...customModelIdsByProvider[pid]
+					...(customModelIdsByProvider[pid] ?? [])
 						.filter((modelId) => !existingIds.has(modelId))
 						.map((modelId) => ({ id: modelId, label: modelId })),
 				];
 			};
+			const extensionProvider = extensionProviderById.get(pid);
+			if (extensionProvider !== undefined) {
+				return appendCustomModels(extensionProvider.models);
+			}
 			if (pid === "kiro" && kiroInventory !== null) {
 				// Live Kiro catalog from control-plane / CLI. Prefer it over the
 				// static seed so tier/region-gated models appear correctly.
@@ -263,10 +291,10 @@ export function ModelPicker(props: ModelPickerProps) {
 				);
 			}
 			if (pid !== "opencode" || opencodeInventory === null) {
-				return appendCustomModels(MODELS_BY_PROVIDER[pid] ?? []);
+				return appendCustomModels(builtinModelsForProvider(pid));
 			}
 			const seedById = new Map(
-				MODELS_BY_PROVIDER.opencode.map((m) => [m.id, m] as const),
+				(MODELS_BY_PROVIDER.opencode ?? []).map((m) => [m.id, m] as const),
 			);
 			// Only connected providers carry usable models, and the OpenCode
 			// provider manager lets the user hide connected providers / individual
@@ -293,6 +321,7 @@ export function ModelPicker(props: ModelPickerProps) {
 		},
 		[
 			customModelIdsByProvider,
+			extensionProviderById,
 			kiroInventory,
 			opencodeInventory,
 			opencodeProviderVisible,
@@ -307,9 +336,13 @@ export function ModelPicker(props: ModelPickerProps) {
 	}, [availability]);
 
 	const pickableProviders = useMemo<ReadonlyArray<ProviderId>>(() => {
-		return (
-			Object.keys(MODELS_BY_PROVIDER) as ReadonlyArray<ProviderId>
-		).filter((pid) => {
+		const candidates = [
+			...(Object.keys(MODELS_BY_PROVIDER) as ReadonlyArray<ProviderId>),
+			...availability
+				.filter((item) => extensionProviderById.has(item.providerId))
+				.map((item) => item.providerId),
+		];
+		return [...new Set(candidates)].filter((pid) => {
 			// Settings must keep the selected provider's catalog editable even when
 			// its local runtime is signed out. Session pickers remain restricted to
 			// providers that can actually start a session.
@@ -327,6 +360,8 @@ export function ModelPicker(props: ModelPickerProps) {
 		providerEnabled,
 		availabilityById,
 		availabilityLoaded,
+		availability,
+		extensionProviderById,
 	]);
 	const allModels = useMemo<ModelPickerEntry[]>(() => {
 		const out: ModelPickerEntry[] = [];
@@ -563,7 +598,11 @@ export function ModelPicker(props: ModelPickerProps) {
 										active={scope === pid}
 										onClick={() => setScope(pid)}
 										providerId={pid}
-										label={PROVIDER_CHIP_LABEL[pid]}
+										label={
+											PROVIDER_CHIP_LABEL[pid] ??
+											extensionProviderById.get(pid)?.displayName ??
+											pid
+										}
 										count={countByProvider.get(pid) ?? 0}
 										live={live}
 									/>
@@ -682,10 +721,11 @@ function SearchField({
 	totalCount: number;
 	scope: Scope;
 }) {
+	const providerName = useProviderDisplayName(scope === "all" ? null : scope);
+	const inputRef = useRef<HTMLInputElement | null>(null);
+	useEffect(() => inputRef.current?.focus(), []);
 	const placeholder =
-		scope === "all"
-			? `Search ${totalCount} models`
-			: `in ${PROVIDER_CHIP_LABEL[scope]}…`;
+		scope === "all" ? `Search ${totalCount} models` : `in ${providerName}…`;
 	return (
 		<div className="flex min-h-10 items-center gap-2 rounded-lg border bg-background px-3 focus-within:border-foreground/60 focus-within:ring-2 focus-within:ring-primary/30">
 			<HugeiconsIcon
@@ -693,11 +733,11 @@ function SearchField({
 				className="size-3.5 text-muted-foreground"
 			/>
 			<input
+				ref={inputRef}
 				type="text"
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
 				placeholder={placeholder}
-				autoFocus
 				className="min-w-0 flex-1 bg-transparent text-foreground text-sm outline-none placeholder:text-muted-foreground/70"
 			/>
 		</div>
@@ -758,12 +798,11 @@ function ProviderSectionHeader({
 	count: number;
 	current: boolean;
 }) {
+	const providerName = useProviderDisplayName(providerId);
 	return (
 		<div className="flex items-center gap-2 px-2 pt-1.5 pb-1 text-xs">
 			<ProviderIcon providerId={providerId} className="size-3.5" />
-			<span className="font-medium text-foreground">
-				{PROVIDER_LABEL[providerId]}
-			</span>
+			<span className="font-medium text-foreground">{providerName}</span>
 			{current && (
 				<span className="rounded-[0.25rem] bg-primary/35 px-1.5 py-px text-[9px] font-semibold text-primary-foreground uppercase tracking-wide dark:bg-primary/15 dark:text-primary">
 					Current
@@ -809,6 +848,7 @@ function ModelRow({
 	shortcut?: number | null;
 	showProvider?: boolean;
 }) {
+	const providerName = useProviderDisplayName(entry.providerId);
 	const isActive =
 		entry.providerId === currentProviderId && entry.modelId === currentModelId;
 	const isDefault =
@@ -828,6 +868,8 @@ function ModelRow({
 		onSetDefault(entry.providerId, entry.modelId);
 	};
 	return (
+		// A native button cannot contain the nested "set default" action.
+		// biome-ignore lint/a11y/useSemanticElements: keyboard behavior and button semantics are implemented explicitly
 		<div
 			role="button"
 			tabIndex={0}
@@ -860,7 +902,7 @@ function ModelRow({
 				</span>
 				{showProvider && (
 					<span className="truncate text-[11px] text-muted-foreground">
-						{PROVIDER_LABEL[entry.providerId]}
+						{providerName}
 					</span>
 				)}
 			</span>

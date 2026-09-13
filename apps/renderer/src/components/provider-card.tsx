@@ -1,7 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	type AgentAvailability,
-	MODELS_BY_PROVIDER,
+	type ExtensionProviderDescriptor,
+	modelsForProvider,
 	type ProviderId,
 	type ProviderUpdateEvent,
 } from "@zuse/contracts";
@@ -99,13 +100,28 @@ export function ProviderCard({
 	availability,
 	loading,
 	layout = "card",
+	extensionProvider,
 }: {
 	environmentId: string;
 	providerId: ProviderId;
 	availability: AgentAvailability | undefined;
 	loading: boolean;
 	layout?: "card" | "page";
+	extensionProvider?: {
+		readonly extensionId: string;
+		readonly descriptor: ExtensionProviderDescriptor;
+	};
 }) {
+	const displayName =
+		extensionProvider?.descriptor.displayName ??
+		PROVIDER_LABEL[providerId] ??
+		providerId;
+	const isExtensionProvider = extensionProvider !== undefined;
+	const extensionSettingsSurfaceId =
+		extensionProvider?.descriptor.authentication._tag === "extension-managed"
+			? extensionProvider.descriptor.authentication.settingsSurfaceId
+			: null;
+	const extensionId = extensionProvider?.extensionId ?? null;
 	const subscription = SUBSCRIPTION_INFO[providerId];
 	const persistedEnabled =
 		useSettingsStore((s) => s.providerEnabled[providerId]) ?? true;
@@ -135,7 +151,7 @@ export function ProviderCard({
 		? {
 				...baseSummary,
 				statusKey: "subscription" as const,
-				headline: `Requires ${subscription!.plan}`,
+				headline: `Requires ${subscription?.plan ?? "a qualifying plan"}`,
 				detail: null,
 				authEmail: null,
 			}
@@ -155,6 +171,7 @@ export function ProviderCard({
 		enabled &&
 		providerId !== "cursor" &&
 		!showUpgrade &&
+		!isExtensionProvider &&
 		availability?.cliInstalled === true &&
 		availability.updateCommand !== undefined &&
 		availability.latestVersionStatus !== "current";
@@ -185,7 +202,7 @@ export function ProviderCard({
 							aria-hidden
 						/>
 						<span className="truncate text-sm font-medium text-foreground">
-							{PROVIDER_LABEL[providerId]}
+							{displayName}
 						</span>
 						{versionLabel !== null && (
 							<span className="shrink-0 font-mono text-[10px] text-muted-foreground">
@@ -196,7 +213,7 @@ export function ProviderCard({
 							<UpdateAvailableButton
 								environmentId={environmentId}
 								providerId={providerId}
-								displayName={PROVIDER_LABEL[providerId]}
+								displayName={displayName}
 								latestVersion={availability?.latestVersion}
 								behind={availability?.latestVersionStatus === "behind"}
 							/>
@@ -222,12 +239,12 @@ export function ProviderCard({
 					}}
 					aria-label={
 						unmetSubscriptionRequirement
-							? `${PROVIDER_LABEL[providerId]} requires a ${subscription!.plan} subscription`
-							: `Enable ${PROVIDER_LABEL[providerId]}`
+							? `${PROVIDER_LABEL[providerId] ?? providerId} requires a ${subscription?.plan ?? "qualifying"} subscription`
+							: `Enable ${displayName}`
 					}
 					title={
 						unmetSubscriptionRequirement
-							? `Requires ${subscription!.plan} subscription`
+							? `Requires ${subscription?.plan ?? "a qualifying"} subscription`
 							: undefined
 					}
 				/>
@@ -248,17 +265,20 @@ export function ProviderCard({
 						}
 					/>
 				)}
-				{providerId !== "cursor" &&
+				{!isExtensionProvider &&
+					providerId !== "cursor" &&
 					availability !== undefined &&
 					!availability.cliInstalled && (
 						<CodeRow label="Install" command={INSTALL_HINT[providerId] ?? ""} />
 					)}
-				{availability?.cliInstalled &&
+				{!isExtensionProvider &&
+					availability?.cliInstalled &&
 					availability.authStatus === "unauthenticated" &&
 					supportsProviderLogin(providerId) && (
 						<ProviderSignInRow providerId={providerId} />
 					)}
-				{availability?.cliInstalled &&
+				{!isExtensionProvider &&
+					availability?.cliInstalled &&
 					availability.authStatus === "unauthenticated" &&
 					!supportsProviderLogin(providerId) &&
 					providerId !== "cursor" && (
@@ -274,7 +294,11 @@ export function ProviderCard({
 					<OpencodeProviderManager />
 				) : (
 					<>
-						<ModelVisibilitySettings providerId={providerId} />
+						<ModelVisibilitySettings
+							providerId={providerId}
+							models={extensionProvider?.descriptor.models}
+							displayName={displayName}
+						/>
 
 						{providerId === "cursor" && (
 							<div className="rounded-md border border-border/50 bg-background/45 px-3 py-2.5">
@@ -290,15 +314,41 @@ export function ProviderCard({
 						)}
 
 						<div className="flex flex-col gap-1.5">
-							{providerId !== "cursor" && (
-								<span className="text-[11px] font-medium text-muted-foreground">
-									API key (optional)
-								</span>
+							{extensionSettingsSurfaceId !== null && extensionId !== null ? (
+								<Button
+									type="button"
+									variant="outline"
+									className="h-7 self-start"
+									onClick={() =>
+										window.dispatchEvent(
+											new CustomEvent("zuse:extension-open-surface", {
+												detail: {
+													extensionId,
+													surfaceId: extensionSettingsSurfaceId,
+												},
+											}),
+										)
+									}
+								>
+									Configure {displayName}
+								</Button>
+							) : extensionProvider?.descriptor.authentication._tag ===
+								"none" ? null : (
+								<>
+									{providerId !== "cursor" && (
+										<span className="text-[11px] font-medium text-muted-foreground">
+											{extensionProvider?.descriptor.authentication._tag ===
+											"api-key"
+												? extensionProvider.descriptor.authentication.label
+												: "API key (optional)"}
+										</span>
+									)}
+									<ApiKeyRow
+										providerId={providerId}
+										required={providerId === "cursor" || isExtensionProvider}
+									/>
+								</>
 							)}
-							<ApiKeyRow
-								providerId={providerId}
-								required={providerId === "cursor"}
-							/>
 						</div>
 					</>
 				)}
@@ -307,18 +357,26 @@ export function ProviderCard({
 	);
 }
 
-function ModelVisibilitySettings({ providerId }: { providerId: ProviderId }) {
+function ModelVisibilitySettings({
+	providerId,
+	models: providedModels,
+	displayName,
+}: {
+	providerId: ProviderId;
+	models?: ExtensionProviderDescriptor["models"];
+	displayName: string;
+}) {
 	const [customModelId, setCustomModelId] = useState("");
 	const modelEnabledByProvider = useSettingsStore(
 		(s) => s.modelEnabledByProvider,
 	);
 	const customModelIds = useSettingsStore(
-		(s) => s.customModelIdsByProvider[providerId],
+		(s) => s.customModelIdsByProvider[providerId] ?? [],
 	);
 	const setModelEnabled = useSettingsStore((s) => s.setModelEnabled);
 	const addCustomModelId = useSettingsStore((s) => s.addCustomModelId);
 	const removeCustomModelId = useSettingsStore((s) => s.removeCustomModelId);
-	const models = MODELS_BY_PROVIDER[providerId] ?? [];
+	const models = providedModels ?? modelsForProvider(providerId);
 	const normalizedCustomModelId = customModelId.trim();
 	const modelIdAlreadyExists =
 		models.some((model) => model.id === normalizedCustomModelId) ||
@@ -407,7 +465,7 @@ function ModelVisibilitySettings({ providerId }: { providerId: ProviderId }) {
 					value={customModelId}
 					onChange={(event) => setCustomModelId(event.target.value)}
 					placeholder="Enter a model ID"
-					aria-label={`Custom ${PROVIDER_LABEL[providerId]} model ID`}
+					aria-label={`Custom ${displayName} model ID`}
 					aria-invalid={normalizedCustomModelId.length > 200 || undefined}
 				/>
 				<Button type="submit" size="default" disabled={!canAddCustomModel}>
@@ -416,7 +474,7 @@ function ModelVisibilitySettings({ providerId }: { providerId: ProviderId }) {
 				</Button>
 			</form>
 			<p className="text-[10px] leading-snug text-muted-foreground/70">
-				Custom IDs are passed directly to {PROVIDER_LABEL[providerId]}.
+				Custom IDs are passed directly to {displayName}.
 			</p>
 		</div>
 	);

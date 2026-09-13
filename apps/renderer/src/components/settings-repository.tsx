@@ -2,7 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	EnvironmentId,
 	type FolderId,
-	MODELS_BY_PROVIDER,
+	modelsForProvider,
 	type ProviderId,
 	visibleModelsForProvider,
 } from "@zuse/contracts";
@@ -179,7 +179,7 @@ function ProviderOverrideSection({
 	const effectiveProvider: ProviderId = defaultProviderId ?? globalProviderId;
 	const globalModel = globalModelByProvider[globalProviderId];
 	const globalModelLabel =
-		MODELS_BY_PROVIDER[globalProviderId].find((m) => m.id === globalModel)
+		modelsForProvider(globalProviderId).find((m) => m.id === globalModel)
 			?.label ??
 		globalModel ??
 		"—";
@@ -196,7 +196,7 @@ function ProviderOverrideSection({
 
 	const firstModelFor = (pid: ProviderId): string | null =>
 		visibleModelsForProvider(pid, modelEnabledByProvider)[0]?.id ??
-		MODELS_BY_PROVIDER[pid]?.[0]?.id ??
+		modelsForProvider(pid)[0]?.id ??
 		null;
 
 	const onToggle = (next: boolean) => {
@@ -257,8 +257,7 @@ function ProviderOverrideSection({
 							>
 								<button
 									type="button"
-									role="radio"
-									aria-checked={selected}
+									aria-pressed={selected}
 									onClick={() => onPickProvider(pid)}
 									className="group flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/40"
 								>
@@ -284,8 +283,7 @@ function ProviderOverrideSection({
 													<button
 														key={m.id}
 														type="button"
-														role="radio"
-														aria-checked={isCurrentModel}
+														aria-pressed={isCurrentModel}
 														onClick={() => onPickModel(m.id)}
 														className="group flex items-center gap-2.5 py-1 text-left"
 													>
@@ -348,8 +346,7 @@ function RuntimeModeOverrideSection({
 							<button
 								key={mode}
 								type="button"
-								role="radio"
-								aria-checked={selected}
+								aria-pressed={selected}
 								onClick={() => onChange(mode)}
 								className="group flex w-full items-start gap-2.5 border-b border-border/40 px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
 							>

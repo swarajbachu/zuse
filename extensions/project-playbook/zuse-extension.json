@@ -1,0 +1,16 @@
+{
+	"schemaVersion": 1,
+	"id": "project-playbook",
+	"name": "Project Playbook",
+	"description": "Bring your team\u2019s procedures into any agent conversation.",
+	"version": "0.1.0",
+	"client": "index.client.tsx",
+	"server": "index.server.ts",
+	"zuseApi": "^1.0.0",
+	"contributions": ["workspace-panel", "attachment-source"],
+	"capabilities": ["ui", "attachments", "rpc", "filesystem"],
+	"publisher": {
+		"name": "Zuse"
+	},
+	"homepage": "https://zuse.sh/extensions"
+}

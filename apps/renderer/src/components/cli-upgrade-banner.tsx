@@ -1,11 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { ProviderId } from "@zuse/contracts";
 import {
 	CircleArrowUp01Icon,
 	Copy01Icon,
 	LinkSquare01Icon,
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
-import type { ProviderId } from "@zuse/contracts";
 import { RefreshCw as RefreshIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -70,7 +70,7 @@ export function CliUpgradeBanner({
 	};
 
 	const onOpenDocs = () => {
-		void openExternal(docsUrl);
+		if (docsUrl !== undefined) void openExternal(docsUrl);
 	};
 
 	return (

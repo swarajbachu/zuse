@@ -1,0 +1,54 @@
+{
+	"name": "@zuse/extension-sdk",
+	"version": "0.1.0",
+	"type": "module",
+	"main": "./dist/index.mjs",
+	"types": "./dist/index.d.mts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"import": "./src/index.ts"
+		},
+		"./host": {
+			"types": "./src/host.ts",
+			"import": "./src/host.ts"
+		},
+		"./server": {
+			"types": "./src/server.ts",
+			"import": "./src/server.ts"
+		},
+		"./client": {
+			"types": "./src/client.tsx",
+			"import": "./src/client.tsx"
+		}
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test",
+		"test:unit": "vitest run test --passWithNoTests",
+		"build": "tsdown",
+		"prepack": "bun run build",
+		"pack:release": "bun run build && bun ../../scripts/pack-extension-sdk.ts"
+	},
+	"dependencies": {
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/react": "catalog:",
+		"react": "catalog:",
+		"tsdown": "0.21.10",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	},
+	"publishConfig": {
+		"access": "public",
+		"tag": "preview"
+	},
+	"files": [
+		"dist"
+	],
+	"peerDependencies": {
+		"react": "^19.2.0"
+	}
+}

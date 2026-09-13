@@ -118,6 +118,10 @@ import {
 	useEnvironmentPermissions,
 } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
+import {
+	attachExtensionSnapshot,
+	registerExtensionComposer,
+} from "../lib/extension-composer.ts";
 import { subscribeKeybindings } from "../lib/keybindings-client-bus.ts";
 import {
 	interruptSession,
@@ -150,6 +154,7 @@ import { useProvidersStore } from "../store/providers.ts";
 import { AnnotationTray } from "./composer/annotation-tray.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { ContextTray } from "./composer/context-tray.tsx";
+import { ExtensionAttachmentPicker } from "./composer/extension-attachment-picker.tsx";
 import { FileTagPopover } from "./composer/file-tag-popover.tsx";
 import {
 	EMULATED_PLAN_APPROVAL_PROMPT,
@@ -1002,6 +1007,13 @@ export function ChatComposer({
 			});
 		}
 	};
+	useEffect(
+		() =>
+			registerExtensionComposer(sessionId, (snapshot) =>
+				attachPastedText(snapshot.text),
+			),
+		[sessionId, attachPastedText],
+	);
 
 	// Paperclip → hidden file input.
 	const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1433,6 +1445,11 @@ export function ChatComposer({
 										Attach files (paste / drop also work)
 									</TooltipPopup>
 								</Tooltip>
+								<ExtensionAttachmentPicker
+									onSelect={(snapshot) =>
+										attachExtensionSnapshot(sessionId, snapshot)
+									}
+								/>
 								<ModelPicker
 									environmentId={qualifiedEnvironmentId}
 									mode="session"

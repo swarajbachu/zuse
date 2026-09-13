@@ -1,0 +1,26 @@
+---
+title: Trust, data, and recovery
+description: What extensions can access and how to manage them.
+---
+
+## Trust
+
+Extensions are **trusted, unsandboxed code**. A declared capability describes the host APIs an extension may use; it is not an operating-system sandbox. Extension code can perform direct filesystem or network operations with the desktop user's privileges. Only install code and publishers you trust.
+
+The official tools read workspace files locally. Browsing does not call an AI service. When you send an attachment, your chosen agent receives its text under that agent's normal behavior. Avoid selecting secrets or unrelated sensitive content.
+
+The preview runs only in the local desktop environment. It does not run extensions on SSH/cloud servers or display their panels in mobile clients.
+
+## Updates and failed initialization
+
+Settings shows installed versions, update availability, status, errors, and logs. An update compiles and validates its code before stopping the current runtime. Zuse then stops the old runtime, copies host-managed KV/blob state into a candidate generation, initializes the candidate, and commits its code and state together. Failed candidates are discarded and the previous generation is restarted. Interrupted activation is recovered from the last committed generation on the next application start.
+
+Preparation cannot modify host-managed secrets. Direct filesystem/network side effects from unsandboxed extension code **cannot be rolled back**. Keep migrations confined to host storage and make external operations explicit user actions after activation.
+
+A runtime receives at most three automatic recovery attempts after a crash. The budget resets after 60 healthy seconds or an explicit retry. Inspect logs and use Enable/Retry after fixing the cause.
+
+Reload/update is blocked while the extension owns active provider sessions. Disabling or removing such an extension ends those sessions with a visible error; their persisted conversations remain available. Event overflow also fails visibly instead of dropping conversation events silently.
+
+## Disable and remove
+
+Disable stops the runtime and unregisters its UI. Removal uninstalls the code. The removal dialog lets you retain or delete extension data; retaining it permits a later reinstall to recover host-managed state. Uninstalling does not remove messages or attachment snapshots already saved in conversations.

@@ -8,6 +8,7 @@ import {
 import { useProvidersStore } from "../store/providers.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { activeSessionsByProject } from "./environment-entities.ts";
+import { resolveReadyProvider } from "./model-picker-availability.ts";
 import { useSettingsStore } from "./settings-client-bus.ts";
 
 const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
@@ -67,7 +68,13 @@ export const closeChatTab = async (sessionId: SessionId): Promise<void> => {
 
 	const settings = useSettingsStore.getState();
 	await useProvidersStore.getState().refresh();
-	const providerId = settings.defaultProviderId;
+	const providers = useProvidersStore.getState();
+	const providerId = resolveReadyProvider({
+		preferred: settings.defaultProviderId,
+		availability: providers.availability,
+		providerEnabled: settings.providerEnabled,
+		availabilityLoaded: providers.availabilityLoaded,
+	});
 	const model =
 		settings.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
 	await sessions.archive(currentSession.id);

@@ -36,6 +36,11 @@ import {
 	useCloudChatSummaryForSession,
 } from "./lib/cloud-workspaces.ts";
 import { useActiveSessionById } from "./lib/environment-entity-hooks.ts";
+import {
+	ExtensionHostController,
+	ExtensionSurfaceHost,
+	ExtensionWorkspacePanelHost,
+} from "./lib/extension-registry.tsx";
 import { useGitWorkspaceResource } from "./lib/git-workspace-client-bus.ts";
 import { markRendererStartupMilestone } from "./lib/performance-marks.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
@@ -306,7 +311,13 @@ export function App() {
 	const onboardingCompleted = useSettingsStore(
 		(state) => state.onboardingCompleted,
 	);
-	return <ReadyApp onboardingCompleted={onboardingCompleted} />;
+	return (
+		<>
+			<ExtensionHostController />
+			<ExtensionSurfaceHost />
+			<ReadyApp onboardingCompleted={onboardingCompleted} />
+		</>
+	);
 }
 
 function ReadyApp({
@@ -809,6 +820,18 @@ function MainShell() {
 										}
 									/>
 								</Suspense>
+							)}
+						</div>
+						<div
+							hidden={activeMainTab !== "extension"}
+							className="flex min-h-0 flex-1 flex-col"
+						>
+							{activeMainTab === "extension" && (
+								<ExtensionWorkspacePanelHost
+									projectId={selectedFolderId}
+									workspacePath={selectedFolder?.path ?? null}
+									sessionId={selectedSessionId}
+								/>
 							)}
 						</div>
 						{openFile !== null && (

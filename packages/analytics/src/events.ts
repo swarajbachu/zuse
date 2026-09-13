@@ -1,4 +1,8 @@
-import { MODELS_BY_PROVIDER, type ProviderId } from "@zuse/contracts";
+import {
+	type BuiltinProviderId,
+	MODELS_BY_PROVIDER,
+	type ProviderId,
+} from "@zuse/contracts";
 import { Predicate, Schema } from "effect";
 
 export const ANALYTICS_SCHEMA_VERSION = 2;
@@ -274,9 +278,9 @@ export const sanitizeAnalyticsProperties = (
 };
 
 const knownModelIds = new Map<ProviderId, ReadonlySet<string>>(
-	(Object.keys(MODELS_BY_PROVIDER) as ProviderId[]).map((provider) => [
+	(Object.keys(MODELS_BY_PROVIDER) as BuiltinProviderId[]).map((provider) => [
 		provider,
-		new Set(MODELS_BY_PROVIDER[provider].map((model) => model.id)),
+		new Set((MODELS_BY_PROVIDER[provider] ?? []).map((model) => model.id)),
 	]),
 );
 const allKnownModelIds = new Set(

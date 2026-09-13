@@ -25,6 +25,7 @@ import {
 	resolveModelSlug,
 	type SettingsFile,
 	type SettingsPatch,
+	ThemeSelection,
 } from "@zuse/contracts";
 import { Cause, Effect, Fiber, Schema, Stream } from "effect";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
@@ -48,6 +49,7 @@ export interface SettingsSlice {
 	readonly completionSoundEnabled: boolean;
 	readonly completionSoundPreset: CompletionSoundPreset;
 	readonly appearanceMode: AppearanceMode;
+	readonly themeSelection: ThemeSelection;
 	readonly onboardingCompleted: boolean;
 	readonly providerEnabled: Record<ProviderId, boolean>;
 	readonly modelEnabledByProvider: ModelEnabledByProvider;
@@ -83,6 +85,7 @@ type SettingsState = SettingsSlice & {
 	readonly setCompletionSoundEnabled: (value: boolean) => void;
 	readonly setCompletionSoundPreset: (preset: CompletionSoundPreset) => void;
 	readonly setAppearanceMode: (mode: AppearanceMode) => void;
+	readonly setThemeSelection: (selection: ThemeSelection) => void;
 	readonly setOnboardingCompleted: (value: boolean) => void;
 	readonly setProviderEnabled: (providerId: ProviderId, value: boolean) => void;
 	readonly setModelEnabled: (
@@ -144,8 +147,11 @@ const copyCustomModelIds = (
 	input?: Partial<Record<ProviderId, ReadonlyArray<string>>>,
 ): Record<ProviderId, ReadonlyArray<string>> => {
 	const result = {} as Record<ProviderId, ReadonlyArray<string>>;
+	for (const [provider, values] of Object.entries(input ?? {})) {
+		if (values !== undefined) result[provider as ProviderId] = [...values];
+	}
 	for (const provider of PROVIDERS) {
-		result[provider] = [...(input?.[provider] ?? [])];
+		result[provider] ??= [];
 	}
 	return result;
 };
@@ -154,9 +160,12 @@ const mergeModelEnabled = (
 	input: Partial<Record<ProviderId, Partial<Record<string, boolean>>>>,
 ): ModelEnabledByProvider => {
 	const result = defaultModelEnabledByProvider();
-	for (const provider of PROVIDERS) {
-		for (const [model, enabled] of Object.entries(input[provider] ?? {})) {
-			if (typeof enabled === "boolean") result[provider][model] = enabled;
+	for (const [provider, models] of Object.entries(input)) {
+		for (const [model, enabled] of Object.entries(models ?? {})) {
+			if (typeof enabled !== "boolean") continue;
+			const providerModels = result[provider as ProviderId] ?? {};
+			providerModels[model] = enabled;
+			result[provider as ProviderId] = providerModels;
 		}
 	}
 	return result;
@@ -171,6 +180,7 @@ const FALLBACK: SettingsSlice = {
 	completionSoundEnabled: false,
 	completionSoundPreset: "chime",
 	appearanceMode: "dark",
+	themeSelection: { _tag: "built-in", appearance: "dark" },
 	onboardingCompleted: false,
 	providerEnabled: seedProviderEnabled(),
 	modelEnabledByProvider: defaultModelEnabledByProvider(),
@@ -194,6 +204,7 @@ const SettingsSliceSchema = Schema.Struct({
 	completionSoundEnabled: Schema.Boolean,
 	completionSoundPreset: CompletionSoundPreset,
 	appearanceMode: AppearanceMode,
+	themeSelection: ThemeSelection,
 	onboardingCompleted: Schema.Boolean,
 	providerEnabled: Schema.Record(ProviderId, Schema.Boolean),
 	modelEnabledByProvider: Schema.Record(
@@ -236,7 +247,10 @@ registerRendererResourcePersistence(
 const fromFile = (file: SettingsFile): SettingsSlice => {
 	const models = { ...seedModels(), ...file.defaultModelByProvider };
 	for (const provider of PROVIDERS) {
-		models[provider] = resolveModelSlug(provider, models[provider]);
+		models[provider] = resolveModelSlug(
+			provider,
+			models[provider] ?? "default",
+		);
 	}
 	return {
 		defaultProviderId: file.defaultProviderId,
@@ -247,6 +261,10 @@ const fromFile = (file: SettingsFile): SettingsSlice => {
 		completionSoundEnabled: file.completionSoundEnabled,
 		completionSoundPreset: file.completionSoundPreset,
 		appearanceMode: file.appearanceMode,
+		themeSelection: file.themeSelection ?? {
+			_tag: "built-in",
+			appearance: file.appearanceMode,
+		},
 		onboardingCompleted: file.onboardingCompleted,
 		providerEnabled: { ...seedProviderEnabled(), ...file.providerEnabled },
 		modelEnabledByProvider: mergeModelEnabled(file.modelEnabledByProvider),
@@ -506,7 +524,17 @@ const ACTIONS = {
 	setCompletionSoundPreset: (completionSoundPreset: CompletionSoundPreset) =>
 		update(() => ({ completionSoundPreset })),
 	setAppearanceMode: (appearanceMode: AppearanceMode) =>
-		update(() => ({ appearanceMode })),
+		update(() => ({
+			appearanceMode,
+			themeSelection: { _tag: "built-in", appearance: appearanceMode },
+		})),
+	setThemeSelection: (themeSelection: ThemeSelection) =>
+		update((state) => ({
+			themeSelection,
+			...(themeSelection._tag === "built-in"
+				? { appearanceMode: themeSelection.appearance }
+				: { appearanceMode: state.appearanceMode }),
+		})),
 	setOnboardingCompleted: (onboardingCompleted: boolean) =>
 		update(() => ({ onboardingCompleted })),
 	setProviderEnabled: (providerId: ProviderId, value: boolean) =>
@@ -528,7 +556,10 @@ const ACTIONS = {
 			customModelIdsByProvider: {
 				...state.customModelIdsByProvider,
 				[providerId]: [
-					...new Set([...state.customModelIdsByProvider[providerId], modelId]),
+					...new Set([
+						...(state.customModelIdsByProvider[providerId] ?? []),
+						modelId,
+					]),
 				],
 			},
 		})),
@@ -536,7 +567,7 @@ const ACTIONS = {
 		update((state) => ({
 			customModelIdsByProvider: {
 				...state.customModelIdsByProvider,
-				[providerId]: state.customModelIdsByProvider[providerId].filter(
+				[providerId]: (state.customModelIdsByProvider[providerId] ?? []).filter(
 					(id) => id !== modelId,
 				),
 			},

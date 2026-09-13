@@ -1,8 +1,7 @@
-import type { SVGProps } from "react";
-
 import type { ProviderId } from "@zuse/contracts";
-
+import type { SVGProps } from "react";
 import { cn } from "~/lib/utils";
+import { useExtensionCatalog } from "../lib/extension-client-bus.ts";
 import { ClaudeIcon } from "./icons/claude-icon";
 import { CodexIcon } from "./icons/codex-icon";
 import { GeminiIcon } from "./icons/gemini-icon";
@@ -78,5 +77,50 @@ export function ProviderIcon({
 			return <OpencodeBrandIcon className={className} {...props} />;
 		case "kiro":
 			return <KiroIcon className={sized} {...props} />;
+		default:
+			return (
+				<ExtensionProviderIcon
+					providerId={providerId}
+					className={sized}
+					{...props}
+				/>
+			);
 	}
+}
+function ExtensionProviderIcon({
+	providerId,
+	className,
+	...props
+}: ProviderIconProps) {
+	const catalog = useExtensionCatalog();
+	const descriptor = (
+		catalog.knownProviders ?? catalog.items.flatMap((item) => item.providers)
+	).find((provider) => provider.id === providerId);
+	if (descriptor?.iconAssetUrl)
+		return (
+			<svg
+				viewBox="0 0 24 24"
+				className={className}
+				aria-label={descriptor.displayName}
+				{...props}
+			>
+				<image href={descriptor.iconAssetUrl} width="24" height="24" />
+			</svg>
+		);
+	return (
+		<svg
+			viewBox="0 0 24 24"
+			className={className}
+			aria-hidden="true"
+			{...props}
+		>
+			<path
+				d="M9 3h3a3 3 0 1 1 3 3v3h3a3 3 0 1 1 0 6h-3v3a3 3 0 1 1-6 0v-3H6a3 3 0 1 1 0-6h3V3Z"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.7"
+				strokeLinejoin="round"
+			/>
+		</svg>
+	);
 }

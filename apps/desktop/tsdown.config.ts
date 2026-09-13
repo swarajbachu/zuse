@@ -81,6 +81,8 @@ const shared = {
 			"@zuse/contracts",
 			"@zuse/client-runtime",
 			"@zuse/agents",
+			"@zuse/extension-host",
+			"@zuse/extension-sdk",
 			"@zusehq/server",
 			"@zuse/sqlite",
 			"@zuse/index",
@@ -92,6 +94,7 @@ const shared = {
 		// anchors and the lookup fails. Keep them external so each is require()'d
 		// from node_modules at runtime.
 		neverBundle: [
+			"esbuild",
 			"electron",
 			"node-pty",
 			"bindings",
@@ -111,6 +114,16 @@ export default defineConfig([
 		...shared,
 		entry: ["src/main.ts"],
 		clean: true,
+	},
+	{
+		...shared,
+		entry: {
+			"extension-process-child":
+				"../../packages/extension-host/src/extension-process.ts",
+		},
+		deps: {
+			alwaysBundle: ["@zuse/contracts", "@zuse/extension-sdk", "effect"],
+		},
 	},
 	{
 		...shared,

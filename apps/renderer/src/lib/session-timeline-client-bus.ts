@@ -228,6 +228,71 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 		);
 		let result: unknown;
 		switch (command.kind) {
+			case "extension.setGlobalEnabled":
+				result = await Effect.runPromise(
+					client["extension.setGlobalEnabled"](payload as never),
+				);
+				break;
+			case "extension.install":
+				result = await Effect.runPromise(
+					client["extension.install"](payload as never),
+				);
+				break;
+			case "extension.inspect":
+				result = await Effect.runPromise(
+					client["extension.inspect"](payload as never),
+				);
+				break;
+			case "extension.logs":
+				result = await Effect.runPromise(
+					client["extension.logs"](payload as never),
+				);
+				break;
+			case "extension.marketplace.list":
+				result = await Effect.runPromise(
+					client["extension.marketplace.list"](),
+				);
+				break;
+			case "extension.marketplace.refresh":
+				result = await Effect.runPromise(
+					client["extension.marketplace.refresh"](),
+				);
+				break;
+			case "extension.enable":
+				result = await Effect.runPromise(
+					client["extension.enable"](payload as never),
+				);
+				break;
+			case "extension.disable":
+				result = await Effect.runPromise(
+					client["extension.disable"](payload as never),
+				);
+				break;
+			case "extension.reload":
+				result = await Effect.runPromise(
+					client["extension.reload"](payload as never),
+				);
+				break;
+			case "extension.remove":
+				result = await Effect.runPromise(
+					client["extension.remove"](payload as never),
+				);
+				break;
+			case "extension.update":
+				result = await Effect.runPromise(
+					client["extension.update"](payload as never),
+				);
+				break;
+			case "extension.cancel":
+				result = await Effect.runPromise(
+					client["extension.cancel"](payload as never),
+				);
+				break;
+			case "extension.invoke":
+				result = await Effect.runPromise(
+					client["extension.invoke"](payload as never),
+				);
+				break;
 			case "workspace.setSelected":
 				result = await Effect.runPromise(
 					client["workspace.setSelected"](payload as never),

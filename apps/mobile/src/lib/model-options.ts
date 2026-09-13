@@ -1,15 +1,16 @@
 import {
 	type AgentAvailability,
+	BUILTIN_PROVIDER_IDS,
 	defaultModelFor,
 	findModelDescriptor,
-	MODELS_BY_PROVIDER,
+	modelsForProvider,
 	type PermissionMode,
 	type ProviderId,
 	type RuntimeMode,
 	type SelectOptionDescriptor,
 } from "@zuse/contracts";
 
-export const PROVIDER_LABEL: Record<ProviderId, string> = {
+export const PROVIDER_LABEL: Partial<Record<ProviderId, string>> = {
 	claude: "Claude Code",
 	codex: "Codex",
 	grok: "Grok",
@@ -71,13 +72,13 @@ export const PERMISSION_OPTIONS: readonly {
 ];
 
 export const providerOptions = () =>
-	(Object.keys(MODELS_BY_PROVIDER) as ProviderId[]).map((providerId) => ({
+	BUILTIN_PROVIDER_IDS.map((providerId) => ({
 		value: providerId,
-		label: PROVIDER_LABEL[providerId],
+		label: PROVIDER_LABEL[providerId] ?? providerId,
 	}));
 
 export const modelOptionsForProvider = (providerId: ProviderId) =>
-	(MODELS_BY_PROVIDER[providerId] ?? []).map((model) => ({
+	modelsForProvider(providerId).map((model) => ({
 		value: model.id,
 		label: model.label,
 	}));
