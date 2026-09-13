@@ -1,0 +1,22 @@
+{
+	"you_choose_the_next_provider_instead_of_zuse_silently_routing_your_mes": "您选择下一个提供商，而不是默默地路由您的消息 Zuse。启动或分叉会话，然后附加下一个代理需要的计划、记录、差异或文件。如果某个订阅达到其限制，您可以继续使用您有权访问的另一提供商。",
+	"what_does_zuse_actually_do": "Zuse 实际上是做什么的？",
+	"zuse_supports_seven_coding_agent_clis_in_one_workspace_connect_the_pro": "Zuse 在一个工作区中支持七个编码代理 CLI。连接您使用的提供程序，并行运行它们，并选择哪个提供程序处理每个会话。",
+	"what_happens_when_i_want_to_switch_agents": "当我想更换代理时会发生什么？",
+	"is_my_code_or_data_sent_anywhere": "我的代码或数据是否发送到任何地方？",
+	"which_agents_are_supported": "支持哪些代理？",
+	"which_operating_systems_are_supported": "支持哪些操作系统？",
+	"how_much_does_it_cost": "它要多少钱？",
+	"zuse_puts_your_coding_agents_repositories_terminals_files_and_diffs_in": "Zuse 将您的编码代理、存储库、终端、文件和差异放在一个工作区中。您可以并行运行多个任务，将每个任务隔离在自己的 git 工作树中，并将选定的上下文从一个代理会话传输到另一个代理会话。",
+	"do_i_need_my_own_api_keys_or_subscriptions": "我需要自己的 API 密钥或订阅吗？",
+	"yes_zuse_is_bring_your_own_keys_you_plug_in_your_own_provider_keys_or": "是的。 Zuse 是自带钥匙。您插入自己的提供商密钥或订阅，Zuse 会直接与他们对话。它从不转售代币并增加 0 美元的加价，因此您只需向代理提供商付费。",
+	"local_and_ssh_chats_stay_on_the_computers_you_choose_when_you_use_the": "本地和 SSH 聊天保留在您选择的计算机上。当您使用可选的 Zuse Cloud 私人测试版时，其工作区在 E2B 中运行，并存储加密的转录检查点以实现快速重新连接。模型请求仅发送至您配置的提供程序。假名使用情况分析从不包括提示、响应、代码、路径、命令、帐户详细信息或错误堆栈，您可以在“设置”中将其关闭。",
+	"the_zuse_desktop_beta_is_available_now_and_uses_your_own_agent_subscri": "Zuse 桌面测试版现已推出，并使用您自己的代理订阅或 API 密钥。 Zuse Cloud 是一个私人、仅限邀请的测试版：Cloud Workspace 的费用为 40 美元/月，包括 35 美元的可归属 E2B 计算，并收取额外的提供商费用以及超额上限的 5%。",
+	"yes_you_can_run_several_agents_in_parallel_each_in_its_own_chat_with_i": "是的。您可以并行运行多个代理，每个代理都在其自己的聊天中使用自己的 git 工作树，因此它们的更改保持隔离。从 PR 和更改窗格中查看并提交每一项。",
+	"a_lead_agent_can_spawn_sub_agents_to_handle_parts_of_a_task_including": "主导代理可以生成子代理来处理部分任务，包括用于更简单工作的更便宜的模型。这使得昂贵的模型专注于困难的部分，并降低了总体代币成本。",
+	"what_is_sub_agent_delegation": "什么是子代理委托？",
+	"can_i_run_multiple_agents_at_once": "我可以同时运行多个代理吗？",
+	"more_questions_see_the_project_on_github": "还有更多问题吗？请参阅 <part0>GitHub</part0> 上的项目。",
+	"questions_devs_ask_first": "开发人员首先提出的问题",
+	"zuse_beta_ships_for_macos_and_x64_linux_the_download_button_selects_th": "Zuse（Beta）适用于 macOS 和 x64 Linux。“下载”按钮自动选择 macOS 磁盘映像或 Linux AppImage，Debian 和 Ubuntu 用户还可以从以下位置获取 .deb 软件包GitHub 发布。"
+}

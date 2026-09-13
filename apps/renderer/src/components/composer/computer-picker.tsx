@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ComputerIcon } from "@zuse/icons/solid-rounded";
 import { ChevronDown } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
@@ -72,6 +74,8 @@ export function ComputerPicker({
 	onPickCloud?: (providerId: string) => void;
 	onRetryEnvironment: (environmentId: string) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	if (group === null) return null;
 	const model = computerPickerItems(group, target, entries);
 	if (model.kind === "hidden" && cloudItems.length === 0) return null;
@@ -105,7 +109,7 @@ export function ComputerPicker({
 		<Menu>
 			<MenuTrigger
 				className="flex h-7 min-w-0 max-w-[14rem] items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] text-foreground transition-colors hover:bg-accent data-[popup-open]:bg-accent"
-				aria-label="Run on computer"
+				aria-label={uiMessage("chat:computer_picker_run_on_computer")}
 			>
 				{cloudSelected ? (
 					<DitherCloudIcon className="size-4" />
@@ -113,11 +117,13 @@ export function ComputerPicker({
 					<HugeiconsIcon icon={ComputerIcon} className="size-3.5" />
 				)}
 				<span className="truncate">
-					{cloudSelected ? "Cloud Sandbox" : (current?.label ?? "Run on")}
+					{cloudSelected
+						? uiMessage("chat:computer_picker_cloud_sandbox")
+						: (current?.label ?? "Run on")}
 				</span>
 				{cloudSelected ? (
 					<Badge size="sm" variant="outline">
-						Beta
+						{uiMessage("chat:computer_picker_beta")}
 					</Badge>
 				) : null}
 				<ChevronDown className="size-3 opacity-60" />
@@ -177,9 +183,11 @@ export function ComputerPicker({
 								>
 									<DitherCloudIcon className="col-start-1 size-4" />
 									<span className="col-start-2 flex min-w-0 items-center gap-1.5">
-										<span className="truncate">Cloud Sandbox</span>
+										<span className="truncate">
+											{uiMessage("chat:computer_picker_cloud_sandbox")}
+										</span>
 										<Badge size="sm" variant="outline">
-											Beta
+											{uiMessage("chat:computer_picker_beta")}
 										</Badge>
 									</span>
 									<span className="col-start-3 text-[10px] text-muted-foreground">
@@ -203,7 +211,9 @@ export function ComputerPicker({
 						icon={ComputerIcon}
 						className="col-start-1 row-start-1 size-3.5 opacity-80"
 					/>
-					<span className="col-start-2 row-start-1">Add computer…</span>
+					<span className="col-start-2 row-start-1">
+						{uiMessage("chat:computer_picker_add_computer")}
+					</span>
 				</MenuItem>
 			</MenuPopup>
 		</Menu>

@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/chat";
 import type { Chat } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ChevronRight } from "lucide-react";
 import { useMemo } from "react";
 
@@ -15,6 +17,8 @@ import { Button } from "./ui/button";
  * unread.
  */
 export function NextUnreadButton() {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const { chatsByProject } = useActiveEnvironmentEntities();
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 	const selectChat = useChatsStore((s) => s.select);
@@ -33,7 +37,7 @@ export function NextUnreadButton() {
 			}
 		}
 		return best;
-	}, [chatsByProject, selectedChatId]);
+	}, [chatsByProject, selectedChatId, uiMessage]);
 
 	if (nextUnread === null) return null;
 
@@ -43,9 +47,11 @@ export function NextUnreadButton() {
 			size="xs"
 			className="pointer-events-auto text-muted-foreground"
 			onClick={() => selectChat(nextUnread.id)}
-			title="Jump to the next chat with unread activity"
+			title={uiMessage(
+				"chat:next_unread_button_jump_to_the_next_chat_with_unread_activity",
+			)}
 		>
-			Next
+			{uiMessage("chat:next_unread_button_next")}
 			<ChevronRight className="size-3.5" />
 		</Button>
 	);

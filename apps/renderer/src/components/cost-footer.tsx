@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/chat";
 import {
 	type AgentItemId,
 	type EnvironmentId,
@@ -6,6 +7,7 @@ import {
 	pricingFor,
 	type SessionId,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useMemo } from "react";
 
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
@@ -93,6 +95,8 @@ export function CostChip({
 	sessionId: SessionId;
 	environmentId: EnvironmentId;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const { messages } = useRendererSessionTimeline(
 		sessionId,
 		"connect",
@@ -106,7 +110,10 @@ export function CostChip({
 			className="hidden rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground sm:inline"
 			title={
 				summary.saved > 0.005
-					? `${summary.lines.join(" · ")} — saved ~${formatUsd(summary.saved)}`
+					? uiMessage("chat:cost_footer_saved", {
+							value1: String(summary.lines.join(" · ")),
+							value2: String(formatUsd(summary.saved)),
+						})
 					: summary.lines.join(" · ")
 			}
 		>

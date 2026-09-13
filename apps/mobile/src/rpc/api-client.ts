@@ -243,14 +243,18 @@ export const registerDevice = async (input: {
 };
 
 /** Permanently delete the authenticated account and all api-owned data. */
-export const deleteAccount = async (): Promise<void> => {
+export const deleteAccount = async (): Promise<{ cleanupPending: boolean }> => {
 	const workosToken = await getWorkosToken();
 	const response = await fetch(url(ApiPaths.account), {
 		method: "DELETE",
 		headers: { authorization: `Bearer ${workosToken}` },
 	});
 	if (!response.ok) throw await apiError(response, "account_delete");
+	const result = (await response.json()) as { cleanupPending?: boolean };
 	resetApiAccessToken();
+	return {
+		cleanupPending: response.status === 202 || result.cleanupPending === true,
+	};
 };
 
 export const resetApiAccessToken = (): void => {

@@ -36,8 +36,10 @@ body,
 	--animate-toast-error-even: toast-error-even 0.28s
 		cubic-bezier(0.5, 1, 0.89, 1);
 
-	--font-sans: "Geist Variable", "Geist", sans-serif;
-	--font-heading: "Geist Variable", "Geist", sans-serif;
+	--font-sans:
+		"Geist Variable", "Geist", system-ui, "PingFang SC", "PingFang TC", "Hiragino Sans", "Yu Gothic UI", "Malgun Gothic", "Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans CJK JP", "Noto Sans CJK KR", sans-serif;
+	--font-heading:
+		"Geist Variable", "Geist", system-ui, "PingFang SC", "PingFang TC", "Hiragino Sans", "Yu Gothic UI", "Malgun Gothic", "Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans CJK JP", "Noto Sans CJK KR", sans-serif;
 	--font-mono: "Geist Mono Variable", "Geist Mono", monospace;
 
 	/* Standard shadcn semantic tokens */
@@ -208,8 +210,10 @@ body,
 :root {
 	/* Electron Window Controls Overlay reports the native button strip through
      these env() values. It resolves to zero in browsers and on macOS. */
-	--font-sans: "Geist Variable", "Geist", sans-serif;
-	--font-heading: "Geist Variable", "Geist", sans-serif;
+	--font-sans:
+		"Geist Variable", "Geist", system-ui, "PingFang SC", "PingFang TC", "Hiragino Sans", "Yu Gothic UI", "Malgun Gothic", "Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans CJK JP", "Noto Sans CJK KR", sans-serif;
+	--font-heading:
+		"Geist Variable", "Geist", system-ui, "PingFang SC", "PingFang TC", "Hiragino Sans", "Yu Gothic UI", "Malgun Gothic", "Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans CJK JP", "Noto Sans CJK KR", sans-serif;
 	--font-mono: "Geist Mono Variable", "Geist Mono", monospace;
 	--zuse-window-controls-right-inset: calc(
 		100vw -

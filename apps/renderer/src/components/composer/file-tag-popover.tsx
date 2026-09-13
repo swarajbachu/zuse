@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/projects";
 import type { EditorView } from "@codemirror/view";
 import type {
 	CommandId,
@@ -5,11 +6,12 @@ import type {
 	FolderId,
 	WorktreeId,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useComposerAnchor } from "~/components/composer/use-composer-anchor";
 import { FileIcon } from "~/components/file-icon";
 import { overlaySurface } from "~/components/ui/overlay-surface";
-import { useComposerAnchor } from "~/components/composer/use-composer-anchor";
 import { type ActiveTrigger, replaceWithChip } from "~/lib/codemirror/composer";
 import { dispatchEnvironmentShellCommand } from "~/lib/environment-shell-client-bus.ts";
 import { cn } from "~/lib/utils";
@@ -56,6 +58,8 @@ export function FileTagPopover({
 	workspaceRoot,
 	onClose,
 }: FileTagPopoverProps) {
+	const { message: uiMessage } = useUiMessages(["projects"]);
+
 	const [hits, setHits] = useState<readonly SearchHit[]>([]);
 	const [highlight, setHighlight] = useState(0);
 	const query = trigger.query;
@@ -153,7 +157,7 @@ export function FileTagPopover({
 		// re-bind on each iteration.
 	}, [hits, highlight, onClose]);
 
-	const visible = useMemo(() => hits.slice(0, 12), [hits]);
+	const visible = useMemo(() => hits.slice(0, 12), [hits, uiMessage]);
 	const anchor = useComposerAnchor(view);
 
 	if (visible.length === 0 || anchor === null) return null;
@@ -168,7 +172,7 @@ export function FileTagPopover({
 			onMouseDown={(e) => e.preventDefault()}
 		>
 			<div className="px-2 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-				Files
+				{uiMessage("projects:file_tag_popover_files")}
 			</div>
 			{visible.map((hit, i) => {
 				const active = i === highlight;

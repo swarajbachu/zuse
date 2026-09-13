@@ -1,10 +1,12 @@
+import { providerLabel as getProviderLabel } from "@zuse/contracts";
+import "@zuse/i18n/english/onboarding";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { LinkSquare01Icon, Tick01Icon } from "@zuse/icons/bulk-rounded";
 
 import { ApiKeyRow } from "~/components/api-key-row";
 import { ProviderIcon } from "~/components/provider-icons";
-import { PROVIDER_LABEL } from "~/components/settings-page";
 import { Button } from "~/components/ui/button";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 import { cn } from "~/lib/utils";
@@ -121,6 +123,8 @@ function deriveState(
 }
 
 export function ProviderStep() {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
 	const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider);
 	const availability = useProvidersStore((s) => s.availability);
@@ -150,7 +154,7 @@ export function ProviderStep() {
 	return (
 		<div className="flex flex-col gap-4">
 			<StepHeader
-				title="Pick your default agent"
+				title={uiMessage("onboarding:provider_pick_your_default_agent")}
 				// Welcome step already established "we reuse your CLI auth, no new
 				// logins" — so here we just nudge them to pick and continue. Short
 				// subtitle keeps the cards above the fold.
@@ -185,6 +189,8 @@ function ProviderCard({
 	active: boolean;
 	onClick: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	return (
 		<button
 			type="button"
@@ -206,14 +212,14 @@ function ProviderCard({
 			<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<span className="flex items-center gap-1.5">
 					<span className="truncate text-[13px] font-medium leading-none text-foreground">
-						{PROVIDER_LABEL[providerId]}
+						{getProviderLabel(providerId)}
 					</span>
 					{/* Only show the subscription chip when the probe actually detected
               an unmet plan requirement. Users with a valid tier see a clean
               card with no chip. */}
 					{state.kind === "subscription" && (
 						<span className="rounded-full bg-info/10 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-info">
-							Sub
+							{uiMessage("onboarding:provider_sub")}
 						</span>
 					)}
 				</span>
@@ -304,6 +310,8 @@ function ProviderStatus({
 	providerId: ProviderId;
 	state: ProviderState;
 }) {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	const refresh = useProvidersStore((s) => s.refresh);
 	const subscriptionInfo = SUBSCRIPTION_INFO[providerId];
 
@@ -313,8 +321,8 @@ function ProviderStatus({
 	if (state.kind === "ready") {
 		const label =
 			state.via === "cli"
-				? `${PROVIDER_LABEL[providerId]} CLI is logged in. You're all set.`
-				: `${PROVIDER_LABEL[providerId]} API key saved. You're all set.`;
+				? `${getProviderLabel(providerId)} CLI is logged in. You're all set.`
+				: `${getProviderLabel(providerId)} API key saved. You're all set.`;
 		return (
 			<div className="flex items-center gap-2 rounded-md bg-alert-success-bg px-3 py-2 text-[12px] text-success">
 				<HugeiconsIcon icon={Tick01Icon} className="size-3.5" strokeWidth={3} />
@@ -327,8 +335,15 @@ function ProviderStatus({
 	if (state.kind === "loading") {
 		return (
 			<div className="flex items-center gap-2 rounded-md bg-muted/60 px-3 py-2 text-[12px] text-muted-foreground">
-				<span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
-				Checking {PROVIDER_LABEL[providerId]}…
+				<RichMessage
+					id="onboarding:provider_checking_sentence"
+					values={{ value: getProviderLabel(providerId) }}
+					components={{
+						part0: (
+							<span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
+						),
+					}}
+				/>
 			</div>
 		);
 	}
@@ -361,8 +376,8 @@ function ProviderStatus({
 				: state.kind === "subscription"
 					? "Your CLI login was detected, but the required paid plan was not confirmed."
 					: state.kind === "outdated"
-						? `${PROVIDER_LABEL[providerId]} ${state.current} is too old; Zuse (Beta) needs ${state.required}.`
-						: `${PROVIDER_LABEL[providerId]}'s CLI isn't on your PATH yet.`;
+						? `${getProviderLabel(providerId)} ${state.current} is too old; Zuse (Beta) needs ${state.required}.`
+						: `${getProviderLabel(providerId)}'s CLI isn't on your PATH yet.`;
 
 	const command =
 		state.kind === "signed-out"
@@ -407,7 +422,7 @@ function ProviderStatus({
 			) : (
 				<details className="group/keys">
 					<summary className="cursor-pointer select-none list-none text-[11px] text-muted-foreground hover:text-foreground">
-						or paste an API key instead
+						{uiMessage("onboarding:provider_or_paste_an_api_key_instead")}
 					</summary>
 					<div className="pt-3">
 						<ApiKeyRow providerId={providerId} />
@@ -427,15 +442,20 @@ function SubscriptionNotice({
 	plan: string;
 	url: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	return (
 		<div className="flex flex-col gap-1.5 rounded-lg border border-info/25 bg-alert-info-bg px-3 py-2.5">
 			<span className="text-[11px] font-medium text-info">
-				Requires {plan} subscription
+				{uiMessage("onboarding:provider_requires_subscription_sentence", {
+					plan: plan,
+				})}
 			</span>
 			<p className="text-[11px] leading-snug text-muted-foreground">
-				Sessions will fail if your plan doesn&apos;t include {plan}. Subscribe
-				(or confirm your existing plan) before using{" "}
-				{PROVIDER_LABEL[providerId]}.
+				{uiMessage(
+					"onboarding:provider_sessions_will_fail_if_your_plan_doesn_apos_t_include_subscri_sentence",
+					{ plan: plan, value: getProviderLabel(providerId) },
+				)}
 			</p>
 			<div>
 				<Button
@@ -445,7 +465,8 @@ function SubscriptionNotice({
 					className="gap-1.5 bg-info/10 px-2.5 text-[11px] text-info hover:bg-info/20 hover:text-info"
 				>
 					<HugeiconsIcon icon={LinkSquare01Icon} className="size-3" />
-					Subscribe to {plan}
+					{uiMessage("onboarding:provider_subscribe_to")}
+					{plan}
 				</Button>
 			</div>
 		</div>
@@ -459,6 +480,8 @@ function CodeRow({
 	command: string;
 	onRecheck: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	return (
 		<div className="flex h-7 items-center justify-between gap-3 rounded-md bg-muted px-2.5 font-mono text-[11px]">
 			<code className="truncate text-foreground/90">$ {command}</code>
@@ -468,55 +491,57 @@ function CodeRow({
 				onClick={onRecheck}
 				className="h-6 shrink-0 px-2 text-[11px] text-muted-foreground hover:text-foreground"
 			>
-				Recheck
+				{uiMessage("onboarding:provider_recheck")}
 			</Button>
 		</div>
 	);
 }
 
 function StatusPill({ state }: { state: ProviderState }) {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	const map: Record<
 		ProviderState["kind"],
 		{ label: string; dot: string; bg: string; text: string }
 	> = {
 		loading: {
-			label: "Checking",
+			label: uiMessage("onboarding:provider_checking_2"),
 			dot: "bg-muted-foreground/50",
 			bg: "bg-muted/70",
 			text: "text-muted-foreground",
 		},
 		missing: {
-			label: "Not installed",
+			label: uiMessage("onboarding:provider_not_installed"),
 			dot: "bg-rose-400",
 			bg: "bg-rose-400/12",
 			text: "text-rose-700 dark:text-rose-300",
 		},
 		outdated: {
-			label: "Update",
+			label: uiMessage("onboarding:provider_update"),
 			dot: "bg-amber-400",
 			bg: "bg-amber-400/12",
 			text: "text-amber-700 dark:text-amber-300",
 		},
 		"signed-out": {
-			label: "Sign in",
+			label: uiMessage("onboarding:provider_sign_in"),
 			dot: "bg-amber-400",
 			bg: "bg-amber-400/12",
 			text: "text-amber-700 dark:text-amber-300",
 		},
 		"key-attention": {
-			label: "Check key",
+			label: uiMessage("onboarding:provider_check_key"),
 			dot: "bg-amber-400",
 			bg: "bg-amber-400/12",
 			text: "text-amber-700 dark:text-amber-300",
 		},
 		subscription: {
-			label: "Subscribe",
+			label: uiMessage("onboarding:provider_subscribe"),
 			dot: "bg-amber-400",
 			bg: "bg-amber-400/12",
 			text: "text-amber-700 dark:text-amber-300",
 		},
 		ready: {
-			label: "Connected",
+			label: uiMessage("onboarding:provider_connected"),
 			dot: "bg-emerald-400",
 			bg: "bg-emerald-400/12",
 			text: "text-emerald-700 dark:text-emerald-300",

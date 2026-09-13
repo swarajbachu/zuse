@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/settings";
 import type {
 	ApiLinkStatus,
 	AuthTokenSummary,
@@ -5,6 +6,7 @@ import type {
 	TailnetShareState,
 } from "@zuse/contracts";
 import { formatPairingCodeForDisplay } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Copy, Link2, QrCode, RefreshCw } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -77,6 +79,8 @@ export function ConnectLinkCard({
 	readonly tokens: ReadonlyArray<AuthTokenSummary>;
 	readonly onTokens: (tokens: ReadonlyArray<AuthTokenSummary>) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const [pairing, setPairing] = useState<PairingStartResult | null>(null);
 	const [method, setMethod] = useState<PairingMethod>("account");
 	const [dialogOpen, setDialogOpen] = useState(false);
@@ -203,26 +207,30 @@ export function ConnectLinkCard({
 		try {
 			await copyText(browserUrl);
 			toastManager.add({
-				title: "Connect link copied",
-				description: "Open it in a browser or paste it into Add Computer.",
+				title: uiMessage("settings:connect_link_card_connect_link_copied"),
+				description: uiMessage(
+					"settings:connect_link_card_open_it_in_a_browser_or_paste_it_into_add_computer",
+				),
 			});
 		} catch (cause) {
 			showError("Could not copy the connect link", cause);
 		}
-	}, [browserUrl]);
+	}, [browserUrl, uiMessage]);
 
 	const copyCode = useCallback(async () => {
 		if (pairingCode === "") return;
 		try {
 			await copyText(pairingCode);
 			toastManager.add({
-				title: "Pairing code copied",
-				description: "Enter it in the browser within five minutes.",
+				title: uiMessage("settings:connect_link_card_pairing_code_copied"),
+				description: uiMessage(
+					"settings:connect_link_card_enter_it_in_the_browser_within_five_minutes",
+				),
 			});
 		} catch (cause) {
 			showError("Could not copy the pairing code", cause);
 		}
-	}, [pairingCode]);
+	}, [pairingCode, uiMessage]);
 
 	const openDialog = useCallback(() => {
 		const best = ready[0];
@@ -247,8 +255,10 @@ export function ConnectLinkCard({
 		<>
 			<Frame>
 				<RemoteAccessSectionHeader
-					title="Connect another device"
-					tooltip="Create a temporary link that authorizes another Zuse app or browser to use this computer."
+					title={uiMessage("settings:connect_link_card_connect_another_device")}
+					tooltip={uiMessage(
+						"settings:connect_link_card_create_a_temporary_link_that_authorizes_another_zuse_app_or_browser_to",
+					)}
 				/>
 				<Card>
 					<div className="flex min-h-14 items-center gap-2.5 px-3 py-2">
@@ -256,15 +266,21 @@ export function ConnectLinkCard({
 							<Link2 className="size-4" aria-hidden />
 						</div>
 						<div className="min-w-0 flex-1">
-							<p className="text-xs font-medium">Create a connect link</p>
+							<p className="text-xs font-medium">
+								{uiMessage("settings:connect_link_card_create_a_connect_link")}
+							</p>
 							<p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
 								{anyReady
-									? "Authorize another device with a link that lasts five minutes."
-									: "Set up one of the connections above first."}
+									? uiMessage(
+											"settings:connect_link_card_authorize_another_device_with_a_link_that_lasts_five_minutes",
+										)
+									: uiMessage(
+											"settings:connect_link_card_set_up_one_of_the_connections_above_first",
+										)}
 							</p>
 						</div>
 						<Button size="xs" disabled={!anyReady} onClick={openDialog}>
-							Create link
+							{uiMessage("settings:connect_link_card_create_link")}
 						</Button>
 					</div>
 				</Card>
@@ -281,10 +297,13 @@ export function ConnectLinkCard({
 			>
 				<DialogPopup className="max-w-md">
 					<DialogHeader>
-						<DialogTitle>Connect another device</DialogTitle>
+						<DialogTitle>
+							{uiMessage("settings:connect_link_card_connect_another_device")}
+						</DialogTitle>
 						<DialogDescription>
-							Open this link in a browser, paste it into Add Computer, or scan
-							the QR code. Choose which connection it should use.
+							{uiMessage(
+								"settings:connect_link_card_open_this_link_in_a_browser_paste_it_into_add_computer_or_scan_the_qr",
+							)}
 						</DialogDescription>
 					</DialogHeader>
 					<DialogPanel className="space-y-3">
@@ -293,7 +312,7 @@ export function ConnectLinkCard({
 								htmlFor="connect-link-method"
 								className="mb-1 block text-[11px] font-medium"
 							>
-								Connect through
+								{uiMessage("settings:connect_link_card_connect_through")}
 							</label>
 							<Select
 								value={method}
@@ -322,7 +341,7 @@ export function ConnectLinkCard({
 									variant="outline"
 									onClick={() => void start()}
 								>
-									Retry
+									{uiMessage("common:retry")}
 								</Button>
 							</div>
 						) : (
@@ -331,10 +350,18 @@ export function ConnectLinkCard({
 									<div className="flex items-center gap-1.5">
 										<Input
 											readOnly
-											aria-label="Connect link"
+											aria-label={uiMessage(
+												"settings:connect_link_card_connect_link",
+											)}
 											className="min-w-0 flex-1 font-mono text-[11px]"
 											value={browserUrl}
-											placeholder={starting ? "Finding browser address…" : ""}
+											placeholder={
+												starting
+													? uiMessage(
+															"settings:connect_link_card_finding_browser_address",
+														)
+													: ""
+											}
 											onFocus={(event) => event.currentTarget.select()}
 										/>
 										<Button
@@ -343,16 +370,24 @@ export function ConnectLinkCard({
 											onClick={() => void copyBrowserUrl()}
 										>
 											<Copy aria-hidden />
-											Copy link
+											{uiMessage("settings:connect_link_card_copy_link")}
 										</Button>
 									</div>
 									<div className="flex items-center gap-1.5">
 										<Input
 											readOnly
-											aria-label="Pairing code"
+											aria-label={uiMessage(
+												"settings:connect_link_card_pairing_code",
+											)}
 											className="min-w-0 flex-1 font-mono text-sm tracking-wider"
 											value={pairingCode}
-											placeholder={starting ? "Creating code…" : ""}
+											placeholder={
+												starting
+													? uiMessage(
+															"settings:connect_link_card_creating_code",
+														)
+													: ""
+											}
 											onFocus={(event) => event.currentTarget.select()}
 										/>
 										<Button
@@ -361,7 +396,7 @@ export function ConnectLinkCard({
 											onClick={() => void copyCode()}
 										>
 											<Copy aria-hidden />
-											Copy code
+											{uiMessage("settings:connect_link_card_copy_code")}
 										</Button>
 									</div>
 								</div>
@@ -371,7 +406,10 @@ export function ConnectLinkCard({
 										className="text-[11px] leading-4 text-muted-foreground"
 									>
 										{connectedLabel !== null
-											? `Connected — ${connectedLabel} can now use this computer.`
+											? uiMessage(
+													"settings:connect_link_card_connected_can_now_use_this_computer",
+													{ connectedLabel: String(connectedLabel) },
+												)
 											: METHOD_STATUS[method]}
 									</p>
 									{remainingMs !== null ? (
@@ -385,7 +423,9 @@ export function ConnectLinkCard({
 										<div
 											className="flex size-[148px] items-center justify-center rounded-lg bg-white p-2.5"
 											role="img"
-											aria-label="Connect QR code"
+											aria-label={uiMessage(
+												"settings:connect_link_card_connect_qr_code",
+											)}
 										>
 											<QRCodeSVG value={qrText} size={128} level="M" />
 										</div>
@@ -401,7 +441,9 @@ export function ConnectLinkCard({
 							onClick={() => setQrOpen((current) => !current)}
 						>
 							<QrCode aria-hidden />
-							{qrOpen ? "Hide QR" : "Show QR"}
+							{qrOpen
+								? uiMessage("settings:connect_link_card_hide_qr")
+								: uiMessage("settings:connect_link_card_show_qr")}
 						</Button>
 						<Button
 							variant="outline"
@@ -409,9 +451,9 @@ export function ConnectLinkCard({
 							onClick={() => void start()}
 						>
 							<RefreshCw aria-hidden />
-							New link
+							{uiMessage("settings:connect_link_card_new_link")}
 						</Button>
-						<Button onClick={closeDialog}>Done</Button>
+						<Button onClick={closeDialog}>{uiMessage("common:done")}</Button>
 					</DialogFooter>
 				</DialogPopup>
 			</Dialog>

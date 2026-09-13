@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/settings";
 import type { CloudGithubStatus } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Check, RefreshCw, X } from "lucide-react";
 import { GITHUB_LOGO_PATH } from "~/lib/github-logo";
 
@@ -27,6 +29,8 @@ export function CloudWorkspaceGithub({
 	readonly onRefresh: () => void;
 	readonly onDisconnect: (installationId: number) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+
 	const installations = status?.installations ?? [];
 	const configured = status?.configured ?? true;
 	const connected = installations.some(
@@ -35,8 +39,10 @@ export function CloudWorkspaceGithub({
 
 	return (
 		<CloudSettingsGroup
-			title="GitHub"
-			description="Configure the Zuse GitHub App for your personal account or organizations. Zuse never reads or copies your Mac's GitHub login."
+			title={uiMessage("settings:cloud_workspace_github_github")}
+			description={uiMessage(
+				"settings:cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio",
+			)}
 			action={
 				connected ? (
 					<Button
@@ -45,7 +51,8 @@ export function CloudWorkspaceGithub({
 						loading={busy === "github-install"}
 						onClick={onInstall}
 					>
-						<GithubMark /> Configure app
+						<GithubMark />
+						{uiMessage("settings:cloud_workspace_github_configure_app")}
 					</Button>
 				) : (
 					<Button
@@ -55,21 +62,34 @@ export function CloudWorkspaceGithub({
 						loading={busy === "github-install"}
 						onClick={onInstall}
 					>
-						<GithubMark /> Install GitHub App
+						<GithubMark />
+						{uiMessage("settings:cloud_workspace_github_install_github_app")}
 					</Button>
 				)
 			}
 		>
 			{!configured ? (
 				<CloudSettingsRow
-					title="GitHub App is not configured"
-					description="Add the GitHub App credentials to API, deploy it, then retry."
-					action={<Badge variant="error">Unavailable</Badge>}
+					title={uiMessage(
+						"settings:cloud_workspace_github_github_app_is_not_configured",
+					)}
+					description={uiMessage(
+						"settings:cloud_workspace_github_add_the_github_app_credentials_to_api_deploy_it_then_retry",
+					)}
+					action={
+						<Badge variant="error">
+							{uiMessage("settings:cloud_workspace_github_unavailable")}
+						</Badge>
+					}
 				/>
 			) : installations.length === 0 ? (
 				<CloudSettingsRow
-					title="Connect repositories"
-					description="Start here so the callback is signed and linked to this Zuse account. On GitHub, choose selected repositories."
+					title={uiMessage(
+						"settings:cloud_workspace_github_connect_repositories",
+					)}
+					description={uiMessage(
+						"settings:cloud_workspace_github_start_here_so_the_callback_is_signed_and_linked_to_this_zuse_account_o",
+					)}
 					action={
 						<Button
 							size="xs"
@@ -78,7 +98,8 @@ export function CloudWorkspaceGithub({
 							loading={loading}
 							onClick={onRefresh}
 						>
-							<RefreshCw aria-hidden /> Check connection
+							<RefreshCw aria-hidden />
+							{uiMessage("settings:cloud_workspace_github_check_connection")}
 						</Button>
 					}
 				/>
@@ -91,10 +112,13 @@ export function CloudWorkspaceGithub({
 						action={
 							<>
 								{installation.suspended ? (
-									<Badge variant="warning">Suspended</Badge>
+									<Badge variant="warning">
+										{uiMessage("settings:cloud_workspace_github_suspended")}
+									</Badge>
 								) : (
 									<Badge variant="success">
-										<Check aria-hidden /> Connected
+										<Check aria-hidden />
+										{uiMessage("settings:cloud_workspace_github_connected")}
 									</Badge>
 								)}
 								<Button
@@ -103,13 +127,18 @@ export function CloudWorkspaceGithub({
 									className={COMPACT_CLOUD_ACTION}
 									onClick={() => onManage(installation.installationId)}
 								>
-									Repository access
+									{uiMessage(
+										"settings:cloud_workspace_github_repository_access",
+									)}
 								</Button>
 								<Button
 									size="icon"
 									variant="ghost"
 									className={`size-7 ${COMPACT_CLOUD_ACTION}`}
-									aria-label={`Disconnect ${installation.accountLogin}`}
+									aria-label={uiMessage(
+										"settings:cloud_workspace_github_disconnect",
+										{ value1: String(installation.accountLogin) },
+									)}
 									loading={
 										busy === `github-disconnect:${installation.installationId}`
 									}
@@ -132,8 +161,10 @@ export function CloudWorkspaceGithub({
 								/>
 							)}
 							<span>
-								{status?.repositories.length ?? 0} repositories available across
-								connected installations.
+								{uiMessage(
+									"settings:cloud_workspace_github_repositories_available_across_connected_installations_sentence",
+									{ value: status?.repositories.length ?? 0 },
+								)}
 							</span>
 						</div>
 					</CloudSettingsRow>
@@ -141,8 +172,10 @@ export function CloudWorkspaceGithub({
 			)}
 			{connected ? (
 				<CloudSettingsRow
-					title="Connection status"
-					description="Repository changes refresh automatically when you return from GitHub. Existing installations never need to be removed first."
+					title={uiMessage("settings:cloud_workspace_github_connection_status")}
+					description={uiMessage(
+						"settings:cloud_workspace_github_repository_changes_refresh_automatically_when_you_return_from_github_e",
+					)}
 					action={
 						<Button
 							size="xs"
@@ -151,7 +184,8 @@ export function CloudWorkspaceGithub({
 							loading={loading}
 							onClick={onRefresh}
 						>
-							<RefreshCw aria-hidden /> Refresh
+							<RefreshCw aria-hidden />
+							{uiMessage("settings:cloud_workspace_github_refresh")}
 						</Button>
 					}
 				/>

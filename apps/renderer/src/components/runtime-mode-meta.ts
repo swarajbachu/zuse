@@ -1,12 +1,13 @@
+import "@zuse/i18n/english/chat";
 import type { IconSvgElement } from "@hugeicons/react";
+import type { RuntimeMode } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 import {
 	LockIcon,
 	PencilEdit01Icon,
 	SquareUnlock01Icon,
 	TerminalIcon,
 } from "@zuse/icons/solid-rounded";
-
-import type { RuntimeMode } from "@zuse/contracts";
 
 /**
  * Shared label/description/icon for each runtime mode. Used by the composer's
@@ -25,27 +26,47 @@ export type ModeMeta = {
 
 export const MODE_META: Record<RuntimeMode, ModeMeta> = {
 	"approval-required": {
-		label: "Supervised",
-		description:
-			"Asks before every Bash, file edit, web request, or MCP call. Read-only tools (Read, Glob, Grep, LS) are always free.",
+		get label() {
+			return uiMessage("chat:runtime_mode_meta_supervised");
+		},
+		get description() {
+			return uiMessage(
+				"chat:runtime_mode_meta_asks_before_every_bash_file_edit_web_request_or_mcp_call_read_onl",
+			);
+		},
 		Icon: LockIcon,
 	},
 	"auto-accept-edits": {
-		label: "Auto-accept edits",
-		description:
-			"Auto-allows Edit, Write, MultiEdit, NotebookEdit. Still asks for Bash, WebFetch/WebSearch, and other tools.",
+		get label() {
+			return uiMessage("chat:runtime_mode_meta_auto_accept_edits");
+		},
+		get description() {
+			return uiMessage(
+				"chat:runtime_mode_meta_auto_allows_edit_write_multiedit_notebookedit_still_asks_for_bash",
+			);
+		},
 		Icon: PencilEdit01Icon,
 	},
 	"auto-accept-edits-and-bash": {
-		label: "Auto-accept edits + Bash",
-		description:
-			"Auto-allows edits and Bash commands. Still asks for WebFetch/WebSearch and other tools.",
+		get label() {
+			return uiMessage("chat:runtime_mode_meta_auto_accept_edits_bash");
+		},
+		get description() {
+			return uiMessage(
+				"chat:runtime_mode_meta_auto_allows_edits_and_bash_commands_still_asks_for_webfetch_webse",
+			);
+		},
 		Icon: TerminalIcon,
 	},
 	"full-access": {
-		label: "Full access",
-		description:
-			"Auto-allows everything. Plan mode and sensitive paths (.env, .ssh, credentials, keys) still prompt.",
+		get label() {
+			return uiMessage("chat:runtime_mode_meta_full_access");
+		},
+		get description() {
+			return uiMessage(
+				"chat:runtime_mode_meta_auto_allows_everything_plan_mode_and_sensitive_paths_env_ssh_cred",
+			);
+		},
 		Icon: SquareUnlock01Icon,
 	},
 };

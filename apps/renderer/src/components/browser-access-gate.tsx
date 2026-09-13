@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/shell";
 import {
 	environmentRoute,
 	parseEnvironmentRoute,
@@ -7,6 +8,8 @@ import {
 	type ApiEnvironmentRecord,
 	ENVIRONMENT_PRESENCE_STALE_MS,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	type FormEvent,
 	type ReactNode,
@@ -63,27 +66,32 @@ const errorCopy = (
 	if (cause instanceof BrowserSessionError) {
 		if (cause.status === 410) {
 			return {
-				title: "This pairing link expired",
-				description:
-					"Create a fresh pairing code on the other computer, then enter it below.",
+				title: uiMessage("shell:browser_access_gate_this_pairing_link_expired"),
+				description: uiMessage(
+					"shell:browser_access_gate_create_a_fresh_pairing_code_on_the_other_computer_then_enter_it_b",
+				),
 				retryable: false,
 				pairingAllowed: true,
 			};
 		}
 		if (cause.status === 401) {
 			return {
-				title: "Pair this browser",
-				description:
-					"Use a pairing code once, then this address will keep working in this browser.",
+				title: uiMessage("shell:browser_access_gate_pair_this_browser"),
+				description: uiMessage(
+					"shell:browser_access_gate_use_a_pairing_code_once_then_this_address_will_keep_working_in_th",
+				),
 				retryable: false,
 				pairingAllowed: true,
 			};
 		}
 		if (cause.status === 426) {
 			return {
-				title: "Zuse versions do not match",
-				description:
-					"Update the server and reload this page before reconnecting.",
+				title: uiMessage(
+					"shell:browser_access_gate_zuse_versions_do_not_match",
+				),
+				description: uiMessage(
+					"shell:browser_access_gate_update_the_server_and_reload_this_page_before_reconnecting",
+				),
 				retryable: false,
 				pairingAllowed: false,
 			};
@@ -108,6 +116,8 @@ function AccessCard({
 	readonly retry: () => void;
 	readonly pair: (code: string) => Promise<void>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "shell"]);
+
 	const headingRef = useRef<HTMLHeadingElement>(null);
 	const [code, setCode] = useState("");
 	const [pairing, setPairing] = useState(false);
@@ -146,23 +156,31 @@ function AccessCard({
 				aria-live="polite"
 				className="w-full max-w-md rounded-xl border border-border/70 bg-card p-4 shadow-overlay-sm"
 			>
-				<p className="text-xs font-medium text-muted-foreground">Zuse Serve</p>
+				<p className="text-xs font-medium text-muted-foreground">
+					{uiMessage("shell:browser_access_gate_zuse_serve")}
+				</p>
 				<h1
 					className="mt-1.5 font-heading text-lg font-semibold outline-none"
 					ref={headingRef}
 					tabIndex={-1}
 				>
-					{loading ? "Connecting to your environment…" : state.title}
+					{loading
+						? uiMessage(
+								"shell:browser_access_gate_connecting_to_your_environment",
+							)
+						: state.title}
 				</h1>
 				<p className="mt-1.5 text-xs leading-5 text-muted-foreground">
 					{loading
-						? "Authentication and connection recovery happen automatically."
+						? uiMessage(
+								"shell:browser_access_gate_authentication_and_connection_recovery_happen_automatically",
+							)
 						: state.description}
 				</p>
 				{!loading && state.pairingAllowed ? (
 					<form className="mt-4 space-y-2" onSubmit={submitPairing}>
 						<label className="block text-xs font-medium" htmlFor="pairing-code">
-							Pairing code
+							{uiMessage("shell:browser_access_gate_pairing_code")}
 						</label>
 						<div className="flex gap-2">
 							<input
@@ -173,7 +191,7 @@ function AccessCard({
 								id="pairing-code"
 								maxLength={256}
 								onChange={(event) => setCode(event.target.value)}
-								placeholder="ABCD-EFGH"
+								placeholder={uiMessage("shell:browser_access_gate_abcd_efgh")}
 								value={code}
 							/>
 							<button
@@ -181,12 +199,15 @@ function AccessCard({
 								disabled={pairing || code.trim().length === 0}
 								type="submit"
 							>
-								{pairing ? "Connecting…" : "Connect"}
+								{pairing
+									? uiMessage("shell:browser_access_gate_connecting")
+									: uiMessage("common:connect")}
 							</button>
 						</div>
 						<p className="text-[11px] leading-4 text-muted-foreground">
-							Enter the code shown on the other computer in its serve terminal
-							or Settings → Remote access.
+							{uiMessage(
+								"shell:browser_access_gate_enter_the_code_shown_on_the_other_computer_in_its_serve_terminal_or_se",
+							)}
 						</p>
 						{pairingError !== null ? (
 							<p className="text-xs text-destructive" role="alert">
@@ -201,7 +222,7 @@ function AccessCard({
 						onClick={retry}
 						type="button"
 					>
-						Try again
+						{uiMessage("shell:browser_access_gate_try_again")}
 					</button>
 				)}
 			</main>
@@ -210,6 +231,8 @@ function AccessCard({
 }
 
 function ConnectionBanner() {
+	const { message: uiMessage } = useUiMessages(["common", "shell"]);
+
 	const [snapshot, setSnapshot] = useState<ConnectionSnapshot | null>(null);
 	useEffect(() => subscribeRendererRpcConnection(setSnapshot), []);
 	if (snapshot === null || snapshot.status === "connected") return null;
@@ -233,7 +256,7 @@ function ConnectionBanner() {
 					onClick={retryRendererRpcConnection}
 					type="button"
 				>
-					Retry
+					{uiMessage("common:retry")}
 				</button>
 			)}
 		</div>
@@ -247,6 +270,8 @@ function HostedAccessCard({
 	readonly state: Exclude<HostedAccessState, { readonly status: "ready" }>;
 	readonly retry: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "shell"]);
+
 	const title =
 		state.status === "loading"
 			? "Opening Zuse…"
@@ -262,25 +287,30 @@ function HostedAccessCard({
 				aria-live="polite"
 				className="w-full max-w-md rounded-xl border border-border/70 bg-card p-4 shadow-overlay-sm"
 			>
-				<p className="text-sm font-medium text-muted-foreground">Zuse</p>
+				<p className="text-sm font-medium text-muted-foreground">
+					{uiMessage("shell:browser_access_gate_zuse")}
+				</p>
 				<h1 className="mt-1.5 font-heading text-lg font-semibold">{title}</h1>
 				{state.status === "loading" ? (
 					<p className="mt-2 text-sm leading-6 text-muted-foreground">
-						Signing in and finding your served computers.
+						{uiMessage(
+							"shell:browser_access_gate_signing_in_and_finding_your_served_computers",
+						)}
 					</p>
 				) : null}
 				{state.status === "signedOut" ? (
 					<>
 						<p className="mt-2 text-sm leading-6 text-muted-foreground">
-							Sign in to see and securely control the computers linked to your
-							account.
+							{uiMessage(
+								"shell:browser_access_gate_sign_in_to_see_and_securely_control_the_computers_linked_to_your_accou",
+							)}
 						</p>
 						<button
 							className="mt-4 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"
 							onClick={() => void beginHostedSignIn()}
 							type="button"
 						>
-							Sign in
+							{uiMessage("common:signIn")}
 						</button>
 					</>
 				) : null}
@@ -310,10 +340,13 @@ function HostedAccessCard({
 									/>
 									<span className="flex min-w-0 flex-1 items-center gap-2">
 										<span className="min-w-0 flex-1 truncate font-medium">
-											{environment.label ?? "Unnamed computer"}
+											{environment.label ??
+												uiMessage("shell:browser_access_gate_unnamed_computer")}
 										</span>
 										<span className="shrink-0 text-[10px] text-muted-foreground">
-											{online ? "Online" : "Offline"}
+											{online
+												? uiMessage("shell:browser_access_gate_online")
+												: uiMessage("shell:browser_access_gate_offline")}
 											{environment.runtimeVersion
 												? ` · v${environment.runtimeVersion}`
 												: ""}
@@ -324,8 +357,11 @@ function HostedAccessCard({
 						})}
 						{state.environments.length === 0 ? (
 							<p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-								No computers are served yet. Run <code>npx @zusehq/serve</code>{" "}
-								on a computer first.
+								<RichMessage
+									id="shell:browser_access_gate_no_computers_are_served_yet_run_npx_zusehq_serve_on_a_comput_sentence"
+									components={{ part0: <code /> }}
+									values={{ code0: "npx @zusehq/serve" }}
+								/>
 							</p>
 						) : null}
 					</div>
@@ -340,7 +376,7 @@ function HostedAccessCard({
 							onClick={retry}
 							type="button"
 						>
-							Try again
+							{uiMessage("shell:browser_access_gate_try_again")}
 						</button>
 					</>
 				) : null}
@@ -350,6 +386,8 @@ function HostedAccessCard({
 }
 
 function HostedAccessGate({ children }: { readonly children: ReactNode }) {
+	const { message: uiMessage } = useUiMessages(["common", "shell"]);
+
 	const [state, setState] = useState<HostedAccessState>({
 		status: "loading",
 	});
@@ -373,8 +411,9 @@ function HostedAccessGate({ children }: { readonly children: ReactNode }) {
 			if (target === undefined) {
 				setState({
 					status: "error",
-					description:
-						"This computer is not linked to your account. It may have been removed.",
+					description: uiMessage(
+						"shell:browser_access_gate_this_computer_is_not_linked_to_your_account_it_may_have_been_remo",
+					),
 				});
 				return;
 			}
@@ -393,7 +432,7 @@ function HostedAccessGate({ children }: { readonly children: ReactNode }) {
 							: "Check that the computer is online, then try again.",
 			});
 		}
-	}, []);
+	}, [uiMessage]);
 	useEffect(() => {
 		void connect();
 	}, [connect]);

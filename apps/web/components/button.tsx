@@ -1,4 +1,5 @@
 "use client";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 
 import Link from "next/link";
 import {
@@ -25,10 +26,11 @@ export const Button = ({
 	showIcon?: boolean;
 	containerClassName?: string;
 }) => {
+	const { message: t } = useWebsiteMessages();
 	const platform = useDownloadPlatform();
 	const usesAutomaticDownload = href === DOWNLOAD_URL;
 	const resolvedHref = usesAutomaticDownload ? getDownloadHref(platform) : href;
-	const resolvedText = text ?? getDownloadLabel(platform);
+	const resolvedText = text ?? getDownloadLabel(platform, t);
 	const external = href.startsWith("http");
 	return (
 		<Link

@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/chat";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ChevronDown } from "lucide-react";
 
 import { cn } from "~/lib/utils";
@@ -18,6 +20,8 @@ export function JumpToLatestPill({
 	streaming: boolean;
 	onClick: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	if (!visible) return null;
 
 	return (
@@ -30,7 +34,7 @@ export function JumpToLatestPill({
 			<button
 				type="button"
 				onClick={onClick}
-				aria-label="Jump to latest"
+				aria-label={uiMessage("chat:jump_to_latest_pill_jump_to_latest")}
 				className={cn(
 					"pointer-events-auto relative inline-flex min-h-6 items-center gap-1 rounded-md before:absolute before:-inset-y-1 before:inset-x-0 before:content-['']",
 					"border border-border/60 bg-card px-2 py-0.5 text-[10px] text-muted-foreground shadow-overlay-sm",
@@ -46,7 +50,7 @@ export function JumpToLatestPill({
 				) : (
 					<ChevronDown className="size-3" />
 				)}
-				<span>Jump to latest</span>
+				<span>{uiMessage("chat:jump_to_latest_pill_jump_to_latest")}</span>
 			</button>
 		</div>
 	);

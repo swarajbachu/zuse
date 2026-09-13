@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/projects";
 import type { FileContents } from "@pierre/diffs";
 import { File } from "@pierre/diffs/react";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useMemo } from "react";
 import { useZuseDiffTheme } from "../lib/diffs-theme.ts";
 import { cn } from "../lib/utils.ts";
@@ -21,11 +23,13 @@ export function ToolFileBlock({
 	readonly text: string;
 	readonly isError?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["projects"]);
+
 	const diffTheme = useZuseDiffTheme();
 	const name = basename(path);
 	const file = useMemo<FileContents>(
 		() => ({ name, contents: text }),
-		[name, text],
+		[name, text, uiMessage],
 	);
 
 	return (
@@ -59,7 +63,9 @@ export function ToolFileBlock({
 						</Tooltip>
 						<CopyButton
 							text={text}
-							label={`Copy ${name}`}
+							label={uiMessage("projects:tool_file_block_copy", {
+								name: String(name),
+							})}
 							className="size-5 rounded text-muted-foreground/60 hover:bg-muted/60"
 						/>
 					</div>

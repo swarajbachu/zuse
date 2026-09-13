@@ -1,9 +1,11 @@
 "use client";
-
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 
 export function ServerHardware({ className }: { className?: string }) {
+	const { message: t } = useWebsiteMessages();
+
 	const reduceMotion = useReducedMotion();
 
 	return (
@@ -11,7 +13,7 @@ export function ServerHardware({ className }: { className?: string }) {
 			viewBox="24 8 232 180"
 			className={cn("overflow-visible", className)}
 			role="img"
-			aria-label="Three rack-mounted servers online"
+			aria-label={t("showcase:three_rack_mounted_servers_online")}
 		>
 			<defs>
 				<pattern

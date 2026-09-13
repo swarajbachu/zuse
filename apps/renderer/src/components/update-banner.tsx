@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { EnvironmentId, type UpdateStatus } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Alert01Icon, CircleArrowUp01Icon } from "@zuse/icons/solid-rounded";
 import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -29,6 +31,8 @@ import { useEnvironmentCatalogStore } from "~/store/environment-catalog.ts";
  *  - **Restart when idle** — installs automatically once no agents are running.
  */
 export function UpdateBanner() {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [status, setStatus] = useState<UpdateStatus>({ kind: "idle" });
 	const [dismissed, setDismissed] = useState(false);
 	// Whether the in-toast "restart anyway?" confirmation is showing (set when
@@ -53,7 +57,7 @@ export function UpdateBanner() {
 					environmentId: EnvironmentId.make(activeEnvironmentId),
 					sessionId: session.id,
 				})),
-		[activeEnvironmentId, sessionsByProject],
+		[activeEnvironmentId, sessionsByProject, uiMessage],
 	);
 	const timelines = useRendererSessionTimelines(timelineRefs, "cache-only");
 	const runningCount = useMemo(
@@ -63,7 +67,7 @@ export function UpdateBanner() {
 					count + (isSessionRuntimeBusy(timeline.runtime) ? 1 : 0),
 				0,
 			),
-		[timelines],
+		[timelines, uiMessage],
 	);
 
 	useEffect(() => {
@@ -146,10 +150,10 @@ export function UpdateBanner() {
 				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 					<span className="text-xs font-medium text-foreground">
 						{isError
-							? "Update failed"
+							? uiMessage("chat:update_banner_update_failed")
 							: confirming
-								? "Agents are running"
-								: "Update available"}
+								? uiMessage("chat:update_banner_agents_are_running")
+								: uiMessage("chat:update_banner_update_available")}
 					</span>
 					<span className="text-[11px] leading-snug text-muted-foreground">
 						{isError && status.message}
@@ -167,7 +171,7 @@ export function UpdateBanner() {
 					type="button"
 					onClick={() => setDismissed(true)}
 					className="text-muted-foreground hover:text-foreground"
-					aria-label="Dismiss update toast"
+					aria-label={uiMessage("chat:update_banner_dismiss_update_toast")}
 				>
 					<X className="size-3.5" strokeWidth={1.8} />
 				</button>
@@ -181,7 +185,7 @@ export function UpdateBanner() {
 						onClick={onLater}
 						className="rounded-full text-[11px]"
 					>
-						Restart later
+						{uiMessage("chat:update_banner_restart_later")}
 					</Button>
 					<Button
 						size="xs"
@@ -189,14 +193,14 @@ export function UpdateBanner() {
 						onClick={onRestartWhenIdle}
 						className="rounded-full text-[11px]"
 					>
-						Restart when idle
+						{uiMessage("chat:update_banner_restart_when_idle")}
 					</Button>
 					<Button
 						size="xs"
 						onClick={onRestartNow}
 						className="rounded-full text-[11px]"
 					>
-						Restart now
+						{uiMessage("chat:update_banner_restart_now")}
 					</Button>
 				</div>
 			)}
@@ -209,14 +213,14 @@ export function UpdateBanner() {
 						onClick={onCancelConfirm}
 						className="rounded-full text-[11px]"
 					>
-						Cancel
+						{uiMessage("common:cancel")}
 					</Button>
 					<Button
 						size="xs"
 						onClick={onConfirmRestart}
 						className="rounded-full text-[11px]"
 					>
-						Restart anyway
+						{uiMessage("chat:update_banner_restart_anyway")}
 					</Button>
 				</div>
 			)}
@@ -229,7 +233,7 @@ export function UpdateBanner() {
 						onClick={() => setDismissed(true)}
 						className="rounded-full text-[11px]"
 					>
-						Dismiss
+						{uiMessage("chat:update_banner_dismiss")}
 					</Button>
 					{status.retryable !== false && (
 						<Button
@@ -237,7 +241,7 @@ export function UpdateBanner() {
 							onClick={onRetry}
 							className="rounded-full text-[11px]"
 						>
-							Try again
+							{uiMessage("chat:update_banner_try_again")}
 						</Button>
 					)}
 				</div>

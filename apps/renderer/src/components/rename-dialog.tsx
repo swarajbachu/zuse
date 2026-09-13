@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/chat";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import type { FormEvent } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import { formatError } from "../lib/format-error.ts";
@@ -31,6 +33,8 @@ export function RenameDialog({
 	readonly title: string;
 	readonly value: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const inputRef = useRef<HTMLInputElement>(null);
 	const inputId = useId();
 	const errorId = `${inputId}-error`;
@@ -98,10 +102,10 @@ export function RenameDialog({
 					</DialogPanel>
 					<DialogFooter>
 						<DialogClose type="button" disabled={submitting}>
-							Cancel
+							{uiMessage("common:cancel")}
 						</DialogClose>
 						<Button type="submit" disabled={submitting} loading={submitting}>
-							Rename
+							{uiMessage("chat:rename_dialog_rename")}
 						</Button>
 					</DialogFooter>
 				</form>

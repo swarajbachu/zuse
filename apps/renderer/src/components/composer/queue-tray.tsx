@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/chat";
 import type { EnvironmentId, SessionId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useState } from "react";
 import { usePlatformOnline } from "../../lib/network-status.ts";
 import {
@@ -27,6 +29,8 @@ export function QueueTray({
 	readonly waitingForSandbox?: boolean;
 	readonly creationInProgress?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const timeline = useRendererSessionTimeline(
 		sessionId,
 		"connect",
@@ -76,27 +80,31 @@ export function QueueTray({
 		<div ref={listRef}>
 			<div className="border-b border-border/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
 				{waitingForSandbox
-					? "Waiting for sandbox"
+					? uiMessage("chat:queue_tray_waiting_for_sandbox")
 					: online
-						? "Queued"
-						: "Waiting for connection"}
+						? uiMessage("chat:queue_tray_queued")
+						: uiMessage("chat:queue_tray_waiting_for_connection")}
 			</div>
 			{showHeldPill ? (
 				<TrayPill
 					flush
 					title={
 						holdReason === "paused"
-							? "Queue paused because you interrupted"
-							: "Queue held because the last turn failed"
+							? uiMessage(
+									"chat:queue_tray_queue_paused_because_you_interrupted",
+								)
+							: uiMessage(
+									"chat:queue_tray_queue_held_because_the_last_turn_failed",
+								)
 					}
 					actions={
 						<button
 							type="button"
 							onClick={() => void resumeSessionQueue(ref)}
 							className="rounded px-1.5 py-0.5 text-[12px] text-muted-foreground hover:text-foreground"
-							aria-label="Resume queued messages"
+							aria-label={uiMessage("chat:queue_tray_resume_queued_messages")}
 						>
-							Resume
+							{uiMessage("chat:queue_tray_resume")}
 						</button>
 					}
 				/>

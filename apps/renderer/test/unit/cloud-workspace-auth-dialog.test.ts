@@ -14,12 +14,24 @@ describe("cloud workspace authentication dialog", () => {
 		const dialogBody = authDialogSource.slice(0, panelEnd);
 		const dialogFooter = authDialogSource.slice(footerStart, footerEnd);
 
-		expect(dialogBody).not.toContain("Save and verify");
-		expect(dialogBody).not.toContain("Start device login");
-		expect(dialogBody).not.toContain("Open authorization");
-		expect(dialogFooter).toContain("Save and verify");
-		expect(dialogFooter).toContain("Start device login");
-		expect(dialogFooter).toContain("Open authorization");
+		expect(dialogBody).not.toContain(
+			"settings:cloud_workspace_auth_save_and_verify",
+		);
+		expect(dialogBody).not.toContain(
+			"settings:cloud_workspace_auth_start_device_login",
+		);
+		expect(dialogBody).not.toContain(
+			"settings:cloud_workspace_auth_open_authorization",
+		);
+		expect(dialogFooter).toContain(
+			"settings:cloud_workspace_auth_save_and_verify",
+		);
+		expect(dialogFooter).toContain(
+			"settings:cloud_workspace_auth_start_device_login",
+		);
+		expect(dialogFooter).toContain(
+			"settings:cloud_workspace_auth_open_authorization",
+		);
 	});
 
 	it("keeps every visible auth action at the compact cloud control height", () => {

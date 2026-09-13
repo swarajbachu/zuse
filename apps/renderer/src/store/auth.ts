@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/connections";
 import { type AuthState, CommandId, EnvironmentId } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 import { toastManager } from "../components/ui/toast.tsx";
 import { environmentAuthResourceKey } from "../lib/auth-client-bus.ts";
 import { LOCAL_ENVIRONMENT_KEY } from "../lib/rpc-client.ts";
@@ -86,8 +88,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 		set({ signingIn: true, error: null });
 		toastManager.add({
 			type: "info",
-			title: "Opening browser sign-in",
-			description: "Complete WorkOS sign-in in your browser.",
+			title: uiMessage("connections:auth_opening_browser_sign_in"),
+			description: uiMessage(
+				"connections:auth_complete_workos_sign_in_in_your_browser",
+			),
 		});
 		try {
 			const { environmentId, key } = activeAuthResource();
@@ -114,7 +118,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 			set({ signingIn: false, error: message });
 			toastManager.add({
 				type: "error",
-				title: "Sign-in failed",
+				title: uiMessage("connections:auth_sign_in_failed"),
 				description: message,
 			});
 		}

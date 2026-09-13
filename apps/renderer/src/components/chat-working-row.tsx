@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/chat";
 import type { PendingCommand } from "@zuse/client-runtime/resource-state";
 import type { ChatId, Message, ProviderId, SessionId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useMemo, useState } from "react";
 
 import { deriveAgentActivityState } from "../lib/agent-activity-state.ts";
@@ -48,6 +50,8 @@ export function ChatWorkingRow({
 	readonly pendingCommands: readonly PendingCommand[];
 	readonly runtimeState: SessionRuntimeState;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const waitingCommand = waitingCloudMessagePresentation(pendingCommands);
 	const providerLabel = PROVIDER_LABEL[providerId] ?? providerId;
 	const cloudSummary = useCloudChatSummaryForSelection({ chatId, sessionId });
@@ -77,7 +81,7 @@ export function ChatWorkingRow({
 			}
 		}
 		return null;
-	}, [messages]);
+	}, [messages, uiMessage]);
 
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
@@ -108,7 +112,9 @@ export function ChatWorkingRow({
 								failed: false,
 								delayed,
 							})
-						: `${providerLabel} is working`}
+						: uiMessage("chat:chat_working_row_is_working", {
+								providerLabel: String(providerLabel),
+							})}
 			</span>
 			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}

@@ -1,3 +1,6 @@
+import { providerLabel as getProviderLabel } from "@zuse/contracts";
+import "@zuse/i18n/english/extensions";
+import "@zuse/i18n/english/providers";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
 	AgentAvailability,
@@ -5,6 +8,7 @@ import type {
 	ProviderId,
 	ProviderUpdateEvent,
 } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Add01Icon,
 	AlertCircleIcon,
@@ -48,16 +52,6 @@ import {
 	IDLE_PROVIDER_UPDATE_STATE,
 	useProvidersStore,
 } from "~/store/providers";
-
-const PROVIDER_LABEL: Record<ProviderId, string> = {
-	claude: "Claude Code",
-	codex: "Codex",
-	grok: "Grok",
-	gemini: "Gemini",
-	cursor: "Cursor",
-	opencode: "OpenCode",
-	kiro: "Kiro",
-};
 
 const INSTALL_HINT: Partial<Record<ProviderId, string>> = {
 	claude: "npm i -g @anthropic-ai/claude-code",
@@ -113,15 +107,19 @@ export function ProviderCard({
 	};
 }) {
 	const displayName =
-		extensionProvider?.descriptor.displayName ??
-		PROVIDER_LABEL[providerId] ??
-		providerId;
+		extensionProvider?.descriptor.displayName ?? getProviderLabel(providerId);
 	const isExtensionProvider = extensionProvider !== undefined;
 	const extensionSettingsSurfaceId =
 		extensionProvider?.descriptor.authentication._tag === "extension-managed"
 			? extensionProvider.descriptor.authentication.settingsSurfaceId
 			: null;
 	const extensionId = extensionProvider?.extensionId ?? null;
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"providers",
+		"extensions",
+	]);
+
 	const subscription = SUBSCRIPTION_INFO[providerId];
 	const persistedEnabled =
 		useSettingsStore((s) => s.providerEnabled[providerId]) ?? true;
@@ -141,7 +139,7 @@ export function ProviderCard({
 	const setProviderEnabled = useSettingsStore((s) => s.setProviderEnabled);
 	const baseSummary = useMemo(
 		() => getProviderSummary(availability, enabled, loading),
-		[availability, enabled, loading],
+		[availability, enabled, loading, uiMessage],
 	);
 	// Only force the violet "subscription" status + "Requires ..." headline
 	// when the backend probe says the plan requirement is still unmet.
@@ -239,12 +237,19 @@ export function ProviderCard({
 					}}
 					aria-label={
 						unmetSubscriptionRequirement
-							? `${PROVIDER_LABEL[providerId] ?? providerId} requires a ${subscription?.plan ?? "qualifying"} subscription`
-							: `Enable ${displayName}`
+							? uiMessage("providers:provider_card_requires_a_subscription", {
+									value1: displayName,
+									plan: subscription?.plan ?? "qualifying",
+								})
+							: uiMessage("providers:provider_card_enable", {
+									value1: displayName,
+								})
 					}
 					title={
 						unmetSubscriptionRequirement
-							? `Requires ${subscription?.plan ?? "a qualifying"} subscription`
+							? uiMessage("providers:provider_card_requires_subscription", {
+									plan: subscription?.plan ?? "qualifying",
+								})
 							: undefined
 					}
 				/>
@@ -259,7 +264,7 @@ export function ProviderCard({
 			>
 				{showUpgrade && (
 					<CodeRow
-						label="Update CLI"
+						label={uiMessage("providers:provider_card_update_cli")}
 						command={
 							availability?.cliUpgradeCommand ?? INSTALL_HINT[providerId] ?? ""
 						}
@@ -269,7 +274,10 @@ export function ProviderCard({
 					providerId !== "cursor" &&
 					availability !== undefined &&
 					!availability.cliInstalled && (
-						<CodeRow label="Install" command={INSTALL_HINT[providerId] ?? ""} />
+						<CodeRow
+							label={uiMessage("providers:provider_card_install")}
+							command={INSTALL_HINT[providerId] ?? ""}
+						/>
 					)}
 				{!isExtensionProvider &&
 					availability?.cliInstalled &&
@@ -282,7 +290,10 @@ export function ProviderCard({
 					availability.authStatus === "unauthenticated" &&
 					!supportsProviderLogin(providerId) &&
 					providerId !== "cursor" && (
-						<CodeRow label="Sign in" command={LOGIN_HINT[providerId] ?? ""} />
+						<CodeRow
+							label={uiMessage("common:signIn")}
+							command={LOGIN_HINT[providerId] ?? ""}
+						/>
 					)}
 				<SubscriptionRow providerId={providerId} availability={availability} />
 
@@ -303,12 +314,14 @@ export function ProviderCard({
 						{providerId === "cursor" && (
 							<div className="rounded-md border border-border/50 bg-background/45 px-3 py-2.5">
 								<span className="text-[11px] font-medium text-foreground">
-									Sandboxed with auto-review
+									{uiMessage(
+										"providers:provider_card_sandboxed_with_auto_review",
+									)}
 								</span>
 								<p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-									Local edits and commands run through the bundled SDK sandbox.
-									Calls rejected by auto-review are blocked instead of
-									prompting.
+									{uiMessage(
+										"providers:provider_card_local_edits_and_commands_run_through_the_bundled_sdk_sandbox_calls_rej",
+									)}
 								</p>
 							</div>
 						)}
@@ -330,7 +343,7 @@ export function ProviderCard({
 										)
 									}
 								>
-									Configure {displayName}
+									{uiMessage("extensions:configure", { name: displayName })}
 								</Button>
 							) : extensionProvider?.descriptor.authentication._tag ===
 								"none" ? null : (
@@ -340,7 +353,7 @@ export function ProviderCard({
 											{extensionProvider?.descriptor.authentication._tag ===
 											"api-key"
 												? extensionProvider.descriptor.authentication.label
-												: "API key (optional)"}
+												: uiMessage("providers:provider_card_api_key_optional")}
 										</span>
 									)}
 									<ApiKeyRow
@@ -366,6 +379,11 @@ function ModelVisibilitySettings({
 	models?: ExtensionProviderDescriptor["models"];
 	displayName: string;
 }) {
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"providers",
+		"extensions",
+	]);
 	const [customModelId, setCustomModelId] = useState("");
 	const modelEnabledByProvider = useSettingsStore(
 		(s) => s.modelEnabledByProvider,
@@ -394,12 +412,16 @@ function ModelVisibilitySettings({
 	return (
 		<div className="flex flex-col gap-2.5">
 			<div className="flex items-baseline justify-between">
-				<span className="text-[11px] font-medium text-muted-foreground">
-					Models
-				</span>
-				<span className="text-[10px] text-muted-foreground/70">
-					{visibleCount + customModelIds.length} shown
-				</span>
+				<RichMessage
+					id="providers:provider_card_models_shown_sentence"
+					values={{ value: visibleCount + customModelIds.length }}
+					components={{
+						part0: (
+							<span className="text-[11px] font-medium text-muted-foreground" />
+						),
+						part1: <span className="text-[10px] text-muted-foreground/70" />,
+					}}
+				/>
 			</div>
 			<div className="overflow-hidden rounded-md border border-border/50 bg-background/45">
 				{models.map((model) => {
@@ -424,7 +446,9 @@ function ModelVisibilitySettings({
 								aria-label={`${checked ? "Hide" : "Show"} ${model.label}`}
 								title={
 									onlyVisible
-										? "At least one model must stay visible"
+										? uiMessage(
+												"providers:provider_card_at_least_one_model_must_stay_visible",
+											)
 										: undefined
 								}
 							/>
@@ -440,13 +464,16 @@ function ModelVisibilitySettings({
 							{modelId}
 						</span>
 						<span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
-							custom
+							{uiMessage("providers:provider_card_custom")}
 						</span>
 						<Button
 							size="icon-xs"
 							variant="ghost"
 							onClick={() => removeCustomModelId(providerId, modelId)}
-							aria-label={`Remove custom model ${modelId}`}
+							aria-label={uiMessage(
+								"providers:provider_card_remove_custom_model",
+								{ modelId: String(modelId) },
+							)}
 						>
 							<HugeiconsIcon icon={Delete02Icon} className="size-3" />
 						</Button>
@@ -465,17 +492,22 @@ function ModelVisibilitySettings({
 				<Input
 					value={customModelId}
 					onChange={(event) => setCustomModelId(event.target.value)}
-					placeholder="Enter a model ID"
-					aria-label={`Custom ${displayName} model ID`}
+					placeholder={uiMessage("providers:provider_card_enter_a_model_id")}
+					aria-label={uiMessage("providers:provider_card_custom_model_id", {
+						value1: displayName,
+					})}
 					aria-invalid={normalizedCustomModelId.length > 200 || undefined}
 				/>
 				<Button type="submit" size="default" disabled={!canAddCustomModel}>
 					<HugeiconsIcon icon={Add01Icon} className="size-3.5" />
-					Add
+					{uiMessage("common:add")}
 				</Button>
 			</form>
 			<p className="text-[10px] leading-snug text-muted-foreground/70">
-				Custom IDs are passed directly to {displayName}.
+				{uiMessage(
+					"providers:provider_card_custom_ids_are_passed_directly_to_sentence",
+					{ value: displayName },
+				)}
 			</p>
 		</div>
 	);
@@ -499,6 +531,12 @@ function SubscriptionRow({
 	providerId: ProviderId;
 	availability?: AgentAvailability;
 }) {
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"providers",
+		"extensions",
+	]);
+
 	const info = SUBSCRIPTION_INFO[providerId];
 	if (info === undefined) return null;
 
@@ -509,12 +547,15 @@ function SubscriptionRow({
 	return (
 		<div className="flex flex-col gap-1.5 rounded-md border border-info/25 bg-alert-info-bg px-3 py-2.5">
 			<span className="text-[11px] font-medium text-info">
-				Requires {info.plan} subscription
+				{uiMessage("providers:provider_card_requires_subscription_sentence", {
+					value: info.plan,
+				})}
 			</span>
 			<p className="text-[11px] leading-snug text-muted-foreground">
-				Sessions will fail if your plan doesn&apos;t include {info.plan}.
-				Subscribe (or confirm your existing plan) before using{" "}
-				{PROVIDER_LABEL[providerId]}.
+				{uiMessage(
+					"providers:provider_card_sessions_will_fail_if_your_plan_doesn_apos_t_include_subscri_sentence",
+					{ value: info.plan, value2: getProviderLabel(providerId) },
+				)}
 			</p>
 			<div>
 				<button
@@ -525,7 +566,7 @@ function SubscriptionRow({
 					}}
 					className="inline-flex h-7 items-center gap-1 rounded-md bg-info/10 px-2 text-[11px] font-medium text-info transition-colors hover:bg-info/20"
 				>
-					Subscribe
+					{uiMessage("providers:provider_card_subscribe")}
 					<HugeiconsIcon
 						icon={LinkSquare01Icon}
 						className="size-3"
@@ -548,19 +589,27 @@ function SubscriptionRow({
  * it verbatim.
  */
 function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"providers",
+		"extensions",
+	]);
+
 	const refresh = useProvidersStore((s) => s.refresh);
 	const { state, start, cancel } = useProviderLogin(providerId, {
 		onSuccess: () => {
 			void refresh();
 		},
 	});
-	const label = PROVIDER_LABEL[providerId];
+	const label = getProviderLabel(providerId);
 	const manualCommand = LOGIN_HINT[providerId] ?? "";
 
 	if (state.kind === "success") {
 		return (
 			<div className="flex items-center gap-2 rounded-md border border-emerald-400/30 bg-emerald-500/[0.06] px-3 py-2 text-[11px] text-emerald-200">
-				<ShimmerText as="span">Signed in. Refreshing…</ShimmerText>
+				<ShimmerText as="span">
+					{uiMessage("providers:provider_card_signed_in_refreshing")}
+				</ShimmerText>
 			</div>
 		);
 	}
@@ -576,8 +625,12 @@ function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
 					/>
 					<ShimmerText as="span">
 						{state.url === null
-							? `Starting ${label} sign-in…`
-							: "Waiting for browser sign-in…"}
+							? uiMessage("providers:provider_card_starting_sign_in", {
+									label: String(label),
+								})
+							: uiMessage(
+									"providers:provider_card_waiting_for_browser_sign_in",
+								)}
 					</ShimmerText>
 				</div>
 				<div className="flex items-center gap-2">
@@ -597,7 +650,7 @@ function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
 								className="mr-1 size-3"
 								aria-hidden
 							/>
-							Open browser again
+							{uiMessage("providers:provider_card_open_browser_again")}
 						</Button>
 					)}
 					<Button
@@ -610,7 +663,7 @@ function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
 						}}
 						className="h-6 px-2 text-[11px]"
 					>
-						Cancel
+						{uiMessage("common:cancel")}
 					</Button>
 				</div>
 			</div>
@@ -634,10 +687,13 @@ function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
 						}}
 						className="h-6 px-2 text-[11px]"
 					>
-						Try again
+						{uiMessage("providers:provider_card_try_again")}
 					</Button>
 				</div>
-				<CodeRow label="Or run manually" command={manualCommand} />
+				<CodeRow
+					label={uiMessage("providers:provider_card_or_run_manually")}
+					command={manualCommand}
+				/>
 			</div>
 		);
 	}
@@ -645,7 +701,7 @@ function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
 	return (
 		<div className="flex flex-col gap-1.5">
 			<span className="text-[11px] font-medium text-muted-foreground">
-				Sign in
+				{uiMessage("common:signIn")}
 			</span>
 			<div className="flex items-center gap-2">
 				<Button
@@ -658,10 +714,16 @@ function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
 					}}
 					className="h-7 px-3 text-[11px]"
 				>
-					Sign in to {label}
+					{uiMessage("providers:provider_card_sign_in_to_sentence", {
+						label: label,
+					})}
 				</Button>
 				<span className="text-[10px] text-muted-foreground">
-					or run <code className="font-mono">$ {manualCommand}</code>
+					<RichMessage
+						id="providers:provider_card_or_run_sentence"
+						values={{ manualCommand: manualCommand }}
+						components={{ part0: <code className="font-mono" /> }}
+					/>
 				</span>
 			</div>
 		</div>
@@ -886,6 +948,12 @@ function UpdateAvailableButton({
 }
 
 function CodeRow({ label, command }: { label: string; command: string }) {
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"providers",
+		"extensions",
+	]);
+
 	const [copied, setCopied] = useState(false);
 	const onCopy = () => {
 		void navigator.clipboard.writeText(command).then(() => {
@@ -912,7 +980,7 @@ function CodeRow({ label, command }: { label: string; command: string }) {
 						className="mr-1 size-3"
 						aria-hidden
 					/>
-					{copied ? "Copied" : "Copy"}
+					{copied ? uiMessage("common:copied") : uiMessage("common:copy")}
 				</Button>
 			</div>
 		</div>

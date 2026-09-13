@@ -1,9 +1,11 @@
+import "@zuse/i18n/english/extensions";
 import type {
 	ExtensionCapability,
 	ExtensionLogEntry,
 	ExtensionSource,
 	MarketplaceExtension,
 } from "@zuse/contracts";
+import { useMessages as useExtensionMessages } from "@zuse/i18n/react";
 import { useEffect, useState } from "react";
 import {
 	extensionActions,
@@ -24,14 +26,20 @@ const sourceFrom = (value: string, ref: string): ExtensionSource =>
 		: { _tag: "directory", path: value.trim() };
 
 const approve = (
+	extensionMessage: typeof import("@zuse/i18n").message,
 	name: string,
 	capabilities: ReadonlyArray<ExtensionCapability>,
 ): boolean =>
 	window.confirm(
-		`${name} is trusted code and can access your computer outside a security sandbox.\n\nRequested capabilities: ${capabilities.join(", ") || "none"}\n\nInstall and enable it?`,
+		extensionMessage("extensions:approve", {
+			name,
+			capabilities:
+				capabilities.join(", ") || extensionMessage("extensions:none"),
+		}),
 	);
 
 export function ExtensionsPane() {
+	const { message: extensionMessage } = useExtensionMessages(["extensions"]);
 	const catalog = useExtensionCatalog();
 	const contributions = useExtensionContributions();
 	const themeSelection = useSettingsStore((state) => state.themeSelection);
@@ -70,7 +78,8 @@ export function ExtensionsPane() {
 	const installSource = async () => {
 		const nextSource = sourceFrom(source, gitRef);
 		const manifest = await extensionActions.inspect(nextSource);
-		if (!approve(manifest.name, manifest.capabilities)) return;
+		if (!approve(extensionMessage, manifest.name, manifest.capabilities))
+			return;
 		await extensionActions.install(nextSource, manifest.capabilities);
 		setSource("");
 		setGitRef("");
@@ -81,11 +90,10 @@ export function ExtensionsPane() {
 			<div className="flex items-center justify-between rounded-md bg-muted/35 px-3 py-2.5">
 				<div>
 					<p className="font-medium text-foreground">
-						Enable Extensions Preview
+						{extensionMessage("extensions:preview")}
 					</p>
 					<p className="mt-0.5 max-w-xl text-[11px] leading-relaxed text-muted-foreground">
-						Local desktop preview. Extensions are trusted, unsandboxed code.
-						Review the source and requested capabilities before enabling one.
+						{extensionMessage("extensions:trust")}
 					</p>
 				</div>
 				<Switch
@@ -94,33 +102,33 @@ export function ExtensionsPane() {
 					onCheckedChange={(enabled) =>
 						void run("global", () => extensionActions.setGlobalEnabled(enabled))
 					}
-					aria-label="Enable Extensions Preview"
+					aria-label={extensionMessage("extensions:preview")}
 				/>
 			</div>
 
 			<div className="flex flex-col gap-2">
 				<p className="font-medium text-foreground">
-					Install from a directory or Git
+					{extensionMessage("extensions:source")}
 				</p>
 				<div className="flex gap-2">
 					<input
 						className="h-7 min-w-0 flex-1 rounded-md bg-muted/45 px-2.5 text-[11px] outline-none ring-ring focus:ring-1"
 						value={source}
 						onChange={(event) => setSource(event.target.value)}
-						placeholder="/path/to/extension or https://github.com/owner/repo"
+						placeholder={extensionMessage("extensions:source_placeholder")}
 					/>
 					<input
 						className="h-7 w-28 rounded-md bg-muted/45 px-2.5 text-[11px] outline-none ring-ring focus:ring-1"
 						value={gitRef}
 						onChange={(event) => setGitRef(event.target.value)}
-						placeholder="Git ref"
+						placeholder={extensionMessage("extensions:git_ref")}
 					/>
 					<Button
 						size="sm"
 						disabled={!source.trim() || busy !== null}
 						onClick={() => void run("install", installSource)}
 					>
-						Inspect & install
+						{extensionMessage("extensions:inspect")}
 					</Button>
 				</div>
 			</div>
@@ -133,14 +141,18 @@ export function ExtensionsPane() {
 
 			<div className="flex flex-col gap-1.5">
 				<div className="flex items-center justify-between">
-					<p className="font-medium text-foreground">Installed</p>
+					<p className="font-medium text-foreground">
+						{extensionMessage("extensions:installed")}
+					</p>
 					<span className="text-[10px] text-muted-foreground">
-						{catalog.items.length} extensions
+						{extensionMessage("extensions:count", {
+							value: catalog.items.length,
+						})}
 					</span>
 				</div>
 				{catalog.items.length === 0 ? (
 					<p className="rounded-md bg-muted/25 px-3 py-4 text-center text-muted-foreground">
-						No extensions installed.
+						{extensionMessage("extensions:empty")}
 					</p>
 				) : (
 					catalog.items.map((item) => (
@@ -165,16 +177,24 @@ export function ExtensionsPane() {
 										? item.source.path
 										: item.source._tag === "git"
 											? `${item.source.url}${item.activeCommit ? ` @ ${item.activeCommit.slice(0, 8)}` : ""}`
-											: `Marketplace · ${item.activeCommit?.slice(0, 8) ?? "installed"}`}
+											: extensionMessage("extensions:market_source", {
+													value:
+														item.activeCommit?.slice(0, 8) ??
+														extensionMessage("extensions:installed"),
+												})}
 								</p>
 								<p className="mt-1 text-[10px] text-muted-foreground">
-									Capabilities: {item.grantedCapabilities.join(", ") || "none"}
+									{extensionMessage("extensions:capabilities", {
+										value:
+											item.grantedCapabilities.join(", ") ||
+											extensionMessage("extensions:none"),
+									})}
 								</p>
 								{contributions.find(
 									(extension) => extension.extensionId === item.id,
 								)?.error ? (
 									<p role="alert" className="mt-2 text-destructive">
-										Client:{" "}
+										{extensionMessage("extensions:client")}{" "}
 										{
 											contributions.find(
 												(extension) => extension.extensionId === item.id,
@@ -198,7 +218,7 @@ export function ExtensionsPane() {
 										)
 									}
 								>
-									Logs
+									{extensionMessage("extensions:logs")}
 								</Button>
 								{item.enabled ? (
 									<Button
@@ -211,7 +231,7 @@ export function ExtensionsPane() {
 											)
 										}
 									>
-										Disable
+										{extensionMessage("extensions:disable")}
 									</Button>
 								) : (
 									<Button
@@ -224,7 +244,7 @@ export function ExtensionsPane() {
 											)
 										}
 									>
-										Enable
+										{extensionMessage("extensions:enable")}
 									</Button>
 								)}
 								<Button
@@ -242,7 +262,9 @@ export function ExtensionsPane() {
 										)
 									}
 								>
-									{item.source._tag === "directory" ? "Reload" : "Update"}
+									{item.source._tag === "directory"
+										? extensionMessage("extensions:reload")
+										: extensionMessage("extensions:update")}
 								</Button>
 								<Button
 									size="sm"
@@ -251,7 +273,9 @@ export function ExtensionsPane() {
 									onClick={() => {
 										if (
 											window.confirm(
-												`Remove ${item.manifest.name}? Its data will be retained.`,
+												extensionMessage("extensions:remove_confirm", {
+													name: item.manifest.name,
+												}),
 											)
 										)
 											void run(`remove:${item.id}`, () =>
@@ -259,7 +283,7 @@ export function ExtensionsPane() {
 											);
 									}}
 								>
-									Remove
+									{extensionMessage("extensions:remove")}
 								</Button>
 							</div>
 						</div>
@@ -288,7 +312,9 @@ export function ExtensionsPane() {
 				(extension) => extension.contributions.themes.length > 0,
 			) && (
 				<div className="flex flex-col gap-1.5">
-					<p className="font-medium text-foreground">Extension themes</p>
+					<p className="font-medium text-foreground">
+						{extensionMessage("extensions:themes")}
+					</p>
 					<div className="flex flex-wrap gap-1.5">
 						{contributions.flatMap((extension) =>
 							extension.contributions.themes.map((theme) => {
@@ -320,7 +346,9 @@ export function ExtensionsPane() {
 
 			<div className="flex flex-col gap-1.5">
 				<div className="flex items-center justify-between">
-					<p className="font-medium text-foreground">Curated marketplace</p>
+					<p className="font-medium text-foreground">
+						{extensionMessage("extensions:catalog")}
+					</p>
 					<Button
 						size="sm"
 						variant="ghost"
@@ -331,12 +359,12 @@ export function ExtensionsPane() {
 							)
 						}
 					>
-						Refresh
+						{extensionMessage("extensions:refresh")}
 					</Button>
 				</div>
 				{marketplace.length === 0 ? (
 					<p className="rounded-md bg-muted/25 px-3 py-3 text-muted-foreground">
-						No signed marketplace entries are available.
+						{extensionMessage("extensions:catalog_empty")}
 					</p>
 				) : (
 					marketplace.map((entry) => (
@@ -360,7 +388,11 @@ export function ExtensionsPane() {
 								onClick={() =>
 									void run(`market:${entry.id}`, async () => {
 										if (
-											!approve(entry.manifest.name, entry.manifest.capabilities)
+											!approve(
+												extensionMessage,
+												entry.manifest.name,
+												entry.manifest.capabilities,
+											)
 										)
 											return;
 										await extensionActions.install(
@@ -372,9 +404,9 @@ export function ExtensionsPane() {
 							>
 								{entry.installed
 									? entry.updateAvailable
-										? "Update"
-										: "Installed"
-									: "Install"}
+										? extensionMessage("extensions:update")
+										: extensionMessage("extensions:installed")
+									: extensionMessage("extensions:install")}
 							</Button>
 						</div>
 					))

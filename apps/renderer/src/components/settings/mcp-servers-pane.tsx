@@ -1,15 +1,18 @@
+import "@zuse/i18n/english/settings";
 import { HugeiconsIcon } from "@hugeicons/react";
+import type {
+	McpServerDescriptor,
+	McpServerSource,
+	McpServerStatus,
+} from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Alert02Icon,
 	Key01Icon,
 	Loading02Icon,
 	Tick02Icon,
 } from "@zuse/icons/solid-rounded";
-import type {
-	McpServerDescriptor,
-	McpServerSource,
-	McpServerStatus,
-} from "@zuse/contracts";
 import { RefreshCw as RefreshIcon } from "lucide-react";
 import { useEffect } from "react";
 
@@ -25,15 +28,25 @@ const SOURCE_GROUPS: ReadonlyArray<{
 	readonly sources: ReadonlyArray<McpServerSource>;
 }> = [
 	{
-		title: "Built-in",
-		description:
-			"Zuse's own tool servers, injected into every session. Always on.",
+		get title() {
+			return uiMessage("settings:mcp_servers_pane_built_in");
+		},
+		get description() {
+			return uiMessage(
+				"settings:mcp_servers_pane_zuse_s_own_tool_servers_injected_into_every_session_always_on",
+			);
+		},
 		sources: ["builtin"],
 	},
 	{
-		title: "Claude Code",
-		description:
-			"Configured servers, installed plugins, and connected apps available to Claude sessions.",
+		get title() {
+			return uiMessage("settings:mcp_servers_pane_claude_code_2");
+		},
+		get description() {
+			return uiMessage(
+				"settings:mcp_servers_pane_configured_servers_installed_plugins_and_connected_apps_available",
+			);
+		},
 		sources: [
 			"claude-user",
 			"claude-project",
@@ -43,15 +56,25 @@ const SOURCE_GROUPS: ReadonlyArray<{
 		],
 	},
 	{
-		title: "Codex",
-		description:
-			"Configured and provider-managed MCP servers available to Codex sessions. Config-backed toggles apply to Codex everywhere.",
+		get title() {
+			return uiMessage("settings:mcp_servers_pane_codex");
+		},
+		get description() {
+			return uiMessage(
+				"settings:mcp_servers_pane_configured_and_provider_managed_mcp_servers_available_to_codex_se",
+			);
+		},
 		sources: ["codex"],
 	},
 	{
-		title: "Provider apps",
-		description:
-			"Apps and connectors reported by the provider. Connected tools are grouped under the aggregate apps server.",
+		get title() {
+			return uiMessage("settings:mcp_servers_pane_provider_apps");
+		},
+		get description() {
+			return uiMessage(
+				"settings:mcp_servers_pane_apps_and_connectors_reported_by_the_provider_connected_tools_are",
+			);
+		},
 		sources: ["codex-app"],
 	},
 ];
@@ -68,6 +91,8 @@ const SOURCE_LABEL: Record<McpServerSource, string> = {
 };
 
 function StatusBadge({ status }: { status: McpServerStatus | undefined }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	if (status === undefined || status.state === "connecting") {
 		return (
 			<span className="flex items-center gap-1 text-[11px] text-muted-foreground">
@@ -76,7 +101,7 @@ function StatusBadge({ status }: { status: McpServerStatus | undefined }) {
 					className="size-3 animate-spin motion-reduce:animate-none"
 					aria-hidden
 				/>
-				checking
+				{uiMessage("settings:mcp_servers_pane_checking")}
 			</span>
 		);
 	}
@@ -84,7 +109,10 @@ function StatusBadge({ status }: { status: McpServerStatus | undefined }) {
 		return (
 			<span className="flex items-center gap-1 text-[11px] text-emerald-500">
 				<HugeiconsIcon icon={Tick02Icon} className="size-3" aria-hidden />
-				{status.toolCount ?? 0} {status.toolCount === 1 ? "tool" : "tools"}
+				{status.toolCount ?? 0}{" "}
+				{status.toolCount === 1
+					? uiMessage("settings:mcp_servers_pane_tool")
+					: uiMessage("settings:mcp_servers_pane_tools")}
 			</span>
 		);
 	}
@@ -92,7 +120,7 @@ function StatusBadge({ status }: { status: McpServerStatus | undefined }) {
 		return (
 			<span className="flex items-center gap-1 text-[11px] text-amber-400">
 				<HugeiconsIcon icon={Key01Icon} className="size-3" aria-hidden />
-				auth required
+				{uiMessage("settings:mcp_servers_pane_auth_required")}
 			</span>
 		);
 	}
@@ -100,18 +128,24 @@ function StatusBadge({ status }: { status: McpServerStatus | undefined }) {
 		return (
 			<span
 				className="flex max-w-56 items-center gap-1 truncate text-[11px] text-red-400"
-				title={status.error ?? "error"}
+				title={status.error ?? uiMessage("settings:mcp_servers_pane_error")}
 			>
 				<HugeiconsIcon
 					icon={Alert02Icon}
 					className="size-3 shrink-0"
 					aria-hidden
 				/>
-				<span className="truncate">{status.error ?? "error"}</span>
+				<span className="truncate">
+					{status.error ?? uiMessage("settings:mcp_servers_pane_error")}
+				</span>
 			</span>
 		);
 	}
-	return <span className="text-[11px] text-muted-foreground">off</span>;
+	return (
+		<span className="text-[11px] text-muted-foreground">
+			{uiMessage("settings:mcp_servers_pane_off")}
+		</span>
+	);
 }
 
 function ServerSettingsRow({
@@ -121,6 +155,8 @@ function ServerSettingsRow({
 	server: McpServerDescriptor;
 	status: McpServerStatus | undefined;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const setEnabled = useMcpStore((s) => s.setEnabled);
 	const authenticate = useMcpStore((s) => s.authenticate);
 	const authenticating = useMcpStore((s) => s.authenticating.has(server.key));
@@ -168,7 +204,9 @@ function ServerSettingsRow({
 						disabled={authenticating}
 						onClick={() => void authenticate(server.key)}
 					>
-						{authenticating ? "Waiting…" : "Connect"}
+						{authenticating
+							? uiMessage("settings:mcp_servers_pane_waiting")
+							: uiMessage("common:connect")}
 					</Button>
 				) : null}
 				{server.toggleSupported ? (
@@ -179,7 +217,9 @@ function ServerSettingsRow({
 						onCheckedChange={(next) => void setEnabled(server.key, next)}
 					/>
 				) : (
-					<span className="text-[11px] text-muted-foreground">read-only</span>
+					<span className="text-[11px] text-muted-foreground">
+						{uiMessage("settings:mcp_servers_pane_read_only")}
+					</span>
 				)}
 			</div>
 			{unmet.length > 0 && status?.state !== "needs-auth" ? (
@@ -190,8 +230,12 @@ function ServerSettingsRow({
 							className="text-[11px] text-amber-400/90"
 						>
 							{req.kind === "command"
-								? `command not found: ${req.detail}`
-								: `${req.detail} is not set`}
+								? uiMessage("settings:mcp_servers_pane_command_not_found", {
+										value1: String(req.detail),
+									})
+								: uiMessage("settings:mcp_servers_pane_is_not_set", {
+										value1: String(req.detail),
+									})}
 						</li>
 					))}
 				</ul>
@@ -208,6 +252,8 @@ function ServerSettingsRow({
  * Adding or editing servers happens in the native config files.
  */
 export function McpServersPane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const servers = useMcpStore((s) => s.servers);
 	const statuses = useMcpStore((s) => s.statuses);
 	const refreshing = useMcpStore((s) => s.refreshing);
@@ -233,7 +279,7 @@ export function McpServersPane() {
 							refreshing && "animate-spin motion-reduce:animate-none",
 						)}
 					/>
-					Refresh all
+					{uiMessage("settings:mcp_servers_pane_refresh_all")}
 				</Button>
 			</div>
 			{SOURCE_GROUPS.map((group) => {
@@ -248,7 +294,7 @@ export function McpServersPane() {
 							description={group.description}
 						>
 							<p className="text-[13px] text-muted-foreground">
-								No servers configured.
+								{uiMessage("settings:mcp_servers_pane_no_servers_configured")}
 							</p>
 						</SettingsFrame>
 					);
@@ -270,23 +316,39 @@ export function McpServersPane() {
 				);
 			})}
 			<SettingsFrame
-				title="Adding servers"
-				description="Zuse combines your agents' native MCP configs with servers, plugins, and connectors reported by the provider."
+				title={uiMessage("settings:mcp_servers_pane_adding_servers")}
+				description={uiMessage(
+					"settings:mcp_servers_pane_zuse_combines_your_agents_native_mcp_configs_with_servers_plugins_and",
+				)}
 			>
 				<div className="flex flex-col gap-1.5 text-[13px] leading-relaxed text-muted-foreground">
 					<p>
-						Claude Code:{" "}
-						<code className="font-mono text-[12px]">claude mcp add …</code> or
-						edit <code className="font-mono text-[12px]">.mcp.json</code> /{" "}
-						<code className="font-mono text-[12px]">~/.claude.json</code>
+						<RichMessage
+							id="settings:mcp_servers_pane_claude_code_claude_mcp_add_or_edit_mcp_json_claude_json_sentence"
+							components={{
+								part0: <code className="font-mono text-[12px]" />,
+								part1: <code className="font-mono text-[12px]" />,
+								part2: <code className="font-mono text-[12px]" />,
+							}}
+							values={{
+								code0: "claude mcp add …",
+								code1: ".mcp.json",
+								code2: "~/.claude.json",
+							}}
+						/>
 					</p>
 					<p>
-						Codex: add a{" "}
-						<code className="font-mono text-[12px]">
-							[mcp_servers.&lt;name&gt;]
-						</code>{" "}
-						block to{" "}
-						<code className="font-mono text-[12px]">~/.codex/config.toml</code>
+						<RichMessage
+							id="settings:mcp_servers_pane_codex_add_a_mcp_servers_lt_name_gt_block_to_codex_config_tom_sentence"
+							components={{
+								part0: <code className="font-mono text-[12px]" />,
+								part1: <code className="font-mono text-[12px]" />,
+							}}
+							values={{
+								code0: "[mcp_servers.<name>]",
+								code1: "~/.codex/config.toml",
+							}}
+						/>
 					</p>
 				</div>
 			</SettingsFrame>

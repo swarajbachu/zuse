@@ -1,8 +1,10 @@
+import "@zuse/i18n/english/settings";
 import {
 	type CommandId,
 	EnvironmentId,
 	type LinearConnection,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Info } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { dispatchEnvironmentShellCommand } from "~/lib/environment-shell-client-bus.ts";
@@ -15,6 +17,8 @@ import { Spinner } from "../ui/spinner.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip.tsx";
 
 export function LinearIntegrationsPane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const environmentId = useEnvironmentCatalogStore((state) =>
 		EnvironmentId.make(state.activeEnvironmentId),
 	);
@@ -95,7 +99,7 @@ export function LinearIntegrationsPane() {
 		<Frame>
 			<FrameHeader className="px-2 py-1.5">
 				<FrameTitle className="text-[13px] font-medium">
-					Integrations
+					{uiMessage("settings:linear_integrations_pane_integrations")}
 				</FrameTitle>
 			</FrameHeader>
 			<Card className="overflow-hidden">
@@ -104,13 +108,17 @@ export function LinearIntegrationsPane() {
 						L
 					</div>
 					<div className="flex min-w-0 flex-1 items-center gap-1.5">
-						<p className="truncate text-xs font-medium">Linear</p>
+						<p className="truncate text-xs font-medium">
+							{uiMessage("settings:linear_integrations_pane_linear")}
+						</p>
 						<Tooltip>
 							<TooltipTrigger
 								render={
 									<button
 										type="button"
-										aria-label="About the Linear integration"
+										aria-label={uiMessage(
+											"settings:linear_integrations_pane_about_the_linear_integration",
+										)}
 										className="text-muted-foreground/55 hover:text-muted-foreground"
 									>
 										<Info className="size-3.5" />
@@ -118,8 +126,9 @@ export function LinearIntegrationsPane() {
 								}
 							/>
 							<TooltipPopup className="max-w-64">
-								Select tickets when creating a chat. Ticket details, comments,
-								and images are copied into the session workspace.
+								{uiMessage(
+									"settings:linear_integrations_pane_select_tickets_when_creating_a_chat_ticket_details_comments_and_images",
+								)}
 							</TooltipPopup>
 						</Tooltip>
 					</div>
@@ -131,8 +140,8 @@ export function LinearIntegrationsPane() {
 						loading={busy === "connect"}
 					>
 						{connections !== null && connections.length > 0
-							? "Add workspace"
-							: "Connect"}
+							? uiMessage("settings:linear_integrations_pane_add_workspace")
+							: uiMessage("common:connect")}
 					</Button>
 				</div>
 				{error !== null && (
@@ -151,7 +160,9 @@ export function LinearIntegrationsPane() {
 				) : connections.length === 0 ? (
 					<div className="px-3 py-4 text-center">
 						<p className="text-[11px] text-muted-foreground">
-							No Linear workspaces connected yet.
+							{uiMessage(
+								"settings:linear_integrations_pane_no_linear_workspaces_connected_yet",
+							)}
 						</p>
 					</div>
 				) : (
@@ -170,7 +181,9 @@ export function LinearIntegrationsPane() {
 									</p>
 									{connection.status === "reauthRequired" && (
 										<p className="mt-1 text-xs text-destructive">
-											Authorization expired. Reconnect this workspace.
+											{uiMessage(
+												"settings:linear_integrations_pane_authorization_expired_reconnect_this_workspace",
+											)}
 										</p>
 									)}
 								</div>
@@ -183,7 +196,7 @@ export function LinearIntegrationsPane() {
 											loading={busy === "connect"}
 											onClick={() => void connect()}
 										>
-											Reconnect
+											{uiMessage("settings:linear_integrations_pane_reconnect")}
 										</Button>
 									)}
 									<Button
@@ -194,7 +207,7 @@ export function LinearIntegrationsPane() {
 										loading={busy === connection.workspaceId}
 										onClick={() => void disconnect(connection)}
 									>
-										Disconnect
+										{uiMessage("common:disconnect")}
 									</Button>
 								</div>
 							</div>

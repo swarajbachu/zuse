@@ -1,9 +1,11 @@
+import "@zuse/i18n/english/chat";
 import type {
 	EnvironmentId,
 	PermissionDecision,
 	PermissionKind,
 	PermissionRequest,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -115,6 +117,7 @@ export function PermissionPrompt({
 	headline?: ReactNode;
 	context?: ReactNode;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const decide = useCallback(
@@ -159,12 +162,14 @@ export function PermissionPrompt({
 			<div className="flex items-center gap-2">
 				<div className="truncate text-[13px] font-medium leading-5 text-foreground">
 					{expired
-						? "Approval expired after agent restart"
+						? uiMessage("chat:permission_card_approval_expired_after_agent_restart")
 						: (headline ?? kindHeadline(kind))}
 				</div>
 				{queueSize > 1 ? (
 					<span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground shrink-0">
-						+{queueSize - 1} more
+						{uiMessage("chat:permission_card_more_sentence", {
+							value: queueSize - 1,
+						})}
 					</span>
 				) : null}
 			</div>
@@ -175,8 +180,9 @@ export function PermissionPrompt({
 					role="status"
 					aria-live="polite"
 				>
-					The agent restarted while waiting for this approval. It cannot consume
-					the old response. Dismiss this request and send a message to continue.
+					{uiMessage(
+						"chat:permission_card_the_agent_restarted_while_waiting_for_this_approval_it_cannot_consume",
+					)}
 				</p>
 			) : null}
 			{error ? (
@@ -202,9 +208,11 @@ export function PermissionPrompt({
 					disabled={pending}
 					className="h-7"
 					onClick={() => void deny()}
-					title="Esc"
+					title={uiMessage("chat:permission_card_esc")}
 				>
-					{expired ? "Dismiss" : "Deny"}
+					{expired
+						? uiMessage("chat:permission_card_dismiss")
+						: uiMessage("chat:permission_card_deny")}
 				</Button>
 				{expired ? null : (
 					<>
@@ -218,7 +226,7 @@ export function PermissionPrompt({
 								persistentDisabled && "pointer-events-none opacity-40",
 							)}
 						>
-							Allow for session
+							{uiMessage("chat:permission_card_allow_for_session")}
 						</Button>
 						<Button
 							size="xs"
@@ -230,16 +238,16 @@ export function PermissionPrompt({
 								persistentDisabled && "pointer-events-none opacity-40",
 							)}
 						>
-							Always allow
+							{uiMessage("chat:permission_card_always_allow")}
 						</Button>
 						<Button
 							size="xs"
 							disabled={pending}
 							onClick={() => void decide(requestId, ALLOW_ONCE)}
 							className="ml-1 h-7"
-							title="⌘+Enter"
+							title={uiMessage("chat:permission_card_enter")}
 						>
-							Allow once
+							{uiMessage("chat:permission_card_allow_once")}
 						</Button>
 					</>
 				)}

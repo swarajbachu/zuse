@@ -1,16 +1,19 @@
+import { websiteLocales, websitePath } from "@zuse/i18n/registry";
 import type { MetadataRoute } from "next";
 import { LEGAL_PAGES } from "@/lib/legal-pages";
 import { siteConfig } from "@/lib/seo";
+import { websiteAlternates } from "@/lib/website-localization";
 
 export default function sitemap(): MetadataRoute.Sitemap {
 	const now = new Date();
 	return [
-		{
-			url: siteConfig.url,
+		...websiteLocales.map((locale) => ({
+			url: new URL(websitePath(locale), siteConfig.url).toString(),
 			lastModified: now,
-			changeFrequency: "weekly",
-			priority: 1,
-		},
+			changeFrequency: "weekly" as const,
+			priority: locale === "en" ? 1 : 0.9,
+			alternates: { languages: websiteAlternates() },
+		})),
 		{
 			url: `${siteConfig.url}/developers`,
 			lastModified: now,

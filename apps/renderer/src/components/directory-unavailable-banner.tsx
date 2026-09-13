@@ -1,7 +1,11 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Alert02Icon } from "@zuse/icons/bulk-rounded";
 
 export function DirectoryUnavailableBanner({ archived = false }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	return (
 		<div
 			role="status"
@@ -14,8 +18,12 @@ export function DirectoryUnavailableBanner({ archived = false }) {
 			/>
 			<span>
 				{archived
-					? "This directory is unavailable."
-					: "This directory has been deleted and it's inaccessible."}
+					? uiMessage(
+							"chat:directory_unavailable_banner_this_directory_is_unavailable",
+						)
+					: uiMessage(
+							"chat:directory_unavailable_banner_this_directory_has_been_deleted_and_it_s_inaccessible",
+						)}
 			</span>
 		</div>
 	);

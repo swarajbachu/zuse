@@ -1,5 +1,8 @@
+import { formatDate as formatUiDate } from "@zuse/i18n";
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { FolderId, PermissionKind, SavedDecision } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Delete02Icon,
 	GlobeIcon,
@@ -82,7 +85,7 @@ const formatDate = (d: Date): string => {
 	if (sec < 60) return "just now";
 	if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
 	if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
-	return d.toLocaleDateString();
+	return formatUiDate(d);
 };
 
 interface PermissionsInspectorProps {
@@ -105,6 +108,8 @@ export function PermissionsInspector({
 	projectId,
 	projectName,
 }: PermissionsInspectorProps) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const permissions = useEnvironmentPermissions();
 	const decisionsByProject = permissions.data?.decisionsByProject ?? {};
 	const loadingByProject = permissions.data?.loadingDecisionsByProject ?? {};
@@ -129,7 +134,7 @@ export function PermissionsInspector({
 			else recent.push(d);
 		}
 		return { folder, session, recent };
-	}, [decisions]);
+	}, [decisions, uiMessage]);
 
 	const [showSession, setShowSession] = useState(true);
 	const [showRecent, setShowRecent] = useState(false);
@@ -141,25 +146,29 @@ export function PermissionsInspector({
 					<div className="flex items-center gap-2 pr-8">
 						<HugeiconsIcon icon={Shield01Icon} className="size-4 text-info" />
 						<DialogTitle className="text-base">
-							Permissions — {projectName}
+							{uiMessage("chat:permissions_inspector_permissions_sentence", {
+								projectName: projectName,
+							})}
 						</DialogTitle>
 					</div>
 				</DialogHeader>
 				<DialogPanel className="text-sm">
 					{loading && decisions.length === 0 ? (
 						<ShimmerText as="p" className="text-xs text-muted-foreground">
-							Loading…
+							{uiMessage("common:loading")}
 						</ShimmerText>
 					) : decisions.length === 0 ? (
 						<p className="text-xs text-muted-foreground">
-							No saved permission decisions for this project yet. They appear
-							here when you click &quot;Allow for session&quot; or &quot;Always
-							allow in project&quot; on a permission prompt.
+							{uiMessage(
+								"chat:permissions_inspector_no_saved_permission_decisions_for_this_project_yet_they_appear_here_wh",
+							)}
 						</p>
 					) : (
 						<>
 							<Section
-								title="Always allowed in this project"
+								title={uiMessage(
+									"chat:permissions_inspector_always_allowed_in_this_project",
+								)}
 								decisions={grouped.folder}
 								onRevoke={(id) =>
 									void revokeEnvironmentPermissionDecision(projectId, id)
@@ -171,7 +180,10 @@ export function PermissionsInspector({
 								onClick={() => setShowSession((v) => !v)}
 								className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
 							>
-								{showSession ? "▾" : "▸"} Allowed for past sessions (
+								{showSession ? "▾" : "▸"}
+								{uiMessage(
+									"chat:permissions_inspector_allowed_for_past_sessions",
+								)}
 								{grouped.session.length})
 							</button>
 							{showSession && (
@@ -189,7 +201,8 @@ export function PermissionsInspector({
 								onClick={() => setShowRecent((v) => !v)}
 								className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
 							>
-								{showRecent ? "▾" : "▸"} Recent activity (
+								{showRecent ? "▾" : "▸"}
+								{uiMessage("chat:permissions_inspector_recent_activity")}
 								{grouped.recent.length})
 							</button>
 							{showRecent && (
@@ -253,6 +266,8 @@ function DecisionRow({
 	decision: SavedDecision;
 	onRevoke: (requestId: string) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [confirming, setConfirming] = useState(false);
 	return (
 		<li className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2 py-1.5">
@@ -283,14 +298,14 @@ function DecisionRow({
 						}}
 						className="rounded bg-red-500/30 px-2 py-0.5 text-[10px] text-red-100 hover:bg-red-500/50"
 					>
-						Revoke
+						{uiMessage("chat:permissions_inspector_revoke")}
 					</button>
 					<button
 						type="button"
 						onClick={() => setConfirming(false)}
 						className="rounded px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
 					>
-						Cancel
+						{uiMessage("common:cancel")}
 					</button>
 				</div>
 			) : (
@@ -298,8 +313,8 @@ function DecisionRow({
 					type="button"
 					onClick={() => setConfirming(true)}
 					className="rounded p-1 text-muted-foreground hover:bg-red-500/20 hover:text-red-200"
-					aria-label="Revoke"
-					title="Revoke this decision"
+					aria-label={uiMessage("chat:permissions_inspector_revoke")}
+					title={uiMessage("chat:permissions_inspector_revoke_this_decision")}
 				>
 					<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
 				</button>

@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/chat";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { createPatch, structuredPatch } from "diff";
 import { lazy, Suspense, useMemo } from "react";
 import { useZuseDiffTheme } from "../lib/diffs-theme.ts";
@@ -170,7 +172,7 @@ export const patchStats = (
  * `""` as the old file so the line numbers + additions render.
  */
 const editToPatch = (edit: FileEdit): string =>
-	createPatch(edit.path, edit.oldText, edit.newText, "", "") ?? "";
+	createPatch(edit.path, edit.oldText, edit.newText, "", "");
 
 // ---------------------------------------------------------------------------
 // Polished vertical diff used for Edit/Write/MultiEdit tool results in the
@@ -217,11 +219,13 @@ export function UnifiedPatchDiff({
 	patch: string;
 	kind?: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const diffTheme = useZuseDiffTheme();
 	if (patch.trim().length === 0) {
 		return (
 			<div className="px-2 py-1.5 text-[11px] text-muted-foreground">
-				(no textual change)
+				{uiMessage("chat:inline_diff_no_textual_change")}
 			</div>
 		);
 	}
@@ -293,12 +297,14 @@ export function UnifiedPatchDiff({
  * stats header and an internal scroll cap.
  */
 export function EditDiff({ edit }: { edit: FileEdit }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const diffTheme = useZuseDiffTheme();
-	const patchText = useMemo(() => editToPatch(edit), [edit]);
+	const patchText = useMemo(() => editToPatch(edit), [edit, uiMessage]);
 	if (patchText.trim().length === 0 || edit.oldText === edit.newText) {
 		return (
 			<div className="px-2 py-1.5 text-[11px] text-muted-foreground">
-				(no textual change)
+				{uiMessage("chat:inline_diff_no_textual_change")}
 			</div>
 		);
 	}
@@ -325,7 +331,9 @@ export function EditDiff({ edit }: { edit: FileEdit }) {
 					<TooltipPopup>{edit.path}</TooltipPopup>
 				</Tooltip>
 				<span className="text-muted-foreground">
-					{edit.mode === "create" ? "add" : "update"}
+					{edit.mode === "create"
+						? uiMessage("chat:inline_diff_add")
+						: uiMessage("chat:inline_diff_update")}
 				</span>
 				{stats.added > 0 ? (
 					<span className="ml-auto text-emerald-400 tabular-nums">

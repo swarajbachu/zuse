@@ -1,5 +1,4 @@
 "use client";
-
 import {
 	DitherAvatar,
 	DitherButton,
@@ -30,6 +29,10 @@ import {
 	IconSun,
 	IconX,
 } from "@tabler/icons-react";
+import {
+	useWebsiteMessages,
+	type WebsiteMessage,
+} from "@zuse/i18n/website/react";
 import Image from "next/image";
 import {
 	type FormEvent,
@@ -72,13 +75,13 @@ const providerMeta: Record<
 	},
 };
 
-const models: DemoModel[] = [
+const getModels = (t: WebsiteMessage): DemoModel[] => [
 	{
 		id: "gpt-5.6-sol",
 		provider: "codex",
 		label: "GPT-5.6 Sol",
 		context: "1M",
-		badge: "Default",
+		badge: t("demo:default"),
 	},
 	{
 		id: "gpt-5.6-terra",
@@ -118,71 +121,97 @@ const models: DemoModel[] = [
 	},
 ];
 
-const sidebarProjects = [
-	{
-		name: "zuse",
-		chats: [
-			{ title: "New chat", additions: "+4", deletions: "−8" },
-			{ title: "Polish the chat landing", additions: "+151", deletions: "−9" },
-		],
-	},
-	{
-		name: "forkzero",
-		chats: [
-			{
-				title: "Implement cloud environments",
-				additions: "+79",
-				deletions: "−1",
-			},
-			{ title: "Fix composer focus", additions: "+45", deletions: "−4" },
-			{ title: "Review current changes", additions: "+101", deletions: "−10" },
-		],
-	},
-	{ name: "server", chats: [] },
-	{ name: "mobile", chats: [] },
-	{ name: "marketing-site", chats: [] },
-	{ name: "desktop", chats: [] },
-	{ name: "docs", chats: [] },
-] as const;
+const getSidebarProjects = (t: WebsiteMessage) =>
+	[
+		{
+			name: "zuse",
+			chats: [
+				{ title: t("demo:new_chat"), additions: "+4", deletions: "−8" },
+				{
+					title: t("demo:polish_the_chat_landing"),
+					additions: "+151",
+					deletions: "−9",
+				},
+			],
+		},
+		{
+			name: "forkzero",
+			chats: [
+				{
+					title: t("demo:implement_cloud_environments"),
+					additions: "+79",
+					deletions: "−1",
+				},
+				{
+					title: t("demo:fix_composer_focus"),
+					additions: "+45",
+					deletions: "−4",
+				},
+				{
+					title: t("demo:review_current_changes"),
+					additions: "+101",
+					deletions: "−10",
+				},
+			],
+		},
+		{ name: "server", chats: [] },
+		{ name: "mobile", chats: [] },
+		{ name: "marketing-site", chats: [] },
+		{ name: "desktop", chats: [] },
+		{ name: "docs", chats: [] },
+	] as const;
 
-const sourceRows = {
+const getSourceRows = (t: WebsiteMessage) => ({
 	prs: [
 		{ label: "#248 Polish the chat landing", meta: "14m" },
 		{ label: "#244 Add cloud environments", meta: "2h" },
 	],
 	branches: [
-		{ label: "feature/chat-landing", meta: "3 ahead" },
-		{ label: "fix/composer-focus", meta: "1 ahead" },
+		{
+			label: "feature/chat-landing",
+			meta: t("demo:commits_ahead", { count: 3 }),
+		},
+		{
+			label: "fix/composer-focus",
+			meta: t("demo:commits_ahead", { count: 1 }),
+		},
 	],
 	issues: [
-		{ label: "ZUS-184 Composer polish", meta: "High" },
-		{ label: "ZUS-179 Cloud reconnect", meta: "Medium" },
+		{
+			label: t("demo:zus_184_composer_polish"),
+			meta: t("demo:reasoning_high"),
+		},
+		{
+			label: t("demo:zus_179_cloud_reconnect"),
+			meta: t("demo:reasoning_medium"),
+		},
 	],
-};
+});
 
-const continueThreads = [
-	{
-		title: "Improve the chat landing background",
-		preview:
-			"Keep the renderer composer unchanged and add the visual treatment behind it.",
-		project: "zuse",
-		time: "now",
-	},
-	{
-		title: "Generate a concise semantic branch name",
-		preview:
-			"Use the current diff and return a short branch name for the following task.",
-		project: "forkzero",
-		time: "8m",
-	},
-	{
-		title: "Review the current implementation",
-		preview:
-			"Inspect the changed files, identify regressions, and report only actionable findings.",
-		project: "renderer",
-		time: "22m",
-	},
-] as const;
+const getContinueThreads = (t: WebsiteMessage) =>
+	[
+		{
+			title: t("demo:improve_the_chat_landing_background"),
+			preview:
+				"Keep the renderer composer unchanged and add the visual treatment behind it.",
+			project: "zuse",
+			time: t("demo:now"),
+		},
+		{
+			title: t("demo:generate_a_concise_semantic_branch_name"),
+			preview:
+				"Use the current diff and return a short branch name for the following task.",
+			project: "forkzero",
+			time: "8m",
+		},
+		{
+			title: t("demo:review_the_current_implementation"),
+			preview:
+				"Inspect the changed files, identify regressions, and report only actionable findings.",
+			project: "renderer",
+			time: "22m",
+		},
+	] as const;
 
 function ProviderLogo({
 	provider,
@@ -212,6 +241,8 @@ export function ZuseInteractiveDemo({
 }: {
 	embedded?: boolean;
 }) {
+	const { message: t } = useWebsiteMessages();
+
 	const [theme, setTheme] = useState<"light" | "dark">("dark");
 	const [project, setProject] = useState("forkzero");
 	const [environment, setEnvironment] = useState<Environment>("local");
@@ -223,7 +254,8 @@ export function ZuseInteractiveDemo({
 	const [reasoning, setReasoning] = useState("Medium");
 	const [planMode, setPlanMode] = useState(false);
 	const [menu, setMenu] = useState<MenuName | null>(null);
-	const [sourceTab, setSourceTab] = useState<keyof typeof sourceRows>("prs");
+	const [sourceTab, setSourceTab] =
+		useState<keyof ReturnType<typeof getSourceRows>>("prs");
 	const [source, setSource] = useState<string | null>(null);
 	const [prompt, setPrompt] = useState("");
 	const [submitted, setSubmitted] = useState(false);
@@ -253,7 +285,8 @@ export function ZuseInteractiveDemo({
 		};
 	}, []);
 
-	const activeModel = models.find((entry) => entry.id === modelId) ?? models[0];
+	const activeModel =
+		getModels(t).find((entry) => entry.id === modelId) ?? getModels(t)[0];
 	const ComposerHeading = embedded ? "h2" : "h1";
 	const submit = (event: FormEvent) => {
 		event.preventDefault();
@@ -337,7 +370,7 @@ export function ZuseInteractiveDemo({
 					{!sidebarOpen ? (
 						<button
 							type="button"
-							aria-label="Show projects panel"
+							aria-label={t("demo:show_projects_panel")}
 							className="absolute left-2 top-2 z-30 flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
 							onClick={() => setSidebarOpen(true)}
 						>
@@ -347,7 +380,9 @@ export function ZuseInteractiveDemo({
 
 					<button
 						type="button"
-						aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+						aria-label={t(
+							theme === "dark" ? "demo:light_theme" : "demo:dark_theme",
+						)}
 						className="absolute right-2 top-2 z-30 flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:hidden"
 						onClick={() =>
 							setTheme((current) => (current === "dark" ? "light" : "dark"))
@@ -362,7 +397,7 @@ export function ZuseInteractiveDemo({
 							className="flex w-full max-w-3xl flex-col gap-4"
 						>
 							<ComposerHeading className="text-center text-xl font-medium text-foreground/90">
-								What should we build in {project}?
+								{t("demo:what_should_we_build_in", { value0: project })}
 							</ComposerHeading>
 
 							<form onSubmit={submit} className="w-full">
@@ -371,7 +406,7 @@ export function ZuseInteractiveDemo({
 										<div className="flex min-w-0 items-center gap-1">
 											<CompactMenuButton
 												label={project}
-												ariaLabel="Pick a project"
+												ariaLabel={t("demo:pick_project")}
 												icon={<IconFolder size={14} />}
 												open={menu === "project"}
 												onClick={() =>
@@ -379,8 +414,12 @@ export function ZuseInteractiveDemo({
 												}
 											/>
 											<CompactMenuButton
-												label={environment === "local" ? "Local" : "Cloud"}
-												ariaLabel="Choose local or cloud environment"
+												label={
+													environment === "local"
+														? t("demo:local")
+														: t("demo:cloud")
+												}
+												ariaLabel={t("demo:choose_environment")}
 												icon={
 													environment === "local" ? (
 														<IconDeviceDesktop size={14} />
@@ -400,7 +439,7 @@ export function ZuseInteractiveDemo({
 													<span className="max-w-40 truncate">{source}</span>
 													<button
 														type="button"
-														aria-label="Clear create-from source"
+														aria-label={t("demo:clear_create_from_source")}
 														className="rounded p-1 hover:bg-card hover:text-foreground"
 														onClick={() => setSource(null)}
 													>
@@ -409,8 +448,8 @@ export function ZuseInteractiveDemo({
 												</span>
 											) : null}
 											<CompactMenuButton
-												label="Create from…"
-												ariaLabel="Create from an existing PR, branch, or issue"
+												label={t("demo:create_from")}
+												ariaLabel={t("demo:create_from_source")}
 												icon={<IconGitPullRequest size={14} />}
 												open={menu === "source"}
 												collapseOnMobile
@@ -422,7 +461,7 @@ export function ZuseInteractiveDemo({
 
 										{menu === "project" ? (
 											<MenuPanel side="left" className="top-9 w-64">
-												{sidebarProjects.map((entry) => (
+												{getSidebarProjects(t).map((entry) => (
 													<MenuRow
 														key={entry.name}
 														selected={entry.name === project}
@@ -437,7 +476,7 @@ export function ZuseInteractiveDemo({
 													icon={<IconPlus size={14} />}
 													onClick={() => setMenu(null)}
 												>
-													Add project…
+													{t("demo:add_project")}
 												</MenuRow>
 											</MenuPanel>
 										) : null}
@@ -447,24 +486,24 @@ export function ZuseInteractiveDemo({
 												<MenuRow
 													selected={environment === "local"}
 													icon={<IconDeviceDesktop size={14} />}
-													meta="This Mac"
+													meta={t("demo:this_mac")}
 													onClick={() => {
 														setEnvironment("local");
 														setMenu(null);
 													}}
 												>
-													Local workspace
+													{t("demo:local_workspace")}
 												</MenuRow>
 												<MenuRow
 													selected={environment === "cloud"}
 													icon={<IconCloud size={14} />}
-													meta="Live beta"
+													meta={t("demo:live_beta")}
 													onClick={() => {
 														setEnvironment("cloud");
 														setMenu(null);
 													}}
 												>
-													Cloud workspace
+													{t("demo:cloud_workspace")}
 												</MenuRow>
 											</MenuPanel>
 										) : null}
@@ -480,8 +519,10 @@ export function ZuseInteractiveDemo({
 														className="text-muted-foreground"
 													/>
 													<input
-														aria-label="Search create-from sources"
-														placeholder="Search by title, number, or author"
+														aria-label={t("demo:search_create_from_sources")}
+														placeholder={t(
+															"demo:search_by_title_number_or_author",
+														)}
 														className="h-8 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
 													/>
 												</div>
@@ -499,13 +540,19 @@ export function ZuseInteractiveDemo({
 																)}
 																onClick={() => setSourceTab(tab)}
 															>
-																{tab === "prs" ? "Pull requests" : tab}
+																{t(
+																	tab === "prs"
+																		? "demo:pull_requests"
+																		: tab === "branches"
+																			? "demo:branches"
+																			: "demo:issues",
+																)}
 															</button>
 														),
 													)}
 												</div>
 												<div className="p-1">
-													{sourceRows[sourceTab].map((row) => (
+													{getSourceRows(t)[sourceTab].map((row) => (
 														<MenuRow
 															key={row.label}
 															icon={
@@ -543,25 +590,32 @@ export function ZuseInteractiveDemo({
 											value={prompt}
 											onChange={(event) => setPrompt(event.target.value)}
 											onKeyDown={(event) => {
-												if (event.key === "Enter" && !event.shiftKey) {
+												if (
+													event.key === "Enter" &&
+													!event.shiftKey &&
+													!event.nativeEvent.isComposing &&
+													event.nativeEvent.keyCode !== 229
+												) {
 													event.preventDefault();
 													event.currentTarget.form?.requestSubmit();
 												}
 											}}
-											aria-label="Message"
-											placeholder="Ask to make changes at the @ mentioned files or run slash commands, shift enter for next line."
+											aria-label={t("demo:message")}
+											placeholder={t(
+												"demo:ask_to_make_changes_at_the_mentioned_files_or_run_slash_commands_shift",
+											)}
 											className="min-h-30 w-full resize-none bg-transparent px-3 py-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/75"
 										/>
 									</div>
 
 									<div className="relative flex h-11 items-center justify-between gap-2 px-2 py-1.5">
 										<div className="flex min-w-0 items-center gap-0.5 sm:gap-1.5">
-											<IconButton label="Attach files">
+											<IconButton label={t("demo:attach_files")}>
 												<IconPaperclip size={15} />
 											</IconButton>
 											<button
 												type="button"
-												aria-label="Change model"
+												aria-label={t("demo:change_model")}
 												aria-expanded={menu === "model"}
 												className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs text-foreground hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
 												onClick={() =>
@@ -577,18 +631,32 @@ export function ZuseInteractiveDemo({
 											</button>
 											<button
 												type="button"
-												aria-label="Reasoning"
+												aria-label={t("demo:reasoning")}
 												className="hidden h-7 items-center gap-1.5 rounded-md px-2.5 text-xs text-foreground hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary min-[430px]:flex"
 												onClick={() =>
 													setMenu(menu === "reasoning" ? null : "reasoning")
 												}
 											>
 												<IconBrain size={14} />
-												<span>{reasoning}</span>
+												<span>
+													{reasoning === "Ultracode"
+														? reasoning
+														: t(
+																reasoning === "Low"
+																	? "demo:reasoning_low"
+																	: reasoning === "High"
+																		? "demo:reasoning_high"
+																		: "demo:reasoning_medium",
+															)}
+												</span>
 												<IconChevronDown size={12} className="opacity-60" />
 											</button>
 											<IconButton
-												label={planMode ? "Exit plan mode" : "Enter plan mode"}
+												label={
+													planMode
+														? t("demo:exit_plan_mode")
+														: t("demo:enter_plan_mode")
+												}
 												pressed={planMode}
 												onClick={() => setPlanMode((current) => !current)}
 												className={
@@ -597,14 +665,14 @@ export function ZuseInteractiveDemo({
 											>
 												<IconMap size={15} />
 											</IconButton>
-											<IconButton label="MCP servers">
+											<IconButton label={t("demo:mcp_servers")}>
 												<IconCode size={15} />
 											</IconButton>
 										</div>
 										<DitherButton
 											type="submit"
 											variant="gradient"
-											aria-label="Send"
+											aria-label={t("demo:send")}
 											disabled={prompt.trim().length === 0 || submitted}
 											className="size-7 shrink-0 border border-primary/40 text-white active:scale-95 focus-visible:ring-offset-1"
 										>
@@ -627,7 +695,7 @@ export function ZuseInteractiveDemo({
 										{menu === "reasoning" ? (
 											<MenuPanel side="left" className="bottom-11 left-52 w-44">
 												<p className="px-2 pb-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-													Reasoning
+													{t("demo:reasoning")}
 												</p>
 												{["Low", "Medium", "High", "Ultracode"].map((entry) => (
 													<MenuRow
@@ -639,7 +707,13 @@ export function ZuseInteractiveDemo({
 															setMenu(null);
 														}}
 													>
-														{entry}
+														{entry === "Low"
+															? t("demo:reasoning_low")
+															: entry === "Medium"
+																? t("demo:reasoning_medium")
+																: entry === "High"
+																	? t("demo:reasoning_high")
+																	: entry}
 													</MenuRow>
 												))}
 											</MenuPanel>
@@ -654,7 +728,15 @@ export function ZuseInteractiveDemo({
 								className="h-4 text-center text-xs text-muted-foreground"
 							>
 								{submitted
-									? `Starting ${providerMeta[activeModel.provider].label} in ${project} on ${environment === "local" ? "this Mac" : "a cloud workspace"}…`
+									? t("demo:starting", {
+											model: providerMeta[activeModel.provider].label,
+											project,
+											environment: t(
+												environment === "local"
+													? "demo:environment_local"
+													: "demo:environment_cloud",
+											),
+										})
 									: ""}
 							</div>
 						</div>
@@ -682,16 +764,18 @@ function DemoSidebar({
 	onToggleProject: (name: string) => void;
 	onToggleTheme: () => void;
 }) {
+	const { message: t } = useWebsiteMessages();
+
 	return (
 		<aside className="hidden h-full min-h-0 w-[232px] shrink-0 flex-col border-r border-border bg-secondary/45 text-foreground md:flex">
 			<header className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-3 text-[11px]">
 				<span className="truncate font-semibold tracking-tight">
-					Zuse (Beta)
+					{t("demo:zuse_beta")}
 				</span>
 				<span className="flex-1" />
 				<button
 					type="button"
-					aria-label="Hide projects panel"
+					aria-label={t("demo:hide_projects_panel")}
 					className="flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
 					onClick={onClose}
 				>
@@ -701,26 +785,26 @@ function DemoSidebar({
 			<div className="flex flex-col gap-0.5 border-b border-border px-1.5 py-1.5">
 				<SidebarAction
 					icon={<IconEdit size={16} />}
-					label="New chat"
+					label={t("demo:new_chat")}
 					shortcut="⌘ N"
 				/>
 				<SidebarAction
 					icon={<IconFolderPlus size={16} />}
-					label="New project"
+					label={t("demo:new_project")}
 				/>
 			</div>
 			<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
-				<span>Projects</span>
+				<span>{t("demo:projects")}</span>
 				<button
 					type="button"
-					aria-label="Add project"
+					aria-label={t("demo:add_project_2")}
 					className="flex size-7 items-center justify-center rounded-md hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
 				>
 					<IconPlus size={14} />
 				</button>
 			</div>
 			<ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5">
-				{sidebarProjects.map((entry) => {
+				{getSidebarProjects(t).map((entry) => {
 					const expanded = expandedProjects.has(entry.name);
 					return (
 						<li key={entry.name}>
@@ -756,21 +840,21 @@ function DemoSidebar({
 								</button>
 								<button
 									type="button"
-									aria-label={`Settings for ${entry.name}`}
+									aria-label={t("demo:settings_for", { value0: entry.name })}
 									className="rounded p-1 text-muted-foreground opacity-0 hover:bg-card hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
 								>
 									<IconSettings size={14} />
 								</button>
 								<button
 									type="button"
-									aria-label={`New chat in ${entry.name}`}
+									aria-label={t("demo:new_chat_in", { value0: entry.name })}
 									className="rounded p-1 text-muted-foreground opacity-0 hover:bg-card hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
 								>
 									<IconEdit size={14} />
 								</button>
 							</div>
 							{expanded && entry.chats.length > 0 ? (
-								<ul aria-label={`${entry.name} chats`}>
+								<ul aria-label={t("demo:chats", { value0: entry.name })}>
 									{entry.chats.map((chat) => (
 										<li key={chat.title}>
 											<button
@@ -806,11 +890,13 @@ function DemoSidebar({
 					<DitherAvatar name="Zuse workspace" size={15} hue={78} />
 				</span>
 				<span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
-					Zuse workspace
+					{t("demo:zuse_workspace")}
 				</span>
 				<button
 					type="button"
-					aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+					aria-label={t(
+						theme === "dark" ? "demo:light_theme" : "demo:dark_theme",
+					)}
 					className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
 					onClick={onToggleTheme}
 				>
@@ -822,16 +908,18 @@ function DemoSidebar({
 }
 
 function ContinueThreads() {
+	const { message: t } = useWebsiteMessages();
+
 	return (
 		<section className="mt-2 min-w-0">
 			<div className="mb-2 flex items-center gap-2 px-1 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-				<span>Continue Threads</span>
+				<span>{t("demo:continue_threads")}</span>
 				<span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] tracking-normal">
-					{continueThreads.length}
+					{getContinueThreads(t).length}
 				</span>
 			</div>
 			<div className="flex gap-3 overflow-x-auto pb-1">
-				{continueThreads.map((thread) => (
+				{getContinueThreads(t).map((thread) => (
 					<button
 						type="button"
 						key={thread.title}
@@ -942,11 +1030,13 @@ function DemoModelPicker({
 	activeModel: DemoModel;
 	onSelect: (model: DemoModel) => void;
 }) {
+	const { message: t } = useWebsiteMessages();
+
 	const [scope, setScope] = useState<Provider | "all">("all");
 	const [query, setQuery] = useState("");
 	const visibleModels = useMemo(() => {
 		const normalized = query.trim().toLowerCase();
-		return models.filter(
+		return getModels(t).filter(
 			(model) =>
 				(scope === "all" || model.provider === scope) &&
 				(normalized.length === 0 ||
@@ -955,14 +1045,14 @@ function DemoModelPicker({
 						.toLowerCase()
 						.includes(normalized)),
 		);
-	}, [query, scope]);
+	}, [query, scope, t]);
 	const grouped = (Object.keys(providerMeta) as Provider[])
 		.map((provider) => ({
 			provider,
 			models: visibleModels.filter((model) => model.provider === provider),
 		}))
 		.filter((group) => group.models.length > 0);
-	const recents = models
+	const recents = getModels(t)
 		.filter((model) => [activeModel.id, "sonnet-5"].includes(model.id))
 		.filter((model) => scope === "all" || model.provider === scope)
 		.filter((model) =>
@@ -972,19 +1062,19 @@ function DemoModelPicker({
 	return (
 		<div
 			role="dialog"
-			aria-label="Choose a model"
+			aria-label={t("demo:choose_a_model")}
 			className="absolute bottom-11 left-0 z-50 flex h-[min(430px,70vh)] w-[min(430px,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border bg-card/95 text-foreground shadow-[0_18px_50px_rgba(0,0,0,0.22)] backdrop-blur-xl sm:left-10"
 		>
 			<div
 				role="tablist"
-				aria-label="Model provider"
+				aria-label={t("demo:model_provider")}
 				className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-border/50 bg-secondary/40 p-1.5"
 			>
 				<button
 					type="button"
 					role="tab"
 					aria-selected={scope === "all"}
-					aria-label="All models"
+					aria-label={t("demo:all_models")}
 					className={cn(
 						"flex size-8 items-center justify-center rounded-md text-[10px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
 						scope === "all"
@@ -993,7 +1083,7 @@ function DemoModelPicker({
 					)}
 					onClick={() => setScope("all")}
 				>
-					All
+					{t("demo:all")}
 				</button>
 				{(Object.keys(providerMeta) as Provider[]).map((provider) => (
 					<button
@@ -1001,8 +1091,10 @@ function DemoModelPicker({
 						type="button"
 						role="tab"
 						aria-selected={scope === provider}
-						aria-label={`${providerMeta[provider].label} models`}
-						title={`${providerMeta[provider].label} models`}
+						aria-label={t("demo:models", {
+							value0: providerMeta[provider].label,
+						})}
+						title={t("demo:models", { value0: providerMeta[provider].label })}
 						className={cn(
 							"relative flex size-8 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
 							scope === provider
@@ -1022,15 +1114,15 @@ function DemoModelPicker({
 				<div className="border-b border-border/50 p-2.5">
 					<label className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-background px-3 focus-within:border-foreground/60 focus-within:ring-2 focus-within:ring-primary/30">
 						<IconSearch size={14} className="text-muted-foreground" />
-						<span className="sr-only">Search models</span>
+						<span className="sr-only">{t("demo:search_models")}</span>
 						<input
 							type="search"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
 							placeholder={
 								scope === "all"
-									? `Search ${models.length} models`
-									: `in ${providerMeta[scope].label}…`
+									? t("demo:search_models_2", { value0: getModels(t).length })
+									: t("demo:in", { value0: providerMeta[scope].label })
 							}
 							className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/70"
 						/>
@@ -1039,7 +1131,10 @@ function DemoModelPicker({
 				<div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2.5">
 					{recents.length > 0 ? (
 						<>
-							<ModelSectionLabel title="Recents" meta="last 30 days" />
+							<ModelSectionLabel
+								title={t("demo:recents")}
+								meta={t("demo:last_30_days")}
+							/>
 							<div className="flex flex-col gap-0.5">
 								{recents.map((model, index) => (
 									<DemoModelRow
@@ -1056,7 +1151,7 @@ function DemoModelPicker({
 					) : null}
 					{grouped.length > 0 ? (
 						<>
-							<ModelSectionLabel title="Models" />
+							<ModelSectionLabel title={t("demo:models_2")} />
 							{grouped.map((group) => (
 								<div
 									key={group.provider}
@@ -1072,7 +1167,7 @@ function DemoModelPicker({
 										</span>
 										{group.provider === activeModel.provider ? (
 											<span className="rounded bg-primary/15 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-primary">
-												Current
+												{t("demo:current")}
 											</span>
 										) : null}
 										<span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
@@ -1094,7 +1189,7 @@ function DemoModelPicker({
 						</>
 					) : (
 						<div className="px-3 py-8 text-center text-xs text-muted-foreground">
-							No models match.
+							{t("demo:no_models_match")}
 						</div>
 					)}
 				</div>
@@ -1162,9 +1257,7 @@ function DemoModelRow({
 				</span>
 			) : null}
 			{shortcut ? (
-				<kbd className="hidden font-sans text-[10px] text-muted-foreground sm:inline">
-					⌘{shortcut}
-				</kbd>
+				<kbd className="hidden font-sans text-[10px] text-muted-foreground sm:inline">{`⌘${shortcut}`}</kbd>
 			) : null}
 		</button>
 	);

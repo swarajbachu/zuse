@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/errors";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	defaultModelFor,
@@ -9,6 +10,7 @@ import {
 	type Session,
 	type SessionId,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	GitCompareIcon,
 	PackageIcon,
@@ -91,6 +93,8 @@ const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
  * the new session inherits the chat's worktree.
  */
 export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
+	const { message: uiMessage } = useUiMessages(["errors"]);
+
 	const activeMainTab = useUiStore((s) => s.activeMainTab);
 	const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
 	const openFile = useUiStore((s) => s.openFile);
@@ -134,7 +138,7 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 			ids.add(req.sessionId);
 		}
 		return ids;
-	}, [requestsById]);
+	}, [requestsById, uiMessage]);
 	const awaitingPlanApproval = useMemo(() => {
 		const ids = new Set<SessionId>();
 		for (const req of Object.values(requestsById)) {
@@ -143,7 +147,7 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 			ids.add(req.sessionId);
 		}
 		return ids;
-	}, [requestsById]);
+	}, [requestsById, uiMessage]);
 
 	// The active chat = the chat owning the active session (if any), else
 	// the sidebar's selected chat. We prefer the session-derived value
@@ -153,7 +157,7 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 	const activeChatId = useMemo(
 		() =>
 			deriveActiveChatId(projectSessions, selectedSessionId, selectedChatId),
-		[selectedSessionId, projectSessions, selectedChatId],
+		[selectedSessionId, projectSessions, selectedChatId, uiMessage],
 	);
 
 	// Tabs = all non-archived sessions in the active chat, ordered by
@@ -161,11 +165,11 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 	// keyboard navigation handlers via `lib/tab-order.ts`.
 	const tabs = useMemo(
 		() => orderedChatTabs(projectSessions, activeChatId),
-		[projectSessions, activeChatId],
+		[projectSessions, activeChatId, uiMessage],
 	);
 	const timelineRefs = useMemo(
 		() => tabs.map((session) => ({ environmentId, sessionId: session.id })),
-		[environmentId, tabs],
+		[environmentId, tabs, uiMessage],
 	);
 	const timelines = useRendererSessionTimelines(timelineRefs, "cache-only");
 	const timelineBySession = useMemo(
@@ -173,16 +177,18 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 			new Map<SessionId, RendererSessionTimeline>(
 				timelines.map((timeline) => [timeline.ref.sessionId, timeline]),
 			),
-		[timelines],
+		[timelines, uiMessage],
 	);
 
 	return (
 		<>
 			{renamingSession !== null ? (
 				<RenameDialog
-					title="Rename session"
-					description="Change the name shown on this conversation tab."
-					label="Session name"
+					title={uiMessage("errors:main_tabs_rename_session")}
+					description={uiMessage(
+						"errors:main_tabs_change_the_name_shown_on_this_conversation_tab",
+					)}
+					label={uiMessage("errors:main_tabs_session_name")}
 					value={renamingSession.title}
 					open
 					onOpenChange={(open) => {
@@ -357,6 +363,8 @@ export function ChatTabButton({
 	onClose: () => void;
 	onRename: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["errors"]);
+
 	return (
 		<div
 			className={`group relative flex h-6 max-w-[160px] shrink-0 items-center gap-1 px-2 text-[12px] transition-colors after:pointer-events-none after:absolute after:inset-x-1.5 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
@@ -373,17 +381,29 @@ export function ChatTabButton({
 			>
 				<span className="inline-grid size-5 shrink-0 place-items-center">
 					{awaitingPlanApproval ? (
-						<span className="text-emerald-300" title="Plan ready to approve">
+						<span
+							className="text-emerald-300"
+							title={uiMessage("errors:main_tabs_plan_ready_to_approve")}
+						>
 							<HugeiconsIcon icon={TaskDone01Icon} className="size-3.5" />
 						</span>
 					) : awaitingPermission ? (
-						<span className="text-amber-300" title="Waiting for permission">
+						<span
+							className="text-amber-300"
+							title={uiMessage("errors:main_tabs_waiting_for_permission")}
+						>
 							<HugeiconsIcon icon={SquareLock01Icon} className="size-3.5" />
 						</span>
 					) : booting || running ? (
 						<AgentActivityOrb
 							state={booting ? "working" : activityState}
-							label={booting ? "Starting agent" : `Agent is ${activityState}`}
+							label={
+								booting
+									? uiMessage("errors:main_tabs_starting_agent")
+									: uiMessage("errors:main_tabs_agent_is", {
+											activityState: String(activityState),
+										})
+							}
 						/>
 					) : (
 						<ProviderIcon
@@ -403,8 +423,10 @@ export function ChatTabButton({
 						event.stopPropagation();
 						onRename();
 					}}
-					aria-label={`Rename ${label}`}
-					title="Rename session"
+					aria-label={uiMessage("errors:main_tabs_rename", {
+						label: String(label),
+					})}
+					title={uiMessage("errors:main_tabs_rename_session")}
 					className="rounded p-0.5 text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
 				>
 					<HugeiconsIcon icon={PencilEdit01Icon} className="size-3" />
@@ -415,7 +437,7 @@ export function ChatTabButton({
 						event.stopPropagation();
 						onClose();
 					}}
-					aria-label="Close chat"
+					aria-label={uiMessage("errors:main_tabs_close_chat")}
 					className="rounded p-0.5 text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
 				>
 					<X className="size-3" strokeWidth={1.8} />
@@ -434,6 +456,8 @@ function NewChatTabButton({
 	environmentId: EnvironmentId;
 	projectId: FolderId | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["errors"]);
+
 	const loadAvailability = useProvidersStore((s) => s.loadFor);
 	const create = useSessionsStore((s) => s.create);
 	const creating = useSessionsStore((s) => s.creatingByChat[chatId] === true);
@@ -466,9 +490,10 @@ function NewChatTabButton({
 			if (providerId === null) {
 				toastManager.add({
 					type: "error",
-					title: "No authenticated agent",
-					description:
-						"Connect an agent in Cloud Authentication before opening a new tab.",
+					title: uiMessage("errors:main_tabs_no_authenticated_agent"),
+					description: uiMessage(
+						"errors:main_tabs_connect_an_agent_in_cloud_authentication_before_opening_a_new_tab",
+					),
 				});
 				return;
 			}
@@ -492,8 +517,8 @@ function NewChatTabButton({
 			type="button"
 			onClick={() => void onClick()}
 			disabled={busy}
-			title="New tab in this chat"
-			aria-label="New tab in this chat"
+			title={uiMessage("errors:main_tabs_new_tab_in_this_chat")}
+			aria-label={uiMessage("errors:main_tabs_new_tab_in_this_chat")}
 			className="relative flex shrink-0 items-center justify-center rounded px-2 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
 		>
 			{busy ? (
@@ -526,6 +551,8 @@ function FileTabButton({
 	onClick: () => void;
 	onClose: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["errors"]);
+
 	return (
 		<div
 			className={`group relative flex h-6 max-w-[160px] shrink-0 items-center gap-1 px-2 text-[12px] leading-none transition-colors after:pointer-events-none after:absolute after:inset-x-1.5 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
@@ -537,7 +564,11 @@ function FileTabButton({
 			<button
 				type="button"
 				onClick={onClick}
-				title={dirty ? `${path} (unsaved)` : path}
+				title={
+					dirty
+						? uiMessage("errors:main_tabs_unsaved", { path: String(path) })
+						: path
+				}
 				className="flex h-full min-w-0 flex-1 items-center gap-1.5 py-0 leading-none"
 			>
 				{icon ?? (

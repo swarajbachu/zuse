@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
 	FolderId,
@@ -6,6 +7,7 @@ import type {
 	SessionId,
 	Worktree,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Loading02Icon } from "@zuse/icons/solid-rounded";
 import { GitBranchIcon } from "@zuse/icons/stroke-rounded";
 import { useState } from "react";
@@ -71,6 +73,8 @@ export function ForkButton({
 	readonly fixedDestination?: ForkDestination;
 	readonly sourceProjectId?: FolderId;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [forking, setForking] = useState(false);
 	const fork = useSessionsStore((state) => state.fork);
 
@@ -88,8 +92,10 @@ export function ForkButton({
 				}
 				if (projectId === null) {
 					toastManager.add({
-						title: "Fork failed",
-						description: "The source session is no longer available.",
+						title: uiMessage("chat:fork_menu_fork_failed"),
+						description: uiMessage(
+							"chat:fork_menu_the_source_session_is_no_longer_available",
+						),
 						type: "error",
 					});
 					return;
@@ -97,7 +103,7 @@ export function ForkButton({
 				createdWorktree = await useWorktreesStore.getState().create(projectId);
 				if (createdWorktree === null) {
 					toastManager.add({
-						title: "Worktree creation failed",
+						title: uiMessage("chat:fork_menu_worktree_creation_failed"),
 						description:
 							useWorktreesStore.getState().error ??
 							"Could not create an isolated worktree for this fork.",
@@ -120,8 +126,10 @@ export function ForkButton({
 						.remove(projectId, createdWorktree.id);
 				}
 				toastManager.add({
-					title: "Fork failed",
-					description: "Could not branch this conversation.",
+					title: uiMessage("chat:fork_menu_fork_failed"),
+					description: uiMessage(
+						"chat:fork_menu_could_not_branch_this_conversation",
+					),
 					type: "error",
 				});
 				return;
@@ -149,7 +157,9 @@ export function ForkButton({
 					render={
 						<MenuTrigger
 							disabled={forking}
-							aria-label={`Fork from this ${label}`}
+							aria-label={uiMessage("chat:fork_menu_fork_from_this_2", {
+								label: String(label),
+							})}
 							className="inline-grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/70 outline-none hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97] data-[popup-open]:bg-muted/50 data-[popup-open]:text-foreground [@media(pointer:coarse)]:size-11"
 						>
 							{forking ? (
@@ -164,7 +174,11 @@ export function ForkButton({
 						</MenuTrigger>
 					}
 				/>
-				<TooltipPopup>Fork from this {label}</TooltipPopup>
+				<TooltipPopup>
+					{uiMessage("chat:fork_menu_fork_from_this_sentence", {
+						label: label,
+					})}
+				</TooltipPopup>
 			</Tooltip>
 			<MenuPopup align="start" className="min-w-52 bg-glass border-glass">
 				{fixedDestination !== "chat" ? (
@@ -176,13 +190,14 @@ export function ForkButton({
 									className="gap-2.5 px-2 py-1.5"
 								>
 									<ForkSplitIcon className="size-4" />
-									<span>Fork in this chat</span>
+									<span>{uiMessage("chat:fork_menu_fork_in_this_chat")}</span>
 								</MenuItem>
 							}
 						/>
 						<TooltipPopup side="right" align="start" className="max-w-64">
-							Open a new session tab that shares this chat and its current
-							worktree.
+							{uiMessage(
+								"chat:fork_menu_open_a_new_session_tab_that_shares_this_chat_and_its_current_worktree",
+							)}
 						</TooltipPopup>
 					</Tooltip>
 				) : null}
@@ -195,13 +210,16 @@ export function ForkButton({
 									className="gap-2.5 px-2 py-1.5"
 								>
 									<HugeiconsIcon icon={GitBranchIcon} className="size-4" />
-									<span>Fork into a new worktree</span>
+									<span>
+										{uiMessage("chat:fork_menu_fork_into_a_new_worktree")}
+									</span>
 								</MenuItem>
 							}
 						/>
 						<TooltipPopup side="right" align="start" className="max-w-64">
-							Create a separate chat in an isolated Git worktree for parallel
-							work.
+							{uiMessage(
+								"chat:fork_menu_create_a_separate_chat_in_an_isolated_git_worktree_for_parallel_work",
+							)}
 						</TooltipPopup>
 					</Tooltip>
 				) : null}

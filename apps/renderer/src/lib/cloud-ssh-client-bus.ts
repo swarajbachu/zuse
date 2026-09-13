@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/connections";
 import { CommandId, EnvironmentId, type MachineSshKey } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 
 import { type CloudSshPrepared, getAppBridge } from "./bridge.ts";
 import { cloudSummaryForEnvironment } from "./cloud-workspace-catalog.ts";
@@ -180,7 +182,10 @@ const prepareCloudWorkspaceSshOnce = async (
 				environmentId,
 				kind: "machine.sshKeys.add",
 				commandId: CommandId.make(`cloud-ssh-key:${crypto.randomUUID()}`),
-				payload: { publicKey: prepared.publicKey, label: "zuse-desktop" },
+				payload: {
+					publicKey: prepared.publicKey,
+					label: uiMessage("connections:cloud_ssh_client_bus_zuse_desktop"),
+				},
 				retry: "safe",
 			});
 		} catch (cause) {

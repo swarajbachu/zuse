@@ -1,8 +1,12 @@
+import "@zuse/i18n/english/onboarding";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Tick01Icon } from "@zuse/icons/solid-rounded";
 import { Button } from "~/components/ui/button";
 
 export function DoneStep({ onFinish }: { onFinish: () => void }) {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	return (
 		<div className="flex h-full flex-col items-center justify-center gap-7 text-center">
 			<div className="relative flex size-16 items-center justify-center">
@@ -17,16 +21,17 @@ export function DoneStep({ onFinish }: { onFinish: () => void }) {
 			</div>
 			<div className="flex flex-col gap-2.5">
 				<h2 className="text-3xl font-semibold tracking-tight text-foreground">
-					You&apos;re all set
+					{uiMessage("onboarding:done_you_apos_re_all_set")}
 				</h2>
 				<p className="max-w-sm text-[14px] leading-relaxed text-muted-foreground">
-					Start a chat from the sidebar whenever you&apos;re ready. Replay this
-					flow anytime from{" "}
-					<span className="text-foreground">Settings → General</span>.
+					<RichMessage
+						id="onboarding:done_start_a_chat_from_the_sidebar_whenever_you_apos_re_ready_rep_sentence"
+						components={{ part0: <span className="text-foreground" /> }}
+					/>
 				</p>
 			</div>
 			<Button size="default" onClick={onFinish} className="rounded-lg px-6">
-				Open Zuse (Beta)
+				{uiMessage("onboarding:done_open_zuse_beta")}
 			</Button>
 		</div>
 	);

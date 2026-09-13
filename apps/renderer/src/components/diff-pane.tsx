@@ -1,3 +1,6 @@
+import { formatDate as formatUiDate } from "@zuse/i18n";
+import { isInputComposing } from "../lib/input-composition.ts";
+import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type {
@@ -11,6 +14,8 @@ import type {
 	WorktreeId,
 } from "@zuse/contracts";
 import { CommandId } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ArrowTurnDownIcon,
 	Loading02Icon,
@@ -85,6 +90,8 @@ export function DiffPane({
 }: {
 	executionRef: ExecutionRef | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const workspaceView = useGitWorkspaceResource(executionRef, "connect");
 	const workspace = workspaceView.data;
 	const changesView = useGitChangesResource(executionRef, "connect");
@@ -109,7 +116,7 @@ export function DiffPane({
 				: (annotationsBySession[selectedSessionId] ?? []).filter(
 						(entry): entry is CodeAnnotation => !("_tag" in entry),
 					),
-		[annotationsBySession, selectedSessionId],
+		[annotationsBySession, selectedSessionId, uiMessage],
 	);
 	const updateComment = useAnnotationsStore((s) => s.updateComment);
 	const removeComment = useAnnotationsStore((s) => s.remove);
@@ -134,7 +141,7 @@ export function DiffPane({
 	if (executionRef === null || folderId === null) {
 		return (
 			<Indicator
-				title="No project selected"
+				title={uiMessage("projects:diff_pane_no_project_selected")}
 				body="Select a project to view its changed files."
 			/>
 		);
@@ -278,7 +285,9 @@ export function DiffPane({
 					}
 					className="ml-auto flex h-7 items-center rounded-md px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
 				>
-					{nextUnviewed === undefined ? "Open review" : "Next unviewed"}
+					{nextUnviewed === undefined
+						? uiMessage("projects:diff_pane_open_review")
+						: uiMessage("projects:diff_pane_next_unviewed")}
 				</button>
 			</div>
 			<div className="flex min-h-0 flex-1 flex-col overflow-hidden text-xs">
@@ -289,9 +298,14 @@ export function DiffPane({
 								<div className="flex items-center justify-between text-[10px] text-muted-foreground">
 									<span>
 										{review.baseRef === null
-											? "Compared with HEAD"
-											: `Base ${review.baseRef}`}
-										{` · ${viewedPaths.size}/${review.files.length} viewed`}
+											? uiMessage("projects:diff_pane_compared_with_head")
+											: uiMessage("projects:diff_pane_base", {
+													value1: String(review.baseRef),
+												})}
+										{uiMessage("projects:diff_pane_viewed", {
+											value1: String(viewedPaths.size),
+											value2: String(review.files.length),
+										})}
 									</span>
 									<span className="tabular-nums">
 										<span className="text-success">+{review.additions}</span>{" "}
@@ -308,16 +322,19 @@ export function DiffPane({
 									<GitInitCta executionRef={executionRef} />
 								</div>
 							) : reviewLoading && review === null ? (
-								<Indicator title="Loading changes" loading />
+								<Indicator
+									title={uiMessage("projects:diff_pane_loading_changes")}
+									loading
+								/>
 							) : reviewFiles.length === 0 ? (
 								<Indicator
-									title="No changes"
+									title={uiMessage("projects:diff_pane_no_changes")}
 									body="Your branch is up to date with its base."
 								/>
 							) : conflictFiles.length > 0 ? (
 								<div className="min-h-0 flex-1 overflow-y-auto py-1">
 									<NavigatorSection
-										title="Merge changes"
+										title={uiMessage("projects:diff_pane_merge_changes")}
 										count={conflictFiles.length}
 										files={conflictFiles}
 										onSelect={openChanges}
@@ -325,7 +342,7 @@ export function DiffPane({
 									/>
 									<div className="my-1 h-px bg-border/50" />
 									<NavigatorSection
-										title="Changes"
+										title={uiMessage("projects:diff_pane_changes")}
 										count={changedFiles.length}
 										files={changedFiles}
 										onSelect={openChanges}
@@ -333,7 +350,7 @@ export function DiffPane({
 								</div>
 							) : (
 								<NavigatorSection
-									title="Changes"
+									title={uiMessage("projects:diff_pane_changes")}
 									count={changedFiles.length}
 									files={changedFiles}
 									onSelect={openChanges}
@@ -347,17 +364,24 @@ export function DiffPane({
 									checked={allSelected}
 									indeterminate={someSelected}
 									onClick={toggleAll}
-									title={allSelected ? "Deselect all" : "Select all"}
+									title={
+										allSelected
+											? uiMessage("projects:diff_pane_deselect_all")
+											: uiMessage("projects:diff_pane_select_all")
+									}
 								/>
 								<span className="text-muted-foreground">
-									{selectedCount} of {committable.length} selected to commit
+									{uiMessage(
+										"projects:diff_pane_of_selected_to_commit_sentence",
+										{ selectedCount: selectedCount, value: committable.length },
+									)}
 								</span>
 								<button
 									type="button"
 									onClick={requestRevertAll}
 									className="ml-auto text-[11px] text-muted-foreground hover:text-destructive"
 								>
-									Discard all
+									{uiMessage("projects:diff_pane_discard_all")}
 								</button>
 							</div>
 						) : null}
@@ -366,12 +390,12 @@ export function DiffPane({
 					<div className="min-h-0 flex-1 overflow-y-auto p-2">
 						{selectedSessionId === null && pullRequestFeedback.length === 0 ? (
 							<Indicator
-								title="No active chat"
+								title={uiMessage("projects:diff_pane_no_active_chat")}
 								body="Open a chat session to create and manage review comments."
 							/>
 						) : comments.length === 0 && pullRequestFeedback.length === 0 ? (
 							<Indicator
-								title="No comments yet"
+								title={uiMessage("projects:diff_pane_no_comments_yet")}
 								body="Select lines in All changes to add one."
 							/>
 						) : (
@@ -379,7 +403,7 @@ export function DiffPane({
 								{comments.length > 0 ? (
 									<section>
 										<NavigatorLabel icon={Sparkles} count={comments.length}>
-											Annotations for AI
+											{uiMessage("projects:diff_pane_annotations_for_ai")}
 										</NavigatorLabel>
 										<ul className="mt-1.5 space-y-1">
 											{comments.map((comment) => (
@@ -405,8 +429,12 @@ export function DiffPane({
 													<div className="absolute right-1.5 top-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
 														<button
 															type="button"
-															aria-label="Edit comment"
-															title="Edit comment"
+															aria-label={uiMessage(
+																"projects:diff_pane_edit_comment",
+															)}
+															title={uiMessage(
+																"projects:diff_pane_edit_comment",
+															)}
 															className="rounded bg-background/90 p-1 text-muted-foreground hover:text-foreground"
 															onClick={() => {
 																if (selectedSessionId === null) return;
@@ -426,8 +454,12 @@ export function DiffPane({
 														</button>
 														<button
 															type="button"
-															aria-label="Delete comment"
-															title="Delete comment"
+															aria-label={uiMessage(
+																"projects:diff_pane_delete_comment",
+															)}
+															title={uiMessage(
+																"projects:diff_pane_delete_comment",
+															)}
 															className="rounded bg-background/90 p-1 text-muted-foreground hover:text-destructive"
 															onClick={() => {
 																if (selectedSessionId === null) return;
@@ -451,7 +483,7 @@ export function DiffPane({
 											icon={MessageSquareText}
 											count={pullRequestFeedback.length}
 										>
-											Pull request feedback
+											{uiMessage("projects:diff_pane_pull_request_feedback")}
 										</NavigatorLabel>
 										<ul className="mt-1.5 space-y-1.5">
 											{pullRequestFeedback.map((feedback, index) => (
@@ -506,6 +538,8 @@ function RevertChangesDialog({
 	onOpenChange: (open: boolean) => void;
 	onConfirm: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const isFile = request?.type === "file";
 	const isUntracked = isFile && request.kind === "untracked";
 	const title =
@@ -540,7 +574,7 @@ function RevertChangesDialog({
 					<AlertDialogClose
 						render={
 							<Button type="button" variant="ghost" disabled={busy}>
-								Cancel
+								{uiMessage("common:cancel")}
 							</Button>
 						}
 					/>
@@ -550,7 +584,7 @@ function RevertChangesDialog({
 						disabled={busy}
 						onClick={onConfirm}
 					>
-						{busy ? "Reverting..." : actionLabel}
+						{busy ? uiMessage("projects:diff_pane_reverting") : actionLabel}
 					</Button>
 				</AlertDialogFooter>
 			</AlertDialogPopup>
@@ -655,11 +689,11 @@ function ExternalFeedbackCard({
 					</div>
 				)}
 				<span className="min-w-0 truncate text-[11px] font-medium text-foreground">
-					{feedback.author || "Unknown author"}
+					{feedback.author || uiMessage("projects:diff_pane_unknown_author")}
 				</span>
 				{timestamp !== null ? (
 					<time className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-						{timestamp.toLocaleDateString(undefined, {
+						{formatUiDate(timestamp, {
 							month: "short",
 							day: "numeric",
 						})}
@@ -682,8 +716,16 @@ function ChangedFilesList({
 	readonly onSelect: (path: string) => void;
 	readonly conflict: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	return (
-		<ul aria-label={conflict ? "Files with merge conflicts" : "Changed files"}>
+		<ul
+			aria-label={
+				conflict
+					? uiMessage("projects:diff_pane_files_with_merge_conflicts")
+					: uiMessage("projects:diff_pane_changed_files")
+			}
+		>
 			{files.map((file) => {
 				const name = basename(file.path);
 				const directory = file.path.slice(
@@ -698,8 +740,12 @@ function ChangedFilesList({
 							onClick={() => onSelect(file.path)}
 							aria-label={
 								conflict
-									? `Resolve merge conflict in ${file.path}`
-									: `Open changes for ${file.path}`
+									? uiMessage("projects:diff_pane_resolve_merge_conflict_in", {
+											value1: String(file.path),
+										})
+									: uiMessage("projects:diff_pane_open_changes_for", {
+											value1: String(file.path),
+										})
 							}
 							className="group flex h-8 w-full items-center gap-2 px-3 text-left outline-none hover:bg-foreground/[0.045] focus-visible:bg-foreground/[0.06] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
 						>
@@ -814,6 +860,8 @@ function CommitComposer({
 	onAfterCommit: () => Promise<void>;
 	onAfterPush: () => Promise<void>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const [message, setMessage] = useState("");
 	const [busy, setBusy] = useState<null | "commit" | "push">(null);
 	const [error, setError] = useState<string | null>(null);
@@ -821,7 +869,7 @@ function CommitComposer({
 	const canCommit = selectedCount > 0;
 	const executionRef = useMemo(
 		() => ({ environmentId, folderId, worktreeId, rootPath }),
-		[environmentId, folderId, rootPath, worktreeId],
+		[environmentId, folderId, rootPath, worktreeId, uiMessage],
 	);
 
 	const onCommit = async () => {
@@ -870,7 +918,7 @@ function CommitComposer({
 				<div className="flex items-center justify-between gap-2 border-b border-border/40 px-3 py-2">
 					<span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
 						<span className="truncate font-mono text-foreground">
-							{branch ?? "(detached)"}
+							{branch ?? uiMessage("projects:diff_pane_detached")}
 						</span>
 						{ahead > 0 ? (
 							<span className="font-mono text-[10px] text-info">↑{ahead}</span>
@@ -883,8 +931,8 @@ function CommitComposer({
 						className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
 						title={
 							canPush
-								? "Push commits to origin"
-								: "No commits ahead of upstream"
+								? uiMessage("projects:diff_pane_push_commits_to_origin")
+								: uiMessage("projects:diff_pane_no_commits_ahead_of_upstream")
 						}
 					>
 						{busy === "push" ? (
@@ -895,7 +943,7 @@ function CommitComposer({
 						) : (
 							<HugeiconsIcon icon={Upload01Icon} className="size-3" />
 						)}
-						Push
+						{uiMessage("projects:diff_pane_push")}
 					</button>
 				</div>
 				<div>
@@ -903,12 +951,14 @@ function CommitComposer({
 						value={message}
 						onChange={(e) => setMessage(e.target.value)}
 						onKeyDown={(e) => {
+							if (isInputComposing(e)) return;
+
 							if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
 								e.preventDefault();
 								void onCommit();
 							}
 						}}
-						placeholder="Commit message"
+						placeholder={uiMessage("projects:diff_pane_commit_message")}
 						rows={2}
 						disabled={!canCommit || busy === "commit"}
 						className="block min-h-16 w-full resize-none bg-transparent px-3 py-2.5 text-xs leading-5 text-foreground outline-none placeholder:text-muted-foreground focus:bg-background/40 disabled:cursor-not-allowed disabled:opacity-60"
@@ -919,11 +969,12 @@ function CommitComposer({
 						{error !== null ? (
 							<span className="text-destructive">{error}</span>
 						) : totalCount === 0 ? (
-							<>Nothing to commit</>
+							uiMessage("projects:diff_pane_nothing_to_commit")
 						) : (
-							<>
-								{selectedCount} of {totalCount} selected · ⌘↵
-							</>
+							uiMessage("projects:diff_pane_selection_summary", {
+								selected: selectedCount,
+								total: totalCount,
+							})
 						)}
 					</span>
 					<button
@@ -942,7 +993,11 @@ function CommitComposer({
 						) : (
 							<HugeiconsIcon icon={ArrowTurnDownIcon} className="size-3" />
 						)}
-						{selectedCount > 0 ? `Commit ${selectedCount}` : "Commit"}
+						{selectedCount > 0
+							? uiMessage("projects:diff_pane_commit_2", {
+									selectedCount: String(selectedCount),
+								})
+							: uiMessage("projects:diff_pane_commit")}
 					</button>
 				</div>
 			</div>

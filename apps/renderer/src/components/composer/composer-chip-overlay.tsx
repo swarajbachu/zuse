@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import "@zuse/i18n/english/chat";
 
 import type { FolderId, WorktreeId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
+import { useEffect, useRef, useState } from "react";
 
 import {
 	Tooltip,
@@ -55,6 +57,8 @@ export function ComposerChipOverlay({
 	projectId: FolderId;
 	worktreeId: WorktreeId | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [state, setState] = useState<HoverState | null>(null);
 	const hideTimer = useRef<number | null>(null);
 	const openFileInTab = useUiStore((s) => s.openFileInTab);
@@ -209,9 +213,13 @@ export function ComposerChipOverlay({
 			>
 				{state.kind === "file" ? (
 					state.entryKind === "directory" ? (
-						`View ${state.relPath}`
+						uiMessage("chat:composer_chip_overlay_view", {
+							relPath: String(state.relPath),
+						})
 					) : (
-						`Open ${state.relPath}`
+						uiMessage("chat:composer_chip_overlay_open", {
+							relPath: String(state.relPath),
+						})
 					)
 				) : (
 					<div className="min-w-0">

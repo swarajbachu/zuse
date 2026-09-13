@@ -1,5 +1,5 @@
 "use client";
-
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -10,6 +10,8 @@ type Status =
 	| { state: "error"; message: string };
 
 export const WaitlistForm = () => {
+	const { message: t } = useWebsiteMessages();
+
 	const [email, setEmail] = useState("");
 	const [status, setStatus] = useState<Status>({ state: "idle" });
 
@@ -26,14 +28,9 @@ export const WaitlistForm = () => {
 				body: JSON.stringify({ email }),
 			});
 			if (!response.ok) {
-				const body = (await response.json().catch(() => null)) as {
-					error?: string | { message?: string };
-				} | null;
-				const message =
-					typeof body?.error === "string" ? body.error : body?.error?.message;
 				setStatus({
 					state: "error",
-					message: message ?? "Something went wrong. Please try again.",
+					message: t("showcase:submit_error"),
 				});
 				return;
 			}
@@ -42,15 +39,15 @@ export const WaitlistForm = () => {
 		} catch {
 			setStatus({
 				state: "error",
-				message: "Something went wrong. Please try again.",
+				message: t("showcase:submit_error"),
 			});
 		}
 	};
 
 	if (status.state === "success") {
 		return (
-			<p className="text-primary flex h-11 items-center text-sm font-medium">
-				Interest registered. We'll email you about beta access.
+			<p className="text-primary flex min-h-11 items-center text-sm font-medium">
+				{t("showcase:interest_registered_we_ll_email_you_about_beta_access")}
 			</p>
 		);
 	}
@@ -66,8 +63,8 @@ export const WaitlistForm = () => {
 					name="email"
 					required
 					autoComplete="email"
-					placeholder="you@example.com"
-					aria-label="Email address"
+					placeholder={"you@example.com"}
+					aria-label={t("showcase:email_address")}
 					value={email}
 					onChange={(event) => {
 						setEmail(event.target.value);
@@ -83,13 +80,13 @@ export const WaitlistForm = () => {
 						submitting ? "opacity-60" : "hover:opacity-90",
 					)}
 				>
-					{submitting ? "Sending…" : "Request access"}
+					{submitting ? t("showcase:sending") : t("showcase:request_access")}
 				</button>
 			</div>
 			{/* Fixed-height status row so errors never shift the layout. */}
 			<p
 				role="status"
-				className="text-dusty-red h-5 text-xs font-medium"
+				className="text-dusty-red min-h-5 text-xs font-medium"
 				aria-live="polite"
 			>
 				{status.state === "error" ? status.message : ""}

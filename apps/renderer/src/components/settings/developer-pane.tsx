@@ -1,4 +1,7 @@
+import "@zuse/i18n/english/settings";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Alert01Icon,
 	GitMergeIcon,
@@ -42,10 +45,12 @@ const EXTRA_TOKENS: ReadonlyArray<{ name: string; cssVar: string }> = [
 ];
 
 function PaletteSection(): React.ReactElement {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+
 	return (
 		<section className="flex flex-col gap-3">
 			<h2 className="text-xs font-semibold uppercase tracking-[0.07em] text-muted-foreground">
-				Accent palette
+				{uiMessage("settings:developer_pane_accent_palette")}
 			</h2>
 			<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
 				{GLASS_TONES.map((tone) => (
@@ -95,53 +100,80 @@ type WorkflowDemo = {
 
 const WORKFLOW_DEMOS: ReadonlyArray<WorkflowDemo> = [
 	{
-		label: "dirty",
+		get label() {
+			return uiMessage("settings:developer_pane_dirty");
+		},
 		tone: "amber",
 		chip: "1 change",
 		action: {
-			label: "Commit & push",
+			get label() {
+				return uiMessage("settings:developer_pane_commit_push");
+			},
 			icon: <HugeiconsIcon icon={Upload01Icon} />,
 		},
 	},
 	{
-		label: "ahead",
+		get label() {
+			return uiMessage("settings:developer_pane_ahead");
+		},
 		tone: "pink",
 		chip: "2 ahead",
 		action: {
-			label: "Create PR",
+			get label() {
+				return uiMessage("settings:developer_pane_create_pr");
+			},
 			icon: <HugeiconsIcon icon={GitPullRequestIcon} />,
 		},
 	},
 	{
-		label: "open-pr",
+		get label() {
+			return uiMessage("settings:developer_pane_open_pr");
+		},
 		tone: "green",
 		chip: "#142",
-		action: { label: "Merge", icon: <HugeiconsIcon icon={GitMergeIcon} /> },
-	},
-	{
-		label: "open-pr · draft",
-		tone: "zinc",
-		chip: "#142",
 		action: {
-			label: "Mark ready",
+			get label() {
+				return uiMessage("settings:developer_pane_merge");
+			},
 			icon: <HugeiconsIcon icon={GitMergeIcon} />,
 		},
 	},
 	{
-		label: "open-pr · checks failing",
+		get label() {
+			return uiMessage("settings:developer_pane_open_pr_draft");
+		},
+		tone: "zinc",
+		chip: "#142",
+		action: {
+			get label() {
+				return uiMessage("settings:developer_pane_mark_ready");
+			},
+			icon: <HugeiconsIcon icon={GitMergeIcon} />,
+		},
+	},
+	{
+		get label() {
+			return uiMessage("settings:developer_pane_open_pr_checks_failing");
+		},
 		tone: "red",
 		chip: "#142",
 		action: {
-			label: "Fix actions",
+			get label() {
+				return uiMessage("settings:developer_pane_fix_actions");
+			},
 			icon: <HugeiconsIcon icon={Wrench01Icon} />,
 		},
 	},
 	{
-		label: "open-pr · conflicts",
+		get label() {
+			return uiMessage("settings:developer_pane_open_pr_conflicts");
+		},
 		tone: "red",
 		chip: "#142",
 		action: {
-			label: "Resolve conflicts",
+			get label() {
+				return uiMessage("settings:developer_pane_resolve_conflicts");
+			},
 			icon: <HugeiconsIcon icon={Alert01Icon} />,
 		},
 	},
@@ -150,83 +182,101 @@ const WORKFLOW_DEMOS: ReadonlyArray<WorkflowDemo> = [
 function noop(): void {}
 
 function ToastPlaygroundSection(): React.ReactElement {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+
 	return (
 		<section className="flex flex-col gap-3">
 			<h2 className="text-xs font-semibold uppercase tracking-[0.07em] text-muted-foreground">
-				Toast playground
+				{uiMessage("settings:developer_pane_toast_playground")}
 			</h2>
 			<div className="grid gap-2 rounded-lg border border-border/60 bg-muted p-3 sm:grid-cols-2">
 				<GlassActionButton
 					tone="green"
 					icon={<HugeiconsIcon icon={GitMergeIcon} />}
-					label="PR merged"
+					label={uiMessage("settings:developer_pane_pr_merged")}
 					onClick={() =>
 						toastManager.add({
 							type: "success",
-							title: "Pull request #142 merged",
-							description: "toast-system into main",
+							title: uiMessage(
+								"settings:developer_pane_pull_request_142_merged",
+							),
+							description: uiMessage(
+								"settings:developer_pane_toast_system_into_main",
+							),
 						})
 					}
 				/>
 				<GlassActionButton
 					tone="zinc"
 					icon={<HugeiconsIcon icon={InformationCircleIcon} />}
-					label="PR closed"
+					label={uiMessage("settings:developer_pane_pr_closed")}
 					onClick={() =>
 						toastManager.add({
 							type: "info",
-							title: "Pull request #142 closed",
-							description: "toast-system into main",
+							title: uiMessage(
+								"settings:developer_pane_pull_request_142_closed",
+							),
+							description: uiMessage(
+								"settings:developer_pane_toast_system_into_main",
+							),
 						})
 					}
 				/>
 				<GlassActionButton
 					tone="red"
 					icon={<HugeiconsIcon icon={Alert01Icon} />}
-					label="Sidebar error"
+					label={uiMessage("settings:developer_pane_sidebar_error")}
 					onClick={() =>
 						toastManager.add({
 							type: "error",
-							title: "Project error",
-							description: "Could not load projects from the local workspace.",
+							title: uiMessage("settings:developer_pane_project_error"),
+							description: uiMessage(
+								"settings:developer_pane_could_not_load_projects_from_the_local_workspace",
+							),
 						})
 					}
 				/>
 				<GlassActionButton
 					tone="red"
 					icon={<HugeiconsIcon icon={Alert01Icon} />}
-					label="Action failed"
+					label={uiMessage("settings:developer_pane_action_failed")}
 					onClick={() =>
 						toastManager.add({
 							type: "error",
-							title: "Merge failed",
-							description:
-								"GitHub rejected the merge because required checks are still running.",
+							title: uiMessage("settings:developer_pane_merge_failed"),
+							description: uiMessage(
+								"settings:developer_pane_github_rejected_the_merge_because_required_checks_are_still_runni",
+							),
 						})
 					}
 				/>
 				<GlassActionButton
 					tone="pink"
 					icon={<HugeiconsIcon icon={Loading02Icon} />}
-					label="Loading"
+					label={uiMessage("settings:developer_pane_loading")}
 					onClick={() =>
 						toastManager.add({
 							type: "loading",
-							title: "Removing dirty worktree...",
-							description:
-								"Discarding local changes and deleting the checkout.",
+							title: uiMessage(
+								"settings:developer_pane_removing_dirty_worktree",
+							),
+							description: uiMessage(
+								"settings:developer_pane_discarding_local_changes_and_deleting_the_checkout",
+							),
 						})
 					}
 				/>
 				<GlassActionButton
 					tone="green"
 					icon={<HugeiconsIcon icon={TaskDone01Icon} />}
-					label="Success"
+					label={uiMessage("settings:developer_pane_success")}
 					onClick={() =>
 						toastManager.add({
 							type: "success",
-							title: "Worktree removed",
-							description: "The dirty checkout was discarded and archived.",
+							title: uiMessage("settings:developer_pane_worktree_removed"),
+							description: uiMessage(
+								"settings:developer_pane_the_dirty_checkout_was_discarded_and_archived",
+							),
 						})
 					}
 				/>
@@ -236,10 +286,12 @@ function ToastPlaygroundSection(): React.ReactElement {
 }
 
 function WorkflowStatesSection(): React.ReactElement {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+
 	return (
 		<section className="flex flex-col gap-3">
 			<h2 className="text-xs font-semibold uppercase tracking-[0.07em] text-muted-foreground">
-				Top-bar workflow states
+				{uiMessage("settings:developer_pane_top_bar_workflow_states")}
 			</h2>
 			<div className="flex flex-col divide-y divide-border/40 overflow-hidden rounded-lg border border-border/60 bg-muted">
 				{WORKFLOW_DEMOS.map((s) => (

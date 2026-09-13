@@ -1,0 +1,22 @@
+{
+	"what_does_zuse_actually_do": "Zuse는 어떤 일을 하나요?",
+	"zuse_puts_your_coding_agents_repositories_terminals_files_and_diffs_in": "Zuse는 코딩 에이전트, 저장소, 터미널, 파일과 변경 사항을 하나의 워크스페이스에 모읍니다. 여러 작업을 동시에 실행하고 각각 별도의 Git 워크트리로 분리하며, 선택한 컨텍스트를 다른 에이전트 세션에 전달할 수 있습니다.",
+	"what_happens_when_i_want_to_switch_agents": "에이전트를 바꾸려면 어떻게 하나요?",
+	"you_choose_the_next_provider_instead_of_zuse_silently_routing_your_mes": "Zuse가 임의로 메시지를 전달하지 않습니다. 다음 제공자는 사용자가 선택합니다. 세션을 새로 시작하거나 분기한 뒤 다음 에이전트에 필요한 계획, 대화 기록, 변경 사항 또는 파일을 첨부하세요. 한 구독의 한도에 도달하면 이용 가능한 다른 제공자로 작업을 이어 갈 수 있습니다.",
+	"which_agents_are_supported": "어떤 에이전트를 지원하나요?",
+	"zuse_supports_seven_coding_agent_clis_in_one_workspace_connect_the_pro": "Zuse는 하나의 워크스페이스에서 7가지 코딩 에이전트 CLI를 지원합니다. 사용하는 제공자를 연결하고 나란히 실행하며, 각 세션을 담당할 제공자를 선택하세요.",
+	"do_i_need_my_own_api_keys_or_subscriptions": "별도의 API 키나 구독이 필요한가요?",
+	"yes_zuse_is_bring_your_own_keys_you_plug_in_your_own_provider_keys_or": "네. Zuse는 사용자의 API 키나 구독을 이용합니다. 자신의 제공자 키 또는 구독을 연결하면 Zuse가 직접 통신합니다. 토큰을 재판매하거나 추가 요금을 붙이지 않으므로 에이전트 제공자에게만 비용을 지불합니다.",
+	"is_my_code_or_data_sent_anywhere": "코드나 데이터가 외부로 전송되나요?",
+	"local_and_ssh_chats_stay_on_the_computers_you_choose_when_you_use_the": "로컬 및 SSH 대화는 사용자가 선택한 컴퓨터에 저장됩니다. 선택 기능인 Zuse Cloud 비공개 베타를 사용하면 워크스페이스가 E2B에서 실행되고, 빠른 재연결을 위해 암호화된 대화 체크포인트가 저장됩니다. 모델 요청은 설정한 제공자에게만 전송됩니다. 가명 처리된 사용 분석에는 프롬프트, 응답, 코드, 경로, 명령, 계정 정보 또는 오류 스택이 포함되지 않으며 설정에서 분석을 끌 수 있습니다.",
+	"which_operating_systems_are_supported": "어떤 운영체제를 지원하나요?",
+	"zuse_beta_ships_for_macos_and_x64_linux_the_download_button_selects_th": "Zuse (Beta)는 macOS와 x64 Linux용으로 제공됩니다. 다운로드 버튼은 macOS 디스크 이미지 또는 Linux AppImage를 자동으로 선택합니다. Debian 및 Ubuntu 사용자는 GitHub Releases에서 .deb 패키지도 받을 수 있습니다.",
+	"how_much_does_it_cost": "비용은 얼마인가요?",
+	"the_zuse_desktop_beta_is_available_now_and_uses_your_own_agent_subscri": "Zuse 데스크톱 베타는 현재 이용 가능하며 사용자의 에이전트 구독 또는 API 키를 사용합니다. Zuse Cloud는 초대 전용 비공개 베타입니다. Cloud Workspace는 월 US$40이며 사용량에 따른 E2B 컴퓨팅 비용 US$35를 포함합니다. 추가 사용량은 설정한 초과 요금 한도 내에서 제공자 원가에 5%를 더해 청구됩니다.",
+	"can_i_run_multiple_agents_at_once": "여러 에이전트를 동시에 실행할 수 있나요?",
+	"yes_you_can_run_several_agents_in_parallel_each_in_its_own_chat_with_i": "네. 에이전트마다 별도의 대화와 Git 워크트리를 사용해 여러 에이전트를 동시에 실행할 수 있으므로 변경 사항이 서로 분리됩니다. PR 및 변경 사항 패널에서 각각 검토하고 커밋하세요.",
+	"what_is_sub_agent_delegation": "하위 에이전트 위임이란 무엇인가요?",
+	"a_lead_agent_can_spawn_sub_agents_to_handle_parts_of_a_task_including": "주 에이전트는 하위 에이전트를 생성해 작업의 일부를 맡길 수 있습니다. 간단한 작업에는 비용이 낮은 모델을 사용할 수 있어, 고가 모델은 어려운 부분에 집중하고 전체 토큰 비용은 줄어듭니다.",
+	"questions_devs_ask_first": "개발자들이 자주 묻는 질문",
+	"more_questions_see_the_project_on_github": "더 궁금한 점이 있나요? <part0>GitHub</part0>에서 프로젝트를 확인하세요."
+}

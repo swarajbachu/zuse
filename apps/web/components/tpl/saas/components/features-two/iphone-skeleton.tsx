@@ -1,5 +1,5 @@
 "use client";
-
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { motion, useAnimate, useReducedMotion } from "motion/react";
 import type React from "react";
 import { useImperativeHandle, useRef } from "react";
@@ -55,6 +55,8 @@ export function IPhoneSkeleton() {
 }
 
 function DynamicIsland({ ref }: { ref: React.Ref<IslandHandle> }) {
+	const { message: t } = useWebsiteMessages();
+
 	const [scope, animate] = useAnimate();
 	const animated = useRef(false);
 	const reset = () => {
@@ -102,7 +104,9 @@ function DynamicIsland({ ref }: { ref: React.Ref<IslandHandle> }) {
 					id="iphone-done"
 					className="absolute inset-0 flex items-center justify-center opacity-0"
 				>
-					<span className="text-[3px] font-medium text-white">Connected</span>
+					<span className="text-[3px] font-medium text-white">
+						{t("showcase:connected")}
+					</span>
 				</div>
 			</div>
 		</div>

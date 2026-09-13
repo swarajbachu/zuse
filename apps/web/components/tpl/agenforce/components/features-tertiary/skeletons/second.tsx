@@ -1,6 +1,6 @@
 "use client";
-
 import { IconFileDiff, IconMessageCircle } from "@tabler/icons-react";
+import { WebsiteRichMessage } from "@zuse/i18n/website/react";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/components/tpl/agenforce/lib/utils";
 
@@ -43,8 +43,13 @@ export const SkeletonTwo = () => {
 			<div className="border-border bg-card flex w-full max-w-sm items-start gap-2 rounded-xl border p-3 shadow-xl">
 				<IconMessageCircle className="text-primary mt-0.5 size-4 shrink-0" />
 				<p className="text-muted-foreground text-[10px] leading-4">
-					<span className="text-heading font-medium">Codex review:</span> Retry
-					only after the persisted checkout state is restored.
+					<WebsiteRichMessage
+						id="showcase:codex_review_retry_only_after_the_persisted_checkout_state_is_restored"
+						values={{}}
+						components={{
+							part0: <span className="text-heading font-medium" />,
+						}}
+					/>
 				</p>
 			</div>
 		</div>

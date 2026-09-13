@@ -1,9 +1,12 @@
+import { formatDate as formatUiDate } from "@zuse/i18n";
+import "@zuse/i18n/english/chat";
 import type {
 	FolderId,
 	ForkDestination,
 	MessageId,
 	SessionId,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 
 import { cn } from "~/lib/utils";
 import { CopyButton } from "./copy-button.tsx";
@@ -11,13 +14,13 @@ import { ForkButton } from "./fork-menu.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
 const formatMessageTime = (date: Date): string =>
-	date.toLocaleTimeString([], {
+	formatUiDate(date, {
 		hour: "numeric",
 		minute: "2-digit",
 	});
 
 const formatFullMessageTime = (date: Date): string =>
-	date.toLocaleString([], {
+	formatUiDate(date, {
 		dateStyle: "full",
 		timeStyle: "short",
 	});
@@ -80,11 +83,13 @@ export function MessageActions({
 	readonly sourceProjectId?: FolderId;
 	readonly className?: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	return (
 		<div className={cn("flex items-center gap-1", className)}>
 			<CopyButton
 				text={text}
-				label="Copy message"
+				label={uiMessage("chat:assistant_message_actions_copy_message")}
 				className="active:scale-[0.97] [@media(pointer:coarse)]:size-11"
 			/>
 			{sessionId !== undefined && messageId !== undefined ? (

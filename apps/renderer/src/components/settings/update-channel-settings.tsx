@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/settings";
 import type { UpdateChannel } from "@zuse/contracts";
+import { useMessages } from "@zuse/i18n/react";
 import { useEffect, useState } from "react";
 import {
 	Select,
@@ -9,16 +11,16 @@ import {
 } from "../ui/select.tsx";
 import { SettingsGroup, SettingsRow } from "../ui/settings-panel.tsx";
 
-const CHANNEL_OPTIONS = [
-	{ value: "stable", label: "Stable" },
-	{ value: "preview", label: "Preview" },
-];
-
 export function UpdateChannelSettings() {
+	const { message } = useMessages(["settings", "common"]);
+	const channelOptions = [
+		{ value: "stable", label: message("settings:update_channel_stable") },
+		{ value: "preview", label: message("settings:update_channel_preview") },
+	];
 	const updates = window.zuse?.updates;
 	const [channel, setChannel] = useState<UpdateChannel | null>(null);
 	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<"load" | "save" | null>(null);
 	useEffect(() => {
 		let active = true;
 		updates
@@ -27,10 +29,7 @@ export function UpdateChannelSettings() {
 				if (active) setChannel(value);
 			})
 			.catch(() => {
-				if (active)
-					setError(
-						"Could not load the update channel. Reopen Settings to retry.",
-					);
+				if (active) setError("load");
 			});
 		return () => {
 			active = false;
@@ -43,23 +42,23 @@ export function UpdateChannelSettings() {
 		try {
 			setChannel(await updates.setChannel(value));
 		} catch {
-			setError("Could not change the update channel. Try again.");
+			setError("save");
 		} finally {
 			setBusy(false);
 		}
 	};
 	return (
-		<SettingsGroup title="Updates">
+		<SettingsGroup title={message("settings:update_channel_updates")}>
 			<SettingsRow
-				title="Update channel"
+				title={message("settings:update_channel_label")}
 				description={
 					channel === "preview"
-						? "Get early builds. Switching to Stable installs the current stable release on restart and keeps your sessions."
-						: "Get tested releases. Choose Preview to try upcoming changes early."
+						? message("settings:update_channel_preview_description")
+						: message("settings:update_channel_stable_description")
 				}
 				action={
 					<Select
-						items={CHANNEL_OPTIONS}
+						items={channelOptions}
 						value={channel}
 						disabled={busy || channel === null}
 						onValueChange={(value) => {
@@ -71,13 +70,13 @@ export function UpdateChannelSettings() {
 						}}
 					>
 						<SelectTrigger
-							aria-label="Update channel"
+							aria-label={message("settings:update_channel_label")}
 							className="h-7 w-28 text-xs"
 						>
-							<SelectValue placeholder="Loading…" />
+							<SelectValue placeholder={message("common:loading")} />
 						</SelectTrigger>
 						<SelectPopup>
-							{CHANNEL_OPTIONS.map((option) => (
+							{channelOptions.map((option) => (
 								<SelectItem key={option.value} value={option.value}>
 									{option.label}
 								</SelectItem>
@@ -88,12 +87,16 @@ export function UpdateChannelSettings() {
 			>
 				{busy && (
 					<p role="status" className="text-xs text-muted-foreground">
-						Changing update channel…
+						{message("settings:update_channel_changing")}
 					</p>
 				)}
 				{error && (
 					<p role="alert" className="text-xs text-destructive">
-						{error}
+						{message(
+							error === "load"
+								? "settings:update_channel_load_error"
+								: "settings:update_channel_save_error",
+						)}
 					</p>
 				)}
 			</SettingsRow>

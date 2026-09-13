@@ -1,5 +1,8 @@
 "use client";
 
+import { formatNumber as formatUiNumber } from "@zuse/i18n";
+
+import { useMessages } from "@zuse/i18n/react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { useCommonChart } from "./common-context";
@@ -27,6 +30,7 @@ export function Tooltip({
 	valueFormatter?: (value: number, name: string) => string;
 	variant?: TooltipVariant;
 }) {
+	useMessages("common");
 	const chart = useCommonChart();
 	const show = chart.ready && chart.hoverIndex != null;
 
@@ -92,7 +96,7 @@ export function Tooltip({
 								<span className="ml-auto pl-2 text-foreground">
 									{valueFormatter
 										? valueFormatter(item.value, item.name)
-										: item.value.toLocaleString()}
+										: formatUiNumber(item.value)}
 								</span>
 							</div>
 						))}

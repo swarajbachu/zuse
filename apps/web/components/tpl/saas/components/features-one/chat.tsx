@@ -1,32 +1,38 @@
 "use client";
-
+import {
+	useWebsiteMessages,
+	type WebsiteMessage,
+} from "@zuse/i18n/website/react";
 import { motion, useInView, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import { useRef } from "react";
 import { cn } from "@/components/tpl/saas/lib/utils";
 
-const EVENTS = [
-	{
-		name: "Claude Code",
-		src: "/logos/claude.svg",
-		text: "Step 3 failed: checkout button selector changed.",
-		side: "left",
-	},
-	{
-		name: "Codex",
-		src: "/logos/openai.svg",
-		text: "Updated the selector from the trace. Retrying now.",
-		side: "right",
-	},
-	{
-		name: "Claude Code",
-		src: "/logos/claude.svg",
-		text: "4/4 steps passed · trace saved · 1.8s",
-		side: "left",
-	},
-] as const;
+const getEVENTS = (t: WebsiteMessage) =>
+	[
+		{
+			name: "Claude Code",
+			src: "/logos/claude.svg",
+			text: t("showcase:step_3_failed_checkout_button_selector_changed"),
+			side: "left",
+		},
+		{
+			name: "Codex",
+			src: "/logos/openai.svg",
+			text: t("showcase:updated_the_selector_from_the_trace_retrying_now"),
+			side: "right",
+		},
+		{
+			name: "Claude Code",
+			src: "/logos/claude.svg",
+			text: "4/4 steps passed · trace saved · 1.8s",
+			side: "left",
+		},
+	] as const;
 
 export function ChatConversation({ className }: { className?: string }) {
+	const { message: t } = useWebsiteMessages();
+
 	const ref = useRef(null);
 	const inView = useInView(ref, { once: true, margin: "-50px" });
 	const reduceMotion = useReducedMotion();
@@ -35,7 +41,7 @@ export function ChatConversation({ className }: { className?: string }) {
 			className={cn("flex min-h-60 items-center justify-center p-4", className)}
 		>
 			<div ref={ref} className="flex flex-col justify-center gap-3">
-				{EVENTS.map((event, index) => (
+				{getEVENTS(t).map((event, index) => (
 					<div
 						key={event.text}
 						className={cn(

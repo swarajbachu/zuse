@@ -1,0 +1,22 @@
+{
+	"what_does_zuse_actually_do": "Zuse は実際には何をするのでしょうか?",
+	"what_happens_when_i_want_to_switch_agents": "エージェントを切り替えたい場合はどうすればよいですか?",
+	"is_my_code_or_data_sent_anywhere": "私のコードやデータはどこかに送信されるのでしょうか?",
+	"which_agents_are_supported": "どのエージェントがサポートされていますか?",
+	"zuse_supports_seven_coding_agent_clis_in_one_workspace_connect_the_pro": "Zuse は、1 つのワークスペースで 7 つのコーディング エージェント CLI をサポートします。使用するプロバイダーを接続し、並列して実行し、各セッションを処理するプロバイダーを選択します。",
+	"yes_zuse_is_bring_your_own_keys_you_plug_in_your_own_provider_keys_or": "はい。 Zuse は自分の鍵を持参することを意味します。独自のプロバイダー キーまたはサブスクリプションを接続すると、Zuse がそれらと直接通信します。トークンを再販することはなく、マークアップも 0 ドルかかるため、エージェントプロバイダーにのみ支払うことになります。",
+	"you_choose_the_next_provider_instead_of_zuse_silently_routing_your_mes": "メッセージをサイレントにルーティングする Zuse の代わりに、次のプロバイダーを選択します。セッションを開始またはフォークし、次のエージェントが必要とする計画、トランスクリプト、差分、またはファイルを添付します。 1 つのサブスクリプションが制限に達した場合は、アクセスできる別のプロバイダーを継続できます。",
+	"do_i_need_my_own_api_keys_or_subscriptions": "自分の API キーまたはサブスクリプションが必要ですか?",
+	"zuse_puts_your_coding_agents_repositories_terminals_files_and_diffs_in": "Zuse は、コーディング エージェント、リポジトリ、ターミナル、ファイル、および差分を 1 つのワークスペースに配置します。複数のタスクを並行して実行し、それぞれを独自の git ワークツリーに分離して、選択したコンテキストを 1 つのエージェント セッションから別のエージェント セッションに引き継ぐことができます。",
+	"how_much_does_it_cost": "いくらかかりますか？",
+	"which_operating_systems_are_supported": "どのオペレーティング システムがサポートされていますか?",
+	"what_is_sub_agent_delegation": "サブエージェントの委任とは何ですか?",
+	"can_i_run_multiple_agents_at_once": "複数のエージェントを同時に実行できますか?",
+	"yes_you_can_run_several_agents_in_parallel_each_in_its_own_chat_with_i": "はい。複数のエージェントを並行して実行し、それぞれが独自の git ワークツリーを使用した独自のチャットで実行できるため、エージェントの変更は分離されたままになります。 PR および変更ペインからそれぞれを確認してコミットします。",
+	"a_lead_agent_can_spawn_sub_agents_to_handle_parts_of_a_task_including": "リード エージェントは、より単純な作業のための安価なモデルなど、タスクの一部を処理するサブエージェントを生成できます。これにより、高価なモデルがハード部分に焦点を当てたままになり、全体のトークンコストが下がります。",
+	"zuse_beta_ships_for_macos_and_x64_linux_the_download_button_selects_th": "Zuse (ベータ) は、macOS および x64 Linux 用に出荷されます。[ダウンロード] ボタンをクリックすると、macOS ディスク イメージまたは Linux AppImage が自動的に選択され、Debian および Ubuntu ユーザーは、次のサイトから .deb パッケージを入手することもできます。 GitHub リリース。",
+	"the_zuse_desktop_beta_is_available_now_and_uses_your_own_agent_subscri": "Zuse デスクトップ ベータ版は現在利用可能であり、独自のエージェント サブスクリプションまたは API キーを使用します。 Zuse Cloud はプライベートな招待制ベータ版です。Cloud Workspace の料金は月額 40 ドルで、帰属される E2B コンピューティングの 35 ドルが含まれており、追加のプロバイダー費用に超過上限の 5% を加えた料金が請求されます。",
+	"local_and_ssh_chats_stay_on_the_computers_you_choose_when_you_use_the": "ローカル チャットと SSH チャットは、選択したコンピュータ上に残ります。オプションの Zuse クラウド プライベート ベータ版を使用すると、そのワークスペースは E2B で実行され、高速再接続のために暗号化されたトランスクリプト チェックポイントが保存されます。モデルのリクエストは、設定したプロバイダーにのみ送信されます。仮名使用状況分析には、プロンプト、応答、コード、パス、コマンド、アカウントの詳細、エラー スタックは含まれません。これらは [設定] でオフにできます。",
+	"questions_devs_ask_first": "開発者が最初に尋ねる質問",
+	"more_questions_see_the_project_on_github": "さらに質問がありますか? <part0>GitHub</part0> のプロジェクトを参照してください。"
+}

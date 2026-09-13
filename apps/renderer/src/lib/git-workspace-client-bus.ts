@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/projects";
 import type {
 	ResourceDriver,
 	ResourceLease,
@@ -27,6 +28,7 @@ import type {
 	GitReviewSummary,
 	GitStatusSummary,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 import { Cause, Effect, Fiber, Stream } from "effect";
 import { useMemo } from "react";
 import { toastManager } from "../components/ui/toast.tsx";
@@ -171,13 +173,17 @@ const notifyPrStateTransition = async (
 	if (next.state === "merged") {
 		toastManager.add({
 			type: "success",
-			title: `${prLabel(next)} merged`,
+			title: uiMessage("projects:git_workspace_client_bus_merged", {
+				value1: String(prLabel(next)),
+			}),
 			description: prDescription(next),
 		});
 	} else {
 		toastManager.add({
 			type: "info",
-			title: `${prLabel(next)} closed`,
+			title: uiMessage("projects:git_workspace_client_bus_closed", {
+				value1: String(prLabel(next)),
+			}),
 			description: prDescription(next),
 		});
 	}

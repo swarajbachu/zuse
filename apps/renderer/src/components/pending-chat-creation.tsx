@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/shell";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useState } from "react";
 import { useWorktreeSetupLifecycle } from "../hooks/use-worktree-setup-lifecycle.ts";
 import { workspaceCreationProgressIsActive } from "../lib/setup-card-visibility.ts";
@@ -96,6 +98,8 @@ export function ChatCreationFailureActions({
 }: {
 	readonly creation: PendingChatCreation;
 }) {
+	const { message: uiMessage } = useUiMessages(["shell"]);
+
 	const [retrying, setRetrying] = useState(false);
 	const retryCreation = useChatsStore((s) => s.retryCreation);
 	const continueCreation = useChatsStore((s) => s.continueCreation);
@@ -103,7 +107,8 @@ export function ChatCreationFailureActions({
 	return (
 		<div className="mx-auto mt-3 flex max-w-xl items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
 			<p className="min-w-0 flex-1 text-xs text-destructive">
-				{creation.error ?? "Chat startup needs attention."}
+				{creation.error ??
+					uiMessage("shell:pending_chat_creation_chat_startup_needs_attention")}
 			</p>
 			<button
 				type="button"
@@ -115,12 +120,12 @@ export function ChatCreationFailureActions({
 				}}
 			>
 				{retrying
-					? "Retrying…"
+					? uiMessage("shell:pending_chat_creation_retrying")
 					: creation.failureStage === "workspace"
-						? "Retry workspace"
+						? uiMessage("shell:pending_chat_creation_retry_workspace")
 						: creation.failureStage === "provider"
-							? "Retry agent"
-							: "Retry setup"}
+							? uiMessage("shell:pending_chat_creation_retry_agent")
+							: uiMessage("shell:pending_chat_creation_retry_setup")}
 			</button>
 			{creation.failureStage === "setup" ? (
 				<button
@@ -134,7 +139,7 @@ export function ChatCreationFailureActions({
 						);
 					}}
 				>
-					Continue anyway
+					{uiMessage("shell:pending_chat_creation_continue_anyway")}
 				</button>
 			) : null}
 			<button
@@ -143,7 +148,7 @@ export function ChatCreationFailureActions({
 				className="rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
 				onClick={() => discardCreation(creation.chatId)}
 			>
-				Discard
+				{uiMessage("shell:pending_chat_creation_discard")}
 			</button>
 		</div>
 	);

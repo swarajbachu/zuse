@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/projects";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Plus } from "lucide-react";
 import { lazy, Suspense } from "react";
 
@@ -17,6 +19,8 @@ const ProjectSetupDialog = lazy(() =>
 );
 
 export function ProjectAddMenu() {
+	const { message: uiMessage } = useUiMessages(["projects"]);
+
 	const open = useProjectSetupDialogStore((state) => state.open);
 	const setOpen = useProjectSetupDialogStore((state) => state.setOpen);
 
@@ -28,7 +32,7 @@ export function ProjectAddMenu() {
 						<button
 							type="button"
 							className="rounded p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-							aria-label="Add project"
+							aria-label={uiMessage("projects:project_add_menu_add_project")}
 							onClick={openProjectSetupDialog}
 							onFocus={() => void loadProjectSetupDialog()}
 							onPointerEnter={() => void loadProjectSetupDialog()}
@@ -39,7 +43,7 @@ export function ProjectAddMenu() {
 				/>
 				<TooltipPopup>
 					<TooltipShortcut
-						label="Add project"
+						label={uiMessage("projects:project_add_menu_add_project")}
 						shortcut={formatShortcut("open-project")}
 					/>
 				</TooltipPopup>

@@ -1,3 +1,5 @@
+"use client";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { Features as WorktreeFeatures } from "@/components/tpl/agenforce/components/features";
 import { FeaturesSecondary } from "@/components/tpl/agenforce/components/features-secondary";
 import { FeaturesTertiary } from "@/components/tpl/agenforce/components/features-tertiary";
@@ -8,6 +10,8 @@ import { FeaturesTwo } from "@/components/tpl/saas/components/features-two";
 import { WorkflowOverview } from "./workflow-overview";
 
 export function ProductShowcase() {
+	const { message: t } = useWebsiteMessages();
+
 	return (
 		<div id="features" className="scroll-mt-24">
 			<WorkflowOverview />
@@ -18,9 +22,11 @@ export function ProductShowcase() {
 			<section aria-labelledby="handoff-heading">
 				<ShowcaseHeader
 					id="handoff-heading"
-					eyebrow="Agent handoff"
-					title="Continue the work with another agent"
-					description="Fork a session or start a new provider with the plan, transcript, and files it needs. You choose what moves forward."
+					eyebrow={t("showcase:agent_handoff")}
+					title={t("showcase:continue_the_work_with_another_agent")}
+					description={t(
+						"showcase:fork_a_session_or_start_a_new_provider_with_the_plan_transcript_and_fi",
+					)}
 				/>
 				<FeaturesSecondary />
 			</section>
@@ -34,9 +40,11 @@ export function ProductShowcase() {
 			<section aria-labelledby="review-heading">
 				<ShowcaseHeader
 					id="review-heading"
-					eyebrow="Review"
-					title="From changed files to a verified pull request"
-					description="Inspect the complete branch, commit deliberately, push when it is ready, and send failed checks back to the active agent."
+					eyebrow={t("showcase:review")}
+					title={t("showcase:from_changed_files_to_a_verified_pull_request")}
+					description={t(
+						"showcase:inspect_the_complete_branch_commit_deliberately_push_when_it_is_ready",
+					)}
 				/>
 				<FeaturesTertiary />
 			</section>

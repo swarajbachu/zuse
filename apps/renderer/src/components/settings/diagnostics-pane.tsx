@@ -1,3 +1,9 @@
+import {
+	formatDate as formatUiDate,
+	formatNumber as formatUiNumber,
+} from "@zuse/i18n";
+import { isInputComposing } from "../../lib/input-composition.ts";
+import "@zuse/i18n/english/settings";
 import type {
 	CommandId,
 	DiagnosticEvent,
@@ -14,6 +20,8 @@ import type {
 	PowerMonitorState,
 	PowerRecordingDurationMinutes,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Activity,
 	AlertTriangle,
@@ -95,14 +103,44 @@ const VIEW_OPTIONS: ReadonlyArray<{
 	readonly label: string;
 	readonly icon: typeof ListTodo;
 }> = [
-	{ id: "issues", label: "Issues", icon: ListTodo },
-	{ id: "logs", label: "Logs", icon: ScrollText },
-	{ id: "performance", label: "Performance", icon: Gauge },
-	{ id: "processes", label: "Processes", icon: Server },
-	{ id: "storage", label: "Storage", icon: HardDrive },
+	{
+		id: "issues",
+		get label() {
+			return uiMessage("settings:diagnostics_pane_issues");
+		},
+		icon: ListTodo,
+	},
+	{
+		id: "logs",
+		get label() {
+			return uiMessage("settings:diagnostics_pane_logs");
+		},
+		icon: ScrollText,
+	},
+	{
+		id: "performance",
+		get label() {
+			return uiMessage("settings:diagnostics_pane_performance");
+		},
+		icon: Gauge,
+	},
+	{
+		id: "processes",
+		get label() {
+			return uiMessage("settings:diagnostics_pane_processes");
+		},
+		icon: Server,
+	},
+	{
+		id: "storage",
+		get label() {
+			return uiMessage("settings:diagnostics_pane_storage");
+		},
+		icon: HardDrive,
+	},
 ];
 
-const formatCount = new Intl.NumberFormat();
+const formatCount = { format: formatUiNumber };
 const formatBytes = (bytes: number) => {
 	if (bytes < 1024) return `${bytes} B`;
 	if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -123,12 +161,12 @@ const relativeTime = (value: string) => {
 	return `${Math.floor(seconds / 86_400)}d ago`;
 };
 const formatTimestamp = (value: string) =>
-	new Intl.DateTimeFormat(undefined, {
+	formatUiDate(new Date(value), {
 		hour: "2-digit",
 		minute: "2-digit",
 		second: "2-digit",
 		fractionalSecondDigits: 3,
-	}).format(new Date(value));
+	});
 
 const readPreferences = (): DiagnosticsPreferences => {
 	if (typeof window === "undefined") return DEFAULT_DIAGNOSTICS_PREFERENCES;
@@ -216,7 +254,9 @@ function PulseMetric({
 			{values && (
 				<MetricSparkline
 					values={values}
-					label={`${label} live trend`}
+					label={uiMessage("settings:diagnostics_pane_live_trend", {
+						label: String(label),
+					})}
 					color={
 						tone === "danger" ? "red" : tone === "warning" ? "orange" : "grey"
 					}
@@ -241,6 +281,8 @@ function ResourceChart({
 	readonly formatValue: (value: number) => string;
 	readonly color: "blue" | "green" | "orange" | "red";
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const chartValues: number[] =
 		values.length === 0
 			? [0, 0]
@@ -264,13 +306,21 @@ function ResourceChart({
 					</p>
 				</div>
 				<p className="pt-0.5 text-[9px] text-muted-foreground">
-					Peak <span className="font-mono">{formatValue(peak)}</span>
+					<RichMessage
+						id="settings:diagnostics_pane_peak_sentence"
+						values={{ value: formatValue(peak) }}
+						components={{ part0: <span className="font-mono" /> }}
+					/>
 				</p>
 			</div>
 			<div
 				className="mt-3 block h-28 w-full"
 				role="img"
-				aria-label={`${label}: ${formatValue(value)}, peak ${formatValue(peak)}`}
+				aria-label={uiMessage("settings:diagnostics_pane_peak_2", {
+					label: String(label),
+					value2: String(formatValue(value)),
+					value3: String(formatValue(peak)),
+				})}
 			>
 				<AreaChart
 					data={chartData}
@@ -288,7 +338,9 @@ function ResourceChart({
 				</AreaChart>
 			</div>
 			<p className="text-[9px] text-muted-foreground">
-				Live samples from this page session
+				{uiMessage(
+					"settings:diagnostics_pane_live_samples_from_this_page_session",
+				)}
 			</p>
 		</div>
 	);
@@ -329,6 +381,8 @@ function CopyButton({
 	readonly text: string;
 	readonly label: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const copied = copiedKey === copyKey;
 	return (
 		<Button
@@ -338,7 +392,7 @@ function CopyButton({
 			onClick={() => onCopy(copyKey, text)}
 		>
 			{copied ? <Check /> : <Copy />}
-			{copied ? "Copied" : label}
+			{copied ? uiMessage("common:copied") : label}
 		</Button>
 	);
 }
@@ -364,6 +418,8 @@ function DiagnosticsFilters({
 	readonly onRangeChange: (value: number) => void;
 	readonly searchLabel: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	return (
 		<div className="flex flex-wrap items-center gap-2 border-b border-border/45 p-2.5">
 			<label className="relative min-w-48 flex-1">
@@ -374,12 +430,16 @@ function DiagnosticsFilters({
 					value={search}
 					onChange={(event) => onSearchChange(event.target.value)}
 					className="h-7 w-full rounded-md border border-input bg-card pl-8 pr-2 text-[11px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24 pointer-coarse:text-base"
-					placeholder="Search messages and details"
+					placeholder={uiMessage(
+						"settings:diagnostics_pane_search_messages_and_details",
+					)}
 					spellCheck={false}
 				/>
 			</label>
 			<label>
-				<span className="sr-only">Filter by severity</span>
+				<span className="sr-only">
+					{uiMessage("settings:diagnostics_pane_filter_by_severity")}
+				</span>
 				<select
 					value={severity}
 					onChange={(event) =>
@@ -387,26 +447,42 @@ function DiagnosticsFilters({
 					}
 					className="h-7 rounded-md border border-input bg-card px-2 text-[10px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24 pointer-coarse:text-base"
 				>
-					<option value="all">All levels</option>
-					<option value="fatal">Fatal</option>
-					<option value="error">Errors</option>
-					<option value="warn">Warnings</option>
-					<option value="info">Info</option>
-					<option value="debug">Debug</option>
+					<option value="all">
+						{uiMessage("settings:diagnostics_pane_all_levels")}
+					</option>
+					<option value="fatal">
+						{uiMessage("settings:diagnostics_pane_fatal")}
+					</option>
+					<option value="error">
+						{uiMessage("settings:diagnostics_pane_errors")}
+					</option>
+					<option value="warn">
+						{uiMessage("settings:diagnostics_pane_warnings")}
+					</option>
+					<option value="info">
+						{uiMessage("settings:diagnostics_pane_info")}
+					</option>
+					<option value="debug">
+						{uiMessage("settings:diagnostics_pane_debug")}
+					</option>
 				</select>
 			</label>
 			<label className="min-w-36 flex-1 sm:max-w-48">
-				<span className="sr-only">Filter by source</span>
+				<span className="sr-only">
+					{uiMessage("settings:diagnostics_pane_filter_by_source")}
+				</span>
 				<input
 					value={source}
 					onChange={(event) => onSourceChange(event.target.value)}
 					className="h-7 w-full rounded-md border border-input bg-card px-2 text-[10px] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24 pointer-coarse:text-base"
-					placeholder="All sources"
+					placeholder={uiMessage("settings:diagnostics_pane_all_sources")}
 					spellCheck={false}
 				/>
 			</label>
 			<fieldset className="relative flex h-7 rounded-md border border-input bg-card p-0.5">
-				<legend className="sr-only">Diagnostics time range</legend>
+				<legend className="sr-only">
+					{uiMessage("settings:diagnostics_pane_diagnostics_time_range")}
+				</legend>
 				{DIAGNOSTICS_RANGE_OPTIONS.map((option) => (
 					<button
 						type="button"
@@ -439,11 +515,15 @@ function IncidentDetails({
 	readonly copiedKey: string | null;
 	readonly onCopy: (key: string, text: string) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	if (!selected) {
 		return (
 			<EmptyState
-				title="Select an issue"
-				description="Its sanitized details, related occurrences, and correlation IDs will appear here."
+				title={uiMessage("settings:diagnostics_pane_select_an_issue")}
+				description={uiMessage(
+					"settings:diagnostics_pane_its_sanitized_details_related_occurrences_and_correlation_ids_will_app",
+				)}
 			/>
 		);
 	}
@@ -466,8 +546,8 @@ function IncidentDetails({
 						variant="ghost"
 						aria-label={
 							copiedKey === "diagnostic-id"
-								? "Diagnostic ID copied"
-								: "Copy diagnostic ID"
+								? uiMessage("settings:diagnostics_pane_diagnostic_id_copied")
+								: uiMessage("settings:diagnostics_pane_copy_diagnostic_id")
 						}
 						onClick={() => onCopy("diagnostic-id", selected.id)}
 					>
@@ -478,46 +558,70 @@ function IncidentDetails({
 
 			<div className="space-y-4 p-4">
 				<dl className="grid grid-cols-[82px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[10px]">
-					<dt className="text-muted-foreground">Diagnostic ID</dt>
+					<dt className="text-muted-foreground">
+						{uiMessage("settings:diagnostics_pane_diagnostic_id")}
+					</dt>
 					<dd className="truncate font-mono" title={selected.id}>
 						{selected.id}
 					</dd>
-					<dt className="text-muted-foreground">Run</dt>
+					<dt className="text-muted-foreground">
+						{uiMessage("settings:diagnostics_pane_run")}
+					</dt>
 					<dd className="truncate font-mono">{selected.runId}</dd>
-					<dt className="text-muted-foreground">Recovery</dt>
+					<dt className="text-muted-foreground">
+						{uiMessage("settings:diagnostics_pane_recovery")}
+					</dt>
 					<dd className="capitalize">{selected.recoveryStatus}</dd>
-					<dt className="text-muted-foreground">Trace</dt>
+					<dt className="text-muted-foreground">
+						{uiMessage("settings:diagnostics_pane_trace")}
+					</dt>
 					<dd className="truncate font-mono">
-						{selected.traceId ?? "Not correlated"}
+						{selected.traceId ??
+							uiMessage("settings:diagnostics_pane_not_correlated")}
 					</dd>
-					<dt className="text-muted-foreground">Session</dt>
+					<dt className="text-muted-foreground">
+						{uiMessage("settings:diagnostics_pane_session")}
+					</dt>
 					<dd className="truncate font-mono">
-						{selected.sessionId ?? selected.chatId ?? "Not correlated"}
+						{selected.sessionId ??
+							selected.chatId ??
+							uiMessage("settings:diagnostics_pane_not_correlated")}
 					</dd>
-					<dt className="text-muted-foreground">Provider</dt>
+					<dt className="text-muted-foreground">
+						{uiMessage("settings:diagnostics_pane_provider")}
+					</dt>
 					<dd className="truncate font-mono">
-						{selected.providerId ?? "Not correlated"}
+						{selected.providerId ??
+							uiMessage("settings:diagnostics_pane_not_correlated")}
 					</dd>
 				</dl>
 
 				{selected.detail ? (
 					<div>
-						<p className="mb-1.5 font-medium text-[10px]">Sanitized details</p>
+						<p className="mb-1.5 font-medium text-[10px]">
+							{uiMessage("settings:diagnostics_pane_sanitized_details")}
+						</p>
 						<pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-3 font-mono text-[9px] leading-4">
 							{selected.detail}
 						</pre>
 					</div>
 				) : (
 					<p className="rounded-md bg-muted/35 px-3 py-2 text-[10px] text-muted-foreground">
-						No additional stack or cause was captured.
+						{uiMessage(
+							"settings:diagnostics_pane_no_additional_stack_or_cause_was_captured",
+						)}
 					</p>
 				)}
 
 				<div>
 					<div className="mb-1.5 flex items-center justify-between">
-						<p className="font-medium text-[10px]">Related occurrences</p>
+						<p className="font-medium text-[10px]">
+							{uiMessage("settings:diagnostics_pane_related_occurrences")}
+						</p>
 						<span className="font-mono text-[9px] text-muted-foreground tabular-nums">
-							{related.length} loaded
+							{uiMessage("settings:diagnostics_pane_loaded_sentence", {
+								value: related.length,
+							})}
 						</span>
 					</div>
 					<div className="max-h-36 divide-y divide-border/40 overflow-auto rounded-md border border-border/45">
@@ -541,7 +645,7 @@ function IncidentDetails({
 					copyKey="incident-details"
 					copiedKey={copiedKey}
 					onCopy={onCopy}
-					label="Copy details"
+					label={uiMessage("settings:diagnostics_pane_copy_details")}
 					text={`${selected.id}\n${selected.message}\n${selected.detail ?? ""}`}
 				/>
 			</div>
@@ -556,13 +660,17 @@ function ContextList({
 	readonly label: string;
 	readonly values: ReadonlyArray<string>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	return (
 		<div className="min-w-0 rounded-md border border-border/45 bg-muted/20 p-2.5">
 			<p className="text-[10px] text-muted-foreground uppercase tracking-wider">
 				{label}
 			</p>
 			<p className="mt-1.5 break-words font-mono text-[10px] leading-4">
-				{values.length > 0 ? values.join(" · ") : "None captured"}
+				{values.length > 0
+					? values.join(" · ")
+					: uiMessage("settings:diagnostics_pane_none_captured")}
 			</p>
 		</div>
 	);
@@ -581,6 +689,8 @@ function StallWorkspace({
 	readonly copiedKey: string | null;
 	readonly onCopy: (key: string, text: string) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const ordered = [...samples]
 		.sort((left, right) => right.capturedAt.localeCompare(left.capturedAt))
 		.slice(0, 24);
@@ -626,27 +736,36 @@ function StallWorkspace({
 		<section className="min-w-0 border-t border-border/45">
 			<div className="flex min-h-10 items-center justify-between gap-3 border-b border-border/45 px-4 py-2.5">
 				<div>
-					<h3 className="font-medium text-[11px]">Stall cause timeline</h3>
+					<h3 className="font-medium text-[11px]">
+						{uiMessage("settings:diagnostics_pane_stall_cause_timeline")}
+					</h3>
 					<p className="mt-0.5 text-[10px] text-muted-foreground">
-						Sanitized script, layout, action, and workload attribution. React
-						commit timing is added in development builds.
+						{uiMessage(
+							"settings:diagnostics_pane_sanitized_script_layout_action_and_workload_attribution_react_commit_t",
+						)}
 					</p>
 				</div>
 				<span className="font-mono text-[10px] text-muted-foreground tabular-nums">
-					{ordered.length} retained
+					{uiMessage("settings:diagnostics_pane_retained_sentence", {
+						value: ordered.length,
+					})}
 				</span>
 			</div>
 			{selected === null ? (
 				<div className="min-h-[280px]">
 					<EmptyState
-						title="No interface stalls"
-						description="Stalls of at least 100 ms will appear with the strongest locally available cause."
+						title={uiMessage("settings:diagnostics_pane_no_interface_stalls")}
+						description={uiMessage(
+							"settings:diagnostics_pane_stalls_of_at_least_100_ms_will_appear_with_the_strongest_locally_avail",
+						)}
 					/>
 				</div>
 			) : (
 				<div className="grid min-h-[280px] lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.35fr)] lg:divide-x lg:divide-border/45">
 					<fieldset className="max-h-[360px] divide-y divide-border/40 overflow-auto">
-						<legend className="sr-only">Interface stalls</legend>
+						<legend className="sr-only">
+							{uiMessage("settings:diagnostics_pane_interface_stalls")}
+						</legend>
 						{ordered.map((sample) => {
 							const active = sample.id === selected.id;
 							return (
@@ -660,23 +779,33 @@ function StallWorkspace({
 										active ? "bg-muted/70" : "hover:bg-muted/35",
 									)}
 								>
-									<span className="min-w-0">
-										<span className="block truncate font-medium text-[11px]">
-											{sample.attribution?.label ?? sample.name ?? sample.kind}
-										</span>
-										<span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-											{sample.attribution?.cause ?? sample.kind} ·{" "}
-											{sample.attribution?.confidence ?? "low"} confidence
-										</span>
-									</span>
-									<span className="text-right">
-										<span className="block font-mono text-[11px] tabular-nums">
-											{formatDuration(sample.durationMs)}
-										</span>
-										<span className="mt-0.5 block font-mono text-[10px] text-muted-foreground tabular-nums">
-											{relativeTime(sample.capturedAt)}
-										</span>
-									</span>
+									<RichMessage
+										id="settings:diagnostics_pane_confidence_sentence"
+										values={{
+											value:
+												sample.attribution?.label ?? sample.name ?? sample.kind,
+											value2: sample.attribution?.cause ?? sample.kind,
+											value3: sample.attribution?.confidence ?? "low",
+											value4: formatDuration(sample.durationMs),
+											value5: relativeTime(sample.capturedAt),
+										}}
+										components={{
+											part0: <span className="min-w-0" />,
+											part1: (
+												<span className="block truncate font-medium text-[11px]" />
+											),
+											part2: (
+												<span className="mt-0.5 block truncate text-[10px] text-muted-foreground" />
+											),
+											part3: <span className="text-right" />,
+											part4: (
+												<span className="block font-mono text-[11px] tabular-nums" />
+											),
+											part5: (
+												<span className="mt-0.5 block font-mono text-[10px] text-muted-foreground tabular-nums" />
+											),
+										}}
+									/>
 								</button>
 							);
 						})}
@@ -685,64 +814,80 @@ function StallWorkspace({
 						<div className="flex items-start justify-between gap-3">
 							<div className="min-w-0">
 								<p className="truncate font-medium text-xs">
-									{attribution?.label ?? "Cause unavailable"}
+									{attribution?.label ??
+										uiMessage("settings:diagnostics_pane_cause_unavailable")}
 								</p>
 								<p className="mt-1 text-[10px] text-muted-foreground">
-									{attribution?.confidence ?? "low"} confidence ·{" "}
-									{selected.kind}
+									{uiMessage(
+										"settings:diagnostics_pane_confidence_sentence_2",
+										{
+											value: attribution?.confidence ?? "low",
+											value2: selected.kind,
+										},
+									)}
 								</p>
 							</div>
 							<CopyButton
 								copyKey={`stall:${selected.id}`}
 								copiedKey={copiedKey}
 								onCopy={onCopy}
-								label="Copy"
+								label={uiMessage("common:copy")}
 								text={details}
 							/>
 						</div>
 						<div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-2 text-[10px]">
-							<span className="text-muted-foreground">Total duration</span>
+							<span className="text-muted-foreground">
+								{uiMessage("settings:diagnostics_pane_total_duration")}
+							</span>
 							<span className="text-right font-mono tabular-nums">
 								{formatDuration(selected.durationMs)}
 							</span>
 							<span className="text-muted-foreground">
-								Main-thread blocking
+								{uiMessage("settings:diagnostics_pane_main_thread_blocking")}
 							</span>
 							<span className="text-right font-mono tabular-nums">
 								{attribution?.blockingDurationMs === undefined
-									? "Unavailable"
+									? uiMessage("settings:diagnostics_pane_unavailable")
 									: formatDuration(attribution.blockingDurationMs)}
 							</span>
-							<span className="text-muted-foreground">Style and layout</span>
+							<span className="text-muted-foreground">
+								{uiMessage("settings:diagnostics_pane_style_and_layout")}
+							</span>
 							<span className="text-right font-mono tabular-nums">
 								{attribution?.styleLayoutDurationMs === undefined
-									? "Unavailable"
+									? uiMessage("settings:diagnostics_pane_unavailable")
 									: formatDuration(attribution.styleLayoutDurationMs)}
 							</span>
-							<span className="text-muted-foreground">Script</span>
+							<span className="text-muted-foreground">
+								{uiMessage("settings:diagnostics_pane_script")}
+							</span>
 							<span className="truncate text-right font-mono">
 								{attribution?.scriptSource === undefined
-									? "Unavailable"
+									? uiMessage("settings:diagnostics_pane_unavailable")
 									: `${attribution.scriptSource}${attribution.scriptPosition === undefined ? "" : `:${attribution.scriptPosition}`}`}
 							</span>
-							<span className="text-muted-foreground">Function</span>
+							<span className="text-muted-foreground">
+								{uiMessage("settings:diagnostics_pane_function")}
+							</span>
 							<span className="truncate text-right font-mono">
 								{attribution?.scriptFunction ??
 									attribution?.scriptInvoker ??
-									"Unavailable"}
+									uiMessage("settings:diagnostics_pane_unavailable")}
 							</span>
 						</div>
 						<div className="mt-4 grid gap-3 sm:grid-cols-3">
 							<ContextList
-								label="Recent actions"
+								label={uiMessage("settings:diagnostics_pane_recent_actions")}
 								values={attribution?.recentActions ?? []}
 							/>
 							<ContextList
-								label="Active workloads"
+								label={uiMessage("settings:diagnostics_pane_active_workloads")}
 								values={attribution?.activeWorkloads ?? []}
 							/>
 							<ContextList
-								label="Related operations"
+								label={uiMessage(
+									"settings:diagnostics_pane_related_operations",
+								)}
 								values={attribution?.relatedOperations ?? []}
 							/>
 						</div>
@@ -754,6 +899,8 @@ function StallWorkspace({
 }
 
 export function DiagnosticsPane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const environmentId = useEnvironmentCatalogStore(
 		(state) => state.activeEnvironmentId as EnvironmentId,
 	);
@@ -1208,16 +1355,16 @@ export function DiagnosticsPane() {
 					group.count,
 				]) ?? [],
 			),
-		[overview],
+		[overview, uiMessage],
 	);
 	const incidents = useMemo(
 		() => groupDiagnosticEvents(events, commonCounts),
-		[commonCounts, events],
+		[commonCounts, events, uiMessage],
 	);
 	const related = useMemo(
 		() =>
 			selected ? relatedDiagnosticEvents(events, selected.fingerprint) : [],
-		[events, selected],
+		[events, selected, uiMessage],
 	);
 	const resourceSamples = performanceHistory?.samples.slice(-240) ?? [];
 	const lagSamples = performanceHistory?.lagSamples.slice(-240) ?? [];
@@ -1253,7 +1400,9 @@ export function DiagnosticsPane() {
 
 	return (
 		<div className="flex min-w-0 flex-col gap-3 pb-12 text-[11px]">
-			<Frame aria-label="Diagnostics status">
+			<Frame
+				aria-label={uiMessage("settings:diagnostics_pane_diagnostics_status")}
+			>
 				<FrameHeader className="flex w-full flex-row flex-wrap items-center justify-between gap-3 px-3 py-2.5">
 					<div className="flex min-w-0 items-center gap-2.5">
 						<div
@@ -1270,8 +1419,14 @@ export function DiagnosticsPane() {
 							</p>
 							<p className="truncate font-mono text-[9px] text-muted-foreground tabular-nums">
 								{overview
-									? `${overview.unseenCount} unseen · ${live ? "Live capture" : "Updates paused"} · ${relativeTime(overview.readAt)}`
-									: "Reading local diagnostics…"}
+									? uiMessage("settings:diagnostics_pane_unseen", {
+											unseenCount: String(overview.unseenCount),
+											value2: String(live ? "Live capture" : "Updates paused"),
+											value3: String(relativeTime(overview.readAt)),
+										})
+									: uiMessage(
+											"settings:diagnostics_pane_reading_local_diagnostics",
+										)}
 							</p>
 						</div>
 					</div>
@@ -1283,7 +1438,9 @@ export function DiagnosticsPane() {
 							onClick={() => setLive((value) => !value)}
 						>
 							{live ? <Pause /> : <Play />}
-							{live ? "Pause live" : "Resume live"}
+							{live
+								? uiMessage("settings:diagnostics_pane_pause_live")
+								: uiMessage("settings:diagnostics_pane_resume_live")}
 						</Button>
 						<Button
 							size="sm"
@@ -1293,7 +1450,7 @@ export function DiagnosticsPane() {
 							onClick={() => void refresh()}
 						>
 							<RefreshCw />
-							Refresh
+							{uiMessage("common:refresh")}
 						</Button>
 						<Button
 							size="sm"
@@ -1306,7 +1463,7 @@ export function DiagnosticsPane() {
 							}
 						>
 							<FolderOpen />
-							Open logs
+							{uiMessage("settings:diagnostics_pane_open_logs")}
 						</Button>
 						<Button
 							size="sm"
@@ -1315,34 +1472,34 @@ export function DiagnosticsPane() {
 							onClick={() => void exportBundle()}
 						>
 							<Archive />
-							Export support bundle
+							{uiMessage("settings:diagnostics_pane_export_support_bundle")}
 						</Button>
 					</div>
 				</FrameHeader>
 				<FramePanel className="grid min-h-[68px] grid-cols-2 divide-x divide-y divide-border/45 p-0 lg:grid-cols-5 lg:divide-y-0">
 					<PulseMetric
-						label="Failures"
+						label={uiMessage("settings:diagnostics_pane_failures")}
 						value={overview ? formatCount.format(failureCount) : "—"}
 						tone={failureCount > 0 ? "danger" : "default"}
 						values={samples.map((sample) => sample.failures)}
 					/>
 					<PulseMetric
-						label="Warnings"
+						label={uiMessage("settings:diagnostics_pane_warnings")}
 						value={overview ? formatCount.format(overview.warningCount) : "—"}
 						tone={(overview?.warningCount ?? 0) > 0 ? "warning" : "default"}
 					/>
 					<PulseMetric
-						label="CPU"
+						label={uiMessage("settings:diagnostics_pane_cpu")}
 						value={processes ? `${processes.totalCpuPercent.toFixed(1)}%` : "—"}
 						values={samples.map((sample) => sample.cpu)}
 					/>
 					<PulseMetric
-						label="Memory"
+						label={uiMessage("settings:diagnostics_pane_memory")}
 						value={processes ? formatBytes(processes.totalRssBytes) : "—"}
 						values={samples.map((sample) => sample.memory)}
 					/>
 					<PulseMetric
-						label="Stored locally"
+						label={uiMessage("settings:diagnostics_pane_stored_locally")}
 						value={overview ? formatBytes(overview.storageBytes) : "—"}
 					/>
 				</FramePanel>
@@ -1361,13 +1518,13 @@ export function DiagnosticsPane() {
 						className="h-6 !text-[9px]"
 						onClick={() => void refresh()}
 					>
-						Retry
+						{uiMessage("common:retry")}
 					</Button>
 				</div>
 			)}
 
 			<nav
-				aria-label="Diagnostics views"
+				aria-label={uiMessage("settings:diagnostics_pane_diagnostics_views")}
 				className="flex min-h-9 items-center gap-1 overflow-x-auto rounded-lg border border-border/55 bg-muted/25 p-1"
 			>
 				{VIEW_OPTIONS.map((option) => {
@@ -1394,18 +1551,27 @@ export function DiagnosticsPane() {
 			</nav>
 
 			{view === "issues" && (
-				<Frame aria-label="Issue triage workspace">
+				<Frame
+					aria-label={uiMessage(
+						"settings:diagnostics_pane_issue_triage_workspace",
+					)}
+				>
 					<FrameHeader className="flex w-full flex-row flex-wrap items-center justify-between gap-3 px-3 py-2.5">
 						<div>
-							<FrameTitle className="text-[12px]">Issue inbox</FrameTitle>
+							<FrameTitle className="text-[12px]">
+								{uiMessage("settings:diagnostics_pane_issue_inbox")}
+							</FrameTitle>
 							<FrameDescription className="text-[9px] leading-3.5">
-								Repeated failures are grouped so the most important work stays
-								visible.
+								{uiMessage(
+									"settings:diagnostics_pane_repeated_failures_are_grouped_so_the_most_important_work_stays_visible",
+								)}
 							</FrameDescription>
 						</div>
 						<p className="font-mono text-[9px] text-muted-foreground tabular-nums">
-							{formatCount.format(incidents.length)} groups ·{" "}
-							{formatCount.format(eventTotal)} events
+							{uiMessage("settings:diagnostics_pane_groups_events_sentence", {
+								value: formatCount.format(incidents.length),
+								value2: formatCount.format(eventTotal),
+							})}
 						</p>
 					</FrameHeader>
 					<FramePanel className="overflow-hidden p-0">
@@ -1440,6 +1606,8 @@ export function DiagnosticsPane() {
 													})
 												}
 												onKeyDown={(event) => {
+													if (isInputComposing(event)) return;
+
 													if (
 														event.key !== "ArrowDown" &&
 														event.key !== "ArrowUp"
@@ -1476,7 +1644,10 @@ export function DiagnosticsPane() {
 													<span className="mt-1 block truncate font-mono text-[9px] text-muted-foreground">
 														{item.source}
 														{item.sessionId
-															? ` · session ${item.sessionId}`
+															? uiMessage(
+																	"settings:diagnostics_pane_session_2",
+																	{ value1: String(item.sessionId) },
+																)
 															: ""}
 													</span>
 												</span>
@@ -1484,7 +1655,7 @@ export function DiagnosticsPane() {
 													<span className="block font-mono text-[10px] tabular-nums">
 														{incident.occurrences > 1
 															? `${incident.occurrences}×`
-															: "Once"}
+															: uiMessage("settings:diagnostics_pane_once")}
 													</span>
 													<span className="mt-1 block whitespace-nowrap font-mono text-[9px] text-muted-foreground">
 														{relativeTime(item.createdAt)}
@@ -1495,23 +1666,36 @@ export function DiagnosticsPane() {
 									})}
 									{!loading && incidents.length === 0 && (
 										<EmptyState
-											title="No matching issues"
-											description="Change the filters or time range. Healthy captures will appear here only when they need attention."
+											title={uiMessage(
+												"settings:diagnostics_pane_no_matching_issues",
+											)}
+											description={uiMessage(
+												"settings:diagnostics_pane_change_the_filters_or_time_range_healthy_captures_will_appear_here_onl",
+											)}
 										/>
 									)}
 									{loading && incidents.length === 0 && (
 										<EmptyState
 											icon={Activity}
-											title="Checking the system"
-											description="Reading recent incidents and correlating local process state."
+											title={uiMessage(
+												"settings:diagnostics_pane_checking_the_system",
+											)}
+											description={uiMessage(
+												"settings:diagnostics_pane_reading_recent_incidents_and_correlating_local_process_state",
+											)}
 										/>
 									)}
 								</div>
 								{nextEventCursor && (
 									<div className="flex min-h-11 items-center justify-between border-t border-border/45 px-4 py-2 text-[9px] text-muted-foreground">
 										<span className="font-mono tabular-nums">
-											{formatCount.format(events.length)} of{" "}
-											{formatCount.format(eventTotal)} events loaded
+											{uiMessage(
+												"settings:diagnostics_pane_of_events_loaded_sentence",
+												{
+													value: formatCount.format(events.length),
+													value2: formatCount.format(eventTotal),
+												},
+											)}
 										</span>
 										<Button
 											size="sm"
@@ -1519,14 +1703,16 @@ export function DiagnosticsPane() {
 											className="h-7 px-2.5 !text-[10px]"
 											onClick={() => void loadMoreEvents()}
 										>
-											Load more
+											{uiMessage("settings:diagnostics_pane_load_more")}
 										</Button>
 									</div>
 								)}
 							</div>
 							<aside
 								className="hidden min-w-0 xl:block"
-								aria-label="Issue details"
+								aria-label={uiMessage(
+									"settings:diagnostics_pane_issue_details",
+								)}
 							>
 								<IncidentDetails
 									selected={selected}
@@ -1541,11 +1727,15 @@ export function DiagnosticsPane() {
 			)}
 
 			{view === "logs" && (
-				<Frame aria-label="Live diagnostic logs">
+				<Frame
+					aria-label={uiMessage(
+						"settings:diagnostics_pane_live_diagnostic_logs",
+					)}
+				>
 					<FrameHeader className="flex w-full flex-row flex-wrap items-center justify-between gap-3 px-3 py-2.5">
 						<div>
 							<FrameTitle className="flex items-center gap-2 text-[12px]">
-								Live logs
+								{uiMessage("settings:diagnostics_pane_live_logs")}
 								<span
 									className={cn(
 										"inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-normal text-[9px]",
@@ -1560,20 +1750,25 @@ export function DiagnosticsPane() {
 											live ? "bg-success" : "bg-muted-foreground/60",
 										)}
 									/>
-									{live ? "Following" : "Paused"}
+									{live
+										? uiMessage("settings:diagnostics_pane_following")
+										: uiMessage("settings:diagnostics_pane_paused")}
 								</span>
 							</FrameTitle>
 							<FrameDescription className="text-[9px] leading-3.5">
-								Structured local events. The newest filtered page refreshes
-								every five seconds while live.
+								{uiMessage(
+									"settings:diagnostics_pane_structured_local_events_the_newest_filtered_page_refreshes_every_five",
+								)}
 							</FrameDescription>
 						</div>
 						<p
 							className="font-mono text-[9px] text-muted-foreground tabular-nums"
 							aria-live="polite"
 						>
-							{formatCount.format(events.length)} loaded ·{" "}
-							{formatCount.format(eventTotal)} matching
+							{uiMessage("settings:diagnostics_pane_loaded_matching_sentence", {
+								value: formatCount.format(events.length),
+								value2: formatCount.format(eventTotal),
+							})}
 						</p>
 					</FrameHeader>
 					<FramePanel className="overflow-hidden p-0">
@@ -1592,12 +1787,17 @@ export function DiagnosticsPane() {
 						<div className="overflow-x-auto">
 							<div className="min-w-[760px]">
 								<div className="grid h-8 grid-cols-[86px_72px_150px_minmax(240px,1fr)_128px_24px] items-center gap-3 border-b border-border/45 px-4 font-medium text-[9px] text-muted-foreground uppercase tracking-[0.08em]">
-									<span>Time</span>
-									<span>Level</span>
-									<span>Source</span>
-									<span>Message</span>
-									<span>Trace</span>
-									<span className="sr-only">Details</span>
+									<RichMessage
+										id="settings:diagnostics_pane_timelevelsourcemessagetracedetails_sentence"
+										components={{
+											part0: <span />,
+											part1: <span />,
+											part2: <span />,
+											part3: <span />,
+											part4: <span />,
+											part5: <span className="sr-only" />,
+										}}
+									/>
 								</div>
 								<div className="max-h-[620px] divide-y divide-border/40 overflow-y-auto">
 									{events.map((item) => {
@@ -1617,7 +1817,14 @@ export function DiagnosticsPane() {
 												>
 													<time
 														dateTime={item.createdAt}
-														title={new Date(item.createdAt).toLocaleString()}
+														title={formatUiDate(new Date(item.createdAt), {
+															year: "numeric",
+															month: "numeric",
+															day: "numeric",
+															hour: "numeric",
+															minute: "numeric",
+															second: "numeric",
+														})}
 														className="font-mono text-[9px] text-muted-foreground tabular-nums"
 													>
 														{formatTimestamp(item.createdAt)}
@@ -1637,7 +1844,12 @@ export function DiagnosticsPane() {
 													</span>
 													<span
 														className="truncate font-mono text-[9px] text-muted-foreground"
-														title={item.traceId ?? "Not correlated"}
+														title={
+															item.traceId ??
+															uiMessage(
+																"settings:diagnostics_pane_not_correlated",
+															)
+														}
 													>
 														{item.traceId ?? "—"}
 													</span>
@@ -1652,7 +1864,9 @@ export function DiagnosticsPane() {
 													<div className="grid gap-4 border-t border-border/30 bg-muted/15 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_260px]">
 														<div className="min-w-0">
 															<p className="font-medium text-[9px] text-muted-foreground uppercase tracking-[0.08em]">
-																Sanitized detail
+																{uiMessage(
+																	"settings:diagnostics_pane_sanitized_detail",
+																)}
 															</p>
 															{item.detail ? (
 																<pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-3 font-mono text-[9px] leading-4">
@@ -1660,14 +1874,17 @@ export function DiagnosticsPane() {
 																</pre>
 															) : (
 																<p className="mt-2 text-[10px] text-muted-foreground">
-																	No additional detail was captured for this
-																	event.
+																	{uiMessage(
+																		"settings:diagnostics_pane_no_additional_detail_was_captured_for_this_event",
+																	)}
 																</p>
 															)}
 														</div>
 														<div className="min-w-0">
 															<dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-2 gap-y-1.5 text-[9px]">
-																<dt className="text-muted-foreground">Event</dt>
+																<dt className="text-muted-foreground">
+																	{uiMessage("settings:diagnostics_pane_event")}
+																</dt>
 																<dd
 																	className="truncate font-mono"
 																	title={item.id}
@@ -1675,25 +1892,35 @@ export function DiagnosticsPane() {
 																	{item.id}
 																</dd>
 																<dt className="text-muted-foreground">
-																	Category
+																	{uiMessage(
+																		"settings:diagnostics_pane_category",
+																	)}
 																</dt>
 																<dd className="truncate">{item.category}</dd>
-																<dt className="text-muted-foreground">Run</dt>
+																<dt className="text-muted-foreground">
+																	{uiMessage("settings:diagnostics_pane_run")}
+																</dt>
 																<dd className="truncate font-mono">
 																	{item.runId}
 																</dd>
-																<dt className="text-muted-foreground">Span</dt>
+																<dt className="text-muted-foreground">
+																	{uiMessage("settings:diagnostics_pane_span")}
+																</dt>
 																<dd className="truncate font-mono">
 																	{item.spanId ?? "—"}
 																</dd>
 																<dt className="text-muted-foreground">
-																	Session
+																	{uiMessage(
+																		"settings:diagnostics_pane_session",
+																	)}
 																</dt>
 																<dd className="truncate font-mono">
 																	{item.sessionId ?? item.chatId ?? "—"}
 																</dd>
 																<dt className="text-muted-foreground">
-																	Provider
+																	{uiMessage(
+																		"settings:diagnostics_pane_provider",
+																	)}
 																</dt>
 																<dd className="truncate font-mono">
 																	{item.providerId ?? "—"}
@@ -1704,7 +1931,9 @@ export function DiagnosticsPane() {
 																	copyKey={`log:${item.id}`}
 																	copiedKey={copiedKey}
 																	onCopy={copyText}
-																	label="Copy event"
+																	label={uiMessage(
+																		"settings:diagnostics_pane_copy_event",
+																	)}
 																	text={`${item.createdAt}\n${item.severity.toUpperCase()} ${item.source}\n${item.message}\nEvent: ${item.id}\nTrace: ${item.traceId ?? "—"}\n${item.detail ?? ""}`}
 																/>
 															</div>
@@ -1717,15 +1946,23 @@ export function DiagnosticsPane() {
 									{!loading && events.length === 0 && (
 										<EmptyState
 											icon={ScrollText}
-											title="No matching logs"
-											description="Change the filters or time range. New structured events will appear here while capture is live."
+											title={uiMessage(
+												"settings:diagnostics_pane_no_matching_logs",
+											)}
+											description={uiMessage(
+												"settings:diagnostics_pane_change_the_filters_or_time_range_new_structured_events_will_appear_her",
+											)}
 										/>
 									)}
 									{loading && events.length === 0 && (
 										<EmptyState
 											icon={Activity}
-											title="Reading live logs"
-											description="Loading the newest structured events from local diagnostics."
+											title={uiMessage(
+												"settings:diagnostics_pane_reading_live_logs",
+											)}
+											description={uiMessage(
+												"settings:diagnostics_pane_loading_the_newest_structured_events_from_local_diagnostics",
+											)}
 										/>
 									)}
 								</div>
@@ -1734,8 +1971,12 @@ export function DiagnosticsPane() {
 						<div className="flex min-h-11 items-center justify-between border-t border-border/45 px-4 py-2 text-[9px] text-muted-foreground">
 							<span>
 								{live
-									? "Following the newest events"
-									: "Live refresh is paused"}
+									? uiMessage(
+											"settings:diagnostics_pane_following_the_newest_events",
+										)
+									: uiMessage(
+											"settings:diagnostics_pane_live_refresh_is_paused",
+										)}
 							</span>
 							{nextEventCursor && (
 								<Button
@@ -1744,7 +1985,7 @@ export function DiagnosticsPane() {
 									className="h-7 px-2.5 !text-[10px]"
 									onClick={() => void loadMoreEvents()}
 								>
-									Load older
+									{uiMessage("settings:diagnostics_pane_load_older")}
 								</Button>
 							)}
 						</div>
@@ -1753,15 +1994,20 @@ export function DiagnosticsPane() {
 			)}
 
 			{view === "performance" && (
-				<Frame aria-label="Performance diagnostics">
+				<Frame
+					aria-label={uiMessage(
+						"settings:diagnostics_pane_performance_diagnostics",
+					)}
+				>
 					<FrameHeader className="flex w-full flex-row flex-wrap items-center justify-between gap-3 px-3 py-2.5">
 						<div>
 							<FrameTitle className="text-[12px]">
-								Performance and energy
+								{uiMessage("settings:diagnostics_pane_performance_and_energy")}
 							</FrameTitle>
 							<FrameDescription className="text-[9px] leading-3.5">
-								Local resource, responsiveness, battery, and thermal telemetry
-								with confidence-labelled attribution.
+								{uiMessage(
+									"settings:diagnostics_pane_local_resource_responsiveness_battery_and_thermal_telemetry_with_confi",
+								)}
 							</FrameDescription>
 						</div>
 						<div className="flex flex-wrap items-center gap-2">
@@ -1785,15 +2031,19 @@ export function DiagnosticsPane() {
 							</div>
 							<span className="font-mono text-[9px] text-muted-foreground tabular-nums">
 								{performanceHistory
-									? `${performanceHistory.samples.length} samples`
-									: "Loading local history"}
+									? uiMessage("settings:diagnostics_pane_samples", {
+											value1: String(performanceHistory.samples.length),
+										})
+									: uiMessage(
+											"settings:diagnostics_pane_loading_local_history",
+										)}
 							</span>
 						</div>
 					</FrameHeader>
 					<FramePanel className="overflow-hidden p-0">
 						<div className="grid grid-cols-2 divide-x divide-y divide-border/45 lg:grid-cols-5 lg:divide-y-0">
 							<PulseMetric
-								label="Responsiveness"
+								label={uiMessage("settings:diagnostics_pane_responsiveness")}
 								value={performanceOverview?.responsiveness ?? "—"}
 								tone={
 									performanceOverview?.responsiveness === "poor"
@@ -1804,7 +2054,7 @@ export function DiagnosticsPane() {
 								}
 							/>
 							<PulseMetric
-								label="CPU"
+								label={uiMessage("settings:diagnostics_pane_cpu")}
 								value={
 									latestPowerSnapshot
 										? `${latestPowerSnapshot.totalCpuPercent.toFixed(1)}%`
@@ -1813,7 +2063,7 @@ export function DiagnosticsPane() {
 								values={resourceSamples.map((sample) => sample.totalCpuPercent)}
 							/>
 							<PulseMetric
-								label="Memory"
+								label={uiMessage("settings:diagnostics_pane_memory")}
 								value={
 									latestPowerSnapshot
 										? formatBytes(latestPowerSnapshot.totalMemoryBytes)
@@ -1824,7 +2074,7 @@ export function DiagnosticsPane() {
 								)}
 							/>
 							<PulseMetric
-								label="Battery impact"
+								label={uiMessage("settings:diagnostics_pane_battery_impact")}
 								value={
 									performanceOverview?.batteryDrainPercentPerHour !== null &&
 									performanceOverview?.batteryDrainPercentPerHour !== undefined
@@ -1838,7 +2088,7 @@ export function DiagnosticsPane() {
 								}
 							/>
 							<PulseMetric
-								label="Thermal pressure"
+								label={uiMessage("settings:diagnostics_pane_thermal_pressure")}
 								value={latestPowerSnapshot?.thermalState ?? "Unavailable"}
 								tone={
 									latestPowerSnapshot?.thermalState === "critical" ||
@@ -1852,7 +2102,7 @@ export function DiagnosticsPane() {
 						</div>
 						<div className="grid divide-y divide-border/45 border-t border-border/45 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
 							<ResourceChart
-								label="CPU usage"
+								label={uiMessage("settings:diagnostics_pane_cpu_usage")}
 								value={latestPowerSnapshot?.totalCpuPercent ?? 0}
 								peak={resourceMaxCpu}
 								values={resourceSamples.map((sample) => sample.totalCpuPercent)}
@@ -1860,7 +2110,7 @@ export function DiagnosticsPane() {
 								color="blue"
 							/>
 							<ResourceChart
-								label="Memory usage"
+								label={uiMessage("settings:diagnostics_pane_memory_usage")}
 								value={latestPowerSnapshot?.totalMemoryBytes ?? 0}
 								peak={resourceMaxMemory}
 								values={resourceSamples.map(
@@ -1872,7 +2122,7 @@ export function DiagnosticsPane() {
 						</div>
 						<div className="grid border-t border-border/45 lg:grid-cols-2 lg:divide-x lg:divide-border/45">
 							<ResourceChart
-								label="Idle wakeups"
+								label={uiMessage("settings:diagnostics_pane_idle_wakeups")}
 								value={latestPowerSnapshot?.totalIdleWakeupsPerSecond ?? 0}
 								peak={maxWakeups}
 								values={resourceSamples.map(
@@ -1882,7 +2132,7 @@ export function DiagnosticsPane() {
 								color="green"
 							/>
 							<ResourceChart
-								label="Interface stalls"
+								label={uiMessage("settings:diagnostics_pane_interface_stalls")}
 								value={lagSamples.at(-1)?.durationMs ?? 0}
 								peak={maxLag}
 								values={lagSamples.map((sample) => sample.durationMs)}
@@ -1901,7 +2151,9 @@ export function DiagnosticsPane() {
 							<section className="min-w-0">
 								<div className="border-b border-border/45 px-4 py-2.5">
 									<h3 className="font-medium text-[10px]">
-										What made Zuse heavy?
+										{uiMessage(
+											"settings:diagnostics_pane_what_made_zuse_heavy",
+										)}
 									</h3>
 								</div>
 								{performanceOverview?.incidents.length ? (
@@ -1923,8 +2175,13 @@ export function DiagnosticsPane() {
 													</p>
 													<p className="mt-1 truncate text-[9px] text-muted-foreground">
 														{item.likelyContributor
-															? `Likely contributor: ${item.likelyContributor}`
-															: "No single workload could be attributed"}
+															? uiMessage(
+																	"settings:diagnostics_pane_likely_contributor",
+																	{ value1: String(item.likelyContributor) },
+																)
+															: uiMessage(
+																	"settings:diagnostics_pane_no_single_workload_could_be_attributed",
+																)}
 													</p>
 												</div>
 												<div className="text-right">
@@ -1934,7 +2191,10 @@ export function DiagnosticsPane() {
 															: `${item.value.toFixed(1)} ${item.unit}`}
 													</p>
 													<p className="mt-1 text-[8px] text-muted-foreground uppercase tracking-wider">
-														{item.confidence} confidence
+														{uiMessage(
+															"settings:diagnostics_pane_confidence_sentence_3",
+															{ value: item.confidence },
+														)}
 													</p>
 												</div>
 											</div>
@@ -1942,14 +2202,20 @@ export function DiagnosticsPane() {
 									</div>
 								) : (
 									<EmptyState
-										title="No sustained pressure"
-										description="Short spikes are retained in charts. Sustained CPU, memory, battery, thermal, and lag incidents appear here."
+										title={uiMessage(
+											"settings:diagnostics_pane_no_sustained_pressure",
+										)}
+										description={uiMessage(
+											"settings:diagnostics_pane_short_spikes_are_retained_in_charts_sustained_cpu_memory_battery_therm",
+										)}
 									/>
 								)}
 							</section>
 							<section className="min-w-0 border-t border-border/45 lg:border-t-0">
 								<div className="border-b border-border/45 px-4 py-2.5">
-									<h3 className="font-medium text-[10px]">Process hotspots</h3>
+									<h3 className="font-medium text-[10px]">
+										{uiMessage("settings:diagnostics_pane_process_hotspots")}
+									</h3>
 								</div>
 								{performanceOverview?.hotspots.length ? (
 									<div className="divide-y divide-border/40">
@@ -1966,19 +2232,25 @@ export function DiagnosticsPane() {
 												</span>
 												<span
 													className="text-right font-mono tabular-nums"
-													title="Average CPU"
+													title={uiMessage(
+														"settings:diagnostics_pane_average_cpu",
+													)}
 												>
 													{item.averageCpuPercent.toFixed(1)}%
 												</span>
 												<span
 													className="text-right font-mono tabular-nums"
-													title="Peak memory"
+													title={uiMessage(
+														"settings:diagnostics_pane_peak_memory",
+													)}
 												>
 													{formatBytes(item.peakMemoryBytes)}
 												</span>
 												<span
 													className="text-right font-mono tabular-nums"
-													title="Idle wakeups per second"
+													title={uiMessage(
+														"settings:diagnostics_pane_idle_wakeups_per_second",
+													)}
 												>
 													{item.averageIdleWakeupsPerSecond.toFixed(1)}/s
 												</span>
@@ -1987,8 +2259,12 @@ export function DiagnosticsPane() {
 									</div>
 								) : (
 									<EmptyState
-										title="No process history"
-										description="Process CPU, memory, and wakeups appear after the first native sample."
+										title={uiMessage(
+											"settings:diagnostics_pane_no_process_history",
+										)}
+										description={uiMessage(
+											"settings:diagnostics_pane_process_cpu_memory_and_wakeups_appear_after_the_first_native_sample",
+										)}
 									/>
 								)}
 							</section>
@@ -1997,7 +2273,9 @@ export function DiagnosticsPane() {
 							<section className="min-w-0">
 								<div className="border-b border-border/45 px-4 py-2.5">
 									<h3 className="font-medium text-[10px]">
-										Slow operations and trace health
+										{uiMessage(
+											"settings:diagnostics_pane_slow_operations_and_trace_health",
+										)}
 									</h3>
 								</div>
 								{overview?.slowestOperations.length ? (
@@ -2023,35 +2301,43 @@ export function DiagnosticsPane() {
 									</div>
 								) : (
 									<EmptyState
-										title="No slow operations"
-										description="Instrumented operations taking at least one second will appear here."
+										title={uiMessage(
+											"settings:diagnostics_pane_no_slow_operations",
+										)}
+										description={uiMessage(
+											"settings:diagnostics_pane_instrumented_operations_taking_at_least_one_second_will_appear_here",
+										)}
 									/>
 								)}
 							</section>
 							<section className="min-w-0 border-t border-border/45 p-4 lg:border-t-0">
 								<h3 className="font-medium text-[10px]">
-									Performance recording
+									{uiMessage("settings:diagnostics_pane_performance_recording")}
 								</h3>
 								<p className="mt-1 text-[9px] leading-4 text-muted-foreground">
-									Captures five-second process samples locally. Energy readings
-									are estimates; exact temperature is shown only when the system
-									exposes a reliable sensor. On macOS, starting a recording may
-									request administrator authorization for the fixed system
-									energy profiler.
+									{uiMessage(
+										"settings:diagnostics_pane_captures_five_second_process_samples_locally_energy_readings_are_estim",
+									)}
 								</p>
 								{powerState?.activeRecording ? (
 									<div className="mt-3 rounded-md border border-border/45 bg-muted/25 p-3">
 										<div className="flex items-center justify-between gap-3">
 											<div>
 												<p className="font-medium text-[10px]">
-													Recording in progress
+													{uiMessage(
+														"settings:diagnostics_pane_recording_in_progress",
+													)}
 												</p>
 												<p className="mt-1 font-mono text-[9px] text-muted-foreground tabular-nums">
-													{powerState.activeRecording.sampleCount} samples ·
-													ends{" "}
+													{powerState.activeRecording.sampleCount}
+													{uiMessage("settings:diagnostics_pane_samples_ends")}{" "}
 													{formatTimestamp(powerState.activeRecording.endsAt)}
 													{powerState.activeRecording.deepProfileStatus
-														? ` · energy ${powerState.activeRecording.deepProfileStatus}`
+														? uiMessage("settings:diagnostics_pane_energy", {
+																value1: String(
+																	powerState.activeRecording.deepProfileStatus,
+																),
+															})
 														: ""}
 												</p>
 											</div>
@@ -2062,7 +2348,7 @@ export function DiagnosticsPane() {
 												loading={recordingBusy === "stopping"}
 												onClick={() => void stopPerformanceRecording()}
 											>
-												Stop recording
+												{uiMessage("settings:diagnostics_pane_stop_recording")}
 											</Button>
 										</div>
 									</div>
@@ -2072,7 +2358,9 @@ export function DiagnosticsPane() {
 											htmlFor="performance-recording-duration"
 											className="sr-only"
 										>
-											Recording duration
+											{uiMessage(
+												"settings:diagnostics_pane_recording_duration",
+											)}
 										</label>
 										<select
 											id="performance-recording-duration"
@@ -2086,9 +2374,15 @@ export function DiagnosticsPane() {
 											}
 											className="h-7 rounded-md border border-border/55 bg-background px-2 text-[10px] outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11"
 										>
-											<option value={5}>5 minutes</option>
-											<option value={15}>15 minutes</option>
-											<option value={30}>30 minutes</option>
+											<option value={5}>
+												{uiMessage("settings:diagnostics_pane_5_minutes")}
+											</option>
+											<option value={15}>
+												{uiMessage("settings:diagnostics_pane_15_minutes")}
+											</option>
+											<option value={30}>
+												{uiMessage("settings:diagnostics_pane_30_minutes")}
+											</option>
 										</select>
 										<Button
 											size="sm"
@@ -2096,7 +2390,7 @@ export function DiagnosticsPane() {
 											loading={recordingBusy === "starting"}
 											onClick={() => void startPerformanceRecording()}
 										>
-											Start recording
+											{uiMessage("settings:diagnostics_pane_start_recording")}
 										</Button>
 										<Button
 											size="sm"
@@ -2106,35 +2400,54 @@ export function DiagnosticsPane() {
 											loading={recordingBusy === "exporting"}
 											onClick={() => void exportPerformanceRecording()}
 										>
-											Export latest
+											{uiMessage("settings:diagnostics_pane_export_latest")}
 										</Button>
 									</div>
 								)}
 								<div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[9px] text-muted-foreground">
-									<span>Battery source</span>
-									<span className="text-right font-mono">
-										{latestPowerSnapshot?.powerSource ?? "unknown"}
+									<span>
+										{uiMessage("settings:diagnostics_pane_battery_source")}
 									</span>
-									<span>Temperature sensor</span>
+									<span className="text-right font-mono">
+										{latestPowerSnapshot?.powerSource ??
+											uiMessage("settings:diagnostics_pane_unknown")}
+									</span>
+									<span>
+										{uiMessage("settings:diagnostics_pane_temperature_sensor")}
+									</span>
 									<span className="text-right">
 										{performanceHistory?.capabilities.exactTemperature.state ===
 										"supported"
-											? "Available"
-											: "Unavailable"}
+											? uiMessage("settings:diagnostics_pane_available")
+											: uiMessage("settings:diagnostics_pane_unavailable")}
 									</span>
-									<span>Local resource storage</span>
+									<span>
+										{uiMessage(
+											"settings:diagnostics_pane_local_resource_storage",
+										)}
+									</span>
 									<span className="text-right font-mono">
 										{formatBytes(performanceHistory?.storageBytes ?? 0)}
 									</span>
 									{powerState?.latestRecording?.deepEnergy?.status ===
 										"complete" && (
 										<>
-											<span>Latest combined package power</span>
+											<span>
+												{uiMessage(
+													"settings:diagnostics_pane_latest_combined_package_power",
+												)}
+											</span>
 											<span className="text-right font-mono">
 												{powerState.latestRecording.deepEnergy
 													.combinedPowerMw === null
-													? "Unavailable"
-													: `${powerState.latestRecording.deepEnergy.combinedPowerMw.toFixed(0)} mW`}
+													? uiMessage("settings:diagnostics_pane_unavailable")
+													: uiMessage("settings:diagnostics_pane_mw", {
+															value1: String(
+																powerState.latestRecording.deepEnergy.combinedPowerMw.toFixed(
+																	0,
+																),
+															),
+														})}
 											</span>
 										</>
 									)}
@@ -2146,17 +2459,24 @@ export function DiagnosticsPane() {
 			)}
 
 			{view === "processes" && (
-				<Frame aria-label="Live processes">
+				<Frame
+					aria-label={uiMessage("settings:diagnostics_pane_live_processes")}
+				>
 					<FrameHeader className="flex w-full flex-row items-center justify-between gap-3 px-3 py-2.5">
 						<div>
-							<FrameTitle className="text-[12px]">Live processes</FrameTitle>
+							<FrameTitle className="text-[12px]">
+								{uiMessage("settings:diagnostics_pane_live_processes")}
+							</FrameTitle>
 							<FrameDescription className="text-[9px] leading-3.5">
-								Server-owned helpers. Process ancestry is validated again before
-								every signal.
+								{uiMessage(
+									"settings:diagnostics_pane_server_owned_helpers_process_ancestry_is_validated_again_before_every",
+								)}
 							</FrameDescription>
 						</div>
 						<p className="shrink-0 font-mono text-[9px] text-muted-foreground tabular-nums">
-							{processes?.processes.length ?? 0} running
+							{uiMessage("settings:diagnostics_pane_running_sentence", {
+								value: processes?.processes.length ?? 0,
+							})}
 						</p>
 					</FrameHeader>
 					<FramePanel className="overflow-hidden p-0">
@@ -2164,19 +2484,33 @@ export function DiagnosticsPane() {
 							<div className="flex items-center gap-2 border-b border-border/45 bg-warning/8 px-4 py-2.5 text-[10px] text-warning">
 								<AlertTriangle className="size-3.5" />
 								{processes.error ??
-									"Process sampling is not supported on this platform."}
+									uiMessage(
+										"settings:diagnostics_pane_process_sampling_is_not_supported_on_this_platform",
+									)}
 							</div>
 						)}
 						<div className="overflow-x-auto">
 							<table className="w-full min-w-[780px] text-left text-[10px]">
 								<thead className="border-b border-border/45 text-[9px] text-muted-foreground uppercase tracking-wider">
 									<tr>
-										<th className="px-4 py-2">Process</th>
-										<th className="px-3 py-2 text-right">CPU</th>
-										<th className="px-3 py-2 text-right">Memory</th>
-										<th className="px-3 py-2">Command</th>
-										<th className="px-3 py-2 text-right">PID</th>
-										<th className="px-4 py-2 text-right">Actions</th>
+										<th className="px-4 py-2">
+											{uiMessage("settings:diagnostics_pane_process")}
+										</th>
+										<th className="px-3 py-2 text-right">
+											{uiMessage("settings:diagnostics_pane_cpu")}
+										</th>
+										<th className="px-3 py-2 text-right">
+											{uiMessage("settings:diagnostics_pane_memory")}
+										</th>
+										<th className="px-3 py-2">
+											{uiMessage("settings:diagnostics_pane_command")}
+										</th>
+										<th className="px-3 py-2 text-right">
+											{uiMessage("settings:diagnostics_pane_pid")}
+										</th>
+										<th className="px-4 py-2 text-right">
+											{uiMessage("settings:diagnostics_pane_actions")}
+										</th>
 									</tr>
 								</thead>
 								<tbody className="divide-y divide-border/40">
@@ -2216,7 +2550,7 @@ export function DiagnosticsPane() {
 															void signalProcess(item.pid, "interrupt")
 														}
 													>
-														Interrupt
+														{uiMessage("settings:diagnostics_pane_interrupt")}
 													</Button>
 													<Button
 														size="sm"
@@ -2225,7 +2559,7 @@ export function DiagnosticsPane() {
 														disabled={item.pid === processes.serverPid}
 														onClick={() => void signalProcess(item.pid, "kill")}
 													>
-														Kill
+														{uiMessage("settings:diagnostics_pane_kill")}
 													</Button>
 												</div>
 											</td>
@@ -2236,10 +2570,14 @@ export function DiagnosticsPane() {
 							{!loading && !processes?.processes.length && (
 								<EmptyState
 									icon={Server}
-									title="No helper processes"
+									title={uiMessage(
+										"settings:diagnostics_pane_no_helper_processes",
+									)}
 									description={
 										processes?.error ??
-										"No live descendants are owned by the diagnostics root."
+										uiMessage(
+											"settings:diagnostics_pane_no_live_descendants_are_owned_by_the_diagnostics_root",
+										)
 									}
 								/>
 							)}
@@ -2249,24 +2587,40 @@ export function DiagnosticsPane() {
 			)}
 
 			{view === "storage" && (
-				<Frame aria-label="Diagnostics storage and privacy">
+				<Frame
+					aria-label={uiMessage(
+						"settings:diagnostics_pane_diagnostics_storage_and_privacy",
+					)}
+				>
 					<FrameHeader className="px-3 py-2.5">
-						<FrameTitle className="text-[12px]">Storage and privacy</FrameTitle>
+						<FrameTitle className="text-[12px]">
+							{uiMessage("settings:diagnostics_pane_storage_and_privacy")}
+						</FrameTitle>
 						<FrameDescription className="text-[9px] leading-3.5">
-							Diagnostics stay on this device unless you explicitly export them.
+							{uiMessage(
+								"settings:diagnostics_pane_diagnostics_stay_on_this_device_unless_you_explicitly_export_them",
+							)}
 						</FrameDescription>
 					</FrameHeader>
 					<FramePanel className="overflow-hidden p-0">
 						<div className="grid divide-y divide-border/45 md:grid-cols-3 md:divide-x md:divide-y-0">
 							<div className="p-4">
-								<p className="font-medium text-[10px]">Retention</p>
-								<p className="mt-1 font-mono text-sm tabular-nums">7 days</p>
+								<p className="font-medium text-[10px]">
+									{uiMessage("settings:diagnostics_pane_retention")}
+								</p>
+								<p className="mt-1 font-mono text-sm tabular-nums">
+									{uiMessage("settings:diagnostics_pane_7_days")}
+								</p>
 								<p className="mt-1 text-[9px] text-muted-foreground">
-									Incidents and five-minute operation rollups are pruned by age.
+									{uiMessage(
+										"settings:diagnostics_pane_incidents_and_five_minute_operation_rollups_are_pruned_by_age",
+									)}
 								</p>
 							</div>
 							<div className="p-4">
-								<p className="font-medium text-[10px]">Local usage</p>
+								<p className="font-medium text-[10px]">
+									{uiMessage("settings:diagnostics_pane_local_usage")}
+								</p>
 								<p className="mt-1 font-mono text-sm tabular-nums">
 									{formatBytes(
 										(overview?.storageBytes ?? 0) +
@@ -2274,17 +2628,23 @@ export function DiagnosticsPane() {
 									)}
 								</p>
 								<p className="mt-1 text-[9px] text-muted-foreground">
-									Includes events and performance history on this device.
+									{uiMessage(
+										"settings:diagnostics_pane_includes_events_and_performance_history_on_this_device",
+									)}
 								</p>
 							</div>
 							<div className="min-h-[128px] p-4">
 								<div className="flex items-start justify-between gap-3">
 									<div>
-										<p className="font-medium text-[10px]">Incident capture</p>
+										<p className="font-medium text-[10px]">
+											{uiMessage("settings:diagnostics_pane_incident_capture")}
+										</p>
 										<p className="mt-1 text-sm" aria-live="polite">
 											{overview?.captureMode === "full"
-												? "Full trace active"
-												: "On"}
+												? uiMessage(
+														"settings:diagnostics_pane_full_trace_active",
+													)
+												: uiMessage("settings:diagnostics_pane_on")}
 										</p>
 									</div>
 									{overview?.captureMode === "full" &&
@@ -2292,7 +2652,9 @@ export function DiagnosticsPane() {
 											<span
 												className="font-mono text-[10px] text-warning tabular-nums"
 												role="timer"
-												aria-label="Full trace time remaining"
+												aria-label={uiMessage(
+													"settings:diagnostics_pane_full_trace_time_remaining",
+												)}
 											>
 												{formatCaptureCountdown(
 													overview.fullCaptureEndsAt,
@@ -2314,14 +2676,22 @@ export function DiagnosticsPane() {
 										<SelectTrigger
 											size="sm"
 											className="w-[78px] min-w-0"
-											aria-label="Full trace duration"
+											aria-label={uiMessage(
+												"settings:diagnostics_pane_full_trace_duration",
+											)}
 										>
 											<SelectValue />
 										</SelectTrigger>
 										<SelectPopup>
-											<SelectItem value="5">5 min</SelectItem>
-											<SelectItem value="15">15 min</SelectItem>
-											<SelectItem value="30">30 min</SelectItem>
+											<SelectItem value="5">
+												{uiMessage("settings:diagnostics_pane_5_min")}
+											</SelectItem>
+											<SelectItem value="15">
+												{uiMessage("settings:diagnostics_pane_15_min")}
+											</SelectItem>
+											<SelectItem value="30">
+												{uiMessage("settings:diagnostics_pane_30_min")}
+											</SelectItem>
 										</SelectPopup>
 									</Select>
 									<Button
@@ -2335,23 +2705,31 @@ export function DiagnosticsPane() {
 										onClick={() => void updateCapture()}
 									>
 										{overview?.captureMode === "full"
-											? "Stop full trace"
-											: "Start full trace"}
+											? uiMessage("settings:diagnostics_pane_stop_full_trace")
+											: uiMessage("settings:diagnostics_pane_start_full_trace")}
 									</Button>
 								</div>
 								<p className="mt-2 text-[9px] text-muted-foreground">
-									{formatCount.format(overview?.droppedEventCount ?? 0)} dropped
-									· Secrets and conversation content excluded.
+									{uiMessage(
+										"settings:diagnostics_pane_dropped_secrets_and_conversation_content_excluded_sentence",
+										{
+											value: formatCount.format(
+												overview?.droppedEventCount ?? 0,
+											),
+										},
+									)}
 								</p>
 							</div>
 						</div>
 						<div className="border-t border-border/45 p-4">
 							<div className="max-w-2xl">
-								<h3 className="font-medium text-[11px]">Support bundle</h3>
+								<h3 className="font-medium text-[11px]">
+									{uiMessage("settings:diagnostics_pane_support_bundle")}
+								</h3>
 								<p className="mt-1 text-[10px] text-muted-foreground leading-4">
-									Creates a sanitized local bundle for the selected time range.
-									Prompts, transcripts, files, terminal output, credentials,
-									environment values, and URL query strings remain excluded.
+									{uiMessage(
+										"settings:diagnostics_pane_creates_a_sanitized_local_bundle_for_the_selected_time_range_prompts_t",
+									)}
 								</p>
 							</div>
 							<div className="mt-4 flex flex-wrap gap-2">
@@ -2362,7 +2740,7 @@ export function DiagnosticsPane() {
 									onClick={() => void exportBundle()}
 								>
 									<Archive />
-									Export support bundle
+									{uiMessage("settings:diagnostics_pane_export_support_bundle")}
 								</Button>
 								<Button
 									size="sm"
@@ -2375,7 +2753,9 @@ export function DiagnosticsPane() {
 									}
 								>
 									<ExternalLink />
-									Open diagnostics folder
+									{uiMessage(
+										"settings:diagnostics_pane_open_diagnostics_folder",
+									)}
 								</Button>
 								<Button
 									size="sm"
@@ -2383,7 +2763,9 @@ export function DiagnosticsPane() {
 									className="h-7 gap-1.5 px-2.5 !text-[10px]"
 									onClick={() => void clearPerformanceHistory()}
 								>
-									Clear performance history
+									{uiMessage(
+										"settings:diagnostics_pane_clear_performance_history",
+									)}
 								</Button>
 							</div>
 						</div>
@@ -2397,9 +2779,13 @@ export function DiagnosticsPane() {
 			>
 				<DialogPopup className="max-w-lg">
 					<DialogHeader>
-						<DialogTitle className="text-base">Issue details</DialogTitle>
+						<DialogTitle className="text-base">
+							{uiMessage("settings:diagnostics_pane_issue_details")}
+						</DialogTitle>
 						<DialogDescription className="text-[10px]">
-							Sanitized diagnostic context and related occurrences.
+							{uiMessage(
+								"settings:diagnostics_pane_sanitized_diagnostic_context_and_related_occurrences",
+							)}
 						</DialogDescription>
 					</DialogHeader>
 					<DialogPanel className="p-0" scrollFade={false}>

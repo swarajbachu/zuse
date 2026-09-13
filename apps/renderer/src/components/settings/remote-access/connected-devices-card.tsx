@@ -1,13 +1,15 @@
+import { formatDate as formatUiDate } from "@zuse/i18n";
+import "@zuse/i18n/english/settings";
 import type { AuthTokenSummary } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Monitor, Smartphone } from "lucide-react";
 import { useCallback, useState } from "react";
-
+import { dispatchLocalDeviceCommand } from "../../../lib/local-device-client-bus.ts";
 import {
 	accessDeviceKind,
 	deviceAccessCopy,
 	groupPairedDeviceTokens,
 } from "../../../lib/paired-phones.ts";
-import { dispatchLocalDeviceCommand } from "../../../lib/local-device-client-bus.ts";
 import {
 	AlertDialog,
 	AlertDialogClose,
@@ -33,6 +35,8 @@ export function ConnectedDevicesCard({
 	readonly onTokens: (tokens: ReadonlyArray<AuthTokenSummary>) => void;
 	readonly refresh: () => Promise<void>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const [legacyRevokeOpen, setLegacyRevokeOpen] = useState(false);
 	const [legacyRevokeBusy, setLegacyRevokeBusy] = useState(false);
 
@@ -89,7 +93,9 @@ export function ConnectedDevicesCard({
 		<Frame>
 			<RemoteAccessSectionHeader
 				title={deviceAccessCopy.pairedTitle}
-				tooltip="Devices authorized to open this computer’s projects and chats."
+				tooltip={uiMessage(
+					"settings:connected_devices_card_devices_authorized_to_open_this_computer_s_projects_and_chats",
+				)}
 			/>
 			<Card className="overflow-hidden">
 				{hasActiveTokens ? (
@@ -119,8 +125,24 @@ export function ConnectedDevicesCard({
 									</p>
 									<p className="text-[11px] text-muted-foreground">
 										{token.lastUsedAt
-											? `Last connected ${token.lastUsedAt.toLocaleString()}`
-											: "Not connected yet"}
+											? uiMessage(
+													"settings:connected_devices_card_last_connected",
+													{
+														value1: String(
+															formatUiDate(token.lastUsedAt, {
+																year: "numeric",
+																month: "numeric",
+																day: "numeric",
+																hour: "numeric",
+																minute: "numeric",
+																second: "numeric",
+															}),
+														),
+													},
+												)
+											: uiMessage(
+													"settings:connected_devices_card_not_connected_yet",
+												)}
 									</p>
 								</div>
 								<Button
@@ -128,7 +150,7 @@ export function ConnectedDevicesCard({
 									variant="destructive-outline"
 									onClick={() => void revokeToken(token)}
 								>
-									Revoke
+									{uiMessage("settings:connected_devices_card_revoke")}
 								</Button>
 							</div>
 						))}
@@ -140,12 +162,18 @@ export function ConnectedDevicesCard({
 								/>
 								<div className="min-w-0 flex-1">
 									<p className="truncate text-xs font-medium">
-										Older device access
+										{uiMessage(
+											"settings:connected_devices_card_older_device_access",
+										)}
 									</p>
 									<p className="text-[11px] text-muted-foreground">
-										{legacyCredentials.length} access credential
-										{legacyCredentials.length === 1 ? "" : "s"} from an earlier
-										version
+										{uiMessage(
+											"settings:connected_devices_card_access_credential_plural0_from_an_earlier_version_sentence",
+											{
+												value: legacyCredentials.length ?? "",
+												count: legacyCredentials.length,
+											},
+										)}
 									</p>
 								</div>
 								<Button
@@ -153,14 +181,16 @@ export function ConnectedDevicesCard({
 									variant="destructive-outline"
 									onClick={() => setLegacyRevokeOpen(true)}
 								>
-									Revoke all
+									{uiMessage("settings:connected_devices_card_revoke_all")}
 								</Button>
 							</div>
 						)}
 					</div>
 				) : (
 					<p className="px-3 py-4 text-[11px] text-muted-foreground">
-						No other devices are connected yet.
+						{uiMessage(
+							"settings:connected_devices_card_no_other_devices_are_connected_yet",
+						)}
 					</p>
 				)}
 			</Card>
@@ -173,25 +203,35 @@ export function ConnectedDevicesCard({
 			>
 				<AlertDialogPopup>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Revoke older device access?</AlertDialogTitle>
+						<AlertDialogTitle>
+							{uiMessage(
+								"settings:connected_devices_card_revoke_older_device_access",
+							)}
+						</AlertDialogTitle>
 						<AlertDialogDescription>
-							This removes {legacyCredentials.length} older access credential
-							{legacyCredentials.length === 1 ? "" : "s"}. Any browser or device
-							still using them will need to connect again.
+							{uiMessage(
+								"settings:connected_devices_card_this_removes_older_access_credential_plural0_any_browser_or_sentence",
+								{
+									value: legacyCredentials.length ?? "",
+									count: legacyCredentials.length,
+								},
+							)}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogClose
 							render={<Button variant="outline" disabled={legacyRevokeBusy} />}
 						>
-							Cancel
+							{uiMessage("common:cancel")}
 						</AlertDialogClose>
 						<Button
 							variant="destructive"
 							disabled={legacyRevokeBusy}
 							onClick={() => void revokeTokens(legacyCredentials)}
 						>
-							{legacyRevokeBusy ? "Revoking…" : "Revoke access"}
+							{legacyRevokeBusy
+								? uiMessage("settings:connected_devices_card_revoking")
+								: uiMessage("settings:connected_devices_card_revoke_access")}
 						</Button>
 					</AlertDialogFooter>
 				</AlertDialogPopup>

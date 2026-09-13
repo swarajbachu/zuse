@@ -1,0 +1,37 @@
+{
+	"name": "@zuse/i18n",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./react": "./src/react.tsx",
+		"./locales": "./src/locales.ts",
+		"./english/*": "./src/generated/english/*.ts",
+		"./registry": "./src/registry.ts",
+		"./website/react": "./src/website/react.tsx",
+		"./website/server": "./src/website/server.ts",
+		"./website/types": "./src/generated/website.ts",
+		"./detection": "./src/detection.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit",
+		"test:integration": "vitest run test/integration --passWithNoTests"
+	},
+	"dependencies": {
+		"@zuse/contracts": "workspace:*",
+		"i18next": "^25.4.0",
+		"react-i18next": "^15.7.0"
+	},
+	"peerDependencies": {
+		"react": "^19.2.0"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/react": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

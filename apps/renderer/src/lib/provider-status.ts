@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/shell";
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 
 /**
  * Visual treatment per server-reported provider status. Centralized so the
@@ -64,7 +66,7 @@ export function getProviderStatusNotice(
 			: statusMessage;
 	return {
 		key: "codex-provider-status",
-		title: "Codex provider status",
+		title: uiMessage("shell:provider_status_codex_provider_status"),
 		description,
 	};
 }

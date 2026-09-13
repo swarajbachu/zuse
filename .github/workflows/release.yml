@@ -161,6 +161,8 @@ jobs:
       - name: Set packaged version
         run: node scripts/desktop-release.mjs version
       - run: bun run icons:status --expect=paid
+      - name: Verify localization
+        run: bun run check:i18n
       - name: Build
         env:
           NODE_OPTIONS: --max-old-space-size=6144

@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ArrowDown02Icon,
 	ArrowTurnDownIcon,
@@ -57,11 +59,16 @@ export function CommandPaletteDialog<Value>({
 	emptyMessage?: string;
 	notice?: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	const listRef = useRef<HTMLDivElement | null>(null);
 	const listId = useId();
 	const confirmedRef = useRef(false);
-	const rows = useMemo(() => groups.flatMap((group) => group.items), [groups]);
+	const rows = useMemo(
+		() => groups.flatMap((group) => group.items),
+		[groups, uiMessage],
+	);
 	const [highlight, setHighlight] = useState(0);
 	const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 	useEffect(() => {
@@ -216,26 +223,33 @@ export function CommandPaletteDialog<Value>({
 							<span className="flex items-center gap-1.5">
 								<KbdGroup>
 									<Kbd>
-										<HugeiconsIcon icon={ArrowUp02Icon} aria-label="Up arrow" />
+										<HugeiconsIcon
+											icon={ArrowUp02Icon}
+											aria-label={uiMessage("chat:command_palette_up_arrow")}
+										/>
 									</Kbd>
 									<Kbd>
 										<HugeiconsIcon
 											icon={ArrowDown02Icon}
-											aria-label="Down arrow"
+											aria-label={uiMessage("chat:command_palette_down_arrow")}
 										/>
 									</Kbd>
 								</KbdGroup>
-								Navigate
+								{uiMessage("chat:command_palette_navigate")}
 							</span>
 							<span className="flex items-center gap-1.5">
 								<Kbd>
-									<HugeiconsIcon icon={ArrowTurnDownIcon} aria-label="Enter" />
+									<HugeiconsIcon
+										icon={ArrowTurnDownIcon}
+										aria-label={uiMessage("chat:command_palette_enter")}
+									/>
 								</Kbd>
-								Open
+								{uiMessage("common:open")}
 							</span>
 						</div>
 						<span className="flex items-center gap-1.5">
-							<Kbd>Esc</Kbd>Close
+							<Kbd>{uiMessage("chat:command_palette_esc")}</Kbd>
+							{uiMessage("common:close")}
 						</span>
 					</div>
 				</div>

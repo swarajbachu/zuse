@@ -1,5 +1,4 @@
 "use client";
-
 import {
 	IconCheck,
 	IconFileDiff,
@@ -7,52 +6,61 @@ import {
 	IconGitBranch,
 	IconListCheck,
 } from "@tabler/icons-react";
+import {
+	useWebsiteMessages,
+	type WebsiteMessage,
+} from "@zuse/i18n/website/react";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/components/tpl/agenforce/lib/utils";
 
-const ACTIVITY = [
-	{
-		icon: IconGitBranch,
-		title: "Branch",
-		detail: "agent/checkout-recovery",
-		badge: "4 COMMITS",
-	},
-	{
-		icon: IconFiles,
-		title: "Changed files",
-		detail: "9 modified · 2 added · 1 deleted",
-		badge: "12 FILES",
-	},
-	{
-		icon: IconFileDiff,
-		title: "Branch diff",
-		detail: "+182 additions · −47 deletions",
-		badge: "DIFF",
-	},
-	{
-		icon: IconListCheck,
-		title: "Uncommitted work",
-		detail: "3 files ready to review",
-		badge: "LOCAL",
-	},
-	{
-		icon: IconCheck,
-		title: "Review range ready",
-		detail: "Compared with origin/main",
-		badge: "READY",
-	},
-] as const;
+const getACTIVITY = (t: WebsiteMessage) =>
+	[
+		{
+			icon: IconGitBranch,
+			title: t("showcase:branch"),
+			detail: "agent/checkout-recovery",
+			badge: t("showcase:4_commits"),
+		},
+		{
+			icon: IconFiles,
+			title: t("showcase:changed_files"),
+			detail: "9 modified · 2 added · 1 deleted",
+			badge: t("showcase:12_files"),
+		},
+		{
+			icon: IconFileDiff,
+			title: t("showcase:branch_diff"),
+			detail: "+182 additions · −47 deletions",
+			badge: t("showcase:diff_2"),
+		},
+		{
+			icon: IconListCheck,
+			title: t("showcase:uncommitted_work"),
+			detail: "3 files ready to review",
+			badge: t("showcase:local"),
+		},
+		{
+			icon: IconCheck,
+			title: t("showcase:review_range_ready"),
+			detail: "Compared with origin/main",
+			badge: t("showcase:ready"),
+		},
+	] as const;
 
 export const SkeletonOne = () => {
+	const { message: t } = useWebsiteMessages();
+
 	const reduceMotion = useReducedMotion();
 	return (
 		<div className="border-border bg-elevated absolute inset-x-10 inset-y-2 mx-auto flex h-full w-full flex-1 flex-col gap-2 rounded-t-3xl border px-2 pt-2">
 			<div className="bg-card ring-border/70 flex flex-1 flex-col items-start gap-3 rounded-tl-2xl ring-1 shadow-lg shadow-black/5">
 				<div className="border-border flex w-full items-center gap-2 border-b px-4 py-2">
 					<IconFileDiff className="text-primary size-4" />
-					<p className="text-heading text-sm font-bold">Branch review</p>
+					<p className="text-heading text-sm font-bold">
+						{t("showcase:branch_review")}
+					</p>
 				</div>
-				{ACTIVITY.map((item, index) => (
+				{getACTIVITY(t).map((item, index) => (
 					<motion.div
 						key={item.title}
 						initial={false}

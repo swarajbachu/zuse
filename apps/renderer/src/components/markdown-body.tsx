@@ -1,8 +1,10 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	containsUnsafeMermaidSource,
 	mermaidSecurityConfig,
 } from "@zuse/client-runtime/mermaid-source-policy";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Maximize02Icon,
 	MoveIcon,
@@ -62,6 +64,8 @@ function MarkdownLink({
 }: ComponentProps<"a"> & {
 	readonly onNavigate: (e: ReactMouseEvent<HTMLAnchorElement>) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [menuAnchor, setMenuAnchor] = useState<{
 		readonly x: number;
 		readonly y: number;
@@ -75,7 +79,7 @@ function MarkdownLink({
 						getBoundingClientRect: () =>
 							new DOMRect(menuAnchor.x, menuAnchor.y, 0, 0),
 					},
-		[menuAnchor],
+		[menuAnchor, uiMessage],
 	);
 
 	if (typeof href !== "string") {
@@ -116,7 +120,7 @@ function MarkdownLink({
 						void navigator.clipboard?.writeText(href);
 					}}
 				>
-					Copy link
+					{uiMessage("chat:markdown_body_copy_link")}
 				</MenuItem>
 				<MenuItem
 					onClick={() => {
@@ -125,7 +129,7 @@ function MarkdownLink({
 						}
 					}}
 				>
-					Open link
+					{uiMessage("chat:markdown_body_open_link")}
 				</MenuItem>
 			</MenuPopup>
 		</Menu>
@@ -266,6 +270,8 @@ function MermaidPanZoom({
 	toolbarExtra?: ReactNode;
 	resetOnMount?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const viewerRef = useRef<HTMLDivElement | null>(null);
 	const [scale, setScale] = useState(1);
 	const dragRef = useRef<{
@@ -338,7 +344,7 @@ function MermaidPanZoom({
 		<div className={cn("markdown-mermaid-shell", className)}>
 			<div className="markdown-mermaid-viewer-controls">
 				<Button
-					aria-label="Zoom out"
+					aria-label={uiMessage("chat:markdown_body_zoom_out")}
 					size="icon-xs"
 					variant="ghost"
 					onClick={() => zoomBy(-0.2)}
@@ -349,7 +355,7 @@ function MermaidPanZoom({
 					{Math.round(scale * 100)}%
 				</div>
 				<Button
-					aria-label="Zoom in"
+					aria-label={uiMessage("chat:markdown_body_zoom_in")}
 					size="icon-xs"
 					variant="ghost"
 					onClick={() => zoomBy(0.2)}
@@ -357,7 +363,7 @@ function MermaidPanZoom({
 					<HugeiconsIcon icon={ZoomInAreaIcon} />
 				</Button>
 				<Button
-					aria-label="Reset view"
+					aria-label={uiMessage("chat:markdown_body_reset_view")}
 					size="icon-xs"
 					variant="ghost"
 					onClick={resetView}
@@ -399,6 +405,8 @@ function MermaidViewerDialog({
 	onOpenChange: (open: boolean) => void;
 	svg: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogPopup
@@ -408,9 +416,13 @@ function MermaidViewerDialog({
 				<DialogHeader className="border-b bg-background px-5 py-4">
 					<div className="flex min-w-0 items-center justify-between gap-3 pr-8">
 						<div className="min-w-0">
-							<DialogTitle className="text-base">Mermaid diagram</DialogTitle>
+							<DialogTitle className="text-base">
+								{uiMessage("chat:markdown_body_mermaid_diagram")}
+							</DialogTitle>
 							<DialogDescription className="sr-only">
-								Expanded Mermaid diagram viewer.
+								{uiMessage(
+									"chat:markdown_body_expanded_mermaid_diagram_viewer",
+								)}
 							</DialogDescription>
 						</div>
 					</div>
@@ -426,11 +438,13 @@ function MermaidViewerDialog({
 }
 
 function MermaidDiagram({ source }: { source: string }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const unsafeSource = containsUnsafeMermaidSource(source);
 	const id = useMemo(() => {
 		mermaidId += 1;
 		return `markdown-mermaid-${mermaidId}`;
-	}, []);
+	}, [uiMessage]);
 	const [viewerOpen, setViewerOpen] = useState(false);
 	const [state, setState] = useState<
 		| { status: "loading" }
@@ -484,7 +498,10 @@ function MermaidDiagram({ source }: { source: string }) {
 		return (
 			<div className="markdown-mermaid-block markdown-mermaid-block-error">
 				<div className="markdown-mermaid-error" role="alert">
-					Could not render Mermaid diagram: {state.message}
+					{uiMessage(
+						"chat:markdown_body_could_not_render_mermaid_diagram_sentence",
+						{ value: state.message },
+					)}
 				</div>
 				<div className="markdown-code-block">
 					<CodeBlock
@@ -501,7 +518,9 @@ function MermaidDiagram({ source }: { source: string }) {
 	return (
 		<div className="markdown-mermaid-block">
 			{state.status === "loading" ? (
-				<div className="markdown-mermaid-loading">Rendering diagram...</div>
+				<div className="markdown-mermaid-loading">
+					{uiMessage("chat:markdown_body_rendering_diagram")}
+				</div>
 			) : (
 				<>
 					<MermaidPanZoom
@@ -509,7 +528,7 @@ function MermaidDiagram({ source }: { source: string }) {
 						svg={state.svg}
 						toolbarExtra={
 							<Button
-								aria-label="Open diagram viewer"
+								aria-label={uiMessage("chat:markdown_body_open_diagram_viewer")}
 								size="icon-xs"
 								variant="ghost"
 								onClick={() => setViewerOpen(true)}

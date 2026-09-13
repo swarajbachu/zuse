@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/errors";
+import { message as uiMessage } from "@zuse/i18n";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -20,58 +22,148 @@ const diagnosticErrorType = (value: unknown): string => {
 // fall through to a raw JSON dump like `{ "folderId": "…" }`. Map them to
 // human copy here so any surface that formats them stays readable.
 const TAG_MESSAGES: Record<string, string> = {
-	PermissionRequestExpiredError:
-		"The agent restarted and this approval expired. Dismiss it and send a message to continue.",
-	PermissionRequestNotFoundError:
-		"This approval is no longer pending. It may have been resolved on another device.",
-	GitNotARepoError: "This folder isn't a Git repository.",
-	DirectoryUnavailableError: "This directory is unavailable.",
-	GitFolderNotFoundError: "Project folder not found.",
-	GitNotInstalledError: "Git is not installed.",
-	FsFolderNotFoundError: "Project folder not found.",
-	WorktreeNotFoundError: "Worktree not found.",
+	get PermissionRequestExpiredError() {
+		return uiMessage(
+			"errors:format_error_the_agent_restarted_and_this_approval_expired_dismiss_it_and_send",
+		);
+	},
+	get PermissionRequestNotFoundError() {
+		return uiMessage(
+			"errors:format_error_this_approval_is_no_longer_pending_it_may_have_been_resolved_on_a",
+		);
+	},
+	get GitNotARepoError() {
+		return uiMessage("errors:format_error_this_folder_isn_t_a_git_repository");
+	},
+	get DirectoryUnavailableError() {
+		return uiMessage("errors:format_error_this_directory_is_unavailable");
+	},
+	get GitFolderNotFoundError() {
+		return uiMessage("errors:format_error_project_folder_not_found");
+	},
+	get GitNotInstalledError() {
+		return uiMessage("errors:format_error_git_is_not_installed");
+	},
+	get FsFolderNotFoundError() {
+		return uiMessage("errors:format_error_project_folder_not_found");
+	},
+	get WorktreeNotFoundError() {
+		return uiMessage("errors:format_error_worktree_not_found");
+	},
 	// Transport failures ("SocketOpenError: An error occurred during Open")
 	// mean the computer on the other end is unreachable — say that instead.
-	SocketOpenError: "Couldn't reach the computer. It may be asleep or offline.",
-	SocketCloseError: "The connection to the computer was interrupted.",
-	SocketReadError: "The connection to the computer was interrupted.",
-	SocketWriteError: "The connection to the computer was interrupted.",
-	SocketError: "Couldn't reach the computer. It may be asleep or offline.",
-	ClientConnectionError:
-		"Couldn't reach the computer. It may be asleep or offline.",
+	get SocketOpenError() {
+		return uiMessage(
+			"errors:format_error_couldn_t_reach_the_computer_it_may_be_asleep_or_offline",
+		);
+	},
+	get SocketCloseError() {
+		return uiMessage(
+			"errors:format_error_the_connection_to_the_computer_was_interrupted",
+		);
+	},
+	get SocketReadError() {
+		return uiMessage(
+			"errors:format_error_the_connection_to_the_computer_was_interrupted",
+		);
+	},
+	get SocketWriteError() {
+		return uiMessage(
+			"errors:format_error_the_connection_to_the_computer_was_interrupted",
+		);
+	},
+	get SocketError() {
+		return uiMessage(
+			"errors:format_error_couldn_t_reach_the_computer_it_may_be_asleep_or_offline",
+		);
+	},
+	get ClientConnectionError() {
+		return uiMessage(
+			"errors:format_error_couldn_t_reach_the_computer_it_may_be_asleep_or_offline",
+		);
+	},
 };
 
 const CLOUD_WORKSPACE_CODE_MESSAGES: Readonly<Record<string, string>> = {
-	"not-found": "This cloud workspace could not be found.",
-	"not-allowed": "Cloud workspace access is not available for this account.",
-	"beta-access-required": "Zuse Cloud is currently invite-only.",
-	"beta-access-unavailable":
-		"Cloud access could not be verified. Try again shortly.",
-	"invalid-request": "The cloud workspace request is invalid.",
-	"entitlement-required": "A Cloud Sandbox subscription is required.",
-	"provider-unavailable":
-		"The cloud provider is temporarily unavailable. Try again shortly.",
-	"project-not-ready":
-		"This cloud project needs to be prepared again before starting a workspace.",
-	"credential-required":
-		"Connect GitHub and the selected agent in Cloud Sandbox settings, then try again.",
-	"branch-in-use":
-		"That branch is already open in another cloud workspace. Reuse it or choose another branch.",
-	conflict:
-		"The cloud workspace changed while starting. Refresh and try again.",
+	get "not-found"() {
+		return uiMessage(
+			"errors:format_error_this_cloud_workspace_could_not_be_found",
+		);
+	},
+	get "not-allowed"() {
+		return uiMessage(
+			"errors:format_error_cloud_workspace_access_is_not_available_for_this_account",
+		);
+	},
+	get "beta-access-required"() {
+		return uiMessage("errors:format_error_zuse_cloud_is_currently_invite_only");
+	},
+	get "beta-access-unavailable"() {
+		return uiMessage(
+			"errors:format_error_cloud_access_could_not_be_verified_try_again_shortly",
+		);
+	},
+	get "invalid-request"() {
+		return uiMessage(
+			"errors:format_error_the_cloud_workspace_request_is_invalid",
+		);
+	},
+	get "entitlement-required"() {
+		return uiMessage(
+			"errors:format_error_a_cloud_sandbox_subscription_is_required",
+		);
+	},
+	get "provider-unavailable"() {
+		return uiMessage(
+			"errors:format_error_the_cloud_provider_is_temporarily_unavailable_try_again_shortly",
+		);
+	},
+	get "project-not-ready"() {
+		return uiMessage(
+			"errors:format_error_this_cloud_project_needs_to_be_prepared_again_before_starting_a_w",
+		);
+	},
+	get "credential-required"() {
+		return uiMessage(
+			"errors:format_error_connect_github_and_the_selected_agent_in_cloud_sandbox_settings_t",
+		);
+	},
+	get "branch-in-use"() {
+		return uiMessage(
+			"errors:format_error_that_branch_is_already_open_in_another_cloud_workspace_reuse_it_o",
+		);
+	},
+	get conflict() {
+		return uiMessage(
+			"errors:format_error_the_cloud_workspace_changed_while_starting_refresh_and_try_again",
+		);
+	},
 };
 
 // `environments.list` / `environments.connect` surface api failures as
 // ConnectAuthError with a machine-readable reason. Map the reasons a user can
 // actually act on; unknown reasons fall through to the generic formatting.
 const CONNECT_AUTH_REASON_MESSAGES: Readonly<Record<string, string>> = {
-	"tunnel-unavailable":
-		"The other computer's secure tunnel isn't ready yet. Give it a moment, then try again.",
-	"not-allowed": "Sign in to your Zuse account to reach this computer.",
-	"not-found":
-		"This computer is no longer linked to your account. Run `zuse serve` on it again.",
-	"provider-unavailable":
-		"Zuse's api is temporarily unavailable. Try again shortly.",
+	get "tunnel-unavailable"() {
+		return uiMessage(
+			"errors:format_error_the_other_computer_s_secure_tunnel_isn_t_ready_yet_give_it_a_mome",
+		);
+	},
+	get "not-allowed"() {
+		return uiMessage(
+			"errors:format_error_sign_in_to_your_zuse_account_to_reach_this_computer",
+		);
+	},
+	get "not-found"() {
+		return uiMessage(
+			"errors:format_error_this_computer_is_no_longer_linked_to_your_account_run_zuse_serve",
+		);
+	},
+	get "provider-unavailable"() {
+		return uiMessage(
+			"errors:format_error_zuse_s_api_is_temporarily_unavailable_try_again_shortly",
+		);
+	},
 };
 
 const parseJsonRecord = (

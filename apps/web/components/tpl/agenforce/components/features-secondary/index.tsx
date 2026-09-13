@@ -1,3 +1,5 @@
+"use client";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import type React from "react";
 import { Container } from "@/components/tpl/agenforce/components/container";
 import {
@@ -10,6 +12,8 @@ import { SkeletonOne } from "./skeletons/first";
 import { SkeletonTwo } from "./skeletons/second";
 
 export const FeaturesSecondary = () => {
+	const { message: t } = useWebsiteMessages();
+
 	return (
 		<section
 			id="handoff"
@@ -20,11 +24,12 @@ export const FeaturesSecondary = () => {
 					<div>
 						<CardContent>
 							<h3 className="text-heading text-lg font-bold">
-								Plan with one model, continue with another
+								{t("showcase:plan_with_one_model_continue_with_another")}
 							</h3>
 							<CardDescription>
-								Start another provider session for implementation and attach the
-								plan, transcript, or files it needs.
+								{t(
+									"showcase:start_another_provider_session_for_implementation_and_attach_the_plan",
+								)}
 							</CardDescription>
 						</CardContent>
 						<CardSkeleton>
@@ -34,11 +39,12 @@ export const FeaturesSecondary = () => {
 					<div>
 						<CardContent>
 							<h3 className="text-heading text-lg font-bold">
-								Fork when a provider hits its limit
+								{t("showcase:fork_when_a_provider_hits_its_limit")}
 							</h3>
 							<CardDescription>
-								Fork the session to another provider and carry forward a copied
-								transcript or explicit handoff context.
+								{t(
+									"showcase:fork_the_session_to_another_provider_and_carry_forward_a_copied_transc",
+								)}
 							</CardDescription>
 						</CardContent>
 						<CardSkeleton className="mask-radial-from-50% mask-t-from-50%">
@@ -52,39 +58,42 @@ export const FeaturesSecondary = () => {
 						<div className="flex items-center gap-2">
 							<WorkflowIcon />
 							<h3 className="text-heading text-lg font-bold">
-								Pick a model per step
+								{t("showcase:pick_a_model_per_step")}
 							</h3>
 						</div>
 
 						<p className="text-muted-foreground mt-2 text-base">
-							Choose which agent handles planning, coding, and review — per
-							task, not per project.
+							{t(
+								"showcase:choose_which_agent_handles_planning_coding_and_review_per_task_not_per",
+							)}
 						</p>
 					</div>
 					<div>
 						<div className="flex items-center gap-2">
 							<IntegrationIcon />
 							<h3 className="text-heading text-lg font-bold">
-								Attach the right context
+								{t("showcase:attach_the_right_context")}
 							</h3>
 						</div>
 
 						<p className="text-muted-foreground mt-2 text-base">
-							Add a plan, transcript, diff, or focused files when starting the
-							next session.
+							{t(
+								"showcase:add_a_plan_transcript_diff_or_focused_files_when_starting_the_next_ses",
+							)}
 						</p>
 					</div>
 					<div>
 						<div className="flex items-center gap-2">
 							<HumanIcon />
 							<h3 className="text-heading text-lg font-bold">
-								You stay in control
+								{t("showcase:you_stay_in_control")}
 							</h3>
 						</div>
 
 						<p className="text-muted-foreground mt-2 text-base">
-							Choose the provider and model for each session, then decide what
-							context to carry forward.
+							{t(
+								"showcase:choose_the_provider_and_model_for_each_session_then_decide_what_contex",
+							)}
 						</p>
 					</div>
 				</div>

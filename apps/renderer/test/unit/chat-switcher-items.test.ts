@@ -156,3 +156,45 @@ it("keeps extension commands alongside built-in command search with stable ident
 		),
 	).not.toContain(extension);
 });
+
+it("refreshes settings search and extension section labels after a language change", async () => {
+	const { activateLocale, prepareLocale } = await import("@zuse/i18n");
+	try {
+		await prepareLocale("fr");
+		await activateLocale("fr");
+		const extension = {
+			kind: "extension" as const,
+			id: "code-follow-ups:scan",
+			label: "Code Follow-ups: Scan workspace",
+			run: async () => {},
+		};
+		expect(chatSwitcherSections([], ">", [extension])).toContainEqual({
+			label: "Commandes d’extensions",
+			rows: [extension],
+		});
+		expect(
+			chatSwitcherSections([], "Extensions").flatMap((section) => section.rows),
+		).toContainEqual(
+			expect.objectContaining({
+				kind: "settings",
+				label: "Extensions",
+				section: { kind: "extensions" },
+			}),
+		);
+		await prepareLocale("de");
+		await activateLocale("de");
+		expect(
+			chatSwitcherSections([], "Erweiterungen").flatMap(
+				(section) => section.rows,
+			),
+		).toContainEqual(
+			expect.objectContaining({
+				kind: "settings",
+				label: "Erweiterungen",
+				section: { kind: "extensions" },
+			}),
+		);
+	} finally {
+		await activateLocale("en");
+	}
+});

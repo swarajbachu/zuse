@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/usage";
+import { message as uiMessage } from "@zuse/i18n";
 export const usagePace = (
 	usedPercent: number | null,
 	resetsAt: string | null,
@@ -13,6 +15,18 @@ export const usagePace = (
 	const reserve = (elapsed / duration) * 100 - usedPercent;
 	const rounded = Math.round(Math.abs(reserve));
 	return reserve >= 0
-		? { reserve, label: `+${rounded}% in reserve`, tone: "reserve" }
-		: { reserve, label: `${rounded}% over pace`, tone: "over" };
+		? {
+				reserve,
+				label: uiMessage("usage:usage_pace_in_reserve", {
+					rounded: String(rounded),
+				}),
+				tone: "reserve",
+			}
+		: {
+				reserve,
+				label: uiMessage("usage:usage_pace_over_pace", {
+					rounded: String(rounded),
+				}),
+				tone: "over",
+			};
 };

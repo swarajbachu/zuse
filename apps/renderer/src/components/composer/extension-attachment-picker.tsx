@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/extensions";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ExtensionAttachmentSnapshot } from "@zuse/extension-sdk";
+import { useMessages as useExtensionMessages } from "@zuse/i18n/react";
 import { PackageIcon } from "@zuse/icons/solid-rounded";
 import { Schema } from "effect";
 import { useEffect, useMemo, useState } from "react";
@@ -22,6 +24,7 @@ export function ExtensionAttachmentPicker({
 }: {
 	readonly onSelect: (snapshot: ExtensionAttachmentSnapshot) => Promise<void>;
 }) {
+	const { message: extensionMessage } = useExtensionMessages(["extensions"]);
 	const workspace = useActiveContext();
 	const extensions = useExtensionContributions();
 	const sources = useMemo(
@@ -129,7 +132,7 @@ export function ExtensionAttachmentPicker({
 			<button
 				type="button"
 				className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-				aria-label="Attach from extension"
+				aria-label={extensionMessage("extensions:attach")}
 				onClick={() => setOpen(true)}
 			>
 				<HugeiconsIcon icon={PackageIcon} className="size-3.5" />
@@ -138,7 +141,8 @@ export function ExtensionAttachmentPicker({
 				<DialogPopup className="w-[30rem] max-w-[calc(100vw-2rem)]">
 					<DialogHeader>
 						<DialogTitle>
-							{active?.source.pickerTitle ?? "Attach context"}
+							{active?.source.pickerTitle ??
+								extensionMessage("extensions:context")}
 						</DialogTitle>
 					</DialogHeader>
 					<DialogPanel className="flex flex-col gap-2">
@@ -173,9 +177,13 @@ export function ExtensionAttachmentPicker({
 						) : null}
 						<div className="max-h-72 overflow-y-auto">
 							{loading ? (
-								<p className="p-3 text-xs text-muted-foreground">Searching…</p>
+								<p className="p-3 text-xs text-muted-foreground">
+									{extensionMessage("extensions:searching")}
+								</p>
 							) : results.length === 0 ? (
-								<p className="p-3 text-xs text-muted-foreground">No results.</p>
+								<p className="p-3 text-xs text-muted-foreground">
+									{extensionMessage("extensions:no_results")}
+								</p>
 							) : (
 								results.map((snapshot) => (
 									<button
@@ -211,7 +219,7 @@ export function ExtensionAttachmentPicker({
 											.catch((cause) => setError(String(cause)))
 									}
 								>
-									Attach selected context
+									{extensionMessage("extensions:attach_selected")}
 								</Button>
 							</div>
 						) : null}

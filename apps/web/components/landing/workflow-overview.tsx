@@ -1,51 +1,63 @@
+"use client";
 import {
 	IconArrowsShuffle,
 	IconGitBranch,
 	IconGitPullRequest,
 } from "@tabler/icons-react";
+import {
+	useWebsiteMessages,
+	type WebsiteMessage,
+} from "@zuse/i18n/website/react";
 
-const steps = [
-	{
-		number: "01",
-		title: "Bring the agents you already use",
-		description:
-			"Connect your existing coding-agent subscriptions and choose the right provider for each session.",
-		icon: IconArrowsShuffle,
-	},
-	{
-		number: "02",
-		title: "Run work in parallel",
-		description:
-			"Give every task its own chat, branch, and git worktree so multiple attempts never overwrite each other.",
-		icon: IconGitBranch,
-	},
-	{
-		number: "03",
-		title: "Carry context, then review",
-		description:
-			"Continue with another agent using the plan, transcript, or files it needs, then inspect the diff before anything ships.",
-		icon: IconGitPullRequest,
-	},
-] as const;
+const getSteps = (t: WebsiteMessage) =>
+	[
+		{
+			number: "01",
+			title: t("showcase:bring_the_agents_you_already_use"),
+			description: t(
+				"showcase:connect_your_existing_coding_agent_subscriptions_and_choose_the_right",
+			),
+			icon: IconArrowsShuffle,
+		},
+		{
+			number: "02",
+			title: t("showcase:run_work_in_parallel"),
+			description: t(
+				"showcase:give_every_task_its_own_chat_branch_and_git_worktree_so_multiple_attem",
+			),
+			icon: IconGitBranch,
+		},
+		{
+			number: "03",
+			title: t("showcase:carry_context_then_review"),
+			description: t(
+				"showcase:continue_with_another_agent_using_the_plan_transcript_or_files_it_need",
+			),
+			icon: IconGitPullRequest,
+		},
+	] as const;
 
 export function WorkflowOverview() {
+	const { message: t } = useWebsiteMessages();
+
 	return (
 		<section id="workflow" className="scroll-mt-24 px-4 py-16 md:px-8 md:py-24">
 			<header className="mx-auto max-w-3xl text-center">
 				<p className="text-primary font-mono text-[11px] font-semibold uppercase tracking-[0.18em]">
-					How Zuse works
+					{t("showcase:how_zuse_works")}
 				</p>
 				<h2 className="text-heading mt-3 text-3xl font-semibold tracking-tight text-balance md:text-5xl">
-					One repo. Many agents. No lost context.
+					{t("showcase:one_repo_many_agents_no_lost_context")}
 				</h2>
 				<p className="text-muted-foreground mx-auto mt-5 max-w-2xl text-base leading-7 text-pretty md:text-lg">
-					Zuse keeps every agent session connected to the code, branch, and
-					review state it belongs to.
+					{t(
+						"showcase:zuse_keeps_every_agent_session_connected_to_the_code_branch_and_review",
+					)}
 				</p>
 			</header>
 
 			<ol className="border-border bg-border mx-auto mt-12 grid max-w-5xl gap-px overflow-hidden rounded-2xl border md:grid-cols-3">
-				{steps.map((step) => {
+				{getSteps(t).map((step) => {
 					const Icon = step.icon;
 
 					return (

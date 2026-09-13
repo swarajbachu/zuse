@@ -1,3 +1,8 @@
+import {
+	formatDate as formatUiDate,
+	formatNumber as formatUiNumber,
+} from "@zuse/i18n";
+import "@zuse/i18n/english/usage";
 import type {
 	EnvironmentId,
 	FolderId,
@@ -6,6 +11,8 @@ import type {
 	UsageGroup,
 	UsageOverview,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ChevronDown,
 	ChevronLeft,
@@ -50,10 +57,34 @@ import {
 import { resetLabel, StickMeter } from "./usage/usage-meter";
 
 const CHART_SERIES = [
-	{ key: "input", label: "Input", color: "blue" as const },
-	{ key: "output", label: "Output", color: "green" as const },
-	{ key: "cache", label: "Cache", color: "purple" as const },
-	{ key: "reasoning", label: "Reasoning", color: "orange" as const },
+	{
+		key: "input",
+		get label() {
+			return uiMessage("usage:usage_dashboard_input");
+		},
+		color: "blue" as const,
+	},
+	{
+		key: "output",
+		get label() {
+			return uiMessage("usage:usage_dashboard_output");
+		},
+		color: "green" as const,
+	},
+	{
+		key: "cache",
+		get label() {
+			return uiMessage("usage:usage_dashboard_cache");
+		},
+		color: "purple" as const,
+	},
+	{
+		key: "reasoning",
+		get label() {
+			return uiMessage("usage:usage_dashboard_reasoning");
+		},
+		color: "orange" as const,
+	},
 ] as const;
 
 const PERIODS: ReadonlyArray<{ value: UsagePeriod; label: string }> = [
@@ -87,6 +118,8 @@ export function UsageDashboard({
 	availableProjectId: FolderId | null;
 	scopeLabel: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["usage"]);
+
 	const report = useUsageStore((state) => state.report);
 	const loading = useUsageStore((state) => state.loading);
 	const refreshing = useUsageStore((state) => state.refreshing);
@@ -114,14 +147,16 @@ export function UsageDashboard({
 	return (
 		<div className="flex min-h-0 flex-1 flex-col bg-background">
 			<header className="flex h-12 shrink-0 items-center border-b border-border px-5">
-				<h1 className="text-sm font-medium">Usage</h1>
+				<h1 className="text-sm font-medium">
+					{uiMessage("usage:usage_dashboard_usage")}
+				</h1>
 			</header>
 			<div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-6 pt-5">
 				<p className="text-xs text-muted-foreground">{scopeLabel}</p>
 				<div className="flex shrink-0 items-center gap-2">
 					<fieldset
 						className="flex rounded-md bg-muted/55 p-0.5"
-						aria-label="Usage scope"
+						aria-label={uiMessage("usage:usage_dashboard_usage_scope")}
 					>
 						<button
 							type="button"
@@ -134,7 +169,7 @@ export function UsageDashboard({
 							)}
 							aria-pressed={projectId === null}
 						>
-							All projects
+							{uiMessage("usage:usage_dashboard_all_projects")}
 						</button>
 						<button
 							type="button"
@@ -148,12 +183,12 @@ export function UsageDashboard({
 							)}
 							aria-pressed={projectId !== null}
 						>
-							Current
+							{uiMessage("usage:usage_dashboard_current")}
 						</button>
 					</fieldset>
 					<fieldset
 						className="flex rounded-md bg-muted/55 p-0.5"
-						aria-label="Usage period"
+						aria-label={uiMessage("usage:usage_dashboard_usage_period")}
 					>
 						{PERIODS.map((item) => (
 							<button
@@ -176,8 +211,8 @@ export function UsageDashboard({
 						type="button"
 						onClick={forceRefresh}
 						className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-foreground/30"
-						title="Refresh usage"
-						aria-label="Refresh usage"
+						title={uiMessage("usage:usage_dashboard_refresh_usage")}
+						aria-label={uiMessage("usage:usage_dashboard_refresh_usage")}
 					>
 						<RefreshCw
 							className={cn(
@@ -191,7 +226,10 @@ export function UsageDashboard({
 
 			{error !== null && report !== null ? (
 				<div className="mx-4 mt-3 rounded-md border border-amber-500/30 bg-amber-500/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-					Showing saved usage. Refresh failed: {error}
+					{uiMessage(
+						"usage:usage_dashboard_showing_saved_usage_refresh_failed_sentence",
+						{ error: error },
+					)}
 				</div>
 			) : null}
 
@@ -217,13 +255,17 @@ export function UsageDashboard({
 }
 
 function UsageSkeleton() {
+	const { message: uiMessage } = useUiMessages(["usage"]);
+
 	return (
 		<div
 			className="mx-auto min-h-0 w-full max-w-6xl flex-1 space-y-6 overflow-hidden px-6 py-6"
 			role="status"
-			aria-label="Loading usage"
+			aria-label={uiMessage("usage:usage_dashboard_loading_usage")}
 		>
-			<span className="sr-only">Loading usage…</span>
+			<span className="sr-only">
+				{uiMessage("usage:usage_dashboard_loading_usage_2")}
+			</span>
 			<div className="grid h-72 gap-8 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
 				<div className="space-y-5">
 					<div className="h-9 w-40 rounded bg-muted/55" />
@@ -252,7 +294,8 @@ function UsageSkeleton() {
 function EmptyState({ error }: { error: string | null }) {
 	return (
 		<div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-			{error ?? "No usage has been recorded yet."}
+			{error ??
+				uiMessage("usage:usage_dashboard_no_usage_has_been_recorded_yet")}
 		</div>
 	);
 }
@@ -274,11 +317,13 @@ function UsageReportView({
 	selectedRange: UsageRange | null;
 	onSelectRange: (range: UsageRange | null) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["usage"]);
+
 	const summary = report.summary;
 	const previous = report.previousSummary;
 	const metrics = [
 		{
-			label: "Cost",
+			label: uiMessage("usage:usage_dashboard_cost"),
 			value: formatUsd(summary.costUsd),
 			hint:
 				summary.costStatus === "partial"
@@ -289,7 +334,7 @@ function UsageReportView({
 			delta: metricDelta(summary.costUsd, previous?.costUsd ?? null),
 		},
 		{
-			label: "Tokens",
+			label: uiMessage("usage:usage_dashboard_tokens"),
 			value: formatTokens(totalTokens(summary)),
 			hint: `${formatTokens(summary.inputTokens)} in · ${formatTokens(summary.outputTokens)} out`,
 			delta: metricDelta(
@@ -298,7 +343,7 @@ function UsageReportView({
 			),
 		},
 		{
-			label: "Cache reads",
+			label: uiMessage("usage:usage_dashboard_cache_reads"),
 			value: formatTokens(summary.cacheReadTokens),
 			hint: `${Math.round((summary.cacheReadTokens / Math.max(1, summary.inputTokens + summary.cacheReadTokens)) * 100)}% of observed input`,
 			delta: metricDelta(
@@ -307,9 +352,9 @@ function UsageReportView({
 			),
 		},
 		{
-			label: "Active sessions",
-			value: report.sessionCount.toLocaleString(),
-			hint: `${summary.recordCount.toLocaleString()} usage records`,
+			label: uiMessage("usage:usage_dashboard_active_sessions"),
+			value: formatUiNumber(report.sessionCount),
+			hint: `${formatUiNumber(summary.recordCount)} usage records`,
 			delta: metricDelta(report.sessionCount, report.previousSessionCount),
 		},
 	];
@@ -347,13 +392,21 @@ function UsageReportView({
 				/>
 				<div className="flex items-center justify-between text-[10px] text-muted-foreground">
 					<span>
-						{report.sources.filter((source) => source.detected).length} sources
-						detected
+						{uiMessage("usage:usage_dashboard_sources_detected_sentence", {
+							value: report.sources.filter((source) => source.detected).length,
+						})}
 					</span>
 					<span className="tabular-nums">
 						{refreshing
-							? "Updating…"
-							: `Updated ${report.generatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+							? uiMessage("usage:usage_dashboard_updating")
+							: uiMessage("usage:usage_dashboard_updated", {
+									value1: String(
+										formatUiDate(report.generatedAt, {
+											hour: "2-digit",
+											minute: "2-digit",
+										}),
+									),
+								})}
 					</span>
 				</div>
 			</div>
@@ -362,6 +415,8 @@ function UsageReportView({
 }
 
 function LimitStrip() {
+	const { message: uiMessage } = useUiMessages(["usage"]);
+
 	const providers = useUsageLimitsStore((state) => state.providers);
 	const loading = useUsageLimitsStore((state) => state.loading);
 	// Always paint every limits-capable provider (incl. Kiro) in a stable
@@ -386,14 +441,16 @@ function LimitStrip() {
 			}
 			return { id, kind: "card" as const, provider };
 		});
-	}, [providers]);
+	}, [providers, uiMessage]);
 
 	return (
 		<Frame aria-labelledby="limits-title">
 			<FrameHeader className="flex-row items-baseline justify-between px-3 py-2">
-				<FrameTitle id="limits-title">Plan limits</FrameTitle>
+				<FrameTitle id="limits-title">
+					{uiMessage("usage:usage_dashboard_plan_limits")}
+				</FrameTitle>
 				<span className="text-[11px] text-muted-foreground">
-					Live provider allowance
+					{uiMessage("usage:usage_dashboard_live_provider_allowance")}
 				</span>
 			</FrameHeader>
 			<div className="grid gap-1 lg:grid-cols-2">
@@ -456,6 +513,8 @@ function LimitPlaceholder({
 }
 
 function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
+	const { message: uiMessage } = useUiMessages(["usage"]);
+
 	const windows = useMemo(
 		() =>
 			provider.windows
@@ -463,7 +522,7 @@ function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
 				.sort(
 					(a, b) => LIMIT_SCOPE_ORDER[a.scope] - LIMIT_SCOPE_ORDER[b.scope],
 				),
-		[provider.windows],
+		[provider.windows, uiMessage],
 	);
 	const primary = windows[0];
 	const left =
@@ -485,7 +544,9 @@ function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
 							{PROVIDER_DISPLAY[provider.providerId]}
 						</div>
 						<div className="truncate text-[10px] text-muted-foreground">
-							{provider.planLabel ?? primary?.label ?? "Usage limits"}
+							{provider.planLabel ??
+								primary?.label ??
+								uiMessage("usage:usage_dashboard_usage_limits")}
 						</div>
 					</div>
 					<div className="shrink-0 text-right">
@@ -494,12 +555,14 @@ function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
 								? (provider.creditsRemaining?.toLocaleString(undefined, {
 										maximumFractionDigits: 1,
 									}) ?? "—")
-								: `${left}% left`}
+								: uiMessage("usage:usage_dashboard_left", {
+										left: String(left),
+									})}
 						</div>
 						<div className="text-[10px] text-muted-foreground">
 							{primary
 								? (resetLabel(primary.resetsAt) ?? "No reset")
-								: "credits"}
+								: uiMessage("usage:usage_dashboard_credits")}
 						</div>
 					</div>
 				</div>
@@ -588,9 +651,11 @@ function UsageChart({
 	selectedRange: UsageRange | null;
 	onSelectRange: (range: UsageRange | null) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["usage"]);
+
 	const [measure, setMeasure] = useState<ChartMeasure>("cost");
 	const [hovered, setHovered] = useState<number | null>(null);
-	const visible = useMemo(() => groups.slice(-90), [groups]);
+	const visible = useMemo(() => groups.slice(-90), [groups, uiMessage]);
 	const chartData = useMemo(
 		() =>
 			visible.map((group) => ({
@@ -601,20 +666,25 @@ function UsageChart({
 				reasoning: group.reasoningTokens,
 				cost: group.costUsd ?? 0,
 			})),
-		[visible],
+		[visible, uiMessage],
 	);
 	const detail = hovered === null ? null : visible[hovered];
 	const chartConfig = useMemo(
 		() =>
 			measure === "cost"
-				? { cost: { label: "Estimated cost", color: "blue" as const } }
+				? {
+						cost: {
+							label: uiMessage("usage:usage_dashboard_estimated_cost"),
+							color: "blue" as const,
+						},
+					}
 				: Object.fromEntries(
 						CHART_SERIES.map((series) => [
 							series.key,
 							{ label: series.label, color: series.color },
 						]),
 					),
-		[measure],
+		[measure, uiMessage],
 	);
 	const sourceRows = useMemo(
 		() =>
@@ -626,7 +696,7 @@ function UsageChart({
 						: totalTokens(b) - totalTokens(a),
 				)
 				.slice(0, 5),
-		[bySource, measure],
+		[bySource, measure, uiMessage],
 	);
 	const sourceTotal = Math.max(
 		1,
@@ -640,14 +710,18 @@ function UsageChart({
 		<Frame>
 			<FrameHeader className="flex-row items-center justify-between gap-3 px-3 py-2">
 				<div className="flex min-w-0 items-center gap-2">
-					<FrameTitle>Daily usage</FrameTitle>
+					<FrameTitle>
+						{uiMessage("usage:usage_dashboard_daily_usage")}
+					</FrameTitle>
 					{selectedRange ? (
 						<button
 							type="button"
 							onClick={() => onSelectRange(null)}
 							className="truncate rounded bg-muted px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground"
 						>
-							{selectedRange.label} · Clear
+							{uiMessage("usage:usage_dashboard_clear_sentence", {
+								value: selectedRange.label,
+							})}
 						</button>
 					) : null}
 				</div>
@@ -678,8 +752,8 @@ function UsageChart({
 								<span className="size-1.5 rounded-sm bg-primary" />
 								<span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
 									{measure === "cost"
-										? "Estimated API cost"
-										: "Processed tokens"}
+										? uiMessage("usage:usage_dashboard_estimated_api_cost")
+										: uiMessage("usage:usage_dashboard_processed_tokens")}
 								</span>
 							</div>
 							<span className="mt-2 text-4xl font-semibold tracking-[-0.04em] tabular-nums">
@@ -689,18 +763,28 @@ function UsageChart({
 							</span>
 							<p className="mt-1 max-w-xs text-[11px] leading-relaxed text-muted-foreground">
 								{measure === "cost"
-									? "Estimated from local usage at published provider rates. Actual billing may vary."
-									: `${summary.recordCount.toLocaleString()} locally observed usage records in this period.`}
+									? uiMessage(
+											"usage:usage_dashboard_estimated_from_local_usage_at_published_provider_rates_actual_billing",
+										)
+									: uiMessage(
+											"usage:usage_dashboard_locally_observed_usage_records_in_this_period",
+											{ value1: String(formatUiNumber(summary.recordCount)) },
+										)}
 							</p>
 						</div>
 						<div>
 							<div className="mb-3 flex items-center justify-between gap-3 text-[10px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
 								<span>
-									{measure === "cost" ? "Cost by source" : "Tokens by source"}
+									{measure === "cost"
+										? uiMessage("usage:usage_dashboard_cost_by_source")
+										: uiMessage("usage:usage_dashboard_tokens_by_source")}
 								</span>
 								<span className="shrink-0 normal-case tracking-normal">
-									{sourceRows.length} active{" "}
-									{sourceRows.length === 1 ? "source" : "sources"}
+									{sourceRows.length}
+									{uiMessage("usage:usage_dashboard_active")}{" "}
+									{sourceRows.length === 1
+										? uiMessage("usage:usage_dashboard_source")
+										: uiMessage("usage:usage_dashboard_sources")}
 								</span>
 							</div>
 							<div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
@@ -736,7 +820,7 @@ function UsageChart({
 				<Card className="min-w-0 p-4">
 					{visible.length === 0 ? (
 						<div className="flex h-64 items-center justify-center border-y border-border text-sm text-muted-foreground">
-							No usage in this period.
+							{uiMessage("usage:usage_dashboard_no_usage_in_this_period")}
 						</div>
 					) : (
 						<>
@@ -808,14 +892,16 @@ function UsageChart({
 														})
 													}
 												>
-													View day
+													{uiMessage("usage:usage_dashboard_view_day")}
 												</button>
 											) : null}
 										</div>
 									</>
 								) : (
 									<span className="text-muted-foreground">
-										Hover the chart for a daily breakdown
+										{uiMessage(
+											"usage:usage_dashboard_hover_the_chart_for_a_daily_breakdown",
+										)}
 									</span>
 								)}
 							</div>
@@ -843,6 +929,8 @@ function Contributors({
 	previousByModel: ReadonlyArray<UsageGroup>;
 	previousByProject: ReadonlyArray<UsageGroup>;
 }) {
+	const { message: uiMessage } = useUiMessages(["usage"]);
+
 	const [tab, setTab] = useState<ContributorTab>("providers");
 	const [expanded, setExpanded] = useState(false);
 	const rows = useMemo(
@@ -850,7 +938,7 @@ function Contributors({
 			(tab === "providers" ? bySource : tab === "models" ? byModel : byProject)
 				.slice()
 				.sort((a, b) => totalTokens(b) - totalTokens(a)),
-		[bySource, byModel, byProject, tab],
+		[bySource, byModel, byProject, tab, uiMessage],
 	);
 	const visible = expanded ? rows : rows.slice(0, 5);
 	const previousRows =
@@ -866,7 +954,7 @@ function Contributors({
 	return (
 		<Frame>
 			<FrameHeader className="flex-row items-center justify-between px-3 py-2">
-				<FrameTitle>Breakdown</FrameTitle>
+				<FrameTitle>{uiMessage("usage:usage_dashboard_breakdown")}</FrameTitle>
 				<div className="flex rounded-md bg-muted/60 p-0.5">
 					{(["providers", "models", "projects"] as const).map((value) => (
 						<button
@@ -895,14 +983,18 @@ function Contributors({
 						<TableRow>
 							<TableHead>
 								{tab === "providers"
-									? "Provider"
+									? uiMessage("usage:usage_dashboard_provider")
 									: tab === "models"
-										? "Model"
-										: "Project"}
+										? uiMessage("usage:usage_dashboard_model")
+										: uiMessage("usage:usage_dashboard_project")}
 							</TableHead>
-							<TableHead>Share</TableHead>
-							<TableHead className="text-right">Tokens</TableHead>
-							<TableHead className="text-right">Cost</TableHead>
+							<TableHead>{uiMessage("usage:usage_dashboard_share")}</TableHead>
+							<TableHead className="text-right">
+								{uiMessage("usage:usage_dashboard_tokens")}
+							</TableHead>
+							<TableHead className="text-right">
+								{uiMessage("usage:usage_dashboard_cost")}
+							</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -912,7 +1004,7 @@ function Contributors({
 									colSpan={4}
 									className="h-16 text-center text-muted-foreground"
 								>
-									No contributors found.
+									{uiMessage("usage:usage_dashboard_no_contributors_found")}
 								</TableCell>
 							</TableRow>
 						) : (
@@ -956,7 +1048,11 @@ function Contributors({
 						onClick={() => setExpanded((value) => !value)}
 						className="mx-auto rounded px-2 py-1 text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-foreground/30"
 					>
-						{expanded ? "Show less" : `View all ${rows.length}`}
+						{expanded
+							? uiMessage("usage:usage_dashboard_show_less")
+							: uiMessage("usage:usage_dashboard_view_all", {
+									value1: String(rows.length),
+								})}
 					</button>
 				</FrameFooter>
 			) : null}
@@ -978,6 +1074,8 @@ function SessionsExplorer({
 	sessionCount: number;
 	selectedRange: UsageRange | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["usage"]);
+
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [sortKey, setSortKey] = useState<SortKey>("tokens");
@@ -1013,10 +1111,16 @@ function SessionsExplorer({
 				aria-expanded={open}
 			>
 				<span>
-					<span className="block text-sm font-medium">Sessions</span>
-					<span className="block text-[10px] text-muted-foreground">
-						{sessionCount.toLocaleString()} in this period
-					</span>
+					<RichMessage
+						id="usage:usage_dashboard_sessions_in_this_period_sentence"
+						values={{ value: formatUiNumber(sessionCount) }}
+						components={{
+							part0: <span className="block text-sm font-medium" />,
+							part1: (
+								<span className="block text-[10px] text-muted-foreground" />
+							),
+						}}
+					/>
 				</span>
 				<ChevronDown
 					className={cn(
@@ -1037,9 +1141,9 @@ function SessionsExplorer({
 									setQuery(event.target.value);
 									setPageIndex(0);
 								}}
-								placeholder="Search sessions"
+								placeholder={uiMessage("usage:usage_dashboard_search_sessions")}
 								className="h-7 w-full rounded-md border border-input bg-card pl-8 pr-3 text-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24"
-								aria-label="Search sessions"
+								aria-label={uiMessage("usage:usage_dashboard_search_sessions")}
 							/>
 						</label>
 						<select
@@ -1051,9 +1155,13 @@ function SessionsExplorer({
 								setPageIndex(0);
 							}}
 							className="h-7 rounded-md border border-input bg-card px-2 text-xs text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24"
-							aria-label="Filter sessions by provider"
+							aria-label={uiMessage(
+								"usage:usage_dashboard_filter_sessions_by_provider",
+							)}
 						>
-							<option value="">All providers</option>
+							<option value="">
+								{uiMessage("usage:usage_dashboard_all_providers")}
+							</option>
 							{PROVIDER_ORDER.map((id) => (
 								<option key={id} value={id}>
 									{PROVIDER_DISPLAY[id]}
@@ -1063,15 +1171,19 @@ function SessionsExplorer({
 					</div>
 					{error ? (
 						<div className="border-t border-border px-3 py-2 text-xs text-destructive">
-							Could not load sessions. Change a filter or try again.
+							{uiMessage(
+								"usage:usage_dashboard_could_not_load_sessions_change_a_filter_or_try_again",
+							)}
 						</div>
 					) : null}
 					<Table variant="card" className="table-fixed">
 						<TableHeader>
 							<TableRow className="hover:bg-transparent">
-								<TableHead className="w-[46%]">Session</TableHead>
+								<TableHead className="w-[46%]">
+									{uiMessage("usage:usage_dashboard_session")}
+								</TableHead>
 								<SortableHead
-									label="Last active"
+									label={uiMessage("usage:usage_dashboard_last_active")}
 									active={sortKey === "last-active"}
 									onClick={() => {
 										setSortKey("last-active");
@@ -1079,7 +1191,7 @@ function SessionsExplorer({
 									}}
 								/>
 								<SortableHead
-									label="Tokens"
+									label={uiMessage("usage:usage_dashboard_tokens")}
 									active={sortKey === "tokens"}
 									onClick={() => {
 										setSortKey("tokens");
@@ -1087,7 +1199,7 @@ function SessionsExplorer({
 									}}
 								/>
 								<SortableHead
-									label="Cost"
+									label={uiMessage("usage:usage_dashboard_cost")}
 									active={sortKey === "cost"}
 									onClick={() => {
 										setSortKey("cost");
@@ -1103,7 +1215,7 @@ function SessionsExplorer({
 										colSpan={4}
 										className="h-20 text-center text-muted-foreground"
 									>
-										Loading sessions…
+										{uiMessage("usage:usage_dashboard_loading_sessions")}
 									</TableCell>
 								</TableRow>
 							) : (
@@ -1130,10 +1242,13 @@ function SessionsExplorer({
 					</Table>
 					<FrameFooter className="flex items-center justify-between p-2">
 						<span className="text-[11px] tabular-nums text-muted-foreground">
-							{total === 0
-								? "0"
-								: `${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, total)}`}{" "}
-							of {total}
+							{uiMessage("usage:usage_dashboard_page_summary", {
+								range:
+									total === 0
+										? "0"
+										: `${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, total)}`,
+								total,
+							})}
 						</span>
 						<div className="flex items-center gap-1">
 							<Button
@@ -1141,7 +1256,7 @@ function SessionsExplorer({
 								variant="outline"
 								disabled={page === 0 || loading}
 								onClick={() => setPageIndex(page - 1)}
-								aria-label="Previous page"
+								aria-label={uiMessage("usage:usage_dashboard_previous_page")}
 							>
 								<ChevronLeft className="size-4" />
 							</Button>
@@ -1150,7 +1265,7 @@ function SessionsExplorer({
 								variant="outline"
 								disabled={page >= pageCount - 1 || loading}
 								onClick={() => setPageIndex(page + 1)}
-								aria-label="Next page"
+								aria-label={uiMessage("usage:usage_dashboard_next_page")}
 							>
 								<ChevronRight className="size-4" />
 							</Button>
@@ -1193,5 +1308,5 @@ function lastActive(row: UsageGroup): string {
 	const date = row.endedAt ?? row.startedAt;
 	return date === null
 		? "Last active unavailable"
-		: `Last active ${date.toLocaleDateString()}`;
+		: `Last active ${formatUiDate(date)}`;
 }

@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import {
@@ -5,6 +6,7 @@ import {
 	labelForModelId,
 	type Message,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ClipboardIcon } from "@zuse/icons/solid-rounded";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
@@ -74,6 +76,8 @@ function SubagentRowImpl({
 	readonly readOnly?: boolean;
 	readonly chatRef?: ChatRef | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [expanded, setExpanded] = useState(false);
 	const revealSubagent = useUiStore((state) => state.revealSubagent);
 
@@ -82,7 +86,7 @@ function SubagentRowImpl({
 			return `${labelForModel(summary.model)} · ${summary.turns} turn${summary.turns === 1 ? "" : "s"} · ${formatDuration(summary.durationMs)}`;
 		}
 		return labelForModel(modelRequested);
-	}, [summary, modelRequested]);
+	}, [summary, modelRequested, uiMessage]);
 
 	const latestChildAt = useMemo(() => {
 		let latest = 0;
@@ -90,7 +94,7 @@ function SubagentRowImpl({
 			latest = Math.max(latest, child.createdAt.getTime());
 		}
 		return latest;
-	}, [children]);
+	}, [children, uiMessage]);
 
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
@@ -132,7 +136,7 @@ function SubagentRowImpl({
 							<SubagentAvatar name={agentName} size="sm" />
 							<Spinner
 								className="absolute -inset-0.5 size-6 text-muted-foreground"
-								aria-label="Agent running"
+								aria-label={uiMessage("chat:subagent_row_agent_running")}
 							/>
 						</>
 					) : (
@@ -174,6 +178,8 @@ export const SubagentRow = memo(SubagentRowImpl);
 SubagentRow.displayName = "SubagentRow";
 
 function PromptRow({ text }: { text: string }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [expanded, setExpanded] = useState(false);
 	const Chevron = expanded ? ChevronDown : ChevronRight;
 	return (
@@ -204,7 +210,9 @@ function PromptRow({ text }: { text: string }) {
 						)}
 					/>
 				</div>
-				<span className="shrink-0 font-medium text-foreground/90">Prompt</span>
+				<span className="shrink-0 font-medium text-foreground/90">
+					{uiMessage("chat:subagent_row_prompt")}
+				</span>
 				<span className="min-w-0 flex-1 truncate text-muted-foreground">
 					{text}
 				</span>
@@ -214,11 +222,11 @@ function PromptRow({ text }: { text: string }) {
 					<div className="group/prompt relative">
 						<CopyButton
 							text={text}
-							label="Copy prompt"
+							label={uiMessage("chat:subagent_row_copy_prompt")}
 							className="absolute right-1.5 top-1.5 opacity-60 hover:opacity-100 focus-visible:opacity-100"
 						/>
 						<pre className="overflow-x-auto whitespace-pre-wrap break-words rounded border border-message-rule bg-message-pre-bg px-3 py-2 pr-9 font-mono text-[11px] text-foreground/80">
-							{text || "(empty)"}
+							{text || uiMessage("chat:subagent_row_empty")}
 						</pre>
 					</div>
 				</div>

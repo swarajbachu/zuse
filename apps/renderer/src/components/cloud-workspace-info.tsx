@@ -1,5 +1,8 @@
+import "@zuse/i18n/english/connections";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { CloudChatSummary } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Activity01Icon,
 	Copy01Icon,
@@ -114,7 +117,9 @@ const launchSsh = async (
 	} catch (cause) {
 		toastManager.add({
 			type: "error",
-			title: "Could not open via SSH",
+			title: uiMessage(
+				"connections:cloud_workspace_info_could_not_open_via_ssh",
+			),
 			description: errorMessage(cause, "SSH access failed."),
 		});
 	}
@@ -126,13 +131,15 @@ const copySshCommand = async (workspaceId: string): Promise<void> => {
 		await copyText(prepared.sshCommand);
 		toastManager.add({
 			type: "success",
-			title: "SSH command copied",
+			title: uiMessage("connections:cloud_workspace_info_ssh_command_copied"),
 			description: prepared.sshCommand,
 		});
 	} catch (cause) {
 		toastManager.add({
 			type: "error",
-			title: "Could not prepare SSH access",
+			title: uiMessage(
+				"connections:cloud_workspace_info_could_not_prepare_ssh_access",
+			),
 			description: errorMessage(cause, "SSH access failed."),
 		});
 	}
@@ -142,9 +149,24 @@ const SSH_TARGETS: ReadonlyArray<{
 	readonly id: CloudSshTarget;
 	readonly label: string;
 }> = [
-	{ id: "cursor", label: "Cursor" },
-	{ id: "zed", label: "Zed" },
-	{ id: "terminal", label: "Terminal" },
+	{
+		id: "cursor",
+		get label() {
+			return uiMessage("connections:cloud_workspace_info_cursor");
+		},
+	},
+	{
+		id: "zed",
+		get label() {
+			return uiMessage("connections:cloud_workspace_info_zed");
+		},
+	},
+	{
+		id: "terminal",
+		get label() {
+			return uiMessage("connections:cloud_workspace_info_terminal");
+		},
+	},
 ];
 
 /**
@@ -159,6 +181,8 @@ export function CloudWorkspaceOpenSshMenu({
 	readonly workspaceId: string;
 	readonly className?: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "connections"]);
+
 	const summary = useCloudSummary(workspaceId);
 	const syncPrefs = useCloudChatCatalogStore(
 		(state) => state.syncPrefs[workspaceId] ?? null,
@@ -184,7 +208,9 @@ export function CloudWorkspaceOpenSshMenu({
 		} catch (cause) {
 			toastManager.add({
 				type: "error",
-				title: "Could not sync this workspace",
+				title: uiMessage(
+					"connections:cloud_workspace_info_could_not_sync_this_workspace",
+				),
 				description: errorMessage(cause, "Cloud sync failed."),
 			});
 		} finally {
@@ -232,18 +258,26 @@ export function CloudWorkspaceOpenSshMenu({
 							disabled={!running}
 							onClick={() => void refreshTargets()}
 							className={`${className} flex h-7 items-center gap-1.5 overflow-hidden rounded-md border border-border/80 px-2 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-50`}
-							aria-label="Open workspace via SSH"
+							aria-label={uiMessage(
+								"connections:cloud_workspace_info_open_workspace_via_ssh",
+							)}
 						>
 							<SquareTerminal className="size-3.5 shrink-0" />
-							<span>Open via SSH</span>
+							<span>
+								{uiMessage("connections:cloud_workspace_info_open_via_ssh")}
+							</span>
 							<ChevronDown className="size-3.5 shrink-0" />
 						</MenuTrigger>
 					}
 				/>
 				<TooltipPopup>
 					{running
-						? "Open this workspace in an editor or terminal over SSH"
-						: "The workspace must be running for SSH access"}
+						? uiMessage(
+								"connections:cloud_workspace_info_open_this_workspace_in_an_editor_or_terminal_over_ssh",
+							)
+						: uiMessage(
+								"connections:cloud_workspace_info_the_workspace_must_be_running_for_ssh_access",
+							)}
 				</TooltipPopup>
 			</Tooltip>
 			<MenuPopup align="end" className="min-w-56">
@@ -267,7 +301,9 @@ export function CloudWorkspaceOpenSshMenu({
 						icon={Copy01Icon}
 						className="size-5 shrink-0 text-muted-foreground"
 					/>
-					<span className="min-w-0 flex-1 truncate">Copy SSH command</span>
+					<span className="min-w-0 flex-1 truncate">
+						{uiMessage("connections:cloud_workspace_info_copy_ssh_command")}
+					</span>
 					<MenuShortcut>{SSH_TARGETS.length + 1}</MenuShortcut>
 				</MenuItem>
 				{cloudSyncSupported() ? (
@@ -279,7 +315,9 @@ export function CloudWorkspaceOpenSshMenu({
 							className="flex w-full items-center gap-3 rounded px-2 py-1.5 text-sm hover:bg-sidebar-accent"
 						>
 							<span className="min-w-0 flex-1 truncate">
-								Sync to a local directory
+								{uiMessage(
+									"connections:cloud_workspace_info_sync_to_a_local_directory",
+								)}
 							</span>
 							<Switch
 								checked={syncEnabled}
@@ -320,6 +358,8 @@ export function CloudWorkspaceInfo({
 }: {
 	readonly workspaceId: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "connections"]);
+
 	const summary = useCloudSummary(workspaceId);
 	const running = summary?.state === "ready";
 	const [menuOpen, setMenuOpen] = useState(false);
@@ -349,7 +389,9 @@ export function CloudWorkspaceInfo({
 		} catch (cause) {
 			toastManager.add({
 				type: "error",
-				title: "Could not restart the workspace",
+				title: uiMessage(
+					"connections:cloud_workspace_info_could_not_restart_the_workspace",
+				),
 				description: errorMessage(cause, "Workspace restart failed."),
 			});
 		} finally {
@@ -381,7 +423,9 @@ export function CloudWorkspaceInfo({
 						icon={Activity01Icon}
 						className="size-4 shrink-0 text-muted-foreground"
 					/>
-					<span className="min-w-0 flex-1 truncate">Performance</span>
+					<span className="min-w-0 flex-1 truncate">
+						{uiMessage("connections:cloud_workspace_info_performance")}
+					</span>
 					<span className="shrink-0 text-[10px] text-muted-foreground">
 						{workspaceStateLabel(summary)}
 					</span>
@@ -393,14 +437,16 @@ export function CloudWorkspaceInfo({
 					className="w-72 p-1"
 				>
 					<div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
-						Performance
+						{uiMessage("connections:cloud_workspace_info_performance")}
 					</div>
 					<div className="flex min-h-7 items-center gap-2 px-2 py-1 text-xs">
 						<HugeiconsIcon
 							icon={Activity01Icon}
 							className="size-3.5 text-muted-foreground"
 						/>
-						<span className="flex-1">Status</span>
+						<span className="flex-1">
+							{uiMessage("connections:cloud_workspace_info_status")}
+						</span>
 						<span
 							className={`text-[11px] ${running ? "text-[var(--accent-green)]" : "text-muted-foreground"}`}
 						>
@@ -438,7 +484,9 @@ export function CloudWorkspaceInfo({
 					)}
 					{sample === null && running ? (
 						<div className="px-2 py-1 text-[10px] leading-4 text-muted-foreground/70">
-							Live usage needs the updated workspace runtime.
+							{uiMessage(
+								"connections:cloud_workspace_info_live_usage_needs_the_updated_workspace_runtime",
+							)}
 						</div>
 					) : null}
 					<MenuSeparator />
@@ -448,30 +496,36 @@ export function CloudWorkspaceInfo({
 						className="gap-2 px-2 py-1 text-xs"
 					>
 						<HugeiconsIcon icon={Refresh01Icon} className="size-3.5" />
-						<span className="flex-1">Restart workspace</span>
+						<span className="flex-1">
+							{uiMessage("connections:cloud_workspace_info_restart_workspace")}
+						</span>
 					</MenuItem>
 				</MenuPopup>
 			</Menu>
 			<AlertDialog open={restartOpen} onOpenChange={setRestartOpen}>
 				<AlertDialogPopup className="max-w-sm">
 					<AlertDialogHeader>
-						<AlertDialogTitle>Restart this workspace?</AlertDialogTitle>
+						<AlertDialogTitle>
+							{uiMessage(
+								"connections:cloud_workspace_info_restart_this_workspace",
+							)}
+						</AlertDialogTitle>
 						<AlertDialogDescription>
-							The runtime restarts in place: any agent turn in progress is
-							interrupted, and open terminals reconnect. Files in the workspace
-							are preserved.
+							{uiMessage(
+								"connections:cloud_workspace_info_the_runtime_restarts_in_place_any_agent_turn_in_progress_is_interrupte",
+							)}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogClose render={<Button size="xs" variant="ghost" />}>
-							Cancel
+							{uiMessage("common:cancel")}
 						</AlertDialogClose>
 						<Button
 							size="xs"
 							loading={restarting}
 							onClick={() => void restart()}
 						>
-							Restart
+							{uiMessage("connections:cloud_workspace_info_restart")}
 						</Button>
 					</AlertDialogFooter>
 				</AlertDialogPopup>

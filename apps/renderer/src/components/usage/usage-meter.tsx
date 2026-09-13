@@ -1,3 +1,4 @@
+import { formatNumber, formatDate as formatUiDate } from "@zuse/i18n";
 import { cn } from "~/lib/utils";
 
 export const resetLabel = (iso: string | null): string | null => {
@@ -6,14 +7,11 @@ export const resetLabel = (iso: string | null): string | null => {
 	if (Number.isNaN(date.getTime())) return null;
 	const now = new Date();
 	const sameDay = date.toDateString() === now.toDateString();
-	const time = new Intl.DateTimeFormat([], {
+	return formatUiDate(date, {
 		hour: "2-digit",
 		minute: "2-digit",
-		hour12: false,
-	}).format(date);
-	return sameDay
-		? time
-		: `${new Intl.DateTimeFormat([], { day: "numeric", month: "short" }).format(date)} ${time}`;
+		...(!sameDay ? ({ day: "numeric", month: "short" } as const) : {}),
+	});
 };
 
 export const resetsInLabel = (
@@ -24,10 +22,18 @@ export const resetsInLabel = (
 	const remaining = Date.parse(iso) - now;
 	if (!Number.isFinite(remaining) || remaining <= 0) return null;
 	const minutes = Math.floor(remaining / 60_000);
-	if (minutes < 60) return `${minutes}m`;
+	const unit = (value: number, name: string, minimumIntegerDigits = 1) =>
+		formatNumber(value, {
+			style: "unit",
+			unit: name,
+			unitDisplay: "narrow",
+			minimumIntegerDigits,
+		});
+	if (minutes < 60) return unit(minutes, "minute");
 	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
-	return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+	if (hours < 24)
+		return `${unit(hours, "hour")} ${unit(minutes % 60, "minute", 2)}`;
+	return `${unit(Math.floor(hours / 24), "day")} ${unit(hours % 24, "hour")}`;
 };
 
 export function StickMeter({

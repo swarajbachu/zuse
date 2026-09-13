@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/chat";
 import type { NearbyPairingRequest } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Smartphone } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { recordDiagnosticEvent } from "../lib/diagnostics-recorder.ts";
@@ -32,6 +34,8 @@ const logPairingEvent = (message: string, requestId?: string): void => {
 };
 
 export function NearbyPairingApproval() {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [request, setRequest] = useState<NearbyPairingRequest | null>(null);
 	const [busy, setBusy] = useState(false);
 	const refreshFailureLogged = useRef(false);
@@ -119,7 +123,9 @@ export function NearbyPairingApproval() {
 			} catch (cause) {
 				toastManager.add({
 					type: "error",
-					title: "Could not update phone access",
+					title: uiMessage(
+						"chat:nearby_pairing_approval_could_not_update_phone_access",
+					),
 					description:
 						cause instanceof Error ? cause.message : "Please try again.",
 				});
@@ -127,7 +133,7 @@ export function NearbyPairingApproval() {
 				setBusy(false);
 			}
 		},
-		[busy, request],
+		[busy, request, uiMessage],
 	);
 
 	return (
@@ -142,16 +148,24 @@ export function NearbyPairingApproval() {
 					<div className="mb-1 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
 						<Smartphone className="size-5" aria-hidden />
 					</div>
-					<AlertDialogTitle>Is this you trying to connect?</AlertDialogTitle>
+					<AlertDialogTitle>
+						{uiMessage(
+							"chat:nearby_pairing_approval_is_this_you_trying_to_connect",
+						)}
+					</AlertDialogTitle>
 					<AlertDialogDescription>
-						Confirm these words match the ones shown on your phone.
+						{uiMessage(
+							"chat:nearby_pairing_approval_confirm_these_words_match_the_ones_shown_on_your_phone",
+						)}
 					</AlertDialogDescription>
 					{request === null ? null : (
 						<div className="mt-3 rounded-xl border border-border/60 bg-muted/30 p-3.5">
 							<p className="text-sm font-medium">{request.deviceLabel}</p>
 							<p className="mt-0.5 text-xs text-muted-foreground">
-								{request.deviceModel ?? "iPhone"} · Device{" "}
-								{request.deviceIdentifier}
+								{uiMessage("chat:nearby_pairing_approval_device_sentence", {
+									value: request.deviceModel ?? "iPhone",
+									value2: request.deviceIdentifier,
+								})}
 							</p>
 							<code className="mt-3 block font-semibold text-base tracking-tight tabular-nums">
 								{safetyPhraseLabel(request.safetyPhrase)}
@@ -166,17 +180,19 @@ export function NearbyPairingApproval() {
 						onClick={() => void decide("block")}
 						disabled={busy}
 					>
-						Block device
+						{uiMessage("chat:nearby_pairing_approval_block_device")}
 					</Button>
 					<Button
 						variant="outline"
 						onClick={() => void decide("deny")}
 						disabled={busy}
 					>
-						Not now
+						{uiMessage("chat:nearby_pairing_approval_not_now")}
 					</Button>
 					<Button onClick={() => void decide("allow")} disabled={busy}>
-						{busy ? "Allowing…" : "Allow"}
+						{busy
+							? uiMessage("chat:nearby_pairing_approval_allowing")
+							: uiMessage("chat:nearby_pairing_approval_allow")}
 					</Button>
 				</AlertDialogFooter>
 			</AlertDialogPopup>

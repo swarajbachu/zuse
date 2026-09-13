@@ -1,10 +1,12 @@
 "use client";
-
 import { IconCheck, IconDeviceDesktop, IconPhoto } from "@tabler/icons-react";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { motion, useReducedMotion } from "motion/react";
 import { GridLineHorizontal, GridLineVertical } from "../grid-lines";
 
 export function FlippingImagesWithBar() {
+	const { message: t } = useWebsiteMessages();
+
 	const reduceMotion = useReducedMotion();
 	return (
 		<div className="mx-auto max-w-xl">
@@ -19,7 +21,7 @@ export function FlippingImagesWithBar() {
 						<span className="size-1.5 rounded-full bg-amber-400" />
 						<span className="size-1.5 rounded-full bg-primary" />
 						<span className="text-muted-foreground ml-1 font-mono text-[6px]">
-							checkout.local/receipt
+							{"checkout.local/receipt"}
 						</span>
 					</div>
 					<div className="p-3">
@@ -30,7 +32,8 @@ export function FlippingImagesWithBar() {
 							<div className="bg-foreground/5 mt-1.5 h-1.5 w-3/4 rounded" />
 						</div>
 						<div className="bg-primary/15 text-primary mt-3 flex items-center justify-center gap-1 rounded-md py-1.5 font-mono text-[7px]">
-							<IconCheck className="size-3" /> receipt visible
+							<IconCheck className="size-3" />
+							{t("showcase:receipt_visible")}
 						</div>
 					</div>
 					<motion.div
@@ -45,7 +48,8 @@ export function FlippingImagesWithBar() {
 						className="absolute inset-y-0 w-px bg-linear-to-b from-transparent via-primary to-transparent shadow-[0_0_18px_var(--color-primary)]"
 					/>
 					<span className="text-primary absolute right-2 bottom-2 flex items-center gap-1 font-mono text-[7px]">
-						<IconPhoto className="size-3" /> trace captured
+						<IconPhoto className="size-3" />
+						{t("showcase:trace_captured")}
 					</span>
 				</div>
 			</div>

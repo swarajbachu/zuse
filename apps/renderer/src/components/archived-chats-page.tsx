@@ -1,3 +1,5 @@
+import { formatDate as formatUiDate } from "@zuse/i18n";
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
 	Chat,
@@ -7,6 +9,7 @@ import type {
 	Session,
 } from "@zuse/contracts";
 import { CommandId, EnvironmentId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ArchiveArrowUpIcon,
 	ArchiveIcon,
@@ -32,7 +35,7 @@ const EMPTY_CHATS: ReadonlyArray<Chat> = [];
 const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
 
 const formatDate = (date: Date): string =>
-	date.toLocaleDateString(undefined, {
+	formatUiDate(date, {
 		month: "short",
 		day: "numeric",
 		year:
@@ -46,6 +49,8 @@ export function ArchivedChatsPage({
 	projectId: FolderId | null;
 	projectName: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const archivedChats = useArchivePreviewStore((state) =>
 		projectId === null
 			? EMPTY_CHATS
@@ -71,7 +76,7 @@ export function ArchivedChatsPage({
 	);
 	const selectedChat = useMemo(
 		() => archivedChats.find((chat) => chat.id === selectedChatId) ?? null,
-		[archivedChats, selectedChatId],
+		[archivedChats, selectedChatId, uiMessage],
 	);
 	const preview = useArchivePreviewStore((state) =>
 		selectedChatId === null ? undefined : state.previewsByChat[selectedChatId],
@@ -94,7 +99,7 @@ export function ArchivedChatsPage({
 	);
 	const selectedSession = useMemo(
 		() => sessions.find((session) => session.id === selectedSessionId) ?? null,
-		[sessions, selectedSessionId],
+		[sessions, selectedSessionId, uiMessage],
 	);
 	const environmentId = useEnvironmentCatalogStore(
 		(state) => state.activeEnvironmentId,
@@ -213,7 +218,7 @@ export function ArchivedChatsPage({
 						/>
 						<div className="min-w-0">
 							<h1 className="truncate text-xl font-medium tracking-[-0.01em] text-foreground">
-								Archived chats
+								{uiMessage("chat:archived_chats_page_archived_chats")}
 							</h1>
 							<p className="truncate text-xs text-muted-foreground">
 								{projectName}
@@ -225,11 +230,15 @@ export function ArchivedChatsPage({
 							icon={Search01Icon}
 							className="size-4 shrink-0 text-muted-foreground"
 						/>
-						<span className="sr-only">Filter archived chats</span>
+						<span className="sr-only">
+							{uiMessage("chat:archived_chats_page_filter_archived_chats")}
+						</span>
 						<input
 							value={query}
 							onChange={(event) => setQuery(event.currentTarget.value)}
-							placeholder="Filter archived chats…"
+							placeholder={uiMessage(
+								"chat:archived_chats_page_filter_archived_chats_2",
+							)}
 							className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
 						/>
 					</label>
@@ -276,7 +285,9 @@ export function ArchivedChatsPage({
 											{chat.title}
 										</span>
 										<span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-											Archived {formatDate(chat.archivedAt ?? chat.updatedAt)}
+											{uiMessage("chat:archived_chats_page_archived_sentence", {
+												value: formatDate(chat.archivedAt ?? chat.updatedAt),
+											})}
 										</span>
 									</button>
 								</li>
@@ -296,7 +307,9 @@ export function ArchivedChatsPage({
 					onClick={() =>
 						void showList(EnvironmentId.make(environmentId), projectId)
 					}
-					aria-label="Back to archived chats"
+					aria-label={uiMessage(
+						"chat:archived_chats_page_back_to_archived_chats",
+					)}
 					className="grid size-11 shrink-0 place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-150 ease-out hover:bg-muted/45 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
 				>
 					<ChevronLeft className="size-4" />
@@ -310,8 +323,11 @@ export function ArchivedChatsPage({
 						{selectedChat.title}
 					</h1>
 					<p className="truncate text-[11px] text-muted-foreground">
-						Archived{" "}
-						{formatDate(selectedChat.archivedAt ?? selectedChat.updatedAt)}
+						{uiMessage("chat:archived_chats_page_archived_sentence", {
+							value: formatDate(
+								selectedChat.archivedAt ?? selectedChat.updatedAt,
+							),
+						})}
 					</p>
 				</div>
 			</header>
@@ -323,7 +339,9 @@ export function ArchivedChatsPage({
 
 			{preview !== undefined && sessions.length > 0 ? (
 				<nav
-					aria-label="Archived chat sessions"
+					aria-label={uiMessage(
+						"chat:archived_chats_page_archived_chat_sessions",
+					)}
 					className="flex h-11 shrink-0 items-stretch gap-1 overflow-x-auto border-b border-border/50 px-3"
 				>
 					{sessions.map((session) => (
@@ -395,7 +413,7 @@ export function ArchivedChatsPage({
 					/>
 					<div className="min-w-0 flex-1">
 						<p className="text-xs text-muted-foreground">
-							This chat is archived.
+							{uiMessage("chat:archived_chats_page_this_chat_is_archived")}
 						</p>
 						{restoreError !== null ? (
 							<p className="mt-0.5 truncate text-[11px] text-destructive">
@@ -404,7 +422,8 @@ export function ArchivedChatsPage({
 						) : null}
 						{archiveJob?.status === "failed" ? (
 							<p className="mt-0.5 truncate text-[11px] text-destructive">
-								{archiveJob.error ?? "Worktree cleanup failed."}
+								{archiveJob.error ??
+									uiMessage("chat:archived_chats_page_worktree_cleanup_failed")}
 							</p>
 						) : null}
 					</div>
@@ -414,7 +433,7 @@ export function ArchivedChatsPage({
 							size="sm"
 							onClick={() => void forceArchive(selectedChat.id, true)}
 						>
-							Force archive
+							{uiMessage("chat:archived_chats_page_force_archive")}
 						</Button>
 					) : null}
 					<Button
@@ -428,7 +447,11 @@ export function ArchivedChatsPage({
 						) : (
 							<HugeiconsIcon icon={ArchiveArrowUpIcon} className="size-3.5" />
 						)}
-						{restoring ? "Unarchiving…" : restoreError ? "Retry" : "Unarchive"}
+						{restoring
+							? uiMessage("chat:archived_chats_page_unarchiving")
+							: restoreError
+								? uiMessage("common:retry")
+								: uiMessage("chat:archived_chats_page_unarchive")}
 					</Button>
 				</div>
 			</footer>

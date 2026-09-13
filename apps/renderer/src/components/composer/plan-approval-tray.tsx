@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { EnvironmentId, SessionId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { CheckListIcon } from "@zuse/icons/solid-rounded";
 import {
 	latestProposedPlanMarkdown,
@@ -51,6 +53,8 @@ export function PlanApprovalTray({
 	onApproveEmulatedPlan?: () => void;
 	onCancelEmulatedPlan?: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const permissionRequests =
 		useEnvironmentPermissions(environmentId).data?.requestsById ?? {};
 	const pendingRequest = (() => {
@@ -74,7 +78,7 @@ export function PlanApprovalTray({
 	const nativeRequest = useMemo(
 		() =>
 			pendingRequest === null ? findPendingNativePlanApproval(messages) : null,
-		[messages, pendingRequest],
+		[messages, pendingRequest, uiMessage],
 	);
 	const respondToPlan = useSessionsStore((s) => s.respondToPlan);
 	const sourceSession = useActiveSessionById(sessionId);
@@ -111,8 +115,10 @@ export function PlanApprovalTray({
 		if (source === null || planText === null) {
 			setSubmitting(false);
 			toastManager.add({
-				title: "Nothing to hand off",
-				description: "Could not find the proposed plan for this session.",
+				title: uiMessage("chat:plan_approval_tray_nothing_to_hand_off"),
+				description: uiMessage(
+					"chat:plan_approval_tray_could_not_find_the_proposed_plan_for_this_session",
+				),
 				type: "error",
 			});
 			return;
@@ -126,8 +132,10 @@ export function PlanApprovalTray({
 		if (created === null) {
 			setSubmitting(false);
 			toastManager.add({
-				title: "Handoff failed",
-				description: "Could not create the build session.",
+				title: uiMessage("chat:plan_approval_tray_handoff_failed"),
+				description: uiMessage(
+					"chat:plan_approval_tray_could_not_create_the_build_session",
+				),
 				type: "error",
 			});
 			return;
@@ -151,7 +159,7 @@ export function PlanApprovalTray({
 			onCancelEmulatedPlan?.();
 		}
 		toastManager.add({
-			title: "Plan handed off",
+			title: uiMessage("chat:plan_approval_tray_plan_handed_off"),
 			description:
 				ref !== null
 					? "New session opened in build mode with the plan attached."
@@ -175,7 +183,7 @@ export function PlanApprovalTray({
 					className="size-3.5"
 				/>
 			}
-			title="Review plan"
+			title={uiMessage("chat:plan_approval_tray_review_plan")}
 			subtitle="Type feedback below, or approve the plan"
 			actions={
 				<div className="flex items-center justify-end gap-1">
@@ -183,10 +191,12 @@ export function PlanApprovalTray({
 						type="button"
 						onClick={() => void handoff()}
 						disabled={submitting}
-						title="Open a new session in build mode with this plan attached"
+						title={uiMessage(
+							"chat:plan_approval_tray_open_a_new_session_in_build_mode_with_this_plan_attached",
+						)}
 						className="rounded-md px-2.5 py-0.5 text-[12px] text-muted-foreground hover:bg-muted/60 hover:text-foreground"
 					>
-						Hand off →
+						{uiMessage("chat:plan_approval_tray_hand_off")}
 					</button>
 					<button
 						type="button"
@@ -205,7 +215,7 @@ export function PlanApprovalTray({
 						disabled={submitting}
 						className="rounded-md px-2.5 py-0.5 text-[12px] text-muted-foreground hover:bg-muted/60 hover:text-foreground"
 					>
-						Abandon
+						{uiMessage("chat:plan_approval_tray_abandon")}
 					</button>
 					<button
 						type="button"
@@ -228,7 +238,7 @@ export function PlanApprovalTray({
 						}
 						className="rounded-md bg-primary px-3 py-0.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
 					>
-						Approve
+						{uiMessage("chat:plan_approval_tray_approve")}
 					</button>
 				</div>
 			}

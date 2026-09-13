@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/projects";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import type { BrowserCookieImportStatus } from "../lib/bridge.ts";
 import {
 	Select,
@@ -18,6 +20,8 @@ export function BrowserProfileSelect({
 	onValueChange: (value: string | undefined) => void;
 	className?: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["projects"]);
+
 	const selected =
 		profiles.find((profile) => profile.id === value) ?? profiles[0];
 	return (
@@ -30,11 +34,15 @@ export function BrowserProfileSelect({
 			<SelectTrigger
 				size="sm"
 				className={className}
-				aria-label="Browser profile"
+				aria-label={uiMessage(
+					"projects:browser_profile_select_browser_profile",
+				)}
 			>
 				<SelectValue>
 					{selected === undefined
-						? "No supported profile found"
+						? uiMessage(
+								"projects:browser_profile_select_no_supported_profile_found",
+							)
 						: `${selected.source} · ${selected.profile}`}
 				</SelectValue>
 			</SelectTrigger>
@@ -43,7 +51,9 @@ export function BrowserProfileSelect({
 					<SelectItem key={profile.id} value={profile.id}>
 						<span className="truncate">
 							{profile.source} · {profile.profile}
-							{profile.isDefault ? " (Default)" : ""}
+							{profile.isDefault
+								? uiMessage("projects:browser_profile_select_default")
+								: ""}
 						</span>
 					</SelectItem>
 				))}

@@ -79,6 +79,8 @@ const shared = {
 	deps: {
 		alwaysBundle: [
 			"@zuse/contracts",
+			/^@zuse\/i18n(?:\/|$)/,
+			"i18next",
 			"@zuse/client-runtime",
 			"@zuse/agents",
 			"@zuse/extension-host",

@@ -1,5 +1,8 @@
+import "@zuse/i18n/english/extensions";
+import "@zuse/i18n/english/shell";
 import type { IconSvgElement } from "@hugeicons/react";
 import type { Chat, Command } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 import fuzzysort from "fuzzysort";
 import type { SettingsSection } from "../store/ui.ts";
 import {
@@ -50,7 +53,7 @@ const QUICK_ACTIONS: ReadonlySet<Command> = new Set([
 	"toggle-terminal",
 ]);
 
-const SETTINGS_ROWS: ReadonlyArray<ChatSwitcherSettingsRow> =
+const settingsRows = (): ReadonlyArray<ChatSwitcherSettingsRow> =>
 	SETTINGS_NAVIGATION.map((item) => ({
 		kind: "settings",
 		label: item.label,
@@ -67,10 +70,11 @@ export function chatSwitcherSections(
 	query: string,
 	extensions: ReadonlyArray<ChatSwitcherExtensionRow> = [],
 ): ReadonlyArray<ChatSwitcherSection> {
+	const SETTINGS_ROWS = settingsRows();
 	const commandQuery = commandSearchQuery(query);
 	const searchExtensions = (commandQuery ?? query).trim();
 	const extensionSection: ChatSwitcherSection = {
-		label: "Extension commands",
+		label: uiMessage("extensions:commands"),
 		rows:
 			searchExtensions.length === 0
 				? extensions
@@ -84,7 +88,10 @@ export function chatSwitcherSections(
 	};
 	if (commandQuery !== null) {
 		return [
-			{ label: "Commands", rows: commandRowsForQuery(query) },
+			{
+				label: uiMessage("shell:chat_switcher_items_commands"),
+				rows: commandRowsForQuery(query),
+			},
 			...(extensionSection.rows.length ? [extensionSection] : []),
 		];
 	}
@@ -93,7 +100,7 @@ export function chatSwitcherSections(
 	if (search.length > 0) {
 		return [
 			{
-				label: "Chats",
+				label: uiMessage("shell:chat_switcher_items_chats"),
 				rows: fuzzysort
 					.go(search, availableChats, {
 						keys: ["title", "projectName"],
@@ -102,10 +109,13 @@ export function chatSwitcherSections(
 					})
 					.map((result) => result.obj),
 			},
-			{ label: "Commands", rows: commandRowsForQuery(`>${search}`) },
 			...(extensionSection.rows.length ? [extensionSection] : []),
 			{
-				label: "Settings",
+				label: uiMessage("shell:chat_switcher_items_commands"),
+				rows: commandRowsForQuery(`>${search}`),
+			},
+			{
+				label: uiMessage("shell:chat_switcher_items_settings"),
 				rows: fuzzysort
 					.go(search, SETTINGS_ROWS, { key: "label", threshold: 0.3 })
 					.map((result) => result.obj),
@@ -116,22 +126,22 @@ export function chatSwitcherSections(
 	const commands = commandRowsForQuery(">");
 	return [
 		{
-			label: "Recent chats",
+			label: uiMessage("shell:chat_switcher_items_recent_chats"),
 			rows: availableChats
 				.sort((a, b) => recencyOf(b) - recencyOf(a))
 				.slice(0, RECENT_LIMIT),
 		},
 		{
-			label: "Quick actions",
+			label: uiMessage("shell:chat_switcher_items_quick_actions"),
 			rows: commands.filter((row) => QUICK_ACTIONS.has(row.command)),
 		},
 		...(extensionSection.rows.length ? [extensionSection] : []),
 		{
-			label: "Settings",
+			label: uiMessage("shell:chat_switcher_items_settings"),
 			rows: SETTINGS_ROWS,
 		},
 		{
-			label: "Workspace",
+			label: uiMessage("shell:chat_switcher_items_workspace"),
 			rows: commands.filter(
 				(row) =>
 					row.group === "Application" &&
@@ -140,7 +150,7 @@ export function chatSwitcherSections(
 			),
 		},
 		{
-			label: "Navigation",
+			label: uiMessage("shell:chat_switcher_items_navigation"),
 			rows: commands.filter(
 				(row) => row.group === "Navigation" && !QUICK_ACTIONS.has(row.command),
 			),

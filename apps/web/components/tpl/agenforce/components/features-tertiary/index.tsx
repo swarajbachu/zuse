@@ -1,3 +1,5 @@
+"use client";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import type React from "react";
 import { Container } from "@/components/tpl/agenforce/components/container";
 import { cn } from "@/components/tpl/agenforce/lib/utils";
@@ -7,6 +9,8 @@ import { SkeletonTwo } from "./skeletons/second";
 import { SkeletonThree } from "./skeletons/third";
 
 export const FeaturesTertiary = () => {
+	const { message: t } = useWebsiteMessages();
+
 	return (
 		<section className="pt-10 md:pt-20 lg:py-32 relative overflow-hidden">
 			<Container>
@@ -14,11 +18,12 @@ export const FeaturesTertiary = () => {
 					<div className="md:border-r border-b border-neutral-200 dark:border-neutral-800">
 						<CardContent>
 							<h3 className="text-lg font-bold text-neutral-800 dark:text-neutral-200">
-								Review every changed file
+								{t("showcase:review_every_changed_file")}
 							</h3>
 							<CardDescription>
-								See the branch diff, changed files, and line totals before
-								anything leaves your machine.
+								{t(
+									"showcase:see_the_branch_diff_changed_files_and_line_totals_before_anything_leav",
+								)}
 							</CardDescription>
 						</CardContent>
 						<CardSkeleton>
@@ -28,11 +33,12 @@ export const FeaturesTertiary = () => {
 					<div className="border-b border-neutral-200 dark:border-neutral-800">
 						<CardContent>
 							<h3 className="text-lg font-bold text-neutral-800 dark:text-neutral-200">
-								Inline diff review before push
+								{t("showcase:inline_diff_review_before_push")}
 							</h3>
 							<CardDescription>
-								Review additions, deletions, files, and agent findings without
-								leaving Zuse.
+								{t(
+									"showcase:review_additions_deletions_files_and_agent_findings_without_leaving_zu",
+								)}
 							</CardDescription>
 						</CardContent>
 						<CardSkeleton className="mask-radial-from-20% ">
@@ -42,11 +48,12 @@ export const FeaturesTertiary = () => {
 					<div className="md:border-r border-neutral-200 dark:border-neutral-800">
 						<CardContent>
 							<h3 className="text-lg font-bold text-neutral-800 dark:text-neutral-200">
-								Commit selected files &amp; push
+								{t("showcase:commit_selected_files_push")}
 							</h3>
 							<CardDescription>
-								Choose exactly which files enter the commit, write the message,
-								and push the branch when it is ready.
+								{t(
+									"showcase:choose_exactly_which_files_enter_the_commit_write_the_message_and_push",
+								)}
 							</CardDescription>
 						</CardContent>
 						<CardSkeleton className="mask-radial-from-20%  mask-r-from-50%">
@@ -56,11 +63,12 @@ export const FeaturesTertiary = () => {
 					<div className=" dark:border-neutral-800">
 						<CardContent>
 							<h3 className="text-lg font-bold text-neutral-800 dark:text-neutral-200">
-								Send failing checks to the agent
+								{t("showcase:send_failing_checks_to_the_agent")}
 							</h3>
 							<CardDescription>
-								Collect failed GitHub Actions logs and attach them to the agent
-								thread so it can diagnose and fix the branch.
+								{t(
+									"showcase:collect_failed_github_actions_logs_and_attach_them_to_the_agent_thread",
+								)}
 							</CardDescription>
 						</CardContent>
 						<CardSkeleton className="">

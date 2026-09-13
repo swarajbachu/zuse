@@ -1,3 +1,5 @@
+import { providerLabel as getProviderLabel } from "@zuse/contracts";
+import "@zuse/i18n/english/settings";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	catalogProviderIds,
@@ -7,6 +9,7 @@ import {
 	type ProviderId,
 	visibleModelsForProvider,
 } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Delete02Icon, GitBranchIcon } from "@zuse/icons/solid-rounded";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -24,12 +27,7 @@ import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { PermissionsInspector } from "./permissions-inspector.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
-import {
-	PROVIDER_LABEL,
-	RadioCheck,
-	SettingsGroup,
-	SettingsRow,
-} from "./settings-page.tsx";
+import { RadioCheck, SettingsGroup, SettingsRow } from "./settings-page.tsx";
 import { Button } from "./ui/button.tsx";
 import { Switch } from "./ui/switch.tsx";
 import { Textarea } from "./ui/textarea.tsx";
@@ -40,6 +38,8 @@ import { Textarea } from "./ui/textarea.tsx";
  * through to the global default in `useSettingsStore`."
  */
 export function RepositorySettings({ projectId }: { projectId: FolderId }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const environmentId = EnvironmentId.make(
 		useEnvironmentCatalogStore((state) => state.activeEnvironmentId),
 	);
@@ -60,20 +60,28 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 	if (folder === undefined) {
 		return (
 			<p className="text-xs text-muted-foreground">
-				Project no longer exists. Pick another from the sidebar.
+				{uiMessage(
+					"settings:settings_repository_project_no_longer_exists_pick_another_from_the_sidebar",
+				)}
 			</p>
 		);
 	}
 
 	if (settings === null) {
-		return <p className="text-xs text-muted-foreground">Loading settings…</p>;
+		return (
+			<p className="text-xs text-muted-foreground">
+				{uiMessage("settings:settings_repository_loading_settings")}
+			</p>
+		);
 	}
 
 	return (
 		<>
 			<SettingsGroup
-				title="Defaults"
-				description="Repository-specific defaults for new chats. Leave overrides off to inherit global settings."
+				title={uiMessage("settings:settings_repository_defaults")}
+				description={uiMessage(
+					"settings:settings_repository_repository_specific_defaults_for_new_chats_leave_overrides_off_to_inhe",
+				)}
 			>
 				<ProviderOverrideSection
 					defaultProviderId={settings.defaultProviderId}
@@ -94,15 +102,17 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 				/>
 
 				<SettingsRow
-					title="Project permissions"
-					description="Review and revoke saved tool permission decisions for this repository."
+					title={uiMessage("settings:settings_repository_project_permissions")}
+					description={uiMessage(
+						"settings:settings_repository_review_and_revoke_saved_tool_permission_decisions_for_this_repository",
+					)}
 					action={
 						<Button
 							variant="settings"
 							size="sm"
 							onClick={() => setPermissionsOpen(true)}
 						>
-							Manage
+							{uiMessage("settings:settings_repository_manage")}
 						</Button>
 					}
 				/>
@@ -170,6 +180,8 @@ function ProviderOverrideSection({
 		model: string | null,
 	) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const globalProviderId = useSettingsStore((s) => s.defaultProviderId);
 	const globalModelByProvider = useSettingsStore(
 		(s) => s.defaultModelByProvider,
@@ -230,14 +242,18 @@ function ProviderOverrideSection({
 
 	return (
 		<SettingsRow
-			title="Default agent"
-			description="Override the global default provider and model for new chats in this repo."
+			title={uiMessage("settings:settings_repository_default_agent")}
+			description={uiMessage(
+				"settings:settings_repository_override_the_global_default_provider_and_model_for_new_chats_in_this_r",
+			)}
 			action={<Switch checked={isOverridden} onCheckedChange={onToggle} />}
 		>
 			{isOverridden ? (
 				<div
 					role="radiogroup"
-					aria-label="Repository default provider"
+					aria-label={uiMessage(
+						"settings:settings_repository_repository_default_provider",
+					)}
 					className="overflow-hidden rounded-lg border border-border/40 bg-background/60"
 				>
 					{availableProviders.map((pid) => {
@@ -264,18 +280,21 @@ function ProviderOverrideSection({
 								>
 									<ProviderIcon providerId={pid} className="size-4 shrink-0" />
 									<span className="flex-1 truncate text-xs font-medium text-foreground">
-										{PROVIDER_LABEL[pid]}
+										{getProviderLabel(pid)}
 									</span>
 									<RadioCheck active={selected} />
 								</button>
 								{selected && models.length > 0 && (
 									<div className="flex flex-col gap-1.5 px-3 pb-3 pl-10">
 										<span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
-											Model
+											{uiMessage("settings:settings_repository_model")}
 										</span>
 										<div
 											role="radiogroup"
-											aria-label={`Model for ${PROVIDER_LABEL[pid]}`}
+											aria-label={uiMessage(
+												"settings:settings_repository_model_for",
+												{ value1: String(getProviderLabel(pid)) },
+											)}
 											className="flex flex-col"
 										>
 											{models.map((m) => {
@@ -304,10 +323,14 @@ function ProviderOverrideSection({
 				</div>
 			) : (
 				<p className="rounded-lg border border-border/40 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
-					Inheriting{" "}
-					<span className="text-foreground">
-						{PROVIDER_LABEL[globalProviderId]} · {globalModelLabel}
-					</span>
+					<RichMessage
+						id="settings:settings_repository_inheriting_sentence"
+						values={{
+							value: getProviderLabel(globalProviderId),
+							globalModelLabel: globalModelLabel,
+						}}
+						components={{ part0: <span className="text-foreground" /> }}
+					/>
 				</p>
 			)}
 		</SettingsRow>
@@ -321,6 +344,8 @@ function RuntimeModeOverrideSection({
 	currentValue: (typeof MODES_ORDER)[number] | null;
 	onChange: (v: (typeof MODES_ORDER)[number] | null) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const globalMode = useSettingsStore((s) => s.defaultRuntimeMode);
 	const effective = currentValue ?? globalMode;
 	const isOverridden = currentValue !== null;
@@ -330,14 +355,18 @@ function RuntimeModeOverrideSection({
 	};
 	return (
 		<SettingsRow
-			title="Default permission mode"
-			description="Override the global permission posture for new chats in this repo."
+			title={uiMessage("settings:settings_repository_default_permission_mode")}
+			description={uiMessage(
+				"settings:settings_repository_override_the_global_permission_posture_for_new_chats_in_this_repo",
+			)}
 			action={<Switch checked={isOverridden} onCheckedChange={onToggle} />}
 		>
 			{isOverridden ? (
 				<div
 					role="radiogroup"
-					aria-label="Repository default permission mode"
+					aria-label={uiMessage(
+						"settings:settings_repository_repository_default_permission_mode",
+					)}
 					className="overflow-hidden rounded-lg border border-border/40 bg-background/60"
 				>
 					{MODES_ORDER.map((mode) => {
@@ -370,8 +399,11 @@ function RuntimeModeOverrideSection({
 				</div>
 			) : (
 				<p className="rounded-lg border border-border/40 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
-					Inheriting{" "}
-					<span className="text-foreground">{MODE_META[globalMode].label}</span>
+					<RichMessage
+						id="settings:settings_repository_inheriting_sentence_2"
+						values={{ value: MODE_META[globalMode].label }}
+						components={{ part0: <span className="text-foreground" /> }}
+					/>
 				</p>
 			)}
 		</SettingsRow>
@@ -387,6 +419,8 @@ function WorktreeSection({
 	autoCreate: boolean;
 	onAutoCreateChange: (v: boolean) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const worktrees = useWorktreesStore(
 		(s) => s.byProject[projectId] ?? EMPTY_WORKTREES,
 	);
@@ -406,7 +440,7 @@ function WorktreeSection({
 			[...worktrees].sort(
 				(a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
 			),
-		[worktrees],
+		[worktrees, uiMessage],
 	);
 
 	const onRemove = async (worktreeId: (typeof worktrees)[number]["id"]) => {
@@ -424,17 +458,26 @@ function WorktreeSection({
 
 	return (
 		<SettingsGroup
-			title="Worktrees"
-			description="Controls for automatic chat worktrees and the existing checkouts for this repository."
+			title={uiMessage("settings:settings_repository_worktrees")}
+			description={uiMessage(
+				"settings:settings_repository_controls_for_automatic_chat_worktrees_and_the_existing_checkouts_for_t",
+			)}
 			trailing={
 				<span className="text-[11px] text-muted-foreground/80">
-					{sorted.length} {sorted.length === 1 ? "worktree" : "worktrees"}
+					{sorted.length}{" "}
+					{sorted.length === 1
+						? uiMessage("settings:settings_repository_worktree")
+						: uiMessage("settings:settings_repository_worktrees_2")}
 				</span>
 			}
 		>
 			<SettingsRow
-				title="Auto-create a worktree for new chats"
-				description={`When on, the composer's workspace picker pre-selects a fresh worktree. You can still flip back to "Current checkout" before sending the first message.`}
+				title={uiMessage(
+					"settings:settings_repository_auto_create_a_worktree_for_new_chats",
+				)}
+				description={uiMessage(
+					"settings:settings_repository_when_on_the_composer_s_workspace_picker_pre_selects_a_fresh_worktree_y",
+				)}
 				action={
 					<Switch checked={autoCreate} onCheckedChange={onAutoCreateChange} />
 				}
@@ -443,8 +486,9 @@ function WorktreeSection({
 			<div className="flex flex-col">
 				{sorted.length === 0 ? (
 					<p className="px-3 py-6 text-center text-[11px] text-muted-foreground">
-						No worktrees yet. Zuse (Beta) creates one for you when you start a
-						new chat.
+						{uiMessage(
+							"settings:settings_repository_no_worktrees_yet_zuse_beta_creates_one_for_you_when_you_start_a_new_ch",
+						)}
 					</p>
 				) : (
 					<ul className="flex flex-col divide-y divide-border/40">
@@ -461,26 +505,35 @@ function WorktreeSection({
 									className="flex min-w-0 flex-col gap-0.5"
 									title={displayPath(wt.path)}
 								>
-									<span className="truncate text-xs font-medium text-foreground">
-										{wt.name}
-									</span>
-									<span className="truncate font-mono text-[11px] text-muted-foreground">
-										{wt.branch}
-										<span className="text-muted-foreground/60">
-											{" "}
-											· off {wt.baseBranch}
-										</span>
-									</span>
+									<RichMessage
+										id="settings:settings_repository_off_sentence"
+										values={{
+											value: wt.name,
+											value2: wt.branch,
+											value3: wt.baseBranch,
+										}}
+										components={{
+											part0: (
+												<span className="truncate text-xs font-medium text-foreground" />
+											),
+											part1: (
+												<span className="truncate font-mono text-[11px] text-muted-foreground" />
+											),
+											part2: <span className="text-muted-foreground/60" />,
+										}}
+									/>
 								</div>
 								<Button
 									variant="settings"
 									size="sm"
 									loading={removingId === wt.id}
 									onClick={() => void onRemove(wt.id)}
-									title="Remove the checkout; uncommitted changes are saved to its branch"
+									title={uiMessage(
+										"settings:settings_repository_remove_the_checkout_uncommitted_changes_are_saved_to_its_branch",
+									)}
 								>
 									<HugeiconsIcon icon={Delete02Icon} className="size-3" />
-									Remove
+									{uiMessage("common:remove")}
 								</Button>
 							</li>
 						))}
@@ -495,8 +548,9 @@ function WorktreeSection({
 					</p>
 				) : (
 					<p className="text-[11px] leading-relaxed text-muted-foreground">
-						Git worktrees for this repo. Each lives under
-						~/.zuse/&lt;repo&gt;/&lt;name&gt;/ on disk.
+						{uiMessage(
+							"settings:settings_repository_git_worktrees_for_this_repo_each_lives_under_zuse_lt_repo_gt_lt_name_g",
+						)}
 					</p>
 				)}
 			</div>
@@ -531,6 +585,8 @@ function ScriptsSection({
 	onEnvironmentVariablesChange: (v: Record<string, string>) => void;
 	onFileIncludeGlobsChange: (v: string) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const envText = Object.entries(environmentVariables)
 		.map(([key, value]) => `${key}=${value}`)
 		.join("\n");
@@ -550,26 +606,34 @@ function ScriptsSection({
 
 	return (
 		<SettingsGroup
-			title="Scripts"
-			description="Commands that run when worktrees are set up, run, or archived."
+			title={uiMessage("settings:settings_repository_scripts")}
+			description={uiMessage(
+				"settings:settings_repository_commands_that_run_when_worktrees_are_set_up_run_or_archived",
+			)}
 		>
 			<ScriptEditor
-				title="Setup script"
-				description="Runs when a new worktree is created"
+				title={uiMessage("settings:settings_repository_setup_script")}
+				description={uiMessage(
+					"settings:settings_repository_runs_when_a_new_worktree_is_created",
+				)}
 				value={setupScript}
-				placeholder="bun i"
+				placeholder={uiMessage("settings:settings_repository_bun_i")}
 				onChange={onSetupScriptChange}
 			/>
 			<ScriptEditor
-				title="Run script"
-				description="Runs when you click Run"
+				title={uiMessage("settings:settings_repository_run_script")}
+				description={uiMessage(
+					"settings:settings_repository_runs_when_you_click_run",
+				)}
 				value={runScript}
-				placeholder="bun run dev"
+				placeholder={uiMessage("settings:settings_repository_bun_run_dev")}
 				onChange={onRunScriptChange}
 			/>
 			<SettingsRow
-				title="Auto-run after setup"
-				description="Start this repository's run script automatically after setup."
+				title={uiMessage("settings:settings_repository_auto_run_after_setup")}
+				description={uiMessage(
+					"settings:settings_repository_start_this_repository_s_run_script_automatically_after_setup",
+				)}
 				action={
 					<Switch
 						checked={autoRunAfterSetup}
@@ -578,26 +642,32 @@ function ScriptsSection({
 				}
 			/>
 			<ScriptEditor
-				title="Archive script"
-				description="Optional hook that runs before the archive checkpoint"
+				title={uiMessage("settings:settings_repository_archive_script")}
+				description={uiMessage(
+					"settings:settings_repository_optional_hook_that_runs_before_the_archive_checkpoint",
+				)}
 				value={archiveScript}
-				placeholder={'rm -rf node_modules .next\npkill -f "next dev" || true'}
+				placeholder={uiMessage(
+					"settings:settings_repository_rm_rf_node_modules_next_pkill_f_next_dev_true",
+				)}
 				onChange={onArchiveScriptChange}
 			/>
 			<div className="px-3 py-2.5">
 				<div className="mb-2">
 					<p className="text-xs font-medium text-foreground">
-						Environment variables
+						{uiMessage("settings:settings_repository_environment_variables")}
 					</p>
 					<p className="text-[11px] text-muted-foreground">
-						KEY=value pairs passed to setup, run, and archive scripts.
+						{uiMessage(
+							"settings:settings_repository_key_value_pairs_passed_to_setup_run_and_archive_scripts",
+						)}
 					</p>
 				</div>
 				<CodeTextarea
 					value={envDraft}
 					onChange={(event) => setEnvDraft(event.currentTarget.value)}
 					onBlur={persistEnv}
-					placeholder="ZUSE_PORT=5733"
+					placeholder={uiMessage("settings:settings_repository_zuse_port_5733")}
 					minHeightClassName="min-h-24"
 				/>
 			</div>
@@ -607,8 +677,10 @@ function ScriptsSection({
 			/>
 			<div className="px-3 py-2.5">
 				<p className="text-[11px] leading-relaxed text-muted-foreground">
-					Want to hand-edit or share repository settings? Use{" "}
-					<span className="font-mono">.zuse/settings.toml</span>.
+					<RichMessage
+						id="settings:settings_repository_want_to_hand_edit_or_share_repository_settings_use_zuse_sett_sentence"
+						components={{ part0: <span className="font-mono" /> }}
+					/>
 				</p>
 			</div>
 		</SettingsGroup>
@@ -622,6 +694,8 @@ function FileIncludesEditor({
 	value: string;
 	onChange: (v: string) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const [draft, setDraft] = useState(value);
 	useEffect(() => setDraft(value), [value]);
 	const persist = () => {
@@ -631,18 +705,21 @@ function FileIncludesEditor({
 		<div className="px-3 py-2.5">
 			<div className="mb-2">
 				<p className="text-xs font-medium text-foreground">
-					Worktree file includes
+					{uiMessage("settings:settings_repository_worktree_file_includes")}
 				</p>
 				<p className="text-[11px] text-muted-foreground">
-					One pattern per line, linked from the main checkout into each new
-					worktree.
+					{uiMessage(
+						"settings:settings_repository_one_pattern_per_line_linked_from_the_main_checkout_into_each_new_workt",
+					)}
 				</p>
 			</div>
 			<CodeTextarea
 				value={draft}
 				onChange={(event) => setDraft(event.currentTarget.value)}
 				onBlur={persist}
-				placeholder={".env\n.env.local\n.env.*.local"}
+				placeholder={uiMessage(
+					"settings:settings_repository_env_env_local_env_local",
+				)}
 				minHeightClassName="min-h-20"
 			/>
 		</div>
@@ -662,6 +739,8 @@ function ScriptEditor({
 	placeholder: string;
 	onChange: (v: string | null) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const [draft, setDraft] = useState(value ?? "");
 	useEffect(() => setDraft(value ?? ""), [value]);
 	const persist = () => {
@@ -676,7 +755,7 @@ function ScriptEditor({
 					<p className="text-[11px] text-muted-foreground">{description}</p>
 				</div>
 				<span className="rounded-md border border-border/40 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
-					shell
+					{uiMessage("settings:settings_repository_shell")}
 				</span>
 			</div>
 			<CodeTextarea
