@@ -1,0 +1,43 @@
+display_information:
+  name: Zuse
+  description: Connect Zuse and configure coding automations for your workspace
+  background_color: "#111111"
+features:
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: Zuse
+    always_online: false
+oauth_config:
+  redirect_urls:
+    - https://api.zuse.sh/slack/oauth/callback
+  scopes:
+    bot:
+      - chat:write
+      - files:read
+      - channels:history
+      - groups:history
+      - app_mentions:read
+      - im:history
+    user:
+      - channels:history
+      - groups:history
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://api.zuse.sh/slack/interactions
+  event_subscriptions:
+    request_url: https://api.zuse.sh/slack/events
+    bot_events:
+      - app_home_opened
+      - app_mention
+      - message.im
+      - app_uninstalled
+      - tokens_revoked
+      - message.channels
+      - message.groups
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

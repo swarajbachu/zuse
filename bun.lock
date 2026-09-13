@@ -120,7 +120,7 @@
         "@zuse/utils": "*",
         "clsx": "^2.1.1",
         "effect": "catalog:",
-        "expo": "^57.0.15",
+        "expo": "~57.0.15",
         "expo-application": "^57.0.2",
         "expo-audio": "~57.0.4",
         "expo-auth-session": "~57.0.8",
@@ -294,6 +294,20 @@
         "zod": "^4.0.0",
       },
     },
+    "apps/slack": {
+      "name": "@zuse/slack",
+      "version": "0.0.0",
+      "dependencies": {
+        "@zuse/contracts": "*",
+        "@zuse/utils": "*",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "apps/web": {
       "name": "web",
       "version": "0.1.0",
@@ -332,15 +346,6 @@
         "vitest": "catalog:",
       },
     },
-    "examples/slack-bot": {
-      "name": "zuse-slack-bot-example",
-      "version": "0.0.0",
-      "devDependencies": {
-        "typescript": "5.9.2",
-        "vitest": "4.1.10",
-        "wrangler": "^4.0.0",
-      },
-    },
     "infra/api": {
       "name": "@zuse/api",
       "version": "0.0.0",
@@ -353,6 +358,7 @@
         "@zuse/machine-providers": "*",
         "@zuse/pokemon-data": "*",
         "@zuse/sandbox-providers": "*",
+        "@zuse/slack": "*",
         "@zuse/utils": "*",
         "effect": "catalog:",
         "jose": "^6.2.3",
@@ -2223,6 +2229,8 @@
     "@zuse/provider-registry": ["@zuse/provider-registry@workspace:packages/provider-registry"],
 
     "@zuse/sandbox-providers": ["@zuse/sandbox-providers@workspace:packages/sandbox-providers"],
+
+    "@zuse/slack": ["@zuse/slack@workspace:apps/slack"],
 
     "@zuse/sqlite": ["@zuse/sqlite@workspace:packages/sqlite"],
 
@@ -4700,8 +4708,6 @@
 
     "zod-validation-error": ["zod-validation-error@4.0.2", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-Q6/nZLe6jxuU80qb/4uJ4t5v2VEZ44lzQjPDhYJNztRQ4wyWc6VF3D3Kb/fAuPetZQnhS3hnajCf9CsWesghLQ=="],
 
-    "zuse-slack-bot-example": ["zuse-slack-bot-example@workspace:examples/slack-bot"],
-
     "zusehq": ["zusehq@workspace:packages/zusehq"],
 
     "zwitch": ["zwitch@2.0.4", "http://registry.npmjs.org/zwitch/-/zwitch-2.0.4.tgz", {}, "sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A=="],
@@ -5304,9 +5310,9 @@
 
     "plist/@xmldom/xmldom": ["@xmldom/xmldom@0.9.10", "", {}, "sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw=="],
 
-	"postcss/nanoid": ["nanoid@3.3.12", "http://registry.npmjs.org/nanoid/-/nanoid-3.3.12.tgz", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ=="],
+    "postcss/nanoid": ["nanoid@3.3.12", "http://registry.npmjs.org/nanoid/-/nanoid-3.3.12.tgz", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ=="],
 
-	"posthog-js/fflate": ["fflate@0.4.9", "", {}, "sha512-zdxgIEddhfsyCaWpJ2SdXEP8ZMrKJ6+5jl4OupODcywU0IhRk6gdXuVGcPICyfx2H97hVK7xmJtRLPjkxAX8Vw=="],
+    "posthog-js/fflate": ["fflate@0.4.9", "", {}, "sha512-zdxgIEddhfsyCaWpJ2SdXEP8ZMrKJ6+5jl4OupODcywU0IhRk6gdXuVGcPICyfx2H97hVK7xmJtRLPjkxAX8Vw=="],
 
     "posthog-js/preact": ["preact@10.29.7", "", { "peerDependencies": { "preact-render-to-string": ">=5" }, "optionalPeers": ["preact-render-to-string"] }, "sha512-DCHYrK/B10yUD3ZjLfhZ3WIE/9Vf9VFUODcRE2dRomTYDpJk6z6L9wecSfhfE6M9ZTHUdyQkoC46arIDhEV84Q=="],
 

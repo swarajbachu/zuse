@@ -3,7 +3,51 @@
 const encoder = new TextEncoder();
 const SLACK_REQUEST_TIMEOUT_MS = 10_000;
 const SLACK_THREAD_MAX_MESSAGES = 500;
+
+import { slackMessageText } from "./automation.ts";
+
 const SLACK_FILE_MAX_BYTES = 20 * 1024 * 1024;
+
+export class SlackRateLimitError extends Error {
+	constructor(readonly retryAfterSeconds: number) {
+		super("slack_rate_limited");
+		this.name = "SlackRateLimitError";
+	}
+}
+export class SlackApiError extends Error {
+	constructor(
+		readonly code: string,
+		readonly status: number,
+	) {
+		super(`slack_api_${code}`);
+		this.name = "SlackApiError";
+	}
+	get retryable(): boolean {
+		return (
+			this.status >= 500 ||
+			![
+				"invalid_auth",
+				"token_revoked",
+				"account_inactive",
+				"missing_scope",
+				"not_in_channel",
+				"channel_not_found",
+				"thread_not_found",
+				"restricted_action",
+				"not_allowed_token_type",
+			].includes(this.code)
+		);
+	}
+}
+const checkRateLimit = (response: Response): void => {
+	if (response.status !== 429) return;
+	const seconds = Number(response.headers.get("retry-after"));
+	throw new SlackRateLimitError(
+		Number.isFinite(seconds) && seconds > 0
+			? Math.min(86400, Math.ceil(seconds))
+			: 60,
+	);
+};
 
 export interface SlackFile {
 	readonly id: string;
@@ -139,52 +183,58 @@ export const verifyZuseSignature = async (input: {
 	return timingSafeEqual(expected, signature);
 };
 
+export const slackApi = async (
+	botToken: string,
+	method: string,
+	body: Record<string, unknown>,
+): Promise<Record<string, unknown>> => {
+	const response = await fetch(`https://slack.com/api/${method}`, {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${botToken}`,
+			"content-type": "application/json; charset=utf-8",
+		},
+		body: JSON.stringify(body),
+		signal: AbortSignal.timeout(SLACK_REQUEST_TIMEOUT_MS),
+	});
+	checkRateLimit(response);
+	let payload: Record<string, unknown>;
+	try {
+		payload = (await response.json()) as Record<string, unknown>;
+	} catch {
+		throw new Error(`slack_api_invalid_response:${response.status}`);
+	}
+	if (!response.ok || payload.ok !== true)
+		throw new SlackApiError(
+			String(payload.error ?? response.status),
+			response.status,
+		);
+	return payload;
+};
+
 export const postSlackMessage = async (input: {
 	readonly botToken: string;
 	readonly channel: string;
 	readonly text: string;
 	readonly threadTs?: string;
 	readonly idempotencyKey?: string;
+	readonly blocks?: readonly unknown[];
 }): Promise<{ readonly ts: string }> => {
-	const response = await fetch("https://slack.com/api/chat.postMessage", {
-		method: "POST",
-		headers: {
-			authorization: `Bearer ${input.botToken}`,
-			"content-type": "application/json; charset=utf-8",
-		},
-		body: JSON.stringify({
-			channel: input.channel,
-			text: input.text,
-			...(input.threadTs === undefined ? {} : { thread_ts: input.threadTs }),
-			...(input.idempotencyKey === undefined
-				? {}
-				: {
-						client_msg_id: await slackClientMessageId(input.idempotencyKey),
-					}),
-		}),
-		signal: AbortSignal.timeout(SLACK_REQUEST_TIMEOUT_MS),
+	const payload = await slackApi(input.botToken, "chat.postMessage", {
+		channel: input.channel,
+		...(input.blocks ? { blocks: input.blocks } : {}),
+		text: input.text.slice(0, 39000),
+		unfurl_links: false,
+		unfurl_media: false,
+		...(input.threadTs === undefined ? {} : { thread_ts: input.threadTs }),
+		...(input.idempotencyKey === undefined
+			? {}
+			: { client_msg_id: await slackClientMessageId(input.idempotencyKey) }),
 	});
-	const rawBody = await response.text();
-	let payload: {
-		readonly ok?: boolean;
-		readonly ts?: string;
-		readonly error?: string;
-	};
-	try {
-		payload = JSON.parse(rawBody) as typeof payload;
-	} catch {
-		throw new Error(`slack_api_invalid_response:${response.status}`);
-	}
-	if (!response.ok || payload.ok !== true) {
-		throw new Error(
-			`slack_api_${payload.error ?? (response.ok ? "rejected" : response.status)}`,
-		);
-	}
-	if (typeof payload.ts !== "string" || payload.ts.length === 0)
+	if (typeof payload.ts !== "string" || !payload.ts)
 		throw new Error("slack_api_missing_message_ts");
 	return { ts: payload.ts };
 };
-
 const slackFileUrl = (value: string): URL => {
 	const url = new URL(value);
 	const allowed =
@@ -213,30 +263,72 @@ export const downloadSlackFile = async (input: {
 		signal: AbortSignal.timeout(SLACK_REQUEST_TIMEOUT_MS),
 	});
 	if (!response.ok) throw new Error(`slack_file_download_${response.status}`);
-	const bytes = new Uint8Array(await response.arrayBuffer());
+	const reader = response.body?.getReader();
+	if (!reader) throw new Error("slack_file_empty");
+	const chunks: Uint8Array[] = [];
+	let length = 0;
+	try {
+		while (true) {
+			const chunk = await reader.read();
+			if (chunk.done) break;
+			length += chunk.value.byteLength;
+			if (length > SLACK_FILE_MAX_BYTES) {
+				await reader.cancel();
+				throw new Error("slack_file_size_invalid");
+			}
+			chunks.push(chunk.value);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+	const bytes = new Uint8Array(length);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
 	if (bytes.byteLength === 0 || bytes.byteLength > SLACK_FILE_MAX_BYTES)
 		throw new Error("slack_file_size_invalid");
 	return bytes;
 };
 
 export const readSlackThread = async (input: {
-	/** User token for channel threads; Slack permits bot tokens for DMs only. */
+	/** Use a token authorized to read this conversation; DMs use the bot token. */
 	readonly token: string;
 	readonly channel: string;
 	readonly threadTs: string;
+	readonly latestTs?: string;
+	readonly checkpoint?: {
+		load(): Promise<string | null>;
+		save(value: string): Promise<void>;
+	};
 }): Promise<ReadonlyArray<SlackThreadMessage>> => {
-	const messages: SlackThreadMessage[] = [];
-	let cursor: string | undefined;
+	const cached = await input.checkpoint?.load();
+	const progress: {
+		messages: SlackThreadMessage[];
+		cursor?: string;
+		seen: string[];
+		done?: boolean;
+	} = cached ? JSON.parse(cached) : { messages: [], seen: [] };
+	const messages = progress.messages;
+	if (progress.done) return messages;
+	let cursor = progress.cursor;
+	const seenCursors = new Set(progress.seen);
 	do {
 		const url = new URL("https://slack.com/api/conversations.replies");
 		url.searchParams.set("channel", input.channel);
 		url.searchParams.set("ts", input.threadTs);
-		url.searchParams.set("limit", "100");
+		url.searchParams.set("limit", "15");
+		if (input.latestTs) {
+			url.searchParams.set("latest", input.latestTs);
+			url.searchParams.set("inclusive", "true");
+		}
 		if (cursor !== undefined) url.searchParams.set("cursor", cursor);
 		const response = await fetch(url, {
 			headers: { authorization: `Bearer ${input.token}` },
 			signal: AbortSignal.timeout(SLACK_REQUEST_TIMEOUT_MS),
 		});
+		checkRateLimit(response);
 		const body = (await response.json()) as {
 			readonly ok?: boolean;
 			readonly error?: string;
@@ -244,20 +336,23 @@ export const readSlackThread = async (input: {
 				readonly ts?: string;
 				readonly user?: string;
 				readonly text?: string;
+				readonly blocks?: unknown;
+				readonly attachments?: unknown;
 				readonly files?: ReadonlyArray<SlackFileMetadata>;
 			}>;
 			readonly response_metadata?: { readonly next_cursor?: string };
 		};
 		if (!response.ok || body.ok !== true)
-			throw new Error(
-				`slack_api_${body.error ?? (response.ok ? "rejected" : response.status)}`,
+			throw new SlackApiError(
+				String(body.error ?? (response.ok ? "rejected" : response.status)),
+				response.status,
 			);
 		for (const message of body.messages ?? []) {
 			if (typeof message.ts !== "string") continue;
 			messages.push({
 				ts: message.ts,
 				...(message.user === undefined ? {} : { user: message.user }),
-				text: message.text ?? "",
+				text: slackMessageText(message),
 				files: parseSlackFiles(message.files),
 			});
 			if (messages.length > SLACK_THREAD_MAX_MESSAGES)
@@ -265,6 +360,31 @@ export const readSlackThread = async (input: {
 		}
 		const next = body.response_metadata?.next_cursor?.trim();
 		cursor = next === undefined || next.length === 0 ? undefined : next;
+		if (cursor !== undefined) {
+			if (seenCursors.has(cursor) || seenCursors.size >= 50)
+				throw new Error("slack_thread_pagination_limit");
+			seenCursors.add(cursor);
+		}
+		// Bound durable context as well as attachment buffering. Retain newest data.
+		let textBudget = 60_000;
+		let fileBudget = 8;
+		for (let index = messages.length - 1; index >= 0; index--) {
+			const message = messages[index];
+			if (!message) continue;
+			const text = textBudget > 0 ? message.text.slice(-textBudget) : "";
+			const files = fileBudget > 0 ? message.files.slice(-fileBudget) : [];
+			textBudget -= text.length;
+			fileBudget -= files.length;
+			messages[index] = { ...message, text, files };
+		}
+		await input.checkpoint?.save(
+			JSON.stringify({
+				messages,
+				cursor,
+				seen: [...seenCursors],
+				done: cursor === undefined,
+			}),
+		);
 	} while (cursor !== undefined);
 	return messages;
 };

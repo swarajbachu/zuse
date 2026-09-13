@@ -6,6 +6,7 @@
 	"exports": {
 		"./cloud-auth-crypto": "./src/cloud-auth-crypto.ts",
 		"./browser-page": "./src/browser-page.ts",
+		"./integration-page": "./src/integration-page.ts",
 		"./site-favicon": "./src/site-favicon.ts",
 		"./cloud-api": "./src/cloud-api.ts",
 		"./cloud-transcript-crypto": "./src/cloud-transcript-crypto.ts",
