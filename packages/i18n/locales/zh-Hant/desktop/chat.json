@@ -643,5 +643,6 @@
 	"device_command_card_truncated": "· 截斷",
 	"device_bridge_panel_ready_commands_require_device_permission": "就緒 · 指令需要設備許可",
 	"device_bridge_panel_ready_cloud_agent_access_is_off": "就緒 · 雲端代理存取已關閉",
-	"device_bridge_panel_always_allow_your_cloud_chats": "始終允許 · 您的雲端聊天"
+	"device_bridge_panel_always_allow_your_cloud_chats": "始終允許 · 您的雲端聊天",
+	"terminal_pane_waiting_for_changes_to_settle": "等待變更穩定…"
 }

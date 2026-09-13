@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { PtySummary } from "@zuse/contracts";
 import { Effect } from "effect";
-import { Stack } from "expo-router";
+import { Redirect, Stack } from "expo-router";
 import { Mic2, TerminalSquare } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -11,11 +11,11 @@ import {
 	Text,
 	View,
 } from "react-native";
-
 import { ListRow, ListSection } from "~/components/ui/list";
 import { optionsForConnection } from "~/lib/connection-params";
 import { connectionSupports } from "~/lib/connection-records";
 import { getOrCreateDeviceId } from "~/lib/device-identity";
+import { mobileReleaseFeatures } from "~/lib/release-features";
 import { getVoiceCapabilities, listOwnedTerminals } from "~/rpc/actions";
 import { connectionsAtom } from "~/store/connections";
 
@@ -25,6 +25,14 @@ type TerminalRow = {
 };
 
 export default function DeveloperToolsScreen() {
+	return mobileReleaseFeatures.terminal || mobileReleaseFeatures.voice ? (
+		<DeveloperToolsContent />
+	) : (
+		<Redirect href="/" />
+	);
+}
+
+function DeveloperToolsContent() {
 	const connections = useAtomValue(connectionsAtom);
 	const [terminals, setTerminals] = useState<readonly TerminalRow[]>([]);
 	const [voiceStatus, setVoiceStatus] = useState("Not checked");

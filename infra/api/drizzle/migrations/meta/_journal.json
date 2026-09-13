@@ -155,6 +155,20 @@
 			"when": 1789142000000,
 			"tag": "0021_link_challenge_api_issuer",
 			"breakpoints": true
+		},
+		{
+			"idx": 22,
+			"version": "7",
+			"when": 1789257600000,
+			"tag": "0022_slack_integrations",
+			"breakpoints": true
+		},
+		{
+			"idx": 23,
+			"version": "7",
+			"when": 1789304400000,
+			"tag": "0023_slack_members",
+			"breakpoints": true
 		}
 	]
 }

@@ -3,6 +3,14 @@
 The documentation site is a Next.js application in the repository's Bun
 workspace.
 
+## Content boundary
+
+Only `content/docs` is published, through the collection in `source.config.ts`.
+Search, sitemap, and LLM exports all use that same collection.
+Repository operator runbooks belong in `internal-docs/`, not this collection.
+Do not copy or import internal runbooks into public pages. This README is for
+docs-site maintainers and is not part of the published collection.
+
 ## Local development
 
 Install dependencies once from the repository root:

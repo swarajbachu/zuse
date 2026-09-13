@@ -4,6 +4,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+	compareReleaseVersions as compareVersions,
+	parseReleaseVersion,
+} from "../packages/utils/src/release-version.mjs";
+
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const dryRun = process.argv.includes("--dry-run");
 const explicitVersion = readArg("--version");
@@ -54,9 +59,12 @@ function currentBranch() {
 }
 
 function parseVersion(version) {
-	const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
-	if (!match) throw new Error(`Expected semver version, got ${version}`);
-	return match.slice(1).map(Number);
+	const { major, minor, patch, preview } = parseReleaseVersion(version);
+	if (preview !== null)
+		throw new Error(
+			"Publish Preview builds with the manual desktop release workflow; this helper prepares Stable release PRs.",
+		);
+	return [major, minor, patch];
 }
 
 function bumpVersion(version, kind) {
@@ -65,16 +73,6 @@ function bumpVersion(version, kind) {
 	if (kind === "minor") return `${major}.${minor + 1}.0`;
 	if (kind === "patch") return `${major}.${minor}.${patch + 1}`;
 	throw new Error(`Unknown release kind: ${kind}`);
-}
-
-function compareVersions(left, right) {
-	const leftParts = parseVersion(left);
-	const rightParts = parseVersion(right);
-	for (let index = 0; index < leftParts.length; index += 1) {
-		const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
-		if (difference !== 0) return difference;
-	}
-	return 0;
 }
 
 function inferKind(messages) {
@@ -249,13 +247,22 @@ if (status) {
 	);
 }
 
-run("git", ["fetch", "--prune", "origin"]);
+run("git", ["fetch", "--prune", "--tags", "origin"]);
 run("git", ["pull", "--ff-only", "origin", "main"]);
 
 const desktopPkg = JSON.parse(
 	readFileSync(join(root, "apps/desktop/package.json"), "utf8"),
 );
-const currentVersion = desktopPkg.version;
+// Manual promotions set the packaged version without modifying main. GitHub's
+// current Stable release is therefore the baseline for notes and version bumps.
+const currentVersion = execFileSync(
+	"gh",
+	["release", "view", "--json", "tagName", "--jq", ".tagName"],
+	{ cwd: root, encoding: "utf8" },
+)
+	.trim()
+	.replace(/^v/, "");
+parseVersion(currentVersion);
 const latestTag = `v${currentVersion}`;
 git(["rev-parse", "--verify", `refs/tags/${latestTag}`]);
 const log = git(["log", "--pretty=format:%s", `${latestTag}..HEAD`]);
@@ -299,7 +306,7 @@ if (currentBranch() === "main" || currentBranch() === "") {
 updateJsonVersion("apps/desktop/package.json", nextVersion);
 replaceInFile(
 	"bun.lock",
-	`"apps/desktop": {\n      "name": "desktop",\n      "version": "${currentVersion}",`,
+	`"apps/desktop": {\n      "name": "desktop",\n      "version": "${desktopPkg.version}",`,
 	`"apps/desktop": {\n      "name": "desktop",\n      "version": "${nextVersion}",`,
 );
 write(

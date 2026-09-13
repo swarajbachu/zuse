@@ -853,5 +853,14 @@
 	"cloud_api_keys_this_secret_is_shown_only_once_store_it_where_your_integration_can_read_it": "Dieses Geheimnis wird nur einmal gezeigt. Speichern Sie es dort, wo Ihre Integration es lesen kann.",
 	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undon_sentence": "{{value}} verliert sofort den öffentlichen API-Zugriff. Dies kann nicht rückgängig gemacht werden.",
 	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undone": "verliert sofort den öffentlichen API-Zugriff. Dies kann nicht rückgängig gemacht werden.",
-	"cloud_api_keys_this_integration": "Diese Integration"
+	"cloud_api_keys_this_integration": "Diese Integration",
+	"update_channel_updates": "Updates",
+	"update_channel_label": "Update-Kanal",
+	"update_channel_stable": "Stabil",
+	"update_channel_preview": "Vorschau",
+	"update_channel_preview_description": "Erhalten Sie Vorabversionen. Beim Wechsel zu Stabil wird nach dem Neustart die aktuelle stabile Version installiert. Ihre Sitzungen bleiben erhalten.",
+	"update_channel_stable_description": "Erhalten Sie getestete Versionen. Wählen Sie Vorschau, um kommende Änderungen frühzeitig auszuprobieren.",
+	"update_channel_load_error": "Der Update-Kanal konnte nicht geladen werden. Öffnen Sie die Einstellungen erneut, um es noch einmal zu versuchen.",
+	"update_channel_save_error": "Der Update-Kanal konnte nicht geändert werden. Versuchen Sie es erneut.",
+	"update_channel_changing": "Update-Kanal wird geändert…"
 }

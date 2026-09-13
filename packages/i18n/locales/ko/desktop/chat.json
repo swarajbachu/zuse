@@ -643,5 +643,6 @@
 	"device_bridge_panel_chat": "채팅 {{value1}}",
 	"device_command_card_exit": "· 출구 {{value1}}",
 	"device_bridge_panel_always_allow_your_cloud_chats": "항상 허용 · 클라우드 채팅",
-	"chat_landing_issueattached_sentence": "이슈{{value}}첨부됨"
+	"chat_landing_issueattached_sentence": "이슈{{value}}첨부됨",
+	"terminal_pane_waiting_for_changes_to_settle": "변경이 완료되기를 기다리는 중…"
 }

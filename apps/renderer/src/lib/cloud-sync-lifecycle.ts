@@ -34,20 +34,4 @@ export const reconcileAutomaticCloudSyncs = (input: {
 };
 
 /** Serialize start/stop work per workspace so reconnects cannot race teardown. */
-export class CloudSyncLifecycleQueue {
-	private readonly pending = new Map<string, Promise<void>>();
-
-	run(workspaceId: string, operation: () => Promise<void>): Promise<void> {
-		const previous = this.pending.get(workspaceId) ?? Promise.resolve();
-		let current: Promise<void>;
-		current = previous
-			.catch(() => undefined)
-			.then(operation)
-			.finally(() => {
-				if (this.pending.get(workspaceId) === current)
-					this.pending.delete(workspaceId);
-			});
-		this.pending.set(workspaceId, current);
-		return current;
-	}
-}
+export { KeyedSerialWorker as CloudSyncLifecycleQueue } from "@zuse/utils/keyed-worker";

@@ -160,15 +160,11 @@ dmg:
       type: link
       path: /Applications
 
-# electron-updater consumes latest-mac.yml from the GitHub Release
-# associated with this repo. With `releaseType: release`, the release
-# workflow uploads the .dmg + latest-mac.yml as a *published* release, so
-# every tag push goes live immediately and electron-updater (in the
-# in-the-wild app) can see the new version with no manual promotion step.
-# Switch back to `releaseType: draft` if you'd rather gate each release
-# behind a manual "Draft" -> "Published" flip in the GitHub Releases UI.
+# CI packages without publishing. A final job validates both platforms before
+# publishing a release; local publishing defaults to a draft.
 publish:
   provider: github
   owner: swarajbachu
   repo: zuse
-  releaseType: release
+  channel: latest
+  releaseType: draft

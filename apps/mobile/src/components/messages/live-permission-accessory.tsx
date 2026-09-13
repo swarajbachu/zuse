@@ -125,7 +125,7 @@ export function LivePermissionAccessory({
 			className="px-3 pt-2"
 		>
 			<GlassSurface style={{ padding: 16, gap: 12 }}>
-				<Text className="font-sans-medium text-[12px] uppercase tracking-wide text-primary">
+				<Text className="font-sans-medium text-[12px] uppercase tracking-wide text-accent">
 					Permission{countLabel}
 				</Text>
 				<Text className="font-sans-bold text-[16px] leading-5 text-foreground">

@@ -10,8 +10,10 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+
+import { KeyedSerialWorker } from "@zuse/utils/keyed-worker";
 
 import { cloudSshConfigPath } from "../ssh/cloud-ssh-service.ts";
 
@@ -29,7 +31,8 @@ import { cloudSshConfigPath } from "../ssh/cloud-ssh-service.ts";
 const execFileAsync = promisify(execFile);
 
 export const SYNC_MARKER_FILE = ".zuse-sync.json";
-const DEBOUNCE_MS = 1_500;
+const QUIET_MS = 5_000;
+const BATCH_COOLDOWN_MS = 15_000;
 const PERIODIC_FALLBACK_MS = 60_000;
 const ERROR_BACKOFF_MIN_MS = 5_000;
 const ERROR_BACKOFF_MAX_MS = 60_000;
@@ -46,7 +49,12 @@ const GENERATED_SYNC_EXCLUDES = [
 	".zuse-rsync-partial",
 ] as const;
 
-export type CloudSyncState = "idle" | "syncing" | "in-sync" | "error";
+export type CloudSyncState =
+	| "idle"
+	| "pending"
+	| "syncing"
+	| "in-sync"
+	| "error";
 
 export interface CloudSyncStatus {
 	readonly workspaceId: string;
@@ -74,6 +82,28 @@ export const supportsGitignoreFilter = (versionOutput: string): boolean =>
 export const remoteRsyncMissing = (stderr: string): boolean =>
 	/(?:rsync: )?command not found/u.test(stderr);
 
+const syncExcludes = [
+	"--exclude=.git/",
+	`--exclude=${SYNC_MARKER_FILE}`,
+	...GENERATED_SYNC_EXCLUDES.map((path) => `--exclude=${path}/`),
+];
+
+/** No -t: an identical file must not be touched just because archive times differ. */
+export const localRsyncArgs = (
+	staging: string,
+	localPath: string,
+	gitignoreFilter: boolean,
+): ReadonlyArray<string> => [
+	"-rlpc",
+	"--delay-updates",
+	"--delete-delay",
+	"--partial-dir=.zuse-rsync-partial",
+	...syncExcludes,
+	...(gitignoreFilter ? ["--filter=:- .gitignore"] : []),
+	`${staging.replace(/\/$/u, "")}/`,
+	`${localPath.replace(/\/$/u, "")}/`,
+];
+
 export const rsyncArgs = (input: {
 	readonly hostAlias: string;
 	readonly remotePath: string;
@@ -82,13 +112,12 @@ export const rsyncArgs = (input: {
 	readonly gitignoreFilter: boolean;
 }): ReadonlyArray<string> => [
 	"-az",
+	"--checksum",
 	"--delay-updates",
 	"--delete-delay",
 	"--partial-dir=.zuse-rsync-partial",
 	"--timeout=30",
-	"--exclude=.git/",
-	`--exclude=${SYNC_MARKER_FILE}`,
-	...GENERATED_SYNC_EXCLUDES.map((path) => `--exclude=${path}/`),
+	...syncExcludes,
 	...(input.gitignoreFilter ? ["--filter=:- .gitignore"] : []),
 	...(!input.gitignoreFilter
 		? ["--rsync-path=rsync --filter=:-_.gitignore"]
@@ -106,7 +135,14 @@ interface SyncEntry {
 	error: string | null;
 	accessRefreshRequired: boolean;
 	running: boolean;
-	rerunRequested: boolean;
+	dirty: boolean;
+	generation: number;
+	lastChangeAt: number;
+	lastCompletedAt: number | null;
+	retryNotBefore: number;
+	reconcileAt: number;
+	staging: string | null;
+	blocked: boolean;
 	backoffMs: number;
 	timer: NodeJS.Timeout | null;
 	abortController: AbortController | null;
@@ -152,6 +188,8 @@ const ticketFresh = async (workspaceId: string): Promise<boolean> => {
 export class CloudSyncManager {
 	private readonly entries = new Map<string, SyncEntry>();
 	private gitignoreFilter: boolean | null = null;
+	private readonly configurations = new KeyedSerialWorker<string>();
+	private disposed = false;
 
 	constructor(
 		private readonly notify: (status: CloudSyncStatus) => void,
@@ -163,6 +201,7 @@ export class CloudSyncManager {
 			input: CloudSyncConfigureInput,
 			signal?: AbortSignal,
 		) => Promise<{ code: number; stderr: string }> = defaultRunLegacySync,
+		private readonly applyRsync: typeof defaultRunRsync = defaultRunRsync,
 	) {}
 
 	status(workspaceId: string): CloudSyncStatus {
@@ -178,27 +217,53 @@ export class CloudSyncManager {
 		};
 	}
 
-	async configure(input: CloudSyncConfigureInput): Promise<CloudSyncStatus> {
+	configure(input: CloudSyncConfigureInput): Promise<CloudSyncStatus> {
+		if (this.disposed) return Promise.resolve(this.status(input.workspaceId));
+		return this.configurations.run(input.workspaceId, () =>
+			this.configureNow(input),
+		);
+	}
+
+	private async configureNow(
+		input: CloudSyncConfigureInput,
+	): Promise<CloudSyncStatus> {
 		const existing = this.entries.get(input.workspaceId);
 		if (existing !== undefined) {
 			this.entries.delete(input.workspaceId);
 			this.cancelEntry(existing);
 			await existing.completion;
+			await this.removeStaging(existing);
 		}
-		if (!input.enabled) {
+		if (!input.enabled || this.disposed) {
+			// Retain scheduling history across disconnect/reconnect without keeping a worker alive.
+			if (existing !== undefined && !this.disposed) {
+				existing.config = { ...existing.config, enabled: false };
+				existing.state = "idle";
+				existing.error = null;
+				existing.accessRefreshRequired = false;
+				existing.blocked = true;
+				this.entries.set(input.workspaceId, existing);
+			}
 			const status = this.status(input.workspaceId);
 			this.notify(status);
 			return status;
 		}
 		const entry: SyncEntry = {
 			config: input,
-			state: existing?.state === "in-sync" ? "in-sync" : "idle",
+			state: "pending",
 			lastSyncedAt: existing?.lastSyncedAt ?? null,
 			error: null,
 			accessRefreshRequired: false,
 			running: false,
-			rerunRequested: false,
-			backoffMs: ERROR_BACKOFF_MIN_MS,
+			dirty: true,
+			generation: 0,
+			lastChangeAt: Date.now(),
+			lastCompletedAt: existing?.lastCompletedAt ?? null,
+			retryNotBefore: existing?.retryNotBefore ?? 0,
+			reconcileAt: Date.now() + PERIODIC_FALLBACK_MS,
+			staging: null,
+			blocked: true,
+			backoffMs: existing?.backoffMs ?? ERROR_BACKOFF_MIN_MS,
 			timer: null,
 			abortController: null,
 			completion: null,
@@ -211,28 +276,54 @@ export class CloudSyncManager {
 			this.publish(input.workspaceId);
 			return this.status(input.workspaceId);
 		}
-		this.launchSync(input.workspaceId);
+		entry.blocked = false;
+		this.schedule(input.workspaceId, entry);
+		this.publish(input.workspaceId);
 		return this.status(input.workspaceId);
 	}
 
-	/** Debounced change-driven sync request (from fs.watchTree frames). */
+	/** All change signals enter the same quiet-period scheduler. */
 	requestSync(workspaceId: string): void {
 		const entry = this.entries.get(workspaceId);
-		if (entry === undefined || !entry.config.enabled) return;
-		this.schedule(workspaceId, entry, DEBOUNCE_MS);
+		if (entry === undefined || entry.blocked || this.disposed) return;
+		entry.dirty = true;
+		entry.generation += 1;
+		entry.lastChangeAt = Date.now();
+		if (
+			!entry.running &&
+			entry.state !== "error" &&
+			entry.state !== "pending"
+		) {
+			entry.state = "pending";
+			this.publish(workspaceId);
+		}
+		this.schedule(workspaceId, entry);
 	}
 
 	async dispose(): Promise<void> {
+		this.disposed = true;
+		for (const entry of this.entries.values()) this.cancelEntry(entry);
+		await this.configurations.close();
 		const entries = [...this.entries.values()];
-		for (const entry of entries) this.cancelEntry(entry);
 		this.entries.clear();
-		await Promise.all(entries.map((entry) => entry.completion));
+		for (const entry of entries) this.cancelEntry(entry);
+		await Promise.all(
+			entries.map(async (entry) => {
+				await entry.completion;
+				await this.removeStaging(entry);
+			}),
+		);
+	}
+
+	private async removeStaging(entry: SyncEntry): Promise<void> {
+		if (entry.staging !== null)
+			await rm(entry.staging, { recursive: true, force: true });
+		entry.staging = null;
 	}
 
 	private cancelEntry(entry: SyncEntry): void {
 		this.clearTimers(entry);
 		entry.abortController?.abort();
-		entry.abortController = null;
 	}
 
 	private clearTimers(entry: SyncEntry): void {
@@ -240,23 +331,37 @@ export class CloudSyncManager {
 		entry.timer = null;
 	}
 
-	private schedule(workspaceId: string, entry: SyncEntry, delay: number): void {
+	private schedule(workspaceId: string, entry: SyncEntry): void {
 		this.clearTimers(entry);
-		entry.timer = setTimeout(() => {
-			entry.timer = null;
-			this.launchSync(workspaceId);
-		}, delay);
+		if (entry.running || entry.blocked || this.disposed) return;
+		const due = entry.dirty
+			? Math.max(
+					entry.lastChangeAt + QUIET_MS,
+					(entry.lastCompletedAt ?? -Infinity) + BATCH_COOLDOWN_MS,
+					entry.retryNotBefore,
+				)
+			: entry.reconcileAt;
+		entry.timer = setTimeout(
+			() => {
+				entry.timer = null;
+				if (this.entries.get(workspaceId) !== entry || this.disposed) return;
+				if (!entry.dirty) {
+					// Reconciliation must obey exactly the same gates as observed changes.
+					this.requestSync(workspaceId);
+					return;
+				}
+				this.launchSync(workspaceId);
+			},
+			Math.max(0, due - Date.now()),
+		);
 		entry.timer.unref?.();
 	}
 
 	private launchSync(workspaceId: string): void {
 		const entry = this.entries.get(workspaceId);
-		if (entry === undefined || !entry.config.enabled) return;
-		if (entry.running) {
-			entry.rerunRequested = true;
+		if (entry === undefined || entry.running || entry.blocked || this.disposed)
 			return;
-		}
-		const operation = this.sync(workspaceId).finally(() => {
+		const operation = this.sync(workspaceId, entry).finally(() => {
 			if (entry.completion === operation) entry.completion = null;
 		});
 		entry.completion = operation;
@@ -297,70 +402,87 @@ export class CloudSyncManager {
 		return this.gitignoreFilter;
 	}
 
-	private async sync(workspaceId: string): Promise<void> {
-		const entry = this.entries.get(workspaceId);
-		if (entry === undefined || !entry.config.enabled) return;
+	private async sync(workspaceId: string, entry: SyncEntry): Promise<void> {
 		entry.running = true;
 		entry.state = "syncing";
+		const generation = entry.generation;
+		let applying = false;
 		const abortController = new AbortController();
 		entry.abortController = abortController;
-		entry.accessRefreshRequired = !(await ticketFresh(workspaceId));
-		if (
+		const cancelled = () =>
 			abortController.signal.aborted ||
-			this.entries.get(workspaceId) !== entry
-		)
-			return;
-		this.publish(workspaceId);
-		let nextDelay = PERIODIC_FALLBACK_MS;
+			this.entries.get(workspaceId) !== entry ||
+			this.disposed;
 		try {
-			const args = rsyncArgs({
-				hostAlias: entry.config.hostAlias,
-				remotePath: entry.config.remotePath,
-				localPath: entry.config.localPath,
-				sshConfigPath: cloudSshConfigPath(),
-				gitignoreFilter: await this.resolveGitignoreFilter(),
-			});
-			if (abortController.signal.aborted) return;
-			let result = await this.runRsync(args, abortController.signal);
+			entry.accessRefreshRequired = !(await ticketFresh(workspaceId));
+			if (cancelled()) return;
+			this.publish(workspaceId);
+			entry.staging ??= await mkdtemp(
+				`${resolve(entry.config.localPath)}.incoming-`,
+			);
+			const gitignoreFilter = await this.resolveGitignoreFilter();
+			if (cancelled()) return;
+			const downloadConfig = { ...entry.config, localPath: entry.staging };
+			let result = await this.runRsync(
+				rsyncArgs({
+					...downloadConfig,
+					sshConfigPath: cloudSshConfigPath(),
+					gitignoreFilter,
+				}),
+				abortController.signal,
+			);
 			if (
-				!abortController.signal.aborted &&
+				!cancelled() &&
 				result.code !== 0 &&
 				remoteRsyncMissing(result.stderr)
-			)
-				result = await this.runLegacySync(entry.config, abortController.signal);
-			if (this.entries.get(workspaceId) !== entry) return;
-			if (result.code === 0) {
-				entry.state = "in-sync";
-				entry.error = null;
-				entry.lastSyncedAt = Date.now();
-				entry.backoffMs = ERROR_BACKOFF_MIN_MS;
-				entry.accessRefreshRequired = false;
-			} else {
-				entry.state = "error";
-				entry.error = result.stderr.trim().split("\n").slice(-3).join("\n");
-				if (sshTransportFailed(result.stderr))
-					entry.accessRefreshRequired = true;
-				nextDelay = entry.backoffMs;
-				entry.backoffMs = Math.min(entry.backoffMs * 2, ERROR_BACKOFF_MAX_MS);
+			) {
+				result = await this.runLegacySync(
+					downloadConfig,
+					abortController.signal,
+				);
 			}
+			if (cancelled()) return;
+			if (result.code !== 0)
+				throw new Error(
+					result.stderr.trim().split("\n").slice(-3).join("\n") ||
+						"File sync failed.",
+				);
+			// Never publish a download known to have raced remote edits.
+			if (generation !== entry.generation) {
+				entry.state = "pending";
+				return;
+			}
+			applying = true;
+			result = await this.applyRsync(
+				localRsyncArgs(entry.staging, entry.config.localPath, gitignoreFilter),
+				abortController.signal,
+			);
+			if (cancelled()) return;
+			if (result.code !== 0)
+				throw new Error(result.stderr.trim() || "Applying file sync failed.");
+			entry.lastCompletedAt = Date.now();
+			entry.lastSyncedAt = entry.lastCompletedAt;
+			entry.dirty = generation !== entry.generation;
+			entry.state = entry.dirty ? "pending" : "in-sync";
+			entry.error = null;
+			entry.backoffMs = ERROR_BACKOFF_MIN_MS;
+			entry.retryNotBefore = 0;
+			entry.accessRefreshRequired = false;
 		} catch (cause) {
-			if (abortController.signal.aborted) return;
+			if (cancelled()) return;
 			entry.state = "error";
 			entry.error = cause instanceof Error ? cause.message : String(cause);
-			nextDelay = entry.backoffMs;
+			if (sshTransportFailed(entry.error)) entry.accessRefreshRequired = true;
+			entry.retryNotBefore = Date.now() + entry.backoffMs;
 			entry.backoffMs = Math.min(entry.backoffMs * 2, ERROR_BACKOFF_MAX_MS);
 		} finally {
-			if (entry.abortController === abortController)
-				entry.abortController = null;
+			if (applying) entry.lastCompletedAt = Date.now();
+			entry.abortController = null;
 			entry.running = false;
-			if (this.entries.get(workspaceId) === entry) {
+			if (!cancelled()) {
+				entry.reconcileAt = Date.now() + PERIODIC_FALLBACK_MS;
 				this.publish(workspaceId);
-				if (entry.rerunRequested) {
-					entry.rerunRequested = false;
-					this.launchSync(workspaceId);
-				} else if (entry.timer === null) {
-					this.schedule(workspaceId, entry, nextDelay);
-				}
+				this.schedule(workspaceId, entry);
 			}
 		}
 	}
@@ -416,7 +538,7 @@ const defaultRunRsync = (
 		else signal?.addEventListener("abort", abort, { once: true });
 	});
 
-/** Compatibility path for workspaces created before rsync entered the image. */
+/** Download compatibility path. input.localPath is private staging, never the live mirror. */
 const defaultRunLegacySync = async (
 	input: CloudSyncConfigureInput,
 	signal?: AbortSignal,

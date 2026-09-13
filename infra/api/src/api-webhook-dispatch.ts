@@ -1,4 +1,5 @@
-import { Clock, Effect } from "effect";
+import { Clock, Effect, Option } from "effect";
+import { ApiInternalWebhooks } from "./api-internal-webhooks.ts";
 import {
 	apiWebhookPayloadSealContext,
 	apiWebhookSecretSealContext,
@@ -70,7 +71,14 @@ const deliverOne = Effect.fn("deliverApiWebhook")(function* (
 			terminal: terminal || attempts >= MAX_DELIVERY_ATTEMPTS,
 		});
 	};
-	const target = safeApiWebhookTarget(due.url, config.apiIssuer);
+	const receiver = yield* Effect.serviceOption(ApiInternalWebhooks);
+	const internal =
+		Option.isSome(receiver) && receiver.value.accepts(due.url)
+			? receiver.value
+			: undefined;
+	const target = internal
+		? new URL(due.url)
+		: safeApiWebhookTarget(due.url, config.apiIssuer);
 	if (target === null) {
 		yield* recordFailure("unsafe_webhook_url", true);
 		return false;
@@ -100,7 +108,7 @@ const deliverOne = Effect.fn("deliverApiWebhook")(function* (
 					timestampSeconds,
 					opened.value.body,
 				);
-				const response = await fetch(target, {
+				const init: RequestInit = {
 					method: "POST",
 					headers: {
 						"content-type": "application/json",
@@ -112,7 +120,10 @@ const deliverOne = Effect.fn("deliverApiWebhook")(function* (
 					body: opened.value.body,
 					signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
 					redirect: "manual",
-				});
+				};
+				const response = await (internal
+					? internal.receive(new Request(target, init))
+					: fetch(target, init));
 				const result = { ok: response.ok, status: response.status };
 				await response.body?.cancel().catch(() => undefined);
 				return result;

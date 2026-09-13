@@ -853,5 +853,14 @@
 	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undone": "パブリック API アクセスが直ちに失われます。これを元に戻すことはできません。",
 	"cloud_api_keys_revoke_key": "キーを取り消します",
 	"cloud_api_keys_revoke_api_key": "API キーを取り消しますか?",
-	"cloud_api_keys_this_integration": "この統合"
+	"cloud_api_keys_this_integration": "この統合",
+	"update_channel_updates": "アップデート",
+	"update_channel_label": "更新チャンネル",
+	"update_channel_stable": "安定版",
+	"update_channel_preview": "プレビュー版",
+	"update_channel_preview_description": "先行リリースを入手できます。安定版に切り替えると、再起動時に現在の安定版がインストールされ、セッションは保持されます。",
+	"update_channel_stable_description": "テスト済みのリリースを入手できます。今後の変更をいち早く試すには、プレビュー版を選択してください。",
+	"update_channel_load_error": "更新チャンネルを読み込めませんでした。設定を開き直して再試行してください。",
+	"update_channel_save_error": "更新チャンネルを変更できませんでした。再試行してください。",
+	"update_channel_changing": "更新チャンネルを変更中…"
 }

@@ -24,7 +24,7 @@ export function BranchStateBadge({ state }: { state: BranchState }) {
 			<Text
 				className={cn(
 					"font-sans-medium text-[11px]",
-					state.tone === "brand" && "text-primary",
+					state.tone === "brand" && "text-accent",
 					state.tone === "success" && "text-success",
 					state.tone === "danger" && "text-danger",
 					state.tone === "warning" && "text-warning",

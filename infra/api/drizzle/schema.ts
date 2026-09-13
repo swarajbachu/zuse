@@ -4,13 +4,97 @@ import {
 	bigserial,
 	boolean,
 	check,
+	foreignKey,
 	index,
+	integer,
 	jsonb,
 	pgTable,
 	primaryKey,
 	text,
+	unique,
 	uniqueIndex,
 } from "drizzle-orm/pg-core";
+
+export const apiSlackInstallations = pgTable(
+	"api_slack_installations",
+	{
+		teamId: text("team_id").primaryKey(),
+		ownerId: text("owner_id").notNull(),
+		generation: text("generation").notNull(),
+		accountId: text("account_id"),
+		revision: integer("revision").notNull().default(0),
+		sealed: text("sealed").notNull(),
+	},
+	(table) => [
+		unique().on(table.teamId, table.generation),
+		index("api_slack_installations_account_idx").on(table.accountId),
+	],
+);
+
+export const apiSlackMembers = pgTable(
+	"api_slack_members",
+	{
+		teamId: text("team_id").notNull(),
+		generation: text("generation").notNull(),
+		userId: text("user_id").notNull(),
+		accountId: text("account_id"),
+		revision: integer("revision").notNull().default(0),
+		sealed: text("sealed").notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.teamId, table.generation, table.userId] }),
+		foreignKey({
+			columns: [table.teamId, table.generation],
+			foreignColumns: [
+				apiSlackInstallations.teamId,
+				apiSlackInstallations.generation,
+			],
+		}).onDelete("cascade"),
+		index("api_slack_members_account_idx").on(table.accountId),
+	],
+);
+
+export const apiSlackSessions = pgTable(
+	"api_slack_sessions",
+	{
+		tokenHash: text("token_hash").primaryKey(),
+		kind: text("kind").notNull(),
+		teamId: text("team_id").notNull(),
+		ownerId: text("owner_id").notNull(),
+		generation: text("generation").notNull(),
+		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+		payload: text("payload").notNull(),
+	},
+	(table) => [
+		check(
+			"api_slack_sessions_kind_check",
+			sql`${table.kind} IN ('oauth', 'login', 'settings', 'workos')`,
+		),
+		index("api_slack_sessions_expiry_idx").on(table.expiresAt),
+	],
+);
+
+export const apiSlackState = pgTable(
+	"api_slack_state",
+	{
+		teamId: text("team_id").notNull(),
+		generation: text("generation").notNull(),
+		key: text("key").notNull(),
+		value: text("value").notNull(),
+		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.teamId, table.generation, table.key] }),
+		foreignKey({
+			columns: [table.teamId, table.generation],
+			foreignColumns: [
+				apiSlackInstallations.teamId,
+				apiSlackInstallations.generation,
+			],
+		}).onDelete("cascade"),
+		index("api_slack_state_expiry_idx").on(table.expiresAt),
+	],
+);
 
 export const apiLinkChallenges = pgTable(
 	"api_link_challenges",

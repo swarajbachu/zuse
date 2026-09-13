@@ -1,86 +1,94 @@
 ---
 name: release-new-version
-description: Prepare and publish a new Zuse version with curated release notes, version metadata, a release PR, a version tag, and verified release artifacts.
+description: Prepare and publish Zuse releases with curated notes and verified artifacts. Use for release requests; default to Preview unless the user explicitly requests Stable or promotion.
 ---
 
 # Release New Version
 
-Run this skill from the Zuse repository root. A release request means carrying the workflow through the tag and release workflow when repository access and checks permit it.
+Run from the Zuse repository root. **Release as Preview by default.** A bare
+"release", "release everything", bump kind, or version number selects Preview;
+a number such as `0.22.0` is its target Stable version. Publish Stable only when
+the user explicitly requests Stable or promotion. Keep an explicitly selected
+channel for the current release; subsequent unspecified releases default to Preview.
 
-## Release Standard
+Read [the desktop release guide](../../../internal-docs/desktop-release-channels.md) for
+workflow inputs, compatibility gates, bootstrap behavior, and recovery. Use the
+existing release workflow and shared version tooling as the source of truth.
 
-Release notes are a product summary, not a commit or PR dump. Every note must be supported by the diff, commit body, tests, or PR description.
+## Prepare
 
-Use these sections in this order and omit empty sections:
+1. Inspect the worktree and fetch current `origin/main` and tags. When the request
+   includes branch work, create its PR and land it after validation before
+   releasing. Resolve the exact main commit to ship; do not release unmerged work.
+2. Read GitHub's latest Stable release and published Preview releases. Packaged
+   versions can advance without a version-bump commit, so `package.json` alone
+   does not identify the last release.
+3. Inventory changes since the previous release on the chosen channel, falling
+   back to Stable for the first Preview. Read relevant diffs and tests for every
+   material release note. "All current stuff" includes all merged changes since
+   that baseline, not just the current PR.
+4. For Preview, reuse an unreleased target version already being previewed when
+   appropriate; otherwise choose the next minor version for new capabilities or
+   the next patch for fixes. Honor an explicit target. The workflow allocates the
+   increasing `-preview.N` suffix from tags and releases, including reservations.
+5. Write curated Markdown notes to a temporary file and show the selected channel,
+   target, source commit, and notes. An existing request to release authorizes
+   publication; another confirmation is unnecessary unless a material decision
+   remains unresolved.
 
-1. `Added` — a capability users can do now that they could not do before.
-2. `Changed` — a meaningful change to an existing workflow, behavior, performance characteristic, documentation surface, or compatibility guarantee.
-3. `Fixed` — a defect, regression, crash, reliability issue, or incorrect behavior that was corrected.
+## Release notes
 
-Quality rules:
+Use `### Added`, `### Changed`, and `### Fixed` in that order; omit empty sections.
+Every bullet must be supported by the diff, tests, commit body, or PR description.
+Describe what users can do, where behavior changes, and which defects are fixed.
+Give important capabilities enough detail to explain their use. Deduplicate related
+changes and omit internal housekeeping unless it affects users or operators.
 
-- Start with the user-visible outcome; mention implementation detail only when it helps users act.
-- Do not paste raw commit titles, conventional-commit prefixes, PR numbers, or repository housekeeping.
-- Deduplicate related commits into one accurate product change.
-- Give an important new feature a complete explanation of what is available and why or where it matters. Do not reduce it to a PR reference.
-- Keep routine bullets to one sentence. An important feature may use two concise sentences in one bullet.
-- Exclude refactors, test-only work, dependency churn, and internal tooling unless they materially affect users or operators.
-- Use `Fixed`, not `Changed`, merely because a fix altered code.
+## Publish Preview (default)
 
-## Workflow
-
-1. Inspect `git status --short --branch`. Do not mix unrelated dirty work into a release.
-2. Fetch `origin`, base the release on current `origin/main`, and confirm the package version tag exists.
-3. Build an evidence inventory from `git log`, `git diff --stat`, relevant diffs, and PR bodies between `v<current-version>` and `origin/main`. Inspect details for any important or ambiguous change.
-4. Choose the bump:
-   - major: breaking compatibility or migration requirements.
-   - minor: a meaningful new user-visible capability or workflow.
-   - patch: fixes, polish, documentation, or internal changes only.
-   - Ask only when the evidence does not support a clear choice and the user did not specify one.
-5. Draft a temporary Markdown notes file containing only the curated `### Added`, `### Changed`, and `### Fixed` sections. Show the proposed version and notes before mutation when the request is interactive.
-6. Run the helper with the explicit decision and curated notes:
-
-```bash
-node scripts/release-new-version.mjs --version=x.y.z --notes-file=/absolute/path/to/release-notes.md --yes
-```
-
-Use `--kind=major`, `--kind=minor`, or `--kind=patch` instead of `--version` when appropriate. The helper can generate a categorized fallback, but important releases must use curated notes.
-
-7. Inspect the resulting `CHANGELOG.md`, generated website changelog, commit, and PR. Confirm category accuracy, user-facing explanations, the version, and the exact checks run.
-8. Wait for required PR checks, merge using repository policy, update from `origin/main`, and tag the exact merged release commit:
-
-```bash
-git fetch --prune origin
-git tag vX.Y.Z origin/main
-git push origin vX.Y.Z
-```
-
-9. Verify the tag-triggered release workflow succeeds and that the expected GitHub Release and artifacts exist. If anything is still running or blocked, report it as pending rather than done.
-10. After artifact publication finishes, publish the same curated notes on the public GitHub Release and read the release back to verify its title, body, tag, and assets:
+After the selected changes are merged and applicable checks pass, dispatch:
 
 ```bash
-gh release edit vX.Y.Z --title "Zuse X.Y.Z" --notes-file /absolute/path/to/release-notes.md
-gh release view vX.Y.Z --json name,body,tagName,url,assets
+gh workflow run release.yml --ref main \
+  -f channel=preview \
+  -f "ref=$release_sha" \
+  -f "version=$target_version" \
+  -F "notes=@$notes_file"
 ```
 
-An empty release body, raw commit dump, or PR-only description is incomplete. The public release must explain important features and preserve the `Added`, `Changed`, and `Fixed` grouping.
+Preview is a GitHub prerelease and must leave the latest Stable release unchanged.
+Run compatibility verification against the current Stable checkout. If a gate
+fails, fix the cause or report the specific blocker; publishing Stable is not a
+fallback for a failed Preview. Follow the release guide for the first Preview
+when existing Stable installations do not yet expose the channel selector.
 
-## What The Helper Does
+## Publish Stable (explicit request only)
 
-- Refuses a dirty tree and pulls the latest `origin/main`.
-- Determines and validates the next semantic version.
-- Moves curated `Unreleased` notes into the new release and cleanly groups fallback notes as `Added`, `Changed`, and `Fixed`.
-- Updates `apps/desktop/package.json`, `bun.lock`, `CHANGELOG.md`, and the website changelog data.
-- Runs the website content generator and `bun run check-types`.
-- Commits, pushes the release branch, and creates a PR whose summary reflects the actual release notes.
+Normally promote a published Preview tag. Use curated notes covering **all changes
+since the previous Stable release**, not just the latest Preview increment:
 
-## Completion Report
+```bash
+gh workflow run release.yml --ref main \
+  -f channel=stable \
+  -f "preview_tag=$preview_tag" \
+  -F "notes=@$notes_file"
+```
 
-Report release state with explicit outcomes:
+The workflow rebuilds that Preview's exact source commit with its final version.
+For an explicitly requested Stable fix that is not a promotion, the existing
+`scripts/release-new-version.mjs` helper prepares the release PR and changelog;
+merge it after validation and tag the exact merged commit. This helper is
+Stable-only and is not the entrypoint for default release requests.
 
-- version and bump reason;
-- release-note highlights by category;
-- validation commands and results;
-- PR and merge state;
-- tag and release-workflow state;
-- public release page and published artifacts, or the precise remaining blocker.
+## Verify completion
+
+Locate the dispatched run using the workflow, branch, dispatch time, and resolved
+commit; wait for all required jobs. Read back the public release's tag, title,
+body, prerelease status, and assets. Confirm the platform archives and updater
+manifests exist, notes match the curated file, and a Preview did not change Latest.
+A running workflow, draft, failed upload, missing artifact, or empty release body
+is pending or blocked, not a completed release.
+
+Report the PR/merge URL, released version and channel, release URL, validation,
+and any remaining blocker. Retry failed jobs using the documented recovery flow;
+never overwrite a published version.

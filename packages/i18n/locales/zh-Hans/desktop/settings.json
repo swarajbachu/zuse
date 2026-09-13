@@ -853,5 +853,14 @@
 	"cloud_api_keys_revoke_api_key": "撤销 API 密钥？",
 	"cloud_api_keys_this_integration": "这种整合",
 	"cloud_api_keys_revoke_key": "撤销密钥",
-	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undon_sentence": "{{value}} 将立即失去公共 API 访问权限。此操作无法撤消。"
+	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undon_sentence": "{{value}} 将立即失去公共 API 访问权限。此操作无法撤消。",
+	"update_channel_updates": "更新",
+	"update_channel_label": "更新通道",
+	"update_channel_stable": "稳定版",
+	"update_channel_preview": "预览版",
+	"update_channel_preview_description": "获取抢先体验版本。切换到稳定版后，重启时将安装当前稳定版本，并保留您的会话。",
+	"update_channel_stable_description": "获取经过测试的版本。选择预览版可提前体验即将推出的更改。",
+	"update_channel_load_error": "无法加载更新通道。请重新打开设置后重试。",
+	"update_channel_save_error": "无法更改更新通道。请重试。",
+	"update_channel_changing": "正在更改更新通道…"
 }

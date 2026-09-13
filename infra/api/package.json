@@ -49,6 +49,7 @@
 		"deploy:production": "node scripts/deploy-production.mjs"
 	},
 	"dependencies": {
+		"@zuse/slack": "*",
 		"@zuse/analytics": "*",
 		"@zuse/billing-providers": "*",
 		"@zuse/cloud-commands": "*",

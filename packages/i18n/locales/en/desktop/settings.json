@@ -853,5 +853,14 @@
 	"cloud_api_keys_copied": "Copied",
 	"cloud_api_keys_copy": "Copy",
 	"cloud_api_keys_this_integration": "This integration",
-	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undon_sentence": "{{value}} will immediately lose public API access. This cannot be undone."
+	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undon_sentence": "{{value}} will immediately lose public API access. This cannot be undone.",
+	"update_channel_updates": "Updates",
+	"update_channel_label": "Update channel",
+	"update_channel_stable": "Stable",
+	"update_channel_preview": "Preview",
+	"update_channel_preview_description": "Get early builds. Switching to Stable installs the current stable release on restart and keeps your sessions.",
+	"update_channel_stable_description": "Get tested releases. Choose Preview to try upcoming changes early.",
+	"update_channel_load_error": "Could not load the update channel. Reopen Settings to retry.",
+	"update_channel_save_error": "Could not change the update channel. Try again.",
+	"update_channel_changing": "Changing update channel…"
 }

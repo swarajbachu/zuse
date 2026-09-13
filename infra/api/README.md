@@ -7,9 +7,12 @@ environment traffic goes directly phone ↔ laptop. For Zuse Cloud, API also
 owns lifecycle and a thin Durable Object gateway that forwards opaque live
 frames; it does not store or project normal chat content.
 
-The cloud documentation starts at [Zuse Cloud](../../docs/cloud/README.md).
-Billing and production procedures remain in [cloud billing](CLOUD_BILLING.md)
-and the [private beta production runbook](PRIVATE_BETA_PRODUCTION.md).
+Engineering and operator documentation starts at
+[Internal Zuse Cloud](../../internal-docs/cloud/README.md). Billing procedures
+live in [cloud billing](../../internal-docs/cloud/billing.md) and the
+[production runbook](../../internal-docs/cloud/production.md).
+Published customer documentation is maintained separately in
+[apps/docs/content/docs](../../apps/docs/content/docs).
 
 - Runtime: **Cloudflare Workers** (`src/worker.ts`).
 - Store: **Postgres via Cloudflare Hyperdrive** (`@effect/sql-pg`).
@@ -67,7 +70,7 @@ sandbox checkout. The secret scripts in this package also target staging by
 default. Production remains separately configured and guarded.
 
 Both API hostnames are Cloudflare Worker Custom Domains, not Vercel projects.
-See the [API domain cutover](../../docs/cloud/api-domain-cutover.md) before
+See the [API domain cutover](../../internal-docs/cloud/api-domain-cutover.md) before
 deploying the staging hostname change or updating DNS.
 
 An intentional production deployment is guarded and requires both the explicit

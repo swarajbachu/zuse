@@ -643,5 +643,6 @@
 	"device_command_card_truncated": "⟦ · Trüüncààtëëd⟧",
 	"message_row_retry_preview": "⟦Rëëtry prëëvïïëëw⟧",
 	"message_row_preparing_image": "⟦Prëëpààrïïng ïïmààgëë⟧",
-	"chat_landing_issueattached_sentence": "⟦ÏÏssüüëë{{value}}ààttààchëëd⟧"
+	"chat_landing_issueattached_sentence": "⟦ÏÏssüüëë{{value}}ààttààchëëd⟧",
+	"terminal_pane_waiting_for_changes_to_settle": "⟦Wààïïtïïng fôôr chààngëës tôô sëëttlëë…⟧"
 }

@@ -56,7 +56,7 @@ export function ConnectionRecoveryBanner({
 				onPress={onRetry}
 				className="h-11 justify-center px-2 active:opacity-60"
 			>
-				<Text className="font-sans-medium text-[13px] text-primary">Retry</Text>
+				<Text className="font-sans-medium text-[13px] text-accent">Retry</Text>
 			</Pressable>
 		</View>
 	);

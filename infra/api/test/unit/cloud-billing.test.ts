@@ -35,7 +35,7 @@ describe("cloud billing", () => {
 			defaultCap: 25_000_000,
 		});
 		const operations = await readFile(
-			new URL("../../CLOUD_BILLING.md", import.meta.url),
+			new URL("../../../../internal-docs/cloud/billing.md", import.meta.url),
 			"utf8",
 		);
 		expect(operations).toContain("$40");

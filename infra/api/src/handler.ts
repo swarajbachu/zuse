@@ -1,7 +1,6 @@
 import { ApiAuthTokenGrant } from "@zuse/contracts";
 import { SandboxProviders } from "@zuse/sandbox-providers";
-import { Clock, Effect, Redacted, Schema } from "effect";
-
+import { Clock, Effect, Option, Redacted, Schema } from "effect";
 import { AccountIdentity } from "./account-identity.ts";
 import {
 	type ApiKeyRouteContext,
@@ -53,6 +52,7 @@ import { ManagedTunnelProvider } from "./managed-tunnel.ts";
 import { routePublicApiRequest } from "./public-api-routes.ts";
 import { PushDelivery } from "./push.ts";
 import type { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
+import { SlackPersistence } from "./slack/persistence.ts";
 import {
 	type ActivityKind,
 	ApiStore,
@@ -826,6 +826,12 @@ const route = (
 				{ discard: true },
 			);
 			yield* store.deleteAccountData(principal.accountId);
+			const slack = yield* Effect.serviceOption(SlackPersistence);
+			if (Option.isSome(slack))
+				yield* Effect.tryPromise({
+					try: () => slack.value.removeAccount(principal.accountId),
+					catch: () => serviceUnavailable("slack_account_cleanup_failed"),
+				});
 			yield* accountIdentity.deleteUser(principal.accountId);
 			return json({ ok: true, cleanupPending: false });
 		}

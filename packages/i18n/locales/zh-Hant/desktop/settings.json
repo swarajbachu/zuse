@@ -853,5 +853,14 @@
 	"cloud_api_keys_loading_api_keys": "正在載入 API 個金鑰...",
 	"cloud_api_keys_no_api_keys_yet": "還沒有 API 個密鑰",
 	"cloud_api_keys_checking_this_account_s_active_integration_keys": "檢查此帳戶的活動整合金鑰。",
-	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undon_sentence": "{{value}} 將立即失去公共 API 存取權限。此操作無法撤銷。"
+	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undon_sentence": "{{value}} 將立即失去公共 API 存取權限。此操作無法撤銷。",
+	"update_channel_updates": "更新",
+	"update_channel_label": "更新通道",
+	"update_channel_stable": "穩定版",
+	"update_channel_preview": "預覽版",
+	"update_channel_preview_description": "取得搶先體驗版本。切換至穩定版後，重新啟動時將安裝目前的穩定版本，並保留您的工作階段。",
+	"update_channel_stable_description": "取得經過測試的版本。選擇預覽版即可提早體驗即將推出的變更。",
+	"update_channel_load_error": "無法載入更新通道。請重新開啟設定後再試一次。",
+	"update_channel_save_error": "無法變更更新通道。請再試一次。",
+	"update_channel_changing": "正在變更更新通道…"
 }

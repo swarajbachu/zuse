@@ -1,4 +1,5 @@
-import { ChevronRight, type LucideIcon } from "lucide-react-native";
+import { type SFSymbol, SymbolView } from "expo-symbols";
+import type { LucideIcon } from "lucide-react-native";
 import { Children, isValidElement } from "react";
 import {
 	Pressable,
@@ -10,6 +11,7 @@ import {
 
 import { cn } from "~/lib/cn";
 import { lightTap } from "~/lib/haptics";
+import { platformSymbolName } from "~/lib/symbol-names";
 import { colors } from "~/theme";
 
 // iOS "grouped inset" list — the Settings.app idiom. A rounded, hairline-bordered
@@ -39,10 +41,7 @@ export function ListSection({
 					{header}
 				</Text>
 			) : null}
-			<View
-				style={CONTINUOUS}
-				className="overflow-hidden rounded-3xl border border-border bg-card"
-			>
+			<View style={CONTINUOUS} className="overflow-hidden rounded-3xl bg-card">
 				{rows.map((row, index) => (
 					<View key={row.key}>
 						{index > 0 ? <View className="ml-4 h-px bg-border" /> : null}
@@ -64,8 +63,10 @@ type ListRowProps = Omit<PressableProps, "children"> & {
 	subtitle?: string;
 	/** Leading icon rendered inside a rounded tile. */
 	icon?: LucideIcon;
+	/** Native filled symbol. Prefer this for standard iOS actions. */
+	symbol?: SFSymbol;
 	iconColor?: string;
-	/** `brand` = neon tile + dark glyph; `neutral` = adaptive muted tile. */
+	/** `brand` = tinted tile + contrasting glyph; `neutral` = adaptive muted tile. */
 	iconTone?: "brand" | "neutral";
 	/** Custom leading node (e.g. a presence dot); overrides `icon`. */
 	leading?: React.ReactNode;
@@ -84,6 +85,7 @@ export function ListRow({
 	title,
 	subtitle,
 	icon: Icon,
+	symbol,
 	iconColor,
 	iconTone = "neutral",
 	leading,
@@ -123,7 +125,7 @@ export function ListRow({
 			{...rest}
 		>
 			{leading ??
-				(Icon ? (
+				(symbol || Icon ? (
 					<View
 						style={CONTINUOUS}
 						className={cn(
@@ -131,13 +133,25 @@ export function ListRow({
 							iconTone === "brand" ? "bg-primary" : "bg-muted",
 						)}
 					>
-						<Icon
-							size={17}
-							color={
-								iconColor ??
-								(iconTone === "brand" ? colors.primaryForeground : colors.fg)
-							}
-						/>
+						{symbol ? (
+							<SymbolView
+								name={platformSymbolName(symbol)}
+								size={17}
+								weight="semibold"
+								tintColor={
+									iconColor ??
+									(iconTone === "brand" ? colors.primaryForeground : colors.fg)
+								}
+							/>
+						) : Icon ? (
+							<Icon
+								size={17}
+								color={
+									iconColor ??
+									(iconTone === "brand" ? colors.primaryForeground : colors.fg)
+								}
+							/>
+						) : null}
 					</View>
 				) : null)}
 			<View className="min-w-0 flex-1">
@@ -169,7 +183,12 @@ export function ListRow({
 			) : null}
 			{trailing}
 			{showChevron ? (
-				<ChevronRight size={18} color={colors.tertiaryFg} />
+				<SymbolView
+					name={platformSymbolName("chevron.right")}
+					size={13}
+					weight="semibold"
+					tintColor={colors.tertiaryFg}
+				/>
 			) : null}
 		</Pressable>
 	);

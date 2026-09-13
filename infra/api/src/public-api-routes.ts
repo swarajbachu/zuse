@@ -206,6 +206,21 @@ export const routePublicApiRequest = (
 	request: Request,
 ): Effect.Effect<Response | null, ApiError, CloudWorkspaceRouteContext> =>
 	Effect.gen(function* () {
+		if (!new URL(request.url).pathname.startsWith("/v1/api/")) return null;
+		const principal = yield* requireApiKey(request);
+		return yield* routeAccountWorkspaceRequest(request, principal.accountId);
+	});
+
+/** Internal account-scoped entry point. Never accept accountId from HTTP input.
+ * Public keys and first-party integrations share the same entitlement, ownership,
+ * idempotency, attachment, and lifecycle implementation here.
+ */
+export const routeAccountWorkspaceRequest = (
+	request: Request,
+	accountId: string,
+	options?: { readonly internalWebhookTarget?: (url: string) => boolean },
+): Effect.Effect<Response | null, ApiError, CloudWorkspaceRouteContext> =>
+	Effect.gen(function* () {
 		const url = new URL(request.url);
 		const path = url.pathname;
 		const method = request.method.toUpperCase();
@@ -213,7 +228,7 @@ export const routePublicApiRequest = (
 		const store = yield* CloudWorkspaceStore;
 		const config = yield* ApiConfiguration;
 		const nowMs = yield* Clock.currentTimeMillis;
-		const principal = yield* requireApiKey(request);
+		const principal = { accountId };
 		const headerIdempotencyKey =
 			request.headers.get("idempotency-key") ?? undefined;
 		const isCleanupRequest =
@@ -684,7 +699,9 @@ export const routePublicApiRequest = (
 
 		if (method === "POST" && path === ApiPaths.apiWebhooks) {
 			const body = yield* decodeBody(ApiWebhookCreateRequest, request);
-			const target = safeApiWebhookTarget(body.url, config.apiIssuer);
+			const target = options?.internalWebhookTarget?.(body.url)
+				? new URL(body.url)
+				: safeApiWebhookTarget(body.url, config.apiIssuer);
 			if (target === null)
 				return yield* Effect.fail(badRequest("invalid_webhook_url"));
 			const description = body.description?.trim();

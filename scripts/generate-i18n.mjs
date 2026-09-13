@@ -135,7 +135,7 @@ for (const [namespace, messages] of Object.entries(english)) {
 				references[id] ??
 				references[id.replace(/_(zero|one|two|few|many|other)$/, "")] ??
 				[],
-			context: `${namespace} interface. Preserve named placeholders and mapped rich-text tags. See docs/localization.md for terminology.`,
+			context: `${namespace} interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology.`,
 		};
 	}
 }

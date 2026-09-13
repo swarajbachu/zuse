@@ -74,6 +74,7 @@ import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { LinearIntegrationsPane } from "./settings/linear-integrations-pane.tsx";
 import { McpServersPane } from "./settings/mcp-servers-pane.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
+import { UpdateChannelSettings } from "./settings/update-channel-settings.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
 import {
 	AlertDialog,
@@ -1309,6 +1310,8 @@ function GeneralPane() {
 				/>
 				<LanguageSelector settingsRow />
 			</SettingsGroup>
+
+			<UpdateChannelSettings />
 
 			<ComputerAwakeSettings />
 

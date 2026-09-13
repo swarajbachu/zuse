@@ -25,6 +25,6 @@ Edit English source and translations under `locales`, then run `bun run i18n:gen
 from the repository root. Do not edit `src/generated` or `en-XA` directly. Run
 `bun run check:i18n` and the affected behavior tests before submitting changes.
 
-See [the localization guide](../../docs/localization.md) for integration, glossary,
+See [the localization guide](../../internal-docs/localization.md) for integration, glossary,
 review workflow, website routes, and desktop release requirements. Draft translations
 must never be marked reviewed without native-speaker review and screen QA.

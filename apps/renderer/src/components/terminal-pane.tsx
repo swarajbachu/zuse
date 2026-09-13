@@ -218,7 +218,9 @@ function PlainTerminalSlot({
 						? uiMessage("chat:terminal_pane_file_changes_synced_to_local")
 						: localSyncState === "error"
 							? uiMessage("chat:terminal_pane_local_file_sync_failed")
-							: uiMessage("chat:terminal_pane_syncing_files_to_local")}
+							: localSyncState === "pending"
+								? uiMessage("chat:terminal_pane_waiting_for_changes_to_settle")
+								: uiMessage("chat:terminal_pane_syncing_files_to_local")}
 				</div>
 			) : null}
 			<div className="min-h-0 flex-1">

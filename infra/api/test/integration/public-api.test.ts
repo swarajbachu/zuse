@@ -6,13 +6,14 @@ import {
 import { MachineProvidersFake } from "@zuse/machine-providers/testing";
 import type { SandboxProviderAdapter } from "@zuse/sandbox-providers";
 import { makeSandboxProvidersFake } from "@zuse/sandbox-providers/testing";
+import { InstallationStore } from "@zuse/slack/installations";
+import { runnerEnv } from "@zuse/slack/runner";
+import type { AppEnv as SlackEnv, AppJob as SlackJob } from "@zuse/slack/types";
+import { isSlackWebhookTarget } from "@zuse/slack/webhook-target";
 import { base64UrlToBytes } from "@zuse/utils/cloud-transcript-crypto";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { exportJWK, generateKeyPair } from "jose";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import slackWorker, {
-	type Env as SlackEnv,
-} from "../../../../examples/slack-bot/src/worker.ts";
 import {
 	AccountIdentity,
 	type AccountIdentityApi,
@@ -40,14 +41,20 @@ import {
 } from "../../src/cloud-workspace-store.ts";
 import { layer as configurationLayer } from "../../src/config.ts";
 import { sha256Hex } from "../../src/crypto.ts";
-import { handleRequest } from "../../src/handler.ts";
+import { unauthorized } from "../../src/errors.ts";
+import { type ApiContext, handleRequest } from "../../src/handler.ts";
+import { makeApi } from "../../src/index.ts";
 import { MachineControlConfiguration } from "../../src/machine-config.ts";
 import { MachineStore, MachineStoreMemory } from "../../src/machine-store.ts";
 import { ManagedTunnelProviderLive } from "../../src/managed-tunnel.ts";
+import { routeAccountWorkspaceRequest } from "../../src/public-api-routes.ts";
 import { PushDelivery } from "../../src/push.ts";
 import { SandboxOfferConfiguration } from "../../src/sandbox-provider-module.ts";
+import { makeSlackModule } from "../../src/slack/module.ts";
+import { SlackPersistence } from "../../src/slack/persistence.ts";
 import { ApiStoreMemory } from "../../src/store.ts";
-import { WorkosVerifierTest } from "../../src/workos.ts";
+import { WorkosVerifier, WorkosVerifierTest } from "../../src/workos.ts";
+import { testCipher, testDatabase } from "../slack/test-support.ts";
 
 const ISSUER = "https://api.test";
 const ACCOUNT = "user_a";
@@ -88,7 +95,7 @@ const makeRuntime = async (
 	const objects = new Map<string, string>();
 	const config = configurationLayer({
 		apiIssuer: ISSUER,
-		workosJwksUrl: "https://unused.test/jwks",
+		workosJwksUrl: "https://unused.test/jwks/client_test",
 		workosIssuer: "https://unused.test",
 		mintPrivateKey: Redacted.make(
 			JSON.stringify(await exportJWK(mint.privateKey)),
@@ -945,47 +952,253 @@ describe("public API (/v1/api)", () => {
 		await runtime.dispose();
 	});
 
+	test("keeps Slack disabled independently of normal API authentication", async () => {
+		const runtime = await makeRuntime();
+		const api = makeApi(
+			Layer.succeedContext(
+				await runtime.runPromise(Effect.context<ApiContext>()),
+			),
+		);
+		try {
+			expect(
+				(await api.fetch(new Request(`${ISSUER}/slack/install`))).status,
+			).toBe(503);
+			expect(
+				(
+					await api.fetch(
+						new Request(`${ISSUER}/v1/api/projects`, {
+							headers: { "x-account-id": ACCOUNT },
+						}),
+					)
+				).status,
+			).toBe(401);
+		} finally {
+			await api.dispose();
+			await runtime.dispose();
+		}
+	});
+
+	test("links Slack only to a verified WorkOS account, without a customer API key", async () => {
+		const runtime = await makeRuntime();
+		await seedReadyProject(
+			runtime,
+			await runtime.runPromise(CloudWorkspaceStore),
+		);
+		const database = testDatabase();
+		const installations = new InstallationStore(database.binding, testCipher);
+		const installation = {
+			teamId: "T1",
+			ownerId: "U1",
+			generation: "a".repeat(64),
+			revision: 0,
+			credentials: {
+				botToken: "xoxb-test",
+				userToken: "xoxp-test",
+				botUserId: "UBOT",
+				rules: [],
+			},
+		};
+		await installations.install(installation);
+		let valid = false;
+		const verify = vi.fn(() =>
+			valid
+				? Effect.succeed({ accountId: ACCOUNT, orgId: undefined })
+				: Effect.fail(unauthorized("invalid_workos_token")),
+		);
+		const exchangeToken = vi.fn(() =>
+			Effect.succeed({
+				access_token: "exchanged-token",
+				refresh_token: "discard-me",
+				token_type: "Bearer" as const,
+			}),
+		);
+		try {
+			const module = await runtime.runPromise(
+				makeSlackModule({
+					publicOrigin: ISSUER,
+					appId: "A1",
+					clientId: "slack-client",
+					clientSecret: "secret",
+					signingSecret: "signing",
+					queue: { send: async () => {} },
+					dispatch: async (response) => response,
+				}).pipe(
+					Effect.provideService(SlackPersistence, installations),
+					Effect.provideService(WorkosVerifier, { verify, exchangeToken }),
+				),
+			);
+			const session = await installations.session("settings", installation);
+			const begin = () =>
+				module.fetch(
+					new Request(`${ISSUER}/slack/setup/connect`, {
+						method: "POST",
+						headers: {
+							origin: ISSUER,
+							cookie: `__Host-zuse-slack-setup=${session}`,
+						},
+						body: new URLSearchParams({
+							agent: "codex",
+							model: "gpt-test",
+							accountId: "attacker-selected",
+						}),
+					}),
+				);
+			const finish = (response: Response) => {
+				const state = new URL(
+					response.headers.get("location") ?? "",
+				).searchParams.get("state");
+				return module.fetch(
+					new Request(
+						`${ISSUER}/slack/auth/callback?code=oauth-code&state=${state}`,
+						{
+							headers: {
+								cookie: response.headers.get("set-cookie")?.split(";")[0] ?? "",
+							},
+						},
+					),
+				);
+			};
+			expect((await finish(await begin())).status).toBe(503);
+			expect((await installations.get("T1"))?.credentials.zuse).toBeUndefined();
+			valid = true;
+			expect((await finish(await begin())).status).toBe(200);
+			expect(verify).toHaveBeenCalledWith("exchanged-token");
+			expect(exchangeToken).toHaveBeenCalledWith(
+				expect.objectContaining({
+					grantType: "authorization_code",
+					code: "oauth-code",
+					codeVerifier: expect.stringMatching(/^[a-f0-9]{64}$/u),
+				}),
+			);
+			const installed = await installations.get("T1");
+			if (!installed) throw new Error("Expected installation");
+			const connected = (
+				await installations.member(installed, installed.ownerId)
+			).connection;
+			expect(connected?.accountId).toBe(ACCOUNT);
+			expect(JSON.stringify(connected)).not.toMatch(
+				/exchanged-token|discard-me|apiKey/u,
+			);
+		} finally {
+			database.sqlite.close();
+			await runtime.dispose();
+		}
+	});
+
 	test("round-trips a signed Slack image thread through the real API and webhook handlers", async () => {
 		const runtime = await makeRuntime();
 		const store = await runtime.runPromise(CloudWorkspaceStore);
 		await seedReadyProject(runtime, store);
-		const secret = await createApiKey(runtime);
-		const headers = {
-			authorization: `Bearer ${secret}`,
-			"content-type": "application/json",
-		};
-		const webhook = await json<{ secret: string }>(
-			await serve(runtime, "/v1/api/webhooks", {
-				method: "POST",
-				headers,
-				body: JSON.stringify({
-					url: "https://slack-bot.example.com/zuse/webhook",
+		const webhookResponse = await runtime.runPromise(
+			routeAccountWorkspaceRequest(
+				new Request(`${ISSUER}/v1/api/webhooks`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						url: `${ISSUER}/slack/webhook/T1/${"a".repeat(64)}`,
+					}),
 				}),
-			}),
-			201,
+				ACCOUNT,
+				{ internalWebhookTarget: (url) => isSlackWebhookTarget(url, ISSUER) },
+			),
 		);
-		const kv = new Map<string, string>();
+		if (!webhookResponse) throw new Error("webhook registration missing");
+		const webhook = await json<{
+			secret: string;
+			webhook: { webhookId: string };
+		}>(webhookResponse, 201);
+		const installationDb = testDatabase();
+		const generation = "a".repeat(64);
+		const slackJobs: SlackJob[] = [];
 		const env: SlackEnv = {
-			THREADS: {
-				get: async (key) => kv.get(key) ?? null,
-				put: async (key, value) => {
-					kv.set(key, value);
+			store: new InstallationStore(installationDb.binding, testCipher),
+			identity: {
+				clientId: "client_test",
+				exchange: async () => ({ accountId: ACCOUNT }),
+			},
+			cloud: (accountId) => ({
+				request: async (path, init) =>
+					(await runtime.runPromise(
+						routeAccountWorkspaceRequest(
+							new Request(ISSUER + path, init),
+							accountId,
+						),
+					)) ?? new Response(null, { status: 404 }),
+			}),
+			APP_ORIGIN: ISSUER,
+			SLACK_APP_ID: "A1",
+			SLACK_CLIENT_ID: "client-id",
+			SLACK_CLIENT_SECRET: "client-secret",
+			JOBS: {
+				send: async (job) => {
+					slackJobs.push(job);
 				},
 			},
 			SLACK_SIGNING_SECRET: "slack-test-secret",
-			SLACK_BOT_TOKEN: "xoxb-test",
-			SLACK_USER_TOKEN: "xoxp-test",
-			ZUSE_API_KEY: secret,
-			ZUSE_API_URL: ISSUER,
-			ZUSE_WEBHOOK_SECRET: webhook.secret,
-			ZUSE_AGENT: "codex",
-			ZUSE_MODEL: "gpt-5",
 		};
-		const pending: Promise<unknown>[] = [];
-		const context = {
-			waitUntil: (promise: Promise<unknown>) => {
-				pending.push(promise);
+		await env.store.install({
+			teamId: "T1",
+			ownerId: "U1",
+			generation,
+			revision: 0,
+			credentials: {
+				botToken: "xoxb-test",
+				userToken: "xoxp-test",
+				botUserId: "UBOT",
+				zuse: {
+					accountId: ACCOUNT,
+					webhookId: webhook.webhook.webhookId,
+					webhookSecret: webhook.secret,
+					agent: "codex",
+					model: "gpt-5",
+				},
+				rules: [
+					{
+						id: "errors",
+						channelId: "C1",
+						botId: "B1",
+						projectId: "project-1",
+						mode: "live",
+					},
+				],
 			},
+		});
+		const dispatched: Response[] = [];
+		const api = makeApi(
+			Layer.merge(
+				Layer.succeedContext(
+					await runtime.runPromise(Effect.context<ApiContext>()),
+				),
+				Layer.succeed(SlackPersistence, env.store),
+			),
+			{
+				slack: {
+					publicOrigin: env.APP_ORIGIN,
+					appId: env.SLACK_APP_ID,
+					clientId: env.SLACK_CLIENT_ID,
+					clientSecret: env.SLACK_CLIENT_SECRET,
+					signingSecret: env.SLACK_SIGNING_SECRET,
+					queue: env.JOBS,
+					dispatch: async (response) => {
+						dispatched.push(response.clone());
+						return response;
+					},
+				},
+			},
+		);
+		const slackModule = { fetch: api.fetch, queue: api.consumeSlackJobs };
+		const runSlackJobs = async () => {
+			const jobs = slackJobs.splice(0);
+			await slackModule.queue({
+				messages: jobs.map((body) => ({
+					body,
+					attempts: 1,
+					ack: () => undefined,
+					retry: () => {
+						throw new Error("Unexpected Slack job retry");
+					},
+				})),
+			});
 		};
 		const posts: Array<{ text: string; thread_ts?: string }> = [];
 		const image = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -1003,7 +1216,7 @@ describe("public API (/v1/api)", () => {
 				const request = new Request(input, init);
 				const url = new URL(request.url);
 				if (url.origin === ISSUER)
-					return runtime.runPromise(handleRequest(request));
+					throw new Error("unexpected API loopback request");
 				if (url.pathname === "/api/conversations.replies") {
 					expect(request.headers.get("authorization")).toBe("Bearer xoxp-test");
 					return Response.json({
@@ -1024,8 +1237,6 @@ describe("public API (/v1/api)", () => {
 					posts.push(await request.json());
 					return Response.json({ ok: true, ts: `100.${posts.length + 2}` });
 				}
-				if (url.origin === "https://slack-bot.example.com")
-					return slackWorker.fetch(request, env, context);
 				throw new Error(`unexpected request: ${url.origin}${url.pathname}`);
 			}),
 		);
@@ -1045,7 +1256,7 @@ describe("public API (/v1/api)", () => {
 					new TextEncoder().encode(`v0:${timestamp}:${body}`),
 				),
 			);
-			return new Request(`https://slack-bot.example.com${path}`, {
+			return new Request(`${ISSUER}${path}`, {
 				method: "POST",
 				headers: {
 					"x-slack-request-timestamp": timestamp,
@@ -1054,27 +1265,33 @@ describe("public API (/v1/api)", () => {
 				body,
 			});
 		};
-		const interaction = new URLSearchParams({
-			payload: JSON.stringify({
-				type: "message_action",
-				callback_id: "open_in_zuse",
-				trigger_id: "trigger-1",
-				channel: { id: "C1" },
-				message: { ts: "100.2", thread_ts: "100.1" },
-			}),
-		}).toString();
+		const alert = JSON.stringify({
+			type: "event_callback",
+			api_app_id: "A1",
+			team_id: "T1",
+			event_id: "Ev1",
+			event: {
+				type: "message",
+				channel: "C1",
+				ts: "100.1",
+				bot_id: "B1",
+				text: "Error detected in production",
+			},
+		});
 		expect(
-			(
-				await slackWorker.fetch(
-					await signed("/slack/interactions", interaction),
-					env,
-					context,
-				)
-			).status,
+			(await slackModule.fetch(await signed("/slack/events", alert))).status,
 		).toBe(200);
-		await Promise.all(pending);
-		const workspaceId = kv.get("thread:C1:100.1");
-		if (workspaceId === undefined)
+		await runSlackJobs();
+		const installed = await env.store.get("T1");
+		if (!installed) throw new Error("installation missing");
+		const state = runnerEnv(env, installed).THREADS;
+		const workspaceId = await state.get("thread:C1:100.1");
+		expect(
+			dispatched.some((response) =>
+				response.headers.has("x-zuse-reconcile-cloud-workspace"),
+			),
+		).toBe(true);
+		if (workspaceId === null)
 			throw new Error("Slack import did not create its workspace mapping");
 		await stageRuntimeCredential(runtime, store, workspaceId, "slack-runtime", [
 			CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
@@ -1149,46 +1366,21 @@ describe("public API (/v1/api)", () => {
 			),
 			200,
 		);
-		await runtime.runPromise(deliverPendingApiWebhooks);
+		expect(await api.deliverApiWebhooks()).toBe(1);
 		expect(posts.at(-1)).toMatchObject({
 			thread_ts: "100.1",
 			text: expect.stringContaining(
 				"Updated the button using your screenshot.",
 			),
 		});
-		const followup = JSON.stringify({
-			type: "event_callback",
-			event_id: "Ev-file-1",
-			event: {
-				type: "message",
-				subtype: "file_share",
-				channel: "C1",
-				thread_ts: "100.1",
-				files: [file],
-			},
-		});
+		// A duplicate alert must not submit a second turn or create a workspace.
 		expect(
-			(
-				await slackWorker.fetch(
-					await signed("/slack/events", followup),
-					env,
-					context,
-				)
-			).status,
+			(await slackModule.fetch(await signed("/slack/events", alert))).status,
 		).toBe(200);
-		const next = (await drain()).commands[0];
-		expect(next?.attachments).toHaveLength(1);
-		// A Slack retry must return the same durable command and attachment.
-		expect(
-			(
-				await slackWorker.fetch(
-					await signed("/slack/events", followup),
-					env,
-					context,
-				)
-			).status,
-		).toBe(200);
-		expect((await drain()).commands[0]?.messageId).toBe(next?.messageId);
+		await runSlackJobs();
+		expect(await state.get("thread:C1:100.1")).toBe(workspaceId);
+		await api.dispose();
+		installationDb.sqlite.close();
 		await runtime.dispose();
 	});
 

@@ -643,5 +643,6 @@
 	"device_command_card_exit": "·退出{{value1}}",
 	"message_row_preparing_image": "准备图像",
 	"device_bridge_panel_always_allow_your_cloud_chats": "始终允许 · 您的云聊天",
-	"chat_landing_issueattached_sentence": "问题{{value}}附后"
+	"chat_landing_issueattached_sentence": "问题{{value}}附后",
+	"terminal_pane_waiting_for_changes_to_settle": "等待更改稳定…"
 }

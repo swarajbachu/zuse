@@ -1,6 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import type { LocalePreference, LocaleSnapshot } from "@zuse/contracts";
 import {
 	availableLocales,
@@ -8,44 +5,33 @@ import {
 	resolveLocale,
 } from "@zuse/i18n/locales";
 
+import { readPreference, writePreference } from "./atomic-preference.ts";
+
 export async function readLocalePreference(
 	userData: string,
 ): Promise<LocalePreference> {
 	try {
-		const value: unknown = JSON.parse(
-			await readFile(join(userData, "language.json"), "utf8"),
-		);
-		if (
-			value &&
-			typeof value === "object" &&
-			"version" in value &&
-			value.version === 1 &&
-			"preference" in value &&
-			isLocalePreference(value.preference)
-		)
-			return value.preference;
+		return await readPreference(userData, "language.json", (value: unknown) => {
+			if (
+				value &&
+				typeof value === "object" &&
+				"version" in value &&
+				value.version === 1 &&
+				"preference" in value &&
+				isLocalePreference(value.preference)
+			)
+				return value.preference;
+			return "system";
+		});
 	} catch {
-		/* Missing/corrupt preferences use the system default. */
+		return "system";
 	}
-	return "system";
 }
 export async function writeLocalePreference(
 	userData: string,
 	preference: LocalePreference,
 ): Promise<void> {
-	await mkdir(userData, { recursive: true });
-	const destination = join(userData, "language.json");
-	const temporary = `${destination}.${randomUUID()}.tmp`;
-	try {
-		await writeFile(
-			temporary,
-			`${JSON.stringify({ version: 1, preference })}\n`,
-			{ encoding: "utf8", mode: 0o600 },
-		);
-		await rename(temporary, destination);
-	} finally {
-		await rm(temporary, { force: true });
-	}
+	await writePreference(userData, "language.json", { version: 1, preference });
 }
 
 /** Serialize persistence and publish only committed snapshots. Independent of Electron for testing. */

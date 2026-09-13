@@ -643,5 +643,6 @@
 	"device_command_card_truncated": " · Truncated",
 	"message_row_retry_preview": "Retry preview",
 	"message_row_preparing_image": "Preparing image",
-	"chat_landing_issueattached_sentence": "Issue{{value}}attached"
+	"chat_landing_issueattached_sentence": "Issue{{value}}attached",
+	"terminal_pane_waiting_for_changes_to_settle": "Waiting for changes to settle…"
 }

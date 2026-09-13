@@ -857,5 +857,14 @@
 	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undone": "perdra immédiatement l’accès public API. Cela ne peut pas être annulé.",
 	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undon_sentence": "{{value}} perdra immédiatement l'accès public à API. Cela ne peut pas être annulé.",
 	"cloud_api_keys_this_integration": "Cette intégration",
-	"cloud_api_keys_revoke_key": "Révoquer la clé"
+	"cloud_api_keys_revoke_key": "Révoquer la clé",
+	"update_channel_updates": "Mises à jour",
+	"update_channel_label": "Canal de mise à jour",
+	"update_channel_stable": "Stable",
+	"update_channel_preview": "Aperçu",
+	"update_channel_preview_description": "Recevez les versions en avant-première. Passer au canal Stable installe la version stable actuelle au redémarrage et conserve vos sessions.",
+	"update_channel_stable_description": "Recevez les versions testées. Choisissez Aperçu pour essayer les nouveautés en avance.",
+	"update_channel_load_error": "Impossible de charger le canal de mise à jour. Rouvrez les paramètres pour réessayer.",
+	"update_channel_save_error": "Impossible de changer le canal de mise à jour. Réessayez.",
+	"update_channel_changing": "Changement du canal de mise à jour…"
 }

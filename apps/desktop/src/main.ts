@@ -2216,7 +2216,7 @@ async function createMainWindow() {
 				typeof input.hostAlias !== "string" ||
 				!/^zuse-[A-Za-z0-9_-]+$/u.test(input.hostAlias) ||
 				typeof input.remotePath !== "string" ||
-				!input.remotePath.startsWith("/")
+				(input.enabled && !input.remotePath.startsWith("/"))
 			)
 				return null;
 			return cloudSyncManager.configure({

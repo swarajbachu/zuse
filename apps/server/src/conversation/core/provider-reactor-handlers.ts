@@ -286,6 +286,8 @@ export const makeProviderReactorHandlers = (
 					: yield* decodeProviderModelOptions(
 							startupRequest.modelOptionsJson,
 						).pipe(Effect.orDie);
+			// A live provider can settle the turn before send returns.
+			yield* setStatus(sessionId, "running");
 			const sent = yield* provider
 				.send(
 					sessionId,
@@ -300,7 +302,6 @@ export const makeProviderReactorHandlers = (
 				// Close the ambiguity window before projection/status bookkeeping. A
 				// restart after this point observes completion and cannot resend.
 				yield* reactorEffects.complete(reactorInput.commandId);
-				yield* setStatus(sessionId, "running");
 				return;
 			}
 			if (sent._tag === "Failure") {

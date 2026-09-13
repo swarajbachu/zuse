@@ -853,5 +853,14 @@
 	"cloud_api_keys_copied": "⟦Côôpïïëëd⟧",
 	"cloud_api_keys_copy": "⟦Côôpy⟧",
 	"cloud_api_keys_this_integration": "⟦Thïïs ïïntëëgrààtïïôôn⟧",
-	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undon_sentence": "⟦{{value}} wïïll ïïmmëëdïïààtëëly lôôsëë püüblïïc ÀÀPÏÏ ààccëëss. Thïïs càànnôôt bëë üündôônëë.⟧"
+	"cloud_api_keys_will_immediately_lose_public_api_access_this_cannot_be_undon_sentence": "⟦{{value}} wïïll ïïmmëëdïïààtëëly lôôsëë püüblïïc ÀÀPÏÏ ààccëëss. Thïïs càànnôôt bëë üündôônëë.⟧",
+	"update_channel_updates": "⟦ÜÜpdààtëës⟧",
+	"update_channel_label": "⟦ÜÜpdààtëë chàànnëël⟧",
+	"update_channel_stable": "⟦Stààblëë⟧",
+	"update_channel_preview": "⟦Prëëvïïëëw⟧",
+	"update_channel_preview_description": "⟦Gëët ëëààrly büüïïlds. Swïïtchïïng tôô Stààblëë ïïnstààlls thëë cüürrëënt stààblëë rëëlëëààsëë ôôn rëëstààrt àànd këëëëps yôôüür sëëssïïôôns.⟧",
+	"update_channel_stable_description": "⟦Gëët tëëstëëd rëëlëëààsëës. Chôôôôsëë Prëëvïïëëw tôô try üüpcôômïïng chààngëës ëëààrly.⟧",
+	"update_channel_load_error": "⟦Côôüüld nôôt lôôààd thëë üüpdààtëë chàànnëël. Rëëôôpëën Sëëttïïngs tôô rëëtry.⟧",
+	"update_channel_save_error": "⟦Côôüüld nôôt chààngëë thëë üüpdààtëë chàànnëël. Try ààgààïïn.⟧",
+	"update_channel_changing": "⟦Chààngïïng üüpdààtëë chàànnëël…⟧"
 }
