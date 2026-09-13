@@ -1,223 +1,325 @@
-import {
-	BoltIcon,
-	CloudIcon,
-	ComputerIcon,
-	QrCodeIcon,
-	SecurityCheckIcon,
-	SmartPhone01Icon,
-} from "@zuse/icons/solid-rounded";
+import { useAtomValue } from "@effect/atom-react";
+import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useState } from "react";
-import {
-	Image,
-	Pressable,
-	ScrollView,
-	Text,
-	useWindowDimensions,
-	View,
-} from "react-native";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { signIn } from "~/store/auth";
+import {
+	authAccountAtom,
+	authBusyAtom,
+	authErrorAtom,
+	signIn,
+} from "~/store/auth";
 import { completeOnboarding } from "~/store/onboarding";
+import { appAtomRegistry } from "~/store/registry";
 import { colors } from "~/theme";
 import { Button } from "../ui/button";
-import { HugeIcon } from "../ui/huge-icon";
 
-const LOGO = require("../../../assets/icon.png");
-
-const pages = [
-	{
-		kind: "welcome",
-		eyebrow: "ZUSE FOR IPHONE",
-		title: "Your agents, within reach.",
-		detail:
-			"Follow every task, answer questions, and keep work moving when you step away from your computer.",
-	},
-	{
-		kind: "features",
-		eyebrow: "STAY IN CONTROL",
-		title: "Everything important travels with you.",
-		detail:
-			"Your phone becomes a focused companion for the work already running in Zuse.",
-	},
-	{
-		kind: "setup",
-		eyebrow: "CONNECT YOUR COMPUTER",
-		title: "Pair in under a minute.",
-		detail: "Keep Zuse open on your computer, then follow these three steps.",
-	},
-	{
-		kind: "ready",
-		eyebrow: "READY TO CONNECT",
-		title: "Choose how you want to begin.",
-		detail:
-			"Scan the QR shown by Zuse, find a nearby Mac automatically, or sign in for remote access.",
-	},
-] as const;
-
-const features = [
-	{
-		icon: BoltIcon,
-		title: "Follow live work",
-		detail: "See responses and task progress as they happen.",
-	},
-	{
-		icon: SmartPhone01Icon,
-		title: "Respond from anywhere",
-		detail: "Approve actions, answer questions, and send follow-ups.",
-	},
-	{
-		icon: SecurityCheckIcon,
-		title: "Private by design",
-		detail: "Pair trusted devices and keep control of every connection.",
-	},
-] as const;
-
-const setupSteps = [
-	["1", "Open Zuse on your computer"],
-	["2", "Go to Settings, then Remote access"],
-	["3", "Choose Show QR and scan it here"],
-] as const;
+type ConnectionPath = "cloud" | "local";
+const stages = ["Connection", "Desktop", "Settings", "Connect"] as const;
+const setupInstructions = {
+	cloud: [
+		[
+			"Sign in to Zuse",
+			"Use the account that has access to your hosted cloud sandboxes.",
+		],
+		[
+			"Open your cloud work",
+			"Your existing cloud chats appear in the inbox after sign-in.",
+		],
+		[
+			"Check agent authentication",
+			"In phone Settings, open Cloud Authentication to check the agent accounts used by your cloud chats.",
+		],
+	],
+	local: [
+		[
+			"Use the same Wi-Fi",
+			"Connect your phone and computer to the same trusted network.",
+		],
+		[
+			"Turn on Local network",
+			"Open Settings → Remote access. Under Connections, choose Turn on beside Local network.",
+		],
+		[
+			"Confirm the restart",
+			"In Turn on local access?, choose Restart and turn on. Wait for Zuse to reopen.",
+		],
+	],
+} as const;
 
 export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
-	const [page, setPage] = useState(0);
+	const [step, setStep] = useState(0);
+	const [path, setPath] = useState<ConnectionPath | null>(null);
+	const [copied, setCopied] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const busy = useAtomValue(authBusyAtom);
+	const authError = useAtomValue(authErrorAtom);
+	const account = useAtomValue(authAccountAtom);
 	const insets = useSafeAreaInsets();
-	const { height } = useWindowDimensions();
-	const current = pages[page] ?? pages[0];
-	const finalPage = page === pages.length - 1;
-
-	const leaveFor = async (
-		destination: "/" | "/connect/scan" | "/connect/nearby",
-	) => {
+	const local = path === "local";
+	const cloudReady = step === 1 && path === "cloud";
+	const finish = async () => {
 		await completeOnboarding();
-		if (destination === "/" && replay && router.canGoBack()) {
-			router.back();
-			return;
-		}
-		router.replace(destination);
+		if (replay && router.canGoBack()) router.back();
+		else router.replace("/");
 	};
-
-	const signInAndFinish = async () => {
-		await completeOnboarding();
-		await signIn();
-		router.replace("/");
+	const connectCloud = async () => {
+		if (!account) await signIn();
+		if (appAtomRegistry.get(authAccountAtom)) await finish();
 	};
-
+	const copyDownload = async () => {
+		await Clipboard.setStringAsync("https://zuse.sh");
+		setCopied(true);
+	};
+	const run = (action: () => Promise<void>) => {
+		setError(null);
+		void action().catch(() =>
+			setError("Could not continue. Please try again."),
+		);
+	};
+	const title =
+		step === 0
+			? "Where will your agents run?"
+			: step === 1
+				? local
+					? "Start on your computer."
+					: "Work in cloud sandboxes."
+				: step === 2
+					? local
+						? "Enable local access."
+						: "Your cloud account."
+					: local
+						? "Pair your phone."
+						: "Sign in on your phone.";
+	const detail =
+		step === 0
+			? "Choose local work on your computer or hosted cloud sandboxes. You can use both and add the other from Settings anytime."
+			: step === 1
+				? local
+					? "Install and open Zuse on your computer. This path connects your phone to work running there."
+					: "Agents run in hosted environments, not on your computer. No desktop pairing, Zuse Serve, or shared Wi-Fi is needed."
+				: step === 2
+					? "Do these steps in the desktop app. Keep this guide open on your phone."
+					: local
+						? "Create a pairing code in the desktop app, then scan it here."
+						: "Sign in to access your hosted cloud sandboxes.";
 	return (
 		<View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
-			<View className="h-12 flex-row items-center justify-between px-5">
-				<View className="flex-row items-center gap-2">
-					<Image source={LOGO} className="h-8 w-8 rounded-[10px]" />
-					<Text className="font-sans-bold text-[17px] text-foreground">
-						Zuse
-					</Text>
-				</View>
+			<View className="min-h-12 flex-row items-center justify-between px-5">
 				<Pressable
+					disabled={step === 0 || busy}
 					accessibilityRole="button"
-					accessibilityLabel="Skip onboarding"
-					hitSlop={10}
-					onPress={() => void leaveFor("/")}
-					className="px-2 py-2 active:opacity-60"
+					accessibilityLabel="Previous step"
+					onPress={() => setStep((value) => Math.max(0, value - 1))}
+					className="min-h-11 min-w-11 justify-center active:opacity-60"
 				>
-					<Text className="font-sans-medium text-[15px] text-primary">
-						Skip
-					</Text>
+					{step > 0 ? (
+						<SymbolView name="chevron.left" size={20} tintColor={colors.fg} />
+					) : (
+						<Text className="font-sans-bold text-base text-foreground">
+							Zuse
+						</Text>
+					)}
 				</Pressable>
+				<Button variant="ghost" disabled={busy} onPress={() => run(finish)}>
+					Set up later
+				</Button>
 			</View>
-
 			<ScrollView
-				className="flex-1"
+				key={step}
 				contentInsetAdjustmentBehavior="never"
-				showsVerticalScrollIndicator={false}
-				contentContainerStyle={{ minHeight: Math.max(height - 260, 500) }}
+				contentContainerStyle={{ flexGrow: 1, padding: 24, paddingTop: 32 }}
 			>
-				<Animated.View
-					key={page}
-					entering={FadeIn.duration(180)}
-					exiting={FadeOut.duration(120)}
-					className="flex-1 justify-center px-6 py-8"
-				>
-					<PageArtwork kind={current.kind} />
-					<View className="mt-8 items-center gap-3">
-						<Text className="font-sans-bold text-xs tracking-[1.4px] text-primary">
-							{current.eyebrow}
+				<View className="mx-auto w-full max-w-[380px] gap-8">
+					<View className="gap-3">
+						<Text className="font-sans-bold text-xs tracking-[1px] text-accent">
+							STEP {step + 1} OF {path === "cloud" ? 2 : 4} ·{" "}
+							{cloudReady ? "CLOUD SANDBOXES" : stages[step]?.toUpperCase()}
 						</Text>
-						<Text className="max-w-[350px] text-center font-sans-bold text-[30px] leading-[35px] tracking-[-0.7px] text-foreground">
-							{current.title}
+						<Text
+							accessibilityRole="header"
+							className="font-sans-bold text-[32px] leading-[38px] tracking-[-0.8px] text-foreground"
+						>
+							{title}
 						</Text>
-						<Text className="max-w-[350px] text-center font-sans text-[16px] leading-[23px] text-muted-foreground">
-							{current.detail}
+						<Text className="font-sans text-base leading-6 text-muted-foreground">
+							{detail}
 						</Text>
 					</View>
-					{current.kind === "features" ? <FeatureList /> : null}
-					{current.kind === "setup" ? <SetupList /> : null}
-				</Animated.View>
+					{step === 1 && local ? (
+						<>
+							<Instructions
+								items={[
+									[
+										"Download Zuse",
+										"On your computer, open zuse.sh and download the desktop app for your platform.",
+									],
+									[
+										"Install and open it",
+										"Finish installation, then launch Zuse. Leave it open while you connect your phone.",
+									],
+								]}
+							/>
+							<Button variant="secondary" onPress={() => run(copyDownload)}>
+								{copied ? "Download link copied" : "Copy desktop download link"}
+							</Button>
+							<Text className="text-sm leading-5 text-muted-foreground">
+								Already installed? Open Zuse on your computer and continue
+								below.
+							</Text>
+						</>
+					) : null}
+					{step === 0 ? (
+						<View className="gap-3">
+							{(["cloud", "local"] as const).map((value) => (
+								<Pressable
+									key={value}
+									accessibilityRole="radio"
+									accessibilityState={{ checked: path === value }}
+									onPress={() => setPath(value)}
+									className={
+										path === value
+											? "gap-3 rounded-2xl border border-primary bg-primary/10 p-5 active:opacity-80"
+											: "gap-3 rounded-2xl border border-transparent bg-card-elevated p-5 active:opacity-80"
+									}
+								>
+									<View className="flex-row items-center justify-between">
+										<Text className="font-sans-bold text-lg text-foreground">
+											{value === "cloud"
+												? "Cloud sandboxes"
+												: "Local connection"}
+										</Text>
+										<SymbolView
+											name={
+												path === value
+													? "checkmark.circle.fill"
+													: value === "cloud"
+														? "cloud.fill"
+														: "wifi"
+											}
+											size={22}
+											weight="light"
+											tintColor={colors.accent}
+										/>
+									</View>
+									<Text className="text-sm leading-5 text-muted-foreground">
+										{value === "cloud"
+											? "Run agents in hosted cloud environments. Sign in to your Zuse account; your computer does not need to stay on."
+											: "Pair directly on the same Wi-Fi. No account needed. Best when your computer is nearby."}
+									</Text>
+								</Pressable>
+							))}
+							<Text className="text-sm leading-5 text-muted-foreground">
+								Choosing local does not lock you out of cloud. Later, open
+								Settings → Remote access to sign in. To add local pairing, use
+								Settings → Connections. Only local work needs your computer
+								awake with Zuse running.
+							</Text>
+						</View>
+					) : null}
+					{cloudReady ? <Instructions items={setupInstructions.cloud} /> : null}
+					{step === 2 && path ? (
+						<>
+							<Instructions items={setupInstructions[path]} />
+							{local ? (
+								<Text className="rounded-2xl bg-card-elevated p-4 text-sm leading-5 text-foreground">
+									Before restarting: running agents will stop. Finish or pause
+									your work first.
+								</Text>
+							) : null}
+						</>
+					) : null}
+					{step === 3 ? (
+						local ? (
+							<Instructions
+								items={[
+									[
+										"Create a connect link",
+										"On desktop, return to Settings → Remote access. Under Connect another device, choose Create link.",
+									],
+									[
+										"Show the local QR code",
+										"Set Connect through to Local network, then choose Show QR. The link lasts five minutes; create a new one if it expires.",
+									],
+									[
+										"Scan from this phone",
+										"Tap Scan QR code below. Allow Camera and Local Network access when asked, then point at the desktop code.",
+									],
+								]}
+							/>
+						) : (
+							<Instructions
+								items={[
+									[
+										"Open your cloud chats",
+										"Existing cloud chats appear in your inbox after sign-in.",
+									],
+									[
+										"Use the same account",
+										"Use your cloud sandbox account. You can switch accounts in phone Settings.",
+									],
+									[
+										"Find your work",
+										"If cloud chats are missing, check your account and internet connection.",
+									],
+								]}
+							/>
+						)
+					) : null}
+					{error || (cloudReady && authError) ? (
+						<Text
+							selectable
+							accessibilityRole="alert"
+							className="text-sm text-danger"
+						>
+							{error ?? authError}
+						</Text>
+					) : null}
+				</View>
 			</ScrollView>
-
 			<View
-				className="gap-4 px-5 pt-3"
+				className="gap-2 px-6 pt-3"
 				style={{ paddingBottom: Math.max(insets.bottom, 16) }}
 			>
-				<View className="flex-row items-center justify-center gap-2">
-					{pages.map((item, index) => (
-						<View
-							key={item.kind}
-							className={
-								index === page
-									? "h-2 w-6 rounded-full bg-primary"
-									: "h-2 w-2 rounded-full bg-muted"
-							}
-						/>
-					))}
-				</View>
-				{finalPage ? (
-					<View className="gap-2.5">
-						<Button onPress={() => void leaveFor("/connect/scan")}>
-							<SymbolView
-								name="qrcode.viewfinder"
-								size={17}
-								weight="semibold"
-								tintColor={colors.primaryForeground}
-							/>
+				{step < 3 && !cloudReady ? (
+					<Button
+						className="h-14"
+						disabled={step === 0 && path === null}
+						onPress={() => setStep((value) => Math.min(3, value + 1))}
+					>
+						{step === 0
+							? "Continue"
+							: step === 1
+								? "Zuse is open on my computer"
+								: local
+									? "Local access is on"
+									: "Continue"}
+					</Button>
+				) : local ? (
+					<>
+						<Button
+							className="h-14"
+							onPress={() => router.push("/connect/scan")}
+						>
 							Scan QR code
 						</Button>
 						<Button
-							variant="secondary"
-							onPress={() => void leaveFor("/connect/nearby")}
+							variant="ghost"
+							onPress={() => router.push("/connect/nearby")}
 						>
-							<SymbolView
-								name="wifi"
-								size={17}
-								weight="semibold"
-								tintColor={colors.fg}
-							/>
-							Find nearby Mac
+							Find nearby Mac instead
 						</Button>
-						<Pressable
-							className="items-center py-2"
-							onPress={() => void signInAndFinish()}
-						>
-							<Text className="font-sans-medium text-[15px] text-primary">
-								Sign in for remote access
-							</Text>
-						</Pressable>
-					</View>
+					</>
 				) : (
 					<Button
-						onPress={() =>
-							setPage((value) => Math.min(value + 1, pages.length - 1))
-						}
+						className="h-14"
+						disabled={busy}
+						onPress={() => run(connectCloud)}
 					>
-						{page === 0 ? "Get started" : "Continue"}
-						<SymbolView
-							name="arrow.right"
-							size={16}
-							weight="semibold"
-							tintColor={colors.primaryForeground}
-						/>
+						{busy ? "Signing in…" : account ? "Open my inbox" : "Sign in"}
 					</Button>
 				)}
 			</View>
@@ -225,77 +327,26 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 	);
 }
 
-function PageArtwork({ kind }: { kind: (typeof pages)[number]["kind"] }) {
-	const icon =
-		kind === "welcome"
-			? CloudIcon
-			: kind === "features"
-				? SmartPhone01Icon
-				: kind === "setup"
-					? ComputerIcon
-					: QrCodeIcon;
+function Instructions({
+	items,
+}: {
+	items: readonly (readonly [string, string])[];
+}) {
 	return (
-		<View className="items-center justify-center">
-			<View className="absolute h-44 w-44 rounded-full bg-primary/10" />
-			<View
-				style={{ borderCurve: "continuous" }}
-				className="h-28 w-28 items-center justify-center rounded-[32px] bg-card"
-			>
-				<HugeIcon
-					icon={icon}
-					size={48}
-					color={colors.accent}
-					strokeWidth={1.8}
-				/>
-			</View>
-		</View>
-	);
-}
-
-function FeatureList() {
-	return (
-		<View className="mx-auto mt-8 w-full max-w-[380px] gap-3">
-			{features.map((feature) => (
-				<View
-					key={feature.title}
-					className="flex-row items-center gap-3 rounded-2xl bg-card px-4 py-3"
-				>
-					<View className="h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-						<HugeIcon
-							icon={feature.icon}
-							size={20}
-							color={colors.accent}
-							strokeWidth={1.8}
-						/>
-					</View>
-					<View className="min-w-0 flex-1 gap-0.5">
-						<Text className="font-sans-medium text-[16px] text-foreground">
-							{feature.title}
-						</Text>
-						<Text className="font-sans text-[13px] leading-[18px] text-muted-foreground">
-							{feature.detail}
+		<View className="gap-6">
+			{items.map(([title, detail], index) => (
+				<View key={title} className="flex-row gap-4">
+					<View className="h-8 w-8 items-center justify-center rounded-full bg-card-elevated">
+						<Text className="font-sans-bold text-sm text-accent">
+							{index + 1}
 						</Text>
 					</View>
-				</View>
-			))}
-		</View>
-	);
-}
-
-function SetupList() {
-	return (
-		<View className="mx-auto mt-8 w-full max-w-[380px] overflow-hidden rounded-3xl bg-card">
-			{setupSteps.map(([number, label], index) => (
-				<View key={number}>
-					{index > 0 ? <View className="ml-[68px] h-px bg-border" /> : null}
-					<View className="min-h-16 flex-row items-center gap-4 px-4 py-3">
-						<View className="h-9 w-9 items-center justify-center rounded-full bg-primary">
-							<Text className="font-sans-bold text-[14px] text-primary-foreground">
-								{number}
-							</Text>
-						</View>
-						<Text className="min-w-0 flex-1 font-sans-medium text-[15px] leading-5 text-foreground">
-							{label}
+					<View className="flex-1 gap-1">
+						<Text className="font-sans-bold text-base text-foreground">
+							{title}
+						</Text>
+						<Text className="text-sm leading-5 text-muted-foreground">
+							{detail}
 						</Text>
 					</View>
 				</View>

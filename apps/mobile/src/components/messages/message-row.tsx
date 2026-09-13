@@ -671,7 +671,7 @@ const UsageLimitRow = ({
 						Limit reached
 					</Text>
 					{typeof content.usedPercent === "number" ? (
-						<Text className="ml-auto rounded-full bg-primary/15 px-2 py-0.5 font-sans-medium text-[11px] text-primary">
+						<Text className="ml-auto rounded-full bg-primary/15 px-2 py-0.5 font-sans-medium text-[11px] text-accent">
 							{Math.round(content.usedPercent)}%
 						</Text>
 					) : null}

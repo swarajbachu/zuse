@@ -5,6 +5,20 @@ const appFile = (relativePath: string): string =>
 	readFileSync(`${process.cwd()}/app/${relativePath}`, "utf8");
 
 describe("mobile UI contracts", () => {
+	test("declares local pairing and Expo development discovery services", () => {
+		const config = JSON.parse(
+			readFileSync(`${process.cwd()}/app.json`, "utf8"),
+		);
+		const nativeInfo = readFileSync(
+			`${process.cwd()}/ios/ZuseMobile/Info.plist`,
+			"utf8",
+		);
+		for (const service of ["_zuse._tcp", "_expo._tcp"]) {
+			expect(config.expo.ios.infoPlist.NSBonjourServices).toContain(service);
+			expect(nativeInfo).toContain(`<string>${service}</string>`);
+		}
+	});
+
 	test("keeps light surfaces light and uses adaptive native tints", () => {
 		const css = readFileSync(`${process.cwd()}/global.css`, "utf8");
 		expect(css).toContain("@variant light");
@@ -19,10 +33,13 @@ describe("mobile UI contracts", () => {
 		expect(css).toContain("--color-card: hsl(0 0% 12%)");
 		expect(css).toContain("--color-foreground-faint: hsl(0 0% 43%)");
 		expect(css).toContain("--color-input: rgba(255, 255, 255, 0.2)");
-		expect(css).toContain("--color-primary: #007aff");
-		expect(css).toContain("--color-primary: #0a84ff");
+		expect(css).toContain("--color-primary: hsl(83 74% 43%)");
+		expect(css).toContain("--color-primary: hsl(83 72% 46%)");
 		expect(css.match(/--color-primary-foreground: #ffffff/g)).toHaveLength(2);
-		expect(css).not.toContain("#c8ff00");
+		expect(css).toContain("--color-accent: #486900");
+		expect(css).toContain("font-weight: 700");
+		expect(css).not.toContain("#007aff");
+		expect(css).not.toContain("#0a84ff");
 		expect(css).not.toContain("@media (prefers-color-scheme:");
 		expect(css).not.toContain("#34c759");
 	});
@@ -228,16 +245,28 @@ describe("mobile UI contracts", () => {
 		expect(layout).toContain('presentation: "fullScreenModal"');
 		expect(home).toContain("onboardingHydratedAtom");
 		expect(home).toContain('router.replace("/onboarding")');
-		expect(onboarding).toContain('"welcome"');
-		expect(onboarding).toContain('"features"');
-		expect(onboarding).toContain('"setup"');
-		expect(onboarding).toContain('"ready"');
-		expect(onboarding).toContain('leaveFor("/connect/scan")');
-		expect(onboarding).toContain('leaveFor("/connect/nearby")');
+		expect(onboarding).toContain(
+			'"Connection", "Desktop", "Settings", "Connect"',
+		);
+		expect(onboarding).toContain("Zuse is open on my computer");
+		expect(onboarding).toContain("Cloud sandboxes");
+		expect(onboarding).toContain("Local connection");
+		expect(onboarding).toContain("You can use both");
+		expect(onboarding).toContain("Settings → Connections");
+		expect(onboarding).toContain("Restart and turn on");
+		expect(onboarding).not.toContain("Set up Zuse Serve");
+		expect(onboarding).toContain("No desktop pairing");
+		expect(onboarding).toContain(
+			'const cloudReady = step === 1 && path === "cloud"',
+		);
+		expect(onboarding).toContain("Create link");
+		expect(onboarding).toContain("Show QR");
+		expect(onboarding).toContain('router.push("/connect/scan")');
+		expect(onboarding).toContain('router.push("/connect/nearby")');
 		expect(settings).toContain('title="Getting started"');
 	});
 
-	test("makes native nearby discovery the primary pairing path", () => {
+	test("offers sign-in, QR scanning, and nearby discovery in the empty state", () => {
 		const home = appFile("index.tsx");
 		const nearby = appFile("connect/nearby.tsx");
 		const nativeModule = readFileSync(
@@ -250,6 +279,13 @@ describe("mobile UI contracts", () => {
 		);
 		expect(home).toContain('onPress={() => router.push("/connect/nearby")}');
 		expect(home).toContain("Find nearby Mac");
+		const emptyActions = home.slice(
+			home.indexOf("!searching && reachableConnections.length === 0"),
+		);
+		expect(emptyActions.indexOf('"Sign in"')).toBeLessThan(
+			emptyActions.indexOf("Scan QR code"),
+		);
+		expect(emptyActions).toContain('router.push("/connect/scan")');
 		expect(nearby).toContain("<ScrollView");
 		expect(nearby).toContain("useHeaderHeight");
 		expect(nearby).toContain('contentInsetAdjustmentBehavior="never"');

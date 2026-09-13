@@ -50,6 +50,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_zuse._tcp</string>
+		<string>_expo._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to a local Zuse server on your network.</string>

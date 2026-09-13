@@ -39,7 +39,7 @@ export function ProjectLogo({
 					onError={() => setFailedUrl(source)}
 				/>
 			) : (
-				<Text className="font-sans-bold text-[15px] text-primary">
+				<Text className="font-sans-bold text-[15px] text-accent">
 					{(title.trim()[0] ?? "P").toUpperCase()}
 				</Text>
 			)}

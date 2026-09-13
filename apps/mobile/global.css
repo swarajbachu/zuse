@@ -17,8 +17,9 @@
 			--color-border: rgba(23, 23, 22, 0.1);
 			--color-input: rgba(23, 23, 22, 0.12);
 			--color-overlay: rgba(23, 23, 22, 0.06);
-			--color-primary: #007aff;
+			--color-primary: hsl(83 74% 43%);
 			--color-primary-foreground: #ffffff;
+			--color-accent: #486900;
 			--color-danger: #dc2626;
 			--color-warning: #d97706;
 			--color-presence-online: #248a3d;
@@ -38,8 +39,9 @@
 			--color-border: rgba(255, 255, 255, 0.1);
 			--color-input: rgba(255, 255, 255, 0.2);
 			--color-overlay: hsl(0 0% 22%);
-			--color-primary: #0a84ff;
+			--color-primary: hsl(83 72% 46%);
 			--color-primary-foreground: #ffffff;
+			--color-accent: hsl(83 72% 46%);
 			--color-danger: hsl(0 84% 60%);
 			--color-warning: hsl(18 96% 62%);
 			--color-presence-online: #30d158;
@@ -55,4 +57,12 @@
 	--font-sans-medium: "System";
 	--font-sans-bold: "System";
 	--font-mono: "GeistMono_400Regular";
+}
+
+@utility font-sans-medium {
+	font-weight: 500;
+}
+
+@utility font-sans-bold {
+	font-weight: 700;
 }

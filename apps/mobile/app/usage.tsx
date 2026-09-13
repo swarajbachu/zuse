@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { ProviderUsageLimits, UsageOverview } from "@zuse/contracts";
 import { Effect } from "effect";
-import { Stack } from "expo-router";
+import { Redirect, Stack } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
 	ActivityIndicator,
@@ -10,9 +10,9 @@ import {
 	Text,
 	View,
 } from "react-native";
-
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { optionsForConnection } from "~/lib/connection-params";
+import { mobileReleaseFeatures } from "~/lib/release-features";
 import { loadUsageLimits, loadUsageOverview } from "~/rpc/actions";
 import { connectionsAtom } from "~/store/connections";
 
@@ -20,6 +20,10 @@ const tokens = (value: number): string =>
 	new Intl.NumberFormat(undefined, { notation: "compact" }).format(value);
 
 export default function UsageScreen() {
+	return mobileReleaseFeatures.usage ? <UsageContent /> : <Redirect href="/" />;
+}
+
+function UsageContent() {
 	const connections = useAtomValue(connectionsAtom);
 	const [overview, setOverview] = useState<UsageOverview | null>(null);
 	const [limits, setLimits] = useState<readonly ProviderUsageLimits[]>([]);

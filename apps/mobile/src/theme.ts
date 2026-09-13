@@ -1,8 +1,8 @@
 import { Color } from "expo-router";
-import { DynamicColorIOS, Platform } from "react-native";
+import { type ColorValue, DynamicColorIOS, Platform } from "react-native";
 
-/** The platform-native tint used across controls and interactive states. */
-export const APP_TINT = "#007aff";
+/** Brand fill; use the adaptive accent for text and standalone icons. */
+export const APP_TINT = "hsl(83 74% 43%)";
 export const PRIMARY_FOREGROUND = "#ffffff";
 
 export const glass = {
@@ -62,9 +62,9 @@ export const colors = {
 		Color.android.dynamic.outlineVariant,
 		"rgba(0,0,0,0.08)",
 	),
-	accent: platformColor(
-		DynamicColorIOS({ light: APP_TINT, dark: "#0a84ff" }),
-		Color.android.dynamic.primary,
+	accent: platformColor<ColorValue>(
+		DynamicColorIOS({ light: "#486900", dark: "hsl(83 72% 46%)" }),
+		undefined,
 		APP_TINT,
 	),
 	primaryForeground: PRIMARY_FOREGROUND,

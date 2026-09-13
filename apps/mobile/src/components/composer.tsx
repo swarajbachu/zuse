@@ -47,6 +47,7 @@ import {
 import { createComposerSubmitGate } from "~/lib/composer-submit-gate";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { availableProviderIds } from "~/lib/model-options";
+import { mobileReleaseFeatures } from "~/lib/release-features";
 import { connectionSessionKey } from "~/lib/session-key";
 import {
 	flushServerQueue,
@@ -690,15 +691,17 @@ export const Composer = ({
 											onPress={() => setModelSheetOpen(true)}
 										/>
 									)}
-									<ComposerVoiceButton
-										connection={connection}
-										enabled={voiceEnabled}
-										online={online}
-										onTranscript={(text) =>
-											inputRef.current?.insertAtCursor(text)
-										}
-										onError={setComposerError}
-									/>
+									{mobileReleaseFeatures.voice ? (
+										<ComposerVoiceButton
+											connection={connection}
+											enabled={voiceEnabled}
+											online={online}
+											onTranscript={(text) =>
+												inputRef.current?.insertAtCursor(text)
+											}
+											onError={setComposerError}
+										/>
+									) : null}
 									<SendButton
 										showInterrupt={showInterrupt}
 										online={online}

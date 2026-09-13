@@ -1,9 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import {
-	Cancel01Icon,
-	PlusSignIcon,
-	Wifi01Icon,
-} from "@zuse/icons/solid-rounded";
+import { Cancel01Icon, PlusSignIcon } from "@zuse/icons/solid-rounded";
 import { router, Stack } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { Search } from "lucide-react-native";
@@ -627,31 +623,44 @@ export default function HomeScreen() {
 								}
 							/>
 							{!searching && reachableConnections.length === 0 ? (
-								<View className="mt-8 gap-3 px-4">
-									<Button onPress={() => router.push("/connect/nearby")}>
-										<HugeIcon
-											icon={Wifi01Icon}
+								<View className="mx-auto mt-8 w-full max-w-[380px] gap-3 px-4">
+									{account === null ? (
+										<Button disabled={busy} onPress={() => void signIn()}>
+											{busy ? "Signing in…" : "Sign in"}
+										</Button>
+									) : null}
+									<Button
+										variant={account === null ? "secondary" : "primary"}
+										onPress={() => router.push("/connect/scan")}
+									>
+										<SymbolView
+											name="qrcode.viewfinder"
 											size={18}
-											color={colors.primaryForeground}
+											tintColor={
+												account === null ? colors.fg : colors.primaryForeground
+											}
+										/>
+										Scan QR code
+									</Button>
+									<Button
+										variant="secondary"
+										onPress={() => router.push("/connect/nearby")}
+									>
+										<SymbolView
+											name="wifi"
+											size={18}
+											weight="light"
+											tintColor={colors.fg}
 										/>
 										Find nearby Mac
 									</Button>
 									<Button
-										variant="secondary"
+										variant="ghost"
 										onPress={() => router.push("/connect/manual")}
 									>
 										<HugeIcon icon={PlusSignIcon} size={18} color={colors.fg} />
 										Add manually
 									</Button>
-									{account === null ? (
-										<Button
-											variant="ghost"
-											disabled={busy}
-											onPress={() => void signIn()}
-										>
-											{busy ? "Signing in…" : "Sign in for remote access"}
-										</Button>
-									) : null}
 									{account === null && authError ? (
 										<Text
 											selectable

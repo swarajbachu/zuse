@@ -321,22 +321,10 @@ export default function SettingsScreen() {
 					footer="These tools use the already paired computer and its authenticated environment."
 				>
 					<ListRow
-						symbol="terminal.fill"
-						title="Terminals and voice"
-						subtitle="Live sessions and account readiness"
-						onPress={() => router.push("/developer-tools")}
-					/>
-					<ListRow
 						symbol="archivebox.fill"
 						title="Archived chats"
 						subtitle="Preview, restore, or permanently delete"
 						onPress={() => router.push("/archives")}
-					/>
-					<ListRow
-						symbol="chart.bar.fill"
-						title="Usage"
-						subtitle="Tokens, cost, and provider limits"
-						onPress={() => router.push("/usage")}
 					/>
 				</ListSection>
 
