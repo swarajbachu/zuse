@@ -8,6 +8,7 @@ import {
 import {
 	KeyedCoalescingWorker,
 	KeyedEffectSerialWorker,
+	KeyedSerialWorker,
 } from "../../src/keyed-worker.js";
 
 const deferred = <A>() => {
@@ -139,5 +140,36 @@ describe("KeyedEffectSerialWorker", () => {
 			"a:first:end",
 			"a:second",
 		]);
+	});
+});
+
+describe("KeyedSerialWorker", () => {
+	test("keeps every operation in order while other keys proceed and close drains failures", async () => {
+		const worker = new KeyedSerialWorker<string>();
+		const gate = deferred<void>();
+		const calls: string[] = [];
+		const first = worker.run("a", async () => {
+			await gate.promise;
+			calls.push("first");
+		});
+		const second = worker.run("a", () => {
+			calls.push("second");
+			throw new Error("expected");
+		});
+		const rejected = expect(second).rejects.toThrow("expected");
+		const third = worker.run("a", () => {
+			calls.push("third");
+		});
+		await worker.run("b", () => {
+			calls.push("other");
+		});
+		expect(calls).toEqual(["other"]);
+		const closing = worker.close();
+		await expect(worker.run("c", () => {})).rejects.toBeInstanceOf(
+			WorkerClosedError,
+		);
+		gate.resolve();
+		await Promise.all([first, rejected, third, closing]);
+		expect(calls).toEqual(["other", "first", "second", "third"]);
 	});
 });

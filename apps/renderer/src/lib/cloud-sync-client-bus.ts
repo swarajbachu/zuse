@@ -58,6 +58,8 @@ const setLocalStatus = (
 interface ActiveSync {
 	fiber: Fiber.Fiber<unknown, unknown> | null;
 	stopped: boolean;
+	changedBeforeConfigure: boolean;
+	configured: boolean;
 }
 const active = new Map<string, ActiveSync>();
 const lifecycleQueue = new CloudSyncLifecycleQueue();
@@ -90,38 +92,60 @@ const resolveWorkspaceFolderId = async (
 	return folders[0]?.id ?? null;
 };
 
-const startWatcher = (workspaceId: string, entry: ActiveSync): void => {
+const startWatcher = (
+	workspaceId: string,
+	entry: ActiveSync,
+): Promise<void> => {
 	const client = getRendererClientBus().client(workspaceId as never);
 	const app = getAppBridge();
-	if (client === null || app?.cloudSyncRequest === undefined) return;
-	const program = Effect.gen(function* () {
-		const folderId = yield* Effect.promise(() =>
-			resolveWorkspaceFolderId(workspaceId),
-		);
-		if (folderId === null) return;
-		yield* Stream.runForEach(
-			client["fs.watchTree"]({ folderId: folderId as never }),
-			(event) =>
+	if (client === null || app?.cloudSyncRequest === undefined)
+		return Promise.resolve();
+	return new Promise((resolve) => {
+		const ready = () => {
+			clearTimeout(timeout);
+			resolve();
+		};
+		// Unavailable watchers must not prevent periodic reconciliation.
+		const timeout = setTimeout(ready, 5_000);
+		const program = Effect.gen(function* () {
+			const folderId = yield* Effect.promise(() =>
+				resolveWorkspaceFolderId(workspaceId),
+			);
+			if (folderId === null) return;
+			yield* Stream.runForEach(
+				client["fs.watchTree"]({ folderId: folderId as never }),
+				(event) =>
+					Effect.sync(() => {
+						ready();
+						if (entry.stopped || event._tag === "ready") return;
+						if (entry.configured) void app.cloudSyncRequest?.(workspaceId);
+						else entry.changedBeforeConfigure = true;
+					}),
+			);
+		}).pipe(
+			Effect.catchCause((cause) =>
 				Effect.sync(() => {
-					if (event._tag !== "ready") void app.cloudSyncRequest?.(workspaceId);
+					if (entry.stopped || Cause.hasInterruptsOnly(cause)) return;
+					// The periodic fallback in the desktop service keeps the mirror
+					// converging even without change events; just drop the watcher.
+					ready();
 				}),
+			),
 		);
-	}).pipe(
-		Effect.catchCause((cause) =>
-			Effect.sync(() => {
-				if (entry.stopped || Cause.hasInterruptsOnly(cause)) return;
-				// The periodic fallback in the desktop service keeps the mirror
-				// converging even without change events; just drop the watcher.
-				active.delete(workspaceId);
-			}),
-		),
-	);
-	entry.fiber = Effect.runFork(program);
+		entry.fiber = Effect.runFork(
+			program.pipe(Effect.ensuring(Effect.sync(ready))),
+		);
+	});
 };
 
 const startSyncNow = async (workspaceId: string): Promise<void> => {
 	if (active.has(workspaceId)) return;
-	const entry: ActiveSync = { fiber: null, stopped: false };
+	const entry: ActiveSync = {
+		fiber: null,
+		stopped: false,
+		configured: false,
+		changedBeforeConfigure: false,
+	};
 	active.set(workspaceId, entry);
 	const app = getAppBridge();
 	if (app?.cloudSyncConfigure === undefined) {
@@ -134,11 +158,13 @@ const startSyncNow = async (workspaceId: string): Promise<void> => {
 			throw new Error("Could not resolve the local cloud workspace path.");
 		setLocalStatus(workspaceId, {
 			enabled: true,
-			state: "syncing",
+			state: "pending",
 			localPath,
 			error: null,
 		});
 		const prepared = await prepareCloudWorkspaceSsh(workspaceId);
+		await startWatcher(workspaceId, entry);
+		if (entry.stopped) return;
 		const status = await app.cloudSyncConfigure({
 			workspaceId,
 			enabled: true,
@@ -150,8 +176,12 @@ const startSyncNow = async (workspaceId: string): Promise<void> => {
 			statuses.set(workspaceId, status);
 			emit();
 		}
-		if (!entry.stopped) startWatcher(workspaceId, entry);
+		entry.configured = true;
+		if (entry.changedBeforeConfigure) await app.cloudSyncRequest?.(workspaceId);
 	} catch (cause) {
+		entry.stopped = true;
+		if (entry.fiber !== null)
+			await Effect.runPromise(Fiber.interrupt(entry.fiber));
 		active.delete(workspaceId);
 		setLocalStatus(workspaceId, {
 			enabled: true,

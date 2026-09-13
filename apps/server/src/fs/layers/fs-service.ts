@@ -42,7 +42,7 @@ const WATCH_SKIP_DIRS = new Set([
 	"coverage",
 	"out",
 ]);
-const WATCH_DEBOUNCE_MS = 120;
+const WATCH_BATCH_MS = 120;
 
 // Cap how much we'll ship across the RPC for a single file. Anything larger
 // surfaces as `FsTooLargeError` so the editor can render a placeholder
@@ -252,8 +252,8 @@ export const FsServiceLive = Layer.effect(
 					};
 
 					const schedule = () => {
-						if (timer !== null) clearTimeout(timer);
-						timer = setTimeout(flush, WATCH_DEBOUNCE_MS);
+						// Keep reporting activity during sustained writes so sync can wait for quiet.
+						if (timer === null) timer = setTimeout(flush, WATCH_BATCH_MS);
 					};
 
 					try {

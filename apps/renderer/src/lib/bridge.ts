@@ -146,7 +146,7 @@ export interface CloudSyncConfigure {
 export interface CloudSyncStatus {
 	readonly workspaceId: string;
 	readonly enabled: boolean;
-	readonly state: "idle" | "syncing" | "in-sync" | "error";
+	readonly state: "idle" | "pending" | "syncing" | "in-sync" | "error";
 	readonly localPath: string | null;
 	readonly lastSyncedAt: number | null;
 	readonly error: string | null;
