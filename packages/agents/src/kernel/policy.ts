@@ -165,7 +165,8 @@ export const isReadOnlyShellCommand = (command: string): boolean => {
  *  3. auto-accept-edits-and-bash → auto-allow.
  *  4. auto-accept-edits → still prompt. Unlike file edits, command execution
  *     is NOT auto-accepted in this mode.
- *  5. default (approval-required) → prompt (forcePrompt: false).
+ *  5. default / auto → prompt (forcePrompt: false). Native provider
+ *     reviewers may resolve those prompts before they reach this adapter.
  *
  * The plan-mode allow-list rejects shell composition, output redirection,
  * mutating command variants, and sensitive path strings. Unknown commands are

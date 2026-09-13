@@ -10,6 +10,8 @@ describe("decidePermission", () => {
 		["auto-accept-edits", "execute", false, "prompt"],
 		["auto-accept-edits-and-bash", "execute", false, "allow"],
 		["auto-accept-edits-and-bash", "network", false, "prompt"],
+		["auto", "edit", false, "prompt"],
+		["auto", "execute", false, "prompt"],
 		["full-access", "network", false, "allow"],
 		["full-access", "edit", true, "prompt"],
 	] as const)("maps %s / %s / sensitive=%s to %s", (runtimeMode, category, sensitive, expected) => {

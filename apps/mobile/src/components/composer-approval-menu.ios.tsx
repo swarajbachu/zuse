@@ -1,21 +1,27 @@
 import { Host } from "@expo/ui";
 import { Image, Menu, Button as NativeButton } from "@expo/ui/swift-ui";
 import { accessibilityLabel, frame } from "@expo/ui/swift-ui/modifiers";
-import type { RuntimeMode } from "@zuse/contracts";
+import type { ProviderId, RuntimeMode } from "@zuse/contracts";
 
-import { RUNTIME_OPTIONS, runtimeOptionFor } from "~/lib/model-options";
+import {
+	runtimeOptionFor,
+	runtimeOptionsForProvider,
+} from "~/lib/model-options";
 
 const sf = (name: string) => name as never;
 
 /** The composer "hand" button: a native menu of approval (runtime) modes. */
 export function ComposerApprovalMenu({
 	runtimeMode,
+	providerId,
 	onChange,
 }: {
 	runtimeMode: RuntimeMode;
+	providerId: ProviderId;
 	onChange: (mode: RuntimeMode) => void;
 }) {
 	const selected = runtimeOptionFor(runtimeMode);
+	const runtimeOptions = runtimeOptionsForProvider(providerId);
 
 	return (
 		<Host
@@ -35,7 +41,7 @@ export function ComposerApprovalMenu({
 				}
 				modifiers={[accessibilityLabel(`${selected.label} permissions`)]}
 			>
-				{RUNTIME_OPTIONS.map((option) => (
+				{runtimeOptions.map((option) => (
 					<NativeButton
 						key={option.value}
 						label={option.label}

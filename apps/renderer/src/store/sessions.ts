@@ -12,7 +12,13 @@ import type {
 	UserQuestionAnswer,
 	WorktreeId,
 } from "@zuse/contracts";
-import { CommandId, EnvironmentId, Session, SessionId } from "@zuse/contracts";
+import {
+	CommandId,
+	EnvironmentId,
+	runtimeModeForProvider,
+	Session,
+	SessionId,
+} from "@zuse/contracts";
 import {
 	cloudFailurePresentation,
 	cloudInteractionFailure,
@@ -691,9 +697,19 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	setRuntimeMode: async (sessionId, runtimeMode, environmentId) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
-			set({ draftSession: Session.make({ ...draft, runtimeMode }) });
+			set({
+				draftSession: Session.make({
+					...draft,
+					runtimeMode: runtimeModeForProvider(runtimeMode, draft.providerId),
+				}),
+			});
 			return;
 		}
+		const session = activeSessionById(sessionId);
+		const nextRuntimeMode =
+			session === null
+				? runtimeMode
+				: runtimeModeForProvider(runtimeMode, session.providerId);
 		// Access is an applied runtime setting, not optimistic intent. The
 		// qualified timeline publishes RuntimeModeSet after the command commits.
 		set({ error: null });
@@ -706,7 +722,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				{
 					commandId,
 					sessionId,
-					runtimeMode,
+					runtimeMode: nextRuntimeMode,
 				},
 				"safe",
 				environmentId,
@@ -794,7 +810,14 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	setProvider: async (sessionId, providerId, model, environmentId) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
-			set({ draftSession: Session.make({ ...draft, providerId, model }) });
+			set({
+				draftSession: Session.make({
+					...draft,
+					providerId,
+					model,
+					runtimeMode: runtimeModeForProvider(draft.runtimeMode, providerId),
+				}),
+			});
 			return { ok: true } as const;
 		}
 		set({ error: null });
@@ -809,7 +832,12 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				environmentId,
 			);
 			patchActiveSession(sessionId, (session) =>
-				Session.make({ ...session, providerId, model }),
+				Session.make({
+					...session,
+					providerId,
+					model,
+					runtimeMode: runtimeModeForProvider(session.runtimeMode, providerId),
+				}),
 			);
 			return { ok: true } as const;
 		} catch (err) {
