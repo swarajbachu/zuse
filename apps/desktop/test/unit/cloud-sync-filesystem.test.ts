@@ -19,6 +19,8 @@ import { CloudSyncManager } from "../../src/sync/cloud-sync-service.ts";
 
 // Execute the real remote rsync/tar commands locally, without credentials or a sandbox.
 // This exercises both production transports and the shared live-directory apply.
+// Real subprocesses and 1,000 watched file writes need headroom on shared CI
+// runners; the per-operation waits below still enforce their 30-second limits.
 test.each([
 	false,
 	true,
@@ -138,4 +140,4 @@ test.each([
 		vi.unstubAllEnvs();
 		vi.useRealTimers();
 	}
-}, 15_000);
+}, 60_000);
