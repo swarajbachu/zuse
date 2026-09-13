@@ -143,6 +143,7 @@
         "expo-screen-orientation": "~57.0.2",
         "expo-secure-store": "~57.0.3",
         "expo-status-bar": "~57.0.1",
+        "expo-symbols": "~57.0.2",
         "expo-web-browser": "~57.0.2",
         "jose": "^6.2.3",
         "lucide-react-native": "^0.475.0",

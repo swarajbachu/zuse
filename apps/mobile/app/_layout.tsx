@@ -120,6 +120,14 @@ export default function RootLayout() {
 						>
 							<Stack.Screen name="index" options={{ title: "Chats" }} />
 							<Stack.Screen
+								name="onboarding"
+								options={{
+									headerShown: false,
+									presentation: "fullScreenModal",
+									gestureEnabled: false,
+								}}
+							/>
+							<Stack.Screen
 								name="new-chat"
 								options={{
 									title: "New Chat",

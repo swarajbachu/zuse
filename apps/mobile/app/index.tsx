@@ -2,12 +2,11 @@ import { useAtomValue } from "@effect/atom-react";
 import {
 	Cancel01Icon,
 	PlusSignIcon,
-	QrCodeIcon,
-	Settings01Icon,
 	Wifi01Icon,
 } from "@zuse/icons/solid-rounded";
 import { router, Stack } from "expo-router";
-import { MessageSquare, Search } from "lucide-react-native";
+import { SymbolView } from "expo-symbols";
+import { Search } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	Alert,
@@ -70,6 +69,12 @@ import {
 	refreshEnvironments,
 } from "~/store/environments";
 import {
+	completeOnboarding,
+	hydrateOnboarding,
+	onboardingCompleteAtom,
+	onboardingHydratedAtom,
+} from "~/store/onboarding";
+import {
 	hydratePinnedChats,
 	pinnedChatKey,
 	pinnedChatKeysAtom,
@@ -124,6 +129,15 @@ export default function HomeScreen() {
 	const errorByConnection = useAtomValue(errorByConnectionAtom);
 	const pinnedHydrated = useAtomValue(pinnedChatsHydratedAtom);
 	const pinnedKeys = useAtomValue(pinnedChatKeysAtom);
+	const onboardingHydrated = useAtomValue(onboardingHydratedAtom);
+	const onboardingComplete = useAtomValue(onboardingCompleteAtom);
+	const shouldLaunchOnboarding =
+		onboardingHydrated &&
+		authHydrated &&
+		connectionsHydrated &&
+		!onboardingComplete &&
+		account === null &&
+		connections.length === 0;
 	const reachableConnections = useMemo(
 		() => availableConnections(connections, account !== null),
 		[account, connections],
@@ -140,6 +154,27 @@ export default function HomeScreen() {
 	useEffect(() => {
 		if (!pinnedHydrated) void hydratePinnedChats();
 	}, [pinnedHydrated]);
+
+	useEffect(() => {
+		if (!onboardingHydrated) void hydrateOnboarding();
+	}, [onboardingHydrated]);
+
+	useEffect(() => {
+		if (!onboardingHydrated || !authHydrated || !connectionsHydrated) return;
+		if (onboardingComplete) return;
+		if (account !== null || connections.length > 0) {
+			void completeOnboarding();
+			return;
+		}
+		router.replace("/onboarding");
+	}, [
+		account,
+		authHydrated,
+		connections.length,
+		connectionsHydrated,
+		onboardingComplete,
+		onboardingHydrated,
+	]);
 
 	useEffect(() => {
 		if (account !== null) void refreshEnvironments();
@@ -360,7 +395,12 @@ export default function HomeScreen() {
 		}
 	};
 
-	if (!authHydrated || !connectionsHydrated) {
+	if (
+		!authHydrated ||
+		!connectionsHydrated ||
+		!onboardingHydrated ||
+		shouldLaunchOnboarding
+	) {
 		return (
 			<View className="flex-1 bg-background px-4 pt-28">
 				<HomeSkeleton />
@@ -387,11 +427,11 @@ export default function HomeScreen() {
 									pressed && { opacity: 0.72 },
 								]}
 							>
-								<HugeIcon
-									icon={QrCodeIcon}
-									size={18}
-									color="#ffffff"
-									strokeWidth={0.1}
+								<SymbolView
+									name="qrcode.viewfinder"
+									size={19}
+									weight="semibold"
+									tintColor={colors.fg}
 								/>
 							</Pressable>
 							<Pressable
@@ -404,11 +444,11 @@ export default function HomeScreen() {
 									pressed && { opacity: 0.72 },
 								]}
 							>
-								<HugeIcon
-									icon={Settings01Icon}
-									size={22}
-									color="#ffffff"
-									strokeWidth={0.7}
+								<SymbolView
+									name="gearshape.fill"
+									size={20}
+									weight="medium"
+									tintColor={colors.fg}
 								/>
 							</Pressable>
 						</View>
@@ -572,7 +612,11 @@ export default function HomeScreen() {
 					) : (
 						<View className="pt-24">
 							<EmptyState
-								icon={searching ? Search : MessageSquare}
+								symbol={
+									searching
+										? "magnifyingglass"
+										: "bubble.left.and.bubble.right.fill"
+								}
 								title={searching ? "No matching chats" : "No chats yet"}
 								detail={
 									searching

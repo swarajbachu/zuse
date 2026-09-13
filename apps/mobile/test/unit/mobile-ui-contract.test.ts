@@ -5,7 +5,7 @@ const appFile = (relativePath: string): string =>
 	readFileSync(`${process.cwd()}/app/${relativePath}`, "utf8");
 
 describe("mobile UI contracts", () => {
-	test("keeps light surfaces light and uses one neon accent in both themes", () => {
+	test("keeps light surfaces light and uses adaptive native tints", () => {
 		const css = readFileSync(`${process.cwd()}/global.css`, "utf8");
 		expect(css).toContain("@variant light");
 		expect(css).toContain("@variant dark");
@@ -19,7 +19,10 @@ describe("mobile UI contracts", () => {
 		expect(css).toContain("--color-card: hsl(0 0% 12%)");
 		expect(css).toContain("--color-foreground-faint: hsl(0 0% 43%)");
 		expect(css).toContain("--color-input: rgba(255, 255, 255, 0.2)");
-		expect(css.match(/--color-primary: #c8ff00/g)).toHaveLength(2);
+		expect(css).toContain("--color-primary: #007aff");
+		expect(css).toContain("--color-primary: #0a84ff");
+		expect(css.match(/--color-primary-foreground: #ffffff/g)).toHaveLength(2);
+		expect(css).not.toContain("#c8ff00");
 		expect(css).not.toContain("@media (prefers-color-scheme:");
 		expect(css).not.toContain("#34c759");
 	});
@@ -195,22 +198,43 @@ describe("mobile UI contracts", () => {
 		expect(scanner).toContain("style={StyleSheet.absoluteFill}");
 	});
 
-	test("uses larger transparent targets with thin white header icons", () => {
+	test("uses visible native header symbols with transparent targets", () => {
 		const home = appFile("index.tsx");
 		const qrIcon = home.slice(
-			home.indexOf("icon={QrCodeIcon}"),
-			home.indexOf("</Pressable>", home.indexOf("icon={QrCodeIcon}")),
+			home.indexOf('name="qrcode.viewfinder"'),
+			home.indexOf("</Pressable>", home.indexOf('name="qrcode.viewfinder"')),
 		);
 		expect(home).toContain("width: 40");
 		expect(home).toContain("height: 40");
 		expect(home).not.toContain("backgroundColor");
 		expect(home).not.toContain("borderWidth");
-		expect(home).toContain('color="#ffffff"');
-		expect(qrIcon).toContain("size={18}");
-		expect(qrIcon).toContain("strokeWidth={0.1}");
-		expect(home).toContain("icon={Settings01Icon}");
-		expect(home).toContain("size={22}");
-		expect(home).toContain("strokeWidth={0.7}");
+		expect(home).toContain('name="qrcode.viewfinder"');
+		expect(qrIcon).toContain("size={19}");
+		expect(qrIcon).toContain("tintColor={colors.fg}");
+		expect(home).toContain('name="gearshape.fill"');
+		expect(home).toContain("size={20}");
+		expect(home).not.toContain('color="#ffffff"');
+	});
+
+	test("gates fresh installs through a replayable end-to-end onboarding", () => {
+		const layout = appFile("_layout.tsx");
+		const home = appFile("index.tsx");
+		const onboarding = readFileSync(
+			`${process.cwd()}/src/components/onboarding/onboarding-flow.tsx`,
+			"utf8",
+		);
+		const settings = appFile("settings.tsx");
+		expect(layout).toContain('name="onboarding"');
+		expect(layout).toContain('presentation: "fullScreenModal"');
+		expect(home).toContain("onboardingHydratedAtom");
+		expect(home).toContain('router.replace("/onboarding")');
+		expect(onboarding).toContain('"welcome"');
+		expect(onboarding).toContain('"features"');
+		expect(onboarding).toContain('"setup"');
+		expect(onboarding).toContain('"ready"');
+		expect(onboarding).toContain('leaveFor("/connect/scan")');
+		expect(onboarding).toContain('leaveFor("/connect/nearby")');
+		expect(settings).toContain('title="Getting started"');
 	});
 
 	test("makes native nearby discovery the primary pairing path", () => {

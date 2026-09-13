@@ -1,20 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
 import { router, Stack } from "expo-router";
-import {
-	Archive,
-	BarChart3,
-	Bell,
-	HardDrive,
-	Images,
-	LogOut,
-	Monitor,
-	Plus,
-	QrCode,
-	RotateCcw,
-	TerminalSquare,
-	Trash2,
-	UserRound,
-} from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, Text, View } from "react-native";
 
@@ -182,14 +167,14 @@ export default function SettingsScreen() {
 				>
 					<ListRow
 						analyticsId="connections.nearby.open"
-						icon={QrCode}
+						symbol="qrcode.viewfinder"
 						title="Connect to a nearby Mac"
 						subtitle="Find it automatically over Wi-Fi"
 						onPress={() => router.push("/connect/nearby")}
 					/>
 					<ListRow
 						analyticsId="connections.manual.open"
-						icon={Plus}
+						symbol="plus"
 						iconTone="neutral"
 						title="Add manually"
 						onPress={() => router.push("/connect/manual")}
@@ -197,7 +182,7 @@ export default function SettingsScreen() {
 					{directConnections.map((connection) => (
 						<ListRow
 							key={connection.key}
-							icon={Monitor}
+							symbol="desktopcomputer"
 							iconTone="neutral"
 							title={visibleConnectionLabel(connection.label, "Computer")}
 							subtitle={
@@ -216,7 +201,7 @@ export default function SettingsScreen() {
 				>
 					{account === null ? (
 						<ListRow
-							icon={UserRound}
+							symbol="person.crop.circle.fill"
 							title="Sign in for remote access"
 							subtitle="Optional — local pairing works without this"
 							onPress={() => void signIn()}
@@ -225,13 +210,13 @@ export default function SettingsScreen() {
 					) : (
 						<>
 							<ListRow
-								icon={UserRound}
+								symbol="person.crop.circle.fill"
 								title="Signed in"
 								subtitle={account.email ?? account.id}
 								chevron={false}
 							/>
 							<ListRow
-								icon={UserRound}
+								symbol="key.fill"
 								title="Cloud Authentication"
 								subtitle="Shared across your cloud chats"
 								onPress={() => router.push("/cloud-auth")}
@@ -264,7 +249,7 @@ export default function SettingsScreen() {
 								return (
 									<ListRow
 										key={environment.environmentId}
-										icon={Monitor}
+										symbol="desktopcomputer"
 										iconTone={
 											environment.presence === "online" ? "brand" : "neutral"
 										}
@@ -279,7 +264,7 @@ export default function SettingsScreen() {
 								);
 							})}
 							<ListRow
-								icon={LogOut}
+								symbol="rectangle.portrait.and.arrow.right"
 								iconTone="neutral"
 								title="Sign out"
 								destructive
@@ -312,7 +297,7 @@ export default function SettingsScreen() {
 				{account === null ? null : (
 					<ListSection header="Notifications">
 						<ListRow
-							icon={Bell}
+							symbol="bell.badge.fill"
 							title="Enable notifications"
 							subtitle="Alerts for approvals and questions"
 							disabled={notificationsBusy}
@@ -336,22 +321,33 @@ export default function SettingsScreen() {
 					footer="These tools use the already paired computer and its authenticated environment."
 				>
 					<ListRow
-						icon={TerminalSquare}
+						symbol="terminal.fill"
 						title="Terminals and voice"
 						subtitle="Live sessions and account readiness"
 						onPress={() => router.push("/developer-tools")}
 					/>
 					<ListRow
-						icon={Archive}
+						symbol="archivebox.fill"
 						title="Archived chats"
 						subtitle="Preview, restore, or permanently delete"
 						onPress={() => router.push("/archives")}
 					/>
 					<ListRow
-						icon={BarChart3}
+						symbol="chart.bar.fill"
 						title="Usage"
 						subtitle="Tokens, cost, and provider limits"
 						onPress={() => router.push("/usage")}
+					/>
+				</ListSection>
+
+				<ListSection header="Help">
+					<ListRow
+						symbol="sparkles"
+						title="Getting started"
+						subtitle="Review setup and connection options"
+						onPress={() =>
+							router.push({ pathname: "/onboarding", params: { replay: "1" } })
+						}
 					/>
 				</ListSection>
 
@@ -361,7 +357,7 @@ export default function SettingsScreen() {
 				>
 					<ListRow
 						analyticsId="storage.clear-downloads"
-						icon={HardDrive}
+						symbol="internaldrive.fill"
 						iconTone="neutral"
 						title="Clear downloaded data"
 						value={formatBytes(downloadedBytes)}
@@ -379,7 +375,7 @@ export default function SettingsScreen() {
 					/>
 					<ListRow
 						analyticsId="storage.clear-media"
-						icon={Images}
+						symbol="photo.stack.fill"
 						iconTone="neutral"
 						title="Clear media cache"
 						subtitle="Images and document previews"
@@ -398,7 +394,7 @@ export default function SettingsScreen() {
 					/>
 					<ListRow
 						analyticsId="account.reset-app"
-						icon={RotateCcw}
+						symbol="arrow.counterclockwise"
 						iconTone="neutral"
 						title="Reset app"
 						subtitle="Remove all data stored on this phone"
@@ -428,7 +424,7 @@ export default function SettingsScreen() {
 					<ListSection header="Account">
 						<ListRow
 							analyticsId="account.delete"
-							icon={Trash2}
+							symbol="trash.fill"
 							iconTone="neutral"
 							title="Delete account"
 							subtitle="Permanently remove your account and linked computers"

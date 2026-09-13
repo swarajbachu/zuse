@@ -13,6 +13,7 @@ import { resetEnvironmentsRuntime } from "../store/environments";
 import { resetGoalsRuntime } from "../store/goals";
 import { resetMessagesRuntime } from "../store/messages";
 import { resetModelCatalogRuntime } from "../store/model-catalog";
+import { clearOnboarding } from "../store/onboarding";
 import { resetOutboxRuntime } from "../store/outbox";
 import { resetPermissionsRuntime } from "../store/permissions";
 import { clearPinnedChats } from "../store/pinned-chats";
@@ -63,6 +64,7 @@ export const resetLocalMobileData = async (): Promise<void> => {
 		Effect.runPromise(clearOfflineCache()),
 		clearConnections(),
 		clearPinnedChats(),
+		clearOnboarding(),
 		clearLastCrashReport(),
 		resetMobileAnalyticsIdentity(),
 	]);
