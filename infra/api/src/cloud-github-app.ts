@@ -5,7 +5,7 @@ import { decodeJwt, importJWK, importPKCS8, jwtVerify, SignJWT } from "jose";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { parseJwk } from "./crypto.ts";
-import { badRequest, serviceUnavailable } from "./errors.ts";
+import { ApiError, badRequest, serviceUnavailable } from "./errors.ts";
 
 const GITHUB_API_VERSION = "2026-03-10";
 const INSTALL_STATE_TTL_MS = 10 * 60_000;
@@ -99,11 +99,17 @@ const githubRequest = <A>(url: string, token: string, init?: RequestInit) =>
 					endpoint: new URL(url).pathname,
 					status: response.status,
 				});
-				throw new Error(`github_${response.status}`);
+				throw serviceUnavailable(
+					"github_app_unavailable",
+					`github_${response.status}`,
+				);
 			}
 			return (await response.json()) as A;
 		},
-		catch: () => serviceUnavailable("github_app_unavailable"),
+		catch: (error) =>
+			error instanceof ApiError
+				? error
+				: serviceUnavailable("github_app_unavailable"),
 	});
 
 const appJwt = Effect.fn("githubAppJwt")(function* (forceAppId = false) {
@@ -139,11 +145,13 @@ const githubAppRequest = <A>(url: string, init?: RequestInit) =>
 		const primary = githubRequest<A>(url, primaryJwt, init);
 		if (github?.clientId === undefined) return yield* primary;
 		return yield* primary.pipe(
-			Effect.catch(() =>
-				Effect.gen(function* () {
-					const fallbackJwt = yield* appJwt(true);
-					return yield* githubRequest<A>(url, fallbackJwt, init);
-				}),
+			Effect.catch((error) =>
+				error.detail !== "github_401"
+					? Effect.fail(error)
+					: Effect.gen(function* () {
+							const fallbackJwt = yield* appJwt(true);
+							return yield* githubRequest<A>(url, fallbackJwt, init);
+						}),
 			),
 		);
 	});
@@ -265,7 +273,7 @@ export const githubInstallationGrants = Effect.fn("githubInstallationGrants")(
 		const installations = (yield* store.listGithubInstallations(
 			accountId,
 		)).filter((installation) => !installation.suspended);
-		return yield* Effect.forEach(
+		const grants = yield* Effect.forEach(
 			installations,
 			(installation) =>
 				Effect.gen(function* () {
@@ -275,7 +283,16 @@ export const githubInstallationGrants = Effect.fn("githubInstallationGrants")(
 					}>(
 						`https://api.github.com/app/installations/${installation.installationId}/access_tokens`,
 						{ method: "POST" },
+					).pipe(
+						// Uninstalled connections can remain until the user reconnects.
+						// They must not prevent other installations from granting access.
+						Effect.catch((error) =>
+							error.detail === "github_404"
+								? Effect.succeed(null)
+								: Effect.fail(error),
+						),
 					);
+					if (access === null) return null;
 					const repositories: Array<
 						GithubInstallationGrant["repositories"][number]
 					> = [];
@@ -316,6 +333,7 @@ export const githubInstallationGrants = Effect.fn("githubInstallationGrants")(
 				}),
 			{ concurrency: 4 },
 		);
+		return grants.filter((grant) => grant !== null);
 	},
 );
 

@@ -1,15 +1,16 @@
+import {
+	TurnSettlementOutcome,
+	type TurnSettlementOutcome as TurnSettlementOutcomeType,
+} from "@zuse/contracts";
 import { Schema } from "effect";
 import { SessionCreatedFields } from "./session-fields.js";
 
 export const SegmentKind = Schema.Literals(["assistant", "reasoning", "tool"]);
 export type SegmentKind = typeof SegmentKind.Type;
 
-export const SettlementOutcome = Schema.Literals([
-	"completed",
-	"interrupted",
-	"error",
-]);
-export type SettlementOutcome = typeof SettlementOutcome.Type;
+/** Domain alias retained for callers; the wire contract is the source of truth. */
+export const SettlementOutcome = TurnSettlementOutcome;
+export type SettlementOutcome = TurnSettlementOutcomeType;
 
 export const TurnPhase = Schema.Literals([
 	"running",

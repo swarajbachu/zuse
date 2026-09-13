@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { LEGAL_PAGES } from "@/lib/legal-pages";
 import { siteConfig } from "@/lib/seo";
 
 export default function sitemap(): MetadataRoute.Sitemap {
@@ -28,11 +29,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
 			changeFrequency: "weekly",
 			priority: 0.7,
 		},
-		{
-			url: `${siteConfig.url}/privacy`,
+		...LEGAL_PAGES.map(({ path }) => ({
+			url: `${siteConfig.url}${path}`,
 			lastModified: now,
-			changeFrequency: "yearly",
+			changeFrequency: "yearly" as const,
 			priority: 0.2,
-		},
+		})),
 	];
 }

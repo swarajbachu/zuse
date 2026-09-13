@@ -26,7 +26,7 @@ import {
 	FlashIcon,
 	InformationCircleIcon,
 	MapsIcon,
-	PencilIcon,
+	PencilEdit01Icon,
 	PlayIcon,
 	SentIcon,
 	SquareIcon,
@@ -91,7 +91,6 @@ import {
 	providerUsesEmulatedPlanMode,
 	shouldSendPlanFeedbackNow,
 } from "~/lib/plan-feedback-routing";
-import { attachmentUrl } from "~/lib/platform-capabilities";
 import { readStorageWithLegacy } from "~/lib/storage-keys";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
@@ -104,7 +103,11 @@ import type {
 } from "../composer/draft-attachments.ts";
 import { composerSnapshotFromInput } from "../composer/input-snapshot.ts";
 import { parseComposerInput } from "../composer/segment-parser.ts";
-import { uploadAttachment } from "../lib/attachments.ts";
+import {
+	cachedAttachmentUrl,
+	resolveAttachmentUrl,
+	uploadAttachment,
+} from "../lib/attachments.ts";
 import {
 	cloudChatShowsWorking,
 	cloudWorkspaceIsStarting,
@@ -200,8 +203,10 @@ const attachmentsWithBrowserAnnotations = (
 	return next;
 };
 
+import { useChatDeviceApproval } from "../lib/chat-device-approval.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
+import { DevicePermissionCard } from "./device-permission-card.tsx";
 import { PermissionCard } from "./permission-card.tsx";
 import { QuestionCard } from "./question-card.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
@@ -293,8 +298,12 @@ export function ChatComposer({
 		() => ({ environmentId: qualifiedEnvironmentId, sessionId }),
 		[qualifiedEnvironmentId, sessionId],
 	);
+	// Existing goals are authoritative runtime state, independent of the
+	// lazily loaded CLI inventory used to offer creation controls.
+	const tracksGoals =
+		session.providerId === "codex" || session.providerId === "grok";
 	const goalView = useSessionGoalResource(
-		isDraft || !goalCapable ? null : goalRef,
+		isDraft || !tracksGoals ? null : goalRef,
 		isDraft ? "cache-only" : "connect",
 	);
 	const runtimeState = timeline.runtime;
@@ -303,6 +312,11 @@ export function ChatComposer({
 		sessionId,
 	});
 	const isCloudSession = cloudSummary !== null;
+	const deviceApproval = useChatDeviceApproval(
+		cloudSummary?.workspaceId,
+		session.chatId,
+	);
+	const headDeviceCommand = deviceApproval.commands[0];
 	const cloudShell = useEnvironmentShellResource(
 		cloudSummary === null ? null : qualifiedEnvironmentId,
 		"cache-only",
@@ -707,10 +721,27 @@ export function ChatComposer({
 						});
 						return;
 					}
-					const snapshot = composerSnapshotFromInput(taken.input);
+					const snapshot = composerSnapshotFromInput(
+						taken.input,
+						(id) => cachedAttachmentUrl(goalRef, id) ?? "",
+					);
 					activeView.dispatch({ effects: clearChipsEffect.of() });
 					setComposerDoc(activeView, snapshot.doc);
 					restoreComposerChips(activeView, snapshot.chips);
+					for (const attachment of taken.input.attachments) {
+						if (!attachment.mimeType.startsWith("image/")) continue;
+						void resolveAttachmentUrl(goalRef, attachment.id)
+							.then((src) => {
+								if (editorViewRef.current !== activeView) return;
+								activeView.dispatch({
+									effects: updateImageChipEffect.of({
+										previousId: attachment.id,
+										meta: { kind: "image", ...attachment, previewUrl: src },
+									}),
+								});
+							})
+							.catch(() => undefined);
+					}
 					const nextHasText = snapshot.doc.trim().length > 0;
 					hasTextRef.current = nextHasText;
 					setHasText(nextHasText);
@@ -936,9 +967,18 @@ export function ChatComposer({
 			}
 
 			setUploadingAttachmentCount((count) => count + 1);
-			void uploadOne(sessionId, file, workspaceRoot ?? undefined)
+			void uploadOne(
+				{ environmentId: qualifiedEnvironmentId, sessionId },
+				file,
+				workspaceRoot ?? undefined,
+			)
 				.then((ref) => {
-					const finalUrl = isImage ? attachmentUrl(ref.id) : "";
+					const finalUrl = isImage
+						? (cachedAttachmentUrl(
+								{ environmentId: qualifiedEnvironmentId, sessionId },
+								ref.id,
+							) ?? "")
+						: "";
 					editorViewRef.current?.dispatch({
 						effects: updateImageChipEffect.of({
 							previousId: tempId,
@@ -1099,7 +1139,12 @@ export function ChatComposer({
 	};
 
 	const submit = (): boolean => {
-		if (directoryUnavailable || submitting || durableCloudSendPending)
+		if (
+			submitDisabled ||
+			directoryUnavailable ||
+			submitting ||
+			durableCloudSendPending
+		)
 			return false;
 		// Don't submit while a popover is open — Enter belongs to the popover.
 		if (trigger !== null || modelPickerOpen) return false;
@@ -1288,7 +1333,10 @@ export function ChatComposer({
 	// re-runs to re-attach it — so the host reappears blank: no placeholder,
 	// cursor won't land. Staying mounted also preserves any in-progress draft
 	// when a permission prompt interrupts mid-typing.
-	const showCard = headPermission !== undefined || pendingQuestion !== null;
+	const showCard =
+		headPermission !== undefined ||
+		headDeviceCommand !== undefined ||
+		pendingQuestion !== null;
 
 	return (
 		<TooltipProvider delay={0}>
@@ -1303,6 +1351,13 @@ export function ChatComposer({
 								head={headPermission}
 								queueSize={pendingPermissions.length}
 								environmentId={qualifiedEnvironmentId}
+							/>
+						) : headDeviceCommand !== undefined ? (
+							<DevicePermissionCard
+								key={headDeviceCommand.id}
+								command={headDeviceCommand}
+								queueSize={deviceApproval.commands.length}
+								onDecision={deviceApproval.decide}
 							/>
 						) : pendingQuestion !== null ? (
 							<QuestionCard
@@ -1348,7 +1403,7 @@ export function ChatComposer({
 										onApproveEmulatedPlan={approveEmulatedPlan}
 										onCancelEmulatedPlan={cancelEmulatedPlan}
 									/>
-									{goalCapable && goal !== null ? (
+									{goal !== null ? (
 										<GoalBanner
 											goal={goal}
 											inPlanMode={inPlanMode}
@@ -1978,6 +2033,12 @@ function GoalBanner({
 				subtitle={objective}
 				actions={
 					<>
+						<span
+							className="shrink-0 text-muted-foreground tabular-nums"
+							title="Goal time used"
+						>
+							{elapsed}
+						</span>
 						<Tooltip>
 							<TooltipTrigger
 								render={
@@ -2009,7 +2070,10 @@ function GoalBanner({
 										className={trayPillActionClass}
 										aria-label="Edit goal"
 									>
-										<HugeiconsIcon icon={PencilIcon} className="size-3.5" />
+										<HugeiconsIcon
+											icon={PencilEdit01Icon}
+											className="size-3.5"
+										/>
 									</button>
 								}
 							/>

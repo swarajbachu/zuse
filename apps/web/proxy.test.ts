@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
+import { LEGAL_PAGES } from "@/lib/legal-pages";
 import { proxy } from "./proxy";
 
 const makeRequest = (path: string, accept?: string) =>
@@ -58,5 +59,13 @@ describe("proxy", () => {
 		const response = proxy(makeRequest("/docs", "text/markdown"));
 		expect(response.status).toBe(200);
 		expect(response.headers.get("x-middleware-next")).toBe("1");
+	});
+
+	it("allows public legal and trust pages through content negotiation", () => {
+		for (const { path } of LEGAL_PAGES) {
+			const response = proxy(makeRequest(path, "text/markdown"));
+			expect(response.status).toBe(200);
+			expect(response.headers.get("x-middleware-next")).toBe("1");
+		}
 	});
 });

@@ -32,6 +32,7 @@ describe("power runtime activity", () => {
 
 		expect(getPowerRuntimeActivity()).toEqual({
 			activeAgents: 3,
+			agentsConfirmed: true,
 			activeTerminals: 2,
 			browserSessions: 2,
 			activeBrowserSessions: 1,
@@ -51,12 +52,27 @@ describe("power runtime activity", () => {
 		expect(listener).toHaveBeenCalledTimes(6);
 	});
 
+	it("marks disconnected counts unconfirmed without declaring existing workload idle", () => {
+		setPowerActiveAgentCount(2);
+		setPowerActiveAgentCount(null);
+		expect(getPowerRuntimeActivity()).toMatchObject({
+			activeAgents: 2,
+			agentsConfirmed: false,
+		});
+		setPowerActiveAgentCount(0);
+		expect(getPowerRuntimeActivity()).toMatchObject({
+			activeAgents: 0,
+			agentsConfirmed: true,
+		});
+	});
+
 	it("never reports negative counts", () => {
 		reportPowerBrowserRecordingStopped();
 		setPowerActiveTerminalCount(-1);
 
 		expect(getPowerRuntimeActivity()).toEqual({
 			activeAgents: 0,
+			agentsConfirmed: true,
 			activeTerminals: 0,
 			browserSessions: 0,
 			activeBrowserSessions: 0,

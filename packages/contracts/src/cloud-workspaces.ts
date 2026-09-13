@@ -513,6 +513,7 @@ export class CloudWorkspaceList extends Schema.Class<CloudWorkspaceList>(
 export class CloudWorkspaceCreateRequest extends Schema.Class<CloudWorkspaceCreateRequest>(
 	"CloudWorkspaceCreateRequest",
 )({
+	localDeviceId: Schema.optional(Schema.String),
 	projectId: Schema.String,
 	providerId: Schema.String,
 	baseRef: Schema.String,

@@ -12,7 +12,7 @@ type SessionTerminalListener = (
 ) => void;
 
 type SessionRuntimeStore = {
-	/** Last-known catalog lifecycle, used only when no timeline resource is retained. */
+	/** Catalog lifecycle used while a timeline is absent or only cached. */
 	readonly bySession: Readonly<Record<string, SessionRuntimeState>>;
 	readonly observeSummary: (
 		sessionId: SessionId,

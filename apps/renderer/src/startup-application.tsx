@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
+import { BrowserAccessGate } from "./components/browser-access-gate.tsx";
 import {
 	StartupSurface,
 	startupPresentation,
@@ -14,6 +15,14 @@ const Application = lazy(() =>
 );
 
 export function StartupApplication() {
+	return (
+		<BrowserAccessGate>
+			<ConnectedStartupApplication />
+		</BrowserAccessGate>
+	);
+}
+
+function ConnectedStartupApplication() {
 	const settings = useSettingsStore((state) => ({
 		error: state.error,
 		loaded: state.loaded,

@@ -156,6 +156,92 @@ describe("cloud runtime assets", () => {
 		);
 	});
 
+	test("repairs GitHub authentication on every workspace start", async () => {
+		const bootstrap = await readWorkspaceFile(
+			"infra/cloud-sandboxes/workspace-bootstrap.sh",
+		);
+		const reconciler = await readWorkspaceFile(
+			"infra/api/src/cloud-workspace-reconciler.ts",
+		);
+
+		// The API ships the current auth script with the project build, so a base
+		// image older than the `gh` shim cannot strand a workspace.
+		expect(reconciler).toContain(
+			'GITHUB_AUTH_SOURCE from "../../cloud-sandboxes/github-auth.sh"',
+		);
+		expect(reconciler).toContain(
+			'const GITHUB_AUTH_FILE = "/var/lib/zuse/project-build/github-auth.sh"',
+		);
+		expect(bootstrap).toContain(
+			"github_auth=/var/lib/zuse/project-build/github-auth.sh",
+		);
+		expect(bootstrap).toContain(
+			'[[ -x "$github_auth" ]] || github_auth=/usr/local/bin/zuse-github-auth',
+		);
+
+		// The shim has to win PATH resolution, and the credential helper has to be
+		// reinstalled in case a persisted home shadowed the image's git config.
+		expect(bootstrap).toContain(
+			'ln -sf "$github_auth" /home/zuse/.local/bin/gh',
+		);
+		expect(bootstrap).toContain('export PATH="/home/zuse/.local/bin:$PATH"');
+		expect(bootstrap).toContain('"$github_auth" install');
+
+		// A terminal opened over the SSH bridge reads the shell profile rather
+		// than the runtime's environment, and must resolve the same shim.
+		expect(bootstrap).toContain(
+			"for rc in /home/zuse/.profile /home/zuse/.bashrc; do",
+		);
+		expect(bootstrap).toContain("grep -qs 'zuse-github-auth shim' \"$rc\"");
+
+		// Agents inherit this environment from the runtime, so the repair must
+		// land before the runtime starts.
+		expect(bootstrap.indexOf('ln -sf "$github_auth"')).toBeLessThan(
+			bootstrap.indexOf("phase=starting-runtime"),
+		);
+
+		// `gh auth login` is never the fix in a cloud workspace.
+		expect(bootstrap).toContain("gh auth login is never the fix");
+		expect(bootstrap).not.toMatch(/run\s+`?gh auth login`?\.?$/mu);
+	});
+
+	test("keeps a PATH-preferred gh shim authenticated without a stored login", async () => {
+		const githubAuthPath = fileURLToPath(
+			workspaceFileUrl("infra/cloud-sandboxes/github-auth.sh"),
+		);
+		const temporaryRoot = await mkdtemp(join(tmpdir(), "zuse-gh-shim-"));
+		try {
+			// Stands in for /home/zuse/.local/bin: the shim the bootstrap links
+			// ahead of a stale image's stock gh.
+			const shimDir = join(temporaryRoot, "local-bin");
+			const tokenFile = join(temporaryRoot, "token");
+			const stockGh = join(temporaryRoot, "stock-gh");
+			await mkdir(shimDir);
+			await writeFile(tokenFile, "installation-token\n", { mode: 0o600 });
+			await writeFile(
+				stockGh,
+				`#!/usr/bin/env bash\nprintf 'token=%s\\n' "\${GH_TOKEN:-none}"\n`,
+				{ mode: 0o755 },
+			);
+			await symlink(githubAuthPath, join(shimDir, "gh"));
+
+			expect(
+				execFileSync("gh", ["pr", "create"], {
+					env: {
+						...process.env,
+						HOME: join(temporaryRoot),
+						PATH: `${shimDir}:${process.env.PATH ?? ""}`,
+						ZUSE_GITHUB_TOKEN_FILE: tokenFile,
+						ZUSE_GH_BINARY: stockGh,
+					},
+					encoding: "utf8",
+				}),
+			).toBe("token=installation-token\n");
+		} finally {
+			await rm(temporaryRoot, { recursive: true, force: true });
+		}
+	});
+
 	test("preconfigures lazy renewable GitHub authentication in the image", async () => {
 		const githubAuthPath = fileURLToPath(
 			workspaceFileUrl("infra/cloud-sandboxes/github-auth.sh"),

@@ -134,7 +134,7 @@ function Toasts({
 							toast={toast}
 						>
 							<Toast.Content className="pointer-events-auto flex items-center justify-between gap-1.5 overflow-hidden px-3 py-2.5 text-xs transition-opacity duration-150 data-behind:not-data-expanded:pointer-events-none data-behind:opacity-0 data-expanded:opacity-100">
-								<div className="flex gap-2">
+								<div className="min-w-0 flex flex-1 gap-2">
 									{Icon && (
 										<div
 											className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
@@ -160,7 +160,10 @@ function Toasts({
 								</div>
 								{toast.actionProps && (
 									<Toast.Action
-										className={buttonVariants({ size: "xs" })}
+										className={cn(
+											buttonVariants({ size: "xs" }),
+											"ml-auto shrink-0",
+										)}
 										data-slot="toast-action"
 									>
 										{toast.actionProps.children}
@@ -235,7 +238,7 @@ function AnchoredToasts({
 									</Toast.Content>
 								) : (
 									<Toast.Content className="pointer-events-auto flex items-center justify-between gap-1.5 overflow-hidden px-3.5 py-3 text-sm">
-										<div className="flex gap-2">
+										<div className="min-w-0 flex flex-1 gap-2">
 											{Icon && (
 												<div
 													className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
@@ -261,7 +264,10 @@ function AnchoredToasts({
 										</div>
 										{toast.actionProps && (
 											<Toast.Action
-												className={buttonVariants({ size: "xs" })}
+												className={cn(
+													buttonVariants({ size: "xs" }),
+													"ml-auto shrink-0",
+												)}
 												data-slot="toast-action"
 											>
 												{toast.actionProps.children}

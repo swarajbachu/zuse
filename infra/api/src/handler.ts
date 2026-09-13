@@ -4,6 +4,10 @@ import { Clock, Effect, Redacted, Schema } from "effect";
 
 import { AccountIdentity } from "./account-identity.ts";
 import {
+	type ApiKeyRouteContext,
+	routeApiKeyRequest,
+} from "./api-key-routes.ts";
+import {
 	API_SCOPES,
 	mintAccessToken,
 	requireDpop,
@@ -38,6 +42,7 @@ import {
 	notFound,
 	serviceUnavailable,
 } from "./errors.ts";
+import { json } from "./http.ts";
 import { requestMachineDestruction } from "./machine-lifecycle.ts";
 import {
 	type MachineRouteContext,
@@ -45,6 +50,7 @@ import {
 } from "./machine-routes.ts";
 import { MachineStore } from "./machine-store.ts";
 import { ManagedTunnelProvider } from "./managed-tunnel.ts";
+import { routePublicApiRequest } from "./public-api-routes.ts";
 import { PushDelivery } from "./push.ts";
 import type { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
 import {
@@ -66,13 +72,8 @@ export type ApiContext =
 	| SandboxOfferConfiguration
 	| CloudWorkspaceRouteContext
 	| CloudBillingRouteContext
+	| ApiKeyRouteContext
 	| MachineRouteContext;
-
-const json = (body: unknown, status = 200): Response =>
-	new Response(JSON.stringify(body), {
-		status,
-		headers: { "content-type": "application/json" },
-	});
 
 const withBrowserCors = (
 	response: Response,
@@ -87,7 +88,7 @@ const withBrowserCors = (
 	headers.set("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
 	headers.set(
 		"access-control-allow-headers",
-		"authorization, content-type, dpop",
+		"authorization, content-type, dpop, idempotency-key",
 	);
 	headers.set("vary", "Origin");
 	return new Response(response.body, {
@@ -311,8 +312,15 @@ const route = (
 		if (machineResponse !== null) return machineResponse;
 		const cloudBillingResponse = yield* routeCloudBillingRequest(request);
 		if (cloudBillingResponse !== null) return cloudBillingResponse;
+		// API-key cleanup must remain available when beta access is unavailable.
+		// Route the narrow key surface before the broad `/v1/cloud/**` router,
+		// which intentionally beta-gates ordinary cloud mutations.
+		const apiKeyResponse = yield* routeApiKeyRequest(request);
+		if (apiKeyResponse !== null) return apiKeyResponse;
 		const cloudWorkspaceResponse = yield* routeCloudWorkspaceRequest(request);
 		if (cloudWorkspaceResponse !== null) return cloudWorkspaceResponse;
+		const publicApiResponse = yield* routePublicApiRequest(request);
+		if (publicApiResponse !== null) return publicApiResponse;
 
 		if (method === "POST" && path === "/v1/auth/token") {
 			const untrustedBody = yield* readJson<unknown>(request);
@@ -677,6 +685,25 @@ const route = (
 			const principal = yield* requireWorkos(request);
 			const machineStore = yield* MachineStore;
 			const cloudStore = yield* CloudWorkspaceStore;
+			// Revoke API credentials and cloud entitlement before asynchronous
+			// infrastructure cleanup. This keeps new work from racing a 202 deletion.
+			// Otherwise a still-active key can create more work while deletion is
+			// converging and keep the account from ever reaching its terminal state.
+			for (const key of yield* cloudStore.listApiKeys(principal.accountId)) {
+				if (key.revokedAtMs === undefined)
+					yield* cloudStore.revokeApiKey(principal.accountId, key.keyId, nowMs);
+			}
+			const entitlements = yield* machineStore.listEntitlements(
+				principal.accountId,
+			);
+			for (const entitlement of entitlements) {
+				yield* machineStore.upsertEntitlement({
+					...entitlement,
+					status: "ended",
+					endedAtMs: nowMs,
+					updatedAtMs: nowMs,
+				});
+			}
 			const machines = yield* machineStore.listMachines(principal.accountId);
 			for (const machine of machines) {
 				let destructionBase = machine;
@@ -761,17 +788,6 @@ const route = (
 				)
 			) {
 				return json({ ok: true, cleanupPending: true }, 202);
-			}
-			const entitlements = yield* machineStore.listEntitlements(
-				principal.accountId,
-			);
-			for (const entitlement of entitlements) {
-				yield* machineStore.upsertEntitlement({
-					...entitlement,
-					status: "ended",
-					endedAtMs: nowMs,
-					updatedAtMs: nowMs,
-				});
 			}
 			const cloudProjects = yield* cloudStore.listProjects(principal.accountId);
 			const sandboxProviders = yield* SandboxProviders;

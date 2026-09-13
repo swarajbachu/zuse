@@ -81,30 +81,32 @@ let nextDriverEpoch = 0;
 const environmentRef = (key: ResourceKey<unknown>): EnvironmentRef | null =>
 	key.kind === "environment-shell" && !("folderId" in key.ref) ? key.ref : null;
 
-const foldersMatch = (
-	left: ReadonlyArray<Folder>,
-	right: ReadonlyArray<Folder>,
-): boolean =>
-	left.length === right.length &&
-	left.every((folder) => right.some((candidate) => candidate.id === folder.id));
-
 const resolveOrigins = async (
 	client: EnvironmentShellDriverClient,
 	folders: ReadonlyArray<Folder>,
 	previous: EnvironmentShellData | null,
 ): Promise<Readonly<Record<string, GitOriginInfo | null>>> =>
-	previous !== null && foldersMatch(previous.folders, folders)
-		? previous.originsByFolder
-		: Object.fromEntries(
-				await Promise.all(
-					folders.map(async (folder) => {
-						const origin = await Effect.runPromise(
-							client["git.origin"]({ folderId: folder.id }),
-						).catch(() => null);
-						return [folder.id, origin] as const;
-					}),
-				),
-			);
+	Object.fromEntries(
+		await Promise.all(
+			folders.map(async (folder) => {
+				const cached = previous?.originsByFolder[folder.id];
+				if (
+					cached != null &&
+					previous?.folders.some(
+						(candidate) =>
+							candidate.id === folder.id && candidate.path === folder.path,
+					)
+				)
+					return [folder.id, cached] as const;
+				// Missing/failed lookups must be retried when a cached shell
+				// reconnects, even if its folder IDs have not changed.
+				const origin = await Effect.runPromise(
+					client["git.origin"]({ folderId: folder.id }),
+				).catch(() => null);
+				return [folder.id, origin] as const;
+			}),
+		),
+	);
 
 type EnvironmentShellInput =
 	| Readonly<{

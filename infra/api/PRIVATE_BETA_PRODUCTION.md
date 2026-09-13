@@ -43,7 +43,7 @@ not use this gate.
    `https://api.zuse.sh/v1/cloud/github/callback`. Use the same App ID, slug,
    client ID, and private key in both deployments. Production validates its own
    signed install state and forwards only the exact staging issuer to
-   `api-staging.stuff.md`, where staging performs the signature and account
+   `api-staging.zuse.sh`, where staging performs the signature and account
    validation.
 
 When the production API hostname changes, update and verify both the Polar

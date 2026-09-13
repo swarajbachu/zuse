@@ -10,6 +10,7 @@ import {
 	openExternal,
 	rendererPlatformCapabilities,
 } from "../../lib/platform-capabilities.ts";
+import { DeviceBridgePanel } from "../device-bridge-panel.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import {
 	AccessConfirmDialogs,
@@ -49,11 +50,14 @@ export function DevicesPane() {
 			await Promise.allSettled([
 				bridge?.network?.getAccessState() ?? Promise.resolve(null),
 				bridge?.network?.getTailnetShareState() ?? Promise.resolve(null),
-				dispatchLocalDeviceCommand<{}, ApiLinkStatus>("api.status", {}),
-				dispatchLocalDeviceCommand<{}, ReadonlyArray<AuthTokenSummary>>(
-					"pairing.listTokens",
+				dispatchLocalDeviceCommand<Record<string, never>, ApiLinkStatus>(
+					"api.status",
 					{},
 				),
+				dispatchLocalDeviceCommand<
+					Record<string, never>,
+					ReadonlyArray<AuthTokenSummary>
+				>("pairing.listTokens", {}),
 			]);
 		if (networkResult.status === "fulfilled") setNetwork(networkResult.value);
 		if (tailnetResult.status === "fulfilled") setTailnet(tailnetResult.value);
@@ -154,7 +158,10 @@ export function DevicesPane() {
 		actionInFlightRef.current = true;
 		setBusy(true);
 		try {
-			await dispatchLocalDeviceCommand<{}, unknown>("api.unlink", {});
+			await dispatchLocalDeviceCommand<Record<string, never>, unknown>(
+				"api.unlink",
+				{},
+			);
 			setStatus(null);
 			return true;
 		} catch (cause) {
@@ -222,6 +229,7 @@ export function DevicesPane() {
 				tokens={tokens}
 				onTokens={setTokens}
 			/>
+			<DeviceBridgePanel />
 			<UsingComputersCard />
 			<ConnectedDevicesCard
 				tokens={tokens}

@@ -219,7 +219,9 @@ export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 						return [false, map];
 					}
 					const accountCount = [...map.values()].filter(
-						(candidate) => candidate.accountId === environment.accountId,
+						(candidate) =>
+							candidate.accountId === environment.accountId &&
+							candidate.providerKind !== "cloud",
 					).length;
 					if (
 						current === undefined &&
@@ -565,6 +567,7 @@ export const ApiStorePg: Layer.Layer<ApiStore, never, SqlClient.SqlClient> =
                     OR (
                       SELECT COUNT(*) FROM api_environments
                       WHERE account_id = ${env.accountId}
+                        AND provider_kind IN ('desktop', 'ssh')
                     ) < ${maxEnvironmentsPerAccount}::bigint
                   )
                 )

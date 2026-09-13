@@ -33,6 +33,8 @@ describe("Codex app-server launch configuration", () => {
 			"--listen",
 			"stdio://",
 			"-c",
+			"mcp_servers.zuse.tool_timeout_sec=3600",
+			"-c",
 			'mcp_servers.zuse.url="http://127.0.0.1:4123/mcp"',
 			"-c",
 			'mcp_servers.zuse.bearer_token_env_var="ZUSE_MCP_TOKEN"',

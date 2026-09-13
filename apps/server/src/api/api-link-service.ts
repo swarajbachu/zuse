@@ -40,6 +40,7 @@ export const apiRuntimeMetadata = () =>
 				"approvals",
 				"questions",
 				"notifications",
+				"device-commands-v1",
 			],
 		},
 		serviceState: "healthy",

@@ -43,6 +43,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwind } from "uniwind";
 import { CloudChatStatus } from "~/components/cloud-chat-status";
+import { CloudDeviceAccess } from "~/components/cloud-device-access";
 import { Composer } from "~/components/composer";
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { InlineErrorNotice } from "~/components/inline-error-notice";
@@ -1150,6 +1151,9 @@ function ThreadScreen() {
 				}
 				ListFooterComponent={
 					<View style={{ minHeight: endRunwayHeight, paddingTop: 4 }}>
+						{options?.cloudWorkspaceId && (
+							<CloudDeviceAccess workspaceId={options.cloudWorkspaceId} />
+						)}
 						{workingActive ? <WorkingIndicator since={workingSince} /> : null}
 					</View>
 				}

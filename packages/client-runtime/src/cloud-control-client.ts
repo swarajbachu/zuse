@@ -23,6 +23,8 @@ import {
 	CommandAcceptance,
 	CommandChangePage,
 	CommandStatus,
+	type DeviceBridgeAction,
+	DeviceBridgeResult,
 	type SessionId,
 	type SessionStreamCursor,
 } from "@zuse/contracts";
@@ -37,6 +39,17 @@ export type CloudControlRequest = <A>(
 ) => Effect.Effect<A, CloudWorkspaceOpError>;
 
 export const makeCloudControlClient = (request: CloudControlRequest) => ({
+	"deviceBridge.cloud": (input: {
+		workspaceId: string;
+		action: DeviceBridgeAction;
+		targetDeviceId?: string;
+	}) =>
+		request(
+			ApiPaths.cloudWorkspaceDeviceBridge(input.workspaceId),
+			DeviceBridgeResult,
+			"POST",
+			{ action: input.action, targetDeviceId: input.targetDeviceId },
+		),
 	"cloud.chats.list": (input: {
 		projectId?: string;
 		scope?: "active" | "archived" | "all";

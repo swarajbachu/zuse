@@ -1,4 +1,9 @@
 import { Effect, type Layer, ManagedRuntime } from "effect";
+import {
+	type ApiCommandNudgeTarget,
+	deliverPendingApiWebhooks,
+	sweepApiCommands,
+} from "./api-webhook-dispatch.ts";
 import { cloudBillingCapacity } from "./cloud-billing-capacity.ts";
 import {
 	ingestE2bLifecycleEvent,
@@ -23,6 +28,7 @@ import { type ApiContext, handleRequest } from "./handler.ts";
 import { reconcileMachine, reconcileMachines } from "./machine-reconciler.ts";
 
 export * from "./account-identity.ts";
+export * from "./api-webhook-dispatch.ts";
 export { API_SCOPES } from "./auth.ts";
 export * from "./beta-access.ts";
 export * from "./cloud-billing.ts";
@@ -113,6 +119,10 @@ export const makeApi = (
 		events: ReadonlyArray<unknown>,
 		nowMs: number,
 	) => Promise<number>;
+	readonly deliverApiWebhooks: () => Promise<number>;
+	readonly sweepApiCommands: () => Promise<
+		ReadonlyArray<ApiCommandNudgeTarget>
+	>;
 	readonly dispose: () => Promise<void>;
 } => {
 	const runtime = ManagedRuntime.make(layer);
@@ -254,6 +264,8 @@ export const makeApi = (
 					return metered;
 				}),
 			),
+		deliverApiWebhooks: () => runtime.runPromise(deliverPendingApiWebhooks),
+		sweepApiCommands: () => runtime.runPromise(sweepApiCommands),
 		dispose: () => runtime.dispose(),
 	};
 };

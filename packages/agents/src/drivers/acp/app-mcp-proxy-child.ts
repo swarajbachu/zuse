@@ -8,6 +8,8 @@ import {
 	ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
+import { DEVICE_COMMAND_TOOL_TIMEOUT_SECONDS } from "../device-command-tools.ts";
+
 const endpoint = process.env.ZUSE_APP_MCP_URL;
 const token = process.env.ZUSE_APP_MCP_TOKEN;
 
@@ -29,12 +31,23 @@ const server = new Server(
 	{ capabilities: { tools: {} } },
 );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => upstream.listTools());
-server.setRequestHandler(CallToolRequestSchema, async (request) =>
-	upstream.callTool({
-		name: request.params.name,
-		arguments: request.params.arguments,
-	}),
+server.setRequestHandler(ListToolsRequestSchema, async () =>
+	upstream.listTools(),
+);
+server.setRequestHandler(CallToolRequestSchema, async (request, extra) =>
+	upstream.callTool(
+		{
+			name: request.params.name,
+			arguments: request.params.arguments,
+		},
+		undefined,
+		{
+			signal: extra.signal,
+			...(request.params.name === "local_command_execute"
+				? { timeout: DEVICE_COMMAND_TOOL_TIMEOUT_SECONDS * 1000 }
+				: {}),
+		},
+	),
 );
 
 const start = async (): Promise<void> => {

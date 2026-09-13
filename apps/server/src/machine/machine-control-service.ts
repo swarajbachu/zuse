@@ -8,6 +8,9 @@ import {
 	BillingPortal,
 	CloudAccountImage,
 	type CloudAccountImageBuildRequest,
+	CloudApiKey,
+	CloudApiKeyCreated,
+	CloudApiKeyList,
 	type CloudAuthConfigureRequest,
 	CloudAuthLoginOperation,
 	type CloudAuthProvider,
@@ -37,6 +40,8 @@ import {
 	CommandAcceptance,
 	CommandChangePage,
 	CommandStatus,
+	type DeviceBridgeAction,
+	DeviceBridgeResult,
 	EntitlementList,
 	type EnvironmentId,
 	type MachineCreateRequest,
@@ -134,6 +139,11 @@ export interface MachineControlServiceShape {
 	readonly prepareCloudProject: (
 		input: CloudProjectPrepareRequest,
 	) => Effect.Effect<CloudProjectBuild, MachineControlError>;
+	readonly deviceBridge: (
+		workspaceId: string,
+		action: DeviceBridgeAction,
+		targetDeviceId?: string,
+	) => Effect.Effect<typeof DeviceBridgeResult.Type, MachineControlError>;
 	readonly cloudWorkspaces: (
 		projectId?: string,
 	) => Effect.Effect<CloudWorkspaceList, MachineControlError>;
@@ -195,6 +205,16 @@ export interface MachineControlServiceShape {
 		workspaceId: string,
 		port: number,
 	) => Effect.Effect<CloudWorkspacePreviewUrl, MachineControlError>;
+	readonly listCloudApiKeys: () => Effect.Effect<
+		CloudApiKeyList,
+		MachineControlError
+	>;
+	readonly createCloudApiKey: (
+		name: string,
+	) => Effect.Effect<CloudApiKeyCreated, MachineControlError>;
+	readonly revokeCloudApiKey: (
+		keyId: string,
+	) => Effect.Effect<CloudApiKey, MachineControlError>;
 	readonly list: () => Effect.Effect<MachineList, MachineControlError>;
 	readonly get: (
 		machineId: string,
@@ -497,6 +517,13 @@ export const MachineControlServiceLive: Layer.Layer<
 					"POST",
 					input,
 				),
+			deviceBridge: (workspaceId, action, targetDeviceId) =>
+				request(
+					ApiPaths.cloudWorkspaceDeviceBridge(workspaceId),
+					DeviceBridgeResult,
+					"POST",
+					{ action, targetDeviceId },
+				),
 			cloudWorkspaces: (projectId) =>
 				request(
 					projectId === undefined
@@ -582,6 +609,11 @@ export const MachineControlServiceLive: Layer.Layer<
 					"POST",
 					{ workspaceId, ...options },
 				),
+			listCloudApiKeys: () => request(ApiPaths.cloudApiKeys, CloudApiKeyList),
+			createCloudApiKey: (name) =>
+				request(ApiPaths.cloudApiKeys, CloudApiKeyCreated, "POST", { name }),
+			revokeCloudApiKey: (keyId) =>
+				request(ApiPaths.cloudApiKey(keyId), CloudApiKey, "DELETE"),
 			cloudWorkspaceSshAccess: (workspaceId) =>
 				request(
 					ApiPaths.cloudWorkspaceSshAccess(workspaceId),

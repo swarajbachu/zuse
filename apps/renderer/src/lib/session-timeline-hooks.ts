@@ -1,5 +1,6 @@
 import type { ResourceActivation } from "@zuse/client-runtime/environment-runtime";
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
+import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import type { ResourceView } from "@zuse/client-runtime/resource-state";
 import type {
 	EnvironmentId,
@@ -14,11 +15,14 @@ import {
 	useRef,
 	useSyncExternalStore,
 } from "react";
-
 import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import {
+	mergePendingSessionMessages,
+	usePendingSessionMessages,
+} from "./pending-session-messages.ts";
+import {
 	effectiveSessionRuntimeState,
-	runtimeStateFromTimeline,
+	runtimeStateFromResource,
 	type SessionRuntimeState,
 } from "./session-runtime-state.ts";
 import {
@@ -62,32 +66,6 @@ const EMPTY_TIMELINE_VIEW: ResourceView<SessionTimelineProjection> = {
 	failedCommands: [],
 };
 
-const runtimeFromResource = (
-	view: ResourceView<SessionTimelineProjection>,
-	fallback: SessionRuntimeState,
-): SessionRuntimeState => {
-	if (
-		view.pendingCommands.some(
-			(command) => command.kind === "messages.interrupt",
-		)
-	) {
-		return "stopping";
-	}
-	const runtime =
-		view.data === null ? fallback : runtimeStateFromTimeline(view.data);
-	if (runtime !== "idle") return runtime;
-	if (
-		view.pendingCommands.some((command) => command.kind === "messages.send") &&
-		(view.data === null ||
-			view.data.messages.findLast(
-				(message) => message.role === "user" || message.role === "assistant",
-			)?.role === "user")
-	) {
-		return "starting";
-	}
-	return "idle";
-};
-
 /** One qualified timeline selector shared by chat, composer, queue, and dock. */
 export const useRendererSessionTimeline = (
 	sessionId: SessionId,
@@ -118,6 +96,19 @@ export const useOptionalRendererSessionTimeline = (
 		[environmentId, sessionId],
 	);
 	const view = useSessionTimelineResource(ref, activation);
+	const pending = usePendingSessionMessages((state) =>
+		ref === null
+			? EMPTY_MESSAGES
+			: (state.byResource[resourceRefKey(ref)] ?? EMPTY_MESSAGES),
+	);
+	const messages = useMemo(
+		() =>
+			mergePendingSessionMessages(
+				view.data?.messages ?? EMPTY_MESSAGES,
+				pending,
+			),
+		[view.data?.messages, pending],
+	);
 	const summaryRuntime = useSessionRuntimeStore((state) =>
 		sessionId === null
 			? "idle"
@@ -127,8 +118,8 @@ export const useOptionalRendererSessionTimeline = (
 		ref,
 		view: sessionId === null ? EMPTY_TIMELINE_VIEW : view,
 		projection: view.data,
-		messages: view.data?.messages ?? EMPTY_MESSAGES,
-		runtime: runtimeFromResource(view, summaryRuntime),
+		messages,
+		runtime: runtimeStateFromResource(view, summaryRuntime),
 	};
 };
 
@@ -194,7 +185,7 @@ export const useRendererSessionTimelines = (
 			);
 			return view === undefined
 				? fallback
-				: runtimeFromResource(view, fallback);
+				: runtimeStateFromResource(view, fallback);
 		});
 		const previous = snapshotCache.current;
 		if (

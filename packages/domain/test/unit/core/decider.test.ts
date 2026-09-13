@@ -197,6 +197,22 @@ describe("session decider", () => {
 		]);
 	});
 
+	test("does not release an initial turn after the session was archived during setup", () => {
+		const archived = evolveAll(initialSessionState, [
+			{ ...sessionCreation, queuePaused: true, _tag: "SessionCreated" },
+			{ _tag: "TurnStarted", turnId: "turn-initial", startedAt: 1 },
+			{ _tag: "SessionArchived", archivedAt: 2 },
+		]);
+		const result = decide(archived, {
+			_tag: "ReleaseInitialTurn",
+			expectedTurnId: "turn-initial",
+			providerInputJson:
+				'{"text":"hello","attachments":[],"fileRefs":[],"skillRefs":[]}',
+			requestedAt: 3,
+		});
+		expect(failure(result)?._tag).toBe("ValidationFailed");
+	});
+
 	test("prevents mutation before creation and after deletion", () => {
 		expect(
 			failure(

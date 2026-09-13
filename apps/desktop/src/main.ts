@@ -60,6 +60,8 @@ import {
 	type PowerSnapshot,
 	type PowerThermalState,
 	PowerWorkloadState,
+	PRODUCTION_API_URL,
+	STAGING_API_URL,
 	TailnetShareState,
 } from "@zuse/contracts";
 import {
@@ -3303,6 +3305,11 @@ async function createMainWindow() {
 			makeMainLayer({
 				userData,
 				telemetryIdentity: { kind: "desktop", instance: "local" },
+				autoApiLink: {
+					apiUrl:
+						process.env.ZUSE_API_URL?.trim() ||
+						(isDevelopment ? STAGING_API_URL : PRODUCTION_API_URL),
+				},
 				folderPicker,
 				serverProtocol,
 				additionalServerProtocols: [

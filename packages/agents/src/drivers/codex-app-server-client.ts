@@ -5,6 +5,7 @@ import type { InitializeResponse } from "@zuse/agents/codex-generated/Initialize
 import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
 import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
 import { reportCodexStderr } from "./codex-stderr-reporter.ts";
+import { DEVICE_COMMAND_TOOL_TIMEOUT_SECONDS } from "./device-command-tools.ts";
 
 type RequestId = number;
 
@@ -111,6 +112,13 @@ export const codexAppServerLaunchArgs = (
 	"app-server",
 	"--listen",
 	"stdio://",
+	// App tools can wait for a human approval before command execution.
+	...(mcp === undefined
+		? []
+		: [
+				"-c",
+				`mcp_servers.zuse.tool_timeout_sec=${DEVICE_COMMAND_TOOL_TIMEOUT_SECONDS}`,
+			]),
 	...(mcp === undefined
 		? []
 		: mcp.transport === "http"

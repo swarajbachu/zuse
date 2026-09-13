@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { LEGAL_PAGES } from "@/lib/legal-pages";
 import { GET as getHomepageMarkdown } from "./home.md/route";
 import { GET as getLlmsText } from "./llms.txt/route";
 import {
@@ -40,6 +41,13 @@ describe("machine-readable routes", () => {
 	it("includes Zuse developer resources in the sitemap", () => {
 		expect(sitemap().some((entry) => entry.url.endsWith("/developers"))).toBe(
 			true,
+		);
+	});
+
+	it("includes every public legal and trust page in the sitemap", () => {
+		const paths = sitemap().map((entry) => new URL(entry.url).pathname);
+		expect(paths).toEqual(
+			expect.arrayContaining(LEGAL_PAGES.map((page) => page.path)),
 		);
 	});
 });

@@ -99,6 +99,24 @@ integrity-checked decryption, and does not put it into canonical ClientBus or UI
 state. API stores only its wrapped envelope; R2 never receives the plaintext
 key.
 
+## Public API keys and outbound webhooks
+
+The public integration surface (`/v1/api/**`, see [Public API](public-api.md))
+authenticates with account-scoped `zk_` API keys instead of WorkOS. Secrets are
+stored as SHA-256 hashes only and are revocable immediately; minting a key is
+WorkOS-gated and beta-gated, so a key never grants more than its account
+already has. Conversation-ledger content, outbound webhook payloads, and
+webhook signing secrets are sealed at rest with the API data-encryption key,
+bound to their owning account and row.
+
+Outbound `workspace.turn.completed` deliveries are signed with a per-endpoint
+`whsec_` secret (`zuse-signature: t=<unixSeconds>,v1=<hex hmac-sha256>` over
+`<t>.<rawBody>`, five-minute replay window) and are at-least-once; consumers
+deduplicate on `zuse-event-id`. Follow-up messages reach the runtime only
+through the durable API queue plus a gateway nudge — the Durable Object still
+never stores or interprets chat content, and the `runtime.command` control
+frame flows API→runtime only.
+
 ## Webhooks and billing evidence
 
 E2B and Polar webhooks require their provider signatures. A recovery poll may

@@ -40,6 +40,7 @@ pairing, and user-managed remote environments keep their existing paths.
 | [Lifecycle](lifecycle.md) | Project preparation, workspace states, pause, archive, and deletion |
 | [Realtime and storage](realtime-and-storage.md) | Offline opening, R2 catch-up, live synchronization, and large histories |
 | [Security](security.md) | Identity, private-beta authorization, credentials, encryption, and isolation |
+| [Public API](public-api.md) | API keys, integration endpoints, message delivery, and signed webhooks |
 | [Operations](operations.md) | Releases, environments, migrations, monitoring, incidents, and smoke tests |
 | [User guide](user-guide.md) | Setup, chat behavior, local/cloud terminals, archive, billing, and common failures |
 

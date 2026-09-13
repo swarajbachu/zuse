@@ -304,6 +304,31 @@ describe("ClientBus", () => {
 		await bus.dispose();
 	});
 
+	it("keeps a live stream authoritative when checkpoint lookup returns nothing", async () => {
+		const checkpoint = deferred<null>();
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			synchronizer: { synchronize: () => checkpoint.promise },
+			driverFor: () => ({
+				start: (context) => {
+					context.emit({
+						data: { text: "running" },
+						cursor: { epoch: "live", version: 1 },
+						sync: "live",
+					});
+				},
+				stop: () => undefined,
+			}),
+		});
+		const lease = bus.retain(timelineKey, { activation: "connect" });
+		await waitUntil(() => bus.snapshot(timelineKey).sync === "live");
+		checkpoint.resolve(null);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(bus.snapshot(timelineKey).sync).toBe("live");
+		lease.release();
+		await bus.dispose();
+	});
+
 	it("restarts a retained resource after its provisional subscription fails", async () => {
 		let starts = 0;
 		let stops = 0;

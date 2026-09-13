@@ -134,6 +134,27 @@
 			"when": 1788566400000,
 			"tag": "0018_cloud_active_session_summary",
 			"breakpoints": true
+		},
+		{
+			"idx": 19,
+			"version": "7",
+			"when": 1788566460000,
+			"tag": "0019_public_api",
+			"breakpoints": true
+		},
+		{
+			"idx": 20,
+			"version": "7",
+			"when": 1788566461000,
+			"tag": "0020_public_api_reliability",
+			"breakpoints": true
+		},
+		{
+			"idx": 21,
+			"version": "7",
+			"when": 1789142000000,
+			"tag": "0021_link_challenge_api_issuer",
+			"breakpoints": true
 		}
 	]
 }

@@ -49,6 +49,7 @@ export type CreateFromSelection =
 			readonly kind: "pr";
 			readonly number: number;
 			readonly headRefName: string;
+			readonly isCrossRepository: boolean;
 			readonly title: string;
 			readonly existingWorktreeId: WorktreeId | null;
 	  }
@@ -360,6 +361,7 @@ export function CreateFromMenu({
 						kind: "pr",
 						number: pr.number,
 						headRefName: pr.headRefName,
+						isCrossRepository: pr.isCrossRepository,
 						title: pr.title,
 						existingWorktreeId: existing,
 					},

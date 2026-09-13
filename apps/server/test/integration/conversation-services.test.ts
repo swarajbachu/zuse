@@ -22,6 +22,7 @@ import {
 	MessageId,
 	RepositorySettings,
 	SessionId,
+	ThreadGoal,
 	Worktree,
 	WorktreeCheckpointError,
 	WorktreeRestoreError,
@@ -140,6 +141,7 @@ const TestConversationLive = Layer.effect(
 let scriptedEvents: ReadonlyArray<AgentEvent> = [];
 let providerStartInputs: StartSessionInput[] = [];
 let providerStartCursors: Array<string | null> = [];
+const providerGoals = new Map<string, ThreadGoal>();
 let providerSentTexts: string[] = [];
 let providerSendAttempts = 0;
 let activeProviderSessions = new Set<AgentSessionId>();
@@ -271,8 +273,24 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 	answerQuestion: () => Effect.void,
 	respondToPlan: (sessionId) =>
 		Effect.fail(new AgentSessionNotFoundError({ sessionId })),
-	getGoal: () => Effect.succeed(null),
-	setGoal: () => Effect.die("not used"),
+	getGoal: (sessionId) =>
+		Effect.sync(() => providerGoals.get(sessionId) ?? null),
+	setGoal: (sessionId, input) =>
+		Effect.sync(() => {
+			const previous = providerGoals.get(sessionId);
+			const goal = ThreadGoal.make({
+				threadId: sessionId,
+				objective: input.objective ?? previous?.objective ?? "Test goal",
+				status: input.status ?? previous?.status ?? "active",
+				tokenBudget: input.tokenBudget ?? null,
+				tokensUsed: 0,
+				timeUsedSeconds: 0,
+				createdAt: 1,
+				updatedAt: Date.now(),
+			});
+			providerGoals.set(sessionId, goal);
+			return goal;
+		}),
 	clearGoal: () => Effect.void,
 });
 
@@ -694,6 +712,7 @@ const withRuntime = async <A>(
 const store = TestConversation;
 
 beforeEach(() => {
+	providerGoals.clear();
 	testCommandSequence = 0;
 	providerStartInputs = [];
 	providerStartCursors = [];
@@ -2971,6 +2990,95 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("sendMessageWithInput preserves causal message and turn identities", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const messageId = MessageId.make("message-cloud-api-causal");
+			const turnId = AgentTurnId.make("turn-cloud-api-causal");
+			await run(
+				Effect.flatMap(store, (messages) =>
+					messages.sendMessageWithInput({
+						commandId: "api:message-cloud-api-causal",
+						sessionId: initialSession.id,
+						text: "keep this command and turn paired",
+						messageId,
+						turnId,
+					}),
+				),
+			);
+
+			const persisted = await run(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.events({ streamId: initialSession.id }).pipe(
+						Stream.filter(
+							(record) =>
+								record.event._tag === "MessagePersisted" &&
+								record.event.messageId === messageId,
+						),
+						Stream.runHead,
+					),
+				),
+			);
+			expect(persisted).toMatchObject({
+				_tag: "Some",
+				value: { event: { turnId } },
+			});
+		});
+	});
+
+	it("sendMessageWithInput returns the original causal identities on command replay", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const commandId = "api:message-cloud-api-upgrade-replay";
+			const original = await run(
+				Effect.flatMap(store, (messages) =>
+					messages.sendMessageWithInput({
+						commandId,
+						sessionId: initialSession.id,
+						text: "accepted before the runtime upgrade",
+					}),
+				),
+			);
+
+			const attemptedMessageId = MessageId.make("message-upgraded-attempt");
+			const attemptedTurnId = AgentTurnId.make("turn-upgraded-attempt");
+			const replayed = await run(
+				Effect.flatMap(store, (messages) =>
+					messages.sendMessageWithInput({
+						commandId,
+						sessionId: initialSession.id,
+						text: "accepted before the runtime upgrade",
+						messageId: attemptedMessageId,
+						turnId: attemptedTurnId,
+					}),
+				),
+			);
+
+			expect(original.accepted).toBe(true);
+			expect(original.messageId).toBeDefined();
+			expect(original.turnId).toBeDefined();
+			expect(replayed).toEqual(original);
+			expect(replayed.messageId).not.toBe(attemptedMessageId);
+			expect(replayed.turnId).not.toBe(attemptedTurnId);
+		});
+	});
+
 	it("sendMessage stores human annotations and sends them as provider context", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
@@ -4672,6 +4780,96 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		}
 	});
 
+	it("settles an orphaned turn after restart even when its status is idle", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-orphaned-idle-turn-"));
+		const dbPath = join(directory, "test.sqlite");
+		const first = makeRuntime(dbPath);
+		const runFirst = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
+			first.runPromise(effect as Effect.Effect<A, unknown, never>);
+		try {
+			await runFirst(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const now = new Date().toISOString();
+					yield* sql`INSERT INTO projects (id, path, name, created_at, updated_at)
+					VALUES (${PROJECT_ID}, ${directory}, ${"Test"}, ${now}, ${now})`;
+				}),
+			);
+			const { initialSession } = await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.sendMessage(
+						testCommandId("messages.send"),
+						initialSession.id,
+						"do not replay this command",
+					),
+				),
+			);
+			await runFirst(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.dispatch({
+						commandId: "test:orphaned-idle",
+						streamId: initialSession.id,
+						command: {
+							_tag: "SetStatus",
+							status: "idle",
+							updatedAt: Date.now(),
+						},
+					}),
+				),
+			);
+			await first.dispose();
+			activeProviderSessions.clear();
+			providerTurnIds.clear();
+			// The first recovery opens a legacy pending provider-start intent in idle
+			// state, while the already-delivered turn remains durably active.
+			const intermediate = makeRuntime(dbPath, false);
+			try {
+				await intermediate.runPromise(
+					Effect.flatMap(store, (service) =>
+						service.resumeSession(initialSession.id),
+					),
+				);
+			} finally {
+				await intermediate.dispose();
+			}
+			activeProviderSessions.clear();
+			providerTurnIds.clear();
+			const restarted = makeRuntime(dbPath, false);
+			try {
+				await restarted.runPromise(
+					Effect.flatMap(store, (service) =>
+						service.getSession(initialSession.id),
+					),
+				);
+				await expect
+					.poll(() =>
+						restarted.runPromise(
+							Effect.gen(function* () {
+								const sql = yield* SqlClient.SqlClient;
+								return yield* sql`SELECT status, current_turn_id FROM sessions WHERE id = ${initialSession.id}`;
+							}),
+						),
+					)
+					.toEqual([{ status: "error", current_turn_id: null }]);
+				expect(providerSentTexts).toEqual(["do not replay this command"]);
+			} finally {
+				await restarted.dispose();
+			}
+		} finally {
+			await first.dispose();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
 	it("replays an unreceipted startup turn once without settling it on restart", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-turn-restart-"));
 		const dbPath = join(directory, "test.sqlite");
@@ -4757,6 +4955,49 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		}
 	});
 
+	it("manual interrupt pauses the active goal and publishes the paused state", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "codex",
+						model: "gpt-5.6-sol",
+						initialPrompt: "pursue this goal",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.setGoal(initialSession.id, {
+						objective: "Test interrupt goal",
+						status: "active",
+					}),
+				),
+			);
+			const paused = run(
+				Effect.flatMap(store, (s) =>
+					Stream.runHead(
+						s
+							.streamGoal(initialSession.id)
+							.pipe(Stream.filter((event) => event.goal?.status === "paused")),
+					),
+				),
+			).catch(() => null);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.interruptSession(
+						testCommandId("messages.interrupt"),
+						initialSession.id,
+					),
+				),
+			);
+			expect(providerGoals.get(initialSession.id)?.status).toBe("paused");
+			await expect(paused).resolves.toMatchObject({
+				value: { goal: { status: "paused" } },
+			});
+		});
+	});
 	it("manual interrupt pauses queued messages and blocks auto-flush", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
@@ -4849,9 +5090,17 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (s) =>
 					s.createChat({
 						projectId: PROJECT_ID,
-						providerId: "claude",
-						model: "claude-opus-4-8",
+						providerId: "codex",
+						model: "gpt-5.6-sol",
 						initialPrompt: "first turn",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.setGoal(initialSession.id, {
+						objective: "Keep pursuing the successor",
+						status: "active",
 					}),
 				),
 			);
@@ -4901,6 +5150,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				actualTurnId: successorTurn,
 			});
 			expect(providerInterruptCalls).toEqual([]);
+			expect(providerGoals.get(initialSession.id)?.status).toBe("active");
 
 			const accepted = await run(
 				Effect.flatMap(store, (s) =>
@@ -4911,6 +5161,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					),
 				),
 			);
+			expect(providerGoals.get(initialSession.id)?.status).toBe("paused");
 			expect(accepted).toEqual({
 				_tag: "requested",
 				turnId: successorTurn,

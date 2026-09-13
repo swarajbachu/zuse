@@ -235,6 +235,11 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 		);
 		let result: unknown;
 		switch (command.kind) {
+			case "deviceBridge.control":
+				result = await Effect.runPromise(
+					client["deviceBridge.control"](payload as never),
+				);
+				break;
 			case "workspace.setSelected":
 				result = await Effect.runPromise(
 					client["workspace.setSelected"](payload as never),
@@ -288,6 +293,11 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 			case "attachments.upload":
 				result = await Effect.runPromise(
 					client["attachments.upload"](payload as never),
+				);
+				break;
+			case "attachments.read":
+				result = await Effect.runPromise(
+					client["attachments.read"](payload as never),
 				);
 				break;
 			case "externalThreads.list":
