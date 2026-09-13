@@ -1,4 +1,8 @@
-# Zuse Cloud
+# Zuse Cloud internal documentation
+
+Repository references for cloud usage, integrations, engineering, and operations.
+Published customer documentation lives in [apps/docs/content/docs](../../apps/docs/content/docs);
+these files are not automatically published there.
 
 Zuse Cloud runs a Zuse workspace in an isolated provider sandbox while the
 desktop or mobile client remains a disposable viewer and controller. Closing
@@ -42,6 +46,9 @@ pairing, and user-managed remote environments keep their existing paths.
 | [Security](security.md) | Identity, private-beta authorization, credentials, encryption, and isolation |
 | [Public API](public-api.md) | API keys, integration endpoints, message delivery, and signed webhooks |
 | [Operations](operations.md) | Releases, environments, migrations, monitoring, incidents, and smoke tests |
+| [API domain cutover](api-domain-cutover.md) | DNS ownership, issuer rollout, and rollback |
+| [Slack app guide](slack-app.md) | Installation, account connection, and automations |
+| [Slack app operations](slack-app-operations.md) | App registration, callbacks, queues, and rollout verification |
 | [User guide](user-guide.md) | Setup, chat behavior, local/cloud terminals, archive, billing, and common failures |
 
 These focused documents explain the cloud product. The following files remain
@@ -51,8 +58,8 @@ than copied:
 - [Realtime runtime architecture](../architecture/realtime-runtime.md)
 - [Unified computer model](../specs/unified-computers.md)
 - [Cloud sandbox template](../../infra/cloud-sandboxes/README.md)
-- [Cloud billing operations](../../infra/api/CLOUD_BILLING.md)
-- [Private beta production runbook](../../infra/api/PRIVATE_BETA_PRODUCTION.md)
+- [Cloud billing operations](billing.md)
+- [Private beta production runbook](production.md)
 - [API package reference](../../infra/api/README.md)
 
 ## Current product behavior

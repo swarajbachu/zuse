@@ -153,3 +153,12 @@ outside the supported protocol window receives `update-required` rather than
 silently using a partially compatible path. Lifecycle reconciliation may
 repair or update an existing sandbox; client components never deploy code into
 one directly.
+
+## Public API delivery implementation
+
+- The api is the durable queue: messages and webhook deliveries are Postgres
+  rows; the workspace gateway only nudges the runtime that work is waiting.
+- The runtime pulls pending commands, injects them idempotently, and acks;
+  a missed nudge is recovered on gateway reconnect and by the cron sweep.
+- Message content, attachment bytes, webhook payloads, and webhook secrets are sealed at rest
+  with the api data-encryption key, bound to their owning account and row.

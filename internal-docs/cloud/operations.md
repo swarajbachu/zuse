@@ -2,9 +2,9 @@
 
 This document describes the normal operating model. The exact production
 provisioning and cutover checklist lives in the
-[private beta production runbook](../../infra/api/PRIVATE_BETA_PRODUCTION.md),
+[private beta production runbook](production.md),
 and billing procedures live in
-[cloud billing operations](../../infra/api/CLOUD_BILLING.md).
+[cloud billing operations](billing.md).
 
 ## Environments
 

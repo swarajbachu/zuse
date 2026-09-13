@@ -163,15 +163,20 @@ specs/
   sub-agents/  Sub-agent delegation
 ```
 
-## Architecture documentation
+## Documentation
 
+- [Public documentation](apps/docs/content/docs): published customer-facing content
+- [Repository cloud guides](internal-docs/cloud/README.md): workspace usage, public API,
+  Slack automations, and operations
+
+### Internal and contributor references
+
+- [Internal documentation map](internal-docs/README.md) — engineering and operator references
 - [Desktop design system](DESIGN.md) — visual foundations, component patterns,
   accessibility, and responsive behavior
-- [Zuse Cloud](docs/cloud/README.md) — cloud architecture, lifecycle, storage,
-  security, operations, and user guide
-- [Realtime runtime](docs/architecture/realtime-runtime.md) — the durable
+- [Realtime runtime](internal-docs/architecture/realtime-runtime.md) — the durable
   session and ClientBus path shared by local, SSH, and cloud environments
-- [Unified computers](docs/specs/unified-computers.md) — environment and sandbox
+- [Unified computers](internal-docs/specs/unified-computers.md) — environment and sandbox
   domain model
 - [Context map](CONTEXT-MAP.md) — domain contexts and their ownership relationships
 
@@ -205,7 +210,7 @@ bun run dist:linux:unsigned
 Requires: Bun 1.3.10+, Node.js ≥ 22.13, and macOS or x64 Linux.
 
 Changes to the macOS awake controller require the
-[physical MacBook release check](docs/testing/mac-computer-awake.md), including
+[physical MacBook release check](internal-docs/testing/mac-computer-awake.md), including
 assertion and best-effort closed-lid verification.
 
 The default install uses the public icon set and does not require registry

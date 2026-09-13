@@ -6,8 +6,8 @@ the core loop only: create a workspace with a prompt, send follow-up messages,
 read replies, and check status. Everything else (SSH, previews, transcripts,
 billing) stays on the first-party surfaces.
 
-A reference Slack app that uses only this API lives at
-[`examples/slack-bot`](../../examples/slack-bot/README.md).
+Zuse's [first-party Slack app](slack-app.md) lets you connect your Zuse account
+and configure alert automations without pasting an API key.
 
 ## Authentication
 
@@ -188,12 +188,3 @@ const expected = hmacSha256Hex(secret, `${t}.${rawBody}`);
 Failed deliveries retry with exponential backoff (30 s doubling, capped at one
 hour) for up to 20 attempts. Respond with any 2xx to acknowledge. Polling
 remains available as a fallback if your endpoint is down.
-
-## Delivery model
-
-- The api is the durable queue: messages and webhook deliveries are Postgres
-  rows; the workspace gateway only nudges the runtime that work is waiting.
-- The runtime pulls pending commands, injects them idempotently, and acks;
-  a missed nudge is recovered on gateway reconnect and by the cron sweep.
-- Message content, attachment bytes, webhook payloads, and webhook secrets are sealed at rest
-  with the api data-encryption key, bound to their owning account and row.

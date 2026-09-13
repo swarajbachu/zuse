@@ -74,9 +74,9 @@ normal hostname after propagation, not just a request pinned to a Cloudflare IP.
    updates exact old staging URLs/issuers while preserving connection data;
    it does not rewrite signed credentials or runtime service files.
 6. Update staging Polar/E2B webhook destinations and any explicit deployment
-   environment overrides. Point the staging Slack Worker at
-   `ZUSE_API_URL=https://api-staging.zuse.sh`; keep its keys and webhook secret
-   scoped to the staging account.
+   environment overrides. Slack is part of the API Worker; keep
+   `SLACK_PUBLIC_ORIGIN=https://api-staging.zuse.sh` and register its Slack and
+   WorkOS callbacks for that host. Use the staging app registration and queue.
 7. Verify the journeys below before retiring the old domain. Do not rely on
    redirects or accepting old issuers as an authentication compatibility layer.
 
@@ -95,7 +95,7 @@ curl -i https://api-staging.zuse.sh/v1/environments
 Use a staging account to verify sign-in, DPoP, GitHub installation, provider-auth
 enrollment, signed provider callbacks, and the [required smoke journey](operations.md#required-smoke-journey).
 Verify cross-environment authorization isolation, then run the
-[Slack thread and image journey](../../examples/slack-bot/README.md).
+[Slack app installation and automation journey](slack-app-operations.md).
 
 A separate staging renderer needs its own Vercel deployment, explicit
 `VITE_ZUSE_HOSTED=1`, `VITE_ZUSE_API_URL=https://api-staging.zuse.sh`, the staging

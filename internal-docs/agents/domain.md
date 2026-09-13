@@ -5,7 +5,7 @@ This repository uses a multi-context domain-documentation layout. A root `CONTEX
 ## Before exploring
 
 - Read the root `CONTEXT-MAP.md` when it exists, then read each linked `CONTEXT.md` relevant to the work.
-- Read relevant system-wide decisions under `docs/adr/`.
+- Read relevant system-wide decisions under `internal-docs/adr/`.
 - Read relevant context-specific decisions in an app or package's `docs/adr/` directory.
 
 If these files do not exist, proceed silently. Domain-modeling workflows create them when terminology or decisions are actually resolved.
