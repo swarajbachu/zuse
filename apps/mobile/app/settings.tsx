@@ -414,20 +414,42 @@ export default function SettingsScreen() {
 							analyticsId="account.delete"
 							symbol="trash.fill"
 							iconTone="neutral"
-							title="Delete account"
-							subtitle="Permanently remove your account and linked computers"
+							title={busy ? "Account action in progress…" : "Delete account"}
+							subtitle="Permanently delete your account and cloud data"
 							destructive
 							disabled={busy}
 							onPress={() =>
 								Alert.alert(
 									"Delete account?",
-									"This permanently removes your account, linked computers, device registrations, and cached chats. This cannot be undone.",
+									"This requests permanent deletion of your Zuse account, cloud workspaces and chats, linked-device registrations, and data saved by this app. Cloud cleanup may take time. Files on your own computer are not deleted. This cannot be undone.",
 									[
 										{ text: "Cancel", style: "cancel" },
 										{
 											text: "Delete account",
 											style: "destructive",
-											onPress: () => void deleteAccount().catch(() => {}),
+											onPress: () =>
+												void deleteAccount()
+													.then((result) => {
+														Alert.alert(
+															result.cleanupPending
+																? "Deletion requested"
+																: "Account deleted",
+															result.localCleanupFailed
+																? "Your deletion request was accepted, but some data on this phone could not be cleared. Restart the app and use Reset app in Settings to retry local cleanup."
+																: result.cleanupPending
+																	? "Your deletion request was accepted. Cloud resources are still being cleaned up. You have been signed out on this phone."
+																	: "Your account has been deleted and you have been signed out.",
+														);
+														returnToInbox(router);
+													})
+													.catch((cause: unknown) => {
+														Alert.alert(
+															"Could not delete account",
+															cause instanceof Error
+																? cause.message
+																: "Please try again.",
+														);
+													}),
 										},
 									],
 								)
