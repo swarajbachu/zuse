@@ -5,6 +5,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	renameSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -20,6 +21,7 @@ import {
 	releaseMetadata,
 } from "../packages/utils/src/release-version.mjs";
 import {
+	prepareReleaseAssets,
 	publishRelease,
 	validateNotes,
 	verifyReleaseAssets,
@@ -99,6 +101,59 @@ test("publication requires both platforms and verifies manifest hashes", () => {
 		assert.throws(
 			() => verifyReleaseAssets(directory, metadata),
 			/Integrity mismatch/,
+		);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("adopts GitHub manifest names only for matching archive contents and blockmaps", () => {
+	const directory = mkdtempSync(join(tmpdir(), "zuse-safe-artifact-names-"));
+	const metadata = releaseMetadata("0.22.0-preview.1");
+	try {
+		const files = ["dmg", "zip", "AppImage", "deb"].map((extension) => {
+			const local = `Zuse (Beta)-${metadata.version}.${extension}`;
+			const url = `desktop-${metadata.version}.${extension}`;
+			writeFileSync(join(directory, local), extension);
+			writeFileSync(
+				join(directory, `${local}.blockmap`),
+				`blockmap-${extension}`,
+			);
+			return {
+				url,
+				size: extension.length,
+				sha512: createHash("sha512").update(extension).digest("base64"),
+				local,
+			};
+		});
+		for (const [index, platform] of ["-mac", "-linux"].entries())
+			writeFileSync(
+				join(directory, `preview${platform}.yml`),
+				stringify({
+					version: metadata.version,
+					files: files.slice(index * 2, index * 2 + 2),
+				}),
+			);
+		const zip = files[1];
+		writeFileSync(join(directory, zip.local), "bad");
+		assert.throws(
+			() => prepareReleaseAssets(directory, metadata),
+			/Expected one verified/,
+		);
+		writeFileSync(join(directory, zip.local), "zip");
+		prepareReleaseAssets(directory, metadata);
+		assert.equal(verifyReleaseAssets(directory, metadata).length, 10);
+		for (const file of files)
+			assert.equal(
+				readFileSync(join(directory, `${file.url}.blockmap`), "utf8"),
+				`blockmap-${file.url.split(".").at(-1)}`,
+			);
+		// Preparation remains safe when publication is retried after an upload failure.
+		prepareReleaseAssets(directory, metadata);
+		renameSync(join(directory, zip.url), join(directory, zip.local));
+		assert.throws(
+			() => prepareReleaseAssets(directory, metadata),
+			/Conflicting blockmap/,
 		);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });

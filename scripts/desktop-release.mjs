@@ -4,14 +4,16 @@ import { createHash } from "node:crypto";
 import {
 	appendFileSync,
 	closeSync,
+	existsSync,
 	openSync,
 	readdirSync,
 	readFileSync,
 	readSync,
+	renameSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse, stringify } from "yaml";
 import {
@@ -54,6 +56,59 @@ function sha512File(path) {
 	}
 }
 
+function releaseManifestFiles(directory, metadata, platform) {
+	const manifest = `${metadata.updateChannel}${platform}.yml`;
+	const info = parse(readFileSync(join(directory, manifest), "utf8"));
+	if (
+		info.version !== metadata.version ||
+		!Array.isArray(info.files) ||
+		info.files.length === 0
+	)
+		throw new Error(`Invalid ${manifest}`);
+	const extension = platform === "-mac" ? ".zip" : ".AppImage";
+	if (!info.files.some((file) => file.url.endsWith(extension)))
+		throw new Error(`${manifest} has no ${extension}`);
+	return info.files.map((file) => {
+		const name = decodeURIComponent(file.url);
+		if (basename(name) !== name)
+			throw new Error(`Non-local release asset: ${name}`);
+		return { ...file, name };
+	});
+}
+
+// electron-builder uses GitHub-safe names in updater manifests while keeping
+// display names on local macOS archives. Match content before adopting those
+// names; never infer an archive from its position or filename alone.
+export function prepareReleaseAssets(directory, metadata) {
+	for (const platform of ["-mac", "-linux"]) {
+		for (const file of releaseManifestFiles(directory, metadata, platform)) {
+			const { name } = file;
+			const destination = join(directory, name);
+			if (existsSync(destination)) continue;
+			const matches = readdirSync(directory).filter((candidate) => {
+				const path = join(directory, candidate);
+				return (
+					candidate.includes(metadata.version) &&
+					extname(candidate) === extname(name) &&
+					statSync(path).isFile() &&
+					statSync(path).size === file.size &&
+					sha512File(path) === file.sha512
+				);
+			});
+			if (matches.length !== 1)
+				throw new Error(
+					`Expected one verified local archive for ${name}, found ${matches.length}`,
+				);
+			const source = join(directory, matches[0]);
+			if (existsSync(`${destination}.blockmap`))
+				throw new Error(`Conflicting blockmap for ${name}`);
+			renameSync(source, destination);
+			if (existsSync(`${source}.blockmap`))
+				renameSync(`${source}.blockmap`, `${destination}.blockmap`);
+		}
+	}
+}
+
 export function verifyReleaseAssets(directory, metadata) {
 	const names = readdirSync(directory);
 	for (const suffix of [".dmg", ".zip", ".AppImage", ".deb"]) {
@@ -65,21 +120,8 @@ export function verifyReleaseAssets(directory, metadata) {
 			throw new Error(`Missing ${suffix} for ${metadata.version}`);
 	}
 	for (const platform of ["-mac", "-linux"]) {
-		const manifest = `${metadata.updateChannel}${platform}.yml`;
-		const info = parse(readFileSync(join(directory, manifest), "utf8"));
-		if (
-			info.version !== metadata.version ||
-			!Array.isArray(info.files) ||
-			info.files.length === 0
-		)
-			throw new Error(`Invalid ${manifest}`);
-		const extension = platform === "-mac" ? ".zip" : ".AppImage";
-		if (!info.files.some((file) => file.url.endsWith(extension)))
-			throw new Error(`${manifest} has no ${extension}`);
-		for (const file of info.files) {
-			const name = decodeURIComponent(file.url);
-			if (basename(name) !== name)
-				throw new Error(`Non-local release asset: ${name}`);
+		for (const file of releaseManifestFiles(directory, metadata, platform)) {
+			const { name } = file;
 			const path = join(directory, name);
 			if (statSync(path).size !== file.size || sha512File(path) !== file.sha512)
 				throw new Error(`Integrity mismatch: ${name}`);
@@ -202,6 +244,7 @@ function resolveRelease() {
 }
 
 export function publishRelease(directory, metadata, github = gh) {
+	prepareReleaseAssets(directory, metadata);
 	const assets = verifyReleaseAssets(directory, metadata);
 	const notesFile = join(directory, "release-notes.md");
 	writeFileSync(notesFile, validateNotes(metadata.notes));
