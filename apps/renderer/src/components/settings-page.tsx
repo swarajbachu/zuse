@@ -1160,7 +1160,6 @@ function GeneralPane() {
 
 	return (
 		<div className="flex flex-col gap-4">
-			<LanguageSelector />
 			<SettingsGroup
 				title={uiMessage("settings:settings_page_account")}
 				description={uiMessage(
@@ -1308,6 +1307,7 @@ function GeneralPane() {
 						</div>
 					}
 				/>
+				<LanguageSelector settingsRow />
 			</SettingsGroup>
 
 			<ComputerAwakeSettings />

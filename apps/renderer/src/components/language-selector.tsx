@@ -7,8 +7,20 @@ import {
 	setLanguage,
 	useLocaleSnapshot,
 } from "../lib/localization.ts";
+import {
+	Select,
+	SelectItem,
+	SelectPopup,
+	SelectTrigger,
+	SelectValue,
+} from "./ui/select.tsx";
+import { SettingsRow } from "./ui/settings-panel.tsx";
 
-export function LanguageSelector() {
+export function LanguageSelector({
+	settingsRow = false,
+}: {
+	settingsRow?: boolean;
+}) {
 	const { message } = useMessages("common");
 	const id = useId();
 	const locale = useLocaleSnapshot();
@@ -30,30 +42,41 @@ export function LanguageSelector() {
 	};
 	const actionClassName =
 		"h-7 rounded-md bg-muted px-2 text-xs text-foreground";
-	return (
-		<div className="space-y-1.5">
-			<div className="flex items-center justify-between gap-3">
-				<label htmlFor={id} className="text-sm">
-					{message("common:language")}
-				</label>
-				<select
-					id={id}
-					className="h-7 max-w-[65%] rounded-md bg-muted px-2 text-xs text-foreground"
-					value={locale.preference}
-					disabled={saving}
-					onChange={(event) => {
-						if (isLocalePreference(event.target.value))
-							void change(event.target.value);
-					}}
-				>
-					<option value="system">{message("common:system")}</option>
-					{locale.available.map((value) => (
-						<option key={value} value={value} lang={value}>
-							{localeNames[value]}
-						</option>
-					))}
-				</select>
-			</div>
+	const items = [
+		{ value: "system", label: message("common:system") },
+		...locale.available.map((value) => ({ value, label: localeNames[value] })),
+	];
+	const control = (
+		<Select
+			value={locale.preference}
+			items={items}
+			disabled={saving}
+			onValueChange={(value) => {
+				if (isLocalePreference(value)) void change(value);
+			}}
+		>
+			<SelectTrigger
+				id={id}
+				aria-label={message("common:language")}
+				className="h-7 w-40"
+			>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectPopup>
+				{items.map(({ value, label }) => (
+					<SelectItem
+						key={value}
+						value={value}
+						lang={value === "system" ? undefined : value}
+					>
+						{label}
+					</SelectItem>
+				))}
+			</SelectPopup>
+		</Select>
+	);
+	const feedback = (
+		<>
 			{failed && (
 				<div className="space-y-1.5">
 					<p role="alert" className="text-xs text-destructive">
@@ -88,6 +111,24 @@ export function LanguageSelector() {
 					{message("common:draftNotice")}
 				</p>
 			)}
+		</>
+	);
+	if (settingsRow) {
+		return (
+			<SettingsRow title={message("common:language")} action={control}>
+				{feedback}
+			</SettingsRow>
+		);
+	}
+	return (
+		<div className="space-y-1.5">
+			<div className="flex items-center justify-between gap-3">
+				<label htmlFor={id} className="text-sm">
+					{message("common:language")}
+				</label>
+				{control}
+			</div>
+			{feedback}
 		</div>
 	);
 }
