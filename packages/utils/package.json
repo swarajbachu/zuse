@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./release-version": "./src/release-version.mjs",
 		"./cloud-auth-crypto": "./src/cloud-auth-crypto.ts",
 		"./browser-page": "./src/browser-page.ts",
 		"./site-favicon": "./src/site-favicon.ts",

@@ -20,6 +20,7 @@ import type {
 	TailnetEnvironmentConnection,
 	TailnetEnvironmentProfile,
 	TailnetShareState,
+	UpdateChannel,
 	UpdateStatus,
 } from "@zuse/contracts";
 
@@ -154,6 +155,8 @@ export interface CloudSyncStatus {
 }
 
 export interface UpdatesBridge {
+	readonly getChannel: () => Promise<UpdateChannel>;
+	readonly setChannel: (channel: UpdateChannel) => Promise<UpdateChannel>;
 	readonly onStatus: (handler: (status: UpdateStatus) => void) => () => void;
 	readonly check: () => Promise<void>;
 	readonly download: () => Promise<void>;

@@ -223,6 +223,13 @@ export const makeProviderSessionRuntime = (
 			// `start()` still lets a stopped generation attach or publish `running`.
 			if (!(yield* publish(attachProvider(session.id, session.providerId))))
 				return false;
+			// Publish startup status before consuming buffered provider events. A fast
+			// completion must remain authoritative after startup returns.
+			if (
+				options.postBootStatus !== undefined &&
+				!(yield* publish(setStatus(session.id, options.postBootStatus)))
+			)
+				return false;
 			if (!(yield* publish(startSubscription(session.id)))) return false;
 			if (
 				options.sendAfterOpen !== undefined &&
@@ -247,11 +254,6 @@ export const makeProviderSessionRuntime = (
 							),
 						),
 				))
-			)
-				return false;
-			if (
-				options.postBootStatus !== undefined &&
-				!(yield* publish(setStatus(session.id, options.postBootStatus)))
 			)
 				return false;
 			return true;
