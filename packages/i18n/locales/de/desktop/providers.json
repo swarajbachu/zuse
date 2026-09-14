@@ -126,5 +126,9 @@
 	"model_picker_model": "{{value1}} Modell{{value2}}",
 	"model_picker_context_window": "Kontextfenster {{value1}}",
 	"model_picker_credit_multiplier": "{{value1}} Kreditmultiplikator",
-	"provider_card_remove_custom_model": "Entfernen Sie das benutzerdefinierte Modell {{modelId}}"
+	"provider_card_remove_custom_model": "Entfernen Sie das benutzerdefinierte Modell {{modelId}}",
+	"pi_setup_hint": "Pi verwaltet die Authentifizierung und Werkzeugberechtigungen. Starten Sie <part0>pi</part0> in einem Terminal und melden Sie sich mit <part1>/login</part1> an.",
+	"pi_binary_path": "Pfad zur Pi-Programmdatei",
+	"pi_binary_placeholder": "pi in PATH suchen",
+	"pi_binary_help": "Geben Sie einen absoluten Pfad zur Programmdatei an oder lassen Sie das Feld leer, um PATH zu durchsuchen."
 }

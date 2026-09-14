@@ -126,5 +126,9 @@
 	"model_picker_model": "{{value1}} 모델{{value2}}",
 	"model_picker_context_window": "{{value1}} 컨텍스트 창",
 	"model_picker_credit_multiplier": "{{value1}} 신용 승수",
-	"provider_card_remove_custom_model": "사용자 정의 모델 {{modelId}} 제거"
+	"provider_card_remove_custom_model": "사용자 정의 모델 {{modelId}} 제거",
+	"pi_setup_hint": "Pi가 인증과 도구 권한을 관리합니다. 터미널에서 <part0>pi</part0>를 실행하고 <part1>/login</part1>으로 로그인하세요.",
+	"pi_binary_path": "Pi 실행 파일 경로",
+	"pi_binary_placeholder": "PATH에서 pi 찾기",
+	"pi_binary_help": "실행 파일의 절대 경로를 입력하거나 비워 두면 PATH에서 검색합니다."
 }

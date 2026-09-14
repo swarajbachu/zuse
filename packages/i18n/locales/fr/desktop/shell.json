@@ -53,5 +53,7 @@
 	"mcp_display_provider_apps": "Applications du fournisseur",
 	"provider_status_codex_provider_status": "Statut du fournisseur Codex",
 	"browser_access_gate_unnamed_computer": "Ordinateur sans nom",
-	"pending_chat_creation_chat_startup_needs_attention": "Le démarrage du chat nécessite une attention particulière."
+	"pending_chat_creation_chat_startup_needs_attention": "Le démarrage du chat nécessite une attention particulière.",
+	"pi_available": "Disponible",
+	"pi_native_auth_permissions": "Pi gère l’authentification et les autorisations."
 }

@@ -63,6 +63,19 @@ export function ProviderIcon({
 }: ProviderIconProps) {
 	const sized = cn("size-3.5 shrink-0", className);
 	switch (providerId) {
+		case "pi":
+			return (
+				<svg
+					viewBox="0 0 800 800"
+					className={sized}
+					fill="currentColor"
+					aria-hidden="true"
+					{...props}
+				>
+					<path d=" M165.29 165.29 H517.36 V400 H400 V517.36 H282.65 V634.72 H165.29 Z M282.65 282.65 V400 H400 V282.65 Z " />
+					<path d="M517.36 400 H634.72 V634.72 H517.36 Z" />
+				</svg>
+			);
 		case "claude":
 			return <ClaudeIcon className={sized} {...props} />;
 		case "codex":

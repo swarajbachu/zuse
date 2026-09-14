@@ -126,5 +126,9 @@
 	"model_picker_model": "{{value1}} 型号{{value2}}",
 	"model_picker_context_window": "{{value1}} 上下文窗口",
 	"model_picker_credit_multiplier": "{{value1}} 信用乘数",
-	"provider_card_remove_custom_model": "删除自定义型号{{modelId}}"
+	"provider_card_remove_custom_model": "删除自定义型号{{modelId}}",
+	"pi_setup_hint": "Pi 管理身份验证和工具权限。在终端中运行 <part0>pi</part0>，然后使用 <part1>/login</part1> 登录。",
+	"pi_binary_path": "Pi 可执行文件路径",
+	"pi_binary_placeholder": "在 PATH 中查找 pi",
+	"pi_binary_help": "输入可执行文件的绝对路径，或留空以搜索 PATH。"
 }

@@ -644,5 +644,8 @@
 	"device_command_card_exit": "· 출구 {{value1}}",
 	"device_bridge_panel_always_allow_your_cloud_chats": "항상 허용 · 클라우드 채팅",
 	"chat_landing_issueattached_sentence": "이슈{{value}}첨부됨",
-	"terminal_pane_waiting_for_changes_to_settle": "변경이 완료되기를 기다리는 중…"
+	"terminal_pane_waiting_for_changes_to_settle": "변경이 완료되기를 기다리는 중…",
+	"pi_permissions": "Pi 권한",
+	"question_timed_out": "질문 응답 시간이 초과되었습니다.",
+	"question_cancelled": "질문이 취소되었습니다."
 }

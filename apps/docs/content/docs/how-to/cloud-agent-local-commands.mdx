@@ -19,12 +19,15 @@ user. It is separate from the agent's cloud workspace permissions.
 
 1. Sign in to the same Zuse account on your desktop and other clients.
 2. Enable hosted access in **Settings → Devices**.
-3. Start a cloud chat from that desktop. Command access is available by default;
-   each command requires approval unless you have saved a permission.
+3. Start a cloud chat from that desktop, or open an existing cloud chat and send
+   a message. This also attaches chats originally created through Slack or the
+   public API. Command access is available by default; each command requires
+   approval unless you have saved a permission.
 4. Local commands appear in the conversation with a computer icon.
 
-The chat keeps its target when you open it on your phone or another computer.
-Opening a chat elsewhere does not silently change where commands run.
+The chat keeps its target when you only open it on your phone or another
+computer. Sending a message from another linked desktop moves the command target
+to that desktop; clients that cannot run local commands do not replace it.
 
 Both the API and the cloud runtime must support device commands. Older retained
 cloud runtimes show local access as unavailable; they are not replaced or

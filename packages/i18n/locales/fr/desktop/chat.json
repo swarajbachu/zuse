@@ -647,5 +647,8 @@
 	"device_command_card_exit": "· Quitter {{value1}}",
 	"message_row_retry_preview": "Réessayer l'aperçu",
 	"chat_landing_issueattached_sentence": "Numéro{{value}}ci-joint",
-	"terminal_pane_waiting_for_changes_to_settle": "En attente de la fin des modifications…"
+	"terminal_pane_waiting_for_changes_to_settle": "En attente de la fin des modifications…",
+	"pi_permissions": "Autorisations Pi",
+	"question_timed_out": "Le délai de réponse à la question a expiré.",
+	"question_cancelled": "Question annulée."
 }

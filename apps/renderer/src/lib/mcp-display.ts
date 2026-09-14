@@ -8,6 +8,7 @@ export const MCP_PROVIDER_LABEL: Record<ProviderId, string> = {
 	grok: "Grok",
 	gemini: "Gemini",
 	kiro: "Kiro",
+	pi: "Pi",
 	cursor: "Cursor",
 	opencode: "OpenCode",
 };

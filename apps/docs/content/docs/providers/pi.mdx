@@ -1,0 +1,43 @@
+---
+title: Pi
+description: Run Pi coding-agent sessions in Zuse using the local CLI.
+section: providers
+order: 39
+platforms: [desktop]
+providers: [pi]
+prerequisites: [/start/install, /providers/setup]
+related: [/composer/modes-permissions, /reference/diagnostics]
+next: /composer
+lastVerified: latest
+---
+
+Pi runs through your installed `pi` CLI in RPC mode. Zuse starts an isolated process in the project's checkout or worktree and renders assistant text, thinking, tools, usage, and errors in the conversation timeline.
+
+## Install and authenticate
+
+```bash
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+pi
+```
+
+Use `/login` inside Pi to authenticate with a supported subscription. Alternatively, configure a model provider's API credentials using [Pi's authentication instructions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/providers.md). Environment variables must be available to the Zuse server process, not only to an unrelated terminal shell. Zuse does not store a separate Pi API key.
+
+In **Settings → Providers → Pi**, enable Pi and optionally enter an absolute executable path. Leave the field empty to discover `pi` on PATH. An invalid explicit path is reported as an error; Zuse does not silently launch a different installation. Authentication is verified by Pi when used, so an uncertain login status does not prevent selecting it.
+
+## Sessions and composer
+
+- Start independent Pi sessions per project or worktree, stop active work, and continue the same conversation after restarting Zuse.
+- Use the model picker or `/model <provider/model-id>`. `/model` opens the picker. **Auto — Pi default** uses Pi's own default model; a model change resumes the same native session on the next message.
+- Attach supported images (PNG, JPEG, WebP, GIF) for vision-capable models, or reference workspace files. Other uploaded attachment formats produce an explicit error.
+- Use `/compact` to summarize context. Pi's automatic compaction remains enabled according to its configuration.
+- Answer Pi extension confirmations, selections, and text questions in Zuse. Terminal-only custom extension interfaces are not supported.
+
+## Native permissions and project trust
+
+Pi manages its own tools and extensions. Zuse's permission presets and Plan mode are unavailable for Pi; default Pi tools do not ask for permission before editing files or running commands. Extensions can request confirmations through the question UI.
+
+Zuse preserves Pi's project trust settings. RPC mode does not prompt for project trust, so untrusted project extensions and resources may be ignored. Run Pi interactively in the checkout and use `/trust` when you want to configure trust, then restart the session. See [Pi's project trust documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md#project-trust).
+
+Native session files remain in Pi's session storage. Zuse remembers the exact file; if it is deleted or corrupt, recovery reports an error instead of attaching another conversation. Keep those files when moving or backing up your installation.
+
+Cloud provisioning/authentication, importing existing CLI history, and Zuse-managed browser/MCP tools are not part of this integration. Use a current Pi CLI with [RPC support](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md).

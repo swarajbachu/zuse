@@ -273,6 +273,13 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 			return { _tag: "error", message: event.message };
 		case "Interrupted":
 			return { _tag: "interrupted" };
+		case "UserQuestionResolved":
+			return {
+				_tag: "user_question_answer",
+				itemId: event.itemId,
+				answers: [],
+				resolution: event.resolution,
+			};
 		case "UserQuestion":
 			return {
 				_tag: "user_question",

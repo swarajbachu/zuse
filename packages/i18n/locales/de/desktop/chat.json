@@ -644,5 +644,8 @@
 	"device_bridge_panel_requires_zuse_running_sign_in_and_hosted_device_access": "Erfordert Zuse Ausführung, Anmeldung und Zugriff auf gehostete Geräte.",
 	"chat_landing_issueattached_sentence": "Ausgabe{{value}}anbei",
 	"message_row_preparing_image": "Bild wird vorbereitet",
-	"terminal_pane_waiting_for_changes_to_settle": "Warten, bis die Änderungen abgeschlossen sind…"
+	"terminal_pane_waiting_for_changes_to_settle": "Warten, bis die Änderungen abgeschlossen sind…",
+	"pi_permissions": "Pi-Berechtigungen",
+	"question_timed_out": "Zeit für die Beantwortung abgelaufen.",
+	"question_cancelled": "Frage abgebrochen."
 }

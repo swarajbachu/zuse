@@ -53,5 +53,7 @@
 	"mcp_display_provider_apps": "⟦Prôôvïïdëër ààpps⟧",
 	"provider_status_codex_provider_status": "⟦Côôdëëx prôôvïïdëër stààtüüs⟧",
 	"browser_access_gate_unnamed_computer": "⟦ÜÜnnààmëëd côômpüütëër⟧",
-	"pending_chat_creation_chat_startup_needs_attention": "⟦Chààt stààrtüüp nëëëëds ààttëëntïïôôn.⟧"
+	"pending_chat_creation_chat_startup_needs_attention": "⟦Chààt stààrtüüp nëëëëds ààttëëntïïôôn.⟧",
+	"pi_available": "⟦ÀÀvààïïlààblëë⟧",
+	"pi_native_auth_permissions": "⟦ÀÀüüthëëntïïcààtïïôôn àànd pëërmïïssïïôôns ààrëë màànààgëëd by Pïï.⟧"
 }

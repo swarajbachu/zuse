@@ -856,11 +856,13 @@ export function ChatComposer({
 				// Editor is already cleared by the caller; nothing else to do.
 				break;
 			case "model":
+				if (!parsed.args) setModelPickerOpen(true);
 				if (parsed.args) {
 					void setModel(sessionId, parsed.args, qualifiedEnvironmentId);
 				}
 				break;
 			case "mode":
+				if (session.providerId === "pi") break;
 				if (session.providerId === "cursor") {
 					toastManager.add({
 						type: "info",
@@ -880,9 +882,11 @@ export function ChatComposer({
 				}
 				break;
 			case "plan":
+				if (session.providerId === "pi") break;
 				void setPermissionMode(sessionId, "plan", qualifiedEnvironmentId);
 				break;
 			case "run":
+				if (session.providerId === "pi") break;
 				void setPermissionMode(sessionId, "default", qualifiedEnvironmentId);
 				break;
 			case "goal":
@@ -1316,6 +1320,7 @@ export function ChatComposer({
 	// the current sessionId after a session switch / re-render.
 	submitRef.current = submit;
 	togglePlanModeRef.current = () => {
+		if (session.providerId === "pi") return;
 		void setPermissionMode(
 			sessionId,
 			session.permissionMode === "plan" ? "default" : "plan",
@@ -1619,26 +1624,29 @@ export function ChatComposer({
 											onClick={() => setGoalSendMode((v) => !v)}
 										/>
 									) : null}
-									{(findModelDescriptor(
-										composerCatalog,
-										session.providerId,
-										session.model,
-									)?.supportsPlanMode ??
-										true) && (
-										<PlanModeToggle
-											sessionId={sessionId}
-											environmentId={qualifiedEnvironmentId}
-											current={session.permissionMode}
+									{session.providerId !== "pi" &&
+										(findModelDescriptor(
+											composerCatalog,
+											session.providerId,
+											session.model,
+										)?.supportsPlanMode ??
+											true) && (
+											<PlanModeToggle
+												sessionId={sessionId}
+												environmentId={qualifiedEnvironmentId}
+												current={session.permissionMode}
+											/>
+										)}
+									{session.providerId !== "pi" && (
+										<McpPopover
+											projectId={session.projectId}
+											providerId={session.providerId}
 										/>
 									)}
 									<ExtensionAttachmentAction
 										onSelect={(snapshot) =>
 											attachExtensionSnapshot(sessionId, snapshot)
 										}
-									/>
-									<McpPopover
-										projectId={session.projectId}
-										providerId={session.providerId}
 									/>
 								</div>
 								<div className="flex shrink-0 items-center gap-2">
@@ -1795,6 +1803,12 @@ function RuntimeAccessPicker({
 
 	const setRuntimeMode = useSessionsStore((state) => state.setRuntimeMode);
 	const meta = MODE_META[current];
+	if (providerId === "pi")
+		return (
+			<span className="text-xs text-muted-foreground">
+				{uiMessage("chat:pi_permissions")}
+			</span>
+		);
 	const fixedSandbox = providerId === "cursor";
 	const highlighted = confirmed && current === "full-access";
 

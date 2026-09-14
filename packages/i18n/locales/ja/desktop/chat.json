@@ -644,5 +644,8 @@
 	"message_row_retry_preview": "プレビューを再試行する",
 	"device_bridge_panel_chat": "チャット {{value1}}",
 	"chat_landing_issueattached_sentence": "問題{{value}}添付",
-	"terminal_pane_waiting_for_changes_to_settle": "変更が落ち着くのを待っています…"
+	"terminal_pane_waiting_for_changes_to_settle": "変更が落ち着くのを待っています…",
+	"pi_permissions": "Pi の権限",
+	"question_timed_out": "質問への回答がタイムアウトしました。",
+	"question_cancelled": "質問はキャンセルされました。"
 }

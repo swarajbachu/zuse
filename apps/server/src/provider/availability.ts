@@ -1,5 +1,6 @@
+import { accessSync, constants, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { PlanType } from "@zuse/agents/codex-generated/PlanType";
 import type { Account } from "@zuse/agents/codex-generated/v2/Account";
 import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
@@ -70,6 +71,15 @@ export const MIN_GROK_CLI_VERSION: CliVersion = {
 };
 
 const PROBES: ReadonlyArray<ProviderProbe> = [
+	{
+		...PROVIDER_CLI_REGISTRY.pi,
+		minVersion: null,
+		upgradeCommand:
+			"npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
+		npmPackage: "@earendil-works/pi-coding-agent",
+		homebrewFormula: null,
+		nativeUpdate: null,
+	},
 	{
 		...PROVIDER_CLI_REGISTRY.claude,
 		// Claude Agent SDK 0.2 doesn't break on older CLIs the way codex-sdk
@@ -247,8 +257,24 @@ const CLI_BINARIES_SELECT_NEWEST = new Set(["codex", "opencode"]);
  */
 export const resolveCliPath = (
 	cliBinary: string,
+	overrides: Readonly<Record<string, string>> = {},
 ): Effect.Effect<string | null, never, CommandExecutor.ChildProcessSpawner> =>
 	Effect.gen(function* () {
+		const provider = Object.values(PROVIDER_CLI_REGISTRY).find(
+			(p) => p.cliBinary === cliBinary,
+		);
+		const override = provider
+			? overrides[provider.providerId]?.trim()
+			: undefined;
+		if (override) {
+			try {
+				if (!isAbsolute(override) || !statSync(override).isFile()) return null;
+				accessSync(override, constants.X_OK);
+				return override;
+			} catch {
+				return null;
+			}
+		}
 		const result = yield* runCapture(
 			Command.make("which", ["-a", cliBinary]),
 		).pipe(
@@ -1141,6 +1167,12 @@ const probeAccount = (
 			return probeOpencodeAccount;
 		case "kiro":
 			return probeKiroAccount;
+		case "pi":
+			return Effect.succeed({
+				cliLoggedIn: false,
+				authStatus: "unknown",
+				authLabel: "Managed by Pi",
+			});
 	}
 };
 
@@ -1163,6 +1195,7 @@ const computeHealthStatus = (input: {
 
 const probeOne = (
 	probe: ProviderProbe,
+	overrides: Readonly<Record<string, string>> = {},
 ): Effect.Effect<
 	AgentAvailability,
 	never,
@@ -1170,7 +1203,7 @@ const probeOne = (
 > =>
 	Effect.gen(function* () {
 		const lastCheckedAt = new Date();
-		const cliPath = yield* resolveCliPath(probe.cliBinary);
+		const cliPath = yield* resolveCliPath(probe.cliBinary, overrides);
 
 		if (cliPath === null || cliPath.length === 0) {
 			return AgentAvailability.make({
@@ -1180,7 +1213,9 @@ const probeOne = (
 				cliLoggedIn: false,
 				hasApiKey: false,
 				status: "error",
-				statusMessage: `${probe.displayName} CLI not found on PATH.`,
+				statusMessage: overrides[probe.providerId]
+					? `Invalid ${probe.displayName} binary path: ${overrides[probe.providerId]}. Choose an absolute executable path.`
+					: `${probe.displayName} CLI not found on PATH.`,
 				lastCheckedAt,
 			});
 		}
@@ -1301,4 +1336,15 @@ export const probeAllProviders: Effect.Effect<
 	ReadonlyArray<AgentAvailability>,
 	never,
 	CommandExecutor.ChildProcessSpawner | FileSystem.FileSystem
-> = Effect.all(PROBES.map(probeOne), { concurrency: "unbounded" });
+> = Effect.all(
+	PROBES.map((probe) => probeOne(probe)),
+	{ concurrency: "unbounded" },
+);
+
+export const probeProvidersWithPaths = (
+	overrides: Readonly<Record<string, string>>,
+) =>
+	Effect.all(
+		PROBES.map((probe) => probeOne(probe, overrides)),
+		{ concurrency: "unbounded" },
+	);

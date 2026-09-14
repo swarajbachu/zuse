@@ -41,6 +41,7 @@ import type {
 	Session,
 	SessionAlreadyStartedError,
 	SessionId,
+	SessionModeUnsupportedError,
 	SessionNotFoundError,
 	SessionStartError,
 	SkillRef,
@@ -268,7 +269,7 @@ export interface ConversationOperations {
 		sessionId: SessionId,
 		runtimeMode: RuntimeMode,
 		commandId: string,
-	) => Effect.Effect<void, SessionNotFoundError>;
+	) => Effect.Effect<void, SessionNotFoundError | SessionModeUnsupportedError>;
 
 	/**
 	 * Switch the SDK lifecycle mode (plan / default / acceptEdits) on a
@@ -279,7 +280,7 @@ export interface ConversationOperations {
 		sessionId: SessionId,
 		mode: PermissionMode,
 		commandId: string,
-	) => Effect.Effect<void, SessionNotFoundError>;
+	) => Effect.Effect<void, SessionNotFoundError | SessionModeUnsupportedError>;
 
 	/**
 	 * Resolve a pending in-process AskUserQuestion call by `itemId`.

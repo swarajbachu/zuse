@@ -76,6 +76,18 @@ copied from the reference project. Their own packages and licenses remain the
 authoritative terms. Package-specific adaptations are documented separately;
 for example, see [`packages/tokenmaxer/NOTICE.md`](packages/tokenmaxer/NOTICE.md).
 
+## Pi provider branding and protocol
+
+Pi's provider icon uses the paths from the official
+[Pi logo](https://pi.dev/logo-auto.svg), retrieved on 2026-09-11. The paths are
+used in the desktop and website icons and rasterized for mobile provider icons
+by `scripts/gen-provider-logos.mjs`. The logo identifies the integrated provider;
+it is not original Zuse artwork.
+
+The Pi driver is an independent implementation of the documented
+[Pi RPC protocol](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md).
+It launches the user's installed CLI and does not bundle Pi's SDK or CLI.
+
 ## Preserved upstream MIT license
 
 MIT License

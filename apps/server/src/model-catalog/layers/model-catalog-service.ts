@@ -8,6 +8,7 @@ import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-clien
 import { listCursorModels } from "@zuse/agents/drivers/cursor-models";
 import { loadKiroInventory } from "@zuse/agents/drivers/kiro-inventory";
 import { loadOpencodeInventory } from "@zuse/agents/drivers/opencode";
+import { loadPiInventory } from "@zuse/agents/drivers/pi-inventory";
 import {
 	BUNDLED_MODEL_CATALOG,
 	findModelDescriptor,
@@ -54,6 +55,7 @@ const LIVE_TIMEOUT_MS = 15_000;
 const LIVE_CONCURRENCY = 2;
 
 const LIVE_PROVIDERS: ReadonlyArray<ProviderId> = [
+	"pi",
 	"codex",
 	"claude",
 	"cursor",
@@ -147,7 +149,10 @@ export const ModelCatalogServiceLive = Layer.effect(
 		const listerPermits = yield* Semaphore.make(LIVE_CONCURRENCY);
 
 		const cliPath = (binary: string): Effect.Effect<string | null> =>
-			resolveCliPath(binary).pipe(
+			configStore.getSettings().pipe(
+				Effect.flatMap((settings) =>
+					resolveCliPath(binary, settings.providerBinaryPaths ?? {}),
+				),
 				Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
 			);
 
@@ -340,6 +345,24 @@ export const ModelCatalogServiceLive = Layer.effect(
 				Effect.catchCause((cause) => Effect.succeed(listingError(true, cause))),
 			);
 
+		const listPi = (): Effect.Effect<LiveListingDocument> =>
+			Effect.gen(function* () {
+				const binary = yield* cliPath("pi");
+				if (!binary) return unsupportedListing;
+				const models = yield* loadPiInventory(binary);
+				return {
+					status: "ok" as const,
+					authoritative: false,
+					fetchedAt: Date.now(),
+					error: null,
+					models,
+				};
+			}).pipe(
+				Effect.catchCause((cause) =>
+					Effect.succeed(listingError(false, cause)),
+				),
+			);
+
 		const listKiro = (): Effect.Effect<LiveListingDocument> =>
 			Effect.gen(function* () {
 				const kiroPath = yield* cliPath("kiro-cli");
@@ -413,6 +436,8 @@ export const ModelCatalogServiceLive = Layer.effect(
 					return listClaude();
 				case "cursor":
 					return listCursor();
+				case "pi":
+					return listPi();
 				case "kiro":
 					return listKiro();
 				case "opencode":
@@ -427,6 +452,8 @@ export const ModelCatalogServiceLive = Layer.effect(
 				switch (providerId) {
 					case "codex":
 						return cliFingerprint(yield* cliPath("codex"));
+					case "pi":
+						return `${cliFingerprint(yield* cliPath("pi"))}:${process.env.PI_CODING_AGENT_DIR ?? process.env.HOME ?? ""}`;
 					case "kiro":
 						return cliFingerprint(yield* cliPath("kiro-cli"));
 					case "claude": {

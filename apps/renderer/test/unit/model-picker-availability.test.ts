@@ -192,3 +192,23 @@ describe("model picker provider visibility", () => {
 		).toBe("codex");
 	});
 });
+
+it("allows installed Pi with native, unverified authentication", () => {
+	expect(
+		isModelPickerProviderVisible({
+			providerId: "pi",
+			availability: availabilityFor("pi", {
+				authStatus: "unknown",
+				cliLoggedIn: false,
+			}),
+			providerEnabled: {},
+		}),
+	).toBe(true);
+	expect(
+		isModelPickerProviderVisible({
+			providerId: "pi",
+			availability: availabilityFor("pi", { cliInstalled: false }),
+			providerEnabled: {},
+		}),
+	).toBe(false);
+});

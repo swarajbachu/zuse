@@ -644,5 +644,8 @@
 	"message_row_retry_preview": "⟦Rëëtry prëëvïïëëw⟧",
 	"message_row_preparing_image": "⟦Prëëpààrïïng ïïmààgëë⟧",
 	"chat_landing_issueattached_sentence": "⟦ÏÏssüüëë{{value}}ààttààchëëd⟧",
-	"terminal_pane_waiting_for_changes_to_settle": "⟦Wààïïtïïng fôôr chààngëës tôô sëëttlëë…⟧"
+	"terminal_pane_waiting_for_changes_to_settle": "⟦Wààïïtïïng fôôr chààngëës tôô sëëttlëë…⟧",
+	"pi_permissions": "⟦Pïï pëërmïïssïïôôns⟧",
+	"question_timed_out": "⟦Qüüëëstïïôôn tïïmëëd ôôüüt.⟧",
+	"question_cancelled": "⟦Qüüëëstïïôôn cààncëëllëëd.⟧"
 }

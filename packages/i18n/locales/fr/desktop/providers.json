@@ -126,5 +126,9 @@
 	"model_picker_model": "Modèle {{value1}}{{value2}}",
 	"model_picker_context_window": "Fenêtre contextuelle {{value1}}",
 	"model_picker_credit_multiplier": "{{value1}} multiplicateur de crédit",
-	"provider_card_remove_custom_model": "Supprimer le modèle personnalisé {{modelId}}"
+	"provider_card_remove_custom_model": "Supprimer le modèle personnalisé {{modelId}}",
+	"pi_setup_hint": "Pi gère l’authentification et les autorisations des outils. Lancez <part0>pi</part0> dans un terminal et utilisez <part1>/login</part1> pour vous connecter.",
+	"pi_binary_path": "Chemin de l’exécutable Pi",
+	"pi_binary_placeholder": "Rechercher pi dans PATH",
+	"pi_binary_help": "Indiquez un chemin absolu vers l’exécutable ou laissez ce champ vide pour rechercher dans PATH."
 }

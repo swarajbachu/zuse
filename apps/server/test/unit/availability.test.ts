@@ -1,7 +1,8 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { NodeServices } from "@effect/platform-node";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-
 import {
 	buildUpdateCommand,
 	claudeAuthTestHelpers,
@@ -12,6 +13,7 @@ import {
 	MIN_CODEX_CLI_VERSION,
 	MIN_GROK_CLI_VERSION,
 	parseCliVersion,
+	resolveCliPath,
 	resolveCodexCapabilities,
 	SUPPORTED_PROVIDER_CLIS,
 	selectCliPathCandidate,
@@ -35,6 +37,7 @@ describe("supported provider CLIs", () => {
 			["grok", "grok"],
 			["gemini", "gemini"],
 			["opencode", "opencode"],
+			["pi", "pi"],
 			["kiro", "kiro-cli"],
 		]);
 	});
@@ -467,5 +470,21 @@ describe("buildUpdateCommand — install-method detection", () => {
 		expect(buildUpdateCommand("grok", ["/Users/me/.local/bin/grok"])).toBe(
 			"curl -fsSL https://x.ai/cli/install.sh | bash",
 		);
+	});
+});
+
+describe("provider binary overrides", () => {
+	const resolve = (path: string) =>
+		Effect.runPromise(
+			resolveCliPath("pi", { pi: path }).pipe(
+				Effect.provide(NodeServices.layer),
+			),
+		);
+	it("uses an explicit absolute executable without PATH discovery", async () => {
+		expect(await resolve(process.execPath)).toBe(process.execPath);
+	});
+	it("rejects invalid overrides without falling back to PATH", async () => {
+		for (const path of ["relative/pi", "/missing-zuse-test/pi", "/tmp"])
+			expect(await resolve(path)).toBeNull();
 	});
 });

@@ -126,5 +126,9 @@
 	"model_picker_model": "{{value1}}モデル{{value2}}",
 	"model_picker_context_window": "{{value1}} コンテキスト ウィンドウ",
 	"model_picker_credit_multiplier": "{{value1}} クレジット乗数",
-	"provider_card_remove_custom_model": "カスタム モデル {{modelId}} を削除"
+	"provider_card_remove_custom_model": "カスタム モデル {{modelId}} を削除",
+	"pi_setup_hint": "Pi が認証とツールの権限を管理します。ターミナルで <part0>pi</part0> を実行し、<part1>/login</part1> でログインしてください。",
+	"pi_binary_path": "Pi 実行ファイルのパス",
+	"pi_binary_placeholder": "PATH から pi を検索",
+	"pi_binary_help": "実行ファイルの絶対パスを入力するか、空欄にして PATH を検索します。"
 }

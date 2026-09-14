@@ -53,5 +53,7 @@
 	"mcp_display_provider_apps": "Anbieter-Apps",
 	"provider_status_codex_provider_status": "Codex-Anbieterstatus",
 	"browser_access_gate_unnamed_computer": "Unbenannter Computer",
-	"pending_chat_creation_chat_startup_needs_attention": "Der Chat-Start braucht Aufmerksamkeit."
+	"pending_chat_creation_chat_startup_needs_attention": "Der Chat-Start braucht Aufmerksamkeit.",
+	"pi_available": "Verfügbar",
+	"pi_native_auth_permissions": "Authentifizierung und Berechtigungen werden von Pi verwaltet."
 }

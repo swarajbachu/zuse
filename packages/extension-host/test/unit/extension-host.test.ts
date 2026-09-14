@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { compileExtension } from "../../src/compiler.ts";
 import { ExtensionHost } from "../../src/host.ts";
 import { verifyMarketplaceCatalog } from "../../src/marketplace.ts";
@@ -63,8 +63,8 @@ const makeHost = (root: string) =>
 		},
 	});
 
-describe("ExtensionHost", () => {
-	// Compilation and real child-process startup need the same CI budget as the other lifecycle tests.
+// These tests compile extensions and start real child processes, including on cold CI runners.
+describe("ExtensionHost", { timeout: 20_000 }, () => {
 	it("stays globally disabled by default and invokes validated RPCs after enable", async () => {
 		const { root, extension } = await fixture();
 		const host = makeHost(root);
@@ -229,7 +229,17 @@ export default function setup(e) {
 				source: { _tag: "directory", path: extension },
 				grantedCapabilities: ["rpc"],
 			});
-			await new Promise((resolve) => setTimeout(resolve, 8500));
+			await vi.waitFor(
+				() => {
+					expect(
+						host.logs("test-extension").filter((log) => log.message === "BOOT"),
+					).toHaveLength(4);
+					expect(host.snapshot().items[0]?.status).toBe("failed");
+				},
+				{ timeout: 20_000, interval: 50 },
+			);
+			// Observe longer than the largest (4s) retry delay to catch a fifth start.
+			await new Promise((resolve) => setTimeout(resolve, 5_000));
 			expect(
 				host.logs("test-extension").filter((log) => log.message === "BOOT"),
 			).toHaveLength(4);
@@ -237,7 +247,7 @@ export default function setup(e) {
 		} finally {
 			await host.stop();
 		}
-	}, 15000);
+	}, 30_000);
 
 	it("requires explicit approval for every capability", async () => {
 		const { root, extension } = await fixture();

@@ -28,8 +28,8 @@ import type { ModelCatalog } from "./schema.ts";
  */
 export const BUNDLED_MODEL_CATALOG = {
 	schemaVersion: 1,
-	revision: 2026090401,
-	generatedAt: "2026-09-04T00:00:00.000Z",
+	revision: 2026091101,
+	generatedAt: "2026-09-11T00:00:00.000Z",
 	providers: {
 		// Claude Code. Effort tiers and per-model knobs match the published
 		// Claude Agent SDK contract.
@@ -155,6 +155,17 @@ export const BUNDLED_MODEL_CATALOG = {
 				"gemini-3-pro": "gemini-3-pro-preview",
 				"gemini-3.1-pro-preview": "gemini-3-pro-preview",
 			},
+		},
+		pi: {
+			models: [
+				{
+					id: "auto",
+					label: "Auto — Pi default",
+					supportsPlanMode: false,
+					defaultModel: true,
+				},
+			],
+			aliases: {},
 		},
 		// Kiro CLI (`kiro-cli acp`) speaks standard ACP. Model ids match
 		// `kiro-cli chat --list-models --format json` (dotted versions). The

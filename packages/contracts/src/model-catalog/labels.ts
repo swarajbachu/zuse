@@ -14,6 +14,7 @@ export const PROVIDER_LABELS: Readonly<
 	cursor: "Cursor",
 	opencode: "OpenCode",
 	kiro: "Kiro",
+	pi: "Pi",
 };
 
 export const providerLabel = (providerId: ProviderId): string =>

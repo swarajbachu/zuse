@@ -126,5 +126,9 @@
 	"model_picker_model": "{{value1}} 型號{{value2}}",
 	"model_picker_context_window": "{{value1}} 上下文視窗",
 	"model_picker_credit_multiplier": "{{value1}} 信用乘數",
-	"provider_card_remove_custom_model": "刪除自訂型號{{modelId}}"
+	"provider_card_remove_custom_model": "刪除自訂型號{{modelId}}",
+	"pi_setup_hint": "Pi 管理身分驗證和工具權限。在終端機中執行 <part0>pi</part0>，然後使用 <part1>/login</part1> 登入。",
+	"pi_binary_path": "Pi 執行檔路徑",
+	"pi_binary_placeholder": "在 PATH 中尋找 pi",
+	"pi_binary_help": "輸入執行檔的絕對路徑，或留空以搜尋 PATH。"
 }

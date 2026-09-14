@@ -266,6 +266,16 @@ function MessageRowImpl({
 		case "user_question":
 			return <UserQuestionMessageRow content={message.content} />;
 		case "user_question_answer":
+			if (message.content.resolution)
+				return (
+					<div className="px-4 py-2 text-xs text-muted-foreground">
+						{uiMessage(
+							message.content.resolution === "timed-out"
+								? "chat:question_timed_out"
+								: "chat:question_cancelled",
+						)}
+					</div>
+				);
 			// The paired `user_question` row above renders the answer inline, so
 			// the standalone answer row is suppressed.
 			return null;
@@ -428,7 +438,7 @@ function UserQuestionMessageRow({
 	// selections render here as a `UserInputRow` accordion so the Q&A
 	// stays visible in scrollback like every other tool call.
 	const answers = answersByItemId.get(content.itemId);
-	if (answers === undefined) return null;
+	if (answers === undefined || answers.length === 0) return null;
 	return <UserInputRow questions={content.questions} answers={answers} />;
 }
 

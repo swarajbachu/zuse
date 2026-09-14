@@ -12,6 +12,7 @@ export const BUILTIN_PROVIDER_IDS = [
 	"cursor",
 	"opencode",
 	"kiro",
+	"pi",
 ] as const;
 export type BuiltinProviderId = (typeof BUILTIN_PROVIDER_IDS)[number];
 
@@ -631,6 +632,7 @@ const SessionCursorEvent = Schema.TaggedStruct("SessionCursor", {
 		"gemini-session-id",
 		"opencode-session-id",
 		"kiro-session-id",
+		"pi-session-file",
 	]),
 });
 
@@ -667,6 +669,11 @@ export type UserQuestion = typeof UserQuestion.Type;
  * SDK's `tool_use.id` so the eventual answer maps back to a single tool
  * call.
  */
+const UserQuestionResolvedEvent = Schema.TaggedStruct("UserQuestionResolved", {
+	itemId: AgentItemId,
+	resolution: Schema.Literals(["cancelled", "timed-out"]),
+});
+
 const UserQuestionEvent = Schema.TaggedStruct("UserQuestion", {
 	itemId: AgentItemId,
 	questions: Schema.Array(UserQuestion),
@@ -745,6 +752,7 @@ export const AgentEvent = Schema.Union([
 	SessionCursorEvent,
 	ProviderNotificationMetadataEvent,
 	UserQuestionEvent,
+	UserQuestionResolvedEvent,
 	PlanApprovalRequestedEvent,
 	PermissionModeChangedEvent,
 	GoalUpdatedEvent,

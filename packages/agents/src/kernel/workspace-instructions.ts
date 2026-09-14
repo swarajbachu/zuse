@@ -18,9 +18,11 @@ const currentBranch = (cwd: string): string | null => {
 export const zuseWorkspaceInstructions = ({
 	projectPath,
 	cwd,
+	includeAppTools = true,
 }: {
 	readonly projectPath: string;
 	readonly cwd: string;
+	readonly includeAppTools?: boolean;
 }): string => {
 	const branch = currentBranch(cwd);
 	const isWorktree = path.resolve(cwd) !== path.resolve(projectPath);
@@ -31,7 +33,11 @@ export const zuseWorkspaceInstructions = ({
 		`Checkout: ${isWorktree ? "git worktree" : "main project checkout"}`,
 		`Current branch: ${branch ?? "unknown"}`,
 		"Treat the working directory as authoritative and keep repository work inside it.",
-		'Use the "zuse" MCP server for app browser, image, and orchestration tools when relevant.',
+		...(includeAppTools
+			? [
+					'Use the "zuse" MCP server for app browser, image, and orchestration tools when relevant.',
+				]
+			: []),
 		"</system_instruction>",
 	].join("\n");
 };

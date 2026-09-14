@@ -19,8 +19,7 @@ import {
 	Loading02Icon,
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
-import { useEffect, useMemo, useRef, useState } from "react";
-
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ApiKeyRow } from "~/components/api-key-row";
 import { BlurredEmail } from "~/components/blurred-email";
 import { OpencodeProviderManager } from "~/components/opencode-provider-manager";
@@ -30,6 +29,7 @@ import { Input } from "~/components/ui/input";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { Switch } from "~/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { INSTALL_HINT } from "~/lib/provider-setup";
 import {
 	formatVersionLabel,
 	getProviderSummary,
@@ -52,15 +52,6 @@ import {
 	IDLE_PROVIDER_UPDATE_STATE,
 	useProvidersStore,
 } from "~/store/providers";
-
-const INSTALL_HINT: Partial<Record<ProviderId, string>> = {
-	claude: "npm i -g @anthropic-ai/claude-code",
-	codex: "npm i -g @openai/codex",
-	grok: "curl -fsSL https://x.ai/cli/install.sh | bash",
-	gemini: "npm i -g @google/gemini-cli",
-	opencode: "curl -fsSL https://opencode.ai/install | bash",
-	kiro: "Install from https://kiro.dev",
-};
 
 const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
 	claude: "claude /login",
@@ -295,6 +286,17 @@ export function ProviderCard({
 							command={LOGIN_HINT[providerId] ?? ""}
 						/>
 					)}
+				{providerId === "pi" && (
+					<>
+						<PiBinaryPath />
+						<p className="text-muted-foreground">
+							<RichMessage
+								id="providers:pi_setup_hint"
+								components={{ part0: <code />, part1: <code /> }}
+							/>
+						</p>
+					</>
+				)}
 				<SubscriptionRow providerId={providerId} availability={availability} />
 
 				{providerId === "opencode" ? (
@@ -346,7 +348,7 @@ export function ProviderCard({
 									{uiMessage("extensions:configure", { name: displayName })}
 								</Button>
 							) : extensionProvider?.descriptor.authentication._tag ===
-								"none" ? null : (
+									"none" || providerId === "pi" ? null : (
 								<>
 									{providerId !== "cursor" && (
 										<span className="text-[11px] font-medium text-muted-foreground">
@@ -984,5 +986,31 @@ function CodeRow({ label, command }: { label: string; command: string }) {
 				</Button>
 			</div>
 		</div>
+	);
+}
+
+function PiBinaryPath() {
+	const { message: uiMessage } = useUiMessages(["providers"]);
+	const inputId = useId();
+	const saved = useSettingsStore((s) => s.providerBinaryPaths?.pi ?? "");
+	const save = useSettingsStore((s) => s.setProviderBinaryPath);
+	const [value, setValue] = useState(saved);
+	useEffect(() => setValue(saved), [saved]);
+	return (
+		<label htmlFor={inputId} className="flex flex-col gap-1.5">
+			{uiMessage("providers:pi_binary_path")}
+			<Input
+				id={inputId}
+				className="h-7 rounded-md bg-muted/50 px-2 text-xs"
+				aria-label={uiMessage("providers:pi_binary_path")}
+				placeholder={uiMessage("providers:pi_binary_placeholder")}
+				value={value}
+				onChange={(event) => setValue(event.target.value)}
+				onBlur={() => save("pi", value)}
+			/>
+			<span className="text-muted-foreground">
+				{uiMessage("providers:pi_binary_help")}
+			</span>
+		</label>
 	);
 }

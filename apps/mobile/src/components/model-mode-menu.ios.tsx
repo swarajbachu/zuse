@@ -500,6 +500,7 @@ function ModeButtons({
 	editable: boolean;
 	onChange: (value: ModelModeValue) => void;
 }) {
+	if (value.providerId === "pi") return null;
 	return (
 		<Section title="Mode">
 			{PERMISSION_OPTIONS.map((item) => (
@@ -530,6 +531,7 @@ function PermissionButtons({
 	editable: boolean;
 	onChange: (value: ModelModeValue) => void;
 }) {
+	if (value.providerId === "pi") return null;
 	return (
 		<Section title="Approval">
 			{RUNTIME_OPTIONS.map((item) => (
@@ -577,11 +579,15 @@ const shortModelLabel = (label: string): string => {
 };
 
 const modeLabel = (value: ModelModeValue): string =>
-	PERMISSION_OPTIONS.find((item) => item.value === value.permissionMode)
-		?.label ?? value.permissionMode;
+	value.providerId === "pi"
+		? "Pi permissions"
+		: (PERMISSION_OPTIONS.find((item) => item.value === value.permissionMode)
+				?.label ?? value.permissionMode);
 
 const runtimeLabel = (value: ModelModeValue): string =>
-	runtimeOptionFor(value.runtimeMode).label;
+	value.providerId === "pi"
+		? "Pi permissions"
+		: runtimeOptionFor(value.runtimeMode).label;
 
 const providerSystemImage = (providerId: ProviderId): string => {
 	switch (providerId) {
@@ -597,6 +603,8 @@ const providerSystemImage = (providerId: ProviderId): string => {
 			return "diamond";
 		case "opencode":
 			return "chevron.left.forwardslash.chevron.right";
+		case "pi":
+			return "function";
 		case "kiro":
 			return "face.smiling";
 		default:

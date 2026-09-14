@@ -126,5 +126,9 @@
 	"model_picker_model": "{{value1}} model{{value2}}",
 	"model_picker_context_window": "{{value1}} context window",
 	"model_picker_credit_multiplier": "{{value1}} credit multiplier",
-	"provider_card_remove_custom_model": "Remove custom model {{modelId}}"
+	"provider_card_remove_custom_model": "Remove custom model {{modelId}}",
+	"pi_setup_hint": "Pi manages authentication and tool permissions. Run <part0>pi</part0> in a terminal and use <part1>/login</part1> to sign in.",
+	"pi_binary_path": "Pi binary path",
+	"pi_binary_placeholder": "Find pi on PATH",
+	"pi_binary_help": "Use an absolute executable path, or leave empty to search PATH."
 }

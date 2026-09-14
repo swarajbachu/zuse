@@ -15,6 +15,7 @@ import {
 	type ExtensionProviderDescriptor,
 	type Folder,
 	type FolderId,
+	PROVIDER_IDS,
 	type ProviderId,
 	type RuntimeMode,
 	visibleModelsForProvider,
@@ -1647,13 +1648,7 @@ function ProvidersPane() {
 	}, [availability, uiMessage]);
 
 	const providers: ReadonlyArray<ProviderId> = [
-		"claude",
-		"codex",
-		"grok",
-		"gemini",
-		"cursor",
-		"opencode",
-		"kiro",
+		...PROVIDER_IDS,
 		...extensionProviderOwners.keys(),
 	];
 	const [selectedProvider, setSelectedProvider] =

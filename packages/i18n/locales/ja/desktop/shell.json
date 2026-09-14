@@ -53,5 +53,7 @@
 	"mcp_display_provider_apps": "プロバイダーアプリ",
 	"provider_status_codex_provider_status": "Codex プロバイダーのステータス",
 	"browser_access_gate_unnamed_computer": "名前のないコンピュータ",
-	"pending_chat_creation_chat_startup_needs_attention": "チャットの起動には注意が必要です。"
+	"pending_chat_creation_chat_startup_needs_attention": "チャットの起動には注意が必要です。",
+	"pi_available": "利用可能",
+	"pi_native_auth_permissions": "認証と権限は Pi が管理します。"
 }

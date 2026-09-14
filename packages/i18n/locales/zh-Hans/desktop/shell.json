@@ -53,5 +53,7 @@
 	"mcp_display_provider_apps": "提供商应用程序",
 	"provider_status_codex_provider_status": "Codex 提供商状态",
 	"browser_access_gate_unnamed_computer": "未命名的计算机",
-	"pending_chat_creation_chat_startup_needs_attention": "聊天启动需要注意。"
+	"pending_chat_creation_chat_startup_needs_attention": "聊天启动需要注意。",
+	"pi_available": "可用",
+	"pi_native_auth_permissions": "身份验证和权限由 Pi 管理。"
 }

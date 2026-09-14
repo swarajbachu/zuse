@@ -644,5 +644,8 @@
 	"device_bridge_panel_ready_commands_require_device_permission": "就緒 · 指令需要設備許可",
 	"device_bridge_panel_ready_cloud_agent_access_is_off": "就緒 · 雲端代理存取已關閉",
 	"device_bridge_panel_always_allow_your_cloud_chats": "始終允許 · 您的雲端聊天",
-	"terminal_pane_waiting_for_changes_to_settle": "等待變更穩定…"
+	"terminal_pane_waiting_for_changes_to_settle": "等待變更穩定…",
+	"pi_permissions": "Pi 權限",
+	"question_timed_out": "問題已逾時。",
+	"question_cancelled": "問題已取消。"
 }

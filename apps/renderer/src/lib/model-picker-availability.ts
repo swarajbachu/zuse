@@ -30,6 +30,7 @@ export function isModelPickerProviderVisible({
 	if (providerId === "cursor") {
 		return availability.hasApiKey && availability.apiKeyStatus !== "invalid";
 	}
+	if (providerId === "pi") return true;
 	if (availability.hasApiKey) return true;
 	if (availability.authStatus === "authenticated") return true;
 	if (availability.authStatus === "unauthenticated") return false;

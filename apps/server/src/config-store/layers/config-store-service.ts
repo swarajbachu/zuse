@@ -484,6 +484,17 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 		themeSelection,
 		completionSoundEnabled,
 		completionSoundPreset,
+		providerBinaryPaths:
+			typeof obj.providerBinaryPaths === "object" &&
+			obj.providerBinaryPaths !== null
+				? (Object.fromEntries(
+						Object.entries(obj.providerBinaryPaths).filter(
+							([key, value]) =>
+								PROVIDER_IDS.some((id) => id === key) &&
+								typeof value === "string",
+						),
+					) as Record<string, string>)
+				: {},
 		providerEnabled,
 		modelEnabledByProvider,
 		customModelIdsByProvider,
@@ -761,6 +772,8 @@ export const ConfigStoreServiceLive = Layer.effect(
 						patch.completionSoundEnabled ?? cur.completionSoundEnabled,
 					completionSoundPreset:
 						patch.completionSoundPreset ?? cur.completionSoundPreset,
+					providerBinaryPaths:
+						patch.providerBinaryPaths ?? cur.providerBinaryPaths ?? {},
 					providerEnabled: patch.providerEnabled ?? cur.providerEnabled,
 					modelEnabledByProvider:
 						patch.modelEnabledByProvider ?? cur.modelEnabledByProvider,

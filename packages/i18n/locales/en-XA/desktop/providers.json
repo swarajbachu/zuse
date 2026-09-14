@@ -126,5 +126,9 @@
 	"model_picker_model": "⟦{{value1}} môôdëël{{value2}}⟧",
 	"model_picker_context_window": "⟦{{value1}} côôntëëxt wïïndôôw⟧",
 	"model_picker_credit_multiplier": "⟦{{value1}} crëëdïït müültïïplïïëër⟧",
-	"provider_card_remove_custom_model": "⟦Rëëmôôvëë cüüstôôm môôdëël {{modelId}}⟧"
+	"provider_card_remove_custom_model": "⟦Rëëmôôvëë cüüstôôm môôdëël {{modelId}}⟧",
+	"pi_setup_hint": "⟦Pïï màànààgëës ààüüthëëntïïcààtïïôôn àànd tôôôôl pëërmïïssïïôôns. Rüün <part0>pïï</part0> ïïn àà tëërmïïnààl àànd üüsëë <part1>/lôôgïïn</part1> tôô sïïgn ïïn.⟧",
+	"pi_binary_path": "⟦Pïï bïïnààry pààth⟧",
+	"pi_binary_placeholder": "⟦Fïïnd pïï ôôn PÀÀTH⟧",
+	"pi_binary_help": "⟦ÜÜsëë ààn ààbsôôlüütëë ëëxëëcüütààblëë pààth, ôôr lëëààvëë ëëmpty tôô sëëààrch PÀÀTH.⟧"
 }

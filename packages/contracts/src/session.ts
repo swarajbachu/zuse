@@ -90,6 +90,7 @@ export const ResumeStrategy = Schema.Literals([
 	"gemini-session-id",
 	"opencode-session-id",
 	"kiro-session-id",
+	"pi-session-file",
 	"none",
 ]);
 export type ResumeStrategy = typeof ResumeStrategy.Type;
@@ -358,6 +359,7 @@ const UserQuestionContent = Schema.TaggedStruct("user_question", {
  * field may be empty, but never both.
  */
 const UserQuestionAnswerContent = Schema.TaggedStruct("user_question_answer", {
+	resolution: Schema.optional(Schema.Literals(["cancelled", "timed-out"])),
 	itemId: AgentItemId,
 	answers: Schema.Array(
 		Schema.Struct({
@@ -1447,6 +1449,11 @@ export const SessionResumeRpc = Rpc.make("session.resume", {
  * if a turn is in flight when the toggle changes, the running canUseTool
  * callbacks observe the new mode without restarting the SDK.
  */
+export class SessionModeUnsupportedError extends Schema.TaggedErrorClass<SessionModeUnsupportedError>()(
+	"SessionModeUnsupportedError",
+	{ message: Schema.String },
+) {}
+
 export const SessionSetRuntimeModeRpc = Rpc.make("session.setRuntimeMode", {
 	payload: Schema.Struct({
 		commandId: CommandId,
@@ -1454,7 +1461,7 @@ export const SessionSetRuntimeModeRpc = Rpc.make("session.setRuntimeMode", {
 		runtimeMode: RuntimeMode,
 	}),
 	success: Schema.Void,
-	error: SessionNotFoundError,
+	error: Schema.Union([SessionNotFoundError, SessionModeUnsupportedError]),
 });
 
 /**
@@ -1472,7 +1479,7 @@ export const SessionSetPermissionModeRpc = Rpc.make(
 			mode: PermissionMode,
 		}),
 		success: Schema.Void,
-		error: SessionNotFoundError,
+		error: Schema.Union([SessionNotFoundError, SessionModeUnsupportedError]),
 	},
 );
 

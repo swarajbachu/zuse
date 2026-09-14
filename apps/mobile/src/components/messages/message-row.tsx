@@ -789,7 +789,11 @@ const AnswerBubble = ({
 			? [...picked, other]
 			: picked;
 	});
-	const summary = labels.length > 0 ? labels.join(", ") : "Answered";
+	const summary = content.resolution
+		? `Question ${content.resolution === "timed-out" ? "timed out" : "cancelled"}`
+		: labels.length > 0
+			? labels.join(", ")
+			: "Answered";
 	return (
 		<View className="items-end px-3 py-1.5">
 			<View
