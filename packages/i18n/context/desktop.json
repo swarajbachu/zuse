@@ -10525,7 +10525,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 484
+				"line": 485
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10535,17 +10535,17 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 512
+				"line": 515
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"extensions:source_notice": {
-		"source": "Source installs are available for testing. Signed marketplace packages are not published yet.",
+		"source": "Source installation is also available for development.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 487
+				"line": 488
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

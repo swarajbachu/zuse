@@ -14,4 +14,8 @@ export {
 } from "./marketplace.ts";
 
 export { ProviderEventHub } from "./provider-events.ts";
+export {
+	STAGING_MARKETPLACE_BASE_URL,
+	STAGING_MARKETPLACE_PUBLIC_KEY,
+} from "./staging-catalog.ts";
 export type * from "./types.ts";

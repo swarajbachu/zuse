@@ -42,7 +42,7 @@
 	"catalog_loading": "Loading marketplace…",
 	"preview_tools": "Official preview tools",
 	"source_setup": "Source & setup",
-	"source_notice": "Source installs are available for testing. Signed marketplace packages are not published yet.",
+	"source_notice": "Source installation is also available for development.",
 	"reports_workflow": "JUnit XML → inspect failures → attach to chat. Workspace tab and attachment picker.",
 	"playbook_workflow": "Repository Markdown → select a procedure → attach to chat. Workspace tab and attachment picker.",
 	"followups_workflow": "TODO/FIXME → review code → attach to chat. Workspace tab, command palette, and attachment picker."

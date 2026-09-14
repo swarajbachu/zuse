@@ -42,7 +42,7 @@
 	"catalog_loading": "Katalog wird geladen…",
 	"preview_tools": "Offizielle Vorschauwerkzeuge",
 	"source_setup": "Quellcode und Einrichtung",
-	"source_notice": "Quellcode-Installationen sind zum Testen verfügbar. Signierte Katalogpakete sind noch nicht veröffentlicht.",
+	"source_notice": "Für die Entwicklung ist auch eine Installation aus dem Quellcode möglich.",
 	"reports_workflow": "JUnit XML → Fehler prüfen → an Chat anhängen. Arbeitsbereich-Tab und Anhangsauswahl.",
 	"playbook_workflow": "Repository-Markdown → Verfahren auswählen → an Chat anhängen. Arbeitsbereich-Tab und Anhangsauswahl.",
 	"followups_workflow": "TODO/FIXME → Code prüfen → an Chat anhängen. Arbeitsbereich-Tab, Befehlspalette und Anhangsauswahl."

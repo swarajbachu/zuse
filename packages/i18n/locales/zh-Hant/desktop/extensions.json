@@ -42,7 +42,7 @@
 	"catalog_loading": "正在載入市集…",
 	"preview_tools": "官方預覽工具",
 	"source_setup": "原始碼與安裝",
-	"source_notice": "可從原始碼安裝進行測試。已簽署的市集套件尚未發佈。",
+	"source_notice": "開發時也可以從原始碼安裝。",
 	"reports_workflow": "JUnit XML → 檢查失敗 → 附加至聊天。工作區分頁和附件選擇器。",
 	"playbook_workflow": "儲存庫 Markdown → 選擇流程 → 附加至聊天。工作區分頁和附件選擇器。",
 	"followups_workflow": "TODO/FIXME → 檢查程式碼 → 附加至聊天。工作區分頁、指令面板和附件選擇器。"

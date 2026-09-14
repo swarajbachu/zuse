@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-14T06:14:41.243Z",
+  "entries": [
+    {
+      "manifest": {
+        "schemaVersion": 1,
+        "id": "test-reports",
+        "name": "Test Reports",
+        "description": "Turn a failed test report into the next agent task.",
+        "version": "0.1.0",
+        "client": "index.client.tsx",
+        "server": "index.server.ts",
+        "zuseApi": "^1.0.0",
+        "homepage": "https://zuse.sh/extensions",
+        "contributions": [
+          "workspace-panel",
+          "attachment-source"
+        ],
+        "capabilities": [
+          "ui",
+          "attachments",
+          "rpc",
+          "filesystem"
+        ],
+        "publisher": {
+          "name": "Zuse"
+        }
+      },
+      "commit": "a1b8414e1181a251b427f3f3f0a39b65d14b146c",
+      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/a1b8414e1181a251b427f3f3f0a39b65d14b146c/apps/web/public/extensions/staging/artifacts/9331cdc6382d17ec2db7c7d556c07bfd27f24125bf4aff020741f2990c81355a.json",
+      "sha256": "9331cdc6382d17ec2db7c7d556c07bfd27f24125bf4aff020741f2990c81355a",
+      "changelog": "Initial desktop preview."
+    },
+    {
+      "manifest": {
+        "schemaVersion": 1,
+        "id": "project-playbook",
+        "name": "Project Playbook",
+        "description": "Bring your team’s procedures into any agent conversation.",
+        "version": "0.1.0",
+        "client": "index.client.tsx",
+        "server": "index.server.ts",
+        "zuseApi": "^1.0.0",
+        "homepage": "https://zuse.sh/extensions",
+        "contributions": [
+          "workspace-panel",
+          "attachment-source"
+        ],
+        "capabilities": [
+          "ui",
+          "attachments",
+          "rpc",
+          "filesystem"
+        ],
+        "publisher": {
+          "name": "Zuse"
+        }
+      },
+      "commit": "a1b8414e1181a251b427f3f3f0a39b65d14b146c",
+      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/a1b8414e1181a251b427f3f3f0a39b65d14b146c/apps/web/public/extensions/staging/artifacts/b3064ae9c7f5504b2270c11a6b14db1ac46cc9ca2a1a9ddb89f22d3a95787d30.json",
+      "sha256": "b3064ae9c7f5504b2270c11a6b14db1ac46cc9ca2a1a9ddb89f22d3a95787d30",
+      "changelog": "Initial desktop preview."
+    },
+    {
+      "manifest": {
+        "schemaVersion": 1,
+        "id": "code-follow-ups",
+        "name": "Code Follow-ups",
+        "description": "Find unfinished work and give your agent the exact context.",
+        "version": "0.1.0",
+        "client": "index.client.tsx",
+        "server": "index.server.ts",
+        "zuseApi": "^1.0.0",
+        "homepage": "https://zuse.sh/extensions",
+        "contributions": [
+          "workspace-panel",
+          "attachment-source",
+          "command"
+        ],
+        "capabilities": [
+          "ui",
+          "attachments",
+          "rpc",
+          "filesystem",
+          "commands"
+        ],
+        "publisher": {
+          "name": "Zuse"
+        }
+      },
+      "commit": "a1b8414e1181a251b427f3f3f0a39b65d14b146c",
+      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/a1b8414e1181a251b427f3f3f0a39b65d14b146c/apps/web/public/extensions/staging/artifacts/4eb974a9e1a2525f7ddd941624e57a802ccdfdb4c48d3c3bfe8a83eb30616736.json",
+      "sha256": "4eb974a9e1a2525f7ddd941624e57a802ccdfdb4c48d3c3bfe8a83eb30616736",
+      "changelog": "Initial desktop preview."
+    }
+  ]
+}

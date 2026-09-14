@@ -42,7 +42,7 @@
 	"catalog_loading": "Chargement du catalogue…",
 	"preview_tools": "Outils officiels en aperçu",
 	"source_setup": "Source et installation",
-	"source_notice": "L’installation depuis les sources est disponible pour les tests. Les paquets signés ne sont pas encore publiés.",
+	"source_notice": "L’installation depuis les sources est aussi disponible pour le développement.",
 	"reports_workflow": "JUnit XML → examiner les échecs → joindre au chat. Onglet de travail et sélecteur de pièces jointes.",
 	"playbook_workflow": "Markdown du dépôt → choisir une procédure → joindre au chat. Onglet de travail et sélecteur de pièces jointes.",
 	"followups_workflow": "TODO/FIXME → examiner le code → joindre au chat. Onglet de travail, palette de commandes et sélecteur de pièces jointes."

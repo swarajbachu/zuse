@@ -10,11 +10,24 @@ import {
 	compileEntries,
 	readExtensionManifest,
 } from "../packages/extension-host/src/manifest.ts";
+import {
+	STAGING_MARKETPLACE_BASE_URL,
+	STAGING_MARKETPLACE_PUBLIC_KEY,
+} from "../packages/extension-host/src/staging-catalog.ts";
 
 const output = resolve(
 	process.env.EXTENSION_OUTPUT ?? ".context/extensions-release",
 );
-const base = "https://zuse.sh/extensions";
+const staging = process.argv.includes("--staging");
+const publicKey = staging
+	? STAGING_MARKETPLACE_PUBLIC_KEY
+	: MARKETPLACE_PUBLIC_KEY;
+const base = (
+	process.env.EXTENSION_ARTIFACT_BASE_URL ??
+	(staging ? STAGING_MARKETPLACE_BASE_URL : "https://zuse.sh/extensions")
+).replace(/\/$/, "");
+if (new URL(base).protocol !== "https:")
+	throw new Error("Artifact hosting requires HTTPS.");
 const commit = execFileSync("git", ["rev-parse", "HEAD"], {
 	encoding: "utf8",
 }).trim();
@@ -54,7 +67,7 @@ if (process.argv.includes("--sign")) {
 	// Proves that the protected credential matches the trust root shipped in desktop.
 	if (
 		createPublicKey(key).asymmetricKeyType !== "ed25519" ||
-		!verify(null, bytes, MARKETPLACE_PUBLIC_KEY, signature)
+		!verify(null, bytes, publicKey, signature)
 	)
 		throw new Error(
 			"Signing credential does not match the desktop trust root.",

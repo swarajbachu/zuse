@@ -479,41 +479,45 @@ export function ExtensionsPane() {
 					))
 				)}
 			</div>
-			<div className="flex flex-col gap-2">
-				<p className="font-medium">
-					{extensionMessage("extensions:preview_tools")}
-				</p>
-				<p className="text-[11px] text-muted-foreground">
-					{extensionMessage("extensions:source_notice")}
-				</p>
-				{previewTools
-					.filter((tool) => !marketplace.some((entry) => entry.id === tool.id))
-					.map((tool) => (
-						<div
-							key={tool.id}
-							className="flex flex-wrap items-center gap-3 rounded-md bg-muted/25 px-3 py-2.5"
-						>
-							<div className="min-w-0 flex-1">
-								<p className="font-medium">{tool.name}</p>
-								<p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-									{extensionMessage(tool.description)}
-								</p>
-							</div>
-							<Button
-								className="h-7"
-								size="sm"
-								variant="ghost"
-								onClick={() =>
-									void run(`source:${tool.id}`, () =>
-										openExternal(`${previewSource}/${tool.id}`),
-									)
-								}
+			{marketplace.length === 0 && (
+				<div className="flex flex-col gap-2">
+					<p className="font-medium">
+						{extensionMessage("extensions:preview_tools")}
+					</p>
+					<p className="text-[11px] text-muted-foreground">
+						{extensionMessage("extensions:source_notice")}
+					</p>
+					{previewTools
+						.filter(
+							(tool) => !marketplace.some((entry) => entry.id === tool.id),
+						)
+						.map((tool) => (
+							<div
+								key={tool.id}
+								className="flex flex-wrap items-center gap-3 rounded-md bg-muted/25 px-3 py-2.5"
 							>
-								{extensionMessage("extensions:source_setup")}
-							</Button>
-						</div>
-					))}
-			</div>
+								<div className="min-w-0 flex-1">
+									<p className="font-medium">{tool.name}</p>
+									<p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+										{extensionMessage(tool.description)}
+									</p>
+								</div>
+								<Button
+									className="h-7"
+									size="sm"
+									variant="ghost"
+									onClick={() =>
+										void run(`source:${tool.id}`, () =>
+											openExternal(`${previewSource}/${tool.id}`),
+										)
+									}
+								>
+									{extensionMessage("extensions:source_setup")}
+								</Button>
+							</div>
+						))}
+				</div>
+			)}
 		</section>
 	);
 }

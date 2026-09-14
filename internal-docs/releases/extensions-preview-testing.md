@@ -1,12 +1,12 @@
 # Testing PR #572: Extensions Preview
 
-Test the merged PR branch, not the public download. The public catalog is still empty; install the three source directories using **Settings → Extensions → Install from a directory or Git → Inspect & install**. Use the paths on the machine running Zuse. A cloud VM path will not work in your Mac app.
+Test the merged PR branch, not the public download. The branch uses a signed GitHub staging catalog with three precompiled tools. Open **Settings → Extensions → Curated marketplace**, click **Refresh**, then **Install** on each tool. Restart the updated app/server first to load the staging trust key.
 
 ## Setup (5 minutes)
 
 1. Open a disposable local Git project and create a conversation in it.
 2. Enable **Settings → Extensions → Enable Extensions Preview**. Read the trusted-code notice.
-3. Install `extensions/test-reports`, then `extensions/project-playbook`, then `extensions/code-follow-ups` from this checkout. Review the capabilities for each. Expect three separate installed rows, versions, statuses, and sidebar launchers.
+3. Install Test Reports, Project Playbook, and Code Follow-ups from the marketplace. Review the capabilities for each. Expect three separate installed rows, versions, statuses, and sidebar launchers.
 4. Copy these fixtures into the disposable project:
    - `extensions/test-reports/fixtures/results.xml` → `reports/junit.xml`
    - `extensions/project-playbook/fixtures/procedure.md` → `docs/deploy.md`
@@ -50,7 +50,9 @@ For a source reload failure, use a **copy** of an extension directory, introduce
 
 ## Temporary catalog hosting
 
-The preview currently fetches the signed catalog and signature directly from the `swarajbachu/hat-yai-v1` branch of `swarajbachu/zuse` on GitHub. This avoids the undeployed `zuse.sh` catalog endpoint. The committed catalog has zero entries: successful loading should show an empty catalog plus the three source/setup previews, not downloadable packages. Restart the app/server after updating the branch to pick up the endpoint change. Signature and artifact-digest checks remain enabled. Move hosting to the release endpoint before retiring the staging branch.
+The preview fetches its catalog and signature from `apps/web/public/extensions/staging` on the `swarajbachu/hat-yai-v1` branch of `swarajbachu/zuse`. Its three precompiled artifacts use immutable Git commit URLs and content digests. A separate staging public key verifies this catalog; production still trusts only the original production key and catalog. Restart the app/server after updating the branch to pick up this trust configuration. This is a test channel, not a production release.
+
+The temporary staging signing key is stored only in the workspace's gitignored `.context/extension-staging-signing-key.pem`, with mode 0600. It is not committed or provisioned in GitHub. Before future automated staging updates, securely provision a dedicated protected credential; losing the temporary workspace requires a new staging key and updated test builds. Production credentials remain unverified. Do not merge temporary staging hosting as a production release default.
 
 ## What cannot be signed off yet
 

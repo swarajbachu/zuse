@@ -1,10 +1,6 @@
-// Temporary hosting for Extensions Preview until the signed catalog is deployed
-// to zuse.sh. GitHub serves the committed files directly; signature and artifact
-// digest verification remain mandatory even though this staging branch can move.
-const marketplaceBaseUrl =
-	"https://raw.githubusercontent.com/swarajbachu/zuse/refs/heads/swarajbachu/hat-yai-v1/apps/web/public/extensions";
+// Temporary preview channel: production signing and hosting remain separate.
+import { STAGING_MARKETPLACE_BASE_URL } from "@zuse/extension-host";
 
-export const EXTENSION_MARKETPLACE_CATALOG_URL = `${marketplaceBaseUrl}/catalog.v1.json`;
-export const EXTENSION_MARKETPLACE_SIGNATURE_URL = `${marketplaceBaseUrl}/catalog.v1.sig`;
-
-export { MARKETPLACE_PUBLIC_KEY as EXTENSION_MARKETPLACE_PUBLIC_KEY } from "@zuse/extension-host";
+export const EXTENSION_MARKETPLACE_CATALOG_URL = `${STAGING_MARKETPLACE_BASE_URL}/catalog.v1.json`;
+export const EXTENSION_MARKETPLACE_SIGNATURE_URL = `${STAGING_MARKETPLACE_BASE_URL}/catalog.v1.sig`;
+export { STAGING_MARKETPLACE_PUBLIC_KEY as EXTENSION_MARKETPLACE_PUBLIC_KEY } from "@zuse/extension-host";

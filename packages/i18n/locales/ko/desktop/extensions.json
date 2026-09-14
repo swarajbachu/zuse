@@ -42,7 +42,7 @@
 	"catalog_loading": "마켓플레이스 불러오는 중…",
 	"preview_tools": "공식 미리보기 도구",
 	"source_setup": "소스 및 설정",
-	"source_notice": "테스트용 소스 설치를 사용할 수 있습니다. 서명된 마켓플레이스 패키지는 아직 게시되지 않았습니다.",
+	"source_notice": "개발용으로 소스에서 설치할 수도 있습니다.",
 	"reports_workflow": "JUnit XML → 실패 확인 → 채팅에 첨부. 작업 공간 탭과 첨부 선택기.",
 	"playbook_workflow": "저장소 Markdown → 절차 선택 → 채팅에 첨부. 작업 공간 탭과 첨부 선택기.",
 	"followups_workflow": "TODO/FIXME → 코드 검토 → 채팅에 첨부. 작업 공간 탭, 명령 팔레트, 첨부 선택기."

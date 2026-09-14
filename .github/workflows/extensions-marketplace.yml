@@ -1,10 +1,10 @@
 name: Extension validation
 on:
   pull_request:
-    paths: ["extensions/**", "packages/extension-*/**", "scripts/*extension*", ".github/workflows/extension*.yml", "bun.lock"]
+    paths: ["extensions/**", "apps/web/public/extensions/**", "packages/extension-*/**", "scripts/*extension*", ".github/workflows/extension*.yml", "bun.lock"]
   push:
     branches: [main]
-    paths: ["extensions/**", "packages/extension-*/**", "scripts/*extension*", "bun.lock"]
+    paths: ["extensions/**", "apps/web/public/extensions/**", "packages/extension-*/**", "scripts/*extension*", "bun.lock"]
 permissions:
   contents: read
 jobs:
@@ -18,6 +18,8 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: bunx vitest run packages/extension-host/test extensions/*/test
       - run: bun run check-types
+      - run: bun scripts/verify-extension-marketplace.mjs
+      - run: bun scripts/verify-extension-marketplace.mjs --staging
       - run: bun scripts/build-extensions.ts
       - run: bun run --cwd packages/extension-sdk pack:release
       - uses: actions/upload-artifact@v4
