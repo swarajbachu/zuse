@@ -360,6 +360,13 @@
       "name": "@zuse-extension/code-follow-ups",
       "version": "0.1.0",
     },
+    "extensions/midnight-ocean": {
+      "name": "@zuse-extension/midnight-ocean",
+      "version": "0.1.0",
+      "dependencies": {
+        "@zuse/extension-sdk": "workspace:*",
+      },
+    },
     "extensions/project-playbook": {
       "name": "@zuse-extension/project-playbook",
       "version": "0.1.0",
@@ -369,6 +376,13 @@
       "version": "0.1.0",
       "dependencies": {
         "fast-xml-parser": "5.11.1",
+      },
+    },
+    "extensions/warm-paper": {
+      "name": "@zuse-extension/warm-paper",
+      "version": "0.1.0",
+      "dependencies": {
+        "@zuse/extension-sdk": "workspace:*",
       },
     },
     "infra/api": {
@@ -2284,9 +2298,13 @@
 
     "@zuse-extension/code-follow-ups": ["@zuse-extension/code-follow-ups@workspace:extensions/code-follow-ups"],
 
+    "@zuse-extension/midnight-ocean": ["@zuse-extension/midnight-ocean@workspace:extensions/midnight-ocean"],
+
     "@zuse-extension/project-playbook": ["@zuse-extension/project-playbook@workspace:extensions/project-playbook"],
 
     "@zuse-extension/test-reports": ["@zuse-extension/test-reports@workspace:extensions/test-reports"],
+
+    "@zuse-extension/warm-paper": ["@zuse-extension/warm-paper@workspace:extensions/warm-paper"],
 
     "@zuse/acp": ["@zuse/acp@workspace:packages/acp"],
 

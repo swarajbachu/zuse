@@ -1,0 +1,16 @@
+{
+	"background": "#f6f1e7",
+	"foreground": "#302b25",
+	"card": "#fffaf1",
+	"cardForeground": "#302b25",
+	"popover": "#fffaf1",
+	"popoverForeground": "#302b25",
+	"muted": "#e9e1d3",
+	"mutedForeground": "#6b6053",
+	"border": "#cbbfae",
+	"input": "#e9e1d3",
+	"accent": "#8a5429",
+	"accentForeground": "#fffaf1",
+	"destructive": "#ac3034",
+	"ring": "#8a5429"
+}

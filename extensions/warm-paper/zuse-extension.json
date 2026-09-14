@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "warm-paper",
+	"name": "Warm Paper",
+	"description": "A warm ivory theme with ink text and copper accents. Install, then select it under Extension themes.",
+	"version": "0.1.0",
+	"client": "index.client.ts",
+	"zuseApi": "^1.0.0",
+	"contributions": ["theme"],
+	"capabilities": ["themes"],
+	"publisher": {
+		"name": "Zuse"
+	},
+	"homepage": "https://zuse.sh/extensions"
+}
