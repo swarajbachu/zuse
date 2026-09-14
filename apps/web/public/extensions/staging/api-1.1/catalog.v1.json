@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-14T07:04:51.973Z",
+  "generatedAt": "2026-09-14T07:26:32.979Z",
   "entries": [
     {
       "manifest": {
@@ -8,7 +8,7 @@
         "id": "account-quota",
         "name": "Account Quota",
         "description": "Track multiple Codex and Claude account profiles independently, with direct quota requests, reset times, and per-account errors.",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "client": "index.client.tsx",
         "server": "index.server.ts",
         "zuseApi": "^1.1.0",
@@ -27,9 +27,9 @@
           "name": "Zuse"
         }
       },
-      "commit": "6403dd6555d48cf4df991604de7bef54b2d65623",
-      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/6403dd6555d48cf4df991604de7bef54b2d65623/apps/web/public/extensions/staging/api-1.1/artifacts/a58068fa76882d6630fa2c5ee6ff18a1a458325cf359900dfc4cf592d0f6cb2f.json",
-      "sha256": "a58068fa76882d6630fa2c5ee6ff18a1a458325cf359900dfc4cf592d0f6cb2f",
+      "commit": "e2ceaa7beb96f774d57bc6037d01d8ca78959d7c",
+      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/e2ceaa7beb96f774d57bc6037d01d8ca78959d7c/apps/web/public/extensions/staging/api-1.1/artifacts/c9d27e3b5afe4257b536229dc484827affed9ce4aa1d2b868037c6f289d789c7.json",
+      "sha256": "c9d27e3b5afe4257b536229dc484827affed9ce4aa1d2b868037c6f289d789c7",
       "changelog": "Track multiple Codex and Claude account profiles independently, with direct quota requests, reset times, and per-account errors."
     },
     {
