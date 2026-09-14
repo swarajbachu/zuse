@@ -48,6 +48,10 @@ The earlier automated desktop tests created `.context/extension-demo-project` in
 
 For a source reload failure, use a **copy** of an extension directory, introduce a syntax error, and click Reload. The previous working version should remain usable. Undo the syntax error and reload again. Crash-loop, queue-overflow, failed persistence, migration rollback, and interrupted-generation behavior also have automated host regression tests; the three official tools do not register agent providers, so provider-session replacement guards require the provider fixture tests.
 
+## Temporary catalog hosting
+
+The preview currently fetches the signed catalog and signature directly from the `swarajbachu/hat-yai-v1` branch of `swarajbachu/zuse` on GitHub. This avoids the undeployed `zuse.sh` catalog endpoint. The committed catalog has zero entries: successful loading should show an empty catalog plus the three source/setup previews, not downloadable packages. Restart the app/server after updating the branch to pick up the endpoint change. Signature and artifact-digest checks remain enabled. Move hosting to the release endpoint before retiring the staging branch.
+
 ## What cannot be signed off yet
 
 Source installation does not verify public catalog delivery. Signed catalog install/update on clean machines without Git/Bun/npm, public SDK installation, release signing credentials, and Intel Mac execution remain separate release gates. Offline catalog errors should be visible and must not uninstall existing tools.
