@@ -16,6 +16,7 @@ import "./styles.css";
 
 import { ApplicationBootstrap } from "./application-bootstrap.tsx";
 import { ErrorBoundary } from "./components/ui/error-boundary.tsx";
+import { recoverDevModule } from "./lib/dev-module-recovery.ts";
 import {
 	installRendererDiagnostics,
 	persistFatalRendererDiagnostic,
@@ -25,20 +26,18 @@ import {
 } from "./lib/diagnostics-recorder.ts";
 
 if (import.meta.env.DEV) {
-	const preloadReloadKey = "zuse.dev.preload-reload-at";
-	window.addEventListener("vite:preloadError", (event) => {
-		const now = Date.now();
-		const previousReload = Number(
-			sessionStorage.getItem(preloadReloadKey) ?? 0,
-		);
-		if (now - previousReload < 10_000) return;
-
-		// Dependency optimization briefly invalidates lazy-module URLs. Vite's
-		// supported recovery path is a page reload; rate-limit it so a persistent
-		// module error still reaches the root error boundary for diagnosis.
-		event.preventDefault();
-		sessionStorage.setItem(preloadReloadKey, String(now));
-		window.location.reload();
+	const onPreloadError = (event: Event) => {
+		if (recoverDevModule((event as Event & { payload?: unknown }).payload))
+			event.preventDefault();
+	};
+	const onRejection = (event: PromiseRejectionEvent) => {
+		if (recoverDevModule(event.reason)) event.preventDefault();
+	};
+	window.addEventListener("vite:preloadError", onPreloadError);
+	window.addEventListener("unhandledrejection", onRejection);
+	import.meta.hot?.dispose(() => {
+		window.removeEventListener("vite:preloadError", onPreloadError);
+		window.removeEventListener("unhandledrejection", onRejection);
 	});
 	void import("./lib/update-demo.ts").then((m) => m.installUpdateDemo());
 }
@@ -122,6 +121,7 @@ void initializeLocalization().then(() =>
 					<ErrorBoundary
 						fallback={(error) => <RootCrashFallback error={error} />}
 						onError={(error, info) => {
+							recoverDevModule(error);
 							persistFatalRendererDiagnostic("renderer.react.root", error);
 							const summary = summarizeDiagnosticError(error, "ReactError");
 							recordDiagnosticEvent({

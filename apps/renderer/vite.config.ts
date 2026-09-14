@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, searchForWorkspaceRoot } from "vite-plus";
 
+import { gitRevisionRecovery } from "./vite-git-recovery.ts";
 import { rendererProxy } from "./vite-proxy.ts";
 
 const port = Number(process.env.PORT ?? 5733);
@@ -57,6 +58,7 @@ export default defineConfig({
 	// need relative assets so they continue to load through file://.
 	base: hostedBuild ? "/" : "./",
 	plugins: [
+		gitRevisionRecovery(),
 		{
 			name: "omit-renderer-schema-test-data",
 			apply: "build",
