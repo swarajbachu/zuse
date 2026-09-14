@@ -16,7 +16,7 @@ export const localDeviceBridge = (
 ): Promise<DeviceBridgeResult> =>
 	dispatchLocalDeviceCommand("deviceBridge.control", action);
 
-export const connectedLocalDevice =
+export const commandEnabledLocalDevice =
 	async (): Promise<DeviceBridgeStatus | null> => {
 		if (!rendererPlatformCapabilities().desktop) return null;
 		const result = await Promise.race([
@@ -25,13 +25,16 @@ export const connectedLocalDevice =
 				setTimeout(() => resolve(null), LOCAL_DEVICE_STATUS_TIMEOUT_MS),
 			),
 		]);
-		return result !== null && "version" in result && result.connected
+		return result !== null &&
+			"version" in result &&
+			result.connected &&
+			result.enabled
 			? result
 			: null;
 	};
 
 type CloudDeviceBindingDependencies = {
-	readonly connectedDevice: () => Promise<DeviceBridgeStatus | null>;
+	readonly availableDevice: () => Promise<DeviceBridgeStatus | null>;
 	readonly bindDevice: (
 		workspaceId: string,
 		deviceId: string,
@@ -39,7 +42,7 @@ type CloudDeviceBindingDependencies = {
 };
 
 const defaultBindingDependencies: CloudDeviceBindingDependencies = {
-	connectedDevice: connectedLocalDevice,
+	availableDevice: commandEnabledLocalDevice,
 	bindDevice: (workspaceId, targetDeviceId) =>
 		runControlPlane((client) =>
 			client["deviceBridge.cloud"]({
@@ -59,7 +62,7 @@ export const bindCloudWorkspaceToLocalDevice = async (
 	dependencies: CloudDeviceBindingDependencies = defaultBindingDependencies,
 ): Promise<boolean> => {
 	try {
-		const device = await dependencies.connectedDevice();
+		const device = await dependencies.availableDevice();
 		if (device === null) return false;
 		await dependencies.bindDevice(workspaceId, device.deviceId);
 		return true;

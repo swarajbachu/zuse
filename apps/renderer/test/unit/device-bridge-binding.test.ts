@@ -73,12 +73,29 @@ describe("cloud device binding", () => {
 		expect(bridgeFakes.cloudCommand).not.toHaveBeenCalled();
 	});
 
+	it("leaves the target unchanged when local command access is disabled", async () => {
+		bridgeFakes.localCommand.mockResolvedValue({
+			...connectedDevice("disabled-mac"),
+			enabled: false,
+		});
+
+		await expect(
+			bindCloudWorkspaceToLocalDevice("workspace-from-slack"),
+		).resolves.toBe(false);
+
+		expect(bridgeFakes.localCommand).toHaveBeenCalledWith(
+			"deviceBridge.control",
+			{ _tag: "status" },
+		);
+		expect(bridgeFakes.cloudCommand).not.toHaveBeenCalled();
+	});
+
 	it("binds the cloud workspace to the desktop sending the message", async () => {
 		const bindDevice = vi.fn(async () => undefined);
 
 		await expect(
 			bindCloudWorkspaceToLocalDevice("workspace-from-slack", {
-				connectedDevice: async () => connectedDevice("current-mac"),
+				availableDevice: async () => connectedDevice("current-mac"),
 				bindDevice,
 			}),
 		).resolves.toBe(true);
@@ -94,7 +111,7 @@ describe("cloud device binding", () => {
 		const bindDevice = vi.fn(async () => undefined);
 		let deviceId = "first-mac";
 		const dependencies = {
-			connectedDevice: async () => connectedDevice(deviceId),
+			availableDevice: async () => connectedDevice(deviceId),
 			bindDevice,
 		};
 
@@ -119,7 +136,7 @@ describe("cloud device binding", () => {
 
 		await expect(
 			bindCloudWorkspaceToLocalDevice("workspace-from-slack", {
-				connectedDevice: async () => null,
+				availableDevice: async () => null,
 				bindDevice,
 			}),
 		).resolves.toBe(false);
@@ -130,7 +147,7 @@ describe("cloud device binding", () => {
 	it("does not block message delivery when binding fails", async () => {
 		await expect(
 			bindCloudWorkspaceToLocalDevice("workspace-from-slack", {
-				connectedDevice: async () => connectedDevice(),
+				availableDevice: async () => connectedDevice(),
 				bindDevice: async () => {
 					throw new Error("control plane offline");
 				},
