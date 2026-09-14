@@ -4,7 +4,11 @@ import {
 	ingestE2bLifecycleEvent,
 	normalizeE2bLifecycleEvent,
 } from "../cloud-billing-e2b.ts";
-import type { BillingUsageSourceModule } from "../cloud-billing-usage-source.ts";
+import {
+	type BillingUsageSourceModule,
+	billingApiBaseUrl,
+	billingPollRequest,
+} from "../cloud-billing-usage-source.ts";
 import { ApiConfiguration } from "../config.ts";
 import { badRequest, unauthorized } from "../errors.ts";
 
@@ -110,9 +114,9 @@ export const E2bBillingUsageSourceModule: BillingUsageSourceModule = {
 		)
 			return 0;
 		const cutoverAtMs = Date.parse(config.CLOUD_BILLING_CUTOVER_AT);
-		const apiBaseUrl = (
-			config.E2B_API_BASE_URL ?? "https://api.e2b.app"
-		).replace(/\/+$/u, "");
+		const apiBaseUrl = billingApiBaseUrl(
+			config.E2B_API_BASE_URL ?? "https://api.e2b.app",
+		);
 		const recovered: Array<unknown> = [];
 		let offset = 0;
 		let reachedCutover = false;
@@ -124,9 +128,10 @@ export const E2bBillingUsageSourceModule: BillingUsageSourceModule = {
 			});
 			query.append("types", "sandbox.lifecycle.paused");
 			query.append("types", "sandbox.lifecycle.killed");
-			const response = await fetch(`${apiBaseUrl}/events/sandboxes?${query}`, {
-				headers: { "x-api-key": config.E2B_API_KEY },
-			});
+			const response = await billingPollRequest(
+				`${apiBaseUrl}/events/sandboxes?${query}`,
+				{ "x-api-key": config.E2B_API_KEY },
+			);
 			if (!response.ok)
 				throw new Error(`E2B lifecycle poll failed: ${response.status}`);
 			const payload: unknown = await response.json();

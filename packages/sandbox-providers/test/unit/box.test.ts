@@ -792,6 +792,15 @@ describe("Box sandbox provider", () => {
 		);
 	});
 
+	test.each([
+		401, 403, 422,
+	])("preserves permanent delete rejection %s", async (status) => {
+		const http = makeHttp([{ status, body: { code: "access_denied" } }]);
+		await expect(
+			Effect.runPromise(makeAdapter(http.client).kill("bx_1")),
+		).rejects.toMatchObject({ code: "rejected" });
+	});
+
 	test("deletes named snapshots idempotently", async () => {
 		const http = makeHttp([{ status: 404 }]);
 		const adapter = makeAdapter(http.client);

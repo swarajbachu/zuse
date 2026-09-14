@@ -169,11 +169,13 @@ describe("box billing ingestion", () => {
 		});
 		const opening = await runtime.runPromise(
 			Effect.gen(function* () {
-				return yield* (yield* CloudBillingStore).latestProviderEvent(
-					"box",
-					"bx_1",
-					"box.ready",
-				);
+				return yield* (yield* CloudBillingStore).pairProviderOpening({
+					provider: "box",
+					providerResourceId: "bx_1",
+					openingType: "box.ready",
+					closingEventId: "evt_close",
+					closedAtMs: Date.parse("2026-08-17T13:00:00Z"),
+				});
 			}),
 		);
 		expect(opening?.eventId).toBe("evt_open");
@@ -220,15 +222,74 @@ describe("box billing ingestion", () => {
 		}
 		const opening = await runtime.runPromise(
 			Effect.gen(function* () {
-				return yield* (yield* CloudBillingStore).latestProviderEvent(
-					"box",
-					"bx_1",
-					"box.ready",
-				);
+				return yield* (yield* CloudBillingStore).pairProviderOpening({
+					provider: "box",
+					providerResourceId: "bx_1",
+					openingType: "box.ready",
+					closingEventId: "evt_close",
+					closedAtMs: Date.parse("2026-08-17T13:00:00Z"),
+				});
 			}),
 		);
 
 		expect(opening?.eventId).toBe("evt_open_2");
 		await runtime.dispose();
 	});
+});
+
+it("pairs by provider time and keeps retries pinned after later events arrive", async () => {
+	const runtime = await makeRuntime();
+	try {
+		const store = await runtime.runPromise(CloudBillingStore);
+		const record = async (
+			id: string,
+			occurredAtMs: number,
+			receivedAtMs: number,
+		) =>
+			runtime.runPromise(
+				store.recordProviderEvent({
+					provider: "box",
+					eventId: id,
+					type: "box.ready",
+					providerResourceId: "bx",
+					payload: {},
+					occurredAtMs,
+					receivedAtMs,
+					expiresAtMs: 100_000,
+				}),
+			);
+		const pair = (closingEventId: string, closedAtMs: number) =>
+			runtime.runPromise(
+				store.pairProviderOpening({
+					provider: "box",
+					providerResourceId: "bx",
+					openingType: "box.ready",
+					closingEventId,
+					closedAtMs,
+				}),
+			);
+		await record("ready_2", 3000, 4000);
+		expect(await pair("close_1", 2000)).toBeNull();
+		await record("ready_1", 1000, 5000);
+		expect(await pair("close_1", 2000)).toEqual({
+			eventId: "ready_1",
+			startedAtMs: 1000,
+		});
+		expect(await pair("close_2", 4000)).toEqual({
+			eventId: "ready_2",
+			startedAtMs: 3000,
+		});
+		await record("late_ready", 1500, 6000);
+		expect(await pair("close_1", 2000)).toEqual({
+			eventId: "ready_1",
+			startedAtMs: 1000,
+		});
+		// Distinct webhook/poll closings for the same run retain one execution ID.
+		expect(await pair("poll_close_2", 4000)).toEqual({
+			eventId: "ready_2",
+			startedAtMs: 3000,
+		});
+	} finally {
+		await runtime.dispose();
+	}
 });

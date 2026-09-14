@@ -50,3 +50,30 @@ export interface BillingUsageSourceModule {
 		readonly nowMs: number;
 	}) => Promise<number>;
 }
+
+/** Normalize credentialed billing endpoints before any network request. */
+export const billingApiBaseUrl = (value: string): string => {
+	const url = new URL(value);
+	if (
+		url.protocol !== "https:" ||
+		url.username ||
+		url.password ||
+		url.search ||
+		url.hash
+	)
+		throw new Error(
+			"Billing API base URL must use HTTPS without credentials, query, or fragment",
+		);
+	return url.href.replace(/\/+$/u, "");
+};
+
+/** Bound both response headers and body reads, and never forward credentials on redirects. */
+export const billingPollRequest = (
+	url: string,
+	headers: HeadersInit,
+): Promise<Response> =>
+	fetch(url, {
+		headers,
+		redirect: "error",
+		signal: AbortSignal.timeout(30_000),
+	});

@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { loadEnvFile } from "node:process";
+import { Client } from "pg";
+import { ensureBillingIndex } from "./ensure-billing-index.mjs";
 
 const STAGING_DATABASE_HOSTS = new Set(["db.yzawvredrbpcwbzdnxsu.supabase.co"]);
 const STAGING_DATABASE_NAME = "postgres";
@@ -84,4 +86,14 @@ const result = spawnSync("bunx", ["drizzle-kit", "migrate"], {
 });
 
 if (result.error !== undefined) throw result.error;
-process.exit(result.status ?? 1);
+if (result.status !== 0) process.exit(result.status ?? 1);
+const client = new Client({
+	connectionString: rawDatabaseUrl,
+	connectionTimeoutMillis: 10_000,
+});
+try {
+	await client.connect();
+	await ensureBillingIndex(client);
+} finally {
+	await client.end();
+}

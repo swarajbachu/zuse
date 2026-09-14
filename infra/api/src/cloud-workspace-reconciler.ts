@@ -1209,7 +1209,13 @@ const discardUnsafeWorkspaceSandbox = (
 			yield* provider.kill(providerSandboxId);
 	}).pipe(
 		Effect.as(true),
-		Effect.catchTag("SandboxProviderError", () => Effect.succeed(false)),
+		Effect.catchTag("SandboxProviderError", (error) =>
+			error.code === "transient"
+				? Effect.succeed(false)
+				: error.code === "not-found"
+					? Effect.succeed(true)
+					: Effect.fail(error),
+		),
 	);
 
 const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
@@ -2061,9 +2067,13 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 										runtimeState: "offline" as const,
 									}
 								: {}),
-							statusCode: `${destructiveLifecycle}-retrying`,
+							statusCode: `${destructiveLifecycle}-${error.code === "rejected" ? "rejected" : "retrying"}`,
 							nextActionAtMs:
-								error.code === "not-found" ? failedAtMs : failedAtMs + RETRY_MS,
+								error.code === "rejected"
+									? Number.MAX_SAFE_INTEGER
+									: error.code === "not-found"
+										? failedAtMs
+										: failedAtMs + RETRY_MS,
 							revision: currentWorkspace.revision + 1,
 							updatedAtMs: failedAtMs,
 						});

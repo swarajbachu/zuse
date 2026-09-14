@@ -17,7 +17,12 @@ import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 export const BoxLifecycleEvent = Schema.Struct({
 	id: Schema.String,
 	type: Schema.String,
-	createdAt: Schema.String,
+	createdAt: Schema.String.check(
+		Schema.makeFilter(
+			(value) =>
+				Number.isFinite(Date.parse(value)) || "Invalid provider timestamp",
+		),
+	),
 	data: Schema.Struct({
 		box: Schema.Struct({
 			id: Schema.String,
@@ -29,6 +34,7 @@ export const BoxLifecycleEvent = Schema.Struct({
 });
 export type BoxLifecycleEvent = typeof BoxLifecycleEvent.Type;
 
+/** Decode provider lifecycle evidence; invalid timestamps must never become billable windows. */
 export const normalizeBoxLifecycleEvent = (
 	value: unknown,
 ): BoxLifecycleEvent | null => {
@@ -49,11 +55,7 @@ export interface BoxIngestionResult {
 		| "pre-cutover";
 }
 
-const eventTimestampMs = (value: string, fallbackMs: number): number => {
-	const parsed = Date.parse(value);
-	return Number.isFinite(parsed) ? parsed : fallbackMs;
-};
-
+/** Store a delivery and meter its stable provider-time execution association. */
 export const ingestBoxLifecycleEvent = Effect.fn("ingestBoxLifecycleEvent")(
 	function* (input: {
 		readonly event: BoxLifecycleEvent;
@@ -65,11 +67,19 @@ export const ingestBoxLifecycleEvent = Effect.fn("ingestBoxLifecycleEvent")(
 		const billingStore = yield* CloudBillingStore;
 		const event = input.event;
 		const boxId = event.data.box.id;
+		const occurredAtMs = Date.parse(event.createdAt);
+		if (!Number.isFinite(occurredAtMs))
+			return {
+				eventInserted: false,
+				metered: false,
+				reason: "unmatched" as const,
+			};
 		const eventInserted = yield* billingStore.recordProviderEvent({
 			provider: "box",
 			eventId: event.id,
 			type: event.type,
 			providerResourceId: boxId,
+			occurredAtMs,
 			payload: input.rawPayload,
 			receivedAtMs: input.nowMs,
 			expiresAtMs: input.nowMs + 90 * 24 * 60 * 60 * 1_000,
@@ -95,11 +105,15 @@ export const ingestBoxLifecycleEvent = Effect.fn("ingestBoxLifecycleEvent")(
 		if (!CLOSING_EVENT_TYPES.has(event.type))
 			return { eventInserted, metered: false, reason: "non-final" as const };
 
-		const opening = yield* billingStore.latestProviderEvent(
-			"box",
-			boxId,
-			"box.ready",
-		);
+		// Multiple closing deliveries may identify one execution; execution metering
+		// deduplicates by opening ID. Never fall back to an older unpaired opening.
+		const opening = yield* billingStore.pairProviderOpening({
+			provider: "box",
+			providerResourceId: boxId,
+			openingType: "box.ready",
+			closingEventId: event.id,
+			closedAtMs: occurredAtMs,
+		});
 		if (opening === null) {
 			if (eventInserted)
 				console.warn("[cloud-billing] Box close event without an open window", {
@@ -152,17 +166,8 @@ export const ingestBoxLifecycleEvent = Effect.fn("ingestBoxLifecycleEvent")(
 				? workspace.requestConfig.sizeId
 				: undefined,
 		);
-		const openingEvent = normalizeBoxLifecycleEvent(opening.payload);
-		const startedAtMs =
-			openingEvent === null
-				? opening.receivedAtMs
-				: eventTimestampMs(openingEvent.createdAt, opening.receivedAtMs);
-		// Metering requires a strictly positive window; a same-instant close
-		// still bills the one-second minimum.
-		const endedAtMs = Math.max(
-			startedAtMs + 1_000,
-			eventTimestampMs(event.createdAt, input.nowMs),
-		);
+		const startedAtMs = opening.startedAtMs;
+		const endedAtMs = Math.max(startedAtMs + 1_000, occurredAtMs);
 		const result = yield* meterProviderExecution({
 			evidence: {
 				provider: "box",

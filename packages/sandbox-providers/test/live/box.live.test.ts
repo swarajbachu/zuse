@@ -47,6 +47,7 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 			const forkLabel = `zuse-live-fork-${runId}`;
 			const createdIds: string[] = [];
 			let snapshotId: string | null = null;
+			const failures: unknown[] = [];
 
 			try {
 				// create — boots quarantined; the adapter verifies the firewall
@@ -268,17 +269,30 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 				await Effect.runPromise(
 					adapter.setNetwork(forked.providerSandboxId, { kind: "open" }),
 				);
+			} catch (cause) {
+				failures.push(cause);
 			} finally {
-				for (const providerSandboxId of createdIds) {
-					await Effect.runPromise(adapter.kill(providerSandboxId));
-					// idempotency: a second kill of a dead box must succeed
-					await Effect.runPromise(adapter.kill(providerSandboxId));
-				}
+				const cleanup = createdIds.flatMap((id) => [
+					() => Effect.runPromise(adapter.kill(id)),
+					() => Effect.runPromise(adapter.kill(id)),
+				]);
 				if (snapshotId !== null) {
-					await Effect.runPromise(adapter.deleteSnapshot(snapshotId));
-					await Effect.runPromise(adapter.deleteSnapshot(snapshotId));
+					const id = snapshotId;
+					cleanup.push(
+						() => Effect.runPromise(adapter.deleteSnapshot(id)),
+						() => Effect.runPromise(adapter.deleteSnapshot(id)),
+					);
+				}
+				for (const operation of cleanup) {
+					try {
+						await operation();
+					} catch (cause) {
+						failures.push(cause);
+					}
 				}
 			}
+			if (failures.length > 0)
+				throw new AggregateError(failures, "Box live test or cleanup failed");
 
 			// killed boxes must disappear from label recovery
 			const gone = await pollUntil(

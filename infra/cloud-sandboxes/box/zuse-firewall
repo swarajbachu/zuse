@@ -54,41 +54,45 @@ table inet $TABLE {
 EOF
 }
 
-# allowOut entries are hostnames or CIDRs; hostnames resolve at apply time
-# (re-apply refreshes them — DNS rotation is a known caveat of in-guest
-# enforcement). denyOut is implied by the final drop: restricted is an
-# allowlist, not a mixed policy.
-ruleset_restricted() {
-	local uid allow_specs entry resolved
-	uid="$(zuse_uid)"
-	allow_specs=""
+# Resolve hostnames as root at policy-application time. Restricted mode is
+# an IP allowlist, not a domain-filtering DNS proxy. No external DNS bypass
+# is granted: use preconfigured local resolution or literal IP addresses.
+address_rules() {
+	local uid="$1" action="$2" entries="$3" entry address family resolved
 	while IFS= read -r entry; do
 		[ -n "$entry" ] || continue
 		if [[ "$entry" =~ ^[0-9a-fA-F.:]+(/[0-9]+)?$ ]]; then
-			allow_specs+="		meta skuid $uid ip daddr $entry accept"$'\n'
+			resolved="$entry"
 		else
+			[[ "$entry" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || return 1
 			resolved="$(getent ahosts "$entry" | awk '{print $1}' | sort -u)"
-			while IFS= read -r address; do
-				[ -n "$address" ] || continue
-				if [[ "$address" == *:* ]]; then
-					allow_specs+="		meta skuid $uid ip6 daddr $address accept"$'\n'
-				else
-					allow_specs+="		meta skuid $uid ip daddr $address accept"$'\n'
-				fi
-			done <<<"$resolved"
+			[ -n "$resolved" ] || return 1
 		fi
-	done <<<"$1"
+		while IFS= read -r address; do
+			[ -n "$address" ] || continue
+			family=ip
+			[[ "$address" == *:* ]] && family=ip6
+			printf '\t\tmeta skuid %s %s daddr %s %s\n' "$uid" "$family" "$address" "$action"
+		done <<<"$resolved"
+	done <<<"$entries"
+}
+
+ruleset_restricted() {
+	local uid allow_specs deny_specs
+	uid="$(zuse_uid)"
+	allow_specs="$(address_rules "$uid" accept "$1")" || return 1
+	deny_specs="$(address_rules "$uid" drop "${2:-}")" || return 1
 	cat <<EOF
 table inet $TABLE
 delete table inet $TABLE
 table inet $TABLE {
 	chain output {
 		type filter hook output priority 0; policy accept;
-		oifname "lo" accept
 		meta skuid != $uid accept
-		meta skuid $uid udp dport 53 accept
-		meta skuid $uid tcp dport 53 accept
-$allow_specs		meta skuid $uid drop
+$deny_specs
+		oifname "lo" accept
+$allow_specs
+		meta skuid $uid drop
 	}
 }
 EOF
@@ -108,7 +112,7 @@ apply_policy() {
 		ruleset_open | nft -f -
 		;;
 	restricted)
-		ruleset_restricted "$(printf '%s' "$payload" | jq -r '.allowOut[]?')" | nft -f -
+		ruleset_restricted "$(printf '%s' "$payload" | jq -r '.allowOut[]?')" "$(printf '%s' "$payload" | jq -r '.denyOut[]?')" | nft -f -
 		;;
 	*)
 		echo "unknown policy kind: $kind" >&2

@@ -18,6 +18,7 @@ import {
 export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 	const periods = new Map<string, CloudBillingPeriodRecord>();
 	const events = new Set<string>();
+	const pairs = new Map<string, { eventId: string; startedAtMs: number }>();
 	const eventRecords: Array<{
 		readonly provider: string;
 		readonly eventId: string;
@@ -25,6 +26,7 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 		readonly providerResourceId?: string;
 		readonly payload: unknown;
 		readonly receivedAtMs: number;
+		readonly occurredAtMs?: number;
 	}> = [];
 	const finalizedEvents = new Set<string>();
 	const usage = new Map<string, CloudBillingUsageItem & { periodId: string }>();
@@ -117,27 +119,36 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 					providerResourceId: input.providerResourceId,
 					payload: input.payload,
 					receivedAtMs: input.receivedAtMs,
+					occurredAtMs: input.occurredAtMs,
 				});
 				return true;
 			}),
-		latestProviderEvent: (provider, providerResourceId, type) =>
+		pairProviderOpening: (input) =>
 			Effect.sync(() => {
-				const matches = eventRecords
+				const key = `${input.provider}:${input.closingEventId}`;
+				const existing = pairs.get(key);
+				if (existing !== undefined) return existing;
+				const found = eventRecords
 					.filter(
 						(record) =>
-							record.provider === provider &&
-							record.providerResourceId === providerResourceId &&
-							record.type === type,
+							record.provider === input.provider &&
+							record.providerResourceId === input.providerResourceId &&
+							record.type === input.openingType &&
+							record.occurredAtMs !== undefined &&
+							record.occurredAtMs <= input.closedAtMs,
 					)
-					.sort((a, b) => b.receivedAtMs - a.receivedAtMs);
-				const found = matches[0];
-				return found === undefined
-					? null
-					: {
-							eventId: found.eventId,
-							payload: found.payload,
-							receivedAtMs: found.receivedAtMs,
-						};
+					.sort(
+						(a, b) =>
+							(b.occurredAtMs ?? 0) - (a.occurredAtMs ?? 0) ||
+							b.eventId.localeCompare(a.eventId),
+					)[0];
+				if (found?.occurredAtMs === undefined) return null;
+				const pair = {
+					eventId: found.eventId,
+					startedAtMs: found.occurredAtMs,
+				};
+				pairs.set(key, pair);
+				return pair;
 			}),
 		recordProviderDelivery: () => Effect.void,
 		ensurePeriod: (input) =>

@@ -1,5 +1,8 @@
 import { CLOUD_COMMAND_PROTOCOL_VERSION } from "@zuse/contracts";
-import { SandboxProviders } from "@zuse/sandbox-providers";
+import {
+	SandboxProviderError,
+	SandboxProviders,
+} from "@zuse/sandbox-providers";
 import {
 	FakeSandboxProviderControlService,
 	SandboxProvidersFake,
@@ -1271,4 +1274,48 @@ describe("cloud workspace reconciler", () => {
 			},
 		});
 	});
+});
+
+test.each([
+	"transient",
+	"rejected",
+] as const)("retains the sandbox and classifies %s deletion failures", async (code) => {
+	const result = await Effect.runPromise(
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const workspace = yield* seedWorkspace({
+				workspaceId: "failed-cleanup",
+				statusCode: "delete-queued",
+				desiredState: "deleted",
+				state: "archived",
+				requestConfig: {
+					cloudMailboxLifecyclePending: {
+						action: "delete",
+						destructionFence: 1,
+					},
+				},
+			});
+			const providers = yield* SandboxProviders;
+			yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: (id) =>
+						providers.get(id).pipe(
+							Effect.map((adapter) => ({
+								...adapter,
+								kill: () => Effect.fail(new SandboxProviderError({ code })),
+							})),
+						),
+				}),
+			);
+			return yield* store.getWorkspace(workspace.workspaceId);
+		}).pipe(Effect.provide(testLayer)),
+	);
+	expect(result?.providerSandboxId).toBe("source-failed-cleanup");
+	expect(result?.statusCode).toBe(
+		code === "rejected" ? "delete-rejected" : "delete-retrying",
+	);
+	if (code === "rejected")
+		expect(result?.nextActionAtMs).toBe(Number.MAX_SAFE_INTEGER);
+	else expect(result?.nextActionAtMs).toBeLessThan(Date.now() + 60_000);
 });

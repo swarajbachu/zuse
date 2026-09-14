@@ -103,7 +103,11 @@ const MAX_RECOVERY_PAGES = 10;
 const MAX_TEXT_FILE_BYTES = 65_536;
 const MIN_TTL_SECONDS = 1;
 const MAX_TTL_SECONDS = 2_592_000;
-const RETRYABLE_CONFLICT_CODES = new Set(["box_starting", "save_in_progress"]);
+const RETRYABLE_CONFLICT_CODES = new Set([
+	"box_starting",
+	"save_in_progress",
+	"stop_in_progress",
+]);
 
 const providerError = (
 	code: SandboxProviderError["code"],
@@ -313,14 +317,6 @@ export const makeBoxSandboxProvider = (
 			undefined,
 			[404],
 			{ "x-ascii-confirm-delete": providerSandboxId },
-		).pipe(
-			// A conflicting in-flight stop/save resolves on its own; deletion is
-			// retried by the reconciler.
-			Effect.catchTag("SandboxProviderError", (error) =>
-				error.code === "rejected"
-					? Effect.fail(providerError("transient"))
-					: Effect.fail(error),
-			),
 		);
 
 	const runCommand = (

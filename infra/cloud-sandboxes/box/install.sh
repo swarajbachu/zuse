@@ -10,7 +10,11 @@ provision_dir="${ZUSE_PROVISION_DIR:-/tmp/zuse-provision}"
 # Node 22 is the supported runtime floor and keeps the native tree-sitter
 # dependency on prebuilt binaries; replace whatever the stock image ships.
 if ! command -v node >/dev/null 2>&1 || [ "$(node --version | cut -c2-3)" != "22" ]; then
-	curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+	# Pin the reviewed setup script before allowing any root execution.
+	curl --proto '=https' --proto-redir '=https' -fsSL --max-time 60 https://deb.nodesource.com/setup_22.x -o /tmp/zuse-nodesource-setup.sh
+	printf '%s  %s\n' '575583bbac2fccc0b5edd0dbc03e222d9f9dc8d724da996d22754d6411104fd1' /tmp/zuse-nodesource-setup.sh | sha256sum --check --status
+	bash /tmp/zuse-nodesource-setup.sh
+	rm /tmp/zuse-nodesource-setup.sh
 	apt-get install -y nodejs
 fi
 

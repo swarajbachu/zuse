@@ -4,7 +4,11 @@ import {
 	ingestBoxLifecycleEvent,
 	normalizeBoxLifecycleEvent,
 } from "../cloud-billing-box.ts";
-import type { BillingUsageSourceModule } from "../cloud-billing-usage-source.ts";
+import {
+	type BillingUsageSourceModule,
+	billingApiBaseUrl,
+	billingPollRequest,
+} from "../cloud-billing-usage-source.ts";
 import { ApiConfiguration } from "../config.ts";
 import { badRequest, unauthorized } from "../errors.ts";
 
@@ -13,6 +17,25 @@ const json = (body: unknown, status: number) =>
 		status,
 		headers: { "content-type": "application/json" },
 	});
+
+const PolledBox = Schema.Struct({
+	id: Schema.String.check(Schema.isNonEmpty()),
+	name: Schema.optional(Schema.NullOr(Schema.String)),
+	state: Schema.Literals(["archived", "error"]),
+	updatedAt: Schema.String.check(
+		Schema.makeFilter(
+			(value) => Number.isFinite(Date.parse(value)) || "Invalid timestamp",
+		),
+	),
+});
+const PollPage = Schema.Struct({
+	boxes: Schema.Array(Schema.Unknown),
+	pageInfo: Schema.optional(
+		Schema.Struct({
+			nextCursor: Schema.optional(Schema.NullOr(Schema.String)),
+		}),
+	),
+});
 
 const WEBHOOK_TIMESTAMP_TOLERANCE_MS = 5 * 60_000;
 
@@ -150,9 +173,9 @@ export const BoxBillingUsageSourceModule: BillingUsageSourceModule = {
 			!isConfigured(config.CLOUD_BILLING_CUTOVER_AT)
 		)
 			return 0;
-		const apiBaseUrl = (
-			config.BOX_API_BASE_URL ?? "https://ascii.dev/api/box/v1"
-		).replace(/\/+$/u, "");
+		const apiBaseUrl = billingApiBaseUrl(
+			config.BOX_API_BASE_URL ?? "https://ascii.dev/api/box/v1",
+		);
 		const synthesized: Array<unknown> = [];
 		let cursor: string | undefined;
 		for (let page = 0; page < 10; page++) {
@@ -161,23 +184,18 @@ export const BoxBillingUsageSourceModule: BillingUsageSourceModule = {
 				state: "archived,error",
 			});
 			if (cursor !== undefined) query.set("cursor", cursor);
-			const response = await fetch(`${apiBaseUrl}/boxes?${query}`, {
-				headers: { authorization: `Bearer ${config.BOX_API_KEY}` },
-			});
+			const response = await billingPollRequest(
+				`${apiBaseUrl}/boxes?${query}`,
+				{ authorization: `Bearer ${config.BOX_API_KEY}` },
+			);
 			if (!response.ok)
 				throw new Error(`Box lifecycle poll failed: ${response.status}`);
-			const payload = (await response.json()) as {
-				readonly boxes?: ReadonlyArray<{
-					readonly id?: string;
-					readonly name?: string | null;
-					readonly state?: string;
-					readonly updatedAt?: string | null;
-				}>;
-				readonly pageInfo?: { readonly nextCursor?: string | null };
-			};
-			for (const box of payload.boxes ?? []) {
-				if (typeof box.id !== "string") continue;
-				const observedAt = box.updatedAt ?? new Date(nowMs).toISOString();
+			const payload = Schema.decodeUnknownSync(PollPage)(await response.json());
+			for (const entry of payload.boxes) {
+				const decoded = Schema.decodeUnknownOption(PolledBox)(entry);
+				if (decoded._tag === "None") continue;
+				const box = decoded.value;
+				const observedAt = box.updatedAt;
 				const eventId = `poll:${box.id}:${observedAt}`;
 				if (await api.hasFinalizedProviderBillingEvent("box", eventId))
 					continue;

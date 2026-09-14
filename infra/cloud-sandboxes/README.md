@@ -69,7 +69,7 @@ settings under their own prefixes while sharing the workspace lifecycle.
 The user-facing destination is **Cloud**. Box is the only advertised workspace
 provider. E2B stays registered for the account authentication authority and for
 existing E2B workspaces; it does not appear as a new placement or checkout option.
-When Box is configured it is the default automatically. An E2B-only deployment
+When Box is configured it is the deployment default automatically; this does not set an account-level default. An E2B-only deployment
 can service retained workspaces and authentication, but cannot create new Cloud
 workspaces. Production Box availability remains gated until live validation.
 
@@ -168,3 +168,17 @@ contain neither provider authentication nor GitHub installation tokens, runtime
 identity, shell history, or authenticated processes. Provider grants are sealed
 directly to the enrolled runtime key and remain process-local; Grok's access-only
 CLI cache is redirected to sandbox tmpfs.
+
+
+### Installer integrity
+
+Both template paths verify the Grok installer against a repository-pinned SHA-256
+before root execution. Box does the same for the NodeSource 22 setup script.
+The digests were reviewed against the HTTPS upstream scripts on 2026-09-14.
+An upstream script change intentionally fails the build: inspect the new script
+and update its pinned digest in code rather than bypassing the check.
+
+Restricted Box policies resolve hostnames to IPs when applied and enforce
+explicit denies before allows. They grant no blanket external DNS access.
+Use literal IPs or preconfigured local name resolution; this is not a
+domain-filtering resolver. Reapply policies to refresh DNS-derived IPs.
