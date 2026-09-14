@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash, createPublicKey, sign, verify } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { decodeArtifact } from "../packages/extension-host/src/artifact.ts";
 import { MARKETPLACE_PUBLIC_KEY } from "../packages/extension-host/src/catalog-key.ts";
@@ -33,7 +33,27 @@ const commit = execFileSync("git", ["rev-parse", "HEAD"], {
 }).trim();
 await mkdir(join(output, "artifacts"), { recursive: true });
 const entries = [];
-for (const id of ["test-reports", "project-playbook", "code-follow-ups"]) {
+// Adding a new listing must not offer updates for byte-identical installed tools.
+const previousEntries: Array<{
+	manifest: { id: string };
+	sha256: string;
+	commit: string;
+	archiveUrl: string;
+}> = staging
+	? JSON.parse(
+			await readFile(
+				resolve("apps/web/public/extensions/staging/catalog.v1.json"),
+				"utf8",
+			),
+		).entries
+	: [];
+
+for (const folder of (
+	await readdir(resolve("extensions"), { withFileTypes: true })
+)
+	.filter((folder) => folder.isDirectory())
+	.sort((a, b) => a.name.localeCompare(b.name))) {
+	const id = folder.name;
 	const directory = resolve("extensions", id);
 	const manifest = await readExtensionManifest(directory);
 	assertApiCompatible(manifest.zuseApi);
@@ -44,12 +64,15 @@ for (const id of ["test-reports", "project-playbook", "code-follow-ups"]) {
 	decodeArtifact(artifact, manifest);
 	const digest = createHash("sha256").update(artifact).digest("hex");
 	await writeFile(join(output, "artifacts", `${digest}.json`), artifact);
+	const previous = previousEntries.find(
+		(entry) => entry.manifest.id === manifest.id && entry.sha256 === digest,
+	);
 	entries.push({
 		manifest,
-		commit,
-		archiveUrl: `${base}/artifacts/${digest}.json`,
+		commit: previous?.commit ?? commit,
+		archiveUrl: previous?.archiveUrl ?? `${base}/artifacts/${digest}.json`,
 		sha256: digest,
-		changelog: "Initial desktop preview.",
+		changelog: manifest.description,
 	});
 }
 const bytes = Buffer.from(

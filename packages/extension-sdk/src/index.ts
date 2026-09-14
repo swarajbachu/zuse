@@ -7,4 +7,5 @@ declare global {
 
 export const extensionTarget = globalThis.__ZUSE_EXTENSION_TARGET__;
 
+export { extensionInstallState } from "./install-state.ts";
 export * from "./workspace-tool.ts";

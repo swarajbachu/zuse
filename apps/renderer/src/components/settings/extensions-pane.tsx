@@ -12,6 +12,7 @@ import {
 	extensionActions,
 	useExtensionCatalog,
 } from "../../lib/extension-client-bus.ts";
+import { visibleMarketplaceEntries } from "../../lib/extension-marketplace.ts";
 import { useExtensionContributions } from "../../lib/extension-registry.tsx";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import { useSettingsStore } from "../../lib/settings-client-bus.ts";
@@ -70,10 +71,16 @@ export function ExtensionsPane() {
 		(state) => state.setThemeSelection,
 	);
 	const [source, setSource] = useState("");
+	const [marketplaceQuery, setMarketplaceQuery] = useState("");
 	const [gitRef, setGitRef] = useState("");
 	const [marketplace, setMarketplace] = useState<
 		ReadonlyArray<MarketplaceExtension>
 	>([]);
+	const visibleMarketplace = visibleMarketplaceEntries(
+		marketplace,
+		catalog.items,
+		marketplaceQuery,
+	);
 	const [logs, setLogs] = useState<ReadonlyArray<ExtensionLogEntry>>([]);
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -412,6 +419,19 @@ export function ExtensionsPane() {
 						{extensionMessage("extensions:refresh")}
 					</Button>
 				</div>
+				<input
+					className="h-7 w-full rounded-md bg-muted/45 px-2.5 text-xs outline-none focus:ring-1 ring-ring"
+					type="search"
+					value={marketplaceQuery}
+					onChange={(event) => setMarketplaceQuery(event.target.value)}
+					placeholder={extensionMessage("extensions:search_marketplace")}
+					aria-label={extensionMessage("extensions:search_marketplace")}
+				/>
+				{marketplace.length > 0 && visibleMarketplace.length === 0 && (
+					<p role="status" className="py-3 text-muted-foreground">
+						{extensionMessage("extensions:no_results")}
+					</p>
+				)}
 				{catalogError && (
 					<p
 						role="alert"
@@ -433,7 +453,7 @@ export function ExtensionsPane() {
 						{extensionMessage("extensions:catalog_empty")}
 					</p>
 				) : (
-					marketplace.map((entry) => (
+					visibleMarketplace.map((entry) => (
 						<div
 							key={entry.id}
 							className="flex items-center gap-3 rounded-md bg-muted/25 px-3 py-2"
@@ -443,7 +463,7 @@ export function ExtensionsPane() {
 									{entry.manifest.name}
 								</p>
 								<p className="truncate text-[10px] text-muted-foreground">
-									{entry.changelog}
+									{entry.manifest.description}
 								</p>
 							</div>
 							<Button
@@ -462,10 +482,16 @@ export function ExtensionsPane() {
 											)
 										)
 											return;
-										await extensionActions.install(
-											{ _tag: "marketplace", catalogId: entry.id },
-											entry.manifest.capabilities,
-										);
+										if (entry.installed)
+											await extensionActions.update(
+												entry.id,
+												entry.manifest.capabilities,
+											);
+										else
+											await extensionActions.install(
+												{ _tag: "marketplace", catalogId: entry.id },
+												entry.manifest.capabilities,
+											);
 									})
 								}
 							>

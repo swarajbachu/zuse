@@ -45,5 +45,6 @@
 	"source_notice": "개발용으로 소스에서 설치할 수도 있습니다.",
 	"reports_workflow": "JUnit XML → 실패 확인 → 채팅에 첨부. 작업 공간 탭과 첨부 선택기.",
 	"playbook_workflow": "저장소 Markdown → 절차 선택 → 채팅에 첨부. 작업 공간 탭과 첨부 선택기.",
-	"followups_workflow": "TODO/FIXME → 코드 검토 → 채팅에 첨부. 작업 공간 탭, 명령 팔레트, 첨부 선택기."
+	"followups_workflow": "TODO/FIXME → 코드 검토 → 채팅에 첨부. 작업 공간 탭, 명령 팔레트, 첨부 선택기.",
+	"search_marketplace": "확장 기능 검색…"
 }

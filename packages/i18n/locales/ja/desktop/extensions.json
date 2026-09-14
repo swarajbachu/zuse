@@ -45,5 +45,6 @@
 	"source_notice": "開発用にソースからインストールすることもできます。",
 	"reports_workflow": "JUnit XML → 失敗を確認 → チャットに添付。ワークスペースタブと添付ピッカー。",
 	"playbook_workflow": "リポジトリの Markdown → 手順を選択 → チャットに添付。ワークスペースタブと添付ピッカー。",
-	"followups_workflow": "TODO/FIXME → コードを確認 → チャットに添付。ワークスペースタブ、コマンドパレット、添付ピッカー。"
+	"followups_workflow": "TODO/FIXME → コードを確認 → チャットに添付。ワークスペースタブ、コマンドパレット、添付ピッカー。",
+	"search_marketplace": "拡張機能を検索…"
 }

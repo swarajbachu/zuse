@@ -45,5 +45,6 @@
 	"source_notice": "开发时也可以从源码安装。",
 	"reports_workflow": "JUnit XML → 检查失败 → 附加到聊天。工作区标签页和附件选择器。",
 	"playbook_workflow": "仓库 Markdown → 选择流程 → 附加到聊天。工作区标签页和附件选择器。",
-	"followups_workflow": "TODO/FIXME → 检查代码 → 附加到聊天。工作区标签页、命令面板和附件选择器。"
+	"followups_workflow": "TODO/FIXME → 检查代码 → 附加到聊天。工作区标签页、命令面板和附件选择器。",
+	"search_marketplace": "搜索扩展…"
 }

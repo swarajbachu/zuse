@@ -1,6 +1,7 @@
 import { createHash, verify } from "node:crypto";
 import type { MarketplaceExtension } from "@zuse/contracts";
 import { ExtensionManifest } from "@zuse/contracts";
+import { extensionInstallState } from "@zuse/extension-sdk";
 import { Schema } from "effect";
 import { fetchBounded } from "./artifact.ts";
 
@@ -85,10 +86,9 @@ export const marketplaceItems = (
 			archiveUrl: entry.archiveUrl,
 			sha256: entry.sha256,
 			changelog: entry.changelog,
-			installed: current !== undefined,
-			updateAvailable:
-				current !== undefined &&
-				(current.commit !== entry.commit ||
-					current.version !== entry.manifest.version),
+			...extensionInstallState(
+				{ version: entry.manifest.version, commit: entry.commit },
+				current,
+			),
 		};
 	});

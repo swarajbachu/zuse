@@ -10097,11 +10097,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 136
+				"line": 143
 			},
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 148
+				"line": 155
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10111,7 +10111,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 139
+				"line": 146
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10121,7 +10121,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 154
+				"line": 161
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10131,7 +10131,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 161
+				"line": 168
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10141,7 +10141,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 167
+				"line": 174
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10151,7 +10151,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 175
+				"line": 182
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10161,15 +10161,15 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 192
+				"line": 199
 			},
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 230
+				"line": 237
 			},
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 475
+				"line": 501
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10179,7 +10179,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 195
+				"line": 202
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10189,7 +10189,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 202
+				"line": 209
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10199,7 +10199,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 227
+				"line": 234
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10209,7 +10209,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 234
+				"line": 241
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10219,11 +10219,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 39
+				"line": 40
 			},
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 237
+				"line": 244
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10233,7 +10233,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 244
+				"line": 251
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10243,7 +10243,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 269
+				"line": 276
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10253,7 +10253,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 283
+				"line": 290
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10263,7 +10263,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 297
+				"line": 304
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10273,7 +10273,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 317
+				"line": 324
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10283,11 +10283,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 318
+				"line": 325
 			},
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 474
+				"line": 500
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10297,7 +10297,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 338
+				"line": 345
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10307,7 +10307,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 368
+				"line": 375
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10317,7 +10317,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 403
+				"line": 410
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10327,7 +10327,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 412
+				"line": 419
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10337,7 +10337,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 433
+				"line": 453
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10347,7 +10347,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 476
+				"line": 502
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10388,6 +10388,10 @@
 			{
 				"path": "apps/renderer/src/components/composer/extension-attachment-picker.tsx",
 				"line": 185
+			},
+			{
+				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
+				"line": 432
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10467,7 +10471,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 328
+				"line": 335
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10477,7 +10481,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 36
+				"line": 37
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10487,7 +10491,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 114
+				"line": 121
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10497,15 +10501,15 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 93
+				"line": 100
 			},
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 420
+				"line": 440
 			},
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 421
+				"line": 441
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10515,7 +10519,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 428
+				"line": 448
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10525,7 +10529,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 485
+				"line": 511
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10535,7 +10539,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 515
+				"line": 541
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10545,7 +10549,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 488
+				"line": 514
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10555,7 +10559,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 47
+				"line": 48
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10565,7 +10569,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 52
+				"line": 53
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10575,7 +10579,21 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
-				"line": 57
+				"line": 58
+			}
+		],
+		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"extensions:search_marketplace": {
+		"source": "Search extensions…",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
+				"line": 427
+			},
+			{
+				"path": "apps/renderer/src/components/settings/extensions-pane.tsx",
+				"line": 428
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

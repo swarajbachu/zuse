@@ -10,7 +10,7 @@ import {
 	STAGING_MARKETPLACE_PUBLIC_KEY,
 } from "../../src/staging-catalog.ts";
 
-it("installs all three signed staging artifacts without source checkout installation", async () => {
+it("installs signed staging tools and themes without source checkout installation", async () => {
 	const directory = resolve(
 		import.meta.dirname,
 		"../../../..",
@@ -33,10 +33,12 @@ it("installs all three signed staging artifacts without source checkout installa
 		signatureBase64,
 		publicKeyPem: STAGING_MARKETPLACE_PUBLIC_KEY,
 	});
-	expect(catalog.entries.map((entry) => entry.manifest.id)).toEqual([
-		"test-reports",
-		"project-playbook",
+	expect(catalog.entries.map((entry) => entry.manifest.id).sort()).toEqual([
 		"code-follow-ups",
+		"midnight-ocean",
+		"project-playbook",
+		"test-reports",
+		"warm-paper",
 	]);
 	const root = await mkdtemp(join(tmpdir(), "zuse-staging-install-"));
 	const host = new ExtensionHost({
