@@ -37,3 +37,27 @@ it("filters across project and agent without losing the real state", () => {
 	expect(columns.map((c) => c.id)).toContain("idle");
 	expect(columns.map((c) => c.title)).not.toContain("Done");
 });
+
+it("registers one global board destination instead of duplicating it as a workspace panel", async () => {
+	const { createExtensionClientRuntime } = await import(
+		"@zuse/extension-sdk/host"
+	);
+	const { default: setup } = await import("../index.client.tsx");
+	const contributions = {
+		surfaces: [],
+		sidebarItems: [],
+		workspacePanels: [],
+		commands: [],
+		themes: [],
+		timelineTransformers: [],
+		timelineRenderers: [],
+		attachmentSources: [],
+	};
+	const runtime = createExtensionClientRuntime(contributions);
+	const cleanup = setup(runtime.context);
+	expect(contributions.sidebarItems).toHaveLength(1);
+	expect(contributions.workspacePanels).toHaveLength(0);
+	expect(contributions.surfaces).toHaveLength(1);
+	cleanup();
+	runtime.dispose();
+});

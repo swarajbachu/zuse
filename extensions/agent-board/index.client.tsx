@@ -212,12 +212,6 @@ function Column({
 }
 export default function setup(e: ExtensionClientContext) {
 	const Panel = () => <Board host={e.host} />;
-	e.addWorkspacePanel({
-		id: "board",
-		title: "Agent Board",
-		icon: "package",
-		Component: Panel,
-	});
 	e.addSurface("board", Panel);
 	e.addSidebarItem({
 		id: "board",

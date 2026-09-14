@@ -358,7 +358,7 @@
     },
     "extensions/account-quota": {
       "name": "@zuse-extension/account-quota",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "dependencies": {
         "@types/node": "catalog:",
         "@zuse/extension-sdk": "workspace:*",
@@ -373,7 +373,7 @@
     },
     "extensions/agent-board": {
       "name": "@zuse-extension/agent-board",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@zuse/extension-sdk": "workspace:*",
         "react": "catalog:",

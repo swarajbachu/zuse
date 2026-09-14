@@ -1,8 +1,8 @@
 # Agent Board
 
 A live status board for non-archived agent sessions across local Zuse projects.
-Install from Settings → Extensions, then open **Agent Board** from the sidebar,
-command palette, or workspace tabs. Search by task, project, agent, or model.
+Install from Settings → Extensions, then open **Agent Board** from the sidebar
+or command palette. Search by task, project, agent, or model.
 
 Cards show starting/running/idle/error/closed state, branch PR state, and CI check
 counts. Click a task to open its existing conversation. Idle does not imply the

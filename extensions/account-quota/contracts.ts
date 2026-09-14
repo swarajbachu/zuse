@@ -5,6 +5,7 @@ export const Account = Schema.Struct({
 	label: Schema.String,
 	provider: Schema.Literals(["codex", "claude"]),
 	credentialPath: Schema.String,
+	usesCurrentLogin: Schema.optional(Schema.Boolean),
 });
 export type AccountProfile = typeof Account.Type;
 export const Window = Schema.Struct({
@@ -24,7 +25,7 @@ export type QuotaResult = typeof Result.Type;
 export const quotaRpc = defineRpc({
 	name: "accounts",
 	input: Schema.Struct({
-		action: Schema.Literals(["list", "add", "remove", "refresh"]),
+		action: Schema.Literals(["list", "add", "connect", "remove", "refresh"]),
 		id: Schema.String,
 		label: Schema.String,
 		provider: Schema.Literals(["codex", "claude"]),

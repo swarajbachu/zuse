@@ -22,8 +22,9 @@ export function Panel(props: ExtensionWorkspacePanelProps) {
 	const invoke = useRef(props.invoke);
 	invoke.current = props.invoke;
 	const run = async (
-		action: "list" | "add" | "remove" | "refresh",
+		action: "list" | "add" | "connect" | "remove" | "refresh",
 		id = "",
+		selectedProvider = provider,
 	) => {
 		pending.current?.abort();
 		const controller = new AbortController();
@@ -40,23 +41,24 @@ export function Panel(props: ExtensionWorkspacePanelProps) {
 				setProgress(
 					action === "refresh"
 						? `Refreshing account ${index + 1} of ${ids.length}…`
-						: "Loading profiles…",
+						: action === "connect"
+							? "Connecting… Allow Keychain access if macOS asks."
+							: "Loading…",
 				);
 				const data = await invoke.current(
 					quotaRpc,
 					{
 						action,
 						id: accountId,
-						label:
-							label.trim() || (provider === "codex" ? "Codex" : "Claude Code"),
-						provider,
+						label: action === "connect" ? "" : label.trim(),
+						provider: selectedProvider,
 						credentialPath: path,
 					},
 					{ signal: controller.signal },
 				);
 				if (!controller.signal.aborted) {
 					setAccounts(data);
-					if (action === "add") {
+					if (action === "add" || action === "connect") {
 						setLabel("");
 						setPath(defaultPath(provider));
 						setAdding(false);
@@ -79,6 +81,16 @@ export function Panel(props: ExtensionWorkspacePanelProps) {
 			pending.current?.abort();
 		};
 	}, [props.projectId, props.workspacePath]);
+	const cards = [
+		...(["codex", "claude"] as const).map(
+			(provider) =>
+				accounts.find(
+					(row) =>
+						row.account.provider === provider && row.account.usesCurrentLogin,
+				) ?? { provider },
+		),
+		...accounts.filter((row) => !row.account.usesCurrentLogin),
+	];
 	return (
 		<section className="zq-panel">
 			<div className="zq-content">
@@ -93,14 +105,6 @@ export function Panel(props: ExtensionWorkspacePanelProps) {
 								className="h-7"
 								type="button"
 								disabled={busy}
-								onClick={() => setAdding(!adding)}
-							>
-								Add account
-							</button>
-							<button
-								className="h-7"
-								type="button"
-								disabled={busy}
 								onClick={() => void run("refresh")}
 							>
 								Refresh all
@@ -108,30 +112,29 @@ export function Panel(props: ExtensionWorkspacePanelProps) {
 						</div>
 					)}
 				</header>
-				{(accounts.length === 0 || adding) && (
+
+				{adding && (
 					<form
-						onSubmit={(e) => {
-							e.preventDefault();
+						onSubmit={(event) => {
+							event.preventDefault();
 							void run("add");
 						}}
 					>
-						<h2>
-							{accounts.length === 0
-								? "Add your first account"
-								: "Add another account"}
-						</h2>
-						<p>Choose a provider and its local credential file.</p>
+						<h2>Add a separate account</h2>
+						<p>
+							Use a separate CLI credential file for each additional account.
+						</p>
 						<div className="zq-form">
 							<label>
 								Provider
 								<select
 									className="h-7"
 									value={provider}
-									onChange={(e) => {
-										const next =
-											e.target.value === "claude" ? "claude" : "codex";
-										setPath(defaultPath(next));
-										setProvider(next);
+									onChange={(event) => {
+										const p =
+											event.target.value === "claude" ? "claude" : "codex";
+										setProvider(p);
+										setPath(defaultPath(p));
 									}}
 								>
 									<option value="codex">Codex</option>
@@ -142,10 +145,10 @@ export function Panel(props: ExtensionWorkspacePanelProps) {
 								Account name
 								<input
 									className="h-7"
-									placeholder="Personal, work… (optional)"
 									value={label}
 									maxLength={80}
-									onChange={(e) => setLabel(e.target.value)}
+									placeholder="Work, personal…"
+									onChange={(event) => setLabel(event.target.value)}
 								/>
 							</label>
 							<label className="zq-path">
@@ -153,35 +156,27 @@ export function Panel(props: ExtensionWorkspacePanelProps) {
 								<input
 									className="h-7"
 									value={path}
-									onChange={(e) => setPath(e.target.value)}
 									spellCheck={false}
+									onChange={(event) => setPath(event.target.value)}
 								/>
 							</label>
 						</div>
-						{provider === "claude" && (
-							<p className="zq-help">
-								Requires a JSON credential file. Claude Code’s macOS Keychain
-								login is not imported.
-							</p>
-						)}
 						<div className="zq-actions">
 							<button
 								className="h-7 zq-primary"
-								type="submit"
 								disabled={busy || !path.trim()}
+								type="submit"
 							>
-								Add account
+								Connect account
 							</button>
-							{accounts.length > 0 && (
-								<button
-									className="h-7"
-									type="button"
-									disabled={busy}
-									onClick={() => setAdding(false)}
-								>
-									Cancel
-								</button>
-							)}
+							<button
+								className="h-7"
+								type="button"
+								disabled={busy}
+								onClick={() => setAdding(false)}
+							>
+								Cancel
+							</button>
 						</div>
 					</form>
 				)}
@@ -195,7 +190,7 @@ export function Panel(props: ExtensionWorkspacePanelProps) {
 							type="button"
 							onClick={() => {
 								pending.current?.abort();
-								setBusy(false);
+								void run("list");
 							}}
 						>
 							Cancel
@@ -203,97 +198,129 @@ export function Panel(props: ExtensionWorkspacePanelProps) {
 					</p>
 				)}
 				<div className="zq-grid">
-					{accounts.map((row) => (
-						<article className="zq-account" key={row.account.id}>
-							<header>
-								<div>
-									<h2>{row.account.label}</h2>
-									<p>
-										{row.account.provider === "claude"
-											? "Claude Code"
-											: "Codex"}
-										{row.plan ? ` · ${row.plan}` : ""}
-									</p>
-								</div>
+					{cards.map((row) =>
+						!("account" in row) ? (
+							<article className="zq-connect" key={row.provider}>
+								<h2>{row.provider === "codex" ? "Codex" : "Claude Code"}</h2>
+								<p>See the remaining allowance for your current login.</p>
 								<button
-									className="h-7"
+									className="h-7 zq-primary"
 									type="button"
 									disabled={busy}
-									onClick={() => void run("refresh", row.account.id)}
+									onClick={() => void run("connect", "", row.provider)}
 								>
-									Refresh
+									Connect {row.provider === "codex" ? "Codex" : "Claude Code"}
 								</button>
-							</header>
-							{row.error && (
-								<p role="alert">
-									{row.error}
-									{row.fetchedAt ? " Showing the last successful reading." : ""}
-								</p>
-							)}
-							{row.windows.length === 0 && (
-								<p>
-									{row.error
-										? "Quota unavailable."
-										: "No reading yet. Refresh this account."}
-								</p>
-							)}
-							{row.windows.map((w) => (
-								<div className="zq-window" key={w.id}>
+							</article>
+						) : (
+							<article className="zq-account" key={row.account.id}>
+								<header>
 									<div>
-										<span>{w.label}</span>
-										<strong>
-											{w.usedPercent === null
-												? "Unknown"
-												: `${Math.round(100 - w.usedPercent)}% left`}
-										</strong>
+										<h2>{row.account.label}</h2>
+										<p>
+											{row.account.provider === "claude"
+												? "Claude Code"
+												: "Codex"}
+											{row.plan ? ` · ${row.plan}` : ""}
+											{row.account.usesCurrentLogin ? " · Current login" : ""}
+										</p>
 									</div>
-									{w.usedPercent !== null && (
-										<progress
-											aria-label={`${w.label} remaining`}
-											value={100 - w.usedPercent}
-											max={100}
-										/>
-									)}
-									<p>
-										{w.resetsAt
-											? `Resets ${new Date(w.resetsAt).toLocaleString()}`
-											: "Reset time unavailable"}
+									<button
+										className="h-7"
+										type="button"
+										disabled={busy}
+										onClick={() => void run("refresh", row.account.id)}
+									>
+										Refresh
+									</button>
+								</header>
+								{row.error && (
+									<p role="alert">
+										{row.error}
+										{row.fetchedAt
+											? " Showing the last successful reading."
+											: ""}
 									</p>
-								</div>
-							))}
-							<footer>
-								<span>
-									{row.fetchedAt
-										? `Fetched ${new Date(row.fetchedAt).toLocaleString()}`
-										: "Not fetched"}
-								</span>
-								<button
-									className="h-7"
-									type="button"
-									disabled={busy}
-									onClick={() => void run("remove", row.account.id)}
-								>
-									Remove
-								</button>
-							</footer>
-						</article>
-					))}
+								)}
+								{row.windows.length === 0 && (
+									<p>
+										{row.error
+											? "Quota unavailable."
+											: "No reading yet. Refresh this account."}
+									</p>
+								)}
+								{row.windows.map((w) => (
+									<div className="zq-window" key={w.id}>
+										<div>
+											<span>{w.label}</span>
+											<strong>
+												{w.usedPercent === null
+													? "Unknown"
+													: `${Math.round(100 - w.usedPercent)}% left`}
+											</strong>
+										</div>
+										{w.usedPercent !== null && (
+											<progress
+												aria-label={`${w.label} remaining`}
+												value={100 - w.usedPercent}
+												max={100}
+											/>
+										)}
+										<p>
+											{w.resetsAt
+												? `Resets ${new Date(w.resetsAt).toLocaleString()}`
+												: "Reset time unavailable"}
+										</p>
+									</div>
+								))}
+								<footer>
+									<span>
+										{row.fetchedAt
+											? `Fetched ${new Date(row.fetchedAt).toLocaleString()}`
+											: "Not fetched"}
+									</span>
+									<button
+										className="h-7"
+										type="button"
+										disabled={busy}
+										onClick={() => void run("remove", row.account.id)}
+									>
+										Remove
+									</button>
+								</footer>
+							</article>
+						),
+					)}
 				</div>
+
+				{!adding && (
+					<button
+						className="h-7 zq-subtle"
+						type="button"
+						disabled={busy}
+						onClick={() => setAdding(true)}
+					>
+						Add a separate account…
+					</button>
+				)}
+				<p className="zq-help">
+					Reads your existing CLI logins. macOS may ask you to allow Keychain
+					access.
+				</p>
 				<details className="zq-details">
-					<summary>How account profiles work</summary>
+					<summary>Connection details</summary>
 					<p>
-						Use a separate credential file for each account. This extension
-						reads quota directly from the provider and does not change your
-						active login.
+						Current-login cards follow the account signed into that CLI.
+						Separate accounts use their own credential files.
 					</p>
 					<p>
-						Tokens stay on this machine and are sent only to the selected
-						provider. Sign-in and expired-token renewal happen outside this
-						extension.
+						Quota is fetched directly from each provider when you connect or
+						refresh. Credentials stay out of the UI. This extension does not
+						switch accounts, renew logins, or use Zuse’s quota collector.
 					</p>
 					<p>
-						Refresh is manual, at most once per account per minute. Removing a
-						profile leaves its credential file untouched.
+						Refresh is limited to once per minute per account. Removing a card
+						leaves your login untouched.
 					</p>
 				</details>
 			</div>

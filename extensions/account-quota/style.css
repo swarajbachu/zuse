@@ -1,5 +1,5 @@
 .zq-panel {
-	padding: 20px;
+	padding: 28px 24px;
 	height: 100%;
 	overflow: auto;
 	font-size: 12px;
@@ -48,7 +48,7 @@
 	margin: 20px 0;
 }
 .zq-content {
-	max-width: 880px;
+	max-width: 760px;
 	margin: 0 auto;
 }
 .zq-actions {
@@ -103,8 +103,8 @@
 }
 .zq-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
-	gap: 16px;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+	gap: 12px;
 	margin: 20px 0;
 }
 .zq-account {
@@ -143,4 +143,28 @@
 .zq-panel :focus-visible {
 	outline: 2px solid var(--ring);
 	outline-offset: 2px;
+}
+
+.zq-connect {
+	padding: 20px;
+	border-radius: 10px;
+	background: var(--card, var(--muted));
+}
+.zq-connect p {
+	margin: 8px 0 20px;
+}
+.zq-panel .zq-subtle {
+	padding: 0;
+	background: transparent;
+	color: var(--muted-foreground);
+}
+.zq-window strong {
+	font-size: 18px;
+	font-weight: 600;
+}
+.zq-account {
+	min-width: 0;
+}
+.zq-account [role="alert"] {
+	overflow-wrap: anywhere;
 }

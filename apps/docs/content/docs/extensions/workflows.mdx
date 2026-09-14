@@ -13,26 +13,17 @@ Refresh the marketplace after updating. Installation does not send any prompts.
 
 ## Account Quota
 
-Compare **Claude Code and Codex** accounts before starting work. Give each
-account a label and point it at its own credential JSON file. Click **Refresh**
-to fetch remaining percentages and reset times directly from the provider.
+Click **Connect Codex** or **Connect Claude Code** to read the existing CLI login and fetch quota immediately. On macOS, allow Keychain access if prompted. There is no credential-path form in the default flow.
 
-The extension owns collection; it does not use Zuse's built-in quota collector.
-Up to 20 profiles are supported. Use separate files for separate accounts.
-Codex ChatGPT profiles use `auth.json`; Claude Code file-backed profiles use
-`.credentials.json`. This initial version requires file-backed credentials and
-has no browser sign-in, Keychain import, token renewal, or account-switch button.
-A Claude Code login stored only in macOS Keychain needs a separately managed
-credential-file profile. Never share credential files or paste tokens into chat.
+Current-login cards follow the account signed into that CLI. To track additional accounts independently, choose **Add a separate account…** and use a separate credential file for each. Up to 20 cards are supported.
 
-Refresh is manual, with one attempt per account per minute, processing accounts
-one at a time so each finishes within the host request deadline. An expired login, denied quota scope, rate limit, or unavailable
-endpoint appears on its account card. Failed refreshes preserve the timestamped
-previous reading. Removing a profile leaves the original credential file intact.
+The extension makes its own provider requests; it does not use Zuse's quota collector. Credentials remain outside the renderer and are never attached to a prompt. Listing accounts does not access Keychain or make a provider request. Connect and Refresh are explicit actions, with at most one quota attempt per account per minute.
+
+If a login is missing or expired, sign in through `codex login` or Claude Code's `/login`, then retry. This extension does not switch accounts or renew tokens. Custom or managed credential stores may need an explicit file profile. Removing a card leaves the CLI login untouched.
 
 ## Agent Board
 
-Open **Agent Board** from the sidebar, command palette, or a workspace tab.
+Open **Agent Board** from the sidebar or command palette.
 Search tasks, filter projects/agents, and see sessions grouped into **Needs
 attention**, **Starting**, **Running**, **Idle**, and **Closed**.
 
