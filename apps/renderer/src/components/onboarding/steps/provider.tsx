@@ -1,4 +1,6 @@
 import "@zuse/i18n/english/onboarding";
+import "@zuse/i18n/english/providers";
+import "@zuse/i18n/english/shell";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 import { PROVIDER_IDS } from "@zuse/contracts";
@@ -9,6 +11,7 @@ import { ApiKeyRow } from "~/components/api-key-row";
 import { ProviderIcon } from "~/components/provider-icons";
 import { PROVIDER_LABEL } from "~/components/settings-page";
 import { Button } from "~/components/ui/button";
+import { INSTALL_HINT } from "~/lib/provider-setup";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 import { cn } from "~/lib/utils";
 import { useSettingsStore } from "../../../lib/settings-client-bus.ts";
@@ -50,15 +53,6 @@ const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
 	kiro: "kiro-cli login",
 };
 
-const INSTALL_HINT: Partial<Record<ProviderId, string>> = {
-	claude: "npm i -g @anthropic-ai/claude-code",
-	codex: "npm i -g @openai/codex",
-	grok: "curl -fsSL https://x.ai/cli/install.sh | bash",
-	gemini: "npm i -g @google/gemini-cli",
-	opencode: "curl -fsSL https://opencode.ai/install | bash",
-	kiro: "Install from https://kiro.dev",
-};
-
 type ProviderState =
 	| { readonly kind: "loading" }
 	| { readonly kind: "missing" } // Provider runtime unavailable
@@ -71,7 +65,7 @@ type ProviderState =
 	| { readonly kind: "signed-out" } // CLI installed, not logged in, no API key
 	| { readonly kind: "key-attention"; readonly invalid: boolean }
 	| { readonly kind: "subscription"; readonly plan: string } // logged in but missing required paid plan (e.g. SuperGrok or X Premium+)
-	| { readonly kind: "ready"; readonly via: "cli" | "key" };
+	| { readonly kind: "ready"; readonly via: "cli" | "key" | "native" };
 
 function deriveState(
 	providerId: ProviderId,
@@ -102,6 +96,9 @@ function deriveState(
 			command: a.cliUpgradeCommand ?? null,
 		};
 	}
+
+	// Pi owns authentication; an uncertain probe must not claim sign-in is required.
+	if (providerId === "pi") return { kind: "ready", via: "native" };
 
 	// For subscription-gated providers, the server-side probe
 	// (parseGrokAuthJson etc.) sets authLabel to "Requires SuperGrok or X Premium+"
@@ -258,26 +255,29 @@ function StateLine({
 	providerId: ProviderId;
 	state: ProviderState;
 }) {
+	const { message: uiMessage } = useUiMessages(["shell"]);
 	const text =
-		state.kind === "loading"
-			? "Checking…"
-			: state.kind === "missing"
-				? "Not installed"
-				: state.kind === "outdated"
-					? "Update required"
-					: state.kind === "signed-out"
-						? providerId === "cursor"
-							? "API key required"
-							: "Sign in required"
-						: state.kind === "key-attention"
-							? state.invalid
-								? "Invalid API key"
-								: "Key not verified"
-							: state.kind === "subscription"
-								? "Subscription required"
-								: state.via === "cli"
-									? "CLI logged in"
-									: "API key set";
+		state.kind === "ready" && state.via === "native"
+			? uiMessage("shell:pi_available")
+			: state.kind === "loading"
+				? "Checking…"
+				: state.kind === "missing"
+					? "Not installed"
+					: state.kind === "outdated"
+						? "Update required"
+						: state.kind === "signed-out"
+							? providerId === "cursor"
+								? "API key required"
+								: "Sign in required"
+							: state.kind === "key-attention"
+								? state.invalid
+									? "Invalid API key"
+									: "Key not verified"
+								: state.kind === "subscription"
+									? "Subscription required"
+									: state.via === "cli"
+										? "CLI logged in"
+										: "API key set";
 	const tone =
 		state.kind === "ready"
 			? "text-emerald-300/90"
@@ -303,7 +303,7 @@ function ProviderStatus({
 	providerId: ProviderId;
 	state: ProviderState;
 }) {
-	const { message: uiMessage } = useUiMessages(["onboarding"]);
+	const { message: uiMessage } = useUiMessages(["onboarding", "providers"]);
 
 	const refresh = useProvidersStore((s) => s.refresh);
 	const subscriptionInfo = SUBSCRIPTION_INFO[providerId];
@@ -311,6 +311,16 @@ function ProviderStatus({
 	// Ready state has nothing for the user to do — the heavy card was reading
 	// as a homework assignment ("did I miss a step?"). Collapse it to a slim
 	// confirmation row and hide the API-key disclosure unless they ask for it.
+	if (state.kind === "ready" && state.via === "native") {
+		return (
+			<p className="rounded-md bg-muted/60 px-3 py-2 text-[12px] text-muted-foreground">
+				<RichMessage
+					id="providers:pi_setup_hint"
+					components={{ part0: <code />, part1: <code /> }}
+				/>
+			</p>
+		);
+	}
 	if (state.kind === "ready") {
 		const label =
 			state.via === "cli"
@@ -413,14 +423,16 @@ function ProviderStatus({
 			(state.kind === "signed-out" || state.kind === "key-attention") ? (
 				<ApiKeyRow providerId={providerId} required />
 			) : (
-				<details className="group/keys">
-					<summary className="cursor-pointer select-none list-none text-[11px] text-muted-foreground hover:text-foreground">
-						{uiMessage("onboarding:provider_or_paste_an_api_key_instead")}
-					</summary>
-					<div className="pt-3">
-						<ApiKeyRow providerId={providerId} />
-					</div>
-				</details>
+				providerId !== "pi" && (
+					<details className="group/keys">
+						<summary className="cursor-pointer select-none list-none text-[11px] text-muted-foreground hover:text-foreground">
+							{uiMessage("onboarding:provider_or_paste_an_api_key_instead")}
+						</summary>
+						<div className="pt-3">
+							<ApiKeyRow providerId={providerId} />
+						</div>
+					</details>
+				)
 			)}
 		</div>
 	);

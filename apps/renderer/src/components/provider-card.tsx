@@ -17,7 +17,6 @@ import {
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-
 import { ApiKeyRow } from "~/components/api-key-row";
 import { BlurredEmail } from "~/components/blurred-email";
 import { OpencodeProviderManager } from "~/components/opencode-provider-manager";
@@ -27,6 +26,7 @@ import { Input } from "~/components/ui/input";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { Switch } from "~/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { INSTALL_HINT } from "~/lib/provider-setup";
 import {
 	formatVersionLabel,
 	getProviderSummary,
@@ -59,16 +59,6 @@ const PROVIDER_LABEL: Record<ProviderId, string> = {
 	opencode: "OpenCode",
 	kiro: "Kiro",
 	pi: "Pi",
-};
-
-const INSTALL_HINT: Partial<Record<ProviderId, string>> = {
-	claude: "npm i -g @anthropic-ai/claude-code",
-	codex: "npm i -g @openai/codex",
-	grok: "curl -fsSL https://x.ai/cli/install.sh | bash",
-	gemini: "npm i -g @google/gemini-cli",
-	opencode: "curl -fsSL https://opencode.ai/install | bash",
-	kiro: "Install from https://kiro.dev",
-	pi: "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
 };
 
 const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
