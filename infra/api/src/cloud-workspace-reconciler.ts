@@ -3,6 +3,7 @@ import {
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
 import {
+	resolveSandboxResources,
 	type SandboxProviderAdapter,
 	SandboxProviderError,
 	SandboxProviders,
@@ -56,6 +57,7 @@ const RUNTIME_SIGNING_PUBLIC_JWK_FILE =
 const PROJECT_BUILD_DIAGNOSTIC_MAX_LENGTH = 2_048;
 const PROJECT_BUILD_LOG_FILE = "/var/lib/zuse/project-build/build.log";
 const PROJECT_BUILD_LOG_MAX_LENGTH = 256 * 1_024;
+export const PROJECT_RUNTIME_UPDATE_RETRY_DELAYS_SECONDS = [0, 5, 15] as const;
 const PROJECT_BUILDER_FILE = "/var/lib/zuse/project-build/builder.sh";
 const WORKSPACE_BOOTSTRAP_FILE =
 	"/var/lib/zuse/project-build/workspace-bootstrap.sh";
@@ -326,6 +328,13 @@ export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/curren
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
 
+const workspaceSizeId = (
+	workspace: CloudWorkspaceRecord,
+): string | undefined =>
+	typeof workspace.requestConfig.sizeId === "string"
+		? workspace.requestConfig.sizeId
+		: undefined;
+
 export const withoutRuntimeBootstrapReceipt = (
 	config: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> => {
@@ -447,8 +456,8 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			provider: build.provider,
 			runningSinceMs: build.state === "queued" ? nowMs : build.updatedAtMs,
 			nowMs,
-			vcpuCount: config.vcpuCount,
-			memoryMib: config.memoryMib,
+			vcpuCount: provider.resources.vcpuCount,
+			memoryMib: provider.resources.memoryMib,
 		});
 		if (buildBillingHold) {
 			if (build.providerSandboxId !== undefined)
@@ -540,6 +549,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					? yield* snapshotCloudAuthAuthority(
 							build.accountId,
 							`account-auth-${build.buildId}`,
+							build.provider,
 						).pipe(Effect.orElseSucceed(() => undefined))
 					: undefined;
 			const reusableSnapshotId =
@@ -692,12 +702,18 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					"zuse",
 				)
 				.pipe(Effect.orDie);
+			// Box can finish restoring boot-time firewall state while repository
+			// grants are being prepared. Reassert the requested policy at the exact
+			// process-launch boundary so the updater never inherits a late quarantine.
+			yield* provider
+				.setNetwork(sandbox.providerSandboxId, { kind: "open" })
+				.pipe(Effect.orDie);
 			yield* provider
 				.startProcess(sandbox.providerSandboxId, {
 					command: "/bin/bash",
 					args: [
 						"-lc",
-						`set -e; : >${PROJECT_BUILD_LOG_FILE}; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >>${PROJECT_BUILD_LOG_FILE} 2>&1 || { code=$?; printf 'updating-runtime\n' >/var/lib/zuse/project-build/failure-phase; touch /var/lib/zuse/project-build/failed /tmp/zuse-project-builder-exited; exit "$code"; }; fi; set +e; ${PROJECT_BUILDER_FILE} >>${PROJECT_BUILD_LOG_FILE} 2>&1; code=$?; touch /tmp/zuse-project-builder-exited; exit "$code"`,
+						`set -e; : >${PROJECT_BUILD_LOG_FILE}; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then code=1; for delay in ${PROJECT_RUNTIME_UPDATE_RETRY_DELAYS_SECONDS.join(" ")}; do if [ "$delay" -gt 0 ]; then sleep "$delay"; fi; if ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >>${PROJECT_BUILD_LOG_FILE} 2>&1; then code=0; break; else code=$?; fi; done; if [ "$code" -ne 0 ]; then printf 'updating-runtime\n' >/var/lib/zuse/project-build/failure-phase; touch /var/lib/zuse/project-build/failed /tmp/zuse-project-builder-exited; exit "$code"; fi; fi; set +e; ${PROJECT_BUILDER_FILE} >>${PROJECT_BUILD_LOG_FILE} 2>&1; code=$?; touch /tmp/zuse-project-builder-exited; exit "$code"`,
 					],
 					env: {
 						ZUSE_TEMPLATE_VERSION: build.templateVersion,
@@ -1004,7 +1020,15 @@ export const reconcileCloudPool = Effect.fn("reconcileCloudPool")(function* (
 	const store = yield* CloudWorkspaceStore;
 	const config = yield* SandboxOfferConfiguration;
 	const providers = yield* SandboxProviders;
-	const provider = yield* providers.get("e2b").pipe(Effect.orDie);
+	// Internal providers host authentication and retained workspaces only.
+	if (
+		!providers.availableProviders.some(
+			(provider) => provider.providerId === providers.defaultProviderId,
+		)
+	)
+		return;
+	// Account images and their warm pool live on the default sandbox provider.
+	const provider = yield* providers.getDefault.pipe(Effect.orDie);
 	const image = yield* store.getActiveAccountBuild(
 		accountId,
 		provider.providerId,
@@ -1148,7 +1172,12 @@ const wakePreservedWorkspaceRuntime = (
 		// Provider pause preserves memory and processes. Wake the sandbox first
 		// and give its existing runtime a brief window to reconnect. If it does
 		// not reconnect, the resuming branch performs a fenced hard restart.
-		yield* provider.resume(providerSandboxId, keepAliveTimeoutSeconds, "pause");
+		yield* provider.resume(
+			providerSandboxId,
+			keepAliveTimeoutSeconds,
+			"pause",
+			workspaceSizeId(workspace),
+		);
 		yield* saveWorkspace({
 			...workspace,
 			runtimeState: "connecting",
@@ -1218,6 +1247,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 				providerSandboxId,
 				config.keepAliveTimeoutSeconds,
 				"pause",
+				workspaceSizeId(workspace),
 			);
 		const boot = yield* issueWorkspaceRuntimeBoot(nowMs);
 		yield* Effect.all(
@@ -1380,8 +1410,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			provider: workspace.provider,
 			runningSinceMs: workspace.runningSinceMs ?? nowMs,
 			nowMs,
-			vcpuCount: config.vcpuCount,
-			memoryMib: config.memoryMib,
+			...resolveSandboxResources(provider, workspaceSizeId(workspace)),
 		});
 		const mailboxWakePending =
 			workspace.requestConfig.cloudMailboxWakePending === true;
@@ -1655,6 +1684,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 								"zuse-build-id": workspace.buildId,
 								"zuse-workspace-id": workspace.workspaceId,
 							},
+							sizeId: workspaceSizeId(workspace),
 							snapshotId: build.snapshotId as string,
 							timeoutSeconds: config.keepAliveTimeoutSeconds,
 							env: {},
@@ -1671,6 +1701,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 								"zuse-build-id": workspace.buildId,
 								"zuse-workspace-id": workspace.workspaceId,
 							},
+							sizeId: workspaceSizeId(workspace),
 							timeoutSeconds: config.keepAliveTimeoutSeconds,
 							env: {},
 							network: { kind: "open" },
@@ -1851,8 +1882,9 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			// so it would otherwise never run the signed runtime updater or advertise v3.
 			// The server capability flag keeps production on warm resume until rollout.
 			if (
-				apiConfig.cloudCommandMailboxEnabled &&
-				!workspaceSupportsCloudCommandMailbox(workspace)
+				!provider.preservesProcessesOnResume ||
+				(apiConfig.cloudCommandMailboxEnabled &&
+					!workspaceSupportsCloudCommandMailbox(workspace))
 			)
 				return yield* restartWorkspaceRuntime(
 					workspace,

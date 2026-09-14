@@ -24,6 +24,7 @@ import {
 	CODEX_GRANT_SOURCE,
 	cloudAuthAuthorityLabel,
 	parseDeviceLoginOutput,
+	snapshotCloudAuthAuthority,
 } from "../../src/cloud-auth-authority.ts";
 
 const grantAdditionalData = (sealed: Record<string, unknown>): Buffer =>
@@ -41,6 +42,15 @@ const grantAdditionalData = (sealed: Record<string, unknown>): Buffer =>
 	);
 
 describe("cloud auth authority identity", () => {
+	test("does not seed a Box image with an E2B snapshot", async () => {
+		await expect(
+			Effect.runPromise(
+				snapshotCloudAuthAuthority("account", "image", "box") as Effect.Effect<
+					string | undefined
+				>,
+			),
+		).resolves.toBeUndefined();
+	});
 	test("isolates deployments but remains stable across image updates", async () => {
 		const label = (apiIssuer: string) =>
 			Effect.runPromise(

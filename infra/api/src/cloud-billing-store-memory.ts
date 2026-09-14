@@ -18,6 +18,14 @@ import {
 export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 	const periods = new Map<string, CloudBillingPeriodRecord>();
 	const events = new Set<string>();
+	const eventRecords: Array<{
+		readonly provider: string;
+		readonly eventId: string;
+		readonly type: string;
+		readonly providerResourceId?: string;
+		readonly payload: unknown;
+		readonly receivedAtMs: number;
+	}> = [];
 	const finalizedEvents = new Set<string>();
 	const usage = new Map<string, CloudBillingUsageItem & { periodId: string }>();
 	const reservations = new Map<
@@ -102,7 +110,34 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 				const key = `${input.provider}:${input.eventId}`;
 				if (events.has(key)) return false;
 				events.add(key);
+				eventRecords.push({
+					provider: input.provider,
+					eventId: input.eventId,
+					type: input.type,
+					providerResourceId: input.providerResourceId,
+					payload: input.payload,
+					receivedAtMs: input.receivedAtMs,
+				});
 				return true;
+			}),
+		latestProviderEvent: (provider, providerResourceId, type) =>
+			Effect.sync(() => {
+				const matches = eventRecords
+					.filter(
+						(record) =>
+							record.provider === provider &&
+							record.providerResourceId === providerResourceId &&
+							record.type === type,
+					)
+					.sort((a, b) => b.receivedAtMs - a.receivedAtMs);
+				const found = matches[0];
+				return found === undefined
+					? null
+					: {
+							eventId: found.eventId,
+							payload: found.payload,
+							receivedAtMs: found.receivedAtMs,
+						};
 			}),
 		recordProviderDelivery: () => Effect.void,
 		ensurePeriod: (input) =>

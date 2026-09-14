@@ -191,7 +191,7 @@
 	"annotation_tray_edit_annotation": "Edit annotation",
 	"annotation_tray_remove_annotation": "Remove annotation",
 	"computer_picker_run_on_computer": "Run on computer",
-	"computer_picker_cloud_sandbox": "Cloud Sandbox",
+	"computer_picker_cloud_sandbox": "Cloud",
 	"computer_picker_beta": "Beta",
 	"computer_picker_add_computer": "Add computer…",
 	"context_tray_add_context": "Add context",
@@ -647,5 +647,17 @@
 	"terminal_pane_waiting_for_changes_to_settle": "Waiting for changes to settle…",
 	"pi_permissions": "Pi permissions",
 	"question_timed_out": "Question timed out.",
-	"question_cancelled": "Question cancelled."
+	"question_cancelled": "Question cancelled.",
+	"computer_picker_machine_size": "Machine size",
+	"cloud_setup_unavailable": "Unavailable",
+	"cloud_setup_subscription_required": "Subscription required",
+	"cloud_setup_connect_repository": "Connect repository",
+	"cloud_setup_building_image": "Building cloud image",
+	"cloud_setup_rebuild_authentication": "Rebuild authentication",
+	"cloud_setup_update_image": "Update cloud image",
+	"cloud_connect_repository_first": "Connect this repository in Cloud settings first.",
+	"cloud_supported_agents": "Cloud currently supports Claude and Codex.",
+	"cloud_size_small": "Small ({{cpu}} vCPU / {{memory}} GB)",
+	"cloud_size_default": "Standard ({{cpu}} vCPU / {{memory}} GB)",
+	"cloud_size_large": "Large ({{cpu}} vCPU / {{memory}} GB)"
 }

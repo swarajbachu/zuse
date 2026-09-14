@@ -14,6 +14,8 @@ import { AccountIdentityLive } from "./account-identity.ts";
 import { BetaAccessAllowAll, PostHogBetaAccessLayer } from "./beta-access.ts";
 import { resolveBillingRuntime } from "./billing-config.ts";
 import { CloudBillingStorePg } from "./cloud-billing-store.ts";
+import type { BillingUsageRecovery } from "./cloud-billing-usage-source.ts";
+import { billingUsageSourceModules } from "./cloud-billing-usage-source-config.ts";
 import {
 	drainMailboxLifecycleOutbox,
 	reconcileCloudThenDrainMailboxLifecycleOutbox,
@@ -144,6 +146,15 @@ interface Env extends SlackBindings {
 	readonly MACHINE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
 	readonly CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL?: string;
 	readonly CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
+	readonly SANDBOX_DEFAULT_PROVIDER_ID?: string;
+	readonly BOX_ADAPTER_ENABLED?: string;
+	readonly BOX_API_KEY?: string;
+	readonly BOX_API_BASE_URL?: string;
+	readonly BOX_TEMPLATE_SNAPSHOT?: string;
+	readonly BOX_TEMPLATE_VERSION?: string;
+	readonly BOX_MACHINE_TYPE?: string;
+	readonly BOX_HOSTED_PORT_DOMAIN?: string;
+	readonly BOX_WEBHOOK_SECRET?: string;
 	readonly E2B_ADAPTER_ENABLED?: string;
 	readonly E2B_API_KEY?: string;
 	readonly E2B_API_BASE_URL?: string;
@@ -164,6 +175,27 @@ interface Env extends SlackBindings {
 	readonly CLOUD_PROVIDER_AUTH_BROKER_SERVING_ENABLED?: string;
 }
 
+const pollBillingUsageSources = async (
+	env: Env,
+	api: BillingUsageRecovery,
+	nowMs: number,
+): Promise<number> => {
+	let recovered = 0;
+	for (const module of billingUsageSourceModules) {
+		if (module.poll === undefined) continue;
+		recovered += await module
+			.poll({ env, api, nowMs })
+			.catch((error: unknown) => {
+				console.error(
+					`[cloud-billing] ${module.provider} lifecycle recovery failed`,
+					error,
+				);
+				return 0;
+			});
+	}
+	return recovered;
+};
+
 const flushMailboxLifecycleOutbox = (
 	env: Pick<Env, "WORKSPACE_MAILBOX">,
 	api: Pick<
@@ -183,85 +215,6 @@ const flushMailboxLifecycleOutbox = (
 				error,
 			}),
 	});
-
-const pollE2bLifecycleEvents = async (
-	env: Env,
-	api: Pick<
-		ReturnType<typeof makeApi>,
-		"hasFinalizedE2bBillingEvent" | "ingestE2bBillingEvents"
-	>,
-	nowMs: number,
-): Promise<number> => {
-	if (
-		!isConfigured(env.E2B_API_KEY) ||
-		!isConfigured(env.CLOUD_BILLING_CUTOVER_AT)
-	)
-		return 0;
-	const cutoverAtMs = Date.parse(env.CLOUD_BILLING_CUTOVER_AT);
-	const apiBaseUrl = (env.E2B_API_BASE_URL ?? "https://api.e2b.app").replace(
-		/\/+$/u,
-		"",
-	);
-	const recovered: Array<unknown> = [];
-	let offset = 0;
-	let reachedCutover = false;
-	while (!reachedCutover && offset < 10_000) {
-		const query = new URLSearchParams({
-			limit: "100",
-			offset: String(offset),
-			orderAsc: "false",
-		});
-		query.append("types", "sandbox.lifecycle.paused");
-		query.append("types", "sandbox.lifecycle.killed");
-		const response = await fetch(`${apiBaseUrl}/events/sandboxes?${query}`, {
-			headers: { "x-api-key": env.E2B_API_KEY },
-		});
-		if (!response.ok)
-			throw new Error(`E2B lifecycle poll failed: ${response.status}`);
-		const payload: unknown = await response.json();
-		if (!Array.isArray(payload))
-			throw new Error("E2B lifecycle poll was not an array");
-		for (const event of payload) {
-			if (typeof event !== "object" || event === null) continue;
-			const eventRecord = event as Record<string, unknown>;
-			const eventId = eventRecord.id;
-			if (typeof eventId !== "string") continue;
-			const timestamp =
-				typeof eventRecord.timestamp === "string"
-					? Date.parse(eventRecord.timestamp)
-					: Number.NaN;
-			if (Number.isFinite(timestamp) && timestamp < cutoverAtMs) {
-				reachedCutover = true;
-				break;
-			}
-			const providerExecutionId =
-				typeof eventRecord.sandbox_execution_id === "string"
-					? eventRecord.sandbox_execution_id
-					: typeof eventRecord.sandboxExecutionId === "string"
-						? eventRecord.sandboxExecutionId
-						: undefined;
-			if (await api.hasFinalizedE2bBillingEvent(eventId, providerExecutionId))
-				continue;
-			recovered.push(event);
-		}
-		if (reachedCutover || payload.length < 100) break;
-		offset += payload.length;
-	}
-	if (!reachedCutover && offset >= 10_000)
-		console.error("[cloud-billing] E2B recovery exceeded 10,000 events");
-	return api.ingestE2bBillingEvents(recovered.reverse(), nowMs);
-};
-
-const positiveInteger = (
-	value: string | undefined,
-	fallback: number,
-	name: string,
-) => {
-	const parsed = value === undefined ? fallback : Number(value);
-	if (!Number.isSafeInteger(parsed) || parsed <= 0)
-		throw new Error(`${name} must be a positive integer`);
-	return parsed;
-};
 
 const managedTunnelConfig = (
 	env: Env,
@@ -330,16 +283,6 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 	const sandboxProvider = resolveSandboxProviderRuntime(env);
 	const sandboxOffer = {
 		...sandboxProvider.offer,
-		vcpuCount: positiveInteger(
-			env.E2B_VCPU_COUNT,
-			sandboxProvider.offer.vcpuCount,
-			"E2B_VCPU_COUNT",
-		),
-		memoryMib: positiveInteger(
-			env.E2B_MEMORY_MIB,
-			sandboxProvider.offer.memoryMib,
-			"E2B_MEMORY_MIB",
-		),
 		...(isConfigured(env.CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL) &&
 		isConfigured(env.CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK)
 			? {
@@ -353,7 +296,8 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 		sandboxProvider.configuredProviders
 			.filter(
 				(provider) =>
-					env.POLAR_ENVIRONMENT === "sandbox" || provider.productionReady,
+					provider.advertised &&
+					(env.POLAR_ENVIRONMENT === "sandbox" || provider.productionReady),
 			)
 			.map((provider) => provider.providerId),
 	);
@@ -438,9 +382,14 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 						: undefined,
 				}
 			: undefined,
-		e2bWebhookSecret: isConfigured(env.E2B_WEBHOOK_SECRET)
-			? Redacted.make(env.E2B_WEBHOOK_SECRET)
-			: undefined,
+		providerWebhookSecrets: new Map([
+			...(isConfigured(env.E2B_WEBHOOK_SECRET)
+				? [["e2b", Redacted.make(env.E2B_WEBHOOK_SECRET)] as const]
+				: []),
+			...(isConfigured(env.BOX_WEBHOOK_SECRET)
+				? [["box", Redacted.make(env.BOX_WEBHOOK_SECRET)] as const]
+				: []),
+		]),
 		cloudBillingEnforcementEnabled,
 		cloudBillingExportEnabled,
 		cloudCommandMailboxEnabled: env.CLOUD_COMMAND_MAILBOX_ENABLED === "true",
@@ -783,15 +732,7 @@ export default {
 						console.error("[public-api] command sweep failed", error);
 						return [];
 					}),
-				pollE2bLifecycleEvents(env, api, controller.scheduledTime).catch(
-					(error) => {
-						console.error(
-							"[cloud-billing] E2B lifecycle recovery failed",
-							error,
-						);
-						return 0;
-					},
-				),
+				pollBillingUsageSources(env, api, controller.scheduledTime),
 			])
 				.then((results) => {
 					for (const result of results)

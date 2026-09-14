@@ -589,6 +589,10 @@ export interface CloudWorkspaceStoreApi {
 	readonly getBuild: (
 		buildId: string,
 	) => Effect.Effect<CloudProjectBuildRecord | null>;
+	readonly findBuildByProviderSandbox: (
+		provider: string,
+		providerSandboxId: string,
+	) => Effect.Effect<CloudProjectBuildRecord | null>;
 	readonly claimBuild: (
 		buildId: string,
 		leaseOwner: string,
@@ -626,6 +630,10 @@ export interface CloudWorkspaceStoreApi {
 	) => Effect.Effect<ReadonlyArray<CloudWorkspaceRecord>>;
 	readonly getWorkspace: (
 		workspaceId: string,
+	) => Effect.Effect<CloudWorkspaceRecord | null>;
+	readonly findWorkspaceByProviderSandbox: (
+		provider: string,
+		providerSandboxId: string,
 	) => Effect.Effect<CloudWorkspaceRecord | null>;
 	readonly claimWorkspace: (
 		workspaceId: string,
@@ -1842,6 +1850,17 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 				Ref.get(state).pipe(
 					Effect.map((current) => current.builds.get(buildId) ?? null),
 				),
+			findBuildByProviderSandbox: (provider, providerSandboxId) =>
+				Ref.get(state).pipe(
+					Effect.map(
+						(current) =>
+							[...current.builds.values()].find(
+								(item) =>
+									item.provider === provider &&
+									item.providerSandboxId === providerSandboxId,
+							) ?? null,
+					),
+				),
 			claimBuild: (buildId, leaseOwner, nowMs, leaseExpiresAtMs) =>
 				Ref.modify(state, (current) => {
 					const build = current.builds.get(buildId);
@@ -1988,6 +2007,17 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 			getWorkspace: (workspaceId) =>
 				Ref.get(state).pipe(
 					Effect.map((current) => current.workspaces.get(workspaceId) ?? null),
+				),
+			findWorkspaceByProviderSandbox: (provider, providerSandboxId) =>
+				Ref.get(state).pipe(
+					Effect.map(
+						(current) =>
+							[...current.workspaces.values()].find(
+								(item) =>
+									item.provider === provider &&
+									item.providerSandboxId === providerSandboxId,
+							) ?? null,
+					),
 				),
 			getLaunchIntent: (workspaceId, nowMs) =>
 				Ref.modify(state, (current) => {
@@ -4279,6 +4309,14 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						),
 					),
 				),
+			findBuildByProviderSandbox: (provider, providerSandboxId) =>
+				orDie(
+					sql`SELECT * FROM api_cloud_project_builds WHERE provider=${provider} AND provider_sandbox_id=${providerSandboxId}`.pipe(
+						Effect.map((rows) =>
+							rows[0] ? buildFromRow(rows[0] as Row) : null,
+						),
+					),
+				),
 			claimBuild: (id, leaseOwner, nowMs, leaseExpiresAtMs) =>
 				orDie(
 					sql`UPDATE api_cloud_project_builds SET lease_owner=${leaseOwner}, lease_expires_at=${leaseExpiresAtMs} WHERE build_id=${id} AND (lease_expires_at IS NULL OR lease_expires_at <= ${nowMs}) RETURNING *`.pipe(
@@ -4374,6 +4412,14 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			getWorkspace: (id) =>
 				orDie(
 					sql`SELECT * FROM api_cloud_workspaces WHERE workspace_id=${id}`.pipe(
+						Effect.map((rows) =>
+							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
+						),
+					),
+				),
+			findWorkspaceByProviderSandbox: (provider, providerSandboxId) =>
+				orDie(
+					sql`SELECT * FROM api_cloud_workspaces WHERE provider=${provider} AND provider_sandbox_id=${providerSandboxId}`.pipe(
 						Effect.map((rows) =>
 							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
 						),

@@ -4,6 +4,10 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 const app = vi.hoisted(() => ({
 	cloudSyncConfigure: vi.fn(async () => null),
 	cloudSyncRequest: vi.fn(async () => {}),
+	setCloudSyncPrefs: vi.fn(),
+	cloudSyncPrefsFor: vi.fn<() => { enabled: boolean } | null>(() => ({
+		enabled: true,
+	})),
 	cloudSyncDefaultPath: vi.fn(async () => "/local/workspace"),
 }));
 vi.mock("../../src/lib/bridge.ts", () => ({ getAppBridge: () => app }));
@@ -25,8 +29,8 @@ vi.mock("../../src/lib/cloud-workspace-catalog.ts", () => ({
 		branch: "main",
 	}),
 	cloudSyncPreferenceEnabled: () => true,
-	cloudSyncPrefsFor: () => ({ enabled: true }),
-	setCloudSyncPrefs: () => {},
+	cloudSyncPrefsFor: app.cloudSyncPrefsFor,
+	setCloudSyncPrefs: app.setCloudSyncPrefs,
 	useCloudChatCatalogStore: {
 		subscribe: () => {},
 		getState: () => ({ summaries: [] }),
@@ -101,4 +105,12 @@ test("watcher failure still enables periodic reconciliation without duplicate wo
 	await enableCloudSync("workspace");
 	await enableCloudSync("workspace");
 	expect(app.cloudSyncConfigure).toHaveBeenCalledOnce();
+});
+
+test("disabling default-on sync persists an explicit opt-out", async () => {
+	app.cloudSyncPrefsFor.mockReturnValueOnce(null);
+	await disableCloudSync("workspace");
+	expect(app.setCloudSyncPrefs).toHaveBeenCalledWith("workspace", {
+		enabled: false,
+	});
 });

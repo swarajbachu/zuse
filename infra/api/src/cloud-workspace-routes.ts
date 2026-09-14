@@ -550,8 +550,9 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 	const store = yield* CloudWorkspaceStore;
 	const apiConfiguration = yield* ApiConfiguration;
 	const sandboxProviders = yield* SandboxProviders;
+	// The account image is maintained on the default sandbox provider.
 	const provider = sandboxProviders.availableProviders.find(
-		(candidate) => candidate.providerId === "e2b",
+		(candidate) => candidate.providerId === sandboxProviders.defaultProviderId,
 	);
 	const projects = yield* store.listProjects(accountId);
 	const builds =
@@ -885,6 +886,18 @@ export const publicCloudWorkspaceSummary = (
 	};
 };
 
+// Retained workspaces remain manageable when their provider stops accepting
+// new placements. Account ownership is checked by the lifecycle route first.
+const registeredProvider = Effect.fn("registeredCloudProvider")(function* (
+	providerId: string,
+) {
+	return yield* (yield* SandboxProviders)
+		.get(providerId)
+		.pipe(
+			Effect.mapError(() => serviceUnavailable("cloud_provider_unavailable")),
+		);
+});
+
 const selectedProvider = Effect.fn("selectedCloudProvider")(function* (
 	requested?: string,
 ) {
@@ -905,6 +918,8 @@ const selectedProvider = Effect.fn("selectedCloudProvider")(function* (
 				Effect.mapError(() => serviceUnavailable("cloud_provider_unavailable")),
 			);
 	}
+	if (available.length === 0)
+		return yield* Effect.fail(serviceUnavailable("cloud_provider_unavailable"));
 	if (available.length === 1) return available[0] as (typeof available)[number];
 	return yield* Effect.fail(badRequest("cloud_provider_required"));
 });
@@ -1234,6 +1249,11 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	if (project === null || project.accountId !== accountId)
 		return yield* Effect.fail(notFound("cloud_project_not_found"));
 	const provider = yield* selectedProvider(body.providerId);
+	if (
+		body.sizeId !== undefined &&
+		!provider.sizes.some((size) => size.sizeId === body.sizeId)
+	)
+		return yield* Effect.fail(badRequest("cloud_size_unavailable"));
 	const accountBuild = yield* store.getActiveAccountBuild(
 		accountId,
 		provider.providerId,
@@ -1331,6 +1351,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 			initialTurnId: turnId,
 			authGrantRequired: false,
 			model: body.model,
+			...(body.sizeId === undefined ? {} : { sizeId: body.sizeId }),
 			runtimeMode: body.runtimeMode ?? DEFAULT_RUNTIME_MODE,
 			permissions: body.permissions ?? [],
 			...(body.publicApiRequestDigest === undefined
@@ -1374,7 +1395,16 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 			conflict(`cloud_branch_in_use:${outcome.workspace.workspaceId}`),
 		);
 	let launchedWorkspace = outcome.workspace;
-	if (outcome.kind === "created") {
+	if (
+		outcome.kind === "created" &&
+		(body.sizeId === undefined ||
+			provider.sizes.some(
+				(size) =>
+					size.sizeId === body.sizeId &&
+					size.vcpuCount === provider.resources.vcpuCount &&
+					size.memoryMib === provider.resources.memoryMib,
+			))
+	) {
 		const pooled = yield* store.claimPool(
 			accountId,
 			provider.providerId,
@@ -3047,6 +3077,12 @@ export const routeCloudWorkspaceRequest = (
 				providers: available.map((provider) => ({
 					providerId: provider.providerId,
 					displayName: provider.displayName,
+					sizes: provider.sizes.map((size) => ({
+						sizeId: size.sizeId,
+						displayName: size.displayName,
+						vcpuCount: size.vcpuCount,
+						memoryMib: size.memoryMib,
+					})),
 				})),
 			});
 		}
@@ -3062,7 +3098,9 @@ export const routeCloudWorkspaceRequest = (
 			const projects = yield* store.listProjects(principal.accountId);
 			if (projects.length === 0)
 				return yield* Effect.fail(conflict("cloud_image_has_no_repositories"));
-			const provider = yield* selectedProvider("e2b");
+			const provider = yield* selectedProvider(
+				(yield* SandboxProviders).defaultProviderId,
+			);
 			const builds = yield* store.listAccountBuilds(
 				principal.accountId,
 				provider.providerId,
@@ -3561,7 +3599,7 @@ export const routeCloudWorkspaceRequest = (
 				actionRequest.recoverRuntime === true;
 			let runtimeRecoveryBuild: CloudProjectBuildRecord | null = null;
 			if (recoverRuntime && workspace.providerSandboxId === undefined) {
-				const provider = yield* selectedProvider(workspace.provider);
+				const provider = yield* registeredProvider(workspace.provider);
 				runtimeRecoveryBuild = yield* store.getActiveAccountBuild(
 					principal.accountId,
 					provider.providerId,
@@ -3578,7 +3616,7 @@ export const routeCloudWorkspaceRequest = (
 				!recoverRuntime &&
 				workspace.state === "failed"
 			) {
-				const provider = yield* selectedProvider(workspace.provider);
+				const provider = yield* registeredProvider(workspace.provider);
 				failedRetryBuild = yield* store.getActiveAccountBuild(
 					principal.accountId,
 					provider.providerId,

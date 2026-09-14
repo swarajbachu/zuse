@@ -68,7 +68,6 @@ export function CloudImageReadiness({
 					"settings:cloud_image_readiness_repositories_runtime",
 					{
 						length: String(projects.length),
-						value2: String(image?.runtimeVersion ?? "current"),
 					},
 				)}
 				action={

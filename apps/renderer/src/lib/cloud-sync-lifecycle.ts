@@ -18,7 +18,8 @@ export const reconcileAutomaticCloudSyncs = (input: {
 	for (const workspaceId of input.activeWorkspaceIds) {
 		if (
 			!available.has(workspaceId) ||
-			!input.connectedWorkspaceIds.has(workspaceId)
+			!input.connectedWorkspaceIds.has(workspaceId) ||
+			!input.enabled(workspaceId)
 		)
 			input.stop(workspaceId);
 	}

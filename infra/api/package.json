@@ -25,6 +25,8 @@
 		"secret:hetzner": "wrangler secret put HETZNER_API_TOKEN --env=",
 		"secret:e2b": "wrangler secret put E2B_API_KEY --env=",
 		"secret:e2b-webhook": "wrangler secret put E2B_WEBHOOK_SECRET --env=",
+		"secret:box": "wrangler secret put BOX_API_KEY --env=",
+		"secret:box-webhook": "wrangler secret put BOX_WEBHOOK_SECRET --env=",
 		"secret:cloud-data": "wrangler secret put CLOUD_DATA_ENCRYPTION_KEY --env=",
 		"secret:github-app-id": "wrangler secret put GITHUB_APP_ID --env=",
 		"secret:github-app-slug": "wrangler secret put GITHUB_APP_SLUG --env=",

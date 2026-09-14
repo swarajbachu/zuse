@@ -191,7 +191,7 @@
 	"annotation_tray_edit_annotation": "Modifier l'annotation",
 	"annotation_tray_remove_annotation": "Supprimer l'annotation",
 	"computer_picker_run_on_computer": "Exécuter sur ordinateur",
-	"computer_picker_cloud_sandbox": "Bac à sable cloud",
+	"computer_picker_cloud_sandbox": "Cloud",
 	"computer_picker_beta": "Bêta",
 	"computer_picker_add_computer": "Ajouter un ordinateur…",
 	"context_tray_add_context": "Ajouter du contexte",
@@ -650,5 +650,17 @@
 	"terminal_pane_waiting_for_changes_to_settle": "En attente de la fin des modifications…",
 	"pi_permissions": "Autorisations Pi",
 	"question_timed_out": "Le délai de réponse à la question a expiré.",
-	"question_cancelled": "Question annulée."
+	"question_cancelled": "Question annulée.",
+	"computer_picker_machine_size": "Taille de la machine",
+	"cloud_setup_unavailable": "Indisponible",
+	"cloud_setup_subscription_required": "Abonnement requis",
+	"cloud_setup_connect_repository": "Connecter le dépôt",
+	"cloud_setup_building_image": "Création de l’image cloud",
+	"cloud_setup_rebuild_authentication": "Reconfigurer l’authentification",
+	"cloud_setup_update_image": "Mettre à jour l’image cloud",
+	"cloud_connect_repository_first": "Connectez d’abord ce dépôt dans les paramètres Cloud.",
+	"cloud_supported_agents": "Le Cloud prend actuellement en charge Claude et Codex.",
+	"cloud_size_small": "Petite ({{cpu}} vCPU / {{memory}} Go)",
+	"cloud_size_default": "Standard ({{cpu}} vCPU / {{memory}} Go)",
+	"cloud_size_large": "Grande ({{cpu}} vCPU / {{memory}} Go)"
 }

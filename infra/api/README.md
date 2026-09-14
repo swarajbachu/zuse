@@ -102,7 +102,7 @@ binding requires separate, explicit approval.
    ```
    bun run db:migrate
    ```
-   This is staging-only and validates the configured Neon host and database name
+   This is staging-only and validates the configured Supabase project and database
    before Drizzle runs. Production uses the separately guarded
    `db:migrate:production` command after its approved identity is pinned in
    `production-database.json`; see the private beta production runbook.

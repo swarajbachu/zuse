@@ -69,6 +69,15 @@ export interface CloudBillingStoreApi {
 		readonly receivedAtMs: number;
 		readonly expiresAtMs: number;
 	}) => Effect.Effect<boolean>;
+	readonly latestProviderEvent: (
+		provider: string,
+		providerResourceId: string,
+		type: string,
+	) => Effect.Effect<{
+		readonly eventId: string;
+		readonly payload: unknown;
+		readonly receivedAtMs: number;
+	} | null>;
 	readonly recordProviderDelivery: (input: {
 		readonly provider: string;
 		readonly deliveryId: string;
@@ -403,6 +412,23 @@ export const CloudBillingStorePg = Layer.effect(
 			recordProviderDelivery: (input) =>
 				sql`INSERT INTO api_provider_event_deliveries (provider, delivery_id, event_id, source, status, received_at) VALUES (${input.provider}, ${input.deliveryId}, ${input.eventId}, ${input.source}, ${input.status}, ${input.receivedAtMs}) ON CONFLICT DO NOTHING`.pipe(
 					Effect.asVoid,
+					Effect.orDie,
+				),
+			latestProviderEvent: (provider, providerResourceId, type) =>
+				sql<{
+					readonly event_id: string;
+					readonly payload: unknown;
+					readonly received_at: string | number;
+				}>`SELECT event_id, payload, received_at FROM api_provider_usage_events WHERE provider = ${provider} AND provider_resource_id = ${providerResourceId} AND type = ${type} ORDER BY received_at DESC LIMIT 1`.pipe(
+					Effect.map((rows) =>
+						rows[0] === undefined
+							? null
+							: {
+									eventId: rows[0].event_id,
+									payload: rows[0].payload,
+									receivedAtMs: Number(rows[0].received_at),
+								},
+					),
 					Effect.orDie,
 				),
 			currentPeriod,

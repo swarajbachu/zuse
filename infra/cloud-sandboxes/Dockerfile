@@ -1,83 +1,27 @@
 FROM node:22-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV ZUSE_PROVISION_DIR=/tmp/zuse-provision
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        build-essential \
-        ca-certificates \
-        curl \
-        fd-find \
-        git \
-        git-lfs \
-        gh \
-        jq \
-        openssh-client \
-        openssh-server \
-        python3 \
-        python3-pip \
-        python3-venv \
-        ripgrep \
-        rsync \
-		sqlite3 \
-        tmux \
-        util-linux \
-    && rm -rf /var/lib/apt/lists/*
+# All installation behavior lives in provision.sh, shared with the Box
+# template publisher (box-publish.sh) so the two images cannot drift.
+COPY --chmod=0755 provision.sh /tmp/zuse-provision/provision.sh
 
-RUN npm install --global \
-		@anthropic-ai/claude-code@2.1.224 \
-		@openai/codex@0.144.5 \
-		bun@1.3.10 \
-		corepack@0.34.1 \
-	&& npm cache clean --force
+RUN /tmp/zuse-provision/provision.sh packages
 
-# Grok's external-auth provider contract is versioned independently of the
-# Node CLIs. Pin the contract-tested build in the base image so cloud chats do
-# not download tools during bootstrap.
-RUN mkdir -p /opt/grok \
-	&& curl -fsSL https://x.ai/cli/install.sh -o /tmp/install-grok.sh \
-	&& HOME=/opt/grok GROK_BIN_DIR=/usr/local/bin bash /tmp/install-grok.sh 1.0.13 \
-	&& grok --version \
-	&& rm /tmp/install-grok.sh
+RUN /tmp/zuse-provision/provision.sh globals
 
 # These tarballs are built from this checkout. The current server/serve release
 # is intentionally not fetched from npm: the sandbox external-bind behavior
 # must ship atomically with the api that depends on it.
-COPY artifacts/zusehq-server.tgz /tmp/zusehq-server.tgz
-COPY artifacts/zusehq-serve.tgz /tmp/zusehq-serve.tgz
-RUN npm install --global /tmp/zusehq-server.tgz \
-	&& mkdir -p /usr/local/lib/zuse-serve \
-	&& tar -xzf /tmp/zusehq-serve.tgz --strip-components=2 -C /usr/local/lib/zuse-serve package/dist \
-	&& ln -s /usr/local/lib/node_modules/@zusehq/server/node_modules /usr/local/lib/zuse-serve/node_modules \
-	&& ln -s /usr/local/lib/zuse-serve/bin.mjs /usr/local/bin/zuse \
-	&& chmod 0755 /usr/local/lib/zuse-serve/bin.mjs \
-	&& rm /tmp/zusehq-server.tgz /tmp/zusehq-serve.tgz \
-	&& npm cache clean --force
+COPY artifacts /tmp/zuse-provision/artifacts
+COPY sshd_config project-builder.sh workspace-bootstrap.sh git-askpass.sh github-auth.sh repository-script.ts /tmp/zuse-provision/
 
-RUN useradd --create-home --shell /bin/bash zuse \
-    && mkdir -p /home/zuse/.zuse-data /home/zuse/.ssh /home/repos \
-    && chmod 700 /home/zuse/.ssh \
-    && chown -R zuse:zuse /home/zuse /home/repos
-
-# Single-connection sshd config used by the runtime's WebSocket SSH bridge
-# (`sshd -i`, spawned per connection as user zuse — no listening daemon).
-COPY --chown=zuse:zuse --chmod=0600 sshd_config /home/zuse/.ssh/sshd_config
-
-COPY --chmod=0755 project-builder.sh /usr/local/bin/zuse-project-builder
-COPY --chmod=0755 workspace-bootstrap.sh /usr/local/bin/zuse-workspace-bootstrap
-COPY --chmod=0755 git-askpass.sh /usr/local/bin/zuse-git-askpass
-COPY --chmod=0755 github-auth.sh /usr/local/bin/zuse-github-auth
-RUN ln -sf /usr/local/bin/zuse-github-auth /usr/local/bin/gh
-COPY repository-script.ts /usr/local/lib/zuse/repository-script.ts
-COPY artifacts/runtime-updater.mjs /usr/local/lib/zuse/runtime-updater.mjs
-
-RUN mkdir -p /var/lib/zuse/project-build /var/lib/zuse/workspace \
-	&& mkdir -p /opt/zuse/releases \
-	&& chown -R zuse:zuse /var/lib/zuse /opt/zuse
+RUN /tmp/zuse-provision/provision.sh runtime layout \
+	&& rm -rf /tmp/zuse-provision
 
 USER zuse
 WORKDIR /home/zuse
-RUN /usr/local/bin/zuse-github-auth install
 
 # The api starts Zuse through envd after Sandbox.create. Create-time env vars
 # are intentionally not consumed by an image start command.

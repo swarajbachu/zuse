@@ -191,7 +191,7 @@
 	"annotation_tray_edit_annotation": "編輯註釋",
 	"annotation_tray_remove_annotation": "刪除註釋",
 	"computer_picker_run_on_computer": "在電腦上運行",
-	"computer_picker_cloud_sandbox": "雲沙盒",
+	"computer_picker_cloud_sandbox": "雲端",
 	"computer_picker_beta": "貝塔",
 	"computer_picker_add_computer": "新增計算機...",
 	"context_tray_add_context": "新增上下文",
@@ -647,5 +647,17 @@
 	"terminal_pane_waiting_for_changes_to_settle": "等待變更穩定…",
 	"pi_permissions": "Pi 權限",
 	"question_timed_out": "問題已逾時。",
-	"question_cancelled": "問題已取消。"
+	"question_cancelled": "問題已取消。",
+	"computer_picker_machine_size": "機器規格",
+	"cloud_setup_unavailable": "無法使用",
+	"cloud_setup_subscription_required": "需要訂閱",
+	"cloud_setup_connect_repository": "連接儲存庫",
+	"cloud_setup_building_image": "正在建置雲端映像",
+	"cloud_setup_rebuild_authentication": "重新設定驗證",
+	"cloud_setup_update_image": "更新雲端映像",
+	"cloud_connect_repository_first": "請先在雲端設定中連接此儲存庫。",
+	"cloud_supported_agents": "雲端目前支援 Claude 和 Codex。",
+	"cloud_size_small": "小型（{{cpu}} vCPU / {{memory}} GB）",
+	"cloud_size_default": "標準型（{{cpu}} vCPU / {{memory}} GB）",
+	"cloud_size_large": "大型（{{cpu}} vCPU / {{memory}} GB）"
 }

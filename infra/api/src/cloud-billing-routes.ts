@@ -3,42 +3,21 @@ import {
 	CloudBillingCapRequest,
 	CloudBillingUsageRequest,
 } from "@zuse/contracts";
-import { Clock, Effect, Redacted, Schema } from "effect";
+import type { SandboxProviders } from "@zuse/sandbox-providers";
+import { Clock, Effect, Schema } from "effect";
 import { requireWorkos } from "./auth.ts";
 import { type BetaAccess, requireCloudBetaAccess } from "./beta-access.ts";
-import {
-	E2bLifecycleEvent,
-	ingestE2bLifecycleEvent,
-} from "./cloud-billing-e2b.ts";
 import { ensureAccountCloudBillingPeriod } from "./cloud-billing-period.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
+import { findBillingUsageSourceModule } from "./cloud-billing-usage-source-config.ts";
 import type { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
-import { ApiConfiguration } from "./config.ts";
-import { type ApiError, badRequest, conflict, unauthorized } from "./errors.ts";
+import type { ApiConfiguration } from "./config.ts";
+import { type ApiError, badRequest, conflict } from "./errors.ts";
 import { decodeBody, json } from "./http.ts";
 import type { MachineStore } from "./machine-store.ts";
 import type { WorkosVerifier } from "./workos.ts";
 
-export const verifyE2bSignature = (
-	body: string,
-	signature: string,
-	secret: string,
-) =>
-	Effect.promise(async () => {
-		const digest = await crypto.subtle.digest(
-			"SHA-256",
-			new TextEncoder().encode(secret + body),
-		);
-		const actual = btoa(String.fromCharCode(...new Uint8Array(digest))).replace(
-			/=+$/u,
-			"",
-		);
-		if (actual.length !== signature.length) return false;
-		let difference = 0;
-		for (let index = 0; index < actual.length; index++)
-			difference |= actual.charCodeAt(index) ^ signature.charCodeAt(index);
-		return difference === 0;
-	});
+export { verifyE2bSignature } from "./cloud-billing-usage-sources/e2b.ts";
 
 export type CloudBillingRouteContext =
 	| CloudWorkspaceStore
@@ -46,7 +25,8 @@ export type CloudBillingRouteContext =
 	| ApiConfiguration
 	| WorkosVerifier
 	| BetaAccess
-	| CloudBillingStore;
+	| CloudBillingStore
+	| SandboxProviders;
 
 export const routeCloudBillingRequest = (
 	request: Request,
@@ -59,41 +39,14 @@ export const routeCloudBillingRequest = (
 		if (!billingPath) return null;
 		const billingStore = yield* CloudBillingStore;
 
-		if (method === "POST" && url.pathname === "/v1/cloud/billing/webhook/e2b") {
-			const secret = (yield* ApiConfiguration).e2bWebhookSecret;
-			const signature = request.headers.get("e2b-signature");
-			if (secret === undefined || signature === null) {
-				console.warn("[cloud-billing] rejected unsigned E2B lifecycle event");
-				return yield* Effect.fail(unauthorized("invalid_e2b_event"));
-			}
-			const raw = yield* Effect.promise(() => request.text());
-			if (
-				!(yield* verifyE2bSignature(raw, signature, Redacted.value(secret)))
-			) {
-				console.warn(
-					"[cloud-billing] rejected invalid E2B lifecycle signature",
-				);
-				return yield* Effect.fail(unauthorized("invalid_e2b_event"));
-			}
-			const payload = yield* Effect.try({
-				try: () => JSON.parse(raw),
-				catch: () => badRequest("invalid_e2b_event"),
-			});
-			const event = yield* Schema.decodeUnknownEffect(E2bLifecycleEvent)(
-				payload,
-			).pipe(Effect.mapError(() => badRequest("invalid_e2b_event")));
-			const result = yield* ingestE2bLifecycleEvent({
-				event,
-				rawPayload: payload,
-				source: "webhook",
-				deliveryId:
-					request.headers.get("e2b-delivery-id") ?? `webhook:${event.id}`,
-				nowMs,
-			}).pipe(Effect.provideService(CloudBillingStore, billingStore));
-			return json(
-				{ accepted: true, metered: result.metered, reason: result.reason },
-				result.metered ? 200 : 202,
-			);
+		const webhookMatch =
+			/^\/v1\/cloud\/billing\/webhook\/([a-z][a-z0-9-]*)$/u.exec(url.pathname);
+		if (method === "POST" && webhookMatch !== null) {
+			const usageSource = findBillingUsageSourceModule(webhookMatch[1] ?? "");
+			if (usageSource === undefined) return null;
+			return yield* usageSource
+				.ingestWebhook({ request, nowMs })
+				.pipe(Effect.provideService(CloudBillingStore, billingStore));
 		}
 
 		if (

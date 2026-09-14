@@ -23,3 +23,7 @@ _Avoid_: Subscription type, machine plan
 **Sandbox**:
 An isolated execution environment created through one sandbox provider and attached to an account-owned chat or workspace lifecycle.
 _Avoid_: Provider, subscription
+
+**Sandbox size**:
+A compute profile a provider advertises for placement (vCPU and memory). Sizes belong to one provider; providers with a fixed profile advertise exactly one.
+_Avoid_: Machine plan, instance type

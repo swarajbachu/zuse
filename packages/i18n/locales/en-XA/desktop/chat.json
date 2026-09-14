@@ -191,7 +191,7 @@
 	"annotation_tray_edit_annotation": "⟦ËËdïït àànnôôtààtïïôôn⟧",
 	"annotation_tray_remove_annotation": "⟦Rëëmôôvëë àànnôôtààtïïôôn⟧",
 	"computer_picker_run_on_computer": "⟦Rüün ôôn côômpüütëër⟧",
-	"computer_picker_cloud_sandbox": "⟦Clôôüüd Sààndbôôx⟧",
+	"computer_picker_cloud_sandbox": "⟦Clôôüüd⟧",
 	"computer_picker_beta": "⟦Bëëtàà⟧",
 	"computer_picker_add_computer": "⟦ÀÀdd côômpüütëër…⟧",
 	"context_tray_add_context": "⟦ÀÀdd côôntëëxt⟧",
@@ -647,5 +647,17 @@
 	"terminal_pane_waiting_for_changes_to_settle": "⟦Wààïïtïïng fôôr chààngëës tôô sëëttlëë…⟧",
 	"pi_permissions": "⟦Pïï pëërmïïssïïôôns⟧",
 	"question_timed_out": "⟦Qüüëëstïïôôn tïïmëëd ôôüüt.⟧",
-	"question_cancelled": "⟦Qüüëëstïïôôn cààncëëllëëd.⟧"
+	"question_cancelled": "⟦Qüüëëstïïôôn cààncëëllëëd.⟧",
+	"computer_picker_machine_size": "⟦Mààchïïnëë sïïzëë⟧",
+	"cloud_setup_unavailable": "⟦ÜÜnààvààïïlààblëë⟧",
+	"cloud_setup_subscription_required": "⟦Süübscrïïptïïôôn rëëqüüïïrëëd⟧",
+	"cloud_setup_connect_repository": "⟦Côônnëëct rëëpôôsïïtôôry⟧",
+	"cloud_setup_building_image": "⟦Büüïïldïïng clôôüüd ïïmààgëë⟧",
+	"cloud_setup_rebuild_authentication": "⟦Rëëbüüïïld ààüüthëëntïïcààtïïôôn⟧",
+	"cloud_setup_update_image": "⟦ÜÜpdààtëë clôôüüd ïïmààgëë⟧",
+	"cloud_connect_repository_first": "⟦Côônnëëct thïïs rëëpôôsïïtôôry ïïn Clôôüüd sëëttïïngs fïïrst.⟧",
+	"cloud_supported_agents": "⟦Clôôüüd cüürrëëntly süüppôôrts Clààüüdëë àànd Côôdëëx.⟧",
+	"cloud_size_small": "⟦Smààll ({{cpu}} vCPÜÜ / {{memory}} GB)⟧",
+	"cloud_size_default": "⟦Stààndààrd ({{cpu}} vCPÜÜ / {{memory}} GB)⟧",
+	"cloud_size_large": "⟦Lààrgëë ({{cpu}} vCPÜÜ / {{memory}} GB)⟧"
 }

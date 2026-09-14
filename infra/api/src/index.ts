@@ -8,12 +8,9 @@ import {
 	sweepApiCommands,
 } from "./api-webhook-dispatch.ts";
 import { cloudBillingCapacity } from "./cloud-billing-capacity.ts";
-import {
-	ingestE2bLifecycleEvent,
-	normalizeE2bLifecycleEvent,
-} from "./cloud-billing-e2b.ts";
 import { maintainCloudBilling } from "./cloud-billing-outbox.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
+import { findBillingUsageSourceModule } from "./cloud-billing-usage-source-config.ts";
 import {
 	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	reconcileCloudBuild,
@@ -123,11 +120,13 @@ export const makeApi = (
 		readonly meterReconciled: number;
 		readonly purgedRawEvents: number;
 	}>;
-	readonly hasFinalizedE2bBillingEvent: (
+	readonly hasFinalizedProviderBillingEvent: (
+		provider: string,
 		eventId: string,
 		providerExecutionId?: string,
 	) => Promise<boolean>;
-	readonly ingestE2bBillingEvents: (
+	readonly ingestProviderBillingEvents: (
+		provider: string,
 		events: ReadonlyArray<unknown>,
 		nowMs: number,
 	) => Promise<number>;
@@ -281,37 +280,30 @@ export const makeApi = (
 			),
 		maintainCloudBilling: (nowMs) =>
 			runtime.runPromise(maintainCloudBilling(nowMs)),
-		hasFinalizedE2bBillingEvent: (eventId, providerExecutionId) =>
+		deliverApiWebhooks: () => runtime.runPromise(deliverPendingApiWebhooks),
+		sweepApiCommands: () => runtime.runPromise(sweepApiCommands),
+		hasFinalizedProviderBillingEvent: (
+			provider,
+			eventId,
+			providerExecutionId,
+		) =>
 			runtime.runPromise(
 				Effect.gen(function* () {
 					return yield* (yield* CloudBillingStore).isProviderEventFinalized(
-						"e2b",
+						provider,
 						eventId,
 						providerExecutionId,
 					);
 				}),
 			),
-		ingestE2bBillingEvents: (events, nowMs) =>
-			runtime.runPromise(
-				Effect.gen(function* () {
-					let metered = 0;
-					for (const payload of events) {
-						const event = normalizeE2bLifecycleEvent(payload);
-						if (event === null) continue;
-						const result = yield* ingestE2bLifecycleEvent({
-							event,
-							rawPayload: payload,
-							source: "poll",
-							deliveryId: `poll:${event.id}`,
-							nowMs,
-						});
-						if (result.metered) metered++;
-					}
-					return metered;
-				}),
-			),
-		deliverApiWebhooks: () => runtime.runPromise(deliverPendingApiWebhooks),
-		sweepApiCommands: () => runtime.runPromise(sweepApiCommands),
+		ingestProviderBillingEvents: (provider, events, nowMs) => {
+			const usageSource = findBillingUsageSourceModule(provider);
+			if (usageSource === undefined)
+				return Promise.reject(
+					new Error(`Unknown billing usage source: ${provider}`),
+				);
+			return runtime.runPromise(usageSource.ingestPolled(events, nowMs));
+		},
 		dispose: () => runtime.dispose(),
 	};
 };

@@ -536,7 +536,7 @@ export function CloudWorkspacePool() {
 							image={accountImage}
 							projects={projects}
 							busy={busy}
-							unavailable={imageError !== null}
+							unavailable={imageError !== null || providers.length === 0}
 							onBuild={(mode) => void buildAccountImage(mode)}
 						/>
 						{imageError === null ? null : (
@@ -554,6 +554,14 @@ export function CloudWorkspacePool() {
 								</Button>
 							</div>
 						)}
+						{imageError === null && providers.length === 0 ? (
+							<p
+								role="status"
+								className="px-3 py-2 text-[11px] text-muted-foreground"
+							>
+								{uiMessage("settings:cloud_workspace_pool_setup_unavailable")}
+							</p>
+						) : null}
 						<CloudImageBuildHistory builds={accountImage?.builds ?? []} />
 					</CloudSettingsGroup>
 				</>
@@ -719,7 +727,7 @@ export function CloudWorkspacePool() {
 							<CloudSettingsRow
 								key={workspace.workspaceId}
 								title={workspace.branch}
-								description={`${providers.find((provider) => provider.providerId === workspace.providerId)?.displayName ?? workspace.providerId} · ${workspace.statusCode}`}
+								description={workspace.statusCode}
 								action={
 									<Badge variant={stateVariant(workspace.state)}>
 										{workspace.state}

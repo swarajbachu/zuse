@@ -9,6 +9,11 @@ const adapter = (providerId: string): SandboxProviderAdapter => ({
 	providerId,
 	displayName: providerId,
 	templateVersion: "test-template",
+	preservesProcessesOnResume: true,
+	resources: { vcpuCount: 2, memoryMib: 1_024 },
+	sizes: [
+		{ sizeId: "test", displayName: "Test", vcpuCount: 2, memoryMib: 1_024 },
+	],
 	create: () => Effect.die("unused"),
 	fork: () => Effect.die("unused"),
 	recoverByLabel: () => Effect.succeed(null),

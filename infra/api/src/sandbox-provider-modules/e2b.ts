@@ -23,12 +23,18 @@ const HttpsUrl = Schema.URLFromString.check(
 const ActivationEnvironment = Schema.Struct({
 	E2B_ADAPTER_ENABLED: Schema.optionalKey(Schema.Literals(["true", "false"])),
 });
+const PositiveIntegerFromString = Schema.NumberFromString.check(
+	Schema.isInt(),
+	Schema.isGreaterThan(0),
+);
 const E2bEnvironment = Schema.Struct({
 	E2B_API_KEY: ConfiguredString,
 	E2B_API_BASE_URL: Schema.optionalKey(HttpsUrl),
 	E2B_SANDBOX_DOMAIN: Schema.optionalKey(ConfiguredString),
 	E2B_TEMPLATE_ID: ConfiguredString,
 	E2B_TEMPLATE_VERSION: ConfiguredString,
+	E2B_VCPU_COUNT: Schema.optionalKey(PositiveIntegerFromString),
+	E2B_MEMORY_MIB: Schema.optionalKey(PositiveIntegerFromString),
 });
 
 const configurationError = (): SandboxProviderConfigurationError =>
@@ -62,12 +68,18 @@ export const E2bSandboxProviderModule: SandboxProviderModule = {
 		if (!isActivated(env)) return undefined;
 		const config = decodeEnvironment(env);
 		return {
+			// Authentication authorities and retained workspaces still use E2B.
+			advertised: false,
 			adapter: makeE2bSandboxProvider({
 				apiKey: Redacted.make(config.E2B_API_KEY),
 				templateId: config.E2B_TEMPLATE_ID,
 				templateVersion: config.E2B_TEMPLATE_VERSION,
 				apiBaseUrl: config.E2B_API_BASE_URL?.href,
 				sandboxDomain: config.E2B_SANDBOX_DOMAIN,
+				resources: {
+					vcpuCount: config.E2B_VCPU_COUNT ?? 2,
+					memoryMib: config.E2B_MEMORY_MIB ?? 1_024,
+				},
 			}),
 		};
 	},

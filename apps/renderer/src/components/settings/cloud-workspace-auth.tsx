@@ -224,11 +224,11 @@ const statusPresentation = (
 const authFailureMessage = (cause: unknown, fallback: string): string => {
 	if (!(cause instanceof CloudWorkspaceOpError)) return fallback;
 	if (cause.code === "entitlement-required")
-		return "Cloud Workspace is not active for this account.";
+		return uiMessage("settings:cloud_auth_not_active");
 	if (cause.code === "provider-unavailable")
-		return "E2B could not start the secure agent setup. Try again in a moment.";
+		return uiMessage("settings:cloud_auth_setup_failed");
 	if (cause.code === "not-allowed")
-		return "Your Zuse session could not authorize this action. Refresh your session and try again.";
+		return uiMessage("settings:cloud_auth_not_allowed");
 	return fallback;
 };
 
@@ -367,7 +367,7 @@ export function CloudWorkspaceAuth() {
 				),
 			);
 		} catch {
-			setError("The official provider login could not be started in E2B.");
+			setError(uiMessage("settings:cloud_auth_login_failed"));
 		} finally {
 			setBusy(null);
 		}
@@ -415,7 +415,7 @@ export function CloudWorkspaceAuth() {
 	const displayedError =
 		error ??
 		(status?.authorityState === "error"
-			? "Cloud authentication cannot reach E2B right now. Retry without affecting your existing chats."
+			? uiMessage("settings:cloud_auth_temporarily_unavailable")
 			: null);
 	const usesDeviceLogin =
 		method === "subscription" &&

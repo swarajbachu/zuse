@@ -4,7 +4,10 @@ import {
 	CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
 } from "@zuse/contracts";
 import { MachineProvidersFake } from "@zuse/machine-providers/testing";
-import type { SandboxProviderAdapter } from "@zuse/sandbox-providers";
+import {
+	type SandboxProviderAdapter,
+	SandboxProviders,
+} from "@zuse/sandbox-providers";
 import { makeSandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { InstallationStore } from "@zuse/slack/installations";
 import { runnerEnv } from "@zuse/slack/runner";
@@ -67,6 +70,17 @@ const advertisedAdapter: SandboxProviderAdapter = {
 	providerId: PROVIDER_ID,
 	displayName: "Test cloud",
 	templateVersion: "test-template",
+	resources: { vcpuCount: 2, memoryMib: 1024 },
+	sizes: [
+		{ sizeId: "large", displayName: "Large", vcpuCount: 8, memoryMib: 16384 },
+		{
+			sizeId: "standard",
+			displayName: "Standard",
+			vcpuCount: 2,
+			memoryMib: 1024,
+		},
+	],
+	preservesProcessesOnResume: true,
 	create: () => Effect.die("unused"),
 	fork: () => Effect.die("unused"),
 	recoverByLabel: () => Effect.succeed(null),
@@ -140,8 +154,6 @@ const makeRuntime = async (
 		).pipe(Layer.provide(config), Layer.orDie),
 		Layer.succeed(SandboxOfferConfiguration, {
 			port: 47_837,
-			vcpuCount: 2,
-			memoryMib: 1_024,
 			createTimeoutSeconds: 86_400,
 			keepAliveTimeoutSeconds: 86_400,
 		}),
@@ -285,6 +297,146 @@ const stageRuntimeCredential = async (
 };
 
 describe("public API (/v1/api)", () => {
+	test.each([
+		false,
+		true,
+	])("retains workspace recovery when its provider is internal (recoverRuntime=%s)", async (recoverRuntime) => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await seedReadyProject(runtime, store);
+			const headers = { ...WORKOS_HEADERS, "content-type": "application/json" };
+			const body = {
+				projectId: "project-1",
+				providerId: PROVIDER_ID,
+				baseRef: "origin/main",
+				agent: "codex",
+				model: "gpt-5",
+				firstMessage: "Inspect",
+				idempotencyKey: "internal-provider",
+			};
+			const created = await json<{ workspace: { workspaceId: string } }>(
+				await serve(runtime, "/v1/cloud/workspaces", {
+					method: "POST",
+					headers,
+					body: JSON.stringify(body),
+				}),
+				201,
+			);
+			const workspace = await runtime.runPromise(
+				store.getWorkspace(created.workspace.workspaceId),
+			);
+			if (workspace === null) throw new Error("workspace missing");
+			await runtime.runPromise(
+				store.saveWorkspace({
+					...workspace,
+					state: "failed",
+					desiredState: "paused",
+					statusCode: "setup-failed",
+					revision: workspace.revision + 1,
+					updatedAtMs: workspace.updatedAtMs + 1,
+				}),
+			);
+			const registry = await runtime.runPromise(SandboxProviders);
+			const hiddenRequest = (path: string, payload: unknown) =>
+				runtime.runPromise(
+					handleRequest(
+						new Request(`${ISSUER}${path}`, {
+							method: "POST",
+							headers,
+							body: JSON.stringify(payload),
+						}),
+					).pipe(
+						Effect.provideService(SandboxProviders, {
+							...registry,
+							availableProviders: [],
+						}),
+					),
+				);
+			const rejected = await hiddenRequest("/v1/cloud/workspaces", {
+				...body,
+				idempotencyKey: "new-internal-placement",
+			});
+			expect(rejected.status).toBe(503);
+			const resumed = await hiddenRequest(
+				`/v1/cloud/workspaces/${workspace.workspaceId}/resume`,
+				{
+					workspaceId: workspace.workspaceId,
+					commandId: "resume-internal",
+					recoverRuntime,
+				},
+			);
+			expect(`${resumed.status}: ${await resumed.clone().text()}`).toMatch(
+				/^200:/,
+			);
+			const saved = await runtime.runPromise(
+				store.getWorkspace(workspace.workspaceId),
+			);
+			expect(saved?.provider).toBe(PROVIDER_ID);
+			expect(saved?.desiredState).toBe("ready");
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
+	test.each([
+		"standard",
+		"large",
+		"unavailable",
+	])("validates workspace size %s and only claims matching warm pools", async (sizeId) => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await seedReadyProject(runtime, store);
+			await runtime.runPromise(
+				store.savePool({
+					poolId: "pool-size",
+					accountId: ACCOUNT,
+					provider: PROVIDER_ID,
+					imageGeneration: "build-1",
+					providerSandboxId: "default-sized-box",
+					state: "available",
+					createdAtMs: Date.now(),
+					updatedAtMs: Date.now(),
+				}),
+			);
+			const response = await serve(runtime, "/v1/cloud/workspaces", {
+				method: "POST",
+				headers: { ...WORKOS_HEADERS, "content-type": "application/json" },
+				body: JSON.stringify({
+					projectId: "project-1",
+					providerId: PROVIDER_ID,
+					sizeId,
+					baseRef: "origin/main",
+					agent: "codex",
+					model: "gpt-5",
+					firstMessage: "Inspect the repository",
+					idempotencyKey: `size-${sizeId}`,
+				}),
+			});
+			expect(response.status).toBe(sizeId === "unavailable" ? 400 : 201);
+			if (sizeId !== "unavailable") {
+				const created = (await response.json()) as {
+					workspace: { workspaceId: string };
+				};
+				const workspace = await runtime.runPromise(
+					store.getWorkspace(created.workspace.workspaceId),
+				);
+				expect(workspace?.requestConfig.sizeId).toBe(sizeId);
+				expect(workspace?.providerSandboxId).toBe(
+					sizeId === "standard" ? "default-sized-box" : undefined,
+				);
+			}
+			const pool = await runtime.runPromise(
+				store.listPool(ACCOUNT, PROVIDER_ID),
+			);
+			expect(pool[0]?.state).toBe(
+				sizeId === "standard" ? "claimed" : "available",
+			);
+		} finally {
+			await runtime.dispose();
+		}
+	});
 	afterEach(() => {
 		vi.unstubAllGlobals();
 	});

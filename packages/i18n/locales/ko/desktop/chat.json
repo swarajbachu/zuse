@@ -191,7 +191,7 @@
 	"annotation_tray_edit_annotation": "주석 수정",
 	"annotation_tray_remove_annotation": "주석 제거",
 	"computer_picker_run_on_computer": "컴퓨터에서 실행",
-	"computer_picker_cloud_sandbox": "클라우드 샌드박스",
+	"computer_picker_cloud_sandbox": "클라우드",
 	"computer_picker_beta": "베타",
 	"computer_picker_add_computer": "컴퓨터 추가…",
 	"context_tray_add_context": "컨텍스트 추가",
@@ -647,5 +647,17 @@
 	"terminal_pane_waiting_for_changes_to_settle": "변경이 완료되기를 기다리는 중…",
 	"pi_permissions": "Pi 권한",
 	"question_timed_out": "질문 응답 시간이 초과되었습니다.",
-	"question_cancelled": "질문이 취소되었습니다."
+	"question_cancelled": "질문이 취소되었습니다.",
+	"computer_picker_machine_size": "머신 크기",
+	"cloud_setup_unavailable": "사용할 수 없음",
+	"cloud_setup_subscription_required": "구독 필요",
+	"cloud_setup_connect_repository": "저장소 연결",
+	"cloud_setup_building_image": "클라우드 이미지 빌드 중",
+	"cloud_setup_rebuild_authentication": "인증 다시 설정",
+	"cloud_setup_update_image": "클라우드 이미지 업데이트",
+	"cloud_connect_repository_first": "먼저 클라우드 설정에서 이 저장소를 연결하세요.",
+	"cloud_supported_agents": "클라우드는 현재 Claude와 Codex를 지원합니다.",
+	"cloud_size_small": "소형 ({{cpu}} vCPU / {{memory}} GB)",
+	"cloud_size_default": "표준 ({{cpu}} vCPU / {{memory}} GB)",
+	"cloud_size_large": "대형 ({{cpu}} vCPU / {{memory}} GB)"
 }

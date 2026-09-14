@@ -103,6 +103,11 @@ const placementAdapter = (providerId: string): SandboxProviderAdapter => ({
 	providerId,
 	displayName: "Fast compute",
 	templateVersion: "test-template",
+	preservesProcessesOnResume: true,
+	resources: { vcpuCount: 2, memoryMib: 1_024 },
+	sizes: [
+		{ sizeId: "test", displayName: "Test", vcpuCount: 2, memoryMib: 1_024 },
+	],
 	create: () => Effect.die("unused"),
 	fork: () => Effect.die("unused"),
 	recoverByLabel: () => Effect.succeed(null),
@@ -190,8 +195,6 @@ const makeLayer = async (
 		sandboxProvidersLayer,
 		Layer.succeed(SandboxOfferConfiguration, {
 			port: 47_837,
-			vcpuCount: 2,
-			memoryMib: 1_024,
 			createTimeoutSeconds: 86_400,
 			keepAliveTimeoutSeconds: 86_400,
 		}),

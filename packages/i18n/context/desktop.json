@@ -1530,7 +1530,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1793
+				"line": 1801
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1540,7 +1540,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1794
+				"line": 1802
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1550,7 +1550,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1795
+				"line": 1803
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1560,7 +1560,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1809
+				"line": 1817
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1570,7 +1570,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1825
+				"line": 1833
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1580,7 +1580,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1834
+				"line": 1842
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1590,7 +1590,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1859
+				"line": 1867
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1600,7 +1600,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1670
+				"line": 1678
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1610,7 +1610,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1701
+				"line": 1709
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1620,7 +1620,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1932
+				"line": 1940
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1630,7 +1630,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1935
+				"line": 1943
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1640,7 +1640,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1940
+				"line": 1948
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1650,7 +1650,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1950
+				"line": 1958
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1660,7 +1660,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1951
+				"line": 1959
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1670,7 +1670,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1960
+				"line": 1968
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1680,7 +1680,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1965
+				"line": 1973
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1690,7 +1690,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1970
+				"line": 1978
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1710,11 +1710,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 2109
+				"line": 2117
 			},
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 2113
+				"line": 2121
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1724,7 +1724,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 2126
+				"line": 2134
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1734,7 +1734,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 2127
+				"line": 2135
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1744,7 +1744,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 2135
+				"line": 2143
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1754,7 +1754,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 2191
+				"line": 2199
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1984,21 +1984,21 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/computer-picker.tsx",
-				"line": 112
+				"line": 121
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"chat:computer_picker_cloud_sandbox": {
-		"source": "Cloud Sandbox",
+		"source": "Cloud",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/computer-picker.tsx",
-				"line": 121
+				"line": 130
 			},
 			{
 				"path": "apps/renderer/src/components/composer/computer-picker.tsx",
-				"line": 187
+				"line": 192
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -2008,11 +2008,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/computer-picker.tsx",
-				"line": 126
-			},
-			{
-				"path": "apps/renderer/src/components/composer/computer-picker.tsx",
-				"line": 190
+				"line": 195
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -2022,7 +2018,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/computer-picker.tsx",
-				"line": 215
+				"line": 261
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -5078,7 +5074,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 863
+				"line": 872
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -5112,7 +5108,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 926
+				"line": 935
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -5896,7 +5892,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1819
+				"line": 1827
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -5911,7 +5907,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1974
+				"line": 1982
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -5921,7 +5917,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 2139
+				"line": 2147
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6175,7 +6171,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1788
+				"line": 1796
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6185,7 +6181,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1615
+				"line": 1623
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6413,11 +6409,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 33
+				"line": 28
 			},
 			{
 				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 38
+				"line": 33
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6427,7 +6423,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 95
+				"line": 90
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6527,7 +6523,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 48
+				"line": 43
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6537,7 +6533,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 49
+				"line": 44
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6547,7 +6543,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 56
+				"line": 51
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6557,7 +6553,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 59
+				"line": 54
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6567,7 +6563,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 62
+				"line": 57
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6591,7 +6587,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 83
+				"line": 78
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6601,7 +6597,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 87
+				"line": 82
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6651,7 +6647,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1656
+				"line": 1664
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6694,6 +6690,111 @@
 				"line": 274
 			}
 		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:computer_picker_machine_size": {
+		"source": "Machine size",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/composer/computer-picker.tsx",
+				"line": 218
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:cloud_setup_unavailable": {
+		"source": "Unavailable",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/chat-landing.tsx",
+				"line": 574
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:cloud_setup_subscription_required": {
+		"source": "Subscription required",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/chat-landing.tsx",
+				"line": 576
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:cloud_setup_connect_repository": {
+		"source": "Connect repository",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/chat-landing.tsx",
+				"line": 578
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:cloud_setup_building_image": {
+		"source": "Building cloud image",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/chat-landing.tsx",
+				"line": 582
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:cloud_setup_rebuild_authentication": {
+		"source": "Rebuild authentication",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/chat-landing.tsx",
+				"line": 584
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:cloud_setup_update_image": {
+		"source": "Update cloud image",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/chat-landing.tsx",
+				"line": 585
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:cloud_connect_repository_first": {
+		"source": "Connect this repository in Cloud settings first.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/chat-landing.tsx",
+				"line": 963
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:cloud_supported_agents": {
+		"source": "Cloud currently supports Claude and Codex.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/chat-landing.tsx",
+				"line": 971
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:cloud_size_small": {
+		"source": "Small ({{cpu}} vCPU / {{memory}} GB)",
+		"locations": [],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:cloud_size_default": {
+		"source": "Standard ({{cpu}} vCPU / {{memory}} GB)",
+		"locations": [],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:cloud_size_large": {
+		"source": "Large ({{cpu}} vCPU / {{memory}} GB)",
+		"locations": [],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"commands:commands_no_authenticated_agent": {
@@ -7753,7 +7854,7 @@
 			},
 			{
 				"path": "apps/renderer/src/main.tsx",
-				"line": 120
+				"line": 119
 			},
 			{
 				"path": "apps/renderer/src/notch-main.tsx",
@@ -7803,11 +7904,11 @@
 			},
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1808
+				"line": 1816
 			},
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
-				"line": 1853
+				"line": 1861
 			},
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
@@ -7847,7 +7948,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 584
+				"line": 592
 			},
 			{
 				"path": "apps/renderer/src/components/settings/diagnostics-pane.tsx",
@@ -8041,7 +8142,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 664
+				"line": 672
 			},
 			{
 				"path": "apps/renderer/src/components/settings/keybindings-editor.tsx",
@@ -9821,7 +9922,7 @@
 		"context": "errors interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"errors:format_error_a_cloud_sandbox_subscription_is_required": {
-		"source": "A Cloud Sandbox subscription is required.",
+		"source": "A Cloud subscription is required.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/format-error.ts",
@@ -9851,7 +9952,7 @@
 		"context": "errors interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"errors:format_error_connect_github_and_the_selected_agent_in_cloud_sandbox_settings_t": {
-		"source": "Connect GitHub and the selected agent in Cloud Sandbox settings, then try again.",
+		"source": "Connect GitHub and the selected agent in Cloud settings, then try again.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/format-error.ts",
@@ -10013,7 +10114,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/main.tsx",
-				"line": 80
+				"line": 79
 			}
 		],
 		"context": "errors interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10023,7 +10124,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/main.tsx",
-				"line": 83
+				"line": 82
 			}
 		],
 		"context": "errors interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10033,7 +10134,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/main.tsx",
-				"line": 87
+				"line": 86
 			}
 		],
 		"context": "errors interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10043,7 +10144,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/main.tsx",
-				"line": 100
+				"line": 99
 			}
 		],
 		"context": "errors interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10053,7 +10154,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/main.tsx",
-				"line": 107
+				"line": 106
 			}
 		],
 		"context": "errors interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15231,17 +15332,17 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-image-readiness.tsx",
-				"line": 77
+				"line": 76
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:cloud_image_readiness_rebuild": {
-		"source": "Rebuild",
+		"source": "Rebuild image",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-image-readiness.tsx",
-				"line": 87
+				"line": 86
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15251,7 +15352,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-image-readiness.tsx",
-				"line": 104
+				"line": 103
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15261,7 +15362,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-image-readiness.tsx",
-				"line": 114
+				"line": 113
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -15271,7 +15372,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-image-readiness.tsx",
-				"line": 172
+				"line": 171
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16113,7 +16214,7 @@
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:cloud_workspace_auth_authorize_each_provider_once_account_credentials_are_shared_by_new_clo": {
-		"source": "Authorize each provider once. Account credentials are shared by new cloud chats and never baked into chat sandboxes.",
+		"source": "Connect each agent once for all your Cloud chats. Rebuilding your image keeps these connections.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-auth.tsx",
@@ -16813,7 +16914,7 @@
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:cloud_workspace_pool_build_the_reusable_environment_that_starts_every_new_cloud_chat": {
-		"source": "Build the reusable environment that starts every new cloud chat.",
+		"source": "Your repositories and tools for new Cloud chats. Rebuilding keeps existing chats and agent connections.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
@@ -16827,11 +16928,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 565
+				"line": 573
 			},
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 591
+				"line": 599
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16841,7 +16942,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 567
+				"line": 575
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16851,7 +16952,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 572
+				"line": 580
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16861,7 +16962,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 575
+				"line": 583
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16871,7 +16972,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 593
+				"line": 601
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16881,7 +16982,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 602
+				"line": 610
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16891,7 +16992,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 603
+				"line": 611
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16901,7 +17002,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 611
+				"line": 619
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16911,7 +17012,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 612
+				"line": 620
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16921,7 +17022,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 638
+				"line": 646
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16931,7 +17032,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 641
+				"line": 649
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16941,7 +17042,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 655
+				"line": 663
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16951,7 +17052,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 670
+				"line": 678
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16961,7 +17062,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 674
+				"line": 682
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16971,7 +17072,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 692
+				"line": 700
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16981,7 +17082,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 702
+				"line": 710
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -16991,7 +17092,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 704
+				"line": 712
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17001,7 +17102,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 711
+				"line": 719
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17011,7 +17112,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 714
+				"line": 722
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -21459,7 +21560,7 @@
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:cloud_image_readiness_repositories_runtime": {
-		"source": "{{length}} repositories · runtime {{value2}}",
+		"source": "Repositories ready for new Cloud chats: {{length}}.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-image-readiness.tsx",
@@ -21559,7 +21660,7 @@
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:cloud_workspace_auth_choose_how_new_cloud_sandboxes_authenticate_with": {
-		"source": "Choose how new cloud sandboxes authenticate with {{value1}}.",
+		"source": "Choose how Cloud authenticates with {{value1}}.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-auth.tsx",
@@ -22453,7 +22554,7 @@
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:cloud_workspace_auth_zuse_runs_the_official_codex_login_device_auth_flow_inside_y_sentence": {
-		"source": "Zuse runs the official <part0>{{code0}}</part0> flow inside your private E2B authentication sandbox.",
+		"source": "Zuse runs the official <part0>{{code0}}</part0> flow in your private Cloud environment.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-auth.tsx",
@@ -22957,7 +23058,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-image-readiness.tsx",
-				"line": 109
+				"line": 108
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -23037,7 +23138,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 620
+				"line": 628
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -23047,7 +23148,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
-				"line": 624
+				"line": 632
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -23603,6 +23704,66 @@
 			{
 				"path": "apps/renderer/src/components/settings/update-channel-settings.tsx",
 				"line": 90
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:cloud_workspace_pool_setup_unavailable": {
+		"source": "Cloud setup is temporarily unavailable. Your existing chats and agent connections are kept.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/cloud-workspace-pool.tsx",
+				"line": 562
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:cloud_auth_not_active": {
+		"source": "Cloud Workspace is not active for this account.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/cloud-workspace-auth.tsx",
+				"line": 227
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:cloud_auth_setup_failed": {
+		"source": "Cloud could not start the secure agent setup. Try again in a moment.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/cloud-workspace-auth.tsx",
+				"line": 229
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:cloud_auth_not_allowed": {
+		"source": "Your Zuse session could not authorize this action. Refresh your session and try again.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/cloud-workspace-auth.tsx",
+				"line": 231
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:cloud_auth_login_failed": {
+		"source": "The agent login could not be started.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/cloud-workspace-auth.tsx",
+				"line": 370
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:cloud_auth_temporarily_unavailable": {
+		"source": "Cloud authentication is temporarily unavailable. Retry without affecting your existing chats.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/cloud-workspace-auth.tsx",
+				"line": 418
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

@@ -33,6 +33,10 @@ const AUTH_LOGIN = `${AUTH_BOOTSTRAP_HOME}/login.mjs`;
 const AUTH_CANCEL = `${AUTH_BOOTSTRAP_HOME}/cancel.mjs`;
 const AUTH_VERIFY = `${AUTH_BOOTSTRAP_HOME}/verify.mjs`;
 const AUTH_CODEX_GRANT = `${AUTH_BOOTSTRAP_HOME}/codex-grant.mjs`;
+export const CLOUD_AUTH_AUTHORITY_PROVIDER_ID = "e2b";
+export const canSeedCloudAuthSnapshot = (targetProviderId: string) =>
+	targetProviderId === CLOUD_AUTH_AUTHORITY_PROVIDER_ID;
+
 const AUTH_TIMEOUT_SECONDS = 60 * 60;
 const AUTH_PROVISIONING_LEASE_MS = 2 * 60 * 1000;
 const PROVIDERS = ["claude", "codex", "cursor", "grok"] as const;
@@ -544,7 +548,7 @@ const legacyAuthorityLabel = (
 const e2bProvider = Effect.gen(function* () {
 	const providers = yield* SandboxProviders;
 	return yield* providers
-		.get("e2b")
+		.get(CLOUD_AUTH_AUTHORITY_PROVIDER_ID)
 		.pipe(
 			Effect.mapError(() => serviceUnavailable("cloud_auth_e2b_unavailable")),
 		);
@@ -1417,12 +1421,14 @@ export const issueProviderGrant = Effect.fn("issueProviderGrant")(function* (
 
 /**
  * Captures the provider-owned state created by official setup as the seed for
- * a clean private account image. The image builder removes authority keys and
- * operation files before promoting the final snapshot.
+ * a clean private account image on the same provider. Snapshot identifiers are
+ * opaque and cannot be reused across providers. The image builder removes
+ * authority keys and operation files before promoting the final snapshot.
  */
 export const snapshotCloudAuthAuthority = Effect.fn(
 	"snapshotCloudAuthAuthority",
-)(function* (accountId: string, name: string) {
+)(function* (accountId: string, name: string, targetProviderId: string) {
+	if (!canSeedCloudAuthSnapshot(targetProviderId)) return undefined;
 	const recovered = yield* recoverAuthority(accountId);
 	if (recovered === null) return undefined;
 	const authority = yield* ensureRunning(recovered);

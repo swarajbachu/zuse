@@ -191,7 +191,7 @@
 	"annotation_tray_edit_annotation": "编辑注释",
 	"annotation_tray_remove_annotation": "删除注释",
 	"computer_picker_run_on_computer": "在电脑上运行",
-	"computer_picker_cloud_sandbox": "云沙盒",
+	"computer_picker_cloud_sandbox": "云端",
 	"computer_picker_beta": "贝塔",
 	"computer_picker_add_computer": "添加计算机...",
 	"context_tray_add_context": "添加上下文",
@@ -647,5 +647,17 @@
 	"terminal_pane_waiting_for_changes_to_settle": "等待更改稳定…",
 	"pi_permissions": "Pi 权限",
 	"question_timed_out": "问题已超时。",
-	"question_cancelled": "问题已取消。"
+	"question_cancelled": "问题已取消。",
+	"computer_picker_machine_size": "机器规格",
+	"cloud_setup_unavailable": "不可用",
+	"cloud_setup_subscription_required": "需要订阅",
+	"cloud_setup_connect_repository": "连接仓库",
+	"cloud_setup_building_image": "正在构建云端镜像",
+	"cloud_setup_rebuild_authentication": "重新配置身份验证",
+	"cloud_setup_update_image": "更新云端镜像",
+	"cloud_connect_repository_first": "请先在云端设置中连接此仓库。",
+	"cloud_supported_agents": "云端目前支持 Claude 和 Codex。",
+	"cloud_size_small": "小型（{{cpu}} vCPU / {{memory}} GB）",
+	"cloud_size_default": "标准型（{{cpu}} vCPU / {{memory}} GB）",
+	"cloud_size_large": "大型（{{cpu}} vCPU / {{memory}} GB）"
 }

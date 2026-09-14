@@ -42,6 +42,21 @@ describe("cloud sync connection lifecycle", () => {
 		expect(stop).not.toHaveBeenCalled();
 	});
 
+	it("stops an active worker when its persisted preference is disabled", () => {
+		const start = vi.fn();
+		const stop = vi.fn();
+		reconcileAutomaticCloudSyncs({
+			summaries: [{ workspaceId: "workspace_a", state: "ready" }],
+			connectedWorkspaceIds: new Set(["workspace_a"]),
+			activeWorkspaceIds: new Set(["workspace_a"]),
+			enabled: () => false,
+			start,
+			stop,
+		});
+		expect(stop).toHaveBeenCalledWith("workspace_a");
+		expect(start).not.toHaveBeenCalled();
+	});
+
 	it("serializes disconnect teardown before reconnect setup", async () => {
 		const queue = new CloudSyncLifecycleQueue();
 		const events: string[] = [];

@@ -119,6 +119,15 @@ export const CloudWorkspaceRuntimeState = Schema.Literals([
 ]);
 export type CloudWorkspaceRuntimeState = typeof CloudWorkspaceRuntimeState.Type;
 
+export class CloudProviderSize extends Schema.Class<CloudProviderSize>(
+	"CloudProviderSize",
+)({
+	sizeId: Schema.String,
+	displayName: Schema.String,
+	vcpuCount: Schema.Number,
+	memoryMib: Schema.Number,
+}) {}
+
 /**
  * Codex subscription authentication ownership for a cloud workspace. Missing
  * values decode as `legacy-image`; retained workspaces are never silently
@@ -142,6 +151,7 @@ export class CloudProviderOption extends Schema.Class<CloudProviderOption>(
 )({
 	providerId: Schema.String,
 	displayName: Schema.String,
+	sizes: Schema.optional(Schema.Array(CloudProviderSize)),
 }) {}
 
 export class CloudProviderList extends Schema.Class<CloudProviderList>(
@@ -516,6 +526,7 @@ export class CloudWorkspaceCreateRequest extends Schema.Class<CloudWorkspaceCrea
 	localDeviceId: Schema.optional(Schema.String),
 	projectId: Schema.String,
 	providerId: Schema.String,
+	sizeId: Schema.optional(Schema.String),
 	baseRef: Schema.String,
 	branch: Schema.optional(Schema.String),
 	agent: Schema.String,

@@ -130,6 +130,16 @@ const makeSandboxProvidersFakeFromControl = (
 				providerId: "fake",
 				displayName: "Test sandbox",
 				templateVersion: "test-template",
+				preservesProcessesOnResume: true,
+				resources: { vcpuCount: 2, memoryMib: 1_024 },
+				sizes: [
+					{
+						sizeId: "test",
+						displayName: "Test",
+						vcpuCount: 2,
+						memoryMib: 1_024,
+					},
+				],
 				create,
 				fork: (input) =>
 					create({

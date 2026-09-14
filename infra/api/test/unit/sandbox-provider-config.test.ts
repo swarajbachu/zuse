@@ -39,7 +39,7 @@ describe("sandbox provider configuration", () => {
 		).toThrow(SandboxProviderConfigurationError);
 	});
 
-	test("loads a complete production-ready provider", async () => {
+	test("keeps E2B available internally without advertising new workspaces", async () => {
 		const runtime = resolveSandboxProviderRuntime(configuredEnvironment);
 		const providers = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -49,18 +49,79 @@ describe("sandbox provider configuration", () => {
 					availableProviderIds: registry.availableProviders.map(
 						(provider) => provider.providerId,
 					),
-					templateVersion: registry.availableProviders[0]?.templateVersion,
+					templateVersion: (yield* registry.get("e2b")).templateVersion,
 				};
 			}).pipe(Effect.provide(runtime.layer)),
 		);
 
 		expect(runtime.configuredProviders).toEqual([
-			{ providerId: "e2b", productionReady: true },
+			{ providerId: "e2b", productionReady: true, advertised: false },
 		]);
 		expect(providers).toEqual({
-			defaultProviderId: "fake",
-			availableProviderIds: ["e2b"],
+			defaultProviderId: "e2b",
+			availableProviderIds: [],
 			templateVersion: "build-4",
 		});
+	});
+
+	test("honors an explicit default provider selection", async () => {
+		const runtime = resolveSandboxProviderRuntime({
+			...configuredEnvironment,
+			SANDBOX_DEFAULT_PROVIDER_ID: "e2b",
+		});
+		const defaultProviderId = await Effect.runPromise(
+			Effect.gen(function* () {
+				return (yield* (yield* SandboxProviders).getDefault).providerId;
+			}).pipe(Effect.provide(runtime.layer)),
+		);
+
+		expect(defaultProviderId).toBe("e2b");
+	});
+
+	test("fails closed when the default provider is not configured", () => {
+		expect(() =>
+			resolveSandboxProviderRuntime({
+				...configuredEnvironment,
+				SANDBOX_DEFAULT_PROVIDER_ID: "missing",
+			}),
+		).toThrow(SandboxProviderConfigurationError);
+	});
+
+	test("defaults new workspaces to Box while keeping E2B for authentication", async () => {
+		const runtime = resolveSandboxProviderRuntime({
+			...configuredEnvironment,
+			BOX_ADAPTER_ENABLED: "true",
+			BOX_API_KEY: "box-secret",
+			BOX_TEMPLATE_SNAPSHOT: "zuse-base-v1",
+			BOX_TEMPLATE_VERSION: "v1",
+		});
+		const providers = await Effect.runPromise(
+			Effect.gen(function* () {
+				const registry = yield* SandboxProviders;
+				return {
+					defaultProviderId: (yield* registry.getDefault).providerId,
+					availableProviderIds: registry.availableProviders.map(
+						(provider) => provider.providerId,
+					),
+					boxResources: (yield* registry.get("box")).resources,
+				};
+			}).pipe(Effect.provide(runtime.layer)),
+		);
+
+		expect(runtime.configuredProviders).toEqual([
+			{ providerId: "e2b", productionReady: true, advertised: false },
+			{ providerId: "box", productionReady: false, advertised: true },
+		]);
+		expect(providers).toEqual({
+			defaultProviderId: "box",
+			availableProviderIds: ["box"],
+			boxResources: { vcpuCount: 2, memoryMib: 4_096 },
+		});
+	});
+
+	test("fails closed when an enabled Box provider is incomplete", () => {
+		expect(() =>
+			resolveSandboxProviderRuntime({ BOX_ADAPTER_ENABLED: "true" }),
+		).toThrow(SandboxProviderConfigurationError);
 	});
 });

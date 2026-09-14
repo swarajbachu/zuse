@@ -132,12 +132,23 @@ describe("cloud runtime assets", () => {
 		expect(reconciler).toContain("Provider auth delivery capability mismatch");
 	});
 
-	test("pins the contract-tested Grok external-auth runtime in the base image", async () => {
-		const dockerfile = await readWorkspaceFile(
-			"infra/cloud-sandboxes/Dockerfile",
+	test("shares pinned agent runtimes and authentication setup across cloud images", async () => {
+		const [dockerfile, boxInstall, provision] = await Promise.all([
+			readWorkspaceFile("infra/cloud-sandboxes/Dockerfile"),
+			readWorkspaceFile("infra/cloud-sandboxes/box/install.sh"),
+			readWorkspaceFile("infra/cloud-sandboxes/provision.sh"),
+		]);
+		expect(dockerfile).toContain(
+			"RUN /tmp/zuse-provision/provision.sh globals",
 		);
-		expect(dockerfile).toContain("install-grok.sh 1.0.13");
-		expect(dockerfile).toContain("GROK_BIN_DIR=/usr/local/bin");
+		expect(dockerfile).toContain(
+			"RUN /tmp/zuse-provision/provision.sh runtime layout",
+		);
+		expect(boxInstall).toContain(
+			'"$provision_dir/provision.sh" packages globals runtime layout',
+		);
+		expect(provision).toContain("install-grok.sh 1.0.13");
+		expect(provision).toContain("GROK_BIN_DIR=/usr/local/bin");
 	});
 
 	test("uses the image checkout directly without launch-time Git networking", async () => {
@@ -249,8 +260,8 @@ describe("cloud runtime assets", () => {
 		const githubAuth = await readWorkspaceFile(
 			"infra/cloud-sandboxes/github-auth.sh",
 		);
-		const dockerfile = await readWorkspaceFile(
-			"infra/cloud-sandboxes/Dockerfile",
+		const provision = await readWorkspaceFile(
+			"infra/cloud-sandboxes/provision.sh",
 		);
 		const runtime = await readWorkspaceFile(
 			"apps/server/src/api/cloud-workspace-runtime.ts",
@@ -259,13 +270,15 @@ describe("cloud runtime assets", () => {
 			"infra/api/src/cloud-workspace-routes.ts",
 		);
 
-		expect(dockerfile).toContain(
-			"github-auth.sh /usr/local/bin/zuse-github-auth",
+		expect(provision).toContain(
+			'install -m 0755 "$provision_dir/github-auth.sh" /usr/local/bin/zuse-github-auth',
 		);
-		expect(dockerfile).toContain(
+		expect(provision).toContain(
 			"/usr/local/bin/zuse-github-auth /usr/local/bin/gh",
 		);
-		expect(dockerfile).toContain("RUN /usr/local/bin/zuse-github-auth install");
+		expect(provision).toContain(
+			"runuser -u zuse -- /usr/local/bin/zuse-github-auth install",
+		);
 		expect(githubAuth).toContain("ZUSE_GITHUB_TOKEN_FILE");
 		expect(githubAuth).toContain('exec "$gh_binary" "$@"');
 		expect(githubAuth).toContain("printf 'password=%s\\n'");

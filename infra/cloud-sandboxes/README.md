@@ -64,6 +64,85 @@ placement in the composer; no adapter configured in the api becomes an
 account default. Future adapters keep native image, snapshot, or recipe
 settings under their own prefixes while sharing the workspace lifecycle.
 
+## User setup and provider maintenance
+
+The user-facing destination is **Cloud**. Box is the only advertised workspace
+provider. E2B stays registered for the account authentication authority and for
+existing E2B workspaces; it does not appear as a new placement or checkout option.
+When Box is configured it is the default automatically. An E2B-only deployment
+can service retained workspaces and authentication, but cannot create new Cloud
+workspaces. Production Box availability remains gated until live validation.
+
+Users connect each agent once in Cloud settings. Those account-level connections
+serve Box workspaces through the existing credential brokers; no second login or
+user-supplied Box/E2B key is needed. **Cloud image → Rebuild image** rebuilds the
+configured default's account image from the selected repositories. It leaves
+existing workspaces and authentication-authority connections intact. Provider
+snapshots are never interchangeable.
+
+Base templates are operator-maintained and separate from that user action:
+
+- **Box:** run `infra/cloud-sandboxes/box-publish.sh <new-version>` with the Box
+  secret available, then install its printed `BOX_TEMPLATE_SNAPSHOT` and
+  `BOX_TEMPLATE_VERSION` values. Rebuild the Cloud account image afterward.
+- **E2B:** follow the template publication instructions above and update
+  `E2B_TEMPLATE_VERSION`. Keep `E2B_ADAPTER_ENABLED=true` while the authentication
+  authority or retained workspaces depend on it. Users do not rebuild or select
+  that infrastructure separately.
+
+Before deploying the Box-only placement policy to production, publish and verify
+its template, a fresh account image, a real model response, a shell tool call,
+and billing ingestion, then configure and enable Box in the production Worker.
+Do not deploy that policy into an E2B-only production configuration: new Cloud
+placements and checkout would be unavailable by design. Existing workspace
+lifecycle operations continue to use their recorded provider.
+
+## Box template
+
+Box (box.ascii.dev) has no custom-image API; its template is a **named
+snapshot** built by provisioning a fresh box and freezing it. All shared
+installation behavior lives in `provision.sh` — the same stages the
+Dockerfile runs — so the two templates cannot drift. The Box-specific layer
+(`box/`) adds what the provider shape requires:
+
+- `zuse-firewall` + `zuse-firewall.service` — the in-guest egress quarantine
+  (ADR 0035). The systemd unit handles ordinary boots; because Box restores
+  template files after boot targets have passed, the adapter also applies
+  policy explicitly before handing a restored box to untrusted code. Only
+  the api's root-only provider command can change it, and the zuse user has
+  no sudo.
+- `zuse-host-ports.service` — re-hosts the runtime port on the box's stable
+  public HTTPS URL on ordinary boots. The adapter registers requested ports
+  during endpoint resolution, after the listener exists, because restored
+  units do not exist during initial systemd boot and Box's tunnel binding is
+  listener-sensitive.
+- `install.sh` — root-side installer that pins Node 22, installs nftables,
+  runs the shared provision stages, and strips sudo from the zuse user.
+
+Publish with:
+
+```sh
+BOX_API_KEY=... infra/cloud-sandboxes/box-publish.sh <version>
+```
+
+After updating this branch, publish a fresh version before deployment: the
+historical version-3 Box snapshot does not contain the current GitHub broker
+wrapper and pinned Grok CLI. Rebuild account images too so their broker delivery
+markers match the enabled API enrollment gates. A successful runtime connection
+alone does not validate agent authentication; verify an actual model response
+and shell tool call in the fresh workspace.
+
+Copy the printed `BOX_TEMPLATE_SNAPSHOT` / `BOX_TEMPLATE_VERSION` values into
+the api wrangler configuration and set the Worker secret with
+`bun --filter @zuse/api secret:box`. Named snapshots are account-capped
+(10 by default), and that budget is shared by the base template, every Zuse
+account's image, and any transient auth snapshots — one snapshot per active
+account makes this cap the scaling gate for Box. Raise the limit with
+ascii.dev before production and keep superseded base versions and images
+deleted. Run the live adapter suite against a freshly published template
+(`BOX_API_KEY=... BOX_TEMPLATE_SNAPSHOT=zuse-base-v<N> bun --filter
+@zuse/sandbox-providers test:live`) before pointing staging at it.
+
 The api injects boot values into the process, never the template environment.
 Managed-server runtime manifests are intentionally not reused by cloud
 workspaces. A cloud-specific signed manifest may be configured separately after
