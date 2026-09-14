@@ -10466,7 +10466,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/extension-registry.tsx",
-				"line": 383
+				"line": 156
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
