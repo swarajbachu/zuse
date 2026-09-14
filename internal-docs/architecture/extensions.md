@@ -149,3 +149,41 @@ attachment. Browsing never invokes an agent. Workspace changes cancel requests
 and discard incompatible selections. Cloud and mobile extension execution are
 not eligible. See `apps/docs/content/docs/extensions/` for user and author guides
 and `internal-docs/releases/extensions-preview.md` for outstanding publication gates.
+
+## Desktop API 1.1: workflow extensions
+
+The SDK 0.2.0 client context exposes `host`, a typed facade supplied by the
+renderer and revoked when its extension generation is disposed:
+
+- `useSessions()` returns non-archived local session summaries and explicit
+  loading/stale/error state. Requires `sessions`.
+- `usePullRequest(sessionId)` retains the existing qualified Git resource for
+  the session's branch. Mount only for visible cards; unmount releases its lease.
+- `openSession(sessionId)` navigates to an existing local conversation. It does
+  not submit prompts and declines missing/remote sessions.
+- `usePlanOutput(sessionId)` exposes bounded current-turn plan/assistant output.
+  It does not return reasoning messages or earlier-turn plans. Requires `planning`.
+- `preparePlan(sessionId, instructions)` requires an idle, selected local
+  session; requests native Plan mode, checks success and selection again, then
+  attaches instructions. It does not submit or approve work. Requires `planning`.
+
+These are host capabilities, not imported renderer internals. Existing API 1.0
+extensions continue working under compatible semver ranges. New examples require
+`^1.1.0`; old hosts must not install them. The staging API 1.1 catalog has a
+separate path because older clients cannot decode new capability enum members.
+The original staging feed remains available for those clients.
+
+**Account collectors are extension-owned.** Account Quota uses generic RPC,
+filesystem and storage capabilities to manage independent credential profiles
+and fetch Claude Code/Codex quota directly. There is deliberately no dependency
+on the built-in usage store. Its provider collector interface lives inside the
+extension. It stores file references, never sends tokens through renderer RPC,
+and does not change active accounts.
+
+A third-party account manager can use trusted server code, filesystem/process
+capabilities and namespaced secret storage to implement its own authentication
+and account selection. This release does not provide a coordinated account-switch
+API for built-in providers. Changing a credential file does not reauthenticate
+already-running agent processes. A future supported handoff needs provider-scoped
+session coordination, credential replacement/recovery, and authentication cache
+refresh; it must not represent a file copy as a completed live account switch.

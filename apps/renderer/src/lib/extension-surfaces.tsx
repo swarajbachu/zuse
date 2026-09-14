@@ -39,9 +39,12 @@ export function ExtensionSurfaceHost() {
 				panelId: detail.panelId,
 			});
 		};
+		const close = () => setOpen(null);
+		window.addEventListener("zuse:extension-close-surface", close);
 		window.addEventListener("zuse:extension-open-surface", surface);
 		window.addEventListener("zuse:extension-open-workspace-panel", panel);
 		return () => {
+			window.removeEventListener("zuse:extension-close-surface", close);
 			window.removeEventListener("zuse:extension-open-surface", surface);
 			window.removeEventListener("zuse:extension-open-workspace-panel", panel);
 		};

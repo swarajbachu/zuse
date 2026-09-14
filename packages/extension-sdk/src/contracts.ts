@@ -1,7 +1,9 @@
 import type { Schema } from "effect";
 import type { ComponentType } from "react";
 
-export const ZUSE_EXTENSION_API_VERSION = "1.0.0";
+import type { ExtensionClientHost } from "./client-host.ts";
+
+export const ZUSE_EXTENSION_API_VERSION = "1.1.0";
 
 export type ExtensionCapability =
 	| "attachments"
@@ -15,7 +17,9 @@ export type ExtensionCapability =
 	| "storage"
 	| "themes"
 	| "timeline"
-	| "ui";
+	| "ui"
+	| "planning"
+	| "sessions";
 
 export interface ExtensionRpcContract<Input, Output> {
 	readonly name: string;
@@ -202,6 +206,7 @@ export interface ExtensionProviderDescriptor {
 }
 
 export interface ExtensionClientContext {
+	readonly host: ExtensionClientHost;
 	readonly target: "client";
 	/** Per-extension ephemeral query state, disposed on reload/disable. */
 	readonly queryState: {

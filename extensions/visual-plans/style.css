@@ -1,0 +1,83 @@
+.zv-panel {
+	padding: 24px;
+	height: 100%;
+	overflow: auto;
+	color: var(--foreground);
+	font-size: 12px;
+}
+.zv-panel h1 {
+	font-size: 20px;
+	font-weight: 600;
+	margin: 0 0 4px;
+}
+.zv-panel p,
+.zv-panel footer {
+	color: var(--muted-foreground);
+	line-height: 1.6;
+}
+.zv-panel details {
+	margin: 16px 0;
+}
+.zv-panel summary {
+	cursor: pointer;
+	font-weight: 500;
+}
+.zv-panel textarea {
+	display: block;
+	width: 100%;
+	min-height: 100px;
+	resize: vertical;
+	margin: 10px 0;
+	background: var(--muted);
+	color: var(--foreground);
+	border: 0;
+	border-radius: 6px;
+	padding: 12px;
+	font: 12px / 1.6 monospace;
+}
+.zv-panel details:first-of-type textarea {
+	min-height: 250px;
+}
+.zv-actions {
+	display: flex;
+	gap: 8px;
+	margin: 16px 0;
+}
+.zv-panel button {
+	height: 28px;
+	border: 0;
+	border-radius: 6px;
+	padding: 0 10px;
+	background: var(--muted);
+	color: var(--foreground);
+	cursor: pointer;
+}
+.zv-panel button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+.zv-panel iframe {
+	display: block;
+	width: 100%;
+	height: 60vh;
+	min-height: 350px;
+	border: 0;
+	border-radius: 8px;
+	margin: 20px 0;
+	background: white;
+}
+.zv-panel label {
+	display: block;
+	margin-top: 20px;
+}
+.zv-panel footer {
+	font-size: 11px;
+	margin-top: 20px;
+}
+.zv-panel [role="alert"] {
+	color: var(--destructive);
+}
+.zv-panel :focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}

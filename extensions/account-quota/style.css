@@ -1,0 +1,106 @@
+.zq-panel {
+	padding: 24px;
+	height: 100%;
+	overflow: auto;
+	font-size: 12px;
+	color: var(--foreground);
+}
+.zq-panel header,
+.zq-account footer {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	align-items: center;
+}
+.zq-panel h1 {
+	font-size: 20px;
+	font-weight: 600;
+	margin: 0 0 4px;
+}
+.zq-panel h2 {
+	font-size: 14px;
+	font-weight: 600;
+	margin: 0;
+}
+.zq-panel p {
+	color: var(--muted-foreground);
+	margin: 6px 0;
+	line-height: 1.6;
+}
+.zq-panel button,
+.zq-panel input,
+.zq-panel select {
+	height: 28px;
+	border: 0;
+	border-radius: 6px;
+	background: var(--muted);
+	color: var(--foreground);
+	padding: 0 9px;
+}
+.zq-panel button {
+	cursor: pointer;
+}
+.zq-panel button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+.zq-panel form {
+	margin: 24px 0;
+}
+.zq-form {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 10px 0;
+}
+.zq-form input {
+	flex: 1;
+	min-width: 180px;
+}
+.zq-help {
+	font-size: 11px;
+	max-width: 900px;
+}
+.zq-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+	gap: 16px;
+	margin: 24px 0;
+}
+.zq-account {
+	padding: 16px;
+	background: color-mix(in srgb, var(--muted) 40%, transparent);
+	border-radius: 8px;
+}
+.zq-window {
+	margin-top: 20px;
+}
+.zq-window > div {
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+}
+.zq-window progress {
+	width: 100%;
+	height: 6px;
+	margin-top: 7px;
+	accent-color: var(--foreground);
+}
+.zq-window p,
+.zq-account footer {
+	font-size: 11px;
+	color: var(--muted-foreground);
+}
+.zq-account footer {
+	margin-top: 20px;
+}
+.zq-panel [role="alert"] {
+	color: var(--destructive);
+}
+.zq-empty {
+	padding: 30px 0;
+}
+.zq-panel :focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}

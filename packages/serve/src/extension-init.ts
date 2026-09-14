@@ -35,7 +35,7 @@ export async function initializeExtension(options: {
 		version: "0.1.0",
 		client: "src/index.client.tsx",
 		server: "src/index.server.ts",
-		zuseApi: "^1.0.0",
+		zuseApi: "^1.1.0",
 		contributions: ["workspace-panel", "attachment-source"],
 		capabilities: ["ui", "attachments", "rpc", "filesystem"],
 		publisher: { name: options.publisher },
@@ -47,7 +47,7 @@ export async function initializeExtension(options: {
 		type: "module",
 		scripts: { "check-types": "tsc --noEmit" },
 		dependencies: {
-			"@zuse/extension-sdk": options.sdk ?? "0.1.0",
+			"@zuse/extension-sdk": options.sdk ?? "0.2.0",
 			effect: "4.0.0-beta.102",
 			react: "19.2.0",
 		},

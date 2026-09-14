@@ -21,6 +21,8 @@ export const ExtensionCapability = Schema.Literals([
 	"themes",
 	"timeline",
 	"ui",
+	"planning",
+	"sessions",
 ]);
 export type ExtensionCapability = typeof ExtensionCapability.Type;
 

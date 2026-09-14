@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "agent-board",
+	"name": "Agent Board",
+	"description": "See local agent sessions in live status columns, inspect branch PRs and checks, and jump into the conversation.",
+	"version": "0.1.0",
+	"client": "index.client.tsx",
+	"zuseApi": "^1.1.0",
+	"contributions": ["workspace-panel", "surface", "sidebar-item", "command"],
+	"capabilities": ["ui", "sessions", "commands"],
+	"publisher": {
+		"name": "Zuse"
+	},
+	"homepage": "https://zuse.sh/extensions"
+}

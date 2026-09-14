@@ -171,7 +171,13 @@ class ExtensionRegistry {
 				: null;
 		if (typeof setup !== "function")
 			throw new Error("Extension client must default export setup().");
-		const clientRuntime = createExtensionClientRuntime(contributions);
+		const { createExtensionDesktopHost } = await import(
+			"./extension-desktop-host.ts"
+		);
+		const clientRuntime = createExtensionClientRuntime(
+			contributions,
+			createExtensionDesktopHost(item.grantedCapabilities),
+		);
 		let cleanup: () => unknown;
 		try {
 			let timer: ReturnType<typeof setTimeout> | undefined;

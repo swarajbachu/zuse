@@ -1,0 +1,21 @@
+{
+	"name": "@zuse-extension/visual-plans",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "vitest run test",
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@zuse/extension-sdk": "workspace:*",
+		"react": "catalog:",
+		"dompurify": "3.4.11"
+	},
+	"devDependencies": {
+		"@types/react": "catalog:",
+		"vitest": "catalog:",
+		"typescript": "catalog:",
+		"jsdom": "^26.1.0"
+	}
+}

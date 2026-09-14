@@ -53,3 +53,34 @@ it("keeps identical local keys independent between extensions", () => {
 	expect(second.context.queryState.get("selection")).toBe("second");
 	second.dispose();
 });
+
+it("revokes retained desktop action references when an extension is disposed", async () => {
+	let opened = 0;
+	const host: import("../src/client-host.ts").ExtensionClientHost = {
+		openSession: async () => {
+			opened++;
+		},
+		preparePlan: async () => {},
+		usePlanOutput: () => ({ text: "", truncated: false, stale: false }),
+		useSessions: () => ({
+			sessions: [],
+			loading: false,
+			stale: false,
+			error: null,
+		}),
+		usePullRequest: () => ({
+			loading: false,
+			stale: false,
+			error: null,
+			branch: null,
+			pullRequest: null,
+		}),
+	};
+	const runtime = createExtensionClientRuntime(collector(), host);
+	const open = runtime.context.host.openSession;
+	await open("session");
+	runtime.dispose();
+	await expect(open("session")).rejects.toThrow("disposed");
+	expect(() => runtime.context.host.useSessions()).toThrow("disposed");
+	expect(opened).toBe(1);
+});

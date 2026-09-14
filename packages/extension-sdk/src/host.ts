@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { ExtensionClientHost } from "./client-host.ts";
 import type {
 	ExtensionAttachmentSourceContribution,
 	ExtensionClientContext,
@@ -25,6 +26,7 @@ export interface ExtensionRegistrationCollector {
 
 export const createExtensionClientRuntime = (
 	collector: ExtensionRegistrationCollector,
+	host?: ExtensionClientHost,
 ): {
 	readonly context: ExtensionClientContext;
 	readonly dispose: () => void;
@@ -38,8 +40,34 @@ export const createExtensionClientRuntime = (
 	const publish = () => {
 		for (const listener of listeners) listener();
 	};
+	const requireHost = () => {
+		if (!host) throw new Error("Desktop host APIs are unavailable.");
+		return host;
+	};
 	const context: ExtensionClientContext = {
 		target: "client",
+		host: {
+			usePlanOutput: (id) => {
+				assertActive();
+				return requireHost().usePlanOutput(id);
+			},
+			preparePlan: async (id, instructions) => {
+				assertActive();
+				await requireHost().preparePlan(id, instructions);
+			},
+			useSessions: () => {
+				assertActive();
+				return requireHost().useSessions();
+			},
+			usePullRequest: (id) => {
+				assertActive();
+				return requireHost().usePullRequest(id);
+			},
+			openSession: async (id) => {
+				assertActive();
+				await requireHost().openSession(id);
+			},
+		},
 		queryState: {
 			get: <T>(key: string) => values.get(key) as T | undefined,
 			set: <T>(key: string, value: T) => {

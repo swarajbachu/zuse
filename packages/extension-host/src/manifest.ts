@@ -5,6 +5,7 @@ import {
 	ExtensionManifest,
 	type ExtensionSource,
 } from "@zuse/contracts";
+import { ZUSE_EXTENSION_API_VERSION } from "@zuse/extension-sdk";
 import { Schema } from "effect";
 import { satisfies, validRange } from "semver";
 
@@ -59,9 +60,9 @@ export const sourceDirectory = (source: ExtensionSource): string => {
 };
 
 export const assertApiCompatible = (range: string): void => {
-	if (!validRange(range) || !satisfies("1.0.0", range)) {
+	if (!validRange(range) || !satisfies(ZUSE_EXTENSION_API_VERSION, range)) {
 		throw new Error(
-			`Extension requires Zuse extension API ${range}; this build supports 1.0.0.`,
+			`Extension requires Zuse extension API ${range}; this build supports ${ZUSE_EXTENSION_API_VERSION}.`,
 		);
 	}
 };

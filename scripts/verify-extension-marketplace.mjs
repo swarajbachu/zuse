@@ -3,13 +3,16 @@ import { readFile } from "node:fs/promises";
 import { decodeArtifact } from "../packages/extension-host/src/artifact.ts";
 import { MARKETPLACE_PUBLIC_KEY } from "../packages/extension-host/src/catalog-key.ts";
 
-import { STAGING_MARKETPLACE_PUBLIC_KEY } from "../packages/extension-host/src/staging-catalog.ts";
+import {
+	STAGING_MARKETPLACE_DIRECTORY,
+	STAGING_MARKETPLACE_PUBLIC_KEY,
+} from "../packages/extension-host/src/staging-catalog.ts";
 
 const staging = process.argv.includes("--staging");
 const publicKey = staging
 	? STAGING_MARKETPLACE_PUBLIC_KEY
 	: MARKETPLACE_PUBLIC_KEY;
-const directory = staging ? "extensions/staging" : "extensions";
+const directory = staging ? STAGING_MARKETPLACE_DIRECTORY : "extensions";
 const catalogPath = new URL(
 	`../apps/web/public/${directory}/catalog.v1.json`,
 	import.meta.url,
@@ -62,8 +65,10 @@ for (const entry of catalog.entries) {
 	if (digest !== entry.sha256)
 		throw new Error(`${entry.manifest.id}: artifact digest mismatch.`);
 	if (
-		!String(entry.archiveUrl).endsWith(
-			`/${directory}/artifacts/${entry.sha256}.json`,
+		![directory, ...(staging ? ["extensions/staging"] : [])].some((path) =>
+			String(entry.archiveUrl).endsWith(
+				`/${path}/artifacts/${entry.sha256}.json`,
+			),
 		)
 	) {
 		throw new Error(

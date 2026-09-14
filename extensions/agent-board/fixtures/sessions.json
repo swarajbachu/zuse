@@ -1,0 +1,32 @@
+[
+	{
+		"id": "running",
+		"projectId": "api",
+		"projectName": "API",
+		"title": "Fix login",
+		"providerId": "codex",
+		"model": "gpt",
+		"status": "running",
+		"updatedAt": "2026-09-14T12:00:00Z"
+	},
+	{
+		"id": "error",
+		"projectId": "web",
+		"projectName": "Website",
+		"title": "Review login",
+		"providerId": "claude",
+		"model": "sonnet",
+		"status": "error",
+		"updatedAt": "2026-09-14T13:00:00Z"
+	},
+	{
+		"id": "idle",
+		"projectId": "api",
+		"projectName": "API",
+		"title": "Old task",
+		"providerId": "claude",
+		"model": "sonnet",
+		"status": "idle",
+		"updatedAt": "2026-09-14T11:00:00Z"
+	}
+]

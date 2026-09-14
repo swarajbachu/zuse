@@ -12,6 +12,7 @@ import {
 } from "../packages/extension-host/src/manifest.ts";
 import {
 	STAGING_MARKETPLACE_BASE_URL,
+	STAGING_MARKETPLACE_DIRECTORY,
 	STAGING_MARKETPLACE_PUBLIC_KEY,
 } from "../packages/extension-host/src/staging-catalog.ts";
 
@@ -42,8 +43,15 @@ const previousEntries: Array<{
 }> = staging
 	? JSON.parse(
 			await readFile(
-				resolve("apps/web/public/extensions/staging/catalog.v1.json"),
+				resolve(
+					`apps/web/public/${STAGING_MARKETPLACE_DIRECTORY}/catalog.v1.json`,
+				),
 				"utf8",
+			).catch(() =>
+				readFile(
+					resolve("apps/web/public/extensions/staging/catalog.v1.json"),
+					"utf8",
+				),
 			),
 		).entries
 	: [];

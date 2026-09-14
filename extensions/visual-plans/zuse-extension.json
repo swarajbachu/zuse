@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "visual-plans",
+	"name": "Visual Plans",
+	"description": "Prepare a diagram-rich HTML plan in Plan mode, preview it, and attach revision feedback before implementation.",
+	"version": "0.1.0",
+	"client": "index.client.tsx",
+	"zuseApi": "^1.1.0",
+	"contributions": ["workspace-panel"],
+	"capabilities": ["ui", "planning", "attachments"],
+	"publisher": {
+		"name": "Zuse"
+	},
+	"homepage": "https://zuse.sh/extensions"
+}

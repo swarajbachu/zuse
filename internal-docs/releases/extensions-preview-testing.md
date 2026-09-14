@@ -61,3 +61,35 @@ Source installation does not verify public catalog delivery. Signed catalog inst
 ## Reporting a failure
 
 Include the OS, app version/commit, extension/version, project/worktree, exact steps, expected vs actual result, and a screenshot or relevant extension log. For stale-data bugs, include which project you switched from/to and whether a scan was running. Do not include credentials or private source files in a public issue.
+
+## Workflow examples (desktop API 1.1)
+
+Update the branch build, enable Extensions Preview, refresh the marketplace,
+and install Account Quota, Agent Board and Visual Plans independently. The new
+feed is `extensions/staging/api-1.1`; the API 1.0 feed stays intact for old builds.
+
+- Account Quota: test one then five independent Claude Code/Codex credential-file
+  profiles. Refresh all and individually; exercise 401/403/429, expired tokens,
+  invalid paths and JSON, unknown fields, timeout, cancellation, removal and
+  restart. Verify no refresh switches the active login and no renderer response
+  contains tokens. Mac Keychain-only accounts are not directly supported yet.
+- Agent Board: run sessions in several local projects, change their status,
+  check filtering and pagination, verify open/draft/merged PRs and running/failing
+  checks, then click a card to return to its exact conversation. Disconnect and
+  reconnect the environment: cached states must be explicit. Archived sessions
+  must disappear. Confirm stopping/disabling this extension leaves other panels
+  and shared Git subscriptions working.
+- Visual Plans: open an idle Claude Code session, prepare a plan and confirm
+  native Plan mode plus composer attachment, with no automatic send. Repeat
+  with Codex. Submit a task, inspect the returned static diagrams, preview, then
+  attach feedback. Receive a newer plan without previewing it and verify feedback
+  still attaches the old preview snapshot. Switch conversations/workspaces and
+  confirm old previews clear. Try script/event-handler/network/navigation HTML;
+  it must not execute. Provider mode-change failures must not report success.
+
+Automated evidence: parser/routing/security tests, host facade permission and
+selection tests, SDK revocation test, real host-process installs and five-profile
+persistence/removal smoke test, plus browser fixture interaction checks. Browser
+screenshots in `.context/` use clearly labeled synthetic data and are not public
+product screenshots. Live authenticated quota and native macOS plan flows still
+require user verification. These examples do not implement account switching.
