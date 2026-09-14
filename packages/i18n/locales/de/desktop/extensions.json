@@ -36,5 +36,14 @@
 	"configure": "{{name}} konfigurieren",
 	"commands": "Erweiterungsbefehle",
 	"remove_confirm": "{{name}} entfernen? Die Daten bleiben erhalten.",
-	"approve": "{{name}} ist vertrauenswürdiger Code und kann außerhalb einer Sandbox auf deinen Computer zugreifen. Angeforderte Funktionen: {{capabilities}}. Installieren und aktivieren?"
+	"approve": "{{name}} ist vertrauenswürdiger Code und kann außerhalb einer Sandbox auf deinen Computer zugreifen. Angeforderte Funktionen: {{capabilities}}. Installieren und aktivieren?",
+	"operation_failed": "Die Erweiterungsaktion ist fehlgeschlagen. Versuche es erneut.",
+	"catalog_failed": "Der Katalog konnte nicht geladen werden. Aktualisiere ihn erneut. Installierte Erweiterungen bleiben verfügbar.",
+	"catalog_loading": "Katalog wird geladen…",
+	"preview_tools": "Offizielle Vorschauwerkzeuge",
+	"source_setup": "Quellcode und Einrichtung",
+	"source_notice": "Quellcode-Installationen sind zum Testen verfügbar. Signierte Katalogpakete sind noch nicht veröffentlicht.",
+	"reports_workflow": "JUnit XML → Fehler prüfen → an Chat anhängen. Arbeitsbereich-Tab und Anhangsauswahl.",
+	"playbook_workflow": "Repository-Markdown → Verfahren auswählen → an Chat anhängen. Arbeitsbereich-Tab und Anhangsauswahl.",
+	"followups_workflow": "TODO/FIXME → Code prüfen → an Chat anhängen. Arbeitsbereich-Tab, Befehlspalette und Anhangsauswahl."
 }

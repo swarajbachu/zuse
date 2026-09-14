@@ -36,5 +36,14 @@
 	"configure": "Configurer {{name}}",
 	"commands": "Commandes d’extensions",
 	"remove_confirm": "Supprimer {{name}} ? Ses données seront conservées.",
-	"approve": "{{name}} est du code de confiance et peut accéder à votre ordinateur sans bac à sable. Capacités demandées : {{capabilities}}. Installer et activer ?"
+	"approve": "{{name}} est du code de confiance et peut accéder à votre ordinateur sans bac à sable. Capacités demandées : {{capabilities}}. Installer et activer ?",
+	"operation_failed": "L’action a échoué. Réessayez.",
+	"catalog_failed": "Impossible de charger le catalogue. Actualisez pour réessayer. Les extensions installées restent disponibles.",
+	"catalog_loading": "Chargement du catalogue…",
+	"preview_tools": "Outils officiels en aperçu",
+	"source_setup": "Source et installation",
+	"source_notice": "L’installation depuis les sources est disponible pour les tests. Les paquets signés ne sont pas encore publiés.",
+	"reports_workflow": "JUnit XML → examiner les échecs → joindre au chat. Onglet de travail et sélecteur de pièces jointes.",
+	"playbook_workflow": "Markdown du dépôt → choisir une procédure → joindre au chat. Onglet de travail et sélecteur de pièces jointes.",
+	"followups_workflow": "TODO/FIXME → examiner le code → joindre au chat. Onglet de travail, palette de commandes et sélecteur de pièces jointes."
 }

@@ -36,5 +36,14 @@
 	"configure": "⟦Côônfïïgüürëë {{name}}⟧",
 	"commands": "⟦ËËxtëënsïïôôn côômmàànds⟧",
 	"remove_confirm": "⟦Rëëmôôvëë {{name}}? ÏÏts dààtàà wïïll bëë rëëtààïïnëëd.⟧",
-	"approve": "⟦{{name}} ïïs trüüstëëd côôdëë àànd cààn ààccëëss yôôüür côômpüütëër ôôüütsïïdëë àà sëëcüürïïty sààndbôôx. Rëëqüüëëstëëd cààpààbïïlïïtïïëës: {{capabilities}}. ÏÏnstààll àànd ëënààblëë ïït?⟧"
+	"approve": "⟦{{name}} ïïs trüüstëëd côôdëë àànd cààn ààccëëss yôôüür côômpüütëër ôôüütsïïdëë àà sëëcüürïïty sààndbôôx. Rëëqüüëëstëëd cààpààbïïlïïtïïëës: {{capabilities}}. ÏÏnstààll àànd ëënààblëë ïït?⟧",
+	"operation_failed": "⟦Thëë ëëxtëënsïïôôn ààctïïôôn fààïïlëëd. Plëëààsëë rëëtry.⟧",
+	"catalog_failed": "⟦Côôüüld nôôt lôôààd thëë mààrkëëtplààcëë. Rëëfrëësh tôô rëëtry. ÏÏnstààllëëd ëëxtëënsïïôôns ààrëë stïïll ààvààïïlààblëë.⟧",
+	"catalog_loading": "⟦Lôôààdïïng mààrkëëtplààcëë…⟧",
+	"preview_tools": "⟦ÔÔffïïcïïààl prëëvïïëëw tôôôôls⟧",
+	"source_setup": "⟦Sôôüürcëë & sëëtüüp⟧",
+	"source_notice": "⟦Sôôüürcëë ïïnstààlls ààrëë ààvààïïlààblëë fôôr tëëstïïng. Sïïgnëëd mààrkëëtplààcëë pààckààgëës ààrëë nôôt püüblïïshëëd yëët.⟧",
+	"reports_workflow": "⟦JÜÜnïït XML → ïïnspëëct fààïïlüürëës → ààttààch tôô chààt. Wôôrkspààcëë tààb àànd ààttààchmëënt pïïckëër.⟧",
+	"playbook_workflow": "⟦Rëëpôôsïïtôôry Mààrkdôôwn → sëëlëëct àà prôôcëëdüürëë → ààttààch tôô chààt. Wôôrkspààcëë tààb àànd ààttààchmëënt pïïckëër.⟧",
+	"followups_workflow": "⟦TÔÔDÔÔ/FÏÏXMËË → rëëvïïëëw côôdëë → ààttààch tôô chààt. Wôôrkspààcëë tààb, côômmàànd pààlëëttëë, àànd ààttààchmëënt pïïckëër.⟧"
 }

@@ -6,12 +6,14 @@ import type {
 	MarketplaceExtension,
 } from "@zuse/contracts";
 import { useMessages as useExtensionMessages } from "@zuse/i18n/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { errorMessage } from "../../lib/error-message.ts";
 import {
 	extensionActions,
 	useExtensionCatalog,
 } from "../../lib/extension-client-bus.ts";
 import { useExtensionContributions } from "../../lib/extension-registry.tsx";
+import { openExternal } from "../../lib/platform-capabilities.ts";
 import { useSettingsStore } from "../../lib/settings-client-bus.ts";
 import { Button } from "../ui/button.tsx";
 import { Switch } from "../ui/switch.tsx";
@@ -38,6 +40,27 @@ const approve = (
 		}),
 	);
 
+const previewTools = [
+	{
+		id: "test-reports",
+		name: "Test Reports",
+		description: "extensions:reports_workflow",
+	},
+	{
+		id: "project-playbook",
+		name: "Project Playbook",
+		description: "extensions:playbook_workflow",
+	},
+	{
+		id: "code-follow-ups",
+		name: "Code Follow-ups",
+		description: "extensions:followups_workflow",
+	},
+] as const;
+// Pin setup links to the reviewed preview source until official artifacts ship.
+const previewSource =
+	"https://github.com/swarajbachu/zuse/tree/0ad25b664d3a366d7003c8a7c354bf00f5834f26/extensions";
+
 export function ExtensionsPane() {
 	const { message: extensionMessage } = useExtensionMessages(["extensions"]);
 	const catalog = useExtensionCatalog();
@@ -55,13 +78,31 @@ export function ExtensionsPane() {
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
+	const [catalogError, setCatalogError] = useState<string | null>(null);
+	const [catalogLoading, setCatalogLoading] = useState(true);
+	const loadMarketplace = useCallback(
+		async (refresh: boolean, signal?: AbortSignal) => {
+			setCatalogLoading(true);
+			setCatalogError(null);
+			try {
+				const entries = await extensionActions.marketplace(refresh);
+				if (!signal?.aborted) setMarketplace(entries);
+			} catch (cause) {
+				if (!signal?.aborted)
+					setCatalogError(
+						errorMessage(cause, extensionMessage("extensions:catalog_failed")),
+					);
+			} finally {
+				if (!signal?.aborted) setCatalogLoading(false);
+			}
+		},
+		[extensionMessage],
+	);
 	useEffect(() => {
-		void extensionActions
-			.marketplace()
-			.then(setMarketplace, (cause) =>
-				setError(cause instanceof Error ? cause.message : String(cause)),
-			);
-	}, []);
+		const controller = new AbortController();
+		void loadMarketplace(false, controller.signal);
+		return () => controller.abort();
+	}, [loadMarketplace]);
 
 	const run = async (key: string, action: () => Promise<unknown>) => {
 		setBusy(key);
@@ -69,7 +110,9 @@ export function ExtensionsPane() {
 		try {
 			await action();
 		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : String(cause));
+			setError(
+				errorMessage(cause, extensionMessage("extensions:operation_failed")),
+			);
 		} finally {
 			setBusy(null);
 		}
@@ -125,6 +168,7 @@ export function ExtensionsPane() {
 					/>
 					<Button
 						size="sm"
+						className="h-7"
 						disabled={!source.trim() || busy !== null}
 						onClick={() => void run("install", installSource)}
 					>
@@ -134,7 +178,10 @@ export function ExtensionsPane() {
 			</div>
 
 			{error !== null && (
-				<p className="rounded-md bg-alert-error-bg px-3 py-2 text-destructive-foreground">
+				<p
+					role="alert"
+					className="rounded-md bg-alert-error-bg px-3 py-2 text-destructive"
+				>
 					{error}
 				</p>
 			)}
@@ -211,6 +258,7 @@ export function ExtensionsPane() {
 							<div className="flex shrink-0 flex-wrap justify-end gap-1">
 								<Button
 									size="sm"
+									className="h-7"
 									variant="ghost"
 									onClick={() =>
 										void run(`logs:${item.id}`, async () =>
@@ -223,6 +271,7 @@ export function ExtensionsPane() {
 								{item.enabled ? (
 									<Button
 										size="sm"
+										className="h-7"
 										variant="ghost"
 										disabled={busy !== null}
 										onClick={() =>
@@ -236,6 +285,7 @@ export function ExtensionsPane() {
 								) : (
 									<Button
 										size="sm"
+										className="h-7"
 										variant="ghost"
 										disabled={busy !== null}
 										onClick={() =>
@@ -249,6 +299,7 @@ export function ExtensionsPane() {
 								)}
 								<Button
 									size="sm"
+									className="h-7"
 									variant="ghost"
 									disabled={busy !== null}
 									onClick={() =>
@@ -268,6 +319,7 @@ export function ExtensionsPane() {
 								</Button>
 								<Button
 									size="sm"
+									className="h-7"
 									variant="ghost"
 									disabled={busy !== null}
 									onClick={() => {
@@ -326,6 +378,7 @@ export function ExtensionsPane() {
 									<Button
 										key={`${extension.extensionId}:${theme.id}`}
 										size="sm"
+										className="h-7"
 										variant={selected ? "default" : "ghost"}
 										onClick={() =>
 											setThemeSelection({
@@ -351,18 +404,31 @@ export function ExtensionsPane() {
 					</p>
 					<Button
 						size="sm"
+						className="h-7"
 						variant="ghost"
-						disabled={busy !== null}
-						onClick={() =>
-							void run("marketplace", async () =>
-								setMarketplace(await extensionActions.marketplace(true)),
-							)
-						}
+						disabled={catalogLoading || busy !== null}
+						onClick={() => void loadMarketplace(true)}
 					>
 						{extensionMessage("extensions:refresh")}
 					</Button>
 				</div>
-				{marketplace.length === 0 ? (
+				{catalogError && (
+					<p
+						role="alert"
+						className="rounded-md bg-alert-error-bg px-3 py-2 text-destructive"
+					>
+						{extensionMessage("extensions:catalog_failed")}
+						{catalogError !== extensionMessage("extensions:catalog_failed") && (
+							<span className="mt-1 block">{catalogError}</span>
+						)}
+					</p>
+				)}
+				{catalogLoading && (
+					<p role="status" className="text-muted-foreground">
+						{extensionMessage("extensions:catalog_loading")}
+					</p>
+				)}
+				{marketplace.length === 0 && !catalogLoading && !catalogError ? (
 					<p className="rounded-md bg-muted/25 px-3 py-3 text-muted-foreground">
 						{extensionMessage("extensions:catalog_empty")}
 					</p>
@@ -382,6 +448,7 @@ export function ExtensionsPane() {
 							</div>
 							<Button
 								size="sm"
+								className="h-7"
 								disabled={
 									busy !== null || (entry.installed && !entry.updateAvailable)
 								}
@@ -411,6 +478,41 @@ export function ExtensionsPane() {
 						</div>
 					))
 				)}
+			</div>
+			<div className="flex flex-col gap-2">
+				<p className="font-medium">
+					{extensionMessage("extensions:preview_tools")}
+				</p>
+				<p className="text-[11px] text-muted-foreground">
+					{extensionMessage("extensions:source_notice")}
+				</p>
+				{previewTools
+					.filter((tool) => !marketplace.some((entry) => entry.id === tool.id))
+					.map((tool) => (
+						<div
+							key={tool.id}
+							className="flex flex-wrap items-center gap-3 rounded-md bg-muted/25 px-3 py-2.5"
+						>
+							<div className="min-w-0 flex-1">
+								<p className="font-medium">{tool.name}</p>
+								<p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+									{extensionMessage(tool.description)}
+								</p>
+							</div>
+							<Button
+								className="h-7"
+								size="sm"
+								variant="ghost"
+								onClick={() =>
+									void run(`source:${tool.id}`, () =>
+										openExternal(`${previewSource}/${tool.id}`),
+									)
+								}
+							>
+								{extensionMessage("extensions:source_setup")}
+							</Button>
+						</div>
+					))}
 			</div>
 		</section>
 	);

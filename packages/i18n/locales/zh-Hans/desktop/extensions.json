@@ -36,5 +36,14 @@
 	"configure": "配置 {{name}}",
 	"commands": "扩展命令",
 	"remove_confirm": "移除 {{name}}？其数据将保留。",
-	"approve": "{{name}} 是受信任的代码，可在安全沙盒外访问您的计算机。请求的能力：{{capabilities}}。是否安装并启用？"
+	"approve": "{{name}} 是受信任的代码，可在安全沙盒外访问您的计算机。请求的能力：{{capabilities}}。是否安装并启用？",
+	"operation_failed": "扩展操作失败，请重试。",
+	"catalog_failed": "无法加载市场。请刷新重试。已安装的扩展仍可使用。",
+	"catalog_loading": "正在加载市场…",
+	"preview_tools": "官方预览工具",
+	"source_setup": "源码与安装",
+	"source_notice": "可从源码安装进行测试。已签名的市场软件包尚未发布。",
+	"reports_workflow": "JUnit XML → 检查失败 → 附加到聊天。工作区标签页和附件选择器。",
+	"playbook_workflow": "仓库 Markdown → 选择流程 → 附加到聊天。工作区标签页和附件选择器。",
+	"followups_workflow": "TODO/FIXME → 检查代码 → 附加到聊天。工作区标签页、命令面板和附件选择器。"
 }
