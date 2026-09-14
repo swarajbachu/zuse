@@ -50,6 +50,26 @@ let computerAwakeSubscriberCount = 0;
  * listener for response frames from main and returns an unsubscribe handle.
  */
 const bridge = {
+	locale: {
+		get: (): Promise<import("@zuse/contracts").LocaleSnapshot> =>
+			ipcRenderer.invoke("locale:get"),
+		set: (
+			preference: import("@zuse/contracts").LocalePreference,
+		): Promise<import("@zuse/contracts").LocaleSnapshot> =>
+			ipcRenderer.invoke("locale:set", preference),
+		onChange: (
+			listener: (snapshot: import("@zuse/contracts").LocaleSnapshot) => void,
+		) => {
+			const wrapped = (
+				_event: IpcRendererEvent,
+				snapshot: import("@zuse/contracts").LocaleSnapshot,
+			) => listener(snapshot);
+			ipcRenderer.on("locale:changed", wrapped);
+			return () => {
+				ipcRenderer.off("locale:changed", wrapped);
+			};
+		},
+	},
 	host: createHostDescriptor({
 		platform: process.platform,
 		arch: process.arch,

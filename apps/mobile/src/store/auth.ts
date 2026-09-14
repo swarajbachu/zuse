@@ -93,13 +93,19 @@ export const resetApp = async (): Promise<void> => {
 	}
 };
 
-export const deleteAccount = async (): Promise<void> => {
+export const deleteAccount = async (): Promise<{
+	cleanupPending: boolean;
+	localCleanupFailed: boolean;
+}> => {
+	if (appAtomRegistry.get(authBusyAtom))
+		throw new Error("An account action is already in progress.");
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(authBusyAtom, true);
 		appAtomRegistry.set(authErrorAtom, null);
 	});
+	let cleanupPending: boolean;
 	try {
-		await deleteApiAccount();
+		({ cleanupPending } = await deleteApiAccount());
 	} catch (cause) {
 		batchAtomUpdates(() => {
 			appAtomRegistry.set(authBusyAtom, false);
@@ -114,11 +120,16 @@ export const deleteAccount = async (): Promise<void> => {
 			appAtomRegistry.set(authBusyAtom, false);
 			appAtomRegistry.set(authErrorAtom, null);
 		});
+		return { cleanupPending, localCleanupFailed: false };
 	} catch (cause) {
 		batchAtomUpdates(() => {
 			appAtomRegistry.set(authAccountAtom, null);
 			appAtomRegistry.set(authBusyAtom, false);
-			appAtomRegistry.set(authErrorAtom, `Account deleted. ${message(cause)}`);
+			appAtomRegistry.set(
+				authErrorAtom,
+				`Account deletion accepted. ${message(cause)}`,
+			);
 		});
+		return { cleanupPending, localCleanupFailed: true };
 	}
 };

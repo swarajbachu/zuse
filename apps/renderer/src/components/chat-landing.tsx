@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/common";
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	resourceRefKey,
@@ -25,6 +27,7 @@ import {
 	type WorktreeCreateSource,
 	type WorktreeId,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ChatDownload01Icon,
 	Folder01Icon,
@@ -241,6 +244,8 @@ const formatThreadRelative = (date: Date): string => {
  * the next render.
  */
 export function ChatLanding() {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const { originsByFolder: origins } = useActiveEnvironmentEntities();
 	const folders = useWorkspaceStore((s) => s.folders);
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
@@ -353,7 +358,7 @@ export function ChatLanding() {
 			selectedFolderId === null
 				? null
 				: (folders.find((f) => f.id === selectedFolderId) ?? null),
-		[folders, selectedFolderId],
+		[folders, selectedFolderId, uiMessage],
 	);
 
 	const catalogEntries = useEnvironmentCatalogStore((s) => s.entries);
@@ -387,7 +392,7 @@ export function ChatLanding() {
 		void operation
 			.catch((cause) =>
 				toastManager.add({
-					title: "Could not reconnect",
+					title: uiMessage("chat:chat_landing_could_not_reconnect"),
 					description: formatError(cause),
 					type: "error",
 				}),
@@ -413,7 +418,14 @@ export function ChatLanding() {
 					]),
 				),
 			}),
-		[catalogEntries, activeEnvironmentId, folders, origins, shellViews],
+		[
+			catalogEntries,
+			activeEnvironmentId,
+			folders,
+			origins,
+			shellViews,
+			uiMessage,
+		],
 	);
 	const selectedGroup = useMemo(
 		() =>
@@ -425,7 +437,7 @@ export function ChatLanding() {
 								member.isActive && member.folderId === selectedFolderId,
 						),
 					) ?? null),
-		[projectGroups, selectedFolderId],
+		[projectGroups, selectedFolderId, uiMessage],
 	);
 
 	// A project that exists ONLY on other computers, chosen from the project
@@ -477,7 +489,7 @@ export function ChatLanding() {
 				? null
 				: (projectGroups.find((group) => group.key === remoteAnchor.groupKey) ??
 					null),
-		[projectGroups, remoteAnchor],
+		[projectGroups, remoteAnchor, uiMessage],
 	);
 	const pickerGroup = anchoredGroup ?? selectedGroup;
 	const cloudRepositoryIdentity =
@@ -579,6 +591,7 @@ export function ChatLanding() {
 			cloudProject,
 			cloudProviders,
 			cloudSubscribed,
+			uiMessage,
 		],
 	);
 	const resolvedTarget: NewChatTarget | null =
@@ -845,7 +858,11 @@ export function ChatLanding() {
 		if (warnings.length === 0) return;
 		toastManager.add({
 			type: "error",
-			title: "Some Linear context was incomplete",
+			get title() {
+				return uiMessage(
+					"chat:chat_landing_some_linear_context_was_incomplete",
+				);
+			},
 			description: warnings.map((warning) => warning.message).join(" · "),
 		});
 	};
@@ -904,7 +921,11 @@ export function ChatLanding() {
 			} catch (error) {
 				toastManager.add({
 					type: "error",
-					title: "Linear context could not be fully prepared",
+					get title() {
+						return uiMessage(
+							"chat:chat_landing_linear_context_could_not_be_fully_prepared",
+						);
+					},
 					description: error instanceof Error ? error.message : String(error),
 				});
 				return input;
@@ -1072,15 +1093,26 @@ export function ChatLanding() {
 					if (needsRuntime) {
 						toastManager.add({
 							type: "error",
-							title: "Cloud workspace started without your attachments",
-							description:
-								"This cloud API version delivers the first message itself. Send the files again once the workspace is ready.",
+							get title() {
+								return uiMessage(
+									"chat:chat_landing_cloud_workspace_started_without_your_attachments",
+								);
+							},
+							get description() {
+								return uiMessage(
+									"chat:chat_landing_this_cloud_api_version_delivers_the_first_message_itself_send_the",
+								);
+							},
 						});
 					}
 					void ensureCloudWorkspaceAttached(summary).catch((cause) =>
 						toastManager.add({
 							type: "error",
-							title: "Cloud workspace needs attention",
+							get title() {
+								return uiMessage(
+									"chat:chat_landing_cloud_workspace_needs_attention",
+								);
+							},
 							description: formatError(cause),
 						}),
 					);
@@ -1104,7 +1136,11 @@ export function ChatLanding() {
 					void ensureCloudWorkspaceAttached(summary).catch((cause) =>
 						toastManager.add({
 							type: "error",
-							title: "Cloud workspace needs attention",
+							get title() {
+								return uiMessage(
+									"chat:chat_landing_cloud_workspace_needs_attention",
+								);
+							},
 							description: formatError(cause),
 						}),
 					);
@@ -1131,7 +1167,11 @@ export function ChatLanding() {
 				if (staged) {
 					toastManager.add({
 						type: "error",
-						title: "Couldn't send your first cloud message",
+						get title() {
+							return uiMessage(
+								"chat:chat_landing_couldn_t_send_your_first_cloud_message",
+							);
+						},
 						description: message,
 					});
 				} else {
@@ -1352,7 +1392,10 @@ export function ChatLanding() {
 			if (failures.length > 0) {
 				toastManager.add({
 					type: "error",
-					title: `${failures.length} Linear session${failures.length === 1 ? "" : "s"} failed`,
+					title: uiMessage("chat:chat_landing_linear_session_failed", {
+						length: String(failures.length),
+						count: failures.length,
+					}),
 					description: failures.join(" · "),
 				});
 			}
@@ -1568,7 +1611,10 @@ export function ChatLanding() {
 														<span>{issue.identifier}</span>
 														<button
 															type="button"
-															aria-label={`Remove ${issue.identifier}`}
+															aria-label={uiMessage(
+																"chat:chat_landing_remove",
+																{ value1: String(issue.identifier) },
+															)}
 															onClick={() =>
 																setCreateSource((current) => {
 																	if (
@@ -1605,7 +1651,12 @@ export function ChatLanding() {
 													</span>
 												))
 											) : createSource.kind === "issue" ? (
-												<span>Issue {createSource.label} attached</span>
+												<span>
+													{uiMessage(
+														"chat:chat_landing_issueattached_sentence",
+														{ value: createSource.label ?? "" },
+													)}
+												</span>
 											) : (
 												<span className="max-w-[16rem] truncate">
 													{createSource.label}
@@ -1615,7 +1666,9 @@ export function ChatLanding() {
 												<button
 													type="button"
 													onClick={() => setCreateSource(null)}
-													aria-label="Clear create-from source"
+													aria-label={uiMessage(
+														"chat:chat_landing_clear_create_from_source",
+													)}
 													className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground"
 												>
 													<X className="size-3" strokeWidth={2} />
@@ -1644,7 +1697,9 @@ export function ChatLanding() {
 			</Suspense>
 		) : (
 			<p className="text-center text-sm text-muted-foreground">
-				Pick a project below to start a new chat.
+				{uiMessage(
+					"chat:chat_landing_pick_a_project_below_to_start_a_new_chat",
+				)}
 			</p>
 		);
 
@@ -1730,12 +1785,14 @@ export function ChatLanding() {
 								<span className="font-medium text-foreground/90">
 									{unavailableComputers.length === 1
 										? unavailableComputers[0]?.label
-										: `${unavailableComputers.length} computers`}
+										: uiMessage("chat:chat_landing_computers", {
+												value1: String(unavailableComputers.length),
+											})}
 								</span>{" "}
 								{unavailableComputers.length === 1
-									? "is unavailable."
-									: "are unavailable."}{" "}
-								Zuse will keep trying.
+									? uiMessage("chat:chat_landing_is_unavailable")
+									: uiMessage("chat:chat_landing_are_unavailable")}{" "}
+								{uiMessage("chat:chat_landing_zuse_will_keep_trying")}
 							</p>
 							<button
 								type="button"
@@ -1747,7 +1804,9 @@ export function ChatLanding() {
 									}
 								}}
 							>
-								{retryingEnvironmentId === null ? "Retry" : "Retrying…"}
+								{retryingEnvironmentId === null
+									? uiMessage("common:retry")
+									: uiMessage("chat:chat_landing_retrying")}
 							</button>
 						</div>
 					) : null}
@@ -1756,10 +1815,15 @@ export function ChatLanding() {
 						<div className="mx-auto flex w-full max-w-2xl items-center gap-3 rounded-lg border border-border bg-muted/45 px-3 py-2">
 							<div className="min-w-0 flex-1">
 								<p className="text-xs font-medium text-foreground">
-									This project isn’t on {pendingProjectSetup.label}
+									{uiMessage(
+										"chat:chat_landing_this_project_isn_t_on_sentence",
+										{ value: pendingProjectSetup.label },
+									)}
 								</p>
 								<p className="text-[11px] text-muted-foreground">
-									Clone it there before starting this chat.
+									{uiMessage(
+										"chat:chat_landing_clone_it_there_before_starting_this_chat",
+									)}
 								</p>
 							</div>
 							<button
@@ -1767,7 +1831,7 @@ export function ChatLanding() {
 								className="inline-flex min-h-8 shrink-0 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"
 								onClick={() => setProjectSetupOpen(true)}
 							>
-								Clone project
+								{uiMessage("chat:chat_landing_clone_project")}
 							</button>
 						</div>
 					) : null}
@@ -1786,13 +1850,13 @@ export function ChatLanding() {
 										setDraftAttempt((attempt) => attempt + 1);
 									}}
 								>
-									Retry
+									{uiMessage("common:retry")}
 								</Button>
 							) : null}
 							<button
 								type="button"
 								onClick={() => setSubmitError(null)}
-								aria-label="Dismiss error"
+								aria-label={uiMessage("chat:chat_landing_dismiss_error")}
 								className="-mr-1 shrink-0 rounded p-0.5 text-rose-200/80 hover:bg-rose-500/[0.12] hover:text-rose-100"
 							>
 								<X className="size-3.5" strokeWidth={1.8} />
@@ -1845,14 +1909,16 @@ export function ImportChatMenu({
 		>["threads"][number],
 	) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [query, setQuery] = useState("");
 	const importableThreads = useMemo(
 		() => threads.filter(isImportableThread),
-		[threads],
+		[threads, uiMessage],
 	);
 	const visibleThreads = useMemo(
 		() => filterImportThreads(importableThreads, query),
-		[importableThreads, query],
+		[importableThreads, query, uiMessage],
 	);
 	return (
 		<Menu
@@ -1863,15 +1929,15 @@ export function ImportChatMenu({
 		>
 			<MenuTrigger
 				className="flex h-7 min-w-0 items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[popup-open]:bg-accent data-[popup-open]:text-foreground"
-				aria-label="Import an existing chat"
+				aria-label={uiMessage("chat:chat_landing_import_an_existing_chat")}
 			>
 				<HugeiconsIcon icon={ChatDownload01Icon} className="size-3.5" />
-				<span>Import chat</span>
+				<span>{uiMessage("chat:chat_landing_import_chat")}</span>
 				<ChevronDown className="size-3 opacity-60" />
 			</MenuTrigger>
 			<MenuPopup side="top" align="start" className="w-72 p-1">
 				<div className="px-2 pb-1 pt-1.5 text-[11px] font-medium text-muted-foreground">
-					Recent provider chats
+					{uiMessage("chat:chat_landing_recent_provider_chats")}
 				</div>
 				<div className="px-1 pb-1.5">
 					<div className="flex h-7 items-center gap-2 rounded-md border border-border bg-background/50 px-2 focus-within:border-ring">
@@ -1881,8 +1947,8 @@ export function ImportChatMenu({
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
 							onKeyDown={(event) => event.stopPropagation()}
-							placeholder="Search chats…"
-							aria-label="Search imported chats"
+							placeholder={uiMessage("chat:chat_landing_search_chats")}
+							aria-label={uiMessage("chat:chat_landing_search_imported_chats")}
 							className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
 						/>
 					</div>
@@ -1891,19 +1957,23 @@ export function ImportChatMenu({
 					{loading && importableThreads.length === 0 ? (
 						<div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
 							<Spinner className="size-3.5" />
-							Finding chats…
+							{uiMessage("chat:chat_landing_finding_chats")}
 						</div>
 					) : error !== null && importableThreads.length === 0 ? (
 						<div className="px-2 py-2 text-xs text-destructive">
-							Couldn’t load chats. Close and reopen this menu to retry.
+							{uiMessage(
+								"chat:chat_landing_couldn_t_load_chats_close_and_reopen_this_menu_to_retry",
+							)}
 						</div>
 					) : importableThreads.length === 0 ? (
 						<div className="px-2 py-2 text-xs text-muted-foreground">
-							No recent chats found.
+							{uiMessage("chat:chat_landing_no_recent_chats_found")}
 						</div>
 					) : visibleThreads.length === 0 ? (
 						<div className="px-2 py-3 text-xs text-muted-foreground">
-							No chats match “{query.trim()}”.
+							{uiMessage("chat:chat_landing_no_chats_match_sentence", {
+								value: query.trim(),
+							})}
 						</div>
 					) : (
 						visibleThreads.map((thread) => {
@@ -2021,6 +2091,8 @@ function ProjectPicker({
 	onPickGroup: (group: LogicalProjectGroup) => void;
 	onAdd: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [query, setQuery] = useState("");
 	const visibleGroups = useMemo(() => {
 		const normalized = query.trim().toLocaleLowerCase();
@@ -2028,16 +2100,18 @@ function ProjectPicker({
 		return groups.filter((group) =>
 			group.displayName.toLocaleLowerCase().includes(normalized),
 		);
-	}, [groups, query]);
+	}, [groups, query, uiMessage]);
 
 	return (
 		<Menu onOpenChange={(open) => !open && setQuery("")}>
 			<MenuTrigger
 				className="flex h-7 min-w-0 max-w-[14rem] items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] text-foreground transition-colors hover:bg-accent data-[popup-open]:bg-accent"
-				aria-label="Pick a project"
+				aria-label={uiMessage("chat:chat_landing_pick_a_project")}
 			>
 				<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
-				<span className="truncate">{selectedName ?? "Pick a project"}</span>
+				<span className="truncate">
+					{selectedName ?? uiMessage("chat:chat_landing_pick_a_project")}
+				</span>
 				<ChevronDown className="size-3 opacity-60" />
 			</MenuTrigger>
 			<MenuPopup side="bottom" align="start" className="w-64 p-1">
@@ -2049,8 +2123,8 @@ function ProjectPicker({
 							value={query}
 							onChange={(event) => setQuery(event.currentTarget.value)}
 							onKeyDown={(event) => event.stopPropagation()}
-							placeholder="Search projects…"
-							aria-label="Search projects"
+							placeholder={uiMessage("chat:chat_landing_search_projects")}
+							aria-label={uiMessage("chat:chat_landing_search_projects_2")}
 							className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
 						/>
 					</div>
@@ -2058,11 +2132,13 @@ function ProjectPicker({
 				<div className="max-h-48 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-width:thin]">
 					{groups.length === 0 ? (
 						<div className="px-2 py-1.5 text-xs text-muted-foreground">
-							No projects yet.
+							{uiMessage("chat:chat_landing_no_projects_yet")}
 						</div>
 					) : visibleGroups.length === 0 ? (
 						<div className="px-2 py-2 text-xs text-muted-foreground">
-							No projects match “{query.trim()}”.
+							{uiMessage("chat:chat_landing_no_projects_match_sentence", {
+								value: query.trim(),
+							})}
 						</div>
 					) : (
 						visibleGroups.map((group) => {
@@ -2111,7 +2187,9 @@ function ProjectPicker({
 						icon={FolderAddIcon}
 						className="col-start-2 row-start-1 size-3.5 opacity-80"
 					/>
-					<span className="col-start-3 row-start-1">Add new project</span>
+					<span className="col-start-3 row-start-1">
+						{uiMessage("chat:chat_landing_add_new_project")}
+					</span>
 				</MenuItem>
 			</MenuPopup>
 		</Menu>

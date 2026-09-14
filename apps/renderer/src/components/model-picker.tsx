@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/providers";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
 	AgentAvailability,
@@ -15,6 +16,7 @@ import {
 	PROVIDER_LABELS,
 	type SelectOptionDescriptor,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ArrowUpRight01Icon,
 	Search01Icon,
@@ -98,6 +100,8 @@ type ModelPickerProps =
 	  };
 
 export function ModelPicker(props: ModelPickerProps) {
+	const { message: uiMessage } = useUiMessages(["providers"]);
+
 	const isDefault = props.mode === "default";
 	const composer = props.composer === true;
 	const triggerDetail =
@@ -284,7 +288,7 @@ export function ModelPicker(props: ModelPickerProps) {
 		const m = new globalThis.Map<ProviderId, AgentAvailability>();
 		for (const a of availability) m.set(a.providerId, a);
 		return m;
-	}, [availability]);
+	}, [availability, uiMessage]);
 
 	const pickableProviders = useMemo<ReadonlyArray<ProviderId>>(() => {
 		return catalogProviderIds(catalog).filter((pid) => {
@@ -307,6 +311,7 @@ export function ModelPicker(props: ModelPickerProps) {
 		providerEnabled,
 		availabilityById,
 		availabilityLoaded,
+		uiMessage,
 	]);
 	const allModels = useMemo<ModelPickerEntry[]>(() => {
 		const out: ModelPickerEntry[] = [];
@@ -357,6 +362,7 @@ export function ModelPicker(props: ModelPickerProps) {
 		modelEnabledByProvider,
 		providerId,
 		currentModel,
+		uiMessage,
 	]);
 
 	const countByProvider = useMemo(() => {
@@ -365,7 +371,7 @@ export function ModelPicker(props: ModelPickerProps) {
 			map.set(m.providerId, (map.get(m.providerId) ?? 0) + 1);
 		}
 		return map;
-	}, [allModels]);
+	}, [allModels, uiMessage]);
 	const totalCount = allModels.length;
 
 	const flatMatches = useMemo<ModelPickerEntry[]>(() => {
@@ -377,7 +383,7 @@ export function ModelPicker(props: ModelPickerProps) {
 				m.label.toLowerCase().includes(q) || m.modelId.toLowerCase().includes(q)
 			);
 		});
-	}, [allModels, scope, query]);
+	}, [allModels, scope, query, uiMessage]);
 
 	const modelGroups = useMemo(() => {
 		if (scope !== "all") return [];
@@ -391,7 +397,7 @@ export function ModelPicker(props: ModelPickerProps) {
 				models: allModels.filter((m) => m.providerId === pid),
 			}))
 			.filter((g) => g.models.length > 0);
-	}, [scope, allModels, pickableProviders, providerId]);
+	}, [scope, allModels, pickableProviders, providerId, uiMessage]);
 
 	const handlePick = async (pid: ProviderId, modelId: string) => {
 		if (isDefault) {
@@ -466,7 +472,7 @@ export function ModelPicker(props: ModelPickerProps) {
 			out.push(...flatMatches);
 		}
 		return out;
-	}, [inGroupedView, modelGroups, flatMatches]);
+	}, [inGroupedView, modelGroups, flatMatches, uiMessage]);
 
 	// STABLE REFS — this is the fix so shortcuts actually work while the
 	// composer editor is focused and causing re-renders.
@@ -512,11 +518,15 @@ export function ModelPicker(props: ModelPickerProps) {
 					: "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs text-foreground hover:bg-muted/60 data-[popup-open]:bg-muted/60",
 				props.triggerClassName,
 			)}
-			aria-label="Change model"
+			aria-label={uiMessage("providers:model_picker_change_model")}
 			title={
 				isDefault
-					? "Change default model for new chats"
-					: "Change model — applies to next message"
+					? uiMessage(
+							"providers:model_picker_change_default_model_for_new_chats",
+						)
+					: uiMessage(
+							"providers:model_picker_change_model_applies_to_next_message",
+						)
 			}
 		>
 			<ProviderIcon providerId={providerId} className="size-3 shrink-0" />
@@ -549,13 +559,13 @@ export function ModelPicker(props: ModelPickerProps) {
 					>
 						<div
 							role="tablist"
-							aria-label="Model provider"
+							aria-label={uiMessage("providers:model_picker_model_provider")}
 							className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-border/50 bg-muted/20 p-1.5"
 						>
 							<ProviderSidebarItem
 								active={scope === "all"}
 								onClick={() => setScope("all")}
-								label="All models"
+								label={uiMessage("providers:model_picker_all_models")}
 								count={totalCount}
 							/>
 							{pickableProviders.map((pid) => {
@@ -604,16 +614,22 @@ export function ModelPicker(props: ModelPickerProps) {
 										aria-live="polite"
 									>
 										{availabilityLoading || !availabilityLoaded
-											? "Checking available agents…"
+											? uiMessage(
+													"providers:model_picker_checking_available_agents",
+												)
 											: isDefault
-												? "No models match."
-												: "No authenticated agents."}
+												? uiMessage("providers:model_picker_no_models_match")
+												: uiMessage(
+														"providers:model_picker_no_authenticated_agents",
+													)}
 									</div>
 								)}
 
 								{inGroupedView ? (
 									<>
-										<SectionLabel title="Models" />
+										<SectionLabel
+											title={uiMessage("providers:model_picker_models")}
+										/>
 										{modelGroups.map((g) => (
 											<div
 												key={g.providerId}
@@ -649,8 +665,18 @@ export function ModelPicker(props: ModelPickerProps) {
 											<SectionLabel
 												title={
 													scope === "all"
-														? `${flatMatches.length} match${flatMatches.length === 1 ? "" : "es"}`
-														: `${flatMatches.length} model${flatMatches.length === 1 ? "" : "s"}`
+														? uiMessage("providers:model_picker_match", {
+																value1: String(flatMatches.length),
+																value2: String(
+																	flatMatches.length === 1 ? "" : "es",
+																),
+															})
+														: uiMessage("providers:model_picker_model", {
+																value1: String(flatMatches.length),
+																value2: String(
+																	flatMatches.length === 1 ? "" : "s",
+																),
+															})
 												}
 											/>
 											<div className="flex flex-col gap-0.5">
@@ -733,6 +759,8 @@ function ProviderSidebarItem({
 	providerId?: ProviderId;
 	live?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["providers"]);
+
 	const title = `${label} models`;
 	return (
 		<button
@@ -752,12 +780,14 @@ function ProviderSidebarItem({
 			{providerId !== undefined ? (
 				<ProviderIcon providerId={providerId} className="size-3.5 shrink-0" />
 			) : (
-				<span className="font-semibold">All</span>
+				<span className="font-semibold">
+					{uiMessage("providers:model_picker_all")}
+				</span>
 			)}
 			{live && (
 				<span
 					className="absolute right-1 bottom-1 size-1.5 rounded-full bg-primary"
-					title="Live from local daemon"
+					title={uiMessage("providers:model_picker_live_from_local_daemon")}
 				/>
 			)}
 		</button>
@@ -773,6 +803,8 @@ function ProviderSectionHeader({
 	count: number;
 	current: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["providers"]);
+
 	return (
 		<div className="flex items-center gap-2 px-2 pt-1.5 pb-1 text-xs">
 			<ProviderIcon providerId={providerId} className="size-3.5" />
@@ -781,7 +813,7 @@ function ProviderSectionHeader({
 			</span>
 			{current && (
 				<span className="rounded-[0.25rem] bg-primary/35 px-1.5 py-px text-[9px] font-semibold text-primary-foreground uppercase tracking-wide dark:bg-primary/15 dark:text-primary">
-					Current
+					{uiMessage("providers:model_picker_current")}
 				</span>
 			)}
 			<span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
@@ -824,6 +856,8 @@ function ModelRow({
 	shortcut?: number | null;
 	showProvider?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["providers"]);
+
 	const isActive =
 		entry.providerId === currentProviderId && entry.modelId === currentModelId;
 	const isDefault =
@@ -850,7 +884,11 @@ function ModelRow({
 			onClick={select}
 			onKeyDown={onRowKeyDown}
 			aria-current={isActive || undefined}
-			title={opensNewTab ? "Open in new tab" : undefined}
+			title={
+				opensNewTab
+					? uiMessage("providers:model_picker_open_in_new_tab")
+					: undefined
+			}
 			className={cn(
 				"group relative flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs transition-colors",
 				dense ? "py-1" : "py-1.5",
@@ -885,7 +923,9 @@ function ModelRow({
 				<span className="flex shrink-0 items-center gap-1.5">
 					{entry.contextWindowLabel !== undefined && (
 						<span
-							title={`${entry.contextWindowLabel} context window`}
+							title={uiMessage("providers:model_picker_context_window", {
+								value1: String(entry.contextWindowLabel),
+							})}
 							className="rounded-[0.25rem] bg-muted px-1.5 py-px text-[10px] font-medium text-foreground/70 dark:bg-muted/70 dark:px-1 dark:text-muted-foreground"
 						>
 							{entry.contextWindowLabel}
@@ -895,7 +935,9 @@ function ModelRow({
 						<span
 							title={
 								/^\d+(\.\d+)?×$/.test(entry.badgeLabel)
-									? `${entry.badgeLabel} credit multiplier`
+									? uiMessage("providers:model_picker_credit_multiplier", {
+											value1: String(entry.badgeLabel),
+										})
 									: entry.badgeLabel
 							}
 							className="rounded-[0.25rem] bg-primary/35 px-1.5 py-px text-[9px] font-semibold text-primary-foreground uppercase tracking-wide dark:bg-primary/15 dark:text-primary"
@@ -910,7 +952,11 @@ function ModelRow({
 					type="button"
 					onClick={setDefault}
 					onKeyDown={(event) => event.stopPropagation()}
-					aria-label={isDefault ? "Default model" : "Make default model"}
+					aria-label={
+						isDefault
+							? uiMessage("providers:model_picker_default_model")
+							: uiMessage("providers:model_picker_make_default_model")
+					}
 					title={undefined}
 					className={cn(
 						"flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-opacity hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
@@ -922,21 +968,23 @@ function ModelRow({
 					<HugeiconsIcon icon={StarIcon} className="size-3.5" />
 				</TooltipTrigger>
 				<TooltipPopup side="top">
-					{isDefault ? "Default model" : "Make default"}
+					{isDefault
+						? uiMessage("providers:model_picker_default_model")
+						: uiMessage("providers:model_picker_make_default")}
 				</TooltipPopup>
 			</Tooltip>
 			{opensNewTab && (
 				<HugeiconsIcon
 					icon={ArrowUpRight01Icon}
 					className="size-3 text-muted-foreground/70"
-					aria-label="Open in new tab"
+					aria-label={uiMessage("providers:model_picker_open_in_new_tab")}
 				/>
 			)}
 			{isActive && (
 				<HugeiconsIcon
 					icon={Tick01Icon}
 					className="size-3.5 shrink-0 text-primary"
-					aria-label="Selected"
+					aria-label={uiMessage("providers:model_picker_selected")}
 				/>
 			)}
 			{shortcut !== undefined && shortcut !== null && (

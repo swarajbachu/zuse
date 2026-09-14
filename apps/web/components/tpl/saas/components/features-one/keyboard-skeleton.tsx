@@ -1,8 +1,11 @@
 "use client";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import type React from "react";
 import { cn } from "@/components/tpl/saas/lib/utils";
 
 export function KeyboardSkeleton({ className }: { className?: string }) {
+	const { message: t } = useWebsiteMessages();
+
 	return (
 		<div
 			className={cn(
@@ -12,15 +15,15 @@ export function KeyboardSkeleton({ className }: { className?: string }) {
 		>
 			<div className="border-border bg-card absolute -top-10 left-0 z-20 w-40 rounded-lg border p-2 shadow-xl">
 				<p className="text-heading text-[5px] leading-2">
-					“Sign in, finish checkout, verify the receipt.”
+					{t("showcase:sign_in_finish_checkout_verify_the_receipt")}
 				</p>
 				<p className="text-primary mt-1 font-mono text-[4px]">
-					checkout.spec.ts · generated
+					{t("showcase:checkout_spec_ts_generated")}
 				</p>
 			</div>
 			<div className="rounded-xl bg-neutral-200 p-[3px] shadow-sm ring-1 ring-black/5 dark:bg-neutral-800 dark:ring-white/10">
 				<Row>
-					<Key className="w-5 rounded-tl-lg">esc</Key>
+					<Key className="w-5 rounded-tl-lg">{"esc"}</Key>
 					<Key>F1</Key>
 					<Key>F2</Key>
 					<Key>F3</Key>
@@ -54,11 +57,11 @@ export function KeyboardSkeleton({ className }: { className?: string }) {
 					<Key>0</Key>
 					<Key>-</Key>
 					<Key>=</Key>
-					<Key className="w-5">delete</Key>
+					<Key className="w-5">{"delete"}</Key>
 				</Row>
 
 				<Row>
-					<Key className="w-5">tab</Key>
+					<Key className="w-5">{"tab"}</Key>
 					<Key>Q</Key>
 					<Key>W</Key>
 					<Key>E</Key>
@@ -75,7 +78,7 @@ export function KeyboardSkeleton({ className }: { className?: string }) {
 				</Row>
 
 				<Row>
-					<Key className="w-[22px]">caps</Key>
+					<Key className="w-[22px]">{"caps"}</Key>
 					<Key>A</Key>
 					<Key>S</Key>
 					<Key>D</Key>
@@ -86,12 +89,12 @@ export function KeyboardSkeleton({ className }: { className?: string }) {
 					<Key>K</Key>
 					<Key>L</Key>
 					<Key>;</Key>
-					<Key>&apos;</Key>
-					<Key className="w-[23px]">return</Key>
+					<Key>{"'"}</Key>
+					<Key className="w-[23px]">{"return"}</Key>
 				</Row>
 
 				<Row>
-					<Key className="w-[29px]">shift</Key>
+					<Key className="w-[29px]">{"shift"}</Key>
 					<Key>Z</Key>
 					<Key>X</Key>
 					<Key>C</Key>
@@ -102,17 +105,17 @@ export function KeyboardSkeleton({ className }: { className?: string }) {
 					<Key>,</Key>
 					<Key>.</Key>
 					<Key>/</Key>
-					<Key className="w-[29px]">shift</Key>
+					<Key className="w-[29px]">{"shift"}</Key>
 				</Row>
 
 				<Row>
-					<Key className="rounded-bl-lg">fn</Key>
-					<Key>ctrl</Key>
-					<Key>opt</Key>
-					<Key className="w-4">cmd</Key>
+					<Key className="rounded-bl-lg">{"fn"}</Key>
+					<Key>{"ctrl"}</Key>
+					<Key>{"opt"}</Key>
+					<Key className="w-4">{"cmd"}</Key>
 					<Key className="w-[66px]" />
-					<Key className="w-4">cmd</Key>
-					<Key>opt</Key>
+					<Key className="w-4">{"cmd"}</Key>
+					<Key>{"opt"}</Key>
 					<div className="flex h-3 items-center gap-px rounded-[2px]">
 						<Key className="h-3 w-3">←</Key>
 						<div className="flex flex-col gap-px">

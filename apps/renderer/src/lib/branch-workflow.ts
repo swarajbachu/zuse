@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/projects";
+import { message as uiMessage } from "@zuse/i18n";
 export type OpenPrWorkflow = {
 	kind: "open-pr";
 	number: number | null;
@@ -123,17 +125,27 @@ export const deriveEnvironmentPrRows = (
 		if (checksFailing > 0) {
 			checks = {
 				kind: "failure",
-				label: `${checksFailing} check${checksFailing === 1 ? "" : "s"} failing`,
+				label: uiMessage("projects:branch_workflow_check_failing", {
+					checksFailing: String(checksFailing),
+					count: checksFailing,
+				}),
 				canFix: true,
 			};
 		} else if (checksRunning > 0) {
 			checks = {
 				kind: "pending",
-				label: `${checksRunning} check${checksRunning === 1 ? "" : "s"} running`,
+				label: uiMessage("projects:branch_workflow_check_running", {
+					checksRunning: String(checksRunning),
+					count: checksRunning,
+				}),
 				canFix: false,
 			};
 		} else {
-			checks = { kind: "success", label: "Checks passed", canFix: false };
+			checks = {
+				kind: "success",
+				label: uiMessage("projects:branch_workflow_checks_passed"),
+				canFix: false,
+			};
 		}
 	}
 

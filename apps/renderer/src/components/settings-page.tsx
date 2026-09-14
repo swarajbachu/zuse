@@ -1,3 +1,6 @@
+import { formatDate as formatUiDate } from "@zuse/i18n";
+import { isInputComposing } from "../lib/input-composition.ts";
+import "@zuse/i18n/english/settings";
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -15,6 +18,8 @@ import {
 	type RuntimeMode,
 	visibleModelsForProvider,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Alert01Icon,
 	Delete02Icon,
@@ -57,6 +62,7 @@ import { type SettingsSection, useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { BlurredEmail } from "./blurred-email.tsx";
 import { BrowserProfileSelect } from "./browser-profile-select.tsx";
+import { LanguageSelector } from "./language-selector.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import { ProviderCard } from "./provider-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
@@ -108,6 +114,8 @@ const CLOUD_MACHINES_AVAILABLE = cloudWorkspaceBetaAvailable();
  * settings; the right pane renders the active section's form.
  */
 export function SettingsPage() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const setView = useUiStore((s) => s.setView);
 	const section = useUiStore((s) => s.settingsSection);
 	const setSection = useUiStore((s) => s.setSettingsSection);
@@ -136,11 +144,11 @@ export function SettingsPage() {
 				<button
 					type="button"
 					onClick={() => setView("chat")}
-					aria-label="Back to app"
+					aria-label={uiMessage("settings:settings_page_back_to_app")}
 					className="flex items-center gap-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground [-webkit-app-region:no-drag]"
 				>
 					<ChevronLeft className="size-3.5" />
-					<span>Back to app</span>
+					<span>{uiMessage("settings:settings_page_back_to_app")}</span>
 				</button>
 			</header>
 			<div className="flex min-h-0 flex-1">
@@ -182,6 +190,8 @@ function Rail({
 	folders: ReadonlyArray<Folder>;
 	desktop: boolean;
 }) {
+	useUiMessages(["common", "settings"]);
+
 	return (
 		<nav className="flex w-52 shrink-0 flex-col gap-4 border-r border-sidebar-border bg-sidebar px-2.5 py-3 text-xs text-sidebar-foreground max-[800px]:w-12 max-[800px]:px-1.5">
 			<div className="flex flex-col gap-0.5">
@@ -204,12 +214,18 @@ function Rail({
 			{folders.length > 0 && (
 				<div className="flex flex-col gap-2 max-[800px]:hidden">
 					<div className="flex items-center justify-between px-2">
-						<span className="text-[11px] font-medium tracking-wide text-muted-foreground/80">
-							Repositories
-						</span>
-						<span className="rounded-full bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-							{folders.length}
-						</span>
+						<RichMessage
+							id="settings:settings_page_repositories_sentence"
+							values={{ value: folders.length }}
+							components={{
+								part0: (
+									<span className="text-[11px] font-medium tracking-wide text-muted-foreground/80" />
+								),
+								part1: (
+									<span className="rounded-full bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground" />
+								),
+							}}
+						/>
 					</div>
 					<div className="flex flex-col gap-0.5">
 						{folders.map((f) => {
@@ -278,82 +294,84 @@ function SectionTitle({
 	section: SettingsSection;
 	folders: ReadonlyArray<Folder>;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const { title, subtitle } = useMemo(() => {
 		if (section.kind === "general") {
 			return {
-				title: "General",
+				title: uiMessage("settings:settings_page_general"),
 				subtitle: "Defaults for new chats.",
 			};
 		}
 		if (section.kind === "providers") {
 			return {
-				title: "Providers",
+				title: uiMessage("settings:settings_page_providers"),
 				subtitle:
 					"Verify what's installed, signed in, and which subscription each provider runs on.",
 			};
 		}
 		if (section.kind === "defaults") {
 			return {
-				title: "Default models",
+				title: uiMessage("settings:settings_page_default_models"),
 				subtitle: "Choose how new chats start.",
 			};
 		}
 		if (section.kind === "integrations") {
 			return {
-				title: "Integrations",
+				title: uiMessage("settings:settings_page_integrations"),
 				subtitle:
 					"Connect issue workspaces and bring tickets into new sessions.",
 			};
 		}
 		if (section.kind === "mcp") {
 			return {
-				title: "MCP Servers",
+				title: uiMessage("settings:settings_page_mcp_servers"),
 				subtitle:
 					"Configured servers and provider-managed connectors, with live availability and authentication.",
 			};
 		}
 		if (section.kind === "devices") {
 			return {
-				title: "Remote access",
+				title: uiMessage("settings:settings_page_remote_access"),
 				subtitle:
 					"Use this computer from your phone, a browser, or another computer.",
 			};
 		}
 		if (section.kind === "machines") {
 			return {
-				title: "Cloud workspaces · Beta",
+				title: uiMessage("settings:settings_page_cloud_workspaces_beta"),
 				subtitle:
 					"Connect GitHub and your coding agents, then keep work running when this app is closed.",
 			};
 		}
 		if (section.kind === "browser") {
 			return {
-				title: "Browser",
+				title: uiMessage("settings:settings_page_browser"),
 				subtitle: "Sessions, password filling, privacy, and agent access.",
 			};
 		}
 		if (section.kind === "pokedex") {
 			return {
-				title: "Pokedex",
+				title: uiMessage("settings:settings_page_pokedex"),
 				subtitle: "Unlocked Pokémon from all worktrees.",
 			};
 		}
 		if (section.kind === "diagnostics") {
 			return {
-				title: "Diagnostics",
+				title: uiMessage("settings:settings_page_diagnostics"),
 				subtitle:
 					"Inspect failures, traces, processes, resources, and local support bundles.",
 			};
 		}
 		if (section.kind === "shortcuts") {
 			return {
-				title: "Keyboard shortcuts",
+				title: uiMessage("settings:settings_page_keyboard_shortcuts"),
 				subtitle: "These also appear under the menu bar.",
 			};
 		}
 		if (section.kind === "developer") {
 			return {
-				title: "Developer",
+				title: uiMessage("settings:settings_page_developer"),
 				subtitle:
 					"Accent palette + workflow chip/button states (dev builds only).",
 			};
@@ -363,7 +381,7 @@ function SectionTitle({
 			title: f?.name ?? "Repository",
 			subtitle: f?.path !== undefined ? displayPath(f.path) : "",
 		};
-	}, [section, folders]);
+	}, [section, folders, uiMessage]);
 	return (
 		<div className="flex min-w-0 flex-col gap-1 border-b border-border pb-4">
 			<h1 className="truncate text-xl font-medium tracking-[-0.01em] text-foreground">
@@ -410,6 +428,8 @@ const EMPTY_BROWSER_IMPORT_STATUS: BrowserCookieImportStatus = {
 };
 
 function BrowserSettingsPagePane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const [status, setStatus] = useState<BrowserCookieImportStatus>(
 		EMPTY_BROWSER_IMPORT_STATUS,
 	);
@@ -468,20 +488,25 @@ function BrowserSettingsPagePane() {
 	const sessionDescription =
 		status.importedCookieCount === 0
 			? "No browser sessions have been imported."
-			: `${status.importedCookieCount} cookies across ${status.importedDomainCount} domains${status.lastImportTime ? ` · Imported ${new Date(status.lastImportTime).toLocaleString()}` : ""}`;
+			: `${status.importedCookieCount} cookies across ${status.importedDomainCount} domains${status.lastImportTime ? ` · Imported ${formatUiDate(new Date(status.lastImportTime), { year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" })}` : ""}`;
 
 	return (
 		<div className="flex flex-col gap-4">
 			<SettingsGroup
-				title="Browser sessions"
-				description="Copy valid cookies from a local browser profile into the built-in browser. Cookie values never enter renderer state, logs, or chat."
+				title={uiMessage("settings:settings_page_browser_sessions")}
+				description={uiMessage(
+					"settings:settings_page_copy_valid_cookies_from_a_local_browser_profile_into_the_built_in_brow",
+				)}
 			>
 				<SettingsRow
-					title="Import source"
+					title={uiMessage("settings:settings_page_import_source")}
 					description={
 						selectedProfile === undefined
 							? (status.message ?? "No supported browser profile found.")
-							: `Close ${selectedProfile.source} before importing. macOS may request Safe Storage access.`
+							: uiMessage(
+									"settings:settings_page_close_before_importing_macos_may_request_safe_storage_access",
+									{ source: String(selectedProfile.source) },
+								)
 					}
 				>
 					<div className="flex flex-wrap items-center gap-2">
@@ -501,12 +526,12 @@ function BrowserSettingsPagePane() {
 								)
 							}
 						>
-							Import
+							{uiMessage("settings:settings_page_import")}
 						</Button>
 					</div>
 				</SettingsRow>
 				<SettingsRow
-					title="Imported data"
+					title={uiMessage("settings:settings_page_imported_data")}
 					description={sessionDescription}
 					action={
 						<Button
@@ -517,26 +542,30 @@ function BrowserSettingsPagePane() {
 								void run(() => window.zuse?.browser?.clearImportedCookies?.())
 							}
 						>
-							Clear imported
+							{uiMessage("settings:settings_page_clear_imported")}
 						</Button>
 					}
 				/>
 			</SettingsGroup>
 
 			<SettingsGroup
-				title="Privacy"
-				description="Built-in browser data stays in an isolated in-memory partition. Explicitly imported cookies are encrypted with the app vault and restored on restart."
+				title={uiMessage("settings:settings_page_privacy")}
+				description={uiMessage(
+					"settings:settings_page_built_in_browser_data_stays_in_an_isolated_in_memory_partition_explici",
+				)}
 			>
 				<SettingsRow
-					title="Browsing data"
-					description="Remove cookies, site storage, and cache from the current built-in browser session without changing other browsers."
+					title={uiMessage("settings:settings_page_browsing_data")}
+					description={uiMessage(
+						"settings:settings_page_remove_cookies_site_storage_and_cache_from_the_current_built_in_browse",
+					)}
 					action={
 						<Button
 							size="sm"
 							variant="destructive-outline"
 							onClick={() => setClearOpen(true)}
 						>
-							Clear all…
+							{uiMessage("settings:settings_page_clear_all")}
 						</Button>
 					}
 				/>
@@ -551,15 +580,18 @@ function BrowserSettingsPagePane() {
 			<AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
 				<AlertDialogPopup className="max-w-sm rounded-xl">
 					<AlertDialogHeader className="gap-1 px-4 pb-3 pt-4">
-						<AlertDialogTitle>Clear browsing data?</AlertDialogTitle>
+						<AlertDialogTitle>
+							{uiMessage("settings:settings_page_clear_browsing_data")}
+						</AlertDialogTitle>
 						<AlertDialogDescription className="text-xs">
-							This removes cookies, site storage, and cache from the built-in
-							browser. Other browsers are unchanged.
+							{uiMessage(
+								"settings:settings_page_this_removes_cookies_site_storage_and_cache_from_the_built_in_browser",
+							)}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter className="px-4 py-2">
 						<AlertDialogClose render={<Button size="xs" variant="ghost" />}>
-							Cancel
+							{uiMessage("common:cancel")}
 						</AlertDialogClose>
 						<Button
 							size="xs"
@@ -573,7 +605,7 @@ function BrowserSettingsPagePane() {
 								})
 							}
 						>
-							Clear data
+							{uiMessage("settings:settings_page_clear_data")}
 						</Button>
 					</AlertDialogFooter>
 				</AlertDialogPopup>
@@ -594,6 +626,8 @@ interface BrowserCredRow {
  * load-bearing: real credentials must never live here.
  */
 function BrowserTestLoginsPane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const environmentId = useEnvironmentCatalogStore((state) =>
 		EnvironmentId.make(state.activeEnvironmentId),
 	);
@@ -671,21 +705,23 @@ function BrowserTestLoginsPane() {
 			<div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-alert-warning-bg px-3 py-2.5 text-[12px] leading-relaxed text-warning-foreground">
 				<HugeiconsIcon icon={Alert01Icon} className="mt-0.5 size-4 shrink-0" />
 				<span>
-					<strong className="font-semibold">Dummy / test logins only.</strong>{" "}
-					Never store a real or production password here. These are for seeded
-					accounts on dev and staging sites you ask the agent to verify. The
-					agent never sees the password — it's injected straight into the page.
+					<RichMessage
+						id="settings:settings_page_dummy_test_logins_only_never_store_a_real_or_production_pass_sentence"
+						components={{ part0: <strong className="font-semibold" /> }}
+					/>
 				</span>
 			</div>
 
 			<SettingsFrame
-				title="Saved logins"
-				description="The agent calls browser_login with a site's origin; you'll always be asked to approve before it submits."
+				title={uiMessage("settings:settings_page_saved_logins")}
+				description={uiMessage(
+					"settings:settings_page_the_agent_calls_browser_login_with_a_site_s_origin_you_ll_always_be_as",
+				)}
 			>
 				<div className="flex flex-col gap-3">
 					{creds.length === 0 ? (
 						<p className="text-[13px] text-muted-foreground">
-							No saved logins yet.
+							{uiMessage("settings:settings_page_no_saved_logins_yet")}
 						</p>
 					) : (
 						<ul className="flex flex-col divide-y divide-border/40">
@@ -699,13 +735,18 @@ function BrowserTestLoginsPane() {
 											{c.origin}
 										</p>
 										<p className="truncate text-[12px] text-muted-foreground">
-											{c.username || "(no username)"} · ••••••••
+											{c.username ||
+												uiMessage("settings:settings_page_no_username")}{" "}
+											· ••••••••
 										</p>
 									</div>
 									<button
 										type="button"
 										onClick={() => void remove(c.origin)}
-										aria-label={`Remove login for ${c.origin}`}
+										aria-label={uiMessage(
+											"settings:settings_page_remove_login_for",
+											{ value1: String(c.origin) },
+										)}
 										className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 									>
 										<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
@@ -717,17 +758,19 @@ function BrowserTestLoginsPane() {
 
 					<div className="flex flex-col gap-2 border-t border-border/40 pt-3">
 						<CredInput
-							placeholder="Origin (https://app.example.com)"
+							placeholder={uiMessage(
+								"settings:settings_page_origin_https_app_example_com",
+							)}
 							value={origin}
 							onChange={setOrigin}
 						/>
 						<CredInput
-							placeholder="Username / email"
+							placeholder={uiMessage("settings:settings_page_username_email")}
 							value={username}
 							onChange={setUsername}
 						/>
 						<CredInput
-							placeholder="Password (dummy)"
+							placeholder={uiMessage("settings:settings_page_password_dummy")}
 							value={password}
 							onChange={setPassword}
 							type="password"
@@ -739,7 +782,7 @@ function BrowserTestLoginsPane() {
 								disabled={busy || origin.trim() === "" || password === ""}
 							>
 								<Plus className="size-3.5" strokeWidth={1.8} />
-								Add login
+								{uiMessage("settings:settings_page_add_login")}
 							</Button>
 						</div>
 					</div>
@@ -750,6 +793,8 @@ function BrowserTestLoginsPane() {
 }
 
 function NotchSettingsPane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const enabled = useSettingsStore((s) => s.notchTrayEnabled);
 	const pinned = useSettingsStore((s) => s.notchTrayPinned);
 	const setEnabled = useSettingsStore((s) => s.setNotchTrayEnabled);
@@ -796,17 +841,23 @@ function NotchSettingsPane() {
 			)}
 
 			<SettingsGroup
-				title="Notch tray"
-				description="Show active agents near the MacBook notch. Hover the notch area to expand the tray, then click an agent to jump to its chat."
+				title={uiMessage("settings:settings_page_notch_tray")}
+				description={uiMessage(
+					"settings:settings_page_show_active_agents_near_the_macbook_notch_hover_the_notch_area_to_expa",
+				)}
 			>
 				<SettingsRow
-					title="Enable Notch Tray"
-					description="Show running agents, pending approvals, questions, plans, completions, and failures near the notch."
+					title={uiMessage("settings:settings_page_enable_notch_tray")}
+					description={uiMessage(
+						"settings:settings_page_show_running_agents_pending_approvals_questions_plans_completions_and",
+					)}
 					action={<Switch checked={enabled} onCheckedChange={setEnabled} />}
 				/>
 				<SettingsRow
-					title="Keep tray expanded"
-					description="Keep the agent list open instead of only expanding while the pointer is over the notch area."
+					title={uiMessage("settings:settings_page_keep_tray_expanded")}
+					description={uiMessage(
+						"settings:settings_page_keep_the_agent_list_open_instead_of_only_expanding_while_the_pointer_i",
+					)}
 					action={
 						<Switch
 							checked={pinned}
@@ -818,13 +869,27 @@ function NotchSettingsPane() {
 			</SettingsGroup>
 
 			<SettingsFrame
-				title="What appears"
-				description="The tray is intentionally quiet: it shows actionable agent states first, then recently completed turns for about 30 seconds."
+				title={uiMessage("settings:settings_page_what_appears")}
+				description={uiMessage(
+					"settings:settings_page_the_tray_is_intentionally_quiet_it_shows_actionable_agent_states_first",
+				)}
 			>
 				<ul className="list-disc space-y-1 pl-4 text-[13px] leading-relaxed text-muted-foreground">
-					<li>Permission requests, questions, and plan approvals</li>
-					<li>Running agents as compact status circles</li>
-					<li>Completed turns and failures from background chats</li>
+					<li>
+						{uiMessage(
+							"settings:settings_page_permission_requests_questions_and_plan_approvals",
+						)}
+					</li>
+					<li>
+						{uiMessage(
+							"settings:settings_page_running_agents_as_compact_status_circles",
+						)}
+					</li>
+					<li>
+						{uiMessage(
+							"settings:settings_page_completed_turns_and_failures_from_background_chats",
+						)}
+					</li>
 				</ul>
 			</SettingsFrame>
 		</div>
@@ -867,33 +932,82 @@ const BRANCH_STYLE_META: Record<
 	{ label: string; example: string }
 > = {
 	"username-slug": {
-		label: "username/branch",
+		get label() {
+			return uiMessage("settings:settings_page_username_branch");
+		},
 		example: "swarajbachu/dark-mode",
 	},
-	slug: { label: "branch only", example: "dark-mode" },
-	"feat-slug": { label: "feat/branch", example: "feat/dark-mode" },
-	custom: { label: "custom prefix", example: "prefix/dark-mode" },
+	slug: {
+		get label() {
+			return uiMessage("settings:settings_page_branch_only");
+		},
+		example: "dark-mode",
+	},
+	"feat-slug": {
+		get label() {
+			return uiMessage("settings:settings_page_feat_branch");
+		},
+		example: "feat/dark-mode",
+	},
+	custom: {
+		get label() {
+			return uiMessage("settings:settings_page_custom_prefix_2");
+		},
+		example: "prefix/dark-mode",
+	},
 };
 
 const APPEARANCE_OPTIONS: ReadonlyArray<{
 	readonly value: AppearanceMode;
 	readonly label: string;
 }> = [
-	{ value: "system", label: "System" },
-	{ value: "light", label: "Light" },
-	{ value: "dark", label: "Dark" },
+	{
+		value: "system",
+		get label() {
+			return uiMessage("settings:settings_page_system");
+		},
+	},
+	{
+		value: "light",
+		get label() {
+			return uiMessage("settings:settings_page_light");
+		},
+	},
+	{
+		value: "dark",
+		get label() {
+			return uiMessage("settings:settings_page_dark");
+		},
+	},
 ];
 
 const COMPUTER_AWAKE_OPTIONS: ReadonlyArray<{
 	readonly value: ComputerAwakeMode;
 	readonly label: string;
 }> = [
-	{ value: "off", label: "Off" },
-	{ value: "auto", label: "Auto" },
-	{ value: "always", label: "Always" },
+	{
+		value: "off",
+		get label() {
+			return uiMessage("settings:settings_page_off");
+		},
+	},
+	{
+		value: "auto",
+		get label() {
+			return uiMessage("settings:settings_page_auto");
+		},
+	},
+	{
+		value: "always",
+		get label() {
+			return uiMessage("settings:settings_page_always");
+		},
+	},
 ];
 
 function ComputerAwakeSettings() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const [status, setStatus] = useState<ComputerAwakeStatus | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -939,11 +1053,13 @@ function ComputerAwakeSettings() {
 
 	return (
 		<SettingsGroup
-			title="Power"
-			description="Keep this Mac available for local agents and remote control."
+			title={uiMessage("settings:settings_page_power")}
+			description={uiMessage(
+				"settings:settings_page_keep_this_mac_available_for_local_agents_and_remote_control",
+			)}
 		>
 			<SettingsRow
-				title="Keep Mac awake"
+				title={uiMessage("settings:settings_page_keep_mac_awake")}
 				description={computerAwakeModeDescription(mode)}
 				action={
 					<Select
@@ -954,7 +1070,7 @@ function ComputerAwakeSettings() {
 						<SelectTrigger
 							className="h-7 w-28"
 							disabled={saving}
-							aria-label="Keep Mac awake"
+							aria-label={uiMessage("settings:settings_page_keep_mac_awake")}
 						>
 							<SelectValue />
 						</SelectTrigger>
@@ -971,8 +1087,9 @@ function ComputerAwakeSettings() {
 				<div className="flex flex-col gap-1 text-[11px] leading-snug text-muted-foreground">
 					<p>{error ?? computerAwakeStatusText(status)}</p>
 					<p>
-						The display may turn off. Closed-lid operation is best effort and
-						depends on macOS hardware and power policy.
+						{uiMessage(
+							"settings:settings_page_the_display_may_turn_off_closed_lid_operation_is_best_effort_and_depen",
+						)}
 					</p>
 				</div>
 			</SettingsRow>
@@ -981,6 +1098,8 @@ function ComputerAwakeSettings() {
 }
 
 function GeneralPane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
 	const setAppearanceMode = useSettingsStore((s) => s.setAppearanceMode);
 	const completionSoundEnabled = useSettingsStore(
@@ -1044,8 +1163,10 @@ function GeneralPane() {
 	return (
 		<div className="flex flex-col gap-4">
 			<SettingsGroup
-				title="Account"
-				description="Sign in to sync your account across devices and (soon) drive remote agents from your phone."
+				title={uiMessage("settings:settings_page_account")}
+				description={uiMessage(
+					"settings:settings_page_sign_in_to_sync_your_account_across_devices_and_soon_drive_remote_agen",
+				)}
 			>
 				{isSignedIn ? (
 					<div className="flex items-center gap-3 px-4 py-3.5">
@@ -1068,6 +1189,8 @@ function GeneralPane() {
 										setEditingName(false);
 									}}
 									onKeyDown={(e) => {
+										if (isInputComposing(e)) return;
+
 										if (e.key === "Enter") {
 											e.currentTarget.blur();
 										}
@@ -1076,7 +1199,7 @@ function GeneralPane() {
 											setEditingName(false);
 										}
 									}}
-									placeholder="Your name"
+									placeholder={uiMessage("settings:settings_page_your_name")}
 									className="h-7 w-full max-w-[220px] rounded-md border border-border/50 bg-background px-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-border"
 								/>
 							) : (
@@ -1094,7 +1217,9 @@ function GeneralPane() {
 											setNameDraft(displayName);
 											setEditingName(true);
 										}}
-										aria-label="Edit display name"
+										aria-label={uiMessage(
+											"settings:settings_page_edit_display_name",
+										)}
 										className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 									>
 										<HugeiconsIcon
@@ -1109,22 +1234,32 @@ function GeneralPane() {
 							) : null}
 						</div>
 						<Button variant="settings" size="sm" onClick={() => void signOut()}>
-							Sign out
+							{uiMessage("common:signOut")}
 						</Button>
 					</div>
 				) : isLoading ? (
 					<SettingsRow
-						title={isUnavailable ? "Account unavailable" : "Checking account…"}
+						title={
+							isUnavailable
+								? uiMessage("settings:settings_page_account_unavailable")
+								: uiMessage("settings:settings_page_checking_account")
+						}
 						description={
 							isUnavailable
-								? "Reconnect this computer to load the existing WorkOS session."
-								: "Loading the saved WorkOS session from this computer."
+								? uiMessage(
+										"settings:settings_page_reconnect_this_computer_to_load_the_existing_workos_session",
+									)
+								: uiMessage(
+										"settings:settings_page_loading_the_saved_workos_session_from_this_computer",
+									)
 						}
 					/>
 				) : (
 					<SettingsRow
-						title="Not signed in"
-						description="You're using Zuse (Beta) locally without an account. Sign in to sync and unlock remote agents."
+						title={uiMessage("settings:settings_page_not_signed_in")}
+						description={uiMessage(
+							"settings:settings_page_you_re_using_zuse_beta_locally_without_an_account_sign_in_to_sync_and",
+						)}
 						action={
 							<Button
 								variant="settings"
@@ -1132,7 +1267,7 @@ function GeneralPane() {
 								loading={signingIn}
 								onClick={() => void signIn()}
 							>
-								Sign in
+								{uiMessage("common:signIn")}
 							</Button>
 						}
 					/>
@@ -1140,12 +1275,16 @@ function GeneralPane() {
 			</SettingsGroup>
 
 			<SettingsGroup
-				title="Appearance"
-				description="Choose the app theme, or follow your system setting."
+				title={uiMessage("settings:settings_page_appearance")}
+				description={uiMessage(
+					"settings:settings_page_choose_the_app_theme_or_follow_your_system_setting",
+				)}
 			>
 				<SettingsRow
-					title="Theme"
-					description="Choose the app theme, or follow your system setting."
+					title={uiMessage("settings:settings_page_theme")}
+					description={uiMessage(
+						"settings:settings_page_choose_the_app_theme_or_follow_your_system_setting",
+					)}
 					action={
 						<div className="inline-flex rounded-lg border border-border/60 bg-muted p-0.5">
 							{APPEARANCE_OPTIONS.map((option) => {
@@ -1170,16 +1309,19 @@ function GeneralPane() {
 						</div>
 					}
 				/>
+				<LanguageSelector settingsRow />
 			</SettingsGroup>
 
 			<UpdateChannelSettings />
 
 			<ComputerAwakeSettings />
 
-			<SettingsGroup title="Notifications">
+			<SettingsGroup title={uiMessage("settings:settings_page_notifications")}>
 				<SettingsRow
-					title="Agent completion sound"
-					description="Play a short sound when any agent turn finishes, including agents working in background chats."
+					title={uiMessage("settings:settings_page_agent_completion_sound")}
+					description={uiMessage(
+						"settings:settings_page_play_a_short_sound_when_any_agent_turn_finishes_including_agents_worki",
+					)}
 					action={
 						<Switch
 							checked={completionSoundEnabled}
@@ -1231,19 +1373,23 @@ function GeneralPane() {
 							disabled={!completionSoundEnabled}
 							onClick={() => void playCompletionSound(completionSoundPreset)}
 						>
-							Preview
+							{uiMessage("settings:settings_page_preview")}
 						</Button>
 					</div>
 				</SettingsRow>
 			</SettingsGroup>
 
 			<SettingsGroup
-				title="Workspace naming"
-				description="Controls how Zuse (Beta) names new worktree-backed branches."
+				title={uiMessage("settings:settings_page_workspace_naming")}
+				description={uiMessage(
+					"settings:settings_page_controls_how_zuse_beta_names_new_worktree_backed_branches",
+				)}
 			>
 				<SettingsRow
-					title="Branch naming"
-					description="After the first submitted turn completes successfully, each unnamed session receives one title, the chat receives one title from its initial session, and a fresh unpublished worktree branch receives a separate semantic name in this shape."
+					title={uiMessage("settings:settings_page_branch_naming")}
+					description={uiMessage(
+						"settings:settings_page_after_the_first_submitted_turn_completes_successfully_each_unnamed_ses",
+					)}
 					action={
 						<Select
 							value={branchNamingStyle}
@@ -1282,13 +1428,15 @@ function GeneralPane() {
 								htmlFor="branch-naming-prefix"
 								className="text-xs font-medium text-muted-foreground"
 							>
-								Custom prefix
+								{uiMessage("settings:settings_page_custom_prefix")}
 							</label>
 							<input
 								id="branch-naming-prefix"
 								type="text"
 								value={prefixDraft}
-								placeholder="e.g. swaraj or team/wip"
+								placeholder={uiMessage(
+									"settings:settings_page_e_g_swaraj_or_team_wip",
+								)}
 								spellCheck={false}
 								onChange={(e) => setPrefixDraft(e.target.value)}
 								onBlur={() => {
@@ -1299,18 +1447,21 @@ function GeneralPane() {
 								className="h-7 w-full max-w-[260px] rounded-md border border-input bg-card px-2.5 text-xs text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24"
 							/>
 							<p className="text-xs leading-snug text-muted-foreground">
-								Slash-joined before the slug. Letters, digits, slashes and
-								dashes; leave empty for a bare slug.
+								{uiMessage(
+									"settings:settings_page_slash_joined_before_the_slug_letters_digits_slashes_and_dashes_leave_e",
+								)}
 							</p>
 						</div>
 					)}
 				</SettingsRow>
 			</SettingsGroup>
 
-			<SettingsGroup title="Setup">
+			<SettingsGroup title={uiMessage("settings:settings_page_setup")}>
 				<SettingsRow
-					title="Onboarding"
-					description="Replay the first-launch welcome flow. Your existing projects and credentials stay put."
+					title={uiMessage("settings:settings_page_onboarding")}
+					description={uiMessage(
+						"settings:settings_page_replay_the_first_launch_welcome_flow_your_existing_projects_and_creden",
+					)}
 					action={
 						<Button
 							variant="settings"
@@ -1320,7 +1471,7 @@ function GeneralPane() {
 								setOnboardingCompleted(false);
 							}}
 						>
-							Show again
+							{uiMessage("settings:settings_page_show_again")}
 						</Button>
 					}
 				/>
@@ -1332,6 +1483,8 @@ function GeneralPane() {
 }
 
 function DefaultModelsPane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
 	const defaultRuntimeMode = useSettingsStore((s) => s.defaultRuntimeMode);
 	const setDefaultRuntimeMode = useSettingsStore(
@@ -1340,12 +1493,16 @@ function DefaultModelsPane() {
 
 	return (
 		<SettingsGroup
-			title="Chat defaults"
-			description="These choices apply when you start a new chat. You can still change either one from the composer."
+			title={uiMessage("settings:settings_page_chat_defaults")}
+			description={uiMessage(
+				"settings:settings_page_these_choices_apply_when_you_start_a_new_chat_you_can_still_change_eit",
+			)}
 		>
 			<SettingsRow
-				title="Default model"
-				description={`Model for new chats · ${PROVIDER_LABEL[defaultProviderId]}`}
+				title={uiMessage("settings:settings_page_default_model")}
+				description={uiMessage("settings:settings_page_model_for_new_chats", {
+					value1: String(PROVIDER_LABEL[defaultProviderId]),
+				})}
 				action={
 					<ModelPicker
 						mode="default"
@@ -1354,8 +1511,10 @@ function DefaultModelsPane() {
 				}
 			/>
 			<SettingsRow
-				title="Default permission mode"
-				description="How new chats handle tool calls. Each chat can override this from the composer."
+				title={uiMessage("settings:settings_page_default_permission_mode")}
+				description={uiMessage(
+					"settings:settings_page_how_new_chats_handle_tool_calls_each_chat_can_override_this_from_the_c",
+				)}
 				action={
 					<Select
 						value={defaultRuntimeMode}
@@ -1388,6 +1547,8 @@ function DefaultModelsPane() {
 }
 
 function ProvidersPane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const environmentId = useEnvironmentCatalogStore(
 		(state) => state.activeEnvironmentId,
 	);
@@ -1417,7 +1578,7 @@ function ProvidersPane() {
 			if (latest === null || ts.getTime() > latest.getTime()) latest = ts;
 		}
 		return latest;
-	}, [availability]);
+	}, [availability, uiMessage]);
 
 	const providers = PROVIDER_IDS;
 	const [selectedProvider, setSelectedProvider] =
@@ -1426,7 +1587,7 @@ function ProvidersPane() {
 		const map = new Map<ProviderId, (typeof availability)[number]>();
 		for (const a of availability) map.set(a.providerId, a);
 		return map;
-	}, [availability]);
+	}, [availability, uiMessage]);
 
 	const statusLabel = loading
 		? "Checking…"
@@ -1440,8 +1601,10 @@ function ProvidersPane() {
 
 	return (
 		<SettingsFrame
-			title="Agent providers"
-			description="Enable the coding agents you use, verify their local setup, and control which models appear in Zuse."
+			title={uiMessage("settings:settings_page_agent_providers")}
+			description={uiMessage(
+				"settings:settings_page_enable_the_coding_agents_you_use_verify_their_local_setup_and_control",
+			)}
 			flush
 			trailing={
 				<div className="flex items-center gap-2">
@@ -1453,7 +1616,9 @@ function ProvidersPane() {
 						size="icon-xs"
 						onClick={() => void refresh()}
 						disabled={loading}
-						aria-label="Refresh provider status"
+						aria-label={uiMessage(
+							"settings:settings_page_refresh_provider_status",
+						)}
 					>
 						<RefreshIcon
 							className={cn("size-3.5", loading && "animate-spin")}
@@ -1468,7 +1633,7 @@ function ProvidersPane() {
 					<SegmentedTabs
 						value={selectedProvider}
 						onValueChange={setSelectedProvider}
-						ariaLabel="Provider settings"
+						ariaLabel={uiMessage("common:provider_settings")}
 						equalWidth={false}
 						className="w-max min-w-full"
 						options={providers.map((pid) => ({
@@ -1501,6 +1666,8 @@ function ProvidersPane() {
 }
 
 function WorkspacePane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const defaultAutoCreateWorktree = useSettingsStore(
 		(s) => s.defaultAutoCreateWorktree,
 	);
@@ -1509,14 +1676,18 @@ function WorkspacePane() {
 	);
 	return (
 		<SettingsFrame
-			title="Auto-create worktree for new chats"
+			title={uiMessage(
+				"settings:settings_page_auto_create_worktree_for_new_chats",
+			)}
 			trailing={
 				<Switch
 					checked={defaultAutoCreateWorktree}
 					onCheckedChange={setDefaultAutoCreateWorktree}
 				/>
 			}
-			description="When on, each new chat runs in its own git worktree under ~/.zuse/<repo>/<name>/, branched off the project's HEAD. Per-repo settings can override this default."
+			description={uiMessage(
+				"settings:settings_page_when_on_each_new_chat_runs_in_its_own_git_worktree_under_zuse_repo_nam",
+			)}
 		/>
 	);
 }
@@ -1833,6 +2004,8 @@ export function OverrideField({
 	onClear: () => void;
 	children: React.ReactNode;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	return (
 		<div className="flex flex-col gap-2.5">
 			<div className="flex items-center gap-2">
@@ -1847,7 +2020,7 @@ export function OverrideField({
 								: "text-muted-foreground hover:text-foreground",
 						)}
 					>
-						Inherit
+						{uiMessage("settings:settings_page_inherit")}
 					</button>
 					<button
 						type="button"
@@ -1859,7 +2032,7 @@ export function OverrideField({
 								: "text-muted-foreground",
 						)}
 					>
-						Custom
+						{uiMessage("settings:settings_page_custom")}
 					</button>
 				</div>
 				{!isOverridden && (
@@ -1889,6 +2062,8 @@ export function ModelSelect({
 	value: string | null;
 	onChange: (model: string) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const modelEnabledByProvider = useSettingsStore(
 		(s) => s.modelEnabledByProvider,
 	);
@@ -1902,16 +2077,16 @@ export function ModelSelect({
 	const normalizedValue =
 		value !== null &&
 		(models.some((m) => m.id === value) || models.length === 0)
-			? (value ?? "")
+			? value
 			: (models[0]?.id ?? "");
 	const items = useMemo(
 		() => models.map((m) => ({ value: m.id, label: m.label })),
-		[models],
+		[models, uiMessage],
 	);
 	return (
 		<div className="flex flex-col gap-1.5">
 			<span className="text-xs font-medium text-muted-foreground">
-				Default model
+				{uiMessage("settings:settings_page_default_model")}
 			</span>
 			<Select
 				value={normalizedValue}

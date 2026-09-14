@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { EnvironmentId, Session, SessionId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { CheckListIcon } from "@zuse/icons/solid-rounded";
 import { useEffect, useMemo, useState } from "react";
 
@@ -30,6 +32,8 @@ export function ContextTray({
 	sessionId: SessionId;
 	environmentId: EnvironmentId;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const { sessionsByProject } = useActiveEnvironmentEntities();
 	const hasMessages =
 		useRendererSessionTimeline(sessionId, "connect", environmentId).messages
@@ -39,7 +43,7 @@ export function ContextTray({
 
 	const sources = useMemo(
 		() => selectContextSources(sessionsByProject, sessionId),
-		[sessionsByProject, sessionId],
+		[sessionsByProject, sessionId, uiMessage],
 	);
 
 	useEffect(() => {
@@ -75,18 +79,26 @@ export function ContextTray({
 					? (plans[source.id] ?? null)
 					: await fetchTranscriptMarkdown(environmentId, source.id);
 			if (text === null || text.trim().length === 0) {
-				toastManager.add({ title: "Nothing to attach", type: "error" });
+				toastManager.add({
+					title: uiMessage("chat:context_tray_nothing_to_attach"),
+					type: "error",
+				});
 				return;
 			}
 			const ref = await saveContextFile(environmentId, sessionId, text);
 			if (ref === null) {
-				toastManager.add({ title: "Attach failed", type: "error" });
+				toastManager.add({
+					title: uiMessage("chat:context_tray_attach_failed"),
+					type: "error",
+				});
 				return;
 			}
 			attachToCurrentComposer(ref);
 			toastManager.add({
 				title: kind === "plan" ? "Plan attached" : "Transcript attached",
-				description: `Added ${ref.relPath} to the composer.`,
+				description: uiMessage("chat:context_tray_added_to_the_composer", {
+					relPath: String(ref.relPath),
+				}),
 				type: "success",
 			});
 		} finally {
@@ -99,14 +111,22 @@ export function ContextTray({
 
 	return (
 		<div className="flex flex-wrap items-center gap-1.5 px-3 py-1.5">
-			<span className="text-[11px] text-muted-foreground/70">Add context</span>
+			<span className="text-[11px] text-muted-foreground/70">
+				{uiMessage("chat:context_tray_add_context")}
+			</span>
 			{sources.map((s) => {
 				const key = `transcript:${s.id}`;
 				return (
 					<Chip
 						key={key}
 						icon={<ProviderIcon providerId={s.providerId} className="size-3" />}
-						label={single ? "Transcript" : `${s.title} · transcript`}
+						label={
+							single
+								? uiMessage("chat:context_tray_transcript")
+								: uiMessage("chat:context_tray_transcript_2", {
+										value1: String(s.title),
+									})
+						}
 						busy={busy === key}
 						onClick={() => void attach(key, s, "transcript")}
 					/>
@@ -118,7 +138,13 @@ export function ContextTray({
 					<Chip
 						key={key}
 						icon={<HugeiconsIcon icon={CheckListIcon} className="size-3" />}
-						label={single ? "Plan" : `${s.title} · plan`}
+						label={
+							single
+								? uiMessage("chat:context_tray_plan")
+								: uiMessage("chat:context_tray_plan_2", {
+										value1: String(s.title),
+									})
+						}
 						busy={busy === key}
 						onClick={() => void attach(key, s, "plan")}
 					/>
@@ -139,12 +165,14 @@ function Chip({
 	busy: boolean;
 	onClick: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	return (
 		<button
 			type="button"
 			disabled={busy}
 			onClick={onClick}
-			title={`Attach ${label}`}
+			title={uiMessage("chat:context_tray_attach", { label: String(label) })}
 			className="inline-flex max-w-[180px] items-center gap-1 rounded-[0.375rem] border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 transition-[background-color,color] hover:text-foreground disabled:pointer-events-none disabled:opacity-50 dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]"
 		>
 			<span className={busy ? "animate-pulse" : ""}>{icon}</span>

@@ -1,3 +1,6 @@
+import "@zuse/i18n/english/common";
+import { formatNumber as formatUiNumber } from "@zuse/i18n";
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type {
@@ -15,6 +18,7 @@ import type {
 	SessionId,
 	SkillRef,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	AlertCircleIcon,
 	Copy01Icon,
@@ -152,7 +156,7 @@ const formatDuration = (ms: number): string => {
 	return `${min}m, ${sec.toFixed(1)}s`;
 };
 
-const formatTokenCount = (tokens: number): string => tokens.toLocaleString();
+const formatTokenCount = (tokens: number): string => formatUiNumber(tokens);
 
 const formatCompactTokenDelta = (
 	beforeTokens: number | null,
@@ -197,6 +201,8 @@ function MessageRowImpl({
 	forkDestination?: ForkDestination;
 	sourceProjectId?: FolderId;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	switch (message.content._tag) {
 		case "user":
 			return (
@@ -262,11 +268,11 @@ function MessageRowImpl({
 			if (message.content.resolution)
 				return (
 					<div className="px-4 py-2 text-xs text-muted-foreground">
-						Question{" "}
-						{message.content.resolution === "timed-out"
-							? "timed out"
-							: "cancelled"}
-						.
+						{uiMessage(
+							message.content.resolution === "timed-out"
+								? "chat:question_timed_out"
+								: "chat:question_cancelled",
+						)}
 					</div>
 				);
 			// The paired `user_question` row above renders the answer inline, so
@@ -306,7 +312,7 @@ function MessageRowImpl({
 			return (
 				<div className="flex justify-center py-1">
 					<span className="rounded-full bg-muted/50 px-2.5 py-0.5 text-[11px] text-muted-foreground">
-						Interrupted by user
+						{uiMessage("chat:message_row_interrupted_by_user")}
 					</span>
 				</div>
 			);
@@ -448,6 +454,8 @@ function CompactRow({
 	readonly durationMs: number;
 	readonly status: "in_progress" | "completed";
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [now, setNow] = useState(() => Date.now());
 	const inProgress = status === "in_progress";
 	useEffect(() => {
@@ -473,7 +481,9 @@ function CompactRow({
 					)}
 				/>
 				<span className="text-sm font-medium text-foreground/90">
-					{inProgress ? "Compacting..." : "Chat compacted"}
+					{inProgress
+						? uiMessage("chat:message_row_compacting")
+						: uiMessage("chat:message_row_chat_compacted")}
 				</span>
 			</div>
 			<div className="mt-1 pl-5 text-[11px] tabular-nums text-muted-foreground/70">
@@ -537,6 +547,8 @@ export function UserBubble({
 	goal?: boolean;
 	createdAt?: Date;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const hasAnnotations = annotations !== undefined && annotations.length > 0;
 	const revealAnnotation = useRevealAnnotation();
 	const { chatsByProject } = useActiveEnvironmentEntities();
@@ -564,14 +576,16 @@ export function UserBubble({
 							className="mb-1.5 flex items-center gap-1.5 text-[11px] text-user-bubble-foreground/65 hover:text-user-bubble-foreground disabled:cursor-default"
 							title={
 								originChatLoaded
-									? "Open the sender's chat"
-									: "Sender chat not loaded"
+									? uiMessage("chat:message_row_open_the_sender_s_chat")
+									: uiMessage("chat:message_row_sender_chat_not_loaded")
 							}
 						>
 							<ProviderIcon providerId={origin.providerId} className="size-3" />
 							<span>
-								Sent by {PROVIDER_LABEL_FOR_ERROR[origin.providerId]} from
-								another chat
+								{uiMessage(
+									"chat:message_row_sent_by_from_another_chat_sentence",
+									{ value: PROVIDER_LABEL_FOR_ERROR[origin.providerId] },
+								)}
 							</span>
 						</button>
 					) : null}
@@ -588,8 +602,8 @@ export function UserBubble({
 										className="flex w-full min-w-0 items-start gap-2 rounded-lg border border-user-bubble-foreground/12 bg-background/10 px-2 py-1.5 text-left text-xs hover:bg-background/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-user-bubble-foreground/30"
 										title={
 											isBrowserAnnotation(a)
-												? "Browser annotation"
-												: "Open annotation"
+												? uiMessage("chat:message_row_browser_annotation")
+												: uiMessage("chat:message_row_open_annotation")
 										}
 									>
 										<span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-background/20 text-[10px] font-semibold tabular-nums">
@@ -645,7 +659,7 @@ export function UserBubble({
 					{goal ? (
 						<div className="mt-2 flex items-center gap-1.5 text-xs text-user-bubble-foreground/65">
 							<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />
-							<span>Sent as goal</span>
+							<span>{uiMessage("chat:message_row_sent_as_goal")}</span>
 						</div>
 					) : null}
 				</div>
@@ -699,6 +713,8 @@ function AssistantBubble({
 }
 
 function ToolErrorRow({ output }: { output: unknown }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [expanded, setExpanded] = useState(false);
 	const Chevron = expanded ? ChevronDown : ChevronRight;
 	const text = typeof output === "string" ? output : stringifyJson(output);
@@ -728,13 +744,15 @@ function ToolErrorRow({ output }: { output: unknown }) {
 						)}
 					/>
 				</div>
-				<span className="font-medium text-foreground">Error</span>
+				<span className="font-medium text-foreground">
+					{uiMessage("chat:message_row_error")}
+				</span>
 				<span className="truncate text-muted-foreground">{firstLine}</span>
 			</button>
 			{expanded ? (
 				<div className="ml-7 mt-1 border-l border-border/60 pl-3">
 					<pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] text-muted-foreground">
-						{text || "(empty)"}
+						{text || uiMessage("chat:message_row_empty")}
 					</pre>
 				</div>
 			) : null}
@@ -824,6 +842,8 @@ function ProviderAuthCard({
 	onOpenSettings: () => void;
 	onDismiss?: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const refreshProviders = useProvidersStore((s) => s.refresh);
 	const authStatus = useProvidersStore(
 		(s) => s.availability.find((a) => a.providerId === providerId)?.authStatus,
@@ -864,7 +884,7 @@ function ProviderAuthCard({
 							className="size-3.5 text-destructive"
 							aria-hidden
 						/>
-						Authentication required
+						{uiMessage("chat:message_row_authentication_required")}
 					</span>
 					{onDismiss !== undefined && (
 						<button
@@ -872,7 +892,7 @@ function ProviderAuthCard({
 							onClick={onDismiss}
 							className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
 						>
-							Dismiss
+							{uiMessage("chat:message_row_dismiss")}
 						</button>
 					)}
 				</div>
@@ -891,8 +911,10 @@ function ProviderAuthCard({
 							/>
 							<ShimmerText as="span">
 								{state.url === null
-									? `Starting ${label} sign-in…`
-									: "Waiting for browser sign-in…"}
+									? uiMessage("chat:message_row_starting_sign_in", {
+											label: String(label),
+										})
+									: uiMessage("chat:message_row_waiting_for_browser_sign_in")}
 							</ShimmerText>
 						</div>
 						<div className="flex flex-wrap items-center gap-1.5">
@@ -911,11 +933,11 @@ function ProviderAuthCard({
 										className="size-3"
 										aria-hidden
 									/>
-									Open browser again
+									{uiMessage("chat:message_row_open_browser_again")}
 								</Button>
 							)}
 							<Button type="button" size="xs" variant="ghost" onClick={cancel}>
-								Cancel
+								{uiMessage("common:cancel")}
 							</Button>
 						</div>
 					</div>
@@ -930,13 +952,17 @@ function ProviderAuthCard({
 							className="size-3.5 animate-spin motion-reduce:animate-none"
 							aria-hidden
 						/>
-						<ShimmerText as="span">Signed in. Finishing…</ShimmerText>
+						<ShimmerText as="span">
+							{uiMessage("chat:message_row_signed_in_finishing")}
+						</ShimmerText>
 					</div>
 				) : (
 					<div className="min-h-[3.75rem]">
 						<p className="mt-1 leading-relaxed text-muted-foreground">
-							To resolve, sign in to {label}. We&apos;ll validate the login
-							automatically.
+							{uiMessage(
+								"chat:message_row_to_resolve_sign_in_to_we_apos_ll_validate_the_login_automati_sentence",
+								{ label: label },
+							)}
 						</p>
 						{state.kind === "failed" && (
 							<p className="mt-1 text-[11px] text-destructive">
@@ -953,8 +979,12 @@ function ProviderAuthCard({
 							>
 								<HugeiconsIcon icon={PlayIcon} className="size-3" aria-hidden />
 								{state.kind === "failed"
-									? `Try ${label} sign-in again`
-									: `Sign in to ${label}`}
+									? uiMessage("chat:message_row_try_sign_in_again", {
+											label: String(label),
+										})
+									: uiMessage("chat:message_row_sign_in_to", {
+											label: String(label),
+										})}
 							</Button>
 							<Button
 								type="button"
@@ -968,7 +998,7 @@ function ProviderAuthCard({
 									className="size-3"
 									aria-hidden
 								/>
-								Settings
+								{uiMessage("common:settings")}
 							</Button>
 						</div>
 					</div>
@@ -991,6 +1021,8 @@ function CloudProviderAuthCard({
 	onOpenCloudSettings: () => void;
 	onDismiss?: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const providerLabel = PROVIDER_LABEL_FOR_ERROR[providerId];
 	const replacementProjectId = localProjectForCloudEnvironment(environmentId);
 	const legacy = authMode === "legacy-image";
@@ -1006,10 +1038,17 @@ function CloudProviderAuthCard({
 							aria-hidden
 						/>
 						{legacy
-							? `This cloud chat uses legacy ${providerLabel} authentication`
+							? uiMessage(
+									"chat:message_row_this_cloud_chat_uses_legacy_authentication",
+									{ providerLabel: String(providerLabel) },
+								)
 							: broker
-								? `${providerLabel} account needs reconnecting`
-								: `${providerLabel} authentication is unavailable`}
+								? uiMessage("chat:message_row_account_needs_reconnecting", {
+										providerLabel: String(providerLabel),
+									})
+								: uiMessage("chat:message_row_authentication_is_unavailable", {
+										providerLabel: String(providerLabel),
+									})}
 					</span>
 					{onDismiss !== undefined && (
 						<button
@@ -1017,16 +1056,25 @@ function CloudProviderAuthCard({
 							onClick={onDismiss}
 							className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
 						>
-							Dismiss
+							{uiMessage("chat:message_row_dismiss")}
 						</button>
 					)}
 				</div>
 				<p className="mt-1.5 max-w-[32rem] text-[11px] leading-4 text-muted-foreground">
 					{legacy
-						? `Its image-owned ${providerLabel} credential cannot be migrated safely. Reconnect once, then create a replacement cloud chat that uses account-level authentication.`
+						? uiMessage(
+								"chat:message_row_its_image_owned_credential_cannot_be_migrated_safely_reconnect_on",
+								{ providerLabel: String(providerLabel) },
+							)
 						: broker
-							? `Reconnect ${providerLabel} once in Cloud Workspace settings. The account credential is shared by new cloud chats and is never baked into this sandbox.`
-							: `Open Cloud Workspace settings to restore account-level ${providerLabel} authentication. Zuse will identify legacy chats after cloud metadata finishes syncing.`}
+							? uiMessage(
+									"chat:message_row_reconnect_once_in_cloud_workspace_settings_the_account_credential",
+									{ providerLabel: String(providerLabel) },
+								)
+							: uiMessage(
+									"chat:message_row_open_cloud_workspace_settings_to_restore_account_level_authentica",
+									{ providerLabel: String(providerLabel) },
+								)}
 				</p>
 				<div className="mt-2 flex flex-wrap items-center gap-1.5">
 					{legacy && replacementProjectId !== null ? (
@@ -1036,7 +1084,7 @@ function CloudProviderAuthCard({
 							variant="outline"
 							onClick={() => openNewChatLanding(replacementProjectId)}
 						>
-							Create replacement chat
+							{uiMessage("chat:message_row_create_replacement_chat")}
 						</Button>
 					) : null}
 					<Button
@@ -1050,7 +1098,7 @@ function CloudProviderAuthCard({
 							className="size-3"
 							aria-hidden
 						/>
-						Open Cloud Authentication
+						{uiMessage("chat:message_row_open_cloud_authentication")}
 					</Button>
 				</div>
 			</div>
@@ -1066,6 +1114,8 @@ const isGeminiAcpUpgradeError = (text: string): boolean =>
 	);
 
 function GeminiUpgradeCard({ onDismiss }: { onDismiss?: () => void }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const [copied, setCopied] = useState(false);
 	const copyCommand = () => {
 		void navigator.clipboard.writeText(GEMINI_UPGRADE_COMMAND).then(() => {
@@ -1088,11 +1138,12 @@ function GeminiUpgradeCard({ onDismiss }: { onDismiss?: () => void }) {
 					</div>
 					<div className="min-w-0 flex-1">
 						<div className="text-sm font-medium text-foreground">
-							Gemini CLI needs an upgrade
+							{uiMessage("chat:message_row_gemini_cli_needs_an_upgrade")}
 						</div>
 						<p className="mt-1 leading-relaxed text-muted-foreground">
-							Your installed Gemini CLI does not support ACP mode yet, so Zuse
-							Zuse (Beta) cannot start Gemini sessions until the CLI is updated.
+							{uiMessage(
+								"chat:message_row_your_installed_gemini_cli_does_not_support_acp_mode_yet_so_zuse_zuse_b",
+							)}
 						</p>
 						<div className="mt-3 flex flex-wrap items-center gap-2">
 							<code className="rounded-md border border-border/60 bg-background/60 px-2 py-1 font-mono text-[11px] text-foreground">
@@ -1104,11 +1155,13 @@ function GeminiUpgradeCard({ onDismiss }: { onDismiss?: () => void }) {
 								) : (
 									<HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
 								)}
-								{copied ? "Copied" : "Copy upgrade command"}
+								{copied
+									? uiMessage("common:copied")
+									: uiMessage("chat:message_row_copy_upgrade_command")}
 							</Button>
 							{onDismiss !== undefined && (
 								<Button size="xs" variant="ghost" onClick={onDismiss}>
-									Dismiss
+									{uiMessage("chat:message_row_dismiss")}
 								</Button>
 							)}
 						</div>
@@ -1132,6 +1185,8 @@ export function ErrorBubble({
 	providerId?: ProviderId;
 	onDismiss?: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
 	const cloudSummary = useCloudChatCatalogStore((state) =>
@@ -1172,7 +1227,9 @@ export function ErrorBubble({
 		return (
 			<div className="px-4 py-1.5">
 				<div className="inline-flex max-w-[88%] items-center gap-2 rounded-md border border-border/45 bg-[color-mix(in_oklch,var(--bg-elevated)_34%,var(--background))] px-2.5 py-1.5 text-xs text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]">
-					<span className="font-medium">Limit reached</span>
+					<span className="font-medium">
+						{uiMessage("chat:message_row_limit_reached")}
+					</span>
 					<span className="text-muted-foreground">
 						{formatResetDetail(rateLimit)}
 					</span>
@@ -1181,9 +1238,9 @@ export function ErrorBubble({
 							type="button"
 							onClick={onDismiss}
 							className="rounded-[0.1875rem] px-1 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-							aria-label="Dismiss limit status"
+							aria-label={uiMessage("chat:message_row_dismiss_limit_status")}
 						>
-							Dismiss
+							{uiMessage("chat:message_row_dismiss")}
 						</button>
 					)}
 				</div>
@@ -1197,7 +1254,9 @@ export function ErrorBubble({
 		return (
 			<div className="px-4 py-1.5">
 				<div className="inline-flex max-w-[88%] items-center gap-2 rounded-md border border-border/45 bg-[color-mix(in_oklch,var(--bg-elevated)_34%,var(--background))] px-2.5 py-1.5 text-xs text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]">
-					<span className="font-medium">Reconnecting</span>
+					<span className="font-medium">
+						{uiMessage("chat:message_row_reconnecting")}
+					</span>
 					<span className="font-mono text-muted-foreground">
 						{reconnecting.attempt}/{reconnecting.maxAttempts}
 					</span>
@@ -1210,7 +1269,7 @@ export function ErrorBubble({
 								disabled={sessionId === undefined}
 								className="rounded-[0.1875rem] bg-secondary px-1.5 py-0.5 font-medium text-secondary-foreground transition-colors hover:bg-secondary/90"
 							>
-								Retry
+								{uiMessage("common:retry")}
 							</button>
 						</>
 					)}
@@ -1219,9 +1278,11 @@ export function ErrorBubble({
 							type="button"
 							onClick={onDismiss}
 							className="rounded-[0.1875rem] px-1 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-							aria-label="Dismiss reconnecting status"
+							aria-label={uiMessage(
+								"chat:message_row_dismiss_reconnecting_status",
+							)}
 						>
-							Dismiss
+							{uiMessage("chat:message_row_dismiss")}
 						</button>
 					)}
 				</div>
@@ -1307,11 +1368,11 @@ export function ErrorBubble({
 							<span className="font-medium text-foreground">{headline}</span>
 						) : (
 							<span className="font-medium text-foreground">
-								Provider error
+								{uiMessage("chat:message_row_provider_error")}
 							</span>
 						)}
 						<pre className="min-w-0 max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
-							{error.message || "(empty)"}
+							{error.message || uiMessage("chat:message_row_empty")}
 						</pre>
 						{sessionId !== undefined && error.kind !== "terminal" && (
 							<div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -1323,7 +1384,7 @@ export function ErrorBubble({
 									className="gap-1"
 								>
 									<RefreshIcon className="size-3" aria-hidden />
-									Retry
+									{uiMessage("common:retry")}
 								</Button>
 								{error.kind === "auth" && (
 									<Button
@@ -1338,7 +1399,7 @@ export function ErrorBubble({
 											className="size-3"
 											aria-hidden
 										/>
-										Open Provider Settings
+										{uiMessage("chat:message_row_open_provider_settings")}
 									</Button>
 								)}
 							</div>
@@ -1350,7 +1411,7 @@ export function ErrorBubble({
 							onClick={onDismiss}
 							className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
 						>
-							Dismiss
+							{uiMessage("chat:message_row_dismiss")}
 						</button>
 					)}
 				</div>
@@ -1371,6 +1432,8 @@ function AttachmentChip({
 	previewUrl?: string;
 	sessionRef: SessionRef | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const isImage = a.mimeType.startsWith("image/");
 	const preview = useAttachmentUrl(isImage ? sessionRef : null, a.id);
 	const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
@@ -1399,8 +1462,8 @@ function AttachmentChip({
 					role="status"
 					aria-label={
 						preview.failed || brokenSrc !== null
-							? "Retry preview"
-							: "Preparing image"
+							? uiMessage("chat:message_row_retry_preview")
+							: uiMessage("chat:message_row_preparing_image")
 					}
 				>
 					{preview.failed || brokenSrc !== null ? "↻" : "…"}
@@ -1422,7 +1485,7 @@ function AttachmentChip({
 				type="button"
 				title={
 					preview.failed || brokenSrc !== null
-						? "Could not load image. Click to retry."
+						? uiMessage("chat:message_row_could_not_load_image_click_to_retry")
 						: a.originalName
 				}
 				className={className}
@@ -1463,7 +1526,7 @@ function AttachmentChip({
 			rel="noreferrer"
 			title={
 				preview.failed || brokenSrc !== null
-					? "Could not load image. Click to retry."
+					? uiMessage("chat:message_row_could_not_load_image_click_to_retry")
 					: a.originalName
 			}
 			className={className}

@@ -1,4 +1,5 @@
 "use client";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -22,34 +23,39 @@ type Tab = {
 };
 
 export const HowItWorks = () => {
+	const { message: t } = useWebsiteMessages();
+
 	const tabs = useMemo(
 		() => [
 			{
-				title: "Claude Code · implementation",
-				description:
-					"Build the change in one tab while every file lands in the shared worktree.",
+				title: t("showcase:claude_code_implementation"),
+				description: t(
+					"showcase:build_the_change_in_one_tab_while_every_file_lands_in_the_shared_workt",
+				),
 				icon: FirstIcon,
 				id: "implementation",
 				skeleton: <SharedWorktreeSkeleton />,
 			},
 			{
-				title: "Codex · diff review",
-				description:
-					"Review the same branch and transcript in a second tab without copying context.",
+				title: t("showcase:codex_diff_review"),
+				description: t(
+					"showcase:review_the_same_branch_and_transcript_in_a_second_tab_without_copying",
+				),
 				icon: SecondIcon,
 				id: "review",
 				skeleton: <ContextReviewSkeleton />,
 			},
 			{
-				title: "Checks · terminal",
-				description:
-					"Keep typecheck, focused tests, and terminal output beside both agent sessions.",
+				title: t("showcase:checks_terminal"),
+				description: t(
+					"showcase:keep_typecheck_focused_tests_and_terminal_output_beside_both_agent_ses",
+				),
 				icon: ThirdIcon,
 				id: "checks",
 				skeleton: <EvidenceTimelineSkeleton />,
 			},
 		],
-		[],
+		[t],
 	);
 
 	const [activeTab, setActiveTab] = useState(tabs[0]);
@@ -71,14 +77,15 @@ export const HowItWorks = () => {
 	return (
 		<Container className="border-divide border-x">
 			<div className="flex flex-col items-center pt-16">
-				<Badge text="One worktree" />
+				<Badge text={t("showcase:one_worktree")} />
 				<SectionHeading className="mt-4">
-					Multiple tabs, shared context
+					{t("showcase:multiple_tabs_shared_context")}
 				</SectionHeading>
 
 				<SubHeading as="p" className="mx-auto mt-6 max-w-lg">
-					Implementation, review, and checks stay side by side on the same
-					branch and working tree.
+					{t(
+						"showcase:implementation_review_and_checks_stay_side_by_side_on_the_same_branch",
+					)}
 				</SubHeading>
 				{/* Desktop Tabs */}
 				<div className="border-divide divide-divide mt-16 hidden w-full grid-cols-2 divide-x border-t lg:grid">

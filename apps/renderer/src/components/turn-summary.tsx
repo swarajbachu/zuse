@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
 	ChatId,
@@ -7,6 +8,7 @@ import type {
 	Message,
 	SessionId,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { BubbleChatIcon, Wrench01Icon } from "@zuse/icons/solid-rounded";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { memo, useMemo, useState } from "react";
@@ -109,23 +111,28 @@ function TurnSummaryImpl({
 	forkDestination?: ForkDestination;
 	sourceProjectId?: FolderId;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [expanded, setExpanded] = useState(false);
 	const [filesExpanded, setFilesExpanded] = useState(false);
 
 	const toolUses = useMemo(
 		() => body.filter((m) => m.content._tag === "tool_use"),
-		[body],
+		[body, uiMessage],
 	);
 	const messageCount = useMemo(
 		() =>
 			body.filter(
 				(m) => m.content._tag === "thinking" || m.content._tag === "assistant",
 			).length,
-		[body],
+		[body, uiMessage],
 	);
 
-	const finalAssistant = useMemo(() => findFinalAssistant(body), [body]);
-	const fileStats = useMemo(() => aggregateFileStats(body), [body]);
+	const finalAssistant = useMemo(
+		() => findFinalAssistant(body),
+		[body, uiMessage],
+	);
+	const fileStats = useMemo(() => aggregateFileStats(body), [body, uiMessage]);
 
 	const duration = useMemo(() => {
 		const first = body[0];
@@ -134,18 +141,21 @@ function TurnSummaryImpl({
 		const start = first.createdAt.getTime();
 		const end = last.createdAt.getTime();
 		return Math.max(0, end - start);
-	}, [body]);
+	}, [body, uiMessage]);
 
 	const detailRows = useMemo(
 		() => body.filter((m) => m !== finalAssistant),
-		[body, finalAssistant],
+		[body, finalAssistant, uiMessage],
 	);
 
 	// Group sub-agent runs so each `Agent` tool_use renders as a SubagentRow
 	// with its nested children inside, instead of dumping every nested Bash
 	// / text row at the top level alongside the parent's own work — which
 	// makes parallel sub-agents look like duplicates.
-	const detailGroups = useMemo(() => groupMessages(detailRows), [detailRows]);
+	const detailGroups = useMemo(
+		() => groupMessages(detailRows),
+		[detailRows, uiMessage],
+	);
 
 	// Dedupe by icon identity (not tool name) — Edit/Write/MultiEdit share an
 	// icon, as do Grep/Glob, etc. We want one slot per visual, ordered by
@@ -161,7 +171,7 @@ function TurnSummaryImpl({
 			items.push({ key: m.id, icon });
 		}
 		return items;
-	}, [toolUses]);
+	}, [toolUses, uiMessage]);
 
 	const Chevron = expanded ? ChevronDown : ChevronRight;
 	const mutedWhenOpen = expanded
@@ -204,7 +214,12 @@ function TurnSummaryImpl({
 						className="size-3.5"
 					/>
 					<span className="tabular-nums">{toolUses.length}</span>
-					<span>tool {toolUses.length === 1 ? "call" : "calls"}</span>
+					<span>
+						{uiMessage("chat:turn_summary_tool")}
+						{toolUses.length === 1
+							? uiMessage("chat:turn_summary_call")
+							: uiMessage("chat:turn_summary_calls")}
+					</span>
 				</span>
 				<span className="flex items-center gap-1.5">
 					<HugeiconsIcon
@@ -213,7 +228,11 @@ function TurnSummaryImpl({
 						className="size-3.5"
 					/>
 					<span className="tabular-nums">{messageCount}</span>
-					<span>{messageCount === 1 ? "message" : "messages"}</span>
+					<span>
+						{messageCount === 1
+							? uiMessage("chat:turn_summary_message")
+							: uiMessage("chat:turn_summary_messages")}
+					</span>
 				</span>
 				{previewIcons.length > 0 ? (
 					<span className="flex items-center gap-1.5 opacity-70">
@@ -321,11 +340,13 @@ function TurnSummaryImpl({
 							<ChevronRight className="size-3.5 shrink-0 opacity-70" />
 						)}
 						{filesExpanded ? (
-							<span>Show less</span>
+							<span>{uiMessage("chat:turn_summary_show_less")}</span>
 						) : (
 							<>
 								<span className="tabular-nums">
-									+{hiddenFileStats.length} more
+									{uiMessage("chat:turn_summary_more_sentence", {
+										value: hiddenFileStats.length,
+									})}
 								</span>
 								{hiddenTotals.added > 0 ? (
 									<span className="font-mono tabular-nums text-emerald-400">

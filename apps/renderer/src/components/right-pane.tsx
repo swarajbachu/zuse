@@ -1,3 +1,5 @@
+import { isInputComposing } from "../lib/input-composition.ts";
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatRef, ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import {
@@ -6,6 +8,8 @@ import {
 	type FolderId,
 	type WorktreeId,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	CheckListIcon,
 	CloudIcon,
@@ -103,17 +107,49 @@ const PANEL_META: Record<
 		readonly shortcut?: string;
 	}
 > = {
-	files: { label: "Files", icon: Folder01Icon },
+	files: {
+		get label() {
+			return uiMessage("chat:right_pane_files");
+		},
+		icon: Folder01Icon,
+	},
 	terminal: {
-		label: "Terminal",
+		get label() {
+			return uiMessage("chat:right_pane_terminal");
+		},
 		icon: ComputerTerminal01Icon,
 		shortcut: formatShortcut("toggle-terminal"),
 	},
-	changes: { label: "Changes", icon: GitCompareIcon },
-	pr: { label: "PR", icon: GitPullRequestIcon },
-	plan: { label: "Plan", icon: CheckListIcon },
-	browser: { label: "Browser", icon: GlobeIcon },
-	subagents: { label: "Subagents", icon: MagicWand01Icon },
+	changes: {
+		get label() {
+			return uiMessage("chat:right_pane_changes");
+		},
+		icon: GitCompareIcon,
+	},
+	pr: {
+		get label() {
+			return uiMessage("chat:right_pane_pr");
+		},
+		icon: GitPullRequestIcon,
+	},
+	plan: {
+		get label() {
+			return uiMessage("chat:right_pane_plan");
+		},
+		icon: CheckListIcon,
+	},
+	browser: {
+		get label() {
+			return uiMessage("chat:right_pane_browser");
+		},
+		icon: GlobeIcon,
+	},
+	subagents: {
+		get label() {
+			return uiMessage("chat:right_pane_subagents");
+		},
+		icon: MagicWand01Icon,
+	},
 };
 
 const LIVE_PANEL_KINDS = new Set<PanelKind>([
@@ -174,13 +210,13 @@ const panelChoices = (
 		return [
 			{
 				key: "cloud-terminal",
-				label: "Cloud terminal",
+				label: uiMessage("chat:right_pane_cloud_terminal"),
 				icon: CloudIcon,
 				onClick: cloudTerminals.onAddCloud,
 			},
 			{
 				key: "local-terminal",
-				label: "Local terminal",
+				label: uiMessage("chat:right_pane_local_terminal"),
 				icon: ComputerIcon,
 				onClick: cloudTerminals.onAddLocal,
 			},
@@ -209,6 +245,8 @@ export function RightPane({
 }: {
 	directoryUnavailable?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const paneRef = useRef<HTMLElement>(null);
 	useRegisterPane("rightPane", paneRef);
 	const ctx = useActiveContext();
@@ -227,7 +265,7 @@ export function RightPane({
 						worktreeId: ctx.worktreeId,
 						rootPath: ctx.rootPath,
 					},
-		[ctx],
+		[ctx, uiMessage],
 	);
 	const selected = logicalRightPaneProject(folders, logicalSelectedFolderId);
 	const workspaceView = useGitWorkspaceResource(executionRef, "connect");
@@ -254,7 +292,7 @@ export function RightPane({
 						: catalogEnvironmentId,
 			chatId,
 		};
-	}, [catalogEnvironmentId, chatId, ctx]);
+	}, [catalogEnvironmentId, chatId, ctx, uiMessage]);
 	const cloudSummary =
 		cloudSummaryCandidate?.workspaceId === chatRef?.environmentId
 			? cloudSummaryCandidate
@@ -277,7 +315,13 @@ export function RightPane({
 			!isRunning
 				? latestAssistantText(messages)
 				: null),
-		[isRunning, messages, session?.permissionMode, session?.providerId],
+		[
+			isRunning,
+			messages,
+			session?.permissionMode,
+			session?.providerId,
+			uiMessage,
+		],
 	);
 	// Terminal tab titles are sourced from the chat's terminal list (slot →
 	// instance) so multiple terminal tabs read "zsh", "zsh 2".
@@ -405,11 +449,15 @@ export function RightPane({
 				return (
 					<span
 						role="status"
-						title="Terminal disconnected — close it and open a new terminal"
+						title={uiMessage(
+							"chat:right_pane_terminal_disconnected_close_it_and_open_a_new_terminal",
+						)}
 						className="size-1.5 shrink-0 rounded-full bg-rose-400"
 					>
 						<span className="sr-only">
-							Terminal disconnected — close it and open a new terminal
+							{uiMessage(
+								"chat:right_pane_terminal_disconnected_close_it_and_open_a_new_terminal",
+							)}
 						</span>
 					</span>
 				);
@@ -428,7 +476,7 @@ export function RightPane({
 		return (
 			<aside className="flex h-full min-h-0 w-full flex-col">
 				<p className="px-3 py-6 text-center text-xs text-muted-foreground">
-					No project selected.
+					{uiMessage("chat:right_pane_no_project_selected")}
 				</p>
 			</aside>
 		);
@@ -498,7 +546,7 @@ export function RightPane({
 						className="flex min-h-0 flex-1 items-center justify-center px-4 text-xs text-muted-foreground"
 						aria-busy="true"
 					>
-						Preparing workspace…
+						{uiMessage("chat:right_pane_preparing_workspace")}
 					</div>
 				) : null}
 				{ctx.status !== "worktree-pending" &&
@@ -554,11 +602,14 @@ export function RightPane({
 						<div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
 							<div className="max-w-sm">
 								<h2 className="font-medium text-sm">
-									Integrated browser is desktop-only
+									{uiMessage(
+										"chat:right_pane_integrated_browser_is_desktop_only",
+									)}
 								</h2>
 								<p className="mt-2 text-muted-foreground text-sm leading-6">
-									Browser automation requires Electron’s isolated Chromium
-									controls. Links can still open in a normal browser tab.
+									{uiMessage(
+										"chat:right_pane_browser_automation_requires_electron_s_isolated_chromium_controls_link",
+									)}
 								</p>
 							</div>
 						</div>
@@ -596,13 +647,17 @@ function PanelBody({
 	cloudUnavailable: boolean;
 	localTerminal: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	if (cloudUnavailable && LIVE_PANEL_KINDS.has(panel.kind) && !localTerminal) {
 		return (
 			<div
 				role="status"
 				className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs text-muted-foreground"
 			>
-				This cloud workspace is disconnected. Select this tab to reconnect.
+				{uiMessage(
+					"chat:right_pane_this_cloud_workspace_is_disconnected_select_this_tab_to_reconnect",
+				)}
 			</div>
 		);
 	}
@@ -617,7 +672,7 @@ function PanelBody({
 				role="status"
 				className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-xs text-muted-foreground"
 			>
-				This directory is unavailable.
+				{uiMessage("chat:right_pane_this_directory_is_unavailable")}
 			</div>
 		);
 	}
@@ -732,6 +787,8 @@ function AddPanelMenu({
 	onAdd: (kind: PanelKind) => void;
 	cloudTerminals: CloudTerminalActions | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	if (addable.length === 0) return null;
 	return (
 		<Menu>
@@ -740,13 +797,13 @@ function AddPanelMenu({
 					render={
 						<MenuTrigger
 							className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground data-[popup-open]:bg-muted/60"
-							aria-label="Add panel"
+							aria-label={uiMessage("chat:right_pane_add_panel")}
 						>
 							<Plus className="size-3.5" strokeWidth={1.8} />
 						</MenuTrigger>
 					}
 				/>
-				<TooltipPopup>Add panel</TooltipPopup>
+				<TooltipPopup>{uiMessage("chat:right_pane_add_panel")}</TooltipPopup>
 			</Tooltip>
 			<MenuPopup align="end" className="w-72 p-1">
 				{addable.length > 0
@@ -792,6 +849,8 @@ function PanelTab({
 	onSelect: () => void;
 	onClose: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	return (
 		<div
 			className={`group flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[11px] transition-colors ${
@@ -811,12 +870,16 @@ function PanelTab({
 			</button>
 			<button
 				type="button"
-				aria-label={`Close ${label}`}
+				aria-label={uiMessage("chat:right_pane_close", {
+					label: String(label),
+				})}
 				onClick={(e) => {
 					e.stopPropagation();
 					onClose();
 				}}
 				onKeyDown={(e) => {
+					if (isInputComposing(e)) return;
+
 					if (e.key === "Enter" || e.key === " ") {
 						e.preventDefault();
 						e.stopPropagation();
@@ -859,7 +922,7 @@ function renderPrBadge(
 			return (
 				<span
 					className="flex items-center text-rose-300"
-					title="Merge conflicts"
+					title={uiMessage("chat:right_pane_merge_conflicts")}
 				>
 					<span className="size-2 rounded-full bg-rose-400" />
 				</span>

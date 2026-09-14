@@ -1,0 +1,14 @@
+{
+	"see_how_it_works": "Sehen Sie, wie es funktioniert",
+	"meta_title": "Zuse – Alle Ihre Programmieragenten in einem Arbeitsbereich",
+	"open_source_cloud_beta_live": "<part0></part0>Open Source · Cloud-Beta live",
+	"run_agents_side_by_side_carry_context_between_them_and_keep_every_task": "Führen Sie Agenten nebeneinander aus, übertragen Sie den Kontext zwischen ihnen und halten Sie jede Aufgabe in ihrem eigenen Git-Worktree isoliert.",
+	"schema_worktrees": "Isolierte Git-Worktrees für parallele Agentenläufe",
+	"schema_environments": "Lokale und Cloud-Ausführungsumgebungen",
+	"schema_parallel": "Mehrere Programmieragenten in einem Arbeitsbereich ausführen",
+	"free_in_beta_no_token_markup": "Kostenlos in der Beta · kein Token-Aufschlag",
+	"all_your_coding_agents_one_workspace": "Alle Ihre Programmieragenten. <part0>Ein Arbeitsbereich.</part0>",
+	"schema_tools": "Integrierte Diff-, Terminal-, Browser- und Pull-Request-Überprüfung",
+	"meta_description": "Führen Sie Programmieragenten nebeneinander aus, übertragen Sie den Kontext zwischen ihnen und isolieren Sie jede Aufgabe in ihrem eigenen Git-Worktree mit Zuse.",
+	"schema_subscriptions": "Bringen Sie Ihre bestehenden Modellabonnements mit"
+}

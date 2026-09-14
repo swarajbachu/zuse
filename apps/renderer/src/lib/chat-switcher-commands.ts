@@ -1,4 +1,5 @@
 import type { Command } from "@zuse/contracts";
+import { i18n } from "@zuse/i18n";
 import fuzzysort from "fuzzysort";
 import { APPLICATION_COMMANDS } from "./commands.ts";
 import { COMMAND_META, COMMANDS_IN_ORDER } from "./default-keybindings.ts";
@@ -17,7 +18,7 @@ export interface ChatSwitcherCommandRow {
 	readonly searchText: string;
 }
 
-const ALL_COMMAND_ROWS: ReadonlyArray<ChatSwitcherCommandRow> =
+const commandRows = (): ReadonlyArray<ChatSwitcherCommandRow> =>
 	COMMANDS_IN_ORDER.flatMap((command) => {
 		if (!APPLICATION_COMMANDS.has(command) || EXCLUDED_COMMANDS.has(command))
 			return [];
@@ -30,7 +31,7 @@ const ALL_COMMAND_ROWS: ReadonlyArray<ChatSwitcherCommandRow> =
 				description: metadata.description,
 				group: metadata.group,
 				searchText:
-					`${metadata.label} ${metadata.description} ${metadata.group}`.toLowerCase(),
+					`${metadata.label} ${metadata.description} ${metadata.group} ${command} ${i18n.getFixedT("en")(metadata.labelKey)}`.toLowerCase(),
 			},
 		];
 	});
@@ -51,9 +52,10 @@ export function commandRowsForQuery(
 ): ReadonlyArray<ChatSwitcherCommandRow> {
 	const searchQuery = commandSearchQuery(query);
 	if (searchQuery === null) return [];
-	if (searchQuery.length === 0) return ALL_COMMAND_ROWS;
+	const rows = commandRows();
+	if (searchQuery.length === 0) return rows;
 	return fuzzysort
-		.go(searchQuery, ALL_COMMAND_ROWS, {
+		.go(searchQuery, rows, {
 			key: "searchText",
 			threshold: 0.3,
 			limit: 50,

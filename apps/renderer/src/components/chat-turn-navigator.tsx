@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/chat";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	type KeyboardEvent,
 	useCallback,
@@ -39,6 +41,8 @@ export function ChatTurnNavigator({
 	readonly onReaderIntent: () => void;
 	readonly onNavigate: (entry: ChatTurnNavigationEntry) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [open, setOpen] = useState(false);
 	const [hasSpace, setHasSpace] = useState(false);
 	const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -58,7 +62,7 @@ export function ChatTurnNavigator({
 	const canNavigate = turns.length >= 2;
 	const railTurns = useMemo(
 		() => deriveChatTurnRailEntries(turns, 18, activeMessageId),
-		[activeMessageId, turns],
+		[activeMessageId, turns, uiMessage],
 	);
 	const highlightedOptionId =
 		activeDescendantIndex === null || turns[activeDescendantIndex] === undefined
@@ -227,7 +231,9 @@ export function ChatTurnNavigator({
 			>
 				<PopoverTrigger
 					ref={triggerRef}
-					aria-label="Navigate conversation"
+					aria-label={uiMessage(
+						"chat:chat_turn_navigator_navigate_conversation",
+					)}
 					disabled={!hasSpace}
 					tabIndex={hasSpace ? 0 : -1}
 					onPointerEnter={(event) => {
@@ -294,7 +300,9 @@ export function ChatTurnNavigator({
 						getFixedItemSize={() => rowHeight}
 						role="listbox"
 						id={listboxId}
-						aria-label="Conversation turns"
+						aria-label={uiMessage(
+							"chat:chat_turn_navigator_conversation_turns",
+						)}
 						aria-activedescendant={highlightedOptionId}
 						tabIndex={0}
 						className="overflow-y-auto overscroll-contain py-1 pl-1 [scrollbar-color:transparent_transparent] [scrollbar-width:thin] hover:[scrollbar-color:var(--border)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-border"

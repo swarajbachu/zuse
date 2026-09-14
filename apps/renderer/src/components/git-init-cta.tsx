@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { GitBranchIcon, Loading02Icon } from "@zuse/icons/solid-rounded";
 import { useState } from "react";
 
@@ -28,6 +30,8 @@ export function GitInitCta({
 	 */
 	onInitialized?: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["projects"]);
+
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -49,11 +53,15 @@ export function GitInitCta({
 		<div className="flex flex-col items-start gap-2 py-1">
 			<div className="flex flex-col gap-0.5">
 				<span className="font-medium text-foreground">
-					This folder isn't a Git repository
+					{uiMessage(
+						"projects:git_init_cta_this_folder_isn_t_a_git_repository",
+					)}
 				</span>
 				{!compact ? (
 					<span className="text-muted-foreground">
-						Initialize Git to track changes, commit, and open pull requests.
+						{uiMessage(
+							"projects:git_init_cta_initialize_git_to_track_changes_commit_and_open_pull_requests",
+						)}
 					</span>
 				) : null}
 			</div>
@@ -68,7 +76,7 @@ export function GitInitCta({
 				) : (
 					<HugeiconsIcon icon={GitBranchIcon} className="size-3" />
 				)}
-				Initialize Git repository
+				{uiMessage("projects:git_init_cta_initialize_git_repository")}
 			</button>
 			{error !== null ? (
 				<span className="text-rose-300/90">{error}</span>

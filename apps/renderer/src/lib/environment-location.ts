@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/shell";
+import { message as uiMessage } from "@zuse/i18n";
 import type { EnvironmentCatalogEntry } from "../store/environment-catalog.ts";
 
 export type EnvironmentLocation = {
@@ -15,7 +17,11 @@ export const deriveEnvironmentLocation = (input: {
 		input.activeEnvironmentId === input.localEnvironmentId ||
 		input.activeEntry?.connectionKind === "local";
 	if (isLocal) {
-		return { isLocal: true, label: "Local", menuLabel: "This Mac" };
+		return {
+			isLocal: true,
+			label: uiMessage("shell:environment_location_local"),
+			menuLabel: "This Mac",
+		};
 	}
 
 	const remoteLabel = input.activeEntry?.label.trim() || "Remote computer";

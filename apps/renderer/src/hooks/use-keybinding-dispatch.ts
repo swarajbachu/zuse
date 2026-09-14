@@ -31,6 +31,7 @@ export function useKeybindingDispatch(): void {
 	useKeybindings((state) => state.loaded);
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.isComposing || event.keyCode === 229) return;
 			const base = normalizeEventKey(event.key);
 			if (
 				base === "shift" ||

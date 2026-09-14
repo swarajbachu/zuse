@@ -65,6 +65,7 @@
 		"tsdown": "^0.21.10",
 		"typescript": "catalog:",
 		"vite-plus": "0.2.5",
-		"vitest": "catalog:"
+		"vitest": "catalog:",
+		"@zuse/i18n": "workspace:*"
 	}
 }

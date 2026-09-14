@@ -1,3 +1,5 @@
+import { isInputComposing } from "../lib/input-composition.ts";
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatRef, ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import {
@@ -10,6 +12,7 @@ import {
 	type GitMergeMethod,
 	type WorktreeId,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Alert01Icon,
 	ArchiveArrowDownIcon,
@@ -149,6 +152,8 @@ const executionRefFor = (
  * the controls are gone, so we hug the edge instead.
  */
 export function TopBarLeft() {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
 	const isFullScreen = useUiStore((s) => s.isFullScreen);
 	const reserveMacTrafficLights = isMacHost() && !isFullScreen;
@@ -158,7 +163,7 @@ export function TopBarLeft() {
 			className={`${SECTION_CLASS} pr-1 ${reserveMacTrafficLights ? "pl-20" : "pl-3"}`}
 		>
 			<span className="truncate font-semibold tracking-tight text-foreground">
-				Zuse (Beta)
+				{uiMessage("chat:top_bar_zuse_beta")}
 			</span>
 			<span className="flex-1" />
 			<Tooltip>
@@ -168,7 +173,7 @@ export function TopBarLeft() {
 							type="button"
 							onClick={() => setLeftSidebarOpen(false)}
 							className={ICON_BUTTON_CLASS}
-							aria-label="Hide projects panel"
+							aria-label={uiMessage("chat:top_bar_hide_projects_panel")}
 						>
 							<HugeiconsIcon icon={PanelLeftCloseIcon} className="size-3.5" />
 						</button>
@@ -176,7 +181,7 @@ export function TopBarLeft() {
 				/>
 				<TooltipPopup>
 					<TooltipShortcut
-						label="Hide projects panel"
+						label={uiMessage("chat:top_bar_hide_projects_panel")}
 						shortcut={formatShortcut("toggle-left-sidebar")}
 					/>
 				</TooltipPopup>
@@ -192,6 +197,8 @@ export function TopBarLeft() {
  * regardless of which way the files panel is currently leaning).
  */
 export function TopBarMain() {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	// Pull folderId + worktreeId from the canonical active context so the
 	// branch label can never disagree with the terminal cwd, file tree root,
 	// or composer chip — they all read from the same hook.
@@ -385,7 +392,7 @@ export function TopBarMain() {
 								type="button"
 								onClick={() => setLeftSidebarOpen(true)}
 								className={ICON_BUTTON_CLASS}
-								aria-label="Show projects panel"
+								aria-label={uiMessage("chat:top_bar_show_projects_panel")}
 							>
 								<HugeiconsIcon icon={PanelLeftOpenIcon} className="size-3.5" />
 							</button>
@@ -393,7 +400,7 @@ export function TopBarMain() {
 					/>
 					<TooltipPopup>
 						<TooltipShortcut
-							label="Show projects panel"
+							label={uiMessage("chat:top_bar_show_projects_panel")}
 							shortcut={formatShortcut("toggle-left-sidebar")}
 						/>
 					</TooltipPopup>
@@ -402,7 +409,7 @@ export function TopBarMain() {
 			<div className={`flex min-w-0 flex-1 items-center ${ACTION_CLASS}`}>
 				{hasSession ? (
 					<nav
-						aria-label="Repository location"
+						aria-label={uiMessage("chat:top_bar_repository_location")}
 						className="flex min-w-0 max-w-[min(460px,100%)] items-center gap-1 text-[11px]"
 					>
 						<Avatar className="mr-0.5 size-4 shrink-0 rounded-sm">
@@ -497,14 +504,18 @@ export function TopBarMain() {
 										? "bg-foreground/10 text-foreground"
 										: ""
 								}`}
-								aria-label="Toggle environment summary"
+								aria-label={uiMessage(
+									"chat:top_bar_toggle_environment_summary",
+								)}
 								aria-pressed={environmentSummaryOpen}
 							>
 								<HugeiconsIcon icon={Menu01Icon} className="size-3.5" />
 							</button>
 						}
 					/>
-					<TooltipPopup>Toggle environment summary</TooltipPopup>
+					<TooltipPopup>
+						{uiMessage("chat:top_bar_toggle_environment_summary")}
+					</TooltipPopup>
 				</Tooltip>
 			) : null}
 			<Tooltip>
@@ -521,7 +532,9 @@ export function TopBarMain() {
 							}}
 							className={ICON_BUTTON_CLASS}
 							aria-label={
-								rightSidebarOpen ? "Hide files panel" : "Show files panel"
+								rightSidebarOpen
+									? uiMessage("chat:top_bar_hide_files_panel")
+									: uiMessage("chat:top_bar_show_files_panel")
 							}
 						>
 							{rightSidebarOpen ? (
@@ -537,7 +550,11 @@ export function TopBarMain() {
 				/>
 				<TooltipPopup>
 					<TooltipShortcut
-						label={rightSidebarOpen ? "Hide files panel" : "Show files panel"}
+						label={
+							rightSidebarOpen
+								? uiMessage("chat:top_bar_hide_files_panel")
+								: uiMessage("chat:top_bar_show_files_panel")
+						}
 						shortcut={formatShortcut("toggle-right-sidebar")}
 					/>
 				</TooltipPopup>
@@ -571,6 +588,8 @@ export function BranchMenuButton({
 	onRename: () => void;
 	onSwitch: (branch: GitBranchInfo) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [branchQuery, setBranchQuery] = useState("");
 	const normalizedQuery = branchQuery.trim().toLocaleLowerCase();
 	const matchingBranches = branches.filter((branch) => {
@@ -587,7 +606,7 @@ export function BranchMenuButton({
 			<MenuTrigger
 				onClick={onOpen}
 				className={`flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-medium text-foreground outline-none hover:bg-foreground/5 data-[popup-open]:bg-foreground/5 ${className ?? "max-w-64"}`}
-				aria-label="Switch branch"
+				aria-label={uiMessage("chat:top_bar_switch_branch")}
 			>
 				<HugeiconsIcon
 					icon={GitBranchIcon}
@@ -626,7 +645,7 @@ export function BranchMenuButton({
 							className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
 						>
 							<HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />
-							Rename current branch…
+							{uiMessage("chat:top_bar_rename_current_branch")}
 						</MenuItem>
 						<MenuSeparator />
 					</>
@@ -637,21 +656,27 @@ export function BranchMenuButton({
 							icon={Search01Icon}
 							className="size-3.5 shrink-0 text-muted-foreground"
 						/>
-						<span className="sr-only">Search branches</span>
+						<span className="sr-only">
+							{uiMessage("chat:top_bar_search_branches")}
+						</span>
 						<input
 							type="search"
 							value={branchQuery}
 							onChange={(event) => setBranchQuery(event.target.value)}
 							onKeyDown={(event) => {
+								if (isInputComposing(event)) return;
+
 								if (event.key !== "Escape") event.stopPropagation();
 							}}
-							placeholder="Search branches"
+							placeholder={uiMessage("chat:top_bar_search_branches")}
 							className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/70"
 						/>
 					</label>
 				</div>
 				<div className="max-h-56 overflow-y-auto overscroll-contain">
-					<MenuSectionLabel>Local branches</MenuSectionLabel>
+					<MenuSectionLabel>
+						{uiMessage("chat:top_bar_local_branches")}
+					</MenuSectionLabel>
 					{localBranches.length > 0 ? (
 						localBranches.map((branch) => (
 							<MenuItem
@@ -674,13 +699,15 @@ export function BranchMenuButton({
 						))
 					) : normalizedQuery.length === 0 ? (
 						<div className="px-2 py-1.5 text-xs text-muted-foreground">
-							No local branches
+							{uiMessage("chat:top_bar_no_local_branches")}
 						</div>
 					) : null}
 					{remoteBranches.length > 0 ? (
 						<>
 							<MenuSeparator />
-							<MenuSectionLabel>Remote branches</MenuSectionLabel>
+							<MenuSectionLabel>
+								{uiMessage("chat:top_bar_remote_branches")}
+							</MenuSectionLabel>
 							{remoteBranches.map((branch) => (
 								<MenuItem
 									key={`remote:${branch.remote ?? branch.name}`}
@@ -701,7 +728,7 @@ export function BranchMenuButton({
 					) : null}
 					{matchingBranches.length === 0 ? (
 						<div className="px-2 py-5 text-center text-xs text-muted-foreground">
-							No matching branches
+							{uiMessage("chat:top_bar_no_matching_branches")}
 						</div>
 					) : null}
 				</div>
@@ -733,6 +760,8 @@ function RenameBranchDialog({
 	onRenamed: () => Promise<void>;
 	worktreeId: WorktreeId;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const rename = async (next: string) => {
 		await dispatchGitWorkspaceCommand({
 			ref: executionRef,
@@ -745,9 +774,11 @@ function RenameBranchDialog({
 
 	return (
 		<RenameDialog
-			title="Rename branch"
-			description="Rename the unpublished branch for this chat workspace."
-			label="Branch name"
+			title={uiMessage("chat:top_bar_rename_branch")}
+			description={uiMessage(
+				"chat:top_bar_rename_the_unpublished_branch_for_this_chat_workspace",
+			)}
+			label={uiMessage("chat:top_bar_branch_name")}
 			value={branchLabel}
 			open={open}
 			onOpenChange={onOpenChange}
@@ -757,12 +788,14 @@ function RenameBranchDialog({
 }
 
 function OpenInMenu({ rootPath }: { rootPath: string | null }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const capabilities = rendererPlatformCapabilities();
 	const [targets, setTargets] = useState<ReadonlyArray<OpenTarget>>([]);
 	const [loading, setLoading] = useState(false);
 	const availableTargets = useMemo(
 		() => targets.filter((target) => target.available),
-		[targets],
+		[targets, uiMessage],
 	);
 	const primary = availableTargets.find((target) => target.id === "finder");
 
@@ -811,7 +844,7 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 							disabled={rootPath === null}
 							onClick={() => void refreshTargets()}
 							className={`${ACTION_CLASS} flex h-7 items-center overflow-hidden rounded-md border border-border/80 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-50`}
-							aria-label="Open workspace in app"
+							aria-label={uiMessage("chat:top_bar_open_workspace_in_app")}
 						>
 							<span className="flex size-7 items-center justify-center border-r border-border/80">
 								{loading ? (
@@ -831,7 +864,7 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 						</MenuTrigger>
 					}
 				/>
-				<TooltipPopup>Open in…</TooltipPopup>
+				<TooltipPopup>{uiMessage("chat:top_bar_open_in")}</TooltipPopup>
 			</Tooltip>
 			<MenuPopup align="end" className="min-w-56">
 				{availableTargets.map((target, index) => (
@@ -851,7 +884,9 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 					className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-sm hover:bg-sidebar-accent"
 				>
 					<HugeiconsIcon icon={Copy01Icon} className="size-4" />
-					<span className="min-w-0 flex-1 truncate">Copy path</span>
+					<span className="min-w-0 flex-1 truncate">
+						{uiMessage("chat:top_bar_copy_path")}
+					</span>
 					<MenuShortcut>⌘⇧C</MenuShortcut>
 				</MenuItem>
 			</MenuPopup>
@@ -874,6 +909,8 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
  * the old worktree pane's Run affordance, now promoted to the top bar).
  */
 function RunButton() {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const ctx = useActiveContext();
 	const folderId = ctx.status === "ready" ? ctx.folderId : null;
 	const settings = useRepositorySettingsStore((s) =>
@@ -911,7 +948,7 @@ function RunButton() {
 		openTerminalCommand({
 			chatRef: { environmentId: ctx.environmentId, chatId },
 			cwd: run.cwd,
-			title: "Run",
+			title: uiMessage("chat:top_bar_run"),
 			command: { cmd: "/bin/zsh", args: ["-lc", run.script], env: run.env },
 		});
 	};
@@ -920,13 +957,15 @@ function RunButton() {
 		<GlassActionButton
 			tone="zinc"
 			icon={<HugeiconsIcon icon={PlayIcon} />}
-			label="Run"
+			label={uiMessage("chat:top_bar_run")}
 			onClick={() => void onRun()}
 		/>
 	);
 }
 
 export function TopBarRight() {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const ctx = useActiveContext();
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 	const resetKey =
@@ -945,7 +984,7 @@ export function TopBarRight() {
 					<div
 						className={`text-[11px] text-[var(--accent-red)] ${ACTION_CLASS}`}
 					>
-						Actions unavailable
+						{uiMessage("chat:top_bar_actions_unavailable")}
 					</div>
 				</header>
 			}
@@ -963,6 +1002,8 @@ export function TopBarRightContent({
 }: {
 	compact?: boolean;
 } = {}) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const ctx = useActiveContext();
 	const executionRef = executionRefFor(ctx);
 	const git = useGitWorkspaceResource(executionRef, "connect").data;
@@ -991,17 +1032,24 @@ export function TopBarRightContent({
 			<div className={`flex min-w-0 flex-1 items-center gap-2 ${ACTION_CLASS}`}>
 				{agentReady && workflow.kind === "dirty" ? (
 					<GlassChip tone="amber">
-						{workflow.count} change{workflow.count === 1 ? "" : "s"}
+						{uiMessage("chat:top_bar_change_plural0_sentence", {
+							value: workflow.count ?? "",
+							count: workflow.count,
+						})}
 					</GlassChip>
 				) : null}
 				{agentReady && workflow.kind === "ahead" ? (
-					<GlassChip tone="pink">{workflow.count} ahead</GlassChip>
+					<GlassChip tone="pink">
+						{uiMessage("chat:top_bar_ahead_sentence", {
+							value: workflow.count,
+						})}
+					</GlassChip>
 				) : null}
 				{agentReady && workflow.kind === "ready-for-pr" ? (
-					<GlassChip tone="zinc">No PR</GlassChip>
+					<GlassChip tone="zinc">{uiMessage("chat:top_bar_no_pr")}</GlassChip>
 				) : null}
 				{agentReady && workflow.kind === "merged-pr" ? (
-					<GlassChip tone="green">Merged</GlassChip>
+					<GlassChip tone="green">{uiMessage("chat:top_bar_merged")}</GlassChip>
 				) : null}
 				{agentReady && workflow.kind === "open-pr" ? (
 					<>
@@ -1067,6 +1115,8 @@ export function ResolveConflictsButton({
 }: {
 	presentation?: WorkflowActionPresentation;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const ctx = useActiveContext();
 	const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
@@ -1080,7 +1130,11 @@ export function ResolveConflictsButton({
 					icon={presentation === "inline" ? Wrench01Icon : Alert01Icon}
 				/>
 			}
-			label={presentation === "inline" ? "Fix" : "Resolve conflicts"}
+			label={
+				presentation === "inline"
+					? uiMessage("chat:top_bar_fix")
+					: uiMessage("chat:top_bar_resolve_conflicts")
+			}
 			disabled={selectedSessionId === null}
 			onClick={() => {
 				if (selectedSessionId === null || ctx.status !== "ready") return;
@@ -1107,6 +1161,8 @@ export function WorkflowActions({
 	presentation?: WorkflowActionPresentation;
 	className?: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const ctx = useActiveContext();
 	const executionRef = executionRefFor(ctx);
 	const folderId = ctx.status === "ready" ? ctx.folderId : null;
@@ -1153,7 +1209,7 @@ export function WorkflowActions({
 					presentation={presentation}
 					tone="amber"
 					icon={<HugeiconsIcon icon={Upload01Icon} />}
-					label="Commit & push"
+					label={uiMessage("chat:top_bar_commit_push")}
 					disabled={!agentReady}
 					onClick={() => sendToAgent("commit and push the current changes")}
 				/>
@@ -1164,7 +1220,11 @@ export function WorkflowActions({
 					presentation={presentation}
 					tone="pink"
 					icon={<HugeiconsIcon icon={Upload01Icon} />}
-					label={presentation === "inline" ? "Push" : "Push commits"}
+					label={
+						presentation === "inline"
+							? uiMessage("chat:top_bar_push")
+							: uiMessage("chat:top_bar_push_commits")
+					}
 					loadingLabel="Pushing…"
 					run={async () => {
 						if (executionRef === null) return;
@@ -1185,7 +1245,7 @@ export function WorkflowActions({
 					presentation={presentation}
 					tone="pink"
 					icon={<HugeiconsIcon icon={GitPullRequestIcon} />}
-					label="Create PR"
+					label={uiMessage("chat:top_bar_create_pr")}
 					disabled={!agentReady}
 					onClick={() => sendToAgent("create a pull request for this branch")}
 				/>
@@ -1198,8 +1258,8 @@ export function WorkflowActions({
 					label={
 						archiveProgress === null
 							? presentation === "inline"
-								? "Archive"
-								: "Archive chat"
+								? uiMessage("chat:top_bar_archive")
+								: uiMessage("chat:top_bar_archive_chat")
 							: chatArchiveProgressLabel(archiveProgress)
 					}
 					loadingLabel={
@@ -1237,7 +1297,7 @@ export function WorkflowActions({
 					presentation={presentation}
 					tone="zinc"
 					icon={<HugeiconsIcon icon={GitMergeIcon} />}
-					label="Mark ready"
+					label={uiMessage("chat:top_bar_mark_ready")}
 					loadingLabel="Marking…"
 					run={async () => {
 						if (executionRef === null) return;
@@ -1292,6 +1352,8 @@ const openPrChipTone = (w: OpenPrWorkflow): GlassTone => {
  * Tinted by the same workflow tone the merge button uses.
  */
 function PrHashChip({ workflow }: { workflow: OpenPrWorkflow }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const checksRunning = workflow.checksRunning;
 	const label =
 		checksRunning > 0
@@ -1318,14 +1380,18 @@ function PrHashChip({ workflow }: { workflow: OpenPrWorkflow }) {
 						type="button"
 						onClick={() => openExternal(url)}
 						className="cursor-pointer rounded-md transition-opacity hover:opacity-80"
-						aria-label={`Open pull request #${workflow.number ?? "?"} on GitHub`}
+						aria-label={uiMessage("chat:top_bar_open_pull_request_on_github", {
+							value1: String(workflow.number ?? "?"),
+						})}
 					>
 						<GlassChip tone={openPrChipTone(workflow)}>{content}</GlassChip>
 					</button>
 				}
 			/>
 			<TooltipPopup>
-				Open pull request #{workflow.number ?? "?"} on GitHub
+				{uiMessage("chat:top_bar_open_pull_request_on_github_sentence", {
+					value: workflow.number ?? "?",
+				})}
 			</TooltipPopup>
 		</Tooltip>
 	);
@@ -1339,6 +1405,8 @@ function PrHashChip({ workflow }: { workflow: OpenPrWorkflow }) {
  *   none    → nothing
  */
 function CiStatus({ workflow }: { workflow: OpenPrWorkflow }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	if (workflow.checksTotal === 0) return null;
 	if (workflow.checksRunning > 0) return null;
 	if (workflow.checksFailing > 0) {
@@ -1346,7 +1414,10 @@ function CiStatus({ workflow }: { workflow: OpenPrWorkflow }) {
 		return (
 			<span className="flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-[var(--accent-red)]">
 				<HugeiconsIcon icon={Alert01Icon} className="size-3.5" />
-				{n} check{n === 1 ? "" : "s"} failing
+				{n}
+				{uiMessage("chat:top_bar_check")}
+				{n === 1 ? "" : "s"}
+				{uiMessage("chat:top_bar_failing")}
 			</span>
 		);
 	}
@@ -1377,6 +1448,8 @@ function DirectActionButton({
 	run: () => Promise<unknown>;
 	onSuccess?: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const [loading, setLoading] = useState(false);
 
 	const onClick = async () => {
@@ -1388,7 +1461,7 @@ function DirectActionButton({
 		} catch (err) {
 			toastManager.add({
 				type: "error",
-				title: `${label} failed`,
+				title: uiMessage("chat:top_bar_failed", { label: String(label) }),
 				description: errorMessage(err),
 			});
 		} finally {
@@ -1435,6 +1508,8 @@ function MergeButton({
 	folderId: FolderId;
 	worktreeId: WorktreeId | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const executionRef = executionRefFor(useActiveContext());
 	const method = useMergePrefs((s) => s.method);
 	const deleteBranch = useMergePrefs((s) => s.deleteBranch);
@@ -1446,7 +1521,7 @@ function MergeButton({
 				presentation={presentation}
 				tone="green"
 				icon={<HugeiconsIcon icon={GitMergeIcon} />}
-				label="Merge"
+				label={uiMessage("chat:top_bar_merge")}
 				loadingLabel="Merging…"
 				run={async () => {
 					if (executionRef === null) return;
@@ -1473,13 +1548,13 @@ function MergeButton({
 						render={
 							<MenuTrigger
 								className="flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-								aria-label="Choose merge method"
+								aria-label={uiMessage("chat:top_bar_choose_merge_method")}
 							>
 								<ChevronDown className="size-3.5" />
 							</MenuTrigger>
 						}
 					/>
-					<TooltipPopup>Merge method</TooltipPopup>
+					<TooltipPopup>{uiMessage("chat:top_bar_merge_method")}</TooltipPopup>
 				</Tooltip>
 				<MenuPopup align="end" className="min-w-[200px]">
 					{(["merge", "squash", "rebase"] as const).map((m) => (
@@ -1519,6 +1594,8 @@ function AutoMergeToggle({
 	worktreeId: WorktreeId | null;
 	enabled: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const executionRef = executionRefFor(useActiveContext());
 	const method = useMergePrefs((s) => s.method);
 	const deleteBranch = useMergePrefs((s) => s.deleteBranch);
@@ -1545,7 +1622,7 @@ function AutoMergeToggle({
 		} catch (err) {
 			toastManager.add({
 				type: "error",
-				title: "Auto-merge failed",
+				title: uiMessage("chat:top_bar_auto_merge_failed"),
 				description: errorMessage(err),
 			});
 		} finally {
@@ -1575,7 +1652,11 @@ function AutoMergeToggle({
 									<HugeiconsIcon icon={MagicWand01Icon} />
 								)
 							}
-							label={enabled ? "Auto-merge on" : "Auto-merge"}
+							label={
+								enabled
+									? uiMessage("chat:top_bar_auto_merge_on")
+									: uiMessage("chat:top_bar_auto_merge")
+							}
 							disabled={loading}
 							onClick={() => void toggle()}
 						/>
@@ -1608,7 +1689,9 @@ function AutoMergeToggle({
 							) : (
 								<HugeiconsIcon icon={MagicWand01Icon} />
 							)}
-							{enabled ? "Auto-merge on" : "Auto-merge"}
+							{enabled
+								? uiMessage("chat:top_bar_auto_merge_on")
+								: uiMessage("chat:top_bar_auto_merge")}
 						</button>
 					}
 				/>
@@ -1648,6 +1731,8 @@ export function FixActionsButton({
 	worktreeId: WorktreeId | null;
 	disabled: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const executionRef = executionRefFor(useActiveContext());
 	const [loading, setLoading] = useState(false);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
@@ -1707,10 +1792,10 @@ export function FixActionsButton({
 			}
 			label={
 				loading
-					? "Capturing…"
+					? uiMessage("chat:top_bar_capturing")
 					: presentation === "inline"
-						? "Fix"
-						: "Fix CI errors"
+						? uiMessage("chat:top_bar_fix")
+						: uiMessage("chat:top_bar_fix_ci_errors")
 			}
 			disabled={disabled || loading}
 			onClick={onClick}

@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/chat";
 import type {
 	CodeViewDiffItem,
 	CodeViewItem,
@@ -33,6 +34,7 @@ import type {
 	WorktreeId,
 } from "@zuse/contracts";
 import { CommandId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -219,11 +221,15 @@ type HydratedFile = {
 };
 
 export function ChangesReview() {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const context = useActiveContext();
 	if (context.status !== "ready") {
 		return (
 			<div className="grid h-full place-items-center text-sm text-muted-foreground">
-				Select a ready workspace to review changes.
+				{uiMessage(
+					"chat:changes_review_select_a_ready_workspace_to_review_changes",
+				)}
 			</div>
 		);
 	}
@@ -252,6 +258,8 @@ function ChangesReviewReady({
 }: {
 	readonly executionRef: ExecutionRef;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const { folderId, worktreeId, rootPath } = executionRef;
 	const reviewView = useGitReviewResource(executionRef, "connect");
 	const summary = reviewView.data?.summary ?? null;
@@ -326,6 +334,7 @@ function ChangesReviewReady({
 		authUser?.email,
 		authUser?.profilePictureUrl,
 		repositoryAuthor,
+		uiMessage,
 	]);
 	const annotationsBySession = useAnnotationsStore((state) => state.bySession);
 	const annotations = useMemo(
@@ -335,7 +344,7 @@ function ChangesReviewReady({
 				: (annotationsBySession[selectedSessionId] ?? []).filter(
 						(entry): entry is CodeAnnotation => !("_tag" in entry),
 					),
-		[annotationsBySession, selectedSessionId],
+		[annotationsBySession, selectedSessionId, uiMessage],
 	);
 
 	useEffect(() => {
@@ -375,7 +384,7 @@ function ChangesReviewReady({
 			}
 		}
 		return map;
-	}, [annotations, draftSelection]);
+	}, [annotations, draftSelection, uiMessage]);
 
 	const items = useMemo(() => {
 		if (summary === null) return [];
@@ -449,7 +458,16 @@ function ChangesReviewReady({
 			});
 		}
 		return next;
-	}, [summary, patches, key, hydrated, annotationMap, collapsed, editingPath]);
+	}, [
+		summary,
+		patches,
+		key,
+		hydrated,
+		annotationMap,
+		collapsed,
+		editingPath,
+		uiMessage,
+	]);
 
 	useEffect(() => {
 		if (navigation?.path === null || navigation?.path === undefined) return;
@@ -476,7 +494,7 @@ function ChangesReviewReady({
 
 	const fileByPath = useMemo(
 		() => new Map(summary?.files.map((file) => [file.path, file]) ?? []),
-		[summary],
+		[summary, uiMessage],
 	);
 
 	const viewedKey = useCallback((path: string) => `${key}:${path}`, [key]);
@@ -686,9 +704,15 @@ function ChangesReviewReady({
 					<button
 						type="button"
 						aria-label={
-							collapsed.has(file.path) ? "Expand diff" : "Collapse diff"
+							collapsed.has(file.path)
+								? uiMessage("chat:changes_review_expand_diff")
+								: uiMessage("chat:changes_review_collapse_diff")
 						}
-						title={collapsed.has(file.path) ? "Expand diff" : "Collapse diff"}
+						title={
+							collapsed.has(file.path)
+								? uiMessage("chat:changes_review_expand_diff")
+								: uiMessage("chat:changes_review_collapse_diff")
+						}
 						onClick={(event) => {
 							event.stopPropagation();
 							toggleCollapsed(file.path);
@@ -713,10 +737,14 @@ function ChangesReviewReady({
 						}}
 						onClick={(event) => event.stopPropagation()}
 						aria-label={
-							isViewed(file.path) ? "Mark unviewed" : "Mark viewed and collapse"
+							isViewed(file.path)
+								? uiMessage("chat:changes_review_mark_unviewed")
+								: uiMessage("chat:changes_review_mark_viewed_and_collapse")
 						}
 						title={
-							isViewed(file.path) ? "Mark unviewed" : "Mark viewed and collapse"
+							isViewed(file.path)
+								? uiMessage("chat:changes_review_mark_unviewed")
+								: uiMessage("chat:changes_review_mark_viewed_and_collapse")
 						}
 						className="size-3.5 cursor-pointer accent-foreground"
 					/>
@@ -728,7 +756,7 @@ function ChangesReviewReady({
 				</div>
 			);
 		},
-		[collapsed, fileByPath, isViewed, toggleCollapsed, toggleViewed],
+		[collapsed, fileByPath, isViewed, toggleCollapsed, toggleViewed, uiMessage],
 	);
 
 	const renderHeaderMetadata = useCallback(
@@ -741,11 +769,12 @@ function ChangesReviewReady({
 					{editing ? (
 						<button
 							type="button"
-							title="Save edit (⌘S)"
+							title={uiMessage("chat:changes_review_save_edit_s")}
 							onClick={() => void saveEdit()}
 							className="flex h-6 items-center gap-1 rounded px-2 text-[11px] text-foreground hover:bg-foreground/10"
 						>
-							<Save className="size-3" /> Save
+							<Save className="size-3" />
+							{uiMessage("chat:changes_review_save")}
 						</button>
 					) : null}
 					<FileActionsMenu
@@ -766,6 +795,7 @@ function ChangesReviewReady({
 			leaveEdit,
 			restoreToBase,
 			saveEdit,
+			uiMessage,
 		],
 	);
 
@@ -934,14 +964,23 @@ function ChangesReviewReady({
 				}
 			},
 		}),
-		[createAnnotationDraft, diffTheme, preferences],
+		[createAnnotationDraft, diffTheme, preferences, uiMessage],
 	);
 
 	if (summary === null && loading) {
-		return <ReviewState title="Preparing review" loading />;
+		return (
+			<ReviewState
+				title={uiMessage("chat:changes_review_preparing_review")}
+				loading
+			/>
+		);
 	}
 	if (summary === null) {
-		return <ReviewState title={error ?? "No review is available."} />;
+		return (
+			<ReviewState
+				title={error ?? uiMessage("chat:changes_review_no_review_is_available")}
+			/>
+		);
 	}
 
 	const viewedCount = summary.files.filter((file) =>
@@ -958,22 +997,30 @@ function ChangesReviewReady({
 			<div className="flex min-h-12 shrink-0 items-center gap-3 border-b border-border/50 px-4">
 				<div className="min-w-0">
 					<div className="truncate text-xs font-medium text-foreground">
-						Review changes
+						{uiMessage("chat:changes_review_review_changes")}
 					</div>
 					<div className="mt-0.5 flex items-center gap-1.5 truncate text-[10px] text-muted-foreground">
 						<span>
-							{summary.baseRef === null ? "Working tree" : summary.baseRef}
+							{summary.baseRef === null
+								? uiMessage("chat:changes_review_working_tree")
+								: summary.baseRef}
 						</span>
 						<span aria-hidden="true">·</span>
 						<span className="tabular-nums">
-							{viewedCount} of {summary.files.length} reviewed
+							{uiMessage("chat:changes_review_of_reviewed_sentence", {
+								viewedCount: viewedCount,
+								value: summary.files.length,
+							})}
 						</span>
 					</div>
 				</div>
 				<div className="ml-auto flex shrink-0 items-center gap-1">
 					<div
 						className="mr-1 flex h-7 items-center gap-1.5 rounded-md bg-muted/60 px-2 font-mono text-[10px] tabular-nums"
-						title={`${summary.additions} additions and ${summary.deletions} deletions`}
+						title={uiMessage("chat:changes_review_additions_and_deletions", {
+							additions: String(summary.additions),
+							deletions: String(summary.deletions),
+						})}
 					>
 						<span className="text-emerald-500">+{summary.additions}</span>
 						<span className="text-rose-500">−{summary.deletions}</span>
@@ -981,8 +1028,8 @@ function ChangesReviewReady({
 					<ToolbarButton
 						label={
 							preferences.diffStyle === "split"
-								? "Use unified view"
-								: "Use split view"
+								? uiMessage("chat:changes_review_use_unified_view")
+								: uiMessage("chat:changes_review_use_split_view")
 						}
 						onClick={() =>
 							updatePreferences({
@@ -996,8 +1043,8 @@ function ChangesReviewReady({
 					<ToolbarButton
 						label={
 							collapsed.size === summary.files.length
-								? "Expand all files"
-								: "Collapse all files"
+								? uiMessage("chat:changes_review_expand_all_files")
+								: uiMessage("chat:changes_review_collapse_all_files")
 						}
 						onClick={() =>
 							setCollapsed(
@@ -1010,7 +1057,7 @@ function ChangesReviewReady({
 						<ChevronsUpDown />
 					</ToolbarButton>
 					<ToolbarButton
-						label="Copy all patches"
+						label={uiMessage("chat:changes_review_copy_all_patches")}
 						onClick={() =>
 							void navigator.clipboard.writeText(
 								summary.files
@@ -1029,7 +1076,10 @@ function ChangesReviewReady({
 			</div>
 			{error !== null ? (
 				<div className="border-b border-amber-500/20 bg-amber-500/5 px-3 py-1.5 text-xs text-amber-300">
-					Some changes could not be loaded: {error}
+					{uiMessage(
+						"chat:changes_review_some_changes_could_not_be_loaded_sentence",
+						{ error: error },
+					)}
 				</div>
 			) : null}
 			{editError !== null ? (
@@ -1044,7 +1094,9 @@ function ChangesReviewReady({
 			) : null}
 			<div className="relative min-h-0 flex-1 overflow-hidden">
 				{items.length === 0 && !loading ? (
-					<ReviewState title="No branch changes to review." />
+					<ReviewState
+						title={uiMessage("chat:changes_review_no_branch_changes_to_review")}
+					/>
 				) : (
 					<CodeView<AnnotationMetadata>
 						ref={viewerRef}
@@ -1084,6 +1136,8 @@ function ConflictReview({
 	readonly onResolved: () => Promise<void>;
 	readonly onClose: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const { folderId, worktreeId } = executionRef;
 	const diffTheme = useZuseDiffTheme();
 	const [contents, setContents] = useState<string | null>(null);
@@ -1171,7 +1225,7 @@ function ConflictReview({
 			overflow: "wrap",
 			hunkSeparators: "line-info",
 		}),
-		[diffTheme],
+		[diffTheme, uiMessage],
 	);
 
 	return (
@@ -1181,15 +1235,17 @@ function ConflictReview({
 					type="button"
 					onClick={onClose}
 					className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-					aria-label="Back to review"
-					title="Back to review"
+					aria-label={uiMessage("chat:changes_review_back_to_review")}
+					title={uiMessage("chat:changes_review_back_to_review")}
 				>
 					<ChevronRight className="size-4 rotate-180" />
 				</button>
 				<CircleAlert className="size-3.5 shrink-0 text-rose-400" />
 				<div className="min-w-0">
 					<div className="truncate text-xs font-medium">
-						Resolve {file.path.slice(file.path.lastIndexOf("/") + 1)}
+						{uiMessage("chat:changes_review_resolve_sentence", {
+							value: file.path.slice(file.path.lastIndexOf("/") + 1),
+						})}
 					</div>
 					<div className="truncate text-[10px] text-muted-foreground">
 						{file.path}
@@ -1197,8 +1253,11 @@ function ConflictReview({
 				</div>
 				<span className="ml-auto shrink-0 rounded-md bg-foreground/5 px-2 py-1 text-[10px] tabular-nums text-muted-foreground">
 					{saving
-						? "Saving resolution…"
-						: `${remaining} conflict${remaining === 1 ? "" : "s"} remaining`}
+						? uiMessage("chat:changes_review_saving_resolution")
+						: uiMessage("chat:changes_review_conflict_remaining", {
+								remaining: String(remaining),
+								count: remaining,
+							})}
 				</span>
 			</div>
 			{error !== null ? (
@@ -1210,7 +1269,10 @@ function ConflictReview({
 				{error !== null && contents === null ? (
 					<ReviewState title={error} />
 				) : contents === null ? (
-					<ReviewState title="Loading conflict" loading />
+					<ReviewState
+						title={uiMessage("chat:changes_review_loading_conflict")}
+						loading
+					/>
 				) : (
 					<UnresolvedFile
 						file={{ name: file.path, contents }}
@@ -1253,13 +1315,13 @@ function ConflictReview({
 							return (
 								<div className="m-1.5 flex w-fit items-center rounded-md bg-background/80 p-0.5 shadow-sm ring-1 ring-border/60">
 									<ConflictAction onClick={() => resolve("current")}>
-										Keep current
+										{uiMessage("chat:changes_review_keep_current")}
 									</ConflictAction>
 									<ConflictAction onClick={() => resolve("incoming")}>
-										Keep incoming
+										{uiMessage("chat:changes_review_keep_incoming")}
 									</ConflictAction>
 									<ConflictAction onClick={() => resolve("both")}>
-										Keep both
+										{uiMessage("chat:changes_review_keep_both")}
 									</ConflictAction>
 								</div>
 							);
@@ -1322,11 +1384,15 @@ function FileActionsMenu({
 	readonly onDiscard: () => void;
 	readonly onRestore: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	return (
 		<Popover>
 			<PopoverTrigger
-				aria-label={`Actions for ${file.path}`}
-				title="File actions"
+				aria-label={uiMessage("chat:changes_review_actions_for", {
+					path: String(file.path),
+				})}
+				title={uiMessage("chat:changes_review_file_actions")}
 				className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground data-[popup-open]:bg-foreground/10"
 			>
 				<MoreHorizontal className="size-3.5" />
@@ -1341,16 +1407,18 @@ function FileActionsMenu({
 					<PopoverPrimitive.Popup className="w-52 rounded-md border border-border/70 bg-popover p-1 text-xs text-popover-foreground shadow-lg outline-none">
 						{!file.binary && file.kind !== "deleted" && !file.conflict ? (
 							<FileMenuAction icon={FilePenLine} onClick={onEdit}>
-								{editing ? "Return to diff" : "Edit file"}
+								{editing
+									? uiMessage("chat:changes_review_return_to_diff")
+									: uiMessage("chat:changes_review_edit_file")}
 							</FileMenuAction>
 						) : null}
 						{file.hasUncommittedChanges ? (
 							<FileMenuAction destructive icon={RotateCcw} onClick={onDiscard}>
-								Discard uncommitted changes
+								{uiMessage("chat:changes_review_discard_uncommitted_changes")}
 							</FileMenuAction>
 						) : null}
 						<FileMenuAction destructive icon={RotateCcw} onClick={onRestore}>
-							Restore to comparison base
+							{uiMessage("chat:changes_review_restore_to_comparison_base")}
 						</FileMenuAction>
 					</PopoverPrimitive.Popup>
 				</PopoverPrimitive.Positioner>
@@ -1392,11 +1460,13 @@ function DisplaySettings({
 	readonly preferences: ReviewPreferences;
 	readonly onChange: (patch: Partial<ReviewPreferences>) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	return (
 		<Popover>
 			<PopoverTrigger
-				aria-label="Display settings"
-				title="Display settings"
+				aria-label={uiMessage("chat:changes_review_display_settings")}
+				title={uiMessage("chat:changes_review_display_settings")}
 				className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-[popup-open]:bg-foreground/10 data-[popup-open]:text-foreground"
 			>
 				<Settings2 className="size-3.5" />
@@ -1411,18 +1481,20 @@ function DisplaySettings({
 					<PopoverPrimitive.Popup className="w-60 rounded-lg border border-border/70 bg-popover p-3 text-popover-foreground shadow-xl/15 outline-none">
 						<div className="flex flex-col gap-1">
 							<DisplaySwitch
-								label="Line numbers"
+								label={uiMessage("chat:changes_review_line_numbers")}
 								checked={preferences.lineNumbers}
 								onCheckedChange={(lineNumbers) => onChange({ lineNumbers })}
 							/>
 							<DisplaySwitch
-								label="Word wrap"
+								label={uiMessage("chat:changes_review_word_wrap")}
 								checked={preferences.wrap}
 								onCheckedChange={(wrap) => onChange({ wrap })}
 							/>
 						</div>
 						<div className="mt-2 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
-							<span className="text-xs text-muted-foreground">Indicators</span>
+							<span className="text-xs text-muted-foreground">
+								{uiMessage("chat:changes_review_indicators")}
+							</span>
 							<div className="flex rounded-md bg-foreground/5 p-0.5">
 								{(
 									[
@@ -1434,7 +1506,9 @@ function DisplaySettings({
 									<button
 										key={value}
 										type="button"
-										aria-label={`${label} indicators`}
+										aria-label={uiMessage("chat:changes_review_indicators_2", {
+											label: String(label),
+										})}
 										aria-pressed={preferences.indicators === value}
 										title={label}
 										onClick={() => onChange({ indicators: value })}

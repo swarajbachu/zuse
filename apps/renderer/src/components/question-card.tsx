@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/chat";
 import type {
 	AgentItemId,
 	EnvironmentId,
@@ -5,6 +6,7 @@ import type {
 	UserQuestion,
 	UserQuestionAnswer,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Check, ChevronLeft, ChevronRight, X } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
@@ -78,6 +80,8 @@ function InteractiveQuestionCard({
 	readonly itemId: AgentItemId;
 	readonly questions: ReadonlyArray<UserQuestion>;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const answerQuestion = useSessionsStore((s) => s.answerQuestion);
 	const [activeIdx, setActiveIdx] = useState(0);
 	const [drafts, setDrafts] = useState<ReadonlyArray<DraftAnswer>>(() =>
@@ -175,7 +179,7 @@ function InteractiveQuestionCard({
 
 	const complete = useMemo(
 		() => isComplete(questions, drafts),
-		[questions, drafts],
+		[questions, drafts, uiMessage],
 	);
 
 	const submit = (): void => {
@@ -191,7 +195,7 @@ function InteractiveQuestionCard({
 				<button
 					type="button"
 					className="-mr-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-					aria-label="Dismiss"
+					aria-label={uiMessage("chat:question_card_dismiss")}
 					// Dismiss = answer with empty drafts so the SDK turn unwinds with a
 					// "user declined" tool result rather than hanging forever.
 					onClick={() => {
@@ -249,7 +253,7 @@ function InteractiveQuestionCard({
 						value={draft.other}
 						onChange={(e) => setOther(e.target.value)}
 						onKeyDown={onOtherKeyDown}
-						placeholder="Other answer…"
+						placeholder={uiMessage("chat:question_card_other_answer")}
 						className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground/70"
 					/>
 				</label>
@@ -260,7 +264,7 @@ function InteractiveQuestionCard({
 					<div className="flex items-center gap-1.5 text-muted-foreground">
 						<button
 							type="button"
-							aria-label="Previous question"
+							aria-label={uiMessage("chat:question_card_previous_question")}
 							disabled={activeIdx === 0}
 							onClick={() => setActiveIdx((i) => Math.max(0, i - 1))}
 							className="rounded p-1 hover:text-foreground disabled:opacity-30"
@@ -287,7 +291,7 @@ function InteractiveQuestionCard({
 						})}
 						<button
 							type="button"
-							aria-label="Next question"
+							aria-label={uiMessage("chat:question_card_next_question")}
 							disabled={activeIdx === questions.length - 1}
 							onClick={() =>
 								setActiveIdx((i) => Math.min(questions.length - 1, i + 1))
@@ -302,12 +306,12 @@ function InteractiveQuestionCard({
 				)}
 				<Button
 					size="xs"
-					aria-label="Submit answer"
+					aria-label={uiMessage("chat:question_card_submit_answer")}
 					disabled={!complete || submitting}
 					onClick={submit}
 					loading={submitting}
 				>
-					Submit answer
+					{uiMessage("chat:question_card_submit_answer")}
 				</Button>
 			</div>
 		</div>
@@ -321,6 +325,8 @@ function AnsweredQuestionCard({
 	readonly questions: ReadonlyArray<UserQuestion>;
 	readonly answer: ReadonlyArray<UserQuestionAnswer>;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	return (
 		<div className="rounded-lg bg-card/80 p-3 text-xs text-foreground/90 ring-1 ring-border/60">
 			{questions.map((q, i) => {
@@ -340,7 +346,7 @@ function AnsweredQuestionCard({
 							) : null}
 							{picks.length === 0 && other.length === 0 ? (
 								<span className="italic text-muted-foreground">
-									(cancelled)
+									{uiMessage("chat:question_card_cancelled")}
 								</span>
 							) : null}
 						</div>

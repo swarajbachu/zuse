@@ -1,6 +1,8 @@
+import "@zuse/i18n/english/commands";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { ChatId, Command, Session } from "@zuse/contracts";
 import { defaultModelFor, EnvironmentId, PROVIDER_IDS } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 import { toastManager } from "../components/ui/toast.tsx";
 import { useChatsStore } from "../store/chats";
 import { useComposerBridge } from "../store/composer-bridge";
@@ -112,9 +114,10 @@ async function newTabInActiveChat(): Promise<void> {
 	if (providerId === null) {
 		toastManager.add({
 			type: "error",
-			title: "No authenticated agent",
-			description:
-				"Connect an agent in Cloud Authentication before opening a new tab.",
+			title: uiMessage("commands:commands_no_authenticated_agent"),
+			description: uiMessage(
+				"commands:commands_connect_an_agent_in_cloud_authentication_before_opening_a_new_tab",
+			),
 		});
 		return;
 	}

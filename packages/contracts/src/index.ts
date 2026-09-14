@@ -26,6 +26,12 @@ export * from "./ids.ts";
 export * from "./keybindings.ts";
 export * from "./keybindings-parse.ts";
 export * from "./linear.ts";
+export type {
+	DesktopLocale,
+	LocaleBridge,
+	LocalePreference,
+	LocaleSnapshot,
+} from "./locale.ts";
 export * from "./machines.ts";
 export * from "./mcp.ts";
 export * from "./model-catalog/index.ts";

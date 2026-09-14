@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/commands";
 import type { Command, KeybindingRule } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 
 /**
  * Display metadata for each command. The label is shown in the settings
@@ -8,182 +10,471 @@ import type { Command, KeybindingRule } from "@zuse/contracts";
  */
 export interface CommandMeta {
 	readonly label: string;
+	readonly labelKey: import("@zuse/i18n").MessageKey;
 	readonly description: string;
 	readonly group: string;
 }
 
 export const COMMAND_META: Record<Command, CommandMeta> = {
 	"new-chat": {
-		label: "New chat",
-		description: "Start a new session in the selected project",
-		group: "Application",
+		labelKey: "commands:default_keybindings_new_chat",
+		get label() {
+			return uiMessage("commands:default_keybindings_new_chat");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_start_a_new_session_in_the_selected_project",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
 	},
 	"open-project": {
-		label: "Open project…",
-		description: "Pick a folder to add to the workspace",
-		group: "Application",
+		labelKey: "commands:default_keybindings_open_project",
+		get label() {
+			return uiMessage("commands:default_keybindings_open_project");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_pick_a_folder_to_add_to_the_workspace",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
 	},
 	settings: {
-		label: "Settings",
-		description: "Open or close the settings page",
-		group: "Application",
+		labelKey: "commands:default_keybindings_settings",
+		get label() {
+			return uiMessage("commands:default_keybindings_settings");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_open_or_close_the_settings_page",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
 	},
 	"search-files": {
-		label: "Search files",
-		description: "Find and open a file in the current project or worktree",
-		group: "Application",
+		labelKey: "commands:default_keybindings_search_files",
+		get label() {
+			return uiMessage("commands:default_keybindings_search_files");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_find_and_open_a_file_in_the_current_project_or_worktree",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
 	},
 	"close-tab": {
-		label: "Close tab",
-		description: "Close the active chat tab",
-		group: "Application",
+		labelKey: "commands:default_keybindings_close_tab",
+		get label() {
+			return uiMessage("commands:default_keybindings_close_tab");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_close_the_active_chat_tab",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
 	},
 	"toggle-left-sidebar": {
-		label: "Toggle projects panel",
-		description: "Show or hide the left projects sidebar",
-		group: "Application",
+		labelKey: "commands:default_keybindings_toggle_projects_panel",
+		get label() {
+			return uiMessage("commands:default_keybindings_toggle_projects_panel");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_show_or_hide_the_left_projects_sidebar",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
 	},
 	"toggle-right-sidebar": {
-		label: "Toggle files panel",
-		description: "Show or hide the right files sidebar",
-		group: "Application",
+		labelKey: "commands:default_keybindings_toggle_files_panel",
+		get label() {
+			return uiMessage("commands:default_keybindings_toggle_files_panel");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_show_or_hide_the_right_files_sidebar",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
 	},
 	"toggle-terminal": {
-		label: "Toggle terminal",
-		description: "Open the right pane and switch to the terminal tab",
-		group: "Application",
+		labelKey: "commands:default_keybindings_toggle_terminal",
+		get label() {
+			return uiMessage("commands:default_keybindings_toggle_terminal");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_open_the_right_pane_and_switch_to_the_terminal_tab",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
 	},
 	"focus-composer": {
-		label: "Focus composer",
-		description: "Move the cursor into the chat input",
-		group: "Application",
+		labelKey: "commands:default_keybindings_focus_composer",
+		get label() {
+			return uiMessage("commands:default_keybindings_focus_composer");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_move_the_cursor_into_the_chat_input",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
 	},
 	"next-tab": {
-		label: "Next tab",
-		description: "Switch to the next tab in the active chat",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_next_tab",
+		get label() {
+			return uiMessage("commands:default_keybindings_next_tab");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_switch_to_the_next_tab_in_the_active_chat",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"prev-tab": {
-		label: "Previous tab",
-		description: "Switch to the previous tab in the active chat",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_previous_tab",
+		get label() {
+			return uiMessage("commands:default_keybindings_previous_tab");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_switch_to_the_previous_tab_in_the_active_chat",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"select-tab-1": {
-		label: "Go to tab 1",
-		description: "Jump to the first tab",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_go_to_tab_1",
+		get label() {
+			return uiMessage("commands:default_keybindings_go_to_tab_1");
+		},
+		get description() {
+			return uiMessage("commands:default_keybindings_jump_to_the_first_tab");
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"select-tab-2": {
-		label: "Go to tab 2",
-		description: "Jump to the second tab",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_go_to_tab_2",
+		get label() {
+			return uiMessage("commands:default_keybindings_go_to_tab_2");
+		},
+		get description() {
+			return uiMessage("commands:default_keybindings_jump_to_the_second_tab");
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"select-tab-3": {
-		label: "Go to tab 3",
-		description: "Jump to the third tab",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_go_to_tab_3",
+		get label() {
+			return uiMessage("commands:default_keybindings_go_to_tab_3");
+		},
+		get description() {
+			return uiMessage("commands:default_keybindings_jump_to_the_third_tab");
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"select-tab-4": {
-		label: "Go to tab 4",
-		description: "Jump to the fourth tab",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_go_to_tab_4",
+		get label() {
+			return uiMessage("commands:default_keybindings_go_to_tab_4");
+		},
+		get description() {
+			return uiMessage("commands:default_keybindings_jump_to_the_fourth_tab");
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"select-tab-5": {
-		label: "Go to tab 5",
-		description: "Jump to the fifth tab",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_go_to_tab_5",
+		get label() {
+			return uiMessage("commands:default_keybindings_go_to_tab_5");
+		},
+		get description() {
+			return uiMessage("commands:default_keybindings_jump_to_the_fifth_tab");
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"select-tab-6": {
-		label: "Go to tab 6",
-		description: "Jump to the sixth tab",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_go_to_tab_6",
+		get label() {
+			return uiMessage("commands:default_keybindings_go_to_tab_6");
+		},
+		get description() {
+			return uiMessage("commands:default_keybindings_jump_to_the_sixth_tab");
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"select-tab-7": {
-		label: "Go to tab 7",
-		description: "Jump to the seventh tab",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_go_to_tab_7",
+		get label() {
+			return uiMessage("commands:default_keybindings_go_to_tab_7");
+		},
+		get description() {
+			return uiMessage("commands:default_keybindings_jump_to_the_seventh_tab");
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"select-tab-8": {
-		label: "Go to tab 8",
-		description: "Jump to the eighth tab",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_go_to_tab_8",
+		get label() {
+			return uiMessage("commands:default_keybindings_go_to_tab_8");
+		},
+		get description() {
+			return uiMessage("commands:default_keybindings_jump_to_the_eighth_tab");
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"select-last-tab": {
-		label: "Go to last tab",
-		description: "Jump to the last tab in the active chat",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_go_to_last_tab",
+		get label() {
+			return uiMessage("commands:default_keybindings_go_to_last_tab");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_jump_to_the_last_tab_in_the_active_chat",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"new-tab": {
-		label: "New tab",
-		description: "Open a new session in the active chat",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_new_tab",
+		get label() {
+			return uiMessage("commands:default_keybindings_new_tab");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_open_a_new_session_in_the_active_chat",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"next-chat": {
-		label: "Next chat",
-		description: "Switch to the next chat in the sidebar",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_next_chat",
+		get label() {
+			return uiMessage("commands:default_keybindings_next_chat");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_switch_to_the_next_chat_in_the_sidebar",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"prev-chat": {
-		label: "Previous chat",
-		description: "Switch to the previous chat in the sidebar",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_previous_chat",
+		get label() {
+			return uiMessage("commands:default_keybindings_previous_chat");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_switch_to_the_previous_chat_in_the_sidebar",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"next-panel": {
-		label: "Next panel",
-		description: "Switch to the next panel in the right pane",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_next_panel",
+		get label() {
+			return uiMessage("commands:default_keybindings_next_panel");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_switch_to_the_next_panel_in_the_right_pane",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"prev-panel": {
-		label: "Previous panel",
-		description: "Switch to the previous panel in the right pane",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_previous_panel",
+		get label() {
+			return uiMessage("commands:default_keybindings_previous_panel");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_switch_to_the_previous_panel_in_the_right_pane",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"focus-next-pane": {
-		label: "Focus next pane",
-		description:
-			"Move keyboard focus to the next region (sidebar → chat → composer → right pane)",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_focus_next_pane",
+		get label() {
+			return uiMessage("commands:default_keybindings_focus_next_pane");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_move_keyboard_focus_to_the_next_region_sidebar_chat_composer_righ",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"focus-prev-pane": {
-		label: "Focus previous pane",
-		description: "Move keyboard focus to the previous region",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_focus_previous_pane",
+		get label() {
+			return uiMessage("commands:default_keybindings_focus_previous_pane");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_move_keyboard_focus_to_the_previous_region",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"open-chat-switcher": {
-		label: "Switch chat…",
-		description: "Open the quick-switcher to jump to any chat in any project",
-		group: "Navigation",
+		labelKey: "commands:default_keybindings_switch_chat",
+		get label() {
+			return uiMessage("commands:default_keybindings_switch_chat");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_open_the_quick_switcher_to_jump_to_any_chat_in_any_project",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_navigation");
+		},
 	},
 	"composer.submit": {
-		label: "Submit message",
-		description: "Send the current composer contents",
-		group: "Composer",
+		labelKey: "commands:default_keybindings_submit_message",
+		get label() {
+			return uiMessage("commands:default_keybindings_submit_message");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_send_the_current_composer_contents",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
 	},
 	"composer.newline": {
-		label: "Insert newline",
-		description: "Add a line break instead of submitting",
-		group: "Composer",
+		labelKey: "commands:default_keybindings_insert_newline",
+		get label() {
+			return uiMessage("commands:default_keybindings_insert_newline");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_add_a_line_break_instead_of_submitting",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
 	},
 	"composer.forceSubmit": {
-		label: "Force submit",
-		description: "Submit regardless of mention/skill popover state",
-		group: "Composer",
+		labelKey: "commands:default_keybindings_force_submit",
+		get label() {
+			return uiMessage("commands:default_keybindings_force_submit");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_submit_regardless_of_mention_skill_popover_state",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
 	},
 	"composer.togglePlanMode": {
-		label: "Toggle plan mode",
-		description: "Switch between normal and plan-mode composer",
-		group: "Composer",
+		labelKey: "commands:default_keybindings_toggle_plan_mode",
+		get label() {
+			return uiMessage("commands:default_keybindings_toggle_plan_mode");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_switch_between_normal_and_plan_mode_composer",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_composer");
+		},
 	},
 	"editor.save": {
-		label: "Save file",
-		description: "Write the open file to disk",
-		group: "Editor",
+		labelKey: "commands:default_keybindings_save_file",
+		get label() {
+			return uiMessage("commands:default_keybindings_save_file");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_write_the_open_file_to_disk",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_editor");
+		},
 	},
 	"editor.annotate": {
-		label: "Annotate selection",
-		description:
-			"Pin a comment on the selected code and add it to the composer",
-		group: "Editor",
+		labelKey: "commands:default_keybindings_annotate_selection",
+		get label() {
+			return uiMessage("commands:default_keybindings_annotate_selection");
+		},
+		get description() {
+			return uiMessage(
+				"commands:default_keybindings_pin_a_comment_on_the_selected_code_and_add_it_to_the_composer",
+			);
+		},
+		get group() {
+			return uiMessage("commands:command_group_editor");
+		},
 	},
 };
 

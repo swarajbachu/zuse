@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/shell";
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 
 /**
  * Visual treatment per server-reported provider status. Centralized so the
@@ -64,7 +66,7 @@ export function getProviderStatusNotice(
 			: statusMessage;
 	return {
 		key: "codex-provider-status",
-		title: "Codex provider status",
+		title: uiMessage("shell:provider_status_codex_provider_status"),
 		description,
 	};
 }
@@ -185,15 +187,15 @@ export function getProviderSummary(
 	if (a.providerId === "pi")
 		return {
 			statusKey: "ready",
-			headline: "Available",
-			detail: "Authentication and permissions are managed by Pi.",
+			headline: uiMessage("shell:pi_available"),
+			detail: uiMessage("shell:pi_native_auth_permissions"),
 			authEmail: null,
 			actionable: false,
 		};
 	if (a.cliLoggedIn || a.hasApiKey) {
 		return {
 			statusKey: "warning",
-			headline: "Available",
+			headline: uiMessage("shell:pi_available"),
 			detail:
 				a.statusMessage ??
 				(a.hasApiKey

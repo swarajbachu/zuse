@@ -1,5 +1,8 @@
+import "@zuse/i18n/english/onboarding";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { AppearanceMode } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ComputerIcon,
 	Moon02Icon,
@@ -19,32 +22,46 @@ const APPEARANCE_OPTIONS: ReadonlyArray<{
 }> = [
 	{
 		value: "system",
-		label: "System",
-		description: "Match your Mac automatically.",
+		get label() {
+			return uiMessage("onboarding:appearance_system");
+		},
+		get description() {
+			return uiMessage("onboarding:appearance_match_your_mac_automatically");
+		},
 		Icon: ComputerIcon,
 	},
 	{
 		value: "light",
-		label: "Light",
-		description: "Use the brighter interface.",
+		get label() {
+			return uiMessage("onboarding:appearance_light");
+		},
+		get description() {
+			return uiMessage("onboarding:appearance_use_the_brighter_interface");
+		},
 		Icon: Sun03Icon,
 	},
 	{
 		value: "dark",
-		label: "Dark",
-		description: "Keep the classic dark interface.",
+		get label() {
+			return uiMessage("onboarding:appearance_dark");
+		},
+		get description() {
+			return uiMessage("onboarding:appearance_keep_the_classic_dark_interface");
+		},
 		Icon: Moon02Icon,
 	},
 ];
 
 export function AppearanceStep() {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
 	const setAppearanceMode = useSettingsStore((s) => s.setAppearanceMode);
 
 	return (
 		<div className="flex flex-col gap-7">
 			<StepHeader
-				title="Choose your appearance"
+				title={uiMessage("onboarding:appearance_choose_your_appearance")}
 				subtitle="Pick a starting look. You can change this later in Settings."
 			/>
 

@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
 	ContextMenuItem as FileTreeContextMenuItem,
@@ -17,6 +18,7 @@ import type {
 	WorktreeId,
 } from "@zuse/contracts";
 import { CommandId } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	BubbleChatIcon,
 	Copy01Icon,
@@ -182,6 +184,8 @@ export function FileTree({
 	rootPath: string;
 	worktreeId: WorktreeId | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const view = useFileTreeResource({
 		environmentId,
 		folderId,
@@ -193,14 +197,14 @@ export function FileTree({
 		if (view.sync === "failed" || view.connection === "failed") {
 			return (
 				<p className="px-3 py-6 text-center text-xs text-muted-foreground">
-					Project files are unavailable.
+					{uiMessage("projects:file_tree_project_files_are_unavailable")}
 				</p>
 			);
 		}
 		return (
 			<ul
 				className="flex flex-col gap-1 px-2 py-1"
-				aria-label="Loading project files"
+				aria-label={uiMessage("projects:file_tree_loading_project_files")}
 			>
 				{[80, 64, 72, 56, 88, 60, 76].map((w, i) => (
 					<li key={i} className="flex items-center gap-1.5 px-1 py-1">
@@ -246,6 +250,8 @@ function TreeView({
 	paths: ReadonlyArray<string>;
 	truncated: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const gitChanges =
 		useGitChangesResource(
 			{ environmentId, folderId, worktreeId, rootPath },
@@ -256,7 +262,7 @@ function TreeView({
 	const folderRoot = rootPath;
 	const executionRef = useMemo(
 		() => ({ environmentId, folderId, worktreeId, rootPath }),
-		[environmentId, folderId, rootPath, worktreeId],
+		[environmentId, folderId, rootPath, worktreeId, uiMessage],
 	);
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
 
@@ -547,26 +553,26 @@ function TreeView({
 							icon={PencilEdit01Icon}
 							onClick={act(() => openFile(stripSlash(item.path), item.name))}
 						>
-							Open in editor
+							{uiMessage("projects:file_tree_open_in_editor")}
 						</MenuButton>
 					)}
 					<MenuButton
 						icon={PencilEdit01Icon}
 						onClick={act(() => model.startRenaming(item.path), false)}
 					>
-						Rename
+						{uiMessage("projects:file_tree_rename")}
 					</MenuButton>
 					<MenuButton
 						icon={BubbleChatIcon}
 						onClick={act(() => attach(item.path, item.kind))}
 					>
-						Attach to chat
+						{uiMessage("projects:file_tree_attach_to_chat")}
 					</MenuButton>
 					<MenuButton
 						icon={Copy01Icon}
 						onClick={act(() => copyPath(item.path))}
 					>
-						Copy path
+						{uiMessage("projects:file_tree_copy_path")}
 					</MenuButton>
 					<OpenInSubmenu
 						path={item.path}
@@ -578,7 +584,7 @@ function TreeView({
 						icon={FileAddIcon}
 						onClick={act(() => void createInDirectory(dirForCreate, "file"))}
 					>
-						New File
+						{uiMessage("projects:file_tree_new_file")}
 					</MenuButton>
 					<MenuButton
 						icon={FolderAddIcon}
@@ -586,7 +592,7 @@ function TreeView({
 							() => void createInDirectory(dirForCreate, "directory"),
 						)}
 					>
-						New Folder
+						{uiMessage("projects:file_tree_new_folder")}
 					</MenuButton>
 					<div className="my-1 h-px bg-border" />
 					<MenuButton
@@ -599,7 +605,7 @@ function TreeView({
 							}),
 						)}
 					>
-						Delete
+						{uiMessage("common:delete")}
 					</MenuButton>
 				</div>
 			);
@@ -612,26 +618,28 @@ function TreeView({
 			openFile,
 			openInTarget,
 			openTargets,
+			uiMessage,
 		],
 	);
 
 	const header = (
 		<div className="flex items-center gap-1 px-2 py-1.5">
 			<span className="flex-1 truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-				Files{truncated ? " (partial)" : ""}
+				{uiMessage("projects:file_tree_files")}
+				{truncated ? uiMessage("projects:file_tree_partial") : ""}
 			</span>
 			<HeaderButton
-				label="New File"
+				label={uiMessage("projects:file_tree_new_file")}
 				icon={FileAddIcon}
 				onClick={() => void createInDirectory("", "file")}
 			/>
 			<HeaderButton
-				label="New Folder"
+				label={uiMessage("projects:file_tree_new_folder")}
 				icon={FolderAddIcon}
 				onClick={() => void createInDirectory("", "directory")}
 			/>
 			<HeaderButton
-				label="Search files"
+				label={uiMessage("projects:file_tree_search_files")}
 				icon={Search01Icon}
 				onClick={() => useUiStore.getState().setFileSearchOpen(true)}
 			/>
@@ -699,7 +707,13 @@ function OpenInSubmenu({
 	targets: ReadonlyArray<OpenTarget>;
 	onOpen: (target: OpenTarget) => void;
 }) {
-	const finder: OpenTarget = { id: "finder", label: "Finder", available: true };
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
+	const finder: OpenTarget = {
+		id: "finder",
+		label: uiMessage("projects:file_tree_finder"),
+		available: true,
+	};
 	const availableTargets = targets.length > 0 ? targets : [finder];
 
 	return (
@@ -710,12 +724,14 @@ function OpenInSubmenu({
 				className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-accent"
 			>
 				<HugeiconsIcon icon={FolderOpenIcon} className="size-4" />
-				<span>Open in</span>
+				<span>{uiMessage("projects:file_tree_open_in")}</span>
 				<ChevronRight className="ml-auto size-3.5 text-muted-foreground" />
 			</button>
 			<div
 				role="menu"
-				aria-label={`Open ${basename(path)} in`}
+				aria-label={uiMessage("projects:file_tree_open_in_2", {
+					value1: String(basename(path)),
+				})}
 				className={cn(
 					"invisible pointer-events-none absolute left-[calc(100%+4px)] top-0 z-10 min-w-[180px] p-1 text-sm opacity-0 transition-[opacity,visibility] group-hover/open-in:pointer-events-auto group-hover/open-in:visible group-hover/open-in:opacity-100 group-focus-within/open-in:pointer-events-auto group-focus-within/open-in:visible group-focus-within/open-in:opacity-100",
 					overlaySurface,
@@ -779,6 +795,8 @@ function DeleteConfirmDialog({
 	onOpenChange: (open: boolean) => void;
 	onConfirm: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+
 	const isDir = target?.kind === "directory";
 	const name = target ? basename(target.path) : "";
 	const detail = isDir
@@ -789,18 +807,27 @@ function DeleteConfirmDialog({
 			<AlertDialogPopup className="max-w-sm">
 				<AlertDialogHeader>
 					<AlertDialogTitle>
-						Delete {isDir ? "folder" : "file"}?
+						{uiMessage("projects:file_tree_delete_2")}
+						{isDir
+							? uiMessage("projects:file_tree_folder")
+							: uiMessage("projects:file_tree_file")}
+						?
 					</AlertDialogTitle>
 					<AlertDialogDescription>
-						<span className="font-mono text-foreground">{name}</span> will be
-						permanently deleted. {detail} This cannot be undone.
+						<RichMessage
+							id="projects:file_tree_will_be_permanently_deleted_this_cannot_be_undone_sentence"
+							values={{ name: name, detail: detail }}
+							components={{
+								part0: <span className="font-mono text-foreground" />,
+							}}
+						/>
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
 					<AlertDialogClose
 						render={
 							<Button type="button" variant="ghost" disabled={deleting}>
-								Cancel
+								{uiMessage("common:cancel")}
 							</Button>
 						}
 					/>
@@ -810,7 +837,7 @@ function DeleteConfirmDialog({
 						loading={deleting}
 						onClick={onConfirm}
 					>
-						Delete
+						{uiMessage("common:delete")}
 					</Button>
 				</AlertDialogFooter>
 			</AlertDialogPopup>

@@ -22,8 +22,12 @@ describe("chat landing progress", () => {
 		expect(chatLandingSource).not.toContain("ContinueThreadsSection");
 		expect(chatLandingSource).not.toContain("Continue Threads");
 		expect(chatLandingSource).toContain("ImportChatMenu");
-		expect(chatLandingSource).toContain('aria-label="Import an existing chat"');
-		expect(chatLandingSource).toContain('aria-label="Search imported chats"');
+		expect(chatLandingSource).toContain(
+			"chat:chat_landing_import_an_existing_chat",
+		);
+		expect(chatLandingSource).toContain(
+			"chat:chat_landing_search_imported_chats",
+		);
 		expect(chatLandingSource).toContain(
 			"max-h-52 overflow-x-hidden overflow-y-auto",
 		);
@@ -106,8 +110,12 @@ describe("chat landing progress", () => {
 		expect(chatLandingSource).toContain(
 			"workspacePolicyForMode(workspaceMode)",
 		);
-		expect(workspacePickerSource).toContain("Fresh isolated branch");
-		expect(workspacePickerSource).toContain("Use the main checkout");
+		expect(workspacePickerSource).toContain(
+			"chat:workspace_picker_fresh_isolated_branch",
+		);
+		expect(workspacePickerSource).toContain(
+			"chat:workspace_picker_use_the_main_checkout",
+		);
 		expect(workspacePickerSource).toContain("<MenuRadioGroup");
 	});
 

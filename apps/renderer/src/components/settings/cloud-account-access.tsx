@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/settings";
 import type {
 	AccountAccessAuthKind,
 	AccountAccessErrorCode,
@@ -5,6 +6,8 @@ import type {
 	AccountAccessProviderStatus,
 	AccountAccessTransferEvent,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Effect } from "effect";
 import { Copy, ExternalLink, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -95,16 +98,34 @@ const statusBadge = (
 	readonly variant: "success" | "warning" | "outline";
 } => {
 	if (loading && status === undefined)
-		return { label: "Checking", variant: "outline" };
+		return {
+			label: uiMessage("settings:cloud_account_access_checking"),
+			variant: "outline",
+		};
 	if (status?.state === "connected")
-		return { label: "Authorized", variant: "success" };
+		return {
+			label: uiMessage("settings:cloud_account_access_authorized"),
+			variant: "success",
+		};
 	if (status?.state === "expired")
-		return { label: "Reconnect", variant: "warning" };
+		return {
+			label: uiMessage("settings:cloud_account_access_reconnect"),
+			variant: "warning",
+		};
 	if (status?.state === "missing-tool")
-		return { label: "Tool missing", variant: "warning" };
+		return {
+			label: uiMessage("settings:cloud_account_access_tool_missing"),
+			variant: "warning",
+		};
 	if (status?.state === "error")
-		return { label: "Needs attention", variant: "warning" };
-	return { label: "Signed out", variant: "outline" };
+		return {
+			label: uiMessage("settings:cloud_account_access_needs_attention"),
+			variant: "warning",
+		};
+	return {
+		label: uiMessage("settings:cloud_account_access_signed_out"),
+		variant: "outline",
+	};
 };
 
 export function CloudAccountAccess({
@@ -114,6 +135,8 @@ export function CloudAccountAccess({
 	readonly environmentId?: string;
 	readonly unavailableReason?: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const [statuses, setStatuses] = useState<
 		ReadonlyArray<AccountAccessProviderStatus>
 	>([]);
@@ -156,25 +179,46 @@ export function CloudAccountAccess({
 
 	const statusByProvider = useMemo(
 		() => new Map(statuses.map((status) => [status.providerId, status])),
-		[statuses],
+		[statuses, uiMessage],
 	);
 	const missingTools = statuses.filter(
 		(status) => status.state === "missing-tool",
 	);
 	const developerTools =
 		environmentId === undefined
-			? { description: unavailableReason, label: "Cloud computer required" }
+			? {
+					description: unavailableReason,
+					label: uiMessage(
+						"settings:cloud_account_access_cloud_computer_required",
+					),
+				}
 			: loading && statuses.length === 0
-				? { description: "Checking installed agent tools.", label: "Checking" }
+				? {
+						description: uiMessage(
+							"settings:cloud_account_access_checking_installed_agent_tools",
+						),
+						label: uiMessage("settings:cloud_account_access_checking"),
+					}
 				: missingTools.length > 0
 					? {
-							description: `${missingTools.map((status) => PROVIDER_LABEL[status.providerId]).join(", ")} ${missingTools.length === 1 ? "is" : "are"} not installed.`,
-							label: "Needs update",
+							description: uiMessage(
+								"settings:cloud_account_access_not_installed",
+								{
+									value1: String(
+										missingTools
+											.map((status) => PROVIDER_LABEL[status.providerId])
+											.join(", "),
+									),
+									count: missingTools.length,
+								},
+							),
+							label: uiMessage("settings:cloud_account_access_needs_update"),
 						}
 					: {
-							description:
-								"Claude Code, Codex, Cursor, and Grok are available on this computer.",
-							label: "Ready",
+							description: uiMessage(
+								"settings:cloud_account_access_claude_code_codex_cursor_and_grok_are_available_on_this_computer",
+							),
+							label: uiMessage("settings:cloud_account_access_ready"),
 						};
 
 	const runSubscriptionLogin = async (providerId: AccountAccessProvider) => {
@@ -292,13 +336,17 @@ export function CloudAccountAccess({
 	return (
 		<>
 			<CloudSettingsGroup
-				title="Agent access"
-				description="Authorize agents on this cloud computer. Nothing is copied from this Mac."
+				title={uiMessage("settings:cloud_account_access_agent_access")}
+				description={uiMessage(
+					"settings:cloud_account_access_authorize_agents_on_this_cloud_computer_nothing_is_copied_from_this_ma",
+				)}
 				action={
 					<Button
 						size="icon-sm"
 						variant="ghost"
-						aria-label="Refresh agent authorization"
+						aria-label={uiMessage(
+							"settings:cloud_account_access_refresh_agent_authorization",
+						)}
 						loading={loading}
 						disabled={environmentId === undefined}
 						onClick={() => void refresh()}
@@ -315,7 +363,7 @@ export function CloudAccountAccess({
 				}
 			>
 				<CloudSettingsRow
-					title="Agent tools"
+					title={uiMessage("settings:cloud_account_access_agent_tools")}
 					description={developerTools.description}
 					action={
 						<Badge
@@ -372,7 +420,9 @@ export function CloudAccountAccess({
 											setPendingProvider(providerId);
 										}}
 									>
-										{connected ? "Reauthorize" : "Set up"}
+										{connected
+											? uiMessage("settings:cloud_account_access_reauthorize")
+											: uiMessage("settings:cloud_account_access_set_up")}
 									</Button>
 									{connected ? (
 										<Button
@@ -381,7 +431,7 @@ export function CloudAccountAccess({
 											disabled={busyProvider !== null}
 											onClick={() => void disconnect(providerId)}
 										>
-											Disconnect
+											{uiMessage("common:disconnect")}
 										</Button>
 									) : null}
 								</>
@@ -398,7 +448,8 @@ export function CloudAccountAccess({
 										variant="outline"
 										onClick={() => void copyText(rowProgress.code ?? "")}
 									>
-										<Copy aria-hidden /> Copy code
+										<Copy aria-hidden />
+										{uiMessage("settings:cloud_account_access_copy_code")}
 									</Button>
 									{rowProgress.url === undefined ? null : (
 										<Button
@@ -407,7 +458,10 @@ export function CloudAccountAccess({
 											variant="ghost"
 											onClick={() => void openExternal(rowProgress.url ?? "")}
 										>
-											<ExternalLink aria-hidden /> Open login page
+											<ExternalLink aria-hidden />
+											{uiMessage(
+												"settings:cloud_account_access_open_login_page",
+											)}
 										</Button>
 									)}
 								</div>
@@ -438,14 +492,15 @@ export function CloudAccountAccess({
 					>
 						<DialogHeader>
 							<DialogTitle>
-								Set up{" "}
+								{uiMessage("settings:cloud_account_access_set_up")}{" "}
 								{pendingProvider === null
-									? "agent"
+									? uiMessage("settings:cloud_account_access_agent")
 									: PROVIDER_LABEL[pendingProvider]}
 							</DialogTitle>
 							<DialogDescription>
-								The credential is created for and stored on this cloud computer.
-								Existing credentials on your Mac are never read.
+								{uiMessage(
+									"settings:cloud_account_access_the_credential_is_created_for_and_stored_on_this_cloud_computer_existi",
+								)}
 							</DialogDescription>
 						</DialogHeader>
 						<DialogPanel
@@ -459,27 +514,36 @@ export function CloudAccountAccess({
 										? SUBSCRIPTION_HELP[pendingProvider]
 										: method === "api-key"
 											? API_KEY_HELP[pendingProvider]
-											: "Configure an HTTPS-compatible provider endpoint and its secret directly on this computer."}
+											: uiMessage(
+													"settings:cloud_account_access_configure_an_https_compatible_provider_endpoint_and_its_secret_directl",
+												)}
 								</p>
 							)}
 							{method === "subscription" && pendingProvider === "claude" ? (
 								<div className="space-y-2">
 									<div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
-										<code className="text-xs">claude setup-token</code>
+										<code className="text-xs">
+											{uiMessage(
+												"settings:cloud_account_access_claude_setup_token",
+											)}
+										</code>
 										<Button
 											type="button"
 											size="xs"
 											variant="ghost"
 											onClick={() => void copyText("claude setup-token")}
 										>
-											<Copy aria-hidden /> Copy
+											<Copy aria-hidden />
+											{uiMessage("settings:cloud_account_access_copy")}
 										</Button>
 									</div>
 									<Input
 										name="secret"
 										type="password"
 										autoComplete="off"
-										placeholder="sk-ant-oat01-…"
+										placeholder={uiMessage(
+											"settings:cloud_account_access_sk_ant_oat01",
+										)}
 										data-1p-ignore
 									/>
 								</div>
@@ -489,7 +553,9 @@ export function CloudAccountAccess({
 									name="secret"
 									type="password"
 									autoComplete="off"
-									placeholder="Paste API key"
+									placeholder={uiMessage(
+										"settings:cloud_account_access_paste_api_key",
+									)}
 									data-1p-ignore
 								/>
 							) : null}
@@ -503,14 +569,18 @@ export function CloudAccountAccess({
 									/>
 									<Input
 										name="model-provider"
-										placeholder="Provider identifier (optional)"
+										placeholder={uiMessage(
+											"settings:cloud_account_access_provider_identifier_optional",
+										)}
 										autoComplete="off"
 									/>
 									<Input
 										name="secret"
 										type="password"
 										autoComplete="off"
-										placeholder="Provider secret"
+										placeholder={uiMessage(
+											"settings:cloud_account_access_provider_secret",
+										)}
 										data-1p-ignore
 									/>
 								</div>
@@ -523,7 +593,7 @@ export function CloudAccountAccess({
 								variant="ghost"
 								onClick={() => setPendingProvider(null)}
 							>
-								Cancel
+								{uiMessage("common:cancel")}
 							</Button>
 							<Button
 								type="submit"
@@ -533,8 +603,10 @@ export function CloudAccountAccess({
 								}
 							>
 								{method === "subscription" && pendingProvider !== "claude"
-									? "Start browser login"
-									: "Save on computer"}
+									? uiMessage(
+											"settings:cloud_account_access_start_browser_login",
+										)
+									: uiMessage("settings:cloud_account_access_save_on_computer")}
 							</Button>
 						</DialogFooter>
 					</form>

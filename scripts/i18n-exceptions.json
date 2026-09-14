@@ -1,0 +1,27 @@
+[
+	{
+		"file": "apps/renderer/src/components/browser-pane.tsx",
+		"text": "`localhost:${server.port}`",
+		"reason": "Technical endpoint or package identifier; must remain verbatim."
+	},
+	{
+		"file": "apps/renderer/src/components/opencode-provider-manager.tsx",
+		"text": "@scope/ai-sdk-package",
+		"reason": "Technical endpoint or package identifier; must remain verbatim."
+	},
+	{
+		"file": "apps/renderer/src/components/opencode-provider-manager.tsx",
+		"text": "https://api.example.com/v1",
+		"reason": "Technical endpoint or package identifier; must remain verbatim."
+	},
+	{
+		"file": "apps/renderer/src/components/settings/cloud-account-access.tsx",
+		"text": "https://provider.example/v1",
+		"reason": "Technical endpoint or package identifier; must remain verbatim."
+	},
+	{
+		"file": "apps/renderer/src/components/settings/cloud-workspace-auth.tsx",
+		"text": "https://api.example.com",
+		"reason": "Technical endpoint or package identifier; must remain verbatim."
+	}
+]

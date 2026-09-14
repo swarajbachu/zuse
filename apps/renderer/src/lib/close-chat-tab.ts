@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/shell";
 import {
 	defaultModelFor,
 	EnvironmentId,
@@ -6,6 +7,7 @@ import {
 	type Session,
 	type SessionId,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
@@ -97,9 +99,10 @@ export const closeChatTab = async (
 	if (providerId === null) {
 		toastManager.add({
 			type: "error",
-			title: "No authenticated agent",
-			description:
-				"Connect an agent in Cloud Authentication before replacing this tab.",
+			title: uiMessage("shell:close_chat_tab_no_authenticated_agent"),
+			description: uiMessage(
+				"shell:close_chat_tab_connect_an_agent_in_cloud_authentication_before_replacing_this_ta",
+			),
 		});
 		return;
 	}

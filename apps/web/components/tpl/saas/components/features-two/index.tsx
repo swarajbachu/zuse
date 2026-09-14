@@ -1,5 +1,5 @@
 "use client";
-
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { motion } from "motion/react";
 import type React from "react";
 import { WaitlistForm } from "@/components/cloud-teaser/waitlist-form";
@@ -12,15 +12,18 @@ import { MacbookSkeleton } from "./macbook-skeleton";
 import { ServerHardware } from "./server-hardware";
 
 export function FeaturesTwo() {
+	const { message: t } = useWebsiteMessages();
+
 	return (
 		<Container className="px-4 py-10 md:py-20 lg:py-28">
 			<div className="mx-auto mb-16 max-w-2xl text-center">
 				<Heading as="h2" className="mb-4">
-					Keep agent work moving anywhere
+					{t("showcase:keep_agent_work_moving_anywhere")}
 				</Heading>
 				<Subheading className="text-balance">
-					Run agents from your desktop today, keep them working in persistent
-					cloud environments, and follow them from mobile soon.
+					{t(
+						"showcase:run_agents_from_your_desktop_today_keep_them_working_in_persistent_clo",
+					)}
 				</Subheading>
 			</div>
 
@@ -48,26 +51,30 @@ export function FeaturesTwo() {
 			<div className="mx-auto grid w-full grid-cols-1 items-start gap-16 overflow-hidden py-4 lg:grid-cols-3 lg:gap-20 lg:py-10">
 				<FeatureItem>
 					<IPhoneSkeleton />
-					<FeatureTitle>Agents in your pocket</FeatureTitle>
-					<Status>Coming soon</Status>
+					<FeatureTitle>{t("showcase:agents_in_your_pocket")}</FeatureTitle>
+					<Status>{t("showcase:coming_soon")}</Status>
 					<FeatureDescription>
-						Follow runs and approve decisions from your phone.
+						{t("showcase:follow_runs_and_approve_decisions_from_your_phone")}
 					</FeatureDescription>
 				</FeatureItem>
 				<FeatureItem>
 					<MacbookSkeleton />
-					<FeatureTitle>Full control at your desk</FeatureTitle>
-					<Status live>Available now</Status>
+					<FeatureTitle>{t("showcase:full_control_at_your_desk")}</FeatureTitle>
+					<Status live>{t("showcase:available_now")}</Status>
 					<FeatureDescription>
-						Run agents, inspect changes, and manage worktrees in Zuse Desktop.
+						{t(
+							"showcase:run_agents_inspect_changes_and_manage_worktrees_in_zuse_desktop",
+						)}
 					</FeatureDescription>
 				</FeatureItem>
 				<FeatureItem>
 					<ServerSkeleton />
-					<FeatureTitle>Agents that keep running</FeatureTitle>
-					<Status live>Live beta</Status>
+					<FeatureTitle>{t("showcase:agents_that_keep_running")}</FeatureTitle>
+					<Status live>{t("showcase:live_beta")}</Status>
 					<FeatureDescription>
-						Run isolated cloud workspaces even after your computer goes offline.
+						{t(
+							"showcase:run_isolated_cloud_workspaces_even_after_your_computer_goes_offline",
+						)}
 					</FeatureDescription>
 				</FeatureItem>
 			</div>
@@ -78,13 +85,15 @@ export function FeaturesTwo() {
 			>
 				<div>
 					<p className="text-primary font-mono text-[10px] font-semibold tracking-wide uppercase">
-						Cloud beta
+						{t("showcase:cloud_beta")}
 					</p>
 					<h3 className="text-heading mt-2 text-lg font-semibold tracking-tight">
-						Interested in a hosted workspace?
+						{t("showcase:interested_in_a_hosted_workspace")}
 					</h3>
 					<p className="text-muted-foreground mt-1 max-w-md text-sm leading-6">
-						Register your interest as we open beta capacity to more developers.
+						{t(
+							"showcase:register_your_interest_as_we_open_beta_capacity_to_more_developers",
+						)}
 					</p>
 				</div>
 				<WaitlistForm />

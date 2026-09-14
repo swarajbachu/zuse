@@ -1,4 +1,8 @@
+import { formatDate as formatUiDate } from "@zuse/i18n";
+import "@zuse/i18n/english/settings";
 import type { CloudAccountImageBuildAttempt } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { CheckCircle2, ChevronDown, CircleX, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 
@@ -21,10 +25,19 @@ const formatDuration = (build: CloudAccountImageBuildAttempt) => {
 
 const presentation = (state: CloudAccountImageBuildAttempt["state"]) =>
 	state === "ready"
-		? { label: "Succeeded", variant: "success" as const }
+		? {
+				label: uiMessage("settings:cloud_image_build_history_succeeded"),
+				variant: "success" as const,
+			}
 		: state === "failed"
-			? { label: "Failed", variant: "error" as const }
-			: { label: "In progress", variant: "warning" as const };
+			? {
+					label: uiMessage("settings:cloud_image_build_history_failed"),
+					variant: "error" as const,
+				}
+			: {
+					label: uiMessage("settings:cloud_image_build_history_in_progress"),
+					variant: "warning" as const,
+				};
 
 function BuildIcon({
 	state,
@@ -50,18 +63,34 @@ function BuildAccordion({
 	readonly build: CloudAccountImageBuildAttempt;
 	readonly defaultOpen?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+
 	const status = presentation(build.state);
 	return (
 		<details className="group/build" open={defaultOpen}>
 			<summary className="flex h-9 cursor-pointer list-none items-center gap-2 px-3 hover:bg-muted/40">
 				<BuildIcon state={build.state} />
 				<span className="min-w-0 flex-1 truncate text-xs font-medium">
-					{build.mode === "rebuild" ? "Clean rebuild" : "Image update"}
+					{build.mode === "rebuild"
+						? uiMessage("settings:cloud_image_build_history_clean_rebuild")
+						: uiMessage("settings:cloud_image_build_history_image_update")}
 				</span>
 				<span className="hidden text-[10px] text-muted-foreground sm:inline">
-					{new Date(build.createdAt).toLocaleString()} · {formatDuration(build)}
+					{formatUiDate(new Date(build.createdAt), {
+						year: "numeric",
+						month: "numeric",
+						day: "numeric",
+						hour: "numeric",
+						minute: "numeric",
+						second: "numeric",
+					})}{" "}
+					· {formatDuration(build)}
 				</span>
-				{build.active ? <Badge variant="success">Active</Badge> : null}
+				{build.active ? (
+					<Badge variant="success">
+						{uiMessage("settings:cloud_image_build_history_active")}
+					</Badge>
+				) : null}
 				<Badge variant={status.variant}>{status.label}</Badge>
 				<ChevronDown className="size-3 text-muted-foreground transition-transform group-open/build:rotate-180" />
 			</summary>
@@ -69,7 +98,9 @@ function BuildAccordion({
 				<div className="relative rounded-md bg-background/60 p-3">
 					<CopyButton
 						text={build.logText ?? ""}
-						label="Copy build logs"
+						label={uiMessage(
+							"settings:cloud_image_build_history_copy_build_logs",
+						)}
 						className="absolute top-2 right-2 size-7"
 					/>
 					<pre className="max-h-72 overflow-auto whitespace-pre-wrap pr-8 font-mono text-[10px] leading-4 text-foreground/85">
@@ -81,21 +112,30 @@ function BuildAccordion({
 				</div>
 				<details>
 					<summary className="cursor-pointer text-[11px] font-medium text-muted-foreground hover:text-foreground">
-						Build settings
+						{uiMessage("settings:cloud_image_build_history_build_settings")}
 					</summary>
 					<div className="mt-2 space-y-2 text-[11px]">
 						<div className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5">
-							<span className="text-muted-foreground">Runtime</span>
-							<span>{build.runtimeVersion}</span>
-							<span className="text-muted-foreground">Repositories</span>
-							<span>{build.repositories.length}</span>
-							<span className="text-muted-foreground">Agents</span>
-							<span>
-								{build.providers
-									.filter((provider) => provider.state === "connected")
-									.map((provider) => provider.providerId)
-									.join(", ") || "None"}
-							</span>
+							<RichMessage
+								id="settings:cloud_image_build_history_runtimerepositoriesagents_sentence"
+								values={{
+									value: build.runtimeVersion,
+									value2: build.repositories.length,
+									value3:
+										build.providers
+											.filter((provider) => provider.state === "connected")
+											.map((provider) => provider.providerId)
+											.join(", ") || "None",
+								}}
+								components={{
+									part0: <span className="text-muted-foreground" />,
+									part1: <span />,
+									part2: <span className="text-muted-foreground" />,
+									part3: <span />,
+									part4: <span className="text-muted-foreground" />,
+									part5: <span />,
+								}}
+							/>
 						</div>
 						<div className="divide-y divide-border/60 rounded-md bg-background/50">
 							{build.repositories.map((repository) => (
@@ -122,6 +162,8 @@ export function CloudImageBuildHistory({
 }: {
 	readonly builds: ReadonlyArray<CloudAccountImageBuildAttempt>;
 }) {
+	const { message: uiMessage } = useUiMessages(["settings"]);
+
 	const [page, setPage] = useState(0);
 	if (builds.length === 0) return null;
 	const latest = builds[0];
@@ -137,14 +179,15 @@ export function CloudImageBuildHistory({
 	return (
 		<div className="border-border border-t">
 			<div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-				Latest build
+				{uiMessage("settings:cloud_image_build_history_latest_build")}
 			</div>
 			<BuildAccordion build={latest} />
 			{previous.length === 0 ? null : (
 				<details className="group/history border-border border-t">
 					<summary className="flex h-7 cursor-pointer list-none items-center gap-2 px-3 text-[11px] text-muted-foreground hover:text-foreground">
 						<ChevronDown className="size-3 transition-transform group-open/history:rotate-180" />
-						Previous builds · {previous.length}
+						{uiMessage("settings:cloud_image_build_history_previous_builds")}
+						{previous.length}
 					</summary>
 					<div className="divide-y divide-border/60 border-border border-t">
 						{visiblePrevious.map((build) => (
@@ -153,7 +196,10 @@ export function CloudImageBuildHistory({
 						{pageCount <= 1 ? null : (
 							<div className="flex h-9 items-center justify-between px-3">
 								<span className="text-[10px] text-muted-foreground">
-									Page {safePage + 1} of {pageCount}
+									{uiMessage(
+										"settings:cloud_image_build_history_page_of_sentence",
+										{ value: safePage + 1, pageCount: pageCount },
+									)}
 								</span>
 								<div className="flex gap-1">
 									<Button
@@ -165,7 +211,7 @@ export function CloudImageBuildHistory({
 											setPage((current) => Math.max(0, current - 1))
 										}
 									>
-										Previous
+										{uiMessage("settings:cloud_image_build_history_previous")}
 									</Button>
 									<Button
 										size="lg"
@@ -176,7 +222,7 @@ export function CloudImageBuildHistory({
 											setPage((current) => Math.min(pageCount - 1, current + 1))
 										}
 									>
-										Next
+										{uiMessage("settings:cloud_image_build_history_next")}
 									</Button>
 								</div>
 							</div>

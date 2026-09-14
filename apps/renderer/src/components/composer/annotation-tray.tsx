@@ -1,3 +1,5 @@
+import { isInputComposing } from "../../lib/input-composition.ts";
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
 	BrowserAnnotation,
@@ -7,6 +9,7 @@ import type {
 	SessionId,
 	WorktreeId,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	BubbleChatIcon,
 	CursorMagicSelection01Icon,
@@ -91,6 +94,8 @@ export function AnnotationTray({
 	folderId: FolderId | null;
 	worktreeId: WorktreeId | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const annotations = useAnnotationsStore(
 		(s) => s.bySession[sessionId] ?? EMPTY,
 	);
@@ -119,7 +124,7 @@ export function AnnotationTray({
 						aria-hidden="true"
 					/>
 					<span className="text-xs font-semibold text-foreground">
-						Annotations
+						{uiMessage("chat:annotation_tray_annotations")}
 					</span>
 					<span className="rounded border border-border/45 bg-background/70 px-1 py-px text-[10px] font-medium tabular-nums text-muted-foreground">
 						{annotations.length}
@@ -136,7 +141,7 @@ export function AnnotationTray({
 					type="button"
 					onClick={() => clear(sessionId)}
 					className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-					aria-label="Clear all annotations"
+					aria-label={uiMessage("chat:annotation_tray_clear_all_annotations")}
 				>
 					<X className="size-3.5" strokeWidth={1.8} />
 				</button>
@@ -162,7 +167,7 @@ export function AnnotationTray({
 											revealAnnotation(annotation as CodeAnnotation)
 										}
 										className="min-w-0 max-w-[44%] shrink-0 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-										title="Open annotation"
+										title={uiMessage("chat:annotation_tray_open_annotation")}
 									>
 										<AnnotationFileChip
 											annotation={annotation as CodeAnnotation}
@@ -176,6 +181,8 @@ export function AnnotationTray({
 										value={editText}
 										onChange={(event) => setEditText(event.target.value)}
 										onKeyDown={(event) => {
+											if (isInputComposing(event)) return;
+
 											if (event.key === "Escape") {
 												event.preventDefault();
 												setEditingId(null);
@@ -213,7 +220,9 @@ export function AnnotationTray({
 											setEditingId(null);
 										}}
 										className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-80 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-										aria-label="Save annotation"
+										aria-label={uiMessage(
+											"chat:annotation_tray_save_annotation",
+										)}
 									>
 										<HugeiconsIcon icon={Tick01Icon} className="size-3.5" />
 									</button>
@@ -225,7 +234,9 @@ export function AnnotationTray({
 											setEditText(annotation.comment);
 										}}
 										className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/annotation:opacity-100"
-										aria-label="Edit annotation"
+										aria-label={uiMessage(
+											"chat:annotation_tray_edit_annotation",
+										)}
 									>
 										<HugeiconsIcon
 											icon={PencilEdit01Icon}
@@ -237,7 +248,9 @@ export function AnnotationTray({
 									type="button"
 									onClick={() => remove(sessionId, annotation.id)}
 									className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-70 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/annotation:opacity-100"
-									aria-label="Remove annotation"
+									aria-label={uiMessage(
+										"chat:annotation_tray_remove_annotation",
+									)}
 								>
 									<X className="size-3.5" strokeWidth={1.8} />
 								</button>

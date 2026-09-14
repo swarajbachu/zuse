@@ -45,8 +45,8 @@ describe("renderer design system", () => {
 		const settings = rendererSource("components/settings-page.tsx");
 
 		expect(settings).toContain(': "max-w-3xl"');
-		expect(settings).toContain('title="Chat defaults"');
-		expect(settings).toContain('title="Agent providers"');
+		expect(settings).toContain("settings:settings_page_chat_defaults");
+		expect(settings).toContain("settings:settings_page_agent_providers");
 		expect(settings).not.toContain('visibleSection.kind === "providers" ||');
 		expect(settings).not.toContain('visibleSection.kind === "defaults"');
 	});
@@ -79,7 +79,7 @@ describe("renderer design system", () => {
 		const trays = rendererSource("components/composer/tray-pill.tsx");
 
 		expect(composer).toContain("<RuntimeAccessPicker");
-		expect(composer).toContain("Agent access");
+		expect(composer).toContain("chat:chat_composer_agent_access");
 		expect(composer).toContain("mx-auto flex min-h-8 w-14/15");
 		expect(composer).toContain("rounded-b-none rounded-t-[1.2rem]");
 		expect(composer).toContain("composer-glass rounded-[1.2rem]");
@@ -103,7 +103,7 @@ describe("renderer design system", () => {
 			"flex min-h-0 flex-1 items-center justify-center pb-6",
 		);
 		expect(landing).toContain("flex shrink-0 flex-col gap-3");
-		expect(landing).toContain('placeholder="Search projects…"');
+		expect(landing).toContain("chat:chat_landing_search_projects");
 		expect(landing).toContain("max-h-48 overflow-x-hidden overflow-y-auto");
 		expect(landing).toContain("max-h-52 overflow-x-hidden overflow-y-auto");
 	});

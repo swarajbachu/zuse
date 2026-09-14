@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/chat";
 import { DEVICE_PERMISSION_CHOICES } from "@zuse/client-runtime/device-permission-presentation";
 import type { DeviceBridgeAction, DeviceCommand } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Laptop, Terminal } from "lucide-react";
 import { Button } from "./ui/button.tsx";
 
@@ -14,11 +16,13 @@ export function DeviceCommandCard({
 	showOutput?: boolean;
 	onAction: (action: DeviceBridgeAction) => Promise<void>;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	return (
 		<div className="space-y-2 py-1 text-xs">
 			<div className="flex h-7 items-center gap-2 font-medium">
 				<Laptop
-					aria-label="Local computer"
+					aria-label={uiMessage("chat:device_command_card_local_computer")}
 					className="size-3.5 shrink-0 text-muted-foreground"
 				/>
 				<Terminal
@@ -54,15 +58,21 @@ export function DeviceCommandCard({
 					disabled={busy}
 					onClick={() => void onAction({ _tag: "cancel", id: command.id })}
 				>
-					Stop command
+					{uiMessage("chat:device_command_card_stop_command")}
 				</Button>
 			)}
 			{showOutput && (command.stdout || command.stderr) && (
 				<details>
 					<summary>
-						Output
-						{command.exitCode !== null ? ` · Exit ${command.exitCode}` : ""}
-						{command.truncated ? " · Truncated" : ""}
+						{uiMessage("chat:device_command_card_output")}
+						{command.exitCode !== null
+							? uiMessage("chat:device_command_card_exit", {
+									value1: String(command.exitCode),
+								})
+							: ""}
+						{command.truncated
+							? uiMessage("chat:device_command_card_truncated")
+							: ""}
 					</summary>
 					<pre className="max-h-40 overflow-auto whitespace-pre-wrap">
 						{command.stdout}

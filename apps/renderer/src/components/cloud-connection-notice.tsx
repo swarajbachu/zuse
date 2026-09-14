@@ -1,5 +1,8 @@
+import "@zuse/i18n/english/connections";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { type CloudChatSummary, EnvironmentId } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { RefreshIcon } from "@zuse/icons/solid-rounded";
 import { useEffect } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
@@ -35,27 +38,45 @@ const copy: Record<
 	{ readonly title: string; readonly detail: string }
 > = {
 	paused: {
-		title: "Cloud workspace paused",
+		get title() {
+			return uiMessage(
+				"connections:cloud_connection_notice_cloud_workspace_paused",
+			);
+		},
 		detail: "Sending a message or opening a live tool will resume it.",
 	},
 	resuming: {
-		title: "Resuming cloud workspace",
+		get title() {
+			return uiMessage(
+				"connections:cloud_connection_notice_resuming_cloud_workspace",
+			);
+		},
 		detail: "The sandbox compute is waking up.",
 	},
 	updating: {
-		title: "Updating cloud runtime",
+		get title() {
+			return uiMessage(
+				"connections:cloud_connection_notice_updating_cloud_runtime",
+			);
+		},
 		detail: "Zuse will reconnect after the compatible runtime starts.",
 	},
 	"update-required": {
-		title: "Update required",
+		get title() {
+			return uiMessage("connections:cloud_connection_notice_update_required");
+		},
 		detail: "Update Zuse or the cloud runtime before reconnecting.",
 	},
 	detached: {
-		title: "Reconnect needed",
+		get title() {
+			return uiMessage("connections:cloud_connection_notice_reconnect_needed");
+		},
 		detail: "The workspace is still running. Retry the live connection.",
 	},
 	failed: {
-		title: "Connection failed",
+		get title() {
+			return uiMessage("connections:cloud_connection_notice_connection_failed");
+		},
 		detail: "Your cached chat is still available.",
 	},
 };
@@ -76,6 +97,8 @@ export const retryCloudConnection = async (
 };
 
 export function CloudConnectionNotice() {
+	const { message: uiMessage } = useUiMessages(["common", "connections"]);
+
 	const { signIn, signingIn, isSignedIn, isLoading } = useAuth();
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
 	const registered =
@@ -156,17 +179,23 @@ export function CloudConnectionNotice() {
 	};
 	const value = inviteRequired
 		? {
-				title: "Zuse Cloud is invite-only",
+				title: uiMessage(
+					"connections:cloud_connection_notice_zuse_cloud_is_invite_only",
+				),
 				detail: "This account does not currently have cloud beta access.",
 			}
 		: betaCheckUnavailable
 			? {
-					title: "Cloud access could not be verified",
+					title: uiMessage(
+						"connections:cloud_connection_notice_cloud_access_could_not_be_verified",
+					),
 					detail: "Try again shortly. Your cached chat is still available.",
 				}
 			: signInRequired
 				? {
-						title: "Sign in required",
+						title: uiMessage(
+							"connections:cloud_connection_notice_sign_in_required",
+						),
 						detail:
 							"Your session expired — sign in to reconnect this cloud workspace.",
 					}
@@ -219,7 +248,11 @@ export function CloudConnectionNotice() {
 					}}
 				>
 					<HugeiconsIcon icon={RefreshIcon} className="size-3.5" />
-					{signInRequired ? (signingIn ? "Signing in…" : "Sign in") : "Retry"}
+					{signInRequired
+						? signingIn
+							? uiMessage("connections:cloud_connection_notice_signing_in")
+							: uiMessage("common:signIn")
+						: uiMessage("common:retry")}
 				</button>
 			) : null}
 		</div>

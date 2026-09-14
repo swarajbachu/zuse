@@ -1,9 +1,11 @@
+import "@zuse/i18n/english/onboarding";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	type CommandId,
 	EnvironmentId,
 	type UsageReport,
 } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { CircleArrowUp01Icon, Loading02Icon } from "@zuse/icons/solid-rounded";
 import { useEffect, useState } from "react";
 
@@ -43,6 +45,8 @@ const currentMonthRange = () => {
  * can potentially produce.
  */
 export function MaximizeStep() {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	const environmentId = useEnvironmentCatalogStore((state) =>
 		EnvironmentId.make(state.activeEnvironmentId),
 	);
@@ -96,7 +100,7 @@ export function MaximizeStep() {
 	return (
 		<div className="flex flex-col gap-8">
 			<StepHeader
-				title="Maximize this month"
+				title={uiMessage("onboarding:maximize_maximize_this_month")}
 				subtitle="See the subscription bill, the API value you already used, and the value still available from the plans you pay for."
 			/>
 
@@ -121,12 +125,12 @@ export function MaximizeStep() {
 					</span>
 					<div className="flex flex-col gap-1">
 						<span className="text-[14px] font-semibold text-foreground">
-							The gap is the opportunity
+							{uiMessage("onboarding:maximize_the_gap_is_the_opportunity")}
 						</span>
 						<p className="max-w-md text-[12px] leading-relaxed text-muted-foreground">
-							You pay a fixed monthly subscription. The more agents you run in
-							parallel, the more API-equivalent value you get from the same
-							bill.
+							{uiMessage(
+								"onboarding:maximize_you_pay_a_fixed_monthly_subscription_the_more_agents_you_run_in_parall",
+							)}
 						</p>
 					</div>
 				</div>
@@ -139,12 +143,16 @@ export function MaximizeStep() {
 
 				{hasSpend ? (
 					<p className="text-[10px] leading-snug text-muted-foreground/70">
-						This month: {formatTokens(tokens)} tokens{sourceLine}.
+						{uiMessage("onboarding:maximize_this_month_tokens_sentence", {
+							value: formatTokens(tokens),
+							sourceLine: sourceLine,
+						})}
 					</p>
 				) : (
 					<p className="text-[10px] leading-snug text-muted-foreground/70">
-						No local usage found for this month yet. Once you run agents, this
-						screen shows the API value you have already used.
+						{uiMessage(
+							"onboarding:maximize_no_local_usage_found_for_this_month_yet_once_you_run_agents_this_scree",
+						)}
 					</p>
 				)}
 			</div>
@@ -161,16 +169,21 @@ function MonthlySnapshot({
 	tokens: number;
 	sourceLine: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	return (
 		<div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_15rem]">
 			<div className="flex min-h-36 flex-col justify-between rounded-lg border border-border bg-card p-5">
 				<div className="flex flex-col gap-1">
-					<span className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary/80">
-						API value used this month
-					</span>
-					<span className="text-[12px] text-muted-foreground">
-						From your local agent logs
-					</span>
+					<RichMessage
+						id="onboarding:maximize_api_value_used_this_monthfrom_your_local_agent_logs_sentence"
+						components={{
+							part0: (
+								<span className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary/80" />
+							),
+							part1: <span className="text-[12px] text-muted-foreground" />,
+						}}
+					/>
 				</div>
 				<div className="flex flex-col gap-1.5">
 					<span className="text-4xl font-semibold leading-none tracking-tight tabular-nums text-primary">
@@ -178,20 +191,23 @@ function MonthlySnapshot({
 					</span>
 					<span className="text-[11px] leading-snug text-muted-foreground">
 						{tokens > 0
-							? `${formatTokens(tokens)} tokens${sourceLine}`
-							: "No usage found yet"}
+							? uiMessage("onboarding:maximize_tokens_2", {
+									value1: String(formatTokens(tokens)),
+									sourceLine: String(sourceLine),
+								})
+							: uiMessage("onboarding:maximize_no_usage_found_yet")}
 					</span>
 				</div>
 			</div>
 
 			<div className="grid gap-3">
 				<CompactMetric
-					label="You pay"
+					label={uiMessage("onboarding:maximize_you_pay")}
 					value={MONTHLY_STACK.subscriptionCost}
 					detail="Claude Max + ChatGPT Pro"
 				/>
 				<CompactMetric
-					label="Available ceiling"
+					label={uiMessage("onboarding:maximize_available_ceiling")}
 					value={MONTHLY_STACK.apiValue}
 					detail="API-equivalent monthly value"
 				/>
@@ -233,25 +249,33 @@ function PlanRow({
 	price: string;
 	potential: string;
 }) {
+	useUiMessages(["onboarding"]);
+
 	return (
 		<div className="flex items-center justify-between gap-3 border-t border-border/60 px-3 py-2.5 first:border-0">
-			<span className="flex min-w-0 flex-col">
-				<span className="truncate text-[12px] font-medium text-foreground">
-					{name}
-				</span>
-				<span className="text-[11px] text-muted-foreground">{price}</span>
-			</span>
-			<span className="flex shrink-0 flex-col items-end">
-				<span className="text-[13px] font-semibold tabular-nums text-primary">
-					{potential}
-				</span>
-				<span className="text-[10px] text-muted-foreground">API value</span>
-			</span>
+			<RichMessage
+				id="onboarding:maximize_api_value_sentence"
+				values={{ name: name, price: price, potential: potential }}
+				components={{
+					part0: <span className="flex min-w-0 flex-col" />,
+					part1: (
+						<span className="truncate text-[12px] font-medium text-foreground" />
+					),
+					part2: <span className="text-[11px] text-muted-foreground" />,
+					part3: <span className="flex shrink-0 flex-col items-end" />,
+					part4: (
+						<span className="text-[13px] font-semibold tabular-nums text-primary" />
+					),
+					part5: <span className="text-[10px] text-muted-foreground" />,
+				}}
+			/>
 		</div>
 	);
 }
 
 function SpendSkeleton() {
+	const { message: uiMessage } = useUiMessages(["onboarding"]);
+
 	return (
 		<div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-5">
 			<div className="flex items-center gap-2 text-[11px] text-muted-foreground">
@@ -260,7 +284,9 @@ function SpendSkeleton() {
 					className="size-3.5 animate-spin"
 					aria-hidden
 				/>
-				Scanning this month&apos;s local agent logs...
+				{uiMessage(
+					"onboarding:maximize_scanning_this_month_apos_s_local_agent_logs",
+				)}
 			</div>
 			<div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_15rem]">
 				<div className="flex h-36 flex-col justify-between rounded-lg bg-background/60 p-5">

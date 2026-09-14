@@ -1,3 +1,5 @@
+"use client";
+import { WebsiteRichMessage } from "@zuse/i18n/website/react";
 import Image from "next/image";
 
 const AGENTS = [
@@ -15,10 +17,11 @@ export const LogoCloud = () => {
 	return (
 		<section className="px-4 py-12 md:px-8 md:py-16">
 			<h2 className="text-heading mx-auto max-w-xl text-center text-lg font-medium text-balance">
-				Bring the subscriptions you already pay for.{" "}
-				<span className="text-muted-foreground">
-					Zuse orchestrates them — no token markup.
-				</span>
+				<WebsiteRichMessage
+					id="showcase:bring_the_subscriptions_you_already_pay_for_zuse_orchestrates_them_no"
+					values={{}}
+					components={{ part0: <span className="text-muted-foreground" /> }}
+				/>
 			</h2>
 			<div className="border-border bg-border mx-auto mt-9 grid max-w-5xl grid-cols-2 gap-px overflow-hidden rounded-xl border sm:grid-cols-7">
 				{AGENTS.map((a) => (

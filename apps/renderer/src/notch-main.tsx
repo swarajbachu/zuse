@@ -1,5 +1,12 @@
-import React, { useEffect, useMemo, useState } from "react";
+import "@zuse/i18n/english/shell";
+import { message as uiMessage } from "@zuse/i18n";
+import {
+	LocalizationProvider,
+	useMessages as useUiMessages,
+} from "@zuse/i18n/react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import ReactDOM from "react-dom/client";
+import { initializeLocalization } from "./lib/localization.ts";
 
 import "./styles.css";
 
@@ -98,6 +105,8 @@ const sanitizeItems = (raw: unknown): ReadonlyArray<NotchTrayItem> => {
 };
 
 function NotchTray() {
+	const { message: uiMessage } = useUiMessages(["common", "shell"]);
+
 	const notch = window.zuse?.notch ?? window.memoize?.notch;
 	const [items, setItems] = useState<ReadonlyArray<NotchTrayItem>>([]);
 	const [pinned, setPinned] = useState(false);
@@ -120,9 +129,12 @@ function NotchTray() {
 		notch?.setExpanded?.(expanded);
 	}, [expanded, notch]);
 
-	const compactDots = useMemo(() => items.slice(0, MAX_COMPACT_DOTS), [items]);
+	const compactDots = useMemo(
+		() => items.slice(0, MAX_COMPACT_DOTS),
+		[items, uiMessage],
+	);
 	const compactOverflow = Math.max(0, items.length - MAX_COMPACT_DOTS);
-	const rows = useMemo(() => items.slice(0, MAX_ROWS), [items]);
+	const rows = useMemo(() => items.slice(0, MAX_ROWS), [items, uiMessage]);
 	const rowOverflow = Math.max(0, items.length - MAX_ROWS);
 
 	return (
@@ -174,7 +186,7 @@ function NotchTray() {
 					<div className="animate-in fade-in slide-in-from-top-1 flex flex-col gap-px border-t border-white/[0.06] px-1.5 pb-2 pt-1.5 duration-200">
 						{rows.length === 0 ? (
 							<div className="flex h-12 items-center justify-center text-[11px] font-medium text-white/35">
-								All quiet
+								{uiMessage("shell:notch_main_all_quiet")}
 							</div>
 						) : (
 							<>
@@ -205,7 +217,9 @@ function NotchTray() {
 								))}
 								{rowOverflow > 0 && (
 									<div className="px-2 pt-1 text-[10px] font-medium leading-none text-white/35">
-										+{rowOverflow} more
+										{uiMessage("shell:notch_main_more_sentence", {
+											rowOverflow: rowOverflow,
+										})}
 									</div>
 								)}
 							</>
@@ -220,8 +234,16 @@ function NotchTray() {
 const root = document.getElementById("root");
 if (!root) throw new Error("#root missing in notch.html");
 
-ReactDOM.createRoot(root).render(
-	<React.StrictMode>
-		<NotchTray />
-	</React.StrictMode>,
+void initializeLocalization().then(() =>
+	ReactDOM.createRoot(root).render(
+		<React.StrictMode>
+			<LocalizationProvider>
+				<Suspense
+					fallback={<div role="status">{uiMessage("common:loading")}</div>}
+				>
+					<NotchTray />
+				</Suspense>
+			</LocalizationProvider>
+		</React.StrictMode>,
+	),
 );

@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ProviderId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	CircleArrowUp01Icon,
 	Copy01Icon,
@@ -43,6 +45,8 @@ export function CliUpgradeBanner({
 	providerId: ProviderId;
 	constrain?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const availability = useProvidersStore((s) => s.availability);
 	const refresh = useProvidersStore((s) => s.refresh);
 	const refreshing = useProvidersStore((s) => s.loading);
@@ -88,27 +92,33 @@ export function CliUpgradeBanner({
 				</span>
 				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 					<span className="text-[12.5px] font-medium text-foreground">
-						Update {row.displayName} to keep using it
+						{uiMessage(
+							"chat:cli_upgrade_banner_update_to_keep_using_it_sentence",
+							{ value: row.displayName },
+						)}
 					</span>
 					<span className="text-[11.5px] leading-snug text-muted-foreground">
-						You have{" "}
+						{uiMessage("chat:cli_upgrade_banner_you_have")}{" "}
 						<code className="text-foreground/80">
-							{row.cliVersion ?? "an unknown version"}
+							{row.cliVersion ??
+								uiMessage("chat:cli_upgrade_banner_an_unknown_version")}
 						</code>
 						{row.cliVersionMinRequired !== undefined &&
 							` — Zuse (Beta) needs ${row.cliVersionMinRequired} or newer.`}
-						{
-							" Sending in this session will fail until you upgrade; start a new session with a different provider to keep working in the meantime."
-						}
+						{uiMessage(
+							"chat:cli_upgrade_banner_sending_in_this_session_will_fail_until_you_upgrade_start_a_new_sessio",
+						)}
 					</span>
 				</div>
 				<button
 					type="button"
 					onClick={() => setDismissed(true)}
 					className="text-[10px] uppercase tracking-wide text-muted-foreground hover:text-foreground"
-					aria-label="Dismiss upgrade banner"
+					aria-label={uiMessage(
+						"chat:cli_upgrade_banner_dismiss_upgrade_banner",
+					)}
 				>
-					Hide
+					{uiMessage("chat:cli_upgrade_banner_hide")}
 				</button>
 			</div>
 
@@ -123,11 +133,13 @@ export function CliUpgradeBanner({
 					>
 						{copied ? (
 							<>
-								<HugeiconsIcon icon={Tick01Icon} className="size-3" /> Copied
+								<HugeiconsIcon icon={Tick01Icon} className="size-3" />
+								{uiMessage("chat:cli_upgrade_banner_copied")}
 							</>
 						) : (
 							<>
-								<HugeiconsIcon icon={Copy01Icon} className="size-3" /> Copy
+								<HugeiconsIcon icon={Copy01Icon} className="size-3" />
+								{uiMessage("chat:cli_upgrade_banner_copy")}
 							</>
 						)}
 					</Button>
@@ -142,7 +154,7 @@ export function CliUpgradeBanner({
 					className="gap-1.5 rounded-full text-[11px] text-muted-foreground"
 				>
 					<HugeiconsIcon icon={LinkSquare01Icon} className="size-3" />
-					Upgrade guide
+					{uiMessage("chat:cli_upgrade_banner_upgrade_guide")}
 				</Button>
 				<Button
 					size="xs"
@@ -154,7 +166,7 @@ export function CliUpgradeBanner({
 					<RefreshIcon
 						className={`size-3 ${refreshing ? "animate-spin" : ""}`}
 					/>
-					Recheck
+					{uiMessage("chat:cli_upgrade_banner_recheck")}
 				</Button>
 			</div>
 		</div>

@@ -1,4 +1,5 @@
 "use client";
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { motion, useMotionValue, useReducedMotion } from "motion/react";
 import type React from "react";
 import { useEffect, useId } from "react";
@@ -15,11 +16,13 @@ import { Scale } from "../scale";
 import { Card } from "../tech-card";
 
 export const SharedWorktreeSkeleton = () => {
+	const { message: t } = useWebsiteMessages();
+
 	return (
 		<div className="mt-12 flex flex-col items-center">
 			<div className="relative">
 				<Card
-					title="checkout-recovery"
+					title={"checkout-recovery"}
 					subtitle="agent/checkout-recovery"
 					logo={<LogoSVG />}
 					cta="Shared worktree"
@@ -40,7 +43,7 @@ export const SharedWorktreeSkeleton = () => {
 					delay={0.2}
 				/>
 				<Card
-					title="Terminal"
+					title={t("showcase:terminal")}
 					subtitle="Focused tests"
 					logo={<ForkIcon />}
 					cta="16 passed"
@@ -61,6 +64,8 @@ export const SharedWorktreeSkeleton = () => {
 };
 
 export const ContextReviewSkeleton = () => {
+	const { message: t } = useWebsiteMessages();
+
 	const text = `Review the current diff and verify checkout recovery without editing.`;
 	const randomWidth = 78;
 
@@ -79,7 +84,7 @@ export const ContextReviewSkeleton = () => {
 				<div className="mt-12 flex items-center gap-2">
 					<IntegrationsLogo />
 					<span className="text-heading text-sm font-medium">
-						Shared context
+						{t("showcase:shared_context")}
 					</span>
 				</div>
 				<DivideX className="mt-2" />
@@ -143,7 +148,7 @@ export const ContextReviewSkeleton = () => {
 				<div className="mt-12 flex items-center gap-2">
 					<IntegrationsLogo className="dark:text-neutral-200" />
 					<span className="text-heading text-xs font-medium md:text-sm">
-						Worktree tabs
+						{t("showcase:worktree_tabs")}
 					</span>
 					<span className="border-border bg-elevated text-heading rounded-lg border px-2 py-0.5 text-xs">
 						3
@@ -154,24 +159,24 @@ export const ContextReviewSkeleton = () => {
 					<div className="flex items-center gap-2">
 						<OpenAILogo className="h-4 w-4 shrink-0" />
 						<span className="text-heading text-xs font-medium md:text-sm">
-							Codex · review
+							{t("showcase:codex_review")}
 						</span>
 					</div>
 
 					<div className="rounded-sm border border-blue-500 bg-blue-50 px-2 py-0.5 text-xs text-blue-500">
-						Connected
+						{t("showcase:connected")}
 					</div>
 				</div>
 				<div className="mt-4 flex items-center justify-between gap-2">
 					<div className="flex items-center gap-2">
 						<AnthropicLogo className="h-4 w-4 shrink-0" />
 						<span className="text-heading text-xs font-medium md:text-sm">
-							Claude Code · build
+							{t("showcase:claude_code_build")}
 						</span>
 					</div>
 
 					<div className="rounded-sm border border-blue-500 bg-blue-50 px-2 py-0.5 text-xs text-blue-500">
-						Connected
+						{t("showcase:connected")}
 					</div>
 				</div>
 				<div className="mt-2 flex flex-col">
@@ -201,38 +206,40 @@ export const ContextReviewSkeleton = () => {
 };
 
 export const EvidenceTimelineSkeleton = () => {
+	const { message: t } = useWebsiteMessages();
+
 	const deployCards = [
 		{
-			title: "Claude · implementation",
+			title: t("showcase:claude_implementation"),
 			subtitle: "running",
 			branch: "agent/checkout-recovery",
 		},
 		{
-			title: "Codex · diff review",
+			title: t("showcase:codex_diff_review"),
 			subtitle: "2 findings",
 			branch: "agent/checkout-recovery",
 			variant: "success" as const,
 		},
 		{
-			title: "Terminal · focused tests",
+			title: t("showcase:terminal_focused_tests"),
 			subtitle: "16 passed",
 			branch: "agent/checkout-recovery",
 			variant: "success" as const,
 		},
 		{
-			title: "Changes · 12 files",
+			title: t("showcase:changes_12_files"),
 			subtitle: "+184 −32",
 			branch: "agent/checkout-recovery",
 			variant: "success" as const,
 		},
 		{
-			title: "Codex · review resolved",
+			title: t("showcase:codex_review_resolved"),
 			subtitle: "2 fixes",
 			branch: "agent/checkout-recovery",
 			variant: "warning" as const,
 		},
 		{
-			title: "PR #814 · ready",
+			title: t("showcase:pr_814_ready"),
 			subtitle: "checks passed",
 			branch: "agent/checkout-recovery",
 			variant: "success" as const,

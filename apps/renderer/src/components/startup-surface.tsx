@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/chat";
 import type { SurfacePhase } from "@zuse/client-runtime/resource-state";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useState } from "react";
 
 import { Spinner } from "./ui/spinner.tsx";
@@ -46,6 +48,8 @@ export function StartupSurface({
 	readonly phase: SurfacePhase;
 	readonly onRetry: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+
 	const presentation = startupPresentation({ loaded: false, phase });
 	const [slow, setSlow] = useState(false);
 	const [copied, setCopied] = useState(false);
@@ -78,16 +82,18 @@ export function StartupSurface({
 		>
 			{presentation === "loading" ? (
 				<main
-					aria-label="Loading Zuse"
+					aria-label={uiMessage("chat:startup_surface_loading_zuse")}
 					aria-live="polite"
 					className="flex flex-col items-center gap-3"
 					role="status"
 				>
-					<div className="font-semibold text-base tracking-tight">Zuse</div>
+					<div className="font-semibold text-base tracking-tight">
+						{uiMessage("chat:startup_surface_zuse")}
+					</div>
 					<Spinner className="size-4 text-muted-foreground" />
 					{slow ? (
 						<p className="text-muted-foreground text-xs">
-							Still starting Zuse…
+							{uiMessage("chat:startup_surface_still_starting_zuse")}
 						</p>
 					) : null}
 				</main>
@@ -96,13 +102,16 @@ export function StartupSurface({
 					aria-labelledby="startup-error-title"
 					className="w-full max-w-sm text-center"
 				>
-					<div className="font-semibold text-base tracking-tight">Zuse</div>
+					<div className="font-semibold text-base tracking-tight">
+						{uiMessage("chat:startup_surface_zuse")}
+					</div>
 					<h1 id="startup-error-title" className="mt-4 font-medium text-sm">
-						Zuse couldn’t start
+						{uiMessage("chat:startup_surface_zuse_couldn_t_start")}
 					</h1>
 					<p className="mt-1 text-muted-foreground text-xs leading-5">
-						The local server did not become available. Your data is still on
-						disk.
+						{uiMessage(
+							"chat:startup_surface_the_local_server_did_not_become_available_your_data_is_still_on_disk",
+						)}
 					</p>
 					{safeError === null ? null : (
 						<p
@@ -118,14 +127,14 @@ export function StartupSurface({
 							onClick={onRetry}
 							type="button"
 						>
-							Try again
+							{uiMessage("chat:startup_surface_try_again")}
 						</button>
 						<button
 							className="inline-flex h-7 items-center justify-center rounded-md bg-muted px-2.5 font-medium text-foreground text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
 							onClick={() => window.location.reload()}
 							type="button"
 						>
-							Reload
+							{uiMessage("chat:startup_surface_reload")}
 						</button>
 						{safeError === null ? null : (
 							<button
@@ -133,7 +142,9 @@ export function StartupSurface({
 								onClick={copyDetails}
 								type="button"
 							>
-								{copied ? "Copied" : "Copy details"}
+								{copied
+									? uiMessage("common:copied")
+									: uiMessage("chat:startup_surface_copy_details")}
 							</button>
 						)}
 					</div>

@@ -1,5 +1,4 @@
 "use client";
-
 import {
 	IconBrandDiscordFilled,
 	IconMenu2,
@@ -7,6 +6,11 @@ import {
 	IconSunFilled,
 	IconX,
 } from "@tabler/icons-react";
+import { websitePath } from "@zuse/i18n/registry";
+import {
+	useWebsiteMessages,
+	type WebsiteMessage,
+} from "@zuse/i18n/website/react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { useState } from "react";
@@ -19,12 +23,13 @@ import {
 } from "@/components/platform-download";
 import { DISCORD_URL, GITHUB_URL } from "@/lib/site";
 import { cn } from "@/lib/utils";
+import { LanguageSelector } from "./language-selector";
 
-const navItems = [
-	{ label: "How it works", href: "/#workflow" },
-	{ label: "Docs", href: "/docs" },
-	{ label: "Cloud", href: "/#cloud-interest" },
-	{ label: "Changelog", href: "/changelog" },
+const getNavItems = (t: WebsiteMessage) => [
+	{ label: t("navigation:how_it_works"), href: "/#workflow" },
+	{ label: t("navigation:docs"), href: "/docs" },
+	{ label: t("navigation:cloud"), href: "/#cloud-interest" },
+	{ label: t("navigation:changelog"), href: "/changelog" },
 ];
 
 export const Navbar = ({
@@ -34,6 +39,8 @@ export const Navbar = ({
 	className?: string | undefined;
 	githubStars?: number | null;
 }) => {
+	const { message: t, locale } = useWebsiteMessages();
+
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
 
 	return (
@@ -48,12 +55,16 @@ export const Navbar = ({
 					<div className="flex shrink-0 items-center gap-2 xl:min-w-45">
 						<Logo className="size-8" />
 					</div>
-					<div className="hidden lg:block">
+					<div className="hidden xl:block">
 						<div className="flex items-center gap-3 xl:gap-5">
-							{navItems.map((item) => (
+							{getNavItems(t).map((item) => (
 								<Link
 									key={item.label}
-									href={item.href}
+									href={
+										item.href.startsWith("/#")
+											? websitePath(locale) + item.href.slice(1)
+											: item.href
+									}
 									className="text-muted-foreground hover:text-heading focus-visible:ring-heading/60 inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-medium transition-colors duration-200 focus-visible:ring-2 focus-visible:outline-none"
 								>
 									{item.label}
@@ -62,19 +73,25 @@ export const Navbar = ({
 						</div>
 					</div>
 
-					<div className="hidden items-center gap-2 lg:flex">
+					<div className="hidden items-center gap-2 xl:flex">
 						<DiscordLink />
 						<ThemeToggle />
+						<LanguageSelector />
 						<GitHubStarLink stars={githubStars} />
 						<DownloadLink />
 					</div>
 
-					<div className="flex items-center gap-2 lg:hidden">
+					<div className="flex items-center gap-2 xl:hidden">
 						<DiscordLink />
 						<ThemeToggle />
+						<LanguageSelector />
 						<button
 							type="button"
-							aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+							aria-label={
+								isMenuOpen
+									? t("navigation:close_menu")
+									: t("navigation:open_menu")
+							}
 							aria-expanded={isMenuOpen}
 							onClick={() => setIsMenuOpen(!isMenuOpen)}
 							className="text-muted-foreground hover:text-heading focus-visible:ring-heading/60 relative flex size-7 items-center justify-center rounded-md transition-colors duration-200 after:absolute after:-inset-2 focus-visible:ring-2 focus-visible:outline-none"
@@ -89,12 +106,16 @@ export const Navbar = ({
 				</div>
 
 				{isMenuOpen ? (
-					<div className="border-border border-t pb-4 lg:hidden">
+					<div className="border-border border-t pb-4 xl:hidden">
 						<div className="flex flex-col gap-1 pt-2">
-							{navItems.map((item) => (
+							{getNavItems(t).map((item) => (
 								<Link
 									key={item.label}
-									href={item.href}
+									href={
+										item.href.startsWith("/#")
+											? websitePath(locale) + item.href.slice(1)
+											: item.href
+									}
 									className="text-muted-foreground hover:text-heading focus-visible:ring-heading/60 flex min-h-11 items-center rounded-lg px-3 text-base font-medium transition-colors duration-200 focus-visible:ring-2 focus-visible:outline-none"
 									onClick={() => setIsMenuOpen(false)}
 								>
@@ -122,38 +143,45 @@ const GitHubStarLink = ({
 }: {
 	stars?: number | null;
 	onClick?: () => void;
-}) => (
-	<a
-		href={GITHUB_URL}
-		target="_blank"
-		rel="noopener noreferrer"
-		onClick={onClick}
-		aria-label={
-			stars === null || stars === undefined
-				? "Star Zuse on GitHub"
-				: `Star Zuse on GitHub, ${stars.toLocaleString("en-US")} stars`
-		}
-		className="group border-border bg-card text-heading hover:bg-elevated focus-visible:ring-heading/60 relative flex h-7 shrink-0 items-center rounded-md border text-xs transition-colors duration-200 after:absolute after:-inset-y-2 after:inset-x-0 focus-visible:ring-2 focus-visible:outline-none"
-	>
-		<span className="flex items-center gap-1.5 px-2.5 font-medium">
-			<GitHubIcon className="size-3.5" />
-			Star
-		</span>
-		{stars !== null && stars !== undefined ? (
-			<span className="border-border text-muted-foreground flex min-w-8 self-stretch items-center justify-center border-l px-2 font-mono text-[11px] tabular-nums">
-				{stars.toLocaleString("en-US")}
+}) => {
+	const { message: t, locale } = useWebsiteMessages();
+	return (
+		<a
+			href={GITHUB_URL}
+			target="_blank"
+			rel="noopener noreferrer"
+			onClick={onClick}
+			aria-label={
+				stars === null || stars === undefined
+					? t("navigation:star_zuse_on_github")
+					: t("navigation:star_zuse_on_github_stars", {
+							value0: stars.toLocaleString(locale),
+						})
+			}
+			className="group border-border bg-card text-heading hover:bg-elevated focus-visible:ring-heading/60 relative flex h-7 shrink-0 items-center rounded-md border text-xs transition-colors duration-200 after:absolute after:-inset-y-2 after:inset-x-0 focus-visible:ring-2 focus-visible:outline-none"
+		>
+			<span className="flex items-center gap-1.5 px-2.5 font-medium">
+				<GitHubIcon className="size-3.5" />
+				{t("navigation:star")}
 			</span>
-		) : null}
-	</a>
-);
+			{stars !== null && stars !== undefined ? (
+				<span className="border-border text-muted-foreground flex min-w-8 self-stretch items-center justify-center border-l px-2 font-mono text-[11px] tabular-nums">
+					{stars.toLocaleString(locale)}
+				</span>
+			) : null}
+		</a>
+	);
+};
 
 const DownloadLink = ({ className }: { className?: string }) => {
+	const { message: t } = useWebsiteMessages();
+
 	const platform = useDownloadPlatform();
 
 	return (
 		<Link
 			href={getDownloadHref(platform)}
-			aria-label={getDownloadLabel(platform)}
+			aria-label={getDownloadLabel(platform, t)}
 			aria-keyshortcuts="D"
 			className={cn(
 				"bg-primary focus-visible:ring-heading/60 relative flex h-7 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-black transition-opacity duration-200 after:absolute after:-inset-y-2 after:inset-x-0 hover:opacity-90 focus-visible:ring-2 focus-visible:outline-none",
@@ -161,7 +189,7 @@ const DownloadLink = ({ className }: { className?: string }) => {
 			)}
 		>
 			<PlatformDownloadIcon platform={platform} className="size-3.5" />
-			Download
+			{t("navigation:download")}
 			<kbd className="rounded border border-black/15 bg-black/10 px-1 py-px font-sans text-[9px] leading-none text-black/65">
 				D
 			</kbd>
@@ -169,26 +197,33 @@ const DownloadLink = ({ className }: { className?: string }) => {
 	);
 };
 
-const DiscordLink = () => (
-	<a
-		href={DISCORD_URL}
-		target="_blank"
-		rel="noopener noreferrer"
-		aria-label="Join the Zuse Discord"
-		className="border-border bg-card text-muted-foreground hover:bg-elevated hover:text-heading focus-visible:ring-heading/60 relative flex size-7 items-center justify-center rounded-md border transition-colors duration-200 after:absolute after:-inset-2 focus-visible:ring-2 focus-visible:outline-none"
-	>
-		<IconBrandDiscordFilled aria-hidden="true" className="size-3.5" />
-	</a>
-);
+const DiscordLink = () => {
+	const { message: t } = useWebsiteMessages();
+	return (
+		<a
+			href={DISCORD_URL}
+			target="_blank"
+			rel="noopener noreferrer"
+			aria-label={t("navigation:join_the_zuse_discord")}
+			className="border-border bg-card text-muted-foreground hover:bg-elevated hover:text-heading focus-visible:ring-heading/60 relative flex size-7 items-center justify-center rounded-md border transition-colors duration-200 after:absolute after:-inset-2 focus-visible:ring-2 focus-visible:outline-none"
+		>
+			<IconBrandDiscordFilled aria-hidden="true" className="size-3.5" />
+		</a>
+	);
+};
 
 const ThemeToggle = () => {
+	const { message: t } = useWebsiteMessages();
+
 	const { resolvedTheme, setTheme } = useTheme();
 	const isDark = resolvedTheme !== "light";
 
 	return (
 		<button
 			type="button"
-			aria-label={`Switch to ${isDark ? "light" : "dark"} theme`}
+			aria-label={t(
+				isDark ? "navigation:light_theme" : "navigation:dark_theme",
+			)}
 			onClick={() => setTheme(isDark ? "light" : "dark")}
 			className="border-border bg-card text-muted-foreground hover:bg-elevated hover:text-heading focus-visible:ring-heading/60 relative flex size-7 items-center justify-center rounded-md border transition-colors duration-200 after:absolute after:-inset-2 focus-visible:ring-2 focus-visible:outline-none"
 		>

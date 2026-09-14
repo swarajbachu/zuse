@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { CircleArrowUp01Icon } from "@zuse/icons/solid-rounded";
 import { X } from "lucide-react";
 import { useState } from "react";
@@ -54,6 +56,8 @@ function persistDismissed(keys: ReadonlySet<string>): void {
  * two don't overlap when both are visible.
  */
 export function ProviderUpdatesToast() {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+
 	const availability = useProvidersStore((s) => s.availability);
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
@@ -133,7 +137,9 @@ export function ProviderUpdatesToast() {
 					type="button"
 					onClick={recordDismissed}
 					className="text-muted-foreground hover:text-foreground"
-					aria-label="Dismiss provider update toast"
+					aria-label={uiMessage(
+						"chat:provider_updates_toast_dismiss_provider_update_toast",
+					)}
 				>
 					<X className="size-3.5" strokeWidth={1.8} />
 				</button>
@@ -146,10 +152,10 @@ export function ProviderUpdatesToast() {
 					onClick={recordDismissed}
 					className="text-[10px]"
 				>
-					Dismiss
+					{uiMessage("chat:provider_updates_toast_dismiss")}
 				</Button>
 				<Button size="xs" onClick={onReview} className="text-[10px]">
-					Review in settings
+					{uiMessage("chat:provider_updates_toast_review_in_settings")}
 				</Button>
 			</div>
 		</div>,

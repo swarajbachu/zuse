@@ -1,0 +1,152 @@
+[
+	{
+		"file": "apps/web/components/cloud-teaser/waitlist-form.tsx",
+		"text": "you@example.com",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/demo/zuse-interactive-demo.tsx",
+		"text": "Codex",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/footer/index.tsx",
+		"text": "GitHub",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/footer/index.tsx",
+		"text": "Instagram",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/footer/index.tsx",
+		"text": "Discord",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/footer/index.tsx",
+		"text": "Zuse",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/first.tsx",
+		"text": "Claude Code",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/agenforce/components/features-secondary/skeletons/first.tsx",
+		"text": "Codex",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/four.tsx",
+		"text": "checkout-e2e",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/four.tsx",
+		"text": "exit 1",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/four.tsx",
+		"text": "Expected redirect to /dashboard",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/four.tsx",
+		"text": "Received /login?expired=true",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/four.tsx",
+		"text": "agent/fix-auth",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/third.tsx",
+		"text": "agent/checkout-recovery",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/agenforce/components/features-tertiary/skeletons/third.tsx",
+		"text": "fix: recover expired checkout sessions",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+		"text": "checkout-recovery",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+		"text": "Claude Code",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
+		"text": "Codex",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/nodus/components/logo.tsx",
+		"text": "Notus",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/saas/components/features-one/flipping-images.tsx",
+		"text": "checkout.local/receipt",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/saas/components/features-one/keyboard-skeleton.tsx",
+		"text": "esc",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/saas/components/features-one/keyboard-skeleton.tsx",
+		"text": "delete",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/saas/components/features-one/keyboard-skeleton.tsx",
+		"text": "tab",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/saas/components/features-one/keyboard-skeleton.tsx",
+		"text": "caps",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/saas/components/features-one/keyboard-skeleton.tsx",
+		"text": "return",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/saas/components/features-one/keyboard-skeleton.tsx",
+		"text": "shift",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/saas/components/features-one/keyboard-skeleton.tsx",
+		"text": "fn",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/saas/components/features-one/keyboard-skeleton.tsx",
+		"text": "ctrl",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/saas/components/features-one/keyboard-skeleton.tsx",
+		"text": "opt",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	},
+	{
+		"file": "apps/web/components/tpl/saas/components/features-one/keyboard-skeleton.tsx",
+		"text": "cmd",
+		"reason": "Technical example, brand name, URL, or physical keyboard legend; preserve verbatim."
+	}
+]

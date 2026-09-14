@@ -1,8 +1,10 @@
+import "@zuse/i18n/english/settings";
 import type {
 	ApiLinkStatus,
 	NetworkAccessState,
 	TailnetShareState,
 } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Server, ShieldCheck, Wifi } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
@@ -81,6 +83,8 @@ export function AccessMethodsCard({
 	) => void;
 	readonly onRequestNetworkMode: (enabled: boolean) => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
 	const [serveDetailsOpen, setServeDetailsOpen] = useState(false);
 
 	// Zuse Serve row.
@@ -120,7 +124,7 @@ export function AccessMethodsCard({
 					variant="ghost"
 					onClick={() => setServeDetailsOpen(true)}
 				>
-					Details
+					{uiMessage("settings:access_methods_card_details")}
 				</Button>
 			);
 		}
@@ -136,10 +140,10 @@ export function AccessMethodsCard({
 				}
 			>
 				{tailnetBusy
-					? "Updating…"
+					? uiMessage("settings:access_methods_card_updating")
 					: tailscaleShareReady
-						? "Turn off"
-						: "Set up"}
+						? uiMessage("settings:access_methods_card_turn_off")
+						: uiMessage("settings:access_methods_card_set_up")}
 			</Button>
 		);
 	})();
@@ -147,21 +151,29 @@ export function AccessMethodsCard({
 	return (
 		<Frame>
 			<RemoteAccessSectionHeader
-				title="Connections"
-				tooltip="Choose how other Zuse apps and browsers can reach this computer."
+				title={uiMessage("settings:access_methods_card_connections")}
+				tooltip={uiMessage(
+					"settings:access_methods_card_choose_how_other_zuse_apps_and_browsers_can_reach_this_computer",
+				)}
 				className="pt-1.5 pb-2"
 			/>
 			<Card className="overflow-hidden">
 				<div className="flex flex-col divide-y divide-border/40">
 					<AccessMethodRow
 						icon={<Server className="size-4" aria-hidden />}
-						title="Zuse Serve"
+						title={uiMessage("settings:access_methods_card_zuse_serve")}
 						description={
 							accountShareReady && accountAddress !== null
-								? `Available anywhere · ${accountAddress}`
+								? uiMessage("settings:access_methods_card_available_anywhere", {
+										accountAddress: String(accountAddress),
+									})
 								: linked
-									? "Reconnecting to your account…"
-									: "Access this computer from your signed-in devices."
+									? uiMessage(
+											"settings:access_methods_card_reconnecting_to_your_account",
+										)
+									: uiMessage(
+											"settings:access_methods_card_access_this_computer_from_your_signed_in_devices",
+										)
 						}
 						action={
 							<Button
@@ -172,29 +184,42 @@ export function AccessMethodsCard({
 									onOpenAccessDialog(linked ? "serve-disable" : "serve-enable")
 								}
 							>
-								{busy ? "Updating…" : linked ? "Turn off" : "Set up"}
+								{busy
+									? uiMessage("settings:access_methods_card_updating")
+									: linked
+										? uiMessage("settings:access_methods_card_turn_off")
+										: uiMessage("settings:access_methods_card_set_up")}
 							</Button>
 						}
 					/>
 					<AccessMethodRow
 						icon={<ShieldCheck className="size-4" aria-hidden />}
-						title="Tailscale"
+						title={uiMessage("settings:access_methods_card_tailscale")}
 						description={
 							tailscaleShareReady && tailnet?.dnsName !== null
-								? `Private access · ${tailnet.dnsName}`
+								? uiMessage("settings:access_methods_card_private_access", {
+										dnsName: String(tailnet.dnsName),
+									})
 								: line.description
 						}
 						action={tailnetAction}
 					/>
 					<AccessMethodRow
 						icon={<Wifi className="size-4" aria-hidden />}
-						title="Local network"
+						title={uiMessage("settings:access_methods_card_local_network")}
 						description={
 							networkEnabled && networkAddress !== null
-								? `Available on this network · ${networkAddress}`
+								? uiMessage(
+										"settings:access_methods_card_available_on_this_network",
+										{ networkAddress: String(networkAddress) },
+									)
 								: !canManageNetwork
-									? "Available in the desktop app."
-									: "Connect from another device on the same Wi-Fi."
+									? uiMessage(
+											"settings:access_methods_card_available_in_the_desktop_app",
+										)
+									: uiMessage(
+											"settings:access_methods_card_connect_from_another_device_on_the_same_wi_fi",
+										)
 						}
 						action={
 							<Button
@@ -203,7 +228,9 @@ export function AccessMethodsCard({
 								disabled={busy || !canManageNetwork}
 								onClick={() => onRequestNetworkMode(!networkEnabled)}
 							>
-								{networkEnabled ? "Turn off" : "Turn on"}
+								{networkEnabled
+									? uiMessage("settings:access_methods_card_turn_off")
+									: uiMessage("settings:access_methods_card_turn_on")}
 							</Button>
 						}
 					/>
@@ -213,15 +240,21 @@ export function AccessMethodsCard({
 			<Dialog open={serveDetailsOpen} onOpenChange={setServeDetailsOpen}>
 				<DialogPopup className="max-w-sm">
 					<DialogHeader>
-						<DialogTitle>Managed by zuse serve</DialogTitle>
+						<DialogTitle>
+							{uiMessage("settings:access_methods_card_managed_by_zuse_serve")}
+						</DialogTitle>
 						<DialogDescription>
-							The <code>zuse serve</code> daemon on this computer owns the
-							Tailscale Serve route. To change or turn off Tailscale access
-							here, run <code>zuse serve --stop</code> on this computer first.
+							<RichMessage
+								id="settings:access_methods_card_the_zuse_serve_daemon_on_this_computer_owns_the_tailscale_se_sentence"
+								components={{ part0: <code />, part1: <code /> }}
+								values={{ code0: "zuse serve", code1: "zuse serve --stop" }}
+							/>
 						</DialogDescription>
 					</DialogHeader>
 					<DialogFooter>
-						<Button onClick={() => setServeDetailsOpen(false)}>Done</Button>
+						<Button onClick={() => setServeDetailsOpen(false)}>
+							{uiMessage("common:done")}
+						</Button>
 					</DialogFooter>
 				</DialogPopup>
 			</Dialog>

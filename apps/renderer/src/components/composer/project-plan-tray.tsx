@@ -1,5 +1,8 @@
+import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { EnvironmentId, Message, SessionId } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { CheckListIcon, Tick02Icon } from "@zuse/icons/solid-rounded";
 import { ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -270,11 +273,17 @@ export function ProjectPlanTray({
 			flush
 			className="bg-primary/10 hover:bg-primary/15"
 			icon={icon}
-			title={headerTodo?.text ?? "Project Plan"}
+			title={
+				headerTodo?.text ?? uiMessage("projects:project_plan_tray_project_plan")
+			}
 			subtitle={`${done} of ${total} Done`}
 			onPillClick={() => setExpanded((v) => !v)}
 			ariaExpanded={expanded}
-			ariaLabel={expanded ? "Collapse plan" : "Expand plan"}
+			ariaLabel={
+				expanded
+					? uiMessage("common:collapse_plan")
+					: uiMessage("common:expand_plan")
+			}
 			actions={
 				<ChevronDown
 					className={cn(
@@ -319,13 +328,15 @@ export function ProjectPlanTray({
 }
 
 function TodoStatusIcon({ status }: { status: TodoStatus }) {
+	const { message: uiMessage } = useUiMessages(["projects"]);
+
 	if (status === TODO_STATUS.completed) {
 		return (
 			<HugeiconsIcon
 				icon={Tick02Icon}
 				strokeWidth={2.5}
 				className="size-3.5 text-primary"
-				aria-label="Completed"
+				aria-label={uiMessage("projects:project_plan_tray_completed")}
 			/>
 		);
 	}
@@ -336,7 +347,7 @@ function TodoStatusIcon({ status }: { status: TodoStatus }) {
 		<span
 			role="img"
 			className="size-3 rounded-full border border-dashed border-muted-foreground/50"
-			aria-label="Pending"
+			aria-label={uiMessage("projects:project_plan_tray_pending")}
 		/>
 	);
 }

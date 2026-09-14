@@ -1,3 +1,4 @@
+import { activateLocale, prepareLocale } from "@zuse/i18n";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -35,7 +36,8 @@ describe("chat switcher command mode", () => {
 			(candidate) => candidate.command === "new-chat",
 		);
 
-		expect(row).toMatchObject(COMMAND_META["new-chat"]);
+		const { label, description, group } = COMMAND_META["new-chat"];
+		expect(row).toMatchObject({ label, description, group });
 	});
 
 	it("searches command labels, descriptions, and groups", () => {
@@ -50,5 +52,20 @@ describe("chat switcher command mode", () => {
 
 	it("returns no command rows in chat mode", () => {
 		expect(commandRowsForQuery("settings")).toEqual([]);
+	});
+	it("updates labels without freezing English search aliases", async () => {
+		await prepareLocale("de", ["commands"]);
+		await activateLocale("de");
+		try {
+			const row = commandRowsForQuery(">").find(
+				(row) => row.command === "new-chat",
+			);
+			expect(row?.label).not.toBe("New chat");
+			expect(
+				commandRowsForQuery(">new chat").map((row) => row.command),
+			).toContain("new-chat");
+		} finally {
+			await activateLocale("en");
+		}
 	});
 });
