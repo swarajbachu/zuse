@@ -64,26 +64,31 @@ const makeHost = (root: string) =>
 	});
 
 describe("ExtensionHost", () => {
+	// Compilation and real child-process startup need the same CI budget as the other lifecycle tests.
 	it("stays globally disabled by default and invokes validated RPCs after enable", async () => {
 		const { root, extension } = await fixture();
 		const host = makeHost(root);
-		await host.start();
-		await host.execute({
-			_tag: "install",
-			source: { _tag: "directory", path: extension },
-			grantedCapabilities: ["rpc"],
-		});
-		expect(host.snapshot().globallyEnabled).toBe(false);
-		expect(host.snapshot().items[0]?.status).toBe("disabled");
-		await host.execute({ _tag: "set-global-enabled", enabled: true });
-		expect(await host.invoke("test-extension", "echo", "ok")).toBe("ok");
-		await expect(
-			host.invoke("test-extension", "echo", 1),
-		).rejects.toMatchObject({
-			code: "rpc-failed",
-		});
-		await host.stop();
-	});
+		try {
+			await host.start();
+			await host.execute({
+				_tag: "install",
+				source: { _tag: "directory", path: extension },
+				grantedCapabilities: ["rpc"],
+			});
+			expect(host.snapshot().globallyEnabled).toBe(false);
+			expect(host.snapshot().items[0]?.status).toBe("disabled");
+			await host.execute({ _tag: "set-global-enabled", enabled: true });
+			expect(await host.invoke("test-extension", "echo", "ok")).toBe("ok");
+			await expect(
+				host.invoke("test-extension", "echo", 1),
+			).rejects.toMatchObject({
+				code: "rpc-failed",
+			});
+		} finally {
+			await host.stop();
+			await rm(root, { recursive: true, force: true });
+		}
+	}, 20_000);
 
 	it("rolls back an installation when its configuration cannot be committed", async () => {
 		const { root, extension } = await fixture();
