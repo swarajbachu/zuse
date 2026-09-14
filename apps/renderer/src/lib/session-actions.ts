@@ -19,6 +19,7 @@ import {
 	type CloudFailurePresentation,
 	cloudFailurePresentation,
 } from "./cloud-failure-presentation.ts";
+import { bindCloudWorkspaceToLocalDevice } from "./device-bridge-binding.ts";
 import { formatError } from "./format-error.ts";
 import {
 	clearPendingSessionMessage,
@@ -28,6 +29,7 @@ import {
 	markRendererInteraction,
 	trackRendererRpc,
 } from "./performance-marks.ts";
+import { isCloudWorkspaceEnvironment } from "./rpc-client.ts";
 import { makeOptimisticSessionMessage } from "./session-message-intent.ts";
 import {
 	addOptimisticSessionMessage,
@@ -291,6 +293,9 @@ export const sendSessionMessage = async (
 ): Promise<boolean> => {
 	const messageId = stageSessionMessage(ref, input, options);
 	setSessionError(ref, null);
+	if (isCloudWorkspaceEnvironment(ref.environmentId)) {
+		await bindCloudWorkspaceToLocalDevice(ref.environmentId);
+	}
 	const commandId = CommandId.make(`message-send:${messageId}`);
 	const modelOptions = readSessionModelOptions(ref);
 	const payload = {

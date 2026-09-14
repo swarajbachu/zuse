@@ -4,17 +4,12 @@ import {
 	EMPTY_DEVICE_BRIDGE_VIEW,
 } from "@zuse/client-runtime/device-bridge-controller";
 import { DEVICE_PERMISSION_DESCRIPTION } from "@zuse/client-runtime/device-permission-presentation";
-import type { DeviceBridgeControl, DeviceBridgeResult } from "@zuse/contracts";
+import type { DeviceBridgeControl } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useMemo, useState } from "react";
-import { dispatchLocalDeviceCommand } from "../lib/local-device-client-bus.ts";
+import { localDeviceBridge } from "../lib/device-bridge-binding.ts";
 import { DeviceCommandCard } from "./device-command-card.tsx";
 import { Button } from "./ui/button.tsx";
-
-export const localDeviceBridge = (
-	action: DeviceBridgeControl,
-): Promise<DeviceBridgeResult> =>
-	dispatchLocalDeviceCommand("deviceBridge.control", action);
 
 /** Device access settings; command approvals are rendered only in their chat. */
 export function DeviceBridgePanel() {
