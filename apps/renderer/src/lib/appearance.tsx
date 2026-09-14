@@ -1,6 +1,7 @@
 import type { AppearanceMode } from "@zuse/contracts";
 import { useLayoutEffect, useMemo, useSyncExternalStore } from "react";
 import { useExtensionContributions } from "./extension-registry.tsx";
+import { applyExtensionTheme } from "./extension-theme.ts";
 import { useSettingsStore } from "./settings-client-bus.ts";
 
 export type ResolvedAppearance = "light" | "dark";
@@ -80,30 +81,12 @@ export function AppearanceController() {
 							(theme) => theme.id === themeSelection.themeId,
 						)
 				: undefined;
-		const tokenMap = {
-			background: "--background",
-			foreground: "--foreground",
-			card: "--card",
-			cardForeground: "--card-foreground",
-			popover: "--popover",
-			popoverForeground: "--popover-foreground",
-			muted: "--muted",
-			mutedForeground: "--muted-foreground",
-			border: "--border",
-			input: "--input",
-			accent: "--accent",
-			accentForeground: "--accent-foreground",
-			destructive: "--destructive",
-			ring: "--ring",
-		} as const;
-		for (const [key, token] of Object.entries(tokenMap)) {
-			const value = selectedTheme?.theme.colors[key as keyof typeof tokenMap];
-			if (value === undefined) root.style.removeProperty(token);
-			else root.style.setProperty(token, value);
-		}
+		applyExtensionTheme(root.style, selectedTheme?.theme);
 		root.classList.toggle("dark", resolvedAppearance === "dark");
 		root.style.colorScheme = resolvedAppearance;
-		window.zuse?.window?.setAppearanceMode?.(appearanceMode);
+		window.zuse?.window?.setAppearanceMode?.(
+			themeSelection._tag === "extension" ? resolvedAppearance : appearanceMode,
+		);
 		window.dispatchEvent(
 			new CustomEvent("zuse:appearance-change", {
 				detail: { mode: appearanceMode, resolved: resolvedAppearance },

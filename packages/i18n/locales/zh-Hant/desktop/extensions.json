@@ -46,5 +46,7 @@
 	"reports_workflow": "JUnit XML → 檢查失敗 → 附加至聊天。工作區分頁和附件選擇器。",
 	"playbook_workflow": "儲存庫 Markdown → 選擇流程 → 附加至聊天。工作區分頁和附件選擇器。",
 	"followups_workflow": "TODO/FIXME → 檢查程式碼 → 附加至聊天。工作區分頁、指令面板和附件選擇器。",
-	"search_marketplace": "搜尋擴充功能…"
+	"search_marketplace": "搜尋擴充功能…",
+	"use_theme": "使用 {{name}}",
+	"theme_active": "{{name}}已啟用"
 }

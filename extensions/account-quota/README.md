@@ -8,9 +8,9 @@ It never imports Zuse's quota collector or switches an agent's active account.
 
 1. Install Account Quota from Settings → Extensions and open its workspace tab
    in any local project.
-2. Choose Claude Code or Codex, give the account a label, and enter the absolute
-   path to its credential JSON file (`~/` is supported).
-3. Click **Add profile**, then **Refresh**. Repeat for each account; up to 20
+2. Choose Claude Code or Codex. The usual credential path is filled in; change
+   it for a separate profile. An account name is optional (`~/` is supported).
+3. Click **Add account**, then **Refresh**. Repeat for each account; up to 20
    independent profiles are supported. Each account needs its own file.
 
 Codex ChatGPT login files commonly live at `~/.codex/auth.json`; a separate

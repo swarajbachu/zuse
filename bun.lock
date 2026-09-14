@@ -358,7 +358,7 @@
     },
     "extensions/account-quota": {
       "name": "@zuse-extension/account-quota",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@types/node": "catalog:",
         "@zuse/extension-sdk": "workspace:*",

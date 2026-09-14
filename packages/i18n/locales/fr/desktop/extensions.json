@@ -46,5 +46,7 @@
 	"reports_workflow": "JUnit XML → examiner les échecs → joindre au chat. Onglet de travail et sélecteur de pièces jointes.",
 	"playbook_workflow": "Markdown du dépôt → choisir une procédure → joindre au chat. Onglet de travail et sélecteur de pièces jointes.",
 	"followups_workflow": "TODO/FIXME → examiner le code → joindre au chat. Onglet de travail, palette de commandes et sélecteur de pièces jointes.",
-	"search_marketplace": "Rechercher des extensions…"
+	"search_marketplace": "Rechercher des extensions…",
+	"use_theme": "Utiliser {{name}}",
+	"theme_active": "{{name}} actif"
 }

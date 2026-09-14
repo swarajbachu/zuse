@@ -212,7 +212,7 @@ export function ExtensionsPane() {
 					catalog.items.map((item) => (
 						<div
 							key={item.id}
-							className="flex items-start gap-3 rounded-md bg-muted/25 px-3 py-2.5"
+							className="flex flex-col gap-2 rounded-md bg-muted/25 px-3 py-2.5"
 						>
 							<div className="min-w-0 flex-1">
 								<div className="flex items-center gap-2">
@@ -262,7 +262,41 @@ export function ExtensionsPane() {
 									</p>
 								)}
 							</div>
-							<div className="flex shrink-0 flex-wrap justify-end gap-1">
+							<div className="flex flex-wrap gap-1">
+								{contributions
+									.find((extension) => extension.extensionId === item.id)
+									?.contributions.themes.map((theme) => {
+										const selected =
+											themeSelection._tag === "extension" &&
+											themeSelection.extensionId === item.id &&
+											themeSelection.themeId === theme.id;
+										return (
+											<Button
+												key={theme.id}
+												size="sm"
+												className="h-7"
+												variant={selected ? "default" : "secondary"}
+												aria-pressed={selected}
+												title={theme.name}
+												disabled={busy !== null || selected}
+												onClick={() =>
+													setThemeSelection({
+														_tag: "extension",
+														extensionId: item.id,
+														themeId: theme.id,
+													})
+												}
+											>
+												{extensionMessage(
+													selected
+														? "extensions:theme_active"
+														: "extensions:use_theme",
+													{ name: theme.name },
+												)}
+											</Button>
+										);
+									})}
+
 								<Button
 									size="sm"
 									className="h-7"
@@ -364,43 +398,6 @@ export function ExtensionsPane() {
 							{entry.message}
 						</div>
 					))}
-				</div>
-			)}
-
-			{contributions.some(
-				(extension) => extension.contributions.themes.length > 0,
-			) && (
-				<div className="flex flex-col gap-1.5">
-					<p className="font-medium text-foreground">
-						{extensionMessage("extensions:themes")}
-					</p>
-					<div className="flex flex-wrap gap-1.5">
-						{contributions.flatMap((extension) =>
-							extension.contributions.themes.map((theme) => {
-								const selected =
-									themeSelection._tag === "extension" &&
-									themeSelection.extensionId === extension.extensionId &&
-									themeSelection.themeId === theme.id;
-								return (
-									<Button
-										key={`${extension.extensionId}:${theme.id}`}
-										size="sm"
-										className="h-7"
-										variant={selected ? "default" : "ghost"}
-										onClick={() =>
-											setThemeSelection({
-												_tag: "extension",
-												extensionId: extension.extensionId,
-												themeId: theme.id,
-											})
-										}
-									>
-										{theme.name}
-									</Button>
-								);
-							}),
-						)}
-					</div>
 				</div>
 			)}
 

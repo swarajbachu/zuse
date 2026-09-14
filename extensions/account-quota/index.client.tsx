@@ -5,6 +5,10 @@ import type {
 import { useEffect, useRef, useState } from "react";
 import { type QuotaResult, quotaRpc } from "./contracts.ts";
 import "./style.css";
+
+const defaultPath = (provider: "codex" | "claude") =>
+	provider === "codex" ? "~/.codex/auth.json" : "~/.claude/.credentials.json";
+
 export function Panel(props: ExtensionWorkspacePanelProps) {
 	const [accounts, setAccounts] = useState<readonly QuotaResult[]>([]);
 	const [busy, setBusy] = useState(false);
@@ -12,7 +16,8 @@ export function Panel(props: ExtensionWorkspacePanelProps) {
 	const [error, setError] = useState("");
 	const [label, setLabel] = useState("");
 	const [provider, setProvider] = useState<"codex" | "claude">("codex");
-	const [path, setPath] = useState("");
+	const [path, setPath] = useState(defaultPath("codex"));
+	const [adding, setAdding] = useState(false);
 	const pending = useRef<AbortController | null>(null);
 	const invoke = useRef(props.invoke);
 	invoke.current = props.invoke;
@@ -39,14 +44,22 @@ export function Panel(props: ExtensionWorkspacePanelProps) {
 				);
 				const data = await invoke.current(
 					quotaRpc,
-					{ action, id: accountId, label, provider, credentialPath: path },
+					{
+						action,
+						id: accountId,
+						label:
+							label.trim() || (provider === "codex" ? "Codex" : "Claude Code"),
+						provider,
+						credentialPath: path,
+					},
 					{ signal: controller.signal },
 				);
 				if (!controller.signal.aborted) {
 					setAccounts(data);
 					if (action === "add") {
 						setLabel("");
-						setPath("");
+						setPath(defaultPath(provider));
+						setAdding(false);
 					}
 				}
 			}
@@ -68,181 +81,222 @@ export function Panel(props: ExtensionWorkspacePanelProps) {
 	}, [props.projectId, props.workspacePath]);
 	return (
 		<section className="zq-panel">
-			<header>
-				<div>
-					<h1>Account Quota</h1>
-					<p>Claude Code and Codex · independent account profiles</p>
-				</div>
-				<button
-					className="h-7"
-					type="button"
-					disabled={busy || accounts.length === 0}
-					onClick={() => void run("refresh")}
-				>
-					Refresh all
-				</button>
-			</header>
-			<p>
-				Reads each profile directly from its provider. Does not use Zuse’s usage
-				collector or change your active login.
-			</p>
-			<form
-				onSubmit={(e) => {
-					e.preventDefault();
-					void run("add");
-				}}
-			>
-				<h2>Connect an account profile</h2>
-				<div className="zq-form">
-					<input
-						className="h-7"
-						aria-label="Account label"
-						placeholder="Work, personal, second account…"
-						value={label}
-						maxLength={80}
-						onChange={(e) => setLabel(e.target.value)}
-					/>
-					<select
-						className="h-7"
-						aria-label="Provider"
-						value={provider}
-						onChange={(e) => setProvider(e.target.value as "codex" | "claude")}
-					>
-						<option value="codex">Codex</option>
-						<option value="claude">Claude Code</option>
-					</select>
-					<input
-						className="h-7"
-						aria-label="Credential file path"
-						placeholder={
-							provider === "codex"
-								? "~/.codex/auth.json"
-								: "~/.claude/.credentials.json"
-						}
-						value={path}
-						onChange={(e) => setPath(e.target.value)}
-					/>
-					<button
-						className="h-7"
-						type="submit"
-						disabled={busy || !label.trim() || !path.trim()}
-					>
-						Add profile
-					</button>
-				</div>
-				<p className="zq-help">
-					Use a separate credential file for each account. Tokens stay on this
-					machine and are sent only to the selected provider. Claude Code on
-					macOS may keep its login in Keychain; a JSON credential-file profile
-					is required here. This preview does not open a sign-in flow or renew
-					expired logins.
-				</p>
-			</form>
-			{error && <p role="alert">{error}</p>}
-			{busy && (
-				<p role="status">
-					{progress}{" "}
-					<button
-						className="h-7"
-						type="button"
-						onClick={() => {
-							pending.current?.abort();
-							setBusy(false);
+			<div className="zq-content">
+				<header>
+					<div>
+						<h1>Account Quota</h1>
+						<p>Your Claude Code and Codex allowances.</p>
+					</div>
+					{accounts.length > 0 && (
+						<div className="zq-actions">
+							<button
+								className="h-7"
+								type="button"
+								disabled={busy}
+								onClick={() => setAdding(!adding)}
+							>
+								Add account
+							</button>
+							<button
+								className="h-7"
+								type="button"
+								disabled={busy}
+								onClick={() => void run("refresh")}
+							>
+								Refresh all
+							</button>
+						</div>
+					)}
+				</header>
+				{(accounts.length === 0 || adding) && (
+					<form
+						onSubmit={(e) => {
+							e.preventDefault();
+							void run("add");
 						}}
 					>
-						Cancel
-					</button>
-				</p>
-			)}
-			{!busy && accounts.length === 0 && (
-				<div className="zq-empty">
-					<h2>Compare your accounts before starting work</h2>
-					<p>
-						Add one or several profiles, then refresh their allowances. Account
-						labels and file paths are saved by this extension.
+						<h2>
+							{accounts.length === 0
+								? "Add your first account"
+								: "Add another account"}
+						</h2>
+						<p>Choose a provider and its local credential file.</p>
+						<div className="zq-form">
+							<label>
+								Provider
+								<select
+									className="h-7"
+									value={provider}
+									onChange={(e) => {
+										const next =
+											e.target.value === "claude" ? "claude" : "codex";
+										setPath(defaultPath(next));
+										setProvider(next);
+									}}
+								>
+									<option value="codex">Codex</option>
+									<option value="claude">Claude Code</option>
+								</select>
+							</label>
+							<label>
+								Account name
+								<input
+									className="h-7"
+									placeholder="Personal, work… (optional)"
+									value={label}
+									maxLength={80}
+									onChange={(e) => setLabel(e.target.value)}
+								/>
+							</label>
+							<label className="zq-path">
+								Credential file
+								<input
+									className="h-7"
+									value={path}
+									onChange={(e) => setPath(e.target.value)}
+									spellCheck={false}
+								/>
+							</label>
+						</div>
+						{provider === "claude" && (
+							<p className="zq-help">
+								Requires a JSON credential file. Claude Code’s macOS Keychain
+								login is not imported.
+							</p>
+						)}
+						<div className="zq-actions">
+							<button
+								className="h-7 zq-primary"
+								type="submit"
+								disabled={busy || !path.trim()}
+							>
+								Add account
+							</button>
+							{accounts.length > 0 && (
+								<button
+									className="h-7"
+									type="button"
+									disabled={busy}
+									onClick={() => setAdding(false)}
+								>
+									Cancel
+								</button>
+							)}
+						</div>
+					</form>
+				)}
+
+				{error && <p role="alert">{error}</p>}
+				{busy && (
+					<p role="status">
+						{progress}{" "}
+						<button
+							className="h-7"
+							type="button"
+							onClick={() => {
+								pending.current?.abort();
+								setBusy(false);
+							}}
+						>
+							Cancel
+						</button>
 					</p>
-				</div>
-			)}
-			<div className="zq-grid">
-				{accounts.map((row) => (
-					<article className="zq-account" key={row.account.id}>
-						<header>
-							<div>
-								<h2>{row.account.label}</h2>
-								<p>
-									{row.account.provider === "claude" ? "Claude Code" : "Codex"}
-									{row.plan ? ` · ${row.plan}` : ""}
-								</p>
-							</div>
-							<button
-								className="h-7"
-								type="button"
-								disabled={busy}
-								onClick={() => void run("refresh", row.account.id)}
-							>
-								Refresh
-							</button>
-						</header>
-						{row.error && (
-							<p role="alert">
-								{row.error}
-								{row.fetchedAt ? " Showing the last successful reading." : ""}
-							</p>
-						)}
-						{row.windows.length === 0 && (
-							<p>
-								{row.error
-									? "Quota unavailable."
-									: "No reading yet. Refresh this account."}
-							</p>
-						)}
-						{row.windows.map((w) => (
-							<div className="zq-window" key={w.id}>
+				)}
+				<div className="zq-grid">
+					{accounts.map((row) => (
+						<article className="zq-account" key={row.account.id}>
+							<header>
 								<div>
-									<span>{w.label}</span>
-									<strong>
-										{w.usedPercent === null
-											? "Unknown"
-											: `${Math.round(100 - w.usedPercent)}% left`}
-									</strong>
+									<h2>{row.account.label}</h2>
+									<p>
+										{row.account.provider === "claude"
+											? "Claude Code"
+											: "Codex"}
+										{row.plan ? ` · ${row.plan}` : ""}
+									</p>
 								</div>
-								{w.usedPercent !== null && (
-									<progress
-										aria-label={`${w.label} remaining`}
-										value={100 - w.usedPercent}
-										max={100}
-									/>
-								)}
-								<p>
-									{w.resetsAt
-										? `Resets ${new Date(w.resetsAt).toLocaleString()}`
-										: "Reset time unavailable"}
+								<button
+									className="h-7"
+									type="button"
+									disabled={busy}
+									onClick={() => void run("refresh", row.account.id)}
+								>
+									Refresh
+								</button>
+							</header>
+							{row.error && (
+								<p role="alert">
+									{row.error}
+									{row.fetchedAt ? " Showing the last successful reading." : ""}
 								</p>
-							</div>
-						))}
-						<footer>
-							<span>
-								{row.fetchedAt
-									? `Fetched ${new Date(row.fetchedAt).toLocaleString()}`
-									: "Not fetched"}
-							</span>
-							<button
-								className="h-7"
-								type="button"
-								disabled={busy}
-								onClick={() => void run("remove", row.account.id)}
-							>
-								Remove
-							</button>
-						</footer>
-					</article>
-				))}
+							)}
+							{row.windows.length === 0 && (
+								<p>
+									{row.error
+										? "Quota unavailable."
+										: "No reading yet. Refresh this account."}
+								</p>
+							)}
+							{row.windows.map((w) => (
+								<div className="zq-window" key={w.id}>
+									<div>
+										<span>{w.label}</span>
+										<strong>
+											{w.usedPercent === null
+												? "Unknown"
+												: `${Math.round(100 - w.usedPercent)}% left`}
+										</strong>
+									</div>
+									{w.usedPercent !== null && (
+										<progress
+											aria-label={`${w.label} remaining`}
+											value={100 - w.usedPercent}
+											max={100}
+										/>
+									)}
+									<p>
+										{w.resetsAt
+											? `Resets ${new Date(w.resetsAt).toLocaleString()}`
+											: "Reset time unavailable"}
+									</p>
+								</div>
+							))}
+							<footer>
+								<span>
+									{row.fetchedAt
+										? `Fetched ${new Date(row.fetchedAt).toLocaleString()}`
+										: "Not fetched"}
+								</span>
+								<button
+									className="h-7"
+									type="button"
+									disabled={busy}
+									onClick={() => void run("remove", row.account.id)}
+								>
+									Remove
+								</button>
+							</footer>
+						</article>
+					))}
+				</div>
+				<details className="zq-details">
+					<summary>How account profiles work</summary>
+					<p>
+						Use a separate credential file for each account. This extension
+						reads quota directly from the provider and does not change your
+						active login.
+					</p>
+					<p>
+						Tokens stay on this machine and are sent only to the selected
+						provider. Sign-in and expired-token renewal happen outside this
+						extension.
+					</p>
+					<p>
+						Refresh is manual, at most once per account per minute. Removing a
+						profile leaves its credential file untouched.
+					</p>
+				</details>
 			</div>
-			<p className="zq-help">
-				Refresh is on demand, at most once per account per minute. Removing a
-				profile leaves its credential file untouched. Quota endpoints can reject
-				requests or change independently of Zuse.
-			</p>
 		</section>
 	);
 }

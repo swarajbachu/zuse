@@ -46,5 +46,7 @@
 	"reports_workflow": "JUnit XML → Fehler prüfen → an Chat anhängen. Arbeitsbereich-Tab und Anhangsauswahl.",
 	"playbook_workflow": "Repository-Markdown → Verfahren auswählen → an Chat anhängen. Arbeitsbereich-Tab und Anhangsauswahl.",
 	"followups_workflow": "TODO/FIXME → Code prüfen → an Chat anhängen. Arbeitsbereich-Tab, Befehlspalette und Anhangsauswahl.",
-	"search_marketplace": "Erweiterungen suchen…"
+	"search_marketplace": "Erweiterungen suchen…",
+	"use_theme": "{{name}} verwenden",
+	"theme_active": "{{name}} aktiv"
 }
