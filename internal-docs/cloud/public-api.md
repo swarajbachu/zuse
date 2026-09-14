@@ -74,6 +74,11 @@ Full access uses the existing runtime policy, including sensitive-path and
 plan-mode safeguards. Desktop/web creation defaults are unchanged. Replaying
 an existing creation request does not change that workspace's access mode.
 
+The API cannot identify a physical desktop as a local-command target. When an
+API-created workspace is opened in the desktop app, sending a message attaches
+that workspace to the sending desktop. A later send from another linked desktop
+moves the target; browser and mobile clients leave the current target unchanged.
+
 ### Send a follow-up message
 
 Upload each attachment first using its raw bytes:

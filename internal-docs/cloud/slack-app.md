@@ -69,6 +69,11 @@ visible without it. Results include a workspace ID, not a one-click web session 
 If permissions were recently added, reauthorize the app through the installation
 link. Deploying an updated backend alone does not grant those permissions.
 
+Slack cannot identify which physical desktop should run a local command. After
+opening a Slack-created workspace in the Zuse desktop app, send a message there
+to attach that desktop. Sending later from another linked desktop moves the
+command target to that device.
+
 Removing a rule does not cancel an already-running agent. Disconnect the Zuse
 account from App Home to revoke new requests, use the private automation settings
 page to also remove its rules, or uninstall the
