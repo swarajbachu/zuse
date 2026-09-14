@@ -23,11 +23,11 @@ export const LogoCloud = () => {
 					components={{ part0: <span className="text-muted-foreground" /> }}
 				/>
 			</h2>
-			<div className="border-border bg-border mx-auto mt-9 grid max-w-5xl grid-cols-2 gap-px overflow-hidden rounded-xl border sm:grid-cols-7">
+			<div className="border-border bg-border mx-auto mt-9 grid max-w-5xl grid-cols-2 gap-px overflow-hidden rounded-xl border sm:grid-cols-8">
 				{AGENTS.map((a) => (
 					<div
 						key={a.name}
-						className="group bg-background relative flex min-h-28 flex-col items-center justify-center gap-3 overflow-hidden px-3 py-5 last:col-span-2 sm:last:col-span-1"
+						className="group bg-background relative flex min-h-28 flex-col items-center justify-center gap-3 overflow-hidden px-3 py-5"
 					>
 						<span className="bg-primary/[0.04] absolute inset-0 translate-y-full transition-transform duration-200 ease-out group-hover:translate-y-0 motion-reduce:transition-none" />
 						<span className="relative grid size-10 place-items-center rounded-lg bg-white shadow-sm ring-1 ring-black/5">
