@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { chmodSync, constants } from "node:fs";
 import {
 	chmod,
+	link,
 	mkdir,
 	open,
 	readFile,
@@ -11,6 +12,7 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { WORKOS_PUBLIC_CLIENT_ID } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
@@ -19,7 +21,6 @@ import { SessionStoreError } from "../errors.ts";
 import { SessionStore } from "../services/session-store.ts";
 import { parseSessionBundle, type SessionBundle } from "./workos.ts";
 
-const LOCK_STALE_MS = 30_000;
 const LOCK_MAX_ATTEMPTS = 140;
 
 const authDir = (): string =>
@@ -200,14 +201,67 @@ export const sessionLockIsStale = (raw: string): boolean => {
 		if (pid === null || !Number.isFinite(createdAt) || createdAt <= 0) {
 			return true;
 		}
-		// Never steal a lock from a live process merely because its WorkOS call
-		// crossed the 30-second refresh-token replay window. Age only protects
-		// against a stale file whose PID has since been reused.
-		return !pidIsAlive(pid) || Date.now() - createdAt > LOCK_STALE_MS * 4;
+		// A slow or suspended owner still owns its lock. Reused PIDs may delay
+		// recovery, but cannot justify concurrent refresh-token use.
+		return !pidIsAlive(pid);
 	} catch {
 		return true;
 	}
 };
+
+/**
+ * Serialize lock-file creation, stale recovery, and the protected operation
+ * across runtimes and processes. A read/check/unlink sequence is not a filesystem
+ * compare-and-swap, and O_EXCL exposes the file before its metadata is written.
+ * SQLite supplies an OS-backed lock released on close or process death, without
+ * stale-file cleanup. Never unlink this database: that would split ownership
+ * between different inodes. It stores no session data.
+ *
+ * Keep the JSON lock inside this guard so older installations still see ownership.
+ */
+const acquireProcessLock = (): Effect.Effect<DatabaseSync, SessionStoreError> =>
+	Effect.gen(function* () {
+		yield* ensureAuthDir();
+		const path = `${lockFile()}.sqlite`;
+		for (let attempt = 0; attempt < LOCK_MAX_ATTEMPTS; attempt++) {
+			const result = yield* Effect.try({
+				try: () => {
+					const database = new DatabaseSync(path);
+					try {
+						// Let SQLite manage every descriptor for this file. Closing an
+						// unrelated descriptor can release POSIX locks held by this process.
+						chmodSync(path, 0o600);
+						// Waiting synchronously would block the owner in this same event loop.
+						database.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
+						return database;
+					} catch (cause) {
+						database.close();
+						throw cause;
+					}
+				},
+				catch: (cause) => cause,
+			}).pipe(Effect.result);
+			if (result._tag === "Success") return result.success;
+			const cause = result.failure;
+			if (
+				!(
+					typeof cause === "object" &&
+					cause !== null &&
+					"errcode" in cause &&
+					typeof cause.errcode === "number" &&
+					(cause.errcode & 255) === 5
+				)
+			) {
+				return yield* Effect.fail(
+					failStore("Failed to acquire auth process lock.", cause),
+				);
+			}
+			yield* Effect.sleep("150 millis");
+		}
+		return yield* Effect.fail(
+			failStore("Timed out waiting for auth process lock."),
+		);
+	});
 
 const readLockRaw = (): Effect.Effect<string | null, never> =>
 	Effect.tryPromise({
@@ -221,15 +275,28 @@ const acquireLock = (attempt = 0): Effect.Effect<string, SessionStoreError> =>
 			Effect.tryPromise({
 				try: async () => {
 					const token = randomUUID();
-					const handle = await open(
-						lockFile(),
-						constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
-						0o600,
-					);
-					await handle.writeFile(
-						JSON.stringify({ pid: process.pid, createdAt: Date.now(), token }),
-					);
-					await handle.close();
+					const path = lockFile();
+					const temporary = `${path}.tmp.${token}`;
+					const handle = await open(temporary, "wx", 0o600);
+					try {
+						try {
+							await handle.writeFile(
+								JSON.stringify({
+									pid: process.pid,
+									createdAt: Date.now(),
+									token,
+								}),
+							);
+						} finally {
+							await handle.close();
+						}
+						// Publish complete ownership metadata without replacing another owner.
+						// This also prevents older clients from mistaking a new lock for corrupt JSON.
+						await link(temporary, path);
+					} finally {
+						// Once linked, ownership must reach the caller even if temp cleanup fails.
+						await rm(temporary, { force: true }).catch(() => undefined);
+					}
 					return token;
 				},
 				catch: (cause) => cause,
@@ -294,6 +361,11 @@ export const SessionStoreLive = Layer.succeed(
 				rm(authFile(), { force: true }),
 			),
 		withLock: (effect) =>
-			Effect.acquireUseRelease(acquireLock(), () => effect, releaseLock),
+			Effect.acquireUseRelease(
+				acquireProcessLock(),
+				() =>
+					Effect.acquireUseRelease(acquireLock(), () => effect, releaseLock),
+				(database) => Effect.sync(() => database.close()),
+			),
 	}),
 );

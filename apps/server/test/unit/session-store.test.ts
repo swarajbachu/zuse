@@ -97,7 +97,7 @@ describe("session store client partitioning", () => {
 			sessionLockIsStale(
 				JSON.stringify({
 					pid: process.pid,
-					createdAt: Date.now() - 60_000,
+					createdAt: Date.now() - 600_000,
 				}),
 			),
 		).toBe(false);
