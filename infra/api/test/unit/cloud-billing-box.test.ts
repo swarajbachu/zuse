@@ -315,7 +315,10 @@ it("pairs by provider time and keeps retries pinned after later events arrive", 
 });
 
 describe("Box reported cost settlement", () => {
-	it("queries exact cutover/period windows, retries atomically, and deduplicates webhook/poll closes", async () => {
+	it.each([
+		false,
+		true,
+	])("queries exact windows, retries atomically, and deduplicates closes with malformed periods=%s", async (malformedPeriods) => {
 		const boundary = Date.parse("2026-10-01T00:00:00.000Z");
 		const end = boundary + 600_000;
 		const calls: Array<{ since: string; until: string }> = [];
@@ -391,6 +394,21 @@ describe("Box reported cost settlement", () => {
 						periodEndMs: boundary,
 						nowMs: end,
 					});
+					if (malformedPeriods) {
+						for (const [name, offset] of [
+							["empty", 0],
+							["inverted", -60_000],
+						] as const) {
+							yield* (yield* CloudBillingStore).ensurePeriod({
+								periodId: name,
+								accountId: "account",
+								status: "manual",
+								periodStartMs: boundary - 120_000,
+								periodEndMs: boundary - 120_000 + offset,
+								nowMs: end,
+							});
+						}
+					}
 				}),
 			);
 			const ingest = (
@@ -445,6 +463,11 @@ describe("Box reported cost settlement", () => {
 			expect((await list(newPeriodId)).items).toMatchObject([
 				{ providerCostMicros: 9870, resourceId: "build", provider: "box" },
 			]);
+			if (malformedPeriods) {
+				expect((await list("empty")).items).toHaveLength(0);
+				expect((await list("inverted")).items).toHaveLength(0);
+			}
+			expect(calls).toHaveLength(4);
 			const callCount = calls.length;
 			expect(await ingest(close)).toMatchObject({ metered: false });
 			expect(

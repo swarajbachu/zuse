@@ -19,7 +19,14 @@ if (process.env.ZUSE_CONFIRM_PRODUCTION_API_DEPLOY !== confirmation) {
 
 const config = parse(readFileSync(configPath, "utf8"));
 const vars = config.vars ?? {};
+const boxEnabled = vars.BOX_ADAPTER_ENABLED === "true";
 const requiredValues = {
+	...(boxEnabled
+		? {
+				BOX_TEMPLATE_SNAPSHOT: vars.BOX_TEMPLATE_SNAPSHOT,
+				BOX_TEMPLATE_VERSION: vars.BOX_TEMPLATE_VERSION,
+			}
+		: {}),
 	HYPERDRIVE: config.hyperdrive?.[0]?.id,
 	R2: config.r2_buckets?.[0]?.bucket_name,
 	E2B_TEMPLATE_ID: vars.E2B_TEMPLATE_ID,
@@ -66,6 +73,7 @@ const installedSecrets = new Set(
 	JSON.parse(secretsResult.stdout).map((secret) => secret.name),
 );
 const requiredSecrets = [
+	...(boxEnabled ? ["BOX_API_KEY"] : []),
 	"RELAY_MINT_PRIVATE_JWK",
 	"WORKOS_API_KEY",
 	"CF_API_TOKEN",

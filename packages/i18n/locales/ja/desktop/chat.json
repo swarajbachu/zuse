@@ -655,7 +655,7 @@
 	"cloud_size_default": "標準（{{cpu}} vCPU / {{memory}} GB）",
 	"cloud_size_large": "大（{{cpu}} vCPU / {{memory}} GB）",
 	"device_command_permissions_title": "保存済みのコマンド権限",
-	"cloud_queue_waiting_for_agent": "エージェントを待機中",
+	"cloud_queue_waiting_for_agent": "エージェントを待っています",
 	"cloud_queue_cancel_failed": "待機中のメッセージをキャンセルできませんでした。再試行してください。",
 	"cloud_queue_waiting_for_cloud": "クラウドの起動を待機中"
 }

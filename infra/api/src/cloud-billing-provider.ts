@@ -173,6 +173,7 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 				evidence.endedAtMs,
 				executionPeriod.periodEndMs,
 			);
+			if (segmentEnd <= segmentStart) continue;
 			let providerCostMicros: number;
 			if (input.reportedCost !== undefined) {
 				providerCostMicros = yield* input.reportedCost({

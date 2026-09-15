@@ -655,7 +655,7 @@
 	"cloud_size_default": "표준 ({{cpu}} vCPU / {{memory}} GB)",
 	"cloud_size_large": "대형 ({{cpu}} vCPU / {{memory}} GB)",
 	"device_command_permissions_title": "저장된 명령 권한",
-	"cloud_queue_waiting_for_agent": "에이전트 대기 중",
+	"cloud_queue_waiting_for_agent": "에이전트를 기다리는 중",
 	"cloud_queue_cancel_failed": "대기 중인 메시지를 취소하지 못했습니다. 다시 시도하세요.",
 	"cloud_queue_waiting_for_cloud": "클라우드 시작 대기 중"
 }
