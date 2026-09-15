@@ -1,5 +1,8 @@
+import "@zuse/i18n/english/chat";
+import "@zuse/i18n/english/projects";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type { GitPrInfo, SessionId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Eye } from "lucide-react";
 import { formatError } from "../lib/format-error.ts";
 import { usePrWatchStore } from "../store/pr-watch.ts";
@@ -21,6 +24,7 @@ export function PrWatchMenu({
 	pr: GitPrInfo;
 	sessionId: SessionId | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects", "chat"]);
 	const id = `${executionRef.environmentId}:${executionRef.folderId}:${executionRef.worktreeId}:${pr.number}`;
 	const watch = usePrWatchStore((state) =>
 		state.watches.find((item) => item.id === id),
@@ -61,15 +65,16 @@ export function PrWatchMenu({
 		<MenuSub>
 			<MenuSubTrigger>
 				<Eye className="size-4" />
-				Watch CI{" "}
+				{uiMessage("projects:github_watch_ci")}{" "}
 				<span className="ml-auto text-xs text-muted-foreground">
-					{watch?.enabled ? "Auto-fix on" : "Off"}
+					{watch?.enabled
+						? uiMessage("projects:github_auto_fix_on")
+						: uiMessage("projects:github_off")}
 				</span>
 			</MenuSubTrigger>
 			<MenuSubPopup className="w-64">
 				<div className="px-2 py-2 text-xs text-muted-foreground">
-					Watch while Zuse is open. Fix, verify, and push new CI failures when
-					the agent is idle. Pauses after 3 repairs.
+					{uiMessage("projects:github_watch_help")}
 				</div>
 				{watch?.error ? (
 					<div role="status" className="px-2 pb-2 text-xs text-destructive">
@@ -84,10 +89,10 @@ export function PrWatchMenu({
 					onClick={toggle}
 				>
 					{watch?.enabled
-						? "Stop watching"
+						? uiMessage("projects:github_stop_watching")
 						: watch
-							? "Resume auto-fix"
-							: "Watch and auto-fix"}
+							? uiMessage("projects:github_resume_auto_fix")
+							: uiMessage("projects:github_watch_auto_fix")}
 				</MenuItem>
 			</MenuSubPopup>
 		</MenuSub>
