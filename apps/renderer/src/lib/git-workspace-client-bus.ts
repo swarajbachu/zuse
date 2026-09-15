@@ -215,7 +215,7 @@ const makeWorkspaceDriver = (): ResourceDriver<
 			active = true;
 			workspaceDriverStarts += 1;
 			id = resourceKeyId(context.key);
-			const epoch = `git-workspace:${context.generation}`;
+			const epoch = `git-workspace:${context.generation}:${crypto.randomUUID()}`;
 
 			const schedule = (): Promise<void> => {
 				latestRevision += 1;

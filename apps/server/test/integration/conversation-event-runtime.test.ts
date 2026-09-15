@@ -123,7 +123,7 @@ describe("ConversationEventRuntime", () => {
 								Effect.andThen(Deferred.succeed(reconciled, undefined)),
 								Effect.as(true),
 							),
-						publishRelayActivity: () =>
+						publishApiActivity: () =>
 							Ref.update(activities, (count) => count + 1),
 						persist: () => Ref.update(persisted, (count) => count + 1),
 					});

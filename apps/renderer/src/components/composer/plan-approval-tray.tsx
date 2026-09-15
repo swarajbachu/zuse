@@ -87,7 +87,11 @@ export function PlanApprovalTray({
 			permissionRequests,
 		).find((item) => {
 			const kind = item.interaction.request.kind;
-			return kind._tag === "Other" && kind.tool === "ExitPlanMode";
+			return (
+				item.interaction.request.recoveryState !== "expired" &&
+				kind._tag === "Other" &&
+				kind.tool === "ExitPlanMode"
+			);
 		}) ?? null;
 	const decide = (
 		request: NonNullable<typeof pendingRequest>["interaction"]["request"],

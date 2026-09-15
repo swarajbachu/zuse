@@ -198,6 +198,7 @@ describe("question recovery through production RPC", () => {
 			await expect(
 				Effect.runPromise(
 					session.client["session.answerQuestion"]({
+						commandId: CommandId.make(crypto.randomUUID()),
 						sessionId,
 						itemId: question.id,
 						answers: [{ questionIndex: 0, selected: [0] }],
@@ -267,6 +268,7 @@ describe("question recovery through production RPC", () => {
 			await expect(
 				Effect.runPromise(
 					session.client["session.answerQuestion"]({
+						commandId: CommandId.make(crypto.randomUUID()),
 						sessionId,
 						itemId: question.id,
 						answers: [{ questionIndex: 0, selected: [99] }],
@@ -333,6 +335,7 @@ describe("question recovery through production RPC", () => {
 				await controller.waitFor("question.answer-retention-armed");
 				await Effect.runPromise(
 					session.client["session.answerQuestion"]({
+						commandId: CommandId.make(crypto.randomUUID()),
 						sessionId,
 						itemId: question.id,
 						answers: [{ questionIndex: 0, selected: [0] }],
@@ -730,6 +733,7 @@ describe("question recovery through production RPC", () => {
 			await expect(
 				Effect.runPromise(
 					session.client["session.answerQuestion"]({
+						commandId: CommandId.make(crypto.randomUUID()),
 						sessionId,
 						itemId: beforeRestart.id,
 						answers: [{ questionIndex: 0, selected: [0] }],
@@ -789,6 +793,7 @@ describe("question recovery through production RPC", () => {
 			await expect(
 				Effect.runPromise(
 					session.client["session.answerQuestion"]({
+						commandId: CommandId.make(crypto.randomUUID()),
 						sessionId,
 						itemId: beforeRestart.id,
 						answers: [{ questionIndex: 0, selected: [0] }],
@@ -873,6 +878,7 @@ describe("question recovery through production RPC", () => {
 			droppedSession.pauseIncoming();
 			const firstAnswerOutcome = Effect.runPromise(
 				droppedSession.client["session.answerQuestion"]({
+					commandId: CommandId.make(crypto.randomUUID()),
 					sessionId,
 					itemId: beforeRestart.id,
 					answers: [{ questionIndex: 0, selected: [0] }],
@@ -896,6 +902,7 @@ describe("question recovery through production RPC", () => {
 			await expect(
 				Effect.runPromise(
 					session.client["session.answerQuestion"]({
+						commandId: CommandId.make(crypto.randomUUID()),
 						sessionId,
 						itemId: beforeRestart.id,
 						answers: [{ questionIndex: 0, selected: [0] }],

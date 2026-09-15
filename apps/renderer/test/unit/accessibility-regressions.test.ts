@@ -97,7 +97,7 @@ describe("renderer accessibility regressions", () => {
 		expect(projectHeader).not.toContain("tabIndex={0}");
 		expect(projectHeader).toContain("aria-expanded={isExpanded}");
 		expect(projectHeader.indexOf("</button>")).toBeLessThan(
-			projectHeader.indexOf("<Tooltip>"),
+			projectHeader.indexOf("<NewChatButton"),
 		);
 	});
 

@@ -142,6 +142,7 @@ const EMPTY = emptyResourceView<EnvironmentQuestionAttachmentsData>();
 
 export const useEnvironmentQuestionAttachments = (
 	environmentId?: EnvironmentId,
+	activation: import("@zuse/client-runtime/environment-runtime").ResourceActivation = "connect",
 ): ResourceView<EnvironmentQuestionAttachmentsData> => {
 	const activeEnvironmentId = useEnvironmentCatalogStore(
 		(state) => state.activeEnvironmentId,
@@ -152,5 +153,5 @@ export const useEnvironmentQuestionAttachments = (
 		() => keyFor(selectedEnvironmentId),
 		[selectedEnvironmentId],
 	);
-	return useClientBusResource(key, EMPTY, "connect");
+	return useClientBusResource(key, EMPTY, activation);
 };

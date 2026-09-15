@@ -31,7 +31,7 @@ const seedInternalImageFixtures = (userData: string): void => {
 };
 
 describe("built Electron terminal", () => {
-	it("preserves input order, survives output load, and restarts cleanly after a replay gap", async () => {
+	it("preserves input order, survives output load and offline events, and recovers after reload", async () => {
 		await withSystemTest("zuse-electron-terminal-", async (scope) => {
 			const repository = scope.path("repository");
 			initializeSystemRepository(repository);
@@ -265,15 +265,15 @@ describe("built Electron terminal", () => {
 				})
 				.toBe("running");
 
-			const gapStarted = join(scope.root, "gap-started");
-			const gapRelease = join(scope.root, "gap-release");
-			const gapFinished = join(scope.root, "gap-finished");
-			const gapInput = terminal.getByRole("textbox", {
+			const offlineOutputStarted = join(scope.root, "offline-output-started");
+			const offlineOutputRelease = join(scope.root, "offline-output-release");
+			const offlineOutputFinished = join(scope.root, "offline-output-finished");
+			const pasteInput = terminal.getByRole("textbox", {
 				name: "Terminal input",
 			});
-			await gapInput.focus();
-			const gapCommand = `/usr/bin/touch ${shellQuote(gapStarted)}; while [ ! -f ${shellQuote(gapRelease)} ]; do sleep 0.05; done; i=0; while [ $i -lt 200000 ]; do printf '012345678901234567890123456789%s\\n' "$i"; i=$((i+1)); done; /usr/bin/touch ${shellQuote(gapFinished)}`;
-			const pasteHandled = await gapInput.evaluate((element, command) => {
+			await pasteInput.focus();
+			const pasteCommand = `/usr/bin/touch ${shellQuote(offlineOutputStarted)}; while [ ! -f ${shellQuote(offlineOutputRelease)} ]; do sleep 0.05; done; i=0; while [ $i -lt 5000 ]; do printf '012345678901234567890123456789%s\\n' "$i"; i=$((i+1)); done; /usr/bin/touch ${shellQuote(offlineOutputFinished)}`;
+			const pasteHandled = await pasteInput.evaluate((element, command) => {
 				const clipboardData = new DataTransfer();
 				clipboardData.setData("text/plain", command);
 				const event = new ClipboardEvent("paste", {
@@ -283,22 +283,22 @@ describe("built Electron terminal", () => {
 				});
 				element.dispatchEvent(event);
 				return event.defaultPrevented;
-			}, gapCommand);
+			}, pasteCommand);
 			expect(pasteHandled).toBe(true);
 			await page.keyboard.press("Enter");
 			try {
-				await waitForFile(gapStarted, 10_000);
+				await waitForFile(offlineOutputStarted, 10_000);
 			} catch (cause) {
 				let arrivedAfterClientTimeout = false;
 				try {
-					await waitForFile(gapStarted, 20_000);
+					await waitForFile(offlineOutputStarted, 20_000);
 					arrivedAfterClientTimeout = true;
 				} catch {
 					// The original timeout remains the assertion failure. This longer
 					// observation distinguishes a delayed RPC receipt from a rejected write.
 				}
 				const artifact = await electron.captureFailure(
-					"electron-terminal-gap-command",
+					"electron-terminal-paste-command",
 				);
 				throw new Error(
 					`${cause instanceof Error ? cause.message : String(cause)}\narrived after client timeout: ${arrivedAfterClientTimeout}\nartifact: ${artifact}\n${electron.diagnostics()}`,
@@ -309,21 +309,16 @@ describe("built Electron terminal", () => {
 				.poll(() => terminal.getAttribute("data-terminal-status"), {
 					timeout: 5_000,
 				})
-				.toBe("reconnecting");
-			expect(existsSync(gapFinished)).toBe(false);
-			writeFileSync(gapRelease, "release\n");
-			await waitForFile(gapFinished, 20_000);
+				.toBe("running");
+			expect(existsSync(offlineOutputFinished)).toBe(false);
+			writeFileSync(offlineOutputRelease, "release\n");
+			await waitForFile(offlineOutputFinished, 20_000);
 			await page.evaluate(() => window.dispatchEvent(new Event("online")));
 			await expect
 				.poll(() => terminal.getAttribute("data-terminal-status"), {
 					timeout: 20_000,
 				})
-				.toBe("failed");
-			await page
-				.getByRole("status", {
-					name: /Terminal disconnected — restart it/,
-				})
-				.waitFor({ state: "visible" });
+				.toBe("running");
 
 			await page
 				.getByRole("button", { name: "Restart terminal process" })
@@ -353,6 +348,22 @@ describe("built Electron terminal", () => {
 						.locator("[data-terminal-instance-id]")
 						.first()
 						.getAttribute("data-terminal-status"),
+				)
+				.toBe("running");
+			// Reload resets renderer RPC request IDs while server streams remain alive.
+			await page.reload({ waitUntil: "domcontentloaded" });
+			await conversationLink.waitFor({ state: "visible", timeout: 20_000 });
+			await conversationLink.click();
+			await page.getByRole("button", { name: "Open bottom terminal" }).click();
+			await expect
+				.poll(
+					() =>
+						page
+							.getByRole("region", { name: "Bottom terminal" })
+							.locator("[data-terminal-instance-id]")
+							.first()
+							.getAttribute("data-terminal-status"),
+					{ timeout: 20_000 },
 				)
 				.toBe("running");
 			expect(electron.errors).toEqual([]);

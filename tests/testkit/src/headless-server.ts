@@ -54,6 +54,7 @@ export const startHeadlessServer = async (options?: {
 				HOME: home,
 				XDG_DATA_HOME: join(home, ".local", "share"),
 				ZUSE_HOST: options?.host ?? "127.0.0.1",
+				ZUSE_ADVERTISED_HOST: "127.0.0.1",
 				ZUSE_AUTH_POLICY: options?.authPolicy ?? "auto",
 				ZUSE_STATIC_DIR: options?.staticDir,
 				NODE_OPTIONS: `--require=${keytarShimRequirePath}`,

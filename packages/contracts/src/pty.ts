@@ -171,6 +171,8 @@ export const PtyOpenRpc = Rpc.make("pty.open", {
 		rows: PtyDimension,
 		command: Schema.optional(PtyCommand),
 		ownership: Schema.optional(PtyOwnership),
+		/** Wire compatibility for mobile installations released before ownership was shared. */
+		mobileOwnership: Schema.optional(PtyOwnership),
 	}),
 	success: Schema.Struct({
 		ptyId: PtyId,

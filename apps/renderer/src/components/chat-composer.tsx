@@ -152,6 +152,7 @@ import {
 	setSessionGoal,
 	useSessionGoalResource,
 } from "../lib/session-goal-client-bus.ts";
+import { hasPendingTurnStart } from "../lib/session-runtime-state.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
 import {
@@ -361,20 +362,8 @@ export function ChatComposer({
 			: cloudActivity === "stopping";
 	const inFlight =
 		cloudActivity === null
-			? (timeline.presentation.turnInFlight &&
-					(!isCloudSession ||
-						turnStartPending ||
-						runtimeState === "running" ||
-						runtimeState === "stopping")) ||
-				(isCloudSession && runtimeState === "starting")
-			: cloudChatShowsWorking(cloudActivity) ||
-				timeline.presentation.turnInFlight;
-	const showActiveTimer =
-		cloudActivity === null
-			? inFlight
-			: cloudActivity !== "idle" &&
-				cloudActivity !== "paused" &&
-				cloudActivity !== "failed";
+			? timeline.presentation.turnInFlight
+			: cloudChatShowsWorking(cloudActivity) || turnStartPending;
 	// Hold messages only while the provider is unavailable or an earlier message
 	// is already queued. Worktree setup is independent background work and must
 	// not delay an agent that has finished booting.
@@ -1215,6 +1204,7 @@ export function ChatComposer({
 			return true;
 		}
 
+		const submittedDoc = view.state.doc;
 		const parsedDraft = parseComposerInput(view.state, session.providerId);
 		const parsed = withComposerContext(parsedDraft, contexts);
 		const input =
@@ -1246,12 +1236,15 @@ export function ChatComposer({
 					})
 				: null;
 		const commitComposerSubmission = () => {
-			if (editorViewRef.current === view) {
+			// Acceptance can arrive after the next draft has been entered. Only
+			// clear the submitted document, never edits made while the send awaited
+			// its durable owner. Document identity also protects identical retyping.
+			if (editorViewRef.current === view && view.state.doc === submittedDoc) {
 				clearComposer(view, {
 					clearPendingAttachments: onDraftSubmit === undefined,
 				});
+				clearComposerDraft(draftKey);
 			}
-			clearComposerDraft(draftKey);
 			useComposerDraftsStore.getState().removeContexts(
 				draftKey,
 				contexts.map((item) => item.id),

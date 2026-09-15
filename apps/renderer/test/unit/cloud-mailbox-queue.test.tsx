@@ -23,6 +23,7 @@ const prompt = Message.make({
 const command = {
 	commandId: CommandId.make("message-send:waiting"),
 	kind: "messages.send",
+	targetId: null,
 	submittedAt: 1,
 	deliveryPhase: "waiting-for-runtime" as const,
 };

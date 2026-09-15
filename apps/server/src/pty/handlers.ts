@@ -1,4 +1,10 @@
-import { MemoizeRpcs, type PtyCatalog, type PtySummary } from "@zuse/contracts";
+import {
+	MemoizeRpcs,
+	type PtyCatalog,
+	type PtyOwnership,
+	PtySpawnError,
+	type PtySummary,
+} from "@zuse/contracts";
 import { Effect, Layer, Stream } from "effect";
 
 import { PtyService } from "./services/pty-service.ts";
@@ -9,11 +15,34 @@ export const ptyListResponse = (
 ): PtyCatalog | ReadonlyArray<PtySummary> =>
 	includePolicy === true ? catalog : catalog.terminals;
 
+export const resolvePtyOpenOwnership = (
+	ownership: PtyOwnership | undefined,
+	mobileOwnership: PtyOwnership | undefined,
+): Effect.Effect<PtyOwnership | undefined, PtySpawnError> => {
+	if (
+		ownership !== undefined &&
+		mobileOwnership !== undefined &&
+		(ownership.ownerId !== mobileOwnership.ownerId ||
+			ownership.label !== mobileOwnership.label ||
+			ownership.scope !== mobileOwnership.scope ||
+			ownership.openToken !== mobileOwnership.openToken)
+	) {
+		return Effect.fail(
+			new PtySpawnError({ reason: "Conflicting terminal ownership fields" }),
+		);
+	}
+	return Effect.succeed(ownership ?? mobileOwnership);
+};
+
 const Open = MemoizeRpcs.toLayerHandler(
 	"pty.open",
-	({ cwd, cols, rows, command, ownership }) =>
-		Effect.flatMap(PtyService, (svc) =>
-			svc.open(cwd, cols, rows, command, ownership),
+	({ cwd, cols, rows, command, ownership, mobileOwnership }) =>
+		Effect.flatMap(
+			resolvePtyOpenOwnership(ownership, mobileOwnership),
+			(resolved) =>
+				Effect.flatMap(PtyService, (svc) =>
+					svc.open(cwd, cols, rows, command, resolved),
+				),
 		),
 );
 

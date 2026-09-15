@@ -6,6 +6,11 @@ import {
 } from "../lib/session-timeline-client-bus.ts";
 import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
 import { ToolActivityTree } from "./tool-activity-tree.tsx";
+import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
+import {
+	filterActionableQuestionInteractions,
+	findPresentedPermissions,
+} from "../lib/question-actionability.ts";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
@@ -15,6 +20,7 @@ import type {
 	EnvironmentId,
 	Session,
 	SessionId,
+	SessionInteraction,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Message01Icon } from "@zuse/icons/solid-rounded";
@@ -60,7 +66,6 @@ import {
 	useSessionCommandErrors,
 } from "../lib/session-actions.ts";
 import type { SessionRuntimeState } from "../lib/session-runtime-state.ts";
-import { hasPendingTurnStart } from "../lib/session-runtime-state.ts";
 import { timelineReadingPositionStore } from "../lib/session-timeline-cache.ts";
 import { restartProvisionalSessionTimeline } from "../lib/session-timeline-client-bus.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
@@ -202,6 +207,19 @@ export function ChatView({
 		environmentId,
 	);
 	const sessionRef = timeline.ref;
+	const questionAttachments = useEnvironmentQuestionAttachments(
+		environmentId,
+		"cache-only",
+	);
+	const actionableInteractions = useMemo(
+		() =>
+			filterActionableQuestionInteractions(
+				sessionId,
+				timeline.presentation.interactions.map((item) => item.interaction),
+				questionAttachments.data?.attachmentsByKey ?? {},
+			),
+		[sessionId, timeline.presentation.interactions, questionAttachments.data],
+	);
 	useEffect(() => {
 		if (cloudSummary !== null) return;
 		restartProvisionalSessionTimeline(sessionRef, timeline.view);
@@ -237,23 +255,19 @@ export function ChatView({
 	const inFlight =
 		cloudActivity === null
 			? timeline.presentation.busy
-			: waitingMessages.length === 0 &&
-				(cloudChatShowsWorking(cloudActivity) ||
-					timeline.presentation.turnInFlight);
+			: waitingMessages.length === 0 && cloudChatShowsWorking(cloudActivity);
 	const permissionRequests =
 		useEnvironmentPermissions(environmentId).data?.requestsById ?? {};
 	const durableQuestionCount = timeline.presentation.interactions.filter(
 		(item) => item.interaction._tag === "Question",
 	).length;
-	const sessionPermissionRequests = timeline.presentation.interactions.flatMap(
-		(item) =>
-			item.interaction._tag === "Permission" &&
-			permissionRequests[item.interaction.id] !== undefined
-				? [item.interaction.request]
-				: [],
-	);
+	const sessionPermissionRequests = findPresentedPermissions(
+		timeline.presentation.interactions,
+		permissionRequests,
+	).map((item) => item.interaction.request);
 	const awaitingPermissionPlanApproval = (() => {
 		for (const request of sessionPermissionRequests) {
+			if (request.recoveryState === "expired") continue;
 			if (request.kind._tag !== "Other") continue;
 			if (request.kind.tool === "ExitPlanMode") return true;
 		}
@@ -768,6 +782,7 @@ export function ChatView({
 	const renderTimelineRow = useCallback(
 		({ item }: { item: ChatTimelineRow }) => (
 			<TimelineRow
+				interactions={actionableInteractions}
 				chatId={session?.chatId ?? null}
 				environmentId={timeline.ref.environmentId}
 				providerId={session.providerId}
@@ -778,6 +793,7 @@ export function ChatView({
 			/>
 		),
 		[
+			actionableInteractions,
 			session.chatId,
 			session.providerId,
 			sessionId,
@@ -988,6 +1004,7 @@ export function ChatView({
 }
 
 function TimelineRow({
+	interactions,
 	chatId,
 	row,
 	sessionId,
@@ -996,6 +1013,7 @@ function TimelineRow({
 	pendingCommands,
 	runtimeState,
 }: {
+	readonly interactions: readonly SessionInteraction[];
 	readonly chatId: import("@zuse/contracts").ChatId | null;
 	readonly row: ChatTimelineRow;
 	readonly sessionId: SessionId;
@@ -1062,7 +1080,7 @@ function TimelineRow({
 		case "working":
 			content = (
 				<ChatWorkingRow
-					environmentId={environmentId}
+					interactions={interactions}
 					messages={row.messages}
 					chatId={chatId}
 					pendingCommands={pendingCommands}
