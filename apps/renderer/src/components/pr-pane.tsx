@@ -719,7 +719,7 @@ function FeedbackReviewRow({
 			<div className="flex shrink-0 items-center gap-1">
 				{url ? (
 					<IconLinkButton
-						label="Open in GitHub"
+						label={uiMessage("projects:github_open_github")}
 						onClick={() => openExternal(url)}
 					/>
 				) : null}
@@ -810,7 +810,7 @@ function FeedbackCommentRow({
 			<div className="flex shrink-0 items-center gap-1">
 				{url ? (
 					<IconLinkButton
-						label="Open in GitHub"
+						label={uiMessage("projects:github_open_github")}
 						onClick={() => openExternal(url)}
 					/>
 				) : null}

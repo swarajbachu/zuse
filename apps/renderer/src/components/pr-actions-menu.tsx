@@ -1,3 +1,5 @@
+import "@zuse/i18n/english/chat";
+import "@zuse/i18n/english/projects";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import {
 	CommandId,
@@ -5,6 +7,7 @@ import {
 	type GitPrInfo,
 	type SessionId,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ArrowUpRight,
 	ChevronDown,
@@ -72,6 +75,7 @@ export function PrActionsMenu({
 	onChanges: () => void;
 	onChat: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects", "chat"]);
 	const [busy, setBusy] = useState(false);
 	const method = useMergePrefs((state) => state.method);
 	const deleteBranch = useMergePrefs((state) => state.deleteBranch);
@@ -174,17 +178,18 @@ export function PrActionsMenu({
 			<MenuTrigger className={className} disabled={busy}>
 				<GitPullRequest className="size-4 shrink-0" />
 				<span className="min-w-0 flex-1 truncate">
-					{details?.title || `PR #${pr.number}`}
+					{details?.title ||
+						uiMessage("projects:github_pr_number", { number: pr.number ?? "" })}
 				</span>
 				<ChevronDown className="size-3 shrink-0 text-muted-foreground" />
 			</MenuTrigger>
 			<MenuPopup side="left" align="start" className="w-64">
 				<MenuItem onClick={onView}>
 					<FileText className="size-4" />
-					View PR
+					{uiMessage("projects:github_view_pr")}
 				</MenuItem>
 				<MenuItem onClick={onChanges}>
-					Code changes{" "}
+					{uiMessage("projects:github_code_changes")}{" "}
 					<span className="ml-auto text-xs">
 						<span className="text-[var(--accent-green)]">+{pr.additions}</span>{" "}
 						<span className="text-[var(--accent-red)]">−{pr.deletions}</span>
@@ -195,26 +200,28 @@ export function PrActionsMenu({
 						disabled={!details || !sessionId || agentBusy || busy}
 					>
 						<Wrench className="size-4" />
-						Repair
+						{uiMessage("projects:github_repair")}
 					</MenuSubTrigger>
 					<MenuSubPopup>
 						<MenuItem
 							disabled={comments === 0}
 							onClick={() => void repair("comments")}
 						>
-							Comments <span className="ml-auto">{comments}</span>
+							{uiMessage("projects:github_comments")}
+							<span className="ml-auto">{comments}</span>
 						</MenuItem>
 						<MenuItem
 							disabled={pr.checks !== "failure"}
 							onClick={() => void repair("checks")}
 						>
-							Failing checks <span className="ml-auto">{pr.checksFailing}</span>
+							{uiMessage("projects:github_failing_checks")}
+							<span className="ml-auto">{pr.checksFailing}</span>
 						</MenuItem>
 						<MenuItem
 							disabled={pr.mergeable !== "conflicting"}
 							onClick={() => void repair("conflicts")}
 						>
-							Merge conflicts
+							{uiMessage("chat:right_pane_merge_conflicts")}
 						</MenuItem>
 						<MenuSeparator />
 						<MenuItem
@@ -225,7 +232,7 @@ export function PrActionsMenu({
 							}
 							onClick={() => void repair("everything")}
 						>
-							Everything
+							{uiMessage("projects:github_everything")}
 						</MenuItem>
 					</MenuSubPopup>
 				</MenuSub>
@@ -233,7 +240,7 @@ export function PrActionsMenu({
 					<MenuSub>
 						<MenuSubTrigger disabled={busy}>
 							<GitMerge className="size-4" />
-							Merge
+							{uiMessage("chat:top_bar_merge")}
 						</MenuSubTrigger>
 						<MenuSubPopup>
 							<MenuItem
@@ -244,7 +251,7 @@ export function PrActionsMenu({
 								}
 								onClick={() => void merge("merge")}
 							>
-								Merge
+								{uiMessage("chat:top_bar_merge")}
 							</MenuItem>
 							<MenuItem
 								onClick={() =>
@@ -254,8 +261,8 @@ export function PrActionsMenu({
 								}
 							>
 								{pr.autoMergeEnabled
-									? "Disable auto-merge"
-									: "Enable auto-merge"}
+									? uiMessage("projects:github_disable_auto_merge")
+									: uiMessage("projects:github_enable_auto_merge")}
 							</MenuItem>
 						</MenuSubPopup>
 					</MenuSub>
@@ -281,19 +288,19 @@ export function PrActionsMenu({
 					}
 				>
 					<MessageSquarePlus className="size-4" />
-					Add to chat
+					{uiMessage("projects:pr_pane_add_to_chat")}
 				</MenuItem>
 				<MenuSeparator />
 				{pr.state !== "merged" ? (
 					<MenuSub>
 						<MenuSubTrigger disabled={busy}>
-							Status{" "}
+							{uiMessage("projects:github_status")}{" "}
 							<span className="ml-auto text-muted-foreground">
 								{pr.state === "closed"
-									? "Closed"
+									? uiMessage("projects:pr_pane_closed")
 									: pr.isDraft
-										? "Draft"
-										: "Ready for review"}
+										? uiMessage("projects:pr_pane_draft")
+										: uiMessage("projects:github_ready_review")}
 							</span>
 						</MenuSubTrigger>
 						<MenuSubPopup>
@@ -301,20 +308,22 @@ export function PrActionsMenu({
 								disabled={pr.state !== "open" || pr.isDraft}
 								onClick={() => void setStatus("draft")}
 							>
-								Draft
+								{uiMessage("projects:pr_pane_draft")}
 							</MenuItem>
 							<MenuItem
 								disabled={pr.state !== "open" || !pr.isDraft}
 								onClick={() => void setStatus("ready")}
 							>
-								Ready for review
+								{uiMessage("projects:github_ready_review")}
 							</MenuItem>
 							<MenuItem
 								onClick={() =>
 									void setStatus(pr.state === "closed" ? "open" : "closed")
 								}
 							>
-								{pr.state === "closed" ? "Reopen" : "Close"}
+								{pr.state === "closed"
+									? uiMessage("projects:github_reopen")
+									: uiMessage("common:close")}
 							</MenuItem>
 						</MenuSubPopup>
 					</MenuSub>
@@ -326,7 +335,7 @@ export function PrActionsMenu({
 					}}
 				>
 					<ArrowUpRight className="size-4" />
-					Open in GitHub
+					{uiMessage("projects:github_open_github")}
 				</MenuItem>
 			</MenuPopup>
 		</Menu>
