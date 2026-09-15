@@ -1,5 +1,6 @@
 import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/projects";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import {
 	CommandId,
@@ -9,14 +10,20 @@ import {
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
-	ArrowUpRight,
-	ChevronDown,
-	FileText,
-	GitMerge,
-	GitPullRequest,
-	MessageSquarePlus,
-	Wrench,
-} from "lucide-react";
+	AiMagicIcon,
+	ArrowDown01Icon,
+	Cancel01Icon,
+	CheckmarkCircle02Icon,
+	Comment01Icon,
+	CommentAdd01Icon,
+	File01Icon,
+	GithubIcon,
+	GitMergeConflictIcon,
+	GitMergeIcon,
+	GitPullRequestDraftIcon,
+	GitPullRequestIcon,
+	Wrench01Icon,
+} from "@zuse/icons/stroke-rounded";
 import { useState } from "react";
 import {
 	attachFileWhenReady,
@@ -42,8 +49,9 @@ import {
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { useMergePrefs } from "../store/merge-prefs.ts";
 import { useSessionsStore } from "../store/sessions.ts";
-import { PrWatchMenu } from "./pr-watch-menu.tsx";
+import { PrAutoFix } from "./pr-auto-fix.tsx";
 import {
+	compactMenuItemClass,
 	Menu,
 	MenuItem,
 	MenuPopup,
@@ -63,7 +71,6 @@ export function PrActionsMenu({
 	busy: agentBusy,
 	className,
 	onView,
-	onChanges,
 	onChat,
 }: {
 	executionRef: ExecutionRef;
@@ -73,7 +80,6 @@ export function PrActionsMenu({
 	busy: boolean;
 	className?: string;
 	onView: () => void;
-	onChanges: () => void;
 	onChat: () => void;
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects", "chat"]);
@@ -181,79 +187,103 @@ export function PrActionsMenu({
 	return (
 		<Menu>
 			<MenuTrigger className={className} disabled={busy}>
-				<GitPullRequest className="size-4 shrink-0" />
+				<HugeiconsIcon icon={GitPullRequestIcon} className="size-4 shrink-0" />
 				<span className="min-w-0 flex-1 truncate">
 					{details?.title ||
 						uiMessage("projects:github_pr_number", { number: pr.number ?? "" })}
 				</span>
-				<ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+				<HugeiconsIcon
+					icon={ArrowDown01Icon}
+					className="size-3 shrink-0 text-muted-foreground"
+				/>
 			</MenuTrigger>
-			<MenuPopup side="left" align="start" className="w-64">
-				<MenuItem onClick={onView}>
-					<FileText className="size-4" />
+			<MenuPopup
+				side="left"
+				align="start"
+				sideOffset={8}
+				className="w-60 !bg-popover"
+			>
+				<MenuItem className={compactMenuItemClass} onClick={onView}>
+					<HugeiconsIcon icon={File01Icon} className="size-4" />
 					{uiMessage("projects:github_view_pr")}
 				</MenuItem>
-				<MenuItem onClick={onChanges}>
-					{uiMessage("projects:github_code_changes")}{" "}
-					<span className="ml-auto text-xs">
-						<span className="text-[var(--accent-green)]">+{pr.additions}</span>{" "}
-						<span className="text-[var(--accent-red)]">−{pr.deletions}</span>
-					</span>
-				</MenuItem>
 				<MenuSub>
-					<MenuSubTrigger
-						disabled={!details || !sessionId || agentBusy || busy}
-					>
-						<Wrench className="size-4" />
+					<MenuSubTrigger compact disabled={busy}>
+						<HugeiconsIcon icon={Wrench01Icon} className="size-4" />
 						{uiMessage("projects:github_repair")}
+						{comments + pr.checksFailing > 0 && (
+							<span className="ml-auto tabular-nums text-destructive">
+								{comments + pr.checksFailing}
+							</span>
+						)}
 					</MenuSubTrigger>
-					<MenuSubPopup>
+					<MenuSubPopup className="w-52 !bg-popover" sideOffset={4}>
 						<MenuItem
-							disabled={comments === 0}
+							className={compactMenuItemClass}
+							disabled={!details || !sessionId || agentBusy || comments === 0}
 							onClick={() => void repair("comments")}
 						>
+							<HugeiconsIcon icon={Comment01Icon} />
 							{uiMessage("projects:github_comments")}
 							<span className="ml-auto">{comments}</span>
 						</MenuItem>
 						<MenuItem
-							disabled={pr.checks !== "failure"}
+							className={compactMenuItemClass}
+							disabled={
+								!details || !sessionId || agentBusy || pr.checks !== "failure"
+							}
 							onClick={() => void repair("checks")}
 						>
+							<HugeiconsIcon icon={CheckmarkCircle02Icon} />
 							{uiMessage("projects:github_failing_checks")}
 							<span className="ml-auto">{pr.checksFailing}</span>
 						</MenuItem>
 						<MenuItem
-							disabled={pr.mergeable !== "conflicting"}
+							className={compactMenuItemClass}
+							disabled={
+								!details ||
+								!sessionId ||
+								agentBusy ||
+								pr.mergeable !== "conflicting"
+							}
 							onClick={() => void repair("conflicts")}
 						>
+							<HugeiconsIcon icon={GitMergeConflictIcon} />
 							{uiMessage("chat:right_pane_merge_conflicts")}
 						</MenuItem>
-						<MenuSeparator />
 						<MenuItem
+							className={compactMenuItemClass}
 							disabled={
-								comments === 0 &&
-								pr.checks !== "failure" &&
-								pr.mergeable !== "conflicting"
+								!details ||
+								!sessionId ||
+								agentBusy ||
+								(comments === 0 &&
+									pr.checks !== "failure" &&
+									pr.mergeable !== "conflicting")
 							}
 							onClick={() => void repair("everything")}
 						>
+							<HugeiconsIcon icon={AiMagicIcon} />
 							{uiMessage("projects:github_everything")}
 						</MenuItem>
+						<MenuSeparator className="mx-2 my-1 bg-foreground/10" />
+						<PrAutoFix
+							executionRef={executionRef}
+							pr={pr}
+							sessionId={sessionId}
+							presentation="menu"
+						/>
 					</MenuSubPopup>
 				</MenuSub>
-				<PrWatchMenu
-					executionRef={executionRef}
-					pr={pr}
-					sessionId={sessionId}
-				/>
 				{pr.state === "open" && !pr.isDraft ? (
 					<MenuSub>
-						<MenuSubTrigger disabled={busy}>
-							<GitMerge className="size-4" />
+						<MenuSubTrigger compact disabled={busy}>
+							<HugeiconsIcon icon={GitMergeIcon} className="size-4" />
 							{uiMessage("chat:top_bar_merge")}
 						</MenuSubTrigger>
-						<MenuSubPopup>
+						<MenuSubPopup className="w-52 !bg-popover" sideOffset={4}>
 							<MenuItem
+								className={compactMenuItemClass}
 								disabled={
 									pr.mergeable !== "clean" ||
 									pr.checks === "failure" ||
@@ -261,15 +291,18 @@ export function PrActionsMenu({
 								}
 								onClick={() => void merge("merge")}
 							>
+								<HugeiconsIcon icon={GitMergeIcon} />
 								{uiMessage("chat:top_bar_merge")}
 							</MenuItem>
 							<MenuItem
+								className={compactMenuItemClass}
 								onClick={() =>
 									void merge(
 										pr.autoMergeEnabled ? "disable-auto" : "enable-auto",
 									)
 								}
 							>
+								<HugeiconsIcon icon={AiMagicIcon} />
 								{pr.autoMergeEnabled
 									? uiMessage("projects:github_disable_auto_merge")
 									: uiMessage("projects:github_enable_auto_merge")}
@@ -278,6 +311,7 @@ export function PrActionsMenu({
 					</MenuSub>
 				) : null}
 				<MenuItem
+					className={compactMenuItemClass}
 					disabled={!details || !sessionId || busy}
 					onClick={() =>
 						void run(async () => {
@@ -297,15 +331,16 @@ export function PrActionsMenu({
 						})
 					}
 				>
-					<MessageSquarePlus className="size-4" />
+					<HugeiconsIcon icon={CommentAdd01Icon} className="size-4" />
 					{uiMessage("projects:pr_pane_add_to_chat")}
 				</MenuItem>
-				<MenuSeparator />
+				<MenuSeparator className="mx-2 my-1 bg-foreground/10" />
 				{pr.state !== "merged" ? (
 					<MenuSub>
-						<MenuSubTrigger disabled={busy}>
+						<MenuSubTrigger compact disabled={busy}>
+							<HugeiconsIcon icon={GitPullRequestDraftIcon} />
 							{uiMessage("projects:github_status")}{" "}
-							<span className="ml-auto text-muted-foreground">
+							<span className="ml-auto truncate text-[11px] text-muted-foreground">
 								{pr.state === "closed"
 									? uiMessage("projects:pr_pane_closed")
 									: pr.isDraft
@@ -313,24 +348,34 @@ export function PrActionsMenu({
 										: uiMessage("projects:github_ready_review")}
 							</span>
 						</MenuSubTrigger>
-						<MenuSubPopup>
+						<MenuSubPopup className="w-52 !bg-popover" sideOffset={4}>
 							<MenuItem
+								className={compactMenuItemClass}
 								disabled={pr.state !== "open" || pr.isDraft}
 								onClick={() => void setStatus("draft")}
 							>
+								<HugeiconsIcon icon={GitPullRequestDraftIcon} />
 								{uiMessage("projects:pr_pane_draft")}
 							</MenuItem>
 							<MenuItem
+								className={compactMenuItemClass}
 								disabled={pr.state !== "open" || !pr.isDraft}
 								onClick={() => void setStatus("ready")}
 							>
+								<HugeiconsIcon icon={GitPullRequestIcon} />
 								{uiMessage("projects:github_ready_review")}
 							</MenuItem>
 							<MenuItem
+								className={compactMenuItemClass}
 								onClick={() =>
 									void setStatus(pr.state === "closed" ? "open" : "closed")
 								}
 							>
+								<HugeiconsIcon
+									icon={
+										pr.state === "closed" ? GitPullRequestIcon : Cancel01Icon
+									}
+								/>
 								{pr.state === "closed"
 									? uiMessage("projects:github_reopen")
 									: uiMessage("common:close")}
@@ -339,12 +384,13 @@ export function PrActionsMenu({
 					</MenuSub>
 				) : null}
 				<MenuItem
+					className={compactMenuItemClass}
 					disabled={!pr.url}
 					onClick={() => {
 						if (pr.url) void openExternal(pr.url);
 					}}
 				>
-					<ArrowUpRight className="size-4" />
+					<HugeiconsIcon icon={GithubIcon} className="size-4" />
 					{uiMessage("projects:github_open_github")}
 				</MenuItem>
 			</MenuPopup>

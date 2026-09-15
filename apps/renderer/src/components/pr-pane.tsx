@@ -15,12 +15,14 @@ import type {
 import { GitPrInfo } from "@zuse/contracts";
 import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
+	ArrowUpRight01Icon,
+	Cancel01Icon,
 	CircleIcon,
+	CommentAdd01Icon,
 	Loading02Icon,
 	MinusSignCircleIcon,
 	Tick01Icon,
-} from "@zuse/icons/solid-rounded";
-import { ArrowUpRight, Plus, X } from "lucide-react";
+} from "@zuse/icons/stroke-rounded";
 import { useMemo, useState } from "react";
 
 import {
@@ -1043,9 +1045,9 @@ function IconLinkButton({
 			aria-label={label}
 			title={label}
 			onClick={onClick}
-			className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+			className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
 		>
-			<ArrowUpRight className="size-3.5" strokeWidth={1.8} />
+			<HugeiconsIcon icon={ArrowUpRight01Icon} className="size-3.5" />
 		</button>
 	);
 }
@@ -1069,7 +1071,7 @@ function AttachButton({
 			aria-label={label}
 			title={label}
 			onClick={onClick}
-			className={`inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[10px] font-medium transition focus-visible:opacity-100 ${
+			className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[11px] transition focus-visible:opacity-100 ${
 				hideUntilHover && !attached
 					? "opacity-0 group-hover:opacity-100"
 					: "opacity-100"
@@ -1080,9 +1082,9 @@ function AttachButton({
 			}`}
 		>
 			{attached ? (
-				<HugeiconsIcon icon={Tick01Icon} className="size-3" />
+				<HugeiconsIcon icon={Tick01Icon} className="size-3.5" />
 			) : (
-				<Plus className="size-3" strokeWidth={1.8} />
+				<HugeiconsIcon icon={CommentAdd01Icon} className="size-3.5" />
 			)}
 			{children}
 		</button>
@@ -1115,7 +1117,9 @@ function checkIcon(run: GitPrCheckRun) {
 		case "cancelled":
 		case "timed_out":
 		case "action_required":
-			return <X className="size-3 text-rose-300" strokeWidth={1.8} />;
+			return (
+				<HugeiconsIcon icon={Cancel01Icon} className="size-3 text-rose-300" />
+			);
 		case "skipped":
 		case "neutral":
 			return (

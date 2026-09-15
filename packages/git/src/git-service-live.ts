@@ -16,8 +16,6 @@ import {
 	GitNotInstalledError,
 	GitOriginInfo,
 	GitPrCheckRun,
-	type GitPrCheckRunConclusion,
-	type GitPrCheckRunStatus,
 	GitPrComment,
 	GitPrDetails,
 	GitPrFile,
@@ -38,6 +36,7 @@ import {
 import {
 	type ActionsJob,
 	actionsJobsApiPath,
+	checkRunFromRollup,
 	collectActionsRunIds,
 	metadataForRollupEntry,
 	type PrCheckRollupEntry,
@@ -1066,11 +1065,7 @@ export const GitServiceLive = Layer.effect(
 						isDraft?: boolean;
 						mergeable?: string;
 						autoMergeRequest?: unknown;
-						statusCheckRollup?: ReadonlyArray<{
-							status?: string;
-							state?: string;
-							conclusion?: string;
-						}>;
+						statusCheckRollup?: ReadonlyArray<PrCheckRollupEntry>;
 					};
 					try {
 						parsed = JSON.parse(stdout) as typeof parsed;
@@ -1098,6 +1093,7 @@ export const GitServiceLive = Layer.effect(
 
 					return GitPrInfo.make({
 						nodeId: parsed.id ?? null,
+						checkRuns: rollup.map(checkRunFromRollup),
 						state,
 						branch: parsed.headRefName ?? null,
 						baseBranch: parsed.baseRefName ?? null,
@@ -1153,43 +1149,6 @@ export const GitServiceLive = Layer.effect(
 					return "conflicting";
 				default:
 					return "unknown";
-			}
-		};
-
-		const mapCheckStatus = (raw: string): GitPrCheckRunStatus => {
-			switch (raw.toUpperCase()) {
-				case "QUEUED":
-					return "queued";
-				case "IN_PROGRESS":
-					return "in_progress";
-				case "COMPLETED":
-					return "completed";
-				default:
-					return "pending";
-			}
-		};
-
-		const mapCheckConclusion = (
-			raw: string,
-		): GitPrCheckRunConclusion | null => {
-			switch (raw.toUpperCase()) {
-				case "SUCCESS":
-					return "success";
-				case "FAILURE":
-				case "ERROR":
-					return "failure";
-				case "CANCELLED":
-					return "cancelled";
-				case "SKIPPED":
-					return "skipped";
-				case "NEUTRAL":
-					return "neutral";
-				case "TIMED_OUT":
-					return "timed_out";
-				case "ACTION_REQUIRED":
-					return "action_required";
-				default:
-					return null;
 			}
 		};
 
@@ -1452,7 +1411,7 @@ export const GitServiceLive = Layer.effect(
 					const checkRuns = rollup.map((c) => {
 						const metadata = metadataForRollupEntry(c, jobsByRunId);
 						return GitPrCheckRun.make({
-							name: c.name ?? c.context ?? "(unnamed check)",
+							...checkRunFromRollup(c),
 							appName:
 								avatars.checks.get(
 									checkAvatarKey(
@@ -1467,22 +1426,7 @@ export const GitServiceLive = Layer.effect(
 										c.detailsUrl ?? c.targetUrl ?? null,
 									),
 								)?.avatarUrl ?? null,
-							// External "state" checks don't have a separate `status` field;
-							// treat them as completed with the state mapped via conclusion.
-							status: mapCheckStatus(
-								c.status ??
-									(c.state?.toUpperCase() === "PENDING"
-										? "pending"
-										: c.state !== undefined
-											? "completed"
-											: "pending"),
-							),
-							conclusion: mapCheckConclusion(
-								c.conclusion !== undefined && c.conclusion.length > 0
-									? c.conclusion
-									: (c.state ?? ""),
-							),
-							url: c.detailsUrl ?? c.targetUrl ?? null,
+
 							workflowName: metadata.workflowName,
 							runId: metadata.runId,
 							jobId: metadata.jobId,

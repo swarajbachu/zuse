@@ -1,3 +1,4 @@
+import { GitStackMenu } from "./git-stack-menu.tsx";
 import "@zuse/i18n/english/projects";
 import { isInputComposing } from "../lib/input-composition.ts";
 import { CreateBranchDialog } from "./create-branch-dialog.tsx";
@@ -18,6 +19,7 @@ import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Alert01Icon,
 	ArchiveArrowDownIcon,
+	ArrowDown01Icon,
 	Copy01Icon,
 	GitBranchIcon,
 	GitMergeIcon,
@@ -612,14 +614,17 @@ export function BranchMenuButton({
 			<Menu onOpenChange={(open) => !open && setBranchQuery("")}>
 				<MenuTrigger
 					onClick={onOpen}
-					className={`flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-medium text-foreground outline-none hover:bg-foreground/5 data-[popup-open]:bg-foreground/5 ${className ?? "max-w-64"}`}
+					className={`flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-foreground outline-none hover:bg-foreground/5 data-[popup-open]:bg-foreground/5 ${className ?? "max-w-64"}`}
 					aria-label={uiMessage("chat:top_bar_switch_branch")}
 				>
 					<HugeiconsIcon
 						icon={GitBranchIcon}
 						className="size-3.5 shrink-0 text-muted-foreground"
 					/>
-					<span className="truncate" title={branchLabel}>
+					<span
+						className="min-w-0 flex-1 truncate text-left"
+						title={branchLabel}
+					>
 						{branchLabel}
 					</span>
 					{dirtyFiles > 0 ? (
@@ -633,14 +638,17 @@ export function BranchMenuButton({
 							className="size-3 animate-spin text-muted-foreground"
 						/>
 					) : (
-						<ChevronDown className="size-3 text-muted-foreground" />
+						<HugeiconsIcon
+							icon={ArrowDown01Icon}
+							className="size-3 shrink-0 text-muted-foreground"
+						/>
 					)}
 				</MenuTrigger>
 				<MenuPopup
 					side={popupSide}
 					sideOffset={popupSide === "left" ? 8 : 4}
 					align="center"
-					className="w-72"
+					className="w-72 !bg-popover"
 				>
 					{error !== null ? (
 						<div className="max-w-72 px-2 py-1.5 text-[11px] leading-snug text-[var(--accent-red)]">
@@ -756,6 +764,16 @@ export function BranchMenuButton({
 					>
 						{uiMessage("projects:github_new_origin_branch")}
 					</MenuItem>
+					{executionRef && (
+						<>
+							<MenuSeparator />
+							<GitStackMenu
+								executionRef={executionRef}
+								branch={branchLabel}
+								variant="submenu"
+							/>
+						</>
+					)}
 				</MenuPopup>
 			</Menu>
 			{executionRef && createFrom ? (

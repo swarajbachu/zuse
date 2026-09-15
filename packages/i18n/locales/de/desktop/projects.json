@@ -284,5 +284,6 @@
 	"github_watch_auto_fix": "Beobachten und automatisch korrigieren",
 	"github_new_branch": "Neuen Branch erstellen und auschecken…",
 	"github_new_origin_branch": "Neuer Branch von origin/main…",
-	"github_continue_tooltip": "Neuen Branch von origin/main erstellen und auschecken"
+	"github_continue_tooltip": "Neuen Branch von origin/main erstellen und auschecken",
+	"github_auto_fix": "Auto-Korrektur"
 }

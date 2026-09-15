@@ -284,5 +284,6 @@
 	"github_watch_auto_fix": "监视并自动修复",
 	"github_new_branch": "创建并切换到新分支…",
 	"github_new_origin_branch": "从 origin/main 创建新分支…",
-	"github_continue_tooltip": "从 origin/main 创建并切换到新分支"
+	"github_continue_tooltip": "从 origin/main 创建并切换到新分支",
+	"github_auto_fix": "自动修复"
 }
