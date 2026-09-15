@@ -29,7 +29,7 @@ test("native plan feedback includes staged PR context and code annotations", () 
 		],
 	});
 	expect(composerFeedbackText(input)).toBe(
-		input.text + "\n\n" + serializeAnnotations(input.annotations),
+		`${input.text}\n\n${serializeAnnotations(input.annotations)}`,
 	);
 	expect(composerFeedbackText(input)).toContain("Complete reviewer feedback");
 	expect(composerFeedbackText(input)).toContain("src/app.ts:4-6");
