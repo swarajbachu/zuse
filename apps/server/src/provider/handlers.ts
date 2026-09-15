@@ -3,6 +3,12 @@ import {
 	removeOpencodeProviderAuth,
 	setOpencodeProviderAuth,
 } from "@zuse/agents/drivers/opencode";
+import {
+	addOpencode2CustomProvider,
+	removeOpencode2CustomProvider,
+	removeOpencode2ProviderAuth,
+	setOpencode2ProviderAuth,
+} from "@zuse/agents/drivers/opencode2";
 import { safeModelId } from "@zuse/analytics";
 import {
 	AgentSessionStartError,
@@ -212,6 +218,93 @@ const OpencodeAddCustomProvider = MemoizeRpcs.toLayerHandler(
 					...others,
 					{ id, name, baseURL, npm, models: [...models] },
 				],
+			});
+		}),
+);
+
+const requireOpencode2Path = (): Effect.Effect<
+	string,
+	AgentSessionStartError,
+	CommandExecutor.ChildProcessSpawner
+> =>
+	Effect.gen(function* () {
+		const opencode2Path = yield* resolveCliPath("opencode2");
+		if (opencode2Path === null) {
+			return yield* Effect.fail(
+				new AgentSessionStartError({
+					providerId: "opencode2",
+					reason:
+						"OpenCode 2 CLI not found on PATH. Install via `curl -fsSL https://opencode.ai/v2/install | bash` and try again.",
+				}),
+			);
+		}
+		return opencode2Path;
+	});
+
+const Opencode2SetProviderAuth = MemoizeRpcs.toLayerHandler(
+	"provider.opencode2.setAuth",
+	({ providerId, apiKey }) =>
+		Effect.gen(function* () {
+			const opencode2Path = yield* requireOpencode2Path();
+			yield* setOpencode2ProviderAuth(
+				opencode2Path,
+				process.cwd(),
+				providerId,
+				apiKey,
+			);
+		}),
+);
+
+const Opencode2RemoveProviderAuth = MemoizeRpcs.toLayerHandler(
+	"provider.opencode2.removeAuth",
+	({ providerId }) =>
+		Effect.gen(function* () {
+			const opencode2Path = yield* requireOpencode2Path();
+			yield* removeOpencode2ProviderAuth(
+				opencode2Path,
+				process.cwd(),
+				providerId,
+			);
+		}),
+);
+
+const Opencode2AddCustomProvider = MemoizeRpcs.toLayerHandler(
+	"provider.opencode2.addCustom",
+	({ id, name, baseURL, npm, apiKey, models }) =>
+		Effect.gen(function* () {
+			const opencode2Path = yield* requireOpencode2Path();
+			const configStore = yield* ConfigStoreService;
+			yield* addOpencode2CustomProvider(
+				opencode2Path,
+				process.cwd(),
+				{ id, name, baseURL, npm, models: [...models] },
+				apiKey,
+			);
+			const settings = yield* configStore.getSettings();
+			const others = settings.opencode2CustomProviders.filter(
+				(p) => p.id !== id,
+			);
+			yield* configStore.updateSettings({
+				opencode2CustomProviders: [
+					...others,
+					{ id, name, baseURL, npm, models: [...models] },
+				],
+			});
+		}),
+);
+
+const Opencode2RemoveCustomProvider = MemoizeRpcs.toLayerHandler(
+	"provider.opencode2.removeCustom",
+	({ id }) =>
+		Effect.gen(function* () {
+			const opencode2Path = yield* requireOpencode2Path();
+			const configStore = yield* ConfigStoreService;
+			yield* removeOpencode2CustomProvider(opencode2Path, process.cwd(), id);
+			const settings = yield* configStore.getSettings();
+			yield* configStore.updateSettings({
+				opencode2CustomProviders: settings.opencode2CustomProviders.filter(
+					(p) => p.id !== id,
+				),
 			});
 		}),
 );
@@ -2057,6 +2150,10 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	OpencodeRemoveProviderAuth,
 	OpencodeAddCustomProvider,
 	OpencodeRemoveCustomProvider,
+	Opencode2SetProviderAuth,
+	Opencode2RemoveProviderAuth,
+	Opencode2AddCustomProvider,
+	Opencode2RemoveCustomProvider,
 	SessionList,
 	SessionStreamChanges,
 	SessionGet,

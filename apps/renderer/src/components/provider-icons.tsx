@@ -87,6 +87,7 @@ export function ProviderIcon({
 		case "cursor":
 			return <CursorBrandIcon className={className} {...props} />;
 		case "opencode":
+		case "opencode2":
 			return <OpencodeBrandIcon className={className} {...props} />;
 		case "kiro":
 			return <KiroIcon className={sized} {...props} />;

@@ -945,6 +945,131 @@
         }
       ],
       "aliases": {}
+    },
+    "opencode2": {
+      "models": [
+        {
+          "id": "opencode/claude-sonnet-5",
+          "label": "OpenCode 2 · Claude Sonnet 5",
+          "defaultModel": true,
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
+          "id": "opencode/claude-opus-5",
+          "label": "OpenCode 2 · Claude Opus 5",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
+          "id": "opencode/gpt-5.6-sol",
+          "label": "OpenCode 2 · GPT-5.6 Sol",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
+          "id": "opencode/gpt-5.6-terra",
+          "label": "OpenCode 2 · GPT-5.6 Terra",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
+          "id": "opencode/gpt-5.6-luna",
+          "label": "OpenCode 2 · GPT-5.6 Luna",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
+          "id": "opencode/gemini-3.1-pro",
+          "label": "OpenCode 2 · Gemini 3.1 Pro",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
+          "id": "opencode/grok-4.6",
+          "label": "OpenCode 2 · Grok 4.6",
+          "supportsPlanMode": true
+        }
+      ],
+      "aliases": {}
     }
   },
   "pricing": {

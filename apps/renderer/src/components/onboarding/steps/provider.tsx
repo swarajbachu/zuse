@@ -50,6 +50,7 @@ const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
 	grok: "grok",
 	gemini: "gemini",
 	opencode: "opencode auth login",
+	opencode2: "opencode2 auth login",
 	kiro: "kiro-cli login",
 };
 

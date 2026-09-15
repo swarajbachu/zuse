@@ -17,9 +17,9 @@ import {
 	billingPeriodsCoverInterval,
 	priceProviderExecutionPeriod,
 } from "../../src/cloud-billing-provider.ts";
-import { verifyE2bSignature } from "../../src/cloud-billing-routes.ts";
 import { CloudBillingStore } from "../../src/cloud-billing-store.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
+import { verifyE2bSignature } from "../../src/cloud-billing-usage-sources/e2b.ts";
 
 describe("cloud billing", () => {
 	it("keeps the public pricing contract aligned with operator guidance", async () => {

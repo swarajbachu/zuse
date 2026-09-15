@@ -253,5 +253,6 @@
 	"projects_sidebar_chat_count": "{{count}} conversations",
 	"projects_sidebar_chat_count_one": "{{count}} conversation",
 	"projects_sidebar_chat_count_other": "{{count}} conversations",
-	"projects_sidebar_chat_count_many": "{{count}} conversations"
+	"projects_sidebar_chat_count_many": "{{count}} conversations",
+	"projects_sidebar_cloud": "Cloud"
 }

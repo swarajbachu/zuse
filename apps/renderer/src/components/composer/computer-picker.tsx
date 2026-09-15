@@ -3,7 +3,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ComputerIcon } from "@zuse/icons/solid-rounded";
 import { ChevronDown } from "lucide-react";
-import { Badge } from "~/components/ui/badge";
 import {
 	Menu,
 	MenuItem,
@@ -20,6 +19,7 @@ import {
 } from "~/lib/project-groups.ts";
 import { cn } from "~/lib/utils";
 import type { EnvironmentCatalogEntry } from "~/store/environment-catalog.ts";
+import { cloudProviderLabel } from "../../lib/cloud-provider-presentation.ts";
 import { openAddComputerDialog } from "../add-computer-dialog.tsx";
 import { DitherCloudIcon } from "../dither-cloud-icon.tsx";
 
@@ -38,11 +38,17 @@ const statusText = (item: ComputerPickerItem): string =>
 						? "Offline"
 						: "Connected";
 
+export type CloudComputerPickerSize = {
+	readonly sizeId: string;
+	readonly displayName: string;
+};
+
 export type CloudComputerPickerItem = {
 	readonly providerId: string;
-	readonly providerLabel: string;
 	readonly disabled: boolean;
+	readonly needsSetup: boolean;
 	readonly statusText: string | null;
+	readonly sizes?: ReadonlyArray<CloudComputerPickerSize>;
 };
 
 /**
@@ -62,7 +68,9 @@ export function ComputerPicker({
 	onPickTarget,
 	cloudItems = [],
 	selectedCloudProviderId = null,
+	selectedCloudSizeId = null,
 	onPickCloud,
+	onPickCloudSize,
 	onRetryEnvironment,
 }: {
 	group: LogicalProjectGroup | null;
@@ -71,7 +79,9 @@ export function ComputerPicker({
 	onPickTarget: (target: NewChatTarget) => void;
 	cloudItems?: ReadonlyArray<CloudComputerPickerItem>;
 	selectedCloudProviderId?: string | null;
+	selectedCloudSizeId?: string | null;
 	onPickCloud?: (providerId: string) => void;
+	onPickCloudSize?: (sizeId: string) => void;
 	onRetryEnvironment: (environmentId: string) => void;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
@@ -98,7 +108,7 @@ export function ComputerPicker({
 			onRetryEnvironment(item.environmentId);
 			return;
 		}
-		if (item.disabled || item.selected) return;
+		if (item.disabled || (item.selected && !cloudSelected)) return;
 		onPickTarget({
 			environmentId: item.environmentId,
 			folderId: item.folderId,
@@ -118,14 +128,10 @@ export function ComputerPicker({
 				)}
 				<span className="truncate">
 					{cloudSelected
-						? uiMessage("chat:computer_picker_cloud_sandbox")
+						? `${uiMessage("chat:computer_picker_cloud_sandbox")} · ${cloudProviderLabel(selectedCloudProviderId)}`
 						: (current?.label ?? "Run on")}
 				</span>
-				{cloudSelected ? (
-					<Badge size="sm" variant="outline">
-						{uiMessage("chat:computer_picker_beta")}
-					</Badge>
-				) : null}
+
 				<ChevronDown className="size-3 opacity-60" />
 			</MenuTrigger>
 			<MenuPopup side="top" align="start" className="w-64 p-1">
@@ -137,8 +143,8 @@ export function ComputerPicker({
 						disabled={item.disabled}
 						onClick={() => pick(item)}
 						className={cn(
-							"grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-2 rounded-md px-2 py-1.5 text-xs",
-							item.selected
+							"grid h-7 grid-cols-[auto_1fr_auto_auto] items-center gap-x-2 rounded-md px-2 text-xs",
+							item.selected && !cloudSelected
 								? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
 								: undefined,
 						)}
@@ -150,7 +156,7 @@ export function ComputerPicker({
 						<span className="col-start-2 row-start-1 truncate">
 							{item.label}
 						</span>
-						{!item.selected &&
+						{(!item.selected || cloudSelected) &&
 						(item.status !== "connected" || !item.projectAvailable) ? (
 							<span className="col-start-3 row-start-1 text-[10px] text-muted-foreground">
 								{statusText(item)}
@@ -175,7 +181,7 @@ export function ComputerPicker({
 									disabled={item.disabled}
 									onClick={() => onPickCloud?.(item.providerId)}
 									className={cn(
-										"grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-2 rounded-md px-2 py-1.5 text-xs",
+										"grid h-7 grid-cols-[auto_1fr_auto_auto] items-center gap-x-2 rounded-md px-2 text-xs",
 										selected
 											? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
 											: undefined,
@@ -184,14 +190,14 @@ export function ComputerPicker({
 									<DitherCloudIcon className="col-start-1 size-4" />
 									<span className="col-start-2 flex min-w-0 items-center gap-1.5">
 										<span className="truncate">
-											{uiMessage("chat:computer_picker_cloud_sandbox")}
+											{`${uiMessage("chat:computer_picker_cloud_sandbox")} · ${cloudProviderLabel(item.providerId)}`}
 										</span>
-										<Badge size="sm" variant="outline">
+										<span className="text-[10px] text-muted-foreground">
 											{uiMessage("chat:computer_picker_beta")}
-										</Badge>
+										</span>
 									</span>
 									<span className="col-start-3 text-[10px] text-muted-foreground">
-										{item.statusText ?? item.providerLabel}
+										{item.statusText}
 									</span>
 									<MenuSelectionIndicator
 										checked={selected}
@@ -200,12 +206,53 @@ export function ComputerPicker({
 								</MenuItem>
 							);
 						})}
+						{(() => {
+							const selectedItem = cloudItems.find(
+								(item) => item.providerId === selectedCloudProviderId,
+							);
+							const sizes = selectedItem?.sizes ?? [];
+							if (sizes.length < 2) return null;
+							return (
+								<>
+									<MenuSeparator />
+									<div className="px-2 pt-1 text-[10px] text-muted-foreground">
+										{uiMessage("chat:computer_picker_machine_size")}
+									</div>
+									{sizes.map((size, index) => {
+										const sizeSelected =
+											size.sizeId === selectedCloudSizeId ||
+											(selectedCloudSizeId === null && index === 0);
+										return (
+											<MenuItem
+												key={`cloud-size:${size.sizeId}`}
+												role="menuitemradio"
+												aria-checked={sizeSelected}
+												onClick={() => onPickCloudSize?.(size.sizeId)}
+												className={cn(
+													"grid h-7 grid-cols-[1fr_auto] items-center gap-x-2 rounded-md px-2 text-xs",
+													sizeSelected
+														? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
+														: undefined,
+												)}
+											>
+												<span className="col-start-2 row-start-1 flex items-center justify-end">
+													<MenuSelectionIndicator checked={sizeSelected} />
+												</span>
+												<span className="col-start-1 row-start-1 truncate">
+													{size.displayName}
+												</span>
+											</MenuItem>
+										);
+									})}
+								</>
+							);
+						})()}
 					</>
 				) : null}
 				<MenuSeparator />
 				<MenuItem
 					onClick={() => openAddComputerDialog()}
-					className="grid grid-cols-[auto_1fr] items-center gap-x-2 rounded-md px-2 py-1.5 text-xs"
+					className="grid h-7 grid-cols-[auto_1fr] items-center gap-x-2 rounded-md px-2 text-xs"
 				>
 					<HugeiconsIcon
 						icon={ComputerIcon}

@@ -233,7 +233,11 @@ export const dispatchOpencodeProviderCommand = async <Payload>(
 		| "provider.opencode.setAuth"
 		| "provider.opencode.removeAuth"
 		| "provider.opencode.addCustom"
-		| "provider.opencode.removeCustom",
+		| "provider.opencode.removeCustom"
+		| "provider.opencode2.setAuth"
+		| "provider.opencode2.removeAuth"
+		| "provider.opencode2.addCustom"
+		| "provider.opencode2.removeCustom",
 	payload: Payload,
 ): Promise<void> => {
 	const environmentId = activeEnvironmentId();

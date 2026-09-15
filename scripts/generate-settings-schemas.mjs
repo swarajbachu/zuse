@@ -12,6 +12,7 @@ const providerIds = [
 	"gemini",
 	"cursor",
 	"opencode",
+	"opencode2",
 	"kiro",
 	"pi",
 ];

@@ -378,6 +378,56 @@ export const BUNDLED_MODEL_CATALOG = {
 			],
 			aliases: {},
 		},
+		// OpenCode 2 (`opencode2`) is a separate binary and HTTP API from
+		// OpenCode 1. Same meta-provider shape: live inventory is
+		// authoritative; this seed supplies curated labels until it loads.
+		opencode2: {
+			models: [
+				{
+					id: "opencode/claude-sonnet-5",
+					label: "OpenCode 2 · Claude Sonnet 5",
+					defaultModel: true,
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					supportsPlanMode: true,
+				},
+				{
+					id: "opencode/claude-opus-5",
+					label: "OpenCode 2 · Claude Opus 5",
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					supportsPlanMode: true,
+				},
+				{
+					id: "opencode/gpt-5.6-sol",
+					label: "OpenCode 2 · GPT-5.6 Sol",
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					supportsPlanMode: true,
+				},
+				{
+					id: "opencode/gpt-5.6-terra",
+					label: "OpenCode 2 · GPT-5.6 Terra",
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					supportsPlanMode: true,
+				},
+				{
+					id: "opencode/gpt-5.6-luna",
+					label: "OpenCode 2 · GPT-5.6 Luna",
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					supportsPlanMode: true,
+				},
+				{
+					id: "opencode/gemini-3.1-pro",
+					label: "OpenCode 2 · Gemini 3.1 Pro",
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					supportsPlanMode: true,
+				},
+				{
+					id: "opencode/grok-4.6",
+					label: "OpenCode 2 · Grok 4.6",
+					supportsPlanMode: true,
+				},
+			],
+			aliases: {},
+		},
 	},
 	// 2026-05 Anthropic pricing reset — every Opus tier landed at the same
 	// $5/$25 per-million numbers. `fastMode` doubles those for ~2.5x

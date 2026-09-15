@@ -24,6 +24,7 @@ const UPGRADE_DOCS_URL: Record<ProviderId, string> = {
 	cursor: "https://cursor.com/cli",
 	gemini: "https://github.com/google-gemini/gemini-cli#installation",
 	opencode: "https://opencode.ai/docs/install/",
+	opencode2: "https://opencode.ai/v2/docs",
 	kiro: "https://kiro.dev/docs/cli/setup/",
 	pi: "https://pi.dev/",
 };

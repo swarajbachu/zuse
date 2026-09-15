@@ -119,6 +119,15 @@ export const CloudWorkspaceRuntimeState = Schema.Literals([
 ]);
 export type CloudWorkspaceRuntimeState = typeof CloudWorkspaceRuntimeState.Type;
 
+export class CloudProviderSize extends Schema.Class<CloudProviderSize>(
+	"CloudProviderSize",
+)({
+	sizeId: Schema.String,
+	displayName: Schema.String,
+	vcpuCount: Schema.Number,
+	memoryMib: Schema.Number,
+}) {}
+
 /**
  * Codex subscription authentication ownership for a cloud workspace. Missing
  * values decode as `legacy-image`; retained workspaces are never silently
@@ -142,6 +151,7 @@ export class CloudProviderOption extends Schema.Class<CloudProviderOption>(
 )({
 	providerId: Schema.String,
 	displayName: Schema.String,
+	sizes: Schema.optional(Schema.Array(CloudProviderSize)),
 }) {}
 
 export class CloudProviderList extends Schema.Class<CloudProviderList>(
@@ -253,7 +263,7 @@ export class CloudAccountImageBuildAttempt extends Schema.Class<CloudAccountImag
 	updatedAt: Schema.Number,
 }) {}
 
-/** The single logical private E2B image maintained for an account. */
+/** The private image maintained for an account on one sandbox provider. */
 export class CloudAccountImage extends Schema.Class<CloudAccountImage>(
 	"CloudAccountImage",
 )({
@@ -277,6 +287,7 @@ export class CloudAccountImageBuildRequest extends Schema.Class<CloudAccountImag
 	"CloudAccountImageBuildRequest",
 )({
 	mode: CloudAccountImageBuildMode,
+	providerId: Schema.optional(Schema.String),
 	idempotencyKey: Schema.String,
 }) {}
 
@@ -516,6 +527,7 @@ export class CloudWorkspaceCreateRequest extends Schema.Class<CloudWorkspaceCrea
 	localDeviceId: Schema.optional(Schema.String),
 	projectId: Schema.String,
 	providerId: Schema.String,
+	sizeId: Schema.optional(Schema.String),
 	baseRef: Schema.String,
 	branch: Schema.optional(Schema.String),
 	agent: Schema.String,
@@ -626,7 +638,10 @@ export const CloudProjectsPrepareRpc = Rpc.make("cloud.projects.prepare", {
 	error: CloudWorkspaceOpError,
 });
 export const CloudAccountImageStatusRpc = Rpc.make("cloud.image.status", {
-	payload: Schema.Void,
+	payload: Schema.Union([
+		Schema.Void,
+		Schema.Struct({ providerId: Schema.optional(Schema.String) }),
+	]),
 	success: CloudAccountImage,
 	error: CloudWorkspaceOpError,
 });

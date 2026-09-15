@@ -72,5 +72,6 @@
 	"remote_access_connect_privately_from_devices_on_the_same_tailnet": "⟦Côônnëëct prïïvààtëëly frôôm dëëvïïcëës ôôn thëë sààmëë tààïïlnëët.⟧",
 	"auth_opening_browser_sign_in": "⟦ÔÔpëënïïng brôôwsëër sïïgn-ïïn⟧",
 	"auth_complete_workos_sign_in_in_your_browser": "⟦Côômplëëtëë WôôrkÔÔS sïïgn-ïïn ïïn yôôüür brôôwsëër.⟧",
-	"auth_sign_in_failed": "⟦Sïïgn-ïïn fààïïlëëd⟧"
+	"auth_sign_in_failed": "⟦Sïïgn-ïïn fààïïlëëd⟧",
+	"cloud_workspace_info_inactive": "⟦ÏÏnààctïïvëë⟧"
 }

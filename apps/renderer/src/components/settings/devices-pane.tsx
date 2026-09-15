@@ -10,7 +10,7 @@ import {
 	openExternal,
 	rendererPlatformCapabilities,
 } from "../../lib/platform-capabilities.ts";
-import { DeviceBridgePanel } from "../device-bridge-panel.tsx";
+import { DeviceCommandPermissions } from "../device-command-permissions.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import {
 	AccessConfirmDialogs,
@@ -229,7 +229,7 @@ export function DevicesPane() {
 				tokens={tokens}
 				onTokens={setTokens}
 			/>
-			<DeviceBridgePanel />
+			<DeviceCommandPermissions />
 			<UsingComputersCard />
 			<ConnectedDevicesCard
 				tokens={tokens}

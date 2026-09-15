@@ -69,6 +69,7 @@ const PROVIDER_LABEL: Record<ProviderId, string> = {
 	kiro: "Kiro",
 	pi: "Pi",
 	opencode: "OpenCode",
+	opencode2: "OpenCode 2",
 };
 
 const lookupModelLabel = (

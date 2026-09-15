@@ -85,6 +85,7 @@ export const PROVIDER_DISPLAY: Record<ProviderId, string> = {
 	gemini: "Gemini",
 	cursor: "Cursor",
 	opencode: "OpenCode",
+	opencode2: "OpenCode 2",
 	kiro: "Kiro CLI",
 	pi: "Pi",
 };

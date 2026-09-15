@@ -485,6 +485,7 @@ const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {
 				cursor: defaultModelFor(BUNDLED_MODEL_CATALOG, "cursor"),
 				gemini: defaultModelFor(BUNDLED_MODEL_CATALOG, "gemini"),
 				opencode: defaultModelFor(BUNDLED_MODEL_CATALOG, "opencode"),
+				opencode2: defaultModelFor(BUNDLED_MODEL_CATALOG, "opencode2"),
 				kiro: defaultModelFor(BUNDLED_MODEL_CATALOG, "kiro"),
 			},
 			branchNamingStyle: "slug",

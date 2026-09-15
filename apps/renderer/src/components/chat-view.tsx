@@ -1,3 +1,4 @@
+import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
@@ -203,7 +204,8 @@ export function ChatView({
 	useEffect(() => {
 		if (recoveredPreAckError) clearSessionCommandError(sessionRef);
 	}, [recoveredPreAckError, sessionRef]);
-	const messages = timeline.messages;
+	const { transcript: messages, waiting: waitingMessages } =
+		useCloudMessageQueue(timeline);
 	const timelineVersion = timeline.view.cursor?.version ?? 0;
 	const runtimeState = timeline.runtime;
 	const cloudShell = useEnvironmentShellResource(
@@ -225,7 +227,8 @@ export function ChatView({
 				runtimeState === "running" ||
 				runtimeState === "stopping" ||
 				turnStartPending
-			: cloudChatShowsWorking(cloudActivity) || turnStartPending;
+			: waitingMessages.length === 0 &&
+				(cloudChatShowsWorking(cloudActivity) || turnStartPending);
 	const permissionRequests =
 		useEnvironmentPermissions(environmentId).data?.requestsById ?? {};
 	const sessionPermissionRequests = Object.values(permissionRequests).filter(

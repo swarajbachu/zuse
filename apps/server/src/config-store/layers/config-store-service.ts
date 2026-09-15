@@ -96,6 +96,9 @@ const freshSettings = (): SettingsFile =>
 		opencodeProviderVisible: {},
 		opencodeModelVisibleByProvider: {},
 		opencodeCustomProviders: [],
+		opencode2ProviderVisible: {},
+		opencode2ModelVisibleByProvider: {},
+		opencode2CustomProviders: [],
 		mcpDisabledServers: [],
 		subagents: { enableForNewSessions: true, presets: {} },
 		branchNamingStyle: "username-slug",
@@ -404,6 +407,81 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 		}
 	}
 
+	const opencode2ProviderVisible: Record<string, boolean> = {};
+	if (
+		typeof obj.opencode2ProviderVisible === "object" &&
+		obj.opencode2ProviderVisible !== null
+	) {
+		for (const [k, v] of Object.entries(
+			obj.opencode2ProviderVisible as Record<string, unknown>,
+		)) {
+			if (typeof v === "boolean") opencode2ProviderVisible[k] = v;
+		}
+	}
+
+	const opencode2ModelVisibleByProvider: Record<
+		string,
+		Record<string, boolean>
+	> = {};
+	if (
+		typeof obj.opencode2ModelVisibleByProvider === "object" &&
+		obj.opencode2ModelVisibleByProvider !== null
+	) {
+		for (const [pid, modelsMap] of Object.entries(
+			obj.opencode2ModelVisibleByProvider as Record<string, unknown>,
+		)) {
+			if (typeof modelsMap !== "object" || modelsMap === null) continue;
+			const flags: Record<string, boolean> = {};
+			for (const [mid, v] of Object.entries(
+				modelsMap as Record<string, unknown>,
+			)) {
+				if (typeof v === "boolean") flags[mid] = v;
+			}
+			opencode2ModelVisibleByProvider[pid] = flags;
+		}
+	}
+
+	const opencode2CustomProviders: {
+		id: string;
+		name: string;
+		baseURL: string;
+		npm: string;
+		models: { id: string; name: string }[];
+	}[] = [];
+	if (Array.isArray(obj.opencode2CustomProviders)) {
+		for (const item of obj.opencode2CustomProviders) {
+			if (typeof item !== "object" || item === null) continue;
+			const p = item as Record<string, unknown>;
+			if (
+				typeof p.id !== "string" ||
+				typeof p.name !== "string" ||
+				typeof p.baseURL !== "string"
+			) {
+				continue;
+			}
+			const models: { id: string; name: string }[] = [];
+			if (Array.isArray(p.models)) {
+				for (const m of p.models) {
+					if (typeof m !== "object" || m === null) continue;
+					const mm = m as Record<string, unknown>;
+					if (typeof mm.id === "string" && typeof mm.name === "string") {
+						models.push({ id: mm.id, name: mm.name });
+					}
+				}
+			}
+			opencode2CustomProviders.push({
+				id: p.id,
+				name: p.name,
+				baseURL: p.baseURL,
+				npm:
+					typeof p.npm === "string" && p.npm.length > 0
+						? p.npm
+						: "@ai-sdk/openai-compatible",
+				models,
+			});
+		}
+	}
+
 	const mcpDisabledServers: string[] = [];
 	if (Array.isArray(obj.mcpDisabledServers)) {
 		for (const item of obj.mcpDisabledServers) {
@@ -501,6 +579,9 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 		opencodeProviderVisible,
 		opencodeModelVisibleByProvider,
 		opencodeCustomProviders,
+		opencode2ProviderVisible,
+		opencode2ModelVisibleByProvider,
+		opencode2CustomProviders,
 		mcpDisabledServers,
 		subagents,
 		branchNamingStyle,
@@ -786,6 +867,13 @@ export const ConfigStoreServiceLive = Layer.effect(
 						cur.opencodeModelVisibleByProvider,
 					opencodeCustomProviders:
 						patch.opencodeCustomProviders ?? cur.opencodeCustomProviders,
+					opencode2ProviderVisible:
+						patch.opencode2ProviderVisible ?? cur.opencode2ProviderVisible,
+					opencode2ModelVisibleByProvider:
+						patch.opencode2ModelVisibleByProvider ??
+						cur.opencode2ModelVisibleByProvider,
+					opencode2CustomProviders:
+						patch.opencode2CustomProviders ?? cur.opencode2CustomProviders,
 					mcpDisabledServers:
 						patch.mcpDisabledServers ?? cur.mcpDisabledServers,
 					subagents: patch.subagents ?? cur.subagents,
@@ -920,6 +1008,10 @@ export const ConfigStoreServiceLive = Layer.effect(
 						opencodeProviderVisible: cur.opencodeProviderVisible,
 						opencodeModelVisibleByProvider: cur.opencodeModelVisibleByProvider,
 						opencodeCustomProviders: cur.opencodeCustomProviders,
+						opencode2ProviderVisible: cur.opencode2ProviderVisible,
+						opencode2ModelVisibleByProvider:
+							cur.opencode2ModelVisibleByProvider,
+						opencode2CustomProviders: cur.opencode2CustomProviders,
 						mcpDisabledServers: cur.mcpDisabledServers,
 						subagents,
 						branchNamingStyle: cur.branchNamingStyle,

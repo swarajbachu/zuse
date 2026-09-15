@@ -26,4 +26,16 @@ describe("renderer dependency optimization", () => {
 		expect(viteConfig).toContain('"react-dom"');
 		expect(viteConfig).toContain('dedupe: ["react", "react-dom"]');
 	});
+
+	it("pins i18n and first-paint tooltip into the initial React dependency graph", () => {
+		const viteConfig = rendererFile("vite.config.ts");
+		const i18nReact = rendererFile("../../packages/i18n/src/react.tsx");
+		const tooltip = rendererFile("src/components/ui/tooltip.tsx");
+
+		expect(i18nReact).toContain('from "react-i18next"');
+		expect(tooltip).toContain('from "@base-ui/react/tooltip"');
+		expect(viteConfig).toContain('"react-i18next"');
+		expect(viteConfig).toContain('"i18next"');
+		expect(viteConfig).toContain('"@base-ui/react/tooltip"');
+	});
 });

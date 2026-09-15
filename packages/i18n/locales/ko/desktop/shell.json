@@ -55,5 +55,6 @@
 	"browser_access_gate_unnamed_computer": "이름이 없는 컴퓨터",
 	"pending_chat_creation_chat_startup_needs_attention": "채팅 시작에 주의가 필요합니다.",
 	"pi_available": "사용 가능",
-	"pi_native_auth_permissions": "인증과 권한은 Pi가 관리합니다."
+	"pi_native_auth_permissions": "인증과 권한은 Pi가 관리합니다.",
+	"chat_loading_fallback_loading_chat": "채팅 불러오는 중…"
 }

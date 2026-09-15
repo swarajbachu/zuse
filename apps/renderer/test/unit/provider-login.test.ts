@@ -12,6 +12,7 @@ describe("provider inline login", () => {
 		expect(supportsProviderLogin("codex")).toBe(false);
 		expect(supportsProviderLogin("gemini")).toBe(false);
 		expect(supportsProviderLogin("opencode")).toBe(false);
+		expect(supportsProviderLogin("opencode2")).toBe(false);
 	});
 
 	it("classifies the Grok session-start message as authentication", () => {

@@ -30,6 +30,23 @@ export interface ProviderSandbox {
 	readonly state: "running" | "paused";
 }
 
+export interface SandboxProviderResources {
+	readonly vcpuCount: number;
+	readonly memoryMib: number;
+}
+
+export interface SandboxProviderSize extends SandboxProviderResources {
+	readonly sizeId: string;
+	readonly displayName: string;
+}
+
+/** Compute dimensions for a placement, falling back to the default profile. */
+export const resolveSandboxResources = (
+	adapter: Pick<SandboxProviderAdapter, "resources" | "sizes">,
+	sizeId?: string,
+): SandboxProviderResources =>
+	adapter.sizes.find((size) => size.sizeId === sizeId) ?? adapter.resources;
+
 export interface SandboxEndpoint {
 	readonly httpBaseUrl: string;
 	readonly wsBaseUrl: string;
@@ -50,14 +67,40 @@ export interface SandboxProcessSelector {
 	readonly legacyCleanup?: "matching-command";
 }
 
+/** Provider-reported list-price usage for one exact time window. */
+export interface ProviderSandboxUsage {
+	readonly startedAtMs: number;
+	readonly endedAtMs: number;
+	/** Provider billing units; any size multiplier is already applied. */
+	readonly billableSeconds: number;
+	readonly providerCostMicros: number;
+	readonly running: boolean;
+	/** Current list-price rate per wall-clock second, for provisional reservations. */
+	readonly costMicrosPerSecond: number;
+}
+
 export interface SandboxProviderAdapter {
 	readonly providerId: string;
 	readonly displayName: string;
+	readonly getUsage?: (
+		providerSandboxId: string,
+		window: {
+			readonly startedAtMs: number;
+			readonly endedAtMs: number;
+		},
+	) => Effect.Effect<ProviderSandboxUsage, SandboxProviderError>;
 	readonly templateVersion: string;
+	readonly resources: SandboxProviderResources;
+	/** Whether pause/resume preserves the runtime process. */
+	readonly preservesProcessesOnResume: boolean;
+	// The placement choices this provider advertises. Providers with one fixed
+	// profile expose a single entry matching `resources`.
+	readonly sizes: ReadonlyArray<SandboxProviderSize>;
 	readonly create: (input: {
 		readonly sandboxId: string;
 		readonly providerLabel: string;
 		readonly metadata?: Readonly<Record<string, string>>;
+		readonly sizeId?: string;
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
 		readonly network: SandboxNetworkPolicy;
@@ -67,6 +110,7 @@ export interface SandboxProviderAdapter {
 		readonly sandboxId: string;
 		readonly providerLabel: string;
 		readonly metadata?: Readonly<Record<string, string>>;
+		readonly sizeId?: string;
 		readonly snapshotId: string;
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
@@ -115,6 +159,7 @@ export interface SandboxProviderAdapter {
 		providerSandboxId: string,
 		timeoutSeconds: number,
 		onTimeout: "pause" | "terminate",
+		sizeId?: string,
 	) => Effect.Effect<ProviderSandbox, SandboxProviderError>;
 	readonly extendTimeout: (
 		providerSandboxId: string,

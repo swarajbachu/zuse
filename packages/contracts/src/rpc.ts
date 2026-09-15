@@ -1,6 +1,10 @@
 import { RpcGroup } from "effect/unstable/rpc";
 import {
 	ProviderAvailabilityRpc,
+	ProviderOpencode2AddCustomRpc,
+	ProviderOpencode2RemoveAuthRpc,
+	ProviderOpencode2RemoveCustomRpc,
+	ProviderOpencode2SetAuthRpc,
 	ProviderOpencodeAddCustomRpc,
 	ProviderOpencodeRemoveAuthRpc,
 	ProviderOpencodeRemoveCustomRpc,
@@ -566,6 +570,10 @@ export const MemoizeRpcs = RpcGroup.make(
 	ProviderOpencodeRemoveAuthRpc,
 	ProviderOpencodeAddCustomRpc,
 	ProviderOpencodeRemoveCustomRpc,
+	ProviderOpencode2SetAuthRpc,
+	ProviderOpencode2RemoveAuthRpc,
+	ProviderOpencode2AddCustomRpc,
+	ProviderOpencode2RemoveCustomRpc,
 	ProviderStartLoginRpc,
 	ProviderUpdateRpc,
 	ChatArchivePreviewRpc,

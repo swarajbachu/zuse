@@ -63,6 +63,12 @@ export interface SettingsSlice {
 		Record<string, boolean>
 	>;
 	readonly opencodeCustomProviders: ReadonlyArray<OpencodeCustomProvider>;
+	readonly opencode2ProviderVisible: Record<string, boolean>;
+	readonly opencode2ModelVisibleByProvider: Record<
+		string,
+		Record<string, boolean>
+	>;
+	readonly opencode2CustomProviders: ReadonlyArray<OpencodeCustomProvider>;
 	readonly branchNamingStyle: BranchNamingStyle;
 	readonly branchNamingPrefix: string;
 	readonly mergePrefs: { method: GitMergeMethod; deleteBranch: boolean };
@@ -110,6 +116,15 @@ type SettingsState = SettingsSlice & {
 		value: boolean,
 	) => void;
 	readonly setOpencodeModelVisible: (
+		providerId: string,
+		modelId: string,
+		value: boolean,
+	) => void;
+	readonly setOpencode2ProviderVisible: (
+		providerId: string,
+		value: boolean,
+	) => void;
+	readonly setOpencode2ModelVisible: (
 		providerId: string,
 		modelId: string,
 		value: boolean,
@@ -188,6 +203,9 @@ const FALLBACK: SettingsSlice = {
 	opencodeProviderVisible: {},
 	opencodeModelVisibleByProvider: {},
 	opencodeCustomProviders: [],
+	opencode2ProviderVisible: {},
+	opencode2ModelVisibleByProvider: {},
+	opencode2CustomProviders: [],
 	branchNamingStyle: "username-slug",
 	branchNamingPrefix: "",
 	mergePrefs: { method: "merge", deleteBranch: false },
@@ -224,6 +242,16 @@ const SettingsSliceSchema = Schema.Struct({
 		Schema.Record(Schema.String, Schema.Boolean),
 	),
 	opencodeCustomProviders: Schema.Array(OpencodeCustomProvider),
+	opencode2ProviderVisible: Schema.Record(Schema.String, Schema.Boolean).pipe(
+		Schema.withDecodingDefaultType(Effect.succeed({})),
+	),
+	opencode2ModelVisibleByProvider: Schema.Record(
+		Schema.String,
+		Schema.Record(Schema.String, Schema.Boolean),
+	).pipe(Schema.withDecodingDefaultType(Effect.succeed({}))),
+	opencode2CustomProviders: Schema.Array(OpencodeCustomProvider).pipe(
+		Schema.withDecodingDefaultType(Effect.succeed([])),
+	),
 	branchNamingStyle: BranchNamingStyle,
 	branchNamingPrefix: Schema.String,
 	mergePrefs: Schema.Struct({
@@ -281,6 +309,16 @@ const fromFile = (file: SettingsFile): SettingsSlice => {
 			),
 		),
 		opencodeCustomProviders: file.opencodeCustomProviders.map((provider) => ({
+			...provider,
+			models: provider.models.map((model) => ({ ...model })),
+		})),
+		opencode2ProviderVisible: { ...file.opencode2ProviderVisible },
+		opencode2ModelVisibleByProvider: Object.fromEntries(
+			Object.entries(file.opencode2ModelVisibleByProvider).map(
+				([key, value]) => [key, { ...value }],
+			),
+		),
+		opencode2CustomProviders: file.opencode2CustomProviders.map((provider) => ({
 			...provider,
 			models: provider.models.map((model) => ({ ...model })),
 		})),
@@ -624,6 +662,27 @@ const ACTIONS = {
 				...state.opencodeModelVisibleByProvider,
 				[providerId]: {
 					...state.opencodeModelVisibleByProvider[providerId],
+					[modelId]: value,
+				},
+			},
+		})),
+	setOpencode2ProviderVisible: (providerId: string, value: boolean) =>
+		update((state) => ({
+			opencode2ProviderVisible: {
+				...state.opencode2ProviderVisible,
+				[providerId]: value,
+			},
+		})),
+	setOpencode2ModelVisible: (
+		providerId: string,
+		modelId: string,
+		value: boolean,
+	) =>
+		update((state) => ({
+			opencode2ModelVisibleByProvider: {
+				...state.opencode2ModelVisibleByProvider,
+				[providerId]: {
+					...state.opencode2ModelVisibleByProvider[providerId],
 					[modelId]: value,
 				},
 			},

@@ -8,11 +8,7 @@ export const DeviceBridgeHandlersLayer = MemoizeRpcs.toLayerHandler(
 			const { broker } = yield* DeviceBridgeService;
 			return yield* Effect.tryPromise({
 				try: () =>
-					action._tag === "configure"
-						? broker.configure(action.enabled)
-						: action._tag === "status"
-							? broker.status()
-							: broker.handle(action),
+					action._tag === "status" ? broker.status() : broker.handle(action),
 				catch: (cause) =>
 					new DeviceBridgeError({
 						reason:

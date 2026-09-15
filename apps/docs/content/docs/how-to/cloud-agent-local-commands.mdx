@@ -1,6 +1,6 @@
 ---
 title: "Let cloud agents run commands on your computer"
-description: "Enable desktop command access, approve a cloud chat, and revoke access."
+description: "Connect your desktop, approve a cloud command, and revoke saved permissions."
 section: how-to
 order: 24
 platforms: [desktop, browser, mobile]
@@ -52,8 +52,7 @@ in plan mode.
 
 ## Watch or stop commands
 
-Expand a local command in the conversation, or open **Settings → Devices → Cloud agent
-access**, to inspect requests, output, and exit status. Choose **Stop command**
+Expand a local command in the conversation to inspect requests, output, and exit status. Choose **Stop command**
 to terminate a running command and its process group.
 
 The bridge supports four active commands at a time and captures up to 1 MiB of
@@ -64,9 +63,11 @@ or desktop-automation tools are not part of this feature.
 
 ## Revoke access and recover
 
-Choose **Revoke** next to a saved permission, or **Turn off** to stop all active
-commands and clear saved grants on the computer. Signing out or changing the
-linked account also disables access and clears grants.
+In **Settings → Devices → Saved command permissions**, choose **Revoke** next to
+a saved permission to remove it and stop commands using that permission. This
+section appears only when permissions have been saved. Signing out or changing
+the linked account stops commands and clears grants. Command access is available
+automatically when the desktop is linked again, with fresh approval required.
 
 Cloud commands hold a short lease. If the bridge connection disappears, pending
 requests and running commands are interrupted within 15 seconds of their last

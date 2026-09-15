@@ -11,6 +11,7 @@ export const BUILTIN_PROVIDER_IDS = [
 	"gemini",
 	"cursor",
 	"opencode",
+	"opencode2",
 	"kiro",
 	"pi",
 ] as const;
@@ -631,6 +632,7 @@ const SessionCursorEvent = Schema.TaggedStruct("SessionCursor", {
 		"cursor-session-id",
 		"gemini-session-id",
 		"opencode-session-id",
+		"opencode2-session-id",
 		"kiro-session-id",
 		"pi-session-file",
 	]),
@@ -1195,6 +1197,52 @@ export const ProviderOpencodeAddCustomRpc = Rpc.make(
 
 export const ProviderOpencodeRemoveCustomRpc = Rpc.make(
 	"provider.opencode.removeCustom",
+	{
+		payload: Schema.Struct({ id: Schema.String }),
+		success: Schema.Void,
+		error: AgentSessionStartError,
+	},
+);
+
+export const ProviderOpencode2SetAuthRpc = Rpc.make(
+	"provider.opencode2.setAuth",
+	{
+		payload: Schema.Struct({
+			providerId: Schema.String,
+			apiKey: Schema.String,
+		}),
+		success: Schema.Void,
+		error: AgentSessionStartError,
+	},
+);
+
+export const ProviderOpencode2RemoveAuthRpc = Rpc.make(
+	"provider.opencode2.removeAuth",
+	{
+		payload: Schema.Struct({ providerId: Schema.String }),
+		success: Schema.Void,
+		error: AgentSessionStartError,
+	},
+);
+
+export const ProviderOpencode2AddCustomRpc = Rpc.make(
+	"provider.opencode2.addCustom",
+	{
+		payload: Schema.Struct({
+			id: Schema.String,
+			name: Schema.String,
+			baseURL: Schema.String,
+			npm: Schema.String,
+			apiKey: Schema.String,
+			models: Schema.Array(OpencodeCustomModel),
+		}),
+		success: Schema.Void,
+		error: AgentSessionStartError,
+	},
+);
+
+export const ProviderOpencode2RemoveCustomRpc = Rpc.make(
+	"provider.opencode2.removeCustom",
 	{
 		payload: Schema.Struct({ id: Schema.String }),
 		success: Schema.Void,

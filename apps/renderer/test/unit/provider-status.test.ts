@@ -46,6 +46,7 @@ const providers: ReadonlyArray<ProviderId> = [
 	"gemini",
 	"cursor",
 	"opencode",
+	"opencode2",
 	"kiro",
 ];
 

@@ -166,6 +166,7 @@ const apiWorkspaceStatus = Effect.fn("apiWorkspaceStatus")(function* (
 	const lastAssistant = summary.lastAssistant;
 	return {
 		workspaceId: workspace.workspaceId,
+		providerId: workspace.provider,
 		projectId: workspace.projectId,
 		branch: workspace.branch,
 		baseRef: workspace.baseRef,
@@ -389,7 +390,7 @@ export const routeAccountWorkspaceRequest = (
 					principal.accountId,
 					{
 						projectId: project.projectId,
-						providerId: body.providerId ?? recent?.provider,
+						providerId: body.providerId,
 						baseRef: body.baseRef ?? project.defaultBranch,
 						...(body.branch === undefined ? {} : { branch: body.branch }),
 						agent,

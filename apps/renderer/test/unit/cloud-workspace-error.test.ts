@@ -7,7 +7,7 @@ describe("cloud workspace errors", () => {
 		expect(
 			formatError(new CloudWorkspaceOpError({ code: "credential-required" })),
 		).toBe(
-			"Connect GitHub and the selected agent in Cloud Sandbox settings, then try again.",
+			"Connect GitHub and the selected agent in Cloud settings, then try again.",
 		);
 	});
 

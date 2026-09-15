@@ -40,16 +40,13 @@ export const DeviceBridgeServiceLive = Layer.effect(
 					const [row] = await run(
 						sql<{
 							link_key: string;
-							enabled: number;
-						}>`SELECT * FROM device_bridge_config WHERE id = 1`,
+						}>`SELECT link_key FROM device_bridge_config WHERE id = 1`,
 					);
-					return row
-						? { linkKey: row.link_key, enabled: row.enabled === 1 }
-						: null;
+					return row ? { linkKey: row.link_key } : null;
 				},
-				saveConfig: async (key, enabled) => {
+				saveConfig: async (key) => {
 					await run(
-						sql`INSERT INTO device_bridge_config(id, link_key, enabled) VALUES(1, ${key}, ${enabled ? 1 : 0}) ON CONFLICT(id) DO UPDATE SET link_key=excluded.link_key, enabled=excluded.enabled`,
+						sql`INSERT INTO device_bridge_config(id, link_key, enabled) VALUES(1, ${key}, 1) ON CONFLICT(id) DO UPDATE SET link_key=excluded.link_key, enabled=excluded.enabled`,
 					);
 				},
 				commands: async () =>
@@ -132,7 +129,7 @@ export const DeviceBridgeServiceLive = Layer.effect(
 				const changed = nextId !== accountId || nextId === null;
 				accountId = nextId;
 				return changed
-					? Effect.promise(() => broker.configure(false)).pipe(Effect.asVoid)
+					? Effect.promise(() => broker.invalidate()).pipe(Effect.asVoid)
 					: Effect.void;
 			}),
 			Effect.forkScoped({ startImmediately: true }),

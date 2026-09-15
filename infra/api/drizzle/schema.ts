@@ -806,6 +806,7 @@ export const apiProviderUsageEvents = pgTable(
 		provider: text("provider").notNull(),
 		type: text("type").notNull(),
 		providerResourceId: text("provider_resource_id"),
+		occurredAt: bigint("occurred_at", { mode: "number" }),
 		payload: jsonb("payload").notNull(),
 		receivedAt: bigint("received_at", { mode: "number" }).notNull(),
 		expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
@@ -813,6 +814,45 @@ export const apiProviderUsageEvents = pgTable(
 	(table) => [
 		primaryKey({ columns: [table.provider, table.eventId] }),
 		index("api_provider_usage_events_expiry_idx").on(table.expiresAt),
+		index("api_provider_usage_events_resource_time_idx")
+			.on(
+				table.provider,
+				table.providerResourceId,
+				table.type,
+				table.occurredAt,
+			)
+			.concurrently(),
+	],
+);
+
+export const apiProviderLifecyclePairs = pgTable(
+	"api_provider_lifecycle_pairs",
+	{
+		provider: text("provider").notNull(),
+		closingEventId: text("closing_event_id").notNull(),
+		openingEventId: text("opening_event_id").notNull(),
+		startedAt: bigint("started_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.provider, table.closingEventId] }),
+		index("api_provider_lifecycle_pairs_opening_idx").on(
+			table.provider,
+			table.openingEventId,
+		),
+		foreignKey({
+			columns: [table.provider, table.closingEventId],
+			foreignColumns: [
+				apiProviderUsageEvents.provider,
+				apiProviderUsageEvents.eventId,
+			],
+		}).onDelete("cascade"),
+		foreignKey({
+			columns: [table.provider, table.openingEventId],
+			foreignColumns: [
+				apiProviderUsageEvents.provider,
+				apiProviderUsageEvents.eventId,
+			],
+		}).onDelete("cascade"),
 	],
 );
 

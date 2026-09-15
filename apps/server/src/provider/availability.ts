@@ -143,6 +143,21 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
 		},
 	},
 	{
+		...PROVIDER_CLI_REGISTRY.opencode2,
+		// OpenCode 2 ships as `opencode2` (`@opencode/cli@beta`). Versions are
+		// currently `0.0.0-beta-*` so we don't pin a numeric floor.
+		minVersion: null,
+		upgradeCommand: "curl -fsSL https://opencode.ai/v2/install | bash",
+		npmPackage: "@opencode/cli",
+		homebrewFormula: null,
+		nativeUpdate: {
+			command: "opencode2 upgrade",
+			matches: (p) =>
+				p.endsWith("/.opencode/bin/opencode2") ||
+				p.endsWith("/.opencode/bin/opencode2.exe"),
+		},
+	},
+	{
 		...PROVIDER_CLI_REGISTRY.kiro,
 		// ACP landed in recent Kiro CLI builds (`kiro-cli acp`). We don't pin a
 		// hard floor here — missing `acp` surfaces as a clear session-start
@@ -239,15 +254,20 @@ export const extraWellKnownCliPaths = (
 	if (cliBinary === "opencode") {
 		return [join(homedir(), ".opencode", "bin", "opencode")];
 	}
+	if (cliBinary === "opencode2") {
+		return [join(homedir(), ".opencode", "bin", "opencode2")];
+	}
 	return [];
 };
 
 /**
- * Codex has a managed-shim collision; OpenCode has a Homebrew formula that
+ * Codex has a managed-shim collision; OpenCode 1 has a Homebrew formula that
  * ships a different `opencode` binary (0.0.x, no `serve`) earlier on PATH
- * than the native 1.x install. Both need newest-version selection.
+ * than the native 1.x install. OpenCode 2 can similarly expose both an npm
+ * `opencode2` and the native installer at `~/.opencode/bin/opencode2`.
+ * All three need newest-version selection.
  */
-const CLI_BINARIES_SELECT_NEWEST = new Set(["codex", "opencode"]);
+const CLI_BINARIES_SELECT_NEWEST = new Set(["codex", "opencode", "opencode2"]);
 
 /**
  * Resolve the absolute path to a provider's CLI binary on PATH, or `null` if
@@ -1164,6 +1184,7 @@ const probeAccount = (
 		case "gemini":
 			return probeGeminiAccount;
 		case "opencode":
+		case "opencode2":
 			return probeOpencodeAccount;
 		case "kiro":
 			return probeKiroAccount;

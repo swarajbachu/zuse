@@ -16,6 +16,9 @@ describe("CloudWorkspaceAuth", () => {
 		expect(markup).toContain("Cursor");
 		expect(markup).toContain("Grok");
 		expect(markup).toContain("Connect");
+		expect(markup).toContain("Connect each agent once");
+		expect(markup).not.toContain("E2B");
+		expect(markup.replace(/<[^>]+>/g, "")).not.toContain("Box");
 		expect(markup).not.toContain("Create in E2B");
 		expect(markup).not.toContain("Setup required");
 	});

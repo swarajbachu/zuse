@@ -127,6 +127,7 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 				gemini: [],
 				cursor: [],
 				opencode: [],
+				opencode2: [],
 				kiro: [],
 				pi: [],
 			}),
@@ -155,6 +156,16 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 	 * via `OPENCODE_CONFIG_CONTENT` so both inventory and sessions see them.
 	 */
 	opencodeCustomProviders: Schema.Array(OpencodeCustomProvider),
+	opencode2ProviderVisible: Schema.Record(Schema.String, Schema.Boolean).pipe(
+		Schema.withDecodingDefaultType(Effect.succeed({})),
+	),
+	opencode2ModelVisibleByProvider: Schema.Record(
+		Schema.String,
+		Schema.Record(Schema.String, Schema.Boolean),
+	).pipe(Schema.withDecodingDefaultType(Effect.succeed({}))),
+	opencode2CustomProviders: Schema.Array(OpencodeCustomProvider).pipe(
+		Schema.withDecodingDefaultType(Effect.succeed([])),
+	),
 	/**
 	 * User MCP servers switched off globally, by descriptor key
 	 * (`claude:<name>` / `codex:<name>` — see `McpServerDescriptor.key`).
@@ -224,6 +235,15 @@ export const SettingsPatch = Schema.Struct({
 		Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Boolean)),
 	),
 	opencodeCustomProviders: Schema.optional(
+		Schema.Array(OpencodeCustomProvider),
+	),
+	opencode2ProviderVisible: Schema.optional(
+		Schema.Record(Schema.String, Schema.Boolean),
+	),
+	opencode2ModelVisibleByProvider: Schema.optional(
+		Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Boolean)),
+	),
+	opencode2CustomProviders: Schema.optional(
 		Schema.Array(OpencodeCustomProvider),
 	),
 	mcpDisabledServers: Schema.optional(Schema.Array(Schema.String)),

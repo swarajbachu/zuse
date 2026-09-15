@@ -15,6 +15,7 @@ import { startGeminiSession } from "@zuse/agents/drivers/gemini";
 import { startGrokSession } from "@zuse/agents/drivers/grok";
 import { startKiroSession } from "@zuse/agents/drivers/kiro";
 import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
+import { startOpencode2Session } from "@zuse/agents/drivers/opencode2";
 import { startPiSession } from "@zuse/agents/drivers/pi";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import {
@@ -81,6 +82,12 @@ const providers: ReadonlyArray<LiveProvider> = [
 		providerId: "opencode",
 		binary: "opencode",
 		envToggle: "ZUSE_LIVE_OPENCODE",
+		expectsCursor: true,
+	},
+	{
+		providerId: "opencode2",
+		binary: "opencode2",
+		envToggle: "ZUSE_LIVE_OPENCODE2",
 		expectsCursor: true,
 	},
 	{
@@ -205,6 +212,8 @@ const startProvider = async (
 		}
 		case "opencode":
 			return startOpencodeSession(input, cwd, [], binaryPath, sessionId);
+		case "opencode2":
+			return startOpencode2Session(input, cwd, [], binaryPath, sessionId);
 		case "pi":
 			return startPiSession(input, cwd, binaryPath, sessionId);
 		case "kiro":

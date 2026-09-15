@@ -42,7 +42,9 @@ const isProviderId = (v: unknown): v is ProviderId =>
 	v === "grok" ||
 	v === "cursor" ||
 	v === "gemini" ||
-	v === "opencode";
+	v === "opencode" ||
+	v === "opencode2" ||
+	v === "kiro";
 
 const isRuntimeMode = (v: unknown): v is RuntimeMode =>
 	v === "approval-required" ||

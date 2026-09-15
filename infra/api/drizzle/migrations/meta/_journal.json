@@ -169,6 +169,13 @@
 			"when": 1789304400000,
 			"tag": "0023_slack_members",
 			"breakpoints": true
+		},
+		{
+			"idx": 24,
+			"version": "7",
+			"when": 1789387200000,
+			"tag": "0024_box_price_schedule",
+			"breakpoints": true
 		}
 	]
 }

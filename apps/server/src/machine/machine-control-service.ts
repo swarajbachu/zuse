@@ -68,10 +68,9 @@ import { AuthService } from "../auth/services/auth-service.ts";
 import { MachineRuntimeRole } from "./machine-runtime-role.ts";
 
 export interface MachineControlServiceShape {
-	readonly cloudAccountImage: () => Effect.Effect<
-		CloudAccountImage,
-		MachineControlError
-	>;
+	readonly cloudAccountImage: (
+		providerId?: string,
+	) => Effect.Effect<CloudAccountImage, MachineControlError>;
 	readonly buildCloudAccountImage: (
 		input: CloudAccountImageBuildRequest,
 	) => Effect.Effect<CloudAccountImage, MachineControlError>;
@@ -432,8 +431,13 @@ export const MachineControlServiceLive: Layer.Layer<
 			});
 
 		return MachineControlService.of({
-			cloudAccountImage: () =>
-				request(ApiPaths.cloudAccountImage, CloudAccountImage),
+			cloudAccountImage: (providerId) =>
+				request(
+					providerId === undefined
+						? ApiPaths.cloudAccountImage
+						: `${ApiPaths.cloudAccountImage}?providerId=${encodeURIComponent(providerId)}`,
+					CloudAccountImage,
+				),
 			buildCloudAccountImage: (input) =>
 				request(
 					ApiPaths.cloudAccountImageBuild,

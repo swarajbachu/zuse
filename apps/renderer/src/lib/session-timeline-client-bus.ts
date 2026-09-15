@@ -649,6 +649,26 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["provider.opencode.removeCustom"](payload as never),
 				);
 				break;
+			case "provider.opencode2.setAuth":
+				result = await Effect.runPromise(
+					client["provider.opencode2.setAuth"](payload as never),
+				);
+				break;
+			case "provider.opencode2.removeAuth":
+				result = await Effect.runPromise(
+					client["provider.opencode2.removeAuth"](payload as never),
+				);
+				break;
+			case "provider.opencode2.addCustom":
+				result = await Effect.runPromise(
+					client["provider.opencode2.addCustom"](payload as never),
+				);
+				break;
+			case "provider.opencode2.removeCustom":
+				result = await Effect.runPromise(
+					client["provider.opencode2.removeCustom"](payload as never),
+				);
+				break;
 			case "pokemon.pokedex":
 				result = await Effect.runPromise(
 					client["pokemon.pokedex"](payload as never),

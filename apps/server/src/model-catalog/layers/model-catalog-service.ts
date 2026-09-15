@@ -8,6 +8,7 @@ import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-clien
 import { listCursorModels } from "@zuse/agents/drivers/cursor-models";
 import { loadKiroInventory } from "@zuse/agents/drivers/kiro-inventory";
 import { loadOpencodeInventory } from "@zuse/agents/drivers/opencode";
+import { loadOpencode2Inventory } from "@zuse/agents/drivers/opencode2";
 import { loadPiInventory } from "@zuse/agents/drivers/pi-inventory";
 import {
 	BUNDLED_MODEL_CATALOG,
@@ -61,6 +62,7 @@ const LIVE_PROVIDERS: ReadonlyArray<ProviderId> = [
 	"cursor",
 	"kiro",
 	"opencode",
+	"opencode2",
 ];
 
 const LiveModelDocument = Schema.Struct({
@@ -77,6 +79,7 @@ const LiveListingDocument = Schema.Struct({
 	error: Schema.NullOr(Schema.String),
 	models: Schema.Array(LiveModelDocument),
 	opencode: Schema.optional(OpencodeInventory),
+	opencode2: Schema.optional(OpencodeInventory),
 });
 type LiveListingDocument = typeof LiveListingDocument.Type;
 
@@ -136,7 +139,8 @@ const isAuthoritative = (providerId: ProviderId): boolean =>
 	providerId === "codex" ||
 	providerId === "cursor" ||
 	providerId === "kiro" ||
-	providerId === "opencode";
+	providerId === "opencode" ||
+	providerId === "opencode2";
 
 export const ModelCatalogServiceLive = Layer.effect(
 	ModelCatalogService,
@@ -426,6 +430,37 @@ export const ModelCatalogServiceLive = Layer.effect(
 				Effect.catchCause((cause) => Effect.succeed(listingError(true, cause))),
 			);
 
+		const listOpencode2 = (): Effect.Effect<LiveListingDocument> =>
+			Effect.gen(function* () {
+				const opencode2Path = yield* cliPath("opencode2");
+				if (opencode2Path === null) return unsupportedListing;
+				const settings = yield* configStore.getSettings();
+				const inventory = yield* loadOpencode2Inventory(
+					opencode2Path,
+					process.cwd(),
+					settings.opencode2CustomProviders,
+				);
+				const listing: LiveListingDocument = {
+					status: "ok",
+					authoritative: true,
+					fetchedAt: Date.now(),
+					error: null,
+					models: inventory.providers
+						.filter((provider) => provider.connected)
+						.flatMap((provider) =>
+							provider.models.map((model) => ({
+								id: model.id,
+								label: model.label,
+								liveMeta: { variants: model.variants },
+							})),
+						),
+					opencode2: inventory,
+				};
+				return listing;
+			}).pipe(
+				Effect.catchCause((cause) => Effect.succeed(listingError(true, cause))),
+			);
+
 		const listProvider = (
 			providerId: ProviderId,
 		): Effect.Effect<LiveListingDocument> => {
@@ -442,6 +477,8 @@ export const ModelCatalogServiceLive = Layer.effect(
 					return listKiro();
 				case "opencode":
 					return listOpencode();
+				case "opencode2":
+					return listOpencode2();
 				default:
 					return Effect.succeed(unsupportedListing);
 			}
@@ -474,6 +511,12 @@ export const ModelCatalogServiceLive = Layer.effect(
 						const settings = yield* configStore.getSettings();
 						return `${cliFingerprint(yield* cliPath("opencode"))}:${sha(
 							JSON.stringify(settings.opencodeCustomProviders),
+						)}`;
+					}
+					case "opencode2": {
+						const settings = yield* configStore.getSettings();
+						return `${cliFingerprint(yield* cliPath("opencode2"))}:${sha(
+							JSON.stringify(settings.opencode2CustomProviders),
 						)}`;
 					}
 					default:

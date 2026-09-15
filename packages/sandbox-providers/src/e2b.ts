@@ -6,6 +6,7 @@ import {
 	type SandboxProcessSelector,
 	type SandboxProviderAdapter,
 	SandboxProviderError,
+	type SandboxProviderResources,
 } from "./index.ts";
 
 const SandboxMetadata = Schema.optional(
@@ -55,6 +56,9 @@ export interface E2bSandboxConfig {
 	readonly apiBaseUrl?: string;
 	// Fallback for composing per-port hosts when the API omits `domain`.
 	readonly sandboxDomain?: string;
+	// Compute dimensions of the sandboxes this template provisions; used for
+	// billing reservations and the advertised offer.
+	readonly resources?: SandboxProviderResources;
 }
 
 export interface E2bHttpClient {
@@ -650,10 +654,15 @@ export const makeE2bSandboxProvider = (
 		},
 	);
 
+	const resources = config.resources ?? { vcpuCount: 2, memoryMib: 1_024 };
 	return {
 		providerId: E2B_PROVIDER_ID,
 		displayName: "E2B",
 		templateVersion: config.templateVersion ?? config.templateId,
+		preservesProcessesOnResume: true,
+		resources,
+		// The template pins one compute profile; sizeId inputs are ignored.
+		sizes: [{ sizeId: "standard", displayName: "Standard", ...resources }],
 		resolveEndpoint: (providerSandboxId, port) =>
 			sandboxDetail(providerSandboxId).pipe(
 				Effect.map((detail) => {

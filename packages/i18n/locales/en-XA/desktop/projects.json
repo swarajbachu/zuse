@@ -247,5 +247,6 @@
 	"diff_pane_selection_summary": "⟦{{selected}} ôôf {{total}} sëëlëëctëëd · ⌘↵⟧",
 	"projects_sidebar_chat_count": "⟦{{count}} chààts⟧",
 	"projects_sidebar_chat_count_one": "⟦{{count}} chààt⟧",
-	"projects_sidebar_chat_count_other": "⟦{{count}} chààts⟧"
+	"projects_sidebar_chat_count_other": "⟦{{count}} chààts⟧",
+	"projects_sidebar_cloud": "⟦Clôôüüd⟧"
 }

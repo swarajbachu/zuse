@@ -18,6 +18,16 @@ import {
 export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 	const periods = new Map<string, CloudBillingPeriodRecord>();
 	const events = new Set<string>();
+	const pairs = new Map<string, { eventId: string; startedAtMs: number }>();
+	const eventRecords: Array<{
+		readonly provider: string;
+		readonly eventId: string;
+		readonly type: string;
+		readonly providerResourceId?: string;
+		readonly payload: unknown;
+		readonly receivedAtMs: number;
+		readonly occurredAtMs?: number;
+	}> = [];
 	const finalizedEvents = new Set<string>();
 	const usage = new Map<string, CloudBillingUsageItem & { periodId: string }>();
 	const reservations = new Map<
@@ -102,7 +112,43 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 				const key = `${input.provider}:${input.eventId}`;
 				if (events.has(key)) return false;
 				events.add(key);
+				eventRecords.push({
+					provider: input.provider,
+					eventId: input.eventId,
+					type: input.type,
+					providerResourceId: input.providerResourceId,
+					payload: input.payload,
+					receivedAtMs: input.receivedAtMs,
+					occurredAtMs: input.occurredAtMs,
+				});
 				return true;
+			}),
+		pairProviderOpening: (input) =>
+			Effect.sync(() => {
+				const key = `${input.provider}:${input.closingEventId}`;
+				const existing = pairs.get(key);
+				if (existing !== undefined) return existing;
+				const found = eventRecords
+					.filter(
+						(record) =>
+							record.provider === input.provider &&
+							record.providerResourceId === input.providerResourceId &&
+							record.type === input.openingType &&
+							record.occurredAtMs !== undefined &&
+							record.occurredAtMs <= input.closedAtMs,
+					)
+					.sort(
+						(a, b) =>
+							(b.occurredAtMs ?? 0) - (a.occurredAtMs ?? 0) ||
+							b.eventId.localeCompare(a.eventId),
+					)[0];
+				if (found?.occurredAtMs === undefined) return null;
+				const pair = {
+					eventId: found.eventId,
+					startedAtMs: found.occurredAtMs,
+				};
+				pairs.set(key, pair);
+				return pair;
 			}),
 		recordProviderDelivery: () => Effect.void,
 		ensurePeriod: (input) =>

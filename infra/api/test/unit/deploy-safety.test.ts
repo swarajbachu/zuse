@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -53,6 +55,75 @@ interface WranglerTarget {
 }
 
 describe("api deployment safety", () => {
+	test.each([
+		"snapshot",
+		"version",
+		"secret",
+		"ready",
+	])("checks enabled Box prerequisites before deployment: %s", async (scenario) => {
+		const directory = await mkdtemp(join(tmpdir(), "zuse-deploy-test-"));
+		try {
+			const config = parse(await readFile(productionWranglerConfigUrl, "utf8"));
+			config.vars.BOX_ADAPTER_ENABLED = "true";
+			if (scenario === "snapshot") delete config.vars.BOX_TEMPLATE_SNAPSHOT;
+			if (scenario === "version") config.vars.BOX_TEMPLATE_VERSION = " ";
+			await writeFile(
+				join(directory, "wrangler.production.jsonc"),
+				JSON.stringify(config),
+			);
+			const secrets = [
+				"RELAY_MINT_PRIVATE_JWK",
+				"WORKOS_API_KEY",
+				"CF_API_TOKEN",
+				"E2B_API_KEY",
+				"E2B_WEBHOOK_SECRET",
+				"CLOUD_CREDENTIAL_VAULT_KEY",
+				"POSTHOG_PROJECT_TOKEN",
+				"POLAR_ACCESS_TOKEN",
+				"POLAR_WEBHOOK_SECRET",
+				"GITHUB_APP_PRIVATE_KEY",
+			];
+			if (scenario !== "secret") secrets.push("BOX_API_KEY");
+			await writeFile(
+				join(directory, "bunx"),
+				`#!${process.execPath}
+if (process.argv[3] === "secret") console.log(${JSON.stringify(JSON.stringify(secrets.map((name) => ({ name }))))});
+else if (process.argv[3] === "deploy") console.log("TEST_DEPLOY_REACHED");
+else process.exit(2);
+`,
+				{ mode: 0o700 },
+			);
+			const result = spawnSync(
+				process.execPath,
+				[fileURLToPath(productionDeployScriptUrl)],
+				{
+					cwd: directory,
+					encoding: "utf8",
+					env: {
+						...process.env,
+						PATH: `${directory}:${process.env.PATH}`,
+						ZUSE_CONFIRM_PRODUCTION_API_DEPLOY: "deploy-api.zuse.sh",
+					},
+				},
+			);
+			expect(result.status).toBe(scenario === "ready" ? 0 : 1);
+			if (scenario === "ready")
+				expect(result.stdout).toContain("TEST_DEPLOY_REACHED");
+			else {
+				expect(result.stdout).not.toContain("TEST_DEPLOY_REACHED");
+				expect(result.stderr).toContain(
+					scenario === "snapshot"
+						? "BOX_TEMPLATE_SNAPSHOT"
+						: scenario === "version"
+							? "BOX_TEMPLATE_VERSION"
+							: "BOX_API_KEY",
+				);
+			}
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
 	test("makes unqualified deploy and secret commands target staging", async () => {
 		const packageJson = JSON.parse(await readFile(packageJsonUrl, "utf8")) as {
 			readonly scripts: Readonly<Record<string, string>>;
@@ -186,6 +257,8 @@ describe("api deployment safety", () => {
 		expect(production.vars.MACHINE_RUNTIME_MANIFEST_URL).toBe("");
 		expect(production.vars.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK).toBe("");
 		expect(production.vars).not.toHaveProperty("SANDBOX_DEFAULT_PROVIDER");
+		expect(production.vars.BOX_ADAPTER_ENABLED).toBe("true");
+		expect(production.vars.SANDBOX_DEFAULT_PROVIDER_ID).toBe("box");
 		expect(production.vars.CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL).toBe(
 			"https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-production/stable-manifest.json",
 		);

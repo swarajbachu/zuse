@@ -57,6 +57,7 @@ const PROVIDER_CHIP_LABEL: Record<ProviderId, string> = {
 	cursor: "Cursor",
 	gemini: "Gemini",
 	opencode: "OpenCode",
+	opencode2: "OpenCode 2",
 	kiro: "Kiro",
 	pi: "Pi",
 };
@@ -148,6 +149,12 @@ export function ModelPicker(props: ModelPickerProps) {
 	);
 	const opencodeModelVisibleByProvider = useSettingsStore(
 		(s) => s.opencodeModelVisibleByProvider,
+	);
+	const opencode2ProviderVisible = useSettingsStore(
+		(s) => s.opencode2ProviderVisible,
+	);
+	const opencode2ModelVisibleByProvider = useSettingsStore(
+		(s) => s.opencode2ModelVisibleByProvider,
 	);
 
 	const providerId = isDefault ? defaultProviderId : props.providerId;
@@ -278,14 +285,21 @@ export function ModelPicker(props: ModelPickerProps) {
 			// user hide connected providers / individual models from the picker;
 			// respect both here (missing entry ⇒ visible).
 			const visible =
-				pid === "opencode"
+				pid === "opencode" || pid === "opencode2"
 					? available.filter((m) => {
 							const slash = m.id.indexOf("/");
 							const opencodeProvider = slash > 0 ? m.id.slice(0, slash) : m.id;
+							const providerVisible =
+								pid === "opencode2"
+									? opencode2ProviderVisible
+									: opencodeProviderVisible;
+							const modelVisible =
+								pid === "opencode2"
+									? opencode2ModelVisibleByProvider
+									: opencodeModelVisibleByProvider;
 							return (
-								opencodeProviderVisible[opencodeProvider] !== false &&
-								opencodeModelVisibleByProvider[opencodeProvider]?.[m.id] !==
-									false
+								providerVisible[opencodeProvider] !== false &&
+								modelVisible[opencodeProvider]?.[m.id] !== false
 							);
 						})
 					: available;
@@ -310,6 +324,8 @@ export function ModelPicker(props: ModelPickerProps) {
 			extensionProviderById,
 			opencodeProviderVisible,
 			opencodeModelVisibleByProvider,
+			opencode2ProviderVisible,
+			opencode2ModelVisibleByProvider,
 			providerId,
 		],
 	);

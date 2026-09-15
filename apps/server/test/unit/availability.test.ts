@@ -37,6 +37,7 @@ describe("supported provider CLIs", () => {
 			["grok", "grok"],
 			["gemini", "gemini"],
 			["opencode", "opencode"],
+			["opencode2", "opencode2"],
 			["pi", "pi"],
 			["kiro", "kiro-cli"],
 		]);
@@ -400,6 +401,9 @@ describe("extraWellKnownCliPaths", () => {
 		expect(extraWellKnownCliPaths("opencode")).toEqual([
 			join(homedir(), ".opencode", "bin", "opencode"),
 		]);
+		expect(extraWellKnownCliPaths("opencode2")).toEqual([
+			join(homedir(), ".opencode", "bin", "opencode2"),
+		]);
 	});
 
 	it("does not invent extra paths for other CLIs", () => {
@@ -428,6 +432,23 @@ describe("buildUpdateCommand — install-method detection", () => {
 		expect(
 			buildUpdateCommand("opencode", ["/Users/me/.opencode/bin/opencode"]),
 		).toBe("opencode upgrade");
+	});
+
+	it("uses the native self-updater only for a native OpenCode 2 install", () => {
+		expect(
+			buildUpdateCommand("opencode2", ["/Users/me/.opencode/bin/opencode2"]),
+		).toBe("opencode2 upgrade");
+		expect(
+			buildUpdateCommand("opencode2", ["/usr/local/bin/opencode2"]),
+		).toBeNull();
+		expect(
+			buildUpdateCommand("opencode2", [
+				"/usr/local/bin/opencode2",
+				"/usr/local/lib/node_modules/@opencode/cli/bin/opencode2.exe",
+			]),
+		).toBe(
+			"npm uninstall -g @opencode/cli || true; npm install -g @opencode/cli@latest",
+		);
 	});
 
 	it("uses npm (uninstall-then-install) for an nvm/npm-global install", () => {

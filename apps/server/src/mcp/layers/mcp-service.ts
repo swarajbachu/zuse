@@ -100,6 +100,7 @@ const builtinDescriptor = (name: string): McpServerDescriptor => ({
 		"gemini",
 		"cursor",
 		"opencode",
+		"opencode2",
 		"kiro",
 	],
 	transport: "http",

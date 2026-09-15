@@ -34,6 +34,11 @@ export const PROVIDER_CLI_REGISTRY = {
 		displayName: "OpenCode",
 		cliBinary: "opencode",
 	},
+	opencode2: {
+		providerId: "opencode2",
+		displayName: "OpenCode 2",
+		cliBinary: "opencode2",
+	},
 	pi: { providerId: "pi", displayName: "Pi", cliBinary: "pi" },
 	kiro: {
 		providerId: "kiro",

@@ -77,6 +77,7 @@ import {
 } from "~/lib/chat-landing-progress";
 import { cloudLaunchRequestForSource } from "~/lib/cloud-launch-source";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
+import { cloudProviderSizeLabel } from "~/lib/cloud-provider-presentation.ts";
 import {
 	ensureCloudWorkspaceAttached,
 	stageCloudChat,
@@ -493,12 +494,16 @@ export function ChatLanding() {
 	const [selectedCloudProviderId, setSelectedCloudProviderId] = useState<
 		string | null
 	>(null);
+	const [selectedCloudSizeId, setSelectedCloudSizeId] = useState<string | null>(
+		null,
+	);
 	const [cloudProviders, setCloudProviders] = useState<
 		ReadonlyArray<CloudProviderOption>
 	>([]);
 	const [cloudProject, setCloudProject] = useState<CloudProject | null>(null);
-	const [cloudAccountImage, setCloudAccountImage] =
-		useState<CloudAccountImage | null>(null);
+	const [cloudAccountImages, setCloudAccountImages] = useState<
+		ReadonlyArray<CloudAccountImage>
+	>([]);
 	const [cloudSubscribed, setCloudSubscribed] = useState(false);
 	const [cloudPlacementError, setCloudPlacementError] = useState(false);
 	const setView = useUiStore((state) => state.setView);
@@ -521,22 +526,32 @@ export function ChatLanding() {
 		let cancelled = false;
 		let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 		setSelectedCloudProviderId(null);
+		setSelectedCloudSizeId(null);
 		setCloudProviders([]);
 		setCloudProject(null);
-		setCloudAccountImage(null);
+		setCloudAccountImages([]);
 		setCloudSubscribed(false);
 		setCloudPlacementError(false);
 		if (!CLOUD_WORKSPACE_BETA_AVAILABLE || cloudRepositoryIdentity === null)
 			return;
 		const loadCloudPlacement = async (): Promise<void> => {
 			try {
-				const [providerResult, projectResult, entitlementResult, imageResult] =
+				const [providerResult, projectResult, entitlementResult] =
 					await Promise.all([
 						runControlPlane((client) => client["cloud.providers"]()),
 						runControlPlane((client) => client["cloud.projects.list"]()),
 						runControlPlane((client) => client["machines.entitlements"]()),
-						runControlPlane((client) => client["cloud.image.status"]()),
 					]);
+				const imageResults = await Promise.allSettled(
+					providerResult.providers.map((provider) =>
+						runControlPlane((client) =>
+							client["cloud.image.status"]({ providerId: provider.providerId }),
+						),
+					),
+				);
+				const images = imageResults.flatMap((result) =>
+					result.status === "fulfilled" ? [result.value] : [],
+				);
 				if (cancelled) return;
 				const project =
 					projectResult.projects.find(
@@ -555,11 +570,13 @@ export function ChatLanding() {
 				);
 				setCloudProviders(providerResult.providers);
 				setCloudProject(project);
-				setCloudAccountImage(imageResult);
+				setCloudAccountImages(images);
 				setCloudSubscribed(subscribed);
 				setCloudPlacementError(false);
 
-				const buildIsChanging = imageResult.state === "building";
+				const buildIsChanging =
+					imageResults.some((result) => result.status === "rejected") ||
+					images.some((image) => image.state === "building");
 				if (buildIsChanging && !cancelled)
 					refreshTimer = setTimeout(() => {
 						void loadCloudPlacement();
@@ -577,8 +594,12 @@ export function ChatLanding() {
 	const cloudPickerItems = useMemo<ReadonlyArray<CloudComputerPickerItem>>(
 		() =>
 			cloudProviders.map((provider) => {
+				const cloudAccountImage = cloudAccountImages.find(
+					(image) => image.providerId === provider.providerId,
+				);
 				const included =
 					cloudProject !== null &&
+					cloudAccountImage?.providerId === provider.providerId &&
 					cloudAccountImage?.repositories.some(
 						(repository) => repository.projectId === cloudProject.projectId,
 					) === true;
@@ -586,28 +607,33 @@ export function ChatLanding() {
 					included &&
 					(cloudAccountImage?.state === "ready" ||
 						cloudAccountImage?.state === "outdated");
-				const statusText = cloudPlacementError
-					? "Unavailable"
-					: !cloudSubscribed
-						? "Subscription required"
-						: cloudProject === null
-							? "Connect repository"
-							: ready
-								? provider.displayName
-								: cloudAccountImage?.state === "building"
-									? "Building cloud image"
-									: cloudAccountImage?.state === "auth-broken"
-										? "Rebuild authentication"
-										: "Update cloud image";
+				const statusText =
+					cloudPlacementError || cloudAccountImage === undefined
+						? uiMessage("chat:cloud_setup_unavailable")
+						: !cloudSubscribed
+							? uiMessage("chat:cloud_setup_subscription_required")
+							: cloudProject === null
+								? uiMessage("chat:cloud_setup_connect_repository")
+								: ready
+									? null
+									: cloudAccountImage?.state === "building"
+										? uiMessage("chat:cloud_setup_building_image")
+										: cloudAccountImage?.state === "auth-broken"
+											? uiMessage("chat:cloud_setup_rebuild_authentication")
+											: uiMessage("chat:cloud_setup_update_image");
 				return {
 					providerId: provider.providerId,
-					providerLabel: provider.displayName,
-					disabled: cloudPlacementError || !cloudSubscribed || !ready,
+					disabled: cloudPlacementError || cloudAccountImage === undefined,
+					needsSetup: !cloudSubscribed || !ready,
 					statusText,
+					sizes: provider.sizes?.map((size) => ({
+						sizeId: size.sizeId,
+						displayName: cloudProviderSizeLabel(provider.providerId, size),
+					})),
 				};
 			}),
 		[
-			cloudAccountImage,
+			cloudAccountImages,
 			cloudPlacementError,
 			cloudProject,
 			cloudProviders,
@@ -972,9 +998,7 @@ export function ChatLanding() {
 		if (selectedCloudProviderId !== null) {
 			if (!CLOUD_WORKSPACE_BETA_AVAILABLE) return;
 			if (cloudProject === null) {
-				setSubmitError(
-					"Connect this repository in Cloud Sandbox settings first.",
-				);
+				setSubmitError(uiMessage("chat:cloud_connect_repository_first"));
 				return;
 			}
 			if (selectedFolderId === null) {
@@ -982,7 +1006,7 @@ export function ChatLanding() {
 				return;
 			}
 			if (draft.providerId !== "claude" && draft.providerId !== "codex") {
-				setSubmitError("Cloud Sandbox currently supports Claude and Codex.");
+				setSubmitError(uiMessage("chat:cloud_supported_agents"));
 				return;
 			}
 			if (createSource?.linear?.mode === "separate") {
@@ -1026,6 +1050,9 @@ export function ChatLanding() {
 						localDeviceId: localDevice?.deviceId,
 						projectId: cloudProject.projectId,
 						providerId: selectedCloudProviderId,
+						...(selectedCloudSizeId === null
+							? {}
+							: { sizeId: selectedCloudSizeId }),
 						baseRef: launchSource.ref.baseRef,
 						...(launchSource.ref.branch === undefined
 							? {}
@@ -1572,8 +1599,14 @@ export function ChatLanding() {
 											}}
 											cloudItems={cloudPickerItems}
 											selectedCloudProviderId={selectedCloudProviderId}
+											selectedCloudSizeId={selectedCloudSizeId}
+											onPickCloudSize={setSelectedCloudSizeId}
 											onPickCloud={(providerId) => {
-												if (cloudProject === null) {
+												if (
+													cloudPickerItems.find(
+														(item) => item.providerId === providerId,
+													)?.needsSetup !== false
+												) {
 													setSettingsSection({ kind: "machines" });
 													setView("settings");
 													return;
@@ -1581,6 +1614,8 @@ export function ChatLanding() {
 												if (selectedCloudProviderId === null)
 													setCreateSource(null);
 												setTargetOverride(null);
+												if (providerId !== selectedCloudProviderId)
+													setSelectedCloudSizeId(null);
 												setSelectedCloudProviderId(providerId);
 											}}
 											onRetryEnvironment={retryComputer}

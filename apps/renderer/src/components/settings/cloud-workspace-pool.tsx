@@ -14,8 +14,9 @@ import {
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Cloud } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../../hooks/use-auth.ts";
+import { cloudProviderLabel } from "../../lib/cloud-provider-presentation.ts";
 import { cloudWorkspaceAccessPresentation } from "../../lib/cloud-workspace-access.ts";
 import { runControlPlane } from "../../lib/control-plane-client.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
@@ -63,6 +64,9 @@ export function CloudWorkspacePool() {
 	const [providers, setProviders] = useState<
 		ReadonlyArray<CloudProviderOption>
 	>([]);
+	const [imageProviderId, setImageProviderId] = useState<string | undefined>();
+	const imageSelection = useRef(imageProviderId);
+	imageSelection.current = imageProviderId;
 	const [projects, setProjects] = useState<ReadonlyArray<CloudProject>>([]);
 	const [accountImage, setAccountImage] = useState<CloudAccountImage | null>(
 		null,
@@ -161,7 +165,9 @@ export function CloudWorkspacePool() {
 					runControlPlane((client) => client["cloud.providers"]()),
 					runControlPlane((client) => client["cloud.projects.list"]()),
 					runControlPlane((client) => client["cloud.workspaces.list"]({})),
-					runControlPlane((client) => client["cloud.image.status"]()),
+					runControlPlane((client) =>
+						client["cloud.image.status"]({ providerId: imageProviderId }),
+					),
 				]);
 			const apiResults = [
 				providerResult,
@@ -180,6 +186,7 @@ export function CloudWorkspacePool() {
 				setProjects(projectResult.value.projects);
 			if (workspaceResult.status === "fulfilled")
 				setWorkspaces(workspaceResult.value.workspaces);
+			if (imageSelection.current !== imageProviderId) return;
 			if (imageResult.status === "fulfilled")
 				setAccountImage(imageResult.value);
 			setImageError(
@@ -208,7 +215,7 @@ export function CloudWorkspacePool() {
 				}).serviceError,
 			);
 		}
-	}, [isSignedIn]);
+	}, [isSignedIn, imageProviderId]);
 
 	useEffect(() => {
 		if (authLoading || !isSignedIn) return;
@@ -357,6 +364,7 @@ export function CloudWorkspacePool() {
 				await runControlPlane((client) =>
 					client["cloud.image.build"]({
 						mode,
+						providerId: imageProviderId,
 						idempotencyKey: `settings-image:${mode}:${crypto.randomUUID()}`,
 					}),
 				),
@@ -532,11 +540,36 @@ export function CloudWorkspacePool() {
 							"settings:cloud_workspace_pool_build_the_reusable_environment_that_starts_every_new_cloud_chat",
 						)}
 					>
+						<CloudSettingsRow
+							title={uiMessage("settings:cloud_machine_provider")}
+						>
+							<select
+								aria-label={uiMessage("settings:cloud_machine_provider")}
+								className="h-7 rounded-md bg-muted px-2 text-xs"
+								disabled={busy !== null}
+								value={
+									imageProviderId ??
+									accountImage?.providerId ??
+									providers[0]?.providerId ??
+									""
+								}
+								onChange={(event) => {
+									setAccountImage(null);
+									setImageProviderId(event.target.value);
+								}}
+							>
+								{providers.map((provider) => (
+									<option key={provider.providerId} value={provider.providerId}>
+										{cloudProviderLabel(provider.providerId)}
+									</option>
+								))}
+							</select>
+						</CloudSettingsRow>
 						<CloudImageReadiness
 							image={accountImage}
 							projects={projects}
 							busy={busy}
-							unavailable={imageError !== null}
+							unavailable={imageError !== null || providers.length === 0}
 							onBuild={(mode) => void buildAccountImage(mode)}
 						/>
 						{imageError === null ? null : (
@@ -554,6 +587,14 @@ export function CloudWorkspacePool() {
 								</Button>
 							</div>
 						)}
+						{imageError === null && providers.length === 0 ? (
+							<p
+								role="status"
+								className="px-3 py-2 text-[11px] text-muted-foreground"
+							>
+								{uiMessage("settings:cloud_workspace_pool_setup_unavailable")}
+							</p>
+						) : null}
 						<CloudImageBuildHistory builds={accountImage?.builds ?? []} />
 					</CloudSettingsGroup>
 				</>
@@ -719,7 +760,7 @@ export function CloudWorkspacePool() {
 							<CloudSettingsRow
 								key={workspace.workspaceId}
 								title={workspace.branch}
-								description={`${providers.find((provider) => provider.providerId === workspace.providerId)?.displayName ?? workspace.providerId} · ${workspace.statusCode}`}
+								description={workspace.statusCode}
 								action={
 									<Badge variant={stateVariant(workspace.state)}>
 										{workspace.state}

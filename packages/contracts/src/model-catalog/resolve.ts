@@ -49,6 +49,7 @@ export interface LiveListing {
 	readonly error: string | null;
 	readonly models: ReadonlyArray<LiveModel>;
 	readonly opencode?: OpencodeInventory;
+	readonly opencode2?: OpencodeInventory;
 }
 
 export type LiveListingsByProvider = Partial<Record<ProviderId, LiveListing>>;
@@ -73,6 +74,7 @@ export const RETIRED_MODEL_IDS_BY_PROVIDER: Readonly<
 		"qwen3-coder-next",
 	]),
 	opencode: new Set(["claude-opus-4-5"]),
+	opencode2: new Set(["claude-opus-4-5"]),
 };
 
 const NO_LIVE: LiveListing = {
@@ -137,7 +139,8 @@ const liveOnlyDescriptors = (
 				}),
 			);
 			break;
-		case "opencode": {
+		case "opencode":
+		case "opencode2": {
 			const variants = reasoningSelectDescriptorFromIds(meta?.variants ?? []);
 			if (variants !== undefined) out.push(variants);
 			break;
@@ -196,7 +199,10 @@ const mergeDescriptors = (
 	) {
 		out.push(booleanDescriptor("fastMode", "Fast Mode"));
 	}
-	if (providerId === "opencode" && meta.variants !== undefined) {
+	if (
+		(providerId === "opencode" || providerId === "opencode2") &&
+		meta.variants !== undefined
+	) {
 		const variants = reasoningSelectDescriptorFromIds(meta.variants);
 		out = withoutDescriptor(out, "reasoning");
 		if (variants !== undefined) out.push(variants);
@@ -311,6 +317,9 @@ const resolveProvider = (
 			error: listing.error,
 		},
 		...(listing.opencode !== undefined ? { opencode: listing.opencode } : {}),
+		...(listing.opencode2 !== undefined
+			? { opencode2: listing.opencode2 }
+			: {}),
 	};
 };
 

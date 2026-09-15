@@ -89,6 +89,7 @@ export const ResumeStrategy = Schema.Literals([
 	"cursor-session-id",
 	"gemini-session-id",
 	"opencode-session-id",
+	"opencode2-session-id",
 	"kiro-session-id",
 	"pi-session-file",
 	"none",

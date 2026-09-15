@@ -48,6 +48,25 @@ const image = (state: CloudAccountImage["state"]): CloudAccountImage => ({
 });
 
 describe("CloudImageReadiness", () => {
+	it.each([
+		false,
+		true,
+	])("only enables rebuilding a ready image when Cloud is available (unavailable=%s)", (unavailable) => {
+		const markup = renderToStaticMarkup(
+			<CloudImageReadiness
+				image={image("ready")}
+				projects={[project]}
+				busy={null}
+				unavailable={unavailable}
+				onBuild={() => undefined}
+			/>,
+		);
+		expect(markup).toContain("Rebuild image");
+		const button = markup.match(/<button[^>]*>/u)?.[0];
+		expect(button).toBeDefined();
+		expect(button?.includes("disabled=")).toBe(unavailable);
+	});
+
 	it("shows repository changes as a single obvious update action", () => {
 		const outdated = image("outdated");
 		expect(cloudImageChangeSummary(outdated, [project])).toEqual([

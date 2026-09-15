@@ -11,6 +11,11 @@
 			"import": "./src/index.ts",
 			"require": "./src/index.ts"
 		},
+		"./box": {
+			"types": "./src/box.ts",
+			"import": "./src/box.ts",
+			"require": "./src/box.ts"
+		},
 		"./e2b": {
 			"types": "./src/e2b.ts",
 			"import": "./src/e2b.ts",

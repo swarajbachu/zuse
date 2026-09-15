@@ -89,12 +89,18 @@ export default defineConfig({
 	optimizeDeps: {
 		// Most renderer screens are lazy. Crawl their source before serving so a
 		// newly opened screen cannot replace the optimizer graph under live React.
+		// Workspace `@zuse/i18n/react` lives outside `src/**` and pulls
+		// `react-i18next`; first paint mounts `@base-ui/react/tooltip`. Both
+		// must share the prebundled React or `useMemo` reads a null dispatcher.
 		entries: ["index.html", "notch.html", "src/**/*.{ts,tsx}"],
 		holdUntilCrawlEnd: true,
 		include: [
 			"react",
 			"react-dom",
 			"react-dom/client",
+			"react-i18next",
+			"i18next",
+			"@base-ui/react/tooltip",
 			"@legendapp/list/react",
 			"effect",
 			"@pierre/diffs",

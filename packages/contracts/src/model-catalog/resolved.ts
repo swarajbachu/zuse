@@ -63,6 +63,7 @@ export const ResolvedModelCatalogProvider = Schema.Struct({
 	live: LiveListingStatus,
 	/** Raw OpenCode inventory for the provider manager UI. */
 	opencode: Schema.optional(OpencodeInventory),
+	opencode2: Schema.optional(OpencodeInventory),
 });
 export type ResolvedModelCatalogProvider =
 	typeof ResolvedModelCatalogProvider.Type;

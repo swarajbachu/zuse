@@ -472,24 +472,25 @@ function CompactRow({
 			: `${tokenDelta} · ${formatDuration(elapsedMs)}`;
 
 	return (
-		<div className="px-4 py-2 text-muted-foreground">
-			<div className="flex items-center gap-2">
-				<RefreshIcon
-					aria-hidden
-					className={cn(
-						"size-3.5 shrink-0 opacity-70",
-						inProgress && "animate-spin",
-					)}
-				/>
-				<span className="text-sm font-medium text-foreground/90">
-					{inProgress
-						? uiMessage("chat:message_row_compacting")
-						: uiMessage("chat:message_row_chat_compacted")}
-				</span>
-			</div>
-			<div className="mt-1 pl-5 text-[11px] tabular-nums text-muted-foreground/70">
+		<div className="flex min-w-0 items-center gap-2 px-4 py-2 text-muted-foreground">
+			<RefreshIcon
+				aria-hidden
+				className={cn(
+					"size-3.5 shrink-0 opacity-70",
+					inProgress && "animate-spin",
+				)}
+			/>
+			<span className="shrink-0 whitespace-nowrap text-sm font-medium text-foreground/90">
+				{inProgress
+					? uiMessage("chat:message_row_compacting")
+					: uiMessage("chat:message_row_chat_compacted")}
+			</span>
+			<span
+				className="min-w-0 truncate text-[11px] tabular-nums text-muted-foreground/70"
+				title={detail}
+			>
 				{detail}
-			</div>
+			</span>
 		</div>
 	);
 }

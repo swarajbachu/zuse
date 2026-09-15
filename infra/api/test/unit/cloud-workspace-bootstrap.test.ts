@@ -76,8 +76,6 @@ const makeRuntime = async () => {
 		).pipe(Layer.provide(config), Layer.orDie),
 		Layer.succeed(SandboxOfferConfiguration, {
 			port: 47_837,
-			vcpuCount: 2,
-			memoryMib: 1_024,
 			createTimeoutSeconds: 86_400,
 			keepAliveTimeoutSeconds: 86_400,
 		}),

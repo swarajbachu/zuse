@@ -61,6 +61,7 @@ export interface CloudBillingStoreApi {
 		}>
 	>;
 	readonly recordProviderEvent: (input: {
+		readonly occurredAtMs?: number;
 		readonly provider: string;
 		readonly eventId: string;
 		readonly type: string;
@@ -69,6 +70,17 @@ export interface CloudBillingStoreApi {
 		readonly receivedAtMs: number;
 		readonly expiresAtMs: number;
 	}) => Effect.Effect<boolean>;
+	/** Persist the opening selected by provider time; retries retain the original execution. */
+	readonly pairProviderOpening: (input: {
+		readonly provider: string;
+		readonly providerResourceId: string;
+		readonly openingType: string;
+		readonly closingEventId: string;
+		readonly closedAtMs: number;
+	}) => Effect.Effect<{
+		readonly eventId: string;
+		readonly startedAtMs: number;
+	} | null>;
 	readonly recordProviderDelivery: (input: {
 		readonly provider: string;
 		readonly deliveryId: string;
@@ -396,13 +408,38 @@ export const CloudBillingStorePg = Layer.effect(
 			recordProviderEvent: (input) =>
 				sql<{
 					readonly event_id: string;
-				}>`INSERT INTO api_provider_usage_events (provider, event_id, type, provider_resource_id, payload, received_at, expires_at) VALUES (${input.provider}, ${input.eventId}, ${input.type}, ${input.providerResourceId ?? null}, ${JSON.stringify(input.payload)}, ${input.receivedAtMs}, ${input.expiresAtMs}) ON CONFLICT DO NOTHING RETURNING event_id`.pipe(
+				}>`INSERT INTO api_provider_usage_events (provider, event_id, type, provider_resource_id, payload, received_at, expires_at, occurred_at) VALUES (${input.provider}, ${input.eventId}, ${input.type}, ${input.providerResourceId ?? null}, ${JSON.stringify(input.payload)}, ${input.receivedAtMs}, ${input.expiresAtMs}, ${input.occurredAtMs ?? null}) ON CONFLICT DO NOTHING RETURNING event_id`.pipe(
 					Effect.map((rows) => rows.length === 1),
 					Effect.orDie,
 				),
 			recordProviderDelivery: (input) =>
 				sql`INSERT INTO api_provider_event_deliveries (provider, delivery_id, event_id, source, status, received_at) VALUES (${input.provider}, ${input.deliveryId}, ${input.eventId}, ${input.source}, ${input.status}, ${input.receivedAtMs}) ON CONFLICT DO NOTHING`.pipe(
 					Effect.asVoid,
+					Effect.orDie,
+				),
+			pairProviderOpening: (input) =>
+				sql<{
+					readonly opening_event_id: string;
+					readonly started_at: string | number;
+				}>`
+					INSERT INTO api_provider_lifecycle_pairs (provider, closing_event_id, opening_event_id, started_at)
+					SELECT provider, ${input.closingEventId}, event_id, occurred_at
+					FROM api_provider_usage_events
+					WHERE provider = ${input.provider} AND provider_resource_id = ${input.providerResourceId}
+					AND type = ${input.openingType} AND occurred_at <= ${input.closedAtMs}
+					ORDER BY occurred_at DESC, event_id DESC LIMIT 1
+					ON CONFLICT (provider, closing_event_id) DO UPDATE
+					SET closing_event_id = EXCLUDED.closing_event_id
+					RETURNING opening_event_id, started_at
+				`.pipe(
+					Effect.map((rows) =>
+						rows[0] === undefined
+							? null
+							: {
+									eventId: rows[0].opening_event_id,
+									startedAtMs: Number(rows[0].started_at),
+								},
+					),
 					Effect.orDie,
 				),
 			currentPeriod,

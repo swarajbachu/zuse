@@ -47,7 +47,11 @@ export interface ApiConfig {
 		readonly clientSecret?: Redacted.Redacted<string>;
 		readonly webhookSecret?: Redacted.Redacted<string>;
 	};
-	readonly e2bWebhookSecret?: Redacted.Redacted<string>;
+	/** Billing webhook signing secrets keyed by sandbox provider id. */
+	readonly providerWebhookSecrets?: ReadonlyMap<
+		string,
+		Redacted.Redacted<string>
+	>;
 	readonly cloudBillingEnforcementEnabled: boolean;
 	readonly cloudBillingExportEnabled: boolean;
 	readonly cloudBillingCutoverAtMs?: number;

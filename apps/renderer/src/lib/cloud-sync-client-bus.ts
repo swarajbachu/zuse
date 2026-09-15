@@ -242,8 +242,7 @@ export const enableCloudSync = async (workspaceId: string): Promise<void> => {
 };
 
 export const disableCloudSync = async (workspaceId: string): Promise<void> => {
-	const prefs = cloudSyncPrefsFor(workspaceId);
-	setCloudSyncPrefs(workspaceId, prefs === null ? null : { enabled: false });
+	setCloudSyncPrefs(workspaceId, { enabled: false });
 	await stopSync(workspaceId);
 };
 

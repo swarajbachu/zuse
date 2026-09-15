@@ -3,6 +3,7 @@ import {
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
 import {
+	resolveSandboxResources,
 	type SandboxProviderAdapter,
 	SandboxProviderError,
 	SandboxProviders,
@@ -56,6 +57,7 @@ const RUNTIME_SIGNING_PUBLIC_JWK_FILE =
 const PROJECT_BUILD_DIAGNOSTIC_MAX_LENGTH = 2_048;
 const PROJECT_BUILD_LOG_FILE = "/var/lib/zuse/project-build/build.log";
 const PROJECT_BUILD_LOG_MAX_LENGTH = 256 * 1_024;
+export const PROJECT_RUNTIME_UPDATE_RETRY_DELAYS_SECONDS = [0, 5, 15] as const;
 const PROJECT_BUILDER_FILE = "/var/lib/zuse/project-build/builder.sh";
 const WORKSPACE_BOOTSTRAP_FILE =
 	"/var/lib/zuse/project-build/workspace-bootstrap.sh";
@@ -103,88 +105,123 @@ const ensureWorkspaceRepositoryReadyMarker = Effect.fn(
 	);
 });
 
-const reserveProviderCost = Effect.fn("reserveProviderCost")(function* (input: {
-	readonly accountId: string;
-	readonly resourceKind: "workspace" | "build";
-	readonly resourceId: string;
-	readonly provider: string;
-	readonly runningSinceMs: number;
-	readonly nowMs: number;
-	readonly vcpuCount: number;
-	readonly memoryMib: number;
-}) {
-	const config = yield* ApiConfiguration;
-	if (
-		!config.cloudBillingEnforcementEnabled &&
-		!config.cloudBillingExportEnabled
-	)
-		return false;
-	const billingStore = yield* CloudBillingStore;
-	const period = yield* billingStore.currentPeriod(
-		input.accountId,
-		input.nowMs,
-	);
-	if (period === null) {
-		console.warn(
-			"[cloud-billing] provider resource has no reservation period",
-			{
-				provider: input.provider,
-				resourceKind: input.resourceKind,
-				resourceId: input.resourceId,
-				accountId: input.accountId,
-			},
+export const reserveProviderCost = Effect.fn("reserveProviderCost")(
+	function* (input: {
+		readonly accountId: string;
+		readonly resourceKind: "workspace" | "build";
+		readonly resourceId: string;
+		readonly provider: string;
+		readonly providerSandboxId?: string;
+		readonly runningSinceMs: number;
+		readonly nowMs: number;
+		readonly vcpuCount: number;
+		readonly memoryMib: number;
+	}) {
+		const config = yield* ApiConfiguration;
+		if (
+			!config.cloudBillingEnforcementEnabled &&
+			!config.cloudBillingExportEnabled
+		)
+			return false;
+		const billingStore = yield* CloudBillingStore;
+		const period = yield* billingStore.currentPeriod(
+			input.accountId,
+			input.nowMs,
 		);
-		return config.cloudBillingEnforcementEnabled;
-	}
-	const startedAtMs = Math.max(
-		input.runningSinceMs,
-		period.periodStartMs,
-		config.cloudBillingCutoverAtMs ?? input.runningSinceMs,
-	);
-	const endedAtMs = Math.min(
-		Math.max(startedAtMs + 60_000, input.nowMs + 60_000),
-		period.periodEndMs,
-	);
-	const prices = yield* billingStore.priceWindows(
-		input.provider,
-		startedAtMs,
-		endedAtMs,
-	);
-	if (prices.length === 0) {
-		console.warn("[cloud-billing] provider reservation price missing", {
-			provider: input.provider,
+		if (period === null) {
+			console.warn(
+				"[cloud-billing] provider resource has no reservation period",
+				{
+					provider: input.provider,
+					resourceKind: input.resourceKind,
+					resourceId: input.resourceId,
+					accountId: input.accountId,
+				},
+			);
+			return config.cloudBillingEnforcementEnabled;
+		}
+		const startedAtMs = Math.max(
+			input.runningSinceMs,
+			period.periodStartMs,
+			config.cloudBillingCutoverAtMs ?? input.runningSinceMs,
+		);
+		const endedAtMs = Math.min(
+			Math.max(startedAtMs + 60_000, input.nowMs + 60_000),
+			period.periodEndMs,
+		);
+		const adapter = yield* (yield* SandboxProviders)
+			.get(input.provider)
+			.pipe(Effect.orDie);
+		const usage =
+			adapter.getUsage !== undefined &&
+			input.providerSandboxId !== undefined &&
+			input.nowMs > startedAtMs
+				? yield* adapter
+						.getUsage(input.providerSandboxId, {
+							startedAtMs,
+							endedAtMs: Math.min(input.nowMs, period.periodEndMs),
+						})
+						.pipe(
+							Effect.catchTag("SandboxProviderError", () =>
+								Effect.succeed(null),
+							),
+						)
+				: null;
+		let providerCostMicros: number;
+		if (usage !== null) {
+			// Accrued list-price cost plus the same short forward reservation used by other providers.
+			providerCostMicros =
+				usage.providerCostMicros +
+				(usage.running
+					? Math.ceil(
+							(Math.max(0, endedAtMs - usage.endedAtMs) / 1_000) *
+								usage.costMicrosPerSecond,
+						)
+					: 0);
+		} else {
+			const prices = yield* billingStore.priceWindows(
+				input.provider,
+				startedAtMs,
+				endedAtMs,
+			);
+			if (prices.length === 0) {
+				console.warn("[cloud-billing] provider reservation price missing", {
+					provider: input.provider,
+					resourceKind: input.resourceKind,
+					resourceId: input.resourceId,
+				});
+				return config.cloudBillingEnforcementEnabled;
+			}
+			providerCostMicros = prices.reduce(
+				(total, price) =>
+					total +
+					allocatedComputeCostMicros({
+						durationMs: price.endedAtMs - price.startedAtMs,
+						vcpuCount: input.vcpuCount,
+						memoryMib: input.memoryMib,
+						baseNanoUsdPerSecond: price.baseNanoUsdPerSecond,
+						cpuNanoUsdPerSecond: price.cpuNanoUsdPerSecond,
+						memoryNanoUsdPerGibSecond: price.memoryNanoUsdPerGibSecond,
+					}),
+				0,
+			);
+		}
+		const reservation = yield* billingStore.reserveCost({
+			periodId: period.periodId,
+			accountId: input.accountId,
 			resourceKind: input.resourceKind,
 			resourceId: input.resourceId,
+			provider: input.provider,
+			providerCostMicros,
+			startedAtMs,
+			vcpuCount: input.vcpuCount,
+			memoryMib: input.memoryMib,
+			nowMs: input.nowMs,
+			expiresAtMs: input.nowMs + 2 * 60_000,
 		});
-		return config.cloudBillingEnforcementEnabled;
-	}
-	const reservation = yield* billingStore.reserveCost({
-		periodId: period.periodId,
-		accountId: input.accountId,
-		resourceKind: input.resourceKind,
-		resourceId: input.resourceId,
-		provider: input.provider,
-		providerCostMicros: prices.reduce(
-			(total, price) =>
-				total +
-				allocatedComputeCostMicros({
-					durationMs: price.endedAtMs - price.startedAtMs,
-					vcpuCount: input.vcpuCount,
-					memoryMib: input.memoryMib,
-					baseNanoUsdPerSecond: price.baseNanoUsdPerSecond,
-					cpuNanoUsdPerSecond: price.cpuNanoUsdPerSecond,
-					memoryNanoUsdPerGibSecond: price.memoryNanoUsdPerGibSecond,
-				}),
-			0,
-		),
-		startedAtMs,
-		vcpuCount: input.vcpuCount,
-		memoryMib: input.memoryMib,
-		nowMs: input.nowMs,
-		expiresAtMs: input.nowMs + 2 * 60_000,
-	});
-	return config.cloudBillingEnforcementEnabled && !reservation.accepted;
-});
+		return config.cloudBillingEnforcementEnabled && !reservation.accepted;
+	},
+);
 
 const sanitizeProjectBuildOutput = (value: string): string =>
 	value
@@ -326,6 +363,13 @@ export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/curren
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
 
+const workspaceSizeId = (
+	workspace: CloudWorkspaceRecord,
+): string | undefined =>
+	typeof workspace.requestConfig.sizeId === "string"
+		? workspace.requestConfig.sizeId
+		: undefined;
+
 export const withoutRuntimeBootstrapReceipt = (
 	config: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> => {
@@ -421,13 +465,16 @@ const saveAccountProjectState = Effect.fn("saveAccountProjectState")(function* (
 	nowMs: number,
 ) {
 	const store = yield* CloudWorkspaceStore;
-	for (const project of yield* store.listProjects(accountId))
+	for (const project of yield* store.listProjects(accountId)) {
+		// A failed image on one provider must not disable the other ready image.
+		if (state === "failed" && project.state === "ready") continue;
 		yield* store.saveProject({
 			...project,
 			state,
 			lastErrorCode,
 			updatedAtMs: nowMs,
 		});
+	}
 });
 
 const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
@@ -445,10 +492,11 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			resourceKind: "build",
 			resourceId: build.buildId,
 			provider: build.provider,
+			providerSandboxId: build.providerSandboxId,
 			runningSinceMs: build.state === "queued" ? nowMs : build.updatedAtMs,
 			nowMs,
-			vcpuCount: config.vcpuCount,
-			memoryMib: config.memoryMib,
+			vcpuCount: provider.resources.vcpuCount,
+			memoryMib: provider.resources.memoryMib,
 		});
 		if (buildBillingHold) {
 			if (build.providerSandboxId !== undefined)
@@ -540,6 +588,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					? yield* snapshotCloudAuthAuthority(
 							build.accountId,
 							`account-auth-${build.buildId}`,
+							build.provider,
 						).pipe(Effect.orElseSucceed(() => undefined))
 					: undefined;
 			const reusableSnapshotId =
@@ -692,12 +741,18 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					"zuse",
 				)
 				.pipe(Effect.orDie);
+			// Box can finish restoring boot-time firewall state while repository
+			// grants are being prepared. Reassert the requested policy at the exact
+			// process-launch boundary so the updater never inherits a late quarantine.
+			yield* provider
+				.setNetwork(sandbox.providerSandboxId, { kind: "open" })
+				.pipe(Effect.orDie);
 			yield* provider
 				.startProcess(sandbox.providerSandboxId, {
 					command: "/bin/bash",
 					args: [
 						"-lc",
-						`set -e; : >${PROJECT_BUILD_LOG_FILE}; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >>${PROJECT_BUILD_LOG_FILE} 2>&1 || { code=$?; printf 'updating-runtime\n' >/var/lib/zuse/project-build/failure-phase; touch /var/lib/zuse/project-build/failed /tmp/zuse-project-builder-exited; exit "$code"; }; fi; set +e; ${PROJECT_BUILDER_FILE} >>${PROJECT_BUILD_LOG_FILE} 2>&1; code=$?; touch /tmp/zuse-project-builder-exited; exit "$code"`,
+						`set -e; : >${PROJECT_BUILD_LOG_FILE}; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then code=1; for delay in ${PROJECT_RUNTIME_UPDATE_RETRY_DELAYS_SECONDS.join(" ")}; do if [ "$delay" -gt 0 ]; then sleep "$delay"; fi; if ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >>${PROJECT_BUILD_LOG_FILE} 2>&1; then code=0; break; else code=$?; fi; done; if [ "$code" -ne 0 ]; then printf 'updating-runtime\n' >/var/lib/zuse/project-build/failure-phase; touch /var/lib/zuse/project-build/failed /tmp/zuse-project-builder-exited; exit "$code"; fi; fi; set +e; ${PROJECT_BUILDER_FILE} >>${PROJECT_BUILD_LOG_FILE} 2>&1; code=$?; touch /tmp/zuse-project-builder-exited; exit "$code"`,
 					],
 					env: {
 						ZUSE_TEMPLATE_VERSION: build.templateVersion,
@@ -998,13 +1053,14 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 );
 
 /** Keep two unassigned forks of the active account image off the launch path. */
-export const reconcileCloudPool = Effect.fn("reconcileCloudPool")(function* (
+const reconcileProviderPool = Effect.fn("reconcileProviderPool")(function* (
 	accountId: string,
+	providerId: string,
 ) {
 	const store = yield* CloudWorkspaceStore;
 	const config = yield* SandboxOfferConfiguration;
 	const providers = yield* SandboxProviders;
-	const provider = yield* providers.get("e2b").pipe(Effect.orDie);
+	const provider = yield* providers.get(providerId).pipe(Effect.orDie);
 	const image = yield* store.getActiveAccountBuild(
 		accountId,
 		provider.providerId,
@@ -1081,6 +1137,19 @@ export const reconcileCloudPool = Effect.fn("reconcileCloudPool")(function* (
 	);
 });
 
+export const reconcileCloudPool = Effect.fn("reconcileCloudPool")(function* (
+	accountId: string,
+) {
+	const providers = yield* SandboxProviders;
+	// Only advertised providers with a ready account image maintain warm capacity.
+	yield* Effect.forEach(
+		providers.availableProviders,
+		(provider) =>
+			reconcileProviderPool(accountId, provider.providerId).pipe(Effect.ignore),
+		{ concurrency: 2, discard: true },
+	);
+});
+
 const recordLifecycle = (
 	workspace: CloudWorkspaceRecord,
 	kind: string,
@@ -1148,7 +1217,12 @@ const wakePreservedWorkspaceRuntime = (
 		// Provider pause preserves memory and processes. Wake the sandbox first
 		// and give its existing runtime a brief window to reconnect. If it does
 		// not reconnect, the resuming branch performs a fenced hard restart.
-		yield* provider.resume(providerSandboxId, keepAliveTimeoutSeconds, "pause");
+		yield* provider.resume(
+			providerSandboxId,
+			keepAliveTimeoutSeconds,
+			"pause",
+			workspaceSizeId(workspace),
+		);
 		yield* saveWorkspace({
 			...workspace,
 			runtimeState: "connecting",
@@ -1180,7 +1254,13 @@ const discardUnsafeWorkspaceSandbox = (
 			yield* provider.kill(providerSandboxId);
 	}).pipe(
 		Effect.as(true),
-		Effect.catchTag("SandboxProviderError", () => Effect.succeed(false)),
+		Effect.catchTag("SandboxProviderError", (error) =>
+			error.code === "transient"
+				? Effect.succeed(false)
+				: error.code === "not-found"
+					? Effect.succeed(true)
+					: Effect.fail(error),
+		),
 	);
 
 const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
@@ -1218,6 +1298,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 				providerSandboxId,
 				config.keepAliveTimeoutSeconds,
 				"pause",
+				workspaceSizeId(workspace),
 			);
 		const boot = yield* issueWorkspaceRuntimeBoot(nowMs);
 		yield* Effect.all(
@@ -1378,10 +1459,10 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			resourceKind: "workspace",
 			resourceId: workspace.workspaceId,
 			provider: workspace.provider,
+			providerSandboxId: workspace.providerSandboxId,
 			runningSinceMs: workspace.runningSinceMs ?? nowMs,
 			nowMs,
-			vcpuCount: config.vcpuCount,
-			memoryMib: config.memoryMib,
+			...resolveSandboxResources(provider, workspaceSizeId(workspace)),
 		});
 		const mailboxWakePending =
 			workspace.requestConfig.cloudMailboxWakePending === true;
@@ -1537,6 +1618,15 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					saveWorkspace,
 					sandbox.state === "running",
 				);
+			if (sandbox.state === "paused" && !provider.preservesProcessesOnResume)
+				return yield* restartWorkspaceRuntime(
+					workspace,
+					workspace.providerSandboxId,
+					provider,
+					nowMs,
+					saveWorkspace,
+					false,
+				);
 			if (sandbox.state === "paused")
 				return yield* wakePreservedWorkspaceRuntime(
 					workspace,
@@ -1655,6 +1745,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 								"zuse-build-id": workspace.buildId,
 								"zuse-workspace-id": workspace.workspaceId,
 							},
+							sizeId: workspaceSizeId(workspace),
 							snapshotId: build.snapshotId as string,
 							timeoutSeconds: config.keepAliveTimeoutSeconds,
 							env: {},
@@ -1671,6 +1762,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 								"zuse-build-id": workspace.buildId,
 								"zuse-workspace-id": workspace.workspaceId,
 							},
+							sizeId: workspaceSizeId(workspace),
 							timeoutSeconds: config.keepAliveTimeoutSeconds,
 							env: {},
 							network: { kind: "open" },
@@ -1851,8 +1943,9 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			// so it would otherwise never run the signed runtime updater or advertise v3.
 			// The server capability flag keeps production on warm resume until rollout.
 			if (
-				apiConfig.cloudCommandMailboxEnabled &&
-				!workspaceSupportsCloudCommandMailbox(workspace)
+				!provider.preservesProcessesOnResume ||
+				(apiConfig.cloudCommandMailboxEnabled &&
+					!workspaceSupportsCloudCommandMailbox(workspace))
 			)
 				return yield* restartWorkspaceRuntime(
 					workspace,
@@ -2029,9 +2122,13 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 										runtimeState: "offline" as const,
 									}
 								: {}),
-							statusCode: `${destructiveLifecycle}-retrying`,
+							statusCode: `${destructiveLifecycle}-${error.code === "rejected" ? "rejected" : "retrying"}`,
 							nextActionAtMs:
-								error.code === "not-found" ? failedAtMs : failedAtMs + RETRY_MS,
+								error.code === "rejected"
+									? Number.MAX_SAFE_INTEGER
+									: error.code === "not-found"
+										? failedAtMs
+										: failedAtMs + RETRY_MS,
 							revision: currentWorkspace.revision + 1,
 							updatedAtMs: failedAtMs,
 						});

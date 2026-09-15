@@ -6,6 +6,7 @@ import { startGeminiSession } from "@zuse/agents/drivers/gemini";
 import { startGrokSession } from "@zuse/agents/drivers/grok";
 import { startKiroSession } from "@zuse/agents/drivers/kiro";
 import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
+import { startOpencode2Session } from "@zuse/agents/drivers/opencode2";
 import { startPiSession } from "@zuse/agents/drivers/pi";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import type {
@@ -809,6 +810,35 @@ export const ProviderServiceLive = Layer.effect(
 							opencodePath,
 							sessionId,
 							resumeCursor,
+						).pipe(Effect.provideService(AttachmentService, attachmentService));
+					} else if (input.providerId === "opencode2") {
+						const opencode2Path = yield* resolveCliPath(
+							"opencode2",
+							binaryPaths,
+						).pipe(
+							Effect.provideService(
+								CommandExecutor.ChildProcessSpawner,
+								executor,
+							),
+						);
+						if (opencode2Path === null) {
+							return yield* Effect.fail(
+								new AgentSessionStartError({
+									providerId: "opencode2",
+									reason:
+										"OpenCode 2 CLI not found on PATH. Install via `curl -fsSL https://opencode.ai/v2/install | bash` and try again.",
+								}),
+							);
+						}
+						const opencode2Settings = yield* configStore.getSettings();
+						providerHandle = yield* startOpencode2Session(
+							driverInput,
+							cwd,
+							opencode2Settings.opencode2CustomProviders,
+							opencode2Path,
+							sessionId,
+							resumeCursor,
+							buildRequestPermission(input.folderId),
 						).pipe(Effect.provideService(AttachmentService, attachmentService));
 					} else if (input.providerId === "cursor") {
 						const userMcpServers = yield* mcp.resolveForCursorSession(cwd);

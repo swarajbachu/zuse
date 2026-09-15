@@ -1,5 +1,9 @@
 import { CLOUD_COMMAND_PROTOCOL_VERSION } from "@zuse/contracts";
 import {
+	SandboxProviderError,
+	SandboxProviders,
+} from "@zuse/sandbox-providers";
+import {
 	FakeSandboxProviderControlService,
 	SandboxProvidersFake,
 } from "@zuse/sandbox-providers/testing";
@@ -52,8 +56,6 @@ const makeTestLayer = (cloudCommandMailboxEnabled = false) =>
 		SandboxProvidersFake,
 		Layer.succeed(SandboxOfferConfiguration, {
 			port: 47_837,
-			vcpuCount: 2,
-			memoryMib: 1_024,
 			createTimeoutSeconds: 3_600,
 			keepAliveTimeoutSeconds: 600,
 		}),
@@ -917,6 +919,65 @@ describe("cloud workspace reconciler", () => {
 		});
 	});
 
+	test("cold-resumes disk snapshots with a fenced restart without mailbox rollout", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-cold-resume",
+					state: "paused",
+					desiredState: "ready",
+					runtimeState: "offline",
+					statusCode: "resume-queued",
+					requestConfig: { runtimeGeneration: 2, gatewayEpoch: 2 },
+				});
+				const providerSandboxId = workspace.providerSandboxId;
+				if (providerSandboxId === undefined)
+					return yield* Effect.die("seeded workspace has no sandbox");
+				yield* Ref.update(control.sandboxes, (sandboxes) =>
+					new Map(sandboxes).set(providerSandboxId, {
+						providerSandboxId,
+						providerLabel: `zuse-cloud-workspace-${workspace.workspaceId}`,
+						state: "paused",
+					}),
+				);
+				const providers = yield* SandboxProviders;
+				const adapter = yield* providers.get(workspace.provider);
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: (id) =>
+							providers.get(id).pipe(
+								Effect.map((value) => ({
+									...value,
+									preservesProcessesOnResume: false,
+								})),
+							),
+						getDefault: Effect.succeed({
+							...adapter,
+							preservesProcessesOnResume: false,
+						}),
+					}),
+				);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					resumeInputs: yield* Ref.get(control.resumeInputs),
+					startProcessCalls: yield* Ref.get(control.startProcessCalls),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+
+		expect(result.resumeInputs).toHaveLength(1);
+		expect(result.startProcessCalls).toEqual(["source-workspace-cold-resume"]);
+		expect(result.workspace).toMatchObject({
+			state: "provisioning",
+			runtimeState: "offline",
+			statusCode: "resume-runtime-restarting",
+			requestConfig: { runtimeGeneration: 3, gatewayEpoch: 3 },
+		});
+	});
+
 	test("warm-resumes a retained v3 runtime when mailbox rollout is enabled", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -967,7 +1028,10 @@ describe("cloud workspace reconciler", () => {
 		});
 	});
 
-	test("inspects and wakes a provider-paused runtime after mailbox acceptance", async () => {
+	test.each([
+		true,
+		false,
+	])("wakes a mailbox runtime with process preservation=%s", async (preservesProcessesOnResume) => {
 		const staleObservationAt = Date.now() - 60_000;
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -997,7 +1061,19 @@ describe("cloud workspace reconciler", () => {
 						state: "paused",
 					}),
 				);
-				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const providers = yield* SandboxProviders;
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: (id) =>
+							providers.get(id).pipe(
+								Effect.map((adapter) => ({
+									...adapter,
+									preservesProcessesOnResume,
+								})),
+							),
+					}),
+				);
 				return {
 					workspace: yield* store.getWorkspace(workspace.workspaceId),
 					resumeInputs: yield* Ref.get(control.resumeInputs),
@@ -1007,11 +1083,15 @@ describe("cloud workspace reconciler", () => {
 		);
 
 		expect(result.resumeInputs).toHaveLength(1);
-		expect(result.startProcessCalls).toHaveLength(0);
+		expect(result.startProcessCalls).toHaveLength(
+			preservesProcessesOnResume ? 0 : 1,
+		);
 		expect(result.workspace).toMatchObject({
-			state: "resuming",
-			runtimeState: "connecting",
-			statusCode: "resume-runtime-waking",
+			state: preservesProcessesOnResume ? "resuming" : "provisioning",
+			runtimeState: preservesProcessesOnResume ? "connecting" : "offline",
+			statusCode: preservesProcessesOnResume
+				? "resume-runtime-waking"
+				: "resume-runtime-restarting",
 			requestConfig: {
 				cloudMailboxWakePending: true,
 				cloudMailboxWakeRequestedAt: expect.any(Number),
@@ -1213,4 +1293,48 @@ describe("cloud workspace reconciler", () => {
 			},
 		});
 	});
+});
+
+test.each([
+	"transient",
+	"rejected",
+] as const)("retains the sandbox and classifies %s deletion failures", async (code) => {
+	const result = await Effect.runPromise(
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const workspace = yield* seedWorkspace({
+				workspaceId: "failed-cleanup",
+				statusCode: "delete-queued",
+				desiredState: "deleted",
+				state: "archived",
+				requestConfig: {
+					cloudMailboxLifecyclePending: {
+						action: "delete",
+						destructionFence: 1,
+					},
+				},
+			});
+			const providers = yield* SandboxProviders;
+			yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: (id) =>
+						providers.get(id).pipe(
+							Effect.map((adapter) => ({
+								...adapter,
+								kill: () => Effect.fail(new SandboxProviderError({ code })),
+							})),
+						),
+				}),
+			);
+			return yield* store.getWorkspace(workspace.workspaceId);
+		}).pipe(Effect.provide(testLayer)),
+	);
+	expect(result?.providerSandboxId).toBe("source-failed-cleanup");
+	expect(result?.statusCode).toBe(
+		code === "rejected" ? "delete-rejected" : "delete-retrying",
+	);
+	if (code === "rejected")
+		expect(result?.nextActionAtMs).toBe(Number.MAX_SAFE_INTEGER);
+	else expect(result?.nextActionAtMs).toBeLessThan(Date.now() + 60_000);
 });

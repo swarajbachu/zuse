@@ -247,5 +247,6 @@
 	"diff_pane_selection_summary": "{{total}}개 중 {{selected}}개 선택 · ⌘↵",
 	"projects_sidebar_chat_count": "채팅 {{count}}개",
 	"projects_sidebar_chat_count_one": "채팅 {{count}}개",
-	"projects_sidebar_chat_count_other": "채팅 {{count}}개"
+	"projects_sidebar_chat_count_other": "채팅 {{count}}개",
+	"projects_sidebar_cloud": "클라우드"
 }

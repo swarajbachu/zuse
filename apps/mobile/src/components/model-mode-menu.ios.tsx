@@ -602,6 +602,7 @@ const providerSystemImage = (providerId: ProviderId): string => {
 		case "gemini":
 			return "diamond";
 		case "opencode":
+		case "opencode2":
 			return "chevron.left.forwardslash.chevron.right";
 		case "pi":
 			return "function";

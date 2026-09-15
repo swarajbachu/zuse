@@ -7,6 +7,7 @@ export const PROVIDER_LABEL: Readonly<Record<ProviderId, string>> = {
 	cursor: "Cursor",
 	gemini: "Gemini",
 	opencode: "OpenCode",
+	opencode2: "OpenCode 2",
 	kiro: "Kiro",
 	pi: "Pi",
 };

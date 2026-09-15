@@ -29,10 +29,7 @@ export const DeviceBridgeAction = Schema.Union([
 	Schema.TaggedStruct("revoke", { id: Schema.String }),
 ]);
 export type DeviceBridgeAction = typeof DeviceBridgeAction.Type;
-export const DeviceBridgeControl = Schema.Union([
-	DeviceBridgeAction,
-	Schema.TaggedStruct("configure", { enabled: Schema.Boolean }),
-]);
+export const DeviceBridgeControl = DeviceBridgeAction;
 export type DeviceBridgeControl = typeof DeviceBridgeControl.Type;
 export const DeviceCommand = Schema.Struct({
 	id: Schema.String,

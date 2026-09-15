@@ -11,6 +11,7 @@ export const MCP_PROVIDER_LABEL: Record<ProviderId, string> = {
 	pi: "Pi",
 	cursor: "Cursor",
 	opencode: "OpenCode",
+	opencode2: "OpenCode 2",
 };
 
 export const MCP_DISPLAY_GROUPS = [

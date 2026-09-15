@@ -36,8 +36,8 @@ export interface DeviceIdentity {
 	readonly connected: boolean;
 }
 export interface DeviceBridgeStorage {
-	loadConfig(): Promise<{ linkKey: string; enabled: boolean } | null>;
-	saveConfig(linkKey: string, enabled: boolean): Promise<void>;
+	loadConfig(): Promise<{ linkKey: string } | null>;
+	saveConfig(linkKey: string): Promise<void>;
 	commands(): Promise<readonly DeviceCommand[]>;
 	command(id: string): Promise<DeviceCommand | undefined>;
 	saveCommand(command: DeviceCommand): Promise<void>;
@@ -119,12 +119,12 @@ export class DeviceCommandBroker {
 		const config = await this.storage.loadConfig();
 		if (
 			config?.linkKey !== identity.linkKey ||
-			(config.enabled && !identity.connected)
+			this.disabled === identity.connected
 		) {
 			for (const command of await this.storage.commands())
 				if (active(command)) await this.stop(command, "interrupted");
 			await this.permissions.clear();
-			await this.storage.saveConfig(identity.linkKey, identity.connected);
+			await this.storage.saveConfig(identity.linkKey);
 			this.disabled = !identity.connected;
 		}
 		return identity;
@@ -174,8 +174,7 @@ export class DeviceCommandBroker {
 			deviceName: identity.deviceName,
 			homeDirectory: identity.homeDirectory,
 			connected: identity.connected,
-			enabled:
-				!this.disabled && (await this.storage.loadConfig())?.enabled === true,
+			enabled: !this.disabled && !this.closed && identity.connected,
 			commands: commands
 				.sort((a, b) => b.createdAt - a.createdAt)
 				.slice(0, 20)
@@ -190,29 +189,17 @@ export class DeviceCommandBroker {
 	status(): Promise<DeviceBridgeStatus> {
 		return this.exclusive(() => this.statusUnlocked());
 	}
-	configure(enabled: boolean): Promise<DeviceBridgeStatus> {
-		if (!enabled) {
-			this.disabled = true;
-			for (const entry of this.running.values())
-				signalProcessGroup(entry.child, "SIGKILL");
-		}
+	/** Invalidate command authority immediately when the linked account changes. */
+	invalidate(): Promise<void> {
+		this.killAll();
 		return this.exclusive(async () => {
-			const identity = await this.synchronize();
-			if (enabled && !identity.connected)
-				throw new Error(
-					"Enable hosted device access and sign in on this desktop first.",
-				);
-			if (enabled && this.disabled) await this.permissions.clear();
-			await this.storage.saveConfig(identity.linkKey, enabled);
-			this.disabled = !enabled;
-			if (!enabled) {
-				await this.permissions.clear();
-				for (const command of await this.storage.commands())
-					if (active(command)) await this.stop(command, "cancelled");
-			}
-			return this.statusUnlocked();
+			await this.permissions.clear();
+			for (const command of await this.storage.commands())
+				if (active(command)) await this.stop(command, "interrupted");
+			await this.storage.saveConfig("");
 		});
 	}
+
 	handle(
 		action: DeviceBridgeAction,
 		principal?: DevicePrincipal,
@@ -221,10 +208,11 @@ export class DeviceCommandBroker {
 			if (this.closed) throw new Error("Device bridge stopped");
 			const identity = await this.synchronize();
 			if (action._tag === "status") return this.statusUnlocked(principal);
-			const enabled =
-				!this.disabled && (await this.storage.loadConfig())?.enabled === true;
+			const enabled = !this.disabled && !this.closed && identity.connected;
 			if (!enabled && (action._tag === "execute" || action._tag === "decide"))
-				throw new Error("Cloud agent access is disabled on this computer.");
+				throw new Error(
+					"This computer must be linked and signed in to run cloud commands.",
+				);
 			if (action._tag === "revoke") {
 				if (principal?.actor === "runtime")
 					throw new Error("User approval required");
@@ -349,14 +337,14 @@ export class DeviceCommandBroker {
 	}
 	private async start(command: DeviceCommand): Promise<void> {
 		if (this.disabled || this.closed)
-			throw new Error("Cloud agent access is disabled");
+			throw new Error("Local command connection is unavailable");
 		const lease = this.pendingLeases.get(command.id);
 		if (lease === undefined || lease <= Date.now())
 			throw new Error("Local command request expired");
 		const started: DeviceCommand = { ...command, state: "running" };
 		await this.storage.saveCommand(started);
 		if (this.disabled || this.closed)
-			throw new Error("Cloud agent access is disabled");
+			throw new Error("Local command connection is unavailable");
 		this.pendingLeases.delete(command.id);
 		// Detached process groups let cancellation stop descendants as well as the shell.
 		const child = spawnSupervisedCommand(command.command, command.cwd, lease);
