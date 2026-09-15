@@ -12,9 +12,18 @@ import type {
 } from "@zuse/contracts";
 import type { Effect, Stream } from "effect";
 
+/** Ephemeral driver signal; never persisted or exposed over application RPC. */
+export type QuestionCallbackReleased = {
+	readonly _tag: "QuestionCallbackReleased";
+	readonly itemId: AgentItemId;
+	readonly reason: "cancelled" | "transport_lost" | "closed";
+};
+
+export type ProviderDriverEvent = AgentEvent | QuestionCallbackReleased;
+
 /** Common live-session surface implemented by every provider driver. */
 export interface ProviderSessionHandle {
-	readonly events: Stream.Stream<AgentEvent>;
+	readonly events: Stream.Stream<ProviderDriverEvent>;
 	readonly send: (
 		text: string,
 		attachments?: ReadonlyArray<AttachmentRef>,
@@ -27,6 +36,12 @@ export interface ProviderSessionHandle {
 	readonly answerQuestion: (
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
+	) => Effect.Effect<void, Error>;
+	/** Reject a callback that cannot be admitted to live application authority. */
+	readonly cancelQuestion?: (itemId: AgentItemId) => Effect.Effect<void, Error>;
+	/** Release driver-local retry authority after the durable receipt commits. */
+	readonly acknowledgeQuestionAnswer?: (
+		itemId: AgentItemId,
 	) => Effect.Effect<void>;
 	readonly respondToPlan?: (
 		toolCallId: AgentItemId,

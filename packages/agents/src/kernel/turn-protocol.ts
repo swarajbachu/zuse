@@ -4,7 +4,18 @@ import type {
 	ProviderEventEnvelope,
 } from "@zuse/contracts";
 import { Deferred, Effect, Ref, Stream } from "effect";
-import type { ProviderSessionHandle } from "./driver.ts";
+import type {
+	ProviderDriverEvent,
+	ProviderSessionHandle,
+	QuestionCallbackReleased,
+} from "./driver.ts";
+
+export type TurnScopedProviderEventEnvelope =
+	| ProviderEventEnvelope
+	| {
+			readonly scope: "session";
+			readonly event: QuestionCallbackReleased;
+	  };
 
 type ActiveTurn = {
 	readonly turnId: AgentTurnId;
@@ -13,13 +24,13 @@ type ActiveTurn = {
 };
 
 type NormalizedBatch = {
-	readonly events: ReadonlyArray<ProviderEventEnvelope>;
+	readonly events: ReadonlyArray<TurnScopedProviderEventEnvelope>;
 	readonly released?: Deferred.Deferred<void>;
 };
 
 export interface TurnScopedProviderSessionHandle
 	extends Omit<ProviderSessionHandle, "events" | "send" | "interrupt"> {
-	readonly events: Stream.Stream<ProviderEventEnvelope>;
+	readonly events: Stream.Stream<TurnScopedProviderEventEnvelope>;
 	readonly send: (
 		turnId: AgentTurnId,
 		...args: Parameters<ProviderSessionHandle["send"]>
@@ -40,10 +51,14 @@ const sessionEventTags = new Set<AgentEvent["_tag"]>([
 	"UsageLimit",
 ]);
 
-const sessionEnvelope = (event: AgentEvent): ProviderEventEnvelope => ({
-	scope: "session",
-	event,
-});
+const sessionEnvelope = (
+	event: AgentEvent | QuestionCallbackReleased,
+): TurnScopedProviderEventEnvelope => {
+	if (event._tag === "QuestionCallbackReleased") {
+		return { scope: "session", event };
+	}
+	return { scope: "session", event };
+};
 
 const turnEnvelope = (
 	turnId: AgentTurnId,
@@ -69,16 +84,19 @@ export const makeTurnScopedSessionHandle = (
 		);
 		const releaseBatch = (
 			batch: NormalizedBatch,
-		): Effect.Effect<ReadonlyArray<ProviderEventEnvelope>> =>
+		): Effect.Effect<ReadonlyArray<TurnScopedProviderEventEnvelope>> =>
 			(batch.released === undefined
 				? Effect.void
 				: Deferred.succeed(batch.released, undefined)
 			).pipe(Effect.as(batch.events));
 
 		const normalize = (
-			event: AgentEvent,
-		): Effect.Effect<ReadonlyArray<ProviderEventEnvelope>> =>
-			Ref.modify(
+			event: ProviderDriverEvent,
+		): Effect.Effect<ReadonlyArray<TurnScopedProviderEventEnvelope>> => {
+			if (event._tag === "QuestionCallbackReleased") {
+				return Effect.succeed([sessionEnvelope(event)]);
+			}
+			return Ref.modify(
 				activeTurn,
 				(active): readonly [NormalizedBatch, ActiveTurn | null] => {
 					if (sessionEventTags.has(event._tag)) {
@@ -126,7 +144,16 @@ export const makeTurnScopedSessionHandle = (
 						return [{ events: [sessionEnvelope(event)] }, active] as const;
 					}
 
-					if (active === null) return [{ events: [] }, null] as const;
+					if (active === null) {
+						// A provider may reissue a durable blocking question while restoring
+						// its own cursor after the application turn was settled during process
+						// recovery. Preserve it as a session-scoped availability signal: the
+						// conversation runtime will not persist it as a new turn event, while
+						// ProviderService can reattach the live callback authority.
+						return event._tag === "UserQuestion"
+							? [{ events: [sessionEnvelope(event)] }, null]
+							: [{ events: [] }, null];
+					}
 
 					if (event._tag === "Completed") {
 						return [
@@ -173,6 +200,7 @@ export const makeTurnScopedSessionHandle = (
 					] as const;
 				},
 			).pipe(Effect.flatMap(releaseBatch));
+		};
 
 		const finalizeUnexpectedExit = Ref.modify(
 			activeTurn,

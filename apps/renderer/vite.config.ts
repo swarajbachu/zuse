@@ -126,9 +126,6 @@ export default defineConfig({
 			"@pierre/diffs/react",
 			"@pierre/trees",
 			"@pierre/trees/react",
-			"@xterm/addon-fit",
-			"@xterm/addon-webgl",
-			"@xterm/xterm",
 			"@zuse/icons/bulk-rounded",
 			"@zuse/icons/solid-rounded",
 			"@zuse/icons/stroke-rounded",
@@ -153,6 +150,7 @@ export default defineConfig({
 			"shiki",
 			"tailwind-merge",
 			"thinking-orbs",
+			"codemirror",
 		],
 	},
 	server: {

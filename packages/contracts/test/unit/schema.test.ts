@@ -20,6 +20,8 @@ import {
 	Session,
 	SessionTimelineFrame,
 	SettingsFile,
+	UserQuestionAnswer,
+	visibleModelsForProvider,
 	Worktree,
 } from "../../src/index.ts";
 
@@ -188,6 +190,34 @@ describe("AgentEvent round-trips", () => {
 			Schema.decodeUnknownSync(AgentEvent)({
 				_tag: "Status",
 				status: "spinning",
+			}),
+		).toThrow();
+	});
+});
+
+describe("UserQuestionAnswer wire coordinates", () => {
+	it("round-trips non-negative integer coordinates", () => {
+		roundTrip(UserQuestionAnswer, {
+			questionIndex: 0,
+			selected: [2, 0],
+			other: "Run the smoke check too",
+		});
+	});
+
+	it.each([-1, 0.5])("rejects questionIndex %s", (questionIndex) => {
+		expect(() =>
+			Schema.decodeUnknownSync(UserQuestionAnswer)({
+				questionIndex,
+				selected: [0],
+			}),
+		).toThrow();
+	});
+
+	it.each([-1, 0.5])("rejects selected index %s", (selectedIndex) => {
+		expect(() =>
+			Schema.decodeUnknownSync(UserQuestionAnswer)({
+				questionIndex: 0,
+				selected: [selectedIndex],
 			}),
 		).toThrow();
 	});

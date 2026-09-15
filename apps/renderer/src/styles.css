@@ -59,14 +59,6 @@ body,
 	-moz-osx-font-smoothing: grayscale;
 }
 
-.xterm-viewport::-webkit-scrollbar {
-	width: 8px;
-}
-.xterm-viewport::-webkit-scrollbar-thumb {
-	background: var(--bg-overlay);
-	border-radius: 4px;
-}
-
 @theme inline {
 	--animate-skeleton: skeleton 2s -1s infinite linear;
 	--animate-caret-blink: 1s ease-out infinite caret-blink;
@@ -101,6 +93,7 @@ body,
 	--color-accent-foreground: var(--accent-foreground);
 	--color-destructive: var(--destructive);
 	--color-destructive-foreground: var(--destructive-foreground);
+	--color-danger-text: var(--danger-text);
 	--color-success: var(--success);
 	--color-success-foreground: var(--success-foreground);
 	--color-warning: var(--warning);
@@ -336,6 +329,7 @@ body,
 	--warning-foreground: hsl(132 14% 13%);
 	--info: hsl(215.3 72% 49%);
 	--info-foreground: hsl(0 0% 100%);
+	--danger-text: hsl(0 74% 50%);
 
 	--alert-error-bg: hsl(0 100% 97.3%);
 	--alert-warning-bg: hsl(22.1 100% 96.3%);
@@ -458,6 +452,7 @@ body,
 
 	--destructive: hsl(0 92.1% 60.4%);
 	--destructive-foreground: hsl(0 0% 100%);
+	--danger-text: hsl(0 84% 64%);
 
 	--success: hsl(133.9 60.6% 48.8%);
 	--success-foreground: hsl(130 66% 10%);
@@ -1528,7 +1523,7 @@ html[data-sidebar-dragging] * {
 		min-height: 1.3em;
 		padding: 0 10px;
 	}
-	/* Scrollbar polish — match xterm-viewport style. */
+	/* Scrollbar polish for code blocks. */
 	.code-block-scroll::-webkit-scrollbar {
 		width: 6px;
 		height: 6px;

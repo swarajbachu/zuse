@@ -88,7 +88,7 @@ describe("permission recovery through production RPC", () => {
 						decision: { _tag: "AllowOnce" },
 					}),
 				),
-			).rejects.toBeDefined();
+			).resolves.toBeUndefined();
 			expect(
 				await Effect.runPromise(
 					session.client["permission.listPending"]({

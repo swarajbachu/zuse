@@ -206,6 +206,11 @@ const ChangesReview = lazy(() =>
 	})),
 );
 
+const BottomTerminalDock = lazy(() =>
+	import("../components/bottom-terminal-dock.tsx").then((module) => ({
+		default: module.BottomTerminalDock,
+	})),
+);
 const FileEditor = lazy(() =>
 	import("../components/file-editor.tsx").then((module) => ({
 		default: module.FileEditor,
@@ -298,6 +303,7 @@ function TabsFallback() {
  * from a clean state.
  */
 export function MainShell() {
+	const activeContext = useActiveContext();
 	const { message: uiMessage } = useUiMessages(["shell"]);
 
 	const activeEnvironmentId = useEnvironmentCatalogStore(
@@ -782,6 +788,15 @@ export function MainShell() {
 									)}
 								</Suspense>
 							</div>
+						) : null}
+						{selectedChatRef !== null && activeContext.status === "ready" ? (
+							<Suspense fallback={<div className="h-7 shrink-0" />}>
+								<BottomTerminalDock
+									chatRef={selectedChatRef}
+									rootPath={activeContext.rootPath}
+									directoryUnavailable={directoryUnavailable}
+								/>
+							</Suspense>
 						) : null}
 					</main>
 				</Panel>

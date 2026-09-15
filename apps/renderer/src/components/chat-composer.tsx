@@ -131,9 +131,15 @@ import {
 	decideEnvironmentPermission,
 	useEnvironmentPermissions,
 } from "../lib/environment-permissions-client-bus.ts";
+import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { subscribeKeybindings } from "../lib/keybindings-client-bus.ts";
 import { usePlatformOnline } from "../lib/network-status.ts";
+import {
+	findPresentedPermissions,
+	type QuestionAttachmentsByKey,
+	selectPresentedQuestion,
+} from "../lib/question-actionability.ts";
 import {
 	interruptSession,
 	queueSessionMessage,
@@ -146,7 +152,6 @@ import {
 	setSessionGoal,
 	useSessionGoalResource,
 } from "../lib/session-goal-client-bus.ts";
-import { hasPendingTurnStart } from "../lib/session-runtime-state.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
 import {
@@ -219,6 +224,8 @@ import { DevicePermissionCard } from "./device-permission-card.tsx";
 import { PermissionCard } from "./permission-card.tsx";
 import { QuestionCard } from "./question-card.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
+
+const EMPTY_QUESTION_ATTACHMENTS: QuestionAttachmentsByKey = {};
 
 const MIN_HEIGHT = 44;
 const MAX_HEIGHT = 240;
@@ -354,13 +361,23 @@ export function ChatComposer({
 			: cloudActivity === "stopping";
 	const inFlight =
 		cloudActivity === null
-			? runtimeState === "running" ||
-				runtimeState === "stopping" ||
-				(isCloudSession && runtimeState === "starting") ||
-				turnStartPending
-			: cloudChatShowsWorking(cloudActivity) || turnStartPending;
-	// Existing queued work still owns ordering. A merely sleeping cloud runtime
-	// does not: its next message can go straight to the durable mailbox.
+			? (timeline.presentation.turnInFlight &&
+					(!isCloudSession ||
+						turnStartPending ||
+						runtimeState === "running" ||
+						runtimeState === "stopping")) ||
+				(isCloudSession && runtimeState === "starting")
+			: cloudChatShowsWorking(cloudActivity) ||
+				timeline.presentation.turnInFlight;
+	const showActiveTimer =
+		cloudActivity === null
+			? inFlight
+			: cloudActivity !== "idle" &&
+				cloudActivity !== "paused" &&
+				cloudActivity !== "failed";
+	// Hold messages only while the provider is unavailable or an earlier message
+	// is already queued. Worktree setup is independent background work and must
+	// not delay an agent that has finished booting.
 	const hasQueued = (timeline.projection?.queue.items.length ?? 0) > 0;
 	const goal = goalView.data?.goal ?? null;
 	const respondToPlan = useSessionsStore((s) => s.respondToPlan);
@@ -390,28 +407,19 @@ export function ChatComposer({
 	// otherwise render the normal editor.
 	//
 	const sessionMessages = timeline.messages;
-	const pendingQuestion = useMemo(() => {
-		const list = sessionMessages ?? [];
-		const answered = new Set<string>();
-		for (const m of list) {
-			if (m.content._tag === "user_question_answer") {
-				answered.add(m.content.itemId as string);
-			}
-		}
-		for (let i = list.length - 1; i >= 0; i--) {
-			const m = list[i]!;
-			if (
-				m.content._tag === "user_question" &&
-				!answered.has(m.content.itemId as string)
-			) {
-				return {
-					itemId: m.content.itemId,
-					questions: m.content.questions,
-				};
-			}
-		}
-		return null;
-	}, [sessionMessages, uiMessage]);
+	const questionAttachmentsByKey =
+		useEnvironmentQuestionAttachments(qualifiedEnvironmentId).data
+			?.attachmentsByKey ?? EMPTY_QUESTION_ATTACHMENTS;
+	const presentedQuestion = useMemo(
+		() =>
+			selectPresentedQuestion(
+				sessionId,
+				timeline.presentation.interactions,
+				questionAttachmentsByKey,
+			),
+		[questionAttachmentsByKey, sessionId, timeline.presentation.interactions],
+	);
+	const pendingQuestion = presentedQuestion?.question ?? null;
 
 	// Pending permission requests also take over the composer slot. Same
 	// motivation as AskUserQuestion: the user's eyes are already on the
@@ -421,35 +429,35 @@ export function ChatComposer({
 		useEnvironmentPermissions(qualifiedEnvironmentId).data?.requestsById ??
 		EMPTY_PERMISSION_REQUESTS;
 	const decidePermission = (
-		requestId: string,
+		request: Pick<PermissionRequest, "id" | "sessionId">,
 		decision: Parameters<typeof decideEnvironmentPermission>[1],
-	) => decideEnvironmentPermission(requestId, decision, qualifiedEnvironmentId);
+	) => decideEnvironmentPermission(request, decision, qualifiedEnvironmentId);
 	const pendingPermissions = useMemo(() => {
-		const out: PermissionRequest[] = [];
-		for (const req of Object.values(requestsById)) {
-			if (req.sessionId !== sessionId) continue;
+		return findPresentedPermissions(
+			timeline.presentation.interactions,
+			requestsById,
+		).filter((item) => {
+			const req = item.interaction.request;
 			// ExitPlanMode is approved on the plan card itself.
-			if (
+			return !(
 				req.recoveryState !== "expired" &&
 				req.kind._tag === "Other" &&
 				req.kind.tool === "ExitPlanMode"
-			) {
-				continue;
-			}
-			out.push(req);
-		}
-		out.sort(
-			(a, b) =>
-				Number(a.recoveryState === "expired") -
-					Number(b.recoveryState === "expired") ||
-				a.requestedAt.getTime() - b.requestedAt.getTime(),
-		);
-		return out;
-	}, [requestsById, sessionId, uiMessage]);
+			);
+		});
+	}, [requestsById, timeline.presentation.interactions]);
 	const pendingPlanApprovalRequest = useMemo(
 		() =>
-			findPendingPlanApprovalRequest(Object.values(requestsById), sessionId),
-		[requestsById, sessionId, uiMessage],
+			findPendingPlanApprovalRequest(
+				timeline.presentation.interactions.flatMap((item) =>
+					item.interaction._tag === "Permission" &&
+					requestsById[item.interaction.id] !== undefined
+						? [item.interaction.request]
+						: [],
+				),
+				sessionId,
+			),
+		[requestsById, sessionId, timeline.presentation.interactions],
 	);
 	const pendingNativePlanApproval = useMemo(
 		() =>
@@ -1309,7 +1317,7 @@ export function ChatComposer({
 							return result !== "failed";
 						}
 						if (pendingPlanApprovalRequest !== null) {
-							await decidePermission(pendingPlanApprovalRequest.id, {
+							await decidePermission(pendingPlanApprovalRequest, {
 								_tag: "Deny",
 							});
 						}
@@ -1403,10 +1411,12 @@ export function ChatComposer({
 					<div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
 						{headPermission !== undefined ? (
 							<PermissionCard
-								key={`${qualifiedEnvironmentId}:${headPermission.id}:${headPermission.recoveryState ?? "live"}`}
-								head={headPermission}
+								key={`${qualifiedEnvironmentId}:${headPermission.interaction.id}:${headPermission.interaction.request.recoveryState ?? "live"}`}
+								head={headPermission.interaction.request}
 								queueSize={pendingPermissions.length}
 								environmentId={qualifiedEnvironmentId}
+								submission={headPermission.submission}
+								submissionError={headPermission.error}
 							/>
 						) : headDeviceCommand !== undefined ? (
 							<DevicePermissionCard
@@ -1419,8 +1429,11 @@ export function ChatComposer({
 							<QuestionCard
 								environmentId={qualifiedEnvironmentId}
 								sessionId={sessionId}
-								itemId={pendingQuestion.itemId}
-								questions={pendingQuestion.questions}
+								itemId={pendingQuestion.interaction.id}
+								questions={pendingQuestion.interaction.questions}
+								disabled={presentedQuestion?.actionable !== true}
+								submission={pendingQuestion.submission}
+								submissionError={pendingQuestion.error}
 							/>
 						) : null}
 					</div>

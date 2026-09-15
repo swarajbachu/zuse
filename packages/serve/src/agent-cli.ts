@@ -13,18 +13,19 @@ import {
 import { makeRpcClientSession } from "@zuse/client-runtime/connection";
 import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
 import {
+	AgentItemId,
 	type AttachmentRef,
-	type ChatId,
 	BUNDLED_MODEL_CATALOG,
-	catalogProviderIds,
+	type ChatId,
 	CommandId,
 	ComposerInput,
+	catalogProviderIds,
+	defaultModelFor,
 	type FileRef,
 	type LinearIssueRef,
-	defaultModelFor,
 	MemoizeRpcs,
-	modelsForProvider,
 	type MessageId,
+	modelsForProvider,
 	type PermissionMode,
 	type ProviderId,
 	type RuntimeMode,
@@ -704,9 +705,7 @@ const execute = async (
 			);
 			// Prefer the desktop's resolved catalog (remote + live inventories);
 			// an older server without the RPC falls back to the bundled snapshot.
-			const catalog = await rpc(client["model.catalog"]({})).catch(
-				() => null,
-			);
+			const catalog = await rpc(client["model.catalog"]({})).catch(() => null);
 			return {
 				providers: catalogProviderIds(BUNDLED_MODEL_CATALOG).map(
 					(providerId) => ({
@@ -1113,7 +1112,7 @@ const execute = async (
 				client["session.answerQuestion"]({
 					commandId: commandId("session-answer-question"),
 					sessionId: selectedSessionId,
-					itemId: required(one(args, "item"), "--item"),
+					itemId: AgentItemId.make(required(one(args, "item"), "--item")),
 					answers: answers as Array<{
 						questionIndex: number;
 						selected: number[];

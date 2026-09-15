@@ -4,7 +4,10 @@ import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Smartphone } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { recordDiagnosticEvent } from "../lib/diagnostics-recorder.ts";
-import { dispatchLocalDeviceCommand } from "../lib/local-device-client-bus.ts";
+import {
+	dispatchLocalDeviceCommand,
+	isLocalDeviceConnectionReady,
+} from "../lib/local-device-client-bus.ts";
 import {
 	AlertDialog,
 	AlertDialogDescription,
@@ -69,6 +72,10 @@ export function NearbyPairingApproval() {
 		try {
 			await refresh();
 		} catch (cause) {
+			// Polling is best-effort while the shared environment owner is offline.
+			// Keep connected failures visible, but do not report an intentional
+			// platform suspension as an application error.
+			if (!isLocalDeviceConnectionReady()) return;
 			if (refreshFailureLogged.current) return;
 			refreshFailureLogged.current = true;
 			console.error("[zuse:pairing] Could not refresh nearby requests", cause);

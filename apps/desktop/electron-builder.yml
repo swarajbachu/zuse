@@ -29,7 +29,7 @@ directories:
 files:
   - dist-electron/**/*
   - "package.json"
-  - "!**/*.{ts,tsx,map,md}"
+  - "!**/*.{ts,tsx,cts,mts,map,md}"
   - "!**/tsconfig*.json"
   # @zuse/* workspace packages are inlined into dist-electron/main.cjs by
   # tsdown (`deps.alwaysBundle`), so we don't need their source in
@@ -50,6 +50,14 @@ extraResources:
   - from: ../renderer/dist
     to: app/renderer/dist
     filter: ["**/*"]
+  - from: ../../native/libghostty-vt/LICENSE
+    to: app/licenses/libghostty-vt.LICENSE
+  - from: ../../LICENSE
+    to: app/licenses/Zuse.LICENSE
+  - from: ../../THIRD_PARTY_NOTICES.md
+    to: app/licenses/THIRD_PARTY_NOTICES.md
+  - from: ../../node_modules/@cursor/sdk/LICENSE.md
+    to: app/licenses/Cursor-SDK.LICENSE.md
   - from: resources/skills
     to: app/skills
     filter: ["**/*"]
@@ -126,6 +134,30 @@ mac:
     NSMicrophoneUsageDescription: Zuse (Beta) does not use the microphone.
 
 linux:
+  # Linux releases are x64-only. Native packages often publish every platform
+  # in one tarball; keep only the prebuilds this process can load. Scoping the
+  # filter under `linux` leaves both universal macOS slices untouched.
+  files:
+    # An explicit positive keeps electron-builder from turning this
+    # platform matcher into a negative-only implicit `**/*` matcher.
+    - dist-electron/**/*
+    - "package.json"
+    - "!**/*.{ts,tsx,cts,mts,map,md}"
+    - "!node_modules/{node-pty,tree-sitter,tree-sitter-javascript,tree-sitter-json,tree-sitter-typescript}/prebuilds/{darwin-*,linux-arm64,win32-*}/**"
+    - "!node_modules/**/@cursor/sdk-{darwin-*,linux-arm64,win32-*}/**"
+    # These packages publish compiler inputs and alternate module formats in
+    # their production tarballs. The desktop runtime uses compiled native
+    # grammars, node-pty's rebuilt binding, and the Cursor CJS export.
+    - "!node_modules/tree-sitter-{javascript,json}/{binding.gyp,grammar.js,*.wasm,bindings/node/*_test.js}"
+    - "!node_modules/tree-sitter-{javascript,json}/src/{grammar.json,parser.c,scanner.c,tree_sitter/**}"
+    - "!node_modules/tree-sitter-typescript/{binding.gyp,common/**,*.wasm,bindings/node/*_test.js}"
+    - "!node_modules/tree-sitter-typescript/{typescript,tsx}/grammar.js"
+    - "!node_modules/tree-sitter-typescript/{typescript,tsx}/src/{grammar.json,parser.c,scanner.c,tree_sitter/**}"
+    - "!node_modules/@cursor/sdk/dist/esm/**"
+    - "!node_modules/node-pty/lib/**/*.test.js"
+    - "!node_modules/node-pty/{src,scripts,deps,typings}/**"
+    - "!node_modules/node-pty/build/!(Release){,/**}"
+    - "!node_modules/node-pty/node_modules/node-addon-api/**"
   target:
     - target: AppImage
       arch: x64

@@ -335,16 +335,14 @@ describe("environment shell ClientBus driver", () => {
 				expect.arrayContaining(["chat:one", "session:one", "creation:one"]),
 			),
 		);
+		await vi.waitFor(() => expect(emitted).toContainEqual(["one"]));
 		Queue.offerUnsafe(workspace, [folder("two")]);
 		await vi.waitFor(() =>
 			expect(subscribedProjects).toEqual(
 				expect.arrayContaining(["chat:two", "session:two", "creation:two"]),
 			),
 		);
-		expect(emitted.some((ids) => ids.length === 1 && ids[0] === "one")).toBe(
-			true,
-		);
-		expect(emitted.at(-1)).toEqual(["two"]);
+		await vi.waitFor(() => expect(emitted.at(-1)).toEqual(["two"]));
 		driver.stop();
 	});
 

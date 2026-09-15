@@ -21,6 +21,7 @@ import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { isRpcClientTransportError, type MemoizeClient } from "./rpc-client.ts";
 import { interruptSession } from "./session-actions.ts";
 import {
+	dispatchSessionCommand,
 	getRendererClientBus,
 	registerRendererResourceDriver,
 } from "./session-timeline-client-bus.ts";
@@ -150,7 +151,7 @@ export const useEnvironmentPermissions = (
 };
 
 export const decideEnvironmentPermission = async (
-	requestId: string,
+	request: Pick<PermissionRequest, "id" | "sessionId">,
 	decision: PermissionDecision,
 	environmentId?: EnvironmentId,
 ): Promise<void> => {
@@ -159,40 +160,22 @@ export const decideEnvironmentPermission = async (
 		EnvironmentId.make(
 			useEnvironmentCatalogStore.getState().activeEnvironmentId,
 		);
-	const key = keyFor(selectedEnvironmentId);
-	const bus = getRendererClientBus();
-	const previous = bus.snapshot(key)?.data?.requestsById[requestId];
-	bus.overlay(key, {
-		update: (data) => {
-			const requestsById = { ...data.requestsById };
-			delete requestsById[requestId];
-			return { ...data, requestsById };
-		},
-	});
 	const commandId = CommandId.make(
-		`permission-decide:${requestId}:${Date.now().toString(36)}`,
+		`permission-decide:${request.id}:${Date.now().toString(36)}`,
 	);
-	try {
-		await bus.dispatch({
-			kind: "permission.decide",
-			commandId,
+	// The durable session timeline owns prompt visibility and its submission
+	// overlay. The environment stream only proves a live callback is attached.
+	// An authoritative PermissionResolved event removes the durable prompt.
+	await dispatchSessionCommand({
+		kind: "permission.decide",
+		commandId,
+		ref: {
 			environmentId: selectedEnvironmentId,
-			resource: key,
-			payload: { requestId, decision },
-			retry: "never",
-			createdAt: Date.now(),
-		});
-	} catch (cause) {
-		if (previous !== undefined) {
-			bus.overlay(key, {
-				update: (data) => ({
-					...data,
-					requestsById: { ...data.requestsById, [previous.id]: previous },
-				}),
-			});
-		}
-		throw cause;
-	}
+			sessionId: request.sessionId,
+		},
+		payload: { requestId: request.id, decision },
+		retry: "never",
+	});
 };
 
 /** A user denial rejects the requested action and ends that agent turn. */
@@ -200,11 +183,7 @@ export const denyEnvironmentPermissionAndInterrupt = async (
 	request: Pick<PermissionRequest, "id" | "sessionId">,
 	environmentId: EnvironmentId,
 ): Promise<void> => {
-	await decideEnvironmentPermission(
-		request.id,
-		{ _tag: "Deny" },
-		environmentId,
-	);
+	await decideEnvironmentPermission(request, { _tag: "Deny" }, environmentId);
 	await interruptSession({ environmentId, sessionId: request.sessionId });
 };
 

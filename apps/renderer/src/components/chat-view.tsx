@@ -154,6 +154,15 @@ export const resolvePendingStartupTranscriptPrompt = (
 	return creation.startupInput.text.trim() || null;
 };
 
+export const resolveAwaitingUserAction = (input: {
+	readonly awaitingPlanApproval: boolean;
+	readonly livePermissionCount: number;
+	readonly durableQuestionCount: number;
+}): boolean =>
+	input.awaitingPlanApproval ||
+	input.livePermissionCount > 0 ||
+	input.durableQuestionCount > 0;
+
 function resolveTimelineIsAtEnd(
 	state: TimelineEndState | undefined,
 ): boolean | undefined {
@@ -225,19 +234,23 @@ export function ChatView({
 					connection: cloudShell.connection,
 					runtime: runtimeState,
 				});
-	const turnStartPending = hasPendingTurnStart(timeline.view.pendingCommands);
 	const inFlight =
 		cloudActivity === null
-			? runtimeState === "starting" ||
-				runtimeState === "running" ||
-				runtimeState === "stopping" ||
-				turnStartPending
+			? timeline.presentation.busy
 			: waitingMessages.length === 0 &&
-				(cloudChatShowsWorking(cloudActivity) || turnStartPending);
+				(cloudChatShowsWorking(cloudActivity) ||
+					timeline.presentation.turnInFlight);
 	const permissionRequests =
 		useEnvironmentPermissions(environmentId).data?.requestsById ?? {};
-	const sessionPermissionRequests = Object.values(permissionRequests).filter(
-		(request) => request.sessionId === sessionId,
+	const durableQuestionCount = timeline.presentation.interactions.filter(
+		(item) => item.interaction._tag === "Question",
+	).length;
+	const sessionPermissionRequests = timeline.presentation.interactions.flatMap(
+		(item) =>
+			item.interaction._tag === "Permission" &&
+			permissionRequests[item.interaction.id] !== undefined
+				? [item.interaction.request]
+				: [],
 	);
 	const awaitingPermissionPlanApproval = (() => {
 		for (const request of sessionPermissionRequests) {
@@ -248,9 +261,12 @@ export function ChatView({
 	})();
 	const awaitingPlanApproval =
 		awaitingPermissionPlanApproval ||
-		deriveChatAttentionState(messages, inFlight) === "planReady";
-	const awaitingUserAction =
-		awaitingPlanApproval || sessionPermissionRequests.length > 0;
+		deriveChatAttentionState(messages, inFlight, []) === "planReady";
+	const awaitingUserAction = resolveAwaitingUserAction({
+		awaitingPlanApproval,
+		livePermissionCount: sessionPermissionRequests.length,
+		durableQuestionCount,
+	});
 	const worktreeId = session?.worktreeId ?? null;
 	const worktreeSetupStatus = useWorktreesStore((state) => {
 		if (worktreeId === null) return null;
@@ -791,6 +807,7 @@ export function ChatView({
 			folderId={session?.projectId ?? null}
 			worktreeId={session?.worktreeId ?? null}
 		>
+			<h1 className="sr-only">{session.title || "New chat"}</h1>
 			<div
 				data-chat-viewport
 				className="relative flex min-h-0 min-w-0 flex-1 [container-type:inline-size]"
@@ -1045,6 +1062,7 @@ function TimelineRow({
 		case "working":
 			content = (
 				<ChatWorkingRow
+					environmentId={environmentId}
 					messages={row.messages}
 					chatId={chatId}
 					pendingCommands={pendingCommands}

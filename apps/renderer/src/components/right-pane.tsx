@@ -23,23 +23,45 @@ import {
 } from "@zuse/icons/solid-rounded";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";
-import { lazy, Suspense, useMemo, useRef, useSyncExternalStore } from "react";
+import {
+	lazy,
+	Suspense,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import {
 	cloudSyncLocalPath,
 	enableCloudSync,
 } from "../lib/cloud-sync-client-bus.ts";
 import { cloudSummaryForChat } from "../lib/cloud-workspace-catalog.ts";
 import { ensureCloudWorkspaceAttached } from "../lib/cloud-workspaces.ts";
+import { makeCommittedAuthority } from "../lib/committed-authority.ts";
 import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
 import {
 	useGitPrDetailsResource,
 	useGitWorkspaceResource,
 } from "../lib/git-workspace-client-bus.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
+import {
+	restoreOrAddRightTerminal,
+	wakeAndRestoreCloudRightTerminal,
+} from "../lib/right-terminal-controller.ts";
 import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
 import { isSessionTurnActive } from "../lib/session-runtime-state.ts";
 import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
+import {
+	hydrateRightTerminalCatalog,
+	invalidateTerminalCatalog,
+} from "../lib/terminal-catalog.ts";
+import {
+	terminalOwnerLimitMessageFor,
+	terminalOwnerLimitReached,
+} from "../lib/terminal-policy.ts";
 import * as terminalRegistry from "../lib/terminal-registry.ts";
 import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
@@ -49,6 +71,7 @@ import { useRegisterPane } from "../store/pane-focus.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import {
 	EMPTY_TERMINALS,
+	terminalOwnerId,
 	terminalsKey,
 	useTerminalsStore,
 } from "../store/terminals.ts";
@@ -199,12 +222,26 @@ function addableKinds(
 type CloudTerminalActions = Readonly<{
 	onAddCloud: () => void;
 	onAddLocal: () => void;
+	cloudDisabledReason: string | null;
+	localDisabledReason: string | null;
 }>;
+
+type TerminalCatalogTarget = "cloud" | "local" | "project";
+
+type CanonicalRootWaiter = Readonly<{
+	chatKey: string | null;
+	resolve: (rootPath: string) => void;
+	reject: (cause: Error) => void;
+	timeout: ReturnType<typeof setTimeout>;
+}>;
+
+const CANONICAL_ROOT_TIMEOUT_MS = 15_000;
 
 const panelChoices = (
 	kind: PanelKind,
 	cloudTerminals: CloudTerminalActions | null,
 	onAdd: (kind: PanelKind) => void,
+	projectTerminalDisabledReason: string | null,
 ) => {
 	if (kind === "terminal" && cloudTerminals !== null)
 		return [
@@ -213,12 +250,14 @@ const panelChoices = (
 				label: uiMessage("chat:right_pane_cloud_terminal"),
 				icon: CloudIcon,
 				onClick: cloudTerminals.onAddCloud,
+				disabledReason: cloudTerminals.cloudDisabledReason,
 			},
 			{
 				key: "local-terminal",
 				label: uiMessage("chat:right_pane_local_terminal"),
 				icon: ComputerIcon,
 				onClick: cloudTerminals.onAddLocal,
+				disabledReason: cloudTerminals.localDisabledReason,
 			},
 		];
 	const meta = PANEL_META[kind];
@@ -228,6 +267,8 @@ const panelChoices = (
 			label: meta.label,
 			icon: meta.icon,
 			onClick: () => onAdd(kind),
+			disabledReason:
+				kind === "terminal" ? projectTerminalDisabledReason : null,
 		},
 	];
 };
@@ -293,6 +334,57 @@ export function RightPane({
 			chatId,
 		};
 	}, [catalogEnvironmentId, chatId, ctx, uiMessage]);
+	const terminalCatalogEnvironmentId = chatRef?.environmentId ?? null;
+	const terminalCatalogChatId = chatRef?.chatId ?? null;
+	const localTerminalEnvironmentId = EnvironmentId.make(
+		getLocalEnvironmentId(),
+	);
+	const activeContextStatus = ctx.status;
+	useEffect(() => {
+		if (
+			terminalCatalogEnvironmentId === null ||
+			terminalCatalogChatId === null ||
+			directoryUnavailable ||
+			activeContextStatus === "loading" ||
+			activeContextStatus === "empty"
+		) {
+			return;
+		}
+		const catalogRef = {
+			environmentId: terminalCatalogEnvironmentId,
+			chatId: terminalCatalogChatId,
+		} as const;
+		const includeOwnerEnvironment = activeContextStatus !== "cloud-unavailable";
+		void hydrateRightTerminalCatalog(catalogRef, localTerminalEnvironmentId, {
+			// A catalog read uses the normal environment connection path. While the
+			// cloud is unavailable, restore only the local synced-checkout PTYs and
+			// leave cloud attachment to the existing explicit wake flow.
+			includeOwnerEnvironment,
+		}).catch(() => undefined);
+		return () => {
+			invalidateTerminalCatalog(
+				catalogRef,
+				"right",
+				localTerminalEnvironmentId,
+			);
+			if (
+				includeOwnerEnvironment &&
+				terminalCatalogEnvironmentId !== localTerminalEnvironmentId
+			) {
+				invalidateTerminalCatalog(
+					catalogRef,
+					"right",
+					terminalCatalogEnvironmentId,
+				);
+			}
+		};
+	}, [
+		activeContextStatus,
+		directoryUnavailable,
+		localTerminalEnvironmentId,
+		terminalCatalogChatId,
+		terminalCatalogEnvironmentId,
+	]);
 	const cloudSummary =
 		cloudSummaryCandidate?.workspaceId === chatRef?.environmentId
 			? cloudSummaryCandidate
@@ -335,6 +427,70 @@ export function RightPane({
 		terminalRegistry.getStatusesSnapshot,
 		terminalRegistry.getStatusesSnapshot,
 	);
+	const rightTerminalOwnerId =
+		chatRef === null ? null : terminalOwnerId(chatRef, "right");
+	const cloudTerminalLimitReached =
+		chatRef !== null &&
+		rightTerminalOwnerId !== null &&
+		terminalOwnerLimitReached(
+			termList,
+			chatRef.environmentId,
+			rightTerminalOwnerId,
+		);
+	const localTerminalLimitReached =
+		rightTerminalOwnerId !== null &&
+		terminalOwnerLimitReached(
+			termList,
+			localTerminalEnvironmentId,
+			rightTerminalOwnerId,
+		);
+	const terminalActionRef = useRef<symbol | null>(null);
+	const activeChatKeyAuthorityRef = useRef(makeCommittedAuthority(chatKey));
+	const canonicalRootPathAuthorityRef = useRef(
+		makeCommittedAuthority(executionRootPath),
+	);
+	useLayoutEffect(() => {
+		activeChatKeyAuthorityRef.current.commit(chatKey);
+		canonicalRootPathAuthorityRef.current.commit(executionRootPath);
+	}, [chatKey, executionRootPath]);
+	const canonicalRootWaitersRef = useRef(new Set<CanonicalRootWaiter>());
+	const [terminalAction, setTerminalAction] =
+		useState<TerminalCatalogTarget | null>(null);
+	const [terminalCatalogError, setTerminalCatalogError] = useState<Readonly<{
+		target: TerminalCatalogTarget;
+		message: string;
+		detail: string;
+	}> | null>(null);
+	useEffect(() => {
+		terminalActionRef.current = null;
+		setTerminalAction(null);
+		setTerminalCatalogError(null);
+		for (const waiter of canonicalRootWaitersRef.current) {
+			if (waiter.chatKey === chatKey) continue;
+			clearTimeout(waiter.timeout);
+			canonicalRootWaitersRef.current.delete(waiter);
+			waiter.reject(new Error("Terminal action moved to another chat"));
+		}
+	}, [chatKey]);
+	useEffect(() => {
+		if (executionRootPath === null) return;
+		for (const waiter of canonicalRootWaitersRef.current) {
+			if (waiter.chatKey !== chatKey) continue;
+			clearTimeout(waiter.timeout);
+			canonicalRootWaitersRef.current.delete(waiter);
+			waiter.resolve(executionRootPath);
+		}
+	}, [chatKey, executionRootPath]);
+	useEffect(
+		() => () => {
+			for (const waiter of canonicalRootWaitersRef.current) {
+				clearTimeout(waiter.timeout);
+				waiter.reject(new Error("Terminal surface was unmounted"));
+			}
+			canonicalRootWaitersRef.current.clear();
+		},
+		[],
+	);
 
 	const panels = useUiStore((s) =>
 		chatKey ? (s.rightPanelsByChat[chatKey] ?? EMPTY_PANELS) : EMPTY_PANELS,
@@ -350,37 +506,167 @@ export function RightPane({
 		if (cloudSummary !== null)
 			void ensureCloudWorkspaceAttached(cloudSummary).catch(() => {});
 	};
-	const addPanelForTerminal = (ref: ChatRef, slot: number) => {
-		useUiStore.getState().addTerminalPanelForSlot(ref, slot);
-		useUiStore.getState().setRightSidebarOpenForChat(ref, true);
+	const beginTerminalAction = (
+		target: TerminalCatalogTarget,
+	): symbol | null => {
+		if (terminalActionRef.current !== null) return null;
+		const token = Symbol(target);
+		terminalActionRef.current = token;
+		setTerminalAction(target);
+		setTerminalCatalogError(null);
+		return token;
+	};
+	const finishTerminalAction = (token: symbol): void => {
+		if (terminalActionRef.current !== token) return;
+		terminalActionRef.current = null;
+		setTerminalAction(null);
+	};
+	const isCurrentTerminalAction = (
+		token: symbol,
+		expectedChatKey: string | null,
+	): boolean =>
+		terminalActionRef.current === token &&
+		activeChatKeyAuthorityRef.current.isCurrent(expectedChatKey);
+	const reportTerminalCatalogFailure = (
+		target: TerminalCatalogTarget,
+		cause: unknown,
+	): void => {
+		setTerminalCatalogError({
+			target,
+			message: `Could not restore ${target} terminals.`,
+			detail: cause instanceof Error ? cause.message : String(cause),
+		});
+	};
+	const waitForCanonicalRootPath = (
+		expectedChatKey: string | null,
+	): Promise<string> => {
+		if (!activeChatKeyAuthorityRef.current.isCurrent(expectedChatKey)) {
+			return Promise.reject(new Error("Terminal action moved to another chat"));
+		}
+		const current = canonicalRootPathAuthorityRef.current.current();
+		if (current !== null) return Promise.resolve(current);
+		return new Promise<string>((resolve, reject) => {
+			const waiter = {
+				chatKey: expectedChatKey,
+				resolve,
+				reject,
+				timeout: setTimeout(() => {
+					canonicalRootWaitersRef.current.delete(waiter);
+					reject(new Error("Cloud workspace root did not become available"));
+				}, CANONICAL_ROOT_TIMEOUT_MS),
+			} satisfies CanonicalRootWaiter;
+			canonicalRootWaitersRef.current.add(waiter);
+		});
 	};
 	const handleAddPanel = (kind: PanelKind) => {
+		if (kind === "terminal") {
+			handleAddProjectTerminal();
+			return;
+		}
 		if (chatRef === null) return;
 		addPanel(chatRef, kind);
 		if (LIVE_PANEL_KINDS.has(kind)) requestCloudAttachment();
 	};
-	const handleAddCloudTerminal = () => {
-		if (chatRef === null || executionRootPath === null) return;
-		const slot = useTerminalsStore
-			.getState()
-			.add(chatRef, chatRef.environmentId, executionRootPath, "Cloud");
-		addPanelForTerminal(chatRef, slot);
-		requestCloudAttachment();
+	const handleAddProjectTerminal = () => {
+		const token = beginTerminalAction("project");
+		if (token === null) return;
+		const expectedChatKey = chatKey;
+		void (async () => {
+			try {
+				if (chatRef === null || selected === null) {
+					throw new Error("Select a project chat first");
+				}
+				const result = await restoreOrAddRightTerminal({
+					ref: chatRef,
+					environmentId: chatRef.environmentId,
+					cwd: executionRootPath ?? selected.path,
+					isCurrent: () => isCurrentTerminalAction(token, expectedChatKey),
+				});
+				if (!isCurrentTerminalAction(token, expectedChatKey)) return;
+				if (result.status === "failed") {
+					reportTerminalCatalogFailure("project", result.cause);
+				}
+			} catch (cause) {
+				if (isCurrentTerminalAction(token, expectedChatKey)) {
+					reportTerminalCatalogFailure("project", cause);
+				}
+			} finally {
+				finishTerminalAction(token);
+			}
+		})();
 	};
-	const handleAddLocalTerminal = async () => {
-		if (chatRef === null || cloudSummary === null) return;
-		const localPath = await cloudSyncLocalPath(cloudSummary.workspaceId);
-		if (localPath === null) return;
-		const slot = useTerminalsStore
-			.getState()
-			.add(
-				chatRef,
-				EnvironmentId.make(getLocalEnvironmentId()),
-				localPath,
-				"Local",
-			);
-		addPanelForTerminal(chatRef, slot);
-		void enableCloudSync(cloudSummary.workspaceId);
+	const handleAddCloudTerminal = () => {
+		const token = beginTerminalAction("cloud");
+		if (token === null) return;
+		const expectedChatKey = chatKey;
+		void (async () => {
+			try {
+				if (chatRef === null || cloudSummary === null) {
+					throw new Error("Cloud workspace is unavailable for this chat");
+				}
+				const result = await wakeAndRestoreCloudRightTerminal({
+					ref: chatRef,
+					title: "Cloud",
+					getCanonicalRootPath: () =>
+						canonicalRootPathAuthorityRef.current.current(),
+					waitForCanonicalRootPath: () =>
+						waitForCanonicalRootPath(expectedChatKey),
+					ensureAttached: () => ensureCloudWorkspaceAttached(cloudSummary),
+					isCurrent: () => isCurrentTerminalAction(token, expectedChatKey),
+				});
+				if (!isCurrentTerminalAction(token, expectedChatKey)) return;
+				if (result.status === "failed") {
+					reportTerminalCatalogFailure("cloud", result.cause);
+					return;
+				}
+				if (result.status === "cancelled") return;
+			} catch (cause) {
+				if (isCurrentTerminalAction(token, expectedChatKey)) {
+					reportTerminalCatalogFailure("cloud", cause);
+				}
+			} finally {
+				finishTerminalAction(token);
+			}
+		})();
+	};
+	const handleAddLocalTerminal = () => {
+		const token = beginTerminalAction("local");
+		if (token === null) return;
+		const expectedChatKey = chatKey;
+		void (async () => {
+			try {
+				if (chatRef === null || cloudSummary === null) {
+					throw new Error("Local sync is unavailable for this chat");
+				}
+				const localPath = await cloudSyncLocalPath(cloudSummary.workspaceId);
+				if (!isCurrentTerminalAction(token, expectedChatKey)) {
+					return;
+				}
+				if (localPath === null) {
+					throw new Error("Local synced checkout is unavailable");
+				}
+				const result = await restoreOrAddRightTerminal({
+					ref: chatRef,
+					environmentId: localTerminalEnvironmentId,
+					cwd: localPath,
+					title: "Local",
+					isCurrent: () => isCurrentTerminalAction(token, expectedChatKey),
+				});
+				if (!isCurrentTerminalAction(token, expectedChatKey)) return;
+				if (result.status === "failed") {
+					reportTerminalCatalogFailure("local", result.cause);
+					return;
+				}
+				if (result.status === "cancelled") return;
+				void enableCloudSync(cloudSummary.workspaceId);
+			} catch (cause) {
+				if (isCurrentTerminalAction(token, expectedChatKey)) {
+					reportTerminalCatalogFailure("local", cause);
+				}
+			} finally {
+				finishTerminalAction(token);
+			}
+		})();
 	};
 	const addablePanels = addableKinds(panels).filter(
 		(kind) =>
@@ -474,7 +760,10 @@ export function RightPane({
 
 	if (selected === null) {
 		return (
-			<aside className="flex h-full min-h-0 w-full flex-col">
+			<aside
+				aria-label="Workspace panels"
+				className="flex h-full min-h-0 w-full flex-col"
+			>
 				<p className="px-3 py-6 text-center text-xs text-muted-foreground">
 					{uiMessage("chat:right_pane_no_project_selected")}
 				</p>
@@ -492,18 +781,51 @@ export function RightPane({
 			: {
 					onAddCloud: handleAddCloudTerminal,
 					onAddLocal: () => void handleAddLocalTerminal(),
+					cloudDisabledReason:
+						terminalAction !== null
+							? "Another terminal action is already in progress."
+							: cloudTerminalLimitReached
+								? terminalOwnerLimitMessageFor(
+										chatRef.environmentId,
+										rightTerminalOwnerId,
+									)
+								: null,
+					localDisabledReason:
+						terminalAction !== null
+							? "Another terminal action is already in progress."
+							: localTerminalLimitReached
+								? terminalOwnerLimitMessageFor(
+										localTerminalEnvironmentId,
+										rightTerminalOwnerId,
+									)
+								: null,
 				};
+	const projectTerminalDisabledReason =
+		cloudSummary !== null
+			? null
+			: chatRef === null
+				? "Select a chat first."
+				: terminalAction !== null
+					? "Another terminal action is already in progress."
+					: cloudTerminalLimitReached
+						? terminalOwnerLimitMessageFor(
+								chatRef.environmentId,
+								rightTerminalOwnerId,
+							)
+						: null;
 	const addPanelMenu = (
 		<AddPanelMenu
 			addable={addablePanels}
 			onAdd={handleAddPanel}
 			cloudTerminals={cloudTerminalActions}
+			projectTerminalDisabledReason={projectTerminalDisabledReason}
 		/>
 	);
 
 	return (
 		<aside
 			ref={paneRef}
+			aria-label="Workspace panels"
 			data-pane="rightPane"
 			tabIndex={-1}
 			className="flex h-full min-h-0 w-full flex-col outline-none"
@@ -531,6 +853,37 @@ export function RightPane({
 					{addPanelMenu}
 				</div>
 			) : null}
+			{terminalAction !== null ? (
+				<div
+					role="status"
+					className="flex h-7 shrink-0 items-center px-2 text-[11px] text-muted-foreground"
+				>
+					Restoring {terminalAction} terminal…
+				</div>
+			) : terminalCatalogError !== null ? (
+				<div
+					role="alert"
+					title={terminalCatalogError.detail}
+					className="flex h-7 shrink-0 items-center gap-2 px-2 text-[11px] text-muted-foreground"
+				>
+					<span className="min-w-0 flex-1 truncate">
+						{terminalCatalogError.message}
+					</span>
+					<button
+						type="button"
+						className="h-7 rounded bg-muted px-2 text-foreground hover:bg-muted/80"
+						onClick={
+							terminalCatalogError.target === "cloud"
+								? handleAddCloudTerminal
+								: terminalCatalogError.target === "local"
+									? handleAddLocalTerminal
+									: handleAddProjectTerminal
+						}
+					>
+						Retry
+					</button>
+				</div>
+			) : null}
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
 				{visiblePanels.length === 0 ? (
 					<PanelLauncher
@@ -538,6 +891,7 @@ export function RightPane({
 						addable={addablePanels}
 						onAdd={handleAddPanel}
 						cloudTerminals={cloudTerminalActions}
+						projectTerminalDisabledReason={projectTerminalDisabledReason}
 					/>
 				) : null}
 				{/* Non-browser panels: mount on add, kept mounted while open. */}
@@ -740,11 +1094,13 @@ function PanelLauncher({
 	addable,
 	onAdd,
 	cloudTerminals,
+	projectTerminalDisabledReason,
 }: {
 	actions: React.ReactNode;
 	addable: ReadonlyArray<PanelKind>;
 	onAdd: (kind: PanelKind) => void;
 	cloudTerminals: CloudTerminalActions | null;
+	projectTerminalDisabledReason: string | null;
 }) {
 	return (
 		<div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-3">
@@ -752,12 +1108,19 @@ function PanelLauncher({
 			<div className="flex w-full max-w-md flex-col gap-1.5">
 				{addable.flatMap((kind) => {
 					const meta = PANEL_META[kind];
-					return panelChoices(kind, cloudTerminals, onAdd).map((choice) => (
+					return panelChoices(
+						kind,
+						cloudTerminals,
+						onAdd,
+						projectTerminalDisabledReason,
+					).map((choice) => (
 						<button
 							key={choice.key}
 							type="button"
 							onClick={choice.onClick}
-							className="flex w-full items-center gap-3 rounded-lg bg-card/80 px-3 py-3 text-left text-sm text-foreground/90 transition-colors hover:bg-card/60"
+							disabled={choice.disabledReason !== null}
+							title={choice.disabledReason ?? undefined}
+							className="flex w-full items-center gap-3 rounded-lg bg-card/80 px-3 py-3 text-left text-sm text-foreground/90 transition-colors hover:bg-card/60 disabled:cursor-not-allowed disabled:opacity-50"
 						>
 							<HugeiconsIcon
 								icon={choice.icon}
@@ -782,10 +1145,12 @@ function AddPanelMenu({
 	addable,
 	onAdd,
 	cloudTerminals,
+	projectTerminalDisabledReason,
 }: {
 	addable: ReadonlyArray<PanelKind>;
 	onAdd: (kind: PanelKind) => void;
 	cloudTerminals: CloudTerminalActions | null;
+	projectTerminalDisabledReason: string | null;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
@@ -809,10 +1174,17 @@ function AddPanelMenu({
 				{addable.length > 0
 					? addable.flatMap((kind) => {
 							const meta = PANEL_META[kind];
-							return panelChoices(kind, cloudTerminals, onAdd).map((choice) => (
+							return panelChoices(
+								kind,
+								cloudTerminals,
+								onAdd,
+								projectTerminalDisabledReason,
+							).map((choice) => (
 								<MenuItem
 									key={choice.key}
 									onClick={choice.onClick}
+									disabled={choice.disabledReason !== null}
+									title={choice.disabledReason ?? undefined}
 									className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-sm hover:bg-sidebar-accent"
 								>
 									<HugeiconsIcon

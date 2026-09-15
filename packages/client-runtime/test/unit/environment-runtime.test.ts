@@ -494,6 +494,54 @@ describe("EnvironmentRuntimeRegistry", () => {
 		await registry.dispose();
 	});
 
+	it("closes retained runtimes on an offline edge and reconnects once online", async () => {
+		let online = true;
+		let resolves = 0;
+		const disposed: number[] = [];
+		const registry = new EnvironmentRuntimeRegistry<{ id: number }>(
+			{
+				resolve: () => {
+					const id = ++resolves;
+					return Effect.succeed({
+						client: { id },
+						dispose: async () => {
+							disposed.push(id);
+						},
+					});
+				},
+			},
+			{ isOnline: () => online },
+		);
+		const runtime = registry.get(
+			EnvironmentId.make("environment-platform-edge"),
+		);
+		const lease = runtime.retain("connect");
+		await waitUntil(() => runtime.snapshot().phase === "connected");
+
+		online = false;
+		const setOnline = (
+			registry as unknown as { setOnline: (nextOnline: boolean) => void }
+		).setOnline;
+		setOnline.call(registry, false);
+		await waitUntil(() => disposed.length === 1);
+		expect(runtime.snapshot()).toMatchObject({
+			phase: "offline",
+			generation: 1,
+		});
+		expect(runtime.currentClient()).toBeNull();
+		expect(resolves).toBe(1);
+
+		online = true;
+		setOnline.call(registry, true);
+		await waitUntil(() => runtime.snapshot().phase === "connected");
+		expect(runtime.snapshot().generation).toBe(2);
+		expect(resolves).toBe(2);
+
+		lease.release();
+		await registry.dispose();
+		expect(disposed).toEqual([1, 2]);
+	});
+
 	it("recomputes activation per lease and closes after final network downgrade", async () => {
 		const activations: string[] = [];
 		let disposals = 0;
