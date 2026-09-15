@@ -4,6 +4,7 @@ import type { IconSvgElement } from "@hugeicons/react";
 import { message as uiMessage } from "@zuse/i18n";
 import {
 	BrowserIcon,
+	CodeIcon,
 	ConnectIcon,
 	DocumentAttachmentIcon,
 	KeyboardIcon,
@@ -42,6 +43,14 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		},
 		Icon: PackageIcon,
 		section: { kind: "providers" },
+	},
+	{
+		id: "agent-plugins",
+		get label() {
+			return uiMessage("extensions:plugins_title");
+		},
+		Icon: CodeIcon,
+		section: { kind: "agent-plugins" },
 	},
 	{
 		id: "extensions",
