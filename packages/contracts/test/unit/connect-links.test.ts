@@ -4,6 +4,7 @@ import {
 	buildBrowserPairUrl,
 	buildConnectDeepLink,
 	formatPairingCodeForDisplay,
+	isPairingCodeInput,
 	isPrivateOrLocalHost,
 	normalizePairingCodeInput,
 	parseConnectLink,
@@ -12,6 +13,23 @@ import {
 
 const link = (pairingUrl: string, code = "zp_code") =>
 	`zuse:///connect/pair?pairingUrl=${encodeURIComponent(pairingUrl)}#token=${code}`;
+
+describe("isPairingCodeInput", () => {
+	it.each([
+		"ABCD2345",
+		" abcd-2345 ",
+		"abcd 2345",
+		"zp_legacyCode",
+	])("recognizes redeemable code %s", (value) =>
+		expect(isPairingCodeInput(value)).toBe(true));
+	it.each([
+		"",
+		"zt_existing",
+		"eyJ.example.signature",
+		"ABCD23456",
+	])("does not classify %s as a pairing code", (value) =>
+		expect(isPairingCodeInput(value)).toBe(false));
+});
 
 describe("parseConnectLink", () => {
 	it.each([

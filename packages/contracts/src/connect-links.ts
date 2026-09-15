@@ -186,6 +186,12 @@ export const SHORT_PAIRING_CODE_LENGTH = 8;
 
 const SHORT_CODE_SHAPE = /^[a-z0-9]{4}[\s-]?[a-z0-9]{4}$/iu;
 
+/** Pairing codes must be redeemed; they are not bearer credentials. */
+export const isPairingCodeInput = (value: string): boolean => {
+	const trimmed = value.trim();
+	return trimmed.startsWith("zp_") || SHORT_CODE_SHAPE.test(trimmed);
+};
+
 /** `ABCDEFGH` → `ABCD-EFGH` for display; other code shapes pass through. */
 export const formatPairingCodeForDisplay = (code: string): string =>
 	code.length === SHORT_PAIRING_CODE_LENGTH && !code.includes("-")
