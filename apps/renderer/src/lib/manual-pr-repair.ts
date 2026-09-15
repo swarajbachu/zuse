@@ -1,6 +1,6 @@
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
-import { type ComposerInput, MessageId } from "@zuse/contracts";
+import { CommandId, type ComposerInput, MessageId } from "@zuse/contracts";
 import { pendingSessionMessages } from "./pending-session-messages.ts";
 import { sendSessionMessage } from "./session-actions.ts";
 
@@ -8,6 +8,15 @@ const retries = new Map<
 	string,
 	{ messageId: MessageId; input: ComposerInput }
 >();
+
+/** Only the retained repair command may pass the manual retry guard. */
+export function pendingManualRepairCommand(
+	ref: SessionRef,
+	repairKey: string,
+): CommandId | null {
+	const retry = retries.get(JSON.stringify([resourceRefKey(ref), repairKey]));
+	return retry ? CommandId.make(`message-send:${retry.messageId}`) : null;
+}
 
 /** An unconfirmed send keeps its original payload and command identity. */
 export async function sendManualPrRepair(

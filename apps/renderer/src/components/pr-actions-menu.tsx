@@ -28,7 +28,10 @@ import {
 	gitWorkspaceResourceKey,
 	refreshGitWorkspace,
 } from "../lib/git-workspace-client-bus.ts";
-import { sendManualPrRepair } from "../lib/manual-pr-repair.ts";
+import {
+	pendingManualRepairCommand,
+	sendManualPrRepair,
+} from "../lib/manual-pr-repair.ts";
 import { openExternal } from "../lib/platform-capabilities.ts";
 import {
 	type PrRepairScope,
@@ -130,6 +133,11 @@ export function PrActionsMenu({
 	const repair = (scope: PrRepairScope) =>
 		run(async () => {
 			if (!details || !sessionId) return;
+			const repairKey = JSON.stringify([details.url, details.headSha, scope]);
+			const retainedCommand = pendingManualRepairCommand(
+				{ environmentId: executionRef.environmentId, sessionId },
+				repairKey,
+			);
 			const input = await preparePrRepair(
 				executionRef,
 				sessionId,
@@ -157,14 +165,16 @@ export function PrActionsMenu({
 				timeline.data?.status !== "idle" ||
 				timeline.data.currentTurn !== null ||
 				timeline.data.queue.items.length > 0 ||
-				timeline.pendingCommands.length > 0
+				timeline.pendingCommands.some(
+					(command) => command.commandId !== retainedCommand,
+				)
 			)
 				throw new Error(uiMessage("projects:github_repair_state_changed"));
 
 			onChat();
 			const accepted = await sendManualPrRepair(
 				{ environmentId: executionRef.environmentId, sessionId },
-				JSON.stringify([details.url, details.headSha, scope]),
+				repairKey,
 				input,
 			);
 			if (!accepted)
