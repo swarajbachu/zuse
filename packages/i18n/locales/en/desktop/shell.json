@@ -55,5 +55,6 @@
 	"browser_access_gate_unnamed_computer": "Unnamed computer",
 	"pending_chat_creation_chat_startup_needs_attention": "Chat startup needs attention.",
 	"pi_available": "Available",
-	"pi_native_auth_permissions": "Authentication and permissions are managed by Pi."
+	"pi_native_auth_permissions": "Authentication and permissions are managed by Pi.",
+	"chat_loading_fallback_loading_chat": "Loading chat…"
 }

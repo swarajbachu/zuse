@@ -23771,7 +23771,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/shell/main-shell.tsx",
-				"line": 712
+				"line": 768
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -23781,7 +23781,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/shell/main-shell.tsx",
-				"line": 730
+				"line": 786
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -24352,6 +24352,16 @@
 			{
 				"path": "apps/renderer/src/lib/provider-status.ts",
 				"line": 192
+			}
+		],
+		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"shell:chat_loading_fallback_loading_chat": {
+		"source": "Loading chat…",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/chat-loading-fallback.tsx",
+				"line": 37
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

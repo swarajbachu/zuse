@@ -22,6 +22,7 @@ import {
 	usePanelRef,
 } from "react-resizable-panels";
 
+import { ChatLoadingFallback } from "../components/chat-loading-fallback.tsx";
 import { CloudConnectionNotice } from "../components/cloud-connection-notice.tsx";
 import { PendingChatCreationSurface } from "../components/pending-chat-creation.tsx";
 import { useChatDirectoryStatus } from "../hooks/use-chat-directory-status.ts";
@@ -637,7 +638,17 @@ export function MainShell() {
 								// bottom (no full-screen takeover).
 								<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1">
 									<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-										<Suspense fallback={<SurfaceFallback />}>
+										<Suspense
+											fallback={
+												<ChatLoadingFallback
+													title={
+														selectedCloudSummary?.title ??
+														selectedSession.title ??
+														undefined
+													}
+												/>
+											}
+										>
 											<ChatView
 												sessionId={selectedSessionId}
 												environmentId={selectedEnvironmentId}
@@ -699,14 +710,10 @@ export function MainShell() {
 							) : chatSurface === "pending" && pendingCreation !== null ? (
 								<PendingChatCreationSurface creation={pendingCreation} />
 							) : chatSurface === "cloud-pending" ? (
-								<div className="flex min-h-0 flex-1 flex-col">
-									<div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-										{selectedCloudSummary?.title}
-									</div>
-									<div className="mx-auto w-full max-w-3xl px-6 pb-4">
-										<CloudConnectionNotice />
-									</div>
-								</div>
+								<ChatLoadingFallback
+									title={selectedCloudSummary?.title}
+									footer={<CloudConnectionNotice />}
+								/>
 							) : (
 								<Suspense fallback={<SurfaceFallback />}>
 									<ChatLanding />
