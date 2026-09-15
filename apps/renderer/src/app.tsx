@@ -32,6 +32,12 @@ import { useSettingsStore } from "./lib/settings-client-bus.ts";
 
 import { useUiStore } from "./store/ui.ts";
 
+const PrWatchController = lazy(() =>
+	import("./components/pr-watch-controller.tsx").then((module) => ({
+		default: module.PrWatchController,
+	})),
+);
+
 const NearbyPairingApproval = lazy(() =>
 	import("./components/nearby-pairing-approval.tsx").then((module) => ({
 		default: module.NearbyPairingApproval,
@@ -68,6 +74,7 @@ function AmbientSurfaces() {
 	return (
 		<Suspense fallback={null}>
 			<NotchTrayBridge />
+			<PrWatchController />
 			<NearbyPairingApproval />
 			<PairingLinkAccept />
 		</Suspense>

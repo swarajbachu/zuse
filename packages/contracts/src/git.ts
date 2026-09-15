@@ -391,6 +391,7 @@ export class GitPrDetails extends Schema.Class<GitPrDetails>("GitPrDetails")({
 	author: Schema.String,
 	baseBranch: Schema.NullOr(Schema.String),
 	headBranch: Schema.NullOr(Schema.String),
+	headSha: Schema.optional(Schema.NullOr(Schema.String)),
 	comments: Schema.Array(GitPrComment),
 	reviews: Schema.Array(GitPrReview),
 	files: Schema.Array(GitPrFile),

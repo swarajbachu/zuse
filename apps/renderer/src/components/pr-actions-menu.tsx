@@ -39,6 +39,7 @@ import {
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { useMergePrefs } from "../store/merge-prefs.ts";
 import { useSessionsStore } from "../store/sessions.ts";
+import { PrWatchMenu } from "./pr-watch-menu.tsx";
 import {
 	Menu,
 	MenuItem,
@@ -159,10 +160,14 @@ export function PrActionsMenu({
 				);
 
 			onChat();
-			await sendSessionMessage(
+			const accepted = await sendSessionMessage(
 				{ environmentId: executionRef.environmentId, sessionId },
 				input,
 			);
+			if (!accepted)
+				throw new Error(
+					"Repair could not be sent. Check the chat and try again.",
+				);
 		});
 	const comments = details
 		? [...details.comments, ...details.reviews].filter((item) =>
@@ -229,6 +234,11 @@ export function PrActionsMenu({
 						</MenuItem>
 					</MenuSubPopup>
 				</MenuSub>
+				<PrWatchMenu
+					executionRef={executionRef}
+					pr={pr}
+					sessionId={sessionId}
+				/>
 				{pr.state === "open" && !pr.isDraft ? (
 					<MenuSub>
 						<MenuSubTrigger disabled={busy}>

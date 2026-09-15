@@ -718,7 +718,12 @@ export const GitServiceLive = Layer.effect(
 						yield* run(folderId, cwd, ["check-ref-format", "--branch", branch]);
 						args.push(branch);
 					}
-					const output = yield* ghRun(folderId, cwd, args);
+					const output = yield* ghRun(
+						folderId,
+						cwd,
+						args,
+						action === "view" ? 10_000 : 120_000,
+					);
 					if (action !== "view")
 						return GitStackResult.make({ output, trunk: null, branches: [] });
 					const parsed = parseStackView(output);
@@ -872,14 +877,16 @@ export const GitServiceLive = Layer.effect(
 			folderId: FolderId,
 			cwd: string,
 			args: ReadonlyArray<string>,
+			timeoutMs = 10_000,
 		) =>
 			Effect.scoped(
 				Effect.gen(function* () {
 					const cmd = Command.make("gh", args, { cwd });
 					const proc = yield* executor.spawn(cmd);
-					const stdout = yield* collectText(proc.stdout);
-					const stderr = yield* collectText(proc.stderr);
-					const exitCode = yield* proc.exitCode;
+					const [stdout, stderr, exitCode] = yield* Effect.all(
+						[collectText(proc.stdout), collectText(proc.stderr), proc.exitCode],
+						{ concurrency: "unbounded" },
+					);
 					if (exitCode === 0) return stdout;
 					return yield* Effect.fail(
 						new GitCommandError({
@@ -889,12 +896,12 @@ export const GitServiceLive = Layer.effect(
 					);
 				}),
 			).pipe(
-				Effect.timeout("5 seconds"),
+				Effect.timeout(timeoutMs),
 				Effect.catchTag("TimeoutError", () =>
 					Effect.fail(
 						new GitCommandError({
 							folderId,
-							reason: "GitHub CLI timed out after 5 seconds",
+							reason: `GitHub CLI timed out after ${timeoutMs / 1000} seconds`,
 						}),
 					),
 				),
@@ -1301,7 +1308,7 @@ export const GitServiceLive = Layer.effect(
 					const stdout = yield* currentPrView(
 						folderId,
 						cwd,
-						"state,additions,deletions,number,url,headRefName,baseRefName,isDraft,statusCheckRollup,title,body,author,comments,reviews,files,mergeable",
+						"state,additions,deletions,number,url,headRefName,headRefOid,baseRefName,isDraft,statusCheckRollup,title,body,author,comments,reviews,files,mergeable",
 					).pipe(
 						Effect.catchTags({
 							GitNotInstalledError: () => Effect.succeed(""),
@@ -1318,6 +1325,7 @@ export const GitServiceLive = Layer.effect(
 						number?: number;
 						url?: string;
 						headRefName?: string;
+						headRefOid?: string;
 						baseRefName?: string;
 						isDraft?: boolean;
 						mergeable?: string;
@@ -1399,7 +1407,12 @@ export const GitServiceLive = Layer.effect(
 							// External "state" checks don't have a separate `status` field;
 							// treat them as completed with the state mapped via conclusion.
 							status: mapCheckStatus(
-								c.status ?? (c.state !== undefined ? "completed" : "pending"),
+								c.status ??
+									(c.state?.toUpperCase() === "PENDING"
+										? "pending"
+										: c.state !== undefined
+											? "completed"
+											: "pending"),
 							),
 							conclusion: mapCheckConclusion(
 								c.conclusion !== undefined && c.conclusion.length > 0
@@ -1507,6 +1520,7 @@ export const GitServiceLive = Layer.effect(
 						author: parsed.author?.login ?? "",
 						baseBranch: parsed.baseRefName ?? null,
 						headBranch: parsed.headRefName ?? null,
+						headSha: parsed.headRefOid ?? null,
 						comments,
 						reviews,
 						files,
