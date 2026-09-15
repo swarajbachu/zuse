@@ -119,6 +119,7 @@ export const GitSwitchBranchRpc = Rpc.make("git.switchBranch", {
 		folderId: FolderId,
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 		branch: Schema.String,
+		createFrom: Schema.optional(Schema.Literals(["HEAD", "origin/main"])),
 		remote: Schema.optional(Schema.NullOr(Schema.String)),
 	}),
 	success: GitStatusSummary,
@@ -226,7 +227,47 @@ export const GitPrMergeable = Schema.Literals([
 ]);
 export type GitPrMergeable = typeof GitPrMergeable.Type;
 
+export const GitPrCheckRunStatus = Schema.Literals([
+	"queued",
+	"in_progress",
+	"completed",
+	"pending",
+]);
+export type GitPrCheckRunStatus = typeof GitPrCheckRunStatus.Type;
+
+export const GitPrCheckRunConclusion = Schema.Literals([
+	"success",
+	"failure",
+	"cancelled",
+	"skipped",
+	"neutral",
+	"timed_out",
+	"action_required",
+]);
+export type GitPrCheckRunConclusion = typeof GitPrCheckRunConclusion.Type;
+
+export class GitPrCheckRun extends Schema.Class<GitPrCheckRun>("GitPrCheckRun")(
+	{
+		name: Schema.String,
+		appName: Schema.optional(Schema.NullOr(Schema.String)),
+		appAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
+		status: GitPrCheckRunStatus,
+		conclusion: Schema.NullOr(GitPrCheckRunConclusion),
+		url: Schema.NullOr(Schema.String),
+		workflowName: Schema.optional(Schema.NullOr(Schema.String)),
+		runId: Schema.optional(Schema.NullOr(Schema.String)),
+		jobId: Schema.optional(Schema.NullOr(Schema.String)),
+		runnerName: Schema.optional(Schema.NullOr(Schema.String)),
+		runnerGroupName: Schema.optional(Schema.NullOr(Schema.String)),
+		startedAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
+		completedAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
+		runUrl: Schema.optional(Schema.NullOr(Schema.String)),
+	},
+) {}
+
 export class GitPrInfo extends Schema.Class<GitPrInfo>("GitPrInfo")({
+	/** Core checks arrive with the summary, before feedback/avatar enrichment. */
+	checkRuns: Schema.optional(Schema.Array(GitPrCheckRun)),
 	/** Stable GraphQL identity used for cross-window terminal notification claims. */
 	nodeId: Schema.optional(Schema.NullOr(Schema.String)),
 	state: GitPrState,
@@ -302,9 +343,13 @@ export const GitPrNotificationClaimRpc = Rpc.make("git.prNotification.claim", {
 
 export class GitPrComment extends Schema.Class<GitPrComment>("GitPrComment")({
 	author: Schema.String,
+	url: Schema.optional(Schema.NullOr(Schema.String)),
 	authorAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
 	body: Schema.String,
 	createdAt: Schema.DateFromString,
+	path: Schema.optional(Schema.NullOr(Schema.String)),
+	line: Schema.optional(Schema.NullOr(Schema.Number)),
+	diffHunk: Schema.optional(Schema.NullOr(Schema.String)),
 }) {}
 
 export const GitPrReviewState = Schema.Literals([
@@ -318,6 +363,7 @@ export type GitPrReviewState = typeof GitPrReviewState.Type;
 
 export class GitPrReview extends Schema.Class<GitPrReview>("GitPrReview")({
 	author: Schema.String,
+	url: Schema.optional(Schema.NullOr(Schema.String)),
 	authorAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
 	state: GitPrReviewState,
 	body: Schema.String,
@@ -329,42 +375,6 @@ export class GitPrFile extends Schema.Class<GitPrFile>("GitPrFile")({
 	additions: Schema.Number,
 	deletions: Schema.Number,
 }) {}
-
-export const GitPrCheckRunStatus = Schema.Literals([
-	"queued",
-	"in_progress",
-	"completed",
-	"pending",
-]);
-export type GitPrCheckRunStatus = typeof GitPrCheckRunStatus.Type;
-
-export const GitPrCheckRunConclusion = Schema.Literals([
-	"success",
-	"failure",
-	"cancelled",
-	"skipped",
-	"neutral",
-	"timed_out",
-	"action_required",
-]);
-export type GitPrCheckRunConclusion = typeof GitPrCheckRunConclusion.Type;
-
-export class GitPrCheckRun extends Schema.Class<GitPrCheckRun>("GitPrCheckRun")(
-	{
-		name: Schema.String,
-		status: GitPrCheckRunStatus,
-		conclusion: Schema.NullOr(GitPrCheckRunConclusion),
-		url: Schema.NullOr(Schema.String),
-		workflowName: Schema.optional(Schema.NullOr(Schema.String)),
-		runId: Schema.optional(Schema.NullOr(Schema.String)),
-		jobId: Schema.optional(Schema.NullOr(Schema.String)),
-		runnerName: Schema.optional(Schema.NullOr(Schema.String)),
-		runnerGroupName: Schema.optional(Schema.NullOr(Schema.String)),
-		startedAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
-		completedAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
-		runUrl: Schema.optional(Schema.NullOr(Schema.String)),
-	},
-) {}
 
 /**
  * Heavier per-PR payload than {@link GitPrInfo}: title, body, reviews, comments,
@@ -383,8 +393,10 @@ export class GitPrDetails extends Schema.Class<GitPrDetails>("GitPrDetails")({
 	title: Schema.String,
 	body: Schema.String,
 	author: Schema.String,
+	authorAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
 	baseBranch: Schema.NullOr(Schema.String),
 	headBranch: Schema.NullOr(Schema.String),
+	headSha: Schema.optional(Schema.NullOr(Schema.String)),
 	comments: Schema.Array(GitPrComment),
 	reviews: Schema.Array(GitPrReview),
 	files: Schema.Array(GitPrFile),
@@ -834,6 +846,9 @@ export const GitMergePrRpc = Rpc.make("git.mergePr", {
 export const GitMarkReadyRpc = Rpc.make("git.markReady", {
 	payload: Schema.Struct({
 		folderId: FolderId,
+		state: Schema.optional(
+			Schema.Literals(["ready", "draft", "closed", "open"]),
+		),
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 	}),
 	success: Schema.Struct({ output: Schema.String }),
@@ -896,5 +911,37 @@ export const GitRevertAllRpc = Rpc.make("git.revertAll", {
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 	}),
 	success: Schema.Struct({ reverted: Schema.Boolean }),
+	error: GitErrors,
+});
+
+export const GitStackAction = Schema.Literals([
+	"view",
+	"init",
+	"add",
+	"submit",
+]);
+export type GitStackAction = typeof GitStackAction.Type;
+export class GitStackResult extends Schema.Class<GitStackResult>(
+	"GitStackResult",
+)({
+	output: Schema.String,
+	trunk: Schema.NullOr(Schema.String),
+	branches: Schema.Array(
+		Schema.Struct({
+			name: Schema.String,
+			isCurrent: Schema.Boolean,
+			isMerged: Schema.Boolean,
+			needsRebase: Schema.Boolean,
+		}),
+	),
+}) {}
+export const GitStackRpc = Rpc.make("git.stack", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		action: GitStackAction,
+		name: Schema.optional(Schema.String),
+	}),
+	success: GitStackResult,
 	error: GitErrors,
 });

@@ -11,7 +11,21 @@ export type ComposerDraftSnapshot = {
 	readonly chips: readonly ChipRange[];
 };
 
+export type ComposerContext = {
+	readonly id: string;
+	readonly sourceKey: string;
+	readonly label: string;
+	readonly text: string;
+};
+export const EMPTY_COMPOSER_CONTEXTS: readonly ComposerContext[] = [];
+
 type ComposerDraftsState = {
+	readonly contextsByKey: Record<string, readonly ComposerContext[]>;
+	readonly addContext: (
+		key: string,
+		context: Omit<ComposerContext, "id">,
+	) => void;
+	readonly removeContexts: (key: string, ids: readonly string[]) => void;
 	readonly draftsByKey: Record<string, ComposerDraftSnapshot>;
 	readonly save: (key: string, snapshot: ComposerDraftSnapshot) => void;
 	readonly clear: (key: string) => void;
@@ -33,6 +47,29 @@ export const composerDraftKeyForRemoteLanding = composerDraftKeyForLanding;
 
 export const useComposerDraftsStore = create<ComposerDraftsState>((set) => ({
 	draftsByKey: {},
+	contextsByKey: {},
+	addContext: (key, context) =>
+		set((state) => ({
+			contextsByKey: {
+				...state.contextsByKey,
+				[key]: [
+					...(state.contextsByKey[key] ?? []).filter(
+						(item) => item.sourceKey !== context.sourceKey,
+					),
+					{ ...context, id: crypto.randomUUID() },
+				],
+			},
+		})),
+	removeContexts: (key, ids) =>
+		set((state) => {
+			const next = { ...state.contextsByKey };
+			const remaining = (next[key] ?? []).filter(
+				(item) => !ids.includes(item.id),
+			);
+			if (remaining.length) next[key] = remaining;
+			else delete next[key];
+			return { contextsByKey: next };
+		}),
 	save: (key, snapshot) =>
 		set((state) => {
 			const next = { ...state.draftsByKey };

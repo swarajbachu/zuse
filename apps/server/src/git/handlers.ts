@@ -24,11 +24,25 @@ const Branches = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const Stack = MemoizeRpcs.toLayerHandler(
+	"git.stack",
+	({ folderId, worktreeId, action, name }) =>
+		Effect.flatMap(GitService, (svc) =>
+			svc.stack(folderId, action, name, worktreeId ?? null),
+		),
+);
+
 const SwitchBranch = MemoizeRpcs.toLayerHandler(
 	"git.switchBranch",
-	({ folderId, worktreeId, branch, remote }) =>
+	({ folderId, worktreeId, branch, remote, createFrom }) =>
 		Effect.flatMap(GitService, (svc) =>
-			svc.switchBranch(folderId, branch, remote ?? null, worktreeId ?? null),
+			svc.switchBranch(
+				folderId,
+				branch,
+				remote ?? null,
+				worktreeId ?? null,
+				createFrom,
+			),
 		),
 );
 
@@ -362,9 +376,9 @@ const MergePr = MemoizeRpcs.toLayerHandler(
 
 const MarkReady = MemoizeRpcs.toLayerHandler(
 	"git.markReady",
-	({ folderId, worktreeId }) =>
+	({ folderId, worktreeId, state }) =>
 		Effect.flatMap(GitService, (svc) =>
-			svc.markReady(folderId, worktreeId ?? null),
+			svc.markReady(folderId, worktreeId ?? null, state),
 		),
 );
 
@@ -414,6 +428,7 @@ export const GitHandlersLayer = Layer.mergeAll(
 	Status,
 	Branches,
 	SwitchBranch,
+	Stack,
 	UserName,
 	WorkspaceChanges,
 	WorkspaceSnapshot,

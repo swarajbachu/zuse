@@ -1,4 +1,6 @@
+import { composerFeedbackText } from "@zuse/client-runtime/composer-feedback";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
+import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import "@zuse/i18n/english/chat";
@@ -123,6 +125,7 @@ import {
 	commitAcceptedComposerDelivery,
 	isWaitingCloudSend,
 	shouldQueueComposerMessage,
+	withComposerContext,
 } from "../lib/composer-delivery.ts";
 import {
 	decideEnvironmentPermission,
@@ -158,6 +161,7 @@ import { useChatsStore } from "../store/chats.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import {
 	composerDraftKeyForSession,
+	EMPTY_COMPOSER_CONTEXTS,
 	useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
 import {
@@ -167,7 +171,6 @@ import {
 import { usePaneFocus } from "../store/pane-focus.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { CloudConnectionNotice } from "./cloud-connection-notice.tsx";
-import { AnnotationTray } from "./composer/annotation-tray.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { ContextTray } from "./composer/context-tray.tsx";
 import { ExtensionAttachmentAction } from "./composer/extension-attachment-action.tsx";
@@ -551,6 +554,9 @@ export function ChatComposer({
 	// pasted `[image:<id>]` token can rehydrate into its chip (thumbnail and
 	// all) even though the cut removed it from the document.
 	const knownImageChipMetaRef = useRef(new Map<string, ChipMeta>());
+	const composerContexts = useComposerDraftsStore(
+		(s) => s.contextsByKey[draftKey] ?? EMPTY_COMPOSER_CONTEXTS,
+	);
 	const annotationCount = useAnnotationsStore(
 		(s) => (s.bySession[sessionId] ?? []).length,
 	);
@@ -568,7 +574,7 @@ export function ChatComposer({
 		!submitting &&
 		!durableCloudSendPending &&
 		uploadingAttachmentCount === 0 &&
-		(hasText || annotationCount > 0);
+		(hasText || annotationCount > 0 || composerContexts.length > 0);
 
 	// Mount the CodeMirror view once per ChatComposer instance. The parent keys
 	// live chat composers by session id, and the landing keys them by project id,
@@ -672,7 +678,7 @@ export function ChatComposer({
 				absPath: ref.absPath,
 				entryKind: ref.kind,
 			});
-		});
+		}, draftKey);
 		bridge.setInsertText((text) => {
 			const v = editorViewRef.current;
 			if (v === null) return;
@@ -693,7 +699,9 @@ export function ChatComposer({
 			const hasComposerDraft =
 				v.state.doc.toString().trim().length > 0 ||
 				allChips(v.state).length > 0 ||
-				annotationsForSession(sessionId).length > 0;
+				annotationsForSession(sessionId).length > 0 ||
+				(useComposerDraftsStore.getState().contextsByKey[draftKey]?.length ??
+					0) > 0;
 			if (hasComposerDraft || editingQueuedItemRef.current !== null) {
 				toastManager.add({
 					type: "info",
@@ -726,7 +734,9 @@ export function ChatComposer({
 					const becameBusy =
 						activeView.state.doc.toString().trim().length > 0 ||
 						allChips(activeView.state).length > 0 ||
-						annotationsForSession(sessionId).length > 0;
+						annotationsForSession(sessionId).length > 0 ||
+						(useComposerDraftsStore.getState().contextsByKey[draftKey]
+							?.length ?? 0) > 0;
 					if (becameBusy) {
 						queueSessionMessage(goalRef, taken.input, {
 							queueId: taken.id,
@@ -1189,9 +1199,17 @@ export function ChatComposer({
 		if (view === null) return false;
 		const docText = composerDoc(view).trim();
 		const annotations = annotationsForSession(sessionId);
+		const contexts =
+			useComposerDraftsStore.getState().contextsByKey[draftKey] ??
+			EMPTY_COMPOSER_CONTEXTS;
 		// Allow a pure-annotation submit (no typed text) — the stacked comments
 		// are the message.
-		if (docText.length === 0 && annotations.length === 0) return false;
+		if (
+			docText.length === 0 &&
+			annotations.length === 0 &&
+			contexts.length === 0
+		)
+			return false;
 
 		const builtin = matchBuiltin(docText, session.providerId);
 		if (builtin !== null) {
@@ -1201,7 +1219,8 @@ export function ChatComposer({
 			return true;
 		}
 
-		const parsed = parseComposerInput(view.state, session.providerId);
+		const parsedDraft = parseComposerInput(view.state, session.providerId);
+		const parsed = withComposerContext(parsedDraft, contexts);
 		const input =
 			annotations.length > 0
 				? ComposerInput.make({
@@ -1212,7 +1231,7 @@ export function ChatComposer({
 						),
 						fileRefs: parsed.fileRefs,
 						skillRefs: parsed.skillRefs,
-						annotations,
+						annotations: [...annotations, ...parsed.annotations],
 					})
 				: parsed;
 		const route =
@@ -1237,6 +1256,10 @@ export function ChatComposer({
 				});
 			}
 			clearComposerDraft(draftKey);
+			useComposerDraftsStore.getState().removeContexts(
+				draftKey,
+				contexts.map((item) => item.id),
+			);
 			setGoalSendMode(false);
 			// Drain the tray only once the input has a durable owner. Before cloud
 			// acceptance, it remains the user's recoverable draft.
@@ -1276,32 +1299,41 @@ export function ChatComposer({
 		};
 		switch (route) {
 			case "planFeedback":
-				commitComposerSubmission();
-				void (async () => {
-					if (pendingNativePlanApproval !== null) {
-						await deliverNativePlanFeedback({
-							respond: () =>
-								respondToPlan(
-									sessionId,
-									pendingNativePlanApproval.toolCallId,
-									"cancelled",
-									docText,
-									{
-										silent: true,
-										environmentId: qualifiedEnvironmentId,
-									},
-								),
-							fallbackSend: () => send(input),
-						});
-						return;
-					}
-					if (pendingPlanApprovalRequest !== null) {
-						await decidePermission(pendingPlanApprovalRequest.id, {
-							_tag: "Deny",
-						});
-					}
-					await send(input);
-				})();
+				setSubmitting(true);
+				view.contentDOM.blur();
+				void commitAcceptedComposerDelivery(
+					(async () => {
+						if (pendingNativePlanApproval !== null) {
+							const result = await deliverNativePlanFeedback({
+								respond: () =>
+									respondToPlan(
+										sessionId,
+										pendingNativePlanApproval.toolCallId,
+										"cancelled",
+										composerFeedbackText(input),
+										{
+											silent: true,
+											environmentId: qualifiedEnvironmentId,
+										},
+									),
+								fallbackSend: () => send(input),
+							});
+							return result !== "failed";
+						}
+						if (pendingPlanApprovalRequest !== null) {
+							await decidePermission(pendingPlanApprovalRequest.id, {
+								_tag: "Deny",
+							});
+						}
+						return send(input);
+					})(),
+					commitComposerSubmission,
+				)
+					.catch(() => undefined)
+					.finally(() => {
+						setSubmitting(false);
+						editorViewRef.current?.focus();
+					});
 				break;
 			case "goal":
 				sendAndCommitAfterAcceptance({ asGoal: true });
@@ -1415,13 +1447,6 @@ export function ChatComposer({
 				inert={directoryUnavailable || undefined}
 			>
 				<div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
-					{!isDraft ? (
-						<AnnotationTray
-							sessionId={sessionId}
-							folderId={session.projectId}
-							worktreeId={session.worktreeId}
-						/>
-					) : null}
 					<div className="relative">
 						<div
 							className={cn(
@@ -1430,6 +1455,12 @@ export function ChatComposer({
 							)}
 						>
 							<NoConnectionTray />
+							<ComposerAttachmentTray
+								draftKey={draftKey}
+								sessionId={isDraft ? null : sessionId}
+								folderId={session.projectId}
+								worktreeId={session.worktreeId}
+							/>
 							{!isDraft && isCloudSession ? <CloudConnectionNotice /> : null}
 							{!isDraft ? (
 								<>

@@ -22,6 +22,8 @@ import type {
 	GitReviewPatch,
 	GitReviewScope,
 	GitReviewSummary,
+	GitStackAction,
+	GitStackResult,
 	GitStalePreviewError,
 	GitStatusSummary,
 	WorktreeId,
@@ -57,11 +59,18 @@ export interface GitServiceShape {
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<ReadonlyArray<GitBranchInfo>, GitFailure>;
+	readonly stack: (
+		folderId: FolderId,
+		action: GitStackAction,
+		name?: string,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<GitStackResult, GitFailure>;
 	readonly switchBranch: (
 		folderId: FolderId,
 		branch: string,
 		remote?: string | null,
 		worktreeId?: WorktreeId | null,
+		createFrom?: "HEAD" | "origin/main",
 	) => Effect.Effect<GitStatusSummary, GitFailure>;
 	readonly renameBranch: (
 		folderId: FolderId,
@@ -213,6 +222,7 @@ export interface GitServiceShape {
 	readonly markReady: (
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
+		state?: "ready" | "draft" | "closed" | "open",
 	) => Effect.Effect<{ readonly output: string }, GitFailure>;
 	readonly init: (
 		folderId: FolderId,

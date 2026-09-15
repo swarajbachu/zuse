@@ -224,8 +224,8 @@ export const deliverNativePlanFeedback = async ({
 	const result = await respond();
 	if (result === "accepted") return "responded";
 	if (result === "failed") return "failed";
-	await fallbackSend();
-	return "sent";
+	const accepted = await fallbackSend();
+	return accepted === false ? "failed" : "sent";
 };
 
 export const shouldSendPlanFeedbackNow = ({

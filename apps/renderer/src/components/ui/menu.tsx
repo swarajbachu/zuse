@@ -1,7 +1,8 @@
 "use client";
 
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import { ChevronRight } from "lucide-react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowRight01Icon } from "@zuse/icons/stroke-rounded";
 import type * as React from "react";
 import { cn } from "~/lib/utils";
 
@@ -79,6 +80,10 @@ export function MenuGroup(
 ): React.ReactElement {
 	return <MenuPrimitive.Group data-slot="menu-group" {...props} />;
 }
+
+/** Compact desktop rows, shared by actions and submenu triggers. */
+export const compactMenuItemClass =
+	"h-7 min-h-7 gap-2 rounded-md px-2 py-0 text-xs leading-5 sm:min-h-7 sm:text-xs [&>svg]:mx-0 [&>svg]:size-[15px] [&_svg:not([class*='size-'])]:size-[15px] sm:[&_svg:not([class*='size-'])]:size-[15px] [&>svg:not([class*='size-'])]:size-[15px] [&>svg]:shrink-0";
 
 export function MenuItem({
 	className,
@@ -269,24 +274,40 @@ export function MenuSub(
 
 export function MenuSubTrigger({
 	className,
+	compact = false,
 	inset,
 	children,
 	...props
 }: MenuPrimitive.SubmenuTrigger.Props & {
+	compact?: boolean;
 	inset?: boolean;
 }): React.ReactElement {
 	return (
 		<MenuPrimitive.SubmenuTrigger
 			className={cn(
 				"flex min-h-8 items-center gap-2 rounded-lg px-2 py-1 text-base text-foreground outline-none data-disabled:pointer-events-none data-highlighted:bg-accent data-popup-open:bg-accent data-inset:ps-8 data-highlighted:text-accent-foreground data-popup-open:text-accent-foreground data-disabled:opacity-64 sm:min-h-7 sm:text-sm [&>svg:not(:last-child)]:-mx-0.5 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none",
+				compact && compactMenuItemClass,
 				className,
 			)}
 			data-inset={inset}
 			data-slot="menu-sub-trigger"
 			{...props}
 		>
-			{children}
-			<ChevronRight className="ms-auto -me-0.5 opacity-80" />
+			{compact ? (
+				<span className="flex min-w-0 flex-1 items-center gap-2 [&>svg]:size-[15px] [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
+					{children}
+				</span>
+			) : (
+				children
+			)}
+			<HugeiconsIcon
+				icon={ArrowRight01Icon}
+				className={
+					compact
+						? "!size-3 shrink-0 text-muted-foreground"
+						: "ms-auto -me-0.5 opacity-80"
+				}
+			/>
 		</MenuPrimitive.SubmenuTrigger>
 	);
 }

@@ -1,5 +1,11 @@
+import {
+	GitPrCheckRun,
+	type GitPrCheckRunConclusion,
+	type GitPrCheckRunStatus,
+} from "@zuse/contracts";
 export type PrCheckRollupEntry = {
 	readonly name?: string;
+	readonly context?: string;
 	readonly status?: string;
 	readonly state?: string;
 	readonly conclusion?: string;
@@ -129,3 +135,72 @@ export const metadataForRollupEntry = (
 				: null,
 	};
 };
+
+const mapCheckStatus = (raw: string): GitPrCheckRunStatus => {
+	switch (raw.toUpperCase()) {
+		case "QUEUED":
+			return "queued";
+		case "IN_PROGRESS":
+			return "in_progress";
+		case "COMPLETED":
+			return "completed";
+		default:
+			return "pending";
+	}
+};
+
+const mapCheckConclusion = (raw: string): GitPrCheckRunConclusion | null => {
+	switch (raw.toUpperCase()) {
+		case "SUCCESS":
+			return "success";
+		case "STARTUP_FAILURE":
+		case "FAILURE":
+		case "ERROR":
+			return "failure";
+		case "CANCELLED":
+			return "cancelled";
+		case "SKIPPED":
+			return "skipped";
+		case "NEUTRAL":
+			return "neutral";
+		case "TIMED_OUT":
+			return "timed_out";
+		case "ACTION_REQUIRED":
+			return "action_required";
+		default:
+			return null;
+	}
+};
+
+/** No network enrichment: usable as soon as gh returns the PR rollup. */
+export function checkRunFromRollup(entry: PrCheckRollupEntry): GitPrCheckRun {
+	return GitPrCheckRun.make({
+		name: entry.name ?? entry.context ?? "(unnamed check)",
+		status: mapCheckStatus(
+			entry.status ??
+				(entry.state?.toUpperCase() === "PENDING"
+					? "pending"
+					: entry.state !== undefined
+						? "completed"
+						: "pending"),
+		),
+		conclusion: mapCheckConclusion(entry.conclusion || entry.state || ""),
+		url: entry.detailsUrl ?? entry.targetUrl ?? null,
+	});
+}
+
+/** Shared by rollup totals and failing-log collection. */
+export function isFailedCheckRollup(entry: {
+	conclusion?: string;
+	state?: string;
+}): boolean {
+	return [entry.conclusion, entry.state].some((value) => {
+		const conclusion = mapCheckConclusion(value ?? "");
+		return (
+			conclusion === "failure" ||
+			conclusion === "cancelled" ||
+			conclusion === "timed_out" ||
+			conclusion === "action_required"
+		);
+	});
+}

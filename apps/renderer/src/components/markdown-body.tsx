@@ -27,6 +27,8 @@ import ReactMarkdown, {
 	type Components,
 	defaultUrlTransform,
 } from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
 import { resolveMarkdownPreviewUrl } from "~/lib/file-preview";
@@ -562,10 +564,12 @@ export function MarkdownBody({
 	children,
 	className,
 	baseHref,
+	githubHtml = false,
 }: {
 	children: string;
 	className?: string;
 	baseHref?: string;
+	githubHtml?: boolean;
 }) {
 	const { folderId, worktreeId } = useFileChipContext();
 	const openFileInTab = useUiStore((s) => s.openFileInTab);
@@ -623,6 +627,7 @@ export function MarkdownBody({
 		<div className={cn("fz-prose", className)}>
 			<ReactMarkdown
 				remarkPlugins={[remarkGfm]}
+				rehypePlugins={githubHtml ? [rehypeRaw, rehypeSanitize] : []}
 				urlTransform={(value, property, node) =>
 					resolveMarkdownPreviewUrl(value, property, node.tagName, baseHref) ??
 					defaultUrlTransform(value)

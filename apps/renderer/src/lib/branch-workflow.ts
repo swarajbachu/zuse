@@ -1,5 +1,7 @@
 import "@zuse/i18n/english/projects";
+import type { GitPrCheckRun } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
+import { summarizeChecks } from "./pr-checks.ts";
 export type OpenPrWorkflow = {
 	kind: "open-pr";
 	number: number | null;
@@ -39,6 +41,7 @@ type WorkflowStatus = {
 };
 
 export type WorkflowPr = {
+	checkRuns?: readonly GitPrCheckRun[];
 	state: string;
 	number: number | null;
 	url: string | null;
@@ -63,17 +66,19 @@ export const deriveBranchWorkflow = (
 	if (status.dirtyFiles > 0) return { kind: "dirty", count: status.dirtyFiles };
 	if (status.ahead > 0) return { kind: "ahead", count: status.ahead };
 	if (pr !== null && prOpen) {
+		const checks =
+			pr.checkRuns === undefined ? pr : summarizeChecks(pr.checkRuns);
 		return {
 			kind: "open-pr",
 			number: pr.number,
 			url: pr.url,
 			isDraft: pr.isDraft === true,
-			checks: pr.checks ?? "none",
+			checks: checks.checks ?? "none",
 			mergeable: pr.mergeable ?? "unknown",
-			checksTotal: pr.checksTotal ?? 0,
-			checksRunning: pr.checksRunning ?? 0,
-			checksPassing: pr.checksPassing ?? 0,
-			checksFailing: pr.checksFailing ?? 0,
+			checksTotal: checks.checksTotal ?? 0,
+			checksRunning: checks.checksRunning ?? 0,
+			checksPassing: checks.checksPassing ?? 0,
+			checksFailing: checks.checksFailing ?? 0,
 			autoMergeEnabled: pr.autoMergeEnabled === true,
 		};
 	}
@@ -116,9 +121,11 @@ export const deriveEnvironmentPrRows = (
 		return { checks: null, conflicts: false };
 	}
 
-	const checksTotal = pr.checksTotal ?? 0;
-	const checksRunning = pr.checksRunning ?? 0;
-	const checksFailing = pr.checksFailing ?? 0;
+	const summary =
+		pr.checkRuns === undefined ? pr : summarizeChecks(pr.checkRuns);
+	const checksTotal = summary.checksTotal ?? 0;
+	const checksRunning = summary.checksRunning ?? 0;
+	const checksFailing = summary.checksFailing ?? 0;
 	let checks: EnvironmentChecksRow | null = null;
 
 	if (checksTotal > 0) {

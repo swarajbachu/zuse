@@ -16,8 +16,6 @@ import {
 	GitNotInstalledError,
 	GitOriginInfo,
 	GitPrCheckRun,
-	type GitPrCheckRunConclusion,
-	type GitPrCheckRunStatus,
 	GitPrComment,
 	GitPrDetails,
 	GitPrFile,
@@ -31,13 +29,16 @@ import {
 	GitReviewPatch,
 	type GitReviewScope,
 	GitReviewSummary,
+	GitStackResult,
 	GitStalePreviewError,
 	GitStatusSummary,
 } from "@zuse/contracts";
 import {
 	type ActionsJob,
 	actionsJobsApiPath,
+	checkRunFromRollup,
 	collectActionsRunIds,
+	isFailedCheckRollup,
 	metadataForRollupEntry,
 	type PrCheckRollupEntry,
 	parseActionsJobsResponse,
@@ -60,11 +61,22 @@ import {
 	ChildProcess as Command,
 	ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
+import {
+	checkAvatarKey,
+	PR_AVATARS_QUERY,
+	parsePrAvatars,
+} from "./pr-avatars.ts";
+import {
+	feedbackComments,
+	feedbackReviews,
+	parseFeedbackPages,
+} from "./pr-feedback.ts";
 import { RepositoryLocator } from "./repository-locator.ts";
 import {
 	buildCreateReviewCommentArgs,
 	parseReviewIdentity,
 } from "./review-comment.ts";
+import { parseStackView } from "./stack.ts";
 
 type GitFailure =
 	| GitNotARepoError
@@ -447,11 +459,6 @@ export const parseRemoteUrl = (url: string): GitOriginInfo | null => {
 	return null;
 };
 
-const githubAvatarUrl = (login: string | undefined): string | null => {
-	if (login === undefined || login.trim().length === 0) return null;
-	return `https://github.com/${encodeURIComponent(login.trim())}.png?size=40`;
-};
-
 /**
  * Collapse `gh`'s `statusCheckRollup` into the wire's four-state aggregate.
  *
@@ -474,14 +481,7 @@ const aggregateChecks = (
 		const conclusion = (entry.conclusion ?? "").toUpperCase();
 		const status = (entry.status ?? "").toUpperCase();
 		const state = (entry.state ?? "").toUpperCase();
-		if (
-			conclusion === "FAILURE" ||
-			conclusion === "CANCELLED" ||
-			conclusion === "TIMED_OUT" ||
-			conclusion === "ACTION_REQUIRED" ||
-			state === "FAILURE" ||
-			state === "ERROR"
-		) {
+		if (isFailedCheckRollup(entry)) {
 			return "failure";
 		}
 		if (
@@ -525,14 +525,7 @@ const countChecks = (
 		const conclusion = (entry.conclusion ?? "").toUpperCase();
 		const status = (entry.status ?? "").toUpperCase();
 		const state = (entry.state ?? "").toUpperCase();
-		if (
-			conclusion === "FAILURE" ||
-			conclusion === "CANCELLED" ||
-			conclusion === "TIMED_OUT" ||
-			conclusion === "ACTION_REQUIRED" ||
-			state === "FAILURE" ||
-			state === "ERROR"
-		) {
+		if (isFailedCheckRollup(entry)) {
 			failing += 1;
 		} else if (
 			status === "QUEUED" ||
@@ -685,11 +678,68 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
+		const stack: GitService["Service"]["stack"] = (
+			folderId,
+			action,
+			name,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const args = ["stack", action];
+					if (action === "view") args.push("--json");
+					if (action === "submit") args.push("--auto");
+					if (action === "init") {
+						const branch = (yield* run(folderId, cwd, [
+							"symbolic-ref",
+							"--short",
+							"HEAD",
+						])).trim();
+						args.push(branch);
+					}
+					if (action === "add") {
+						const branch = name?.trim() ?? "";
+						if (!branch || branch.startsWith("-") || branch.startsWith("@"))
+							return yield* Effect.fail(
+								new GitCommandError({
+									folderId,
+									reason: "Enter a valid branch name for the next stack layer.",
+								}),
+							);
+						yield* run(folderId, cwd, ["check-ref-format", "--branch", branch]);
+						args.push(branch);
+					}
+					const output = yield* ghRun(
+						folderId,
+						cwd,
+						args,
+						action === "submit"
+							? 300_000
+							: action === "view"
+								? 10_000
+								: 120_000,
+					);
+					if (action !== "view")
+						return GitStackResult.make({ output, trunk: null, branches: [] });
+					const parsed = parseStackView(output);
+					if (parsed === null)
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason:
+									"GitHub CLI returned an unreadable stack. Update gh-stack and try again.",
+							}),
+						);
+					return parsed;
+				}),
+			);
+
 		const switchBranch: GitService["Service"]["switchBranch"] = (
 			folderId,
 			branch,
 			remote,
 			worktreeId,
+			createFrom,
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
@@ -703,7 +753,46 @@ export const GitServiceLive = Layer.effect(
 						);
 					}
 					const remoteTarget = remote?.trim() ?? "";
-					if (remoteTarget.length > 0) {
+					if (createFrom !== undefined) {
+						yield* run(folderId, cwd, ["check-ref-format", "--branch", target]);
+						if (target.startsWith("-") || target.startsWith("@"))
+							return yield* Effect.fail(
+								new GitCommandError({
+									folderId,
+									reason: "Enter a literal branch name.",
+								}),
+							);
+						if (createFrom === "origin/main") {
+							const ensureClean = Effect.gen(function* () {
+								const dirty = yield* run(folderId, cwd, [
+									"status",
+									"--porcelain",
+								]);
+								if (dirty.trim())
+									return yield* Effect.fail(
+										new GitCommandError({
+											folderId,
+											reason:
+												"Commit or stash changes before starting from origin/main.",
+										}),
+									);
+							});
+							yield* ensureClean;
+							yield* run(folderId, cwd, [
+								"fetch",
+								"origin",
+								"refs/heads/main:refs/remotes/origin/main",
+							]);
+							yield* ensureClean;
+						}
+						yield* run(folderId, cwd, [
+							"switch",
+							"--no-track",
+							"-c",
+							target,
+							createFrom,
+						]);
+					} else if (remoteTarget.length > 0) {
 						yield* run(folderId, cwd, ["switch", "--track", remoteTarget]);
 					} else {
 						yield* run(folderId, cwd, ["switch", target]);
@@ -787,14 +876,16 @@ export const GitServiceLive = Layer.effect(
 			folderId: FolderId,
 			cwd: string,
 			args: ReadonlyArray<string>,
+			timeoutMs = 10_000,
 		) =>
 			Effect.scoped(
 				Effect.gen(function* () {
 					const cmd = Command.make("gh", args, { cwd });
 					const proc = yield* executor.spawn(cmd);
-					const stdout = yield* collectText(proc.stdout);
-					const stderr = yield* collectText(proc.stderr);
-					const exitCode = yield* proc.exitCode;
+					const [stdout, stderr, exitCode] = yield* Effect.all(
+						[collectText(proc.stdout), collectText(proc.stderr), proc.exitCode],
+						{ concurrency: "unbounded" },
+					);
 					if (exitCode === 0) return stdout;
 					return yield* Effect.fail(
 						new GitCommandError({
@@ -804,12 +895,12 @@ export const GitServiceLive = Layer.effect(
 					);
 				}),
 			).pipe(
-				Effect.timeout("5 seconds"),
+				Effect.timeout(timeoutMs),
 				Effect.catchTag("TimeoutError", () =>
 					Effect.fail(
 						new GitCommandError({
 							folderId,
-							reason: "GitHub CLI timed out after 5 seconds",
+							reason: `GitHub CLI timed out after ${timeoutMs / 1000} seconds`,
 						}),
 					),
 				),
@@ -969,11 +1060,7 @@ export const GitServiceLive = Layer.effect(
 						isDraft?: boolean;
 						mergeable?: string;
 						autoMergeRequest?: unknown;
-						statusCheckRollup?: ReadonlyArray<{
-							status?: string;
-							state?: string;
-							conclusion?: string;
-						}>;
+						statusCheckRollup?: ReadonlyArray<PrCheckRollupEntry>;
 					};
 					try {
 						parsed = JSON.parse(stdout) as typeof parsed;
@@ -1001,6 +1088,7 @@ export const GitServiceLive = Layer.effect(
 
 					return GitPrInfo.make({
 						nodeId: parsed.id ?? null,
+						checkRuns: rollup.map(checkRunFromRollup),
 						state,
 						branch: parsed.headRefName ?? null,
 						baseBranch: parsed.baseRefName ?? null,
@@ -1056,43 +1144,6 @@ export const GitServiceLive = Layer.effect(
 					return "conflicting";
 				default:
 					return "unknown";
-			}
-		};
-
-		const mapCheckStatus = (raw: string): GitPrCheckRunStatus => {
-			switch (raw.toUpperCase()) {
-				case "QUEUED":
-					return "queued";
-				case "IN_PROGRESS":
-					return "in_progress";
-				case "COMPLETED":
-					return "completed";
-				default:
-					return "pending";
-			}
-		};
-
-		const mapCheckConclusion = (
-			raw: string,
-		): GitPrCheckRunConclusion | null => {
-			switch (raw.toUpperCase()) {
-				case "SUCCESS":
-					return "success";
-				case "FAILURE":
-				case "ERROR":
-					return "failure";
-				case "CANCELLED":
-					return "cancelled";
-				case "SKIPPED":
-					return "skipped";
-				case "NEUTRAL":
-					return "neutral";
-				case "TIMED_OUT":
-					return "timed_out";
-				case "ACTION_REQUIRED":
-					return "action_required";
-				default:
-					return null;
 			}
 		};
 
@@ -1216,12 +1267,8 @@ export const GitServiceLive = Layer.effect(
 					const stdout = yield* currentPrView(
 						folderId,
 						cwd,
-						"state,additions,deletions,number,url,headRefName,baseRefName,isDraft,statusCheckRollup,title,body,author,comments,reviews,files,mergeable",
-					).pipe(
-						Effect.catchTags({
-							GitNotInstalledError: () => Effect.succeed(""),
-							GitCommandError: () => Effect.succeed(""),
-						}),
+						"state,additions,deletions,number,url,headRefName,headRefOid,baseRefName,isDraft,statusCheckRollup,title,body,author,comments,reviews,files,mergeable",
+						true,
 					);
 
 					if (stdout.trim().length === 0) return emptyDetails;
@@ -1233,6 +1280,7 @@ export const GitServiceLive = Layer.effect(
 						number?: number;
 						url?: string;
 						headRefName?: string;
+						headRefOid?: string;
 						baseRefName?: string;
 						isDraft?: boolean;
 						mergeable?: string;
@@ -1275,45 +1323,105 @@ export const GitServiceLive = Layer.effect(
 
 					const rollup = parsed.statusCheckRollup ?? [];
 					const checks = aggregateChecks(rollup);
-					const originInfo = yield* run(folderId, cwd, [
-						"remote",
-						"get-url",
-						"origin",
-					]).pipe(
-						Effect.map((s) => parseRemoteUrl(s.trim())),
-						Effect.catchTag("GitCommandError", () => Effect.succeed(null)),
-					);
+					const prRepository = parsed.url
+						? parseRemoteUrl(parsed.url.replace(/\/pull\/\d+.*$/, ""))
+						: null;
 					const jobsByRunId = new Map<string, ReadonlyArray<ActionsJob>>();
-					if (originInfo?.host.toLowerCase() === "github.com") {
-						for (const runId of collectActionsRunIds(rollup)) {
-							const jobsStdout = yield* ghRun(folderId, cwd, [
+					const feedbackPages: Array<ReturnType<typeof parseFeedbackPages>> = [
+						null,
+						null,
+						null,
+					];
+					let avatars = parsePrAvatars("");
+					if (prRepository !== null && parsed.number !== undefined) {
+						const prefix = `repos/${prRepository.owner}/${prRepository.repo}`;
+						const optionalRead = (args: ReadonlyArray<string>) =>
+							ghRun(folderId, cwd, [
 								"api",
-								actionsJobsApiPath(originInfo.owner, originInfo.repo, runId),
+								"--hostname",
+								prRepository.host,
+								...args,
 							]).pipe(
 								Effect.catchTags({
-									GitNotInstalledError: () => Effect.succeed(""),
 									GitCommandError: () => Effect.succeed(""),
+									GitNotInstalledError: () => Effect.succeed(""),
 								}),
 							);
-							jobsByRunId.set(runId, parseActionsJobsResponse(jobsStdout));
-						}
+						yield* Effect.all(
+							[
+								...collectActionsRunIds(rollup).map((runId) =>
+									optionalRead([
+										actionsJobsApiPath(
+											prRepository.owner,
+											prRepository.repo,
+											runId,
+										),
+									]).pipe(
+										Effect.map((output) =>
+											jobsByRunId.set(runId, parseActionsJobsResponse(output)),
+										),
+									),
+								),
+								...[
+									`${prefix}/issues/${parsed.number}/comments?per_page=100`,
+									`${prefix}/pulls/${parsed.number}/comments?per_page=100`,
+									`${prefix}/pulls/${parsed.number}/reviews?per_page=100`,
+								].map((path, index) =>
+									optionalRead(["--paginate", "--slurp", path]).pipe(
+										Effect.map((output) => {
+											feedbackPages[index] = parseFeedbackPages(output);
+											return undefined;
+										}),
+									),
+								),
+								...(parsed.headRefOid
+									? [
+											optionalRead([
+												"graphql",
+												"--paginate",
+												"--slurp",
+												"-f",
+												`query=${PR_AVATARS_QUERY}`,
+												"-f",
+												`owner=${prRepository.owner}`,
+												"-f",
+												`repo=${prRepository.repo}`,
+												"-F",
+												`number=${parsed.number}`,
+												"-f",
+												`oid=${parsed.headRefOid}`,
+											]).pipe(
+												Effect.map((output) => {
+													avatars = parsePrAvatars(output);
+													return undefined;
+												}),
+											),
+										]
+									: []),
+							],
+							{ concurrency: 4, discard: true },
+						);
 					}
 
 					const checkRuns = rollup.map((c) => {
 						const metadata = metadataForRollupEntry(c, jobsByRunId);
 						return GitPrCheckRun.make({
-							name: c.name ?? "(unnamed check)",
-							// External "state" checks don't have a separate `status` field;
-							// treat them as completed with the state mapped via conclusion.
-							status: mapCheckStatus(
-								c.status ?? (c.state !== undefined ? "completed" : "pending"),
-							),
-							conclusion: mapCheckConclusion(
-								c.conclusion !== undefined && c.conclusion.length > 0
-									? c.conclusion
-									: (c.state ?? ""),
-							),
-							url: c.detailsUrl ?? c.targetUrl ?? null,
+							...checkRunFromRollup(c),
+							appName:
+								avatars.checks.get(
+									checkAvatarKey(
+										c.name ?? "",
+										c.detailsUrl ?? c.targetUrl ?? null,
+									),
+								)?.name ?? null,
+							appAvatarUrl:
+								avatars.checks.get(
+									checkAvatarKey(
+										c.name ?? "",
+										c.detailsUrl ?? c.targetUrl ?? null,
+									),
+								)?.avatarUrl ?? null,
+
 							workflowName: metadata.workflowName,
 							runId: metadata.runId,
 							jobId: metadata.jobId,
@@ -1325,23 +1433,23 @@ export const GitServiceLive = Layer.effect(
 						});
 					});
 
-					const comments = (parsed.comments ?? [])
+					let comments = (parsed.comments ?? [])
 						.filter((c) => typeof c.createdAt === "string")
 						.map((c) => {
 							const author = c.author?.login ?? "";
 							return GitPrComment.make({
 								author,
-								authorAvatarUrl: c.author?.avatarUrl ?? githubAvatarUrl(author),
+								authorAvatarUrl: c.author?.avatarUrl ?? null,
 								body: c.body ?? "",
 								createdAt: new Date(c.createdAt as string),
 							});
 						});
 
-					const reviews = (parsed.reviews ?? []).map((r) => {
+					let reviews = (parsed.reviews ?? []).map((r) => {
 						const author = r.author?.login ?? "";
 						return GitPrReview.make({
 							author,
-							authorAvatarUrl: r.author?.avatarUrl ?? githubAvatarUrl(author),
+							authorAvatarUrl: r.author?.avatarUrl ?? null,
 							state: mapReviewState(r.state ?? ""),
 							body: r.body ?? "",
 							submittedAt:
@@ -1350,6 +1458,12 @@ export const GitServiceLive = Layer.effect(
 									: null,
 						});
 					});
+
+					const [discussion, inline, reviewPages] = feedbackPages;
+					if (discussion != null) comments = feedbackComments(discussion);
+					if (inline != null)
+						comments = [...comments, ...feedbackComments(inline)];
+					if (reviewPages != null) reviews = feedbackReviews(reviewPages);
 
 					const files = (parsed.files ?? [])
 						.filter((f) => typeof f.path === "string" && f.path.length > 0)
@@ -1375,8 +1489,10 @@ export const GitServiceLive = Layer.effect(
 						title: parsed.title ?? "",
 						body: parsed.body ?? "",
 						author: parsed.author?.login ?? "",
+						authorAvatarUrl: avatars.authorAvatarUrl,
 						baseBranch: parsed.baseRefName ?? null,
 						headBranch: parsed.headRefName ?? null,
+						headSha: parsed.headRefOid ?? null,
 						comments,
 						reviews,
 						files,
@@ -2343,11 +2459,25 @@ export const GitServiceLive = Layer.effect(
 		const markReady: GitService["Service"]["markReady"] = (
 			folderId,
 			worktreeId,
+			state = "ready",
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
-				Effect.map(ghRun(folderId, cwd, ["pr", "ready"]), (output) => ({
-					output,
-				})),
+				Effect.map(
+					ghRun(
+						folderId,
+						cwd,
+						state === "draft"
+							? ["pr", "ready", "--undo"]
+							: state === "closed"
+								? ["pr", "close"]
+								: state === "open"
+									? ["pr", "reopen"]
+									: ["pr", "ready"],
+					),
+					(output) => ({
+						output,
+					}),
+				),
 			);
 
 		/**
@@ -2530,15 +2660,7 @@ export const GitServiceLive = Layer.effect(
 						// fall through with empty rollup
 					}
 
-					const failing = rollup.filter((c) => {
-						const conclusion = (c.conclusion ?? c.state ?? "").toUpperCase();
-						return (
-							conclusion === "FAILURE" ||
-							conclusion === "CANCELLED" ||
-							conclusion === "TIMED_OUT" ||
-							conclusion === "ACTION_REQUIRED"
-						);
-					});
+					const failing = rollup.filter(isFailedCheckRollup);
 
 					// Map each failing check to its workflow-run ID. gh emits two URL
 					// shapes: actions runs (`/actions/runs/<id>/job/<jobId>`) and
@@ -2708,6 +2830,7 @@ export const GitServiceLive = Layer.effect(
 			status,
 			branches,
 			switchBranch,
+			stack,
 			renameBranch,
 			getUserName,
 			workspaceChanges,

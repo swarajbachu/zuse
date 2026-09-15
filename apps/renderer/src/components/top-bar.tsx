@@ -1,4 +1,8 @@
+import { useGitPrState } from "../lib/use-git-pr-state.ts";
+import { GitStackMenu } from "./git-stack-menu.tsx";
+import "@zuse/i18n/english/projects";
 import { isInputComposing } from "../lib/input-composition.ts";
+import { CreateBranchDialog } from "./create-branch-dialog.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatRef, ExecutionRef } from "@zuse/client-runtime/resource-ref";
@@ -16,6 +20,7 @@ import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Alert01Icon,
 	ArchiveArrowDownIcon,
+	ArrowDown01Icon,
 	Copy01Icon,
 	GitBranchIcon,
 	GitMergeIcon,
@@ -152,7 +157,7 @@ const executionRefFor = (
  * the controls are gone, so we hug the edge instead.
  */
 export function TopBarLeft() {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
 	const isFullScreen = useUiStore((s) => s.isFullScreen);
@@ -197,7 +202,7 @@ export function TopBarLeft() {
  * regardless of which way the files panel is currently leaning).
  */
 export function TopBarMain() {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	// Pull folderId + worktreeId from the canonical active context so the
 	// branch label can never disagree with the terminal cwd, file tree root,
@@ -588,8 +593,12 @@ export function BranchMenuButton({
 	onRename: () => void;
 	onSwitch: (branch: GitBranchInfo) => void;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
+	const executionRef = executionRefFor(useActiveContext());
+	const [createFrom, setCreateFrom] = useState<"HEAD" | "origin/main" | null>(
+		null,
+	);
 	const [branchQuery, setBranchQuery] = useState("");
 	const normalizedQuery = branchQuery.trim().toLocaleLowerCase();
 	const matchingBranches = branches.filter((branch) => {
@@ -602,138 +611,183 @@ export function BranchMenuButton({
 	const remoteBranches = matchingBranches.filter((b) => b.kind === "remote");
 
 	return (
-		<Menu onOpenChange={(open) => !open && setBranchQuery("")}>
-			<MenuTrigger
-				onClick={onOpen}
-				className={`flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-medium text-foreground outline-none hover:bg-foreground/5 data-[popup-open]:bg-foreground/5 ${className ?? "max-w-64"}`}
-				aria-label={uiMessage("chat:top_bar_switch_branch")}
+		<>
+			<Menu
+				modal={popupSide !== "left"}
+				onOpenChange={(open) => !open && setBranchQuery("")}
 			>
-				<HugeiconsIcon
-					icon={GitBranchIcon}
-					className="size-3.5 shrink-0 text-muted-foreground"
-				/>
-				<span className="truncate" title={branchLabel}>
-					{branchLabel}
-				</span>
-				{dirtyFiles > 0 ? (
-					<span className="shrink-0 text-muted-foreground">· {dirtyFiles}</span>
-				) : null}
-				{loading ? (
+				<MenuTrigger
+					onClick={onOpen}
+					className={`flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-foreground outline-none hover:bg-foreground/5 data-[popup-open]:bg-foreground/5 ${className ?? "max-w-64"}`}
+					aria-label={uiMessage("chat:top_bar_switch_branch")}
+				>
 					<HugeiconsIcon
-						icon={Loading02Icon}
-						className="size-3 animate-spin text-muted-foreground"
+						icon={GitBranchIcon}
+						className="size-3.5 shrink-0 text-muted-foreground"
 					/>
-				) : (
-					<ChevronDown className="size-3 text-muted-foreground" />
-				)}
-			</MenuTrigger>
-			<MenuPopup
-				side={popupSide}
-				sideOffset={popupSide === "left" ? 8 : 4}
-				align="center"
-				className="w-72"
-			>
-				{error !== null ? (
-					<div className="max-w-72 px-2 py-1.5 text-[11px] leading-snug text-[var(--accent-red)]">
-						{error}
-					</div>
-				) : null}
-				{canRename ? (
-					<>
-						<MenuItem
-							onClick={onRename}
-							className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
-						>
-							<HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />
-							{uiMessage("chat:top_bar_rename_current_branch")}
-						</MenuItem>
-						<MenuSeparator />
-					</>
-				) : null}
-				<div className="sticky top-0 z-10 bg-glass px-1 pb-1">
-					<label className="flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-background/50 px-2 focus-within:border-ring/60">
-						<HugeiconsIcon
-							icon={Search01Icon}
-							className="size-3.5 shrink-0 text-muted-foreground"
-						/>
-						<span className="sr-only">
-							{uiMessage("chat:top_bar_search_branches")}
+					<span
+						className="min-w-0 flex-1 truncate text-left"
+						title={branchLabel}
+					>
+						{branchLabel}
+					</span>
+					{dirtyFiles > 0 ? (
+						<span className="shrink-0 text-muted-foreground">
+							· {dirtyFiles}
 						</span>
-						<input
-							type="search"
-							value={branchQuery}
-							onChange={(event) => setBranchQuery(event.target.value)}
-							onKeyDown={(event) => {
-								if (isInputComposing(event)) return;
-
-								if (event.key !== "Escape") event.stopPropagation();
-							}}
-							placeholder={uiMessage("chat:top_bar_search_branches")}
-							className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/70"
+					) : null}
+					{loading ? (
+						<HugeiconsIcon
+							icon={Loading02Icon}
+							className="size-3 animate-spin text-muted-foreground"
 						/>
-					</label>
-				</div>
-				<div className="max-h-56 overflow-y-auto overscroll-contain">
-					<MenuSectionLabel>
-						{uiMessage("chat:top_bar_local_branches")}
-					</MenuSectionLabel>
-					{localBranches.length > 0 ? (
-						localBranches.map((branch) => (
-							<MenuItem
-								key={`local:${branch.name}`}
-								disabled={branch.current || loading}
-								onClick={() => onSwitch(branch)}
-								className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
-							>
-								<HugeiconsIcon
-									icon={Tick01Icon}
-									className={`size-3.5 ${branch.current ? "opacity-100" : "opacity-0"}`}
-								/>
-								<span className="min-w-0 flex-1 truncate">{branch.name}</span>
-								{branch.upstream !== null ? (
-									<span className="max-w-28 truncate text-[10px] text-muted-foreground">
-										{branch.upstream}
-									</span>
-								) : null}
-							</MenuItem>
-						))
-					) : normalizedQuery.length === 0 ? (
-						<div className="px-2 py-1.5 text-xs text-muted-foreground">
-							{uiMessage("chat:top_bar_no_local_branches")}
+					) : (
+						<HugeiconsIcon
+							icon={ArrowDown01Icon}
+							className="size-3 shrink-0 text-muted-foreground"
+						/>
+					)}
+				</MenuTrigger>
+				<MenuPopup
+					side={popupSide}
+					sideOffset={popupSide === "left" ? 8 : 4}
+					align="start"
+					className="w-72"
+				>
+					{error !== null ? (
+						<div className="max-w-72 px-2 py-1.5 text-[11px] leading-snug text-[var(--accent-red)]">
+							{error}
 						</div>
 					) : null}
-					{remoteBranches.length > 0 ? (
+					{canRename ? (
 						<>
+							<MenuItem
+								onClick={onRename}
+								className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+							>
+								<HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />
+								{uiMessage("chat:top_bar_rename_current_branch")}
+							</MenuItem>
 							<MenuSeparator />
-							<MenuSectionLabel>
-								{uiMessage("chat:top_bar_remote_branches")}
-							</MenuSectionLabel>
-							{remoteBranches.map((branch) => (
+						</>
+					) : null}
+					<div className="sticky top-0 z-10 bg-glass px-1 pb-1">
+						<label className="flex h-7 items-center gap-1.5 rounded-md px-2">
+							<HugeiconsIcon
+								icon={Search01Icon}
+								className="size-3.5 shrink-0 text-muted-foreground"
+							/>
+							<span className="sr-only">
+								{uiMessage("chat:top_bar_search_branches")}
+							</span>
+							<input
+								type="search"
+								value={branchQuery}
+								onChange={(event) => setBranchQuery(event.target.value)}
+								onKeyDown={(event) => {
+									if (isInputComposing(event)) return;
+
+									if (event.key !== "Escape") event.stopPropagation();
+								}}
+								placeholder={uiMessage("chat:top_bar_search_branches")}
+								className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/70"
+							/>
+						</label>
+					</div>
+					<div className="max-h-56 overflow-y-auto overscroll-contain">
+						<MenuSectionLabel>
+							{uiMessage("chat:top_bar_local_branches")}
+						</MenuSectionLabel>
+						{localBranches.length > 0 ? (
+							localBranches.map((branch) => (
 								<MenuItem
-									key={`remote:${branch.remote ?? branch.name}`}
-									disabled={loading}
+									key={`local:${branch.name}`}
+									disabled={branch.current || loading}
 									onClick={() => onSwitch(branch)}
 									className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
 								>
-									<HugeiconsIcon icon={GitBranchIcon} className="size-3.5" />
+									<HugeiconsIcon
+										icon={Tick01Icon}
+										className={`size-3.5 ${branch.current ? "opacity-100" : "opacity-0"}`}
+									/>
 									<span className="min-w-0 flex-1 truncate">{branch.name}</span>
-									{branch.remote !== null ? (
+									{branch.upstream !== null ? (
 										<span className="max-w-28 truncate text-[10px] text-muted-foreground">
-											{branch.remote}
+											{branch.upstream}
 										</span>
 									) : null}
 								</MenuItem>
-							))}
-						</>
-					) : null}
-					{matchingBranches.length === 0 ? (
-						<div className="px-2 py-5 text-center text-xs text-muted-foreground">
-							{uiMessage("chat:top_bar_no_matching_branches")}
-						</div>
-					) : null}
-				</div>
-			</MenuPopup>
-		</Menu>
+							))
+						) : normalizedQuery.length === 0 ? (
+							<div className="px-2 py-1.5 text-xs text-muted-foreground">
+								{uiMessage("chat:top_bar_no_local_branches")}
+							</div>
+						) : null}
+						{remoteBranches.length > 0 ? (
+							<>
+								<MenuSeparator />
+								<MenuSectionLabel>
+									{uiMessage("chat:top_bar_remote_branches")}
+								</MenuSectionLabel>
+								{remoteBranches.map((branch) => (
+									<MenuItem
+										key={`remote:${branch.remote ?? branch.name}`}
+										disabled={loading}
+										onClick={() => onSwitch(branch)}
+										className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+									>
+										<HugeiconsIcon icon={GitBranchIcon} className="size-3.5" />
+										<span className="min-w-0 flex-1 truncate">
+											{branch.name}
+										</span>
+										{branch.remote !== null ? (
+											<span className="max-w-28 truncate text-[10px] text-muted-foreground">
+												{branch.remote}
+											</span>
+										) : null}
+									</MenuItem>
+								))}
+							</>
+						) : null}
+						{matchingBranches.length === 0 ? (
+							<div className="px-2 py-5 text-center text-xs text-muted-foreground">
+								{uiMessage("chat:top_bar_no_matching_branches")}
+							</div>
+						) : null}
+					</div>
+					<MenuSeparator />
+					<MenuItem
+						disabled={loading || executionRef === null}
+						onClick={() => setCreateFrom("HEAD")}
+					>
+						{uiMessage("projects:github_new_branch")}
+					</MenuItem>
+					<MenuItem
+						disabled={loading || executionRef === null || dirtyFiles > 0}
+						onClick={() => setCreateFrom("origin/main")}
+					>
+						{uiMessage("projects:github_new_origin_branch")}
+					</MenuItem>
+					{executionRef && (
+						<GitStackMenu
+							executionRef={executionRef}
+							branch={branchLabel}
+							variant="submenu"
+						/>
+					)}
+				</MenuPopup>
+			</Menu>
+			{executionRef && createFrom ? (
+				<CreateBranchDialog
+					executionRef={executionRef}
+					base={createFrom}
+					onClose={() => {
+						setCreateFrom(null);
+						onOpen();
+					}}
+				/>
+			) : null}
+		</>
 	);
 }
 
@@ -760,7 +814,7 @@ function RenameBranchDialog({
 	onRenamed: () => Promise<void>;
 	worktreeId: WorktreeId;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const rename = async (next: string) => {
 		await dispatchGitWorkspaceCommand({
@@ -788,7 +842,7 @@ function RenameBranchDialog({
 }
 
 function OpenInMenu({ rootPath }: { rootPath: string | null }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const capabilities = rendererPlatformCapabilities();
 	const [targets, setTargets] = useState<ReadonlyArray<OpenTarget>>([]);
@@ -909,7 +963,7 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
  * the old worktree pane's Run affordance, now promoted to the top bar).
  */
 function RunButton() {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const ctx = useActiveContext();
 	const folderId = ctx.status === "ready" ? ctx.folderId : null;
@@ -964,7 +1018,7 @@ function RunButton() {
 }
 
 export function TopBarRight() {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const ctx = useActiveContext();
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
@@ -1002,13 +1056,12 @@ export function TopBarRightContent({
 }: {
 	compact?: boolean;
 } = {}) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const ctx = useActiveContext();
 	const executionRef = executionRefFor(ctx);
-	const git = useGitWorkspaceResource(executionRef, "connect").data;
-	const status = git?.status ?? null;
-	const pr = git?.pr ?? null;
+	const { gitView, pr } = useGitPrState(executionRef);
+	const status = gitView.data?.status ?? null;
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 
 	const canCreatePrWhenSynced = canCreatePrFromSyncedBranch(
@@ -1115,7 +1168,7 @@ export function ResolveConflictsButton({
 }: {
 	presentation?: WorkflowActionPresentation;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const ctx = useActiveContext();
@@ -1161,15 +1214,15 @@ export function WorkflowActions({
 	presentation?: WorkflowActionPresentation;
 	className?: string;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const [createFromMain, setCreateFromMain] = useState(false);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const ctx = useActiveContext();
 	const executionRef = executionRefFor(ctx);
 	const folderId = ctx.status === "ready" ? ctx.folderId : null;
 	const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
-	const git = useGitWorkspaceResource(executionRef, "connect").data;
-	const status = git?.status ?? null;
-	const pr = git?.pr ?? null;
+	const { gitView, pr } = useGitPrState(executionRef);
+	const status = gitView.data?.status ?? null;
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 	const archiveProgress = useChatsStore((s) =>
@@ -1249,6 +1302,33 @@ export function WorkflowActions({
 					disabled={!agentReady}
 					onClick={() => sendToAgent("create a pull request for this branch")}
 				/>
+			) : null}
+			{workflow.kind === "merged-pr" && executionRef !== null ? (
+				<>
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<button
+									type="button"
+									className="h-7 rounded-md px-2 text-xs hover:bg-muted"
+									onClick={() => setCreateFromMain(true)}
+								>
+									{uiMessage("common:continue")}
+								</button>
+							}
+						/>
+						<TooltipPopup>
+							{uiMessage("projects:github_continue_tooltip")}
+						</TooltipPopup>
+					</Tooltip>
+					{createFromMain ? (
+						<CreateBranchDialog
+							executionRef={executionRef}
+							base="origin/main"
+							onClose={() => setCreateFromMain(false)}
+						/>
+					) : null}
+				</>
 			) : null}
 			{workflow.kind === "merged-pr" && selectedChatId !== null ? (
 				<DirectActionButton
@@ -1352,7 +1432,7 @@ const openPrChipTone = (w: OpenPrWorkflow): GlassTone => {
  * Tinted by the same workflow tone the merge button uses.
  */
 function PrHashChip({ workflow }: { workflow: OpenPrWorkflow }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const checksRunning = workflow.checksRunning;
 	const label =
@@ -1405,7 +1485,7 @@ function PrHashChip({ workflow }: { workflow: OpenPrWorkflow }) {
  *   none    → nothing
  */
 function CiStatus({ workflow }: { workflow: OpenPrWorkflow }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	if (workflow.checksTotal === 0) return null;
 	if (workflow.checksRunning > 0) return null;
@@ -1448,7 +1528,7 @@ function DirectActionButton({
 	run: () => Promise<unknown>;
 	onSuccess?: () => void;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const [loading, setLoading] = useState(false);
 
@@ -1508,7 +1588,7 @@ function MergeButton({
 	folderId: FolderId;
 	worktreeId: WorktreeId | null;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const executionRef = executionRefFor(useActiveContext());
 	const method = useMergePrefs((s) => s.method);
@@ -1594,7 +1674,7 @@ function AutoMergeToggle({
 	worktreeId: WorktreeId | null;
 	enabled: boolean;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const executionRef = executionRefFor(useActiveContext());
 	const method = useMergePrefs((s) => s.method);
@@ -1731,7 +1811,7 @@ export function FixActionsButton({
 	worktreeId: WorktreeId | null;
 	disabled: boolean;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const executionRef = executionRefFor(useActiveContext());
 	const [loading, setLoading] = useState(false);

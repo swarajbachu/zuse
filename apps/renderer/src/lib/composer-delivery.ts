@@ -1,5 +1,7 @@
 import type { PendingCommand } from "@zuse/client-runtime/resource-state";
 import type { Message } from "@zuse/contracts";
+import { ComposerInput } from "@zuse/contracts";
+import type { ComposerContext } from "../store/composer-drafts.ts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
 
 export type WaitingCloudMessagePresentation = Readonly<{
@@ -96,6 +98,25 @@ export const commitAcceptedComposerDelivery = async (
 	return true;
 };
 
+/** Staged context joins the outgoing payload, leaving the editable draft untouched. */
+export const withComposerContext = (
+	input: ComposerInput,
+	contexts: readonly ComposerContext[],
+): ComposerInput =>
+	contexts.length === 0
+		? input
+		: ComposerInput.make({
+				...input,
+				annotations: [
+					...(input.annotations ?? []),
+					...contexts.map((item) => ({
+						_tag: "context" as const,
+						id: item.id,
+						label: item.label,
+						comment: item.text,
+					})),
+				],
+			});
 /** Mailbox-owned prompts stay in the composer queue until claimed by the runtime. */
 export const partitionCloudMessages = (
 	messages: readonly Message[],

@@ -1,27 +1,31 @@
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
+import { useGitPrState } from "../lib/use-git-pr-state.ts";
+import { GitStackMenu } from "./git-stack-menu.tsx";
+import { PrActionsMenu } from "./pr-actions-menu.tsx";
+import { PrAutoFix } from "./pr-auto-fix.tsx";
+import { PrChecksPreview } from "./pr-checks-preview.tsx";
+import { Spinner } from "./ui/spinner.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { GitBranchInfo, GitPrCheckRun, Message } from "@zuse/contracts";
+import type { GitBranchInfo, Message } from "@zuse/contracts";
 import { CommandId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Alert01Icon,
+	ArrowLeftRightIcon,
 	CheckListIcon,
-	Clock01Icon,
+	ComputerPhoneSyncIcon,
 	GitCompareIcon,
 	GitMergeIcon,
 	GitPullRequestIcon,
+	LaptopIcon,
 	Loading02Icon,
+	ServerStack01Icon,
 	Tick02Icon,
-} from "@zuse/icons/solid-rounded";
+} from "@zuse/icons/stroke-rounded";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
-import {
-	ArrowLeftRight,
-	Laptop,
-	MonitorSmartphone,
-	Server,
-} from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { deriveEnvironmentPrRows } from "../lib/branch-workflow.ts";
 import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
@@ -33,8 +37,6 @@ import {
 	dispatchGitWorkspaceCommand,
 	refreshGitPrDetails,
 	refreshGitWorkspace,
-	useGitPrDetailsResource,
-	useGitWorkspaceResource,
 } from "../lib/git-workspace-client-bus.ts";
 import { detachedSubagentGroups } from "../lib/group-messages.ts";
 import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
@@ -51,11 +53,7 @@ import {
 	summaryRowClass as rowClass,
 } from "./cloud-workspace-info.tsx";
 import { SubagentAvatar } from "./subagent-identity.tsx";
-import {
-	BranchMenuButton,
-	FixActionsButton,
-	ResolveConflictsButton,
-} from "./top-bar.tsx";
+import { BranchMenuButton, ResolveConflictsButton } from "./top-bar.tsx";
 import {
 	Menu,
 	MenuItem,
@@ -104,7 +102,9 @@ export function EnvironmentSummary() {
 		localEnvironmentId: getLocalEnvironmentId(),
 		activeEntry: activeEnvironmentEntry,
 	});
-	const EnvironmentIcon = environmentLocation.isLocal ? Laptop : Server;
+	const EnvironmentIcon = environmentLocation.isLocal
+		? LaptopIcon
+		: ServerStack01Icon;
 	const executionRef =
 		ctx.status === "ready"
 			? {
@@ -121,21 +121,24 @@ export function EnvironmentSummary() {
 			? environmentId
 			: null,
 	);
+	const [checksOpen, setChecksOpen] = useState(false);
+	const suppressChecksPreview = useRef(false);
 	const [checksRequestedKey, setChecksRequestedKey] = useState<string | null>(
 		null,
 	);
-	const gitView = useGitWorkspaceResource(executionRef, "connect");
-	const prDetailsView = useGitPrDetailsResource(
-		executionRef,
-		checksRequestedKey === null ? "cache-only" : "connect",
-	);
+	const {
+		gitView,
+		prDetailsView,
+		pr,
+		details: prDetails,
+		checkRuns,
+	} = useGitPrState(executionRef, checksRequestedKey !== null);
 	const status = gitView.data?.status ?? null;
 	const diffStat = gitView.data?.diffStat ?? null;
 	const [branches, setBranches] = useState<ReadonlyArray<GitBranchInfo>>([]);
 	const [branchesLoading, setBranchesLoading] = useState(false);
 	const [branchError, setBranchError] = useState<string | null>(null);
-	const pr = gitView.data?.pr ?? null;
-	const prDetails = prDetailsView.data?.details ?? null;
+
 	const prDetailsLoading = prDetailsView.sync === "synchronizing";
 	const revealPanelForChat = useUiStore((s) => s.revealPanelForChat);
 	const selectSubagent = useUiStore((s) => s.selectSubagent);
@@ -317,13 +320,14 @@ export function EnvironmentSummary() {
 		if (!open || executionRef === null) return;
 		const key = `${executionRef.environmentId}:${executionRef.folderId}:${executionRef.worktreeId ?? "main"}`;
 		setChecksRequestedKey(key);
-		void refreshGitPrDetails(executionRef);
+		if (prDetails === null && !prDetailsLoading)
+			void refreshGitPrDetails(executionRef);
 	};
 
 	return (
 		<aside
 			aria-label={uiMessage("chat:environment_summary_environment_summary")}
-			className="pointer-events-auto max-h-[calc(100dvh-7rem)] w-64 shrink-0 overflow-y-auto rounded-lg border border-border/70 bg-card/95 p-1 shadow-overlay-sm backdrop-blur-md"
+			className="pointer-events-auto max-h-[calc(100dvh-7rem)] w-64 shrink-0 overflow-y-auto rounded-lg bg-glass border-glass p-1"
 		>
 			<h2 className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">
 				{uiMessage("chat:environment_summary_summary")}
@@ -346,28 +350,26 @@ export function EnvironmentSummary() {
 					</span>
 				) : null}
 			</button>
-			<Menu>
+			<Menu modal={false}>
 				<MenuTrigger
 					className={`${rowClass} hover:bg-muted/60 data-[popup-open]:bg-muted/60`}
 					title={`${environmentLocation.menuLabel} · ${displayPath(ctx.rootPath)}`}
 				>
-					<EnvironmentIcon className="size-4 shrink-0 text-muted-foreground" />
+					<HugeiconsIcon
+						icon={EnvironmentIcon}
+						className="size-4 shrink-0 text-muted-foreground"
+					/>
 					<span className="min-w-0 flex-1 truncate">
 						{environmentLocation.label}
 					</span>
 					<span className="size-1.5 rounded-full bg-[var(--accent-green)]" />
 				</MenuTrigger>
-				<MenuPopup
-					side="left"
-					align="start"
-					sideOffset={8}
-					className="min-w-72 p-1"
-				>
+				<MenuPopup side="left" align="start" sideOffset={8} className="w-60">
 					<div className="px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
 						{uiMessage("chat:environment_summary_running_on")}
 					</div>
-					<MenuItem className="gap-2.5 px-2.5 py-2 text-[13px]">
-						<EnvironmentIcon className="size-4" />
+					<MenuItem className="h-7 gap-2 px-2 py-0 text-xs">
+						<HugeiconsIcon icon={EnvironmentIcon} className="size-4" />
 						<span className="flex-1">{environmentLocation.menuLabel}</span>
 						<span className="text-[11px] text-[var(--accent-green)]">
 							{uiMessage("chat:environment_summary_active")}
@@ -376,18 +378,18 @@ export function EnvironmentSummary() {
 					<MenuSeparator />
 					<MenuItem
 						onClick={openDevices}
-						className="gap-2.5 px-2.5 py-2 text-[13px]"
+						className="h-7 gap-2 px-2 py-0 text-xs"
 					>
-						<MonitorSmartphone className="size-4" />
+						<HugeiconsIcon icon={ComputerPhoneSyncIcon} className="size-4" />
 						<span className="flex-1">
 							{uiMessage("chat:environment_summary_connected_devices")}
 						</span>
 					</MenuItem>
 					<MenuItem
 						onClick={openDevices}
-						className="gap-2.5 px-2.5 py-2 text-[13px]"
+						className="h-7 gap-2 px-2 py-0 text-xs"
 					>
-						<ArrowLeftRight className="size-4" />
+						<HugeiconsIcon icon={ArrowLeftRightIcon} className="size-4" />
 						<span className="flex-1">
 							{uiMessage("chat:environment_summary_worktree_handoff")}
 						</span>
@@ -410,27 +412,68 @@ export function EnvironmentSummary() {
 				onRename={() => {}}
 				onSwitch={(branch) => void switchToBranch(branch)}
 			/>
-			<button
-				type="button"
-				className={`${rowClass} justify-between hover:bg-muted/60`}
-				onClick={openPullRequest}
-			>
-				<HugeiconsIcon
-					icon={prStatus.icon}
-					className={`size-4 shrink-0 ${prStatus.className}`}
-					aria-label={prStatus.label}
+			{executionRef ? (
+				<GitStackMenu
+					branch={status?.branch ?? null}
+					key={`${executionRef.environmentId}:${executionRef.folderId}:${executionRef.worktreeId}:${status?.branch}`}
+					executionRef={executionRef}
+					className={`${rowClass} hover:bg-muted/60`}
 				/>
-				<span className="min-w-0 flex-1 truncate">{prLabel}</span>
-				<span className="shrink-0 text-[10px] text-muted-foreground">
-					{pr?.state === "none"
-						? uiMessage("chat:environment_summary_create_pr")
-						: uiMessage("common:open")}
-				</span>
-			</button>
+			) : null}
+			{pr && pr.state !== "none" && executionRef ? (
+				<PrActionsMenu
+					executionRef={executionRef}
+					pr={pr}
+					details={prDetails}
+					sessionId={sessionId}
+					className={`${rowClass} hover:bg-muted/60`}
+					onView={() => revealPanel("pr")}
+					onChat={() => {
+						suppressChecksPreview.current = true;
+						setChecksOpen(false);
+						useUiStore.getState().setActiveMainTab("chat");
+					}}
+				/>
+			) : (
+				<button
+					type="button"
+					className={`${rowClass} justify-between hover:bg-muted/60`}
+					onClick={openPullRequest}
+				>
+					<HugeiconsIcon
+						icon={prStatus.icon}
+						className={`size-4 shrink-0 ${prStatus.className}`}
+						aria-label={prStatus.label}
+					/>
+					<span className="min-w-0 flex-1 truncate">{prLabel}</span>
+					<span className="shrink-0 text-[10px] text-muted-foreground">
+						{pr?.state === "none"
+							? uiMessage("chat:environment_summary_create_pr")
+							: uiMessage("common:open")}
+					</span>
+				</button>
+			)}
 			{prRows.checks !== null ? (
 				<div className={`${rowClass} justify-between`}>
-					<PreviewCard onOpenChange={hydrateChecks}>
+					<PreviewCard
+						open={checksOpen}
+						onOpenChange={(open) => {
+							if (open && suppressChecksPreview.current) return;
+							setChecksOpen(open);
+							hydrateChecks(open);
+						}}
+					>
 						<PreviewCardTrigger
+							onPointerMove={() => {
+								suppressChecksPreview.current = false;
+							}}
+							onPointerLeave={() => {
+								suppressChecksPreview.current = false;
+							}}
+							onFocus={() => {
+								suppressChecksPreview.current = false;
+							}}
+							delay={100}
 							render={
 								<button
 									type="button"
@@ -450,29 +493,24 @@ export function EnvironmentSummary() {
 						<PreviewCardPopup
 							side="left"
 							align="center"
-							sideOffset={12}
-							className="w-80 p-1.5"
+							sideOffset={8}
+							className="w-64 p-1"
 						>
-							<ChecksPreview
-								checks={prDetails?.checkRuns ?? null}
-								loading={
-									prDetailsLoading ||
-									checksRequestedKey !==
-										`${ctx.environmentId}:${ctx.folderId}:${ctx.worktreeId ?? "main"}`
+							<PrChecksPreview
+								checks={checkRuns}
+								loading={prDetailsLoading && checkRuns === null}
+								action={
+									pr && executionRef ? (
+										<PrAutoFix
+											executionRef={executionRef}
+											pr={pr}
+											sessionId={sessionId}
+										/>
+									) : null
 								}
 							/>
 						</PreviewCardPopup>
 					</PreviewCard>
-					{prRows.checks.canFix && folderId !== null ? (
-						<span className="pointer-events-none shrink-0 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 motion-reduce:transition-none">
-							<FixActionsButton
-								presentation="inline"
-								folderId={folderId}
-								worktreeId={worktreeId}
-								disabled={sessionId === null}
-							/>
-						</span>
-					) : null}
 				</div>
 			) : null}
 			{prRows.conflicts ? (
@@ -551,31 +589,6 @@ export function EnvironmentSummary() {
 	);
 }
 
-type CheckKind = "failure" | "pending" | "success" | "neutral";
-
-const checkKind = (check: GitPrCheckRun): CheckKind => {
-	if (check.status !== "completed") return "pending";
-	switch (check.conclusion) {
-		case "success":
-			return "success";
-		case "failure":
-		case "cancelled":
-		case "timed_out":
-		case "action_required":
-			return "failure";
-		default:
-			return "neutral";
-	}
-};
-
-const checkStatusLabel = (check: GitPrCheckRun): string => {
-	const kind = checkKind(check);
-	if (kind === "pending") return "Running";
-	if (kind === "success") return "Succeeded";
-	if (kind === "failure") return "Failed";
-	return check.conclusion === "skipped" ? "Skipped" : "Completed";
-};
-
 function ChecksStatusIcon({
 	kind,
 }: {
@@ -583,10 +596,7 @@ function ChecksStatusIcon({
 }) {
 	if (kind === "pending") {
 		return (
-			<HugeiconsIcon
-				icon={Loading02Icon}
-				className="size-4 shrink-0 animate-spin text-[var(--accent-amber)]"
-			/>
+			<Spinner className="size-[15px] shrink-0 text-[var(--accent-amber)]" />
 		);
 	}
 	if (kind === "failure") {
@@ -602,87 +612,5 @@ function ChecksStatusIcon({
 			icon={Tick02Icon}
 			className="size-4 shrink-0 text-[var(--accent-green)]"
 		/>
-	);
-}
-
-function ChecksPreview({
-	checks,
-	loading,
-}: {
-	checks: ReadonlyArray<GitPrCheckRun> | null;
-	loading: boolean;
-}) {
-	const { message: uiMessage } = useUiMessages(["chat", "common"]);
-
-	if (loading) {
-		return (
-			<div className="flex min-h-24 items-center justify-center gap-2 text-xs text-muted-foreground">
-				<HugeiconsIcon icon={Loading02Icon} className="size-4 animate-spin" />
-				{uiMessage("chat:environment_summary_loading_checks")}
-			</div>
-		);
-	}
-	if (checks === null || checks.length === 0) {
-		return (
-			<div className="flex min-h-24 items-center justify-center text-xs text-muted-foreground">
-				{checks === null
-					? uiMessage("chat:environment_summary_check_details_unavailable")
-					: uiMessage("chat:environment_summary_no_check_details_available")}
-			</div>
-		);
-	}
-
-	const rank: Record<CheckKind, number> = {
-		failure: 0,
-		pending: 1,
-		success: 2,
-		neutral: 3,
-	};
-	const ordered = [...checks].sort(
-		(left, right) => rank[checkKind(left)] - rank[checkKind(right)],
-	);
-
-	return (
-		<ul className="flex min-h-24 w-full flex-col">
-			{ordered.map((check, index) => {
-				const kind = checkKind(check);
-				return (
-					<li
-						key={`${check.name}-${index}`}
-						className="flex min-h-9 items-center gap-2 rounded-lg px-2.5 text-[12px] text-foreground"
-					>
-						<span className="grid size-4 shrink-0 place-items-center">
-							{kind === "pending" ? (
-								<HugeiconsIcon
-									icon={Clock01Icon}
-									className="size-3.5 text-[var(--accent-amber)]"
-								/>
-							) : kind === "neutral" ? (
-								<HugeiconsIcon
-									icon={CheckListIcon}
-									className="size-3.5 text-muted-foreground"
-								/>
-							) : (
-								<ChecksStatusIcon
-									kind={kind === "failure" ? "failure" : "success"}
-								/>
-							)}
-						</span>
-						<span className="min-w-0 flex-1 truncate">{check.name}</span>
-						<span
-							className={`shrink-0 text-muted-foreground ${
-								kind === "failure"
-									? "text-[var(--accent-red)]"
-									: kind === "success"
-										? "text-[var(--accent-green)]"
-										: ""
-							}`}
-						>
-							{checkStatusLabel(check)}
-						</span>
-					</li>
-				);
-			})}
-		</ul>
 	);
 }
