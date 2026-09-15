@@ -105,88 +105,123 @@ const ensureWorkspaceRepositoryReadyMarker = Effect.fn(
 	);
 });
 
-const reserveProviderCost = Effect.fn("reserveProviderCost")(function* (input: {
-	readonly accountId: string;
-	readonly resourceKind: "workspace" | "build";
-	readonly resourceId: string;
-	readonly provider: string;
-	readonly runningSinceMs: number;
-	readonly nowMs: number;
-	readonly vcpuCount: number;
-	readonly memoryMib: number;
-}) {
-	const config = yield* ApiConfiguration;
-	if (
-		!config.cloudBillingEnforcementEnabled &&
-		!config.cloudBillingExportEnabled
-	)
-		return false;
-	const billingStore = yield* CloudBillingStore;
-	const period = yield* billingStore.currentPeriod(
-		input.accountId,
-		input.nowMs,
-	);
-	if (period === null) {
-		console.warn(
-			"[cloud-billing] provider resource has no reservation period",
-			{
-				provider: input.provider,
-				resourceKind: input.resourceKind,
-				resourceId: input.resourceId,
-				accountId: input.accountId,
-			},
+export const reserveProviderCost = Effect.fn("reserveProviderCost")(
+	function* (input: {
+		readonly accountId: string;
+		readonly resourceKind: "workspace" | "build";
+		readonly resourceId: string;
+		readonly provider: string;
+		readonly providerSandboxId?: string;
+		readonly runningSinceMs: number;
+		readonly nowMs: number;
+		readonly vcpuCount: number;
+		readonly memoryMib: number;
+	}) {
+		const config = yield* ApiConfiguration;
+		if (
+			!config.cloudBillingEnforcementEnabled &&
+			!config.cloudBillingExportEnabled
+		)
+			return false;
+		const billingStore = yield* CloudBillingStore;
+		const period = yield* billingStore.currentPeriod(
+			input.accountId,
+			input.nowMs,
 		);
-		return config.cloudBillingEnforcementEnabled;
-	}
-	const startedAtMs = Math.max(
-		input.runningSinceMs,
-		period.periodStartMs,
-		config.cloudBillingCutoverAtMs ?? input.runningSinceMs,
-	);
-	const endedAtMs = Math.min(
-		Math.max(startedAtMs + 60_000, input.nowMs + 60_000),
-		period.periodEndMs,
-	);
-	const prices = yield* billingStore.priceWindows(
-		input.provider,
-		startedAtMs,
-		endedAtMs,
-	);
-	if (prices.length === 0) {
-		console.warn("[cloud-billing] provider reservation price missing", {
-			provider: input.provider,
+		if (period === null) {
+			console.warn(
+				"[cloud-billing] provider resource has no reservation period",
+				{
+					provider: input.provider,
+					resourceKind: input.resourceKind,
+					resourceId: input.resourceId,
+					accountId: input.accountId,
+				},
+			);
+			return config.cloudBillingEnforcementEnabled;
+		}
+		const startedAtMs = Math.max(
+			input.runningSinceMs,
+			period.periodStartMs,
+			config.cloudBillingCutoverAtMs ?? input.runningSinceMs,
+		);
+		const endedAtMs = Math.min(
+			Math.max(startedAtMs + 60_000, input.nowMs + 60_000),
+			period.periodEndMs,
+		);
+		const adapter = yield* (yield* SandboxProviders)
+			.get(input.provider)
+			.pipe(Effect.orDie);
+		const usage =
+			adapter.getUsage !== undefined &&
+			input.providerSandboxId !== undefined &&
+			input.nowMs > startedAtMs
+				? yield* adapter
+						.getUsage(input.providerSandboxId, {
+							startedAtMs,
+							endedAtMs: Math.min(input.nowMs, period.periodEndMs),
+						})
+						.pipe(
+							Effect.catchTag("SandboxProviderError", () =>
+								Effect.succeed(null),
+							),
+						)
+				: null;
+		let providerCostMicros: number;
+		if (usage !== null) {
+			// Accrued list-price cost plus the same short forward reservation used by other providers.
+			providerCostMicros =
+				usage.providerCostMicros +
+				(usage.running
+					? Math.ceil(
+							(Math.max(0, endedAtMs - usage.endedAtMs) / 1_000) *
+								usage.costMicrosPerSecond,
+						)
+					: 0);
+		} else {
+			const prices = yield* billingStore.priceWindows(
+				input.provider,
+				startedAtMs,
+				endedAtMs,
+			);
+			if (prices.length === 0) {
+				console.warn("[cloud-billing] provider reservation price missing", {
+					provider: input.provider,
+					resourceKind: input.resourceKind,
+					resourceId: input.resourceId,
+				});
+				return config.cloudBillingEnforcementEnabled;
+			}
+			providerCostMicros = prices.reduce(
+				(total, price) =>
+					total +
+					allocatedComputeCostMicros({
+						durationMs: price.endedAtMs - price.startedAtMs,
+						vcpuCount: input.vcpuCount,
+						memoryMib: input.memoryMib,
+						baseNanoUsdPerSecond: price.baseNanoUsdPerSecond,
+						cpuNanoUsdPerSecond: price.cpuNanoUsdPerSecond,
+						memoryNanoUsdPerGibSecond: price.memoryNanoUsdPerGibSecond,
+					}),
+				0,
+			);
+		}
+		const reservation = yield* billingStore.reserveCost({
+			periodId: period.periodId,
+			accountId: input.accountId,
 			resourceKind: input.resourceKind,
 			resourceId: input.resourceId,
+			provider: input.provider,
+			providerCostMicros,
+			startedAtMs,
+			vcpuCount: input.vcpuCount,
+			memoryMib: input.memoryMib,
+			nowMs: input.nowMs,
+			expiresAtMs: input.nowMs + 2 * 60_000,
 		});
-		return config.cloudBillingEnforcementEnabled;
-	}
-	const reservation = yield* billingStore.reserveCost({
-		periodId: period.periodId,
-		accountId: input.accountId,
-		resourceKind: input.resourceKind,
-		resourceId: input.resourceId,
-		provider: input.provider,
-		providerCostMicros: prices.reduce(
-			(total, price) =>
-				total +
-				allocatedComputeCostMicros({
-					durationMs: price.endedAtMs - price.startedAtMs,
-					vcpuCount: input.vcpuCount,
-					memoryMib: input.memoryMib,
-					baseNanoUsdPerSecond: price.baseNanoUsdPerSecond,
-					cpuNanoUsdPerSecond: price.cpuNanoUsdPerSecond,
-					memoryNanoUsdPerGibSecond: price.memoryNanoUsdPerGibSecond,
-				}),
-			0,
-		),
-		startedAtMs,
-		vcpuCount: input.vcpuCount,
-		memoryMib: input.memoryMib,
-		nowMs: input.nowMs,
-		expiresAtMs: input.nowMs + 2 * 60_000,
-	});
-	return config.cloudBillingEnforcementEnabled && !reservation.accepted;
-});
+		return config.cloudBillingEnforcementEnabled && !reservation.accepted;
+	},
+);
 
 const sanitizeProjectBuildOutput = (value: string): string =>
 	value
@@ -457,6 +492,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			resourceKind: "build",
 			resourceId: build.buildId,
 			provider: build.provider,
+			providerSandboxId: build.providerSandboxId,
 			runningSinceMs: build.state === "queued" ? nowMs : build.updatedAtMs,
 			nowMs,
 			vcpuCount: provider.resources.vcpuCount,
@@ -1423,6 +1459,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			resourceKind: "workspace",
 			resourceId: workspace.workspaceId,
 			provider: workspace.provider,
+			providerSandboxId: workspace.providerSandboxId,
 			runningSinceMs: workspace.runningSinceMs ?? nowMs,
 			nowMs,
 			...resolveSandboxResources(provider, workspaceSizeId(workspace)),

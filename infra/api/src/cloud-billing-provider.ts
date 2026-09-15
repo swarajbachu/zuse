@@ -7,7 +7,7 @@ import {
 } from "./cloud-billing-store.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
-import { conflict } from "./errors.ts";
+import { type ApiError, conflict } from "./errors.ts";
 
 export interface ProviderPriceWindow {
 	readonly startedAtMs: number;
@@ -91,6 +91,11 @@ export const priceProviderExecutionPeriod = (input: {
 export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 	function* (input: {
 		readonly evidence: ProviderExecutionEvidence;
+		/** Query exact provider totals per billing period; never prorate a whole-run total. */
+		readonly reportedCost?: (window: {
+			readonly startedAtMs: number;
+			readonly endedAtMs: number;
+		}) => Effect.Effect<number, ApiError>;
 		readonly nowMs: number;
 	}) {
 		const { evidence } = input;
@@ -168,25 +173,40 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 				evidence.endedAtMs,
 				executionPeriod.periodEndMs,
 			);
-			const prices = yield* billingStore.priceWindows(
-				evidence.provider,
-				segmentStart,
-				segmentEnd,
-			);
-			if (prices.length === 0)
-				return yield* Effect.fail(conflict("cloud_billing_price_missing"));
-			const priced = priceProviderExecutionPeriod({
-				provider: evidence.provider,
-				eventId: evidence.eventId,
-				periodId: executionPeriod.periodId,
-				startedAtMs: segmentStart,
-				endedAtMs: segmentEnd,
-				vcpuCount: evidence.vcpuCount,
-				memoryMib: evidence.memoryMib,
-				prices,
-			});
+			let providerCostMicros: number;
+			if (input.reportedCost !== undefined) {
+				providerCostMicros = yield* input.reportedCost({
+					startedAtMs: segmentStart,
+					endedAtMs: segmentEnd,
+				});
+				if (!Number.isSafeInteger(providerCostMicros) || providerCostMicros < 0)
+					return yield* Effect.fail(conflict("invalid_provider_cost"));
+			} else {
+				const prices = yield* billingStore.priceWindows(
+					evidence.provider,
+					segmentStart,
+					segmentEnd,
+				);
+				if (prices.length === 0)
+					return yield* Effect.fail(conflict("cloud_billing_price_missing"));
+				providerCostMicros = priceProviderExecutionPeriod({
+					provider: evidence.provider,
+					eventId: evidence.eventId,
+					periodId: executionPeriod.periodId,
+					startedAtMs: segmentStart,
+					endedAtMs: segmentEnd,
+					vcpuCount: evidence.vcpuCount,
+					memoryMib: evidence.memoryMib,
+					prices,
+				}).providerCostMicros;
+			}
+			const providerEventId = `${evidence.eventId}:${executionPeriod.periodId}`;
 			usage.push({
-				...priced,
+				entryId: `${evidence.provider}:${providerEventId}`,
+				providerEventId,
+				startedAt: segmentStart,
+				endedAt: segmentEnd,
+				providerCostMicros,
 				periodId: executionPeriod.periodId,
 				accountId: resource.accountId,
 				resourceKind: workspace === null ? "build" : "workspace",

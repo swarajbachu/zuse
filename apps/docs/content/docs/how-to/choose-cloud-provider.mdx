@@ -80,3 +80,17 @@ Zuse resumes the workspace. The prompt moves into the conversation when the
 runtime takes the command. Cancel is available while the mailbox still allows
 cancellation. Delivery failures and required sign-in remain visible next to the
 composer; the gray cloud icon in the sidebar only identifies a cloud chat.
+
+
+## Usage and cost
+
+Cloud settings show usage attributed to your workspaces and image builds. For
+Box, Zuse uses [Box's reported usage and cost](https://docs.ascii.dev/box/api/reference/boxes/get-box-usage),
+which already accounts for machine size and excludes stopped time. Running usage
+is provisional and can include a short reservation for continued operation;
+confirmed usage is reconciled after the machine stops.
+
+Box reports list-price compute cost, before provider plan discounts or credits.
+Your Zuse allowance, overage markup, and spending cap still determine your Zuse
+bill. E2B continues to use its configured compute rates. Provider choice alone
+does not change your subscription price.

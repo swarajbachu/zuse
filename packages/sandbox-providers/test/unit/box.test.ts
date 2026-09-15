@@ -925,3 +925,84 @@ describe("Box sandbox provider", () => {
 		});
 	});
 });
+
+describe("Box provider-reported usage", () => {
+	const window = {
+		startedAtMs: Date.parse("2026-09-01T00:00:00Z"),
+		endedAtMs: Date.parse("2026-09-14T09:30:00Z"),
+	};
+	const response = {
+		ok: true,
+		type: "box.usage",
+		boxId: "bx_23456789",
+		boxType: "large",
+		billingMultiplier: 2,
+		since: new Date(window.startedAtMs).toISOString(),
+		until: new Date(window.endedAtMs).toISOString(),
+		seconds: 1200,
+		dollars: 0.012,
+		secondsPerDollar: 100000,
+		running: false,
+	};
+	const usage = (http: BoxHttpClient, requested = window) => {
+		const getUsage = makeAdapter(http).getUsage;
+		if (!getUsage) throw new Error("Box usage is required");
+		return Effect.runPromise(getUsage(response.boxId, requested));
+	};
+	test("uses the reported cost without applying the size multiplier twice", async () => {
+		const http = makeHttp([{ status: 200, body: response }]);
+		expect(await usage(http.client)).toEqual({
+			...window,
+			billableSeconds: 1200,
+			providerCostMicros: 12000,
+			costMicrosPerSecond: 20,
+			running: false,
+		});
+		const url = new URL(http.calls[0]?.url ?? "");
+		expect(url.pathname).toBe(`/boxes/${response.boxId}/usage`);
+		expect(url.searchParams.get("since")).toBe(response.since);
+		expect(url.searchParams.get("until")).toBe(response.until);
+		expect(http.calls[0]?.init?.redirect).toBe("error");
+	});
+	test("supports live usage and the provider's fractional xlarge multiplier", async () => {
+		const http = makeHttp([
+			{
+				status: 200,
+				body: {
+					...response,
+					boxType: "xlarge",
+					billingMultiplier: 50 / 9,
+					running: true,
+				},
+			},
+		]);
+		expect(await usage(http.client)).toMatchObject({
+			providerCostMicros: 12000,
+			running: true,
+			costMicrosPerSecond: (1_000_000 * (50 / 9)) / 100000,
+		});
+	});
+	test.each([
+		{ boxId: "another-box" },
+		{ dollars: -1 },
+		{ dollars: 0.0000001 },
+		{ dollars: 1e20 },
+		{ seconds: 1.5 },
+		{ secondsPerDollar: 0 },
+		{ since: "invalid" },
+		{ until: "2026-09-15T00:00:00Z" },
+		{ ok: false },
+	])("rejects mismatched or invalid financial evidence: %j", async (overrides) => {
+		const http = makeHttp([
+			{ status: 200, body: { ...response, ...overrides } },
+		]);
+		await expect(usage(http.client)).rejects.toBeDefined();
+	});
+	test("rejects invalid windows before making a request", async () => {
+		const http = makeHttp([]);
+		await expect(
+			usage(http.client, { ...window, endedAtMs: window.startedAtMs }),
+		).rejects.toBeDefined();
+		expect(http.calls).toHaveLength(0);
+	});
+});
