@@ -14,10 +14,11 @@ type EditQueuedMessage = (item: QueuedMessage) => void;
 
 type Bridge = {
 	readonly attachFile: AttachFile | null;
+	readonly draftKey: string | null;
 	readonly insertText: InsertText | null;
 	readonly focus: FocusComposer | null;
 	readonly editQueuedMessage: EditQueuedMessage | null;
-	readonly setAttachFile: (fn: AttachFile | null) => void;
+	readonly setAttachFile: (fn: AttachFile | null, draftKey?: string) => void;
 	readonly setInsertText: (fn: InsertText | null) => void;
 	readonly setFocus: (fn: FocusComposer | null) => void;
 	readonly setEditQueuedMessage: (fn: EditQueuedMessage | null) => void;
@@ -25,10 +26,12 @@ type Bridge = {
 
 export const useComposerBridge = create<Bridge>((set) => ({
 	attachFile: null,
+	draftKey: null,
 	insertText: null,
 	focus: null,
 	editQueuedMessage: null,
-	setAttachFile: (fn) => set({ attachFile: fn }),
+	setAttachFile: (fn, draftKey) =>
+		set({ attachFile: fn, draftKey: fn === null ? null : (draftKey ?? null) }),
 	setInsertText: (fn) => set({ insertText: fn }),
 	setFocus: (fn) => set({ focus: fn }),
 	setEditQueuedMessage: (fn) => set({ editQueuedMessage: fn }),

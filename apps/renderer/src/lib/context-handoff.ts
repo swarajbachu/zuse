@@ -1,3 +1,7 @@
+import {
+	resourceRefKey,
+	type SessionRef,
+} from "@zuse/client-runtime/resource-ref";
 import type { EnvironmentId, SessionId } from "@zuse/contracts";
 import { CommandId } from "@zuse/contracts";
 
@@ -106,7 +110,15 @@ export const fetchTranscriptMarkdown = async (
 };
 
 /** Drop a file chip into the CURRENTLY mounted composer (bridge-backed). */
-export const attachToCurrentComposer = (ref: ContextRef): boolean => {
+export const attachToCurrentComposer = (
+	ref: ContextRef,
+	target?: SessionRef,
+): boolean => {
+	if (
+		target &&
+		useComposerBridge.getState().draftKey !== resourceRefKey(target)
+	)
+		return false;
 	const attach = useComposerBridge.getState().attachFile;
 	if (attach === null) return false;
 	attach({ relPath: ref.relPath, absPath: ref.absPath, kind: "file" });
@@ -123,8 +135,12 @@ export const attachFileWhenReady = (
 	ref: ContextRef,
 	tries = 20,
 	delayMs = 50,
+	target?: SessionRef,
 ): void => {
-	if (attachToCurrentComposer(ref)) return;
+	if (attachToCurrentComposer(ref, target)) return;
 	if (tries <= 0) return;
-	setTimeout(() => attachFileWhenReady(ref, tries - 1, delayMs), delayMs);
+	setTimeout(
+		() => attachFileWhenReady(ref, tries - 1, delayMs, target),
+		delayMs,
+	);
 };

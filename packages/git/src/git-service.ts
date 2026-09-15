@@ -62,6 +62,7 @@ export interface GitServiceShape {
 		branch: string,
 		remote?: string | null,
 		worktreeId?: WorktreeId | null,
+		createFrom?: "HEAD" | "origin/main",
 	) => Effect.Effect<GitStatusSummary, GitFailure>;
 	readonly renameBranch: (
 		folderId: FolderId,
@@ -213,6 +214,7 @@ export interface GitServiceShape {
 	readonly markReady: (
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
+		state?: "ready" | "draft" | "closed" | "open",
 	) => Effect.Effect<{ readonly output: string }, GitFailure>;
 	readonly init: (
 		folderId: FolderId,

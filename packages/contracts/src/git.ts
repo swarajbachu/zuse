@@ -119,6 +119,7 @@ export const GitSwitchBranchRpc = Rpc.make("git.switchBranch", {
 		folderId: FolderId,
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 		branch: Schema.String,
+		createFrom: Schema.optional(Schema.Literals(["HEAD", "origin/main"])),
 		remote: Schema.optional(Schema.NullOr(Schema.String)),
 	}),
 	success: GitStatusSummary,
@@ -839,6 +840,9 @@ export const GitMergePrRpc = Rpc.make("git.mergePr", {
 export const GitMarkReadyRpc = Rpc.make("git.markReady", {
 	payload: Schema.Struct({
 		folderId: FolderId,
+		state: Schema.optional(
+			Schema.Literals(["ready", "draft", "closed", "open"]),
+		),
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 	}),
 	success: Schema.Struct({ output: Schema.String }),

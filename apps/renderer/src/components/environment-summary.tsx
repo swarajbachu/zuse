@@ -1,5 +1,6 @@
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import { openExternal } from "../lib/platform-capabilities.ts";
+import { PrActionsMenu } from "./pr-actions-menu.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { GitBranchInfo, GitPrCheckRun, Message } from "@zuse/contracts";
@@ -128,7 +129,9 @@ export function EnvironmentSummary() {
 	const gitView = useGitWorkspaceResource(executionRef, "connect");
 	const prDetailsView = useGitPrDetailsResource(
 		executionRef,
-		checksRequestedKey === null ? "cache-only" : "connect",
+		gitView.data?.pr?.state === "open" || checksRequestedKey !== null
+			? "connect"
+			: "cache-only",
 	);
 	const status = gitView.data?.status ?? null;
 	const diffStat = gitView.data?.diffStat ?? null;
@@ -412,23 +415,37 @@ export function EnvironmentSummary() {
 				onRename={() => {}}
 				onSwitch={(branch) => void switchToBranch(branch)}
 			/>
-			<button
-				type="button"
-				className={`${rowClass} justify-between hover:bg-muted/60`}
-				onClick={openPullRequest}
-			>
-				<HugeiconsIcon
-					icon={prStatus.icon}
-					className={`size-4 shrink-0 ${prStatus.className}`}
-					aria-label={prStatus.label}
+			{pr && pr.state !== "none" && executionRef ? (
+				<PrActionsMenu
+					executionRef={executionRef}
+					pr={pr}
+					details={prDetails}
+					sessionId={sessionId}
+					busy={isRunning}
+					className={`${rowClass} hover:bg-muted/60`}
+					onView={() => revealPanel("pr")}
+					onChanges={() => revealPanel("changes")}
+					onChat={() => useUiStore.getState().setActiveMainTab("chat")}
 				/>
-				<span className="min-w-0 flex-1 truncate">{prLabel}</span>
-				<span className="shrink-0 text-[10px] text-muted-foreground">
-					{pr?.state === "none"
-						? uiMessage("chat:environment_summary_create_pr")
-						: uiMessage("common:open")}
-				</span>
-			</button>
+			) : (
+				<button
+					type="button"
+					className={`${rowClass} justify-between hover:bg-muted/60`}
+					onClick={openPullRequest}
+				>
+					<HugeiconsIcon
+						icon={prStatus.icon}
+						className={`size-4 shrink-0 ${prStatus.className}`}
+						aria-label={prStatus.label}
+					/>
+					<span className="min-w-0 flex-1 truncate">{prLabel}</span>
+					<span className="shrink-0 text-[10px] text-muted-foreground">
+						{pr?.state === "none"
+							? uiMessage("chat:environment_summary_create_pr")
+							: uiMessage("common:open")}
+					</span>
+				</button>
+			)}
 			{prRows.checks !== null ? (
 				<div className={`${rowClass} justify-between`}>
 					<PreviewCard onOpenChange={hydrateChecks}>

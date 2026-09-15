@@ -690,6 +690,7 @@ export const GitServiceLive = Layer.effect(
 			branch,
 			remote,
 			worktreeId,
+			createFrom,
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
@@ -703,7 +704,42 @@ export const GitServiceLive = Layer.effect(
 						);
 					}
 					const remoteTarget = remote?.trim() ?? "";
-					if (remoteTarget.length > 0) {
+					if (createFrom !== undefined) {
+						yield* run(folderId, cwd, ["check-ref-format", "--branch", target]);
+						if (target.startsWith("-") || target.startsWith("@"))
+							return yield* Effect.fail(
+								new GitCommandError({
+									folderId,
+									reason: "Enter a literal branch name.",
+								}),
+							);
+						if (createFrom === "origin/main") {
+							const dirty = yield* run(folderId, cwd, [
+								"status",
+								"--porcelain",
+							]);
+							if (dirty.trim())
+								return yield* Effect.fail(
+									new GitCommandError({
+										folderId,
+										reason:
+											"Commit or stash changes before starting from origin/main.",
+									}),
+								);
+							yield* run(folderId, cwd, [
+								"fetch",
+								"origin",
+								"refs/heads/main:refs/remotes/origin/main",
+							]);
+						}
+						yield* run(folderId, cwd, [
+							"switch",
+							"--no-track",
+							"-c",
+							target,
+							createFrom,
+						]);
+					} else if (remoteTarget.length > 0) {
 						yield* run(folderId, cwd, ["switch", "--track", remoteTarget]);
 					} else {
 						yield* run(folderId, cwd, ["switch", target]);
@@ -2388,11 +2424,25 @@ export const GitServiceLive = Layer.effect(
 		const markReady: GitService["Service"]["markReady"] = (
 			folderId,
 			worktreeId,
+			state = "ready",
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
-				Effect.map(ghRun(folderId, cwd, ["pr", "ready"]), (output) => ({
-					output,
-				})),
+				Effect.map(
+					ghRun(
+						folderId,
+						cwd,
+						state === "draft"
+							? ["pr", "ready", "--undo"]
+							: state === "closed"
+								? ["pr", "close"]
+								: state === "open"
+									? ["pr", "reopen"]
+									: ["pr", "ready"],
+					),
+					(output) => ({
+						output,
+					}),
+				),
 			);
 
 		/**

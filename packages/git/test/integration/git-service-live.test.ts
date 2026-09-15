@@ -97,6 +97,43 @@ describe("GitServiceLive", () => {
 			Effect.flatMap(GitService, operation).pipe(Effect.provide(layer)),
 		);
 
+	test("creates a branch from fetched origin/main without moving local changes", async () => {
+		const remote = join(temporaryRoot, "branch-origin.git");
+		git(temporaryRoot, "init", "--bare", remote);
+		git(repositoryRoot, "remote", "add", "origin", remote);
+		git(repositoryRoot, "push", "-u", "origin", "main");
+		git(repositoryRoot, "switch", "-c", "old-feature");
+		writeFileSync(join(repositoryRoot, "README.md"), "uncommitted");
+		await expect(
+			run((service) =>
+				service.switchBranch(
+					folderId,
+					"next-feature",
+					null,
+					null,
+					"origin/main",
+				),
+			),
+		).rejects.toMatchObject({
+			reason: "Commit or stash changes before starting from origin/main.",
+		});
+		expect(git(repositoryRoot, "branch", "--show-current")).toBe("old-feature");
+		git(repositoryRoot, "add", ".");
+		git(repositoryRoot, "commit", "-m", "old feature");
+		const status = await run((service) =>
+			service.switchBranch(folderId, "next-feature", null, null, "origin/main"),
+		);
+		expect(status.branch).toBe("next-feature");
+		expect(git(repositoryRoot, "rev-parse", "HEAD")).toBe(
+			git(remote, "rev-parse", "main"),
+		);
+		await expect(
+			run((service) =>
+				service.switchBranch(folderId, "next-feature", null, null, "HEAD"),
+			),
+		).rejects.toThrow();
+	});
+
 	test("reads log, status, branches, changes, and diffs from the repository", async () => {
 		writeFileSync(join(repositoryRoot, "README.md"), "first\nsecond\n");
 		writeFileSync(join(repositoryRoot, "new.txt"), "new\n");

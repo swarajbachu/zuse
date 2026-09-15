@@ -661,7 +661,7 @@ export function ChatComposer({
 				absPath: ref.absPath,
 				entryKind: ref.kind,
 			});
-		});
+		}, draftKey);
 		bridge.setInsertText((text) => {
 			const v = editorViewRef.current;
 			if (v === null) return;
