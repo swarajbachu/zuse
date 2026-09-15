@@ -13,7 +13,7 @@ export function ComposerContextTray({ draftKey }: { draftKey: string }) {
 	);
 	if (!items.length) return null;
 	return (
-		<div className="flex flex-wrap gap-1.5 px-2 py-1.5">
+		<>
 			{items.map((item) => (
 				<ContextPill
 					key={item.id}
@@ -27,6 +27,6 @@ export function ComposerContextTray({ draftKey }: { draftKey: string }) {
 					<MarkdownBody githubHtml>{item.text}</MarkdownBody>
 				</ContextPill>
 			))}
-		</div>
+		</>
 	);
 }

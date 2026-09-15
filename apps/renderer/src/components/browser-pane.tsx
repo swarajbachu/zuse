@@ -3937,7 +3937,7 @@ function BrowserEmptyState({
 	);
 }
 
-function BrowserAnnotationOverlay({
+export function BrowserAnnotationOverlay({
 	tool,
 	setTool,
 	hoverPick,
@@ -3979,7 +3979,7 @@ function BrowserAnnotationOverlay({
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
 	const maxLeft =
-		typeof window === "undefined" ? 16 : Math.max(16, window.innerWidth - 452);
+		typeof window === "undefined" ? 16 : Math.max(16, window.innerWidth - 376);
 	const maxTop =
 		typeof window === "undefined" ? 16 : Math.max(16, window.innerHeight - 92);
 	const editorStyle =
@@ -3987,7 +3987,7 @@ function BrowserAnnotationOverlay({
 			? { left: "50%", top: "58%", transform: "translate(-50%, -50%)" }
 			: {
 					left: Math.min(
-						Math.max(16, bounds.x + Math.max(0, bounds.width - 360)),
+						Math.max(16, bounds.x + Math.max(0, bounds.width - 344)),
 						maxLeft,
 					),
 					top: Math.min(Math.max(16, bounds.y + bounds.height + 12), maxTop),
@@ -4003,7 +4003,7 @@ function BrowserAnnotationOverlay({
 			onPointerCancel={onPointerUp}
 		>
 			<div
-				className="absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-border/70 bg-background/95 p-1 shadow-lg backdrop-blur"
+				className="absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-1 rounded-lg bg-glass border-glass p-1 shadow-lg backdrop-blur"
 				onPointerDown={(event) => event.stopPropagation()}
 			>
 				{annotationTools.map((item) => {
@@ -4014,7 +4014,7 @@ function BrowserAnnotationOverlay({
 							key={item.id}
 							type="button"
 							onClick={() => setTool(item.id)}
-							className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-medium ${
+							className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium ${
 								active
 									? "bg-primary/10 text-primary"
 									: "text-foreground hover:bg-muted"
@@ -4028,10 +4028,10 @@ function BrowserAnnotationOverlay({
 				<button
 					type="button"
 					onClick={onCancel}
-					className="ml-1 flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+					className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
 					aria-label={uiMessage("chat:browser_pane_cancel_annotation")}
 				>
-					<X className="size-4" strokeWidth={1.8} />
+					<X className="size-3.5" strokeWidth={1.8} />
 				</button>
 			</div>
 
@@ -4093,16 +4093,16 @@ function BrowserAnnotationOverlay({
 
 			{bounds !== null ? (
 				<div
-					className="absolute flex w-[min(420px,calc(100%-32px))] items-start gap-2 rounded-xl border border-border/70 bg-background/95 p-2 shadow-xl backdrop-blur"
+					className="absolute flex w-[min(344px,calc(100%-32px))] items-start gap-1.5 rounded-lg bg-glass border-glass p-1.5 shadow-lg backdrop-blur"
 					style={editorStyle}
 					onPointerDown={(event) => event.stopPropagation()}
 				>
 					<button
 						type="button"
-						className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+						className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
 						aria-label={uiMessage("chat:browser_pane_annotation_details")}
 					>
-						<MousePointerClick className="size-4" strokeWidth={1.8} />
+						<MousePointerClick className="size-3.5" strokeWidth={1.8} />
 					</button>
 					<textarea
 						value={comment}
@@ -4117,13 +4117,13 @@ function BrowserAnnotationOverlay({
 						}}
 						placeholder={uiMessage("chat:browser_pane_describe_the_change")}
 						rows={1}
-						className="min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground"
+						className="h-7 min-w-0 flex-1 resize-none bg-transparent px-1 py-1.5 text-xs leading-4 text-foreground outline-none placeholder:text-muted-foreground"
 					/>
 					<button
 						type="button"
 						onClick={onAttach}
 						disabled={!canAttach || attaching}
-						className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-50"
+						className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-50"
 					>
 						<SendHorizontal className="size-3.5" strokeWidth={1.8} />
 						{attaching

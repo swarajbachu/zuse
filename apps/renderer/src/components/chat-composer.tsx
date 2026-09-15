@@ -1,4 +1,4 @@
-import { ComposerContextTray } from "./composer/composer-context-tray.tsx";
+import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import "@zuse/i18n/english/chat";
@@ -164,7 +164,6 @@ import {
 } from "../store/model-catalog.ts";
 import { usePaneFocus } from "../store/pane-focus.ts";
 import { useProvidersStore } from "../store/providers.ts";
-import { AnnotationTray } from "./composer/annotation-tray.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { ContextTray } from "./composer/context-tray.tsx";
 import { FileTagPopover } from "./composer/file-tag-popover.tsx";
@@ -1420,13 +1419,6 @@ export function ChatComposer({
 				inert={directoryUnavailable || undefined}
 			>
 				<div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
-					{!isDraft ? (
-						<AnnotationTray
-							sessionId={sessionId}
-							folderId={session.projectId}
-							worktreeId={session.worktreeId}
-						/>
-					) : null}
 					<div className="relative">
 						<div
 							className={cn(
@@ -1435,7 +1427,12 @@ export function ChatComposer({
 							)}
 						>
 							<NoConnectionTray />
-							<ComposerContextTray draftKey={draftKey} />
+							<ComposerAttachmentTray
+								draftKey={draftKey}
+								sessionId={isDraft ? null : sessionId}
+								folderId={session.projectId}
+								worktreeId={session.worktreeId}
+							/>
 							{!isDraft ? (
 								<>
 									<PlanApprovalTray

@@ -41,3 +41,5 @@ Sent messages show context and annotation pills above the message bubble. File, 
 The shared check-state merge reconstructs `GitPrCheckRun` instances after combining core status with detailed metadata. Spreading these into plain objects loses schema identity; checks containing decoded `Date` fields then fail nested validation when opening the PR. A regression test covers this conversion with completed workflow timestamps.
 
 GitHub avatars use the shared avatar loading/failure fallback and the URL supplied by GitHub. The shared default shape is a squircle; initials stay visible while artwork loads or when it cannot be loaded.
+
+Annotations and PR context share one wrapping attachment row inside the composer's attached tray. The row renders nothing when both sources are empty. The browser annotation toolbar and comment editor use 28px controls, 12px labels, 14px icons, and compact glass surfaces; the comment editor is capped at 344px wide.

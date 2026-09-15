@@ -108,7 +108,7 @@ export function AnnotationTray({
 	if (annotations.length === 0) return null;
 
 	return (
-		<div className="mb-1.5 px-2">
+		<>
 			<ContextPill
 				label={`${annotations.length} ${uiMessage("chat:annotation_tray_annotations")}`}
 				onRemove={() => clear(sessionId)}
@@ -227,6 +227,6 @@ export function AnnotationTray({
 					})}
 				</ul>
 			</ContextPill>
-		</div>
+		</>
 	);
 }
