@@ -30,7 +30,6 @@ import { FileWarning, MessageSquareText, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
 	dispatchGitWorkspaceCommand,
-	refreshGitChanges,
 	refreshGitPrDetails,
 	refreshGitReview,
 	refreshGitWorkspace,
@@ -147,7 +146,6 @@ export function DiffPane({
 	const refreshAll = () =>
 		Promise.all([
 			refreshGitWorkspace(executionRef),
-			refreshGitChanges(executionRef),
 			refreshGitReview(executionRef),
 			refreshGitPrDetails(executionRef),
 		]).then(() => undefined);

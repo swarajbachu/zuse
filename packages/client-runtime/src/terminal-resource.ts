@@ -34,16 +34,19 @@ export type TerminalResourceState = Readonly<{
 }>;
 
 export type TerminalOutputMetadata =
-	| Readonly<{ _tag: "data"; sequence: number }>
+	| Readonly<{ _tag: "data"; processEpoch?: string; sequence: number }>
 	| Readonly<{
 			_tag: "exit";
+			processEpoch?: string;
 			sequence: number;
 			exitCode: number | null;
 			signal: number | null;
 	  }>
-	| Readonly<{ _tag: "cursor"; sequence: number }>
+	| Readonly<{ _tag: "cursor"; processEpoch?: string; sequence: number }>
+	| Readonly<{ _tag: "epoch"; processEpoch: string; sequence: 0 }>
 	| Readonly<{
 			_tag: "gap";
+			processEpoch?: string;
 			requestedAfter: number;
 			earliestAvailable: number;
 			latestAvailable: number;
@@ -52,6 +55,7 @@ export type TerminalOutputMetadata =
 export type TerminalReduction = Readonly<{
 	kind: "accepted" | "duplicate" | "recover" | "failed";
 	state: TerminalResourceState;
+	resetEpoch?: true;
 }>;
 
 export const terminalProcessEpoch = (terminalId: PtyId): string =>
@@ -98,17 +102,31 @@ export const failTerminalResource = (
 });
 
 /**
- * Applies only ordered output metadata. A recover result leaves the cursor
- * unchanged so the driver can resubscribe from the last committed sequence.
+ * Applies only ordered output metadata. Within one process epoch, recovery
+ * preserves the cursor; a replacement epoch resets to zero before reduction.
  */
 export const reduceTerminalOutput = (
 	state: TerminalResourceState,
 	event: TerminalOutputMetadata,
 ): TerminalReduction => {
+	const incomingEpoch = event.processEpoch;
+	const epochChanged =
+		incomingEpoch !== undefined && incomingEpoch !== state.processEpoch;
+	const current = epochChanged
+		? resetTerminalProcess(state, incomingEpoch)
+		: state;
+	const result = (reduction: TerminalReduction): TerminalReduction =>
+		epochChanged ? { ...reduction, resetEpoch: true } : reduction;
+
+	if (event._tag === "epoch") {
+		return epochChanged
+			? { kind: "accepted", state: current, resetEpoch: true }
+			: { kind: "duplicate", state };
+	}
 	if (event._tag === "gap") {
-		return {
+		return result({
 			kind: "failed",
-			state: failTerminalResource(state, {
+			state: failTerminalResource(current, {
 				kind: "replay-gap",
 				message: "Terminal output is no longer available from this cursor.",
 				gap: {
@@ -117,48 +135,48 @@ export const reduceTerminalOutput = (
 					latestAvailable: event.latestAvailable,
 				},
 			}),
-		};
+		});
 	}
 
-	if (event.sequence < state.outputSequence) {
-		return { kind: "duplicate", state };
+	if (event.sequence < current.outputSequence) {
+		return result({ kind: "duplicate", state: current });
 	}
 	if (event._tag === "cursor") {
-		if (event.sequence === state.outputSequence) {
-			return {
+		if (event.sequence === current.outputSequence) {
+			return result({
 				kind: "accepted",
-				state: { ...state, phase: "running", failure: null },
-			};
+				state: { ...current, phase: "running", failure: null },
+			});
 		}
-		return {
+		return result({
 			kind: "recover",
-			state: reconnectTerminalResource(state),
-		};
+			state: reconnectTerminalResource(current),
+		});
 	}
-	if (event.sequence === state.outputSequence) {
-		return { kind: "duplicate", state };
+	if (event.sequence === current.outputSequence) {
+		return result({ kind: "duplicate", state: current });
 	}
-	if (event.sequence !== state.outputSequence + 1) {
-		return {
+	if (event.sequence !== current.outputSequence + 1) {
+		return result({
 			kind: "recover",
-			state: reconnectTerminalResource(state),
-		};
+			state: reconnectTerminalResource(current),
+		});
 	}
 	if (event._tag === "exit") {
-		return {
+		return result({
 			kind: "accepted",
 			state: {
-				...state,
+				...current,
 				phase: "exited",
 				outputSequence: event.sequence,
 				exitCode: event.exitCode,
 				signal: event.signal,
 				failure: null,
 			},
-		};
+		});
 	}
-	return {
+	return result({
 		kind: "accepted",
-		state: { ...state, outputSequence: event.sequence, failure: null },
-	};
+		state: { ...current, outputSequence: event.sequence, failure: null },
+	});
 };

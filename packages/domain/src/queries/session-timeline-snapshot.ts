@@ -9,9 +9,11 @@ import {
 	MessageContent,
 	MessageId,
 	MessageRole,
+	PermissionRequest,
 	QueuedMessage,
 	QueueState,
 	type SessionId,
+	type SessionInteraction,
 	SessionTimelineProjection,
 	SessionTimelineTurnPhase,
 } from "@zuse/contracts";
@@ -43,6 +45,15 @@ interface QueueRow {
 	readonly ready: number;
 }
 
+interface PendingQuestionRow {
+	readonly content_json: string;
+	readonly created_at: string;
+}
+
+interface PendingPermissionRow {
+	readonly request_json: string;
+}
+
 export type SessionTimelineSnapshot = {
 	readonly projection: SessionTimelineProjection;
 	readonly olderMessageSequence: number | null;
@@ -61,9 +72,115 @@ const decodeContent = Schema.decodeUnknownResult(
 	Schema.fromJsonString(MessageContent),
 );
 const decodeRole = Schema.decodeUnknownResult(MessageRole);
+const decodeDate = Schema.decodeUnknownResult(Schema.DateFromString);
 const decodeComposer = Schema.decodeUnknownResult(
 	Schema.fromJsonString(ComposerInput),
 );
+const decodePermissionRequest = Schema.decodeUnknownResult(
+	Schema.fromJsonString(PermissionRequest),
+);
+
+const MAX_PENDING_SESSION_INTERACTIONS = 100;
+
+const readPendingInteractions = Effect.fn("readPendingInteractions")(function* (
+	sql: SqlClient.SqlClient,
+	sessionId: SessionId,
+) {
+	const questionRows = yield* sql<PendingQuestionRow>`
+			SELECT question.content_json, question.created_at
+			FROM messages AS question
+			WHERE question.session_id = ${sessionId}
+				AND question.kind = 'user_question'
+				AND json_valid(question.content_json)
+				AND NOT EXISTS (
+					SELECT 1 FROM messages AS answer
+					WHERE answer.session_id = question.session_id
+						AND answer.kind = 'user_question_answer'
+						AND json_valid(answer.content_json)
+						AND json_extract(answer.content_json, '$.itemId') =
+							json_extract(question.content_json, '$.itemId')
+				)
+				AND NOT EXISTS (
+					SELECT 1 FROM events AS resolution
+					WHERE resolution.stream_kind = 'session'
+						AND resolution.stream_id = question.session_id
+						AND resolution.type = 'QuestionResolved'
+						AND json_valid(resolution.payload_json)
+						AND json_extract(resolution.payload_json, '$.itemId') =
+							json_extract(question.content_json, '$.itemId')
+				)
+			ORDER BY question.sequence ASC
+			LIMIT ${MAX_PENDING_SESSION_INTERACTIONS + 1}
+		`;
+	const permissionRows = yield* sql<PendingPermissionRow>`
+			SELECT json_extract(requested.payload_json, '$.payloadJson') AS request_json
+			FROM events AS requested
+			WHERE requested.stream_kind = 'session'
+				AND requested.stream_id = ${sessionId}
+				AND requested.type = 'PermissionRequested'
+				AND json_valid(requested.payload_json)
+				AND NOT EXISTS (
+					SELECT 1 FROM events AS resolved
+					WHERE resolved.stream_kind = 'session'
+						AND resolved.stream_id = requested.stream_id
+						AND resolved.type = 'PermissionResolved'
+						AND json_valid(resolved.payload_json)
+						AND json_extract(resolved.payload_json, '$.requestId') =
+							json_extract(requested.payload_json, '$.requestId')
+				)
+			ORDER BY requested.stream_version ASC
+			LIMIT ${MAX_PENDING_SESSION_INTERACTIONS + 1}
+		`;
+	if (
+		questionRows.length + permissionRows.length >
+		MAX_PENDING_SESSION_INTERACTIONS
+	) {
+		return yield* Effect.die(
+			new Error(
+				`Session ${sessionId} exceeds the bounded pending interaction limit; repair is required`,
+			),
+		);
+	}
+	const interactions: SessionInteraction[] = [];
+	for (const row of questionRows) {
+		const content = decodeContent(row.content_json);
+		const requestedAt = decodeDate(row.created_at);
+		if (
+			Result.isFailure(content) ||
+			content.success._tag !== "user_question" ||
+			Result.isFailure(requestedAt)
+		) {
+			continue;
+		}
+		interactions.push({
+			_tag: "Question",
+			id: content.success.itemId,
+			questions: content.success.questions,
+			requestedAt: requestedAt.success,
+		});
+	}
+	for (const row of permissionRows) {
+		const request = decodePermissionRequest(row.request_json);
+		if (Result.isFailure(request)) continue;
+		interactions.push({
+			_tag: "Permission",
+			id: request.success.id,
+			request: request.success,
+		});
+	}
+	interactions.sort((left, right) => {
+		const leftAt =
+			left._tag === "Question"
+				? left.requestedAt.getTime()
+				: left.request.requestedAt.getTime();
+		const rightAt =
+			right._tag === "Question"
+				? right.requestedAt.getTime()
+				: right.request.requestedAt.getTime();
+		return leftAt - rightAt || left.id.localeCompare(right.id);
+	});
+	return interactions;
+});
 
 export const readSessionTimelineMessagePage = Effect.fn(
 	"readSessionTimelineMessagePage",
@@ -186,6 +303,7 @@ export const readSessionTimelineSnapshot = Effect.fn(
 	const permissionMode = Schema.decodeUnknownResult(
 		Schema.Literals(["default", "plan", "acceptEdits"]),
 	)(head.permission_mode);
+	const interactions = yield* readPendingInteractions(sql, sessionId);
 	const makeProjection = () =>
 		SessionTimelineProjection.make({
 			messages: messages.map(({ message }) => message),
@@ -202,6 +320,7 @@ export const readSessionTimelineSnapshot = Effect.fn(
 			runtimeMode: Result.isSuccess(runtimeMode)
 				? runtimeMode.success
 				: DEFAULT_RUNTIME_MODE,
+			interactions,
 		});
 	let projection = makeProjection();
 	let omittedForBudget = false;

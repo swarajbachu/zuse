@@ -238,11 +238,14 @@ import { PingRpc } from "./ping.ts";
 import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import { PreviewsListServersRpc } from "./previews.ts";
 import {
+	PtyCloseOwnedRpc,
 	PtyCloseRpc,
 	PtyListRpc,
 	PtyOpenRpc,
 	PtyOutputRpc,
+	PtyRenameRpc,
 	PtyResizeRpc,
+	PtyRestartRpc,
 	PtyWriteRpc,
 } from "./pty.ts";
 import {
@@ -282,6 +285,7 @@ import {
 	MessagesSendRpc,
 	SessionAnswerQuestionRpc,
 	SessionArchiveRpc,
+	SessionCancelQuestionRpc,
 	SessionCreateRpc,
 	SessionDeleteRpc,
 	SessionEventsHeadRpc,
@@ -298,6 +302,7 @@ import {
 	SessionMcpUpdateRpc,
 	SessionMessagesPageRpc,
 	SessionPlanRespondRpc,
+	SessionQuestionAttachmentsRpc,
 	SessionRenameRpc,
 	SessionResumeRpc,
 	SessionSetModelRpc,
@@ -482,6 +487,9 @@ export const MemoizeRpcs = RpcGroup.make(
 	PtyWriteRpc,
 	PtyResizeRpc,
 	PtyCloseRpc,
+	PtyCloseOwnedRpc,
+	PtyRenameRpc,
+	PtyRestartRpc,
 	PtyOutputRpc,
 	GitLogRpc,
 	GitStatusRpc,
@@ -594,6 +602,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	SessionSetRuntimeModeRpc,
 	SessionSetPermissionModeRpc,
 	SessionAnswerQuestionRpc,
+	SessionCancelQuestionRpc,
+	SessionQuestionAttachmentsRpc,
 	SessionPlanRespondRpc,
 	SessionSetWorktreeRpc,
 	MessagesListRpc,

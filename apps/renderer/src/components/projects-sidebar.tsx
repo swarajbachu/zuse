@@ -71,8 +71,10 @@ import { displayPath } from "~/lib/display-path";
 import { activeSessionById } from "~/lib/environment-entities.ts";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "~/lib/environment-permissions-client-bus.ts";
+import { useEnvironmentQuestionAttachments } from "~/lib/environment-question-attachments-client-bus.ts";
 import { formatError } from "~/lib/format-error.ts";
 import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
+import { filterActionableQuestionInteractions } from "~/lib/question-actionability.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
 	cloudChatShowsWorking,
@@ -386,6 +388,7 @@ export function ProjectsSidebar() {
 	return (
 		<aside
 			ref={paneRef}
+			aria-label="Projects and chats"
 			data-pane="sidebar"
 			tabIndex={-1}
 			className="flex h-full min-h-0 w-full flex-col bg-sidebar text-sidebar-foreground outline-none"
@@ -1122,7 +1125,7 @@ function SidebarActionRow({
 			<HugeiconsIcon icon={icon} className="size-4 shrink-0" />
 			<span className="min-w-0 flex-1 truncate">{label}</span>
 			{shortcut !== undefined && shortcut !== "" ? (
-				<kbd className="shrink-0 font-sans text-[12px] text-muted-foreground/60">
+				<kbd className="shrink-0 font-sans text-[12px] text-muted-foreground">
 					{shortcut}
 				</kbd>
 			) : null}
@@ -1883,6 +1886,9 @@ function ProjectGroup({
 		liveTimelineRefs,
 		"cache-only",
 	);
+	const questionAttachmentsByKey =
+		useEnvironmentQuestionAttachments(environmentId).data?.attachmentsByKey ??
+		{};
 	const headerRunning = useMemo(
 		() =>
 			mergeChatAttentionStates(
@@ -1896,10 +1902,20 @@ function ProjectGroup({
 		() =>
 			mergeChatAttentionStates(
 				liveTimelines.map((timeline) =>
-					deriveChatAttentionState(timeline.messages, false),
+					deriveChatAttentionState(
+						timeline.messages,
+						false,
+						filterActionableQuestionInteractions(
+							timeline.ref.sessionId,
+							timeline.presentation.interactions.map(
+								(item) => item.interaction,
+							),
+							questionAttachmentsByKey,
+						),
+					),
 				),
 			),
-		[liveTimelines, uiMessage],
+		[liveTimelines, questionAttachmentsByKey, uiMessage],
 	);
 	const liveSessionIdSet = useMemo(
 		() => new Set(liveSessionIds),
@@ -2147,6 +2163,9 @@ function CloudChatRow({
 		EnvironmentId.make(summary.workspaceId),
 		"cache-only",
 	);
+	const questionAttachmentsByKey =
+		useEnvironmentQuestionAttachments(EnvironmentId.make(summary.workspaceId))
+			.data?.attachmentsByKey ?? {};
 	const activity = deriveCloudChatActivity({
 		summary,
 		connection: shell.connection,
@@ -2158,6 +2177,11 @@ function CloudChatRow({
 	const attentionState = deriveChatAttentionState(
 		timeline.messages,
 		cloudChatShowsWorking(activity),
+		filterActionableQuestionInteractions(
+			summary.initialSessionId,
+			timeline.presentation.interactions.map((item) => item.interaction),
+			questionAttachmentsByKey,
+		),
 	);
 
 	const selected = selectedChatId === summary.chatId;
@@ -2611,6 +2635,9 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 		[activeEnvironmentId, sessionIds, uiMessage],
 	);
 	const timelines = useRendererSessionTimelines(timelineRefs, "cache-only");
+	const questionAttachmentsByKey =
+		useEnvironmentQuestionAttachments(EnvironmentId.make(activeEnvironmentId))
+			.data?.attachmentsByKey ?? {};
 	const runningAttention = useMemo(
 		() =>
 			mergeChatAttentionStates(
@@ -2624,10 +2651,20 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 		() =>
 			mergeChatAttentionStates(
 				timelines.map((timeline) =>
-					deriveChatAttentionState(timeline.messages, false),
+					deriveChatAttentionState(
+						timeline.messages,
+						false,
+						filterActionableQuestionInteractions(
+							timeline.ref.sessionId,
+							timeline.presentation.interactions.map(
+								(item) => item.interaction,
+							),
+							questionAttachmentsByKey,
+						),
+					),
 				),
 			),
-		[timelines, uiMessage],
+		[timelines, questionAttachmentsByKey, uiMessage],
 	);
 	const sessionIdSet = useMemo(
 		() => new Set(sessionIds),

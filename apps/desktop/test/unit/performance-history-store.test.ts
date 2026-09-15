@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LagSample, PowerSnapshot } from "@zuse/contracts";
@@ -83,6 +83,7 @@ describe("PerformanceHistoryStore", () => {
 		};
 		store.recordLag(lag);
 		await store.flush();
+		await appendFile(path, "{not-valid-json}\n", "utf8");
 
 		const restored = new PerformanceHistoryStore({
 			path,

@@ -1,6 +1,6 @@
 import {
-	EnvironmentId,
 	CommandId,
+	EnvironmentId,
 	type FolderId,
 	Worktree,
 	type WorktreeCreateSource,
@@ -8,12 +8,12 @@ import {
 } from "@zuse/contracts";
 import { toastManager } from "../components/ui/toast.tsx";
 import { activeChatsByProject } from "../lib/environment-entities.ts";
-import { formatError } from "../lib/format-error.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import { formatError } from "../lib/format-error.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
 import {
-	followWorktreeSetup,
 	dispatchWorktreeCommand,
+	followWorktreeSetup,
 	stopFollowingWorktreeSetup,
 } from "../lib/worktree-setup-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
@@ -130,7 +130,7 @@ const maybeAutoRun = async (projectId: FolderId, wt: Worktree) => {
 	if (chat === undefined) return;
 	const run = await useWorktreesStore.getState().startRun(wt.id);
 	if (run === null) return;
-	openTerminalCommand({
+	await openTerminalCommand({
 		chatRef: {
 			environmentId,
 			chatId: chat.id,

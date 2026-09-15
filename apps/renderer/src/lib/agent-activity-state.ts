@@ -1,4 +1,4 @@
-import type { Message } from "@zuse/contracts";
+import type { Message, SessionInteraction } from "@zuse/contracts";
 import type { OrbState } from "thinking-orbs";
 
 export type AgentActivityState = OrbState;
@@ -95,7 +95,11 @@ const isTurnInput = (message: Message): boolean => {
  */
 export const deriveAgentActivityState = (
 	messages: ReadonlyArray<Message>,
+	interactions: ReadonlyArray<SessionInteraction>,
 ): AgentActivityState => {
+	if (interactions.some((interaction) => interaction._tag === "Question")) {
+		return "listening";
+	}
 	let turnStart = -1;
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
@@ -106,13 +110,9 @@ export const deriveAgentActivityState = (
 	}
 
 	const completedTools = new Set<string>();
-	const answeredQuestions = new Set<string>();
 	for (let index = turnStart + 1; index < messages.length; index += 1) {
 		const content = messages[index]?.content;
 		if (content?._tag === "tool_result") completedTools.add(content.itemId);
-		if (content?._tag === "user_question_answer") {
-			answeredQuestions.add(content.itemId);
-		}
 	}
 
 	for (let index = messages.length - 1; index > turnStart; index -= 1) {
@@ -122,9 +122,6 @@ export const deriveAgentActivityState = (
 		switch (content._tag) {
 			case "assistant":
 				if (content.text.trim().length > 0) return "composing";
-				break;
-			case "user_question":
-				if (!answeredQuestions.has(content.itemId)) return "listening";
 				break;
 			case "tool_use":
 				if (!completedTools.has(content.itemId)) {

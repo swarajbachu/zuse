@@ -23,6 +23,13 @@ const questionAnswer = (itemId: string): TestMessage => ({
 	},
 });
 
+const questionInteraction = (itemId: string) => ({
+	_tag: "Question" as const,
+	id: itemId as never,
+	questions: [{ question: "Pick one", options: ["A"] }],
+	requestedAt: new Date("2026-08-23T00:00:00.000Z"),
+});
+
 const exitPlan = (itemId: string): TestMessage => ({
 	content: {
 		_tag: "tool_use",
@@ -43,36 +50,48 @@ const toolResult = (itemId: string): TestMessage => ({
 
 describe("deriveChatAttentionState", () => {
 	it("returns idle with no messages and not running", () => {
-		expect(deriveChatAttentionState([], false)).toBe("idle");
+		expect(deriveChatAttentionState([], false, [])).toBe("idle");
 	});
 
 	it("returns running when only running is true", () => {
-		expect(deriveChatAttentionState([], true)).toBe("running");
+		expect(deriveChatAttentionState([], true, [])).toBe("running");
 	});
 
 	it("prioritizes an unanswered question over running", () => {
-		expect(deriveChatAttentionState([question("q1")], true)).toBe("question");
+		expect(
+			deriveChatAttentionState([question("q1")], true, [
+				questionInteraction("q1"),
+			]),
+		).toBe("question");
 	});
 
 	it("clears question state once answered", () => {
 		expect(
-			deriveChatAttentionState([question("q1"), questionAnswer("q1")], false),
+			deriveChatAttentionState(
+				[question("q1"), questionAnswer("q1")],
+				false,
+				[],
+			),
 		).toBe("idle");
 	});
 
 	it("prioritizes a pending ExitPlanMode plan over running", () => {
-		expect(deriveChatAttentionState([exitPlan("p1")], true)).toBe("planReady");
+		expect(deriveChatAttentionState([exitPlan("p1")], true, [])).toBe(
+			"planReady",
+		);
 	});
 
 	it("clears plan-ready state once ExitPlanMode has a result", () => {
 		expect(
-			deriveChatAttentionState([exitPlan("p1"), toolResult("p1")], false),
+			deriveChatAttentionState([exitPlan("p1"), toolResult("p1")], false, []),
 		).toBe("idle");
 	});
 
 	it("prioritizes question over plan when both are pending", () => {
 		expect(
-			deriveChatAttentionState([exitPlan("p1"), question("q1")], true),
+			deriveChatAttentionState([exitPlan("p1"), question("q1")], true, [
+				questionInteraction("q1"),
+			]),
 		).toBe("question");
 	});
 });

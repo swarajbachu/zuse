@@ -2,6 +2,10 @@ import type { ResourceActivation } from "@zuse/client-runtime/environment-runtim
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import type { ResourceView } from "@zuse/client-runtime/resource-state";
+import {
+	deriveSessionPresentation,
+	type SessionPresentation,
+} from "@zuse/client-runtime/session-presentation";
 import type {
 	EnvironmentId,
 	Message,
@@ -22,7 +26,6 @@ import {
 } from "./pending-session-messages.ts";
 import {
 	effectiveSessionRuntimeState,
-	runtimeStateFromResource,
 	type SessionRuntimeState,
 } from "./session-runtime-state.ts";
 import {
@@ -39,6 +42,7 @@ export type RendererSessionTimeline = Readonly<{
 	projection: SessionTimelineProjection | null;
 	messages: readonly Message[];
 	runtime: SessionRuntimeState;
+	presentation: SessionPresentation;
 }>;
 
 export type OptionalRendererSessionTimeline = Readonly<{
@@ -47,6 +51,7 @@ export type OptionalRendererSessionTimeline = Readonly<{
 	projection: SessionTimelineProjection | null;
 	messages: readonly Message[];
 	runtime: SessionRuntimeState;
+	presentation: SessionPresentation;
 }>;
 
 type TimelineSnapshotCache = Readonly<{
@@ -66,6 +71,11 @@ const EMPTY_TIMELINE_VIEW: ResourceView<SessionTimelineProjection> = {
 	failedCommands: [],
 };
 
+const runtimeStateFromResource = (
+	view: ResourceView<SessionTimelineProjection>,
+	fallback: SessionRuntimeState,
+): SessionRuntimeState =>
+	deriveSessionPresentation({ view, catalogRuntime: fallback }).runtime;
 /** One qualified timeline selector shared by chat, composer, queue, and dock. */
 export const useRendererSessionTimeline = (
 	sessionId: SessionId,
@@ -114,12 +124,18 @@ export const useOptionalRendererSessionTimeline = (
 			? "idle"
 			: effectiveSessionRuntimeState(state.bySession[sessionId]),
 	);
+	const selectedView = sessionId === null ? EMPTY_TIMELINE_VIEW : view;
+	const presentation = deriveSessionPresentation({
+		view: selectedView,
+		catalogRuntime: summaryRuntime,
+	});
 	return {
 		ref,
-		view: sessionId === null ? EMPTY_TIMELINE_VIEW : view,
+		view: selectedView,
 		projection: view.data,
 		messages,
-		runtime: runtimeStateFromResource(view, summaryRuntime),
+		runtime: presentation.runtime,
+		presentation,
 	};
 };
 
@@ -198,12 +214,17 @@ export const useRendererSessionTimelines = (
 		}
 		const value = stableRefs.map((ref, index) => {
 			const view = views[index] ?? EMPTY_TIMELINE_VIEW;
+			const presentation = deriveSessionPresentation({
+				view,
+				catalogRuntime: runtimes[index] ?? "idle",
+			});
 			return {
 				ref,
 				view,
 				projection: view.data,
 				messages: view.data?.messages ?? EMPTY_MESSAGES,
-				runtime: runtimes[index] ?? "idle",
+				runtime: presentation.runtime,
+				presentation,
 			};
 		});
 		snapshotCache.current = { views, runtimes, value };

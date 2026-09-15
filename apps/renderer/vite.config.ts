@@ -104,7 +104,7 @@ export default defineConfig({
 			"@legendapp/list/react",
 			"effect",
 			"@pierre/diffs",
-			"@xterm/xterm",
+			"codemirror",
 		],
 	},
 	server: {

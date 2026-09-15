@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	CLIENT_BUS_COMPLETED_RECEIPT_LIMIT,
 	ClientBus,
 	type ResourceDriverContext,
 	type ResourceSynchronization,
@@ -878,6 +879,128 @@ describe("ClientBus", () => {
 		const replayedReceipt = await bus.dispatch(command);
 		expect(replayedReceipt).toMatchObject({ commandId, result: "done" });
 		expect(executions).toBe(1);
+		await bus.dispose();
+	});
+
+	it.each([
+		"session.answerQuestion",
+		"session.cancelQuestion",
+	])("carries %s interaction target identity from pending into failed overlays", async (kind) => {
+		const executionGate = deferred<void>();
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			commandExecutor: {
+				execute: async () => {
+					await executionGate.promise;
+					throw new Error("offline");
+				},
+			},
+		});
+		const dispatched = bus.dispatch({
+			kind,
+			commandId: CommandId.make("question-target-overlay"),
+			environmentId,
+			resource: timelineKey,
+			payload: { itemId: "question-second" },
+			retry: "never",
+			createdAt: 1,
+		});
+
+		await waitUntil(
+			() => bus.snapshot(timelineKey).pendingCommands.length === 1,
+		);
+		expect(bus.snapshot(timelineKey).pendingCommands[0]?.targetId).toBe(
+			"question-second",
+		);
+		executionGate.resolve();
+		await expect(dispatched).rejects.toThrow("offline");
+		expect(bus.snapshot(timelineKey).failedCommands[0]?.targetId).toBe(
+			"question-second",
+		);
+		await bus.dispose();
+	});
+
+	it("bounds in-memory command receipts for high-volume terminal-style commands", async () => {
+		let executions = 0;
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			commandExecutor: {
+				execute: async (_client, command) => {
+					executions += 1;
+					return {
+						commandId: command.commandId,
+						receivedAt: executions,
+						result: undefined,
+					};
+				},
+			},
+		});
+		const commands = Array.from(
+			{ length: CLIENT_BUS_COMPLETED_RECEIPT_LIMIT + 1 },
+			(_, index) => ({
+				kind: "pty.write",
+				commandId: CommandId.make(`terminal-write-${index}`),
+				environmentId,
+				resource: timelineKey,
+				payload: { data: "x" },
+				retry: "never" as const,
+				createdAt: index,
+			}),
+		);
+
+		for (const command of commands) await bus.dispatch(command);
+		expect(executions).toBe(commands.length);
+		await bus.dispatch(
+			commands.at(-1) as NonNullable<(typeof commands)[number]>,
+		);
+		expect(executions).toBe(commands.length);
+		await bus.dispatch(commands[0] as NonNullable<(typeof commands)[number]>);
+		expect(executions).toBe(commands.length + 1);
+		await bus.dispose();
+	});
+
+	it("keeps non-retryable terminal commands off the durable receipt path", async () => {
+		const persistence = new MemoryPersistence();
+		let receiptReads = 0;
+		let receiptWrites = 0;
+		persistence.findReceipt = async () => {
+			receiptReads += 1;
+			throw new Error("durable receipt reads are unavailable");
+		};
+		persistence.putReceipt = async () => {
+			receiptWrites += 1;
+			throw new Error("durable receipt writes are unavailable");
+		};
+		let executions = 0;
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			persistence,
+			commandExecutor: {
+				execute: async (_client, command) => {
+					executions += 1;
+					return {
+						commandId: command.commandId,
+						receivedAt: 1,
+						result: undefined,
+					};
+				},
+			},
+		});
+
+		await expect(
+			bus.dispatch({
+				kind: "pty.write",
+				commandId: CommandId.make("terminal-write-no-durable-receipt"),
+				environmentId,
+				resource: timelineKey,
+				payload: { data: "a" },
+				retry: "never",
+				createdAt: 1,
+			}),
+		).resolves.toMatchObject({ result: undefined });
+		expect(executions).toBe(1);
+		expect(receiptReads).toBe(0);
+		expect(receiptWrites).toBe(0);
 		await bus.dispose();
 	});
 
@@ -2671,7 +2794,6 @@ describe("ClientBus", () => {
 		await bus.dispose();
 		await expect(result).rejects.toThrow("ClientBus disposed");
 	});
-
 	it("rejects an in-flight command ID collision before executing another payload", async () => {
 		const persistence = new MemoryPersistence();
 		const gate = deferred<void>();

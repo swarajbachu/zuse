@@ -182,6 +182,11 @@ export const SessionCommand = Schema.Union([
 		decisionJson: Schema.optional(Schema.String),
 		resolvedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ResolveQuestion", {
+		itemId: Schema.String,
+		resolution: Schema.Literal("cancelled"),
+		resolvedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("AttachProvider", {
 		providerId: Schema.String,
 		attachedAt: Schema.Number,

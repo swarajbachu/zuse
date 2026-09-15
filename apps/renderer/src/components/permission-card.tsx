@@ -1,4 +1,5 @@
 import "@zuse/i18n/english/chat";
+import type { SessionInteractionSubmission } from "@zuse/client-runtime/session-presentation";
 import type {
 	EnvironmentId,
 	PermissionDecision,
@@ -6,7 +7,13 @@ import type {
 	PermissionRequest,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 
 import { cn } from "~/lib/utils";
 import {
@@ -72,23 +79,29 @@ export function PermissionCard({
 	head,
 	queueSize,
 	environmentId,
+	submission = "pending",
+	submissionError = null,
 }: {
 	readonly head: PermissionRequest;
 	readonly queueSize: number;
 	readonly environmentId: EnvironmentId;
+	readonly submission?: SessionInteractionSubmission;
+	readonly submissionError?: string | null;
 }) {
 	return (
 		<PermissionPrompt
+			submission={submission}
+			submissionError={submissionError}
+			holdUntilRemoved
 			requestId={head.id}
 			kind={head.kind}
 			queueSize={queueSize}
 			expired={head.recoveryState === "expired"}
 			persistentDisabled={head.forcePrompt}
-			onDecision={async (requestId, decision) => {
+			onDecision={async (_requestId, decision) => {
 				if (decision._tag === "Deny" && head.recoveryState !== "expired")
 					await denyEnvironmentPermissionAndInterrupt(head, environmentId);
-				else
-					await decideEnvironmentPermission(requestId, decision, environmentId);
+				else await decideEnvironmentPermission(head, decision, environmentId);
 			}}
 		/>
 	);
@@ -104,6 +117,9 @@ export function PermissionPrompt({
 	onDecision,
 	headline,
 	context,
+	submission = "pending",
+	submissionError = null,
+	holdUntilRemoved = false,
 }: {
 	requestId: string;
 	kind: PermissionKind;
@@ -116,24 +132,44 @@ export function PermissionPrompt({
 	) => Promise<void>;
 	headline?: ReactNode;
 	context?: ReactNode;
+	submission?: SessionInteractionSubmission;
+	submissionError?: string | null;
+	holdUntilRemoved?: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
-	const [pending, setPending] = useState(false);
+	const [localPending, setPending] = useState(false);
+	const pendingRef = useRef(false);
+	const pending = localPending || submission === "submitting";
+	useEffect(() => {
+		pendingRef.current = false;
+		setPending(false);
+		setError(null);
+	}, [requestId]);
 	const [error, setError] = useState<string | null>(null);
 	const decide = useCallback(
 		async (requestId: string, decision: PermissionDecision): Promise<void> => {
-			if (pending || (expired && decision._tag !== "Deny")) return;
+			if (
+				pendingRef.current ||
+				pending ||
+				(expired && decision._tag !== "Deny")
+			)
+				return;
+			pendingRef.current = true;
 			setPending(true);
 			setError(null);
 			try {
 				await onDecision(requestId, decision);
+				if (!holdUntilRemoved) {
+					pendingRef.current = false;
+					setPending(false);
+				}
 			} catch (cause) {
 				setError(formatError(cause));
-			} finally {
+				pendingRef.current = false;
 				setPending(false);
 			}
 		},
-		[onDecision, expired, pending],
+		[onDecision, expired, pending, holdUntilRemoved],
 	);
 	const deny = useCallback(
 		() => decide(requestId, { _tag: "Deny" }),
@@ -158,11 +194,16 @@ export function PermissionPrompt({
 	}, [requestId, decide, deny, expired]);
 
 	return (
-		<div className="rounded-xl bg-card/95 p-3 shadow-overlay-sm ring-1 ring-border/70">
+		<div
+			aria-busy={pending || undefined}
+			className="rounded-xl bg-card/95 p-3 shadow-overlay-sm ring-1 ring-border/70"
+		>
 			<div className="flex items-center gap-2">
 				<div className="truncate text-[13px] font-medium leading-5 text-foreground">
 					{expired
-						? uiMessage("chat:permission_card_approval_expired_after_agent_restart")
+						? uiMessage(
+								"chat:permission_card_approval_expired_after_agent_restart",
+							)
 						: (headline ?? kindHeadline(kind))}
 				</div>
 				{queueSize > 1 ? (
@@ -185,9 +226,9 @@ export function PermissionPrompt({
 					)}
 				</p>
 			) : null}
-			{error ? (
+			{error || submissionError ? (
 				<p role="alert" className="mt-2 text-xs text-destructive">
-					{error}
+					{error ?? submissionError}
 				</p>
 			) : null}
 

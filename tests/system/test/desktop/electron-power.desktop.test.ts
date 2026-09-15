@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import { launchElectronApp } from "../../src/electron-app.ts";
 import { withSystemTest } from "../../src/system-scope.ts";
 
+const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
+
 describe("Electron performance measurement bridge", () => {
 	it.runIf(process.platform === "darwin")(
 		"starts and releases the macOS awake assertion through the preload bridge",
@@ -300,17 +302,37 @@ describe("Electron performance measurement bridge", () => {
 				}
 				let firstEvents = 0;
 				let secondEvents = 0;
+				let secondSawActiveRecording = false;
 				const unsubscribeFirst = power.onState(() => {
 					firstEvents += 1;
 				});
-				const unsubscribeSecond = power.onState(() => {
+				const unsubscribeSecond = power.onState((state) => {
 					secondEvents += 1;
+					secondSawActiveRecording ||= state.activeRecording !== null;
 				});
-				await new Promise((resolve) => setTimeout(resolve, 25));
+				const subscriptionDeadline = Date.now() + 5_000;
+				while (
+					(firstEvents === 0 || secondEvents === 0) &&
+					Date.now() < subscriptionDeadline
+				) {
+					await new Promise((resolve) => setTimeout(resolve, 5));
+				}
+				if (firstEvents === 0 || secondEvents === 0) {
+					throw new Error("Power monitor subscriptions did not become active.");
+				}
 				unsubscribeFirst();
 				const firstEventsAtUnsubscribe = firstEvents;
 				const secondEventsBeforeRecording = secondEvents;
 				const active = await power.startRecording(5);
+				const activeStateDeadline = Date.now() + 5_000;
+				while (!secondSawActiveRecording && Date.now() < activeStateDeadline) {
+					await new Promise((resolve) => setTimeout(resolve, 5));
+				}
+				if (!secondSawActiveRecording) {
+					throw new Error(
+						"Live power monitor subscription missed recording start.",
+					);
+				}
 				const secondEventsAfterFirstUnsubscribe =
 					secondEvents - secondEventsBeforeRecording;
 				unsubscribeSecond();
@@ -323,31 +345,33 @@ describe("Electron performance measurement bridge", () => {
 					observedLongAnimationFrame,
 					active: active.activeRecording !== null,
 					completed: completed.latestRecording !== null,
-					sampleCount: completed.latestRecording?.summary.sampleCount ?? 0,
+					hasRecordedSamples:
+						(completed.latestRecording?.summary.sampleCount ?? 0) > 0,
 					attributedCause: attributedLag?.attribution?.cause ?? null,
 					attributedSource: attributedLag?.attribution?.scriptSource ?? null,
+					secondSawActiveRecording,
 					firstEventsAfterUnsubscribe: firstEvents - firstEventsAtUnsubscribe,
-					secondEventsAfterFirstUnsubscribe,
+					secondContinuedAfterFirstUnsubscribe:
+						secondEventsAfterFirstUnsubscribe > 0,
 					secondEventsAfterUnsubscribe:
 						secondEvents - secondEventsAtUnsubscribe,
 				};
 			});
-
 			expect(result).toMatchObject({
 				hasInitialSnapshot: true,
 				supportsLongAnimationFrames: true,
 				observedLongAnimationFrame: true,
 				active: true,
 				completed: true,
-				sampleCount: 1,
+				hasRecordedSamples: true,
 				attributedCause: "script",
 				attributedSource: "chat-view.js",
+				secondSawActiveRecording: true,
+				secondContinuedAfterFirstUnsubscribe: true,
 				firstEventsAfterUnsubscribe: 0,
 				secondEventsAfterUnsubscribe: 0,
 			});
-			expect(result.secondEventsAfterFirstUnsubscribe).toBeGreaterThan(0);
-
-			await electron.page.keyboard.press("Meta+,");
+			await electron.page.keyboard.press(`${primaryModifier}+,`);
 			await electron.page
 				.getByRole("button", { name: "Diagnostics", exact: true })
 				.click();

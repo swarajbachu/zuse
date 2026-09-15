@@ -1,8 +1,11 @@
 import { execFileSync } from "node:child_process";
 import {
 	chmodSync,
+	closeSync,
+	ftruncateSync,
 	mkdirSync,
 	mkdtempSync,
+	openSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
@@ -14,7 +17,8 @@ import { NodeFileSystem, NodePath, NodeServices } from "@effect/platform-node";
 import { FolderId, GitFolderNotFoundError, WorktreeId } from "@zuse/contracts";
 import {
 	Effect,
-	type FileSystem,
+	Fiber,
+	FileSystem,
 	Layer,
 	type Path,
 	PlatformError,
@@ -26,6 +30,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { GitService } from "../../src/git-service.ts";
 import { GitServiceLive } from "../../src/git-service-live.ts";
 import { RepositoryLocator } from "../../src/repository-locator.ts";
+import { makeWorkspaceChangeStreams } from "../../src/workspace-change-streams.ts";
 
 const folderId = FolderId.make("repository-1");
 const worktreeId = WorktreeId.make("worktree-1");
@@ -202,6 +207,98 @@ describe("GitServiceLive", () => {
 		});
 		expect(untrackedDiff.patch).toContain("+++ b/new.txt");
 	});
+
+	test("returns one coherent local workspace projection", async () => {
+		writeFileSync(join(repositoryRoot, "README.md"), "first\nsecond\n");
+		writeFileSync(join(repositoryRoot, "new.txt"), "new\n");
+
+		const snapshot = await run((service) =>
+			service.workspaceSnapshot(folderId),
+		);
+
+		expect(snapshot.status).toMatchObject({
+			branch: "main",
+			dirtyFiles: 2,
+		});
+		expect(snapshot.changes.map((change) => change.path).sort()).toEqual([
+			"README.md",
+			"new.txt",
+		]);
+		expect(snapshot.reviewSummary).toMatchObject({
+			headRef: "main",
+			additions: 3,
+			deletions: 0,
+		});
+		expect(
+			snapshot.reviewSummary.files.map((file) => file.path).sort(),
+		).toEqual(["README.md", "new.txt"]);
+
+		writeFileSync(join(repositoryRoot, "README.md"), "first\nthird!\n");
+		const sameShape = await run((service) =>
+			service.workspaceSnapshot(folderId),
+		);
+		expect(sameShape.status.dirtyFiles).toBe(snapshot.status.dirtyFiles);
+		expect(sameShape.reviewSummary.additions).toBe(
+			snapshot.reviewSummary.additions,
+		);
+		expect(sameShape.localFingerprint).not.toBe(snapshot.localFingerprint);
+	});
+
+	test("bounds a real workspace snapshot and patch stream for a 512 MiB untracked file", async () => {
+		const largePath = join(repositoryRoot, "large.bin");
+		const fd = openSync(largePath, "w");
+		ftruncateSync(fd, 512 * 1024 * 1024);
+		closeSync(fd);
+		let largeContentReads = 0;
+		const GuardedFileSystemLive = Layer.effect(
+			FileSystem.FileSystem,
+			Effect.map(FileSystem.FileSystem, (service) => ({
+				...service,
+				readFileString: (target: string, encoding?: string) => {
+					if (target === largePath) {
+						largeContentReads += 1;
+						return Effect.die(
+							new Error("oversized file content must not be read"),
+						);
+					}
+					return service.readFileString(target, encoding);
+				},
+			})),
+		);
+		const platform = Layer.provideMerge(
+			GuardedFileSystemLive,
+			NodeServices.layer,
+		);
+		const startedAt = performance.now();
+
+		const [snapshot, patches, directDiff] = await run(
+			(service) =>
+				Effect.all([
+					service.workspaceSnapshot(folderId),
+					Stream.runCollect(service.reviewPatches(folderId)),
+					service.diff(folderId, "large.bin"),
+				]),
+			makeLayer({ platform }),
+		);
+
+		expect(performance.now() - startedAt).toBeLessThan(2_000);
+		expect(largeContentReads).toBe(0);
+		expect(
+			snapshot.reviewSummary.files.find((file) => file.path === "large.bin"),
+		).toMatchObject({ additions: 0, deletions: 0, binary: true });
+		expect(
+			Array.from(patches).find((patch) => patch.path === "large.bin"),
+		).toMatchObject({
+			result: { mode: "binary", patch: "", bytes: 0, truncated: false },
+			error: null,
+		});
+		expect(directDiff).toMatchObject({
+			mode: "binary",
+			patch: "",
+			bytes: 512 * 1024 * 1024,
+			truncated: true,
+		});
+	}, 5_000);
 
 	test("distinguishes Git repositories from plain directories", async () => {
 		const plainDirectory = join(temporaryRoot, "plain-directory");
@@ -398,6 +495,324 @@ describe("GitServiceLive", () => {
 			{ revision: 0 },
 			{ revision: 1 },
 		]);
+	}, 10_000);
+
+	test("keeps reconciling when the native filesystem watcher fails or ends", async () => {
+		const FailingWatchFileSystemLive = Layer.effect(
+			FileSystem.FileSystem,
+			Effect.map(FileSystem.FileSystem, (service) => ({
+				...service,
+				watch: () =>
+					Stream.fail(
+						new PlatformError.PlatformError(
+							new PlatformError.SystemError({
+								_tag: "Unknown",
+								module: "FileSystem",
+								method: "watch",
+								description: "ENOSPC",
+							}),
+						),
+					),
+			})),
+		);
+		const PlatformLive = Layer.provideMerge(
+			FailingWatchFileSystemLive,
+			NodeServices.layer,
+		);
+		const EndingWatchFileSystemLive = Layer.effect(
+			FileSystem.FileSystem,
+			Effect.map(FileSystem.FileSystem, (service) => ({
+				...service,
+				watch: () => Stream.empty,
+			})),
+		);
+		const EndingPlatformLive = Layer.provideMerge(
+			EndingWatchFileSystemLive,
+			NodeServices.layer,
+		);
+
+		await expect(
+			Promise.all(
+				[PlatformLive, EndingPlatformLive].map((platform) =>
+					run(
+						(service) =>
+							service
+								.workspaceChanges(folderId)
+								.pipe(Stream.take(2), Stream.runCollect),
+						makeLayer({ platform }),
+					),
+				),
+			),
+		).resolves.toEqual([
+			[{ revision: 0 }, { revision: 1 }],
+			[{ revision: 0 }, { revision: 1 }],
+		]);
+	}, 10_000);
+
+	test("recovers one retained invalidation stream after folder and repository recovery", async () => {
+		const recoveringRoot = join(temporaryRoot, "recovering-repository");
+		mkdirSync(recoveringRoot);
+		let folderAvailable = false;
+		let resolveAttempts = 0;
+		let watchStarts = 0;
+		const RecoveringLocatorLive = Layer.succeed(RepositoryLocator, {
+			root: () =>
+				folderAvailable
+					? Effect.succeed(recoveringRoot)
+					: new GitFolderNotFoundError({ folderId }),
+			worktreePath: () => Effect.succeed(null),
+			resolve: () => {
+				resolveAttempts += 1;
+				return folderAvailable
+					? Effect.succeed(recoveringRoot)
+					: new GitFolderNotFoundError({ folderId });
+			},
+		});
+		const CountingFileSystemLive = Layer.effect(
+			FileSystem.FileSystem,
+			Effect.map(FileSystem.FileSystem, (service) => ({
+				...service,
+				watch: (watchedPath: string) => {
+					watchStarts += 1;
+					return service.watch(watchedPath);
+				},
+			})),
+		);
+		const PlatformLive = Layer.provideMerge(
+			CountingFileSystemLive,
+			NodeServices.layer,
+		);
+		const layer = GitServiceLive.pipe(
+			Layer.provide(RecoveringLocatorLive),
+			Layer.provide(PlatformLive),
+		);
+
+		let streamSettled = false;
+		const framesPromise = run(
+			(service) =>
+				service
+					.workspaceChanges(folderId)
+					.pipe(Stream.take(3), Stream.runCollect),
+			layer,
+		);
+		void framesPromise.then(
+			() => {
+				streamSettled = true;
+			},
+			() => {
+				streamSettled = true;
+			},
+		);
+		for (
+			let attempt = 0;
+			attempt < 100 && resolveAttempts === 0;
+			attempt += 1
+		) {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+		expect(resolveAttempts).toBe(1);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(resolveAttempts).toBe(1);
+		expect(streamSettled).toBe(false);
+
+		folderAvailable = true;
+		await expect(
+			run((service) => service.workspaceSnapshot(folderId), layer),
+		).rejects.toMatchObject({ _tag: "GitNotARepoError", folderId });
+		git(recoveringRoot, "init", "--initial-branch=main");
+		git(recoveringRoot, "config", "user.name", "Test User");
+		git(recoveringRoot, "config", "user.email", "test@example.com");
+		writeFileSync(join(recoveringRoot, "README.md"), "recovered\n");
+		git(recoveringRoot, "add", "README.md");
+		git(recoveringRoot, "commit", "-m", "recover repository");
+
+		for (let attempt = 0; attempt < 1_200 && watchStarts < 2; attempt += 1) {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+		expect(watchStarts).toBe(2);
+		// `watch` is called while constructing the streams; give their native
+		// subscriptions one turn to install before proving the fast path is live.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		const changedAt = Date.now();
+		writeFileSync(join(recoveringRoot, "README.md"), "native watcher active\n");
+
+		await expect(framesPromise).resolves.toEqual([
+			{ revision: 0 },
+			{ revision: 1 },
+			{ revision: 2 },
+		]);
+		expect(Date.now() - changedAt).toBeLessThan(3_000);
+	}, 12_000);
+
+	test("shares one checkout watcher across concurrent subscribers", async () => {
+		let watchStarts = 0;
+		const CountingFileSystemLive = Layer.effect(
+			FileSystem.FileSystem,
+			Effect.map(FileSystem.FileSystem, (service) => ({
+				...service,
+				watch: (watchedPath: string) => {
+					watchStarts += 1;
+					return service.watch(watchedPath);
+				},
+			})),
+		);
+		const PlatformLive = Layer.provideMerge(
+			CountingFileSystemLive,
+			NodeServices.layer,
+		);
+		const framesPromise = run(
+			(service) =>
+				Effect.all(
+					[
+						service
+							.workspaceChanges(folderId)
+							.pipe(Stream.take(2), Stream.runCollect),
+						service
+							.workspaceChanges(folderId)
+							.pipe(Stream.take(2), Stream.runCollect),
+					],
+					{ concurrency: 2 },
+				),
+			makeLayer({ platform: PlatformLive }),
+		);
+		for (let attempt = 0; attempt < 100 && watchStarts < 2; attempt += 1) {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+		expect(watchStarts).toBe(2);
+		writeFileSync(join(repositoryRoot, "README.md"), "shared watcher\n");
+
+		const [first, second] = await framesPromise;
+		expect(first).toEqual([{ revision: 0 }, { revision: 1 }]);
+		expect(second).toEqual([{ revision: 0 }, { revision: 1 }]);
+		expect(watchStarts).toBe(2);
+	}, 10_000);
+
+	test("keeps delimiter-ambiguous checkout identities isolated", async () => {
+		const secondRepositoryRoot = join(temporaryRoot, "repository-two");
+		mkdirSync(secondRepositoryRoot);
+		git(secondRepositoryRoot, "init", "--initial-branch=main");
+		git(secondRepositoryRoot, "config", "user.name", "Test User");
+		git(secondRepositoryRoot, "config", "user.email", "test@example.com");
+		writeFileSync(join(secondRepositoryRoot, "README.md"), "second\n");
+		git(secondRepositoryRoot, "add", "README.md");
+		git(secondRepositoryRoot, "commit", "-m", "second repository");
+
+		const firstFolderId = FolderId.make("repository");
+		const firstWorktreeId = WorktreeId.make("one:two");
+		const secondFolderId = FolderId.make("repository:one");
+		const secondWorktreeId = WorktreeId.make("two");
+		const watchedPaths = new Set<string>();
+		const CountingFileSystemLive = Layer.effect(
+			FileSystem.FileSystem,
+			Effect.map(FileSystem.FileSystem, (service) => ({
+				...service,
+				watch: (watchedPath: string) => {
+					watchedPaths.add(watchedPath);
+					return service.watch(watchedPath);
+				},
+			})),
+		);
+		const PlatformLive = Layer.provideMerge(
+			CountingFileSystemLive,
+			NodeServices.layer,
+		);
+		const LocatorLive = Layer.succeed(RepositoryLocator, {
+			root: (requestedFolderId) =>
+				Effect.succeed(
+					requestedFolderId === firstFolderId
+						? repositoryRoot
+						: secondRepositoryRoot,
+				),
+			worktreePath: () => Effect.succeed(null),
+			resolve: (requestedFolderId) =>
+				Effect.succeed(
+					requestedFolderId === firstFolderId
+						? repositoryRoot
+						: secondRepositoryRoot,
+				),
+		});
+		const layer = GitServiceLive.pipe(
+			Layer.provide(LocatorLive),
+			Layer.provide(PlatformLive),
+		);
+
+		const framesPromise = run(
+			(service) =>
+				Effect.all(
+					[
+						service
+							.workspaceChanges(firstFolderId, firstWorktreeId)
+							.pipe(Stream.take(2), Stream.runCollect),
+						service
+							.workspaceChanges(secondFolderId, secondWorktreeId)
+							.pipe(Stream.take(2), Stream.runCollect),
+					],
+					{ concurrency: 2 },
+				),
+			layer,
+		);
+		for (
+			let attempt = 0;
+			attempt < 200 &&
+			(!watchedPaths.has(repositoryRoot) ||
+				!watchedPaths.has(secondRepositoryRoot));
+			attempt += 1
+		) {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+
+		expect(watchedPaths.has(repositoryRoot)).toBe(true);
+		expect(watchedPaths.has(secondRepositoryRoot)).toBe(true);
+		// `watch` is invoked while building each stream; allow both native
+		// subscriptions to finish installing before generating their events.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		writeFileSync(join(repositoryRoot, "README.md"), "first changed\n");
+		writeFileSync(join(secondRepositoryRoot, "README.md"), "second changed\n");
+		await expect(framesPromise).resolves.toEqual([
+			[{ revision: 0 }, { revision: 1 }],
+			[{ revision: 0 }, { revision: 1 }],
+		]);
+	}, 10_000);
+
+	test("starts a fresh revision epoch after the shared checkout stream goes idle", async () => {
+		await run((service) =>
+			Effect.gen(function* () {
+				const first = yield* Effect.forkChild(
+					service
+						.workspaceChanges(folderId)
+						.pipe(Stream.take(2), Stream.runCollect),
+				);
+				yield* Effect.sleep("25 millis");
+				writeFileSync(join(repositoryRoot, "README.md"), "first epoch\n");
+				expect(yield* Fiber.join(first)).toEqual([
+					{ revision: 0 },
+					{ revision: 1 },
+				]);
+
+				yield* Effect.sleep("2100 millis");
+				const second = yield* service
+					.workspaceChanges(folderId)
+					.pipe(Stream.take(1), Stream.runCollect);
+				expect(second).toEqual([{ revision: 0 }]);
+			}),
+		);
+	}, 10_000);
+
+	test("releases checkout sharing state after the last subscriber goes idle", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const streams = yield* makeWorkspaceChangeStreams(() =>
+					Stream.make({ revision: 0 }),
+				);
+				yield* streams
+					.stream(folderId, null)
+					.pipe(Stream.take(1), Stream.runDrain);
+				expect(yield* streams.retainedCheckoutCount).toBe(1);
+
+				yield* Effect.sleep("2100 millis");
+				expect(yield* streams.retainedCheckoutCount).toBe(0);
+			}).pipe(Effect.scoped),
+		);
 	}, 10_000);
 
 	test("invalidates a linked worktree when its Git metadata changes", async () => {

@@ -17,13 +17,17 @@ import {
 	Message,
 	MessageId,
 	PtyId,
+	PtyOpenRpc,
+	PtyOpenToken,
+	PtyOwnerId,
+	PtyOwnership,
 	QueuedMessage,
 	QueueState,
 	SessionId,
 	SessionNotFoundError,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
-import { Effect, Queue, Stream } from "effect";
+import { Effect, Queue, Schema, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createClientCommandOutbox } from "../../src/lib/client-command-outbox.ts";
 import { cloudCommandTransport } from "../../src/lib/cloud-command-transport.ts";
@@ -77,11 +81,14 @@ describe("renderer session timeline ClientBus adapter", () => {
 			annotations: [],
 		};
 		const send = rehydrateRendererCommandPayload("messages.send", {
+			commandId: CommandId.make("send-command"),
 			sessionId,
 			input: plainInput,
 		});
 		const create = rehydrateRendererCommandPayload("chat.create", {
 			projectId: "project-1",
+			providerId: "claude",
+			model: "test-model",
 			startupInput: structuredClone(plainInput),
 		});
 
@@ -152,6 +159,39 @@ describe("renderer session timeline ClientBus adapter", () => {
 				failedCommands: [],
 			}),
 		).toBe(true);
+	});
+
+	it("rehydrates terminal ownership after durable outbox structured cloning", () => {
+		const fresh = {
+			cwd: "/workspace",
+			cols: 80,
+			rows: 24,
+			ownership: PtyOwnership.make({
+				ownerId: PtyOwnerId.make("desktop-owner"),
+				label: "Project shell",
+				scope: "session",
+				openToken: PtyOpenToken.make("logical-terminal-slot"),
+			}),
+		};
+		const persisted = structuredClone(fresh);
+		const replayed = rehydrateRendererCommandPayload("pty.open", persisted);
+
+		expect(persisted.ownership).not.toBeInstanceOf(PtyOwnership);
+		expect(replayed.ownership).toBeInstanceOf(PtyOwnership);
+		expect(() =>
+			Schema.encodeSync(PtyOpenRpc.payloadSchema)(replayed),
+		).not.toThrow();
+	});
+
+	it("keeps malformed durable terminal ownership rejected by the RPC schema", () => {
+		expect(() =>
+			rehydrateRendererCommandPayload("pty.open", {
+				cwd: "/workspace",
+				cols: 80,
+				rows: 24,
+				ownership: { ownerId: 42, openToken: "logical-terminal-slot" },
+			}),
+		).toThrow();
 	});
 
 	it("atomically replaces resource registrations during hot reload", () => {

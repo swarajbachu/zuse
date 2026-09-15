@@ -107,8 +107,13 @@ describe("browser sessions", () => {
 				}),
 			),
 		);
-		await expect(requestBrowserWebSocketUrl()).resolves.toBe(
+		const loadHostedConnect = vi.fn(async () => ({
+			isHostedProduct: () => false,
+			nextHostedRpcEndpoint: vi.fn(async () => "wss://unused"),
+		}));
+		await expect(requestBrowserWebSocketUrl(loadHostedConnect)).resolves.toBe(
 			"wss://serve.example.test/rpc?ticket=zws_once",
 		);
+		expect(loadHostedConnect).toHaveBeenCalledOnce();
 	});
 });

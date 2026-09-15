@@ -78,6 +78,8 @@ export class EnvironmentRuntime<Client> {
 	private disposed = false;
 	private retryAttempt = 0;
 	private retryCancel: (() => void) | null = null;
+	private platformOnline: boolean | null = null;
+	private connectionEpoch = 0;
 	private readonly listeners = new Set<(view: ConnectionView) => void>();
 	private readonly retainers = new Map<number, ResourceActivation>();
 	private nextRetainer = 0;
@@ -102,6 +104,49 @@ export class EnvironmentRuntime<Client> {
 
 	currentClient(): Client | null {
 		return this.current?.client ?? null;
+	}
+
+	/**
+	 * Apply an authoritative platform connectivity edge to this retained runtime.
+	 * Offline invalidates both connected and in-flight sessions immediately; the
+	 * matching online edge starts one fresh connection episode for retained work.
+	 */
+	setOnline(online: boolean): void {
+		if (this.disposed) return;
+		this.platformOnline = online;
+		if (this.options.requiresNetwork?.(this.environmentId) === false) return;
+		if (!online) {
+			const retained = this.strongestRetainedActivation();
+			const superseded = this.inFlight;
+			this.connectionEpoch += 1;
+			this.inFlight = null;
+			this.clearRetry();
+			this.achieved = "cache-only";
+			// Keep an in-flight resolver fenced until the online edge recomputes the
+			// retained demand. Its eventual client is disposed by the epoch check.
+			this.desired = "cache-only";
+			this.closeCurrent();
+			if (superseded !== null) {
+				const previousDisposal = this.disposeInFlight;
+				this.disposeInFlight = Promise.all([
+					previousDisposal,
+					superseded.then(
+						() => undefined,
+						() => undefined,
+					),
+				]).then(() => undefined);
+			}
+			this.emit({
+				phase:
+					retained === "connect" || retained === "wake" ? "offline" : "dormant",
+				error: null,
+			});
+			return;
+		}
+		if (this.state.phase !== "offline") return;
+		this.retryAttempt = 0;
+		this.clearRetry();
+		void this.reconcileActivation().catch(() => undefined);
 	}
 
 	subscribe(listener: (view: ConnectionView) => void): () => void {
@@ -156,7 +201,7 @@ export class EnvironmentRuntime<Client> {
 			this.retryAttempt = 0;
 		}
 		this.clearRetry();
-		if (this.platformOffline()) {
+		if (!this.isOnline()) {
 			this.emit({ phase: "offline", error: null });
 			this.scheduleRetry();
 			return Promise.reject(new Error("offline"));
@@ -229,14 +274,6 @@ export class EnvironmentRuntime<Client> {
 		this.listeners.clear();
 	}
 
-	/** Platform connectivity only gates environments reached over the network. */
-	private platformOffline(): boolean {
-		return (
-			(this.options.requiresNetwork?.(this.environmentId) ?? true) &&
-			(this.options.isOnline?.() ?? true) === false
-		);
-	}
-
 	private async resolveDesired(): Promise<Client | null> {
 		while (
 			!this.disposed &&
@@ -248,6 +285,7 @@ export class EnvironmentRuntime<Client> {
 			}
 			await this.disposeInFlight;
 			const requested = this.desired as NetworkActivation;
+			const connectionEpoch = this.connectionEpoch;
 			// Automatic retries remain in one reconnecting state. The surface moves
 			// again only on success, terminal exhaustion, or an explicit retry.
 			const quietRetry =
@@ -274,6 +312,8 @@ export class EnvironmentRuntime<Client> {
 			);
 			if (
 				this.disposed ||
+				connectionEpoch !== this.connectionEpoch ||
+				!this.isOnline() ||
 				this.desired === "cache-only" ||
 				this.desired === "sync"
 			) {
@@ -281,7 +321,12 @@ export class EnvironmentRuntime<Client> {
 					await outcome.resolved.dispose().catch(() => undefined);
 				}
 				this.achieved = "cache-only";
-				if (!this.disposed) this.emit({ phase: "dormant", error: null });
+				if (!this.disposed) {
+					this.emit({
+						phase: this.isOnline() ? "dormant" : "offline",
+						error: null,
+					});
+				}
 				return null;
 			}
 			if (!outcome.ok) {
@@ -401,6 +446,13 @@ export class EnvironmentRuntime<Client> {
 		return result;
 	}
 
+	private isOnline(): boolean {
+		return (
+			this.options.requiresNetwork?.(this.environmentId) === false ||
+			(this.platformOnline ?? this.options.isOnline?.() ?? true)
+		);
+	}
+
 	private clearRetry(): void {
 		this.retryCancel?.();
 		this.retryCancel = null;
@@ -442,6 +494,11 @@ export class EnvironmentRuntimeRegistry<Client> {
 				void runtime.retryNow().catch(() => undefined);
 			}
 		}
+	}
+
+	/** Propagate one platform connectivity edge to every owned runtime. */
+	setOnline(online: boolean): void {
+		for (const runtime of this.runtimes.values()) runtime.setOnline(online);
 	}
 
 	async dispose(): Promise<void> {

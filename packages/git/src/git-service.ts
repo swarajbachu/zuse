@@ -93,6 +93,23 @@ export interface GitServiceShape {
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
 	) => Stream.Stream<{ readonly revision: number }, GitFailure>;
+	/**
+	 * Coherent local checkout projection. Status and changed paths are parsed
+	 * from one porcelain read, then the review summary is built against that
+	 * same changed-path set.
+	 */
+	readonly workspaceSnapshot: (
+		folderId: FolderId,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<
+		Readonly<{
+			status: GitStatusSummary;
+			changes: ReadonlyArray<GitChange>;
+			reviewSummary: GitReviewSummary;
+			localFingerprint: string;
+		}>,
+		GitFailure
+	>;
 	readonly origin: (
 		folderId: FolderId,
 	) => Effect.Effect<GitOriginInfo | null, GitFailure>;

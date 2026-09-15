@@ -12,7 +12,7 @@ import {
 } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
-import { retryMobileClientBusConnections } from "./mobile-client-bus";
+import { setMobileClientBusOnline } from "./mobile-client-bus";
 import { appAtomRegistry } from "./registry";
 
 export const snapshotsByConnectionAtom = Atom.make<
@@ -34,7 +34,7 @@ const installAppStateOnlineBridge = () => {
 		// cached data, and the supervisor reconnects when the app wakes.
 		const online = next !== "background";
 		setConnectionOnline(online);
-		if (online) retryMobileClientBusConnections();
+		setMobileClientBusOnline(online);
 	});
 };
 

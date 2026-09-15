@@ -448,6 +448,18 @@ export const PermissionServiceLive = Layer.effect(
 				const map = yield* Ref.get(pending);
 				const entry = map.get(requestId);
 				if (entry === undefined) {
+					const decided = yield* sql<{ readonly request_id: string }>`
+						SELECT request_id FROM permission_decisions
+						WHERE request_id = ${requestId}
+						LIMIT 1
+					`.pipe(Effect.orDie);
+					if (decided.length > 0) {
+						log("decide.replayed", {
+							requestId,
+							decision: decision._tag,
+						});
+						return;
+					}
 					log("decide.not_found", {
 						requestId,
 						decision: decision._tag,

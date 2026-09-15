@@ -1,0 +1,56 @@
+{
+	"ghostty": {
+		"repository": "https://github.com/ghostty-org/ghostty.git",
+		"revision": "9f62873bf195e4d8a762d768a1405a5f2f7b1697",
+		"licenseSha256": "386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1"
+	},
+	"zig": {
+		"version": "0.15.2",
+		"distribution": "zig-x86_64-linux-0.15.2.tar.xz",
+		"archiveSha256": "02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239",
+		"binarySha256": "2858dc89dbbfdd08cceda1b841e7fd0a793a1a67b49f150bc3d0d1de44ed7f51"
+	},
+	"build": {
+		"host": "linux-cross-bootstrap",
+		"seed": 0,
+		"deterministicPaths": {
+			"globalCache": "/tmp/zuse-ghostty-zig-global-9f62873b",
+			"output": "/tmp/zuse-ghostty-ios-build-9f62873b",
+			"source": "/tmp/zuse-ghostty-9f62873b",
+			"zig": "/tmp/zig-0.15.2"
+		},
+		"minimumIOS": "16.4",
+		"optimize": "ReleaseFast",
+		"simd": false,
+		"strip": true,
+		"targets": [
+			{
+				"name": "ios-arm64",
+				"target": "aarch64-ios.16.4",
+				"architectures": [
+					"arm64"
+				],
+				"sha256": "e4689945ad59861473579933c9fe61d60bfe8797b9dd88d23333c85bed779912"
+			},
+			{
+				"name": "ios-arm64_x86_64-simulator",
+				"targets": [
+					{
+						"target": "aarch64-ios.16.4-simulator",
+						"sha256": "46cfdb91901561b3f9c4cdb03a3b345f88a55f585cb8e859911b727a7b51cade"
+					},
+					{
+						"target": "x86_64-ios.16.4-simulator",
+						"sha256": "6a5cde801c649c35259263474e9587f6445b1213cb0f35171d2d1a3531869043"
+					}
+				],
+				"architectures": [
+					"arm64",
+					"x86_64"
+				],
+				"sha256": "02d1e0a63740ad6acaca8c16f46fae1856c06e7746f50f1af513105112adae2b"
+			}
+		],
+		"headersSha256": "80134b9b8813ce114e051a1564bc342e3939a32a3079e9c954c0468503ffce09"
+	}
+}
