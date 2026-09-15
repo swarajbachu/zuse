@@ -22,24 +22,22 @@ import {
 	usePanelRef,
 } from "react-resizable-panels";
 
+import { ChatLoadingFallback } from "../components/chat-loading-fallback.tsx";
+import { CloudConnectionNotice } from "../components/cloud-connection-notice.tsx";
 import { PendingChatCreationSurface } from "../components/pending-chat-creation.tsx";
-
 import { useChatDirectoryStatus } from "../hooks/use-chat-directory-status.ts";
-
 import { useMediaQuery } from "../hooks/use-media-query.ts";
-
 import { selectChatSurface } from "../lib/chat-surface-selection.ts";
-
 import { closeActiveChatTab } from "../lib/close-chat-tab.ts";
-
+import { resolveCloudSession } from "../lib/cloud-session-selection.ts";
 import { cloudSummaryActiveSessionId } from "../lib/cloud-workspace-catalog.ts";
-
+import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
 import {
 	cloudSessionPlaceholder,
 	useCloudChatSummaryForSelection,
 } from "../lib/cloud-workspaces.ts";
-
 import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
+import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 
 import { useGitWorkspaceResource } from "../lib/git-workspace-client-bus.ts";
 
@@ -139,12 +137,6 @@ const ChatSwitcher = lazy(() =>
 const FileSearch = lazy(() =>
 	import("../components/file-search.tsx").then((module) => ({
 		default: module.FileSearch,
-	})),
-);
-
-const CloudConnectionNotice = lazy(() =>
-	import("../components/cloud-connection-notice.tsx").then((module) => ({
-		default: module.CloudConnectionNotice,
 	})),
 );
 
@@ -313,15 +305,53 @@ export function MainShell() {
 	);
 	const folders = useWorkspaceStore((s) => s.folders);
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
-	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
+	const storedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 	const selectedCloudSummary = useCloudChatSummaryForSelection({
 		chatId: selectedChatId,
-		sessionId: selectedSessionId,
+		sessionId: storedSessionId,
 	});
 	const selectedEnvironmentId = EnvironmentId.make(
 		selectedCloudSummary?.workspaceId ?? activeEnvironmentId,
 	);
+
+	// Retain the cloud shell even when its catalog has no active session. Otherwise
+	// no timeline mounts to attach the runtime and the landing page becomes a dead end.
+	const cloudShell = useEnvironmentShellResource(
+		selectedCloudSummary === null ? null : selectedEnvironmentId,
+		selectedCloudSummary === null
+			? "cache-only"
+			: cloudTranscriptActivation(selectedCloudSummary),
+	);
+	const cloudSession = useMemo(
+		() =>
+			selectedCloudSummary === null
+				? null
+				: resolveCloudSession(
+						selectedCloudSummary,
+						cloudShell.data,
+						storedSessionId,
+					),
+		[selectedCloudSummary, cloudShell.data, storedSessionId],
+	);
+	const selectedSessionId = cloudSession?.id ?? storedSessionId;
+	useEffect(() => {
+		if (
+			cloudSession === null ||
+			selectedFolderId === null ||
+			selectedChatId === null ||
+			cloudSession.id === storedSessionId
+		)
+			return;
+		if (useChatsStore.getState().selectedChatId !== selectedChatId) return;
+		useSessionsStore.setState((state) => ({
+			selectedSessionId: cloudSession.id,
+			selectedSessionByProject: {
+				...state.selectedSessionByProject,
+				[selectedFolderId]: cloudSession.id,
+			},
+		}));
+	}, [cloudSession, selectedFolderId, selectedChatId, storedSessionId]);
 	const selectedChatRef = useMemo(
 		() =>
 			selectedChatId === null
@@ -341,7 +371,9 @@ export function MainShell() {
 	);
 	const activeSelectedSession = useActiveSessionById(selectedSessionId);
 	const selectedSession = useMemo<Session | null>(() => {
-		if (activeSelectedSession !== null) return activeSelectedSession;
+		if (cloudSession !== null) return cloudSession;
+		if (selectedCloudSummary === null && activeSelectedSession !== null)
+			return activeSelectedSession;
 		if (
 			selectedCloudSummary === null ||
 			selectedFolderId === null ||
@@ -356,6 +388,7 @@ export function MainShell() {
 		);
 	}, [
 		activeSelectedSession,
+		cloudSession,
 		selectedCloudSummary,
 		selectedFolderId,
 		selectedSessionId,
@@ -369,6 +402,7 @@ export function MainShell() {
 	const chatSurface = selectChatSurface({
 		hasSession: selectedSessionId !== null && selectedSession !== null,
 		hasPendingCreation: pendingCreation !== null,
+		hasCloudSelection: selectedCloudSummary !== null,
 	});
 	useEffect(() => {
 		if (!directoryUnavailable || selectedSession?.chatId === undefined) return;
@@ -470,6 +504,7 @@ export function MainShell() {
 	// session/file is open, or when the left panel is collapsed (so the user
 	// always has a way back to the projects panel + the window drag region).
 	const showMainChrome =
+		selectedCloudSummary !== null ||
 		selectedSessionId !== null ||
 		openFile !== null ||
 		changesTabOpen ||
@@ -603,7 +638,17 @@ export function MainShell() {
 								// bottom (no full-screen takeover).
 								<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1">
 									<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-										<Suspense fallback={<SurfaceFallback />}>
+										<Suspense
+											fallback={
+												<ChatLoadingFallback
+													title={
+														selectedCloudSummary?.title ??
+														selectedSession.title ??
+														undefined
+													}
+												/>
+											}
+										>
 											<ChatView
 												sessionId={selectedSessionId}
 												environmentId={selectedEnvironmentId}
@@ -623,9 +668,6 @@ export function MainShell() {
 												ref={setComposerNode}
 												className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column)] pt-1"
 											>
-												<Suspense fallback={null}>
-													<CloudConnectionNotice />
-												</Suspense>
 												<Suspense fallback={null}>
 													<CliUpgradeBanner
 														providerId={selectedSession.providerId}
@@ -667,6 +709,11 @@ export function MainShell() {
 								</div>
 							) : chatSurface === "pending" && pendingCreation !== null ? (
 								<PendingChatCreationSurface creation={pendingCreation} />
+							) : chatSurface === "cloud-pending" ? (
+								<ChatLoadingFallback
+									title={selectedCloudSummary?.title}
+									footer={<CloudConnectionNotice />}
+								/>
 							) : (
 								<Suspense fallback={<SurfaceFallback />}>
 									<ChatLanding />

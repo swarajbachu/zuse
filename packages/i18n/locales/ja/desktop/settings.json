@@ -868,5 +868,6 @@
 	"cloud_auth_setup_failed": "クラウドでエージェントの安全な設定を開始できませんでした。しばらくしてから再試行してください。",
 	"cloud_auth_not_allowed": "Zuse セッションでこの操作を承認できませんでした。セッションを更新して再試行してください。",
 	"cloud_auth_login_failed": "エージェントのログインを開始できませんでした。",
-	"cloud_auth_temporarily_unavailable": "クラウド認証は一時的に利用できません。既存のチャットに影響を与えずに再試行できます。"
+	"cloud_auth_temporarily_unavailable": "クラウド認証は一時的に利用できません。既存のチャットに影響を与えずに再試行できます。",
+	"cloud_machine_provider": "マシンプロバイダー"
 }

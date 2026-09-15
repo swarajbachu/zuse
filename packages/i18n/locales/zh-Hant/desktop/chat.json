@@ -654,5 +654,8 @@
 	"cloud_size_small": "小型（{{cpu}} vCPU / {{memory}} GB）",
 	"cloud_size_default": "標準型（{{cpu}} vCPU / {{memory}} GB）",
 	"cloud_size_large": "大型（{{cpu}} vCPU / {{memory}} GB）",
-	"device_command_permissions_title": "已儲存的命令權限"
+	"device_command_permissions_title": "已儲存的命令權限",
+	"cloud_queue_waiting_for_agent": "等待代理",
+	"cloud_queue_cancel_failed": "無法取消佇列中的訊息。請重試。",
+	"cloud_queue_waiting_for_cloud": "等待雲端啟動"
 }

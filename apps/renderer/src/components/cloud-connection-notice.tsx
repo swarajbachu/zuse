@@ -23,14 +23,15 @@ import {
 	rearmRegisteredCloudConnection,
 } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
+import { usePlatformOnline } from "../lib/network-status.ts";
 import {
 	getRendererClientBus,
 	retryRendererEnvironmentConnection,
 } from "../lib/session-timeline-client-bus.ts";
 import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useChatsStore } from "../store/chats.ts";
+import { TrayPill } from "./composer/tray-pill.tsx";
 import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
-import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner.tsx";
 
 const copy: Record<
@@ -100,6 +101,7 @@ export function CloudConnectionNotice() {
 	const { message: uiMessage } = useUiMessages(["common", "connections"]);
 
 	const { signIn, signingIn, isSignedIn, isLoading } = useAuth();
+	const online = usePlatformOnline();
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
 	const registered =
 		selectedChatId === null ? null : cloudSummaryForChat(selectedChatId);
@@ -122,7 +124,7 @@ export function CloudConnectionNotice() {
 	useEffect(() => {
 		if (summary !== null) rearmRegisteredCloudConnection(summary);
 	}, [summary, shell.connection]);
-	if (summary === null) return null;
+	if (summary === null || !online) return null;
 	const activity = deriveCloudChatActivity({
 		summary,
 		connection: shell.connection,
@@ -215,46 +217,43 @@ export function CloudConnectionNotice() {
 		!betaCheckUnavailable &&
 		(presentation === "resuming" || presentation === "updating");
 	return (
-		<div
+		<TrayPill
+			flush
 			role="status"
 			aria-live="polite"
-			className="mb-1 flex min-h-9 items-center gap-2 rounded-lg border border-border/60 bg-background/90 px-3 py-2 text-xs shadow-sm"
-		>
-			{busy ? (
-				<Spinner className="size-4 shrink-0 text-muted-foreground motion-reduce:animate-none" />
-			) : (
-				<DitherCloudIcon className="size-4 text-muted-foreground" />
-			)}
-			<div className="min-w-0 flex-1">
-				{busy ? (
-					<ShimmerText>{value.title}</ShimmerText>
+			icon={
+				busy ? (
+					<Spinner className="size-3.5 motion-reduce:animate-none" />
 				) : (
-					<p className="font-medium text-foreground">{value.title}</p>
-				)}
-				<p className="truncate text-muted-foreground">{value.detail}</p>
-			</div>
-			{signInRequired ||
-			betaCheckUnavailable ||
-			(!terminalConnectionFailure &&
-				(presentation === "failed" || presentation === "detached") &&
-				!inviteRequired) ? (
-				<button
-					type="button"
-					disabled={signingIn}
-					className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-					onClick={() => {
-						if (signInRequired) void signIn();
-						else retry();
-					}}
-				>
-					<HugeiconsIcon icon={RefreshIcon} className="size-3.5" />
-					{signInRequired
-						? signingIn
-							? uiMessage("connections:cloud_connection_notice_signing_in")
-							: uiMessage("common:signIn")
-						: uiMessage("common:retry")}
-				</button>
-			) : null}
-		</div>
+					<DitherCloudIcon className="size-3.5" />
+				)
+			}
+			title={value.title}
+			subtitle={value.detail}
+			actions={
+				signInRequired ||
+				betaCheckUnavailable ||
+				(!terminalConnectionFailure &&
+					(presentation === "failed" || presentation === "detached") &&
+					!inviteRequired) ? (
+					<button
+						type="button"
+						disabled={signingIn}
+						className="inline-flex h-7 items-center gap-1 rounded-md px-2 font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						onClick={() => {
+							if (signInRequired) void signIn();
+							else retry();
+						}}
+					>
+						<HugeiconsIcon icon={RefreshIcon} className="size-3.5" />
+						{signInRequired
+							? signingIn
+								? uiMessage("connections:cloud_connection_notice_signing_in")
+								: uiMessage("common:signIn")
+							: uiMessage("common:retry")}
+					</button>
+				) : null
+			}
+		/>
 	);
 }

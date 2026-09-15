@@ -19,6 +19,7 @@ import {
 } from "~/lib/project-groups.ts";
 import { cn } from "~/lib/utils";
 import type { EnvironmentCatalogEntry } from "~/store/environment-catalog.ts";
+import { cloudProviderLabel } from "../../lib/cloud-provider-presentation.ts";
 import { openAddComputerDialog } from "../add-computer-dialog.tsx";
 import { DitherCloudIcon } from "../dither-cloud-icon.tsx";
 
@@ -127,7 +128,7 @@ export function ComputerPicker({
 				)}
 				<span className="truncate">
 					{cloudSelected
-						? uiMessage("chat:computer_picker_cloud_sandbox")
+						? `${uiMessage("chat:computer_picker_cloud_sandbox")} · ${cloudProviderLabel(selectedCloudProviderId)}`
 						: (current?.label ?? "Run on")}
 				</span>
 
@@ -189,7 +190,7 @@ export function ComputerPicker({
 									<DitherCloudIcon className="col-start-1 size-4" />
 									<span className="col-start-2 flex min-w-0 items-center gap-1.5">
 										<span className="truncate">
-											{uiMessage("chat:computer_picker_cloud_sandbox")}
+											{`${uiMessage("chat:computer_picker_cloud_sandbox")} · ${cloudProviderLabel(item.providerId)}`}
 										</span>
 										<span className="text-[10px] text-muted-foreground">
 											{uiMessage("chat:computer_picker_beta")}

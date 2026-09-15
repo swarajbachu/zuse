@@ -15,7 +15,12 @@ vi.mock("../../src/lib/session-timeline-hooks.ts", async (original) => ({
 	...(await original<
 		typeof import("../../src/lib/session-timeline-hooks.ts")
 	>()),
-	useRendererSessionTimeline: () => ({
+	useRendererSessionTimeline: (
+		sessionId: SessionId,
+		_activation: unknown,
+		environmentId: EnvironmentId,
+	) => ({
+		ref: { environmentId, sessionId },
 		projection: { runtimeMode: "approval-required", queue: { items: [] } },
 		view: { data: null, pendingCommands: [], failedCommands: [], sync: "live" },
 		messages: [],

@@ -263,7 +263,7 @@ export class CloudAccountImageBuildAttempt extends Schema.Class<CloudAccountImag
 	updatedAt: Schema.Number,
 }) {}
 
-/** The single logical private E2B image maintained for an account. */
+/** The private image maintained for an account on one sandbox provider. */
 export class CloudAccountImage extends Schema.Class<CloudAccountImage>(
 	"CloudAccountImage",
 )({
@@ -287,6 +287,7 @@ export class CloudAccountImageBuildRequest extends Schema.Class<CloudAccountImag
 	"CloudAccountImageBuildRequest",
 )({
 	mode: CloudAccountImageBuildMode,
+	providerId: Schema.optional(Schema.String),
 	idempotencyKey: Schema.String,
 }) {}
 
@@ -637,7 +638,10 @@ export const CloudProjectsPrepareRpc = Rpc.make("cloud.projects.prepare", {
 	error: CloudWorkspaceOpError,
 });
 export const CloudAccountImageStatusRpc = Rpc.make("cloud.image.status", {
-	payload: Schema.Void,
+	payload: Schema.Union([
+		Schema.Void,
+		Schema.Struct({ providerId: Schema.optional(Schema.String) }),
+	]),
 	success: CloudAccountImage,
 	error: CloudWorkspaceOpError,
 });
