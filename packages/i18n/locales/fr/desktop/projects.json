@@ -291,5 +291,10 @@
 	"github_new_branch": "Créer une branche et y basculer…",
 	"github_new_origin_branch": "Nouvelle branche depuis origin/main…",
 	"github_continue_tooltip": "Créer une branche depuis origin/main et y basculer",
-	"projects_sidebar_cloud": "Cloud"
+	"projects_sidebar_cloud": "Cloud",
+	"github_action_failed": "Échec de l’action GitHub",
+	"github_repair_state_changed": "La conversation, la branche ou l’état de l’agent a changé. Relancez Réparer depuis la PR actuelle.",
+	"github_attach_failed": "Impossible de joindre le contexte de la PR.",
+	"github_repair_send_failed": "Impossible d’envoyer la réparation. Vérifiez la conversation et réessayez.",
+	"github_watch_update_failed": "Impossible de mettre à jour la surveillance CI"
 }

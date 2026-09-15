@@ -285,5 +285,10 @@
 	"github_new_branch": "Neuen Branch erstellen und auschecken…",
 	"github_new_origin_branch": "Neuer Branch von origin/main…",
 	"github_continue_tooltip": "Neuen Branch von origin/main erstellen und auschecken",
-	"projects_sidebar_cloud": "Cloud"
+	"projects_sidebar_cloud": "Cloud",
+	"github_action_failed": "GitHub-Aktion fehlgeschlagen",
+	"github_repair_state_changed": "Chat, Branch oder Agentenstatus hat sich geändert. Starte Reparieren erneut im aktuellen PR.",
+	"github_attach_failed": "PR-Kontext konnte nicht angehängt werden.",
+	"github_repair_send_failed": "Reparatur konnte nicht gesendet werden. Prüfe den Chat und versuche es erneut.",
+	"github_watch_update_failed": "CI-Überwachung konnte nicht aktualisiert werden"
 }

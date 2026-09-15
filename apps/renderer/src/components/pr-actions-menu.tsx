@@ -87,7 +87,7 @@ export function PrActionsMenu({
 		} catch (error) {
 			toastManager.add({
 				type: "error",
-				title: "GitHub action failed",
+				title: uiMessage("projects:github_action_failed"),
 				description: formatError(error),
 			});
 		} finally {
@@ -158,9 +158,7 @@ export function PrActionsMenu({
 				timeline.data.queue.items.length > 0 ||
 				timeline.pendingCommands.length > 0
 			)
-				throw new Error(
-					"The chat, branch, or agent state changed. Run Repair again from the current PR.",
-				);
+				throw new Error(uiMessage("projects:github_repair_state_changed"));
 
 			onChat();
 			await sendSessionMessage(
@@ -277,7 +275,8 @@ export function PrActionsMenu({
 								sessionId,
 								prRepairMarkdown(details, "everything"),
 							);
-							if (!file) throw new Error("Could not attach PR context.");
+							if (!file)
+								throw new Error(uiMessage("projects:github_attach_failed"));
 							if (!isSelectedChat()) return;
 							onChat();
 							attachFileWhenReady(file, 20, 50, {
