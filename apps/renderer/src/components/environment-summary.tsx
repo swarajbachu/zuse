@@ -426,7 +426,6 @@ export function EnvironmentSummary() {
 					pr={pr}
 					details={prDetails}
 					sessionId={sessionId}
-					busy={isRunning}
 					className={`${rowClass} hover:bg-muted/60`}
 					onView={() => revealPanel("pr")}
 					onChat={() => {

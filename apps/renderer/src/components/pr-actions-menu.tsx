@@ -55,6 +55,7 @@ import {
 } from "./ui/menu.tsx";
 import { toastManager } from "./ui/toast.tsx";
 
+/** Manual repair stages the next message and remains available during an active turn. */
 export function PrActionsMenu({
 	executionRef,
 	pr,
@@ -68,7 +69,6 @@ export function PrActionsMenu({
 	pr: GitPrInfo;
 	details: GitPrDetails | null;
 	sessionId: SessionId | null;
-	busy: boolean;
 	className?: string;
 	onView: () => void;
 	onChat: () => void;

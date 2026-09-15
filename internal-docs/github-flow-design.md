@@ -45,3 +45,9 @@ GitHub avatars use the shared avatar loading/failure fallback and the URL suppli
 Annotations and PR context share one wrapping attachment row inside the composer's attached tray. The row renders nothing when both sources are empty. The browser annotation toolbar and comment editor use 28px controls, 12px labels, 14px icons, and compact glass surfaces; the comment editor is capped at 344px wide.
 
 Feedback cards in Changes navigate on click or keyboard activation: inline comments open their file and line through the existing Changes navigation, while PR-wide summaries open the original GitHub thread. Text selection, nested links/buttons, and expandable summaries do not activate the card. The PR overview's inline file/line labels also open Changes.
+
+## Review follow-up
+
+The stack includes the latest main branch while preserving cloud mailbox queue delivery and structured composer attachments. Provider check links accept only HTTP(S), including the disabled UI state. Stack discovery caches only expected absence, preserves known results on transient errors, and retries discovery while mounted. Startup failures share the failed-check classification used by summary counts and log collection; terminal conclusions take precedence in the watcher.
+
+Plan-feedback submissions retain the draft until delivery is accepted, including native-plan fallback sends. Review attachments preserve their source URL, and the PR view retains summary checks while details are unavailable. Annotation edit actions are visible during keyboard focus. Manual Repair deliberately stays available during active turns because it only stages draft context; the unused parent busy prop was removed.
