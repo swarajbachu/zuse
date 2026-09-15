@@ -1028,7 +1028,10 @@ describe("cloud workspace reconciler", () => {
 		});
 	});
 
-	test("inspects and wakes a provider-paused runtime after mailbox acceptance", async () => {
+	test.each([
+		true,
+		false,
+	])("wakes a mailbox runtime with process preservation=%s", async (preservesProcessesOnResume) => {
 		const staleObservationAt = Date.now() - 60_000;
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -1058,7 +1061,19 @@ describe("cloud workspace reconciler", () => {
 						state: "paused",
 					}),
 				);
-				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const providers = yield* SandboxProviders;
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: (id) =>
+							providers.get(id).pipe(
+								Effect.map((adapter) => ({
+									...adapter,
+									preservesProcessesOnResume,
+								})),
+							),
+					}),
+				);
 				return {
 					workspace: yield* store.getWorkspace(workspace.workspaceId),
 					resumeInputs: yield* Ref.get(control.resumeInputs),
@@ -1068,11 +1083,15 @@ describe("cloud workspace reconciler", () => {
 		);
 
 		expect(result.resumeInputs).toHaveLength(1);
-		expect(result.startProcessCalls).toHaveLength(0);
+		expect(result.startProcessCalls).toHaveLength(
+			preservesProcessesOnResume ? 0 : 1,
+		);
 		expect(result.workspace).toMatchObject({
-			state: "resuming",
-			runtimeState: "connecting",
-			statusCode: "resume-runtime-waking",
+			state: preservesProcessesOnResume ? "resuming" : "provisioning",
+			runtimeState: preservesProcessesOnResume ? "connecting" : "offline",
+			statusCode: preservesProcessesOnResume
+				? "resume-runtime-waking"
+				: "resume-runtime-restarting",
 			requestConfig: {
 				cloudMailboxWakePending: true,
 				cloudMailboxWakeRequestedAt: expect.any(Number),

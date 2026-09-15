@@ -587,7 +587,7 @@ export const makeBoxSandboxProvider = (
 				? []
 				: [
 						'mkdir -p "$HOME/.zuse-processes"',
-						`echo $$ > "$HOME/.zuse-processes/${processTagFile(input.tag)}"`,
+						`printf '%s %s\\n' "$(cat /proc/sys/kernel/random/boot_id)" "$$" > "$HOME/.zuse-processes/${processTagFile(input.tag)}"`,
 					]),
 			...(input.cwd === undefined
 				? ['cd "$HOME"']
@@ -623,10 +623,18 @@ export const makeBoxSandboxProvider = (
 			// the tagged process and its children in one signal.
 			const script = [
 				`pidfile="$HOME/.zuse-processes/${processTagFile(selector.tag)}"`,
-				'if [ -f "$pidfile" ]; then pid=$(cat "$pidfile"); kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true; rm -f "$pidfile"; fi',
-				...(selector.legacyCommandMarkers ?? []).map(
-					(marker) => `pkill -KILL -f -- ${shellQuote(marker)} || true`,
-				),
+				'if [ -f "$pidfile" ]; then read -r boot pid < "$pidfile"; if [ "$boot" = "$(cat /proc/sys/kernel/random/boot_id)" ] && [ "$pid" -gt 1 ] 2>/dev/null; then kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true; fi; rm -f "$pidfile"; fi',
+				...(selector.legacyCommandMarkers ?? [])
+					.filter(Boolean)
+					.map((marker) => {
+						// Bracket the first character so the cleanup shell's argv cannot
+						// match its own pattern. Treat markers as literal command text.
+						const first = marker[0]?.replace(/[\\\]^]/gu, "\\$&");
+						const rest = marker
+							.slice(1)
+							.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+						return `pkill -KILL -f -- ${shellQuote(`[${first}]${rest}`)} || true`;
+					}),
 				"true",
 			].join("; ");
 			const result = yield* runCommand(

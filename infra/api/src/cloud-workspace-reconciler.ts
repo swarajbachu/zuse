@@ -1572,6 +1572,15 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					saveWorkspace,
 					sandbox.state === "running",
 				);
+			if (sandbox.state === "paused" && !provider.preservesProcessesOnResume)
+				return yield* restartWorkspaceRuntime(
+					workspace,
+					workspace.providerSandboxId,
+					provider,
+					nowMs,
+					saveWorkspace,
+					false,
+				);
 			if (sandbox.state === "paused")
 				return yield* wakePreservedWorkspaceRuntime(
 					workspace,

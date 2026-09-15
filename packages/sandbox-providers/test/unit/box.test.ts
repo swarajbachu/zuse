@@ -1,3 +1,9 @@
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { Effect, Redacted } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import {
@@ -426,13 +432,9 @@ describe("Box sandbox provider", () => {
 
 		const body = JSON.parse(String(http.calls[0]?.init?.body));
 		expect(body.detached).toBe(true);
-		expect(body.command).toBe(
-			"sudo -n -E -H -u 'zuse' setsid bash -c 'mkdir -p \"$HOME/.zuse-processes\" && " +
-				'echo $$ > "$HOME/.zuse-processes/zuse-runtime.pid" && ' +
-				"cd '\\''/home/zuse'\\'' && " +
-				"export ZUSE_API_URL='\\''https://api.test'\\'' && " +
-				"exec '\\''/usr/local/bin/zuse-workspace-bootstrap'\\'' '\\''--resume'\\'''",
-		);
+		expect(body.command).toContain("/proc/sys/kernel/random/boot_id");
+		expect(body.command).toContain("zuse-runtime.pid");
+		expect(body.command).toContain("/usr/local/bin/zuse-workspace-bootstrap");
 	});
 
 	test("starts a detached process in the target user's home by default", async () => {
@@ -491,13 +493,70 @@ describe("Box sandbox provider", () => {
 		expect(killBody.command).toContain("zuse-runtime.pid");
 		expect(killBody.command).toContain('kill -KILL -- "-$pid"');
 		expect(killBody.command).toContain(
-			"pkill -KILL -f -- '\\''zuse-workspace-bootstrap'\\'' || true",
+			"pkill -KILL -f -- '\\''[z]use-workspace-bootstrap'\\'' || true",
 		);
 		const startBody = JSON.parse(String(http.calls[1]?.init?.body));
 		expect(startBody.detached).toBe(true);
 		expect(startBody.command).toContain("zuse-runtime.pid");
 		expect(startBody.command).toContain("/opt/zuse/current/bin.mjs");
 	});
+
+	test.skipIf(process.platform !== "linux")(
+		"replacement cleanup survives its own markers and ignores stale boot PIDs",
+		async () => {
+			const home = await mkdtemp(join(tmpdir(), "zuse-box-process-"));
+			const marker = `legacy-runtime-${crypto.randomUUID()}`;
+			const legacy = spawn(
+				process.execPath,
+				["-e", "setTimeout(() => {}, 60000)", marker],
+				{
+					detached: true,
+					stdio: "ignore",
+				},
+			);
+			const unrelated = spawn("sleep", ["60"], {
+				detached: true,
+				stdio: "ignore",
+			});
+			try {
+				await mkdir(join(home, ".zuse-processes"));
+				await writeFile(
+					join(home, ".zuse-processes/runtime.pid"),
+					String(unrelated.pid),
+				);
+				const http = makeHttp([
+					{ status: 200, body: commandResult(0) },
+					{ status: 200, body: { processId: 8, pid: 43 } },
+				]);
+				await Effect.runPromise(
+					makeAdapter(http.client).replaceProcess(
+						"bx_1",
+						{
+							tag: "runtime",
+							legacyCommandMarkers: [marker],
+						},
+						{ command: "true", user: "zuse" },
+					),
+				);
+				const command = JSON.parse(
+					String(http.calls[0]?.init?.body),
+				).command.replace("sudo -n -E -H -u 'zuse' ", "");
+				const exited = once(legacy, "exit");
+				await promisify(execFile)("bash", ["-c", command], {
+					env: { ...process.env, HOME: home },
+					timeout: 5000,
+				});
+				await exited;
+				expect(legacy.signalCode).toBe("SIGKILL");
+				expect(unrelated.exitCode).toBeNull();
+				expect(unrelated.signalCode).toBeNull();
+			} finally {
+				legacy.kill("SIGKILL");
+				unrelated.kill("SIGKILL");
+				await rm(home, { recursive: true, force: true });
+			}
+		},
+	);
 
 	test("maps path existence onto the test exit code", async () => {
 		const http = makeHttp([

@@ -235,6 +235,40 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 					),
 				);
 				expect(resumed.state).toBe("running");
+				// Cold resume must be able to replace the old runtime, not only boot a VM.
+				await Effect.runPromise(
+					adapter.replaceProcess(
+						created.providerSandboxId,
+						{
+							tag: "zuse-runtime",
+							legacyCommandMarkers: [
+								"zuse-workspace-bootstrap",
+								"/opt/zuse/current/bin.mjs serve",
+								"/usr/local/bin/zuse serve",
+							],
+						},
+						{
+							command: "/bin/bash",
+							args: [
+								"-c",
+								"/usr/local/bin/zuse --help >/tmp/zuse-resume-smoke.log 2>&1 && touch /tmp/zuse-resume-smoke-ok",
+							],
+							user: "zuse",
+						},
+					),
+				);
+				expect(
+					await pollUntil(
+						() =>
+							Effect.runPromise(
+								adapter.pathExists(
+									created.providerSandboxId,
+									"/tmp/zuse-resume-smoke-ok",
+								),
+							),
+						(value) => value,
+					),
+				).toBe(true);
 
 				// extend timeout
 				await Effect.runPromise(
