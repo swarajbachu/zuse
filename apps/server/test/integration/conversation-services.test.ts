@@ -1548,9 +1548,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(new Set(snapshotIds)).toEqual(
 				new Set([TEST_WORKTREE_ID, secondWorktreeId]),
 			);
-			await new Promise((resolve) => setTimeout(resolve, 100));
-			expect(archiveWorktreeStarts).toBe(2);
-			barrier.resolve();
+			try {
+				await expect.poll(() => archiveWorktreeStarts).toBe(2);
+			} finally {
+				barrier.resolve();
+			}
 		});
 	});
 
