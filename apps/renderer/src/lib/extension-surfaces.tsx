@@ -1,3 +1,4 @@
+import { ExtensionErrorBoundary } from "./extension-error-boundary.tsx";
 import "@zuse/i18n/english/extensions";
 import { useMessages as useExtensionMessages } from "@zuse/i18n/react";
 import { Schema } from "effect";
@@ -8,7 +9,6 @@ import { useUiStore } from "../store/ui.ts";
 import { extensionActions } from "./extension-client-bus.ts";
 import { attachExtensionSnapshot } from "./extension-composer.ts";
 import {
-	ExtensionErrorBoundary,
 	extensionHostTheme,
 	useExtensionContributions,
 } from "./extension-registry.tsx";

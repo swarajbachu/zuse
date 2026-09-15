@@ -10566,8 +10566,8 @@
 		"source": "Extension view failed.",
 		"locations": [
 			{
-				"path": "apps/renderer/src/lib/extension-registry.tsx",
-				"line": 161
+				"path": "apps/renderer/src/lib/extension-error-boundary.tsx",
+				"line": 33
 			}
 		],
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

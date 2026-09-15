@@ -1,4 +1,5 @@
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
+import { ExtensionErrorBoundary } from "../lib/extension-error-boundary.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
@@ -46,7 +47,6 @@ import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import {
-	ExtensionErrorBoundary,
 	extensionHostTheme,
 	useExtensionContributions,
 } from "../lib/extension-registry.tsx";
