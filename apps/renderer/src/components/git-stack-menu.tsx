@@ -1,9 +1,12 @@
+import "@zuse/i18n/english/chat";
+import "@zuse/i18n/english/projects";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import {
 	CommandId,
 	type GitStackAction,
 	type GitStackResult,
 } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ChevronDown, Layers } from "lucide-react";
 import { useState } from "react";
 import { formatError } from "../lib/format-error.ts";
@@ -24,6 +27,7 @@ export function GitStackMenu({
 	executionRef: ExecutionRef;
 	className?: string;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects", "chat"]);
 	const [stack, setStack] = useState<GitStackResult | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -72,7 +76,9 @@ export function GitStackMenu({
 		>
 			<MenuTrigger className={className}>
 				<Layers className="size-4 shrink-0 text-muted-foreground" />
-				<span className="flex-1 text-left">GitHub stack</span>
+				<span className="flex-1 text-left">
+					{uiMessage("projects:github_stack")}
+				</span>
 				<ChevronDown className="size-3 text-muted-foreground" />
 			</MenuTrigger>
 			<MenuPopup side="left" align="start" className="w-72">
@@ -81,7 +87,7 @@ export function GitStackMenu({
 						role="status"
 						className="px-2 py-1 text-xs text-muted-foreground"
 					>
-						Updating stack…
+						{uiMessage("projects:github_updating_stack")}
 					</div>
 				) : null}
 				{error ? (
@@ -95,7 +101,8 @@ export function GitStackMenu({
 				{stack ? (
 					<>
 						<div className="px-2 py-1 text-xs text-muted-foreground">
-							Base: {stack.trunk}
+							{uiMessage("projects:github_base")}
+							{stack.trunk}
 						</div>
 						{stack.branches.map((branch) => (
 							<MenuItem
@@ -122,11 +129,11 @@ export function GitStackMenu({
 								<span className="min-w-0 flex-1 truncate">{branch.name}</span>
 								<span className="text-xs text-muted-foreground">
 									{branch.isCurrent
-										? "Current"
+										? uiMessage("chat:computer_switcher_current")
 										: branch.isMerged
-											? "Merged"
+											? uiMessage("projects:pr_pane_merged")
 											: branch.needsRebase
-												? "Needs rebase"
+												? uiMessage("projects:github_needs_rebase")
 												: ""}
 								</span>
 							</MenuItem>
@@ -140,8 +147,8 @@ export function GitStackMenu({
 							}}
 						>
 							<input
-								aria-label="New stack branch"
-								placeholder="New stack branch"
+								aria-label={uiMessage("projects:github_new_stack_branch")}
+								placeholder={uiMessage("projects:github_new_stack_branch")}
 								className="h-7 min-w-0 flex-1 rounded bg-muted px-2 text-xs outline-none"
 								value={name}
 								disabled={busy}
@@ -155,7 +162,7 @@ export function GitStackMenu({
 								disabled={busy || !name.trim()}
 								className="h-7 rounded bg-muted px-2 text-xs disabled:opacity-50"
 							>
-								Add
+								{uiMessage("common:add")}
 							</button>
 						</form>
 						<MenuItem
@@ -163,7 +170,7 @@ export function GitStackMenu({
 							closeOnClick={false}
 							onClick={() => void command("submit")}
 						>
-							Push stack and create draft PRs
+							{uiMessage("projects:github_submit_stack")}
 						</MenuItem>
 					</>
 				) : (
@@ -172,12 +179,12 @@ export function GitStackMenu({
 						closeOnClick={false}
 						onClick={() => void command("init")}
 					>
-						Start stack from this branch
+						{uiMessage("projects:github_start_stack")}
 					</MenuItem>
 				)}
 				<MenuSeparator />
 				<MenuItem onClick={() => void openExternal("https://gh.io/stacks")}>
-					GitHub stack setup and help ↗
+					{uiMessage("projects:github_stack_help")}
 				</MenuItem>
 			</MenuPopup>
 		</Menu>
