@@ -297,6 +297,56 @@ const stageRuntimeCredential = async (
 };
 
 describe("public API (/v1/api)", () => {
+	test("new API and Slack workspaces do not inherit a retained provider", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await seedReadyProject(runtime, store);
+			const secret = await createApiKey(runtime);
+			const create = (key: string, body: unknown) =>
+				serve(runtime, "/v1/api/workspaces", {
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${secret}`,
+						"content-type": "application/json",
+						"idempotency-key": key,
+					},
+					body: JSON.stringify(body),
+				});
+			const first = await json<{ workspace: { workspaceId: string } }>(
+				await create("old-provider", { agent: "codex", model: "gpt-5" }),
+				201,
+			);
+			const old = await runtime.runPromise(
+				store.getWorkspace(first.workspace.workspaceId),
+			);
+			if (old === null) throw new Error("workspace missing");
+			await runtime.runPromise(
+				store.saveWorkspace({
+					...old,
+					provider: "e2b",
+					state: "failed",
+					revision: old.revision + 1,
+				}),
+			);
+			const next = await json<{ workspace: { workspaceId: string } }>(
+				await create("new-provider", {}),
+				201,
+			);
+			const saved = await runtime.runPromise(
+				store.getWorkspace(next.workspace.workspaceId),
+			);
+			expect(saved?.provider).toBe(PROVIDER_ID);
+			expect(saved?.requestConfig.agent).toBe("codex");
+			expect(saved?.requestConfig.model).toBe("gpt-5");
+			expect(
+				(await create("explicit-retired", { providerId: "e2b" })).status,
+			).toBe(503);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
 	test.each([
 		false,
 		true,

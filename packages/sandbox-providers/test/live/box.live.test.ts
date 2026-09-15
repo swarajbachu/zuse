@@ -139,7 +139,7 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 						command: "/bin/bash",
 						args: [
 							"-c",
-							"mkdir -p /tmp/zuse-live-http && printf ok > /tmp/zuse-live-http/index.html && exec python3 -m http.server 47837 --bind 0.0.0.0 --directory /tmp/zuse-live-http",
+							"mkdir -p /tmp/zuse-live-http && printf ok > /tmp/zuse-live-http/index.html && exec python3 -m http.server 47837 --bind 127.0.0.1 --directory /tmp/zuse-live-http",
 						],
 						user: "zuse",
 						tag: "zuse-live-http",

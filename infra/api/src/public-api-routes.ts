@@ -389,7 +389,7 @@ export const routeAccountWorkspaceRequest = (
 					principal.accountId,
 					{
 						projectId: project.projectId,
-						providerId: body.providerId ?? recent?.provider,
+						providerId: body.providerId,
 						baseRef: body.baseRef ?? project.defaultBranch,
 						...(body.branch === undefined ? {} : { branch: body.branch }),
 						agent,

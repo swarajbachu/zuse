@@ -599,8 +599,8 @@ describe("Box sandbox provider", () => {
 			httpBaseUrl: "https://tri-word-slug-47837.on.ascii.dev",
 			wsBaseUrl: "wss://tri-word-slug-47837.on.ascii.dev",
 		});
-		expect(JSON.parse(String(http.calls[0]?.init?.body)).command).toBe(
-			"host 47837 --public >/dev/null",
+		expect(JSON.parse(String(http.calls[0]?.init?.body)).command).toContain(
+			"47837 && host 47837 --public >/dev/null",
 		);
 	});
 

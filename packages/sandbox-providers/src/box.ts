@@ -1,4 +1,5 @@
 import { Duration, Effect, Redacted, Schema } from "effect";
+import { BOX_PORT_FORWARDER } from "./box-port-forwarder.ts";
 import {
 	type ProviderSandbox,
 	type SandboxNetworkPolicy,
@@ -402,7 +403,10 @@ export const makeBoxSandboxProvider = (
 		providerSandboxId: string,
 		port = 47_837,
 	): Effect.Effect<void, SandboxProviderError> =>
-		runCommand(providerSandboxId, `host ${port} --public >/dev/null`).pipe(
+		runCommand(
+			providerSandboxId,
+			`node -e ${shellQuote(BOX_PORT_FORWARDER)} ${port} && host ${port} --public >/dev/null`,
+		).pipe(
 			Effect.flatMap((result) =>
 				result.exitCode === 0
 					? Effect.void
