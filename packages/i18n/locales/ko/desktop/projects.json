@@ -285,5 +285,10 @@
 	"github_new_branch": "새 브랜치를 만들고 체크아웃…",
 	"github_new_origin_branch": "origin/main에서 새 브랜치…",
 	"github_continue_tooltip": "origin/main에서 새 브랜치를 만들고 체크아웃",
-	"projects_sidebar_cloud": "클라우드"
+	"projects_sidebar_cloud": "클라우드",
+	"github_action_failed": "GitHub 작업 실패",
+	"github_repair_state_changed": "채팅, 브랜치 또는 에이전트 상태가 변경되었습니다. 현재 PR에서 복구를 다시 실행하세요.",
+	"github_attach_failed": "PR 컨텍스트를 첨부하지 못했습니다.",
+	"github_repair_send_failed": "복구를 보내지 못했습니다. 채팅을 확인하고 다시 시도하세요.",
+	"github_watch_update_failed": "CI 감시를 업데이트하지 못했습니다"
 }

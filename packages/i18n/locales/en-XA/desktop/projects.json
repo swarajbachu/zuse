@@ -285,5 +285,10 @@
 	"github_new_branch": "⟦Crëëààtëë àànd chëëckôôüüt nëëw bràànch…⟧",
 	"github_new_origin_branch": "⟦Nëëw bràànch frôôm ôôrïïgïïn/mààïïn…⟧",
 	"github_continue_tooltip": "⟦Crëëààtëë àànd chëëckôôüüt àà nëëw bràànch frôôm ôôrïïgïïn/mààïïn⟧",
-	"projects_sidebar_cloud": "⟦Clôôüüd⟧"
+	"projects_sidebar_cloud": "⟦Clôôüüd⟧",
+	"github_action_failed": "⟦GïïtHüüb ààctïïôôn fààïïlëëd⟧",
+	"github_repair_state_changed": "⟦Thëë chààt, bràànch, ôôr ààgëënt stààtëë chààngëëd. Rüün Rëëpààïïr ààgààïïn frôôm thëë cüürrëënt PR.⟧",
+	"github_attach_failed": "⟦Côôüüld nôôt ààttààch PR côôntëëxt.⟧",
+	"github_repair_send_failed": "⟦Rëëpààïïr côôüüld nôôt bëë sëënt. Chëëck thëë chààt àànd try ààgààïïn.⟧",
+	"github_watch_update_failed": "⟦Côôüüld nôôt üüpdààtëë CÏÏ wààtchëër⟧"
 }

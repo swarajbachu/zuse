@@ -28,13 +28,13 @@ import {
 	gitWorkspaceResourceKey,
 	refreshGitWorkspace,
 } from "../lib/git-workspace-client-bus.ts";
+import { sendManualPrRepair } from "../lib/manual-pr-repair.ts";
 import { openExternal } from "../lib/platform-capabilities.ts";
 import {
 	type PrRepairScope,
 	preparePrRepair,
 	prRepairMarkdown,
 } from "../lib/pr-repair.ts";
-import { sendSessionMessage } from "../lib/session-actions.ts";
 import {
 	getRendererClientBus,
 	sessionTimelineResourceKey,
@@ -88,7 +88,7 @@ export function PrActionsMenu({
 		} catch (error) {
 			toastManager.add({
 				type: "error",
-				title: "GitHub action failed",
+				title: uiMessage("projects:github_action_failed"),
 				description: formatError(error),
 			});
 		} finally {
@@ -159,19 +159,16 @@ export function PrActionsMenu({
 				timeline.data.queue.items.length > 0 ||
 				timeline.pendingCommands.length > 0
 			)
-				throw new Error(
-					"The chat, branch, or agent state changed. Run Repair again from the current PR.",
-				);
+				throw new Error(uiMessage("projects:github_repair_state_changed"));
 
 			onChat();
-			const accepted = await sendSessionMessage(
+			const accepted = await sendManualPrRepair(
 				{ environmentId: executionRef.environmentId, sessionId },
+				JSON.stringify([details.url, details.headSha, scope]),
 				input,
 			);
 			if (!accepted)
-				throw new Error(
-					"Repair could not be sent. Check the chat and try again.",
-				);
+				throw new Error(uiMessage("projects:github_repair_send_failed"));
 		});
 	const comments = details
 		? [...details.comments, ...details.reviews].filter((item) =>
@@ -287,7 +284,8 @@ export function PrActionsMenu({
 								sessionId,
 								prRepairMarkdown(details, "everything"),
 							);
-							if (!file) throw new Error("Could not attach PR context.");
+							if (!file)
+								throw new Error(uiMessage("projects:github_attach_failed"));
 							if (!isSelectedChat()) return;
 							onChat();
 							attachFileWhenReady(file, 20, 50, {

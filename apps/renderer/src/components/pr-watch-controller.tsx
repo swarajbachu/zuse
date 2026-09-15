@@ -10,12 +10,22 @@ import { runPrWatchRepair } from "../lib/pr-watch-repair.ts";
 import { sendSessionMessage } from "../lib/session-actions.ts";
 import { isSessionRuntimeBusy } from "../lib/session-runtime-state.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
+import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { type PrWatch, usePrWatchStore } from "../store/pr-watch.ts";
+import { useSessionsStore } from "../store/sessions.ts";
 import { toastManager } from "./ui/toast.tsx";
 
-const running = new Set<string>();
+const running = new Map<string, PrWatch["generation"]>();
 
 function Watch({ watch }: { watch: PrWatch }) {
+	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(s) => s.activeEnvironmentId,
+	);
+	const isSelected = () =>
+		useSessionsStore.getState().selectedSessionId === watch.sessionId &&
+		useEnvironmentCatalogStore.getState().activeEnvironmentId ===
+			watch.ref.environmentId;
 	const workspace = useGitWorkspaceResource(watch.ref, "connect");
 	const detailsView = useGitPrDetailsResource(watch.ref, "connect");
 	const timeline = useRendererSessionTimeline(
@@ -27,7 +37,8 @@ function Watch({ watch }: { watch: PrWatch }) {
 	latestViews.current = { workspace, detailsView, timeline };
 	useEffect(() => {
 		if (
-			running.has(watch.id) ||
+			!isSelected() ||
+			(running.has(watch.id) && running.get(watch.id) === watch.generation) ||
 			workspace.sync !== "live" ||
 			detailsView.sync !== "live" ||
 			timeline.view.sync !== "live" ||
@@ -44,7 +55,7 @@ function Watch({ watch }: { watch: PrWatch }) {
 			usePrWatchStore.getState().watches.find((item) => item.id === watch.id);
 		const pause = (reason: string) => {
 			const latest = current();
-			if (latest)
+			if (latest && latest.generation === watch.generation)
 				usePrWatchStore
 					.getState()
 					.save({ ...latest, enabled: false, error: reason });
@@ -72,7 +83,7 @@ function Watch({ watch }: { watch: PrWatch }) {
 			);
 			return;
 		}
-		running.add(watch.id);
+		running.set(watch.id, watch.generation);
 		void runPrWatchRepair({
 			watch,
 			key,
@@ -83,6 +94,7 @@ function Watch({ watch }: { watch: PrWatch }) {
 			canSend: () => {
 				const fresh = latestViews.current;
 				return (
+					isSelected() &&
 					fresh.workspace.data?.status?.branch === watch.branch &&
 					fresh.workspace.connection === "connected" &&
 					!fresh.workspace.data?.error &&
@@ -120,8 +132,18 @@ function Watch({ watch }: { watch: PrWatch }) {
 					description: formatError(cause),
 				});
 			})
-			.finally(() => running.delete(watch.id));
-	}, [watch, workspace, detailsView, timeline]);
+			.finally(() => {
+				if (running.has(watch.id) && running.get(watch.id) === watch.generation)
+					running.delete(watch.id);
+			});
+	}, [
+		watch,
+		workspace,
+		detailsView,
+		timeline,
+		selectedSessionId,
+		activeEnvironmentId,
+	]);
 	return null;
 }
 

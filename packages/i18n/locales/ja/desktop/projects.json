@@ -285,5 +285,10 @@
 	"github_new_branch": "新しいブランチを作成してチェックアウト…",
 	"github_new_origin_branch": "origin/main から新しいブランチ…",
 	"github_continue_tooltip": "origin/main から新しいブランチを作成してチェックアウト",
-	"projects_sidebar_cloud": "クラウド"
+	"projects_sidebar_cloud": "クラウド",
+	"github_action_failed": "GitHub 操作に失敗しました",
+	"github_repair_state_changed": "チャット、ブランチ、またはエージェントの状態が変わりました。現在の PR から修復を再実行してください。",
+	"github_attach_failed": "PR のコンテキストを添付できませんでした。",
+	"github_repair_send_failed": "修復を送信できませんでした。チャットを確認して再試行してください。",
+	"github_watch_update_failed": "CI 監視を更新できませんでした"
 }

@@ -722,7 +722,11 @@ export const GitServiceLive = Layer.effect(
 						folderId,
 						cwd,
 						args,
-						action === "view" ? 10_000 : 120_000,
+						action === "submit"
+							? 300_000
+							: action === "view"
+								? 10_000
+								: 120_000,
 					);
 					if (action !== "view")
 						return GitStackResult.make({ output, trunk: null, branches: [] });
@@ -768,23 +772,27 @@ export const GitServiceLive = Layer.effect(
 								}),
 							);
 						if (createFrom === "origin/main") {
-							const dirty = yield* run(folderId, cwd, [
-								"status",
-								"--porcelain",
-							]);
-							if (dirty.trim())
-								return yield* Effect.fail(
-									new GitCommandError({
-										folderId,
-										reason:
-											"Commit or stash changes before starting from origin/main.",
-									}),
-								);
+							const ensureClean = Effect.gen(function* () {
+								const dirty = yield* run(folderId, cwd, [
+									"status",
+									"--porcelain",
+								]);
+								if (dirty.trim())
+									return yield* Effect.fail(
+										new GitCommandError({
+											folderId,
+											reason:
+												"Commit or stash changes before starting from origin/main.",
+										}),
+									);
+							});
+							yield* ensureClean;
 							yield* run(folderId, cwd, [
 								"fetch",
 								"origin",
 								"refs/heads/main:refs/remotes/origin/main",
 							]);
+							yield* ensureClean;
 						}
 						yield* run(folderId, cwd, [
 							"switch",

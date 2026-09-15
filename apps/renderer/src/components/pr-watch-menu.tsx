@@ -56,7 +56,7 @@ export function PrWatchMenu({
 		} catch (cause) {
 			toastManager.add({
 				type: "error",
-				title: "Could not update CI watcher",
+				title: uiMessage("projects:github_watch_update_failed"),
 				description: formatError(cause),
 			});
 		}
