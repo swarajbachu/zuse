@@ -60,6 +60,11 @@ import {
 	ChildProcess as Command,
 	ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
+import {
+	feedbackComments,
+	feedbackReviews,
+	parseFeedbackPages,
+} from "./pr-feedback.ts";
 import { RepositoryLocator } from "./repository-locator.ts";
 import {
 	buildCreateReviewCommentArgs,
@@ -445,11 +450,6 @@ export const parseRemoteUrl = (url: string): GitOriginInfo | null => {
 		}
 	}
 	return null;
-};
-
-const githubAvatarUrl = (login: string | undefined): string | null => {
-	if (login === undefined || login.trim().length === 0) return null;
-	return `https://github.com/${encodeURIComponent(login.trim())}.png?size=40`;
 };
 
 /**
@@ -1285,18 +1285,26 @@ export const GitServiceLive = Layer.effect(
 					);
 					const jobsByRunId = new Map<string, ReadonlyArray<ActionsJob>>();
 					if (originInfo?.host.toLowerCase() === "github.com") {
-						for (const runId of collectActionsRunIds(rollup)) {
-							const jobsStdout = yield* ghRun(folderId, cwd, [
-								"api",
-								actionsJobsApiPath(originInfo.owner, originInfo.repo, runId),
-							]).pipe(
-								Effect.catchTags({
-									GitNotInstalledError: () => Effect.succeed(""),
-									GitCommandError: () => Effect.succeed(""),
-								}),
-							);
-							jobsByRunId.set(runId, parseActionsJobsResponse(jobsStdout));
-						}
+						yield* Effect.forEach(
+							collectActionsRunIds(rollup),
+							(runId) =>
+								ghRun(folderId, cwd, [
+									"api",
+									actionsJobsApiPath(originInfo.owner, originInfo.repo, runId),
+								]).pipe(
+									Effect.catchTags({
+										GitNotInstalledError: () => Effect.succeed(""),
+										GitCommandError: () => Effect.succeed(""),
+									}),
+									Effect.map((output) => {
+										return jobsByRunId.set(
+											runId,
+											parseActionsJobsResponse(output),
+										);
+									}),
+								),
+							{ concurrency: 4 },
+						);
 					}
 
 					const checkRuns = rollup.map((c) => {
@@ -1325,23 +1333,23 @@ export const GitServiceLive = Layer.effect(
 						});
 					});
 
-					const comments = (parsed.comments ?? [])
+					let comments = (parsed.comments ?? [])
 						.filter((c) => typeof c.createdAt === "string")
 						.map((c) => {
 							const author = c.author?.login ?? "";
 							return GitPrComment.make({
 								author,
-								authorAvatarUrl: c.author?.avatarUrl ?? githubAvatarUrl(author),
+								authorAvatarUrl: c.author?.avatarUrl ?? null,
 								body: c.body ?? "",
 								createdAt: new Date(c.createdAt as string),
 							});
 						});
 
-					const reviews = (parsed.reviews ?? []).map((r) => {
+					let reviews = (parsed.reviews ?? []).map((r) => {
 						const author = r.author?.login ?? "";
 						return GitPrReview.make({
 							author,
-							authorAvatarUrl: r.author?.avatarUrl ?? githubAvatarUrl(author),
+							authorAvatarUrl: r.author?.avatarUrl ?? null,
 							state: mapReviewState(r.state ?? ""),
 							body: r.body ?? "",
 							submittedAt:
@@ -1350,6 +1358,43 @@ export const GitServiceLive = Layer.effect(
 									: null,
 						});
 					});
+
+					// REST returns the actual bot actor avatar and inline diff context.
+					// Use the PR URL's repository: a fork's origin can differ from its PR.
+					const prRepository = parsed.url
+						? parseRemoteUrl(parsed.url.replace(/\/pull\/\d+.*$/, ""))
+						: null;
+					if (prRepository !== null && parsed.number !== undefined) {
+						const prefix = `repos/${prRepository.owner}/${prRepository.repo}`;
+						const pages = yield* Effect.forEach(
+							[
+								`${prefix}/issues/${parsed.number}/comments?per_page=100`,
+								`${prefix}/pulls/${parsed.number}/comments?per_page=100`,
+								`${prefix}/pulls/${parsed.number}/reviews?per_page=100`,
+							],
+							(path) =>
+								ghRun(folderId, cwd, [
+									"api",
+									"--hostname",
+									prRepository.host,
+									"--paginate",
+									"--slurp",
+									path,
+								]).pipe(
+									Effect.map(parseFeedbackPages),
+									Effect.catchTags({
+										GitCommandError: () => Effect.succeed(null),
+										GitNotInstalledError: () => Effect.succeed(null),
+									}),
+								),
+							{ concurrency: 3 },
+						);
+						const [discussion, inline, reviewPages] = pages;
+						if (discussion != null) comments = feedbackComments(discussion);
+						if (inline != null)
+							comments = [...comments, ...feedbackComments(inline)];
+						if (reviewPages != null) reviews = feedbackReviews(reviewPages);
+					}
 
 					const files = (parsed.files ?? [])
 						.filter((f) => typeof f.path === "string" && f.path.length > 0)

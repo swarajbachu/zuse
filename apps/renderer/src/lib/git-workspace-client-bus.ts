@@ -461,6 +461,7 @@ const makePrDetailsDriver = (): ResourceDriver<
 > =>
 	makeInvalidatedDriver({
 		refreshers: prDetailsRefreshers,
+		reconcileEveryMs: 30_000,
 		load: async (client, ref, previous, revision) => {
 			const result = await classifyGit(
 				client["git.prDetails"]({
@@ -707,6 +708,18 @@ export const dispatchGitWorkspaceCommand = <Payload, Result>(input: {
 		retry: input.retry ?? "never",
 		createdAt: Date.now(),
 	});
+	if (
+		[
+			"git.branches",
+			"git.reviewIdentity",
+			"git.reviewFileContents",
+			"git.diff",
+			"git.issueMarkdown",
+			"git.listPrs",
+			"git.listIssues",
+		].includes(input.kind)
+	)
+		return dispatched;
 	void dispatched
 		.then(() =>
 			Promise.all([

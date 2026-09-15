@@ -1,4 +1,5 @@
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
+import { openExternal } from "../lib/platform-capabilities.ts";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { GitBranchInfo, GitPrCheckRun, Message } from "@zuse/contracts";
@@ -317,7 +318,8 @@ export function EnvironmentSummary() {
 		if (!open || executionRef === null) return;
 		const key = `${executionRef.environmentId}:${executionRef.folderId}:${executionRef.worktreeId ?? "main"}`;
 		setChecksRequestedKey(key);
-		void refreshGitPrDetails(executionRef);
+		if (prDetails === null && !prDetailsLoading)
+			void refreshGitPrDetails(executionRef);
 	};
 
 	return (
@@ -614,7 +616,7 @@ function ChecksPreview({
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
-	if (loading) {
+	if (loading && checks === null) {
 		return (
 			<div className="flex min-h-24 items-center justify-center gap-2 text-xs text-muted-foreground">
 				<HugeiconsIcon icon={Loading02Icon} className="size-4 animate-spin" />
@@ -668,7 +670,16 @@ function ChecksPreview({
 								/>
 							)}
 						</span>
-						<span className="min-w-0 flex-1 truncate">{check.name}</span>
+						<button
+							type="button"
+							disabled={check.url === null}
+							onClick={() => {
+								if (check.url) void openExternal(check.url);
+							}}
+							className="min-w-0 flex-1 truncate text-left hover:underline disabled:no-underline"
+						>
+							{check.name}
+						</button>
 						<span
 							className={`shrink-0 text-muted-foreground ${
 								kind === "failure"

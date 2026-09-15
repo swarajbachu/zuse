@@ -1,4 +1,5 @@
 import { formatDate as formatUiDate } from "@zuse/i18n";
+import { MarkdownBody } from "./markdown-body.tsx";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
@@ -150,28 +151,18 @@ ${review.body.trim().length > 0 ? review.body.trim() : "(no review body)"}
 
 const markdownForComment = (
 	pr: PrMarkdownContext,
-	comment: Pick<GitPrComment, "author" | "body" | "createdAt">,
+	comment: GitPrComment,
 ): string =>
 	`${prMarkdownHeader(pr)}
 ## Comment
 - Author: ${comment.author}
 - Created: ${formatAbsolute(comment.createdAt)}
+${comment.url ? `- Link: ${comment.url}` : ""}
+${comment.path ? `- File: ${comment.path}:${comment.line ?? ""}` : ""}
+${comment.diffHunk ? `\n\`\`\`diff\n${comment.diffHunk}\n\`\`\`\n` : ""}
 
 ${comment.body.trim().length > 0 ? comment.body.trim() : "(no comment body)"}
 `;
-
-const markdownToPlainText = (value: string): string =>
-	value
-		.replace(/```[\s\S]*?```/g, " ")
-		.replace(/`([^`]+)`/g, "$1")
-		.replace(/!\[[^\]]*]\([^)]*\)/g, " ")
-		.replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
-		.replace(/^#{1,6}\s+/gm, "")
-		.replace(/^[-*+]\s+/gm, "")
-		.replace(/^\s*>\s?/gm, "")
-		.replace(/[*_~#]/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
 
 /**
  * Right-pane "PR" tab. Title, state, description, reviews, comments, and CI
@@ -571,6 +562,7 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 											key={key}
 											author={r.author}
 											authorAvatarUrl={r.authorAvatarUrl ?? null}
+											url={r.url ?? null}
 											state={r.state}
 											body={r.body}
 											submittedAt={r.submittedAt}
@@ -598,6 +590,9 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 											key={key}
 											author={c.author}
 											authorAvatarUrl={c.authorAvatarUrl ?? null}
+											url={c.url ?? null}
+											path={c.path ?? null}
+											line={c.line ?? null}
 											body={c.body}
 											createdAt={c.createdAt}
 											attached={feedbackAttached(key)}
@@ -669,18 +664,17 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 }
 
 function PlainTextPreview({ text }: { text: string }) {
-	const preview = markdownToPlainText(text);
-	if (preview.length === 0) return null;
 	return (
-		<p className="overflow-hidden text-[11px] leading-5 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">
-			{preview}
-		</p>
+		<MarkdownBody githubHtml className="text-xs leading-5">
+			{text}
+		</MarkdownBody>
 	);
 }
 
 function FeedbackReviewRow({
 	author,
 	authorAvatarUrl,
+	url,
 	state,
 	body,
 	submittedAt,
@@ -691,6 +685,7 @@ function FeedbackReviewRow({
 }: {
 	author: string;
 	authorAvatarUrl: string | null;
+	url: string | null;
 	state: GitPrReviewState;
 	body: string;
 	submittedAt: Date | null;
@@ -719,13 +714,15 @@ function FeedbackReviewRow({
 						</span>
 					) : null}
 				</div>
-				{body.trim().length > 0 ? (
-					<p className="mt-0.5 overflow-hidden text-[11px] leading-5 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-						{markdownToPlainText(body)}
-					</p>
-				) : null}
+				{body.trim().length > 0 ? <PlainTextPreview text={body} /> : null}
 			</div>
 			<div className="flex shrink-0 items-center gap-1">
+				{url ? (
+					<IconLinkButton
+						label="Open in GitHub"
+						onClick={() => openExternal(url)}
+					/>
+				) : null}
 				<AttachButton
 					label={uiMessage("projects:pr_pane_resolve_review_feedback")}
 					attached={resolveAttached}
@@ -766,6 +763,9 @@ function ReviewStatePill({ state }: { state: GitPrReviewState }) {
 function FeedbackCommentRow({
 	author,
 	authorAvatarUrl,
+	url,
+	path,
+	line,
 	body,
 	createdAt,
 	attached,
@@ -775,6 +775,9 @@ function FeedbackCommentRow({
 }: {
 	author: string;
 	authorAvatarUrl: string | null;
+	url: string | null;
+	path: string | null;
+	line: number | null;
 	body: string;
 	createdAt: Date;
 	attached: boolean;
@@ -796,8 +799,21 @@ function FeedbackCommentRow({
 						{formatRelative(createdAt)}
 					</span>
 				</div>
+				{path ? (
+					<div className="my-1 font-mono text-xs text-muted-foreground">
+						{path}
+						{line ? `:${line}` : ""}
+					</div>
+				) : null}
+				<PlainTextPreview text={body} />
 			</div>
 			<div className="flex shrink-0 items-center gap-1">
+				{url ? (
+					<IconLinkButton
+						label="Open in GitHub"
+						onClick={() => openExternal(url)}
+					/>
+				) : null}
 				<AttachButton
 					label={uiMessage("projects:pr_pane_resolve_comment_feedback")}
 					attached={resolveAttached}
@@ -833,17 +849,7 @@ function ServiceMark({
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
 	const lower = name.toLowerCase();
-	const githubLogo = githubServiceLogo(name);
-	if (githubLogo !== null) {
-		return (
-			<img
-				src={githubLogo.url}
-				alt=""
-				title={githubLogo.title}
-				className={`${className} shrink-0 rounded-full bg-muted object-cover`}
-			/>
-		);
-	}
+
 	if (lower.includes("claude")) {
 		return (
 			<span
@@ -867,30 +873,6 @@ function ServiceMark({
 			{label}
 		</span>
 	);
-}
-
-function githubServiceLogo(
-	name: string,
-): { readonly title: string; readonly url: string } | null {
-	const lower = name.toLowerCase();
-	const account = lower.includes("vercel")
-		? "vercel"
-		: lower.includes("cloudflare")
-			? "cloudflare"
-			: lower.includes("gitguardian")
-				? "GitGuardian"
-				: lower.includes("github")
-					? "github"
-					: lower.includes("coderabbit") || lower.includes("code rabbit")
-						? "coderabbitai"
-						: lower.includes("macroscope")
-							? "macroscope"
-							: null;
-	if (account === null) return null;
-	return {
-		title: account,
-		url: `https://github.com/${account}.png?size=40`,
-	};
 }
 
 function ReviewerAvatar({
@@ -1139,14 +1121,14 @@ function AttachButton({
 			aria-label={label}
 			title={label}
 			onClick={onClick}
-			className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] font-medium transition focus-visible:opacity-100 ${
+			className={`inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[10px] font-medium transition focus-visible:opacity-100 ${
 				hideUntilHover && !attached
 					? "opacity-0 group-hover:opacity-100"
 					: "opacity-100"
 			} ${
 				attached
 					? "border-emerald-400/35 bg-emerald-400/10 text-emerald-300 hover:border-emerald-300/50 hover:bg-emerald-400/15 hover:text-emerald-200"
-					: "border-border/70 bg-muted/45 text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
+					: "bg-muted/45 text-muted-foreground hover:bg-muted hover:text-foreground"
 			}`}
 		>
 			{attached ? (
