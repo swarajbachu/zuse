@@ -424,6 +424,7 @@ const StubGitLive = Layer.succeed(GitService, {
 	status: () => Effect.die("not used"),
 	branches: () => Effect.die("not used"),
 	switchBranch: () => Effect.die("not used"),
+	stack: () => Effect.die("not used"),
 	renameBranch: () => Effect.die("not used"),
 	getUserName: () => Effect.succeed(""),
 	workspaceChanges: () => Stream.die("not used"),

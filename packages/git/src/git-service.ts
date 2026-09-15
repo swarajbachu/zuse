@@ -22,6 +22,8 @@ import type {
 	GitReviewPatch,
 	GitReviewScope,
 	GitReviewSummary,
+	GitStackAction,
+	GitStackResult,
 	GitStalePreviewError,
 	GitStatusSummary,
 	WorktreeId,
@@ -57,6 +59,12 @@ export interface GitServiceShape {
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<ReadonlyArray<GitBranchInfo>, GitFailure>;
+	readonly stack: (
+		folderId: FolderId,
+		action: GitStackAction,
+		name?: string,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<GitStackResult, GitFailure>;
 	readonly switchBranch: (
 		folderId: FolderId,
 		branch: string,

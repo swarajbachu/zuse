@@ -24,6 +24,14 @@ const Branches = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const Stack = MemoizeRpcs.toLayerHandler(
+	"git.stack",
+	({ folderId, worktreeId, action, name }) =>
+		Effect.flatMap(GitService, (svc) =>
+			svc.stack(folderId, action, name, worktreeId ?? null),
+		),
+);
+
 const SwitchBranch = MemoizeRpcs.toLayerHandler(
 	"git.switchBranch",
 	({ folderId, worktreeId, branch, remote, createFrom }) =>
@@ -420,6 +428,7 @@ export const GitHandlersLayer = Layer.mergeAll(
 	Status,
 	Branches,
 	SwitchBranch,
+	Stack,
 	UserName,
 	WorkspaceChanges,
 	WorkspaceSnapshot,

@@ -907,3 +907,35 @@ export const GitRevertAllRpc = Rpc.make("git.revertAll", {
 	success: Schema.Struct({ reverted: Schema.Boolean }),
 	error: GitErrors,
 });
+
+export const GitStackAction = Schema.Literals([
+	"view",
+	"init",
+	"add",
+	"submit",
+]);
+export type GitStackAction = typeof GitStackAction.Type;
+export class GitStackResult extends Schema.Class<GitStackResult>(
+	"GitStackResult",
+)({
+	output: Schema.String,
+	trunk: Schema.NullOr(Schema.String),
+	branches: Schema.Array(
+		Schema.Struct({
+			name: Schema.String,
+			isCurrent: Schema.Boolean,
+			isMerged: Schema.Boolean,
+			needsRebase: Schema.Boolean,
+		}),
+	),
+}) {}
+export const GitStackRpc = Rpc.make("git.stack", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+		action: GitStackAction,
+		name: Schema.optional(Schema.String),
+	}),
+	success: GitStackResult,
+	error: GitErrors,
+});

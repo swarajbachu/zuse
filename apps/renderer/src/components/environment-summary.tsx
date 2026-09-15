@@ -1,5 +1,6 @@
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import { openExternal } from "../lib/platform-capabilities.ts";
+import { GitStackMenu } from "./git-stack-menu.tsx";
 import { PrActionsMenu } from "./pr-actions-menu.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -415,6 +416,13 @@ export function EnvironmentSummary() {
 				onRename={() => {}}
 				onSwitch={(branch) => void switchToBranch(branch)}
 			/>
+			{executionRef ? (
+				<GitStackMenu
+					key={`${executionRef.environmentId}:${executionRef.folderId}:${executionRef.worktreeId}`}
+					executionRef={executionRef}
+					className={`${rowClass} hover:bg-muted/60`}
+				/>
+			) : null}
 			{pr && pr.state !== "none" && executionRef ? (
 				<PrActionsMenu
 					executionRef={executionRef}

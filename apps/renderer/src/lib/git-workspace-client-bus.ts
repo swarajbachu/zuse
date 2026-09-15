@@ -687,6 +687,7 @@ export const dispatchGitWorkspaceCommand = <Payload, Result>(input: {
 		| "git.resolveConflict"
 		| "git.branches"
 		| "git.switchBranch"
+		| "git.stack"
 		| "worktree.renameBranch"
 		| "git.markReady"
 		| "git.mergePr"
@@ -708,6 +709,11 @@ export const dispatchGitWorkspaceCommand = <Payload, Result>(input: {
 		retry: input.retry ?? "never",
 		createdAt: Date.now(),
 	});
+	if (
+		input.kind === "git.stack" &&
+		(input.payload as { action?: string }).action === "view"
+	)
+		return dispatched;
 	if (
 		[
 			"git.branches",

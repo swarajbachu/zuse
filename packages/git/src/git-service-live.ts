@@ -31,6 +31,7 @@ import {
 	GitReviewPatch,
 	type GitReviewScope,
 	GitReviewSummary,
+	GitStackResult,
 	GitStalePreviewError,
 	GitStatusSummary,
 } from "@zuse/contracts";
@@ -70,6 +71,7 @@ import {
 	buildCreateReviewCommentArgs,
 	parseReviewIdentity,
 } from "./review-comment.ts";
+import { parseStackView } from "./stack.ts";
 
 type GitFailure =
 	| GitNotARepoError
@@ -682,6 +684,53 @@ export const GitServiceLive = Layer.effect(
 						format,
 					]).pipe(Effect.catchTag("GitCommandError", () => Effect.succeed("")));
 					return parseBranchRows(localOut, remoteOut);
+				}),
+			);
+
+		const stack: GitService["Service"]["stack"] = (
+			folderId,
+			action,
+			name,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const args = ["stack", action];
+					if (action === "view") args.push("--json");
+					if (action === "submit") args.push("--auto");
+					if (action === "init") {
+						const branch = (yield* run(folderId, cwd, [
+							"symbolic-ref",
+							"--short",
+							"HEAD",
+						])).trim();
+						args.push(branch);
+					}
+					if (action === "add") {
+						const branch = name?.trim() ?? "";
+						if (!branch || branch.startsWith("-") || branch.startsWith("@"))
+							return yield* Effect.fail(
+								new GitCommandError({
+									folderId,
+									reason: "Enter a valid branch name for the next stack layer.",
+								}),
+							);
+						yield* run(folderId, cwd, ["check-ref-format", "--branch", branch]);
+						args.push(branch);
+					}
+					const output = yield* ghRun(folderId, cwd, args);
+					if (action !== "view")
+						return GitStackResult.make({ output, trunk: null, branches: [] });
+					const parsed = parseStackView(output);
+					if (parsed === null)
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason:
+									"GitHub CLI returned an unreadable stack. Update gh-stack and try again.",
+							}),
+						);
+					return parsed;
 				}),
 			);
 
@@ -2803,6 +2852,7 @@ export const GitServiceLive = Layer.effect(
 			status,
 			branches,
 			switchBranch,
+			stack,
 			renameBranch,
 			getUserName,
 			workspaceChanges,
