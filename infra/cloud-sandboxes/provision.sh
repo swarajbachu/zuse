@@ -43,7 +43,7 @@ stage_packages() {
 }
 
 stage_globals() {
-	npm install --global \
+	npm install --global --prefix /usr/local \
 		@anthropic-ai/claude-code@2.1.224 \
 		@openai/codex@0.144.5 \
 		bun@1.3.10 \
@@ -60,7 +60,7 @@ stage_globals() {
 }
 
 stage_runtime() {
-	npm install --global "$provision_dir/artifacts/zusehq-server.tgz"
+	npm install --global --prefix /usr/local "$provision_dir/artifacts/zusehq-server.tgz"
 	mkdir -p /usr/local/lib/zuse-serve
 	tar -xzf "$provision_dir/artifacts/zusehq-serve.tgz" --strip-components=2 -C /usr/local/lib/zuse-serve package/dist
 	# The serve bundle resolves runtime dependencies from the server package.

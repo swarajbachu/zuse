@@ -116,8 +116,10 @@ Dockerfile runs — so the two templates cannot drift. The Box-specific layer
   during endpoint resolution, after the listener exists, because restored
   units do not exist during initial systemd boot and Box's tunnel binding is
   listener-sensitive.
-- `install.sh` — root-side installer that pins Node 22, installs nftables,
-  runs the shared provision stages, and strips sudo from the zuse user.
+- `install.sh` — root-side installer that pins system Node 22, excludes the
+  stock user's NVM from provisioning, installs nftables, runs the shared stages,
+  and strips sudo from the zuse user. Global packages use `/usr/local` explicitly;
+  a CLI startup check rejects templates with missing native dependencies.
 
 Publish with:
 

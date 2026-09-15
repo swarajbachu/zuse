@@ -7,6 +7,9 @@ set -euo pipefail
 
 provision_dir="${ZUSE_PROVISION_DIR:-/tmp/zuse-provision}"
 
+# Ignore the stock command user's NVM Node/npm when installing native modules.
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
 # Node 22 is the supported runtime floor and keeps the native tree-sitter
 # dependency on prebuilt binaries; replace whatever the stock image ships.
 if ! command -v node >/dev/null 2>&1 || [ "$(node --version | cut -c2-3)" != "22" ]; then
@@ -21,7 +24,15 @@ fi
 apt-get update
 apt-get install -y --no-install-recommends nftables
 
+# Replace stock launchers with the versions installed by the shared stages.
+for launcher in pnpm pnpx yarn yarnpkg corepack bun bunx claude codex; do
+	rm -f "/usr/local/bin/$launcher"
+done
+
 "$provision_dir/provision.sh" packages globals runtime layout
+
+# Fail publication if native dependencies or the installed CLI cannot load.
+runuser -u zuse -- /usr/local/bin/zuse --help >/dev/null
 
 # Quarantine firewall: root-only script + boot unit (ADR 0035).
 install -m 0755 "$provision_dir/box/zuse-firewall" /usr/local/sbin/zuse-firewall

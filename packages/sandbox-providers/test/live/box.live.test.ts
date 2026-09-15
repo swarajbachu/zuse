@@ -93,6 +93,29 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 				expect(inspected?.state).toBe("running");
 				expect(inspected?.providerLabel).toBe(label);
 
+				// Validate the published runtime as its actual unprivileged user.
+				await Effect.runPromise(
+					adapter.startProcess(created.providerSandboxId, {
+						command: "/bin/bash",
+						args: [
+							"-c",
+							"/usr/local/bin/zuse --help >/tmp/zuse-runtime-smoke.log 2>&1 && touch /tmp/zuse-runtime-smoke-ok",
+						],
+						user: "zuse",
+					}),
+				);
+				const runtimeLoads = await pollUntil(
+					() =>
+						Effect.runPromise(
+							adapter.pathExists(
+								created.providerSandboxId,
+								"/tmp/zuse-runtime-smoke-ok",
+							),
+						),
+					(value) => value,
+				);
+				expect(runtimeLoads).toBe(true);
+
 				// open the network in one call, then the canary must go green
 				await Effect.runPromise(
 					adapter.setNetwork(created.providerSandboxId, { kind: "open" }),
