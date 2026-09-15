@@ -17,7 +17,6 @@ import type {
 	WorktreeId,
 } from "@zuse/contracts";
 import { CommandId } from "@zuse/contracts";
-import { message as uiMessage } from "@zuse/i18n";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ArrowTurnDownIcon,
@@ -26,13 +25,7 @@ import {
 	Tick02Icon,
 	Upload01Icon,
 } from "@zuse/icons/solid-rounded";
-import {
-	FileWarning,
-	MessageSquareText,
-	Pencil,
-	Sparkles,
-	Trash2,
-} from "lucide-react";
+import { FileWarning, MessageSquareText, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
 	dispatchGitWorkspaceCommand,
@@ -405,7 +398,10 @@ export function DiffPane({
 							<div className="space-y-4">
 								{comments.length > 0 ? (
 									<section>
-										<NavigatorLabel icon={Sparkles} count={comments.length}>
+										<NavigatorLabel
+											icon={MessageSquareText}
+											count={comments.length}
+										>
 											{uiMessage("projects:diff_pane_annotations_for_ai")}
 										</NavigatorLabel>
 										<ul className="mt-1.5 space-y-1">
@@ -712,7 +708,7 @@ function ExternalFeedbackCard({
 							if (feedback.url) void openExternal(feedback.url);
 						}}
 					>
-						{uiMessage("projects:github_open_github") + " ↗"}
+						{`${uiMessage("projects:github_open_github")} ↗`}
 					</button>
 				) : null}
 			</div>

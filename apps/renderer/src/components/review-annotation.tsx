@@ -8,7 +8,6 @@ import {
 	GitPullRequest,
 	type LucideIcon,
 	Pencil,
-	Sparkles,
 	Trash2,
 	X,
 } from "lucide-react";
@@ -251,7 +250,7 @@ export function SavedReviewAnnotation({
 						{author.name}
 					</strong>
 					<span className="inline-flex items-center gap-1 rounded-full bg-foreground/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-						<Sparkles className="size-2.5" aria-hidden="true" />
+						<Bot className="size-2.5" aria-hidden="true" />
 						{uiMessage("chat:review_annotation_for_ai")}
 					</span>
 					<span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">

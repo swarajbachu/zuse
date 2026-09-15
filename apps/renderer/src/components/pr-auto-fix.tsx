@@ -4,7 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type { GitPrInfo, SessionId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import { AiMagicIcon, Tick02Icon } from "@zuse/icons/stroke-rounded";
+import { Tick02Icon, ToolsIcon } from "@zuse/icons/stroke-rounded";
 import { formatError } from "../lib/format-error.ts";
 import { usePrWatchStore } from "../store/pr-watch.ts";
 import { compactMenuItemClass, MenuItem } from "./ui/menu.tsx";
@@ -75,7 +75,7 @@ export function PrAutoFix({
 				title={help}
 			>
 				<HugeiconsIcon
-					icon={AiMagicIcon}
+					icon={ToolsIcon}
 					className={watch?.enabled ? "text-primary" : "text-muted-foreground"}
 				/>
 				{label}
@@ -100,7 +100,7 @@ export function PrAutoFix({
 					/>
 				}
 			>
-				<HugeiconsIcon icon={AiMagicIcon} className="size-3.5" />
+				<HugeiconsIcon icon={ToolsIcon} className="size-3.5" />
 				{label}
 			</TooltipTrigger>
 			<TooltipPopup className="max-w-64 text-xs">{help}</TooltipPopup>

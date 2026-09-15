@@ -55,8 +55,8 @@ export function GitStackMenu({
 		[environmentId, folderId, worktreeId, rootPath],
 	);
 	useEffect(() => {
-		if (variant === "summary" && branch) void readGitStack(stableRef, branch);
-	}, [stableRef, branch, variant]);
+		if (branch) void readGitStack(stableRef, branch);
+	}, [stableRef, branch]);
 
 	const command = async (action: GitStackAction) => {
 		if (busy) return;
@@ -92,16 +92,13 @@ export function GitStackMenu({
 			setBusy(false);
 		}
 	};
-	if (
-		variant === "summary" &&
-		!stack?.branches.some((item) => item.isCurrent && item.name === branch)
-	)
+	if (!stack?.branches.some((item) => item.isCurrent && item.name === branch))
 		return null;
 	const label = (
 		<>
 			<HugeiconsIcon
 				icon={Layers01Icon}
-				className="size-4 shrink-0 text-muted-foreground"
+				className="size-[15px] shrink-0 text-muted-foreground"
 			/>
 			<span className="min-w-0 flex-1 truncate text-left">
 				{uiMessage("projects:github_stack")}
@@ -123,92 +120,79 @@ export function GitStackMenu({
 					{error}
 				</div>
 			) : null}
-			{stack ? (
-				<>
-					<div className="px-2 py-1 text-xs text-muted-foreground">
-						{uiMessage("projects:github_base")} {stack.trunk}
-					</div>
-					{stack.branches.map((branch) => (
-						<MenuItem
-							className={compactMenuItemClass}
-							key={branch.name}
-							disabled={busy || branch.isCurrent}
-							onClick={() => {
-								setBusy(true);
-								void dispatchGitWorkspaceCommand({
-									ref: executionRef,
-									kind: "git.switchBranch",
-									commandId: CommandId.make(
-										`stack-checkout:${crypto.randomUUID()}`,
-									),
-									payload: {
-										folderId: executionRef.folderId,
-										worktreeId: executionRef.worktreeId,
-										branch: branch.name,
-									},
-								})
-									.catch((cause) => setError(formatError(cause)))
-									.finally(() => setBusy(false));
-							}}
-						>
-							<span className="min-w-0 flex-1 truncate">{branch.name}</span>
-							<span className="text-xs text-muted-foreground">
-								{branch.isCurrent
-									? uiMessage("chat:computer_switcher_current")
-									: branch.isMerged
-										? uiMessage("projects:pr_pane_merged")
-										: branch.needsRebase
-											? uiMessage("projects:github_needs_rebase")
-											: ""}
-							</span>
-						</MenuItem>
-					))}
-					<MenuSeparator />
-					<form
-						className="flex gap-1 p-1"
-						onSubmit={(event) => {
-							event.preventDefault();
-							void command("add");
-						}}
-					>
-						<input
-							aria-label={uiMessage("projects:github_new_stack_branch")}
-							placeholder={uiMessage("projects:github_new_stack_branch")}
-							className="h-7 min-w-0 flex-1 rounded bg-muted px-2 text-xs outline-none"
-							value={name}
-							disabled={busy}
-							onChange={(event) => setName(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key !== "Escape") event.stopPropagation();
-							}}
-						/>
-						<button
-							type="submit"
-							disabled={busy || !name.trim()}
-							className="h-7 rounded bg-muted px-2 text-xs disabled:opacity-50"
-						>
-							{uiMessage("common:add")}
-						</button>
-					</form>
-					<MenuItem
-						className={compactMenuItemClass}
-						disabled={busy}
-						closeOnClick={false}
-						onClick={() => void command("submit")}
-					>
-						{uiMessage("projects:github_submit_stack")}
-					</MenuItem>
-				</>
-			) : (
+			<div className="px-2 py-1 text-xs text-muted-foreground">
+				{uiMessage("projects:github_base")} {stack.trunk}
+			</div>
+			{stack.branches.map((branch) => (
 				<MenuItem
 					className={compactMenuItemClass}
-					disabled={busy}
-					closeOnClick={false}
-					onClick={() => void command("init")}
+					key={branch.name}
+					disabled={busy || branch.isCurrent}
+					onClick={() => {
+						setBusy(true);
+						void dispatchGitWorkspaceCommand({
+							ref: executionRef,
+							kind: "git.switchBranch",
+							commandId: CommandId.make(
+								`stack-checkout:${crypto.randomUUID()}`,
+							),
+							payload: {
+								folderId: executionRef.folderId,
+								worktreeId: executionRef.worktreeId,
+								branch: branch.name,
+							},
+						})
+							.catch((cause) => setError(formatError(cause)))
+							.finally(() => setBusy(false));
+					}}
 				>
-					{uiMessage("projects:github_start_stack")}
+					<span className="min-w-0 flex-1 truncate">{branch.name}</span>
+					<span className="text-xs text-muted-foreground">
+						{branch.isCurrent
+							? uiMessage("chat:computer_switcher_current")
+							: branch.isMerged
+								? uiMessage("projects:pr_pane_merged")
+								: branch.needsRebase
+									? uiMessage("projects:github_needs_rebase")
+									: ""}
+					</span>
 				</MenuItem>
-			)}
+			))}
+			<MenuSeparator />
+			<form
+				className="flex gap-1 p-1"
+				onSubmit={(event) => {
+					event.preventDefault();
+					void command("add");
+				}}
+			>
+				<input
+					aria-label={uiMessage("projects:github_new_stack_branch")}
+					placeholder={uiMessage("projects:github_new_stack_branch")}
+					className="h-7 min-w-0 flex-1 rounded bg-muted px-2 text-xs outline-none"
+					value={name}
+					disabled={busy}
+					onChange={(event) => setName(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key !== "Escape") event.stopPropagation();
+					}}
+				/>
+				<button
+					type="submit"
+					disabled={busy || !name.trim()}
+					className="h-7 rounded bg-muted px-2 text-xs disabled:opacity-50"
+				>
+					{uiMessage("common:add")}
+				</button>
+			</form>
+			<MenuItem
+				className={compactMenuItemClass}
+				disabled={busy}
+				closeOnClick={false}
+				onClick={() => void command("submit")}
+			>
+				{uiMessage("projects:github_submit_stack")}
+			</MenuItem>
 			<MenuSeparator />
 			<MenuItem
 				className={compactMenuItemClass}
@@ -220,16 +204,19 @@ export function GitStackMenu({
 	);
 	if (variant === "submenu")
 		return (
-			<MenuSub
-				onOpenChange={(open) => {
-					if (open) void command("view");
-				}}
-			>
-				<MenuSubTrigger compact>{label}</MenuSubTrigger>
-				<MenuSubPopup className="w-60 !bg-popover" sideOffset={4}>
-					{content}
-				</MenuSubPopup>
-			</MenuSub>
+			<>
+				<MenuSeparator />
+				<MenuSub
+					onOpenChange={(open) => {
+						if (open) void command("view");
+					}}
+				>
+					<MenuSubTrigger compact>{label}</MenuSubTrigger>
+					<MenuSubPopup className="w-60 !bg-popover" sideOffset={4}>
+						{content}
+					</MenuSubPopup>
+				</MenuSub>
+			</>
 		);
 	return (
 		<Menu

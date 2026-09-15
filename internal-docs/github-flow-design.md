@@ -1,6 +1,6 @@
 # GitHub summary design
 
-The PR menu follows the compact action hierarchy in the Synara references: View PR, Repair, Merge, Add to chat, Status, and Open in GitHub. Changes stay in the summary's top-level row. Auto Fix belongs inside Repair and in the checks header.
+The PR menu uses a compact action hierarchy: View PR, Repair, Merge, Add to chat, Status, and Open in GitHub. Changes stay in the summary's top-level row. Auto Fix belongs inside Repair and in the checks header.
 
 ## Density and alignment
 
@@ -8,7 +8,7 @@ The PR menu follows the compact action hierarchy in the Synara references: View 
 - Secondary status text: 11px; menu dividers: 1px with equal horizontal insets.
 - Checks: 24px rows, a 240px scrolling list, and a 280px maximum popup height for a long list.
 - Check status is conveyed by its icon and accessible label. The whole row opens the check URL.
-- A stack summary row appears only after discovering that the current branch belongs to a stack. Stack setup remains in the branch menu. Discovery is shared and cached between both surfaces.
+- A stack summary row appears only after discovering that the current branch belongs to a stack. Stack actions in the branch menu are also hidden unless the current branch belongs to a stack. Discovery is shared and cached between both surfaces.
 
 ## Loading
 

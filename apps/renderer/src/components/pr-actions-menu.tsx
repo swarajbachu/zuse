@@ -10,7 +10,6 @@ import {
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
-	AiMagicIcon,
 	ArrowDown01Icon,
 	Cancel01Icon,
 	CheckmarkCircle02Icon,
@@ -22,6 +21,7 @@ import {
 	GitMergeIcon,
 	GitPullRequestDraftIcon,
 	GitPullRequestIcon,
+	Robot01Icon,
 	Wrench01Icon,
 } from "@zuse/icons/stroke-rounded";
 import { useState } from "react";
@@ -266,7 +266,7 @@ export function PrActionsMenu({
 							}
 							onClick={() => void repair("everything")}
 						>
-							<HugeiconsIcon icon={AiMagicIcon} />
+							<HugeiconsIcon icon={Robot01Icon} />
 							{uiMessage("projects:github_everything")}
 						</MenuItem>
 						<MenuSeparator className="mx-2 my-1 bg-foreground/10" />
@@ -305,7 +305,7 @@ export function PrActionsMenu({
 									)
 								}
 							>
-								<HugeiconsIcon icon={AiMagicIcon} />
+								<HugeiconsIcon icon={GitMergeIcon} />
 								{pr.autoMergeEnabled
 									? uiMessage("projects:github_disable_auto_merge")
 									: uiMessage("projects:github_enable_auto_merge")}

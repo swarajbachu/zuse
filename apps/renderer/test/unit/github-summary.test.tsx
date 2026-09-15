@@ -4,9 +4,13 @@ import { expect, test } from "vitest";
 import { GitStackMenu } from "../../src/components/git-stack-menu.tsx";
 import { PrChecksPreview } from "../../src/components/pr-checks-preview.tsx";
 
-test("does not advertise an unknown stack or show a setup/error row in the summary", () => {
+test.each([
+	"summary",
+	"submenu",
+] as const)("hides unknown stacks in the %s surface", (variant) => {
 	const html = renderToStaticMarkup(
 		<GitStackMenu
+			variant={variant}
 			executionRef={{
 				environmentId: EnvironmentId.make("local"),
 				folderId: FolderId.make("repo"),

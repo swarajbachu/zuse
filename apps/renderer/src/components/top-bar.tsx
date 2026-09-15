@@ -650,7 +650,7 @@ export function BranchMenuButton({
 				<MenuPopup
 					side={popupSide}
 					sideOffset={popupSide === "left" ? 8 : 4}
-					align="center"
+					align="start"
 					className="w-72 !bg-popover"
 				>
 					{error !== null ? (
@@ -768,14 +768,11 @@ export function BranchMenuButton({
 						{uiMessage("projects:github_new_origin_branch")}
 					</MenuItem>
 					{executionRef && (
-						<>
-							<MenuSeparator />
-							<GitStackMenu
-								executionRef={executionRef}
-								branch={branchLabel}
-								variant="submenu"
-							/>
-						</>
+						<GitStackMenu
+							executionRef={executionRef}
+							branch={branchLabel}
+							variant="submenu"
+						/>
 					)}
 				</MenuPopup>
 			</Menu>
