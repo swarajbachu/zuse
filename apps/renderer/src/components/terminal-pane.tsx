@@ -115,13 +115,24 @@ function PlainTerminalSlot({
 			? rootPath
 			: (cloudShell.data?.folders[0]?.path ?? rootPath);
 
+	const waitingForCloud =
+		cloudSummary !== null &&
+		!localTerminal &&
+		cloudAttachment !== "failed" &&
+		(cloudSummary.state === "paused" ||
+			cloudSummary.state === "resuming" ||
+			cloudSummary.state === "provisioning" ||
+			cloudSummary.state === "setup" ||
+			cloudSummary.state === "queued");
+
 	useEffect(() => {
-		if (cloudAttachment !== "ready") return;
+		if (cloudAttachment !== "ready" || waitingForCloud) return;
 		const instance = list[slot];
 		if (instance === undefined) ensureSlot(chatRef, slot, resolvedRootPath);
 	}, [
 		chatRef,
 		cloudAttachment,
+		waitingForCloud,
 		cloudSummary,
 		ensureSlot,
 		list,
@@ -129,6 +140,16 @@ function PlainTerminalSlot({
 		slot,
 	]);
 
+	if (waitingForCloud)
+		return (
+			<TerminalPlaceholder>
+				<span role="status" aria-live="polite">
+					<ShimmerText>
+						{uiMessage("chat:cloud_queue_waiting_for_cloud")}
+					</ShimmerText>
+				</span>
+			</TerminalPlaceholder>
+		);
 	if (cloudAttachment === "attaching")
 		return (
 			<TerminalPlaceholder>
@@ -137,19 +158,6 @@ function PlainTerminalSlot({
 				</ShimmerText>
 			</TerminalPlaceholder>
 		);
-	if (cloudSummary !== null && cloudAttachment !== "ready")
-		if (
-			cloudSummary.state === "resuming" ||
-			cloudSummary.state === "provisioning" ||
-			cloudSummary.state === "setup"
-		)
-			return (
-				<TerminalPlaceholder>
-					<ShimmerText>
-						{uiMessage("chat:terminal_pane_resuming_cloud_workspace")}
-					</ShimmerText>
-				</TerminalPlaceholder>
-			);
 	if (cloudSummary !== null && cloudAttachment !== "ready")
 		return (
 			<TerminalPlaceholder>

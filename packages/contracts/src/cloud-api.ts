@@ -85,6 +85,7 @@ export class ApiWorkspaceStatus extends Schema.Class<ApiWorkspaceStatus>(
 	"ApiWorkspaceStatus",
 )({
 	workspaceId: Schema.String,
+	providerId: Schema.optional(Schema.String),
 	projectId: Schema.String,
 	branch: Schema.String,
 	baseRef: Schema.String,

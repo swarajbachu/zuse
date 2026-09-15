@@ -6,6 +6,7 @@ import { Effect, Schema } from "effect";
 import { meterProviderExecution } from "./cloud-billing-provider.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
+import { serviceUnavailable } from "./errors.ts";
 
 // Box webhooks carry lifecycle transitions, not execution evidence: a
 // box.ready opens an execution window and box.archived/box.error closes it.
@@ -167,8 +168,18 @@ export const ingestBoxLifecycleEvent = Effect.fn("ingestBoxLifecycleEvent")(
 				: undefined,
 		);
 		const startedAtMs = opening.startedAtMs;
-		const endedAtMs = Math.max(startedAtMs + 1_000, occurredAtMs);
+		const endedAtMs = occurredAtMs;
+		if (endedAtMs <= startedAtMs)
+			return { eventInserted, metered: false, reason: "unmatched" as const };
+		const getUsage = adapter.getUsage;
+		if (getUsage === undefined)
+			return yield* Effect.fail(serviceUnavailable("box_usage_unavailable"));
 		const result = yield* meterProviderExecution({
+			reportedCost: (window) =>
+				getUsage(boxId, window).pipe(
+					Effect.map((usage) => usage.providerCostMicros),
+					Effect.mapError(() => serviceUnavailable("box_usage_unavailable")),
+				),
 			evidence: {
 				provider: "box",
 				eventId: event.id,
