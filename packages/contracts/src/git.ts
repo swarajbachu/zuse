@@ -358,6 +358,8 @@ export type GitPrCheckRunConclusion = typeof GitPrCheckRunConclusion.Type;
 export class GitPrCheckRun extends Schema.Class<GitPrCheckRun>("GitPrCheckRun")(
 	{
 		name: Schema.String,
+		appName: Schema.optional(Schema.NullOr(Schema.String)),
+		appAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
 		status: GitPrCheckRunStatus,
 		conclusion: Schema.NullOr(GitPrCheckRunConclusion),
 		url: Schema.NullOr(Schema.String),
@@ -389,6 +391,7 @@ export class GitPrDetails extends Schema.Class<GitPrDetails>("GitPrDetails")({
 	title: Schema.String,
 	body: Schema.String,
 	author: Schema.String,
+	authorAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
 	baseBranch: Schema.NullOr(Schema.String),
 	headBranch: Schema.NullOr(Schema.String),
 	headSha: Schema.optional(Schema.NullOr(Schema.String)),

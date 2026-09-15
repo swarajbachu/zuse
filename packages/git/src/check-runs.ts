@@ -1,5 +1,6 @@
 export type PrCheckRollupEntry = {
 	readonly name?: string;
+	readonly context?: string;
 	readonly status?: string;
 	readonly state?: string;
 	readonly conclusion?: string;

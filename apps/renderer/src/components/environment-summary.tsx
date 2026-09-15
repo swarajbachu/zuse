@@ -1,5 +1,6 @@
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import { openExternal } from "../lib/platform-capabilities.ts";
+import { type CheckKind, checkKind } from "../lib/pr-checks.ts";
 import { GitStackMenu } from "./git-stack-menu.tsx";
 import { PrActionsMenu } from "./pr-actions-menu.tsx";
 import "@zuse/i18n/english/chat";
@@ -577,23 +578,6 @@ export function EnvironmentSummary() {
 		</aside>
 	);
 }
-
-type CheckKind = "failure" | "pending" | "success" | "neutral";
-
-const checkKind = (check: GitPrCheckRun): CheckKind => {
-	if (check.status !== "completed") return "pending";
-	switch (check.conclusion) {
-		case "success":
-			return "success";
-		case "failure":
-		case "cancelled":
-		case "timed_out":
-		case "action_required":
-			return "failure";
-		default:
-			return "neutral";
-	}
-};
 
 const checkStatusLabel = (check: GitPrCheckRun): string => {
 	const kind = checkKind(check);

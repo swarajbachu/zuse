@@ -62,6 +62,11 @@ import {
 	ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
 import {
+	checkAvatarKey,
+	PR_AVATARS_QUERY,
+	parsePrAvatars,
+} from "./pr-avatars.ts";
+import {
 	feedbackComments,
 	feedbackReviews,
 	parseFeedbackPages,
@@ -1309,11 +1314,7 @@ export const GitServiceLive = Layer.effect(
 						folderId,
 						cwd,
 						"state,additions,deletions,number,url,headRefName,headRefOid,baseRefName,isDraft,statusCheckRollup,title,body,author,comments,reviews,files,mergeable",
-					).pipe(
-						Effect.catchTags({
-							GitNotInstalledError: () => Effect.succeed(""),
-							GitCommandError: () => Effect.succeed(""),
-						}),
+						true,
 					);
 
 					if (stdout.trim().length === 0) return emptyDetails;
@@ -1368,42 +1369,104 @@ export const GitServiceLive = Layer.effect(
 
 					const rollup = parsed.statusCheckRollup ?? [];
 					const checks = aggregateChecks(rollup);
-					const originInfo = yield* run(folderId, cwd, [
-						"remote",
-						"get-url",
-						"origin",
-					]).pipe(
-						Effect.map((s) => parseRemoteUrl(s.trim())),
-						Effect.catchTag("GitCommandError", () => Effect.succeed(null)),
-					);
+					const prRepository = parsed.url
+						? parseRemoteUrl(parsed.url.replace(/\/pull\/\d+.*$/, ""))
+						: null;
 					const jobsByRunId = new Map<string, ReadonlyArray<ActionsJob>>();
-					if (originInfo?.host.toLowerCase() === "github.com") {
-						yield* Effect.forEach(
-							collectActionsRunIds(rollup),
-							(runId) =>
-								ghRun(folderId, cwd, [
-									"api",
-									actionsJobsApiPath(originInfo.owner, originInfo.repo, runId),
-								]).pipe(
-									Effect.catchTags({
-										GitNotInstalledError: () => Effect.succeed(""),
-										GitCommandError: () => Effect.succeed(""),
-									}),
-									Effect.map((output) => {
-										return jobsByRunId.set(
+					const feedbackPages: Array<ReturnType<typeof parseFeedbackPages>> = [
+						null,
+						null,
+						null,
+					];
+					let avatars = parsePrAvatars("");
+					if (prRepository !== null && parsed.number !== undefined) {
+						const prefix = `repos/${prRepository.owner}/${prRepository.repo}`;
+						const optionalRead = (args: ReadonlyArray<string>) =>
+							ghRun(folderId, cwd, [
+								"api",
+								"--hostname",
+								prRepository.host,
+								...args,
+							]).pipe(
+								Effect.catchTags({
+									GitCommandError: () => Effect.succeed(""),
+									GitNotInstalledError: () => Effect.succeed(""),
+								}),
+							);
+						yield* Effect.all(
+							[
+								...collectActionsRunIds(rollup).map((runId) =>
+									optionalRead([
+										actionsJobsApiPath(
+											prRepository.owner,
+											prRepository.repo,
 											runId,
-											parseActionsJobsResponse(output),
-										);
-									}),
+										),
+									]).pipe(
+										Effect.map((output) =>
+											jobsByRunId.set(runId, parseActionsJobsResponse(output)),
+										),
+									),
 								),
-							{ concurrency: 4 },
+								...[
+									`${prefix}/issues/${parsed.number}/comments?per_page=100`,
+									`${prefix}/pulls/${parsed.number}/comments?per_page=100`,
+									`${prefix}/pulls/${parsed.number}/reviews?per_page=100`,
+								].map((path, index) =>
+									optionalRead(["--paginate", "--slurp", path]).pipe(
+										Effect.map((output) => {
+											feedbackPages[index] = parseFeedbackPages(output);
+											return undefined;
+										}),
+									),
+								),
+								...(parsed.headRefOid
+									? [
+											optionalRead([
+												"graphql",
+												"--paginate",
+												"--slurp",
+												"-f",
+												`query=${PR_AVATARS_QUERY}`,
+												"-f",
+												`owner=${prRepository.owner}`,
+												"-f",
+												`repo=${prRepository.repo}`,
+												"-F",
+												`number=${parsed.number}`,
+												"-f",
+												`oid=${parsed.headRefOid}`,
+											]).pipe(
+												Effect.map((output) => {
+													avatars = parsePrAvatars(output);
+													return undefined;
+												}),
+											),
+										]
+									: []),
+							],
+							{ concurrency: 4, discard: true },
 						);
 					}
 
 					const checkRuns = rollup.map((c) => {
 						const metadata = metadataForRollupEntry(c, jobsByRunId);
 						return GitPrCheckRun.make({
-							name: c.name ?? "(unnamed check)",
+							name: c.name ?? c.context ?? "(unnamed check)",
+							appName:
+								avatars.checks.get(
+									checkAvatarKey(
+										c.name ?? "",
+										c.detailsUrl ?? c.targetUrl ?? null,
+									),
+								)?.name ?? null,
+							appAvatarUrl:
+								avatars.checks.get(
+									checkAvatarKey(
+										c.name ?? "",
+										c.detailsUrl ?? c.targetUrl ?? null,
+									),
+								)?.avatarUrl ?? null,
 							// External "state" checks don't have a separate `status` field;
 							// treat them as completed with the state mapped via conclusion.
 							status: mapCheckStatus(
@@ -1457,42 +1520,11 @@ export const GitServiceLive = Layer.effect(
 						});
 					});
 
-					// REST returns the actual bot actor avatar and inline diff context.
-					// Use the PR URL's repository: a fork's origin can differ from its PR.
-					const prRepository = parsed.url
-						? parseRemoteUrl(parsed.url.replace(/\/pull\/\d+.*$/, ""))
-						: null;
-					if (prRepository !== null && parsed.number !== undefined) {
-						const prefix = `repos/${prRepository.owner}/${prRepository.repo}`;
-						const pages = yield* Effect.forEach(
-							[
-								`${prefix}/issues/${parsed.number}/comments?per_page=100`,
-								`${prefix}/pulls/${parsed.number}/comments?per_page=100`,
-								`${prefix}/pulls/${parsed.number}/reviews?per_page=100`,
-							],
-							(path) =>
-								ghRun(folderId, cwd, [
-									"api",
-									"--hostname",
-									prRepository.host,
-									"--paginate",
-									"--slurp",
-									path,
-								]).pipe(
-									Effect.map(parseFeedbackPages),
-									Effect.catchTags({
-										GitCommandError: () => Effect.succeed(null),
-										GitNotInstalledError: () => Effect.succeed(null),
-									}),
-								),
-							{ concurrency: 3 },
-						);
-						const [discussion, inline, reviewPages] = pages;
-						if (discussion != null) comments = feedbackComments(discussion);
-						if (inline != null)
-							comments = [...comments, ...feedbackComments(inline)];
-						if (reviewPages != null) reviews = feedbackReviews(reviewPages);
-					}
+					const [discussion, inline, reviewPages] = feedbackPages;
+					if (discussion != null) comments = feedbackComments(discussion);
+					if (inline != null)
+						comments = [...comments, ...feedbackComments(inline)];
+					if (reviewPages != null) reviews = feedbackReviews(reviewPages);
 
 					const files = (parsed.files ?? [])
 						.filter((f) => typeof f.path === "string" && f.path.length > 0)
@@ -1518,6 +1550,7 @@ export const GitServiceLive = Layer.effect(
 						title: parsed.title ?? "",
 						body: parsed.body ?? "",
 						author: parsed.author?.login ?? "",
+						authorAvatarUrl: avatars.authorAvatarUrl,
 						baseBranch: parsed.baseRefName ?? null,
 						headBranch: parsed.headRefName ?? null,
 						headSha: parsed.headRefOid ?? null,

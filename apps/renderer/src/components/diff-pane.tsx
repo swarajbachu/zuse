@@ -1,6 +1,7 @@
 import { formatDate as formatUiDate } from "@zuse/i18n";
 import { isInputComposing } from "../lib/input-composition.ts";
 import { openExternal } from "../lib/platform-capabilities.ts";
+import { GitHubAvatar } from "./github-avatar.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -679,17 +680,7 @@ function ExternalFeedbackCard({
 	return (
 		<li className="rounded-lg border border-border/60 bg-foreground/[0.02] p-2.5">
 			<div className="flex items-center gap-2">
-				{feedback.authorAvatarUrl !== null ? (
-					<img
-						src={feedback.authorAvatarUrl}
-						alt=""
-						className="size-5 rounded-full bg-foreground/5"
-					/>
-				) : (
-					<div className="grid size-5 place-items-center rounded-full bg-foreground/10 text-[9px] text-muted-foreground">
-						{feedback.author.slice(0, 1).toUpperCase()}
-					</div>
-				)}
+				<GitHubAvatar name={feedback.author} url={feedback.authorAvatarUrl} />
 				<span className="min-w-0 truncate text-[11px] font-medium text-foreground">
 					{feedback.author || uiMessage("projects:diff_pane_unknown_author")}
 				</span>
@@ -716,7 +707,9 @@ function ExternalFeedbackCard({
 					<button
 						type="button"
 						className="mt-2 h-7 text-xs text-muted-foreground hover:text-foreground"
-						onClick={() => void openExternal(feedback.url!)}
+						onClick={() => {
+							if (feedback.url) void openExternal(feedback.url);
+						}}
 					>
 						Open in GitHub ↗
 					</button>
