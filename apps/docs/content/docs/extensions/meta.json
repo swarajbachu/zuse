@@ -1,4 +1,11 @@
 {
 	"title": "Extensions Preview",
-	"pages": ["index", "workflows", "tools", "authoring", "trust-and-recovery"]
+	"pages": [
+		"index",
+		"workflows",
+		"tools",
+		"authoring",
+		"agent-plugins",
+		"trust-and-recovery"
+	]
 }

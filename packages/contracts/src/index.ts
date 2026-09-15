@@ -1,4 +1,5 @@
 export * from "./agent.ts";
+export * from "./agent-plugin.ts";
 export * from "./analytics.ts";
 export * from "./api.ts";
 export * from "./attachment.ts";

@@ -1,0 +1,98 @@
+---
+title: Agent plugins
+description: Install Codex skill, hook, and tool bundles without changing Zuse's interface.
+section: extensions
+order: 114
+platforms: [desktop]
+lastVerified: Agent plugins preview
+---
+
+**Settings → Agent plugins** manages native Codex plugins. A plugin can provide
+skills, hooks, MCP servers, and connected apps. Codex loads and runs these
+capabilities; a Zuse extension adds UI and tools to Zuse itself. A provider adapter
+connects a coding agent to Zuse's existing chats. These are separate mechanisms.
+
+## Install and manage
+
+1. Install a current Codex CLI and sign in normally. Zuse uses the configured
+   Codex binary and its existing home/configuration.
+2. Open **Settings → Agent plugins** in your local desktop environment.
+3. Search the catalog and open **Details** to inspect skills, hooks, tools, and apps.
+4. Choose **Install** and review the trust confirmation. Install only trusted code.
+5. Start a new Codex chat. Existing chats are not restarted or silently reconfigured.
+
+Installed entries show their actual enabled state. Disable a plugin to keep it
+installed but unavailable to new chats, or remove it through Codex. Native CLI
+changes also appear after **Refresh**. Administrator restrictions remain enforced.
+If a plugin requires an app login, the result names the app; complete authentication
+in Codex. Adding a plugin is not the same as connecting a service account.
+
+## Add your team's marketplace
+
+Expand **Manage marketplaces** and enter a local marketplace directory or a Git
+URL accepted by Codex. Codex handles fetching, manifest validation, installation,
+and configuration. Zuse does not rewrite plugin bundles or emulate their hooks.
+You can update or remove registered marketplaces here as well.
+
+For example, a repository can contain:
+
+```text
+team-plugins/
+  .agents/plugins/marketplace.json
+  review/
+    .codex-plugin/plugin.json
+    skills/review/SKILL.md
+```
+
+The marketplace file:
+
+```json
+{
+  "name": "my-team",
+  "plugins": [{
+    "name": "review",
+    "source": { "source": "local", "path": "./review" },
+    "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" }
+  }]
+}
+```
+
+The plugin manifest:
+
+```json
+{
+  "name": "review",
+  "description": "Review changes using our team's checklist",
+  "skills": "./skills"
+}
+```
+
+The skill file:
+
+```md
+---
+name: review
+description: Review a change against our team's checklist
+---
+Inspect the selected diff, identify behavior regressions, and report findings
+with file references. Check cancellation, reconnects, and partial failures.
+```
+
+Add the absolute `team-plugins` directory in Settings, inspect the `review` plugin,
+and install it. Skills remain native Codex skills; the plugin does not need a Zuse
+React component or a Zuse extension manifest. The same mechanism supports an
+incident-response playbook, repository-specific review rules, or a team's MCP tool
+bundle. Refer to [Codex's plugin documentation](https://learn.chatgpt.com/docs/plugins)
+for supported bundle capabilities and publishing options.
+
+## Errors and data handling
+
+Catalog errors are displayed without discarding the last loaded list. Unsupported
+plugin RPCs mean the configured Codex CLI needs updating. Installs and configuration
+writes are explicit actions, serialized by Zuse; they are not replayed automatically
+when the connection drops. Refresh after an interrupted operation to see native state.
+
+Plugin code is trusted code and may run hooks, launch processes, read files, and
+contact external services. Native agent policy and plugin permissions still apply.
+Marketplace browsing does not submit a model prompt. This preview manages Codex
+plugins only; it does not claim that a Codex bundle can run unchanged in other agents.

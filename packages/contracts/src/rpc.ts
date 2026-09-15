@@ -15,6 +15,11 @@ import {
 	ProviderUpdateRpc,
 } from "./agent.ts";
 import {
+	AgentPluginCatalogRpc,
+	AgentPluginExecuteRpc,
+	AgentPluginInspectRpc,
+} from "./agent-plugin.ts";
+import {
 	AnalyticsContextChangesRpc,
 	AnalyticsGetContextRpc,
 } from "./analytics.ts";
@@ -377,6 +382,9 @@ import {
  * Add new RPCs by importing them here and including them in the group.
  */
 export const MemoizeRpcs = RpcGroup.make(
+	AgentPluginCatalogRpc,
+	AgentPluginInspectRpc,
+	AgentPluginExecuteRpc,
 	ExtensionCatalogGetRpc,
 	ExtensionCatalogStreamRpc,
 	ExtensionSetGlobalEnabledRpc,
