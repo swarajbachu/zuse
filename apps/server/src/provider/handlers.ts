@@ -1393,6 +1393,40 @@ const ChatCreationStream = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const ChatCreationStartupRecovery = Layer.effectDiscard(
+	Effect.gen(function* () {
+		const sql = yield* SqlClient.SqlClient;
+		const recoveredAt = new Date().toISOString();
+		// These phases are backed by fibers and child processes owned by one server
+		// runtime. If that runtime disappears, no worker remains to advance them.
+		// Make the interruption explicit so reconnecting renderers offer Retry
+		// instead of displaying an endless "Preparing workspace" state.
+		yield* sql`
+			UPDATE chat_creation_operations
+			SET phase = 'failed', status = 'failed', retryable = 1,
+			    failure_stage = CASE
+			      WHEN phase = 'creating_workspace' THEN 'workspace'
+			      WHEN phase = 'running_setup' THEN 'setup'
+			      ELSE 'provider'
+			    END,
+			    error = CASE
+			      WHEN phase = 'creating_workspace' THEN
+			        'Workspace creation was interrupted when Zuse stopped.'
+			      WHEN phase = 'running_setup' THEN
+			        COALESCE(
+			          (SELECT NULLIF(trim(worktrees.setup_output), '')
+			           FROM worktrees
+			           WHERE worktrees.id = chat_creation_operations.worktree_id),
+			          'Workspace setup was interrupted when Zuse stopped.'
+			        )
+			      ELSE 'Agent startup was interrupted when Zuse stopped.'
+			    END,
+			    phase_started_at = ${recoveredAt}, updated_at = ${recoveredAt}
+			WHERE phase IN ('creating_workspace', 'running_setup', 'starting_agent')
+		`.pipe(Effect.orDie);
+	}),
+);
+
 const ChatCreationRecover = MemoizeRpcs.toLayerHandler(
 	"chat.creation.recover",
 	({
@@ -2168,6 +2202,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	ChatGet,
 	ChatArchivePreview,
 	ChatCreate,
+	ChatCreationStartupRecovery,
 	ChatCreationList,
 	ChatCreationStream,
 	ChatCreationRecover,

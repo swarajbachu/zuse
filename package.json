@@ -46,6 +46,8 @@
 		"dist:mac:unsigned": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:mac:unsigned",
 		"dist:linux": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:linux",
 		"dist:linux:unsigned": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:linux:unsigned",
+		"dist:win": "bun run build:desktop && cd apps/desktop && bun run dist:win",
+		"dist:win:unsigned": "bun run build:desktop && cd apps/desktop && bun run dist:win:unsigned",
 		"i18n:generate": "node scripts/generate-i18n.mjs",
 		"check:i18n": "node scripts/check-i18n.mjs && node scripts/check-website-i18n.mjs",
 		"test:i18n": "node --test scripts/check-i18n.test.mjs && bun run --filter @zuse/i18n test"

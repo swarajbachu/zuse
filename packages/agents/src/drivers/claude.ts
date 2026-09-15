@@ -1837,14 +1837,13 @@ export const startClaudeSession = (
 			//                    stays unset.
 			// Falls back to "high" when omitted.
 			//
-			// We pair it with an explicit `display: "summarized"` because Opus
-			// 4.7 defaults the adaptive-thinking display to "omitted" — without
-			// this override our `thinking_delta` chunks arrive empty (only
-			// signatures), which would break the streaming thinking UI. Other
-			// Claude 4 models default to "summarized" so this is a no-op for
-			// them.
+			// Do not force `display: "summarized"` here. The SDK translates it to
+			// `--thinking-display`, but still-supported Claude Code installations
+			// (including the npm Windows CLI) do not recognize that flag and exit
+			// before the first turn. Adaptive thinking itself is supported and its
+			// provider default remains preferable to making the session unusable.
 			...effortAndSettings(input.modelOptions),
-			thinking: { type: "adaptive", display: "summarized" },
+			thinking: { type: "adaptive" },
 			forwardSubagentText: true,
 			// Surfaces thinking deltas in the partial-message stream so we
 			// can render thinking as it streams in.

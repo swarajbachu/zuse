@@ -67,7 +67,13 @@ if (existsSync(sourceNodeModules) && lockfilesMatch()) {
   }
 
   if (canLink) {
-    symlinkSync(sourceNodeModules, targetNodeModules, "dir");
+    // Directory junctions do not require Windows Developer Mode or elevation.
+    // POSIX keeps a normal directory symlink.
+    symlinkSync(
+      sourceNodeModules,
+      targetNodeModules,
+      process.platform === "win32" ? "junction" : "dir",
+    );
     console.log(`linked node_modules -> ${sourceNodeModules}`);
   }
 } else {

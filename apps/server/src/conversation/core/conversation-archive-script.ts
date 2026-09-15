@@ -5,6 +5,7 @@ import {
 	ChatArchiveTimeoutError,
 	type ChatId,
 } from "@zuse/contracts";
+import { scriptCommandForPlatform } from "@zuse/utils/shell-command";
 import { Effect } from "effect";
 import { signalProcessGroup } from "../../process/process-group.ts";
 
@@ -37,9 +38,14 @@ export const runArchiveScript = (
 		let output = "";
 		let timedOut = false;
 		let settled = false;
-		const child = spawn("/bin/zsh", ["-lc", options.script], {
+		const shell = scriptCommandForPlatform(
+			process.platform,
+			options.script,
+			process.env,
+		);
+		const child = spawn(shell.command, [...shell.args], {
 			cwd: options.cwd,
-			detached: true,
+			detached: process.platform !== "win32",
 			env: {
 				...(process.env as Record<string, string>),
 				...options.env,

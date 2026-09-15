@@ -19,13 +19,13 @@ import {
 } from "@zuse/icons/solid-rounded";
 import { Plus, X } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
-import { currentModelCatalog } from "~/store/model-catalog";
 import {
 	type AgentActivityState,
 	deriveAgentActivityState,
 } from "../lib/agent-activity-state.ts";
 import { resolveChatRuntimeMode } from "../lib/auto-worktree.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
+import { chatCreationIsInProgress } from "../lib/chat-creation-lifecycle.ts";
 import { closeChatTab } from "../lib/close-chat-tab.ts";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
@@ -40,6 +40,7 @@ import {
 	orderedChatTabs,
 } from "../lib/tab-order.ts";
 import { useChatsStore } from "../store/chats.ts";
+import { currentModelCatalog } from "../store/model-catalog.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
@@ -228,8 +229,10 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 						const timeline = timelineBySession.get(session.id);
 						const runtimeState = timeline?.runtime ?? "idle";
 						const messages = timeline?.messages ?? [];
+						const pendingCreation = pendingCreationByChat[session.chatId];
 						const creationPending =
-							pendingCreationByChat[session.chatId] !== undefined;
+							pendingCreation !== undefined &&
+							chatCreationIsInProgress(pendingCreation.phase);
 						const isActive =
 							activeMainTab === "chat" && selectedSessionId === session.id;
 						const modelLabel = lookupModelLabel(

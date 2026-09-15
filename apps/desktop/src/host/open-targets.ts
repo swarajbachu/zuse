@@ -77,14 +77,36 @@ const linuxTargets: ReadonlyArray<PortableOpenTarget> = [
 	},
 ];
 
-// This is intentionally explicit: Windows can share the IPC contract without
-// silently inheriting Unix launch semantics when its adapter is implemented.
 const windowsTargets: ReadonlyArray<PortableOpenTarget> = [
 	{
 		id: "finder",
 		label: "File Explorer",
 		command: null,
 		args: () => [],
+	},
+	{
+		id: "cursor",
+		label: "Cursor",
+		command: "cursor",
+		args: (path) => [path],
+	},
+	{
+		id: "vscode",
+		label: "VS Code",
+		command: "code",
+		args: (path) => [path],
+	},
+	{
+		id: "windsurf",
+		label: "Windsurf",
+		command: "windsurf",
+		args: (path) => [path],
+	},
+	{
+		id: "terminal",
+		label: "Windows Terminal",
+		command: "wt",
+		args: (path) => ["-d", path],
 	},
 ];
 

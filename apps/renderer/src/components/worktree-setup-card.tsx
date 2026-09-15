@@ -448,7 +448,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 		setupStatus === "failed"
 			? "Environment setup failed"
 			: setupStatus === "running"
-				? "Running environment setup…"
+				? "Running workspace setup…"
 				: setupDone
 					? "Workspace ready"
 					: worktreePending || worktreeName === null

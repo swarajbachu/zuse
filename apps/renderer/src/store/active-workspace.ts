@@ -5,6 +5,7 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import { useEffect, useMemo } from "react";
+import { chatCreationIsInProgress } from "../lib/chat-creation-lifecycle.ts";
 import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
@@ -191,6 +192,7 @@ export const useActiveContext = (): ActiveContext => {
 		}
 		if (
 			pendingCreation?.workspaceRequested &&
+			chatCreationIsInProgress(pendingCreation.phase) &&
 			pendingCreation.projectId === selectedFolderId &&
 			(activeWorktreeId === null || worktreePath === null)
 		) {

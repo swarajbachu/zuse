@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,7 +79,14 @@ async function shutdown(code) {
 	if (shuttingDown) return;
 	shuttingDown = true;
 	for (const { child } of children) {
-		if (child.exitCode === null) child.kill("SIGTERM");
+		if (child.exitCode !== null || child.pid === undefined) continue;
+		if (process.platform === "win32") {
+			spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
+				stdio: "ignore",
+			});
+		} else {
+			child.kill("SIGTERM");
+		}
 	}
 	instance.releaseReservation?.();
 	setTimeout(() => process.exit(code), 500).unref();

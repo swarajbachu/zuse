@@ -129,7 +129,13 @@ async function waitForResources({
 }
 
 function killChildTreeByPid(pid, signal) {
-	if (process.platform === "win32" || typeof pid !== "number") return;
+	if (typeof pid !== "number") return;
+	if (process.platform === "win32") {
+		spawnSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
+			stdio: "ignore",
+		});
+		return;
+	}
 	spawnSync("pkill", [`-${signal}`, "-P", String(pid)], { stdio: "ignore" });
 }
 
@@ -175,8 +181,11 @@ function startApp() {
 			`[desktop:electron] exited (code=${code ?? "null"} signal=${signal ?? "null"})`,
 		);
 		if (currentApp === app) currentApp = null;
-		const abnormal = signal !== null || code !== 0;
-		if (!shuttingDown && !expectedExits.has(app) && abnormal) {
+		if (!shuttingDown && !expectedExits.has(app)) {
+			// A rebuild goes through stopApp(), which marks the exit as expected and
+			// launches the replacement itself. Any other exit includes a user closing
+			// the window, so stop this watcher and let the root dev runner tear down the
+			// renderer, bundle watcher, embedded server, and setup children as well.
 			void shutdown(code ?? 1);
 		}
 	});
@@ -196,18 +205,29 @@ async function stopApp() {
 			resolveStop();
 		};
 		app.once("exit", finish);
-		app.kill("SIGTERM");
-		killChildTreeByPid(app.pid, "TERM");
+		if (process.platform === "win32") {
+			// Electron owns the embedded server and any setup/run commands it
+			// launched. Kill the tree while the parent PID still exists; killing the
+			// parent first would orphan those children and leave worktrees locked.
+			killChildTreeByPid(app.pid, "TERM");
+		} else {
+			app.kill("SIGTERM");
+			killChildTreeByPid(app.pid, "TERM");
+		}
 		setTimeout(() => {
 			if (settled) return;
-			app.kill("SIGKILL");
-			killChildTreeByPid(app.pid, "KILL");
+			if (process.platform === "win32") {
+				killChildTreeByPid(app.pid, "KILL");
+			} else {
+				app.kill("SIGKILL");
+				killChildTreeByPid(app.pid, "KILL");
+			}
 			finish();
 		}, forcedShutdownTimeoutMs).unref();
 	});
 }
 
-function scheduleRestart() {
+function scheduleRestart(delayMs = restartDebounceMs) {
 	if (shuttingDown) return;
 	if (restartTimer) clearTimeout(restartTimer);
 	restartTimer = setTimeout(() => {
@@ -218,7 +238,7 @@ function scheduleRestart() {
 				await stopApp();
 				if (!shuttingDown) startApp();
 			});
-	}, restartDebounceMs);
+	}, delayMs);
 }
 
 function startWatcher() {

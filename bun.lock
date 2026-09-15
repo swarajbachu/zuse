@@ -525,6 +525,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@zuse/contracts": "*",
+        "@zuse/utils": "*",
         "effect": "catalog:",
       },
       "devDependencies": {

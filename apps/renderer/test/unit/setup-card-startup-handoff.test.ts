@@ -57,4 +57,16 @@ describe("setup card startup handoff", () => {
 			}),
 		).toBe(false);
 	});
+
+	it("does not leave an interrupted or cancelled setup looking active", () => {
+		for (const creationPhase of ["failed", "cancelled"] as const) {
+			expect(
+				workspaceCreationProgressIsActive({
+					workspaceRequested: true,
+					setupStatus: "running",
+					creationPhase,
+				}),
+			).toBe(false);
+		}
+	});
 });

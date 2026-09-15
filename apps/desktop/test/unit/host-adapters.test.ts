@@ -5,7 +5,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { createBrowserCookieHostAdapter } from "../../src/host/browser-cookie.ts";
-import { ghosttyWorkingDirectoryArgs, terminalShellCommand } from "../../src/host/open-targets.ts";
+import {
+  ghosttyWorkingDirectoryArgs,
+  listPortableOpenTargets,
+  terminalShellCommand,
+} from "../../src/host/open-targets.ts";
 
 describe("Linux open targets", () => {
   it("passes Ghostty's working directory as one option", () => {
@@ -21,6 +25,24 @@ describe("Linux open targets", () => {
       "zuse-terminal",
       "/tmp/a repo",
     ]);
+  });
+});
+
+describe("Windows open targets", () => {
+  it("exposes File Explorer, editors, and Windows Terminal", async () => {
+    const targets = await listPortableOpenTargets("win32");
+    expect(targets.map(({ id }) => id)).toEqual([
+      "finder",
+      "cursor",
+      "vscode",
+      "windsurf",
+      "terminal",
+    ]);
+    expect(targets[0]).toMatchObject({
+      id: "finder",
+      label: "File Explorer",
+      available: true,
+    });
   });
 });
 

@@ -1,6 +1,7 @@
 import type { ChatCreationPhase, FolderId, WorktreeId } from "@zuse/contracts";
 import { useEffect } from "react";
 
+import { chatCreationIsInProgress } from "../lib/chat-creation-lifecycle.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 
 /**
@@ -33,11 +34,18 @@ export function useWorktreeSetupLifecycle(
 	}, [creationPhase, projectId, refreshWorktrees, worktreeId]);
 
 	useEffect(() => {
-		if (projectId === null || worktreeId === null || !worktreeHydrated) return;
+		if (
+			projectId === null ||
+			worktreeId === null ||
+			!worktreeHydrated ||
+			(creationPhase !== null && !chatCreationIsInProgress(creationPhase))
+		)
+			return;
 		subscribeSetup(projectId, worktreeId);
 		return () => unsubscribeSetup(projectId, worktreeId);
 	}, [
 		projectId,
+		creationPhase,
 		subscribeSetup,
 		unsubscribeSetup,
 		worktreeHydrated,

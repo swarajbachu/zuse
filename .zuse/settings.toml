@@ -11,7 +11,7 @@ file_include_globs = [
 ]
 
 [scripts]
-setup = "bun install"
+setup = "node scripts/setup.mjs"
 run = "bun run dev"
 archive = ""
 auto_run_after_setup = false

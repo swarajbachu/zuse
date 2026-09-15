@@ -29,7 +29,12 @@ const command = (bin, args) =>
 		maxBuffer: 16 * 1024 * 1024,
 	}).trim();
 const git = (...args) => command("git", args);
-const gh = (...args) => command("gh", args);
+const gh = (...args) => {
+	const testScript = process.env.ZUSE_RELEASE_GH_SCRIPT?.trim();
+	return testScript
+		? command(process.execPath, [testScript, ...args])
+		: command("gh", args);
+};
 
 export function validateNotes(notes) {
 	if (!/^### (Added|Changed|Fixed)$/m.test(notes) || !/^[-*] \S/m.test(notes)) {
@@ -65,7 +70,8 @@ function releaseManifestFiles(directory, metadata, platform) {
 		info.files.length === 0
 	)
 		throw new Error(`Invalid ${manifest}`);
-	const extension = platform === "-mac" ? ".zip" : ".AppImage";
+	const extension =
+		platform === "-mac" ? ".zip" : platform === "-linux" ? ".AppImage" : ".exe";
 	if (!info.files.some((file) => file.url.endsWith(extension)))
 		throw new Error(`${manifest} has no ${extension}`);
 	return info.files.map((file) => {
@@ -80,7 +86,7 @@ function releaseManifestFiles(directory, metadata, platform) {
 // display names on local macOS archives. Match content before adopting those
 // names; never infer an archive from its position or filename alone.
 export function prepareReleaseAssets(directory, metadata) {
-	for (const platform of ["-mac", "-linux"]) {
+	for (const platform of ["-mac", "-linux", ""]) {
 		for (const file of releaseManifestFiles(directory, metadata, platform)) {
 			const { name } = file;
 			const destination = join(directory, name);
@@ -118,7 +124,7 @@ export function verifyReleaseAssets(directory, metadata) {
 		)
 			throw new Error(`Orphaned blockmap: ${name}`);
 	}
-	for (const suffix of [".dmg", ".zip", ".AppImage", ".deb"]) {
+	for (const suffix of [".dmg", ".zip", ".AppImage", ".deb", ".exe"]) {
 		if (
 			!names.some(
 				(name) => name.endsWith(suffix) && name.includes(metadata.version),
@@ -126,7 +132,7 @@ export function verifyReleaseAssets(directory, metadata) {
 		)
 			throw new Error(`Missing ${suffix} for ${metadata.version}`);
 	}
-	for (const platform of ["-mac", "-linux"]) {
+	for (const platform of ["-mac", "-linux", ""]) {
 		for (const file of releaseManifestFiles(directory, metadata, platform)) {
 			const { name } = file;
 			const path = join(directory, name);
@@ -135,7 +141,7 @@ export function verifyReleaseAssets(directory, metadata) {
 		}
 	}
 	return names.filter((name) =>
-		/\.(dmg|zip|AppImage|deb|yml|blockmap)$/.test(name),
+		/\.(dmg|zip|AppImage|deb|exe|yml|blockmap)$/.test(name),
 	);
 }
 

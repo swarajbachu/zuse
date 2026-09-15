@@ -67,6 +67,7 @@ import {
 	derivePermissionAttention,
 	mergeChatAttentionStates,
 } from "~/lib/chat-attention-state";
+import { chatCreationIsInProgress } from "~/lib/chat-creation-lifecycle.ts";
 import { displayPath } from "~/lib/display-path";
 import { activeSessionById } from "~/lib/environment-entities.ts";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
@@ -2564,9 +2565,10 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 	const isRestoring = useArchivePreviewStore(
 		(s) => s.restoringByChat[chat.id] === true,
 	);
-	const creationPending = useChatsStore(
-		(s) => s.pendingCreationByChat[chat.id] !== undefined,
-	);
+	const creationPending = useChatsStore((s) => {
+		const creation = s.pendingCreationByChat[chat.id];
+		return creation !== undefined && chatCreationIsInProgress(creation.phase);
+	});
 
 	// Live rows always belong to the ACTIVE environment; the row is "remote"
 	// when that environment is not this physical desktop.

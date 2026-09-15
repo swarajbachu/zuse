@@ -82,6 +82,8 @@ asarUnpack:
   - "node_modules/@cursor/sdk-darwin-x64/**"
   - "node_modules/@cursor/sdk-linux-arm64/**"
   - "node_modules/@cursor/sdk-linux-x64/**"
+  - "node_modules/@cursor/sdk-win32-arm64/**"
+  - "node_modules/@cursor/sdk-win32-x64/**"
 
 # We rebuild the remaining native modules via the postinstall hook.
 # electron-builder's npmRebuild step doesn't understand bun workspaces.
@@ -142,6 +144,22 @@ linux:
     Keywords: AI;Development;Coding;Agents;
     StartupWMClass: zuse
     Terminal: false
+
+win:
+  target:
+    - target: nsis
+      arch: x64
+  icon: build/icon.png
+  executableName: Zuse
+  artifactName: Zuse-${version}-windows-${arch}-setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Zuse (Beta)
 
 deb:
   packageName: zuse

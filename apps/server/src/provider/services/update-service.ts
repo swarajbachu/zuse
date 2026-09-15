@@ -3,6 +3,7 @@ import { spawn, type ChildProcessByStdio } from "node:child_process";
 import * as readline from "node:readline";
 import { homedir } from "node:os";
 import type { Readable } from "node:stream";
+import { scriptCommandForPlatform } from "@zuse/utils/shell-command";
 
 import {
   AgentSessionStartError,
@@ -19,8 +20,8 @@ const UPDATE_TIMEOUT_MS = 5 * 60_000;
 
 /**
  * Spawn a provider's update/install command and stream its output back to the
- * renderer, ending with a terminal `done`. The command runs in a **login
- * shell** (`bash -lc`) for two reasons:
+ * renderer, ending with a terminal `done`. The command runs in the platform's
+ * native command processor (`cmd.exe` on Windows, a login shell elsewhere) so:
  *   1. PATH — npm/bun/pnpm and the provider binary resolve the same way they
  *      do in the user's terminal (the app may be launched from Finder).
  *   2. Pipes — curl-based installers (Grok, Cursor) are full shell pipelines
@@ -59,9 +60,12 @@ const spawnUpdate = (
     // stdin closed (`ignore`) so an installer never blocks waiting on input.
     let child: ChildProcessByStdio<null, Readable, Readable>;
     try {
-      // `-l` (login) loads the user's profile so version managers (nvm, fnm,
-      // volta, asdf) put the right npm/binary on PATH; `-c` runs the command.
-      child = spawn("bash", ["-lc", command], {
+      const shell = scriptCommandForPlatform(
+        process.platform,
+        command,
+        process.env,
+      );
+      child = spawn(shell.command, [...shell.args], {
         cwd: homedir(),
         env: process.env,
         stdio: ["ignore", "pipe", "pipe"],
