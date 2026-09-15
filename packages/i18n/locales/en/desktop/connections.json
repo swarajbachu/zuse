@@ -72,5 +72,6 @@
 	"remote_access_connect_privately_from_devices_on_the_same_tailnet": "Connect privately from devices on the same tailnet.",
 	"auth_opening_browser_sign_in": "Opening browser sign-in",
 	"auth_complete_workos_sign_in_in_your_browser": "Complete WorkOS sign-in in your browser.",
-	"auth_sign_in_failed": "Sign-in failed"
+	"auth_sign_in_failed": "Sign-in failed",
+	"cloud_workspace_info_inactive": "Inactive"
 }

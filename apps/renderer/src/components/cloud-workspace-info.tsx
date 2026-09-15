@@ -11,10 +11,10 @@ import {
 	RamMemoryIcon,
 	Refresh01Icon,
 } from "@zuse/icons/solid-rounded";
-import { ChevronDown, SquareTerminal } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
-
 import { getAppBridge, type OpenTarget } from "../lib/bridge.ts";
+import { cloudProviderLabel } from "../lib/cloud-provider-presentation.ts";
 import {
 	type CloudSshTarget,
 	cloudSshSupported,
@@ -37,6 +37,7 @@ import { displayPath } from "../lib/display-path.ts";
 import { errorMessage } from "../lib/error-message.ts";
 import { useMachineResources } from "../lib/machine-resources-client-bus.ts";
 import { copyText } from "../lib/platform-capabilities.ts";
+import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
 import { OpenTargetIcon } from "./open-target-icon.tsx";
 import {
 	AlertDialog,
@@ -194,6 +195,12 @@ export function CloudWorkspaceOpenSshMenu({
 	>([]);
 	if (!cloudSshSupported() || summary === null) return null;
 	const running = isCloudWorkspaceReady(summary);
+	const activityLabel = running
+		? uiMessage("connections:cloud_chat_row_presentation_active")
+		: summary.state === "paused"
+			? uiMessage("connections:cloud_chat_row_presentation_paused")
+			: uiMessage("connections:cloud_workspace_info_inactive");
+	const providerActivityLabel = `${cloudProviderLabel(summary.providerId)} · ${activityLabel}`;
 	const syncEnabled = cloudSyncPreferenceEnabled(syncPrefs);
 
 	const toggleSync = async (): Promise<void> => {
@@ -254,23 +261,26 @@ export function CloudWorkspaceOpenSshMenu({
 			<Tooltip>
 				<TooltipTrigger
 					render={
-						<MenuTrigger
-							disabled={!running}
-							onClick={() => void refreshTargets()}
-							className={`${className} flex h-7 items-center gap-1.5 overflow-hidden rounded-md border border-border/80 px-2 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-50`}
-							aria-label={uiMessage(
-								"connections:cloud_workspace_info_open_workspace_via_ssh",
-							)}
-						>
-							<SquareTerminal className="size-3.5 shrink-0" />
-							<span>
-								{uiMessage("connections:cloud_workspace_info_open_via_ssh")}
-							</span>
-							<ChevronDown className="size-3.5 shrink-0" />
-						</MenuTrigger>
+						<span className="inline-flex" tabIndex={running ? undefined : 0} />
 					}
-				/>
+				>
+					<MenuTrigger
+						disabled={!running}
+						onClick={() => void refreshTargets()}
+						className={`${className} flex h-7 items-center gap-1.5 overflow-hidden rounded-md border border-border/80 px-2 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-50`}
+						aria-label={`${uiMessage("connections:cloud_workspace_info_open_workspace_via_ssh")} — ${providerActivityLabel}`}
+					>
+						<DitherCloudIcon
+							className={`size-4 shrink-0 ${running ? "text-[var(--accent-green)]" : "text-muted-foreground"}`}
+						/>
+						<span>
+							{uiMessage("connections:cloud_workspace_info_open_via_ssh")}
+						</span>
+						<ChevronDown className="size-3.5 shrink-0" />
+					</MenuTrigger>
+				</TooltipTrigger>
 				<TooltipPopup>
+					<div className="font-medium">{providerActivityLabel}</div>
 					{running
 						? uiMessage(
 								"connections:cloud_workspace_info_open_this_workspace_in_an_editor_or_terminal_over_ssh",
