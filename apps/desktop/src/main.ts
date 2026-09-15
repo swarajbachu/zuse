@@ -1897,59 +1897,13 @@ const authShell = {
 async function createMainWindow() {
 	const startupStartedAt = performance.now();
 	const userData = app.getPath("userData");
-	const [apiPort, networkAccessEnabled] = await Promise.all([
+	const startupPrerequisites = Promise.all([
 		resolveDesktopApiPort({
 			configuredPort: process.env.ZUSE_DESKTOP_WS_PORT,
 		}),
 		readNetworkAccessPreference(userData),
 	]);
-	sshEnvironmentManager ??= new SshEnvironmentManager(userData);
-	tailnetEnvironmentManager ??= new TailnetEnvironmentManager(userData);
-	const sshManager = sshEnvironmentManager;
-	const tailnetManager = tailnetEnvironmentManager;
-	const tailnetShareOptions: TailnetShareOptions = {
-		ownershipDir: userData,
-		probe: probeZuseLoopback,
-	};
-	// The api port can drift between launches (fallback or ephemeral bind).
-	// When a persisted marker shows Zuse owns the Tailscale Serve route on the
-	// old port, repoint it in the background so sharing survives the drift.
-	void readServeOwnershipMarker(userData)
-		.then(async (markerPort) => {
-			if (markerPort === null || markerPort === apiPort.port) return;
-			const repaired = await repairTailnetShare(
-				apiPort.port,
-				tailnetShareOptions,
-				tailnetCommandRunner,
-			);
-			if (repaired.enabled && repaired.managedBy === "this-app") {
-				console.log(
-					`desktop.tailnet.serve_repaired ${markerPort} -> ${apiPort.port}`,
-				);
-			}
-		})
-		.catch(() => undefined);
-	const systemHostname = hostname();
-	let networkAccess: ResolvedNetworkAccessState;
-	try {
-		networkAccess = resolveNetworkAccessState({
-			enabled: networkAccessEnabled,
-			port: apiPort.port,
-			interfaces: networkInterfaces(),
-		});
-	} catch (cause) {
-		recordMainDiagnostic("warn", "network-access", [cause]);
-		networkAccess = resolveNetworkAccessState({
-			enabled: false,
-			port: apiPort.port,
-			interfaces: networkInterfaces(),
-		});
-	}
 	const isMac = process.platform === "darwin";
-	const nearbyTls =
-		networkAccess.mode === "network-accessible" && process.platform !== "win32"
-			? await ensureNearbyTlsIdentity(userData)
-			: null;
 	mainWindow = new BrowserWindow({
 		width: 1280,
 		height: 800,
@@ -2024,6 +1978,66 @@ async function createMainWindow() {
 			processElapsedMs: Math.round(performance.now() - desktopProcessStartedAt),
 		});
 	});
+
+	// Start Chromium as soon as the native window exists. Port selection,
+	// network preferences, TLS identity, and the embedded runtime can settle
+	// behind the lightweight renderer startup surface instead of delaying the
+	// first visible frame after a Dock click.
+	if (isDevelopment) {
+		void mainWindow.loadURL(DEV_SERVER_URL);
+		mainWindow.webContents.openDevTools({ mode: "right" });
+	} else {
+		const rendererIndex = Path.join(rendererDistDir(), "index.html");
+		void mainWindow.loadFile(rendererIndex);
+	}
+
+	const [apiPort, networkAccessEnabled] = await startupPrerequisites;
+	sshEnvironmentManager ??= new SshEnvironmentManager(userData);
+	tailnetEnvironmentManager ??= new TailnetEnvironmentManager(userData);
+	const sshManager = sshEnvironmentManager;
+	const tailnetManager = tailnetEnvironmentManager;
+	const tailnetShareOptions: TailnetShareOptions = {
+		ownershipDir: userData,
+		probe: probeZuseLoopback,
+	};
+	// The api port can drift between launches (fallback or ephemeral bind).
+	// When a persisted marker shows Zuse owns the Tailscale Serve route on the
+	// old port, repoint it in the background so sharing survives the drift.
+	void readServeOwnershipMarker(userData)
+		.then(async (markerPort) => {
+			if (markerPort === null || markerPort === apiPort.port) return;
+			const repaired = await repairTailnetShare(
+				apiPort.port,
+				tailnetShareOptions,
+				tailnetCommandRunner,
+			);
+			if (repaired.enabled && repaired.managedBy === "this-app") {
+				console.log(
+					`desktop.tailnet.serve_repaired ${markerPort} -> ${apiPort.port}`,
+				);
+			}
+		})
+		.catch(() => undefined);
+	const systemHostname = hostname();
+	let networkAccess: ResolvedNetworkAccessState;
+	try {
+		networkAccess = resolveNetworkAccessState({
+			enabled: networkAccessEnabled,
+			port: apiPort.port,
+			interfaces: networkInterfaces(),
+		});
+	} catch (cause) {
+		recordMainDiagnostic("warn", "network-access", [cause]);
+		networkAccess = resolveNetworkAccessState({
+			enabled: false,
+			port: apiPort.port,
+			interfaces: networkInterfaces(),
+		});
+	}
+	const nearbyTls =
+		networkAccess.mode === "network-accessible" && process.platform !== "win32"
+			? await ensureNearbyTlsIdentity(userData)
+			: null;
 
 	// Hand off http(s) URLs to the OS default browser via `shell.openExternal`
 	// — the renderer asked to leave Electron, not to host another Chromium
@@ -3535,19 +3549,6 @@ async function createMainWindow() {
 		},
 	);
 
-	if (isDevelopment) {
-		void mainWindow.loadURL(DEV_SERVER_URL);
-		mainWindow.webContents.openDevTools({ mode: "right" });
-	} else {
-		// In dev `dist-electron/main.cjs` lives at apps/desktop/dist-electron/
-		// and the renderer is two levels up at apps/renderer/dist. In the
-		// packaged bundle the renderer is shipped via `extraResources` to
-		// <app>/Contents/Resources/app/renderer/dist (see
-		// apps/desktop/electron-builder.yml).
-		const rendererIndex = Path.join(rendererDistDir(), "index.html");
-		void mainWindow.loadFile(rendererIndex);
-	}
-
 	mainWindow.on("closed", () => {
 		mainWindow = null;
 		if (runtimeFiber !== null) {
@@ -3958,6 +3959,13 @@ void app.whenReady().then(async () => {
 		// A run marker is diagnostic-only and must never block app startup.
 	}
 
+	registerZuseProtocol();
+	// Begin creating and loading the native window before optional desktop
+	// services. The async function reaches its first prerequisite await only
+	// after Chromium navigation has started, so the Dock click gets immediate
+	// visual feedback while the rest of startup continues in parallel.
+	const mainWindowReady = createMainWindow();
+
 	// Localhost loopback that catches the WorkOS OAuth callback (dev + packaged).
 	// It's the redirect_uri for both, so the browser finishes on a real HTML
 	// page and no `zuse://` deep-link handoff/prompt is needed. The scheme
@@ -3974,7 +3982,6 @@ void app.whenReady().then(async () => {
 	);
 	if (initialDeepLink !== undefined) handleAuthCallback(initialDeepLink);
 
-	registerZuseProtocol();
 	if (process.platform === "darwin") {
 		const mode = await readComputerAwakePreference(app.getPath("userData"));
 		computerAwakeController = new ComputerAwakeController({
@@ -4013,7 +4020,7 @@ void app.whenReady().then(async () => {
 	});
 
 	installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
-	await createMainWindow();
+	await mainWindowReady;
 	if (mainWindow !== null) {
 		if (isDevelopment) {
 			// Wire the dev console helper (window.__zuseUpdateDemo) to a real
