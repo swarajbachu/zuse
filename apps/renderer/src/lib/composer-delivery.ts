@@ -37,17 +37,21 @@ const blockedCommandLabel = (command: PendingCommand): string => {
 	return "Waiting for agent";
 };
 
+/** Acceptance is not runtime ownership, including the first local dispatch frame. */
+export const isWaitingCloudSend = (command: PendingCommand): boolean =>
+	command.kind === "messages.send" &&
+	(command.deliveryPhase === undefined ||
+		command.deliveryPhase === "persisting" ||
+		command.deliveryPhase === "reserved" ||
+		command.deliveryPhase === "accepted" ||
+		command.deliveryPhase === "waiting-for-runtime" ||
+		command.deliveryPhase === "blocked");
+
 /** One presentation model for every mailbox state that is still waiting. */
 export const waitingCloudMessagePresentation = (
 	pendingCommands: readonly PendingCommand[],
 ): WaitingCloudMessagePresentation | null => {
-	const command = pendingCommands.find(
-		(candidate) =>
-			candidate.kind === "messages.send" &&
-			(candidate.deliveryPhase === "accepted" ||
-				candidate.deliveryPhase === "waiting-for-runtime" ||
-				candidate.deliveryPhase === "blocked"),
-	);
+	const command = pendingCommands.find(isWaitingCloudSend);
 	return command === undefined
 		? null
 		: {
@@ -100,15 +104,7 @@ export const partitionCloudMessages = (
 ): { transcript: readonly Message[]; waiting: readonly Message[] } => {
 	const waitingIds = new Set(
 		pendingCommands
-			.filter(
-				(command) =>
-					command.kind === "messages.send" &&
-					(command.deliveryPhase === "persisting" ||
-						command.deliveryPhase === "reserved" ||
-						command.deliveryPhase === "accepted" ||
-						command.deliveryPhase === "waiting-for-runtime" ||
-						command.deliveryPhase === "blocked"),
-			)
+			.filter(isWaitingCloudSend)
 			.map((command) =>
 				String(command.commandId).replace(/^message-send:/, ""),
 			),

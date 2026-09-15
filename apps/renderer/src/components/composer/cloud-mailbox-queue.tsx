@@ -9,9 +9,11 @@ import { cancelSessionCommand } from "../../lib/session-timeline-client-bus.ts";
 export function CloudMailboxQueue({
 	messages,
 	commands,
+	waitingForCloud = false,
 }: {
 	readonly messages: readonly Message[];
 	readonly commands: readonly PendingCommand[];
+	readonly waitingForCloud?: boolean;
 }) {
 	const { message } = useMessages(["chat", "common"]);
 	const [error, setError] = useState(false);
@@ -20,7 +22,11 @@ export function CloudMailboxQueue({
 	return (
 		<div>
 			<div className="border-b border-border/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-				{message("chat:cloud_queue_waiting_for_agent")}
+				{message(
+					waitingForCloud
+						? "chat:cloud_queue_waiting_for_cloud"
+						: "chat:cloud_queue_waiting_for_agent",
+				)}
 			</div>
 			{messages.map((item) => {
 				const commandId = CommandId.make(`message-send:${item.id}`);

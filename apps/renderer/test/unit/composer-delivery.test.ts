@@ -209,6 +209,7 @@ describe("mailbox queue presentation", () => {
 		createdAt: new Date(),
 	});
 	it.each([
+		undefined,
 		"persisting",
 		"reserved",
 		"accepted",
@@ -253,14 +254,14 @@ describe("mailbox queue presentation", () => {
 			waiting: [prompt],
 		});
 	});
-	it("leaves local sends and unrelated messages in the transcript", () => {
+	it("leaves unrelated commands in the transcript", () => {
 		expect(
 			partitionCloudMessages(
 				[prompt],
 				[
 					{
-						commandId: CommandId.make("message-send:queued"),
-						kind: "messages.send",
+						commandId: CommandId.make("unrelated-command"),
+						kind: "session.update",
 						submittedAt: 1,
 					},
 				],

@@ -1,3 +1,4 @@
+import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import "@zuse/i18n/english/chat";
@@ -114,13 +115,13 @@ import {
 } from "../lib/attachments.ts";
 import {
 	cloudChatShowsWorking,
-	cloudWorkspaceIsStarting,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
 import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import {
 	cloudComposerSubmissionBlocked,
 	commitAcceptedComposerDelivery,
+	isWaitingCloudSend,
 	shouldQueueComposerMessage,
 } from "../lib/composer-delivery.ts";
 import {
@@ -336,7 +337,11 @@ export function ChatComposer({
 					connection: cloudShell.connection,
 					runtime: runtimeState,
 				});
-	const turnStartPending = hasPendingTurnStart(timeline.view.pendingCommands);
+	const turnStartPending = hasPendingTurnStart(
+		timeline.view.pendingCommands.filter(
+			(command) => !isCloudSession || !isWaitingCloudSend(command),
+		),
+	);
 	const durableCloudSendPending =
 		isCloudSession &&
 		cloudComposerSubmissionBlocked(timeline.view.pendingCommands);
@@ -1470,7 +1475,7 @@ export function ChatComposer({
 										creationInProgress={creationInProgress}
 										waitingForSandbox={
 											cloudSummary !== null &&
-											cloudWorkspaceIsStarting(cloudSummary)
+											!isCloudWorkspaceReady(cloudSummary)
 										}
 									/>
 								</>

@@ -1,6 +1,7 @@
 import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import type { Message } from "@zuse/contracts";
 import { useMemo } from "react";
+import { useCloudChatCatalogStore } from "./cloud-workspace-catalog.ts";
 import { partitionCloudMessages } from "./composer-delivery.ts";
 import { usePendingSessionMessages } from "./pending-session-messages.ts";
 import { isCloudWorkspaceEnvironment } from "./rpc-client.ts";
@@ -10,7 +11,13 @@ const EMPTY: readonly Message[] = [];
 
 /** One presentation for staged uploads, durable acceptance, and runtime handoff. */
 export function useCloudMessageQueue(timeline: RendererSessionTimeline) {
-	const cloud = isCloudWorkspaceEnvironment(timeline.ref.environmentId);
+	const catalogCloud = useCloudChatCatalogStore((state) =>
+		state.summaries.some(
+			(summary) => summary.workspaceId === timeline.ref.environmentId,
+		),
+	);
+	const cloud =
+		catalogCloud || isCloudWorkspaceEnvironment(timeline.ref.environmentId);
 	const key = resourceRefKey(timeline.ref);
 	const preparing = usePendingSessionMessages((state) =>
 		cloud ? (state.byResource[key] ?? EMPTY) : EMPTY,

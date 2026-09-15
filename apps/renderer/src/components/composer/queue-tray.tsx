@@ -68,6 +68,7 @@ export function QueueTray({
 			<CloudMailboxQueue
 				messages={mailbox.waiting}
 				commands={timeline.view.pendingCommands}
+				waitingForCloud={waitingForSandbox}
 			/>
 		);
 
@@ -90,10 +91,11 @@ export function QueueTray({
 			<CloudMailboxQueue
 				messages={mailbox.waiting}
 				commands={timeline.view.pendingCommands}
+				waitingForCloud={waitingForSandbox}
 			/>
 			<div className="border-b border-border/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
 				{waitingForSandbox
-					? uiMessage("chat:queue_tray_waiting_for_sandbox")
+					? uiMessage("chat:cloud_queue_waiting_for_cloud")
 					: online
 						? uiMessage("chat:queue_tray_queued")
 						: uiMessage("chat:queue_tray_waiting_for_connection")}
