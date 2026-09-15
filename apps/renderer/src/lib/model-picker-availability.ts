@@ -1,4 +1,8 @@
-import type { AgentAvailability, ProviderId } from "@zuse/contracts";
+import {
+	type AgentAvailability,
+	BUILTIN_PROVIDER_IDS,
+	type ProviderId,
+} from "@zuse/contracts";
 
 export function isModelPickerProviderVisible({
 	providerId,
@@ -33,6 +37,32 @@ export function isModelPickerProviderVisible({
 	return availability.cliLoggedIn || availability.hasApiKey;
 }
 
+/**
+ * Runtime-only fallback for a persisted default that is currently unavailable.
+ * The saved preference is deliberately left untouched so an extension provider
+ * is restored as soon as it returns.
+ */
+export function resolveReadyProvider({
+	preferred,
+	availability,
+	providerEnabled,
+	availabilityLoaded,
+}: {
+	readonly preferred: ProviderId;
+	readonly availability: ReadonlyArray<AgentAvailability>;
+	readonly providerEnabled: Partial<Record<ProviderId, boolean>>;
+	readonly availabilityLoaded: boolean;
+}): ProviderId {
+	if (!availabilityLoaded) return preferred;
+	return (
+		selectAuthenticatedProvider({
+			preferredProviderId: preferred,
+			providerIds: BUILTIN_PROVIDER_IDS,
+			availability,
+			providerEnabled,
+		}) ?? "claude"
+	);
+}
 export const selectAuthenticatedProvider = ({
 	preferredProviderId,
 	providerIds,

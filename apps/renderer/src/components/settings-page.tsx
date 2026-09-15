@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/extensions";
 import { formatDate as formatUiDate } from "@zuse/i18n";
 import { isInputComposing } from "../lib/input-composition.ts";
 import "@zuse/i18n/english/settings";
@@ -11,6 +12,7 @@ import {
 	type ComputerAwakeMode,
 	type ComputerAwakeStatus,
 	EnvironmentId,
+	type ExtensionProviderDescriptor,
 	type Folder,
 	type FolderId,
 	PROVIDER_IDS,
@@ -54,6 +56,7 @@ import {
 	computerAwakeStatusText,
 } from "../lib/computer-awake.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import { useExtensionCatalog } from "../lib/extension-client-bus.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { useSettingsStore } from "../lib/settings-client-bus.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
@@ -71,6 +74,7 @@ import { CloudWorkspacePool } from "./settings/cloud-workspace-pool.tsx";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
 import { DiagnosticsPane as FullDiagnosticsPane } from "./settings/diagnostics-pane.tsx";
+import { ExtensionsPane } from "./settings/extensions-pane.tsx";
 import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { LinearIntegrationsPane } from "./settings/linear-integrations-pane.tsx";
 import { McpServersPane } from "./settings/mcp-servers-pane.tsx";
@@ -114,7 +118,11 @@ const CLOUD_MACHINES_AVAILABLE = cloudWorkspaceBetaAvailable();
  * settings; the right pane renders the active section's form.
  */
 export function SettingsPage() {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"extensions",
+	]);
 
 	const setView = useUiStore((s) => s.setView);
 	const section = useUiStore((s) => s.settingsSection);
@@ -190,7 +198,7 @@ function Rail({
 	folders: ReadonlyArray<Folder>;
 	desktop: boolean;
 }) {
-	useUiMessages(["common", "settings"]);
+	useUiMessages(["common", "settings", "extensions"]);
 
 	return (
 		<nav className="flex w-52 shrink-0 flex-col gap-4 border-r border-sidebar-border bg-sidebar px-2.5 py-3 text-xs text-sidebar-foreground max-[800px]:w-12 max-[800px]:px-1.5">
@@ -294,7 +302,11 @@ function SectionTitle({
 	section: SettingsSection;
 	folders: ReadonlyArray<Folder>;
 }) {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"extensions",
+	]);
 
 	const { title, subtitle } = useMemo(() => {
 		if (section.kind === "general") {
@@ -308,6 +320,13 @@ function SectionTitle({
 				title: uiMessage("settings:settings_page_providers"),
 				subtitle:
 					"Verify what's installed, signed in, and which subscription each provider runs on.",
+			};
+		}
+		if (section.kind === "extensions") {
+			return {
+				title: uiMessage("extensions:title"),
+				subtitle:
+					"Install and manage trusted local, Git, and curated extensions.",
 			};
 		}
 		if (section.kind === "defaults") {
@@ -400,6 +419,7 @@ function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "general") return <GeneralPane />;
 	if (section.kind === "defaults") return <DefaultModelsPane />;
 	if (section.kind === "providers") return <ProvidersPane />;
+	if (section.kind === "extensions") return <ExtensionsPane />;
 	if (section.kind === "integrations") return <LinearIntegrationsPane />;
 	if (section.kind === "mcp") return <McpServersPane />;
 	if (section.kind === "devices") return <DevicesPane />;
@@ -428,7 +448,11 @@ const EMPTY_BROWSER_IMPORT_STATUS: BrowserCookieImportStatus = {
 };
 
 function BrowserSettingsPagePane() {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"extensions",
+	]);
 
 	const [status, setStatus] = useState<BrowserCookieImportStatus>(
 		EMPTY_BROWSER_IMPORT_STATUS,
@@ -626,7 +650,11 @@ interface BrowserCredRow {
  * load-bearing: real credentials must never live here.
  */
 function BrowserTestLoginsPane() {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"extensions",
+	]);
 
 	const environmentId = useEnvironmentCatalogStore((state) =>
 		EnvironmentId.make(state.activeEnvironmentId),
@@ -793,7 +821,11 @@ function BrowserTestLoginsPane() {
 }
 
 function NotchSettingsPane() {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"extensions",
+	]);
 
 	const enabled = useSettingsStore((s) => s.notchTrayEnabled);
 	const pinned = useSettingsStore((s) => s.notchTrayPinned);
@@ -1006,7 +1038,11 @@ const COMPUTER_AWAKE_OPTIONS: ReadonlyArray<{
 ];
 
 function ComputerAwakeSettings() {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"extensions",
+	]);
 
 	const [status, setStatus] = useState<ComputerAwakeStatus | null>(null);
 	const [saving, setSaving] = useState(false);
@@ -1098,7 +1134,11 @@ function ComputerAwakeSettings() {
 }
 
 function GeneralPane() {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"extensions",
+	]);
 
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
 	const setAppearanceMode = useSettingsStore((s) => s.setAppearanceMode);
@@ -1483,7 +1523,11 @@ function GeneralPane() {
 }
 
 function DefaultModelsPane() {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"extensions",
+	]);
 
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
 	const defaultRuntimeMode = useSettingsStore((s) => s.defaultRuntimeMode);
@@ -1501,7 +1545,7 @@ function DefaultModelsPane() {
 			<SettingsRow
 				title={uiMessage("settings:settings_page_default_model")}
 				description={uiMessage("settings:settings_page_model_for_new_chats", {
-					value1: String(PROVIDER_LABEL[defaultProviderId]),
+					value1: PROVIDER_LABEL[defaultProviderId] ?? defaultProviderId,
 				})}
 				action={
 					<ModelPicker
@@ -1547,7 +1591,11 @@ function DefaultModelsPane() {
 }
 
 function ProvidersPane() {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"extensions",
+	]);
 
 	const environmentId = useEnvironmentCatalogStore(
 		(state) => state.activeEnvironmentId,
@@ -1558,6 +1606,25 @@ function ProvidersPane() {
 	const error = useProvidersStore((s) => s.error);
 	const load = useProvidersStore((s) => s.load);
 	const refresh = useProvidersStore((s) => s.refresh);
+	const extensionCatalog = useExtensionCatalog();
+	const extensionProviderOwners = useMemo(
+		() =>
+			new Map<
+				ProviderId,
+				{
+					readonly extensionId: string;
+					readonly descriptor: ExtensionProviderDescriptor;
+				}
+			>(
+				extensionCatalog.items.flatMap((item) =>
+					item.providers.map((descriptor) => [
+						descriptor.id,
+						{ extensionId: item.id, descriptor },
+					]),
+				),
+			),
+		[extensionCatalog.items],
+	);
 
 	// Refresh once when the pane opens. We deliberately do NOT re-poll on every
 	// window focus: `refresh()` → `agent.availability` reads the OS keychain
@@ -1580,7 +1647,10 @@ function ProvidersPane() {
 		return latest;
 	}, [availability, uiMessage]);
 
-	const providers = PROVIDER_IDS;
+	const providers: ReadonlyArray<ProviderId> = [
+		...PROVIDER_IDS,
+		...extensionProviderOwners.keys(),
+	];
 	const [selectedProvider, setSelectedProvider] =
 		useState<ProviderId>("claude");
 	const availabilityById = useMemo(() => {
@@ -1641,7 +1711,11 @@ function ProvidersPane() {
 							label: (
 								<>
 									<ProviderIcon providerId={pid} className="size-3.5" />
-									<span>{PROVIDER_LABEL[pid]}</span>
+									<span>
+										{extensionProviderOwners.get(pid)?.descriptor.displayName ??
+											PROVIDER_LABEL[pid] ??
+											pid}
+									</span>
 								</>
 							),
 						}))}
@@ -1658,6 +1732,7 @@ function ProvidersPane() {
 						loading,
 						availabilityLoaded,
 					)}
+					extensionProvider={extensionProviderOwners.get(selectedProvider)}
 					layout="page"
 				/>
 			</div>
@@ -1666,7 +1741,11 @@ function ProvidersPane() {
 }
 
 function WorkspacePane() {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"extensions",
+	]);
 
 	const defaultAutoCreateWorktree = useSettingsStore(
 		(s) => s.defaultAutoCreateWorktree,
@@ -2004,7 +2083,11 @@ export function OverrideField({
 	onClear: () => void;
 	children: React.ReactNode;
 }) {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"extensions",
+	]);
 
 	return (
 		<div className="flex flex-col gap-2.5">
@@ -2062,7 +2145,11 @@ export function ModelSelect({
 	value: string | null;
 	onChange: (model: string) => void;
 }) {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"extensions",
+	]);
 
 	const modelEnabledByProvider = useSettingsStore(
 		(s) => s.modelEnabledByProvider,
@@ -2120,7 +2207,7 @@ export function ensureValidDefaultsForRuntime(
 	const provider = ready.includes(settings.defaultProviderId)
 		? settings.defaultProviderId
 		: fallbackProvider;
-	const model = settings.defaultModelByProvider[provider];
+	const model = settings.defaultModelByProvider[provider] ?? "default";
 	return {
 		providerId: provider,
 		model,

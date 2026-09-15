@@ -393,7 +393,7 @@ export const makeConversationOrchestration = (
 				),
 			listModels: (input) =>
 				Promise.resolve().then(() => {
-					const allProviderIds = [...PROVIDER_IDS];
+					const allProviderIds: ReadonlyArray<ProviderId> = PROVIDER_IDS;
 					const providerIds =
 						input.providerId !== undefined
 							? allProviderIds.includes(input.providerId as ProviderId)

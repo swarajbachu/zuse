@@ -97,6 +97,7 @@ import {
 	type PreparedLinearContext,
 	transferLinearContext,
 } from "~/lib/linear-cloud-context";
+import { resolveReadyProvider } from "~/lib/model-picker-availability";
 import {
 	buildLogicalProjectGroups,
 	defaultNewChatTarget,
@@ -124,6 +125,7 @@ import {
 import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
 import { useExternalThreadsStore } from "~/store/external-threads";
 import { currentModelCatalog } from "~/store/model-catalog";
+import { useProvidersStore } from "~/store/providers";
 import {
 	repositorySettingsKey,
 	useRepositorySettingsStore,
@@ -263,8 +265,28 @@ export function ChatLanding() {
 	);
 
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
+	const providerEnabled = useSettingsStore((s) => s.providerEnabled);
 	const defaultModelByProvider = useSettingsStore(
 		(s) => s.defaultModelByProvider,
+	);
+	const providerAvailability = useProvidersStore((s) => s.availability);
+	const providerAvailabilityLoaded = useProvidersStore(
+		(s) => s.availabilityLoaded,
+	);
+	const effectiveDefaultProviderId = useMemo(
+		() =>
+			resolveReadyProvider({
+				preferred: defaultProviderId,
+				availability: providerAvailability,
+				providerEnabled,
+				availabilityLoaded: providerAvailabilityLoaded,
+			}),
+		[
+			defaultProviderId,
+			providerAvailability,
+			providerAvailabilityLoaded,
+			providerEnabled,
+		],
 	);
 	const defaultAutoCreateWorktree = useSettingsStore(
 		(s) => s.defaultAutoCreateWorktree,
@@ -674,10 +696,10 @@ export function ChatLanding() {
 				if (cancelled) return;
 				beginDraft({
 					projectId: draftFolderId,
-					providerId: defaultProviderId,
+					providerId: effectiveDefaultProviderId,
 					model:
-						defaultModelByProvider[defaultProviderId] ??
-						defaultModelFor(currentModelCatalog(), defaultProviderId),
+						defaultModelByProvider[effectiveDefaultProviderId] ??
+						defaultModelFor(currentModelCatalog(), effectiveDefaultProviderId),
 					runtimeMode,
 				});
 			},

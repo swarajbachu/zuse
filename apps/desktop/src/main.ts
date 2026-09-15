@@ -123,6 +123,7 @@ import {
 	readLocalePreference,
 	writeLocalePreference,
 } from "./locale-preference.ts";
+import { serveRendererAsset } from "./renderer-assets.ts";
 import {
 	createTitleBarOverlay,
 	createWindowTitleBarOptions,
@@ -3524,8 +3525,7 @@ async function createMainWindow() {
 		// packaged bundle the renderer is shipped via `extraResources` to
 		// <app>/Contents/Resources/app/renderer/dist (see
 		// apps/desktop/electron-builder.yml).
-		const rendererIndex = Path.join(rendererDistDir(), "index.html");
-		void mainWindow.loadFile(rendererIndex);
+		void mainWindow.loadURL("zuse://app/index.html");
 	}
 
 	mainWindow.on("closed", () => {
@@ -3666,6 +3666,8 @@ const registerZuseProtocol = (): void => {
 
 	const handleAssetRequest = async (request: Request) => {
 		const url = new URL(request.url);
+		if (url.host === "app")
+			return serveRendererAsset(rendererDistDir(), request);
 		if (url.host === SITE_FAVICON_HOST) {
 			return fetchSiteFavicon(url.pathname.slice(1), (input, init) =>
 				net.fetch(input, init),

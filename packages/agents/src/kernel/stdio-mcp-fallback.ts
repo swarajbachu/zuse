@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
-import { basename, sep } from "node:path";
+import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
+import { unpackedPath } from "@zuse/utils/unpacked-path";
 
 export interface StdioMcpFallbackOptions {
 	readonly command: string;
@@ -22,10 +23,7 @@ const childPath = (): string => {
 	const bundled = fileURLToPath(
 		new URL("../drivers/acp/app-mcp-proxy-child.cjs", import.meta.url),
 	);
-	const unpacked = bundled.replace(
-		`${sep}app.asar${sep}`,
-		`${sep}app.asar.unpacked${sep}`,
-	);
+	const unpacked = unpackedPath(bundled);
 	if (existsSync(unpacked)) return unpacked;
 	if (existsSync(bundled)) return bundled;
 	return fileURLToPath(

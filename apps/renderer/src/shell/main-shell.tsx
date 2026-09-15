@@ -1,3 +1,9 @@
+const ExtensionWorkspacePanelHost = lazy(() =>
+	import("../lib/extension-surfaces.tsx").then((module) => ({
+		default: module.ExtensionWorkspacePanelHost,
+	})),
+);
+
 import { SurfaceFallback } from "./surface-fallback.tsx";
 import "@zuse/i18n/english/shell";
 
@@ -731,6 +737,20 @@ export function MainShell() {
 										projectName={
 											selectedFolder?.name ?? "No repository selected"
 										}
+									/>
+								</Suspense>
+							)}
+						</div>
+						<div
+							hidden={activeMainTab !== "extension"}
+							className="flex min-h-0 flex-1 flex-col"
+						>
+							{activeMainTab === "extension" && (
+								<Suspense fallback={<SurfaceFallback />}>
+									<ExtensionWorkspacePanelHost
+										projectId={selectedFolderId}
+										workspacePath={selectedFolder?.path ?? null}
+										sessionId={selectedSessionId}
 									/>
 								</Suspense>
 							)}

@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "midnight-ocean",
+	"name": "Midnight Ocean",
+	"description": "A deep navy theme with sea-glass accents. Install, then select it under Extension themes.",
+	"version": "0.1.0",
+	"client": "index.client.ts",
+	"zuseApi": "^1.0.0",
+	"contributions": ["theme"],
+	"capabilities": ["themes"],
+	"publisher": {
+		"name": "Zuse"
+	},
+	"homepage": "https://zuse.sh/extensions"
+}

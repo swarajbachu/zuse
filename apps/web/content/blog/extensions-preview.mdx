@@ -1,0 +1,45 @@
+---
+title: "Previewing three project tools for Zuse"
+description: "Turn test failures, team procedures, and TODO comments into deliberate context for your next agent task."
+date: "2026-09-13"
+timeToRead: "3 min read"
+authorName: "Zuse team"
+authorRole: "Product notes"
+authorAvatar: "/app-icon.png"
+previewImage: "/extensions/demos/test-reports.png"
+labels: [{ name: "Extensions Preview", hex: "#84CC16" }]
+---
+
+# Bring your project’s tools into Zuse
+
+**Release preparation:** public catalog installation is pending signing, SDK publication, and packaged desktop verification. The demonstrations below show working unsigned Linux desktop-package workflows with local fixture data.
+
+A failing test, a team procedure, and an unfinished comment can all be useful context for the next task. Zuse Extensions Preview brings these workflows into workspace tabs so you can decide exactly what reaches your agent.
+
+## Failed tests → a focused prompt
+
+Test Reports reads an existing local JUnit XML report. Browse failures, errors, and skipped tests, inspect a specific failure, then attach it to your conversation. Ask the agent to fix that failure and run the relevant tests. The extension itself does not run tests.
+
+![A failed checkout test selected in Zuse Test Reports](/extensions/demos/test-reports.png)
+
+## Team procedure → a contextual task
+
+Project Playbook browses sections from repository Markdown. Select the architecture note or recovery checklist that applies to your task. The attachment includes the source path and section line. Your documents remain unchanged, and browsing does not inject them into prompts.
+
+![The Recovery procedure selected in Project Playbook](/extensions/demos/project-playbook.png)
+
+## TODO comments → actionable work
+
+Code Follow-ups scans workspace text on demand for TODO and FIXME comment patterns. Group findings by file or tag and inspect the surrounding code. Select a small related set, attach it, and ask the agent to implement the work.
+
+![A refund follow-up with its source context](/extensions/demos/code-follow-ups.png)
+
+## One tool, two, or all three
+
+Each extension has its own identity, permissions, version, process, and lifecycle. There is no automatic installation. Authors can build additional tools with the versioned SDK and shared workspace-file and attachment APIs.
+
+Browsing happens locally. You preview and select text, attach a snapshot, and send through your ordinary composer. Only submitting the conversation sends that selected context to your chosen agent under its normal behavior.
+
+Extensions are trusted, unsandboxed code: capabilities are not an operating-system sandbox. This preview is for local desktop workspaces. Agent plugins, authenticated service integrations, ACP catalogs, cloud execution, and mobile extension panels are separate future releases.
+
+[Watch the three demonstrations](/extensions) or [read the guides](https://docs.zuse.sh/extensions).

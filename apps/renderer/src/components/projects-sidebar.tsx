@@ -1,5 +1,46 @@
 import { isInputComposing } from "../lib/input-composition.ts";
 import "@zuse/i18n/english/projects";
+
+function ExtensionSidebarItems() {
+	const extensions = useExtensionContributions();
+	const items = extensions.flatMap((extension) => [
+		...extension.contributions.sidebarItems.map((item) => ({
+			id: `surface:${item.id}`,
+			title: item.title,
+			extensionId: extension.extensionId,
+			event: "zuse:extension-open-surface",
+			detail: { extensionId: extension.extensionId, surfaceId: item.surfaceId },
+		})),
+		...extension.contributions.workspacePanels.map((panel) => ({
+			id: `panel:${panel.id}`,
+			title: panel.title,
+			extensionId: extension.extensionId,
+			event: "zuse:extension-open-workspace-panel",
+			detail: { extensionId: extension.extensionId, panelId: panel.id },
+		})),
+	]);
+	if (items.length === 0) return null;
+	return (
+		<div className="flex flex-col gap-0.5 border-t border-sidebar-border/40 px-1.5 py-1">
+			{items.map((item) => (
+				<button
+					key={`${item.extensionId}:${item.id}`}
+					type="button"
+					className="flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+					onClick={() =>
+						window.dispatchEvent(
+							new CustomEvent(item.event, { detail: item.detail }),
+						)
+					}
+				>
+					<HugeiconsIcon icon={ServerStack01Icon} className="size-4 shrink-0" />
+					<span className="truncate">{item.title}</span>
+				</button>
+			))}
+		</div>
+	);
+}
+
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import {
 	type Chat,
@@ -71,6 +112,7 @@ import { displayPath } from "~/lib/display-path";
 import { activeSessionById } from "~/lib/environment-entities.ts";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "~/lib/environment-permissions-client-bus.ts";
+import { useExtensionContributions } from "~/lib/extension-registry.tsx";
 import { formatError } from "~/lib/format-error.ts";
 import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
@@ -658,6 +700,7 @@ export function ProjectsSidebar() {
 					</>
 				)}
 			</ul>
+			<ExtensionSidebarItems />
 			<SidebarFooter />
 			{organize.groupDialog !== null ? (
 				<Suspense fallback={null}>

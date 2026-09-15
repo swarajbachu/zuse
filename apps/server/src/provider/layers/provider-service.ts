@@ -26,6 +26,7 @@ import {
 } from "@zuse/analytics";
 import {
 	AgentAvailability,
+	AgentEvent,
 	type AgentSessionId,
 	AgentSessionNotFoundError,
 	AgentSessionStartError,
@@ -35,14 +36,24 @@ import {
 	type PermissionDecision,
 	type PermissionKind,
 	type ProviderEventEnvelope,
-	type ProviderId,
+	ProviderId,
+	ThreadGoal,
 	type ThreadGoalSetInput,
 } from "@zuse/contracts";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
-import { Cache, Effect, FileSystem, Layer, Semaphore, Stream } from "effect";
+import {
+	Cache,
+	Effect,
+	FileSystem,
+	Layer,
+	Schema,
+	Semaphore,
+	Stream,
+} from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { AnalyticsService } from "../../analytics/services/analytics-service.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
+import { ExtensionService } from "../../extension/services/extension-service.ts";
 import {
 	legacyAppOwnedCodexServerNames,
 	readNativeServers,
@@ -102,6 +113,7 @@ export const ProviderServiceLive = Layer.effect(
 		const configStore = yield* ConfigStoreService;
 		const mcp = yield* McpService;
 		const analytics = yield* AnalyticsService;
+		const extensions = yield* ExtensionService;
 		const runtime = yield* Effect.context<never>();
 		const registry = makeProviderSessionRegistry<
 			AgentSessionId,
@@ -221,7 +233,67 @@ export const ProviderServiceLive = Layer.effect(
 										status: "warning",
 										statusMessage: validation.warning,
 									});
-					return [...legacyProviders, cursorAvailability];
+					const extensionProviders = yield* extensions.providers();
+					const extensionAvailability = yield* Effect.forEach(
+						extensionProviders,
+						(descriptor) =>
+							Effect.promise(async () => {
+								const providerId = Schema.decodeUnknownSync(ProviderId)(
+									descriptor.id,
+								);
+								try {
+									const probe = (await Effect.runPromise(
+										extensions.invokeProvider(descriptor.id, "probe", {}),
+									)) as {
+										readonly available?: boolean;
+										readonly authenticated?: boolean;
+										readonly version?: string;
+										readonly message?: string;
+									};
+									return AgentAvailability.make({
+										providerId,
+										displayName: descriptor.displayName,
+										runtimeKind: "extension",
+										runtimeAvailable: probe.available === true,
+										cliInstalled: false,
+										cliVersion: probe.version,
+										cliLoggedIn: probe.authenticated === true,
+										hasApiKey: probe.authenticated === true,
+										authStatus:
+											probe.authenticated === true
+												? "authenticated"
+												: "unauthenticated",
+										status:
+											probe.available === true && probe.authenticated === true
+												? "ready"
+												: "warning",
+										statusMessage: probe.message,
+										lastCheckedAt: new Date(),
+									});
+								} catch (cause) {
+									return AgentAvailability.make({
+										providerId,
+										displayName: descriptor.displayName,
+										runtimeKind: "extension",
+										runtimeAvailable: false,
+										cliInstalled: false,
+										cliLoggedIn: false,
+										hasApiKey: false,
+										authStatus: "unknown",
+										status: "error",
+										statusMessage:
+											cause instanceof Error ? cause.message : String(cause),
+										lastCheckedAt: new Date(),
+									});
+								}
+							}),
+						{ concurrency: 4 },
+					);
+					return [
+						...legacyProviders,
+						cursorAvailability,
+						...extensionAvailability,
+					];
 				}),
 		});
 
@@ -377,7 +449,156 @@ export const ProviderServiceLive = Layer.effect(
 							? managedCredential.secret
 							: null;
 					let providerHandle: ProviderSessionHandle;
-					if (input.providerId === "gemini") {
+					const extensionDescriptor = (yield* extensions.providers()).find(
+						(provider) => provider.id === input.providerId,
+					);
+					if (extensionDescriptor !== undefined) {
+						if (
+							resumeCursor !== null &&
+							!extensionDescriptor.capabilities.includes("resume")
+						) {
+							return yield* Effect.fail(
+								new AgentSessionStartError({
+									providerId: input.providerId,
+									reason: "This extension provider does not support resume.",
+								}),
+							);
+						}
+						if (
+							input.forkFromResume === true &&
+							!extensionDescriptor.capabilities.includes("fork")
+						) {
+							return yield* Effect.fail(
+								new AgentSessionStartError({
+									providerId: input.providerId,
+									reason: "This extension provider does not support fork.",
+								}),
+							);
+						}
+						yield* extensions
+							.invokeProvider(extensionDescriptor.id, "start", {
+								input: {
+									sessionId,
+									projectId: input.folderId,
+									cwd,
+									model: input.model ?? null,
+									resumeCursor,
+									forkFromResume: input.forkFromResume ?? false,
+									permissionMode: input.permissionMode ?? "default",
+									modelOptions: input.modelOptions ?? {},
+								},
+							})
+							.pipe(
+								Effect.mapError(
+									(cause) =>
+										new AgentSessionStartError({
+											providerId: input.providerId,
+											reason: cause.reason,
+										}),
+								),
+							);
+						providerHandle = {
+							events: extensions.providerEvents(sessionId).pipe(
+								Stream.map((event) => {
+									try {
+										return Schema.decodeUnknownSync(AgentEvent)(event);
+									} catch (cause) {
+										return {
+											_tag: "Error" as const,
+											message: `Extension emitted an invalid provider event: ${String(cause)}`,
+										};
+									}
+								}),
+							),
+							send: (text) =>
+								extensions
+									.invokeProvider(extensionDescriptor.id, "send", {
+										sessionId,
+										text,
+									})
+									.pipe(Effect.asVoid, Effect.orDie),
+							interrupt: () =>
+								extensions
+									.invokeProvider(extensionDescriptor.id, "interrupt", {
+										sessionId,
+									})
+									.pipe(Effect.asVoid, Effect.orDie),
+							close: () =>
+								extensions
+									.invokeProvider(extensionDescriptor.id, "close", {
+										sessionId,
+									})
+									.pipe(Effect.asVoid, Effect.orDie),
+							setPermissionMode: () => Effect.void,
+							answerQuestion: (itemId, answers) =>
+								extensionDescriptor.capabilities.includes("answerQuestion")
+									? extensions
+											.invokeProvider(
+												extensionDescriptor.id,
+												"answerQuestion",
+												{ sessionId, itemId, answers },
+											)
+											.pipe(Effect.asVoid, Effect.orDie)
+									: Effect.void,
+							...(extensionDescriptor.capabilities.includes("planApproval")
+								? {
+										respondToPlan: (itemId, outcome, feedback) =>
+											extensions
+												.invokeProvider(
+													extensionDescriptor.id,
+													"respondToPlan",
+													{ sessionId, itemId, outcome, feedback },
+												)
+												.pipe(Effect.asVoid, Effect.orDie),
+									}
+								: {}),
+							...(extensionDescriptor.capabilities.includes("mcp")
+								? {
+										updateMcpServers: (servers) =>
+											extensions
+												.invokeProvider(
+													extensionDescriptor.id,
+													"updateMcpServers",
+													{ sessionId, servers },
+												)
+												.pipe(Effect.asVoid, Effect.orDie),
+									}
+								: {}),
+							...(extensionDescriptor.capabilities.includes("goals")
+								? {
+										getGoal: () =>
+											extensions
+												.invokeProvider(extensionDescriptor.id, "getGoal", {
+													sessionId,
+												})
+												.pipe(
+													Effect.map((goal) =>
+														goal === null
+															? null
+															: Schema.decodeUnknownSync(ThreadGoal)(goal),
+													),
+													Effect.orDie,
+												),
+										setGoal: (goal: ThreadGoalSetInput) =>
+											extensions
+												.invokeProvider(extensionDescriptor.id, "setGoal", {
+													sessionId,
+													goal,
+												})
+												.pipe(
+													Effect.map(Schema.decodeUnknownSync(ThreadGoal)),
+													Effect.orDie,
+												),
+										clearGoal: () =>
+											extensions
+												.invokeProvider(extensionDescriptor.id, "clearGoal", {
+													sessionId,
+												})
+												.pipe(Effect.asVoid, Effect.orDie),
+									}
+								: {}),
+						};
+					} else if (input.providerId === "gemini") {
 						// Same story as Grok: hand the driver the user's installed
 						// `gemini` binary. Surface a clean install message rather than
 						// letting spawn fail with ENOENT inside the driver.
@@ -672,7 +893,7 @@ export const ProviderServiceLive = Layer.effect(
 							orchestrationTools,
 							userMcpServers,
 						).pipe(Effect.provideService(AttachmentService, attachmentService));
-					} else {
+					} else if (input.providerId === "codex") {
 						// Same story as Claude: we don't ship the SDK's bundled native
 						// CLI, so hand it the user's installed `codex` binary. Surface a
 						// clean install message if it's missing instead of the SDK's
@@ -749,6 +970,13 @@ export const ProviderServiceLive = Layer.effect(
 								registry.invalidateIfCurrent(sessionId, generation);
 							},
 						).pipe(Effect.provideService(AttachmentService, attachmentService));
+					} else {
+						return yield* Effect.fail(
+							new AgentSessionStartError({
+								providerId: input.providerId,
+								reason: `Provider is unavailable or its extension is disabled: ${input.providerId}`,
+							}),
+						);
 					}
 					const handle = yield* makeTurnScopedSessionHandle(
 						providerHandle,
@@ -1057,20 +1285,20 @@ export const ProviderServiceLive = Layer.effect(
 					),
 				),
 			getGoal: (sessionId) =>
-				Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-					providerId === "codex" || providerId === "grok"
+				Effect.flatMap(lookup(sessionId), ({ handle }) =>
+					"getGoal" in handle && typeof handle.getGoal === "function"
 						? (handle as unknown as GoalCapableHandle).getGoal()
 						: Effect.fail(new AgentSessionNotFoundError({ sessionId })),
 				),
 			setGoal: (sessionId, goal: ThreadGoalSetInput) =>
-				Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-					providerId === "codex" || providerId === "grok"
+				Effect.flatMap(lookup(sessionId), ({ handle }) =>
+					"setGoal" in handle && typeof handle.setGoal === "function"
 						? (handle as unknown as GoalCapableHandle).setGoal(goal)
 						: Effect.fail(new AgentSessionNotFoundError({ sessionId })),
 				),
 			clearGoal: (sessionId) =>
-				Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-					providerId === "codex" || providerId === "grok"
+				Effect.flatMap(lookup(sessionId), ({ handle }) =>
+					"clearGoal" in handle && typeof handle.clearGoal === "function"
 						? (handle as unknown as GoalCapableHandle).clearGoal()
 						: Effect.fail(new AgentSessionNotFoundError({ sessionId })),
 				),

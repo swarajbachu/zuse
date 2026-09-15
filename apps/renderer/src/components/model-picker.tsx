@@ -9,6 +9,7 @@ import type {
 	SessionId,
 } from "@zuse/contracts";
 import {
+	modelsForProvider as catalogModelsForProvider,
 	catalogProviderIds,
 	findModelDescriptor,
 	isModelVisible,
@@ -35,6 +36,7 @@ import {
 	useState,
 } from "react";
 import { overlaySurface } from "~/components/ui/overlay-surface";
+import { useExtensionCatalog } from "~/lib/extension-client-bus.ts";
 import { isModelPickerProviderVisible } from "~/lib/model-picker-availability";
 import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks.ts";
 import { useSettingsStore } from "~/lib/settings-client-bus.ts";
@@ -58,6 +60,18 @@ const PROVIDER_CHIP_LABEL: Record<ProviderId, string> = {
 	opencode2: "OpenCode 2",
 	kiro: "Kiro",
 	pi: "Pi",
+};
+
+const useProviderDisplayName = (providerId: ProviderId | null): string => {
+	const catalog = useExtensionCatalog();
+	if (providerId === null) return "All";
+	return (
+		PROVIDER_LABEL[providerId] ??
+		(
+			catalog.knownProviders ?? catalog.items.flatMap((item) => item.providers)
+		).find((provider) => provider.id === providerId)?.displayName ??
+		providerId
+	);
 };
 
 interface ModelPickerEntry {
@@ -145,7 +159,7 @@ export function ModelPicker(props: ModelPickerProps) {
 
 	const providerId = isDefault ? defaultProviderId : props.providerId;
 	const currentModel = isDefault
-		? defaultModelByProvider[providerId]
+		? (defaultModelByProvider[providerId] ?? "default")
 		: props.currentModel;
 
 	// Setters
@@ -189,6 +203,16 @@ export function ModelPicker(props: ModelPickerProps) {
 	);
 	const catalog = useModelCatalogStore((s) => s.catalog);
 	const ensureCatalog = useModelCatalogStore((s) => s.ensureLoaded);
+	const extensionCatalog = useExtensionCatalog();
+	const extensionProviderById = useMemo(
+		() =>
+			new Map(
+				extensionCatalog.items.flatMap((item) =>
+					item.providers.map((provider) => [provider.id, provider] as const),
+				),
+			),
+		[extensionCatalog.items],
+	);
 
 	let userMessageCount = 0;
 	if (!isDefault) {
@@ -246,13 +270,16 @@ export function ModelPicker(props: ModelPickerProps) {
 		(
 			pid: ProviderId,
 		): ReadonlyArray<Pick<ModelOption, "id" | "label" | "badgeLabel">> => {
-			const provider = catalog.providers[pid];
+			const extensionProvider = extensionProviderById.get(pid);
+			const providerModels =
+				extensionProvider?.models ?? catalogModelsForProvider(catalog, pid);
 			const selectedId = pid === providerId ? currentModel : null;
 			// Authoritative live inventories (Codex, Cursor, Kiro, OpenCode) mark
 			// curated models the account can't use as unavailable; keep the
 			// current selection visible so the user can see what they're on.
-			const available = provider.models.filter(
-				(m) => m.available || m.id === selectedId,
+			const available = providerModels.filter(
+				(m) =>
+					!("available" in m) || m.available !== false || m.id === selectedId,
 			);
 			// OpenCode ids are `<provider>/<model>`. The provider manager lets the
 			// user hide connected providers / individual models from the picker;
@@ -281,9 +308,11 @@ export function ModelPicker(props: ModelPickerProps) {
 				...visible.map((m) => ({
 					id: m.id,
 					label: m.label,
-					...(m.badgeLabel !== undefined ? { badgeLabel: m.badgeLabel } : {}),
+					...("badgeLabel" in m && m.badgeLabel !== undefined
+						? { badgeLabel: m.badgeLabel }
+						: {}),
 				})),
-				...customModelIdsByProvider[pid]
+				...(customModelIdsByProvider[pid] ?? [])
 					.filter((modelId) => !existingIds.has(modelId))
 					.map((modelId) => ({ id: modelId, label: modelId })),
 			];
@@ -292,6 +321,7 @@ export function ModelPicker(props: ModelPickerProps) {
 			catalog,
 			currentModel,
 			customModelIdsByProvider,
+			extensionProviderById,
 			opencodeProviderVisible,
 			opencodeModelVisibleByProvider,
 			opencode2ProviderVisible,
@@ -307,7 +337,11 @@ export function ModelPicker(props: ModelPickerProps) {
 	}, [availability, uiMessage]);
 
 	const pickableProviders = useMemo<ReadonlyArray<ProviderId>>(() => {
-		return catalogProviderIds(catalog).filter((pid) => {
+		const candidates = [
+			...catalogProviderIds(catalog),
+			...extensionProviderById.keys(),
+		];
+		return [...new Set(candidates)].filter((pid) => {
 			// Settings must keep the selected provider's catalog editable even when
 			// its local runtime is signed out. Session pickers remain restricted to
 			// providers that can actually start a session.
@@ -322,11 +356,14 @@ export function ModelPicker(props: ModelPickerProps) {
 		});
 	}, [
 		catalog,
+		extensionProviderById,
 		isDefault,
 		providerId,
 		providerEnabled,
 		availabilityById,
 		availabilityLoaded,
+		availability,
+		extensionProviderById,
 		uiMessage,
 	]);
 	const allModels = useMemo<ModelPickerEntry[]>(() => {
@@ -365,7 +402,9 @@ export function ModelPicker(props: ModelPickerProps) {
 					providerId: pid,
 					modelId: m.id,
 					label: m.label,
-					...(m.badgeLabel !== undefined ? { badgeLabel: m.badgeLabel } : {}),
+					...("badgeLabel" in m && m.badgeLabel !== undefined
+						? { badgeLabel: m.badgeLabel }
+						: {}),
 					...(contextWindowLabel !== undefined ? { contextWindowLabel } : {}),
 				});
 			}
@@ -585,14 +624,18 @@ export function ModelPicker(props: ModelPickerProps) {
 								count={totalCount}
 							/>
 							{pickableProviders.map((pid) => {
-								const live = catalog.providers[pid].live.status === "ok";
+								const live = catalog.providers[pid]?.live.status === "ok";
 								return (
 									<ProviderSidebarItem
 										key={pid}
 										active={scope === pid}
 										onClick={() => setScope(pid)}
 										providerId={pid}
-										label={PROVIDER_CHIP_LABEL[pid]}
+										label={
+											PROVIDER_CHIP_LABEL[pid] ??
+											extensionProviderById.get(pid)?.displayName ??
+											pid
+										}
 										count={countByProvider.get(pid) ?? 0}
 										live={live}
 									/>
@@ -740,10 +783,11 @@ function SearchField({
 	totalCount: number;
 	scope: Scope;
 }) {
+	const providerName = useProviderDisplayName(scope === "all" ? null : scope);
+	const inputRef = useRef<HTMLInputElement | null>(null);
+	useEffect(() => inputRef.current?.focus(), []);
 	const placeholder =
-		scope === "all"
-			? `Search ${totalCount} models`
-			: `in ${PROVIDER_CHIP_LABEL[scope]}…`;
+		scope === "all" ? `Search ${totalCount} models` : `in ${providerName}…`;
 	return (
 		<div className="flex h-8 items-center gap-2 rounded-md border bg-background px-2.5 focus-within:border-foreground/60 focus-within:ring-2 focus-within:ring-primary/30">
 			<HugeiconsIcon
@@ -751,6 +795,7 @@ function SearchField({
 				className="size-3.5 text-muted-foreground"
 			/>
 			<input
+				ref={inputRef}
 				type="text"
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
@@ -819,14 +864,13 @@ function ProviderSectionHeader({
 	count: number;
 	current: boolean;
 }) {
+	const providerName = useProviderDisplayName(providerId);
 	const { message: uiMessage } = useUiMessages(["providers"]);
 
 	return (
 		<div className="flex items-center gap-2 px-2 pt-1.5 pb-1 text-xs">
 			<ProviderIcon providerId={providerId} className="size-3.5" />
-			<span className="font-medium text-foreground">
-				{PROVIDER_LABEL[providerId]}
-			</span>
+			<span className="font-medium text-foreground">{providerName}</span>
 			{current && (
 				<span className="rounded-[0.25rem] bg-primary/35 px-1.5 py-px text-[9px] font-semibold text-primary-foreground uppercase tracking-wide dark:bg-primary/15 dark:text-primary">
 					{uiMessage("providers:model_picker_current")}
@@ -872,6 +916,7 @@ function ModelRow({
 	shortcut?: number | null;
 	showProvider?: boolean;
 }) {
+	const providerName = useProviderDisplayName(entry.providerId);
 	const { message: uiMessage } = useUiMessages(["providers"]);
 
 	const isActive =
@@ -930,7 +975,7 @@ function ModelRow({
 				</span>
 				{showProvider && (
 					<span className="truncate text-[11px] text-muted-foreground">
-						{PROVIDER_LABEL[entry.providerId]}
+						{providerName}
 					</span>
 				)}
 			</span>

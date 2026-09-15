@@ -76,7 +76,7 @@ export function CliUpgradeBanner({
 	};
 
 	const onOpenDocs = () => {
-		void openExternal(docsUrl);
+		if (docsUrl !== undefined) void openExternal(docsUrl);
 	};
 
 	return (

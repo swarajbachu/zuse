@@ -12,6 +12,7 @@
 		"remote",
 		"mobile",
 		"serve",
+		"extensions",
 		"reference"
 	]
 }

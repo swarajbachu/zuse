@@ -21,11 +21,11 @@ import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import {
 	type AgentEvent,
 	type AgentSessionId,
+	type BuiltinProviderId,
 	DEFAULT_RUNTIME_MODE,
 	type FolderId,
 	type PermissionDecision,
 	type PermissionKind,
-	type ProviderId,
 	type RuntimeMode,
 	type StartSessionInput,
 } from "@zuse/contracts";
@@ -33,7 +33,7 @@ import { Effect, Fiber, Layer, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
 type LiveProvider = {
-	readonly providerId: ProviderId;
+	readonly providerId: BuiltinProviderId;
 	readonly binary: string;
 	readonly envToggle: string;
 	readonly apiKeyEnv?: string;

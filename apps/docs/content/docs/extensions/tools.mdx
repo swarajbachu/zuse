@@ -1,0 +1,42 @@
+---
+title: Three tools for project context
+description: Concrete workflows for tests, team procedures, and unfinished code.
+section: extensions
+order: 112
+platforms: [desktop]
+lastVerified: Extensions Preview (API 1.1)
+---
+
+## Test Reports: failed tests → focused prompt
+
+Run your existing test command outside this extension and save a JUnit XML report inside the workspace. Open **Test Reports**, select the report, and choose **Read file**. Filter by a test name, status, or failure text. Select a failure to inspect the suite, test, report path, and error details. Check the failures you want and choose **Attach selected**.
+
+In the ordinary composer, write: “Fix these checkout failures. Preserve the existing payment API and run the relevant tests.” Review the attached text before sending.
+
+The extension reads reports; it does not run tests. It supports multiple suites, failed/error/skipped/passed cases, and empty suites. Malformed reports and reports containing DTD/entity declarations show an error. Files are limited to 1.5 MB; displayed result sets are limited to 500 entries with an explicit truncation message.
+
+## Project Playbook: team procedure → contextual task
+
+Keep architecture notes, runbooks, and checklists in repository Markdown. Open **Project Playbook**, select a `.md` or `.markdown` document, and choose **Read file**. Browse the sections, inspect their text and source line numbers, and select only the sections relevant to the task.
+
+Attach the recovery checklist, then ask: “Investigate this regression using our recovery procedure. Explain the proposed change before editing.” No document is modified and nothing is added to prompts until you attach it. HTML stays inert in the text preview.
+
+## Code Follow-ups: TODO comments → actionable work
+
+Open **Code Follow-ups** from a workspace tab or the command palette, then select **Scan workspace**. Filter by TODO/FIXME, a path, or a phrase. Each finding includes its source line and surrounding code. Select a small related set and attach it before asking: “Implement these refund follow-ups and verify the edge cases.”
+
+Scanning is on demand, uses common comment markers, respects `.gitignore` and `.zuse-ignore`, and skips symlinks, binaries, generated dependencies, oversized files, minified JavaScript, maps, and known lockfiles. It is a comment-pattern scanner, not a language parser. Review each finding before assigning work. Progress is shown; Cancel stops the request and retains completed results. A scan visits at most 10,000 eligible files and returns at most 500 findings; a limit is reported explicitly.
+
+## Use the attachment picker
+
+After loading results in a tool's tab, choose **Attach from extension** in a conversation. Select the extension, search its loaded results, preview one, and attach it. The picker does not silently rescan the repository.
+
+Changing workspaces clears the visible selection and cancels pending requests. Already attached text is an immutable snapshot: changing or deleting a source file does not rewrite the context you selected. Attachments are sent only when you submit the composer.
+
+## Theme extensions
+
+**Midnight Ocean** adds a deep navy dark theme with sea-glass accents. **Warm Paper** adds a light ivory theme with copper accents. Both are independently installable from the staging marketplace.
+
+After installation, click **Use Midnight Ocean** or **Use Warm Paper** beside its installed entry in **Settings → Extensions**. Installing a theme does not automatically apply it. Disabling or removing the selected theme restores the built-in appearance. These extensions only register colors; they do not read workspace files or send context to an agent.
+
+Use the marketplace search field to find a theme or tool by name, description, publisher, or contribution type. Installed entries show **Installed** immediately; **Update** appears when the catalog offers a different release.

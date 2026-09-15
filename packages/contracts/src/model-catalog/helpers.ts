@@ -115,7 +115,7 @@ export const defaultModelFor = (
 		models.find(usable) ??
 		models[0];
 	if (pick !== undefined) return pick.id;
-	if (catalog === (BUNDLED_MODEL_CATALOG as ModelCatalogView)) return "";
+	if (catalog === (BUNDLED_MODEL_CATALOG as ModelCatalogView)) return "default";
 	return defaultModelFor(BUNDLED_MODEL_CATALOG, providerId);
 };
 

@@ -13,6 +13,7 @@ import {
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	GitCompareIcon,
+	PackageIcon,
 	PencilEdit01Icon,
 	SquareLock01Icon,
 	TaskDone01Icon,
@@ -29,6 +30,7 @@ import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import { closeChatTab } from "../lib/close-chat-tab.ts";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
+import { useExtensionContributions } from "../lib/extension-registry.tsx";
 import { selectAuthenticatedProvider } from "../lib/model-picker-availability.ts";
 import {
 	type RendererSessionTimeline,
@@ -102,6 +104,17 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 	const fileDirty = useUiStore((s) => s.fileDirty);
 	const changesTabOpen = useUiStore((s) => s.changesTabOpen);
 	const closeChangesTab = useUiStore((s) => s.closeChangesTab);
+	const extensionPanel = useUiStore((s) => s.extensionPanel);
+	const closeExtensionPanel = useUiStore((s) => s.closeExtensionPanel);
+	const extensions = useExtensionContributions();
+	const extensionPanelTitle = useMemo(() => {
+		if (extensionPanel === null) return null;
+		return extensions
+			.find((extension) => extension.extensionId === extensionPanel.extensionId)
+			?.contributions.workspacePanels.find(
+				(panel) => panel.id === extensionPanel.panelId,
+			)?.title;
+	}, [extensionPanel, extensions]);
 
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const { sessionsByProject } = useActiveEnvironmentEntities();
@@ -217,6 +230,20 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 							onClose={closeFileTab}
 						/>
 					)}
+					{extensionPanel !== null && (
+						<FileTabButton
+							active={activeMainTab === "extension"}
+							name={extensionPanelTitle ?? extensionPanel.panelId}
+							path={`${extensionPanel.extensionId} extension panel`}
+							dirty={false}
+							icon={
+								<HugeiconsIcon icon={PackageIcon} className="size-4 shrink-0" />
+							}
+							closeLabel="Close extension panel"
+							onClick={() => setActiveMainTab("extension")}
+							onClose={closeExtensionPanel}
+						/>
+					)}
 					{tabs.length === 0 && (
 						<TabButton
 							active={activeMainTab === "chat"}
@@ -237,7 +264,7 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 							session.model,
 						);
 						const tooltip = modelLabel
-							? `${session.title} — ${PROVIDER_LABEL[session.providerId]} · ${modelLabel}`
+							? `${session.title} — ${PROVIDER_LABEL[session.providerId] ?? session.providerId} · ${modelLabel}`
 							: session.title;
 						return (
 							<ChatTabButton

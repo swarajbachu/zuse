@@ -1,3 +1,4 @@
+import { providerLabel as getProviderLabel } from "@zuse/contracts";
 import "@zuse/i18n/english/settings";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -26,12 +27,7 @@ import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { PermissionsInspector } from "./permissions-inspector.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
-import {
-	PROVIDER_LABEL,
-	RadioCheck,
-	SettingsGroup,
-	SettingsRow,
-} from "./settings-page.tsx";
+import { RadioCheck, SettingsGroup, SettingsRow } from "./settings-page.tsx";
 import { Button } from "./ui/button.tsx";
 import { Switch } from "./ui/switch.tsx";
 import { Textarea } from "./ui/textarea.tsx";
@@ -198,7 +194,7 @@ function ProviderOverrideSection({
 	const globalModel = globalModelByProvider[globalProviderId];
 	const catalog = useModelCatalogStore((s) => s.catalog);
 	const globalModelLabel =
-		findModelDescriptor(catalog, globalProviderId, globalModel)?.label ??
+		findModelDescriptor(catalog, globalProviderId, globalModel ?? "")?.label ??
 		globalModel ??
 		"—";
 	const isOverridden = defaultProviderId !== null || defaultModel !== null;
@@ -212,7 +208,7 @@ function ProviderOverrideSection({
 
 	const firstModelFor = (pid: ProviderId): string | null =>
 		visibleModelsForProvider(catalog, pid, modelEnabledByProvider)[0]?.id ??
-		catalog.providers[pid].models[0]?.id ??
+		catalog.providers[pid]?.models[0]?.id ??
 		null;
 
 	const onToggle = (next: boolean) => {
@@ -278,14 +274,13 @@ function ProviderOverrideSection({
 							>
 								<button
 									type="button"
-									role="radio"
-									aria-checked={selected}
+									aria-pressed={selected}
 									onClick={() => onPickProvider(pid)}
 									className="group flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/40"
 								>
 									<ProviderIcon providerId={pid} className="size-4 shrink-0" />
 									<span className="flex-1 truncate text-xs font-medium text-foreground">
-										{PROVIDER_LABEL[pid]}
+										{getProviderLabel(pid)}
 									</span>
 									<RadioCheck active={selected} />
 								</button>
@@ -298,7 +293,7 @@ function ProviderOverrideSection({
 											role="radiogroup"
 											aria-label={uiMessage(
 												"settings:settings_repository_model_for",
-												{ value1: String(PROVIDER_LABEL[pid]) },
+												{ value1: String(getProviderLabel(pid)) },
 											)}
 											className="flex flex-col"
 										>
@@ -308,8 +303,7 @@ function ProviderOverrideSection({
 													<button
 														key={m.id}
 														type="button"
-														role="radio"
-														aria-checked={isCurrentModel}
+														aria-pressed={isCurrentModel}
 														onClick={() => onPickModel(m.id)}
 														className="group flex items-center gap-2.5 py-1 text-left"
 													>
@@ -332,7 +326,7 @@ function ProviderOverrideSection({
 					<RichMessage
 						id="settings:settings_repository_inheriting_sentence"
 						values={{
-							value: PROVIDER_LABEL[globalProviderId],
+							value: getProviderLabel(globalProviderId),
 							globalModelLabel: globalModelLabel,
 						}}
 						components={{ part0: <span className="text-foreground" /> }}
@@ -382,8 +376,7 @@ function RuntimeModeOverrideSection({
 							<button
 								key={mode}
 								type="button"
-								role="radio"
-								aria-checked={selected}
+								aria-pressed={selected}
 								onClick={() => onChange(mode)}
 								className="group flex w-full items-start gap-2.5 border-b border-border/40 px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
 							>

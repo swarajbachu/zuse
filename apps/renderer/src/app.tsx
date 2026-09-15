@@ -21,7 +21,7 @@ import {
 import { AppearanceController } from "./lib/appearance.tsx";
 
 import { installClientBusOnlineBridge } from "./lib/client-bus-online.ts";
-
+import { ExtensionHostController } from "./lib/extension-registry.tsx";
 import { markRendererStartupMilestone } from "./lib/performance-marks.ts";
 
 import { installQueueOnlineRecovery } from "./lib/queue-recovery.ts";
@@ -31,6 +31,12 @@ import { getRpcClient } from "./lib/rpc-client.ts";
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
 
 import { useUiStore } from "./store/ui.ts";
+
+const ExtensionSurfaceHost = lazy(() =>
+	import("./lib/extension-surfaces.tsx").then((module) => ({
+		default: module.ExtensionSurfaceHost,
+	})),
+);
 
 const PrWatchController = lazy(() =>
 	import("./components/pr-watch-controller.tsx").then((module) => ({
@@ -90,7 +96,15 @@ export function App() {
 	const onboardingCompleted = useSettingsStore(
 		(state) => state.onboardingCompleted,
 	);
-	return <ReadyApp onboardingCompleted={onboardingCompleted} />;
+	return (
+		<>
+			<ExtensionHostController />
+			<Suspense fallback={null}>
+				<ExtensionSurfaceHost />
+			</Suspense>
+			<ReadyApp onboardingCompleted={onboardingCompleted} />
+		</>
+	);
 }
 
 function ReadyApp({

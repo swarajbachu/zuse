@@ -1,0 +1,32 @@
+name: Prepare signed extension release
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sign:
+    if: github.ref == 'refs/heads/main'
+    environment: extensions-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bunx vitest run packages/extension-host/test extensions/*/test
+      - name: Sign and verify against the desktop trust root
+        env:
+          SIGNING_KEY: ${{ secrets.EXTENSION_CATALOG_SIGNING_KEY }}
+        shell: bash
+        run: |
+          test -n "$SIGNING_KEY" || { echo 'Release signing credential is missing'; exit 1; }
+          key_file=$(mktemp)
+          trap 'rm -f "$key_file"' EXIT
+          chmod 600 "$key_file"
+          printf '%s' "$SIGNING_KEY" > "$key_file"
+          EXTENSION_SIGNING_KEY_FILE="$key_file" bun scripts/build-extensions.ts --sign
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-extensions
+          path: .context/extensions-release

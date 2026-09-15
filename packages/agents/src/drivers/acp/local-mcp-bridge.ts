@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createServer, type Server } from "node:http";
-import { basename, sep } from "node:path";
+import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
+import { unpackedPath } from "@zuse/utils/unpacked-path";
 import { Option, Schema } from "effect";
 
 type JsonObject = Record<string, unknown>;
@@ -60,10 +61,7 @@ const resolveChildScript = <Result>(
 	options: LocalMcpBridgeOptions<Result>,
 ): string => {
 	const bundled = fileURLToPath(options.bundledChildUrl);
-	const unpacked = bundled.replace(
-		`${sep}app.asar${sep}`,
-		`${sep}app.asar.unpacked${sep}`,
-	);
+	const unpacked = unpackedPath(bundled);
 	if (existsSync(unpacked)) return unpacked;
 	if (existsSync(bundled)) return bundled;
 	const source = fileURLToPath(options.sourceChildUrl);

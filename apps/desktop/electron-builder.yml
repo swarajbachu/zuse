@@ -66,9 +66,12 @@ extraResources:
 # app.asar → app.asar.unpacked when resolving them.
 asar: true
 asarUnpack:
+  - "node_modules/esbuild/**"
+  - "node_modules/@esbuild/**"
   - "**/*.node"
   - "dist-electron/browser-mcp-child.cjs"
   - "dist-electron/orchestration-mcp-child.cjs"
+  - "dist-electron/extension-process-child.cjs"
   # ssh spawns this ProxyCommand bridge outside Electron, so it must exist as
   # a real file on disk.
   - "dist-electron/ssh-bridge-child.cjs"
