@@ -546,13 +546,16 @@ export const providerAuthModeForAccountBuild = (
 
 const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 	accountId: string,
+	requestedProviderId?: string,
 ) {
 	const store = yield* CloudWorkspaceStore;
 	const apiConfiguration = yield* ApiConfiguration;
 	const sandboxProviders = yield* SandboxProviders;
-	// The account image is maintained on the default sandbox provider.
+	// Each provider owns its image; omitted selections retain the account default.
 	const provider = sandboxProviders.availableProviders.find(
-		(candidate) => candidate.providerId === sandboxProviders.defaultProviderId,
+		(candidate) =>
+			candidate.providerId ===
+			(requestedProviderId ?? sandboxProviders.defaultProviderId),
 	);
 	const projects = yield* store.listProjects(accountId);
 	const builds =
@@ -631,7 +634,13 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 							? ("outdated" as const)
 							: ("ready" as const);
 	const statusBuild = building ?? active ?? latest;
-	const repositories = accountImageRepositories(projects);
+	const repositories =
+		statusBuild === undefined
+			? accountImageRepositories(projects)
+			: storedBuildRepositories(
+					statusBuild,
+					accountImageRepositories(projects),
+				);
 	return {
 		state,
 		generation: active?.buildId,
@@ -920,6 +929,10 @@ const selectedProvider = Effect.fn("selectedCloudProvider")(function* (
 	}
 	if (available.length === 0)
 		return yield* Effect.fail(serviceUnavailable("cloud_provider_unavailable"));
+	const preferred = available.find(
+		(provider) => provider.providerId === providers.defaultProviderId,
+	);
+	if (preferred !== undefined) return preferred;
 	if (available.length === 1) return available[0] as (typeof available)[number];
 	return yield* Effect.fail(badRequest("cloud_provider_required"));
 });
@@ -1261,7 +1274,11 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	if (
 		project.state !== "ready" ||
 		accountBuild?.snapshotId === undefined ||
-		accountBuild.templateVersion !== provider.templateVersion
+		accountBuild.templateVersion !== provider.templateVersion ||
+		!storedBuildRepositories(
+			accountBuild,
+			accountImageRepositories([project]),
+		).some((repository) => repository.projectId === project.projectId)
 	)
 		return yield* Effect.fail(conflict("cloud_project_not_ready"));
 	const build = accountBuild;
@@ -3087,8 +3104,11 @@ export const routeCloudWorkspaceRequest = (
 			});
 		}
 
-		if (method === "GET" && path === ApiPaths.cloudAccountImage)
-			return json(yield* cloudAccountImage(principal.accountId));
+		if (method === "GET" && path === ApiPaths.cloudAccountImage) {
+			const requested = url.searchParams.get("providerId") ?? undefined;
+			if (requested !== undefined) yield* selectedProvider(requested);
+			return json(yield* cloudAccountImage(principal.accountId, requested));
+		}
 
 		if (method === "POST" && path === ApiPaths.cloudAccountImageBuild) {
 			if (!(yield* hasEntitlement(principal.accountId, nowMs)))
@@ -3099,7 +3119,7 @@ export const routeCloudWorkspaceRequest = (
 			if (projects.length === 0)
 				return yield* Effect.fail(conflict("cloud_image_has_no_repositories"));
 			const provider = yield* selectedProvider(
-				(yield* SandboxProviders).defaultProviderId,
+				body.providerId ?? (yield* SandboxProviders).defaultProviderId,
 			);
 			const builds = yield* store.listAccountBuilds(
 				principal.accountId,
@@ -3132,7 +3152,10 @@ export const routeCloudWorkspaceRequest = (
 					candidate.state === "sanitizing",
 			);
 			if (inProgress !== undefined)
-				return json(yield* cloudAccountImage(principal.accountId), 202);
+				return json(
+					yield* cloudAccountImage(principal.accountId, provider.providerId),
+					202,
+				);
 			const configurationDigest = yield* sha256Hex(
 				JSON.stringify({
 					mode: effectiveMode,
@@ -3183,13 +3206,18 @@ export const routeCloudWorkspaceRequest = (
 				updatedAtMs: nowMs,
 			};
 			const created = yield* store.createBuild(build);
-			for (const project of projects)
+			for (const project of projects.filter(
+				(project) => project.state !== "ready",
+			))
 				yield* store.saveProject({
 					...project,
 					state: "preparing",
 					updatedAtMs: nowMs,
 				});
-			const response = json(yield* cloudAccountImage(principal.accountId), 202);
+			const response = json(
+				yield* cloudAccountImage(principal.accountId, provider.providerId),
+				202,
+			);
 			response.headers.set("x-zuse-reconcile-cloud-build", created.buildId);
 			return response;
 		}

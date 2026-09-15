@@ -55,5 +55,6 @@
 	"browser_access_gate_unnamed_computer": "Ordinateur sans nom",
 	"pending_chat_creation_chat_startup_needs_attention": "Le démarrage du chat nécessite une attention particulière.",
 	"pi_available": "Disponible",
-	"pi_native_auth_permissions": "Pi gère l’authentification et les autorisations."
+	"pi_native_auth_permissions": "Pi gère l’authentification et les autorisations.",
+	"chat_loading_fallback_loading_chat": "Chargement de la discussion…"
 }

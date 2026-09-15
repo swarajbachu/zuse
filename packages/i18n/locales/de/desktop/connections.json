@@ -72,5 +72,6 @@
 	"remote_access_connect_privately_from_devices_on_the_same_tailnet": "Stellen Sie eine private Verbindung von Geräten im selben Tailnet her.",
 	"auth_opening_browser_sign_in": "Browser-Anmeldung öffnen",
 	"auth_complete_workos_sign_in_in_your_browser": "Schließen Sie die WorkOS-Anmeldung in Ihrem Browser ab.",
-	"auth_sign_in_failed": "Die Anmeldung ist fehlgeschlagen"
+	"auth_sign_in_failed": "Die Anmeldung ist fehlgeschlagen",
+	"cloud_workspace_info_inactive": "Inaktiv"
 }

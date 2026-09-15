@@ -654,5 +654,8 @@
 	"cloud_size_small": "Klein ({{cpu}} vCPU / {{memory}} GB)",
 	"cloud_size_default": "Standard ({{cpu}} vCPU / {{memory}} GB)",
 	"cloud_size_large": "Groß ({{cpu}} vCPU / {{memory}} GB)",
-	"device_command_permissions_title": "Gespeicherte Befehlsberechtigungen"
+	"device_command_permissions_title": "Gespeicherte Befehlsberechtigungen",
+	"cloud_queue_waiting_for_agent": "Warten auf den Agenten",
+	"cloud_queue_cancel_failed": "Die Nachricht konnte nicht aus der Warteschlange entfernt werden. Versuche es erneut.",
+	"cloud_queue_waiting_for_cloud": "Warten auf den Start der Cloud"
 }

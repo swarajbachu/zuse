@@ -1,4 +1,4 @@
-export type ChatSurface = "session" | "pending" | "landing";
+export type ChatSurface = "session" | "pending" | "cloud-pending" | "landing";
 
 /**
  * Keep the live session shell mounted once its optimistic entity exists.
@@ -8,9 +8,12 @@ export type ChatSurface = "session" | "pending" | "landing";
 export const selectChatSurface = (input: {
 	readonly hasSession: boolean;
 	readonly hasPendingCreation: boolean;
+	readonly hasCloudSelection?: boolean;
 }): ChatSurface =>
 	input.hasSession
 		? "session"
 		: input.hasPendingCreation
 			? "pending"
-			: "landing";
+			: input.hasCloudSelection
+				? "cloud-pending"
+				: "landing";

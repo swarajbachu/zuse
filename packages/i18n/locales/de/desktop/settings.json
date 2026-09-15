@@ -868,5 +868,6 @@
 	"cloud_auth_setup_failed": "Cloud konnte die sichere Agent-Einrichtung nicht starten. Versuchen Sie es gleich erneut.",
 	"cloud_auth_not_allowed": "Ihre Zuse-Sitzung konnte diese Aktion nicht autorisieren. Aktualisieren Sie Ihre Sitzung und versuchen Sie es erneut.",
 	"cloud_auth_login_failed": "Die Agent-Anmeldung konnte nicht gestartet werden.",
-	"cloud_auth_temporarily_unavailable": "Die Cloud-Authentifizierung ist vorübergehend nicht verfügbar. Versuchen Sie es erneut; bestehende Chats bleiben davon unberührt."
+	"cloud_auth_temporarily_unavailable": "Die Cloud-Authentifizierung ist vorübergehend nicht verfügbar. Versuchen Sie es erneut; bestehende Chats bleiben davon unberührt.",
+	"cloud_machine_provider": "Maschinenanbieter"
 }
