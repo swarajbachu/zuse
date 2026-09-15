@@ -85,7 +85,7 @@ export function PrActionsMenu({
 		} catch (error) {
 			toastManager.add({
 				type: "error",
-				title: "GitHub action failed",
+				title: uiMessage("projects:github_action_failed"),
 				description: formatError(error),
 			});
 		} finally {

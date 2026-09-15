@@ -1,3 +1,4 @@
+import { composerFeedbackText } from "@zuse/client-runtime/composer-feedback";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import "@zuse/i18n/english/common";
@@ -1297,7 +1298,7 @@ export function ChatComposer({
 										sessionId,
 										pendingNativePlanApproval.toolCallId,
 										"cancelled",
-										docText,
+										composerFeedbackText(input),
 										{
 											silent: true,
 											environmentId: qualifiedEnvironmentId,

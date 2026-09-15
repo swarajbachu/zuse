@@ -31,3 +31,22 @@ test("rejects missing extension and malformed stack data", () => {
 	])
 		expect(parseStackView(output)).toBeNull();
 });
+
+test("rejects malformed present status flags but accepts omitted flags", () => {
+	for (const flag of ["isCurrent", "isMerged", "needsRebase"]) {
+		for (const value of ["true", 0, 1, null, {}, []]) {
+			expect(
+				parseStackView(
+					JSON.stringify({
+						trunk: "main",
+						branches: [{ name: "feature", [flag]: value }],
+					}),
+				),
+			).toBeNull();
+		}
+	}
+	expect(
+		parseStackView('{"trunk":"main","branches":[{"name":"feature"}]}')
+			?.branches[0],
+	).toMatchObject({ isCurrent: false, isMerged: false, needsRebase: false });
+});

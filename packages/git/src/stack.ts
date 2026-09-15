@@ -11,7 +11,12 @@ export function parseStackView(output: string): GitStackResult | null {
 					branch !== null &&
 					typeof branch === "object" &&
 					"name" in branch &&
-					typeof branch.name === "string",
+					typeof branch.name === "string" &&
+					["isCurrent", "isMerged", "needsRebase"].every(
+						(flag) =>
+							!(flag in branch) ||
+							typeof (branch as Record<string, unknown>)[flag] === "boolean",
+					),
 			)
 		)
 			return null;

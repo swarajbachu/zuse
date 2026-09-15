@@ -286,5 +286,10 @@
 	"github_new_origin_branch": "从 origin/main 创建新分支…",
 	"github_continue_tooltip": "从 origin/main 创建并切换到新分支",
 	"github_auto_fix": "自动修复",
-	"projects_sidebar_cloud": "云端"
+	"projects_sidebar_cloud": "云端",
+	"github_action_failed": "GitHub 操作失败",
+	"github_repair_state_changed": "聊天、分支或代理状态已更改。请从当前 PR 重新运行修复。",
+	"github_attach_failed": "无法附加 PR 上下文。",
+	"github_repair_send_failed": "无法发送修复。请检查聊天后重试。",
+	"github_watch_update_failed": "无法更新 CI 监视器"
 }

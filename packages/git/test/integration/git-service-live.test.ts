@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -96,6 +97,40 @@ describe("GitServiceLive", () => {
 		Effect.runPromise(
 			Effect.flatMap(GitService, operation).pipe(Effect.provide(layer)),
 		);
+
+	test("does not carry edits made during fetch onto a new origin branch", async () => {
+		const remote = join(temporaryRoot, "fetch-origin.git");
+		git(temporaryRoot, "init", "--bare", remote);
+		git(repositoryRoot, "remote", "add", "origin", remote);
+		git(repositoryRoot, "push", "origin", "main");
+		git(repositoryRoot, "switch", "-c", "old-feature");
+		git(repositoryRoot, "update-ref", "-d", "refs/remotes/origin/main");
+		const hook = join(repositoryRoot, ".git", "hooks", "reference-transaction");
+		writeFileSync(
+			hook,
+			'#!/bin/sh\nif [ "$1" = "committed" ]; then printf "editor change\\n" > arrived-during-fetch.txt; fi\n',
+		);
+		chmodSync(hook, 0o755);
+		await expect(
+			run((service) =>
+				Effect.flip(
+					service.switchBranch(
+						folderId,
+						"new-feature",
+						null,
+						null,
+						"origin/main",
+					),
+				),
+			),
+		).resolves.toMatchObject({
+			reason: "Commit or stash changes before starting from origin/main.",
+		});
+		expect(git(repositoryRoot, "branch", "--show-current")).toBe("old-feature");
+		expect(
+			readFileSync(join(repositoryRoot, "arrived-during-fetch.txt"), "utf8"),
+		).toContain("editor change");
+	});
 
 	test("creates a branch from fetched origin/main without moving local changes", async () => {
 		const remote = join(temporaryRoot, "branch-origin.git");
