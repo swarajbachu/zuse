@@ -12,7 +12,7 @@ The PR menu uses a compact action hierarchy: View PR, Repair, Merge, Add to chat
 
 ## Loading
 
-Core check names, status, and links are returned with the existing PR summary request. Opening the checks preview does not wait for review bodies, avatar lookups, or workflow-job enrichment. Cached rows stay visible during refresh. The shared dotted spinner indicates pending checks. Summary counts derive from the displayed check runs, and terminal conclusions take precedence over stale running statuses.
+Core check names, status, and links are returned with the existing PR summary request. Opening the checks preview does not wait for review bodies, avatar lookups, or workflow-job enrichment. Cached rows stay visible during refresh. The shared dotted spinner indicates pending checks. The header, summary, and PR view share one resource-backed check state, including the details fallback for older servers. Summary counts derive from the displayed check runs, and terminal conclusions take precedence over stale running statuses.
 
 ## Browser verification
 
@@ -31,3 +31,7 @@ Summary menus are non-modal: a branch or location popup cannot put an invisible 
 Repair scopes and the PR menu's Add to chat action stage removable context rows above the composer. They do not send messages, change the editor text, save files, or wait for GitHub/network requests. Rows can expand to show full feedback. Repeated selections replace the same scope. The next explicit Send combines the user's message and staged context; unsuccessful delivery retains the context, and successful delivery clears only the submitted rows. Auto Fix remains the separate automatic workflow.
 
 Browser verification exercises PR → Repair → Comments, confirms the full feedback appears in the tray without changing extra instructions, and reopens the PR menu afterward. The fixture uses the actual menu and context tray with a simple text field; submission and failure handling are covered by unit tests.
+
+## Glass and handoff feedback
+
+The summary and GitHub popups share `bg-glass` and `border-glass`: in dark mode, a 72% translucent surface with 20px backdrop blur. Staging context shows a success toast, and the summary suppresses accidental checks previews until the pointer moves again.

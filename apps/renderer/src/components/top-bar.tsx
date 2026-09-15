@@ -1,3 +1,4 @@
+import { useGitPrState } from "../lib/use-git-pr-state.ts";
 import { GitStackMenu } from "./git-stack-menu.tsx";
 import "@zuse/i18n/english/projects";
 import { isInputComposing } from "../lib/input-composition.ts";
@@ -651,7 +652,7 @@ export function BranchMenuButton({
 					side={popupSide}
 					sideOffset={popupSide === "left" ? 8 : 4}
 					align="start"
-					className="w-72 !bg-popover"
+					className="w-72"
 				>
 					{error !== null ? (
 						<div className="max-w-72 px-2 py-1.5 text-[11px] leading-snug text-[var(--accent-red)]">
@@ -1059,9 +1060,8 @@ export function TopBarRightContent({
 
 	const ctx = useActiveContext();
 	const executionRef = executionRefFor(ctx);
-	const git = useGitWorkspaceResource(executionRef, "connect").data;
-	const status = git?.status ?? null;
-	const pr = git?.pr ?? null;
+	const { gitView, pr } = useGitPrState(executionRef);
+	const status = gitView.data?.status ?? null;
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 
 	const canCreatePrWhenSynced = canCreatePrFromSyncedBranch(
@@ -1221,9 +1221,8 @@ export function WorkflowActions({
 	const executionRef = executionRefFor(ctx);
 	const folderId = ctx.status === "ready" ? ctx.folderId : null;
 	const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
-	const git = useGitWorkspaceResource(executionRef, "connect").data;
-	const status = git?.status ?? null;
-	const pr = git?.pr ?? null;
+	const { gitView, pr } = useGitPrState(executionRef);
+	const status = gitView.data?.status ?? null;
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 	const archiveProgress = useChatsStore((s) =>

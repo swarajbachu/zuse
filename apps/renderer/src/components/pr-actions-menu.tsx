@@ -149,6 +149,12 @@ export function PrActionsMenu({
 			},
 		);
 		onChat();
+		toastManager.add({
+			type: "success",
+			title: uiMessage("projects:pr_pane_added_to_the_composer", {
+				relPath: `PR #${details.number} · ${label}`,
+			}),
+		});
 	};
 	const repair = (scope: PrRepairScope) => addContextToChat(scope);
 	const comments = details
@@ -172,12 +178,7 @@ export function PrActionsMenu({
 					className="size-3 shrink-0 text-muted-foreground"
 				/>
 			</MenuTrigger>
-			<MenuPopup
-				side="left"
-				align="start"
-				sideOffset={8}
-				className="w-60 !bg-popover"
-			>
+			<MenuPopup side="left" align="start" sideOffset={8} className="w-60">
 				<MenuItem className={compactMenuItemClass} onClick={onView}>
 					<HugeiconsIcon icon={File01Icon} className="size-[15px]" />
 					{uiMessage("projects:github_view_pr")}
@@ -192,7 +193,7 @@ export function PrActionsMenu({
 							</span>
 						)}
 					</MenuSubTrigger>
-					<MenuSubPopup className="w-52 !bg-popover" sideOffset={4}>
+					<MenuSubPopup className="w-52" sideOffset={4}>
 						<MenuItem
 							className={compactMenuItemClass}
 							disabled={!details || !sessionId || comments === 0}
@@ -250,7 +251,7 @@ export function PrActionsMenu({
 							<HugeiconsIcon icon={GitMergeIcon} className="size-[15px]" />
 							{uiMessage("chat:top_bar_merge")}
 						</MenuSubTrigger>
-						<MenuSubPopup className="w-52 !bg-popover" sideOffset={4}>
+						<MenuSubPopup className="w-52" sideOffset={4}>
 							<MenuItem
 								className={compactMenuItemClass}
 								disabled={
@@ -303,7 +304,7 @@ export function PrActionsMenu({
 										: uiMessage("projects:github_ready_review")}
 							</span>
 						</MenuSubTrigger>
-						<MenuSubPopup className="w-52 !bg-popover" sideOffset={4}>
+						<MenuSubPopup className="w-52" sideOffset={4}>
 							<MenuItem
 								className={compactMenuItemClass}
 								disabled={pr.state !== "open" || pr.isDraft}

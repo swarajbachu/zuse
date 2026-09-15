@@ -1,4 +1,5 @@
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
+import { useGitPrState } from "../lib/use-git-pr-state.ts";
 import { GitStackMenu } from "./git-stack-menu.tsx";
 import { PrActionsMenu } from "./pr-actions-menu.tsx";
 import { PrAutoFix } from "./pr-auto-fix.tsx";
@@ -24,7 +25,7 @@ import {
 } from "@zuse/icons/stroke-rounded";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { deriveEnvironmentPrRows } from "../lib/branch-workflow.ts";
 import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
@@ -36,8 +37,6 @@ import {
 	dispatchGitWorkspaceCommand,
 	refreshGitPrDetails,
 	refreshGitWorkspace,
-	useGitPrDetailsResource,
-	useGitWorkspaceResource,
 } from "../lib/git-workspace-client-bus.ts";
 import { detachedSubagentGroups } from "../lib/group-messages.ts";
 import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
@@ -122,26 +121,24 @@ export function EnvironmentSummary() {
 			? environmentId
 			: null,
 	);
+	const [checksOpen, setChecksOpen] = useState(false);
+	const suppressChecksPreview = useRef(false);
 	const [checksRequestedKey, setChecksRequestedKey] = useState<string | null>(
 		null,
 	);
-	const gitView = useGitWorkspaceResource(executionRef, "connect");
-	const prDetailsView = useGitPrDetailsResource(
-		executionRef,
-		gitView.data?.pr?.state === "open" || checksRequestedKey !== null
-			? "connect"
-			: "cache-only",
-	);
+	const {
+		gitView,
+		prDetailsView,
+		pr,
+		details: prDetails,
+		checkRuns,
+	} = useGitPrState(executionRef, checksRequestedKey !== null);
 	const status = gitView.data?.status ?? null;
 	const diffStat = gitView.data?.diffStat ?? null;
 	const [branches, setBranches] = useState<ReadonlyArray<GitBranchInfo>>([]);
 	const [branchesLoading, setBranchesLoading] = useState(false);
 	const [branchError, setBranchError] = useState<string | null>(null);
-	const pr = gitView.data?.pr ?? null;
-	const rawPrDetails = prDetailsView.data?.details ?? null;
-	const prDetails =
-		rawPrDetails?.headBranch === status?.branch ? rawPrDetails : null;
-	const checkRuns = pr?.checkRuns ?? prDetails?.checkRuns ?? null;
+
 	const prDetailsLoading = prDetailsView.sync === "synchronizing";
 	const revealPanelForChat = useUiStore((s) => s.revealPanelForChat);
 	const selectSubagent = useUiStore((s) => s.selectSubagent);
@@ -272,9 +269,7 @@ export function EnvironmentSummary() {
 			: pr.state === "none"
 				? "Pull request"
 				: `PR #${pr.number ?? "?"} · ${pr.state}`;
-	const prRows = deriveEnvironmentPrRows(
-		pr === null ? null : { ...pr, checkRuns: checkRuns ?? undefined },
-	);
+	const prRows = deriveEnvironmentPrRows(pr);
 	const prStatus = (() => {
 		if (pr === null) {
 			return {
@@ -332,7 +327,7 @@ export function EnvironmentSummary() {
 	return (
 		<aside
 			aria-label={uiMessage("chat:environment_summary_environment_summary")}
-			className="pointer-events-auto max-h-[calc(100dvh-7rem)] w-64 shrink-0 overflow-y-auto rounded-lg border border-border/70 bg-card/95 p-1 shadow-overlay-sm backdrop-blur-md"
+			className="pointer-events-auto max-h-[calc(100dvh-7rem)] w-64 shrink-0 overflow-y-auto rounded-lg bg-glass border-glass p-1"
 		>
 			<h2 className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">
 				{uiMessage("chat:environment_summary_summary")}
@@ -369,12 +364,7 @@ export function EnvironmentSummary() {
 					</span>
 					<span className="size-1.5 rounded-full bg-[var(--accent-green)]" />
 				</MenuTrigger>
-				<MenuPopup
-					side="left"
-					align="start"
-					sideOffset={8}
-					className="w-60 !bg-popover"
-				>
+				<MenuPopup side="left" align="start" sideOffset={8} className="w-60">
 					<div className="px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
 						{uiMessage("chat:environment_summary_running_on")}
 					</div>
@@ -439,7 +429,11 @@ export function EnvironmentSummary() {
 					busy={isRunning}
 					className={`${rowClass} hover:bg-muted/60`}
 					onView={() => revealPanel("pr")}
-					onChat={() => useUiStore.getState().setActiveMainTab("chat")}
+					onChat={() => {
+						suppressChecksPreview.current = true;
+						setChecksOpen(false);
+						useUiStore.getState().setActiveMainTab("chat");
+					}}
 				/>
 			) : (
 				<button
@@ -462,8 +456,24 @@ export function EnvironmentSummary() {
 			)}
 			{prRows.checks !== null ? (
 				<div className={`${rowClass} justify-between`}>
-					<PreviewCard onOpenChange={hydrateChecks}>
+					<PreviewCard
+						open={checksOpen}
+						onOpenChange={(open) => {
+							if (open && suppressChecksPreview.current) return;
+							setChecksOpen(open);
+							hydrateChecks(open);
+						}}
+					>
 						<PreviewCardTrigger
+							onPointerMove={() => {
+								suppressChecksPreview.current = false;
+							}}
+							onPointerLeave={() => {
+								suppressChecksPreview.current = false;
+							}}
+							onFocus={() => {
+								suppressChecksPreview.current = false;
+							}}
 							delay={100}
 							render={
 								<button
@@ -485,7 +495,7 @@ export function EnvironmentSummary() {
 							side="left"
 							align="center"
 							sideOffset={8}
-							className="w-64 !bg-popover p-1"
+							className="w-64 p-1"
 						>
 							<PrChecksPreview
 								checks={checkRuns}

@@ -212,7 +212,7 @@ export function GitStackMenu({
 					}}
 				>
 					<MenuSubTrigger compact>{label}</MenuSubTrigger>
-					<MenuSubPopup className="w-60 !bg-popover" sideOffset={4}>
+					<MenuSubPopup className="w-60" sideOffset={4}>
 						{content}
 					</MenuSubPopup>
 				</MenuSub>
@@ -232,12 +232,7 @@ export function GitStackMenu({
 					className="size-3 shrink-0 text-muted-foreground"
 				/>
 			</MenuTrigger>
-			<MenuPopup
-				side="left"
-				align="start"
-				sideOffset={8}
-				className="w-60 !bg-popover"
-			>
+			<MenuPopup side="left" align="start" sideOffset={8} className="w-60">
 				{content}
 			</MenuPopup>
 		</Menu>

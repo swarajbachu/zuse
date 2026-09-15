@@ -1,5 +1,6 @@
 import { formatDate as formatUiDate } from "@zuse/i18n";
-import { checkKind } from "../lib/pr-checks.ts";
+import { checkKind, summarizeChecks } from "../lib/pr-checks.ts";
+import { useGitPrState } from "../lib/use-git-pr-state.ts";
 import { GitHubAvatar } from "./github-avatar.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import "@zuse/i18n/english/projects";
@@ -28,11 +29,7 @@ import {
 	attachFileWhenReady,
 	saveContextFile,
 } from "../lib/context-handoff.ts";
-import {
-	refreshGitPrDetails,
-	useGitPrDetailsResource,
-	useGitWorkspaceResource,
-} from "../lib/git-workspace-client-bus.ts";
+import { refreshGitPrDetails } from "../lib/git-workspace-client-bus.ts";
 import { prRepairMarkdown } from "../lib/pr-repair.ts";
 import { softTone, type Tone } from "../lib/tones.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
@@ -99,21 +96,8 @@ const isVisibleReview = (review: GitPrReview): boolean =>
 	review.state !== "pending" &&
 	(review.state !== "commented" || review.body.trim().length > 0);
 
-const checkCountsFromRuns = (runs: ReadonlyArray<GitPrCheckRun>) =>
-	runs.reduce(
-		(acc, run) => {
-			acc.total += 1;
-			const kind = checkKind(run);
-			if (kind === "success") acc.passing += 1;
-			else if (kind === "pending") acc.running += 1;
-			else if (kind === "failure") acc.failing += 1;
-			return acc;
-		},
-		{ total: 0, passing: 0, running: 0, failing: 0 },
-	);
-
 const prInfoFromDetails = (details: GitPrDetails): GitPrInfo => {
-	const counts = checkCountsFromRuns(details.checkRuns);
+	const counts = summarizeChecks(details.checkRuns);
 	return GitPrInfo.make({
 		state: details.state,
 		branch: details.headBranch,
@@ -123,12 +107,9 @@ const prInfoFromDetails = (details: GitPrDetails): GitPrInfo => {
 		number: details.number,
 		url: details.url,
 		isDraft: details.isDraft,
-		checks: details.checks,
+		...counts,
+		checkRuns: details.checkRuns,
 		mergeable: details.mergeable,
-		checksTotal: counts.total,
-		checksRunning: counts.running,
-		checksPassing: counts.passing,
-		checksFailing: counts.failing,
 		autoMergeEnabled: false,
 	});
 };
@@ -174,13 +155,14 @@ export function PrPane({
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
-	const workspaceView = useGitWorkspaceResource(executionRef, "connect");
-	const detailsView = useGitPrDetailsResource(executionRef, "connect");
+	const {
+		gitView: workspaceView,
+		prDetailsView: detailsView,
+		pr,
+		details,
+	} = useGitPrState(executionRef, true);
 	const status = workspaceView.data?.status ?? null;
 	const noRepo = workspaceView.data?.noRepository === true;
-	const pr = workspaceView.data?.pr ?? null;
-	const rawDetails = detailsView.data?.details ?? null;
-	const details = rawDetails?.headBranch === status?.branch ? rawDetails : null;
 	const detailsLoading = detailsView.sync === "synchronizing";
 
 	if (executionRef === null) {
