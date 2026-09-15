@@ -233,6 +233,7 @@ export function GitStackMenu({
 		);
 	return (
 		<Menu
+			modal={false}
 			onOpenChange={(open) => {
 				if (open) void command("view");
 			}}

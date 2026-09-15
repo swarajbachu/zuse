@@ -3,6 +3,7 @@ import { GitStackMenu } from "./git-stack-menu.tsx";
 import { PrActionsMenu } from "./pr-actions-menu.tsx";
 import { PrAutoFix } from "./pr-auto-fix.tsx";
 import { PrChecksPreview } from "./pr-checks-preview.tsx";
+import { Spinner } from "./ui/spinner.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { GitBranchInfo, Message } from "@zuse/contracts";
@@ -271,7 +272,9 @@ export function EnvironmentSummary() {
 			: pr.state === "none"
 				? "Pull request"
 				: `PR #${pr.number ?? "?"} · ${pr.state}`;
-	const prRows = deriveEnvironmentPrRows(pr);
+	const prRows = deriveEnvironmentPrRows(
+		pr === null ? null : { ...pr, checkRuns: checkRuns ?? undefined },
+	);
 	const prStatus = (() => {
 		if (pr === null) {
 			return {
@@ -352,7 +355,7 @@ export function EnvironmentSummary() {
 					</span>
 				) : null}
 			</button>
-			<Menu>
+			<Menu modal={false}>
 				<MenuTrigger
 					className={`${rowClass} hover:bg-muted/60 data-[popup-open]:bg-muted/60`}
 					title={`${environmentLocation.menuLabel} · ${displayPath(ctx.rootPath)}`}
@@ -584,10 +587,7 @@ function ChecksStatusIcon({
 }) {
 	if (kind === "pending") {
 		return (
-			<HugeiconsIcon
-				icon={Loading02Icon}
-				className="size-4 shrink-0 animate-spin text-[var(--accent-amber)]"
-			/>
+			<Spinner className="size-[15px] shrink-0 text-[var(--accent-amber)]" />
 		);
 	}
 	if (kind === "failure") {

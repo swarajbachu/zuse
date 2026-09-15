@@ -19,7 +19,6 @@ import {
 	Cancel01Icon,
 	CircleIcon,
 	CommentAdd01Icon,
-	Loading02Icon,
 	MinusSignCircleIcon,
 	Tick01Icon,
 } from "@zuse/icons/stroke-rounded";
@@ -45,6 +44,7 @@ import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { GitInitCta } from "./git-init-cta.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
+import { Spinner } from "./ui/spinner.tsx";
 import { toastManager } from "./ui/toast.tsx";
 
 const openExternal = (url: string) => {
@@ -973,9 +973,11 @@ function CheckSummary({ checks }: { checks: ReadonlyArray<GitPrCheckRun> }) {
 }
 
 function checkLabel(run: GitPrCheckRun): string {
-	if (run.status === "queued") return "Queued";
-	if (run.status === "in_progress") return "Running";
-	if (run.status === "pending") return "Pending";
+	if (checkKind(run) === "pending") {
+		if (run.status === "queued") return "Queued";
+		if (run.status === "in_progress") return "Running";
+		return "Pending";
+	}
 	switch (run.conclusion) {
 		case "success":
 			return "Passed";
@@ -1092,7 +1094,7 @@ function AttachButton({
 }
 
 function checkIcon(run: GitPrCheckRun) {
-	if (run.status !== "completed") {
+	if (checkKind(run) === "pending") {
 		if (run.status === "queued" || run.status === "pending") {
 			return (
 				<HugeiconsIcon
@@ -1101,12 +1103,7 @@ function checkIcon(run: GitPrCheckRun) {
 				/>
 			);
 		}
-		return (
-			<HugeiconsIcon
-				icon={Loading02Icon}
-				className="size-4 animate-spin text-amber-300"
-			/>
-		);
+		return <Spinner className="size-4 text-amber-300" />;
 	}
 	switch (run.conclusion) {
 		case "success":

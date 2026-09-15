@@ -83,7 +83,7 @@ export function MenuGroup(
 
 /** Compact desktop rows, shared by actions and submenu triggers. */
 export const compactMenuItemClass =
-	"h-7 min-h-7 gap-2 rounded-md px-2 py-0 text-xs leading-5 sm:min-h-7 sm:text-xs [&>svg]:mx-0 [&>svg]:size-4 [&>svg]:shrink-0";
+	"h-7 min-h-7 gap-2 rounded-md px-2 py-0 text-xs leading-5 sm:min-h-7 sm:text-xs [&>svg]:mx-0 [&>svg]:size-[15px] [&_svg:not([class*='size-'])]:size-[15px] sm:[&_svg:not([class*='size-'])]:size-[15px] [&>svg:not([class*='size-'])]:size-[15px] [&>svg]:shrink-0";
 
 export function MenuItem({
 	className,
@@ -294,7 +294,7 @@ export function MenuSubTrigger({
 			{...props}
 		>
 			{compact ? (
-				<span className="flex min-w-0 flex-1 items-center gap-2 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
+				<span className="flex min-w-0 flex-1 items-center gap-2 [&>svg]:size-[15px] [&>svg]:shrink-0 [&>svg]:text-muted-foreground">
 					{children}
 				</span>
 			) : (

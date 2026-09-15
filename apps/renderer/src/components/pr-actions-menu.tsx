@@ -185,9 +185,12 @@ export function PrActionsMenu({
 			).length
 		: 0;
 	return (
-		<Menu>
+		<Menu modal={false}>
 			<MenuTrigger className={className} disabled={busy}>
-				<HugeiconsIcon icon={GitPullRequestIcon} className="size-4 shrink-0" />
+				<HugeiconsIcon
+					icon={GitPullRequestIcon}
+					className="size-[15px] shrink-0"
+				/>
 				<span className="min-w-0 flex-1 truncate">
 					{details?.title ||
 						uiMessage("projects:github_pr_number", { number: pr.number ?? "" })}
@@ -204,12 +207,12 @@ export function PrActionsMenu({
 				className="w-60 !bg-popover"
 			>
 				<MenuItem className={compactMenuItemClass} onClick={onView}>
-					<HugeiconsIcon icon={File01Icon} className="size-4" />
+					<HugeiconsIcon icon={File01Icon} className="size-[15px]" />
 					{uiMessage("projects:github_view_pr")}
 				</MenuItem>
 				<MenuSub>
 					<MenuSubTrigger compact disabled={busy}>
-						<HugeiconsIcon icon={Wrench01Icon} className="size-4" />
+						<HugeiconsIcon icon={Wrench01Icon} className="size-[15px]" />
 						{uiMessage("projects:github_repair")}
 						{comments + pr.checksFailing > 0 && (
 							<span className="ml-auto tabular-nums text-destructive">
@@ -278,7 +281,7 @@ export function PrActionsMenu({
 				{pr.state === "open" && !pr.isDraft ? (
 					<MenuSub>
 						<MenuSubTrigger compact disabled={busy}>
-							<HugeiconsIcon icon={GitMergeIcon} className="size-4" />
+							<HugeiconsIcon icon={GitMergeIcon} className="size-[15px]" />
 							{uiMessage("chat:top_bar_merge")}
 						</MenuSubTrigger>
 						<MenuSubPopup className="w-52 !bg-popover" sideOffset={4}>
@@ -331,7 +334,7 @@ export function PrActionsMenu({
 						})
 					}
 				>
-					<HugeiconsIcon icon={CommentAdd01Icon} className="size-4" />
+					<HugeiconsIcon icon={CommentAdd01Icon} className="size-[15px]" />
 					{uiMessage("projects:pr_pane_add_to_chat")}
 				</MenuItem>
 				<MenuSeparator className="mx-2 my-1 bg-foreground/10" />
@@ -390,7 +393,7 @@ export function PrActionsMenu({
 						if (pr.url) void openExternal(pr.url);
 					}}
 				>
-					<HugeiconsIcon icon={GithubIcon} className="size-4" />
+					<HugeiconsIcon icon={GithubIcon} className="size-[15px]" />
 					{uiMessage("projects:github_open_github")}
 				</MenuItem>
 			</MenuPopup>

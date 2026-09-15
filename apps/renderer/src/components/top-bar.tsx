@@ -611,7 +611,10 @@ export function BranchMenuButton({
 
 	return (
 		<>
-			<Menu onOpenChange={(open) => !open && setBranchQuery("")}>
+			<Menu
+				modal={popupSide !== "left"}
+				onOpenChange={(open) => !open && setBranchQuery("")}
+			>
 				<MenuTrigger
 					onClick={onOpen}
 					className={`flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-foreground outline-none hover:bg-foreground/5 data-[popup-open]:bg-foreground/5 ${className ?? "max-w-64"}`}

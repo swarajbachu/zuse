@@ -6,14 +6,13 @@ import { useMessages } from "@zuse/i18n/react";
 import {
 	ArrowUpRight01Icon,
 	Cancel01Icon,
-	Clock01Icon,
-	Loading02Icon,
 	MinusSignIcon,
 	Tick02Icon,
 } from "@zuse/icons/stroke-rounded";
 import type { ReactNode } from "react";
 import { openExternal } from "../lib/platform-capabilities.ts";
 import { type CheckKind, checkKind } from "../lib/pr-checks.ts";
+import { Spinner } from "./ui/spinner.tsx";
 
 const rank: Record<CheckKind, number> = {
 	failure: 0,
@@ -44,12 +43,7 @@ export function PrChecksPreview({
 						<span className="ml-1 tabular-nums">{checks.length}</span>
 					)}
 				</span>
-				{loading && (
-					<HugeiconsIcon
-						icon={Loading02Icon}
-						className="size-3 animate-spin text-muted-foreground"
-					/>
-				)}
+				{loading && <Spinner className="size-3 text-muted-foreground" />}
 				{action}
 			</div>
 			{ordered.length === 0 ? (
@@ -69,11 +63,9 @@ export function PrChecksPreview({
 						const icon =
 							kind === "failure"
 								? Cancel01Icon
-								: kind === "pending"
-									? Clock01Icon
-									: kind === "success"
-										? Tick02Icon
-										: MinusSignIcon;
+								: kind === "success"
+									? Tick02Icon
+									: MinusSignIcon;
 						const tone =
 							kind === "failure"
 								? "text-[var(--accent-red)]"
@@ -94,10 +86,14 @@ export function PrChecksPreview({
 									}}
 									className="group flex h-6 w-full items-center gap-2 rounded-md px-2 text-left text-xs outline-none hover:bg-muted/60 focus-visible:bg-muted/60 disabled:hover:bg-transparent"
 								>
-									<HugeiconsIcon
-										icon={icon}
-										className={`size-3.5 shrink-0 ${tone}`}
-									/>
+									{kind === "pending" ? (
+										<Spinner className={`size-3.5 shrink-0 ${tone}`} />
+									) : (
+										<HugeiconsIcon
+											icon={icon}
+											className={`size-3.5 shrink-0 ${tone}`}
+										/>
+									)}
 									<span className="min-w-0 flex-1 truncate">{check.name}</span>
 									<HugeiconsIcon
 										icon={ArrowUpRight01Icon}
