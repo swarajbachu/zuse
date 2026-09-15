@@ -43,3 +43,5 @@ The shared check-state merge reconstructs `GitPrCheckRun` instances after combin
 GitHub avatars use the shared avatar loading/failure fallback and the URL supplied by GitHub. The shared default shape is a squircle; initials stay visible while artwork loads or when it cannot be loaded.
 
 Annotations and PR context share one wrapping attachment row inside the composer's attached tray. The row renders nothing when both sources are empty. The browser annotation toolbar and comment editor use 28px controls, 12px labels, 14px icons, and compact glass surfaces; the comment editor is capped at 344px wide.
+
+Feedback cards in Changes navigate on click or keyboard activation: inline comments open their file and line through the existing Changes navigation, while PR-wide summaries open the original GitHub thread. Text selection, nested links/buttons, and expandable summaries do not activate the card. The PR overview's inline file/line labels also open Changes.

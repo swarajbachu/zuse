@@ -1,6 +1,7 @@
 import { formatDate as formatUiDate } from "@zuse/i18n";
 import { isInputComposing } from "../lib/input-composition.ts";
 import { openExternal } from "../lib/platform-capabilities.ts";
+import { feedbackDestination } from "../lib/pr-feedback-navigation.ts";
 import { GitHubAvatar } from "./github-avatar.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import "@zuse/i18n/english/projects";
@@ -666,51 +667,89 @@ function NavigatorSection({
 	);
 }
 
-function ExternalFeedbackCard({
+export function ExternalFeedbackCard({
 	feedback,
 }: {
 	readonly feedback: GitPrComment | GitPrReview;
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
+	const openChanges = useUiStore((s) => s.openChanges);
+	const destination = feedbackDestination(feedback);
+	const navigate = () => {
+		if (destination?.kind === "file")
+			openChanges(destination.path, destination.line);
+		else if (destination?.kind === "thread") void openExternal(destination.url);
+	};
 	const timestamp =
 		"createdAt" in feedback ? feedback.createdAt : feedback.submittedAt;
 	return (
 		<li className="rounded-lg border border-border/60 bg-foreground/[0.02] p-2.5">
-			<div className="flex items-center gap-2">
-				<GitHubAvatar name={feedback.author} url={feedback.authorAvatarUrl} />
-				<span className="min-w-0 truncate text-[11px] font-medium text-foreground">
-					{feedback.author || uiMessage("projects:diff_pane_unknown_author")}
-				</span>
-				{timestamp !== null ? (
-					<time className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-						{formatUiDate(timestamp, {
-							month: "short",
-							day: "numeric",
-						})}
-					</time>
-				) : null}
-			</div>
-			<div className="mt-2">
-				{"path" in feedback && feedback.path ? (
-					<div className="mb-2 text-xs font-mono text-muted-foreground">
-						{feedback.path}
-						{feedback.line ? `:${feedback.line}` : ""}
-					</div>
-				) : null}
-				<MarkdownBody githubHtml className="text-xs">
-					{feedback.body}
-				</MarkdownBody>
-				{feedback.url ? (
-					<button
-						type="button"
-						className="mt-2 h-7 text-xs text-muted-foreground hover:text-foreground"
-						onClick={() => {
-							if (feedback.url) void openExternal(feedback.url);
-						}}
-					>
-						{`${uiMessage("projects:github_open_github")} ↗`}
-					</button>
-				) : null}
+			{/* biome-ignore lint/a11y/useSemanticElements: this card contains links and buttons, which cannot be nested in an anchor. */}
+			<div
+				role="link"
+				aria-disabled={!destination}
+				tabIndex={destination ? 0 : -1}
+				className={
+					destination
+						? "cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						: undefined
+				}
+				onClick={(event) => {
+					if (
+						(event.target as Element).closest(
+							"a,button,input,textarea,summary,[role=button]",
+						)
+					)
+						return;
+					if (window.getSelection()?.toString()) return;
+					navigate();
+				}}
+				onKeyDown={(event) => {
+					if (
+						event.target !== event.currentTarget ||
+						(event.key !== "Enter" && event.key !== " ")
+					)
+						return;
+					event.preventDefault();
+					navigate();
+				}}
+			>
+				<div className="flex items-center gap-2">
+					<GitHubAvatar name={feedback.author} url={feedback.authorAvatarUrl} />
+					<span className="min-w-0 truncate text-[11px] font-medium text-foreground">
+						{feedback.author || uiMessage("projects:diff_pane_unknown_author")}
+					</span>
+					{timestamp !== null ? (
+						<time className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+							{formatUiDate(timestamp, {
+								month: "short",
+								day: "numeric",
+							})}
+						</time>
+					) : null}
+				</div>
+				<div className="mt-2">
+					{"path" in feedback && feedback.path ? (
+						<div className="mb-2 text-xs font-mono text-muted-foreground">
+							{feedback.path}
+							{feedback.line ? `:${feedback.line}` : ""}
+						</div>
+					) : null}
+					<MarkdownBody githubHtml className="text-xs">
+						{feedback.body}
+					</MarkdownBody>
+					{feedback.url ? (
+						<button
+							type="button"
+							className="mt-2 h-7 text-xs text-muted-foreground hover:text-foreground"
+							onClick={() => {
+								if (feedback.url) void openExternal(feedback.url);
+							}}
+						>
+							{`${uiMessage("projects:github_open_github")} ↗`}
+						</button>
+					) : null}
+				</div>
 			</div>
 		</li>
 	);

@@ -776,6 +776,7 @@ function FeedbackCommentRow({
 	onAttach: () => void;
 	onResolve: () => void;
 }) {
+	const openChanges = useUiStore((s) => s.openChanges);
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
 	return (
@@ -791,10 +792,14 @@ function FeedbackCommentRow({
 					</span>
 				</div>
 				{path ? (
-					<div className="my-1 font-mono text-xs text-muted-foreground">
+					<button
+						type="button"
+						onClick={() => openChanges(path, line ?? undefined)}
+						className="my-1 font-mono text-xs text-muted-foreground hover:text-foreground hover:underline"
+					>
 						{path}
 						{line ? `:${line}` : ""}
-					</div>
+					</button>
 				) : null}
 				<PlainTextPreview text={body} />
 			</div>
