@@ -4,7 +4,7 @@ description: Build a standalone local tool with the versioned SDK.
 section: extensions
 order: 113
 platforms: [desktop]
-lastVerified: Extensions Preview (API 1.1)
+lastVerified: Extensions Preview (API 1.2)
 ---
 
 ## Quickstart
@@ -21,6 +21,8 @@ zuse extension install --path .
 The initializer writes a manifest, separate client/server entries, a standalone TypeScript configuration, and a package manifest; it installs locked npm dependencies and verifies types. The generated project uses public SDK exports, with no monorepo aliases. If installation fails, the project remains available with an actionable error.
 
 Before SDK publication, maintainers can run `bun run --cwd packages/extension-sdk pack:release`, then `npm pack` in `.context/sdk-release` and install that tarball for local development.
+
+For coding tools, use the [ACP adapter starter or direct-provider interface](/extensions/coding-agents). The ACP starter needs only the tool’s stdio command and uses the existing model picker and conversation UI.
 
 ## Manifest and modules
 

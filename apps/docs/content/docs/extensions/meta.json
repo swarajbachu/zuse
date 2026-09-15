@@ -6,6 +6,7 @@
 		"tools",
 		"authoring",
 		"agent-plugins",
+		"coding-agents",
 		"trust-and-recovery"
 	]
 }
