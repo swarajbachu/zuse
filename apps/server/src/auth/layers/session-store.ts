@@ -199,13 +199,15 @@ export const sessionLockIsStale = (raw: string): boolean => {
 				? parsed.pid
 				: null;
 		if (pid === null || !Number.isFinite(createdAt) || createdAt <= 0) {
-			return true;
+			// Older clients expose partially written metadata. Missing ownership
+			// is not evidence of abandonment; wait or fail without stealing it.
+			return false;
 		}
 		// A slow or suspended owner still owns its lock. Reused PIDs may delay
 		// recovery, but cannot justify concurrent refresh-token use.
 		return !pidIsAlive(pid);
 	} catch {
-		return true;
+		return false;
 	}
 };
 
@@ -315,7 +317,7 @@ const acquireLock = (attempt = 0): Effect.Effect<string, SessionStoreError> =>
 			}
 			return Effect.gen(function* () {
 				const raw = yield* readLockRaw();
-				if (raw === null || sessionLockIsStale(raw)) {
+				if (raw !== null && sessionLockIsStale(raw)) {
 					yield* io("Failed to remove stale auth session lock.", async () => {
 						const current = await readFile(lockFile(), "utf8").catch(
 							() => null,
@@ -332,15 +334,18 @@ const acquireLock = (attempt = 0): Effect.Effect<string, SessionStoreError> =>
 
 const releaseLock = (token: string): Effect.Effect<void, never> =>
 	io("Failed to release auth session lock.", async () => {
-		const raw = await readFile(lockFile(), "utf8").catch(() => null);
+		const raw = await readFile(lockFile(), "utf8").catch((cause: unknown) => {
+			if (isNotFound(cause)) return null;
+			throw cause;
+		});
 		if (raw === null) return;
-		try {
-			const parsed = JSON.parse(raw) as { token?: unknown };
-			if (parsed.token === token) await unlink(lockFile());
-		} catch {
-			await unlink(lockFile());
-		}
-	}).pipe(Effect.ignore);
+		const parsed = JSON.parse(raw) as { token?: unknown };
+		if (parsed.token === token) await unlink(lockFile());
+	}).pipe(
+		// The outer SQLite transaction remains held throughout finalization.
+		Effect.retry({ times: 2 }),
+		Effect.orDie,
+	);
 
 export const SessionStoreLive = Layer.succeed(
 	SessionStore,
