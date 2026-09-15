@@ -166,6 +166,7 @@ const apiWorkspaceStatus = Effect.fn("apiWorkspaceStatus")(function* (
 	const lastAssistant = summary.lastAssistant;
 	return {
 		workspaceId: workspace.workspaceId,
+		providerId: workspace.provider,
 		projectId: workspace.projectId,
 		branch: workspace.branch,
 		baseRef: workspace.baseRef,

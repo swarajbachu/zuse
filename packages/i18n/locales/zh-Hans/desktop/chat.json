@@ -654,5 +654,7 @@
 	"cloud_size_small": "小型（{{cpu}} vCPU / {{memory}} GB）",
 	"cloud_size_default": "标准型（{{cpu}} vCPU / {{memory}} GB）",
 	"cloud_size_large": "大型（{{cpu}} vCPU / {{memory}} GB）",
-	"device_command_permissions_title": "已保存的命令权限"
+	"device_command_permissions_title": "已保存的命令权限",
+	"cloud_queue_waiting_for_agent": "等待代理",
+	"cloud_queue_cancel_failed": "无法取消排队中的消息。请重试。"
 }

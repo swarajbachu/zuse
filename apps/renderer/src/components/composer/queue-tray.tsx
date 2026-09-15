@@ -1,3 +1,5 @@
+import { useCloudMessageQueue } from "../../lib/cloud-message-queue.ts";
+import { CloudMailboxQueue } from "./cloud-mailbox-queue.tsx";
 import "@zuse/i18n/english/chat";
 import type { EnvironmentId, SessionId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
@@ -60,7 +62,14 @@ export function QueueTray({
 		if (!online && resumable)
 			holdQueueUntilOnline({ environmentId, sessionId });
 	}, [online, resumable, environmentId, sessionId]);
-	if (items.length === 0) return null;
+	const mailbox = useCloudMessageQueue(timeline);
+	if (items.length === 0)
+		return (
+			<CloudMailboxQueue
+				messages={mailbox.waiting}
+				commands={timeline.view.pendingCommands}
+			/>
+		);
 
 	const move = (from: number, to: number) => {
 		if (from === to || to < 0 || to >= items.length) return;
@@ -78,6 +87,10 @@ export function QueueTray({
 
 	return (
 		<div ref={listRef}>
+			<CloudMailboxQueue
+				messages={mailbox.waiting}
+				commands={timeline.view.pendingCommands}
+			/>
 			<div className="border-b border-border/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
 				{waitingForSandbox
 					? uiMessage("chat:queue_tray_waiting_for_sandbox")

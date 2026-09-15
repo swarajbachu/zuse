@@ -247,5 +247,6 @@
 	"diff_pane_selection_summary": "已选择 {{selected}} 项，共 {{total}} 项 · ⌘↵",
 	"projects_sidebar_chat_count": "{{count}} 个聊天",
 	"projects_sidebar_chat_count_one": "{{count}} 个聊天",
-	"projects_sidebar_chat_count_other": "{{count}} 个聊天"
+	"projects_sidebar_chat_count_other": "{{count}} 个聊天",
+	"projects_sidebar_cloud": "云端"
 }

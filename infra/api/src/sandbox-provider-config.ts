@@ -16,8 +16,8 @@ export { BoxSandboxProviderModule } from "./sandbox-provider-modules/box.ts";
 export { E2bSandboxProviderModule } from "./sandbox-provider-modules/e2b.ts";
 
 export const sandboxProviderModules: ReadonlyArray<SandboxProviderModule> = [
-	E2bSandboxProviderModule,
 	BoxSandboxProviderModule,
+	E2bSandboxProviderModule,
 ];
 
 export const resolveSandboxProviderRuntime = <

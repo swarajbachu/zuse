@@ -247,5 +247,6 @@
 	"diff_pane_selection_summary": "{{selected}} von {{total}} ausgewählt · ⌘↵",
 	"projects_sidebar_chat_count": "{{count}} Chats",
 	"projects_sidebar_chat_count_one": "{{count}} Chat",
-	"projects_sidebar_chat_count_other": "{{count}} Chats"
+	"projects_sidebar_chat_count_other": "{{count}} Chats",
+	"projects_sidebar_cloud": "Cloud"
 }

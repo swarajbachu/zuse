@@ -135,7 +135,8 @@ const CloudProjects = MemoizeRpcs.toLayerHandler("cloud.projects.list", () =>
 );
 const CloudAccountImageStatus = MemoizeRpcs.toLayerHandler(
 	"cloud.image.status",
-	() => withCloudControl((service) => service.cloudAccountImage()),
+	(input) =>
+		withCloudControl((service) => service.cloudAccountImage(input?.providerId)),
 );
 const CloudAccountImageBuild = MemoizeRpcs.toLayerHandler(
 	"cloud.image.build",

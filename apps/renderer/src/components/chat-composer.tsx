@@ -161,6 +161,7 @@ import {
 } from "../store/model-catalog.ts";
 import { usePaneFocus } from "../store/pane-focus.ts";
 import { useProvidersStore } from "../store/providers.ts";
+import { CloudConnectionNotice } from "./cloud-connection-notice.tsx";
 import { AnnotationTray } from "./composer/annotation-tray.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { ContextTray } from "./composer/context-tray.tsx";
@@ -1412,6 +1413,7 @@ export function ChatComposer({
 							)}
 						>
 							<NoConnectionTray />
+							{!isDraft && isCloudSession ? <CloudConnectionNotice /> : null}
 							{!isDraft ? (
 								<>
 									<PlanApprovalTray

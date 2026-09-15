@@ -868,5 +868,6 @@
 	"cloud_auth_setup_failed": "云端无法启动安全的智能体设置。请稍后重试。",
 	"cloud_auth_not_allowed": "您的 Zuse 会话无法授权此操作。请刷新会话后重试。",
 	"cloud_auth_login_failed": "无法启动智能体登录。",
-	"cloud_auth_temporarily_unavailable": "云端身份验证暂时不可用。重试不会影响现有聊天。"
+	"cloud_auth_temporarily_unavailable": "云端身份验证暂时不可用。重试不会影响现有聊天。",
+	"cloud_machine_provider": "机器提供商"
 }

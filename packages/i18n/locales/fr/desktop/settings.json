@@ -872,5 +872,6 @@
 	"cloud_auth_setup_failed": "Le Cloud n’a pas pu démarrer la configuration sécurisée de l’agent. Réessayez dans un instant.",
 	"cloud_auth_not_allowed": "Votre session Zuse n’a pas pu autoriser cette action. Actualisez votre session et réessayez.",
 	"cloud_auth_login_failed": "La connexion à l’agent n’a pas pu être démarrée.",
-	"cloud_auth_temporarily_unavailable": "L’authentification Cloud est temporairement indisponible. Réessayez sans affecter vos discussions existantes."
+	"cloud_auth_temporarily_unavailable": "L’authentification Cloud est temporairement indisponible. Réessayez sans affecter vos discussions existantes.",
+	"cloud_machine_provider": "Fournisseur de machine"
 }

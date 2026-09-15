@@ -657,5 +657,7 @@
 	"cloud_size_small": "Petite ({{cpu}} vCPU / {{memory}} Go)",
 	"cloud_size_default": "Standard ({{cpu}} vCPU / {{memory}} Go)",
 	"cloud_size_large": "Grande ({{cpu}} vCPU / {{memory}} Go)",
-	"device_command_permissions_title": "Autorisations de commande enregistrées"
+	"device_command_permissions_title": "Autorisations de commande enregistrées",
+	"cloud_queue_waiting_for_agent": "En attente de l’agent",
+	"cloud_queue_cancel_failed": "Impossible d’annuler le message en attente. Réessayez."
 }

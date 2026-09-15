@@ -142,12 +142,6 @@ const FileSearch = lazy(() =>
 	})),
 );
 
-const CloudConnectionNotice = lazy(() =>
-	import("../components/cloud-connection-notice.tsx").then((module) => ({
-		default: module.CloudConnectionNotice,
-	})),
-);
-
 const CliUpgradeBanner = lazy(() =>
 	import("../components/cli-upgrade-banner.tsx").then((module) => ({
 		default: module.CliUpgradeBanner,
@@ -623,9 +617,6 @@ export function MainShell() {
 												ref={setComposerNode}
 												className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column)] pt-1"
 											>
-												<Suspense fallback={null}>
-													<CloudConnectionNotice />
-												</Suspense>
 												<Suspense fallback={null}>
 													<CliUpgradeBanner
 														providerId={selectedSession.providerId}

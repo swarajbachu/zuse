@@ -1,0 +1,82 @@
+---
+title: "Choose a cloud machine"
+description: "Choose Box or E2B for new cloud chats and prepare each provider's image."
+section: how-to
+order: 25
+platforms: [desktop, browser]
+providers: []
+related: [/how-to/cloud-agent-local-commands]
+lastVerified: latest
+---
+
+Zuse supports **Box** and **E2B**. Choose a machine in the new-chat composer's
+**Run on** menu: **Cloud · Box** or **Cloud · E2B**. The choice applies to that
+new chat. Existing chats stay on their original provider, including after a pause
+or restart. Changing providers does not move an existing workspace's files.
+
+Box is Zuse's default when both providers are available. It is a good starting
+point for general development and larger builds. Choose E2B when preserving
+running processes across ordinary pauses matters more to your workflow.
+
+| | Box | E2B |
+| --- | --- | --- |
+| Machine choices in Zuse | Small, Standard, and Large | The configured E2B template size |
+| Pause and resume | Disk state is preserved; Zuse restarts its runtime and agents | Normal pauses preserve disk and memory state |
+| Tradeoff | A cold resume can take longer while services restart | Memory restoration can avoid that restart, but reconnects and runtime updates still take time |
+| Best fit | General coding, builds, and choosing more CPU or memory | Workflows that benefit from keeping processes alive between pauses |
+
+Box preserves files and installed packages when stopped; manually launched
+processes need restarting. See [Box's lifecycle overview](https://box.ascii.dev/).
+E2B normally preserves both memory and files; filesystem-only recovery can still
+require a cold boot. See [E2B persistence](https://docs.e2b.dev/sandbox/persistence).
+These are lifecycle differences, not a promise that one provider is always faster.
+Resume time also depends on the image, services, region, and current capacity.
+Zuse subscription and usage charges are shown in Cloud settings; provider retail
+pricing is not the price of your Zuse subscription.
+
+## Prepare each provider
+
+In **Settings → Cloud → Cloud image**, select **Machine provider**, then build or
+update that provider's image. Each image includes your connected repositories.
+Build Box and E2B separately if you want to switch between them for new chats.
+Updating one does not replace the other's image or running workspaces.
+
+Connect your coding agents once in **Cloud Authentication**. The same account
+credentials work on both machine providers; you do not authenticate each agent
+again for E2B. Repository connections, uploads, queued delivery, port forwarding,
+local-device command approvals, and workspace APIs use the same Zuse workflows.
+Available choices depend on which providers your Zuse deployment has configured.
+
+## Choose through the API
+
+Pass `providerId` when creating a workspace through `POST /v1/api/workspaces`:
+
+```json
+{
+  "projectId": "your-project-id",
+  "providerId": "box",
+  "agent": "codex",
+  "model": "your-model"
+}
+```
+
+Use `"e2b"` for E2B. Authenticate with your Zuse API key and supply an
+`Idempotency-Key` header. Omitting `providerId` uses the deployment default.
+An unavailable provider returns an error rather than silently switching machines.
+The chosen provider must have a ready account image containing that project.
+
+Account-authenticated image management supports
+`GET /v1/cloud/image?providerId=box` and
+`POST /v1/cloud/image/build` with
+`{"providerId":"box","mode":"update","idempotencyKey":"unique-build-key"}`.
+Use `e2b` to inspect or build the other image. Omitting the provider preserves the
+default-provider behavior. Image management uses your account session, not a
+workspace API key.
+
+## Sending while paused
+
+Send normally. Your message and attachments wait in the composer queue while
+Zuse resumes the workspace. The prompt moves into the conversation when the
+runtime takes the command. Cancel is available while the mailbox still allows
+cancellation. Delivery failures and required sign-in remain visible next to the
+composer; the gray cloud icon in the sidebar only identifies a cloud chat.

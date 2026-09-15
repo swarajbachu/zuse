@@ -247,5 +247,6 @@
 	"diff_pane_selection_summary": "{{total}} 件中 {{selected}} 件を選択 · ⌘↵",
 	"projects_sidebar_chat_count": "{{count}} 件のチャット",
 	"projects_sidebar_chat_count_one": "{{count}} 件のチャット",
-	"projects_sidebar_chat_count_other": "{{count}} 件のチャット"
+	"projects_sidebar_chat_count_other": "{{count}} 件のチャット",
+	"projects_sidebar_cloud": "クラウド"
 }

@@ -1,4 +1,5 @@
 import type { PendingCommand } from "@zuse/client-runtime/resource-state";
+import type { Message } from "@zuse/contracts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
 
 export type WaitingCloudMessagePresentation = Readonly<{
@@ -89,4 +90,39 @@ export const commitAcceptedComposerDelivery = async (
 	if (!accepted) return false;
 	commit();
 	return true;
+};
+
+/** Mailbox-owned prompts stay in the composer queue until claimed by the runtime. */
+export const partitionCloudMessages = (
+	messages: readonly Message[],
+	pendingCommands: readonly PendingCommand[],
+	preparingMessages: readonly Message[] = [],
+): { transcript: readonly Message[]; waiting: readonly Message[] } => {
+	const waitingIds = new Set(
+		pendingCommands
+			.filter(
+				(command) =>
+					command.kind === "messages.send" &&
+					(command.deliveryPhase === "persisting" ||
+						command.deliveryPhase === "reserved" ||
+						command.deliveryPhase === "accepted" ||
+						command.deliveryPhase === "waiting-for-runtime" ||
+						command.deliveryPhase === "blocked"),
+			)
+			.map((command) =>
+				String(command.commandId).replace(/^message-send:/, ""),
+			),
+	);
+	const dispatchedIds = new Set(
+		pendingCommands.map((command) => String(command.commandId)),
+	);
+	for (const message of preparingMessages) {
+		if (!dispatchedIds.has(`message-send:${message.id}`))
+			waitingIds.add(message.id);
+	}
+	if (waitingIds.size === 0) return { transcript: messages, waiting: [] };
+	return {
+		transcript: messages.filter((message) => !waitingIds.has(message.id)),
+		waiting: messages.filter((message) => waitingIds.has(message.id)),
+	};
 };

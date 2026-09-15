@@ -479,8 +479,9 @@ export function ChatLanding() {
 		ReadonlyArray<CloudProviderOption>
 	>([]);
 	const [cloudProject, setCloudProject] = useState<CloudProject | null>(null);
-	const [cloudAccountImage, setCloudAccountImage] =
-		useState<CloudAccountImage | null>(null);
+	const [cloudAccountImages, setCloudAccountImages] = useState<
+		ReadonlyArray<CloudAccountImage>
+	>([]);
 	const [cloudSubscribed, setCloudSubscribed] = useState(false);
 	const [cloudPlacementError, setCloudPlacementError] = useState(false);
 	const setView = useUiStore((state) => state.setView);
@@ -506,20 +507,29 @@ export function ChatLanding() {
 		setSelectedCloudSizeId(null);
 		setCloudProviders([]);
 		setCloudProject(null);
-		setCloudAccountImage(null);
+		setCloudAccountImages([]);
 		setCloudSubscribed(false);
 		setCloudPlacementError(false);
 		if (!CLOUD_WORKSPACE_BETA_AVAILABLE || cloudRepositoryIdentity === null)
 			return;
 		const loadCloudPlacement = async (): Promise<void> => {
 			try {
-				const [providerResult, projectResult, entitlementResult, imageResult] =
+				const [providerResult, projectResult, entitlementResult] =
 					await Promise.all([
 						runControlPlane((client) => client["cloud.providers"]()),
 						runControlPlane((client) => client["cloud.projects.list"]()),
 						runControlPlane((client) => client["machines.entitlements"]()),
-						runControlPlane((client) => client["cloud.image.status"]()),
 					]);
+				const imageResults = await Promise.allSettled(
+					providerResult.providers.map((provider) =>
+						runControlPlane((client) =>
+							client["cloud.image.status"]({ providerId: provider.providerId }),
+						),
+					),
+				);
+				const images = imageResults.flatMap((result) =>
+					result.status === "fulfilled" ? [result.value] : [],
+				);
 				if (cancelled) return;
 				const project =
 					projectResult.projects.find(
@@ -538,11 +548,13 @@ export function ChatLanding() {
 				);
 				setCloudProviders(providerResult.providers);
 				setCloudProject(project);
-				setCloudAccountImage(imageResult);
+				setCloudAccountImages(images);
 				setCloudSubscribed(subscribed);
 				setCloudPlacementError(false);
 
-				const buildIsChanging = imageResult.state === "building";
+				const buildIsChanging =
+					imageResults.some((result) => result.status === "rejected") ||
+					images.some((image) => image.state === "building");
 				if (buildIsChanging && !cancelled)
 					refreshTimer = setTimeout(() => {
 						void loadCloudPlacement();
@@ -560,6 +572,9 @@ export function ChatLanding() {
 	const cloudPickerItems = useMemo<ReadonlyArray<CloudComputerPickerItem>>(
 		() =>
 			cloudProviders.map((provider) => {
+				const cloudAccountImage = cloudAccountImages.find(
+					(image) => image.providerId === provider.providerId,
+				);
 				const included =
 					cloudProject !== null &&
 					cloudAccountImage?.providerId === provider.providerId &&
@@ -570,22 +585,23 @@ export function ChatLanding() {
 					included &&
 					(cloudAccountImage?.state === "ready" ||
 						cloudAccountImage?.state === "outdated");
-				const statusText = cloudPlacementError
-					? uiMessage("chat:cloud_setup_unavailable")
-					: !cloudSubscribed
-						? uiMessage("chat:cloud_setup_subscription_required")
-						: cloudProject === null
-							? uiMessage("chat:cloud_setup_connect_repository")
-							: ready
-								? null
-								: cloudAccountImage?.state === "building"
-									? uiMessage("chat:cloud_setup_building_image")
-									: cloudAccountImage?.state === "auth-broken"
-										? uiMessage("chat:cloud_setup_rebuild_authentication")
-										: uiMessage("chat:cloud_setup_update_image");
+				const statusText =
+					cloudPlacementError || cloudAccountImage === undefined
+						? uiMessage("chat:cloud_setup_unavailable")
+						: !cloudSubscribed
+							? uiMessage("chat:cloud_setup_subscription_required")
+							: cloudProject === null
+								? uiMessage("chat:cloud_setup_connect_repository")
+								: ready
+									? null
+									: cloudAccountImage?.state === "building"
+										? uiMessage("chat:cloud_setup_building_image")
+										: cloudAccountImage?.state === "auth-broken"
+											? uiMessage("chat:cloud_setup_rebuild_authentication")
+											: uiMessage("chat:cloud_setup_update_image");
 				return {
 					providerId: provider.providerId,
-					disabled: cloudPlacementError,
+					disabled: cloudPlacementError || cloudAccountImage === undefined,
 					needsSetup: !cloudSubscribed || !ready,
 					statusText,
 					sizes: provider.sizes?.map((size) => ({
@@ -595,7 +611,7 @@ export function ChatLanding() {
 				};
 			}),
 		[
-			cloudAccountImage,
+			cloudAccountImages,
 			cloudPlacementError,
 			cloudProject,
 			cloudProviders,

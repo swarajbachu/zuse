@@ -430,13 +430,16 @@ const saveAccountProjectState = Effect.fn("saveAccountProjectState")(function* (
 	nowMs: number,
 ) {
 	const store = yield* CloudWorkspaceStore;
-	for (const project of yield* store.listProjects(accountId))
+	for (const project of yield* store.listProjects(accountId)) {
+		// A failed image on one provider must not disable the other ready image.
+		if (state === "failed" && project.state === "ready") continue;
 		yield* store.saveProject({
 			...project,
 			state,
 			lastErrorCode,
 			updatedAtMs: nowMs,
 		});
+	}
 });
 
 const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
@@ -1014,21 +1017,14 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 );
 
 /** Keep two unassigned forks of the active account image off the launch path. */
-export const reconcileCloudPool = Effect.fn("reconcileCloudPool")(function* (
+const reconcileProviderPool = Effect.fn("reconcileProviderPool")(function* (
 	accountId: string,
+	providerId: string,
 ) {
 	const store = yield* CloudWorkspaceStore;
 	const config = yield* SandboxOfferConfiguration;
 	const providers = yield* SandboxProviders;
-	// Internal providers host authentication and retained workspaces only.
-	if (
-		!providers.availableProviders.some(
-			(provider) => provider.providerId === providers.defaultProviderId,
-		)
-	)
-		return;
-	// Account images and their warm pool live on the default sandbox provider.
-	const provider = yield* providers.getDefault.pipe(Effect.orDie);
+	const provider = yield* providers.get(providerId).pipe(Effect.orDie);
 	const image = yield* store.getActiveAccountBuild(
 		accountId,
 		provider.providerId,
@@ -1102,6 +1098,19 @@ export const reconcileCloudPool = Effect.fn("reconcileCloudPool")(function* (
 				});
 			}),
 		{ concurrency: "unbounded", discard: true },
+	);
+});
+
+export const reconcileCloudPool = Effect.fn("reconcileCloudPool")(function* (
+	accountId: string,
+) {
+	const providers = yield* SandboxProviders;
+	// Only advertised providers with a ready account image maintain warm capacity.
+	yield* Effect.forEach(
+		providers.availableProviders,
+		(provider) =>
+			reconcileProviderPool(accountId, provider.providerId).pipe(Effect.ignore),
+		{ concurrency: 2, discard: true },
 	);
 });
 
