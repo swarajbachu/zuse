@@ -108,125 +108,112 @@ export function AnnotationTray({
 	if (annotations.length === 0) return null;
 
 	return (
-		<>
-			<ContextPill
-				label={`${annotations.length} ${uiMessage("chat:annotation_tray_annotations")}`}
-				onRemove={() => clear(sessionId)}
-			>
-				<ul className="max-h-48 divide-y divide-border/35 overflow-y-auto">
-					{annotations.map((annotation) => {
-						const browser = isBrowserAnnotation(annotation);
-						return (
-							<li
-								key={annotation.id}
-								className="group/annotation flex min-w-0 flex-wrap items-center gap-1.5 px-2 py-1.5 first:pt-1.5 last:pb-1.5 hover:bg-muted/45"
-							>
-								{"_tag" in annotation && annotation._tag === "context" ? (
-									<span className="truncate text-xs">{annotation.label}</span>
-								) : browser ? (
-									<BrowserAnnotationChip
-										annotation={annotation}
-										className="max-w-[44%] shrink-0"
-									/>
-								) : (
-									<button
-										type="button"
-										onClick={() =>
-											revealAnnotation(annotation as CodeAnnotation)
-										}
-										className="min-w-0 max-w-[44%] shrink-0 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-										title={uiMessage("chat:annotation_tray_open_annotation")}
-									>
-										<AnnotationFileChip
-											annotation={annotation as CodeAnnotation}
-											className="max-w-full py-px"
-										/>
-									</button>
-								)}
-								<span className="flex-1" />
-								{editingId === annotation.id ? (
-									<textarea
-										value={editText}
-										onChange={(event) => setEditText(event.target.value)}
-										onKeyDown={(event) => {
-											if (isInputComposing(event)) return;
-
-											if (event.key === "Escape") {
-												event.preventDefault();
-												setEditingId(null);
-											} else if (event.key === "Enter" && !event.shiftKey) {
-												event.preventDefault();
-												updateComment(sessionId, annotation.id, editText);
-												setEditingId(null);
-											}
-										}}
-										rows={1}
-										className="max-h-20 min-h-7 min-w-0 flex-1 resize-y rounded-md bg-background/70 px-2 py-1 text-xs leading-snug text-foreground outline-none ring-1 ring-border/50 focus:ring-ring/50"
-										// biome-ignore lint/a11y/noAutofocus: entering edit mode should immediately focus the annotation comment field.
-										autoFocus
-									/>
-								) : (
-									<button
-										type="button"
-										onClick={() => {
-											if (!("_tag" in annotation)) {
-												revealAnnotation(annotation as CodeAnnotation);
-											}
-										}}
-										disabled={"_tag" in annotation}
-										className="order-last w-full whitespace-pre-wrap break-words rounded text-left text-xs leading-relaxed text-foreground disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-										title={annotation.comment}
-									>
-										{annotation.comment}
-									</button>
-								)}
-								{editingId === annotation.id ? (
-									<button
-										type="button"
-										onClick={() => {
-											updateComment(sessionId, annotation.id, editText);
-											setEditingId(null);
-										}}
-										className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-80 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-										aria-label={uiMessage(
-											"chat:annotation_tray_save_annotation",
-										)}
-									>
-										<HugeiconsIcon icon={Tick01Icon} className="size-3.5" />
-									</button>
-								) : (
-									<button
-										type="button"
-										onClick={() => {
-											setEditingId(annotation.id);
-											setEditText(annotation.comment);
-										}}
-										className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/annotation:opacity-100"
-										aria-label={uiMessage(
-											"chat:annotation_tray_edit_annotation",
-										)}
-									>
-										<HugeiconsIcon
-											icon={PencilEdit01Icon}
-											className="size-3.5"
-										/>
-									</button>
-								)}
+		<ContextPill
+			label={`${annotations.length} ${uiMessage("chat:annotation_tray_annotations")}`}
+			onRemove={() => clear(sessionId)}
+		>
+			<ul className="max-h-48 divide-y divide-border/35 overflow-y-auto">
+				{annotations.map((annotation) => {
+					const browser = isBrowserAnnotation(annotation);
+					return (
+						<li
+							key={annotation.id}
+							className="group/annotation flex min-w-0 flex-wrap items-center gap-1.5 px-2 py-1.5 first:pt-1.5 last:pb-1.5 hover:bg-muted/45"
+						>
+							{"_tag" in annotation && annotation._tag === "context" ? (
+								<span className="truncate text-xs">{annotation.label}</span>
+							) : browser ? (
+								<BrowserAnnotationChip
+									annotation={annotation}
+									className="max-w-[44%] shrink-0"
+								/>
+							) : (
 								<button
 									type="button"
-									onClick={() => remove(sessionId, annotation.id)}
-									className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-70 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/annotation:opacity-100"
-									aria-label={uiMessage(
-										"chat:annotation_tray_remove_annotation",
-									)}
+									onClick={() => revealAnnotation(annotation as CodeAnnotation)}
+									className="min-w-0 max-w-[44%] shrink-0 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+									title={uiMessage("chat:annotation_tray_open_annotation")}
 								>
-									<X className="size-3.5" strokeWidth={1.8} />
+									<AnnotationFileChip
+										annotation={annotation as CodeAnnotation}
+										className="max-w-full py-px"
+									/>
 								</button>
-							</li>
-						);
-					})}
-				</ul>
-			</ContextPill>
-		</>
+							)}
+							<span className="flex-1" />
+							{editingId === annotation.id ? (
+								<textarea
+									value={editText}
+									onChange={(event) => setEditText(event.target.value)}
+									onKeyDown={(event) => {
+										if (isInputComposing(event)) return;
+
+										if (event.key === "Escape") {
+											event.preventDefault();
+											setEditingId(null);
+										} else if (event.key === "Enter" && !event.shiftKey) {
+											event.preventDefault();
+											updateComment(sessionId, annotation.id, editText);
+											setEditingId(null);
+										}
+									}}
+									rows={1}
+									className="max-h-20 min-h-7 min-w-0 flex-1 resize-y rounded-md bg-background/70 px-2 py-1 text-xs leading-snug text-foreground outline-none ring-1 ring-border/50 focus:ring-ring/50"
+									// biome-ignore lint/a11y/noAutofocus: entering edit mode should immediately focus the annotation comment field.
+									autoFocus
+								/>
+							) : (
+								<button
+									type="button"
+									onClick={() => {
+										if (!("_tag" in annotation)) {
+											revealAnnotation(annotation as CodeAnnotation);
+										}
+									}}
+									disabled={"_tag" in annotation}
+									className="order-last w-full whitespace-pre-wrap break-words rounded text-left text-xs leading-relaxed text-foreground disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+									title={annotation.comment}
+								>
+									{annotation.comment}
+								</button>
+							)}
+							{editingId === annotation.id ? (
+								<button
+									type="button"
+									onClick={() => {
+										updateComment(sessionId, annotation.id, editText);
+										setEditingId(null);
+									}}
+									className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-80 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+									aria-label={uiMessage("chat:annotation_tray_save_annotation")}
+								>
+									<HugeiconsIcon icon={Tick01Icon} className="size-3.5" />
+								</button>
+							) : (
+								<button
+									type="button"
+									onClick={() => {
+										setEditingId(annotation.id);
+										setEditText(annotation.comment);
+									}}
+									className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/annotation:opacity-100"
+									aria-label={uiMessage("chat:annotation_tray_edit_annotation")}
+								>
+									<HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />
+								</button>
+							)}
+							<button
+								type="button"
+								onClick={() => remove(sessionId, annotation.id)}
+								className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-70 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/annotation:opacity-100"
+								aria-label={uiMessage("chat:annotation_tray_remove_annotation")}
+							>
+								<X className="size-3.5" strokeWidth={1.8} />
+							</button>
+						</li>
+					);
+				})}
+			</ul>
+		</ContextPill>
 	);
 }
