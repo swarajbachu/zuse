@@ -1,4 +1,10 @@
 {
+	"git": {
+		"deploymentEnabled": {
+			"**": false,
+			"main": true
+		}
+	},
 	"buildCommand": "VITE_ZUSE_HOSTED=1 bun run --filter renderer build",
 	"outputDirectory": "apps/renderer/dist",
 	"framework": "vite",
