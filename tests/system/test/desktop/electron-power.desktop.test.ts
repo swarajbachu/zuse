@@ -6,8 +6,6 @@ import { describe, expect, it } from "vitest";
 import { launchElectronApp } from "../../src/electron-app.ts";
 import { withSystemTest } from "../../src/system-scope.ts";
 
-const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
-
 describe("Electron performance measurement bridge", () => {
 	it.runIf(process.platform === "darwin")(
 		"starts and releases the macOS awake assertion through the preload bridge",
@@ -371,10 +369,18 @@ describe("Electron performance measurement bridge", () => {
 				firstEventsAfterUnsubscribe: 0,
 				secondEventsAfterUnsubscribe: 0,
 			});
-			await electron.page.keyboard.press(`${primaryModifier}+,`);
+			await electron.page
+				.getByRole("button", { name: "Settings", exact: true })
+				.click();
 			await electron.page
 				.getByRole("button", { name: "Diagnostics", exact: true })
-				.click();
+				.click()
+				.catch(async (cause) => {
+					const artifact = await electron.captureFailure(
+						"power-settings-navigation",
+					);
+					throw new Error(`${String(cause)}\nartifact: ${artifact}`);
+				});
 			await electron.page
 				.getByRole("button", { name: "Performance", exact: true })
 				.click();

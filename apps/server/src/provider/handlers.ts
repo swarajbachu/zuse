@@ -1,5 +1,4 @@
 import {
-	loadOpencodeInventory,
 	removeOpencodeProviderAuth,
 	setOpencodeProviderAuth,
 } from "@zuse/agents/drivers/opencode";
@@ -135,25 +134,6 @@ const UpdateProvider = MemoizeRpcs.toLayerHandler(
 			),
 		),
 );
-
-const requireKiroPath = (): Effect.Effect<
-	string,
-	AgentSessionStartError,
-	CommandExecutor.ChildProcessSpawner
-> =>
-	Effect.gen(function* () {
-		const kiroPath = yield* resolveCliPath("kiro-cli");
-		if (kiroPath === null) {
-			return yield* Effect.fail(
-				new AgentSessionStartError({
-					providerId: "kiro",
-					reason:
-						"Kiro CLI not found on PATH. Install from https://kiro.dev and ensure `kiro-cli` is available.",
-				}),
-			);
-		}
-		return kiroPath;
-	});
 
 // ---------------------------------------------------------------------------
 // OpenCode provider management. `setProviderAuth` / `addCustomProvider` write

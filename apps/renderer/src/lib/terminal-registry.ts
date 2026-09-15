@@ -276,6 +276,10 @@ function observeTerminalResource(
 	if (live.disposed) return;
 	if (view.data !== null) {
 		live.processEpoch = view.data.processEpoch;
+		live.failureMessage =
+			view.data.failure === null
+				? null
+				: `${view.data.failure.message} Restart the terminal to continue.`;
 		if (
 			view.connection !== "connected" &&
 			view.data.phase !== "exited" &&

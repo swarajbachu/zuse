@@ -1949,39 +1949,35 @@ function ProjectGroup({
 			<Tooltip>
 				<TooltipTrigger
 					render={
-						/* biome-ignore lint/a11y/useSemanticElements: this row contains nested action buttons. */
 						<div
-							role="button"
-							tabIndex={0}
 							{...dragProps}
-							onContextMenu={(event) => {
-								event.preventDefault();
-								event.stopPropagation();
-								const rect = new DOMRect(event.clientX, event.clientY, 0, 0);
-								anchorRef.current = { getBoundingClientRect: () => rect };
-								setMenuOpen(true);
-							}}
-							onClick={() => {
-								onToggleExpanded();
-							}}
-							onKeyDown={(e) => {
-								if (isInputComposing(e)) return;
-
-								if (e.key === "Enter" || e.key === " ") {
-									e.preventDefault();
-									onToggleExpanded();
-								}
-							}}
 							className={cn(
 								"group relative flex cursor-pointer select-none items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent/40 focus-visible:bg-sidebar-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 								nested && "ms-0",
 							)}
 						>
+							<button
+								type="button"
+								aria-expanded={isExpanded}
+								onContextMenu={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									const rect = new DOMRect(event.clientX, event.clientY, 0, 0);
+									anchorRef.current = { getBoundingClientRect: () => rect };
+									setMenuOpen(true);
+								}}
+								onClick={onToggleExpanded}
+								className="absolute inset-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							>
+								<span className="sr-only">
+									{isExpanded ? "Collapse" : "Expand"} {displayName}
+								</span>
+							</button>
 							<DropLine line={dropLine} />
 							{/* Single 20px slot holds avatar (idle) and chevron (hover). Both
               live in the same grid cell so the row never reflows; opacity
               fades between them. motion-reduce drops the transition. */}
-							<div className="relative grid size-5 shrink-0 place-items-center">
+							<div className="pointer-events-none relative grid size-5 shrink-0 place-items-center">
 								<Avatar
 									className={cn(
 										"col-start-1 row-start-1 size-5 rounded transition-opacity duration-150 ease-out",
@@ -2015,7 +2011,7 @@ function ProjectGroup({
 								/>
 							</div>
 							<span
-								className="min-w-0 flex-1 truncate text-[12px]"
+								className="pointer-events-none min-w-0 flex-1 truncate text-[12px]"
 								title={
 									origin
 										? `${origin.owner}/${origin.repo} · ${displayPath(path)}`
@@ -2033,7 +2029,7 @@ function ProjectGroup({
 												event.stopPropagation();
 												openRepositorySettings();
 											}}
-											className="rounded-md p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
+											className="relative z-10 rounded-md p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
 											onPointerDown={(event) => event.stopPropagation()}
 											aria-label={uiMessage(
 												"projects:projects_sidebar_settings_for",
@@ -2519,7 +2515,7 @@ function NewChatButton({ projectId }: { projectId: FolderId }) {
 						type="button"
 						onClick={onClick}
 						onPointerDown={(event) => event.stopPropagation()}
-						className="rounded-md p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
+						className="relative z-10 rounded-md p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
 						aria-label={uiMessage("projects:projects_sidebar_new_chat")}
 					>
 						<HugeiconsIcon icon={Edit01Icon} className="size-3.5" />
@@ -2797,22 +2793,9 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 				<Tooltip>
 					<TooltipTrigger
 						render={
-							/* biome-ignore lint/a11y/useSemanticElements: this row contains a nested archive action. */
 							<div
-								role="button"
-								tabIndex={0}
-								onClick={() => selectChat(chat.id)}
-								onContextMenu={onContextMenu}
-								onKeyDown={(e) => {
-									if (isInputComposing(e)) return;
-
-									if (e.key === "Enter" || e.key === " ") {
-										e.preventDefault();
-										selectChat(chat.id);
-									}
-								}}
 								className={cn(
-									"group flex min-h-7 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 pl-1 text-[12px] transition-colors",
+									"group relative flex min-h-7 cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 pl-1 text-[12px] transition-colors",
 									isSelected &&
 										"bg-sidebar-accent text-sidebar-accent-foreground",
 									!isSelected &&
@@ -2837,7 +2820,15 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 										: chat.title
 								}
 							>
-								<span className="ml-3 inline-grid size-5 shrink-0 place-items-center">
+								<button
+									type="button"
+									onClick={() => selectChat(chat.id)}
+									onContextMenu={onContextMenu}
+									className="absolute inset-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								>
+									<span className="sr-only">{chat.title}</span>
+								</button>
+								<span className="pointer-events-none ml-3 inline-grid size-5 shrink-0 place-items-center">
 									{attentionState !== "idle" ? (
 										<ChatAttentionIcon
 											state={attentionState}
@@ -2849,9 +2840,9 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 								</span>
 								<TypewriterText
 									text={chat.title}
-									className="min-w-0 flex-1 truncate"
+									className="pointer-events-none min-w-0 flex-1 truncate"
 								/>
-								<div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
+								<div className="pointer-events-none relative flex h-4 w-16 shrink-0 items-center justify-end">
 									{onRemoteEnvironment ? (
 										<RemoteComputerIndicator
 											label={environmentLabel}
@@ -2865,7 +2856,7 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 												<span className="text-success">
 													+{formatCompactNumber(stats.additions)}
 												</span>{" "}
-												<span className="text-destructive">
+												<span className="text-danger-text">
 													−{formatCompactNumber(stats.deletions)}
 												</span>
 											</>
@@ -2885,7 +2876,7 @@ function ChatRow({ chat, projectRoot }: { chat: Chat; projectRoot: string }) {
 											}
 										}}
 										className={cn(
-											"items-center rounded-md p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none",
+											"pointer-events-auto relative z-10 items-center rounded-md p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none",
 											isArchiving ? "flex" : "hidden group-hover:flex",
 										)}
 										aria-label={`${primaryActionLabel} ${chat.title}`}

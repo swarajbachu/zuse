@@ -124,6 +124,18 @@ describe("question actionability", () => {
 				"permission-2": second.interaction.request,
 			}),
 		).toEqual([second]);
+		const expired = {
+			...first.interaction.request,
+			recoveryState: "expired" as const,
+		};
+		expect(
+			findPresentedPermissions([first], { "permission-1": expired }),
+		).toEqual([
+			{
+				...first,
+				interaction: { ...first.interaction, request: expired },
+			},
+		]);
 	});
 
 	it("folds authoritative attachment snapshots and removals", () => {

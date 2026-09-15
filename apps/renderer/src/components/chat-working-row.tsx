@@ -3,10 +3,10 @@ import type { PendingCommand } from "@zuse/client-runtime/resource-state";
 import type { SessionRuntimeState } from "@zuse/client-runtime/session-presentation";
 import type {
 	ChatId,
-	EnvironmentId,
 	Message,
 	ProviderId,
 	SessionId,
+	SessionInteraction,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useMemo, useState } from "react";
@@ -14,15 +14,11 @@ import { useEffect, useMemo, useState } from "react";
 import { deriveAgentActivityState } from "../lib/agent-activity-state.ts";
 import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { waitingCloudMessagePresentation } from "../lib/composer-delivery.ts";
-import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
-import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import {
 	providerStartupLabel,
 	useProviderStartupDelay,
 } from "../lib/provider-startup-delay.ts";
-import { filterActionableQuestionInteractions } from "../lib/question-actionability.ts";
-import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
@@ -49,7 +45,7 @@ export function ChatWorkingRow({
 	messages,
 	chatId,
 	sessionId,
-	environmentId,
+	interactions = [],
 	providerId,
 	pendingCommands,
 	runtimeState,
@@ -57,7 +53,7 @@ export function ChatWorkingRow({
 	readonly messages: ReadonlyArray<Message>;
 	readonly chatId: ChatId | null;
 	readonly sessionId: SessionId;
-	readonly environmentId: EnvironmentId;
+	readonly interactions?: readonly SessionInteraction[];
 	readonly providerId: ProviderId;
 	readonly pendingCommands: readonly PendingCommand[];
 	readonly runtimeState: SessionRuntimeState;
@@ -65,19 +61,7 @@ export function ChatWorkingRow({
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
 	const waitingCommand = waitingCloudMessagePresentation(pendingCommands);
-	const timeline = useRendererSessionTimeline(
-		sessionId,
-		"connect",
-		environmentId,
-	);
-	const questionAttachmentsByKey =
-		useEnvironmentQuestionAttachments(environmentId).data?.attachmentsByKey ??
-		{};
-	const session = useActiveSessionById(sessionId);
-	const providerLabel =
-		session === null || session === undefined
-			? "Agent"
-			: (PROVIDER_LABEL[session.providerId] ?? session.providerId);
+	const providerLabel = PROVIDER_LABEL[providerId] ?? providerId;
 	const cloudSummary = useCloudChatSummaryForSelection({ chatId, sessionId });
 	const initialCloudAgentStart =
 		cloudSummary !== null && cloudSummary.startupPhase === "starting-agent";
@@ -114,14 +98,7 @@ export function ChatWorkingRow({
 	}, []);
 
 	const elapsed = anchorMs === null ? 0 : Math.max(0, now - anchorMs);
-	const activityState = deriveAgentActivityState(
-		messages,
-		filterActionableQuestionInteractions(
-			sessionId,
-			timeline.presentation.interactions.map((item) => item.interaction),
-			questionAttachmentsByKey,
-		),
-	);
+	const activityState = deriveAgentActivityState(messages, interactions);
 
 	return (
 		<div

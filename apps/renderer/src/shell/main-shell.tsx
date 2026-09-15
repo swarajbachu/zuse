@@ -128,12 +128,6 @@ const TopBarRight = lazy(() =>
 	})),
 );
 
-const ChatSwitcher = lazy(() =>
-	import("../components/chat-switcher.tsx").then((module) => ({
-		default: module.ChatSwitcher,
-	})),
-);
-
 const FileSearch = lazy(() =>
 	import("../components/file-search.tsx").then((module) => ({
 		default: module.FileSearch,
@@ -862,7 +856,6 @@ export function MainShell() {
 			<Suspense fallback={null}>
 				<SidebarPeekTrigger />
 				<SidebarPeekOverlay />
-				<ChatSwitcher />
 				<FileSearch />
 			</Suspense>
 		</div>

@@ -79,10 +79,13 @@ export const hasPendingTurnStart = (
 ): boolean =>
 	pendingCommands.some(
 		(command) =>
-			command.kind === "messages.send" ||
-			command.kind === "messages.queue.add" ||
-			command.kind === "messages.queue.runNext" ||
-			command.kind === "messages.queue.resume",
+			(command.deliveryPhase === undefined ||
+				command.deliveryPhase === "leased" ||
+				command.deliveryPhase === "applied") &&
+			(command.kind === "messages.send" ||
+				command.kind === "messages.queue.add" ||
+				command.kind === "messages.queue.runNext" ||
+				command.kind === "messages.queue.resume"),
 	);
 
 const latestConversationalRole = (
@@ -155,17 +158,22 @@ export const deriveSessionPresentation = ({
 	readonly catalogStatus?: SessionStatus;
 	readonly catalogRuntime?: SessionRuntimeState;
 }): SessionPresentation => {
-	const qualified = view.data !== null || view.cursor !== null;
+	const qualified =
+		view.cursor !== null ||
+		(view.data !== null &&
+			(view.sync === "live" || view.data.currentTurn !== null));
 	const catalogFallback =
 		catalogRuntime ??
 		(catalogStatus === undefined
 			? "idle"
 			: runtimeStateFromStatus(catalogStatus));
 	let runtime =
-		view.data !== null
+		qualified && view.data !== null
 			? runtimeStateFromTimeline(view.data)
 			: !qualified
-				? catalogFallback
+				? view.connection === "connected"
+					? catalogFallback
+					: "idle"
 				: "idle";
 	let pendingStartApplied = false;
 	if (
@@ -174,6 +182,7 @@ export const deriveSessionPresentation = ({
 		) &&
 		(view.data === null ||
 			view.data.currentTurn !== null ||
+			(!qualified && latestConversationalRole(view.data) !== "assistant") ||
 			isSessionTurnActive(runtime))
 	) {
 		runtime = "stopping";

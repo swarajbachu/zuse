@@ -26,6 +26,7 @@ import {
 } from "./pending-session-messages.ts";
 import {
 	effectiveSessionRuntimeState,
+	runtimeStateFromResource,
 	type SessionRuntimeState,
 } from "./session-runtime-state.ts";
 import {
@@ -71,11 +72,6 @@ const EMPTY_TIMELINE_VIEW: ResourceView<SessionTimelineProjection> = {
 	failedCommands: [],
 };
 
-const runtimeStateFromResource = (
-	view: ResourceView<SessionTimelineProjection>,
-	fallback: SessionRuntimeState,
-): SessionRuntimeState =>
-	deriveSessionPresentation({ view, catalogRuntime: fallback }).runtime;
 /** One qualified timeline selector shared by chat, composer, queue, and dock. */
 export const useRendererSessionTimeline = (
 	sessionId: SessionId,

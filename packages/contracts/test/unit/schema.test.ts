@@ -21,7 +21,6 @@ import {
 	SessionTimelineFrame,
 	SettingsFile,
 	UserQuestionAnswer,
-	visibleModelsForProvider,
 	Worktree,
 } from "../../src/index.ts";
 

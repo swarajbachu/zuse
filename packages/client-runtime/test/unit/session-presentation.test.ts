@@ -60,6 +60,29 @@ const assistantMessage = Message.make({
 });
 
 describe("session presentation authority", () => {
+	it.each([
+		"persisting",
+		"reserved",
+		"accepted",
+		"waiting-for-runtime",
+		"blocked",
+	] as const)("does not start a turn for a mailbox command still %s", (deliveryPhase) => {
+		const presentation = deriveSessionPresentation({
+			view: view(projection("idle", false), {
+				pendingCommands: [
+					{
+						commandId: CommandId.make("mailbox-send"),
+						kind: "messages.send",
+						targetId: null,
+						submittedAt: 1,
+						deliveryPhase,
+					},
+				],
+			}),
+		});
+		expect(presentation.runtime).toBe("idle");
+		expect(presentation.turnInFlight).toBe(false);
+	});
 	it("does not let a stale running catalog hint revive a settled timeline", () => {
 		expect(
 			runtime(

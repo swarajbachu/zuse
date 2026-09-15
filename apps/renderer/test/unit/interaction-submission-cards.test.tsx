@@ -22,6 +22,7 @@ const renderQuestion = (
 ) =>
 	renderToStaticMarkup(
 		<QuestionCard
+			environmentId={environmentId}
 			sessionId={sessionId}
 			itemId={AgentItemId.make("question-overlay")}
 			questions={[{ question: "Continue?", options: ["Yes", "No"] }]}
@@ -50,6 +51,7 @@ describe("interaction submission cards", () => {
 	it("keeps a durable-only question quarantined in the card", () => {
 		const markup = renderToStaticMarkup(
 			<QuestionCard
+				environmentId={environmentId}
 				sessionId={sessionId}
 				itemId={AgentItemId.make("question-detached")}
 				questions={[{ question: "Continue?", options: ["Yes", "No"] }]}
@@ -91,6 +93,7 @@ describe("interaction submission cards", () => {
 		if (selected === null) return;
 		const markup = renderToStaticMarkup(
 			<QuestionCard
+				environmentId={environmentId}
 				sessionId={sessionId}
 				itemId={selected.question.interaction.id}
 				questions={selected.question.interaction.questions}

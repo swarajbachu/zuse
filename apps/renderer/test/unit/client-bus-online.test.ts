@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { setPlatformOnlineForTest } from "../../src/lib/network-status.ts";
 
 const mocks = vi.hoisted(() => ({
 	setOnline: vi.fn(),
@@ -17,13 +18,14 @@ describe("ClientBus platform connectivity bridge", () => {
 		vi.stubGlobal("window", new EventTarget());
 		const cleanup = installClientBusOnlineBridge();
 
-		window.dispatchEvent(new Event("offline"));
-		window.dispatchEvent(new Event("online"));
+		setPlatformOnlineForTest(false);
+		setPlatformOnlineForTest(true);
 
 		expect(mocks.setOnline.mock.calls).toEqual([[false], [true]]);
 		cleanup();
-		window.dispatchEvent(new Event("offline"));
+		setPlatformOnlineForTest(false);
 		expect(mocks.setOnline).toHaveBeenCalledTimes(2);
+		setPlatformOnlineForTest(true);
 		vi.unstubAllGlobals();
 	});
 });

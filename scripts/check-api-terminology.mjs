@@ -11,6 +11,7 @@ const historicalPaths = [
 	/^infra\/api\/drizzle\/migrations\/0016_api_naming\.sql$/u,
 	/^infra\/api\/test\/unit\/migration-safety\.test\.ts$/u,
 	/^apps\/server\/test\/integration\/api-config-migration\.test\.ts$/u,
+	/^tests\/system\/fixtures\/legacy-v29\.sql$/u,
 	/^apps\/server\/test\/integration\/(?:lan-auth-service|ws-auth)\.test\.ts$/u,
 	/^apps\/mobile\/(?:src|test\/unit)\/lib\/connection-records(?:\.test)?\.ts$/u,
 	/^CHANGELOG\.md$/u,

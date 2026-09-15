@@ -10,7 +10,7 @@ import {
 	SessionTimelineProjection,
 } from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getActiveEnvironment } from "../../src/lib/rpc-client.ts";
 import {
@@ -39,6 +39,14 @@ const question = {
 	requestedAt: new Date("2026-08-24T00:00:00.000Z"),
 };
 const initialSessionsState = useSessionsStore.getInitialState();
+beforeEach(() =>
+	vi.stubGlobal("location", {
+		protocol: "http:",
+		host: "localhost",
+		pathname: "/",
+	}),
+);
+afterEach(() => vi.unstubAllGlobals());
 
 const snapshot = () =>
 	SessionTimelineProjection.make({
@@ -95,7 +103,9 @@ describe("question answer recovery", () => {
 		);
 
 		await expect(
-			useSessionsStore.getState().answerQuestion(sessionId, itemId, answers),
+			useSessionsStore
+				.getState()
+				.answerQuestion(environmentId, sessionId, itemId, answers),
 		).rejects.toBeInstanceOf(SessionNotFoundError);
 		let presentation = deriveSessionPresentation({
 			view: getRendererClientBus().snapshot(retained.key),
@@ -106,7 +116,7 @@ describe("question answer recovery", () => {
 
 		const retry = useSessionsStore
 			.getState()
-			.answerQuestion(sessionId, itemId, answers);
+			.answerQuestion(environmentId, sessionId, itemId, answers);
 		await waitUntil(() => attempts === 2);
 		presentation = deriveSessionPresentation({
 			view: getRendererClientBus().snapshot(retained.key),
@@ -177,7 +187,9 @@ describe("question answer recovery", () => {
 		);
 
 		await expect(
-			useSessionsStore.getState().answerQuestion(sessionId, itemId, answers),
+			useSessionsStore
+				.getState()
+				.answerQuestion(environmentId, sessionId, itemId, answers),
 		).rejects.toMatchObject({ _tag: "RpcClientError" });
 		expect(
 			getRendererClientBus().snapshot(retained.key).failedCommands,
@@ -229,7 +241,9 @@ describe("question answer recovery", () => {
 		);
 
 		await expect(
-			useSessionsStore.getState().cancelQuestion(sessionId, itemId),
+			useSessionsStore
+				.getState()
+				.cancelQuestion(environmentId, sessionId, itemId),
 		).rejects.toMatchObject({ _tag: "RpcClientError" });
 		expect({ cancelAttempts, answerAttempts }).toEqual({
 			cancelAttempts: 1,

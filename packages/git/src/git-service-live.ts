@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-	GitFolderNotFoundError,
 	type FolderId,
 	GitBranchInfo,
 	GitChange,
@@ -76,12 +75,6 @@ import {
 	parseReviewIdentity,
 } from "./review-comment.ts";
 import { parseStackView } from "./stack.ts";
-
-type GitFailure =
-	| GitNotARepoError
-	| GitNotInstalledError
-	| GitCommandError
-	| GitFolderNotFoundError;
 
 import { makeWorkspaceChangeStreams } from "./workspace-change-streams.ts";
 import {

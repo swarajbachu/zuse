@@ -86,6 +86,62 @@ describe("environment shell ClientBus driver", () => {
 		await bus.dispose();
 	});
 
+	it("replaces a persisted shell cursor after a renderer module reload", async () => {
+		vi.resetModules();
+		const { makeEnvironmentShellResourceDriver: createDriver } = await import(
+			"../../src/lib/environment-shell-client-bus.ts"
+		);
+		const cached: EnvironmentShellData = {
+			folders: [],
+			originsByFolder: {},
+			chatsByProject: {},
+			sessionsByProject: {},
+			creationOperationsByProject: {},
+		};
+		const client = {
+			"workspace.streamChanges": () => Stream.make([]),
+		} as unknown as EnvironmentShellDriverClient;
+		const bus = new ClientBus<EnvironmentShellDriverClient>({
+			resolver: {
+				resolve: () =>
+					Effect.succeed({ client, dispose: async () => undefined }),
+			},
+			persistence: {
+				loadResource: async <Data>() => ({
+					data: cached as Data,
+					cursor: { epoch: "environment-shell:1:1", version: 100 },
+					storedAt: 1,
+				}),
+				saveResource: async () => undefined,
+				removeResource: async () => undefined,
+			},
+			driverFor: () => {
+				const driver = createDriver({ reportConnectionFailure: vi.fn() });
+				return {
+					start: (context) =>
+						driver.start(
+							context as ResourceDriverContext<
+								EnvironmentShellDriverClient,
+								EnvironmentShellData
+							>,
+						),
+					stop: () => driver.stop(),
+				};
+			},
+		});
+		const key = environmentShellResourceKey(ref);
+		const lease = bus.retain(key, { activation: "cache-only" });
+		try {
+			await vi.waitFor(() => expect(bus.snapshot(key).sync).toBe("cached"));
+			await lease.activate("connect");
+			await vi.waitFor(() => expect(bus.snapshot(key).sync).toBe("live"));
+			expect(bus.snapshot(key).cursor?.epoch).not.toBe("environment-shell:1:1");
+		} finally {
+			lease.release();
+			await bus.dispose();
+		}
+	});
+
 	it("shares one live shell driver until the final consumer releases it", async () => {
 		const workspace = Effect.runSync(
 			Queue.unbounded<ReadonlyArray<ReturnType<typeof folder>>>(),

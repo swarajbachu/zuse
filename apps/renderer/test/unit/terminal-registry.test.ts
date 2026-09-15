@@ -294,6 +294,34 @@ describe("terminal registry ownership", () => {
 		await dispose(environmentId, instanceId);
 	});
 
+	it("exposes resource failures as actionable terminal status", async () => {
+		const environmentId = EnvironmentId.make("failure-environment");
+		const instanceId = PtyId.make("failure-terminal");
+		attach(environmentId, instanceId, makeElement() as unknown as HTMLElement, {
+			cwd: "/workspace",
+			ownerId,
+			title: "Shell",
+			serverPtyId: PtyId.make("failure-server-pty"),
+		});
+		await vi.waitFor(() => expect(clientBus.listener).not.toBeNull());
+		clientBus.listener?.({
+			connection: "connected",
+			data: {
+				phase: "failed",
+				processEpoch: "epoch",
+				failure: {
+					kind: "replay-gap",
+					message: "Terminal output is no longer available from this cursor.",
+					gap: null,
+				},
+			},
+		});
+		expect(getTerminalFailureMessage(environmentId, instanceId)).toBe(
+			"Terminal output is no longer available from this cursor. Restart the terminal to continue.",
+		);
+		await dispose(environmentId, instanceId);
+	});
+
 	it("adopts a catalog-reconciled process after an open acknowledgement is lost", async () => {
 		terminalClient.dispatchTerminalOpen.mockRejectedValue(
 			new Error("response lost"),
@@ -342,7 +370,11 @@ describe("terminal registry ownership", () => {
 		await vi.waitFor(() => expect(clientBus.listener).not.toBeNull());
 
 		clientBus.listener?.({
-			data: { phase: "exited", processEpoch: "terminal-exit-epoch" },
+			data: {
+				phase: "exited",
+				processEpoch: "terminal-exit-epoch",
+				failure: null,
+			},
 			connection: "connected",
 		});
 

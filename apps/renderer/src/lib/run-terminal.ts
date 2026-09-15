@@ -2,7 +2,6 @@ import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import type { TerminalInstance } from "../store/terminals.ts";
-import { restoreOrAddRightTerminal } from "./right-terminal-controller.ts";
 
 /**
  * Spawn a command-bound terminal (e.g. the project's Run script) and surface
@@ -22,6 +21,9 @@ export async function openTerminalCommand(args: {
 	readonly title: string;
 	readonly command: NonNullable<TerminalInstance["command"]>;
 }): Promise<boolean> {
+	const { restoreOrAddRightTerminal } = await import(
+		"./right-terminal-controller.ts"
+	);
 	const result = await restoreOrAddRightTerminal({
 		ref: args.chatRef,
 		environmentId: args.chatRef.environmentId,

@@ -92,6 +92,7 @@ describe("runtime freshness", () => {
 						{
 							commandId: CommandId.make("interrupt:1"),
 							kind: "messages.interrupt",
+							targetId: null,
 							submittedAt: 1,
 						},
 					],

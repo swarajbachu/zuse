@@ -215,6 +215,11 @@ export function PermissionPrompt({
 				) : null}
 			</div>
 			{context}
+			{submission === "submitting" ? (
+				<p role="status" className="mt-2 text-xs text-muted-foreground">
+					Submitting decision…
+				</p>
+			) : null}
 			{expired ? (
 				<p
 					className="mt-2 text-xs text-muted-foreground"
@@ -227,7 +232,8 @@ export function PermissionPrompt({
 				</p>
 			) : null}
 			{error || submissionError ? (
-				<p role="alert" className="mt-2 text-xs text-destructive">
+				<p role="alert" className="mt-2 text-xs text-danger-text">
+					{submission === "failed" ? "Couldn’t submit decision: " : null}
 					{error ?? submissionError}
 				</p>
 			) : null}

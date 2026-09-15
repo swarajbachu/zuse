@@ -70,11 +70,18 @@ export const findPresentedPermissions = (
 	requestsById: Readonly<Record<string, PermissionRequest>>,
 ): ReadonlyArray<PresentedPermissionInteraction> =>
 	interactions
-		.filter(
-			(item): item is PresentedPermissionInteraction =>
-				isPresentedPermission(item) &&
-				requestsById[item.interaction.request.id] !== undefined,
-		)
+		.flatMap((item): PresentedPermissionInteraction[] => {
+			if (!isPresentedPermission(item)) return [];
+			const request = requestsById[item.interaction.request.id];
+			return request === undefined
+				? []
+				: [
+						{
+							...item,
+							interaction: { ...item.interaction, request },
+						},
+					];
+		})
 		.toSorted(
 			(a, b) =>
 				a.interaction.request.requestedAt.getTime() -

@@ -70,9 +70,17 @@ const SettingsPage = lazy(() =>
 
 const loadUsageDashboard = () => import("./components/usage-dashboard.tsx");
 
+const ChatSwitcher = lazy(() =>
+	import("./components/chat-switcher.tsx").then((module) => ({
+		default: module.ChatSwitcher,
+	})),
+);
+
 function AmbientSurfaces() {
+	const chatSwitcherOpen = useUiStore((state) => state.chatSwitcherOpen);
 	return (
 		<Suspense fallback={null}>
+			{chatSwitcherOpen ? <ChatSwitcher /> : null}
 			<NotchTrayBridge />
 			<PrWatchController />
 			<NearbyPairingApproval />

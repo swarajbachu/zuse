@@ -156,7 +156,16 @@ describe("built Electron application", () => {
 			);
 			for (const prompt of overflowPrompts) {
 				await composer.fill(prompt);
-				await electron.page.getByRole("button", { name: "Send" }).click();
+				try {
+					await electron.page.getByRole("button", { name: "Send" }).click();
+				} catch (cause) {
+					const artifact = await electron.captureFailure(
+						"electron-chat-overflow",
+					);
+					throw new Error(
+						`${String(cause)}\nprompt: ${prompt}\ncomposer: ${await composer.innerText()}\nartifact: ${artifact}\npage: ${await electron.page.locator("body").innerText()}`,
+					);
+				}
 				const promptBubble = electron.page
 					.locator("[data-chat-user-bubble]")
 					.filter({ hasText: prompt })
