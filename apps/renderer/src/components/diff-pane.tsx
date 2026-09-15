@@ -675,6 +675,7 @@ function ExternalFeedbackCard({
 }: {
 	readonly feedback: GitPrComment | GitPrReview;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 	const timestamp =
 		"createdAt" in feedback ? feedback.createdAt : feedback.submittedAt;
 	return (
@@ -711,7 +712,7 @@ function ExternalFeedbackCard({
 							if (feedback.url) void openExternal(feedback.url);
 						}}
 					>
-						Open in GitHub ↗
+						{uiMessage("projects:github_open_github") + " ↗"}
 					</button>
 				) : null}
 			</div>
