@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-
+import { LogoTraceLoader } from "../../src/components/logo-trace-loader.tsx";
 import {
 	SLOW_STARTUP_DELAY_MS,
 	StartupSurface,
@@ -48,8 +48,27 @@ describe("startup lifecycle", () => {
 			/>,
 		);
 		expect(markup).toContain('aria-label="Loading Zuse"');
-		expect(markup).toContain("Zuse");
+		expect(markup.match(/role="status"/g)).toHaveLength(1);
+		expect(markup).toContain('viewBox="0 0 1024 1024"');
+		expect(markup).toContain('stroke="currentColor"');
+		expect(markup).not.toContain("animate-spin");
 		expect(markup).not.toContain("Onboarding");
+	});
+
+	it("starts the closing outline when work is already complete", () => {
+		const markup = renderToStaticMarkup(
+			<LogoTraceLoader
+				ariaLabel="Opening Zuse"
+				isComplete
+				size={64}
+				strokeWidth={36}
+			/>,
+		);
+		expect(markup).toContain('aria-label="Opening Zuse"');
+		expect(markup).toContain('width="64"');
+		expect(markup).toContain('height="64"');
+		expect(markup).toContain('stroke-dasharray="1"');
+		expect(markup).not.toContain('stroke-dasharray="0.16 0.84"');
 	});
 
 	it("renders retry, reload, and diagnostic-copy controls after failure", () => {
