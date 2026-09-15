@@ -213,7 +213,8 @@ export function PrPane({
 					className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2 text-muted-foreground"
 				>
 					<span>
-						Couldn’t refresh this PR. {detailsView.data.error.message}
+						{uiMessage("projects:github_refresh_failed")}{" "}
+						{detailsView.data.error.message}
 					</span>
 					<button
 						type="button"
@@ -221,7 +222,7 @@ export function PrPane({
 						disabled={detailsLoading}
 						onClick={() => void refreshGitPrDetails(executionRef)}
 					>
-						Retry
+						{uiMessage("common:retry")}
 					</button>
 				</div>
 			)}
@@ -468,7 +469,10 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 				<div className="flex items-start justify-between gap-3">
 					<div className="min-w-0 space-y-2">
 						<h1 className="break-words text-xl font-semibold leading-snug text-foreground">
-							{title || `Pull request #${number}`}
+							{title ||
+								uiMessage("projects:github_pr_number", {
+									number: number ?? "",
+								})}
 						</h1>
 						<div className="flex items-center gap-2 text-xs text-muted-foreground">
 							<GitHubAvatar
@@ -481,13 +485,15 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 					</div>
 					{url ? (
 						<IconLinkButton
-							label="Open pull request in GitHub"
+							label={uiMessage("projects:github_open_github")}
 							onClick={() => openExternal(url)}
 						/>
 					) : null}
 				</div>
 				<dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-6 gap-y-3 text-xs">
-					<dt className="text-muted-foreground">Branch</dt>
+					<dt className="text-muted-foreground">
+						{uiMessage("projects:pr_pane_branch")}
+					</dt>
 					<dd className="flex flex-wrap items-center gap-2">
 						<span className="break-all">
 							{headBranch} → {baseBranch}
@@ -495,13 +501,19 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 						<span className="text-[var(--accent-green)]">+{additions}</span>
 						<span className="text-[var(--accent-red)]">−{deletions}</span>
 					</dd>
-					<dt className="text-muted-foreground">Status</dt>
+					<dt className="text-muted-foreground">
+						{uiMessage("projects:github_status")}
+					</dt>
 					<dd>
 						<PrStatePill pr={pr} />
 					</dd>
-					<dt className="text-muted-foreground">Comments</dt>
+					<dt className="text-muted-foreground">
+						{uiMessage("projects:github_comments")}
+					</dt>
 					<dd>{feedbackCount}</dd>
-					<dt className="text-muted-foreground">Checks</dt>
+					<dt className="text-muted-foreground">
+						{uiMessage("projects:pr_pane_checks")}
+					</dt>
 					<dd>
 						<CheckSummary checks={checkRuns} />
 					</dd>
