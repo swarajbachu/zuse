@@ -30,7 +30,7 @@ export function useChatDeviceApproval(
 	const [view, setView] = useState(EMPTY_DEVICE_BRIDGE_VIEW);
 	const send = useCallback(
 		(action: DeviceBridgeControl) => {
-			if (!workspaceId || action._tag === "configure")
+			if (!workspaceId)
 				return Promise.reject(new Error("No cloud chat selected"));
 			return runControlPlane((client) =>
 				client["deviceBridge.cloud"]({ workspaceId, action }),

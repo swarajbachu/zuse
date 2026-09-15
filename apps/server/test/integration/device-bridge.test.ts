@@ -147,7 +147,7 @@ it.each([
 		() => "cloud-runtime",
 	);
 	try {
-		await service.broker.configure(true);
+		expect((await service.broker.status()).enabled).toBe(true);
 		const input = {
 			id: "http-command",
 			command: "printf local-output",
@@ -208,9 +208,15 @@ it.each([
 			PubSub.publish(accountChanges, { _tag: "SignedOut" }),
 		);
 		await expect
-			.poll(async () => (await service.broker.status()).enabled)
-			.toBe(false);
-		expect((await service.broker.status()).grants).toHaveLength(0);
+			.poll(async () => (await service.broker.status()).grants.length)
+			.toBe(0);
+		expect((await service.broker.status()).enabled).toBe(true);
+		expect(
+			await client.request({
+				_tag: "execute",
+				input: { ...input, id: "after-sign-in" },
+			}),
+		).toMatchObject({ state: "pending" });
 	} finally {
 		client.close();
 		await runtime.dispose();

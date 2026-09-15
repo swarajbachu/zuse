@@ -34,12 +34,13 @@ const setup = async () => {
 	directories.push(cwd);
 	const commands = new Map<string, DeviceCommand>();
 	const grants = new Map<string, DeviceCommandGrant>();
-	let config: { linkKey: string; enabled: boolean } | null = null;
+	let config: { linkKey: string; enabled?: boolean } | null = null;
 	let linkKey = "linked-account";
+	let connected = true;
 	const storage: DeviceBridgeStorage = {
 		loadConfig: async () => config,
-		saveConfig: async (key, enabled) => {
-			config = { linkKey: key, enabled };
+		saveConfig: async (key) => {
+			config = { linkKey: key };
 		},
 		commands: async () => [...commands.values()],
 		command: async (id) => commands.get(id),
@@ -68,7 +69,7 @@ const setup = async () => {
 			deviceId: "desktop",
 			deviceName: "My Mac",
 			homeDirectory: cwd,
-			connected: true,
+			connected,
 		}));
 		brokers.push(broker);
 		await broker.initialize();
@@ -93,6 +94,15 @@ const setup = async () => {
 		execute,
 		finish,
 		cwd,
+		disconnect: () => {
+			connected = false;
+		},
+		reconnect: () => {
+			connected = true;
+		},
+		legacyDisabled: () => {
+			config = { linkKey, enabled: false };
+		},
 		changeAccount: () => {
 			linkKey = "other-account";
 		},
@@ -108,9 +118,61 @@ describe("desktop command authority", () => {
 			stdout: "",
 		});
 	});
+	it("ignores the old disabled preference while still requiring approval", async () => {
+		const { broker, legacyDisabled, create, cwd } = await setup();
+		broker.close();
+		legacyDisabled();
+		const restarted = await create();
+		expect((await restarted.status()).enabled).toBe(true);
+		expect(
+			await restarted.handle(
+				{
+					_tag: "execute",
+					input: {
+						id: "legacy",
+						command: "touch marker",
+						cwd,
+					},
+				},
+				owner,
+			),
+		).toMatchObject({ state: "pending" });
+		await expect(readFile(join(cwd, "marker"))).rejects.toThrow();
+	});
+	it("interrupts work on disconnect and automatically reconnects with fresh approval", async () => {
+		const { broker, execute, disconnect, reconnect, storage } = await setup();
+		await execute("running", "sleep 30");
+		await broker.handle(
+			{ _tag: "decide", id: "running", decision: "AlwaysAllow" },
+			user,
+		);
+		disconnect();
+		expect(await broker.status()).toMatchObject({ enabled: false, grants: [] });
+		expect(await storage.command("running")).toMatchObject({
+			state: "interrupted",
+		});
+		await expect(execute("offline")).rejects.toThrow("linked and signed in");
+		reconnect();
+		expect((await broker.status()).enabled).toBe(true);
+		expect(await execute("reconnected")).toMatchObject({ state: "pending" });
+	});
+	it("invalidates running commands and saved grants when the account session changes", async () => {
+		const { broker, execute, storage } = await setup();
+		await execute("running", "sleep 30");
+		await broker.handle(
+			{ _tag: "decide", id: "running", decision: "AlwaysAllow" },
+			user,
+		);
+		await broker.invalidate();
+		expect(await storage.command("running")).toMatchObject({
+			state: "interrupted",
+		});
+		expect((await broker.status()).grants).toEqual([]);
+		expect(await execute("after-reset")).toMatchObject({ state: "pending" });
+	});
+
 	it("requires approval, returns output and exit status, and never replays an ID", async () => {
 		const { broker, execute, cwd, finish } = await setup();
-		await broker.configure(true);
 		const command =
 			"printf x >> marker; printf hello; printf error >&2; exit 7";
 		expect(await execute("once", command)).toMatchObject({
@@ -136,7 +198,6 @@ describe("desktop command authority", () => {
 	});
 	it("serializes conflicting approvals and rejects runtime self-approval and cross-account requests", async () => {
 		const { broker, execute } = await setup();
-		await broker.configure(true);
 		await execute("race");
 		await expect(
 			broker.handle(
@@ -162,7 +223,6 @@ describe("desktop command authority", () => {
 	});
 	it("persists chat grants through restart, isolates other chats, and expires them after archive", async () => {
 		const { broker, create, execute, finish, cwd } = await setup();
-		await broker.configure(true);
 		await execute("approved");
 		await broker.handle(
 			{ _tag: "decide", id: "approved", decision: "AllowForSession" },
@@ -201,7 +261,6 @@ describe("desktop command authority", () => {
 	});
 	it("always grants apply to this account's chats and revocation stops running commands", async () => {
 		const { broker, execute, finish } = await setup();
-		await broker.configure(true);
 		await execute("grant");
 		await broker.handle(
 			{ _tag: "decide", id: "grant", decision: "AlwaysAllow" },
@@ -223,7 +282,6 @@ describe("desktop command authority", () => {
 	});
 	it("cancels pending work, clears grants and requires fresh approval on account changes", async () => {
 		const { broker, execute, changeAccount } = await setup();
-		await broker.configure(true);
 		await execute("pending");
 		changeAccount();
 		const status = await broker.status();
@@ -233,7 +291,6 @@ describe("desktop command authority", () => {
 	});
 	it("marks interrupted receipts unknown on restart without replay", async () => {
 		const { broker, create, execute, storage } = await setup();
-		await broker.configure(true);
 		await execute("lost");
 		broker.close();
 		const restarted = await create();
@@ -244,7 +301,6 @@ describe("desktop command authority", () => {
 	});
 	it("bounds concurrency and output", async () => {
 		const { broker, execute, finish } = await setup();
-		await broker.configure(true);
 		await execute("large", "head -c 1100000 /dev/zero");
 		await broker.handle(
 			{ _tag: "decide", id: "large", decision: "AllowOnce" },
@@ -258,7 +314,6 @@ describe("desktop command authority", () => {
 	});
 	it("expires pending approvals and running commands when cloud leases stop", async () => {
 		const { broker, execute } = await setup();
-		await broker.configure(true);
 		await execute("lease", "sleep 30");
 		await broker.handle(
 			{ _tag: "decide", id: "lease", decision: "AllowOnce" },

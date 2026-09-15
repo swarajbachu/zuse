@@ -623,15 +623,11 @@
 	"device_command_card_output": "輸出",
 	"tool_row_local_computer": "本地電腦",
 	"device_command_card_local_computer": "本地電腦",
-	"device_bridge_panel_cloud_agent_access": "雲端代理接取",
 	"device_command_card_stop_command": "停止命令",
 	"device_permission_card_run_command_on": "在 {{device}} 上執行命令？",
-	"device_bridge_panel_enable": "使能夠",
-	"device_bridge_panel_turn_off": "關",
 	"chat_landing_couldn_t_send_your_first_cloud_message": "無法發送您的第一條雲端訊息",
 	"chat_landing_cloud_workspace_started_without_your_attachments": "雲端工作區在沒有附件的情況下啟動",
 	"device_permission_card_shell_access_can_read_and_change_local_files_saved_approvals_apply_to_this_computer": "Shell 存取可以讀取和更改本機檔案。保存的批准適用於該計算機。",
-	"device_bridge_panel_requires_zuse_running_sign_in_and_hosted_device_access": "需要 Zuse 運行、登入和託管設備存取。",
 	"chat_landing_this_cloud_api_version_delivers_the_first_message_itself_send_the": "這個雲端API版本本身傳遞了第一則訊息。工作区准备就绪后再次发送文件。",
 	"device_command_card_exit": "·退出{{value1}}",
 	"message_row_could_not_load_image_click_to_retry": "無法載入圖片。單擊重試。",
@@ -641,8 +637,6 @@
 	"message_row_retry_preview": "重試預覽",
 	"chat_landing_issueattached_sentence": "問題{{value}}附後",
 	"device_command_card_truncated": "· 截斷",
-	"device_bridge_panel_ready_commands_require_device_permission": "就緒 · 指令需要設備許可",
-	"device_bridge_panel_ready_cloud_agent_access_is_off": "就緒 · 雲端代理存取已關閉",
 	"device_bridge_panel_always_allow_your_cloud_chats": "始終允許 · 您的雲端聊天",
 	"terminal_pane_waiting_for_changes_to_settle": "等待變更穩定…",
 	"pi_permissions": "Pi 權限",
@@ -659,5 +653,6 @@
 	"cloud_supported_agents": "雲端目前支援 Claude 和 Codex。",
 	"cloud_size_small": "小型（{{cpu}} vCPU / {{memory}} GB）",
 	"cloud_size_default": "標準型（{{cpu}} vCPU / {{memory}} GB）",
-	"cloud_size_large": "大型（{{cpu}} vCPU / {{memory}} GB）"
+	"cloud_size_large": "大型（{{cpu}} vCPU / {{memory}} GB）",
+	"device_command_permissions_title": "已儲存的命令權限"
 }

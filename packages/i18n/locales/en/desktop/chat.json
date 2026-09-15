@@ -620,7 +620,6 @@
 	"chat_composer_goal_time_used": "Goal time used",
 	"chat_landing_issue": "Issue",
 	"chat_landing_attached": "attached",
-	"device_bridge_panel_cloud_agent_access": "Cloud agent access",
 	"device_bridge_panel_revoke": "Revoke",
 	"device_command_card_local_computer": "Local computer",
 	"device_command_card_stop_command": "Stop command",
@@ -631,11 +630,6 @@
 	"chat_landing_cloud_workspace_started_without_your_attachments": "Cloud workspace started without your attachments",
 	"chat_landing_this_cloud_api_version_delivers_the_first_message_itself_send_the": "This cloud API version delivers the first message itself. Send the files again once the workspace is ready.",
 	"chat_landing_couldn_t_send_your_first_cloud_message": "Couldn't send your first cloud message",
-	"device_bridge_panel_turn_off": "Turn off",
-	"device_bridge_panel_enable": "Enable",
-	"device_bridge_panel_ready_commands_require_device_permission": "Ready · Commands require device permission",
-	"device_bridge_panel_ready_cloud_agent_access_is_off": "Ready · Cloud agent access is off",
-	"device_bridge_panel_requires_zuse_running_sign_in_and_hosted_device_access": "Requires Zuse running, sign-in, and hosted device access.",
 	"message_row_could_not_load_image_click_to_retry": "Could not load image. Click to retry.",
 	"device_bridge_panel_chat": "Chat {{value1}}",
 	"device_bridge_panel_always_allow_your_cloud_chats": "Always allow · Your cloud chats",
@@ -659,5 +653,6 @@
 	"cloud_supported_agents": "Cloud currently supports Claude and Codex.",
 	"cloud_size_small": "Small ({{cpu}} vCPU / {{memory}} GB)",
 	"cloud_size_default": "Standard ({{cpu}} vCPU / {{memory}} GB)",
-	"cloud_size_large": "Large ({{cpu}} vCPU / {{memory}} GB)"
+	"cloud_size_large": "Large ({{cpu}} vCPU / {{memory}} GB)",
+	"device_command_permissions_title": "Saved command permissions"
 }

@@ -6404,26 +6404,12 @@
 		"locations": [],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
-	"chat:device_bridge_panel_cloud_agent_access": {
-		"source": "Cloud agent access",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 28
-			},
-			{
-				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 33
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
 	"chat:device_bridge_panel_revoke": {
 		"source": "Revoke",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 90
+				"path": "apps/renderer/src/components/device-command-permissions.tsx",
+				"line": 48
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6518,56 +6504,6 @@
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
-	"chat:device_bridge_panel_turn_off": {
-		"source": "Turn off",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 43
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"chat:device_bridge_panel_enable": {
-		"source": "Enable",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 44
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"chat:device_bridge_panel_ready_commands_require_device_permission": {
-		"source": "Ready · Commands require device permission",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 51
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"chat:device_bridge_panel_ready_cloud_agent_access_is_off": {
-		"source": "Ready · Cloud agent access is off",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 54
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"chat:device_bridge_panel_requires_zuse_running_sign_in_and_hosted_device_access": {
-		"source": "Requires Zuse running, sign-in, and hosted device access.",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 57
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
 	"chat:message_row_could_not_load_image_click_to_retry": {
 		"source": "Could not load image. Click to retry.",
 		"locations": [
@@ -6586,8 +6522,8 @@
 		"source": "Chat {{value1}}",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 78
+				"path": "apps/renderer/src/components/device-command-permissions.tsx",
+				"line": 36
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6596,8 +6532,8 @@
 		"source": "Always allow · Your cloud chats",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/device-bridge-panel.tsx",
-				"line": 82
+				"path": "apps/renderer/src/components/device-command-permissions.tsx",
+				"line": 40
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6795,6 +6731,20 @@
 	"chat:cloud_size_large": {
 		"source": "Large ({{cpu}} vCPU / {{memory}} GB)",
 		"locations": [],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:device_command_permissions_title": {
+		"source": "Saved command permissions",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/device-command-permissions.tsx",
+				"line": 27
+			},
+			{
+				"path": "apps/renderer/src/components/device-command-permissions.tsx",
+				"line": 30
+			}
+		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"commands:commands_no_authenticated_agent": {

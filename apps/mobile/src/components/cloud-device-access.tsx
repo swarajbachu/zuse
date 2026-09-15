@@ -19,10 +19,6 @@ export function CloudDeviceAccess({ workspaceId }: { workspaceId: string }) {
 	const controller = useMemo(
 		() =>
 			new DeviceBridgeController((action) => {
-				if (action._tag === "configure")
-					return Promise.reject(
-						new Error("Enable access on the target desktop"),
-					);
 				return Effect.runPromise(
 					cloudControlClient["deviceBridge.cloud"]({ workspaceId, action }),
 				);
