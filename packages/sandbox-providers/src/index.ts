@@ -67,9 +67,28 @@ export interface SandboxProcessSelector {
 	readonly legacyCleanup?: "matching-command";
 }
 
+/** Provider-reported list-price usage for one exact time window. */
+export interface ProviderSandboxUsage {
+	readonly startedAtMs: number;
+	readonly endedAtMs: number;
+	/** Provider billing units; any size multiplier is already applied. */
+	readonly billableSeconds: number;
+	readonly providerCostMicros: number;
+	readonly running: boolean;
+	/** Current list-price rate per wall-clock second, for provisional reservations. */
+	readonly costMicrosPerSecond: number;
+}
+
 export interface SandboxProviderAdapter {
 	readonly providerId: string;
 	readonly displayName: string;
+	readonly getUsage?: (
+		providerSandboxId: string,
+		window: {
+			readonly startedAtMs: number;
+			readonly endedAtMs: number;
+		},
+	) => Effect.Effect<ProviderSandboxUsage, SandboxProviderError>;
 	readonly templateVersion: string;
 	readonly resources: SandboxProviderResources;
 	/** Whether pause/resume preserves the runtime process. */

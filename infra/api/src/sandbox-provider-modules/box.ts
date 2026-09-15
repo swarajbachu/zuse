@@ -61,10 +61,7 @@ const decodeEnvironment = (env: SandboxProviderEnvironment) => {
 
 export const BoxSandboxProviderModule: SandboxProviderModule = {
 	providerId: BOX_PROVIDER_ID,
-	// Keep production checkout gated until staging proves the published base
-	// snapshot, in-guest quarantine verification, hosted-port WebSockets, and
-	// billing webhook round trips.
-	productionReady: false,
+	productionReady: true,
 	configure: ({ env }) => {
 		if (!isActivated(env)) return undefined;
 		const config = decodeEnvironment(env);

@@ -14,10 +14,10 @@ The ledger, billing periods, reservations, cap enforcement, and Polar export are
 provider-neutral. Each sandbox provider owns an adapter that verifies its
 webhooks and normalizes lifecycle data into `ProviderExecutionEvidence`. The
 shared metering pipeline attributes the internal resource, applies that
-provider's immutable price schedule, and atomically finalizes the provider event
-with all usage, ledger, and outbox records. E2B is the first adapter; Daytona,
-Morph, Box, or another provider should integrate at this boundary rather than
-adding a separate billing pipeline. Raw payloads expire after 90 days; the
+provider's immutable price schedule or reported period cost, and atomically
+finalizes the provider event with all usage, ledger, and outbox records. E2B uses
+the price schedule; Box uses provider-reported cost. Other providers should
+integrate at this boundary rather than adding a separate billing pipeline. Raw payloads expire after 90 days; the
 pseudonymous finalization key remains for seven years so old redeliveries cannot
 be billed again.
 
@@ -61,3 +61,31 @@ bun run --cwd infra/api cloud-billing:ops report PERIOD_ID
 Provider price changes must be inserted as a new immutable
 `api_provider_price_schedule` row with a unique version and effective time.
 Never update an existing price row.
+
+
+## Box reported usage and cost
+
+Box settlement queries [Get Box Usage](https://docs.ascii.dev/box/api/reference/boxes/get-box-usage)
+using `BOX_API_KEY`. Each matched ready-to-archived/error execution is clipped to
+`CLOUD_BILLING_CUTOVER_AT` and split at account billing-period boundaries. The API
+queries `since` and `until` for each exact segment and records `dollars` in integer
+micro-USD. Box already applies machine-size multipliers to `seconds`; do not apply
+them again. These amounts are Box list-price compute, not the provider account's
+net invoice after plans, gifts, or trial credits. Zuse's allowance, markup, and
+cap policy are unchanged.
+
+All segment requests must succeed before any confirmed usage is committed.
+Invalid responses and provider outages leave the execution retryable; estimated
+rates never become confirmed Box charges. Webhook redeliveries and polling
+closes share the existing execution finalization key. Already finalized historical
+executions are not repriced. Unmatched resources and missing opening evidence
+remain uncharged pending reconciliation.
+
+When billing enforcement or export is enabled, running-resource reconciliation
+refreshes provisional usage from the same endpoint, adding a short forward
+reservation at Box's reported current rate only while its meter is running.
+If the endpoint is unavailable, existing catalog estimates remain a provisional
+fallback. The existing billing usage API and Cloud settings expose these amounts;
+no additional user credentials are required. Requests use a 30-second deadline.
+Validate provider statement reconciliation in staging before enabling invoice
+export; reporting list-price usage does not reconcile plan discounts automatically.

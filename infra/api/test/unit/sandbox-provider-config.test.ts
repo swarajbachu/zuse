@@ -39,7 +39,7 @@ describe("sandbox provider configuration", () => {
 		).toThrow(SandboxProviderConfigurationError);
 	});
 
-	test("keeps E2B available internally without advertising new workspaces", async () => {
+	test("advertises configured E2B for new workspaces", async () => {
 		const runtime = resolveSandboxProviderRuntime(configuredEnvironment);
 		const providers = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -55,11 +55,11 @@ describe("sandbox provider configuration", () => {
 		);
 
 		expect(runtime.configuredProviders).toEqual([
-			{ providerId: "e2b", productionReady: true, advertised: false },
+			{ providerId: "e2b", productionReady: true, advertised: true },
 		]);
 		expect(providers).toEqual({
 			defaultProviderId: "e2b",
-			availableProviderIds: [],
+			availableProviderIds: ["e2b"],
 			templateVersion: "build-4",
 		});
 	});
@@ -87,7 +87,7 @@ describe("sandbox provider configuration", () => {
 		).toThrow(SandboxProviderConfigurationError);
 	});
 
-	test("defaults new workspaces to Box while keeping E2B for authentication", async () => {
+	test("defaults to Box while advertising both production providers", async () => {
 		const runtime = resolveSandboxProviderRuntime({
 			...configuredEnvironment,
 			BOX_ADAPTER_ENABLED: "true",
@@ -109,12 +109,12 @@ describe("sandbox provider configuration", () => {
 		);
 
 		expect(runtime.configuredProviders).toEqual([
-			{ providerId: "e2b", productionReady: true, advertised: false },
-			{ providerId: "box", productionReady: false, advertised: true },
+			{ providerId: "box", productionReady: true, advertised: true },
+			{ providerId: "e2b", productionReady: true, advertised: true },
 		]);
 		expect(providers).toEqual({
 			defaultProviderId: "box",
-			availableProviderIds: ["box"],
+			availableProviderIds: ["box", "e2b"],
 			boxResources: { vcpuCount: 2, memoryMib: 4_096 },
 		});
 	});

@@ -68,8 +68,7 @@ export const E2bSandboxProviderModule: SandboxProviderModule = {
 		if (!isActivated(env)) return undefined;
 		const config = decodeEnvironment(env);
 		return {
-			// Authentication authorities and retained workspaces still use E2B.
-			advertised: false,
+			advertised: true,
 			adapter: makeE2bSandboxProvider({
 				apiKey: Redacted.make(config.E2B_API_KEY),
 				templateId: config.E2B_TEMPLATE_ID,

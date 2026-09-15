@@ -72,5 +72,6 @@
 	"remote_access_connect_privately_from_devices_on_the_same_tailnet": "从同一尾网上的设备进行私密连接。",
 	"auth_opening_browser_sign_in": "打开浏览器登录",
 	"auth_complete_workos_sign_in_in_your_browser": "在浏览器中完成 WorkOS 登录。",
-	"auth_sign_in_failed": "登录失败"
+	"auth_sign_in_failed": "登录失败",
+	"cloud_workspace_info_inactive": "未激活"
 }

@@ -1,5 +1,5 @@
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
-import { openExternal } from "../lib/platform-capabilities.ts";
+import { isHttpUrl, openHttpLink as openExternal } from "../lib/http-links.ts";
 import { GitStackMenu } from "./git-stack-menu.tsx";
 import { PrActionsMenu } from "./pr-actions-menu.tsx";
 import "@zuse/i18n/english/chat";
@@ -697,9 +697,9 @@ function ChecksPreview({
 						</span>
 						<button
 							type="button"
-							disabled={check.url === null}
+							disabled={!isHttpUrl(check.url)}
 							onClick={() => {
-								if (check.url) void openExternal(check.url);
+								if (isHttpUrl(check.url)) void openExternal(check.url);
 							}}
 							className="min-w-0 flex-1 truncate text-left hover:underline disabled:no-underline"
 						>

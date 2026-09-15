@@ -868,5 +868,6 @@
 	"cloud_auth_setup_failed": "클라우드에서 보안 에이전트 설정을 시작하지 못했습니다. 잠시 후 다시 시도하세요.",
 	"cloud_auth_not_allowed": "Zuse 세션에서 이 작업을 승인하지 못했습니다. 세션을 새로 고친 후 다시 시도하세요.",
 	"cloud_auth_login_failed": "에이전트 로그인을 시작하지 못했습니다.",
-	"cloud_auth_temporarily_unavailable": "클라우드 인증을 일시적으로 사용할 수 없습니다. 기존 채팅에 영향을 주지 않고 다시 시도할 수 있습니다."
+	"cloud_auth_temporarily_unavailable": "클라우드 인증을 일시적으로 사용할 수 없습니다. 기존 채팅에 영향을 주지 않고 다시 시도할 수 있습니다.",
+	"cloud_machine_provider": "머신 제공업체"
 }

@@ -1,9 +1,10 @@
-import { CommandId } from "@zuse/contracts";
+import { CommandId, Message, MessageId, SessionId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
 	cloudComposerSubmissionBlocked,
 	commitAcceptedComposerDelivery,
+	partitionCloudMessages,
 	shouldQueueComposerMessage,
 	waitingCloudMessagePresentation,
 } from "../../src/lib/composer-delivery.ts";
@@ -186,5 +187,85 @@ describe("composer cloud delivery routing", () => {
 				},
 			]),
 		).toEqual({ commandId, label, cancellable: true });
+	});
+});
+
+describe("mailbox queue presentation", () => {
+	const prompt = Message.make({
+		id: MessageId.make("queued"),
+		sessionId: SessionId.make("session"),
+		role: "user",
+		content: {
+			_tag: "user_rich",
+			text: "inspect this",
+			attachments: [
+				{ id: "image", originalName: "screenshot.png", mimeType: "image/png" },
+			],
+			fileRefs: [],
+			skillRefs: [],
+			annotations: [],
+			goal: false,
+		},
+		createdAt: new Date(),
+	});
+	it.each([
+		undefined,
+		"persisting",
+		"reserved",
+		"accepted",
+		"waiting-for-runtime",
+		"blocked",
+	] as const)("keeps %s prompts and attachments outside the transcript", (deliveryPhase) => {
+		const result = partitionCloudMessages(
+			[prompt],
+			[
+				{
+					commandId: CommandId.make("message-send:queued"),
+					kind: "messages.send",
+					submittedAt: 1,
+					deliveryPhase,
+				},
+			],
+		);
+		expect(result.transcript).toEqual([]);
+		expect(result.waiting).toEqual([prompt]);
+	});
+	it.each([
+		"leased",
+		"applied",
+	] as const)("hands a %s prompt to the transcript exactly once", (deliveryPhase) => {
+		const result = partitionCloudMessages(
+			[prompt],
+			[
+				{
+					commandId: CommandId.make("message-send:queued"),
+					kind: "messages.send",
+					submittedAt: 1,
+					deliveryPhase,
+				},
+			],
+		);
+		expect(result.transcript).toEqual([prompt]);
+		expect(result.waiting).toEqual([]);
+	});
+	it("keeps preparation in the queue before mailbox dispatch", () => {
+		expect(partitionCloudMessages([prompt], [], [prompt])).toEqual({
+			transcript: [],
+			waiting: [prompt],
+		});
+	});
+	it("leaves unrelated commands in the transcript", () => {
+		expect(
+			partitionCloudMessages(
+				[prompt],
+				[
+					{
+						commandId: CommandId.make("unrelated-command"),
+						kind: "session.update",
+						submittedAt: 1,
+					},
+				],
+			).transcript,
+		).toEqual([prompt]);
 	});
 });

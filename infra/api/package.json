@@ -37,6 +37,8 @@
 		"secret:mint:production": "wrangler secret put RELAY_MINT_PRIVATE_JWK --config wrangler.production.jsonc",
 		"secret:workos:production": "wrangler secret put WORKOS_API_KEY --config wrangler.production.jsonc",
 		"secret:cf:production": "wrangler secret put CF_API_TOKEN --config wrangler.production.jsonc",
+		"secret:box:production": "wrangler secret put BOX_API_KEY --config wrangler.production.jsonc",
+		"secret:box-webhook:production": "wrangler secret put BOX_WEBHOOK_SECRET --config wrangler.production.jsonc",
 		"secret:e2b:production": "wrangler secret put E2B_API_KEY --config wrangler.production.jsonc",
 		"secret:e2b-webhook:production": "wrangler secret put E2B_WEBHOOK_SECRET --config wrangler.production.jsonc",
 		"secret:cloud-data:production": "wrangler secret put CLOUD_DATA_ENCRYPTION_KEY --config wrangler.production.jsonc",

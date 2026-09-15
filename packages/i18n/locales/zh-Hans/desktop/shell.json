@@ -55,5 +55,6 @@
 	"browser_access_gate_unnamed_computer": "未命名的计算机",
 	"pending_chat_creation_chat_startup_needs_attention": "聊天启动需要注意。",
 	"pi_available": "可用",
-	"pi_native_auth_permissions": "身份验证和权限由 Pi 管理。"
+	"pi_native_auth_permissions": "身份验证和权限由 Pi 管理。",
+	"chat_loading_fallback_loading_chat": "正在加载聊天…"
 }

@@ -67,6 +67,14 @@ defaults to the project's default branch. The response is the workspace status
 object; the prompt is delivered through the same sealed one-shot launch intent
 as first-party creates.
 
+`providerId` accepts `"box"` or `"e2b"` when configured. Omitted placement uses
+`SANDBOX_DEFAULT_PROVIDER_ID` (Box when both adapters are configured without an
+override), rather than inheriting the previous workspace's provider. Each choice
+requires a ready account image for that provider. Existing workspace operations
+continue using the provider stored on that workspace. Account-authenticated image
+status accepts `?providerId=box` or `?providerId=e2b`; image builds accept the same
+optional `providerId` in their JSON body.
+
 API-created workspaces default to `runtimeMode: "full-access"` for unattended
 execution. Set `runtimeMode` explicitly to `approval-required`,
 `auto-accept-edits`, or `auto-accept-edits-and-bash` for stricter approval rules.
