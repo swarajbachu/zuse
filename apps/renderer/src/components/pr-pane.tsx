@@ -108,13 +108,17 @@ const prInfoFromDetails = (details: GitPrDetails): GitPrInfo => {
 
 const markdownForReview = (
 	pr: PrMarkdownContext,
-	review: Pick<GitPrReview, "author" | "state" | "body" | "submittedAt">,
+	review: Pick<
+		GitPrReview,
+		"author" | "state" | "body" | "submittedAt" | "url"
+	>,
 ): string =>
 	`${prMarkdownHeader(pr)}
 ## Review
 - Author: ${review.author}
 - State: ${reviewStateLabel(review.state)}
 - Submitted: ${formatAbsolute(review.submittedAt)}
+${review.url ? `- Link: ${review.url}` : ""}
 
 ${review.body.trim().length > 0 ? review.body.trim() : "(no review body)"}
 `;
