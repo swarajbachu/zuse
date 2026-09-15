@@ -28,10 +28,12 @@ Summary menus are non-modal: a branch or location popup cannot put an invisible 
 
 ## Manual repair handoff
 
-Repair scopes and the PR menu's Add to chat action stage removable context rows above the composer. They do not send messages, change the editor text, save files, or wait for GitHub/network requests. Rows can expand to show full feedback. Repeated selections replace the same scope. The next explicit Send combines the user's message and staged context; unsuccessful delivery retains the context, and successful delivery clears only the submitted rows. Auto Fix remains the separate automatic workflow.
+Repair scopes and the PR menu's Add to chat action stage removable context pills above the composer. They do not send messages, change the editor text, save files, or wait for GitHub/network requests. Hovering or focusing a pill shows full feedback in a bounded, scrollable glass preview. Repeated selections replace the same scope. The next explicit Send carries context as structured annotations, keeping the visible message text unchanged while the provider receives full feedback; unsuccessful delivery retains the context, and successful delivery clears only the submitted rows. Auto Fix remains the separate automatic workflow.
 
 Browser verification exercises PR → Repair → Comments, confirms the full feedback appears in the tray without changing extra instructions, and reopens the PR menu afterward. The fixture uses the actual menu and context tray with a simple text field; submission and failure handling are covered by unit tests.
 
 ## Glass and handoff feedback
 
 The summary and GitHub popups share `bg-glass` and `border-glass`: in dark mode, a 72% translucent surface with 20px backdrop blur. Staging context shows a success toast, and the summary suppresses accidental checks previews until the pointer moves again.
+
+Sent messages show context and annotation pills above the message bubble. File, skill, and attachment chips use the same compact height and rounded surface. Context-only messages do not render an empty bubble. Existing messages that already stored feedback as plain text retain their original text.

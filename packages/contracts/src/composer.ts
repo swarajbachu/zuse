@@ -143,7 +143,17 @@ export const BrowserAnnotation = Schema.Struct({
 });
 export type BrowserAnnotation = typeof BrowserAnnotation.Type;
 
+/** Rich context stays separate from the user's visible message text. */
+export const ContextAnnotation = Schema.Struct({
+	_tag: Schema.Literal("context"),
+	id: Schema.String,
+	label: Schema.String,
+	comment: Schema.String,
+});
+export type ContextAnnotation = typeof ContextAnnotation.Type;
+
 export const ComposerAnnotation = Schema.Union([
+	ContextAnnotation,
 	CodeAnnotation,
 	BrowserAnnotation,
 ]);

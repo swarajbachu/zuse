@@ -1213,7 +1213,7 @@ export function ChatComposer({
 						),
 						fileRefs: parsed.fileRefs,
 						skillRefs: parsed.skillRefs,
-						annotations,
+						annotations: [...annotations, ...parsed.annotations],
 					})
 				: parsed;
 		const route =

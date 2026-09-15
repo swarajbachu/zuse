@@ -73,13 +73,15 @@ export const serializeAnnotations = (
 	annotations: ReadonlyArray<ComposerAnnotation>,
 ): string => {
 	const code = annotations.filter(
-		(annotation): annotation is CodeAnnotation =>
-			!isBrowserAnnotation(annotation),
+		(annotation): annotation is CodeAnnotation => !("_tag" in annotation),
 	);
 	const browser = annotations.filter(isBrowserAnnotation);
 	return [
 		code.length > 0 ? serializeCodeAnnotations(code) : "",
 		browser.length > 0 ? serializeBrowserAnnotations(browser) : "",
+		...annotations
+			.filter((a) => "_tag" in a && a._tag === "context")
+			.map((a) => a.comment),
 	]
 		.filter((section) => section.length > 0)
 		.join("\n\n");

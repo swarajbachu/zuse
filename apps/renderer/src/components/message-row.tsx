@@ -1,3 +1,4 @@
+import { ContextPill, contextPillClass } from "./context-pill.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import "@zuse/i18n/english/chat";
@@ -6,7 +7,6 @@ import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type {
 	AttachmentRef,
 	BrowserAnnotation,
-	CodeAnnotation,
 	ComposerAnnotation,
 	EnvironmentId,
 	FileRef,
@@ -83,7 +83,7 @@ import { ProviderIcon } from "./provider-icons.tsx";
 import { SkillIcon } from "./skill-icon.tsx";
 import { UserMessageText } from "./user-message-text.tsx";
 
-const isBrowserAnnotation = (
+const _isBrowserAnnotation = (
 	annotation: ComposerAnnotation,
 ): annotation is BrowserAnnotation =>
 	"_tag" in annotation && annotation._tag === "browser";
@@ -567,102 +567,111 @@ export function UserBubble({
 	return (
 		<div className={userBubbleRowClass}>
 			<div className={userBubbleColumnClass}>
-				<div data-chat-user-bubble className={userBubbleClass}>
-					{origin !== undefined ? (
-						<button
-							type="button"
-							disabled={!originChatLoaded}
-							onClick={() => useChatsStore.getState().select(origin.chatId)}
-							className="mb-1.5 flex items-center gap-1.5 text-[11px] text-user-bubble-foreground/65 hover:text-user-bubble-foreground disabled:cursor-default"
-							title={
-								originChatLoaded
-									? uiMessage("chat:message_row_open_the_sender_s_chat")
-									: uiMessage("chat:message_row_sender_chat_not_loaded")
-							}
-						>
-							<ProviderIcon providerId={origin.providerId} className="size-3" />
-							<span>
-								{uiMessage(
-									"chat:message_row_sent_by_from_another_chat_sentence",
-									{ value: PROVIDER_LABEL_FOR_ERROR[origin.providerId] },
-								)}
+				{hasAnnotations ? (
+					<div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
+						{(annotations ?? [])
+							.filter((a) => "_tag" in a && a._tag === "context")
+							.map((a) => (
+								<ContextPill key={a.id} label={"label" in a ? a.label : ""}>
+									<MarkdownBody githubHtml>{a.comment}</MarkdownBody>
+								</ContextPill>
+							))}
+						{(annotations ?? []).some(
+							(a) => !("_tag" in a) || a._tag !== "context",
+						) ? (
+							<ContextPill
+								label={`${(annotations ?? []).filter((a) => !("_tag" in a) || a._tag !== "context").length} ${uiMessage("chat:annotation_tray_annotations")}`}
+							>
+								<div className="divide-y divide-border/40">
+									{(annotations ?? [])
+										.filter((a) => !("_tag" in a) || a._tag !== "context")
+										.map((a) => (
+											<div key={a.id} className="space-y-1 p-2">
+												{"_tag" in a ? (
+													<span className="text-muted-foreground">
+														{a._tag === "browser"
+															? browserAnnotationMeta(a)
+															: a.label}
+													</span>
+												) : (
+													<button
+														type="button"
+														onClick={() => revealAnnotation(a)}
+													>
+														<AnnotationFileChip annotation={a} />
+													</button>
+												)}
+												<MarkdownBody githubHtml>{a.comment}</MarkdownBody>
+											</div>
+										))}
+								</div>
+							</ContextPill>
+						) : null}
+					</div>
+				) : null}
+				{hasChips ? (
+					<div className="mb-1.5 flex flex-wrap items-center justify-end gap-1.5">
+						{(attachments ?? []).map((attachment) => (
+							<AttachmentChip
+								key={attachment.id}
+								attachment={attachment}
+								sessionRef={attachmentSession ?? null}
+								previewUrl={attachmentPreviews?.[attachment.id]}
+							/>
+						))}
+						{(fileRefs ?? []).map((f) => (
+							<FileChip
+								key={f.relPath}
+								relPath={f.relPath}
+								absPath={f.absPath}
+								kind={f.kind}
+								className={contextPillClass}
+							/>
+						))}
+						{(skillRefs ?? []).map((s) => (
+							<span key={s.name} className={contextPillClass}>
+								<SkillIcon className="size-3 text-primary/75" />
+								{s.name}
 							</span>
-						</button>
-					) : null}
-					{hasAnnotations ? (
-						<ol className="mb-2 space-y-1">
-							{(annotations ?? []).map((a, i) => (
-								<li key={a.id}>
-									<button
-										type="button"
-										onClick={() => {
-											if (!isBrowserAnnotation(a)) revealAnnotation(a);
-										}}
-										disabled={isBrowserAnnotation(a)}
-										className="flex w-full min-w-0 items-start gap-2 rounded-lg border border-user-bubble-foreground/12 bg-background/10 px-2 py-1.5 text-left text-xs hover:bg-background/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-user-bubble-foreground/30"
-										title={
-											isBrowserAnnotation(a)
-												? uiMessage("chat:message_row_browser_annotation")
-												: uiMessage("chat:message_row_open_annotation")
-										}
-									>
-										<span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-background/20 text-[10px] font-semibold tabular-nums">
-											{i + 1}
-										</span>
-										<span className="grid min-w-0 flex-1 gap-1">
-											{isBrowserAnnotation(a) ? (
-												<span className="min-w-0 truncate font-medium">
-													{browserAnnotationMeta(a)}
-												</span>
-											) : (
-												<AnnotationFileChip annotation={a as CodeAnnotation} />
-											)}
-											<span className="min-w-0 break-words leading-snug">
-												{a.comment}
-											</span>
-										</span>
-									</button>
-								</li>
-							))}
-						</ol>
-					) : null}
-					{hasChips ? (
-						<div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-							{(attachments ?? []).map((attachment) => (
-								<AttachmentChip
-									key={attachment.id}
-									attachment={attachment}
-									sessionRef={attachmentSession ?? null}
-									previewUrl={attachmentPreviews?.[attachment.id]}
+						))}
+					</div>
+				) : null}
+
+				{display.length > 0 || origin !== undefined || goal ? (
+					<div data-chat-user-bubble className={userBubbleClass}>
+						{origin !== undefined ? (
+							<button
+								type="button"
+								disabled={!originChatLoaded}
+								onClick={() => useChatsStore.getState().select(origin.chatId)}
+								className="mb-1.5 flex items-center gap-1.5 text-[11px] text-user-bubble-foreground/65 hover:text-user-bubble-foreground disabled:cursor-default"
+								title={
+									originChatLoaded
+										? uiMessage("chat:message_row_open_the_sender_s_chat")
+										: uiMessage("chat:message_row_sender_chat_not_loaded")
+								}
+							>
+								<ProviderIcon
+									providerId={origin.providerId}
+									className="size-3"
 								/>
-							))}
-							{(fileRefs ?? []).map((f) => (
-								<FileChip
-									key={f.relPath}
-									relPath={f.relPath}
-									absPath={f.absPath}
-									kind={f.kind}
-								/>
-							))}
-							{(skillRefs ?? []).map((s) => (
-								<span
-									key={s.name}
-									className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground/90"
-								>
-									<SkillIcon className="size-3 text-primary/75" />
-									{s.name}
+								<span>
+									{uiMessage(
+										"chat:message_row_sent_by_from_another_chat_sentence",
+										{ value: PROVIDER_LABEL_FOR_ERROR[origin.providerId] },
+									)}
 								</span>
-							))}
-						</div>
-					) : null}
-					{display.length > 0 ? <UserMessageText text={display} /> : null}
-					{goal ? (
-						<div className="mt-2 flex items-center gap-1.5 text-xs text-user-bubble-foreground/65">
-							<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />
-							<span>{uiMessage("chat:message_row_sent_as_goal")}</span>
-						</div>
-					) : null}
-				</div>
+							</button>
+						) : null}
+						{display.length > 0 ? <UserMessageText text={display} /> : null}
+						{goal ? (
+							<div className="mt-2 flex items-center gap-1.5 text-xs text-user-bubble-foreground/65">
+								<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />
+								<span>{uiMessage("chat:message_row_sent_as_goal")}</span>
+							</div>
+						) : null}
+					</div>
+				) : null}
 				<MessageActions
 					text={display || text}
 					createdAt={createdAt}
@@ -1446,8 +1455,7 @@ function AttachmentChip({
 				: attachmentUrl(a.id)
 			: preview.src);
 	const src = candidate === brokenSrc ? null : candidate;
-	const className =
-		"inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]";
+	const className = contextPillClass;
 	const inner = (
 		<>
 			{isImage && src !== null ? (

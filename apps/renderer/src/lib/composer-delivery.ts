@@ -102,7 +102,13 @@ export const withComposerContext = (
 		? input
 		: ComposerInput.make({
 				...input,
-				text: [input.text, ...contexts.map((item) => item.text)]
-					.filter(Boolean)
-					.join("\n\n"),
+				annotations: [
+					...(input.annotations ?? []),
+					...contexts.map((item) => ({
+						_tag: "context" as const,
+						id: item.id,
+						label: item.label,
+						comment: item.text,
+					})),
+				],
 			});

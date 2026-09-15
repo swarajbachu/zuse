@@ -37,7 +37,17 @@ test("stages context separately, preserves extra instructions, and isolates envi
 	});
 	expect(
 		withComposerContext(input, state.contextsByKey[key("local")] ?? []).text,
-	).toBe(`Also update the tests\n\n${context.text}`);
+	).toBe("Also update the tests");
+	expect(
+		withComposerContext(input, state.contextsByKey[key("local")] ?? [])
+			.annotations,
+	).toContainEqual(
+		expect.objectContaining({
+			_tag: "context",
+			label: context.label,
+			comment: context.text,
+		}),
+	);
 	expect(input.text).toBe("Also update the tests");
 });
 test("repeated clicks replace the staged scope and failed sends retain it", async () => {
