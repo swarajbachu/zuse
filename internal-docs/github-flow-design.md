@@ -37,3 +37,7 @@ Browser verification exercises PR → Repair → Comments, confirms the full fee
 The summary and GitHub popups share `bg-glass` and `border-glass`: in dark mode, a 72% translucent surface with 20px backdrop blur. Staging context shows a success toast, and the summary suppresses accidental checks previews until the pointer moves again.
 
 Sent messages show context and annotation pills above the message bubble. File, skill, and attachment chips use the same compact height and rounded surface. Context-only messages do not render an empty bubble. Existing messages that already stored feedback as plain text retain their original text.
+
+The shared check-state merge reconstructs `GitPrCheckRun` instances after combining core status with detailed metadata. Spreading these into plain objects loses schema identity; checks containing decoded `Date` fields then fail nested validation when opening the PR. A regression test covers this conversion with completed workflow timestamps.
+
+GitHub avatars use the shared avatar loading/failure fallback and the URL supplied by GitHub. The shared default shape is a squircle; initials stay visible while artwork loads or when it cannot be loaded.

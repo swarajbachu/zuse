@@ -1,4 +1,8 @@
-import type { GitPrDetails, GitPrInfo } from "@zuse/contracts";
+import {
+	GitPrCheckRun,
+	type GitPrDetails,
+	type GitPrInfo,
+} from "@zuse/contracts";
 import { summarizeChecks } from "./pr-checks.ts";
 
 /** One check snapshot for the header, summary, and detailed PR view. */
@@ -25,10 +29,12 @@ export function resolveGitPrState(
 				? {
 						...details,
 						...summary,
-						checkRuns: checkRuns.map((run) => ({
-							...metadata.get(JSON.stringify([run.name, run.url])),
-							...run,
-						})),
+						checkRuns: checkRuns.map((run) =>
+							GitPrCheckRun.make({
+								...metadata.get(JSON.stringify([run.name, run.url])),
+								...run,
+							}),
+						),
 					}
 				: details,
 	};

@@ -86,3 +86,28 @@ test("does not borrow checks from another branch or PR", () => {
 		).checkRuns,
 	).toBeNull();
 });
+
+test("enriched checks with decoded dates remain valid when opening the PR", () => {
+	const state = resolveGitPrState(
+		pr,
+		{
+			...details,
+			checkRuns: [
+				{
+					...run,
+					appName: "GitHub Actions",
+					appAvatarUrl: "https://avatars.githubusercontent.com/in/15368",
+					startedAt: new Date("2026-09-15T13:53:41Z"),
+					completedAt: new Date("2026-09-15T13:56:18Z"),
+				},
+			],
+		},
+		"feature",
+	);
+	expect(() =>
+		GitPrInfo.make({ ...pr, checkRuns: state.details?.checkRuns }),
+	).not.toThrow();
+	expect(state.details?.checkRuns[0]?.completedAt).toEqual(
+		new Date("2026-09-15T13:56:18Z"),
+	);
+});
