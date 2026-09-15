@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The macOS installer has a dark, dithered city backdrop with clearer drag-to-Applications guidance and Retina artwork
+
 ### Fixed
 - Cloud workspaces created from Slack or the API now attach to the desktop that sends the next message, allowing cloud agents to request approved commands on that device
 
