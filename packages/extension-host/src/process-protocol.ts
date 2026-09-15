@@ -27,6 +27,11 @@ export type HostToExtensionMessage =
 
 export type ExtensionToHostMessage =
 	| {
+			readonly type: "managed-process";
+			readonly pid: number;
+			readonly running: boolean;
+	  }
+	| {
 			readonly type: "ready";
 			readonly methods: ReadonlyArray<string>;
 			readonly providers: ReadonlyArray<ExtensionProviderDescriptor>;

@@ -634,6 +634,7 @@ const SessionCursorEvent = Schema.TaggedStruct("SessionCursor", {
 		"opencode-session-id",
 		"opencode2-session-id",
 		"kiro-session-id",
+		"acp-session-id",
 		"pi-session-file",
 	]),
 });

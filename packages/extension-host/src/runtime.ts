@@ -2,6 +2,7 @@ import { fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { killAcpProcess } from "@zuse/acp/process";
 import {
 	type ExtensionCapability,
 	type ExtensionLogEntry,
@@ -107,6 +108,11 @@ export const startExtensionProcess = async (input: {
 		serialization: "advanced",
 		stdio: ["ignore", "pipe", "pipe", "ipc"],
 	});
+	const managedProcesses = new Set<number>();
+	const cleanupProcesses = () => {
+		for (const pid of managedProcesses) killAcpProcess(pid);
+		managedProcesses.clear();
+	};
 	const pending = new Map<string, Pending>();
 	const providerListeners = new Set<
 		(sessionId: string, event: unknown) => void
@@ -168,6 +174,19 @@ export const startExtensionProcess = async (input: {
 	);
 
 	child.on("message", (raw: ExtensionToHostMessage) => {
+		if (raw.type === "managed-process") {
+			if (
+				!Number.isSafeInteger(raw.pid) ||
+				raw.pid <= 0 ||
+				raw.pid === process.pid ||
+				raw.pid === child.pid
+			)
+				return;
+			if (!raw.running) managedProcesses.delete(raw.pid);
+			else if (stopping) killAcpProcess(raw.pid);
+			else managedProcesses.add(raw.pid);
+			return;
+		}
 		if (raw.type === "ready") {
 			if (ready) return;
 			ready = true;
@@ -235,6 +254,7 @@ export const startExtensionProcess = async (input: {
 		if (!ready) rejectReady(cause);
 	});
 	child.on("close", (code, signal) => {
+		cleanupProcesses();
 		clearTimeout(startTimeout);
 		const error = `Extension ${input.id} exited (code ${code ?? "null"}, signal ${signal ?? "null"}).`;
 		if (!ready) rejectReady(new Error(error));
@@ -255,6 +275,7 @@ export const startExtensionProcess = async (input: {
 	} satisfies HostToExtensionMessage);
 
 	const initializedExtension = await initialized.catch((cause) => {
+		cleanupProcesses();
 		child.kill("SIGKILL");
 		const detail = entries
 			.slice(-10)
@@ -328,6 +349,7 @@ export const startExtensionProcess = async (input: {
 			if (child.exitCode !== null || child.signalCode !== null) return;
 			await new Promise<void>((resolve) => {
 				const timeout = setTimeout(() => {
+					cleanupProcesses();
 					child.kill("SIGKILL");
 				}, STOP_TIMEOUT_MS);
 				child.once("close", () => {
@@ -336,7 +358,10 @@ export const startExtensionProcess = async (input: {
 				});
 				if (child.connected)
 					child.send({ type: "stop" } satisfies HostToExtensionMessage);
-				else child.kill("SIGKILL");
+				else {
+					cleanupProcesses();
+					child.kill("SIGKILL");
+				}
 			});
 		},
 	};

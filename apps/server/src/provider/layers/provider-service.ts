@@ -510,13 +510,19 @@ export const ProviderServiceLive = Layer.effect(
 									}
 								}),
 							),
-							send: (text) =>
-								extensions
-									.invokeProvider(extensionDescriptor.id, "send", {
-										sessionId,
-										text,
-									})
-									.pipe(Effect.asVoid, Effect.orDie),
+							send: (text, attachments, fileRefs, skillRefs) =>
+								attachments?.length || fileRefs?.length || skillRefs?.length
+									? Effect.die(
+											new Error(
+												"Extension providers currently accept text prompts. Paste the relevant context into your message instead of attaching files or skills.",
+											),
+										)
+									: extensions
+											.invokeProvider(extensionDescriptor.id, "send", {
+												sessionId,
+												text,
+											})
+											.pipe(Effect.asVoid, Effect.orDie),
 							interrupt: () =>
 								extensions
 									.invokeProvider(extensionDescriptor.id, "interrupt", {
@@ -529,7 +535,13 @@ export const ProviderServiceLive = Layer.effect(
 										sessionId,
 									})
 									.pipe(Effect.asVoid, Effect.orDie),
-							setPermissionMode: () => Effect.void,
+							setPermissionMode: (mode) =>
+								extensions
+									.invokeProvider(extensionDescriptor.id, "setPermissionMode", {
+										sessionId,
+										mode,
+									})
+									.pipe(Effect.asVoid, Effect.orDie),
 							answerQuestion: (itemId, answers) =>
 								extensionDescriptor.capabilities.includes("answerQuestion")
 									? extensions
