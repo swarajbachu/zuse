@@ -153,6 +153,7 @@ const mapCheckConclusion = (raw: string): GitPrCheckRunConclusion | null => {
 	switch (raw.toUpperCase()) {
 		case "SUCCESS":
 			return "success";
+		case "STARTUP_FAILURE":
 		case "FAILURE":
 		case "ERROR":
 			return "failure";
@@ -185,5 +186,21 @@ export function checkRunFromRollup(entry: PrCheckRollupEntry): GitPrCheckRun {
 		),
 		conclusion: mapCheckConclusion(entry.conclusion || entry.state || ""),
 		url: entry.detailsUrl ?? entry.targetUrl ?? null,
+	});
+}
+
+/** Shared by rollup totals and failing-log collection. */
+export function isFailedCheckRollup(entry: {
+	conclusion?: string;
+	state?: string;
+}): boolean {
+	return [entry.conclusion, entry.state].some((value) => {
+		const conclusion = mapCheckConclusion(value ?? "");
+		return (
+			conclusion === "failure" ||
+			conclusion === "cancelled" ||
+			conclusion === "timed_out" ||
+			conclusion === "action_required"
+		);
 	});
 }

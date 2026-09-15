@@ -278,12 +278,13 @@
 	"github_watch_ci": "CI beobachten",
 	"github_auto_fix_on": "Automatische Korrektur aktiv",
 	"github_off": "Aus",
-	"github_watch_help": "Beobachtet, solange Zuse geöffnet ist. Der freie Agent behebt neue CI-Fehler, prüft und pusht die Änderungen. Pause nach 3 Korrekturen.",
+	"github_watch_help": "Beobachtet, solange Zuse geöffnet ist. Wenn der Agent nicht beschäftigt ist, behebt er neue CI-Fehler, prüft und pusht die Änderungen. Pause nach 3 Korrekturen.",
 	"github_stop_watching": "Beobachtung beenden",
 	"github_resume_auto_fix": "Automatische Korrektur fortsetzen",
 	"github_watch_auto_fix": "Beobachten und automatisch korrigieren",
 	"github_new_branch": "Neuen Branch erstellen und auschecken…",
 	"github_new_origin_branch": "Neuer Branch von origin/main…",
 	"github_continue_tooltip": "Neuen Branch von origin/main erstellen und auschecken",
-	"github_auto_fix": "Auto-Korrektur"
+	"github_auto_fix": "Auto-Korrektur",
+	"projects_sidebar_cloud": "Cloud"
 }

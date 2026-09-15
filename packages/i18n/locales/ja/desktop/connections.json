@@ -72,5 +72,6 @@
 	"remote_access_connect_privately_from_devices_on_the_same_tailnet": "同じテールネット上のデバイスからプライベートに接続します。",
 	"auth_opening_browser_sign_in": "ブラウザーのサインインを開く",
 	"auth_complete_workos_sign_in_in_your_browser": "ブラウザで WorkOS サインインを完了します。",
-	"auth_sign_in_failed": "サインインに失敗しました"
+	"auth_sign_in_failed": "サインインに失敗しました",
+	"cloud_workspace_info_inactive": "非アクティブ"
 }

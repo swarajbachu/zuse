@@ -285,5 +285,6 @@
 	"github_new_branch": "Create and checkout new branch…",
 	"github_new_origin_branch": "New branch from origin/main…",
 	"github_continue_tooltip": "Create and checkout a new branch from origin/main",
-	"github_auto_fix": "Auto Fix"
+	"github_auto_fix": "Auto Fix",
+	"projects_sidebar_cloud": "Cloud"
 }

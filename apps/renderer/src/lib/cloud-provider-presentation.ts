@@ -18,3 +18,6 @@ export const cloudProviderSizeLabel = (
 		memory: formatNumber(size.memoryMib / 1024),
 	});
 };
+
+export const cloudProviderLabel = (providerId: string): string =>
+	providerId === "box" ? "Box" : providerId === "e2b" ? "E2B" : providerId;

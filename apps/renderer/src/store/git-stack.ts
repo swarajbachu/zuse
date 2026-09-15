@@ -24,7 +24,10 @@ export function readGitStack(
 	const existing = pending.get(key);
 	if (existing)
 		return force
-			? existing.then(() => readGitStack(ref, branch, true))
+			? existing.then(
+					() => readGitStack(ref, branch, true),
+					() => readGitStack(ref, branch, true),
+				)
 			: existing;
 	const cached = useGitStackStore.getState().entries[key];
 	if (!force && cached && Date.now() - cached.checkedAt < 30_000)
@@ -47,7 +50,21 @@ export function readGitStack(
 		},
 	})
 		.then(({ result }) => result)
-		.catch(() => null)
+		.catch((cause: unknown) => {
+			const reason =
+				cause instanceof Error
+					? cause.message
+					: typeof cause === "object" && cause !== null && "reason" in cause
+						? String(cause.reason)
+						: "";
+			if (
+				/current branch is not part of (?:a |the )?stack|^no stack$/i.test(
+					reason,
+				)
+			)
+				return null;
+			throw cause;
+		})
 		.then((result) => {
 			const entries = Object.entries(useGitStackStore.getState().entries)
 				.filter(([entryKey]) => entryKey !== key)

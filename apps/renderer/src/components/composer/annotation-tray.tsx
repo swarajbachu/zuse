@@ -196,7 +196,7 @@ export function AnnotationTray({
 										setEditingId(annotation.id);
 										setEditText(annotation.comment);
 									}}
-									className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/annotation:opacity-100"
+									className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 focus-visible:opacity-100 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/annotation:opacity-100"
 									aria-label={uiMessage("chat:annotation_tray_edit_annotation")}
 								>
 									<HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />

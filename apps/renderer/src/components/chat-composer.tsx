@@ -1,3 +1,4 @@
+import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
@@ -115,13 +116,13 @@ import {
 } from "../lib/attachments.ts";
 import {
 	cloudChatShowsWorking,
-	cloudWorkspaceIsStarting,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
 import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import {
 	cloudComposerSubmissionBlocked,
 	commitAcceptedComposerDelivery,
+	isWaitingCloudSend,
 	shouldQueueComposerMessage,
 	withComposerContext,
 } from "../lib/composer-delivery.ts";
@@ -164,6 +165,7 @@ import {
 } from "../store/model-catalog.ts";
 import { usePaneFocus } from "../store/pane-focus.ts";
 import { useProvidersStore } from "../store/providers.ts";
+import { CloudConnectionNotice } from "./cloud-connection-notice.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { ContextTray } from "./composer/context-tray.tsx";
 import { FileTagPopover } from "./composer/file-tag-popover.tsx";
@@ -337,7 +339,11 @@ export function ChatComposer({
 					connection: cloudShell.connection,
 					runtime: runtimeState,
 				});
-	const turnStartPending = hasPendingTurnStart(timeline.view.pendingCommands);
+	const turnStartPending = hasPendingTurnStart(
+		timeline.view.pendingCommands.filter(
+			(command) => !isCloudSession || !isWaitingCloudSend(command),
+		),
+	);
 	const durableCloudSendPending =
 		isCloudSession &&
 		cloudComposerSubmissionBlocked(timeline.view.pendingCommands);
@@ -1280,32 +1286,41 @@ export function ChatComposer({
 		};
 		switch (route) {
 			case "planFeedback":
-				commitComposerSubmission();
-				void (async () => {
-					if (pendingNativePlanApproval !== null) {
-						await deliverNativePlanFeedback({
-							respond: () =>
-								respondToPlan(
-									sessionId,
-									pendingNativePlanApproval.toolCallId,
-									"cancelled",
-									docText,
-									{
-										silent: true,
-										environmentId: qualifiedEnvironmentId,
-									},
-								),
-							fallbackSend: () => send(input),
-						});
-						return;
-					}
-					if (pendingPlanApprovalRequest !== null) {
-						await decidePermission(pendingPlanApprovalRequest.id, {
-							_tag: "Deny",
-						});
-					}
-					await send(input);
-				})();
+				setSubmitting(true);
+				view.contentDOM.blur();
+				void commitAcceptedComposerDelivery(
+					(async () => {
+						if (pendingNativePlanApproval !== null) {
+							const result = await deliverNativePlanFeedback({
+								respond: () =>
+									respondToPlan(
+										sessionId,
+										pendingNativePlanApproval.toolCallId,
+										"cancelled",
+										docText,
+										{
+											silent: true,
+											environmentId: qualifiedEnvironmentId,
+										},
+									),
+								fallbackSend: () => send(input),
+							});
+							return result !== "failed";
+						}
+						if (pendingPlanApprovalRequest !== null) {
+							await decidePermission(pendingPlanApprovalRequest.id, {
+								_tag: "Deny",
+							});
+						}
+						return send(input);
+					})(),
+					commitComposerSubmission,
+				)
+					.catch(() => undefined)
+					.finally(() => {
+						setSubmitting(false);
+						editorViewRef.current?.focus();
+					});
 				break;
 			case "goal":
 				sendAndCommitAfterAcceptance({ asGoal: true });
@@ -1433,6 +1448,7 @@ export function ChatComposer({
 								folderId={session.projectId}
 								worktreeId={session.worktreeId}
 							/>
+							{!isDraft && isCloudSession ? <CloudConnectionNotice /> : null}
 							{!isDraft ? (
 								<>
 									<PlanApprovalTray
@@ -1489,7 +1505,7 @@ export function ChatComposer({
 										creationInProgress={creationInProgress}
 										waitingForSandbox={
 											cloudSummary !== null &&
-											cloudWorkspaceIsStarting(cloudSummary)
+											!isCloudWorkspaceReady(cloudSummary)
 										}
 									/>
 								</>

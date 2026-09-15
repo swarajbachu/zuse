@@ -34,6 +34,25 @@ const BoxListResponse = Schema.Struct({
 		Schema.Struct({ nextCursor: Schema.NullOr(Schema.String) }),
 	),
 });
+const NonnegativeFinite = Schema.Number.check(
+	Schema.makeFilter((value) => Number.isFinite(value) && value >= 0),
+);
+const BoxUsageResponse = Schema.Struct({
+	ok: Schema.Literal(true),
+	type: Schema.Literal("box.usage"),
+	boxId: Schema.String,
+	boxType: Schema.Literals(["small", "default", "large", "xlarge"]),
+	billingMultiplier: NonnegativeFinite.check(Schema.isGreaterThan(0)),
+	since: Schema.String,
+	until: Schema.String,
+	seconds: NonnegativeFinite.check(Schema.makeFilter(Number.isSafeInteger)),
+	dollars: NonnegativeFinite,
+	secondsPerDollar: NonnegativeFinite.check(
+		Schema.makeFilter((value) => Number.isSafeInteger(value) && value > 0),
+	),
+	running: Schema.Boolean,
+});
+
 const CommandFinishedResponse = Schema.Struct({
 	exitCode: Schema.NullOr(Schema.Number),
 	stdout: Schema.String,
@@ -201,11 +220,17 @@ export const makeBoxSandboxProvider = (
 		path: string,
 		body?: unknown,
 		headers?: Readonly<Record<string, string>>,
+		timeoutMs?: number,
 	): Effect.Effect<Response, SandboxProviderError> =>
 		Effect.tryPromise({
 			try: () =>
 				http.fetch(`${apiBaseUrl}${path}`, {
 					method,
+					redirect: "error",
+					signal:
+						timeoutMs === undefined
+							? undefined
+							: AbortSignal.timeout(timeoutMs),
 					headers: {
 						authorization: `Bearer ${Redacted.value(config.apiKey)}`,
 						...(body === undefined
@@ -254,8 +279,9 @@ export const makeBoxSandboxProvider = (
 		path: string,
 		schema: Schema.Codec<A, I>,
 		body?: unknown,
+		timeoutMs?: number,
 	): Effect.Effect<A, SandboxProviderError> =>
-		send(method, path, body).pipe(
+		send(method, path, body, undefined, timeoutMs).pipe(
 			Effect.flatMap((response) =>
 				response.ok
 					? Effect.tryPromise({
@@ -749,6 +775,51 @@ export const makeBoxSandboxProvider = (
 	return {
 		providerId: BOX_PROVIDER_ID,
 		displayName: "Box",
+		getUsage: Effect.fn("BoxSandboxProvider.getUsage")(
+			function* (providerSandboxId, window) {
+				if (
+					!Number.isSafeInteger(window.startedAtMs) ||
+					!Number.isSafeInteger(window.endedAtMs) ||
+					!Number.isFinite(new Date(window.startedAtMs).getTime()) ||
+					!Number.isFinite(new Date(window.endedAtMs).getTime()) ||
+					window.endedAtMs <= window.startedAtMs
+				)
+					return yield* Effect.fail(providerError("rejected"));
+				const query = new URLSearchParams({
+					since: new Date(window.startedAtMs).toISOString(),
+					until: new Date(window.endedAtMs).toISOString(),
+				});
+				const usage = yield* request(
+					"GET",
+					`/boxes/${encodeURIComponent(providerSandboxId)}/usage?${query}`,
+					BoxUsageResponse,
+					undefined,
+					30_000,
+				);
+				const startedAtMs = Date.parse(usage.since);
+				const endedAtMs = Date.parse(usage.until);
+				const providerCostMicros = Math.round(usage.dollars * 1_000_000);
+				const costMicrosPerSecond =
+					(1_000_000 * usage.billingMultiplier) / usage.secondsPerDollar;
+				if (
+					usage.boxId !== providerSandboxId ||
+					startedAtMs !== window.startedAtMs ||
+					endedAtMs !== window.endedAtMs ||
+					!Number.isSafeInteger(providerCostMicros) ||
+					!Number.isFinite(costMicrosPerSecond) ||
+					Math.abs(usage.dollars * 1_000_000 - providerCostMicros) > 0.000001
+				)
+					return yield* Effect.fail(providerError("rejected"));
+				return {
+					startedAtMs,
+					endedAtMs,
+					billableSeconds: usage.seconds,
+					providerCostMicros,
+					running: usage.running,
+					costMicrosPerSecond,
+				};
+			},
+		),
 		templateVersion: config.templateVersion,
 		preservesProcessesOnResume: false,
 		resources: BOX_MACHINE_RESOURCES[machineType],

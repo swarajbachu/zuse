@@ -285,5 +285,6 @@
 	"github_new_branch": "建立並切換至新分支…",
 	"github_new_origin_branch": "從 origin/main 建立新分支…",
 	"github_continue_tooltip": "從 origin/main 建立並切換至新分支",
-	"github_auto_fix": "自動修復"
+	"github_auto_fix": "自動修復",
+	"projects_sidebar_cloud": "雲端"
 }

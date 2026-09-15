@@ -868,5 +868,6 @@
 	"cloud_auth_setup_failed": "Cloud could not start the secure agent setup. Try again in a moment.",
 	"cloud_auth_not_allowed": "Your Zuse session could not authorize this action. Refresh your session and try again.",
 	"cloud_auth_login_failed": "The agent login could not be started.",
-	"cloud_auth_temporarily_unavailable": "Cloud authentication is temporarily unavailable. Retry without affecting your existing chats."
+	"cloud_auth_temporarily_unavailable": "Cloud authentication is temporarily unavailable. Retry without affecting your existing chats.",
+	"cloud_machine_provider": "Machine provider"
 }

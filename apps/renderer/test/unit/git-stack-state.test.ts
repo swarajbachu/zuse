@@ -71,3 +71,25 @@ test("post-mutation discovery waits for an older probe and then fetches the new 
 	await expect(refresh).resolves.toEqual(stack);
 	expect(dispatch).toHaveBeenCalledTimes(2);
 });
+
+test("transport failure is not cached as absence and the next probe retries", async () => {
+	dispatch.mockRejectedValueOnce(new Error("Environment is not connected"));
+	await expect(readGitStack(ref, "feature")).rejects.toThrow("not connected");
+	expect(
+		useGitStackStore.getState().entries[gitStackKey(ref, "feature")],
+	).toBeUndefined();
+	dispatch.mockResolvedValueOnce({ result: stack });
+	await expect(readGitStack(ref, "feature")).resolves.toEqual(stack);
+});
+
+test("refresh failure preserves a previously discovered stack", async () => {
+	dispatch.mockResolvedValueOnce({ result: stack });
+	await readGitStack(ref, "feature");
+	dispatch.mockRejectedValueOnce(new Error("server unavailable"));
+	await expect(readGitStack(ref, "feature", true)).rejects.toThrow(
+		"server unavailable",
+	);
+	expect(
+		useGitStackStore.getState().entries[gitStackKey(ref, "feature")]?.result,
+	).toEqual(stack);
+});

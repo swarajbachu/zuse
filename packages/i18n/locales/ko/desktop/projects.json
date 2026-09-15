@@ -285,5 +285,6 @@
 	"github_new_branch": "새 브랜치를 만들고 체크아웃…",
 	"github_new_origin_branch": "origin/main에서 새 브랜치…",
 	"github_continue_tooltip": "origin/main에서 새 브랜치를 만들고 체크아웃",
-	"github_auto_fix": "자동 수정"
+	"github_auto_fix": "자동 수정",
+	"projects_sidebar_cloud": "클라우드"
 }

@@ -55,7 +55,19 @@ export function GitStackMenu({
 		[environmentId, folderId, worktreeId, rootPath],
 	);
 	useEffect(() => {
-		if (branch) void readGitStack(stableRef, branch);
+		if (!branch) return;
+		let cancelled = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const discover = () => {
+			void readGitStack(stableRef, branch).catch(() => {
+				if (!cancelled) timer = setTimeout(discover, 30_000);
+			});
+		};
+		discover();
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+		};
 	}, [stableRef, branch]);
 
 	const command = async (action: GitStackAction) => {
@@ -87,7 +99,7 @@ export function GitStackMenu({
 			await readGitStack(stableRef, branch ?? "", true);
 			if (action === "add") setName("");
 		} catch (cause) {
-			if (action !== "view") setError(formatError(cause));
+			setError(formatError(cause));
 		} finally {
 			setBusy(false);
 		}

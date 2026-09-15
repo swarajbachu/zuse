@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 
 import {
 	actionsJobsApiPath,
+	checkRunFromRollup,
 	collectActionsRunIds,
+	isFailedCheckRollup,
 	metadataForRollupEntry,
 	parseActionsCheckUrl,
 	parseActionsJobsResponse,
@@ -101,5 +103,29 @@ describe("git check run helpers", () => {
 			completedAt: null,
 			runUrl: null,
 		});
+	});
+});
+
+describe("startup failures", () => {
+	test.each([
+		"conclusion",
+		"state",
+	] as const)("%s startup failures fail both the normalized check and log-collection predicate", (field) => {
+		const entry: {
+			name: string;
+			status: string;
+			conclusion?: string;
+			state?: string;
+		} = {
+			name: "build",
+			status: "COMPLETED",
+			[field]: "STARTUP_FAILURE",
+		};
+		expect(checkRunFromRollup(entry).conclusion).toBe("failure");
+		expect(isFailedCheckRollup(entry)).toBe(true);
+	});
+	test("successful and pending checks are not collected as failures", () => {
+		expect(isFailedCheckRollup({ conclusion: "SUCCESS" })).toBe(false);
+		expect(isFailedCheckRollup({ state: "PENDING" })).toBe(false);
 	});
 });

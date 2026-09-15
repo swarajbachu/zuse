@@ -1,4 +1,5 @@
 import { formatDate as formatUiDate } from "@zuse/i18n";
+import { isHttpUrl, openHttpLink as openExternal } from "../lib/http-links.ts";
 import { checkKind, summarizeChecks } from "../lib/pr-checks.ts";
 import { useGitPrState } from "../lib/use-git-pr-state.ts";
 import { GitHubAvatar } from "./github-avatar.tsx";
@@ -43,15 +44,6 @@ import { GitInitCta } from "./git-init-cta.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner.tsx";
 import { toastManager } from "./ui/toast.tsx";
-
-const openExternal = (url: string) => {
-	const bridge = window.zuse?.app;
-	if (bridge !== undefined) {
-		bridge.openExternal(url);
-		return;
-	}
-	window.open(url, "_blank", "noopener,noreferrer");
-};
 
 const formatRelative = (date: Date): string => {
 	const diffMs = Date.now() - date.getTime();
@@ -329,7 +321,7 @@ export function PrOverview({
 
 	// Sort failing checks first when the rollup says failure — that's what the
 	// user opened the tab to investigate.
-	const checkRuns = details?.checkRuns ?? [];
+	const checkRuns = details?.checkRuns ?? pr.checkRuns ?? [];
 	const orderedChecks =
 		pr.checks === "failure"
 			? [...checkRuns].sort(
@@ -865,7 +857,7 @@ function CheckRunRow({ run }: { run: GitPrCheckRun }) {
 				<div className="flex min-w-0 items-center gap-1.5">
 					<button
 						type="button"
-						disabled={!run.url}
+						disabled={!isHttpUrl(run.url)}
 						onClick={() => {
 							if (run.url) openExternal(run.url);
 						}}
@@ -886,7 +878,7 @@ function CheckRunRow({ run }: { run: GitPrCheckRun }) {
 				</div>
 			</div>
 			<div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-				{run.runUrl !== null && run.runUrl !== undefined ? (
+				{isHttpUrl(run.runUrl) ? (
 					<IconLinkButton
 						label={uiMessage("projects:pr_pane_open_workflow_run")}
 						onClick={() => {
@@ -894,7 +886,7 @@ function CheckRunRow({ run }: { run: GitPrCheckRun }) {
 						}}
 					/>
 				) : null}
-				{run.url !== null ? (
+				{isHttpUrl(run.url) ? (
 					<IconLinkButton
 						label={uiMessage("projects:pr_pane_open_check_details")}
 						onClick={() => {

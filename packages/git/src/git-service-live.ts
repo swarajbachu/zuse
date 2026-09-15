@@ -38,6 +38,7 @@ import {
 	actionsJobsApiPath,
 	checkRunFromRollup,
 	collectActionsRunIds,
+	isFailedCheckRollup,
 	metadataForRollupEntry,
 	type PrCheckRollupEntry,
 	parseActionsJobsResponse,
@@ -480,14 +481,7 @@ const aggregateChecks = (
 		const conclusion = (entry.conclusion ?? "").toUpperCase();
 		const status = (entry.status ?? "").toUpperCase();
 		const state = (entry.state ?? "").toUpperCase();
-		if (
-			conclusion === "FAILURE" ||
-			conclusion === "CANCELLED" ||
-			conclusion === "TIMED_OUT" ||
-			conclusion === "ACTION_REQUIRED" ||
-			state === "FAILURE" ||
-			state === "ERROR"
-		) {
+		if (isFailedCheckRollup(entry)) {
 			return "failure";
 		}
 		if (
@@ -531,14 +525,7 @@ const countChecks = (
 		const conclusion = (entry.conclusion ?? "").toUpperCase();
 		const status = (entry.status ?? "").toUpperCase();
 		const state = (entry.state ?? "").toUpperCase();
-		if (
-			conclusion === "FAILURE" ||
-			conclusion === "CANCELLED" ||
-			conclusion === "TIMED_OUT" ||
-			conclusion === "ACTION_REQUIRED" ||
-			state === "FAILURE" ||
-			state === "ERROR"
-		) {
+		if (isFailedCheckRollup(entry)) {
 			failing += 1;
 		} else if (
 			status === "QUEUED" ||
@@ -2665,15 +2652,7 @@ export const GitServiceLive = Layer.effect(
 						// fall through with empty rollup
 					}
 
-					const failing = rollup.filter((c) => {
-						const conclusion = (c.conclusion ?? c.state ?? "").toUpperCase();
-						return (
-							conclusion === "FAILURE" ||
-							conclusion === "CANCELLED" ||
-							conclusion === "TIMED_OUT" ||
-							conclusion === "ACTION_REQUIRED"
-						);
-					});
+					const failing = rollup.filter(isFailedCheckRollup);
 
 					// Map each failing check to its workflow-run ID. gh emits two URL
 					// shapes: actions runs (`/actions/runs/<id>/job/<jobId>`) and

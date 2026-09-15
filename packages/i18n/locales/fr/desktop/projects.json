@@ -291,5 +291,6 @@
 	"github_new_branch": "Créer une branche et y basculer…",
 	"github_new_origin_branch": "Nouvelle branche depuis origin/main…",
 	"github_continue_tooltip": "Créer une branche depuis origin/main et y basculer",
-	"github_auto_fix": "Correction auto"
+	"github_auto_fix": "Correction auto",
+	"projects_sidebar_cloud": "Cloud"
 }

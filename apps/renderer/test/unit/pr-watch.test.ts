@@ -196,3 +196,16 @@ describe("durable repair dispatch", () => {
 		expect(send).not.toHaveBeenCalled();
 	});
 });
+
+test("terminal failures are repairable even when run status is stale", () => {
+	for (const status of ["queued", "in_progress"] as const) {
+		expect(
+			prFailureKey(
+				GitPrDetails.make({
+					...details,
+					checkRuns: details.checkRuns.map((check) => ({ ...check, status })),
+				}),
+			),
+		).toBe(prFailureKey(details));
+	}
+});

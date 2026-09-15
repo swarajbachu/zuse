@@ -8,7 +8,7 @@ export function prFailureKey(details: GitPrDetails): string | null {
 		details.state !== "open" ||
 		details.isDraft ||
 		details.checks !== "failure" ||
-		details.checkRuns.some((check) => check.status !== "completed")
+		details.checkRuns.some((check) => checkKind(check) === "pending")
 	)
 		return null;
 	const failures = details.checkRuns

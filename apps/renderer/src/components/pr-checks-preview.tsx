@@ -10,7 +10,7 @@ import {
 	Tick02Icon,
 } from "@zuse/icons/stroke-rounded";
 import type { ReactNode } from "react";
-import { openExternal } from "../lib/platform-capabilities.ts";
+import { isHttpUrl, openHttpLink as openExternal } from "../lib/http-links.ts";
 import { type CheckKind, checkKind } from "../lib/pr-checks.ts";
 import { Spinner } from "./ui/spinner.tsx";
 
@@ -78,11 +78,11 @@ export function PrChecksPreview({
 							<li key={`${check.name}:${index}`}>
 								<button
 									type="button"
-									disabled={!check.url}
+									disabled={!isHttpUrl(check.url)}
 									title={check.name}
 									aria-label={`${check.name}: ${(check.conclusion ?? check.status).replaceAll("_", " ")}`}
 									onClick={() => {
-										if (check.url) void openExternal(check.url);
+										if (isHttpUrl(check.url)) void openExternal(check.url);
 									}}
 									className="group flex h-6 w-full items-center gap-2 rounded-md px-2 text-left text-xs outline-none hover:bg-muted/60 focus-visible:bg-muted/60 disabled:hover:bg-transparent"
 								>

@@ -287,3 +287,30 @@ describe("plan feedback routing", () => {
 		).toBe("send");
 	});
 });
+
+it("preserves staged context when native feedback or its fallback fails", async () => {
+	const { commitAcceptedComposerDelivery } = await import(
+		"../../src/lib/composer-delivery.ts"
+	);
+	for (const result of ["failed", "session-not-found"] as const) {
+		let committed = false;
+		const delivery = deliverNativePlanFeedback({
+			respond: async () => result,
+			fallbackSend: async () => false,
+		}).then((result) => result !== "failed");
+		await commitAcceptedComposerDelivery(delivery, () => {
+			committed = true;
+		});
+		expect(committed).toBe(false);
+	}
+	let committed = false;
+	await expect(
+		commitAcceptedComposerDelivery(
+			Promise.reject(new Error("connection lost")),
+			() => {
+				committed = true;
+			},
+		),
+	).rejects.toThrow("connection lost");
+	expect(committed).toBe(false);
+});

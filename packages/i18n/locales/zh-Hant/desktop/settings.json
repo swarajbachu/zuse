@@ -868,5 +868,6 @@
 	"cloud_auth_setup_failed": "雲端無法啟動安全的代理程式設定。請稍後再試。",
 	"cloud_auth_not_allowed": "您的 Zuse 工作階段無法授權此操作。請重新整理工作階段後再試。",
 	"cloud_auth_login_failed": "無法啟動代理程式登入。",
-	"cloud_auth_temporarily_unavailable": "雲端驗證暫時無法使用。重試不會影響現有聊天。"
+	"cloud_auth_temporarily_unavailable": "雲端驗證暫時無法使用。重試不會影響現有聊天。",
+	"cloud_machine_provider": "機器供應商"
 }

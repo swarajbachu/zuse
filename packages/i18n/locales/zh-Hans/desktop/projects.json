@@ -272,7 +272,7 @@
 	"github_disable_auto_merge": "禁用自动合并",
 	"github_enable_auto_merge": "启用自动合并",
 	"github_status": "状态",
-	"github_ready_review": "准备好审查",
+	"github_ready_review": "准备好接受审查",
 	"github_reopen": "重新打开",
 	"github_refresh_failed": "无法刷新此 PR。",
 	"github_watch_ci": "监视 CI",
@@ -285,5 +285,6 @@
 	"github_new_branch": "创建并切换到新分支…",
 	"github_new_origin_branch": "从 origin/main 创建新分支…",
 	"github_continue_tooltip": "从 origin/main 创建并切换到新分支",
-	"github_auto_fix": "自动修复"
+	"github_auto_fix": "自动修复",
+	"projects_sidebar_cloud": "云端"
 }

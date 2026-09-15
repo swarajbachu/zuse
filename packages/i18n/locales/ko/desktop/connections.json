@@ -72,5 +72,6 @@
 	"remote_access_connect_privately_from_devices_on_the_same_tailnet": "동일한 tailnet에 있는 장치에서 비공개로 연결하세요.",
 	"auth_opening_browser_sign_in": "브라우저 로그인 열기",
 	"auth_complete_workos_sign_in_in_your_browser": "브라우저에서 WorkOS 로그인을 완료하세요.",
-	"auth_sign_in_failed": "로그인 실패"
+	"auth_sign_in_failed": "로그인 실패",
+	"cloud_workspace_info_inactive": "비활성"
 }

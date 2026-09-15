@@ -37,6 +37,7 @@ import {
 	CloudWorkspaceLaunchIntentCipher,
 	CloudWorkspaceLaunchIntentCipherLive,
 } from "../../src/cloud-workspace-launch-intent.ts";
+import { reconcileCloudPool } from "../../src/cloud-workspace-reconciler.ts";
 import {
 	CloudWorkspaceStore,
 	type CloudWorkspaceStoreApi,
@@ -104,6 +105,7 @@ const makeRuntime = async (
 	betaAccess: Layer.Layer<BetaAccess> = BetaAccessAllowAll,
 	cloudBillingEnforcementEnabled = false,
 	cloudBrokerEnrollmentEnabled = false,
+	sandboxLayer?: Layer.Layer<SandboxProviders>,
 ) => {
 	const mint = await generateKeyPair("EdDSA", { extractable: true });
 	const objects = new Map<string, string>();
@@ -145,9 +147,10 @@ const makeRuntime = async (
 		MachineStoreMemory,
 		MachineProvidersFake,
 		BillingProvidersManual,
-		makeSandboxProvidersFake([
-			{ adapter: advertisedAdapter, advertised: true },
-		]),
+		sandboxLayer ??
+			makeSandboxProvidersFake([
+				{ adapter: advertisedAdapter, advertised: true },
+			]),
 		Layer.effect(
 			CloudWorkspaceLaunchIntentCipher,
 			CloudWorkspaceLaunchIntentCipherLive,
@@ -2314,4 +2317,133 @@ describe("public API (/v1/api)", () => {
 		});
 		expect(foreign.status).toBe(404);
 	});
+});
+
+test("keeps Box and E2B images independent and accepts either provider through the public API", async () => {
+	const runtime = await makeRuntime(
+		BetaAccessAllowAll,
+		false,
+		false,
+		SandboxProviders.layer({
+			registrations: ["box", "e2b"].map((providerId) => ({
+				adapter: {
+					...advertisedAdapter,
+					providerId,
+					fork: (input: Parameters<SandboxProviderAdapter["fork"]>[0]) =>
+						Effect.succeed({
+							providerSandboxId: `${providerId}-${input.sandboxId}`,
+							providerLabel: input.providerLabel,
+							state: "running" as const,
+						}),
+				},
+			})),
+			defaultProviderId: "box",
+		}).pipe(Layer.orDie),
+	);
+	try {
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await seedReadyProject(runtime, store);
+		const key = await createApiKey(runtime);
+		for (const providerId of ["box", "e2b"]) {
+			const build = await json<{
+				providerId: string;
+				builds: { buildId: string }[];
+			}>(
+				await serve(runtime, "/v1/cloud/image/build", {
+					method: "POST",
+					headers: { ...WORKOS_HEADERS, "content-type": "application/json" },
+					body: JSON.stringify({
+						mode: "update",
+						providerId,
+						idempotencyKey: "same-key",
+					}),
+				}),
+				202,
+			);
+			expect(build.providerId).toBe(providerId);
+			expect(build.builds).toHaveLength(1);
+			const attempt = build.builds[0];
+			if (!attempt) throw new Error("Missing build attempt");
+			const record = await runtime.runPromise(store.getBuild(attempt.buildId));
+			if (!record) throw new Error("Missing image build");
+			await runtime.runPromise(
+				store.saveBuild({
+					...record,
+					state: "ready",
+					snapshotId: `${providerId}-snapshot`,
+				}),
+			);
+			const status = await json<{ providerId: string }>(
+				await serve(runtime, `/v1/cloud/image?providerId=${providerId}`, {
+					headers: WORKOS_HEADERS,
+				}),
+				200,
+			);
+			expect(status.providerId).toBe(providerId);
+			const created = await json<{
+				workspace: { workspaceId: string; providerId: string };
+			}>(
+				await serve(runtime, "/v1/api/workspaces", {
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${key}`,
+						"content-type": "application/json",
+						"idempotency-key": `dual-${providerId}`,
+					},
+					body: JSON.stringify({
+						projectId: "project-1",
+						providerId,
+						agent: "codex",
+						model: "gpt-5",
+					}),
+				}),
+				201,
+			);
+			expect(created.workspace.providerId).toBe(providerId);
+			const workspace = await runtime.runPromise(
+				store.getWorkspace(created.workspace.workspaceId),
+			);
+			expect(workspace?.provider).toBe(providerId);
+		}
+		const defaultCreate = await json<{ workspace: { providerId: string } }>(
+			await serve(runtime, "/v1/api/workspaces", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${key}`,
+					"content-type": "application/json",
+					"idempotency-key": "dual-default",
+				},
+				body: JSON.stringify({
+					projectId: "project-1",
+					agent: "codex",
+					model: "gpt-5",
+				}),
+			}),
+			201,
+		);
+		expect(defaultCreate.workspace.providerId).toBe("box");
+		await runtime.runPromise(reconcileCloudPool(ACCOUNT));
+		for (const providerId of ["box", "e2b"]) {
+			const pool = await runtime.runPromise(
+				store.listPool(ACCOUNT, providerId),
+			);
+			expect(pool).toHaveLength(2);
+			expect(pool.every((entry) => entry.provider === providerId)).toBe(true);
+		}
+		expect(
+			await json(
+				await serve(runtime, "/v1/cloud/image", { headers: WORKOS_HEADERS }),
+				200,
+			),
+		).toMatchObject({ providerId: "box" });
+		expect(
+			(
+				await serve(runtime, "/v1/cloud/image?providerId=missing", {
+					headers: WORKOS_HEADERS,
+				})
+			).status,
+		).toBe(503);
+	} finally {
+		await runtime.dispose();
+	}
 });

@@ -78,7 +78,6 @@ import {
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
-import { cloudChatRowPresentation } from "../lib/cloud-chat-row-presentation.ts";
 import { cloudWorkspaceBetaAvailable } from "../lib/cloud-machines-availability.ts";
 import {
 	cloudSummaryActiveSessionId,
@@ -2153,26 +2152,14 @@ function CloudChatRow({
 		connection: shell.connection,
 		runtime: timeline.runtime,
 	});
-	const presentation = cloudChatRowPresentation(summary, activity);
-	const label = presentation.label;
+	const label = uiMessage("projects:projects_sidebar_cloud");
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";
-	const cloudWorkspaceLoading = presentation.busy;
 	const attentionState = deriveChatAttentionState(
 		timeline.messages,
 		cloudChatShowsWorking(activity),
 	);
-	const providerTone =
-		activity === "failed"
-			? "text-destructive"
-			: activity === "paused"
-				? "text-muted-foreground/45"
-				: activity === "idle" ||
-						activity === "running" ||
-						activity === "starting-agent" ||
-						activity === "stopping"
-					? "text-emerald-500"
-					: "text-amber-400";
+
 	const selected = selectedChatId === summary.chatId;
 	const open = () => {
 		void openCloudChat(summary, projectId).catch((cause) =>
@@ -2210,7 +2197,6 @@ function CloudChatRow({
 							role="button"
 							tabIndex={0}
 							aria-label={`${summary.title}. ${label}`}
-							aria-busy={cloudWorkspaceLoading || undefined}
 							className={cn(
 								"group flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md py-1.5 pr-2 pl-1 text-left text-[12px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/40 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
 								selected && "bg-sidebar-accent text-sidebar-accent-foreground",
@@ -2238,7 +2224,7 @@ function CloudChatRow({
 							<span className="min-w-0 flex-1 truncate">{summary.title}</span>
 							<div className="flex h-4 w-20 shrink-0 items-center justify-end gap-1">
 								<span
-									className={cn("inline-flex shrink-0", providerTone)}
+									className="inline-flex shrink-0 text-muted-foreground/60"
 									role="img"
 									aria-label={label}
 								>

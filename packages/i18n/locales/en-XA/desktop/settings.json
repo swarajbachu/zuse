@@ -868,5 +868,6 @@
 	"cloud_auth_setup_failed": "⟦Clôôüüd côôüüld nôôt stààrt thëë sëëcüürëë ààgëënt sëëtüüp. Try ààgààïïn ïïn àà môômëënt.⟧",
 	"cloud_auth_not_allowed": "⟦Yôôüür Züüsëë sëëssïïôôn côôüüld nôôt ààüüthôôrïïzëë thïïs ààctïïôôn. Rëëfrëësh yôôüür sëëssïïôôn àànd try ààgààïïn.⟧",
 	"cloud_auth_login_failed": "⟦Thëë ààgëënt lôôgïïn côôüüld nôôt bëë stààrtëëd.⟧",
-	"cloud_auth_temporarily_unavailable": "⟦Clôôüüd ààüüthëëntïïcààtïïôôn ïïs tëëmpôôrààrïïly üünààvààïïlààblëë. Rëëtry wïïthôôüüt ààffëëctïïng yôôüür ëëxïïstïïng chààts.⟧"
+	"cloud_auth_temporarily_unavailable": "⟦Clôôüüd ààüüthëëntïïcààtïïôôn ïïs tëëmpôôrààrïïly üünààvààïïlààblëë. Rëëtry wïïthôôüüt ààffëëctïïng yôôüür ëëxïïstïïng chààts.⟧",
+	"cloud_machine_provider": "⟦Mààchïïnëë prôôvïïdëër⟧"
 }
