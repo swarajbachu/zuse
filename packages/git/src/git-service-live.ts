@@ -718,7 +718,12 @@ export const GitServiceLive = Layer.effect(
 						yield* run(folderId, cwd, ["check-ref-format", "--branch", branch]);
 						args.push(branch);
 					}
-					const output = yield* ghRun(folderId, cwd, args);
+					const output = yield* ghRun(
+						folderId,
+						cwd,
+						args,
+						action === "submit" ? 300_000 : 5_000,
+					);
 					if (action !== "view")
 						return GitStackResult.make({ output, trunk: null, branches: [] });
 					const parsed = parseStackView(output);
@@ -876,6 +881,7 @@ export const GitServiceLive = Layer.effect(
 			folderId: FolderId,
 			cwd: string,
 			args: ReadonlyArray<string>,
+			timeoutMs = 5_000,
 		) =>
 			Effect.scoped(
 				Effect.gen(function* () {
@@ -893,12 +899,12 @@ export const GitServiceLive = Layer.effect(
 					);
 				}),
 			).pipe(
-				Effect.timeout("5 seconds"),
+				Effect.timeout(timeoutMs),
 				Effect.catchTag("TimeoutError", () =>
 					Effect.fail(
 						new GitCommandError({
 							folderId,
-							reason: "GitHub CLI timed out after 5 seconds",
+							reason: `GitHub CLI timed out after ${timeoutMs / 1000} seconds`,
 						}),
 					),
 				),
