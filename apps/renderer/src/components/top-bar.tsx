@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/projects";
 import { isInputComposing } from "../lib/input-composition.ts";
 import { CreateBranchDialog } from "./create-branch-dialog.tsx";
 import "@zuse/i18n/english/chat";
@@ -153,7 +154,7 @@ const executionRefFor = (
  * the controls are gone, so we hug the edge instead.
  */
 export function TopBarLeft() {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
 	const isFullScreen = useUiStore((s) => s.isFullScreen);
@@ -198,7 +199,7 @@ export function TopBarLeft() {
  * regardless of which way the files panel is currently leaning).
  */
 export function TopBarMain() {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	// Pull folderId + worktreeId from the canonical active context so the
 	// branch label can never disagree with the terminal cwd, file tree root,
@@ -589,7 +590,7 @@ export function BranchMenuButton({
 	onRename: () => void;
 	onSwitch: (branch: GitBranchInfo) => void;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const executionRef = executionRefFor(useActiveContext());
 	const [createFrom, setCreateFrom] = useState<"HEAD" | "origin/main" | null>(
@@ -747,13 +748,13 @@ export function BranchMenuButton({
 						disabled={loading || executionRef === null}
 						onClick={() => setCreateFrom("HEAD")}
 					>
-						Create and checkout new branch…
+						{uiMessage("projects:github_new_branch")}
 					</MenuItem>
 					<MenuItem
 						disabled={loading || executionRef === null || dirtyFiles > 0}
 						onClick={() => setCreateFrom("origin/main")}
 					>
-						New branch from origin/main…
+						{uiMessage("projects:github_new_origin_branch")}
 					</MenuItem>
 				</MenuPopup>
 			</Menu>
@@ -794,7 +795,7 @@ function RenameBranchDialog({
 	onRenamed: () => Promise<void>;
 	worktreeId: WorktreeId;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const rename = async (next: string) => {
 		await dispatchGitWorkspaceCommand({
@@ -822,7 +823,7 @@ function RenameBranchDialog({
 }
 
 function OpenInMenu({ rootPath }: { rootPath: string | null }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const capabilities = rendererPlatformCapabilities();
 	const [targets, setTargets] = useState<ReadonlyArray<OpenTarget>>([]);
@@ -943,7 +944,7 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
  * the old worktree pane's Run affordance, now promoted to the top bar).
  */
 function RunButton() {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const ctx = useActiveContext();
 	const folderId = ctx.status === "ready" ? ctx.folderId : null;
@@ -998,7 +999,7 @@ function RunButton() {
 }
 
 export function TopBarRight() {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const ctx = useActiveContext();
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
@@ -1036,7 +1037,7 @@ export function TopBarRightContent({
 }: {
 	compact?: boolean;
 } = {}) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const ctx = useActiveContext();
 	const executionRef = executionRefFor(ctx);
@@ -1149,7 +1150,7 @@ export function ResolveConflictsButton({
 }: {
 	presentation?: WorkflowActionPresentation;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const ctx = useActiveContext();
@@ -1196,7 +1197,7 @@ export function WorkflowActions({
 	className?: string;
 }) {
 	const [createFromMain, setCreateFromMain] = useState(false);
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const ctx = useActiveContext();
 	const executionRef = executionRefFor(ctx);
@@ -1295,12 +1296,12 @@ export function WorkflowActions({
 									className="h-7 rounded-md px-2 text-xs hover:bg-muted"
 									onClick={() => setCreateFromMain(true)}
 								>
-									Continue
+									{uiMessage("common:continue")}
 								</button>
 							}
 						/>
 						<TooltipPopup>
-							Create and checkout a new branch from origin/main
+							{uiMessage("projects:github_continue_tooltip")}
 						</TooltipPopup>
 					</Tooltip>
 					{createFromMain ? (
@@ -1414,7 +1415,7 @@ const openPrChipTone = (w: OpenPrWorkflow): GlassTone => {
  * Tinted by the same workflow tone the merge button uses.
  */
 function PrHashChip({ workflow }: { workflow: OpenPrWorkflow }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const checksRunning = workflow.checksRunning;
 	const label =
@@ -1467,7 +1468,7 @@ function PrHashChip({ workflow }: { workflow: OpenPrWorkflow }) {
  *   none    → nothing
  */
 function CiStatus({ workflow }: { workflow: OpenPrWorkflow }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	if (workflow.checksTotal === 0) return null;
 	if (workflow.checksRunning > 0) return null;
@@ -1510,7 +1511,7 @@ function DirectActionButton({
 	run: () => Promise<unknown>;
 	onSuccess?: () => void;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const [loading, setLoading] = useState(false);
 
@@ -1570,7 +1571,7 @@ function MergeButton({
 	folderId: FolderId;
 	worktreeId: WorktreeId | null;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const executionRef = executionRefFor(useActiveContext());
 	const method = useMergePrefs((s) => s.method);
@@ -1656,7 +1657,7 @@ function AutoMergeToggle({
 	worktreeId: WorktreeId | null;
 	enabled: boolean;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const executionRef = executionRefFor(useActiveContext());
 	const method = useMergePrefs((s) => s.method);
@@ -1793,7 +1794,7 @@ export function FixActionsButton({
 	worktreeId: WorktreeId | null;
 	disabled: boolean;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const executionRef = executionRefFor(useActiveContext());
 	const [loading, setLoading] = useState(false);

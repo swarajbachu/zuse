@@ -1,5 +1,8 @@
+import "@zuse/i18n/english/chat";
+import "@zuse/i18n/english/projects";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import { CommandId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useState } from "react";
 import { formatError } from "../lib/format-error.ts";
 import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts";
@@ -20,6 +23,7 @@ export function CreateBranchDialog({
 	base: "HEAD" | "origin/main";
 	onClose: () => void;
 }) {
+	const { message: uiMessage } = useUiMessages(["common", "projects", "chat"]);
 	const [name, setName] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -32,11 +36,13 @@ export function CreateBranchDialog({
 		>
 			<DialogPopup className="max-w-sm">
 				<DialogHeader>
-					<DialogTitle>Create branch</DialogTitle>
+					<DialogTitle>
+						{uiMessage("projects:github_create_branch")}
+					</DialogTitle>
 					<DialogDescription>
 						{base === "HEAD"
-							? "Continue from the current branch."
-							: "Fetch origin/main and start a new branch. Commit or stash local changes first."}
+							? uiMessage("projects:github_continue_branch")
+							: uiMessage("projects:github_origin_branch_help")}
 					</DialogDescription>
 				</DialogHeader>
 				<form
@@ -69,7 +75,7 @@ export function CreateBranchDialog({
 					}}
 				>
 					<label className="block text-xs text-muted-foreground">
-						Branch name
+						{uiMessage("chat:top_bar_branch_name")}
 						<input
 							autoFocus
 							required
@@ -77,7 +83,7 @@ export function CreateBranchDialog({
 							disabled={busy}
 							onChange={(event) => setName(event.target.value)}
 							className="mt-1 h-7 w-full rounded-md bg-muted px-2 text-sm text-foreground outline-none focus-visible:bg-muted/70"
-							placeholder="feature/my-change"
+							placeholder={uiMessage("chat:top_bar_branch_name")}
 						/>
 					</label>
 					{error ? (
@@ -92,14 +98,16 @@ export function CreateBranchDialog({
 							onClick={onClose}
 							className="h-7 rounded-md px-3 text-xs hover:bg-muted"
 						>
-							Cancel
+							{uiMessage("common:cancel")}
 						</button>
 						<button
 							type="submit"
 							disabled={busy || !name.trim()}
 							className="h-7 rounded-md bg-primary px-3 text-xs text-primary-foreground disabled:opacity-50"
 						>
-							{busy ? "Creating…" : "Create and checkout"}
+							{busy
+								? uiMessage("projects:github_creating")
+								: uiMessage("projects:github_create_checkout")}
 						</button>
 					</div>
 				</form>
