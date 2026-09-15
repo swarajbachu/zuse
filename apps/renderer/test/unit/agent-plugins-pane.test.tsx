@@ -1,3 +1,4 @@
+import { message } from "@zuse/i18n";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
 
@@ -37,5 +38,16 @@ it("does not expose native management controls on web or a remote environment", 
 		const html = renderToStaticMarkup(<AgentPluginsPane />);
 		expect(html).toContain("local desktop");
 		expect(html).not.toContain("<input");
+	}
+});
+
+it("names the plugin in native install and removal confirmations", () => {
+	for (const key of [
+		"extensions:plugins_install_confirm",
+		"extensions:plugins_remove_confirm",
+	] as const) {
+		const prompt = message(key, { name: "Team review" });
+		expect(prompt).toContain("Team review");
+		expect(prompt).not.toContain("{name}");
 	}
 });

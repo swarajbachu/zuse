@@ -60,7 +60,6 @@ it.skipIf(!existsSync(binary))(
 			client = await CodexAppServerClient.start({
 				codexPath: binary,
 				env: { ...process.env, CODEX_HOME: home },
-				externalAuthProvider: null,
 				startupTimeoutMs: 10000,
 				onNotification: () => {},
 				onServerRequest: (_, respond) => respond({}),

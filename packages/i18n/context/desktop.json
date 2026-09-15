@@ -10953,7 +10953,7 @@
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"extensions:plugins_remove_confirm": {
-		"source": "Remove {name}? This changes your native Codex configuration.",
+		"source": "Remove {{name}}? This changes your native Codex configuration.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/agent-plugins-pane.tsx",
@@ -10987,7 +10987,7 @@
 		"context": "extensions interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"extensions:plugins_install_confirm": {
-		"source": "Install {name} in Codex? Its hooks and tools may execute code with your account permissions.",
+		"source": "Install {{name}} in Codex? Its hooks and tools may execute code with your account permissions.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/agent-plugins-pane.tsx",
