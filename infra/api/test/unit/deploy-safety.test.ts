@@ -257,8 +257,8 @@ else process.exit(2);
 		expect(production.vars.MACHINE_RUNTIME_MANIFEST_URL).toBe("");
 		expect(production.vars.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK).toBe("");
 		expect(production.vars).not.toHaveProperty("SANDBOX_DEFAULT_PROVIDER");
-		expect(production.vars.BOX_ADAPTER_ENABLED).toBe("false");
-		expect(production.vars.SANDBOX_DEFAULT_PROVIDER_ID).toBe("e2b");
+		expect(production.vars.BOX_ADAPTER_ENABLED).toBe("true");
+		expect(production.vars.SANDBOX_DEFAULT_PROVIDER_ID).toBe("box");
 		expect(production.vars.CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL).toBe(
 			"https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-production/stable-manifest.json",
 		);

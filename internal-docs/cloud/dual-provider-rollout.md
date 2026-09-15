@@ -5,9 +5,10 @@ when both are enabled; SANDBOX_DEFAULT_PROVIDER_ID can override that choice.
 Explicit selections are validated against the deployment's available providers.
 Retained workspaces always use their stored provider.
 
-Production keeps E2B enabled and selected by default until Box is provisioned.
-A read-only production secret check on 2026-09-15 confirmed BOX_API_KEY is absent.
-The Box configuration references the existing zuse-base-v5 base snapshot.
+Production configuration enables both providers and selects Box by default.
+On 2026-09-15, the authorized Box key resolved zuse-base-v5 with status ready
+and was installed as BOX_API_KEY on the production worker zuse-relay.
+This prerequisite check and secret update did not deploy the API code or configuration.
 Before enabling BOX_ADAPTER_ENABLED and selecting box as SANDBOX_DEFAULT_PROVIDER_ID, install
 BOX_API_KEY in the production worker's secret store and verify that its Box
 account can resolve zuse-base-v5. Do not copy staging account credentials into
