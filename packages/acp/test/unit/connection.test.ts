@@ -62,3 +62,66 @@ describe("AcpConnection", () => {
 		connection.close();
 	});
 });
+
+test("answers client requests once and rejects unsupported methods", async () => {
+	const inbound = new PassThrough(),
+		outbound = new PassThrough();
+	const lines: unknown[] = [];
+	outbound.on("data", (chunk) => lines.push(JSON.parse(String(chunk))));
+	const connection = new AcpConnection(inbound, outbound, {
+		onRequest: (_request, respond) => {
+			respond({ ok: true });
+			respond({ ok: false });
+		},
+	});
+	inbound.write(
+		JSON.stringify({
+			jsonrpc: "2.0",
+			id: 7,
+			method: "permission",
+			params: {},
+		}) + "\n",
+	);
+	expect(lines).toEqual([{ jsonrpc: "2.0", id: 7, result: { ok: true } }]);
+	connection.close();
+	const unsupported = new AcpConnection(inbound, outbound);
+	inbound.write(
+		JSON.stringify({ jsonrpc: "2.0", id: 8, method: "unknown" }) + "\n",
+	);
+	expect(lines.at(-1)).toMatchObject({ id: 8, error: { code: -32601 } });
+	unsupported.close();
+});
+
+test.each([
+	"invalid json\n",
+	"x".repeat(257),
+])("closes malformed or oversized streams and rejects pending calls", async (data) => {
+	const inbound = new PassThrough(),
+		outbound = new PassThrough();
+	const connection = new AcpConnection(inbound, outbound, {
+		maxMessageBytes: 256,
+	});
+	const pending = connection.request("wait", {}, Schema.Unknown);
+	const rejected = expect(pending).rejects.toBeInstanceOf(Error);
+	inbound.write(data);
+	await rejected;
+	await expect(connection.request("again", {}, Schema.Unknown)).rejects.toThrow(
+		"closed",
+	);
+	expect(inbound.listenerCount("data")).toBe(0);
+});
+
+test("bounds unanswered client requests", async () => {
+	const inbound = new PassThrough(),
+		outbound = new PassThrough();
+	const connection = new AcpConnection(inbound, outbound, {
+		onRequest: () => {},
+	});
+	const pending = connection.request("wait", {}, Schema.Unknown);
+	const rejected = expect(pending).rejects.toThrow("request limit");
+	for (let id = 0; id < 33; id++)
+		inbound.write(
+			JSON.stringify({ jsonrpc: "2.0", id, method: "wait" }) + "\n",
+		);
+	await rejected;
+});

@@ -9,6 +9,8 @@ import {
 } from "node:fs/promises";
 import { createRequire, isBuiltin } from "node:module";
 import { dirname, join } from "node:path";
+import { killAcpProcess } from "@zuse/acp/process";
+import { createExtensionAcpProvider } from "@zuse/agents/drivers/extension-acp";
 import type {
 	ExtensionInvocationContext,
 	ExtensionProviderAdapter,
@@ -32,6 +34,11 @@ const MAX_BLOB_BYTES = 2 * 1024 * 1024;
 const MAX_BLOB_TOTAL_BYTES = 10 * 1024 * 1024;
 const STORAGE_VERSION_KEY = "$schemaVersion";
 
+const managedProcesses = new Set<number>();
+process.once("disconnect", () => {
+	for (const pid of managedProcesses) killAcpProcess(pid);
+	process.exit(0);
+});
 const send = (message: ExtensionToHostMessage): void => {
 	process.send?.(message);
 };
@@ -209,6 +216,21 @@ const providerMethod = async (
 				String(value.sessionId),
 				typeof value.turnId === "string" ? value.turnId : undefined,
 			);
+		case "setPermissionMode":
+			if (!provider.adapter.setPermissionMode) {
+				if (value.mode === "default") return;
+				throw new Error("Provider does not support permission modes.");
+			}
+			if (
+				value.mode !== "default" &&
+				value.mode !== "plan" &&
+				value.mode !== "acceptEdits"
+			)
+				throw new Error("Invalid permission mode.");
+			return provider.adapter.setPermissionMode(
+				String(value.sessionId),
+				value.mode,
+			);
 		case "close":
 			return provider.adapter.close(String(value.sessionId));
 		case "answerQuestion":
@@ -284,6 +306,26 @@ const initialize = async (
 			if (providers.has(descriptor.id))
 				throw new Error(`Duplicate extension provider: ${descriptor.id}`);
 			providers.set(descriptor.id, { descriptor, adapter });
+		},
+		addAcpProvider(definition) {
+			requireCapability("providers");
+			requireCapability("process");
+			const registration = createExtensionAcpProvider(
+				definition,
+				context.emitProviderEvent,
+				{
+					started: (pid) => {
+						managedProcesses.add(pid);
+						send({ type: "managed-process", pid, running: true });
+					},
+					stopped: (pid) => {
+						managedProcesses.delete(pid);
+						send({ type: "managed-process", pid, running: false });
+					},
+				},
+			);
+			context.addProvider(registration.descriptor, registration.adapter);
+			return registration.dispose;
 		},
 		storage: {
 			get: async (key) => {

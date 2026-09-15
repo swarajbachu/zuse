@@ -24,9 +24,9 @@ describe("desktop preview boundaries", () => {
 		hub.stop();
 	});
 	it("checks semantic ranges instead of string prefixes", () => {
-		for (const range of ["^1.0.0", "^1.1.0", ">=0.9.0 <2", "1.x"])
+		for (const range of ["^1.0.0", "^1.1.0", "^1.2.0", ">=0.9.0 <2", "1.x"])
 			expect(() => assertApiCompatible(range)).not.toThrow();
-		for (const range of ["^1.2.0", "^2.0.0", "banana", "1.0.0-beta.1"])
+		for (const range of ["^1.3.0", "^2.0.0", "banana", "1.0.0-beta.1"])
 			expect(() => assertApiCompatible(range)).toThrow();
 	});
 	it("rejects archive bytes and invalid data envelopes without extracting files", () => {
