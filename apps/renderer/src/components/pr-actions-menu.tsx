@@ -25,27 +25,19 @@ import {
 	Wrench01Icon,
 } from "@zuse/icons/stroke-rounded";
 import { useState } from "react";
-import {
-	attachFileWhenReady,
-	saveContextFile,
-} from "../lib/context-handoff.ts";
 import { formatError } from "../lib/format-error.ts";
-import {
-	dispatchGitWorkspaceCommand,
-	gitWorkspaceResourceKey,
-	refreshGitWorkspace,
-} from "../lib/git-workspace-client-bus.ts";
+import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts";
 import { openExternal } from "../lib/platform-capabilities.ts";
 import {
 	type PrRepairScope,
-	preparePrRepair,
+	prRepairDraft,
 	prRepairMarkdown,
 } from "../lib/pr-repair.ts";
-import { sendSessionMessage } from "../lib/session-actions.ts";
 import {
-	getRendererClientBus,
-	sessionTimelineResourceKey,
-} from "../lib/session-timeline-client-bus.ts";
+	composerDraftKeyForSession,
+	useComposerDraftsStore,
+} from "../store/composer-drafts.ts";
+
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { useMergePrefs } from "../store/merge-prefs.ts";
 import { useSessionsStore } from "../store/sessions.ts";
@@ -68,7 +60,6 @@ export function PrActionsMenu({
 	pr,
 	details,
 	sessionId,
-	busy: agentBusy,
 	className,
 	onView,
 	onChat,
@@ -133,52 +124,33 @@ export function PrActionsMenu({
 		useSessionsStore.getState().selectedSessionId === sessionId &&
 		useEnvironmentCatalogStore.getState().activeEnvironmentId ===
 			executionRef.environmentId;
-	const repair = (scope: PrRepairScope) =>
-		run(async () => {
-			if (!details || !sessionId) return;
-			const input = await preparePrRepair(
-				executionRef,
+	const addContextToChat = (scope: PrRepairScope, repairRequest = true) => {
+		if (!sessionId || !details || !isSelectedChat()) return;
+		const label = uiMessage(
+			scope === "comments"
+				? "projects:github_comments"
+				: scope === "checks"
+					? "projects:github_failing_checks"
+					: scope === "conflicts"
+						? "chat:right_pane_merge_conflicts"
+						: "projects:github_everything",
+		);
+		useComposerDraftsStore.getState().addContext(
+			composerDraftKeyForSession({
+				environmentId: executionRef.environmentId,
 				sessionId,
-				details,
-				scope,
-			);
-			await refreshGitWorkspace(executionRef);
-			const bus = getRendererClientBus();
-			const workspace = bus.snapshot(gitWorkspaceResourceKey(executionRef));
-			const timeline = bus.snapshot(
-				sessionTimelineResourceKey({
-					environmentId: executionRef.environmentId,
-					sessionId,
-				}),
-			);
-			if (
-				!isSelectedChat() ||
-				workspace.sync !== "live" ||
-				workspace.connection !== "connected" ||
-				workspace.data?.error != null ||
-				workspace.data?.status?.branch !== details.headBranch ||
-				workspace.data?.pr?.url !== details.url ||
-				timeline.sync !== "live" ||
-				timeline.connection !== "connected" ||
-				timeline.data?.status !== "idle" ||
-				timeline.data.currentTurn !== null ||
-				timeline.data.queue.items.length > 0 ||
-				timeline.pendingCommands.length > 0
-			)
-				throw new Error(
-					"The chat, branch, or agent state changed. Run Repair again from the current PR.",
-				);
-
-			onChat();
-			const accepted = await sendSessionMessage(
-				{ environmentId: executionRef.environmentId, sessionId },
-				input,
-			);
-			if (!accepted)
-				throw new Error(
-					"Repair could not be sent. Check the chat and try again.",
-				);
-		});
+			}),
+			{
+				sourceKey: `${details.url}:${scope}:${repairRequest}`,
+				label: `PR #${details.number} · ${label}`,
+				text: repairRequest
+					? prRepairDraft(details, scope)
+					: prRepairMarkdown(details, scope),
+			},
+		);
+		onChat();
+	};
+	const repair = (scope: PrRepairScope) => addContextToChat(scope);
 	const comments = details
 		? [...details.comments, ...details.reviews].filter((item) =>
 				item.body.trim(),
@@ -186,7 +158,7 @@ export function PrActionsMenu({
 		: 0;
 	return (
 		<Menu modal={false}>
-			<MenuTrigger className={className} disabled={busy}>
+			<MenuTrigger className={className}>
 				<HugeiconsIcon
 					icon={GitPullRequestIcon}
 					className="size-[15px] shrink-0"
@@ -223,7 +195,7 @@ export function PrActionsMenu({
 					<MenuSubPopup className="w-52 !bg-popover" sideOffset={4}>
 						<MenuItem
 							className={compactMenuItemClass}
-							disabled={!details || !sessionId || agentBusy || comments === 0}
+							disabled={!details || !sessionId || comments === 0}
 							onClick={() => void repair("comments")}
 						>
 							<HugeiconsIcon icon={Comment01Icon} />
@@ -232,9 +204,7 @@ export function PrActionsMenu({
 						</MenuItem>
 						<MenuItem
 							className={compactMenuItemClass}
-							disabled={
-								!details || !sessionId || agentBusy || pr.checks !== "failure"
-							}
+							disabled={!details || !sessionId || pr.checks !== "failure"}
 							onClick={() => void repair("checks")}
 						>
 							<HugeiconsIcon icon={CheckmarkCircle02Icon} />
@@ -244,10 +214,7 @@ export function PrActionsMenu({
 						<MenuItem
 							className={compactMenuItemClass}
 							disabled={
-								!details ||
-								!sessionId ||
-								agentBusy ||
-								pr.mergeable !== "conflicting"
+								!details || !sessionId || pr.mergeable !== "conflicting"
 							}
 							onClick={() => void repair("conflicts")}
 						>
@@ -259,7 +226,6 @@ export function PrActionsMenu({
 							disabled={
 								!details ||
 								!sessionId ||
-								agentBusy ||
 								(comments === 0 &&
 									pr.checks !== "failure" &&
 									pr.mergeable !== "conflicting")
@@ -316,23 +282,9 @@ export function PrActionsMenu({
 				<MenuItem
 					className={compactMenuItemClass}
 					disabled={!details || !sessionId || busy}
-					onClick={() =>
-						void run(async () => {
-							if (!details || !sessionId) return;
-							const file = await saveContextFile(
-								executionRef.environmentId,
-								sessionId,
-								prRepairMarkdown(details, "everything"),
-							);
-							if (!file) throw new Error("Could not attach PR context.");
-							if (!isSelectedChat()) return;
-							onChat();
-							attachFileWhenReady(file, 20, 50, {
-								environmentId: executionRef.environmentId,
-								sessionId,
-							});
-						})
-					}
+					onClick={() => {
+						if (details) addContextToChat("everything", false);
+					}}
 				>
 					<HugeiconsIcon icon={CommentAdd01Icon} className="size-[15px]" />
 					{uiMessage("projects:pr_pane_add_to_chat")}

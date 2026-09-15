@@ -25,3 +25,9 @@ These captures use the actual renderer components with fixture PR data at 2× de
 Verified equal row/icon sizes, submenu navigation, all 17 checks reachable by scrolling, and Auto Fix state shared between Repair and the checks header. Automated tests cover missing-stack caching, stack creation becoming visible, branch isolation, pending-probe races, and checks available before enrichment.
 
 Summary menus are non-modal: a branch or location popup cannot put an invisible input-blocking layer over the PR trigger. Browser verification includes opening Branch, hovering PR, and opening PR in one click, plus returning from a nested Repair submenu.
+
+## Manual repair handoff
+
+Repair scopes and the PR menu's Add to chat action stage removable context rows above the composer. They do not send messages, change the editor text, save files, or wait for GitHub/network requests. Rows can expand to show full feedback. Repeated selections replace the same scope. The next explicit Send combines the user's message and staged context; unsuccessful delivery retains the context, and successful delivery clears only the submitted rows. Auto Fix remains the separate automatic workflow.
+
+Browser verification exercises PR → Repair → Comments, confirms the full feedback appears in the tray without changing extra instructions, and reopens the PR menu afterward. The fixture uses the actual menu and context tray with a simple text field; submission and failure handling are covered by unit tests.

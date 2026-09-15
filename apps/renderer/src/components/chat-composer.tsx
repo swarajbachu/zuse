@@ -1,3 +1,4 @@
+import { ComposerContextTray } from "./composer/composer-context-tray.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import "@zuse/i18n/english/chat";
@@ -122,6 +123,7 @@ import {
 	cloudComposerSubmissionBlocked,
 	commitAcceptedComposerDelivery,
 	shouldQueueComposerMessage,
+	withComposerContext,
 } from "../lib/composer-delivery.ts";
 import {
 	decideEnvironmentPermission,
@@ -153,6 +155,7 @@ import { useChatsStore } from "../store/chats.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import {
 	composerDraftKeyForSession,
+	EMPTY_COMPOSER_CONTEXTS,
 	useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
 import {
@@ -540,6 +543,9 @@ export function ChatComposer({
 	// pasted `[image:<id>]` token can rehydrate into its chip (thumbnail and
 	// all) even though the cut removed it from the document.
 	const knownImageChipMetaRef = useRef(new Map<string, ChipMeta>());
+	const composerContexts = useComposerDraftsStore(
+		(s) => s.contextsByKey[draftKey] ?? EMPTY_COMPOSER_CONTEXTS,
+	);
 	const annotationCount = useAnnotationsStore(
 		(s) => (s.bySession[sessionId] ?? []).length,
 	);
@@ -557,7 +563,7 @@ export function ChatComposer({
 		!submitting &&
 		!durableCloudSendPending &&
 		uploadingAttachmentCount === 0 &&
-		(hasText || annotationCount > 0);
+		(hasText || annotationCount > 0 || composerContexts.length > 0);
 
 	// Mount the CodeMirror view once per ChatComposer instance. The parent keys
 	// live chat composers by session id, and the landing keys them by project id,
@@ -682,7 +688,9 @@ export function ChatComposer({
 			const hasComposerDraft =
 				v.state.doc.toString().trim().length > 0 ||
 				allChips(v.state).length > 0 ||
-				annotationsForSession(sessionId).length > 0;
+				annotationsForSession(sessionId).length > 0 ||
+				(useComposerDraftsStore.getState().contextsByKey[draftKey]?.length ??
+					0) > 0;
 			if (hasComposerDraft || editingQueuedItemRef.current !== null) {
 				toastManager.add({
 					type: "info",
@@ -715,7 +723,9 @@ export function ChatComposer({
 					const becameBusy =
 						activeView.state.doc.toString().trim().length > 0 ||
 						allChips(activeView.state).length > 0 ||
-						annotationsForSession(sessionId).length > 0;
+						annotationsForSession(sessionId).length > 0 ||
+						(useComposerDraftsStore.getState().contextsByKey[draftKey]
+							?.length ?? 0) > 0;
 					if (becameBusy) {
 						queueSessionMessage(goalRef, taken.input, {
 							queueId: taken.id,
@@ -1171,9 +1181,17 @@ export function ChatComposer({
 		if (view === null) return false;
 		const docText = composerDoc(view).trim();
 		const annotations = annotationsForSession(sessionId);
+		const contexts =
+			useComposerDraftsStore.getState().contextsByKey[draftKey] ??
+			EMPTY_COMPOSER_CONTEXTS;
 		// Allow a pure-annotation submit (no typed text) — the stacked comments
 		// are the message.
-		if (docText.length === 0 && annotations.length === 0) return false;
+		if (
+			docText.length === 0 &&
+			annotations.length === 0 &&
+			contexts.length === 0
+		)
+			return false;
 
 		const builtin = matchBuiltin(docText, session.providerId);
 		if (builtin !== null) {
@@ -1183,7 +1201,8 @@ export function ChatComposer({
 			return true;
 		}
 
-		const parsed = parseComposerInput(view.state, session.providerId);
+		const parsedDraft = parseComposerInput(view.state, session.providerId);
+		const parsed = withComposerContext(parsedDraft, contexts);
 		const input =
 			annotations.length > 0
 				? ComposerInput.make({
@@ -1219,6 +1238,10 @@ export function ChatComposer({
 				});
 			}
 			clearComposerDraft(draftKey);
+			useComposerDraftsStore.getState().removeContexts(
+				draftKey,
+				contexts.map((item) => item.id),
+			);
 			setGoalSendMode(false);
 			// Drain the tray only once the input has a durable owner. Before cloud
 			// acceptance, it remains the user's recoverable draft.
@@ -1412,6 +1435,7 @@ export function ChatComposer({
 							)}
 						>
 							<NoConnectionTray />
+							<ComposerContextTray draftKey={draftKey} />
 							{!isDraft ? (
 								<>
 									<PlanApprovalTray

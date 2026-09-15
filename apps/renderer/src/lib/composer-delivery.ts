@@ -1,4 +1,6 @@
 import type { PendingCommand } from "@zuse/client-runtime/resource-state";
+import { ComposerInput } from "@zuse/contracts";
+import type { ComposerContext } from "../store/composer-drafts.ts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
 
 export type WaitingCloudMessagePresentation = Readonly<{
@@ -90,3 +92,17 @@ export const commitAcceptedComposerDelivery = async (
 	commit();
 	return true;
 };
+
+/** Staged context joins the outgoing payload, leaving the editable draft untouched. */
+export const withComposerContext = (
+	input: ComposerInput,
+	contexts: readonly ComposerContext[],
+): ComposerInput =>
+	contexts.length === 0
+		? input
+		: ComposerInput.make({
+				...input,
+				text: [input.text, ...contexts.map((item) => item.text)]
+					.filter(Boolean)
+					.join("\n\n"),
+			});
