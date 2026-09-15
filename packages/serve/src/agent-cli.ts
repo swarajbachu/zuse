@@ -689,11 +689,15 @@ const execute = async (
 	if (group === "commands") return commandManifest();
 	if (group === "extension" && action === "init") {
 		const id = required(one(args, "id"), "--id");
+		const command = one(args, "command");
 		return initializeExtension({
 			directory: one(args, "path") ?? process.cwd(),
 			id,
 			name: one(args, "name") ?? id,
 			publisher: one(args, "publisher") ?? "Local developer",
+			template: one(args, "template"),
+			command: command ? JSON.parse(command) : undefined,
+			sdk: one(args, "sdk"),
 		});
 	}
 	if (group === "thread") {

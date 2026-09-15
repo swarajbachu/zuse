@@ -1,0 +1,86 @@
+---
+title: Add a coding agent
+description: Connect an ACP command or write a custom provider adapter without changing the Zuse interface.
+section: extensions
+order: 115
+platforms: [desktop]
+lastVerified: Extensions Preview (API 1.2)
+---
+
+An extension can add a coding tool to the existing model picker and chat timeline. Use **ACP** when the tool speaks Agent Client Protocol over stdin/stdout. Use a **direct provider adapter** for a vendor SDK, HTTP stream, or another process protocol. Neither requires a new Zuse screen or a fork of Zuse.
+
+This is a Zuse authoring API, not a loader for Paseo provider manifests. Agent plugins are a separate feature: [Codex plugins](/extensions/agent-plugins) add skills, hooks, apps, and MCP tools *inside Codex*. A provider adapter adds a coding agent *to Zuse*.
+
+## Connect an ACP tool
+
+Install and authenticate the tool with its own CLI first. For example, OpenCode documents `opencode acp` as its stdio ACP command and `opencode auth login` for authentication. See [OpenCode's ACP documentation](https://opencode.ai/v2/docs/cli/acp/).
+
+After SDK 0.3.0 publication:
+
+```sh
+zuse extension init --template acp --id my-coding-agent \
+  --name "My coding agent" --path ./my-coding-agent \
+  --command '["opencode","acp"]'
+cd my-coding-agent
+npm run check-types
+zuse extension install --path .
+```
+
+For a development build before publication, append `--sdk /absolute/path/zuse-extension-sdk-0.3.0.tgz`. Maintainers create that tarball with `bun run --cwd packages/extension-sdk pack:release` followed by `npm pack` inside `.context/sdk-release`. This tests the public package outside the monorepo; it does not publish it.
+
+In **Settings → Extensions**, turn on the local desktop preview and enable your extension. Start a new chat in a local workspace and select **My coding agent** in the existing model picker. “Agent default” delegates model choice to the tool's configuration.
+
+The generated server entry is small:
+
+```ts
+import type { ExtensionServerContext } from "@zuse/extension-sdk/server";
+
+export default function setup(extension: ExtensionServerContext) {
+  return extension.addAcpProvider({
+    id: "my-coding-agent.agent",
+    displayName: "My coding agent",
+    command: ["opencode", "acp"],
+    loginHint: "Run opencode auth login first.",
+  });
+}
+```
+
+The manifest declares `server`, `zuseApi: "^1.2.0"`, `contributions: ["provider"]`, and `capabilities: ["providers", "process"]`. IDs must be prefixed with the extension ID. Commands are executable/argument arrays, never shell commands. Use an absolute executable path when the desktop application's PATH differs from your terminal.
+
+You can declare `models: [{ id: "native-model-id", label: "Team model", defaultModel: true }]` and `modes: { default: "native-build-mode", plan: "native-plan-mode" }`. Use the tool's actual IDs; Zuse does not guess them or discover a model catalog. Declare a default mode when mapping Plan mode so returning to normal mode works. Environment overrides are optional, but do not commit credentials; use the CLI's login or the extension secret store.
+
+Zuse supervises one process per conversation, translates streaming messages and tool calls, displays one-time permission questions, and handles cancellation and supported session resume. Startup has a bounded deadline. A dead agent produces a visible error; resuming reconnects with the saved native session ID if the agent supports `session/load`. Unsupported resume fails explicitly.
+
+### Current ACP boundaries
+
+- Text prompts only. Paste context into the message; image, file, and skill attachments are rejected explicitly.
+- No session forks, injected MCP servers, automatic model discovery, or client-provided filesystem/terminal methods. Agents may use their own tools; Zuse advertises the client capabilities it actually implements.
+- Permissions offer one-time decisions, not persistent “always allow” rules. Plan mode denies permission requests. It is still trusted local code, not a filesystem sandbox.
+- Authentication stays with the coding tool. A command being available does not prove its login is valid; authentication errors appear when the agent starts or runs a task.
+- Active conversations block extension reload/update. Disable stops the extension's agents and preserves conversation history. Close affected conversations before reloading a changed adapter.
+
+## Tools with a different protocol
+
+`extension.addProvider(descriptor, adapter)` is the lower-level interface. Implement it with your tool's SDK or protocol, rather than parsing a terminal UI. A provider owns these operations:
+
+| Operation | Responsibility |
+| --- | --- |
+| `probe()` | Report command availability, login state, and a helpful error without starting a conversation. |
+| `start(input)` | Open the tool in `input.cwd`, honoring model, permission mode and saved cursor. Reject unsupported resume/fork explicitly. |
+| `send(sessionId, text)` | Begin a turn, then return promptly. Stream events separately rather than holding the host RPC open for the whole turn. |
+| `interrupt(sessionId)` | Cancel the active turn and settle pending questions. |
+| `close(sessionId)` | Release processes, sockets, timers and listeners. Make repeated cleanup safe. |
+| `setPermissionMode(...)` | Optional: change the native policy or reject an unsupported mode. |
+| `answerQuestion(...)` | Optional: forward the selected answers to the tool. Advertise the matching capability. |
+
+Use `extension.emitProviderEvent(sessionId, event)` to send the shared Zuse event format. For a text response, emit a running `Status`, an `AssistantMessage` with a stable `itemId`, text and increasing `checkpoint.revision`, then a final checkpoint and idle `Status`. Emit `Error` and error `Status` on failure. Emit `SessionCursor` when the native tool supplies a resumable ID; the generic strategy is `acp-session-id`. Do not manufacture resume support by starting a new conversation silently.
+
+The host validates events, bounds queues, and retains unavailable provider names in history. Your direct adapter must bound its own protocol buffers and clean up its external resources. The ACP helper provides that supervision automatically; arbitrary custom subprocesses are the author's responsibility. Return a cleanup function from setup that closes all remaining sessions.
+
+Declare only supported capabilities (`answerQuestion`, `fork`, `goals`, `mcp`, `planApproval`, `resume`) and use the ordinary conversation UI. Bundle any vendor SDK dependency into the extension. Private monorepo imports are not part of the extension SDK.
+
+## Useful extension combinations
+
+A team can install an ACP adapter for its preferred agent, an independent account-usage panel, and a playbook attachment extension. Each has its own identity, permissions, state and lifecycle. Installing a coding agent does not install Codex plugins, change another provider's login, or require the other extensions.
+
+Before sharing an adapter, test missing executables, expired login, malformed/large output, cancellation, process death, concurrent conversations, unsupported resume, and disable during a turn. Test the packaged desktop build on each platform you support. Local extension code is trusted and unsandboxed; [read the trust guidance](/extensions/trust-and-recovery).
