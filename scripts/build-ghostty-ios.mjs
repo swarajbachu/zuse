@@ -1,12 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+	chmodSync,
 	cpSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	realpathSync,
 	renameSync,
 	rmSync,
 	statSync,
@@ -19,7 +21,7 @@ import { createGhosttyBuildBootstrap } from "./lib/ghostty-build-bootstrap.mjs";
 
 const linuxHost = process.platform === "linux";
 const macHost = process.platform === "darwin";
-const linuxDeterministicRoot = "/tmp";
+const deterministicRoot = realpathSync("/tmp");
 if (!linuxHost && !macHost) {
 	throw new Error(
 		`Ghostty iOS builds require Linux cross-compilation or macOS/Xcode; found ${process.platform}`,
@@ -137,24 +139,20 @@ function assertCleanCheckout() {
 
 /**
  * Zig's upstream Ghostty build installs both shared and static lib-vt targets.
- * Cross-linking the shared iOS library on Linux correctly fails without an
- * Apple SDK, even though the self-contained static archive is valid. Stage the
- * exact upstream tree at a stable path and alter only the build graph so the
- * static target is the sole install dependency. The stable path removes source
- * path variance from Zig's Mach-O objects and makes clean rebuilds byte-exact.
+ * We package only the static archive; the unrelated shared target can fail
+ * SDK linking even when that archive is valid. Stage the pinned source and
+ * remove only the shared install dependency. Linux keeps a stable source path
+ * to make clean cross-builds byte-exact.
  */
-function makeLinuxCrossSource() {
-	const stagedSource = path.join(
-		linuxDeterministicRoot,
-		`zuse-ghostty-${revision.slice(0, 8)}`,
-	);
+function makeStaticSource(directory) {
+	const stagedSource = directory;
 	if (existsSync(stagedSource)) {
 		throw new Error(
 			`Deterministic Ghostty staging path is already in use: ${stagedSource}`,
 		);
 	}
 	const archive = path.join(
-		linuxDeterministicRoot,
+		deterministicRoot,
 		`zuse-ghostty-source-${revision.slice(0, 8)}-${process.pid}.tar`,
 	);
 	mkdirSync(stagedSource, { recursive: false });
@@ -201,11 +199,11 @@ function makeLinuxCrossSource() {
 /**
  * Zig records its standard-library source paths in Mach-O objects even for a
  * stripped release archive. Re-extract the checksum-verified distribution at
- * the same absolute path for every Linux build so artifact bytes do not depend
+ * the same absolute path for every build so artifact bytes do not depend
  * on the current user's home directory. The path itself is also a build lock.
  */
-function makeLinuxCrossZig() {
-	const stagedZigRoot = path.join(linuxDeterministicRoot, `zig-${zigVersion}`);
+function makeCanonicalZig() {
+	const stagedZigRoot = path.join(deterministicRoot, `zig-${zigVersion}`);
 	if (existsSync(stagedZigRoot)) {
 		throw new Error(
 			`Deterministic Zig staging path is already in use: ${stagedZigRoot}`,
@@ -241,6 +239,30 @@ function validateLibrary(library) {
 	if (symbols.includes("_ghostty_app_new")) {
 		throw new Error(`${library} contains the full Ghostty app ABI`);
 	}
+}
+
+function alignArchiveMembers(library) {
+	// Zig's ar writer can leave compiler_rt.o only 4-byte aligned. Apple's
+	// linker requires 8-byte alignment. Extract first: libtool may silently
+	// omit an unaligned member when passed the original archive directly.
+	const directory = path.join(path.dirname(library), "archive-objects");
+	mkdirSync(directory);
+	if (macHost) run("xcrun", ["ar", "x", library], { cwd: directory });
+	else run("llvm-ar", ["x", library], { cwd: directory });
+	const objects = readdirSync(directory)
+		.filter((name) => !/^__\.SYMDEF(?: SORTED)?$/.test(name))
+		.sort()
+		.map((name) => path.join(directory, name));
+	if (objects.length === 0 || objects.some((file) => !file.endsWith(".o"))) {
+		throw new Error("Unexpected Ghostty static archive members");
+	}
+	// Apple's ar preserves Zig's zero permission bits on extracted objects.
+	for (const object of objects) chmodSync(object, 0o644);
+	const aligned = `${library}.aligned`;
+	const arguments_ = ["-static", "-D", ...objects, "-o", aligned];
+	if (macHost) run("xcrun", ["libtool", ...arguments_]);
+	else run("llvm-libtool-darwin", arguments_);
+	renameSync(aligned, library);
 }
 
 const alignTo = (value, alignment) => Math.ceil(value / alignment) * alignment;
@@ -350,15 +372,33 @@ function replaceDirectoryAtomically(sourceDirectory, targetDirectory) {
 	}
 }
 
+function macosBuildEnvironment(directory) {
+	if (!macHost || process.arch !== "arm64") return process.env;
+	const sdk = output("/usr/bin/xcrun", ["--sdk", "macosx", "--show-sdk-path"]);
+	const targets = readFileSync(
+		path.join(sdk, "usr/lib/libSystem.tbd"),
+		"utf8",
+	).match(/targets:\s*\[([^\]]+)\]/)?.[1];
+	if (targets?.includes("arm64-macos")) return process.env;
+	// Zig 0.15.2 cannot resolve host symbols from arm64e-only macOS SDK stubs.
+	// Route only its macOS SDK lookup to CLT; iOS and packaging still use Xcode.
+	const bin = path.join(directory, "host-sdk-bin");
+	mkdirSync(bin);
+	const wrapper = path.join(bin, "xcrun");
+	cpSync(new URL("./lib/ghostty-host-xcrun.sh", import.meta.url), wrapper);
+	chmodSync(wrapper, 0o755);
+	return { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` };
+}
+
 let buildRoot;
 let buildSource = source;
 let buildZig = zig;
 let buildGlobalCache;
 let releaseBootstrap;
 try {
-	if (linuxHost) {
+	{
 		const globalCache = path.join(
-			linuxDeterministicRoot,
+			deterministicRoot,
 			`zuse-ghostty-zig-global-${revision.slice(0, 8)}`,
 		);
 		if (existsSync(globalCache)) {
@@ -372,25 +412,23 @@ try {
 
 	releaseBootstrap = bootstrap.prepare();
 
-	buildRoot = linuxHost
-		? path.join(
-				linuxDeterministicRoot,
-				`zuse-ghostty-ios-build-${revision.slice(0, 8)}`,
-			)
-		: mkdtempSync(path.join(tmpdir(), "zuse-ghostty-ios-output-"));
-	if (linuxHost) {
-		if (existsSync(buildRoot)) {
-			throw new Error(
-				`Deterministic Ghostty build path is already in use: ${buildRoot}`,
-			);
-		}
-		mkdirSync(buildRoot, { recursive: false });
+	const outputRoot = path.join(
+		deterministicRoot,
+		`zuse-ghostty-ios-build-${revision.slice(0, 8)}`,
+	);
+	if (existsSync(outputRoot)) {
+		throw new Error(
+			`Deterministic Ghostty build path is already in use: ${outputRoot}`,
+		);
 	}
+	mkdirSync(outputRoot, { recursive: false });
+	buildRoot = outputRoot;
 
-	if (linuxHost) {
-		buildSource = makeLinuxCrossSource();
-		buildZig = makeLinuxCrossZig();
-	}
+	buildSource = makeStaticSource(
+		path.join(deterministicRoot, `zuse-ghostty-${revision.slice(0, 8)}`),
+	);
+	buildZig = makeCanonicalZig();
+	const buildEnvironment = macosBuildEnvironment(buildRoot);
 	const headers = path.join(buildRoot, "Headers");
 	mkdirSync(path.join(headers, "ghostty"), { recursive: true });
 	cpSync(
@@ -428,18 +466,17 @@ try {
 				"-p",
 				prefix,
 			],
-			{ cwd: buildSource },
+			{ cwd: buildSource, env: buildEnvironment },
 		);
 		target.library = path.join(prefix, "lib/libghostty-vt.a");
 		if (!existsSync(target.library)) {
 			throw new Error(`Ghostty did not produce ${target.library}`);
 		}
+		alignArchiveMembers(target.library);
 		validateLibrary(target.library);
 	}
-	const simulatorLibrary = path.join(
-		buildRoot,
-		"libghostty-vt-ios-simulator.a",
-	);
+	const simulatorLibrary = path.join(buildRoot, "simulator", "libghostty-vt.a");
+	mkdirSync(path.dirname(simulatorLibrary));
 	if (linuxHost) {
 		writeUniversalSimulatorLibrary(
 			targets[1].library,
@@ -586,10 +623,10 @@ try {
 	if (buildRoot !== undefined) {
 		rmSync(buildRoot, { recursive: true, force: true });
 	}
-	if (linuxHost && buildSource !== source) {
+	if (buildSource !== source) {
 		rmSync(buildSource, { recursive: true, force: true });
 	}
-	if (linuxHost && buildZig !== zig) {
+	if (buildZig !== zig) {
 		rmSync(path.dirname(buildZig), { recursive: true, force: true });
 	}
 	if (buildGlobalCache !== undefined) {

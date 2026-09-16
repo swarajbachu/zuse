@@ -2741,7 +2741,7 @@ DEPENDENCIES:
   - Yoga (from `../../../node_modules/react-native/ReactCommon/yoga`)
   - ZuseLocalConnectivity (from `../modules/local-connectivity/ios`)
   - ZuseMobilePlatform (from `../modules/mobile-platform/ios`)
-  - ZuseMobileTerminal (from `../modules/mobile-terminal/ios`)
+  - ZuseMobileTerminal (from `../modules/mobile-terminal`)
 
 SPEC REPOS:
   trunk:
@@ -3004,7 +3004,7 @@ EXTERNAL SOURCES:
   ZuseMobilePlatform:
     :path: "../modules/mobile-platform/ios"
   ZuseMobileTerminal:
-    :path: "../modules/mobile-terminal/ios"
+    :path: "../modules/mobile-terminal"
 
 SPEC CHECKSUMS:
   EXApplication: bbd517d50878ca1d121fb3843392beb210181e28
@@ -3034,7 +3034,7 @@ SPEC CHECKSUMS:
   ExpoLinking: 0e104e1f3402abec3fd8243fd9586ca38df8e3ef
   ExpoLocalization: 659243b03b3a3e9589793cee2f728a899e181329
   ExpoLogBox: 80957303325cd4439137765c90a87d7f22aaf2ff
-  ExpoModulesCore: de282ef6f3cce0a5e60871faea7945ae2faa6055
+  ExpoModulesCore: d3764a513f188fc577e7f8cb3156dc13ab7aca2e
   ExpoModulesJSI: 9df8e7c9719f59e8c001ec33611774137fc1484a
   ExpoModulesWorklets: 767d05688faa3bbf38b19c08abca031b5328093a
   ExpoModulesWorkletsAdapter: 06ca1704b41351f7f8e501dd94efcc8c46d558c9
@@ -3135,8 +3135,8 @@ SPEC CHECKSUMS:
   Yoga: 18b74b3ade30bebc1904004dfaceae1dd02a330a
   ZuseLocalConnectivity: fef64e7a2c5177941f3c1d6175a5c3314aa9f58e
   ZuseMobilePlatform: 712129d46746082e4a10db1eb40babb16f70e3a0
-  ZuseMobileTerminal: 3a7421d081ac9907866025ed56e17969c7be7ec9
+  ZuseMobileTerminal: fa725ee6a37252cf516521c751ae7857517461f2
 
-PODFILE CHECKSUM: 262b55d19269dd4476df708a5ce6b63e991cf7aa
+PODFILE CHECKSUM: 1759dbcc27d5f0fca05ced134484e8208e5cecbc
 
 COCOAPODS: 1.16.2

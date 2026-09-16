@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -174,6 +174,11 @@ function readArchive(bytes, artifact) {
 			objectStart + 4 <= dataEnd &&
 			bytes.readUInt32LE(objectStart) === 0xfeedfacf
 		) {
+			assert.equal(
+				objectStart % 8,
+				0,
+				"Mach-O archive member must be 8-byte aligned",
+			);
 			readMachObject(bytes.subarray(objectStart, dataEnd), artifact);
 		}
 		offset = dataEnd + (memberSize % 2);
@@ -356,7 +361,7 @@ test("every C adapter function called from Swift is publicly declared", () => {
 
 test("iOS has one Ghostty path and retains the complete terminal interaction contract", () => {
 	const podspec = readFileSync(
-		path.join(iosModule, "ZuseMobileTerminal.podspec"),
+		path.join(iosModule, "../ZuseMobileTerminal.podspec"),
 		"utf8",
 	);
 	const emulator = readFileSync(
@@ -406,34 +411,27 @@ test("iOS has one Ghostty path and retains the complete terminal interaction con
 		/requireNativeViewManager\(\s*"ZuseMobileTerminal"\s*,/,
 		"Apple must not request an unregistered named view",
 	);
-	assert.match(podspec, /GhosttyVt\.xcframework/);
 	assert.match(
 		podspec,
-		/ghostty_license = File\.expand_path\('\.\.\/Vendor\/GhosttyVt\.LICENSE', __dir__\)/,
+		/s\.vendored_frameworks\s*=\s*'Vendor\/GhosttyVt\.xcframework'/,
+		"CocoaPods only discovers vendored artifacts inside the podspec root",
 	);
 	assert.match(
 		podspec,
-		/zuse_license = File\.expand_path\('\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/LICENSE', __dir__\)/,
+		/zuse_license = File\.expand_path\('\.\.\/\.\.\/\.\.\/\.\.\/LICENSE', __dir__\)/,
 	);
 	assert.match(
 		podspec,
 		/s\.license\s*=\s*\{ :type => 'AGPL-3\.0-only', :text => File\.read\(zuse_license\) \}/,
 	);
 	assert.doesNotMatch(podspec, /s\.license[\s\S]*?:type => 'MIT'/);
+	assert.match(podspec, /s\.preserve_paths\s*=\s*'Vendor\/GhosttyVt\.LICENSE'/);
 	assert.match(
 		podspec,
-		/s\.preserve_paths\s*=\s*'\.\.\/Vendor\/GhosttyVt\.LICENSE'/,
-	);
-	assert.match(
-		podspec,
-		/s\.resource_bundles\s*=\s*\{\s*'ZuseMobileTerminalLicenses'\s*=>\s*\['\.\.\/Vendor\/GhosttyVt\.LICENSE'\]\s*\}/,
+		/s\.resource_bundles\s*=\s*\{\s*'ZuseMobileTerminalLicenses'\s*=>\s*\['Vendor\/GhosttyVt\.LICENSE'\]\s*\}/,
 	);
 	assert.match(podspec, /\*\.\{c,h,m,mm,swift\}/);
-	const podspecChecksum = createHash("sha1").update(podspec).digest("hex");
-	assert.match(
-		podfileLock,
-		new RegExp(`ZuseMobileTerminal: ${podspecChecksum}`),
-	);
+	assert.match(podfileLock, /ZuseMobileTerminal: [a-f0-9]{40}/);
 	for (const behavior of [
 		"zuse_ghostty_output_queue_install",
 		"zuse_ghostty_output_queue_set_size",
@@ -610,9 +608,57 @@ test("the checked-in Xcode project and scheme own a runnable XCTest target", () 
 	}
 	assert.match(
 		podfile,
-		/target 'ZuseMobileTests' do\s+inherit! :complete\s+end/,
+		/target 'ZuseMobileTests' do\s+inherit! :search_paths\s+end/,
+	);
+	assert.match(project, /BUNDLE_LOADER = "\$\(TEST_HOST\)"/);
+	assert.match(
+		project,
+		/TEST_HOST = "\$\(BUILT_PRODUCTS_DIR\)\/Zuse Dev\.app\//,
 	);
 	assert.match(nativeCheck, /simctl", "list", "devices", "available"/);
 	assert.match(nativeCheck, /"-only-testing:ZuseMobileTests"/);
 	assert.match(nativeCheck, /"test"/);
+	assert.match(
+		nativeCheck,
+		/run\("pod", \["install", "--deployment",[^\n]+\{\s+cwd: ios,\s+\}\)/,
+		"Expo autolinking must run from the iOS project, not the monorepo root",
+	);
+});
+
+test("CocoaPods' evaluated terminal podspec matches the lockfile", {
+	skip: process.platform !== "darwin",
+}, () => {
+	const spec = execFileSync("pod", [
+		"ipc",
+		"spec",
+		path.join(iosModule, "../ZuseMobileTerminal.podspec"),
+	]);
+	const checksum = createHash("sha1").update(spec).digest("hex");
+	const lock = readFileSync(
+		path.join(repository, "apps/mobile/ios/Podfile.lock"),
+		"utf8",
+	);
+	assert.match(lock, new RegExp(`ZuseMobileTerminal: ${checksum}`));
+});
+
+test("the host SDK workaround preserves Xcode's iOS SDK selection", {
+	skip:
+		process.platform !== "darwin" ||
+		!existsSync("/Library/Developer/CommandLineTools"),
+}, () => {
+	const wrapper = path.join(repository, "scripts/lib/ghostty-host-xcrun.sh");
+	for (const sdk of ["macosx", "iphoneos", "iphonesimulator"]) {
+		const args = ["--sdk", sdk, "--show-sdk-path"];
+		const env =
+			sdk === "macosx"
+				? {
+						...process.env,
+						DEVELOPER_DIR: "/Library/Developer/CommandLineTools",
+					}
+				: process.env;
+		assert.equal(
+			execFileSync("sh", [wrapper, ...args], { encoding: "utf8" }),
+			execFileSync("/usr/bin/xcrun", args, { encoding: "utf8", env }),
+		);
+	}
 });

@@ -87,7 +87,7 @@ try {
 		path.join(repository, "scripts/check-ghostty-ios.test.mjs"),
 	]);
 	run("pod", ["install", "--deployment", `--project-directory=${ios}`], {
-		cwd: repository,
+		cwd: ios,
 	});
 	simulator = availableSimulator();
 	if (simulator.state !== "Booted") {

@@ -59,7 +59,7 @@ target 'ZuseMobile' do
   )
 
   target 'ZuseMobileTests' do
-    inherit! :complete
+    inherit! :search_paths
   end
 
   post_install do |installer|
