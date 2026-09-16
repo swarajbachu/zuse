@@ -23,7 +23,7 @@ import {
 	GitPullRequestIcon,
 	Robot01Icon,
 	Wrench01Icon,
-} from "@zuse/icons/stroke-rounded";
+} from "@zuse/icons/solid-rounded";
 import { useState } from "react";
 import { formatError } from "../lib/format-error.ts";
 import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts";
@@ -31,6 +31,7 @@ import { openExternal } from "../lib/platform-capabilities.ts";
 import {
 	type PrRepairScope,
 	prRepairDraft,
+	prRepairFeedback,
 	prRepairMarkdown,
 } from "../lib/pr-repair.ts";
 import {
@@ -157,11 +158,7 @@ export function PrActionsMenu({
 		});
 	};
 	const repair = (scope: PrRepairScope) => addContextToChat(scope);
-	const comments = details
-		? [...details.comments, ...details.reviews].filter((item) =>
-				item.body.trim(),
-			).length
-		: 0;
+	const comments = details ? prRepairFeedback(details).length : 0;
 	return (
 		<Menu modal={false}>
 			<MenuTrigger className={className}>
