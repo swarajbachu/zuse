@@ -1050,7 +1050,7 @@ describe("cloud workspace reconciler", () => {
 		);
 
 		expect(result.workspace?.nextActionAtMs).toBeGreaterThanOrEqual(
-			result.providerReturnedAt + 5_000,
+			result.providerReturnedAt + 12_000,
 		);
 		expect(result.resumeInputs).toHaveLength(1);
 		expect(result.startProcessCalls).toHaveLength(0);

@@ -47,7 +47,10 @@ const RECONCILE_LEASE_MS = 2 * 60 * 1_000;
 const PROJECT_BUILD_TIMEOUT_MS = 15 * 60 * 1_000;
 export const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TTL_MS = 30 * 60 * 1_000;
-export const WARM_RUNTIME_RECONNECT_GRACE_MS = 5_000;
+// A preserved mailbox request may need its 10-second transport timeout,
+// followed by the one-second poll interval and authenticated readiness repair.
+// Healthy runtimes advance immediately; this bounds only the restart fallback.
+export const WARM_RUNTIME_RECONNECT_GRACE_MS = 12_000;
 const MAILBOX_RUNTIME_RESPONSE_GRACE_MS = 2_500;
 export const MAILBOX_RUNTIME_STALL_TIMEOUT_MS =
 	CLOUD_COMMAND_LEASE_TTL_MS + 5_000;
