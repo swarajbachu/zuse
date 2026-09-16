@@ -217,7 +217,7 @@ export function PermissionPrompt({
 			{context}
 			{submission === "submitting" ? (
 				<p role="status" className="mt-2 text-xs text-muted-foreground">
-					Submitting decision…
+					{uiMessage("chat:decision_submitting")}
 				</p>
 			) : null}
 			{expired ? (
@@ -233,8 +233,11 @@ export function PermissionPrompt({
 			) : null}
 			{error || submissionError ? (
 				<p role="alert" className="mt-2 text-xs text-danger-text">
-					{submission === "failed" ? "Couldn’t submit decision: " : null}
-					{error ?? submissionError}
+					{submission === "failed"
+						? uiMessage("chat:decision_submit_failed", {
+								error: error ?? submissionError ?? "",
+							})
+						: (error ?? submissionError)}
 				</p>
 			) : null}
 

@@ -39,16 +39,17 @@ export function PlanApprovalSubmissionStatus({
 	readonly submitting: boolean;
 	readonly error: string | null;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
 	if (error !== null) {
 		return (
 			<span role="alert" className="text-danger-text">
-				Couldn’t submit plan decision: {error}
+				{uiMessage("chat:plan_submit_failed", { error })}
 			</span>
 		);
 	}
 	return submitting
-		? "Submitting plan decision…"
-		: "Type feedback below, or approve the plan";
+		? uiMessage("chat:plan_submitting")
+		: uiMessage("chat:plan_feedback_or_approve");
 }
 
 /**

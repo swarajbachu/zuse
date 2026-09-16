@@ -53,12 +53,14 @@ describe("terminal catalog React lifecycle", () => {
 		const rightPane = source("../../src/components/right-pane.tsx");
 
 		expect(bottomDock).toContain('role="alert"');
-		expect(bottomDock).toContain("Retry bottom terminal catalog");
+		expect(bottomDock).toContain(
+			'aria-label={uiMessage("chat:terminal_retry_bottom_catalog")}',
+		);
 		expect(bottomDock).toContain('catalogState !== "ready"');
 		expect(rightPane).toContain('role="alert"');
 		expect(rightPane).toContain("wakeAndRestoreCloudRightTerminal");
 		expect(rightPane).toContain("waitForCanonicalRootPath");
-		expect(rightPane).toContain("Retry");
+		expect(rightPane).toContain('uiMessage("common:retry")');
 	});
 
 	it("routes the ordinary project Terminal menu through the catalog gate", () => {

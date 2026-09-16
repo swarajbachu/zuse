@@ -1,6 +1,8 @@
+import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import { EnvironmentId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ComputerTerminal01Icon } from "@zuse/icons/solid-rounded";
 import { ChevronDown, Plus, X } from "lucide-react";
 import {
@@ -63,6 +65,7 @@ export function BottomTerminalDock({
 	rootPath: string;
 	directoryUnavailable?: boolean;
 }) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 	// ChatView intentionally derives this value inline. Keep a stable domain ref
 	// so streamed parent renders cannot retrigger terminal catalog discovery.
 	const catalogRef = useMemo<ChatRef>(
@@ -209,12 +212,12 @@ export function BottomTerminalDock({
 
 	return (
 		<section
-			aria-label="Bottom terminal"
+			aria-label={uiMessage("chat:terminal_bottom")}
 			className="relative flex min-h-0 shrink-0 flex-col border-border border-t bg-background"
 			style={{ height: `${layout.heightPx}px` }}
 		>
 			<hr
-				aria-label="Resize bottom terminal"
+				aria-label={uiMessage("chat:terminal_resize_bottom")}
 				aria-orientation="horizontal"
 				aria-valuenow={Math.round(layout.heightPx)}
 				tabIndex={0}
@@ -281,7 +284,9 @@ export function BottomTerminalDock({
 							/>
 							<button
 								type="button"
-								aria-label={`Close ${terminal.title}`}
+								aria-label={uiMessage("chat:terminal_close", {
+									title: terminal.title,
+								})}
 								onClick={() => closeBottomTerminalTab(chatRef, terminal.id)}
 								className="flex h-7 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
 							>
@@ -292,7 +297,7 @@ export function BottomTerminalDock({
 				})}
 				<button
 					type="button"
-					aria-label="New bottom terminal"
+					aria-label={uiMessage("chat:terminal_new_bottom")}
 					onClick={() => void addTerminal()}
 					disabled={
 						directoryUnavailable ||
@@ -304,18 +309,18 @@ export function BottomTerminalDock({
 				>
 					<Plus className="size-3.5" strokeWidth={1.8} />
 				</button>
-				{ownerLimitReached ? (
+				{ownerLimitReached && ownerLimit !== null ? (
 					<span
 						title={ownerLimitMessage}
 						className="shrink-0 px-1 text-[10px] text-muted-foreground"
 					>
-						Limit {ownerLimit}
+						{uiMessage("chat:terminal_limit", { limit: ownerLimit })}
 					</span>
 				) : null}
 				<div className="min-w-2 flex-1" />
 				<button
 					type="button"
-					aria-label="Hide bottom terminal"
+					aria-label={uiMessage("chat:terminal_hide_bottom")}
 					onClick={() => setOpen(chatRef, false)}
 					className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
 				>
@@ -328,15 +333,15 @@ export function BottomTerminalDock({
 					className="flex h-7 shrink-0 items-center gap-2 px-2 text-[11px] text-muted-foreground"
 				>
 					<span className="min-w-0 flex-1 truncate">
-						Terminal catalog unavailable.
+						{uiMessage("chat:terminal_catalog_unavailable")}
 					</span>
 					<button
 						type="button"
-						aria-label="Retry bottom terminal catalog"
+						aria-label={uiMessage("chat:terminal_retry_bottom_catalog")}
 						className="h-7 rounded bg-muted px-2 text-foreground hover:bg-muted/80"
 						onClick={() => void openDock()}
 					>
-						Retry
+						{uiMessage("common:retry")}
 					</button>
 				</div>
 			) : null}
@@ -346,7 +351,7 @@ export function BottomTerminalDock({
 						role="status"
 						className="grid min-h-0 flex-1 place-items-center px-4 text-center text-xs text-muted-foreground"
 					>
-						This directory is unavailable.
+						{uiMessage("chat:terminal_directory_unavailable")}
 					</div>
 				) : catalogState === "failed" && terminals.length === 0 ? (
 					<div className="min-h-0 flex-1" />
@@ -355,7 +360,7 @@ export function BottomTerminalDock({
 						role="status"
 						className="grid min-h-0 flex-1 place-items-center px-4 text-center text-xs text-muted-foreground"
 					>
-						Restoring terminal…
+						{uiMessage("chat:terminal_restoring")}
 					</div>
 				) : (
 					terminals.map((terminal, slot) => (

@@ -164,10 +164,13 @@ export function TopBarLeft() {
 	const reserveMacTrafficLights = isMacHost() && !isFullScreen;
 
 	return (
-		<section aria-label="Projects controls" className="shrink-0">
+		<section
+			aria-label={uiMessage("common:projects_controls")}
+			className="shrink-0"
+		>
 			<div
 				role="toolbar"
-				aria-label="Projects toolbar"
+				aria-label={uiMessage("common:projects_toolbar")}
 				className={`${SECTION_CLASS} pr-1 ${reserveMacTrafficLights ? "pl-20" : "pl-3"}`}
 			>
 				<span className="truncate font-semibold tracking-tight text-foreground">
@@ -189,7 +192,7 @@ export function TopBarLeft() {
 					/>
 					<TooltipPopup>
 						<TooltipShortcut
-							label="Hide projects panel"
+							label={uiMessage("common:hide_projects_panel")}
 							shortcut={formatShortcut("toggle-left-sidebar")}
 						/>
 					</TooltipPopup>
@@ -400,7 +403,7 @@ export function TopBarMain() {
 	return (
 		<div
 			role="toolbar"
-			aria-label="Workspace toolbar"
+			aria-label={uiMessage("common:workspace_toolbar")}
 			className={`${SECTION_CLASS} ${leftPad} bg-muted/20 ${rightSidebarOpen ? "pr-1" : NATIVE_CONTROLS_INSET_CLASS}`}
 		>
 			{showLeftToggle ? (
@@ -543,7 +546,7 @@ export function TopBarMain() {
 						render={
 							<button
 								type="button"
-								aria-label="Toggle bottom terminal"
+								aria-label={uiMessage("common:toggle_bottom_terminal")}
 								aria-pressed={bottomTerminalOpen}
 								className={`${ICON_BUTTON_CLASS} ${bottomTerminalOpen ? "bg-foreground/10 text-foreground" : ""}`}
 								onClick={() =>
@@ -557,7 +560,9 @@ export function TopBarMain() {
 							</button>
 						}
 					/>
-					<TooltipPopup>Toggle bottom terminal</TooltipPopup>
+					<TooltipPopup>
+						{uiMessage("common:toggle_bottom_terminal")}
+					</TooltipPopup>
 				</Tooltip>
 			) : null}
 			<Tooltip>
@@ -1065,13 +1070,16 @@ export function TopBarRight() {
 			: `empty:${selectedChatId ?? "none"}`;
 
 	return (
-		<section aria-label="Workflow controls" className="shrink-0">
+		<section
+			aria-label={uiMessage("common:workflow_controls")}
+			className="shrink-0"
+		>
 			<ErrorBoundary
 				resetKey={resetKey}
 				fallback={
 					<div
 						role="toolbar"
-						aria-label="Workflow toolbar"
+						aria-label={uiMessage("common:workflow_toolbar")}
 						className={`${SECTION_CLASS} ${NATIVE_CONTROLS_INSET_CLASS} justify-between pl-2`}
 					>
 						<div className={ACTION_CLASS} />
@@ -1117,7 +1125,9 @@ export function TopBarRightContent({
 	return (
 		<div
 			role="toolbar"
-			aria-label={compact ? "Workflow actions" : "Workflow toolbar"}
+			aria-label={uiMessage(
+				compact ? "common:workflow_actions" : "common:workflow_toolbar",
+			)}
 			aria-orientation={compact ? "vertical" : "horizontal"}
 			className={
 				compact
