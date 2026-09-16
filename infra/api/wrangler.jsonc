@@ -126,6 +126,7 @@
 	],
 	"durable_objects": {
 		"bindings": [
+			{ "name": "WORKSPACE_STARTUP", "class_name": "WorkspaceStartup" },
 			{
 				"name": "WORKSPACE_GATEWAY",
 				"class_name": "WorkspaceGateway"
@@ -144,6 +145,10 @@
 		{
 			"tag": "v2-workspace-mailbox",
 			"new_sqlite_classes": ["WorkspaceMailbox"]
+		},
+		{
+			"tag": "v3-workspace-startup",
+			"new_sqlite_classes": ["WorkspaceStartup"]
 		}
 	]
 }
