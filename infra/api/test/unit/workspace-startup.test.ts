@@ -27,9 +27,9 @@ const harness = (reconcile: (workspaceId: string) => Promise<void>) => {
 		state,
 		values,
 		alarm: () => alarm,
-		fire: async () => {
+		fire: async (retryCount = 0) => {
 			alarm = null;
-			await task.alarm();
+			await task.alarm({ retryCount });
 		},
 		schedule: () =>
 			scheduleWorkspaceStartup(
@@ -63,6 +63,46 @@ describe("durable workspace startup", () => {
 		await h.fire();
 		expect(reconcile).toHaveBeenCalledTimes(2);
 		expect(h.values.has("pending")).toBe(false);
+	});
+	test("renews exhausted retries and recovers after repeated outages and eviction", async () => {
+		const reconcile = vi.fn().mockRejectedValue(new Error("offline"));
+		const h = harness(reconcile);
+		await h.schedule();
+		for (let cycle = 0; cycle < 2; cycle++) {
+			for (let retry = 0; retry < 5; retry++)
+				await expect(h.fire(retry)).rejects.toThrow("offline");
+			const before = Date.now();
+			await h.fire(5);
+			expect(h.alarm()).toBeGreaterThanOrEqual(before + 30_000);
+			expect(h.alarm()).toBeLessThanOrEqual(Date.now() + 30_000);
+			expect(h.values.has("pending")).toBe(true);
+		}
+		reconcile.mockResolvedValue(undefined);
+		await new WorkspaceStartupTask(h.state, reconcile).alarm();
+		expect(h.values.has("pending")).toBe(false);
+	});
+	test("keeps a newer wake's alarm when the last automatic retry fails", async () => {
+		let fail!: (error: Error) => void;
+		let started!: () => void;
+		const start = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		const h = harness(async () => {
+			started();
+			await new Promise<void>((_resolve, reject) => {
+				fail = reject;
+			});
+		});
+		await h.schedule();
+		const firing = h.fire(5);
+		await start;
+		await h.schedule();
+		const alarm = h.alarm();
+		const pending = h.values.get("pending");
+		fail(new Error("offline"));
+		await firing;
+		expect(h.alarm()).toBe(alarm);
+		expect(h.values.get("pending")).toBe(pending);
 	});
 	test("does not erase a wake requested while reconciliation is running", async () => {
 		let resolveStarted!: () => void;

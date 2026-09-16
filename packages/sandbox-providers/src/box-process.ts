@@ -3,17 +3,17 @@ import type { SandboxProcessInput, SandboxProcessSelector } from "./index.ts";
 export const boxShellQuote = (value: string): string =>
 	`'${value.replaceAll("'", `'\\''`)}'`;
 
+const encodeProcessComponent = (value: string): string =>
+	Array.from(new TextEncoder().encode(value), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
+
 const processTagFile = (tag: string): string =>
-	`${tag.replaceAll(/[^A-Za-z0-9._-]/gu, "-")}.pid`;
+	`${encodeProcessComponent(tag)}.pid`;
 
 /** Separate users and tags without aliasing punctuation in either value. */
-export const boxProcessUnit = (user: string, tag: string): string => {
-	const hex = (value: string) =>
-		Array.from(new TextEncoder().encode(value), (byte) =>
-			byte.toString(16).padStart(2, "0"),
-		).join("");
-	return `zuse-process-${hex(user)}-${hex(tag)}.service`;
-};
+export const boxProcessUnit = (user: string, tag: string): string =>
+	`zuse-process-${encodeProcessComponent(user)}-${encodeProcessComponent(tag)}.service`;
 
 export const boxProcessScript = (input: SandboxProcessInput): string =>
 	[

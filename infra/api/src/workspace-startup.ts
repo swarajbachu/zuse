@@ -54,12 +54,22 @@ export class WorkspaceStartupTask {
 		return new Response(null, { status: 202 });
 	}
 
-	async alarm(): Promise<void> {
+	async alarm(alarmInfo?: { readonly retryCount: number }): Promise<void> {
 		const pending = await this.state.storage.get<StartupRequest>("pending");
 		if (!pending) return;
 		// Await the entire operation in the alarm, never in HTTP waitUntil.
-		// Throwing retains the request for Cloudflare's alarm retries.
-		await this.reconcile(pending.workspaceId);
+		// Automatic retries are bounded. Renew the alarm before they run out.
+		try {
+			await this.reconcile(pending.workspaceId);
+		} catch (error) {
+			if ((alarmInfo?.retryCount ?? 0) < 5) throw error;
+			await this.state.storage.transaction(async (storage) => {
+				// Keep a newer request's earlier alarm rather than delaying it.
+				if ((await storage.getAlarm()) === null)
+					await storage.setAlarm(Date.now() + 30_000);
+			});
+			return;
+		}
 		await this.state.storage.transaction(async (storage) => {
 			const current = await storage.get<StartupRequest>("pending");
 			if (current?.revision === pending.revision) {

@@ -54,90 +54,98 @@ const adapter = makeBoxSandboxProvider({
 const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 const samples: Array<Record<string, string | number>> = [];
 await mkdir(dirname(output), { recursive: true });
-let id = process.env.BOX_BENCH_REUSE_ID;
-if (id) {
-	const detail = await api("GET", `/boxes/${encodeURIComponent(id)}`);
-	if (!detail.box?.name?.startsWith("zuse-resume-benchmark-"))
-		throw new Error("Refusing to pause a non-benchmark Box");
-	if (detail.box.state === "archived")
-		await Effect.runPromise(adapter.resume(id, 3600, "pause", "small"));
-} else {
-	const created = await Effect.runPromise(
-		adapter.create({
-			sandboxId: crypto.randomUUID(),
-			providerLabel: `zuse-resume-benchmark-${Date.now()}`,
-			timeoutSeconds: 3600,
-			env: {},
-			network: { kind: "open" },
-			onTimeout: "pause",
-		}),
-	);
-	id = created.providerSandboxId;
-}
-const boxId = id;
-console.log(`Benchmark Box: ${boxId}`);
-const launch = () =>
-	Effect.runPromise(
-		adapter.replaceProcess(
-			boxId,
-			{
-				tag: "zuse-runtime",
-				legacyCommandMarkers: [
-					"/usr/local/bin/zuse serve",
-					"/opt/zuse/current/bin.mjs serve",
-				],
-			},
-			{
-				command: "/bin/bash",
-				args: [
-					"-lc",
-					"mkdir -p /var/lib/zuse/workspace; exec /usr/local/bin/zuse serve --foreground --no-account > /var/lib/zuse/workspace/benchmark-runtime.log 2>&1",
-				],
-				cwd: "/home/zuse",
-				user: "zuse",
-				env: {
-					ZUSE_HOST: "127.0.0.1",
-					ZUSE_PORT: "47837",
-					ZUSE_AUTH_POLICY: "local",
-					ZUSE_ENABLE_PAIRING: "0",
-					ZUSE_SERVER_READY_STDOUT: "1",
-					ZUSE_USER_DATA: "/home/zuse/.zuse-benchmark-data",
-				},
-			},
-		),
-	);
-const health = async (poll: boolean) => {
-	const command = poll
-		? "for i in $(seq 1 120); do if curl -fsS --max-time 1 http://127.0.0.1:47837/healthz >/dev/null 2>&1; then exit 0; fi; sleep 0.25; done; exit 1"
-		: "curl -fsS --max-time 2 http://127.0.0.1:47837/healthz >/dev/null";
-	const result = await api("POST", `/boxes/${boxId}/commands`, {
-		command,
-		timeoutSeconds: 40,
-	});
-	if (result.exitCode !== 0) throw new Error("Zuse server health check failed");
-};
+let boxId: string | undefined;
+let activeRound = 0;
+const setupStart = performance.now();
 try {
+	let id = process.env.BOX_BENCH_REUSE_ID;
+	if (id) {
+		const detail = await api("GET", `/boxes/${encodeURIComponent(id)}`);
+		if (!detail.box?.name?.startsWith("zuse-resume-benchmark-"))
+			throw new Error("Refusing to pause a non-benchmark Box");
+		boxId = id;
+		if (detail.box.state === "archived")
+			await Effect.runPromise(adapter.resume(id, 3600, "pause", "small"));
+	} else {
+		const created = await Effect.runPromise(
+			adapter.create({
+				sandboxId: crypto.randomUUID(),
+				providerLabel: `zuse-resume-benchmark-${Date.now()}`,
+				timeoutSeconds: 3600,
+				env: {},
+				network: { kind: "open" },
+				onTimeout: "pause",
+			}),
+		);
+		id = created.providerSandboxId;
+	}
+	boxId = id;
+	const targetId = id;
+	console.log(`Benchmark Box: ${boxId}`);
+	const launch = () =>
+		Effect.runPromise(
+			adapter.replaceProcess(
+				targetId,
+				{
+					tag: "zuse-runtime",
+					legacyCommandMarkers: [
+						"/usr/local/bin/zuse serve",
+						"/opt/zuse/current/bin.mjs serve",
+					],
+				},
+				{
+					command: "/bin/bash",
+					args: [
+						"-lc",
+						"mkdir -p /var/lib/zuse/workspace; exec /usr/local/bin/zuse serve --foreground --no-account > /var/lib/zuse/workspace/benchmark-runtime.log 2>&1",
+					],
+					cwd: "/home/zuse",
+					user: "zuse",
+					env: {
+						ZUSE_HOST: "127.0.0.1",
+						ZUSE_PORT: "47837",
+						ZUSE_AUTH_POLICY: "local",
+						ZUSE_ENABLE_PAIRING: "0",
+						ZUSE_SERVER_READY_STDOUT: "1",
+						ZUSE_USER_DATA: "/home/zuse/.zuse-benchmark-data",
+					},
+				},
+			),
+		);
+	const health = async (poll: boolean) => {
+		const command = poll
+			? "for i in $(seq 1 120); do if curl -fsS --max-time 1 http://127.0.0.1:47837/healthz >/dev/null 2>&1; then exit 0; fi; sleep 0.25; done; exit 1"
+			: "curl -fsS --max-time 2 http://127.0.0.1:47837/healthz >/dev/null";
+		const result = await api("POST", `/boxes/${boxId}/commands`, {
+			command,
+			timeoutSeconds: 40,
+		});
+		if (result.exitCode !== 0)
+			throw new Error("Zuse server health check failed");
+	};
 	await Effect.runPromise(adapter.setNetwork(boxId, { kind: "open" }));
 	await launch();
 	await health(true);
 	for (let round = 1; round <= rounds; round++) {
-		await wait(3000);
-		await health(false);
-		console.log(`Round ${round}: archiving`);
-		await Effect.runPromise(adapter.pause(boxId));
-		let archived = false;
-		for (let poll = 0; poll < 180; poll++) {
-			if ((await api("GET", `/boxes/${boxId}`)).box?.state === "archived") {
-				archived = true;
-				break;
-			}
-			await wait(1000);
-		}
-		if (!archived)
-			throw new Error("Box did not archive within the polling deadline");
-		console.log(`Round ${round}: resuming`);
-		const start = performance.now();
+		activeRound = round;
+		const roundStart = performance.now();
 		try {
+			await wait(3000);
+			await health(false);
+			console.log(`Round ${round}: archiving`);
+			await Effect.runPromise(adapter.pause(boxId));
+			let archived = false;
+			for (let poll = 0; poll < 180; poll++) {
+				if ((await api("GET", `/boxes/${boxId}`)).box?.state === "archived") {
+					archived = true;
+					break;
+				}
+				await wait(1000);
+			}
+			if (!archived)
+				throw new Error("Box did not archive within the polling deadline");
+			console.log(`Round ${round}: resuming`);
+			const start = performance.now();
 			await Effect.runPromise(adapter.resume(boxId, 3600, "pause", "small"));
 			const resumed = performance.now();
 			let networkRetries = 0;
@@ -177,15 +185,30 @@ try {
 				round,
 				boxId,
 				status: "failed",
-				elapsedMs: performance.now() - start,
+				elapsedMs: performance.now() - roundStart,
 			});
 			throw error;
 		} finally {
 			await writeFile(output, `${JSON.stringify(samples, null, 2)}\n`);
 		}
 	}
+} catch (error) {
+	if (activeRound === 0) {
+		samples.push({
+			variant,
+			round: 0,
+			phase: "setup",
+			...(boxId ? { boxId } : {}),
+			status: "failed",
+			elapsedMs: performance.now() - setupStart,
+		});
+		await writeFile(output, `${JSON.stringify(samples, null, 2)}\n`);
+	}
+	throw error;
 } finally {
-	if (process.env.BOX_BENCH_KEEP === "1")
-		await Effect.runPromise(adapter.pause(boxId));
-	else await Effect.runPromise(adapter.kill(boxId));
+	if (boxId !== undefined) {
+		if (process.env.BOX_BENCH_KEEP === "1")
+			await Effect.runPromise(adapter.pause(boxId));
+		else await Effect.runPromise(adapter.kill(boxId));
+	}
 }

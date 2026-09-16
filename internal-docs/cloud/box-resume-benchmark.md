@@ -58,3 +58,8 @@ explicitly started restored firewall units earlier shortened that gate but
 produced runtime startup failures, including a temporary file owned by UID 1000
 while Zuse ran as UID 1001. That experiment was removed rather than treating early
 VM availability as proof that runtime storage was ready.
+
+Setup failures are recorded as `round: 0`, `phase: "setup"`. Each numbered round
+records failures from its pre-round health check, pause, archive polling, and
+resume/launch checks. Failed `elapsedMs` covers the whole attempted round;
+successful `totalMs` remains resume-to-health time and excludes archival.

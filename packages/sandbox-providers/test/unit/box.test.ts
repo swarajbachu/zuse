@@ -391,7 +391,7 @@ describe("Box sandbox provider", () => {
 		expect(script).toContain("--property=Restart=no");
 		expect(script).toContain("--property=KillMode=control-group");
 		expect(script).toContain("/proc/sys/kernel/random/boot_id");
-		expect(script).toContain("zuse-runtime.pid");
+		expect(script).toContain("7a7573652d72756e74696d65.pid");
 		expect(script).toContain("/usr/local/bin/zuse-workspace-bootstrap");
 		expect(script).toContain("ZUSE_API_URL");
 	});
@@ -478,7 +478,7 @@ describe("Box sandbox provider", () => {
 			script.indexOf("systemd-run"),
 		);
 		expect(killBody.command).toContain("sudo -n -E -H -u 'zuse'");
-		expect(killBody.command).toContain("zuse-runtime.pid");
+		expect(killBody.command).toContain("7a7573652d72756e74696d65.pid");
 		expect(killBody.command).toContain('kill -KILL -- "-$pid"');
 		expect(killBody.command).toContain(
 			"pkill -KILL -f -- '\\''[z]use-workspace-bootstrap'\\'' || true",
@@ -507,7 +507,7 @@ describe("Box sandbox provider", () => {
 			try {
 				await mkdir(join(home, ".zuse-processes"));
 				await writeFile(
-					join(home, ".zuse-processes/runtime.pid"),
+					join(home, ".zuse-processes/72756e74696d65.pid"),
 					String(unrelated.pid),
 				);
 				const command = `bash -c ${boxShellQuote(boxProcessCleanupScript({ tag: "runtime", legacyCommandMarkers: [marker] }))}`;

@@ -40,15 +40,15 @@ They are server-health measurements and cannot be compared to those API totals.
    session acceptance does not prove the external model has received the request.
 
 The E2B grace deadline was calculated before provider resume, consuming some or
-all of its 500 ms budget while waking the VM. This change starts that budget at
-provider completion. It deliberately does not lengthen the grace without evidence.
+all of its 500 ms budget while waking the VM. The grace is now 12 seconds,
+starting after provider resume completes.
 The mailbox's first read now happens immediately; subsequent cycles retain their
 one-second delay and remain serialized.
 
 Box cannot avoid process startup by using systemd: its disk restore loses RAM.
-The adapter also waits for restored files and the default-deny firewall service.
-Earlier attempts to bypass those waits hit file-ownership/startup failures. Keep
-those barriers until provider readiness can be established more precisely.
+The adapter prepares persisted paths, but Box firewall setup and waits have been
+removed. See [Box open networking](box-open-networking.md) for deployment order
+and the remaining measured delays.
 Fresh boot authorization must precede startup; consumed boot tokens cannot be
 replayed by an automatically restarting service.
 
@@ -102,6 +102,6 @@ preserved consumer can acknowledge the queue promptly, avoid killing it merely
 because the disposable UI gateway has not reconnected. Any such change must retain
 runtime fencing, compatibility upgrades and bounded recovery for dead processes.
 Next, consider gateway wake notifications for the existing serialized mailbox
-consumer, retaining periodic recovery reads. For Box, isolate VM restore from
-firewall readiness before changing preparation; measure updater and auth costs
-before attempting caching or concurrency changes.
+consumer, retaining periodic recovery reads. For Box, separate VM readiness and
+command dispatch from file preparation; measure updater and auth costs before
+attempting caching or concurrency changes.

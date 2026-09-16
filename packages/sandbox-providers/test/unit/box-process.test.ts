@@ -1,15 +1,52 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
 import {
+	boxProcessCleanupScript,
+	boxProcessScript,
 	boxProcessUnit,
 	boxSystemdProcessCommand,
 } from "../../src/box-process.ts";
 
 describe("Box systemd process launcher", () => {
+	test("cleanup for one punctuation tag leaves the other PID record intact", async () => {
+		const home = await mkdtemp(join(tmpdir(), "zuse-tags-"));
+		try {
+			for (const tag of ["a/b", "a?b", "a-b"]) {
+				await promisify(execFile)(
+					"bash",
+					["-c", boxProcessScript({ tag, command: "true" })],
+					{ env: { ...process.env, HOME: home } },
+				);
+			}
+			const directory = join(home, ".zuse-processes");
+			expect((await readdir(directory)).sort()).toEqual([
+				"612d62.pid",
+				"612f62.pid",
+				"613f62.pid",
+			]);
+			const other = await readFile(join(directory, "613f62.pid"), "utf8");
+			// Intercept kill: these short-lived shells have already exited.
+			await promisify(execFile)(
+				"bash",
+				[
+					"-c",
+					`kill() { return 0; }; ${boxProcessCleanupScript({ tag: "a/b" })}`,
+				],
+				{ env: { ...process.env, HOME: home } },
+			);
+			expect((await readdir(directory)).sort()).toEqual([
+				"612d62.pid",
+				"613f62.pid",
+			]);
+			expect(await readFile(join(directory, "613f62.pid"), "utf8")).toBe(other);
+		} finally {
+			await rm(home, { recursive: true, force: true });
+		}
+	});
 	test("does not alias users or punctuation in process tags", () => {
 		expect(
 			new Set([
@@ -89,7 +126,7 @@ describe("Box systemd process launcher", () => {
 				});
 				expect(
 					await readFile(
-						join(targetHome, ".zuse-processes/runtime.pid"),
+						join(targetHome, ".zuse-processes/72756e74696d65.pid"),
 						"utf8",
 					),
 				).toMatch(/^[0-9a-f-]+ [0-9]+\n$/u);
