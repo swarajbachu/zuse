@@ -30,25 +30,25 @@
 				"architectures": [
 					"arm64"
 				],
-				"sha256": "e4689945ad59861473579933c9fe61d60bfe8797b9dd88d23333c85bed779912"
+				"sha256": "2c4f8218fec0323c81ed497cc29d5e1e5eaecf7caec1e147783a75b28750b92c"
 			},
 			{
 				"name": "ios-arm64_x86_64-simulator",
 				"targets": [
 					{
 						"target": "aarch64-ios.16.4-simulator",
-						"sha256": "46cfdb91901561b3f9c4cdb03a3b345f88a55f585cb8e859911b727a7b51cade"
+						"sha256": "86dee822366590f91e9602651ffa87dcf5cbdd7ec09be54b45eac8e0ac30a630"
 					},
 					{
 						"target": "x86_64-ios.16.4-simulator",
-						"sha256": "6a5cde801c649c35259263474e9587f6445b1213cb0f35171d2d1a3531869043"
+						"sha256": "4eb0fd0c7151ffa0ac6c37723633ba331dcdbfa2115756a47a7df52b9aa3e214"
 					}
 				],
 				"architectures": [
 					"arm64",
 					"x86_64"
 				],
-				"sha256": "02d1e0a63740ad6acaca8c16f46fae1856c06e7746f50f1af513105112adae2b"
+				"sha256": "daa387975c89375e49f35c5b931d33bdb26f6b6a5da766a61be886367e0fefbf"
 			}
 		],
 		"headersSha256": "80134b9b8813ce114e051a1564bc342e3939a32a3079e9c954c0468503ffce09"

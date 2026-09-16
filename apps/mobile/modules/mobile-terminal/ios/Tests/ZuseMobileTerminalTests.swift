@@ -177,7 +177,13 @@ final class ZuseMobileTerminalTests: XCTestCase {
 
     XCTAssertTrue(view.becomeFirstResponder())
     view.feed("1\u{0}\u{1B}[?2004h\u{1B}[?1004h\u{1B}[?1003h\u{1B}[?1006h")
+    let pasteboardChange = expectation(
+      forNotification: UIPasteboard.changedNotification,
+      object: UIPasteboard.general
+    )
     UIPasteboard.general.string = "hello\nworld\u{1B}"
+    // Let UIKit deliver its main-thread change notification before the read.
+    wait(for: [pasteboardChange], timeout: 5)
     view.paste(nil)
     XCTAssertEqual(
       view.handlePointer(
@@ -394,11 +400,12 @@ final class ZuseMobileTerminalTests: XCTestCase {
         action: GHOSTTY_MOUSE_ACTION_PRESS,
         button: GHOSTTY_MOUSE_BUTTON_LEFT,
         modifierFlags: [],
-        location: CGPoint(x: 16, y: 0)
+        // The fresh press must work after reset, independent of font metrics.
+        location: .zero
       ),
       .remote
     )
-    XCTAssertEqual(emitted, ["\u{1B}[<0;1;1M", "\u{1B}[<0;3;1M"])
+    XCTAssertEqual(emitted, ["\u{1B}[<0;1;1M", "\u{1B}[<0;1;1M"])
     window.isHidden = true
   }
 

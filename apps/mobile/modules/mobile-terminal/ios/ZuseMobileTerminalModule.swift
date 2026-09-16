@@ -45,7 +45,7 @@ public final class ZuseMobileTerminalView: ExpoView, UIKeyInput {
   }
 
   private let emulator = ZuseGhosttyEmulator()
-  private var frame: ZuseTerminalFrame?
+  private var terminalFrame: ZuseTerminalFrame?
   private var latestFeedSequence = -1
   private var latestFocusNonce = -1
   private var latestControlNonce = -1
@@ -227,7 +227,7 @@ public final class ZuseMobileTerminalView: ExpoView, UIKeyInput {
   ) -> Bool {
     if action == #selector(copy(_:)) { return emulator?.selectionText() != nil }
     if action == #selector(paste(_:)) { return UIPasteboard.general.hasStrings }
-    if action == #selector(selectAll(_:)) { return frame != nil }
+    if action == #selector(selectAll(_:)) { return terminalFrame != nil }
     return super.canPerformAction(action, withSender: sender)
   }
 
@@ -498,7 +498,7 @@ public final class ZuseMobileTerminalView: ExpoView, UIKeyInput {
 
   public override func draw(_ rect: CGRect) {
     guard let context = UIGraphicsGetCurrentContext() else { return }
-    guard let frame else {
+    guard let frame = terminalFrame else {
       terminalBackground.setFill()
       context.fill(rect)
       if emulator == nil {
@@ -983,7 +983,7 @@ public final class ZuseMobileTerminalView: ExpoView, UIKeyInput {
       if emulator == nil { setNeedsDisplay() }
       return
     }
-    frame = snapshot.frame
+    terminalFrame = snapshot.frame
     accessibilityValue = snapshot.frame.accessibilityText
     if forceFullRedraw || snapshot.fullRedraw {
       setNeedsDisplay()
@@ -997,7 +997,7 @@ public final class ZuseMobileTerminalView: ExpoView, UIKeyInput {
 
   private func updateBlinkTimer() {
     guard window != nil, !isApplicationInactive,
-          frame?.cursorBlinking == true || frame?.blinkingRows.isEmpty == false
+          terminalFrame?.cursorBlinking == true || terminalFrame?.blinkingRows.isEmpty == false
     else {
       stopBlinkTimer()
       blinkPhase = true
@@ -1005,7 +1005,7 @@ public final class ZuseMobileTerminalView: ExpoView, UIKeyInput {
     }
     guard blinkTimer == nil else { return }
     let timer = Timer(timeInterval: 0.53, repeats: true) { [weak self] _ in
-      guard let self, let frame = self.frame else { return }
+      guard let self, let frame = self.terminalFrame else { return }
       self.blinkPhase.toggle()
       if frame.cursorY >= 0 { self.setNeedsDisplay(self.rowRect(frame.cursorY)) }
       for row in frame.blinkingRows { self.setNeedsDisplay(self.rowRect(row)) }
@@ -1021,7 +1021,7 @@ public final class ZuseMobileTerminalView: ExpoView, UIKeyInput {
   }
 
   private func invalidateBlinkingContent() {
-    guard let frame else { return }
+    guard let frame = terminalFrame else { return }
     if frame.cursorY >= 0 { setNeedsDisplay(rowRect(frame.cursorY)) }
     for row in frame.blinkingRows { setNeedsDisplay(rowRect(row)) }
   }
