@@ -978,7 +978,7 @@ describe("cloud workspace reconciler", () => {
 		});
 	});
 
-	test("warm-resumes a retained v3 runtime when mailbox rollout is enabled", async () => {
+	test("gives a retained runtime its reconnect grace after a slow provider resume", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -1006,8 +1006,30 @@ describe("cloud workspace reconciler", () => {
 						state: "paused",
 					}),
 				);
-				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const providers = yield* SandboxProviders;
+				let providerReturnedAt = 0;
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: (id) =>
+							providers.get(id).pipe(
+								Effect.map((adapter) => ({
+									...adapter,
+									resume: (...args) =>
+										adapter.resume(...args).pipe(
+											Effect.andThen(Effect.sleep("600 millis")),
+											Effect.tap(() =>
+												Effect.sync(() => {
+													providerReturnedAt = Date.now();
+												}),
+											),
+										),
+								})),
+							),
+					}),
+				);
 				return {
+					providerReturnedAt,
 					workspace: yield* store.getWorkspace(workspace.workspaceId),
 					resumeInputs: yield* Ref.get(control.resumeInputs),
 					startProcessCalls: yield* Ref.get(control.startProcessCalls),
@@ -1015,6 +1037,9 @@ describe("cloud workspace reconciler", () => {
 			}).pipe(Effect.provide(mailboxEnabledTestLayer)),
 		);
 
+		expect(result.workspace?.nextActionAtMs).toBeGreaterThanOrEqual(
+			result.providerReturnedAt + 500,
+		);
 		expect(result.resumeInputs).toHaveLength(1);
 		expect(result.startProcessCalls).toHaveLength(0);
 		expect(result.workspace).toMatchObject({

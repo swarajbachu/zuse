@@ -8,6 +8,7 @@ import {
 	SandboxProviderError,
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
+import { cloudTimingEvent, measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Cause, Clock, Data, Duration, Effect } from "effect";
 import GITHUB_AUTH_SOURCE from "../../cloud-sandboxes/github-auth.sh";
 import PROJECT_BUILDER_SOURCE from "../../cloud-sandboxes/project-builder.sh";
@@ -359,7 +360,7 @@ export const cloudWorkspaceHasRetainedRuntimeData = (
 	workspace.statusCode === "agent-starting" ||
 	workspace.statusCode === "agent-running";
 
-export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed /var/lib/zuse/workspace/credentials-ready /var/lib/zuse/workspace/credentials-ready-event; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >> "$log" 2>&1; fi; if [ -f "$runtime" ]; then exec node "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
+export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; timing() { echo "[cloud-timing] workspaceId=$ZUSE_CLOUD_WORKSPACE_ID generation=$ZUSE_RUNTIME_GENERATION stage=$1 atMs=$(date +%s%3N)" >> /var/lib/zuse/workspace/runtime.log; }; timing runtime.shell-start; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed /var/lib/zuse/workspace/credentials-ready /var/lib/zuse/workspace/credentials-ready-event; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then timing runtime.update-start; ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >> "$log" 2>&1; timing runtime.update-end; fi; timing runtime.exec; if [ -f "$runtime" ]; then exec node "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
 
@@ -1217,12 +1218,20 @@ const wakePreservedWorkspaceRuntime = (
 		// Provider pause preserves memory and processes. Wake the sandbox first
 		// and give its existing runtime a brief window to reconnect. If it does
 		// not reconnect, the resuming branch performs a fenced hard restart.
-		yield* provider.resume(
-			providerSandboxId,
-			keepAliveTimeoutSeconds,
-			"pause",
-			workspaceSizeId(workspace),
-		);
+		yield* provider
+			.resume(
+				providerSandboxId,
+				keepAliveTimeoutSeconds,
+				"pause",
+				workspaceSizeId(workspace),
+			)
+			.pipe(
+				measureCloudStage(
+					{ workspaceId: workspace.workspaceId, provider: provider.providerId },
+					"provider.resume",
+				),
+			);
+		const resumedAtMs = yield* Clock.currentTimeMillis;
 		yield* saveWorkspace({
 			...workspace,
 			runtimeState: "connecting",
@@ -1232,7 +1241,7 @@ const wakePreservedWorkspaceRuntime = (
 				workspace.requestConfig,
 				nowMs,
 			),
-			nextActionAtMs: nowMs + WARM_RUNTIME_RECONNECT_GRACE_MS,
+			nextActionAtMs: resumedAtMs + WARM_RUNTIME_RECONNECT_GRACE_MS,
 			lastActivityAtMs: nowMs,
 			runningSinceMs: workspace.runningSinceMs ?? nowMs,
 			revision: workspace.revision + 1,
@@ -1272,6 +1281,25 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 		saveWorkspace: SaveClaimedWorkspace,
 		providerAlreadyRunning?: boolean,
 	) {
+		cloudTimingEvent(
+			{
+				workspaceId: workspace.workspaceId,
+				provider: provider.providerId,
+				reason:
+					workspace.requestConfig.cloudMailboxFenceRequired === true
+						? "mailbox-fence-required"
+						: !provider.preservesProcessesOnResume
+							? "provider-does-not-preserve-processes"
+							: workspace.statusCode === "restart-queued"
+								? "explicit-restart"
+								: workspace.state === "resuming"
+									? "warm-reconnect-not-observed"
+									: !workspaceSupportsCloudCommandMailbox(workspace)
+										? "runtime-upgrade-or-recovery"
+										: "mailbox-stalled-or-runtime-recovery",
+			},
+			"runtime.restart-decision",
+		);
 		const store = yield* CloudWorkspaceStore;
 		const config = yield* SandboxOfferConfiguration;
 		const api = yield* ApiConfiguration;
@@ -1294,23 +1322,43 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 							),
 						);
 		if (!running)
-			yield* provider.resume(
-				providerSandboxId,
-				config.keepAliveTimeoutSeconds,
-				"pause",
-				workspaceSizeId(workspace),
-			);
+			yield* provider
+				.resume(
+					providerSandboxId,
+					config.keepAliveTimeoutSeconds,
+					"pause",
+					workspaceSizeId(workspace),
+				)
+				.pipe(
+					measureCloudStage(
+						{
+							workspaceId: workspace.workspaceId,
+							provider: provider.providerId,
+						},
+						"provider.resume",
+					),
+				);
 		const boot = yield* issueWorkspaceRuntimeBoot(nowMs);
 		yield* Effect.all(
 			[
 				config.runtimeSigningPublicJwk === undefined
 					? Effect.void
-					: provider.writeTextFile(
-							providerSandboxId,
-							RUNTIME_SIGNING_PUBLIC_JWK_FILE,
-							config.runtimeSigningPublicJwk,
-							"zuse",
-						),
+					: provider
+							.writeTextFile(
+								providerSandboxId,
+								RUNTIME_SIGNING_PUBLIC_JWK_FILE,
+								config.runtimeSigningPublicJwk,
+								"zuse",
+							)
+							.pipe(
+								measureCloudStage(
+									{
+										workspaceId: workspace.workspaceId,
+										provider: provider.providerId,
+									},
+									"runtime.write-file",
+								),
+							),
 				ensureWorkspaceRepositoryReadyMarker(
 					provider,
 					providerSandboxId,
@@ -1353,11 +1401,16 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 		// Network policy is part of runtime readiness, not a parallel best-effort
 		// side effect. Open egress before the agent process can make its first
 		// gateway or model-api request.
-		yield* provider.setNetwork(providerSandboxId, { kind: "open" });
-		yield* provider.replaceProcess(
-			providerSandboxId,
-			workspaceRuntimeProcessSelector(),
-			{
+		yield* provider
+			.setNetwork(providerSandboxId, { kind: "open" })
+			.pipe(
+				measureCloudStage(
+					{ workspaceId: workspace.workspaceId, provider: provider.providerId },
+					"provider.network",
+				),
+			);
+		yield* provider
+			.replaceProcess(providerSandboxId, workspaceRuntimeProcessSelector(), {
 				command: "/bin/bash",
 				args: ["-lc", WORKSPACE_RUNTIME_RESUME_SCRIPT],
 				cwd: "/home/zuse",
@@ -1386,8 +1439,13 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 							}),
 				},
 				user: "zuse",
-			},
-		);
+			})
+			.pipe(
+				measureCloudStage(
+					{ workspaceId: workspace.workspaceId, provider: provider.providerId },
+					"runtime.replace",
+				),
+			);
 	},
 );
 
