@@ -11,6 +11,11 @@ import {
 	type BoxHttpClient,
 	makeBoxSandboxProvider,
 } from "../../src/box.ts";
+import {
+	boxProcessCleanupScript,
+	boxProcessUnit,
+	boxShellQuote,
+} from "../../src/box-process.ts";
 
 const makeHttp = (
 	responses: ReadonlyArray<{
@@ -415,8 +420,8 @@ describe("Box sandbox provider", () => {
 		).resolves.toBeNull();
 	});
 
-	test("starts a detached process with user, env, cwd, and tag wrapping", async () => {
-		const http = makeHttp([{ status: 200, body: { processId: 7, pid: 42 } }]);
+	test("starts tagged processes in systemd with user, env, cwd, and tag wrapping", async () => {
+		const http = makeHttp([{ status: 200, body: commandResult(0) }]);
 		const adapter = makeAdapter(http.client);
 
 		await Effect.runPromise(
@@ -431,10 +436,20 @@ describe("Box sandbox provider", () => {
 		);
 
 		const body = JSON.parse(String(http.calls[0]?.init?.body));
-		expect(body.detached).toBe(true);
-		expect(body.command).toContain("/proc/sys/kernel/random/boot_id");
-		expect(body.command).toContain("zuse-runtime.pid");
-		expect(body.command).toContain("/usr/local/bin/zuse-workspace-bootstrap");
+		expect(body.detached).toBeUndefined();
+		const script = Buffer.from(
+			body.command.match(/printf %s ([A-Za-z0-9+/=]+)/)[1],
+			"base64",
+		).toString();
+		expect(script).toContain(
+			"systemd-run --quiet --collect --service-type=exec",
+		);
+		expect(script).toContain("--property=Restart=no");
+		expect(script).toContain("--property=KillMode=control-group");
+		expect(script).toContain("/proc/sys/kernel/random/boot_id");
+		expect(script).toContain("zuse-runtime.pid");
+		expect(script).toContain("/usr/local/bin/zuse-workspace-bootstrap");
+		expect(script).toContain("ZUSE_API_URL");
 	});
 
 	test("starts a detached process in the target user's home by default", async () => {
@@ -469,6 +484,26 @@ describe("Box sandbox provider", () => {
 		expect(http.calls).toHaveLength(0);
 	});
 
+	test("rejects invalid replacement input before stopping a running service", async () => {
+		const http = makeHttp([]);
+		const adapter = makeAdapter(http.client);
+		await expect(
+			Effect.runPromise(
+				adapter.replaceProcess(
+					"bx_1",
+					{ tag: "runtime" },
+					{ command: "true", env: { "bad-key": "value" } },
+				),
+			),
+		).rejects.toMatchObject({ code: "rejected" });
+		await expect(
+			Effect.runPromise(
+				adapter.startProcess("bx_1", { command: "true", tag: "x".repeat(256) }),
+			),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(http.calls).toHaveLength(0);
+	});
+
 	test("replaces a tagged process and cleans legacy runtimes", async () => {
 		const http = makeHttp([
 			{ status: 200, body: commandResult(0) },
@@ -488,17 +523,24 @@ describe("Box sandbox provider", () => {
 			),
 		);
 
-		const killBody = JSON.parse(String(http.calls[0]?.init?.body));
+		expect(http.calls).toHaveLength(1);
+		const body = JSON.parse(String(http.calls[0]?.init?.body));
+		const script = Buffer.from(
+			body.command.match(/printf %s ([A-Za-z0-9+/=]+)/)[1],
+			"base64",
+		).toString();
+		const killBody = { command: script };
+		expect(script.indexOf("systemctl stop")).toBeLessThan(
+			script.indexOf("systemd-run"),
+		);
 		expect(killBody.command).toContain("sudo -n -E -H -u 'zuse'");
 		expect(killBody.command).toContain("zuse-runtime.pid");
 		expect(killBody.command).toContain('kill -KILL -- "-$pid"');
 		expect(killBody.command).toContain(
 			"pkill -KILL -f -- '\\''[z]use-workspace-bootstrap'\\'' || true",
 		);
-		const startBody = JSON.parse(String(http.calls[1]?.init?.body));
-		expect(startBody.detached).toBe(true);
-		expect(startBody.command).toContain("zuse-runtime.pid");
-		expect(startBody.command).toContain("/opt/zuse/current/bin.mjs");
+		expect(script).toContain(boxProcessUnit("zuse", "zuse-runtime"));
+		expect(script).toContain("/opt/zuse/current/bin.mjs");
 	});
 
 	test.skipIf(process.platform !== "linux")(
@@ -524,23 +566,7 @@ describe("Box sandbox provider", () => {
 					join(home, ".zuse-processes/runtime.pid"),
 					String(unrelated.pid),
 				);
-				const http = makeHttp([
-					{ status: 200, body: commandResult(0) },
-					{ status: 200, body: { processId: 8, pid: 43 } },
-				]);
-				await Effect.runPromise(
-					makeAdapter(http.client).replaceProcess(
-						"bx_1",
-						{
-							tag: "runtime",
-							legacyCommandMarkers: [marker],
-						},
-						{ command: "true", user: "zuse" },
-					),
-				);
-				const command = JSON.parse(
-					String(http.calls[0]?.init?.body),
-				).command.replace("sudo -n -E -H -u 'zuse' ", "");
+				const command = `bash -c ${boxShellQuote(boxProcessCleanupScript({ tag: "runtime", legacyCommandMarkers: [marker] }))}`;
 				const exited = once(legacy, "exit");
 				await promisify(execFile)("bash", ["-c", command], {
 					env: { ...process.env, HOME: home },

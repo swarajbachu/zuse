@@ -1,6 +1,12 @@
 import { Duration, Effect, Redacted, Schema } from "effect";
 import { BOX_PORT_FORWARDER } from "./box-port-forwarder.ts";
 import {
+	boxProcessScript,
+	boxProcessUnit,
+	boxShellQuote,
+	boxSystemdProcessCommand,
+} from "./box-process.ts";
+import {
 	type ProviderSandbox,
 	type SandboxNetworkPolicy,
 	type SandboxProcessInput,
@@ -167,13 +173,8 @@ const errorForStatus = (
 	return providerError("transient");
 };
 
-const shellQuote = (value: string): string =>
-	`'${value.replaceAll("'", `'\\''`)}'`;
-
+const shellQuote = boxShellQuote;
 const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
-
-const processTagFile = (tag: string): string =>
-	`${tag.replaceAll(/[^A-Za-z0-9._-]/gu, "-")}.pid`;
 
 const SNAPSHOT_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
@@ -599,82 +600,48 @@ export const makeBoxSandboxProvider = (
 		},
 	);
 
+	const startManagedProcess = Effect.fn(
+		"BoxSandboxProvider.startManagedProcess",
+	)(function* (
+		providerSandboxId: string,
+		input: SandboxProcessInput,
+		tag: string,
+		selector?: SandboxProcessSelector,
+	) {
+		yield* validatedEnv(input.env ?? {});
+		const unit = boxProcessUnit(input.user ?? "user", tag);
+		if (unit.length > 255) return yield* providerError("rejected");
+		const result = yield* runCommand(
+			providerSandboxId,
+			boxSystemdProcessCommand({ ...input, tag }, unit, selector),
+		);
+		if (result.exitCode !== 0) return yield* providerError("transient");
+	});
+
 	const startProcess = Effect.fn("BoxSandboxProvider.startProcess")(function* (
 		providerSandboxId: string,
 		input: SandboxProcessInput,
 	) {
-		const env = yield* validatedEnv(input.env ?? {});
+		if (input.tag !== undefined)
+			return yield* startManagedProcess(providerSandboxId, input, input.tag);
+		yield* validatedEnv(input.env ?? {});
 		const user = input.user ?? "user";
-		const exports = Object.entries(env).map(
-			([key, value]) => `export ${key}=${shellQuote(value)}`,
-		);
-		const script = [
-			...(input.tag === undefined
-				? []
-				: [
-						'mkdir -p "$HOME/.zuse-processes"',
-						`printf '%s %s\\n' "$(cat /proc/sys/kernel/random/boot_id)" "$$" > "$HOME/.zuse-processes/${processTagFile(input.tag)}"`,
-					]),
-			...(input.cwd === undefined
-				? ['cd "$HOME"']
-				: [`cd ${shellQuote(input.cwd)}`]),
-			...exports,
-			`exec ${[input.command, ...(input.args ?? [])]
-				.map(shellQuote)
-				.join(" ")}`,
-		].join(" && ");
 		yield* request(
 			"POST",
 			`/boxes/${encodeURIComponent(providerSandboxId)}/commands`,
 			CommandStartedResponse,
 			{
-				// Box injects the account base environment into its command user.
-				// Preserve it across the deliberate privilege drop so the locked-down
-				// runtime user receives the shared agent/GitHub credentials too. -H
-				// still selects the target user's home instead of leaking /home/user.
-				command: `sudo -n -E -H -u ${shellQuote(user)} setsid bash -c ${shellQuote(script)}`,
+				command: `sudo -n -E -H -u ${shellQuote(user)} setsid bash -c ${shellQuote(boxProcessScript(input))}`,
 				detached: true,
 			},
 		);
 	});
 
-	const replaceProcess = Effect.fn("BoxSandboxProvider.replaceProcess")(
-		function* (
-			providerSandboxId: string,
-			selector: SandboxProcessSelector,
-			input: SandboxProcessInput,
-		) {
-			const user = input.user ?? "user";
-			// The pid file records the setsid group leader, so the group kill takes
-			// the tagged process and its children in one signal.
-			const script = [
-				`pidfile="$HOME/.zuse-processes/${processTagFile(selector.tag)}"`,
-				'if [ -f "$pidfile" ]; then read -r boot pid < "$pidfile"; if [ "$boot" = "$(cat /proc/sys/kernel/random/boot_id)" ] && [ "$pid" -gt 1 ] 2>/dev/null; then kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true; fi; rm -f "$pidfile"; fi',
-				...(selector.legacyCommandMarkers ?? [])
-					.filter(Boolean)
-					.map((marker) => {
-						// Bracket the first character so the cleanup shell's argv cannot
-						// match its own pattern. Treat markers as literal command text.
-						const first = marker[0]?.replace(/[\\\]^]/gu, "\\$&");
-						const rest = marker
-							.slice(1)
-							.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-						return `pkill -KILL -f -- ${shellQuote(`[${first}]${rest}`)} || true`;
-					}),
-				"true",
-			].join("; ");
-			const result = yield* runCommand(
-				providerSandboxId,
-				`sudo -n -E -H -u ${shellQuote(user)} bash -c ${shellQuote(script)}`,
-			);
-			if (result.exitCode !== 0)
-				return yield* Effect.fail(providerError("transient"));
-			yield* startProcess(providerSandboxId, {
-				...input,
-				tag: selector.tag,
-			});
-		},
-	);
+	const replaceProcess = (
+		providerSandboxId: string,
+		selector: SandboxProcessSelector,
+		input: SandboxProcessInput,
+	) => startManagedProcess(providerSandboxId, input, selector.tag, selector);
 
 	const pathExists = Effect.fn("BoxSandboxProvider.pathExists")(function* (
 		providerSandboxId: string,

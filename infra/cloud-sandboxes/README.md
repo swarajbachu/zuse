@@ -121,6 +121,15 @@ Dockerfile runs — so the two templates cannot drift. The Box-specific layer
   and strips sudo from the zuse user. Global packages use `/usr/local` explicitly;
   a CLI startup check rejects templates with missing native dependencies.
 
+Tagged Box processes run in transient systemd services created by the adapter.
+Replacement stops the complete service control group, cleans up older detached
+runtimes, and launches the new process in one provider command. These services
+are not enabled at boot and do not automatically restart: the API must authorize
+a fresh runtime generation and boot token before each launch. Account environment
+variables, the target user, and command arguments are preserved. Untagged build
+commands retain detached execution. The current Box base uses systemd 255; the
+launcher requires systemd 254 or newer for literal argument forwarding.
+
 Publish with:
 
 ```sh
