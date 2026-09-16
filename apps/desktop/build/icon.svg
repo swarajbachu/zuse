@@ -1,17 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254" width="1254" height="1254">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#15151a"/>
-      <stop offset="100%" stop-color="#0b0b0c"/>
-    </linearGradient>
-    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#f5f5f7"/>
-      <stop offset="100%" stop-color="#a8a8b3"/>
+    <linearGradient id="zuse-mark" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.72" stop-color="#fafafa"/>
+      <stop offset="1" stop-color="#e9e9eb"/>
     </linearGradient>
   </defs>
-  <rect width="1024" height="1024" rx="224" ry="224" fill="url(#bg)"/>
-  <g fill="none" stroke="url(#mark)" stroke-width="80" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M 240 720 L 240 320 L 432 560 L 624 320 L 624 720"/>
-    <path d="M 728 720 L 784 720" stroke-width="80"/>
+  <rect width="1254" height="1254" fill="#000000"/>
+  <g transform="translate(0 1254) scale(0.1 -0.1)">
+    <path d="M5730 8469 c-88 -15 -214 -63 -292 -112 -96 -60 -175 -142 -300 -312 -57 -77 -176 -237 -264 -355 -449 -601 -700 -950 -730 -1015 -64 -136 4 -310 146 -374 65 -29 60 -30 995 24 501 28 706 38 711 32 7 -7 -35 -63 -385 -517 -147 -190 -285 -368 -307 -396 -21 -29 -100 -130 -175 -225 -296 -379 -565 -736 -588 -783 -19 -37 -25 -65 -25 -115 -1 -112 53 -197 164 -257 34 -18 73 -19 970 -19 l935 0 85 23 c163 45 337 156 434 278 23 28 98 122 167 210 69 87 247 312 395 499 148 187 340 430 426 540 87 110 204 260 261 332 58 73 115 157 127 185 34 77 38 186 11 259 -26 70 -95 142 -164 175 l-52 24 -408 0 -408 0 -37 -29 c-37 -29 -613 -452 -832 -611 -106 -77 -243 -178 -475 -350 -49 -37 -166 -123 -260 -192 -93 -68 -223 -164 -288 -212 -65 -48 -114 -79 -108 -69 34 62 1258 1240 2336 2248 268 251 580 549 598 571 10 13 30 49 45 81 23 49 27 71 27 143 0 71 -4 94 -26 141 -33 71 -87 125 -158 158 l-56 26 -1220 1 c-696 1 -1243 -2 -1275 -7z" fill="url(#zuse-mark)"/>
   </g>
 </svg>

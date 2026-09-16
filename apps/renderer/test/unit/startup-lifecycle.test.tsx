@@ -49,8 +49,9 @@ describe("startup lifecycle", () => {
 		);
 		expect(markup).toContain('aria-label="Loading Zuse"');
 		expect(markup.match(/role="status"/g)).toHaveLength(1);
-		expect(markup).toContain('viewBox="0 0 1024 1024"');
+		expect(markup).toContain('viewBox="0 0 1254 1254"');
 		expect(markup).toContain('stroke="currentColor"');
+		expect(markup).toContain('d="M5730 8469');
 		expect(markup).not.toContain("animate-spin");
 		expect(markup).not.toContain("Onboarding");
 	});

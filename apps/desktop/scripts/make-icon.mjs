@@ -3,9 +3,9 @@
 //
 // Source preference: if `apps/desktop/build/icon.source.png` exists, that
 // raster is used (resized to 1024 and clipped to the macOS squircle).
-// Otherwise we fall back to rendering `icon.svg`. macOS uses a ~22.37%
-// corner radius on its app icon mask — apps without it look subtly off
-// next to native apps in the Dock/Finder.
+// The SVG fallback is regenerated from the shared Zuse mark before rendering.
+// macOS uses a ~22.37% corner radius on its app icon mask — apps without it
+// look subtly off next to native apps in the Dock/Finder.
 
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
@@ -21,6 +21,27 @@ const buildDir = resolve(here, "..", "build");
 const sourcePng = resolve(buildDir, "icon.source.png");
 const sourceSvg = resolve(buildDir, "icon.svg");
 const outPng = resolve(buildDir, "icon.png");
+const markDataPath = resolve(
+  here,
+  "../../../packages/ui/src/zuse-mark.json",
+);
+const mark = JSON.parse(await readFile(markDataPath, "utf8"));
+
+const vectorSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${mark.viewBox}" width="1254" height="1254">
+  <defs>
+    <linearGradient id="zuse-mark" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.72" stop-color="#fafafa"/>
+      <stop offset="1" stop-color="#e9e9eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="1254" height="1254" fill="#000000"/>
+  <g transform="${mark.transform}">
+    <path d="${mark.path}" fill="url(#zuse-mark)"/>
+  </g>
+</svg>
+`;
+await writeFile(sourceSvg, vectorSvg);
 
 const base = existsSync(sourcePng)
   ? sharp(await readFile(sourcePng))
