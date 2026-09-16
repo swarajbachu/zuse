@@ -2237,7 +2237,8 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							"number" ||
 						workspace.requestConfig.runtimeCredentialExpiresAtMs <=
 							input.nowMs ||
-						workspace.state === "deleted"
+						workspace.state === "deleted" ||
+						workspace.desiredState !== "ready"
 					)
 						return [null, current] as const;
 					const timings =
@@ -4752,6 +4753,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						AND runtime_credential_hash=${input.currentCredentialHash}
 						AND (request_config->>'runtimeCredentialExpiresAtMs')::bigint > ${input.nowMs}
 						AND state <> 'deleted'
+						AND desired_state='ready'
 					RETURNING *`.pipe(
 						Effect.map((rows) =>
 							rows[0] === undefined ? null : workspaceFromRow(rows[0] as Row),

@@ -1702,7 +1702,21 @@ export const runCloudMailboxConsumerCycle = Effect.fn(
 	}
 });
 
+/** A live preserved process can restore readiness without waiting for its UI socket. */
+export const recoverCloudMailboxReadiness = <A, R, R2>(
+	lease: Effect.Effect<A, CloudWorkspaceRuntimeError, R>,
+	recover: Effect.Effect<void, CloudWorkspaceRuntimeError, R2>,
+): Effect.Effect<A, CloudWorkspaceRuntimeError, R | R2> =>
+	lease.pipe(
+		Effect.catch((error) =>
+			error.reason === "cloud_workspace_runtime_not_ready"
+				? recover.pipe(Effect.andThen(lease))
+				: Effect.fail(error),
+		),
+	);
+
 const runCloudMailboxConsumer = (input: {
+	readonly recoverReadiness: Effect.Effect<void, CloudWorkspaceRuntimeError>;
 	readonly config: CloudWorkspaceRuntimeConfig;
 	readonly runtimeCredential: RuntimeCredentialState;
 	readonly providerSandboxId: string;
@@ -1727,6 +1741,8 @@ const runCloudMailboxConsumer = (input: {
 				body: { storageIncarnationId: input.storageIncarnationId },
 				timeoutMs: 10_000,
 			}),
+		).pipe((lease) =>
+			recoverCloudMailboxReadiness(lease, input.recoverReadiness),
 		),
 		apply: (lease) =>
 			applyCloudMailboxLease({
@@ -1948,6 +1964,7 @@ const websocketClosed = (
 	url: string,
 	protocols: () => ReadonlyArray<string>,
 	onSocket: (socket: WebSocket) => void,
+	setReconnect: (reconnect: (() => void) | undefined) => void,
 ): Effect.Effect<void, CloudWorkspaceRuntimeError> =>
 	Effect.callback<void, CloudWorkspaceRuntimeError>((resume) => {
 		let settled = false;
@@ -1958,6 +1975,9 @@ const websocketClosed = (
 			settled = true;
 			resume(effect);
 		};
+		setReconnect(() =>
+			finish(Effect.fail(fail("workspace_gateway_disconnected"))),
+		);
 		const socket = new WebSocket(url, [...protocols()]);
 		socket.binaryType = "arraybuffer";
 		socket.addEventListener("open", () => onSocket(socket), { once: true });
@@ -1976,7 +1996,10 @@ const websocketClosed = (
 			(event) => finish(Effect.fail(fail(cloudGatewayCloseReason(event.code)))),
 			{ once: true },
 		);
-		return Effect.sync(() => socket.close());
+		return Effect.sync(() => {
+			setReconnect(undefined);
+			socket.close();
+		});
 	});
 
 /**
@@ -2723,6 +2746,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					};
 
 					console.info("[cloud-workspace-runtime] connecting gateway");
+					let reconnectGateway: (() => void) | undefined;
 					const connectGateway = websocketClosed(
 						bootstrap.gatewayUrl,
 						() => [
@@ -2803,6 +2827,9 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								}
 								if (message.type === "runtime.command") drainApiCommands();
 							});
+						},
+						(reconnect) => {
+							reconnectGateway = reconnect;
 						},
 					).pipe(
 						Effect.retry({
@@ -2977,6 +3004,20 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						"runtime.mailbox-starting",
 					);
 					yield* runCloudMailboxConsumer({
+						recoverReadiness: postCurrentRuntimeReady("repository-ready").pipe(
+							Effect.tap(() =>
+								Effect.sync(() => {
+									cloudTimingEvent(
+										{
+											workspaceId: config.workspaceId,
+											runtimeGeneration: runtimeCredential.generation,
+										},
+										"runtime.warm-readiness-restored",
+									);
+									reconnectGateway?.();
+								}),
+							),
+						),
 						config,
 						runtimeCredential,
 						providerSandboxId: bootstrap.providerSandboxId,
