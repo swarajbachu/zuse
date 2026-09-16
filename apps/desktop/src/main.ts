@@ -1979,6 +1979,20 @@ async function createMainWindow() {
 		});
 	});
 
+	// Install the IPC inbox before navigation. The preload bridge can send its
+	// handshake as soon as the renderer starts, and Electron does not replay an
+	// ipcRenderer.send() frame when no ipcMain listener exists yet.
+	const serverProtocol = electronServerProtocolLayer(
+		mainWindow.webContents,
+		(event, fields) =>
+			appendRemoteConnectionLog(event, {
+				...fields,
+				processElapsedMs: Math.round(
+					performance.now() - desktopProcessStartedAt,
+				),
+			}),
+	);
+
 	// Start Chromium as soon as the native window exists. Port selection,
 	// network preferences, TLS identity, and the embedded runtime can settle
 	// behind the lightweight renderer startup surface instead of delaying the
@@ -3290,19 +3304,8 @@ async function createMainWindow() {
 		}
 	});
 
-	// Boot the Effect runtime once the window's webContents exists. The RPC
-	// server protocol is bound to this webContents, so a window restart means
-	// a fresh runtime — the only Effect.runFork in the main process.
-	const serverProtocol = electronServerProtocolLayer(
-		mainWindow.webContents,
-		(event, fields) =>
-			appendRemoteConnectionLog(event, {
-				...fields,
-				processElapsedMs: Math.round(
-					performance.now() - desktopProcessStartedAt,
-				),
-			}),
-	);
+	// Boot the Effect runtime after its remaining async prerequisites settle.
+	// The Electron protocol above has already buffered any early renderer frames.
 	const apiWsPort = apiPort.port;
 	const apiWsProtocol = wsServerProtocolLayer({
 		port: apiWsPort,
