@@ -51,12 +51,15 @@ describe("startup lifecycle", () => {
 		expect(markup.match(/role="status"/g)).toHaveLength(1);
 		expect(markup).toContain('viewBox="0 0 1254 1254"');
 		expect(markup).toContain('stroke="currentColor"');
+		expect(markup).toContain('data-logo-trace-path=""');
+		expect(markup).toContain('d="M455 585 L570 440');
 		expect(markup).toContain('d="M5730 8469');
+		expect(markup).not.toContain('stroke-dasharray="0.16 0.84"');
 		expect(markup).not.toContain("animate-spin");
 		expect(markup).not.toContain("Onboarding");
 	});
 
-	it("starts the closing outline when work is already complete", () => {
+	it("starts the closing Z trace when work is already complete", () => {
 		const markup = renderToStaticMarkup(
 			<LogoTraceLoader
 				ariaLabel="Opening Zuse"

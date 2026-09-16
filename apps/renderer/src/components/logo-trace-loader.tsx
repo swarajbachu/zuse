@@ -13,24 +13,24 @@ export type LogoTraceLoaderProps = {
 	readonly onDone?: () => void;
 };
 
-type LoaderPhase = "loop" | "closingOutline" | "fadingFill" | "done";
+type LoaderPhase = "loop" | "closingTrace" | "fadingFill" | "done";
 
-const CLOSING_OUTLINE_SECONDS = 0.28;
+const CLOSING_TRACE_SECONDS = 0.28;
 const TIMER_GRACE_MS = 80;
 
 const positiveDuration = (value: number, fallback: number): number =>
 	Number.isFinite(value) && value > 0 ? value : fallback;
 
 /**
- * Traces the real Zuse mark while work is pending, then closes and fills it.
- * Outline and fill share the canonical contour used to generate the desktop
- * SVG, so the startup mark cannot drift from the product icon again.
+ * Draws the Z-shaped centerline while work is pending, then fills the real
+ * Zuse contour. Both geometries live with the canonical desktop icon data so
+ * the startup mark cannot drift back to an unrelated logo.
  */
 export function LogoTraceLoader({
 	loading = true,
 	isComplete = false,
 	size = 72,
-	strokeWidth = 42,
+	strokeWidth = 54,
 	loopDurationSeconds = 1.35,
 	fillFadeSeconds = 0.24,
 	className,
@@ -41,7 +41,7 @@ export function LogoTraceLoader({
 	const loopSeconds = positiveDuration(loopDurationSeconds, 1.35);
 	const fadeSeconds = positiveDuration(fillFadeSeconds, 0.24);
 	const [phase, setPhase] = useState<LoaderPhase>(() =>
-		complete ? "closingOutline" : "loop",
+		complete ? "closingTrace" : "loop",
 	);
 	const onDoneRef = useRef(onDone);
 	const doneCalledRef = useRef(false);
@@ -62,14 +62,14 @@ export function LogoTraceLoader({
 
 	useEffect(() => {
 		if (!complete || phase !== "loop") return;
-		setPhase("closingOutline");
+		setPhase("closingTrace");
 	}, [complete, phase]);
 
 	useEffect(() => {
-		if (phase !== "closingOutline") return;
+		if (phase !== "closingTrace") return;
 		const timeout = window.setTimeout(
 			() => setPhase("fadingFill"),
-			CLOSING_OUTLINE_SECONDS * 1_000 + TIMER_GRACE_MS,
+			CLOSING_TRACE_SECONDS * 1_000 + TIMER_GRACE_MS,
 		);
 		return () => window.clearTimeout(timeout);
 	}, [phase]);
@@ -84,6 +84,12 @@ export function LogoTraceLoader({
 	}, [fadeSeconds, phase]);
 
 	const showFill = phase === "fadingFill" || phase === "done";
+	const traceAnimation =
+		phase === "loop"
+			? `logo-trace-loader-loop ${loopSeconds}s ease-in-out infinite`
+			: phase === "closingTrace"
+				? `logo-trace-loader-close ${CLOSING_TRACE_SECONDS}s ease-out forwards`
+				: null;
 
 	return (
 		<svg
@@ -95,54 +101,35 @@ export function LogoTraceLoader({
 			viewBox={zuseMark.viewBox}
 			width={size}
 		>
-			<g opacity="0.18" transform={zuseMark.transform}>
-				<path
-					d={zuseMark.path}
-					fill="none"
-					stroke="currentColor"
-					strokeLinejoin="round"
-					strokeWidth={Math.max(1, strokeWidth / 2)}
-					vectorEffect="non-scaling-stroke"
-				/>
+			<g opacity="0.12" transform={zuseMark.transform}>
+				<path d={zuseMark.path} fill="currentColor" />
 			</g>
+			<path
+				d={zuseMark.tracePath}
+				fill="none"
+				opacity="0.22"
+				stroke="currentColor"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+				strokeWidth={strokeWidth}
+			/>
 
-			{phase === "loop" ? (
-				<g transform={zuseMark.transform}>
-					<path
-						d={zuseMark.path}
-						fill="none"
-						pathLength={1}
-						stroke="currentColor"
-						strokeDasharray="0.16 0.84"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-						strokeWidth={strokeWidth}
-						style={{
-							animation: `logo-trace-loader-loop ${loopSeconds}s linear infinite`,
-						}}
-						vectorEffect="non-scaling-stroke"
-					/>
-				</g>
-			) : null}
-
-			{phase === "closingOutline" ? (
-				<g transform={zuseMark.transform}>
-					<path
-						d={zuseMark.path}
-						fill="none"
-						onAnimationEnd={() => setPhase("fadingFill")}
-						pathLength={1}
-						stroke="currentColor"
-						strokeDasharray="1"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-						strokeWidth={strokeWidth}
-						style={{
-							animation: `logo-trace-loader-close ${CLOSING_OUTLINE_SECONDS}s ease-out forwards`,
-						}}
-						vectorEffect="non-scaling-stroke"
-					/>
-				</g>
+			{traceAnimation ? (
+				<path
+					data-logo-trace-path=""
+					d={zuseMark.tracePath}
+					fill="none"
+					onAnimationEnd={
+						phase === "closingTrace" ? () => setPhase("fadingFill") : undefined
+					}
+					pathLength={1}
+					stroke="currentColor"
+					strokeDasharray="1"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+					strokeWidth={strokeWidth}
+					style={{ animation: traceAnimation }}
+				/>
 			) : null}
 
 			{showFill ? (

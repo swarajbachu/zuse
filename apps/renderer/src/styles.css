@@ -7,8 +7,18 @@
 @custom-variant dark (&:is(.dark *));
 
 @keyframes logo-trace-loader-loop {
-	to {
-		stroke-dashoffset: -1;
+	0% {
+		opacity: 0.45;
+		stroke-dashoffset: 1;
+	}
+	68%,
+	88% {
+		opacity: 1;
+		stroke-dashoffset: 0;
+	}
+	100% {
+		opacity: 0;
+		stroke-dashoffset: 0;
 	}
 }
 
