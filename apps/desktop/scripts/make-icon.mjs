@@ -21,13 +21,19 @@ const buildDir = resolve(here, "..", "build");
 const sourcePng = resolve(buildDir, "icon.source.png");
 const sourceSvg = resolve(buildDir, "icon.svg");
 const outPng = resolve(buildDir, "icon.png");
-const markDataPath = resolve(
-  here,
-  "../../../packages/ui/src/zuse-mark.json",
-);
+const markDataPath = resolve(here, "../../../packages/ui/src/zuse-mark.json");
 const mark = JSON.parse(await readFile(markDataPath, "utf8"));
 
+const markPath = (fill) =>
+	`<path d="${mark.path}" fill="${fill}" transform="${mark.transform}"/>`;
+
 const vectorSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${mark.viewBox}" width="1254" height="1254">
+  ${markPath("#fff")}
+</svg>
+`;
+await writeFile(sourceSvg, vectorSvg);
+
+const fallbackAppIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${mark.viewBox}" width="1254" height="1254">
   <defs>
     <linearGradient id="zuse-mark" x1="0" y1="0" x2="0.8" y2="1">
       <stop offset="0" stop-color="#ffffff"/>
@@ -36,26 +42,23 @@ const vectorSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${mark.viewB
     </linearGradient>
   </defs>
   <rect width="1254" height="1254" fill="#000000"/>
-  <g transform="${mark.transform}">
-    <path d="${mark.path}" fill="url(#zuse-mark)"/>
-  </g>
+  ${markPath("url(#zuse-mark)")}
 </svg>
 `;
-await writeFile(sourceSvg, vectorSvg);
 
 const base = existsSync(sourcePng)
-  ? sharp(await readFile(sourcePng))
-  : sharp(await readFile(sourceSvg), { density: 384 });
+	? sharp(await readFile(sourcePng))
+	: sharp(Buffer.from(fallbackAppIconSvg), { density: 384 });
 
 const mask = Buffer.from(
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}"><rect width="${SIZE}" height="${SIZE}" rx="${RADIUS}" ry="${RADIUS}" fill="#fff"/></svg>`,
+	`<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}"><rect width="${SIZE}" height="${SIZE}" rx="${RADIUS}" ry="${RADIUS}" fill="#fff"/></svg>`,
 );
 
 const png = await base
-  .resize(SIZE, SIZE, { fit: "cover" })
-  .composite([{ input: mask, blend: "dest-in" }])
-  .png()
-  .toBuffer();
+	.resize(SIZE, SIZE, { fit: "cover" })
+	.composite([{ input: mask, blend: "dest-in" }])
+	.png()
+	.toBuffer();
 
 await writeFile(outPng, png);
 console.log(`wrote ${png.length} bytes to ${outPng}`);

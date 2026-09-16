@@ -22,6 +22,9 @@ test("the desktop SVG uses the canonical Zuse mark", async () => {
 	assert.match(svg, new RegExp(`viewBox="${mark.viewBox}"`));
 	assert.ok(svg.includes(`transform="${mark.transform}"`));
 	assert.ok(svg.includes(`d="${mark.path}"`));
+	assert.equal((svg.match(/<path\b/g) ?? []).length, 1);
+	assert.match(svg, /<path\b[^>]*fill="#fff"/);
+	assert.doesNotMatch(svg, /<(?:defs|linearGradient|rect)\b/);
 });
 
 const createPaidIconsFixture = async (installedPackages) => {
