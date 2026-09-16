@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -11,6 +11,11 @@ import {
 	type BoxHttpClient,
 	makeBoxSandboxProvider,
 } from "../../src/box.ts";
+import {
+	boxProcessCleanupScript,
+	boxProcessUnit,
+	boxShellQuote,
+} from "../../src/box-process.ts";
 
 const makeHttp = (
 	responses: ReadonlyArray<{
@@ -67,7 +72,7 @@ const createInput = {
 	providerLabel: "zuse-cloud-workspace-1",
 	timeoutSeconds: 300,
 	env: { ZUSE_ENROLLMENT_TOKEN: "zenr_secret" },
-	network: { kind: "quarantined" } as const,
+	network: { kind: "open" } as const,
 	onTimeout: "pause" as const,
 };
 
@@ -176,13 +181,11 @@ describe("Box sandbox provider", () => {
 		expect(callCount).toBe(1);
 	});
 
-	test("creates from the base template, labels first, and verifies quarantine", async () => {
+	test("creates from the base template and labels before preparing its layout", async () => {
 		const http = makeHttp([
 			{ status: 202, body: { box: { id: "bx_1", state: "provisioning" } } },
 			{ status: 200, body: {} },
 			{ status: 200, body: readyBox("bx_1") },
-			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(0) },
 			{ status: 200, body: commandResult(0) },
 		]);
 		const adapter = makeAdapter(http.client);
@@ -218,49 +221,14 @@ describe("Box sandbox provider", () => {
 		expect(JSON.parse(String(http.calls[3]?.init?.body)).command).toContain(
 			"/run/zuse-secrets",
 		);
-		const apply = JSON.parse(String(http.calls[4]?.init?.body));
-		expect(apply.command).toContain("zuse-firewall apply");
-		const verify = JSON.parse(String(http.calls[5]?.init?.body));
-		expect(verify.command).toBe(
-			"sudo -n /usr/local/sbin/zuse-firewall verify-quarantined",
-		);
+		expect(http.calls).toHaveLength(4);
 	});
 
-	test("applies an open policy through the in-guest firewall after create", async () => {
-		const http = makeHttp([
-			{ status: 202, body: { box: { id: "bx_1", state: "provisioning" } } },
-			{ status: 200, body: {} },
-			{ status: 200, body: readyBox("bx_1") },
-			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(0) },
-		]);
-		const adapter = makeAdapter(http.client);
-
-		await Effect.runPromise(
-			adapter.create({ ...createInput, network: { kind: "open" } }),
-		);
-
-		const apply = JSON.parse(String(http.calls[4]?.init?.body));
-		expect(apply.command).toContain(
-			"systemctl is-active --quiet zuse-firewall.service",
-		);
-		expect(apply.command).toContain(
-			`sudo -n /usr/local/sbin/zuse-firewall apply '${btoa(
-				JSON.stringify({ kind: "open" }),
-			)}'`,
-		);
-		expect(apply.command).toContain(
-			"sudo -n tee /var/lib/zuse-firewall/policy.b64",
-		);
-	});
-
-	test("forks from a snapshot and verifies a requested quarantine", async () => {
+	test("forks from a snapshot with open networking", async () => {
 		const http = makeHttp([
 			{ status: 202, body: { box: { id: "bx_fork", state: "cloning" } } },
 			{ status: 200, body: {} },
 			{ status: 200, body: readyBox("bx_fork") },
-			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(0) },
 			{ status: 200, body: commandResult(0) },
 		]);
 		const adapter = makeAdapter(http.client);
@@ -270,7 +238,7 @@ describe("Box sandbox provider", () => {
 				sandboxId: "sandbox_2",
 				providerLabel: "zuse-cloud-workspace-2",
 				snapshotId: "zuse-build-snap-1",
-				network: { kind: "quarantined" },
+				network: { kind: "open" },
 				timeoutSeconds: 120,
 				env: { ZUSE_ENROLLMENT_TOKEN: "zenr_fork" },
 				onTimeout: "pause",
@@ -284,46 +252,27 @@ describe("Box sandbox provider", () => {
 		expect(JSON.parse(String(http.calls[3]?.init?.body)).command).toContain(
 			"test -f /srv/zuse/.layout-v1",
 		);
-		expect(JSON.parse(String(http.calls[5]?.init?.body)).command).toContain(
-			"verify-quarantined",
-		);
+		expect(http.calls).toHaveLength(4);
 	});
 
-	test("destroys a fork whose quarantine barrier cannot be verified", async () => {
-		const http = makeHttp([
-			{ status: 202, body: { box: { id: "bx_fork", state: "cloning" } } },
-			{ status: 200, body: {} },
-			{ status: 200, body: readyBox("bx_fork") },
-			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(1) },
-			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(1) },
-			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(1) },
-			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(1) },
-			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(1) },
-			{ status: 200, body: {} },
-		]);
+	test.each([
+		{ kind: "quarantined" } as const,
+		{ kind: "restricted", allowOut: ["example.com"], denyOut: [] } as const,
+	])("rejects unsupported network policy before allocating: $kind", async (network) => {
+		const http = makeHttp([]);
 		const adapter = makeAdapter(http.client);
-
+		await expect(
+			Effect.runPromise(adapter.create({ ...createInput, network })),
+		).rejects.toMatchObject({ code: "rejected" });
 		await expect(
 			Effect.runPromise(
-				adapter.fork({
-					sandboxId: "sandbox_2",
-					providerLabel: "zuse-cloud-workspace-2",
-					snapshotId: "zuse-build-snap-1",
-					timeoutSeconds: 120,
-					env: {},
-					network: { kind: "quarantined" },
-					onTimeout: "pause",
-				}),
+				adapter.fork({ ...createInput, snapshotId: "snapshot", network }),
 			),
-		).rejects.toMatchObject({ code: "transient" });
-		expect(http.calls[14]?.init?.method).toBe("DELETE");
-		expect(http.calls[14]?.url).toBe("https://box.test/boxes/bx_fork");
+		).rejects.toMatchObject({ code: "rejected" });
+		await expect(
+			Effect.runPromise(adapter.setNetwork("bx_1", network)),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(http.calls).toHaveLength(0);
 	});
 
 	test("destroys a create that lands in the error state", async () => {
@@ -415,8 +364,8 @@ describe("Box sandbox provider", () => {
 		).resolves.toBeNull();
 	});
 
-	test("starts a detached process with user, env, cwd, and tag wrapping", async () => {
-		const http = makeHttp([{ status: 200, body: { processId: 7, pid: 42 } }]);
+	test("starts tagged processes in systemd with user, env, cwd, and tag wrapping", async () => {
+		const http = makeHttp([{ status: 200, body: commandResult(0) }]);
 		const adapter = makeAdapter(http.client);
 
 		await Effect.runPromise(
@@ -431,10 +380,20 @@ describe("Box sandbox provider", () => {
 		);
 
 		const body = JSON.parse(String(http.calls[0]?.init?.body));
-		expect(body.detached).toBe(true);
-		expect(body.command).toContain("/proc/sys/kernel/random/boot_id");
-		expect(body.command).toContain("zuse-runtime.pid");
-		expect(body.command).toContain("/usr/local/bin/zuse-workspace-bootstrap");
+		expect(body.detached).toBeUndefined();
+		const script = Buffer.from(
+			body.command.match(/printf %s ([A-Za-z0-9+/=]+)/)[1],
+			"base64",
+		).toString();
+		expect(script).toContain(
+			"systemd-run --quiet --collect --service-type=exec",
+		);
+		expect(script).toContain("--property=Restart=no");
+		expect(script).toContain("--property=KillMode=control-group");
+		expect(script).toContain("/proc/sys/kernel/random/boot_id");
+		expect(script).toContain("7a7573652d72756e74696d65.pid");
+		expect(script).toContain("/usr/local/bin/zuse-workspace-bootstrap");
+		expect(script).toContain("ZUSE_API_URL");
 	});
 
 	test("starts a detached process in the target user's home by default", async () => {
@@ -469,6 +428,26 @@ describe("Box sandbox provider", () => {
 		expect(http.calls).toHaveLength(0);
 	});
 
+	test("rejects invalid replacement input before stopping a running service", async () => {
+		const http = makeHttp([]);
+		const adapter = makeAdapter(http.client);
+		await expect(
+			Effect.runPromise(
+				adapter.replaceProcess(
+					"bx_1",
+					{ tag: "runtime" },
+					{ command: "true", env: { "bad-key": "value" } },
+				),
+			),
+		).rejects.toMatchObject({ code: "rejected" });
+		await expect(
+			Effect.runPromise(
+				adapter.startProcess("bx_1", { command: "true", tag: "x".repeat(256) }),
+			),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(http.calls).toHaveLength(0);
+	});
+
 	test("replaces a tagged process and cleans legacy runtimes", async () => {
 		const http = makeHttp([
 			{ status: 200, body: commandResult(0) },
@@ -488,17 +467,24 @@ describe("Box sandbox provider", () => {
 			),
 		);
 
-		const killBody = JSON.parse(String(http.calls[0]?.init?.body));
+		expect(http.calls).toHaveLength(1);
+		const body = JSON.parse(String(http.calls[0]?.init?.body));
+		const script = Buffer.from(
+			body.command.match(/printf %s ([A-Za-z0-9+/=]+)/)[1],
+			"base64",
+		).toString();
+		const killBody = { command: script };
+		expect(script.indexOf("systemctl stop")).toBeLessThan(
+			script.indexOf("systemd-run"),
+		);
 		expect(killBody.command).toContain("sudo -n -E -H -u 'zuse'");
-		expect(killBody.command).toContain("zuse-runtime.pid");
+		expect(killBody.command).toContain("7a7573652d72756e74696d65.pid");
 		expect(killBody.command).toContain('kill -KILL -- "-$pid"');
 		expect(killBody.command).toContain(
 			"pkill -KILL -f -- '\\''[z]use-workspace-bootstrap'\\'' || true",
 		);
-		const startBody = JSON.parse(String(http.calls[1]?.init?.body));
-		expect(startBody.detached).toBe(true);
-		expect(startBody.command).toContain("zuse-runtime.pid");
-		expect(startBody.command).toContain("/opt/zuse/current/bin.mjs");
+		expect(script).toContain(boxProcessUnit("zuse", "zuse-runtime"));
+		expect(script).toContain("/opt/zuse/current/bin.mjs");
 	});
 
 	test.skipIf(process.platform !== "linux")(
@@ -521,26 +507,10 @@ describe("Box sandbox provider", () => {
 			try {
 				await mkdir(join(home, ".zuse-processes"));
 				await writeFile(
-					join(home, ".zuse-processes/runtime.pid"),
+					join(home, ".zuse-processes/72756e74696d65.pid"),
 					String(unrelated.pid),
 				);
-				const http = makeHttp([
-					{ status: 200, body: commandResult(0) },
-					{ status: 200, body: { processId: 8, pid: 43 } },
-				]);
-				await Effect.runPromise(
-					makeAdapter(http.client).replaceProcess(
-						"bx_1",
-						{
-							tag: "runtime",
-							legacyCommandMarkers: [marker],
-						},
-						{ command: "true", user: "zuse" },
-					),
-				);
-				const command = JSON.parse(
-					String(http.calls[0]?.init?.body),
-				).command.replace("sudo -n -E -H -u 'zuse' ", "");
+				const command = `bash -c ${boxShellQuote(boxProcessCleanupScript({ tag: "runtime", legacyCommandMarkers: [marker] }))}`;
 				const exited = once(legacy, "exit");
 				await promisify(execFile)("bash", ["-c", command], {
 					env: { ...process.env, HOME: home },
@@ -687,49 +657,68 @@ describe("Box sandbox provider", () => {
 		expect(http.calls[0]?.url).toBe("https://box.test/boxes/bx_1/stop");
 	});
 
-	test("resumes with a fresh TTL and re-inspects the box", async () => {
+	test("resumes with only persisted layout preparation", async () => {
 		const http = makeHttp([
 			{ status: 202, body: {} },
 			{ status: 200, body: readyBox("bx_1") },
 			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(0) },
 			{ status: 200, body: readyBox("bx_1") },
 		]);
 		const adapter = makeAdapter(http.client);
-
-		const resumed = await Effect.runPromise(
-			adapter.resume("bx_1", 600, "pause"),
-		);
-
-		expect(resumed.state).toBe("running");
-		expect(http.calls[0]?.url).toBe("https://box.test/boxes/bx_1/resume");
-		expect(JSON.parse(String(http.calls[0]?.init?.body))).toEqual({
-			ttlSeconds: 600,
-		});
-		expect(JSON.parse(String(http.calls[3]?.init?.body)).command).toBe(
-			"sudo -n /usr/local/sbin/zuse-firewall restore",
-		);
+		expect(
+			(await Effect.runPromise(adapter.resume("bx_1", 600, "pause"))).state,
+		).toBe("running");
+		expect(http.calls).toHaveLength(4);
+		const command = JSON.parse(String(http.calls[2]?.init?.body)).command;
+		expect(command).toContain("test -f /srv/zuse/.layout-v1");
+		expect(command).not.toMatch(/firewall|nft|systemctl/);
+		expect(command).not.toContain("sleep");
 	});
 
-	test("resumes a legacy-template box using its persisted policy", async () => {
+	test("open networking makes no provider requests", async () => {
+		const http = makeHttp([]);
+		await Effect.runPromise(
+			makeAdapter(http.client).setNetwork("bx_1", { kind: "open" }),
+		);
+		expect(http.calls).toHaveLength(0);
+	});
+
+	test("healthy persisted layout resumes without copying or recursively changing ownership", async () => {
 		const http = makeHttp([
 			{ status: 202, body: {} },
 			{ status: 200, body: readyBox("bx_1") },
 			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(2) },
-			{ status: 200, body: commandResult(0) },
 			{ status: 200, body: readyBox("bx_1") },
 		]);
-		const adapter = makeAdapter(http.client);
-
-		await Effect.runPromise(adapter.resume("bx_1", 600, "pause"));
-
-		expect(JSON.parse(String(http.calls[3]?.init?.body)).command).toContain(
-			"zuse-firewall restore",
+		await Effect.runPromise(
+			makeAdapter(http.client).resume("bx_1", 600, "pause"),
 		);
-		expect(JSON.parse(String(http.calls[4]?.init?.body)).command).toContain(
-			"cat /var/lib/zuse-firewall/policy.b64",
-		);
+		const dir = await mkdtemp(join(tmpdir(), "box-layout-"));
+		try {
+			for (const p of [
+				"persist/home/.zuse-data",
+				"persist/home/.ssh",
+				"persist/repos",
+				"logical",
+			])
+				await mkdir(join(dir, p), { recursive: true });
+			await writeFile(join(dir, "persist/.layout-v1"), "");
+			await symlink(`${dir}/persist/home`, `${dir}/logical/zuse`);
+			await symlink(`${dir}/persist/repos`, `${dir}/logical/repos`);
+			const command = JSON.parse(String(http.calls[2]?.init?.body))
+				.command.replaceAll("/srv/zuse", `${dir}/persist`)
+				.replaceAll("/home/zuse", `${dir}/logical/zuse`)
+				.replaceAll("/home/repos", `${dir}/logical/repos`);
+			const shim =
+				'sudo() { shift; "$@"; }; install() { return 0; }; cp() { exit 91; }; chown() { exit 92; }; sleep() { exit 93; }';
+			await promisify(execFile)("bash", ["-c", `${shim}; ${command}`]);
+			await rm(join(dir, "persist/.layout-v1"));
+			await expect(
+				promisify(execFile)("bash", ["-c", `${shim}; ${command}`]),
+			).rejects.toMatchObject({ code: 1 });
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	test("extends the box TTL through a metadata update", async () => {
@@ -741,27 +730,6 @@ describe("Box sandbox provider", () => {
 		expect(http.calls[0]?.init?.method).toBe("PATCH");
 		expect(JSON.parse(String(http.calls[0]?.init?.body))).toEqual({
 			ttlSeconds: 600,
-		});
-	});
-
-	test("writes the complete network policy in a single firewall call", async () => {
-		const http = makeHttp([{ status: 200, body: commandResult(0) }]);
-		const adapter = makeAdapter(http.client);
-
-		await Effect.runPromise(
-			adapter.setNetwork("bx_1", {
-				kind: "restricted",
-				allowOut: ["api.zuse.test"],
-				denyOut: ["0.0.0.0/0"],
-			}),
-		);
-
-		const command = JSON.parse(String(http.calls[0]?.init?.body)).command;
-		const encoded = /apply '([^']+)'/u.exec(command)?.[1] ?? "";
-		expect(JSON.parse(atob(encoded))).toEqual({
-			kind: "restricted",
-			allowOut: ["api.zuse.test"],
-			denyOut: ["0.0.0.0/0"],
 		});
 	});
 
@@ -895,6 +863,19 @@ describe("Box sandbox provider", () => {
 		});
 	});
 
+	test("rejects redirects without forwarding provider credentials", async () => {
+		const http = makeHttp([{ status: 302, body: {} }]);
+		const result = await Effect.runPromise(
+			makeAdapter(http.client).inspect("bx_1").pipe(Effect.result),
+		);
+		expect(result).toMatchObject({
+			_tag: "Failure",
+			failure: { code: "transient" },
+		});
+		expect(http.calls).toHaveLength(1);
+		expect(http.calls[0]?.init?.redirect).toBe("manual");
+	});
+
 	test("normalizes network failures to transient", async () => {
 		const adapter = makeAdapter({
 			fetch: (() =>
@@ -962,7 +943,7 @@ describe("Box provider-reported usage", () => {
 		expect(url.pathname).toBe(`/boxes/${response.boxId}/usage`);
 		expect(url.searchParams.get("since")).toBe(response.since);
 		expect(url.searchParams.get("until")).toBe(response.until);
-		expect(http.calls[0]?.init?.redirect).toBe("error");
+		expect(http.calls[0]?.init?.redirect).toBe("manual");
 	});
 	test("supports live usage and the provider's fractional xlarge multiplier", async () => {
 		const http = makeHttp([

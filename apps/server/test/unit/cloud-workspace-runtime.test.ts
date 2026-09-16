@@ -39,6 +39,7 @@ import {
 	decodeImageProviderSecrets,
 	makeCloudRuntimeCheckpointPublisher,
 	makeCloudRuntimeSummaryPublisher,
+	recoverCloudMailboxReadiness,
 	resolveCloudRuntimeActiveSession,
 	retainedCloudRuntimeStorageFailure,
 	retryCloudWorkspaceBootstrap,
@@ -1330,5 +1331,82 @@ describe("cloud workspace mailbox runtime", () => {
 		);
 
 		expect(fenceRequests).toBe(1);
+	});
+});
+
+describe("preserved runtime mailbox readiness", () => {
+	it("republishes readiness and retries the lease once", async () => {
+		const events: string[] = [];
+		let attempts = 0;
+		const lease = Effect.suspend(() => {
+			events.push("lease");
+			return ++attempts === 1
+				? Effect.fail(
+						new CloudWorkspaceRuntimeError({
+							reason: "cloud_workspace_runtime_not_ready",
+						}),
+					)
+				: Effect.succeed("delivered");
+		});
+		expect(
+			await Effect.runPromise(
+				recoverCloudMailboxReadiness(
+					lease,
+					Effect.sync(() => {
+						events.push("ready");
+					}),
+				),
+			),
+		).toBe("delivered");
+		expect(events).toEqual(["lease", "ready", "lease"]);
+	});
+	it("never repairs a rejected credential or repeatedly retries a not-ready lease", async () => {
+		for (const reason of [
+			"workspace_runtime_rejected",
+			"cloud_workspace_runtime_not_ready",
+		]) {
+			let attempts = 0;
+			let repairs = 0;
+			const lease = Effect.suspend(() => {
+				attempts++;
+				return Effect.fail(new CloudWorkspaceRuntimeError({ reason }));
+			});
+			const result = await Effect.runPromise(
+				recoverCloudMailboxReadiness(
+					lease,
+					Effect.sync(() => {
+						repairs++;
+					}),
+				).pipe(Effect.result),
+			);
+			expect(result._tag).toBe("Failure");
+			expect(attempts).toBe(reason === "workspace_runtime_rejected" ? 1 : 2);
+			expect(repairs).toBe(reason === "workspace_runtime_rejected" ? 0 : 1);
+		}
+	});
+	it("does not lease when the API refuses readiness", async () => {
+		let attempts = 0;
+		const result = await Effect.runPromise(
+			recoverCloudMailboxReadiness(
+				Effect.suspend(() => {
+					attempts++;
+					return Effect.fail(
+						new CloudWorkspaceRuntimeError({
+							reason: "cloud_workspace_runtime_not_ready",
+						}),
+					);
+				}),
+				Effect.fail(
+					new CloudWorkspaceRuntimeError({
+						reason: "workspace_runtime_rejected",
+					}),
+				),
+			).pipe(Effect.result),
+		);
+		expect(result).toMatchObject({
+			_tag: "Failure",
+			failure: { reason: "workspace_runtime_rejected" },
+		});
+		expect(attempts).toBe(1);
 	});
 });

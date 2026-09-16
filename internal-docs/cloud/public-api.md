@@ -148,6 +148,10 @@ back as `afterSeq`. Assistant rows carry `turnId`, `outcome`, and a bounded
 reply excerpt (up to 16 KB of the final assistant text; tool output and
 attachments are not included — those live in the full transcript surfaces).
 The ledger follows the workspace's initial session.
+User rows include optional `deliveredAt` (Unix milliseconds) once the runtime
+acknowledges delivery. `deliveredAt - createdAt` measures API acceptance to
+delivery acknowledgement, independently of polling cadence or model completion.
+Historical rows may omit it.
 
 ## Webhooks
 

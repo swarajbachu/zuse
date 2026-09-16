@@ -1990,6 +1990,7 @@ describe("public API (/v1/api)", () => {
 				text: string;
 				status: string;
 				turnId?: string;
+				deliveredAt?: number;
 			}>;
 			latestSeq: number;
 		}>(
@@ -2011,6 +2012,11 @@ describe("public API (/v1/api)", () => {
 		expect(page.messages[0]?.status).toBe("settled");
 		expect(page.messages[1]?.text).toBe("Initial task complete.");
 		expect(page.messages[2]?.status).toBe("settled");
+		const storedDelivery = (
+			await runtime.runPromise(store.listApiMessages(workspaceId, 0, 20))
+		).find((message) => message.seq === page.messages[2]?.seq);
+		expect(storedDelivery?.deliveredAtMs).toEqual(expect.any(Number));
+		expect(page.messages[2]?.deliveredAt).toBe(storedDelivery?.deliveredAtMs);
 		expect(page.messages[3]?.text).toBe("Done! The login bug is fixed.");
 		expect(page.messages[3]?.turnId).toBe(commandTurnId);
 

@@ -2,7 +2,7 @@
 # Publishes the zuse base template for the Box provider as a named snapshot.
 # Box has no custom-image API, so the template is built by provisioning a
 # fresh box with the shared provision.sh stages plus the Box-specific pieces
-# (in-guest quarantine firewall, boot-time port hosting), then freezing it.
+# (boot-time port hosting), then freezing it.
 #
 # Usage: BOX_API_KEY=... box-publish.sh <version>
 #   e.g. box-publish.sh 1   →  named snapshot "zuse-base-v1"
@@ -150,13 +150,10 @@ done
 for file in "$script_dir"/artifacts/*; do
 	upload_file "$box_id" "$file" "$provision_dir/artifacts/$(basename "$file")"
 done
-box_command "$box_id" "chmod +x $provision_dir/provision.sh $provision_dir/box/install.sh $provision_dir/box/zuse-firewall"
+box_command "$box_id" "chmod +x $provision_dir/provision.sh $provision_dir/box/install.sh"
 
 echo "==> installing the template (this takes several minutes)"
 box_command_detached "$box_id" "sudo -n ZUSE_PROVISION_DIR=$provision_dir bash $provision_dir/box/install.sh && sudo -n rm -rf $provision_dir"
-
-echo "==> verifying the quarantine barrier"
-box_command "$box_id" "sudo -n /usr/local/sbin/zuse-firewall verify-quarantined"
 
 echo "==> saving named snapshot $snapshot_name"
 api_json POST /named-snapshots \

@@ -20,6 +20,7 @@ import {
 	reconcileCloudResourceBatch,
 	reconcileCloudResources,
 	reconcileCloudWorkspace,
+	reconcileCloudWorkspaceStartup,
 	reusableAccountBuildSnapshot,
 	sanitizeProjectBuildDiagnostic,
 	sanitizeProjectBuildLog,
@@ -738,7 +739,19 @@ describe("cloud workspace reconciler", () => {
 				const callsBeforeFallback = yield* Ref.get(control.startProcessCalls);
 				// If the provider preserved the runtime, its gateway reconnect callback
 				// advances the workspace to ready before this retry. When no callback
-				// arrives, the next reconciliation performs the existing hard restart.
+				// arrives, reconciliation after the deadline performs the hard restart.
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				if ((yield* Ref.get(control.startProcessCalls)).length !== 0)
+					return yield* Effect.die(
+						"warm runtime restarted before grace deadline",
+					);
+				if (warming === null) return yield* Effect.die("workspace disappeared");
+				yield* store.saveWorkspace({
+					...warming,
+					nextActionAtMs: Date.now() - 1,
+					revision: warming.revision + 1,
+					updatedAtMs: warming.updatedAtMs + 1,
+				});
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				const resumed = yield* store.getWorkspace(workspace.workspaceId);
 				const resumeBeforeMissing = yield* Ref.get(control.resumeInputs);
@@ -842,6 +855,95 @@ describe("cloud workspace reconciler", () => {
 			runtimeState: "offline",
 		});
 		expect(result.workspace?.runtimeBootTokenHash).toBeTruthy();
+	});
+
+	test("overlaps restart preparation and waits for network readiness before launch", async () => {
+		let resolveFile!: () => void;
+		const fileWritten = new Promise<void>((resolve) => {
+			resolveFile = resolve;
+		});
+		let networkReady = false;
+		let launched = false;
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-parallel-preparation",
+					state: "resuming",
+					desiredState: "ready",
+					statusCode: "restart-queued",
+					requestConfig: {},
+				});
+				const providers = yield* SandboxProviders;
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxOfferConfiguration, {
+						port: 47837,
+						createTimeoutSeconds: 3600,
+						keepAliveTimeoutSeconds: 600,
+						runtimeSigningPublicJwk: "public-key",
+					}),
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: (id) =>
+							providers.get(id).pipe(
+								Effect.map((adapter) => ({
+									...adapter,
+									setNetwork: () =>
+										Effect.promise(async () => {
+											await fileWritten;
+											networkReady = true;
+										}),
+									writeTextFile: (...args) =>
+										adapter
+											.writeTextFile(...args)
+											.pipe(Effect.tap(() => Effect.sync(() => resolveFile()))),
+									replaceProcess: (...args) =>
+										Effect.sync(() => {
+											expect(networkReady).toBe(true);
+											launched = true;
+										}).pipe(Effect.andThen(adapter.replaceProcess(...args))),
+								})),
+							),
+					}),
+				);
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(launched).toBe(true);
+	});
+
+	test("does not launch the runtime when parallel network preparation fails", async () => {
+		let launched = false;
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-network-failed",
+					state: "resuming",
+					desiredState: "ready",
+					statusCode: "restart-queued",
+					requestConfig: {},
+				});
+				const providers = yield* SandboxProviders;
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: (id) =>
+							providers.get(id).pipe(
+								Effect.map((adapter) => ({
+									...adapter,
+									setNetwork: () =>
+										Effect.fail(
+											new SandboxProviderError({ code: "transient" }),
+										),
+									replaceProcess: (...args) =>
+										Effect.sync(() => {
+											launched = true;
+										}).pipe(Effect.andThen(adapter.replaceProcess(...args))),
+								})),
+							),
+					}),
+				);
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(launched).toBe(false);
 	});
 
 	test("wakes a ready workspace whose preserved runtime is offline", async () => {
@@ -978,7 +1080,7 @@ describe("cloud workspace reconciler", () => {
 		});
 	});
 
-	test("warm-resumes a retained v3 runtime when mailbox rollout is enabled", async () => {
+	test("gives a retained runtime its reconnect grace after a slow provider resume", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -1006,8 +1108,30 @@ describe("cloud workspace reconciler", () => {
 						state: "paused",
 					}),
 				);
-				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const providers = yield* SandboxProviders;
+				let providerReturnedAt = 0;
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: (id) =>
+							providers.get(id).pipe(
+								Effect.map((adapter) => ({
+									...adapter,
+									resume: (...args) =>
+										adapter.resume(...args).pipe(
+											Effect.andThen(Effect.sleep("600 millis")),
+											Effect.tap(() =>
+												Effect.sync(() => {
+													providerReturnedAt = Date.now();
+												}),
+											),
+										),
+								})),
+							),
+					}),
+				);
 				return {
+					providerReturnedAt,
 					workspace: yield* store.getWorkspace(workspace.workspaceId),
 					resumeInputs: yield* Ref.get(control.resumeInputs),
 					startProcessCalls: yield* Ref.get(control.startProcessCalls),
@@ -1015,6 +1139,9 @@ describe("cloud workspace reconciler", () => {
 			}).pipe(Effect.provide(mailboxEnabledTestLayer)),
 		);
 
+		expect(result.workspace?.nextActionAtMs).toBeGreaterThanOrEqual(
+			result.providerReturnedAt + 12_000,
+		);
 		expect(result.resumeInputs).toHaveLength(1);
 		expect(result.startProcessCalls).toHaveLength(0);
 		expect(result.workspace).toMatchObject({
@@ -1337,4 +1464,39 @@ test.each([
 	if (code === "rejected")
 		expect(result?.nextActionAtMs).toBe(Number.MAX_SAFE_INTEGER);
 	else expect(result?.nextActionAtMs).toBeLessThan(Date.now() + 60_000);
+});
+
+test.each([
+	false,
+	true,
+])("durable startup routing respects process preservation: %s", async (preservesProcessesOnResume) => {
+	const schedule = vi.fn(async () => {});
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId: "workspace-startup-routing",
+				state: "paused",
+				desiredState: "paused",
+				statusCode: "paused",
+				requestConfig: {},
+			});
+			const providers = yield* SandboxProviders;
+			yield* reconcileCloudWorkspaceStartup(
+				workspace.workspaceId,
+				schedule,
+			).pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: (id) =>
+						providers.get(id).pipe(
+							Effect.map((adapter) => ({
+								...adapter,
+								preservesProcessesOnResume,
+							})),
+						),
+				}),
+			);
+		}).pipe(Effect.provide(testLayer)),
+	);
+	expect(schedule).toHaveBeenCalledTimes(preservesProcessesOnResume ? 0 : 1);
 });

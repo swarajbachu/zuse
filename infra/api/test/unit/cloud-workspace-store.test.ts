@@ -1979,6 +1979,71 @@ describe("cloud workspace store", () => {
 						},
 					}),
 		).toBe(false);
+		if (repositoryReady === null) throw new Error("runtime must be ready");
+		for (const desiredState of ["paused", "archived", "deleted"] as const) {
+			const blockedId = `workspace-ready-blocked-${desiredState}`;
+			await runtime.runPromise(
+				store.createWorkspace(
+					{
+						...repositoryReady,
+						desiredState,
+						workspaceId: blockedId,
+						idempotencyKey: blockedId,
+						branch: blockedId,
+					},
+					startCommand(blockedId),
+				),
+			);
+			expect(
+				await runtime.runPromise(
+					store.markRuntimeRepositoryReady({
+						workspaceId: blockedId,
+						currentCredentialHash: "runtime-hash",
+						nowMs: 220,
+						nextIdleAtMs: 2000,
+					}),
+				),
+			).toBeNull();
+			expect(
+				(await runtime.runPromise(store.getWorkspace(blockedId)))?.desiredState,
+			).toBe(desiredState);
+		}
+		for (const [suffix, patch] of [
+			["restart", { statusCode: "restart-queued" }],
+			[
+				"fence",
+				{
+					requestConfig: {
+						...repositoryReady.requestConfig,
+						cloudMailboxFenceRequired: true,
+					},
+				},
+			],
+		] as const) {
+			const blockedId = `workspace-ready-blocked-${suffix}`;
+			await runtime.runPromise(
+				store.createWorkspace(
+					{
+						...repositoryReady,
+						...patch,
+						workspaceId: blockedId,
+						branch: blockedId,
+						idempotencyKey: blockedId,
+					},
+					startCommand(blockedId),
+				),
+			);
+			expect(
+				await runtime.runPromise(
+					store.markRuntimeRepositoryReady({
+						workspaceId: blockedId,
+						currentCredentialHash: "runtime-hash",
+						nowMs: 220,
+						nextIdleAtMs: 2000,
+					}),
+				),
+			).toBeNull();
+		}
 		const retainedV2Runtime = await runtime.runPromise(
 			store.markRuntimeRepositoryReady({
 				workspaceId: workspace.workspaceId,

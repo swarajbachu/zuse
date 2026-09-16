@@ -50,22 +50,21 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 			const failures: unknown[] = [];
 
 			try {
-				// create — boots quarantined; the adapter verifies the firewall
+				// Create with open networking.
 				const created = await Effect.runPromise(
 					adapter.create({
 						sandboxId: `live_${runId}`,
 						providerLabel: label,
 						timeoutSeconds: LIVE_TIMEOUT_SECONDS,
 						env: { ZUSE_LIVE_TEST: runId },
-						network: { kind: "quarantined" },
+						network: { kind: "open" },
 						onTimeout: "pause",
 					}),
 				);
 				createdIds.push(created.providerSandboxId);
 				expect(created.state).toBe("running");
 
-				// quarantine canary: an external fetch from inside must fail while
-				// quarantined and succeed once the network opens.
+				// Verify external access directly after creation.
 				const canary = () =>
 					Effect.runPromise(
 						adapter.pathExists(
@@ -84,7 +83,7 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 					}),
 				);
 				await new Promise((resolve) => setTimeout(resolve, 15_000));
-				expect(await canary()).toBe(false);
+				expect(await canary()).toBe(true);
 
 				// inspect
 				const inspected = await Effect.runPromise(
@@ -115,23 +114,6 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 					(value) => value,
 				);
 				expect(runtimeLoads).toBe(true);
-
-				// open the network in one call, then the canary must go green
-				await Effect.runPromise(
-					adapter.setNetwork(created.providerSandboxId, { kind: "open" }),
-				);
-				await Effect.runPromise(
-					adapter.startProcess(created.providerSandboxId, {
-						command: "/bin/bash",
-						args: [
-							"-c",
-							"curl -sf --max-time 10 https://example.com >/dev/null && touch /tmp/zuse-canary-online",
-						],
-						user: "zuse",
-					}),
-				);
-				const online = await pollUntil(canary, (value) => value);
-				expect(online).toBe(true);
 
 				// hosted-port reachability over the stable subdomain URL
 				await Effect.runPromise(
@@ -284,7 +266,7 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 				);
 				expect(snapshotId).not.toBe("");
 
-				// fork from the snapshot — boots quarantined by construction
+				// Fork from the snapshot with open networking.
 				const forked = await Effect.runPromise(
 					adapter.fork({
 						sandboxId: `live_fork_${runId}`,
@@ -292,7 +274,7 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 						snapshotId,
 						timeoutSeconds: LIVE_TIMEOUT_SECONDS,
 						env: { ZUSE_LIVE_TEST: runId },
-						network: { kind: "quarantined" },
+						network: { kind: "open" },
 						onTimeout: "pause",
 					}),
 				);
@@ -300,14 +282,13 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 				expect(forked.state).toBe("running");
 				expect(forked.providerSandboxId).not.toBe(created.providerSandboxId);
 
-				// the fork inherited the parent's open-network disk state, but must
-				// still boot behind the firewall: prove egress is denied again.
+				// Verify external access after a cold fork.
 				await Effect.runPromise(
 					adapter.startProcess(forked.providerSandboxId, {
 						command: "/bin/bash",
 						args: [
 							"-c",
-							"curl -sf --max-time 10 https://example.com >/dev/null && touch /tmp/zuse-canary-online",
+							"curl -sf --max-time 10 https://example.com >/dev/null && touch /tmp/zuse-fork-canary-online",
 						],
 						user: "zuse",
 					}),
@@ -317,15 +298,10 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 					Effect.runPromise(
 						adapter.pathExists(
 							forked.providerSandboxId,
-							"/tmp/zuse-canary-online",
+							"/tmp/zuse-fork-canary-online",
 						),
 					),
-				).resolves.toBe(false);
-
-				// open the fork's network in one call
-				await Effect.runPromise(
-					adapter.setNetwork(forked.providerSandboxId, { kind: "open" }),
-				);
+				).resolves.toBe(true);
 			} catch (cause) {
 				failures.push(cause);
 			} finally {

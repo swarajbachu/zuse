@@ -1,3 +1,4 @@
+import type { DurableObjectState } from "@cloudflare/workers-types";
 import { PgClient } from "@effect/sql-pg";
 import {
 	CLOUD_WORKSPACE_OFFER_ID,
@@ -52,6 +53,11 @@ import {
 import { SlackPersistenceLive } from "./slack/persistence.ts";
 import { ApiStorePg } from "./store.ts";
 import { WorkosVerifierLive } from "./workos.ts";
+import {
+	scheduleWorkspaceStartup,
+	type WorkspaceStartupNamespace,
+	WorkspaceStartupTask,
+} from "./workspace-startup.ts";
 
 export { WorkspaceGateway } from "./workspace-gateway.ts";
 export { WorkspaceMailbox } from "./workspace-mailbox.ts";
@@ -62,6 +68,7 @@ export { WorkspaceMailbox } from "./workspace-mailbox.ts";
  * is the Hyperdrive binding fronting PlanetScale Postgres.
  */
 interface Env extends SlackBindings {
+	readonly WORKSPACE_STARTUP: WorkspaceStartupNamespace;
 	readonly HYPERDRIVE: { readonly connectionString: string };
 	readonly WORKSPACE_GATEWAY: {
 		readonly idFromName: (name: string) => unknown;
@@ -258,7 +265,7 @@ const nudgeWorkspaceGateway = (env: Env, target: string): Promise<unknown> => {
 		});
 };
 
-const build = (env: Env): ReturnType<typeof makeApi> => {
+const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 	const cloudTranscriptBucket = env.CLOUD_TRANSCRIPTS;
 	const billing = resolveBillingRuntime(env);
 	const postHogConfigured =
@@ -520,6 +527,10 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 		isConfigured(cloudDataEncryptionKey),
 	);
 	const api: ReturnType<typeof makeApi> = makeApi(appLayer, {
+		scheduleColdWorkspaceStartup: directStartup
+			? undefined
+			: (workspaceId) =>
+					scheduleWorkspaceStartup(env.WORKSPACE_STARTUP, workspaceId),
 		slackPublicOrigin: env.SLACK_PUBLIC_ORIGIN,
 		slack: slackConfig
 			? {
@@ -746,3 +757,17 @@ export default {
 		);
 	},
 };
+
+/** Lifecycle work may exceed the HTTP background execution window. */
+export class WorkspaceStartup extends WorkspaceStartupTask {
+	constructor(state: DurableObjectState, env: Env) {
+		super(state, async (workspaceId) => {
+			const api = build(env, true);
+			try {
+				await api.reconcileCloudWorkspaceStartup(workspaceId);
+			} finally {
+				await api.dispose();
+			}
+		});
+	}
+}

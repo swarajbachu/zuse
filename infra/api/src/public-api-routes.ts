@@ -5,6 +5,7 @@ import {
 	ApiWorkspaceCreateRequest,
 } from "@zuse/contracts";
 import { cloudRuntimeCommandTurnId } from "@zuse/utils/cloud-api";
+import { cloudTimingEvent } from "@zuse/utils/cloud-timing";
 import { Clock, Effect } from "effect";
 import {
 	API_ASSET_MAX_BYTES,
@@ -135,6 +136,9 @@ const publicApiMessage = Effect.fn("publicApiMessage")(function* (
 		...(message.turnId === undefined ? {} : { turnId: message.turnId }),
 		...(message.outcome === undefined ? {} : { outcome: message.outcome }),
 		createdAt: message.createdAtMs,
+		...(message.deliveredAtMs === undefined
+			? {}
+			: { deliveredAt: message.deliveredAtMs }),
 		...(content.attachments.length === 0
 			? {}
 			: { attachments: content.attachments }),
@@ -551,6 +555,10 @@ export const routeAccountWorkspaceRequest = (
 			}
 
 			if (method === "POST" && messagesMatch !== null) {
+				cloudTimingEvent(
+					{ workspaceId, provider: workspace.provider },
+					"message.request-authorized",
+				);
 				const body = yield* decodeBody(ApiSendMessageRequest, request);
 				const text = body.text.trim();
 				const assetIds = [...new Set(body.attachments ?? [])];
@@ -661,6 +669,15 @@ export const routeAccountWorkspaceRequest = (
 						continue;
 					}
 					const appended = committed.append;
+					cloudTimingEvent(
+						{
+							workspaceId,
+							messageId,
+							commandId: message.commandId,
+							provider: candidate.provider,
+						},
+						"message.persisted",
+					);
 					if (appended.kind === "existing")
 						yield* requireMatchingApiMessage(appended.message, messageContent);
 					if (

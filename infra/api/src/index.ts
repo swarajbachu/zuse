@@ -61,6 +61,9 @@ export const makeApi = (
 	layer: Layer.Layer<ApiContext>,
 	options?: {
 		readonly slack?: SlackOptions;
+		readonly scheduleColdWorkspaceStartup?: (
+			workspaceId: string,
+		) => Promise<void>;
 		/** Retain the receiver's identity while disabled so pending deliveries retry. */
 		readonly slackPublicOrigin?: string;
 	},
@@ -184,7 +187,12 @@ export const makeApi = (
 		reconcileCloudWorkspace: (workspaceId) =>
 			runtime.runPromise(reconcileCloudWorkspace(workspaceId)),
 		reconcileCloudWorkspaceStartup: (workspaceId) =>
-			runtime.runPromise(reconcileCloudWorkspaceStartup(workspaceId)),
+			runtime.runPromise(
+				reconcileCloudWorkspaceStartup(
+					workspaceId,
+					options?.scheduleColdWorkspaceStartup,
+				),
+			),
 		requestCloudMailboxWake: (workspaceId, accountId) =>
 			runtime.runPromise(
 				Effect.gen(function* () {

@@ -2237,7 +2237,10 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							"number" ||
 						workspace.requestConfig.runtimeCredentialExpiresAtMs <=
 							input.nowMs ||
-						workspace.state === "deleted"
+						workspace.state === "deleted" ||
+						workspace.desiredState !== "ready" ||
+						workspace.statusCode === "restart-queued" ||
+						workspace.requestConfig.cloudMailboxFenceRequired === true
 					)
 						return [null, current] as const;
 					const timings =
@@ -4752,6 +4755,9 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						AND runtime_credential_hash=${input.currentCredentialHash}
 						AND (request_config->>'runtimeCredentialExpiresAtMs')::bigint > ${input.nowMs}
 						AND state <> 'deleted'
+						AND desired_state='ready'
+						AND status_code <> 'restart-queued'
+						AND COALESCE((request_config->>'cloudMailboxFenceRequired')::boolean, false)=false
 					RETURNING *`.pipe(
 						Effect.map((rows) =>
 							rows[0] === undefined ? null : workspaceFromRow(rows[0] as Row),
@@ -5393,7 +5399,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							return false;
 						}
 						const rows =
-							yield* sql`UPDATE api_cloud_workspace_api_messages AS message SET status=CASE WHEN EXISTS (SELECT 1 FROM api_cloud_workspace_api_messages AS assistant WHERE assistant.workspace_id=${workspaceId} AND assistant.role='assistant' AND assistant.turn_id=${turnId}) THEN 'settled' ELSE 'delivered' END, delivered_at=${nowMs}, turn_id=${turnId} WHERE message.workspace_id=${workspaceId} AND message.message_id=${messageId} AND message.role='user' AND message.status='pending' AND (message.turn_id IS NULL OR message.turn_id=${turnId} OR (${commandTurnId ?? null} IS NOT NULL AND message.turn_id=${commandTurnId ?? null})) RETURNING message_id`;
+							yield* sql`UPDATE api_cloud_workspace_api_messages AS message SET status=CASE WHEN EXISTS (SELECT 1 FROM api_cloud_workspace_api_messages AS assistant WHERE assistant.workspace_id=${workspaceId} AND assistant.role='assistant' AND assistant.turn_id=${turnId}) THEN 'settled' ELSE 'delivered' END, delivered_at=${nowMs}, turn_id=${turnId} WHERE message.workspace_id=${workspaceId} AND message.message_id=${messageId} AND message.role='user' AND message.status='pending' AND (message.turn_id IS NULL OR message.turn_id=${turnId} OR (${commandTurnId ?? null}::text IS NOT NULL AND message.turn_id=${commandTurnId ?? null})) RETURNING message_id`;
 						if (rows.length === 1) return true;
 						const found =
 							yield* sql`SELECT message_id FROM api_cloud_workspace_api_messages WHERE workspace_id=${workspaceId} AND message_id=${messageId} AND role='user' AND turn_id=${turnId} AND status IN ('delivered', 'settled')`;
