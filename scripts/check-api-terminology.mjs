@@ -12,7 +12,7 @@ const historicalPaths = [
 	/^infra\/api\/test\/unit\/migration-safety\.test\.ts$/u,
 	/^apps\/server\/test\/integration\/api-config-migration\.test\.ts$/u,
 	/^apps\/server\/test\/integration\/(?:lan-auth-service|ws-auth)\.test\.ts$/u,
-	/^apps\/mobile\/(?:src|test\/unit)\/lib\/connection-records(?:\.test)?\.ts$/u,
+	/^apps\/mobile\/(?:src|test\/unit)\/lib\/connection-(?:records|params)(?:\.test)?\.ts$/u,
 	/^CHANGELOG\.md$/u,
 	/^apps\/web\/content\/changelog\.json$/u,
 	/^scripts\/check-api-terminology\.mjs$/u,
