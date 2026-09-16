@@ -22,15 +22,15 @@ const positiveDuration = (value: number, fallback: number): number =>
 	Number.isFinite(value) && value > 0 ? value : fallback;
 
 /**
- * Draws the Z-shaped centerline while work is pending, then fills the real
- * Zuse contour. Both geometries live with the canonical desktop icon data so
- * the startup mark cannot drift back to an unrelated logo.
+ * Progressively draws the exact Zuse silhouette while work is pending, then
+ * fills that same path. The loader and transparent brand SVG therefore share
+ * one geometry instead of maintaining an animation-only approximation.
  */
 export function LogoTraceLoader({
 	loading = true,
 	isComplete = false,
 	size = 72,
-	strokeWidth = 54,
+	strokeWidth = 240,
 	loopDurationSeconds = 1.35,
 	fillFadeSeconds = 0.24,
 	className,
@@ -101,23 +101,20 @@ export function LogoTraceLoader({
 			viewBox={zuseMark.viewBox}
 			width={size}
 		>
-			<g opacity="0.12" transform={zuseMark.transform}>
-				<path d={zuseMark.path} fill="currentColor" />
-			</g>
 			<path
-				d={zuseMark.tracePath}
+				d={zuseMark.path}
 				fill="none"
-				opacity="0.22"
+				opacity="0.16"
 				stroke="currentColor"
-				strokeLinecap="round"
 				strokeLinejoin="round"
 				strokeWidth={strokeWidth}
+				transform={zuseMark.transform}
 			/>
 
 			{traceAnimation ? (
 				<path
 					data-logo-trace-path=""
-					d={zuseMark.tracePath}
+					d={zuseMark.path}
 					fill="none"
 					onAnimationEnd={
 						phase === "closingTrace" ? () => setPhase("fadingFill") : undefined
@@ -129,6 +126,7 @@ export function LogoTraceLoader({
 					strokeLinejoin="round"
 					strokeWidth={strokeWidth}
 					style={{ animation: traceAnimation }}
+					transform={zuseMark.transform}
 				/>
 			) : null}
 

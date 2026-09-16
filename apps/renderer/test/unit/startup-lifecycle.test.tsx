@@ -1,3 +1,4 @@
+import zuseMark from "@repo/ui/zuse-mark";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { LogoTraceLoader } from "../../src/components/logo-trace-loader.tsx";
@@ -52,9 +53,13 @@ describe("startup lifecycle", () => {
 		expect(markup).toContain('viewBox="0 0 1254 1254"');
 		expect(markup).toContain('stroke="currentColor"');
 		expect(markup).toContain('data-logo-trace-path=""');
-		expect(markup).toContain('d="M455 585 L570 440');
 		expect(markup).toContain('d="M5730 8469');
 		expect(markup).not.toContain('stroke-dasharray="0.16 0.84"');
+		const tracePath = markup.match(/<path data-logo-trace-path=""[^>]*>/)?.[0];
+		expect(tracePath).toContain(`d="${zuseMark.path}"`);
+		expect(tracePath).toContain(`transform="${zuseMark.transform}"`);
+		expect(tracePath).not.toContain("vector-effect");
+		expect(markup).not.toContain('fill="currentColor"');
 		expect(markup).not.toContain("animate-spin");
 		expect(markup).not.toContain("Onboarding");
 	});
@@ -65,7 +70,7 @@ describe("startup lifecycle", () => {
 				ariaLabel="Opening Zuse"
 				isComplete
 				size={64}
-				strokeWidth={36}
+				strokeWidth={220}
 			/>,
 		);
 		expect(markup).toContain('aria-label="Opening Zuse"');
