@@ -68,6 +68,8 @@ describe("built Electron terminal", () => {
 				(value) => value.close(),
 			);
 			const page = electron.page;
+			// Restoring 22% at this width used to collapse the 360px-minimum dock.
+			await page.setViewportSize({ width: 720, height: 600 });
 			const conversationLink = page
 				.getByText(conversation.chat.title, { exact: true })
 				.first();
@@ -161,7 +163,10 @@ describe("built Electron terminal", () => {
 				);
 			}
 			const input = terminal.getByRole("textbox", { name: "Terminal input" });
-			await input.focus();
+			await terminal.locator("canvas").click();
+			expect(
+				await input.evaluate((element) => document.activeElement === element),
+			).toBe(true);
 
 			const orderedMarker = join(scope.root, "ordered-input-ok");
 			const token = "terminalreliability0123456789backspacecheck";
@@ -173,11 +178,47 @@ describe("built Electron terminal", () => {
 			await page.keyboard.press("Enter");
 			await waitForFile(orderedMarker, 10_000);
 
+			// An interactive startup/update prompt must accept a response after a
+			// normal canvas click, without reaching into the hidden input to focus it.
+			const promptMarker = join(scope.root, "interactive-prompt-ok");
+			await page.keyboard.type(
+				`printf 'Update now? [Y/n] '; read answer; test "$answer" = y && /usr/bin/touch ${shellQuote(promptMarker)}`,
+			);
+			await page.keyboard.press("Enter");
+			await terminal.locator("canvas").click();
+			await page.keyboard.type("y");
+			await page.keyboard.press("Enter");
+			await waitForFile(promptMarker, 10_000);
+			await page.setViewportSize({ width: 1440, height: 900 });
+			const rightPane = page.locator('[data-pane="rightPane"]');
+			await rightPane
+				.getByRole("button", { name: /^Terminal actions:/ })
+				.click();
+			const terminalName = page.getByRole("textbox", { name: "Terminal name" });
+			await terminalName.fill("Shell check");
+			await terminalName.press("Enter");
+			await expect
+				.poll(() =>
+					rightPane
+						.getByRole("button", {
+							name: "Terminal actions: Shell check",
+							exact: true,
+						})
+						.count(),
+				)
+				.toBe(1);
+			await page.getByRole("button", { name: "Clear terminal screen" }).click();
+			await expect
+				.poll(() => terminal.locator("pre[aria-live]").textContent())
+				.not.toContain("Update now?");
+			await page.keyboard.press("Escape");
+			await terminalName.waitFor({ state: "hidden" });
+
 			// The bottom dock owns a separate catalog and PTY collection. Hiding it
 			// must preserve the exact process, while closing one of multiple bottom
 			// tabs must terminate only that tab.
 			const openBottom = page.getByRole("button", {
-				name: "Open bottom terminal",
+				name: "Toggle bottom terminal",
 			});
 			await expect.poll(() => openBottom.isEnabled()).toBe(true);
 			await openBottom.click();
@@ -196,16 +237,16 @@ describe("built Electron terminal", () => {
 			);
 			expect(firstBottomId).not.toBe(logicalTerminalId);
 			const bottomMarker = join(scope.root, "bottom-input-ok");
-			await bottomTerminal
-				.getByRole("textbox", { name: "Terminal input" })
-				.focus();
+			await bottomTerminal.locator("canvas").click();
 			await page.keyboard.type(`/usr/bin/touch ${shellQuote(bottomMarker)}`);
 			await page.keyboard.press("Enter");
 			await waitForFile(bottomMarker, 10_000);
 
-			await bottomDock
-				.getByRole("button", { name: "Hide bottom terminal" })
-				.click();
+			await openBottom.click();
+			await expect
+				.poll(() => openBottom.getAttribute("aria-pressed"))
+				.toBe("false");
+			await bottomDock.waitFor({ state: "hidden" });
 			await expect.poll(() => openBottom.isVisible()).toBe(true);
 			await openBottom.click();
 			bottomDock = page.getByRole("region", { name: "Bottom terminal" });
@@ -321,9 +362,14 @@ describe("built Electron terminal", () => {
 				.toBe("running");
 
 			await page
+				.locator('[data-pane="rightPane"]')
+				.getByRole("button", { name: /^Terminal actions:/ })
+				.click();
+			await page
 				.getByRole("button", { name: "Restart terminal process" })
 				.last()
 				.click();
+			await page.keyboard.press("Escape");
 			await expect
 				.poll(() => terminal.getAttribute("data-terminal-status"), {
 					timeout: 20_000,
@@ -354,7 +400,9 @@ describe("built Electron terminal", () => {
 			await page.reload({ waitUntil: "domcontentloaded" });
 			await conversationLink.waitFor({ state: "visible", timeout: 20_000 });
 			await conversationLink.click();
-			await page.getByRole("button", { name: "Open bottom terminal" }).click();
+			await page
+				.getByRole("button", { name: "Toggle bottom terminal" })
+				.click();
 			await expect
 				.poll(
 					() =>

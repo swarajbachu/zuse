@@ -38,6 +38,7 @@ import {
 	terminalsKey,
 	useTerminalsStore,
 } from "../store/terminals.ts";
+import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
 /**
@@ -431,11 +432,6 @@ function PlainTerminalSlot({
 								: uiMessage("chat:terminal_pane_syncing_files_to_local")}
 				</div>
 			) : null}
-			<TerminalControls
-				chatRef={catalogRef}
-				instance={inst}
-				placement={placement}
-			/>
 			<div className="min-h-0 flex-1">
 				<PtyTerminal
 					cwd={inst.cwd}
@@ -466,7 +462,7 @@ function PlainTerminalSlot({
 	);
 }
 
-function TerminalControls({
+export function TerminalTabControls({
 	chatRef,
 	instance,
 	placement,
@@ -555,63 +551,81 @@ function TerminalControls({
 	};
 
 	return (
-		<div className="flex h-7 shrink-0 items-center gap-1 px-2 text-[10px] text-muted-foreground">
-			<span
-				aria-hidden="true"
-				className={`size-1.5 shrink-0 rounded-full ${
-					status === "running"
-						? "bg-emerald-400"
-						: status === "failed"
-							? "bg-rose-400"
-							: status === "exited"
-								? "bg-muted-foreground/50"
-								: "animate-pulse bg-amber-400"
-				}`}
-			/>
-			<form onSubmit={(event) => void commitRename(event)} className="min-w-0">
-				<input
-					aria-label="Terminal name"
-					value={draft}
-					onChange={(event) => setDraft(event.target.value)}
-					onBlur={() => void commitRename()}
-					disabled={operation !== null}
-					className="h-7 w-24 truncate rounded bg-transparent px-1 text-[10px] text-foreground outline-none hover:bg-muted/50 focus:bg-muted/70"
+		<Popover>
+			<PopoverTrigger
+				aria-label={`Terminal actions: ${instance.title}`}
+				title={`${instance.title}: ${error ?? runtimeFailure ?? status}`}
+				className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+			>
+				<span
+					role="status"
+					aria-label={`${instance.title}: ${error ?? runtimeFailure ?? status}`}
+					className={`size-1.5 shrink-0 rounded-full ${
+						status === "running"
+							? "bg-emerald-400"
+							: status === "failed"
+								? "bg-rose-400"
+								: status === "exited"
+									? "bg-muted-foreground/50"
+									: "animate-pulse bg-amber-400"
+					}`}
 				/>
-			</form>
-			<span
-				className="min-w-0 flex-1 truncate"
-				role="status"
-				title={error ?? runtimeFailure ?? status}
+			</PopoverTrigger>
+			<PopoverPopup
+				aria-label={`Terminal controls: ${instance.title}`}
+				align="end"
+				className="w-56"
 			>
-				{error ?? runtimeFailure ?? status}
-			</span>
-			<button
-				type="button"
-				aria-label="Clear terminal screen"
-				title="Clear terminal screen"
-				disabled={operation !== null || status !== "running"}
-				onClick={() => void run("clear")}
-				className="flex h-7 w-7 items-center justify-center rounded hover:bg-muted disabled:opacity-40"
-			>
-				<Eraser className="size-3" />
-			</button>
-			<button
-				type="button"
-				aria-label="Restart terminal process"
-				title="Restart terminal process"
-				disabled={
-					operation !== null ||
-					status === "connecting" ||
-					status === "reconnecting"
-				}
-				onClick={() => void run("restart")}
-				className="flex h-7 w-7 items-center justify-center rounded hover:bg-muted disabled:opacity-40"
-			>
-				<RotateCcw
-					className={`size-3 ${operation === "restart" ? "animate-spin" : ""}`}
-				/>
-			</button>
-		</div>
+				<form
+					onSubmit={(event) => void commitRename(event)}
+					className="min-w-0"
+				>
+					<input
+						aria-label="Terminal name"
+						value={draft}
+						onChange={(event) => setDraft(event.target.value)}
+						onBlur={() => void commitRename()}
+						disabled={operation !== null}
+						className="h-7 w-full truncate rounded bg-transparent px-1 text-xs text-foreground outline-none hover:bg-muted/50 focus:bg-muted/70"
+					/>
+				</form>
+				<span
+					className="block px-1 py-1 text-[11px] text-muted-foreground break-words"
+					role="status"
+					title={error ?? runtimeFailure ?? status}
+				>
+					{error ?? runtimeFailure ?? status}
+				</span>
+				<button
+					type="button"
+					aria-label="Clear terminal screen"
+					title="Clear terminal screen"
+					disabled={operation !== null || status !== "running"}
+					onClick={() => void run("clear")}
+					className="flex h-7 w-full items-center gap-2 rounded px-1 text-xs hover:bg-muted disabled:opacity-40"
+				>
+					<Eraser className="size-3" />
+					Clear screen
+				</button>
+				<button
+					type="button"
+					aria-label="Restart terminal process"
+					title="Restart terminal process"
+					disabled={
+						operation !== null ||
+						status === "connecting" ||
+						status === "reconnecting"
+					}
+					onClick={() => void run("restart")}
+					className="flex h-7 w-full items-center gap-2 rounded px-1 text-xs hover:bg-muted disabled:opacity-40"
+				>
+					<RotateCcw
+						className={`size-3 ${operation === "restart" ? "animate-spin" : ""}`}
+					/>
+					Restart process
+				</button>
+			</PopoverPopup>
+		</Popover>
 	);
 }
 

@@ -18,13 +18,12 @@ describe("BottomTerminalDock", () => {
 		useUiStore.setState({ bottomTerminalLayoutByChat: {} });
 	});
 
-	it("offers a compact collapsed terminal without creating a PTY", () => {
+	it("renders no bottom strip while collapsed and does not create a PTY", () => {
 		const markup = renderToStaticMarkup(
 			<BottomTerminalDock chatRef={chatRef} rootPath="/workspace" />,
 		);
 
-		expect(markup).toContain('aria-label="Open bottom terminal"');
-		expect(markup).toContain("Terminal");
+		expect(markup).toBe("");
 		expect(useTerminalsStore.getState().byKey).toEqual({});
 	});
 
@@ -38,6 +37,8 @@ describe("BottomTerminalDock", () => {
 		expect(markup).toContain('aria-label="Hide bottom terminal"');
 		expect(markup).toContain('aria-label="New bottom terminal"');
 		expect(markup).toContain('aria-label="Close zsh"');
+		expect(markup).toContain('aria-label="Terminal actions: zsh"');
+		expect(markup).not.toContain('aria-label="Terminal name"');
 	});
 
 	it("explains and gates new terminals at the owner limit", () => {
