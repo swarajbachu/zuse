@@ -2739,6 +2739,76 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(session.permissionMode).toBe(initialSession.permissionMode);
 		});
 	});
+	it("preserves a manually renamed chat after reopening the database", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-chat-rename-restart-"));
+		const dbPath = join(directory, "test.sqlite");
+		const runtime = makeRuntime(dbPath);
+		try {
+			const chatId = await runtime.runPromise(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const now = new Date().toISOString();
+					yield* sql`
+						INSERT INTO projects (id, path, name, created_at, updated_at)
+						VALUES (${PROJECT_ID}, ${directory}, ${"Test"}, ${now}, ${now})
+					`;
+					const service = yield* store;
+					const { chat } = yield* service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					});
+					const renamed = yield* service.renameChat(chat.id, "My workspace");
+					expect(renamed).toMatchObject({
+						title: "My workspace",
+						titleProvenance: "manual",
+					});
+
+					// Simulate a process stopping after the durable rename event was
+					// appended but before its read-model projection committed. The
+					// restarted ChatDomain must catch up the event before serving chats.
+					const latestChatEvent = yield* sql<{
+						readonly sequence: number;
+					}>`
+						SELECT sequence FROM events
+						WHERE stream_kind = 'chat' AND stream_id = ${chat.id}
+						ORDER BY sequence DESC LIMIT 1
+					`;
+					const sequence = latestChatEvent[0]?.sequence;
+					expect(sequence).toBeDefined();
+					if (sequence === undefined) return chat.id;
+					yield* sql`
+						UPDATE projector_cursors
+						SET last_sequence = ${sequence - 1}
+						WHERE projector_name = 'chat-read-model'
+					`;
+					yield* sql`
+						UPDATE chats
+						SET title = 'New chat', title_provenance = 'pending'
+						WHERE id = ${chat.id}
+					`;
+					return chat.id;
+				}),
+			);
+			await runtime.dispose();
+			const restarted = makeRuntime(dbPath, false);
+			try {
+				const chat = await restarted.runPromise(
+					Effect.flatMap(store, (service) => service.getChat(chatId)),
+				);
+				expect(chat).toMatchObject({
+					title: "My workspace",
+					titleProvenance: "manual",
+				});
+			} finally {
+				await restarted.dispose();
+			}
+		} finally {
+			await runtime.dispose();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
 	it("renameSession, setRuntimeMode and setPermissionMode persist", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
