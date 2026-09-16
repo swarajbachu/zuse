@@ -748,6 +748,8 @@ describe("cloud workspace reconciler", () => {
 				yield* store.saveWorkspace({
 					...warming,
 					nextActionAtMs: Date.now() - 1,
+					revision: warming.revision + 1,
+					updatedAtMs: warming.updatedAtMs + 1,
 				});
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				const resumed = yield* store.getWorkspace(workspace.workspaceId);
