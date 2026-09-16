@@ -30,6 +30,8 @@ import {
 	currentConnections,
 	updateDiscoveredConnectionRoute,
 } from "./connections";
+import { registerLocalRouteRecovery } from "./local-route-recovery";
+import { retryMobileClientBusConnections } from "./mobile-client-bus";
 import { appAtomRegistry } from "./registry";
 
 type ActiveRoute = {
@@ -84,7 +86,9 @@ export function useLocalConnectivityRuntime(): void {
 						paired: paired.map((connection) => connection.key),
 						services: services.current.length,
 					});
-					const pairedKeys = new Set(paired.map((connection) => connection.key));
+					const pairedKeys = new Set(
+						paired.map((connection) => connection.key),
+					);
 					for (const [key, route] of activeRoutes.current) {
 						if (pairedKeys.has(key)) continue;
 						activeRoutes.current.delete(key);
@@ -195,8 +199,7 @@ export function useLocalConnectivityRuntime(): void {
 								: "lan",
 							nearbyServiceName: service.name,
 							transportCertificatePin:
-								connection.transportCertificatePin ??
-								service.tlsCertificatePin,
+								connection.transportCertificatePin ?? service.tlsCertificatePin,
 						});
 						// Wake the supervisor with the fresh route immediately (the
 						// routeGeneration bump makes it reconnect, even from an
@@ -205,7 +208,10 @@ export function useLocalConnectivityRuntime(): void {
 						const updated = currentConnections().find(
 							(record) => record.key === connection.key,
 						);
-						if (updated !== undefined) applyConnectionOptions(updated);
+						if (updated !== undefined) {
+							applyConnectionOptions(updated);
+							retryMobileClientBusConnections(connection.key);
+						}
 						if (current !== undefined) await closeLocalProxy(current.proxy.id);
 					}
 				} while (reconcileAgain.current && !disposed);
@@ -252,6 +258,17 @@ export function useLocalConnectivityRuntime(): void {
 			}
 			void reconcile();
 		};
+		const removeRecovery = registerLocalRouteRecovery((key) => {
+			// An unchanged Bonjour id does not mean its phone-side proxy survived.
+			// Explicit Retry must discard that proxy instead of dialing its old port.
+			const route = activeRoutes.current.get(key);
+			activeRoutes.current.delete(key);
+			pathEpoch.current += 1;
+			if (route !== undefined)
+				void closeLocalProxy(route.proxy.id).catch(() => {});
+			if (services.current.length === 0) void restartDiscovery();
+			else void reconcile();
+		});
 
 		void startLocalDiscovery();
 		const removeServices = onNearbyServicesChanged((next) => {
@@ -317,16 +334,21 @@ export function useLocalConnectivityRuntime(): void {
 		});
 		// Backgrounding cancels every native proxy; drop the JS mirror so a
 		// foreground reconcile rebuilds routes instead of trusting dead ids.
+		let backgrounded = false;
 		const appStateSubscription = AppState.addEventListener(
 			"change",
 			(state) => {
 				if (state === "background") {
+					backgrounded = true;
 					pathEpoch.current += 1;
 					services.current = [];
 					activeRoutes.current.clear();
 					return;
 				}
-				if (state === "active") void reconcile();
+				if (state === "active" && backgrounded) {
+					backgrounded = false;
+					void restartDiscovery();
+				}
 			},
 		);
 		const removeConnections = appAtomRegistry.subscribe(
@@ -340,6 +362,7 @@ export function useLocalConnectivityRuntime(): void {
 
 		return () => {
 			disposed = true;
+			removeRecovery();
 			removeServices();
 			removePath();
 			removeDiscoveryState();

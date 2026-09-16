@@ -130,7 +130,14 @@ export const buildInboxGroups = ({
 				statusBySession,
 				pinnedChatKeys,
 			}).filter((row) => matchesQuery(row, normalizedQuery));
-			if (rows.length === 0) continue;
+			if (
+				rows.length === 0 &&
+				normalizedQuery &&
+				!`${bundle.project.name} ${bundle.project.path}`
+					.toLowerCase()
+					.includes(normalizedQuery)
+			)
+				continue;
 
 			rows.sort(compareRows);
 			groups.push({

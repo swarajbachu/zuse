@@ -1,6 +1,11 @@
+import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getConnectionClient } from "../../../src/rpc/connection";
+import { redeemPairingCode } from "../../../src/rpc/pairing-client";
+
 import {
+	addConnection,
 	connectionsAtom,
 	connectionsHydratedAtom,
 	hydrateConnections,
@@ -48,5 +53,61 @@ describe("connection hydration", () => {
 
 		expect(appAtomRegistry.get(connectionsHydratedAtom)).toBe(true);
 		expect(appAtomRegistry.get(connectionsAtom)).toEqual([]);
+	});
+});
+
+describe("pairing credential exchange", () => {
+	beforeEach(() => {
+		vi.mocked(redeemPairingCode).mockReset();
+		vi.mocked(redeemPairingCode).mockResolvedValue({ token: "zt_redeemed" });
+		vi.mocked(getConnectionClient).mockReset();
+		vi.mocked(getConnectionClient).mockReturnValue(
+			Effect.die(new Error("stop after credential exchange")),
+		);
+		appAtomRegistry.set(connectionsAtom, []);
+	});
+
+	it.each([
+		"ABCD2345",
+		"abcd-2345",
+		"abcd 2345",
+		"zp_legacyCode",
+	])("redeems %s before opening the authenticated socket", async (token) => {
+		await expect(
+			addConnection({
+				host: "192.168.1.2",
+				port: 47837,
+				token,
+				source: "paired",
+				httpBaseUrl: "https://desktop.example.ts.net",
+			}),
+		).rejects.toThrow("Could not reach");
+		expect(redeemPairingCode).toHaveBeenCalledWith(
+			expect.objectContaining({
+				code: token.startsWith("zp_") ? token : "ABCD2345",
+			}),
+		);
+		expect(getConnectionClient).toHaveBeenCalledWith(
+			expect.objectContaining({ token: "zt_redeemed" }),
+		);
+	});
+
+	it.each([
+		"zt_existing",
+		"eyJ.example.signature",
+		"ſbcd2345",
+	])("preserves existing bearer %s", async (token) => {
+		await expect(
+			addConnection({
+				host: "192.168.1.2",
+				port: 47837,
+				token,
+				source: "paired",
+			}),
+		).rejects.toThrow("Could not reach");
+		expect(redeemPairingCode).not.toHaveBeenCalled();
+		expect(getConnectionClient).toHaveBeenCalledWith(
+			expect.objectContaining({ token }),
+		);
 	});
 });

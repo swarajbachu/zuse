@@ -17,7 +17,6 @@ type BootstrapState =
 	| { readonly status: "error"; readonly error: string };
 
 export function ApplicationBootstrap() {
-	const [attempt, setAttempt] = useState(0);
 	const [state, setState] = useState<BootstrapState>({ status: "loading" });
 
 	useEffect(() => {
@@ -54,14 +53,16 @@ export function ApplicationBootstrap() {
 			active = false;
 			window.clearTimeout(timeout);
 		};
-	}, [attempt]);
+	}, []);
 
 	if (state.status === "ready") return <state.Application />;
 	return (
 		<StartupSurface
 			error={state.status === "error" ? state.error : null}
 			phase={state.status === "error" ? "error" : "initial-loading"}
-			onRetry={() => setAttempt((current) => current + 1)}
+			// A failed ESM import is cached by the document. Retrying in the same
+			// React root can also mix optimizer generations after a dev restart.
+			onRetry={() => window.location.reload()}
 		/>
 	);
 }

@@ -102,9 +102,11 @@ export default function ScanScreen() {
 				}}
 			>
 				<Text className="text-center font-sans text-sm text-white">
-					{scanned
-						? "Connecting to your desktop…"
-						: "Point your camera at the pairing code."}
+					{error !== null
+						? "Could not connect"
+						: scanned
+							? "Connecting to your desktop…"
+							: "Point your camera at the pairing code."}
 				</Text>
 				{scanned && error === null ? (
 					<ActivityIndicator className="pt-3" color={colors.accent} />

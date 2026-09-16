@@ -27,14 +27,6 @@ export function HomeChatRow({
 		`/c/${encodeURIComponent(row.connectionKey)}/session/${encodeURIComponent(
 			row.session.id,
 		)}` as const;
-	const context = item.showProject
-		? [
-				row.projectName,
-				row.threadCount > 1 ? `${row.threadCount} threads` : null,
-			]
-				.filter((part) => part !== null)
-				.join(" · ")
-		: null;
 
 	return (
 		<Swipeable
@@ -87,21 +79,24 @@ export function HomeChatRow({
 		>
 			<Link href={href} asChild>
 				<Link.Trigger>
-					<Pressable className="mx-1 min-h-[54px] justify-center rounded-xl px-3 py-2.5 active:bg-muted">
+					<Pressable
+						accessibilityLabel={`${row.title}, ${row.projectName}`}
+						className="mx-1 min-h-[46px] justify-center rounded-xl px-3 py-2 active:bg-muted"
+					>
 						<View className="flex-row items-center gap-2.5">
 							<View
 								className="h-5 w-5 items-center justify-center"
 								style={{ marginTop: 2 }}
-					>
+							>
 								<ProviderLogo
 									providerId={row.session.providerId}
 									size={17}
 									color={colors.secondaryFg}
-							/>
+								/>
 								{isActive || row.unread ? (
 									<View className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
-							) : null}
-						</View>
+								) : null}
+							</View>
 							<Text
 								className={cn(
 									"min-w-0 flex-1 font-sans text-[16px] leading-5",
@@ -111,21 +106,22 @@ export function HomeChatRow({
 							>
 								{row.title}
 							</Text>
+							{item.showProject ? (
 								<Text
+									numberOfLines={1}
+									style={{ maxWidth: "28%" }}
+									className="rounded-full bg-muted px-2 py-0.5 font-sans text-[11px] text-muted-foreground"
+								>
+									{row.projectName}
+								</Text>
+							) : null}
+							<Text
 								className="font-sans text-[12px] text-muted-foreground"
 								style={{ fontVariant: ["tabular-nums"] }}
 							>
 								{row.subtitle}
 							</Text>
 						</View>
-						{context === null ? null : (
-							<Text
-								className="ml-[30px] mt-0.5 font-sans text-[12px] text-muted-foreground"
-									numberOfLines={1}
-								>
-								{context}
-								</Text>
-						)}
 					</Pressable>
 				</Link.Trigger>
 			</Link>

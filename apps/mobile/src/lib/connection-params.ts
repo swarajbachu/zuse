@@ -20,7 +20,7 @@ export const optionsForConnection = (
 		(connection) => connection.key === key || connection.environmentId === key,
 	);
 	if (existing !== undefined) return existing;
-	if (key.startsWith("cloud:")) return null;
+	if (/^(cloud|paired|api|manual|relay):/.test(key)) return null;
 	if (!key.includes(":")) return null;
 	return parseConnectionKey(key);
 };

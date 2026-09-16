@@ -42,9 +42,10 @@ export function HomeProjectHeader({
 				collapsed ? ", collapsed" : ""
 			}`}
 			onPress={onToggle}
-			className="mt-3 min-h-[60px] flex-row items-center gap-3 px-2 py-3 active:bg-muted"
+			accessibilityHint="Tap to expand. Hold and drag to reorder."
+			className="min-h-[48px] rounded-xl overflow-hidden flex-row items-center gap-2.5 px-2 py-2 active:bg-muted"
 		>
-			<ProjectLogo title={group.title} avatarUrl={avatarUrl} size={36} />
+			<ProjectLogo title={group.title} avatarUrl={avatarUrl} size={28} />
 			<View className="min-w-0 flex-1">
 				<View className="flex-row items-center gap-2">
 					<Text
@@ -65,12 +66,6 @@ export function HomeProjectHeader({
 						</View>
 					) : null}
 				</View>
-				<Text
-					className="font-sans text-[12px] text-muted-foreground"
-					numberOfLines={1}
-				>
-					{group.connectionLabel} · {group.displayPath}
-				</Text>
 			</View>
 			<Text
 				className="font-sans text-[13px] text-muted-foreground"
