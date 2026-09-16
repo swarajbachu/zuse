@@ -856,6 +856,95 @@ describe("cloud workspace reconciler", () => {
 		expect(result.workspace?.runtimeBootTokenHash).toBeTruthy();
 	});
 
+	test("overlaps restart preparation and waits for network readiness before launch", async () => {
+		let resolveFile!: () => void;
+		const fileWritten = new Promise<void>((resolve) => {
+			resolveFile = resolve;
+		});
+		let networkReady = false;
+		let launched = false;
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-parallel-preparation",
+					state: "resuming",
+					desiredState: "ready",
+					statusCode: "restart-queued",
+					requestConfig: {},
+				});
+				const providers = yield* SandboxProviders;
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxOfferConfiguration, {
+						port: 47837,
+						createTimeoutSeconds: 3600,
+						keepAliveTimeoutSeconds: 600,
+						runtimeSigningPublicJwk: "public-key",
+					}),
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: (id) =>
+							providers.get(id).pipe(
+								Effect.map((adapter) => ({
+									...adapter,
+									setNetwork: () =>
+										Effect.promise(async () => {
+											await fileWritten;
+											networkReady = true;
+										}),
+									writeTextFile: (...args) =>
+										adapter
+											.writeTextFile(...args)
+											.pipe(Effect.tap(() => Effect.sync(() => resolveFile()))),
+									replaceProcess: (...args) =>
+										Effect.sync(() => {
+											expect(networkReady).toBe(true);
+											launched = true;
+										}).pipe(Effect.andThen(adapter.replaceProcess(...args))),
+								})),
+							),
+					}),
+				);
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(launched).toBe(true);
+	});
+
+	test("does not launch the runtime when parallel network preparation fails", async () => {
+		let launched = false;
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-network-failed",
+					state: "resuming",
+					desiredState: "ready",
+					statusCode: "restart-queued",
+					requestConfig: {},
+				});
+				const providers = yield* SandboxProviders;
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxProviders, {
+						...providers,
+						get: (id) =>
+							providers.get(id).pipe(
+								Effect.map((adapter) => ({
+									...adapter,
+									setNetwork: () =>
+										Effect.fail(
+											new SandboxProviderError({ code: "transient" }),
+										),
+									replaceProcess: (...args) =>
+										Effect.sync(() => {
+											launched = true;
+										}).pipe(Effect.andThen(adapter.replaceProcess(...args))),
+								})),
+							),
+					}),
+				);
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(launched).toBe(false);
+	});
+
 	test("wakes a ready workspace whose preserved runtime is offline", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {

@@ -1344,6 +1344,16 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 		const boot = yield* issueWorkspaceRuntimeBoot(nowMs);
 		yield* Effect.all(
 			[
+				// Independent setup overlaps, but every branch must finish before launch.
+				provider.setNetwork(providerSandboxId, { kind: "open" }).pipe(
+					measureCloudStage(
+						{
+							workspaceId: workspace.workspaceId,
+							provider: provider.providerId,
+						},
+						"provider.network",
+					),
+				),
 				config.runtimeSigningPublicJwk === undefined
 					? Effect.void
 					: provider
@@ -1370,14 +1380,14 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			],
 			{ concurrency: "unbounded", discard: true },
 		);
+		const preparedAtMs = yield* Clock.currentTimeMillis;
 		const timings =
 			(workspace.requestConfig.startupTimings as
 				| Readonly<Record<string, number>>
 				| undefined) ?? {};
 		const runtimeFence = nextCloudWorkspaceRuntimeFence(workspace);
-		// Authorize the exact token written above before the detached runtime can
-		// read it. Repeated resume requests are idempotent, so releasing the lease
-		// here cannot replace this token while startup is in flight.
+		// Authorize the boot token before starting the detached runtime. Repeated
+		// resume requests cannot replace it while startup is in flight.
 		yield* saveWorkspace({
 			...workspace,
 			runtimeBootTokenHash: boot.tokenHash,
@@ -1389,29 +1399,18 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			requestConfig: {
 				...resetMailboxWakeObservation(
 					withoutRuntimeBootstrapReceipt(workspace.requestConfig),
-					nowMs,
+					preparedAtMs,
 				),
 				...runtimeFence,
 				runtimeSessionRecoveryPending: true,
-				startupTimings: { ...timings, allocatedAt: nowMs },
+				startupTimings: { ...timings, allocatedAt: preparedAtMs },
 			},
-			nextActionAtMs: nowMs + RUNTIME_CONNECTION_TIMEOUT_MS,
-			lastActivityAtMs: nowMs,
+			nextActionAtMs: preparedAtMs + RUNTIME_CONNECTION_TIMEOUT_MS,
+			lastActivityAtMs: preparedAtMs,
 			runningSinceMs: nowMs,
 			revision: workspace.revision + 1,
-			updatedAtMs: nowMs,
+			updatedAtMs: preparedAtMs,
 		});
-		// Network policy is part of runtime readiness, not a parallel best-effort
-		// side effect. Open egress before the agent process can make its first
-		// gateway or model-api request.
-		yield* provider
-			.setNetwork(providerSandboxId, { kind: "open" })
-			.pipe(
-				measureCloudStage(
-					{ workspaceId: workspace.workspaceId, provider: provider.providerId },
-					"provider.network",
-				),
-			);
 		yield* provider
 			.replaceProcess(providerSandboxId, workspaceRuntimeProcessSelector(), {
 				command: "/bin/bash",

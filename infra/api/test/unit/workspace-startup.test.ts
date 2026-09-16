@@ -65,17 +65,23 @@ describe("durable workspace startup", () => {
 		expect(h.values.has("pending")).toBe(false);
 	});
 	test("does not erase a wake requested while reconciliation is running", async () => {
-		const started = Promise.withResolvers<void>();
-		const finish = Promise.withResolvers<void>();
+		let resolveStarted!: () => void;
+		const started = new Promise<void>((resolve) => {
+			resolveStarted = resolve;
+		});
+		let resolveFinish!: () => void;
+		const finish = new Promise<void>((resolve) => {
+			resolveFinish = resolve;
+		});
 		const h = harness(async () => {
-			started.resolve();
-			await finish.promise;
+			resolveStarted();
+			await finish;
 		});
 		await h.schedule();
 		const running = h.fire();
-		await started.promise;
+		await started;
 		await h.schedule();
-		finish.resolve();
+		resolveFinish();
 		await running;
 		expect(h.values.has("pending")).toBe(true);
 		expect(h.alarm()).not.toBeNull();
