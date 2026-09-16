@@ -78,14 +78,10 @@ Provider-shape differences the adapter absorbs:
   consumes one — the cap is the scaling gate for Box and must be raised
   with ascii.dev before production; superseded images must be deleted
   eagerly.
-- **Network policy is in-guest.** Box has no host-level egress API. The base
-  template bakes in a root-only `zuse-firewall` unit. Box installs restored
-  template files after the normal systemd boot targets, so the adapter runs
-  that script through the provider command channel after the box is usable
-  and before returning it or starting untrusted runtime code. The agent user
-  has no sudo. Quarantined creates and forks are verified before return and
-  destroyed when the barrier cannot be proven. Requested policy is persisted
-  so pause/resume restores it before handoff.
+- **Networking is open.** Box has no Zuse firewall or network-policy command.
+  Open policy requests are local no-ops. Restricted/quarantined policies are
+  rejected before create/fork allocates a machine; E2B retains its own policy
+  support. See `internal-docs/cloud/box-open-networking.md` for deployment order.
 - **Processes ride the command API.** `/commands` has no env/user/tag
   parameters, so the adapter wraps commands in `sudo -u … setsid bash -c`
   with shell-quoted env exports and records the process-group leader in a

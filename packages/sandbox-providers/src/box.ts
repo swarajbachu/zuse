@@ -17,9 +17,7 @@ import {
 	type SandboxProviderResources,
 } from "./index.ts";
 
-// Box resumes from persisted disk with fresh processes. Ordinary cloud
-// workspaces keep open egress across boots. Explicit quarantine/restricted
-// policies still use the root-only firewall; the zuse user cannot lift them.
+// Box resumes from persisted disk with fresh processes and open networking.
 
 const BoxDetail = Schema.Struct({
 	id: Schema.String,
@@ -100,12 +98,6 @@ const defaultHttpClient: BoxHttpClient = {
 export const BOX_API_BASE_URL = "https://ascii.dev/api/box/v1";
 export const BOX_DEFAULT_HOSTED_PORT_DOMAIN = "on.ascii.dev";
 export const BOX_PROVIDER_ID = "box" as const;
-/** Root-only policy script baked into the base template. */
-export const BOX_FIREWALL_COMMAND = "/usr/local/sbin/zuse-firewall";
-const BOX_PERSISTED_POLICY_FILE = "/var/lib/zuse-firewall/policy.b64";
-const BOX_OPEN_WORKSPACE_MARKER = "/var/lib/zuse-firewall/open-workspace";
-const BOX_FIREWALL_DROP_IN =
-	"/etc/systemd/system/zuse-firewall.service.d/workspace.conf";
 const BOX_PERSISTED_RUNTIME_ROOT = "/srv/zuse";
 const BOX_PERSISTED_RUNTIME_MARKER = `${BOX_PERSISTED_RUNTIME_ROOT}/.layout-v1`;
 
@@ -185,17 +177,12 @@ const snapshotName = (name: string): string => {
 	return SNAPSHOT_NAME_PATTERN.test(sanitized) ? sanitized : "";
 };
 
-const networkPolicyArgument = (network: SandboxNetworkPolicy): string => {
-	const payload =
-		network.kind === "restricted"
-			? {
-					kind: "restricted",
-					allowOut: network.allowOut,
-					denyOut: network.denyOut,
-				}
-			: { kind: network.kind };
-	return btoa(JSON.stringify(payload));
-};
+// Box has no network-policy enforcement. Reject unsupported policies before
+// allocating a machine rather than silently granting unrestricted access.
+const validateNetwork = (network: SandboxNetworkPolicy) =>
+	network.kind === "open"
+		? Effect.void
+		: Effect.fail(providerError("rejected"));
 
 export const makeBoxSandboxProvider = (
 	config: BoxSandboxConfig,
@@ -390,64 +377,6 @@ export const makeBoxSandboxProvider = (
 		},
 	);
 
-	const applyNetworkPolicy = (
-		providerSandboxId: string,
-		network: SandboxNetworkPolicy,
-	): Effect.Effect<void, SandboxProviderError> => {
-		const encoded = shellQuote(networkPolicyArgument(network));
-		if (network.kind === "open") {
-			// Migrate old templates too: prevent the boot job from blocking an open
-			// workspace later, cancel any existing job, and remove our egress table.
-			const dropIn = shellQuote(
-				`[Unit]\nConditionPathExists=!${BOX_OPEN_WORKSPACE_MARKER}\n`,
-			);
-			return runCommand(
-				providerSandboxId,
-				[
-					`if ! sudo -n test -f ${BOX_OPEN_WORKSPACE_MARKER} || ! sudo -n test -f ${BOX_FIREWALL_DROP_IN}; then sudo -n install -d -m 0755 /etc/systemd/system/zuse-firewall.service.d && sudo -n install -d -m 0700 /var/lib/zuse-firewall && printf %s ${dropIn} | sudo -n tee ${BOX_FIREWALL_DROP_IN} >/dev/null && sudo -n touch ${BOX_OPEN_WORKSPACE_MARKER} && sudo -n systemctl daemon-reload && sudo -n systemctl stop zuse-firewall.service || exit 1; fi`,
-					`if sudo -n systemctl is-active --quiet zuse-firewall.service; then sudo -n systemctl stop zuse-firewall.service || exit 1; fi`,
-					`if sudo -n nft list table inet zuse-egress >/dev/null 2>&1; then sudo -n nft delete table inet zuse-egress || exit 1; fi`,
-					`printf %s ${encoded} | sudo -n tee ${BOX_PERSISTED_POLICY_FILE} >/dev/null`,
-					`sudo -n chmod 600 ${BOX_PERSISTED_POLICY_FILE}`,
-				].join(" && "),
-			).pipe(
-				Effect.flatMap((result) =>
-					result.exitCode === 0
-						? Effect.void
-						: Effect.fail(providerError("transient")),
-				),
-			);
-		}
-
-		return runCommand(
-			providerSandboxId,
-			`if sudo -n test -f ${BOX_OPEN_WORKSPACE_MARKER}; then sudo -n rm -f ${BOX_OPEN_WORKSPACE_MARKER} && sudo -n systemctl daemon-reload && sudo -n systemctl start zuse-firewall.service || exit 1; fi; attempt=0; until sudo -n systemctl is-active --quiet zuse-firewall.service; do [ "$attempt" -lt 240 ] || exit 1; attempt=$((attempt + 1)); sleep 0.25; done && sudo -n ${BOX_FIREWALL_COMMAND} apply ${encoded} && sudo -n mkdir -p /var/lib/zuse-firewall && printf %s ${encoded} | sudo -n tee ${BOX_PERSISTED_POLICY_FILE} >/dev/null && sudo -n chmod 600 ${BOX_PERSISTED_POLICY_FILE}`,
-			70,
-		).pipe(
-			Effect.flatMap((result) =>
-				result.exitCode === 0
-					? Effect.void
-					: Effect.fail(providerError("transient")),
-			),
-		);
-	};
-
-	// Explicit quarantine remains verified before handing a sandbox to callers.
-
-	const verifyQuarantined = (
-		providerSandboxId: string,
-	): Effect.Effect<void, SandboxProviderError> =>
-		runCommand(
-			providerSandboxId,
-			`sudo -n ${BOX_FIREWALL_COMMAND} verify-quarantined`,
-		).pipe(
-			Effect.flatMap((result) =>
-				result.exitCode === 0
-					? Effect.void
-					: Effect.fail(providerError("transient")),
-			),
-		);
-
 	const startHostedPort = (
 		providerSandboxId: string,
 		port = 47_837,
@@ -493,52 +422,11 @@ export const makeBoxSandboxProvider = (
 			),
 		);
 
-	const prepareRestoredSandbox = Effect.fn(
-		"BoxSandboxProvider.prepareRestoredSandbox",
-	)(function* (
-		providerSandboxId: string,
-		network: SandboxNetworkPolicy,
-		requirePersistedLayout: boolean,
-	) {
-		// Box restores template files after systemd has passed its boot targets.
-		// Apply explicitly before exposing the sandbox. `ready` can briefly lead
-		// completion of the disk restore, so retry the whole fail-closed gate—not
-		// only verification—in case the restore races the first apply.
-		yield* ensureRuntimeLayout(providerSandboxId, requirePersistedLayout);
-		let prepared = false;
-		for (let attempt = 0; attempt < 5 && !prepared; attempt++) {
-			prepared = yield* applyNetworkPolicy(providerSandboxId, network).pipe(
-				Effect.andThen(
-					network.kind === "open"
-						? Effect.void
-						: Effect.sleep(Duration.millis(Math.min(500, pollIntervalMs))),
-				),
-				Effect.andThen(
-					network.kind === "quarantined"
-						? verifyQuarantined(providerSandboxId)
-						: Effect.void,
-				),
-				Effect.as(true),
-				Effect.catchTag("SandboxProviderError", () => Effect.succeed(false)),
-			);
-			if (!prepared) yield* Effect.sleep(Duration.millis(pollIntervalMs));
-		}
-		if (!prepared) return yield* providerError("transient");
-	});
-
 	const restoreResumedSandbox = (providerSandboxId: string) =>
-		runCommand(
-			providerSandboxId,
-			`(${runtimeLayoutCommand(true)}) && if sudo -n test -f ${BOX_OPEN_WORKSPACE_MARKER}; then exit 0; elif sudo -n ${BOX_FIREWALL_COMMAND} restore; then exit 0; else policy="$(sudo -n cat ${BOX_PERSISTED_POLICY_FILE})" && sudo -n ${BOX_FIREWALL_COMMAND} apply "$policy"; fi`,
-		).pipe(
+		ensureRuntimeLayout(providerSandboxId, true).pipe(
 			measureCloudStage(
 				{ provider: "box", providerSandboxId },
 				"box.resume.prepare",
-			),
-			Effect.flatMap((result) =>
-				result.exitCode === 0
-					? Effect.void
-					: Effect.fail(providerError("transient")),
 			),
 		);
 
@@ -574,6 +462,7 @@ export const makeBoxSandboxProvider = (
 			readonly network: SandboxNetworkPolicy;
 			readonly requirePersistedLayout: boolean;
 		}) {
+			yield* validateNetwork(input.network);
 			const env = yield* validatedEnv(input.env);
 			// The Box account environment is deliberately inherited (no `noEnv`):
 			// under the account-image architecture the base carries credentials so
@@ -602,9 +491,8 @@ export const makeBoxSandboxProvider = (
 				),
 			);
 			yield* pollUntilUsable(created.box.id, readyDeadlineMs);
-			yield* prepareRestoredSandbox(
+			yield* ensureRuntimeLayout(
 				created.box.id,
-				input.network,
 				input.requirePersistedLayout,
 			).pipe(
 				Effect.catchTag("SandboxProviderError", (error) =>
@@ -852,11 +740,7 @@ export const makeBoxSandboxProvider = (
 				network: input.network,
 				requirePersistedLayout: false,
 			}),
-		// Box forks are disk restores with a cold process start. Every box still
-		// BOOTS behind the template firewall; the caller's requested policy is
-		// applied (or, for quarantined, verified) only once the box is usable,
-		// so a fork carrying inherited secrets never runs open before the
-		// adapter says so (ADR 0035).
+		// Box forks restore persisted disk with a cold process start.
 		fork: (input) =>
 			createFromSnapshot({
 				providerLabel: input.providerLabel,
@@ -923,8 +807,7 @@ export const makeBoxSandboxProvider = (
 			requestVoid("PATCH", `/boxes/${encodeURIComponent(providerSandboxId)}`, {
 				ttlSeconds: clampTtlSeconds(timeoutSeconds),
 			}),
-		setNetwork: (providerSandboxId, network) =>
-			applyNetworkPolicy(providerSandboxId, network),
+		setNetwork: (_providerSandboxId, network) => validateNetwork(network),
 		snapshot: Effect.fn("BoxSandboxProvider.snapshot")(
 			function* (providerSandboxId, name) {
 				const target = snapshotName(name);

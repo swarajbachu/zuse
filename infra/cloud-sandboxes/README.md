@@ -105,19 +105,13 @@ installation behavior lives in `provision.sh` — the same stages the
 Dockerfile runs — so the two templates cannot drift. The Box-specific layer
 (`box/`) adds what the provider shape requires:
 
-- `zuse-firewall` + `zuse-firewall.service` — the in-guest egress quarantine
-  (ADR 0035). The systemd unit handles ordinary boots; because Box restores
-  template files after boot targets have passed, the adapter also applies
-  policy explicitly before handing a restored box to untrusted code. Only
-  the api's root-only provider command can change it, and the zuse user has
-  no sudo.
 - `zuse-host-ports.service` — re-hosts the runtime port on the box's stable
   public HTTPS URL on ordinary boots. The adapter registers requested ports
   during endpoint resolution, after the listener exists, because restored
   units do not exist during initial systemd boot and Box's tunnel binding is
   listener-sensitive.
 - `install.sh` — root-side installer that pins system Node 22, excludes the
-  stock user's NVM from provisioning, installs nftables, runs the shared stages,
+  stock user's NVM from provisioning, runs the shared stages,
   and strips sudo from the zuse user. Global packages use `/usr/local` explicitly;
   a CLI startup check rejects templates with missing native dependencies.
 
