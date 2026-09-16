@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # In-guest egress policy for Box sandboxes (ADR 0035). Box exposes no
 # host-level network API, so this root-only script is the enforcement point:
-# the systemd unit applies the quarantined policy on every boot before any
-# zuse process can run, and the api's setNetwork rewrites the complete
+# the systemd unit applies quarantine only when open-workspace is absent.
+# Ordinary workspaces skip that boot job; setNetwork rewrites the complete
 # policy in a single call through the provider command channel.
 #
 # The barrier scopes to the zuse uid: untrusted code only ever runs as zuse

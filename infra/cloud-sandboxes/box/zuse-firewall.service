@@ -1,9 +1,6 @@
-# Applies the quarantined egress policy before the network comes up and
-# before any zuse process can run on an ordinary boot. Box snapshot files are
-# restored after boot targets have passed, so the adapter also starts this gate
-# explicitly before handoff on create, fork, and resume (ADR 0035).
 [Unit]
-Description=Zuse sandbox egress quarantine
+Description=Zuse sandbox explicit egress quarantine
+ConditionPathExists=!/var/lib/zuse-firewall/open-workspace
 DefaultDependencies=no
 Before=network-online.target network.target
 After=local-fs.target

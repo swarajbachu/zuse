@@ -1,6 +1,13 @@
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -246,14 +253,11 @@ describe("Box sandbox provider", () => {
 		);
 
 		const apply = JSON.parse(String(http.calls[4]?.init?.body));
-		expect(apply.command).toContain(
-			"systemctl is-active --quiet zuse-firewall.service",
-		);
-		expect(apply.command).toContain(
-			`sudo -n /usr/local/sbin/zuse-firewall apply '${btoa(
-				JSON.stringify({ kind: "open" }),
-			)}'`,
-		);
+		expect(apply.command).toContain("ConditionPathExists=!");
+		expect(apply.command).toContain("systemctl stop zuse-firewall.service");
+		expect(apply.command).toContain("nft delete table inet zuse-egress");
+		expect(apply.command).not.toContain("sleep");
+		expect(apply.command).not.toContain("zuse-firewall apply");
 		expect(apply.command).toContain(
 			"sudo -n tee /var/lib/zuse-firewall/policy.b64",
 		);
@@ -713,49 +717,98 @@ describe("Box sandbox provider", () => {
 		expect(http.calls[0]?.url).toBe("https://box.test/boxes/bx_1/stop");
 	});
 
-	test("resumes with a fresh TTL and re-inspects the box", async () => {
+	test("resumes with one preparation command and preserves the legacy policy fallback", async () => {
 		const http = makeHttp([
 			{ status: 202, body: {} },
 			{ status: 200, body: readyBox("bx_1") },
 			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(0) },
 			{ status: 200, body: readyBox("bx_1") },
 		]);
 		const adapter = makeAdapter(http.client);
-
-		const resumed = await Effect.runPromise(
-			adapter.resume("bx_1", 600, "pause"),
-		);
-
-		expect(resumed.state).toBe("running");
-		expect(http.calls[0]?.url).toBe("https://box.test/boxes/bx_1/resume");
-		expect(JSON.parse(String(http.calls[0]?.init?.body))).toEqual({
-			ttlSeconds: 600,
-		});
-		expect(JSON.parse(String(http.calls[3]?.init?.body)).command).toBe(
-			"sudo -n /usr/local/sbin/zuse-firewall restore",
-		);
+		expect(
+			(await Effect.runPromise(adapter.resume("bx_1", 600, "pause"))).state,
+		).toBe("running");
+		expect(http.calls).toHaveLength(4);
+		const command = JSON.parse(String(http.calls[2]?.init?.body)).command;
+		expect(command).toContain("open-workspace");
+		expect(command).toContain("zuse-firewall restore");
+		expect(command).toContain("cat /var/lib/zuse-firewall/policy.b64");
+		expect(command).not.toContain("sleep");
 	});
 
-	test("resumes a legacy-template box using its persisted policy", async () => {
+	test("open migration prevents boot blocking and removes the old rule without waiting", async () => {
+		const http = makeHttp([{ status: 200, body: commandResult(0) }]);
+		await Effect.runPromise(
+			makeAdapter(http.client).setNetwork("bx_1", { kind: "open" }),
+		);
+		const dir = await mkdtemp(join(tmpdir(), "box-open-"));
+		try {
+			const command = JSON.parse(String(http.calls[0]?.init?.body))
+				.command.replaceAll("/etc/systemd/system", `${dir}/units`)
+				.replaceAll("/var/lib/zuse-firewall", `${dir}/policy`);
+			const log = join(dir, "operations");
+			const shim = `sudo() { shift; "$@"; }; systemctl() { printf '%s\\n' "$*" >> '${log}'; case "$1" in is-active) return 1;; esac; }; nft() { printf 'nft %s\\n' "$*" >> '${log}'; }`;
+			await promisify(execFile)("bash", ["-c", `${shim}; ${command}`]);
+			expect(
+				await readFile(
+					`${dir}/units/zuse-firewall.service.d/workspace.conf`,
+					"utf8",
+				),
+			).toContain(`ConditionPathExists=!${dir}/policy/open-workspace`);
+			expect(await readFile(`${dir}/policy/policy.b64`, "utf8")).toBe(
+				btoa(JSON.stringify({ kind: "open" })),
+			);
+			const first = await readFile(log, "utf8");
+			expect(first.indexOf("stop zuse-firewall.service")).toBeLessThan(
+				first.indexOf("nft delete"),
+			);
+			await writeFile(log, "");
+			await promisify(execFile)("bash", ["-c", `${shim}; ${command}`]);
+			expect(await readFile(log, "utf8")).not.toContain("daemon-reload");
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("healthy persisted layout resumes without copying or recursively changing ownership", async () => {
 		const http = makeHttp([
 			{ status: 202, body: {} },
 			{ status: 200, body: readyBox("bx_1") },
 			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: commandResult(2) },
-			{ status: 200, body: commandResult(0) },
 			{ status: 200, body: readyBox("bx_1") },
 		]);
-		const adapter = makeAdapter(http.client);
-
-		await Effect.runPromise(adapter.resume("bx_1", 600, "pause"));
-
-		expect(JSON.parse(String(http.calls[3]?.init?.body)).command).toContain(
-			"zuse-firewall restore",
+		await Effect.runPromise(
+			makeAdapter(http.client).resume("bx_1", 600, "pause"),
 		);
-		expect(JSON.parse(String(http.calls[4]?.init?.body)).command).toContain(
-			"cat /var/lib/zuse-firewall/policy.b64",
-		);
+		const dir = await mkdtemp(join(tmpdir(), "box-layout-"));
+		try {
+			for (const p of [
+				"persist/home/.zuse-data",
+				"persist/home/.ssh",
+				"persist/repos",
+				"logical",
+				"policy",
+			])
+				await mkdir(join(dir, p), { recursive: true });
+			await writeFile(join(dir, "persist/.layout-v1"), "");
+			await writeFile(join(dir, "policy/open-workspace"), "");
+			await symlink(`${dir}/persist/home`, `${dir}/logical/zuse`);
+			await symlink(`${dir}/persist/repos`, `${dir}/logical/repos`);
+			const command = JSON.parse(String(http.calls[2]?.init?.body))
+				.command.replaceAll("/srv/zuse", `${dir}/persist`)
+				.replaceAll("/home/zuse", `${dir}/logical/zuse`)
+				.replaceAll("/home/repos", `${dir}/logical/repos`)
+				.replaceAll("/var/lib/zuse-firewall", `${dir}/policy`);
+			const shim =
+				'sudo() { shift; "$@"; }; install() { return 0; }; cp() { exit 91; }; chown() { exit 92; }; sleep() { exit 93; }';
+			await promisify(execFile)("bash", ["-c", `${shim}; ${command}`]);
+			await rm(join(dir, "persist/.layout-v1"));
+			await expect(
+				promisify(execFile)("bash", ["-c", `${shim}; ${command}`]),
+			).rejects.toMatchObject({ code: 1 });
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	test("extends the box TTL through a metadata update", async () => {

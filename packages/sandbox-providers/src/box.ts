@@ -17,14 +17,9 @@ import {
 	type SandboxProviderResources,
 } from "./index.ts";
 
-// Box (box.ascii.dev) sandbox adapter. Boxes are full Ubuntu VMs restored from
-// disk snapshots: every create, fork, and resume is a cold boot — no memory
-// state survives. The provider exposes no host-level network policy API, so
-// the egress barrier is the template-baked `zuse-firewall` unit: it boots into
-// default-deny egress and only `setNetwork` (running the root-only firewall
-// script through the provider command channel) can widen it. The agent user
-// has no sudo, so guest code cannot lift the barrier
-// (ADR 0033 amendment for the `box` provider).
+// Box resumes from persisted disk with fresh processes. Ordinary cloud
+// workspaces keep open egress across boots. Explicit quarantine/restricted
+// policies still use the root-only firewall; the zuse user cannot lift them.
 
 const BoxDetail = Schema.Struct({
 	id: Schema.String,
@@ -108,6 +103,9 @@ export const BOX_PROVIDER_ID = "box" as const;
 /** Root-only policy script baked into the base template. */
 export const BOX_FIREWALL_COMMAND = "/usr/local/sbin/zuse-firewall";
 const BOX_PERSISTED_POLICY_FILE = "/var/lib/zuse-firewall/policy.b64";
+const BOX_OPEN_WORKSPACE_MARKER = "/var/lib/zuse-firewall/open-workspace";
+const BOX_FIREWALL_DROP_IN =
+	"/etc/systemd/system/zuse-firewall.service.d/workspace.conf";
 const BOX_PERSISTED_RUNTIME_ROOT = "/srv/zuse";
 const BOX_PERSISTED_RUNTIME_MARKER = `${BOX_PERSISTED_RUNTIME_ROOT}/.layout-v1`;
 
@@ -392,17 +390,38 @@ export const makeBoxSandboxProvider = (
 		},
 	);
 
-	// Fully archived disks can take more than 20 seconds to finish restoring
-	// the boot unit. Keep its barrier intact, with room for the observed 30s
-	// delay and a short local poll so readiness does not add a full second.
 	const applyNetworkPolicy = (
 		providerSandboxId: string,
 		network: SandboxNetworkPolicy,
 	): Effect.Effect<void, SandboxProviderError> => {
 		const encoded = shellQuote(networkPolicyArgument(network));
+		if (network.kind === "open") {
+			// Migrate old templates too: prevent the boot job from blocking an open
+			// workspace later, cancel any existing job, and remove our egress table.
+			const dropIn = shellQuote(
+				`[Unit]\nConditionPathExists=!${BOX_OPEN_WORKSPACE_MARKER}\n`,
+			);
+			return runCommand(
+				providerSandboxId,
+				[
+					`if ! sudo -n test -f ${BOX_OPEN_WORKSPACE_MARKER} || ! sudo -n test -f ${BOX_FIREWALL_DROP_IN}; then sudo -n install -d -m 0755 /etc/systemd/system/zuse-firewall.service.d && sudo -n install -d -m 0700 /var/lib/zuse-firewall && printf %s ${dropIn} | sudo -n tee ${BOX_FIREWALL_DROP_IN} >/dev/null && sudo -n touch ${BOX_OPEN_WORKSPACE_MARKER} && sudo -n systemctl daemon-reload && sudo -n systemctl stop zuse-firewall.service || exit 1; fi`,
+					`if sudo -n systemctl is-active --quiet zuse-firewall.service; then sudo -n systemctl stop zuse-firewall.service || exit 1; fi`,
+					`if sudo -n nft list table inet zuse-egress >/dev/null 2>&1; then sudo -n nft delete table inet zuse-egress || exit 1; fi`,
+					`printf %s ${encoded} | sudo -n tee ${BOX_PERSISTED_POLICY_FILE} >/dev/null`,
+					`sudo -n chmod 600 ${BOX_PERSISTED_POLICY_FILE}`,
+				].join(" && "),
+			).pipe(
+				Effect.flatMap((result) =>
+					result.exitCode === 0
+						? Effect.void
+						: Effect.fail(providerError("transient")),
+				),
+			);
+		}
+
 		return runCommand(
 			providerSandboxId,
-			`attempt=0; until sudo -n systemctl is-active --quiet zuse-firewall.service; do [ "$attempt" -lt 240 ] || exit 1; attempt=$((attempt + 1)); sleep 0.25; done && sudo -n ${BOX_FIREWALL_COMMAND} apply ${encoded} && sudo -n mkdir -p /var/lib/zuse-firewall && printf %s ${encoded} | sudo -n tee ${BOX_PERSISTED_POLICY_FILE} >/dev/null && sudo -n chmod 600 ${BOX_PERSISTED_POLICY_FILE}`,
+			`if sudo -n test -f ${BOX_OPEN_WORKSPACE_MARKER}; then sudo -n rm -f ${BOX_OPEN_WORKSPACE_MARKER} && sudo -n systemctl daemon-reload && sudo -n systemctl start zuse-firewall.service || exit 1; fi; attempt=0; until sudo -n systemctl is-active --quiet zuse-firewall.service; do [ "$attempt" -lt 240 ] || exit 1; attempt=$((attempt + 1)); sleep 0.25; done && sudo -n ${BOX_FIREWALL_COMMAND} apply ${encoded} && sudo -n mkdir -p /var/lib/zuse-firewall && printf %s ${encoded} | sudo -n tee ${BOX_PERSISTED_POLICY_FILE} >/dev/null && sudo -n chmod 600 ${BOX_PERSISTED_POLICY_FILE}`,
 			70,
 		).pipe(
 			Effect.flatMap((result) =>
@@ -413,12 +432,8 @@ export const makeBoxSandboxProvider = (
 		);
 	};
 
-	// The template's firewall unit boots every box into default-deny egress.
-	// Wait for that late-restored one-shot unit to finish before applying the
-	// requested policy. Keeping the unit active (exited) also gives later policy
-	// changes a stable barrier: systemd cannot run its boot action a second time.
-	// Verification is part of the quarantine contract: a fork that cannot prove
-	// the barrier is up gets destroyed and re-forked (ADR 0033 §3).
+	// Explicit quarantine remains verified before handing a sandbox to callers.
+
 	const verifyQuarantined = (
 		providerSandboxId: string,
 	): Effect.Effect<void, SandboxProviderError> =>
@@ -448,27 +463,28 @@ export const makeBoxSandboxProvider = (
 			),
 		);
 
+	const runtimeLayoutCommand = (requirePersistedLayout: boolean): string =>
+		[
+			...(requirePersistedLayout
+				? [`sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER}`]
+				: []),
+			`if sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER} && [ "$(readlink /home/zuse)" = "${BOX_PERSISTED_RUNTIME_ROOT}/home" ] && [ "$(readlink /home/repos)" = "${BOX_PERSISTED_RUNTIME_ROOT}/repos" ] && test -d /home/zuse/.zuse-data && test -d /home/zuse/.ssh && test -d /home/repos; then sudo -n install -d -m 0700 -o zuse -g zuse /run/zuse-secrets; exit $?; fi`,
+			`sudo -n install -d -m 0755 -o root -g root ${BOX_PERSISTED_RUNTIME_ROOT}`,
+			`sudo -n install -d -m 0755 -o zuse -g zuse ${BOX_PERSISTED_RUNTIME_ROOT}/home ${BOX_PERSISTED_RUNTIME_ROOT}/repos`,
+			`for mapping in /home/zuse:${BOX_PERSISTED_RUNTIME_ROOT}/home /home/repos:${BOX_PERSISTED_RUNTIME_ROOT}/repos; do logical="\${mapping%%:*}"; persistent="\${mapping#*:}"; if [ "$(readlink "$logical" 2>/dev/null || true)" != "$persistent" ]; then if sudo -n test -d "$logical"; then sudo -n cp -a "$logical"/. "$persistent"/; fi; sudo -n chown -R zuse:zuse "$persistent"; sudo -n rm -rf -- "$logical"; sudo -n ln -s "$persistent" "$logical"; fi; done`,
+			"sudo -n install -d -m 0755 -o zuse -g zuse /home/zuse/.zuse-data",
+			"sudo -n install -d -m 0700 -o zuse -g zuse /home/zuse/.ssh /run/zuse-secrets",
+			"if sudo -n test -f /usr/local/share/zuse/sshd_config; then sudo -n install -m 0600 -o zuse -g zuse /usr/local/share/zuse/sshd_config /home/zuse/.ssh/sshd_config; fi",
+			`sudo -n touch ${BOX_PERSISTED_RUNTIME_MARKER}`,
+		].join(" && ");
+
 	const ensureRuntimeLayout = (
 		providerSandboxId: string,
 		requirePersistedLayout: boolean,
-	): Effect.Effect<void, SandboxProviderError> =>
+	) =>
 		runCommand(
 			providerSandboxId,
-			[
-				...(requirePersistedLayout
-					? [
-							`for attempt in 1 2 3 4 5 6 7 8 9 10; do sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER} && break; sleep 1; done`,
-							`sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER}`,
-						]
-					: []),
-				`sudo -n install -d -m 0755 -o root -g root ${BOX_PERSISTED_RUNTIME_ROOT}`,
-				`sudo -n install -d -m 0755 -o zuse -g zuse ${BOX_PERSISTED_RUNTIME_ROOT}/home ${BOX_PERSISTED_RUNTIME_ROOT}/repos`,
-				`for mapping in /home/zuse:${BOX_PERSISTED_RUNTIME_ROOT}/home /home/repos:${BOX_PERSISTED_RUNTIME_ROOT}/repos; do logical="\${mapping%%:*}"; persistent="\${mapping#*:}"; if [ "$(readlink "$logical" 2>/dev/null || true)" != "$persistent" ]; then if sudo -n test -d "$logical"; then sudo -n cp -a "$logical"/. "$persistent"/; fi; sudo -n chown -R zuse:zuse "$persistent"; sudo -n rm -rf -- "$logical"; sudo -n ln -s "$persistent" "$logical"; fi; done`,
-				"sudo -n install -d -m 0755 -o zuse -g zuse /home/zuse/.zuse-data",
-				"sudo -n install -d -m 0700 -o zuse -g zuse /home/zuse/.ssh /run/zuse-secrets",
-				"if sudo -n test -f /usr/local/share/zuse/sshd_config; then sudo -n install -m 0600 -o zuse -g zuse /usr/local/share/zuse/sshd_config /home/zuse/.ssh/sshd_config; fi",
-				`sudo -n touch ${BOX_PERSISTED_RUNTIME_MARKER}`,
-			].join(" && "),
+			runtimeLayoutCommand(requirePersistedLayout),
 		).pipe(
 			Effect.flatMap((result) =>
 				result.exitCode === 0
@@ -493,7 +509,9 @@ export const makeBoxSandboxProvider = (
 		for (let attempt = 0; attempt < 5 && !prepared; attempt++) {
 			prepared = yield* applyNetworkPolicy(providerSandboxId, network).pipe(
 				Effect.andThen(
-					Effect.sleep(Duration.millis(Math.min(500, pollIntervalMs))),
+					network.kind === "open"
+						? Effect.void
+						: Effect.sleep(Duration.millis(Math.min(500, pollIntervalMs))),
 				),
 				Effect.andThen(
 					network.kind === "quarantined"
@@ -508,34 +526,21 @@ export const makeBoxSandboxProvider = (
 		if (!prepared) return yield* providerError("transient");
 	});
 
-	const restoreResumedSandbox = Effect.fn(
-		"BoxSandboxProvider.restoreResumedSandbox",
-	)(function* (providerSandboxId: string) {
-		yield* ensureRuntimeLayout(providerSandboxId, true).pipe(
-			measureCloudStage(
-				{ provider: "box", providerSandboxId },
-				"box.restore.layout",
-			),
-		);
-		const restored = yield* runCommand(
+	const restoreResumedSandbox = (providerSandboxId: string) =>
+		runCommand(
 			providerSandboxId,
-			`sudo -n ${BOX_FIREWALL_COMMAND} restore`,
+			`(${runtimeLayoutCommand(true)}) && if sudo -n test -f ${BOX_OPEN_WORKSPACE_MARKER}; then exit 0; elif sudo -n ${BOX_FIREWALL_COMMAND} restore; then exit 0; else policy="$(sudo -n cat ${BOX_PERSISTED_POLICY_FILE})" && sudo -n ${BOX_FIREWALL_COMMAND} apply "$policy"; fi`,
 		).pipe(
 			measureCloudStage(
 				{ provider: "box", providerSandboxId },
-				"box.restore.firewall",
+				"box.resume.prepare",
+			),
+			Effect.flatMap((result) =>
+				result.exitCode === 0
+					? Effect.void
+					: Effect.fail(providerError("transient")),
 			),
 		);
-		if (restored.exitCode !== 0) {
-			// Compatibility for boxes created from templates predating the restore
-			// subcommand. The adapter persists the exact policy on every apply.
-			const fallback = yield* runCommand(
-				providerSandboxId,
-				`policy="$(sudo -n cat ${BOX_PERSISTED_POLICY_FILE})" && sudo -n ${BOX_FIREWALL_COMMAND} apply "$policy"`,
-			);
-			if (fallback.exitCode !== 0) return yield* providerError("transient");
-		}
-	});
 
 	const clampTtlSeconds = (timeoutSeconds: number): number =>
 		Math.min(

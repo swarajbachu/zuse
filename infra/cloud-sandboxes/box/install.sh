@@ -34,13 +34,15 @@ done
 # Fail publication if native dependencies or the installed CLI cannot load.
 runuser -u zuse -- /usr/local/bin/zuse --help >/dev/null
 
-# Quarantine firewall: root-only script + boot unit (ADR 0035).
+# Ordinary workspaces boot with open internet access. Explicit quarantine
+# callers remove this marker before activating the root-only firewall unit.
+install -d -m 0700 /var/lib/zuse-firewall
+touch /var/lib/zuse-firewall/open-workspace
 install -m 0755 "$provision_dir/box/zuse-firewall" /usr/local/sbin/zuse-firewall
 install -m 0644 "$provision_dir/box/zuse-firewall.service" /etc/systemd/system/zuse-firewall.service
 install -m 0644 "$provision_dir/box/zuse-host-ports.service" /etc/systemd/system/zuse-host-ports.service
 systemctl daemon-reload
 systemctl enable zuse-firewall.service zuse-host-ports.service
-systemctl start zuse-firewall.service
 
 # The barrier only holds if untrusted code cannot become root: zuse gets no
 # sudo, no admin groups, and an explicit deny-all sudoers entry.
