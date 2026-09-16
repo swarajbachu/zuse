@@ -155,8 +155,8 @@ box_command "$box_id" "chmod +x $provision_dir/provision.sh $provision_dir/box/i
 echo "==> installing the template (this takes several minutes)"
 box_command_detached "$box_id" "sudo -n ZUSE_PROVISION_DIR=$provision_dir bash $provision_dir/box/install.sh && sudo -n rm -rf $provision_dir"
 
-echo "==> verifying the quarantine barrier"
-box_command "$box_id" "sudo -n /usr/local/sbin/zuse-firewall verify-quarantined"
+echo "==> verifying explicit quarantine and restoring open workspace networking"
+box_command "$box_id" "sudo -n rm -f /var/lib/zuse-firewall/open-workspace && sudo -n systemctl start zuse-firewall.service && sudo -n /usr/local/sbin/zuse-firewall verify-quarantined && sudo -n touch /var/lib/zuse-firewall/open-workspace && sudo -n systemctl stop zuse-firewall.service && sudo -n /usr/local/sbin/zuse-firewall apply eyJraW5kIjoib3BlbiJ9"
 
 echo "==> saving named snapshot $snapshot_name"
 api_json POST /named-snapshots \
