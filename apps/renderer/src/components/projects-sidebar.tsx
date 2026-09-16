@@ -388,7 +388,7 @@ export function ProjectsSidebar() {
 	return (
 		<aside
 			ref={paneRef}
-			aria-label="Projects and chats"
+			aria-label={uiMessage("common:projects_and_chats")}
 			data-pane="sidebar"
 			tabIndex={-1}
 			className="flex h-full min-h-0 w-full flex-col bg-sidebar text-sidebar-foreground outline-none"
@@ -1970,7 +1970,9 @@ function ProjectGroup({
 								className="absolute inset-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
 							>
 								<span className="sr-only">
-									{isExpanded ? "Collapse" : "Expand"} {displayName}
+									{uiMessage(isExpanded ? "common:collapse" : "common:expand", {
+										title: displayName,
+									})}
 								</span>
 							</button>
 							<DropLine line={dropLine} />

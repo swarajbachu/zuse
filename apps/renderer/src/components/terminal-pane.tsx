@@ -95,7 +95,7 @@ function PlainTerminalSlot({
 	slot: number;
 	placement: TerminalPlacement;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 	// Callers may construct an equivalent ChatRef on every render. Preserve its
 	// domain identity so catalog effects do not turn unrelated parent renders
 	// (notably streamed chat output) into repeated pty.list requests.
@@ -341,7 +341,7 @@ function PlainTerminalSlot({
 							role="alert"
 							className="absolute inset-x-3 bottom-2 text-center text-[11px] text-destructive"
 						>
-							Queued terminal input reached its safety limit.
+							{uiMessage("chat:terminal_input_limit")}
 						</div>
 					) : null}
 				</div>
@@ -350,14 +350,14 @@ function PlainTerminalSlot({
 	if (catalogState === "loading")
 		return (
 			<TerminalPlaceholder>
-				<ShimmerText>Restoring terminal…</ShimmerText>
+				<ShimmerText>{uiMessage("chat:terminal_restoring")}</ShimmerText>
 			</TerminalPlaceholder>
 		);
 	if (catalogState === "failed")
 		return (
 			<TerminalPlaceholder>
 				<div className="flex items-center gap-2">
-					<span>Terminal catalog unavailable.</span>
+					<span>{uiMessage("chat:terminal_catalog_unavailable")}</span>
 					<button
 						type="button"
 						className="h-7 rounded bg-muted px-2 text-foreground hover:bg-muted/80"
@@ -393,7 +393,7 @@ function PlainTerminalSlot({
 							);
 						}}
 					>
-						Retry
+						{uiMessage("common:retry")}
 					</button>
 				</div>
 			</TerminalPlaceholder>
@@ -472,6 +472,7 @@ export function TerminalTabControls({
 	placement: TerminalPlacement;
 }) {
 	const [draft, setDraft] = useState(instance.title);
+	const { message: uiMessage } = useUiMessages(["chat"]);
 	const [operation, setOperation] = useState<
 		"rename" | "restart" | "clear" | null
 	>(null);
@@ -553,7 +554,9 @@ export function TerminalTabControls({
 	return (
 		<Popover>
 			<PopoverTrigger
-				aria-label={`Terminal actions: ${instance.title}`}
+				aria-label={uiMessage("chat:terminal_actions", {
+					title: instance.title,
+				})}
 				title={`${instance.title}: ${error ?? runtimeFailure ?? status}`}
 				className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 			>
@@ -572,7 +575,9 @@ export function TerminalTabControls({
 				/>
 			</PopoverTrigger>
 			<PopoverPopup
-				aria-label={`Terminal controls: ${instance.title}`}
+				aria-label={uiMessage("chat:terminal_controls", {
+					title: instance.title,
+				})}
 				align="end"
 				className="w-56"
 			>
@@ -581,7 +586,7 @@ export function TerminalTabControls({
 					className="min-w-0"
 				>
 					<input
-						aria-label="Terminal name"
+						aria-label={uiMessage("chat:terminal_name")}
 						value={draft}
 						onChange={(event) => setDraft(event.target.value)}
 						onBlur={() => void commitRename()}
@@ -598,19 +603,19 @@ export function TerminalTabControls({
 				</span>
 				<button
 					type="button"
-					aria-label="Clear terminal screen"
-					title="Clear terminal screen"
+					aria-label={uiMessage("chat:terminal_clear_screen_label")}
+					title={uiMessage("chat:terminal_clear_screen_label")}
 					disabled={operation !== null || status !== "running"}
 					onClick={() => void run("clear")}
 					className="flex h-7 w-full items-center gap-2 rounded px-1 text-xs hover:bg-muted disabled:opacity-40"
 				>
 					<Eraser className="size-3" />
-					Clear screen
+					{uiMessage("chat:terminal_clear_screen")}
 				</button>
 				<button
 					type="button"
-					aria-label="Restart terminal process"
-					title="Restart terminal process"
+					aria-label={uiMessage("chat:terminal_restart_process_label")}
+					title={uiMessage("chat:terminal_restart_process_label")}
 					disabled={
 						operation !== null ||
 						status === "connecting" ||
@@ -622,7 +627,7 @@ export function TerminalTabControls({
 					<RotateCcw
 						className={`size-3 ${operation === "restart" ? "animate-spin" : ""}`}
 					/>
-					Restart process
+					{uiMessage("chat:terminal_restart_process")}
 				</button>
 			</PopoverPopup>
 		</Popover>

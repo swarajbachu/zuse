@@ -788,7 +788,9 @@ export function ChatView({
 			folderId={session?.projectId ?? null}
 			worktreeId={session?.worktreeId ?? null}
 		>
-			<h1 className="sr-only">{session.title || "New chat"}</h1>
+			<h1 className="sr-only">
+				{session.title || uiMessage("chat:chat_view_new_chat")}
+			</h1>
 			<div
 				data-chat-viewport
 				className="relative flex min-h-0 min-w-0 flex-1 [container-type:inline-size]"

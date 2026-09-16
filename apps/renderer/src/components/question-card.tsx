@@ -256,17 +256,17 @@ function InteractiveQuestionCard({
 			</div>
 			{disabled ? (
 				<div className="mt-2 text-xs text-muted-foreground" role="status">
-					Reconnecting to this question…
+					{uiMessage("chat:question_reconnecting")}
 				</div>
 			) : null}
 			{submission === "submitting" ? (
 				<div className="mt-2 text-xs text-muted-foreground" role="status">
-					Submitting answer…
+					{uiMessage("chat:answer_submitting")}
 				</div>
 			) : null}
 			{submission === "failed" ? (
 				<div className="mt-2 text-xs text-danger-text" role="alert">
-					Couldn’t submit answer
+					{uiMessage("chat:answer_submit_failed")}
 					{submissionError === null ? null : `: ${submissionError}`}
 				</div>
 			) : null}

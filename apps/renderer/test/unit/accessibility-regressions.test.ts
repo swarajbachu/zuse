@@ -119,7 +119,9 @@ describe("renderer accessibility regressions", () => {
 	it("gives every selected chat state one canonical page heading", () => {
 		expect(chatViewSource.match(/<h1/g)).toHaveLength(1);
 		expect(chatViewSource).toContain('<h1 className="sr-only">');
-		expect(chatViewSource).toContain('{session.title || "New chat"}');
+		expect(chatViewSource).toContain(
+			'{session.title || uiMessage("chat:chat_view_new_chat")}',
+		);
 		expect(chatViewSource.indexOf("<h1")).toBeLessThan(
 			chatViewSource.indexOf("{messages.length === 0 ? ("),
 		);
@@ -128,11 +130,13 @@ describe("renderer accessibility regressions", () => {
 	it("uses uniquely named toolbars instead of duplicate banner landmarks", () => {
 		expect(topBarSource).not.toContain("<header");
 		for (const label of [
-			"Projects toolbar",
-			"Workspace toolbar",
-			"Workflow toolbar",
+			"projects_toolbar",
+			"workspace_toolbar",
+			"workflow_toolbar",
 		]) {
-			expect(topBarSource).toContain(`aria-label="${label}"`);
+			expect(topBarSource).toContain(
+				`aria-label={uiMessage("common:${label}")}`,
+			);
 		}
 	});
 
@@ -142,8 +146,8 @@ describe("renderer accessibility regressions", () => {
 			"export function TopBarLeft",
 			"export function TopBarMain",
 		);
-		expect(projectsToolbar).toContain(
-			'<section aria-label="Projects controls"',
+		expect(projectsToolbar).toMatch(
+			/<section\s+aria-label=\{uiMessage\("common:projects_controls"\)\}/,
 		);
 
 		const workspaceToolbar = sourceBetween(
@@ -158,8 +162,8 @@ describe("renderer accessibility regressions", () => {
 			"export function TopBarRight",
 			"export function TopBarRightContent",
 		);
-		expect(workflowToolbar).toContain(
-			'<section aria-label="Workflow controls"',
+		expect(workflowToolbar).toMatch(
+			/<section\s+aria-label=\{uiMessage\("common:workflow_controls"\)\}/,
 		);
 	});
 
@@ -169,11 +173,15 @@ describe("renderer accessibility regressions", () => {
 			"export function ProjectsSidebar",
 			"function SidebarActions",
 		);
-		expect(projectsSidebar).toContain('aria-label="Projects and chats"');
+		expect(projectsSidebar).toContain(
+			'aria-label={uiMessage("common:projects_and_chats")}',
+		);
 
 		expect(rightPaneSource.match(/<aside/g)).toHaveLength(2);
 		expect(
-			rightPaneSource.match(/aria-label="Workspace panels"/g),
+			rightPaneSource.match(
+				/aria-label=\{uiMessage\("chat:workspace_panels"\)\}/g,
+			),
 		).toHaveLength(2);
 	});
 

@@ -284,7 +284,7 @@ export function RightPane({
 }: {
 	directoryUnavailable?: boolean;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
 	const paneRef = useRef<HTMLElement>(null);
 	useRegisterPane("rightPane", paneRef);
@@ -720,7 +720,7 @@ export function RightPane({
 	if (selected === null) {
 		return (
 			<aside
-				aria-label="Workspace panels"
+				aria-label={uiMessage("chat:workspace_panels")}
 				className="flex h-full min-h-0 w-full flex-col"
 			>
 				<p className="px-3 py-6 text-center text-xs text-muted-foreground">
@@ -784,7 +784,7 @@ export function RightPane({
 	return (
 		<aside
 			ref={paneRef}
-			aria-label="Workspace panels"
+			aria-label={uiMessage("chat:workspace_panels")}
 			data-pane="rightPane"
 			tabIndex={-1}
 			className="flex h-full min-h-0 w-full flex-col outline-none"
@@ -831,7 +831,13 @@ export function RightPane({
 					role="status"
 					className="flex h-7 shrink-0 items-center px-2 text-[11px] text-muted-foreground"
 				>
-					Restoring {terminalAction} terminal…
+					{uiMessage(
+						terminalAction === "cloud"
+							? "chat:terminal_restoring_cloud"
+							: terminalAction === "local"
+								? "chat:terminal_restoring_local"
+								: "chat:terminal_restoring_project",
+					)}
 				</div>
 			) : terminalCatalogError !== null ? (
 				<div
@@ -853,7 +859,7 @@ export function RightPane({
 									: handleAddProjectTerminal
 						}
 					>
-						Retry
+						{uiMessage("common:retry")}
 					</button>
 				</div>
 			) : null}
