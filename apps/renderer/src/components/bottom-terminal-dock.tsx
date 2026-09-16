@@ -2,7 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import { EnvironmentId } from "@zuse/contracts";
 import { ComputerTerminal01Icon } from "@zuse/icons/solid-rounded";
-import { ChevronDown, ChevronUp, Plus, X } from "lucide-react";
+import { ChevronDown, Plus, X } from "lucide-react";
 import {
 	type PointerEvent as ReactPointerEvent,
 	useEffect,
@@ -39,7 +39,7 @@ import {
 	rightPaneKey,
 	useUiStore,
 } from "../store/ui.ts";
-import { TerminalSlotPane } from "./terminal-pane.tsx";
+import { TerminalSlotPane, TerminalTabControls } from "./terminal-pane.tsx";
 
 const MIN_BOTTOM_TERMINAL_HEIGHT_PX = 140;
 
@@ -73,15 +73,20 @@ export function BottomTerminalDock({
 		[chatRef.environmentId, chatRef.chatId],
 	);
 	const key = terminalsKey(catalogRef, "bottom");
+	const layoutKey = rightPaneKey(chatRef);
+	const storedLayout = useUiStore(
+		(state) => state.bottomTerminalLayoutByChat[layoutKey] ?? null,
+	);
+	const layout =
+		storedLayout ?? bottomTerminalLayoutForChat(useUiStore.getState(), chatRef);
 	// A chat can be left and revisited with the same string key, and an
 	// unavailable directory can become usable again. Give every committed
 	// identity transition a fresh token so an old response cannot mark the new
 	// surface authoritative (the A → B → A case).
 	const catalogRequestKey = useMemo(
 		() => Symbol("bottom-terminal-catalog-request"),
-		[directoryUnavailable, key],
+		[directoryUnavailable, key, layout.open, rootPath],
 	);
-	const layoutKey = rightPaneKey(chatRef);
 	const terminals = useTerminalsStore(
 		(state) => state.byKey[key] ?? EMPTY_TERMINALS,
 	);
@@ -101,11 +106,6 @@ export function BottomTerminalDock({
 	useLayoutEffect(() => {
 		activeCatalogRequestAuthorityRef.current.commit(catalogRequestKey);
 	}, [catalogRequestKey]);
-	const storedLayout = useUiStore(
-		(state) => state.bottomTerminalLayoutByChat[layoutKey] ?? null,
-	);
-	const layout =
-		storedLayout ?? bottomTerminalLayoutForChat(useUiStore.getState(), chatRef);
 	const setOpen = useUiStore((state) => state.setBottomTerminalOpenForChat);
 	const setHeight = useUiStore((state) => state.setBottomTerminalHeightForChat);
 	const setActive = useUiStore((state) => state.setActiveBottomTerminalForChat);
@@ -137,14 +137,22 @@ export function BottomTerminalDock({
 		// This dock is always mounted for the selected chat, even while collapsed.
 		// Restore both independent collections before the user asks for another
 		// shell, so a renderer reload reconnects instead of silently duplicating it.
-		void loadTerminalCatalog(
-			catalogRef,
-			"bottom",
-			catalogRef.environmentId,
-		).then(
-			() => {
+		const discovery = layout.open
+			? restoreOrOpenBottomTerminal(catalogRef, rootPath, {
+					isCurrent: () => active,
+				})
+			: loadTerminalCatalog(
+					catalogRef,
+					"bottom",
+					catalogRef.environmentId,
+				).then(() => "ready" as const);
+		void discovery.then(
+			(result) => {
 				if (active)
-					setCatalogStatus({ requestKey: catalogRequestKey, state: "ready" });
+					setCatalogStatus({
+						requestKey: catalogRequestKey,
+						state: result === "failed" ? "failed" : "ready",
+					});
 			},
 			() => {
 				if (active)
@@ -159,7 +167,13 @@ export function BottomTerminalDock({
 			active = false;
 			invalidateTerminalCatalog(catalogRef, "bottom", catalogRef.environmentId);
 		};
-	}, [catalogRef, catalogRequestKey, directoryUnavailable]);
+	}, [
+		catalogRef,
+		catalogRequestKey,
+		directoryUnavailable,
+		layout.open,
+		rootPath,
+	]);
 
 	const runCatalogAction = async (createNew = false) => {
 		if (directoryUnavailable) return;
@@ -191,39 +205,7 @@ export function BottomTerminalDock({
 		};
 	};
 
-	if (!layout.open) {
-		return (
-			<div className="flex h-7 shrink-0 items-center border-border border-t bg-background px-1">
-				<button
-					type="button"
-					aria-label={
-						catalogState === "failed"
-							? "Retry bottom terminal catalog"
-							: "Open bottom terminal"
-					}
-					onClick={() => void openDock()}
-					disabled={directoryUnavailable || catalogState === "loading"}
-					className="flex h-7 min-w-0 items-center gap-1.5 rounded px-2 text-[11px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-				>
-					<HugeiconsIcon
-						icon={ComputerTerminal01Icon}
-						className="size-3.5 shrink-0"
-					/>
-					<span>
-						{catalogState === "failed"
-							? "Terminal unavailable · Retry"
-							: "Terminal"}
-					</span>
-					{terminals.length > 0 ? (
-						<span className="font-mono text-[10px] opacity-70">
-							{terminals.length}
-						</span>
-					) : null}
-					<ChevronUp className="size-3" />
-				</button>
-			</div>
-		);
-	}
+	if (!layout.open) return null;
 
 	return (
 		<section
@@ -292,6 +274,11 @@ export function BottomTerminalDock({
 								/>
 								<span className="truncate">{terminal.title}</span>
 							</button>
+							<TerminalTabControls
+								chatRef={chatRef}
+								instance={terminal}
+								placement="bottom"
+							/>
 							<button
 								type="button"
 								aria-label={`Close ${terminal.title}`}
@@ -345,6 +332,7 @@ export function BottomTerminalDock({
 					</span>
 					<button
 						type="button"
+						aria-label="Retry bottom terminal catalog"
 						className="h-7 rounded bg-muted px-2 text-foreground hover:bg-muted/80"
 						onClick={() => void openDock()}
 					>

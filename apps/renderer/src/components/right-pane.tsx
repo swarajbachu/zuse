@@ -31,7 +31,6 @@ import {
 	useMemo,
 	useRef,
 	useState,
-	useSyncExternalStore,
 } from "react";
 import {
 	cloudSyncLocalPath,
@@ -62,7 +61,6 @@ import {
 	terminalOwnerLimitMessageFor,
 	terminalOwnerLimitReached,
 } from "../lib/terminal-policy.ts";
-import * as terminalRegistry from "../lib/terminal-registry.ts";
 import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
@@ -89,7 +87,7 @@ import { FileTree } from "./file-tree.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import { PrPane } from "./pr-pane.tsx";
 import { SubagentsPane } from "./subagents-pane.tsx";
-import { TerminalSlotPane } from "./terminal-pane.tsx";
+import { TerminalSlotPane, TerminalTabControls } from "./terminal-pane.tsx";
 import {
 	Menu,
 	MenuItem,
@@ -422,11 +420,6 @@ export function RightPane({
 			? (s.byKey[terminalsKey(chatRef)] ?? EMPTY_TERMINALS)
 			: EMPTY_TERMINALS,
 	);
-	const terminalStatuses = useSyncExternalStore(
-		terminalRegistry.subscribeStatuses,
-		terminalRegistry.getStatusesSnapshot,
-		terminalRegistry.getStatusesSnapshot,
-	);
 	const rightTerminalOwnerId =
 		chatRef === null ? null : terminalOwnerId(chatRef, "right");
 	const cloudTerminalLimitReached =
@@ -721,40 +714,6 @@ export function RightPane({
 			return renderChangesBadge(status?.dirtyFiles ?? 0);
 		}
 		if (panel.kind === "pr") return renderPrBadge(pr, details);
-		if (panel.kind === "terminal") {
-			const instance = termList[panel.slot];
-			const failed =
-				instance !== undefined &&
-				terminalStatuses[
-					terminalRegistry.terminalRuntimeKey(
-						instance.environmentId,
-						instance.id,
-					)
-				] === "failed";
-			if (failed) {
-				return (
-					<span
-						role="status"
-						title={uiMessage(
-							"chat:right_pane_terminal_disconnected_close_it_and_open_a_new_terminal",
-						)}
-						className="size-1.5 shrink-0 rounded-full bg-rose-400"
-					>
-						<span className="sr-only">
-							{uiMessage(
-								"chat:right_pane_terminal_disconnected_close_it_and_open_a_new_terminal",
-							)}
-						</span>
-					</span>
-				);
-			}
-			return (
-				<span
-					aria-hidden="true"
-					className="size-1.5 shrink-0 rounded-full bg-transparent"
-				/>
-			);
-		}
 		return null;
 	};
 
@@ -835,21 +794,35 @@ export function RightPane({
 					ref={dockTabsRef}
 					className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto px-1 text-[11px]"
 				>
-					{visiblePanels.map((panel) => (
-						<PanelTab
-							key={panel.id}
-							active={panel.id === effectiveActiveId}
-							icon={PANEL_META[panel.kind].icon}
-							label={tabLabel(panel)}
-							badge={tabBadge(panel)}
-							onSelect={() => {
-								if (chatRef !== null) setActive(chatRef, panel.id);
-								if (LIVE_PANEL_KINDS.has(panel.kind)) requestCloudAttachment();
-								if (panel.kind === "changes") openChanges();
-							}}
-							onClose={() => handleClose(panel)}
-						/>
-					))}
+					{visiblePanels.map((panel) => {
+						const terminal =
+							panel.kind === "terminal" ? termList[panel.slot] : undefined;
+						return (
+							<PanelTab
+								key={panel.id}
+								active={panel.id === effectiveActiveId}
+								icon={PANEL_META[panel.kind].icon}
+								label={tabLabel(panel)}
+								badge={tabBadge(panel)}
+								actions={
+									chatRef !== null && terminal !== undefined ? (
+										<TerminalTabControls
+											chatRef={chatRef}
+											instance={terminal}
+											placement="right"
+										/>
+									) : null
+								}
+								onSelect={() => {
+									if (chatRef !== null) setActive(chatRef, panel.id);
+									if (LIVE_PANEL_KINDS.has(panel.kind))
+										requestCloudAttachment();
+									if (panel.kind === "changes") openChanges();
+								}}
+								onClose={() => handleClose(panel)}
+							/>
+						);
+					})}
 					{addPanelMenu}
 				</div>
 			) : null}
@@ -1211,6 +1184,7 @@ function PanelTab({
 	icon,
 	label,
 	badge,
+	actions,
 	onSelect,
 	onClose,
 }: {
@@ -1218,6 +1192,7 @@ function PanelTab({
 	icon: Parameters<typeof HugeiconsIcon>[0]["icon"];
 	label: string;
 	badge?: React.ReactNode;
+	actions?: React.ReactNode;
 	onSelect: () => void;
 	onClose: () => void;
 }) {
@@ -1240,6 +1215,7 @@ function PanelTab({
 				<span className="truncate">{label}</span>
 				{badge}
 			</button>
+			{actions}
 			<button
 				type="button"
 				aria-label={uiMessage("chat:right_pane_close", {

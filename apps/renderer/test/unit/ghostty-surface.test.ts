@@ -203,7 +203,14 @@ describe("GhosttySurface initialization", () => {
 			expect(fakeEmulator.selectAll).toHaveBeenCalledOnce();
 
 			const host = surface.host as unknown as FakeElement;
-			host.dispatch("pointerdown", { clientX: 10, clientY: 20 });
+			const preventDefault = vi.fn();
+			host.dispatch("pointerdown", {
+				clientX: 10,
+				clientY: 20,
+				preventDefault,
+			});
+			expect(preventDefault).toHaveBeenCalledOnce();
+			expect(document.activeElement).toBe(input);
 			host.dispatch("pointermove", { clientX: 10, clientY: -5 });
 			vi.advanceTimersByTime(50);
 			expect(fakeEmulator.selectionAutoscrollTick).toHaveBeenCalledOnce();

@@ -257,10 +257,13 @@ function useAnimatedPanelVisibility(
 		if (animate) element?.classList.add("fz-sidebar-panel-motion");
 		const frame = window.requestAnimationFrame(() => {
 			if (open) {
-				panel.expand();
 				if (expandedSizeRef.current !== undefined) {
 					panel.resize(expandedSizeRef.current);
 				}
+				// A saved percentage can fall below the collapse threshold in a
+				// narrow window. Expand last so "open" still guarantees a visible
+				// panel at the library's minimum size instead of snapping to zero.
+				panel.expand();
 			} else {
 				panel.collapse();
 			}
@@ -440,6 +443,7 @@ export function MainShell() {
 	);
 	const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
 	const environmentSummaryFits = useMediaQuery({ min: 1180 });
+	const compactWorkspace = useMediaQuery({ max: 900 });
 	const environmentSummaryAvailable =
 		environmentSummaryFits &&
 		selectedSessionId !== null &&
@@ -793,7 +797,7 @@ export function MainShell() {
 							</div>
 						) : null}
 						{selectedChatRef !== null && activeContext.status === "ready" ? (
-							<Suspense fallback={<div className="h-7 shrink-0" />}>
+							<Suspense fallback={null}>
 								<BottomTerminalDock
 									chatRef={selectedChatRef}
 									rootPath={activeContext.rootPath}
@@ -810,7 +814,9 @@ export function MainShell() {
 					// Keep an opened dock useful. Older persisted layouts may contain a
 					// near-zero expanded width from when this minimum was 0; the panel
 					// library clamps those layouts to this value on launch and reopen.
-					minSize="360px"
+					// At the 720px window minimum, 360px plus the other panes'
+					// minimum widths cannot fit, so the library collapses this pane.
+					minSize={compactWorkspace ? "280px" : "360px"}
 					maxSize="55%"
 					collapsible
 					collapsedSize="0%"

@@ -40,7 +40,7 @@ import {
 	Upload01Icon,
 	Wrench01Icon,
 } from "@zuse/icons/solid-rounded";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, PanelBottom } from "lucide-react";
 import {
 	type CSSProperties,
 	lazy,
@@ -264,6 +264,14 @@ export function TopBarMain() {
 	);
 	const setRightSidebarOpenForChat = useUiStore(
 		(s) => s.setRightSidebarOpenForChat,
+	);
+	const bottomTerminalOpen = useUiStore((s) =>
+		selectedChatKey === null
+			? false
+			: (s.bottomTerminalLayoutByChat[selectedChatKey]?.open ?? false),
+	);
+	const setBottomTerminalOpenForChat = useUiStore(
+		(s) => s.setBottomTerminalOpenForChat,
 	);
 	const isFullScreen = useUiStore((s) => s.isFullScreen);
 	const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
@@ -527,6 +535,29 @@ export function TopBarMain() {
 					<TooltipPopup>
 						{uiMessage("chat:top_bar_toggle_environment_summary")}
 					</TooltipPopup>
+				</Tooltip>
+			) : null}
+			{selectedChatRef !== null && ctx.status === "ready" ? (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<button
+								type="button"
+								aria-label="Toggle bottom terminal"
+								aria-pressed={bottomTerminalOpen}
+								className={`${ICON_BUTTON_CLASS} ${bottomTerminalOpen ? "bg-foreground/10 text-foreground" : ""}`}
+								onClick={() =>
+									setBottomTerminalOpenForChat(
+										selectedChatRef,
+										!bottomTerminalOpen,
+									)
+								}
+							>
+								<PanelBottom className="size-3.5" />
+							</button>
+						}
+					/>
+					<TooltipPopup>Toggle bottom terminal</TooltipPopup>
 				</Tooltip>
 			) : null}
 			<Tooltip>

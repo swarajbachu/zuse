@@ -317,6 +317,9 @@ export class GhosttySurface {
 			this.emitFocus(false);
 		});
 		this.host.addEventListener("pointerdown", (event) => {
+			// Keep the hidden keyboard input focused. Otherwise the browser's
+			// subsequent mousedown focuses the canvas and typing stops working.
+			event.preventDefault();
 			this.focus();
 			if (this.emulator === null) return;
 			const point = this.cellAt(event);
@@ -324,7 +327,6 @@ export class GhosttySurface {
 				const link = this.emulator.hyperlinkAt(point.x, point.y);
 				if (link !== null) {
 					window.open(link, "_blank", "noopener,noreferrer");
-					event.preventDefault();
 					return;
 				}
 			}
@@ -344,7 +346,6 @@ export class GhosttySurface {
 				this.reportingPointer = event.pointerId;
 				this.reportedButton = button;
 				this.canvas.setPointerCapture(event.pointerId);
-				event.preventDefault();
 				return;
 			}
 			if (event.button !== 0) return;
