@@ -1787,29 +1787,47 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				build.templateVersion === provider.templateVersion;
 			const recovered =
 				warmSandbox === null && !replacingFailedSandbox
-					? yield* provider.recoverByLabel(label)
+					? yield* provider.recoverByLabel(label).pipe(
+							measureCloudStage(
+								{
+									workspaceId: workspace.workspaceId,
+									provider: provider.providerId,
+								},
+								"provider.recoverByLabel",
+							),
+						)
 					: null;
 			const sandbox =
 				warmSandbox ??
 				recovered ??
 				(preparedSnapshotAvailable
-					? yield* provider.fork({
-							sandboxId: workspace.workspaceId,
-							providerLabel: label,
-							metadata: {
-								"zuse-account-id": workspace.accountId,
-								"zuse-resource-kind": "workspace",
-								"zuse-project-id": workspace.projectId,
-								"zuse-build-id": workspace.buildId,
-								"zuse-workspace-id": workspace.workspaceId,
-							},
-							sizeId: workspaceSizeId(workspace),
-							snapshotId: build.snapshotId as string,
-							timeoutSeconds: config.keepAliveTimeoutSeconds,
-							env: {},
-							network: { kind: "open" },
-							onTimeout: "pause",
-						})
+					? yield* provider
+							.fork({
+								sandboxId: workspace.workspaceId,
+								providerLabel: label,
+								metadata: {
+									"zuse-account-id": workspace.accountId,
+									"zuse-resource-kind": "workspace",
+									"zuse-project-id": workspace.projectId,
+									"zuse-build-id": workspace.buildId,
+									"zuse-workspace-id": workspace.workspaceId,
+								},
+								sizeId: workspaceSizeId(workspace),
+								snapshotId: build.snapshotId as string,
+								timeoutSeconds: config.keepAliveTimeoutSeconds,
+								env: {},
+								network: { kind: "open" },
+								onTimeout: "pause",
+							})
+							.pipe(
+								measureCloudStage(
+									{
+										workspaceId: workspace.workspaceId,
+										provider: provider.providerId,
+									},
+									"provider.fork",
+								),
+							)
 					: yield* provider.create({
 							sandboxId: workspace.workspaceId,
 							providerLabel: label,
@@ -1900,6 +1918,13 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			workspace.desiredState === "ready" &&
 			workspace.providerSandboxId !== undefined
 		) {
+			// The request observer invokes reconciliation every 250 ms regardless of
+			// nextActionAtMs. Preserve the warm reconnect window on that path too.
+			if (
+				workspace.statusCode === "resume-runtime-waking" &&
+				nowMs < workspace.nextActionAtMs
+			)
+				return;
 			return yield* restartWorkspaceRuntime(
 				workspace,
 				workspace.providerSandboxId,

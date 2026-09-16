@@ -738,7 +738,13 @@ describe("cloud workspace reconciler", () => {
 				const callsBeforeFallback = yield* Ref.get(control.startProcessCalls);
 				// If the provider preserved the runtime, its gateway reconnect callback
 				// advances the workspace to ready before this retry. When no callback
-				// arrives, the next reconciliation performs the existing hard restart.
+				// arrives, reconciliation after the deadline performs the hard restart.
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				if ((yield* Ref.get(control.startProcessCalls)).length !== 0)
+					return yield* Effect.die(
+						"warm runtime restarted before grace deadline",
+					);
+				yield* Effect.sleep("550 millis");
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				const resumed = yield* store.getWorkspace(workspace.workspaceId);
 				const resumeBeforeMissing = yield* Ref.get(control.resumeInputs);
