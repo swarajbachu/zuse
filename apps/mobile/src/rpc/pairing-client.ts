@@ -1,3 +1,5 @@
+import { fetch as expoFetch } from "expo/fetch";
+
 const DEFAULT_PAIRING_TIMEOUT_MS = 10_000;
 
 export const redeemPairingCode = async (options: {
@@ -15,6 +17,23 @@ export const redeemPairingCode = async (options: {
 	readonly environmentPublicKey?: string;
 	readonly transportCertificatePin?: string;
 }> => {
+	let baseUrl: URL;
+	try {
+		baseUrl = new URL(options.httpBaseUrl ?? "");
+		if (
+			baseUrl.protocol !== "https:" ||
+			baseUrl.username ||
+			baseUrl.password ||
+			baseUrl.search ||
+			baseUrl.hash
+		) {
+			throw new Error("Invalid pairing endpoint");
+		}
+	} catch {
+		throw new Error(
+			"Pairing requires a secure HTTPS connection URL. Use the desktop's secure connection link or an HTTPS Tailscale link instead of a plain local address.",
+		);
+	}
 	const controller = new AbortController();
 	const timeout = setTimeout(
 		() => controller.abort(),
@@ -22,10 +41,11 @@ export const redeemPairingCode = async (options: {
 	);
 	let response: Response;
 	try {
-		response = await (options.fetchImpl ?? fetch)(
-			`${options.httpBaseUrl?.replace(/\/$/u, "") ?? `http://${options.host}:${options.port}`}/pair`,
+		response = await (options.fetchImpl ?? expoFetch)(
+			`${baseUrl.href.replace(/\/$/u, "")}/pair`,
 			{
 				method: "POST",
+				redirect: "error",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
 					code: options.code,

@@ -1,6 +1,6 @@
 import {
 	DEFAULT_LOCAL_DESKTOP_PORT,
-	isPairingCodeInput,
+	isShortPairingCodeInput,
 	normalizePairingCodeInput,
 } from "@zuse/contracts";
 import { Effect } from "effect";
@@ -331,7 +331,9 @@ const redeemPairingCodeIfNeeded = async ({
 }> => {
 	const trimmed = token?.trim();
 	if (!trimmed) return { token: null };
-	if (!isPairingCodeInput(trimmed)) return { token: trimmed };
+	if (!trimmed.startsWith("zp_") && !isShortPairingCodeInput(trimmed)) {
+		return { token: trimmed };
+	}
 
 	return redeemPairingCode({
 		host,

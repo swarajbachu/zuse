@@ -184,13 +184,11 @@ export const parseConnectLink = (value: string): ConnectLinkParseResult => {
 export const SHORT_PAIRING_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTVWXYZ23456789";
 export const SHORT_PAIRING_CODE_LENGTH = 8;
 
-const SHORT_CODE_SHAPE = /^[a-z0-9]{4}[\s-]?[a-z0-9]{4}$/iu;
+const SHORT_CODE_SHAPE = /^[A-Za-z0-9]{4}[\s-]?[A-Za-z0-9]{4}$/u;
 
-/** Pairing codes must be redeemed; they are not bearer credentials. */
-export const isPairingCodeInput = (value: string): boolean => {
-	const trimmed = value.trim();
-	return trimmed.startsWith("zp_") || SHORT_CODE_SHAPE.test(trimmed);
-};
+/** Whether input has the short code's eight ASCII characters and optional separator. */
+export const isShortPairingCodeInput = (value: string): boolean =>
+	SHORT_CODE_SHAPE.test(value.trim());
 
 /** `ABCDEFGH` → `ABCD-EFGH` for display; other code shapes pass through. */
 export const formatPairingCodeForDisplay = (code: string): string =>

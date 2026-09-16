@@ -79,6 +79,7 @@ describe("pairing credential exchange", () => {
 				port: 47837,
 				token,
 				source: "paired",
+				httpBaseUrl: "https://desktop.example.ts.net",
 			}),
 		).rejects.toThrow("Could not reach");
 		expect(redeemPairingCode).toHaveBeenCalledWith(
@@ -94,6 +95,7 @@ describe("pairing credential exchange", () => {
 	it.each([
 		"zt_existing",
 		"eyJ.example.signature",
+		"ſbcd2345",
 	])("preserves existing bearer %s", async (token) => {
 		await expect(
 			addConnection({
