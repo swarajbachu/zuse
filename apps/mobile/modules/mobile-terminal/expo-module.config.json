@@ -1,6 +1,9 @@
 {
-	"platforms": ["apple"],
+	"platforms": ["apple", "android"],
 	"apple": {
 		"modules": ["ZuseMobileTerminalModule"]
+	},
+	"android": {
+		"modules": ["com.zuse.mobileterminal.ZuseMobileTerminalModule"]
 	}
 }

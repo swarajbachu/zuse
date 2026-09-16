@@ -1,4 +1,9 @@
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
+import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
+import {
+	filterActionableQuestionInteractions,
+	findPresentedPermissions,
+} from "../lib/question-actionability.ts";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
@@ -8,6 +13,7 @@ import type {
 	EnvironmentId,
 	Session,
 	SessionId,
+	SessionInteraction,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Message01Icon } from "@zuse/icons/solid-rounded";
@@ -52,7 +58,6 @@ import {
 	useSessionCommandErrors,
 } from "../lib/session-actions.ts";
 import type { SessionRuntimeState } from "../lib/session-runtime-state.ts";
-import { hasPendingTurnStart } from "../lib/session-runtime-state.ts";
 import { timelineReadingPositionStore } from "../lib/session-timeline-cache.ts";
 import { restartProvisionalSessionTimeline } from "../lib/session-timeline-client-bus.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
@@ -142,6 +147,15 @@ export const resolvePendingStartupTranscriptPrompt = (
 	return creation.startupInput.text.trim() || null;
 };
 
+export const resolveAwaitingUserAction = (input: {
+	readonly awaitingPlanApproval: boolean;
+	readonly livePermissionCount: number;
+	readonly durableQuestionCount: number;
+}): boolean =>
+	input.awaitingPlanApproval ||
+	input.livePermissionCount > 0 ||
+	input.durableQuestionCount > 0;
+
 function resolveTimelineIsAtEnd(
 	state: TimelineEndState | undefined,
 ): boolean | undefined {
@@ -181,6 +195,19 @@ export function ChatView({
 		environmentId,
 	);
 	const sessionRef = timeline.ref;
+	const questionAttachments = useEnvironmentQuestionAttachments(
+		environmentId,
+		"cache-only",
+	);
+	const actionableInteractions = useMemo(
+		() =>
+			filterActionableQuestionInteractions(
+				sessionId,
+				timeline.presentation.interactions.map((item) => item.interaction),
+				questionAttachments.data?.attachmentsByKey ?? {},
+			),
+		[sessionId, timeline.presentation.interactions, questionAttachments.data],
+	);
 	useEffect(() => {
 		if (cloudSummary !== null) return;
 		restartProvisionalSessionTimeline(sessionRef, timeline.view);
@@ -213,22 +240,22 @@ export function ChatView({
 					connection: cloudShell.connection,
 					runtime: runtimeState,
 				});
-	const turnStartPending = hasPendingTurnStart(timeline.view.pendingCommands);
 	const inFlight =
 		cloudActivity === null
-			? runtimeState === "starting" ||
-				runtimeState === "running" ||
-				runtimeState === "stopping" ||
-				turnStartPending
-			: waitingMessages.length === 0 &&
-				(cloudChatShowsWorking(cloudActivity) || turnStartPending);
+			? timeline.presentation.busy
+			: waitingMessages.length === 0 && cloudChatShowsWorking(cloudActivity);
 	const permissionRequests =
 		useEnvironmentPermissions(environmentId).data?.requestsById ?? {};
-	const sessionPermissionRequests = Object.values(permissionRequests).filter(
-		(request) => request.sessionId === sessionId,
-	);
+	const durableQuestionCount = timeline.presentation.interactions.filter(
+		(item) => item.interaction._tag === "Question",
+	).length;
+	const sessionPermissionRequests = findPresentedPermissions(
+		timeline.presentation.interactions,
+		permissionRequests,
+	).map((item) => item.interaction.request);
 	const awaitingPermissionPlanApproval = (() => {
 		for (const request of sessionPermissionRequests) {
+			if (request.recoveryState === "expired") continue;
 			if (request.kind._tag !== "Other") continue;
 			if (request.kind.tool === "ExitPlanMode") return true;
 		}
@@ -236,9 +263,12 @@ export function ChatView({
 	})();
 	const awaitingPlanApproval =
 		awaitingPermissionPlanApproval ||
-		deriveChatAttentionState(messages, inFlight) === "planReady";
-	const awaitingUserAction =
-		awaitingPlanApproval || sessionPermissionRequests.length > 0;
+		deriveChatAttentionState(messages, inFlight, []) === "planReady";
+	const awaitingUserAction = resolveAwaitingUserAction({
+		awaitingPlanApproval,
+		livePermissionCount: sessionPermissionRequests.length,
+		durableQuestionCount,
+	});
 	const worktreeId = session?.worktreeId ?? null;
 	const worktreeSetupStatus = useWorktreesStore((state) => {
 		if (worktreeId === null) return null;
@@ -717,6 +747,7 @@ export function ChatView({
 	const renderTimelineRow = useCallback(
 		({ item }: { item: ChatTimelineRow }) => (
 			<TimelineRow
+				interactions={actionableInteractions}
 				chatId={session?.chatId ?? null}
 				environmentId={timeline.ref.environmentId}
 				providerId={session.providerId}
@@ -727,6 +758,7 @@ export function ChatView({
 			/>
 		),
 		[
+			actionableInteractions,
 			session.chatId,
 			session.providerId,
 			sessionId,
@@ -756,6 +788,9 @@ export function ChatView({
 			folderId={session?.projectId ?? null}
 			worktreeId={session?.worktreeId ?? null}
 		>
+			<h1 className="sr-only">
+				{session.title || uiMessage("chat:chat_view_new_chat")}
+			</h1>
 			<div
 				data-chat-viewport
 				className="relative flex min-h-0 min-w-0 flex-1 [container-type:inline-size]"
@@ -914,6 +949,7 @@ export function ChatView({
 }
 
 function TimelineRow({
+	interactions,
 	chatId,
 	row,
 	sessionId,
@@ -922,6 +958,7 @@ function TimelineRow({
 	pendingCommands,
 	runtimeState,
 }: {
+	readonly interactions: readonly SessionInteraction[];
 	readonly chatId: import("@zuse/contracts").ChatId | null;
 	readonly row: ChatTimelineRow;
 	readonly sessionId: SessionId;
@@ -976,6 +1013,7 @@ function TimelineRow({
 		case "working":
 			content = (
 				<ChatWorkingRow
+					interactions={interactions}
 					messages={row.messages}
 					chatId={chatId}
 					pendingCommands={pendingCommands}

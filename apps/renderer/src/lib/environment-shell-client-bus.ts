@@ -76,8 +76,6 @@ export const environmentShellResourceKey = (
 ): EnvironmentShellResourceKey =>
 	makeResourceKey<EnvironmentShellData>("environment-shell", ref);
 
-let nextDriverEpoch = 0;
-
 const environmentRef = (key: ResourceKey<unknown>): EnvironmentRef | null =>
 	key.kind === "environment-shell" && !("folderId" in key.ref) ? key.ref : null;
 
@@ -265,7 +263,7 @@ export const makeEnvironmentShellResourceDriver = (options: {
 			const sessionReady = new Set<FolderId>();
 			const creationReady = new Set<FolderId>();
 			const sessionCursorByProject = new Map<FolderId, number>();
-			const epoch = `environment-shell:${context.generation}:${++nextDriverEpoch}`;
+			const epoch = `environment-shell:${context.generation}:${crypto.randomUUID()}`;
 			const isLive = (): boolean =>
 				current.folders.every(
 					(folder) =>

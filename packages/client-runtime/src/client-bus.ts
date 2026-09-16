@@ -5,6 +5,7 @@ import type {
 	EnvironmentId,
 } from "@zuse/contracts";
 
+import { clientCommandTargetId } from "./client-command-target";
 import type {
 	ClientCommand,
 	ClientCommandExecutor,
@@ -101,7 +102,7 @@ export type ResourceDriverContext<Client, Data> = Readonly<{
 	cursor: ResourceCursor | null;
 	/** Current fenced resource view, including side-request data updates. */
 	snapshot: () => ResourceView<Data> | null;
-	/** Fence side-channel sinks (for example xterm bytes) before mutating them. */
+	/** Fence side-channel sinks (for example terminal bytes) before mutating them. */
 	isCurrent: () => boolean;
 	emit: (update: ResourceDriverUpdate<Data>) => boolean;
 }>;
@@ -278,6 +279,13 @@ const cursorEquals = (
 		right !== null &&
 		left.epoch === right.epoch &&
 		left.version === right.version);
+
+/**
+ * In-process command de-duplication is a hot replay window, not durable
+ * history. Safe commands keep their authoritative receipts in the configured
+ * outbox, so bounding this cache cannot compromise reconnect recovery.
+ */
+export const CLIENT_BUS_COMPLETED_RECEIPT_LIMIT = 512;
 
 /**
  * The single client-side ownership boundary for environment connections,
@@ -574,6 +582,11 @@ export class ClientBus<Client> {
 			.catch(() => undefined);
 	}
 
+	/** Close retained transports offline and reconnect them once back online. */
+	setOnline(online: boolean): void {
+		if (!this.disposed) this.runtimes.setOnline(online);
+	}
+
 	/**
 	 * Restarts one retained resource driver without reconnecting its environment.
 	 * This is used when a provisional resource becomes durable after an earlier
@@ -689,7 +702,7 @@ export class ClientBus<Client> {
 		void pending.then(
 			(receipt) => {
 				if (!this.disposed) {
-					this.completedReceipts.set(effectiveCommand.commandId, receipt);
+					this.rememberCompletedReceipt(receipt);
 				}
 				this.commands.delete(effectiveCommand.commandId);
 			},
@@ -842,9 +855,10 @@ export class ClientBus<Client> {
 	): Promise<CommandReceipt<Result>> {
 		for (;;) {
 			this.assertActive();
-			const persisted = await this.commandOutbox()?.findReceipt(
-				command.commandId,
-			);
+			const persisted =
+				command.retry === "safe"
+					? await this.commandOutbox()?.findReceipt(command.commandId)
+					: null;
 			this.assertActive();
 			if (persisted !== null && persisted !== undefined) {
 				assertCommandFingerprint(
@@ -852,7 +866,7 @@ export class ClientBus<Client> {
 					persisted.fingerprint,
 					fingerprint,
 				);
-				this.completedReceipts.set(command.commandId, persisted);
+				this.rememberCompletedReceipt(persisted);
 				const terminal = terminalErrorFromReceipt(persisted);
 				if (terminal !== null) throw terminal;
 				return persisted as CommandReceipt<Result>;
@@ -899,6 +913,16 @@ export class ClientBus<Client> {
 		return this.untilDisposed(delay).finally(() => {
 			if (timeout !== undefined) clearTimeout(timeout);
 		});
+	}
+
+	private rememberCompletedReceipt(receipt: CommandReceipt<unknown>): void {
+		this.completedReceipts.delete(receipt.commandId);
+		this.completedReceipts.set(receipt.commandId, receipt);
+		while (this.completedReceipts.size > CLIENT_BUS_COMPLETED_RECEIPT_LIMIT) {
+			const oldest = this.completedReceipts.keys().next().value;
+			if (oldest === undefined) break;
+			this.completedReceipts.delete(oldest);
+		}
 	}
 
 	async flushOutbox(environmentId?: EnvironmentId): Promise<void> {
@@ -1425,6 +1449,7 @@ export class ClientBus<Client> {
 		const pending = {
 			commandId: command.commandId,
 			kind: command.kind,
+			targetId: clientCommandTargetId(command),
 			submittedAt: Date.now(),
 		};
 		this.updateCommandResource(command, (view) => ({
@@ -1719,8 +1744,6 @@ export class ClientBus<Client> {
 				await this.waitForResourceReflection(command);
 				if (command.retry === "safe") {
 					await outbox?.completeOutbox(receipt);
-				} else {
-					await outbox?.putReceipt?.(receipt);
 				}
 				this.updateCommandResource(command, (view) => ({
 					...view,
@@ -1770,6 +1793,7 @@ export class ClientBus<Client> {
 				const failed: FailedCommand = {
 					commandId: command.commandId,
 					kind: command.kind,
+					targetId: pending.targetId,
 					failedAt: Date.now(),
 					error: messageOf(cause),
 					retryable: command.retry === "safe" && retainForRetry,

@@ -303,6 +303,7 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
 				const handle = yield* startEffect;
 				const fiber = yield* Stream.runForEach(handle.events, (event) =>
 					Effect.sync(() => {
+						if (event._tag === "QuestionCallbackReleased") return;
 						events.push(event);
 					}),
 				).pipe(Effect.forkChild);

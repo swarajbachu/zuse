@@ -19,6 +19,88 @@ const run = <A, E>(program: Effect.Effect<A, E, SqlClient.SqlClient>) =>
 	);
 
 describe("SqlSessionQueries", () => {
+	test("reconstructs unresolved interactions outside the bounded message page", async () => {
+		const snapshot = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					INSERT INTO sessions
+						(id, project_id, title, provider_id, model, status, resume_strategy,
+						 runtime_mode, chat_id, permission_mode, tool_search, created_at, updated_at)
+					VALUES
+						('interactions', 'project-1', 'Interactions', 'claude', 'model',
+						 'running', 'none', 'approval-required', 'chat-1', 'default', 0,
+						 '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+				`;
+				const question = JSON.stringify({
+					_tag: "user_question",
+					itemId: "question-old",
+					questions: [{ question: "Choose", options: ["A"] }],
+				});
+				yield* sql`
+					INSERT INTO messages
+						(id, session_id, role, kind, content_json, parent_item_id,
+						 created_at, sequence)
+					VALUES
+						('question-old', 'interactions', 'assistant', 'user_question',
+						 ${question}, NULL, '2026-01-01T00:00:00.000Z', 1)
+				`;
+				yield* Effect.forEach(
+					Array.from({ length: 100 }, (_, index) => index + 2),
+					(sequence) => sql`
+						INSERT INTO messages
+							(id, session_id, role, kind, content_json, parent_item_id,
+							 created_at, sequence)
+						VALUES
+							(${`later-${sequence}`}, 'interactions', 'assistant', 'assistant',
+							 '{"_tag":"assistant","text":"later"}', NULL,
+							 '2026-01-01T00:00:01.000Z', ${sequence})
+					`,
+					{ discard: true },
+				);
+				const request = JSON.stringify({
+					id: "permission-old",
+					sessionId: "interactions",
+					kind: { _tag: "Bash", command: "git status" },
+					requestedAt: "2026-01-01T00:00:00.000Z",
+					forcePrompt: false,
+				});
+				const payload = JSON.stringify({
+					_tag: "PermissionRequested",
+					requestId: "permission-old",
+					turnId: "turn-1",
+					payloadJson: request,
+					requestedAt: 1,
+				});
+				yield* sql`
+					INSERT INTO events
+						(event_id, stream_kind, stream_id, stream_version, type,
+						 occurred_at, payload_json)
+					VALUES
+						('permission-requested', 'session', 'interactions', 1,
+						 'PermissionRequested', '2026-01-01T00:00:00.000Z', ${payload})
+				`;
+				return yield* readSessionTimelineSnapshot(
+					sql,
+					SessionId.make("interactions"),
+				);
+			}),
+		);
+
+		expect(snapshot.projection.messages).toHaveLength(100);
+		expect(snapshot.projection.interactions).toHaveLength(2);
+		expect(snapshot.projection.interactions).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ _tag: "Question", id: "question-old" }),
+				expect.objectContaining({
+					_tag: "Permission",
+					id: "permission-old",
+				}),
+			]),
+		);
+	});
+
 	test("lists sessions and pages messages by durable sequence", async () => {
 		const result = await run(
 			Effect.gen(function* () {

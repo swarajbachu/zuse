@@ -5,6 +5,7 @@ import {
 	MessageContent,
 	MessageId,
 	MessageRole,
+	PermissionRequest,
 	QueuedMessage,
 	type SessionId,
 	type SessionTimelineEvent,
@@ -23,6 +24,9 @@ const decodeContent = Schema.decodeUnknownResult(
 const decodeRole = Schema.decodeUnknownResult(MessageRole);
 const decodeComposerInput = Schema.decodeUnknownResult(
 	Schema.fromJsonString(ComposerInput),
+);
+const decodePermissionRequest = Schema.decodeUnknownResult(
+	Schema.fromJsonString(PermissionRequest),
 );
 
 export const timelineEventFromDomain = (
@@ -86,6 +90,20 @@ export const timelineEventFromDomain = (
 			};
 		case "SessionRuntimeModeSet":
 			return { _tag: "RuntimeModeSet", runtimeMode: event.runtimeMode };
+		case "PermissionRequested": {
+			const request = decodePermissionRequest(event.payloadJson);
+			return Result.isFailure(request)
+				? { _tag: "Noop" }
+				: { _tag: "PermissionRequested", request: request.success };
+		}
+		case "PermissionResolved":
+			return { _tag: "PermissionResolved", requestId: event.requestId };
+		case "QuestionResolved":
+			return {
+				_tag: "QuestionResolved",
+				itemId: event.itemId as import("@zuse/contracts").AgentItemId,
+				resolution: event.resolution,
+			};
 		case "SessionQueuePausedSet":
 			return { _tag: "QueuePausedSet", paused: event.paused };
 		case "QueuedTurnEnqueued": {

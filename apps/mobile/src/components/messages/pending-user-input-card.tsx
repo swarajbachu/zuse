@@ -31,6 +31,7 @@ export const PendingUserInputCard = ({
 	itemId,
 	questions,
 	onSubmit,
+	onCancel,
 }: {
 	itemId: string;
 	questions: readonly UserQuestion[];
@@ -38,6 +39,7 @@ export const PendingUserInputCard = ({
 		itemId: string,
 		answers: readonly QuestionAnswer[],
 	) => void | Promise<void>;
+	onCancel: (itemId: string) => void | Promise<void>;
 }) => {
 	const [activeIndex, setActiveIndex] = useState(0);
 	const [drafts, setDrafts] = useState<readonly Draft[]>(
@@ -103,13 +105,7 @@ export const PendingUserInputCard = ({
 		setSubmitting(true);
 		setError(null);
 		try {
-			await onSubmit(
-				itemId,
-				questions.map((_, questionIndex) => ({
-					questionIndex,
-					selected: [],
-				})),
-			);
+			await onCancel(itemId);
 			preservedDrafts.delete(itemId);
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : String(cause));

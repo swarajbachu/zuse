@@ -67,8 +67,12 @@ The project also builds directly on public libraries and component registries:
 - the public icon data package and its React and React Native renderers provide
   the default contributor icon set; licensed release builds may use separately
   installed paid icon data governed by its own license terms;
-- CodeMirror, xterm.js, and the Pierre packages provide editor, terminal, diff,
-  and tree foundations;
+- CodeMirror and the Pierre packages provide editor, diff, and tree
+  foundations;
+- Ghostty's `libghostty-vt` provides the terminal state machine used by the
+  WebAssembly, iOS, and Android renderers. Its exact pinned revision and MIT
+  license are distributed under `native/libghostty-vt/` and alongside the
+  mobile vendor artifacts;
 - Next.js and Fumadocs provide the documentation application.
 
 These are dependencies or generated upstream primitives, not evidence of code

@@ -49,6 +49,8 @@ export type PendingCommand = Readonly<{
 	commandId: CommandId;
 	/** Stable command family used by selectors for immediate optimistic state. */
 	kind: string;
+	/** Stable domain subject affected by the command, when it has one. */
+	targetId: string | null;
 	submittedAt: number;
 	deliveryPhase?: "persisting" | CloudCommandState;
 	category?: string;
@@ -59,6 +61,7 @@ export type PendingCommand = Readonly<{
 export type FailedCommand = Readonly<{
 	commandId: CommandId;
 	kind: string;
+	targetId: string | null;
 	failedAt: number;
 	error: string;
 	retryable: boolean;

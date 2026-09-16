@@ -40,7 +40,7 @@ import {
 	Upload01Icon,
 	Wrench01Icon,
 } from "@zuse/icons/solid-rounded";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, PanelBottom } from "lucide-react";
 import {
 	type CSSProperties,
 	lazy,
@@ -164,34 +164,41 @@ export function TopBarLeft() {
 	const reserveMacTrafficLights = isMacHost() && !isFullScreen;
 
 	return (
-		<header
-			className={`${SECTION_CLASS} pr-1 ${reserveMacTrafficLights ? "pl-20" : "pl-3"}`}
+		<section
+			aria-label={uiMessage("common:projects_controls")}
+			className="shrink-0"
 		>
-			<span className="truncate font-semibold tracking-tight text-foreground">
-				{uiMessage("chat:top_bar_zuse_beta")}
-			</span>
-			<span className="flex-1" />
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						<button
-							type="button"
-							onClick={() => setLeftSidebarOpen(false)}
-							className={ICON_BUTTON_CLASS}
-							aria-label={uiMessage("chat:top_bar_hide_projects_panel")}
-						>
-							<HugeiconsIcon icon={PanelLeftCloseIcon} className="size-3.5" />
-						</button>
-					}
-				/>
-				<TooltipPopup>
-					<TooltipShortcut
-						label={uiMessage("chat:top_bar_hide_projects_panel")}
-						shortcut={formatShortcut("toggle-left-sidebar")}
+			<div
+				role="toolbar"
+				aria-label={uiMessage("common:projects_toolbar")}
+				className={`${SECTION_CLASS} pr-1 ${reserveMacTrafficLights ? "pl-20" : "pl-3"}`}
+			>
+				<span className="truncate font-semibold tracking-tight text-foreground">
+					{uiMessage("chat:top_bar_zuse_beta")}
+				</span>
+				<span className="flex-1" />
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<button
+								type="button"
+								onClick={() => setLeftSidebarOpen(false)}
+								className={ICON_BUTTON_CLASS}
+								aria-label={uiMessage("chat:top_bar_hide_projects_panel")}
+							>
+								<HugeiconsIcon icon={PanelLeftCloseIcon} className="size-3.5" />
+							</button>
+						}
 					/>
-				</TooltipPopup>
-			</Tooltip>
-		</header>
+					<TooltipPopup>
+						<TooltipShortcut
+							label={uiMessage("common:hide_projects_panel")}
+							shortcut={formatShortcut("toggle-left-sidebar")}
+						/>
+					</TooltipPopup>
+				</Tooltip>
+			</div>
+		</section>
 	);
 }
 
@@ -260,6 +267,14 @@ export function TopBarMain() {
 	);
 	const setRightSidebarOpenForChat = useUiStore(
 		(s) => s.setRightSidebarOpenForChat,
+	);
+	const bottomTerminalOpen = useUiStore((s) =>
+		selectedChatKey === null
+			? false
+			: (s.bottomTerminalLayoutByChat[selectedChatKey]?.open ?? false),
+	);
+	const setBottomTerminalOpenForChat = useUiStore(
+		(s) => s.setBottomTerminalOpenForChat,
 	);
 	const isFullScreen = useUiStore((s) => s.isFullScreen);
 	const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
@@ -386,7 +401,9 @@ export function TopBarMain() {
 	};
 
 	return (
-		<header
+		<div
+			role="toolbar"
+			aria-label={uiMessage("common:workspace_toolbar")}
 			className={`${SECTION_CLASS} ${leftPad} bg-muted/20 ${rightSidebarOpen ? "pr-1" : NATIVE_CONTROLS_INSET_CLASS}`}
 		>
 			{showLeftToggle ? (
@@ -523,6 +540,31 @@ export function TopBarMain() {
 					</TooltipPopup>
 				</Tooltip>
 			) : null}
+			{selectedChatRef !== null && ctx.status === "ready" ? (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<button
+								type="button"
+								aria-label={uiMessage("common:toggle_bottom_terminal")}
+								aria-pressed={bottomTerminalOpen}
+								className={`${ICON_BUTTON_CLASS} ${bottomTerminalOpen ? "bg-foreground/10 text-foreground" : ""}`}
+								onClick={() =>
+									setBottomTerminalOpenForChat(
+										selectedChatRef,
+										!bottomTerminalOpen,
+									)
+								}
+							>
+								<PanelBottom className="size-3.5" />
+							</button>
+						}
+					/>
+					<TooltipPopup>
+						{uiMessage("common:toggle_bottom_terminal")}
+					</TooltipPopup>
+				</Tooltip>
+			) : null}
 			<Tooltip>
 				<TooltipTrigger
 					render={
@@ -564,7 +606,7 @@ export function TopBarMain() {
 					/>
 				</TooltipPopup>
 			</Tooltip>
-		</header>
+		</div>
 	);
 }
 
@@ -999,7 +1041,7 @@ function RunButton() {
 		if (chatId === null) return;
 		const run = await startRun(worktreeId);
 		if (run === null) return;
-		openTerminalCommand({
+		await openTerminalCommand({
 			chatRef: { environmentId: ctx.environmentId, chatId },
 			cwd: run.cwd,
 			title: uiMessage("chat:top_bar_run"),
@@ -1028,26 +1070,33 @@ export function TopBarRight() {
 			: `empty:${selectedChatId ?? "none"}`;
 
 	return (
-		<ErrorBoundary
-			resetKey={resetKey}
-			fallback={
-				<header
-					className={`${SECTION_CLASS} ${NATIVE_CONTROLS_INSET_CLASS} justify-between pl-2`}
-				>
-					<div className={ACTION_CLASS} />
-					<div
-						className={`text-[11px] text-[var(--accent-red)] ${ACTION_CLASS}`}
-					>
-						{uiMessage("chat:top_bar_actions_unavailable")}
-					</div>
-				</header>
-			}
-			onError={(error) => {
-				console.error("[top-bar] action surface crashed", error);
-			}}
+		<section
+			aria-label={uiMessage("common:workflow_controls")}
+			className="shrink-0"
 		>
-			<TopBarRightContent />
-		</ErrorBoundary>
+			<ErrorBoundary
+				resetKey={resetKey}
+				fallback={
+					<div
+						role="toolbar"
+						aria-label={uiMessage("common:workflow_toolbar")}
+						className={`${SECTION_CLASS} ${NATIVE_CONTROLS_INSET_CLASS} justify-between pl-2`}
+					>
+						<div className={ACTION_CLASS} />
+						<div
+							className={`text-[11px] text-[var(--accent-red)] ${ACTION_CLASS}`}
+						>
+							{uiMessage("chat:top_bar_actions_unavailable")}
+						</div>
+					</div>
+				}
+				onError={(error) => {
+					console.error("[top-bar] action surface crashed", error);
+				}}
+			>
+				<TopBarRightContent />
+			</ErrorBoundary>
+		</section>
 	);
 }
 
@@ -1073,9 +1122,13 @@ export function TopBarRightContent({
 	const workflow = deriveBranchWorkflow(status, pr, canCreatePrWhenSynced);
 	const agentReady = selectedSessionId !== null;
 
-	const Root = compact ? "div" : "header";
 	return (
-		<Root
+		<div
+			role="toolbar"
+			aria-label={uiMessage(
+				compact ? "common:workflow_actions" : "common:workflow_toolbar",
+			)}
+			aria-orientation={compact ? "vertical" : "horizontal"}
 			className={
 				compact
 					? "flex min-w-0 flex-col gap-2"
@@ -1112,7 +1165,7 @@ export function TopBarRightContent({
 				) : null}
 			</div>
 			<WorkflowActions compact={compact} />
-		</Root>
+		</div>
 	);
 }
 

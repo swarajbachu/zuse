@@ -128,12 +128,6 @@ const TopBarRight = lazy(() =>
 	})),
 );
 
-const ChatSwitcher = lazy(() =>
-	import("../components/chat-switcher.tsx").then((module) => ({
-		default: module.ChatSwitcher,
-	})),
-);
-
 const FileSearch = lazy(() =>
 	import("../components/file-search.tsx").then((module) => ({
 		default: module.FileSearch,
@@ -206,6 +200,11 @@ const ChangesReview = lazy(() =>
 	})),
 );
 
+const BottomTerminalDock = lazy(() =>
+	import("../components/bottom-terminal-dock.tsx").then((module) => ({
+		default: module.BottomTerminalDock,
+	})),
+);
 const FileEditor = lazy(() =>
 	import("../components/file-editor.tsx").then((module) => ({
 		default: module.FileEditor,
@@ -258,10 +257,13 @@ function useAnimatedPanelVisibility(
 		if (animate) element?.classList.add("fz-sidebar-panel-motion");
 		const frame = window.requestAnimationFrame(() => {
 			if (open) {
-				panel.expand();
 				if (expandedSizeRef.current !== undefined) {
 					panel.resize(expandedSizeRef.current);
 				}
+				// A saved percentage can fall below the collapse threshold in a
+				// narrow window. Expand last so "open" still guarantees a visible
+				// panel at the library's minimum size instead of snapping to zero.
+				panel.expand();
 			} else {
 				panel.collapse();
 			}
@@ -298,6 +300,7 @@ function TabsFallback() {
  * from a clean state.
  */
 export function MainShell() {
+	const activeContext = useActiveContext();
 	const { message: uiMessage } = useUiMessages(["shell"]);
 
 	const activeEnvironmentId = useEnvironmentCatalogStore(
@@ -440,6 +443,7 @@ export function MainShell() {
 	);
 	const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
 	const environmentSummaryFits = useMediaQuery({ min: 1180 });
+	const compactWorkspace = useMediaQuery({ max: 900 });
 	const environmentSummaryAvailable =
 		environmentSummaryFits &&
 		selectedSessionId !== null &&
@@ -792,6 +796,15 @@ export function MainShell() {
 								</Suspense>
 							</div>
 						) : null}
+						{selectedChatRef !== null && activeContext.status === "ready" ? (
+							<Suspense fallback={null}>
+								<BottomTerminalDock
+									chatRef={selectedChatRef}
+									rootPath={activeContext.rootPath}
+									directoryUnavailable={directoryUnavailable}
+								/>
+							</Suspense>
+						) : null}
 					</main>
 				</Panel>
 				<Separator className="w-px bg-sidebar-border transition-colors hover:bg-input active:bg-muted-foreground/40" />
@@ -801,7 +814,9 @@ export function MainShell() {
 					// Keep an opened dock useful. Older persisted layouts may contain a
 					// near-zero expanded width from when this minimum was 0; the panel
 					// library clamps those layouts to this value on launch and reopen.
-					minSize="360px"
+					// At the 720px window minimum, 360px plus the other panes'
+					// minimum widths cannot fit, so the library collapses this pane.
+					minSize={compactWorkspace ? "280px" : "360px"}
 					maxSize="55%"
 					collapsible
 					collapsedSize="0%"
@@ -847,7 +862,6 @@ export function MainShell() {
 			<Suspense fallback={null}>
 				<SidebarPeekTrigger />
 				<SidebarPeekOverlay />
-				<ChatSwitcher />
 				<FileSearch />
 			</Suspense>
 		</div>

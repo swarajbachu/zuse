@@ -284,14 +284,18 @@ export interface ConversationOperations {
 
 	/**
 	 * Resolve a pending in-process AskUserQuestion call by `itemId`.
-	 * Persists a `user_question_answer` row before forwarding to the
-	 * driver so the renderer's view stays consistent if the SDK turn
-	 * unwinds before the row reaches the live stream.
+	 * Records durable intent before crossing the provider boundary, then
+	 * persists the public `user_question_answer` receipt only after delivery.
 	 */
 	readonly answerQuestion: (
 		sessionId: SessionId,
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
+	) => Effect.Effect<void, SessionNotFoundError>;
+	/** Cancel a pending question without encoding cancellation as an answer. */
+	readonly cancelQuestion: (
+		sessionId: SessionId,
+		itemId: AgentItemId,
 	) => Effect.Effect<void, SessionNotFoundError>;
 
 	readonly respondToPlan: (
@@ -626,6 +630,7 @@ export type SessionServiceShape = Pick<
 	| "setRuntimeMode"
 	| "setPermissionMode"
 	| "answerQuestion"
+	| "cancelQuestion"
 	| "respondToPlan"
 	| "updateMcpServers"
 	| "setWorktree"

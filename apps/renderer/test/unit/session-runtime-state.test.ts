@@ -30,6 +30,7 @@ describe("session runtime state", () => {
 				{
 					commandId: CommandId.make("message-send:1"),
 					kind: "messages.send",
+					targetId: null,
 					submittedAt: 1,
 				},
 			]),
@@ -39,6 +40,7 @@ describe("session runtime state", () => {
 				{
 					commandId: CommandId.make("queue-update:1"),
 					kind: "messages.queue.update",
+					targetId: null,
 					submittedAt: 1,
 				},
 			]),
@@ -90,6 +92,7 @@ describe("runtime freshness", () => {
 						{
 							commandId: CommandId.make("interrupt:1"),
 							kind: "messages.interrupt",
+							targetId: null,
 							submittedAt: 1,
 						},
 					],

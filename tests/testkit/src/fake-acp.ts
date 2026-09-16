@@ -14,6 +14,8 @@ export type FakeAcpScenario =
 	| "complete"
 	| "hold"
 	| "permission"
+	| "question"
+	| "question-quarantine"
 	| "crash"
 	| "malformed"
 	| "stall";

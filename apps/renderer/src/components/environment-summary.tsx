@@ -344,7 +344,7 @@ export function EnvironmentSummary() {
 						<span className="text-[var(--accent-green)]">
 							+{compactNumber(diffStat.additions)}
 						</span>
-						<span className="text-[var(--accent-red)]">
+						<span className="text-danger-text">
 							−{compactNumber(diffStat.deletions)}
 						</span>
 					</span>

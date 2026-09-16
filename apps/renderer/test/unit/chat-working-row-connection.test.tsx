@@ -25,6 +25,7 @@ describe("ChatWorkingRow cloud delivery", () => {
 					{
 						commandId,
 						kind: "messages.send",
+						targetId: null,
 						submittedAt: 1,
 						deliveryPhase: "waiting-for-runtime",
 						cancellable: true,

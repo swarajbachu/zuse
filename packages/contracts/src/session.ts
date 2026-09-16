@@ -30,6 +30,7 @@ import {
 	WorktreeId,
 } from "./ids.ts";
 import { NameProvenanceField } from "./naming.ts";
+import { PermissionRequest } from "./permission.ts";
 import { Worktree } from "./worktree.ts";
 
 export {
@@ -359,16 +360,24 @@ const UserQuestionContent = Schema.TaggedStruct("user_question", {
  * user typed free-text); `other` is the free-text "Other" entry. Either
  * field may be empty, but never both.
  */
+const UserQuestionCoordinate = Schema.Number.check(
+	Schema.isInt(),
+	Schema.makeFilter((value) =>
+		value >= 0 ? undefined : "Question coordinates cannot be negative.",
+	),
+);
+
+export const UserQuestionAnswer = Schema.Struct({
+	questionIndex: UserQuestionCoordinate,
+	selected: Schema.Array(UserQuestionCoordinate),
+	other: Schema.optional(Schema.String),
+});
+export type UserQuestionAnswer = typeof UserQuestionAnswer.Type;
+
 const UserQuestionAnswerContent = Schema.TaggedStruct("user_question_answer", {
 	resolution: Schema.optional(Schema.Literals(["cancelled", "timed-out"])),
 	itemId: AgentItemId,
-	answers: Schema.Array(
-		Schema.Struct({
-			questionIndex: Schema.Number,
-			selected: Schema.Array(Schema.Number),
-			other: Schema.optional(Schema.String),
-		}),
-	),
+	answers: Schema.Array(UserQuestionAnswer),
 	parentItemId: Schema.optional(AgentItemId),
 });
 
@@ -396,8 +405,6 @@ export const MessageContent = Schema.Union([
 	UserQuestionContent,
 	UserQuestionAnswerContent,
 ]);
-export type UserQuestionAnswer =
-	(typeof UserQuestionAnswerContent.Type)["answers"][number];
 export type MessageContent = typeof MessageContent.Type;
 
 export class Message extends Schema.Class<Message>("Message")({
@@ -481,6 +488,24 @@ export const SessionTimelineTurn = Schema.Struct({
 });
 export type SessionTimelineTurn = typeof SessionTimelineTurn.Type;
 
+/**
+ * An unresolved, user-blocking interaction reconstructed from the durable
+ * session stream. Resolution removes the interaction from the projection;
+ * transient submission state belongs to the client command overlay.
+ */
+export const SessionInteraction = Schema.Union([
+	Schema.TaggedStruct("Question", {
+		id: AgentItemId,
+		questions: Schema.Array(UserQuestion),
+		requestedAt: Schema.DateFromString,
+	}),
+	Schema.TaggedStruct("Permission", {
+		id: Schema.String,
+		request: PermissionRequest,
+	}),
+]);
+export type SessionInteraction = typeof SessionInteraction.Type;
+
 export class SessionTimelineProjection extends Schema.Class<SessionTimelineProjection>(
 	"SessionTimelineProjection",
 )({
@@ -492,6 +517,10 @@ export class SessionTimelineProjection extends Schema.Class<SessionTimelineProje
 	queue: QueueState,
 	permissionMode: PermissionMode,
 	runtimeMode: RuntimeMode,
+	interactions: Schema.Array(SessionInteraction).pipe(
+		Schema.withConstructorDefault(Effect.succeed([])),
+		Schema.withDecodingDefaultType(Effect.succeed([])),
+	),
 }) {}
 
 /** Canonical result of settling an agent turn. */
@@ -520,6 +549,12 @@ export const SessionTimelineEvent = Schema.Union([
 	}),
 	Schema.TaggedStruct("PermissionModeSet", { permissionMode: PermissionMode }),
 	Schema.TaggedStruct("RuntimeModeSet", { runtimeMode: RuntimeMode }),
+	Schema.TaggedStruct("PermissionRequested", { request: PermissionRequest }),
+	Schema.TaggedStruct("PermissionResolved", { requestId: Schema.String }),
+	Schema.TaggedStruct("QuestionResolved", {
+		itemId: AgentItemId,
+		resolution: Schema.Literal("cancelled"),
+	}),
 	Schema.TaggedStruct("QueuePausedSet", { paused: Schema.Boolean }),
 	Schema.TaggedStruct("QueueEnqueued", { item: QueuedMessage }),
 	Schema.TaggedStruct("QueueUpdated", {
@@ -1489,18 +1524,59 @@ export const SessionSetPermissionModeRpc = Rpc.make(
  * The driver returns the answers as the tool result, the SDK turn unwinds,
  * and the renderer paints a paired `user_question_answer` row.
  */
+export const QuestionAttachment = Schema.Struct({
+	sessionId: SessionId,
+	itemId: AgentItemId,
+});
+export type QuestionAttachment = typeof QuestionAttachment.Type;
+
+/**
+ * Ephemeral provider-callback availability. Unlike the durable question row,
+ * these entries intentionally start empty after every server restart and are
+ * republished only when the replacement provider reissues the question.
+ */
+export const QuestionAttachmentChange = Schema.Union([
+	Schema.Struct({
+		_tag: Schema.Literal("snapshot"),
+		attachments: Schema.Array(QuestionAttachment),
+	}),
+	Schema.Struct({
+		_tag: Schema.Literal("change"),
+		attachment: QuestionAttachment,
+	}),
+	Schema.Struct({
+		_tag: Schema.Literal("remove"),
+		sessionId: SessionId,
+		itemId: AgentItemId,
+	}),
+]);
+export type QuestionAttachmentChange = typeof QuestionAttachmentChange.Type;
+
+/** Live blocking-question callbacks across sessions in one environment. */
+export const SessionQuestionAttachmentsRpc = Rpc.make(
+	"session.questionAttachments",
+	{
+		payload: Schema.Struct({}),
+		success: QuestionAttachmentChange,
+		stream: true,
+	},
+);
+
 export const SessionAnswerQuestionRpc = Rpc.make("session.answerQuestion", {
 	payload: Schema.Struct({
 		commandId: CommandId,
 		sessionId: SessionId,
-		itemId: Schema.String,
-		answers: Schema.Array(
-			Schema.Struct({
-				questionIndex: Schema.Number,
-				selected: Schema.Array(Schema.Number),
-				other: Schema.optional(Schema.String),
-			}),
-		),
+		itemId: AgentItemId,
+		answers: Schema.Array(UserQuestionAnswer),
+	}),
+	success: Schema.Void,
+	error: SessionNotFoundError,
+});
+
+export const SessionCancelQuestionRpc = Rpc.make("session.cancelQuestion", {
+	payload: Schema.Struct({
+		sessionId: SessionId,
+		itemId: AgentItemId,
 	}),
 	success: Schema.Void,
 	error: SessionNotFoundError,

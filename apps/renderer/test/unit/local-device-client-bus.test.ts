@@ -1,7 +1,10 @@
 import { CommandId, EnvironmentId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { localDeviceCommand } from "../../src/lib/local-device-client-bus.ts";
+import {
+	isLocalDeviceConnectionReady,
+	localDeviceCommand,
+} from "../../src/lib/local-device-client-bus.ts";
 import {
 	getRendererClientBus,
 	resetSessionTimelineClientBusForTest,
@@ -46,5 +49,15 @@ describe("local device ClientBus commands", () => {
 		expect(command.environmentId).toBe("desktop-environment");
 		expect(command.resource).toBeNull();
 		expect(command.retry).toBe("never");
+	});
+
+	test("treats an offline canonical connection as unavailable to background polling", () => {
+		const connection = vi.spyOn(getRendererClientBus(), "connection");
+		connection.mockReturnValueOnce({ phase: "offline" } as never);
+		expect(isLocalDeviceConnectionReady()).toBe(false);
+
+		connection.mockReturnValueOnce({ phase: "connected" } as never);
+		expect(isLocalDeviceConnectionReady()).toBe(true);
+		connection.mockRestore();
 	});
 });

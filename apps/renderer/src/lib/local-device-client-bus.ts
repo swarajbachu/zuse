@@ -41,6 +41,11 @@ export const dispatchLocalDeviceCommand = <Payload, Result>(
 		)
 		.then(({ result }) => result);
 
+/** Whether background local-device work can report a genuine RPC failure. */
+export const isLocalDeviceConnectionReady = (): boolean =>
+	getRendererClientBus().connection(EnvironmentId.make(getLocalEnvironmentId()))
+		.phase === "connected";
+
 export const readLocalExternalFile = <Result>(path: string): Promise<Result> =>
 	dispatchLocalDeviceCommand<{ readonly path: string }, Result>(
 		"fs.readExternalFile",

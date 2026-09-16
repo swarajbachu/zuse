@@ -72,10 +72,10 @@ CREATE TABLE pokemon_unlocks (
   pokemon_number INTEGER PRIMARY KEY,
   worktree_id TEXT REFERENCES worktrees(id) ON DELETE SET NULL, unlocked_at TEXT NOT NULL
 );
-CREATE TABLE api_config (
-  environment_id TEXT PRIMARY KEY, api_url TEXT NOT NULL, api_issuer TEXT NOT NULL,
+CREATE TABLE relay_config (
+  environment_id TEXT PRIMARY KEY, relay_url TEXT NOT NULL, relay_issuer TEXT NOT NULL,
   environment_credential TEXT NOT NULL, updated_at TEXT NOT NULL, label TEXT,
-  connector_token TEXT, tunnel_hostname TEXT, api_mint_public_key TEXT
+  connector_token TEXT, tunnel_hostname TEXT, relay_mint_public_key TEXT
 );
 CREATE TABLE repository_settings (
   project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,

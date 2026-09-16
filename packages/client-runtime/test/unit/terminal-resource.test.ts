@@ -92,4 +92,36 @@ describe("terminal resource reducer", () => {
 			outputSequence: 0,
 		});
 	});
+
+	it("resets the cursor before reducing output from a replacement process", () => {
+		const initial = {
+			...initialTerminalResourceState(PtyId.make("pty-restarted"), "epoch-1"),
+			phase: "running" as const,
+			outputSequence: 12,
+		};
+		const transition = reduceTerminalOutput(initial, {
+			_tag: "epoch",
+			processEpoch: "epoch-2",
+			sequence: 0,
+		});
+		expect(transition).toMatchObject({
+			kind: "accepted",
+			resetEpoch: true,
+			state: {
+				processEpoch: "epoch-2",
+				phase: "connecting",
+				outputSequence: 0,
+			},
+		});
+
+		const first = reduceTerminalOutput(transition.state, {
+			_tag: "data",
+			processEpoch: "epoch-2",
+			sequence: 1,
+		});
+		expect(first).toMatchObject({
+			kind: "accepted",
+			state: { processEpoch: "epoch-2", outputSequence: 1 },
+		});
+	});
 });
