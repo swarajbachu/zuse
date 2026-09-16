@@ -744,7 +744,11 @@ describe("cloud workspace reconciler", () => {
 					return yield* Effect.die(
 						"warm runtime restarted before grace deadline",
 					);
-				yield* Effect.sleep("550 millis");
+				if (warming === null) return yield* Effect.die("workspace disappeared");
+				yield* store.saveWorkspace({
+					...warming,
+					nextActionAtMs: Date.now() - 1,
+				});
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				const resumed = yield* store.getWorkspace(workspace.workspaceId);
 				const resumeBeforeMissing = yield* Ref.get(control.resumeInputs);
@@ -1044,7 +1048,7 @@ describe("cloud workspace reconciler", () => {
 		);
 
 		expect(result.workspace?.nextActionAtMs).toBeGreaterThanOrEqual(
-			result.providerReturnedAt + 500,
+			result.providerReturnedAt + 5_000,
 		);
 		expect(result.resumeInputs).toHaveLength(1);
 		expect(result.startProcessCalls).toHaveLength(0);
