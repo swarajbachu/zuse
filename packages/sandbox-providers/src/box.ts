@@ -27,9 +27,9 @@ const BoxDetail = Schema.Struct({
 });
 type BoxDetail = Schema.Schema.Type<typeof BoxDetail>;
 
-const BoxInfoResponse = Schema.Struct({ box: BoxDetail });
+const BoxInfoResponse = Schema.Struct({ sandbox: BoxDetail });
 const BoxListResponse = Schema.Struct({
-	boxes: Schema.Array(BoxDetail),
+	sandboxes: Schema.Array(BoxDetail),
 	pageInfo: Schema.optional(
 		Schema.Struct({ nextCursor: Schema.NullOr(Schema.String) }),
 	),
@@ -39,9 +39,9 @@ const NonnegativeFinite = Schema.Number.check(
 );
 const BoxUsageResponse = Schema.Struct({
 	ok: Schema.Literal(true),
-	type: Schema.Literal("box.usage"),
-	boxId: Schema.String,
-	boxType: Schema.Literals(["small", "default", "large", "xlarge"]),
+	type: Schema.Literal("sandbox.usage"),
+	sandboxId: Schema.String,
+	sandboxType: Schema.Literals(["small", "default", "large", "xlarge"]),
 	billingMultiplier: NonnegativeFinite.check(Schema.isGreaterThan(0)),
 	since: Schema.String,
 	until: Schema.String,
@@ -95,8 +95,8 @@ const defaultHttpClient: BoxHttpClient = {
 	fetch: (input, init) => globalThis.fetch(input, init),
 };
 
-export const BOX_API_BASE_URL = "https://ascii.dev/api/box/v1";
-export const BOX_DEFAULT_HOSTED_PORT_DOMAIN = "on.ascii.dev";
+export const BOX_API_BASE_URL = "https://boat.dev/api/v1";
+export const BOX_DEFAULT_HOSTED_PORT_DOMAIN = "on.boat.dev";
 export const BOX_PROVIDER_ID = "box" as const;
 const BOX_PERSISTED_RUNTIME_ROOT = "/srv/zuse";
 const BOX_PERSISTED_RUNTIME_MARKER = `${BOX_PERSISTED_RUNTIME_ROOT}/.layout-v1`;
@@ -121,7 +121,7 @@ const MAX_TEXT_FILE_BYTES = 65_536;
 const MIN_TTL_SECONDS = 1;
 const MAX_TTL_SECONDS = 2_592_000;
 const RETRYABLE_CONFLICT_CODES = new Set([
-	"box_starting",
+	"sandbox_starting",
 	"save_in_progress",
 	"stop_in_progress",
 ]);
@@ -320,16 +320,16 @@ export const makeBoxSandboxProvider = (
 	): Effect.Effect<BoxDetail, SandboxProviderError> =>
 		request(
 			"GET",
-			`/boxes/${encodeURIComponent(providerSandboxId)}`,
+			`/sandboxes/${encodeURIComponent(providerSandboxId)}`,
 			BoxInfoResponse,
-		).pipe(Effect.map((response) => response.box));
+		).pipe(Effect.map((response) => response.sandbox));
 
 	const kill = (
 		providerSandboxId: string,
 	): Effect.Effect<void, SandboxProviderError> =>
 		requestVoid(
 			"DELETE",
-			`/boxes/${encodeURIComponent(providerSandboxId)}`,
+			`/sandboxes/${encodeURIComponent(providerSandboxId)}`,
 			undefined,
 			[404],
 			{ "x-ascii-confirm-delete": providerSandboxId },
@@ -342,7 +342,7 @@ export const makeBoxSandboxProvider = (
 	): Effect.Effect<CommandFinishedResponse, SandboxProviderError> =>
 		request(
 			"POST",
-			`/boxes/${encodeURIComponent(providerSandboxId)}/commands`,
+			`/sandboxes/${encodeURIComponent(providerSandboxId)}/commands`,
 			CommandFinishedResponse,
 			{ command, timeoutSeconds },
 		).pipe(
@@ -470,7 +470,7 @@ export const makeBoxSandboxProvider = (
 			// the account environment reaches every sandbox — only globally shared
 			// material belongs there; per-account credentials are baked into the
 			// account image by the API.
-			const created = yield* request("POST", "/boxes", BoxInfoResponse, {
+			const created = yield* request("POST", "/sandboxes", BoxInfoResponse, {
 				from: input.snapshot,
 				type: yield* machineTypeFor(input.sizeId),
 				ttlSeconds: clampTtlSeconds(input.timeoutSeconds),
@@ -480,30 +480,30 @@ export const makeBoxSandboxProvider = (
 			// label, and unlabeled boxes only die by TTL.
 			yield* requestVoid(
 				"PATCH",
-				`/boxes/${encodeURIComponent(created.box.id)}`,
+				`/sandboxes/${encodeURIComponent(created.sandbox.id)}`,
 				{ name: input.providerLabel },
 			).pipe(
 				Effect.catchTag("SandboxProviderError", (error) =>
-					kill(created.box.id).pipe(
+					kill(created.sandbox.id).pipe(
 						Effect.ignore,
 						Effect.andThen(Effect.fail(error)),
 					),
 				),
 			);
-			yield* pollUntilUsable(created.box.id, readyDeadlineMs);
+			yield* pollUntilUsable(created.sandbox.id, readyDeadlineMs);
 			yield* ensureRuntimeLayout(
-				created.box.id,
+				created.sandbox.id,
 				input.requirePersistedLayout,
 			).pipe(
 				Effect.catchTag("SandboxProviderError", (error) =>
-					kill(created.box.id).pipe(
+					kill(created.sandbox.id).pipe(
 						Effect.ignore,
 						Effect.andThen(Effect.fail(error)),
 					),
 				),
 			);
 			return {
-				providerSandboxId: created.box.id,
+				providerSandboxId: created.sandbox.id,
 				providerLabel: input.providerLabel,
 				state: "running",
 			} satisfies ProviderSandbox;
@@ -538,7 +538,7 @@ export const makeBoxSandboxProvider = (
 		const user = input.user ?? "user";
 		yield* request(
 			"POST",
-			`/boxes/${encodeURIComponent(providerSandboxId)}/commands`,
+			`/sandboxes/${encodeURIComponent(providerSandboxId)}/commands`,
 			CommandStartedResponse,
 			{
 				command: `sudo -n -E -H -u ${shellQuote(user)} setsid bash -c ${shellQuote(boxProcessScript(input))}`,
@@ -595,7 +595,7 @@ export const makeBoxSandboxProvider = (
 			const stagingPath = `/tmp/.zuse-write-${crypto.randomUUID()}`;
 			yield* requestVoid(
 				"PUT",
-				`/boxes/${encodeURIComponent(providerSandboxId)}/files`,
+				`/sandboxes/${encodeURIComponent(providerSandboxId)}/files`,
 				{ path: stagingPath, content: contents, encoding: "utf8" },
 			);
 			const owner = user ?? "user";
@@ -634,15 +634,15 @@ export const makeBoxSandboxProvider = (
 				if (cursor !== undefined) query.set("cursor", cursor);
 				const listed = yield* request(
 					"GET",
-					`/boxes?${query.toString()}`,
+					`/sandboxes?${query.toString()}`,
 					BoxListResponse,
 				);
-				const found = listed.boxes.find(
+				const found = listed.sandboxes.find(
 					(candidate) => candidate.name === providerLabel,
 				);
 				if (found !== undefined) return toProviderSandbox(found);
 				const nextCursor = listed.pageInfo?.nextCursor ?? null;
-				if (nextCursor === null || listed.boxes.length === 0) return null;
+				if (nextCursor === null || listed.sandboxes.length === 0) return null;
 				cursor = nextCursor;
 			}
 			return null;
@@ -651,7 +651,7 @@ export const makeBoxSandboxProvider = (
 
 	return {
 		providerId: BOX_PROVIDER_ID,
-		displayName: "Box",
+		displayName: "Boat",
 		getUsage: Effect.fn("BoxSandboxProvider.getUsage")(
 			function* (providerSandboxId, window) {
 				if (
@@ -668,7 +668,7 @@ export const makeBoxSandboxProvider = (
 				});
 				const usage = yield* request(
 					"GET",
-					`/boxes/${encodeURIComponent(providerSandboxId)}/usage?${query}`,
+					`/sandboxes/${encodeURIComponent(providerSandboxId)}/usage?${query}`,
 					BoxUsageResponse,
 					undefined,
 					30_000,
@@ -679,7 +679,7 @@ export const makeBoxSandboxProvider = (
 				const costMicrosPerSecond =
 					(1_000_000 * usage.billingMultiplier) / usage.secondsPerDollar;
 				if (
-					usage.boxId !== providerSandboxId ||
+					usage.sandboxId !== providerSandboxId ||
 					startedAtMs !== window.startedAtMs ||
 					endedAtMs !== window.endedAtMs ||
 					!Number.isSafeInteger(providerCostMicros) ||
@@ -761,7 +761,7 @@ export const makeBoxSandboxProvider = (
 		pause: (providerSandboxId) =>
 			requestVoid(
 				"POST",
-				`/boxes/${encodeURIComponent(providerSandboxId)}/stop`,
+				`/sandboxes/${encodeURIComponent(providerSandboxId)}/stop`,
 				{},
 				// 409 covers an already archived box or an in-flight stop.
 				[409],
@@ -777,7 +777,7 @@ export const makeBoxSandboxProvider = (
 				// carries.
 				yield* requestVoid(
 					"POST",
-					`/boxes/${encodeURIComponent(providerSandboxId)}/resume`,
+					`/sandboxes/${encodeURIComponent(providerSandboxId)}/resume`,
 					{
 						ttlSeconds: clampTtlSeconds(timeoutSeconds),
 						...(sizeId === undefined
@@ -804,9 +804,13 @@ export const makeBoxSandboxProvider = (
 			},
 		),
 		extendTimeout: (providerSandboxId, timeoutSeconds) =>
-			requestVoid("PATCH", `/boxes/${encodeURIComponent(providerSandboxId)}`, {
-				ttlSeconds: clampTtlSeconds(timeoutSeconds),
-			}),
+			requestVoid(
+				"PATCH",
+				`/sandboxes/${encodeURIComponent(providerSandboxId)}`,
+				{
+					ttlSeconds: clampTtlSeconds(timeoutSeconds),
+				},
+			),
 		setNetwork: (_providerSandboxId, network) => validateNetwork(network),
 		snapshot: Effect.fn("BoxSandboxProvider.snapshot")(
 			function* (providerSandboxId, name) {
@@ -835,7 +839,7 @@ export const makeBoxSandboxProvider = (
 				}
 				if (status === "missing" || status === "failed") {
 					yield* requestVoid("POST", "/named-snapshots", {
-						boxId: providerSandboxId,
+						sandboxId: providerSandboxId,
 						name: target,
 					});
 				}

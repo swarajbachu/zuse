@@ -77,7 +77,7 @@ const createInput = {
 };
 
 const readyBox = (id: string, state = "ready") => ({
-	box: {
+	sandbox: {
 		id,
 		state,
 		name: "zuse-cloud-workspace-1",
@@ -136,7 +136,7 @@ describe("Box sandbox provider", () => {
 	});
 
 	test("uses the official API endpoint by default", async () => {
-		const http = makeHttp([{ status: 200, body: { boxes: [] } }]);
+		const http = makeHttp([{ status: 200, body: { sandboxes: [] } }]);
 		const adapter = makeBoxSandboxProvider(
 			{
 				apiKey: Redacted.make("secret-key"),
@@ -149,7 +149,7 @@ describe("Box sandbox provider", () => {
 		await Effect.runPromise(adapter.recoverByLabel("zuse-cloud-workspace-1"));
 
 		expect(http.calls[0]?.url).toBe(
-			"https://ascii.dev/api/box/v1/boxes?limit=100&state=init%2Cprovisioning%2Cprovisioned%2Ccloning%2Cready%2Cidle%2Crunning%2Carchiving%2Carchived",
+			"https://boat.dev/api/v1/sandboxes?limit=100&state=init%2Cprovisioning%2Cprovisioned%2Ccloning%2Cready%2Cidle%2Crunning%2Carchiving%2Carchived",
 		);
 		expect(http.calls[0]?.init?.headers).toMatchObject({
 			authorization: "Bearer secret-key",
@@ -162,7 +162,7 @@ describe("Box sandbox provider", () => {
 			callCount += 1;
 			if (this !== globalThis) throw new TypeError("Illegal invocation");
 			return Promise.resolve(
-				new Response(JSON.stringify({ boxes: [] }), {
+				new Response(JSON.stringify({ sandboxes: [] }), {
 					status: 200,
 					headers: { "content-type": "application/json" },
 				}),
@@ -183,7 +183,7 @@ describe("Box sandbox provider", () => {
 
 	test("creates from the base template and labels before preparing its layout", async () => {
 		const http = makeHttp([
-			{ status: 202, body: { box: { id: "bx_1", state: "provisioning" } } },
+			{ status: 202, body: { sandbox: { id: "bx_1", state: "provisioning" } } },
 			{ status: 200, body: {} },
 			{ status: 200, body: readyBox("bx_1") },
 			{ status: 200, body: commandResult(0) },
@@ -197,14 +197,14 @@ describe("Box sandbox provider", () => {
 			providerLabel: "zuse-cloud-workspace-1",
 			state: "running",
 		});
-		expect(http.calls[0]?.url).toBe("https://box.test/boxes");
+		expect(http.calls[0]?.url).toBe("https://box.test/sandboxes");
 		expect(JSON.parse(String(http.calls[0]?.init?.body))).toEqual({
 			from: "zuse-base-v1",
 			type: "small",
 			ttlSeconds: 300,
 			env: { ZUSE_ENROLLMENT_TOKEN: "zenr_secret" },
 		});
-		expect(http.calls[1]?.url).toBe("https://box.test/boxes/bx_1");
+		expect(http.calls[1]?.url).toBe("https://box.test/sandboxes/bx_1");
 		expect(http.calls[1]?.init?.method).toBe("PATCH");
 		expect(JSON.parse(String(http.calls[1]?.init?.body))).toEqual({
 			name: "zuse-cloud-workspace-1",
@@ -226,7 +226,7 @@ describe("Box sandbox provider", () => {
 
 	test("forks from a snapshot with open networking", async () => {
 		const http = makeHttp([
-			{ status: 202, body: { box: { id: "bx_fork", state: "cloning" } } },
+			{ status: 202, body: { sandbox: { id: "bx_fork", state: "cloning" } } },
 			{ status: 200, body: {} },
 			{ status: 200, body: readyBox("bx_fork") },
 			{ status: 200, body: commandResult(0) },
@@ -277,9 +277,9 @@ describe("Box sandbox provider", () => {
 
 	test("destroys a create that lands in the error state", async () => {
 		const http = makeHttp([
-			{ status: 202, body: { box: { id: "bx_1", state: "provisioning" } } },
+			{ status: 202, body: { sandbox: { id: "bx_1", state: "provisioning" } } },
 			{ status: 200, body: {} },
-			{ status: 200, body: { box: { id: "bx_1", state: "error" } } },
+			{ status: 200, body: { sandbox: { id: "bx_1", state: "error" } } },
 			{ status: 200, body: {} },
 		]);
 		const adapter = makeAdapter(http.client);
@@ -295,7 +295,7 @@ describe("Box sandbox provider", () => {
 			{
 				status: 200,
 				body: {
-					boxes: [
+					sandboxes: [
 						{ id: "bx_other", state: "running", name: "something-else" },
 						{ id: "bx_9", state: "archived", name: "zuse-cloud-workspace-9" },
 					],
@@ -320,14 +320,14 @@ describe("Box sandbox provider", () => {
 			{
 				status: 200,
 				body: {
-					boxes: [{ id: "bx_1", state: "running", name: "other" }],
+					sandboxes: [{ id: "bx_1", state: "running", name: "other" }],
 					pageInfo: { nextCursor: "cursor-2" },
 				},
 			},
 			{
 				status: 200,
 				body: {
-					boxes: [
+					sandboxes: [
 						{ id: "bx_2", state: "running", name: "zuse-cloud-workspace-9" },
 					],
 					pageInfo: { nextCursor: null },
@@ -355,7 +355,7 @@ describe("Box sandbox provider", () => {
 
 	test("treats an errored box as absent on inspect", async () => {
 		const http = makeHttp([
-			{ status: 200, body: { box: { id: "bx_1", state: "error" } } },
+			{ status: 200, body: { sandbox: { id: "bx_1", state: "error" } } },
 		]);
 		const adapter = makeAdapter(http.client);
 
@@ -592,7 +592,7 @@ describe("Box sandbox provider", () => {
 		);
 
 		expect(http.calls[0]?.init?.method).toBe("PUT");
-		expect(http.calls[0]?.url).toBe("https://box.test/boxes/bx_1/files");
+		expect(http.calls[0]?.url).toBe("https://box.test/sandboxes/bx_1/files");
 		expect(JSON.parse(String(http.calls[0]?.init?.body))).toEqual({
 			path: expect.stringMatching(/^\/tmp\/\.zuse-write-/u),
 			content: "token-value",
@@ -625,8 +625,8 @@ describe("Box sandbox provider", () => {
 		await expect(
 			Effect.runPromise(adapter.resolveEndpoint("bx_1", 47_837)),
 		).resolves.toEqual({
-			httpBaseUrl: "https://tri-word-slug-47837.on.ascii.dev",
-			wsBaseUrl: "wss://tri-word-slug-47837.on.ascii.dev",
+			httpBaseUrl: "https://tri-word-slug-47837.on.boat.dev",
+			wsBaseUrl: "wss://tri-word-slug-47837.on.boat.dev",
 		});
 		expect(JSON.parse(String(http.calls[0]?.init?.body)).command).toContain(
 			"47837 && host 47837 --public >/dev/null",
@@ -636,7 +636,7 @@ describe("Box sandbox provider", () => {
 	test("treats an unassigned subdomain as transient", async () => {
 		const http = makeHttp([
 			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: { box: { id: "bx_1", state: "provisioning" } } },
+			{ status: 200, body: { sandbox: { id: "bx_1", state: "provisioning" } } },
 		]);
 		const adapter = makeAdapter(http.client);
 
@@ -654,7 +654,7 @@ describe("Box sandbox provider", () => {
 		await expect(
 			Effect.runPromise(adapter.pause("bx_1")),
 		).resolves.toBeUndefined();
-		expect(http.calls[0]?.url).toBe("https://box.test/boxes/bx_1/stop");
+		expect(http.calls[0]?.url).toBe("https://box.test/sandboxes/bx_1/stop");
 	});
 
 	test("resumes with only persisted layout preparation", async () => {
@@ -753,7 +753,7 @@ describe("Box sandbox provider", () => {
 		).resolves.toBe("zuse-project-1-build-2");
 		expect(http.calls[1]?.url).toBe("https://box.test/named-snapshots");
 		expect(JSON.parse(String(http.calls[1]?.init?.body))).toEqual({
-			boxId: "bx_1",
+			sandboxId: "bx_1",
 			name: "zuse-project-1-build-2",
 		});
 	});
@@ -841,7 +841,9 @@ describe("Box sandbox provider", () => {
 	});
 
 	test("treats a starting box conflict as retryable", async () => {
-		const http = makeHttp([{ status: 409, body: { code: "box_starting" } }]);
+		const http = makeHttp([
+			{ status: 409, body: { code: "sandbox_starting" } },
+		]);
 		const adapter = makeAdapter(http.client);
 
 		await expect(
@@ -914,9 +916,9 @@ describe("Box provider-reported usage", () => {
 	};
 	const response = {
 		ok: true,
-		type: "box.usage",
-		boxId: "bx_23456789",
-		boxType: "large",
+		type: "sandbox.usage",
+		sandboxId: "bx_23456789",
+		sandboxType: "large",
 		billingMultiplier: 2,
 		since: new Date(window.startedAtMs).toISOString(),
 		until: new Date(window.endedAtMs).toISOString(),
@@ -928,7 +930,7 @@ describe("Box provider-reported usage", () => {
 	const usage = (http: BoxHttpClient, requested = window) => {
 		const getUsage = makeAdapter(http).getUsage;
 		if (!getUsage) throw new Error("Box usage is required");
-		return Effect.runPromise(getUsage(response.boxId, requested));
+		return Effect.runPromise(getUsage(response.sandboxId, requested));
 	};
 	test("uses the reported cost without applying the size multiplier twice", async () => {
 		const http = makeHttp([{ status: 200, body: response }]);
@@ -940,7 +942,7 @@ describe("Box provider-reported usage", () => {
 			running: false,
 		});
 		const url = new URL(http.calls[0]?.url ?? "");
-		expect(url.pathname).toBe(`/boxes/${response.boxId}/usage`);
+		expect(url.pathname).toBe(`/sandboxes/${response.sandboxId}/usage`);
 		expect(url.searchParams.get("since")).toBe(response.since);
 		expect(url.searchParams.get("until")).toBe(response.until);
 		expect(http.calls[0]?.init?.redirect).toBe("manual");
@@ -951,7 +953,7 @@ describe("Box provider-reported usage", () => {
 				status: 200,
 				body: {
 					...response,
-					boxType: "xlarge",
+					sandboxType: "xlarge",
 					billingMultiplier: 50 / 9,
 					running: true,
 				},
@@ -964,7 +966,7 @@ describe("Box provider-reported usage", () => {
 		});
 	});
 	test.each([
-		{ boxId: "another-box" },
+		{ sandboxId: "another-box" },
 		{ dollars: -1 },
 		{ dollars: 0.0000001 },
 		{ dollars: 1e20 },

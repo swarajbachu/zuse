@@ -54,7 +54,7 @@ let health = 0;
 globalThis.fetch = async (_url, init) => {
  if (init.method === 'GET') {
   if (process.env.TEST_STAGE === 'archive') throw new Error('archive');
-  return Response.json({ box: { state: 'archived' } });
+  return Response.json({ sandbox: { state: 'archived' } });
  }
  health++;
  const failed = (health === 1 && process.env.TEST_STAGE === 'initial-health') || (health === 2 && process.env.TEST_STAGE === 'pre-round-health');
