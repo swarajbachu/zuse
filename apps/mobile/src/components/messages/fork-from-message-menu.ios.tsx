@@ -18,7 +18,7 @@ export function ForkFromMessageMenu({
 }) {
 	return (
 		<Host
-			ignoreSafeArea="keyboard"
+			ignoreSafeArea="all"
 			seedColor={colors.fg}
 			style={{ width: 36, height: 36 }}
 		>
@@ -31,7 +31,10 @@ export function ForkFromMessageMenu({
 						modifiers={[frame({ width: 36, height: 36 })]}
 					/>
 				}
-				modifiers={[accessibilityLabel("Fork from here")]}
+				modifiers={[
+					frame({ width: 36, height: 36, alignment: "center" }),
+					accessibilityLabel("Fork from here"),
+				]}
 			>
 				<NativeButton
 					label="Fork in this chat"

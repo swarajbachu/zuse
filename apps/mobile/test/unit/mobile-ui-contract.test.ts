@@ -5,6 +5,71 @@ const appFile = (relativePath: string): string =>
 	readFileSync(`${process.cwd()}/app/${relativePath}`, "utf8");
 
 describe("mobile UI contracts", () => {
+	test("project rows support direct hold-to-drag with rounded highlights", () => {
+		const home = appFile("index.tsx");
+		expect(home).not.toContain("setReordering");
+		expect(home).toContain("measureInWindow");
+		const drag = readFileSync(
+			`${process.cwd()}/src/components/home/project-drag-row.tsx`,
+			"utf8",
+		);
+		expect(drag).toContain("activateAfterLongPress(350)");
+		const header = readFileSync(
+			`${process.cwd()}/src/components/home/home-project-header.tsx`,
+			"utf8",
+		);
+		expect(header).toContain("rounded-xl overflow-hidden");
+		expect(drag).toContain("borderRadius: 12");
+	});
+	test("recent chats keep their project identity inline", () => {
+		const row = readFileSync(
+			`${process.cwd()}/src/components/home/home-chat-row.tsx`,
+			"utf8",
+		);
+		expect(row).toContain("item.showProject");
+		expect(row).toContain("{row.projectName}");
+		expect(row).toContain('maxWidth: "28%"');
+	});
+	test("does not classify every connection failure as offline", () => {
+		const banner = readFileSync(
+			`${process.cwd()}/src/components/connection-recovery-banner.tsx`,
+			"utf8",
+		);
+		expect(banner).not.toContain('"Offline"');
+		expect(banner).toContain('"Connection issue"');
+	});
+	test("only the latest assistant message exposes response actions", () => {
+		const row = readFileSync(
+			`${process.cwd()}/src/components/messages/message-row.tsx`,
+			"utf8",
+		);
+		expect(row).toContain("context.lastAssistantMessageId === messageId");
+		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		expect(thread).toContain("lastAssistantMessageId:");
+		expect(thread).toContain('message.content._tag === "assistant"');
+	});
+	test("retains offline feed sources and monitors both account and paired routes", () => {
+		const home = appFile("index.tsx");
+		expect(home).toContain(
+			"eligibleConnections(connections, account !== null)",
+		);
+		const selection = home.slice(
+			home.indexOf("const feedConnections"),
+			home.indexOf("const groups"),
+		);
+		expect(selection).toContain("availableConnections(");
+		expect(selection).not.toContain('.status === "connected"');
+		expect(home).toContain("const recoveringConnection = feedConnections.find");
+	});
+	test("omits the duplicate completed-turn footer", () => {
+		const turn = readFileSync(
+			`${process.cwd()}/src/components/messages/turn-row.tsx`,
+			"utf8",
+		);
+		expect(turn).not.toContain("Worked for");
+		expect(turn).not.toContain('accessibilityLabel="Share response"');
+		expect(turn).not.toContain('accessibilityLabel="Copy response"');
+	});
 	test("offers bounded home loading and explicit recovery actions", () => {
 		const home = appFile("index.tsx");
 		expect(home).toContain("startLoadingDeadline");
@@ -517,9 +582,7 @@ describe("mobile UI contracts", () => {
 			messageRow.indexOf("</View>", messageRow.indexOf("<ForkFromMessageMenu")),
 		);
 		expect(assistantActions.indexOf("<ForkFromMessageMenu")).toBeLessThan(
-			assistantActions.indexOf(
-				'<Pressable\n\t\t\t\t\taccessibilityRole="button"',
-			),
+			assistantActions.indexOf('accessibilityLabel="Copy response"'),
 		);
 		expect(forkMenu).toContain('systemName={sf("arrow.triangle.branch")}');
 		expect(forkMenu).toContain('label="Fork in this chat"');

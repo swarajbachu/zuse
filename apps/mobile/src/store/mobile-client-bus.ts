@@ -697,8 +697,21 @@ export const loadOlderMobileMessages = messagePager.load;
 
 /** Resume retained resources immediately when the native connectivity owner
  * reports an online/app-active edge. */
-export const retryMobileClientBusConnections = (): void =>
-	mobileClientBus().retryRetainedConnections();
+export const retryMobileClientBusConnections = (connKey?: string): void => {
+	const clientBus = mobileClientBus();
+	for (const [environmentId, binding] of bindings) {
+		if (connKey !== undefined && binding.connKey !== connKey) continue;
+		const snapshot = clientBus.connection(environmentId);
+		// The transport supervisor may have replaced a socket while iOS suspended
+		// JS. Retained resources must not keep its old client until a heartbeat fails.
+		clientBus.reportConnectionFault(
+			environmentId,
+			environmentFault("offline", "Connection resumed"),
+			snapshot.generation,
+		);
+		clientBus.retryConnection(environmentId);
+	}
+};
 
 export const registerMobileEnvironment = (
 	connKey: string,
