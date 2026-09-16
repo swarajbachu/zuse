@@ -783,6 +783,11 @@ describe("Box sandbox provider", () => {
 		);
 
 		const command = JSON.parse(String(http.calls[0]?.init?.body)).command;
+		expect(JSON.parse(String(http.calls[0]?.init?.body)).timeoutSeconds).toBe(
+			70,
+		);
+		expect(command).toContain('"$attempt" -lt 240');
+		expect(command).toContain("sleep 0.25");
 		const encoded = /apply '([^']+)'/u.exec(command)?.[1] ?? "";
 		expect(JSON.parse(atob(encoded))).toEqual({
 			kind: "restricted",

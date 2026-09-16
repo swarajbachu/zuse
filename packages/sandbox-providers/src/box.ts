@@ -392,6 +392,9 @@ export const makeBoxSandboxProvider = (
 		},
 	);
 
+	// Fully archived disks can take more than 20 seconds to finish restoring
+	// the boot unit. Keep its barrier intact, with room for the observed 30s
+	// delay and a short local poll so readiness does not add a full second.
 	const applyNetworkPolicy = (
 		providerSandboxId: string,
 		network: SandboxNetworkPolicy,
@@ -399,7 +402,8 @@ export const makeBoxSandboxProvider = (
 		const encoded = shellQuote(networkPolicyArgument(network));
 		return runCommand(
 			providerSandboxId,
-			`for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do sudo -n systemctl is-active --quiet zuse-firewall.service && break; sleep 1; done && sudo -n systemctl is-active --quiet zuse-firewall.service && sudo -n ${BOX_FIREWALL_COMMAND} apply ${encoded} && sudo -n mkdir -p /var/lib/zuse-firewall && printf %s ${encoded} | sudo -n tee ${BOX_PERSISTED_POLICY_FILE} >/dev/null && sudo -n chmod 600 ${BOX_PERSISTED_POLICY_FILE}`,
+			`attempt=0; until sudo -n systemctl is-active --quiet zuse-firewall.service; do [ "$attempt" -lt 240 ] || exit 1; attempt=$((attempt + 1)); sleep 0.25; done && sudo -n ${BOX_FIREWALL_COMMAND} apply ${encoded} && sudo -n mkdir -p /var/lib/zuse-firewall && printf %s ${encoded} | sudo -n tee ${BOX_PERSISTED_POLICY_FILE} >/dev/null && sudo -n chmod 600 ${BOX_PERSISTED_POLICY_FILE}`,
+			70,
 		).pipe(
 			Effect.flatMap((result) =>
 				result.exitCode === 0
