@@ -57,7 +57,7 @@ describe("credentialed billing polls", () => {
 			"fetch",
 			vi.fn(async () =>
 				Response.json({
-					boxes: [
+					sandboxes: [
 						null,
 						{},
 						{ id: "missing-state", updatedAt },

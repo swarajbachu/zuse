@@ -28,7 +28,7 @@ const { makeBoxSandboxProvider } = (await import(modulePath)) as {
 	makeBoxSandboxProvider: typeof MakeBoxProvider;
 };
 const api = async (method: string, path: string, body?: unknown) => {
-	const response = await fetch(`https://ascii.dev/api/box/v1${path}`, {
+	const response = await fetch(`https://boat.dev/api/v1${path}`, {
 		method,
 		redirect: "error",
 		headers: {
@@ -41,7 +41,7 @@ const api = async (method: string, path: string, body?: unknown) => {
 	if (!response.ok)
 		throw new Error(`Box ${method} ${path}: ${response.status}`);
 	return (await response.json()) as {
-		box?: { id: string; name?: string; state: string };
+		sandbox?: { id: string; name?: string; state: string };
 		exitCode?: number;
 	};
 };
@@ -54,17 +54,17 @@ const adapter = makeBoxSandboxProvider({
 const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 const samples: Array<Record<string, string | number>> = [];
 await mkdir(dirname(output), { recursive: true });
-let boxId: string | undefined;
+let sandboxId: string | undefined;
 let activeRound = 0;
 const setupStart = performance.now();
 try {
 	let id = process.env.BOX_BENCH_REUSE_ID;
 	if (id) {
-		const detail = await api("GET", `/boxes/${encodeURIComponent(id)}`);
-		if (!detail.box?.name?.startsWith("zuse-resume-benchmark-"))
+		const detail = await api("GET", `/sandboxes/${encodeURIComponent(id)}`);
+		if (!detail.sandbox?.name?.startsWith("zuse-resume-benchmark-"))
 			throw new Error("Refusing to pause a non-benchmark Box");
-		boxId = id;
-		if (detail.box.state === "archived")
+		sandboxId = id;
+		if (detail.sandbox.state === "archived")
 			await Effect.runPromise(adapter.resume(id, 3600, "pause", "small"));
 	} else {
 		const created = await Effect.runPromise(
@@ -79,9 +79,9 @@ try {
 		);
 		id = created.providerSandboxId;
 	}
-	boxId = id;
+	sandboxId = id;
 	const targetId = id;
-	console.log(`Benchmark Box: ${boxId}`);
+	console.log(`Benchmark Box: ${sandboxId}`);
 	const launch = () =>
 		Effect.runPromise(
 			adapter.replaceProcess(
@@ -116,14 +116,14 @@ try {
 		const command = poll
 			? "for i in $(seq 1 120); do if curl -fsS --max-time 1 http://127.0.0.1:47837/healthz >/dev/null 2>&1; then exit 0; fi; sleep 0.25; done; exit 1"
 			: "curl -fsS --max-time 2 http://127.0.0.1:47837/healthz >/dev/null";
-		const result = await api("POST", `/boxes/${boxId}/commands`, {
+		const result = await api("POST", `/sandboxes/${sandboxId}/commands`, {
 			command,
 			timeoutSeconds: 40,
 		});
 		if (result.exitCode !== 0)
 			throw new Error("Zuse server health check failed");
 	};
-	await Effect.runPromise(adapter.setNetwork(boxId, { kind: "open" }));
+	await Effect.runPromise(adapter.setNetwork(sandboxId, { kind: "open" }));
 	await launch();
 	await health(true);
 	for (let round = 1; round <= rounds; round++) {
@@ -133,10 +133,13 @@ try {
 			await wait(3000);
 			await health(false);
 			console.log(`Round ${round}: archiving`);
-			await Effect.runPromise(adapter.pause(boxId));
+			await Effect.runPromise(adapter.pause(sandboxId));
 			let archived = false;
 			for (let poll = 0; poll < 180; poll++) {
-				if ((await api("GET", `/boxes/${boxId}`)).box?.state === "archived") {
+				if (
+					(await api("GET", `/sandboxes/${sandboxId}`)).sandbox?.state ===
+					"archived"
+				) {
 					archived = true;
 					break;
 				}
@@ -146,12 +149,16 @@ try {
 				throw new Error("Box did not archive within the polling deadline");
 			console.log(`Round ${round}: resuming`);
 			const start = performance.now();
-			await Effect.runPromise(adapter.resume(boxId, 3600, "pause", "small"));
+			await Effect.runPromise(
+				adapter.resume(sandboxId, 3600, "pause", "small"),
+			);
 			const resumed = performance.now();
 			let networkRetries = 0;
 			for (;;) {
 				try {
-					await Effect.runPromise(adapter.setNetwork(boxId, { kind: "open" }));
+					await Effect.runPromise(
+						adapter.setNetwork(sandboxId, { kind: "open" }),
+					);
 					break;
 				} catch (error) {
 					if (++networkRetries >= 10) throw error;
@@ -168,7 +175,7 @@ try {
 			const sample = {
 				variant,
 				round,
-				boxId,
+				sandboxId,
 				status: "ready",
 				networkRetries,
 				resumeMs: resumed - start,
@@ -183,7 +190,7 @@ try {
 			samples.push({
 				variant,
 				round,
-				boxId,
+				sandboxId,
 				status: "failed",
 				elapsedMs: performance.now() - roundStart,
 			});
@@ -198,7 +205,7 @@ try {
 			variant,
 			round: 0,
 			phase: "setup",
-			...(boxId ? { boxId } : {}),
+			...(sandboxId ? { sandboxId } : {}),
 			status: "failed",
 			elapsedMs: performance.now() - setupStart,
 		});
@@ -206,9 +213,9 @@ try {
 	}
 	throw error;
 } finally {
-	if (boxId !== undefined) {
+	if (sandboxId !== undefined) {
 		if (process.env.BOX_BENCH_KEEP === "1")
-			await Effect.runPromise(adapter.pause(boxId));
-		else await Effect.runPromise(adapter.kill(boxId));
+			await Effect.runPromise(adapter.pause(sandboxId));
+		else await Effect.runPromise(adapter.kill(sandboxId));
 	}
 }
