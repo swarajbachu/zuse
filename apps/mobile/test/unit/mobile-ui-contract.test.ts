@@ -5,6 +5,20 @@ const appFile = (relativePath: string): string =>
 	readFileSync(`${process.cwd()}/app/${relativePath}`, "utf8");
 
 describe("mobile UI contracts", () => {
+	test("offers bounded home loading and explicit recovery actions", () => {
+		const home = appFile("index.tsx");
+		expect(home).toContain("startLoadingDeadline");
+		expect(home).toContain("showHomeRecovery ? (");
+		expect(home).toContain("Couldn’t load your chats");
+		expect(home).toContain("<Button onPress={retryHome}>Try again</Button>");
+		expect(home).toContain("Connection settings");
+		expect(home).toContain("Scan a new QR code");
+		const connection = readFileSync(
+			`${process.cwd()}/src/rpc/connection.ts`,
+			"utf8",
+		);
+		expect(connection).toContain("maxAutomaticAttempts: 2");
+	});
 	test("declares local pairing and Expo development discovery services", () => {
 		const config = JSON.parse(
 			readFileSync(`${process.cwd()}/app.json`, "utf8"),

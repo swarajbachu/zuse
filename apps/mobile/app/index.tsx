@@ -37,6 +37,7 @@ import {
 	type InboxGroupDisplayState,
 	nextInboxGroupDisplay,
 } from "~/lib/inbox";
+import { startLoadingDeadline } from "~/lib/loading-deadline";
 import {
 	authAccountAtom,
 	authBusyAtom,
@@ -304,6 +305,36 @@ export default function HomeScreen() {
 		const options = optionsForConnection(recoveringConnection.key, connections);
 		if (options !== null) retryConnection(recoveringConnection.key, options);
 	};
+	const [loadTimedOut, setLoadTimedOut] = useState(false);
+	const [loadAttempt, setLoadAttempt] = useState(0);
+	const waitingForHome = loading || recoveringConnection !== undefined;
+	useEffect(() => {
+		// A manual retry starts a new deadline; reconnect status changes do not.
+		void loadAttempt;
+		setLoadTimedOut(false);
+		if (!waitingForHome) return;
+		return startLoadingDeadline(() => setLoadTimedOut(true));
+	}, [waitingForHome, loadAttempt]);
+	const homeLoadFailed =
+		loadTimedOut ||
+		connectionError !== null ||
+		(account !== null && environmentsError !== null) ||
+		Boolean(cloudCatalog.error);
+	const showHomeRecovery = feed.length === 0 && homeLoadFailed;
+	const retryHome = () => {
+		setLoadTimedOut(false);
+		setLoadAttempt((attempt) => attempt + 1);
+		if (account !== null) {
+			void refreshEnvironments();
+			void refreshCloudCatalog();
+		}
+		for (const connection of reachableConnections) {
+			const options = optionsForConnection(connection.key, connections);
+			if (options === null) continue;
+			retryConnection(connection.key, options);
+			void hydrateSessions(connection.key, options);
+		}
+	};
 
 	const updateGroup = useCallback((key: string, action: InboxDisplayAction) => {
 		selectionTap();
@@ -524,20 +555,9 @@ export default function HomeScreen() {
 				keyboardShouldPersistTaps="handled"
 				refreshControl={
 					<RefreshControl
-						refreshing={loading && feed.length > 0}
+						refreshing={loading && !homeLoadFailed && feed.length > 0}
 						tintColor={colors.accent}
-						onRefresh={() => {
-							void refreshCloudCatalog();
-							if (account !== null) void refreshEnvironments();
-							for (const connection of reachableConnections) {
-								const options = optionsForConnection(
-									connection.key,
-									connections,
-								);
-								if (options !== null)
-									void hydrateSessions(connection.key, options);
-							}
-						}}
+						onRefresh={retryHome}
 					/>
 				}
 				ListHeaderComponent={
@@ -581,8 +601,9 @@ export default function HomeScreen() {
 									</Text>
 								</Pressable>
 							))}
-						{((account === null ? null : environmentsError) ??
-						connectionError) ? (
+						{showHomeRecovery ? null : ((account === null
+								? null
+								: environmentsError) ?? connectionError) ? (
 							<View className="mb-3">
 								<ConnectionRecoveryBanner
 									message={connectionErrorMessage(
@@ -593,20 +614,80 @@ export default function HomeScreen() {
 									onPairAgain={() => router.push("/connect/scan")}
 								/>
 							</View>
-						) : recoveringConnection !== undefined ? (
+						) : recoveringConnection !== undefined && feed.length > 0 ? (
 							<View className="mb-3">
 								<ConnectionRecoveryBanner
-									message="Trying to reach your computer…"
-									onRetry={retryRecoveringConnection}
-									recovering
+									message={
+										loadTimedOut
+											? "Computer unavailable. Check its connection and retry."
+											: "Trying to reach your computer…"
+									}
+									onRetry={loadTimedOut ? retryHome : retryRecoveringConnection}
+									recovering={!loadTimedOut}
 								/>
 							</View>
 						) : null}
 					</>
 				}
 				ListEmptyComponent={
-					loading ? (
-						<HomeSkeleton />
+					showHomeRecovery ? (
+						<View className="gap-6 px-3 pt-16">
+							<Text
+								accessibilityRole="header"
+								className="text-center font-sans-bold text-xl text-foreground"
+							>
+								Couldn’t load your chats
+							</Text>
+							<Text
+								selectable
+								className="text-center font-sans text-[15px] leading-6 text-muted-foreground"
+							>
+								{loadTimedOut
+									? "This is taking longer than expected. You can try again when your connection is ready."
+									: "Your connection isn’t ready. Check these steps, then try again."}
+							</Text>
+							<View className="gap-3 rounded-2xl bg-muted p-4">
+								<Text className="font-sans text-sm leading-5 text-foreground">
+									Keep your Mac awake with Zuse open, or keep zuse serve
+									running.
+								</Text>
+								<Text className="font-sans text-sm leading-5 text-muted-foreground">
+									For a local connection, check that both devices are on the
+									same Wi-Fi. For Tailscale, make sure it’s connected on both
+									devices.
+								</Text>
+								<Text className="font-sans text-sm leading-5 text-muted-foreground">
+									Connecting through your account? Check internet access on both
+									devices and use the same account.
+								</Text>
+							</View>
+							<View className="gap-3">
+								<Button onPress={retryHome}>Try again</Button>
+								<Button
+									variant="secondary"
+									onPress={() => router.push("/settings")}
+								>
+									Connection settings
+								</Button>
+								<Button
+									variant="ghost"
+									onPress={() => router.push("/connect/scan")}
+								>
+									Scan a new QR code
+								</Button>
+							</View>
+						</View>
+					) : waitingForHome ? (
+						<View className="items-center gap-3 pt-12">
+							<HomeSkeleton />
+							<Text className="font-sans-medium text-base text-foreground">
+								Connecting to your chats
+							</Text>
+							<Text className="px-8 text-center font-sans text-sm leading-5 text-muted-foreground">
+								Keep your computer awake and Zuse running. We’ll show recovery
+								options if it doesn’t respond within 30 seconds.
+							</Text>
+						</View>
 					) : (
 						<View className="pt-24">
 							<EmptyState

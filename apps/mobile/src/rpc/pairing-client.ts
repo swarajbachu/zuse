@@ -1,3 +1,4 @@
+import { isPrivateOrLocalHost } from "@zuse/contracts";
 import { fetch as expoFetch } from "expo/fetch";
 
 const DEFAULT_PAIRING_TIMEOUT_MS = 10_000;
@@ -19,9 +20,17 @@ export const redeemPairingCode = async (options: {
 }> => {
 	let baseUrl: URL;
 	try {
-		baseUrl = new URL(options.httpBaseUrl ?? "");
+		const host = options.host.trim();
+		const address =
+			host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+		baseUrl = new URL(
+			options.httpBaseUrl ?? `http://${address}:${options.port}`,
+		);
+		// Direct LAN pairing is supported on trusted networks; it is not TLS.
+		const localHttp =
+			baseUrl.protocol === "http:" && isPrivateOrLocalHost(baseUrl.hostname);
 		if (
-			baseUrl.protocol !== "https:" ||
+			(baseUrl.protocol !== "https:" && !localHttp) ||
 			baseUrl.username ||
 			baseUrl.password ||
 			baseUrl.search ||
@@ -31,7 +40,7 @@ export const redeemPairingCode = async (options: {
 		}
 	} catch {
 		throw new Error(
-			"Pairing requires a secure HTTPS connection URL. Use the desktop's secure connection link or an HTTPS Tailscale link instead of a plain local address.",
+			"Pairing requires HTTPS or a private/local HTTP address. Use HTTPS for public servers and only use local HTTP on a trusted network.",
 		);
 	}
 	const controller = new AbortController();

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-
+import { pairWithDesktop } from "../../../src/lib/pairing";
 import { redeemPairingCode } from "../../../src/rpc/pairing-client";
 
 vi.mock("expo/fetch", () => ({ fetch: vi.fn() }));
@@ -7,11 +7,47 @@ vi.mock("expo/fetch", () => ({ fetch: vi.fn() }));
 describe("pairing client", () => {
 	afterEach(() => vi.useRealTimers());
 
+	test("redeems the scanned local browser QR at its original address", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response(JSON.stringify({ token: "zt_local" })));
+		const result = await pairWithDesktop(
+			"http://192.168.20.124:47837/#pair=ABCD2345",
+			async (input) => {
+				const redeemed = await redeemPairingCode({
+					...input,
+					code: input.token,
+					deviceId: "phone",
+					deviceLabel: "Phone",
+					fetchImpl,
+				});
+				return {
+					...input,
+					key: "local-test",
+					label: "Test Mac",
+					updatedAt: 0,
+					token: redeemed.token,
+				};
+			},
+		);
+		expect(result.token).toBe("zt_local");
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"http://192.168.20.124:47837/pair",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({
+					code: "ABCD2345",
+					deviceId: "phone",
+					deviceLabel: "Phone",
+				}),
+			}),
+		);
+	});
+
 	test.each([
-		undefined,
 		"",
 		"not-a-url",
-		"http://192.168.1.2:47837",
+		"http://8.8.8.8:47837",
 		"http://desktop.example.ts.net",
 		"https://user:password@desktop.example.ts.net",
 		"https://desktop.example.ts.net?redirect=http://example.com",
@@ -28,7 +64,49 @@ describe("pairing client", () => {
 				httpBaseUrl,
 				fetchImpl,
 			}),
-		).rejects.toThrow("secure HTTPS connection URL");
+		).rejects.toThrow("HTTPS or a private/local HTTP address");
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	test.each([
+		["192.168.20.124", "http://192.168.20.124:47837"],
+		["desktop.local", "http://desktop.local:47837"],
+		["10.0.0.2", undefined],
+		["fd00::2", undefined],
+	] as const)("redeems directly on local host %s", async (host, httpBaseUrl) => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response(JSON.stringify({ token: "zt_local" })));
+		await expect(
+			redeemPairingCode({
+				host,
+				port: 47837,
+				httpBaseUrl,
+				code: "ABCD2345",
+				deviceId: "phone",
+				deviceLabel: "Phone",
+				fetchImpl,
+			}),
+		).resolves.toEqual({ token: "zt_local" });
+		const address = host.includes(":") ? `[${host}]` : host;
+		expect(fetchImpl).toHaveBeenCalledWith(
+			`${httpBaseUrl ?? `http://${address}:47837`}/pair`,
+			expect.objectContaining({ method: "POST", redirect: "error" }),
+		);
+	});
+
+	test("does not fall back to HTTP for a public manual address", async () => {
+		const fetchImpl = vi.fn<typeof fetch>();
+		await expect(
+			redeemPairingCode({
+				host: "public.example.com",
+				port: 47837,
+				code: "ABCD2345",
+				deviceId: "phone",
+				deviceLabel: "Phone",
+				fetchImpl,
+			}),
+		).rejects.toThrow("HTTPS or a private/local HTTP address");
 		expect(fetchImpl).not.toHaveBeenCalled();
 	});
 

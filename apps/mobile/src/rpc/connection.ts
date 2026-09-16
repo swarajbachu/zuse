@@ -124,6 +124,7 @@ const prepareOptions = async (
 const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 	{
 		keyOf: runtimeKey,
+		maxAutomaticAttempts: 2,
 		prepareOptions,
 		createClient: makeClientSession,
 		validateClient: async (client) => {
