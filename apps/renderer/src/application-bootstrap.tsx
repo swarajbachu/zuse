@@ -1,5 +1,7 @@
 import { type ComponentType, useEffect, useState } from "react";
 import { StartupSurface } from "./components/startup-surface.tsx";
+import { rendererPlatformCapabilities } from "./lib/platform-capabilities.ts";
+import type { StartupStateSnapshot } from "./startup-application.tsx";
 
 const STARTUP_APPLICATION_TIMEOUT_MS = 15_000;
 
@@ -12,12 +14,22 @@ type BootstrapState =
 	| { readonly status: "loading" }
 	| {
 			readonly status: "ready";
-			readonly Application: ComponentType;
+			readonly Application: ComponentType<{
+				readonly onStartupStateChange?: (state: StartupStateSnapshot) => void;
+			}>;
 	  }
 	| { readonly status: "error"; readonly error: string };
 
 export function ApplicationBootstrap() {
 	const [state, setState] = useState<BootstrapState>({ status: "loading" });
+	const [applicationState, setApplicationState] =
+		useState<StartupStateSnapshot>({
+			presentation: "loading",
+			error: null,
+			retry: () => {},
+		});
+	const [animationDone, setAnimationDone] = useState(false);
+	const desktop = rendererPlatformCapabilities().desktop;
 
 	useEffect(() => {
 		let active = true;
@@ -55,14 +67,37 @@ export function ApplicationBootstrap() {
 		};
 	}, []);
 
-	if (state.status === "ready") return <state.Application />;
+	if (state.status === "ready" && !desktop) return <state.Application />;
+
+	const applicationReady =
+		state.status === "ready" && applicationState.presentation === "ready";
+	const error =
+		state.status === "error"
+			? state.error
+			: applicationState.presentation === "error"
+				? applicationState.error
+				: null;
+	const retry =
+		state.status === "ready"
+			? applicationState.retry
+			: () => window.location.reload();
+
 	return (
-		<StartupSurface
-			error={state.status === "error" ? state.error : null}
-			phase={state.status === "error" ? "error" : "initial-loading"}
-			// A failed ESM import is cached by the document. Retrying in the same
-			// React root can also mix optimizer generations after a dev restart.
-			onRetry={() => window.location.reload()}
-		/>
+		<>
+			{state.status === "ready" ? (
+				<state.Application onStartupStateChange={setApplicationState} />
+			) : null}
+			{!applicationReady || !animationDone ? (
+				<StartupSurface
+					error={error}
+					loading={!applicationReady}
+					onDone={() => setAnimationDone(true)}
+					// A failed ESM import is cached by the document. Retrying in the same
+					// React root can also mix optimizer generations after a dev restart.
+					onRetry={retry}
+					phase={error === null ? "initial-loading" : "error"}
+				/>
+			) : null}
+		</>
 	);
 }
