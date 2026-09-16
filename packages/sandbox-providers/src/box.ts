@@ -1,3 +1,4 @@
+import { measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Duration, Effect, Redacted, Schema } from "effect";
 import { BOX_PORT_FORWARDER } from "./box-port-forwarder.ts";
 import {
@@ -227,7 +228,9 @@ export const makeBoxSandboxProvider = (
 			try: () =>
 				http.fetch(`${apiBaseUrl}${path}`, {
 					method,
-					redirect: "error",
+					// Workers rejects redirect: "error". Manual keeps credentials on
+					// this origin; non-2xx responses fail below without following.
+					redirect: "manual",
 					signal:
 						timeoutMs === undefined
 							? undefined
@@ -504,10 +507,20 @@ export const makeBoxSandboxProvider = (
 	const restoreResumedSandbox = Effect.fn(
 		"BoxSandboxProvider.restoreResumedSandbox",
 	)(function* (providerSandboxId: string) {
-		yield* ensureRuntimeLayout(providerSandboxId, true);
+		yield* ensureRuntimeLayout(providerSandboxId, true).pipe(
+			measureCloudStage(
+				{ provider: "box", providerSandboxId },
+				"box.restore.layout",
+			),
+		);
 		const restored = yield* runCommand(
 			providerSandboxId,
 			`sudo -n ${BOX_FIREWALL_COMMAND} restore`,
+		).pipe(
+			measureCloudStage(
+				{ provider: "box", providerSandboxId },
+				"box.restore.firewall",
+			),
 		);
 		if (restored.exitCode !== 0) {
 			// Compatibility for boxes created from templates predating the restore
@@ -879,8 +892,18 @@ export const makeBoxSandboxProvider = (
 							: { type: yield* machineTypeFor(sizeId) }),
 					},
 					[409],
+				).pipe(
+					measureCloudStage(
+						{ provider: "box", providerSandboxId },
+						"box.resume.request",
+					),
 				);
-				yield* pollUntilUsable(providerSandboxId, readyDeadlineMs);
+				yield* pollUntilUsable(providerSandboxId, readyDeadlineMs).pipe(
+					measureCloudStage(
+						{ provider: "box", providerSandboxId },
+						"box.resume.usable",
+					),
+				);
 				yield* restoreResumedSandbox(providerSandboxId);
 				const sandbox = yield* inspect(providerSandboxId);
 				if (sandbox === null) return yield* providerError("not-found");

@@ -921,6 +921,19 @@ describe("Box sandbox provider", () => {
 		});
 	});
 
+	test("rejects redirects without forwarding provider credentials", async () => {
+		const http = makeHttp([{ status: 302, body: {} }]);
+		const result = await Effect.runPromise(
+			makeAdapter(http.client).inspect("bx_1").pipe(Effect.result),
+		);
+		expect(result).toMatchObject({
+			_tag: "Failure",
+			failure: { code: "transient" },
+		});
+		expect(http.calls).toHaveLength(1);
+		expect(http.calls[0]?.init?.redirect).toBe("manual");
+	});
+
 	test("normalizes network failures to transient", async () => {
 		const adapter = makeAdapter({
 			fetch: (() =>
@@ -988,7 +1001,7 @@ describe("Box provider-reported usage", () => {
 		expect(url.pathname).toBe(`/boxes/${response.boxId}/usage`);
 		expect(url.searchParams.get("since")).toBe(response.since);
 		expect(url.searchParams.get("until")).toBe(response.until);
-		expect(http.calls[0]?.init?.redirect).toBe("error");
+		expect(http.calls[0]?.init?.redirect).toBe("manual");
 	});
 	test("supports live usage and the provider's fractional xlarge multiplier", async () => {
 		const http = makeHttp([

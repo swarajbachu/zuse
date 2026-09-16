@@ -1,14 +1,19 @@
 import { Clock, Effect } from "effect";
 
 /** Correlation fields only: never include prompts, credentials, URLs or bodies. */
-export interface CloudTimingContext {
-	readonly workspaceId: string;
+interface CloudTimingFields {
 	readonly provider?: string;
 	readonly runtimeGeneration?: number;
 	readonly commandId?: string;
 	readonly messageId?: string;
 	readonly reason?: string;
 }
+
+export type CloudTimingContext = CloudTimingFields &
+	(
+		| { readonly workspaceId: string; readonly providerSandboxId?: string }
+		| { readonly workspaceId?: never; readonly providerSandboxId: string }
+	);
 
 export const cloudTimingEvent = (
 	context: CloudTimingContext,
