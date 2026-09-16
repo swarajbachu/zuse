@@ -526,7 +526,11 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		env,
 		isConfigured(cloudDataEncryptionKey),
 	);
-	const rawApi: ReturnType<typeof makeApi> = makeApi(appLayer, {
+	const api: ReturnType<typeof makeApi> = makeApi(appLayer, {
+		scheduleColdWorkspaceStartup: directStartup
+			? undefined
+			: (workspaceId) =>
+					scheduleWorkspaceStartup(env.WORKSPACE_STARTUP, workspaceId),
 		slackPublicOrigin: env.SLACK_PUBLIC_ORIGIN,
 		slack: slackConfig
 			? {
@@ -547,13 +551,6 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 				}
 			: undefined,
 	});
-	const api = {
-		...rawApi,
-		reconcileCloudWorkspaceStartup: directStartup
-			? rawApi.reconcileCloudWorkspaceStartup
-			: (workspaceId: string) =>
-					scheduleWorkspaceStartup(env.WORKSPACE_STARTUP, workspaceId),
-	};
 	return {
 		...api,
 		dispose: async () => {

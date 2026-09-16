@@ -20,6 +20,7 @@ import {
 	reconcileCloudResourceBatch,
 	reconcileCloudResources,
 	reconcileCloudWorkspace,
+	reconcileCloudWorkspaceStartup,
 	reusableAccountBuildSnapshot,
 	sanitizeProjectBuildDiagnostic,
 	sanitizeProjectBuildLog,
@@ -1463,4 +1464,39 @@ test.each([
 	if (code === "rejected")
 		expect(result?.nextActionAtMs).toBe(Number.MAX_SAFE_INTEGER);
 	else expect(result?.nextActionAtMs).toBeLessThan(Date.now() + 60_000);
+});
+
+test.each([
+	false,
+	true,
+])("durable startup routing respects process preservation: %s", async (preservesProcessesOnResume) => {
+	const schedule = vi.fn(async () => {});
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId: "workspace-startup-routing",
+				state: "paused",
+				desiredState: "paused",
+				statusCode: "paused",
+				requestConfig: {},
+			});
+			const providers = yield* SandboxProviders;
+			yield* reconcileCloudWorkspaceStartup(
+				workspace.workspaceId,
+				schedule,
+			).pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: (id) =>
+						providers.get(id).pipe(
+							Effect.map((adapter) => ({
+								...adapter,
+								preservesProcessesOnResume,
+							})),
+						),
+				}),
+			);
+		}).pipe(Effect.provide(testLayer)),
+	);
+	expect(schedule).toHaveBeenCalledTimes(preservesProcessesOnResume ? 0 : 1);
 });

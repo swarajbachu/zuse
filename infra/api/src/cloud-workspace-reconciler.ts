@@ -2294,8 +2294,20 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
  */
 export const reconcileCloudWorkspaceStartup = Effect.fn(
 	"reconcileCloudWorkspaceStartup",
-)(function* (workspaceId: string) {
+)(function* (
+	workspaceId: string,
+	scheduleColdStartup?: (workspaceId: string) => Promise<void>,
+) {
 	const store = yield* CloudWorkspaceStore;
+	if (scheduleColdStartup) {
+		const workspace = yield* store.getWorkspace(workspaceId);
+		if (workspace === null) return;
+		const provider = yield* (yield* SandboxProviders).get(workspace.provider);
+		// Cold providers can outlive an HTTP request. Preserved runtimes keep the
+		// existing immediate warm-reconnect observation path.
+		if (provider.preservesProcessesOnResume === false)
+			return yield* Effect.promise(() => scheduleColdStartup(workspaceId));
+	}
 	const startedAtMs = yield* Clock.currentTimeMillis;
 	while (true) {
 		yield* reconcileCloudWorkspace(workspaceId);
