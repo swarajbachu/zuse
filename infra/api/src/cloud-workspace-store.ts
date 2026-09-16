@@ -2238,7 +2238,9 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						workspace.requestConfig.runtimeCredentialExpiresAtMs <=
 							input.nowMs ||
 						workspace.state === "deleted" ||
-						workspace.desiredState !== "ready"
+						workspace.desiredState !== "ready" ||
+						workspace.statusCode === "restart-queued" ||
+						workspace.requestConfig.cloudMailboxFenceRequired === true
 					)
 						return [null, current] as const;
 					const timings =
@@ -4754,6 +4756,8 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						AND (request_config->>'runtimeCredentialExpiresAtMs')::bigint > ${input.nowMs}
 						AND state <> 'deleted'
 						AND desired_state='ready'
+						AND status_code <> 'restart-queued'
+						AND COALESCE((request_config->>'cloudMailboxFenceRequired')::boolean, false)=false
 					RETURNING *`.pipe(
 						Effect.map((rows) =>
 							rows[0] === undefined ? null : workspaceFromRow(rows[0] as Row),
