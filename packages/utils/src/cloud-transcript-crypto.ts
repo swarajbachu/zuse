@@ -33,10 +33,12 @@ const transform = async (
 	bytes: Uint8Array,
 	stream: CompressionStream | DecompressionStream,
 ): Promise<Uint8Array> => {
-	const writer = stream.writable.getWriter();
-	await writer.write(new Uint8Array(ownedBuffer(bytes)));
-	await writer.close();
-	return new Uint8Array(await new Response(stream.readable).arrayBuffer());
+	// Consume output while writing input: browser transform streams apply
+	// backpressure and can block write/close until a reader starts draining.
+	const source = new Blob([ownedBuffer(bytes)]).stream();
+	return new Uint8Array(
+		await new Response(source.pipeThrough(stream)).arrayBuffer(),
+	);
 };
 
 export const importCloudTranscriptKey = async (encodedKey: string) => {

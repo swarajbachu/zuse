@@ -1,3 +1,4 @@
+import type { SyncPhase } from "@zuse/client-runtime/resource-state";
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import {
 	retryCloudHistory,
@@ -121,6 +122,10 @@ export const shouldRenderGenericAgentStartup = (input: {
 	readonly hasPendingCreation: boolean;
 }): boolean =>
 	(input.inFlight || input.agentStarting === true) && !input.hasPendingCreation;
+
+/** A completed read with no checkpoint is not an in-flight download. */
+export const cloudTranscriptIsLoading = (sync: SyncPhase): boolean =>
+	sync === "hydrating-cache" || sync === "synchronizing";
 
 export const shouldRenderEmptyChatState = (input: {
 	readonly messageCount: number;
@@ -804,7 +809,9 @@ export function ChatView({
 								<WorktreeSetupCard />
 							</div>
 							{cloudSummary !== null && timeline.projection === null ? (
-								<ChatLoadingFallback />
+								cloudTranscriptIsLoading(timeline.view.sync) ? (
+									<ChatLoadingFallback />
+								) : null
 							) : shouldRenderEmptyChatState({
 									messageCount: messages.length,
 									hasPendingCreation: pendingCreation !== null,
