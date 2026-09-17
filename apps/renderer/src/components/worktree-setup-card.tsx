@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatCreationPhase, CloudChatSummary } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Alert01Icon, Tick01Icon } from "@zuse/icons/solid-rounded";
+import { ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useWorktreeSetupLifecycle } from "../hooks/use-worktree-setup-lifecycle.ts";
 import { cloudWorkspaceIsStarting } from "../lib/cloud-chat-activity.ts";
@@ -475,92 +476,66 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 						: "Detecting setup script…";
 
 	return (
-		<details className="group mx-auto w-full max-w-3xl px-4 pt-3 text-[12px]">
-			<summary className="flex cursor-pointer list-none items-center gap-2 py-1.5 text-foreground/80 select-none marker:content-none">
-				<span className="inline-flex min-w-0 flex-1 items-center gap-2">
+		<details className="group/setup mx-auto w-full max-w-3xl px-4 pt-3 text-xs">
+			<summary className="flex h-7 cursor-pointer list-none items-center gap-2 rounded-md text-muted-foreground outline-none select-none marker:content-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+				<span
+					className="flex size-4 shrink-0 items-center justify-center"
+					aria-hidden="true"
+				>
 					{summaryState === "active" ? (
-						<Spinner className="size-3 shrink-0 text-muted-foreground group-open:invisible" />
-					) : summaryState === "failed" ? (
-						<HugeiconsIcon
-							icon={Alert01Icon}
-							className="size-3.5 shrink-0 text-[var(--accent-red)]"
-						/>
+						<Spinner className="size-3" />
 					) : (
 						<HugeiconsIcon
-							icon={Tick01Icon}
-							className="size-3.5 shrink-0 text-foreground/60"
+							icon={summaryState === "failed" ? Alert01Icon : Tick01Icon}
+							className={
+								summaryState === "failed"
+									? "size-3.5 text-destructive"
+									: "size-3.5"
+							}
 						/>
 					)}
-					<span
-						className={
-							summaryState === "failed" ? "text-[var(--accent-red)]" : ""
-						}
-					>
-						{summaryLabel}
-					</span>
 				</span>
 				<span
-					aria-hidden="true"
-					className="text-sm text-muted-foreground transition-transform group-open:rotate-90"
+					className={
+						summaryState === "failed"
+							? "min-w-0 truncate text-destructive"
+							: "min-w-0 truncate text-foreground/80"
+					}
 				>
-					›
+					{summaryLabel}
 				</span>
-			</summary>
-			<div className="ml-1.5 border-l border-border/50 py-1.5 pl-4">
-				<div className="flex flex-col gap-1.5 text-[12px]">
-					{showsWorktreeSteps ? (
-						<>
-							<StepRow
-								state={
-									wtReady
-										? "done"
-										: setupStatus === "failed"
-											? "failed"
-											: "active"
-								}
-								label={wtReady ? "Worktree created" : "Create worktree"}
-							/>
-							{branch !== null ? (
-								<p className="pl-5 text-[11px] text-muted-foreground">
-									{branch}
-								</p>
-							) : null}
-							<StepRow
-								state={
-									setupDone
-										? "done"
-										: setupStatus === "failed" && wtReady
-											? "failed"
-											: setupStatus === "running"
-												? "active"
-												: "pending"
-								}
-								label={
-									setupStatus === "skipped"
-										? "No setup script needed"
-										: setupDone
-											? "Environment ready"
-											: setupStatus === "running"
-												? "Running environment setup…"
-												: "Environment setup"
-								}
-							/>
-						</>
-					) : null}
-				</div>
-				{setupOutput.trim().length > 0 ? (
-					<div className="mt-2">
-						<p className="mb-1 text-[11px] text-muted-foreground">
-							{uiMessage("projects:worktree_setup_card_setup_output")}
-						</p>
-						<pre className="max-h-48 overflow-auto font-mono text-[11px] leading-5 whitespace-pre-wrap text-foreground/70">
-							{setupOutput}
-						</pre>
-					</div>
+				<ChevronRight
+					aria-hidden="true"
+					className="size-3 shrink-0 transition-transform duration-150 group-open/setup:rotate-90 motion-reduce:transition-none"
+				/>
+				{branch !== null ? (
+					<span
+						title={branch}
+						className="ml-auto min-w-0 truncate font-mono text-[11px] text-muted-foreground"
+					>
+						{branch}
+					</span>
 				) : null}
+			</summary>
+			<div className="pb-1 pl-6 pt-1">
+				{setupOutput.trim().length > 0 ? (
+					<pre className="max-h-48 overflow-auto rounded-md bg-muted/30 px-3 py-2 font-mono text-[11px] leading-4 whitespace-pre-wrap break-words text-muted-foreground">
+						{setupOutput}
+					</pre>
+				) : (
+					<p className="py-1 text-[11px] leading-4 text-muted-foreground">
+						{!wtReady
+							? "Preparing a separate working directory for this chat."
+							: setupStatus === "skipped"
+								? "No setup script needed."
+								: setupDone
+									? "Your workspace is ready."
+									: "Preparing the workspace environment."}
+					</p>
+				)}
 				{onRerun !== null ? (
-					<div className="mt-2 flex justify-end">
-						<Button variant="settings" size="sm" onClick={onRerun}>
+					<div className="mt-2">
+						<Button variant="ghost" className="h-7" onClick={onRerun}>
 							{uiMessage("projects:worktree_setup_card_rerun_setup")}
 						</Button>
 					</div>
