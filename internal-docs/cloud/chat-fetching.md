@@ -40,3 +40,13 @@ Run `packages/domain/test/integration/engine/cloud-history-benchmark.test.ts` wi
 ## Rollout
 
 Publish the signed staging runtime, apply additive migration 0025 to the verified staging database, then deploy staging API. Validate current and older runtime clients, paused Boat/E2B reads, live/history interleaving, account isolation, archive/delete races and uncached first paint before production. Production rollout and complete desktop end-to-end measurements are still outstanding.
+
+### September 17 staging validation
+
+Runtime commit `676e91f91` was published and verified by workflow run `35211820796`. Migration 0025 was applied to the approved staging Hyperdrive origin after checking the exact 0024 ledger hash, then verified; the authenticated temporary migration Worker was deleted. API version `ea4aaf32-6742-40e3-ae89-d59bee43208b` includes catalog batching and request-independent WorkOS public verification-key reuse. Every request still verifies token signature, expiry, issuer and client identity; no token/principal cache was introduced.
+
+The same 35-row full catalog measured **775 / 523 / 551 ms** after batching versus the **8,317 ms** baseline. A subsequent run measured 490 / 668 / 477 ms. The resumable feed returned all 35 rows on reset and zero rows for an unchanged cursor (283 ms).
+
+Small uncached transcript requests still show network/server variability. The final successful trace measured Boat 2,139 / 440 / 457 / 444 / 444 ms and E2B 431 / 419 / 452 / 475 / 1,685 ms. No selection-to-paint claim follows from these HTTP results, and public-key reuse alone has not demonstrated a consistent latency improvement. Captured server stages were approximately 100–121 ms for workspace lookup, 94–110 ms for checkpoint metadata, 124–277 ms for object download, and below clock resolution for key opening. These explain the steady-state path but not all intermittent pre-route delays. Expired-login responses were excluded.
+
+Validation passed: 330 API unit tests, 162 client-runtime unit tests, session-domain stream tests, runtime checkpoint tests, renderer behavior checks, real Postgres catalog transaction/account-isolation tests, browser IndexedDB page fencing, types, localization checks, and applicable Biome checks (two existing unrelated unused-function warnings). The exact production Boat test chat and Slack-created first-open UI trace remain to be validated; no production mutation or deployment was performed.
