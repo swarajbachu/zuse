@@ -291,5 +291,12 @@
 	"github_repair_state_changed": "Chat, Branch oder Agentenstatus hat sich geändert. Starte Reparieren erneut im aktuellen PR.",
 	"github_attach_failed": "PR-Kontext konnte nicht angehängt werden.",
 	"github_repair_send_failed": "Reparatur konnte nicht gesendet werden. Prüfe den Chat und versuche es erneut.",
-	"github_watch_update_failed": "CI-Überwachung konnte nicht aktualisiert werden"
+	"github_watch_update_failed": "CI-Überwachung konnte nicht aktualisiert werden",
+	"worktree_setup_card_worktree_creation_failed": "Worktree konnte nicht erstellt werden",
+	"worktree_setup_card_workspace_ready": "Arbeitsbereich bereit",
+	"worktree_setup_card_creating_worktree": "Worktree für {{repoName}} wird erstellt…",
+	"worktree_setup_card_preparing_directory": "Ein separates Arbeitsverzeichnis für diesen Chat wird vorbereitet.",
+	"worktree_setup_card_no_setup_script": "Kein Einrichtungsskript erforderlich.",
+	"worktree_setup_card_workspace_ready_description": "Dein Arbeitsbereich ist bereit.",
+	"worktree_setup_card_preparing_environment": "Die Arbeitsumgebung wird vorbereitet."
 }

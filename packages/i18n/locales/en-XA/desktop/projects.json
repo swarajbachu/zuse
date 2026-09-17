@@ -291,5 +291,12 @@
 	"github_repair_state_changed": "⟦Thëë chààt, bràànch, ôôr ààgëënt stààtëë chààngëëd. Rüün Rëëpààïïr ààgààïïn frôôm thëë cüürrëënt PR.⟧",
 	"github_attach_failed": "⟦Côôüüld nôôt ààttààch PR côôntëëxt.⟧",
 	"github_repair_send_failed": "⟦Rëëpààïïr côôüüld nôôt bëë sëënt. Chëëck thëë chààt àànd try ààgààïïn.⟧",
-	"github_watch_update_failed": "⟦Côôüüld nôôt üüpdààtëë CÏÏ wààtchëër⟧"
+	"github_watch_update_failed": "⟦Côôüüld nôôt üüpdààtëë CÏÏ wààtchëër⟧",
+	"worktree_setup_card_worktree_creation_failed": "⟦Wôôrktrëëëë crëëààtïïôôn fààïïlëëd⟧",
+	"worktree_setup_card_workspace_ready": "⟦Wôôrkspààcëë rëëààdy⟧",
+	"worktree_setup_card_creating_worktree": "⟦Crëëààtïïng wôôrktrëëëë fôôr {{repoName}}…⟧",
+	"worktree_setup_card_preparing_directory": "⟦Prëëpààrïïng àà sëëpààrààtëë wôôrkïïng dïïrëëctôôry fôôr thïïs chààt.⟧",
+	"worktree_setup_card_no_setup_script": "⟦Nôô sëëtüüp scrïïpt nëëëëdëëd.⟧",
+	"worktree_setup_card_workspace_ready_description": "⟦Yôôüür wôôrkspààcëë ïïs rëëààdy.⟧",
+	"worktree_setup_card_preparing_environment": "⟦Prëëpààrïïng thëë wôôrkspààcëë ëënvïïrôônmëënt.⟧"
 }

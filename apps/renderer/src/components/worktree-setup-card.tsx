@@ -465,15 +465,17 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	const summaryLabel =
 		setupStatus === "failed"
 			? wtReady
-				? "Environment setup failed"
-				: "Worktree creation failed"
+				? uiMessage("projects:worktree_setup_card_environment_setup_failed")
+				: uiMessage("projects:worktree_setup_card_worktree_creation_failed")
 			: setupStatus === "running"
-				? "Running environment setup…"
+				? uiMessage("projects:worktree_setup_card_running_environment_setup")
 				: setupDone
-					? "Workspace ready"
+					? uiMessage("projects:worktree_setup_card_workspace_ready")
 					: !wtReady
-						? `Creating worktree for ${repoName}…`
-						: "Detecting setup script…";
+						? uiMessage("projects:worktree_setup_card_creating_worktree", {
+								repoName,
+							})
+						: uiMessage("projects:worktree_setup_card_detecting_setup_script");
 
 	return (
 		<details className="group/setup mx-auto w-full max-w-3xl px-4 pt-3 text-xs">
@@ -525,12 +527,16 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 				) : (
 					<p className="py-1 text-[11px] leading-4 text-muted-foreground">
 						{!wtReady
-							? "Preparing a separate working directory for this chat."
+							? uiMessage("projects:worktree_setup_card_preparing_directory")
 							: setupStatus === "skipped"
-								? "No setup script needed."
+								? uiMessage("projects:worktree_setup_card_no_setup_script")
 								: setupDone
-									? "Your workspace is ready."
-									: "Preparing the workspace environment."}
+									? uiMessage(
+											"projects:worktree_setup_card_workspace_ready_description",
+										)
+									: uiMessage(
+											"projects:worktree_setup_card_preparing_environment",
+										)}
 					</p>
 				)}
 				{onRerun !== null ? (
