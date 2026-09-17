@@ -119,18 +119,13 @@ describe("chat landing progress", () => {
 		expect(workspacePickerSource).toContain("<MenuRadioGroup");
 	});
 
-	test("initializes the active environment before selectors consume it", () => {
-		const environmentSubscription = chatLandingSource.indexOf(
-			"const activeEnvironmentId = useEnvironmentCatalogStore(",
+	test("uses remembered project choices instead of worktree defaults", () => {
+		expect(chatLandingSource).toContain("newChatPreferences.workspaceFor(");
+		expect(chatLandingSource).toContain(
+			"newChatPreferences.rememberEnvironment(",
 		);
-		const repositorySettingsSubscription = chatLandingSource.indexOf(
-			"const repositoryAutoCreateWorktree = useRepositorySettingsStore(",
-		);
-
-		expect(environmentSubscription).toBeGreaterThan(-1);
-		expect(repositorySettingsSubscription).toBeGreaterThan(
-			environmentSubscription,
-		);
+		expect(chatLandingSource).not.toContain("repositoryAutoCreateWorktree");
+		expect(chatLandingSource).not.toContain("defaultAutoCreateWorktree");
 	});
 
 	test("stages the durable chat before attaching the workspace gateway", () => {
