@@ -8,6 +8,11 @@ import { groupMessages } from "./group-messages.ts";
 
 export type ChatTimelineRow =
 	| {
+			readonly kind: "tool-activity";
+			readonly id: string;
+			readonly messages: readonly Message[];
+	  }
+	| {
 			readonly kind: "message";
 			readonly id: string;
 			readonly message: Message;
@@ -286,7 +291,7 @@ export function deriveChatTimelineRows({
 		});
 	}
 
-	return rows;
+	return groupToolActivityRows(rows);
 }
 
 /** Cloud history pages preserve message references; only changed turns regroup. */
@@ -336,3 +341,39 @@ export const createCloudTimelineRows = () => {
 		return rows;
 	};
 };
+
+/** Invisible status updates must not split the tools between actual messages. */
+export function groupToolActivityRows(
+	rows: readonly ChatTimelineRow[],
+): ChatTimelineRow[] {
+	const output: ChatTimelineRow[] = [];
+	let active:
+		| { kind: "tool-activity"; id: string; messages: Message[] }
+		| undefined;
+	for (const row of rows) {
+		const tag = row.kind === "message" ? row.message.content._tag : undefined;
+		if (
+			row.kind === "message" &&
+			(tag === "tool_use" ||
+				(active !== undefined &&
+					(tag === "tool_result" ||
+						tag === "thinking" ||
+						tag === "usage" ||
+						tag === "context_usage" ||
+						tag === "usage_limit" ||
+						tag === "subagent_progress" ||
+						(row.message.content._tag === "assistant" &&
+							row.message.content.text.trim().length === 0))))
+		) {
+			if (active === undefined) {
+				active = { kind: "tool-activity", id: `tools:${row.id}`, messages: [] };
+				output.push(active);
+			}
+			active.messages.push(row.message);
+		} else {
+			active = undefined;
+			output.push(row);
+		}
+	}
+	return output;
+}
