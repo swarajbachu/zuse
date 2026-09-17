@@ -29,7 +29,27 @@ export function useWorktreeSetupLifecycle(
 
 	useEffect(() => {
 		if (projectId === null || worktreeId === null) return;
-		void refreshWorktrees(projectId);
+		let cancelled = false;
+		let retryTimer: ReturnType<typeof setTimeout> | undefined;
+		const reconcile = async () => {
+			await refreshWorktrees(projectId);
+			if (cancelled) return;
+			const exists = (
+				useWorktreesStore.getState().byProject[projectId] ?? EMPTY_WORKTREES
+			).some((row) => row.id === worktreeId);
+			if (
+				!exists &&
+				creationPhase !== "failed" &&
+				creationPhase !== "cancelled"
+			) {
+				retryTimer = setTimeout(() => void reconcile(), 1_000);
+			}
+		};
+		void reconcile();
+		return () => {
+			cancelled = true;
+			clearTimeout(retryTimer);
+		};
 	}, [creationPhase, projectId, refreshWorktrees, worktreeId]);
 
 	useEffect(() => {

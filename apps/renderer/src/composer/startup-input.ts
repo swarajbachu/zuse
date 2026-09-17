@@ -1,7 +1,7 @@
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type { ComposerInput } from "@zuse/contracts";
 import { uploadAttachment } from "../lib/attachments.ts";
-import { saveContextFile, saveContextText } from "../lib/context-handoff.ts";
+import { saveContextText } from "../lib/context-handoff.ts";
 import {
 	appendContextFileRef,
 	finalizeDraftAttachments,
@@ -74,14 +74,13 @@ export const finalizeStartupInput = async (
 	const { ref, uploadRoot } = target;
 	let finalInput = input;
 	if (options.issueMarkdown !== null) {
-		const contextRef = await saveContextFile(
-			ref.environmentId,
-			ref.sessionId,
-			options.issueMarkdown,
-		);
-		if (contextRef !== null) {
-			finalInput = appendContextFileRef(finalInput, contextRef);
-		}
+		const contextRef = await saveContextText({
+			environmentId: ref.environmentId,
+			sessionId: ref.sessionId,
+			text: options.issueMarkdown,
+			ext: "md",
+		});
+		finalInput = appendContextFileRef(finalInput, contextRef);
 	}
 	if (options.prepareLinear !== null) {
 		finalInput = await options.prepareLinear(finalInput);
@@ -134,7 +133,14 @@ export const startupTargetNotReady = (error: unknown): boolean => {
 		typeof cause === "object" && cause !== null && "_tag" in cause
 			? (cause as { readonly _tag: unknown })._tag
 			: null;
-	return typeof tag === "string" && TARGET_NOT_READY_TAGS.has(tag);
+	return (
+		(typeof tag === "string" && TARGET_NOT_READY_TAGS.has(tag)) ||
+		(tag === "LinearIntegrationError" &&
+			typeof cause === "object" &&
+			cause !== null &&
+			"reason" in cause &&
+			cause.reason === "Could not resolve the session workspace.")
+	);
 };
 
 const delay = (ms: number): Promise<void> =>
@@ -142,7 +148,8 @@ const delay = (ms: number): Promise<void> =>
 
 /**
  * {@link finalizeStartupInput}, retried while the target session is still
- * being registered. Each attempt restarts from the original input so a
+ * being registered or its reserved worktree is being created. Each attempt
+ * restarts from the original input so a
  * partial write is never carried into the message that gets sent.
  */
 export const finalizeStartupInputWhenReady = async (
@@ -150,8 +157,8 @@ export const finalizeStartupInputWhenReady = async (
 	target: StartupInputTarget,
 	options: StartupInputOptions,
 	retry: { readonly attempts: number; readonly delayMs: number } = {
-		attempts: 5,
-		delayMs: 700,
+		attempts: 120,
+		delayMs: 1_000,
 	},
 ): Promise<ComposerInput> => {
 	for (let attempt = 1; ; attempt += 1) {
