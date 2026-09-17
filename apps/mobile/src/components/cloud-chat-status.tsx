@@ -1,25 +1,14 @@
-import "@zuse/i18n/english/chat";
 import { useAtomValue } from "@effect/atom-react";
 import { cloudFailurePresentation } from "@zuse/client-runtime/cloud-failure-presentation";
 import type { Message, SessionId } from "@zuse/contracts";
-import { useMessages } from "@zuse/i18n/react";
 import { router } from "expo-router";
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 import { Text, View } from "react-native";
 import { Button } from "~/components/ui/button";
 import { connectionSessionKey } from "~/lib/session-key";
 import { cloudCatalogAtom, refreshCloudCatalog } from "~/store/cloud-catalog";
-import {
-	hasOlderMessagesAtom,
-	loadOlderMessages,
-	sessionDeliveryAtom,
-} from "~/store/messages";
-import {
-	mobileClientBus,
-	mobileCloudHistory,
-	mobileHistoryKey,
-	mobileHistoryRef,
-} from "~/store/mobile-client-bus";
+import { sessionDeliveryAtom } from "~/store/messages";
+import { mobileClientBus } from "~/store/mobile-client-bus";
 
 export function CloudChatStatus({
 	workspaceId,
@@ -34,26 +23,10 @@ export function CloudChatStatus({
 	messages: readonly Message[];
 	error?: string | null;
 }) {
-	const { message: uiMessage } = useMessages(["chat"]);
-	const ref = mobileHistoryRef(connKey, sessionId);
-	const historyKey = ref === null ? "" : mobileHistoryKey(ref);
-	const historySnapshot = useCallback(
-		() => mobileCloudHistory.status(historyKey),
-		[historyKey],
-	);
-	const historyStatus = useSyncExternalStore(
-		mobileCloudHistory.subscribe,
-		historySnapshot,
-		historySnapshot,
-	);
 	const catalog = useAtomValue(cloudCatalogAtom);
 	const delivery = useAtomValue(
 		sessionDeliveryAtom(connectionSessionKey(connKey, sessionId)),
 	);
-	const hasOlder = useAtomValue(
-		hasOlderMessagesAtom(connectionSessionKey(connKey, sessionId)),
-	);
-	const [loadingOlder, setLoadingOlder] = useState(false);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const summary = catalog.chats.find((row) => row.workspaceId === workspaceId);
 	const pending = delivery.pending.find(
@@ -123,7 +96,7 @@ export function CloudChatStatus({
 								: error
 									? "Cloud history could not refresh. Pull to retry."
 									: null));
-	if (label === null && actionError === null && !hasOlder) return null;
+	if (label === null && actionError === null) return null;
 	const lastUser = messages[lastUserIndex];
 	const draft =
 		lastUser?.content._tag === "user" || lastUser?.content._tag === "user_rich"
@@ -138,35 +111,6 @@ export function CloudChatStatus({
 				</Text>
 			) : null}
 			<View className="flex-row flex-wrap gap-2">
-				{historyStatus === "loading" ? (
-					<Text className="font-sans text-xs text-muted-foreground">
-						{uiMessage("chat:cloud_history_loading")}
-					</Text>
-				) : hasOlder ? (
-					<Button
-						className="h-7"
-						variant="ghost"
-						disabled={loadingOlder}
-						onPress={() => {
-							if (historyStatus === "failed") {
-								mobileCloudHistory.retry(historyKey);
-								return;
-							}
-							setLoadingOlder(true);
-							void loadOlderMessages(connKey, sessionId)
-								.catch(() =>
-									setActionError("Could not load older messages. Try again."),
-								)
-								.finally(() => setLoadingOlder(false));
-						}}
-					>
-						{historyStatus === "failed"
-							? uiMessage("chat:cloud_history_retry")
-							: loadingOlder
-								? uiMessage("chat:cloud_history_loading")
-								: "Load earlier messages"}
-					</Button>
-				) : null}
 				{pending?.cancellable ? (
 					<Button
 						className="h-7"

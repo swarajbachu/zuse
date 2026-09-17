@@ -47,6 +47,7 @@ import { CloudDeviceAccess } from "~/components/cloud-device-access";
 import { Composer } from "~/components/composer";
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { InlineErrorNotice } from "~/components/inline-error-notice";
+import { MessageHistoryStatus } from "~/components/message-history-status";
 import { ChatManagementBars } from "~/components/messages/chat-management-bars";
 import { LivePermissionAccessory } from "~/components/messages/live-permission-accessory";
 import type { MessageRowContext } from "~/components/messages/message-row";
@@ -1138,20 +1139,26 @@ function ThreadScreen() {
 				drawDistance={800}
 				sharedValues={{ isNearEnd }}
 				ListHeaderComponent={
-					options?.cloudWorkspaceId !== undefined ? (
-						<CloudChatStatus
-							workspaceId={options.cloudWorkspaceId}
+					<View>
+						<MessageHistoryStatus
 							connKey={connKey}
 							sessionId={normalizedSessionId}
-							messages={messages}
-							error={error}
 						/>
-					) : error && connectionNotice === null ? (
-						<InlineErrorNotice
-							message={connectionErrorMessage(error)}
-							compact
-						/>
-					) : null
+						{options?.cloudWorkspaceId !== undefined ? (
+							<CloudChatStatus
+								workspaceId={options.cloudWorkspaceId}
+								connKey={connKey}
+								sessionId={normalizedSessionId}
+								messages={messages}
+								error={error}
+							/>
+						) : error && connectionNotice === null ? (
+							<InlineErrorNotice
+								message={connectionErrorMessage(error)}
+								compact
+							/>
+						) : null}
+					</View>
 				}
 				ListFooterComponent={
 					<View style={{ minHeight: endRunwayHeight, paddingTop: 4 }}>

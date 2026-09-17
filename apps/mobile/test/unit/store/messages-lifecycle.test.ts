@@ -188,11 +188,11 @@ test.each([
 	}
 });
 
-test("local streams retain their original history mode", async () => {
+test("desktop-to-mobile streams opt into recent-first history", async () => {
 	runtime.eventInputs = [];
 	await hydrateMessages("local-history", options, sessionId);
 	await vi.waitFor(() => expect(runtime.eventInputs.length).toBeGreaterThan(0));
-	expect(runtime.eventInputs.at(-1)).not.toHaveProperty("historyMode");
+	expect(runtime.eventInputs.at(-1)?.historyMode).toBe("background");
 	await resetMessagesRuntime();
 });
 

@@ -501,7 +501,7 @@ const driverFor: ResourceDriverFactory<MemoizeClient> = (key) => {
 				MemoizeClient & SessionTimelineDriverClient
 			>({
 				checkpointMs: 200,
-				backgroundHistory: (ref) => isCloudSession(ref),
+				backgroundHistory: () => true,
 				reportFailure: (environmentId, generation, cause) => {
 					const binding = bindings.get(environmentId);
 					if (binding !== undefined) {
@@ -597,9 +597,6 @@ const commandExecutor: ClientCommandExecutor<MemoizeClient> = {
 	},
 };
 
-const isCloudSession = (ref: SessionRef): boolean =>
-	bindings.get(ref.environmentId)?.options.cloudWorkspaceId !== undefined;
-
 const makeBus = () =>
 	new ClientBus<MemoizeClient>({
 		resolver: {
@@ -673,7 +670,7 @@ export const mobileClientBus = (): ClientBus<MemoizeClient> => bus;
 
 const messagePager = makeSessionMessagePager({
 	getBus: mobileClientBus,
-	allowLiveAdvance: isCloudSession,
+	allowLiveAdvance: () => true,
 	readPage: async (ref, client, cursor, beforeSequence, signal) => {
 		if (client !== null)
 			return Effect.runPromise(
@@ -705,19 +702,17 @@ const messagePager = makeSessionMessagePager({
 	},
 });
 export const loadOlderMobileMessages = messagePager.load;
-export const mobileCloudHistory = new BackgroundHistory(2);
+export const mobileHistory = new BackgroundHistory(2);
 export const mobileHistoryKey = (ref: SessionRef) =>
 	resourceKeyId(sessionTimelineKey(ref.environmentId, ref.sessionId));
-export const retainMobileCloudHistory = (ref: SessionRef): (() => void) =>
-	isCloudSession(ref)
-		? retainSessionHistory({
-				bus: mobileClientBus(),
-				ref,
-				scheduler: mobileCloudHistory,
-				load: (signal) => messagePager.load(ref, signal),
-				priority: () => 10,
-			})
-		: () => {};
+export const retainMobileHistory = (ref: SessionRef): (() => void) =>
+	retainSessionHistory({
+		bus: mobileClientBus(),
+		ref,
+		scheduler: mobileHistory,
+		load: (signal) => messagePager.load(ref, signal),
+		priority: () => 10,
+	});
 export const mobileHistoryRef = (
 	connKey: string,
 	sessionId: SessionId,
@@ -962,7 +957,7 @@ export const dispatchMobileTerminalClose = (
 
 export const resetMobileClientBus = async (): Promise<void> => {
 	const previous = bus;
-	mobileCloudHistory.clear();
+	mobileHistory.clear();
 	bindings.clear();
 	terminalSinks.clear();
 	messagePager.clear();
