@@ -98,6 +98,10 @@ export default defineConfig({
 			"react-dom",
 			"react-dom/client",
 			"react-i18next",
+			// Optimizer recovery can request this ESM parser directly. Include its
+			// CommonJS leaf so Chromium always receives Vite's default-export interop.
+			"html-parse-stringify",
+			"void-elements",
 			"i18next",
 			"react/jsx-runtime",
 			"react/jsx-dev-runtime",

@@ -9,9 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The macOS installer has a dark, dithered city backdrop with clearer drag-to-Applications guidance and Retina artwork
+- Desktop startup diagnostics now record window, renderer, IPC, migration, projector, project-visibility, and shell-readiness milestones
+- Desktop startup now opens a single animated Zuse logo surface immediately while runtime and project initialization continue behind it
 
 ### Fixed
 - Cloud workspaces created from Slack or the API now attach to the desktop that sends the next message, allowing cloud agents to request approved commands on that device
+- Desktop startup no longer drops an early connection handshake, preventing the app from getting stuck on its loading screen
+- Projects now appear as soon as the workspace list loads while slow Git-origin metadata resolves independently in the background
 
 ## [0.21.0]
 
