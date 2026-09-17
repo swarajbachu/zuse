@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Desktop startup now opens a single animated Zuse logo surface immediately while runtime and project initialization continue behind it
 
 ### Fixed
+- The project sidebar now refreshes its saved list after app restarts, preventing registered projects from remaining invisible
 - Cloud workspaces created from Slack or the API now attach to the desktop that sends the next message, allowing cloud agents to request approved commands on that device
 - Desktop startup no longer drops an early connection handshake, preventing the app from getting stuck on its loading screen
 - Projects now appear as soon as the workspace list loads while slow Git-origin metadata resolves independently in the background
