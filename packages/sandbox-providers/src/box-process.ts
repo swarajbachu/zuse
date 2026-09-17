@@ -51,6 +51,7 @@ export const boxProcessCleanupScript = (
  * Start a transient service only after the caller has authorized this launch.
  * No boot enablement or automatic restart: cloud boot tokens are single-use.
  * systemd owns the entire process tree, including children that call setsid.
+ * Its unit is the process identity; no writable home-directory PID file is needed.
  */
 export const boxSystemdProcessCommand = (
 	input: SandboxProcessInput,
@@ -73,7 +74,7 @@ export const boxSystemdProcessCommand = (
 		'while IFS= read -r -d "" entry; do case "$entry" in HOME=*|USER=*|LOGNAME=*|SHELL=*|PWD=*|OLDPWD=*|SUDO_*=*|_=*) continue ;; esac; environment+=("--setenv=$entry"); done < <(env -0)',
 		`target_home=$(getent passwd ${boxShellQuote(user)} | cut -d: -f6)`,
 		'test -n "$target_home"',
-		`systemd-run --quiet --collect --service-type=exec --expand-environment=no --description=Zuse-managed-process --unit=${boxShellQuote(unit)} --uid=${boxShellQuote(user)} --property=Restart=no --property=KillMode=control-group --property=TimeoutStopSec=5s "\${environment[@]}" "--setenv=HOME=$target_home" --setenv=${boxShellQuote(`USER=${user}`)} --setenv=${boxShellQuote(`LOGNAME=${user}`)} -- /usr/bin/setsid --wait /bin/bash -c ${boxShellQuote(boxProcessScript(input))}`,
+		`systemd-run --quiet --collect --service-type=exec --expand-environment=no --description=Zuse-managed-process --unit=${boxShellQuote(unit)} --uid=${boxShellQuote(user)} --property=Restart=no --property=KillMode=control-group --property=TimeoutStopSec=5s "\${environment[@]}" "--setenv=HOME=$target_home" --setenv=${boxShellQuote(`USER=${user}`)} --setenv=${boxShellQuote(`LOGNAME=${user}`)} -- /usr/bin/setsid --wait /bin/bash -c ${boxShellQuote(boxProcessScript({ ...input, tag: undefined }))}`,
 	].join("\n");
 	// Keep literal legacy command markers out of the cleanup parent's argv.
 	const encoded = btoa(

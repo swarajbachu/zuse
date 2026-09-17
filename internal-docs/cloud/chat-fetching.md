@@ -56,3 +56,10 @@ Validation passed: 330 API unit tests, 162 client-runtime unit tests, session-do
 The live Chromium renderer stalled after downloading an encrypted transcript: the gzip helper awaited `writer.write()` / `writer.close()` before consuming the readable side. Chromium applies backpressure to that sequence, including tiny inputs. Pipe the source into the transform and drain the output concurrently. A real-browser regression covers empty, small, and 1 MB payloads, including authenticated metadata rejection; Node-only round-trip tests did not expose this failure.
 
 The staging Boat account image also inherited the removed `zuse-firewall` boot service from template v5. Root bootstrap could authenticate while uid 1001 traffic was dropped by the inherited `zuse-egress` table. Newly created sandboxes still inherited that old image. Publish a fresh template and rebuild the account image; changing adapter code alone does not alter published snapshots. Staging now targets v7. Do not add runtime compatibility cleanup for old images: fresh images are the rollout path.
+
+The fresh v7 staging verification also exposed a separate Boat launch failure:
+managed services exited before runtime startup because their redundant PID-file
+write targeted a snapshot directory owned by the command user. Managed launches
+now use systemd unit identity without writing legacy home-directory PID records.
+The staging verification workspace completed its API turn and displayed its
+reply in the desktop after this change; E2B launch behavior is unchanged.
