@@ -60,12 +60,12 @@ import type {
 } from "~/composer/draft-attachments";
 import { applyPreparedLinearContext } from "~/composer/linear-context-input";
 import {
-	finalizeStartupInput,
 	finalizeStartupInputWhenReady,
 	releaseDraftAttachmentPreviews,
 	StartupInputError,
 	type StartupInputOptions,
 	startupInputNeedsPreparation,
+	startupTargetNotReady,
 } from "~/composer/startup-input";
 import {
 	cacheAttachmentPreview,
@@ -994,6 +994,7 @@ export function ChatLanding() {
 			try {
 				return await prepare(input);
 			} catch (error) {
+				if (startupTargetNotReady(error)) throw error;
 				toastManager.add({
 					type: "error",
 					get title() {
@@ -1401,24 +1402,14 @@ export function ChatLanding() {
 					sessionId: result.initialSessionId,
 				});
 				try {
-					const worktreeId = result.worktreeId;
-					const uploadRoot =
-						worktreeId === null
-							? (selectedFolder?.path ?? null)
-							: ((
-									useWorktreesStore.getState().byProject[selectedFolderId] ??
-									EMPTY_WORKTREES
-								).find((worktree) => worktree.id === worktreeId)?.path ??
-								selectedFolder?.path ??
-								null);
-					const ticketInput = await finalizeStartupInput(
+					const ticketInput = await finalizeStartupInputWhenReady(
 						startupInput,
 						{
 							ref: {
 								environmentId: EnvironmentId.make(activeEnvironmentId),
 								sessionId: result.initialSessionId,
 							},
-							uploadRoot,
+							uploadRoot: null,
 						},
 						{
 							issueMarkdown: null,
@@ -1519,25 +1510,17 @@ export function ChatLanding() {
 		);
 		// Everything the first message referenced — the "Create from…" issue body,
 		// Linear context, pasted text, dropped files — is written into the chat's
-		// real cwd now, so the agent reads it from its own workspace.
-		const uploadRoot = (() => {
-			if (worktreeId === null) return selectedFolder?.path ?? null;
-			const wt = (
-				useWorktreesStore.getState().byProject[selectedFolderId] ??
-				EMPTY_WORKTREES
-			).find((w) => w.id === worktreeId);
-			return wt?.path ?? selectedFolder?.path ?? null;
-		})();
+		// real cwd once it exists, so the agent reads it from its own workspace.
 		let finalInput = startupInput;
 		try {
-			finalInput = await finalizeStartupInput(
+			finalInput = await finalizeStartupInputWhenReady(
 				startupInput,
 				{
 					ref: {
 						environmentId: EnvironmentId.make(activeEnvironmentId),
 						sessionId,
 					},
-					uploadRoot,
+					uploadRoot: null,
 				},
 				startupOptionsFor(sessionId),
 			);

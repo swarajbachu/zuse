@@ -26,7 +26,7 @@ import { EMPTY_WORKTREES, useWorktreesStore } from "./worktrees.ts";
  * prop), and the underlying selector silently fell back to `folder.path`
  * when the worktree row wasn't hydrated yet — so the terminal could mount
  * a PTY in the wrong directory with no signal to the user. The
- * `worktreePending` flag in the `ready` variant makes that race explicit.
+ * `worktree-pending` variant makes that race explicit.
  */
 export type ActiveContext =
 	/** Folders RPC hasn't resolved yet on cold start. */
@@ -63,19 +63,65 @@ export type ActiveContext =
 			 * The path consumers should open files / PTYs / git ops in. Equals
 			 * the worktree's path when one is bound and hydrated, otherwise the
 			 * folder's path. **Never** silently falls back to the folder when a
-			 * worktree is bound — see `worktreePending`.
+			 * worktree is bound — unresolved bindings use `worktree-pending`.
 			 */
 			readonly rootPath: string;
 			readonly rootKind: "folder" | "worktree";
-			/**
-			 * `true` when the session names a worktreeId but `worktrees.byProject`
-			 * doesn't have its row yet. Consumers that would mount a PTY or open
-			 * a file in the resolved path should wait (render a placeholder)
-			 * instead of using `rootPath` — `rootPath` is `folderPath` in this
-			 * state, which is **not** where the user wants to operate.
-			 */
+			/** Compatibility flag; unresolved worktrees use the pending variant. */
 			readonly worktreePending: boolean;
 	  };
+
+const useSelectedWorkspaceBinding = (folderId: FolderId | null) => {
+	const sessionId = useSessionsStore((s) =>
+		folderId === null ? null : (s.selectedSessionByProject[folderId] ?? null),
+	);
+	const selectedChatId = useChatsStore((s) => s.selectedChatId);
+	const pendingCreation = useChatsStore((s) =>
+		selectedChatId === null
+			? null
+			: (s.pendingCreationByChat[selectedChatId] ?? null),
+	);
+	const { sessionsByProject, chatsByProject, creationOperationsByProject } =
+		useActiveEnvironmentEntities();
+	const session =
+		folderId === null
+			? null
+			: sessionsByProject[folderId]?.find((row) => row.id === sessionId);
+	const chat =
+		folderId === null
+			? null
+			: chatsByProject[folderId]?.find(
+					(row) => row.id === (session?.chatId ?? selectedChatId),
+				);
+	const creation =
+		folderId === null
+			? null
+			: creationOperationsByProject[folderId]?.find(
+					(row) =>
+						row.chatId === (chat?.id ?? selectedChatId) &&
+						row.initialSessionId === sessionId &&
+						row.phase !== "running" &&
+						row.phase !== "cancelled",
+				);
+	const pending =
+		pendingCreation?.projectId === folderId &&
+		pendingCreation.sessionId === sessionId
+			? pendingCreation
+			: null;
+	// The chat owns the binding. Its session summary and creation receipt can
+	// arrive independently; neither may erase a newer durable workspace intent.
+	const worktreeId =
+		chat?.worktreeId ??
+		session?.worktreeId ??
+		creation?.worktreeId ??
+		pending?.worktreeId ??
+		null;
+	const workspaceRequested =
+		worktreeId !== null ||
+		(creation != null && creation.workspacePolicy._tag !== "main") ||
+		pending?.workspaceRequested === true;
+	return { sessionId, selectedChatId, worktreeId, workspaceRequested };
+};
 
 /**
  * Returns the canonical active context. Recomputed on the minimal set of
@@ -94,32 +140,16 @@ export const useActiveContext = (): ActiveContext => {
 		if (s.selectedFolderId === null) return null;
 		return s.folders.find((f) => f.id === s.selectedFolderId)?.path ?? null;
 	});
-	const sessionId = useSessionsStore((s) =>
-		selectedFolderId !== null
-			? (s.selectedSessionByProject[selectedFolderId] ?? null)
-			: null,
-	);
-	const selectedChatId = useChatsStore((state) => state.selectedChatId);
+	const {
+		sessionId,
+		selectedChatId,
+		worktreeId: activeWorktreeId,
+		workspaceRequested,
+	} = useSelectedWorkspaceBinding(selectedFolderId);
 	const cloudSummary = useCloudChatSummaryForSelection({
 		chatId: selectedChatId,
 		sessionId,
 	});
-	const pendingCreation = useChatsStore((state) => {
-		const chatId = state.selectedChatId;
-		return chatId === null
-			? null
-			: (state.pendingCreationByChat[chatId] ?? null);
-	});
-	const { sessionsByProject } = useActiveEnvironmentEntities();
-	const sessionWorktreeId =
-		selectedFolderId === null || sessionId === null
-			? null
-			: (sessionsByProject[selectedFolderId]?.find(
-					(sess) => sess.id === sessionId,
-				)?.worktreeId ?? null);
-	const activeWorktreeId = pendingCreation?.workspaceRequested
-		? (pendingCreation.worktreeId ?? sessionWorktreeId)
-		: sessionWorktreeId;
 	const worktreePath = useWorktreesStore((s) => {
 		if (selectedFolderId === null || activeWorktreeId === null) return null;
 		const list = s.byProject[selectedFolderId] ?? EMPTY_WORKTREES;
@@ -190,8 +220,8 @@ export const useActiveContext = (): ActiveContext => {
 			};
 		}
 		if (
-			pendingCreation?.workspaceRequested &&
-			pendingCreation.projectId === selectedFolderId &&
+			workspaceRequested &&
+			sessionId !== null &&
 			(activeWorktreeId === null || worktreePath === null)
 		) {
 			return {
@@ -199,8 +229,8 @@ export const useActiveContext = (): ActiveContext => {
 				environmentId: EnvironmentId.make(activeEnvironmentId),
 				folderId: selectedFolderId,
 				folderPath,
-				sessionId: pendingCreation.sessionId,
-				worktreeId: pendingCreation.worktreeId,
+				sessionId,
+				worktreeId: activeWorktreeId,
 			};
 		}
 		if (activeWorktreeId !== null && worktreePath !== null) {
@@ -214,23 +244,6 @@ export const useActiveContext = (): ActiveContext => {
 				rootPath: worktreePath,
 				rootKind: "worktree",
 				worktreePending: false,
-			};
-		}
-		if (
-			activeWorktreeId !== null &&
-			worktreePath === null &&
-			sessionId !== null
-		) {
-			// Session is bound to a worktree we haven't hydrated yet. This is not a
-			// usable ExecutionRef: exposing folderPath here lets files/Git/terminals
-			// silently mount against the main checkout.
-			return {
-				status: "worktree-pending",
-				environmentId: EnvironmentId.make(activeEnvironmentId),
-				folderId: selectedFolderId,
-				folderPath,
-				sessionId,
-				worktreeId: activeWorktreeId,
 			};
 		}
 		return {
@@ -255,7 +268,7 @@ export const useActiveContext = (): ActiveContext => {
 		cloudShell.connection,
 		cloudFolder,
 		activeEnvironmentId,
-		pendingCreation,
+		workspaceRequested,
 	]);
 };
 
@@ -270,23 +283,13 @@ export const useActiveContext = (): ActiveContext => {
 export const useActiveWorktreeId = (
 	folderId: FolderId | null,
 ): WorktreeId | null => {
-	const sessionId = useSessionsStore((s) =>
-		folderId !== null ? (s.selectedSessionByProject[folderId] ?? null) : null,
-	);
-	const { sessionsByProject } = useActiveEnvironmentEntities();
-	const sessions =
-		folderId !== null ? (sessionsByProject[folderId] ?? null) : null;
-	if (sessionId === null || sessions === null) return null;
-	const found = sessions.find((sess) => sess.id === sessionId);
-	return found?.worktreeId ?? null;
+	return useSelectedWorkspaceBinding(folderId).worktreeId;
 };
 
 /**
  * Per-project active root path. See `useActiveWorktreeId` for when to
- * pick this over `useActiveContext()`. Note: this preserves the legacy
- * "silent fallback to folder.path when worktree not yet hydrated"
- * behavior — call `useActiveContext()` if you need to distinguish that
- * race from a deliberate main-checkout session.
+ * pick this over `useActiveContext()`. Returns null until a requested worktree
+ * is hydrated, so file mentions cannot target the main checkout during setup.
  */
 export const useActiveWorkspaceRoot = (
 	folderId: FolderId | null,
@@ -296,13 +299,15 @@ export const useActiveWorkspaceRoot = (
 			? null
 			: (s.folders.find((f) => f.id === folderId) ?? null),
 	);
-	const worktreeId = useActiveWorktreeId(folderId);
+	const { worktreeId, workspaceRequested } =
+		useSelectedWorkspaceBinding(folderId);
 	const worktree = useWorktreesStore((s) => {
 		if (folderId === null || worktreeId === null) return null;
 		const list = s.byProject[folderId] ?? [];
 		return list.find((w) => w.id === worktreeId) ?? null;
 	});
 	if (folder === null) return null;
-	if (worktreeId === null || worktree === null) return folder.path;
+	if (worktreeId === null) return workspaceRequested ? null : folder.path;
+	if (worktree === null) return null;
 	return worktree.path;
 };
