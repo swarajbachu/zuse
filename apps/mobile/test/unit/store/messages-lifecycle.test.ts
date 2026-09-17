@@ -9,12 +9,15 @@ import {
 } from "../../../src/store/messages";
 import {
 	mobileClientBus,
+	registerMobileEnvironment,
 	retryMobileClientBusConnections,
+	sessionTimelineKey,
 } from "../../../src/store/mobile-client-bus";
 import { appAtomRegistry } from "../../../src/store/registry";
 
 const runtime = vi.hoisted(() => ({
 	clientRequests: 0,
+	eventInputs: [] as { historyMode?: string }[],
 	streamFails: false,
 	streamCompletes: false,
 	reportedFailures: 0,
@@ -38,12 +41,14 @@ vi.mock("~/rpc/connection", () => ({
 			runtime.ports.push(options.port);
 			runtime.clientRequests += 1;
 			return {
-				"session.events": () =>
-					runtime.streamFails
+				"session.events": (input: { historyMode?: string }) => {
+					runtime.eventInputs.push(input);
+					return runtime.streamFails
 						? Stream.fail(new Error("stream disconnected"))
 						: runtime.streamCompletes
 							? Stream.empty
-							: Stream.never,
+							: Stream.never;
+				},
 			};
 		}),
 	reportConnectionFailure: () => {
@@ -69,6 +74,7 @@ describe("message stream lifecycle", () => {
 	beforeEach(async () => {
 		await resetMessagesRuntime();
 		runtime.clientRequests = 0;
+		runtime.eventInputs = [];
 		runtime.streamFails = false;
 		runtime.streamCompletes = false;
 		runtime.reportedFailures = 0;
@@ -150,4 +156,60 @@ describe("message stream lifecycle", () => {
 		);
 		await vi.waitFor(() => expect(runtime.ports.at(-1)).toBe(5000));
 	});
+});
+
+vi.mock("~/rpc/api-client", () => ({
+	cloudControlClient: {
+		"cloud.transcript.get": () => Effect.succeed({ checkpoint: null }),
+	},
+}));
+
+test.each([
+	"boat",
+	"e2b",
+])("%s cloud opts into recent-first streaming", async (provider) => {
+	const environmentId = registerMobileEnvironment(provider, {
+		host: "localhost",
+		port: 4000,
+		token: null,
+		cloudWorkspaceId: `workspace-${provider}`,
+	});
+	const lease = mobileClientBus().retain(
+		sessionTimelineKey(environmentId, sessionId),
+		{ activation: "connect" },
+	);
+	try {
+		await vi.waitFor(() =>
+			expect(runtime.eventInputs.at(-1)?.historyMode).toBe("background"),
+		);
+	} finally {
+		lease.release();
+		await resetMessagesRuntime();
+	}
+});
+
+test("local streams retain their original history mode", async () => {
+	runtime.eventInputs = [];
+	await hydrateMessages("local-history", options, sessionId);
+	await vi.waitFor(() => expect(runtime.eventInputs.length).toBeGreaterThan(0));
+	expect(runtime.eventInputs.at(-1)).not.toHaveProperty("historyMode");
+	await resetMessagesRuntime();
+});
+
+test("opening paused cloud history does not request a sandbox connection", async () => {
+	await resetMessagesRuntime();
+	const before = runtime.clientRequests;
+	await hydrateMessages(
+		"paused-cloud",
+		{
+			host: "localhost",
+			port: 4000,
+			token: null,
+			cloudWorkspaceId: "paused-workspace",
+		},
+		sessionId,
+	);
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	expect(runtime.clientRequests).toBe(before);
+	await resetMessagesRuntime();
 });

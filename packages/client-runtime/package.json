@@ -41,6 +41,7 @@
 		"./device-permission-presentation": "./src/device-permission-presentation.ts",
 		"./device-bridge-controller": "./src/device-bridge-controller.ts",
 		"./composer-feedback": "./src/composer-feedback.ts",
+		"./frame-subscription": "./src/frame-subscription.ts",
 		"./background-history": "./src/background-history.ts"
 	},
 	"scripts": {

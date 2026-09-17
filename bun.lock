@@ -119,6 +119,7 @@
         "@zuse/analytics": "workspace:*",
         "@zuse/client-runtime": "*",
         "@zuse/contracts": "*",
+        "@zuse/i18n": "workspace:*",
         "@zuse/icons": "workspace:*",
         "@zuse/utils": "*",
         "clsx": "^2.1.1",

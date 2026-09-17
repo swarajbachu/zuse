@@ -1,4 +1,5 @@
 import { cloudFailurePresentation } from "@zuse/client-runtime/cloud-failure-presentation";
+import { subscribeOnAnimationFrame } from "@zuse/client-runtime/frame-subscription";
 import type {
 	FailedCommand,
 	PendingCommand,
@@ -24,6 +25,7 @@ import {
 	mobilePendingMessageIntents,
 	registerMobileEnvironment,
 	resetMobileClientBus,
+	retainMobileCloudHistory,
 	sessionTimelineKey,
 } from "./mobile-client-bus";
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
@@ -293,10 +295,21 @@ export const hydrateMessages = async (
 		lease,
 		unsubscribe: () => undefined,
 	};
-	const unsubscribe = mobileClientBus().subscribe(key, () =>
-		publishTimeline(liveKey, retained),
-	);
-	retainedTimelines.set(liveKey, { ...retained, unsubscribe });
+	const listen = () => publishTimeline(liveKey, retained);
+	const subscribe = (callback: () => void) =>
+		mobileClientBus().subscribe(key, callback);
+	const unsubscribe =
+		options.cloudWorkspaceId === undefined
+			? subscribe(listen)
+			: subscribeOnAnimationFrame(subscribe, listen);
+	const releaseHistory = retainMobileCloudHistory({ environmentId, sessionId });
+	retainedTimelines.set(liveKey, {
+		...retained,
+		unsubscribe: () => {
+			releaseHistory();
+			unsubscribe();
+		},
+	});
 	if (options.cloudWorkspaceId !== undefined) {
 		const pending = await mobilePendingMessageIntents({
 			environmentId,

@@ -41,3 +41,51 @@ it("shares a job and retries failures without dropping other retained readers", 
 	await vi.runAllTimersAsync();
 	expect(scheduler.status("chat")).toBe("idle");
 });
+
+it("waits for a recent head, supports dormant reads, and aborts on release", async () => {
+	vi.useFakeTimers();
+	const { retainSessionHistory } = await import("../../src/background-history");
+	let notify = () => {};
+	const view = {
+		origin: "cache",
+		sync: "synchronizing",
+		connection: "connecting",
+		data: { olderMessageSequence: 100 },
+	};
+	const bus = {
+		snapshot: () => view,
+		subscribe: (_key: unknown, cb: () => void) => {
+			notify = cb;
+			return () => {
+				notify = () => {};
+			};
+		},
+	} as unknown as import("../../src/client-bus").ClientBus<unknown>;
+	let signal: AbortSignal | undefined;
+	const load = vi.fn((s: AbortSignal) => {
+		signal = s;
+		return new Promise<never>(() => {});
+	});
+	const release = retainSessionHistory({
+		bus,
+		ref: { environmentId: "cloud" as never, sessionId: "session" as never },
+		scheduler: new BackgroundHistory(2),
+		load,
+	});
+	await vi.advanceTimersByTimeAsync(20);
+	expect(load).not.toHaveBeenCalled();
+	view.origin = "remote";
+	notify();
+	await vi.advanceTimersByTimeAsync(20);
+	expect(load).not.toHaveBeenCalled();
+	view.connection = "dormant";
+	notify();
+	expect(load).not.toHaveBeenCalled();
+	await vi.advanceTimersByTimeAsync(16);
+	expect(load).toHaveBeenCalledTimes(1);
+	release();
+	expect(signal?.aborted).toBe(true);
+	notify();
+	await vi.advanceTimersByTimeAsync(50);
+	expect(load).toHaveBeenCalledTimes(1);
+});

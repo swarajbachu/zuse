@@ -1,4 +1,8 @@
 import {
+	BackgroundHistory,
+	retainSessionHistory,
+} from "@zuse/client-runtime/background-history";
+import {
 	ClientBus,
 	type ResourceDriver,
 	type ResourceDriverFactory,
@@ -497,6 +501,7 @@ const driverFor: ResourceDriverFactory<MemoizeClient> = (key) => {
 				MemoizeClient & SessionTimelineDriverClient
 			>({
 				checkpointMs: 200,
+				backgroundHistory: (ref) => isCloudSession(ref),
 				reportFailure: (environmentId, generation, cause) => {
 					const binding = bindings.get(environmentId);
 					if (binding !== undefined) {
@@ -592,6 +597,9 @@ const commandExecutor: ClientCommandExecutor<MemoizeClient> = {
 	},
 };
 
+const isCloudSession = (ref: SessionRef): boolean =>
+	bindings.get(ref.environmentId)?.options.cloudWorkspaceId !== undefined;
+
 const makeBus = () =>
 	new ClientBus<MemoizeClient>({
 		resolver: {
@@ -665,7 +673,8 @@ export const mobileClientBus = (): ClientBus<MemoizeClient> => bus;
 
 const messagePager = makeSessionMessagePager({
 	getBus: mobileClientBus,
-	readPage: async (ref, client, cursor, beforeSequence) => {
+	allowLiveAdvance: isCloudSession,
+	readPage: async (ref, client, cursor, beforeSequence, signal) => {
 		if (client !== null)
 			return Effect.runPromise(
 				client["session.messages.page"]({
@@ -673,6 +682,7 @@ const messagePager = makeSessionMessagePager({
 					beforeSequence,
 					limit: 100,
 				}),
+				{ signal },
 			);
 		if (
 			cursor === null ||
@@ -687,6 +697,7 @@ const messagePager = makeSessionMessagePager({
 				cursor,
 				beforeSequence,
 			}),
+			{ signal },
 		);
 		return result.page === null
 			? null
@@ -694,6 +705,28 @@ const messagePager = makeSessionMessagePager({
 	},
 });
 export const loadOlderMobileMessages = messagePager.load;
+export const mobileCloudHistory = new BackgroundHistory(2);
+export const mobileHistoryKey = (ref: SessionRef) =>
+	resourceKeyId(sessionTimelineKey(ref.environmentId, ref.sessionId));
+export const retainMobileCloudHistory = (ref: SessionRef): (() => void) =>
+	isCloudSession(ref)
+		? retainSessionHistory({
+				bus: mobileClientBus(),
+				ref,
+				scheduler: mobileCloudHistory,
+				load: (signal) => messagePager.load(ref, signal),
+				priority: () => 10,
+			})
+		: () => {};
+export const mobileHistoryRef = (
+	connKey: string,
+	sessionId: SessionId,
+): SessionRef | null => {
+	const entry = [...bindings].find(
+		([, binding]) => binding.connKey === connKey,
+	);
+	return entry ? { environmentId: entry[0], sessionId } : null;
+};
 
 /** Resume retained resources immediately when the native connectivity owner
  * reports an online/app-active edge. */
@@ -929,6 +962,7 @@ export const dispatchMobileTerminalClose = (
 
 export const resetMobileClientBus = async (): Promise<void> => {
 	const previous = bus;
+	mobileCloudHistory.clear();
 	bindings.clear();
 	terminalSinks.clear();
 	messagePager.clear();
