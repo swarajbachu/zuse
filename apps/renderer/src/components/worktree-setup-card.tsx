@@ -6,7 +6,6 @@ import { Alert01Icon, Tick01Icon } from "@zuse/icons/solid-rounded";
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useWorktreeSetupLifecycle } from "../hooks/use-worktree-setup-lifecycle.ts";
-import { cloudWorkspaceIsStarting } from "../lib/cloud-chat-activity.ts";
 import { cloudFailurePresentation } from "../lib/cloud-failure-presentation.ts";
 import {
 	refreshCloudChatCatalog,
@@ -149,24 +148,8 @@ export function WorktreeSetupCard({
 		workspacePending: ctx.status === "worktree-pending",
 	});
 	if (providerOutputStarted) return null;
-	if (cloudSummary !== null) {
-		const resumeLifecycle =
-			cloudSummary.state === "paused" ||
-			cloudSummary.state === "resuming" ||
-			cloudSummary.statusCode.includes("resume");
-		if (
-			!providerOutputStarted &&
-			!resumeLifecycle &&
-			(cloudWorkspaceIsStarting(cloudSummary) ||
-				cloudSummary.startupPhase === "failed")
-		) {
-			return <CloudWorkspaceSetupCard summary={cloudSummary} />;
-		}
-		// Cloud setup ends when the repository is ready. Provider startup belongs
-		// to the normal transcript working row; the local worktree card must never
-		// become a second cloud lifecycle surface.
-		return null;
-	}
+	// Cloud lifecycle is shown once, in the composer connection tray.
+	if (cloudSummary !== null) return null;
 	if (!visible) return null;
 
 	return (

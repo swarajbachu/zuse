@@ -433,6 +433,15 @@ export class CloudChatList extends Schema.Class<CloudChatList>("CloudChatList")(
 	},
 ) {}
 
+export class CloudChatChanges extends Schema.Class<CloudChatChanges>(
+	"CloudChatChanges",
+)({
+	cursor: Schema.Number,
+	reset: Schema.Boolean,
+	chats: Schema.Array(CloudChatSummary),
+	deletedWorkspaceIds: Schema.Array(Schema.String),
+}) {}
+
 export const CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION = 1 as const;
 
 export class CloudTranscriptCheckpointPayload extends Schema.Class<CloudTranscriptCheckpointPayload>(
@@ -815,3 +824,10 @@ export const CloudTranscriptMessagePageGetRpc = Rpc.make(
 		error: CloudWorkspaceOpError,
 	},
 );
+
+export const CloudChatsWatchRpc = Rpc.make("cloud.chats.watch", {
+	payload: Schema.Struct({ cursor: Schema.optional(Schema.Number) }),
+	success: CloudChatChanges,
+	error: CloudWorkspaceOpError,
+	stream: true,
+});

@@ -1,3 +1,4 @@
+import { BackgroundHistory } from "@zuse/client-runtime/background-history";
 import {
 	ClientBus,
 	type ResourceDriver,
@@ -39,6 +40,7 @@ import {
 } from "./client-command-outbox.ts";
 import { cloudCommandTransport } from "./cloud-command-transport.ts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
+import { markCloudFetch } from "./cloud-fetch-timing.ts";
 import { isPlatformOnline } from "./network-status.ts";
 import {
 	acquireRendererRpcSession,
@@ -54,7 +56,10 @@ import {
 	durableOptimisticSessionMessage,
 	sessionMessageCommandReflected,
 } from "./session-message-intent.ts";
-import { sessionTimelineCache } from "./session-timeline-cache.ts";
+import {
+	rememberCloudTimelineHead,
+	sessionTimelineCache,
+} from "./session-timeline-cache.ts";
 
 export type SessionTimelineResourceKey = ResourceKey<SessionTimelineProjection>;
 
@@ -1163,6 +1168,10 @@ const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 		}),
 };
 
+const isCloudTimelineEnvironment = (environmentId: EnvironmentId): boolean =>
+	activationByEnvironment.get(environmentId)?.environmentKind ===
+	"cloud-workspace";
+
 const makeTimelineDriver = (
 	reportFailure: (
 		environmentId: EnvironmentId,
@@ -1172,6 +1181,11 @@ const makeTimelineDriver = (
 ): ResourceDriver<MemoizeClient, SessionTimelineProjection> =>
 	makeSessionTimelineResourceDriver<MemoizeClient>({
 		reportFailure,
+		backgroundHistory: (ref) => isCloudTimelineEnvironment(ref.environmentId),
+		onHead: (ref, frame) => {
+			if (frame.cursor)
+				rememberCloudTimelineHead(ref, frame.projection, frame.cursor);
+		},
 	});
 
 type RendererResourceDriverFactory = (
@@ -1203,6 +1217,9 @@ const createBus = (): ClientBus<MemoizeClient> => {
 	let bus: ClientBus<MemoizeClient>;
 	bus = new ClientBus<MemoizeClient>({
 		resolver: environmentResolver,
+		coalescePersistence: (key) =>
+			key.kind === "session-timeline" &&
+			isCloudTimelineEnvironment(key.ref.environmentId),
 		persistence: rendererResourcePersistence,
 		outbox: commandOutbox,
 		commandExecutor: executeSessionCommand,
@@ -1270,8 +1287,18 @@ export const getRendererClientBus = (): ClientBus<MemoizeClient> =>
 	rendererClientBus;
 const olderSessionMessageLoads = makeSessionMessagePager({
 	getBus: getRendererClientBus,
-	readPage: async (ref, client, cursor, beforeSequence) =>
-		client === null
+	allowLiveAdvance: (ref) => isCloudTimelineEnvironment(ref.environmentId),
+	readPage: async (ref, client, cursor, beforeSequence, signal) => {
+		const cloud = isCloudTimelineEnvironment(ref.environmentId);
+		// The synchronizer validates the authoritative head before history starts.
+		const cached =
+			cloud && cursor !== null
+				? await sessionTimelineCache
+						?.loadHistoryPage(ref, cursor, beforeSequence)
+						.catch(() => null)
+				: null;
+		if (cached) return cached;
+		const page = await (client === null
 			? cursor === null
 				? null
 				: olderPageSynchronizers.get(ref.environmentId)?.(
@@ -1285,42 +1312,98 @@ const olderSessionMessageLoads = makeSessionMessagePager({
 						beforeSequence,
 						limit: 100,
 					}),
-				),
+					{ signal },
+				));
+		if (!signal?.aborted && cloud && cursor !== null && page)
+			await sessionTimelineCache
+				?.saveHistoryPage(ref, cursor, beforeSequence, page)
+				.catch(() => undefined);
+		return page;
+	},
 });
 export const loadOlderSessionMessages = olderSessionMessageLoads.load;
 
-export const completeOlderSessionMessages = async (
+const backgroundHistory = new BackgroundHistory(2);
+export const stopCloudHistory = (): void => backgroundHistory.clear();
+let selectedHistoryKey: string | null = null;
+const historyKey = (ref: SessionRef) =>
+	resourceKeyId(sessionTimelineResourceKey(ref));
+
+export const useCloudHistoryStatus = (ref: SessionRef) => {
+	const key = historyKey(ref);
+	useEffect(() => {
+		selectedHistoryKey = key;
+		return () => {
+			if (selectedHistoryKey === key) selectedHistoryKey = null;
+		};
+	}, [key]);
+	const snapshot = useCallback(() => backgroundHistory.status(key), [key]);
+	return useSyncExternalStore(backgroundHistory.subscribe, snapshot, snapshot);
+};
+export const retryCloudHistory = (ref: SessionRef): void =>
+	backgroundHistory.retry(historyKey(ref));
+
+export const completeOlderSessionMessages = (
 	ref: SessionRef,
-	options?: {
-		readonly maxAttempts?: number;
-		readonly retryDelay?: (attempt: number) => Promise<void>;
-	},
-): Promise<void> => {
-	const maxAttempts = options?.maxAttempts ?? 10;
-	const retryDelay =
-		options?.retryDelay ??
-		((attempt: number) =>
-			new Promise<void>((resolve) => {
-				setTimeout(resolve, Math.min(4_000, 100 * 2 ** attempt));
-			}));
-	let attempt = 0;
-	for (;;) {
-		try {
-			const result = await loadOlderSessionMessages(ref);
-			if (result.applied) {
-				attempt = 0;
-				if (!result.hasMore) return;
-				continue;
-			}
-		} catch (cause) {
-			if (attempt + 1 >= maxAttempts) throw cause;
-		}
-		if (attempt + 1 >= maxAttempts) {
-			throw new Error("Cloud transcript history remained unavailable");
-		}
-		await retryDelay(attempt);
-		attempt += 1;
-	}
+	_options?: { retryDelay?: (attempt: number) => Promise<void> },
+): Promise<void> =>
+	new Promise((resolve, reject) => {
+		const key = historyKey(ref);
+		const release = backgroundHistory.retain(key, async (signal) => {
+			const result = await loadOlderSessionMessages(ref, signal);
+			if (!result.applied && result.hasMore)
+				throw new Error("History page unavailable");
+			return result.hasMore;
+		});
+		const unsubscribe = backgroundHistory.subscribe(() => {
+			const status = backgroundHistory.status(key);
+			if (status === "loading") return;
+			unsubscribe();
+			release();
+			if (status === "failed") reject(new Error("History unavailable"));
+			else resolve();
+		});
+	});
+
+const retainCloudHistory = (
+	ref: SessionRef,
+	bus: ClientBus<MemoizeClient>,
+): (() => void) => {
+	const key = sessionTimelineResourceKey(ref);
+	let release: (() => void) | null = null;
+	let disposed = false;
+	const check = () => {
+		const view = bus.snapshot(key);
+		if (
+			disposed ||
+			(release !== null &&
+				backgroundHistory.status(historyKey(ref)) !== "idle") ||
+			view.origin === "cache" ||
+			view.data?.olderMessageSequence == null
+		)
+			return;
+		// Older runtimes finish their own snapshot series before reaching live.
+		if (view.sync !== "live" && view.connection !== "dormant") return;
+		release?.();
+		release = backgroundHistory.retain(
+			historyKey(ref),
+			async (signal) => {
+				const result = await loadOlderSessionMessages(ref, signal);
+				if (!result.applied && result.hasMore)
+					throw new Error("History page was superseded");
+				if (!result.hasMore) markCloudFetch(ref, "history-complete");
+				return result.hasMore;
+			},
+			() => (selectedHistoryKey === historyKey(ref) ? 10 : 0),
+		);
+	};
+	const unsubscribe = bus.subscribe(key, check);
+	check();
+	return () => {
+		disposed = true;
+		unsubscribe();
+		release?.();
+	};
 };
 
 export const dispatchSessionCommand = <Payload, Result>(input: {
@@ -1573,18 +1656,58 @@ export const useSessionTimelineResource = (
 		const qualifiedRef = sessionRef(key);
 		if (qualifiedRef !== null)
 			scheduleDurableOptimisticSessionMessageRestoration(qualifiedRef, bus);
-		return lease.release;
+		const releaseHistory =
+			qualifiedRef !== null &&
+			activation !== "cache-only" &&
+			isCloudTimelineEnvironment(qualifiedRef.environmentId)
+				? retainCloudHistory(qualifiedRef, bus)
+				: () => {};
+		return () => {
+			releaseHistory();
+			lease.release();
+		};
 	}, [activation, bus, key]);
 	const subscribe = useCallback(
-		(listener: () => void) =>
-			key === null ? () => undefined : bus.subscribe(key, listener),
+		(listener: () => void) => {
+			if (key === null) return () => {};
+			if (!isCloudTimelineEnvironment(key.ref.environmentId))
+				return bus.subscribe(key, listener);
+			let frame: number | null = null;
+			const unsubscribe = bus.subscribe(key, () => {
+				if (frame !== null) return;
+				frame = requestAnimationFrame(() => {
+					frame = null;
+					listener();
+				});
+			});
+			return () => {
+				unsubscribe();
+				if (frame !== null) cancelAnimationFrame(frame);
+			};
+		},
 		[bus, key],
 	);
 	const snapshot = useCallback(
 		() => (key === null ? EMPTY_TIMELINE_VIEW : bus.snapshot(key)),
 		[bus, key],
 	);
-	return useSyncExternalStore(subscribe, snapshot, snapshot);
+	const view = useSyncExternalStore(subscribe, snapshot, snapshot);
+	const hasData = view.data !== null;
+	useEffect(() => {
+		if (
+			ref === null ||
+			!isCloudTimelineEnvironment(ref.environmentId) ||
+			!hasData
+		)
+			return;
+		markCloudFetch(ref, view.origin === "cache" ? "cache" : "head");
+		if (view.sync === "live") markCloudFetch(ref, "live");
+		let frame = requestAnimationFrame(() => {
+			frame = requestAnimationFrame(() => markCloudFetch(ref, "paint"));
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [ref?.environmentId, ref?.sessionId, hasData, view.origin, view.sync]);
+	return view;
 };
 
 export const setSessionTimelineRpcClientForTest = (
@@ -1614,6 +1737,7 @@ export const retryRendererEnvironmentConnection = (
 };
 
 export const resetSessionTimelineClientBus = async (): Promise<void> => {
+	stopCloudHistory();
 	await rendererClientBus.dispose();
 	rendererClientBus = createBus();
 	optimisticRestorationByResource.clear();
@@ -1624,6 +1748,7 @@ export const resetSessionTimelineClientBus = async (): Promise<void> => {
 };
 
 export const resetSessionTimelineClientBusForTest = (): void => {
+	stopCloudHistory();
 	void rendererClientBus?.dispose();
 	resetMemoryCommandOutboxForTest();
 	commandOutbox = createClientCommandOutbox();

@@ -68,12 +68,20 @@ export const applySessionTimelineEvent = applyTimelineEvent;
 export const observeOptimisticTimelineProjection = (
 	state: SessionTimelineState,
 	projection: SessionTimelineProjection,
+	options?: { historyPrepend?: boolean },
 ): SessionTimelineState => {
+	const firstKnownId = state.projection?.messages[0]?.id;
+	const historyBoundary =
+		options?.historyPrepend && firstKnownId !== undefined
+			? projection.messages.findIndex((message) => message.id === firstKnownId)
+			: 0;
 	const previousById = new Map(
 		(state.projection?.messages ?? []).map((message) => [message.id, message]),
 	);
 	const optimistic = { ...state.optimistic.messages };
-	for (const message of projection.messages) {
+	for (const message of projection.messages.slice(
+		Math.max(0, historyBoundary),
+	)) {
 		if (previousById.get(message.id) !== message)
 			optimistic[message.id] = message;
 	}
@@ -220,7 +228,10 @@ export const reduceSessionTimelineFrame = (
 			appliedVersion: cursor.version,
 			phase: "synchronizing",
 			error: null,
-			snapshotMessageCount: frame.totalMessageCount ?? null,
+			snapshotMessageCount:
+				frame.historyMode === "background"
+					? null
+					: (frame.totalMessageCount ?? null),
 		};
 	}
 	if (frame.kind === "snapshot-chunk") {

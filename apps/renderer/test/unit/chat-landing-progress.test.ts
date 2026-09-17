@@ -193,7 +193,7 @@ describe("chat landing progress", () => {
 		expect(cloudChatsSource).not.toContain("while (");
 		// Deferred transcript pagination may schedule a task, but workspace
 		// lifecycle progress itself must remain stream-driven rather than polling.
-		expect(cloudChatsSource).toContain("completeOlderSessionMessages(ref)");
+		expect(cloudChatsSource).not.toContain("completeOlderSessionMessages(ref)");
 	});
 
 	test("shows only cloud progress while a cloud workspace is starting", () => {

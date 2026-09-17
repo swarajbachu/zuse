@@ -9,6 +9,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+	cloudTranscriptIsLoading,
 	resolveAgentStarting,
 	resolvePendingStartupTranscriptPrompt,
 	shouldRenderEmptyChatState,
@@ -376,4 +377,16 @@ it.each([
 		}),
 	);
 	expect(html.slice(0, html.indexOf("</summary>"))).toContain(label);
+});
+
+describe("cloud transcript loading state", () => {
+	it("stops showing loading when the authoritative read returned no checkpoint", () => {
+		expect(cloudTranscriptIsLoading("empty")).toBe(false);
+		expect(cloudTranscriptIsLoading("failed")).toBe(false);
+		expect(cloudTranscriptIsLoading("cached")).toBe(false);
+	});
+	it("shows loading while a read is actually in flight", () => {
+		expect(cloudTranscriptIsLoading("synchronizing")).toBe(true);
+		expect(cloudTranscriptIsLoading("hydrating-cache")).toBe(true);
+	});
 });

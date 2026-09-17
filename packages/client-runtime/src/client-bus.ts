@@ -138,6 +138,7 @@ export type ResourceLease = Readonly<{
 export type ClientBusOptions<Client> = Readonly<{
 	resolver: EnvironmentResolver<Client>;
 	persistence?: ResourcePersistence;
+	coalescePersistence?: (key: ResourceKey<unknown>) => boolean;
 	outbox?: CommandOutbox;
 	commandExecutor?: ClientCommandExecutor<Client>;
 	/** Stable control-plane transport for eligible cloud environments. */
@@ -172,6 +173,7 @@ type ResourceEntry = {
 	driverGeneration: number;
 	driverCleanup: (() => void) | null;
 	persistenceTail: Promise<void>;
+	pendingPersistence: ResourceView<unknown> | null;
 	hydration: Promise<void> | null;
 	hydrated: boolean;
 	runtimeUpdates: number;
@@ -999,6 +1001,7 @@ export class ClientBus<Client> {
 				driverGeneration: 0,
 				driverCleanup: null,
 				persistenceTail: Promise.resolve(),
+				pendingPersistence: null,
 				hydration: null,
 				hydrated: this.options.persistence === undefined,
 				runtimeUpdates: 0,
@@ -1400,6 +1403,24 @@ export class ClientBus<Client> {
 
 	private persist(entry: ResourceEntry, view: ResourceView<unknown>): void {
 		if (view.data === null) return;
+		if (this.options.coalescePersistence?.(entry.key)) {
+			const pending = entry.pendingPersistence !== null;
+			entry.pendingPersistence = view;
+			if (pending) return;
+			entry.persistenceTail = entry.persistenceTail
+				.then(async () => {
+					const latest = entry.pendingPersistence;
+					entry.pendingPersistence = null;
+					if (latest)
+						await this.options.persistence?.saveResource(entry.key, {
+							data: latest.data,
+							cursor: latest.cursor,
+							storedAt: Date.now(),
+						});
+				})
+				.catch(() => undefined);
+			return;
+		}
 		entry.persistenceTail = entry.persistenceTail
 			.then(() =>
 				this.options.persistence?.saveResource(entry.key, {

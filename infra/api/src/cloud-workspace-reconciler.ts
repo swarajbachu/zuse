@@ -745,9 +745,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					"zuse",
 				)
 				.pipe(Effect.orDie);
-			// Box can finish restoring boot-time firewall state while repository
-			// grants are being prepared. Reassert the requested policy at the exact
-			// process-launch boundary so the updater never inherits a late quarantine.
+			// Apply the provider network policy before starting the image builder.
 			yield* provider
 				.setNetwork(sandbox.providerSandboxId, { kind: "open" })
 				.pipe(Effect.orDie);
