@@ -3,6 +3,7 @@ import {
 	retryCloudHistory,
 	useCloudHistoryStatus,
 } from "../lib/session-timeline-client-bus.ts";
+import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
@@ -802,12 +803,14 @@ export function ChatView({
 								/>
 								<WorktreeSetupCard />
 							</div>
-							{shouldRenderEmptyChatState({
-								messageCount: messages.length,
-								hasPendingCreation: pendingCreation !== null,
-								setupActive,
-								agentStarting,
-							}) ? (
+							{cloudSummary !== null && timeline.projection === null ? (
+								<ChatLoadingFallback />
+							) : shouldRenderEmptyChatState({
+									messageCount: messages.length,
+									hasPendingCreation: pendingCreation !== null,
+									setupActive: setupActive || cloudSetupActive,
+									agentStarting,
+								}) ? (
 								<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
 									<HugeiconsIcon
 										icon={Message01Icon}

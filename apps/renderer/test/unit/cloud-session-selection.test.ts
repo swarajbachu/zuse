@@ -3,6 +3,7 @@ import { ChatId, CloudChatSummary, FolderId, SessionId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 import { selectChatSurface } from "../../src/lib/chat-surface-selection.ts";
 import { resolveCloudSession } from "../../src/lib/cloud-session-selection.ts";
+import { cloudSummaryActiveSessionId } from "../../src/lib/cloud-workspace-catalog.ts";
 import type { EnvironmentShellData } from "../../src/lib/environment-shell-client-bus.ts";
 
 const summary = (providerId: string) =>
@@ -98,5 +99,28 @@ describe("cloud chat session recovery", () => {
 		expect(
 			resolveCloudSession(cloud, shellWith([initial, secondary]), secondary.id),
 		).toBe(secondary);
+	});
+});
+
+describe("cloud transcript session before runtime publication", () => {
+	it.each([
+		"box",
+		"e2b",
+	])("reads the original %s session without waking its runtime", (provider) => {
+		const cloud = {
+			...summary(provider),
+			summaryRevision: 0,
+			activeSessionId: null,
+		};
+		expect(cloudSummaryActiveSessionId(cloud)).toBe(cloud.initialSessionId);
+	});
+	it("respects a published empty session after archiving", () => {
+		expect(cloudSummaryActiveSessionId(summary("box"))).toBeNull();
+	});
+	it("preserves a published replacement session", () => {
+		const id = SessionId.make("replacement");
+		expect(
+			cloudSummaryActiveSessionId({ ...summary("box"), activeSessionId: id }),
+		).toBe(id);
 	});
 });

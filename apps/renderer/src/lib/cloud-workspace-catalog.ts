@@ -364,12 +364,13 @@ export const cloudSummaryForChat = (chatId: string): CloudChatSummary | null =>
 		.getState()
 		.summaries.find((summary) => summary.chatId === chatId) ?? null;
 
-/** Legacy catalog rows predate active-session summaries and use the launch id. */
+/** Until the runtime publishes a summary, the launch session is the read target.
+ * A published null is authoritative: do not resurrect an archived session. */
 export const cloudSummaryActiveSessionId = (
 	summary: CloudChatSummary,
 ): SessionId | null =>
-	summary.activeSessionId === undefined
-		? summary.initialSessionId
+	summary.activeSessionId === undefined || summary.summaryRevision === 0
+		? (summary.activeSessionId ?? summary.initialSessionId)
 		: summary.activeSessionId;
 
 export const cloudSummaryForSession = (
