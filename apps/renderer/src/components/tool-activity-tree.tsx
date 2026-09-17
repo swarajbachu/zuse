@@ -30,7 +30,7 @@ export function ToolActivityTree({
 				aria-expanded={open}
 				aria-controls={id}
 				onClick={() => setOpen((value) => !value)}
-				className="flex h-7 items-center gap-2 rounded text-xs text-muted-foreground hover:text-foreground"
+				className="flex h-7 items-center gap-2 rounded ps-3 pe-4 text-xs text-muted-foreground hover:text-foreground"
 			>
 				<ChevronDown
 					aria-hidden
@@ -44,11 +44,7 @@ export function ToolActivityTree({
 						: message("chat:turn_summary_calls")}
 				</span>
 			</button>
-			<div
-				id={id}
-				hidden={!open}
-				className="tool-activity-tree ms-[var(--chat-assistant-gutter,0.75rem)]"
-			>
+			<div id={id} hidden={!open} className="tool-activity-tree ml-5">
 				{messages
 					.filter(
 						(item) =>

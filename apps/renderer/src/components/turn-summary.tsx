@@ -252,7 +252,7 @@ function TurnSummaryImpl({
 			</button>
 
 			{expanded && detailGroups.length > 0 ? (
-				<div className="tool-activity-tree tool-activity-details ml-5 py-1">
+				<div className="tool-activity-tree ml-5 py-1">
 					{detailGroups.map((group) =>
 						group.kind === "single" ? (
 							<div
