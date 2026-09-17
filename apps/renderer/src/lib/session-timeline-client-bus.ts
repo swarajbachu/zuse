@@ -1,4 +1,7 @@
-import { BackgroundHistory } from "@zuse/client-runtime/background-history";
+import {
+	BackgroundHistory,
+	retainSessionHistory,
+} from "@zuse/client-runtime/background-history";
 import {
 	ClientBus,
 	type ResourceDriver,
@@ -18,6 +21,7 @@ import type {
 	EnvironmentResolver,
 	ResourceActivation,
 } from "@zuse/client-runtime/environment-runtime";
+import { subscribeOnAnimationFrame } from "@zuse/client-runtime/frame-subscription";
 import {
 	makeResourceKey,
 	type ResourceKey,
@@ -1369,41 +1373,14 @@ const retainCloudHistory = (
 	ref: SessionRef,
 	bus: ClientBus<MemoizeClient>,
 ): (() => void) => {
-	const key = sessionTimelineResourceKey(ref);
-	let release: (() => void) | null = null;
-	let disposed = false;
-	const check = () => {
-		const view = bus.snapshot(key);
-		if (
-			disposed ||
-			(release !== null &&
-				backgroundHistory.status(historyKey(ref)) !== "idle") ||
-			view.origin === "cache" ||
-			view.data?.olderMessageSequence == null
-		)
-			return;
-		// Older runtimes finish their own snapshot series before reaching live.
-		if (view.sync !== "live" && view.connection !== "dormant") return;
-		release?.();
-		release = backgroundHistory.retain(
-			historyKey(ref),
-			async (signal) => {
-				const result = await loadOlderSessionMessages(ref, signal);
-				if (!result.applied && result.hasMore)
-					throw new Error("History page was superseded");
-				if (!result.hasMore) markCloudFetch(ref, "history-complete");
-				return result.hasMore;
-			},
-			() => (selectedHistoryKey === historyKey(ref) ? 10 : 0),
-		);
-	};
-	const unsubscribe = bus.subscribe(key, check);
-	check();
-	return () => {
-		disposed = true;
-		unsubscribe();
-		release?.();
-	};
+	return retainSessionHistory({
+		bus,
+		ref,
+		scheduler: backgroundHistory,
+		load: (signal) => loadOlderSessionMessages(ref, signal),
+		priority: () => (selectedHistoryKey === historyKey(ref) ? 10 : 0),
+		onComplete: () => markCloudFetch(ref, "history-complete"),
+	});
 };
 
 export const dispatchSessionCommand = <Payload, Result>(input: {
@@ -1672,18 +1649,10 @@ export const useSessionTimelineResource = (
 			if (key === null) return () => {};
 			if (!isCloudTimelineEnvironment(key.ref.environmentId))
 				return bus.subscribe(key, listener);
-			let frame: number | null = null;
-			const unsubscribe = bus.subscribe(key, () => {
-				if (frame !== null) return;
-				frame = requestAnimationFrame(() => {
-					frame = null;
-					listener();
-				});
-			});
-			return () => {
-				unsubscribe();
-				if (frame !== null) cancelAnimationFrame(frame);
-			};
+			return subscribeOnAnimationFrame(
+				(callback) => bus.subscribe(key, callback),
+				listener,
+			);
 		},
 		[bus, key],
 	);

@@ -1,3 +1,12 @@
+import type { SessionTimelineProjection } from "@zuse/contracts";
+import type { ClientBus } from "./client-bus.ts";
+import {
+	makeResourceKey,
+	resourceKeyId,
+	type SessionRef,
+} from "./resource-ref.ts";
+import type { OlderSessionMessagesResult } from "./session-message-pager.ts";
+
 /** Fair, bounded history fetching. Live events never pass through this queue. */
 export class BackgroundHistory {
 	private jobs = new Map<
@@ -132,4 +141,54 @@ export class BackgroundHistory {
 		}
 		if (candidates.length > 0) this.schedule();
 	}
+}
+
+/** Shared desktop/mobile lifetime for recent-first cloud history. */
+export function retainSessionHistory<Client>(options: {
+	bus: ClientBus<Client>;
+	ref: SessionRef;
+	scheduler: BackgroundHistory;
+	load: (signal: AbortSignal) => Promise<OlderSessionMessagesResult>;
+	priority?: () => number;
+	onComplete?: () => void;
+}): () => void {
+	const { bus, ref, scheduler } = options;
+	const key = makeResourceKey<SessionTimelineProjection>(
+		"session-timeline",
+		ref,
+	);
+	const id = resourceKeyId(key);
+	let release: (() => void) | null = null;
+	let disposed = false;
+	const check = () => {
+		const view = bus.snapshot(key);
+		if (
+			disposed ||
+			(release !== null && scheduler.status(id) !== "idle") ||
+			view.origin === "cache" ||
+			view.data?.olderMessageSequence == null
+		)
+			return;
+		// Old runtimes must finish their original synchronization barrier first.
+		if (view.sync !== "live" && view.connection !== "dormant") return;
+		release?.();
+		release = scheduler.retain(
+			id,
+			async (signal) => {
+				const result = await options.load(signal);
+				if (!result.applied && result.hasMore)
+					throw new Error("History page unavailable");
+				if (!result.hasMore) options.onComplete?.();
+				return result.hasMore;
+			},
+			options.priority,
+		);
+	};
+	const unsubscribe = bus.subscribe(key, check);
+	check();
+	return () => {
+		disposed = true;
+		unsubscribe();
+		release?.();
+	};
 }
