@@ -13,8 +13,8 @@ Hyperdrive migration worker was deleted after verification.
 
 Published `zuse-base-v6` through the Mac bridge. The signed production runtime
 remains `5f283a45ec63a6a626d7352089b655dba42333a3` (0.21.0, wire protocol 5).
-Production API version after enabling shared authentication:
-`2f8e9fdb-5908-432e-ac6c-bf3a0106138c`.
+Final production API version, including filesystem readiness:
+`58d21342-680f-4158-913a-3fe62839e381`.
 
 ## Authentication prerequisite
 
@@ -57,3 +57,13 @@ avoids starting the runtime against files being replaced underneath it.
   account login service. The saved UI status still reports its August 31
   verification as connected. The user must reconnect Codex before this check
   can pass; no replacement account credentials were installed.
+
+- Direct live adapter pause/resume passed with the readiness fix: 56.98 seconds
+  total, including 52.32 seconds waiting for real system mounts. The saved file
+  survived and a new write as Zuse succeeded after resume.
+- The previously failed workspace recovered through the deployed production API
+  and returned online after retry (22.96 seconds on an already restored VM).
+- Both temporary smoke workspaces were deleted, the disposable diagnostic
+  sandbox was deleted, the smoke API key was revoked, and local temporary
+  credential files were removed. Production account images and pool resources
+  remain available for normal use.
