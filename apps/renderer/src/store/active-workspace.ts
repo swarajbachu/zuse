@@ -93,6 +93,8 @@ const useSelectedWorkspaceBinding = (folderId: FolderId | null) => {
 			: chatsByProject[folderId]?.find(
 					(row) => row.id === (session?.chatId ?? selectedChatId),
 				);
+	// Keep the completed reservation until entity summaries catch up. A later
+	// explicit chat binding supersedes it, including a switch to main.
 	const creation =
 		folderId === null
 			? null
@@ -100,8 +102,10 @@ const useSelectedWorkspaceBinding = (folderId: FolderId | null) => {
 					(row) =>
 						row.chatId === (chat?.id ?? selectedChatId) &&
 						row.initialSessionId === sessionId &&
-						row.phase !== "running" &&
-						row.phase !== "cancelled",
+						row.phase !== "cancelled" &&
+						(row.phase !== "running" ||
+							chat == null ||
+							row.updatedAt.getTime() >= chat.updatedAt.getTime()),
 				);
 	const pending =
 		pendingCreation?.projectId === folderId &&

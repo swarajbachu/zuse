@@ -1,6 +1,6 @@
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { CloudChatSummary } from "@zuse/contracts";
+import type { ChatCreationPhase, CloudChatSummary } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Alert01Icon, Tick01Icon } from "@zuse/icons/solid-rounded";
 import { type ReactNode, useState } from "react";
@@ -37,6 +37,7 @@ type StepState = "pending" | "active" | "done" | "failed";
 export type SetupCardData = {
 	/** Repo / project name — "a new copy of <repo>". */
 	readonly repoName: string;
+	readonly creationPhase?: ChatCreationPhase | null;
 	/** Whether this flow creates a worktree at all (false = main checkout). */
 	readonly hasWorktree: boolean;
 	/** Worktree row not hydrated yet — branch/copy still in flight. */
@@ -81,7 +82,12 @@ export function WorktreeSetupCard({
 			state.summaries.find((row) => row.chatId === selectedChatId) ?? null,
 	);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
-	const { sessionsByProject } = useActiveEnvironmentEntities();
+	const { sessionsByProject, creationOperationsByProject } =
+		useActiveEnvironmentEntities();
+	const creation = Object.values(creationOperationsByProject)
+		.flat()
+		.find((row) => row.chatId === selectedChatId);
+	const creationPhase = creation?.phase ?? pendingCreation?.phase ?? null;
 	const session =
 		selectedSessionId === null
 			? null
@@ -109,14 +115,13 @@ export function WorktreeSetupCard({
 			? ctx.folderId
 			: null);
 	const setupWorktreeId =
-		pendingCreation?.worktreeId ??
-		(ctx.status === "ready" || ctx.status === "worktree-pending"
+		ctx.status === "ready" || ctx.status === "worktree-pending"
 			? ctx.worktreeId
-			: null);
+			: (creation?.worktreeId ?? pendingCreation?.worktreeId ?? null);
 	const worktree = useWorktreeSetupLifecycle(
 		setupProjectId,
 		setupWorktreeId,
-		pendingCreation?.phase ?? null,
+		creationPhase,
 	);
 	const rerunSetup = useWorktreesStore((s) => s.rerunSetup);
 	const hasWorktree =
@@ -126,7 +131,11 @@ export function WorktreeSetupCard({
 		ctx.status === "worktree-pending" ||
 		(ctx.status === "ready" && ctx.worktreePending);
 	const setupStatus = worktree?.setupStatus ?? null;
-	const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
+	const setupDone =
+		setupStatus === "succeeded" ||
+		setupStatus === "skipped" ||
+		((setupStatus === null || setupStatus === "pending") &&
+			(creationPhase === "starting_agent" || creationPhase === "running"));
 	const externalResume = session !== null && session.resumeStrategy !== "none";
 
 	// This card owns workspace setup only. As soon as that work is done, the
@@ -163,6 +172,7 @@ export function WorktreeSetupCard({
 		<SetupCardView
 			data={{
 				repoName: repoName ?? "this repo",
+				creationPhase,
 				hasWorktree,
 				worktreePending,
 				worktreeName: worktree?.name ?? null,
@@ -424,35 +434,44 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 		repoName,
 		hasWorktree,
 		worktreePending,
-		worktreeName,
 		branch,
-		baseBranch,
-		setupStatus,
+		creationPhase,
+		setupStatus: observedSetupStatus,
 		setupOutput,
 		onRerun,
 	} = data;
 
-	// The worktree request is already canonical before its id/list row arrives.
-	// Treat that pending phase as a real worktree so the card body is populated
-	// from its first frame instead of briefly rendering an empty shell.
+	const setupStatus =
+		observedSetupStatus !== null && observedSetupStatus !== "pending"
+			? observedSetupStatus
+			: creationPhase === "starting_agent" || creationPhase === "running"
+				? "succeeded"
+				: creationPhase === "running_setup"
+					? "running"
+					: creationPhase === "failed"
+						? "failed"
+						: observedSetupStatus;
 	const showsWorktreeSteps = hasWorktree || worktreePending;
-	// Worktree dir + branch + copy all land together when the row hydrates, so
-	// collapse them into the single `worktreePending` signal.
-	const wtReady = showsWorktreeSteps && !worktreePending;
-	const setupStarted = setupStatus !== null && setupStatus !== "pending";
-	const name = worktreeName ?? "your workspace";
+	const wtReady =
+		showsWorktreeSteps &&
+		(!worktreePending ||
+			setupStatus === "running" ||
+			setupStatus === "succeeded" ||
+			setupStatus === "skipped");
 	const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
 	const summaryState: StepState =
 		setupStatus === "failed" ? "failed" : !setupDone ? "active" : "done";
 	const summaryLabel =
 		setupStatus === "failed"
-			? "Environment setup failed"
+			? wtReady
+				? "Environment setup failed"
+				: "Worktree creation failed"
 			: setupStatus === "running"
 				? "Running environment setup…"
 				: setupDone
 					? "Workspace ready"
-					: worktreePending || worktreeName === null
-						? `Creating a new copy of ${repoName}…`
+					: !wtReady
+						? `Creating worktree for ${repoName}…`
 						: "Detecting setup script…";
 
 	return (
@@ -460,7 +479,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 			<summary className="flex cursor-pointer list-none items-center gap-2 py-1.5 text-foreground/80 select-none marker:content-none">
 				<span className="inline-flex min-w-0 flex-1 items-center gap-2">
 					{summaryState === "active" ? (
-						<Spinner className="size-3 shrink-0 text-muted-foreground" />
+						<Spinner className="size-3 shrink-0 text-muted-foreground group-open:invisible" />
 					) : summaryState === "failed" ? (
 						<HugeiconsIcon
 							icon={Alert01Icon}
@@ -477,11 +496,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 							summaryState === "failed" ? "text-[var(--accent-red)]" : ""
 						}
 					>
-						{summaryState === "active" ? (
-							<ShimmerText tone="lime">{summaryLabel}</ShimmerText>
-						) : (
-							summaryLabel
-						)}
+						{summaryLabel}
 					</span>
 				</span>
 				<span
@@ -496,65 +511,38 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 					{showsWorktreeSteps ? (
 						<>
 							<StepRow
-								state={wtReady ? "done" : "active"}
-								label={
-									worktreeName === null
-										? uiMessage(
-												"projects:worktree_setup_card_creating_a_new_copy_of",
-												{ repoName: String(repoName) },
-											)
-										: uiMessage(
-												"projects:worktree_setup_card_created_a_new_copy_of_called",
-												{ repoName: String(repoName), name: String(name) },
-											)
-								}
-							/>
-							<StepRow
-								state={branch !== null ? "done" : "pending"}
-								label={
-									branch !== null
-										? uiMessage("projects:worktree_setup_card_branched_from", {
-												branch: String(branch),
-												value2: String(baseBranch ?? "origin/main"),
-											})
-										: uiMessage(
-												"projects:worktree_setup_card_branching_a_fresh_worktree",
-											)
-								}
-							/>
-							<StepRow
-								state={setupStarted ? "done" : wtReady ? "active" : "pending"}
-								label={uiMessage(
-									"projects:worktree_setup_card_created_and_copying_files",
-									{ name: String(name) },
-								)}
-							/>
-							<StepRow
 								state={
-									setupStatus === "succeeded" || setupStatus === "skipped"
+									wtReady
 										? "done"
 										: setupStatus === "failed"
 											? "failed"
-											: setupStarted
+											: "active"
+								}
+								label={wtReady ? "Worktree created" : "Create worktree"}
+							/>
+							{branch !== null ? (
+								<p className="pl-5 text-[11px] text-muted-foreground">
+									{branch}
+								</p>
+							) : null}
+							<StepRow
+								state={
+									setupDone
+										? "done"
+										: setupStatus === "failed" && wtReady
+											? "failed"
+											: setupStatus === "running"
 												? "active"
 												: "pending"
 								}
 								label={
-									setupStatus === "failed"
-										? uiMessage(
-												"projects:worktree_setup_card_environment_setup_failed",
-											)
-										: setupStatus === "succeeded" || setupStatus === "skipped"
-											? uiMessage(
-													"projects:worktree_setup_card_environment_setup_complete",
-												)
+									setupStatus === "skipped"
+										? "No setup script needed"
+										: setupDone
+											? "Environment ready"
 											: setupStatus === "running"
-												? uiMessage(
-														"projects:worktree_setup_card_running_environment_setup",
-													)
-												: uiMessage(
-														"projects:worktree_setup_card_detecting_setup_script",
-													)
+												? "Running environment setup…"
+												: "Environment setup"
 								}
 							/>
 						</>
@@ -621,11 +609,7 @@ function StepRow({
 								: "text-foreground/80"
 				}
 			>
-				{state === "active" ? (
-					<ShimmerText tone="lime">{label}</ShimmerText>
-				) : (
-					label
-				)}
+				{label}
 			</span>
 		</div>
 	);

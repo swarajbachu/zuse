@@ -16,7 +16,13 @@ const state = vi.hoisted(() => ({
 			project: [{ id: "session", chatId: "chat", worktreeId: null }],
 		},
 		chatsByProject: {
-			project: [{ id: "chat", worktreeId: "worktree" as string | null }],
+			project: [
+				{
+					id: "chat",
+					updatedAt: new Date(0),
+					worktreeId: "worktree" as string | null,
+				},
+			],
 		},
 		creationOperationsByProject: {
 			project: [] as Array<{
@@ -25,6 +31,7 @@ const state = vi.hoisted(() => ({
 				workspacePolicy: { _tag: string };
 				worktreeId: string | null;
 				phase: string;
+				updatedAt: Date;
 			}>,
 		},
 	},
@@ -88,7 +95,7 @@ const readRoot = () => {
 
 beforeEach(() => {
 	state.entities.chatsByProject.project = [
-		{ id: "chat", worktreeId: "worktree" },
+		{ id: "chat", updatedAt: new Date(0), worktreeId: "worktree" },
 	];
 	state.entities.creationOperationsByProject.project = [];
 	state.worktrees.byProject.project = [{ id: "worktree", path: "/worktree" }];
@@ -106,7 +113,9 @@ describe("active workspace during attached chat startup", () => {
 		expect(readRoot()).toBeNull();
 	});
 	it("preserves the durable fresh-workspace intent after optimistic state is cleared", () => {
-		state.entities.chatsByProject.project = [{ id: "chat", worktreeId: null }];
+		state.entities.chatsByProject.project = [
+			{ id: "chat", updatedAt: new Date(0), worktreeId: null },
+		];
 		state.entities.creationOperationsByProject.project = [
 			{
 				chatId: "chat",
@@ -114,6 +123,7 @@ describe("active workspace during attached chat startup", () => {
 				workspacePolicy: { _tag: "fresh" },
 				worktreeId: "worktree",
 				phase: "creating_workspace",
+				updatedAt: new Date(1),
 			},
 		];
 		state.worktrees.byProject.project = [];
@@ -121,8 +131,47 @@ describe("active workspace during attached chat startup", () => {
 		expect(readRoot()).toBeNull();
 	});
 	it("still resolves a main-checkout chat normally", () => {
-		state.entities.chatsByProject.project = [{ id: "chat", worktreeId: null }];
+		state.entities.chatsByProject.project = [
+			{ id: "chat", updatedAt: new Date(0), worktreeId: null },
+		];
 		expect(readContext()).toMatchObject({ status: "ready", rootPath: "/main" });
 		expect(readRoot()).toBe("/main");
 	});
+});
+
+it("keeps a plain-text chat on its reserved worktree when completion arrives before entity summaries", () => {
+	state.entities.chatsByProject.project = [
+		{ id: "chat", updatedAt: new Date(0), worktreeId: null },
+	];
+	state.entities.creationOperationsByProject.project = [
+		{
+			chatId: "chat",
+			initialSessionId: "session",
+			workspacePolicy: { _tag: "fresh" },
+			worktreeId: "worktree",
+			phase: "running",
+			updatedAt: new Date(1),
+		},
+	];
+	expect(readContext()).toMatchObject({
+		status: "ready",
+		rootPath: "/worktree",
+	});
+});
+
+it("does not resurrect a completed reservation after a newer explicit main-checkout binding", () => {
+	state.entities.chatsByProject.project = [
+		{ id: "chat", updatedAt: new Date(2), worktreeId: null },
+	];
+	state.entities.creationOperationsByProject.project = [
+		{
+			chatId: "chat",
+			initialSessionId: "session",
+			workspacePolicy: { _tag: "fresh" },
+			worktreeId: "worktree",
+			phase: "running",
+			updatedAt: new Date(1),
+		},
+	];
+	expect(readContext()).toMatchObject({ status: "ready", rootPath: "/main" });
 });
