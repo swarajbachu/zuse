@@ -15,9 +15,11 @@ import {
 import {
 	type ComponentProps,
 	isValidElement,
+	memo,
 	type PointerEvent,
 	type MouseEvent as ReactMouseEvent,
 	type ReactNode,
+	useDeferredValue,
 	useEffect,
 	useMemo,
 	useRef,
@@ -560,7 +562,7 @@ function MermaidDiagram({ source }: { source: string }) {
  * so clicks never navigate the renderer. Absolute local-file anchors emitted
  * by agents are intercepted too and opened in the app's file tab.
  */
-export function MarkdownBody({
+export const MarkdownBody = memo(function MarkdownBody({
 	children,
 	className,
 	baseHref,
@@ -571,6 +573,7 @@ export function MarkdownBody({
 	baseHref?: string;
 	githubHtml?: boolean;
 }) {
+	const deferredText = useDeferredValue(children);
 	const { folderId, worktreeId } = useFileChipContext();
 	const openFileInTab = useUiStore((s) => s.openFileInTab);
 	const folderPath = useWorkspaceStore((s) => {
@@ -623,8 +626,8 @@ export function MarkdownBody({
 		[folderId, folderPath, openFileInTab, worktreeId, worktreePath],
 	);
 
-	return (
-		<div className={cn("fz-prose", className)}>
+	const markdown = useMemo(
+		() => (
 			<ReactMarkdown
 				remarkPlugins={[remarkGfm]}
 				rehypePlugins={githubHtml ? [rehypeRaw, rehypeSanitize] : []}
@@ -634,8 +637,10 @@ export function MarkdownBody({
 				}
 				components={components}
 			>
-				{children}
+				{deferredText}
 			</ReactMarkdown>
-		</div>
+		),
+		[deferredText, githubHtml, baseHref, components],
 	);
-}
+	return <div className={cn("fz-prose", className)}>{markdown}</div>;
+});

@@ -252,22 +252,30 @@ function TurnSummaryImpl({
 			</button>
 
 			{expanded && detailGroups.length > 0 ? (
-				<div className="py-1">
+				<div className="tool-activity-tree ml-5 py-1">
 					{detailGroups.map((group) =>
 						group.kind === "single" ? (
-							<MessageRow
+							<div
 								key={group.message.id}
-								message={group.message}
-								sessionId={sessionId}
-								environmentId={environmentId}
-								readOnly={environmentId === undefined}
-								forkDestination={forkDestination}
-								sourceProjectId={sourceProjectId}
-								showAssistantCommands={
-									showAssistantCommands &&
-									isForkableAssistantMessage(group.message)
+								className={
+									group.message.content._tag === "tool_use"
+										? `tool-activity-branch ${group.message.id === toolUses.at(-1)?.id ? "tool-activity-last" : ""}`
+										: undefined
 								}
-							/>
+							>
+								<MessageRow
+									message={group.message}
+									sessionId={sessionId}
+									environmentId={environmentId}
+									readOnly={environmentId === undefined}
+									forkDestination={forkDestination}
+									sourceProjectId={sourceProjectId}
+									showAssistantCommands={
+										showAssistantCommands &&
+										isForkableAssistantMessage(group.message)
+									}
+								/>
+							</div>
 						) : (
 							<SubagentRow
 								chatRef={

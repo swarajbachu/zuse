@@ -1,3 +1,4 @@
+import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { LegendList } from "@legendapp/list/react";
 import type { FolderId, Message, SessionId } from "@zuse/contracts";
@@ -84,6 +85,17 @@ function ArchivedTimelineRow({
 	readonly projectId: FolderId;
 }) {
 	switch (row.kind) {
+		case "tool-activity":
+			return (
+				<ToolActivityTree
+					messages={row.messages}
+					sessionId={sessionId}
+					readOnly
+					forkDestination="chat"
+					sourceProjectId={projectId}
+				/>
+			);
+
 		case "message":
 			return (
 				<MessageRow

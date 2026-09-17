@@ -1545,3 +1545,29 @@ html[data-sidebar-dragging] * {
 		background: transparent;
 	}
 }
+
+/* Tool branches remain attached while results grow; no transcript fade-ins. */
+.tool-activity-branch {
+  position: relative;
+  padding-inline-start: 0.5rem;
+}
+.tool-activity-branch::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  bottom: 0;
+  border-inline-start: 1px solid var(--border);
+}
+.tool-activity-branch::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  width: 1rem;
+  height: 1rem;
+  border-inline-start: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-end-start-radius: 0.5rem;
+}
+.tool-activity-last::before { display: none; }

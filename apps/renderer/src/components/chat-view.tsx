@@ -5,6 +5,7 @@ import {
 	useCloudHistoryStatus,
 } from "../lib/session-timeline-client-bus.ts";
 import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
+import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
@@ -988,6 +989,17 @@ function TimelineRow({
 }) {
 	let content: ReactNode;
 	switch (row.kind) {
+		case "tool-activity":
+			content = (
+				<ToolActivityTree
+					messages={row.messages}
+					sessionId={sessionId}
+					environmentId={environmentId}
+					providerId={providerId}
+				/>
+			);
+			break;
+
 		case "message":
 			content = (
 				<MessageRow
