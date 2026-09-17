@@ -144,6 +144,7 @@ export const mergeCloudChatSummaries = (
 		if (comparison === 0) {
 			byEnvironment.set(summary.workspaceId, {
 				...previous,
+				repositoryDisplayName: summary.repositoryDisplayName,
 				unread: previous.unread || summary.unread,
 				lastMessageAt:
 					previous.lastMessageAt === null
@@ -311,6 +312,12 @@ export const reconcileCloudChatCatalog = (
 ): ReadonlyArray<CloudChatSummary> => {
 	const incomingIds = new Set(incoming.map((summary) => summary.workspaceId));
 	const previous = useCloudChatCatalogStore.getState();
+	const previousById = new Map(
+		previous.summaries.map((summary) => [summary.workspaceId, summary]),
+	);
+	const incomingById = new Map(
+		incoming.map((summary) => [summary.workspaceId, summary]),
+	);
 	const removed = previous.summaries.filter(
 		(summary) => !incomingIds.has(summary.workspaceId),
 	);
@@ -324,9 +331,7 @@ export const reconcileCloudChatCatalog = (
 						desiredState: "archived" as const,
 						archivedAt: intent.requestedAt,
 					};
-		const current = previous.summaries.find(
-			(candidate) => candidate.workspaceId === summary.workspaceId,
-		);
+		const current = previousById.get(summary.workspaceId);
 		return mergeCloudChatSummaries(current === undefined ? [] : [current], [
 			protectedSummary,
 		]);
@@ -341,13 +346,9 @@ export const reconcileCloudChatCatalog = (
 		archiveIntents: Object.fromEntries(
 			Object.entries(previous.archiveIntents).filter(([environmentId]) => {
 				if (!incomingIds.has(environmentId)) return false;
-				const authoritative = incoming.find(
-					(summary) => summary.workspaceId === environmentId,
-				);
+				const authoritative = incomingById.get(environmentId);
 				if (authoritative?.state !== "archived") return true;
-				const current = previous.summaries.find(
-					(summary) => summary.workspaceId === environmentId,
-				);
+				const current = previousById.get(environmentId);
 				return (
 					current !== undefined &&
 					compareCloudChatSummaryVersion(authoritative, current) < 0

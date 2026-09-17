@@ -657,5 +657,7 @@
 	"device_command_permissions_title": "Saved command permissions",
 	"cloud_queue_waiting_for_agent": "Waiting for agent",
 	"cloud_queue_cancel_failed": "Could not cancel the queued message. Try again.",
-	"cloud_queue_waiting_for_cloud": "Waiting for cloud to start"
+	"cloud_queue_waiting_for_cloud": "Waiting for cloud to start",
+	"cloud_history_loading": "Loading earlier messages…",
+	"cloud_history_retry": "Couldn’t load earlier messages · Retry"
 }

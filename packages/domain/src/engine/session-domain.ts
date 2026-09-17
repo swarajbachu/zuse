@@ -64,6 +64,7 @@ export type SessionSynchronizationRecord =
 			readonly projection: SessionTimelineProjection;
 			readonly olderMessageSequence: number | null;
 			readonly totalMessageCount: number;
+			readonly historyMode?: "background";
 	  }
 	| {
 			readonly kind: "snapshot-chunk";
@@ -107,6 +108,7 @@ export interface SessionDomainApi {
 		readonly afterVersion?: number;
 		readonly streamEpoch?: string;
 		readonly hasProjection?: boolean;
+		readonly historyMode?: "background";
 		readonly maxDeltaEvents?: number;
 		readonly maxDeltaBytes?: number;
 	}) => Stream.Stream<SessionSynchronizationRecord, SessionDomainError>;
@@ -294,6 +296,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		afterVersion,
 		streamEpoch: retainedEpoch,
 		hasProjection = false,
+		historyMode,
 		maxDeltaEvents = 512,
 		maxDeltaBytes = MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES,
 	}) =>
@@ -366,6 +369,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 									streamEpoch,
 									throughVersion,
 									...snapshot,
+									...(historyMode === "background" ? { historyMode } : {}),
 								});
 								historyCursor = snapshot.olderMessageSequence;
 							} else {
@@ -386,7 +390,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 				// follow page-by-page so long local and cloud transcripts keep a fast
 				// first paint without coupling correctness to viewport scrolling.
 				const history =
-					historyCursor === null
+					historyCursor === null || historyMode === "background"
 						? Stream.empty
 						: Stream.paginate(historyCursor, (pageBeforeSequence) =>
 								readSessionTimelineMessagePage(

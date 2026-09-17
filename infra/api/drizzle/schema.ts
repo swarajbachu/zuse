@@ -1278,3 +1278,23 @@ export const apiAgentActivity = pgTable(
 		),
 	],
 );
+
+export const apiCloudCatalogHeads = pgTable("api_cloud_catalog_heads", {
+	accountId: text("account_id").primaryKey(),
+	revision: bigint("revision", { mode: "number" }).notNull().default(0),
+});
+export const apiCloudCatalogChanges = pgTable(
+	"api_cloud_catalog_changes",
+	{
+		accountId: text("account_id").notNull(),
+		workspaceId: text("workspace_id").notNull(),
+		revision: bigint("revision", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.accountId, table.workspaceId] }),
+		index("api_cloud_catalog_changes_cursor_idx").on(
+			table.accountId,
+			table.revision,
+		),
+	],
+);

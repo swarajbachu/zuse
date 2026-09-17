@@ -288,3 +288,51 @@ export function deriveChatTimelineRows({
 
 	return rows;
 }
+
+/** Cloud history pages preserve message references; only changed turns regroup. */
+export const createCloudTimelineRows = () => {
+	let cache = new Map<
+		string,
+		{ messages: readonly Message[]; live: boolean; rows: ChatTimelineRow[] }
+	>();
+	return (
+		input: Parameters<typeof deriveChatTimelineRows>[0],
+	): ChatTimelineRow[] => {
+		const turns: Message[][] = [];
+		for (const message of normalizeTimelineMessages(input.messages)) {
+			if (isUserMessage(message) || turns.length === 0) turns.push([]);
+			turns[turns.length - 1]?.push(message);
+		}
+		const next = new Map<
+			string,
+			{ messages: readonly Message[]; live: boolean; rows: ChatTimelineRow[] }
+		>();
+		const rows: ChatTimelineRow[] = [];
+		for (const [index, messages] of turns.entries()) {
+			const key = messages[0]?.id ?? String(index);
+			const live = input.inFlight && index === turns.length - 1;
+			const previous = cache.get(key);
+			const entry =
+				previous &&
+				previous.live === live &&
+				previous.messages.length === messages.length &&
+				messages.every((message, i) => message === previous.messages[i])
+					? previous
+					: {
+							messages,
+							live,
+							rows: deriveChatTimelineRows({
+								messages,
+								inFlight: live,
+								awaitingPlanApproval: true,
+							}),
+						};
+			next.set(key, entry);
+			rows.push(...entry.rows);
+		}
+		cache = next;
+		if (input.inFlight && !input.awaitingPlanApproval)
+			rows.push({ kind: "working", id: "working", messages: input.messages });
+		return rows;
+	};
+};

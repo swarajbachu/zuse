@@ -32,6 +32,7 @@ import { POKEMON_BRANCH_CATALOG } from "@zuse/pokemon-data/branch-catalog";
 import { allocatePokemonName } from "@zuse/pokemon-data/name-allocator";
 import { SandboxProviders } from "@zuse/sandbox-providers";
 import { cloudRuntimeCommandTurnId } from "@zuse/utils/cloud-api";
+import { measureCloudStage } from "@zuse/utils/cloud-timing";
 import {
 	bytesToBase64Url,
 	sha256Base64Url,
@@ -2957,17 +2958,20 @@ export const routeCloudWorkspaceRequest = (
 		if (method === "GET" && transcriptMatch !== null) {
 			const workspaceId = decodeURIComponent(transcriptMatch[1] ?? "");
 			const sessionId = decodeURIComponent(transcriptMatch[2] ?? "");
-			const workspace = yield* store.getWorkspace(workspaceId);
+			const measure = (stage: string) =>
+				measureCloudStage({ workspaceId }, `transcript.${stage}`);
+			const workspace = yield* store
+				.getWorkspace(workspaceId)
+				.pipe(measure("workspace"));
 			if (
 				workspace === null ||
 				workspace.accountId !== principal.accountId ||
 				workspace.state === "deleted"
 			)
 				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
-			const checkpoint = yield* store.getTranscriptCheckpoint(
-				workspaceId,
-				sessionId,
-			);
+			const checkpoint = yield* store
+				.getTranscriptCheckpoint(workspaceId, sessionId)
+				.pipe(measure("metadata"));
 			if (checkpoint === null) return json({ checkpoint: null });
 			const localEpoch = url.searchParams.get("epoch");
 			const localVersion = Number(url.searchParams.get("version"));
@@ -2980,6 +2984,7 @@ export const routeCloudWorkspaceRequest = (
 			const ciphertext = yield* getCloudTranscriptObject(
 				checkpoint.objectKey,
 			).pipe(
+				measure("download"),
 				Effect.mapError(() =>
 					serviceUnavailable("cloud_transcript_store_unavailable"),
 				),
@@ -2993,6 +2998,7 @@ export const routeCloudWorkspaceRequest = (
 				workspaceId,
 				workspace.wrappedTranscriptKey ?? "",
 			).pipe(
+				measure("key"),
 				Effect.mapError(() =>
 					serviceUnavailable("cloud_transcript_key_unavailable"),
 				),
@@ -3244,52 +3250,61 @@ export const routeCloudWorkspaceRequest = (
 			});
 		}
 
-		if (method === "GET" && path === ApiPaths.cloudChats) {
-			const projectId = url.searchParams.get("projectId") ?? undefined;
-			const scope = url.searchParams.get("scope") ?? "active";
-			const workspaces = yield* store.listWorkspaces(
+		if (
+			method === "GET" &&
+			(path === ApiPaths.cloudChats || path === ApiPaths.cloudChatChanges)
+		) {
+			const changes = path === ApiPaths.cloudChatChanges;
+			const rawCursor = url.searchParams.get("cursor");
+			const cursor =
+				changes && rawCursor !== null ? Number(rawCursor) : undefined;
+			if (cursor !== undefined && (!Number.isSafeInteger(cursor) || cursor < 0))
+				return json({ error: "invalid-request" }, 400);
+			const catalog = yield* store.readCloudCatalog(
 				principal.accountId,
-				projectId,
+				cursor,
 			);
-			const chats = yield* Effect.forEach(
-				workspaces.filter((workspace) => {
-					if (workspace.state === "deleted") return false;
-					if (scope === "all") return true;
-					const archived =
-						workspace.state === "archived" ||
-						workspace.desiredState === "archived";
-					return scope === "archived" ? archived : !archived;
-				}),
-				(workspace) =>
-					Effect.gen(function* () {
-						const [project, runtimeSummary] = yield* Effect.all([
-							store.getProject(workspace.projectId),
-							store.getRuntimeSummary(workspace.workspaceId),
-						]);
-						const repaired = yield* repairAcknowledgedLaunch(
-							workspace,
-							runtimeSummary,
-						);
-						return project === null
-							? null
-							: publicCloudWorkspaceSummary(
-									repaired,
-									project,
-									false,
-									repaired.lastActivityAtMs,
-									runtimeSummary,
-								);
-					}),
-			);
-			return json({
-				chats: chats
-					.filter((chat) => chat !== null)
-					.sort(
-						(left, right) =>
-							(right.lastMessageAt ?? right.createdAt) -
-							(left.lastMessageAt ?? left.createdAt),
+			const projectId = url.searchParams.get("projectId");
+			const scope = changes
+				? "all"
+				: (url.searchParams.get("scope") ?? "active");
+			const deletedWorkspaceIds = [...catalog.deletedWorkspaceIds];
+			const chats = [];
+			for (const { workspace, project, runtimeSummary } of catalog.entries) {
+				if (workspace.state === "deleted") {
+					deletedWorkspaceIds.push(workspace.workspaceId);
+					continue;
+				}
+				if (projectId !== null && workspace.projectId !== projectId) continue;
+				const archived =
+					workspace.state === "archived" ||
+					workspace.desiredState === "archived";
+				if (scope !== "all" && (scope === "archived" ? !archived : archived))
+					continue;
+				const repaired = yield* repairAcknowledgedLaunch(
+					workspace,
+					runtimeSummary,
+				);
+				chats.push(
+					publicCloudWorkspaceSummary(
+						repaired,
+						project,
+						false,
+						repaired.lastActivityAtMs,
+						runtimeSummary,
 					),
-			});
+				);
+			}
+			return json(
+				changes
+					? {
+							cursor: catalog.cursor,
+							reset: catalog.reset,
+							chats,
+							deletedWorkspaceIds,
+						}
+					: { chats },
+			);
 		}
 
 		if (method === "POST" && path === ApiPaths.cloudProjects) {

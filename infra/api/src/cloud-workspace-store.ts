@@ -13,6 +13,17 @@ import {
 	cloudWorkspaceRuntimeGeneration,
 } from "./cloud-workspace-runtime-fence.ts";
 
+export interface CloudCatalogRead {
+	readonly cursor: number;
+	readonly reset: boolean;
+	readonly entries: ReadonlyArray<{
+		workspace: CloudWorkspaceRecord;
+		project: CloudProjectRecord;
+		runtimeSummary: CloudWorkspaceRuntimeSummaryRecord | null;
+	}>;
+	readonly deletedWorkspaceIds: ReadonlyArray<string>;
+}
+
 export interface CloudProjectRecord {
 	readonly projectId: string;
 	readonly accountId: string;
@@ -624,6 +635,10 @@ export interface CloudWorkspaceStoreApi {
 		workspace: CloudWorkspaceRecord,
 		launchIntent: CloudWorkspaceLaunchIntentRecord,
 	) => Effect.Effect<CreateCloudWorkspaceOutcome>;
+	readonly readCloudCatalog: (
+		accountId: string,
+		cursor?: number,
+	) => Effect.Effect<CloudCatalogRead>;
 	readonly listWorkspaces: (
 		accountId: string,
 		projectId?: string,
@@ -1577,6 +1592,7 @@ const canRecoverMissingLaunchIntent = (
 export const CloudWorkspaceStoreMemory = Layer.effect(
 	CloudWorkspaceStore,
 	Effect.gen(function* () {
+		const catalogs = new Map<string, { signature: string; revision: number }>();
 		const state = yield* Ref.make<MemoryState>({
 			authAuthorities: new Map(),
 			githubInstallations: new Map(),
@@ -1993,6 +2009,40 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							},
 						] as const;
 					},
+				),
+			readCloudCatalog: (accountId, cursor) =>
+				Ref.get(state).pipe(
+					Effect.map((current) => {
+						const entries = [...current.workspaces.values()]
+							.filter((w) => w.accountId === accountId)
+							.flatMap((workspace) => {
+								const project = current.projects.get(workspace.projectId);
+								return project
+									? [
+											{
+												workspace,
+												project,
+												runtimeSummary:
+													current.runtimeSummaries.get(workspace.workspaceId) ??
+													null,
+											},
+										]
+									: [];
+							});
+						const signature = JSON.stringify(entries);
+						const previous = catalogs.get(accountId);
+						const revision =
+							previous?.signature === signature
+								? previous.revision
+								: (previous?.revision ?? 0) + 1;
+						catalogs.set(accountId, { signature, revision });
+						return {
+							cursor: revision,
+							reset: cursor !== revision,
+							entries: cursor === revision ? [] : entries,
+							deletedWorkspaceIds: [],
+						};
+					}),
 				),
 			listWorkspaces: (accountId, projectId) =>
 				Ref.get(state).pipe(
@@ -4401,6 +4451,46 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						} satisfies CreateCloudWorkspaceOutcome;
 					}).pipe(sql.withTransaction),
 				),
+			readCloudCatalog: (accountId, cursor) =>
+				orDie(
+					sql`
+    WITH head AS (SELECT COALESCE((SELECT revision FROM api_cloud_catalog_heads WHERE account_id=${accountId}), 0) AS revision),
+    selected AS (
+     SELECT workspace_id FROM api_cloud_workspaces, head WHERE account_id=${accountId} AND (${cursor ?? -1} < 0 OR ${cursor ?? -1} > head.revision)
+     UNION
+     SELECT workspace_id FROM api_cloud_catalog_changes, head WHERE account_id=${accountId} AND api_cloud_catalog_changes.revision > ${cursor ?? -1} AND api_cloud_catalog_changes.revision <= head.revision
+    )
+    SELECT head.revision AS cursor, (${cursor ?? -1} < 0 OR ${cursor ?? -1} > head.revision) AS reset,
+      selected.workspace_id AS id, to_jsonb(w) AS workspace, to_jsonb(p) AS project, to_jsonb(r) AS summary
+    FROM head LEFT JOIN selected ON true
+    LEFT JOIN api_cloud_workspaces w ON w.workspace_id=selected.workspace_id AND w.account_id=${accountId}
+    LEFT JOIN api_cloud_projects p ON p.project_id=w.project_id
+    LEFT JOIN api_cloud_workspace_runtime_summaries r ON r.workspace_id=w.workspace_id
+   `.pipe(
+						Effect.map((rows) => ({
+							cursor: Number(rows[0]?.cursor ?? 0),
+							reset: rows[0]?.reset === true,
+							entries: rows.flatMap((row) =>
+								row.workspace && row.project
+									? [
+											{
+												workspace: workspaceFromRow(row.workspace as Row),
+												project: projectFromRow(row.project as Row),
+												runtimeSummary: row.summary
+													? runtimeSummaryFromRow(row.summary as Row)
+													: null,
+											},
+										]
+									: [],
+							),
+							deletedWorkspaceIds: rows.flatMap((row) =>
+								row.id && (!row.workspace || !row.project)
+									? [String(row.id)]
+									: [],
+							),
+						})),
+					),
+				),
 			listWorkspaces: (accountId, projectId) =>
 				orDie(
 					(projectId === undefined
@@ -5139,6 +5229,8 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						yield* sql`DELETE FROM api_api_webhooks WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_api_keys WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_auth_authorities WHERE account_id=${accountId}`;
+						yield* sql`DELETE FROM api_cloud_catalog_changes WHERE account_id=${accountId}`;
+						yield* sql`DELETE FROM api_cloud_catalog_heads WHERE account_id=${accountId}`;
 						return true;
 					}).pipe(sql.withTransaction),
 				),

@@ -1,4 +1,8 @@
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
+import {
+	retryCloudHistory,
+	useCloudHistoryStatus,
+} from "../lib/session-timeline-client-bus.ts";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
@@ -29,6 +33,7 @@ import {
 import { resolveChatErrorBottom } from "../lib/chat-overlay-position.ts";
 import {
 	type ChatTimelineRow,
+	createCloudTimelineRows,
 	deriveChatTimelineRows,
 	deriveChatTurnNavigationEntries,
 	resolveLatestUserMessageId,
@@ -285,9 +290,10 @@ export function ChatView({
 		inFlight,
 		queuedItems: timeline.projection?.queue.items.length ?? 0,
 	});
+	const cloudRows = useMemo(createCloudTimelineRows, [sessionId]);
 	const rows = useMemo(
 		() =>
-			deriveChatTimelineRows({
+			(cloudSummary === null ? deriveChatTimelineRows : cloudRows)({
 				messages,
 				// The durable creation accordion exclusively narrates startup. Generic
 				// in-flight UI resumes only after that lifecycle projection is gone.
@@ -299,6 +305,8 @@ export function ChatView({
 				awaitingPlanApproval: awaitingUserAction,
 			}),
 		[
+			cloudSummary === null,
+			cloudRows,
 			awaitingUserAction,
 			cloudSetupActive,
 			agentStarting,
@@ -369,6 +377,7 @@ export function ChatView({
 			isAtEnd: true,
 		});
 	const scrollSnapshotRef = useRef(scrollSnapshot);
+	const historyStatus = useCloudHistoryStatus(sessionRef);
 	const coordinator = useMemo(
 		() =>
 			new TranscriptScrollCoordinator({
@@ -379,6 +388,11 @@ export function ChatView({
 			}),
 		[sessionId, uiMessage],
 	);
+	useEffect(() => {
+		coordinator.setSmoothFollowing(
+			cloudSummary !== null && !prefersReducedMotion,
+		);
+	}, [coordinator, cloudSummary !== null, prefersReducedMotion]);
 	useRegisterPane("chat", scrollElementRef);
 
 	const captureReadingPosition = useCallback(() => {
@@ -463,6 +477,20 @@ export function ChatView({
 
 	useEffect(() => {
 		coordinator.attach({
+			liveScroll: () => {
+				const node = listRef.current?.getScrollableNode();
+				return {
+					position: node?.scrollTop ?? 0,
+					end: Math.max(
+						0,
+						(node?.scrollHeight ?? 0) - (node?.clientHeight ?? 0),
+					),
+				};
+			},
+			scrollToOffset: (offset) => {
+				const node = listRef.current?.getScrollableNode();
+				if (node) node.scrollTop = offset;
+			},
 			getMeasurementState: () => listRef.current?.getState() ?? null,
 			isAtLiveEdge: () =>
 				resolveScrollableNodeIsAtEnd(listRef.current?.getScrollableNode()),
@@ -807,6 +835,24 @@ export function ChatView({
 						/>
 					) : (
 						<ChatLookupsProvider value={chatLookups}>
+							{cloudSummary !== null && historyStatus !== "idle" && (
+								<div
+									className="flex h-7 shrink-0 items-center justify-center gap-2 text-xs text-muted-foreground"
+									role="status"
+								>
+									{historyStatus === "loading" ? (
+										uiMessage("chat:cloud_history_loading")
+									) : (
+										<button
+											type="button"
+											className="h-7 hover:text-foreground"
+											onClick={() => retryCloudHistory(sessionRef)}
+										>
+											{uiMessage("chat:cloud_history_retry")}
+										</button>
+									)}
+								</div>
+							)}
 							<LegendList<ChatTimelineRow>
 								key={sessionId}
 								ref={listRef}

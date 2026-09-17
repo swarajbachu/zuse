@@ -1,3 +1,4 @@
+import { streamCloudCatalogChanges } from "@zuse/client-runtime/cloud-control-client";
 import {
 	ApiAccessToken,
 	ApiConnectGrant,
@@ -18,6 +19,7 @@ import {
 	CloudAuthStatus,
 	CloudBillingSummary,
 	CloudBillingUsagePage,
+	CloudChatChanges,
 	CloudChatList,
 	type CloudCommandEnvelope,
 	CloudGithubStatus,
@@ -188,6 +190,9 @@ export interface MachineControlServiceShape {
 	readonly connectCloudWorkspace: (
 		workspaceId: string,
 	) => Effect.Effect<CloudWorkspaceConnection, MachineControlError>;
+	readonly watchCloudChats: (
+		cursor?: number,
+	) => Stream.Stream<CloudChatChanges, MachineControlError>;
 	readonly cloudChats: (
 		projectId?: string,
 		scope?: "active" | "archived" | "all",
@@ -597,6 +602,15 @@ export const MachineControlServiceLive: Layer.Layer<
 					CloudWorkspaceConnection,
 					"POST",
 					{},
+				),
+			watchCloudChats: (cursor) =>
+				streamCloudCatalogChanges(
+					(after) =>
+						request(
+							`${ApiPaths.cloudChatChanges}${after === undefined ? "" : `?cursor=${after}`}`,
+							CloudChatChanges,
+						),
+					cursor,
 				),
 			cloudChats: (projectId, scope) =>
 				request(

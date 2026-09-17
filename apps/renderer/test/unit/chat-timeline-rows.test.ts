@@ -2,6 +2,7 @@ import type { Message, SessionId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
+	createCloudTimelineRows,
 	deriveChatTimelineRows,
 	deriveChatTurnNavigationEntries,
 	deriveChatTurnRailEntries,
@@ -323,4 +324,46 @@ describe("chat timeline rows", () => {
 		expect(rows.map((row) => row.kind)).toEqual(["message", "turn-summary"]);
 		expect(rows.at(-1)?.id).toBe("summary:u-large");
 	});
+});
+
+it("cloud derivation reuses settled turns and matches uncached rows while streaming", () => {
+	const derive = createCloudTimelineRows();
+	const messages = [
+		message("u1", { _tag: "user", text: "first" }),
+		message("a1", { _tag: "assistant", text: "done" }),
+		message("u2", { _tag: "user", text: "next" }),
+		message("a2", { _tag: "assistant", text: "part" }),
+	];
+	const first = derive({
+		messages,
+		inFlight: true,
+		awaitingPlanApproval: false,
+	});
+	const next = [
+		...messages.slice(0, 3),
+		message("a2", { _tag: "assistant", text: "part two" }),
+	];
+	const updated = derive({
+		messages: next,
+		inFlight: true,
+		awaitingPlanApproval: false,
+	});
+	expect(updated).toEqual(
+		deriveChatTimelineRows({
+			messages: next,
+			inFlight: true,
+			awaitingPlanApproval: false,
+		}),
+	);
+	expect(updated[0]).toBe(first[0]);
+	expect(updated[1]).toBe(first[1]);
+	expect(
+		derive({ messages: next, inFlight: false, awaitingPlanApproval: false }),
+	).toEqual(
+		deriveChatTimelineRows({
+			messages: next,
+			inFlight: false,
+			awaitingPlanApproval: false,
+		}),
+	);
 });

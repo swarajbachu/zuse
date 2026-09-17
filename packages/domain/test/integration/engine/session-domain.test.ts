@@ -510,7 +510,10 @@ describe("SessionDomain", () => {
 		).toEqual([1, 2]);
 	});
 
-	test("streams complete local history before the synchronization barrier", async () => {
+	test.each([
+		false,
+		true,
+	])("history barrier honors cloud opt-in: %s", async (background) => {
 		const frames = await run(
 			Effect.gen(function* () {
 				yield* createDomainTestSchema();
@@ -545,6 +548,7 @@ describe("SessionDomain", () => {
 						.synchronizedEvents({
 							streamId: "session-1",
 							hasProjection: false,
+							...(background ? { historyMode: "background" as const } : {}),
 						})
 						.pipe(
 							Stream.takeUntil((frame) => frame.kind === "synchronized"),
@@ -565,8 +569,12 @@ describe("SessionDomain", () => {
 					? frame.messages
 					: [],
 		);
-		expect(messages).toHaveLength(262);
-		expect(messages.at(-1)?.id).toBe("message-62");
+		if (background) {
+			expect(messages.length).toBeLessThan(262);
+			expect(frames).toHaveLength(2);
+			expect(snapshot).toMatchObject({ historyMode: "background" });
+		} else expect(messages).toHaveLength(262);
+		expect(messages.at(-1)?.id).toBe(background ? "message-262" : "message-62");
 		expect(frames.at(-1)).toMatchObject({ kind: "synchronized" });
 	});
 
