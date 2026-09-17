@@ -1004,6 +1004,7 @@ function TimelineRow({
 			content = (
 				<MessageRow
 					message={row.message}
+					smoothStreaming={runtimeState === "running"}
 					sessionId={sessionId}
 					environmentId={environmentId}
 					providerId={providerId}

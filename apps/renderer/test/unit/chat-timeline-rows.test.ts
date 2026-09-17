@@ -368,7 +368,7 @@ it("cloud derivation reuses settled turns and matches uncached rows while stream
 	);
 });
 
-it("keeps live tool groups bounded and preserves tools and results in order", () => {
+it("keeps all consecutive tools in one tree and preserves results in order", () => {
 	const messages = Array.from({ length: 25 }, (_, i) => [
 		message(`tool-${i}`, {
 			_tag: "tool_use",
@@ -389,7 +389,7 @@ it("keeps live tool groups bounded and preserves tools and results in order", ()
 		awaitingPlanApproval: false,
 	});
 	const groups = rows.filter((row) => row.kind === "tool-activity");
-	expect(groups.map((group) => group.messages.length)).toEqual([24, 24, 2]);
+	expect(groups.map((group) => group.messages.length)).toEqual([50]);
 	expect(groups.flatMap((group) => group.messages)).toEqual(messages);
 	const first = deriveChatTimelineRows({
 		messages: messages.slice(0, 2),
@@ -433,4 +433,30 @@ it("does not group across text or hide an unpaired tool error", () => {
 		"tool-activity",
 		"working",
 	]);
+});
+
+it("keeps tools together across invisible status and empty assistant rows", () => {
+	const tool = (id: string) =>
+		message(id, {
+			_tag: "tool_use",
+			itemId: id,
+			tool: "WebSearch",
+			input: {},
+		} as Message["content"]);
+	const messages = [
+		tool("one"),
+		message("status", { _tag: "context_usage" } as Message["content"]),
+		tool("two"),
+		message("empty", { _tag: "assistant", text: "" }),
+		tool("three"),
+	];
+	const rows = deriveChatTimelineRows({
+		messages,
+		inFlight: true,
+		awaitingPlanApproval: false,
+	});
+	expect(rows.map((row) => row.kind)).toEqual(["tool-activity", "working"]);
+	expect(rows[0]?.kind === "tool-activity" && rows[0].messages).toEqual(
+		messages,
+	);
 });

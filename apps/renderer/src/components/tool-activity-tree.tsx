@@ -7,7 +7,7 @@ import type { ComponentProps } from "react";
 import { useId, useRef, useState } from "react";
 import { MessageRow } from "./message-row.tsx";
 
-/** A bounded group keeps long tool runs virtualized by the surrounding list. */
+/** One disclosure owns the activity between text messages. */
 export function ToolActivityTree({
 	messages,
 	...rowProps
@@ -45,23 +45,34 @@ export function ToolActivityTree({
 				</span>
 			</button>
 			<div id={id} hidden={!open} className="tool-activity-tree ml-5">
-				{messages.map((item) => (
-					<motion.div
-						initial={
-							reduce || initialIds.current.has(item.id) ? false : { height: 0 }
-						}
-						animate={{ height: "auto" }}
-						transition={{ duration: reduce ? 0 : 0.16, ease: "easeOut" }}
-						key={item.id}
-						className={
-							item.content._tag === "tool_use"
-								? `overflow-hidden tool-activity-branch ${item.id === lastToolId ? "tool-activity-last" : ""}`
-								: "overflow-hidden"
-						}
-					>
-						<MessageRow {...rowProps} message={item} />
-					</motion.div>
-				))}
+				{messages
+					.filter(
+						(item) =>
+							item.content._tag !== "assistant" ||
+							item.content.text.trim().length > 0,
+					)
+					.map((item) => (
+						<motion.div
+							initial={
+								reduce || initialIds.current.has(item.id)
+									? false
+									: { height: 0, y: -6 }
+							}
+							animate={{ height: "auto", y: 0 }}
+							transition={{
+								duration: reduce ? 0 : 0.28,
+								ease: [0.22, 1, 0.36, 1],
+							}}
+							key={item.id}
+							className={
+								item.content._tag === "tool_use"
+									? `overflow-hidden tool-activity-branch ${item.id === lastToolId ? "tool-activity-last" : ""}`
+									: "overflow-hidden"
+							}
+						>
+							<MessageRow {...rowProps} message={item} />
+						</motion.div>
+					))}
 			</div>
 		</div>
 	);

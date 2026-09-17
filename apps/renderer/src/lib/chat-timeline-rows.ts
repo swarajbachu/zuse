@@ -342,7 +342,7 @@ export const createCloudTimelineRows = () => {
 	};
 };
 
-/** Keep a stable first-tool key, bounded groups, and every result in order. */
+/** Invisible status updates must not split the tools between actual messages. */
 export function groupToolActivityRows(
 	rows: readonly ChatTimelineRow[],
 ): ChatTimelineRow[] {
@@ -350,20 +350,26 @@ export function groupToolActivityRows(
 	let active:
 		| { kind: "tool-activity"; id: string; messages: Message[] }
 		| undefined;
-	let count = 0;
 	for (const row of rows) {
 		const tag = row.kind === "message" ? row.message.content._tag : undefined;
 		if (
 			row.kind === "message" &&
-			(tag === "tool_use" || (tag === "tool_result" && active !== undefined))
+			(tag === "tool_use" ||
+				(active !== undefined &&
+					(tag === "tool_result" ||
+						tag === "thinking" ||
+						tag === "usage" ||
+						tag === "context_usage" ||
+						tag === "usage_limit" ||
+						tag === "subagent_progress" ||
+						(row.message.content._tag === "assistant" &&
+							row.message.content.text.trim().length === 0))))
 		) {
-			if (active === undefined || (tag === "tool_use" && count >= 12)) {
+			if (active === undefined) {
 				active = { kind: "tool-activity", id: `tools:${row.id}`, messages: [] };
 				output.push(active);
-				count = 0;
 			}
 			active.messages.push(row.message);
-			if (tag === "tool_use") count++;
 		} else {
 			active = undefined;
 			output.push(row);
