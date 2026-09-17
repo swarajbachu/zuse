@@ -127,7 +127,7 @@ launcher requires systemd 254 or newer for literal argument forwarding.
 Publish with:
 
 ```sh
-BOX_API_KEY=... infra/cloud-sandboxes/box-publish.sh <version>
+BOAT_API_KEY=... infra/cloud-sandboxes/box-publish.sh <version>
 ```
 
 After updating this branch, publish a fresh version before deployment: the
@@ -137,9 +137,9 @@ markers match the enabled API enrollment gates. A successful runtime connection
 alone does not validate agent authentication; verify an actual model response
 and shell tool call in the fresh workspace.
 
-Copy the printed `BOX_TEMPLATE_SNAPSHOT` / `BOX_TEMPLATE_VERSION` values into
+Copy the printed `BOAT_TEMPLATE_SNAPSHOT` / `BOAT_TEMPLATE_VERSION` values into
 the api wrangler configuration and set the Worker secret with
-`bun --filter @zuse/api secret:box`. Named snapshots are account-capped
+`bun --filter @zuse/api secret:boat`. Named snapshots are account-capped
 (10 by default), and that budget is shared by the base template, every Zuse
 account's image, and any transient auth snapshots — one snapshot per active
 account makes this cap the scaling gate for Boat. Raise the limit with

@@ -14,6 +14,7 @@ import cloudInitTemplate from "../../cloud-machines/bootstrap/cloud-init.yaml.tm
 import { AccountIdentityLive } from "./account-identity.ts";
 import { BetaAccessAllowAll, PostHogBetaAccessLayer } from "./beta-access.ts";
 import { resolveBillingRuntime } from "./billing-config.ts";
+import { readBoatEnvironment } from "./boat-environment.ts";
 import { CloudBillingStorePg } from "./cloud-billing-store.ts";
 import type { BillingUsageRecovery } from "./cloud-billing-usage-source.ts";
 import { billingUsageSourceModules } from "./cloud-billing-usage-source-config.ts";
@@ -154,6 +155,15 @@ interface Env extends SlackBindings {
 	readonly CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL?: string;
 	readonly CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
 	readonly SANDBOX_DEFAULT_PROVIDER_ID?: string;
+	readonly BOAT_ADAPTER_ENABLED?: string;
+	readonly BOAT_API_KEY?: string;
+	readonly BOAT_API_BASE_URL?: string;
+	readonly BOAT_TEMPLATE_SNAPSHOT?: string;
+	readonly BOAT_TEMPLATE_VERSION?: string;
+	readonly BOAT_MACHINE_TYPE?: string;
+	readonly BOAT_HOSTED_PORT_DOMAIN?: string;
+	readonly BOAT_WEBHOOK_SECRET?: string;
+	// Legacy bindings remain valid during the Boat configuration migration.
 	readonly BOX_ADAPTER_ENABLED?: string;
 	readonly BOX_API_KEY?: string;
 	readonly BOX_API_BASE_URL?: string;
@@ -354,6 +364,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		throw new Error(
 			"Polar and POLAR_CLOUD_OVERAGE_METER_ID are required for billing export",
 		);
+	const boatEnvironment = readBoatEnvironment(env);
 	const cloudDataEncryptionKey =
 		env.CLOUD_DATA_ENCRYPTION_KEY ?? env.CLOUD_CREDENTIAL_VAULT_KEY;
 	const githubAppConfigured = [
@@ -393,8 +404,8 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 			...(isConfigured(env.E2B_WEBHOOK_SECRET)
 				? [["e2b", Redacted.make(env.E2B_WEBHOOK_SECRET)] as const]
 				: []),
-			...(isConfigured(env.BOX_WEBHOOK_SECRET)
-				? [["box", Redacted.make(env.BOX_WEBHOOK_SECRET)] as const]
+			...(isConfigured(boatEnvironment.BOAT_WEBHOOK_SECRET)
+				? [["box", Redacted.make(boatEnvironment.BOAT_WEBHOOK_SECRET)] as const]
 				: []),
 		]),
 		cloudBillingEnforcementEnabled,

@@ -60,13 +60,14 @@ describe("api deployment safety", () => {
 		"version",
 		"secret",
 		"ready",
-	])("checks enabled Box prerequisites before deployment: %s", async (scenario) => {
+		"legacy-secret",
+	])("checks enabled Boat prerequisites before deployment: %s", async (scenario) => {
 		const directory = await mkdtemp(join(tmpdir(), "zuse-deploy-test-"));
 		try {
 			const config = parse(await readFile(productionWranglerConfigUrl, "utf8"));
-			config.vars.BOX_ADAPTER_ENABLED = "true";
-			if (scenario === "snapshot") delete config.vars.BOX_TEMPLATE_SNAPSHOT;
-			if (scenario === "version") config.vars.BOX_TEMPLATE_VERSION = " ";
+			config.vars.BOAT_ADAPTER_ENABLED = "true";
+			if (scenario === "snapshot") delete config.vars.BOAT_TEMPLATE_SNAPSHOT;
+			if (scenario === "version") config.vars.BOAT_TEMPLATE_VERSION = " ";
 			await writeFile(
 				join(directory, "wrangler.production.jsonc"),
 				JSON.stringify(config),
@@ -83,7 +84,10 @@ describe("api deployment safety", () => {
 				"POLAR_WEBHOOK_SECRET",
 				"GITHUB_APP_PRIVATE_KEY",
 			];
-			if (scenario !== "secret") secrets.push("BOX_API_KEY");
+			if (scenario !== "secret")
+				secrets.push(
+					scenario === "legacy-secret" ? "BOX_API_KEY" : "BOAT_API_KEY",
+				);
 			await writeFile(
 				join(directory, "bunx"),
 				`#!${process.execPath}
@@ -106,17 +110,19 @@ else process.exit(2);
 					},
 				},
 			);
-			expect(result.status).toBe(scenario === "ready" ? 0 : 1);
-			if (scenario === "ready")
+			expect(result.status).toBe(
+				scenario === "ready" || scenario === "legacy-secret" ? 0 : 1,
+			);
+			if (scenario === "ready" || scenario === "legacy-secret")
 				expect(result.stdout).toContain("TEST_DEPLOY_REACHED");
 			else {
 				expect(result.stdout).not.toContain("TEST_DEPLOY_REACHED");
 				expect(result.stderr).toContain(
 					scenario === "snapshot"
-						? "BOX_TEMPLATE_SNAPSHOT"
+						? "BOAT_TEMPLATE_SNAPSHOT"
 						: scenario === "version"
-							? "BOX_TEMPLATE_VERSION"
-							: "BOX_API_KEY",
+							? "BOAT_TEMPLATE_VERSION"
+							: "BOAT_API_KEY",
 				);
 			}
 		} finally {
@@ -247,17 +253,23 @@ else process.exit(2);
 		expect(production.vars.MACHINE_PROVIDER).toBe("fake");
 		expect(production.vars.CLOUD_COMMAND_MAILBOX_ENABLED).toBe("true");
 		expect(production.vars.CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED).toBe(
-			"false",
+			"true",
 		);
 		expect(production.vars.CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED).toBe(
-			"false",
+			"true",
+		);
+		expect(production.vars.CLOUD_PROVIDER_AUTH_BROKER_ENROLLMENT_ENABLED).toBe(
+			"true",
+		);
+		expect(production.vars.CLOUD_PROVIDER_AUTH_BROKER_SERVING_ENABLED).toBe(
+			"true",
 		);
 		expect(production.vars.HETZNER_ADAPTER_ENABLED).toBe("false");
 		expect(production.vars.MACHINE_LIVE_CHECKOUT_ENABLED).toBe("true");
 		expect(production.vars.MACHINE_RUNTIME_MANIFEST_URL).toBe("");
 		expect(production.vars.MACHINE_RUNTIME_SIGNING_PUBLIC_JWK).toBe("");
 		expect(production.vars).not.toHaveProperty("SANDBOX_DEFAULT_PROVIDER");
-		expect(production.vars.BOX_ADAPTER_ENABLED).toBe("true");
+		expect(production.vars.BOAT_ADAPTER_ENABLED).toBe("true");
 		expect(production.vars.SANDBOX_DEFAULT_PROVIDER_ID).toBe("box");
 		expect(production.vars.CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL).toBe(
 			"https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-production/stable-manifest.json",

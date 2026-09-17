@@ -394,6 +394,10 @@ export const makeBoxSandboxProvider = (
 
 	const runtimeLayoutCommand = (requirePersistedLayout: boolean): string =>
 		[
+			// Boat advertises ready while system paths may still use its temporary
+			// FUSE restore view. Writes there can acquire uid 1000 or disappear at
+			// handover. Do not modify the layout or start Zuse until disk mounts win.
+			'for root in /usr /etc /opt /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in fuse*) exit 75 ;; "") exit 1 ;; esac; done',
 			...(requirePersistedLayout
 				? [`sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER}`]
 				: []),
@@ -407,20 +411,21 @@ export const makeBoxSandboxProvider = (
 			`sudo -n touch ${BOX_PERSISTED_RUNTIME_MARKER}`,
 		].join(" && ");
 
-	const ensureRuntimeLayout = (
-		providerSandboxId: string,
-		requirePersistedLayout: boolean,
-	) =>
-		runCommand(
-			providerSandboxId,
-			runtimeLayoutCommand(requirePersistedLayout),
-		).pipe(
-			Effect.flatMap((result) =>
-				result.exitCode === 0
-					? Effect.void
-					: Effect.fail(providerError("transient")),
-			),
-		);
+	const ensureRuntimeLayout = Effect.fn(
+		"BoxSandboxProvider.ensureRuntimeLayout",
+	)(function* (providerSandboxId: string, requirePersistedLayout: boolean) {
+		const deadline = Date.now() + readyDeadlineMs;
+		while (true) {
+			const result = yield* runCommand(
+				providerSandboxId,
+				runtimeLayoutCommand(requirePersistedLayout),
+			);
+			if (result.exitCode === 0) return;
+			if (result.exitCode !== 75 || Date.now() >= deadline)
+				return yield* providerError("transient");
+			yield* Effect.sleep(Duration.millis(pollIntervalMs));
+		}
+	});
 
 	const restoreResumedSandbox = (providerSandboxId: string) =>
 		ensureRuntimeLayout(providerSandboxId, true).pipe(
