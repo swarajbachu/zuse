@@ -202,12 +202,12 @@ function TurnSummaryImpl({
 				type="button"
 				onClick={() => setExpanded((e) => !e)}
 				className={cn(
-					"flex w-full items-center gap-3 rounded px-4 py-1.5 text-left text-[11px] transition-colors hover:bg-muted/40",
+					"flex w-full items-center gap-2 rounded px-3 py-0.5 text-left text-[11px] transition-colors hover:bg-muted/40",
 					mutedWhenOpen,
 				)}
 			>
 				<Chevron className="size-3.5 shrink-0 opacity-70" />
-				<span className="flex items-center gap-1.5">
+				<span className="flex items-center gap-1">
 					<HugeiconsIcon
 						icon={Wrench01Icon}
 						aria-hidden="true"
@@ -221,7 +221,7 @@ function TurnSummaryImpl({
 							: uiMessage("chat:turn_summary_calls")}
 					</span>
 				</span>
-				<span className="flex items-center gap-1.5">
+				<span className="flex items-center gap-1">
 					<HugeiconsIcon
 						icon={BubbleChatIcon}
 						aria-hidden="true"
@@ -235,7 +235,7 @@ function TurnSummaryImpl({
 					</span>
 				</span>
 				{previewIcons.length > 0 ? (
-					<span className="flex items-center gap-1.5 opacity-70">
+					<span className="flex items-center gap-1 opacity-70">
 						{previewIcons.slice(0, MAX_PREVIEW_ICONS).map((p) => (
 							<HugeiconsIcon
 								key={p.key}
@@ -303,7 +303,7 @@ function TurnSummaryImpl({
 
 			{finalAssistant !== null &&
 			finalAssistant.content._tag === "assistant" ? (
-				<div className="group/assistant px-4 py-2">
+				<div className="group/assistant px-3 py-1">
 					<div className="max-w-full">
 						<MarkdownBody>{finalAssistant.content.text}</MarkdownBody>
 						<AssistantMessageActions

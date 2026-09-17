@@ -44,7 +44,7 @@ export function ToolActivityTree({
 						: message("chat:turn_summary_calls")}
 				</span>
 			</button>
-			<div id={id} hidden={!open} className="tool-activity-tree ml-5">
+			<div id={id} hidden={!open} className="tool-activity-tree">
 				{messages
 					.filter(
 						(item) =>
