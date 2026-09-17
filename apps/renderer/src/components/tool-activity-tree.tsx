@@ -30,7 +30,7 @@ export function ToolActivityTree({
 				aria-expanded={open}
 				aria-controls={id}
 				onClick={() => setOpen((value) => !value)}
-				className="flex h-7 items-center gap-2 rounded px-4 text-xs text-muted-foreground hover:text-foreground"
+				className="flex h-7 items-center gap-2 rounded text-xs text-muted-foreground hover:text-foreground"
 			>
 				<ChevronDown
 					aria-hidden

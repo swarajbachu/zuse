@@ -652,7 +652,7 @@ function ExpandableIconRow({
 	const contentId = useId();
 	const Chevron = expanded ? ChevronDown : ChevronRight;
 	return (
-		<div className="px-4 py-0.5">
+		<div className="py-0.5">
 			<button
 				type="button"
 				aria-expanded={hasContent ? expanded : undefined}
