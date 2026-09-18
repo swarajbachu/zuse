@@ -34,11 +34,13 @@ not use this gate.
    `https://api.zuse.sh/v1/cloud/billing/webhook/e2b` and verify a signed real
    delivery. Subscribe to created, resumed, paused, checkpointed, updated, and
    killed lifecycle events.
-4. A version tag publishes a separately signed runtime to
+4. A version tag, or an explicit production dispatch from `main`, publishes a separately signed runtime to
    `cloud-runtime-production`. Record that manifest URL and its production
    public signing key in API. The workflow uploads the archive before the
    manifest and verifies its checksum, signature, native modules, metadata, and
-   startup first.
+   startup first. To deploy merged runtime fixes without publishing a desktop
+   release, run `gh workflow run cloud-runtime-staging.yml --ref main -f publish_target=production`.
+   Production dispatches from feature branches remain rejected.
 5. Configure the shared GitHub App Setup URL as
    `https://api.zuse.sh/v1/cloud/github/callback`. Use the same App ID, slug,
    client ID, and private key in both deployments. Production validates its own
