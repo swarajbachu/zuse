@@ -37,6 +37,7 @@ import {
 	classifyCloudMailboxAckFailure,
 	cloudGatewayCloseReason,
 	decodeImageProviderSecrets,
+	keepCloudRuntimeActive,
 	makeCloudRuntimeCheckpointPublisher,
 	makeCloudRuntimeSummaryPublisher,
 	recoverCloudMailboxReadiness,
@@ -1449,5 +1450,41 @@ describe("preserved runtime mailbox readiness", () => {
 			failure: { reason: "workspace_runtime_rejected" },
 		});
 		expect(attempts).toBe(1);
+	});
+});
+
+describe("cloud active work keepalive", () => {
+	it("keeps a quiet turn alive, stops when idle, and survives a failed update", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const chatId = ChatId.make("quiet-chat");
+				let active = true;
+				let attempts = 0;
+				const fiber = yield* Effect.forkScoped(
+					keepCloudRuntimeActive({
+						chatId,
+						sessions: Effect.sync(() => [
+							{
+								chatId,
+								status: active ? ("running" as const) : ("idle" as const),
+							},
+							{ chatId: ChatId.make("other-chat"), status: "running" as const },
+						]),
+						publish: Effect.suspend(() =>
+							++attempts === 1 ? Effect.fail("network") : Effect.void,
+						),
+					}),
+				);
+				yield* Effect.yieldNow;
+				expect(attempts).toBe(1);
+				yield* TestClock.adjust("11 minutes");
+				expect(attempts).toBeGreaterThan(20);
+				active = false;
+				const beforeIdle = attempts;
+				yield* TestClock.adjust("2 minutes");
+				expect(attempts).toBe(beforeIdle);
+				yield* Fiber.interrupt(fiber);
+			}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+		);
 	});
 });

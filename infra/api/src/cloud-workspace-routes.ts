@@ -1032,7 +1032,7 @@ export const runtimeActivityLifecycle = (
 	>,
 ) =>
 	workspace.desiredState === "ready" &&
-	(workspace.state === "resuming" || workspace.statusCode.startsWith("resume-"))
+	workspace.statusCode === "resume-runtime-waking"
 		? ({
 				state: "ready",
 				runtimeState: "online",
@@ -1592,12 +1592,13 @@ export const routeCloudWorkspaceRequest = (
 		}
 
 		const recordWorkspaceActivity = Effect.fn("recordWorkspaceActivity")(
-			function* (workspace: CloudWorkspaceRecord) {
+			function* (workspace: CloudWorkspaceRecord, runtimeOnly = false) {
 				const updated = yield* store.recordActivity(
 					workspace.workspaceId,
 					workspace.accountId,
 					nowMs,
 					nowMs + idlePauseMs,
+					runtimeOnly,
 				);
 				if (
 					updated?.providerSandboxId !== undefined &&
@@ -1611,7 +1612,11 @@ export const routeCloudWorkspaceRequest = (
 							updated.providerSandboxId,
 							Math.ceil(idlePauseMs / 1_000),
 						)
-						.pipe(Effect.ignore);
+						.pipe(
+							Effect.mapError(() =>
+								serviceUnavailable("cloud_workspace_keepalive_failed"),
+							),
+						);
 				}
 				return updated;
 			},
@@ -2044,7 +2049,7 @@ export const routeCloudWorkspaceRequest = (
 						nextActionAtMs: nowMs + idlePauseMs,
 					});
 				}
-				const active = yield* recordWorkspaceActivity(workspace);
+				const active = yield* recordWorkspaceActivity(workspace, true);
 				if (
 					active !== null &&
 					runtimeActivityLifecycle(active).state !== active.state
@@ -2065,7 +2070,7 @@ export const routeCloudWorkspaceRequest = (
 		if (method === "POST" && activityMatch !== null) {
 			const workspaceId = decodeURIComponent(activityMatch[1] ?? "");
 			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
-			const active = yield* recordWorkspaceActivity(workspace);
+			const active = yield* recordWorkspaceActivity(workspace, true);
 			if (
 				active !== null &&
 				runtimeActivityLifecycle(active).state !== active.state

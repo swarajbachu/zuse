@@ -240,6 +240,48 @@ describe("cloud workspace reconciler", () => {
 		});
 	});
 
+	test("fails expired startup without calling into an unavailable sandbox", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "expired-setup",
+					state: "setup",
+					desiredState: "ready",
+					statusCode: "agent-starting",
+					requestConfig: {
+						startupTimings: { enrolledAt: Date.now() - 60_000 },
+						runtimeCredentialExpiresAtMs: Date.now() + 60_000,
+					},
+				});
+				const store = yield* CloudWorkspaceStore;
+				yield* store.saveWorkspace({
+					...workspace,
+					runtimeCredentialHash: "old-runtime",
+				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const pathExists = vi
+					.spyOn(provider, "pathExists")
+					.mockReturnValue(
+						Effect.fail(new SandboxProviderError({ code: "transient" })),
+					);
+				try {
+					yield* reconcileCloudWorkspace(workspace.workspaceId);
+					expect(pathExists).not.toHaveBeenCalled();
+					return yield* store.getWorkspace(workspace.workspaceId);
+				} finally {
+					pathExists.mockRestore();
+				}
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result).toMatchObject({
+			state: "failed",
+			runtimeState: "offline",
+			statusCode: "runtime-connection-timeout",
+			nextActionAtMs: Number.MAX_SAFE_INTEGER,
+		});
+		expect(result?.runtimeCredentialHash).toBeUndefined();
+	});
+
 	test("recognizes established runtime storage before provider replacement", () => {
 		expect(
 			cloudWorkspaceHasRetainedRuntimeData({
