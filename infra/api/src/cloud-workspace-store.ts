@@ -734,6 +734,7 @@ export interface CloudWorkspaceStoreApi {
 		accountId: string,
 		nowMs: number,
 		nextIdleAtMs: number,
+		runtimeOnly?: boolean,
 	) => Effect.Effect<CloudWorkspaceRecord | null>;
 	readonly requestMailboxWake: (
 		workspaceId: string,
@@ -2290,6 +2291,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						workspace.state === "deleted" ||
 						workspace.desiredState !== "ready" ||
 						workspace.statusCode === "restart-queued" ||
+						workspace.statusCode === "resume-runtime-recovery-queued" ||
 						workspace.requestConfig.cloudMailboxFenceRequired === true
 					)
 						return [null, current] as const;
@@ -2697,12 +2699,23 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							.slice(0, limit),
 					),
 				),
-			recordActivity: (workspaceId, accountId, nowMs, nextIdleAtMs) =>
+			recordActivity: (
+				workspaceId,
+				accountId,
+				nowMs,
+				nextIdleAtMs,
+				runtimeOnly = false,
+			) =>
 				Ref.modify(state, (current) => {
 					const workspace = current.workspaces.get(workspaceId);
 					if (
 						workspace?.accountId !== accountId ||
-						workspaceDeletionRequested(workspace)
+						workspaceDeletionRequested(workspace) ||
+						(runtimeOnly &&
+							(workspace.desiredState !== "ready" ||
+								["paused", "pausing", "archived", "failed"].includes(
+									workspace.state,
+								)))
 					)
 						return [null, current] as const;
 					const updated: CloudWorkspaceRecord = {
@@ -4846,7 +4859,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						AND (request_config->>'runtimeCredentialExpiresAtMs')::bigint > ${input.nowMs}
 						AND state <> 'deleted'
 						AND desired_state='ready'
-						AND status_code <> 'restart-queued'
+						AND status_code NOT IN ('restart-queued', 'resume-runtime-recovery-queued')
 						AND COALESCE((request_config->>'cloudMailboxFenceRequired')::boolean, false)=false
 					RETURNING *`.pipe(
 						Effect.map((rows) =>
@@ -4941,9 +4954,15 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						),
 					),
 				),
-			recordActivity: (workspaceId, accountId, nowMs, nextIdleAtMs) =>
+			recordActivity: (
+				workspaceId,
+				accountId,
+				nowMs,
+				nextIdleAtMs,
+				runtimeOnly = false,
+			) =>
 				orDie(
-					sql`UPDATE api_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END, next_action_at=CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN next_action_at WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE workspace_id=${workspaceId} AND account_id=${accountId} AND state <> 'deleted' AND desired_state <> 'deleted' AND (request_config #>> '{cloudMailboxLifecyclePending,action}') IS DISTINCT FROM 'delete' AND (request_config #>> '{cloudMailboxLifecycleDelivered,action}') IS DISTINCT FROM 'delete' RETURNING *`.pipe(
+					sql`UPDATE api_cloud_workspaces SET desired_state=CASE WHEN state='paused' THEN 'ready' ELSE desired_state END, status_code=CASE WHEN state='paused' THEN 'resume-queued' ELSE status_code END, request_config=CASE WHEN state='paused' THEN jsonb_set(request_config, '{startupTimings}', jsonb_build_object('requestedAt', ${nowMs}::bigint, 'resumeRequestedAt', ${nowMs}::bigint), true) ELSE request_config END, next_action_at=CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN next_action_at WHEN state='paused' THEN ${nowMs} WHEN state='ready' THEN ${nextIdleAtMs} ELSE next_action_at END, last_activity_at=${nowMs}, revision=revision+1, updated_at=${nowMs} WHERE workspace_id=${workspaceId} AND account_id=${accountId} AND (${runtimeOnly}::boolean = false OR (desired_state='ready' AND state NOT IN ('paused','pausing','archived','failed'))) AND state <> 'deleted' AND desired_state <> 'deleted' AND (request_config #>> '{cloudMailboxLifecyclePending,action}') IS DISTINCT FROM 'delete' AND (request_config #>> '{cloudMailboxLifecycleDelivered,action}') IS DISTINCT FROM 'delete' RETURNING *`.pipe(
 						Effect.map((rows) =>
 							rows[0] ? workspaceFromRow(rows[0] as Row) : null,
 						),

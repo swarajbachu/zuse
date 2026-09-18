@@ -1938,6 +1938,27 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			(workspace.state === "provisioning" || workspace.state === "setup") &&
 			workspace.providerSandboxId !== undefined
 		) {
+			if (workspaceStartupTimedOut(workspace, nowMs)) {
+				// Do not issue provider commands after the deadline: an archiving
+				// sandbox rejects them and would otherwise hide this terminal state.
+				console.warn("[cloud-workspace] runtime connection timeout", {
+					workspaceId: workspace.workspaceId,
+					statusCode: workspace.statusCode,
+				});
+				yield* saveWorkspace({
+					...workspace,
+					state: "failed",
+					statusCode: "runtime-connection-timeout",
+					runtimeState: "offline",
+					runtimeCredentialHash: undefined,
+					runtimeBootTokenHash: undefined,
+					runtimeBootTokenExpiresAtMs: undefined,
+					nextActionAtMs: Number.MAX_SAFE_INTEGER,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
 			if (
 				yield* provider.pathExists(
 					workspace.providerSandboxId,
@@ -1979,33 +2000,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				});
 				return;
 			}
-			if (workspaceStartupTimedOut(workspace, nowMs)) {
-				const runtimeDiagnostic = yield* readWorkspaceRuntimeDiagnostic(
-					provider,
-					workspace.providerSandboxId,
-				);
-				console.warn("[cloud-workspace] runtime connection timeout", {
-					workspaceId: workspace.workspaceId,
-					statusCode: workspace.statusCode,
-					runtimeDiagnostic,
-				});
-				yield* saveWorkspace({
-					...workspace,
-					state: "failed",
-					statusCode: "runtime-connection-timeout",
-					runtimeState: "offline",
-					requestConfig: {
-						...workspace.requestConfig,
-						...(runtimeDiagnostic.length === 0
-							? {}
-							: { startupFailureDiagnostic: runtimeDiagnostic }),
-					},
-					nextActionAtMs: Number.MAX_SAFE_INTEGER,
-					revision: workspace.revision + 1,
-					updatedAtMs: nowMs,
-				});
-				return;
-			}
+
 			// Successful startup is advanced only by authenticated runtime callbacks.
 			yield* saveWorkspace({
 				...workspace,

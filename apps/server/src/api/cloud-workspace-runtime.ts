@@ -738,6 +738,40 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 	return { publish } satisfies CloudRuntimeSummaryPublisher;
 });
 
+/** Keep quiet, active turns alive without keeping an idle workspace running. */
+export const keepCloudRuntimeActive = <E, R>(input: {
+	readonly sessions: Effect.Effect<
+		ReadonlyArray<Pick<Session, "chatId" | "status">>,
+		E,
+		R
+	>;
+	readonly chatId: ChatId;
+	readonly publish: Effect.Effect<unknown, E, R>;
+}) =>
+	Effect.forever(
+		Effect.gen(function* () {
+			const current = yield* input.sessions;
+			if (
+				current.some(
+					(session) =>
+						session.chatId === input.chatId &&
+						(session.status === "running" || session.status === "booting"),
+				)
+			) {
+				yield* input.publish;
+			}
+		}).pipe(
+			Effect.catch(() =>
+				Effect.sync(() => {
+					console.warn(
+						"[cloud-workspace-runtime] active work keepalive failed",
+					);
+				}),
+			),
+			Effect.andThen(Effect.sleep("30 seconds")),
+		),
+	);
+
 /** Resolve stale chat pointers against the authoritative runtime session rows. */
 export const resolveCloudRuntimeActiveSession = (
 	chat: Pick<Chat, "activeSessionId" | "id">,
@@ -3064,6 +3098,11 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						.pipe(
 							Effect.mapError(() => fail("workspace_summary_chat_unavailable")),
 						);
+					yield* keepCloudRuntimeActive({
+						chatId: runtimeChat.id,
+						sessions: sessions.listSessions(runtimeChat.projectId, false),
+						publish: summaryPublisher.publish("activity"),
+					}).pipe(Effect.forkScoped({ startImmediately: true }));
 					yield* chats.streamChatChanges(runtimeChat.projectId).pipe(
 						Stream.filter((change) =>
 							change._tag === "snapshot"

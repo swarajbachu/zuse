@@ -2023,6 +2023,7 @@ describe("cloud workspace store", () => {
 		}
 		for (const [suffix, patch] of [
 			["restart", { statusCode: "restart-queued" }],
+			["recovery", { statusCode: "resume-runtime-recovery-queued" }],
 			[
 				"fence",
 				{
@@ -2554,6 +2555,17 @@ describe("cloud workspace store", () => {
 				startCommand("workspace-paused"),
 			),
 		);
+		expect(
+			await runtime.runPromise(
+				store.recordActivity(
+					"workspace-paused",
+					"account-1",
+					499,
+					3_600_499,
+					true,
+				),
+			),
+		).toBeNull();
 		const resumed = await runtime.runPromise(
 			store.recordActivity("workspace-paused", "account-1", 500, 3_600_500),
 		);
