@@ -67,8 +67,8 @@ jobs:
               echo "Non-main staging publication requires explicit confirmation" >&2
               exit 1
             fi
-            if [[ "$REQUESTED_TARGET" == "production" && "$GITHUB_REF" != refs/tags/v* ]]; then
-              echo "Production publication requires a version tag" >&2
+            if [[ "$REQUESTED_TARGET" == "production" && "$GITHUB_REF" != "refs/heads/main" && "$GITHUB_REF" != refs/tags/v* ]]; then
+              echo "Production publication requires main or a version tag" >&2
               exit 1
             fi
             enabled=true

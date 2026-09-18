@@ -6,13 +6,17 @@ and creates hosted links under `on.boat.dev`. Snapshot requests also use
 `sandboxId`. The template publisher and benchmark use the same new vocabulary.
 Provider display names and public documentation say Boat.
 
-Zuse retains the internal `box` provider ID, `/box` webhook route, `BOX_*`
-deployment settings, and module filenames. These are Zuse configuration and
-database identifiers, not calls to retired provider endpoints. Keeping them
+Zuse retains the internal `box` provider ID, `/box` webhook route, and module
+filenames. These are Zuse configuration and database identifiers, not calls to retired provider endpoints. Keeping them
 preserves workspace placement, existing secrets, prices, and event-window pairing.
 Existing API keys remain valid; no secret rotation is required by this change.
-Any explicitly configured `BOX_API_BASE_URL` must point to the Boat API and an
-explicit `BOX_HOSTED_PORT_DOMAIN` must be `on.boat.dev` before deployment.
+Deployment settings now use `BOAT_*`. Legacy `BOX_*` bindings remain a fallback;
+`BOAT_*` takes precedence, including explicit empty or disabled values. Existing
+production secrets are not replaced. New secret commands use `secret:boat` and
+`secret:boat:production`.
+Any explicitly configured `BOAT_API_BASE_URL` (or legacy `BOX_API_BASE_URL`)
+must point to the Boat API. An explicit `BOAT_HOSTED_PORT_DOMAIN`
+(or legacy `BOX_HOSTED_PORT_DOMAIN`) must be `on.boat.dev` before deployment.
 
 Signed webhooks accept both legacy `box.*` with `data.box` and new `sandbox.*`
 with `data.sandbox`. Signature verification still uses the original raw body and
