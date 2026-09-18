@@ -8,6 +8,7 @@ import {
 	type CloudAuthProvider,
 	CloudAuthProviderStatus,
 	CloudAuthStatus,
+	CloudChatChanges,
 	CloudChatList,
 	type CloudCommandEnvelope,
 	CloudProjectList,
@@ -28,7 +29,7 @@ import {
 	type SessionId,
 	type SessionStreamCursor,
 } from "@zuse/contracts";
-import type { Effect, Schema } from "effect";
+import { Effect, Schedule, type Schema, Stream } from "effect";
 
 /** Account HTTP transport. No desktop, runtime credentials, or WebSocket needed. */
 export type CloudControlRequest = <A>(
@@ -49,6 +50,15 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 			DeviceBridgeResult,
 			"POST",
 			{ action: input.action, targetDeviceId: input.targetDeviceId },
+		),
+	"cloud.chats.watch": (input: { cursor?: number }) =>
+		streamCloudCatalogChanges(
+			(cursor) =>
+				request(
+					`${ApiPaths.cloudChatChanges}${cursor === undefined ? "" : `?cursor=${cursor}`}`,
+					CloudChatChanges,
+				),
+			input.cursor,
 		),
 	"cloud.chats.list": (input: {
 		projectId?: string;
@@ -220,3 +230,21 @@ export type CloudCommandControlClient = {
 		unknown
 	>;
 };
+
+/** Cursor polling belongs to the control transport, never to a UI component. */
+export const streamCloudCatalogChanges = <E>(
+	read: (cursor?: number) => Effect.Effect<CloudChatChanges, E>,
+	initialCursor?: number,
+): Stream.Stream<CloudChatChanges, E> =>
+	Stream.unwrap(
+		Effect.sync(() => {
+			let cursor = initialCursor;
+			return Stream.fromEffect(Effect.suspend(() => read(cursor))).pipe(
+				Stream.repeat(Schedule.spaced("750 millis")),
+				Stream.map((page) => {
+					cursor = page.cursor;
+					return page;
+				}),
+			);
+		}),
+	);

@@ -176,6 +176,13 @@
 			"when": 1789387200000,
 			"tag": "0024_box_price_schedule",
 			"breakpoints": true
+		},
+		{
+			"idx": 25,
+			"version": "7",
+			"when": 1789646400000,
+			"tag": "0025_cloud_catalog",
+			"breakpoints": true
 		}
 	]
 }

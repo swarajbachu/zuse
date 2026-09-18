@@ -291,5 +291,12 @@
 	"github_repair_state_changed": "채팅, 브랜치 또는 에이전트 상태가 변경되었습니다. 현재 PR에서 복구를 다시 실행하세요.",
 	"github_attach_failed": "PR 컨텍스트를 첨부하지 못했습니다.",
 	"github_repair_send_failed": "복구를 보내지 못했습니다. 채팅을 확인하고 다시 시도하세요.",
-	"github_watch_update_failed": "CI 감시를 업데이트하지 못했습니다"
+	"github_watch_update_failed": "CI 감시를 업데이트하지 못했습니다",
+	"worktree_setup_card_worktree_creation_failed": "워크트리 생성 실패",
+	"worktree_setup_card_workspace_ready": "작업 공간 준비 완료",
+	"worktree_setup_card_creating_worktree": "{{repoName}}의 워크트리 생성 중…",
+	"worktree_setup_card_preparing_directory": "이 채팅을 위한 별도의 작업 디렉터리를 준비하고 있습니다.",
+	"worktree_setup_card_no_setup_script": "설정 스크립트가 필요하지 않습니다.",
+	"worktree_setup_card_workspace_ready_description": "작업 공간이 준비되었습니다.",
+	"worktree_setup_card_preparing_environment": "작업 공간 환경을 준비하고 있습니다."
 }

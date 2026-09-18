@@ -1,10 +1,9 @@
 import "@zuse/i18n/english/onboarding";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Tick01Icon } from "@zuse/icons/solid-rounded";
 import { MODE_META, MODES_ORDER } from "~/components/runtime-mode-meta";
 import { ModelSelect } from "~/components/settings-page";
-import { Switch } from "~/components/ui/switch";
 import { cn } from "~/lib/utils";
 import { useSettingsStore } from "../../../lib/settings-client-bus.ts";
 import { StepHeader } from "./shared.tsx";
@@ -20,12 +19,6 @@ export function DefaultsStep() {
 	const defaultRuntimeMode = useSettingsStore((s) => s.defaultRuntimeMode);
 	const setDefaultRuntimeMode = useSettingsStore(
 		(s) => s.setDefaultRuntimeMode,
-	);
-	const defaultAutoCreateWorktree = useSettingsStore(
-		(s) => s.defaultAutoCreateWorktree,
-	);
-	const setDefaultAutoCreateWorktree = useSettingsStore(
-		(s) => s.setDefaultAutoCreateWorktree,
 	);
 
 	return (
@@ -93,32 +86,6 @@ export function DefaultsStep() {
 							);
 						})}
 					</div>
-				</div>
-
-				<div className="flex items-start gap-3 rounded-lg border border-border bg-card px-3.5 py-3">
-					<span className="flex min-w-0 flex-1 flex-col gap-1">
-						<RichMessage
-							id="onboarding:defaults_new_worktree_per_chatrecommendeda_git_worktree_is_a_second_c_sentence"
-							components={{
-								part0: <span className="flex items-center gap-2" />,
-								part1: (
-									<span className="text-[13px] font-medium leading-none text-foreground" />
-								),
-								part2: (
-									<span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-primary" />
-								),
-								part3: (
-									<span className="text-[11px] leading-snug text-muted-foreground" />
-								),
-								part4: <code />,
-							}}
-							values={{ code0: "~/.zuse/" }}
-						/>
-					</span>
-					<Switch
-						checked={defaultAutoCreateWorktree}
-						onCheckedChange={setDefaultAutoCreateWorktree}
-					/>
 				</div>
 			</div>
 		</div>

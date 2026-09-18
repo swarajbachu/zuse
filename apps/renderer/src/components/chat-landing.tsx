@@ -40,6 +40,7 @@ import {
 	useEffect,
 	useLayoutEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { Button } from "~/components/ui/button.tsx";
@@ -59,12 +60,12 @@ import type {
 } from "~/composer/draft-attachments";
 import { applyPreparedLinearContext } from "~/composer/linear-context-input";
 import {
-	finalizeStartupInput,
 	finalizeStartupInputWhenReady,
 	releaseDraftAttachmentPreviews,
 	StartupInputError,
 	type StartupInputOptions,
 	startupInputNeedsPreparation,
+	startupTargetNotReady,
 } from "~/composer/startup-input";
 import {
 	cacheAttachmentPreview,
@@ -97,6 +98,7 @@ import {
 	type PreparedLinearContext,
 	transferLinearContext,
 } from "~/lib/linear-cloud-context";
+import { newChatPreferences } from "~/lib/new-chat-preferences";
 import {
 	buildLogicalProjectGroups,
 	defaultNewChatTarget,
@@ -124,10 +126,6 @@ import {
 import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
 import { useExternalThreadsStore } from "~/store/external-threads";
 import { currentModelCatalog } from "~/store/model-catalog";
-import {
-	repositorySettingsKey,
-	useRepositorySettingsStore,
-} from "~/store/repository-settings.ts";
 import { DRAFT_SESSION_ID, useSessionsStore } from "~/store/sessions";
 import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
@@ -266,21 +264,8 @@ export function ChatLanding() {
 	const defaultModelByProvider = useSettingsStore(
 		(s) => s.defaultModelByProvider,
 	);
-	const defaultAutoCreateWorktree = useSettingsStore(
-		(s) => s.defaultAutoCreateWorktree,
-	);
 	const activeEnvironmentId = useEnvironmentCatalogStore(
 		(s) => s.activeEnvironmentId,
-	);
-	const repositoryAutoCreateWorktree = useRepositorySettingsStore((s) =>
-		selectedFolderId === null
-			? false
-			: s.byProject[
-					repositorySettingsKey(
-						EnvironmentId.make(activeEnvironmentId),
-						selectedFolderId,
-					)
-				]?.autoCreateWorktree === true,
 	);
 
 	const create = useChatsStore((s) => s.create);
@@ -447,15 +432,46 @@ export function ChatLanding() {
 		readonly groupKey: string;
 		readonly member: LogicalProjectMember;
 	} | null>(null);
+	const anchoredGroup = useMemo(
+		() =>
+			remoteAnchor === null
+				? null
+				: (projectGroups.find((group) => group.key === remoteAnchor.groupKey) ??
+					null),
+		[projectGroups, remoteAnchor],
+	);
+	const pickerGroup = anchoredGroup ?? selectedGroup;
+	const restoredProject = useRef(false);
+	useEffect(() => {
+		if (restoredProject.current || projectGroups.length === 0) return;
+		const rememberedKey = newChatPreferences.lastProjectKey();
+		if (rememberedKey === null) {
+			restoredProject.current = true;
+			return;
+		}
+		const group = projectGroups.find(
+			(candidate) => candidate.key === rememberedKey,
+		);
+		if (group === undefined) return;
+		restoredProject.current = true;
+		if (group.key === selectedGroup?.key) return;
+		const member = preferredGroupMember(group);
+		if (member === null) return;
+		if (member.isActive) {
+			setRemoteAnchor(null);
+			void selectFolder(member.folderId);
+		} else {
+			setRemoteAnchor({ groupKey: group.key, member });
+		}
+	}, [projectGroups, selectFolder, selectedGroup?.key]);
 	const workspaceChoiceKey =
 		remoteAnchor === null
 			? `${activeEnvironmentId}:${selectedFolderId ?? "none"}`
 			: `${remoteAnchor.member.environmentId}:${remoteAnchor.member.folderId}`;
 	const configuredWorkspaceMode: ComposerWorkspaceMode =
-		defaultAutoCreateWorktree ||
-		(remoteAnchor === null && repositoryAutoCreateWorktree)
+		pickerGroup === null
 			? "worktree"
-			: "local";
+			: newChatPreferences.workspaceFor(pickerGroup.key);
 	const [workspaceChoice, setWorkspaceChoice] = useState<{
 		readonly key: string;
 		readonly mode: ComposerWorkspaceMode;
@@ -487,15 +503,6 @@ export function ChatLanding() {
 	const setView = useUiStore((state) => state.setView);
 	const setSettingsSection = useUiStore((state) => state.setSettingsSection);
 	const [projectSetupOpen, setProjectSetupOpen] = useState(false);
-	const anchoredGroup = useMemo(
-		() =>
-			remoteAnchor === null
-				? null
-				: (projectGroups.find((group) => group.key === remoteAnchor.groupKey) ??
-					null),
-		[projectGroups, remoteAnchor, uiMessage],
-	);
-	const pickerGroup = anchoredGroup ?? selectedGroup;
 	const cloudRepositoryIdentity =
 		pickerGroup?.origin === null || pickerGroup?.origin === undefined
 			? null
@@ -619,10 +626,52 @@ export function ChatLanding() {
 			uiMessage,
 		],
 	);
+	const restoredCloudProject = useRef<string | null>(null);
+	useEffect(() => {
+		if (
+			pickerGroup === null ||
+			restoredCloudProject.current === pickerGroup.key
+		)
+			return;
+		const remembered = newChatPreferences.environmentFor(pickerGroup.key);
+		if (!remembered?.startsWith("cloud:")) return;
+		const providerId = remembered.slice("cloud:".length);
+		if (
+			!cloudPickerItems.some(
+				(item) => item.providerId === providerId && item.needsSetup === false,
+			)
+		)
+			return;
+		restoredCloudProject.current = pickerGroup.key;
+		setTargetOverride(null);
+		setSelectedCloudProviderId(providerId);
+	}, [cloudPickerItems, pickerGroup]);
+	const rememberedEnvironmentId =
+		pickerGroup === null
+			? null
+			: newChatPreferences.environmentFor(pickerGroup.key);
+	const rememberedTarget =
+		pickerGroup?.members.find(
+			(member) => member.environmentId === rememberedEnvironmentId,
+		) ?? null;
+	const rememberedCatalogTarget = catalogEntries.find(
+		(entry) => entry.environmentId === rememberedEnvironmentId,
+	);
 	const resolvedTarget: NewChatTarget | null =
 		selectedCloudProviderId !== null
 			? null
 			: (targetOverride ??
+				(rememberedTarget !== null
+					? {
+							environmentId: rememberedTarget.environmentId,
+							folderId: rememberedTarget.folderId,
+						}
+					: rememberedCatalogTarget !== undefined
+						? {
+								environmentId: rememberedCatalogTarget.environmentId,
+								folderId: null,
+							}
+						: null) ??
 				(remoteAnchor !== null
 					? {
 							environmentId: remoteAnchor.member.environmentId,
@@ -709,6 +758,7 @@ export function ChatLanding() {
 	const onPickGroup = (group: LogicalProjectGroup) => {
 		const member = preferredGroupMember(group);
 		if (member === null) return;
+		newChatPreferences.rememberProject(group.key);
 		if (member.isActive) {
 			setRemoteAnchor(null);
 			void selectFolder(member.folderId);
@@ -944,6 +994,7 @@ export function ChatLanding() {
 			try {
 				return await prepare(input);
 			} catch (error) {
+				if (startupTargetNotReady(error)) throw error;
 				toastManager.add({
 					type: "error",
 					get title() {
@@ -1351,24 +1402,14 @@ export function ChatLanding() {
 					sessionId: result.initialSessionId,
 				});
 				try {
-					const worktreeId = result.worktreeId;
-					const uploadRoot =
-						worktreeId === null
-							? (selectedFolder?.path ?? null)
-							: ((
-									useWorktreesStore.getState().byProject[selectedFolderId] ??
-									EMPTY_WORKTREES
-								).find((worktree) => worktree.id === worktreeId)?.path ??
-								selectedFolder?.path ??
-								null);
-					const ticketInput = await finalizeStartupInput(
+					const ticketInput = await finalizeStartupInputWhenReady(
 						startupInput,
 						{
 							ref: {
 								environmentId: EnvironmentId.make(activeEnvironmentId),
 								sessionId: result.initialSessionId,
 							},
-							uploadRoot,
+							uploadRoot: null,
 						},
 						{
 							issueMarkdown: null,
@@ -1469,25 +1510,17 @@ export function ChatLanding() {
 		);
 		// Everything the first message referenced — the "Create from…" issue body,
 		// Linear context, pasted text, dropped files — is written into the chat's
-		// real cwd now, so the agent reads it from its own workspace.
-		const uploadRoot = (() => {
-			if (worktreeId === null) return selectedFolder?.path ?? null;
-			const wt = (
-				useWorktreesStore.getState().byProject[selectedFolderId] ??
-				EMPTY_WORKTREES
-			).find((w) => w.id === worktreeId);
-			return wt?.path ?? selectedFolder?.path ?? null;
-		})();
+		// real cwd once it exists, so the agent reads it from its own workspace.
 		let finalInput = startupInput;
 		try {
-			finalInput = await finalizeStartupInput(
+			finalInput = await finalizeStartupInputWhenReady(
 				startupInput,
 				{
 					ref: {
 						environmentId: EnvironmentId.make(activeEnvironmentId),
 						sessionId,
 					},
-					uploadRoot,
+					uploadRoot: null,
 				},
 				startupOptionsFor(sessionId),
 			);
@@ -1574,6 +1607,11 @@ export function ChatLanding() {
 													setCreateSource(null);
 												setSelectedCloudProviderId(null);
 												setTargetOverride(target);
+												if (pickerGroup !== null)
+													newChatPreferences.rememberEnvironment(
+														pickerGroup.key,
+														target.environmentId,
+													);
 											}}
 											cloudItems={cloudPickerItems}
 											selectedCloudProviderId={selectedCloudProviderId}
@@ -1595,6 +1633,11 @@ export function ChatLanding() {
 												if (providerId !== selectedCloudProviderId)
 													setSelectedCloudSizeId(null);
 												setSelectedCloudProviderId(providerId);
+												if (pickerGroup !== null)
+													newChatPreferences.rememberEnvironment(
+														pickerGroup.key,
+														`cloud:${providerId}`,
+													);
 											}}
 											onRetryEnvironment={retryComputer}
 										/>
@@ -1602,12 +1645,17 @@ export function ChatLanding() {
 									{selectedCloudProviderId === null ? (
 										<WorkspacePicker
 											value={workspaceMode}
-											onValueChange={(mode) =>
+											onValueChange={(mode) => {
 												setWorkspaceChoice({
 													key: workspaceChoiceKey,
 													mode,
-												})
-											}
+												});
+												if (pickerGroup !== null)
+													newChatPreferences.rememberWorkspace(
+														pickerGroup.key,
+														mode,
+													);
+											}}
 										/>
 									) : null}
 									<ImportChatMenu

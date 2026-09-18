@@ -390,8 +390,8 @@ describe("Box sandbox provider", () => {
 		);
 		expect(script).toContain("--property=Restart=no");
 		expect(script).toContain("--property=KillMode=control-group");
-		expect(script).toContain("/proc/sys/kernel/random/boot_id");
-		expect(script).toContain("7a7573652d72756e74696d65.pid");
+		expect(script).not.toContain("/proc/sys/kernel/random/boot_id");
+		expect(script).not.toContain("7a7573652d72756e74696d65.pid");
 		expect(script).toContain("/usr/local/bin/zuse-workspace-bootstrap");
 		expect(script).toContain("ZUSE_API_URL");
 	});

@@ -119,18 +119,13 @@ describe("chat landing progress", () => {
 		expect(workspacePickerSource).toContain("<MenuRadioGroup");
 	});
 
-	test("initializes the active environment before selectors consume it", () => {
-		const environmentSubscription = chatLandingSource.indexOf(
-			"const activeEnvironmentId = useEnvironmentCatalogStore(",
+	test("uses remembered project choices instead of worktree defaults", () => {
+		expect(chatLandingSource).toContain("newChatPreferences.workspaceFor(");
+		expect(chatLandingSource).toContain(
+			"newChatPreferences.rememberEnvironment(",
 		);
-		const repositorySettingsSubscription = chatLandingSource.indexOf(
-			"const repositoryAutoCreateWorktree = useRepositorySettingsStore(",
-		);
-
-		expect(environmentSubscription).toBeGreaterThan(-1);
-		expect(repositorySettingsSubscription).toBeGreaterThan(
-			environmentSubscription,
-		);
+		expect(chatLandingSource).not.toContain("repositoryAutoCreateWorktree");
+		expect(chatLandingSource).not.toContain("defaultAutoCreateWorktree");
 	});
 
 	test("stages the durable chat before attaching the workspace gateway", () => {
@@ -198,7 +193,7 @@ describe("chat landing progress", () => {
 		expect(cloudChatsSource).not.toContain("while (");
 		// Deferred transcript pagination may schedule a task, but workspace
 		// lifecycle progress itself must remain stream-driven rather than polling.
-		expect(cloudChatsSource).toContain("completeOlderSessionMessages(ref)");
+		expect(cloudChatsSource).not.toContain("completeOlderSessionMessages(ref)");
 	});
 
 	test("shows only cloud progress while a cloud workspace is starting", () => {

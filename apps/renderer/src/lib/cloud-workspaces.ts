@@ -21,7 +21,7 @@ import {
 	MessageId,
 	type SessionId,
 } from "@zuse/contracts";
-import { Effect } from "effect";
+import { Duration, Effect, Fiber, Schedule, Stream } from "effect";
 import {
 	cloudWorkspaceStartupError,
 	isCloudWorkspaceReady,
@@ -35,23 +35,29 @@ import {
 	registerCloudWorkspace,
 } from "../lib/rpc-client.ts";
 import {
+	rememberCloudTimelineHead,
 	sessionTimelineCache,
 	timelineReadingPositionStore,
 } from "../lib/session-timeline-cache.ts";
 import {
 	addOptimisticSessionMessage,
-	completeOlderSessionMessages,
 	getRendererClientBus,
 	registerEnvironmentActivation,
 	registerSessionTimelineCheckpointSynchronizer,
 	registerSessionTimelineOlderPageSynchronizer,
 	retryRendererEnvironmentConnection,
+	stopCloudHistory,
 } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
+import {
+	beginCloudFetch,
+	markCloudCatalogArrival,
+	markCloudFetch,
+} from "./cloud-fetch-timing.ts";
 import {
 	cloudSummaryActiveSessionId,
 	cloudSummaryForChat,
@@ -84,6 +90,7 @@ const attaching = new Map<string, CloudAttachment>();
 const registeredCloudEnvironments = new Map<string, CloudChatSummary>();
 const rearmedClientByWorkspace = new Map<string, string>();
 let hydration: Promise<void> | null = null;
+let catalogGeneration = 0;
 
 /**
  * An authoritative ready runtime is a new recovery signal for a client whose
@@ -162,7 +169,9 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 	registerSessionTimelineCheckpointSynchronizer(
 		EnvironmentId.make(summary.workspaceId),
 		async (ref, current: ResourceView<SessionTimelineProjection>) => {
+			markCloudFetch(ref, "request-start");
 			const control = await getControlPlaneRpcClient();
+			markCloudFetch(ref, "control-ready");
 			const result = await Effect.runPromise(
 				control["cloud.transcript.get"]({
 					workspaceId: summary.workspaceId,
@@ -176,21 +185,13 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 							: (current.cursor ?? undefined),
 				}),
 			);
+			markCloudFetch(ref, "downloaded");
 			const checkpoint = result.checkpoint;
 			if (checkpoint === null) return null;
 			const payload = await openCloudTranscriptCheckpoint(ref, checkpoint);
-			if (
-				current.connection === "dormant" &&
-				payload.projection.olderMessageSequence != null
-			) {
-				// Let ClientBus publish the recent checkpoint first, then complete its
-				// canonical projection automatically from encrypted storage pages.
-				setTimeout(() => {
-					void completeOlderSessionMessages(ref).catch((cause) => {
-						useCloudChatsStore.setState({ error: formatError(cause) });
-					});
-				}, 0);
-			}
+			markCloudFetch(ref, "decrypted");
+			rememberCloudTimelineHead(ref, payload.projection, payload.cursor);
+
 			return {
 				data: payload.projection,
 				cursor: payload.cursor,
@@ -376,6 +377,11 @@ export const openCloudChat = (
 	const operation = Promise.resolve().then(() => {
 		stageCloudChat(summary, projectId);
 		const activeSessionId = cloudSummaryActiveSessionId(summary);
+		if (activeSessionId !== null)
+			beginCloudFetch({
+				environmentId: EnvironmentId.make(summary.workspaceId),
+				sessionId: activeSessionId,
+			});
 		// Catalog selection must not depend on a paused runtime shell. Select the
 		// durable ids now so the qualified timeline cache can hydrate immediately.
 		useUiStore.getState().setActiveMainTab("chat");
@@ -580,10 +586,12 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 	error: null,
 	hydrate: async () => {
 		if (hydration !== null) return hydration;
+		const generation = catalogGeneration;
 		hydration = (async () => {
 			set({ loading: true, error: null });
 			try {
 				await hydrateCloudChatCatalogPersistence();
+				if (generation !== catalogGeneration) return;
 				for (const cached of useCloudChatCatalogStore.getState().summaries) {
 					registerCloudEnvironmentResolver(cached);
 					const cachedProject = localProjectForCloudEnvironment(
@@ -592,32 +600,13 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 					if (cachedProject !== null) stageCloudChat(cached, cachedProject);
 				}
 				const client = await getControlPlaneRpcClient();
-				for (const [workspaceId, intent] of Object.entries(
-					useCloudChatCatalogStore.getState().archiveIntents,
-				)) {
-					const cached = cloudSummaryForEnvironment(workspaceId);
-					if (cached === null) continue;
-					try {
-						const archived = await Effect.runPromise(
-							client["cloud.workspaces.archive"]({
-								workspaceId,
-								commandId: intent.commandId,
-							}),
-						);
-						updateSummary({
-							...refreshSummaryFromWorkspace(cached, archived),
-							archivedAt: intent.requestedAt,
-						});
-					} catch {
-						// The persisted intent remains hidden and retries on the next hydrate.
-					}
-				}
+
 				const result = await Effect.runPromise(
 					client["cloud.chats.list"]({ scope: "all" }),
 				);
+				if (generation !== catalogGeneration) return;
 				removeDeletedCloudPlaceholders(reconcileCloudChatCatalog(result.chats));
 				for (const summary of result.chats) {
-					registerCloudChat(summary);
 					const accepted =
 						cloudSummaryForEnvironment(summary.workspaceId) ?? summary;
 					registerCloudEnvironmentResolver(accepted);
@@ -626,6 +615,30 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 					);
 					if (projectId !== null) stageCloudChat(accepted, projectId);
 				}
+				void (async () => {
+					for (const [workspaceId, intent] of Object.entries(
+						useCloudChatCatalogStore.getState().archiveIntents,
+					)) {
+						if (generation !== catalogGeneration) return;
+						const cached = cloudSummaryForEnvironment(workspaceId);
+						if (cached === null) continue;
+						try {
+							const archived = await Effect.runPromise(
+								client["cloud.workspaces.archive"]({
+									workspaceId,
+									commandId: intent.commandId,
+								}),
+							);
+							if (generation !== catalogGeneration) return;
+							updateSummary({
+								...refreshSummaryFromWorkspace(cached, archived),
+								archivedAt: intent.requestedAt,
+							});
+						} catch {
+							// The persisted intent remains hidden and retries on the next hydrate.
+						}
+					}
+				})().catch(() => undefined);
 				set({ loading: false });
 			} catch (cause) {
 				set({ error: formatError(cause), loading: false });
@@ -686,3 +699,100 @@ export const useCloudChatSummaryForSession = (
 	sessionId: SessionId | null,
 ): CloudChatSummary | null =>
 	useCloudChatSummaryForSelection({ chatId: null, sessionId });
+
+/** One account catalog feed owned by the signed-in sidebar lifecycle. */
+export const watchCloudChatCatalog = (): (() => void) => {
+	let stopped = false;
+	let cursor: number | undefined;
+	let fiber: Fiber.Fiber<unknown, unknown> | null = null;
+	const start = async () => {
+		await useCloudChatsStore.getState().hydrate();
+		if (stopped) return;
+		const stream = Stream.unwrap(
+			Effect.tryPromise({
+				try: async () =>
+					(await getControlPlaneRpcClient())["cloud.chats.watch"]({ cursor }),
+				catch: (cause) => cause,
+			}),
+		).pipe(
+			Stream.retry(
+				Schedule.exponential("500 millis").pipe(
+					Schedule.modifyDelay(({ duration }) =>
+						Effect.succeed(
+							Duration.millis(Math.min(Duration.toMillis(duration), 10_000)),
+						),
+					),
+				),
+			),
+		);
+		fiber = Effect.runFork(
+			Stream.runForEach(stream, (page) =>
+				Effect.sync(() => {
+					if (
+						stopped ||
+						(cursor !== undefined && page.cursor < cursor && !page.reset)
+					)
+						return;
+					if (
+						!page.reset &&
+						page.chats.length === 0 &&
+						page.deletedWorkspaceIds.length === 0
+					) {
+						cursor = page.cursor;
+						return;
+					}
+					const current = useCloudChatCatalogStore.getState().summaries;
+					if (!page.reset)
+						for (const chat of page.chats)
+							if (
+								!current.some(
+									(existing) => existing.workspaceId === chat.workspaceId,
+								)
+							)
+								markCloudCatalogArrival(new Date(chat.createdAt));
+					const deleted = new Set(page.deletedWorkspaceIds);
+					const updated = new Map(
+						page.chats.map((chat) => [chat.workspaceId, chat]),
+					);
+					const next = page.reset
+						? page.chats
+						: [
+								...current.filter(
+									(chat) =>
+										!deleted.has(chat.workspaceId) &&
+										!updated.has(chat.workspaceId),
+								),
+								...page.chats,
+							];
+					removeDeletedCloudPlaceholders(reconcileCloudChatCatalog(next));
+					for (const summary of page.chats) {
+						const accepted =
+							cloudSummaryForEnvironment(summary.workspaceId) ?? summary;
+						registerCloudEnvironmentResolver(accepted);
+						const projectId = localProjectForCloudEnvironment(
+							summary.workspaceId,
+						);
+						if (projectId !== null) stageCloudChat(accepted, projectId);
+					}
+					cursor = page.cursor;
+				}),
+			).pipe(
+				Effect.catchCause((cause) =>
+					Effect.sync(() => {
+						if (!stopped)
+							useCloudChatsStore.setState({ error: formatError(cause) });
+					}),
+				),
+			),
+		);
+	};
+	void start().catch((cause) => {
+		if (!stopped) useCloudChatsStore.setState({ error: formatError(cause) });
+	});
+	return () => {
+		stopped = true;
+		catalogGeneration++;
+		stopCloudHistory();
+		if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
+	};
+};

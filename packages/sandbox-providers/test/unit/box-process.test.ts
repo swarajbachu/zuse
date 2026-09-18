@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -65,6 +72,12 @@ describe("Box systemd process launcher", () => {
 		try {
 			const targetHome = join(directory, "home with spaces");
 			const capture = join(directory, "captured.json");
+			// Managed services must not depend on writable legacy PID storage.
+			await mkdir(targetHome);
+			await writeFile(
+				join(targetHome, ".zuse-processes"),
+				"unwritable legacy path",
+			);
 			const stub = async (name: string, script: string) =>
 				writeFile(join(directory, name), `#!${process.execPath}\n${script}`, {
 					mode: 0o700,
@@ -125,11 +138,8 @@ describe("Box systemd process launcher", () => {
 					user: "zuse",
 				});
 				expect(
-					await readFile(
-						join(targetHome, ".zuse-processes/72756e74696d65.pid"),
-						"utf8",
-					),
-				).toMatch(/^[0-9a-f-]+ [0-9]+\n$/u);
+					await readFile(join(targetHome, ".zuse-processes"), "utf8"),
+				).toBe("unwritable legacy path");
 				const captured = JSON.parse(await readFile(capture, "utf8"));
 				expect(captured.args).toContain("--property=Restart=no");
 				expect(captured.args).toContain("--expand-environment=no");

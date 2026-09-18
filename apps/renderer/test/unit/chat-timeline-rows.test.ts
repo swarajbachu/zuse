@@ -2,6 +2,7 @@ import type { Message, SessionId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
+	createCloudTimelineRows,
 	deriveChatTimelineRows,
 	deriveChatTurnNavigationEntries,
 	deriveChatTurnRailEntries,
@@ -323,4 +324,139 @@ describe("chat timeline rows", () => {
 		expect(rows.map((row) => row.kind)).toEqual(["message", "turn-summary"]);
 		expect(rows.at(-1)?.id).toBe("summary:u-large");
 	});
+});
+
+it("cloud derivation reuses settled turns and matches uncached rows while streaming", () => {
+	const derive = createCloudTimelineRows();
+	const messages = [
+		message("u1", { _tag: "user", text: "first" }),
+		message("a1", { _tag: "assistant", text: "done" }),
+		message("u2", { _tag: "user", text: "next" }),
+		message("a2", { _tag: "assistant", text: "part" }),
+	];
+	const first = derive({
+		messages,
+		inFlight: true,
+		awaitingPlanApproval: false,
+	});
+	const next = [
+		...messages.slice(0, 3),
+		message("a2", { _tag: "assistant", text: "part two" }),
+	];
+	const updated = derive({
+		messages: next,
+		inFlight: true,
+		awaitingPlanApproval: false,
+	});
+	expect(updated).toEqual(
+		deriveChatTimelineRows({
+			messages: next,
+			inFlight: true,
+			awaitingPlanApproval: false,
+		}),
+	);
+	expect(updated[0]).toBe(first[0]);
+	expect(updated[1]).toBe(first[1]);
+	expect(
+		derive({ messages: next, inFlight: false, awaitingPlanApproval: false }),
+	).toEqual(
+		deriveChatTimelineRows({
+			messages: next,
+			inFlight: false,
+			awaitingPlanApproval: false,
+		}),
+	);
+});
+
+it("keeps all consecutive tools in one tree and preserves results in order", () => {
+	const messages = Array.from({ length: 25 }, (_, i) => [
+		message(`tool-${i}`, {
+			_tag: "tool_use",
+			itemId: `item-${i}`,
+			tool: "Read",
+			input: { file_path: `file-${i}.ts` },
+		} as Message["content"]),
+		message(`result-${i}`, {
+			_tag: "tool_result",
+			itemId: `item-${i}`,
+			output: "content",
+			isError: i === 4,
+		} as Message["content"]),
+	]).flat();
+	const rows = deriveChatTimelineRows({
+		messages,
+		inFlight: true,
+		awaitingPlanApproval: false,
+	});
+	const groups = rows.filter((row) => row.kind === "tool-activity");
+	expect(groups.map((group) => group.messages.length)).toEqual([50]);
+	expect(groups.flatMap((group) => group.messages)).toEqual(messages);
+	const first = deriveChatTimelineRows({
+		messages: messages.slice(0, 2),
+		inFlight: true,
+		awaitingPlanApproval: false,
+	});
+	expect(groups[0]?.id).toBe(first[0]?.id);
+});
+
+it("does not group across text or hide an unpaired tool error", () => {
+	const messages = [
+		message("orphan", {
+			_tag: "tool_result",
+			itemId: "missing",
+			output: "error",
+			isError: true,
+		} as Message["content"]),
+		message("tool", {
+			_tag: "tool_use",
+			itemId: "read",
+			tool: "Read",
+			input: {},
+		} as Message["content"]),
+		message("text", { _tag: "assistant", text: "Checking the file." }),
+		message("tool2", {
+			_tag: "tool_use",
+			itemId: "read2",
+			tool: "Read",
+			input: {},
+		} as Message["content"]),
+	];
+	const rows = deriveChatTimelineRows({
+		messages,
+		inFlight: true,
+		awaitingPlanApproval: false,
+	});
+	expect(rows.map((row) => row.kind)).toEqual([
+		"message",
+		"tool-activity",
+		"message",
+		"tool-activity",
+		"working",
+	]);
+});
+
+it("keeps tools together across invisible status and empty assistant rows", () => {
+	const tool = (id: string) =>
+		message(id, {
+			_tag: "tool_use",
+			itemId: id,
+			tool: "WebSearch",
+			input: {},
+		} as Message["content"]);
+	const messages = [
+		tool("one"),
+		message("status", { _tag: "context_usage" } as Message["content"]),
+		tool("two"),
+		message("empty", { _tag: "assistant", text: "" }),
+		tool("three"),
+	];
+	const rows = deriveChatTimelineRows({
+		messages,
+		inFlight: true,
+		awaitingPlanApproval: false,
+	});
+	expect(rows.map((row) => row.kind)).toEqual(["tool-activity", "working"]);
+	expect(rows[0]?.kind === "tool-activity" && rows[0].messages).toEqual(
+		messages,
+	);
 });

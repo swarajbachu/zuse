@@ -15,6 +15,8 @@ export interface TranscriptScrollSnapshot {
 
 export interface TranscriptScrollAdapter {
 	readonly getMeasurementState: () => TimelineListMeasurementState | null;
+	readonly liveScroll?: () => { position: number; end: number };
+	readonly scrollToOffset?: (offset: number) => void;
 	readonly isAtLiveEdge: () => boolean | undefined;
 	readonly scrollToEnd: (options: {
 		readonly animated: boolean;
@@ -66,6 +68,10 @@ export class TranscriptScrollCoordinator {
 		isAtEnd: true,
 	};
 	private pending: PendingCommand | null = null;
+	private smoothFollowing = false;
+	private followFrame: number | null = null;
+	private followTime = 0;
+	private followVelocity = 0;
 	private frame: number | null = null;
 	private allowLiveEdgeResume = true;
 	private anchorIndex: number | null = null;
@@ -136,8 +142,54 @@ export class TranscriptScrollCoordinator {
 		});
 	}
 
+	setSmoothFollowing(enabled: boolean): void {
+		this.smoothFollowing = enabled;
+		if (!enabled) this.stopFollowing();
+	}
+	private stopFollowing(): void {
+		if (this.followFrame !== null) this.cancelFrame(this.followFrame);
+		this.followFrame = null;
+		this.followTime = 0;
+		this.followVelocity = 0;
+	}
+	private follow(): void {
+		if (this.followFrame !== null) return;
+		this.followFrame = this.scheduleFrame(() => {
+			this.followFrame = null;
+			if (this.snapshot.mode !== "following" || !this.smoothFollowing) return;
+			const scroll = this.adapter?.liveScroll?.();
+			if (!scroll || !this.adapter?.scrollToOffset) return;
+			const now = performance.now();
+			const dt =
+				this.followTime === 0
+					? 1
+					: Math.min(4, (now - this.followTime) / (1000 / 60));
+			this.followTime = now;
+			const distance = Math.max(0, scroll.end - scroll.position);
+			if (distance < 0.5) {
+				this.adapter.scrollToOffset(scroll.end);
+				this.stopFollowing();
+				return;
+			}
+			this.followVelocity =
+				(this.followVelocity + distance * 0.05 * dt) * 0.7 ** dt;
+			this.adapter.scrollToOffset(
+				scroll.position +
+					Math.min(distance, Math.max(0.5, this.followVelocity * dt)),
+			);
+			this.follow();
+		});
+	}
 	contentChanged(): void {
 		if (this.snapshot.mode === "following") {
+			if (
+				this.smoothFollowing &&
+				this.adapter?.liveScroll &&
+				this.adapter.scrollToOffset
+			) {
+				this.follow();
+				return;
+			}
 			this.enqueue({ kind: "end", animated: false, priority: 1 });
 			return;
 		}
@@ -343,6 +395,7 @@ export class TranscriptScrollCoordinator {
 	}
 
 	private cancelPending(): void {
+		this.stopFollowing();
 		this.pending = null;
 		if (this.frame === null) return;
 		this.cancelFrame(this.frame);

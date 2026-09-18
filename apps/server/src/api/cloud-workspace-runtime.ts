@@ -2458,21 +2458,31 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							sessionId,
 							transcriptKey,
 							read: Effect.gen(function* () {
-								const [snapshot, version] = yield* Effect.all(
-									[
-										sessionDomain.timelineSnapshot(
-											AgentSessionId.make(sessionId),
+								// Capture projection and cursor in the same database transaction, just
+								// like a first-open cloud subscriber. Never label N+1 data as version N.
+								const frames = yield* sessionDomain
+									.synchronizedEvents({
+										streamId: sessionId,
+										hasProjection: false,
+										historyMode: "background",
+									})
+									.pipe(
+										Stream.take(1),
+										Stream.runCollect,
+										Effect.mapError(() =>
+											fail("workspace_transcript_snapshot_unavailable"),
 										),
-										sessionDomain.currentStreamVersion(sessionId),
-									],
-									{ concurrency: "unbounded" },
-								).pipe(
-									Effect.mapError(() =>
+									);
+								const snapshot = frames[0];
+								if (snapshot?.kind !== "snapshot")
+									return yield* Effect.fail(
 										fail("workspace_transcript_snapshot_unavailable"),
-									),
-								);
+									);
 								return {
-									cursor: { epoch: sessionDomain.streamEpoch, version },
+									cursor: {
+										epoch: snapshot.streamEpoch,
+										version: snapshot.throughVersion,
+									},
 									projection: snapshot.projection,
 								};
 							}),

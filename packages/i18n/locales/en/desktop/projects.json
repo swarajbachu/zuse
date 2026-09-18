@@ -291,5 +291,12 @@
 	"github_repair_state_changed": "The chat, branch, or agent state changed. Run Repair again from the current PR.",
 	"github_attach_failed": "Could not attach PR context.",
 	"github_repair_send_failed": "Repair could not be sent. Check the chat and try again.",
-	"github_watch_update_failed": "Could not update CI watcher"
+	"github_watch_update_failed": "Could not update CI watcher",
+	"worktree_setup_card_worktree_creation_failed": "Worktree creation failed",
+	"worktree_setup_card_workspace_ready": "Workspace ready",
+	"worktree_setup_card_creating_worktree": "Creating worktree for {{repoName}}…",
+	"worktree_setup_card_preparing_directory": "Preparing a separate working directory for this chat.",
+	"worktree_setup_card_no_setup_script": "No setup script needed.",
+	"worktree_setup_card_workspace_ready_description": "Your workspace is ready.",
+	"worktree_setup_card_preparing_environment": "Preparing the workspace environment."
 }

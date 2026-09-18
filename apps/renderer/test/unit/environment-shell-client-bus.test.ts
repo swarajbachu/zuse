@@ -23,6 +23,71 @@ const folder = (id: string) => ({
 });
 
 describe("environment shell ClientBus driver", () => {
+	it("replaces persisted projects after the renderer's epoch counter restarts", async () => {
+		// A renderer reload resets module counters while IndexedDB keeps the
+		// previous run's cursor. This is the cursor format shipped before UUIDs.
+		vi.resetModules();
+		const { makeEnvironmentShellResourceDriver: restartedDriver } =
+			await import("../../src/lib/environment-shell-client-bus.ts");
+		const cached: EnvironmentShellData = {
+			folders: [folder("removed-project")],
+			originsByFolder: {},
+			chatsByProject: {},
+			sessionsByProject: {},
+			creationOperationsByProject: {},
+		};
+		const currentFolder = folder("computer-use");
+		const client = {
+			"workspace.streamChanges": () =>
+				Stream.concat(Stream.make([currentFolder]), Stream.never),
+			"chat.streamChanges": () => Stream.never,
+			"session.streamChanges": () => Stream.never,
+			"chat.creation.stream": () => Stream.never,
+			"git.origin": () => Effect.succeed(null),
+		} as unknown as EnvironmentShellDriverClient;
+		const bus = new ClientBus<EnvironmentShellDriverClient>({
+			resolver: {
+				resolve: () =>
+					Effect.succeed({ client, dispose: async () => undefined }),
+			},
+			persistence: {
+				loadResource: async <Data>() => ({
+					data: cached as Data,
+					cursor: { epoch: "environment-shell:1:1", version: 1021 },
+					storedAt: 1,
+				}),
+				saveResource: async () => undefined,
+				removeResource: async () => undefined,
+			},
+			driverFor: () => {
+				const driver = restartedDriver({ reportConnectionFailure: vi.fn() });
+				return {
+					start: (context) =>
+						driver.start(
+							context as ResourceDriverContext<
+								EnvironmentShellDriverClient,
+								EnvironmentShellData
+							>,
+						),
+					stop: driver.stop,
+				};
+			},
+		});
+		const key = environmentShellResourceKey(ref);
+		const lease = bus.retain(key, { activation: "cache-only" });
+		try {
+			await vi.waitFor(() => expect(bus.snapshot(key).data).toEqual(cached));
+			lease.activate("connect");
+			await vi.waitFor(() =>
+				expect(bus.snapshot(key).data?.folders).toEqual([currentFolder]),
+			);
+			expect(bus.snapshot(key).origin).toBe("runtime");
+		} finally {
+			lease.release();
+			await bus.dispose();
+		}
+	});
+
 	it("qualifies the shell cache key by explicit environment", () => {
 		expect(environmentShellResourceKey(ref).ref).toEqual(ref);
 		expect(
