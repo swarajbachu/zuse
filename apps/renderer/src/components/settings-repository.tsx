@@ -155,13 +155,7 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 				}
 			/>
 
-			<WorktreeSection
-				projectId={projectId}
-				autoCreate={settings.autoCreateWorktree}
-				onAutoCreateChange={(value) =>
-					void update(environmentId, projectId, { autoCreateWorktree: value })
-				}
-			/>
+			<WorktreeSection projectId={projectId} />
 		</>
 	);
 }
@@ -417,15 +411,7 @@ function RuntimeModeOverrideSection({
 	);
 }
 
-function WorktreeSection({
-	projectId,
-	autoCreate,
-	onAutoCreateChange,
-}: {
-	projectId: FolderId;
-	autoCreate: boolean;
-	onAutoCreateChange: (v: boolean) => void;
-}) {
+function WorktreeSection({ projectId }: { projectId: FolderId }) {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
 	const worktrees = useWorktreesStore(
@@ -466,9 +452,6 @@ function WorktreeSection({
 	return (
 		<SettingsGroup
 			title={uiMessage("settings:settings_repository_worktrees")}
-			description={uiMessage(
-				"settings:settings_repository_controls_for_automatic_chat_worktrees_and_the_existing_checkouts_for_t",
-			)}
 			trailing={
 				<span className="text-[11px] text-muted-foreground/80">
 					{sorted.length}{" "}
@@ -478,18 +461,6 @@ function WorktreeSection({
 				</span>
 			}
 		>
-			<SettingsRow
-				title={uiMessage(
-					"settings:settings_repository_auto_create_a_worktree_for_new_chats",
-				)}
-				description={uiMessage(
-					"settings:settings_repository_when_on_the_composer_s_workspace_picker_pre_selects_a_fresh_worktree_y",
-				)}
-				action={
-					<Switch checked={autoCreate} onCheckedChange={onAutoCreateChange} />
-				}
-			/>
-
 			<div className="flex flex-col">
 				{sorted.length === 0 ? (
 					<p className="px-3 py-6 text-center text-[11px] text-muted-foreground">

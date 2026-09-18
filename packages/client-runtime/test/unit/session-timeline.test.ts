@@ -604,3 +604,27 @@ describe("session timeline cache", () => {
 		).toThrow();
 	});
 });
+
+it("accepts a cloud head before history completes without weakening legacy count checks", () => {
+	for (const background of [false, true]) {
+		const head = reduceSessionTimelineFrame(emptySessionTimelineState(), {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 1,
+			cursor: cursor("epoch", 1),
+			projection: SessionTimelineProjection.make({
+				...projection,
+				olderMessageSequence: 99,
+			}),
+			totalMessageCount: 1000,
+			...(background ? { historyMode: "background" as const } : {}),
+		});
+		const live = reduceSessionTimelineFrame(head, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 1,
+			cursor: cursor("epoch", 1),
+		});
+		expect(live.phase).toBe(background ? "live" : "stale");
+	}
+});

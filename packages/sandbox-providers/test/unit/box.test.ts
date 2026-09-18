@@ -390,8 +390,8 @@ describe("Box sandbox provider", () => {
 		);
 		expect(script).toContain("--property=Restart=no");
 		expect(script).toContain("--property=KillMode=control-group");
-		expect(script).toContain("/proc/sys/kernel/random/boot_id");
-		expect(script).toContain("7a7573652d72756e74696d65.pid");
+		expect(script).not.toContain("/proc/sys/kernel/random/boot_id");
+		expect(script).not.toContain("7a7573652d72756e74696d65.pid");
 		expect(script).toContain("/usr/local/bin/zuse-workspace-bootstrap");
 		expect(script).toContain("ZUSE_API_URL");
 	});
@@ -675,6 +675,21 @@ describe("Box sandbox provider", () => {
 		expect(command).not.toContain("sleep");
 	});
 
+	test("waits for system disk handover before completing resume", async () => {
+		const http = makeHttp([
+			{ status: 202, body: {} },
+			{ status: 200, body: readyBox("bx_1") },
+			{ status: 200, body: commandResult(75) },
+			{ status: 200, body: commandResult(0) },
+			{ status: 200, body: readyBox("bx_1") },
+		]);
+		await Effect.runPromise(
+			makeAdapter(http.client).resume("bx_1", 600, "pause"),
+		);
+		expect(http.calls).toHaveLength(5);
+		expect(http.calls[2]?.init?.body).toEqual(http.calls[3]?.init?.body);
+	});
+
 	test("open networking makes no provider requests", async () => {
 		const http = makeHttp([]);
 		await Effect.runPromise(
@@ -710,8 +725,14 @@ describe("Box sandbox provider", () => {
 				.replaceAll("/home/zuse", `${dir}/logical/zuse`)
 				.replaceAll("/home/repos", `${dir}/logical/repos`);
 			const shim =
-				'sudo() { shift; "$@"; }; install() { return 0; }; cp() { exit 91; }; chown() { exit 92; }; sleep() { exit 93; }';
+				'findmnt() { echo ext4; }; sudo() { shift; "$@"; }; install() { return 0; }; cp() { exit 91; }; chown() { exit 92; }; sleep() { exit 93; }';
 			await promisify(execFile)("bash", ["-c", `${shim}; ${command}`]);
+			await expect(
+				promisify(execFile)("bash", [
+					"-c",
+					`${shim}; findmnt() { echo fuse; }; install() { exit 94; }; ${command}`,
+				]),
+			).rejects.toMatchObject({ code: 75 });
 			await rm(join(dir, "persist/.layout-v1"));
 			await expect(
 				promisify(execFile)("bash", ["-c", `${shim}; ${command}`]),

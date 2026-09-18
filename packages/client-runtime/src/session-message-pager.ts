@@ -27,15 +27,20 @@ type Page = Readonly<{
 /** One bounded page, fenced by both the live stream and the pagination head. */
 export const makeSessionMessagePager = <Client>(options: {
 	getBus: () => ClientBus<Client>;
+	allowLiveAdvance?: (ref: SessionRef) => boolean;
 	readPage: (
 		ref: SessionRef,
 		client: Client | null,
 		cursor: SessionStreamCursor | null,
 		beforeSequence: number,
+		signal?: AbortSignal,
 	) => Promise<Page | null | undefined>;
 }) => {
 	const flights = new Map<string, Promise<OlderSessionMessagesResult>>();
-	const load = (ref: SessionRef): Promise<OlderSessionMessagesResult> => {
+	const load = (
+		ref: SessionRef,
+		signal?: AbortSignal,
+	): Promise<OlderSessionMessagesResult> => {
 		const key = makeResourceKey<SessionTimelineProjection>(
 			"session-timeline",
 			ref,
@@ -58,19 +63,30 @@ export const makeSessionMessagePager = <Client>(options: {
 				bus.client(ref.environmentId),
 				initial.cursor,
 				beforeSequence,
+				signal,
 			);
-			if (page == null || bus !== options.getBus())
+			if (signal?.aborted || page == null || bus !== options.getBus())
 				return { applied: false, loaded: 0, hasMore: true };
 			if (
 				page.olderMessageSequence !== null &&
 				page.olderMessageSequence >= beforeSequence
 			)
 				throw new Error("Transcript pagination did not advance");
+			const latest = bus.snapshot(key);
+			const cursor =
+				options.allowLiveAdvance?.(ref) === true &&
+				latest.generation === initial.generation &&
+				latest.cursor?.epoch === initial.cursor?.epoch &&
+				(latest.cursor?.version ?? 0) >= (initial.cursor?.version ?? 0)
+					? latest.cursor
+					: initial.cursor;
 			let loaded = 0;
 			const applied = bus.update(key, {
 				expectedGeneration: initial.generation,
-				expectedCursor: initial.cursor,
-				persist: page.olderMessageSequence === null,
+				expectedCursor: cursor,
+				persist:
+					options.allowLiveAdvance?.(ref) === true ||
+					page.olderMessageSequence === null,
 				update: (projection) => {
 					if ((projection.olderMessageSequence ?? null) !== beforeSequence)
 						return undefined;

@@ -32,6 +32,7 @@ import { POKEMON_BRANCH_CATALOG } from "@zuse/pokemon-data/branch-catalog";
 import { allocatePokemonName } from "@zuse/pokemon-data/name-allocator";
 import { SandboxProviders } from "@zuse/sandbox-providers";
 import { cloudRuntimeCommandTurnId } from "@zuse/utils/cloud-api";
+import { measureCloudStage } from "@zuse/utils/cloud-timing";
 import {
 	bytesToBase64Url,
 	sha256Base64Url,
@@ -1029,7 +1030,7 @@ export const runtimeActivityLifecycle = (
 	>,
 ) =>
 	workspace.desiredState === "ready" &&
-	(workspace.state === "resuming" || workspace.statusCode.startsWith("resume-"))
+	workspace.statusCode === "resume-runtime-waking"
 		? ({
 				state: "ready",
 				runtimeState: "online",
@@ -1226,8 +1227,7 @@ export const cloudWorkspaceResumeTarget = (
 /**
  * Shared cloud-workspace creation used by the first-party (WorkOS) route and
  * the API-key `/v1/api/workspaces` surface: entitlement + billing gates,
- * branch allocation, sealed launch intent, idempotent insert, and warm-pool
- * claim. Callers translate the outcome into their own response shape and set
+ * branch allocation, sealed launch intent, and idempotent insert. Callers translate the outcome into their own response shape and set
  * the reconcile headers when `created` is true.
  */
 export const createCloudWorkspaceForAccount = Effect.fn(
@@ -1409,44 +1409,8 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		return yield* Effect.fail(
 			conflict(`cloud_branch_in_use:${outcome.workspace.workspaceId}`),
 		);
-	let launchedWorkspace = outcome.workspace;
-	if (
-		outcome.kind === "created" &&
-		(body.sizeId === undefined ||
-			provider.sizes.some(
-				(size) =>
-					size.sizeId === body.sizeId &&
-					size.vcpuCount === provider.resources.vcpuCount &&
-					size.memoryMib === provider.resources.memoryMib,
-			))
-	) {
-		const pooled = yield* store.claimPool(
-			accountId,
-			provider.providerId,
-			build.buildId,
-			workspaceId,
-			nowMs,
-		);
-		if (pooled !== null) {
-			launchedWorkspace = {
-				...outcome.workspace,
-				providerSandboxId: pooled.providerSandboxId,
-				requestConfig: {
-					...outcome.workspace.requestConfig,
-					poolClaimedAt: nowMs,
-					startupTimings: {
-						...startupTimings(outcome.workspace),
-						poolClaimedAt: nowMs,
-					},
-				},
-				revision: outcome.workspace.revision + 1,
-				updatedAtMs: nowMs + 1,
-			};
-			yield* store.saveWorkspace(launchedWorkspace);
-		}
-	}
 	return {
-		workspace: launchedWorkspace,
+		workspace: outcome.workspace,
 		created: outcome.kind === "created",
 	} satisfies CloudWorkspaceCreateOutcome;
 });
@@ -1589,12 +1553,13 @@ export const routeCloudWorkspaceRequest = (
 		}
 
 		const recordWorkspaceActivity = Effect.fn("recordWorkspaceActivity")(
-			function* (workspace: CloudWorkspaceRecord) {
+			function* (workspace: CloudWorkspaceRecord, runtimeOnly = false) {
 				const updated = yield* store.recordActivity(
 					workspace.workspaceId,
 					workspace.accountId,
 					nowMs,
 					nowMs + idlePauseMs,
+					runtimeOnly,
 				);
 				if (
 					updated?.providerSandboxId !== undefined &&
@@ -1608,7 +1573,11 @@ export const routeCloudWorkspaceRequest = (
 							updated.providerSandboxId,
 							Math.ceil(idlePauseMs / 1_000),
 						)
-						.pipe(Effect.ignore);
+						.pipe(
+							Effect.mapError(() =>
+								serviceUnavailable("cloud_workspace_keepalive_failed"),
+							),
+						);
 				}
 				return updated;
 			},
@@ -2041,7 +2010,7 @@ export const routeCloudWorkspaceRequest = (
 						nextActionAtMs: nowMs + idlePauseMs,
 					});
 				}
-				const active = yield* recordWorkspaceActivity(workspace);
+				const active = yield* recordWorkspaceActivity(workspace, true);
 				if (
 					active !== null &&
 					runtimeActivityLifecycle(active).state !== active.state
@@ -2062,7 +2031,7 @@ export const routeCloudWorkspaceRequest = (
 		if (method === "POST" && activityMatch !== null) {
 			const workspaceId = decodeURIComponent(activityMatch[1] ?? "");
 			const workspace = yield* requireRuntime(request, workspaceId, nowMs);
-			const active = yield* recordWorkspaceActivity(workspace);
+			const active = yield* recordWorkspaceActivity(workspace, true);
 			if (
 				active !== null &&
 				runtimeActivityLifecycle(active).state !== active.state
@@ -2949,17 +2918,20 @@ export const routeCloudWorkspaceRequest = (
 		if (method === "GET" && transcriptMatch !== null) {
 			const workspaceId = decodeURIComponent(transcriptMatch[1] ?? "");
 			const sessionId = decodeURIComponent(transcriptMatch[2] ?? "");
-			const workspace = yield* store.getWorkspace(workspaceId);
+			const measure = (stage: string) =>
+				measureCloudStage({ workspaceId }, `transcript.${stage}`);
+			const workspace = yield* store
+				.getWorkspace(workspaceId)
+				.pipe(measure("workspace"));
 			if (
 				workspace === null ||
 				workspace.accountId !== principal.accountId ||
 				workspace.state === "deleted"
 			)
 				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
-			const checkpoint = yield* store.getTranscriptCheckpoint(
-				workspaceId,
-				sessionId,
-			);
+			const checkpoint = yield* store
+				.getTranscriptCheckpoint(workspaceId, sessionId)
+				.pipe(measure("metadata"));
 			if (checkpoint === null) return json({ checkpoint: null });
 			const localEpoch = url.searchParams.get("epoch");
 			const localVersion = Number(url.searchParams.get("version"));
@@ -2972,6 +2944,7 @@ export const routeCloudWorkspaceRequest = (
 			const ciphertext = yield* getCloudTranscriptObject(
 				checkpoint.objectKey,
 			).pipe(
+				measure("download"),
 				Effect.mapError(() =>
 					serviceUnavailable("cloud_transcript_store_unavailable"),
 				),
@@ -2985,6 +2958,7 @@ export const routeCloudWorkspaceRequest = (
 				workspaceId,
 				workspace.wrappedTranscriptKey ?? "",
 			).pipe(
+				measure("key"),
 				Effect.mapError(() =>
 					serviceUnavailable("cloud_transcript_key_unavailable"),
 				),
@@ -3236,52 +3210,61 @@ export const routeCloudWorkspaceRequest = (
 			});
 		}
 
-		if (method === "GET" && path === ApiPaths.cloudChats) {
-			const projectId = url.searchParams.get("projectId") ?? undefined;
-			const scope = url.searchParams.get("scope") ?? "active";
-			const workspaces = yield* store.listWorkspaces(
+		if (
+			method === "GET" &&
+			(path === ApiPaths.cloudChats || path === ApiPaths.cloudChatChanges)
+		) {
+			const changes = path === ApiPaths.cloudChatChanges;
+			const rawCursor = url.searchParams.get("cursor");
+			const cursor =
+				changes && rawCursor !== null ? Number(rawCursor) : undefined;
+			if (cursor !== undefined && (!Number.isSafeInteger(cursor) || cursor < 0))
+				return json({ error: "invalid-request" }, 400);
+			const catalog = yield* store.readCloudCatalog(
 				principal.accountId,
-				projectId,
+				cursor,
 			);
-			const chats = yield* Effect.forEach(
-				workspaces.filter((workspace) => {
-					if (workspace.state === "deleted") return false;
-					if (scope === "all") return true;
-					const archived =
-						workspace.state === "archived" ||
-						workspace.desiredState === "archived";
-					return scope === "archived" ? archived : !archived;
-				}),
-				(workspace) =>
-					Effect.gen(function* () {
-						const [project, runtimeSummary] = yield* Effect.all([
-							store.getProject(workspace.projectId),
-							store.getRuntimeSummary(workspace.workspaceId),
-						]);
-						const repaired = yield* repairAcknowledgedLaunch(
-							workspace,
-							runtimeSummary,
-						);
-						return project === null
-							? null
-							: publicCloudWorkspaceSummary(
-									repaired,
-									project,
-									false,
-									repaired.lastActivityAtMs,
-									runtimeSummary,
-								);
-					}),
-			);
-			return json({
-				chats: chats
-					.filter((chat) => chat !== null)
-					.sort(
-						(left, right) =>
-							(right.lastMessageAt ?? right.createdAt) -
-							(left.lastMessageAt ?? left.createdAt),
+			const projectId = url.searchParams.get("projectId");
+			const scope = changes
+				? "all"
+				: (url.searchParams.get("scope") ?? "active");
+			const deletedWorkspaceIds = [...catalog.deletedWorkspaceIds];
+			const chats = [];
+			for (const { workspace, project, runtimeSummary } of catalog.entries) {
+				if (workspace.state === "deleted") {
+					deletedWorkspaceIds.push(workspace.workspaceId);
+					continue;
+				}
+				if (projectId !== null && workspace.projectId !== projectId) continue;
+				const archived =
+					workspace.state === "archived" ||
+					workspace.desiredState === "archived";
+				if (scope !== "all" && (scope === "archived" ? !archived : archived))
+					continue;
+				const repaired = yield* repairAcknowledgedLaunch(
+					workspace,
+					runtimeSummary,
+				);
+				chats.push(
+					publicCloudWorkspaceSummary(
+						repaired,
+						project,
+						false,
+						repaired.lastActivityAtMs,
+						runtimeSummary,
 					),
-			});
+				);
+			}
+			return json(
+				changes
+					? {
+							cursor: catalog.cursor,
+							reset: catalog.reset,
+							chats,
+							deletedWorkspaceIds,
+						}
+					: { chats },
+			);
 		}
 
 		if (method === "POST" && path === ApiPaths.cloudProjects) {
@@ -3589,10 +3572,6 @@ export const routeCloudWorkspaceRequest = (
 				created ? 201 : 200,
 			);
 			if (created) {
-				response.headers.set(
-					"x-zuse-reconcile-cloud-pool",
-					principal.accountId,
-				);
 				response.headers.set(
 					"x-zuse-reconcile-cloud-workspace",
 					launchedWorkspace.workspaceId,

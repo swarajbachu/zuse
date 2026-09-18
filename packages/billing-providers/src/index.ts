@@ -11,6 +11,7 @@ export class BillingProviderError extends Schema.TaggedErrorClass<BillingProvide
 		code: Schema.Literals([
 			"checkout-disabled",
 			"invalid-event",
+			"subscription-unlinked",
 			"provider-unavailable",
 		]),
 	},

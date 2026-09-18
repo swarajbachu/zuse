@@ -51,7 +51,10 @@ describe("credentialed billing polls", () => {
 		});
 		expect(fetch).toHaveBeenCalledOnce();
 	});
-	it("only synthesizes closes for validated terminal Box states and timestamps", async () => {
+	it.each([
+		"BOX_API_KEY",
+		"BOAT_API_KEY",
+	])("only synthesizes validated Boat closes using %s", async (keyName) => {
 		const updatedAt = "2026-08-17T12:00:00Z";
 		vi.stubGlobal(
 			"fetch",
@@ -71,7 +74,7 @@ describe("credentialed billing polls", () => {
 		);
 		const recovery = api();
 		await BoxBillingUsageSourceModule.poll?.({
-			env: { BOX_API_KEY: "secret", CLOUD_BILLING_CUTOVER_AT: updatedAt },
+			env: { [keyName]: "secret", CLOUD_BILLING_CUTOVER_AT: updatedAt },
 			api: recovery,
 			nowMs: Date.parse(updatedAt),
 		});

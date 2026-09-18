@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-19
+- Updated: 2026-09-18 — remove speculative sandbox pools for all providers.
 
 ## Context
 
@@ -18,15 +19,14 @@ added projects.
    runtime and agent CLIs, shared toolchains, every selected repository as a
    normal checkout under `/home/repos/<owner>/<repository>`, and agent
    authentication created through setup inside E2B.
-2. A chat still owns an isolated sandbox. It claims a prewarmed fork of the
-   active account image when available, otherwise it forks the same image
-   directly. Because the sandbox is already the isolation boundary, it resets
+2. A chat owns an isolated sandbox, allocated on demand from the active
+   account image. No unassigned sandboxes are created or maintained. Because the sandbox is already the isolation boundary, it resets
    the requested branch in the included checkout and does not move, copy,
    clone, fetch, or update the runtime on the launch path. The runtime itself
    starts from `/home/zuse` and registers the selected checkout as the project.
 3. One active image generation is addressable at a time. Update forks the
    current image; clean rebuild starts from the base/auth setup environment.
-   Promotion is atomic. Old snapshots and unclaimed pool sandboxes are deleted;
+   Promotion is atomic. Old snapshots are deleted;
    already-running chats continue independently.
 4. Local Mac and persistent-machine authentication are unrelated and are never
    inspected or imported. Codex and Grok device login run in the account-owned
@@ -59,8 +59,8 @@ added projects.
    only when a GitHub command runs, then refresh it on demand.
 8. Normal create/resume has a p95 target below five seconds from user action to
    gateway connected and repository ready. Agent startup and explicit image
-   builds are outside that setup SLO. Phase timestamps are retained for pool
-   claim/fork, runtime connection, repository readiness, agent start, and first
+   builds are outside that setup SLO. Phase timestamps are retained for
+   allocation, runtime connection, repository readiness, agent start, and first
    message acceptance.
 9. Relay placement follows the regional control-plane database. Cloud workspace
    lifecycle requests contain several ordered writes, so running the Worker near
@@ -87,3 +87,8 @@ added projects.
 - Per-chat provider login.
 - A cross-sandbox refresh-token synchronization protocol.
 - Runtime downloads or network repository fetches on the normal launch path.
+
+The former two-sandbox reserve per account/provider is removed. It consumed
+compute without a workspace and added inspection/refill work to launches.
+Create requests now allocate only their requested workspace; existing workspace
+resume and allocation recovery remain idempotent.

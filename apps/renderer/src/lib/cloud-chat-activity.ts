@@ -71,6 +71,15 @@ export const deriveCloudChatActivity = ({
 	)
 		return "resuming";
 
+	// Cached turn state is not evidence that a disconnected runtime is working.
+	if (connection !== "connected")
+		return computeReady ? "attaching" : "resuming";
+	if (!computeReady) {
+		return runtime === "starting" && summary.startupPhase === "starting-agent"
+			? "starting-agent"
+			: "resuming";
+	}
+
 	if (runtime === "stopping") return "stopping";
 	if (runtime === "running") return "running";
 	if (runtime === "starting")
@@ -83,17 +92,5 @@ export const deriveCloudChatActivity = ({
 	)
 		return "starting-agent";
 
-	if (
-		connection === "waking" ||
-		connection === "connecting" ||
-		connection === "reconnecting"
-	)
-		return computeReady ? "attaching" : "resuming";
-	if (
-		summary.state === "resuming" ||
-		summary.runtimeState === "connecting" ||
-		summary.statusCode.startsWith("resume-")
-	)
-		return computeReady ? "idle" : "resuming";
 	return "idle";
 };

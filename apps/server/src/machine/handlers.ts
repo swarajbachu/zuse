@@ -248,6 +248,15 @@ const ConnectCloudWorkspace = MemoizeRpcs.toLayerHandler(
 	({ workspaceId }) =>
 		withCloudControl((service) => service.connectCloudWorkspace(workspaceId)),
 );
+const WatchCloudChats = MemoizeRpcs.toLayerHandler(
+	"cloud.chats.watch",
+	({ cursor }) =>
+		Stream.unwrap(
+			Effect.map(MachineControlService, (service) =>
+				service.watchCloudChats(cursor).pipe(Stream.mapError(toCloudError)),
+			),
+		),
+);
 const CloudChats = MemoizeRpcs.toLayerHandler(
 	"cloud.chats.list",
 	({ projectId, scope }) =>
@@ -453,6 +462,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudApiKeysRevoke,
 	ConnectCloudWorkspace,
 	CloudChats,
+	WatchCloudChats,
 	PauseCloudWorkspace,
 	ResumeCloudWorkspace,
 	RestartCloudWorkspace,

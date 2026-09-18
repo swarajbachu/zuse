@@ -36,7 +36,7 @@ import { Spinner } from "./ui/spinner.tsx";
 
 const copy: Record<
 	Exclude<CloudConnectionPresentation, "hidden">,
-	{ readonly title: string; readonly detail: string }
+	{ readonly title: string; readonly detail?: string }
 > = {
 	paused: {
 		get title() {
@@ -78,7 +78,6 @@ const copy: Record<
 		get title() {
 			return uiMessage("connections:cloud_connection_notice_connection_failed");
 		},
-		detail: "Your cached chat is still available.",
 	},
 };
 
@@ -189,7 +188,6 @@ export function CloudConnectionNotice() {
 					title: uiMessage(
 						"connections:cloud_connection_notice_cloud_access_could_not_be_verified",
 					),
-					detail: "Try again shortly. Your cached chat is still available.",
 				}
 			: signInRequired
 				? {

@@ -297,5 +297,12 @@
 	"github_repair_state_changed": "La conversation, la branche ou l’état de l’agent a changé. Relancez Réparer depuis la PR actuelle.",
 	"github_attach_failed": "Impossible de joindre le contexte de la PR.",
 	"github_repair_send_failed": "Impossible d’envoyer la réparation. Vérifiez la conversation et réessayez.",
-	"github_watch_update_failed": "Impossible de mettre à jour la surveillance CI"
+	"github_watch_update_failed": "Impossible de mettre à jour la surveillance CI",
+	"worktree_setup_card_worktree_creation_failed": "Échec de la création du worktree",
+	"worktree_setup_card_workspace_ready": "Espace de travail prêt",
+	"worktree_setup_card_creating_worktree": "Création du worktree pour {{repoName}}…",
+	"worktree_setup_card_preparing_directory": "Préparation d’un répertoire de travail distinct pour cette conversation.",
+	"worktree_setup_card_no_setup_script": "Aucun script de configuration nécessaire.",
+	"worktree_setup_card_workspace_ready_description": "Votre espace de travail est prêt.",
+	"worktree_setup_card_preparing_environment": "Préparation de l’environnement de travail."
 }

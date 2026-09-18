@@ -77,8 +77,6 @@ export const environmentShellResourceKey = (
 ): EnvironmentShellResourceKey =>
 	makeResourceKey<EnvironmentShellData>("environment-shell", ref);
 
-let nextDriverEpoch = 0;
-
 const environmentRef = (key: ResourceKey<unknown>): EnvironmentRef | null =>
 	key.kind === "environment-shell" && !("folderId" in key.ref) ? key.ref : null;
 
@@ -337,7 +335,8 @@ export const makeEnvironmentShellResourceDriver = (options: {
 			const sessionReady = new Set<FolderId>();
 			const creationReady = new Set<FolderId>();
 			const sessionCursorByProject = new Map<FolderId, number>();
-			const epoch = `environment-shell:${context.generation}:${++nextDriverEpoch}`;
+			// Persisted cursors survive renderer restarts; module counters do not.
+			const epoch = `environment-shell:${context.generation}:${crypto.randomUUID()}`;
 			const isLive = (): boolean =>
 				current.folders.every(
 					(folder) =>
@@ -356,7 +355,7 @@ export const makeEnvironmentShellResourceDriver = (options: {
 				context.emit({
 					data: current,
 					cursor: { epoch, version },
-					resetEpoch: version === 1 && context.cursor?.epoch !== epoch,
+					resetEpoch: version === 1,
 					sync: live ? "live" : "synchronizing",
 					persist: live,
 				});

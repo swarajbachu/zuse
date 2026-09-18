@@ -447,10 +447,6 @@ export const routeAccountWorkspaceRequest = (
 			);
 			if (created) {
 				response.headers.set(
-					"x-zuse-reconcile-cloud-pool",
-					principal.accountId,
-				);
-				response.headers.set(
 					"x-zuse-reconcile-cloud-workspace",
 					workspace.workspaceId,
 				);

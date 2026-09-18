@@ -55,6 +55,11 @@ test.each([
 		await settle();
 	};
 	try {
+		for (const prefix of ["", "apps/web/"]) {
+			await mkdir(join(source, prefix, ".next/cache"), { recursive: true });
+			await writeFile(join(source, prefix, ".next/cache/pack"), "cache");
+			await writeFile(join(source, prefix, ".next/config.json"), "{}");
+		}
 		await writeFile(join(source, "app.js"), "export default 1;\n");
 		await writeFile(join(source, "old.js"), "old");
 		await writeFile(join(source, ".gitignore"), "private/\n");
@@ -68,6 +73,11 @@ test.each([
 		});
 		await vi.advanceTimersByTimeAsync(5_000);
 		await settle();
+		for (const prefix of ["", "apps/web/"]) {
+			expect(await readdir(join(target, prefix, ".next"))).toEqual([
+				"config.json",
+			]);
+		}
 		await Promise.all([
 			mkdir(join(target, "node_modules")),
 			mkdir(join(target, ".git")),
