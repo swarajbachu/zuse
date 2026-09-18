@@ -519,52 +519,6 @@ describe("cloud workspace store", () => {
 		await runtime.dispose();
 	});
 
-	test("claims one warm sandbox atomically and leaves other generations alone", async () => {
-		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
-		const store = await runtime.runPromise(CloudWorkspaceStore);
-		for (const [poolId, generation] of [
-			["pool-current-a", "image-2"],
-			["pool-current-b", "image-2"],
-			["pool-stale", "image-1"],
-		] as const)
-			await runtime.runPromise(
-				store.savePool({
-					poolId,
-					accountId: "account-1",
-					provider: "e2b",
-					imageGeneration: generation,
-					providerSandboxId: `sandbox-${poolId}`,
-					state: "available",
-					createdAtMs: 100,
-					updatedAtMs: 100,
-				}),
-			);
-
-		const [first, second, empty] = await Promise.all([
-			runtime.runPromise(
-				store.claimPool("account-1", "e2b", "image-2", "workspace-a", 200),
-			),
-			runtime.runPromise(
-				store.claimPool("account-1", "e2b", "image-2", "workspace-b", 200),
-			),
-			runtime.runPromise(
-				store.claimPool("account-1", "e2b", "missing", "workspace-c", 200),
-			),
-		]);
-
-		expect(
-			new Set([first?.claimedWorkspaceId, second?.claimedWorkspaceId]),
-		).toEqual(new Set(["workspace-a", "workspace-b"]));
-		expect(first?.poolId).not.toBe(second?.poolId);
-		expect(empty).toBeNull();
-		expect(
-			(await runtime.runPromise(store.listPool("account-1", "e2b"))).find(
-				(item) => item.poolId === "pool-stale",
-			)?.state,
-		).toBe("available");
-		await runtime.dispose();
-	});
-
 	test("connects repositories idempotently and leases one active workspace per branch", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);

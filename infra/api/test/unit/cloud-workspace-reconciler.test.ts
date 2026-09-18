@@ -459,7 +459,49 @@ describe("cloud workspace reconciler", () => {
 		});
 	});
 
-	test("forks instead of resuming a paused pool sandbox", async () => {
+	test("allocates one sandbox on demand and reuses it on reconciliation retry", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-on-demand",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "start-queued",
+					requestConfig: { startupTimings: { requestedAt: Date.now() } },
+				});
+				yield* Ref.set(control.sandboxes, new Map());
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const allocated = yield* store.getWorkspace(workspace.workspaceId);
+				if (allocated === null) throw new Error("workspace missing");
+				// Retry a queued allocation after the provider succeeded but its
+				// response was lost: recover by workspace label instead of forking again.
+				yield* store.saveWorkspace({
+					...allocated,
+					state: "queued",
+					providerSandboxId: undefined,
+					revision: allocated.revision + 1,
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					sandboxes: yield* Ref.get(control.sandboxes),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.sandboxes.size).toBe(1);
+		expect(result.workspace?.providerSandboxId).toBe(
+			"fake-workspace-on-demand",
+		);
+	});
+
+	test("allocates only the requested replacement sandbox", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -471,29 +513,9 @@ describe("cloud workspace reconciler", () => {
 					statusCode: "resume-queued",
 					requestConfig: { startupTimings: { requestedAt: Date.now() } },
 				});
-				const warmSandboxId = "warm-incomplete-retry";
-				yield* Ref.update(control.sandboxes, (sandboxes) =>
-					new Map(sandboxes).set(warmSandboxId, {
-						providerSandboxId: warmSandboxId,
-						providerLabel: "warm-incomplete-retry",
-						state: "paused",
-					}),
-				);
-				yield* store.savePool({
-					poolId: "pool-incomplete-retry",
-					accountId: workspace.accountId,
-					provider: workspace.provider,
-					imageGeneration: workspace.buildId,
-					providerSandboxId: warmSandboxId,
-					state: "available",
-					createdAtMs: Date.now(),
-					updatedAtMs: Date.now(),
-				});
-
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				return {
 					workspace: yield* store.getWorkspace(workspace.workspaceId),
-					pool: yield* store.listPool(workspace.accountId, workspace.provider),
 					sandboxes: yield* Ref.get(control.sandboxes),
 					network: yield* Ref.get(control.networkBySandbox),
 					resumeInputs: yield* Ref.get(control.resumeInputs),
@@ -506,19 +528,10 @@ describe("cloud workspace reconciler", () => {
 			providerSandboxId: "fake-workspace-incomplete-retry",
 			statusCode: "runtime-starting",
 		});
-		expect(result.workspace?.requestConfig.poolClaimedAt).toEqual(
-			expect.any(Number),
-		);
-		expect(result.pool).toContainEqual(
-			expect.objectContaining({
-				state: "claimed",
-				claimedWorkspaceId: "workspace-incomplete-retry",
-			}),
-		);
 		expect(result.sandboxes.has("source-workspace-incomplete-retry")).toBe(
 			false,
 		);
-		expect(result.sandboxes.has("warm-incomplete-retry")).toBe(false);
+		expect(result.sandboxes.size).toBe(1);
 		expect(result.resumeInputs).toHaveLength(0);
 		expect(result.network.get("fake-workspace-incomplete-retry")).toEqual({
 			kind: "open",

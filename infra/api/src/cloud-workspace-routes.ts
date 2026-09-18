@@ -1229,8 +1229,7 @@ export const cloudWorkspaceResumeTarget = (
 /**
  * Shared cloud-workspace creation used by the first-party (WorkOS) route and
  * the API-key `/v1/api/workspaces` surface: entitlement + billing gates,
- * branch allocation, sealed launch intent, idempotent insert, and warm-pool
- * claim. Callers translate the outcome into their own response shape and set
+ * branch allocation, sealed launch intent, and idempotent insert. Callers translate the outcome into their own response shape and set
  * the reconcile headers when `created` is true.
  */
 export const createCloudWorkspaceForAccount = Effect.fn(
@@ -1412,44 +1411,8 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		return yield* Effect.fail(
 			conflict(`cloud_branch_in_use:${outcome.workspace.workspaceId}`),
 		);
-	let launchedWorkspace = outcome.workspace;
-	if (
-		outcome.kind === "created" &&
-		(body.sizeId === undefined ||
-			provider.sizes.some(
-				(size) =>
-					size.sizeId === body.sizeId &&
-					size.vcpuCount === provider.resources.vcpuCount &&
-					size.memoryMib === provider.resources.memoryMib,
-			))
-	) {
-		const pooled = yield* store.claimPool(
-			accountId,
-			provider.providerId,
-			build.buildId,
-			workspaceId,
-			nowMs,
-		);
-		if (pooled !== null) {
-			launchedWorkspace = {
-				...outcome.workspace,
-				providerSandboxId: pooled.providerSandboxId,
-				requestConfig: {
-					...outcome.workspace.requestConfig,
-					poolClaimedAt: nowMs,
-					startupTimings: {
-						...startupTimings(outcome.workspace),
-						poolClaimedAt: nowMs,
-					},
-				},
-				revision: outcome.workspace.revision + 1,
-				updatedAtMs: nowMs + 1,
-			};
-			yield* store.saveWorkspace(launchedWorkspace);
-		}
-	}
 	return {
-		workspace: launchedWorkspace,
+		workspace: outcome.workspace,
 		created: outcome.kind === "created",
 	} satisfies CloudWorkspaceCreateOutcome;
 });
@@ -3617,10 +3580,6 @@ export const routeCloudWorkspaceRequest = (
 				created ? 201 : 200,
 			);
 			if (created) {
-				response.headers.set(
-					"x-zuse-reconcile-cloud-pool",
-					principal.accountId,
-				);
 				response.headers.set(
 					"x-zuse-reconcile-cloud-workspace",
 					launchedWorkspace.workspaceId,

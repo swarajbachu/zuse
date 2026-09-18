@@ -485,37 +485,6 @@ export const apiCloudProjectBuilds = pgTable(
 	],
 );
 
-export const apiCloudWorkspacePool = pgTable(
-	"api_cloud_workspace_pool",
-	{
-		poolId: text("pool_id").primaryKey(),
-		accountId: text("account_id").notNull(),
-		provider: text("provider").notNull(),
-		imageGeneration: text("image_generation").notNull(),
-		providerSandboxId: text("provider_sandbox_id").notNull(),
-		state: text("state").notNull(),
-		claimedWorkspaceId: text("claimed_workspace_id"),
-		createdAt: bigint("created_at", { mode: "number" }).notNull(),
-		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-	},
-	(table) => [
-		uniqueIndex("api_cloud_pool_provider_sandbox_idx").on(
-			table.provider,
-			table.providerSandboxId,
-		),
-		index("api_cloud_pool_available_idx").on(
-			table.accountId,
-			table.provider,
-			table.imageGeneration,
-			table.state,
-		),
-		check(
-			"api_cloud_pool_state_check",
-			sql`${table.state} IN ('available', 'claimed', 'deleting')`,
-		),
-	],
-);
-
 export const apiCloudWorkspaces = pgTable(
 	"api_cloud_workspaces",
 	{

@@ -183,6 +183,13 @@
 			"when": 1789646400000,
 			"tag": "0025_cloud_catalog",
 			"breakpoints": true
+		},
+		{
+			"idx": 26,
+			"version": "7",
+			"when": 1789728185151,
+			"tag": "0026_remove_workspace_pool",
+			"breakpoints": true
 		}
 	]
 }
