@@ -504,7 +504,8 @@ type RuntimeSummaryReason =
 	| "activity"
 	| "title"
 	| "settled"
-	| "session";
+	| "session"
+	| "recovery";
 
 interface CloudRuntimeSummaryPublisher {
 	readonly publish: (
@@ -3015,6 +3016,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					);
 					yield* runCloudMailboxConsumer({
 						recoverReadiness: postCurrentRuntimeReady("repository-ready").pipe(
+							// A retained session must be acknowledged too: repository readiness
+							// alone deliberately leaves session recovery fenced in the API.
+							Effect.andThen(summaryPublisher.publish("recovery")),
+							Effect.asVoid,
 							Effect.tap(() =>
 								Effect.sync(() => {
 									cloudTimingEvent(

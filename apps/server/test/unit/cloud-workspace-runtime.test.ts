@@ -381,6 +381,47 @@ describe("cloud workspace bootstrap", () => {
 		}
 	});
 
+	it("publishes session recovery even immediately after an activity update", async () => {
+		let ready = false;
+		let sessionRecovered = false;
+		const publisher = await Effect.runPromise(
+			makeCloudRuntimeSummaryPublisher({
+				now: Effect.succeed(1000),
+				read: Effect.succeed({
+					title: "Recovered",
+					lastActivityAt: 1000,
+					activeSessionId: SessionId.make("session-1"),
+					sessionHeadVersion: 195,
+				}),
+				write: (summary) =>
+					Effect.sync(() => {
+						if (ready) sessionRecovered = true;
+						return { applied: true, summaryRevision: summary.summaryRevision };
+					}),
+			}),
+		);
+		await Effect.runPromise(publisher.publish("activity"));
+		const lease = Effect.suspend(() =>
+			sessionRecovered
+				? Effect.succeed("leased")
+				: Effect.fail(
+						new CloudWorkspaceRuntimeError({
+							reason: "cloud_workspace_runtime_not_ready",
+						}),
+					),
+		);
+		const result = await Effect.runPromise(
+			recoverCloudMailboxReadiness(
+				lease,
+				Effect.sync(() => {
+					ready = true;
+				}).pipe(Effect.andThen(publisher.publish("recovery")), Effect.asVoid),
+			),
+		);
+		expect(result).toBe("leased");
+		expect(sessionRecovered).toBe(true);
+	});
+
 	it("rebases once when API already accepted a newer summary revision", async () => {
 		const revisions: number[] = [];
 		const publisher = await Effect.runPromise(

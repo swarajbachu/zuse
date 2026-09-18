@@ -1953,6 +1953,19 @@ describe("cloud workspace store", () => {
 				nextIdleAtMs: 2_000,
 			}),
 		);
+		const readinessRetry = await runtime.runPromise(
+			store.markRuntimeRepositoryReady({
+				workspaceId: workspace.workspaceId,
+				currentCredentialHash: "runtime-hash",
+				commandProtocolVersion: 3,
+				nowMs: 230,
+				nextIdleAtMs: 2_010,
+			}),
+		);
+		expect(readinessRetry?.nextActionAtMs).toBe(
+			repositoryReady?.nextActionAtMs,
+		);
+
 		expect(repositoryReady).toMatchObject({
 			runtimeState: "online",
 			state: "setup",
