@@ -2331,7 +2331,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							workspace.requestConfig.cloudMailboxWakePending === true
 								? Math.min(workspace.nextActionAtMs, input.nowMs)
 								: launchPending
-									? input.nowMs + 30_000
+									? Math.min(workspace.nextActionAtMs, input.nowMs + 30_000)
 									: input.nextIdleAtMs,
 						runningSinceMs: workspace.runningSinceMs ?? input.nowMs,
 						revision: workspace.revision + 1,
@@ -4836,7 +4836,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							'cloudCommandProtocolVersion', ${input.commandProtocolVersion ?? null}::integer,
 							'cloudCommandRuntimeGeneration', COALESCE((request_config->>'runtimeGeneration')::bigint, 1)
 						) END,
-						next_action_at=CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN LEAST(next_action_at, ${input.nowMs}::bigint) WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN ${input.nextIdleAtMs}::bigint ELSE ${input.nowMs + 30_000}::bigint END,
+						next_action_at=CASE WHEN COALESCE((request_config->>'cloudMailboxWakePending')::boolean, false)=true THEN LEAST(next_action_at, ${input.nowMs}::bigint) WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN ${input.nextIdleAtMs}::bigint ELSE LEAST(next_action_at, ${input.nowMs + 30_000}::bigint) END,
 						running_since=COALESCE(running_since, ${input.nowMs}),
 						revision=revision+1,
 						updated_at=${input.nowMs},
