@@ -100,18 +100,6 @@ export interface CloudProjectBuildRecord {
 	readonly updatedAtMs: number;
 }
 
-export interface CloudWorkspacePoolRecord {
-	readonly poolId: string;
-	readonly accountId: string;
-	readonly provider: string;
-	readonly imageGeneration: string;
-	readonly providerSandboxId: string;
-	readonly state: "available" | "claimed" | "deleting";
-	readonly claimedWorkspaceId?: string;
-	readonly createdAtMs: number;
-	readonly updatedAtMs: number;
-}
-
 export interface CloudWorkspaceRecord {
 	readonly workspaceId: string;
 	readonly accountId: string;
@@ -618,19 +606,6 @@ export interface CloudWorkspaceStoreApi {
 		nowMs: number,
 		limit: number,
 	) => Effect.Effect<ReadonlyArray<CloudProjectBuildRecord>>;
-	readonly listPool: (
-		accountId: string,
-		provider: string,
-	) => Effect.Effect<ReadonlyArray<CloudWorkspacePoolRecord>>;
-	readonly savePool: (record: CloudWorkspacePoolRecord) => Effect.Effect<void>;
-	readonly claimPool: (
-		accountId: string,
-		provider: string,
-		imageGeneration: string,
-		workspaceId: string,
-		nowMs: number,
-	) => Effect.Effect<CloudWorkspacePoolRecord | null>;
-	readonly removePool: (poolId: string) => Effect.Effect<void>;
 	readonly createWorkspace: (
 		workspace: CloudWorkspaceRecord,
 		launchIntent: CloudWorkspaceLaunchIntentRecord,
@@ -896,7 +871,6 @@ interface MemoryState {
 	readonly githubInstallations: Map<string, CloudGithubInstallationRecord>;
 	readonly projects: Map<string, CloudProjectRecord>;
 	readonly builds: Map<string, CloudProjectBuildRecord>;
-	readonly pool: Map<string, CloudWorkspacePoolRecord>;
 	readonly workspaces: Map<string, CloudWorkspaceRecord>;
 	readonly usage: Set<string>;
 	readonly launchIntents: Map<string, CloudWorkspaceLaunchIntentRecord>;
@@ -1599,7 +1573,6 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 			githubInstallations: new Map(),
 			projects: new Map(),
 			builds: new Map(),
-			pool: new Map(),
 			workspaces: new Map(),
 			usage: new Set(),
 			launchIntents: new Map(),
@@ -1926,50 +1899,6 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							.slice(0, limit),
 					),
 				),
-			listPool: (accountId, provider) =>
-				Ref.get(state).pipe(
-					Effect.map((current) =>
-						[...current.pool.values()].filter(
-							(item) =>
-								item.accountId === accountId && item.provider === provider,
-						),
-					),
-				),
-			savePool: (record) =>
-				Ref.update(state, (current) => ({
-					...current,
-					pool: new Map(current.pool).set(record.poolId, record),
-				})),
-			claimPool: (accountId, provider, imageGeneration, workspaceId, nowMs) =>
-				Ref.modify(state, (current) => {
-					const available = [...current.pool.values()].find(
-						(item) =>
-							item.accountId === accountId &&
-							item.provider === provider &&
-							item.imageGeneration === imageGeneration &&
-							item.state === "available",
-					);
-					if (available === undefined) return [null, current] as const;
-					const claimed: CloudWorkspacePoolRecord = {
-						...available,
-						state: "claimed",
-						claimedWorkspaceId: workspaceId,
-						updatedAtMs: nowMs,
-					};
-					return [
-						claimed,
-						{
-							...current,
-							pool: new Map(current.pool).set(claimed.poolId, claimed),
-						},
-					] as const;
-				}),
-			removePool: (poolId) =>
-				Ref.update(state, (current) => {
-					const pool = new Map(current.pool);
-					pool.delete(poolId);
-					return { ...current, pool };
-				}),
 			createWorkspace: (workspace, launchIntent) =>
 				Ref.modify<MemoryState, CreateCloudWorkspaceOutcome>(
 					state,
@@ -3896,17 +3825,6 @@ const authAuthorityFromRow = (row: Row): CloudAuthAuthorityRecord => ({
 	createdAtMs: numberValue(row.created_at),
 	updatedAtMs: numberValue(row.updated_at),
 });
-const poolFromRow = (row: Row): CloudWorkspacePoolRecord => ({
-	poolId: String(row.pool_id),
-	accountId: String(row.account_id),
-	provider: String(row.provider),
-	imageGeneration: String(row.image_generation),
-	providerSandboxId: String(row.provider_sandbox_id),
-	state: row.state as CloudWorkspacePoolRecord["state"],
-	claimedWorkspaceId: optionalString(row.claimed_workspace_id),
-	createdAtMs: numberValue(row.created_at),
-	updatedAtMs: numberValue(row.updated_at),
-});
 const workspaceFromRow = (row: Row): CloudWorkspaceRecord => ({
 	workspaceId: String(row.workspace_id),
 	accountId: String(row.account_id),
@@ -4402,32 +4320,6 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				orDie(
 					sql`SELECT * FROM api_cloud_project_builds WHERE state NOT IN ('ready','failed') AND next_action_at <= ${nowMs} ORDER BY next_action_at LIMIT ${limit}`.pipe(
 						Effect.map((rows) => rows.map((row) => buildFromRow(row as Row))),
-					),
-				),
-			listPool: (accountId, provider) =>
-				orDie(
-					sql`SELECT * FROM api_cloud_workspace_pool WHERE account_id=${accountId} AND provider=${provider} ORDER BY created_at`.pipe(
-						Effect.map((rows) => rows.map((row) => poolFromRow(row as Row))),
-					),
-				),
-			savePool: (record) =>
-				orDie(
-					sql`INSERT INTO api_cloud_workspace_pool (pool_id, account_id, provider, image_generation, provider_sandbox_id, state, claimed_workspace_id, created_at, updated_at) VALUES (${record.poolId}, ${record.accountId}, ${record.provider}, ${record.imageGeneration}, ${record.providerSandboxId}, ${record.state}, ${record.claimedWorkspaceId ?? null}, ${record.createdAtMs}, ${record.updatedAtMs}) ON CONFLICT (pool_id) DO UPDATE SET state=EXCLUDED.state, claimed_workspace_id=EXCLUDED.claimed_workspace_id, updated_at=EXCLUDED.updated_at`.pipe(
-						Effect.asVoid,
-					),
-				),
-			claimPool: (accountId, provider, imageGeneration, workspaceId, nowMs) =>
-				orDie(
-					sql`WITH candidate AS (SELECT pool_id FROM api_cloud_workspace_pool WHERE account_id=${accountId} AND provider=${provider} AND image_generation=${imageGeneration} AND state='available' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED) UPDATE api_cloud_workspace_pool AS pool SET state='claimed', claimed_workspace_id=${workspaceId}, updated_at=${nowMs} FROM candidate WHERE pool.pool_id=candidate.pool_id RETURNING pool.*`.pipe(
-						Effect.map((rows) =>
-							rows[0] ? poolFromRow(rows[0] as Row) : null,
-						),
-					),
-				),
-			removePool: (poolId) =>
-				orDie(
-					sql`DELETE FROM api_cloud_workspace_pool WHERE pool_id=${poolId}`.pipe(
-						Effect.asVoid,
 					),
 				),
 			createWorkspace: (w, launchIntent) =>

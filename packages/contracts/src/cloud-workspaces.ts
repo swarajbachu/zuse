@@ -88,7 +88,6 @@ export class CloudWorkspaceStartupTimings extends Schema.Class<CloudWorkspaceSta
 	"CloudWorkspaceStartupTimings",
 )({
 	requestedAt: Schema.optional(Schema.Number),
-	poolClaimedAt: Schema.optional(Schema.Number),
 	forkedAt: Schema.optional(Schema.Number),
 	resumeRequestedAt: Schema.optional(Schema.Number),
 	allocatedAt: Schema.optional(Schema.Number),

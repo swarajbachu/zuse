@@ -588,9 +588,6 @@ const applyResponseEffects = async (
 	const cloudWorkspaceId = response.headers.get(
 		"x-zuse-reconcile-cloud-workspace",
 	);
-	const cloudPoolAccountId = response.headers.get(
-		"x-zuse-reconcile-cloud-pool",
-	);
 	const gatewayNudgeTarget = response.headers.get(
 		"x-zuse-nudge-cloud-workspace",
 	);
@@ -600,14 +597,12 @@ const applyResponseEffects = async (
 	response.headers.delete("x-zuse-reconcile-machine");
 	response.headers.delete("x-zuse-reconcile-cloud-build");
 	response.headers.delete("x-zuse-reconcile-cloud-workspace");
-	response.headers.delete("x-zuse-reconcile-cloud-pool");
 	response.headers.delete("x-zuse-nudge-cloud-workspace");
 	response.headers.delete("x-zuse-deliver-cloud-webhooks");
 	if (
 		machineId === null &&
 		cloudBuildId === null &&
 		cloudWorkspaceId === null &&
-		cloudPoolAccountId === null &&
 		gatewayNudgeTarget === null &&
 		webhookDeliveryAccountId === null
 	) {
@@ -623,9 +618,6 @@ const applyResponseEffects = async (
 			cloudWorkspaceId === null
 				? Promise.resolve()
 				: api.reconcileCloudWorkspaceStartup(cloudWorkspaceId),
-			cloudPoolAccountId === null
-				? Promise.resolve()
-				: api.reconcileCloudPool(cloudPoolAccountId),
 			gatewayNudgeTarget === null
 				? Promise.resolve()
 				: nudgeWorkspaceGateway(env, gatewayNudgeTarget),

@@ -38,7 +38,6 @@ import { randomToken, sha256Hex } from "./crypto.ts";
 import { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
 
 const RETRY_MS = 5_000;
-const ACCOUNT_POOL_SIZE = 2;
 // Provider allocation happens before `allocatedAt`. Once compute exists, the
 // baked runtime must enroll promptly; leaving this at minutes turns a broken
 // runtime into a permanently spinning composer until the recovery cron runs.
@@ -1049,108 +1048,9 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					revision: candidate.revision + 1,
 				});
 			}
-			yield* reconcileCloudPool(build.accountId).pipe(Effect.ignore);
 		}
 	},
 );
-
-/** Keep two unassigned forks of the active account image off the launch path. */
-const reconcileProviderPool = Effect.fn("reconcileProviderPool")(function* (
-	accountId: string,
-	providerId: string,
-) {
-	const store = yield* CloudWorkspaceStore;
-	const config = yield* SandboxOfferConfiguration;
-	const providers = yield* SandboxProviders;
-	const provider = yield* providers.get(providerId).pipe(Effect.orDie);
-	const image = yield* store.getActiveAccountBuild(
-		accountId,
-		provider.providerId,
-	);
-	if (image?.snapshotId === undefined) return;
-	const records = yield* store.listPool(accountId, provider.providerId);
-	for (const record of records) {
-		if (
-			record.state === "available" &&
-			record.imageGeneration !== image.buildId
-		) {
-			yield* provider.kill(record.providerSandboxId).pipe(Effect.ignore);
-			yield* store.removePool(record.poolId);
-		}
-	}
-	const current = (yield* store.listPool(
-		accountId,
-		provider.providerId,
-	)).filter(
-		(record) =>
-			record.imageGeneration === image.buildId && record.state === "available",
-	);
-	const live = [] as Array<(typeof current)[number]>;
-	for (const record of current) {
-		const sandbox = yield* provider
-			.inspect(record.providerSandboxId)
-			.pipe(
-				Effect.catchTag("SandboxProviderError", () => Effect.succeed(null)),
-			);
-		if (sandbox?.state === "running") {
-			live.push(record);
-			continue;
-		}
-		if (sandbox !== null)
-			yield* provider.kill(record.providerSandboxId).pipe(Effect.ignore);
-		yield* store.removePool(record.poolId);
-	}
-	const missing = Math.max(0, ACCOUNT_POOL_SIZE - live.length);
-	const nowMs = yield* Clock.currentTimeMillis;
-	yield* Effect.forEach(
-		Array.from({ length: missing }),
-		() =>
-			Effect.gen(function* () {
-				const poolId = yield* randomToken("pool", 12);
-				const created = yield* provider.fork({
-					sandboxId: poolId,
-					providerLabel: providerLabel("workspace", poolId),
-					metadata: {
-						"zuse-account-id": accountId,
-						"zuse-resource-kind": "workspace-pool",
-						"zuse-image-generation": image.buildId,
-					},
-					snapshotId: image.snapshotId as string,
-					timeoutSeconds: config.keepAliveTimeoutSeconds,
-					env: {},
-					// Workspace pools are user execution environments, not an identity
-					// re-key boundary. They need normal outbound internet from the moment
-					// they start so resumed agents cannot inherit a provider-level deny rule.
-					network: { kind: "open" },
-					onTimeout: "pause",
-				});
-				yield* store.savePool({
-					poolId,
-					accountId,
-					provider: provider.providerId,
-					imageGeneration: image.buildId,
-					providerSandboxId: created.providerSandboxId,
-					state: "available",
-					createdAtMs: nowMs,
-					updatedAtMs: nowMs,
-				});
-			}),
-		{ concurrency: "unbounded", discard: true },
-	);
-});
-
-export const reconcileCloudPool = Effect.fn("reconcileCloudPool")(function* (
-	accountId: string,
-) {
-	const providers = yield* SandboxProviders;
-	// Only advertised providers with a ready account image maintain warm capacity.
-	yield* Effect.forEach(
-		providers.availableProviders,
-		(provider) =>
-			reconcileProviderPool(accountId, provider.providerId).pipe(Effect.ignore),
-		{ concurrency: 2, discard: true },
-	);
-});
 
 const recordLifecycle = (
 	workspace: CloudWorkspaceRecord,
@@ -1754,51 +1654,21 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				workspace.providerSandboxId !== undefined;
 			if (replacingFailedSandbox && workspace.providerSandboxId !== undefined)
 				yield* provider.kill(workspace.providerSandboxId);
-			const replacementPool = replacingFailedSandbox
-				? yield* store.claimPool(
-						workspace.accountId,
-						workspace.provider,
-						workspace.buildId,
-						workspace.workspaceId,
-						nowMs,
-					)
-				: null;
-			const assignedSandboxId =
-				replacementPool?.providerSandboxId ??
-				(replacingFailedSandbox ? undefined : workspace.providerSandboxId);
-			const pooled =
-				assignedSandboxId !== undefined
-					? yield* provider
-							.inspect(assignedSandboxId)
-							.pipe(
-								Effect.catchTag("SandboxProviderError", () =>
-									Effect.succeed(null),
-								),
-							)
-					: null;
-			// A paused E2B sandbox is not warm: reconnecting its allocation can be
-			// substantially slower than forking the account image. Never put that
-			// hidden resume on the normal creation path.
-			const warmSandbox = pooled?.state === "running" ? pooled : null;
-			if (pooled?.state === "paused")
-				yield* provider.kill(pooled.providerSandboxId).pipe(Effect.ignore);
 			const preparedSnapshotAvailable =
 				build.snapshotId !== undefined &&
 				build.templateVersion === provider.templateVersion;
-			const recovered =
-				warmSandbox === null && !replacingFailedSandbox
-					? yield* provider.recoverByLabel(label).pipe(
-							measureCloudStage(
-								{
-									workspaceId: workspace.workspaceId,
-									provider: provider.providerId,
-								},
-								"provider.recoverByLabel",
-							),
-						)
-					: null;
+			const recovered = !replacingFailedSandbox
+				? yield* provider.recoverByLabel(label).pipe(
+						measureCloudStage(
+							{
+								workspaceId: workspace.workspaceId,
+								provider: provider.providerId,
+							},
+							"provider.recoverByLabel",
+						),
+					)
+				: null;
 			const sandbox =
-				warmSandbox ??
 				recovered ??
 				(preparedSnapshotAvailable
 					? yield* provider
@@ -1869,16 +1739,10 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					...(typeof workspace.requestConfig.sessionHeadVersion === "number"
 						? { runtimeSessionRecoveryPending: true }
 						: {}),
-					...(replacementPool === null ? {} : { poolClaimedAt: allocatedAtMs }),
 					startupTimings: {
 						...timings,
-						...(replacementPool === null
-							? {}
-							: { poolClaimedAt: allocatedAtMs }),
 						allocatedAt: allocatedAtMs,
-						...(replacementPool === null && timings.poolClaimedAt === undefined
-							? { forkedAt: allocatedAtMs }
-							: {}),
+						...(recovered === null ? { forkedAt: allocatedAtMs } : {}),
 					},
 				},
 				nextActionAtMs: allocatedAtMs + RUNTIME_CONNECTION_TIMEOUT_MS,
@@ -1905,7 +1769,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				user: "zuse",
 			});
 			// Assert the workspace invariant on every allocation path before the
-			// runtime starts. A recovered or formerly pooled sandbox may retain the
+			// runtime starts. A recovered sandbox may retain the
 			// policy from its original creation or resume, and starting these in
 			// parallel races the agent's first gateway and model-api requests.
 			yield* provider.setNetwork(sandbox.providerSandboxId, { kind: "open" });
