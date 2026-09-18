@@ -777,7 +777,7 @@
 		]
 	},
 	"faq:local_and_ssh_chats_stay_on_the_computers_you_choose_when_you_use_the": {
-		"source": "Local and SSH chats stay on the computers you choose. When you use the optional Zuse Cloud private beta, its workspace runs in E2B and encrypted transcript checkpoints are stored for fast reconnects. Model requests go only to the providers you configure. Pseudonymous usage analytics never include prompts, responses, code, paths, commands, account details, or error stacks, and you can turn them off in Settings.",
+		"source": "Local and SSH chats stay on the computers you choose. When you use the optional Zuse Cloud public beta, its workspace runs in E2B and encrypted transcript checkpoints are stored for fast reconnects. Model requests go only to the providers you configure. Pseudonymous usage analytics never include prompts, responses, code, paths, commands, account details, or error stacks, and you can turn them off in Settings.",
 		"locations": [
 			{
 				"path": "apps/web/components/faq/index.tsx",
@@ -813,7 +813,7 @@
 		]
 	},
 	"faq:the_zuse_desktop_beta_is_available_now_and_uses_your_own_agent_subscri": {
-		"source": "The Zuse desktop beta is available now and uses your own agent subscriptions or API keys. Zuse Cloud is a private, invite-only beta: Cloud Workspace costs $40/month, includes $35 of attributable E2B compute, and bills additional provider cost plus 5% up to your overage cap.",
+		"source": "The Zuse desktop beta is available now and uses your own agent subscriptions or API keys. Zuse Cloud is in public beta: Cloud Workspace costs $40/month, includes $35 of attributable E2B compute, and bills additional provider cost plus 5% up to your overage cap.",
 		"locations": [
 			{
 				"path": "apps/web/components/faq/index.tsx",

@@ -78,7 +78,6 @@ describe("api deployment safety", () => {
 				"E2B_API_KEY",
 				"E2B_WEBHOOK_SECRET",
 				"CLOUD_CREDENTIAL_VAULT_KEY",
-				"POSTHOG_PROJECT_TOKEN",
 				"POLAR_ACCESS_TOKEN",
 				"POLAR_WEBHOOK_SECRET",
 				"GITHUB_APP_PRIVATE_KEY",
@@ -276,10 +275,7 @@ else process.exit(2);
 		);
 		expect(production.vars.E2B_VCPU_COUNT).toBe("2");
 		expect(production.vars.E2B_MEMORY_MIB).toBe("4096");
-		expect(production.vars.POSTHOG_HOST).toBe("https://us.i.posthog.com");
-		expect(production.vars.POSTHOG_CLOUD_BETA_FLAG_KEY).toBe(
-			"zuse-cloud-beta-access",
-		);
+		expect(production.vars).not.toHaveProperty("POSTHOG_CLOUD_BETA_FLAG_KEY");
 		expect(production.vars).not.toHaveProperty("MACHINE_ALPHA_ALLOWLIST");
 		expect(production.vars.POLAR_ENVIRONMENT).toBe("production");
 		expect(production.vars.POLAR_PRODUCT_CLOUD_WORKSPACE_STANDARD_V1).toBe(

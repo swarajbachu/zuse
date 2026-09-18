@@ -40,9 +40,6 @@
 		"GITHUB_APP_ID": "4663095",
 		"GITHUB_APP_SLUG": "zusesh",
 		"GITHUB_APP_CLIENT_ID": "Iv23liToo4tc4RcbDNpV",
-		"POSTHOG_HOST": "https://us.i.posthog.com",
-		"POSTHOG_CLOUD_BETA_FLAG_KEY": "zuse-cloud-beta-access",
-
 		"MANAGED_TUNNEL_BASE_DOMAIN": "stuff.md",
 		"MANAGED_TUNNEL_NAMESPACE": "zenv",
 		"CF_ACCOUNT_ID": "40dd16663d44dc635537be6d183af841",

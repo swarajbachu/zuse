@@ -31,7 +31,6 @@ import { makeSlackModule, type SlackOptions } from "./slack/module.ts";
 export * from "./account-identity.ts";
 export * from "./api-webhook-dispatch.ts";
 export { API_SCOPES } from "./auth.ts";
-export * from "./beta-access.ts";
 export * from "./cloud-billing.ts";
 export * from "./cloud-billing-outbox.ts";
 export * from "./cloud-billing-provider.ts";

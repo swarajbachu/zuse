@@ -4,29 +4,15 @@ Zuse Cloud treats the desktop, mobile client, API, gateway, provider sandbox,
 and object storage as separate trust boundaries. Long-lived provider or account
 credentials are never used as client connection credentials.
 
-## Identity and private-beta authorization
+## Identity and authorization
 
-WorkOS verifies the signed-in account. For user-facing hosted operations, API
-then evaluates the server-side PostHog flag `zuse-cloud-beta-access` using the
-verified WorkOS account ID. API never trusts a client-supplied account ID or a
-renderer-evaluated feature flag.
-
-The gate covers cloud creation and mutation, resume, transcript/key retrieval,
-gateway client tickets, managed hosted machines, checkout, portal, usage, and
-cap routes. It deliberately does not cover runtime enrollment and renewal,
-signed runtime callbacks, checkpoint uploads, lifecycle callbacks, or provider
-webhooks. This lets an already accepted turn settle after access is removed
-without granting another user operation.
-
-The WorkOS-authenticated entitlement lookup is the sole bootstrap exception:
-after API verifies an active Polar subscription, it sets
-`zuse_cloud_beta_access=true` for the account's privacy-preserving PostHog
-identity. It cannot create or resume compute itself. PostHog deny returns
-`cloud_beta_access_required`. Evaluation timeout, malformed
-data, or outage returns `cloud_beta_access_unavailable`; production fails closed
-for new hosted operations. Neither result signs the user out or removes cached
-transcripts. Local, SSH, pairing, and ordinary remote-server paths are outside
-this gate.
+WorkOS verifies the signed-in account. User-facing hosted operations use that
+verified account identity for ownership and require the applicable Cloud
+Workspace entitlement before reserving billable compute. API never trusts a
+client-supplied account ID. Runtime enrollment, signed callbacks, checkpoint
+uploads, lifecycle callbacks, and provider webhooks use their own scoped
+credentials and signatures. Local, SSH, pairing, and ordinary remote-server
+paths remain outside Cloud billing authorization.
 
 ## Runtime bootstrap and generations
 
@@ -79,7 +65,7 @@ data key; decryption and authoritative application happen in the runtime.
   runtime identity, authorized keys, and shell history.
 - SSH uses a ticket-gated runtime WebSocket route and a per-workspace host key;
   it does not expose a public provider SSH listener.
-- API signing keys, WorkOS, Cloudflare, E2B, PostHog, Polar, webhook, and vault
+- API signing keys, WorkOS, Cloudflare, E2B, Polar, webhook, and vault
   secrets are Worker secrets, not tracked configuration values.
 - Staging and production use separate configs, secrets, runtime signing keys,
   template versions, provider webhooks, and databases.
@@ -104,8 +90,8 @@ key.
 The public integration surface (`/v1/api/**`, see [Public API](public-api.md))
 authenticates with account-scoped `zk_` API keys instead of WorkOS. Secrets are
 stored as SHA-256 hashes only and are revocable immediately; minting a key is
-WorkOS-gated and beta-gated, so a key never grants more than its account
-already has. Conversation-ledger content, outbound webhook payloads, and
+WorkOS-gated, and every API operation checks the account's Cloud entitlement.
+Conversation-ledger content, outbound webhook payloads, and
 webhook signing secrets are sealed at rest with the API data-encryption key,
 bound to their owning account and row.
 
@@ -127,9 +113,9 @@ remain long enough to reject old redelivery.
 
 ## Revocation and deletion
 
-Removing beta access blocks new create, resume, mutation, transcript retrieval,
-and reconnect operations. Existing short-lived tickets expire naturally; API
-can fence a runtime by advancing its generation or gateway epoch.
+Removing the Cloud entitlement blocks new billable operations. Existing
+short-lived tickets expire naturally; API can fence a runtime by advancing its
+generation or gateway epoch.
 
 Permanent workspace deletion kills the provider sandbox, deletes R2 transcript
 objects and checkpoint pointers, revokes runtime credentials and tickets, and

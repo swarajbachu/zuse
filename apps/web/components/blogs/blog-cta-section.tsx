@@ -18,7 +18,7 @@ export const BlogCtaSection = () => {
 					<span className="-tracking-xs text-muted-foreground text-base leading-6 font-medium">
 						It is local-first by design: chats in SQLite on disk, keys in the
 						operating system credential store. Bring your own keys and use your
-						existing agent subscriptions. Zuse Cloud is an optional, invite-only
+						existing agent subscriptions. Zuse Cloud is available in public
 						beta.
 					</span>
 					<div>
