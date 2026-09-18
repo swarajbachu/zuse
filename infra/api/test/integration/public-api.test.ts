@@ -26,11 +26,6 @@ import {
 	deliverPendingApiWebhooks,
 	signWebhookPayload,
 } from "../../src/api-webhook-dispatch.ts";
-import {
-	BetaAccess,
-	BetaAccessAllowAll,
-	BetaAccessDenied,
-} from "../../src/beta-access.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import { takeCloudMailboxDirective } from "../../src/cloud-mailbox-directive.ts";
 import {
@@ -101,7 +96,6 @@ const advertisedAdapter: SandboxProviderAdapter = {
 };
 
 const makeRuntime = async (
-	betaAccess: Layer.Layer<BetaAccess> = BetaAccessAllowAll,
 	cloudBillingEnforcementEnabled = false,
 	cloudBrokerEnrollmentEnabled = false,
 	sandboxLayer?: Layer.Layer<SandboxProviders>,
@@ -138,7 +132,6 @@ const makeRuntime = async (
 	});
 	const layer = Layer.mergeAll(
 		config,
-		betaAccess,
 		WorkosVerifierTest,
 		ApiStoreMemory,
 		CloudWorkspaceStoreMemory,
@@ -622,41 +615,6 @@ describe("public API (/v1/api)", () => {
 		expect(missingKey.status).toBe(401);
 	});
 
-	test("fails closed after beta removal while key revocation stays available", async () => {
-		let betaAllowed = true;
-		const runtime = await makeRuntime(
-			Layer.succeed(
-				BetaAccess,
-				BetaAccess.of({
-					check: () =>
-						betaAllowed ? Effect.void : Effect.fail(new BetaAccessDenied()),
-					grant: () => Effect.void,
-				}),
-			),
-		);
-		const secret = await createApiKey(runtime);
-		const listed = await json<{ keys: ReadonlyArray<{ keyId: string }> }>(
-			await serve(runtime, "/v1/cloud/api-keys", { headers: WORKOS_HEADERS }),
-			200,
-		);
-		betaAllowed = false;
-
-		const denied = await serve(runtime, "/v1/api/projects", {
-			headers: { authorization: `Bearer ${secret}` },
-		});
-		expect(denied.status).toBe(403);
-
-		const keyId = listed.keys[0]?.keyId ?? "";
-		expect(
-			(
-				await serve(runtime, `/v1/cloud/api-keys/${keyId}`, {
-					method: "DELETE",
-					headers: WORKOS_HEADERS,
-				})
-			).status,
-		).toBe(200);
-	});
-
 	test("rejects ambiguous idempotency and unsafe webhook targets", async () => {
 		const runtime = await makeRuntime();
 		const store = await runtime.runPromise(CloudWorkspaceStore);
@@ -831,7 +789,7 @@ describe("public API (/v1/api)", () => {
 	});
 
 	test("preserves account auth brokers and first-party mailbox enrollment during shared creation", async () => {
-		const runtime = await makeRuntime(BetaAccessAllowAll, false, true);
+		const runtime = await makeRuntime(false, true);
 		const store = await runtime.runPromise(CloudWorkspaceStore);
 		await seedReadyProject(runtime, store);
 		const secret = await createApiKey(runtime);
@@ -2163,7 +2121,7 @@ describe("public API (/v1/api)", () => {
 	});
 
 	test("does not persist a paused-workspace command when billing denies resume", async () => {
-		const runtime = await makeRuntime(BetaAccessAllowAll, true);
+		const runtime = await makeRuntime(true);
 		const store = await runtime.runPromise(CloudWorkspaceStore);
 		await seedReadyProject(runtime, store);
 		const secret = await createApiKey(runtime);
@@ -2307,7 +2265,6 @@ describe("public API (/v1/api)", () => {
 
 test("keeps Box and E2B images independent and accepts either provider through the public API", async () => {
 	const runtime = await makeRuntime(
-		BetaAccessAllowAll,
 		false,
 		false,
 		SandboxProviders.layer({

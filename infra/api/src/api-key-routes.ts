@@ -1,7 +1,6 @@
 import { ApiPaths, CloudApiKeyCreateRequest } from "@zuse/contracts";
 import { Clock, Effect } from "effect";
 import { requireWorkos } from "./auth.ts";
-import { type BetaAccess, requireCloudBetaAccess } from "./beta-access.ts";
 import {
 	type ApiKeyRecord,
 	CloudWorkspaceStore,
@@ -11,10 +10,7 @@ import { type ApiError, badRequest, notFound } from "./errors.ts";
 import { decodeBody, decodePathSegment, json } from "./http.ts";
 import type { WorkosVerifier } from "./workos.ts";
 
-export type ApiKeyRouteContext =
-	| CloudWorkspaceStore
-	| WorkosVerifier
-	| BetaAccess;
+export type ApiKeyRouteContext = CloudWorkspaceStore | WorkosVerifier;
 
 /** Number of secret characters echoed back for display (`zk_` + 9). */
 const API_KEY_PREFIX_LENGTH = 12;
@@ -50,7 +46,6 @@ export const routeApiKeyRequest = (
 		}
 
 		if (method === "POST" && path === ApiPaths.cloudApiKeys) {
-			yield* requireCloudBetaAccess(principal.accountId);
 			const body = yield* decodeBody(CloudApiKeyCreateRequest, request);
 			const name = body.name.trim();
 			if (name.length === 0 || name.length > 100)

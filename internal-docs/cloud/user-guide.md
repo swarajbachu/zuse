@@ -1,15 +1,13 @@
 # Cloud workspace user guide
 
-Zuse Cloud lets an invited user run a coding agent in a hosted workspace that
-continues independently of the app. It is a private beta; installing Zuse does
-not automatically grant cloud access.
+Zuse Cloud lets a signed-in user run a coding agent in a hosted workspace that
+continues independently of the app. It is available as a public beta.
 
 ## Before you start
 
 You need:
 
 - a Zuse account authenticated through WorkOS;
-- an invitation to the Zuse Cloud beta;
 - an active Cloud Workspace subscription;
 - GitHub access to the repository you want to use; and
 - credentials for at least one supported coding agent.
@@ -115,17 +113,6 @@ briefly while provider evidence settles; Zuse reconciles signed lifecycle
 events with provider polling so duplicate evidence is not charged twice.
 
 ## Common failures
-
-### Invite required
-
-The signed-in account is not currently in the private beta. Local and remote
-features remain available. Changing a client flag cannot grant access.
-
-### Access verification unavailable
-
-Zuse could not verify the server-side beta flag. Cached cloud transcripts
-remain readable, but new hosted actions fail closed until verification returns.
-This should not sign the account out.
 
 ### Cached chat available, connection failed
 

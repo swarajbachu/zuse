@@ -16,7 +16,7 @@
 	"is_my_code_or_data_sent_anywhere": "我的程式碼或資料是否發送到任何地方？",
 	"yes_you_can_run_several_agents_in_parallel_each_in_its_own_chat_with_i": "是的。您可以並行運行多個代理，每個代理都在自己的聊天中使用自己的 git 工作樹，因此它們的變更保持隔離。從 PR 和變更窗格中查看並提交每一項。",
 	"a_lead_agent_can_spawn_sub_agents_to_handle_parts_of_a_task_including": "主導代理可以產生子代理來處理部分任務，包括用於更簡單工作的更便宜的模型。這使得昂貴的模型專注於困難的部分，並降低了整體代幣成本。",
-	"local_and_ssh_chats_stay_on_the_computers_you_choose_when_you_use_the": "本機和 SSH 聊天保留在您選擇的電腦上。當您使用可選的 Zuse Cloud 私人測試版時，其工作區在 E2B 中運行，並儲存加密的轉錄檢查點以實現快速重新連接。模型請求僅傳送至您配置的提供者。假名使用情況分析從不包括提示、回應、程式碼、路徑、命令、帳戶詳細資料或錯誤堆疊，您可以在「設定」中將其關閉。",
-	"the_zuse_desktop_beta_is_available_now_and_uses_your_own_agent_subscri": "Zuse 桌面測試版現已推出，並使用您自己的代理訂閱或 API 金鑰。 Zuse Cloud 是一個私人、僅限邀請的測試版：Cloud Workspace 的費用為 40 美元/月，包括 35 美元的可歸屬 E2B 計算，並收取額外的提供者費用以及超額上限的 5%。",
+	"local_and_ssh_chats_stay_on_the_computers_you_choose_when_you_use_the": "本機和 SSH 聊天保留在您選擇的電腦上。當您使用可選的 Zuse Cloud 公開測試版時，其工作區在 E2B 中運行，並儲存加密的轉錄檢查點以實現快速重新連接。模型請求僅傳送至您配置的提供者。假名使用情況分析從不包括提示、回應、程式碼、路徑、命令、帳戶詳細資料或錯誤堆疊，您可以在「設定」中將其關閉。",
+	"the_zuse_desktop_beta_is_available_now_and_uses_your_own_agent_subscri": "Zuse 桌面測試版現已推出，並使用您自己的代理訂閱或 API 金鑰。Zuse Cloud 現已進入公開測試階段：Cloud Workspace 的費用為 40 美元/月，包括 35 美元的可歸屬 E2B 計算，並收取額外的提供者費用以及超額上限的 5%。",
 	"zuse_beta_ships_for_macos_and_x64_linux_the_download_button_selects_th": "Zuse（Beta）適用於 macOS 和 x64 Linux。 「下載」按鈕自動選擇 macOS 磁碟映像或 Linux AppImage，Debian 和 Ubuntu 用戶還可以從以下位置取得 .deb 軟體包GitHub 發布。"
 }

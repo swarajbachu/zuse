@@ -105,7 +105,7 @@ binding requires separate, explicit approval.
    This is staging-only and validates the configured Supabase project and database
    before Drizzle runs. Production uses the separately guarded
    `db:migrate:production` command after its approved identity is pinned in
-   `production-database.json`; see the private beta production runbook.
+   `production-database.json`; see the public beta production runbook.
 3. **Hyperdrive**: create the binding with SQL response caching disabled, then
    paste the id into `wrangler.jsonc`:
    ```sh

@@ -20,7 +20,7 @@
 	"cloud_connection_notice_update_required": "Update required",
 	"cloud_connection_notice_reconnect_needed": "Reconnect needed",
 	"cloud_connection_notice_connection_failed": "Connection failed",
-	"cloud_connection_notice_zuse_cloud_is_invite_only": "Zuse Cloud is invite-only",
+	"cloud_connection_notice_zuse_cloud_is_invite_only": "Cloud access unavailable",
 	"cloud_connection_notice_cloud_access_could_not_be_verified": "Cloud access could not be verified",
 	"cloud_connection_notice_sign_in_required": "Sign in required",
 	"cloud_workspace_info_could_not_open_via_ssh": "Could not open via SSH",

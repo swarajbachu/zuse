@@ -50,7 +50,6 @@ import {
 	sealApiString,
 } from "./api-sealing.ts";
 import { requireWorkos } from "./auth.ts";
-import { type BetaAccess, requireCloudBetaAccess } from "./beta-access.ts";
 import {
 	cancelCloudAuthLogin,
 	cloudAuthStatus,
@@ -164,7 +163,6 @@ export type CloudWorkspaceRouteContext =
 	| SandboxProviders
 	| SandboxOfferConfiguration
 	| ApiConfiguration
-	| BetaAccess
 	| WorkosVerifier
 	| CloudBillingStore;
 
@@ -2664,13 +2662,7 @@ export const routeCloudWorkspaceRequest = (
 			/^\/v1\/cloud\/workspaces\/([^/]+)\/(pause|resume|restart|archive|unarchive|delete)$/u.exec(
 				path,
 			);
-		const isCleanupAction =
-			method === "POST" &&
-			(actionMatch?.[2] === "pause" ||
-				actionMatch?.[2] === "archive" ||
-				actionMatch?.[2] === "delete");
 		const principal = yield* requireWorkos(request);
-		if (!isCleanupAction) yield* requireCloudBetaAccess(principal.accountId);
 
 		const commandCollectionMatch =
 			/^\/v1\/cloud\/workspaces\/([^/]+)\/commands$/u.exec(path);
