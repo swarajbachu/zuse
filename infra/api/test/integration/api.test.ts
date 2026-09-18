@@ -781,6 +781,7 @@ describe("@zuse/api", () => {
 		let unavailable = false;
 		let valid = true;
 		let paidThrough = Date.now() - 60_000;
+		let periodStart = paidThrough - 86_400_000;
 		const billing: BillingProviderAdapter = {
 			providerId: "billing-test",
 			checkout: () => Effect.succeed("https://billing.test/checkout"),
@@ -804,6 +805,7 @@ describe("@zuse/api", () => {
 						: Effect.succeed({
 								accountId,
 								providerSubscriptionId: subscriptionId,
+								periodStart,
 								status: "active",
 								offerId: "cloud-workspace-standard-v1",
 								paidThrough,
@@ -851,6 +853,7 @@ describe("@zuse/api", () => {
 			linked = true;
 			// The deferred delivery must not deduplicate away a later linked delivery.
 			expect((await deliver()).status).toBe(200);
+			periodStart = Date.now() - 30_000;
 			paidThrough = Date.now() + 86_400_000;
 			unavailable = true;
 			expect((await entitlements()).status).toBe(503);
@@ -862,6 +865,16 @@ describe("@zuse/api", () => {
 			expect(refreshed.status).toBe(200);
 			expect(await refreshed.json()).toMatchObject({
 				entitlements: [{ status: "active", paidThrough }],
+			});
+			const summary = await billingApi.fetch(
+				new Request(`${API_ISSUER}${ApiPaths.cloudBillingSummary}`, {
+					headers: { authorization: "Bearer test-token:user_a" },
+				}),
+			);
+			expect(summary.status).toBe(200);
+			expect(await summary.json()).toMatchObject({
+				periodStart,
+				periodEnd: paidThrough,
 			});
 		} finally {
 			await billingApi.dispose();

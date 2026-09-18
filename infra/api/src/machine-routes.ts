@@ -388,6 +388,7 @@ const reconcileCheckoutEntitlements = (
 					const reconciled: EntitlementPersistenceRecord = {
 						...entitlement,
 						status: subscription.status,
+						periodStartMs: subscription.periodStart,
 						paidThroughMs: subscription.paidThrough,
 						endedAtMs:
 							subscription.status === "ended" &&
