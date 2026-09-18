@@ -775,6 +775,99 @@ describe("@zuse/api", () => {
 		}
 	});
 
+	test("unclaimed webhooks do not block delivery and expired access reconciles on read", async () => {
+		let linked = false;
+		let accountId = "user_a";
+		let unavailable = false;
+		let valid = true;
+		let paidThrough = Date.now() - 60_000;
+		const billing: BillingProviderAdapter = {
+			providerId: "billing-test",
+			checkout: () => Effect.succeed("https://billing.test/checkout"),
+			getCheckout: () => Effect.succeed(null),
+			verifyEvent: () =>
+				valid
+					? Effect.succeed({
+							eventId: "renewal-event",
+							subscriptionId: "renewal-subscription",
+						})
+					: Effect.fail(new BillingProviderError({ code: "invalid-event" })),
+			reconcileSubscription: (subscriptionId) =>
+				unavailable
+					? Effect.fail(
+							new BillingProviderError({ code: "provider-unavailable" }),
+						)
+					: !linked
+						? Effect.fail(
+								new BillingProviderError({ code: "subscription-unlinked" }),
+							)
+						: Effect.succeed({
+								accountId,
+								providerSubscriptionId: subscriptionId,
+								status: "active",
+								offerId: "cloud-workspace-standard-v1",
+								paidThrough,
+							}),
+			cancel: () => Effect.void,
+			customerPortal: () => Effect.succeed("https://billing.test/portal"),
+		};
+		const billingApi = makeApi(
+			await makeLayer(
+				undefined,
+				BillingProviders.layer({
+					adapters: [billing],
+					defaultProviderId: billing.providerId,
+				}).pipe(Layer.orDie),
+				true,
+			),
+		);
+		const deliver = () =>
+			billingApi.fetch(
+				new Request(`${API_ISSUER}/v1/billing/webhook/billing-test`, {
+					method: "POST",
+					body: "{}",
+				}),
+			);
+		const entitlements = () =>
+			billingApi.fetch(
+				new Request(`${API_ISSUER}${ApiPaths.billingEntitlements}`, {
+					headers: { authorization: "Bearer test-token:user_a" },
+				}),
+			);
+		try {
+			const deferred = await deliver();
+			expect(deferred.status).toBe(200);
+			expect(await deferred.json()).toEqual({
+				ok: true,
+				deferred: "subscription-unlinked",
+			});
+			expect(await (await entitlements()).json()).toEqual({ entitlements: [] });
+			unavailable = true;
+			expect((await deliver()).status).toBe(503);
+			unavailable = false;
+			valid = false;
+			expect((await deliver()).status).toBe(401);
+			valid = true;
+			linked = true;
+			// The deferred delivery must not deduplicate away a later linked delivery.
+			expect((await deliver()).status).toBe(200);
+			paidThrough = Date.now() + 86_400_000;
+			unavailable = true;
+			expect((await entitlements()).status).toBe(503);
+			unavailable = false;
+			accountId = "user_other";
+			expect((await entitlements()).status).toBe(503);
+			accountId = "user_a";
+			const refreshed = await entitlements();
+			expect(refreshed.status).toBe(200);
+			expect(await refreshed.json()).toMatchObject({
+				entitlements: [{ status: "active", paidThrough }],
+			});
+		} finally {
+			await billingApi.dispose();
+		}
+	});
+
 	test("reconciles an ended subscription before offering replacement checkout", async () => {
 		let status: "active" | "ended" = "active";
 		const billing: BillingProviderAdapter = {

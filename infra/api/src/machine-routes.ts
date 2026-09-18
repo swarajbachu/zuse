@@ -707,10 +707,17 @@ export const routeMachineRequest = (
 			const subscription = yield* billing
 				.reconcileSubscription(event.subscriptionId)
 				.pipe(
-					Effect.mapError(() =>
-						serviceUnavailable("billing_provider_unavailable"),
+					Effect.catch((error) =>
+						error.code === "subscription-unlinked"
+							? Effect.succeed(null)
+							: Effect.fail(serviceUnavailable("billing_provider_unavailable")),
 					),
 				);
+			// No entitlement exists to update until verified-email account claiming.
+			// Acknowledge this expected state; real provider failures still retry.
+			if (subscription === null) {
+				return json({ ok: true, deferred: "subscription-unlinked" });
+			}
 			const outcome = yield* applyBillingSubscription({
 				billingProviderId: billing.providerId,
 				eventId: event.eventId,
@@ -995,6 +1002,23 @@ export const routeMachineRequest = (
 		if (method === "GET" && path === ApiPaths.billingEntitlements) {
 			const principal = yield* requireWorkos(request);
 			let entitlements = yield* store.listEntitlements(principal.accountId);
+			if (
+				entitlements.some(
+					(item) =>
+						item.providerSubscriptionId !== undefined &&
+						item.status !== "ended" &&
+						item.paidThroughMs !== undefined &&
+						item.paidThroughMs <= nowMs,
+				)
+			) {
+				entitlements = [
+					...(yield* reconcileCheckoutEntitlements(
+						principal.accountId,
+						entitlements,
+						nowMs,
+					)),
+				];
+			}
 			if (
 				!entitlements.some(
 					(entitlement) =>
