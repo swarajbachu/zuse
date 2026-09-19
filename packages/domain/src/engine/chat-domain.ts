@@ -78,6 +78,13 @@ export const makeChatDomain = Effect.fn("ChatDomain.make")(function* (
 	const projectorLock = yield* Semaphore.make(1);
 	const catchUp = Semaphore.withPermits(projectorLock, 1, projector.catchUp());
 
+	// Hydrate the SQL read model before exposing the domain service. Chat listings
+	// are served directly from `chats`, so waiting for the first command to run
+	// projector catch-up can briefly (or permanently after a restart) show an old
+	// title when the previous process persisted the rename event but stopped before
+	// committing its projector cursor.
+	yield* catchUp.pipe(Effect.orDie);
+
 	return ChatDomain.of({
 		catchUp,
 		dispatch: Effect.fn("ChatDomain.dispatch")(function* (

@@ -21,13 +21,18 @@ import { HomeChatRow } from "~/components/home/home-chat-row";
 import { HomeProjectHeader } from "~/components/home/home-project-header";
 import { HomeSectionHeader } from "~/components/home/home-section-header";
 import { HomeSkeleton } from "~/components/home/home-skeleton";
+import { ProjectDragRow } from "~/components/home/project-drag-row";
+import { useProjectOrder } from "~/components/home/use-project-order";
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { HugeIcon } from "~/components/ui/huge-icon";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { optionsForConnection } from "~/lib/connection-params";
-import { availableConnections } from "~/lib/connection-records";
+import {
+	availableConnections,
+	eligibleConnections,
+} from "~/lib/connection-records";
 import { selectionTap, successTap } from "~/lib/haptics";
 import { buildHomeFeed, type HomeFeedItem } from "~/lib/home-feed";
 import {
@@ -37,6 +42,8 @@ import {
 	type InboxGroupDisplayState,
 	nextInboxGroupDisplay,
 } from "~/lib/inbox";
+import { startLoadingDeadline } from "~/lib/loading-deadline";
+import { moveProject, orderProjects } from "~/lib/project-order";
 import {
 	authAccountAtom,
 	authBusyAtom,
@@ -125,6 +132,10 @@ export default function HomeScreen() {
 	const errorByConnection = useAtomValue(errorByConnectionAtom);
 	const pinnedHydrated = useAtomValue(pinnedChatsHydratedAtom);
 	const pinnedKeys = useAtomValue(pinnedChatKeysAtom);
+	const projectOrder = useProjectOrder();
+	const projectViews = useRef(new Map<string, View>());
+	const projectPositions = useRef(new Map<string, number>());
+	const [dragging, setDragging] = useState(false);
 	const onboardingHydrated = useAtomValue(onboardingHydratedAtom);
 	const onboardingComplete = useAtomValue(onboardingCompleteAtom);
 	const shouldLaunchOnboarding =
@@ -135,7 +146,7 @@ export default function HomeScreen() {
 		account === null &&
 		connections.length === 0;
 	const reachableConnections = useMemo(
-		() => availableConnections(connections, account !== null),
+		() => eligibleConnections(connections, account !== null),
 		[account, connections],
 	);
 
@@ -236,14 +247,19 @@ export default function HomeScreen() {
 	const searching = search.trim().length > 0;
 	const feedConnections = useMemo(
 		() =>
-			reachableConnections.filter(
-				(connection) =>
-					connection.source === "cloud" ||
-					connectionSnapshots[connection.key]?.status === "connected",
+			availableConnections(
+				reachableConnections,
+				account !== null,
+				connectionSnapshots,
+				new Set(
+					Object.keys(bundlesByConnection).filter(
+						(key) => (bundlesByConnection[key]?.length ?? 0) > 0,
+					),
+				),
 			),
-		[reachableConnections, connectionSnapshots],
+		[reachableConnections, account, connectionSnapshots, bundlesByConnection],
 	);
-	const groups = useMemo(
+	const unorderedGroups = useMemo(
 		() =>
 			buildInboxGroups({
 				connections: feedConnections,
@@ -253,6 +269,19 @@ export default function HomeScreen() {
 				pinnedChatKeys: new Set(pinnedKeys),
 			}),
 		[bundlesByConnection, pinnedKeys, feedConnections, search, statusBySession],
+	);
+	const projectOrderKey = useCallback(
+		(group: (typeof unorderedGroups)[number]) =>
+			JSON.stringify([
+				connections.find((connection) => connection.key === group.connectionKey)
+					?.environmentId ?? group.connectionKey,
+				group.projectId,
+			]),
+		[connections],
+	);
+	const groups = useMemo(
+		() => orderProjects(unorderedGroups, projectOrder.order, projectOrderKey),
+		[unorderedGroups, projectOrder.order, projectOrderKey],
 	);
 	const feed = useMemo(
 		() => buildHomeFeed({ groups, displayStates, searching }),
@@ -270,7 +299,7 @@ export default function HomeScreen() {
 			(connection) => loadingByConnection[connection.key] === true,
 		);
 	const connectionFailure =
-		reachableConnections
+		feedConnections
 			.filter((connection) => connection.source !== "cloud")
 			.map((connection) => {
 				const snapshot = connectionSnapshots[connection.key];
@@ -285,7 +314,7 @@ export default function HomeScreen() {
 			})
 			.find((entry) => entry !== null) ?? null;
 	const connectionError = connectionFailure?.[1] ?? null;
-	const recoveringConnection = reachableConnections.find((connection) => {
+	const recoveringConnection = feedConnections.find((connection) => {
 		if (connection.source === "cloud") return false;
 		const status = connectionSnapshots[connection.key]?.status;
 		return status === "connecting" || status === "reconnecting";
@@ -303,6 +332,36 @@ export default function HomeScreen() {
 		if (recoveringConnection === undefined) return;
 		const options = optionsForConnection(recoveringConnection.key, connections);
 		if (options !== null) retryConnection(recoveringConnection.key, options);
+	};
+	const [loadTimedOut, setLoadTimedOut] = useState(false);
+	const [loadAttempt, setLoadAttempt] = useState(0);
+	const waitingForHome = loading || recoveringConnection !== undefined;
+	useEffect(() => {
+		// A manual retry starts a new deadline; reconnect status changes do not.
+		void loadAttempt;
+		setLoadTimedOut(false);
+		if (!waitingForHome) return;
+		return startLoadingDeadline(() => setLoadTimedOut(true));
+	}, [waitingForHome, loadAttempt]);
+	const homeLoadFailed =
+		loadTimedOut ||
+		connectionError !== null ||
+		(account !== null && environmentsError !== null) ||
+		Boolean(cloudCatalog.error);
+	const showHomeRecovery = feed.length === 0 && homeLoadFailed;
+	const retryHome = () => {
+		setLoadTimedOut(false);
+		setLoadAttempt((attempt) => attempt + 1);
+		if (account !== null) {
+			void refreshEnvironments();
+			void refreshCloudCatalog();
+		}
+		for (const connection of reachableConnections) {
+			const options = optionsForConnection(connection.key, connections);
+			if (options === null) continue;
+			retryConnection(connection.key, options);
+			void hydrateSessions(connection.key, options);
+		}
 	};
 
 	const updateGroup = useCallback((key: string, action: InboxDisplayAction) => {
@@ -352,12 +411,62 @@ export default function HomeScreen() {
 				return <HomeSectionHeader title={item.title} />;
 			case "project-header":
 				return (
-					<HomeProjectHeader
-						group={item.group}
-						collapsed={item.collapsed}
-						connections={reachableConnections}
-						onToggle={() => updateGroup(item.group.key, "toggle-collapsed")}
-					/>
+					<ProjectDragRow
+						enabled={!searching && projectOrder.ready}
+						register={(view) => {
+							if (view) projectViews.current.set(item.group.key, view);
+							else projectViews.current.delete(item.group.key);
+						}}
+						onStart={() => {
+							setDragging(true);
+							projectPositions.current.clear();
+							for (const [key, view] of projectViews.current)
+								view.measureInWindow((_x, y, _width, height) => {
+									if (height > 0)
+										projectPositions.current.set(key, y + height / 2);
+								});
+						}}
+						onFinish={() => setDragging(false)}
+						onDrop={(screenY) => {
+							const targets = groups.filter((group) =>
+								projectPositions.current.has(group.key),
+							);
+							const target = targets.reduce<
+								(typeof groups)[number] | undefined
+							>(
+								(best, group) =>
+									!best ||
+									Math.abs(
+										(projectPositions.current.get(group.key) ?? 0) - screenY,
+									) <
+										Math.abs(
+											(projectPositions.current.get(best.key) ?? 0) - screenY,
+										)
+										? group
+										: best,
+								undefined,
+							);
+							if (!target) return;
+							const keys = groups.map(projectOrderKey);
+							const from = keys.indexOf(projectOrderKey(item.group));
+							const next = moveProject(
+								keys,
+								from,
+								keys.indexOf(projectOrderKey(target)) - from,
+							);
+							projectOrder.save([
+								...next,
+								...projectOrder.order.filter((key) => !keys.includes(key)),
+							]);
+						}}
+					>
+						<HomeProjectHeader
+							group={item.group}
+							collapsed={item.collapsed}
+							connections={reachableConnections}
+							onToggle={() => updateGroup(item.group.key, "toggle-collapsed")}
+						/>
+					</ProjectDragRow>
 				);
 			case "show-more":
 				return (
@@ -468,6 +577,7 @@ export default function HomeScreen() {
 					>
 						<Search size={17} color={colors.secondaryFg} />
 						<TextInput
+							editable={!dragging}
 							accessibilityLabel="Search chats"
 							autoCapitalize="none"
 							autoCorrect={false}
@@ -511,6 +621,7 @@ export default function HomeScreen() {
 				/>
 			</Stack.Toolbar>
 			<FlatList
+				scrollEnabled={!dragging}
 				className="flex-1 bg-background"
 				data={feed}
 				keyExtractor={(item) => item.key}
@@ -519,25 +630,14 @@ export default function HomeScreen() {
 				contentContainerClassName="px-4 pb-28 pt-2"
 				initialNumToRender={12}
 				windowSize={7}
-				removeClippedSubviews
+				removeClippedSubviews={!dragging}
 				keyboardDismissMode="on-drag"
 				keyboardShouldPersistTaps="handled"
 				refreshControl={
 					<RefreshControl
-						refreshing={loading && feed.length > 0}
+						refreshing={loading && !homeLoadFailed && feed.length > 0}
 						tintColor={colors.accent}
-						onRefresh={() => {
-							void refreshCloudCatalog();
-							if (account !== null) void refreshEnvironments();
-							for (const connection of reachableConnections) {
-								const options = optionsForConnection(
-									connection.key,
-									connections,
-								);
-								if (options !== null)
-									void hydrateSessions(connection.key, options);
-							}
-						}}
+						onRefresh={retryHome}
 					/>
 				}
 				ListHeaderComponent={
@@ -581,8 +681,9 @@ export default function HomeScreen() {
 									</Text>
 								</Pressable>
 							))}
-						{((account === null ? null : environmentsError) ??
-						connectionError) ? (
+						{showHomeRecovery ? null : ((account === null
+								? null
+								: environmentsError) ?? connectionError) ? (
 							<View className="mb-3">
 								<ConnectionRecoveryBanner
 									message={connectionErrorMessage(
@@ -593,20 +694,64 @@ export default function HomeScreen() {
 									onPairAgain={() => router.push("/connect/scan")}
 								/>
 							</View>
-						) : recoveringConnection !== undefined ? (
+						) : recoveringConnection !== undefined && feed.length > 0 ? (
 							<View className="mb-3">
 								<ConnectionRecoveryBanner
-									message="Trying to reach your computer…"
-									onRetry={retryRecoveringConnection}
-									recovering
+									message={
+										loadTimedOut
+											? "Computer unavailable. Check its connection and retry."
+											: `Reconnecting to ${recoveringConnection.label}…`
+									}
+									onRetry={loadTimedOut ? retryHome : retryRecoveringConnection}
+									recovering={!loadTimedOut}
 								/>
 							</View>
 						) : null}
 					</>
 				}
 				ListEmptyComponent={
-					loading ? (
-						<HomeSkeleton />
+					showHomeRecovery ? (
+						<View className="gap-3 px-5 pt-8">
+							<Text
+								accessibilityRole="header"
+								className="text-center font-sans-medium text-base text-foreground"
+							>
+								Couldn’t load your chats
+							</Text>
+							<Text
+								selectable
+								className="text-center font-sans text-sm leading-5 text-muted-foreground"
+							>
+								Keep Zuse open on your Mac and check your connection, then try
+								again.
+							</Text>
+							<View className="gap-3">
+								<Button onPress={retryHome}>Try again</Button>
+								<Button
+									variant="secondary"
+									onPress={() => router.push("/settings")}
+								>
+									Connection settings
+								</Button>
+								<Button
+									variant="ghost"
+									onPress={() => router.push("/connect/scan")}
+								>
+									Scan a new QR code
+								</Button>
+							</View>
+						</View>
+					) : waitingForHome ? (
+						<View className="items-center gap-3 pt-12">
+							<HomeSkeleton />
+							<Text className="font-sans-medium text-base text-foreground">
+								Connecting to your chats
+							</Text>
+							<Text className="px-8 text-center font-sans text-sm leading-5 text-muted-foreground">
+								Keep your computer awake and Zuse running. We’ll show recovery
+								options if it doesn’t respond within 30 seconds.
+							</Text>
+						</View>
 					) : (
 						<View className="pt-24">
 							<EmptyState

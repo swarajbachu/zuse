@@ -554,6 +554,8 @@ export const SessionTimelineFrame = Schema.Union([
 		olderMessageSequence: Schema.optional(Schema.NullOr(Schema.Number)),
 		/** Complete durable message count represented by this snapshot series. */
 		totalMessageCount: Schema.optional(Schema.Number),
+		/** Opt-in recent head; older rows travel through the page RPC. */
+		historyMode: Schema.optional(Schema.Literal("background")),
 	}),
 	Schema.Struct({
 		kind: Schema.Literal("snapshot-chunk"),
@@ -1534,6 +1536,7 @@ export const SessionEventsRpc = Rpc.make("session.events", {
 		afterVersion: Schema.optional(Schema.Number),
 		streamEpoch: Schema.optional(Schema.String),
 		hasProjection: Schema.optional(Schema.Boolean),
+		historyMode: Schema.optional(Schema.Literal("background")),
 	}),
 	success: SessionTimelineFrame,
 	error: SessionNotFoundError,

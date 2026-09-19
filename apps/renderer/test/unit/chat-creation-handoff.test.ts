@@ -9,6 +9,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+	cloudTranscriptIsLoading,
 	resolveAgentStarting,
 	resolvePendingStartupTranscriptPrompt,
 	shouldRenderEmptyChatState,
@@ -179,7 +180,7 @@ describe("chat creation handoff", () => {
 	it("rehydrates and follows the reserved worktree from the live chat shell", () => {
 		expect(worktreeSetupSource).toContain("useWorktreeSetupLifecycle(");
 		expect(worktreeLifecycleSource).toContain(
-			"void refreshWorktrees(projectId)",
+			"await refreshWorktrees(projectId)",
 		);
 		expect(worktreeLifecycleSource).toMatch(
 			/\[creationPhase, projectId, refreshWorktrees, worktreeId\]/,
@@ -305,7 +306,7 @@ describe("chat creation handoff", () => {
 			}),
 		);
 		expect(html).toContain("<summary");
-		expect(html).toContain("Creating a new copy of zuse");
+		expect(html).toContain("Creating worktree for zuse");
 		expect(html).not.toContain("Preparing workspace");
 		expect(html).not.toContain("Starting agent");
 		expect(html).not.toContain("rounded-xl");
@@ -325,5 +326,67 @@ describe("chat creation handoff", () => {
 		expect(preparing).not.toContain("Fetching the latest Git changes");
 		expect(startingAgent).toContain("Cloud workspace ready");
 		expect(startingAgent).not.toContain("Starting agent");
+	});
+});
+
+it("advances setup progress from the durable phase before the worktree row hydrates", () => {
+	const html = renderToStaticMarkup(
+		createElement(SetupCardView, {
+			data: {
+				...{ creationPhase: "running_setup" as const },
+				repoName: "zuse",
+				hasWorktree: true,
+				worktreePending: true,
+				worktreeName: null,
+				branch: null,
+				baseBranch: null,
+				setupStatus: null,
+				setupOutput: "",
+				onRerun: null,
+			},
+		}),
+	);
+	expect(html.slice(0, html.indexOf("</summary>"))).toContain(
+		"Running environment setup",
+	);
+	expect(html).not.toContain("Branching a fresh worktree");
+	expect(html).not.toContain("copying files");
+});
+
+it.each([
+	["creating_workspace", "Creating worktree for zuse"],
+	["running_setup", "Running environment setup"],
+	["starting_agent", "Workspace ready"],
+	["running", "Workspace ready"],
+	["failed", "Worktree creation failed"],
+] as const)("renders the actual %s stage even before hydration", (creationPhase, label) => {
+	const html = renderToStaticMarkup(
+		createElement(SetupCardView, {
+			data: {
+				creationPhase,
+				repoName: "zuse",
+				hasWorktree: true,
+				worktreePending: true,
+				worktreeName: null,
+				branch: null,
+				baseBranch: null,
+				setupStatus: null,
+				setupOutput: "",
+				onRerun: null,
+			},
+		}),
+	);
+	expect(html.slice(0, html.indexOf("</summary>"))).toContain(label);
+});
+
+describe("cloud transcript loading state", () => {
+	it("stops showing loading when the authoritative read returned no checkpoint", () => {
+		expect(cloudTranscriptIsLoading("empty")).toBe(false);
+		expect(cloudTranscriptIsLoading("failed")).toBe(false);
+		expect(cloudTranscriptIsLoading("cached")).toBe(false);
+	});
+	it("shows loading while a read is actually in flight", () => {
+		expect(cloudTranscriptIsLoading("synchronizing")).toBe(true);
+		expect(cloudTranscriptIsLoading("hydrating-cache")).toBe(true);
 	});
 });

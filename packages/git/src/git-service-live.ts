@@ -69,7 +69,9 @@ import {
 import {
 	feedbackComments,
 	feedbackReviews,
+	PR_REVIEW_THREADS_QUERY,
 	parseFeedbackPages,
+	parseReviewThreads,
 } from "./pr-feedback.ts";
 import { RepositoryLocator } from "./repository-locator.ts";
 import {
@@ -1333,6 +1335,7 @@ export const GitServiceLive = Layer.effect(
 						null,
 					];
 					let avatars = parsePrAvatars("");
+					let reviewThreads = parseReviewThreads("");
 					if (prRepository !== null && parsed.number !== undefined) {
 						const prefix = `repos/${prRepository.owner}/${prRepository.repo}`;
 						const optionalRead = (args: ReadonlyArray<string>) =>
@@ -1349,6 +1352,24 @@ export const GitServiceLive = Layer.effect(
 							);
 						yield* Effect.all(
 							[
+								optionalRead([
+									"graphql",
+									"--paginate",
+									"--slurp",
+									"-f",
+									`query=${PR_REVIEW_THREADS_QUERY}`,
+									"-f",
+									`owner=${prRepository.owner}`,
+									"-f",
+									`repo=${prRepository.repo}`,
+									"-F",
+									`number=${parsed.number}`,
+								]).pipe(
+									Effect.map((output) => {
+										reviewThreads = parseReviewThreads(output);
+										return undefined;
+									}),
+								),
 								...collectActionsRunIds(rollup).map((runId) =>
 									optionalRead([
 										actionsJobsApiPath(
@@ -1462,8 +1483,12 @@ export const GitServiceLive = Layer.effect(
 					const [discussion, inline, reviewPages] = feedbackPages;
 					if (discussion != null) comments = feedbackComments(discussion);
 					if (inline != null)
-						comments = [...comments, ...feedbackComments(inline)];
-					if (reviewPages != null) reviews = feedbackReviews(reviewPages);
+						comments = [
+							...comments,
+							...feedbackComments(inline, reviewThreads),
+						];
+					if (reviewPages != null)
+						reviews = feedbackReviews(reviewPages, reviewThreads, inline ?? []);
 
 					const files = (parsed.files ?? [])
 						.filter((f) => typeof f.path === "string" && f.path.length > 0)

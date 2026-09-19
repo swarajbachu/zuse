@@ -291,5 +291,12 @@
 	"github_repair_state_changed": "チャット、ブランチ、またはエージェントの状態が変わりました。現在の PR から修復を再実行してください。",
 	"github_attach_failed": "PR のコンテキストを添付できませんでした。",
 	"github_repair_send_failed": "修復を送信できませんでした。チャットを確認して再試行してください。",
-	"github_watch_update_failed": "CI 監視を更新できませんでした"
+	"github_watch_update_failed": "CI 監視を更新できませんでした",
+	"worktree_setup_card_worktree_creation_failed": "ワークツリーの作成に失敗しました",
+	"worktree_setup_card_workspace_ready": "ワークスペースの準備が完了しました",
+	"worktree_setup_card_creating_worktree": "{{repoName}} のワークツリーを作成中…",
+	"worktree_setup_card_preparing_directory": "このチャット用の独立した作業ディレクトリを準備しています。",
+	"worktree_setup_card_no_setup_script": "セットアップスクリプトは不要です。",
+	"worktree_setup_card_workspace_ready_description": "ワークスペースの準備が完了しました。",
+	"worktree_setup_card_preparing_environment": "ワークスペースの環境を準備しています。"
 }

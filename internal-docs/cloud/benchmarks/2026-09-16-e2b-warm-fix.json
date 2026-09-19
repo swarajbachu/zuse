@@ -1,0 +1,1668 @@
+{
+	"metadata": {
+		"schemaVersion": 1,
+		"appVersion": "0.21.0",
+		"runtimeVersion": "dc7d4d93bc5d86f0b5a03a075bfe3b0cbf605618",
+		"wireProtocolVersion": 5
+	},
+	"sandboxId": "ic9c90g84tcqgj239fsvp",
+	"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+	"runtimeEvents": [
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "runtime.shell-start",
+			"atMs": 1789550724015,
+			"runtimeGeneration": 2
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "runtime.update-start",
+			"atMs": 1789550724017,
+			"runtimeGeneration": 2
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "runtime.update-end",
+			"atMs": 1789550725417,
+			"runtimeGeneration": 2
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "runtime.exec",
+			"atMs": 1789550725418,
+			"runtimeGeneration": 2
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "runtime.initializing",
+			"atMs": 1789550726439
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "runtime.bootstrap",
+			"event": "start",
+			"atMs": 1789550726502
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "runtime.bootstrap",
+			"event": "end",
+			"atMs": 1789550726988,
+			"durationMs": 485.81257299999993,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"runtimeGeneration": 2,
+			"stage": "runtime.bootstrap-received",
+			"atMs": 1789550726988
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"runtimeGeneration": 2,
+			"stage": "runtime.credentials-ready",
+			"atMs": 1789550730069
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "runtime.bootstrap-ack",
+			"event": "start",
+			"atMs": 1789550730410
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"runtimeGeneration": 2,
+			"stage": "runtime.mailbox-starting",
+			"atMs": 1789550730422
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "runtime.bootstrap-ack",
+			"event": "end",
+			"atMs": 1789550731227,
+			"durationMs": 816.9367860000002,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"runtimeGeneration": 2,
+			"stage": "runtime.warm-readiness-restored",
+			"atMs": 1789550731235
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"runtimeGeneration": 2,
+			"stage": "runtime.gateway-open",
+			"atMs": 1789550732231
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"runtimeGeneration": 2,
+			"stage": "runtime.gateway-open",
+			"atMs": 1789550732587
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"runtimeGeneration": 2,
+			"stage": "runtime.warm-readiness-restored",
+			"atMs": 1789550743380
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"runtimeGeneration": 2,
+			"stage": "runtime.gateway-open",
+			"atMs": 1789550745064
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"messageId": "msg_bca5512df24f69d391805d4e5c63b25e5550a340",
+			"commandId": "api:msg_bca5512df24f69d391805d4e5c63b25e5550a340",
+			"runtimeGeneration": 2,
+			"stage": "message.received",
+			"atMs": 1789550745915
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"messageId": "msg_bca5512df24f69d391805d4e5c63b25e5550a340",
+			"commandId": "api:msg_bca5512df24f69d391805d4e5c63b25e5550a340",
+			"runtimeGeneration": 2,
+			"stage": "message.session-accept",
+			"event": "start",
+			"atMs": 1789550745915
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"messageId": "msg_bca5512df24f69d391805d4e5c63b25e5550a340",
+			"commandId": "api:msg_bca5512df24f69d391805d4e5c63b25e5550a340",
+			"runtimeGeneration": 2,
+			"stage": "message.session-accept",
+			"event": "end",
+			"atMs": 1789550746805,
+			"durationMs": 889.4936369999996,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "message.delivery-ack",
+			"event": "start",
+			"atMs": 1789550746805
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "message.delivery-ack",
+			"event": "end",
+			"atMs": 1789550747531,
+			"durationMs": 725.6348019999987,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"runtimeGeneration": 2,
+			"stage": "runtime.warm-readiness-restored",
+			"atMs": 1789550765415
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"runtimeGeneration": 2,
+			"stage": "runtime.gateway-open",
+			"atMs": 1789550766699
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"messageId": "msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65",
+			"commandId": "api:msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65",
+			"runtimeGeneration": 2,
+			"stage": "message.received",
+			"atMs": 1789550767514
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"messageId": "msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65",
+			"commandId": "api:msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65",
+			"runtimeGeneration": 2,
+			"stage": "message.session-accept",
+			"event": "start",
+			"atMs": 1789550767515
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"messageId": "msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65",
+			"commandId": "api:msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65",
+			"runtimeGeneration": 2,
+			"stage": "message.session-accept",
+			"event": "end",
+			"atMs": 1789550767551,
+			"durationMs": 36.057614000001195,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "message.delivery-ack",
+			"event": "start",
+			"atMs": 1789550767551
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "message.delivery-ack",
+			"event": "end",
+			"atMs": 1789550768280,
+			"durationMs": 728.6908840000033,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"runtimeGeneration": 2,
+			"stage": "runtime.warm-readiness-restored",
+			"atMs": 1789550785815
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"runtimeGeneration": 2,
+			"stage": "runtime.gateway-open",
+			"atMs": 1789550788788
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"messageId": "msg_239a11109faf1f00e8909f5873fe7ce7defda512",
+			"commandId": "api:msg_239a11109faf1f00e8909f5873fe7ce7defda512",
+			"runtimeGeneration": 2,
+			"stage": "message.received",
+			"atMs": 1789550789566
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"messageId": "msg_239a11109faf1f00e8909f5873fe7ce7defda512",
+			"commandId": "api:msg_239a11109faf1f00e8909f5873fe7ce7defda512",
+			"runtimeGeneration": 2,
+			"stage": "message.session-accept",
+			"event": "start",
+			"atMs": 1789550789566
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"messageId": "msg_239a11109faf1f00e8909f5873fe7ce7defda512",
+			"commandId": "api:msg_239a11109faf1f00e8909f5873fe7ce7defda512",
+			"runtimeGeneration": 2,
+			"stage": "message.session-accept",
+			"event": "end",
+			"atMs": 1789550789590,
+			"durationMs": 24.152619999993476,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "message.delivery-ack",
+			"event": "start",
+			"atMs": 1789550789591
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"stage": "message.delivery-ack",
+			"event": "end",
+			"atMs": 1789550790309,
+			"durationMs": 718.5298669999975,
+			"outcome": "Success"
+		}
+	],
+	"apiEvents": [
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"reason": "explicit-restart",
+			"stage": "runtime.restart-decision",
+			"atMs": 1789550720683
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "runtime.write-file",
+			"event": "start",
+			"atMs": 1789550720973
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "runtime.write-file",
+			"event": "end",
+			"atMs": 1789550721393,
+			"durationMs": 420,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "provider.network",
+			"event": "start",
+			"atMs": 1789550721497
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "provider.network",
+			"event": "end",
+			"atMs": 1789550721683,
+			"durationMs": 186,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "runtime.replace",
+			"event": "start",
+			"atMs": 1789550721683
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "runtime.replace",
+			"event": "end",
+			"atMs": 1789550723335,
+			"durationMs": 1652,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "provider.recoverByLabel",
+			"event": "start",
+			"atMs": 1789550700716
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "provider.recoverByLabel",
+			"event": "end",
+			"atMs": 1789550700906,
+			"durationMs": 190,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "provider.fork",
+			"event": "start",
+			"atMs": 1789550700906
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "provider.fork",
+			"event": "end",
+			"atMs": 1789550702619,
+			"durationMs": 1713,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "message.request-authorized",
+			"atMs": 1789550738575
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"messageId": "msg_bca5512df24f69d391805d4e5c63b25e5550a340",
+			"commandId": "api:msg_bca5512df24f69d391805d4e5c63b25e5550a340",
+			"provider": "e2b",
+			"stage": "message.persisted",
+			"atMs": 1789550739745
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "provider.resume",
+			"event": "start",
+			"atMs": 1789550739944
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "provider.resume",
+			"event": "end",
+			"atMs": 1789550740418,
+			"durationMs": 474,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "message.request-authorized",
+			"atMs": 1789550762005
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"messageId": "msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65",
+			"commandId": "api:msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65",
+			"provider": "e2b",
+			"stage": "message.persisted",
+			"atMs": 1789550763159
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "provider.resume",
+			"event": "start",
+			"atMs": 1789550763358
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "provider.resume",
+			"event": "end",
+			"atMs": 1789550763837,
+			"durationMs": 479,
+			"outcome": "Success"
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "message.request-authorized",
+			"atMs": 1789550782003
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"messageId": "msg_239a11109faf1f00e8909f5873fe7ce7defda512",
+			"commandId": "api:msg_239a11109faf1f00e8909f5873fe7ce7defda512",
+			"provider": "e2b",
+			"stage": "message.persisted",
+			"atMs": 1789550783085
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "provider.resume",
+			"event": "start",
+			"atMs": 1789550783268
+		},
+		{
+			"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+			"provider": "e2b",
+			"stage": "provider.resume",
+			"event": "end",
+			"atMs": 1789550784116,
+			"durationMs": 848,
+			"outcome": "Success"
+		}
+	],
+	"benchmark": {
+		"timeout": [
+			{
+				"event": "initial",
+				"atMs": 1789549700863,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "queued",
+					"statusCode": "provisioning-queued",
+					"startupPhase": "booting",
+					"runtimeState": "offline",
+					"agentStatus": "working",
+					"latestSeq": 1,
+					"lastTurn": null,
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549696659
+				}
+			},
+			{
+				"event": "initial",
+				"atMs": 1789549704416,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "provisioning",
+					"statusCode": "runtime-starting",
+					"startupPhase": "booting",
+					"runtimeState": "offline",
+					"agentStatus": "working",
+					"latestSeq": 1,
+					"lastTurn": null,
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549702720
+				}
+			},
+			{
+				"event": "initial",
+				"atMs": 1789549706487,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "setup",
+					"statusCode": "runtime-authenticating",
+					"startupPhase": "authenticating-runtime",
+					"runtimeState": "connecting",
+					"agentStatus": "working",
+					"latestSeq": 1,
+					"lastTurn": null,
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549706036
+				}
+			},
+			{
+				"event": "initial",
+				"atMs": 1789549713539,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "working",
+					"latestSeq": 1,
+					"lastTurn": null,
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549711692
+				}
+			},
+			{
+				"event": "initial",
+				"atMs": 1789549734706,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_534nMU7QNBnGYCIC",
+						"outcome": "error",
+						"completedAt": 1789549731826
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549732969
+				}
+			},
+			{
+				"event": "upgrade-request",
+				"atMs": 1789549734706
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789549738006,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "resuming",
+					"statusCode": "restart-queued",
+					"startupPhase": "booting",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_534nMU7QNBnGYCIC",
+						"outcome": "error",
+						"completedAt": 1789549731826
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549736241
+				}
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789549740036,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "provisioning",
+					"statusCode": "resume-runtime-restarting",
+					"startupPhase": "booting",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_534nMU7QNBnGYCIC",
+						"outcome": "error",
+						"completedAt": 1789549731826
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549737069
+				}
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789549744681,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "setup",
+					"statusCode": "runtime-authenticating",
+					"startupPhase": "authenticating-runtime",
+					"runtimeState": "connecting",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_534nMU7QNBnGYCIC",
+						"outcome": "error",
+						"completedAt": 1789549731826
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549743061
+				}
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789549746695,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "setup",
+					"statusCode": "agent-starting",
+					"startupPhase": "starting-agent",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_534nMU7QNBnGYCIC",
+						"outcome": "error",
+						"completedAt": 1789549731826
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549745977
+				}
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789549748790,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_534nMU7QNBnGYCIC",
+						"outcome": "error",
+						"completedAt": 1789549731826
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549747902
+				}
+			},
+			{
+				"event": "pause-request",
+				"atMs": 1789549748790,
+				"round": 1
+			},
+			{
+				"event": "pause",
+				"atMs": 1789549751848,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "pause-queued",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_534nMU7QNBnGYCIC",
+						"outcome": "error",
+						"completedAt": 1789549731826
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549750116
+				}
+			},
+			{
+				"event": "pause",
+				"atMs": 1789549754055,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "paused",
+					"statusCode": "paused",
+					"startupPhase": "running",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_534nMU7QNBnGYCIC",
+						"outcome": "error",
+						"completedAt": 1789549731826
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549750901
+				}
+			},
+			{
+				"event": "message-sent",
+				"atMs": 1789549759169,
+				"round": 1,
+				"clientStartMs": 1789549757059,
+				"receipt": {
+					"messageId": "msg_7ae5d715ce5f8025e3d9f83f7c21d1a795ed3638",
+					"seq": 3,
+					"status": "queued",
+					"resumeTriggered": true
+				}
+			},
+			{
+				"event": "delivered",
+				"atMs": 1789549776104,
+				"round": 1,
+				"createdAt": 1789549757716,
+				"deliveredAt": 1789549774854,
+				"messageId": "msg_7ae5d715ce5f8025e3d9f83f7c21d1a795ed3638"
+			},
+			{
+				"event": "settled",
+				"atMs": 1789549779593,
+				"round": 1
+			},
+			{
+				"event": "idle",
+				"atMs": 1789549780760,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 4,
+					"lastTurn": {
+						"turnId": "turn_msg_7ae5d715ce5f8025e3d9f83f7c21d1a795ed3638",
+						"outcome": "error",
+						"completedAt": 1789549776383
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549777605
+				}
+			},
+			{
+				"event": "complete",
+				"atMs": 1789549780761
+			}
+		],
+		"after": [
+			{
+				"event": "initial",
+				"atMs": 1789549992975,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 4,
+					"lastTurn": {
+						"turnId": "turn_msg_7ae5d715ce5f8025e3d9f83f7c21d1a795ed3638",
+						"outcome": "error",
+						"completedAt": 1789549776383
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549936045
+				}
+			},
+			{
+				"event": "upgrade-request",
+				"atMs": 1789549992975
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789549995978,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "resuming",
+					"statusCode": "restart-queued",
+					"startupPhase": "booting",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 4,
+					"lastTurn": {
+						"turnId": "turn_msg_7ae5d715ce5f8025e3d9f83f7c21d1a795ed3638",
+						"outcome": "error",
+						"completedAt": 1789549776383
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549994301
+				}
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789549998139,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "provisioning",
+					"statusCode": "resume-runtime-restarting",
+					"startupPhase": "booting",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 4,
+					"lastTurn": {
+						"turnId": "turn_msg_7ae5d715ce5f8025e3d9f83f7c21d1a795ed3638",
+						"outcome": "error",
+						"completedAt": 1789549776383
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789549995124
+				}
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789550002647,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "setup",
+					"statusCode": "runtime-authenticating",
+					"startupPhase": "authenticating-runtime",
+					"runtimeState": "connecting",
+					"agentStatus": "idle",
+					"latestSeq": 4,
+					"lastTurn": {
+						"turnId": "turn_msg_7ae5d715ce5f8025e3d9f83f7c21d1a795ed3638",
+						"outcome": "error",
+						"completedAt": 1789549776383
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789550002160
+				}
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789550006910,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "setup",
+					"statusCode": "agent-starting",
+					"startupPhase": "starting-agent",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 4,
+					"lastTurn": {
+						"turnId": "turn_msg_7ae5d715ce5f8025e3d9f83f7c21d1a795ed3638",
+						"outcome": "error",
+						"completedAt": 1789549776383
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789550006299
+				}
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789550009012,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 4,
+					"lastTurn": {
+						"turnId": "turn_msg_7ae5d715ce5f8025e3d9f83f7c21d1a795ed3638",
+						"outcome": "error",
+						"completedAt": 1789549776383
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789550008656
+				}
+			},
+			{
+				"event": "pause-request",
+				"atMs": 1789550009012,
+				"round": 1
+			},
+			{
+				"event": "pause",
+				"atMs": 1789550012471,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "paused",
+					"statusCode": "paused",
+					"startupPhase": "running",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 4,
+					"lastTurn": {
+						"turnId": "turn_msg_7ae5d715ce5f8025e3d9f83f7c21d1a795ed3638",
+						"outcome": "error",
+						"completedAt": 1789549776383
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789550011451
+				}
+			},
+			{
+				"event": "message-sent",
+				"atMs": 1789550017593,
+				"round": 1,
+				"clientStartMs": 1789550015478,
+				"receipt": {
+					"messageId": "msg_3f7fb7c04fac148edc302ca2c040444bdd42c62b",
+					"seq": 5,
+					"status": "queued",
+					"resumeTriggered": true
+				}
+			},
+			{
+				"event": "delivered",
+				"atMs": 1789550036356,
+				"round": 1,
+				"createdAt": 1789550016285,
+				"deliveredAt": 1789550034801,
+				"messageId": "msg_3f7fb7c04fac148edc302ca2c040444bdd42c62b"
+			},
+			{
+				"event": "settled",
+				"atMs": 1789550039632,
+				"round": 1
+			},
+			{
+				"event": "idle",
+				"atMs": 1789550040648,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 6,
+					"lastTurn": {
+						"turnId": "turn_msg_3f7fb7c04fac148edc302ca2c040444bdd42c62b",
+						"outcome": "error",
+						"completedAt": 1789550036474
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789550038312
+				}
+			},
+			{
+				"event": "pause-request",
+				"atMs": 1789550040648,
+				"round": 2
+			},
+			{
+				"event": "pause",
+				"atMs": 1789550044412,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "paused",
+					"statusCode": "paused",
+					"startupPhase": "running",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 6,
+					"lastTurn": {
+						"turnId": "turn_msg_3f7fb7c04fac148edc302ca2c040444bdd42c62b",
+						"outcome": "error",
+						"completedAt": 1789550036474
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789550043206
+				}
+			},
+			{
+				"event": "message-sent",
+				"atMs": 1789550049447,
+				"round": 2,
+				"clientStartMs": 1789550047417,
+				"receipt": {
+					"messageId": "msg_793d0345a9016ca00e63a522d9b0c9cf98a3e88a",
+					"seq": 7,
+					"status": "queued",
+					"resumeTriggered": true
+				}
+			},
+			{
+				"event": "delivered",
+				"atMs": 1789550057856,
+				"round": 2,
+				"createdAt": 1789550048017,
+				"deliveredAt": 1789550056349,
+				"messageId": "msg_793d0345a9016ca00e63a522d9b0c9cf98a3e88a"
+			},
+			{
+				"event": "settled",
+				"atMs": 1789550059314,
+				"round": 2
+			},
+			{
+				"event": "idle",
+				"atMs": 1789550060177,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 8,
+					"lastTurn": {
+						"turnId": "turn_msg_793d0345a9016ca00e63a522d9b0c9cf98a3e88a",
+						"outcome": "error",
+						"completedAt": 1789550057046
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789550058976
+				}
+			},
+			{
+				"event": "pause-request",
+				"atMs": 1789550060177,
+				"round": 3
+			},
+			{
+				"event": "pause",
+				"atMs": 1789550063566,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "paused",
+					"statusCode": "paused",
+					"startupPhase": "starting-agent",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 8,
+					"lastTurn": {
+						"turnId": "turn_msg_793d0345a9016ca00e63a522d9b0c9cf98a3e88a",
+						"outcome": "error",
+						"completedAt": 1789550057046
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789550062560
+				}
+			},
+			{
+				"event": "message-sent",
+				"atMs": 1789550069639,
+				"round": 3,
+				"clientStartMs": 1789550066566,
+				"receipt": {
+					"messageId": "msg_f5e2a18496a529ba69868be44bf5cf75a7e39472",
+					"seq": 9,
+					"status": "queued",
+					"resumeTriggered": true
+				}
+			},
+			{
+				"event": "delivered",
+				"atMs": 1789550075357,
+				"round": 3,
+				"createdAt": 1789550068159,
+				"deliveredAt": 1789550074434,
+				"messageId": "msg_f5e2a18496a529ba69868be44bf5cf75a7e39472"
+			},
+			{
+				"event": "settled",
+				"atMs": 1789550076840,
+				"round": 3
+			},
+			{
+				"event": "idle",
+				"atMs": 1789550077814,
+				"state": {
+					"workspaceId": "workspace_534nMU7QNBnGYCIC",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "beedrill",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 10,
+					"lastTurn": {
+						"turnId": "turn_msg_f5e2a18496a529ba69868be44bf5cf75a7e39472",
+						"outcome": "error",
+						"completedAt": 1789550075023
+					},
+					"createdAt": 1789549696658,
+					"updatedAt": 1789550076243
+				}
+			},
+			{
+				"event": "complete",
+				"atMs": 1789550077814
+			}
+		],
+		"clean": [
+			{
+				"event": "initial",
+				"atMs": 1789550700503,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "queued",
+					"statusCode": "provisioning-queued",
+					"startupPhase": "booting",
+					"runtimeState": "offline",
+					"agentStatus": "working",
+					"latestSeq": 1,
+					"lastTurn": null,
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550696651
+				}
+			},
+			{
+				"event": "initial",
+				"atMs": 1789550704594,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "provisioning",
+					"statusCode": "runtime-starting",
+					"startupPhase": "booting",
+					"runtimeState": "offline",
+					"agentStatus": "working",
+					"latestSeq": 1,
+					"lastTurn": null,
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550702619
+				}
+			},
+			{
+				"event": "initial",
+				"atMs": 1789550706633,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "setup",
+					"statusCode": "runtime-authenticating",
+					"startupPhase": "authenticating-runtime",
+					"runtimeState": "connecting",
+					"agentStatus": "working",
+					"latestSeq": 1,
+					"lastTurn": null,
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550705950
+				}
+			},
+			{
+				"event": "initial",
+				"atMs": 1789550713051,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "working",
+					"latestSeq": 1,
+					"lastTurn": null,
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550710925
+				}
+			},
+			{
+				"event": "initial",
+				"atMs": 1789550718902,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_Hq1YD2FR_j9SxHuA",
+						"outcome": "error",
+						"completedAt": 1789550716567
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550717651
+				}
+			},
+			{
+				"event": "upgrade-request",
+				"atMs": 1789550718902
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789550721493,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "resuming",
+					"statusCode": "restart-queued",
+					"startupPhase": "booting",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_Hq1YD2FR_j9SxHuA",
+						"outcome": "error",
+						"completedAt": 1789550716567
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550719843
+				}
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789550726365,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "provisioning",
+					"statusCode": "resume-runtime-restarting",
+					"startupPhase": "booting",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_Hq1YD2FR_j9SxHuA",
+						"outcome": "error",
+						"completedAt": 1789550716567
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550724735
+				}
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789550728462,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "setup",
+					"statusCode": "runtime-authenticating",
+					"startupPhase": "authenticating-runtime",
+					"runtimeState": "connecting",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_Hq1YD2FR_j9SxHuA",
+						"outcome": "error",
+						"completedAt": 1789550716567
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550726645
+				}
+			},
+			{
+				"event": "upgraded",
+				"atMs": 1789550732056,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_Hq1YD2FR_j9SxHuA",
+						"outcome": "error",
+						"completedAt": 1789550716567
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550730572
+				}
+			},
+			{
+				"event": "pause-request",
+				"atMs": 1789550732057,
+				"round": 1
+			},
+			{
+				"event": "pause",
+				"atMs": 1789550734627,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "paused",
+					"statusCode": "paused",
+					"startupPhase": "running",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 2,
+					"lastTurn": {
+						"turnId": "turn:workspace_Hq1YD2FR_j9SxHuA",
+						"outcome": "error",
+						"completedAt": 1789550716567
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550733763
+				}
+			},
+			{
+				"event": "message-sent",
+				"atMs": 1789550739727,
+				"round": 1,
+				"clientStartMs": 1789550737631,
+				"receipt": {
+					"messageId": "msg_bca5512df24f69d391805d4e5c63b25e5550a340",
+					"seq": 3,
+					"status": "queued",
+					"resumeTriggered": true
+				}
+			},
+			{
+				"event": "delivered",
+				"atMs": 1789550747499,
+				"round": 1,
+				"createdAt": 1789550738379,
+				"deliveredAt": 1789550746954,
+				"messageId": "msg_bca5512df24f69d391805d4e5c63b25e5550a340"
+			},
+			{
+				"event": "settled",
+				"atMs": 1789550752132,
+				"round": 1
+			},
+			{
+				"event": "idle",
+				"atMs": 1789550753192,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 4,
+					"lastTurn": {
+						"turnId": "turn_msg_bca5512df24f69d391805d4e5c63b25e5550a340",
+						"outcome": "error",
+						"completedAt": 1789550748809
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550749955
+				}
+			},
+			{
+				"event": "pause-request",
+				"atMs": 1789550753192,
+				"round": 2
+			},
+			{
+				"event": "pause",
+				"atMs": 1789550755870,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "pause-queued",
+					"startupPhase": "starting-agent",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 4,
+					"lastTurn": {
+						"turnId": "turn_msg_bca5512df24f69d391805d4e5c63b25e5550a340",
+						"outcome": "error",
+						"completedAt": 1789550748809
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550754033
+				}
+			},
+			{
+				"event": "pause",
+				"atMs": 1789550757907,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "paused",
+					"statusCode": "paused",
+					"startupPhase": "starting-agent",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 4,
+					"lastTurn": {
+						"turnId": "turn_msg_bca5512df24f69d391805d4e5c63b25e5550a340",
+						"outcome": "error",
+						"completedAt": 1789550748809
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550754853
+				}
+			},
+			{
+				"event": "message-sent",
+				"atMs": 1789550763202,
+				"round": 2,
+				"clientStartMs": 1789550760912,
+				"receipt": {
+					"messageId": "msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65",
+					"seq": 5,
+					"status": "queued",
+					"resumeTriggered": true
+				}
+			},
+			{
+				"event": "delivered",
+				"atMs": 1789550768904,
+				"round": 2,
+				"createdAt": 1789550761815,
+				"deliveredAt": 1789550767696,
+				"messageId": "msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65"
+			},
+			{
+				"event": "settled",
+				"atMs": 1789550770593,
+				"round": 2
+			},
+			{
+				"event": "idle",
+				"atMs": 1789550771850,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 6,
+					"lastTurn": {
+						"turnId": "turn_msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65",
+						"outcome": "error",
+						"completedAt": 1789550768543
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550769871
+				}
+			},
+			{
+				"event": "pause-request",
+				"atMs": 1789550771850,
+				"round": 3
+			},
+			{
+				"event": "pause",
+				"atMs": 1789550775711,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "pause-queued",
+					"startupPhase": "starting-agent",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 6,
+					"lastTurn": {
+						"turnId": "turn_msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65",
+						"outcome": "error",
+						"completedAt": 1789550768543
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550773928
+				}
+			},
+			{
+				"event": "pause",
+				"atMs": 1789550777489,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "paused",
+					"statusCode": "paused",
+					"startupPhase": "starting-agent",
+					"runtimeState": "offline",
+					"agentStatus": "idle",
+					"latestSeq": 6,
+					"lastTurn": {
+						"turnId": "turn_msg_0ab82caa8195e9e4a0b6e45a0202670ec0286b65",
+						"outcome": "error",
+						"completedAt": 1789550768543
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550774745
+				}
+			},
+			{
+				"event": "message-sent",
+				"atMs": 1789550783105,
+				"round": 3,
+				"clientStartMs": 1789550780494,
+				"receipt": {
+					"messageId": "msg_239a11109faf1f00e8909f5873fe7ce7defda512",
+					"seq": 7,
+					"status": "queued",
+					"resumeTriggered": true
+				}
+			},
+			{
+				"event": "delivered",
+				"atMs": 1789550790715,
+				"round": 3,
+				"createdAt": 1789550781824,
+				"deliveredAt": 1789550789770,
+				"messageId": "msg_239a11109faf1f00e8909f5873fe7ce7defda512"
+			},
+			{
+				"event": "settled",
+				"atMs": 1789550792255,
+				"round": 3
+			},
+			{
+				"event": "idle",
+				"atMs": 1789550793314,
+				"state": {
+					"workspaceId": "workspace_Hq1YD2FR_j9SxHuA",
+					"providerId": "e2b",
+					"projectId": "project_907S1uen7PJgEDkA",
+					"branch": "primeape",
+					"baseRef": "main",
+					"state": "ready",
+					"statusCode": "agent-running",
+					"startupPhase": "running",
+					"runtimeState": "online",
+					"agentStatus": "idle",
+					"latestSeq": 8,
+					"lastTurn": {
+						"turnId": "turn_msg_239a11109faf1f00e8909f5873fe7ce7defda512",
+						"outcome": "error",
+						"completedAt": 1789550790694
+					},
+					"createdAt": 1789550696650,
+					"updatedAt": 1789550792427
+				}
+			},
+			{
+				"event": "complete",
+				"atMs": 1789550793314
+			}
+		]
+	},
+	"apiSource": "2d3af9682",
+	"apiVersion": "86c829dc-2e38-4e30-953c-e65820a40f9c",
+	"runtimeReleaseRun": "https://github.com/swarajbachu/zuse/actions/runs/35077975965",
+	"runtimeArchiveSha256": "ba5e8c5a350cdc71f65425016e33bddb48037665c9c07ceb31099a8084c1846c"
+}

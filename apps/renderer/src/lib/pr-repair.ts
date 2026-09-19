@@ -11,6 +11,22 @@ import { dispatchGitWorkspaceCommand } from "./git-workspace-client-bus.ts";
 
 export type PrRepairScope = "comments" | "checks" | "conflicts" | "everything";
 
+/** Shared by the repair badge and the context sent to the agent. */
+export const prRepairFeedback = (
+	details: Pick<GitPrDetails, "comments" | "reviews">,
+) =>
+	[
+		...details.comments.filter(
+			(comment) => !comment.isResolved && !comment.isOutdated,
+		),
+		...details.reviews.filter(
+			(review) =>
+				review.state !== "dismissed" &&
+				review.state !== "pending" &&
+				review.hasActiveThreads !== false,
+		),
+	].filter((feedback) => feedback.body.trim().length > 0);
+
 export function prRepairMarkdown(
 	details: GitPrDetails,
 	scope: PrRepairScope,
@@ -22,8 +38,7 @@ export function prRepairMarkdown(
 	];
 	if (scope === "everything") sections.push(details.body);
 	if (scope === "comments" || scope === "everything") {
-		for (const feedback of [...details.comments, ...details.reviews]) {
-			if (!feedback.body.trim()) continue;
+		for (const feedback of prRepairFeedback(details)) {
 			sections.push(`## Feedback from ${feedback.author}`, feedback.url ?? "");
 			if ("path" in feedback && feedback.path)
 				sections.push(

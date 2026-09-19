@@ -5,7 +5,8 @@
 	"private": true,
 	"exports": {
 		"./*": "./src/*.tsx",
-		"./app-palette.css": "./src/app-palette.css"
+		"./app-palette.css": "./src/app-palette.css",
+		"./zuse-mark": "./src/zuse-mark.json"
 	},
 	"scripts": {
 		"lint": "eslint . --max-warnings 0",

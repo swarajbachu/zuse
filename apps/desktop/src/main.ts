@@ -1897,12 +1897,115 @@ const authShell = {
 async function createMainWindow() {
 	const startupStartedAt = performance.now();
 	const userData = app.getPath("userData");
-	const [apiPort, networkAccessEnabled] = await Promise.all([
+	const startupPrerequisites = Promise.all([
 		resolveDesktopApiPort({
 			configuredPort: process.env.ZUSE_DESKTOP_WS_PORT,
 		}),
 		readNetworkAccessPreference(userData),
 	]);
+	const isMac = process.platform === "darwin";
+	mainWindow = new BrowserWindow({
+		width: 1280,
+		height: 800,
+		minWidth: 720,
+		minHeight: 480,
+		// macOS vibrancy needs the window itself to be transparent — without
+		// `transparent: true` Electron paints an opaque background and the
+		// vibrancy never shows through. `backgroundColor: "#00000000"` (alpha 0)
+		// pairs with it so there's no flash of solid color before render.
+		// Linux window managers can leave a hidden BrowserWindow invisible when
+		// Chromium never emits `ready-to-show` (for example after a renderer
+		// startup error). Show opaque native windows immediately; macOS keeps the
+		// deferred show to avoid flashing its transparent vibrancy surface.
+		show: !isMac,
+		...(isMac
+			? {
+					vibrancy: "sidebar" as const,
+					visualEffectState: "active" as const,
+					transparent: true,
+					backgroundColor: "#00000000",
+				}
+			: { backgroundColor: "#0b0b0c" }),
+		...(fsSync.existsSync(DEV_ICON_PATH) ? { icon: DEV_ICON_PATH } : {}),
+		...createWindowTitleBarOptions(
+			process.platform,
+			nativeTheme.shouldUseDarkColors,
+		),
+		title: APP_NAME,
+		webPreferences: {
+			preload: Path.join(__dirname, "preload.cjs"),
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: false,
+			// Enables the `<webview>` tag the in-app Browser tab uses. The webview
+			// itself still runs with `nodeIntegration: false` in its own process,
+			// so this only unlocks the element, not Node access inside it.
+			webviewTag: true,
+		},
+	});
+	appendRemoteConnectionLog("desktop.startup.window_created", {
+		elapsedMs: Math.round(performance.now() - startupStartedAt),
+		processElapsedMs: Math.round(performance.now() - desktopProcessStartedAt),
+	});
+	installPowerMeasurementMonitor();
+	const sampleWindowTransition = () => {
+		if (powerMeasurementMonitor?.getState().activeRecording !== null) {
+			powerMeasurementMonitor?.sampleNow();
+		}
+	};
+	mainWindow.on("show", sampleWindowTransition);
+	mainWindow.on("hide", sampleWindowTransition);
+	mainWindow.on("minimize", sampleWindowTransition);
+	mainWindow.on("restore", sampleWindowTransition);
+
+	// Avoid the white flash that transparent windows show before first paint.
+	mainWindow.once("ready-to-show", () => mainWindow?.show());
+
+	// Renderer needs to know fullscreen state to drop the macOS traffic-light
+	// gutter (the controls hide in native fullscreen, so the 80px reserve is
+	// dead space). We push the current state on first paint plus on every
+	// toggle — a fresh boot in fullscreen still gets the initial value.
+	const sendFullScreenState = () => {
+		if (mainWindow === null) return;
+		mainWindow.webContents.send("window:fullscreen", mainWindow.isFullScreen());
+	};
+
+	mainWindow.on("enter-full-screen", sendFullScreenState);
+	mainWindow.on("leave-full-screen", sendFullScreenState);
+	mainWindow.webContents.on("did-finish-load", () => {
+		sendFullScreenState();
+		appendRemoteConnectionLog("desktop.startup.renderer_loaded", {
+			processElapsedMs: Math.round(performance.now() - desktopProcessStartedAt),
+		});
+	});
+
+	// Install the IPC inbox before navigation. The preload bridge can send its
+	// handshake as soon as the renderer starts, and Electron does not replay an
+	// ipcRenderer.send() frame when no ipcMain listener exists yet.
+	const serverProtocol = electronServerProtocolLayer(
+		mainWindow.webContents,
+		(event, fields) =>
+			appendRemoteConnectionLog(event, {
+				...fields,
+				processElapsedMs: Math.round(
+					performance.now() - desktopProcessStartedAt,
+				),
+			}),
+	);
+
+	// Start Chromium as soon as the native window exists. Port selection,
+	// network preferences, TLS identity, and the embedded runtime can settle
+	// behind the lightweight renderer startup surface instead of delaying the
+	// first visible frame after a Dock click.
+	if (isDevelopment) {
+		void mainWindow.loadURL(DEV_SERVER_URL);
+		mainWindow.webContents.openDevTools({ mode: "right" });
+	} else {
+		const rendererIndex = Path.join(rendererDistDir(), "index.html");
+		void mainWindow.loadFile(rendererIndex);
+	}
+
+	const [apiPort, networkAccessEnabled] = await startupPrerequisites;
 	sshEnvironmentManager ??= new SshEnvironmentManager(userData);
 	tailnetEnvironmentManager ??= new TailnetEnvironmentManager(userData);
 	const sshManager = sshEnvironmentManager;
@@ -1945,79 +2048,10 @@ async function createMainWindow() {
 			interfaces: networkInterfaces(),
 		});
 	}
-	const isMac = process.platform === "darwin";
 	const nearbyTls =
 		networkAccess.mode === "network-accessible" && process.platform !== "win32"
 			? await ensureNearbyTlsIdentity(userData)
 			: null;
-	mainWindow = new BrowserWindow({
-		width: 1280,
-		height: 800,
-		minWidth: 720,
-		minHeight: 480,
-		// macOS vibrancy needs the window itself to be transparent — without
-		// `transparent: true` Electron paints an opaque background and the
-		// vibrancy never shows through. `backgroundColor: "#00000000"` (alpha 0)
-		// pairs with it so there's no flash of solid color before render.
-		// Linux window managers can leave a hidden BrowserWindow invisible when
-		// Chromium never emits `ready-to-show` (for example after a renderer
-		// startup error). Show opaque native windows immediately; macOS keeps the
-		// deferred show to avoid flashing its transparent vibrancy surface.
-		show: !isMac,
-		...(isMac
-			? {
-					vibrancy: "sidebar" as const,
-					visualEffectState: "active" as const,
-					transparent: true,
-					backgroundColor: "#00000000",
-				}
-			: { backgroundColor: "#0b0b0c" }),
-		...(fsSync.existsSync(DEV_ICON_PATH) ? { icon: DEV_ICON_PATH } : {}),
-		...createWindowTitleBarOptions(
-			process.platform,
-			nativeTheme.shouldUseDarkColors,
-		),
-		title: APP_NAME,
-		webPreferences: {
-			preload: Path.join(__dirname, "preload.cjs"),
-			contextIsolation: true,
-			nodeIntegration: false,
-			sandbox: false,
-			// Enables the `<webview>` tag the in-app Browser tab uses. The webview
-			// itself still runs with `nodeIntegration: false` in its own process,
-			// so this only unlocks the element, not Node access inside it.
-			webviewTag: true,
-		},
-	});
-	appendRemoteConnectionLog("desktop.startup.window_created", {
-		elapsedMs: Math.round(performance.now() - startupStartedAt),
-	});
-	installPowerMeasurementMonitor();
-	const sampleWindowTransition = () => {
-		if (powerMeasurementMonitor?.getState().activeRecording !== null) {
-			powerMeasurementMonitor?.sampleNow();
-		}
-	};
-	mainWindow.on("show", sampleWindowTransition);
-	mainWindow.on("hide", sampleWindowTransition);
-	mainWindow.on("minimize", sampleWindowTransition);
-	mainWindow.on("restore", sampleWindowTransition);
-
-	// Avoid the white flash that transparent windows show before first paint.
-	mainWindow.once("ready-to-show", () => mainWindow?.show());
-
-	// Renderer needs to know fullscreen state to drop the macOS traffic-light
-	// gutter (the controls hide in native fullscreen, so the 80px reserve is
-	// dead space). We push the current state on first paint plus on every
-	// toggle — a fresh boot in fullscreen still gets the initial value.
-	const sendFullScreenState = () => {
-		if (mainWindow === null) return;
-		mainWindow.webContents.send("window:fullscreen", mainWindow.isFullScreen());
-	};
-
-	mainWindow.on("enter-full-screen", sendFullScreenState);
-	mainWindow.on("leave-full-screen", sendFullScreenState);
-	mainWindow.webContents.on("did-finish-load", sendFullScreenState);
 
 	// Hand off http(s) URLs to the OS default browser via `shell.openExternal`
 	// — the renderer asked to leave Electron, not to host another Chromium
@@ -3270,13 +3304,8 @@ async function createMainWindow() {
 		}
 	});
 
-	// Boot the Effect runtime once the window's webContents exists. The RPC
-	// server protocol is bound to this webContents, so a window restart means
-	// a fresh runtime — the only Effect.runFork in the main process.
-	const serverProtocol = electronServerProtocolLayer(
-		mainWindow.webContents,
-		appendRemoteConnectionLog,
-	);
+	// Boot the Effect runtime after its remaining async prerequisites settle.
+	// The Electron protocol above has already buffered any early renderer frames.
 	const apiWsPort = apiPort.port;
 	const apiWsProtocol = wsServerProtocolLayer({
 		port: apiWsPort,
@@ -3311,6 +3340,7 @@ async function createMainWindow() {
 	}
 	process.env.ZUSE_APP_VERSION = ZUSE_APP_VERSION;
 
+	const runtimeStartedAt = performance.now();
 	const launchedRuntime = Effect.runFork(
 		Layer.launch(
 			makeMainLayer({
@@ -3444,6 +3474,13 @@ async function createMainWindow() {
 							: Path.join(app.getPath("userData"), "cli-access.json"),
 					wsUrl: `ws://127.0.0.1:${apiWsPort}/rpc`,
 				},
+				onStartupPhase: (phase) =>
+					appendRemoteConnectionLog(`desktop.startup.${phase}`, {
+						runtimeElapsedMs: Math.round(performance.now() - runtimeStartedAt),
+						processElapsedMs: Math.round(
+							performance.now() - desktopProcessStartedAt,
+						),
+					}),
 			}),
 		).pipe(
 			Effect.catchCause((cause) =>
@@ -3514,19 +3551,6 @@ async function createMainWindow() {
 			if (isDevelopment) console.log(`[renderer] ${message}`);
 		},
 	);
-
-	if (isDevelopment) {
-		void mainWindow.loadURL(DEV_SERVER_URL);
-		mainWindow.webContents.openDevTools({ mode: "right" });
-	} else {
-		// In dev `dist-electron/main.cjs` lives at apps/desktop/dist-electron/
-		// and the renderer is two levels up at apps/renderer/dist. In the
-		// packaged bundle the renderer is shipped via `extraResources` to
-		// <app>/Contents/Resources/app/renderer/dist (see
-		// apps/desktop/electron-builder.yml).
-		const rendererIndex = Path.join(rendererDistDir(), "index.html");
-		void mainWindow.loadFile(rendererIndex);
-	}
 
 	mainWindow.on("closed", () => {
 		mainWindow = null;
@@ -3938,6 +3962,13 @@ void app.whenReady().then(async () => {
 		// A run marker is diagnostic-only and must never block app startup.
 	}
 
+	registerZuseProtocol();
+	// Begin creating and loading the native window before optional desktop
+	// services. The async function reaches its first prerequisite await only
+	// after Chromium navigation has started, so the Dock click gets immediate
+	// visual feedback while the rest of startup continues in parallel.
+	const mainWindowReady = createMainWindow();
+
 	// Localhost loopback that catches the WorkOS OAuth callback (dev + packaged).
 	// It's the redirect_uri for both, so the browser finishes on a real HTML
 	// page and no `zuse://` deep-link handoff/prompt is needed. The scheme
@@ -3954,7 +3985,6 @@ void app.whenReady().then(async () => {
 	);
 	if (initialDeepLink !== undefined) handleAuthCallback(initialDeepLink);
 
-	registerZuseProtocol();
 	if (process.platform === "darwin") {
 		const mode = await readComputerAwakePreference(app.getPath("userData"));
 		computerAwakeController = new ComputerAwakeController({
@@ -3993,7 +4023,7 @@ void app.whenReady().then(async () => {
 	});
 
 	installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
-	await createMainWindow();
+	await mainWindowReady;
 	if (mainWindow !== null) {
 		if (isDevelopment) {
 			// Wire the dev console helper (window.__zuseUpdateDemo) to a real

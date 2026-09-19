@@ -1,12 +1,13 @@
 import "@zuse/i18n/english/projects";
+import { DitherWaveBackground } from "@repo/ui/dither";
 import type {
 	GithubRepoSummary,
 	ProjectTemplate,
 	Folder as WorkspaceFolder,
 } from "@zuse/contracts";
 import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
-import { Check, Folder, Lock } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Folder, Lock, Rocket } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	addEnvironmentFolder,
 	cloneEnvironmentProject,
@@ -53,16 +54,6 @@ const joinPreview = (parent: string, name: string): string => {
 };
 
 const nameValid = (name: string): boolean => /^[a-z0-9][a-z0-9-_]*$/.test(name);
-
-type DitherColor = readonly [red: number, green: number, blue: number];
-
-const DITHER_COLORS = {
-	amber: [255, 150, 50],
-	blue: [53, 143, 243],
-	grey: [92, 92, 100],
-	pink: [255, 30, 86],
-	violet: [150, 110, 255],
-} as const satisfies Record<string, DitherColor>;
 
 export function ProjectSetupDialog({
 	open,
@@ -254,7 +245,7 @@ export function ProjectSetupDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
-			<DialogPopup className="max-w-2xl">
+			<DialogPopup className={mode === "existing" ? "max-w-2xl" : "max-w-xl"}>
 				<DialogHeader>
 					<DialogTitle>
 						{mode === "choose"
@@ -357,7 +348,6 @@ export function ProjectSetupDialog({
 									description={uiMessage(
 										"projects:project_setup_dialog_create_from_a_template",
 									)}
-									accent="violet"
 									disabled={connected.length === 0}
 									onClick={() => setMode("create")}
 								/>
@@ -369,7 +359,6 @@ export function ProjectSetupDialog({
 									description={uiMessage(
 										"projects:project_setup_dialog_clone_with_git_or_github",
 									)}
-									accent="blue"
 									disabled={connected.length === 0}
 									onClick={() => setMode("clone")}
 								/>
@@ -381,7 +370,6 @@ export function ProjectSetupDialog({
 									description={uiMessage(
 										"projects:project_setup_dialog_open_a_project_on_disk",
 									)}
-									accent="amber"
 									disabled={connected.length === 0}
 									onClick={() => setMode("existing")}
 								/>
@@ -502,54 +490,62 @@ export function ProjectSetupDialog({
 										</span>
 									) : null}
 								</div>
-								<fieldset className="grid grid-cols-3 gap-2">
-									<legend className="sr-only">
+								<div className="flex flex-col gap-1.5">
+									<span className="text-xs font-medium">
 										{uiMessage(
 											"projects:project_setup_dialog_project_template",
 										)}
-									</legend>
-									{(["empty", "nextjs", "turborepo"] as const).map((value) => {
-										const label =
-											value === "empty"
-												? "Empty"
-												: value === "nextjs"
-													? "Next.js"
-													: "Turborepo";
-										const ditherColor: DitherColor =
-											value === "turborepo"
-												? DITHER_COLORS.pink
-												: value === "nextjs"
-													? DITHER_COLORS.blue
-													: DITHER_COLORS.grey;
-										const selected = template === value;
-										const selectedClass =
-											value === "turborepo"
-												? "border-[#ff1e56]/70 bg-[#ff1e56]/[0.07] ring-1 ring-inset ring-[#ff1e56]/30"
-												: value === "nextjs"
-													? "border-sky-400/70 bg-sky-400/[0.07] ring-1 ring-inset ring-sky-400/30"
-													: "border-foreground/60 bg-foreground/[0.04] ring-1 ring-inset ring-foreground/25";
-										return (
-											<button
-												key={value}
-												type="button"
-												onClick={() => setTemplate(value)}
-												aria-pressed={selected}
-												className={`group relative isolate flex min-h-11 items-center justify-center gap-2 overflow-hidden rounded-lg border px-3 py-2 text-xs outline-none transition-[border-color,background-color,box-shadow] duration-150 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${selected ? selectedClass : "border-border"}`}
-											>
-												<DitherField color={ditherColor} active={selected} />
-												<span className="relative flex items-center gap-2">
-													<TemplateLogo template={value} />
-													<span>{label}</span>
-												</span>
-												{selected ? (
-													<span className="absolute right-2 flex size-4 items-center justify-center rounded-full bg-background/80 shadow-sm ring-1 ring-current/20">
-														<Check aria-hidden="true" className="size-2.5" />
-													</span>
-												) : null}
-											</button>
-										);
-									})}
-								</fieldset>
+									</span>
+									<fieldset className="grid grid-cols-3 gap-2">
+										<legend className="sr-only">
+											{uiMessage(
+												"projects:project_setup_dialog_project_template",
+											)}
+										</legend>
+										{(["empty", "nextjs", "turborepo"] as const).map(
+											(value, index) => {
+												const label =
+													value === "empty"
+														? "Empty"
+														: value === "nextjs"
+															? "Next.js"
+															: "Turborepo";
+												const selected = template === value;
+												return (
+													<button
+														key={value}
+														type="button"
+														onClick={() => setTemplate(value)}
+														aria-pressed={selected}
+														className={`group relative isolate flex h-16 items-center justify-center overflow-hidden rounded-lg border px-2 text-xs outline-none transition-[border-color,background-color,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98] ${selected ? "border-foreground/25 bg-muted/70 text-foreground" : "border-border/70 bg-muted/30 text-muted-foreground hover:border-foreground/15 hover:text-foreground"}`}
+													>
+														<DitherWaveBackground
+															color={[154, 154, 166]}
+															pixelSize={2}
+															waveFrequency={2.1 + index * 0.35}
+															waveAmplitude={0.3}
+															colorNum={3}
+															disableAnimation
+															className={`absolute inset-0 -z-10 transition-opacity duration-150 ${selected ? "opacity-55" : "opacity-30 group-hover:opacity-45"}`}
+														/>
+														<span className="flex items-center gap-2">
+															<TemplateLogo template={value} />
+															<span>{label}</span>
+														</span>
+														{selected ? (
+															<span className="absolute right-1.5 top-1.5 flex size-4 items-center justify-center rounded-full bg-background/80">
+																<Check
+																	aria-hidden="true"
+																	className="size-2.5"
+																/>
+															</span>
+														) : null}
+													</button>
+												);
+											},
+										)}
+									</fieldset>
+								</div>
 								<div className="flex min-h-11 items-center gap-2 text-xs">
 									<CheckboxInput
 										checked={alsoCreateGithubRepo}
@@ -648,190 +644,47 @@ function SetupChoice({
 	art,
 	label,
 	description,
-	accent,
 	disabled,
 	onClick,
 }: {
 	readonly art: "quick" | "github" | "folder";
 	readonly label: string;
 	readonly description: string;
-	readonly accent: "violet" | "blue" | "amber";
 	readonly disabled: boolean;
 	readonly onClick: () => void;
 }) {
-	const accentClass = {
-		violet:
-			"hover:border-primary/30 hover:bg-primary/[0.04] [--choice-accent:var(--primary)]",
-		blue: "hover:border-sky-500/30 hover:bg-sky-500/[0.04] [--choice-accent:theme(colors.sky.500)]",
-		amber:
-			"hover:border-amber-500/30 hover:bg-amber-500/[0.04] [--choice-accent:theme(colors.amber.500)]",
-	}[accent];
 	return (
 		<button
 			type="button"
 			disabled={disabled}
 			onClick={onClick}
-			className={`group flex min-h-40 flex-col overflow-hidden rounded-xl border border-border bg-muted/20 text-left outline-none transition-[border-color,background-color] duration-150 focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none ${accentClass}`}
+			className="group relative isolate flex min-h-36 flex-col justify-end overflow-hidden rounded-xl border border-border/70 bg-muted/10 p-3 text-left outline-none transition-[border-color,background-color,transform] duration-150 ease-out hover:border-foreground/20 hover:bg-muted/25 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.985] disabled:pointer-events-none disabled:opacity-50"
 		>
-			<AsciiProjectArt variant={art} accent={accent} />
-			<span className="flex w-full flex-col gap-0.5 border-t border-border/70 px-3 py-2.5">
+			<DitherWaveBackground
+				color={[164, 164, 176]}
+				pixelSize={2}
+				waveFrequency={art === "quick" ? 2.2 : art === "github" ? 2.7 : 3.1}
+				waveAmplitude={0.42}
+				colorNum={4}
+				disableAnimation={false}
+				className="absolute inset-0 -z-10 opacity-60 transition-opacity duration-150 group-hover:opacity-70"
+			/>
+			<span className="mb-auto flex size-9 shrink-0 items-center justify-center rounded-lg border border-white/8 bg-background/75 text-muted-foreground shadow-sm backdrop-blur-sm transition-colors group-hover:text-foreground">
+				{art === "quick" ? (
+					<Rocket className="size-4" />
+				) : art === "github" ? (
+					<GitHubLogo className="size-4" />
+				) : (
+					<Folder className="size-4" />
+				)}
+			</span>
+			<span className="flex min-w-0 flex-col gap-0.5 rounded-md bg-background/70 px-2 py-1.5 backdrop-blur-sm">
 				<span className="text-xs font-medium text-foreground">{label}</span>
-				<span className="text-[10px] font-normal text-muted-foreground">
+				<span className="text-[11px] font-normal text-muted-foreground">
 					{description}
 				</span>
 			</span>
 		</button>
-	);
-}
-
-function AsciiProjectArt({
-	variant,
-	accent,
-}: {
-	readonly variant: "quick" | "github" | "folder";
-	readonly accent: "violet" | "blue" | "amber";
-}) {
-	const color: DitherColor =
-		accent === "violet"
-			? DITHER_COLORS.violet
-			: accent === "blue"
-				? DITHER_COLORS.blue
-				: DITHER_COLORS.amber;
-	return (
-		<span
-			aria-hidden="true"
-			className="relative flex min-h-24 w-full flex-1 items-center justify-center overflow-hidden bg-muted/30 text-foreground/75"
-		>
-			<DitherField color={color} />
-			{variant === "quick" ? (
-				<span className="relative flex items-center gap-3">
-					<NextJsLogo className="size-10 transition-colors duration-150 group-hover:text-foreground motion-reduce:transition-none" />
-					<span className="h-8 w-px bg-border" />
-					<TurborepoLogo className="size-10 text-muted-foreground transition-colors duration-150 group-hover:text-[#ff1e56] motion-reduce:transition-none" />
-				</span>
-			) : variant === "github" ? (
-				<GitHubLogo className="relative size-11 transition-colors duration-150 group-hover:text-[#6e40c9] motion-reduce:transition-none" />
-			) : (
-				<Folder className="relative size-11 fill-current stroke-[1.25] text-muted-foreground transition-colors duration-150 group-hover:text-amber-500 motion-reduce:transition-none" />
-			)}
-		</span>
-	);
-}
-
-const BAYER_4 = [
-	[0, 8, 2, 10],
-	[12, 4, 14, 6],
-	[3, 11, 1, 9],
-	[15, 7, 13, 5],
-] as const;
-
-function DitherField({
-	color,
-	active = false,
-}: {
-	readonly color: DitherColor;
-	readonly active?: boolean;
-}) {
-	const canvasRef = useRef<HTMLCanvasElement>(null);
-
-	useEffect(() => {
-		const canvas = canvasRef.current;
-		const button = canvas?.closest("button");
-		const context = canvas?.getContext("2d");
-		if (canvas == null || button == null || context == null) return;
-
-		let columns = 0;
-		let rows = 0;
-		const restingIntensity = active ? 0.65 : 0;
-		let intensity = restingIntensity;
-		let target = restingIntensity;
-		let hovered = false;
-		let animationFrame = 0;
-		const reducedMotion = window.matchMedia?.(
-			"(prefers-reduced-motion: reduce)",
-		).matches;
-
-		const paint = (): void => {
-			context.clearRect(0, 0, columns, rows);
-			for (let y = 0; y < rows; y += 1) {
-				const density = 0.25 + 0.75 * ((y + 0.5) / rows);
-				for (let x = 0; x < columns; x += 1) {
-					const threshold = (BAYER_4[y & 3]?.[x & 3] ?? 0) / 16;
-					const lit = density > threshold - 0.1 * intensity;
-					const strength = (0.3 + density * 0.7) * (1 + 0.22 * intensity);
-					const alpha = Math.min(1, lit ? strength : strength * 0.4);
-					context.fillStyle = `rgba(${Math.round(color[0] * strength)}, ${Math.round(color[1] * strength)}, ${Math.round(color[2] * strength)}, ${alpha})`;
-					context.fillRect(x, y, 1, 1);
-				}
-			}
-		};
-
-		const tick = (): void => {
-			const distance = target - intensity;
-			if (Math.abs(distance) < 0.01) {
-				intensity = target;
-				paint();
-				animationFrame = 0;
-				return;
-			}
-			intensity += distance * 0.16;
-			paint();
-			animationFrame = window.requestAnimationFrame(tick);
-		};
-		const setTarget = (next: number): void => {
-			target = next;
-			if (reducedMotion) {
-				intensity = next;
-				paint();
-			} else if (animationFrame === 0) {
-				animationFrame = window.requestAnimationFrame(tick);
-			}
-		};
-		const resize = (): void => {
-			const bounds = button.getBoundingClientRect();
-			columns = Math.max(4, Math.round(bounds.width / 2));
-			rows = Math.max(4, Math.round(bounds.height / 2));
-			canvas.width = columns;
-			canvas.height = rows;
-			paint();
-		};
-		const enter = (): void => {
-			hovered = true;
-			setTarget(1);
-		};
-		const leave = (): void => {
-			hovered = false;
-			setTarget(restingIntensity);
-		};
-		const down = (): void => setTarget(1.5);
-		const up = (): void => setTarget(hovered ? 1 : restingIntensity);
-
-		resize();
-		button.addEventListener("pointerenter", enter);
-		button.addEventListener("pointerleave", leave);
-		button.addEventListener("pointerdown", down);
-		button.addEventListener("pointerup", up);
-		button.addEventListener("pointercancel", up);
-		const resizeObserver = new ResizeObserver(resize);
-		resizeObserver.observe(button);
-
-		return () => {
-			if (animationFrame !== 0) window.cancelAnimationFrame(animationFrame);
-			button.removeEventListener("pointerenter", enter);
-			button.removeEventListener("pointerleave", leave);
-			button.removeEventListener("pointerdown", down);
-			button.removeEventListener("pointerup", up);
-			button.removeEventListener("pointercancel", up);
-			resizeObserver.disconnect();
-		};
-	}, [active, color]);
-
-	return (
-		<canvas
-			ref={canvasRef}
-			className="pointer-events-none absolute inset-0 h-full w-full opacity-45"
-			style={{ imageRendering: "pixelated" }}
-		/>
 	);
 }
 

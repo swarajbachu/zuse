@@ -20,4 +20,4 @@ export const cloudProviderSizeLabel = (
 };
 
 export const cloudProviderLabel = (providerId: string): string =>
-	providerId === "box" ? "Box" : providerId === "e2b" ? "E2B" : providerId;
+	providerId === "box" ? "Boat" : providerId === "e2b" ? "E2B" : providerId;

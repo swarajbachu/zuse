@@ -73,6 +73,13 @@ const makeClientSession = (options: PreparedOptions) => {
 const prepareOptions = async (
 	options: WsProtocolOptions,
 ): Promise<PreparedOptions> => {
+	logConnectionDiagnostic("runtime.prepare", {
+		key: runtimeKey(options),
+		host: options.host,
+		port: options.port,
+		verifyIdentity: options.serverKeyPin !== undefined,
+		refreshAccountGrant: options.refreshAccountGrant === true,
+	});
 	if (options.cloudWorkspaceId !== undefined) {
 		const ticket = await connectCloudRuntime(options.cloudWorkspaceId);
 		return {
@@ -124,6 +131,7 @@ const prepareOptions = async (
 const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 	{
 		keyOf: runtimeKey,
+		maxAutomaticAttempts: 2,
 		prepareOptions,
 		createClient: makeClientSession,
 		validateClient: async (client) => {

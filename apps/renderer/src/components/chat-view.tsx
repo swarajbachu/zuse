@@ -1,4 +1,11 @@
+import type { SyncPhase } from "@zuse/client-runtime/resource-state";
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
+import {
+	retryCloudHistory,
+	useCloudHistoryStatus,
+} from "../lib/session-timeline-client-bus.ts";
+import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
+import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
@@ -29,6 +36,7 @@ import {
 import { resolveChatErrorBottom } from "../lib/chat-overlay-position.ts";
 import {
 	type ChatTimelineRow,
+	createCloudTimelineRows,
 	deriveChatTimelineRows,
 	deriveChatTurnNavigationEntries,
 	resolveLatestUserMessageId,
@@ -115,6 +123,10 @@ export const shouldRenderGenericAgentStartup = (input: {
 	readonly hasPendingCreation: boolean;
 }): boolean =>
 	(input.inFlight || input.agentStarting === true) && !input.hasPendingCreation;
+
+/** A completed read with no checkpoint is not an in-flight download. */
+export const cloudTranscriptIsLoading = (sync: SyncPhase): boolean =>
+	sync === "hydrating-cache" || sync === "synchronizing";
 
 export const shouldRenderEmptyChatState = (input: {
 	readonly messageCount: number;
@@ -285,9 +297,10 @@ export function ChatView({
 		inFlight,
 		queuedItems: timeline.projection?.queue.items.length ?? 0,
 	});
+	const cloudRows = useMemo(createCloudTimelineRows, [sessionId]);
 	const rows = useMemo(
 		() =>
-			deriveChatTimelineRows({
+			(cloudSummary === null ? deriveChatTimelineRows : cloudRows)({
 				messages,
 				// The durable creation accordion exclusively narrates startup. Generic
 				// in-flight UI resumes only after that lifecycle projection is gone.
@@ -299,6 +312,8 @@ export function ChatView({
 				awaitingPlanApproval: awaitingUserAction,
 			}),
 		[
+			cloudSummary === null,
+			cloudRows,
 			awaitingUserAction,
 			cloudSetupActive,
 			agentStarting,
@@ -369,6 +384,7 @@ export function ChatView({
 			isAtEnd: true,
 		});
 	const scrollSnapshotRef = useRef(scrollSnapshot);
+	const historyStatus = useCloudHistoryStatus(sessionRef);
 	const coordinator = useMemo(
 		() =>
 			new TranscriptScrollCoordinator({
@@ -379,6 +395,11 @@ export function ChatView({
 			}),
 		[sessionId, uiMessage],
 	);
+	useEffect(() => {
+		coordinator.setSmoothFollowing(
+			cloudSummary !== null && !prefersReducedMotion,
+		);
+	}, [coordinator, cloudSummary !== null, prefersReducedMotion]);
 	useRegisterPane("chat", scrollElementRef);
 
 	const captureReadingPosition = useCallback(() => {
@@ -463,6 +484,20 @@ export function ChatView({
 
 	useEffect(() => {
 		coordinator.attach({
+			liveScroll: () => {
+				const node = listRef.current?.getScrollableNode();
+				return {
+					position: node?.scrollTop ?? 0,
+					end: Math.max(
+						0,
+						(node?.scrollHeight ?? 0) - (node?.clientHeight ?? 0),
+					),
+				};
+			},
+			scrollToOffset: (offset) => {
+				const node = listRef.current?.getScrollableNode();
+				if (node) node.scrollTop = offset;
+			},
 			getMeasurementState: () => listRef.current?.getState() ?? null,
 			isAtLiveEdge: () =>
 				resolveScrollableNodeIsAtEnd(listRef.current?.getScrollableNode()),
@@ -774,12 +809,16 @@ export function ChatView({
 								/>
 								<WorktreeSetupCard />
 							</div>
-							{shouldRenderEmptyChatState({
-								messageCount: messages.length,
-								hasPendingCreation: pendingCreation !== null,
-								setupActive,
-								agentStarting,
-							}) ? (
+							{cloudSummary !== null && timeline.projection === null ? (
+								cloudTranscriptIsLoading(timeline.view.sync) ? (
+									<ChatLoadingFallback />
+								) : null
+							) : shouldRenderEmptyChatState({
+									messageCount: messages.length,
+									hasPendingCreation: pendingCreation !== null,
+									setupActive: setupActive || cloudSetupActive,
+									agentStarting,
+								}) ? (
 								<div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
 									<HugeiconsIcon
 										icon={Message01Icon}
@@ -807,6 +846,24 @@ export function ChatView({
 						/>
 					) : (
 						<ChatLookupsProvider value={chatLookups}>
+							{cloudSummary !== null && historyStatus !== "idle" && (
+								<div
+									className="flex h-7 shrink-0 items-center justify-center gap-2 text-xs text-muted-foreground"
+									role="status"
+								>
+									{historyStatus === "loading" ? (
+										uiMessage("chat:cloud_history_loading")
+									) : (
+										<button
+											type="button"
+											className="h-7 hover:text-foreground"
+											onClick={() => retryCloudHistory(sessionRef)}
+										>
+											{uiMessage("chat:cloud_history_retry")}
+										</button>
+									)}
+								</div>
+							)}
 							<LegendList<ChatTimelineRow>
 								key={sessionId}
 								ref={listRef}
@@ -932,10 +989,22 @@ function TimelineRow({
 }) {
 	let content: ReactNode;
 	switch (row.kind) {
+		case "tool-activity":
+			content = (
+				<ToolActivityTree
+					messages={row.messages}
+					sessionId={sessionId}
+					environmentId={environmentId}
+					providerId={providerId}
+				/>
+			);
+			break;
+
 		case "message":
 			content = (
 				<MessageRow
 					message={row.message}
+					smoothStreaming={runtimeState === "running"}
 					sessionId={sessionId}
 					environmentId={environmentId}
 					providerId={providerId}

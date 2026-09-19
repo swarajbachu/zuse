@@ -7,6 +7,47 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@keyframes logo-trace-loader-loop {
+	0% {
+		opacity: 0.45;
+		stroke-dashoffset: 1;
+	}
+	68%,
+	88% {
+		opacity: 1;
+		stroke-dashoffset: 0;
+	}
+	100% {
+		opacity: 0;
+		stroke-dashoffset: 0;
+	}
+}
+
+@keyframes logo-trace-loader-close {
+	from {
+		stroke-dashoffset: 1;
+	}
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+
+@keyframes logo-trace-loader-fill {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	[data-logo-trace-loader] path,
+	[data-logo-trace-loader] g {
+		animation: none;
+	}
+}
+
 html,
 body,
 #root {
@@ -1505,3 +1546,29 @@ html[data-sidebar-dragging] * {
 		background: transparent;
 	}
 }
+
+/* Tool branches remain attached while results grow; no transcript fade-ins. */
+.tool-activity-branch {
+  position: relative;
+  padding-inline-start: 0.5rem;
+}
+.tool-activity-branch::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: var(--chat-assistant-gutter, 0.75rem);
+  top: 0;
+  bottom: 0;
+  border-inline-start: 1px solid var(--border);
+}
+.tool-activity-branch::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: var(--chat-assistant-gutter, 0.75rem);
+  top: 0;
+  width: 0.5rem;
+  height: 1rem;
+  border-inline-start: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-end-start-radius: 0.5rem;
+}
+.tool-activity-last::before { display: none; }

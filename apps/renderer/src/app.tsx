@@ -5,7 +5,7 @@ import { Effect } from "effect";
 
 import { lazy, Suspense, useEffect } from "react";
 
-import { TooltipProvider } from "./components/ui/tooltip.tsx";
+import { TooltipProvider } from "./components/ui/tooltip-provider.tsx";
 
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 
@@ -30,7 +30,11 @@ import { getRpcClient } from "./lib/rpc-client.ts";
 
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
 
+import { useEnvironmentCatalogStore } from "./store/environment-catalog.ts";
+
 import { useUiStore } from "./store/ui.ts";
+
+import { useWorkspaceStore } from "./store/workspace.ts";
 
 const PrWatchController = lazy(() =>
 	import("./components/pr-watch-controller.tsx").then((module) => ({
@@ -86,17 +90,34 @@ function AmbientSurfaces() {
  * these subscriptions keeps the startup surface cheap and prevents fallback
  * settings from being observed as real product state.
  */
-export function App() {
+export function App({ onReady }: { readonly onReady?: () => void }) {
 	const onboardingCompleted = useSettingsStore(
 		(state) => state.onboardingCompleted,
 	);
-	return <ReadyApp onboardingCompleted={onboardingCompleted} />;
+	return (
+		<ReadyApp onboardingCompleted={onboardingCompleted} onReady={onReady} />
+	);
+}
+
+function StartupReadySignal({
+	onReady,
+	ready = true,
+}: {
+	readonly onReady?: () => void;
+	readonly ready?: boolean;
+}) {
+	useEffect(() => {
+		if (ready) onReady?.();
+	}, [onReady, ready]);
+	return null;
 }
 
 function ReadyApp({
 	onboardingCompleted,
+	onReady,
 }: {
 	readonly onboardingCompleted: boolean;
+	readonly onReady?: () => void;
 }) {
 	useEffect(() => installClientBusOnlineBridge(), []);
 	useEffect(() => installQueueOnlineRecovery(), []);
@@ -160,6 +181,29 @@ function ReadyApp({
 
 	const view = useUiStore((s) => s.view);
 	const activeMainTab = useUiStore((s) => s.activeMainTab);
+	const initializeEnvironmentCatalog = useEnvironmentCatalogStore(
+		(state) => state.initialize,
+	);
+	const catalogInitialized = useEnvironmentCatalogStore(
+		(state) => state.initialized,
+	);
+	const catalogInitializationError = useEnvironmentCatalogStore(
+		(state) => state.initializationError,
+	);
+	const projectsLoading = useWorkspaceStore((state) => state.loading);
+	const desktopCatalogEnabled = window.zuse?.ssh !== undefined;
+	useEffect(() => {
+		if (!onboardingCompleted || view === "settings" || !desktopCatalogEnabled)
+			return;
+		void initializeEnvironmentCatalog().catch((cause) =>
+			console.error("[zuse] environment catalog initialize failed", cause),
+		);
+	}, [
+		desktopCatalogEnabled,
+		initializeEnvironmentCatalog,
+		onboardingCompleted,
+		view,
+	]);
 	useEffect(() => {
 		trackAnalyticsScreen(
 			onboardingCompleted
@@ -178,6 +222,7 @@ function ReadyApp({
 				<div className="relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 					<Suspense fallback={<SurfaceFallback />}>
 						<OnboardingWizard />
+						<StartupReadySignal onReady={onReady} />
 					</Suspense>
 				</div>
 			</TooltipProvider>
@@ -192,6 +237,7 @@ function ReadyApp({
 				<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 					<Suspense fallback={<SurfaceFallback />}>
 						<SettingsPage />
+						<StartupReadySignal onReady={onReady} />
 					</Suspense>
 				</div>
 			</TooltipProvider>
@@ -204,6 +250,14 @@ function ReadyApp({
 			<AppearanceController />
 			<Suspense fallback={<SurfaceFallback />}>
 				<MainShell />
+				<StartupReadySignal
+					onReady={onReady}
+					ready={
+						!desktopCatalogEnabled ||
+						((catalogInitialized || catalogInitializationError !== null) &&
+							!projectsLoading)
+					}
+				/>
 			</Suspense>
 		</TooltipProvider>
 	);

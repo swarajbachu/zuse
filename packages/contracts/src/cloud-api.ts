@@ -179,6 +179,8 @@ export class ApiMessage extends Schema.Class<ApiMessage>("ApiMessage")({
 	turnId: Schema.optional(Schema.String),
 	outcome: Schema.optional(TurnSettlementOutcome),
 	createdAt: Schema.Number,
+	/** API acknowledgement time; independent of polling and model completion. */
+	deliveredAt: Schema.optional(Schema.Number),
 	attachments: Schema.optional(Schema.Array(ApiAsset)),
 }) {}
 

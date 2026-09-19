@@ -660,5 +660,7 @@
 	"device_command_permissions_title": "Autorisations de commande enregistrées",
 	"cloud_queue_waiting_for_agent": "En attente de l’agent",
 	"cloud_queue_cancel_failed": "Impossible d’annuler le message en attente. Réessayez.",
-	"cloud_queue_waiting_for_cloud": "En attente du démarrage du cloud"
+	"cloud_queue_waiting_for_cloud": "En attente du démarrage du cloud",
+	"cloud_history_loading": "Chargement des messages précédents…",
+	"cloud_history_retry": "Impossible de charger les messages précédents · Réessayer"
 }

@@ -37,7 +37,6 @@ import {
 	CloudWorkspaceLaunchIntentCipher,
 	CloudWorkspaceLaunchIntentCipherLive,
 } from "../../src/cloud-workspace-launch-intent.ts";
-import { reconcileCloudPool } from "../../src/cloud-workspace-reconciler.ts";
 import {
 	CloudWorkspaceStore,
 	type CloudWorkspaceStoreApi,
@@ -436,23 +435,11 @@ describe("public API (/v1/api)", () => {
 		"standard",
 		"large",
 		"unavailable",
-	])("validates workspace size %s and only claims matching warm pools", async (sizeId) => {
+	])("validates workspace size %s without allocating spare machines", async (sizeId) => {
 		const runtime = await makeRuntime();
 		try {
 			const store = await runtime.runPromise(CloudWorkspaceStore);
 			await seedReadyProject(runtime, store);
-			await runtime.runPromise(
-				store.savePool({
-					poolId: "pool-size",
-					accountId: ACCOUNT,
-					provider: PROVIDER_ID,
-					imageGeneration: "build-1",
-					providerSandboxId: "default-sized-box",
-					state: "available",
-					createdAtMs: Date.now(),
-					updatedAtMs: Date.now(),
-				}),
-			);
 			const response = await serve(runtime, "/v1/cloud/workspaces", {
 				method: "POST",
 				headers: { ...WORKOS_HEADERS, "content-type": "application/json" },
@@ -468,6 +455,7 @@ describe("public API (/v1/api)", () => {
 				}),
 			});
 			expect(response.status).toBe(sizeId === "unavailable" ? 400 : 201);
+			expect(response.headers.has("x-zuse-reconcile-cloud-pool")).toBe(false);
 			if (sizeId !== "unavailable") {
 				const created = (await response.json()) as {
 					workspace: { workspaceId: string };
@@ -476,16 +464,8 @@ describe("public API (/v1/api)", () => {
 					store.getWorkspace(created.workspace.workspaceId),
 				);
 				expect(workspace?.requestConfig.sizeId).toBe(sizeId);
-				expect(workspace?.providerSandboxId).toBe(
-					sizeId === "standard" ? "default-sized-box" : undefined,
-				);
+				expect(workspace?.providerSandboxId).toBeUndefined();
 			}
-			const pool = await runtime.runPromise(
-				store.listPool(ACCOUNT, PROVIDER_ID),
-			);
-			expect(pool[0]?.state).toBe(
-				sizeId === "standard" ? "claimed" : "available",
-			);
 		} finally {
 			await runtime.dispose();
 		}
@@ -1990,6 +1970,7 @@ describe("public API (/v1/api)", () => {
 				text: string;
 				status: string;
 				turnId?: string;
+				deliveredAt?: number;
 			}>;
 			latestSeq: number;
 		}>(
@@ -2011,6 +1992,11 @@ describe("public API (/v1/api)", () => {
 		expect(page.messages[0]?.status).toBe("settled");
 		expect(page.messages[1]?.text).toBe("Initial task complete.");
 		expect(page.messages[2]?.status).toBe("settled");
+		const storedDelivery = (
+			await runtime.runPromise(store.listApiMessages(workspaceId, 0, 20))
+		).find((message) => message.seq === page.messages[2]?.seq);
+		expect(storedDelivery?.deliveredAtMs).toEqual(expect.any(Number));
+		expect(page.messages[2]?.deliveredAt).toBe(storedDelivery?.deliveredAtMs);
 		expect(page.messages[3]?.text).toBe("Done! The login bug is fixed.");
 		expect(page.messages[3]?.turnId).toBe(commandTurnId);
 
@@ -2422,14 +2408,6 @@ test("keeps Box and E2B images independent and accepts either provider through t
 			201,
 		);
 		expect(defaultCreate.workspace.providerId).toBe("box");
-		await runtime.runPromise(reconcileCloudPool(ACCOUNT));
-		for (const providerId of ["box", "e2b"]) {
-			const pool = await runtime.runPromise(
-				store.listPool(ACCOUNT, providerId),
-			);
-			expect(pool).toHaveLength(2);
-			expect(pool.every((entry) => entry.provider === providerId)).toBe(true);
-		}
 		expect(
 			await json(
 				await serve(runtime, "/v1/cloud/image", { headers: WORKOS_HEADERS }),

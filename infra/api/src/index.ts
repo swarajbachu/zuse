@@ -14,7 +14,6 @@ import { findBillingUsageSourceModule } from "./cloud-billing-usage-source-confi
 import {
 	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	reconcileCloudBuild,
-	reconcileCloudPool,
 	reconcileCloudResources,
 	reconcileCloudWorkspace,
 	reconcileCloudWorkspaceStartup,
@@ -61,6 +60,9 @@ export const makeApi = (
 	layer: Layer.Layer<ApiContext>,
 	options?: {
 		readonly slack?: SlackOptions;
+		readonly scheduleColdWorkspaceStartup?: (
+			workspaceId: string,
+		) => Promise<void>;
 		/** Retain the receiver's identity while disabled so pending deliveries retry. */
 		readonly slackPublicOrigin?: string;
 	},
@@ -85,7 +87,6 @@ export const makeApi = (
 		readonly workspaces: number;
 	}>;
 	readonly reconcileCloudBuild: (buildId: string) => Promise<void>;
-	readonly reconcileCloudPool: (accountId: string) => Promise<void>;
 	readonly reconcileCloudWorkspace: (workspaceId: string) => Promise<void>;
 	readonly reconcileCloudWorkspaceStartup: (
 		workspaceId: string,
@@ -179,12 +180,15 @@ export const makeApi = (
 		reconcileCloud: () => runtime.runPromise(reconcileCloudResources()),
 		reconcileCloudBuild: (buildId) =>
 			runtime.runPromise(reconcileCloudBuild(buildId)),
-		reconcileCloudPool: (accountId) =>
-			runtime.runPromise(reconcileCloudPool(accountId)),
 		reconcileCloudWorkspace: (workspaceId) =>
 			runtime.runPromise(reconcileCloudWorkspace(workspaceId)),
 		reconcileCloudWorkspaceStartup: (workspaceId) =>
-			runtime.runPromise(reconcileCloudWorkspaceStartup(workspaceId)),
+			runtime.runPromise(
+				reconcileCloudWorkspaceStartup(
+					workspaceId,
+					options?.scheduleColdWorkspaceStartup,
+				),
+			),
 		requestCloudMailboxWake: (workspaceId, accountId) =>
 			runtime.runPromise(
 				Effect.gen(function* () {

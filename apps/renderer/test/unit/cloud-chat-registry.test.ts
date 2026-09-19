@@ -167,6 +167,36 @@ describe("cloud chat catalog", () => {
 		);
 	});
 
+	it("does not show cached work while disconnected or recovering", () => {
+		const row = summary({
+			workspaceId: "environment-a",
+			chatId: "chat-a",
+			sessionId: "session-a",
+			revision: 1,
+		});
+		for (const runtime of ["running", "stopping", "starting"] as const) {
+			expect(
+				deriveCloudChatActivity({
+					summary: row,
+					connection: "reconnecting",
+					runtime,
+				}),
+			).toBe("attaching");
+			expect(
+				deriveCloudChatActivity({
+					summary: CloudChatSummary.make({
+						...row,
+						state: "setup",
+						statusCode: "agent-starting",
+						startupPhase: "starting-agent",
+					}),
+					connection: "connected",
+					runtime: "running",
+				}),
+			).toBe("resuming");
+		}
+	});
+
 	it("does not present a provider failure as a cloud connection failure", () => {
 		const row = summary({
 			workspaceId: "environment-a",

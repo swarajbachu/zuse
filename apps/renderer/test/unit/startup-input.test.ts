@@ -8,7 +8,6 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const uploadAttachment = vi.fn();
-const saveContextFile = vi.fn();
 const saveContextText = vi.fn();
 
 vi.mock("../../src/lib/attachments.ts", () => ({
@@ -16,8 +15,6 @@ vi.mock("../../src/lib/attachments.ts", () => ({
 		uploadAttachment(...args),
 }));
 vi.mock("../../src/lib/context-handoff.ts", () => ({
-	saveContextFile: (...args: ReadonlyArray<unknown>) =>
-		saveContextFile(...args),
 	saveContextText: (...args: ReadonlyArray<unknown>) =>
 		saveContextText(...args),
 }));
@@ -63,7 +60,6 @@ const pendingAttachment = (tempId: string) => ({
 
 beforeEach(() => {
 	uploadAttachment.mockReset();
-	saveContextFile.mockReset();
 	saveContextText.mockReset();
 });
 
@@ -91,7 +87,7 @@ describe("startup input preparation", () => {
 	});
 
 	it("writes issue, Linear, pasted text, and files into the target session", async () => {
-		saveContextFile.mockResolvedValue({
+		saveContextText.mockResolvedValueOnce({
 			relPath: ".context/files/issue.md",
 			absPath: "/sandbox/.context/files/issue.md",
 		});
@@ -139,11 +135,12 @@ describe("startup input preparation", () => {
 			},
 		);
 
-		expect(saveContextFile).toHaveBeenCalledWith(
-			target.ref.environmentId,
-			target.ref.sessionId,
-			"# Bug",
-		);
+		expect(saveContextText).toHaveBeenCalledWith({
+			environmentId: target.ref.environmentId,
+			sessionId: target.ref.sessionId,
+			text: "# Bug",
+			ext: "md",
+		});
 		expect(uploadAttachment).toHaveBeenCalledWith(
 			target.ref,
 			expect.any(File),
@@ -210,7 +207,7 @@ describe("startup input preparation", () => {
 
 describe("startup input retry while the target session registers", () => {
 	it("retries a write that lost the race with session registration", async () => {
-		saveContextFile
+		saveContextText
 			.mockRejectedValueOnce(
 				Object.assign(new Error("no session"), {
 					_tag: "SessionNotFoundError",
@@ -228,8 +225,30 @@ describe("startup input retry while the target session registers", () => {
 			{ attempts: 3, delayMs: 0 },
 		);
 
-		expect(saveContextFile).toHaveBeenCalledTimes(2);
+		expect(saveContextText).toHaveBeenCalledTimes(2);
 		expect(finalized.fileRefs).toHaveLength(1);
+	});
+
+	it("retries attachment uploads until the reserved worktree is available", async () => {
+		uploadAttachment
+			.mockRejectedValueOnce({ _tag: "SessionNotFoundError" })
+			.mockResolvedValue({
+				id: "saved",
+				mimeType: "image/png",
+				originalName: "shot.png",
+			});
+		const finalized = await finalizeStartupInputWhenReady(
+			inputWith({
+				attachments: [
+					{ id: "pending-1", mimeType: "image/png", originalName: "shot.png" },
+				],
+			}),
+			target,
+			{ ...emptyOptions, pendingAttachments: [pendingAttachment("pending-1")] },
+			{ attempts: 3, delayMs: 0 },
+		);
+		expect(uploadAttachment).toHaveBeenCalledTimes(2);
+		expect(finalized.attachments[0]?.id).toBe("saved");
 	});
 
 	it("does not retry a genuine upload failure", async () => {

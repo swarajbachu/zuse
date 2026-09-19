@@ -47,6 +47,7 @@ import { CloudDeviceAccess } from "~/components/cloud-device-access";
 import { Composer } from "~/components/composer";
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { InlineErrorNotice } from "~/components/inline-error-notice";
+import { MessageHistoryStatus } from "~/components/message-history-status";
 import { ChatManagementBars } from "~/components/messages/chat-management-bars";
 import { LivePermissionAccessory } from "~/components/messages/live-permission-accessory";
 import type { MessageRowContext } from "~/components/messages/message-row";
@@ -120,6 +121,7 @@ import {
 	sessionMessagesErrorAtom,
 	sessionQueueAtom,
 	sessionQueuePausedAtom,
+	sessionTranscriptReadyAtom,
 	updateQueuedMessage,
 } from "~/store/messages";
 import {
@@ -235,9 +237,10 @@ function ThreadScreen() {
 	const connectionSnapshot = useAtomValue(connectionSnapshotAtom(connKey));
 	const bundles = useAtomValue(connectionBundlesAtom(connKey));
 	const rawMessages = useAtomValue(sessionMessagesAtom(stateKey));
-	const [initialTranscriptLoading, setInitialTranscriptLoading] = useState(
-		() => rawMessages.length === 0,
-	);
+	const transcriptReady = useAtomValue(sessionTranscriptReadyAtom(stateKey));
+	const [transcriptTimedOut, setTranscriptTimedOut] = useState(false);
+	const [transcriptAttempt, setTranscriptAttempt] = useState(0);
+	const initialTranscriptLoading = !transcriptReady && rawMessages.length === 0;
 	const messagesError = useAtomValue(sessionMessagesErrorAtom(stateKey));
 	const serverQueued = useAtomValue(sessionQueueAtom(stateKey));
 	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
@@ -340,23 +343,15 @@ function ThreadScreen() {
 	]);
 
 	useEffect(() => {
-		let active = true;
 		if (normalizedSessionId.length > 0 && options !== null) {
 			// Paint the retained in-memory projection or disk snapshot first.
 			// Replacing the stream on every screen mount makes thread switching
 			// blank and needlessly replays the entire transcript.
-			void hydrateMessages(connKey, options, normalizedSessionId).finally(
-				() => {
-					if (active) setInitialTranscriptLoading(false);
-				},
-			);
+			void hydrateMessages(connKey, options, normalizedSessionId);
 			void hydrateGoal(connKey, options, normalizedSessionId);
 			void hydrateOutbox(connKey, normalizedSessionId);
-		} else {
-			setInitialTranscriptLoading(false);
 		}
 		return () => {
-			active = false;
 			if (normalizedSessionId.length === 0) return;
 			void releaseMessages(connKey, normalizedSessionId);
 			void releaseGoal(connKey, normalizedSessionId);
@@ -364,8 +359,13 @@ function ThreadScreen() {
 	}, [connKey, normalizedSessionId, options]);
 
 	useEffect(() => {
-		if (rawMessages.length > 0) setInitialTranscriptLoading(false);
-	}, [rawMessages.length]);
+		void stateKey;
+		void transcriptAttempt;
+		setTranscriptTimedOut(false);
+		if (!initialTranscriptLoading) return;
+		const timer = setTimeout(() => setTranscriptTimedOut(true), 30_000);
+		return () => clearTimeout(timer);
+	}, [stateKey, transcriptAttempt, initialTranscriptLoading]);
 
 	const observedConnectionGenerationRef = useRef<number | null>(null);
 	useEffect(() => {
@@ -585,6 +585,9 @@ function ThreadScreen() {
 	};
 
 	const ctx: MessageRowContext = {
+		lastAssistantMessageId: messages.findLast(
+			(message) => message.content._tag === "assistant",
+		)?.id,
 		connectionKey: connKey,
 		...(options === null ? {} : { connection: options }),
 		sessionId: normalizedSessionId,
@@ -1136,20 +1139,26 @@ function ThreadScreen() {
 				drawDistance={800}
 				sharedValues={{ isNearEnd }}
 				ListHeaderComponent={
-					options?.cloudWorkspaceId !== undefined ? (
-						<CloudChatStatus
-							workspaceId={options.cloudWorkspaceId}
+					<View>
+						<MessageHistoryStatus
 							connKey={connKey}
 							sessionId={normalizedSessionId}
-							messages={messages}
-							error={error}
 						/>
-					) : error && connectionNotice === null ? (
-						<InlineErrorNotice
-							message={connectionErrorMessage(error)}
-							compact
-						/>
-					) : null
+						{options?.cloudWorkspaceId !== undefined ? (
+							<CloudChatStatus
+								workspaceId={options.cloudWorkspaceId}
+								connKey={connKey}
+								sessionId={normalizedSessionId}
+								messages={messages}
+								error={error}
+							/>
+						) : error && connectionNotice === null ? (
+							<InlineErrorNotice
+								message={connectionErrorMessage(error)}
+								compact
+							/>
+						) : null}
+					</View>
 				}
 				ListFooterComponent={
 					<View style={{ minHeight: endRunwayHeight, paddingTop: 4 }}>
@@ -1169,7 +1178,7 @@ function ThreadScreen() {
 			/>
 			{initialTranscriptLoading && turns.length === 0 ? (
 				<View
-					pointerEvents="none"
+					pointerEvents="box-none"
 					style={{
 						position: "absolute",
 						top: headerHeight,
@@ -1179,7 +1188,31 @@ function ThreadScreen() {
 						justifyContent: "center",
 					}}
 				>
-					<TranscriptLoadingState />
+					{transcriptTimedOut || messagesError !== null ? (
+						<View className="items-center gap-3 px-4">
+							<Text className="font-sans text-sm text-muted-foreground">
+								Couldn’t load this conversation.
+							</Text>
+							<Pressable
+								accessibilityRole="button"
+								accessibilityLabel="Retry loading conversation"
+								className="min-h-11 justify-center px-4"
+								onPress={() => {
+									if (options === null) return;
+									setTranscriptTimedOut(false);
+									setTranscriptAttempt((attempt) => attempt + 1);
+									retryConnection(connKey, options);
+									void refreshMessages(connKey, options, normalizedSessionId);
+								}}
+							>
+								<Text className="font-sans-medium text-sm text-accent">
+									Try again
+								</Text>
+							</Pressable>
+						</View>
+					) : (
+						<TranscriptLoadingState />
+					)}
 				</View>
 			) : null}
 			<KeyboardStickyView
