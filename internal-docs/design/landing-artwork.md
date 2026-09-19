@@ -40,7 +40,7 @@ license. Confirm Zuse's license before publishing, or replace the files with
 licensed WOFF2s at `public/brand/sagittaire-display-*.woff2`.
 
 Typography is registered once by `SiteDocument` in `site-typography.css`.
-All marketing routes share the Display headings and Text prose, including blog,
+All marketing routes share the Display headings and Rules Regular prose, including blog,
 changelog, developer, and legal pages. Landing-specific sizes remain in
 `landing/showcase.css`. Navigation, controls, release numbers, code, and the
 interactive demo retain their compact UI or mono faces. Workflow tab labels use
@@ -50,7 +50,7 @@ the shared `brand-heading` class because their markup is not a heading element.
 
 The editorial publication is named Journal, retaining `/blog` and existing
 article URLs. A shared `PageMasthead` supplies the dither illustration, dotted
-divider, mono eyebrow, and display heading for Journal, pricing, releases,
+divider, mono eyebrow, and display heading for pricing, releases,
 and developer resources. Article pages keep a single H1 and include BlogPosting
 and breadcrumb JSON-LD. New guides are grounded in the checked-in documentation.
 
@@ -70,7 +70,12 @@ remains explicitly beta with a booking CTA, not an implied live checkout.
 Reading copy now uses Rules Regular (400) across the website and docs. Sagittaire
 Display remains for headings; the experimental Sagittaire Text face is no longer
 used for paragraphs. Article text is 16px on mobile and 17px on desktop with a
-70ch maximum measure and 1.75 line height. Journal pages disable the decorative
+65ch maximum measure and 1.75 line height. Journal pages disable the decorative
 bottom blur. Desktop articles have a sticky side contents list; mobile uses
 a native disclosure. Journal categories are explicit MDX metadata (Guide, Note,
 News), with a Latest feed and dedicated Guide/Note columns. Existing URLs remain.
+
+Journal uses its own editorial masthead. Notes and older articles are text-led;
+legacy neon diagram covers are removed. The remaining mythical dither illustrations
+are optional article metadata. Related links prioritize the current category, and
+the side contents list highlights the active section through Fumadocs.
