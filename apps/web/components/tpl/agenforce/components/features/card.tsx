@@ -1,4 +1,5 @@
 import type React from "react";
+import { IllustrationBackground } from "@/components/landing/illustration-background";
 import { cn } from "@/components/tpl/agenforce/lib/utils";
 
 export const Card = ({
@@ -10,10 +11,7 @@ export const Card = ({
 }) => {
 	return (
 		<div
-			className={cn(
-				"max-w-l mx-auto bg-neutral-50 dark:bg-neutral-800 rounded-lg",
-				className,
-			)}
+			className={cn("w-full overflow-hidden rounded-xl bg-card/40", className)}
 		>
 			{children}
 		</div>
@@ -30,7 +28,7 @@ export const CardContent = ({
 	return (
 		<div
 			className={cn(
-				"px-4 md:px-8 md:pb-12 pb-6 flex items-center justify-between",
+				"px-5 pt-5 pb-7 flex items-center justify-between",
 				className,
 			)}
 		>
@@ -64,11 +62,7 @@ export const CardTitle = ({
 	className?: string;
 	children: React.ReactNode;
 }) => {
-	return (
-		<h3 className={cn("text-lg md:text-2xl font-bold font-display", className)}>
-			{children}
-		</h3>
-	);
+	return <h3 className={cn("text-2xl md:text-3xl", className)}>{children}</h3>;
 };
 
 export const CardSkeleton = ({
@@ -81,10 +75,11 @@ export const CardSkeleton = ({
 	return (
 		<div
 			className={cn(
-				"relative h-80 sm:h-60 md:h-80 overflow-hidden perspective-distant",
+				"relative isolate h-80 sm:h-60 md:h-80 overflow-hidden perspective-distant",
 				className,
 			)}
 		>
+			<IllustrationBackground />
 			{children}
 		</div>
 	);

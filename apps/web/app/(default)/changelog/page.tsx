@@ -1,5 +1,5 @@
 import { Container } from "@/components/container";
-import { Header } from "@/components/header";
+import { PageMasthead } from "@/components/page-masthead";
 import changelogData from "@/content/changelog.json";
 import { getSEO } from "@/lib/seo";
 
@@ -23,29 +23,27 @@ export default async function ChangelogPage() {
 	const releases = changelogData as ChangeRelease[];
 
 	return (
-		<section className="w-full">
-			<Container className="flex flex-col gap-12 pt-30 pb-24">
-				<div className="flex max-w-3xl flex-col gap-5">
-					<Header>Change Log</Header>
-					<p className="text-muted-foreground text-lg leading-8">
-						Product updates, fixes, and release notes for Zuse.
-					</p>
-				</div>
-
+		<main className="w-full">
+			<PageMasthead
+				eyebrow="Release notes"
+				title="Always in motion."
+				description="The latest improvements, fixes, and additions to Zuse."
+			/>
+			<Container className="flex flex-col pb-24">
 				<div className="grid gap-8">
 					{releases.map((release) => (
 						<article
 							key={release.version}
-							className="border-natural-white/10 bg-natural-white/5 rounded-2xl border p-6 shadow-card-lg md:p-8"
+							className="border-b border-dotted border-border py-12"
 						>
 							<div className="flex flex-col gap-8 md:grid md:grid-cols-[160px_1fr]">
-								<h2 className="text-heading font-mono text-2xl font-semibold">
+								<h2 className="text-primary font-mono text-lg font-semibold">
 									{release.version}
 								</h2>
 								<div className="grid gap-8">
 									{release.sections.map((section) => (
 										<section key={`${release.version}-${section.title}`}>
-											<h3 className="text-natural-white text-sm font-semibold tracking-wide uppercase">
+											<h3 className="text-heading font-mono text-xs font-semibold tracking-wide uppercase">
 												{section.title}
 											</h3>
 											<ul className="mt-4 grid gap-3">
@@ -67,6 +65,6 @@ export default async function ChangelogPage() {
 					))}
 				</div>
 			</Container>
-		</section>
+		</main>
 	);
 }

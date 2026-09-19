@@ -1,6 +1,7 @@
 import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { ReactBitsDither } from "@repo/ui/react-bits-dither";
 import {
 	resourceRefKey,
 	type SessionRef,
@@ -1838,8 +1839,9 @@ export function ChatLanding() {
 	}
 
 	return (
-		<div className="relative flex min-h-0 flex-1 flex-col items-center overflow-hidden px-6 pb-4 pt-8 max-[800px]:px-4">
-			<div className="flex min-h-0 w-full max-w-3xl flex-1 flex-col">
+		<div className="relative isolate flex min-h-0 flex-1 flex-col items-center overflow-hidden px-6 pb-4 pt-8 max-[800px]:px-4">
+			<ReactBitsDither className="absolute inset-0 -z-10" />
+			<div className="relative flex min-h-0 w-full max-w-3xl flex-1 flex-col">
 				<div className="flex min-h-0 flex-1 items-center justify-center pb-6">
 					<h1 className="text-center text-2xl font-medium tracking-[-0.015em] text-foreground">
 						{headline}

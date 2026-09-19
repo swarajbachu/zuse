@@ -1,0 +1,78 @@
+@font-face {
+	font-family: "Sagittaire Display";
+	src: url("/brand/sagittaire-display-regular.woff2") format("woff2");
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: "Sagittaire Display";
+	src: url("/brand/sagittaire-display-light.woff2") format("woff2");
+	font-style: normal;
+	font-weight: 300;
+	font-display: swap;
+}
+@font-face {
+	font-family: "Sagittaire Display";
+	src: url("/brand/sagittaire-display-extralight-italic.woff2") format("woff2");
+	font-style: italic;
+	font-weight: 200;
+	font-display: swap;
+}
+@font-face {
+	font-family: "Sagittaire Text";
+	src: url("/brand/sagittaire-text-regular.woff2") format("woff2");
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: "Rules";
+	src: url("/brand/rules-regular.woff2") format("woff2");
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+}
+
+.zuse-site {
+	font-family: "Rules", var(--font-inter), sans-serif;
+}
+.site-content {
+	font-family: "Rules", var(--font-inter), sans-serif;
+}
+.zuse-landing {
+	font-family: "Rules", var(--font-inter), sans-serif;
+}
+.zuse-site .landing-prose {
+	font-family: "Rules", var(--font-inter), sans-serif;
+	font-weight: 400;
+	letter-spacing: 0;
+	line-height: 1.65;
+}
+.zuse-site :is(h1, h2, h3):not(.font-mono),
+.zuse-site .brand-heading {
+	font-family: "Sagittaire Display", "Rules", serif;
+	font-weight: 400;
+	letter-spacing: -0.025em;
+	line-height: 1.12;
+	font-synthesis: none;
+}
+.zuse-site h2:not(.font-mono) {
+	font-weight: 300;
+}
+.zuse-site .heading-accent {
+	font-weight: 200;
+	font-style: italic;
+}
+.zuse-site :is(pre, code, kbd) {
+	font-family: var(--font-geist-mono), monospace;
+}
+.zuse-site [data-zuse-demo] {
+	font-family: var(--font-geist), sans-serif;
+}
+.zuse-site [data-zuse-demo] :is(h1, h2, h3) {
+	font-family: inherit;
+	font-weight: 500;
+	line-height: inherit;
+	letter-spacing: normal;
+}

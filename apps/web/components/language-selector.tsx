@@ -47,7 +47,7 @@ export function LanguageSelector() {
 				aria-label={t("navigation:language")}
 				aria-describedby={descriptionId}
 				title={languageNames[locale]}
-				className="w-14"
+				className="h-6 min-h-6 w-12 px-1.5 text-[11px]"
 			>
 				<SelectValue>{shortNames[locale]}</SelectValue>
 				<span id={descriptionId} className="sr-only" lang={locale}>

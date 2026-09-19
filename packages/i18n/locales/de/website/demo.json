@@ -71,5 +71,11 @@
 	"commits_ahead": "{{count}} voraus",
 	"now": "jetzt",
 	"branches": "Branches",
-	"issues": "Issues"
+	"issues": "Issues",
+	"this_computer": "Dieser Computer",
+	"worktree": "Worktree",
+	"import_chat": "Chat importieren",
+	"full_access": "Vollzugriff",
+	"ask_first": "Zuerst fragen",
+	"advanced": "Erweitert"
 }

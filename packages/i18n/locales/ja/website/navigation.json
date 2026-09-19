@@ -10,7 +10,7 @@
 	"download_zuse": "ダウンロード Zuse",
 	"view_downloads": "ダウンロードを見る",
 	"developers": "開発者",
-	"blog": "ブログ",
+	"blog": "Journal",
 	"join_the_zuse_discord": "Zuse Discord に参加してください",
 	"star_zuse_on_github": "GitHub のスター Zuse",
 	"download_for_macos": "macOS のダウンロード",
@@ -34,5 +34,6 @@
 	"acceptable_use": "許容される使用方法",
 	"change_log": "変更ログ",
 	"light_theme": "ライトテーマに切り替える",
-	"2026_zuse_all_rights_reserved": "2026 Zuse — 無断複写・転載を禁じます"
+	"2026_zuse_all_rights_reserved": "2026 Zuse. 無断複写・転載を禁じます",
+	"pricing": "料金"
 }

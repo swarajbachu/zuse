@@ -1,4 +1,5 @@
 {
+	"book_a_call": "预约通话",
 	"review": "审查",
 	"continue_the_work_with_another_agent": "与另一位代理继续合作",
 	"fork_a_session_or_start_a_new_provider_with_the_plan_transcript_and_fi": "分叉一个会话或启动一个新的提供者并提供其所需的计划、成绩单和文件。您选择前进的方向。",
@@ -70,7 +71,7 @@
 	"keep_typecheck_focused_tests_and_terminal_output_beside_both_agent_ses": "在两个代理会话旁边保留类型检查、重点测试和终端输出。",
 	"build_the_change_in_one_tab_while_every_file_lands_in_the_shared_workt": "当每个文件都进入共享工作树时，在一个选项卡中构建更改。",
 	"claude_code_implementation": "Claude Code·实施",
-	"bring_the_subscriptions_you_already_pay_for_zuse_orchestrates_them_no": "带上您已经付费的订阅。 <part0>Zuse 协调它们 — 无代币标记。</part0>",
+	"bring_the_subscriptions_you_already_pay_for_zuse_orchestrates_them_no": "带上您已经付费的订阅。 <part0>Zuse 协调它们，无代币标记。</part0>",
 	"shared_context": "共享上下文",
 	"terminal": "终端",
 	"multiple_tabs_shared_context": "多个选项卡，共享上下文",
@@ -98,7 +99,7 @@
 	"drive_the_whole_flow": "驱动整个流程",
 	"give_the_agent_the_flow_and_expected_result_it_performs_the_browser_ac": "给代理流程和预期结果；它为您执行浏览器操作。",
 	"the_agent_can_inspect_the_current_page_state_adjust_the_implementation": "代理可以检查当前页面状态、调整实施并再次尝试流程。",
-	"tests_drive_an_actual_browser_clicks_typing_navigation_and_assertions": "测试驱动实际的浏览器——点击、打字、导航和断言。",
+	"tests_drive_an_actual_browser_clicks_typing_navigation_and_assertions": "测试驱动实际的浏览器：点击、打字、导航和断言。",
 	"receipt_visible": "收据可见",
 	"signed_in_sessions": "登录会话",
 	"inspect_and_retry": "检查并重试",
