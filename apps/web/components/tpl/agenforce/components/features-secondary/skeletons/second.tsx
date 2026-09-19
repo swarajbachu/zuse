@@ -53,7 +53,7 @@ export const SkeletonTwo = () => {
 						</div>
 					</div>
 				</div>
-				<div className="border-primary/25 bg-background relative z-10 -mt-2 mx-5 grid grid-cols-2 divide-x rounded-xl border shadow-lg">
+				<div className="border-primary/25 bg-background relative z-10 -mt-2 mx-5 grid grid-cols-2 divide-x divide-border/60 rounded-xl border shadow-lg">
 					<div className="flex items-center gap-2 p-2.5">
 						<IconMessage className="text-primary size-3.5" />
 						<div>

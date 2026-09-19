@@ -1,0 +1,53 @@
+---
+title: "Review the evidence, not the confidence"
+description: "A repeatable checklist for reviewing AI-generated code: inspect the diff, verify behavior, and distinguish a passing test from a tested outcome."
+date: "2026-09-17"
+category: "Guide"
+timeToRead: "3 min read"
+authorName: "Zuse team"
+authorRole: "Product and engineering"
+authorAvatar: "/app-icon.png"
+previewImage: "/brand/observatory-dither.webp"
+labels: [{ name: "Practice", hex: "#c9f34e" }]
+---
+
+An agent can explain a change convincingly without demonstrating that it works. The review should connect three things: the requested behavior, the actual diff, and observable evidence.
+
+Zuse puts the conversation, terminal, files, and Changes view in one workspace. Use those surfaces to check the result rather than treating the final message as the result.
+
+## Begin with the behavior
+
+Write down what should happen after the change. For a reconnect fix, that might be: interrupt the connection while a reply is streaming, reconnect, and confirm the transcript contains each message once. For a visual change, check the actual layout at the smallest supported width.
+
+This gives the review a target. Without it, a green test suite can distract from a behavior nobody exercised.
+
+## Read the complete diff
+
+Open Changes and inspect the files the agent touched. Look beyond the main implementation: configuration, generated files, dependencies, and deleted checks can change the meaning of the patch.
+
+Ask why each file belongs in the task. If a small UI correction also rewrites an unrelated service, separate those concerns before reviewing further. Smaller changes are easier to explain, verify, and undo.
+
+## Ask what the checks prove
+
+A typecheck verifies certain relationships in the code. It does not prove that a dropdown opens in the right place. A screenshot proves a rendered state at one viewport. It does not prove keyboard navigation works.
+
+Match evidence to the change:
+
+- For behavior, run a focused test that distinguishes the old result from the new one.
+- For a user flow, exercise the important interaction and its failure path.
+- For layout, inspect desktop and mobile states with real content.
+- For integration, run the checks that cross the changed modules.
+
+If a check could not run, keep that limitation in the review. A missing credential or unavailable service is not a passing result.
+
+## Use a second agent deliberately
+
+A review tab in the same chat can inspect the same checkout. Give the reviewer a bounded, read-only assignment: identify correctness problems in the changed code and explain a reproducible trigger for each finding.
+
+A separate perspective can surface assumptions, but it does not replace your verification. Resolve disagreements against the code and the observed behavior. Keep one integrator responsible for the final state.
+
+## Finish with a reviewable summary
+
+Ask for a short account of what changed, why it changed, which checks ran, and what remains uncertain. Then compare that summary with the diff. The summary should help you navigate the evidence, not ask you to trust the agent's confidence.
+
+See [reviewing local changes](https://docs.zuse.sh/how-to/local-review-changes) and [agent orchestration](https://docs.zuse.sh/composer/orchestration) for the concrete workflow in Zuse.

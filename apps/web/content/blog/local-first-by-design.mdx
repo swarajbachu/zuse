@@ -2,11 +2,11 @@
 title: "Local-first by design"
 description: "SQLite on disk, keys in the operating system credential store, no account required. Your work stays on your machine."
 date: "2026-05-12"
+category: "Note"
 timeToRead: "4 min read"
 authorName: "Zuse (Beta) team"
 authorRole: "Product notes"
 authorAvatar: "/app-icon.png"
-previewImage: "/assets/blog-preview-local-clean.svg"
 labels:
   [
     { name: "Architecture", hex: "#84CC16" },
@@ -14,9 +14,7 @@ labels:
   ]
 ---
 
-# Local-first by design
-
-> **Update — July 22, 2026:** Zuse (Beta) now sends default-on pseudonymous product and reliability analytics. It never includes prompts, responses, code, paths, commands, account details, or error stacks, and can be disabled immediately in Settings. Standard geographic enrichment applies. The local storage and provider data path described below is unchanged.
+> **Update: July 22, 2026:** Zuse (Beta) now sends default-on pseudonymous product and reliability analytics. It never includes prompts, responses, code, paths, commands, account details, or error stacks, and can be disabled immediately in Settings. Standard geographic enrichment applies. The local storage and provider data path described below is unchanged.
 
 Zuse (Beta) runs on your computer, not in our cloud. There is no account to create before you can use it, no server holding your chat history, and no telemetry pulling your code off the machine.
 
@@ -27,7 +25,7 @@ Local-first is not a feature we bolted on. It is how the app is built.
 ## What lives where
 
 - Chats, projects, and settings are stored in a local SQLite database on disk.
-- API keys live in the operating system credential store — Keychain on macOS or Secret Service on Linux.
+- API keys live in the operating system credential store: Keychain on macOS or Secret Service on Linux.
 - Model requests go directly from your machine to the provider you configured.
 
 That is the data path for your work. Separate pseudonymous usage events are sent to our analytics processor under the privacy boundary above.

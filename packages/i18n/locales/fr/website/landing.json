@@ -1,10 +1,10 @@
 {
 	"see_how_it_works": "Voyez comment ça marche",
 	"open_source_cloud_beta_live": "<part0></part0>Open source · Cloud bêta en direct",
-	"meta_title": "Zuse — Tous vos agents de codage dans un seul espace de travail",
-	"run_agents_side_by_side_carry_context_between_them_and_keep_every_task": "Exécutez les agents côte à côte, transférez le contexte entre eux et gardez chaque tâche isolée dans sa propre arborescence de travail git.",
+	"meta_title": "Zuse: Tous vos agents de codage dans un seul espace de travail",
+	"open_source_devin_alternative": "Une alternative open source à Devin. Exécutez des agents en parallèle, en local ou dans des espaces cloud isolés.",
 	"free_in_beta_no_token_markup": "Gratuit en version bêta · pas de balisage de jeton",
-	"all_your_coding_agents_one_workspace": "Tous vos agents de codage. <part0>Un espace de travail.</part0>",
+	"cloud_coding_agents_open_source": "Des agents de code dans le cloud. <part0>Open source.</part0>",
 	"schema_tools": "Examen des différences, du terminal, du navigateur et des demandes d'extraction intégrés",
 	"meta_description": "Exécutez les agents de codage côte à côte, transférez le contexte entre eux et isolez chaque tâche dans sa propre arborescence de travail git avec Zuse.",
 	"schema_worktrees": "Arbres de travail Git isolés pour les exécutions d'agents parallèles",

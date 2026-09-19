@@ -1,0 +1,130 @@
+{
+  "title": "Start here | Zuse Docs",
+  "meta_description": "Install Zuse, connect a coding agent, and finish your first project task.",
+  "meta_robots": null,
+  "canonical": "https://docs.zuse.sh/start",
+  "h1": [
+    "Start here"
+  ],
+  "h2": [
+    "The shortest path",
+    "What Zuse keeps together",
+    "Choose your next guide"
+  ],
+  "h3": [
+    "On this page"
+  ],
+  "images": [
+    {
+      "src": "http://localhost:3002/_next/image?url=%2Fapp-icon.png&w=64&q=75",
+      "alt": "",
+      "width": "28",
+      "height": "28",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3002/_next/image?url=%2Fapp-icon.png&w=64&q=75",
+      "alt": "",
+      "width": "28",
+      "height": "28",
+      "loading": "lazy",
+      "lazy_method": "native"
+    }
+  ],
+  "links": {
+    "internal": [
+      {
+        "href": "http://localhost:3002/start",
+        "text": "ZuseDocs",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3002/start",
+        "text": "ZuseDocs",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3002/start/install",
+        "text": "Install Zuse",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3002/start/first-chat",
+        "text": "Create your first chat",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3002/projects/worktrees",
+        "text": "Worktrees",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3002/composer/modes-permissions",
+        "text": "Modes and permissions",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3002/providers",
+        "text": "Providers",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3002/workspace/changes-pull-requests",
+        "text": "Changes and pull requests",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3002/start/install",
+        "text": "Install",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3002/start/first-chat",
+        "text": "First Chat",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3002/concepts/project-chat-session",
+        "text": "Project Chat Session",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3002/start/first-chat",
+        "text": "Create your first chatOpen a repository, choose an isolated environment, and take an agent task thro",
+        "rel": []
+      }
+    ],
+    "external": [
+      {
+        "href": "https://zuse.sh",
+        "text": "Product",
+        "rel": [
+          "noreferrer",
+          "noopener"
+        ]
+      },
+      {
+        "href": "https://zuse.sh/download",
+        "text": "Download",
+        "rel": [
+          "noreferrer",
+          "noopener"
+        ]
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse",
+        "text": "Star on GitHub114",
+        "rel": [
+          "noreferrer",
+          "noopener"
+        ]
+      }
+    ]
+  },
+  "schema": [],
+  "open_graph": {},
+  "twitter_card": {},
+  "word_count": 322,
+  "hreflang": []
+}

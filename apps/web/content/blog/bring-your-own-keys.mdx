@@ -2,19 +2,17 @@
 title: "Bring your own keys: why Zuse (Beta) never resells tokens"
 description: "Your API keys stay in your operating system's credential store. Zuse (Beta) is not a reseller and never marks up your model usage."
 date: "2026-06-04"
+category: "Note"
 timeToRead: "4 min read"
 authorName: "Zuse (Beta) team"
 authorRole: "Product notes"
 authorAvatar: "/app-icon.png"
-previewImage: "/assets/blog-preview-keys-clean.svg"
 labels:
   [
     { name: "BYOK", hex: "#84CC16" },
     { name: "Security", hex: "#4ADE80" },
   ]
 ---
-
-# Bring your own keys: why Zuse (Beta) never resells tokens
 
 A lot of agent tools sit between you and the model provider. They take your prompt, run it through their account, and bill you a marked-up rate. That means an opaque margin on every token and your code passing through a third party you did not choose.
 
@@ -24,7 +22,7 @@ Zuse (Beta) does not do that. You bring your own keys or your own provider subsc
 
 ## Where your keys live
 
-API keys are stored in your operating system's credential store — macOS Keychain or Linux Secret Service — and protected by the OS. They are not synced to a server, not logged, and not sent anywhere except the provider you are calling. Zuse (Beta) is local-first by design: your chats and project data live in a local SQLite database on your machine.
+API keys are stored in your operating system's credential store (macOS Keychain or Linux Secret Service) and protected by the OS. They are not synced to a server, not logged, and not sent anywhere except the provider you are calling. Zuse (Beta) is local-first by design: your chats and project data live in a local SQLite database on your machine.
 
 ---
 

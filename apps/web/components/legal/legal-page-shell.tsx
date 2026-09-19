@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 export function LegalPageShell({ children }: { readonly children: ReactNode }) {
 	return (
-		<main className="mx-auto min-h-screen max-w-3xl px-6 py-20 text-foreground">
+		<main className="legal-document mx-auto min-h-screen max-w-3xl px-6 py-20 text-foreground">
 			<Link href="/" className="text-sm text-primary">
 				← Back to Zuse
 			</Link>

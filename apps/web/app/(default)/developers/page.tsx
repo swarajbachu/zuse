@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Container } from "@/components/container";
+import { PageMasthead } from "@/components/page-masthead";
 import { getSEO } from "@/lib/seo";
 
 export const metadata = getSEO({
@@ -50,27 +51,19 @@ const resources = [
 export default function DevelopersPage() {
 	return (
 		<main>
-			<Container className="py-32 md:py-40">
-				<div className="max-w-3xl">
-					<p className="text-primary font-mono text-sm font-medium">
-						For developers and agents
-					</p>
-					<h1 className="text-heading mt-3 font-display text-4xl font-semibold tracking-tight text-balance md:text-6xl">
-						Zuse developer resources
-					</h1>
-					<p className="text-muted-foreground mt-6 text-base leading-7 md:text-lg">
-						Machine-readable contracts and direct documentation for building
-						with, integrating, or accurately describing Zuse.
-					</p>
-				</div>
-
+			<PageMasthead
+				eyebrow="For developers and agents"
+				title="Build with Zuse."
+				description="Documentation, contracts, and tools for working with the open-source agent workspace."
+			/>
+			<Container className="pb-20">
 				<div className="border-border mt-14 grid border-t md:grid-cols-2">
 					{resources.map((resource) => (
 						<section
 							key={resource.title}
 							className="border-border border-b py-8 md:px-8 md:odd:border-r md:odd:pl-0"
 						>
-							<h2 className="text-heading text-lg font-semibold">
+							<h2 className="text-heading text-[1.375rem] font-semibold">
 								{resource.title}
 							</h2>
 							<p className="text-muted-foreground mt-3 text-sm leading-6">
@@ -88,14 +81,14 @@ export default function DevelopersPage() {
 
 				<div className="mt-14 grid gap-10 md:grid-cols-3">
 					<section>
-						<h2 className="text-heading text-base font-semibold">Public API</h2>
+						<h2 className="text-heading text-xl font-semibold">Public API</h2>
 						<p className="text-muted-foreground mt-3 text-sm leading-6">
 							The public web API currently contains one endpoint for registering
 							Zuse Cloud interest. It does not expose repositories or sessions.
 						</p>
 					</section>
 					<section>
-						<h2 className="text-heading text-base font-semibold">
+						<h2 className="text-heading text-xl font-semibold">
 							Authentication
 						</h2>
 						<p className="text-muted-foreground mt-3 text-sm leading-6">
@@ -105,7 +98,7 @@ export default function DevelopersPage() {
 						</p>
 					</section>
 					<section>
-						<h2 className="text-heading text-base font-semibold">Webhooks</h2>
+						<h2 className="text-heading text-xl font-semibold">Webhooks</h2>
 						<p className="text-muted-foreground mt-3 text-sm leading-6">
 							Zuse does not currently publish a webhook API. Any future webhook
 							contract will be added to the OpenAPI specification first.

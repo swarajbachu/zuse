@@ -884,8 +884,8 @@
 			}
 		]
 	},
-	"landing:all_your_coding_agents_one_workspace": {
-		"source": "All your coding agents. <part0>One workspace.</part0>",
+	"landing:cloud_coding_agents_open_source": {
+		"source": "Cloud coding agents. <part0>Open source.</part0>",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/hero.tsx",
@@ -893,8 +893,8 @@
 			}
 		]
 	},
-	"landing:run_agents_side_by_side_carry_context_between_them_and_keep_every_task": {
-		"source": "Run agents side by side, carry context between them, and keep every task isolated in its own git worktree.",
+	"landing:open_source_devin_alternative": {
+		"source": "An open-source alternative to Devin. Run agents in parallel, locally or in isolated cloud workspaces.",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/hero.tsx",
@@ -921,7 +921,7 @@
 		]
 	},
 	"landing:meta_title": {
-		"source": "Zuse — All your coding agents in one workspace",
+		"source": "Zuse: All your coding agents in one workspace",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/page.tsx",
@@ -1167,7 +1167,7 @@
 		]
 	},
 	"navigation:2026_zuse_all_rights_reserved": {
-		"source": "2026 Zuse — All Rights Reserved",
+		"source": "2026 Zuse. All Rights Reserved",
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
@@ -1491,7 +1491,7 @@
 		]
 	},
 	"showcase:choose_which_agent_handles_planning_coding_and_review_per_task_not_per": {
-		"source": "Choose which agent handles planning, coding, and review — per task, not per project.",
+		"source": "Choose which agent handles planning, coding, and review, per task, not per project.",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
@@ -1932,7 +1932,7 @@
 		]
 	},
 	"showcase:bring_the_subscriptions_you_already_pay_for_zuse_orchestrates_them_no": {
-		"source": "Bring the subscriptions you already pay for. <part0>Zuse orchestrates them — no token markup.</part0>",
+		"source": "Bring the subscriptions you already pay for. <part0>Zuse orchestrates them with no token markup.</part0>",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/logo-cloud.tsx",
@@ -2250,7 +2250,7 @@
 		]
 	},
 	"showcase:tests_drive_an_actual_browser_clicks_typing_navigation_and_assertions": {
-		"source": "Tests drive an actual browser — clicks, typing, navigation, and assertions.",
+		"source": "Tests drive an actual browser: clicks, typing, navigation, and assertions.",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",

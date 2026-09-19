@@ -36,7 +36,7 @@ export async function getLandingMetadata(locale: WebsiteLocale) {
 }
 export function LandingPage({ locale }: { locale: WebsiteLocale }) {
 	return (
-		<main>
+		<main className="zuse-landing">
 			<HomepageStructuredData locale={locale} />
 			<Hero />
 			<ProductShowcase />
