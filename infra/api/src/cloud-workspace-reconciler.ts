@@ -1319,7 +1319,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 					ZUSE_ENABLE_PAIRING: "0",
 					ZUSE_MACHINE_RUNTIME_ROLE: "cloud-environment",
 					ZUSE_SERVER_READY_STDOUT: "1",
-					ZUSE_USER_DATA: "/home/zuse/.zuse-data",
+					ZUSE_USER_DATA: "/var/lib/zuse/user-data",
 					ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
 					ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
 					...(config.runtimeManifestUrl === undefined

@@ -24,8 +24,9 @@ trap fail ERR
 # Runtime and GitHub identity must never survive a fork. Provider-owned agent
 # authentication intentionally belongs to the private account image.
 rm -rf /home/zuse/.zuse-data /home/zuse/.config/gh
-mkdir -p /home/zuse/.zuse-data
-chmod 700 /home/zuse/.zuse-data
+mkdir -p /var/lib/zuse/user-data
+chown zuse:zuse /var/lib/zuse/user-data
+chmod 700 /var/lib/zuse/user-data
 
 # GitHub access inside a cloud workspace is the Zuse GitHub App installation
 # token, minted per call by `zuse-github-auth`: `gh` is a shim that resolves a
@@ -79,7 +80,7 @@ export ZUSE_AUTH_POLICY=protected
 export ZUSE_ENABLE_PAIRING=0
 export ZUSE_MACHINE_RUNTIME_ROLE=cloud-environment
 export ZUSE_SERVER_READY_STDOUT=1
-export ZUSE_USER_DATA=/home/zuse/.zuse-data
+export ZUSE_USER_DATA=/var/lib/zuse/user-data
 credentials_event="$status_dir/credentials-ready-event"
 rm -f "$credentials_event"
 mkfifo -m 600 "$credentials_event"
