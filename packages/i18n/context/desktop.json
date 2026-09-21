@@ -7930,7 +7930,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 249
+				"line": 253
 			},
 			{
 				"path": "apps/renderer/src/components/language-selector.tsx",
@@ -8537,7 +8537,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 248
+				"line": 252
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
@@ -8698,7 +8698,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 247
+				"line": 251
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8907,9 +8907,24 @@
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
-	"connections:cloud_connection_notice_zuse_cloud_is_invite_only": {
+	"connections:cloud_connection_notice_cloud_access_unavailable": {
 		"source": "Cloud access unavailable",
-		"locations": [],
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
+				"line": 184
+			}
+		],
+		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"connections:cloud_connection_notice_update_zuse_and_try_again_to_use_the_cloud_public_beta": {
+		"source": "Update Zuse and try again to use the Cloud public beta.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
+				"line": 187
+			}
+		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"connections:cloud_connection_notice_cloud_access_could_not_be_verified": {
@@ -8917,7 +8932,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 189
+				"line": 193
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8927,7 +8942,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 195
+				"line": 199
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

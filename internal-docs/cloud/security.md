@@ -90,7 +90,8 @@ key.
 The public integration surface (`/v1/api/**`, see [Public API](public-api.md))
 authenticates with account-scoped `zk_` API keys instead of WorkOS. Secrets are
 stored as SHA-256 hashes only and are revocable immediately; minting a key is
-WorkOS-gated, and every API operation checks the account's Cloud entitlement.
+WorkOS-gated, and operations that consume Cloud resources check the account's
+Cloud entitlement. Webhook deletion remains available for cleanup.
 Conversation-ledger content, outbound webhook payloads, and
 webhook signing secrets are sealed at rest with the API data-encryption key,
 bound to their owning account and row.

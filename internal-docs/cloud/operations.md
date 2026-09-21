@@ -18,7 +18,6 @@ Staging and production are isolated deployments:
 | Runtime channel | `cloud-runtime-staging` | signed `cloud-runtime-production` |
 | E2B template | staging immutable version | release-commit production version |
 | Polar | sandbox | production |
-| PostHog | staging/test cohort | production flag, default false |
 
 Never use a staging command against production by changing an incidental
 environment variable. Production migrations, secrets, and deploys have

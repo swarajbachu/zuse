@@ -2120,7 +2120,7 @@ describe("public API (/v1/api)", () => {
 		expect(resumed?.statusCode).toBe("resume-queued");
 	});
 
-	test("does not persist a paused-workspace command when billing denies resume", async () => {
+	test("denies billable wake actions after the Cloud entitlement ends", async () => {
 		const runtime = await makeRuntime(true);
 		const store = await runtime.runPromise(CloudWorkspaceStore);
 		await seedReadyProject(runtime, store);
@@ -2165,10 +2165,31 @@ describe("public API (/v1/api)", () => {
 				...entitlement,
 				provider: "polar",
 				providerSubscriptionId: "subscription_billing_hold",
-				status: "grace",
+				status: "ended",
 				updatedAtMs: nowMs,
 			}),
 		);
+		for (const action of ["resume", "restart"] as const) {
+			const deniedLifecycle = await serve(
+				runtime,
+				`/v1/cloud/workspaces/${workspaceId}/${action}`,
+				{
+					method: "POST",
+					headers: {
+						...WORKOS_HEADERS,
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						workspaceId,
+						commandId: `${action}-without-entitlement`,
+					}),
+				},
+			);
+			expect(deniedLifecycle.status).toBe(403);
+		}
+		expect(
+			(await runtime.runPromise(store.getWorkspace(workspaceId)))?.desiredState,
+		).toBe("paused");
 
 		const denied = await serve(
 			runtime,

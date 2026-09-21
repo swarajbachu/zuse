@@ -180,8 +180,12 @@ export function CloudConnectionNotice() {
 	};
 	const value = inviteRequired
 		? {
-				title: "Cloud access unavailable",
-				detail: "Update Zuse and try again to use the Cloud public beta.",
+				title: uiMessage(
+					"connections:cloud_connection_notice_cloud_access_unavailable",
+				),
+				detail: uiMessage(
+					"connections:cloud_connection_notice_update_zuse_and_try_again_to_use_the_cloud_public_beta",
+				),
 			}
 		: betaCheckUnavailable
 			? {

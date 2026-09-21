@@ -63,7 +63,6 @@ bun --cwd infra/api secret:cf:production
 bun --cwd infra/api secret:e2b:production
 bun --cwd infra/api secret:e2b-webhook:production
 bun --cwd infra/api secret:cloud-vault:production
-bun --cwd infra/api secret:posthog:production
 bun --cwd infra/api secret:polar:production
 bun --cwd infra/api secret:polar-webhook:production
 bun --cwd infra/api secret:github-private-key:production
@@ -79,8 +78,8 @@ DATABASE_URL=... \
 bun --cwd infra/api db:migrate:production
 ```
 
-The production deploy independently validates nonempty runtime, E2B, PostHog,
-Polar, R2, Hyperdrive, cutover, and secret configuration:
+The production deploy independently validates nonempty runtime, E2B, Polar,
+R2, Hyperdrive, cutover, and secret configuration:
 
 ```sh
 ZUSE_CONFIRM_PRODUCTION_API_DEPLOY=deploy-api.zuse.sh \
@@ -89,9 +88,9 @@ bun --cwd infra/api deploy:production
 
 ## Cutover
 
-Start with checkout, enforcement, and Polar export disabled. Invite one internal
-WorkOS account through PostHog, enable checkout for it, and complete a production
-subscription. Smoke template boot, repository setup, runtime enrollment,
+Start with checkout, enforcement, and Polar export disabled. Use one internal
+WorkOS account to complete a production subscription. Smoke template boot,
+repository setup, runtime enrollment,
 gateway WebSocket, pause/resume, SSH, checkpoint sync, cap update, archive, and
 deletion.
 
@@ -99,9 +98,8 @@ Import the matching E2B statement and require variance of at most 1% and $1.
 Then enable enforcement while export stays off, verify reservations stop new
 compute at the cap, enable export for the internal account, and confirm stable
 external IDs deduplicate retries and API, Polar, and the operator report have
-equal totals. Only then enroll more PostHog identities and expand checkout
-eligibility.
+equal totals. Only then open checkout to public-beta accounts.
 
-Rollback switches are independent: disable the PostHog flag, checkout, Polar
-export, or enforcement as needed. A Worker rollback must preserve sandboxes,
+Rollback switches are independent: disable checkout, Polar export, or
+enforcement as needed. A Worker rollback must preserve sandboxes,
 encrypted transcripts, customers, and all ledger records.

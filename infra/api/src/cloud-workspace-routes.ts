@@ -3587,6 +3587,8 @@ export const routeCloudWorkspaceRequest = (
 			if (workspace === null || workspace.accountId !== principal.accountId)
 				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
 			const action = actionMatch[2] as CloudWorkspaceLifecycleAction;
+			if (action === "resume" || action === "restart")
+				yield* requireCloudWorkspaceEntitlement(principal.accountId, nowMs);
 			if (action === "resume") yield* requireBillingCapacity();
 			const actionRequest =
 				action === "resume"
