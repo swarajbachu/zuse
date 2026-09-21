@@ -20,7 +20,8 @@
 				"**/runtime-updater.mjs",
 				"**/project-builder.sh",
 				"**/workspace-bootstrap.sh",
-				"**/github-auth.sh"
+				"**/github-auth.sh",
+				"**/workspace-repository.sh"
 			],
 			"fallthrough": true
 		}
