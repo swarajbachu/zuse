@@ -181,9 +181,11 @@ export function CloudConnectionNotice() {
 	const value = inviteRequired
 		? {
 				title: uiMessage(
-					"connections:cloud_connection_notice_zuse_cloud_is_invite_only",
+					"connections:cloud_connection_notice_cloud_access_unavailable",
 				),
-				detail: "This account does not currently have cloud beta access.",
+				detail: uiMessage(
+					"connections:cloud_connection_notice_update_zuse_and_try_again_to_use_the_cloud_public_beta",
+				),
 			}
 		: betaCheckUnavailable
 			? {

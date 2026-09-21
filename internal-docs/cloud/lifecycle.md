@@ -48,7 +48,7 @@ running agent does not change a healthy cloud icon from online to reconnecting.
 
 ## Create and start
 
-1. API authenticates the WorkOS account and checks private-beta access.
+1. API authenticates the WorkOS account and checks the Cloud entitlement.
 2. The client sends a stable workspace and command identity.
 3. API records the workspace request and encrypted launch intent atomically.
 4. The reconciler claims a prewarmed sandbox or forks the active account image.
@@ -130,5 +130,5 @@ filesystem; R2 preserves the transcript projection only.
 - Webhooks and provider polling can report the same execution; immutable
   finalization keys ensure it is billed once.
 - A failed archive or checkpoint never deletes the last authoritative sandbox.
-- Revoking beta access blocks new hosted operations and reconnects, while an
+- Losing the Cloud entitlement blocks new billable hosted operations, while an
   already accepted runtime turn may settle through internal callbacks.

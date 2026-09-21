@@ -19,11 +19,6 @@ import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
 import { Clock, Effect, Redacted } from "effect";
 import { AccountIdentity } from "./account-identity.ts";
 import { requireWorkos } from "./auth.ts";
-import {
-	type BetaAccess,
-	ensureCloudBetaAccess,
-	requireCloudBetaAccess,
-} from "./beta-access.ts";
 import { cancelProviderSubscription } from "./billing-operations.ts";
 import { renderCheckoutCompletePage } from "./checkout-complete-page.ts";
 import { ensureCloudBillingPeriod } from "./cloud-billing-period.ts";
@@ -68,7 +63,6 @@ import type { WorkosVerifier } from "./workos.ts";
 export type MachineRouteContext =
 	| WorkosVerifier
 	| AccountIdentity
-	| BetaAccess
 	| MachineStore
 	| MachineProviders
 	| BillingProviders
@@ -538,7 +532,6 @@ const requireHostedPrincipal = Effect.fn("requireHostedPrincipal")(function* (
 	request: Request,
 ) {
 	const principal = yield* requireWorkos(request);
-	yield* requireCloudBetaAccess(principal.accountId);
 	return principal;
 });
 
@@ -1029,15 +1022,6 @@ export const routeMachineRequest = (
 			) {
 				yield* claimCheckoutLinkSubscriptions(principal.accountId, nowMs);
 				entitlements = yield* store.listEntitlements(principal.accountId);
-			}
-			if (
-				entitlements.some(
-					(entitlement) =>
-						entitlement.offerId === CLOUD_WORKSPACE_OFFER_ID &&
-						entitlement.status === "active",
-				)
-			) {
-				yield* ensureCloudBetaAccess(principal.accountId);
 			}
 			const machines = yield* store.listMachines(principal.accountId);
 			return json({

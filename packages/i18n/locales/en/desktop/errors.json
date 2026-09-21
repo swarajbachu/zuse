@@ -10,7 +10,7 @@
 	"format_error_the_connection_to_the_computer_was_interrupted": "The connection to the computer was interrupted.",
 	"format_error_this_cloud_workspace_could_not_be_found": "This cloud workspace could not be found.",
 	"format_error_cloud_workspace_access_is_not_available_for_this_account": "Cloud workspace access is not available for this account.",
-	"format_error_zuse_cloud_is_currently_invite_only": "Zuse Cloud is currently invite-only.",
+	"format_error_zuse_cloud_is_currently_invite_only": "Update Zuse and try again to use the Cloud public beta.",
 	"format_error_cloud_access_could_not_be_verified_try_again_shortly": "Cloud access could not be verified. Try again shortly.",
 	"format_error_the_cloud_workspace_request_is_invalid": "The cloud workspace request is invalid.",
 	"format_error_a_cloud_sandbox_subscription_is_required": "A Cloud subscription is required.",

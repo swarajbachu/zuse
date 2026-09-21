@@ -187,8 +187,8 @@ export default function SecurityPage() {
 						Cloud Workspaces: separate control and data paths
 					</h2>
 					<p className="mt-2">
-						Cloud Workspaces are an optional private beta. A workspace runs in
-						an isolated hosted sandbox rather than on your computer. The hosted
+						Cloud Workspaces are an optional public beta. A workspace runs in an
+						isolated hosted sandbox rather than on your computer. The hosted
 						control plane handles verified identity, authorization, lifecycle,
 						short-lived connection tickets, catalog metadata, and checkpoint
 						pointers. The runtime handles the repository, worktree, agent

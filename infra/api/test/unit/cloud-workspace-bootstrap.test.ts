@@ -9,7 +9,6 @@ import {
 	AccountIdentity,
 	type AccountIdentityApi,
 } from "../../src/account-identity.ts";
-import { BetaAccessAllowAll } from "../../src/beta-access.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import { takeCloudMailboxDirective } from "../../src/cloud-mailbox-directive.ts";
 import {
@@ -61,7 +60,6 @@ const makeRuntime = async () => {
 	});
 	const layer = Layer.mergeAll(
 		config,
-		BetaAccessAllowAll,
 		WorkosVerifierTest,
 		ApiStoreMemory,
 		CloudWorkspaceStoreMemory,

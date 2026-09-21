@@ -21,7 +21,6 @@
 		"secret:cf": "wrangler secret put CF_API_TOKEN --env=",
 		"secret:polar": "wrangler secret put POLAR_ACCESS_TOKEN --env=",
 		"secret:polar-webhook": "wrangler secret put POLAR_WEBHOOK_SECRET --env=",
-		"secret:posthog:production": "wrangler secret put POSTHOG_PROJECT_TOKEN --config wrangler.production.jsonc",
 		"secret:hetzner": "wrangler secret put HETZNER_API_TOKEN --env=",
 		"secret:e2b": "wrangler secret put E2B_API_KEY --env=",
 		"secret:e2b-webhook": "wrangler secret put E2B_WEBHOOK_SECRET --env=",

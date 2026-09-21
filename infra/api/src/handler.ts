@@ -312,9 +312,8 @@ const route = (
 		if (machineResponse !== null) return machineResponse;
 		const cloudBillingResponse = yield* routeCloudBillingRequest(request);
 		if (cloudBillingResponse !== null) return cloudBillingResponse;
-		// API-key cleanup must remain available when beta access is unavailable.
-		// Route the narrow key surface before the broad `/v1/cloud/**` router,
-		// which intentionally beta-gates ordinary cloud mutations.
+		// Route the narrow API-key management surface before the broad
+		// `/v1/cloud/**` workspace router.
 		const apiKeyResponse = yield* routeApiKeyRequest(request);
 		if (apiKeyResponse !== null) return apiKeyResponse;
 		const cloudWorkspaceResponse = yield* routeCloudWorkspaceRequest(request);

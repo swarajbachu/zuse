@@ -19,10 +19,10 @@ describe("cloud workspace errors", () => {
 		);
 	});
 
-	test("distinguishes invite denial from an unavailable access check", () => {
+	test("explains legacy beta access errors without describing an invite", () => {
 		expect(
 			formatError(new CloudWorkspaceOpError({ code: "beta-access-required" })),
-		).toBe("Zuse Cloud is currently invite-only.");
+		).toBe("Update Zuse and try again to use the Cloud public beta.");
 		expect(
 			formatError(
 				new CloudWorkspaceOpError({ code: "beta-access-unavailable" }),
