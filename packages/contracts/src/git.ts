@@ -126,6 +126,16 @@ export const GitSwitchBranchRpc = Rpc.make("git.switchBranch", {
 	error: GitErrors,
 });
 
+/** Start fresh from origin/main using the shared Pokémon branch allocator. */
+export const GitContinueBranchRpc = Rpc.make("git.continueBranch", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: GitStatusSummary,
+	error: GitErrors,
+});
+
 export const GitRenameBranchRpc = Rpc.make("git.renameBranch", {
 	payload: Schema.Struct({
 		folderId: FolderId,

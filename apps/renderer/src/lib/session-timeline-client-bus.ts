@@ -712,6 +712,11 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["git.switchBranch"](payload as never),
 				);
 				break;
+			case "git.continueBranch":
+				result = await Effect.runPromise(
+					client["git.continueBranch"](payload as never),
+				);
+				break;
 			case "worktree.renameBranch":
 				result = await Effect.runPromise(
 					client["worktree.renameBranch"](payload as never),

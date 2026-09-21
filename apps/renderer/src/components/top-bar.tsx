@@ -1267,7 +1267,6 @@ export function WorkflowActions({
 	presentation?: WorkflowActionPresentation;
 	className?: string;
 }) {
-	const [createFromMain, setCreateFromMain] = useState(false);
 	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
 	const ctx = useActiveContext();
@@ -1357,31 +1356,24 @@ export function WorkflowActions({
 				/>
 			) : null}
 			{workflow.kind === "merged-pr" && executionRef !== null ? (
-				<>
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<button
-									type="button"
-									className="h-7 rounded-md px-2 text-xs hover:bg-muted"
-									onClick={() => setCreateFromMain(true)}
-								>
-									{uiMessage("common:continue")}
-								</button>
-							}
-						/>
-						<TooltipPopup>
-							{uiMessage("projects:github_continue_tooltip")}
-						</TooltipPopup>
-					</Tooltip>
-					{createFromMain ? (
-						<CreateBranchDialog
-							executionRef={executionRef}
-							base="origin/main"
-							onClose={() => setCreateFromMain(false)}
-						/>
-					) : null}
-				</>
+				<DirectActionButton
+					presentation={presentation}
+					tone="green"
+					icon={<HugeiconsIcon icon={GitBranchIcon} />}
+					label={uiMessage("common:continue")}
+					loadingLabel="Continuing…"
+					run={async () => {
+						await dispatchGitWorkspaceCommand({
+							ref: executionRef,
+							kind: "git.continueBranch",
+							commandId: CommandId.make(
+								`continue-branch:${crypto.randomUUID()}`,
+							),
+							payload: { folderId: executionRef.folderId, worktreeId },
+						});
+					}}
+					onSuccess={() => void refreshGitWorkspace(executionRef)}
+				/>
 			) : null}
 			{workflow.kind === "merged-pr" && selectedChatId !== null ? (
 				<DirectActionButton
