@@ -1741,6 +1741,23 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				revision: workspace.revision + 1,
 				updatedAtMs: allocatedAtMs,
 			});
+			yield* Effect.all(
+				[
+					provider.writeTextFile(
+						sandbox.providerSandboxId,
+						WORKSPACE_BOOTSTRAP_FILE,
+						WORKSPACE_BOOTSTRAP_SOURCE,
+						"zuse",
+					),
+					provider.writeTextFile(
+						sandbox.providerSandboxId,
+						WORKSPACE_REPOSITORY_FILE,
+						WORKSPACE_REPOSITORY_SOURCE,
+						"zuse",
+					),
+				],
+				{ concurrency: "unbounded", discard: true },
+			);
 			const startRuntime = provider.startProcess(sandbox.providerSandboxId, {
 				command: WORKSPACE_BOOTSTRAP_FILE,
 				tag: WORKSPACE_RUNTIME_PROCESS.tag,
