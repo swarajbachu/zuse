@@ -645,7 +645,16 @@ export const makeBoxSandboxProvider = (
 				const found = listed.sandboxes.find(
 					(candidate) => candidate.name === providerLabel,
 				);
-				if (found !== undefined) return toProviderSandbox(found);
+				if (found !== undefined) {
+					if (!PAUSED_STATES.has(found.state)) {
+						if (!USABLE_STATES.has(found.state))
+							return yield* providerError("transient");
+						// A retried create must pass the same disk barrier as a new
+						// allocation: Boat can report ready during its FUSE handover.
+						yield* ensureRuntimeLayout(found.id, false);
+					}
+					return toProviderSandbox(found);
+				}
 				const nextCursor = listed.pageInfo?.nextCursor ?? null;
 				if (nextCursor === null || listed.sandboxes.length === 0) return null;
 				cursor = nextCursor;
