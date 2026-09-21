@@ -339,6 +339,7 @@ export function ChatComposer({
 					summary: cloudSummary,
 					connection: cloudShell.connection,
 					runtime: runtimeState,
+					timeline: timeline.view,
 				});
 	const turnStartPending = hasPendingTurnStart(
 		timeline.view.pendingCommands.filter(

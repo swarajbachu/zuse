@@ -100,19 +100,8 @@ runtime_pid=$!
 (IFS= read -r _ <"$credentials_event") &
 credentials_wait_pid=$!
 
-# The sandbox fork already isolates this normal checkout from every other chat.
-# Reset the requested branch locally; repository freshness belongs to image
-# updates, never this launch path.
-(
-  [[ -d "$workspace/.git" ]] || exit 73
-  target_ref="$ZUSE_BASE_REF"
-  git -C "$workspace" rev-parse --verify "$target_ref^{commit}" >/dev/null 2>&1 || \
-    target_ref="origin/${ZUSE_BASE_REF#origin/}"
-  git -C "$workspace" reset --hard
-  git -C "$workspace" clean -ffd
-  git -C "$workspace" checkout --force -B "$ZUSE_BRANCH" "$target_ref"
-  git -C "$workspace" remote set-url origin "${ZUSE_REPOSITORY_URL:?}"
-) &
+# Both initial startup and interrupted-startup recovery use the same safe setup.
+bash /var/lib/zuse/project-build/workspace-repository.sh &
 repository_pid=$!
 
 set +e

@@ -17,6 +17,11 @@ export const cloudConnectionPresentation = (
 	connection: ConnectionPhase,
 ): CloudConnectionPresentation => {
 	if (connection === "update-required") return "update-required";
+	if (
+		connection === "failed" &&
+		(activity === "running" || activity === "stopping")
+	)
+		return "detached";
 	if (activity === "failed") {
 		// The control plane can recover a warm workspace after the retained socket
 		// has exhausted its retry ladder. The compute is still healthy; describe the
@@ -39,11 +44,11 @@ export const cloudConnectionPresentation = (
 			return "hidden";
 		return "failed";
 	}
+	if (activity === "paused") return "paused";
 	if (summary.statusCode.includes("runtime-update")) return "updating";
 	if (activity === "resuming") return "resuming";
 	// Attaching already-online compute is a passive refresh over cached data,
 	// not a user-blocking lifecycle state.
 	if (activity === "attaching") return "hidden";
-	if (activity === "paused") return "paused";
 	return "hidden";
 };

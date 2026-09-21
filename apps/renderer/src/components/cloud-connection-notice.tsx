@@ -128,6 +128,7 @@ export function CloudConnectionNotice() {
 		summary,
 		connection: shell.connection,
 		runtime,
+		timeline: timeline.view,
 	});
 	const presentation = cloudConnectionPresentation(
 		summary,

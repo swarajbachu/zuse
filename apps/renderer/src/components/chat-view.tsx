@@ -224,6 +224,7 @@ export function ChatView({
 					summary: cloudSummary,
 					connection: cloudShell.connection,
 					runtime: runtimeState,
+					timeline: timeline.view,
 				});
 	const turnStartPending = hasPendingTurnStart(timeline.view.pendingCommands);
 	const inFlight =
