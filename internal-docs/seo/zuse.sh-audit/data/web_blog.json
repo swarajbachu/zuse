@@ -1,0 +1,336 @@
+{
+  "title": "Dispatch: notes from Zuse | Zuse",
+  "meta_description": "Practical guides and product notes on open-source coding agents, parallel worktrees, agent handoffs, and reviewing AI-generated code.",
+  "meta_robots": "index, follow",
+  "canonical": "https://zuse.sh/blog",
+  "h1": [
+    "Ideas intopractice."
+  ],
+  "h2": [
+    "Choose where your agents run",
+    "Parallel agents, without collisions",
+    "Review the evidence, not the confidence",
+    "Know your token spend",
+    "Token maxing your AI coding subscriptions",
+    "Zuse Alpha is now in public alpha",
+    "Run six coding agents side by side",
+    "Bring your own keys: why Zuse (Beta) never resells tokens",
+    "Git worktrees for every chat",
+    "Sub-agent delegation to cut cost",
+    "Local-first by design"
+  ],
+  "h3": [
+    "Product",
+    "Legal",
+    "Trust",
+    "Community"
+  ],
+  "images": [
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fapp-icon.png&w=2048&q=75",
+      "alt": "",
+      "width": "1024",
+      "height": "1024",
+      "loading": null,
+      "lazy_method": "none"
+    },
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fbrand%2Fpegasus-dither.webp&w=3840&q=75",
+      "alt": "",
+      "width": "480",
+      "height": "480",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fbrand%2Fhandoff-dither.webp&w=3840&q=75",
+      "alt": "",
+      "width": "640",
+      "height": "420",
+      "loading": null,
+      "lazy_method": "none"
+    },
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fapp-icon.png&w=2048&q=75",
+      "alt": "",
+      "width": "1024",
+      "height": "1024",
+      "loading": null,
+      "lazy_method": "none"
+    }
+  ],
+  "links": {
+    "internal": [
+      {
+        "href": "http://localhost:3001/",
+        "text": "Zuse",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/#workflow",
+        "text": "How it works",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/docs",
+        "text": "Docs",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/pricing",
+        "text": "Pricing",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog",
+        "text": "Dispatch",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/changelog",
+        "text": "Changelog",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/download",
+        "text": "DownloadD",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog/choose-where-agents-run",
+        "text": "Latest dispatch /3 min readChoose where your agents runLocal worktrees, isolated cloud workspaces, a",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog/parallel-agents-without-collisions",
+        "text": "Sep 17, 2026Parallel agents, without collisionsA practical workflow for isolating AI coding tasks wi",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog/review-the-evidence",
+        "text": "Sep 17, 2026Review the evidence, not the confidenceA repeatable checklist for reviewing AI-generated",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog/know-your-token-spend",
+        "text": "Jun 21, 2026Know your token spendTokenmaxer reads your agent CLI logs and unifies token counts and d",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog/token-maxing-your-subscriptions",
+        "text": "Jun 21, 2026Token maxing your AI coding subscriptionsYou already pay a flat fee for Claude, Codex, a",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog/memoize-public-alpha",
+        "text": "Jun 16, 2026Zuse Alpha is now in public alphaHow Zuse launched its original public alpha as one proj",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog/run-six-agents-side-by-side",
+        "text": "Jun 10, 2026Run six coding agents side by sideClaude Code, Codex, Cursor, Gemini, Grok, and OpenCode",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog/bring-your-own-keys",
+        "text": "Jun 4, 2026Bring your own keys: why Zuse (Beta) never resells tokensYour API keys stay in your opera",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog/git-worktrees-for-every-chat",
+        "text": "May 28, 2026Git worktrees for every chatEach chat gets an isolated working tree, so parallel agents ",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog/sub-agent-delegation",
+        "text": "May 20, 2026Sub-agent delegation to cut costLet a lead agent spawn cheaper models for the grunt work",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog/local-first-by-design",
+        "text": "May 12, 2026Local-first by designSQLite on disk, keys in the operating system credential store, no a",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/",
+        "text": "Zuse",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/download",
+        "text": "Download ZuseD",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/download",
+        "text": "Download",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/developers",
+        "text": "Developers",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/pricing",
+        "text": "Pricing",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/changelog",
+        "text": "Change Log",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog",
+        "text": "Dispatch",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/privacy",
+        "text": "Privacy Policy",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/terms",
+        "text": "Terms of Service",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/cookies",
+        "text": "Cookie Policy",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/acceptable-use",
+        "text": "Acceptable Use",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/security",
+        "text": "Security",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/data-rights",
+        "text": "Data Rights",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/subprocessors",
+        "text": "Subprocessors",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/accessibility",
+        "text": "Accessibility",
+        "rel": []
+      }
+    ],
+    "external": [
+      {
+        "href": "https://discord.gg/cvGpmMGd5",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse",
+        "text": "Star114",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://discord.gg/cvGpmMGd5",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse",
+        "text": "GitHub",
+        "rel": []
+      },
+      {
+        "href": "https://discord.gg/cvGpmMGd5",
+        "text": "Discord",
+        "rel": []
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse/releases",
+        "text": "Releases",
+        "rel": []
+      },
+      {
+        "href": "https://x.com/zuse_sh",
+        "text": "X",
+        "rel": []
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://x.com/zuse_sh",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://www.instagram.com/zuse.sh/",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://discord.gg/cvGpmMGd5",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      }
+    ]
+  },
+  "schema": [],
+  "open_graph": {
+    "og:title": "Dispatch: notes from Zuse | Zuse",
+    "og:description": "Practical guides and product notes on open-source coding agents, parallel worktrees, agent handoffs, and reviewing AI-generated code.",
+    "og:url": "https://zuse.sh/blog",
+    "og:site_name": "Zuse",
+    "og:locale": "en_US",
+    "og:image": "https://zuse.sh/og.png",
+    "og:image:width": "1200",
+    "og:image:height": "630",
+    "og:image:alt": "Dispatch: notes from Zuse | Zuse",
+    "og:type": "website"
+  },
+  "twitter_card": {
+    "twitter:card": "summary_large_image",
+    "twitter:creator": "@zuse_sh",
+    "twitter:title": "Dispatch: notes from Zuse | Zuse",
+    "twitter:description": "Practical guides and product notes on open-source coding agents, parallel worktrees, agent handoffs, and reviewing AI-generated code.",
+    "twitter:image": "https://zuse.sh/og.png"
+  },
+  "word_count": 364,
+  "hreflang": [
+    {
+      "lang": "en-US",
+      "href": "https://zuse.sh/blog"
+    }
+  ]
+}

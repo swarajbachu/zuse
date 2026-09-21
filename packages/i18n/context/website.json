@@ -4,7 +4,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 84
+				"line": 93
 			}
 		]
 	},
@@ -13,11 +13,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 129
+				"line": 138
 			},
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 788
+				"line": 898
 			}
 		]
 	},
@@ -26,7 +26,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 131
+				"line": 140
 			}
 		]
 	},
@@ -35,7 +35,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 141
+				"line": 150
 			}
 		]
 	},
@@ -44,7 +44,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 146
+				"line": 155
 			}
 		]
 	},
@@ -53,7 +53,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 151
+				"line": 160
 			}
 		]
 	},
@@ -62,7 +62,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 181
+				"line": 190
 			}
 		]
 	},
@@ -71,7 +71,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 185
+				"line": 194
 			}
 		]
 	},
@@ -80,7 +80,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 194
+				"line": 203
 			}
 		]
 	},
@@ -89,7 +89,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 201
+				"line": 210
 			}
 		]
 	},
@@ -98,7 +98,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 208
+				"line": 217
 			}
 		]
 	},
@@ -107,7 +107,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 373
+				"line": 368
 			}
 		]
 	},
@@ -116,7 +116,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 400
+				"line": 399
 			}
 		]
 	},
@@ -125,7 +125,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 419
+				"line": 440
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 485
 			}
 		]
 	},
@@ -134,7 +138,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 420
+				"line": 421
 			}
 		]
 	},
@@ -143,7 +147,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 442
+				"line": 522
 			}
 		]
 	},
@@ -152,7 +156,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 451
+				"line": 532
 			}
 		]
 	},
@@ -161,7 +165,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 479
+				"line": 568
 			}
 		]
 	},
@@ -170,7 +174,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 495
+				"line": 588
 			}
 		]
 	},
@@ -179,7 +183,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 506
+				"line": 599
 			}
 		]
 	},
@@ -188,7 +192,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 522
+				"line": 617
 			}
 		]
 	},
@@ -197,7 +201,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 524
+				"line": 619
 			}
 		]
 	},
@@ -206,7 +210,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 545
+				"line": 640
 			}
 		]
 	},
@@ -215,7 +219,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 603
+				"line": 702
 			}
 		]
 	},
@@ -224,7 +228,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 605
+				"line": 704
 			}
 		]
 	},
@@ -233,7 +237,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 613
+				"line": 712
 			}
 		]
 	},
@@ -242,7 +246,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 618
+				"line": 779
 			}
 		]
 	},
@@ -251,11 +255,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 634
-			},
-			{
-				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 698
+				"line": 1282
 			}
 		]
 	},
@@ -264,7 +264,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 657
+				"line": 761
 			}
 		]
 	},
@@ -273,7 +273,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 658
+				"line": 762
 			}
 		]
 	},
@@ -282,7 +282,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 668
+				"line": 772
 			}
 		]
 	},
@@ -291,7 +291,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 675
+				"line": 805
 			}
 		]
 	},
@@ -300,7 +300,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 773
+				"line": 883
 			}
 		]
 	},
@@ -309,7 +309,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 778
+				"line": 888
 			}
 		]
 	},
@@ -318,7 +318,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 793
+				"line": 903
 			}
 		]
 	},
@@ -327,7 +327,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 797
+				"line": 907
 			}
 		]
 	},
@@ -336,7 +336,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 800
+				"line": 910
 			}
 		]
 	},
@@ -345,7 +345,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 843
+				"line": 953
 			}
 		]
 	},
@@ -354,7 +354,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 850
+				"line": 960
 			}
 		]
 	},
@@ -363,7 +363,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 857
+				"line": 967
 			}
 		]
 	},
@@ -372,25 +372,20 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 893
+				"line": 1004
 			}
 		]
 	},
 	"demo:continue_threads": {
 		"source": "Continue Threads",
-		"locations": [
-			{
-				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 916
-			}
-		]
+		"locations": []
 	},
 	"demo:choose_a_model": {
 		"source": "Choose a model",
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1065
+				"line": 1134
 			}
 		]
 	},
@@ -399,7 +394,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1070
+				"line": 1139
 			}
 		]
 	},
@@ -408,7 +403,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1077
+				"line": 1146
 			}
 		]
 	},
@@ -417,7 +412,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1086
+				"line": 1155
 			}
 		]
 	},
@@ -426,11 +421,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1094
+				"line": 1163
 			},
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1097
+				"line": 1166
 			}
 		]
 	},
@@ -439,7 +434,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1117
+				"line": 1190
 			}
 		]
 	},
@@ -448,7 +443,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1124
+				"line": 1197
 			}
 		]
 	},
@@ -457,25 +452,20 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1125
+				"line": 1198
 			}
 		]
 	},
 	"demo:recents": {
 		"source": "Recents",
-		"locations": [
-			{
-				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1135
-			}
-		]
+		"locations": []
 	},
 	"demo:models_2": {
 		"source": "Models",
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1154
+				"line": 1207
 			}
 		]
 	},
@@ -484,7 +474,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1170
+				"line": 1223
 			}
 		]
 	},
@@ -493,7 +483,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1192
+				"line": 1245
 			}
 		]
 	},
@@ -502,11 +492,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 384
+				"line": 379
 			},
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 898
+				"line": 1009
 			}
 		]
 	},
@@ -515,33 +505,24 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 384
+				"line": 379
 			},
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 898
+				"line": 1009
 			}
 		]
 	},
 	"demo:last_30_days": {
 		"source": "last 30 days",
-		"locations": [
-			{
-				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 1136
-			}
-		]
+		"locations": []
 	},
 	"demo:reasoning_low": {
 		"source": "Low",
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 646
-			},
-			{
-				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 711
+				"line": 1481
 			}
 		]
 	},
@@ -550,15 +531,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 186
+				"line": 195
 			},
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 649
-			},
-			{
-				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 713
+				"line": 1483
 			}
 		]
 	},
@@ -567,15 +544,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 182
+				"line": 191
 			},
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 648
-			},
-			{
-				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 715
+				"line": 1485
 			}
 		]
 	},
@@ -588,7 +561,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 731
+				"line": 841
 			}
 		]
 	},
@@ -597,7 +570,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 736
+				"line": 846
 			}
 		]
 	},
@@ -606,7 +579,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 737
+				"line": 847
 			}
 		]
 	},
@@ -624,7 +597,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 422
+				"line": 423
 			}
 		]
 	},
@@ -633,7 +606,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 452
+				"line": 533
 			}
 		]
 	},
@@ -642,7 +615,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 489
+				"line": 582
 			}
 		]
 	},
@@ -651,7 +624,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 500
+				"line": 593
 			}
 		]
 	},
@@ -660,11 +633,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 172
+				"line": 181
 			},
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 176
+				"line": 185
 			}
 		]
 	},
@@ -673,7 +646,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 198
+				"line": 207
 			}
 		]
 	},
@@ -682,7 +655,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 547
+				"line": 642
 			}
 		]
 	},
@@ -691,7 +664,81 @@
 		"locations": [
 			{
 				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
-				"line": 548
+				"line": 643
+			}
+		]
+	},
+	"demo:this_computer": {
+		"source": "This computer",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 420
+			}
+		]
+	},
+	"demo:worktree": {
+		"source": "Worktree",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 440
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 442
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 485
+			}
+		]
+	},
+	"demo:import_chat": {
+		"source": "Import chat",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 453
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 454
+			}
+		]
+	},
+	"demo:full_access": {
+		"source": "Full access",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 727
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 753
+			}
+		]
+	},
+	"demo:ask_first": {
+		"source": "Ask first",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 727
+			},
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 753
+			}
+		]
+	},
+	"demo:advanced": {
+		"source": "Advanced",
+		"locations": [
+			{
+				"path": "apps/web/components/demo/zuse-interactive-demo.tsx",
+				"line": 1251
 			}
 		]
 	},
@@ -877,6 +924,10 @@
 	},
 	"landing:open_source_cloud_beta_live": {
 		"source": "<part0></part0>Open source · Cloud beta live",
+		"locations": []
+	},
+	"landing:cloud_coding_agents_open_source": {
+		"source": "Cloud coding agents. <part0>Open source.</part0>",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/hero.tsx",
@@ -884,21 +935,12 @@
 			}
 		]
 	},
-	"landing:all_your_coding_agents_one_workspace": {
-		"source": "All your coding agents. <part0>One workspace.</part0>",
+	"landing:open_source_devin_alternative": {
+		"source": "An open-source alternative to Devin. Run agents in parallel, locally or in isolated cloud workspaces.",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/hero.tsx",
-				"line": 28
-			}
-		]
-	},
-	"landing:run_agents_side_by_side_carry_context_between_them_and_keep_every_task": {
-		"source": "Run agents side by side, carry context between them, and keep every task isolated in its own git worktree.",
-		"locations": [
-			{
-				"path": "apps/web/components/landing/hero.tsx",
-				"line": 35
+				"line": 27
 			}
 		]
 	},
@@ -907,7 +949,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/hero.tsx",
-				"line": 44
+				"line": 35
 			}
 		]
 	},
@@ -916,12 +958,12 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/hero.tsx",
-				"line": 48
+				"line": 39
 			}
 		]
 	},
 	"landing:meta_title": {
-		"source": "Zuse — All your coding agents in one workspace",
+		"source": "Zuse: All your coding agents in one workspace",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/page.tsx",
@@ -1032,7 +1074,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 29
+				"line": 31
 			}
 		]
 	},
@@ -1041,25 +1083,20 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 30
+				"line": 32
 			}
 		]
 	},
 	"navigation:cloud": {
 		"source": "Cloud",
-		"locations": [
-			{
-				"path": "apps/web/components/navbar.tsx",
-				"line": 31
-			}
-		]
+		"locations": []
 	},
 	"navigation:changelog": {
 		"source": "Changelog",
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 32
+				"line": 35
 			}
 		]
 	},
@@ -1068,7 +1105,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 92
+				"line": 97
 			}
 		]
 	},
@@ -1077,7 +1114,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 93
+				"line": 98
 			}
 		]
 	},
@@ -1086,7 +1123,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 156
+				"line": 161
 			}
 		]
 	},
@@ -1095,7 +1132,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 157
+				"line": 162
 			}
 		]
 	},
@@ -1104,7 +1141,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 165
+				"line": 170
 			}
 		]
 	},
@@ -1117,7 +1154,7 @@
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 192
+				"line": 198
 			}
 		]
 	},
@@ -1126,7 +1163,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 207
+				"line": 213
 			}
 		]
 	},
@@ -1144,16 +1181,20 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 50
+				"line": 51
 			}
 		]
 	},
 	"navigation:blog": {
-		"source": "Blog",
+		"source": "Journal",
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 51
+				"line": 52
+			},
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 34
 			}
 		]
 	},
@@ -1162,16 +1203,16 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 64
+				"line": 65
 			}
 		]
 	},
 	"navigation:2026_zuse_all_rights_reserved": {
-		"source": "2026 Zuse — All Rights Reserved",
+		"source": "2026 Zuse. All Rights Reserved",
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 113
+				"line": 114
 			}
 		]
 	},
@@ -1297,7 +1338,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 80
+				"line": 81
 			}
 		]
 	},
@@ -1306,7 +1347,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 225
+				"line": 231
 			}
 		]
 	},
@@ -1315,7 +1356,29 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 225
+				"line": 231
+			}
+		]
+	},
+	"navigation:pricing": {
+		"source": "Pricing",
+		"locations": [
+			{
+				"path": "apps/web/components/footer/index.tsx",
+				"line": 50
+			},
+			{
+				"path": "apps/web/components/navbar.tsx",
+				"line": 33
+			}
+		]
+	},
+	"showcase:book_a_call": {
+		"source": "Book a call",
+		"locations": [
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 78
 			}
 		]
 	},
@@ -1324,7 +1387,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/product-showcase.tsx",
-				"line": 25
+				"line": 26
 			}
 		]
 	},
@@ -1333,25 +1396,20 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/product-showcase.tsx",
-				"line": 26
+				"line": 27
 			}
 		]
 	},
 	"showcase:fork_a_session_or_start_a_new_provider_with_the_plan_transcript_and_fi": {
 		"source": "Fork a session or start a new provider with the plan, transcript, and files it needs. You choose what moves forward.",
-		"locations": [
-			{
-				"path": "apps/web/components/landing/product-showcase.tsx",
-				"line": 28
-			}
-		]
+		"locations": []
 	},
 	"showcase:review": {
 		"source": "Review",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/product-showcase.tsx",
-				"line": 43
+				"line": 41
 			}
 		]
 	},
@@ -1360,18 +1418,13 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/product-showcase.tsx",
-				"line": 44
+				"line": 42
 			}
 		]
 	},
 	"showcase:inspect_the_complete_branch_commit_deliberately_push_when_it_is_ready": {
 		"source": "Inspect the complete branch, commit deliberately, push when it is ready, and send failed checks back to the active agent.",
-		"locations": [
-			{
-				"path": "apps/web/components/landing/product-showcase.tsx",
-				"line": 46
-			}
-		]
+		"locations": []
 	},
 	"showcase:parallel_work_without_branch_chaos": {
 		"source": "Parallel work without <part0/> branch chaos.",
@@ -1384,19 +1437,14 @@
 	},
 	"showcase:every_task_gets_an_isolated_branch_and_working_tree_run_several_agents": {
 		"source": "Every task gets an isolated branch and working tree. Run several agents at once without mixing their changes together.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/agenforce/components/features/index.tsx",
-				"line": 32
-			}
-		]
+		"locations": []
 	},
 	"showcase:every_run_stays_isolated": {
 		"source": "Every run stays isolated",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features/index.tsx",
-				"line": 42
+				"line": 37
 			}
 		]
 	},
@@ -1405,7 +1453,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features/index.tsx",
-				"line": 50
+				"line": 45
 			}
 		]
 	},
@@ -1414,7 +1462,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features/index.tsx",
-				"line": 59
+				"line": 54
 			}
 		]
 	},
@@ -1450,7 +1498,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
-				"line": 27
+				"line": 20
 			}
 		]
 	},
@@ -1459,7 +1507,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
-				"line": 31
+				"line": 24
 			}
 		]
 	},
@@ -1468,7 +1516,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
-				"line": 42
+				"line": 35
 			}
 		]
 	},
@@ -1477,63 +1525,33 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
-				"line": 46
+				"line": 39
 			}
 		]
 	},
 	"showcase:pick_a_model_per_step": {
 		"source": "Pick a model per step",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
-				"line": 61
-			}
-		]
+		"locations": []
 	},
 	"showcase:choose_which_agent_handles_planning_coding_and_review_per_task_not_per": {
-		"source": "Choose which agent handles planning, coding, and review — per task, not per project.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
-				"line": 67
-			}
-		]
+		"source": "Choose which agent handles planning, coding, and review, per task, not per project.",
+		"locations": []
 	},
 	"showcase:attach_the_right_context": {
 		"source": "Attach the right context",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
-				"line": 75
-			}
-		]
+		"locations": []
 	},
 	"showcase:add_a_plan_transcript_diff_or_focused_files_when_starting_the_next_ses": {
 		"source": "Add a plan, transcript, diff, or focused files when starting the next session.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
-				"line": 81
-			}
-		]
+		"locations": []
 	},
 	"showcase:you_stay_in_control": {
 		"source": "You stay in control",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
-				"line": 89
-			}
-		]
+		"locations": []
 	},
 	"showcase:choose_the_provider_and_model_for_each_session_then_decide_what_contex": {
 		"source": "Choose the provider and model for each session, then decide what context to carry forward.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/agenforce/components/features-secondary/index.tsx",
-				"line": 95
-			}
-		]
+		"locations": []
 	},
 	"showcase:planning_session": {
 		"source": "Planning session",
@@ -1666,72 +1684,52 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
-				"line": 21
+				"line": 22
 			}
 		]
 	},
 	"showcase:see_the_branch_diff_changed_files_and_line_totals_before_anything_leav": {
 		"source": "See the branch diff, changed files, and line totals before anything leaves your machine.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
-				"line": 25
-			}
-		]
+		"locations": []
 	},
 	"showcase:inline_diff_review_before_push": {
 		"source": "Inline diff review before push",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
-				"line": 36
+				"line": 32
 			}
 		]
 	},
 	"showcase:review_additions_deletions_files_and_agent_findings_without_leaving_zu": {
 		"source": "Review additions, deletions, files, and agent findings without leaving Zuse.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
-				"line": 40
-			}
-		]
+		"locations": []
 	},
 	"showcase:commit_selected_files_push": {
 		"source": "Commit selected files & push",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
-				"line": 51
+				"line": 42
 			}
 		]
 	},
 	"showcase:choose_exactly_which_files_enter_the_commit_write_the_message_and_push": {
 		"source": "Choose exactly which files enter the commit, write the message, and push the branch when it is ready.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
-				"line": 55
-			}
-		]
+		"locations": []
 	},
 	"showcase:send_failing_checks_to_the_agent": {
 		"source": "Send failing checks to the agent",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
-				"line": 66
+				"line": 52
 			}
 		]
 	},
 	"showcase:collect_failed_github_actions_logs_and_attach_them_to_the_agent_thread": {
 		"source": "Collect failed GitHub Actions logs and attach them to the agent thread so it can diagnose and fix the branch.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/agenforce/components/features-tertiary/index.tsx",
-				"line": 70
-			}
-		]
+		"locations": []
 	},
 	"showcase:branch": {
 		"source": "Branch",
@@ -1932,11 +1930,11 @@
 		]
 	},
 	"showcase:bring_the_subscriptions_you_already_pay_for_zuse_orchestrates_them_no": {
-		"source": "Bring the subscriptions you already pay for. <part0>Zuse orchestrates them — no token markup.</part0>",
+		"source": "Bring the subscriptions you already pay for. <part0>Zuse orchestrates them with no token markup.</part0>",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/agenforce/components/logo-cloud.tsx",
-				"line": 21
+				"line": 23
 			}
 		]
 	},
@@ -1945,7 +1943,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
-				"line": 31
+				"line": 23
 			}
 		]
 	},
@@ -1954,7 +1952,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
-				"line": 33
+				"line": 25
 			}
 		]
 	},
@@ -1963,7 +1961,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
-				"line": 40
+				"line": 32
 			},
 			{
 				"path": "apps/web/components/tpl/nodus/components/how-it-works/skeletons.tsx",
@@ -1976,7 +1974,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
-				"line": 42
+				"line": 34
 			}
 		]
 	},
@@ -1985,7 +1983,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
-				"line": 49
+				"line": 41
 			}
 		]
 	},
@@ -1994,7 +1992,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
-				"line": 51
+				"line": 43
 			}
 		]
 	},
@@ -2003,7 +2001,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
-				"line": 80
+				"line": 72
 			}
 		]
 	},
@@ -2012,18 +2010,13 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
-				"line": 82
+				"line": 74
 			}
 		]
 	},
 	"showcase:implementation_review_and_checks_stay_side_by_side_on_the_same_branch": {
 		"source": "Implementation, review, and checks stay side by side on the same branch and working tree.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/nodus/components/how-it-works/index.tsx",
-				"line": 87
-			}
-		]
+		"locations": []
 	},
 	"showcase:terminal": {
 		"source": "Terminal",
@@ -2137,12 +2130,16 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 21
+				"line": 19
 			}
 		]
 	},
 	"showcase:let_an_agent_drive_a_real_browser_and_verify_the_flow_inside_zuse": {
 		"source": "Let an agent drive a real browser and verify the flow inside Zuse",
+		"locations": []
+	},
+	"showcase:import_browser_sessions": {
+		"source": "Import browser sessions",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
@@ -2150,131 +2147,72 @@
 			}
 		]
 	},
-	"showcase:import_browser_sessions": {
-		"source": "Import browser sessions",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 31
-			}
-		]
-	},
 	"showcase:copy_valid_cookies_from_a_local_browser_profile_into_zuse_s_built_in_b": {
 		"source": "Copy valid cookies from a local browser profile into Zuse's built-in browser. Passwords are never imported.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 34
-			}
-		]
+		"locations": []
 	},
 	"showcase:drive_the_whole_flow": {
 		"source": "Drive the whole flow",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 47
+				"line": 35
 			}
 		]
 	},
 	"showcase:navigate_fill_forms_click_controls_and_inspect_the_resulting_page_stat": {
 		"source": "Navigate, fill forms, click controls, and inspect the resulting page state.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 50
-			}
-		]
+		"locations": []
 	},
 	"showcase:watch_browser_actions_live": {
 		"source": "Watch browser actions live",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 63
+				"line": 46
 			}
 		]
 	},
 	"showcase:see_the_page_as_the_agent_works_and_keep_screenshots_and_results_in_th": {
 		"source": "See the page as the agent works and keep screenshots and results in the thread.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 66
-			}
-		]
+		"locations": []
 	},
 	"showcase:describe_what_to_verify": {
 		"source": "Describe what to verify",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 83
+				"line": 61
 			}
 		]
 	},
 	"showcase:give_the_agent_the_flow_and_expected_result_it_performs_the_browser_ac": {
 		"source": "Give the agent the flow and expected result; it performs the browser actions for you.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 86
-			}
-		]
+		"locations": []
 	},
 	"showcase:signed_in_sessions": {
 		"source": "Signed-in sessions",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 100
-			}
-		]
+		"locations": []
 	},
 	"showcase:copy_valid_cookies_from_a_local_browser_profile_passwords_are_never_im": {
 		"source": "Copy valid cookies from a local browser profile. Passwords are never imported.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 102
-			}
-		]
+		"locations": []
 	},
 	"showcase:a_real_headless_browser": {
 		"source": "A real, headless browser",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 107
-			}
-		]
+		"locations": []
 	},
 	"showcase:tests_drive_an_actual_browser_clicks_typing_navigation_and_assertions": {
-		"source": "Tests drive an actual browser — clicks, typing, navigation, and assertions.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 109
-			}
-		]
+		"source": "Tests drive an actual browser: clicks, typing, navigation, and assertions.",
+		"locations": []
 	},
 	"showcase:inspect_and_retry": {
 		"source": "Inspect and retry",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 114
-			}
-		]
+		"locations": []
 	},
 	"showcase:the_agent_can_inspect_the_current_page_state_adjust_the_implementation": {
 		"source": "The agent can inspect the current page state, adjust the implementation, and try the flow again.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-one/index.tsx",
-				"line": 116
-			}
-		]
+		"locations": []
 	},
 	"showcase:step_3_failed_checkout_button_selector_changed": {
 		"source": "Step 3 failed: checkout button selector changed.",
@@ -2440,19 +2378,14 @@
 	},
 	"showcase:run_agents_from_your_desktop_today_keep_them_working_in_persistent_clo": {
 		"source": "Run agents from your desktop today, keep them working in persistent cloud environments, and follow them from mobile soon.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 25
-			}
-		]
+		"locations": []
 	},
 	"showcase:agents_in_your_pocket": {
 		"source": "Agents in your pocket",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 54
+				"line": 49
 			}
 		]
 	},
@@ -2461,25 +2394,20 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 55
+				"line": 50
 			}
 		]
 	},
 	"showcase:follow_runs_and_approve_decisions_from_your_phone": {
 		"source": "Follow runs and approve decisions from your phone.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 57
-			}
-		]
+		"locations": []
 	},
 	"showcase:full_control_at_your_desk": {
 		"source": "Full control at your desk",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 62
+				"line": 54
 			}
 		]
 	},
@@ -2488,52 +2416,41 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 63
+				"line": 55
 			}
 		]
 	},
 	"showcase:run_agents_inspect_changes_and_manage_worktrees_in_zuse_desktop": {
 		"source": "Run agents, inspect changes, and manage worktrees in Zuse Desktop.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 66
-			}
-		]
+		"locations": []
 	},
 	"showcase:agents_that_keep_running": {
 		"source": "Agents that keep running",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 72
+				"line": 59
 			}
 		]
 	},
 	"showcase:live_beta": {
 		"source": "Live beta",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 73
-			}
-		]
+		"locations": []
 	},
 	"showcase:run_isolated_cloud_workspaces_even_after_your_computer_goes_offline": {
 		"source": "Run isolated cloud workspaces even after your computer goes offline.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 76
-			}
-		]
+		"locations": []
 	},
 	"showcase:cloud_beta": {
 		"source": "Cloud beta",
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 88
+				"line": 60
+			},
+			{
+				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
+				"line": 70
 			}
 		]
 	},
@@ -2542,54 +2459,29 @@
 		"locations": [
 			{
 				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 91
+				"line": 73
 			}
 		]
 	},
 	"showcase:register_your_interest_as_we_open_beta_capacity_to_more_developers": {
 		"source": "Register your interest as we open beta capacity to more developers.",
-		"locations": [
-			{
-				"path": "apps/web/components/tpl/saas/components/features-two/index.tsx",
-				"line": 95
-			}
-		]
+		"locations": []
 	},
 	"showcase:interest_registered_we_ll_email_you_about_beta_access": {
 		"source": "Interest registered. We'll email you about beta access.",
-		"locations": [
-			{
-				"path": "apps/web/components/cloud-teaser/waitlist-form.tsx",
-				"line": 50
-			}
-		]
+		"locations": []
 	},
 	"showcase:email_address": {
 		"source": "Email address",
-		"locations": [
-			{
-				"path": "apps/web/components/cloud-teaser/waitlist-form.tsx",
-				"line": 67
-			}
-		]
+		"locations": []
 	},
 	"showcase:sending": {
 		"source": "Sending…",
-		"locations": [
-			{
-				"path": "apps/web/components/cloud-teaser/waitlist-form.tsx",
-				"line": 83
-			}
-		]
+		"locations": []
 	},
 	"showcase:request_access": {
 		"source": "Request access",
-		"locations": [
-			{
-				"path": "apps/web/components/cloud-teaser/waitlist-form.tsx",
-				"line": 83
-			}
-		]
+		"locations": []
 	},
 	"showcase:zuse_desktop_workspace": {
 		"source": "Zuse desktop workspace",
@@ -2623,61 +2515,46 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/workflow-overview.tsx",
-				"line": 16
+				"line": 8
 			}
 		]
 	},
 	"showcase:connect_your_existing_coding_agent_subscriptions_and_choose_the_right": {
 		"source": "Connect your existing coding-agent subscriptions and choose the right provider for each session.",
-		"locations": [
-			{
-				"path": "apps/web/components/landing/workflow-overview.tsx",
-				"line": 18
-			}
-		]
+		"locations": []
 	},
 	"showcase:run_work_in_parallel": {
 		"source": "Run work in parallel",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/workflow-overview.tsx",
-				"line": 24
+				"line": 9
 			}
 		]
 	},
 	"showcase:give_every_task_its_own_chat_branch_and_git_worktree_so_multiple_attem": {
 		"source": "Give every task its own chat, branch, and git worktree so multiple attempts never overwrite each other.",
-		"locations": [
-			{
-				"path": "apps/web/components/landing/workflow-overview.tsx",
-				"line": 26
-			}
-		]
+		"locations": []
 	},
 	"showcase:carry_context_then_review": {
 		"source": "Carry context, then review",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/workflow-overview.tsx",
-				"line": 32
+				"line": 10
 			}
 		]
 	},
 	"showcase:continue_with_another_agent_using_the_plan_transcript_or_files_it_need": {
 		"source": "Continue with another agent using the plan, transcript, or files it needs, then inspect the diff before anything ships.",
-		"locations": [
-			{
-				"path": "apps/web/components/landing/workflow-overview.tsx",
-				"line": 34
-			}
-		]
+		"locations": []
 	},
 	"showcase:how_zuse_works": {
 		"source": "How Zuse works",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/workflow-overview.tsx",
-				"line": 47
+				"line": 16
 			}
 		]
 	},
@@ -2686,30 +2563,16 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/workflow-overview.tsx",
-				"line": 50
+				"line": 19
 			}
 		]
 	},
 	"showcase:zuse_keeps_every_agent_session_connected_to_the_code_branch_and_review": {
 		"source": "Zuse keeps every agent session connected to the code, branch, and review state it belongs to.",
-		"locations": [
-			{
-				"path": "apps/web/components/landing/workflow-overview.tsx",
-				"line": 54
-			}
-		]
+		"locations": []
 	},
 	"showcase:submit_error": {
 		"source": "Something went wrong. Please try again.",
-		"locations": [
-			{
-				"path": "apps/web/components/cloud-teaser/waitlist-form.tsx",
-				"line": 33
-			},
-			{
-				"path": "apps/web/components/cloud-teaser/waitlist-form.tsx",
-				"line": 42
-			}
-		]
+		"locations": []
 	}
 }

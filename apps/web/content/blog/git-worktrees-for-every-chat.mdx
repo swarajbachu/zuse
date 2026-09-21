@@ -2,19 +2,17 @@
 title: "Git worktrees for every chat"
 description: "Each chat gets an isolated working tree, so parallel agents never clobber each other's changes."
 date: "2026-05-28"
+category: "Guide"
 timeToRead: "5 min read"
 authorName: "Zuse (Beta) team"
 authorRole: "Product notes"
 authorAvatar: "/app-icon.png"
-previewImage: "/assets/blog-preview-worktrees-clean.svg"
 labels:
   [
     { name: "Git", hex: "#84CC16" },
     { name: "Workflow", hex: "#38BDF8" },
   ]
 ---
-
-# Git worktrees for every chat
 
 Running two agents against the same checkout is a recipe for conflicts. One edits a file while the other reads a stale version, builds collide, and you end up untangling changes that were never meant to mix.
 

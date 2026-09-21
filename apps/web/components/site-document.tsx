@@ -14,6 +14,8 @@ import { ProgressiveBlur } from "@/components/progressive-blur";
 import { cn } from "@/lib/utils";
 
 import "@/app/globals.css";
+import "@/components/site-typography.css";
+import "@/components/editorial.css";
 import { DownloadShortcut } from "@/components/download-shortcut";
 import { Footer } from "@/components/footer";
 import { VerticalLine } from "@/components/line";
@@ -70,7 +72,7 @@ export async function SiteDocument({
 					DMMono.variable,
 					geist.variable,
 					schibstedGrotesk.variable,
-					`bg-background relative overflow-x-hidden font-sans antialiased`,
+					`zuse-site bg-background relative overflow-x-hidden font-sans antialiased`,
 				)}
 			>
 				<WebsiteProvider locale={locale} messages={messages}>
@@ -82,11 +84,11 @@ export async function SiteDocument({
 							<VerticalLine />
 							<VerticalLine className="right-0 left-auto" />
 							<Navbar githubStars={githubStars} />
-							{children}
+							<div className="site-content">{children}</div>
 							<Footer />
 						</div>
 						<ProgressiveBlur
-							className="pointer-events-none fixed inset-x-0 bottom-0 z-40 mx-auto h-[8%] w-full max-w-6xl"
+							className="site-bottom-blur pointer-events-none fixed inset-x-0 bottom-0 z-40 mx-auto h-[8%] w-full max-w-6xl"
 							blurIntensity={1}
 						/>
 					</ThemeProvider>

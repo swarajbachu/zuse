@@ -1,0 +1,56 @@
+{
+  "url": "http://localhost:3001/",
+  "status_code": 200,
+  "is_spa": false,
+  "accessibility_tree": null,
+  "accessibility_error": null,
+  "accessibility_partial": false,
+  "redirect_chain": [],
+  "console_errors": [],
+  "render_diagnostics": [],
+  "render_engine": null,
+  "render_ms": null,
+  "mode_used": "raw",
+  "error": null,
+  "structured_data": {
+    "block_count": 1,
+    "processed_count": 1,
+    "total_bytes": 1540,
+    "truncated": false,
+    "blocks": [
+      {
+        "index": 1,
+        "size_bytes": 1540,
+        "valid": true,
+        "types": [
+          "Offer",
+          "Organization",
+          "SoftwareApplication",
+          "WebSite"
+        ],
+        "types_truncated": false
+      }
+    ]
+  },
+  "truncation": {
+    "limit": null,
+    "fields": {
+      "content": {
+        "original_chars": 439807,
+        "returned_chars": 439807,
+        "truncated": false
+      },
+      "raw_content": {
+        "original_chars": 439807,
+        "returned_chars": 439807,
+        "truncated": false
+      },
+      "extracted_text": {
+        "original_chars": 3118,
+        "returned_chars": 3118,
+        "truncated": false
+      }
+    }
+  },
+  "output_written": false
+}

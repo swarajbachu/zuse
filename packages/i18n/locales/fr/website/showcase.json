@@ -1,4 +1,5 @@
 {
+	"book_a_call": "Réserver un appel",
 	"review": "Revoir",
 	"parallel_work_without_branch_chaos": "Travail parallèle sans chaos de branche <part0/>.",
 	"continue_the_work_with_another_agent": "Continuer le travail avec un autre agent",
@@ -65,7 +66,7 @@
 	"failed_check_attached": "Chèque échoué ci-joint",
 	"3_selected": "3 sélectionnés",
 	"agent_thread": "Fil de discussion d'agent",
-	"bring_the_subscriptions_you_already_pay_for_zuse_orchestrates_them_no": "Apportez les abonnements que vous payez déjà. <part0>Zuse les orchestre — pas de balisage de jeton.</part0>",
+	"bring_the_subscriptions_you_already_pay_for_zuse_orchestrates_them_no": "Apportez les abonnements que vous payez déjà. <part0>Zuse les orchestre, pas de balisage de jeton.</part0>",
 	"diagnosing_session_redirect": "Diagnostic de la redirection de session…",
 	"failing_checks_0821_txt_36_lines": "failing-checks-0821.txt · 36 lignes",
 	"checks_terminal": "Chèques · terminal",
