@@ -315,6 +315,50 @@ describe("Box sandbox provider", () => {
 		});
 	});
 
+	test("waits for restored disk mounts before returning a recovered allocation", async () => {
+		const http = makeHttp([
+			{
+				status: 200,
+				body: {
+					sandboxes: [
+						{ id: "bx_recovered", state: "ready", name: "recover-me" },
+					],
+				},
+			},
+			{ status: 200, body: commandResult(75) },
+			{ status: 200, body: commandResult(0) },
+		]);
+		const recovered = await Effect.runPromise(
+			makeAdapter(http.client).recoverByLabel("recover-me"),
+		);
+		expect(recovered?.state).toBe("running");
+		expect(
+			http.calls
+				.slice(1)
+				.map((call) => JSON.parse(String(call.init?.body)).command),
+		).toEqual([
+			expect.stringContaining("for root in /usr /etc /opt /srv"),
+			expect.stringContaining("for root in /usr /etc /opt /srv"),
+		]);
+	});
+
+	test("does not return a provisioning recovery as running or allocate a replacement", async () => {
+		const http = makeHttp([
+			{
+				status: 200,
+				body: {
+					sandboxes: [
+						{ id: "bx_recovered", state: "provisioning", name: "recover-me" },
+					],
+				},
+			},
+		]);
+		await expect(
+			Effect.runPromise(makeAdapter(http.client).recoverByLabel("recover-me")),
+		).rejects.toMatchObject({ code: "transient" });
+		expect(http.calls).toHaveLength(1);
+	});
+
 	test("follows list pagination until the label is found", async () => {
 		const http = makeHttp([
 			{
@@ -333,6 +377,7 @@ describe("Box sandbox provider", () => {
 					pageInfo: { nextCursor: null },
 				},
 			},
+			{ status: 200, body: commandResult(0) },
 		]);
 		const adapter = makeAdapter(http.client);
 
