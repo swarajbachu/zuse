@@ -376,12 +376,20 @@ export const makePolarBillingProvider = (
 						: offersByProduct.get(subscription.productId);
 				if (
 					subscription === null ||
-					accountId === undefined ||
-					accountId === null ||
 					offerId === undefined ||
 					(typeof metadataOfferId === "string" && metadataOfferId !== offerId)
 				) {
 					return yield* providerFailure();
+				}
+				// Checkout-link purchases remain unclaimed until verified-email sign-in.
+				if (
+					accountId === undefined ||
+					accountId === null ||
+					accountId.trim() === ""
+				) {
+					return yield* new BillingProviderError({
+						code: "subscription-unlinked",
+					});
 				}
 				return {
 					accountId,

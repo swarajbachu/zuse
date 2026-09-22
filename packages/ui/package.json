@@ -1,26 +1,34 @@
 {
-  "name": "@repo/ui",
-  "version": "0.0.0",
-  "private": true,
-  "exports": {
-    "./*": "./src/*.tsx"
-  },
-  "scripts": {
-    "lint": "eslint . --max-warnings 0",
-    "generate:component": "turbo gen react-component",
-    "check-types": "tsc --noEmit"
-  },
-  "devDependencies": {
-    "@repo/eslint-config": "*",
-    "@repo/typescript-config": "*",
-    "@types/node": "catalog:",
-    "@types/react": "catalog:",
-    "@types/react-dom": "catalog:",
-    "eslint": "catalog:",
-    "typescript": "catalog:"
-  },
-  "dependencies": {
-    "react": "catalog:",
-    "react-dom": "catalog:"
-  }
+	"name": "@repo/ui",
+	"type": "module",
+	"version": "0.0.0",
+	"private": true,
+	"exports": {
+		"./*": "./src/*.tsx",
+		"./app-palette.css": "./src/app-palette.css",
+		"./zuse-mark": "./src/zuse-mark.json"
+	},
+	"scripts": {
+		"lint": "eslint . --max-warnings 0",
+		"generate:component": "turbo gen react-component",
+		"check-types": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@repo/eslint-config": "*",
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"@types/react": "catalog:",
+		"@types/react-dom": "catalog:",
+		"@types/three": "^0.186.0",
+		"eslint": "catalog:",
+		"typescript": "catalog:"
+	},
+	"dependencies": {
+		"@react-three/fiber": "^9.7.0",
+		"@react-three/postprocessing": "^3.1.1",
+		"postprocessing": "^6.39.5",
+		"react": "catalog:",
+		"react-dom": "catalog:",
+		"three": "^0.186.0"
+	}
 }

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="440" viewBox="0 0 640 440">
+  <!-- Artwork is supplied by dmg-wallpaper.png; Finder supplies the real icons. -->
+  <!-- Light label backings keep Finder's native dark filenames readable. -->
+  <rect x="108" y="358" width="144" height="30" rx="5" fill="#a8b79a"/>
+  <rect x="388" y="358" width="144" height="30" rx="5" fill="#a8b79a"/>
+  <g font-family="DejaVu Sans, Helvetica, Arial, sans-serif">
+    <text x="32" y="42" font-size="17" font-weight="700" letter-spacing="3" fill="#d5e6b6">ZUSE</text>
+    <path d="M303 316H337M330 309L337 316L330 323" fill="none" stroke="#b6d77c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="320" y="409" text-anchor="middle" font-size="12" fill="#c6d0bd">Drag Zuse into Applications to get started.</text>
+  </g>
+</svg>

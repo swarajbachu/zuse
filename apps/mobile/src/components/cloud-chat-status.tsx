@@ -7,11 +7,7 @@ import { Text, View } from "react-native";
 import { Button } from "~/components/ui/button";
 import { connectionSessionKey } from "~/lib/session-key";
 import { cloudCatalogAtom, refreshCloudCatalog } from "~/store/cloud-catalog";
-import {
-	hasOlderMessagesAtom,
-	loadOlderMessages,
-	sessionDeliveryAtom,
-} from "~/store/messages";
+import { sessionDeliveryAtom } from "~/store/messages";
 import { mobileClientBus } from "~/store/mobile-client-bus";
 
 export function CloudChatStatus({
@@ -31,10 +27,6 @@ export function CloudChatStatus({
 	const delivery = useAtomValue(
 		sessionDeliveryAtom(connectionSessionKey(connKey, sessionId)),
 	);
-	const hasOlder = useAtomValue(
-		hasOlderMessagesAtom(connectionSessionKey(connKey, sessionId)),
-	);
-	const [loadingOlder, setLoadingOlder] = useState(false);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const summary = catalog.chats.find((row) => row.workspaceId === workspaceId);
 	const pending = delivery.pending.find(
@@ -104,7 +96,7 @@ export function CloudChatStatus({
 								: error
 									? "Cloud history could not refresh. Pull to retry."
 									: null));
-	if (label === null && actionError === null && !hasOlder) return null;
+	if (label === null && actionError === null) return null;
 	const lastUser = messages[lastUserIndex];
 	const draft =
 		lastUser?.content._tag === "user" || lastUser?.content._tag === "user_rich"
@@ -119,23 +111,6 @@ export function CloudChatStatus({
 				</Text>
 			) : null}
 			<View className="flex-row flex-wrap gap-2">
-				{hasOlder ? (
-					<Button
-						className="h-7"
-						variant="ghost"
-						disabled={loadingOlder}
-						onPress={() => {
-							setLoadingOlder(true);
-							void loadOlderMessages(connKey, sessionId)
-								.catch(() =>
-									setActionError("Could not load older messages. Try again."),
-								)
-								.finally(() => setLoadingOlder(false));
-						}}
-					>
-						{loadingOlder ? "Loading history…" : "Load earlier messages"}
-					</Button>
-				) : null}
 				{pending?.cancellable ? (
 					<Button
 						className="h-7"

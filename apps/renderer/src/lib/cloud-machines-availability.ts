@@ -6,7 +6,7 @@ export const cloudMachinesAvailable = ({
 	readonly desktop: boolean;
 }): boolean => desktop;
 
-/** Cloud compute is desktop-only. API owns private-beta authorization. */
+/** Cloud compute is desktop-only. The API owns account authorization. */
 export const cloudWorkspaceBetaAvailable = (): boolean =>
 	cloudMachinesAvailable({
 		desktop: rendererPlatformCapabilities().desktop,

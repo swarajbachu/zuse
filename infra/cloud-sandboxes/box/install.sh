@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Box-side template installation, executed as root inside a fresh box by
 # box-publish.sh. Runs the shared provision stages, then layers on the
-# Box-specific pieces: the in-guest quarantine firewall, boot-time port
-# hosting, and the no-sudo guarantee for the zuse user.
+# Box-specific pieces: boot-time port hosting, and the no-sudo guarantee for the zuse user.
 set -euo pipefail
 
 provision_dir="${ZUSE_PROVISION_DIR:-/tmp/zuse-provision}"
@@ -21,9 +20,6 @@ if ! command -v node >/dev/null 2>&1 || [ "$(node --version | cut -c2-3)" != "22
 	apt-get install -y nodejs
 fi
 
-apt-get update
-apt-get install -y --no-install-recommends nftables
-
 # Replace stock launchers with the versions installed by the shared stages.
 for launcher in pnpm pnpx yarn yarnpkg corepack bun bunx claude codex; do
 	rm -f "/usr/local/bin/$launcher"
@@ -34,16 +30,11 @@ done
 # Fail publication if native dependencies or the installed CLI cannot load.
 runuser -u zuse -- /usr/local/bin/zuse --help >/dev/null
 
-# Quarantine firewall: root-only script + boot unit (ADR 0035).
-install -m 0755 "$provision_dir/box/zuse-firewall" /usr/local/sbin/zuse-firewall
-install -m 0644 "$provision_dir/box/zuse-firewall.service" /etc/systemd/system/zuse-firewall.service
 install -m 0644 "$provision_dir/box/zuse-host-ports.service" /etc/systemd/system/zuse-host-ports.service
 systemctl daemon-reload
-systemctl enable zuse-firewall.service zuse-host-ports.service
-systemctl start zuse-firewall.service
+systemctl enable zuse-host-ports.service
 
-# The barrier only holds if untrusted code cannot become root: zuse gets no
-# sudo, no admin groups, and an explicit deny-all sudoers entry.
+# Keep the runtime user unprivileged: no sudo or admin groups.
 gpasswd -d zuse sudo 2>/dev/null || true
 gpasswd -d zuse admin 2>/dev/null || true
 gpasswd -d zuse docker 2>/dev/null || true

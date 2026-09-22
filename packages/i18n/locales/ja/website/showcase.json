@@ -1,4 +1,5 @@
 {
+	"book_a_call": "通話を予約",
 	"agent_handoff": "エージェントのハンドオフ",
 	"review": "レビュー",
 	"continue_the_work_with_another_agent": "別のエージェントと作業を続行する",
@@ -66,7 +67,7 @@
 	"agent_thread": "エージェントスレッド",
 	"failed_check_attached": "失敗したチェックが添付されました",
 	"diagnosing_session_redirect": "セッションのリダイレクトを診断しています…",
-	"bring_the_subscriptions_you_already_pay_for_zuse_orchestrates_them_no": "すでに支払ったサブスクリプションをご持参ください。 <part0>Zuse はそれらを調整します — トークンのマークアップはありません。</part0>",
+	"bring_the_subscriptions_you_already_pay_for_zuse_orchestrates_them_no": "すでに支払ったサブスクリプションをご持参ください。 <part0>Zuse はそれらを調整します。トークンのマークアップはありません。</part0>",
 	"failing_checks_0821_txt_36_lines": "失敗チェック-0821.txt · 36 行",
 	"codex_diff_review": "Codex · 差分レビュー",
 	"multiple_tabs_shared_context": "複数のタブ、共有コンテキスト",

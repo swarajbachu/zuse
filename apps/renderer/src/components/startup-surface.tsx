@@ -3,7 +3,7 @@ import type { SurfacePhase } from "@zuse/client-runtime/resource-state";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useState } from "react";
 
-import { Spinner } from "./ui/spinner.tsx";
+import { LogoTraceLoader } from "./logo-trace-loader.tsx";
 
 export const SLOW_STARTUP_DELAY_MS = 4_000;
 
@@ -41,22 +41,27 @@ export const startupPresentation = (input: {
 
 export function StartupSurface({
 	error,
+	loading,
+	onDone,
 	phase,
 	onRetry,
 }: {
 	readonly error: string | null;
+	readonly loading?: boolean;
+	readonly onDone?: () => void;
 	readonly phase: SurfacePhase;
 	readonly onRetry: () => void;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
 	const presentation = startupPresentation({ loaded: false, phase });
+	const activelyLoading = presentation === "loading" && loading !== false;
 	const [slow, setSlow] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const safeError = sanitizeStartupError(error);
 
 	useEffect(() => {
-		if (presentation !== "loading") {
+		if (!activelyLoading) {
 			setSlow(false);
 			return;
 		}
@@ -65,7 +70,7 @@ export function StartupSurface({
 			SLOW_STARTUP_DELAY_MS,
 		);
 		return () => window.clearTimeout(timeout);
-	}, [presentation]);
+	}, [activelyLoading]);
 
 	const copyDetails = () => {
 		if (safeError === null) return;
@@ -77,20 +82,18 @@ export function StartupSurface({
 
 	return (
 		<div
-			aria-busy={presentation === "loading"}
-			className="flex h-dvh max-h-dvh min-h-0 w-screen items-center justify-center overflow-hidden bg-background px-6 text-foreground"
+			aria-busy={activelyLoading}
+			className="fixed inset-0 z-50 flex h-dvh max-h-dvh min-h-0 w-screen items-center justify-center overflow-hidden bg-background px-6 text-foreground"
 		>
 			{presentation === "loading" ? (
-				<main
-					aria-label={uiMessage("chat:startup_surface_loading_zuse")}
-					aria-live="polite"
-					className="flex flex-col items-center gap-3"
-					role="status"
-				>
-					<div className="font-semibold text-base tracking-tight">
-						{uiMessage("chat:startup_surface_zuse")}
-					</div>
-					<Spinner className="size-4 text-muted-foreground" />
+				<main aria-live="polite" className="flex flex-col items-center gap-3">
+					<LogoTraceLoader
+						ariaLabel={uiMessage("chat:startup_surface_loading_zuse")}
+						className="text-foreground"
+						loading={activelyLoading}
+						onDone={onDone}
+						size={72}
+					/>
 					{slow ? (
 						<p className="text-muted-foreground text-xs">
 							{uiMessage("chat:startup_surface_still_starting_zuse")}

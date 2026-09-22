@@ -1,0 +1,584 @@
+{
+  "title": "Zuse: All your coding agents in one workspace",
+  "meta_description": "Run coding agents side by side, carry context between them, and isolate every task in its own git worktree with Zuse.",
+  "meta_robots": "index, follow",
+  "canonical": "https://zuse.sh",
+  "h1": [
+    "Cloud coding agents.Open source."
+  ],
+  "h2": [
+    "What should we build in forkzero?",
+    "One repo. Many agents. No lost context.",
+    "Bring the subscriptions you already pay for.Zuse orchestrates them with no token markup.",
+    "Continue the work with another agent",
+    "Parallel work withoutbranch chaos.",
+    "Multiple tabs, shared context",
+    "From changed files to a verified pull request",
+    "Browser verification, built in",
+    "Keep agent work moving anywhere",
+    "Questions devs ask first"
+  ],
+  "h3": [
+    "Bring the agents you already use",
+    "Run work in parallel",
+    "Carry context, then review",
+    "Plan with one model, continue with another",
+    "Fork when a provider hits its limit",
+    "Every run stays isolated",
+    "Hand off the complete context",
+    "Reclaim disk without losing work",
+    "Review every changed file",
+    "Inline diff review before push",
+    "Commit selected files & push",
+    "Send failing checks to the agent",
+    "Import browser sessions",
+    "Drive the whole flow",
+    "Watch browser actions live",
+    "Describe what to verify",
+    "Agents in your pocket",
+    "Full control at your desk",
+    "Agents that keep running",
+    "Interested in a hosted workspace?",
+    "What does Zuse actually do?",
+    "What happens when I want to switch agents?",
+    "Which agents are supported?",
+    "Do I need my own API keys or subscriptions?",
+    "Is my code or data sent anywhere?",
+    "Which operating systems are supported?",
+    "How much does it cost?",
+    "Can I run multiple agents at once?",
+    "What is sub-agent delegation?",
+    "Product",
+    "Legal",
+    "Trust",
+    "Community"
+  ],
+  "images": [
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fapp-icon.png&w=2048&q=75",
+      "alt": "",
+      "width": "1024",
+      "height": "1024",
+      "loading": null,
+      "lazy_method": "none"
+    },
+    {
+      "src": "http://localhost:3001/logos/openai.svg",
+      "alt": "",
+      "width": "16",
+      "height": "16",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fbrand%2Fpegasus-dither.webp&w=3840&q=75",
+      "alt": "",
+      "width": "1000",
+      "height": "1000",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fbrand%2Fobservatory-dither.webp&w=3840&q=75",
+      "alt": "",
+      "width": "1000",
+      "height": "1000",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fbrand%2Fhandoff-dither.webp&w=3840&q=75",
+      "alt": "",
+      "width": "1000",
+      "height": "1000",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/claude.svg",
+      "alt": "",
+      "width": "24",
+      "height": "24",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/openai.svg",
+      "alt": "",
+      "width": "24",
+      "height": "24",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/cursor.svg",
+      "alt": "",
+      "width": "24",
+      "height": "24",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/grok.svg",
+      "alt": "",
+      "width": "24",
+      "height": "24",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/gemini.svg",
+      "alt": "",
+      "width": "24",
+      "height": "24",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/opencode.svg",
+      "alt": "",
+      "width": "24",
+      "height": "24",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/pi.svg",
+      "alt": "",
+      "width": "24",
+      "height": "24",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/kiro.svg",
+      "alt": "",
+      "width": "24",
+      "height": "24",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/claude.svg",
+      "alt": "",
+      "width": "17",
+      "height": "17",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/openai.svg",
+      "alt": "",
+      "width": "17",
+      "height": "17",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/claude.svg",
+      "alt": "",
+      "width": "17",
+      "height": "17",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/openai.svg",
+      "alt": "",
+      "width": "16",
+      "height": "16",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/claude.svg",
+      "alt": "",
+      "width": "13",
+      "height": "13",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/openai.svg",
+      "alt": "",
+      "width": "13",
+      "height": "13",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/claude.svg",
+      "alt": "",
+      "width": "13",
+      "height": "13",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/claude.svg",
+      "alt": "",
+      "width": "16",
+      "height": "16",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/openai.svg",
+      "alt": "",
+      "width": "16",
+      "height": "16",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/logos/claude.svg",
+      "alt": "",
+      "width": "16",
+      "height": "16",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fassets%2Fproduct%2Fzuse-workspace.png&w=3840&q=75",
+      "alt": "Zuse desktop workspace",
+      "width": null,
+      "height": null,
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fapp-icon.png&w=2048&q=75",
+      "alt": "",
+      "width": "1024",
+      "height": "1024",
+      "loading": null,
+      "lazy_method": "none"
+    }
+  ],
+  "links": {
+    "internal": [
+      {
+        "href": "http://localhost:3001/",
+        "text": "Zuse",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/#workflow",
+        "text": "How it works",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/docs",
+        "text": "Docs",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/pricing",
+        "text": "Pricing",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog",
+        "text": "Dispatch",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/changelog",
+        "text": "Changelog",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/download",
+        "text": "DownloadD",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/download",
+        "text": "Download ZuseD",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/",
+        "text": "Zuse",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/download",
+        "text": "Download ZuseD",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/download",
+        "text": "Download",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/developers",
+        "text": "Developers",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/pricing",
+        "text": "Pricing",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/changelog",
+        "text": "Change Log",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog",
+        "text": "Dispatch",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/privacy",
+        "text": "Privacy Policy",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/terms",
+        "text": "Terms of Service",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/cookies",
+        "text": "Cookie Policy",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/acceptable-use",
+        "text": "Acceptable Use",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/security",
+        "text": "Security",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/data-rights",
+        "text": "Data Rights",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/subprocessors",
+        "text": "Subprocessors",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/accessibility",
+        "text": "Accessibility",
+        "rel": []
+      }
+    ],
+    "external": [
+      {
+        "href": "https://discord.gg/cvGpmMGd5",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse",
+        "text": "Star114",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://discord.gg/cvGpmMGd5",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://cal.com/swaraj/15min",
+        "text": "Book a call",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse",
+        "text": "GitHub",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse",
+        "text": "GitHub",
+        "rel": []
+      },
+      {
+        "href": "https://discord.gg/cvGpmMGd5",
+        "text": "Discord",
+        "rel": []
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse/releases",
+        "text": "Releases",
+        "rel": []
+      },
+      {
+        "href": "https://x.com/zuse_sh",
+        "text": "X",
+        "rel": []
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://x.com/zuse_sh",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://www.instagram.com/zuse.sh/",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://discord.gg/cvGpmMGd5",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      }
+    ]
+  },
+  "schema": [
+    {
+      "@type": "Organization",
+      "@id": "https://zuse.sh/#organization",
+      "name": "Zuse",
+      "url": "https://zuse.sh",
+      "logo": "https://zuse.sh/app-icon.png",
+      "sameAs": [
+        "https://github.com/swarajbachu/zuse",
+        "https://x.com/zuse_sh",
+        "https://www.instagram.com/zuse.sh/",
+        "https://discord.gg/cvGpmMGd5"
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://zuse.sh/#website",
+      "name": "Zuse",
+      "url": "https://zuse.sh",
+      "description": "Run coding agents side by side, carry context between them, and isolate every task in its own git worktree with Zuse.",
+      "publisher": {
+        "@id": "https://zuse.sh/#organization"
+      },
+      "inLanguage": "en"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://zuse.sh/#software",
+      "name": "Zuse",
+      "description": "Run coding agents side by side, carry context between them, and isolate every task in its own git worktree with Zuse.",
+      "url": "https://zuse.sh",
+      "downloadUrl": "https://zuse.sh/download",
+      "codeRepository": "https://github.com/swarajbachu/zuse",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": [
+        "macOS",
+        "Linux"
+      ],
+      "isAccessibleForFree": true,
+      "license": "https://github.com/swarajbachu/zuse/blob/main/LICENSE",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD",
+        "availability": "https://schema.org/InStock"
+      },
+      "featureList": [
+        "Run multiple coding agents from one workspace",
+        "Isolated Git worktrees for parallel agent runs",
+        "Local and cloud execution environments",
+        "Built-in diff, terminal, browser, and pull-request review",
+        "Bring your existing model subscriptions"
+      ],
+      "publisher": {
+        "@id": "https://zuse.sh/#organization"
+      }
+    }
+  ],
+  "open_graph": {
+    "og:title": "Zuse: All your coding agents in one workspace",
+    "og:description": "Run coding agents side by side, carry context between them, and isolate every task in its own git worktree with Zuse.",
+    "og:url": "https://zuse.sh",
+    "og:site_name": "Zuse",
+    "og:locale": "en_US",
+    "og:image": "https://zuse.sh/og.png",
+    "og:image:width": "1200",
+    "og:image:height": "630",
+    "og:image:alt": "Zuse: All your coding agents in one workspace",
+    "og:locale:alternate": "ko_KR",
+    "og:type": "website"
+  },
+  "twitter_card": {
+    "twitter:card": "summary_large_image",
+    "twitter:creator": "@zuse_sh",
+    "twitter:title": "Zuse: All your coding agents in one workspace",
+    "twitter:description": "Run coding agents side by side, carry context between them, and isolate every task in its own git worktree with Zuse.",
+    "twitter:image": "https://zuse.sh/og.png"
+  },
+  "word_count": 1069,
+  "hreflang": [
+    {
+      "lang": "en",
+      "href": "https://zuse.sh"
+    },
+    {
+      "lang": "fr",
+      "href": "https://zuse.sh/fr"
+    },
+    {
+      "lang": "de",
+      "href": "https://zuse.sh/de"
+    },
+    {
+      "lang": "zh-Hans",
+      "href": "https://zuse.sh/zh-Hans"
+    },
+    {
+      "lang": "zh-Hant",
+      "href": "https://zuse.sh/zh-Hant"
+    },
+    {
+      "lang": "ja",
+      "href": "https://zuse.sh/ja"
+    },
+    {
+      "lang": "ko",
+      "href": "https://zuse.sh/ko"
+    },
+    {
+      "lang": "x-default",
+      "href": "https://zuse.sh"
+    }
+  ]
+}

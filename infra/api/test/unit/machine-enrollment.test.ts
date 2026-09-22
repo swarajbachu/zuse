@@ -5,7 +5,6 @@ import { Effect, Layer, Redacted, Ref } from "effect";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, test } from "vitest";
 import { AccountIdentity } from "../../src/account-identity.ts";
-import { BetaAccessAllowAll } from "../../src/beta-access.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import * as Config from "../../src/config.ts";
 import { sha256Hex } from "../../src/crypto.ts";
@@ -47,7 +46,6 @@ const makeTestLayer = (
 ) =>
 	Layer.mergeAll(
 		configLayer,
-		BetaAccessAllowAll,
 		WorkosVerifierTest,
 		Layer.succeed(
 			AccountIdentity,

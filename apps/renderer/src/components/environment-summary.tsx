@@ -22,7 +22,7 @@ import {
 	Loading02Icon,
 	ServerStack01Icon,
 	Tick02Icon,
-} from "@zuse/icons/stroke-rounded";
+} from "@zuse/icons/solid-rounded";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 
 import { useEffect, useMemo, useRef, useState } from "react";

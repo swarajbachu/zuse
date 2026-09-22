@@ -1,4 +1,5 @@
 "use client";
+import { DitherButtonBackground } from "@repo/ui/dither";
 import {
 	IconBrandDiscordFilled,
 	IconMenu2,
@@ -24,11 +25,13 @@ import {
 import { DISCORD_URL, GITHUB_URL } from "@/lib/site";
 import { cn } from "@/lib/utils";
 import { LanguageSelector } from "./language-selector";
+import { VerticalLine } from "./line";
 
 const getNavItems = (t: WebsiteMessage) => [
 	{ label: t("navigation:how_it_works"), href: "/#workflow" },
 	{ label: t("navigation:docs"), href: "/docs" },
-	{ label: t("navigation:cloud"), href: "/#cloud-interest" },
+	{ label: t("navigation:pricing"), href: "/pricing" },
+	{ label: t("navigation:blog"), href: "/blog" },
 	{ label: t("navigation:changelog"), href: "/changelog" },
 ];
 
@@ -50,13 +53,15 @@ export const Navbar = ({
 				className,
 			)}
 		>
+			<VerticalLine />
+			<VerticalLine className="right-0 left-auto" />
 			<div className="max-w-container mx-auto px-4 sm:px-8">
-				<div className="flex h-16 items-center justify-between">
-					<div className="flex shrink-0 items-center gap-2 xl:min-w-45">
-						<Logo className="size-8" />
+				<div className="flex h-14 items-center justify-between">
+					<div className="flex shrink-0 items-center gap-2 xl:min-w-28">
+						<Logo className="size-7" wordmarkClassName="text-base" />
 					</div>
 					<div className="hidden xl:block">
-						<div className="flex items-center gap-3 xl:gap-5">
+						<div className="flex items-center gap-1 xl:gap-2">
 							{getNavItems(t).map((item) => (
 								<Link
 									key={item.label}
@@ -65,7 +70,7 @@ export const Navbar = ({
 											? websitePath(locale) + item.href.slice(1)
 											: item.href
 									}
-									className="text-muted-foreground hover:text-heading focus-visible:ring-heading/60 inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-medium transition-colors duration-200 focus-visible:ring-2 focus-visible:outline-none"
+									className="text-muted-foreground hover:text-heading focus-visible:ring-heading/60 inline-flex min-h-11 items-center rounded-md px-2 text-xs font-normal transition-colors duration-200 focus-visible:ring-2 focus-visible:outline-none"
 								>
 									{item.label}
 								</Link>
@@ -73,7 +78,7 @@ export const Navbar = ({
 						</div>
 					</div>
 
-					<div className="hidden items-center gap-2 xl:flex">
+					<div className="hidden items-center gap-1.5 xl:flex">
 						<DiscordLink />
 						<ThemeToggle />
 						<LanguageSelector />
@@ -94,7 +99,7 @@ export const Navbar = ({
 							}
 							aria-expanded={isMenuOpen}
 							onClick={() => setIsMenuOpen(!isMenuOpen)}
-							className="text-muted-foreground hover:text-heading focus-visible:ring-heading/60 relative flex size-7 items-center justify-center rounded-md transition-colors duration-200 after:absolute after:-inset-2 focus-visible:ring-2 focus-visible:outline-none"
+							className="text-muted-foreground hover:text-heading focus-visible:ring-heading/60 relative flex size-6 items-center justify-center rounded-md transition-colors duration-200 after:absolute after:-inset-2 focus-visible:ring-2 focus-visible:outline-none"
 						>
 							{isMenuOpen ? (
 								<IconX className="size-4" />
@@ -158,14 +163,14 @@ const GitHubStarLink = ({
 							value0: stars.toLocaleString(locale),
 						})
 			}
-			className="group border-border bg-card text-heading hover:bg-elevated focus-visible:ring-heading/60 relative flex h-7 shrink-0 items-center rounded-md border text-xs transition-colors duration-200 after:absolute after:-inset-y-2 after:inset-x-0 focus-visible:ring-2 focus-visible:outline-none"
+			className="group border-border bg-card text-heading hover:bg-elevated focus-visible:ring-heading/60 relative flex h-6 shrink-0 items-center rounded-md border text-xs transition-colors duration-200 after:absolute after:-inset-y-2 after:inset-x-0 focus-visible:ring-2 focus-visible:outline-none"
 		>
-			<span className="flex items-center gap-1.5 px-2.5 font-medium">
-				<GitHubIcon className="size-3.5" />
+			<span className="flex items-center gap-1.5 px-2 font-normal">
+				<GitHubIcon className="size-3" />
 				{t("navigation:star")}
 			</span>
 			{stars !== null && stars !== undefined ? (
-				<span className="border-border text-muted-foreground flex min-w-8 self-stretch items-center justify-center border-l px-2 font-mono text-[11px] tabular-nums">
+				<span className="border-border text-muted-foreground flex min-w-7 self-stretch items-center justify-center border-l px-2 font-mono text-[11px] tabular-nums">
 					{stars.toLocaleString(locale)}
 				</span>
 			) : null}
@@ -184,13 +189,14 @@ const DownloadLink = ({ className }: { className?: string }) => {
 			aria-label={getDownloadLabel(platform, t)}
 			aria-keyshortcuts="D"
 			className={cn(
-				"bg-primary focus-visible:ring-heading/60 relative flex h-7 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-black transition-opacity duration-200 after:absolute after:-inset-y-2 after:inset-x-0 hover:opacity-90 focus-visible:ring-2 focus-visible:outline-none",
+				"bg-background isolate overflow-hidden focus-visible:ring-heading/60 relative flex h-6 items-center justify-center gap-1.5 rounded-md px-2 text-[11px] font-mono font-bold text-foreground transition-opacity duration-200 after:absolute after:-inset-y-2 after:inset-x-0 hover:opacity-90 focus-visible:ring-2 focus-visible:outline-none",
 				className,
 			)}
 		>
-			<PlatformDownloadIcon platform={platform} className="size-3.5" />
+			<DitherButtonBackground />
+			<PlatformDownloadIcon platform={platform} className="size-3" />
 			{t("navigation:download")}
-			<kbd className="rounded border border-black/15 bg-black/10 px-1 py-px font-sans text-[9px] leading-none text-black/65">
+			<kbd className="rounded bg-background/30 px-1 py-px font-mono text-[9px] leading-none opacity-65">
 				D
 			</kbd>
 		</Link>
@@ -205,9 +211,9 @@ const DiscordLink = () => {
 			target="_blank"
 			rel="noopener noreferrer"
 			aria-label={t("navigation:join_the_zuse_discord")}
-			className="border-border bg-card text-muted-foreground hover:bg-elevated hover:text-heading focus-visible:ring-heading/60 relative flex size-7 items-center justify-center rounded-md border transition-colors duration-200 after:absolute after:-inset-2 focus-visible:ring-2 focus-visible:outline-none"
+			className="border-border bg-card text-muted-foreground hover:bg-elevated hover:text-heading focus-visible:ring-heading/60 relative flex size-6 items-center justify-center rounded-md border transition-colors duration-200 after:absolute after:-inset-2 focus-visible:ring-2 focus-visible:outline-none"
 		>
-			<IconBrandDiscordFilled aria-hidden="true" className="size-3.5" />
+			<IconBrandDiscordFilled aria-hidden="true" className="size-3" />
 		</a>
 	);
 };
@@ -225,12 +231,12 @@ const ThemeToggle = () => {
 				isDark ? "navigation:light_theme" : "navigation:dark_theme",
 			)}
 			onClick={() => setTheme(isDark ? "light" : "dark")}
-			className="border-border bg-card text-muted-foreground hover:bg-elevated hover:text-heading focus-visible:ring-heading/60 relative flex size-7 items-center justify-center rounded-md border transition-colors duration-200 after:absolute after:-inset-2 focus-visible:ring-2 focus-visible:outline-none"
+			className="border-border bg-card text-muted-foreground hover:bg-elevated hover:text-heading focus-visible:ring-heading/60 relative flex size-6 items-center justify-center rounded-md border transition-colors duration-200 after:absolute after:-inset-2 focus-visible:ring-2 focus-visible:outline-none"
 		>
 			{isDark ? (
-				<IconSunFilled aria-hidden="true" className="size-3.5" />
+				<IconSunFilled aria-hidden="true" className="size-3" />
 			) : (
-				<IconMoonFilled aria-hidden="true" className="size-3.5" />
+				<IconMoonFilled aria-hidden="true" className="size-3" />
 			)}
 		</button>
 	);

@@ -53,12 +53,12 @@ export default function TermsPage() {
 						command-line tools, network, and chosen provider.
 					</p>
 					<p className="mt-2">
-						Cloud Workspaces are an invite-only beta and may have separate
-						access, capacity, account, or subscription requirements. Mobile and
-						other clients may be limited, experimental, or unavailable. Product
-						pages, documentation, and the release notes describe current
-						availability; they do not promise that a feature will remain
-						available or work in every environment.
+						Cloud Workspaces are in public beta and may have separate capacity,
+						account, or subscription requirements. Mobile and other clients may
+						be limited, experimental, or unavailable. Product pages,
+						documentation, and the release notes describe current availability;
+						they do not promise that a feature will remain available or work in
+						every environment.
 					</p>
 				</section>
 

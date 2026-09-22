@@ -1,6 +1,6 @@
 ---
 title: "Choose a cloud machine"
-description: "Choose Box or E2B for new cloud chats and prepare each provider's image."
+description: "Choose Boat or E2B for new cloud chats and prepare each provider's image."
 section: how-to
 order: 25
 platforms: [desktop, browser]
@@ -9,24 +9,24 @@ related: [/how-to/cloud-agent-local-commands]
 lastVerified: latest
 ---
 
-Zuse supports **Box** and **E2B**. Choose a machine in the new-chat composer's
-**Run on** menu: **Cloud · Box** or **Cloud · E2B**. The choice applies to that
+Zuse supports **Boat** (formerly Box) and **E2B**. Choose a machine in the new-chat composer's
+**Run on** menu: **Cloud · Boat** or **Cloud · E2B**. The choice applies to that
 new chat. Existing chats stay on their original provider, including after a pause
 or restart. Changing providers does not move an existing workspace's files.
 
-Box is Zuse's default when both providers are available. It is a good starting
+Boat is Zuse's default when both providers are available. It is a good starting
 point for general development and larger builds. Choose E2B when preserving
 running processes across ordinary pauses matters more to your workflow.
 
-| | Box | E2B |
+| | Boat | E2B |
 | --- | --- | --- |
 | Machine choices in Zuse | Small, Standard, and Large | The configured E2B template size |
 | Pause and resume | Disk state is preserved; Zuse restarts its runtime and agents | Normal pauses preserve disk and memory state |
 | Tradeoff | A cold resume can take longer while services restart | Memory restoration can avoid that restart, but reconnects and runtime updates still take time |
 | Best fit | General coding, builds, and choosing more CPU or memory | Workflows that benefit from keeping processes alive between pauses |
 
-Box preserves files and installed packages when stopped; manually launched
-processes need restarting. See [Box's lifecycle overview](https://box.ascii.dev/).
+Boat preserves files and installed packages when stopped; manually launched
+processes need restarting. See [Boat's lifecycle overview](https://boat.dev/).
 E2B normally preserves both memory and files; filesystem-only recovery can still
 require a cold boot. See [E2B persistence](https://docs.e2b.dev/sandbox/persistence).
 These are lifecycle differences, not a promise that one provider is always faster.
@@ -38,7 +38,7 @@ pricing is not the price of your Zuse subscription.
 
 In **Settings → Cloud → Cloud image**, select **Machine provider**, then build or
 update that provider's image. Each image includes your connected repositories.
-Build Box and E2B separately if you want to switch between them for new chats.
+Build Boat and E2B separately if you want to switch between them for new chats.
 Updating one does not replace the other's image or running workspaces.
 
 Connect your coding agents once in **Cloud Authentication**. The same account
@@ -85,12 +85,12 @@ composer; the gray cloud icon in the sidebar only identifies a cloud chat.
 ## Usage and cost
 
 Cloud settings show usage attributed to your workspaces and image builds. For
-Box, Zuse uses [Box's reported usage and cost](https://docs.ascii.dev/box/api/reference/boxes/get-box-usage),
+Boat, Zuse uses [Boat's reported usage and cost](https://docs.boat.dev/api/reference/sandboxes/get-sandbox-usage),
 which already accounts for machine size and excludes stopped time. Running usage
 is provisional and can include a short reservation for continued operation;
 confirmed usage is reconciled after the machine stops.
 
-Box reports list-price compute cost, before provider plan discounts or credits.
+Boat reports list-price compute cost, before provider plan discounts or credits.
 Your Zuse allowance, overage markup, and spending cap still determine your Zuse
 bill. E2B continues to use its configured compute rates. Provider choice alone
 does not change your subscription price.

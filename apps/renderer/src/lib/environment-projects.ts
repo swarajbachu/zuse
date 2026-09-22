@@ -11,6 +11,7 @@ import {
 } from "@zuse/contracts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { registerFolder, useWorkspaceStore } from "../store/workspace.ts";
+import { overlayEnvironmentShell } from "./environment-entities.ts";
 import { dispatchEnvironmentShellCommand } from "./environment-shell-client-bus.ts";
 
 const messageOf = (cause: unknown): string => {
@@ -46,12 +47,30 @@ const registerResult = async (
 	folder: Folder,
 ): Promise<void> => {
 	const catalog = useEnvironmentCatalogStore.getState();
+	overlayEnvironmentShell(EnvironmentIdSchema.make(environmentId), (shell) => {
+		if (
+			shell.folders.some(
+				(existing) =>
+					existing.id === folder.id || existing.path === folder.path,
+			)
+		)
+			return shell;
+		return {
+			...shell,
+			folders: [...shell.folders, folder],
+			originsByFolder: { ...shell.originsByFolder, [folder.id]: null },
+			chatsByProject: { ...shell.chatsByProject, [folder.id]: [] },
+			sessionsByProject: { ...shell.sessionsByProject, [folder.id]: [] },
+		};
+	});
 	if (catalog.activeEnvironmentId === environmentId) {
 		useWorkspaceStore.setState((state) => registerFolder(state, folder));
 		await run(environmentId, "workspace.setSelected", {
 			folderId: folder.id,
 		}).catch(() => undefined);
+		return;
 	}
+	await catalog.activate(environmentId, { folderId: folder.id });
 };
 
 export const browseEnvironmentDirectory = (

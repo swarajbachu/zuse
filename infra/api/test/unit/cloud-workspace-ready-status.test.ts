@@ -270,9 +270,9 @@ describe("cloud workspace runtime ready status", () => {
 				statusCode: "resume-runtime-restarting",
 			}),
 		).toEqual({
-			state: "ready",
-			runtimeState: "online",
-			statusCode: "agent-running",
+			state: "provisioning",
+			runtimeState: "offline",
+			statusCode: "resume-runtime-restarting",
 		});
 	});
 });

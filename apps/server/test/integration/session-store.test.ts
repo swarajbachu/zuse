@@ -1,12 +1,27 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { fork } from "node:child_process";
+import { once } from "node:events";
+import {
+	mkdtemp,
+	open,
+	readFile,
+	rm,
+	stat,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, ManagedRuntime } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { Deferred, Effect, Fiber, ManagedRuntime } from "effect";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SessionStoreLive } from "../../src/auth/layers/session-store.ts";
 import type { SessionBundle } from "../../src/auth/layers/workos.ts";
 import { SessionStore } from "../../src/auth/services/session-store.ts";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs/promises")>();
+	return { ...actual, open: vi.fn(actual.open), unlink: vi.fn(actual.unlink) };
+});
 
 const originalAuthDir = process.env.ZUSE_AUTH_DIR;
 const originalClientId = process.env.WORKOS_CLIENT_ID;
@@ -14,6 +29,23 @@ const TEST_CLIENT_ID = "client_test_integration";
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+	vi.restoreAllMocks();
+	vi.mocked(open).mockReset();
+	vi.mocked(unlink).mockReset();
+	vi.mocked(unlink).mockImplementation(
+		(
+			await vi.importActual<typeof import("node:fs/promises")>(
+				"node:fs/promises",
+			)
+		).unlink,
+	);
+	vi.mocked(open).mockImplementation(
+		(
+			await vi.importActual<typeof import("node:fs/promises")>(
+				"node:fs/promises",
+			)
+		).open,
+	);
 	if (originalAuthDir === undefined) {
 		delete process.env.ZUSE_AUTH_DIR;
 	} else {
@@ -140,5 +172,206 @@ describe("SessionStoreLive", () => {
 			),
 		);
 		expect(maxActive).toBe(1);
+	});
+	it("does not admit another owner while lock metadata is being written", async () => {
+		await makeTempAuthDir();
+		const actual =
+			await vi.importActual<typeof import("node:fs/promises")>(
+				"node:fs/promises",
+			);
+		const writing = Deferred.makeUnsafe<void>();
+		const continueWriting = Deferred.makeUnsafe<void>();
+		let delayed = false;
+		vi.mocked(open).mockImplementation(async (...args) => {
+			const handle = await actual.open(...args);
+			if (/\.lock(?:\.tmp\.|$)/u.test(String(args[0])) && !delayed) {
+				delayed = true;
+				const write = handle.writeFile.bind(handle);
+				vi.spyOn(handle, "writeFile").mockImplementation(
+					async (...writeArgs) => {
+						Effect.runSync(Deferred.succeed(writing, undefined));
+						await Effect.runPromise(Deferred.await(continueWriting));
+						return write(...writeArgs);
+					},
+				);
+			}
+			return handle;
+		});
+		let active = 0;
+		let maxActive = 0;
+		const work = () =>
+			withStore((svc) =>
+				svc.withLock(
+					Effect.gen(function* () {
+						active++;
+						maxActive = Math.max(maxActive, active);
+						yield* Effect.sleep("300 millis");
+						active--;
+					}),
+				),
+			);
+		const first = work();
+		await Effect.runPromise(Deferred.await(writing));
+		const second = work();
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		} finally {
+			Effect.runSync(Deferred.succeed(continueWriting, undefined));
+			await Promise.all([first, second]);
+		}
+		expect(maxActive).toBe(1);
+	});
+	it("serializes processes and recovers after the owner is killed", async () => {
+		const dir = await makeTempAuthDir();
+		const workers: ReturnType<typeof fork>[] = [];
+		const start = () => {
+			const child = fork(
+				new URL("../fixtures/session-lock-worker.ts", import.meta.url),
+				[],
+				{
+					execArgv: ["--import", "tsx"],
+					stdio: ["ignore", "ignore", "pipe", "ipc"],
+					env: {
+						...process.env,
+						ZUSE_AUTH_DIR: dir,
+						WORKOS_CLIENT_ID: TEST_CLIENT_ID,
+					},
+				},
+			);
+			workers.push(child);
+			let ready = false;
+			let inside = false;
+			child.on("message", (message) => {
+				if (message === "ready") ready = true;
+				if (message === "entered") {
+					inside = true;
+				}
+			});
+			return {
+				child,
+				ready: () => ready,
+				inside: () => inside,
+			};
+		};
+		try {
+			const first = start();
+			await vi.waitFor(() => expect(first.inside()).toBe(true), {
+				timeout: 5_000,
+			});
+			const second = start();
+			await vi.waitFor(() => expect(second.ready()).toBe(true), {
+				timeout: 5_000,
+			});
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			expect(second.inside()).toBe(false);
+			const exited = once(first.child, "exit");
+			first.child.kill("SIGKILL");
+			await exited;
+			await vi.waitFor(() => expect(second.inside()).toBe(true), {
+				timeout: 5_000,
+			});
+			const secondExit = once(second.child, "exit");
+			second.child.send("release");
+			await secondExit;
+			await withStore((store) => store.withLock(Effect.void));
+			expect((await stat(`${lockPath(dir)}.sqlite`)).mode & 0o777).toBe(0o600);
+		} finally {
+			await Promise.all(
+				workers.map(async (child) => {
+					if (child.exitCode !== null || child.signalCode !== null) return;
+					const exited = once(child, "exit");
+					child.kill("SIGKILL");
+					await exited;
+				}),
+			);
+		}
+	}, 15_000);
+
+	it("releases ownership after failure and interruption", async () => {
+		await makeTempAuthDir();
+		await withStore((store) =>
+			store.withLock(Effect.fail("expected")).pipe(Effect.result),
+		);
+		const entered = Deferred.makeUnsafe<void>();
+		const runtime = ManagedRuntime.make(SessionStoreLive);
+		try {
+			const owner = runtime.runFork(
+				Effect.flatMap(SessionStore, (store) =>
+					store.withLock(
+						Effect.gen(function* () {
+							Effect.runSync(Deferred.succeed(entered, undefined));
+							yield* Effect.never;
+						}),
+					),
+				),
+			);
+			await Effect.runPromise(Deferred.await(entered));
+			await Effect.runPromise(Fiber.interrupt(owner));
+			await withStore((store) => store.withLock(Effect.void));
+		} finally {
+			await runtime.dispose();
+		}
+	});
+	it("waits for a legacy owner to finish writing and release its lock", async () => {
+		const dir = await makeTempAuthDir();
+		await writeFile(lockPath(dir), "{");
+		let entered = false;
+		const operation = withStore((store) =>
+			store.withLock(
+				Effect.sync(() => {
+					entered = true;
+				}),
+			),
+		);
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			expect(entered).toBe(false);
+			expect(await readFile(lockPath(dir), "utf8")).toBe("{");
+			await writeFile(
+				lockPath(dir),
+				JSON.stringify({
+					pid: process.pid,
+					createdAt: Date.now(),
+					token: "legacy",
+				}),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			expect(entered).toBe(false);
+		} finally {
+			await rm(lockPath(dir), { force: true });
+			await operation;
+		}
+		expect(entered).toBe(true);
+	});
+
+	it("retries transient release failures while ownership remains held", async () => {
+		const dir = await makeTempAuthDir();
+		const busy = Object.assign(new Error("busy"), { code: "EBUSY" });
+		vi.mocked(unlink).mockRejectedValueOnce(busy).mockRejectedValueOnce(busy);
+		await withStore((store) => store.withLock(Effect.void));
+		expect(
+			vi.mocked(unlink).mock.calls.filter(([path]) => path === lockPath(dir)),
+		).toHaveLength(3);
+		await withStore((store) => store.withLock(Effect.void));
+	});
+
+	it("reports persistent release failure and closes the SQLite guard", async () => {
+		const dir = await makeTempAuthDir();
+		vi.mocked(unlink).mockRejectedValue(
+			Object.assign(new Error("denied"), { code: "EACCES" }),
+		);
+		await expect(
+			withStore((store) => store.withLock(Effect.void)),
+		).rejects.toMatchObject({
+			_tag: "SessionStoreError",
+			reason: "Failed to release auth session lock.",
+		});
+		const actual =
+			await vi.importActual<typeof import("node:fs/promises")>(
+				"node:fs/promises",
+			);
+		vi.mocked(unlink).mockImplementation(actual.unlink);
+		await actual.unlink(lockPath(dir));
+		await withStore((store) => store.withLock(Effect.void));
 	});
 });

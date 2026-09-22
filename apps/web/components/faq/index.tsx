@@ -81,7 +81,7 @@ export const FAQ = () => {
 			<Container className="grid grid-cols-1 gap-15 py-20 md:py-30 lg:grid-cols-2">
 				<div className="flex flex-col gap-4 pt-8">
 					<Header>{t("faq:questions_devs_ask_first")}</Header>
-					<div className="-tracking-xs text-muted-foreground text-base leading-6 font-medium">
+					<div className="landing-prose text-muted-foreground text-base">
 						<WebsiteRichMessage
 							id="faq:more_questions_see_the_project_on_github"
 							values={{}}
@@ -106,7 +106,7 @@ export const FAQ = () => {
 									<AccordionTrigger className="-tracking-xs text-foreground text-base leading-6 font-medium">
 										{item.question}
 									</AccordionTrigger>
-									<AccordionContent className="text-muted-foreground">
+									<AccordionContent className="landing-prose text-muted-foreground">
 										{item.answer}
 									</AccordionContent>
 								</AccordionItem>

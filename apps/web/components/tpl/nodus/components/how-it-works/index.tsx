@@ -1,4 +1,5 @@
 "use client";
+import { ReactBitsDither } from "@repo/ui/react-bits-dither";
 import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type React from "react";
@@ -6,21 +7,12 @@ import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/components/tpl/nodus/lib/utils";
 import { Badge } from "../badge";
 import { Container } from "../container";
-import { PixelatedCanvas } from "../pixelated-canvas";
 import { SectionHeading } from "../seciton-heading";
-import { SubHeading } from "../subheading";
 import {
 	ContextReviewSkeleton,
 	EvidenceTimelineSkeleton,
 	SharedWorktreeSkeleton,
 } from "./skeletons";
-
-type Tab = {
-	title: string;
-	description: string;
-	icon: React.FC<React.SVGProps<SVGSVGElement>>;
-	id: string;
-};
 
 export const HowItWorks = () => {
 	const { message: t } = useWebsiteMessages();
@@ -81,12 +73,6 @@ export const HowItWorks = () => {
 				<SectionHeading className="mt-4">
 					{t("showcase:multiple_tabs_shared_context")}
 				</SectionHeading>
-
-				<SubHeading as="p" className="mx-auto mt-6 max-w-lg">
-					{t(
-						"showcase:implementation_review_and_checks_stay_side_by_side_on_the_same_branch",
-					)}
-				</SubHeading>
 				{/* Desktop Tabs */}
 				<div className="border-divide divide-divide mt-16 hidden w-full grid-cols-2 divide-x border-t lg:grid">
 					<div className="divide-divide divide-y">
@@ -98,12 +84,12 @@ export const HowItWorks = () => {
 								onClick={() => setActiveTab(tab)}
 							>
 								{tab.id === activeTab.id && (
-									<Canvas activeTab={tab} duration={2500} />
+									<ReactBitsDither className="absolute inset-0 opacity-20" />
 								)}
 								{tab.id === activeTab.id && <Loader duration={DURATION} />}
 								<div
 									className={cn(
-										"text-heading relative z-20 flex items-center gap-2 font-medium",
+										"brand-heading text-heading relative z-20 flex items-center gap-2 text-xl",
 										activeTab.id !== tab.id && "group-hover:text-brand",
 									)}
 								>
@@ -111,7 +97,7 @@ export const HowItWorks = () => {
 								</div>
 								<p
 									className={cn(
-										"text-muted-foreground relative z-20 mt-2 text-left text-sm",
+										"landing-prose text-muted-foreground relative z-20 mt-2 text-left text-sm",
 										activeTab.id === tab.id && "text-heading",
 									)}
 								>
@@ -142,10 +128,10 @@ export const HowItWorks = () => {
 							key={`${tab.title}mobile`}
 							className="group relative flex w-full flex-col items-start overflow-hidden px-4 py-4 md:px-12 md:py-8"
 						>
-							<div className="text-heading relative z-20 flex items-center gap-2 font-medium">
+							<div className="brand-heading text-heading relative z-20 flex items-center gap-2 text-xl">
 								<tab.icon className="shrink-0" /> {tab.title}
 							</div>
-							<p className="text-muted-foreground relative z-20 mt-2 text-left text-sm">
+							<p className="landing-prose text-muted-foreground relative z-20 mt-2 text-left text-sm">
 								{tab.description}
 							</p>
 							<div className="relative mx-auto h-80 w-full overflow-hidden mask-t-from-90% mask-r-from-90% mask-b-from-90% mask-l-from-90% sm:w-160">
@@ -175,29 +161,6 @@ const Loader = ({ duration = 2500 }: { duration?: number }) => {
 			animate={{ width: "100%" }}
 			transition={{ duration: duration / 1000 }}
 		/>
-	);
-};
-
-const Canvas = ({
-	activeTab,
-	duration,
-}: {
-	activeTab: Tab;
-	duration: number;
-}) => {
-	return (
-		<>
-			<div className="bg-card absolute inset-x-0 z-20 h-full w-full mask-t-from-50%" />
-			<PixelatedCanvas
-				key={activeTab.id}
-				isActive
-				fillColor="var(--color-canvas)"
-				backgroundColor="var(--color-canvas-fill)"
-				size={2.5}
-				duration={duration}
-				className="absolute inset-0 scale-[1.01] opacity-20"
-			/>
-		</>
 	);
 };
 

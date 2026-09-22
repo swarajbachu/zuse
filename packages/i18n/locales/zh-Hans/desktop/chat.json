@@ -657,5 +657,7 @@
 	"device_command_permissions_title": "已保存的命令权限",
 	"cloud_queue_waiting_for_agent": "等待代理",
 	"cloud_queue_cancel_failed": "无法取消排队中的消息。请重试。",
-	"cloud_queue_waiting_for_cloud": "等待云端启动"
+	"cloud_queue_waiting_for_cloud": "等待云端启动",
+	"cloud_history_loading": "正在加载较早的消息…",
+	"cloud_history_retry": "无法加载较早的消息 · 重试"
 }

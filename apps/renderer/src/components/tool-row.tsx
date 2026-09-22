@@ -30,7 +30,8 @@ import {
 	Wrench01Icon,
 } from "@zuse/icons/solid-rounded";
 import { ChevronDown, ChevronRight, Laptop } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useEffect, useId, useState } from "react";
 import { displayPath } from "~/lib/display-path";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { parseOrchestrationResult } from "~/lib/orchestration-tools";
@@ -260,9 +261,8 @@ function SoftDiffStats({ added, removed }: { added: number; removed: number }) {
 }
 
 /**
- * Chipless file reference for collapsed tool rows — file-type icon + muted
- * mono name (+ optional count), click-to-open. Replaces the old FileBadge
- * pill so the live feed stays quiet.
+ * Compact file reference for tool rows: file icon, name, and optional count.
+ * A subtle tonal background separates the target from the action label.
  */
 function MutedFilePath({
 	path,
@@ -325,7 +325,7 @@ function MutedFilePath({
 						onClick={canOpen ? onClick : undefined}
 						onKeyDown={canOpen ? onKeyDown : undefined}
 						className={cn(
-							"border-0 bg-transparent p-0 text-left",
+							"rounded-md border-0 bg-muted/60 px-1.5 py-0.5 text-left",
 							"inline-flex min-w-0 max-w-full items-center gap-1.5 text-[11px] text-muted-foreground",
 							canOpen
 								? "cursor-pointer hover:text-foreground/80"
@@ -648,11 +648,15 @@ function ExpandableIconRow({
 	const { message: uiMessage } = useUiMessages(["tools", "chat", "common"]);
 
 	const [expanded, setExpanded] = useState(false);
+	const reduce = useReducedMotion();
+	const contentId = useId();
 	const Chevron = expanded ? ChevronDown : ChevronRight;
 	return (
-		<div className="px-4 py-0.5">
+		<div className="ps-3 pe-4 py-0.5">
 			<button
 				type="button"
+				aria-expanded={hasContent ? expanded : undefined}
+				aria-controls={hasContent ? contentId : undefined}
 				onClick={() => hasContent && setExpanded((e) => !e)}
 				className={cn(
 					"group flex w-full max-w-2xl items-center gap-2 rounded px-1.5 py-1 text-left text-xs",
@@ -704,11 +708,22 @@ function ExpandableIconRow({
 					</span>
 				) : null}
 			</button>
-			{expanded && hasContent ? (
-				<div className="ml-6 mt-1 max-h-96 max-w-2xl space-y-2 overflow-y-auto border-l border-border/60 pl-2 pr-1">
-					{body}
-				</div>
-			) : null}
+			<AnimatePresence initial={false}>
+				{expanded && hasContent ? (
+					<motion.div
+						id={contentId}
+						initial={{ height: 0 }}
+						animate={{ height: "auto" }}
+						exit={{ height: 0 }}
+						transition={{ duration: reduce ? 0 : 0.16, ease: "easeOut" }}
+						className="overflow-hidden"
+					>
+						<div className="ml-6 mt-1 max-h-96 max-w-2xl space-y-2 overflow-y-auto border-l border-border/60 pl-2 pr-1">
+							{body}
+						</div>
+					</motion.div>
+				) : null}
+			</AnimatePresence>
 		</div>
 	);
 }

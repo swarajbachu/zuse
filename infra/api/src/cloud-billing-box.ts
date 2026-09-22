@@ -35,12 +35,34 @@ export const BoxLifecycleEvent = Schema.Struct({
 });
 export type BoxLifecycleEvent = typeof BoxLifecycleEvent.Type;
 
+const BoatLifecycleEvent = Schema.Struct({
+	...BoxLifecycleEvent.fields,
+	data: Schema.Struct({
+		sandbox: BoxLifecycleEvent.fields.data.fields.box,
+		previousState: Schema.optional(Schema.NullOr(Schema.String)),
+		state: Schema.optional(Schema.NullOr(Schema.String)),
+	}),
+});
+
 /** Decode provider lifecycle evidence; invalid timestamps must never become billable windows. */
 export const normalizeBoxLifecycleEvent = (
 	value: unknown,
 ): BoxLifecycleEvent | null => {
 	const decoded = Schema.decodeUnknownOption(BoxLifecycleEvent)(value);
-	return decoded._tag === "Some" ? decoded.value : null;
+	if (decoded._tag === "Some") return decoded.value;
+	const boat = Schema.decodeUnknownOption(BoatLifecycleEvent)(value);
+	if (boat._tag === "None" || !boat.value.type.startsWith("sandbox."))
+		return null;
+	// Keep the ledger's canonical types so old and new webhook windows pair.
+	return {
+		...boat.value,
+		type: boat.value.type.replace(/^sandbox\./u, "box."),
+		data: {
+			box: boat.value.data.sandbox,
+			previousState: boat.value.data.previousState,
+			state: boat.value.data.state,
+		},
+	};
 };
 
 const CLOSING_EVENT_TYPES = new Set(["box.archived", "box.error"]);

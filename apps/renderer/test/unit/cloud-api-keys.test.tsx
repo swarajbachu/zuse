@@ -63,7 +63,7 @@ describe("Cloud API key settings", () => {
 				new CloudWorkspaceOpError({ code: "beta-access-required" }),
 				"fallback",
 			),
-		).toBe("Zuse Cloud is currently invite-only.");
+		).toBe("Update Zuse and try again to use the Cloud public beta.");
 		expect(
 			formatApiKeyError(new Error("internal detail"), "Could not load keys."),
 		).toBe("Could not load keys.");

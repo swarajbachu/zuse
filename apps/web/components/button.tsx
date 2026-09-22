@@ -1,7 +1,9 @@
 "use client";
+import { DitherButtonBackground } from "@repo/ui/dither";
 import { useWebsiteMessages } from "@zuse/i18n/website/react";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import {
 	getDownloadHref,
 	getDownloadLabel,
@@ -19,11 +21,13 @@ export const Button = ({
 	text,
 	href = DOWNLOAD_URL,
 	showIcon = true,
+	icon,
 	containerClassName,
 }: {
 	text?: string;
 	href?: string;
 	showIcon?: boolean;
+	icon?: ReactNode;
 	containerClassName?: string;
 }) => {
 	const { message: t } = useWebsiteMessages();
@@ -39,42 +43,28 @@ export const Button = ({
 			aria-label={resolvedText}
 			aria-keyshortcuts={usesAutomaticDownload ? "D" : undefined}
 			className={cn(
-				"group relative flex min-h-11 w-fit min-w-52 cursor-pointer items-center gap-2 rounded-lg border border-white/20 bg-black py-2 pr-3 pl-11 tracking-tight",
+				"group relative isolate flex min-h-11 w-fit min-w-52 cursor-pointer items-center gap-3 overflow-hidden rounded-lg bg-background px-4 py-2 font-mono text-sm font-bold text-foreground transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
 				containerClassName,
 			)}
 		>
-			<Box platform={platform} showIcon={showIcon} />
-			<div className="absolute -inset-px rounded-lg bg-white/15 transition-[clip-path] duration-400 ease-out [clip-path:inset(0_100%_0_0)] group-hover:[clip-path:inset(0_0%_0_0)]" />
-			<span className="relative flex w-full items-center justify-between gap-3 text-white transition-transform duration-400 group-hover:-translate-x-8">
-				<span>{resolvedText}</span>
+			<DitherButtonBackground />
+			{showIcon &&
+				(icon ?? (
+					<PlatformDownloadIcon
+						platform={platform}
+						className="size-5 shrink-0"
+					/>
+				))}
+			<span className="relative flex w-full items-center justify-between gap-3">
+				<span className="[text-shadow:0_1px_3px_var(--color-background)]">
+					{resolvedText}
+				</span>
 				{usesAutomaticDownload ? (
-					<kbd className="rounded border border-white/20 bg-white/10 px-1.5 py-0.5 font-sans text-[10px] leading-none text-white/70">
+					<kbd className="rounded bg-background/30 px-1.5 py-1 font-mono text-[10px] leading-none opacity-65">
 						D
 					</kbd>
 				) : null}
 			</span>
 		</Link>
-	);
-};
-
-const Box = ({
-	platform,
-	showIcon,
-}: {
-	platform: ReturnType<typeof useDownloadPlatform>;
-	showIcon?: boolean;
-}) => {
-	return (
-		<div
-			data-slot="button-box"
-			className="bg-primary absolute inset-y-0 left-1 z-40 my-auto flex size-8 items-center justify-center rounded-[5px] transition-[left,transform] duration-400 ease-out group-hover:left-[calc(100%-2.3rem)] group-hover:rotate-180"
-		>
-			{showIcon && (
-				<PlatformDownloadIcon
-					platform={platform}
-					className="size-5 text-black transition-transform duration-400 ease-out group-hover:rotate-180"
-				/>
-			)}
-		</div>
 	);
 };

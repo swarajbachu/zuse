@@ -67,6 +67,7 @@ export type MessageRowContext = {
 	toolResultsByItemId: ReadonlyMap<string, ToolResultRecord>;
 	/** Whether the session is actively running (drives the shimmer on the last row). */
 	sessionRunning?: boolean;
+	lastAssistantMessageId?: Message["id"];
 	onAnswerQuestion: (
 		itemId: string,
 		answers: readonly QuestionAnswer[],
@@ -292,36 +293,38 @@ const AssistantMarkdown = ({
 	) : (
 		<View className="px-2 py-2">
 			<Markdown>{text}</Markdown>
-			<View className="mt-1 flex-row items-center">
-				{context.onForkFromMessage === undefined ? null : (
-					<ForkFromMessageMenu
-						onForkInChat={() =>
-							context.onForkFromMessage?.(messageId, "tab", false)
-						}
-						onForkInCurrentWorktree={() =>
-							context.onForkFromMessage?.(messageId, "chat", false)
-						}
-						onForkInNewWorktree={() =>
-							context.onForkFromMessage?.(messageId, "chat", true)
-						}
-					/>
-				)}
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel="Copy response"
-					hitSlop={8}
-					className="h-9 w-9 items-center justify-center active:opacity-60"
-					onPress={() => void Clipboard.setStringAsync(text)}
-				>
-					<Copy size={16} color={colors.secondaryFg} />
-				</Pressable>
-				<Text
-					className="px-1 font-sans text-[11px] text-muted-foreground"
-					style={{ fontVariant: ["tabular-nums"] }}
-				>
-					{formatMessageTime(createdAt)}
-				</Text>
-			</View>
+			{context.lastAssistantMessageId === messageId ? (
+				<View className="mt-1 flex-row items-center">
+					{context.onForkFromMessage === undefined ? null : (
+						<ForkFromMessageMenu
+							onForkInChat={() =>
+								context.onForkFromMessage?.(messageId, "tab", false)
+							}
+							onForkInCurrentWorktree={() =>
+								context.onForkFromMessage?.(messageId, "chat", false)
+							}
+							onForkInNewWorktree={() =>
+								context.onForkFromMessage?.(messageId, "chat", true)
+							}
+						/>
+					)}
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel="Copy response"
+						hitSlop={8}
+						className="h-9 w-9 items-center justify-center active:opacity-60"
+						onPress={() => void Clipboard.setStringAsync(text)}
+					>
+						<Copy size={16} color={colors.secondaryFg} />
+					</Pressable>
+					<Text
+						className="px-1 font-sans text-[11px] text-muted-foreground"
+						style={{ fontVariant: ["tabular-nums"] }}
+					>
+						{formatMessageTime(createdAt)}
+					</Text>
+				</View>
+			) : null}
 		</View>
 	);
 

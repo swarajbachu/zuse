@@ -59,11 +59,11 @@ template store. The optional quarantine capability used by live-identity
 forks was verified in
 `specs/cloud-platform/research/quarantined-fork-verification.md`.
 
-## Box
+## Boat
 
 `@zuse/sandbox-providers/box` provides the `box` adapter for
-[Box](https://box.ascii.dev) (ascii.dev). It talks to the Box public API v1
-over `fetch` with bearer auth. Boxes are full Ubuntu VMs restored from disk
+[Boat](https://boat.dev) (ascii.dev). It talks to the Boat public API v1
+over `fetch` with bearer auth. Boat sandboxes are full Ubuntu VMs restored from disk
 snapshots: create, fork, and resume are all cold boots — no memory state
 survives, which is ADR 0033's named fallback for providers without live-fork
 quarantine.
@@ -75,21 +75,17 @@ Provider-shape differences the adapter absorbs:
   (`box-publish.sh`), and `snapshot`/`fork` round-trip through the
   named-snapshot store. Named snapshots are account-capped (10 by default),
   and under the account-image architecture every Zuse account's image
-  consumes one — the cap is the scaling gate for Box and must be raised
+  consumes one — the cap is the scaling gate for Boat and must be raised
   with ascii.dev before production; superseded images must be deleted
   eagerly.
-- **Network policy is in-guest.** Box has no host-level egress API. The base
-  template bakes in a root-only `zuse-firewall` unit. Box installs restored
-  template files after the normal systemd boot targets, so the adapter runs
-  that script through the provider command channel after the box is usable
-  and before returning it or starting untrusted runtime code. The agent user
-  has no sudo. Quarantined creates and forks are verified before return and
-  destroyed when the barrier cannot be proven. Requested policy is persisted
-  so pause/resume restores it before handoff.
+- **Networking is open.** Boat has no Zuse firewall or network-policy command.
+  Open policy requests are local no-ops. Restricted/quarantined policies are
+  rejected before create/fork allocates a machine; E2B retains its own policy
+  support. See `internal-docs/cloud/box-open-networking.md` for deployment order.
 - **Processes ride the command API.** `/commands` has no env/user/tag
   parameters, so the adapter wraps commands in `sudo -u … setsid bash -c`
   with shell-quoted env exports and records the process-group leader in a
-  per-tag pid file for `replaceProcess`. Box restores the `zuse` account but
+  per-tag pid file for `replaceProcess`. Boat restores the `zuse` account but
   not its secondary-user home directory when the base environment is enabled,
   so the adapter recreates the root-owned runtime layout before handoff.
 - **Labels are box names.** Creation PATCHes the label onto the box before
@@ -97,10 +93,10 @@ Provider-shape differences the adapter absorbs:
   Unlabeled orphans die by TTL, which always archives (never deletes) — an
   archived box costs nothing, and the reconciler's kill path is the real
   terminator.
-- **Box account environment inheritance remains enabled.** The adapter never
+- **Boat account environment inheritance remains enabled.** The adapter never
   passes `noEnv`, which would scrub inherited environment on resume. Process
   launch preserves that environment across the privilege drop to `zuse`, with
-  `HOME=/home/zuse`. Only intentionally shared material belongs in the Box
+  `HOME=/home/zuse`. Only intentionally shared material belongs in the Boat
   account environment because every sandbox receives it. Current account images
   use the control plane's credential brokers for per-account agent credentials;
   legacy images retain their existing authentication mode.

@@ -58,6 +58,19 @@ const chat = (input: Partial<Record<string, unknown>> = {}) => ({
 });
 
 describe("mobile inbox helpers", () => {
+	test("keeps projects visible before chats load and when they have no chats", () => {
+		const input = {
+			connections: [connection],
+			bundlesByConnection: { "env-1": [{ project, chats: [], sessions: [] }] },
+			statusBySession: {},
+			query: "",
+		};
+		expect(buildInboxGroups(input).map((group) => group.projectId)).toEqual([
+			project.id,
+		]);
+		expect(buildInboxGroups({ ...input, query: "davao" })).toHaveLength(1);
+		expect(buildInboxGroups({ ...input, query: "unrelated" })).toHaveLength(0);
+	});
 	test("groups chats by project and prioritizes running unread rows", () => {
 		const groups = buildInboxGroups({
 			connections: [connection],

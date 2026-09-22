@@ -12,7 +12,7 @@
 	"developers": "Développeurs",
 	"view_downloads": "Afficher les téléchargements",
 	"download_zuse": "Télécharger Zuse",
-	"blog": "Blogue",
+	"blog": "Journal",
 	"product": "Produit",
 	"releases": "Sorties",
 	"legal": "Légal",
@@ -25,7 +25,7 @@
 	"security": "Sécurité",
 	"cookies": "Politique en matière de cookies",
 	"accessibility": "Accessibilité",
-	"2026_zuse_all_rights_reserved": "2026 Zuse — Tous droits réservés",
+	"2026_zuse_all_rights_reserved": "2026 Zuse. Tous droits réservés",
 	"join_the_zuse_discord": "Rejoignez le Zuse Discord",
 	"star_zuse_on_github": "Étoile Zuse sur GitHub",
 	"acceptable_use": "Utilisation acceptable",
@@ -34,5 +34,6 @@
 	"data_rights": "Droits sur les données",
 	"dark_theme": "Passer au thème sombre",
 	"subprocessors": "Sous-traitants",
-	"light_theme": "Passer au thème clair"
+	"light_theme": "Passer au thème clair",
+	"pricing": "Tarifs"
 }

@@ -3,17 +3,14 @@ import {
 	type TimelineTurn,
 } from "@zuse/client-runtime/timeline";
 import type { Message } from "@zuse/contracts";
-import * as Clipboard from "expo-clipboard";
 import {
 	ChevronDown,
 	ChevronRight,
-	Copy,
 	MessageSquare,
-	Share2,
 	Wrench,
 } from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { Pressable, Share, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import { InlineFileDiff } from "~/components/diff/inline-file-diff";
 import { FileIcon } from "~/components/ui/file-icon";
@@ -31,16 +28,6 @@ const isActivity = (message: Message): boolean =>
 	message.content._tag === "tool_result" ||
 	message.content._tag === "context_compaction" ||
 	message.content._tag === "subagent_summary";
-
-const durationLabel = (durationMs: number): string => {
-	if (durationMs < 1_000) return "Worked briefly";
-	const seconds = Math.round(durationMs / 1_000);
-	const minutes = Math.floor(seconds / 60);
-	const rest = seconds % 60;
-	return minutes > 0
-		? `Worked for ${minutes}m ${rest}s`
-		: `Worked for ${rest}s`;
-};
 
 export function TurnRow({
 	turn,
@@ -113,7 +100,8 @@ export function TurnRow({
 					accessibilityRole="button"
 					accessibilityState={{ expanded: activityOpen }}
 					onPress={() => setActivityOpen((open) => !open)}
-					className="min-h-11 flex-row items-center gap-3 py-2 active:opacity-60"
+					hitSlop={8}
+					className="flex-row items-center gap-3 py-1 active:opacity-60"
 				>
 					{activityOpen ? (
 						<ChevronDown size={16} color={colors.secondaryFg} />
@@ -248,31 +236,6 @@ export function TurnRow({
 					) : null}
 				</View>
 			) : null}
-
-			<View className="flex-row items-center gap-1 px-2 pt-1">
-				<Text className="font-sans text-[12px] text-muted-foreground">
-					{durationLabel(turn.durationMs)}
-				</Text>
-				<View className="flex-1" />
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel="Copy response"
-					hitSlop={8}
-					className="h-11 w-11 items-center justify-center active:opacity-60"
-					onPress={() => Clipboard.setStringAsync(assistantText)}
-				>
-					<Copy size={17} color={colors.secondaryFg} />
-				</Pressable>
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel="Share response"
-					hitSlop={8}
-					className="h-11 w-11 items-center justify-center active:opacity-60"
-					onPress={() => Share.share({ message: assistantText })}
-				>
-					<Share2 size={17} color={colors.secondaryFg} />
-				</Pressable>
-			</View>
 		</View>
 	);
 }

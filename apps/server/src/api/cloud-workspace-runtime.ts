@@ -69,6 +69,7 @@ import {
 	encryptCloudCommandBody,
 	keyedCloudCommandFingerprint,
 } from "@zuse/utils/cloud-command-crypto";
+import { cloudTimingEvent, measureCloudStage } from "@zuse/utils/cloud-timing";
 import {
 	base64UrlToBytes,
 	cloudTranscriptAdditionalData,
@@ -503,7 +504,8 @@ type RuntimeSummaryReason =
 	| "activity"
 	| "title"
 	| "settled"
-	| "session";
+	| "session"
+	| "recovery";
 
 interface CloudRuntimeSummaryPublisher {
 	readonly publish: (
@@ -736,6 +738,40 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 	return { publish } satisfies CloudRuntimeSummaryPublisher;
 });
 
+/** Keep quiet, active turns alive without keeping an idle workspace running. */
+export const keepCloudRuntimeActive = <E, R>(input: {
+	readonly sessions: Effect.Effect<
+		ReadonlyArray<Pick<Session, "chatId" | "status">>,
+		E,
+		R
+	>;
+	readonly chatId: ChatId;
+	readonly publish: Effect.Effect<unknown, E, R>;
+}) =>
+	Effect.forever(
+		Effect.gen(function* () {
+			const current = yield* input.sessions;
+			if (
+				current.some(
+					(session) =>
+						session.chatId === input.chatId &&
+						(session.status === "running" || session.status === "booting"),
+				)
+			) {
+				yield* input.publish;
+			}
+		}).pipe(
+			Effect.catch(() =>
+				Effect.sync(() => {
+					console.warn(
+						"[cloud-workspace-runtime] active work keepalive failed",
+					);
+				}),
+			),
+			Effect.andThen(Effect.sleep("30 seconds")),
+		),
+	);
+
 /** Resolve stale chat pointers against the authoritative runtime session rows. */
 export const resolveCloudRuntimeActiveSession = (
 	chat: Pick<Chat, "activeSessionId" | "id">,
@@ -888,6 +924,7 @@ const requestJson = <A, I>(input: {
 	readonly method?: "GET" | "POST";
 	readonly body?: unknown;
 	readonly timeoutMs?: number;
+	readonly timing?: { readonly workspaceId: string; readonly stage: string };
 }): Effect.Effect<A, CloudWorkspaceRuntimeError> =>
 	Effect.tryPromise({
 		try: async () => {
@@ -937,6 +974,12 @@ const requestJson = <A, I>(input: {
 				? error
 				: fail("api_invalid_response"),
 		),
+		input.timing === undefined
+			? (operation) => operation
+			: measureCloudStage(
+					{ workspaceId: input.timing.workspaceId },
+					input.timing.stage,
+				),
 	);
 
 const RuntimeLeasePage = Schema.Struct({
@@ -1496,6 +1539,14 @@ export const applyCloudMailboxLease = Effect.fn(
 				domainReceiptIdentity,
 			)
 			.pipe(
+				measureCloudStage(
+					{
+						workspaceId: envelope.workspaceId,
+						commandId: envelope.commandId,
+						runtimeGeneration: input.runtimeGeneration,
+					},
+					"message.session-accept",
+				),
 				Effect.mapError((error) =>
 					rejectCloudMailboxCommand(messageFailureCategory(error)),
 				),
@@ -1673,13 +1724,34 @@ export const runCloudMailboxConsumerCycle = Effect.fn(
 		return;
 	}
 	for (const lease of leasePage.leases) {
+		cloudTimingEvent(
+			{
+				workspaceId: lease.command.workspaceId,
+				commandId: lease.command.commandId,
+			},
+			"message.leased",
+		);
 		if (input.state.pendingApplications.has(lease.command.commandId)) continue;
 		input.state.pendingApplications.set(lease.command.commandId, lease);
 		yield* apply(lease);
 	}
 });
 
+/** A live preserved process can restore readiness without waiting for its UI socket. */
+export const recoverCloudMailboxReadiness = <A, R, R2>(
+	lease: Effect.Effect<A, CloudWorkspaceRuntimeError, R>,
+	recover: Effect.Effect<void, CloudWorkspaceRuntimeError, R2>,
+): Effect.Effect<A, CloudWorkspaceRuntimeError, R | R2> =>
+	lease.pipe(
+		Effect.catch((error) =>
+			error.reason === "cloud_workspace_runtime_not_ready"
+				? recover.pipe(Effect.andThen(lease))
+				: Effect.fail(error),
+		),
+	);
+
 const runCloudMailboxConsumer = (input: {
+	readonly recoverReadiness: Effect.Effect<void, CloudWorkspaceRuntimeError>;
 	readonly config: CloudWorkspaceRuntimeConfig;
 	readonly runtimeCredential: RuntimeCredentialState;
 	readonly providerSandboxId: string;
@@ -1704,6 +1776,8 @@ const runCloudMailboxConsumer = (input: {
 				body: { storageIncarnationId: input.storageIncarnationId },
 				timeoutMs: 10_000,
 			}),
+		).pipe((lease) =>
+			recoverCloudMailboxReadiness(lease, input.recoverReadiness),
 		),
 		apply: (lease) =>
 			applyCloudMailboxLease({
@@ -1724,6 +1798,10 @@ const runCloudMailboxConsumer = (input: {
 				token: input.runtimeCredential.credential,
 				method: "POST",
 				body: acknowledgment,
+				timing: {
+					workspaceId: input.config.workspaceId,
+					stage: "message.mailbox-ack",
+				},
 				timeoutMs: 10_000,
 			}),
 		onRuntimeFenceRequired: Effect.sync(() => {
@@ -1733,7 +1811,7 @@ const runCloudMailboxConsumer = (input: {
 		Effect.catch((error) =>
 			Effect.logWarning("cloud mailbox poll failed", { reason: error.reason }),
 		),
-		Effect.delay("1 second"),
+		Effect.andThen(Effect.sleep("1 second")),
 	);
 	return poll.pipe(Effect.forever);
 };
@@ -1921,6 +1999,7 @@ const websocketClosed = (
 	url: string,
 	protocols: () => ReadonlyArray<string>,
 	onSocket: (socket: WebSocket) => void,
+	setReconnect: (reconnect: (() => void) | undefined) => void,
 ): Effect.Effect<void, CloudWorkspaceRuntimeError> =>
 	Effect.callback<void, CloudWorkspaceRuntimeError>((resume) => {
 		let settled = false;
@@ -1931,6 +2010,9 @@ const websocketClosed = (
 			settled = true;
 			resume(effect);
 		};
+		setReconnect(() =>
+			finish(Effect.fail(fail("workspace_gateway_disconnected"))),
+		);
 		const socket = new WebSocket(url, [...protocols()]);
 		socket.binaryType = "arraybuffer";
 		socket.addEventListener("open", () => onSocket(socket), { once: true });
@@ -1949,7 +2031,10 @@ const websocketClosed = (
 			(event) => finish(Effect.fail(fail(cloudGatewayCloseReason(event.code)))),
 			{ once: true },
 		);
-		return Effect.sync(() => socket.close());
+		return Effect.sync(() => {
+			setReconnect(undefined);
+			socket.close();
+		});
 	});
 
 /**
@@ -1987,6 +2072,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const credentials = yield* CredentialsService;
 					const runtimeProviderCredentials = yield* RuntimeProviderCredentials;
 					const sessionDomain = yield* SessionDomain;
+					cloudTimingEvent(
+						{ workspaceId: config.workspaceId },
+						"runtime.initializing",
+					);
 					const storageIncarnationId = yield* cloudStorageIncarnationId.pipe(
 						Effect.mapError(() =>
 							fail("workspace_storage_incarnation_unavailable"),
@@ -2012,6 +2101,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const bootstrap = yield* retryCloudWorkspaceBootstrap(
 						requestJson({
 							schema: BootstrapResponse,
+							timing: {
+								workspaceId: config.workspaceId,
+								stage: "runtime.bootstrap",
+							},
 							url: `${config.apiUrl}${ApiPaths.cloudWorkspaceBootstrap(config.workspaceId)}`,
 							token: Redacted.value(config.bootToken),
 							method: "POST",
@@ -2021,6 +2114,13 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								capabilities: [CLOUD_RUNTIME_API_ASSETS_CAPABILITY],
 							},
 						}),
+					);
+					cloudTimingEvent(
+						{
+							workspaceId: config.workspaceId,
+							runtimeGeneration: bootstrap.runtimeGeneration,
+						},
+						"runtime.bootstrap-received",
 					);
 					const runtimeCredential: RuntimeCredentialState = {
 						credential: bootstrap.runtimeCredential,
@@ -2297,11 +2397,21 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						});
 					}
 					yield* writeCredentialsReady;
-					console.info("[cloud-workspace-runtime] credentials ready");
+					cloudTimingEvent(
+						{
+							workspaceId: config.workspaceId,
+							runtimeGeneration: runtimeCredential.generation,
+						},
+						"runtime.credentials-ready",
+					);
 					const acknowledgeBootstrap = retryCloudWorkspaceBootstrap(
 						Effect.suspend(() =>
 							requestJson({
 								schema: RuntimeBootstrapAckResponse,
+								timing: {
+									workspaceId: config.workspaceId,
+									stage: "runtime.bootstrap-ack",
+								},
 								url: `${config.apiUrl}${ApiPaths.cloudWorkspaceBootstrapAck(config.workspaceId)}`,
 								token: runtimeCredential.credential,
 								method: "POST",
@@ -2383,21 +2493,31 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							sessionId,
 							transcriptKey,
 							read: Effect.gen(function* () {
-								const [snapshot, version] = yield* Effect.all(
-									[
-										sessionDomain.timelineSnapshot(
-											AgentSessionId.make(sessionId),
+								// Capture projection and cursor in the same database transaction, just
+								// like a first-open cloud subscriber. Never label N+1 data as version N.
+								const frames = yield* sessionDomain
+									.synchronizedEvents({
+										streamId: sessionId,
+										hasProjection: false,
+										historyMode: "background",
+									})
+									.pipe(
+										Stream.take(1),
+										Stream.runCollect,
+										Effect.mapError(() =>
+											fail("workspace_transcript_snapshot_unavailable"),
 										),
-										sessionDomain.currentStreamVersion(sessionId),
-									],
-									{ concurrency: "unbounded" },
-								).pipe(
-									Effect.mapError(() =>
+									);
+								const snapshot = frames[0];
+								if (snapshot?.kind !== "snapshot")
+									return yield* Effect.fail(
 										fail("workspace_transcript_snapshot_unavailable"),
-									),
-								);
+									);
 								return {
-									cursor: { epoch: sessionDomain.streamEpoch, version },
+									cursor: {
+										epoch: snapshot.streamEpoch,
+										version: snapshot.throughVersion,
+									},
 									projection: snapshot.projection,
 								};
 							}),
@@ -2476,6 +2596,15 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						),
 						deliver: (command) =>
 							Effect.gen(function* () {
+								cloudTimingEvent(
+									{
+										workspaceId: config.workspaceId,
+										messageId: command.messageId,
+										commandId: command.commandId,
+										runtimeGeneration: runtimeCredential.generation,
+									},
+									"message.received",
+								);
 								const sessionId = SessionId.make(command.sessionId);
 								const materialized = yield* Effect.forEach(
 									command.attachments ?? [],
@@ -2527,6 +2656,15 @@ export const makeCloudWorkspaceRuntimeLayer = (
 										turnId: AgentTurnId.make(command.turnId),
 									})
 									.pipe(
+										measureCloudStage(
+											{
+												workspaceId: config.workspaceId,
+												messageId: command.messageId,
+												commandId: command.commandId,
+												runtimeGeneration: runtimeCredential.generation,
+											},
+											"message.session-accept",
+										),
 										Effect.flatMap((result) =>
 											result.turnId === undefined
 												? Effect.fail(
@@ -2544,6 +2682,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									token: runtimeCredential.credential,
 									method: "POST",
 									body: { messageId, turnId, commandTurnId },
+									timing: {
+										workspaceId: config.workspaceId,
+										stage: "message.delivery-ack",
+									},
 								}),
 							),
 					});
@@ -2649,6 +2791,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					};
 
 					console.info("[cloud-workspace-runtime] connecting gateway");
+					let reconnectGateway: (() => void) | undefined;
 					const connectGateway = websocketClosed(
 						bootstrap.gatewayUrl,
 						() => [
@@ -2658,6 +2801,13 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						],
 						(socket) => {
 							gateway = socket;
+							cloudTimingEvent(
+								{
+									workspaceId: config.workspaceId,
+									runtimeGeneration: runtimeCredential.generation,
+								},
+								"runtime.gateway-open",
+							);
 							const reconnectPhase =
 								runtimeReadyPhaseOnGatewayOpen(repositoryReady);
 							if (reconnectPhase !== null)
@@ -2722,6 +2872,9 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								}
 								if (message.type === "runtime.command") drainApiCommands();
 							});
+						},
+						(reconnect) => {
+							reconnectGateway = reconnect;
 						},
 					).pipe(
 						Effect.retry({
@@ -2888,7 +3041,32 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					// The launch intent creates the deterministic chat/session shell. Only
 					// then may the mailbox lease the independently accepted first message;
 					// otherwise messages.send can race the session transaction by milliseconds.
+					cloudTimingEvent(
+						{
+							workspaceId: config.workspaceId,
+							runtimeGeneration: runtimeCredential.generation,
+						},
+						"runtime.mailbox-starting",
+					);
 					yield* runCloudMailboxConsumer({
+						recoverReadiness: postCurrentRuntimeReady("repository-ready").pipe(
+							// A retained session must be acknowledged too: repository readiness
+							// alone deliberately leaves session recovery fenced in the API.
+							Effect.andThen(summaryPublisher.publish("recovery")),
+							Effect.asVoid,
+							Effect.tap(() =>
+								Effect.sync(() => {
+									cloudTimingEvent(
+										{
+											workspaceId: config.workspaceId,
+											runtimeGeneration: runtimeCredential.generation,
+										},
+										"runtime.warm-readiness-restored",
+									);
+									reconnectGateway?.();
+								}),
+							),
+						),
 						config,
 						runtimeCredential,
 						providerSandboxId: bootstrap.providerSandboxId,
@@ -2920,6 +3098,11 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						.pipe(
 							Effect.mapError(() => fail("workspace_summary_chat_unavailable")),
 						);
+					yield* keepCloudRuntimeActive({
+						chatId: runtimeChat.id,
+						sessions: sessions.listSessions(runtimeChat.projectId, false),
+						publish: summaryPublisher.publish("activity"),
+					}).pipe(Effect.forkScoped({ startImmediately: true }));
 					yield* chats.streamChatChanges(runtimeChat.projectId).pipe(
 						Stream.filter((change) =>
 							change._tag === "snapshot"

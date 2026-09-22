@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserAccessGate } from "./components/browser-access-gate.tsx";
 import {
 	StartupSurface,
@@ -14,15 +14,31 @@ const Application = lazy(() =>
 	})),
 );
 
-export function StartupApplication() {
+export type StartupStateSnapshot = {
+	readonly presentation: "loading" | "error" | "ready";
+	readonly error: string | null;
+	readonly retry: () => void;
+};
+
+export function StartupApplication({
+	onStartupStateChange,
+}: {
+	readonly onStartupStateChange?: (state: StartupStateSnapshot) => void;
+}) {
 	return (
 		<BrowserAccessGate>
-			<ConnectedStartupApplication />
+			<ConnectedStartupApplication
+				onStartupStateChange={onStartupStateChange}
+			/>
 		</BrowserAccessGate>
 	);
 }
 
-function ConnectedStartupApplication() {
+function ConnectedStartupApplication({
+	onStartupStateChange,
+}: {
+	readonly onStartupStateChange?: (state: StartupStateSnapshot) => void;
+}) {
 	const settings = useSettingsStore((state) => ({
 		error: state.error,
 		loaded: state.loaded,
@@ -39,8 +55,22 @@ function ConnectedStartupApplication() {
 			settings.origin === "cache" ? "settings-cache-hydrated" : "settings-live",
 		);
 	}, [settings.loaded, settings.origin, settings.phase]);
+	const [applicationReady, setApplicationReady] = useState(false);
+	const settingsPresentation = startupPresentation(settings);
+	const presentation =
+		settingsPresentation === "ready" && !applicationReady
+			? "loading"
+			: settingsPresentation;
+	useEffect(() => {
+		onStartupStateChange?.({
+			presentation,
+			error: settings.error,
+			retry: settings.retry,
+		});
+	}, [onStartupStateChange, presentation, settings.error, settings.retry]);
 
-	if (startupPresentation(settings) !== "ready") {
+	if (settingsPresentation !== "ready") {
+		if (onStartupStateChange !== undefined) return <AppearanceController />;
 		return (
 			<>
 				<AppearanceController />
@@ -56,14 +86,16 @@ function ConnectedStartupApplication() {
 	return (
 		<Suspense
 			fallback={
-				<StartupSurface
-					error={null}
-					phase="initial-loading"
-					onRetry={settings.retry}
-				/>
+				onStartupStateChange === undefined ? (
+					<StartupSurface
+						error={null}
+						phase="initial-loading"
+						onRetry={settings.retry}
+					/>
+				) : null
 			}
 		>
-			<Application />
+			<Application onReady={() => setApplicationReady(true)} />
 		</Suspense>
 	);
 }
