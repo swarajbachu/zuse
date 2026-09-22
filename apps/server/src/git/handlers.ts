@@ -56,37 +56,45 @@ const SwitchBranch = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const continueBranchWorker = new KeyedEffectSerialWorker<string>();
+
+/** Allocate and create continuation branches atomically per repository. */
 const ContinueBranch = MemoizeRpcs.toLayerHandler(
 	"git.continueBranch",
 	({ folderId, worktreeId }) =>
-		Effect.gen(function* () {
-			const git = yield* GitService;
-			const allocator = yield* WorktreeNameAllocator;
-			const branches = yield* git.branches(folderId, worktreeId ?? null);
-			const unavailableNames = new Set(
-				branches.flatMap((branch) =>
-					branch.remote === null ? [branch.name] : [branch.name, branch.remote],
-				),
-			);
-			const allocation = yield* allocator.allocate({
-				unavailableNames,
-				usedPokemonNumbers: new Set(),
-			});
-			if (allocation === null)
-				return yield* Effect.fail(
-					new GitCommandError({
-						folderId,
-						reason: "Could not allocate a Pokémon branch name.",
-					}),
+		continueBranchWorker.run(
+			String(folderId),
+			Effect.gen(function* () {
+				const git = yield* GitService;
+				const allocator = yield* WorktreeNameAllocator;
+				const branches = yield* git.branches(folderId, worktreeId ?? null);
+				const unavailableNames = new Set(
+					branches.flatMap((branch) =>
+						branch.remote === null
+							? [branch.name]
+							: [branch.name, branch.remote],
+					),
 				);
-			return yield* git.switchBranch(
-				folderId,
-				allocation.name,
-				null,
-				worktreeId ?? null,
-				"origin/main",
-			);
-		}),
+				const allocation = yield* allocator.allocate({
+					unavailableNames,
+					usedPokemonNumbers: new Set(),
+				});
+				if (allocation === null)
+					return yield* Effect.fail(
+						new GitCommandError({
+							folderId,
+							reason: "Could not allocate a Pokémon branch name.",
+						}),
+					);
+				return yield* git.switchBranch(
+					folderId,
+					allocation.name,
+					null,
+					worktreeId ?? null,
+					"origin/main",
+				);
+			}),
+		),
 );
 
 const UserName = MemoizeRpcs.toLayerHandler("git.userName", ({ folderId }) =>
