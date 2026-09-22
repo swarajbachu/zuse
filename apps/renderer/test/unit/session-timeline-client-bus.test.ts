@@ -706,7 +706,17 @@ describe("renderer session timeline ClientBus adapter", () => {
 		retained.lease.release();
 	});
 
-	it("single-flights older pages, dedupes rows, and preserves the live cursor", async () => {
+	it.each([
+		false,
+		true,
+	])("older pages preserve concurrent live updates (cloud=%s)", async (cloud) => {
+		if (cloud)
+			registerEnvironmentActivationForTest(
+				environmentId,
+				async () => {},
+				undefined,
+				"cloud-workspace",
+			);
 		const frames = Effect.runSync(Queue.unbounded());
 		let pageCalls = 0;
 		let pageInput: { beforeSequence?: number; limit?: number } | null = null;
@@ -770,6 +780,20 @@ describe("renderer session timeline ClientBus adapter", () => {
 		const first = loadOlderSessionMessages(ref);
 		const duplicate = loadOlderSessionMessages(ref);
 		expect(duplicate).toBe(first);
+		if (cloud) {
+			Queue.offerUnsafe(frames, {
+				kind: "event",
+				sessionId,
+				eventId: "concurrent",
+				streamVersion: 8,
+				cursor: { epoch: "epoch-page", version: 8 },
+				event: { _tag: "StatusSet", status: "running" },
+			});
+			await waitUntil(
+				() =>
+					getRendererClientBus().snapshot(retained.key).cursor?.version === 8,
+			);
+		}
 		releasePage();
 		await expect(first).resolves.toEqual({
 			applied: true,
@@ -779,7 +803,7 @@ describe("renderer session timeline ClientBus adapter", () => {
 		expect(pageCalls).toBe(1);
 		expect(pageInput).toMatchObject({ beforeSequence: 20, limit: 100 });
 		expect(getRendererClientBus().snapshot(retained.key)).toMatchObject({
-			cursor: { epoch: "epoch-page", version: 7 },
+			cursor: { epoch: "epoch-page", version: cloud ? 8 : 7 },
 			data: {
 				messages: [older, existing],
 				olderMessageSequence: 10,
@@ -789,18 +813,20 @@ describe("renderer session timeline ClientBus adapter", () => {
 			kind: "event",
 			eventId: "event-after-page",
 			sessionId,
-			streamVersion: 8,
-			cursor: { epoch: "epoch-page", version: 8 },
+			streamVersion: cloud ? 9 : 8,
+			cursor: { epoch: "epoch-page", version: cloud ? 9 : 8 },
 			event: {
 				_tag: "StatusSet",
 				status: "idle",
 			},
 		});
 		await waitUntil(
-			() => getRendererClientBus().snapshot(retained.key).cursor?.version === 8,
+			() =>
+				getRendererClientBus().snapshot(retained.key).cursor?.version ===
+				(cloud ? 9 : 8),
 		);
 		expect(getRendererClientBus().snapshot(retained.key)).toMatchObject({
-			cursor: { epoch: "epoch-page", version: 8 },
+			cursor: { epoch: "epoch-page", version: cloud ? 9 : 8 },
 			data: {
 				messages: [older, existing],
 				olderMessageSequence: 10,

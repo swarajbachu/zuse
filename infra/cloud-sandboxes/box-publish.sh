@@ -2,18 +2,19 @@
 # Publishes the zuse base template for the Box provider as a named snapshot.
 # Box has no custom-image API, so the template is built by provisioning a
 # fresh box with the shared provision.sh stages plus the Box-specific pieces
-# (in-guest quarantine firewall, boot-time port hosting), then freezing it.
+# (boot-time port hosting), then freezing it.
 #
-# Usage: BOX_API_KEY=... box-publish.sh <version>
+# Usage: BOAT_API_KEY=... box-publish.sh <version>
 #   e.g. box-publish.sh 1   →  named snapshot "zuse-base-v1"
 #
-# Prints the BOX_TEMPLATE_SNAPSHOT / BOX_TEMPLATE_VERSION values to copy into
+# Prints the BOAT_TEMPLATE_SNAPSHOT / BOAT_TEMPLATE_VERSION values to copy into
 # the API wrangler configuration.
 set -euo pipefail
 
 version="${1:?usage: box-publish.sh <version>}"
-api_key="${BOX_API_KEY:?BOX_API_KEY is required}"
-api_base="${BOX_API_BASE_URL:-https://ascii.dev/api/box/v1}"
+api_key="${BOAT_API_KEY-${BOX_API_KEY-}}"
+: "${api_key:?BOAT_API_KEY is required}"
+api_base="${BOAT_API_BASE_URL-${BOX_API_BASE_URL:-https://boat.dev/api/v1}}"
 snapshot_name="zuse-base-v$version"
 snapshot_wait_attempts="${BOX_SNAPSHOT_WAIT_ATTEMPTS:-360}"
 
@@ -35,7 +36,7 @@ api_json() {
 
 box_command() {
 	local box_id="$1" command="$2" timeout="${3:-600}"
-	api_json POST "/boxes/$box_id/commands" \
+	api_json POST "/sandboxes/$box_id/commands" \
 		"$(jq -n --arg command "$command" --argjson timeout "$timeout" \
 			'{command: $command, timeoutSeconds: $timeout}')"
 }
@@ -43,11 +44,11 @@ box_command() {
 # Long installs exceed the 600s synchronous cap: run detached and poll.
 box_command_detached() {
 	local box_id="$1" command="$2" process_id status
-	process_id="$(api_json POST "/boxes/$box_id/commands" \
+	process_id="$(api_json POST "/sandboxes/$box_id/commands" \
 		"$(jq -n --arg command "$command" '{command: $command, detached: true}')" |
 		jq -r '.processId')"
 	while true; do
-		status="$(api GET "/boxes/$box_id/commands/$process_id?tailBytes=4096")"
+		status="$(api GET "/sandboxes/$box_id/commands/$process_id?tailBytes=4096")"
 		if [ "$(jq -r '.running' <<<"$status")" != "true" ]; then
 			if [ "$(jq -r '.exitCode' <<<"$status")" != "0" ]; then
 				echo "detached command failed:" >&2
@@ -72,7 +73,7 @@ upload_file_part() {
 	jq -n --arg path "$target" \
 		--rawfile content "$encoded" \
 		'{path: $path, content: $content, encoding: "base64"}' |
-		curl -sSf -X PUT "$api_base/boxes/$box_id/files" \
+		curl -sSf -X PUT "$api_base/sandboxes/$box_id/files" \
 			-H "authorization: Bearer $api_key" \
 			-H "content-type: application/json" \
 			--data-binary @- || status=$?
@@ -122,13 +123,13 @@ echo "==> creating builder box"
 # The Box account environment is inherited on purpose: shared credentials
 # configured there become part of the base template so runtimes launch with
 # them already present (account-image architecture).
-box_id="$(api_json POST /boxes '{"ttlSeconds": 7200}' | jq -r '.box.id')"
+box_id="$(api_json POST /sandboxes '{"ttlSeconds": 7200}' | jq -r '.sandbox.id')"
 echo "    box: $box_id"
-trap 'api DELETE "/boxes/$box_id" -H "x-ascii-confirm-delete: '"$box_id"'" >/dev/null || true' EXIT
+trap 'api DELETE "/sandboxes/$box_id" -H "x-ascii-confirm-delete: '"$box_id"'" >/dev/null || true' EXIT
 
 echo "==> waiting for the box to become usable"
 for _ in $(seq 1 60); do
-	state="$(api GET "/boxes/$box_id" | jq -r '.box.state')"
+	state="$(api GET "/sandboxes/$box_id" | jq -r '.sandbox.state')"
 	case "$state" in
 	ready | idle | running) break ;;
 	error)
@@ -150,17 +151,14 @@ done
 for file in "$script_dir"/artifacts/*; do
 	upload_file "$box_id" "$file" "$provision_dir/artifacts/$(basename "$file")"
 done
-box_command "$box_id" "chmod +x $provision_dir/provision.sh $provision_dir/box/install.sh $provision_dir/box/zuse-firewall"
+box_command "$box_id" "chmod +x $provision_dir/provision.sh $provision_dir/box/install.sh"
 
 echo "==> installing the template (this takes several minutes)"
 box_command_detached "$box_id" "sudo -n ZUSE_PROVISION_DIR=$provision_dir bash $provision_dir/box/install.sh && sudo -n rm -rf $provision_dir"
 
-echo "==> verifying the quarantine barrier"
-box_command "$box_id" "sudo -n /usr/local/sbin/zuse-firewall verify-quarantined"
-
 echo "==> saving named snapshot $snapshot_name"
 api_json POST /named-snapshots \
-	"$(jq -n --arg boxId "$box_id" --arg name "$snapshot_name" '{boxId: $boxId, name: $name}')" >/dev/null
+	"$(jq -n --arg sandboxId "$box_id" --arg name "$snapshot_name" '{sandboxId: $sandboxId, name: $name}')" >/dev/null
 for _ in $(seq 1 "$snapshot_wait_attempts"); do
 	status="$(api GET "/named-snapshots/$snapshot_name" | jq -r '.snapshot.status')"
 	case "$status" in
@@ -178,5 +176,5 @@ done
 }
 
 echo "==> done. Configure the API with:"
-echo "    BOX_TEMPLATE_SNAPSHOT=$snapshot_name"
-echo "    BOX_TEMPLATE_VERSION=$version"
+echo "    BOAT_TEMPLATE_SNAPSHOT=$snapshot_name"
+echo "    BOAT_TEMPLATE_VERSION=$version"

@@ -4,7 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type { GitPrInfo, SessionId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import { Tick02Icon, ToolsIcon } from "@zuse/icons/stroke-rounded";
+import { Tick02Icon, ToolsIcon } from "@zuse/icons/solid-rounded";
 import { formatError } from "../lib/format-error.ts";
 import { usePrWatchStore } from "../store/pr-watch.ts";
 import { compactMenuItemClass, MenuItem } from "./ui/menu.tsx";

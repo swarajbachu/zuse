@@ -155,11 +155,17 @@ deb:
 dmg:
   writeUpdateInfo: true
   sign: false
+  background: build/dmg-background.png
+  iconSize: 80
+  iconTextSize: 13
+  window:
+    width: 640
+    height: 440
   contents:
-    - x: 130
-      y: 220
-    - x: 410
-      y: 220
+    - x: 180
+      y: 316
+    - x: 460
+      y: 316
       type: link
       path: /Applications
 

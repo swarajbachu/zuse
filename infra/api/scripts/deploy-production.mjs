@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-
 import { parse } from "jsonc-parser";
+import { readBoatEnvironment } from "../src/boat-environment.ts";
 
 const confirmation = "deploy-api.zuse.sh";
 const configPath = "wrangler.production.jsonc";
@@ -19,12 +19,13 @@ if (process.env.ZUSE_CONFIRM_PRODUCTION_API_DEPLOY !== confirmation) {
 
 const config = parse(readFileSync(configPath, "utf8"));
 const vars = config.vars ?? {};
-const boxEnabled = vars.BOX_ADAPTER_ENABLED === "true";
+const boat = readBoatEnvironment(vars);
+const boatEnabled = boat.BOAT_ADAPTER_ENABLED === "true";
 const requiredValues = {
-	...(boxEnabled
+	...(boatEnabled
 		? {
-				BOX_TEMPLATE_SNAPSHOT: vars.BOX_TEMPLATE_SNAPSHOT,
-				BOX_TEMPLATE_VERSION: vars.BOX_TEMPLATE_VERSION,
+				BOAT_TEMPLATE_SNAPSHOT: boat.BOAT_TEMPLATE_SNAPSHOT,
+				BOAT_TEMPLATE_VERSION: boat.BOAT_TEMPLATE_VERSION,
 			}
 		: {}),
 	HYPERDRIVE: config.hyperdrive?.[0]?.id,
@@ -35,8 +36,6 @@ const requiredValues = {
 		vars.CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL,
 	CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK:
 		vars.CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK,
-	POSTHOG_HOST: vars.POSTHOG_HOST,
-	POSTHOG_CLOUD_BETA_FLAG_KEY: vars.POSTHOG_CLOUD_BETA_FLAG_KEY,
 	GITHUB_APP_ID: vars.GITHUB_APP_ID,
 	GITHUB_APP_SLUG: vars.GITHUB_APP_SLUG,
 	GITHUB_APP_CLIENT_ID: vars.GITHUB_APP_CLIENT_ID,
@@ -73,14 +72,15 @@ const installedSecrets = new Set(
 	JSON.parse(secretsResult.stdout).map((secret) => secret.name),
 );
 const requiredSecrets = [
-	...(boxEnabled ? ["BOX_API_KEY"] : []),
+	...(boatEnabled && !installedSecrets.has("BOX_API_KEY")
+		? ["BOAT_API_KEY"]
+		: []),
 	"RELAY_MINT_PRIVATE_JWK",
 	"WORKOS_API_KEY",
 	"CF_API_TOKEN",
 	"E2B_API_KEY",
 	"E2B_WEBHOOK_SECRET",
 	"CLOUD_CREDENTIAL_VAULT_KEY",
-	"POSTHOG_PROJECT_TOKEN",
 	"POLAR_ACCESS_TOKEN",
 	"POLAR_WEBHOOK_SECRET",
 	"GITHUB_APP_PRIVATE_KEY",

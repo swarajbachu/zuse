@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,20 @@ const {
 	getPaidIconAliases,
 	PAID_ICON_PACKAGES,
 } = require("./icon-runtime.cjs");
+
+test("the desktop SVG uses the canonical Zuse mark", async () => {
+	const mark = JSON.parse(
+		await readFile("packages/ui/src/zuse-mark.json", "utf8"),
+	);
+	const svg = await readFile("apps/desktop/build/icon.svg", "utf8");
+
+	assert.match(svg, new RegExp(`viewBox="${mark.viewBox}"`));
+	assert.ok(svg.includes(`transform="${mark.transform}"`));
+	assert.ok(svg.includes(`d="${mark.path}"`));
+	assert.equal((svg.match(/<path\b/g) ?? []).length, 1);
+	assert.match(svg, /<path\b[^>]*fill="#fff"/);
+	assert.doesNotMatch(svg, /<(?:defs|linearGradient|rect)\b/);
+});
 
 const createPaidIconsFixture = async (installedPackages) => {
 	const root = await mkdtemp(join(tmpdir(), "zuse-icons-"));

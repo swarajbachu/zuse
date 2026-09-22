@@ -1,4 +1,5 @@
 {
+	"book_a_call": "통화 예약",
 	"review": "검토",
 	"inspect_the_complete_branch_commit_deliberately_push_when_it_is_ready": "전체 분기를 검사하고, 의도적으로 커밋하고, 준비가 되면 푸시하고, 실패한 확인을 활성 에이전트에 다시 보냅니다.",
 	"every_task_gets_an_isolated_branch_and_working_tree_run_several_agents": "모든 작업에는 격리된 분기와 작업 트리가 있습니다. 변경 사항을 함께 혼합하지 않고 여러 에이전트를 한 번에 실행합니다.",

@@ -1516,7 +1516,6 @@ function GeneralPane() {
 					}
 				/>
 			</SettingsGroup>
-			<WorkspacePane />
 			<NotchSettingsPane />
 		</div>
 	);
@@ -1737,37 +1736,6 @@ function ProvidersPane() {
 				/>
 			</div>
 		</SettingsFrame>
-	);
-}
-
-function WorkspacePane() {
-	const { message: uiMessage } = useUiMessages([
-		"common",
-		"settings",
-		"extensions",
-	]);
-
-	const defaultAutoCreateWorktree = useSettingsStore(
-		(s) => s.defaultAutoCreateWorktree,
-	);
-	const setDefaultAutoCreateWorktree = useSettingsStore(
-		(s) => s.setDefaultAutoCreateWorktree,
-	);
-	return (
-		<SettingsFrame
-			title={uiMessage(
-				"settings:settings_page_auto_create_worktree_for_new_chats",
-			)}
-			trailing={
-				<Switch
-					checked={defaultAutoCreateWorktree}
-					onCheckedChange={setDefaultAutoCreateWorktree}
-				/>
-			}
-			description={uiMessage(
-				"settings:settings_page_when_on_each_new_chat_runs_in_its_own_git_worktree_under_zuse_repo_nam",
-			)}
-		/>
 	);
 }
 

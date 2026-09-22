@@ -566,7 +566,7 @@ const hydrateSessionsOnce = async (
 	)
 		return true;
 	const cached = await Effect.runPromise(readSessionsSnapshot(connKey));
-	if (cached !== null) {
+	if (cached !== null && currentBundles(connKey).length === 0) {
 		setConnectionBundles(
 			connKey,
 			rebuildBundles(

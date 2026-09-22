@@ -1,3 +1,4 @@
+import { isCloudSyncExcludedPath } from "@zuse/utils/cloud-sync-paths";
 import { Cause, Effect, Fiber, Stream } from "effect";
 import { useCallback, useSyncExternalStore } from "react";
 
@@ -118,6 +119,12 @@ const startWatcher = (
 					Effect.sync(() => {
 						ready();
 						if (entry.stopped || event._tag === "ready") return;
+						if (
+							event._tag === "changed" &&
+							event.paths.length > 0 &&
+							event.paths.every(isCloudSyncExcludedPath)
+						)
+							return;
 						if (entry.configured) void app.cloudSyncRequest?.(workspaceId);
 						else entry.changedBeforeConfigure = true;
 					}),

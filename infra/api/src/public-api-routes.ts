@@ -5,6 +5,7 @@ import {
 	ApiWorkspaceCreateRequest,
 } from "@zuse/contracts";
 import { cloudRuntimeCommandTurnId } from "@zuse/utils/cloud-api";
+import { cloudTimingEvent } from "@zuse/utils/cloud-timing";
 import { Clock, Effect } from "effect";
 import {
 	API_ASSET_MAX_BYTES,
@@ -25,7 +26,6 @@ import {
 } from "./api-sealing.ts";
 import { safeApiWebhookTarget } from "./api-webhook-target.ts";
 import { requireApiKey } from "./auth.ts";
-import { requireCloudBetaAccess } from "./beta-access.ts";
 import {
 	type CloudWorkspaceRouteContext,
 	cloudWorkspaceResumeIsAlreadyRequested,
@@ -135,6 +135,9 @@ const publicApiMessage = Effect.fn("publicApiMessage")(function* (
 		...(message.turnId === undefined ? {} : { turnId: message.turnId }),
 		...(message.outcome === undefined ? {} : { outcome: message.outcome }),
 		createdAt: message.createdAtMs,
+		...(message.deliveredAtMs === undefined
+			? {}
+			: { deliveredAt: message.deliveredAtMs }),
 		...(content.attachments.length === 0
 			? {}
 			: { attachments: content.attachments }),
@@ -232,10 +235,7 @@ export const routeAccountWorkspaceRequest = (
 		const principal = { accountId };
 		const headerIdempotencyKey =
 			request.headers.get("idempotency-key") ?? undefined;
-		const isCleanupRequest =
-			method === "DELETE" && /^\/v1\/api\/webhooks\/[^/]+$/u.test(path);
-		if (!isCleanupRequest) {
-			yield* requireCloudBetaAccess(principal.accountId);
+		if (!(method === "DELETE" && /^\/v1\/api\/webhooks\/[^/]+$/u.test(path))) {
 			yield* requireCloudWorkspaceEntitlement(principal.accountId, nowMs);
 		}
 
@@ -447,10 +447,6 @@ export const routeAccountWorkspaceRequest = (
 			);
 			if (created) {
 				response.headers.set(
-					"x-zuse-reconcile-cloud-pool",
-					principal.accountId,
-				);
-				response.headers.set(
 					"x-zuse-reconcile-cloud-workspace",
 					workspace.workspaceId,
 				);
@@ -551,6 +547,10 @@ export const routeAccountWorkspaceRequest = (
 			}
 
 			if (method === "POST" && messagesMatch !== null) {
+				cloudTimingEvent(
+					{ workspaceId, provider: workspace.provider },
+					"message.request-authorized",
+				);
 				const body = yield* decodeBody(ApiSendMessageRequest, request);
 				const text = body.text.trim();
 				const assetIds = [...new Set(body.attachments ?? [])];
@@ -661,6 +661,15 @@ export const routeAccountWorkspaceRequest = (
 						continue;
 					}
 					const appended = committed.append;
+					cloudTimingEvent(
+						{
+							workspaceId,
+							messageId,
+							commandId: message.commandId,
+							provider: candidate.provider,
+						},
+						"message.persisted",
+					);
 					if (appended.kind === "existing")
 						yield* requireMatchingApiMessage(appended.message, messageContent);
 					if (

@@ -47,6 +47,7 @@ const getData = (t: WebsiteMessage) => ({
 	Product: [
 		{ label: t("navigation:download"), href: DOWNLOAD_URL },
 		{ label: t("navigation:developers"), href: "/developers" },
+		{ label: t("navigation:pricing"), href: "/pricing" },
 		{ label: t("navigation:change_log"), href: "/changelog" },
 		{ label: t("navigation:blog"), href: "/blog" },
 	],
@@ -86,7 +87,7 @@ export const Footer = () => {
 						<div className="grid grid-cols-2 gap-x-10 gap-y-12 md:gap-x-8">
 							{Object.entries(getData(t)).map(([key, value]) => (
 								<div key={key} className="flex flex-col gap-4">
-									<h3 className="text-muted-foreground -tracking-sm text-xs leading-5 font-medium">
+									<h3 className="text-primary text-lg leading-6">
 										{t(groupLabels[key])}
 									</h3>
 									<ul className="flex flex-col gap-4">

@@ -71,5 +71,11 @@
 	"commits_ahead": "{{count}}개 커밋 앞섬",
 	"now": "지금",
 	"branches": "브랜치",
-	"issues": "이슈"
+	"issues": "이슈",
+	"this_computer": "이 컴퓨터",
+	"worktree": "워크트리",
+	"import_chat": "채팅 가져오기",
+	"full_access": "전체 접근",
+	"ask_first": "먼저 확인",
+	"advanced": "고급"
 }

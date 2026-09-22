@@ -4,6 +4,7 @@ import { BlogCtaSection } from "@/components/blogs/blog-cta-section";
 import { BlogHeader } from "@/components/blogs/blog-header";
 import { Content } from "@/components/blogs/content";
 import { SuggestedBlogs } from "@/components/blogs/suggested-blogs";
+import { ArticleStructuredData } from "@/components/seo/article-structured-data";
 import { getSEO } from "@/lib/seo";
 import { blog } from "@/lib/source";
 
@@ -22,12 +23,24 @@ export async function generateMetadata(props: {
 	const page = blog.getPage([params.id]);
 	if (!page) notFound();
 
-	return getSEO({
+	const metadata = getSEO({
 		title: page.data.title,
 		description: page.data.description,
 		path: page.url,
-		image: page.data.previewImage,
+		image:
+			!page.data.previewImage || page.data.previewImage.endsWith(".svg")
+				? "/og.png"
+				: page.data.previewImage,
 	});
+	return {
+		...metadata,
+		openGraph: {
+			...metadata.openGraph,
+			type: "article",
+			publishedTime: page.data.date.toISOString(),
+			authors: [page.data.authorName],
+		},
+	};
 }
 
 export default async function BlogPostPage({
@@ -41,11 +54,19 @@ export default async function BlogPostPage({
 	if (!page) notFound();
 
 	return (
-		<section className="w-full">
+		<main className="journal-article w-full">
+			<ArticleStructuredData
+				title={page.data.title}
+				description={page.data.description}
+				url={page.url}
+				image={page.data.previewImage ?? "/og.png"}
+				date={page.data.date}
+				author={page.data.authorName}
+			/>
 			<BlogHeader page={page} />
-			<BlogCtaSection />
 			<Content page={page} />
-			<SuggestedBlogs />
-		</section>
+			<BlogCtaSection />
+			<SuggestedBlogs currentUrl={page.url} />
+		</main>
 	);
 }

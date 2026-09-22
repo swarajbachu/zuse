@@ -1,6 +1,7 @@
 import "@fontsource-variable/inter";
 import "@fontsource-variable/geist-mono";
 import "./globals.css";
+import "./brand.css";
 
 import { RootProvider } from "fumadocs-ui/provider/next";
 import type { Metadata, Viewport } from "next";
@@ -11,7 +12,7 @@ export const metadata: Metadata = {
 	metadataBase: new URL(SITE_URL),
 	title: {
 		default: "Zuse Documentation",
-		template: "%s — Zuse Docs",
+		template: "%s | Zuse Docs",
 	},
 	description:
 		"Guides and reference for Zuse desktop, mobile, remote access, and Serve.",

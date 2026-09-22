@@ -1,0 +1,52 @@
+---
+title: "Parallel agents, without collisions"
+description: "A practical workflow for isolating AI coding tasks with Git worktrees, sharing context deliberately, and reviewing the combined result."
+date: "2026-09-17"
+category: "Guide"
+timeToRead: "3 min read"
+authorName: "Zuse team"
+authorRole: "Product and engineering"
+authorAvatar: "/app-icon.png"
+previewImage: "/brand/pegasus-dither.webp"
+labels: [{ name: "Workflow", hex: "#c9f34e" }]
+---
+
+Two coding agents can work at the same time and still leave you with one tangled change. The useful unit of parallel work is not the number of chat windows. It is a task with a clear checkout, a clear owner, and a result you can review.
+
+Zuse gives you two different boundaries: separate chats can use separate Git worktrees, while session tabs inside a chat share that chat's checkout. Choose the boundary before you send the prompt.
+
+## Separate tasks need separate checkouts
+
+A worktree is another checkout of a Git repository. It has its own working files and branch while sharing the repository's object database. That makes it useful for independent changes without copying the whole repository.
+
+For example, give one chat a parser fix and another a documentation update. Select a fresh worktree for each. Wait for repository setup to finish, then check the workspace indicator before either agent starts editing. If automatic worktrees are disabled, make this selection explicitly.
+
+Use a terminal in each chat to check the boundary:
+
+```sh
+pwd
+git branch --show-current
+git status --short
+```
+
+The paths and branch names should differ. A change in one chat should not appear in the other chat's Changes view. These small checks are cheaper than discovering shared edits after both agents finish.
+
+## Shared tabs are useful for review
+
+Tabs inside one chat deliberately share files. That is useful when a second agent needs to inspect the implementation already on disk. It also means two tabs can edit the same file.
+
+Ask the second agent to review without editing until the implementation is ready. Give it a concrete question: does the parser reject the invalid input without changing how valid input behaves? A review question produces more useful evidence than a broad request to make the code better.
+
+## Assign one integrator
+
+Worktree isolation prevents accidental file sharing. It does not prove that two independently correct changes work together. Both tasks may alter a shared API, depend on incompatible assumptions, or introduce tests that conflict during integration.
+
+Keep one chat responsible for the combined result. Have each task report its changed files, checks run, and unresolved questions. Review the combined diff and run the checks that cross task boundaries before preparing a pull request.
+
+## A prompt you can reuse
+
+> Implement the parser fix in a fresh worktree. Keep changes limited to the parser and focused tests. Report the branch, changed files, test results, and any uncertainty. Do not merge or deploy. I will integrate this with the documentation task after review.
+
+The constraint is simple: independent tasks get independent checkouts; shared review gets a shared checkout with clear editing responsibility.
+
+Start with the [worktree guide](https://docs.zuse.sh/how-to/local-parallel-worktrees), then read [how to review changes](https://docs.zuse.sh/how-to/local-review-changes).

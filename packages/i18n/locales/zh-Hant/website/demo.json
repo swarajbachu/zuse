@@ -71,5 +71,11 @@
 	"commits_ahead": "領先 {{count}} 個提交",
 	"now": "剛剛",
 	"branches": "分支",
-	"issues": "議題"
+	"issues": "議題",
+	"this_computer": "這部電腦",
+	"worktree": "工作樹",
+	"import_chat": "匯入聊天",
+	"full_access": "完整存取",
+	"ask_first": "先詢問",
+	"advanced": "進階"
 }

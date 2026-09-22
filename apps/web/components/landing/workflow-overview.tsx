@@ -1,84 +1,47 @@
 "use client";
-import {
-	IconArrowsShuffle,
-	IconGitBranch,
-	IconGitPullRequest,
-} from "@tabler/icons-react";
-import {
-	useWebsiteMessages,
-	type WebsiteMessage,
-} from "@zuse/i18n/website/react";
-
-const getSteps = (t: WebsiteMessage) =>
-	[
-		{
-			number: "01",
-			title: t("showcase:bring_the_agents_you_already_use"),
-			description: t(
-				"showcase:connect_your_existing_coding_agent_subscriptions_and_choose_the_right",
-			),
-			icon: IconArrowsShuffle,
-		},
-		{
-			number: "02",
-			title: t("showcase:run_work_in_parallel"),
-			description: t(
-				"showcase:give_every_task_its_own_chat_branch_and_git_worktree_so_multiple_attem",
-			),
-			icon: IconGitBranch,
-		},
-		{
-			number: "03",
-			title: t("showcase:carry_context_then_review"),
-			description: t(
-				"showcase:continue_with_another_agent_using_the_plan_transcript_or_files_it_need",
-			),
-			icon: IconGitPullRequest,
-		},
-	] as const;
+import { useWebsiteMessages } from "@zuse/i18n/website/react";
+import Image from "next/image";
 
 export function WorkflowOverview() {
 	const { message: t } = useWebsiteMessages();
-
+	const steps = [
+		{ image: "pegasus", title: t("showcase:bring_the_agents_you_already_use") },
+		{ image: "observatory", title: t("showcase:run_work_in_parallel") },
+		{ image: "handoff", title: t("showcase:carry_context_then_review") },
+	];
 	return (
-		<section id="workflow" className="scroll-mt-24 px-4 py-16 md:px-8 md:py-24">
+		<section id="workflow" className="scroll-mt-24 px-4 py-16 md:px-8 md:py-20">
 			<header className="mx-auto max-w-3xl text-center">
-				<p className="text-primary font-mono text-[11px] font-semibold uppercase tracking-[0.18em]">
+				<p className="text-primary font-mono text-[11px] uppercase tracking-[0.18em]">
 					{t("showcase:how_zuse_works")}
 				</p>
-				<h2 className="text-heading mt-3 text-3xl font-semibold tracking-tight text-balance md:text-5xl">
+				<h2 className="text-heading mt-4 text-4xl text-balance md:text-6xl">
 					{t("showcase:one_repo_many_agents_no_lost_context")}
 				</h2>
-				<p className="text-muted-foreground mx-auto mt-5 max-w-2xl text-base leading-7 text-pretty md:text-lg">
-					{t(
-						"showcase:zuse_keeps_every_agent_session_connected_to_the_code_branch_and_review",
-					)}
-				</p>
 			</header>
-
-			<ol className="border-border bg-border mx-auto mt-12 grid max-w-5xl gap-px overflow-hidden rounded-2xl border md:grid-cols-3">
-				{getSteps(t).map((step) => {
-					const Icon = step.icon;
-
-					return (
-						<li key={step.number} className="bg-background p-6 md:p-8">
-							<div className="flex items-center justify-between">
-								<span className="text-muted-foreground font-mono text-xs">
-									{step.number}
-								</span>
-								<span className="bg-primary/10 text-primary grid size-9 place-items-center rounded-lg">
-									<Icon aria-hidden="true" className="size-4.5" />
-								</span>
-							</div>
-							<h3 className="text-heading mt-8 text-lg font-semibold tracking-tight">
+			<ol className="mt-10 grid gap-8 md:grid-cols-3 md:gap-5">
+				{steps.map((step, index) => (
+					<li key={step.image}>
+						<div className="overflow-hidden rounded-xl bg-[#11251b]">
+							<Image
+								src={`/brand/${step.image}-dither.webp`}
+								alt=""
+								width={1000}
+								height={1000}
+								sizes="(max-width: 767px) 90vw, 360px"
+								className="aspect-[1.12] w-full object-cover"
+							/>
+						</div>
+						<div className="mt-5 flex items-start gap-3">
+							<span className="text-primary/70 pt-1.5 font-mono text-[10px]">
+								0{index + 1}
+							</span>
+							<h3 className="text-heading text-3xl leading-tight">
 								{step.title}
 							</h3>
-							<p className="text-muted-foreground mt-3 text-sm leading-6">
-								{step.description}
-							</p>
-						</li>
-					);
-				})}
+						</div>
+					</li>
+				))}
 			</ol>
 		</section>
 	);

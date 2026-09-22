@@ -169,6 +169,7 @@ export const ApiPaths = {
 	) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/transcript-message-page`,
 	cloudChats: "/v1/cloud/chats",
+	cloudChatChanges: "/v1/cloud/chats/changes",
 	cloudWorkspaceAction: (workspaceId: string, action: string) =>
 		`/v1/cloud/workspaces/${encodeURIComponent(workspaceId)}/${encodeURIComponent(action)}`,
 	cloudWorkspaceDeviceBridge: (workspaceId: string) =>

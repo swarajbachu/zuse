@@ -1,11 +1,11 @@
 "use client";
 import { useWebsiteMessages } from "@zuse/i18n/website/react";
+import { CalendarDays } from "lucide-react";
 import { motion } from "motion/react";
 import type React from "react";
-import { WaitlistForm } from "@/components/cloud-teaser/waitlist-form";
+import { Button } from "@/components/button";
 import { Container } from "../container";
 import { Heading } from "../heading";
-import { Subheading } from "../subheading";
 import { AnimatedBeamPathIllustration } from "./animated-path";
 import { IPhoneSkeleton } from "./iphone-skeleton";
 import { MacbookSkeleton } from "./macbook-skeleton";
@@ -20,11 +20,6 @@ export function FeaturesTwo() {
 				<Heading as="h2" className="mb-4">
 					{t("showcase:keep_agent_work_moving_anywhere")}
 				</Heading>
-				<Subheading className="text-balance">
-					{t(
-						"showcase:run_agents_from_your_desktop_today_keep_them_working_in_persistent_clo",
-					)}
-				</Subheading>
 			</div>
 
 			<div className="relative mx-auto mb-8 hidden h-12 w-full items-center lg:flex">
@@ -53,50 +48,37 @@ export function FeaturesTwo() {
 					<IPhoneSkeleton />
 					<FeatureTitle>{t("showcase:agents_in_your_pocket")}</FeatureTitle>
 					<Status>{t("showcase:coming_soon")}</Status>
-					<FeatureDescription>
-						{t("showcase:follow_runs_and_approve_decisions_from_your_phone")}
-					</FeatureDescription>
 				</FeatureItem>
 				<FeatureItem>
 					<MacbookSkeleton />
 					<FeatureTitle>{t("showcase:full_control_at_your_desk")}</FeatureTitle>
 					<Status live>{t("showcase:available_now")}</Status>
-					<FeatureDescription>
-						{t(
-							"showcase:run_agents_inspect_changes_and_manage_worktrees_in_zuse_desktop",
-						)}
-					</FeatureDescription>
 				</FeatureItem>
 				<FeatureItem>
 					<ServerSkeleton />
 					<FeatureTitle>{t("showcase:agents_that_keep_running")}</FeatureTitle>
-					<Status live>{t("showcase:live_beta")}</Status>
-					<FeatureDescription>
-						{t(
-							"showcase:run_isolated_cloud_workspaces_even_after_your_computer_goes_offline",
-						)}
-					</FeatureDescription>
+					<Status>{t("showcase:cloud_beta")}</Status>
 				</FeatureItem>
 			</div>
 
 			<div
 				id="cloud-interest"
-				className="border-border mx-auto mt-14 grid max-w-4xl scroll-mt-24 gap-6 border-t pt-8 md:grid-cols-[1fr_360px] md:items-center"
+				className="border-border/60 -mx-4 md:-mx-8 mt-14 grid scroll-mt-24 gap-6 border-t px-4 pt-8 md:px-8 md:grid-cols-[1fr_auto] md:items-center"
 			>
 				<div>
 					<p className="text-primary font-mono text-[10px] font-semibold tracking-wide uppercase">
 						{t("showcase:cloud_beta")}
 					</p>
-					<h3 className="text-heading mt-2 text-lg font-semibold tracking-tight">
+					<h3 className="text-heading mt-2 text-3xl font-light tracking-tight">
 						{t("showcase:interested_in_a_hosted_workspace")}
 					</h3>
-					<p className="text-muted-foreground mt-1 max-w-md text-sm leading-6">
-						{t(
-							"showcase:register_your_interest_as_we_open_beta_capacity_to_more_developers",
-						)}
-					</p>
 				</div>
-				<WaitlistForm />
+				<Button
+					href="https://cal.com/swaraj/15min"
+					text={t("showcase:book_a_call")}
+					icon={<CalendarDays aria-hidden="true" className="size-4 shrink-0" />}
+					containerClassName="justify-center min-w-40"
+				/>
 			</div>
 		</Container>
 	);
@@ -122,16 +104,9 @@ function BeamCircle() {
 }
 function FeatureTitle({ children }: { children: React.ReactNode }) {
 	return (
-		<h3 className="text-heading mt-6 text-center text-base font-medium">
+		<h3 className="text-heading mt-6 text-center text-3xl font-light">
 			{children}
 		</h3>
-	);
-}
-function FeatureDescription({ children }: { children: React.ReactNode }) {
-	return (
-		<p className="text-muted-foreground mx-auto mt-2 max-w-xs text-center text-sm text-balance">
-			{children}
-		</p>
 	);
 }
 function Status({

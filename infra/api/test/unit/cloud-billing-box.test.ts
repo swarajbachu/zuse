@@ -8,7 +8,11 @@ import { makeSandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { exportJWK, generateKeyPair } from "jose";
 import { describe, expect, it } from "vitest";
-import { ingestBoxLifecycleEvent } from "../../src/cloud-billing-box.ts";
+import {
+	type BoxLifecycleEvent,
+	ingestBoxLifecycleEvent,
+	normalizeBoxLifecycleEvent,
+} from "../../src/cloud-billing-box.ts";
 import { CloudBillingStore } from "../../src/cloud-billing-store.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import { verifyBoxSignature } from "../../src/cloud-billing-usage-sources/box.ts";
@@ -94,6 +98,33 @@ const signBox = async (secret: string): Promise<string> => {
 		.map((byte) => byte.toString(16).padStart(2, "0"))
 		.join("")}`;
 };
+
+describe("Boat lifecycle compatibility", () => {
+	it.each([
+		"ready",
+		"archived",
+		"error",
+		"hydrated",
+	])("normalizes sandbox.%s to the existing billing ledger", (kind) => {
+		const legacy = {
+			id: "event",
+			type: `box.${kind}`,
+			createdAt: "2026-09-16T00:00:00Z",
+			data: { box: { id: "bx_1", name: "workspace" }, state: kind },
+		};
+		const boat = {
+			...legacy,
+			type: `sandbox.${kind}`,
+			data: { sandbox: legacy.data.box, state: kind },
+		};
+		expect(normalizeBoxLifecycleEvent(boat)).toEqual(
+			normalizeBoxLifecycleEvent(legacy),
+		);
+		expect(
+			normalizeBoxLifecycleEvent({ ...boat, createdAt: "invalid" }),
+		).toBeNull();
+	});
+});
 
 describe("box billing ingestion", () => {
 	it("accepts a correctly signed webhook and rejects tampering", async () => {
@@ -339,9 +370,9 @@ describe("Box reported cost settlement", () => {
 						return new Response("unavailable", { status: 503 });
 					return Response.json({
 						ok: true,
-						type: "box.usage",
-						boxId: "bx_metered",
-						boxType: "large",
+						type: "sandbox.usage",
+						sandboxId: "bx_metered",
+						sandboxType: "large",
 						billingMultiplier: 2,
 						since,
 						until,
@@ -412,7 +443,7 @@ describe("Box reported cost settlement", () => {
 				}),
 			);
 			const ingest = (
-				event: ReturnType<typeof readyEvent>,
+				event: BoxLifecycleEvent,
 				source: "webhook" | "poll" = "webhook",
 			) =>
 				runtime.runPromise(
@@ -432,7 +463,14 @@ describe("Box reported cost settlement", () => {
 				"close",
 				new Date(end).toISOString(),
 			);
-			await expect(ingest(close)).rejects.toThrow();
+			const boatClose = normalizeBoxLifecycleEvent({
+				...close,
+				type: "sandbox.archived",
+				data: { sandbox: close.data.box, state: "archived" },
+			});
+			if (boatClose === null)
+				throw new Error("Boat close failed normalization");
+			await expect(ingest(boatClose)).rejects.toThrow();
 			const list = (periodId: string) =>
 				runtime.runPromise(
 					Effect.gen(function* () {
@@ -446,7 +484,7 @@ describe("Box reported cost settlement", () => {
 			expect((await list(oldPeriodId)).items).toHaveLength(0);
 			expect((await list(newPeriodId)).items).toHaveLength(0);
 			failSecondWindow = false;
-			expect(await ingest(close)).toMatchObject({ metered: true });
+			expect(await ingest(boatClose)).toMatchObject({ metered: true });
 			expect(calls.slice(-2)).toEqual([
 				{
 					since: "2026-09-30T23:55:00.000Z",
@@ -502,9 +540,9 @@ it.each([
 				expect(Date.parse(url.searchParams.get("until") ?? "")).toBe(nowMs);
 				return Response.json({
 					ok: true,
-					type: "box.usage",
-					boxId: "bx_live",
-					boxType: "large",
+					type: "sandbox.usage",
+					sandboxId: "bx_live",
+					sandboxType: "large",
 					billingMultiplier: 2,
 					since: new Date(startedAtMs).toISOString(),
 					until: new Date(nowMs).toISOString(),

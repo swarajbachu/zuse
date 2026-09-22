@@ -10,6 +10,41 @@ import {
 } from "../../../src/lib/connection-records";
 
 describe("connection record persistence", () => {
+	test("uses the connected account route when the local route is unavailable", () => {
+		const records = decodeConnectionRecords(
+			["paired", "api"].map((source) => ({
+				key: `${source}:env-1`,
+				environmentId: "env-1",
+				source,
+				host: "desktop.local",
+				port: 8787,
+				label: "Mac",
+				updatedAt: 1,
+			})),
+		);
+		expect(
+			availableConnections(records, true, {
+				"paired:env-1": { status: "error" },
+				"api:env-1": { status: "connected" },
+			}).map((record) => record.key),
+		).toEqual(["api:env-1"]);
+		expect(
+			availableConnections(records, true, {}, new Set(["api:env-1"])).map(
+				(record) => record.key,
+			),
+		).toEqual(["api:env-1"]);
+		expect(
+			availableConnections(records, false, {}, new Set(["api:env-1"])).map(
+				(record) => record.key,
+			),
+		).toEqual(["paired:env-1"]);
+		expect(
+			availableConnections(records, true, {
+				"paired:env-1": { status: "connected" },
+				"api:env-1": { status: "connected" },
+			}).map((record) => record.key),
+		).toEqual(["paired:env-1"]);
+	});
 	test("migrates legacy records to explicit connection sources", () => {
 		expect(
 			decodeConnectionRecords([
@@ -174,6 +209,7 @@ describe("connection record persistence", () => {
 				environmentId: "env-1",
 				host: "192.168.1.20",
 				port: 8787,
+				wsBaseUrl: "ws://192.168.1.20:8787/rpc",
 				token: "zt_phone",
 				serverKeyPin: "sha256/mac-key",
 				routeGeneration: 3,
@@ -197,6 +233,7 @@ describe("connection record persistence", () => {
 			serverKeyPin: "sha256/mac-key",
 			host: "10.0.0.44",
 			port: 8790,
+			wsBaseUrl: "ws://10.0.0.44:8790/rpc",
 			pathType: "apple-peer",
 			routeGeneration: 4,
 		});

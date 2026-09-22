@@ -54,12 +54,12 @@ describe("website localization", () => {
 				locale="en"
 				messages={{
 					...messages,
-					"landing:all_your_coding_agents_one_workspace":
+					"landing:cloud_coding_agents_open_source":
 						"{{input}} <part0>Workspace</part0>",
 				}}
 			>
 				<WebsiteRichMessage
-					id="landing:all_your_coding_agents_one_workspace"
+					id="landing:cloud_coding_agents_open_source"
 					values={{ input: '<img src=x onerror="alert(1)">' }}
 					components={{ part0: <strong /> }}
 				/>

@@ -1,0 +1,128 @@
+{
+	"date": "2026-09-16",
+	"baselineCommit": "512f0f7745eb0b239bd6a54c3a0abaab8cdfd6c5",
+	"snapshot": "zuse-base-v5",
+	"size": "small",
+	"endpoint": "loopback /healthz",
+	"baseline": [
+		{
+			"mode": "baseline",
+			"round": 1,
+			"boxId": "bx_6qydqnux",
+			"networkRetries": 1,
+			"resumeMs": 6787.143438,
+			"networkMs": 29410.048386000002,
+			"launchMs": 417.192535999995,
+			"runtimeReadyMs": 1252.227611000002,
+			"totalMs": 37866.611971
+		},
+		{
+			"mode": "baseline",
+			"round": 2,
+			"boxId": "bx_6qydqnux",
+			"networkRetries": 1,
+			"resumeMs": 12487.589891000003,
+			"networkMs": 34737.226710999996,
+			"launchMs": 582.3286090000038,
+			"runtimeReadyMs": 1312.8073779999977,
+			"totalMs": 49119.952589
+		},
+		{
+			"mode": "baseline",
+			"round": 3,
+			"boxId": "bx_6qydqnux",
+			"networkRetries": 0,
+			"resumeMs": 9890.032563999994,
+			"networkMs": 18906.648273000013,
+			"launchMs": 612.5331939999887,
+			"runtimeReadyMs": 1384.5197460000054,
+			"totalMs": 30793.733777
+		}
+	],
+	"systemd": [
+		{
+			"variant": "systemd-only",
+			"round": 1,
+			"boxId": "bx_6qydqnux",
+			"status": "ready",
+			"networkRetries": 0,
+			"resumeMs": 42983.019066999994,
+			"networkMs": 10137.487371000003,
+			"launchMs": 1303.6101409999974,
+			"runtimeReadyMs": 4085.0034400000004,
+			"totalMs": 58509.120018999994
+		},
+		{
+			"variant": "systemd-only",
+			"round": 2,
+			"boxId": "bx_6qydqnux",
+			"status": "ready",
+			"networkRetries": 0,
+			"resumeMs": 52685.44503499998,
+			"networkMs": 19915.566706000012,
+			"launchMs": 1368.2129110000096,
+			"runtimeReadyMs": 4789.512213999988,
+			"totalMs": 78758.73686599999
+		},
+		{
+			"variant": "systemd-only",
+			"round": 3,
+			"boxId": "bx_6qydqnux",
+			"status": "ready",
+			"networkRetries": 0,
+			"resumeMs": 10691.96239999999,
+			"networkMs": 16034.173614,
+			"launchMs": 290.9521769999992,
+			"runtimeReadyMs": 571.529143999971,
+			"totalMs": 27588.61733499996
+		}
+	],
+	"liveProcessChecks": {
+		"environmentPreserved": true,
+		"targetUserPreserved": true,
+		"detachedChildCleaned": true
+	},
+	"earlyFirewallExperiment": {
+		"retained": false,
+		"successfulSamples": [
+			{
+				"mode": "systemd",
+				"round": 1,
+				"boxId": "bx_6qydqnux",
+				"networkRetries": 0,
+				"resumeMs": 75195.360888,
+				"networkMs": 9249.630692000006,
+				"launchMs": 7372.489931000004,
+				"runtimeReadyMs": 16180.369206999996,
+				"totalMs": 107997.850718
+			},
+			{
+				"mode": "systemd",
+				"round": 2,
+				"boxId": "bx_6qydqnux",
+				"networkRetries": 0,
+				"resumeMs": 40743.890109,
+				"networkMs": 1129.4837340000086,
+				"launchMs": 1756.695120999997,
+				"runtimeReadyMs": 23996.477274999983,
+				"totalMs": 67626.54623899999
+			}
+		],
+		"failedStartupAttempts": 2,
+		"observedFailure": "One startup failed chmod on a UID 1000-owned temporary file while runtime UID was 1001; another failed the health deadline."
+	},
+	"baselineFollowupControl": [
+		{
+			"variant": "baseline-control",
+			"round": 1,
+			"boxId": "bx_6qydqnux",
+			"status": "ready",
+			"networkRetries": 0,
+			"resumeMs": 52693.546861999996,
+			"networkMs": 7820.460525000002,
+			"launchMs": 1379.2353690000018,
+			"runtimeReadyMs": 3554.431276000003,
+			"totalMs": 65447.674032
+		}
+	]
+}

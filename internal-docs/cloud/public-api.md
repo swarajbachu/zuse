@@ -22,9 +22,9 @@ the WorkOS-gated `POST /v1/cloud/api-keys`). The secret is shown once; the
 `zk_` secret contains 32 random bytes encoded as fixed-width base62, and the
 api stores only its SHA-256 hash. Revoking a key takes effect immediately.
 A key inherits the full cloud access of its account — treat it like a
-password. Every request rechecks the account's current beta access and cloud
-entitlement; removing either blocks new reads and mutations even if a key has
-not yet been revoked. Webhook deletion remains available as cleanup.
+password. Every operation that can consume Cloud resources rechecks the
+account's cloud entitlement; removing it blocks new billable mutations even if
+a key has not yet been revoked. Webhook deletion remains available as cleanup.
 
 ## Endpoints
 
@@ -148,6 +148,10 @@ back as `afterSeq`. Assistant rows carry `turnId`, `outcome`, and a bounded
 reply excerpt (up to 16 KB of the final assistant text; tool output and
 attachments are not included — those live in the full transcript surfaces).
 The ledger follows the workspace's initial session.
+User rows include optional `deliveredAt` (Unix milliseconds) once the runtime
+acknowledges delivery. `deliveredAt - createdAt` measures API acceptance to
+delivery acknowledgement, independently of polling cadence or model completion.
+Historical rows may omit it.
 
 ## Webhooks
 

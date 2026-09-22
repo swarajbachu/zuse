@@ -1,0 +1,47 @@
+/* Shared desktop palette. Semantic aliases stay in each application. */
+:root {
+	--app-light-lime: hsl(83 74% 43%);
+	--app-light-background: hsl(90 20% 97%);
+	--app-light-foreground: hsl(132 14% 13%);
+	--app-light-bg-subtle: hsl(105 18% 94%);
+	--app-light-bg-elevated: hsl(110 14% 90%);
+	--app-light-bg-overlay: hsl(112 12% 84%);
+	--app-light-text-faint: hsl(125 5% 48%);
+	--app-light-chip-bg: hsl(110 14% 90%);
+	--app-light-card: hsl(0 0% 100%);
+	--app-light-popover: hsl(0 0% 100%);
+	--app-light-primary-foreground: hsl(132 30% 7%);
+	--app-light-secondary: hsl(105 18% 94%);
+	--app-light-muted: hsl(105 18% 94%);
+	--app-light-muted-foreground: hsl(125 7% 38%);
+	--app-light-accent: hsl(106 16% 89%);
+	--app-light-border: hsl(110 13% 89%);
+	--app-light-input: hsl(112 12% 82%);
+	--app-light-sidebar: hsl(105 22% 95%);
+	--app-light-sidebar-accent: hsl(106 18% 89%);
+	--app-light-sidebar-border: hsl(110 13% 89%);
+	--app-light-warning: hsl(21.6 98.2% 56.7%);
+	--app-dark-lime: hsl(83 72% 46%);
+	--app-dark-background: hsl(140 5% 4.5%);
+	--app-dark-foreground: hsl(100 4% 91%);
+	--app-dark-bg-subtle: hsl(136 5% 7.5%);
+	--app-dark-bg-elevated: hsl(132 5% 10.5%);
+	--app-dark-bg-overlay: hsl(128 5% 15%);
+	--app-dark-text-faint: hsl(110 3% 43%);
+	--app-dark-chip-bg: hsl(136 5% 7.5%);
+	--app-dark-card: hsl(136 5% 7.5%);
+	--app-dark-popover: hsl(132 5% 10.5%);
+	--app-dark-primary-foreground: hsl(132 30% 7%);
+	--app-dark-secondary: hsl(136 5% 7.5%);
+	--app-dark-muted: hsl(132 5% 14%);
+	--app-dark-muted-foreground: hsl(105 3% 65%);
+	--app-dark-accent: hsl(130 6% 16.5%);
+	--app-dark-border: hsl(132 4% 12.5%);
+	--app-dark-input: hsl(128 5% 17%);
+	--app-dark-sidebar: hsl(138 5% 5.75%);
+	--app-dark-sidebar-accent: hsl(130 6% 13.5%);
+	--app-dark-sidebar-border: hsl(136 5% 8.5%);
+	--app-dark-warning: hsl(21.6 98.2% 56.7%);
+	--app-dark-composer: hsl(120 2% 10% / 0.9);
+	--app-dark-composer-toolbar: hsl(120 2% 8.5% / 0.96);
+}

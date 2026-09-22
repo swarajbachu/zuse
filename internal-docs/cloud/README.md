@@ -9,7 +9,7 @@ desktop or mobile client remains a disposable viewer and controller. Closing
 the app, sleeping a laptop, or changing networks does not own or terminate an
 accepted agent turn.
 
-The current private beta uses E2B as its sandbox provider. The product model is
+The current public beta uses E2B as its sandbox provider. The product model is
 provider-neutral: E2B is an adapter, not a second chat type. Local, SSH,
 pairing, and user-managed remote environments keep their existing paths.
 
@@ -43,7 +43,7 @@ pairing, and user-managed remote environments keep their existing paths.
 | [Architecture](architecture.md) | Components, authority boundaries, control and data planes |
 | [Lifecycle](lifecycle.md) | Project preparation, workspace states, pause, archive, and deletion |
 | [Realtime and storage](realtime-and-storage.md) | Offline opening, R2 catch-up, live synchronization, and large histories |
-| [Security](security.md) | Identity, private-beta authorization, credentials, encryption, and isolation |
+| [Security](security.md) | Identity, authorization, credentials, encryption, and isolation |
 | [Public API](public-api.md) | API keys, integration endpoints, message delivery, and signed webhooks |
 | [Operations](operations.md) | Releases, environments, migrations, monitoring, incidents, and smoke tests |
 | [API domain cutover](api-domain-cutover.md) | DNS ownership, issuer rollout, and rollback |
@@ -59,15 +59,14 @@ than copied:
 - [Unified computer model](../specs/unified-computers.md)
 - [Cloud sandbox template](../../infra/cloud-sandboxes/README.md)
 - [Cloud billing operations](billing.md)
-- [Private beta production runbook](production.md)
+- [Public beta production runbook](production.md)
 - [API package reference](../../infra/api/README.md)
 
 ## Current product behavior
 
-Zuse Cloud is an invite-only beta. WorkOS authenticates the account and API
-evaluates the `zuse-cloud-beta-access` PostHog flag using that verified account
-identity. An invitation controls hosted cloud operations only; it does not gate
-local, SSH, pairing, or normal remote-server use.
+Zuse Cloud is a public beta. WorkOS authenticates the account, and the Cloud
+Workspace subscription controls access to billable hosted operations. Local,
+SSH, pairing, and normal remote-server use remain independent of Cloud.
 
 A Cloud Workspace subscription is $40 per month, includes $35 of attributable
 sandbox-provider compute cost, and bills additional provider cost plus 5%, up

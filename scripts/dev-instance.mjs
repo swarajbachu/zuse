@@ -228,9 +228,9 @@ export const withScannedPorts = async (
 				packDir: resources.packDir,
 				cliAccessFile: resources.cliAccessFile,
 				viteCacheDir: resources.viteCacheDir,
-				...(initial.userDataExplicit
-					? { userDataDir: initial.userDataDir }
-					: {}),
+				userDataDir: initial.userDataExplicit
+					? initial.userDataDir
+					: resources.userDataDir,
 				instance,
 				rendererPort,
 				websocketPort,

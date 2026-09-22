@@ -1,10 +1,10 @@
 {
 	"open_source_cloud_beta_live": "<part0></part0>Open source · Cloud beta live",
-	"all_your_coding_agents_one_workspace": "All your coding agents. <part0>One workspace.</part0>",
-	"run_agents_side_by_side_carry_context_between_them_and_keep_every_task": "Run agents side by side, carry context between them, and keep every task isolated in its own git worktree.",
+	"cloud_coding_agents_open_source": "Cloud coding agents. <part0>Open source.</part0>",
+	"open_source_devin_alternative": "An open-source alternative to Devin. Run agents in parallel, locally or in isolated cloud workspaces.",
 	"see_how_it_works": "See how it works",
 	"free_in_beta_no_token_markup": "Free in beta · no token markup",
-	"meta_title": "Zuse — All your coding agents in one workspace",
+	"meta_title": "Zuse: All your coding agents in one workspace",
 	"meta_description": "Run coding agents side by side, carry context between them, and isolate every task in its own git worktree with Zuse.",
 	"schema_parallel": "Run multiple coding agents from one workspace",
 	"schema_worktrees": "Isolated Git worktrees for parallel agent runs",

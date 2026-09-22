@@ -106,6 +106,7 @@ describe("relay migration reconciliation", () => {
 			{ idx: 22, tag: "0022_slack_integrations" },
 			{ idx: 23, tag: "0023_slack_members" },
 			{ idx: 24, tag: "0024_box_price_schedule" },
+			{ idx: 25, tag: "0025_cloud_catalog" },
 		]);
 	});
 

@@ -16,9 +16,9 @@
 	"join_the_zuse_discord": "Join the Zuse Discord",
 	"developers": "Developers",
 	"change_log": "Change Log",
-	"blog": "Blog",
+	"blog": "Journal",
 	"releases": "Releases",
-	"2026_zuse_all_rights_reserved": "2026 Zuse — All Rights Reserved",
+	"2026_zuse_all_rights_reserved": "2026 Zuse. All Rights Reserved",
 	"language": "Language",
 	"product": "Product",
 	"legal": "Legal",
@@ -34,5 +34,6 @@
 	"accessibility": "Accessibility",
 	"tagline": "All your coding agents in one workspace, with isolated tasks and shared context.",
 	"light_theme": "Switch to light theme",
-	"dark_theme": "Switch to dark theme"
+	"dark_theme": "Switch to dark theme",
+	"pricing": "Pricing"
 }

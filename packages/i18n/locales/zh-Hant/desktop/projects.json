@@ -291,5 +291,12 @@
 	"github_repair_state_changed": "聊天、分支或代理狀態已變更。請從目前 PR 重新執行修復。",
 	"github_attach_failed": "無法附加 PR 上下文。",
 	"github_repair_send_failed": "無法傳送修復。請檢查聊天後重試。",
-	"github_watch_update_failed": "無法更新 CI 監視器"
+	"github_watch_update_failed": "無法更新 CI 監視器",
+	"worktree_setup_card_worktree_creation_failed": "工作樹建立失敗",
+	"worktree_setup_card_workspace_ready": "工作區已就緒",
+	"worktree_setup_card_creating_worktree": "正在為 {{repoName}} 建立工作樹…",
+	"worktree_setup_card_preparing_directory": "正在為此聊天準備獨立的工作目錄。",
+	"worktree_setup_card_no_setup_script": "無需設定腳本。",
+	"worktree_setup_card_workspace_ready_description": "你的工作區已就緒。",
+	"worktree_setup_card_preparing_environment": "正在準備工作區環境。"
 }

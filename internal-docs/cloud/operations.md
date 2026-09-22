@@ -2,7 +2,7 @@
 
 This document describes the normal operating model. The exact production
 provisioning and cutover checklist lives in the
-[private beta production runbook](production.md),
+[public beta production runbook](production.md),
 and billing procedures live in
 [cloud billing operations](billing.md).
 
@@ -18,7 +18,6 @@ Staging and production are isolated deployments:
 | Runtime channel | `cloud-runtime-staging` | signed `cloud-runtime-production` |
 | E2B template | staging immutable version | release-commit production version |
 | Polar | sandbox | production |
-| PostHog | staging/test cohort | production flag, default false |
 
 Never use a staging command against production by changing an incidental
 environment variable. Production migrations, secrets, and deploys have
@@ -72,7 +71,7 @@ require read-after-write consistency and compare-and-set revisions.
 ## Configuration and secrets
 
 The production deploy validator must reject empty or placeholder database,
-runtime, E2B, PostHog, Polar, R2, and Hyperdrive values. Secret installation
+runtime, E2B, Polar, R2, and Hyperdrive values. Secret installation
 must explicitly use `wrangler.production.jsonc`; audit names with a read-only
 secret listing before launch.
 
@@ -82,26 +81,23 @@ Lifecycle logs should use workspace/account identifiers appropriate to their
 existing privacy policy, revisions, generations, provider operation IDs, and
 stable error codes.
 
-## Private-beta rollout
+## Public-beta rollout
 
-The production gate is the PostHog boolean flag `zuse-cloud-beta-access`,
-targeted by `zuse_cloud_beta_access=true` on the privacy-preserving `account_…`
-identity that API derives from verified WorkOS identity. API sets this
-property after an active checkout-link subscription is claimed; operators may
-also set it for selected invitees. Email and `anonymous_…` installation IDs do
-not apply. There is no second production allowlist.
+Cloud eligibility is public to authenticated accounts. Billable operations
+remain fail-closed on Cloud Workspace entitlement, capacity, provider health,
+and billing limits; PostHog is not an authorization dependency.
 
 Roll out in this order:
 
 1. Deploy with checkout, billing enforcement, and Polar export disabled.
-2. Invite one internal account and complete the full paid path.
+2. Use one internal account to complete the full paid path.
 3. Reconcile an E2B provider statement; require variance at or below 1% and $1.
 4. Enable enforcement with export still disabled and validate cap behavior.
 5. Enable Polar export and prove API outbox totals equal Polar meter totals.
-6. Enroll additional PostHog identities gradually.
+6. Open the public beta after the paid path and rollback controls are verified.
 
-The independent rollback switches are beta access, checkout, billing export,
-and enforcement. Disabling any of them must preserve sandboxes, encrypted
+The independent rollback switches are checkout, billing export, and
+enforcement. Disabling any of them must preserve sandboxes, encrypted
 transcripts, customers, and immutable ledger data.
 
 ## Health and observability
@@ -120,9 +116,7 @@ Monitor at least:
 - E2B webhook signature failures, recovery-poll discoveries, provider resource
   mismatch, and duplicate finalization;
 - billing reservation pressure, cap denial, outbox age, Polar acknowledgment,
-  and statement variance; and
-- beta-gate allow, deny, timeout, and unavailable outcomes without logging flag
-  payloads or secrets.
+  and statement variance.
 
 Alert on sustained enrollment failure, reconnect loops, checkpoint lag beyond
 the operating threshold, gateway generation churn, reconciliation backlog,
@@ -132,9 +126,9 @@ billing outbox backlog, or statement variance above the release threshold.
 
 For staging and before a production cohort expansion, verify:
 
-1. An uninvited account retains local/SSH/pairing use and receives the specific
-   invite-only cloud response.
-2. An invited subscribed account creates a workspace from the current template.
+1. An unsubscribed account retains local/SSH/pairing use and receives the
+   specific subscription-required response.
+2. A subscribed account creates a workspace from the current template.
 3. Repository setup finishes before the first provider turn starts.
 4. Closing the client mid-turn does not stop the runtime.
 5. Reopening renders local data immediately, catches up through R2, and attaches
@@ -149,12 +143,6 @@ For staging and before a production cohort expansion, verify:
 10. API billing report, export outbox, and Polar meter reconcile.
 
 ## Incident guide
-
-### PostHog unavailable
-
-Hosted user operations fail closed with `cloud_beta_access_unavailable`.
-Cached transcripts and non-cloud environments remain usable. Do not bypass the
-gate with a client flag or temporary second allowlist.
 
 ### Runtime online but client cannot attach
 

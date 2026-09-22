@@ -91,6 +91,36 @@ const harness = <Data>(input: {
 };
 
 describe("shared session timeline resource driver", () => {
+	it("notifies the first snapshot without waiting for synchronization or count metadata", async () => {
+		const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
+		const test = harness({
+			key,
+			client: { "session.events": () => Stream.fromQueue(frames) },
+			data: null,
+			cursor: null,
+		});
+		const driver = makeSessionTimelineResourceDriver({
+			reportFailure: () => undefined,
+		});
+		driver.start(test.context);
+		try {
+			Queue.offerUnsafe(frames, {
+				kind: "snapshot",
+				sessionId,
+				throughVersion: 2,
+				cursor: { epoch: "first", version: 2 },
+				projection,
+			});
+			await waitUntil(() => test.view().data !== null);
+			expect(test.updates).toHaveLength(1);
+			expect(test.updates[0]).toMatchObject({
+				data: projection,
+				persist: false,
+			});
+		} finally {
+			driver.stop();
+		}
+	});
 	it("renders the recent tail immediately while automatic history chunks complete", async () => {
 		const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
 		const test = harness({
@@ -266,9 +296,9 @@ describe("shared session timeline resource driver", () => {
 			},
 		]);
 		expect(failures).toEqual([]);
-		// Snapshot + replay deltas publish atomically at the synchronization
-		// barrier, so reconnect never animates historical output token-by-token.
-		expect(test.updates).toHaveLength(1);
+		// First paint is immediate; replay deltas still publish together at the
+		// synchronization barrier rather than animating historical tokens.
+		expect(test.updates).toHaveLength(2);
 		expect(test.updates.at(-1)).toMatchObject({
 			sync: "live",
 			persist: true,

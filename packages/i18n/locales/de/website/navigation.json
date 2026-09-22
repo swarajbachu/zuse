@@ -14,7 +14,7 @@
 	"download_for_linux": "Herunterladen für Linux",
 	"star_zuse_on_github": "Stern Zuse auf GitHub",
 	"join_the_zuse_discord": "Treten Sie der Zuse Discord bei",
-	"blog": "Blog",
+	"blog": "Journal",
 	"language": "Sprache",
 	"legal": "Legal",
 	"product": "Produkt",
@@ -34,5 +34,6 @@
 	"subprocessors": "Unterauftragsverarbeiter",
 	"light_theme": "Wechseln Sie zum Lichtthema",
 	"change_log": "Änderungsprotokoll",
-	"2026_zuse_all_rights_reserved": "2026 Zuse – Alle Rechte vorbehalten"
+	"2026_zuse_all_rights_reserved": "2026 Zuse – Alle Rechte vorbehalten",
+	"pricing": "Preise"
 }

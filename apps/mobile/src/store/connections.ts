@@ -1,4 +1,8 @@
-import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
+import {
+	DEFAULT_LOCAL_DESKTOP_PORT,
+	isShortPairingCodeInput,
+	normalizePairingCodeInput,
+} from "@zuse/contracts";
 import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import * as SecureStore from "expo-secure-store";
@@ -327,12 +331,14 @@ const redeemPairingCodeIfNeeded = async ({
 }> => {
 	const trimmed = token?.trim();
 	if (!trimmed) return { token: null };
-	if (!trimmed.startsWith("zp_")) return { token: trimmed };
+	if (!trimmed.startsWith("zp_") && !isShortPairingCodeInput(trimmed)) {
+		return { token: trimmed };
+	}
 
 	return redeemPairingCode({
 		host,
 		port,
-		code: trimmed,
+		code: normalizePairingCodeInput(trimmed),
 		deviceId: await getOrCreateDeviceId(),
 		deviceLabel: deviceLabel(),
 		httpBaseUrl,

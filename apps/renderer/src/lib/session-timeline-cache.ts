@@ -8,7 +8,13 @@ import {
 	type SessionTimelineCache,
 	type SessionTimelineCacheEntry,
 } from "@zuse/client-runtime/session-timeline-cache";
-import type { SessionId } from "@zuse/contracts";
+import {
+	Message,
+	type SessionId,
+	type SessionStreamCursor,
+	SessionTimelineProjection,
+} from "@zuse/contracts";
+import { Schema } from "effect";
 import {
 	decodeTimelineReadingPosition,
 	encodeTimelineReadingPosition,
@@ -17,7 +23,8 @@ import {
 } from "./timeline-reading-position.ts";
 
 const DATABASE_NAME = "zuse-session-timelines";
-const DATABASE_VERSION = 5;
+const DATABASE_VERSION = 6;
+const HISTORY_STORE_NAME = "cloud-history-pages";
 const STORE_NAME = "timelines";
 const METADATA_STORE_NAME = "timeline-metadata";
 const READING_POSITION_STORE_NAME = "reading-positions";
@@ -71,6 +78,56 @@ export function resolveReadingPositionKeysToPrune(
 	];
 }
 
+const cloudHeads = new Map<
+	string,
+	{ epoch: string; firstId: string | undefined; olderSequence: number | null }
+>();
+export const rememberCloudTimelineHead = (
+	ref: SessionRef,
+	projection: SessionTimelineProjection,
+	cursor: SessionStreamCursor,
+): void => {
+	cloudHeads.set(environmentSessionCacheKey(ref), {
+		epoch: cursor.epoch,
+		firstId: projection.messages[0]?.id,
+		olderSequence: projection.olderMessageSequence ?? null,
+	});
+};
+const cloudHeadEntry = (
+	entry: SessionTimelineCacheEntry,
+): SessionTimelineCacheEntry => {
+	const head = cloudHeads.get(environmentSessionCacheKey(entry.ref));
+	if (!head || head.epoch !== entry.cursor.epoch) return entry;
+	const index = entry.projection.messages.findIndex(
+		(message) => message.id === head.firstId,
+	);
+	if (index < 0) return entry;
+	return {
+		...entry,
+		projection: SessionTimelineProjection.make({
+			...entry.projection,
+			messages: entry.projection.messages.slice(index),
+			olderMessageSequence: head.olderSequence,
+		}),
+	};
+};
+const HistoryPage = Schema.Struct({
+	messages: Schema.Array(Message),
+	olderMessageSequence: Schema.NullOr(Schema.Number),
+});
+type HistoryPage = typeof HistoryPage.Type;
+const historyPageKey = (
+	ref: SessionRef,
+	cursor: SessionStreamCursor,
+	before: number,
+) =>
+	JSON.stringify([
+		environmentSessionCacheKey(ref),
+		cursor.epoch,
+		cursor.version,
+		before,
+	]);
+
 const requestResult = <T>(request: IDBRequest<T>): Promise<T> =>
 	new Promise((resolve, reject) => {
 		request.onsuccess = () => resolve(request.result);
@@ -92,6 +149,12 @@ const openDatabase = (): Promise<IDBDatabase> =>
 		const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
 		request.onupgradeneeded = (event) => {
 			const database = request.result;
+			if (!database.objectStoreNames.contains(HISTORY_STORE_NAME)) {
+				const pages = database.createObjectStore(HISTORY_STORE_NAME, {
+					keyPath: "key",
+				});
+				pages.createIndex("resource", "resource");
+			}
 			if (!database.objectStoreNames.contains(STORE_NAME)) {
 				database.createObjectStore(STORE_NAME, { keyPath: "sessionId" });
 			}
@@ -138,7 +201,7 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 		const storageKey = environmentSessionCacheKey(ref);
 		const database = await this.db();
 		const transaction = database.transaction(
-			[STORE_NAME, METADATA_STORE_NAME],
+			[STORE_NAME, METADATA_STORE_NAME, HISTORY_STORE_NAME],
 			"readwrite",
 		);
 		const store = transaction.objectStore(STORE_NAME);
@@ -150,7 +213,6 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 		try {
 			const decoded = decodeSessionTimelineCacheEntry(raw);
 			const touched = { ...decoded, ref, accessedAt: Date.now() };
-			store.put(encodeSessionTimelineCacheEntry(touched));
 			transaction.objectStore(METADATA_STORE_NAME).put({
 				sessionId: storageKey,
 				accessedAt: touched.accessedAt,
@@ -166,11 +228,12 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 		}
 	}
 
-	async save(entry: SessionTimelineCacheEntry): Promise<void> {
+	async save(fullEntry: SessionTimelineCacheEntry): Promise<void> {
+		const entry = cloudHeadEntry(fullEntry);
 		const storageKey = environmentSessionCacheKey(entry.ref);
 		const database = await this.db();
 		const transaction = database.transaction(
-			[STORE_NAME, METADATA_STORE_NAME],
+			[STORE_NAME, METADATA_STORE_NAME, HISTORY_STORE_NAME],
 			"readwrite",
 		);
 		const store = transaction.objectStore(STORE_NAME);
@@ -203,13 +266,70 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 		await transactionComplete(transaction);
 	}
 
+	async loadHistoryPage(
+		ref: SessionRef,
+		cursor: SessionStreamCursor,
+		before: number,
+	): Promise<HistoryPage | null> {
+		const database = await this.db();
+		const transaction = database.transaction(HISTORY_STORE_NAME, "readonly");
+		const record = await requestResult(
+			transaction
+				.objectStore(HISTORY_STORE_NAME)
+				.get(historyPageKey(ref, cursor, before)),
+		);
+		await transactionComplete(transaction);
+		if (!record) return null;
+		try {
+			return Schema.decodeUnknownSync(HistoryPage)(record.page);
+		} catch {
+			return null;
+		}
+	}
+	async saveHistoryPage(
+		ref: SessionRef,
+		cursor: SessionStreamCursor,
+		before: number,
+		page: HistoryPage,
+	): Promise<void> {
+		const database = await this.db();
+		const encoded = Schema.encodeSync(HistoryPage)(page);
+		const transaction = database.transaction(
+			[HISTORY_STORE_NAME, METADATA_STORE_NAME],
+			"readwrite",
+		);
+		const key = historyPageKey(ref, cursor, before);
+		const bytes = JSON.stringify(encoded).length;
+		transaction
+			.objectStore(HISTORY_STORE_NAME)
+			.put({ key, resource: environmentSessionCacheKey(ref), page: encoded });
+		transaction.objectStore(METADATA_STORE_NAME).put({
+			sessionId: `history:${key}`,
+			historyKey: key,
+			accessedAt: Date.now(),
+			estimatedBytes: bytes,
+		});
+		await transactionComplete(transaction);
+	}
+
 	async remove(ref: SessionRef): Promise<void> {
 		const storageKey = environmentSessionCacheKey(ref);
 		const database = await this.db();
 		const transaction = database.transaction(
-			[STORE_NAME, METADATA_STORE_NAME],
+			[STORE_NAME, METADATA_STORE_NAME, HISTORY_STORE_NAME],
 			"readwrite",
 		);
+		cloudHeads.delete(storageKey);
+		const pages = transaction.objectStore(HISTORY_STORE_NAME);
+		const pageKeys = await requestResult(
+			pages.index("resource").getAllKeys(storageKey),
+		);
+		for (const key of pageKeys) {
+			pages.delete(key);
+			transaction
+				.objectStore(METADATA_STORE_NAME)
+				.delete(`history:${String(key)}`);
+		}
 		transaction.objectStore(STORE_NAME).delete(storageKey);
 		transaction.objectStore(METADATA_STORE_NAME).delete(storageKey);
 		await transactionComplete(transaction);
@@ -222,22 +342,30 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 		const maxBytes = limits.maxBytes ?? DEFAULT_MAX_BYTES;
 		const database = await this.db();
 		const transaction = database.transaction(
-			[STORE_NAME, METADATA_STORE_NAME],
+			[STORE_NAME, METADATA_STORE_NAME, HISTORY_STORE_NAME],
 			"readwrite",
 		);
 		const store = transaction.objectStore(STORE_NAME);
 		const metadataStore = transaction.objectStore(METADATA_STORE_NAME);
 		const entries = (await requestResult(metadataStore.getAll())) as Array<{
 			readonly sessionId: string;
+			readonly historyKey?: string;
 			readonly accessedAt: number;
 			readonly estimatedBytes: number;
 		}>;
 		entries.sort((left, right) => right.accessedAt - left.accessedAt);
 		let retainedBytes = 0;
-		for (const [index, entry] of entries.entries()) {
+		let headCount = 0;
+		for (const entry of entries) {
+			if (entry.historyKey === undefined) headCount++;
 			retainedBytes += entry.estimatedBytes;
-			if (index >= maxEntries || retainedBytes > maxBytes) {
-				store.delete(entry.sessionId);
+			if (
+				(entry.historyKey === undefined && headCount > maxEntries) ||
+				retainedBytes > maxBytes
+			) {
+				if (entry.historyKey !== undefined)
+					transaction.objectStore(HISTORY_STORE_NAME).delete(entry.historyKey);
+				else store.delete(entry.sessionId);
 				metadataStore.delete(entry.sessionId);
 			}
 		}
@@ -303,7 +431,7 @@ class IndexedDbTimelineReadingPositionStore
 	}
 }
 
-export const sessionTimelineCache: SessionTimelineCache | null =
+export const sessionTimelineCache =
 	typeof indexedDB === "undefined" ? null : new IndexedDbSessionTimelineCache();
 
 export const timelineReadingPositionStore: TimelineReadingPositionStore | null =
