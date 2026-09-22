@@ -279,6 +279,7 @@ describe("cloud chat catalog", () => {
 							{
 								commandId: CommandId.make("stop-a"),
 								kind: "messages.interrupt",
+								targetId: null,
 								submittedAt: 1,
 							},
 						],
