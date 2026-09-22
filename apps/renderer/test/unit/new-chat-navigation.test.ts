@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	captureNewChatLanding,
 	openNewChatLanding,
+	resetCompletedChatDraft,
 } from "../../src/lib/open-new-chat-landing.ts";
 import { useChatsStore } from "../../src/store/chats.ts";
 import { useSessionsStore } from "../../src/store/sessions.ts";
@@ -139,6 +140,29 @@ describe("New Chat navigation", () => {
 		const ownsLanding = captureNewChatLanding();
 		useUiStore.getState().setActiveMainTab("usage");
 		expect(ownsLanding()).toBe(false);
+	});
+
+	it("recreates a hidden landing after a completed launch", () => {
+		openNewChatLanding(first);
+		const revision = beginDraft();
+		useUiStore.getState().setActiveMainTab("usage");
+		const reset = vi.fn(() => beginDraft());
+		resetCompletedChatDraft(revision, reset);
+		expect(reset).toHaveBeenCalledOnce();
+		expect(useSessionsStore.getState().draftSession).not.toBeNull();
+		expect(useSessionsStore.getState().draftRevision).toBeGreaterThan(revision);
+	});
+
+	it("does not reset a newer draft or a selected launch", () => {
+		openNewChatLanding(first);
+		const revision = beginDraft();
+		beginDraft();
+		const reset = vi.fn();
+		resetCompletedChatDraft(revision, reset);
+		expect(reset).not.toHaveBeenCalled();
+		useChatsStore.setState({ selectedChatId: firstChat });
+		resetCompletedChatDraft(useSessionsStore.getState().draftRevision, reset);
+		expect(reset).not.toHaveBeenCalled();
 	});
 
 	it("clears its own draft but leaves a replacement draft intact", () => {

@@ -100,7 +100,10 @@ import {
 	transferLinearContext,
 } from "~/lib/linear-cloud-context";
 import { newChatPreferences } from "~/lib/new-chat-preferences";
-import { captureNewChatLanding } from "~/lib/open-new-chat-landing.ts";
+import {
+	captureNewChatLanding,
+	resetCompletedChatDraft,
+} from "~/lib/open-new-chat-landing.ts";
 import {
 	buildLogicalProjectGroups,
 	defaultNewChatTarget,
@@ -1033,6 +1036,19 @@ export function ChatLanding() {
 		const { draftSession: draft, draftRevision } = useSessionsStore.getState();
 		if (draft === null) return;
 		const ownsLanding = captureNewChatLanding();
+		const resetStaleCompletion = () =>
+			resetCompletedChatDraft(draftRevision, () => {
+				setPendingInput(null);
+				setPendingPreviews({});
+				setPendingPrompt(null);
+				setPendingWorktreeId(null);
+				setPendingCloudStep(null);
+				setPendingCloudChatId(null);
+				setCreateSource(null);
+				setSubmitError(null);
+				setSubmitting(false);
+				setDraftAttempt((attempt) => attempt + 1);
+			});
 		if (selectedCloudProviderId !== null) {
 			if (!CLOUD_WORKSPACE_BETA_AVAILABLE) return;
 			if (cloudProject === null) {
@@ -1265,6 +1281,7 @@ export function ChatLanding() {
 				setPendingCloudStep(null);
 				setPendingCloudChatId(null);
 				setSubmitting(false);
+				if (staged) resetStaleCompletion();
 			}
 			return;
 		}
@@ -1326,7 +1343,7 @@ export function ChatLanding() {
 				return;
 			}
 			if (!ownsLanding()) {
-				useSessionsStore.getState().clearDraft(draftRevision);
+				resetStaleCompletion();
 				return;
 			}
 			const switched = await switchToEnvironment({
@@ -1334,7 +1351,12 @@ export function ChatLanding() {
 				folderId: remoteTarget.folderId,
 				chatId: remoteResult.chatId,
 				seed: remoteResult.remoteSeed,
+				isCurrent: ownsLanding,
 			});
+			if (!switched.switched && !ownsLanding()) {
+				resetStaleCompletion();
+				return;
+			}
 			useSessionsStore.getState().clearDraft(draftRevision);
 			setRemoteAnchor(null);
 			setTargetOverride(null);
@@ -1479,6 +1501,9 @@ export function ChatLanding() {
 			if (ownsLanding()) {
 				useChatsStore.getState().select(first.chatId);
 				useSessionsStore.getState().select(first.sessionId);
+			} else {
+				resetStaleCompletion();
+				return;
 			}
 			setCreateSource(null);
 			useSessionsStore.getState().clearDraft(draftRevision);

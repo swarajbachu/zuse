@@ -50,3 +50,17 @@ export function captureNewChatLanding(): () => boolean {
 		useSessionsStore.getState().draftRevision === draftRevision &&
 		useUiStore.getState().activeMainTab === "chat";
 }
+
+/** Recover a still-mounted landing without touching a replacement draft. */
+export function resetCompletedChatDraft(
+	draftRevision: number,
+	resetLanding: () => void,
+): void {
+	if (
+		useSessionsStore.getState().draftRevision !== draftRevision ||
+		useChatsStore.getState().selectedChatId !== null
+	)
+		return;
+	useSessionsStore.getState().clearDraft(draftRevision);
+	resetLanding();
+}
