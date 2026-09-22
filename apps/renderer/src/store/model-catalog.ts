@@ -20,11 +20,11 @@ import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
  * Three tiers, each instant:
  *   1. the bundled snapshot compiled into the app (first paint, always),
  *   2. the last server answer persisted to localStorage (survives restarts),
- *   3. the server's `model.catalog` RPC, refreshed stale-while-revalidate.
+ *   3. the server's `model.catalog` RPC, warmed once after app startup.
  *
- * Refreshes are deduped and rate-limited by `ensureLoaded({ maxAgeMs })`;
- * the server itself caches remote + live data, so calling this often is
- * cheap. Replaces the per-provider Kiro / OpenCode inventory stores.
+ * The server is loaded once per renderer lifetime. The persisted snapshot
+ * keeps first paint instant, while an explicit refresh remains available for
+ * provider mutations. Replaces the per-provider inventory stores.
  */
 export type ModelCatalogSource = "bundled" | "storage" | "server";
 
@@ -34,10 +34,8 @@ type State = {
 	readonly loadedAt: number | null;
 	readonly loading: boolean;
 	readonly error: string | null;
-	/** Refresh from the server unless a load newer than `maxAgeMs` exists. */
-	readonly ensureLoaded: (options?: {
-		readonly maxAgeMs?: number;
-	}) => Promise<void>;
+	/** Load once from the server during this renderer lifetime. */
+	readonly ensureLoaded: () => Promise<void>;
 	/** Force the server to re-fetch the remote document and live listings. */
 	readonly refresh: () => Promise<void>;
 };
@@ -50,9 +48,6 @@ const LEGACY_INVENTORY_KEYS = [
 	"zuse.opencode.inventory.v2",
 	"memoize.opencode.inventory.v2",
 ] as const;
-const DEFAULT_MAX_AGE_MS = 2 * 60 * 1000;
-/** While any provider's live listing is still pending, re-check sooner. */
-const PENDING_MAX_AGE_MS = 15 * 1000;
 
 const activeEnvironmentId = (): EnvironmentId =>
 	EnvironmentId.make(useEnvironmentCatalogStore.getState().activeEnvironmentId);
@@ -125,11 +120,6 @@ const fetchCatalog = async (
 	return receipt.result;
 };
 
-const hasPendingLive = (catalog: ResolvedModelCatalog): boolean =>
-	Object.values(catalog.providers).some(
-		(provider) => provider.live.status === "pending",
-	);
-
 const sameCatalog = (
 	a: ResolvedModelCatalog,
 	b: ResolvedModelCatalog,
@@ -191,12 +181,8 @@ export const useModelCatalogStore = create<State>((set, get) => {
 		loadedAt: null,
 		loading: false,
 		error: null,
-		ensureLoaded: async (options) => {
-			const { loadedAt, catalog } = get();
-			const maxAgeMs =
-				options?.maxAgeMs ??
-				(hasPendingLive(catalog) ? PENDING_MAX_AGE_MS : DEFAULT_MAX_AGE_MS);
-			if (loadedAt !== null && Date.now() - loadedAt < maxAgeMs) return;
+		ensureLoaded: async () => {
+			if (get().loadedAt !== null) return;
 			await load(false);
 		},
 		refresh: () => load(true),
