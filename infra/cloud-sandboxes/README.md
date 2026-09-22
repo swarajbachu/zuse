@@ -25,6 +25,13 @@ Node 22 is intentional. It satisfies the server's runtime floor and remains
 compatible with the native tree-sitter dependency; Node 24 currently forces an
 incompatible source rebuild of that dependency on Linux.
 
+## Updating the cloud developer toolchain
+
+See the [nightly toolchain update runbook](../../internal-docs/cloud/toolchain-updates.md)
+for automated CLI checks, compatibility verification, and template rollout.
+Signed runtime publication does not publish sandbox templates or refresh existing
+workspaces.
+
 ## Build and configure staging
 
 Build the server tarballs from this exact checkout first. This avoids depending

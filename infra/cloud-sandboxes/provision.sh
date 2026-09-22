@@ -44,10 +44,10 @@ stage_packages() {
 
 stage_globals() {
 	npm install --global --prefix /usr/local \
-		@anthropic-ai/claude-code@2.1.224 \
-		@openai/codex@0.144.5 \
-		bun@1.3.10 \
-		corepack@0.34.1
+		@anthropic-ai/claude-code@2.1.280 \
+		@openai/codex@0.155.1 \
+		bun@1.4.2 \
+		corepack@0.36.0
 	npm cache clean --force
 	# Pin the broker-compatible Grok CLI in both providers.
 	mkdir -p /opt/grok
