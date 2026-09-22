@@ -250,7 +250,7 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 									],
 									[
 										"Scan from this phone",
-										"Tap Scan QR code below. Allow Camera and Local Network access when asked, then point at the desktop code.",
+										"Tap Scan QR code below, then point at the desktop code. Scanning uses the camera; connecting to your desktop uses local network access.",
 									],
 								]}
 							/>
