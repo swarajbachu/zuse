@@ -526,6 +526,10 @@ export const makeBoxSandboxProvider = (
 		yield* validatedEnv(input.env ?? {});
 		const unit = boxProcessUnit(input.user ?? "user", tag);
 		if (unit.length > 255) return yield* providerError("rejected");
+		// A prior resume may have timed out after Boat started the machine but
+		// before restoring its ephemeral /home links. Retried launches must pass
+		// the same disk barrier even when inspect already reports running.
+		yield* ensureRuntimeLayout(providerSandboxId, false);
 		const result = yield* runCommand(
 			providerSandboxId,
 			boxSystemdProcessCommand({ ...input, tag }, unit, selector),
@@ -620,9 +624,15 @@ export const makeBoxSandboxProvider = (
 		providerSandboxId: string,
 	): Effect.Effect<ProviderSandbox | null, SandboxProviderError> =>
 		boxDetail(providerSandboxId).pipe(
-			Effect.map((detail) =>
-				detail.state === "error" ? null : toProviderSandbox(detail),
-			),
+			Effect.flatMap((detail) => {
+				if (detail.state === "error") return Effect.succeed(null);
+				if (
+					!USABLE_STATES.has(detail.state) &&
+					!PAUSED_STATES.has(detail.state)
+				)
+					return Effect.fail(providerError("transient"));
+				return Effect.succeed(toProviderSandbox(detail));
+			}),
 			Effect.catchTag("SandboxProviderError", (error) =>
 				error.code === "not-found" ? Effect.succeed(null) : Effect.fail(error),
 			),

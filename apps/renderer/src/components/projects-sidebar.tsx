@@ -2170,6 +2170,7 @@ function CloudChatRow({
 		summary,
 		connection: shell.connection,
 		runtime: timeline.runtime,
+		timeline: timeline.view,
 	});
 	const label = uiMessage("projects:projects_sidebar_cloud");
 	const archivePending =

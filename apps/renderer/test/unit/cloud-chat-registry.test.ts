@@ -1,13 +1,20 @@
 import {
 	AgentSessionId,
+	AgentTurnId,
 	ChatId,
 	CloudChatSummary,
+	CommandId,
 	EnvironmentId,
 	FolderId,
+	QueueState,
+	SessionTimelineProjection,
 } from "@zuse/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { deriveCloudChatActivity } from "../../src/lib/cloud-chat-activity.ts";
+import {
+	cloudChatShowsWorking,
+	deriveCloudChatActivity,
+} from "../../src/lib/cloud-chat-activity.ts";
 import { cloudConnectionPresentation } from "../../src/lib/cloud-connection-presentation.ts";
 import {
 	cloudSummaryForChat,
@@ -165,6 +172,151 @@ describe("cloud chat catalog", () => {
 		expect(cloudConnectionPresentation(row, "failed", "update-required")).toBe(
 			"update-required",
 		);
+	});
+
+	it("keeps paused and waking compute separate from retained socket failures", () => {
+		const row = summary({
+			workspaceId: "environment-a",
+			chatId: "chat-a",
+			sessionId: "session-a",
+			revision: 1,
+		});
+		for (const runtime of ["idle", "running", "failed"] as const) {
+			for (const connection of ["failed", "reconnecting", "offline"] as const) {
+				for (const state of ["paused", "resuming"] as const) {
+					const workspace = CloudChatSummary.make({
+						...row,
+						state,
+						desiredState: state === "paused" ? "paused" : "ready",
+						runtimeState: "offline",
+						statusCode:
+							state === "paused" ? "runtime-update-pending" : "resume-queued",
+					});
+					const activity = deriveCloudChatActivity({
+						summary: workspace,
+						connection,
+						runtime,
+					});
+					expect(activity).toBe(state);
+					expect(
+						cloudConnectionPresentation(workspace, activity, connection),
+					).toBe(state);
+					expect(cloudChatShowsWorking(activity)).toBe(false);
+				}
+			}
+		}
+	});
+
+	it("still surfaces authentication and lifecycle failures during resume", () => {
+		const row = CloudChatSummary.make({
+			...summary({
+				workspaceId: "environment-a",
+				chatId: "chat-a",
+				sessionId: "session-a",
+				revision: 1,
+			}),
+			state: "resuming",
+			runtimeState: "offline",
+			statusCode: "resume-queued",
+		});
+		for (const connection of [
+			"blocked-auth",
+			"revoked",
+			"update-required",
+		] as const) {
+			expect(
+				deriveCloudChatActivity({ summary: row, connection, runtime: "idle" }),
+			).toBe("failed");
+		}
+		expect(
+			deriveCloudChatActivity({
+				summary: { ...row, state: "failed" },
+				connection: "failed",
+				runtime: "idle",
+			}),
+		).toBe("failed");
+	});
+
+	it("retains an observed live turn through reconnect and history synchronization", () => {
+		const row = summary({
+			workspaceId: "environment-a",
+			chatId: "chat-a",
+			sessionId: "session-a",
+			revision: 1,
+		});
+		const projection = SessionTimelineProjection.make({
+			messages: [],
+			status: "running",
+			currentTurn: { turnId: AgentTurnId.make("turn-a"), phase: "running" },
+			queue: QueueState.make({ items: [], paused: false }),
+			permissionMode: "default",
+			runtimeMode: "approval-required",
+		});
+		for (const connection of ["connected", "reconnecting", "failed"] as const) {
+			const timeline = {
+				data: projection,
+				origin: "runtime" as const,
+				connection,
+				sync: "synchronizing" as const,
+				generation: 1,
+				cursor: null,
+				pendingCommands: [],
+				failedCommands: [],
+			};
+			const input = {
+				summary: row,
+				connection,
+				runtime: "idle" as const,
+				timeline,
+			};
+			expect(deriveCloudChatActivity(input)).toBe("running");
+			expect(
+				deriveCloudChatActivity({
+					...input,
+					timeline: {
+						...timeline,
+						pendingCommands: [
+							{
+								commandId: CommandId.make("stop-a"),
+								kind: "messages.interrupt",
+								submittedAt: 1,
+							},
+						],
+					},
+				}),
+			).toBe("stopping");
+			expect(
+				deriveCloudChatActivity({ ...input, connection: "blocked-auth" }),
+			).toBe("failed");
+			if (connection === "failed")
+				expect(cloudConnectionPresentation(row, "running", connection)).toBe(
+					"detached",
+				);
+			expect(cloudChatShowsWorking(deriveCloudChatActivity(input))).toBe(true);
+			for (const origin of ["cache", "checkpoint"] as const) {
+				expect(
+					deriveCloudChatActivity({
+						...input,
+						timeline: { ...timeline, origin },
+					}),
+				).not.toBe("running");
+			}
+			expect(
+				deriveCloudChatActivity({
+					...input,
+					summary: { ...row, state: "paused", runtimeState: "offline" },
+				}),
+			).toBe("paused");
+			expect(
+				deriveCloudChatActivity({
+					...input,
+					timeline: {
+						...timeline,
+						data: { ...projection, currentTurn: null, status: "idle" },
+					},
+				}),
+			).not.toBe("running");
+		}
 	});
 
 	it("does not show cached work while disconnected or recovering", () => {

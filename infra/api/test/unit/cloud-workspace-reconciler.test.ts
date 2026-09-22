@@ -459,7 +459,10 @@ describe("cloud workspace reconciler", () => {
 		});
 	});
 
-	test("allocates one sandbox on demand and reuses it on reconciliation retry", async () => {
+	test.each([
+		"running",
+		"paused",
+	] as const)("reuses a %s allocation with a fresh startup window", async (recoveredState) => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -477,11 +480,35 @@ describe("cloud workspace reconciler", () => {
 					providerSandboxId: undefined,
 					revision: workspace.revision + 1,
 				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const start = vi.spyOn(provider, "startProcess");
+				const extend = vi.spyOn(provider, "extendTimeout");
+				const resume = vi.spyOn(provider, "resume");
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				expect(start).toHaveBeenCalledWith(
+					"fake-workspace-on-demand",
+					expect.objectContaining({
+						command: "/bin/bash",
+						args: ["/var/lib/zuse/project-build/workspace-bootstrap.sh"],
+					}),
+				);
+				expect(extend).toHaveBeenCalledWith("fake-workspace-on-demand", 600);
+				start.mockClear();
+				extend.mockClear();
 				const allocated = yield* store.getWorkspace(workspace.workspaceId);
 				if (allocated === null) throw new Error("workspace missing");
 				// Retry a queued allocation after the provider succeeded but its
 				// response was lost: recover by workspace label instead of forking again.
+				yield* Ref.update(control.sandboxes, (sandboxes) => {
+					const updated = new Map(sandboxes);
+					const sandbox = updated.get("fake-workspace-on-demand");
+					if (!sandbox) throw new Error("sandbox missing");
+					updated.set(sandbox.providerSandboxId, {
+						...sandbox,
+						state: recoveredState,
+					});
+					return updated;
+				});
 				yield* store.saveWorkspace({
 					...allocated,
 					state: "queued",
@@ -489,6 +516,16 @@ describe("cloud workspace reconciler", () => {
 					revision: allocated.revision + 1,
 				});
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const renewed = recoveredState === "paused" ? resume : extend;
+				expect(renewed).toHaveBeenCalledTimes(1);
+				expect(start).toHaveBeenCalledTimes(1);
+				const startOrder = start.mock.invocationCallOrder[0];
+				if (startOrder === undefined)
+					throw new Error("bootstrap did not start");
+				expect(renewed.mock.invocationCallOrder[0]).toBeLessThan(startOrder);
+				start.mockRestore();
+				extend.mockRestore();
+				resume.mockRestore();
 				return {
 					workspace: yield* store.getWorkspace(workspace.workspaceId),
 					sandboxes: yield* Ref.get(control.sandboxes),
