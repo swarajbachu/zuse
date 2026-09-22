@@ -674,7 +674,7 @@ export const GitServiceLive = Layer.effect(
 						"-r",
 						"--format",
 						format,
-					]).pipe(Effect.catchTag("GitCommandError", () => Effect.succeed("")));
+					]);
 					return parseBranchRows(localOut, remoteOut);
 				}),
 			);

@@ -829,6 +829,7 @@ export const dispatchGitWorkspaceCommand = <Payload, Result>(input: {
 		| "git.createReviewComment"
 		| "git.resolveConflict"
 		| "git.branches"
+		| "git.continueBranch"
 		| "git.switchBranch"
 		| "git.stack"
 		| "worktree.renameBranch"

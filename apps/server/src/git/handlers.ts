@@ -1,5 +1,11 @@
-import { GitPrInfo, GitWorkspaceSnapshot, MemoizeRpcs } from "@zuse/contracts";
+import {
+	GitCommandError,
+	GitPrInfo,
+	GitWorkspaceSnapshot,
+	MemoizeRpcs,
+} from "@zuse/contracts";
 import { GitService } from "@zuse/git/git-service";
+import { WorktreeNameAllocator } from "@zuse/git/worktree-ports";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
 import { Effect, Layer, Semaphore, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -47,6 +53,47 @@ const SwitchBranch = MemoizeRpcs.toLayerHandler(
 				worktreeId ?? null,
 				createFrom,
 			),
+		),
+);
+
+const continueBranchWorker = new KeyedEffectSerialWorker<string>();
+
+/** Allocate and create continuation branches atomically per repository. */
+const ContinueBranch = MemoizeRpcs.toLayerHandler(
+	"git.continueBranch",
+	({ folderId, worktreeId }) =>
+		continueBranchWorker.run(
+			String(folderId),
+			Effect.gen(function* () {
+				const git = yield* GitService;
+				const allocator = yield* WorktreeNameAllocator;
+				const branches = yield* git.branches(folderId, worktreeId ?? null);
+				const unavailableNames = new Set(
+					branches.flatMap((branch) =>
+						branch.remote === null
+							? [branch.name]
+							: [branch.name, branch.remote],
+					),
+				);
+				const allocation = yield* allocator.allocate({
+					unavailableNames,
+					usedPokemonNumbers: new Set(),
+				});
+				if (allocation === null)
+					return yield* Effect.fail(
+						new GitCommandError({
+							folderId,
+							reason: "Could not allocate a Pokémon branch name.",
+						}),
+					);
+				return yield* git.switchBranch(
+					folderId,
+					allocation.name,
+					null,
+					worktreeId ?? null,
+					"origin/main",
+				);
+			}),
 		),
 );
 
@@ -473,6 +520,7 @@ export const GitHandlersLayer = Layer.mergeAll(
 	Status,
 	Branches,
 	SwitchBranch,
+	ContinueBranch,
 	Stack,
 	UserName,
 	WorkspaceChanges,
