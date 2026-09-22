@@ -8,7 +8,7 @@ import {
 	Cancel01Icon,
 	MinusSignIcon,
 	Tick02Icon,
-} from "@zuse/icons/stroke-rounded";
+} from "@zuse/icons/solid-rounded";
 import type { ReactNode } from "react";
 import { isHttpUrl, openHttpLink as openExternal } from "../lib/http-links.ts";
 import { type CheckKind, checkKind } from "../lib/pr-checks.ts";

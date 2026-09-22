@@ -1,4 +1,5 @@
 {
+	"book_a_call": "Gespräch buchen",
 	"review": "Rezension",
 	"inspect_the_complete_branch_commit_deliberately_push_when_it_is_ready": "Untersuchen Sie den gesamten Zweig, führen Sie einen bewussten Commit durch, pushen Sie ihn, wenn er bereit ist, und senden Sie fehlgeschlagene Prüfungen zurück an den aktiven Agenten.",
 	"agent_handoff": "Agentenübergabe",

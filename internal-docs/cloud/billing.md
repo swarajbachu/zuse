@@ -65,8 +65,8 @@ Never update an existing price row.
 
 ## Box reported usage and cost
 
-Box settlement queries [Get Box Usage](https://docs.ascii.dev/box/api/reference/boxes/get-box-usage)
-using `BOX_API_KEY`. Each matched ready-to-archived/error execution is clipped to
+Boat settlement queries [Get Sandbox Usage](https://docs.boat.dev/api/reference/sandboxes/get-sandbox-usage)
+using `BOAT_API_KEY` (with `BOX_API_KEY` as a legacy fallback). Each matched ready-to-archived/error execution is clipped to
 `CLOUD_BILLING_CUTOVER_AT` and split at account billing-period boundaries. The API
 queries `since` and `until` for each exact segment and records `dollars` in integer
 micro-USD. Box already applies machine-size multipliers to `seconds`; do not apply

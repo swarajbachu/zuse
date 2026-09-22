@@ -13,7 +13,7 @@ import {
 	type GitStackResult,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import { ArrowDown01Icon, Layers01Icon } from "@zuse/icons/stroke-rounded";
+import { ArrowDown01Icon, Layers01Icon } from "@zuse/icons/solid-rounded";
 import { useEffect, useMemo, useState } from "react";
 import { formatError } from "../lib/format-error.ts";
 import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts";

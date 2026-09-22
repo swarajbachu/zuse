@@ -657,5 +657,7 @@
 	"device_command_permissions_title": "保存済みのコマンド権限",
 	"cloud_queue_waiting_for_agent": "エージェントを待っています",
 	"cloud_queue_cancel_failed": "待機中のメッセージをキャンセルできませんでした。再試行してください。",
-	"cloud_queue_waiting_for_cloud": "クラウドの起動を待機中"
+	"cloud_queue_waiting_for_cloud": "クラウドの起動を待機中",
+	"cloud_history_loading": "以前のメッセージを読み込み中…",
+	"cloud_history_retry": "以前のメッセージを読み込めませんでした · 再試行"
 }

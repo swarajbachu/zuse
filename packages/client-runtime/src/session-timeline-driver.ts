@@ -21,6 +21,7 @@ export type SessionTimelineDriverClient = Readonly<{
 			afterVersion?: number;
 			streamEpoch?: string;
 			hasProjection?: boolean;
+			historyMode?: "background";
 		}>,
 	) => Stream.Stream<SessionTimelineFrame, unknown>;
 }>;
@@ -60,6 +61,12 @@ export type SessionTimelineDriverOptions = Readonly<{
 		generation: number,
 		cause: unknown,
 	) => void;
+	backgroundHistory?: (ref: SessionRef) => boolean;
+	onHistoryReady?: (ref: SessionRef) => void;
+	onHead?: (
+		ref: SessionRef,
+		frame: Extract<SessionTimelineFrame, { kind: "snapshot" }>,
+	) => void;
 	checkpointMs?: number;
 	checkpointEvents?: number;
 	schedule?: (delayMs: number, task: () => void) => () => void;
@@ -90,6 +97,8 @@ export const makeSessionTimelineResourceDriver = <
 			const ref = context.key.ref;
 			let state = restoreSessionTimelineState(context.data, context.cursor);
 			let showingProgressiveSnapshot = false;
+			const backgroundHistory = options.backgroundHistory?.(ref) === true;
+			let backgroundHistoryAccepted = false;
 			const cachedTurnMayBeStale =
 				state.projection !== null &&
 				(state.projection.currentTurn !== null ||
@@ -129,6 +138,7 @@ export const makeSessionTimelineResourceDriver = <
 			const program = Stream.runForEach(
 				context.client["session.events"]({
 					sessionId: ref.sessionId,
+					...(backgroundHistory ? { historyMode: "background" as const } : {}),
 					afterVersion: state.cursor?.version,
 					streamEpoch: state.cursor?.epoch,
 					hasProjection:
@@ -146,11 +156,22 @@ export const makeSessionTimelineResourceDriver = <
 							!Object.is(current.data, state.projection) &&
 							sameCursor(current.cursor, state.cursor)
 						) {
-							state = observeOptimisticTimelineProjection(state, current.data);
+							state = observeOptimisticTimelineProjection(state, current.data, {
+								historyPrepend: backgroundHistory,
+							});
+						}
+						if (frame.kind === "snapshot") {
+							backgroundHistoryAccepted = frame.historyMode === "background";
 						}
 						const previous = state;
 						state = reduceSessionTimelineFrame(state, frame);
 						if (state === previous) return;
+						if (
+							frame.kind === "snapshot" &&
+							backgroundHistoryAccepted &&
+							state.phase !== "stale"
+						)
+							options.onHead?.(ref, frame);
 						if (
 							frame.kind === "snapshot" &&
 							frame.totalMessageCount !== undefined &&
@@ -161,6 +182,8 @@ export const makeSessionTimelineResourceDriver = <
 						const silentCatchUp =
 							catchingUp &&
 							!showingProgressiveSnapshot &&
+							// First paint must not wait for replay or older server metadata.
+							!(frame.kind === "snapshot" && previous.projection === null) &&
 							frame.kind !== "synchronized" &&
 							state.phase !== "stale";
 						if (frame.kind === "synchronized") catchingUp = false;
@@ -187,6 +210,8 @@ export const makeSessionTimelineResourceDriver = <
 							notify: !silentCatchUp,
 						});
 						if (!accepted) return;
+						if (frame.kind === "synchronized" && backgroundHistoryAccepted)
+							options.onHistoryReady?.(ref);
 						if (state.phase === "stale") {
 							throw new Error(
 								state.error ?? "Session timeline continuity check failed",

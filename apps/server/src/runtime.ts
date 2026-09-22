@@ -160,6 +160,9 @@ export interface MainLayerDeps {
 		readonly path: string;
 		readonly wsUrl: string;
 	};
+	readonly onStartupPhase?: (
+		phase: "migrations-ready" | "projectors-ready",
+	) => void;
 }
 
 /**
@@ -214,6 +217,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 				Layer.provide(MigratedSqlite),
 			),
 		),
+	);
+	const startupMarker = (phase: "migrations-ready" | "projectors-ready") =>
+		Layer.effectDiscard(Effect.sync(() => deps.onStartupPhase?.(phase)));
+	const MigrationsReady = startupMarker("migrations-ready").pipe(
+		Layer.provide(MigratedSqlite),
 	);
 
 	// After migrations: import any pre-existing `workspaces.json` once.
@@ -503,6 +511,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(ChatDomainLayer),
 		Layer.provide(SessionQueriesLayer),
 	);
+	const ProjectorsReady = startupMarker("projectors-ready").pipe(
+		Layer.provide(ProjectorCatchup),
+	);
 
 	const ApiActivityPublisherLayer = ApiActivityPublisherLive.pipe(
 		Layer.provide(EnrolledLanAuthLayer),
@@ -755,6 +766,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	return Layer.mergeAll(
 		ServerLayer,
 		NodeServices.layer,
+		MigrationsReady,
+		ProjectorsReady,
 		UsagePoller,
 		ModelCatalogPoller,
 		AutoApiLinkLayer,

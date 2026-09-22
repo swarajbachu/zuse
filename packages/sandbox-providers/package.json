@@ -35,6 +35,7 @@
 	},
 	"dependencies": {
 		"@zuse/provider-registry": "*",
+		"@zuse/utils": "*",
 		"effect": "catalog:"
 	},
 	"devDependencies": {

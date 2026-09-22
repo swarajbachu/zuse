@@ -65,6 +65,7 @@ import { startProviderLogin } from "./services/login-service.ts";
 import { PermissionService } from "./services/permission-service.ts";
 import { ProviderService } from "./services/provider-service.ts";
 import { startProviderUpdate } from "./services/update-service.ts";
+import { sessionSummaryEvents } from "./session-summary-events.ts";
 
 /**
  * Provider-domain RPC handlers. Each subsequent PR adds a `toLayerHandler`
@@ -355,18 +356,6 @@ const SessionStreamChanges = MemoizeRpcs.toLayerHandler(
 				const known = new Set(
 					allSessions.map((session) => session.id as string),
 				);
-				const summaryEvents = new Set([
-					"SessionTitleSet",
-					"SessionModelSet",
-					"SessionProviderSet",
-					"SessionRuntimeModeSet",
-					"SessionPermissionModeSet",
-					"SessionWorktreeSet",
-					"SessionStatusSet",
-					"SessionResumeSet",
-					"SessionArchived",
-					"SessionUnarchived",
-				]);
 				const live = domain.allEvents({ afterSequence: snapshotCursor }).pipe(
 					Stream.filter((record) => {
 						if (
@@ -377,7 +366,8 @@ const SessionStreamChanges = MemoizeRpcs.toLayerHandler(
 							return true;
 						}
 						return (
-							known.has(record.streamId) && summaryEvents.has(record.event._tag)
+							known.has(record.streamId) &&
+							sessionSummaryEvents.has(record.event._tag)
 						);
 					}),
 					Stream.filterMapEffect(
@@ -1783,7 +1773,7 @@ const MessagesList = MemoizeRpcs.toLayerHandler(
 
 const SessionEvents = MemoizeRpcs.toLayerHandler(
 	"session.events",
-	({ sessionId, afterVersion, streamEpoch, hasProjection }) =>
+	({ sessionId, afterVersion, streamEpoch, hasProjection, historyMode }) =>
 		Stream.unwrap(
 			Effect.gen(function* () {
 				const sessions = yield* SessionService;
@@ -1795,6 +1785,7 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 						afterVersion,
 						streamEpoch,
 						hasProjection,
+						historyMode,
 					})
 					.pipe(
 						Stream.map((frame): SessionTimelineFrame => {
@@ -1822,6 +1813,9 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 									},
 									olderMessageSequence: frame.olderMessageSequence,
 									totalMessageCount: frame.totalMessageCount,
+									...(frame.historyMode
+										? { historyMode: frame.historyMode }
+										: {}),
 								};
 							}
 							if (frame.kind === "snapshot-chunk") {

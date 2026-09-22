@@ -3,6 +3,7 @@ import {
 	feedbackComments,
 	feedbackReviews,
 	parseFeedbackPages,
+	parseReviewThreads,
 } from "../../src/pr-feedback.ts";
 
 describe("GitHub feedback", () => {
@@ -56,4 +57,79 @@ describe("GitHub feedback", () => {
 			submittedAt: null,
 		});
 	});
+});
+
+const threadPage = (nodes: unknown[], hasNextPage = false) => ({
+	data: {
+		repository: {
+			pullRequest: { reviewThreads: { nodes, pageInfo: { hasNextPage } } },
+		},
+	},
+});
+const thread = (id: number, isResolved: boolean, isOutdated: boolean) => ({
+	isResolved,
+	isOutdated,
+	comments: { nodes: [{ databaseId: id }] },
+});
+
+test("thread status spans pages, propagates to replies, and retires inactive review summaries", () => {
+	const threads = parseReviewThreads(
+		JSON.stringify([
+			threadPage([thread(1, true, false)], true),
+			threadPage([thread(2, false, true), thread(3, false, false)]),
+		]),
+	);
+	const inline = [
+		{ id: 1, pull_request_review_id: 10, created_at: "2026-09-15T00:00:00Z" },
+		{
+			id: 4,
+			in_reply_to_id: 1,
+			pull_request_review_id: 10,
+			created_at: "2026-09-15T00:00:00Z",
+		},
+		{ id: 2, pull_request_review_id: 10, created_at: "2026-09-15T00:00:00Z" },
+		{ id: 3, pull_request_review_id: 11, created_at: "2026-09-15T00:00:00Z" },
+	];
+	expect(
+		feedbackComments(inline, threads).map(({ isResolved, isOutdated }) => [
+			isResolved,
+			isOutdated,
+		]),
+	).toEqual([
+		[true, false],
+		[true, false],
+		[false, true],
+		[false, false],
+	]);
+	expect(
+		feedbackReviews([{ id: 10 }, { id: 11 }, { id: 12 }], threads, inline).map(
+			(review) => review.hasActiveThreads,
+		),
+	).toEqual([false, true, undefined]);
+	expect(
+		feedbackReviews([{ id: 10 }], threads, [
+			...inline,
+			{ id: 99, pull_request_review_id: 10 },
+		])[0]?.hasActiveThreads,
+	).toBeUndefined();
+});
+
+test("unavailable or partial thread status does not discard feedback", () => {
+	for (const output of [
+		"bad",
+		"[]",
+		JSON.stringify([threadPage([thread(1, true, false)], true)]),
+		JSON.stringify([
+			threadPage([thread(1, true, false)]),
+			{ errors: [{ message: "failed" }] },
+		]),
+	]) {
+		const threads = parseReviewThreads(output);
+		expect(threads.size).toBe(0);
+		expect(
+			feedbackReviews([{ id: 10 }], threads, [
+				{ id: 1, pull_request_review_id: 10 },
+			])[0]?.hasActiveThreads,
+		).toBeUndefined();
+	}
 });

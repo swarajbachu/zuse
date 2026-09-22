@@ -10,7 +10,7 @@
 	"download": "下载",
 	"developers": "开发商",
 	"change_log": "变更日志",
-	"blog": "博客",
+	"blog": "Journal",
 	"releases": "发布",
 	"download_for_macos": "下载macOS",
 	"download_for_linux": "下载Linux",
@@ -31,8 +31,9 @@
 	"acceptable_use": "可接受的使用",
 	"subprocessors": "子处理者",
 	"download_zuse": "下载Zuse",
-	"2026_zuse_all_rights_reserved": "2026 Zuse — 版权所有",
+	"2026_zuse_all_rights_reserved": "2026 Zuse. 版权所有",
 	"tagline": "所有编码代理都在一个工作区中，具有独立的任务和共享的上下文。",
 	"light_theme": "切换到浅色主题",
-	"dark_theme": "切换到深色主题"
+	"dark_theme": "切换到深色主题",
+	"pricing": "定价"
 }

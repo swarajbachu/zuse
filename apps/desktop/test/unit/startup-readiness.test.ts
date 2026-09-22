@@ -1,8 +1,27 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import { startOptionalServicesAfterCritical } from "../../src/startup-readiness.ts";
 
 describe("desktop startup readiness", () => {
+	it("installs the Electron RPC listener before renderer navigation", () => {
+		const mainSource = readFileSync(
+			new URL("../../src/main.ts", import.meta.url),
+			"utf8",
+		);
+		const protocolSetup = mainSource.indexOf(
+			"const serverProtocol = electronServerProtocolLayer(",
+		);
+
+		expect(protocolSetup).toBeGreaterThan(-1);
+		expect(protocolSetup).toBeLessThan(
+			mainSource.indexOf("mainWindow.loadURL("),
+		);
+		expect(protocolSetup).toBeLessThan(
+			mainSource.indexOf('mainWindow.loadURL("zuse://app/index.html")'),
+		);
+	});
+
 	it("launches the critical runtime before optional services", () => {
 		const order: string[] = [];
 		const never = new Promise<void>(() => {});

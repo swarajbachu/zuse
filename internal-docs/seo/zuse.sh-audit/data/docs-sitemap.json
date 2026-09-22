@@ -1,0 +1,81 @@
+{
+  "target": "http://localhost:3002",
+  "robots_url": "http://localhost:3002/robots.txt",
+  "declared": [
+    {
+      "url": "https://docs.zuse.sh/sitemap.xml",
+      "query_redacted": false
+    }
+  ],
+  "found": [
+    {
+      "url": "https://docs.zuse.sh/sitemap.xml",
+      "query_redacted": false,
+      "source": "robots.txt",
+      "status_code": 200,
+      "kind": "urlset",
+      "valid": true,
+      "error": null,
+      "cross_host": true
+    },
+    {
+      "url": "http://localhost:3002/sitemap.xml",
+      "query_redacted": false,
+      "source": "common_path",
+      "status_code": 200,
+      "kind": "urlset",
+      "valid": true,
+      "error": null
+    }
+  ],
+  "checked": [
+    {
+      "url": "https://docs.zuse.sh/sitemap.xml",
+      "query_redacted": false,
+      "source": "robots.txt",
+      "status_code": 200,
+      "kind": "urlset",
+      "valid": true,
+      "error": null,
+      "cross_host": true
+    },
+    {
+      "url": "http://localhost:3002/sitemap.xml",
+      "query_redacted": false,
+      "source": "common_path",
+      "status_code": 200,
+      "kind": "urlset",
+      "valid": true,
+      "error": null
+    },
+    {
+      "url": "http://localhost:3002/sitemap_index.xml",
+      "query_redacted": false,
+      "source": "common_path",
+      "status_code": 404,
+      "kind": null,
+      "valid": false,
+      "error": "HTTP 404"
+    },
+    {
+      "url": "http://localhost:3002/sitemap-index.xml",
+      "query_redacted": false,
+      "source": "common_path",
+      "status_code": 404,
+      "kind": null,
+      "valid": false,
+      "error": "HTTP 404"
+    },
+    {
+      "url": "http://localhost:3002/wp-sitemap.xml",
+      "query_redacted": false,
+      "source": "common_path",
+      "status_code": 404,
+      "kind": null,
+      "valid": false,
+      "error": "HTTP 404"
+    }
+  ],
+  "warnings": [],
+  "error": null
+}

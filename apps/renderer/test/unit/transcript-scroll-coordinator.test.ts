@@ -302,3 +302,39 @@ describe("transcript scroll coordinator", () => {
 		expect(coordinator.getSnapshot().mode).toBe("following");
 	});
 });
+
+it("cloud following glides, parks, and stops immediately on reader input", () => {
+	const frames = makeFrameScheduler();
+	const { adapter, commands } = makeAdapter();
+	let position = 0;
+	const coordinator = new TranscriptScrollCoordinator({
+		scheduleFrame: frames.schedule,
+		cancelFrame: frames.cancel,
+	});
+	coordinator.attach({
+		...adapter,
+		liveScroll: () => ({ position, end: 100 }),
+		scrollToOffset: (value) => {
+			position = value;
+		},
+	});
+	coordinator.setSmoothFollowing(true);
+	coordinator.initialize({ atReadingPosition: false });
+	coordinator.contentChanged();
+	frames.flush();
+	expect(position).toBeGreaterThan(0);
+	expect(position).toBeLessThan(100);
+	coordinator.readerTookControl();
+	const stopped = position;
+	frames.flush();
+	expect(position).toBe(stopped);
+	coordinator.initialize({ atReadingPosition: false });
+	coordinator.contentChanged();
+	for (let i = 0; i < 300; i++) frames.flush();
+	expect(position).toBe(100);
+	expect(commands).toEqual([]);
+	coordinator.setSmoothFollowing(false);
+	coordinator.contentChanged();
+	frames.flush();
+	expect(commands).toEqual(["end:false"]);
+});

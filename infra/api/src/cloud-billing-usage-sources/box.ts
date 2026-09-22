@@ -1,6 +1,7 @@
+import { BOX_API_BASE_URL } from "@zuse/sandbox-providers/box";
 import { Effect, Redacted, Schema } from "effect";
+import { readBoatEnvironment } from "../boat-environment.ts";
 import {
-	BoxLifecycleEvent,
 	ingestBoxLifecycleEvent,
 	normalizeBoxLifecycleEvent,
 } from "../cloud-billing-box.ts";
@@ -29,7 +30,7 @@ const PolledBox = Schema.Struct({
 	),
 });
 const PollPage = Schema.Struct({
-	boxes: Schema.Array(Schema.Unknown),
+	sandboxes: Schema.Array(Schema.Unknown),
 	pageInfo: Schema.optional(
 		Schema.Struct({
 			nextCursor: Schema.optional(Schema.NullOr(Schema.String)),
@@ -74,8 +75,8 @@ export const verifyBoxSignature = (input: {
 	});
 
 const PollEnvironment = Schema.Struct({
-	BOX_API_KEY: Schema.optionalKey(Schema.String),
-	BOX_API_BASE_URL: Schema.optionalKey(Schema.String),
+	BOAT_API_KEY: Schema.optionalKey(Schema.String),
+	BOAT_API_BASE_URL: Schema.optionalKey(Schema.String),
 	CLOUD_BILLING_CUTOVER_AT: Schema.optionalKey(Schema.String),
 });
 
@@ -128,9 +129,9 @@ export const BoxBillingUsageSourceModule: BillingUsageSourceModule = {
 				try: () => JSON.parse(raw),
 				catch: () => badRequest("invalid_box_event"),
 			});
-			const event = yield* Schema.decodeUnknownEffect(BoxLifecycleEvent)(
-				payload,
-			).pipe(Effect.mapError(() => badRequest("invalid_box_event")));
+			const event = normalizeBoxLifecycleEvent(payload);
+			if (event === null)
+				return yield* Effect.fail(badRequest("invalid_box_event"));
 			const result = yield* ingestBoxLifecycleEvent({
 				event,
 				rawPayload: payload,
@@ -167,14 +168,17 @@ export const BoxBillingUsageSourceModule: BillingUsageSourceModule = {
 	// (at-least-once, 8 retries) remain the primary path; this only narrows
 	// the crash window.
 	poll: async ({ env, api, nowMs }) => {
-		const config = Schema.decodeUnknownSync(PollEnvironment)(env);
+		const config = Schema.decodeUnknownSync(PollEnvironment)({
+			...env,
+			...readBoatEnvironment(env),
+		});
 		if (
-			!isConfigured(config.BOX_API_KEY) ||
+			!isConfigured(config.BOAT_API_KEY) ||
 			!isConfigured(config.CLOUD_BILLING_CUTOVER_AT)
 		)
 			return 0;
 		const apiBaseUrl = billingApiBaseUrl(
-			config.BOX_API_BASE_URL ?? "https://ascii.dev/api/box/v1",
+			config.BOAT_API_BASE_URL ?? BOX_API_BASE_URL,
 		);
 		const synthesized: Array<unknown> = [];
 		let cursor: string | undefined;
@@ -185,13 +189,13 @@ export const BoxBillingUsageSourceModule: BillingUsageSourceModule = {
 			});
 			if (cursor !== undefined) query.set("cursor", cursor);
 			const response = await billingPollRequest(
-				`${apiBaseUrl}/boxes?${query}`,
-				{ authorization: `Bearer ${config.BOX_API_KEY}` },
+				`${apiBaseUrl}/sandboxes?${query}`,
+				{ authorization: `Bearer ${config.BOAT_API_KEY}` },
 			);
 			if (!response.ok)
 				throw new Error(`Box lifecycle poll failed: ${response.status}`);
 			const payload = Schema.decodeUnknownSync(PollPage)(await response.json());
-			for (const entry of payload.boxes) {
+			for (const entry of payload.sandboxes) {
 				const decoded = Schema.decodeUnknownOption(PolledBox)(entry);
 				if (decoded._tag === "None") continue;
 				const box = decoded.value;
@@ -210,7 +214,7 @@ export const BoxBillingUsageSourceModule: BillingUsageSourceModule = {
 				});
 			}
 			const nextCursor = payload.pageInfo?.nextCursor ?? null;
-			if (nextCursor === null || (payload.boxes?.length ?? 0) === 0) break;
+			if (nextCursor === null || (payload.sandboxes?.length ?? 0) === 0) break;
 			cursor = nextCursor;
 		}
 		return api.ingestProviderBillingEvents("box", synthesized, nowMs);

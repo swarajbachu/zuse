@@ -1,0 +1,43 @@
+---
+title: "Choose where your agents run"
+description: "Local worktrees and isolated cloud workspaces solve different problems. Here is how to choose where your coding agents run."
+date: "2026-09-17"
+category: "Guide"
+timeToRead: "3 min read"
+authorName: "Zuse team"
+authorRole: "Product and engineering"
+authorAvatar: "/app-icon.png"
+previewImage: "/brand/handoff-dither.webp"
+labels: [{ name: "Field notes", hex: "#c9f34e" }]
+---
+
+The model is only one part of a coding agent's environment. The checkout, dependencies, terminal, and access to services determine what the agent can actually do.
+
+Zuse supports local work and optional cloud environments. Choosing between them is a workflow decision: where should this task's files and tools live?
+
+## Start local when your environment is ready
+
+Local work is a good fit when the repository already builds on your machine and the task needs your installed tools. A fresh Git worktree can isolate a change while keeping the workflow close to the project you know.
+
+Before starting several tasks, make sure the repository's setup script prepares each checkout. A new worktree has its own working files; it may need dependencies or generated files before a test can run. Confirm setup completed before interpreting a failure as a code defect.
+
+## Use an isolated cloud workspace for remote compute
+
+A cloud workspace provides a separate environment for the task. It can be useful when you want the work to run away from your laptop or need a reproducible setup for a repository.
+
+Cloud does not make dependencies disappear. Connect the repository, configure setup, and authorize the coding agent for that environment. Keep secrets scoped to what the task needs. An agent that works locally may require authentication again in a different environment.
+
+Zuse Cloud remains in beta. The Cloud Workspace plan includes a compute allowance, with additional compute billed according to the plan. Model subscriptions and API usage are separate from infrastructure usage. See the [pricing page](/pricing) for the current plan details.
+
+## Decide before the first prompt
+
+Ask four questions:
+
+1. Does the task need tools or services available only on my machine?
+2. Does it need a fresh checkout, a fresh environment, or both?
+3. Have the repository setup and agent authentication been configured there?
+4. What evidence will show that the result works in its intended environment?
+
+Then choose the workspace and verify its identity in the composer. That one decision makes later file changes, terminal output, and compute usage easier to understand.
+
+Continue with [choosing a cloud provider](https://docs.zuse.sh/how-to/choose-cloud-provider) or [starting with local worktrees](https://docs.zuse.sh/how-to/local-parallel-worktrees).

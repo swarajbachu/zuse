@@ -8,6 +8,7 @@ import {
 	SandboxProviderError,
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
+import { cloudTimingEvent, measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Cause, Clock, Data, Duration, Effect } from "effect";
 import GITHUB_AUTH_SOURCE from "../../cloud-sandboxes/github-auth.sh";
 import PROJECT_BUILDER_SOURCE from "../../cloud-sandboxes/project-builder.sh";
@@ -37,7 +38,6 @@ import { randomToken, sha256Hex } from "./crypto.ts";
 import { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
 
 const RETRY_MS = 5_000;
-const ACCOUNT_POOL_SIZE = 2;
 // Provider allocation happens before `allocatedAt`. Once compute exists, the
 // baked runtime must enroll promptly; leaving this at minutes turns a broken
 // runtime into a permanently spinning composer until the recovery cron runs.
@@ -46,7 +46,10 @@ const RECONCILE_LEASE_MS = 2 * 60 * 1_000;
 const PROJECT_BUILD_TIMEOUT_MS = 15 * 60 * 1_000;
 export const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TTL_MS = 30 * 60 * 1_000;
-const WARM_RUNTIME_RECONNECT_GRACE_MS = 500;
+// A preserved mailbox request may need its 10-second transport timeout,
+// followed by the one-second poll interval and authenticated readiness repair.
+// Healthy runtimes advance immediately; this bounds only the restart fallback.
+export const WARM_RUNTIME_RECONNECT_GRACE_MS = 12_000;
 const MAILBOX_RUNTIME_RESPONSE_GRACE_MS = 2_500;
 export const MAILBOX_RUNTIME_STALL_TIMEOUT_MS =
 	CLOUD_COMMAND_LEASE_TTL_MS + 5_000;
@@ -76,7 +79,7 @@ const WORKSPACE_START_OBSERVATION_INTERVAL_MS = 250;
 // alive through both phases and one final poll so it publishes the timeout
 // instead of leaving the client on a stale "waking up" state.
 export const WORKSPACE_START_OBSERVATION_MS =
-	MAILBOX_RUNTIME_RESPONSE_GRACE_MS +
+	Math.max(WARM_RUNTIME_RECONNECT_GRACE_MS, MAILBOX_RUNTIME_RESPONSE_GRACE_MS) +
 	RUNTIME_CONNECTION_TIMEOUT_MS +
 	WORKSPACE_START_OBSERVATION_INTERVAL_MS;
 
@@ -359,7 +362,7 @@ export const cloudWorkspaceHasRetainedRuntimeData = (
 	workspace.statusCode === "agent-starting" ||
 	workspace.statusCode === "agent-running";
 
-export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed /var/lib/zuse/workspace/credentials-ready /var/lib/zuse/workspace/credentials-ready-event; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >> "$log" 2>&1; fi; if [ -f "$runtime" ]; then exec node "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
+export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; timing() { echo "[cloud-timing] workspaceId=$ZUSE_CLOUD_WORKSPACE_ID generation=$ZUSE_RUNTIME_GENERATION stage=$1 atMs=$(date +%s%3N)" >> /var/lib/zuse/workspace/runtime.log; }; timing runtime.shell-start; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed /var/lib/zuse/workspace/credentials-ready /var/lib/zuse/workspace/credentials-ready-event; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then timing runtime.update-start; ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >> "$log" 2>&1; timing runtime.update-end; fi; timing runtime.exec; if [ -f "$runtime" ]; then exec node "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
 
@@ -741,9 +744,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					"zuse",
 				)
 				.pipe(Effect.orDie);
-			// Box can finish restoring boot-time firewall state while repository
-			// grants are being prepared. Reassert the requested policy at the exact
-			// process-launch boundary so the updater never inherits a late quarantine.
+			// Apply the provider network policy before starting the image builder.
 			yield* provider
 				.setNetwork(sandbox.providerSandboxId, { kind: "open" })
 				.pipe(Effect.orDie);
@@ -1047,108 +1048,9 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					revision: candidate.revision + 1,
 				});
 			}
-			yield* reconcileCloudPool(build.accountId).pipe(Effect.ignore);
 		}
 	},
 );
-
-/** Keep two unassigned forks of the active account image off the launch path. */
-const reconcileProviderPool = Effect.fn("reconcileProviderPool")(function* (
-	accountId: string,
-	providerId: string,
-) {
-	const store = yield* CloudWorkspaceStore;
-	const config = yield* SandboxOfferConfiguration;
-	const providers = yield* SandboxProviders;
-	const provider = yield* providers.get(providerId).pipe(Effect.orDie);
-	const image = yield* store.getActiveAccountBuild(
-		accountId,
-		provider.providerId,
-	);
-	if (image?.snapshotId === undefined) return;
-	const records = yield* store.listPool(accountId, provider.providerId);
-	for (const record of records) {
-		if (
-			record.state === "available" &&
-			record.imageGeneration !== image.buildId
-		) {
-			yield* provider.kill(record.providerSandboxId).pipe(Effect.ignore);
-			yield* store.removePool(record.poolId);
-		}
-	}
-	const current = (yield* store.listPool(
-		accountId,
-		provider.providerId,
-	)).filter(
-		(record) =>
-			record.imageGeneration === image.buildId && record.state === "available",
-	);
-	const live = [] as Array<(typeof current)[number]>;
-	for (const record of current) {
-		const sandbox = yield* provider
-			.inspect(record.providerSandboxId)
-			.pipe(
-				Effect.catchTag("SandboxProviderError", () => Effect.succeed(null)),
-			);
-		if (sandbox?.state === "running") {
-			live.push(record);
-			continue;
-		}
-		if (sandbox !== null)
-			yield* provider.kill(record.providerSandboxId).pipe(Effect.ignore);
-		yield* store.removePool(record.poolId);
-	}
-	const missing = Math.max(0, ACCOUNT_POOL_SIZE - live.length);
-	const nowMs = yield* Clock.currentTimeMillis;
-	yield* Effect.forEach(
-		Array.from({ length: missing }),
-		() =>
-			Effect.gen(function* () {
-				const poolId = yield* randomToken("pool", 12);
-				const created = yield* provider.fork({
-					sandboxId: poolId,
-					providerLabel: providerLabel("workspace", poolId),
-					metadata: {
-						"zuse-account-id": accountId,
-						"zuse-resource-kind": "workspace-pool",
-						"zuse-image-generation": image.buildId,
-					},
-					snapshotId: image.snapshotId as string,
-					timeoutSeconds: config.keepAliveTimeoutSeconds,
-					env: {},
-					// Workspace pools are user execution environments, not an identity
-					// re-key boundary. They need normal outbound internet from the moment
-					// they start so resumed agents cannot inherit a provider-level deny rule.
-					network: { kind: "open" },
-					onTimeout: "pause",
-				});
-				yield* store.savePool({
-					poolId,
-					accountId,
-					provider: provider.providerId,
-					imageGeneration: image.buildId,
-					providerSandboxId: created.providerSandboxId,
-					state: "available",
-					createdAtMs: nowMs,
-					updatedAtMs: nowMs,
-				});
-			}),
-		{ concurrency: "unbounded", discard: true },
-	);
-});
-
-export const reconcileCloudPool = Effect.fn("reconcileCloudPool")(function* (
-	accountId: string,
-) {
-	const providers = yield* SandboxProviders;
-	// Only advertised providers with a ready account image maintain warm capacity.
-	yield* Effect.forEach(
-		providers.availableProviders,
-		(provider) =>
-			reconcileProviderPool(accountId, provider.providerId).pipe(Effect.ignore),
-		{ concurrency: 2, discard: true },
-	);
-});
 
 const recordLifecycle = (
 	workspace: CloudWorkspaceRecord,
@@ -1217,12 +1119,20 @@ const wakePreservedWorkspaceRuntime = (
 		// Provider pause preserves memory and processes. Wake the sandbox first
 		// and give its existing runtime a brief window to reconnect. If it does
 		// not reconnect, the resuming branch performs a fenced hard restart.
-		yield* provider.resume(
-			providerSandboxId,
-			keepAliveTimeoutSeconds,
-			"pause",
-			workspaceSizeId(workspace),
-		);
+		yield* provider
+			.resume(
+				providerSandboxId,
+				keepAliveTimeoutSeconds,
+				"pause",
+				workspaceSizeId(workspace),
+			)
+			.pipe(
+				measureCloudStage(
+					{ workspaceId: workspace.workspaceId, provider: provider.providerId },
+					"provider.resume",
+				),
+			);
+		const resumedAtMs = yield* Clock.currentTimeMillis;
 		yield* saveWorkspace({
 			...workspace,
 			runtimeState: "connecting",
@@ -1232,7 +1142,7 @@ const wakePreservedWorkspaceRuntime = (
 				workspace.requestConfig,
 				nowMs,
 			),
-			nextActionAtMs: nowMs + WARM_RUNTIME_RECONNECT_GRACE_MS,
+			nextActionAtMs: resumedAtMs + WARM_RUNTIME_RECONNECT_GRACE_MS,
 			lastActivityAtMs: nowMs,
 			runningSinceMs: workspace.runningSinceMs ?? nowMs,
 			revision: workspace.revision + 1,
@@ -1272,6 +1182,25 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 		saveWorkspace: SaveClaimedWorkspace,
 		providerAlreadyRunning?: boolean,
 	) {
+		cloudTimingEvent(
+			{
+				workspaceId: workspace.workspaceId,
+				provider: provider.providerId,
+				reason:
+					workspace.requestConfig.cloudMailboxFenceRequired === true
+						? "mailbox-fence-required"
+						: !provider.preservesProcessesOnResume
+							? "provider-does-not-preserve-processes"
+							: workspace.statusCode === "restart-queued"
+								? "explicit-restart"
+								: workspace.state === "resuming"
+									? "warm-reconnect-not-observed"
+									: !workspaceSupportsCloudCommandMailbox(workspace)
+										? "runtime-upgrade-or-recovery"
+										: "mailbox-stalled-or-runtime-recovery",
+			},
+			"runtime.restart-decision",
+		);
 		const store = yield* CloudWorkspaceStore;
 		const config = yield* SandboxOfferConfiguration;
 		const api = yield* ApiConfiguration;
@@ -1294,23 +1223,53 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 							),
 						);
 		if (!running)
-			yield* provider.resume(
-				providerSandboxId,
-				config.keepAliveTimeoutSeconds,
-				"pause",
-				workspaceSizeId(workspace),
-			);
+			yield* provider
+				.resume(
+					providerSandboxId,
+					config.keepAliveTimeoutSeconds,
+					"pause",
+					workspaceSizeId(workspace),
+				)
+				.pipe(
+					measureCloudStage(
+						{
+							workspaceId: workspace.workspaceId,
+							provider: provider.providerId,
+						},
+						"provider.resume",
+					),
+				);
 		const boot = yield* issueWorkspaceRuntimeBoot(nowMs);
 		yield* Effect.all(
 			[
+				// Independent setup overlaps, but every branch must finish before launch.
+				provider.setNetwork(providerSandboxId, { kind: "open" }).pipe(
+					measureCloudStage(
+						{
+							workspaceId: workspace.workspaceId,
+							provider: provider.providerId,
+						},
+						"provider.network",
+					),
+				),
 				config.runtimeSigningPublicJwk === undefined
 					? Effect.void
-					: provider.writeTextFile(
-							providerSandboxId,
-							RUNTIME_SIGNING_PUBLIC_JWK_FILE,
-							config.runtimeSigningPublicJwk,
-							"zuse",
-						),
+					: provider
+							.writeTextFile(
+								providerSandboxId,
+								RUNTIME_SIGNING_PUBLIC_JWK_FILE,
+								config.runtimeSigningPublicJwk,
+								"zuse",
+							)
+							.pipe(
+								measureCloudStage(
+									{
+										workspaceId: workspace.workspaceId,
+										provider: provider.providerId,
+									},
+									"runtime.write-file",
+								),
+							),
 				ensureWorkspaceRepositoryReadyMarker(
 					provider,
 					providerSandboxId,
@@ -1319,14 +1278,14 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			],
 			{ concurrency: "unbounded", discard: true },
 		);
+		const preparedAtMs = yield* Clock.currentTimeMillis;
 		const timings =
 			(workspace.requestConfig.startupTimings as
 				| Readonly<Record<string, number>>
 				| undefined) ?? {};
 		const runtimeFence = nextCloudWorkspaceRuntimeFence(workspace);
-		// Authorize the exact token written above before the detached runtime can
-		// read it. Repeated resume requests are idempotent, so releasing the lease
-		// here cannot replace this token while startup is in flight.
+		// Authorize the boot token before starting the detached runtime. Repeated
+		// resume requests cannot replace it while startup is in flight.
 		yield* saveWorkspace({
 			...workspace,
 			runtimeBootTokenHash: boot.tokenHash,
@@ -1338,26 +1297,20 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			requestConfig: {
 				...resetMailboxWakeObservation(
 					withoutRuntimeBootstrapReceipt(workspace.requestConfig),
-					nowMs,
+					preparedAtMs,
 				),
 				...runtimeFence,
 				runtimeSessionRecoveryPending: true,
-				startupTimings: { ...timings, allocatedAt: nowMs },
+				startupTimings: { ...timings, allocatedAt: preparedAtMs },
 			},
-			nextActionAtMs: nowMs + RUNTIME_CONNECTION_TIMEOUT_MS,
-			lastActivityAtMs: nowMs,
+			nextActionAtMs: preparedAtMs + RUNTIME_CONNECTION_TIMEOUT_MS,
+			lastActivityAtMs: preparedAtMs,
 			runningSinceMs: nowMs,
 			revision: workspace.revision + 1,
-			updatedAtMs: nowMs,
+			updatedAtMs: preparedAtMs,
 		});
-		// Network policy is part of runtime readiness, not a parallel best-effort
-		// side effect. Open egress before the agent process can make its first
-		// gateway or model-api request.
-		yield* provider.setNetwork(providerSandboxId, { kind: "open" });
-		yield* provider.replaceProcess(
-			providerSandboxId,
-			workspaceRuntimeProcessSelector(),
-			{
+		yield* provider
+			.replaceProcess(providerSandboxId, workspaceRuntimeProcessSelector(), {
 				command: "/bin/bash",
 				args: ["-lc", WORKSPACE_RUNTIME_RESUME_SCRIPT],
 				cwd: "/home/zuse",
@@ -1386,8 +1339,13 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 							}),
 				},
 				user: "zuse",
-			},
-		);
+			})
+			.pipe(
+				measureCloudStage(
+					{ workspaceId: workspace.workspaceId, provider: provider.providerId },
+					"runtime.replace",
+				),
+			);
 	},
 );
 
@@ -1696,62 +1654,50 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				workspace.providerSandboxId !== undefined;
 			if (replacingFailedSandbox && workspace.providerSandboxId !== undefined)
 				yield* provider.kill(workspace.providerSandboxId);
-			const replacementPool = replacingFailedSandbox
-				? yield* store.claimPool(
-						workspace.accountId,
-						workspace.provider,
-						workspace.buildId,
-						workspace.workspaceId,
-						nowMs,
-					)
-				: null;
-			const assignedSandboxId =
-				replacementPool?.providerSandboxId ??
-				(replacingFailedSandbox ? undefined : workspace.providerSandboxId);
-			const pooled =
-				assignedSandboxId !== undefined
-					? yield* provider
-							.inspect(assignedSandboxId)
-							.pipe(
-								Effect.catchTag("SandboxProviderError", () =>
-									Effect.succeed(null),
-								),
-							)
-					: null;
-			// A paused E2B sandbox is not warm: reconnecting its allocation can be
-			// substantially slower than forking the account image. Never put that
-			// hidden resume on the normal creation path.
-			const warmSandbox = pooled?.state === "running" ? pooled : null;
-			if (pooled?.state === "paused")
-				yield* provider.kill(pooled.providerSandboxId).pipe(Effect.ignore);
 			const preparedSnapshotAvailable =
 				build.snapshotId !== undefined &&
 				build.templateVersion === provider.templateVersion;
-			const recovered =
-				warmSandbox === null && !replacingFailedSandbox
-					? yield* provider.recoverByLabel(label)
-					: null;
+			const recovered = !replacingFailedSandbox
+				? yield* provider.recoverByLabel(label).pipe(
+						measureCloudStage(
+							{
+								workspaceId: workspace.workspaceId,
+								provider: provider.providerId,
+							},
+							"provider.recoverByLabel",
+						),
+					)
+				: null;
 			const sandbox =
-				warmSandbox ??
 				recovered ??
 				(preparedSnapshotAvailable
-					? yield* provider.fork({
-							sandboxId: workspace.workspaceId,
-							providerLabel: label,
-							metadata: {
-								"zuse-account-id": workspace.accountId,
-								"zuse-resource-kind": "workspace",
-								"zuse-project-id": workspace.projectId,
-								"zuse-build-id": workspace.buildId,
-								"zuse-workspace-id": workspace.workspaceId,
-							},
-							sizeId: workspaceSizeId(workspace),
-							snapshotId: build.snapshotId as string,
-							timeoutSeconds: config.keepAliveTimeoutSeconds,
-							env: {},
-							network: { kind: "open" },
-							onTimeout: "pause",
-						})
+					? yield* provider
+							.fork({
+								sandboxId: workspace.workspaceId,
+								providerLabel: label,
+								metadata: {
+									"zuse-account-id": workspace.accountId,
+									"zuse-resource-kind": "workspace",
+									"zuse-project-id": workspace.projectId,
+									"zuse-build-id": workspace.buildId,
+									"zuse-workspace-id": workspace.workspaceId,
+								},
+								sizeId: workspaceSizeId(workspace),
+								snapshotId: build.snapshotId as string,
+								timeoutSeconds: config.keepAliveTimeoutSeconds,
+								env: {},
+								network: { kind: "open" },
+								onTimeout: "pause",
+							})
+							.pipe(
+								measureCloudStage(
+									{
+										workspaceId: workspace.workspaceId,
+										provider: provider.providerId,
+									},
+									"provider.fork",
+								),
+							)
 					: yield* provider.create({
 							sandboxId: workspace.workspaceId,
 							providerLabel: label,
@@ -1793,16 +1739,10 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					...(typeof workspace.requestConfig.sessionHeadVersion === "number"
 						? { runtimeSessionRecoveryPending: true }
 						: {}),
-					...(replacementPool === null ? {} : { poolClaimedAt: allocatedAtMs }),
 					startupTimings: {
 						...timings,
-						...(replacementPool === null
-							? {}
-							: { poolClaimedAt: allocatedAtMs }),
 						allocatedAt: allocatedAtMs,
-						...(replacementPool === null && timings.poolClaimedAt === undefined
-							? { forkedAt: allocatedAtMs }
-							: {}),
+						...(recovered === null ? { forkedAt: allocatedAtMs } : {}),
 					},
 				},
 				nextActionAtMs: allocatedAtMs + RUNTIME_CONNECTION_TIMEOUT_MS,
@@ -1829,7 +1769,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				user: "zuse",
 			});
 			// Assert the workspace invariant on every allocation path before the
-			// runtime starts. A recovered or formerly pooled sandbox may retain the
+			// runtime starts. A recovered sandbox may retain the
 			// policy from its original creation or resume, and starting these in
 			// parallel races the agent's first gateway and model-api requests.
 			yield* provider.setNetwork(sandbox.providerSandboxId, { kind: "open" });
@@ -1842,6 +1782,13 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			workspace.desiredState === "ready" &&
 			workspace.providerSandboxId !== undefined
 		) {
+			// The request observer invokes reconciliation every 250 ms regardless of
+			// nextActionAtMs. Preserve the warm reconnect window on that path too.
+			if (
+				workspace.statusCode === "resume-runtime-waking" &&
+				nowMs < workspace.nextActionAtMs
+			)
+				return;
 			return yield* restartWorkspaceRuntime(
 				workspace,
 				workspace.providerSandboxId,
@@ -1855,6 +1802,27 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			(workspace.state === "provisioning" || workspace.state === "setup") &&
 			workspace.providerSandboxId !== undefined
 		) {
+			if (workspaceStartupTimedOut(workspace, nowMs)) {
+				// Do not issue provider commands after the deadline: an archiving
+				// sandbox rejects them and would otherwise hide this terminal state.
+				console.warn("[cloud-workspace] runtime connection timeout", {
+					workspaceId: workspace.workspaceId,
+					statusCode: workspace.statusCode,
+				});
+				yield* saveWorkspace({
+					...workspace,
+					state: "failed",
+					statusCode: "runtime-connection-timeout",
+					runtimeState: "offline",
+					runtimeCredentialHash: undefined,
+					runtimeBootTokenHash: undefined,
+					runtimeBootTokenExpiresAtMs: undefined,
+					nextActionAtMs: Number.MAX_SAFE_INTEGER,
+					revision: workspace.revision + 1,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
 			if (
 				yield* provider.pathExists(
 					workspace.providerSandboxId,
@@ -1896,33 +1864,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				});
 				return;
 			}
-			if (workspaceStartupTimedOut(workspace, nowMs)) {
-				const runtimeDiagnostic = yield* readWorkspaceRuntimeDiagnostic(
-					provider,
-					workspace.providerSandboxId,
-				);
-				console.warn("[cloud-workspace] runtime connection timeout", {
-					workspaceId: workspace.workspaceId,
-					statusCode: workspace.statusCode,
-					runtimeDiagnostic,
-				});
-				yield* saveWorkspace({
-					...workspace,
-					state: "failed",
-					statusCode: "runtime-connection-timeout",
-					runtimeState: "offline",
-					requestConfig: {
-						...workspace.requestConfig,
-						...(runtimeDiagnostic.length === 0
-							? {}
-							: { startupFailureDiagnostic: runtimeDiagnostic }),
-					},
-					nextActionAtMs: Number.MAX_SAFE_INTEGER,
-					revision: workspace.revision + 1,
-					updatedAtMs: nowMs,
-				});
-				return;
-			}
+
 			// Successful startup is advanced only by authenticated runtime callbacks.
 			yield* saveWorkspace({
 				...workspace,
@@ -2209,8 +2151,20 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
  */
 export const reconcileCloudWorkspaceStartup = Effect.fn(
 	"reconcileCloudWorkspaceStartup",
-)(function* (workspaceId: string) {
+)(function* (
+	workspaceId: string,
+	scheduleColdStartup?: (workspaceId: string) => Promise<void>,
+) {
 	const store = yield* CloudWorkspaceStore;
+	if (scheduleColdStartup) {
+		const workspace = yield* store.getWorkspace(workspaceId);
+		if (workspace === null) return;
+		const provider = yield* (yield* SandboxProviders).get(workspace.provider);
+		// Cold providers can outlive an HTTP request. Preserved runtimes keep the
+		// existing immediate warm-reconnect observation path.
+		if (provider.preservesProcessesOnResume === false)
+			return yield* Effect.promise(() => scheduleColdStartup(workspaceId));
+	}
 	const startedAtMs = yield* Clock.currentTimeMillis;
 	while (true) {
 		yield* reconcileCloudWorkspace(workspaceId);

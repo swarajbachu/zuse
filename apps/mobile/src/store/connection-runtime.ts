@@ -11,7 +11,7 @@ import {
 	subscribeConnection,
 } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
-
+import { recoverLocalRoute } from "./local-route-recovery";
 import { retryMobileClientBusConnections } from "./mobile-client-bus";
 import { appAtomRegistry } from "./registry";
 
@@ -29,12 +29,19 @@ let appStateInstalled = false;
 const installAppStateOnlineBridge = () => {
 	if (appStateInstalled) return;
 	appStateInstalled = true;
+	let wasBackgrounded = AppState.currentState === "background";
+	if (wasBackgrounded) setConnectionOnline(false);
 	AppState.addEventListener("change", (next) => {
 		// Treat background as offline for transport ownership: active screens keep
 		// cached data, and the supervisor reconnects when the app wakes.
-		const online = next !== "background";
-		setConnectionOnline(online);
-		if (online) retryMobileClientBusConnections();
+		if (next === "background") {
+			wasBackgrounded = true;
+			setConnectionOnline(false);
+		} else if (next === "active" && wasBackgrounded) {
+			wasBackgrounded = false;
+			setConnectionOnline(true);
+			retryMobileClientBusConnections();
+		}
 	});
 };
 
@@ -61,9 +68,18 @@ export const watchConnection = (
 };
 
 export const retryConnection = (
-	_connKey: string,
+	connKey: string,
 	options: WsProtocolOptions,
-): void => retryConnectionNow(options);
+): void => {
+	if (
+		options.host === "127.0.0.1" &&
+		options.serverKeyPin !== undefined &&
+		recoverLocalRoute(connKey)
+	)
+		return;
+	retryConnectionNow(options);
+	retryMobileClientBusConnections(connKey);
+};
 
 export const resetConnectionRuntimeState = (): void => {
 	appAtomRegistry.set(snapshotsByConnectionAtom, {});

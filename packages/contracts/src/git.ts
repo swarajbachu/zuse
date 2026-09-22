@@ -350,6 +350,8 @@ export class GitPrComment extends Schema.Class<GitPrComment>("GitPrComment")({
 	path: Schema.optional(Schema.NullOr(Schema.String)),
 	line: Schema.optional(Schema.NullOr(Schema.Number)),
 	diffHunk: Schema.optional(Schema.NullOr(Schema.String)),
+	isResolved: Schema.optional(Schema.Boolean),
+	isOutdated: Schema.optional(Schema.Boolean),
 }) {}
 
 export const GitPrReviewState = Schema.Literals([
@@ -366,6 +368,8 @@ export class GitPrReview extends Schema.Class<GitPrReview>("GitPrReview")({
 	url: Schema.optional(Schema.NullOr(Schema.String)),
 	authorAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
 	state: GitPrReviewState,
+	/** Undefined when thread status is unavailable or the review has no threads. */
+	hasActiveThreads: Schema.optional(Schema.Boolean),
 	body: Schema.String,
 	submittedAt: Schema.NullOr(Schema.DateFromString),
 }) {}

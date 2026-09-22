@@ -13,6 +13,11 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
+import {
+	CLOUD_SYNC_GENERATED_DIRECTORIES,
+	CLOUD_SYNC_MARKER_FILE,
+	cloudSyncRsyncDirectoryPattern,
+} from "@zuse/utils/cloud-sync-paths";
 import { KeyedSerialWorker } from "@zuse/utils/keyed-worker";
 
 import { cloudSshConfigPath } from "../ssh/cloud-ssh-service.ts";
@@ -30,7 +35,7 @@ import { cloudSshConfigPath } from "../ssh/cloud-ssh-service.ts";
 
 const execFileAsync = promisify(execFile);
 
-export const SYNC_MARKER_FILE = ".zuse-sync.json";
+export const SYNC_MARKER_FILE = CLOUD_SYNC_MARKER_FILE;
 const QUIET_MS = 5_000;
 const BATCH_COOLDOWN_MS = 15_000;
 const PERIODIC_FALLBACK_MS = 60_000;
@@ -39,15 +44,6 @@ const ERROR_BACKOFF_MAX_MS = 60_000;
 const TICKET_STALE_MARGIN_MS = 10 * 60_000;
 const TRANSFER_INACTIVITY_TIMEOUT_MS = 30_000;
 const TRANSFER_TERMINATE_GRACE_MS = 2_000;
-const GENERATED_SYNC_EXCLUDES = [
-	"node_modules",
-	".cache",
-	".turbo",
-	".next/cache",
-	"__pycache__",
-	".pytest_cache",
-	".zuse-rsync-partial",
-] as const;
 
 export type CloudSyncState =
 	| "idle"
@@ -85,7 +81,9 @@ export const remoteRsyncMissing = (stderr: string): boolean =>
 const syncExcludes = [
 	"--exclude=.git/",
 	`--exclude=${SYNC_MARKER_FILE}`,
-	...GENERATED_SYNC_EXCLUDES.map((path) => `--exclude=${path}/`),
+	...CLOUD_SYNC_GENERATED_DIRECTORIES.map(
+		(path) => `--exclude=${cloudSyncRsyncDirectoryPattern(path)}/`,
+	),
 ];
 
 /** No -t: an identical file must not be touched just because archive times differ. */
@@ -578,7 +576,11 @@ const streamTarArchive = (
 				"--exclude=.git",
 				"--exclude-vcs-ignores",
 				`--exclude=${SYNC_MARKER_FILE}`,
-				...GENERATED_SYNC_EXCLUDES.map((path) => `--exclude=${path}`),
+				...CLOUD_SYNC_GENERATED_DIRECTORIES.flatMap((path) =>
+					path.includes("/")
+						? [`--exclude=${path}`, `--exclude=*/${path}`]
+						: [`--exclude=${path}`],
+				),
 				"-czf",
 				"-",
 				".",

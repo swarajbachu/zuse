@@ -26,6 +26,7 @@
 		"test:integration": "vp test run test/integration --passWithNoTests",
 		"postinstall": "electron-rebuild -f -o node-pty,keytar",
 		"icon": "node scripts/make-icon.mjs",
+		"dmg:background": "node scripts/make-dmg-background.mjs",
 		"native:build": "node scripts/build-local-connectivity-helper.mjs",
 		"native:build:universal": "node scripts/build-local-connectivity-helper.mjs --universal",
 		"predist:mac": "bun run native:build:universal",

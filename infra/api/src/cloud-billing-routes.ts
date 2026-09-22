@@ -6,7 +6,6 @@ import {
 import type { SandboxProviders } from "@zuse/sandbox-providers";
 import { Clock, Effect, Schema } from "effect";
 import { requireWorkos } from "./auth.ts";
-import { type BetaAccess, requireCloudBetaAccess } from "./beta-access.ts";
 import { ensureAccountCloudBillingPeriod } from "./cloud-billing-period.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { findBillingUsageSourceModule } from "./cloud-billing-usage-source-config.ts";
@@ -24,7 +23,6 @@ export type CloudBillingRouteContext =
 	| MachineStore
 	| ApiConfiguration
 	| WorkosVerifier
-	| BetaAccess
 	| CloudBillingStore
 	| SandboxProviders;
 
@@ -56,7 +54,6 @@ export const routeCloudBillingRequest = (
 		)
 			return null;
 		const principal = yield* requireWorkos(request);
-		yield* requireCloudBetaAccess(principal.accountId);
 		const period = yield* ensureAccountCloudBillingPeriod(
 			principal.accountId,
 			nowMs,

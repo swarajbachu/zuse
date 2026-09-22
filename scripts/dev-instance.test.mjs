@@ -112,7 +112,7 @@ test("scans paired ports forward and fails occupied explicit overrides", async (
 	);
 });
 
-test("automatic scans preserve the existing development profile", async () => {
+test("automatic scans isolate the development profile after a port collision", async () => {
 	const initial = initialDevInstance({
 		argv: [],
 		env: {},
@@ -123,7 +123,7 @@ test("automatic scans preserve the existing development profile", async () => {
 		async (port) => port !== 5733 && port !== 8788,
 	);
 	assert.equal(scanned.instance, "port-5734");
-	assert.equal(scanned.userDataDir, initial.userDataDir);
+	assert.match(scanned.userDataDir, /port-5734\/user-data$/u);
 	assert.match(scanned.packDir, /port-5734\/dist-electron$/u);
 	assert.match(scanned.viteCacheDir, /port-5734\/vite-cache$/u);
 });
