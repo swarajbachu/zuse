@@ -11,7 +11,6 @@ import "./lib/crypto-compatibility.ts";
 import React from "react";
 import ReactDOM from "react-dom/client";
 
-import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 
 import { ApplicationBootstrap } from "./application-bootstrap.tsx";

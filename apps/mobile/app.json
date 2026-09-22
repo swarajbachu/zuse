@@ -32,6 +32,7 @@
 		},
 		"plugins": [
 			"expo-router",
+			"./plugins/with-android-architectures",
 			"expo-dev-client",
 			"expo-secure-store",
 			"expo-notifications",
@@ -48,6 +49,9 @@
 				"projectId": "4d277893-90f5-41c7-8d3a-14add4308f57"
 			}
 		},
-		"owner": "swarajbachu"
+		"owner": "swarajbachu",
+		"android": {
+			"package": "com.zuse.sh"
+		}
 	}
 }

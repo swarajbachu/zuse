@@ -42,6 +42,8 @@
 		"discord:enhance": "node --env-file=.env scripts/enhance-discord-community.mjs",
 		"discord:enhance:dry-run": "node --env-file=.env scripts/enhance-discord-community.mjs --dry-run",
 		"rebuild:pty": "cd apps/desktop && electron-rebuild -f -w node-pty",
+		"build:ghostty:wasm": "node scripts/build-ghostty-wasm.mjs",
+		"build:ghostty:ios": "node scripts/build-ghostty-ios.mjs",
 		"dist:mac": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:mac",
 		"dist:mac:unsigned": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:mac:unsigned",
 		"dist:linux": "NODE_ENV=production bun run build:desktop && cd apps/desktop && bun run dist:linux",

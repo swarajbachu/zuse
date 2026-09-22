@@ -1,12 +1,17 @@
-import { type AgentTurnId, SessionId } from "@zuse/contracts";
-import { Effect, Ref, Stream } from "effect";
+import {
+	AgentItemId,
+	type AgentTurnId,
+	type ProviderEventEnvelope,
+	SessionId,
+} from "@zuse/contracts";
+import { Deferred, Effect, Ref, Stream } from "effect";
 import { describe, expect, test } from "vitest";
 import { makeConversationEventRuntime } from "../../src/conversation/core/conversation-event-runtime.ts";
 
 describe("ConversationEventRuntime", () => {
 	const options = (
 		scope: import("effect").Scope.Scope,
-		events: () => Stream.Stream<never>,
+		events: () => Stream.Stream<ProviderEventEnvelope>,
 		settleTurn: (
 			sessionId: SessionId,
 			turnId: AgentTurnId,
@@ -22,6 +27,7 @@ describe("ConversationEventRuntime", () => {
 		setPermissionMode: () => Effect.void,
 		publishGoal: () => Effect.void,
 		publishApiActivity: () => Effect.void,
+		reconcileQuestionResolution: () => Effect.succeed(false),
 		ignoreError: () => false,
 		isDuplicateToolUse: () => Effect.succeed(false),
 		persist: () => Effect.void,
@@ -84,5 +90,54 @@ describe("ConversationEventRuntime", () => {
 
 		expect(maximumActive).toBe(1);
 		expect(active).toBe(0);
+	});
+
+	test("reconciles a restored session-scoped question before projection", async () => {
+		const outcome = await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const scope = yield* Effect.scope;
+					const reconciled = yield* Deferred.make<void>();
+					const persisted = yield* Ref.make(0);
+					const activities = yield* Ref.make(0);
+					const sessionId = SessionId.make("session-1");
+					const itemId = AgentItemId.make("question-1");
+					const runtime = yield* makeConversationEventRuntime({
+						...options(scope, () =>
+							Stream.make({
+								scope: "session",
+								event: {
+									_tag: "UserQuestion",
+									itemId,
+									questions: [
+										{ question: "Continue?", options: ["Yes", "No"] },
+									],
+								},
+							}),
+						),
+						reconcileQuestionResolution: (actualSessionId, actualItemId) =>
+							Effect.sync(() => {
+								expect(actualSessionId).toBe(sessionId);
+								expect(actualItemId).toBe(itemId);
+							}).pipe(
+								Effect.andThen(Deferred.succeed(reconciled, undefined)),
+								Effect.as(true),
+							),
+						publishApiActivity: () =>
+							Ref.update(activities, (count) => count + 1),
+						persist: () => Ref.update(persisted, (count) => count + 1),
+					});
+					yield* runtime.start(sessionId);
+					yield* Deferred.await(reconciled);
+					yield* Effect.sleep(1);
+					return {
+						persisted: yield* Ref.get(persisted),
+						activities: yield* Ref.get(activities),
+					};
+				}),
+			),
+		);
+
+		expect(outcome).toEqual({ persisted: 0, activities: 0 });
 	});
 });

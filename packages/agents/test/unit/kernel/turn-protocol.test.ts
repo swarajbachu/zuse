@@ -6,14 +6,17 @@ import type {
 } from "@zuse/contracts";
 import { Effect, Fiber, Queue, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import type { ProviderSessionHandle } from "../../../src/kernel/driver.ts";
+import type {
+	ProviderDriverEvent,
+	ProviderSessionHandle,
+} from "../../../src/kernel/driver.ts";
 import { makeTurnScopedSessionHandle } from "../../../src/kernel/turn-protocol.ts";
 
 const turnId = "turn-1" as AgentTurnId;
 const itemId = "item-1" as AgentItemId;
 
 const handleWithEvents = (
-	events: ReadonlyArray<AgentEvent>,
+	events: ReadonlyArray<ProviderDriverEvent>,
 ): ProviderSessionHandle => ({
 	events: Stream.fromIterable(events),
 	send: () => Effect.void,
@@ -24,6 +27,32 @@ const handleWithEvents = (
 });
 
 describe("turn-scoped provider protocol", () => {
+	it("forwards ephemeral question callback release independently of turn state", async () => {
+		const scoped = await Effect.runPromise(
+			makeTurnScopedSessionHandle(
+				handleWithEvents([
+					{
+						_tag: "QuestionCallbackReleased",
+						itemId,
+						reason: "transport_lost",
+					},
+				]),
+			),
+		);
+
+		expect(
+			Array.from(await Effect.runPromise(Stream.runCollect(scoped.events))),
+		).toEqual([
+			{
+				scope: "session",
+				event: {
+					_tag: "QuestionCallbackReleased",
+					itemId,
+					reason: "transport_lost",
+				},
+			},
+		]);
+	});
 	it("scopes provider events buffered during resume to the durable turn", async () => {
 		const scoped = await Effect.runPromise(
 			makeTurnScopedSessionHandle(

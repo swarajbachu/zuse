@@ -8,6 +8,7 @@ import {
 	type ResourceLease,
 	type ResourceSynchronization,
 } from "@zuse/client-runtime/client-bus";
+import { rehydrateClientCommandPayload } from "@zuse/client-runtime/client-command-payload";
 import type {
 	ClientCommand,
 	ClientCommandExecutor,
@@ -34,7 +35,7 @@ import { makeSessionTimelineCacheEntry } from "@zuse/client-runtime/session-time
 import { makeSessionTimelineResourceDriver } from "@zuse/client-runtime/session-timeline-driver";
 import { cloudCommandEligibility } from "@zuse/cloud-commands";
 import type { EnvironmentId, Message } from "@zuse/contracts";
-import { ComposerInput, SessionTimelineProjection } from "@zuse/contracts";
+import { SessionTimelineProjection } from "@zuse/contracts";
 import { emptyTimelineProjection } from "@zuse/domain/projectors/timeline-reducer";
 import { Effect } from "effect";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
@@ -212,29 +213,7 @@ const rendererResourcePersistence: ResourcePersistence = {
 		Promise.resolve(),
 };
 
-/**
- * IndexedDB's structured clone deliberately strips class prototypes. Effect's
- * RPC encoder validates `Schema.Class` identity, so nested composer payloads
- * must be reconstructed at the single command-executor boundary. Doing this
- * here keeps fresh dispatches and durable outbox replays wire-identical.
- */
-export const rehydrateRendererCommandPayload = (
-	kind: string,
-	value: unknown,
-): Readonly<Record<string, unknown>> => {
-	const payload = value as Readonly<Record<string, unknown>>;
-	const inputKey = kind === "chat.create" ? "startupInput" : "input";
-	if (
-		kind !== "chat.create" &&
-		kind !== "messages.send" &&
-		kind !== "messages.queue.add" &&
-		kind !== "messages.queue.update"
-	)
-		return payload;
-	const input = payload[inputKey];
-	if (typeof input !== "object" || input === null) return payload;
-	return { ...payload, [inputKey]: ComposerInput.make(input as ComposerInput) };
-};
+export const rehydrateRendererCommandPayload = rehydrateClientCommandPayload;
 
 const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 	execute: async (client, command) => {
@@ -372,6 +351,11 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 			case "session.answerQuestion":
 				result = await Effect.runPromise(
 					client["session.answerQuestion"](payload as never),
+				);
+				break;
+			case "session.cancelQuestion":
+				result = await Effect.runPromise(
+					client["session.cancelQuestion"](payload as never),
 				);
 				break;
 			case "session.plan.respond":
@@ -964,6 +948,9 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 			case "pty.open":
 				result = await Effect.runPromise(client["pty.open"](payload as never));
 				break;
+			case "pty.list":
+				result = await Effect.runPromise(client["pty.list"](payload as never));
+				break;
 			case "pty.write":
 				result = await Effect.runPromise(client["pty.write"](payload as never));
 				break;
@@ -974,6 +961,21 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 				break;
 			case "pty.close":
 				result = await Effect.runPromise(client["pty.close"](payload as never));
+				break;
+			case "pty.closeOwned":
+				result = await Effect.runPromise(
+					client["pty.closeOwned"](payload as never),
+				);
+				break;
+			case "pty.rename":
+				result = await Effect.runPromise(
+					client["pty.rename"](payload as never),
+				);
+				break;
+			case "pty.restart":
+				result = await Effect.runPromise(
+					client["pty.restart"](payload as never),
+				);
 				break;
 			case "messages.send":
 				result = await Effect.runPromise(

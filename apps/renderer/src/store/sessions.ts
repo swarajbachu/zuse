@@ -165,6 +165,12 @@ type SessionsState = {
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
 	) => Promise<void>;
+	/** Cancel a pending AskUserQuestion without encoding an empty answer. */
+	readonly cancelQuestion: (
+		environmentId: EnvironmentId,
+		sessionId: SessionId,
+		itemId: AgentItemId,
+	) => Promise<void>;
 	readonly respondToPlan: (
 		sessionId: SessionId,
 		toolCallId: AgentItemId,
@@ -759,6 +765,24 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		} catch (err) {
 			const failure = cloudInteractionFailure(err);
 			set({ error: failure.presentation?.message ?? formatError(err) });
+			throw err;
+		}
+	},
+	cancelQuestion: async (environmentId, sessionId, itemId) => {
+		set({ error: null });
+		try {
+			const commandId = nextCommandId("session-cancel-question");
+			await dispatchTimelineCommand(
+				sessionId,
+				"session.cancelQuestion",
+				commandId,
+				{ commandId, sessionId, itemId },
+				"safe",
+				environmentId,
+			);
+		} catch (err) {
+			set({ error: formatError(err) });
+			throw err;
 		}
 	},
 	respondToPlan: async (sessionId, toolCallId, outcome, feedback, options) => {

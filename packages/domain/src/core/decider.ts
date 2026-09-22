@@ -569,6 +569,10 @@ export const decide = (
 				: Result.fail(
 						new PermissionNotPending({ requestId: command.requestId }),
 					);
+		case "ResolveQuestion":
+			return state.resolvedQuestionIds.has(command.itemId)
+				? success([])
+				: success([{ ...command, _tag: "QuestionResolved" }]);
 		case "AttachProvider":
 			if (state.attachedProviderId === command.providerId) return success([]);
 			return success([

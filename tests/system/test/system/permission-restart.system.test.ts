@@ -5,11 +5,10 @@ import {
 	createSystemConversation,
 	initializeSystemRepository,
 } from "../../src/conversation-fixture.ts";
-import { waitForSessionMessages } from "../../src/session-observer.ts";
 import { withSystemTest } from "../../src/system-scope.ts";
 
 describe("permission recovery through production RPC", () => {
-	it("restores and resolves a pending permission after process death", async () => {
+	it("expires an interrupted permission and requires a fresh approval after process death", async () => {
 		await withSystemTest("zuse-system-permission-", async (scope) => {
 			const controller = await scope.controller();
 			const repository = scope.path("repository");
@@ -66,13 +65,33 @@ describe("permission recovery through production RPC", () => {
 					sessionId: conversation.initialSession.id,
 				}),
 			);
-			const restoredRequest = restored[0];
-			if (restoredRequest === undefined) {
-				throw new Error("Expected the pending permission to survive restart");
-			}
-			expect(restored.map((request) => request.id)).toEqual([
-				beforeRestart[0]?.id,
-			]);
+			const expiredRequest = restored.find(
+				(request) => request.id === beforeRestart[0]?.id,
+			);
+			expect(expiredRequest?.recoveryState).toBe("expired");
+			if (expiredRequest === undefined)
+				throw new Error("Missing expired permission");
+			await expect(
+				Effect.runPromise(
+					session.client["permission.decide"]({
+						requestId: expiredRequest.id,
+						decision: { _tag: "AllowOnce" },
+					}),
+				),
+			).rejects.toMatchObject({ _tag: "PermissionRequestExpiredError" });
+			await Effect.runPromise(
+				session.client["permission.decide"]({
+					requestId: expiredRequest.id,
+					decision: { _tag: "Deny" },
+				}),
+			);
+			const restoredRequest = restored.find(
+				(request) => request.id !== expiredRequest.id,
+			);
+			if (restoredRequest === undefined)
+				throw new Error("Missing fresh permission");
+			expect(restoredRequest.recoveryState).not.toBe("expired");
+			expect(restored).toHaveLength(2);
 			await Effect.runPromise(
 				session.client["permission.decide"]({
 					requestId: restoredRequest.id,
@@ -88,7 +107,7 @@ describe("permission recovery through production RPC", () => {
 						decision: { _tag: "AllowOnce" },
 					}),
 				),
-			).rejects.toBeDefined();
+			).resolves.toBeUndefined();
 			expect(
 				await Effect.runPromise(
 					session.client["permission.listPending"]({
@@ -97,27 +116,19 @@ describe("permission recovery through production RPC", () => {
 				),
 			).toEqual([]);
 
-			await waitForSessionMessages(
-				session.client,
-				conversation.initialSession.id,
-				(message) =>
-					message.content._tag === "assistant" &&
-					message.content.text.includes("Permission accepted."),
-			);
 			const messages = await Effect.runPromise(
 				session.client["messages.list"]({
 					sessionId: conversation.initialSession.id,
 				}),
 			);
 			expect(
-				messages.some((message) => message.content._tag === "assistant"),
-			).toBe(true);
-			expect(
 				messages.filter((message) => message.role === "user"),
 			).toHaveLength(1);
+			// Restart ended the interrupted turn. Session-load updates must not
+			// resurrect it as a newly completed assistant response.
 			expect(
 				messages.filter((message) => message.content._tag === "assistant"),
-			).toHaveLength(1);
+			).toHaveLength(0);
 		});
 	}, 60_000);
 });

@@ -10,7 +10,6 @@ import {
 	type GitDiffMode,
 	GitDiffResult,
 	GitFailingChecksArtifact,
-	type GitFolderNotFoundError,
 	GitIssueSummary,
 	GitNotARepoError,
 	GitNotInstalledError,
@@ -45,7 +44,6 @@ import {
 } from "@zuse/git/check-runs";
 import { GitService } from "@zuse/git/git-service";
 import {
-	Cause,
 	DateTime,
 	Duration,
 	Effect,
@@ -80,11 +78,12 @@ import {
 } from "./review-comment.ts";
 import { parseStackView } from "./stack.ts";
 
-type GitFailure =
-	| GitNotARepoError
-	| GitNotInstalledError
-	| GitCommandError
-	| GitFolderNotFoundError;
+import { makeWorkspaceChangeStreams } from "./workspace-change-streams.ts";
+import {
+	observeWorkspaceFingerprintPaths,
+	WORKSPACE_FINGERPRINT_MAX_FILE_BYTES,
+	WORKSPACE_FINGERPRINT_MAX_TOTAL_BYTES,
+} from "./workspace-fingerprint.ts";
 
 const NUL = "\0";
 
@@ -1840,25 +1839,43 @@ export const GitServiceLive = Layer.effect(
 
 					if (!tracked) {
 						// Untracked: build a synthetic /dev/null → file diff so the
-						// renderer treats new files identically to modifications.
-						const exists = yield* fs
-							.exists(path.resolve(cwd, rel))
-							.pipe(Effect.catch(() => Effect.succeed(false)));
-						if (!exists) {
+						// renderer treats new files identically to modifications. Inspect
+						// metadata before reading: synthesizing a patch is bounded by the same
+						// 2 MiB payload limit, so reading a larger file can only waste memory and
+						// block the Git lane. Oversized and non-regular paths use the existing
+						// no-textual-diff mode shared with binary files.
+						const absolutePath = path.resolve(cwd, rel);
+						const info = yield* fs
+							.stat(absolutePath)
+							.pipe(Effect.catch(() => Effect.succeed(null)));
+						if (info === null) {
 							return finish("unchanged", "");
 						}
-						const content = yield* fs
-							.readFileString(path.resolve(cwd, rel))
-							.pipe(
-								Effect.catch((err) =>
-									Effect.fail(
-										new GitCommandError({
-											folderId,
-											reason: `read ${rel}: ${String(err)}`,
-										}),
-									),
+						if (info.type !== "File" || info.size > BigInt(MAX_BYTES)) {
+							return new GitDiffResult({
+								mode: "binary",
+								patch: "",
+								truncated: info.size > BigInt(MAX_BYTES),
+								bytes: Number(
+									info.size > BigInt(Number.MAX_SAFE_INTEGER)
+										? BigInt(Number.MAX_SAFE_INTEGER)
+										: info.size,
 								),
-							);
+							});
+						}
+						const content = yield* fs.readFileString(absolutePath).pipe(
+							Effect.catch((err) =>
+								Effect.fail(
+									new GitCommandError({
+										folderId,
+										reason: `read ${rel}: ${String(err)}`,
+									}),
+								),
+							),
+						);
+						if (content.includes(NUL)) {
+							return finish("binary", "");
+						}
 						if (content.length === 0) {
 							const header =
 								`diff --git a/${rel} b/${rel}\n` +
@@ -1929,10 +1946,11 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		const reviewSummary: GitService["Service"]["reviewSummary"] = (
-			folderId,
-			worktreeId,
-			scope = "branch",
+		const readReviewSummary = (
+			folderId: Parameters<GitService["Service"]["reviewSummary"]>[0],
+			worktreeId: Parameters<GitService["Service"]["reviewSummary"]>[1],
+			scope: GitReviewScope,
+			preloadedChanges?: ReadonlyArray<GitChange>,
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
@@ -1941,7 +1959,8 @@ export const GitServiceLive = Layer.effect(
 						cwd,
 						scope,
 					);
-					const uncommitted = yield* changes(folderId, worktreeId);
+					const uncommitted =
+						preloadedChanges ?? (yield* changes(folderId, worktreeId));
 					const names = parseReviewNames(
 						yield* run(folderId, cwd, [
 							"diff",
@@ -1992,6 +2011,7 @@ export const GitServiceLive = Layer.effect(
 					const seen = new Set(
 						files.flatMap((file) => [file.path, file.oldPath ?? ""]),
 					);
+					let untrackedContentBytes = 0n;
 					for (const pending of uncommitted) {
 						if (
 							pending.kind === "ignored" ||
@@ -2006,15 +2026,44 @@ export const GitServiceLive = Layer.effect(
 							binary: false,
 						};
 						if (pending.kind === "untracked") {
-							const contents = yield* fs
-								.readFileString(path.resolve(cwd, pending.path))
-								.pipe(Effect.catch(() => Effect.succeed("")));
-							stat = {
-								additions:
-									contents.length === 0 ? 0 : contents.split("\n").length,
-								deletions: 0,
-								binary: contents.includes(NUL),
-							};
+							const absolutePath = path.resolve(cwd, pending.path);
+							const fileInfo = yield* fs.stat(absolutePath).pipe(
+								Effect.map((info) => ({ _tag: "Available" as const, info })),
+								Effect.catch(() =>
+									Effect.succeed({ _tag: "Unavailable" as const }),
+								),
+							);
+							const canRead =
+								fileInfo._tag === "Available" &&
+								fileInfo.info.type === "File" &&
+								fileInfo.info.size <= WORKSPACE_FINGERPRINT_MAX_FILE_BYTES &&
+								untrackedContentBytes + fileInfo.info.size <=
+									WORKSPACE_FINGERPRINT_MAX_TOTAL_BYTES;
+							if (!canRead) {
+								stat = { additions: 0, deletions: 0, binary: true };
+							} else {
+								untrackedContentBytes += fileInfo.info.size;
+								const contents = yield* fs.readFileString(absolutePath).pipe(
+									Effect.map((value) => ({
+										_tag: "Available" as const,
+										value,
+									})),
+									Effect.catch(() =>
+										Effect.succeed({ _tag: "Unavailable" as const }),
+									),
+								);
+								stat =
+									contents._tag === "Unavailable"
+										? { additions: 0, deletions: 0, binary: true }
+										: {
+												additions:
+													contents.value.length === 0
+														? 0
+														: contents.value.split("\n").length,
+												deletions: 0,
+												binary: contents.value.includes(NUL),
+											};
+							}
 						}
 						files.push(
 							GitReviewFile.make({
@@ -2041,6 +2090,70 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
+		const reviewSummary: GitService["Service"]["reviewSummary"] = (
+			folderId,
+			worktreeId,
+			scope = "branch",
+		) => readReviewSummary(folderId, worktreeId, scope);
+
+		const workspaceSnapshot: GitService["Service"]["workspaceSnapshot"] = (
+			folderId,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const porcelain = yield* run(folderId, cwd, [
+						"status",
+						"--porcelain=v2",
+						"--branch",
+						"--untracked-files=all",
+					]);
+					const observedChanges = parseChangesOutput(porcelain);
+					const observedReview = yield* readReviewSummary(
+						folderId,
+						worktreeId,
+						"branch",
+						observedChanges,
+					);
+					const fingerprintPaths = observedChanges
+						.filter(
+							(change) =>
+								change.kind !== "deleted" && change.kind !== "ignored",
+						)
+						.map((change) => change.path);
+					const fingerprintObservation =
+						yield* observeWorkspaceFingerprintPaths(
+							cwd,
+							fingerprintPaths,
+							(paths) =>
+								run(folderId, cwd, [
+									"hash-object",
+									"--no-filters",
+									"--",
+									...paths,
+								]),
+						);
+					const localFingerprint = createHash("sha256")
+						.update(
+							JSON.stringify([
+								porcelain,
+								observedReview.baseSha,
+								observedReview.headSha,
+								fingerprintObservation.pathMetadata,
+								fingerprintObservation.contentHashes,
+								fingerprintObservation.coverageNonce,
+							]),
+						)
+						.digest("hex");
+					return {
+						status: parseStatusOutput(porcelain),
+						changes: observedChanges,
+						reviewSummary: observedReview,
+						localFingerprint,
+					};
+				}),
+			);
+
 		const reviewPatches: GitService["Service"]["reviewPatches"] = (
 			folderId,
 			worktreeId,
@@ -2058,32 +2171,38 @@ export const GitServiceLive = Layer.effect(
 					return Stream.fromIterable(summary.files).pipe(
 						Stream.mapEffect(
 							(file) =>
-								(file.kind === "untracked"
-									? diff(folderId, file.path, worktreeId)
-									: run(folderId, cwd, [
-											"diff",
-											"--no-color",
-											"--no-ext-diff",
-											"--find-renames",
-											...comparison.args,
-											"--",
-											file.oldPath ?? file.path,
-											file.path,
-										]).pipe(
-											Effect.map((patch) => {
-												const maxBytes = 2_000_000;
-												return GitDiffResult.make({
-													mode: file.binary
-														? "binary"
-														: file.kind === "deleted"
-															? "deleted"
-															: "worktree",
-													patch: patch.slice(0, maxBytes),
-													truncated: patch.length > maxBytes,
-													bytes: patch.length,
-												});
+								(file.binary
+									? Effect.succeed(
+											GitDiffResult.make({
+												mode: "binary",
+												patch: "",
+												truncated: false,
+												bytes: 0,
 											}),
 										)
+									: file.kind === "untracked"
+										? diff(folderId, file.path, worktreeId)
+										: run(folderId, cwd, [
+												"diff",
+												"--no-color",
+												"--no-ext-diff",
+												"--find-renames",
+												...comparison.args,
+												"--",
+												file.oldPath ?? file.path,
+												file.path,
+											]).pipe(
+												Effect.map((patch) => {
+													const maxBytes = 2_000_000;
+													return GitDiffResult.make({
+														mode:
+															file.kind === "deleted" ? "deleted" : "worktree",
+														patch: patch.slice(0, maxBytes),
+														truncated: patch.length > maxBytes,
+														bytes: patch.length,
+													});
+												}),
+											)
 								).pipe(
 									Effect.map((result) =>
 										GitReviewPatch.make({
@@ -2767,77 +2886,67 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		// One filesystem-backed invalidation stream per retained Git resource.
+		// One filesystem-backed invalidation source per checkout. The shared
+		// wrapper below fans it out to every retained consumer without multiplying
+		// filesystem watchers or reconciliation pollers.
 		// The watcher is forked before revision zero is offered: receiving the
 		// initial frame is the client's barrier that it may safely read a snapshot.
-		const workspaceChanges: GitService["Service"]["workspaceChanges"] = (
+		const workspaceChangesSource: GitService["Service"]["workspaceChanges"] = (
 			folderId,
 			worktreeId,
 		) =>
 			Stream.unwrap(
 				Effect.gen(function* () {
-					const mailbox = yield* Queue.make<
-						{ readonly revision: number },
-						GitFailure
-					>();
-					const cwd = yield* resolvePathForWorktree(folderId, worktreeId);
-					const [gitDirectoryOutput, commonDirectoryOutput] = yield* Effect.all(
-						[
-							run(folderId, cwd, ["rev-parse", "--absolute-git-dir"]),
-							run(folderId, cwd, ["rev-parse", "--git-common-dir"]),
-						],
-					);
-					const absoluteMetadataPath = (value: string): string => {
-						const trimmed = value.trim();
-						return path.isAbsolute(trimmed)
-							? trimmed
-							: path.resolve(cwd, trimmed);
-					};
-					const watchPaths = [
-						cwd,
-						absoluteMetadataPath(gitDirectoryOutput),
-						absoluteMetadataPath(commonDirectoryOutput),
-					].filter((value, index, values) => values.indexOf(value) === index);
+					const mailbox = yield* Queue.make<{ readonly revision: number }>();
 					let revision = 0;
-					const watch = Stream.mergeAll(
-						watchPaths.map((watchPath) => fs.watch(watchPath)),
-						{ concurrency: "unbounded" },
-					).pipe(
-						Stream.debounce(Duration.millis(50)),
-						Stream.runForEach(() =>
-							Effect.sync(() => {
-								revision += 1;
-								Queue.offerUnsafe(mailbox, { revision });
-							}),
-						),
-					);
+					const emitRevision = Effect.sync(() => {
+						revision += 1;
+						Queue.offerUnsafe(mailbox, { revision });
+					});
+					const watchOnce = Effect.gen(function* () {
+						const cwd = yield* resolvePathForWorktree(folderId, worktreeId);
+						const [gitDirectoryOutput, commonDirectoryOutput] =
+							yield* Effect.all([
+								run(folderId, cwd, ["rev-parse", "--absolute-git-dir"]),
+								run(folderId, cwd, ["rev-parse", "--git-common-dir"]),
+							]);
+						const absoluteMetadataPath = (value: string): string => {
+							const trimmed = value.trim();
+							return path.isAbsolute(trimmed)
+								? trimmed
+								: path.resolve(cwd, trimmed);
+						};
+						const watchPaths = [
+							cwd,
+							absoluteMetadataPath(gitDirectoryOutput),
+							absoluteMetadataPath(commonDirectoryOutput),
+						].filter((value, index, values) => values.indexOf(value) === index);
+						yield* Stream.mergeAll(
+							watchPaths.map((watchPath) => fs.watch(watchPath)),
+							{ concurrency: "unbounded" },
+						).pipe(
+							Stream.debounce(Duration.millis(50)),
+							Stream.runForEach(() => emitRevision),
+						);
+					});
 
+					// Native watchers are an optimization. Checkout lookup, Git metadata
+					// discovery, and the watch itself can all fail while a folder is being
+					// created, initialized, moved, or restored. Retry that complete setup on
+					// the same bounded cadence as reconciliation; a cleanly ended watcher
+					// sleeps too, so no failure mode can spin.
 					yield* Effect.forkScoped(
-						watch.pipe(
-							Effect.catch((error) =>
-								Effect.sync(() =>
-									Queue.failCauseUnsafe(
-										mailbox,
-										Cause.fail(
-											new GitCommandError({
-												folderId,
-												reason: `failed to watch repository: ${String(error)}`,
-											}),
-										),
-									),
-								),
+						Effect.forever(
+							watchOnce.pipe(
+								Effect.catch(() => Effect.void),
+								Effect.andThen(Effect.sleep(Duration.seconds(5))),
 							),
 						),
 					);
 					yield* Effect.forkScoped(
 						Effect.forever(
 							Effect.sleep(Duration.seconds(5)).pipe(
-								Effect.andThen(
-									Effect.sync(() => {
-										revision += 1;
-										Queue.offerUnsafe(mailbox, { revision });
-									}),
-								),
+								Effect.andThen(emitRevision),
 							),
 						),
 					);
@@ -2848,6 +2957,13 @@ export const GitServiceLive = Layer.effect(
 					return Stream.fromQueue(mailbox);
 				}),
 			);
+		const workspaceChangeStreams = yield* makeWorkspaceChangeStreams(
+			workspaceChangesSource,
+		);
+		const workspaceChanges: GitService["Service"]["workspaceChanges"] = (
+			folderId,
+			worktreeId,
+		) => workspaceChangeStreams.stream(folderId, worktreeId ?? null);
 
 		return {
 			isRepository,
@@ -2859,6 +2975,7 @@ export const GitServiceLive = Layer.effect(
 			renameBranch,
 			getUserName,
 			workspaceChanges,
+			workspaceSnapshot,
 			origin,
 			prState,
 			prDetails,

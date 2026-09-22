@@ -349,6 +349,7 @@ export const makeSqlSessionProjector = (
 			case "SegmentSettled":
 			case "PermissionRequested":
 			case "PermissionResolved":
+			case "QuestionResolved":
 			case "ProviderTurnRequested":
 			case "SuccessorTurnScheduled":
 			case "ScheduledSuccessorReady":

@@ -33,11 +33,16 @@ import {
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, Stream } from "effect";
 import { AttachmentService } from "../kernel/attachment-service.ts";
-import type { GoalCapableSessionHandle } from "../kernel/driver.ts";
+import type {
+	GoalCapableSessionHandle,
+	ProviderDriverEvent,
+	QuestionCallbackReleased,
+} from "../kernel/driver.ts";
 import { getBashPolicy, getFsPolicy } from "../kernel/policy.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
+import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
 import type { BrowserSend } from "./browser-tools.ts";
 import {
 	CodexAppServerClient,
@@ -257,7 +262,7 @@ export const codexSandboxPolicy = (
 };
 
 export interface CodexSessionHandle extends GoalCapableSessionHandle {
-	readonly events: Stream.Stream<AgentEvent>;
+	readonly events: Stream.Stream<ProviderDriverEvent>;
 	readonly send: (
 		text: string,
 		attachments?: ReadonlyArray<AttachmentRef>,
@@ -270,7 +275,7 @@ export interface CodexSessionHandle extends GoalCapableSessionHandle {
 	readonly answerQuestion: (
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
-	) => Effect.Effect<void>;
+	) => Effect.Effect<void, Error>;
 	readonly getGoal: () => Effect.Effect<ThreadGoal | null>;
 	readonly setGoal: (goal: ThreadGoalSetInput) => Effect.Effect<ThreadGoal>;
 	readonly clearGoal: () => Effect.Effect<void>;
@@ -1404,7 +1409,7 @@ export const startCodexSession = (
 > =>
 	Effect.gen(function* () {
 		const attachments = yield* AttachmentService;
-		const events = yield* Queue.make<AgentEvent, Cause.Done>();
+		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 		const toolTranslationLog = createCodexToolTranslationLogger(cwd, sessionId);
 		const statusLog = createCodexStatusLogger(cwd, sessionId);
 		const rawProtocolLog = createCodexRawProtocolLogger(cwd, sessionId);
@@ -1456,11 +1461,32 @@ export const startCodexSession = (
 			readonly questionIds: ReadonlyArray<string>;
 			readonly resolve: (answers: ReadonlyArray<UserQuestionAnswer>) => void;
 		};
-		const questionWaiters = new Map<string, QuestionWaiter>();
-		const gatewayQuestionWaiters = new Map<
-			string,
-			(answers: ReadonlyArray<UserQuestionAnswer> | null) => void
-		>();
+		const questionWaiters =
+			makeBoundedQuestionCallbackRegistry<QuestionWaiter>();
+		const gatewayQuestionWaiters =
+			makeBoundedQuestionCallbackRegistry<
+				(answers: ReadonlyArray<UserQuestionAnswer> | null) => void
+			>();
+		const releasePendingQuestions = (
+			reason: QuestionCallbackReleased["reason"],
+		): void => {
+			for (const [itemId, waiter] of questionWaiters.drain()) {
+				waiter.resolve([]);
+				Queue.offerUnsafe(events, {
+					_tag: "QuestionCallbackReleased",
+					itemId: itemId as AgentItemId,
+					reason,
+				});
+			}
+			for (const [itemId, resolve] of gatewayQuestionWaiters.drain()) {
+				resolve(null);
+				Queue.offerUnsafe(events, {
+					_tag: "QuestionCallbackReleased",
+					itemId: itemId as AgentItemId,
+					reason,
+				});
+			}
+		};
 
 		const emitDirect = (event: AgentEvent): void => {
 			if (!closed) Queue.offerUnsafe(events, event);
@@ -1490,13 +1516,18 @@ export const startCodexSession = (
 			interaction: {
 				askUserQuestion: (questions) => {
 					const itemId = nextItemId();
-					emit({
-						_tag: "UserQuestion",
-						itemId,
-						questions,
-					});
 					return new Promise((resolve) => {
-						gatewayQuestionWaiters.set(itemId, resolve);
+						if (
+							gatewayQuestionWaiters.register(itemId, resolve) !== "accepted"
+						) {
+							resolve(null);
+							return;
+						}
+						emit({
+							_tag: "UserQuestion",
+							itemId,
+							questions,
+						});
 					});
 				},
 			},
@@ -1512,11 +1543,8 @@ export const startCodexSession = (
 			// turn protocol scopes it to the active durable turn and synthesizes its
 			// terminal; when idle, ending the stream still retires the dead handle.
 			emit({ _tag: "Error", message: error.message });
+			releasePendingQuestions("transport_lost");
 			closed = true;
-			for (const waiter of questionWaiters.values()) waiter.resolve([]);
-			questionWaiters.clear();
-			for (const resolve of gatewayQuestionWaiters.values()) resolve(null);
-			gatewayQuestionWaiters.clear();
 			void mcpGatewaySession.close();
 			void stdioMcpFallback.close();
 			Queue.endUnsafe(events);
@@ -2103,6 +2131,7 @@ export const startCodexSession = (
 				case "exit":
 					say("Closed the active Codex thread.");
 					emit({ _tag: "Completed", reason: "ended" });
+					releasePendingQuestions("closed");
 					closed = true;
 					app.close();
 					return true;
@@ -2480,10 +2509,14 @@ export const startCodexSession = (
 					const p = request.params;
 					const answers = await new Promise<ReadonlyArray<UserQuestionAnswer>>(
 						(resolve) => {
-							questionWaiters.set(p.itemId, {
+							const registration = questionWaiters.register(p.itemId, {
 								questionIds: p.questions.map((q) => q.id),
 								resolve,
 							});
+							if (registration !== "accepted") {
+								resolve([]);
+								return;
+							}
 							emit({
 								_tag: "UserQuestion",
 								itemId: p.itemId as AgentItemId,
@@ -2525,10 +2558,14 @@ export const startCodexSession = (
 					const itemId = nextItemId();
 					const answers = await new Promise<ReadonlyArray<UserQuestionAnswer>>(
 						(resolve) => {
-							questionWaiters.set(itemId, {
+							const registration = questionWaiters.register(itemId, {
 								questionIds: ["elicitation"],
 								resolve,
 							});
+							if (registration !== "accepted") {
+								resolve([]);
+								return;
+							}
 							emit({
 								_tag: "UserQuestion",
 								itemId,
@@ -2588,6 +2625,7 @@ export const startCodexSession = (
 				}),
 			interrupt: () =>
 				Effect.promise(async () => {
+					releasePendingQuestions("cancelled");
 					if (activeThreadId !== null && currentTurnId !== null) {
 						await app.request("turn/interrupt", {
 							threadId: activeThreadId,
@@ -2598,9 +2636,8 @@ export const startCodexSession = (
 			close: () =>
 				Effect.sync(() => {
 					emit({ _tag: "Completed", reason: "ended" });
+					releasePendingQuestions("closed");
 					closed = true;
-					for (const resolve of gatewayQuestionWaiters.values()) resolve(null);
-					gatewayQuestionWaiters.clear();
 					void mcpGatewaySession.close();
 					void stdioMcpFallback.close();
 					app.close();
@@ -2612,17 +2649,30 @@ export const startCodexSession = (
 					emit({ _tag: "PermissionModeChanged", mode });
 				}),
 			answerQuestion: (itemId, answers) =>
-				Effect.sync(() => {
-					const gatewayResolve = gatewayQuestionWaiters.get(itemId);
-					if (gatewayResolve !== undefined) {
-						gatewayQuestionWaiters.delete(itemId);
-						gatewayResolve(answers);
-						return;
-					}
-					const waiter = questionWaiters.get(itemId);
-					if (waiter === undefined) return;
-					questionWaiters.delete(itemId);
-					waiter.resolve(answers);
+				Effect.try({
+					try: () => {
+						const gatewayResolve = gatewayQuestionWaiters.get(itemId);
+						if (gatewayResolve !== undefined) {
+							gatewayQuestionWaiters.take(itemId)(answers);
+							return;
+						}
+						questionWaiters.take(itemId).resolve(answers);
+					},
+					catch: (cause) =>
+						cause instanceof Error ? cause : new Error(String(cause)),
+				}),
+			cancelQuestion: (itemId) =>
+				Effect.try({
+					try: () => {
+						const gatewayResolve = gatewayQuestionWaiters.get(itemId);
+						if (gatewayResolve !== undefined) {
+							gatewayQuestionWaiters.take(itemId)(null);
+							return;
+						}
+						questionWaiters.take(itemId).resolve([]);
+					},
+					catch: (cause) =>
+						cause instanceof Error ? cause : new Error(String(cause)),
 				}),
 			getGoal: () =>
 				Effect.promise(async () => {

@@ -12,7 +12,7 @@
 | State (renderer, ephemeral) | Zustand | Thin React surface |
 | State (renderer, persistent) | Server-owned, RPC-fetched | Single source of truth in `apps/server` |
 | RPC | `@effect/rpc` over a swappable transport | Same contracts work for Electron IPC, WS, anything |
-| Terminal | xterm.js + node-pty | De facto standard |
+| Terminal | Ghostty VT + node-pty | One VT core across desktop, iOS, and Android; native PTY backend |
 | Git | Spawn `git` CLI (no libgit2) | Avoids native binding pain; matches what users have installed |
 | Agent SDKs | `@anthropic-ai/claude-agent-sdk`, OpenAI Codex SDK | First-party clients |
 | Runtime safety | Effect.ts (Schema, Layer, Stream, Cause) | Typed errors, structured concurrency, resource safety |

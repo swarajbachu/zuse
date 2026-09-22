@@ -1,5 +1,5 @@
 import { Effect, Semaphore } from "effect";
-import { DrainableWorker, WorkerClosedError } from "./drainable-worker.js";
+import { DrainableWorker, WorkerClosedError } from "./drainable-worker.ts";
 
 type Waiter<A> = {
 	readonly resolve: (value: A) => void;
