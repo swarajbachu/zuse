@@ -4,16 +4,17 @@
 # fresh box with the shared provision.sh stages plus the Box-specific pieces
 # (boot-time port hosting), then freezing it.
 #
-# Usage: BOX_API_KEY=... box-publish.sh <version>
+# Usage: BOAT_API_KEY=... box-publish.sh <version>
 #   e.g. box-publish.sh 1   →  named snapshot "zuse-base-v1"
 #
-# Prints the BOX_TEMPLATE_SNAPSHOT / BOX_TEMPLATE_VERSION values to copy into
+# Prints the BOAT_TEMPLATE_SNAPSHOT / BOAT_TEMPLATE_VERSION values to copy into
 # the API wrangler configuration.
 set -euo pipefail
 
 version="${1:?usage: box-publish.sh <version>}"
-api_key="${BOX_API_KEY:?BOX_API_KEY is required}"
-api_base="${BOX_API_BASE_URL:-https://boat.dev/api/v1}"
+api_key="${BOAT_API_KEY-${BOX_API_KEY-}}"
+: "${api_key:?BOAT_API_KEY is required}"
+api_base="${BOAT_API_BASE_URL-${BOX_API_BASE_URL:-https://boat.dev/api/v1}}"
 snapshot_name="zuse-base-v$version"
 snapshot_wait_attempts="${BOX_SNAPSHOT_WAIT_ATTEMPTS:-360}"
 
@@ -175,5 +176,5 @@ done
 }
 
 echo "==> done. Configure the API with:"
-echo "    BOX_TEMPLATE_SNAPSHOT=$snapshot_name"
-echo "    BOX_TEMPLATE_VERSION=$version"
+echo "    BOAT_TEMPLATE_SNAPSHOT=$snapshot_name"
+echo "    BOAT_TEMPLATE_VERSION=$version"

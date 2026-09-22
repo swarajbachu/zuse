@@ -226,6 +226,45 @@ describe("Polar billing provider", () => {
 		});
 	});
 
+	test("distinguishes an unclaimed checkout-link purchase from a provider failure", async () => {
+		const fake = makeClient();
+		const provider = makePolarBillingProvider(config, { client: fake.client });
+		fake.setSubscription({
+			...subscription(),
+			metadata: {},
+			customer: { externalId: null },
+		});
+		expect(
+			await Effect.runPromise(
+				Effect.result(provider.reconcileSubscription("subscription_1")),
+			),
+		).toMatchObject({
+			_tag: "Failure",
+			failure: { code: "subscription-unlinked" },
+		});
+		fake.setSubscription({
+			...subscription(),
+			metadata: { account_id: "account_1" },
+			customer: { externalId: null },
+		});
+		expect(
+			await Effect.runPromise(provider.reconcileSubscription("subscription_1")),
+		).toMatchObject({ accountId: "account_1" });
+		fake.setSubscription({
+			...subscription(),
+			productId: "unknown",
+			customer: { externalId: null },
+		});
+		expect(
+			await Effect.runPromise(
+				Effect.result(provider.reconcileSubscription("subscription_1")),
+			),
+		).toMatchObject({
+			_tag: "Failure",
+			failure: { code: "provider-unavailable" },
+		});
+	});
+
 	test("claims checkout-link subscriptions with a verified account email", async () => {
 		const fake = makeClient();
 		fake.setClaimedSubscriptions(["subscription_1"]);

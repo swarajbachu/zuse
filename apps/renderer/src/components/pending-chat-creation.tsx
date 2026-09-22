@@ -47,6 +47,7 @@ export function PendingChatCreationSurface({
 						<SetupCardView
 							data={{
 								repoName: folder?.name ?? "this repo",
+								creationPhase: creation.phase,
 								hasWorktree:
 									creation.workspaceRequested || creation.worktreeId !== null,
 								worktreePending:

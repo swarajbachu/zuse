@@ -1,5 +1,6 @@
 import { BOX_API_BASE_URL } from "@zuse/sandbox-providers/box";
 import { Effect, Redacted, Schema } from "effect";
+import { readBoatEnvironment } from "../boat-environment.ts";
 import {
 	ingestBoxLifecycleEvent,
 	normalizeBoxLifecycleEvent,
@@ -74,8 +75,8 @@ export const verifyBoxSignature = (input: {
 	});
 
 const PollEnvironment = Schema.Struct({
-	BOX_API_KEY: Schema.optionalKey(Schema.String),
-	BOX_API_BASE_URL: Schema.optionalKey(Schema.String),
+	BOAT_API_KEY: Schema.optionalKey(Schema.String),
+	BOAT_API_BASE_URL: Schema.optionalKey(Schema.String),
 	CLOUD_BILLING_CUTOVER_AT: Schema.optionalKey(Schema.String),
 });
 
@@ -167,14 +168,17 @@ export const BoxBillingUsageSourceModule: BillingUsageSourceModule = {
 	// (at-least-once, 8 retries) remain the primary path; this only narrows
 	// the crash window.
 	poll: async ({ env, api, nowMs }) => {
-		const config = Schema.decodeUnknownSync(PollEnvironment)(env);
+		const config = Schema.decodeUnknownSync(PollEnvironment)({
+			...env,
+			...readBoatEnvironment(env),
+		});
 		if (
-			!isConfigured(config.BOX_API_KEY) ||
+			!isConfigured(config.BOAT_API_KEY) ||
 			!isConfigured(config.CLOUD_BILLING_CUTOVER_AT)
 		)
 			return 0;
 		const apiBaseUrl = billingApiBaseUrl(
-			config.BOX_API_BASE_URL ?? BOX_API_BASE_URL,
+			config.BOAT_API_BASE_URL ?? BOX_API_BASE_URL,
 		);
 		const synthesized: Array<unknown> = [];
 		let cursor: string | undefined;
@@ -186,7 +190,7 @@ export const BoxBillingUsageSourceModule: BillingUsageSourceModule = {
 			if (cursor !== undefined) query.set("cursor", cursor);
 			const response = await billingPollRequest(
 				`${apiBaseUrl}/sandboxes?${query}`,
-				{ authorization: `Bearer ${config.BOX_API_KEY}` },
+				{ authorization: `Bearer ${config.BOAT_API_KEY}` },
 			);
 			if (!response.ok)
 				throw new Error(`Box lifecycle poll failed: ${response.status}`);

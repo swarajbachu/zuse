@@ -1,0 +1,155 @@
+@font-face {
+	font-family: "Sagittaire Display";
+	src: url("/brand/sagittaire-display-regular.woff2") format("woff2");
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: "Sagittaire Display";
+	src: url("/brand/sagittaire-display-light.woff2") format("woff2");
+	font-weight: 300;
+	font-display: swap;
+}
+@font-face {
+	font-family: "Sagittaire Text";
+	src: url("/brand/sagittaire-text-regular.woff2") format("woff2");
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: "Rules";
+	src: url("/brand/rules-regular.woff2") format("woff2");
+	font-weight: 400;
+	font-display: swap;
+}
+:root {
+	font-family: "Rules", "Inter Variable", sans-serif;
+	--color-fd-background: #f8f9f5;
+	--color-fd-foreground: #20261d;
+	--color-fd-primary: #526519;
+	--color-fd-border: #dce0d3;
+}
+.dark {
+	--color-fd-background: #0d100e;
+	--color-fd-foreground: #e9ece4;
+	--color-fd-card: #141914;
+	--color-fd-popover: #171c17;
+	--color-fd-muted: #181d17;
+	--color-fd-accent: #222b1e;
+	--color-fd-primary: #c9f34e;
+	--color-fd-border: #2b332a;
+	--color-fd-muted-foreground: #a8b1a3;
+}
+.docs-masthead h1,
+#nd-page h1,
+#nd-page h2,
+#nd-page h3 {
+	font-family: "Sagittaire Display", serif;
+	font-synthesis: none;
+	font-weight: 400;
+	letter-spacing: -0.025em;
+	line-height: 1.15;
+}
+#nd-page h1 {
+	font-size: clamp(2.25rem, 4vw, 3.25rem);
+}
+#nd-page h2 {
+	font-size: 1.875rem;
+	font-weight: 300;
+}
+#nd-page h3 {
+	font-size: 1.4rem;
+}
+#nd-page .prose {
+	font-family: "Rules", "Inter Variable", sans-serif;
+	font-size: 1.0625rem;
+	line-height: 1.75;
+}
+#nd-page
+	.prose
+	:is(
+		button,
+		input,
+		table,
+		pre,
+		code,
+		.product-frame,
+		.architecture-diagram,
+		.file-tree,
+		.code-diff
+	) {
+	font-family: "Rules", "Inter Variable", sans-serif;
+}
+#nd-page .prose :is(code, pre, kbd) {
+	font-family: "Geist Mono Variable", monospace;
+}
+#nd-sidebar {
+	background: var(--color-fd-background);
+	border-right-style: dotted;
+}
+#nd-toc {
+	border-left: 1px dotted var(--color-fd-border);
+}
+#nd-nav {
+	border-bottom-style: dotted;
+}
+.docs-masthead {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	border-bottom: 1px dotted var(--color-fd-border);
+	padding: 1.25rem 0 1.5rem;
+}
+.docs-masthead::before {
+	content: "";
+	position: absolute;
+	z-index: -1;
+	inset: -3rem -6rem -3rem 35%;
+	background:
+		url("/brand/observatory-dither.webp") right center / 22rem no-repeat;
+	opacity: 0.12;
+	mask-image: linear-gradient(to right, transparent, black);
+	pointer-events: none;
+}
+.docs-kicker {
+	color: var(--color-fd-primary);
+	font-family: "Geist Mono Variable", monospace;
+	font-size: 0.625rem;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	margin-bottom: 1rem;
+}
+.page-action-row {
+	margin-top: 1rem;
+	border-bottom-style: dotted;
+}
+.page-badges span {
+	border: 0;
+	background: var(--color-fd-muted);
+	border-radius: 0.35rem;
+}
+.clean-search-trigger {
+	border: 0;
+	box-shadow: none;
+	background: var(--color-fd-muted);
+}
+#nd-sidebar a[data-active="true"] {
+	background-color: color-mix(in srgb, var(--color-fd-primary) 9%, transparent);
+	background-image: radial-gradient(
+		color-mix(in srgb, var(--color-fd-primary) 20%, transparent) 0.5px,
+		transparent 0.5px
+	);
+	background-size: 3px 3px;
+}
+#nd-sidebar a[href="https://zuse.sh/download"] {
+	background-color: var(--color-fd-primary);
+	color: var(--color-fd-background);
+	font-weight: 600;
+	background-image: radial-gradient(#14200866 0.6px, transparent 0.6px);
+	background-size: 3px 3px;
+}
+
+.docs-description {
+	font-family: "Rules", "Inter Variable", sans-serif;
+	line-height: 1.65;
+}

@@ -1,4 +1,5 @@
 "use client";
+import "./showcase.css";
 import { useWebsiteMessages } from "@zuse/i18n/website/react";
 import { Features as WorktreeFeatures } from "@/components/tpl/agenforce/components/features";
 import { FeaturesSecondary } from "@/components/tpl/agenforce/components/features-secondary";
@@ -24,9 +25,6 @@ export function ProductShowcase() {
 					id="handoff-heading"
 					eyebrow={t("showcase:agent_handoff")}
 					title={t("showcase:continue_the_work_with_another_agent")}
-					description={t(
-						"showcase:fork_a_session_or_start_a_new_provider_with_the_plan_transcript_and_fi",
-					)}
 				/>
 				<FeaturesSecondary />
 			</section>
@@ -42,9 +40,6 @@ export function ProductShowcase() {
 					id="review-heading"
 					eyebrow={t("showcase:review")}
 					title={t("showcase:from_changed_files_to_a_verified_pull_request")}
-					description={t(
-						"showcase:inspect_the_complete_branch_commit_deliberately_push_when_it_is_ready",
-					)}
 				/>
 				<FeaturesTertiary />
 			</section>
@@ -67,12 +62,10 @@ function ShowcaseHeader({
 	id,
 	eyebrow,
 	title,
-	description,
 }: {
 	id: string;
 	eyebrow: string;
 	title: string;
-	description: string;
 }) {
 	return (
 		<header className="mx-auto max-w-3xl px-5 pt-16 text-center md:pt-24">
@@ -81,13 +74,10 @@ function ShowcaseHeader({
 			</p>
 			<h2
 				id={id}
-				className="text-heading mt-3 text-2xl font-semibold tracking-tight text-balance md:text-4xl"
+				className="text-heading mt-3 text-4xl tracking-tight text-balance md:text-6xl"
 			>
 				{title}
 			</h2>
-			<p className="text-muted-foreground mx-auto mt-4 max-w-2xl text-sm leading-6 text-balance md:text-base md:leading-7">
-				{description}
-			</p>
 		</header>
 	);
 }

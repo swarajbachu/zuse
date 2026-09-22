@@ -1773,7 +1773,7 @@ const MessagesList = MemoizeRpcs.toLayerHandler(
 
 const SessionEvents = MemoizeRpcs.toLayerHandler(
 	"session.events",
-	({ sessionId, afterVersion, streamEpoch, hasProjection }) =>
+	({ sessionId, afterVersion, streamEpoch, hasProjection, historyMode }) =>
 		Stream.unwrap(
 			Effect.gen(function* () {
 				const sessions = yield* SessionService;
@@ -1785,6 +1785,7 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 						afterVersion,
 						streamEpoch,
 						hasProjection,
+						historyMode,
 					})
 					.pipe(
 						Stream.map((frame): SessionTimelineFrame => {
@@ -1812,6 +1813,9 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 									},
 									olderMessageSequence: frame.olderMessageSequence,
 									totalMessageCount: frame.totalMessageCount,
+									...(frame.historyMode
+										? { historyMode: frame.historyMode }
+										: {}),
 								};
 							}
 							if (frame.kind === "snapshot-chunk") {

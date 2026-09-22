@@ -26,7 +26,6 @@ import {
 } from "./api-sealing.ts";
 import { safeApiWebhookTarget } from "./api-webhook-target.ts";
 import { requireApiKey } from "./auth.ts";
-import { requireCloudBetaAccess } from "./beta-access.ts";
 import {
 	type CloudWorkspaceRouteContext,
 	cloudWorkspaceResumeIsAlreadyRequested,
@@ -236,10 +235,7 @@ export const routeAccountWorkspaceRequest = (
 		const principal = { accountId };
 		const headerIdempotencyKey =
 			request.headers.get("idempotency-key") ?? undefined;
-		const isCleanupRequest =
-			method === "DELETE" && /^\/v1\/api\/webhooks\/[^/]+$/u.test(path);
-		if (!isCleanupRequest) {
-			yield* requireCloudBetaAccess(principal.accountId);
+		if (!(method === "DELETE" && /^\/v1\/api\/webhooks\/[^/]+$/u.test(path))) {
 			yield* requireCloudWorkspaceEntitlement(principal.accountId, nowMs);
 		}
 
@@ -450,10 +446,6 @@ export const routeAccountWorkspaceRequest = (
 				created ? 201 : 200,
 			);
 			if (created) {
-				response.headers.set(
-					"x-zuse-reconcile-cloud-pool",
-					principal.accountId,
-				);
 				response.headers.set(
 					"x-zuse-reconcile-cloud-workspace",
 					workspace.workspaceId,

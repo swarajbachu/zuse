@@ -1,10 +1,12 @@
 {
 	"name": "@repo/ui",
+	"type": "module",
 	"version": "0.0.0",
 	"private": true,
 	"exports": {
-		"./zuse-mark": "./src/zuse-mark.json",
-		"./*": "./src/*.tsx"
+		"./*": "./src/*.tsx",
+		"./app-palette.css": "./src/app-palette.css",
+		"./zuse-mark": "./src/zuse-mark.json"
 	},
 	"scripts": {
 		"lint": "eslint . --max-warnings 0",
@@ -17,11 +19,16 @@
 		"@types/node": "catalog:",
 		"@types/react": "catalog:",
 		"@types/react-dom": "catalog:",
+		"@types/three": "^0.186.0",
 		"eslint": "catalog:",
 		"typescript": "catalog:"
 	},
 	"dependencies": {
+		"@react-three/fiber": "^9.7.0",
+		"@react-three/postprocessing": "^3.1.1",
+		"postprocessing": "^6.39.5",
 		"react": "catalog:",
-		"react-dom": "catalog:"
+		"react-dom": "catalog:",
+		"three": "^0.186.0"
 	}
 }

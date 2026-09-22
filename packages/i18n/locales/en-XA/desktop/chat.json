@@ -657,5 +657,7 @@
 	"device_command_permissions_title": "⟦Sààvëëd côômmàànd pëërmïïssïïôôns⟧",
 	"cloud_queue_waiting_for_agent": "⟦Wààïïtïïng fôôr ààgëënt⟧",
 	"cloud_queue_cancel_failed": "⟦Côôüüld nôôt cààncëël thëë qüüëëüüëëd mëëssààgëë. Try ààgààïïn.⟧",
-	"cloud_queue_waiting_for_cloud": "⟦Wààïïtïïng fôôr clôôüüd tôô stààrt⟧"
+	"cloud_queue_waiting_for_cloud": "⟦Wààïïtïïng fôôr clôôüüd tôô stààrt⟧",
+	"cloud_history_loading": "⟦Lôôààdïïng ëëààrlïïëër mëëssààgëës…⟧",
+	"cloud_history_retry": "⟦Côôüüldn’t lôôààd ëëààrlïïëër mëëssààgëës · Rëëtry⟧"
 }

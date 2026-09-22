@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@repo/ui/app-palette.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
@@ -275,29 +276,29 @@ body,
 	--motion-enter: 180ms;
 	--motion-exit: 140ms;
 	--ease-compact-out: cubic-bezier(0.165, 0.84, 0.44, 1);
-	--lime: hsl(83 74% 43%);
+	--lime: var(--app-light-lime);
 	--brand-highlight: hsl(83 74% 43%);
 	--brand-highlight-muted: hsl(84 50% 56%);
 
-	--background: hsl(90 20% 97%);
-	--foreground: hsl(132 14% 13%);
+	--background: var(--app-light-background);
+	--foreground: var(--app-light-foreground);
 
-	--bg-subtle: hsl(105 18% 94%);
-	--bg-elevated: hsl(110 14% 90%);
-	--bg-overlay: hsl(112 12% 84%);
-	--text-faint: hsl(125 5% 48%);
+	--bg-subtle: var(--app-light-bg-subtle);
+	--bg-elevated: var(--app-light-bg-elevated);
+	--bg-overlay: var(--app-light-bg-overlay);
+	--text-faint: var(--app-light-text-faint);
 
 	/* Chip surface — sits on top of cards/bubbles, must stay visibly darker than
      --card so the pill reads as inset against the composer card. */
-	--chip-bg: hsl(110 14% 90%);
+	--chip-bg: var(--app-light-chip-bg);
 
-	--card: hsl(0 0% 100%);
+	--card: var(--app-light-card);
 	--card-foreground: var(--foreground);
-	--popover: hsl(0 0% 100%);
+	--popover: var(--app-light-popover);
 	--popover-foreground: var(--foreground);
 
 	--primary: var(--lime);
-	--primary-foreground: hsl(132 30% 7%);
+	--primary-foreground: var(--app-light-primary-foreground);
 
 	--accent-pink: hsl(333.7 63.8% 47.6%);
 	--accent-green: hsl(131.4 73.4% 31%);
@@ -320,18 +321,18 @@ body,
 	--file-icon-pink: #d32a61;
 	--file-icon-mauve: #594c5b;
 
-	--secondary: hsl(105 18% 94%);
+	--secondary: var(--app-light-secondary);
 	--secondary-foreground: var(--foreground);
-	--muted: hsl(105 18% 94%);
-	--muted-foreground: hsl(125 7% 38%);
-	--accent: hsl(106 16% 89%);
+	--muted: var(--app-light-muted);
+	--muted-foreground: var(--app-light-muted-foreground);
+	--accent: var(--app-light-accent);
 	--accent-foreground: hsl(132 14% 13%);
 
 	--destructive: hsl(0 74.2% 52.9%);
 	--destructive-foreground: hsl(0 0% 100%);
 	--success: hsl(131.4 73.4% 31%);
 	--success-foreground: hsl(0 0% 100%);
-	--warning: hsl(21.6 98.2% 56.7%);
+	--warning: var(--app-light-warning);
 	--warning-foreground: hsl(132 14% 13%);
 	--info: hsl(215.3 72% 49%);
 	--info-foreground: hsl(0 0% 100%);
@@ -341,17 +342,17 @@ body,
 	--alert-info-bg: hsl(213.3 100% 96.5%);
 	--alert-success-bg: hsl(130 50% 95.3%);
 
-	--border: hsl(110 13% 89%);
-	--input: hsl(112 12% 82%);
+	--border: var(--app-light-border);
+	--input: var(--app-light-input);
 	--ring: var(--lime);
 
-	--sidebar: hsl(105 22% 95%);
+	--sidebar: var(--app-light-sidebar);
 	--sidebar-foreground: hsl(132 14% 13%);
 	--sidebar-primary: var(--lime);
 	--sidebar-primary-foreground: hsl(132 30% 7%);
-	--sidebar-accent: hsl(106 18% 89%);
+	--sidebar-accent: var(--app-light-sidebar-accent);
 	--sidebar-accent-foreground: hsl(132 14% 13%);
-	--sidebar-border: hsl(110 13% 89%);
+	--sidebar-border: var(--app-light-sidebar-border);
 	--sidebar-ring: var(--lime);
 
 	--chart-1: var(--lime);
@@ -396,32 +397,32 @@ body,
 
 .dark {
 	color-scheme: dark;
-	--lime: hsl(83 72% 46%);
+	--lime: var(--app-dark-lime);
 	--brand-highlight: hsl(83 72% 46%);
 	--brand-highlight-muted: hsl(84 38% 58%);
 
-	--background: hsl(140 5% 4.5%);
-	--foreground: hsl(100 4% 91%);
+	--background: var(--app-dark-background);
+	--foreground: var(--app-dark-foreground);
 
-	--bg-subtle: hsl(136 5% 7.5%);
-	--bg-elevated: hsl(132 5% 10.5%);
-	--bg-overlay: hsl(128 5% 15%);
-	--text-faint: hsl(110 3% 43%);
+	--bg-subtle: var(--app-dark-bg-subtle);
+	--bg-elevated: var(--app-dark-bg-elevated);
+	--bg-overlay: var(--app-dark-bg-overlay);
+	--text-faint: var(--app-dark-text-faint);
 
 	/* Chip surface — kept darker than --card so pills read as inset on the
      composer surface. */
-	--chip-bg: hsl(136 5% 7.5%);
+	--chip-bg: var(--app-dark-chip-bg);
 
-	--card: hsl(136 5% 7.5%);
+	--card: var(--app-dark-card);
 	--card-foreground: var(--foreground);
 
 	/* Popover sits just below card so the glass border/shadow has something to
      bite on. */
-	--popover: hsl(132 5% 10.5%);
+	--popover: var(--app-dark-popover);
 	--popover-foreground: hsl(100 4% 91%);
 
 	--primary: var(--lime);
-	--primary-foreground: hsl(132 30% 7%);
+	--primary-foreground: var(--app-dark-primary-foreground);
 
 	--accent-pink: hsl(339 96% 52%);
 	--accent-green: hsl(133.9 60.6% 48.8%);
@@ -444,15 +445,15 @@ body,
 	--file-icon-pink: #ff678d;
 	--file-icon-mauve: #79697b;
 
-	--secondary: hsl(136 5% 7.5%);
+	--secondary: var(--app-dark-secondary);
 	--secondary-foreground: hsl(100 4% 91%);
 
 	/* Muted + accent sit ABOVE --card/--popover so hover/selected states,
 	   segmented controls, and dialog footers retain visible elevation. */
-	--muted: hsl(132 5% 14%);
-	--muted-foreground: hsl(105 3% 65%);
+	--muted: var(--app-dark-muted);
+	--muted-foreground: var(--app-dark-muted-foreground);
 
-	--accent: hsl(130 6% 16.5%);
+	--accent: var(--app-dark-accent);
 	--accent-foreground: hsl(100 4% 91%);
 
 	--destructive: hsl(0 92.1% 60.4%);
@@ -461,7 +462,7 @@ body,
 	--success: hsl(133.9 60.6% 48.8%);
 	--success-foreground: hsl(130 66% 10%);
 
-	--warning: hsl(21.6 98.2% 56.7%);
+	--warning: var(--app-dark-warning);
 	--warning-foreground: hsl(100 4% 91%);
 
 	--info: hsl(216.1 91.7% 57.6%);
@@ -472,20 +473,20 @@ body,
 	--alert-info-bg: hsl(217.7 42.6% 19.8%);
 	--alert-success-bg: hsl(132.9 35.9% 15.3%);
 
-	--border: hsl(132 4% 12.5%);
-	--input: hsl(128 5% 17%);
+	--border: var(--app-dark-border);
+	--input: var(--app-dark-input);
 	--ring: var(--lime);
 
-	--sidebar: hsl(138 5% 5.75%);
+	--sidebar: var(--app-dark-sidebar);
 	--sidebar-foreground: hsl(100 4% 91%);
 
 	--sidebar-primary: var(--lime);
 	--sidebar-primary-foreground: hsl(132 30% 7%);
 
-	--sidebar-accent: hsl(130 6% 13.5%);
+	--sidebar-accent: var(--app-dark-sidebar-accent);
 	--sidebar-accent-foreground: hsl(100 4% 91%);
 
-	--sidebar-border: hsl(136 5% 8.5%);
+	--sidebar-border: var(--app-dark-sidebar-border);
 	--sidebar-ring: var(--lime);
 
 	/* Subtle glass button tokens */
@@ -1354,7 +1355,7 @@ html[data-sidebar-dragging] * {
 		background-color: color-mix(in oklab, var(--card) 94%, transparent);
 	}
 	.dark .composer-glass::before {
-		background-color: hsl(120 2% 10% / 0.9);
+		background-color: var(--app-dark-composer);
 	}
 	.composer-attached-toolbar {
 		background-color: color-mix(
@@ -1364,7 +1365,7 @@ html[data-sidebar-dragging] * {
 		);
 	}
 	.dark .composer-attached-toolbar {
-		background-color: hsl(120 2% 8.5% / 0.96);
+		background-color: var(--app-dark-composer-toolbar);
 	}
 
 	.border-glass {
@@ -1545,3 +1546,29 @@ html[data-sidebar-dragging] * {
 		background: transparent;
 	}
 }
+
+/* Tool branches remain attached while results grow; no transcript fade-ins. */
+.tool-activity-branch {
+  position: relative;
+  padding-inline-start: 0.5rem;
+}
+.tool-activity-branch::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: var(--chat-assistant-gutter, 0.75rem);
+  top: 0;
+  bottom: 0;
+  border-inline-start: 1px solid var(--border);
+}
+.tool-activity-branch::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: var(--chat-assistant-gutter, 0.75rem);
+  top: 0;
+  width: 0.5rem;
+  height: 1rem;
+  border-inline-start: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-end-start-radius: 0.5rem;
+}
+.tool-activity-last::before { display: none; }

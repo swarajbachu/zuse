@@ -1,3 +1,4 @@
+import { useStreamingText } from "../hooks/use-streaming-text.ts";
 import { ContextPill, contextPillClass } from "./context-pill.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
@@ -189,6 +190,7 @@ function MessageRowImpl({
 	providerId,
 	readOnly = false,
 	showAssistantCommands = false,
+	smoothStreaming = false,
 	forkDestination,
 	sourceProjectId,
 }: {
@@ -198,6 +200,7 @@ function MessageRowImpl({
 	providerId?: ProviderId;
 	readOnly?: boolean;
 	showAssistantCommands?: boolean;
+	smoothStreaming?: boolean;
 	forkDestination?: ForkDestination;
 	sourceProjectId?: FolderId;
 }) {
@@ -234,6 +237,7 @@ function MessageRowImpl({
 		case "assistant":
 			return (
 				<AssistantBubble
+					smoothStreaming={smoothStreaming}
 					text={message.content.text}
 					createdAt={message.createdAt}
 					messageId={message.id}
@@ -684,6 +688,7 @@ export function UserBubble({
 }
 
 function AssistantBubble({
+	smoothStreaming,
 	text,
 	createdAt,
 	messageId,
@@ -692,6 +697,7 @@ function AssistantBubble({
 	sourceProjectId,
 	showMessageCommands,
 }: {
+	smoothStreaming: boolean;
 	text: string;
 	createdAt?: Date;
 	messageId: Message["id"];
@@ -700,13 +706,16 @@ function AssistantBubble({
 	sourceProjectId?: FolderId;
 	showMessageCommands: boolean;
 }) {
+	const visibleText = useStreamingText(text, smoothStreaming);
 	return (
 		<div
 			data-chat-assistant-bubble
 			className="group/assistant px-[var(--chat-assistant-gutter,0.75rem)] py-1.5"
 		>
 			<div className="max-w-full">
-				<MarkdownBody className="chat-assistant-markdown">{text}</MarkdownBody>
+				<MarkdownBody className="chat-assistant-markdown">
+					{visibleText}
+				</MarkdownBody>
 				<AssistantMessageActions
 					text={text}
 					createdAt={createdAt}

@@ -1,0 +1,119 @@
+{
+  "pages": [
+    {
+      "url": "https://zuse.sh",
+      "title": "Zuse: All your coding agents in one workspace",
+      "description": "Run coding agents side by side, carry context between them, and isolate every task in its own git worktree with Zuse.",
+      "templated": false,
+      "severity": "none",
+      "cta_phrase": null,
+      "flags": [],
+      "signals": []
+    },
+    {
+      "url": "https://zuse.sh/blog",
+      "title": "Dispatch: notes from Zuse | Zuse",
+      "description": "Practical guides and product notes on open-source coding agents, parallel worktrees, agent handoffs, and reviewing AI-generated code.",
+      "templated": false,
+      "severity": "none",
+      "cta_phrase": null,
+      "flags": [],
+      "signals": []
+    },
+    {
+      "url": "https://zuse.sh/pricing",
+      "title": "Pricing: local and cloud coding agents | Zuse",
+      "description": "Use Zuse locally for free during beta. Cloud Workspace costs $40/month with $35 compute included. Persistent machines start at $19/month. Bring your own agent subscriptions.",
+      "templated": false,
+      "severity": "low",
+      "cta_phrase": null,
+      "flags": [
+        "brand-suffix-in-description"
+      ],
+      "signals": [
+        {
+          "id": "brand_suffix_in_description",
+          "severity": "low",
+          "message": "The title's brand suffix 'Zuse' was concatenated into the meta description body. That is a generation artefact rather than a written sentence, and it spends SERP characters on your own name.",
+          "recommendation": "Remove 'Zuse' from the description body; the title already carries it."
+        }
+      ]
+    },
+    {
+      "url": "https://zuse.sh/changelog",
+      "title": "Change Log | Zuse",
+      "description": "All notable Zuse product changes, grouped by release.",
+      "templated": false,
+      "severity": "low",
+      "cta_phrase": null,
+      "flags": [
+        "brand-suffix-in-description"
+      ],
+      "signals": [
+        {
+          "id": "brand_suffix_in_description",
+          "severity": "low",
+          "message": "The title's brand suffix 'Zuse' was concatenated into the meta description body. That is a generation artefact rather than a written sentence, and it spends SERP characters on your own name.",
+          "recommendation": "Remove 'Zuse' from the description body; the title already carries it."
+        }
+      ]
+    },
+    {
+      "url": "https://zuse.sh/developers",
+      "title": "Developer Resources | Zuse",
+      "description": "Zuse developer documentation, OpenAPI specification, agent instructions, API availability, and local MCP integration details.",
+      "templated": false,
+      "severity": "none",
+      "cta_phrase": null,
+      "flags": [],
+      "signals": []
+    },
+    {
+      "url": "https://zuse.sh/blog/parallel-agents-without-collisions",
+      "title": "Parallel agents, without collisions | Zuse",
+      "description": "A practical workflow for isolating AI coding tasks with Git worktrees, sharing context deliberately, and reviewing the combined result.",
+      "templated": false,
+      "severity": "none",
+      "cta_phrase": null,
+      "flags": [],
+      "signals": []
+    },
+    {
+      "url": "https://zuse.sh/blog/review-the-evidence",
+      "title": "Review the evidence, not the confidence | Zuse",
+      "description": "A repeatable checklist for reviewing AI-generated code: inspect the diff, verify behavior, and distinguish a passing test from a tested outcome.",
+      "templated": false,
+      "severity": "none",
+      "cta_phrase": null,
+      "flags": [],
+      "signals": []
+    },
+    {
+      "url": "https://zuse.sh/blog/choose-where-agents-run",
+      "title": "Choose where your agents run | Zuse",
+      "description": "Local worktrees, isolated cloud workspaces, and persistent machines solve different problems. Here is how to choose a workspace for a coding task.",
+      "templated": false,
+      "severity": "none",
+      "cta_phrase": null,
+      "flags": [],
+      "signals": []
+    },
+    {
+      "url": "https://docs.zuse.sh/start",
+      "title": "Start here | Zuse Docs",
+      "description": "Install Zuse, connect a coding agent, and finish your first project task.",
+      "templated": false,
+      "severity": "none",
+      "cta_phrase": null,
+      "flags": [],
+      "signals": []
+    }
+  ],
+  "pages_checked": 9,
+  "templated_count": 0,
+  "templated_ratio": 0.0,
+  "shared_cta_phrases": {},
+  "site_flags": [],
+  "site_risk": "low",
+  "method": "heuristic"
+}

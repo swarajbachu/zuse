@@ -14,7 +14,7 @@ There is no legacy firewall cleanup or migration code.
 ## Deployment
 
 Publish a fresh base template with this installer, select its new version, and
-rebuild account images/pools before deploying the adapter removal. Old snapshots
+rebuild account images before deploying the adapter removal. Old snapshots
 contain the removed firewall service; deleting repository code does not remove
 it from those snapshots. Existing benchmark snapshots must not be reused as
 evidence that the new template is installed. No user migration is planned because

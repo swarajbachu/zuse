@@ -1,4 +1,5 @@
 {
+	"book_a_call": "預約通話",
 	"agent_handoff": "座席切換",
 	"review": "審查",
 	"continue_the_work_with_another_agent": "與另一位代理商繼續合作",
@@ -69,7 +70,7 @@
 	"build_the_change_in_one_tab_while_every_file_lands_in_the_shared_workt": "當每個文件都進入共享工作樹時，在一個選項卡中建立變更。",
 	"review_the_same_branch_and_transcript_in_a_second_tab_without_copying": "在第二個選項卡中查看相同的分支和轉錄本，而無需複製上下文。",
 	"keep_typecheck_focused_tests_and_terminal_output_beside_both_agent_ses": "在兩個代理會話旁邊保留類型檢查、重點測試和終端輸出。",
-	"bring_the_subscriptions_you_already_pay_for_zuse_orchestrates_them_no": "帶上您已經付費的訂閱。 <part0>Zuse 協調它們 — 無代幣標記。 </part0>",
+	"bring_the_subscriptions_you_already_pay_for_zuse_orchestrates_them_no": "帶上您已經付費的訂閱。 <part0>Zuse 協調它們，無代幣標記。 </part0>",
 	"codex_review_retry_only_after_the_persisted_checkout_state_is_restored": "<part0>Codex review:</part0> 僅在持久簽出狀態恢復後重試。",
 	"terminal": "終端",
 	"checks_terminal": "檢查·終端",

@@ -657,5 +657,7 @@
 	"device_command_permissions_title": "Gespeicherte Befehlsberechtigungen",
 	"cloud_queue_waiting_for_agent": "Warten auf den Agenten",
 	"cloud_queue_cancel_failed": "Die Nachricht konnte nicht aus der Warteschlange entfernt werden. Versuche es erneut.",
-	"cloud_queue_waiting_for_cloud": "Warten auf den Start der Cloud"
+	"cloud_queue_waiting_for_cloud": "Warten auf den Start der Cloud",
+	"cloud_history_loading": "Frühere Nachrichten werden geladen…",
+	"cloud_history_retry": "Frühere Nachrichten konnten nicht geladen werden · Erneut versuchen"
 }

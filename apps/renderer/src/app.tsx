@@ -5,7 +5,7 @@ import { Effect } from "effect";
 
 import { lazy, Suspense, useEffect } from "react";
 
-import { TooltipProvider } from "./components/ui/tooltip.tsx";
+import { TooltipProvider } from "./components/ui/tooltip-provider.tsx";
 
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 

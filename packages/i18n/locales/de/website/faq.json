@@ -17,6 +17,6 @@
 	"questions_devs_ask_first": "Fragen, die Entwickler zuerst stellen",
 	"more_questions_see_the_project_on_github": "Weitere Fragen? Sehen Sie sich das Projekt unter <part0>GitHub</part0> an.",
 	"zuse_beta_ships_for_macos_and_x64_linux_the_download_button_selects_th": "Zuse (Beta) wird für macOS und x64 Linux ausgeliefert. Die Schaltfläche „Herunterladen“ wählt automatisch das Disk-Image macOS oder das AppImage Linux aus. Debian- und Ubuntu-Benutzer können das .deb-Paket auch von herunterladen GitHub Veröffentlichungen.",
-	"the_zuse_desktop_beta_is_available_now_and_uses_your_own_agent_subscri": "Die Desktop-Betaversion Zuse ist ab sofort verfügbar und verwendet Ihre eigenen Agentenabonnements oder API-Schlüssel. Zuse Cloud ist eine private, nur auf Einladung erhältliche Betaversion: Cloud Workspace kostet 40 US-Dollar pro Monat, beinhaltet 35 US-Dollar an anrechenbarer E2B-Rechenleistung und berechnet zusätzliche Anbieterkosten plus 5 % bis zu Ihrer Überschreitungsobergrenze.",
+	"the_zuse_desktop_beta_is_available_now_and_uses_your_own_agent_subscri": "Die Desktop-Betaversion Zuse ist ab sofort verfügbar und verwendet Ihre eigenen Agentenabonnements oder API-Schlüssel. Zuse Cloud ist als öffentliche Betaversion verfügbar: Cloud Workspace kostet 40 US-Dollar pro Monat, beinhaltet 35 US-Dollar an anrechenbarer E2B-Rechenleistung und berechnet zusätzliche Anbieterkosten plus 5 % bis zu Ihrer Überschreitungsobergrenze.",
 	"what_is_sub_agent_delegation": "Was ist Subagentendelegation?"
 }

@@ -229,8 +229,8 @@ const FAILURE_COPY: Readonly<Record<CloudFailureKind, FailureCopy>> = {
 	},
 	"cloud-access-required": {
 		label: "Cloud access required",
-		headline: "Zuse Cloud is invite-only",
-		message: "This account does not currently have cloud beta access.",
+		headline: "Cloud access unavailable",
+		message: "Update Zuse and try again to use the Cloud public beta.",
 	},
 	"cloud-access-unavailable": {
 		label: "Cloud access unavailable",

@@ -24,12 +24,11 @@ const zuseProviders = [
 	},
 	{
 		name: "PostHog",
-		role: "Product analytics and private-beta access",
-		data: "A pseudonymous installation or account-derived analytics identity; approved event names and limited properties such as screens, feature use, normalized provider/model choices, aggregate usage, performance, and sanitized reliability outcomes. Cloud beta access checks use a privacy-preserving account identity.",
+		role: "Product analytics",
+		data: "A pseudonymous installation or account-derived analytics identity; approved event names and limited properties such as screens, feature use, normalized provider/model choices, aggregate usage, performance, and sanitized reliability outcomes.",
 		applies:
-			"Desktop and mobile analytics, and the optional invite-only Cloud Workspace beta. Analytics can run while signed out; the beta access check requires sign-in.",
-		choice:
-			"Turn off “Share usage analytics” in desktop or mobile Settings. Cloud beta access is separately controlled by invitation and subscription state.",
+			"Optional desktop and mobile analytics. Analytics can run while signed out.",
+		choice: "Turn off “Share usage analytics” in desktop or mobile Settings.",
 	},
 	{
 		name: "Cloudflare",
@@ -45,9 +44,9 @@ const zuseProviders = [
 		role: "Isolated Cloud Workspace compute and paused workspace storage",
 		data: "Cloud Workspace repository contents, files, terminals, provider processes, and runtime state needed to execute an accepted task. Zuse sends scoped runtime credentials and receives lifecycle signals and usage information.",
 		applies:
-			"The current private beta only, when you create or resume a Cloud Workspace. It is not used for local, paired, SSH, or user-managed remote environments.",
+			"The Cloud Workspace public beta, when you create or resume a Cloud Workspace. It is not used for local, paired, SSH, or user-managed remote environments.",
 		choice:
-			"Do not create a Cloud Workspace; use a local or user-managed environment. Cloud Workspace access is invite-only and may be unavailable.",
+			"Do not create a Cloud Workspace; use a local or user-managed environment.",
 	},
 	{
 		name: "Polar",

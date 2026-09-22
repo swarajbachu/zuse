@@ -1,0 +1,69 @@
+@import "@repo/ui/app-palette.css";
+
+[data-zuse-demo][data-theme="light"] {
+	color-scheme: light;
+	--lime: var(--app-light-lime);
+	--background: var(--app-light-background);
+	--foreground: var(--app-light-foreground);
+	--bg-subtle: var(--app-light-bg-subtle);
+	--bg-elevated: var(--app-light-bg-elevated);
+	--bg-overlay: var(--app-light-bg-overlay);
+	--text-faint: var(--app-light-text-faint);
+	--chip-bg: var(--app-light-chip-bg);
+	--card: var(--app-light-card);
+	--popover: var(--app-light-popover);
+	--primary-foreground: var(--app-light-primary-foreground);
+	--secondary: var(--app-light-secondary);
+	--muted: var(--app-light-muted);
+	--muted-foreground: var(--app-light-muted-foreground);
+	--accent: var(--app-light-accent);
+	--border: var(--app-light-border);
+	--input: var(--app-light-input);
+	--sidebar: var(--app-light-sidebar);
+	--sidebar-accent: var(--app-light-sidebar-accent);
+	--sidebar-border: var(--app-light-sidebar-border);
+	--warning: var(--app-light-warning);
+	--primary: var(--lime);
+	--elevated: var(--bg-elevated);
+	--heading: var(--foreground);
+}
+[data-zuse-demo][data-theme="dark"] {
+	color-scheme: dark;
+	--lime: var(--app-dark-lime);
+	--background: var(--app-dark-background);
+	--foreground: var(--app-dark-foreground);
+	--bg-subtle: var(--app-dark-bg-subtle);
+	--bg-elevated: var(--app-dark-bg-elevated);
+	--bg-overlay: var(--app-dark-bg-overlay);
+	--text-faint: var(--app-dark-text-faint);
+	--chip-bg: var(--app-dark-chip-bg);
+	--card: var(--app-dark-card);
+	--popover: var(--app-dark-popover);
+	--primary-foreground: var(--app-dark-primary-foreground);
+	--secondary: var(--app-dark-secondary);
+	--muted: var(--app-dark-muted);
+	--muted-foreground: var(--app-dark-muted-foreground);
+	--accent: var(--app-dark-accent);
+	--border: var(--app-dark-border);
+	--input: var(--app-dark-input);
+	--sidebar: var(--app-dark-sidebar);
+	--sidebar-accent: var(--app-dark-sidebar-accent);
+	--sidebar-border: var(--app-dark-sidebar-border);
+	--warning: var(--app-dark-warning);
+	--primary: var(--lime);
+	--elevated: var(--bg-elevated);
+	--heading: var(--foreground);
+}
+
+[data-zuse-demo] .zuse-attached-toolbar {
+	background: color-mix(in srgb, var(--bg-elevated) 76%, var(--card) 24%);
+}
+[data-zuse-demo] .zuse-composer-glass {
+	background: color-mix(in oklab, var(--card) 94%, transparent);
+}
+[data-zuse-demo][data-theme="dark"] .zuse-attached-toolbar {
+	background: var(--app-dark-composer-toolbar);
+}
+[data-zuse-demo][data-theme="dark"] .zuse-composer-glass {
+	background: var(--app-dark-composer);
+}

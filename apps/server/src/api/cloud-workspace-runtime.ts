@@ -504,7 +504,8 @@ type RuntimeSummaryReason =
 	| "activity"
 	| "title"
 	| "settled"
-	| "session";
+	| "session"
+	| "recovery";
 
 interface CloudRuntimeSummaryPublisher {
 	readonly publish: (
@@ -736,6 +737,40 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 		);
 	return { publish } satisfies CloudRuntimeSummaryPublisher;
 });
+
+/** Keep quiet, active turns alive without keeping an idle workspace running. */
+export const keepCloudRuntimeActive = <E, R>(input: {
+	readonly sessions: Effect.Effect<
+		ReadonlyArray<Pick<Session, "chatId" | "status">>,
+		E,
+		R
+	>;
+	readonly chatId: ChatId;
+	readonly publish: Effect.Effect<unknown, E, R>;
+}) =>
+	Effect.forever(
+		Effect.gen(function* () {
+			const current = yield* input.sessions;
+			if (
+				current.some(
+					(session) =>
+						session.chatId === input.chatId &&
+						(session.status === "running" || session.status === "booting"),
+				)
+			) {
+				yield* input.publish;
+			}
+		}).pipe(
+			Effect.catch(() =>
+				Effect.sync(() => {
+					console.warn(
+						"[cloud-workspace-runtime] active work keepalive failed",
+					);
+				}),
+			),
+			Effect.andThen(Effect.sleep("30 seconds")),
+		),
+	);
 
 /** Resolve stale chat pointers against the authoritative runtime session rows. */
 export const resolveCloudRuntimeActiveSession = (
@@ -2458,21 +2493,31 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							sessionId,
 							transcriptKey,
 							read: Effect.gen(function* () {
-								const [snapshot, version] = yield* Effect.all(
-									[
-										sessionDomain.timelineSnapshot(
-											AgentSessionId.make(sessionId),
+								// Capture projection and cursor in the same database transaction, just
+								// like a first-open cloud subscriber. Never label N+1 data as version N.
+								const frames = yield* sessionDomain
+									.synchronizedEvents({
+										streamId: sessionId,
+										hasProjection: false,
+										historyMode: "background",
+									})
+									.pipe(
+										Stream.take(1),
+										Stream.runCollect,
+										Effect.mapError(() =>
+											fail("workspace_transcript_snapshot_unavailable"),
 										),
-										sessionDomain.currentStreamVersion(sessionId),
-									],
-									{ concurrency: "unbounded" },
-								).pipe(
-									Effect.mapError(() =>
+									);
+								const snapshot = frames[0];
+								if (snapshot?.kind !== "snapshot")
+									return yield* Effect.fail(
 										fail("workspace_transcript_snapshot_unavailable"),
-									),
-								);
+									);
 								return {
-									cursor: { epoch: sessionDomain.streamEpoch, version },
+									cursor: {
+										epoch: snapshot.streamEpoch,
+										version: snapshot.throughVersion,
+									},
 									projection: snapshot.projection,
 								};
 							}),
@@ -3005,6 +3050,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					);
 					yield* runCloudMailboxConsumer({
 						recoverReadiness: postCurrentRuntimeReady("repository-ready").pipe(
+							// A retained session must be acknowledged too: repository readiness
+							// alone deliberately leaves session recovery fenced in the API.
+							Effect.andThen(summaryPublisher.publish("recovery")),
+							Effect.asVoid,
 							Effect.tap(() =>
 								Effect.sync(() => {
 									cloudTimingEvent(
@@ -3049,6 +3098,11 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						.pipe(
 							Effect.mapError(() => fail("workspace_summary_chat_unavailable")),
 						);
+					yield* keepCloudRuntimeActive({
+						chatId: runtimeChat.id,
+						sessions: sessions.listSessions(runtimeChat.projectId, false),
+						publish: summaryPublisher.publish("activity"),
+					}).pipe(Effect.forkScoped({ startImmediately: true }));
 					yield* chats.streamChatChanges(runtimeChat.projectId).pipe(
 						Stream.filter((change) =>
 							change._tag === "snapshot"

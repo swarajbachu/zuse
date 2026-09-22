@@ -37,6 +37,7 @@ import {
 	classifyCloudMailboxAckFailure,
 	cloudGatewayCloseReason,
 	decodeImageProviderSecrets,
+	keepCloudRuntimeActive,
 	makeCloudRuntimeCheckpointPublisher,
 	makeCloudRuntimeSummaryPublisher,
 	recoverCloudMailboxReadiness,
@@ -379,6 +380,47 @@ describe("cloud workspace bootstrap", () => {
 			expect(summary).not.toHaveProperty("content");
 			expect(summary).not.toHaveProperty("messages");
 		}
+	});
+
+	it("publishes session recovery even immediately after an activity update", async () => {
+		let ready = false;
+		let sessionRecovered = false;
+		const publisher = await Effect.runPromise(
+			makeCloudRuntimeSummaryPublisher({
+				now: Effect.succeed(1000),
+				read: Effect.succeed({
+					title: "Recovered",
+					lastActivityAt: 1000,
+					activeSessionId: SessionId.make("session-1"),
+					sessionHeadVersion: 195,
+				}),
+				write: (summary) =>
+					Effect.sync(() => {
+						if (ready) sessionRecovered = true;
+						return { applied: true, summaryRevision: summary.summaryRevision };
+					}),
+			}),
+		);
+		await Effect.runPromise(publisher.publish("activity"));
+		const lease = Effect.suspend(() =>
+			sessionRecovered
+				? Effect.succeed("leased")
+				: Effect.fail(
+						new CloudWorkspaceRuntimeError({
+							reason: "cloud_workspace_runtime_not_ready",
+						}),
+					),
+		);
+		const result = await Effect.runPromise(
+			recoverCloudMailboxReadiness(
+				lease,
+				Effect.sync(() => {
+					ready = true;
+				}).pipe(Effect.andThen(publisher.publish("recovery")), Effect.asVoid),
+			),
+		);
+		expect(result).toBe("leased");
+		expect(sessionRecovered).toBe(true);
 	});
 
 	it("rebases once when API already accepted a newer summary revision", async () => {
@@ -1408,5 +1450,41 @@ describe("preserved runtime mailbox readiness", () => {
 			failure: { reason: "workspace_runtime_rejected" },
 		});
 		expect(attempts).toBe(1);
+	});
+});
+
+describe("cloud active work keepalive", () => {
+	it("keeps a quiet turn alive, stops when idle, and survives a failed update", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const chatId = ChatId.make("quiet-chat");
+				let active = true;
+				let attempts = 0;
+				const fiber = yield* Effect.forkScoped(
+					keepCloudRuntimeActive({
+						chatId,
+						sessions: Effect.sync(() => [
+							{
+								chatId,
+								status: active ? ("running" as const) : ("idle" as const),
+							},
+							{ chatId: ChatId.make("other-chat"), status: "running" as const },
+						]),
+						publish: Effect.suspend(() =>
+							++attempts === 1 ? Effect.fail("network") : Effect.void,
+						),
+					}),
+				);
+				yield* Effect.yieldNow;
+				expect(attempts).toBe(1);
+				yield* TestClock.adjust("11 minutes");
+				expect(attempts).toBeGreaterThan(20);
+				active = false;
+				const beforeIdle = attempts;
+				yield* TestClock.adjust("2 minutes");
+				expect(attempts).toBe(beforeIdle);
+				yield* Fiber.interrupt(fiber);
+			}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+		);
 	});
 });

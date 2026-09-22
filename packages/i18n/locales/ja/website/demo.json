@@ -71,5 +71,11 @@
 	"commits_ahead": "{{count}} コミット先行",
 	"now": "今",
 	"branches": "ブランチ",
-	"issues": "Issue"
+	"issues": "Issue",
+	"this_computer": "このコンピューター",
+	"worktree": "ワークツリー",
+	"import_chat": "チャットをインポート",
+	"full_access": "フルアクセス",
+	"ask_first": "確認する",
+	"advanced": "詳細設定"
 }

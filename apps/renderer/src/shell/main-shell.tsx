@@ -335,7 +335,11 @@ export function MainShell() {
 					),
 		[selectedCloudSummary, cloudShell.data, storedSessionId],
 	);
-	const selectedSessionId = cloudSession?.id ?? storedSessionId;
+	const selectedSessionId =
+		cloudSession?.id ??
+		(selectedCloudSummary === null
+			? storedSessionId
+			: cloudSummaryActiveSessionId(selectedCloudSummary));
 	useEffect(() => {
 		if (
 			cloudSession === null ||
@@ -639,17 +643,7 @@ export function MainShell() {
 								// bottom (no full-screen takeover).
 								<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1">
 									<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-										<Suspense
-											fallback={
-												<ChatLoadingFallback
-													title={
-														selectedCloudSummary?.title ??
-														selectedSession.title ??
-														undefined
-													}
-												/>
-											}
-										>
+										<Suspense fallback={<ChatLoadingFallback />}>
 											<ChatView
 												sessionId={selectedSessionId}
 												environmentId={selectedEnvironmentId}
@@ -711,10 +705,7 @@ export function MainShell() {
 							) : chatSurface === "pending" && pendingCreation !== null ? (
 								<PendingChatCreationSurface creation={pendingCreation} />
 							) : chatSurface === "cloud-pending" ? (
-								<ChatLoadingFallback
-									title={selectedCloudSummary?.title}
-									footer={<CloudConnectionNotice />}
-								/>
+								<ChatLoadingFallback footer={<CloudConnectionNotice />} />
 							) : (
 								<Suspense fallback={<SurfaceFallback />}>
 									<ChatLanding
