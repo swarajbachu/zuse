@@ -580,7 +580,7 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 		);
 
 		expect(manifest.version).toMatch(/^\d{4}\.\d{2}\.\d{2}\.\d+$/u);
-		expect(manifest.npmPackages["@openai/codex"]).toBe("0.144.5");
+		expect(manifest.npmPackages["@openai/codex"]).toBe("0.155.1");
 		expect(manifest.npmPackages["@anthropic-ai/claude-code"]).toMatch(/^\d/u);
 		expect(manifest.npmPackages.bun).toMatch(/^\d/u);
 		expect(manifest.systemPackages).toEqual(
