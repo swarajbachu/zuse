@@ -205,6 +205,9 @@ function ReadyApp({
 	const catalogInitialized = useEnvironmentCatalogStore(
 		(state) => state.initialized,
 	);
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
+	);
 	const catalogInitializationError = useEnvironmentCatalogStore(
 		(state) => state.initializationError,
 	);
@@ -229,6 +232,7 @@ function ReadyApp({
 			console.error("[zuse] provider availability prefetch failed", cause),
 		);
 	}, [
+		activeEnvironmentId,
 		catalogInitialized,
 		ensureModelCatalog,
 		loadProviderAvailability,

@@ -32,6 +32,7 @@ type State = {
 	readonly catalog: ResolvedModelCatalog;
 	readonly source: ModelCatalogSource;
 	readonly loadedAt: number | null;
+	readonly loadedEnvironmentId: string | null;
 	readonly loading: boolean;
 	readonly error: string | null;
 	/** Load once from the server during this renderer lifetime. */
@@ -105,9 +106,9 @@ const dropLegacyInventoryCaches = (): void => {
 };
 
 const fetchCatalog = async (
+	environmentId: EnvironmentId,
 	refresh: boolean,
 ): Promise<ResolvedModelCatalog> => {
-	const environmentId = activeEnvironmentId();
 	const receipt = await dispatchEnvironmentShellCommand<
 		{ readonly refresh?: boolean },
 		ResolvedModelCatalog
@@ -125,7 +126,7 @@ const sameCatalog = (
 	b: ResolvedModelCatalog,
 ): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-let pendingLoad: Promise<void> | null = null;
+const pendingLoads = new Map<string, Promise<void>>();
 
 const initial = (() => {
 	dropLegacyInventoryCaches();
@@ -137,27 +138,34 @@ const initial = (() => {
 
 export const useModelCatalogStore = create<State>((set, get) => {
 	const load = async (refresh: boolean): Promise<void> => {
-		if (pendingLoad !== null) {
+		const environmentId = activeEnvironmentId();
+		const pendingLoad = pendingLoads.get(environmentId);
+		if (pendingLoad !== undefined) {
 			await pendingLoad;
 			return;
 		}
-		const environmentId = activeEnvironmentId();
 		set({ loading: true, error: null });
 		const run = (async () => {
 			try {
-				const next = await fetchCatalog(refresh);
+				const next = await fetchCatalog(environmentId, refresh);
 				if (environmentId !== activeEnvironmentId()) {
-					set({ loading: false });
 					return;
 				}
 				const current = get().catalog;
 				if (sameCatalog(current, next)) {
-					set({ loading: false, loadedAt: Date.now(), source: "server" });
+					set({
+						loading: false,
+						loadedAt: Date.now(),
+						loadedEnvironmentId: environmentId,
+						source: "server",
+						error: null,
+					});
 				} else {
 					set({
 						catalog: next,
 						source: "server",
 						loadedAt: Date.now(),
+						loadedEnvironmentId: environmentId,
 						loading: false,
 						error: null,
 					});
@@ -166,12 +174,21 @@ export const useModelCatalogStore = create<State>((set, get) => {
 			} catch (err) {
 				// Old server without the RPC, or a transport blip: keep showing
 				// whatever we have (bundled or the last good answer).
-				set({ loading: false, error: formatError(err), loadedAt: Date.now() });
+				if (environmentId === activeEnvironmentId()) {
+					set({
+						loading: false,
+						error: formatError(err),
+						loadedAt: null,
+						loadedEnvironmentId: null,
+					});
+				}
 			}
 		})().finally(() => {
-			pendingLoad = null;
+			if (pendingLoads.get(environmentId) === run) {
+				pendingLoads.delete(environmentId);
+			}
 		});
-		pendingLoad = run;
+		pendingLoads.set(environmentId, run);
 		await run;
 	};
 
@@ -179,10 +196,11 @@ export const useModelCatalogStore = create<State>((set, get) => {
 		catalog: initial.catalog,
 		source: initial.source,
 		loadedAt: null,
+		loadedEnvironmentId: null,
 		loading: false,
 		error: null,
 		ensureLoaded: async () => {
-			if (get().loadedAt !== null) return;
+			if (get().loadedEnvironmentId === activeEnvironmentId()) return;
 			await load(false);
 		},
 		refresh: () => load(true),
@@ -203,6 +221,7 @@ export const resetModelCatalogForEnvironment = (): void => {
 		catalog: bundledResolvedModelCatalog(),
 		source: "bundled",
 		loadedAt: null,
+		loadedEnvironmentId: null,
 		loading: false,
 		error: null,
 	});
