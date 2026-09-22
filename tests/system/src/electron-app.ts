@@ -111,6 +111,15 @@ export const launchElectronApp = async (options: {
 		// "Keychain Not Found" dialog while preserving isolated browser state.
 		args: [
 			"--use-mock-keychain",
+			// Headless Linux runners have no usable hardware GL context. Use the
+			// bundled software renderer for UI surfaces that require WebGL.
+			...(process.platform === "linux"
+				? [
+						"--use-gl=angle",
+						"--use-angle=swiftshader",
+						"--enable-unsafe-swiftshader",
+					]
+				: []),
 			join(repoRoot, "apps/desktop/dist-electron/main.cjs"),
 		],
 		cwd: repoRoot,
