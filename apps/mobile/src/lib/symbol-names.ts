@@ -19,6 +19,7 @@ export const materialSymbolNames: Partial<Record<SFSymbol, AndroidSymbol>> = {
 	"photo.stack.fill": "photo_library",
 	"arrow.counterclockwise": "restart_alt",
 	"trash.fill": "delete",
+	"hand.raised.fill": "front_hand",
 };
 
 export function platformSymbolName(ios: SFSymbol) {

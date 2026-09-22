@@ -1,0 +1,10 @@
+/vendor/*
+!/vendor/LICENSE
+!/vendor/REVISION
+!/vendor/manifest.json
+!/vendor/include/
+!/vendor/include/**
+!/vendor/lib/
+!/vendor/lib/**
+/.cxx/
+/build/

@@ -1,5 +1,3 @@
-export type TerminalInputFailure = "write-failed" | "write-timeout";
-
 export interface TerminalInputPump {
 	readonly failed: boolean;
 	enqueue(data: string): void;
@@ -8,6 +6,32 @@ export interface TerminalInputPump {
 	whenIdle(): Promise<void>;
 }
 
+/** Shared bound for terminal input retained before or during a PTY write. */
+export const TERMINAL_INPUT_QUEUE_CHARACTER_LIMIT = 1024 * 1024;
+
+export type PendingTerminalInput = Readonly<{
+	data: string;
+	overflowed: boolean;
+}>;
+
+/**
+ * Append input captured before a terminal surface can mount. Returning a new
+ * value makes this safe for React functional state updates, including several
+ * key/paste events batched into one render. An overflowing chunk is rejected
+ * whole so a paste or escape sequence is never sent partially.
+ */
+export const appendPendingTerminalInput = (
+	current: PendingTerminalInput,
+	incoming: string,
+	limit = TERMINAL_INPUT_QUEUE_CHARACTER_LIMIT,
+): PendingTerminalInput => {
+	if (incoming.length === 0) return current;
+	if (current.data.length + incoming.length > limit) {
+		return current.overflowed ? current : { ...current, overflowed: true };
+	}
+	return { data: current.data + incoming, overflowed: false };
+};
+
 export const retainPendingInitialInput = (
 	pending: string,
 	incoming: string,
@@ -15,15 +39,38 @@ export const retainPendingInitialInput = (
 
 export function createTerminalInputPump(options: {
 	readonly write: (data: string) => Promise<void>;
-	readonly timeoutMs: number;
-	readonly onFailure: (reason: TerminalInputFailure, cause?: unknown) => void;
+	/** Emit one non-fatal diagnostic when an acknowledgement takes this long. */
+	readonly stallWarningMs?: number;
+	readonly maxQueuedCharacters?: number;
+	readonly maxQueuedBatches?: number;
+	readonly onFailure: (cause?: unknown) => void;
+	readonly onStall?: (elapsedMs: number) => void;
 	readonly onQueueHighWater?: (characters: number) => void;
 }): TerminalInputPump {
 	type InputBatch = {
-		data: string;
+		readonly chunks: string[];
+		characters: number;
 		readonly resolve?: (written: boolean) => void;
 	};
+	const queueCharacterLimit =
+		options.maxQueuedCharacters !== undefined &&
+		Number.isFinite(options.maxQueuedCharacters)
+			? Math.max(1, Math.floor(options.maxQueuedCharacters))
+			: TERMINAL_INPUT_QUEUE_CHARACTER_LIMIT;
+	const queueBatchLimit =
+		options.maxQueuedBatches !== undefined &&
+		Number.isFinite(options.maxQueuedBatches)
+			? Math.max(1, Math.floor(options.maxQueuedBatches))
+			: 1_024;
+	const stallWarningMs =
+		options.stallWarningMs !== undefined &&
+		Number.isFinite(options.stallWarningMs) &&
+		options.stallWarningMs > 0
+			? Math.max(1, Math.floor(options.stallWarningMs))
+			: null;
 	const queued: InputBatch[] = [];
+	let queuedCharacters = 0;
+	let inFlightCharacters = 0;
 	let writing = false;
 	let disposed = false;
 	let failed = false;
@@ -37,36 +84,65 @@ export function createTerminalInputPump(options: {
 		for (const resolve of waiters) resolve();
 	};
 
-	const fail = (reason: TerminalInputFailure, cause?: unknown): void => {
+	const fail = (cause?: unknown): void => {
 		if (disposed || failed) return;
 		failed = true;
 		for (const batch of queued.splice(0)) batch.resolve?.(false);
-		options.onFailure(reason, cause);
+		queuedCharacters = 0;
+		options.onFailure(cause);
 	};
 
-	const writeWithTimeout = (data: string): Promise<void> =>
-		new Promise((resolve, reject) => {
-			let settled = false;
-			const timer = setTimeout(() => {
-				if (settled) return;
-				settled = true;
-				reject(new Error("terminal input acknowledgement timed out"));
-			}, options.timeoutMs);
-			void options.write(data).then(
-				() => {
-					if (settled) return;
-					settled = true;
-					clearTimeout(timer);
-					resolve();
-				},
-				(cause) => {
-					if (settled) return;
-					settled = true;
-					clearTimeout(timer);
-					reject(cause);
-				},
-			);
-		});
+	const retain = (
+		data: string,
+		resolve?: (written: boolean) => void,
+	): boolean => {
+		const tail = queued.at(-1);
+		const canCoalesce =
+			resolve === undefined && tail !== undefined && tail.resolve === undefined;
+		const retainedCharacters =
+			inFlightCharacters + queuedCharacters + data.length;
+		const retainedBatches =
+			(writing ? 1 : 0) + queued.length + (canCoalesce ? 0 : 1);
+		if (
+			retainedCharacters > queueCharacterLimit ||
+			retainedBatches > queueBatchLimit
+		) {
+			resolve?.(false);
+			fail(new Error("terminal input queue capacity exceeded"));
+			return false;
+		}
+		if (canCoalesce && tail !== undefined) {
+			tail.chunks.push(data);
+			tail.characters += data.length;
+		} else {
+			queued.push({ chunks: [data], characters: data.length, resolve });
+		}
+		queuedCharacters += data.length;
+		if (retainedCharacters > highWater) {
+			highWater = retainedCharacters;
+			options.onQueueHighWater?.(highWater);
+		}
+		return true;
+	};
+
+	const writeWithStallWarning = async (data: string): Promise<void> => {
+		const timer =
+			stallWarningMs === null || options.onStall === undefined
+				? null
+				: setTimeout(() => {
+						if (disposed || failed) return;
+						try {
+							options.onStall?.(stallWarningMs);
+						} catch {
+							// Diagnostics must never alter input delivery semantics.
+						}
+					}, stallWarningMs);
+		try {
+			await options.write(data);
+		} finally {
+			if (timer !== null) clearTimeout(timer);
+		}
+	};
 
 	const drain = async (): Promise<void> => {
 		if (writing || disposed || failed || queued.length === 0) return;
@@ -77,19 +153,16 @@ export function createTerminalInputPump(options: {
 			resolveIdle();
 			return;
 		}
+		queuedCharacters -= batch.characters;
+		inFlightCharacters = batch.characters;
 		try {
-			await writeWithTimeout(batch.data);
+			await writeWithStallWarning(batch.chunks.join(""));
 			batch.resolve?.(true);
 		} catch (cause) {
 			batch.resolve?.(false);
-			fail(
-				cause instanceof Error &&
-					cause.message === "terminal input acknowledgement timed out"
-					? "write-timeout"
-					: "write-failed",
-				cause,
-			);
+			fail(cause);
 		} finally {
+			inFlightCharacters = 0;
 			writing = false;
 			if (!disposed && !failed && queued.length > 0) void drain();
 			else resolveIdle();
@@ -102,39 +175,22 @@ export function createTerminalInputPump(options: {
 		},
 		enqueue(data) {
 			if (disposed || failed || data.length === 0) return;
-			const tail = queued.at(-1);
-			if (tail !== undefined && tail.resolve === undefined) tail.data += data;
-			else queued.push({ data });
-			const characters = queued.reduce(
-				(total, batch) => total + batch.data.length,
-				0,
-			);
-			if (characters > highWater) {
-				highWater = characters;
-				options.onQueueHighWater?.(highWater);
-			}
+			if (!retain(data)) return;
 			void drain();
 		},
 		enqueueAndWait(data) {
 			if (disposed || failed || data.length === 0)
 				return Promise.resolve(false);
 			const completion = new Promise<boolean>((resolve) => {
-				queued.push({ data, resolve });
+				if (!retain(data, resolve)) return;
 			});
-			const characters = queued.reduce(
-				(total, batch) => total + batch.data.length,
-				0,
-			);
-			if (characters > highWater) {
-				highWater = characters;
-				options.onQueueHighWater?.(highWater);
-			}
 			void drain();
 			return completion;
 		},
 		dispose() {
 			disposed = true;
 			for (const batch of queued.splice(0)) batch.resolve?.(false);
+			queuedCharacters = 0;
 			resolveIdle();
 		},
 		whenIdle() {

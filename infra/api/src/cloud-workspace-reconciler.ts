@@ -13,6 +13,7 @@ import { Cause, Clock, Data, Duration, Effect } from "effect";
 import GITHUB_AUTH_SOURCE from "../../cloud-sandboxes/github-auth.sh";
 import PROJECT_BUILDER_SOURCE from "../../cloud-sandboxes/project-builder.sh";
 import WORKSPACE_BOOTSTRAP_SOURCE from "../../cloud-sandboxes/workspace-bootstrap.sh";
+import WORKSPACE_REPOSITORY_SOURCE from "../../cloud-sandboxes/workspace-repository.sh";
 import { snapshotCloudAuthAuthority } from "./cloud-auth-authority.ts";
 import { allocatedComputeCostMicros } from "./cloud-billing.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
@@ -68,8 +69,8 @@ const WORKSPACE_BOOTSTRAP_FILE =
 // base images are republished by hand, so an image older than the `gh` shim
 // would otherwise leave every workspace with an unauthenticated `gh`.
 const GITHUB_AUTH_FILE = "/var/lib/zuse/project-build/github-auth.sh";
-const WORKSPACE_REPOSITORY_READY_MARKER =
-	"/var/lib/zuse/workspace/repository-ready";
+const WORKSPACE_REPOSITORY_FILE =
+	"/var/lib/zuse/project-build/workspace-repository.sh";
 const WORKSPACE_CREDENTIALS_READY_MARKER =
 	"/var/lib/zuse/workspace/credentials-ready";
 const WORKSPACE_START_OBSERVATION_INTERVAL_MS = 250;
@@ -82,31 +83,6 @@ export const WORKSPACE_START_OBSERVATION_MS =
 	Math.max(WARM_RUNTIME_RECONNECT_GRACE_MS, MAILBOX_RUNTIME_RESPONSE_GRACE_MS) +
 	RUNTIME_CONNECTION_TIMEOUT_MS +
 	WORKSPACE_START_OBSERVATION_INTERVAL_MS;
-
-const ensureWorkspaceRepositoryReadyMarker = Effect.fn(
-	"ensureWorkspaceRepositoryReadyMarker",
-)(function* (
-	provider: SandboxProviderAdapter,
-	providerSandboxId: string,
-	workspaceRoot: string,
-) {
-	if (
-		yield* provider.pathExists(
-			providerSandboxId,
-			WORKSPACE_REPOSITORY_READY_MARKER,
-			"zuse",
-		)
-	)
-		return;
-	if (!(yield* provider.pathExists(providerSandboxId, workspaceRoot, "zuse")))
-		return;
-	yield* provider.writeTextFile(
-		providerSandboxId,
-		WORKSPACE_REPOSITORY_READY_MARKER,
-		"ready\n",
-		"zuse",
-	);
-});
 
 export const reserveProviderCost = Effect.fn("reserveProviderCost")(
 	function* (input: {
@@ -362,7 +338,13 @@ export const cloudWorkspaceHasRetainedRuntimeData = (
 	workspace.statusCode === "agent-starting" ||
 	workspace.statusCode === "agent-running";
 
-export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; timing() { echo "[cloud-timing] workspaceId=$ZUSE_CLOUD_WORKSPACE_ID generation=$ZUSE_RUNTIME_GENERATION stage=$1 atMs=$(date +%s%3N)" >> /var/lib/zuse/workspace/runtime.log; }; timing runtime.shell-start; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed /var/lib/zuse/workspace/credentials-ready /var/lib/zuse/workspace/credentials-ready-event; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then timing runtime.update-start; ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >> "$log" 2>&1; timing runtime.update-end; fi; timing runtime.exec; if [ -f "$runtime" ]; then exec node "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
+export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; timing() { echo "[cloud-timing] workspaceId=$ZUSE_CLOUD_WORKSPACE_ID generation=$ZUSE_RUNTIME_GENERATION stage=$1 atMs=$(date +%s%3N)" >> /var/lib/zuse/workspace/runtime.log; }; timing runtime.shell-start; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed /var/lib/zuse/workspace/credentials-ready /var/lib/zuse/workspace/credentials-ready-event; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then timing runtime.update-start; ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >> "$log" 2>&1; timing runtime.update-end; fi; if [ ! -f /var/lib/zuse/workspace/repository-ready ]; then
+(
+${WORKSPACE_REPOSITORY_SOURCE}
+)
+touch /var/lib/zuse/workspace/repository-ready
+fi
+timing runtime.exec; if [ -f "$runtime" ]; then exec node "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
 
@@ -649,6 +631,12 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						sandbox.providerSandboxId,
 						PROJECT_BUILDER_FILE,
 						PROJECT_BUILDER_SOURCE,
+						"zuse",
+					),
+					provider.writeTextFile(
+						sandbox.providerSandboxId,
+						WORKSPACE_REPOSITORY_FILE,
+						WORKSPACE_REPOSITORY_SOURCE,
 						"zuse",
 					),
 					provider.writeTextFile(
@@ -1252,6 +1240,12 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 						"provider.network",
 					),
 				),
+				provider.writeTextFile(
+					providerSandboxId,
+					WORKSPACE_REPOSITORY_FILE,
+					WORKSPACE_REPOSITORY_SOURCE,
+					"zuse",
+				),
 				config.runtimeSigningPublicJwk === undefined
 					? Effect.void
 					: provider
@@ -1270,11 +1264,6 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 									"runtime.write-file",
 								),
 							),
-				ensureWorkspaceRepositoryReadyMarker(
-					provider,
-					providerSandboxId,
-					workspaceRoot,
-				),
 			],
 			{ concurrency: "unbounded", discard: true },
 		);
@@ -1320,6 +1309,9 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 					ZUSE_RUNTIME_BOOT_TOKEN: boot.token,
 					ZUSE_API_URL: api.apiIssuer,
 					ZUSE_CLOUD_WORKSPACE_ROOT: workspaceRoot,
+					ZUSE_BRANCH: workspace.branch,
+					ZUSE_BASE_REF: workspace.baseRef,
+					ZUSE_REPOSITORY_URL: project.repositoryUrl,
 					ZUSE_RUNTIME_KIND: "cloud-workspace",
 					ZUSE_HOST: "127.0.0.1",
 					ZUSE_PORT: "47837",
@@ -1327,7 +1319,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 					ZUSE_ENABLE_PAIRING: "0",
 					ZUSE_MACHINE_RUNTIME_ROLE: "cloud-environment",
 					ZUSE_SERVER_READY_STDOUT: "1",
-					ZUSE_USER_DATA: "/home/zuse/.zuse-data",
+					ZUSE_USER_DATA: "/var/lib/zuse/user-data",
 					ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
 					ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
 					...(config.runtimeManifestUrl === undefined
@@ -1714,6 +1706,20 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 							network: { kind: "open" },
 							onTimeout: "pause",
 						}));
+			// Allocation retries can recover a machine near its original TTL, or
+			// one that already paused. Give bootstrap a fresh running window.
+			if (sandbox.state === "paused")
+				yield* provider.resume(
+					sandbox.providerSandboxId,
+					config.keepAliveTimeoutSeconds,
+					"pause",
+					workspaceSizeId(workspace),
+				);
+			else
+				yield* provider.extendTimeout(
+					sandbox.providerSandboxId,
+					config.keepAliveTimeoutSeconds,
+				);
 			const allocatedAtMs = yield* Clock.currentTimeMillis;
 			const boot = yield* issueWorkspaceRuntimeBoot(allocatedAtMs);
 			const api = yield* ApiConfiguration;
@@ -1749,8 +1755,26 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				revision: workspace.revision + 1,
 				updatedAtMs: allocatedAtMs,
 			});
+			yield* Effect.all(
+				[
+					provider.writeTextFile(
+						sandbox.providerSandboxId,
+						WORKSPACE_BOOTSTRAP_FILE,
+						WORKSPACE_BOOTSTRAP_SOURCE,
+						"zuse",
+					),
+					provider.writeTextFile(
+						sandbox.providerSandboxId,
+						WORKSPACE_REPOSITORY_FILE,
+						WORKSPACE_REPOSITORY_SOURCE,
+						"zuse",
+					),
+				],
+				{ concurrency: "unbounded", discard: true },
+			);
 			const startRuntime = provider.startProcess(sandbox.providerSandboxId, {
-				command: WORKSPACE_BOOTSTRAP_FILE,
+				command: "/bin/bash",
+				args: [WORKSPACE_BOOTSTRAP_FILE],
 				tag: WORKSPACE_RUNTIME_PROCESS.tag,
 				cwd: "/home/zuse",
 				env: {

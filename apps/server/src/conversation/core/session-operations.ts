@@ -23,6 +23,8 @@ import type { SessionCommand } from "@zuse/domain/core/commands";
 import type { CommandReceipt } from "@zuse/domain/engine/dispatch";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import type { SqlSessionQueriesApi } from "@zuse/domain/queries/sql-session-queries";
+import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
+import { structuralTupleKey } from "@zuse/utils/structural-tuple-key";
 import { Effect, Schema, type Scope } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type {
@@ -35,6 +37,16 @@ import {
 	makeProviderSessionRuntime,
 	type ProviderSessionRuntimeOptions,
 } from "./provider-session-runtime.ts";
+import {
+	makeQuestionAnswerDeliveryPayload,
+	parseQuestionAnswerDeliveryPayload,
+	questionAnswerMessageId,
+	questionCancellationCommandId,
+} from "./question-delivery.ts";
+import {
+	lookupDurableQuestionResolution,
+	settleDurableQuestionResolution,
+} from "./question-resolution-receipt.ts";
 
 export interface SessionOperationsOptions
 	extends Omit<
@@ -135,6 +147,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		interruptProviderFiber,
 		teardownSubscription,
 	} = options;
+	const questionResolutionWorker = new KeyedEffectSerialWorker<string>();
 	const listSessions: ConversationOperations["listSessions"] = (
 		projectId,
 		includeArchived,
@@ -479,33 +492,227 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		});
 
 	/**
-	 * Resolve a pending AskUserQuestion. Persist the answer first so a
-	 * crash mid-flight doesn't leave the renderer with no record; then
-	 * forward to the driver, which resolves the deferred Promise and
-	 * lets the SDK turn unwind with the answers as the tool result.
+	 * Resolve a pending AskUserQuestion through a durable delivery intent.
+	 * The public answer receipt is projected only after the live provider
+	 * callback accepts the answer, so a rejected delivery leaves the original
+	 * question visible and retryable.
 	 */
 	const answerQuestion: ConversationOperations["answerQuestion"] = (
 		sessionId,
 		itemId,
 		answers,
 	) =>
-		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
-			const persisted = yield* persistMessage(sessionId, {
-				_tag: "user_question_answer",
-				itemId,
-				answers,
-			});
-			// Broadcast so the renderer sees the answer arrive on
-			// `messages.stream` and the ChatComposer's `pendingQuestion`
-			// selector flips to null — switching the composer slot back
-			// from the QuestionCard to the regular editor. Without this,
-			// the row sits in the DB until the next hydrate.
-			yield* ndjsonAppend(sessionId, persisted);
-			yield* provider
-				.answerQuestion(sessionId, itemId, answers)
-				.pipe(Effect.catch(() => Effect.void));
-		});
+		questionResolutionWorker.run(
+			structuralTupleKey(sessionId, itemId),
+			Effect.gen(function* () {
+				yield* lookupSession(sessionId);
+				const requestedDelivery = makeQuestionAnswerDeliveryPayload(answers);
+				const answerMessageId = questionAnswerMessageId(sessionId, itemId);
+				const receipt = yield* lookupDurableQuestionResolution(
+					sql,
+					sessionId,
+					itemId,
+				);
+				if (receipt._tag === "answer") {
+					const conflicts =
+						receipt.delivery.answerKey !== requestedDelivery.answerKey;
+					yield* settleDurableQuestionResolution(
+						sql,
+						provider,
+						sessionId,
+						itemId,
+						receipt,
+					).pipe(
+						Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+					);
+					if (conflicts) {
+						return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					}
+					return;
+				}
+				if (receipt._tag === "cancel") {
+					yield* settleDurableQuestionResolution(
+						sql,
+						provider,
+						sessionId,
+						itemId,
+						receipt,
+					).pipe(
+						Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+					);
+					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+				}
+				if (receipt._tag === "invalid") {
+					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+				}
+				yield* provider
+					.validateQuestionAnswer(sessionId, itemId, answers)
+					.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+
+				const rows = yield* sql<{
+					readonly action: "answer" | "cancel";
+					readonly answers_json: string | null;
+				}>`
+					SELECT action, answers_json
+				FROM question_answer_deliveries
+				WHERE session_id = ${sessionId} AND item_id = ${itemId}
+				LIMIT 1
+			`.pipe(Effect.orDie);
+				let delivery = rows[0];
+				if (delivery === undefined) {
+					// A durable question reconstructed from disk has no live provider
+					// callback after process death. Do not even record intent until the
+					// replacement provider reattaches that callback.
+					if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
+						return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					}
+					const now = yield* currentTimestamp;
+					yield* sql`
+						INSERT INTO question_answer_deliveries (
+							session_id, item_id, action, answers_json, created_at, updated_at
+						) VALUES (
+							${sessionId}, ${itemId}, 'answer', ${requestedDelivery.answersJson}, ${now}, ${now}
+						)
+					`.pipe(Effect.orDie);
+					delivery = {
+						action: "answer",
+						answers_json: requestedDelivery.answersJson,
+					};
+				}
+				if (delivery.action !== "answer" || delivery.answers_json === null) {
+					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+				}
+				const durableDelivery = parseQuestionAnswerDeliveryPayload(
+					delivery.answers_json,
+				);
+				if (
+					durableDelivery === null ||
+					durableDelivery.answerKey !== requestedDelivery.answerKey
+				) {
+					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+				}
+
+				const persistReceipt = Effect.gen(function* () {
+					const persisted = yield* persistMessage(
+						sessionId,
+						{
+							_tag: "user_question_answer",
+							itemId,
+							answers: durableDelivery.answers,
+						},
+						answerMessageId,
+					);
+					if (persisted.changed) yield* ndjsonAppend(sessionId, persisted);
+				});
+				if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
+					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+				}
+
+				yield* provider
+					.answerQuestion(sessionId, itemId, durableDelivery.answers)
+					.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+				// There is no atomic commit spanning a provider callback and SQLite.
+				// Driver-local settled state makes same-process retries idempotent, but it
+				// intentionally does not survive process death. After restart, an
+				// unreceipted intent still requires the provider to reissue the callback;
+				// never synthesize a public receipt from an ambiguous delivery marker.
+				yield* persistReceipt;
+				yield* sql`
+				DELETE FROM question_answer_deliveries
+				WHERE session_id = ${sessionId} AND item_id = ${itemId}
+			`.pipe(Effect.orDie);
+				yield* provider.acknowledgeQuestionResolution(sessionId, itemId);
+			}),
+		);
+
+	/**
+	 * Cancel a pending question without fabricating an empty answer. The
+	 * provider callback is crossed through the same durable outbox and
+	 * process-local retry authority as answer delivery; QuestionResolved is the
+	 * durable public receipt that removes the interaction without a blank row.
+	 */
+	const cancelQuestion: ConversationOperations["cancelQuestion"] = (
+		sessionId,
+		itemId,
+	) =>
+		questionResolutionWorker.run(
+			structuralTupleKey(sessionId, itemId),
+			Effect.gen(function* () {
+				yield* lookupSession(sessionId);
+				const receipt = yield* lookupDurableQuestionResolution(
+					sql,
+					sessionId,
+					itemId,
+				);
+				if (receipt._tag === "answer" || receipt._tag === "cancel") {
+					yield* settleDurableQuestionResolution(
+						sql,
+						provider,
+						sessionId,
+						itemId,
+						receipt,
+					).pipe(
+						Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+					);
+					if (receipt._tag === "answer") {
+						return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					}
+					return;
+				}
+				if (receipt._tag === "invalid") {
+					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+				}
+
+				const rows = yield* sql<{
+					readonly action: "answer" | "cancel";
+					readonly answers_json: string | null;
+				}>`
+					SELECT action, answers_json
+					FROM question_answer_deliveries
+					WHERE session_id = ${sessionId} AND item_id = ${itemId}
+					LIMIT 1
+				`.pipe(Effect.orDie);
+				const existing = rows[0];
+				if (existing === undefined) {
+					if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
+						return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					}
+					const now = yield* currentTimestamp;
+					yield* sql`
+						INSERT INTO question_answer_deliveries (
+							session_id, item_id, action, answers_json, created_at, updated_at
+						) VALUES (${sessionId}, ${itemId}, 'cancel', NULL, ${now}, ${now})
+					`.pipe(Effect.orDie);
+				} else if (
+					existing.action !== "cancel" ||
+					existing.answers_json !== null
+				) {
+					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+				}
+
+				if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
+					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+				}
+				yield* provider
+					.cancelQuestion(sessionId, itemId)
+					.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+				yield* dispatchSessionCommandWithId(
+					sessionId,
+					questionCancellationCommandId(sessionId, itemId),
+					{
+						_tag: "ResolveQuestion",
+						itemId,
+						resolution: "cancelled",
+						resolvedAt: yield* currentTimestamp,
+					},
+				);
+				yield* sql`
+					DELETE FROM question_answer_deliveries
+					WHERE session_id = ${sessionId} AND item_id = ${itemId}
+				`.pipe(Effect.orDie);
+				yield* provider.acknowledgeQuestionResolution(sessionId, itemId);
+			}),
+		);
 
 	const respondToPlan: ConversationOperations["respondToPlan"] = (
 		sessionId,
@@ -711,6 +918,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		setRuntimeMode,
 		setPermissionMode,
 		answerQuestion,
+		cancelQuestion,
 		respondToPlan,
 		updateMcpServers,
 		setWorktree,

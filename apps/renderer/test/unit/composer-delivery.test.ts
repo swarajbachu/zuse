@@ -22,6 +22,7 @@ describe("composer cloud delivery routing", () => {
 					{
 						commandId: CommandId.make(`command-${deliveryPhase}`),
 						kind: "messages.send",
+						targetId: null,
 						submittedAt: 1,
 						deliveryPhase,
 					},
@@ -33,6 +34,7 @@ describe("composer cloud delivery routing", () => {
 				{
 					commandId: CommandId.make("queue-add"),
 					kind: "messages.queue.add",
+					targetId: null,
 					submittedAt: 1,
 				},
 			]),
@@ -142,6 +144,7 @@ describe("composer cloud delivery routing", () => {
 				{
 					commandId,
 					kind: "messages.send",
+					targetId: null,
 					submittedAt: 1,
 					deliveryPhase,
 					cancellable: true,
@@ -160,6 +163,7 @@ describe("composer cloud delivery routing", () => {
 				{
 					commandId: CommandId.make("command-leased"),
 					kind: "messages.send",
+					targetId: null,
 					submittedAt: 1,
 					deliveryPhase: "leased",
 					cancellable: false,
@@ -179,6 +183,7 @@ describe("composer cloud delivery routing", () => {
 				{
 					commandId,
 					kind: "messages.send",
+					targetId: null,
 					submittedAt: 1,
 					deliveryPhase: "blocked",
 					category,
@@ -222,6 +227,7 @@ describe("mailbox queue presentation", () => {
 				{
 					commandId: CommandId.make("message-send:queued"),
 					kind: "messages.send",
+					targetId: null,
 					submittedAt: 1,
 					deliveryPhase,
 				},
@@ -240,6 +246,7 @@ describe("mailbox queue presentation", () => {
 				{
 					commandId: CommandId.make("message-send:queued"),
 					kind: "messages.send",
+					targetId: null,
 					submittedAt: 1,
 					deliveryPhase,
 				},
@@ -262,6 +269,7 @@ describe("mailbox queue presentation", () => {
 					{
 						commandId: CommandId.make("unrelated-command"),
 						kind: "session.update",
+						targetId: null,
 						submittedAt: 1,
 					},
 				],

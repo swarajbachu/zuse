@@ -292,6 +292,8 @@ describe("mobile UI contracts", () => {
 		expect(scanner).toContain("<CameraView");
 		expect(scanner).toContain("active");
 		expect(scanner).toContain("style={StyleSheet.absoluteFill}");
+		expect(scanner).toContain('permission.canAskAgain ? "Continue"');
+		expect(scanner).not.toContain('permission.canAskAgain ? "Allow camera"');
 	});
 
 	test("uses visible native header symbols with transparent targets", () => {

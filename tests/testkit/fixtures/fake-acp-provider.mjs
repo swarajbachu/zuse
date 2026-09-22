@@ -19,6 +19,8 @@ if (process.argv.includes("--version")) {
 const scenario = process.env.ZUSE_FAKE_ACP_SCENARIO || "complete";
 const sessions = new Map();
 const pendingPrompts = new Map();
+const heldResumedQuestions = [];
+let retainNextQuestionAnswer = false;
 let control = null;
 
 const stateDirectory = process.env.ZUSE_FAKE_ACP_STATE_DIR || "";
@@ -58,6 +60,42 @@ const complete = (id, sessionId, suffix = "") => {
 	pendingPrompts.delete(id);
 	report("prompt.completed", { sessionId });
 };
+let nextQuestionRequestId = 700000;
+const createQuestion = (sessionId) => ({
+	sessionId,
+	toolCallId: `fake-question:${sessionId}`,
+	questions: [
+		{
+			question: "How should the pending change be handled?",
+			options: [
+				{
+					label: "Keep changes",
+					description: "Continue with the current changes.",
+				},
+				{
+					label: "Discard changes",
+					description: "Continue without the current changes.",
+				},
+			],
+			multiSelect: false,
+		},
+	],
+	mode: "default",
+});
+const issueQuestion = (sessionId, question, pending, resumed) => {
+	const requestId = nextQuestionRequestId++;
+	pendingPrompts.set(requestId, pending);
+	write({
+		jsonrpc: "2.0",
+		id: requestId,
+		method: "_x.ai/ask_user_question",
+		params: question,
+	});
+	report(resumed ? "question.resumed" : "question.requested", {
+		sessionId,
+		toolCallId: question.toolCallId,
+	});
+};
 
 const controlPort = Number(process.env.ZUSE_FAKE_ACP_CONTROL_PORT || 0);
 if (controlPort > 0) {
@@ -76,6 +114,11 @@ if (controlPort > 0) {
 			const pending = [...pendingPrompts.entries()][0];
 			if (command.action === "complete" && pending) {
 				complete(pending[0], pending[1], command.text || " world");
+			} else if (command.action === "retain-next-question-answer") {
+				retainNextQuestionAnswer = true;
+				report("question.answer-retention-armed");
+			} else if (command.action === "resume-question") {
+				for (const resume of heldResumedQuestions.splice(0)) resume();
 			} else if (command.action === "crash") {
 				process.exit(Number(command.code || 42));
 			}
@@ -103,7 +146,11 @@ const handleRequest = (message) => {
 	}
 	if (method === "session/new") {
 		const sessionId = `fake-acp-${randomUUID()}`;
-		const state = { cwd: params.cwd, pendingPermission: null };
+		const state = {
+			cwd: params.cwd,
+			pendingPermission: null,
+			pendingQuestion: null,
+		};
 		sessions.set(sessionId, state);
 		writeSession(sessionId, state);
 		write({ jsonrpc: "2.0", id, result: { sessionId } });
@@ -120,7 +167,12 @@ const handleRequest = (message) => {
 			});
 			return;
 		}
-		const state = { ...persisted, cwd: params.cwd };
+		const state = {
+			pendingPermission: null,
+			pendingQuestion: null,
+			...persisted,
+			cwd: params.cwd,
+		};
 		sessions.set(params.sessionId, state);
 		writeSession(params.sessionId, state);
 		if (state.pendingPermission !== null) {
@@ -137,6 +189,24 @@ const handleRequest = (message) => {
 				params: state.pendingPermission,
 			});
 			report("permission.resumed", { sessionId: params.sessionId });
+			return;
+		}
+		if (state.pendingQuestion !== null) {
+			write({ jsonrpc: "2.0", id, result: { sessionId: params.sessionId } });
+			report("session.loaded", { sessionId: params.sessionId });
+			const resumeQuestion = () =>
+				issueQuestion(
+					params.sessionId,
+					state.pendingQuestion,
+					{ kind: "resumed-question", sessionId: params.sessionId },
+					true,
+				);
+			if (scenario === "question-quarantine") {
+				heldResumedQuestions.push(resumeQuestion);
+				report("question.resume-held", { sessionId: params.sessionId });
+			} else {
+				setImmediate(resumeQuestion);
+			}
 			return;
 		}
 		write({ jsonrpc: "2.0", id, result: { sessionId: params.sessionId } });
@@ -179,6 +249,22 @@ const handleRequest = (message) => {
 			report("permission.requested", { sessionId });
 			return;
 		}
+		if (scenario === "question" || scenario === "question-quarantine") {
+			const previous = sessions.get(sessionId);
+			const question = previous?.pendingQuestion ?? createQuestion(sessionId);
+			const state = previous ?? { cwd: process.cwd() };
+			const resumed = state.pendingQuestion !== null;
+			const nextState = { ...state, pendingQuestion: question };
+			sessions.set(sessionId, nextState);
+			writeSession(sessionId, nextState);
+			issueQuestion(
+				sessionId,
+				question,
+				{ kind: "prompt-question", promptId: id, sessionId },
+				resumed,
+			);
+			return;
+		}
 		update(
 			sessionId,
 			scenario === "hold" ? "Hello" : "Hello from deterministic provider.",
@@ -219,6 +305,18 @@ input.on("line", (line) => {
 	}
 	if (message.id !== undefined && pendingPrompts.has(message.id)) {
 		const pending = pendingPrompts.get(message.id);
+		if (
+			retainNextQuestionAnswer &&
+			(pending?.kind === "prompt-question" ||
+				pending?.kind === "resumed-question")
+		) {
+			retainNextQuestionAnswer = false;
+			report("question.answer-rejected", {
+				sessionId: pending.sessionId,
+				outcome: message.result?.outcome,
+			});
+			return;
+		}
 		pendingPrompts.delete(message.id);
 		if (pending?.kind === "resumed-permission") {
 			const state = sessions.get(pending.sessionId);
@@ -242,6 +340,26 @@ input.on("line", (line) => {
 				writeSession(pending.sessionId, nextState);
 			}
 			complete(pending.promptId, pending.sessionId, "Permission accepted.");
+		} else if (
+			pending?.kind === "prompt-question" ||
+			pending?.kind === "resumed-question"
+		) {
+			const state = sessions.get(pending.sessionId);
+			if (state !== undefined) {
+				const nextState = { ...state, pendingQuestion: null };
+				sessions.set(pending.sessionId, nextState);
+				writeSession(pending.sessionId, nextState);
+			}
+			if (pending.kind === "prompt-question") {
+				complete(pending.promptId, pending.sessionId, "Question answered.");
+			} else {
+				update(pending.sessionId, "Question answered.");
+			}
+			report("question.continued", {
+				sessionId: pending.sessionId,
+				outcome: message.result?.outcome,
+				answers: message.result?.answers,
+			});
 		}
 	}
 });

@@ -92,6 +92,10 @@ export const codexReasoningModel = (
 	options: {
 		readonly defaultModel?: boolean;
 		readonly badgeLabel?: string;
+		readonly additionalReasoningOptions?: ReadonlyArray<{
+			id: ReasoningLevel;
+			label: string;
+		}>;
 	} = {},
 ): ModelOption => ({
 	id,
@@ -101,7 +105,10 @@ export const codexReasoningModel = (
 		: {}),
 	...(options.defaultModel === true ? { defaultModel: true } : {}),
 	optionDescriptors: [
-		reasoningSelectDescriptor("medium", codexExtendedReasoningOptions),
+		reasoningSelectDescriptor(
+			"medium",
+			options.additionalReasoningOptions ?? codexExtendedReasoningOptions,
+		),
 	],
 	supportsPlanMode: true,
 	supportsWebSearch: "native",
@@ -186,6 +193,7 @@ export const claudeCodeModel = (
 	options: {
 		readonly defaultModel?: boolean;
 		readonly badgeLabel?: string;
+		readonly defaultEffort?: string;
 		readonly effortOptions?: ReadonlyArray<{ id: string; label: string }>;
 		readonly fastMode?: boolean;
 		readonly contextWindow?: "selectable" | "1m";
@@ -200,7 +208,7 @@ export const claudeCodeModel = (
 	optionDescriptors: [
 		claudeEffortDescriptor({
 			options: options.effortOptions ?? CLAUDE_FULL_EFFORT_OPTIONS,
-			defaultId: "high",
+			defaultId: options.defaultEffort ?? "high",
 		}),
 		...(options.fastMode === true
 			? [booleanDescriptor("fastMode", "Fast Mode")]

@@ -210,6 +210,11 @@ import {
 	sanitizeRemoteDiagnosticValue,
 } from "./remote-diagnostic-sanitizer.ts";
 import {
+	createRendererAssetHandler,
+	PACKAGED_RENDERER_URL,
+	RENDERER_ASSET_HOST,
+} from "./renderer-assets.ts";
+import {
 	prepareCloudSshAccess,
 	sshTargetLaunch,
 } from "./ssh/cloud-ssh-service.ts";
@@ -396,6 +401,8 @@ protocol.registerSchemesAsPrivileged([
 	{
 		scheme: "zuse",
 		privileges: {
+			codeCache: true,
+			corsEnabled: true,
 			secure: true,
 			standard: true,
 			supportFetchAPI: true,
@@ -2001,8 +2008,8 @@ async function createMainWindow() {
 		void mainWindow.loadURL(DEV_SERVER_URL);
 		mainWindow.webContents.openDevTools({ mode: "right" });
 	} else {
-		const rendererIndex = Path.join(rendererDistDir(), "index.html");
-		void mainWindow.loadFile(rendererIndex);
+		// Use the secure standard origin for concurrent split-module loading.
+		void mainWindow.loadURL(PACKAGED_RENDERER_URL);
 	}
 
 	const [apiPort, networkAccessEnabled] = await startupPrerequisites;
@@ -3677,6 +3684,17 @@ const isServableAttachmentPath = (
 };
 
 const registerZuseProtocol = (): void => {
+	const handleRendererAsset = createRendererAssetHandler({
+		rendererRoot: rendererDistDir(),
+		fetchFile: async (absolutePath) => {
+			// Do not delegate renderer chunks back to Chromium's file:// loader.
+			// Large split builds can exhaust that loader's concurrent resources;
+			// serving build-owned bytes here keeps the zuse:// module graph on one
+			// secure origin and avoids the file URL request pool entirely.
+			const bytes = await fs.readFile(absolutePath);
+			return new Response(Uint8Array.from(bytes));
+		},
+	});
 	const attachmentsDir = Path.join(app.getPath("userData"), "attachments");
 	const pokemonDir = Path.join(app.getPath("userData"), "pokemon-sprites");
 	const attachmentFilenames: AssetFilenameCache = {
@@ -3694,6 +3712,9 @@ const registerZuseProtocol = (): void => {
 			return fetchSiteFavicon(url.pathname.slice(1), (input, init) =>
 				net.fetch(input, init),
 			);
+		}
+		if (url.host === RENDERER_ASSET_HOST) {
+			return handleRendererAsset(request);
 		}
 		if (url.host === LINEAR_CONTEXT_HOST) {
 			try {

@@ -1,8 +1,7 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
-import { FolderId } from "./ids.ts";
-import { SessionId } from "./session.ts";
+import { FolderId, AgentSessionId as SessionId } from "./ids.ts";
 
 /**
  * What the agent is asking permission to do. The discriminated union keeps the

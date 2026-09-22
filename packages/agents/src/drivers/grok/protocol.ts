@@ -188,27 +188,6 @@ export const decodePlanApprovalRequest = (
 	return { ...decoded, planContent: decoded.planContent ?? "" };
 };
 
-const QuestionOption = Schema.Struct({
-	label: Schema.String,
-	description: Schema.String,
-	preview: Schema.optional(Schema.String),
-});
-const NativeQuestion = Schema.Struct({
-	question: Schema.String,
-	options: Schema.Array(QuestionOption),
-	multiSelect: Schema.optional(Schema.Boolean),
-});
-const AskUserQuestionRequest = Schema.Struct({
-	sessionId: Schema.String,
-	toolCallId: Schema.String,
-	questions: Schema.Array(NativeQuestion),
-	mode: Schema.Literals(["default", "plan"]),
-});
-export type GrokAskUserQuestionRequest = typeof AskUserQuestionRequest.Type;
-export const decodeAskUserQuestionRequest = Schema.decodeUnknownSync(
-	AskUserQuestionRequest,
-);
-
 export const normalizeGrokMethod = (method: string): string =>
 	method.startsWith("_x.ai/") ? method.slice(1) : method;
 

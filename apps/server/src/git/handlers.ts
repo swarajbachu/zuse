@@ -3,6 +3,10 @@ import { GitService } from "@zuse/git/git-service";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
 import { Effect, Layer, Semaphore, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import {
+	GitCheckoutProjectionState,
+	gitCheckoutIdentity,
+} from "./checkout-projection-state.ts";
 
 const Log = MemoizeRpcs.toLayerHandler("git.log", ({ folderId, limit }) =>
 	Effect.flatMap(GitService, (svc) => svc.log(folderId, limit)),
@@ -62,12 +66,8 @@ const WorkspaceChanges = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-const snapshotVersions = new Map<string, number>();
 const snapshotWorker = new KeyedEffectSerialWorker<string>();
-const prSnapshotCache = new Map<
-	string,
-	{ readonly value: GitPrInfo; readonly nextPollAt: number }
->();
+const checkoutProjectionState = new GitCheckoutProjectionState<GitPrInfo>();
 const localGitPermits = Semaphore.makeUnsafe(4);
 const githubPermits = Semaphore.makeUnsafe(2);
 const emptyPrSnapshot = (branch: string | null): GitPrInfo =>
@@ -102,28 +102,49 @@ const prPollDelay = (pr: GitPrInfo): number => {
 					: 60_000;
 	return Math.round(base * (0.9 + Math.random() * 0.2));
 };
+const refreshPrSnapshot = (
+	svc: GitService["Service"],
+	folderId: Parameters<GitService["Service"]["prState"]>[0],
+	worktreeId: Parameters<GitService["Service"]["prState"]>[1],
+): Effect.Effect<void> =>
+	Effect.suspend(() => {
+		const refresh = checkoutProjectionState.beginPrRefresh(
+			gitCheckoutIdentity(folderId, worktreeId),
+		);
+		return githubPermits
+			.withPermits(1)(svc.prState(folderId, worktreeId))
+			.pipe(
+				Effect.tap((observed) =>
+					Effect.sync(() => {
+						checkoutProjectionState.commitPrRefresh(refresh, {
+							value: observed,
+							nextPollAt: Date.now() + prPollDelay(observed),
+						});
+					}),
+				),
+				Effect.catch(() => Effect.void),
+			);
+	});
 const WorkspaceSnapshot = MemoizeRpcs.toLayerHandler(
 	"git.workspaceSnapshot",
 	({ folderId, worktreeId }) => {
 		const selectedWorktree = worktreeId ?? null;
-		const identity = `${folderId}:${selectedWorktree ?? "main"}`;
+		const identity = gitCheckoutIdentity(folderId, selectedWorktree);
 		return snapshotWorker.run(
 			identity,
 			Effect.gen(function* () {
 				const svc = yield* GitService;
 				const now = Date.now();
-				const [status, summary] = yield* Effect.all(
-					[
-						localGitPermits.withPermits(1)(
-							svc.status(folderId, selectedWorktree),
-						),
-						localGitPermits.withPermits(1)(
-							svc.reviewSummary(folderId, selectedWorktree, "branch"),
-						),
-					],
-					{ concurrency: 2 },
+				const local = yield* localGitPermits.withPermits(1)(
+					svc.workspaceSnapshot(folderId, selectedWorktree),
 				);
-				const cachedPr = prSnapshotCache.get(identity);
+				const {
+					status,
+					changes,
+					reviewSummary: summary,
+					localFingerprint,
+				} = local;
+				const cachedPr = checkoutProjectionState.getPrSnapshot(identity);
 				const pr = cachedPr?.value ?? emptyPrSnapshot(status.branch);
 				const shouldPollPr =
 					cachedPr === undefined || cachedPr.nextPollAt <= now;
@@ -132,10 +153,11 @@ const WorkspaceSnapshot = MemoizeRpcs.toLayerHandler(
 					// snapshots cannot launch duplicate `gh` processes. GitHub is never
 					// on the local-status critical path; the next reconciliation observes
 					// the completed cached value.
-					prSnapshotCache.set(identity, {
+					checkoutProjectionState.setPrSnapshot(identity, {
 						value: pr,
 						nextPollAt: now + 10_000,
 					});
+					const refresh = checkoutProjectionState.beginPrRefresh(identity);
 					yield* Effect.sync(() => {
 						Effect.runFork(
 							githubPermits
@@ -143,7 +165,7 @@ const WorkspaceSnapshot = MemoizeRpcs.toLayerHandler(
 								.pipe(
 									Effect.tap((observed) =>
 										Effect.sync(() => {
-											prSnapshotCache.set(identity, {
+											checkoutProjectionState.commitPrRefresh(refresh, {
 												value: observed,
 												nextPollAt: Date.now() + prPollDelay(observed),
 											});
@@ -154,10 +176,13 @@ const WorkspaceSnapshot = MemoizeRpcs.toLayerHandler(
 						);
 					});
 				}
-				const projectionVersion = (snapshotVersions.get(identity) ?? 0) + 1;
-				snapshotVersions.set(identity, projectionVersion);
+				const projectionVersion =
+					checkoutProjectionState.nextProjectionVersion(identity);
 				return GitWorkspaceSnapshot.make({
 					status,
+					changes,
+					reviewSummary: summary,
+					localFingerprint,
 					pr,
 					diffStat: {
 						additions: summary.additions,
@@ -303,7 +328,15 @@ const Commit = MemoizeRpcs.toLayerHandler(
 const Push = MemoizeRpcs.toLayerHandler(
 	"git.push",
 	({ folderId, worktreeId }) =>
-		Effect.flatMap(GitService, (svc) => svc.push(folderId, worktreeId ?? null)),
+		Effect.flatMap(GitService, (svc) =>
+			svc
+				.push(folderId, worktreeId ?? null)
+				.pipe(
+					Effect.tap(() =>
+						refreshPrSnapshot(svc, folderId, worktreeId ?? null),
+					),
+				),
+		),
 );
 
 const Pull = MemoizeRpcs.toLayerHandler(
@@ -370,7 +403,13 @@ const MergePr = MemoizeRpcs.toLayerHandler(
 	"git.mergePr",
 	({ folderId, worktreeId, action, method, deleteBranch }) =>
 		Effect.flatMap(GitService, (svc) =>
-			svc.mergePr(folderId, action, method, deleteBranch, worktreeId ?? null),
+			svc
+				.mergePr(folderId, action, method, deleteBranch, worktreeId ?? null)
+				.pipe(
+					Effect.tap(() =>
+						refreshPrSnapshot(svc, folderId, worktreeId ?? null),
+					),
+				),
 		),
 );
 
@@ -378,7 +417,13 @@ const MarkReady = MemoizeRpcs.toLayerHandler(
 	"git.markReady",
 	({ folderId, worktreeId, state }) =>
 		Effect.flatMap(GitService, (svc) =>
-			svc.markReady(folderId, worktreeId ?? null, state),
+			svc
+				.markReady(folderId, worktreeId ?? null, state)
+				.pipe(
+					Effect.tap(() =>
+						refreshPrSnapshot(svc, folderId, worktreeId ?? null),
+					),
+				),
 		),
 );
 

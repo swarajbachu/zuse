@@ -118,7 +118,7 @@ Pi: install with `npm install -g --ignore-scripts @earendil-works/pi-coding-agen
 - `Cmd+P` searches files in the current project or worktree, also available from quick actions and the file-tree header
 - Resizable panes
 - Top bar with active session info
-- PTY terminal (xterm.js + node-pty)
+- PTY terminal (Ghostty VT + node-pty)
 - macOS Keep Mac awake modes: Auto while an agent or authenticated remote
   client is active, Always, or Off, with live status in General settings
 
@@ -141,7 +141,7 @@ Pi: install with `npm install -g --ignore-scripts @earendil-works/pi-coding-agen
 | State | Zustand (ephemeral) + SQLite (persistent) |
 | IPC | @effect/rpc with Electron IPC transport |
 | Runtime | Effect.ts (Layer, Stream, Schema) |
-| Terminal | xterm.js + node-pty |
+| Terminal | Ghostty VT (WebAssembly/native) + node-pty |
 | Editor | CodeMirror 6 |
 | Monorepo | Bun workspaces + Turbo |
 

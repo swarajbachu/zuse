@@ -1,6 +1,15 @@
-import type { ConnectionPhase } from "@zuse/client-runtime/resource-state";
-import type { CloudChatSummary } from "@zuse/contracts";
-import type { SessionRuntimeState } from "./session-runtime-state.ts";
+import type {
+	ConnectionPhase,
+	ResourceView,
+} from "@zuse/client-runtime/resource-state";
+import type {
+	CloudChatSummary,
+	SessionTimelineProjection,
+} from "@zuse/contracts";
+import {
+	runtimeStateFromTimeline,
+	type SessionRuntimeState,
+} from "./session-runtime-state.ts";
 
 export type CloudChatActivity =
 	| "idle"
@@ -16,6 +25,7 @@ export type CloudChatActivityInput = {
 	readonly summary: CloudChatSummary;
 	readonly connection: ConnectionPhase;
 	readonly runtime: SessionRuntimeState;
+	readonly timeline?: ResourceView<SessionTimelineProjection>;
 };
 
 /** Whether the durable cloud lifecycle still owns the initial chat setup UI. */
@@ -44,6 +54,7 @@ export const deriveCloudChatActivity = ({
 	summary,
 	connection,
 	runtime,
+	timeline,
 }: CloudChatActivityInput): CloudChatActivity => {
 	if (
 		summary.state === "failed" ||
@@ -53,15 +64,31 @@ export const deriveCloudChatActivity = ({
 	)
 		return "failed";
 	if (summary.state === "paused") return "paused";
-	if (connection === "failed") return "failed";
 
 	const computeReady =
 		summary.state === "ready" && summary.runtimeState === "online";
 
+	// A turn observed from this live runtime remains interruptible while its
+	// transport reconnects or history synchronizes. Disk/checkpoint state cannot
+	// establish liveness, and the durable compute lifecycle still wins above.
+	if (
+		computeReady &&
+		timeline?.origin === "runtime" &&
+		timeline.data?.currentTurn != null
+	) {
+		const observed = runtimeStateFromTimeline(timeline.data);
+		if (observed === "running" || observed === "stopping") {
+			return timeline.pendingCommands.some(
+				(command) => command.kind === "messages.interrupt",
+			)
+				? "stopping"
+				: observed;
+		}
+	}
+
 	// A paused durable workspace cannot still be executing. Cached session state
 	// may describe the turn that completed before the sandbox paused, so the
 	// durable compute lifecycle must win once there is no command waiting.
-	if (runtime === "failed") return "failed";
 	if (
 		!computeReady &&
 		connection !== "connected" &&
@@ -70,6 +97,10 @@ export const deriveCloudChatActivity = ({
 			summary.statusCode.startsWith("resume-"))
 	)
 		return "resuming";
+
+	// A retained socket failure is expected while compute wakes. Only surface
+	// transport/turn failures after the durable resume lifecycle has finished.
+	if (connection === "failed" || runtime === "failed") return "failed";
 
 	// Cached turn state is not evidence that a disconnected runtime is working.
 	if (connection !== "connected")

@@ -2,18 +2,14 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-	type AgentEvent,
-	AgentItemId,
-	AgentSessionId,
-	FolderId,
-} from "@zuse/contracts";
+import { AgentItemId, AgentSessionId, FolderId } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startPiSession } from "../../../src/drivers/pi.ts";
 import { loadPiInventory } from "../../../src/drivers/pi-inventory.ts";
 import { PiRpcClient } from "../../../src/drivers/pi-rpc.ts";
 import { AttachmentService } from "../../../src/kernel/attachment-service.ts";
+import type { ProviderDriverEvent } from "../../../src/kernel/driver.ts";
 
 const binary = fileURLToPath(
 	new URL("../../fixtures/fake-pi.mjs", import.meta.url),
@@ -71,7 +67,7 @@ const start = async (
 			}),
 		),
 	);
-	const events: AgentEvent[] = [];
+	const events: ProviderDriverEvent[] = [];
 	const fiber = Effect.runFork(
 		Stream.runForEach(handle.events, (event) =>
 			Effect.sync(() => {

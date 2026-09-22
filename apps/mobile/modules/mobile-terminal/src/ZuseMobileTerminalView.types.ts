@@ -24,7 +24,6 @@ export type ZuseMobileTerminalViewProps = ViewProps & {
 	readonly fontSize?: number;
 	readonly focusNonce?: number;
 	readonly controlNonce?: number;
-	readonly useMetal?: boolean;
 	readonly onInput?: (event: TerminalInputEvent) => void;
 	readonly onResize?: (event: TerminalResizeEvent) => void;
 	readonly onOpenLink?: (event: TerminalLinkEvent) => void;

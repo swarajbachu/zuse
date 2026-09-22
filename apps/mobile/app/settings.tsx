@@ -1,7 +1,14 @@
 import { useAtomValue } from "@effect/atom-react";
 import { router, Stack } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, Text, View } from "react-native";
+import {
+	ActivityIndicator,
+	Alert,
+	Linking,
+	ScrollView,
+	Text,
+	View,
+} from "react-native";
 
 import { ListRow, ListSection } from "~/components/ui/list";
 import { captureMobileAnalytics } from "~/lib/analytics";
@@ -457,6 +464,21 @@ export default function SettingsScreen() {
 						/>
 					</ListSection>
 				)}
+				<ListSection header="About">
+					<ListRow
+						symbol="hand.raised.fill"
+						iconTone="neutral"
+						title="Privacy Policy"
+						onPress={() => {
+							void Linking.openURL("https://zuse.sh/privacy").catch(() => {
+								Alert.alert(
+									"Could not open Privacy Policy",
+									"Visit https://zuse.sh/privacy in your browser.",
+								);
+							});
+						}}
+					/>
+				</ListSection>
 			</ScrollView>
 		</>
 	);
