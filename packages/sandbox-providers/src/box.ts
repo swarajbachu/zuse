@@ -397,14 +397,14 @@ export const makeBoxSandboxProvider = (
 			// Boat advertises ready while system paths may still use its temporary
 			// FUSE restore view. Writes there can acquire uid 1000 or disappear at
 			// handover. Do not modify the layout or start Zuse until disk mounts win.
-			'for root in /usr /etc /opt /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in fuse*) exit 75 ;; "") exit 1 ;; esac; done',
+			'for root in /usr /etc /opt /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in *fuse*) exit 75 ;; "") exit 1 ;; esac; done',
 			...(requirePersistedLayout
 				? [`sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER}`]
 				: []),
 			`if sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER} && [ "$(readlink /home/zuse)" = "${BOX_PERSISTED_RUNTIME_ROOT}/home" ] && [ "$(readlink /home/repos)" = "${BOX_PERSISTED_RUNTIME_ROOT}/repos" ] && test -d /home/zuse/.zuse-data && test -d /home/zuse/.ssh && test -d /home/repos; then sudo -n install -d -m 0700 -o zuse -g zuse /run/zuse-secrets; exit $?; fi`,
 			`sudo -n install -d -m 0755 -o root -g root ${BOX_PERSISTED_RUNTIME_ROOT}`,
 			`sudo -n install -d -m 0755 -o zuse -g zuse ${BOX_PERSISTED_RUNTIME_ROOT}/home ${BOX_PERSISTED_RUNTIME_ROOT}/repos`,
-			`for mapping in /home/zuse:${BOX_PERSISTED_RUNTIME_ROOT}/home /home/repos:${BOX_PERSISTED_RUNTIME_ROOT}/repos; do logical="\${mapping%%:*}"; persistent="\${mapping#*:}"; if [ "$(readlink "$logical" 2>/dev/null || true)" != "$persistent" ]; then if sudo -n test -d "$logical"; then sudo -n cp -a "$logical"/. "$persistent"/; fi; sudo -n chown -R zuse:zuse "$persistent"; sudo -n rm -rf -- "$logical"; sudo -n ln -s "$persistent" "$logical"; fi; done`,
+			`for mapping in /home/zuse:${BOX_PERSISTED_RUNTIME_ROOT}/home /home/repos:${BOX_PERSISTED_RUNTIME_ROOT}/repos; do logical="\${mapping%%:*}"; persistent="\${mapping#*:}"; if [ "$(readlink "$logical" 2>/dev/null || true)" != "$persistent" ]; then if sudo -n test -d "$logical"; then sudo -n cp -an "$logical"/. "$persistent"/; fi; sudo -n chown -R zuse:zuse "$persistent"; sudo -n rm -rf -- "$logical"; sudo -n ln -s "$persistent" "$logical"; fi; done`,
 			"sudo -n install -d -m 0755 -o zuse -g zuse /home/zuse/.zuse-data",
 			"sudo -n install -d -m 0700 -o zuse -g zuse /home/zuse/.ssh /run/zuse-secrets",
 			"if sudo -n test -f /usr/local/share/zuse/sshd_config; then sudo -n install -m 0600 -o zuse -g zuse /usr/local/share/zuse/sshd_config /home/zuse/.ssh/sshd_config; fi",

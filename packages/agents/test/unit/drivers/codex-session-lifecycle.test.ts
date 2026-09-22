@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
 import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
 import {
 	type CodexSessionHandle,
@@ -54,9 +55,11 @@ const installAppServer = (
 	let mcpInventoryReads = 0;
 	let startupTerminated = false;
 	let terminate: ((error: Error) => void) | undefined;
+	let notify: ((notification: ServerNotification) => void) | undefined;
 	vi.spyOn(CodexAppServerClient, "start").mockImplementation(
 		async (options) => {
 			terminate = options.onUnexpectedTermination;
+			notify = options.onNotification;
 			appServerRequest = options.onServerRequest;
 			appServerExit = options.onUnexpectedTermination ?? null;
 			return {
@@ -144,6 +147,10 @@ const installAppServer = (
 		},
 	);
 	return {
+		notify: (notification: ServerNotification) => {
+			if (notify === undefined) throw new Error("App server is not running");
+			notify(notification);
+		},
 		terminate: (error: Error) => {
 			if (terminate === undefined) throw new Error("App server is not running");
 			terminate(error);
@@ -295,6 +302,48 @@ describe("Codex session cursor persistence", () => {
 			),
 		});
 		expect(CodexAppServerClient.start).toHaveBeenCalledTimes(1);
+	});
+
+	it("continues delivering output after a retryable stream error", async () => {
+		await withSession({}, async (handle, appServer) => {
+			const scoped = await Effect.runPromise(
+				makeTurnScopedSessionHandle(handle),
+			);
+			const collected = Effect.runFork(Stream.runCollect(scoped.events));
+			const turnId = "turn-retry" as AgentTurnId;
+			await Effect.runPromise(scoped.send(turnId, "hello"));
+			appServer.notify({
+				method: "error",
+				params: {
+					threadId: "fresh-thread",
+					turnId: "turn-1",
+					willRetry: true,
+					error: {
+						message: "Reconnecting... 2/5",
+						codexErrorInfo: null,
+						additionalDetails: null,
+					},
+				},
+			});
+			appServer.notify({
+				method: "item/agentMessage/delta",
+				params: {
+					threadId: "fresh-thread",
+					turnId: "turn-1",
+					itemId: "reply",
+					delta: "Recovered response",
+				},
+			});
+			await Effect.runPromise(Effect.sleep("30 millis"));
+			await Effect.runPromise(handle.close());
+			const events = Array.from(
+				await Effect.runPromise(
+					Fiber.join(collected).pipe(Effect.timeout("2 seconds")),
+				),
+			);
+			expect(events.some((event) => event.event._tag === "Error")).toBe(false);
+			expect(JSON.stringify(events)).toContain("Recovered response");
+		});
 	});
 
 	it("publishes one terminal error and ends after app-server termination", async () => {

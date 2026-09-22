@@ -428,6 +428,33 @@ describe("cloud workspace reconciler", () => {
 		]);
 	});
 
+	test("renews a running machine before replacing its runtime", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-restart-running",
+					state: "resuming",
+					desiredState: "ready",
+					statusCode: "restart-queued",
+					requestConfig: { runtimeGeneration: 4, gatewayEpoch: 4 },
+				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const extend = vi.spyOn(provider, "extendTimeout");
+				const replace = vi.spyOn(provider, "replaceProcess");
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				expect(extend).toHaveBeenCalledWith(workspace.providerSandboxId, 600);
+				const replacementOrder = replace.mock.invocationCallOrder[0];
+				if (replacementOrder === undefined)
+					throw new Error("runtime not replaced");
+				expect(extend.mock.invocationCallOrder[0]).toBeLessThan(
+					replacementOrder,
+				);
+				extend.mockRestore();
+				replace.mockRestore();
+			}).pipe(Effect.provide(testLayer)),
+		);
+	});
+
 	test("gives an enrolled runtime a fresh gateway connection window", async () => {
 		const enrolledAt = Date.now();
 		const result = await Effect.runPromise(

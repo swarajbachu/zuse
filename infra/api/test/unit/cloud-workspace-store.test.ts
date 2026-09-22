@@ -2918,7 +2918,11 @@ describe("cloud workspace store", () => {
 			desiredState: "ready" as const,
 			statusCode: "agent-starting",
 			idempotencyKey: "workspace-launch-completion-key",
-			requestConfig: { startupTimings: { requestedAt: 100 } },
+			requestConfig: {
+				startupTimings: { requestedAt: 100 },
+				launchErrorCode: "runtime-storage-replaced",
+				startupFailureDiagnostic: "old failure",
+			},
 			nextActionAtMs: 100,
 			revision: 2,
 			createdAtMs: 100,
@@ -2948,6 +2952,11 @@ describe("cloud workspace store", () => {
 				nextActionAtMs: 10_000,
 			}),
 		);
+		const recovered = await runtime.runPromise(
+			store.getWorkspace(workspace.workspaceId),
+		);
+		expect(recovered?.requestConfig.launchErrorCode).toBeUndefined();
+		expect(recovered?.requestConfig.startupFailureDiagnostic).toBeUndefined();
 		expect(completed).toMatchObject({
 			kind: "completed",
 			workspace: {

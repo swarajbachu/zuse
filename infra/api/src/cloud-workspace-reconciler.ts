@@ -1227,6 +1227,13 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 						"provider.resume",
 					),
 				);
+		// A runtime-only restart does not call resume, so renew its existing
+		// machine lease before downloading or authenticating the runtime.
+		if (running)
+			yield* provider.extendTimeout(
+				providerSandboxId,
+				config.keepAliveTimeoutSeconds,
+			);
 		const boot = yield* issueWorkspaceRuntimeBoot(nowMs);
 		yield* Effect.all(
 			[
