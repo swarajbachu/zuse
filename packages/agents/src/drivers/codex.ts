@@ -1286,6 +1286,15 @@ export const translateCodexStatusNotification = (
 	activeThreadId: string | null,
 ): ReadonlyArray<AgentEvent> | null => {
 	switch (notification.method) {
+		case "error":
+			// Codex keeps the turn alive while retrying a disconnected stream.
+			// Emitting Error here would settle Zuse's turn and drop its later output.
+			if (
+				notification.params.threadId !== activeThreadId ||
+				notification.params.willRetry
+			)
+				return [];
+			return [{ _tag: "Error", message: notification.params.error.message }];
 		case "thread/tokenUsage/updated":
 			if (notification.params.threadId !== activeThreadId) return [];
 			return [
@@ -2413,10 +2422,6 @@ export const startCodexSession = (
 				case "thread/compacted":
 					statusLog.append(notification, []);
 					return [];
-				case "error":
-					return [
-						{ _tag: "Error", message: notification.params.error.message },
-					];
 				default:
 					return [];
 			}
