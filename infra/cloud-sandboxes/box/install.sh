@@ -20,12 +20,18 @@ if ! command -v node >/dev/null 2>&1 || [ "$(node --version | cut -c2-3)" != "22
 	apt-get install -y nodejs
 fi
 
-# Replace stock launchers with the versions installed by the shared stages.
-for launcher in pnpm pnpx yarn yarnpkg corepack bun bunx claude codex; do
+# Replace only runtime-tool launchers. Preserve Boat-owned agent installations.
+for launcher in pnpm pnpx yarn yarnpkg corepack bun bunx; do
 	rm -f "/usr/local/bin/$launcher"
 done
 
-"$provision_dir/provision.sh" packages globals runtime layout
+"$provision_dir/provision.sh" packages runtime-tools runtime layout
+
+# Fail publication if Boat's agents cannot run as the unprivileged runtime user.
+# Do not replace them with our pinned versions on failure.
+for agent in claude codex; do
+	runuser -u zuse -- "$agent" --version
+done
 
 # Fail publication if native dependencies or the installed CLI cannot load.
 runuser -u zuse -- /usr/local/bin/zuse --help >/dev/null
