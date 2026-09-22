@@ -816,6 +816,12 @@ describe("Box sandbox provider", () => {
 					`${shim}; findmnt() { echo fuse; }; install() { exit 94; }; ${command}`,
 				]),
 			).rejects.toMatchObject({ code: 75 });
+			await expect(
+				promisify(execFile)("bash", [
+					"-c",
+					`${shim}; findmnt() { printf 'ext4\\nfuse\\n'; }; install() { exit 94; }; ${command}`,
+				]),
+			).rejects.toMatchObject({ code: 75 });
 			await rm(join(dir, "persist/.layout-v1"));
 			await expect(
 				promisify(execFile)("bash", ["-c", `${shim}; ${command}`]),

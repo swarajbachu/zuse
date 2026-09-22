@@ -397,7 +397,7 @@ export const makeBoxSandboxProvider = (
 			// Boat advertises ready while system paths may still use its temporary
 			// FUSE restore view. Writes there can acquire uid 1000 or disappear at
 			// handover. Do not modify the layout or start Zuse until disk mounts win.
-			'for root in /usr /etc /opt /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in fuse*) exit 75 ;; "") exit 1 ;; esac; done',
+			'for root in /usr /etc /opt /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in *fuse*) exit 75 ;; "") exit 1 ;; esac; done',
 			...(requirePersistedLayout
 				? [`sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER}`]
 				: []),
