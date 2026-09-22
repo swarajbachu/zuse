@@ -28,13 +28,18 @@ import type { ModelCatalog } from "./schema.ts";
  */
 export const BUNDLED_MODEL_CATALOG = {
 	schemaVersion: 1,
-	revision: 2026091101,
-	generatedAt: "2026-09-11T00:00:00.000Z",
+	revision: 2026092201,
+	generatedAt: "2026-09-22T00:00:00.000Z",
 	providers: {
 		// Claude Code. Effort tiers and per-model knobs match the published
 		// Claude Agent SDK contract.
 		claude: {
 			models: [
+				claudeCodeModel("claude-opus-5-5", "Opus 5.5", {
+					badgeLabel: "New",
+					contextWindow: "1m",
+					defaultEffort: "medium",
+				}),
 				claudeCodeModel("claude-fable-5-1", "Fable 5.1", {
 					badgeLabel: "New",
 					defaultModel: true,
@@ -63,7 +68,10 @@ export const BUNDLED_MODEL_CATALOG = {
 				"claude-fable-5-1": "claude-fable-5-1",
 				"fable-5": "claude-fable-5",
 				"claude-fable-5": "claude-fable-5",
-				opus: "claude-opus-5",
+				opus: "claude-opus-5-5",
+				"opus-5.5": "claude-opus-5-5",
+				"opus-5-5": "claude-opus-5-5",
+				"claude-opus-5.5": "claude-opus-5-5",
 				"opus-5": "claude-opus-5",
 				"claude-opus-5": "claude-opus-5",
 				"opus-4.8": "claude-opus-4-8",
@@ -87,6 +95,14 @@ export const BUNDLED_MODEL_CATALOG = {
 				codexReasoningModel("gpt-6-astra", "GPT-6 Astra", {
 					badgeLabel: "New",
 					defaultModel: true,
+				}),
+				codexReasoningModel("gpt-6-sol", "GPT-6 Sol", { badgeLabel: "New" }),
+				codexReasoningModel("gpt-6-luna", "GPT-6 Luna", {
+					badgeLabel: "New",
+					additionalReasoningOptions: [
+						{ id: "xhigh", label: "Extra High" },
+						{ id: "max", label: "Max" },
+					],
 				}),
 				codexReasoningModel("gpt-5.6-sol", "GPT-5.6 Sol"),
 				codexReasoningModel("gpt-5.6-terra", "GPT-5.6 Terra"),
@@ -115,6 +131,13 @@ export const BUNDLED_MODEL_CATALOG = {
 					supportsWebSearch: "queryOnly",
 				},
 				{
+					id: "grok-4.7",
+					label: "Grok 4.7",
+					badgeLabel: "New",
+					supportsPlanMode: true,
+					supportsWebSearch: "queryOnly",
+				},
+				{
 					id: "grok-4.6",
 					label: "Grok 4.6",
 					supportsPlanMode: true,
@@ -128,9 +151,10 @@ export const BUNDLED_MODEL_CATALOG = {
 				},
 			],
 			aliases: {
+				"grok-4.7-latest": "grok-4.7",
 				"grok-4.6-latest": "grok-4.6",
 				"grok-4.5-latest": "grok-4.5",
-				"grok-build-latest": "grok-4.6",
+				"grok-build-latest": "grok-4.7",
 			},
 		},
 		// Gemini CLI accepts any model slug it knows via the ACP `_meta.model`
@@ -181,6 +205,13 @@ export const BUNDLED_MODEL_CATALOG = {
 					supportsPlanMode: true,
 				},
 				{
+					id: "claude-opus-5.5",
+					label: "Claude Opus 5.5",
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					badgeLabel: "New",
+					supportsPlanMode: true,
+				},
+				{
 					id: "claude-opus-5",
 					label: "Claude Opus 5",
 					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
@@ -198,16 +229,29 @@ export const BUNDLED_MODEL_CATALOG = {
 					badgeLabel: "Experimental",
 					supportsPlanMode: true,
 				},
+				{
+					id: "gpt-6-sol",
+					label: "GPT-6 Sol",
+					badgeLabel: "New",
+					supportsPlanMode: true,
+				},
 				{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol", supportsPlanMode: true },
 				{
 					id: "gpt-5.6-terra",
 					label: "GPT-5.6 Terra",
 					supportsPlanMode: true,
 				},
+				{
+					id: "gpt-6-luna",
+					label: "GPT-6 Luna",
+					badgeLabel: "New",
+					supportsPlanMode: true,
+				},
 				{ id: "gpt-5.6-luna", label: "GPT-5.6 Luna", supportsPlanMode: true },
 			],
 			// Common shorthand / hyphen-vs-dotted variants users may persist.
 			aliases: {
+				"claude-opus-5-5": "claude-opus-5.5",
 				"claude-fable-5-1": "claude-fable-5.1",
 				"claude-opus-4-8": "claude-opus-4.8",
 				"claude-opus-4-7": "claude-opus-4.7",
@@ -242,6 +286,12 @@ export const BUNDLED_MODEL_CATALOG = {
 					supportsPlanMode: true,
 				},
 				{ id: "claude-fable-5", label: "Fable 5", supportsPlanMode: true },
+				{
+					id: "claude-opus-5-5",
+					label: "Opus 5.5",
+					badgeLabel: "New",
+					supportsPlanMode: true,
+				},
 				{ id: "claude-opus-5", label: "Opus 5", supportsPlanMode: true },
 				{
 					id: "claude-sonnet-5",
@@ -249,8 +299,20 @@ export const BUNDLED_MODEL_CATALOG = {
 					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
 					supportsPlanMode: true,
 				},
+				{
+					id: "gpt-6-sol",
+					label: "GPT-6 Sol",
+					badgeLabel: "New",
+					supportsPlanMode: true,
+				},
 				{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol", supportsPlanMode: true },
 				{ id: "gpt-5.6-terra", label: "GPT-5.6 Terra", supportsPlanMode: true },
+				{
+					id: "gpt-6-luna",
+					label: "GPT-6 Luna",
+					badgeLabel: "New",
+					supportsPlanMode: true,
+				},
 				{ id: "gpt-5.6-luna", label: "GPT-5.6 Luna", supportsPlanMode: true },
 				{
 					id: "gemini-3.1-pro",
@@ -262,6 +324,12 @@ export const BUNDLED_MODEL_CATALOG = {
 					id: "gemini-3.7-flash",
 					label: "Gemini 3.7 Flash",
 					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					supportsPlanMode: true,
+				},
+				{
+					id: "grok-4.7",
+					label: "Grok 4.7",
+					badgeLabel: "New",
 					supportsPlanMode: true,
 				},
 				{ id: "grok-4.6", label: "Grok 4.6", supportsPlanMode: true },
@@ -328,6 +396,13 @@ export const BUNDLED_MODEL_CATALOG = {
 					supportsPlanMode: true,
 				},
 				{
+					id: "opencode/claude-opus-5-5",
+					label: "OpenCode · Claude Opus 5.5",
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					badgeLabel: "New",
+					supportsPlanMode: true,
+				},
+				{
 					id: "opencode/claude-opus-5",
 					label: "OpenCode · Claude Opus 5",
 					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
@@ -341,6 +416,13 @@ export const BUNDLED_MODEL_CATALOG = {
 					supportsPlanMode: true,
 				},
 				{
+					id: "opencode/gpt-6-sol",
+					label: "OpenCode · GPT-6 Sol",
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					badgeLabel: "New",
+					supportsPlanMode: true,
+				},
+				{
 					id: "opencode/gpt-5.6-sol",
 					label: "OpenCode · GPT-5.6 Sol",
 					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
@@ -350,6 +432,13 @@ export const BUNDLED_MODEL_CATALOG = {
 					id: "opencode/gpt-5.6-terra",
 					label: "OpenCode · GPT-5.6 Terra",
 					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					supportsPlanMode: true,
+				},
+				{
+					id: "opencode/gpt-6-luna",
+					label: "OpenCode · GPT-6 Luna",
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					badgeLabel: "New",
 					supportsPlanMode: true,
 				},
 				{
@@ -368,6 +457,12 @@ export const BUNDLED_MODEL_CATALOG = {
 					id: "opencode/gemini-3.7-flash",
 					label: "OpenCode · Gemini 3.7 Flash",
 					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					supportsPlanMode: true,
+				},
+				{
+					id: "opencode/grok-4.7",
+					label: "OpenCode · Grok 4.7",
+					badgeLabel: "New",
 					supportsPlanMode: true,
 				},
 				{
@@ -391,9 +486,23 @@ export const BUNDLED_MODEL_CATALOG = {
 					supportsPlanMode: true,
 				},
 				{
+					id: "opencode/claude-opus-5-5",
+					label: "OpenCode 2 · Claude Opus 5.5",
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					badgeLabel: "New",
+					supportsPlanMode: true,
+				},
+				{
 					id: "opencode/claude-opus-5",
 					label: "OpenCode 2 · Claude Opus 5",
 					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					supportsPlanMode: true,
+				},
+				{
+					id: "opencode/gpt-6-sol",
+					label: "OpenCode 2 · GPT-6 Sol",
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					badgeLabel: "New",
 					supportsPlanMode: true,
 				},
 				{
@@ -409,6 +518,13 @@ export const BUNDLED_MODEL_CATALOG = {
 					supportsPlanMode: true,
 				},
 				{
+					id: "opencode/gpt-6-luna",
+					label: "OpenCode 2 · GPT-6 Luna",
+					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					badgeLabel: "New",
+					supportsPlanMode: true,
+				},
+				{
 					id: "opencode/gpt-5.6-luna",
 					label: "OpenCode 2 · GPT-5.6 Luna",
 					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
@@ -418,6 +534,12 @@ export const BUNDLED_MODEL_CATALOG = {
 					id: "opencode/gemini-3.1-pro",
 					label: "OpenCode 2 · Gemini 3.1 Pro",
 					optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+					supportsPlanMode: true,
+				},
+				{
+					id: "opencode/grok-4.7",
+					label: "OpenCode 2 · Grok 4.7",
+					badgeLabel: "New",
 					supportsPlanMode: true,
 				},
 				{
@@ -436,6 +558,18 @@ export const BUNDLED_MODEL_CATALOG = {
 	// sessions still price. Fable 5.1 assumes Fable 5 pricing until Anthropic
 	// publishes a separate rate.
 	pricing: {
+		// Official launch pricing, verified 2026-09-22:
+		// https://developers.openai.com/api/docs/models/gpt-6-sol
+		// https://developers.openai.com/api/docs/models/gpt-6-luna
+		// https://platform.claude.com/docs/en/models/opus-5-5/overview
+		"gpt-6-sol": { input: 2, output: 10, cacheRead: 0.2, cacheCreate: 2.5 },
+		"gpt-6-luna": {
+			input: 0.1,
+			output: 0.5,
+			cacheRead: 0.01,
+			cacheCreate: 0.125,
+		},
+		"claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheCreate: 5 },
 		"claude-fable-5-1": {
 			input: 10,
 			output: 50,
