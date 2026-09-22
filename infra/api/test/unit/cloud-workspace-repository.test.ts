@@ -66,4 +66,42 @@ describe("cloud workspace branch initialization", () => {
 		expect(() => run("missing")).toThrow();
 		expect(git("branch", "--show-current")).toBe("main");
 	});
+	test("recovers the target branch with conflicting edits intact", () => {
+		const { root, git, run } = fixture();
+		run();
+		writeFileSync(join(root, "file"), "target branch work\n");
+		git("commit", "-am", "target work");
+		const target = git("rev-parse", "HEAD");
+		git("switch", "main");
+		writeFileSync(join(root, "file"), "local edits\n");
+		writeFileSync(join(root, "untracked"), "keep");
+		git("remote", "set-url", "origin", "https://example.com/old.git");
+		run();
+		run();
+		expect(git("branch", "--show-current")).toBe("vileplume");
+		expect(git("rev-parse", "HEAD")).toBe(target);
+		const content = readFileSync(join(root, "file"), "utf8");
+		expect(content).toContain("<<<<<<<");
+		expect(content).toContain("target branch work");
+		expect(content).toContain("local edits");
+		expect(git("ls-files", "--unmerged")).not.toBe("");
+		expect(readFileSync(join(root, "untracked"), "utf8")).toBe("keep");
+		expect(git("remote", "get-url", "origin")).toBe(
+			"https://example.com/repo.git",
+		);
+	});
+	test("does not discard staged edits when switching would conflict", () => {
+		const { root, git, run } = fixture();
+		run();
+		writeFileSync(join(root, "file"), "target work\n");
+		git("commit", "-am", "target work");
+		git("switch", "main");
+		writeFileSync(join(root, "file"), "staged work\n");
+		git("add", "file");
+		const index = git("diff", "--cached");
+		expect(() => run()).toThrow();
+		expect(git("branch", "--show-current")).toBe("main");
+		expect(git("diff", "--cached")).toBe(index);
+		expect(readFileSync(join(root, "file"), "utf8")).toBe("staged work\n");
+	});
 });
