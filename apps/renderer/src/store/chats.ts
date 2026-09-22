@@ -280,6 +280,8 @@ export const chatArchiveProgressLabel = (
 type ChatsState = {
 	/** Mirror of `selectedChatByProject[selectedFolderId]`. */
 	readonly selectedChatId: ChatId | null;
+	/** A fresh landing for every explicit New Chat request, including repeats. */
+	readonly landingRevision: number;
 	readonly selectedChatByProject: Record<string, ChatId | null>;
 	readonly loadingByProject: Record<string, boolean>;
 	/** Per-project in-flight flag for `create()`. Drives the sidebar
@@ -587,6 +589,7 @@ export const restorePendingCreation = (
 
 export const useChatsStore = create<ChatsState>((set, get) => ({
 	selectedChatId: null,
+	landingRevision: 0,
 	selectedChatByProject: {},
 	loadingByProject: {},
 	creatingByProject: {},
@@ -1952,6 +1955,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				const projectId = useWorkspaceStore.getState().selectedFolderId;
 				return {
 					selectedChatId: null,
+					landingRevision: s.landingRevision + 1,
 					selectedChatByProject:
 						projectId !== null
 							? { ...s.selectedChatByProject, [projectId]: null }

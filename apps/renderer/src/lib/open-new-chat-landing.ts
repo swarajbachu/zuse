@@ -1,8 +1,11 @@
 import type { FolderId } from "@zuse/contracts";
 
+import { batchAtomUpdates } from "../state/registry.tsx";
 import { useChatsStore } from "../store/chats.ts";
+import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
+import { getActiveEnvironment } from "./rpc-client.ts";
 
 /**
  * Open the new-chat landing for a project without creating a worktree, chat,
@@ -10,17 +13,40 @@ import { useWorkspaceStore } from "../store/workspace.ts";
  * global command handling from eagerly loading the sidebar component tree.
  */
 export function openNewChatLanding(projectId: FolderId): void {
-	// The landing lives on the chat tab. Return there before clearing the
-	// selection so creating a chat from Usage or Archives is immediately
-	// visible instead of leaving that takeover surface mounted.
-	useUiStore.getState().setActiveMainTab("chat");
-	// Select the project first (synchronous: `workspace.select` sets
-	// `selectedFolderId` before awaiting persistence), then clear the chat +
-	// session selection for it. `chats.select(null)` cascades into
-	// `sessions.select(null)`, so both the tab strip and the chat surface fall
-	// back to the empty landing for this project.
-	if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
-		void useWorkspaceStore.getState().select(projectId);
-	}
-	useChatsStore.getState().select(null);
+	batchAtomUpdates(() => {
+		useUiStore.getState().setActiveMainTab("chat");
+		// Clear the destination slots before switching projects. Subscribers must
+		// never restore its previous chat while opening the landing.
+		useChatsStore.setState((state) => ({
+			selectedChatByProject: {
+				...state.selectedChatByProject,
+				[projectId]: null,
+			},
+		}));
+		useSessionsStore.setState((state) => ({
+			selectedSessionByProject: {
+				...state.selectedSessionByProject,
+				[projectId]: null,
+			},
+		}));
+		if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
+			void useWorkspaceStore.getState().select(projectId);
+		}
+		useChatsStore.getState().select(null);
+	});
+}
+
+/** Async launches may open their result only while their landing is still selected. */
+export function captureNewChatLanding(): () => boolean {
+	const environmentId = getActiveEnvironment();
+	const projectId = useWorkspaceStore.getState().selectedFolderId;
+	const revision = useChatsStore.getState().landingRevision;
+	const draftRevision = useSessionsStore.getState().draftRevision;
+	return () =>
+		getActiveEnvironment() === environmentId &&
+		useWorkspaceStore.getState().selectedFolderId === projectId &&
+		useChatsStore.getState().landingRevision === revision &&
+		useChatsStore.getState().selectedChatId === null &&
+		useSessionsStore.getState().draftRevision === draftRevision &&
+		useUiStore.getState().activeMainTab === "chat";
 }

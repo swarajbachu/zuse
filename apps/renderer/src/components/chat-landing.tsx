@@ -97,6 +97,7 @@ import {
 	type PreparedLinearContext,
 	transferLinearContext,
 } from "~/lib/linear-cloud-context";
+import { captureNewChatLanding } from "~/lib/open-new-chat-landing.ts";
 import {
 	buildLogicalProjectGroups,
 	defaultNewChatTarget,
@@ -971,8 +972,9 @@ export function ChatLanding() {
 		},
 	): Promise<void> => {
 		if (submitting) return;
-		const draft = useSessionsStore.getState().draftSession;
+		const { draftSession: draft, draftRevision } = useSessionsStore.getState();
 		if (draft === null) return;
+		const ownsLanding = captureNewChatLanding();
 		if (selectedCloudProviderId !== null) {
 			if (!CLOUD_WORKSPACE_BETA_AVAILABLE) return;
 			if (cloudProject === null) {
@@ -1102,7 +1104,7 @@ export function ChatLanding() {
 					stagedMessage = { ref: sandboxSession, id: messageId };
 				staged = true;
 				setPendingCloudChatId(summary.chatId);
-				useChatsStore.getState().select(summary.chatId);
+				if (ownsLanding()) useChatsStore.getState().select(summary.chatId);
 				if (!usesDurableInitialMessage) {
 					// This control plane delivered the prompt with the launch intent,
 					// so there is no first message left for us to enrich.
@@ -1132,7 +1134,7 @@ export function ChatLanding() {
 							description: formatError(cause),
 						}),
 					);
-					useSessionsStore.getState().clearDraft();
+					useSessionsStore.getState().clearDraft(draftRevision);
 					setSelectedCloudProviderId(null);
 					setCreateSource(null);
 					return;
@@ -1168,7 +1170,7 @@ export function ChatLanding() {
 					messageId,
 				});
 				if (!accepted) return;
-				useSessionsStore.getState().clearDraft();
+				useSessionsStore.getState().clearDraft(draftRevision);
 				setSelectedCloudProviderId(null);
 				setCreateSource(null);
 			} catch (cause) {
@@ -1265,13 +1267,17 @@ export function ChatLanding() {
 				setSubmitting(false);
 				return;
 			}
+			if (!ownsLanding()) {
+				useSessionsStore.getState().clearDraft(draftRevision);
+				return;
+			}
 			const switched = await switchToEnvironment({
 				environmentId: remoteTarget.environmentId,
 				folderId: remoteTarget.folderId,
 				chatId: remoteResult.chatId,
 				seed: remoteResult.remoteSeed,
 			});
-			useSessionsStore.getState().clearDraft();
+			useSessionsStore.getState().clearDraft(draftRevision);
 			setRemoteAnchor(null);
 			setTargetOverride(null);
 			if (!switched.switched) {
@@ -1328,6 +1334,7 @@ export function ChatLanding() {
 					draft.model,
 					{
 						title: `${issue.identifier} ${issue.title}`,
+						preserveFocus: true,
 						runtimeMode: draft.runtimeMode,
 						permissionMode: draft.permissionMode,
 						workspacePolicy: workspacePolicyForMode(workspaceMode),
@@ -1421,10 +1428,12 @@ export function ChatLanding() {
 				setSubmitting(false);
 				return;
 			}
-			useChatsStore.getState().select(first.chatId);
-			useSessionsStore.getState().select(first.sessionId);
+			if (ownsLanding()) {
+				useChatsStore.getState().select(first.chatId);
+				useSessionsStore.getState().select(first.sessionId);
+			}
 			setCreateSource(null);
-			useSessionsStore.getState().clearDraft();
+			useSessionsStore.getState().clearDraft(draftRevision);
 			return;
 		}
 		// A "Create from…" PR/branch already checked out (or reused) a worktree —
@@ -1514,7 +1523,7 @@ export function ChatLanding() {
 			);
 		}
 		setCreateSource(null);
-		useSessionsStore.getState().clearDraft();
+		useSessionsStore.getState().clearDraft(draftRevision);
 	};
 
 	// Bridge: covers the brief create() RPC window (worktree → chat) before the

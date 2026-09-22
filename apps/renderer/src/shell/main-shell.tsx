@@ -307,6 +307,7 @@ export function MainShell() {
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
 	const storedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
+	const landingRevision = useChatsStore((s) => s.landingRevision);
 	const selectedCloudSummary = useCloudChatSummaryForSelection({
 		chatId: selectedChatId,
 		sessionId: storedSessionId,
@@ -716,7 +717,9 @@ export function MainShell() {
 								/>
 							) : (
 								<Suspense fallback={<SurfaceFallback />}>
-									<ChatLanding />
+									<ChatLanding
+										key={`${activeEnvironmentId}:${selectedFolderId}:${landingRevision}`}
+									/>
 								</Suspense>
 							)}
 						</div>
