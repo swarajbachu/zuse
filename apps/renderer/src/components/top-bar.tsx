@@ -1254,6 +1254,7 @@ export function ResolveConflictsButton({
 	);
 }
 
+/** Render the Git workflow actions shared by the top bar and environment summary. */
 export function WorkflowActions({
 	compact = false,
 	includeRun = true,
