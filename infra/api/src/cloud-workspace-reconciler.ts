@@ -1706,6 +1706,20 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 							network: { kind: "open" },
 							onTimeout: "pause",
 						}));
+			// Allocation retries can recover a machine near its original TTL, or
+			// one that already paused. Give bootstrap a fresh running window.
+			if (sandbox.state === "paused")
+				yield* provider.resume(
+					sandbox.providerSandboxId,
+					config.keepAliveTimeoutSeconds,
+					"pause",
+					workspaceSizeId(workspace),
+				);
+			else
+				yield* provider.extendTimeout(
+					sandbox.providerSandboxId,
+					config.keepAliveTimeoutSeconds,
+				);
 			const allocatedAtMs = yield* Clock.currentTimeMillis;
 			const boot = yield* issueWorkspaceRuntimeBoot(allocatedAtMs);
 			const api = yield* ApiConfiguration;
