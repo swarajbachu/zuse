@@ -720,10 +720,16 @@ const initializeAuthority = Effect.fn("initializeCloudAuthAuthority")(
 			!codexToolchainVersion
 				.split(/\s+/u)
 				.includes(CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION)
-		)
+		) {
+			console.warn("[cloud-auth] authority toolchain mismatch", {
+				sandboxId: authority.sandboxId,
+				expected: CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION,
+				actual: codexToolchainVersion,
+			});
 			return yield* Effect.fail(
 				serviceUnavailable("codex-auth-update-required"),
 			);
+		}
 		return { ...authority, storageIncarnationId } satisfies Authority;
 	},
 );
