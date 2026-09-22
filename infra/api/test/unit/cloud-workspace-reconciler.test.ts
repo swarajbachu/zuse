@@ -477,7 +477,17 @@ describe("cloud workspace reconciler", () => {
 					providerSandboxId: undefined,
 					revision: workspace.revision + 1,
 				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const start = vi.spyOn(provider, "startProcess");
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				expect(start).toHaveBeenCalledWith(
+					"fake-workspace-on-demand",
+					expect.objectContaining({
+						command: "/bin/bash",
+						args: ["/var/lib/zuse/project-build/workspace-bootstrap.sh"],
+					}),
+				);
+				start.mockRestore();
 				const allocated = yield* store.getWorkspace(workspace.workspaceId);
 				if (allocated === null) throw new Error("workspace missing");
 				// Retry a queued allocation after the provider succeeded but its

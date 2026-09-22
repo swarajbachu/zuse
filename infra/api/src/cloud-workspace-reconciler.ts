@@ -1759,7 +1759,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				{ concurrency: "unbounded", discard: true },
 			);
 			const startRuntime = provider.startProcess(sandbox.providerSandboxId, {
-				command: WORKSPACE_BOOTSTRAP_FILE,
+				command: "/bin/bash",
+				args: [WORKSPACE_BOOTSTRAP_FILE],
 				tag: WORKSPACE_RUNTIME_PROCESS.tag,
 				cwd: "/home/zuse",
 				env: {
