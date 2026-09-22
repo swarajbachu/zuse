@@ -1,16 +1,16 @@
 import type { SyncPhase } from "@zuse/client-runtime/resource-state";
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
+import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
+import {
+	filterActionableQuestionInteractions,
+	findPresentedPermissions,
+} from "../lib/question-actionability.ts";
 import {
 	retryCloudHistory,
 	useCloudHistoryStatus,
 } from "../lib/session-timeline-client-bus.ts";
 import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
 import { ToolActivityTree } from "./tool-activity-tree.tsx";
-import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
-import {
-	filterActionableQuestionInteractions,
-	findPresentedPermissions,
-} from "../lib/question-actionability.ts";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";

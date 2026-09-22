@@ -1,7 +1,4 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
-
 import chatViewSource from "../../src/components/chat-view.tsx?raw";
 import environmentSummarySource from "../../src/components/environment-summary.tsx?raw";
 import permissionCardSource from "../../src/components/permission-card.tsx?raw";
@@ -10,11 +7,9 @@ import questionCardSource from "../../src/components/question-card.tsx?raw";
 import rightPaneSource from "../../src/components/right-pane.tsx?raw";
 import topBarSource from "../../src/components/top-bar.tsx?raw";
 import composerSource from "../../src/lib/codemirror/composer.ts?raw";
+import { rendererStylesWithPalette } from "../support/renderer-styles.ts";
 
-const stylesSource = readFileSync(
-	new URL("../../src/styles.css", import.meta.url),
-	"utf8",
-);
+const stylesSource = rendererStylesWithPalette();
 
 const sourceBetween = (source: string, start: string, end: string): string => {
 	const startIndex = source.indexOf(start);

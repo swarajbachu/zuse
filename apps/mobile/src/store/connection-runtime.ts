@@ -12,7 +12,10 @@ import {
 } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { recoverLocalRoute } from "./local-route-recovery";
-import { retryMobileClientBusConnections, setMobileClientBusOnline } from "./mobile-client-bus";
+import {
+	retryMobileClientBusConnections,
+	setMobileClientBusOnline,
+} from "./mobile-client-bus";
 import { appAtomRegistry } from "./registry";
 
 export const snapshotsByConnectionAtom = Atom.make<
