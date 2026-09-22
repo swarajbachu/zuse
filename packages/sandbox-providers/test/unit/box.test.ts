@@ -822,6 +822,25 @@ describe("Box sandbox provider", () => {
 					`${shim}; findmnt() { printf 'ext4\\nfuse\\n'; }; install() { exit 94; }; ${command}`,
 				]),
 			).rejects.toMatchObject({ code: 75 });
+			// A restored temporary home must never overwrite authoritative data.
+			await rm(join(dir, "logical/zuse"));
+			await mkdir(join(dir, "logical/zuse/.zuse-data"), { recursive: true });
+			await writeFile(
+				join(dir, "logical/zuse/.zuse-data/zuse.sqlite"),
+				"empty replacement",
+			);
+			await writeFile(
+				join(dir, "persist/home/.zuse-data/zuse.sqlite"),
+				"original chat",
+			);
+			await promisify(execFile)("bash", [
+				"-c",
+				`${shim}; cp() { command cp "$@"; }; chown() { return 0; }; ${command}`,
+			]);
+			const preserved = await promisify(execFile)("cat", [
+				join(dir, "persist/home/.zuse-data/zuse.sqlite"),
+			]);
+			expect(preserved.stdout).toBe("original chat");
 			await rm(join(dir, "persist/.layout-v1"));
 			await expect(
 				promisify(execFile)("bash", ["-c", `${shim}; ${command}`]),
