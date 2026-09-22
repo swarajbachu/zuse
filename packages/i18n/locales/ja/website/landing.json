@@ -1,14 +1,14 @@
 {
-	"run_agents_side_by_side_carry_context_between_them_and_keep_every_task": "エージェントを並列して実行し、エージェント間でコンテキストを伝達し、すべてのタスクを独自の git ワークツリー内で分離します。",
+	"open_source_devin_alternative": "Devinに代わるオープンソースの選択肢。ローカルでも、分離されたクラウドワークスペースでも、エージェントを並列実行できます。",
 	"open_source_cloud_beta_live": "<part0></part0>オープンソース・クラウドベータライブ",
 	"see_how_it_works": "どのように機能するか見てみましょう",
 	"schema_parallel": "1 つのワークスペースから複数のコーディング エージェントを実行する",
 	"schema_environments": "ローカルおよびクラウドの実行環境",
 	"free_in_beta_no_token_markup": "ベータ版は無料、トークンマークアップなし",
-	"all_your_coding_agents_one_workspace": "すべてのコーディング エージェント。 <part0>1 つのワークスペース。</part0>",
+	"cloud_coding_agents_open_source": "クラウドで動くコーディングエージェント。<part0>オープンソース。</part0>",
 	"schema_worktrees": "並列エージェント実行のための分離された Git ワークツリー",
 	"schema_tools": "組み込みの差分、ターミナル、ブラウザ、プルリクエストのレビュー",
-	"meta_title": "Zuse — すべてのコーディング エージェントを 1 つのワークスペースに",
+	"meta_title": "Zuse: すべてのコーディング エージェントを 1 つのワークスペースに",
 	"meta_description": "コーディング エージェントを並べて実行し、エージェント間でコンテキストを伝達し、Zuse を使用して独自の git ワークツリー内のすべてのタスクを分離します。",
 	"schema_subscriptions": "既存のモデル サブスクリプションを持ち込む"
 }

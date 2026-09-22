@@ -129,6 +129,7 @@ import {
 	openCloudChat,
 	repositoryIdentityForOrigin,
 	useCloudChatsStore,
+	watchCloudChatCatalog,
 } from "../lib/cloud-workspaces.ts";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
@@ -338,13 +339,14 @@ export function ProjectsSidebar() {
 	const cloudChats = CLOUD_WORKSPACE_BETA_AVAILABLE
 		? storedCloudChats
 		: EMPTY_CLOUD_CHATS;
-	const hydrateCloudChats = useCloudChatsStore((s) => s.hydrate);
+	const cloudAccount = useAuth().user?.id;
 
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
 	useEffect(() => {
-		if (CLOUD_WORKSPACE_BETA_AVAILABLE) void hydrateCloudChats();
-	}, [hydrateCloudChats]);
+		if (CLOUD_WORKSPACE_BETA_AVAILABLE && cloudAccount)
+			return watchCloudChatCatalog();
+	}, [cloudAccount]);
 
 	const desktopCatalogEnabled = window.zuse?.ssh !== undefined;
 

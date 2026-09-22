@@ -1,19 +1,12 @@
-# Private cloud beta production runbook
+# Public cloud beta production runbook
 
-Production remains fail-closed until every immutable ID, secret, and smoke test
-below is complete. Local, SSH, pairing, and user-managed remote connections do
-not use this gate.
+Production remains fail-closed for billable operations until every immutable
+ID, secret, and smoke test below is complete. Local, SSH, pairing, and
+user-managed remote connections do not use Cloud billing.
 
 ## External resources
 
-1. In PostHog production, create the boolean flag
-   `zuse-cloud-beta-access`. Leave its default rollout at 0% and add one 100%
-   condition for the person property `zuse_cloud_beta_access = true`. API sets
-   that property using the privacy-preserving `account_…` Distinct ID only after
-   it verifies an active Polar subscription for the WorkOS account. Do not
-   target Email or an `anonymous_…` installation ID; clients cannot supply or
-   override the authenticated identity.
-2. In Polar production, create Cloud Workspace with a $40 monthly price. Create
+1. In Polar production, create Cloud Workspace with a $40 monthly price. Create
    meter `zuse_cloud_overage_cent`, summing numeric metadata field `units`, and
    attach a recurring $0.01-per-unit price. Register
    `https://api.zuse.sh/v1/billing/webhook/polar` for the subscription events
@@ -21,7 +14,7 @@ not use this gate.
    uncanceled, and revoked. A checkout link purchase has no Zuse account yet;
    after the buyer signs in with the same verified WorkOS email, API claims
    the unowned Polar customer once and reconciles its existing subscription.
-3. In E2B production, build artifacts from the release commit, then publish the
+2. In E2B production, build artifacts from the release commit, then publish the
    isolated production template:
 
    ```sh
@@ -34,11 +27,13 @@ not use this gate.
    `https://api.zuse.sh/v1/cloud/billing/webhook/e2b` and verify a signed real
    delivery. Subscribe to created, resumed, paused, checkpointed, updated, and
    killed lifecycle events.
-4. A version tag publishes a separately signed runtime to
+4. A version tag, or an explicit production dispatch from `main`, publishes a separately signed runtime to
    `cloud-runtime-production`. Record that manifest URL and its production
    public signing key in API. The workflow uploads the archive before the
    manifest and verifies its checksum, signature, native modules, metadata, and
-   startup first.
+   startup first. To deploy merged runtime fixes without publishing a desktop
+   release, run `gh workflow run cloud-runtime-staging.yml --ref main -f publish_target=production`.
+   Production dispatches from feature branches remain rejected.
 5. Configure the shared GitHub App Setup URL as
    `https://api.zuse.sh/v1/cloud/github/callback`. Use the same App ID, slug,
    client ID, and private key in both deployments. Production validates its own
@@ -68,7 +63,6 @@ bun --cwd infra/api secret:cf:production
 bun --cwd infra/api secret:e2b:production
 bun --cwd infra/api secret:e2b-webhook:production
 bun --cwd infra/api secret:cloud-vault:production
-bun --cwd infra/api secret:posthog:production
 bun --cwd infra/api secret:polar:production
 bun --cwd infra/api secret:polar-webhook:production
 bun --cwd infra/api secret:github-private-key:production
@@ -84,8 +78,8 @@ DATABASE_URL=... \
 bun --cwd infra/api db:migrate:production
 ```
 
-The production deploy independently validates nonempty runtime, E2B, PostHog,
-Polar, R2, Hyperdrive, cutover, and secret configuration:
+The production deploy independently validates nonempty runtime, E2B, Polar,
+R2, Hyperdrive, cutover, and secret configuration:
 
 ```sh
 ZUSE_CONFIRM_PRODUCTION_API_DEPLOY=deploy-api.zuse.sh \
@@ -94,9 +88,9 @@ bun --cwd infra/api deploy:production
 
 ## Cutover
 
-Start with checkout, enforcement, and Polar export disabled. Invite one internal
-WorkOS account through PostHog, enable checkout for it, and complete a production
-subscription. Smoke template boot, repository setup, runtime enrollment,
+Start with checkout, enforcement, and Polar export disabled. Use one internal
+WorkOS account to complete a production subscription. Smoke template boot,
+repository setup, runtime enrollment,
 gateway WebSocket, pause/resume, SSH, checkpoint sync, cap update, archive, and
 deletion.
 
@@ -104,9 +98,8 @@ Import the matching E2B statement and require variance of at most 1% and $1.
 Then enable enforcement while export stays off, verify reservations stop new
 compute at the cap, enable export for the internal account, and confirm stable
 external IDs deduplicate retries and API, Polar, and the operator report have
-equal totals. Only then enroll more PostHog identities and expand checkout
-eligibility.
+equal totals. Only then open checkout to public-beta accounts.
 
-Rollback switches are independent: disable the PostHog flag, checkout, Polar
-export, or enforcement as needed. A Worker rollback must preserve sandboxes,
+Rollback switches are independent: disable checkout, Polar export, or
+enforcement as needed. A Worker rollback must preserve sandboxes,
 encrypted transcripts, customers, and all ledger records.

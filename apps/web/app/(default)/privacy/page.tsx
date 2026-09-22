@@ -199,9 +199,9 @@ export default function PrivacyPage() {
 						Cloud Workspaces and remote features
 					</h2>
 					<p className="mt-2">
-						Cloud Workspaces are an optional private beta. A cloud workspace
-						runs in an isolated hosted environment rather than on your computer.
-						To provide it, Zuse handles verified account access, workspace and
+						Cloud Workspaces are an optional public beta. A cloud workspace runs
+						in an isolated hosted environment rather than on your computer. To
+						provide it, Zuse handles verified account access, workspace and
 						billing metadata, connection tickets, encrypted command envelopes
 						and results, and encrypted transcript checkpoints. The hosted
 						runtime handles the agent process, repository, files, and terminals.

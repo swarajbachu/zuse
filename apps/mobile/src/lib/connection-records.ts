@@ -1,4 +1,8 @@
-import { CapabilityFeature, CapabilityManifest } from "@zuse/contracts";
+import {
+	CapabilityFeature,
+	CapabilityManifest,
+	wsBaseUrlForHttpBase,
+} from "@zuse/contracts";
 import { Schema } from "effect";
 
 export const ConnectionSource = Schema.Literals([
@@ -77,6 +81,9 @@ export const replaceDiscoveredRoute = (
 	...record,
 	host: route.host.trim(),
 	port: route.port,
+	wsBaseUrl: wsBaseUrlForHttpBase(
+		`http://${route.host.trim().includes(":") && !route.host.trim().startsWith("[") ? `[${route.host.trim()}]` : route.host.trim()}:${route.port}`,
+	),
 	pathType: route.pathType,
 	...(route.nearbyServiceName === undefined
 		? {}
@@ -149,9 +156,21 @@ export const decodeConnectionRecords = (value: unknown): ConnectionRecord[] =>
 		},
 	);
 
+export const eligibleConnections = (
+	connections: readonly ConnectionRecord[],
+	signedIn: boolean,
+): ConnectionRecord[] =>
+	connections.filter(
+		(connection) =>
+			signedIn ||
+			(connection.source !== "api" && connection.source !== "cloud"),
+	);
+
 export const availableConnections = (
 	connections: readonly ConnectionRecord[],
 	signedIn: boolean,
+	snapshots: Readonly<Record<string, { status: string }>> = {},
+	cachedKeys: ReadonlySet<string> = new Set(),
 ): ConnectionRecord[] => {
 	const priority: Record<ConnectionSource, number> = {
 		paired: 3,
@@ -160,18 +179,17 @@ export const availableConnections = (
 		cloud: 4,
 	};
 	const selected = new Map<string, ConnectionRecord>();
-	for (const connection of connections) {
-		if (
-			(connection.source === "api" || connection.source === "cloud") &&
-			!signedIn
-		)
-			continue;
+	const rank = (connection: ConnectionRecord): number =>
+		(snapshots[connection.key]?.status === "connected" ? 100 : 0) +
+		(cachedKeys.has(connection.key) ? 10 : 0) +
+		priority[connection.source];
+	for (const connection of eligibleConnections(connections, signedIn)) {
 		const identity = connection.environmentId ?? connection.key;
 		const current = selected.get(identity);
 		if (
 			current === undefined ||
-			priority[connection.source] > priority[current.source] ||
-			(priority[connection.source] === priority[current.source] &&
+			rank(connection) > rank(current) ||
+			(rank(connection) === rank(current) &&
 				connection.updatedAt > current.updatedAt)
 		) {
 			selected.set(identity, connection);

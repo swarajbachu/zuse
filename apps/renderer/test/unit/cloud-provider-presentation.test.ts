@@ -1,12 +1,19 @@
 import { activateLocale, prepareLocale } from "@zuse/i18n";
 import { afterEach, describe, expect, it } from "vitest";
-import { cloudProviderSizeLabel } from "../../src/lib/cloud-provider-presentation.ts";
+import {
+	cloudProviderLabel,
+	cloudProviderSizeLabel,
+} from "../../src/lib/cloud-provider-presentation.ts";
 
 afterEach(async () => {
 	await activateLocale("en");
 });
 
 describe("cloud provider size presentation", () => {
+	it("shows Boat for the retained Box provider ID", () => {
+		expect(cloudProviderLabel("box")).toBe("Boat");
+		expect(cloudProviderLabel("e2b")).toBe("E2B");
+	});
 	const size = {
 		sizeId: "small",
 		displayName: "Small",

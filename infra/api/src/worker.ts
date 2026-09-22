@@ -1,9 +1,9 @@
+import type { DurableObjectState } from "@cloudflare/workers-types";
 import { PgClient } from "@effect/sql-pg";
 import {
 	CLOUD_WORKSPACE_OFFER_ID,
 	HOSTED_APP_URL,
 	PERSISTENT_STANDARD_OFFER_ID,
-	PRODUCTION_API_URL,
 } from "@zuse/contracts";
 import type { QueueMessage } from "@zuse/slack/types";
 import { Effect, Layer, Redacted } from "effect";
@@ -11,8 +11,8 @@ import { Pool } from "pg";
 import runtimeInstallerSource from "../../../apps/server/scripts/runtime-updater.mjs";
 import cloudInitTemplate from "../../cloud-machines/bootstrap/cloud-init.yaml.tmpl";
 import { AccountIdentityLive } from "./account-identity.ts";
-import { BetaAccessAllowAll, PostHogBetaAccessLayer } from "./beta-access.ts";
 import { resolveBillingRuntime } from "./billing-config.ts";
+import { readBoatEnvironment } from "./boat-environment.ts";
 import { CloudBillingStorePg } from "./cloud-billing-store.ts";
 import type { BillingUsageRecovery } from "./cloud-billing-usage-source.ts";
 import { billingUsageSourceModules } from "./cloud-billing-usage-source-config.ts";
@@ -52,6 +52,11 @@ import {
 import { SlackPersistenceLive } from "./slack/persistence.ts";
 import { ApiStorePg } from "./store.ts";
 import { WorkosVerifierLive } from "./workos.ts";
+import {
+	scheduleWorkspaceStartup,
+	type WorkspaceStartupNamespace,
+	WorkspaceStartupTask,
+} from "./workspace-startup.ts";
 
 export { WorkspaceGateway } from "./workspace-gateway.ts";
 export { WorkspaceMailbox } from "./workspace-mailbox.ts";
@@ -62,6 +67,7 @@ export { WorkspaceMailbox } from "./workspace-mailbox.ts";
  * is the Hyperdrive binding fronting PlanetScale Postgres.
  */
 interface Env extends SlackBindings {
+	readonly WORKSPACE_STARTUP: WorkspaceStartupNamespace;
 	readonly HYPERDRIVE: { readonly connectionString: string };
 	readonly WORKSPACE_GATEWAY: {
 		readonly idFromName: (name: string) => unknown;
@@ -130,9 +136,6 @@ interface Env extends SlackBindings {
 	readonly POLAR_PRODUCT_SANDBOX_STANDARD_V1?: string;
 	readonly POLAR_VPS_SALES_APPROVED?: string;
 	readonly POLAR_WEBHOOK_SECRET?: string;
-	readonly POSTHOG_HOST?: string;
-	readonly POSTHOG_PROJECT_TOKEN?: string;
-	readonly POSTHOG_CLOUD_BETA_FLAG_KEY?: string;
 	readonly POLAR_CLOUD_OVERAGE_METER_ID?: string;
 	readonly MACHINE_PROVIDER?: string;
 	readonly HETZNER_ADAPTER_ENABLED?: string;
@@ -147,6 +150,15 @@ interface Env extends SlackBindings {
 	readonly CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL?: string;
 	readonly CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
 	readonly SANDBOX_DEFAULT_PROVIDER_ID?: string;
+	readonly BOAT_ADAPTER_ENABLED?: string;
+	readonly BOAT_API_KEY?: string;
+	readonly BOAT_API_BASE_URL?: string;
+	readonly BOAT_TEMPLATE_SNAPSHOT?: string;
+	readonly BOAT_TEMPLATE_VERSION?: string;
+	readonly BOAT_MACHINE_TYPE?: string;
+	readonly BOAT_HOSTED_PORT_DOMAIN?: string;
+	readonly BOAT_WEBHOOK_SECRET?: string;
+	// Legacy bindings remain valid during the Boat configuration migration.
 	readonly BOX_ADAPTER_ENABLED?: string;
 	readonly BOX_API_KEY?: string;
 	readonly BOX_API_BASE_URL?: string;
@@ -258,23 +270,9 @@ const nudgeWorkspaceGateway = (env: Env, target: string): Promise<unknown> => {
 		});
 };
 
-const build = (env: Env): ReturnType<typeof makeApi> => {
+const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 	const cloudTranscriptBucket = env.CLOUD_TRANSCRIPTS;
 	const billing = resolveBillingRuntime(env);
-	const postHogConfigured =
-		isConfigured(env.POSTHOG_HOST) &&
-		isConfigured(env.POSTHOG_PROJECT_TOKEN) &&
-		isConfigured(env.POSTHOG_CLOUD_BETA_FLAG_KEY);
-	if (env.API_ISSUER === PRODUCTION_API_URL && !postHogConfigured)
-		throw new Error("Production cloud beta access requires PostHog");
-	const betaAccessLayer = postHogConfigured
-		? PostHogBetaAccessLayer({
-				host: env.POSTHOG_HOST as string,
-				projectToken: env.POSTHOG_PROJECT_TOKEN as string,
-				flagKey: env.POSTHOG_CLOUD_BETA_FLAG_KEY as string,
-				cache: (caches as CacheStorage & { readonly default: Cache }).default,
-			})
-		: BetaAccessAllowAll;
 	const machineProvider = resolveMachineProviderRuntime(env, {
 		cloudInitTemplate,
 		apiIssuer: env.API_ISSUER,
@@ -347,6 +345,7 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 		throw new Error(
 			"Polar and POLAR_CLOUD_OVERAGE_METER_ID are required for billing export",
 		);
+	const boatEnvironment = readBoatEnvironment(env);
 	const cloudDataEncryptionKey =
 		env.CLOUD_DATA_ENCRYPTION_KEY ?? env.CLOUD_CREDENTIAL_VAULT_KEY;
 	const githubAppConfigured = [
@@ -386,8 +385,8 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 			...(isConfigured(env.E2B_WEBHOOK_SECRET)
 				? [["e2b", Redacted.make(env.E2B_WEBHOOK_SECRET)] as const]
 				: []),
-			...(isConfigured(env.BOX_WEBHOOK_SECRET)
-				? [["box", Redacted.make(env.BOX_WEBHOOK_SECRET)] as const]
+			...(isConfigured(boatEnvironment.BOAT_WEBHOOK_SECRET)
+				? [["box", Redacted.make(boatEnvironment.BOAT_WEBHOOK_SECRET)] as const]
 				: []),
 		]),
 		cloudBillingEnforcementEnabled,
@@ -485,7 +484,6 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 	const appLayer = Layer.mergeAll(
 		configLayer,
 		SlackPersistenceLive.pipe(Layer.provide(Layer.merge(dbLayer, configLayer))),
-		betaAccessLayer,
 		WorkosVerifierLive.pipe(Layer.provide(configLayer)),
 		AccountIdentityLive.pipe(Layer.provide(configLayer)),
 		ApiStorePg.pipe(Layer.provide(dbLayer)),
@@ -520,6 +518,10 @@ const build = (env: Env): ReturnType<typeof makeApi> => {
 		isConfigured(cloudDataEncryptionKey),
 	);
 	const api: ReturnType<typeof makeApi> = makeApi(appLayer, {
+		scheduleColdWorkspaceStartup: directStartup
+			? undefined
+			: (workspaceId) =>
+					scheduleWorkspaceStartup(env.WORKSPACE_STARTUP, workspaceId),
 		slackPublicOrigin: env.SLACK_PUBLIC_ORIGIN,
 		slack: slackConfig
 			? {
@@ -566,9 +568,6 @@ const applyResponseEffects = async (
 	const cloudWorkspaceId = response.headers.get(
 		"x-zuse-reconcile-cloud-workspace",
 	);
-	const cloudPoolAccountId = response.headers.get(
-		"x-zuse-reconcile-cloud-pool",
-	);
 	const gatewayNudgeTarget = response.headers.get(
 		"x-zuse-nudge-cloud-workspace",
 	);
@@ -578,14 +577,12 @@ const applyResponseEffects = async (
 	response.headers.delete("x-zuse-reconcile-machine");
 	response.headers.delete("x-zuse-reconcile-cloud-build");
 	response.headers.delete("x-zuse-reconcile-cloud-workspace");
-	response.headers.delete("x-zuse-reconcile-cloud-pool");
 	response.headers.delete("x-zuse-nudge-cloud-workspace");
 	response.headers.delete("x-zuse-deliver-cloud-webhooks");
 	if (
 		machineId === null &&
 		cloudBuildId === null &&
 		cloudWorkspaceId === null &&
-		cloudPoolAccountId === null &&
 		gatewayNudgeTarget === null &&
 		webhookDeliveryAccountId === null
 	) {
@@ -601,9 +598,6 @@ const applyResponseEffects = async (
 			cloudWorkspaceId === null
 				? Promise.resolve()
 				: api.reconcileCloudWorkspaceStartup(cloudWorkspaceId),
-			cloudPoolAccountId === null
-				? Promise.resolve()
-				: api.reconcileCloudPool(cloudPoolAccountId),
 			gatewayNudgeTarget === null
 				? Promise.resolve()
 				: nudgeWorkspaceGateway(env, gatewayNudgeTarget),
@@ -746,3 +740,17 @@ export default {
 		);
 	},
 };
+
+/** Lifecycle work may exceed the HTTP background execution window. */
+export class WorkspaceStartup extends WorkspaceStartupTask {
+	constructor(state: DurableObjectState, env: Env) {
+		super(state, async (workspaceId) => {
+			const api = build(env, true);
+			try {
+				await api.reconcileCloudWorkspaceStartup(workspaceId);
+			} finally {
+				await api.dispose();
+			}
+		});
+	}
+}

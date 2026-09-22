@@ -41,7 +41,7 @@ export default function ScanScreen() {
 				<EmptyState
 					icon={QrCode}
 					title="Camera permission required"
-					detail="Camera access is used only to scan a pairing code shown by the desktop app."
+					detail="To scan a pairing code shown by the desktop app, Zuse needs camera access."
 				/>
 				<View style={{ paddingBottom: insets.bottom + 16 }}>
 					<Button
@@ -49,7 +49,7 @@ export default function ScanScreen() {
 							permission.canAskAgain ? requestPermission : Linking.openSettings
 						}
 					>
-						{permission.canAskAgain ? "Allow camera" : "Open iPhone Settings"}
+						{permission.canAskAgain ? "Continue" : "Open Settings"}
 					</Button>
 				</View>
 			</View>
@@ -102,9 +102,11 @@ export default function ScanScreen() {
 				}}
 			>
 				<Text className="text-center font-sans text-sm text-white">
-					{scanned
-						? "Connecting to your desktop…"
-						: "Point your camera at the pairing code."}
+					{error !== null
+						? "Could not connect"
+						: scanned
+							? "Connecting to your desktop…"
+							: "Point your camera at the pairing code."}
 				</Text>
 				{scanned && error === null ? (
 					<ActivityIndicator className="pt-3" color={colors.accent} />

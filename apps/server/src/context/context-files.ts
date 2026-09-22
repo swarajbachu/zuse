@@ -18,6 +18,8 @@ interface SessionRow {
 	readonly project_id: string;
 	readonly worktree_id: string | null;
 	readonly archived_worktree_json: string | null;
+	readonly workspace_policy: string | null;
+	readonly reserved_worktree_id: string | null;
 }
 interface PathRow {
 	readonly path: string;
@@ -28,7 +30,8 @@ interface PathRow {
  * session is pinned to one, otherwise the project's checkout. Falls back to
  * `fallbackRoot` (a renderer-supplied root) when the session row does not
  * exist yet — e.g. a brand-new chat before its first send. Returns `null`
- * when nothing resolves.
+ * when nothing resolves. A durable startup reservation takes precedence over
+ * the project path until the session is bound; missing worktrees never fall back.
  */
 export const resolveSessionCwd = (
 	sql: SqlClient.SqlClient,
@@ -38,11 +41,15 @@ export const resolveSessionCwd = (
 ): Effect.Effect<string | null> =>
 	Effect.gen(function* () {
 		const sessions = yield* sql<SessionRow>`
-      SELECT s.project_id, s.worktree_id, c.archived_worktree_json
+      SELECT s.project_id, s.worktree_id, c.archived_worktree_json,
+             o.workspace_policy, o.worktree_id AS reserved_worktree_id
       FROM sessions s
       INNER JOIN chats c ON c.id = s.chat_id
+      LEFT JOIN chat_creation_operations o ON o.initial_session_id = s.id
+        AND o.phase NOT IN ('running', 'cancelled')
       WHERE s.id = ${sessionId} LIMIT 1
-    `.pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<SessionRow>));
+    `.pipe(Effect.orElseSucceed(() => null));
+		if (sessions === null) return null;
 		const session = sessions[0];
 		if (session === undefined) {
 			if (fallbackRoot === undefined) return null;
@@ -55,9 +62,16 @@ export const resolveSessionCwd = (
 		if (session.worktree_id === null && session.archived_worktree_json !== null)
 			return null;
 
-		if (session.worktree_id !== null) {
+		const worktreeId = session.worktree_id ?? session.reserved_worktree_id;
+		if (
+			worktreeId === null &&
+			session.workspace_policy != null &&
+			session.workspace_policy !== "main"
+		)
+			return null;
+		if (worktreeId !== null) {
 			const wt = yield* sql<PathRow>`
-        SELECT path FROM worktrees WHERE id = ${session.worktree_id} LIMIT 1
+        SELECT path FROM worktrees WHERE id = ${worktreeId} LIMIT 1
       `.pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<PathRow>));
 			if (wt[0] !== undefined) {
 				return (yield* fs
@@ -66,6 +80,7 @@ export const resolveSessionCwd = (
 					? wt[0].path
 					: null;
 			}
+			return null;
 		}
 
 		const proj = yield* sql<PathRow>`

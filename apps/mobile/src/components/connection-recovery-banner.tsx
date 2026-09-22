@@ -30,7 +30,7 @@ export function ConnectionRecoveryBanner({
 			)}
 			<View className="min-w-0 flex-1 flex-row items-baseline gap-1.5">
 				<Text className="font-sans-medium text-[13px] text-foreground">
-					{recovering ? "Reconnecting" : "Offline"}
+					{recovering ? "Reconnecting" : "Connection issue"}
 				</Text>
 				<Text
 					numberOfLines={1}

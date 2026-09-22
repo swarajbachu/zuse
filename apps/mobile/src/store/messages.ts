@@ -1,4 +1,5 @@
 import { cloudFailurePresentation } from "@zuse/client-runtime/cloud-failure-presentation";
+import { subscribeOnAnimationFrame } from "@zuse/client-runtime/frame-subscription";
 import type {
 	FailedCommand,
 	PendingCommand,
@@ -24,6 +25,7 @@ import {
 	mobilePendingMessageIntents,
 	registerMobileEnvironment,
 	resetMobileClientBus,
+	retainMobileHistory,
 	sessionTimelineKey,
 } from "./mobile-client-bus";
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
@@ -50,6 +52,12 @@ export const messagesErrorBySessionAtom = Atom.make<
 >({}).pipe(Atom.keepAlive);
 
 const EMPTY_MESSAGES: readonly Message[] = [];
+const transcriptReadyBySessionAtom = Atom.make<Record<string, boolean>>(
+	{},
+).pipe(Atom.keepAlive);
+export const sessionTranscriptReadyAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(transcriptReadyBySessionAtom)[key] === true),
+);
 const EMPTY_QUEUE: readonly QueuedMessage[] = [];
 const EMPTY_DELIVERY = {
 	pending: [] as readonly PendingCommand[],
@@ -174,6 +182,9 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 		markSessionTurnStartFailed(liveKey);
 	syncSessionTurnActivity(liveKey, running);
 	if (projection !== null && projection !== undefined) {
+		appAtomRegistry.update(transcriptReadyBySessionAtom, (state) =>
+			state[liveKey] ? state : { ...state, [liveKey]: true },
+		);
 		const durable = projection.messages;
 		const durableIds = new Set(durable.map((message) => message.id));
 		for (const id of optimisticIds) {
@@ -231,6 +242,7 @@ export const resetMessagesRuntime = async (): Promise<void> => {
 	resetSessionTurnActivity();
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(messagesBySessionAtom, {});
+		appAtomRegistry.set(transcriptReadyBySessionAtom, {});
 		appAtomRegistry.set(queueBySessionAtom, {});
 		appAtomRegistry.set(queuePausedBySessionAtom, {});
 		appAtomRegistry.set(reconnectingBySessionAtom, {});
@@ -269,12 +281,12 @@ export const hydrateMessages = async (
 			? "sync"
 			: "connect";
 	const existing = retainedTimelines.get(liveKey);
+	const environmentId = registerMobileEnvironment(connKey, options);
 	if (existing !== undefined) {
 		existing.lease.activate(activation);
 		publishTimeline(liveKey, existing);
 		return;
 	}
-	const environmentId = registerMobileEnvironment(connKey, options);
 	const key = sessionTimelineKey(environmentId, sessionId);
 	const lease = mobileClientBus().retain(key, { activation });
 	const retained: RetainedTimeline = {
@@ -283,10 +295,18 @@ export const hydrateMessages = async (
 		lease,
 		unsubscribe: () => undefined,
 	};
-	const unsubscribe = mobileClientBus().subscribe(key, () =>
-		publishTimeline(liveKey, retained),
-	);
-	retainedTimelines.set(liveKey, { ...retained, unsubscribe });
+	const listen = () => publishTimeline(liveKey, retained);
+	const subscribe = (callback: () => void) =>
+		mobileClientBus().subscribe(key, callback);
+	const unsubscribe = subscribeOnAnimationFrame(subscribe, listen);
+	const releaseHistory = retainMobileHistory({ environmentId, sessionId });
+	retainedTimelines.set(liveKey, {
+		...retained,
+		unsubscribe: () => {
+			releaseHistory();
+			unsubscribe();
+		},
+	});
 	if (options.cloudWorkspaceId !== undefined) {
 		const pending = await mobilePendingMessageIntents({
 			environmentId,
@@ -316,6 +336,7 @@ export const refreshMessages = (
 	const existing = retainedTimelines.get(liveKey);
 	if (existing === undefined)
 		return hydrateMessages(connKey, options, sessionId);
+	registerMobileEnvironment(connKey, options);
 	const connection = mobileClientBus().connection(existing.environmentId);
 	mobileClientBus().reportConnectionFault(
 		existing.environmentId,
@@ -323,6 +344,7 @@ export const refreshMessages = (
 		connection.generation,
 	);
 	existing.lease.activate("connect");
+	mobileClientBus().retryConnection(existing.environmentId);
 	return Promise.resolve();
 };
 

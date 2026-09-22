@@ -37,8 +37,10 @@ import {
 	classifyCloudMailboxAckFailure,
 	cloudGatewayCloseReason,
 	decodeImageProviderSecrets,
+	keepCloudRuntimeActive,
 	makeCloudRuntimeCheckpointPublisher,
 	makeCloudRuntimeSummaryPublisher,
+	recoverCloudMailboxReadiness,
 	resolveCloudRuntimeActiveSession,
 	retainedCloudRuntimeStorageFailure,
 	retryCloudWorkspaceBootstrap,
@@ -378,6 +380,47 @@ describe("cloud workspace bootstrap", () => {
 			expect(summary).not.toHaveProperty("content");
 			expect(summary).not.toHaveProperty("messages");
 		}
+	});
+
+	it("publishes session recovery even immediately after an activity update", async () => {
+		let ready = false;
+		let sessionRecovered = false;
+		const publisher = await Effect.runPromise(
+			makeCloudRuntimeSummaryPublisher({
+				now: Effect.succeed(1000),
+				read: Effect.succeed({
+					title: "Recovered",
+					lastActivityAt: 1000,
+					activeSessionId: SessionId.make("session-1"),
+					sessionHeadVersion: 195,
+				}),
+				write: (summary) =>
+					Effect.sync(() => {
+						if (ready) sessionRecovered = true;
+						return { applied: true, summaryRevision: summary.summaryRevision };
+					}),
+			}),
+		);
+		await Effect.runPromise(publisher.publish("activity"));
+		const lease = Effect.suspend(() =>
+			sessionRecovered
+				? Effect.succeed("leased")
+				: Effect.fail(
+						new CloudWorkspaceRuntimeError({
+							reason: "cloud_workspace_runtime_not_ready",
+						}),
+					),
+		);
+		const result = await Effect.runPromise(
+			recoverCloudMailboxReadiness(
+				lease,
+				Effect.sync(() => {
+					ready = true;
+				}).pipe(Effect.andThen(publisher.publish("recovery")), Effect.asVoid),
+			),
+		);
+		expect(result).toBe("leased");
+		expect(sessionRecovered).toBe(true);
 	});
 
 	it("rebases once when API already accepted a newer summary revision", async () => {
@@ -1330,5 +1373,118 @@ describe("cloud workspace mailbox runtime", () => {
 		);
 
 		expect(fenceRequests).toBe(1);
+	});
+});
+
+describe("preserved runtime mailbox readiness", () => {
+	it("republishes readiness and retries the lease once", async () => {
+		const events: string[] = [];
+		let attempts = 0;
+		const lease = Effect.suspend(() => {
+			events.push("lease");
+			return ++attempts === 1
+				? Effect.fail(
+						new CloudWorkspaceRuntimeError({
+							reason: "cloud_workspace_runtime_not_ready",
+						}),
+					)
+				: Effect.succeed("delivered");
+		});
+		expect(
+			await Effect.runPromise(
+				recoverCloudMailboxReadiness(
+					lease,
+					Effect.sync(() => {
+						events.push("ready");
+					}),
+				),
+			),
+		).toBe("delivered");
+		expect(events).toEqual(["lease", "ready", "lease"]);
+	});
+	it("never repairs a rejected credential or repeatedly retries a not-ready lease", async () => {
+		for (const reason of [
+			"workspace_runtime_rejected",
+			"cloud_workspace_runtime_not_ready",
+		]) {
+			let attempts = 0;
+			let repairs = 0;
+			const lease = Effect.suspend(() => {
+				attempts++;
+				return Effect.fail(new CloudWorkspaceRuntimeError({ reason }));
+			});
+			const result = await Effect.runPromise(
+				recoverCloudMailboxReadiness(
+					lease,
+					Effect.sync(() => {
+						repairs++;
+					}),
+				).pipe(Effect.result),
+			);
+			expect(result._tag).toBe("Failure");
+			expect(attempts).toBe(reason === "workspace_runtime_rejected" ? 1 : 2);
+			expect(repairs).toBe(reason === "workspace_runtime_rejected" ? 0 : 1);
+		}
+	});
+	it("does not lease when the API refuses readiness", async () => {
+		let attempts = 0;
+		const result = await Effect.runPromise(
+			recoverCloudMailboxReadiness(
+				Effect.suspend(() => {
+					attempts++;
+					return Effect.fail(
+						new CloudWorkspaceRuntimeError({
+							reason: "cloud_workspace_runtime_not_ready",
+						}),
+					);
+				}),
+				Effect.fail(
+					new CloudWorkspaceRuntimeError({
+						reason: "workspace_runtime_rejected",
+					}),
+				),
+			).pipe(Effect.result),
+		);
+		expect(result).toMatchObject({
+			_tag: "Failure",
+			failure: { reason: "workspace_runtime_rejected" },
+		});
+		expect(attempts).toBe(1);
+	});
+});
+
+describe("cloud active work keepalive", () => {
+	it("keeps a quiet turn alive, stops when idle, and survives a failed update", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const chatId = ChatId.make("quiet-chat");
+				let active = true;
+				let attempts = 0;
+				const fiber = yield* Effect.forkScoped(
+					keepCloudRuntimeActive({
+						chatId,
+						sessions: Effect.sync(() => [
+							{
+								chatId,
+								status: active ? ("running" as const) : ("idle" as const),
+							},
+							{ chatId: ChatId.make("other-chat"), status: "running" as const },
+						]),
+						publish: Effect.suspend(() =>
+							++attempts === 1 ? Effect.fail("network") : Effect.void,
+						),
+					}),
+				);
+				yield* Effect.yieldNow;
+				expect(attempts).toBe(1);
+				yield* TestClock.adjust("11 minutes");
+				expect(attempts).toBeGreaterThan(20);
+				active = false;
+				const beforeIdle = attempts;
+				yield* TestClock.adjust("2 minutes");
+				expect(attempts).toBe(beforeIdle);
+				yield* Fiber.interrupt(fiber);
+			}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+		);
 	});
 });

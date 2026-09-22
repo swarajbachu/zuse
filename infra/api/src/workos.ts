@@ -112,6 +112,25 @@ const logWorkosVerifyFailure = (
 	});
 };
 
+// Worker services are rebuilt per request, but public verification keys should
+// retain jose's normal cache/rotation behavior between requests. Never cache
+// bearer tokens or principals. jose handles request-owned fetches on Workers.
+const verificationKeys = new Map<
+	string,
+	ReturnType<typeof createRemoteJWKSet>
+>();
+export const workosVerificationKeys = (jwksUrl: string) => {
+	const cached = verificationKeys.get(jwksUrl);
+	if (cached !== undefined) return cached;
+	const keys = createRemoteJWKSet(new URL(jwksUrl));
+	if (verificationKeys.size >= 8) {
+		const oldest = verificationKeys.keys().next().value;
+		if (oldest !== undefined) verificationKeys.delete(oldest);
+	}
+	verificationKeys.set(jwksUrl, keys);
+	return keys;
+};
+
 /** Production verifier: validates the JWT against WorkOS's JWKS. */
 export const WorkosVerifierLive: Layer.Layer<
 	WorkosVerifier,
@@ -121,7 +140,7 @@ export const WorkosVerifierLive: Layer.Layer<
 	WorkosVerifier,
 	Effect.gen(function* () {
 		const config = yield* ApiConfiguration;
-		const jwks = createRemoteJWKSet(new URL(config.workosJwksUrl));
+		const jwks = workosVerificationKeys(config.workosJwksUrl);
 		const issuers = acceptedWorkosIssuers(config.workosIssuer);
 		const expectedClientId = expectedWorkosClientId(config.workosJwksUrl);
 		return {

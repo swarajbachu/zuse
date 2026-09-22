@@ -1,0 +1,22 @@
+Credential Tier: -1 -- No credentials configured
+
+  [MISSING] PageSpeed Insights v5
+         No API key found. Set GOOGLE_API_KEY environment variable or add 'api_key' to /home/vercel-sandbox/.config/claude-seo/google-api.json
+  [MISSING] Chrome UX Report (CrUX) API
+         No API key found. Set GOOGLE_API_KEY environment variable or add 'api_key' to /home/vercel-sandbox/.config/claude-seo/google-api.json
+  [MISSING] CrUX History API
+         No API key found. Set GOOGLE_API_KEY environment variable or add 'api_key' to /home/vercel-sandbox/.config/claude-seo/google-api.json
+  [MISSING] Google Search Console API
+         No OAuth token or service account found. Either:
+         1. Run: python scripts/google_auth.py --auth --creds /path/to/client_secret.json
+         2. Or add 'service_account_path' to /home/vercel-sandbox/.config/claude-seo/google-api.json
+  [MISSING] Google Indexing API v3
+         No OAuth token or service account found. Either:
+         1. Run: python scripts/google_auth.py --auth --creds /path/to/client_secret.json
+         2. Or add 'service_account_path' to /home/vercel-sandbox/.config/claude-seo/google-api.json
+  [MISSING] GA4 Data API v1beta
+         No OAuth token or service account found. Either:
+         1. Run: python scripts/google_auth.py --auth --creds /path/to/client_secret.json
+         2. Or add 'service_account_path' to /home/vercel-sandbox/.config/claude-seo/google-api.json
+
+Tip: Create config at /home/vercel-sandbox/.config/claude-seo/google-api.json with at minimum an 'api_key' field. Run with --setup for full instructions.

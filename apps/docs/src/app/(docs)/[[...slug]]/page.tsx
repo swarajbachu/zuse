@@ -71,8 +71,13 @@ export default async function DocumentationPage({ params }: PageProps) {
 				}}
 				tableOfContentPopover={{ style: "clerk" }}
 			>
-				<DocsTitle>{page.data.title}</DocsTitle>
-				<DocsDescription>{page.data.description}</DocsDescription>
+				<header className="docs-masthead">
+					<p className="docs-kicker">Zuse / Documentation</p>
+					<DocsTitle>{page.data.title}</DocsTitle>
+					<DocsDescription className="docs-description">
+						{page.data.description}
+					</DocsDescription>
+				</header>
 
 				<div className="page-action-row">
 					<MarkdownCopyButton markdownUrl={markdownUrl} />

@@ -1,0 +1,289 @@
+{
+  "title": "Developer Resources | Zuse",
+  "meta_description": "Zuse developer documentation, OpenAPI specification, agent instructions, API availability, and local MCP integration details.",
+  "meta_robots": "index, follow",
+  "canonical": "https://zuse.sh/developers",
+  "h1": [
+    "Build with Zuse."
+  ],
+  "h2": [
+    "Documentation",
+    "OpenAPI specification",
+    "Agent instructions",
+    "Local MCP integration",
+    "Public API",
+    "Authentication",
+    "Webhooks"
+  ],
+  "h3": [
+    "Product",
+    "Legal",
+    "Trust",
+    "Community"
+  ],
+  "images": [
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fapp-icon.png&w=2048&q=75",
+      "alt": "",
+      "width": "1024",
+      "height": "1024",
+      "loading": null,
+      "lazy_method": "none"
+    },
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fbrand%2Fobservatory-dither.webp&w=3840&q=75",
+      "alt": "",
+      "width": "480",
+      "height": "480",
+      "loading": "lazy",
+      "lazy_method": "native"
+    },
+    {
+      "src": "http://localhost:3001/_next/image?url=%2Fapp-icon.png&w=2048&q=75",
+      "alt": "",
+      "width": "1024",
+      "height": "1024",
+      "loading": null,
+      "lazy_method": "none"
+    }
+  ],
+  "links": {
+    "internal": [
+      {
+        "href": "http://localhost:3001/",
+        "text": "Zuse",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/#workflow",
+        "text": "How it works",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/docs",
+        "text": "Docs",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/pricing",
+        "text": "Pricing",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog",
+        "text": "Dispatch",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/changelog",
+        "text": "Changelog",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/download",
+        "text": "DownloadD",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/openapi.json",
+        "text": "Open openapi.json",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/llms.txt",
+        "text": "Open llms.txt",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/",
+        "text": "Zuse",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/download",
+        "text": "Download ZuseD",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/download",
+        "text": "Download",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/developers",
+        "text": "Developers",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/pricing",
+        "text": "Pricing",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/changelog",
+        "text": "Change Log",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/blog",
+        "text": "Dispatch",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/privacy",
+        "text": "Privacy Policy",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/terms",
+        "text": "Terms of Service",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/cookies",
+        "text": "Cookie Policy",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/acceptable-use",
+        "text": "Acceptable Use",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/security",
+        "text": "Security",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/data-rights",
+        "text": "Data Rights",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/subprocessors",
+        "text": "Subprocessors",
+        "rel": []
+      },
+      {
+        "href": "http://localhost:3001/accessibility",
+        "text": "Accessibility",
+        "rel": []
+      }
+    ],
+    "external": [
+      {
+        "href": "https://discord.gg/cvGpmMGd5",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse",
+        "text": "Star114",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://discord.gg/cvGpmMGd5",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://docs.zuse.sh",
+        "text": "Read Zuse documentation",
+        "rel": []
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse/tree/main/apps/mcp-server",
+        "text": "View MCP server source",
+        "rel": []
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse",
+        "text": "GitHub",
+        "rel": []
+      },
+      {
+        "href": "https://discord.gg/cvGpmMGd5",
+        "text": "Discord",
+        "rel": []
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse/releases",
+        "text": "Releases",
+        "rel": []
+      },
+      {
+        "href": "https://x.com/zuse_sh",
+        "text": "X",
+        "rel": []
+      },
+      {
+        "href": "https://github.com/swarajbachu/zuse",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://x.com/zuse_sh",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://www.instagram.com/zuse.sh/",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      },
+      {
+        "href": "https://discord.gg/cvGpmMGd5",
+        "text": "",
+        "rel": [
+          "noopener",
+          "noreferrer"
+        ]
+      }
+    ]
+  },
+  "schema": [],
+  "open_graph": {
+    "og:title": "Developer Resources | Zuse",
+    "og:description": "Zuse developer documentation, OpenAPI specification, agent instructions, API availability, and local MCP integration details.",
+    "og:url": "https://zuse.sh/developers",
+    "og:site_name": "Zuse",
+    "og:locale": "en_US",
+    "og:image": "https://zuse.sh/og.png",
+    "og:image:width": "1200",
+    "og:image:height": "630",
+    "og:image:alt": "Developer Resources | Zuse",
+    "og:type": "website"
+  },
+  "twitter_card": {
+    "twitter:card": "summary_large_image",
+    "twitter:creator": "@zuse_sh",
+    "twitter:title": "Developer Resources | Zuse",
+    "twitter:description": "Zuse developer documentation, OpenAPI specification, agent instructions, API availability, and local MCP integration details.",
+    "twitter:image": "https://zuse.sh/og.png"
+  },
+  "word_count": 145,
+  "hreflang": [
+    {
+      "lang": "en-US",
+      "href": "https://zuse.sh/developers"
+    }
+  ]
+}

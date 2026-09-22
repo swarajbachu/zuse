@@ -657,5 +657,7 @@
 	"device_command_permissions_title": "已儲存的命令權限",
 	"cloud_queue_waiting_for_agent": "等待代理",
 	"cloud_queue_cancel_failed": "無法取消佇列中的訊息。請重試。",
-	"cloud_queue_waiting_for_cloud": "等待雲端啟動"
+	"cloud_queue_waiting_for_cloud": "等待雲端啟動",
+	"cloud_history_loading": "正在載入較早的訊息…",
+	"cloud_history_retry": "無法載入較早的訊息 · 重試"
 }
