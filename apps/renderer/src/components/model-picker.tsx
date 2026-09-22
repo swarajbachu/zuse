@@ -230,17 +230,8 @@ export function ModelPicker(props: ModelPickerProps) {
 			if (!availabilityLoaded && !availabilityLoading) {
 				void refreshAvailability();
 			}
-			// Live inventories finish in the background after boot; a cheap
-			// re-check on open picks them up without blocking first paint.
-			void ensureCatalog({ maxAgeMs: 30_000 });
 		}
-	}, [
-		open,
-		availabilityLoaded,
-		availabilityLoading,
-		refreshAvailability,
-		ensureCatalog,
-	]);
+	}, [open, availabilityLoaded, availabilityLoading, refreshAvailability]);
 
 	const modelsForProvider = useCallback(
 		(

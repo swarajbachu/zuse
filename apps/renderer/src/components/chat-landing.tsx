@@ -80,6 +80,7 @@ import {
 import { cloudLaunchRequestForSource } from "~/lib/cloud-launch-source";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
 import { cloudProviderSizeLabel } from "~/lib/cloud-provider-presentation.ts";
+import { loadCloudWorkspacePlacement } from "~/lib/cloud-workspace-session-cache.ts";
 import {
 	ensureCloudWorkspaceAttached,
 	stageCloudChat,
@@ -510,7 +511,6 @@ export function ChatLanding() {
 			: `${pickerGroup.origin.host}/${pickerGroup.origin.owner}/${pickerGroup.origin.repo}`.toLowerCase();
 	useEffect(() => {
 		let cancelled = false;
-		let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 		setSelectedCloudProviderId(null);
 		setSelectedCloudSizeId(null);
 		setCloudProviders([]);
@@ -522,51 +522,20 @@ export function ChatLanding() {
 			return;
 		const loadCloudPlacement = async (): Promise<void> => {
 			try {
-				const [providerResult, projectResult, entitlementResult] =
-					await Promise.all([
-						runControlPlane((client) => client["cloud.providers"]()),
-						runControlPlane((client) => client["cloud.projects.list"]()),
-						runControlPlane((client) => client["machines.entitlements"]()),
-					]);
-				const imageResults = await Promise.allSettled(
-					providerResult.providers.map((provider) =>
-						runControlPlane((client) =>
-							client["cloud.image.status"]({ providerId: provider.providerId }),
-						),
-					),
-				);
-				const images = imageResults.flatMap((result) =>
-					result.status === "fulfilled" ? [result.value] : [],
-				);
+				const placement = await loadCloudWorkspacePlacement();
+				const images = placement.images;
 				if (cancelled) return;
 				const project =
-					projectResult.projects.find(
+					placement.projects.find(
 						(project) =>
 							project.repositoryIdentity.toLowerCase() ===
 							cloudRepositoryIdentity,
 					) ?? null;
-				const subscribed = entitlementResult.entitlements.some(
-					(item) =>
-						item.kind === "cloud-workspace" &&
-						(item.status === "active" ||
-							item.status === "grace" ||
-							(item.status === "ended" &&
-								item.paidThrough !== undefined &&
-								item.paidThrough > Date.now())),
-				);
-				setCloudProviders(providerResult.providers);
+				setCloudProviders(placement.providers);
 				setCloudProject(project);
 				setCloudAccountImages(images);
-				setCloudSubscribed(subscribed);
+				setCloudSubscribed(placement.subscribed);
 				setCloudPlacementError(false);
-
-				const buildIsChanging =
-					imageResults.some((result) => result.status === "rejected") ||
-					images.some((image) => image.state === "building");
-				if (buildIsChanging && !cancelled)
-					refreshTimer = setTimeout(() => {
-						void loadCloudPlacement();
-					}, 2_000);
 			} catch {
 				if (!cancelled) setCloudPlacementError(true);
 			}
@@ -574,7 +543,6 @@ export function ChatLanding() {
 		void loadCloudPlacement();
 		return () => {
 			cancelled = true;
-			if (refreshTimer !== undefined) clearTimeout(refreshTimer);
 		};
 	}, [cloudRepositoryIdentity]);
 	const cloudPickerItems = useMemo<ReadonlyArray<CloudComputerPickerItem>>(
