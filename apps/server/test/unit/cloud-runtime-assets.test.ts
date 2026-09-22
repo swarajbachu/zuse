@@ -450,7 +450,8 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 		expect(reconciler).toContain("ZUSE_RUNTIME_INSTALL_ONLY=1");
 		expect(reconciler).toContain("ZUSE_RUNTIME_SKIP_TOOLCHAIN=1");
 		expect(reconciler).toContain("WORKSPACE_BOOTSTRAP_SOURCE");
-		expect(reconciler).toContain("command: WORKSPACE_BOOTSTRAP_FILE");
+		expect(reconciler).toContain('command: "/bin/bash"');
+		expect(reconciler).toContain("args: [WORKSPACE_BOOTSTRAP_FILE]");
 		expect(reconciler).toContain("replacingFailedSandbox");
 		expect(reconciler).toContain(
 			"yield* provider.kill(workspace.providerSandboxId)",
