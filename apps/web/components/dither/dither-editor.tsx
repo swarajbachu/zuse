@@ -100,7 +100,12 @@ export function DitherEditor() {
 	const [source, setSource] = useState<HTMLCanvasElement | null>(null);
 	const [name, setName] = useState("image");
 	const [options, setOptions] = useState(DEFAULT_OPTIONS);
-	const [error, setError] = useState("");
+	const [error, setError] = useState<{
+		message: string;
+		kind: "upload" | "render" | "export";
+	} | null>(null);
+	// Render validity survives dismissing unrelated upload/export errors.
+	const [renderFailed, setRenderFailed] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [rendering, setRendering] = useState(false);
 	const [original, setOriginal] = useState(false);
@@ -122,7 +127,7 @@ export function DitherEditor() {
 	async function upload(file: File) {
 		const id = ++uploadId.current;
 		setLoading(true);
-		setError("");
+		setError(null);
 		try {
 			const image = await readImageFile(file);
 			if (id !== uploadId.current) return;
@@ -133,9 +138,13 @@ export function DitherEditor() {
 			setName(file.name.replace(/\.[^.]+$/, ""));
 		} catch (cause) {
 			if (id === uploadId.current)
-				setError(
-					cause instanceof Error ? cause.message : "Could not open this image.",
-				);
+				setError({
+					kind: "upload",
+					message:
+						cause instanceof Error
+							? cause.message
+							: "Could not open this image.",
+				});
 		} finally {
 			if (id === uploadId.current) setLoading(false);
 		}
@@ -160,13 +169,19 @@ export function DitherEditor() {
 						canvas.height = result.height;
 						canvas.getContext("2d")?.drawImage(result, 0, 0);
 					}
+					setRenderFailed(false);
 					setRendering(false);
 				})
 				.catch((cause) => {
 					if (controller.signal.aborted) return;
-					setError(
-						cause instanceof Error ? cause.message : "Could not process image.",
-					);
+					setRenderFailed(true);
+					setError({
+						kind: "render",
+						message:
+							cause instanceof Error
+								? cause.message
+								: "Could not process image.",
+					});
 					setRendering(false);
 				});
 		}, 80);
@@ -181,12 +196,20 @@ export function DitherEditor() {
 		value: DitherOptions[K],
 	) {
 		setRendering(!!source);
-		setError("");
+		setError(null);
 		setOptions((current) => ({ ...current, [key]: value }));
 	}
 
 	async function download() {
-		if (!canvasRef.current || !source || rendering || loading) return;
+		if (
+			!canvasRef.current ||
+			!source ||
+			rendering ||
+			loading ||
+			renderFailed ||
+			error
+		)
+			return;
 		setExporting(true);
 		try {
 			const blob = await canvasToBlob(canvasRef.current);
@@ -197,11 +220,13 @@ export function DitherEditor() {
 			link.click();
 			window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 		} catch (cause) {
-			setError(
-				cause instanceof Error
-					? cause.message
-					: "Export failed. Please try again.",
-			);
+			setError({
+				kind: "export",
+				message:
+					cause instanceof Error
+						? cause.message
+						: "Export failed. Please try again.",
+			});
 		} finally {
 			setExporting(false);
 		}
@@ -210,7 +235,7 @@ export function DitherEditor() {
 	function reset() {
 		setOptions({ ...DEFAULT_OPTIONS });
 		setRendering(!!source);
-		setError("");
+		setError(null);
 	}
 	const busy = loading || rendering;
 	const canvasStyle =
@@ -362,7 +387,7 @@ export function DitherEditor() {
 					<Button
 						variant="primary"
 						onClick={() => void download()}
-						disabled={!source || busy || exporting || !!error}
+						disabled={!source || busy || exporting || renderFailed || !!error}
 					>
 						<Download size={14} />
 						{exporting ? "Exporting…" : "Export PNG"}
@@ -505,11 +530,18 @@ export function DitherEditor() {
 					)}
 					{error && (
 						<div role="alert" className="studio-error">
-							<span>{error}</span>
+							<span>{error.message}</span>
 							<Button
 								className="studio-icon-button"
-								aria-label="Reset adjustments and dismiss error"
-								onClick={reset}
+								aria-label={
+									error.kind === "render"
+										? "Reset adjustments and dismiss error"
+										: "Dismiss error"
+								}
+								onClick={() => {
+									if (error.kind === "render") reset();
+									else setError(null);
+								}}
 							>
 								<X size={14} />
 							</Button>

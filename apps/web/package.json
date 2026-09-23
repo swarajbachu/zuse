@@ -10,7 +10,8 @@
 		"content:generate": "fumadocs-mdx",
 		"check-types": "bun run content:generate && tsc --noEmit",
 		"test": "vitest run",
-		"test:unit": "vitest run"
+		"test:unit": "vitest run",
+		"test:dither-browser": "node test/dither-editor.browser.mjs"
 	},
 	"dependencies": {
 		"@repo/ui": "workspace:*",
@@ -47,6 +48,7 @@
 		"prettier-plugin-tailwindcss": "^0.7.2",
 		"tailwindcss": "^4",
 		"typescript": "^5",
-		"vitest": "catalog:"
+		"vitest": "catalog:",
+		"@playwright/test": "^1.62.1"
 	}
 }
