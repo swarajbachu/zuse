@@ -45,6 +45,7 @@ const groupLabels: Record<string, WebsiteMessageKey> = {
 };
 const getData = (t: WebsiteMessage) => ({
 	Product: [
+		{ label: "Dither studio", href: "/tools/dither" },
 		{ label: t("navigation:download"), href: DOWNLOAD_URL },
 		{ label: t("navigation:developers"), href: "/developers" },
 		{ label: t("navigation:pricing"), href: "/pricing" },

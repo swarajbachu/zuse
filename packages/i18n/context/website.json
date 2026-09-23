@@ -1074,7 +1074,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 31
+				"line": 25
 			}
 		]
 	},
@@ -1083,7 +1083,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 32
+				"line": 26
 			}
 		]
 	},
@@ -1096,7 +1096,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 35
+				"line": 29
 			}
 		]
 	},
@@ -1105,7 +1105,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 97
+				"line": 91
 			}
 		]
 	},
@@ -1114,7 +1114,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 98
+				"line": 92
 			}
 		]
 	},
@@ -1123,7 +1123,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 161
+				"line": 155
 			}
 		]
 	},
@@ -1132,7 +1132,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 162
+				"line": 156
 			}
 		]
 	},
@@ -1141,7 +1141,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 170
+				"line": 164
 			}
 		]
 	},
@@ -1150,11 +1150,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 48
+				"line": 49
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 198
+				"line": 192
 			}
 		]
 	},
@@ -1163,7 +1163,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 213
+				"line": 207
 			}
 		]
 	},
@@ -1172,7 +1172,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 49
+				"line": 50
 			}
 		]
 	},
@@ -1181,7 +1181,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 51
+				"line": 52
 			}
 		]
 	},
@@ -1190,11 +1190,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 52
+				"line": 53
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 34
+				"line": 28
 			}
 		]
 	},
@@ -1203,7 +1203,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 65
+				"line": 66
 			}
 		]
 	},
@@ -1212,7 +1212,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 114
+				"line": 115
 			}
 		]
 	},
@@ -1338,7 +1338,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 81
+				"line": 82
 			}
 		]
 	},
@@ -1346,8 +1346,8 @@
 		"source": "Switch to light theme",
 		"locations": [
 			{
-				"path": "apps/web/components/navbar.tsx",
-				"line": 231
+				"path": "apps/web/components/theme-toggle.tsx",
+				"line": 20
 			}
 		]
 	},
@@ -1355,8 +1355,8 @@
 		"source": "Switch to dark theme",
 		"locations": [
 			{
-				"path": "apps/web/components/navbar.tsx",
-				"line": 231
+				"path": "apps/web/components/theme-toggle.tsx",
+				"line": 20
 			}
 		]
 	},
@@ -1365,11 +1365,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 50
+				"line": 51
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 33
+				"line": 27
 			}
 		]
 	},

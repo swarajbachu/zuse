@@ -393,14 +393,10 @@ export function ProjectsSidebar() {
 			aria-label={uiMessage("common:projects_and_chats")}
 			data-pane="sidebar"
 			tabIndex={-1}
-			className="flex h-full min-h-0 w-full flex-col bg-sidebar text-sidebar-foreground outline-none"
+			className="flex h-full min-h-0 w-full flex-col text-sidebar-foreground outline-none"
 		>
 			{desktopCatalogEnabled ? null : (
-				<Suspense
-					fallback={
-						<div className="h-[60px] border-b border-sidebar-border/40" />
-					}
-				>
+				<Suspense fallback={<div className="h-[60px]" />}>
 					<ComputerSwitcher />
 				</Suspense>
 			)}
@@ -1091,7 +1087,7 @@ function SidebarActions() {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
 	return (
-		<div className="flex flex-col gap-0.5 border-b border-sidebar-border/40 px-1.5 py-1.5">
+		<div className="flex flex-col gap-0.5 px-1.5 py-1">
 			<SidebarActionRow
 				icon={Edit01Icon}
 				label={uiMessage("projects:projects_sidebar_new_chat")}
@@ -1143,7 +1139,7 @@ function SidebarFooter() {
 	const prefetchUsage = useUsageStore((state) => state.prefetch);
 
 	return (
-		<div className="flex h-10 items-center justify-between border-t border-sidebar-border/40 px-2">
+		<div className="flex h-9 items-center justify-between px-2">
 			<SidebarAccount />
 			<div className="flex items-center gap-0.5">
 				<SidebarAgentCount />

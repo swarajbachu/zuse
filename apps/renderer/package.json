@@ -11,6 +11,7 @@
 		"check-types": "tsc --noEmit && node ../../scripts/check-renderer-state.mjs",
 		"test": "vp test run test",
 		"test:unit": "vp test run test/unit",
+		"test:wallpaper-browser": "node test/integration/wallpaper.browser.mjs",
 		"test:startup-browser": "node test/integration/react-startup.browser.mjs",
 		"test:integration": "vp test run test/integration --passWithNoTests"
 	},

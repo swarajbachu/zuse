@@ -5,6 +5,7 @@
 	"private": true,
 	"exports": {
 		"./*": "./src/*.tsx",
+		"./image-dither": "./src/image-dither.ts",
 		"./app-palette.css": "./src/app-palette.css",
 		"./zuse-mark": "./src/zuse-mark.json"
 	},

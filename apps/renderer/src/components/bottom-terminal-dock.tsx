@@ -213,7 +213,7 @@ export function BottomTerminalDock({
 	return (
 		<section
 			aria-label={uiMessage("chat:terminal_bottom")}
-			className="relative flex min-h-0 shrink-0 flex-col border-border border-t bg-background"
+			className="workspace-surface workspace-terminal-dock relative flex min-h-0 shrink-0 flex-col"
 			style={{ height: `${layout.heightPx}px` }}
 		>
 			<hr
@@ -252,9 +252,9 @@ export function BottomTerminalDock({
 						clampHeight(layout.heightPx + (event.key === "ArrowUp" ? 16 : -16)),
 					);
 				}}
-				className="absolute inset-x-0 -top-1 z-10 m-0 h-2 cursor-row-resize border-0 outline-none focus-visible:bg-ring/40"
+				className="workspace-terminal-resizer absolute inset-x-0 z-10 m-0 cursor-row-resize border-0 outline-none focus-visible:bg-ring/40"
 			/>
-			<div className="flex h-7 shrink-0 items-center gap-0.5 overflow-x-auto px-1 text-[11px]">
+			<div className="workspace-panel-tabs flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto px-2 text-[11px]">
 				{terminals.map((terminal) => {
 					const active = terminal.id === activeTerminal?.id;
 					return (
@@ -345,7 +345,7 @@ export function BottomTerminalDock({
 					</button>
 				</div>
 			) : null}
-			<div className="flex min-h-0 flex-1 flex-col">
+			<div className="workspace-panel-body flex min-h-0 flex-1 flex-col">
 				{directoryUnavailable ? (
 					<div
 						role="status"
