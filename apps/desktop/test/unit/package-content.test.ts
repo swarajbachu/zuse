@@ -135,7 +135,7 @@ describe("desktop package content", () => {
 
 	it("keeps the builder exclusion aligned with the package content guard", async () => {
 		const builderConfiguration = await readFile(
-			Path.resolve(import.meta.dirname, "../../electron-builder.yml"),
+			Path.resolve(import.meta.dirname, "../../electron-builder.base.yml"),
 			"utf8",
 		);
 		expect(builderConfiguration).toContain("!**/*.{ts,tsx,cts,mts,map,md}");

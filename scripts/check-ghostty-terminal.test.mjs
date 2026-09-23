@@ -27,7 +27,7 @@ test("Ghostty is the only terminal renderer on every supported client", async ()
 		read("apps/mobile/modules/mobile-terminal/ZuseMobileTerminal.podspec"),
 		read("apps/mobile/modules/mobile-terminal/src/ZuseMobileTerminalView.tsx"),
 		read("tests/system/test/desktop/electron-terminal.desktop.test.ts"),
-		read("apps/desktop/electron-builder.yml"),
+		read("apps/desktop/electron-builder.base.yml"),
 		read("native/libghostty-vt/VERSION"),
 	]);
 

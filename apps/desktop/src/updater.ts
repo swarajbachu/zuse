@@ -57,9 +57,9 @@ let initialization = Promise.resolve();
 let downloadToken: CancellationToken | null = null;
 
 // electron-updater talks to the GitHub Releases feed configured in
-// apps/desktop/electron-builder.yml (`publish.provider: github`). It reads
+// apps/desktop/electron-builder.base.yml (`publish.provider: github`). It reads
 // `latest-mac.yml` from the latest *published* release (drafts are invisible
-// to unauthenticated readers — see release flow note in electron-builder.yml),
+// to unauthenticated readers — see release flow note in electron-builder.base.yml),
 // compares versions, and downloads the platform update archive. We drive the lifecycle manually
 // so the renderer can show download progress + a "Restart now" button instead
 // of relying on the system notification center.
