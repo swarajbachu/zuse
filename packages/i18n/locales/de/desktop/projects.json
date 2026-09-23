@@ -259,7 +259,7 @@
 	"github_base": "Basis:",
 	"github_needs_rebase": "Rebase erforderlich",
 	"github_new_stack_branch": "Neuer Stack-Branch",
-	"github_submit_stack": "Stack pushen und PR-Entwürfe erstellen",
+	"github_submit_stack": "Stack veröffentlichen",
 	"github_start_stack": "Stack mit diesem Branch beginnen",
 	"github_stack_help": "GitHub-Stack einrichten und Hilfe ↗",
 	"github_pr_number": "PR #{{number}}",
@@ -298,5 +298,6 @@
 	"worktree_setup_card_preparing_directory": "Ein separates Arbeitsverzeichnis für diesen Chat wird vorbereitet.",
 	"worktree_setup_card_no_setup_script": "Kein Einrichtungsskript erforderlich.",
 	"worktree_setup_card_workspace_ready_description": "Dein Arbeitsbereich ist bereit.",
-	"worktree_setup_card_preparing_environment": "Die Arbeitsumgebung wird vorbereitet."
+	"worktree_setup_card_preparing_environment": "Die Arbeitsumgebung wird vorbereitet.",
+	"github_submit_stack_help": "Pusht alle Branches und aktualisiert ihre Pull Requests auf GitHub. Für Branches ohne Pull Request wird ein Entwurf erstellt, der noch nicht zur Überprüfung bereit ist. Bereits offene Pull Requests bleiben offen."
 }
