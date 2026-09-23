@@ -230,9 +230,14 @@ export default function PrivacyPage() {
 						Providers and third parties
 					</h2>
 					<p className="mt-2">
-						Zuse relies on third parties only where a feature requires them.
-						These can include WorkOS for account authentication, the analytics
-						processor for the limited analytics described above,
+						Mobile asks before sharing messages, selected attachments and
+						workspace context with the chosen agent/model services. Dictation
+						sends audio to OpenAI for transcription through the connected
+						environment or directly from the device. Sharing choices last for
+						the app session and can be reset in Settings. Provider privacy
+						policies apply. Zuse relies on third parties only where a feature
+						requires them. These can include WorkOS for account authentication,
+						the analytics processor for the limited analytics described above,
 						push-notification services for mobile alerts, and cloud
 						infrastructure, storage, payment, and compute providers for Cloud
 						Workspaces. Model providers, source-control services, browsers,

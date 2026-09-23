@@ -10,8 +10,8 @@ import {
 	Text,
 	View,
 } from "react-native";
-
 import { ListRow, ListSection } from "~/components/ui/list";
+import { resetAiSharingConsent } from "~/lib/ai-sharing-consent";
 import { captureMobileAnalytics } from "~/lib/analytics";
 import { returnToInbox } from "~/lib/connection-navigation";
 import { visibleConnectionLabel } from "~/lib/display-names";
@@ -494,6 +494,17 @@ export default function SettingsScreen() {
 					header="Privacy"
 					footer="Optional: share app activity and sanitized reliability events with PostHog to improve Zuse. Prompts, code, files and recordings are excluded. Turning this off discards pending mobile events."
 				>
+					<ListRow
+						title="Reset AI sharing choices"
+						subtitle="Ask again before sending to an AI provider"
+						onPress={() => {
+							resetAiSharingConsent();
+							Alert.alert(
+								"Sharing choices reset",
+								"Zuse will ask before your next message or recording. Data already sent and work already running are not recalled.",
+							);
+						}}
+					/>
 					<ListRow
 						title="Share usage analytics"
 						chevron={false}

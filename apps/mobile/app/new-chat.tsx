@@ -37,6 +37,7 @@ import { SelectorRow } from "~/components/selector-row";
 import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { HugeIcon } from "~/components/ui/huge-icon";
+import { requestAiSharingConsent } from "~/lib/ai-sharing-consent";
 import {
 	captureComposerImage,
 	type LocalComposerAttachment,
@@ -536,6 +537,18 @@ export default function NewChatScreen() {
 		setSubmitting(true);
 		setError(null);
 		try {
+			if (
+				!(await requestAiSharingConsent({
+					recipient: payload.providerId,
+					scope: effectiveConnectionKey,
+					model: payload.model,
+					destination:
+						selectedOptions.cloudWorkspaceId === undefined
+							? "computer"
+							: "cloud",
+				}))
+			)
+				return;
 			const requiresRichSend = attachments.length > 0 || goalMode;
 			if (threadMode && threadContext !== null) {
 				const session = await createSession(

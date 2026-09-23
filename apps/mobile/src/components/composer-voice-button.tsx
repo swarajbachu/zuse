@@ -12,6 +12,7 @@ import { File } from "expo-file-system";
 import { Mic, Square, X } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { Alert, AppState, Modal, Pressable, Text, View } from "react-native";
+import { requestAiSharingConsent } from "~/lib/ai-sharing-consent";
 
 import { stopRecorderOnUnmount } from "~/lib/audio-recorder-lifecycle";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
@@ -125,6 +126,7 @@ export function ComposerVoiceButton({
 }) {
 	const [voiceState, setVoiceState] = useState<VoiceState>("idle");
 	const completingRef = useRef(false);
+	const startingRef = useRef(false);
 	const recorderObservedActiveRef = useRef(false);
 	const finishRef = useRef<() => Promise<void>>(async () => undefined);
 	const recorder = useAudioRecorder(RECORDING_OPTIONS);
@@ -234,8 +236,17 @@ export function ComposerVoiceButton({
 	);
 
 	const start = async () => {
-		if (!enabled || !online || voiceState !== "idle") return;
+		if (!enabled || !online || voiceState !== "idle" || startingRef.current)
+			return;
+		startingRef.current = true;
 		try {
+			if (
+				!(await requestAiSharingConsent({
+					recipient: "OpenAI",
+					destination: "voice",
+				}))
+			)
+				return;
 			const permission = await requestRecordingPermissionsAsync();
 			if (!permission.granted) {
 				Alert.alert(
@@ -258,6 +269,8 @@ export function ComposerVoiceButton({
 		} catch (cause) {
 			await resetAudioMode();
 			onError(connectionErrorMessage(cause));
+		} finally {
+			startingRef.current = false;
 		}
 	};
 
