@@ -1,19 +1,12 @@
 "use client";
 import { DitherButtonBackground } from "@repo/ui/dither";
-import {
-	IconBrandDiscordFilled,
-	IconMenu2,
-	IconMoonFilled,
-	IconSunFilled,
-	IconX,
-} from "@tabler/icons-react";
+import { IconBrandDiscordFilled, IconMenu2, IconX } from "@tabler/icons-react";
 import { websitePath } from "@zuse/i18n/registry";
 import {
 	useWebsiteMessages,
 	type WebsiteMessage,
 } from "@zuse/i18n/website/react";
 import Link from "next/link";
-import { useTheme } from "next-themes";
 import { useState } from "react";
 import { Logo } from "@/components/logo";
 import {
@@ -22,6 +15,7 @@ import {
 	PlatformDownloadIcon,
 	useDownloadPlatform,
 } from "@/components/platform-download";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { DISCORD_URL, GITHUB_URL } from "@/lib/site";
 import { cn } from "@/lib/utils";
 import { LanguageSelector } from "./language-selector";
@@ -215,30 +209,6 @@ const DiscordLink = () => {
 		>
 			<IconBrandDiscordFilled aria-hidden="true" className="size-3" />
 		</a>
-	);
-};
-
-const ThemeToggle = () => {
-	const { message: t } = useWebsiteMessages();
-
-	const { resolvedTheme, setTheme } = useTheme();
-	const isDark = resolvedTheme !== "light";
-
-	return (
-		<button
-			type="button"
-			aria-label={t(
-				isDark ? "navigation:light_theme" : "navigation:dark_theme",
-			)}
-			onClick={() => setTheme(isDark ? "light" : "dark")}
-			className="border-border bg-card text-muted-foreground hover:bg-elevated hover:text-heading focus-visible:ring-heading/60 relative flex size-6 items-center justify-center rounded-md border transition-colors duration-200 after:absolute after:-inset-2 focus-visible:ring-2 focus-visible:outline-none"
-		>
-			{isDark ? (
-				<IconSunFilled aria-hidden="true" className="size-3" />
-			) : (
-				<IconMoonFilled aria-hidden="true" className="size-3" />
-			)}
-		</button>
 	);
 };
 

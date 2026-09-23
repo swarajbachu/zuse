@@ -132,7 +132,7 @@ const openExternal = (url: string): void => {
 };
 
 const SECTION_CLASS =
-	"flex h-10 shrink-0 items-center gap-1 border-b border-border text-[11px] [-webkit-app-region:drag]";
+	"flex h-9 shrink-0 items-center gap-1 text-[11px] [-webkit-app-region:drag]";
 const ACTION_CLASS = "[-webkit-app-region:no-drag]";
 const ICON_BUTTON_CLASS = `${ACTION_CLASS} flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground`;
 const NATIVE_CONTROLS_INSET_CLASS =

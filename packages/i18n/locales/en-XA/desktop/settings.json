@@ -869,5 +869,16 @@
 	"cloud_auth_not_allowed": "⟦Yôôüür Züüsëë sëëssïïôôn côôüüld nôôt ààüüthôôrïïzëë thïïs ààctïïôôn. Rëëfrëësh yôôüür sëëssïïôôn àànd try ààgààïïn.⟧",
 	"cloud_auth_login_failed": "⟦Thëë ààgëënt lôôgïïn côôüüld nôôt bëë stààrtëëd.⟧",
 	"cloud_auth_temporarily_unavailable": "⟦Clôôüüd ààüüthëëntïïcààtïïôôn ïïs tëëmpôôrààrïïly üünààvààïïlààblëë. Rëëtry wïïthôôüüt ààffëëctïïng yôôüür ëëxïïstïïng chààts.⟧",
-	"cloud_machine_provider": "⟦Mààchïïnëë prôôvïïdëër⟧"
+	"cloud_machine_provider": "⟦Mààchïïnëë prôôvïïdëër⟧",
+	"wallpaper_title": "⟦Wààllpààpëër⟧",
+	"wallpaper_description": "⟦ÀÀ süübtlëë bààckgrôôüünd fôôr nëëw chààts. Sààvëëd ôôn thïïs dëëvïïcëë.⟧",
+	"wallpaper_saving": "⟦Sààvïïng…⟧",
+	"wallpaper_replace": "⟦Rëëplààcëë ïïmààgëë⟧",
+	"wallpaper_upload": "⟦ÜÜplôôààd ïïmààgëë⟧",
+	"wallpaper_remove": "⟦Rëëmôôvëë⟧",
+	"wallpaper_upload_label": "⟦ÜÜplôôààd wààllpààpëër⟧",
+	"wallpaper_opacity": "⟦ÔÔpààcïïty⟧",
+	"wallpaper_opacity_label": "⟦Wààllpààpëër ôôpààcïïty⟧",
+	"wallpaper_hint": "⟦PNG, JPËËG, WëëbP, ÀÀVÏÏF, ôôr GÏÏF · ÜÜp tôô 20 MB. Mààkëë àà tëëxtüürëë ààt⟧",
+	"wallpaper_studio": "⟦Dïïthëër stüüdïïôô⟧"
 }

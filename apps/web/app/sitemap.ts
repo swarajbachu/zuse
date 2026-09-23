@@ -13,9 +13,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
 			url: new URL(websitePath(locale), siteConfig.url).toString(),
 			alternates: { languages: websiteAlternates() },
 		})),
-		...["/developers", "/changelog", "/blog", "/pricing"].map((path) => ({
-			url: new URL(path, siteConfig.url).toString(),
-		})),
+		...["/tools/dither", "/developers", "/changelog", "/blog", "/pricing"].map(
+			(path) => ({
+				url: new URL(path, siteConfig.url).toString(),
+			}),
+		),
 		...blog.getPages().map((page) => ({
 			url: new URL(page.url, siteConfig.url).toString(),
 		})),
