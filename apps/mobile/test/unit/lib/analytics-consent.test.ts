@@ -1,3 +1,4 @@
+import { analyticsAccountId } from "@zuse/analytics";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -86,6 +87,11 @@ describe("mobile analytics consent", () => {
 		await analytics.setMobileAnalyticsEnabled(false, "account-a");
 		await analytics.setMobileAnalyticsAccount("account-b");
 		expect(await analytics.hydrateMobileAnalytics("account-b")).toBe(false);
+		mocks.identify.mockClear();
+		await analytics.setMobileAnalyticsEnabled(true, "account-b");
+		expect(mocks.identify).toHaveBeenCalledWith(
+			analyticsAccountId("account-b"),
+		);
 	});
 });
 
