@@ -242,6 +242,21 @@ export const registerDevice = async (input: {
 	});
 };
 
+/** Revocation is idempotent so an interrupted logout can safely retry. */
+export const revokeMobileDevice = async (deviceId: string): Promise<void> => {
+	const token = await getWorkosToken();
+	const response = await fetch(
+		url(`/v1/clients/${encodeURIComponent(deviceId)}`),
+		{
+			method: "DELETE",
+			headers: { authorization: `Bearer ${token}` },
+			signal: AbortSignal.timeout(10_000),
+		},
+	);
+	if (!response.ok && response.status !== 404)
+		throw await apiError(response, "device_revoke");
+};
+
 /** Permanently delete the authenticated account and all api-owned data. */
 export const deleteAccount = async (): Promise<{ cleanupPending: boolean }> => {
 	const workosToken = await getWorkosToken();
