@@ -318,7 +318,7 @@ export default function SettingsScreen() {
 					<ListSection header="Notifications">
 						<ListRow
 							symbol="bell.badge.fill"
-							title="Enable notifications"
+							title="Notification preferences"
 							subtitle="Alerts for approvals and questions"
 							disabled={notificationsBusy}
 							onPress={async () => {
@@ -329,7 +329,23 @@ export default function SettingsScreen() {
 									enabled ? "Notifications enabled" : "Notifications are off",
 									enabled
 										? "We’ll alert you when your attention is needed."
-										: "Allow notifications in iPhone Settings to receive agent alerts.",
+										: "You can change notification access in device Settings. Core features remain available without alerts.",
+									enabled
+										? undefined
+										: [
+												{ text: "Cancel", style: "cancel" },
+												{
+													text: "Open Settings",
+													onPress: () => {
+														void Linking.openSettings().catch(() =>
+															Alert.alert(
+																"Open device Settings",
+																"Select Zuse → Notifications.",
+															),
+														);
+													},
+												},
+											],
 								);
 							}}
 						/>
@@ -374,7 +390,7 @@ export default function SettingsScreen() {
 
 				<ListSection
 					header="Storage"
-					footer="Downloaded data can be fetched again. Reset app also removes connections, account state, and unsent messages from this phone."
+					footer="Downloaded data can be fetched again. Reset app also removes connections, account state, and unsent messages from this device."
 				>
 					<ListRow
 						analyticsId="storage.clear-downloads"
@@ -418,13 +434,13 @@ export default function SettingsScreen() {
 						symbol="arrow.counterclockwise"
 						iconTone="neutral"
 						title="Reset app"
-						subtitle="Remove all data stored on this phone"
+						subtitle="Remove all data stored on this device"
 						destructive
 						disabled={busy || storageBusy}
 						onPress={() =>
 							Alert.alert(
 								"Reset this app?",
-								"This removes account state, connections, cache, device keys, and unsent messages from this phone. Your remote account is not deleted.",
+								"This removes account state, connections, cache, device keys, and unsent messages from this device. Your remote account is not deleted.",
 								[
 									{ text: "Cancel", style: "cancel" },
 									{
@@ -468,9 +484,9 @@ export default function SettingsScreen() {
 																? "Deletion requested"
 																: "Account deleted",
 															result.localCleanupFailed
-																? "Your deletion request was accepted, but some data on this phone could not be cleared. Restart the app and use Reset app in Settings to retry local cleanup."
+																? "Your deletion request was accepted, but some data on this device could not be cleared. Restart the app and use Reset app in Settings to retry local cleanup."
 																: result.cleanupPending
-																	? "Your deletion request was accepted. Cloud resources are still being cleaned up. You have been signed out on this phone."
+																	? "Your deletion request was accepted. Cloud resources are still being cleaned up. You have been signed out on this device."
 																	: "Your account has been deleted and you have been signed out.",
 														);
 														returnToInbox(router);

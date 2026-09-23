@@ -38,15 +38,13 @@
 	<string>12.0</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Scan pairing codes for local Zuse environments.</string>
+	<string>Scan pairing codes and capture images to attach to Zuse messages.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_zuse._tcp</string>
@@ -55,7 +53,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to a local Zuse server on your network.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Record speech to insert a transcript into your Zuse message.</string>
+	<string>Record speech and send audio to OpenAI to create a transcript for your Zuse message.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save image previews to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

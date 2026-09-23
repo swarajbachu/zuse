@@ -1,5 +1,7 @@
 # Mobile App Store review audit
 
+Historical September 22 findings. See the [September 23 audit and remediation status](app-store-audit-2026-09-23.md) for the current follow-up.
+
 Audited September 22, 2026 against main `06712b592` and this PR. Apple reviewed
 version 1.0 (8) on an iPad Air 11-inch (M3) and rejected the camera pre-permission
 button under 5.1.1(iv). This is a source audit, not certification of the submitted
