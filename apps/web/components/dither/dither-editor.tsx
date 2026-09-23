@@ -251,9 +251,11 @@ export function DitherEditor() {
 		? "Opening image…"
 		: rendering
 			? "Rendering…"
-			: source
-				? "Ready"
-				: "No image loaded";
+			: renderFailed
+				? "Render failed. Reset adjustments to retry."
+				: source
+					? "Ready"
+					: "No image loaded";
 	return (
 		<main className="dither-studio" data-controls-open={controlsOpen}>
 			<aside

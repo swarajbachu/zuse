@@ -139,6 +139,10 @@ try {
 		.click();
 	assert.equal(await contrast.inputValue(), "155");
 	assert.equal(await exportButton.isDisabled(), true);
+	assert.match(
+		await page.getByRole("status").textContent(),
+		/Render failed.*reset adjustments to retry/i,
+	);
 	await page.evaluate(() => {
 		window.Worker = window.originalWorker;
 	});
@@ -146,6 +150,7 @@ try {
 		.getByRole("button", { name: "Reset adjustments", exact: true })
 		.click();
 	await settled();
+	assert.equal((await page.getByRole("status").textContent()).trim(), "Ready");
 	console.log(
 		"Dither editor recovery passed: upload, export retry, render reset, stale export protection.",
 	);
