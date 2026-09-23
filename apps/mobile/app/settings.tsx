@@ -6,6 +6,7 @@ import {
 	Alert,
 	Linking,
 	ScrollView,
+	Switch,
 	Text,
 	View,
 } from "react-native";
@@ -19,6 +20,12 @@ import { clearMediaCache, mediaCacheSize } from "~/lib/media-cache";
 import { clearDownloadedMobileData } from "~/lib/mobile-data";
 import { registerCurrentDeviceForPush } from "~/notifications/push";
 import { downloadedCacheSize } from "~/offline/cache";
+import {
+	analyticsEnabledAtom,
+	analyticsHydratedAtom,
+	hydrateAnalytics,
+	setAnalyticsEnabled,
+} from "~/store/analytics";
 import {
 	authAccountAtom,
 	authBusyAtom,
@@ -56,6 +63,12 @@ const formatBytes = (bytes: number | null): string => {
 
 export default function SettingsScreen() {
 	const account = useAtomValue(authAccountAtom);
+	const analyticsEnabled = useAtomValue(analyticsEnabledAtom);
+	const analyticsReady = useAtomValue(analyticsHydratedAtom);
+	const [privacyBusy, setPrivacyBusy] = useState(false);
+	useEffect(() => {
+		void hydrateAnalytics();
+	}, []);
 	const hydrated = useAtomValue(authHydratedAtom);
 	const busy = useAtomValue(authBusyAtom);
 	const authError = useAtomValue(authErrorAtom);
@@ -337,6 +350,19 @@ export default function SettingsScreen() {
 
 				<ListSection header="Help">
 					<ListRow
+						symbol="envelope"
+						title="Contact support"
+						subtitle="hi@zuse.sh"
+						onPress={() => {
+							void Linking.openURL("mailto:hi@zuse.sh").catch(() =>
+								Alert.alert(
+									"Contact support",
+									"Email hi@zuse.sh for private support and privacy requests.",
+								),
+							);
+						}}
+					/>
+					<ListRow
 						symbol="sparkles"
 						title="Getting started"
 						subtitle="Review setup and connection options"
@@ -464,6 +490,33 @@ export default function SettingsScreen() {
 						/>
 					</ListSection>
 				)}
+				<ListSection
+					header="Privacy"
+					footer="Optional: share app activity and sanitized reliability events with PostHog to improve Zuse. Prompts, code, files and recordings are excluded. Turning this off discards pending mobile events."
+				>
+					<ListRow
+						title="Share usage analytics"
+						chevron={false}
+						trailing={
+							<Switch
+								accessibilityLabel="Share usage analytics"
+								value={analyticsEnabled}
+								disabled={!analyticsReady || privacyBusy}
+								onValueChange={(next) => {
+									setPrivacyBusy(true);
+									void setAnalyticsEnabled(next)
+										.catch(() =>
+											Alert.alert(
+												"Could not save privacy preference",
+												"Please try again. Analytics remain off if you turned them off.",
+											),
+										)
+										.finally(() => setPrivacyBusy(false));
+								}}
+							/>
+						}
+					/>
+				</ListSection>
 				<ListSection header="About">
 					<ListRow
 						symbol="hand.raised.fill"
