@@ -138,11 +138,7 @@ linux:
   # in one tarball; keep only the prebuilds this process can load. Scoping the
   # filter under `linux` leaves both universal macOS slices untouched.
   files:
-    # An explicit positive keeps electron-builder from turning this
-    # platform matcher into a negative-only implicit `**/*` matcher.
-    - dist-electron/**/*
-    - "package.json"
-    - "!**/*.{ts,tsx,cts,mts,map,md}"
+    # The JS config combines these exclusions with the common positive list.
     - "!node_modules/{node-pty,tree-sitter,tree-sitter-javascript,tree-sitter-json,tree-sitter-typescript}/prebuilds/{darwin-*,linux-arm64,win32-*}/**"
     - "!node_modules/**/@cursor/sdk-{darwin-*,linux-arm64,win32-*}/**"
     # These packages publish compiler inputs and alternate module formats in
