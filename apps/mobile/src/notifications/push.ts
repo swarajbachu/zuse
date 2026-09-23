@@ -6,9 +6,10 @@ import type { WorkosAccount } from "../auth/workos.ts";
 import { captureMobileAnalytics } from "../lib/analytics.ts";
 import {
 	clearDeviceIdentity,
+	existingDeviceId,
 	getOrCreateDeviceId,
 } from "../lib/device-identity.ts";
-import { registerDevice } from "../rpc/api-client.ts";
+import { registerDevice, revokeMobileDevice } from "../rpc/api-client.ts";
 import { registerPushTokenForAccount } from "./registration.ts";
 
 export const clearPushRegistration = (): Promise<void> => clearDeviceIdentity();
@@ -63,4 +64,14 @@ export const installNotificationResponseHandler = (): (() => void) => {
 	const subscription =
 		Notifications.addNotificationResponseReceivedListener(openResponse);
 	return () => subscription.remove();
+};
+
+/** Preserve identity/auth on failure so logout can retry server revocation. */
+export const revokeCurrentDevicePush = async (): Promise<void> => {
+	const deviceId = await existingDeviceId();
+	if (deviceId === null) return;
+	await revokeMobileDevice(deviceId);
+	await Notifications.unregisterForNotificationsAsync();
+	await Notifications.dismissAllNotificationsAsync();
+	await clearDeviceIdentity();
 };
