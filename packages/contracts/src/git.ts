@@ -955,6 +955,15 @@ export class GitStackResult extends Schema.Class<GitStackResult>(
 			isCurrent: Schema.Boolean,
 			isMerged: Schema.Boolean,
 			needsRebase: Schema.Boolean,
+			pr: Schema.optional(
+				Schema.Struct({
+					number: Schema.Number,
+					url: Schema.NullOr(Schema.String),
+					title: Schema.optional(Schema.String),
+					state: Schema.Literals(["open", "closed", "merged", "unknown"]),
+					isDraft: Schema.NullOr(Schema.Boolean),
+				}),
+			),
 		}),
 	),
 }) {}

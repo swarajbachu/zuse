@@ -76,7 +76,11 @@ import {
 	buildCreateReviewCommentArgs,
 	parseReviewIdentity,
 } from "./review-comment.ts";
-import { parseStackView } from "./stack.ts";
+import {
+	parseStackView,
+	stackPullRequestsQuery,
+	withStackPullRequests,
+} from "./stack.ts";
 
 import { makeWorkspaceChangeStreams } from "./workspace-change-streams.ts";
 import {
@@ -731,7 +735,29 @@ export const GitServiceLive = Layer.effect(
 									"GitHub CLI returned an unreadable stack. Update gh-stack and try again.",
 							}),
 						);
-					return parsed;
+					const prUrl = parsed.branches.find((branch) => branch.pr?.url)?.pr
+						?.url;
+					const repository = prUrl
+						? parseRemoteUrl(prUrl.replace(/\/pull\/\d+.*$/, ""))
+						: null;
+					const query = repository
+						? stackPullRequestsQuery(parsed, repository.owner, repository.repo)
+						: null;
+					if (!repository || !query) return parsed;
+					const metadata = yield* ghRun(folderId, cwd, [
+						"api",
+						"--hostname",
+						repository.host,
+						"graphql",
+						"-f",
+						`query=${query}`,
+					]).pipe(
+						Effect.catchTags({
+							GitCommandError: () => Effect.succeed(""),
+							GitNotInstalledError: () => Effect.succeed(""),
+						}),
+					);
+					return withStackPullRequests(parsed, metadata);
 				}),
 			);
 
