@@ -41,12 +41,11 @@ const notificationBody = (kind: ActivityKind): string => {
 const toExpoMessage = (notification: PushNotification) => ({
 	to: notification.to,
 	sound: "default",
-	title: notification.title ?? "Zuse",
+	title: "Zuse",
 	body: notificationBody(notification.kind),
 	data: {
 		environmentId: notification.environmentId,
 		kind: notification.kind,
-		...(notification.title === undefined ? {} : { title: notification.title }),
 		target: notification.target,
 	},
 });

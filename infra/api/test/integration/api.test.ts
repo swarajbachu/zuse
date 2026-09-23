@@ -1737,8 +1737,7 @@ describe("@zuse/api", () => {
 				to: "ExponentPushToken[test]",
 				environmentId: "env_1",
 				kind: "approval-needed",
-				title: "Test Mac",
-				target: "zuse://computers?environmentId=env_1",
+				target: "zuse:///",
 			},
 		]);
 	});

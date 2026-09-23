@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-
 import { clearDeviceKey } from "../auth/dpop";
 import { signOut as clearAccountSession } from "../auth/workos";
 import { clearPushRegistration } from "../notifications/push";
@@ -7,6 +6,7 @@ import { clearDownloadedCache, clearOfflineCache } from "../offline/cache";
 import { resetApiAccessToken } from "../rpc/api-client";
 import { disposeConnection } from "../rpc/connection";
 import { resetAvailabilityRuntime } from "../store/availability";
+import { clearComposerDrafts } from "../store/composer-drafts";
 import { resetConnectionRuntimeState } from "../store/connection-runtime";
 import { clearConnections, currentConnections } from "../store/connections";
 import { resetEnvironmentsRuntime } from "../store/environments";
@@ -20,6 +20,7 @@ import { clearPinnedChats } from "../store/pinned-chats";
 import { resetPrStateRuntime } from "../store/pr-state";
 import { resetProjectOriginRuntime } from "../store/project-origins";
 import { resetSessionsRuntime } from "../store/sessions";
+import { resetAiSharingConsent } from "./ai-sharing-consent";
 import { resetMobileAnalyticsIdentity } from "./analytics";
 import { optionsForConnection } from "./connection-params";
 import { clearLastCrashReport } from "./crash-reporting";
@@ -43,6 +44,7 @@ export const clearDownloadedMobileData = async (): Promise<void> => {
 };
 
 export const resetLocalMobileData = async (): Promise<void> => {
+	resetAiSharingConsent();
 	const connections = currentConnections();
 	await resetOutboxRuntime();
 	await Promise.all(
@@ -58,6 +60,7 @@ export const resetLocalMobileData = async (): Promise<void> => {
 	resetEnvironmentsRuntime();
 
 	const cleanup = await Promise.allSettled([
+		clearComposerDrafts(),
 		clearAccountSession(),
 		clearDeviceKey(),
 		clearPushRegistration(),

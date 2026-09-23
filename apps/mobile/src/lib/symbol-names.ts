@@ -8,6 +8,7 @@ export const materialSymbolNames: Partial<Record<SFSymbol, AndroidSymbol>> = {
 	wifi: "wifi",
 	"qrcode.viewfinder": "qr_code_scanner",
 	plus: "add",
+	envelope: "mail",
 	desktopcomputer: "desktop_windows",
 	"person.crop.circle.fill": "account_circle",
 	"key.fill": "key",

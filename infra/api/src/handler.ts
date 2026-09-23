@@ -1141,8 +1141,7 @@ const route = (
 								to: device.pushToken,
 								environmentId,
 								kind: activityKind,
-								title: body.title,
-								target: `zuse://computers?environmentId=${encodeURIComponent(environmentId)}`,
+								target: "zuse:///",
 							},
 						],
 			);

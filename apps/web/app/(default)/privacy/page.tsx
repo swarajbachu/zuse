@@ -154,7 +154,8 @@ export default function PrivacyPage() {
 						Product and reliability analytics
 					</h2>
 					<p className="mt-2">
-						Desktop and mobile analytics are enabled by default and use a
+						Desktop analytics are enabled by default. Mobile analytics are off
+						until you enable Share usage analytics in Settings. Both use a
 						pseudonymous installation identity. When you are signed in, Zuse
 						uses a one-way, namespaced hash of the account ID rather than
 						sending that account ID as the analytics identity. The analytics
@@ -187,10 +188,10 @@ export default function PrivacyPage() {
 					</p>
 					<p className="mt-2">
 						You can turn collection off immediately in desktop or mobile
-						Settings under “Share usage analytics.” Pending desktop analytics
-						are deleted when you turn it off. Signing out, resetting the app, or
-						deleting an account rotates the analytics identity; already
-						collected pseudonymous aggregate history is retained.
+						Settings under “Share usage analytics.” Pending desktop and mobile
+						analytics are deleted when you turn it off. Signing out, resetting
+						the app, or deleting an account rotates the analytics identity;
+						already collected pseudonymous aggregate history is retained.
 					</p>
 				</section>
 
@@ -229,9 +230,14 @@ export default function PrivacyPage() {
 						Providers and third parties
 					</h2>
 					<p className="mt-2">
-						Zuse relies on third parties only where a feature requires them.
-						These can include WorkOS for account authentication, the analytics
-						processor for the limited analytics described above,
+						Mobile asks before sharing messages, selected attachments and
+						workspace context with the chosen agent/model services. Dictation
+						sends audio to OpenAI for transcription through the connected
+						environment or directly from the device. Sharing choices last for
+						the app session and can be reset in Settings. Provider privacy
+						policies apply. Zuse relies on third parties only where a feature
+						requires them. These can include WorkOS for account authentication,
+						the analytics processor for the limited analytics described above,
 						push-notification services for mobile alerts, and cloud
 						infrastructure, storage, payment, and compute providers for Cloud
 						Workspaces. Model providers, source-control services, browsers,
@@ -406,10 +412,15 @@ export default function PrivacyPage() {
 						</a>
 						. Please do not post credentials, private keys, account details, or
 						other sensitive workspace content in a public issue or community
-						channel. Account deletion is available in the mobile app. Zuse does
-						not currently publish a dedicated private privacy-request address,
-						so do not use these public channels for an account-specific rights
-						request.
+						channel. Account deletion is available in the mobile app. For
+						private support and account-specific privacy requests, email{" "}
+						<a
+							href="mailto:hi@zuse.sh"
+							className="text-primary hover:underline"
+						>
+							hi@zuse.sh
+						</a>
+						.
 					</p>
 				</section>
 			</div>

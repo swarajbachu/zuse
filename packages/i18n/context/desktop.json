@@ -2864,7 +2864,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/git-stack-menu.tsx",
-				"line": 164
+				"line": 186
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8284,6 +8284,10 @@
 				"line": 729
 			},
 			{
+				"path": "apps/renderer/src/components/git-stack-menu.tsx",
+				"line": 138
+			},
+			{
 				"path": "apps/renderer/src/components/permissions-inspector.tsx",
 				"line": 158
 			},
@@ -8772,10 +8776,6 @@
 				"line": 848
 			},
 			{
-				"path": "apps/renderer/src/components/git-stack-menu.tsx",
-				"line": 197
-			},
-			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
 				"line": 454
 			},
@@ -8873,6 +8873,10 @@
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
 				"line": 452
+			},
+			{
+				"path": "apps/renderer/src/components/git-stack-menu.tsx",
+				"line": 176
 			},
 			{
 				"path": "apps/renderer/src/components/pr-pane.tsx",
@@ -12123,6 +12127,10 @@
 		"source": "Branch",
 		"locations": [
 			{
+				"path": "apps/renderer/src/components/git-stack-menu.tsx",
+				"line": 177
+			},
+			{
 				"path": "apps/renderer/src/components/pr-pane.tsx",
 				"line": 240
 			},
@@ -12265,12 +12273,16 @@
 		"source": "Draft",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/pr-actions-menu.tsx",
-				"line": 300
+				"path": "apps/renderer/src/components/git-stack-menu.tsx",
+				"line": 174
 			},
 			{
 				"path": "apps/renderer/src/components/pr-actions-menu.tsx",
-				"line": 311
+				"line": 304
+			},
+			{
+				"path": "apps/renderer/src/components/pr-actions-menu.tsx",
+				"line": 315
 			},
 			{
 				"path": "apps/renderer/src/components/pr-pane.tsx",
@@ -12453,7 +12465,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/git-stack-menu.tsx",
-				"line": 166
+				"line": 170
 			},
 			{
 				"path": "apps/renderer/src/components/pr-pane.tsx",
@@ -12466,8 +12478,12 @@
 		"source": "Closed",
 		"locations": [
 			{
+				"path": "apps/renderer/src/components/git-stack-menu.tsx",
+				"line": 172
+			},
+			{
 				"path": "apps/renderer/src/components/pr-actions-menu.tsx",
-				"line": 298
+				"line": 302
 			},
 			{
 				"path": "apps/renderer/src/components/pr-pane.tsx",
@@ -14082,7 +14098,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/git-stack-menu.tsx",
-				"line": 116
+				"line": 122
+			},
+			{
+				"path": "apps/renderer/src/components/git-stack-menu.tsx",
+				"line": 130
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14092,19 +14112,14 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/git-stack-menu.tsx",
-				"line": 124
+				"line": 138
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"projects:github_base": {
 		"source": "Base:",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/git-stack-menu.tsx",
-				"line": 136
-			}
-		],
+		"locations": [],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"projects:github_needs_rebase": {
@@ -14112,31 +14127,32 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/git-stack-menu.tsx",
-				"line": 168
+				"line": 189
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"projects:github_new_stack_branch": {
 		"source": "New stack branch",
+		"locations": [],
+		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"projects:github_submit_stack": {
+		"source": "Publish stack",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/git-stack-menu.tsx",
-				"line": 182
-			},
-			{
-				"path": "apps/renderer/src/components/git-stack-menu.tsx",
-				"line": 183
+				"line": 258
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
-	"projects:github_submit_stack": {
-		"source": "Push stack and create draft PRs",
+	"projects:github_submit_stack_help": {
+		"source": "Push all branches and update their pull requests on GitHub. Branches without a pull request get a draft, not yet ready for review. Existing open pull requests stay open.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/git-stack-menu.tsx",
-				"line": 206
+				"line": 261
 			}
 		],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14148,12 +14164,7 @@
 	},
 	"projects:github_stack_help": {
 		"source": "GitHub stack setup and help ↗",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/git-stack-menu.tsx",
-				"line": 213
-			}
-		],
+		"locations": [],
 		"context": "projects interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"projects:github_pr_number": {

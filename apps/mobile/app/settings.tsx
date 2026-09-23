@@ -6,11 +6,12 @@ import {
 	Alert,
 	Linking,
 	ScrollView,
+	Switch,
 	Text,
 	View,
 } from "react-native";
-
 import { ListRow, ListSection } from "~/components/ui/list";
+import { resetAiSharingConsent } from "~/lib/ai-sharing-consent";
 import { captureMobileAnalytics } from "~/lib/analytics";
 import { returnToInbox } from "~/lib/connection-navigation";
 import { visibleConnectionLabel } from "~/lib/display-names";
@@ -19,6 +20,12 @@ import { clearMediaCache, mediaCacheSize } from "~/lib/media-cache";
 import { clearDownloadedMobileData } from "~/lib/mobile-data";
 import { registerCurrentDeviceForPush } from "~/notifications/push";
 import { downloadedCacheSize } from "~/offline/cache";
+import {
+	analyticsEnabledAtom,
+	analyticsHydratedAtom,
+	hydrateAnalytics,
+	setAnalyticsEnabled,
+} from "~/store/analytics";
 import {
 	authAccountAtom,
 	authBusyAtom,
@@ -56,6 +63,12 @@ const formatBytes = (bytes: number | null): string => {
 
 export default function SettingsScreen() {
 	const account = useAtomValue(authAccountAtom);
+	const analyticsEnabled = useAtomValue(analyticsEnabledAtom);
+	const analyticsReady = useAtomValue(analyticsHydratedAtom);
+	const [privacyBusy, setPrivacyBusy] = useState(false);
+	useEffect(() => {
+		void hydrateAnalytics();
+	}, []);
 	const hydrated = useAtomValue(authHydratedAtom);
 	const busy = useAtomValue(authBusyAtom);
 	const authError = useAtomValue(authErrorAtom);
@@ -305,7 +318,7 @@ export default function SettingsScreen() {
 					<ListSection header="Notifications">
 						<ListRow
 							symbol="bell.badge.fill"
-							title="Enable notifications"
+							title="Notification preferences"
 							subtitle="Alerts for approvals and questions"
 							disabled={notificationsBusy}
 							onPress={async () => {
@@ -316,7 +329,23 @@ export default function SettingsScreen() {
 									enabled ? "Notifications enabled" : "Notifications are off",
 									enabled
 										? "We’ll alert you when your attention is needed."
-										: "Allow notifications in iPhone Settings to receive agent alerts.",
+										: "You can change notification access in device Settings. Core features remain available without alerts.",
+									enabled
+										? undefined
+										: [
+												{ text: "Cancel", style: "cancel" },
+												{
+													text: "Open Settings",
+													onPress: () => {
+														void Linking.openSettings().catch(() =>
+															Alert.alert(
+																"Open device Settings",
+																"Select Zuse → Notifications.",
+															),
+														);
+													},
+												},
+											],
 								);
 							}}
 						/>
@@ -337,6 +366,19 @@ export default function SettingsScreen() {
 
 				<ListSection header="Help">
 					<ListRow
+						symbol="envelope"
+						title="Contact support"
+						subtitle="hi@zuse.sh"
+						onPress={() => {
+							void Linking.openURL("mailto:hi@zuse.sh").catch(() =>
+								Alert.alert(
+									"Contact support",
+									"Email hi@zuse.sh for private support and privacy requests.",
+								),
+							);
+						}}
+					/>
+					<ListRow
 						symbol="sparkles"
 						title="Getting started"
 						subtitle="Review setup and connection options"
@@ -348,7 +390,7 @@ export default function SettingsScreen() {
 
 				<ListSection
 					header="Storage"
-					footer="Downloaded data can be fetched again. Reset app also removes connections, account state, and unsent messages from this phone."
+					footer="Downloaded data can be fetched again. Reset app also removes connections, account state, and unsent messages from this device."
 				>
 					<ListRow
 						analyticsId="storage.clear-downloads"
@@ -392,13 +434,13 @@ export default function SettingsScreen() {
 						symbol="arrow.counterclockwise"
 						iconTone="neutral"
 						title="Reset app"
-						subtitle="Remove all data stored on this phone"
+						subtitle="Remove all data stored on this device"
 						destructive
 						disabled={busy || storageBusy}
 						onPress={() =>
 							Alert.alert(
 								"Reset this app?",
-								"This removes account state, connections, cache, device keys, and unsent messages from this phone. Your remote account is not deleted.",
+								"This removes account state, connections, cache, device keys, and unsent messages from this device. Your remote account is not deleted.",
 								[
 									{ text: "Cancel", style: "cancel" },
 									{
@@ -442,9 +484,9 @@ export default function SettingsScreen() {
 																? "Deletion requested"
 																: "Account deleted",
 															result.localCleanupFailed
-																? "Your deletion request was accepted, but some data on this phone could not be cleared. Restart the app and use Reset app in Settings to retry local cleanup."
+																? "Your deletion request was accepted, but some data on this device could not be cleared. Restart the app and use Reset app in Settings to retry local cleanup."
 																: result.cleanupPending
-																	? "Your deletion request was accepted. Cloud resources are still being cleaned up. You have been signed out on this phone."
+																	? "Your deletion request was accepted. Cloud resources are still being cleaned up. You have been signed out on this device."
 																	: "Your account has been deleted and you have been signed out.",
 														);
 														returnToInbox(router);
@@ -464,6 +506,44 @@ export default function SettingsScreen() {
 						/>
 					</ListSection>
 				)}
+				<ListSection
+					header="Privacy"
+					footer="Optional: share app activity and sanitized reliability events with PostHog to improve Zuse. Prompts, code, files and recordings are excluded. Turning this off discards pending mobile events."
+				>
+					<ListRow
+						title="Reset AI sharing choices"
+						subtitle="Ask again before sending to an AI provider"
+						onPress={() => {
+							resetAiSharingConsent();
+							Alert.alert(
+								"Sharing choices reset",
+								"Zuse will ask before your next message or recording. Data already sent and work already running are not recalled.",
+							);
+						}}
+					/>
+					<ListRow
+						title="Share usage analytics"
+						chevron={false}
+						trailing={
+							<Switch
+								accessibilityLabel="Share usage analytics"
+								value={analyticsEnabled}
+								disabled={!analyticsReady || privacyBusy}
+								onValueChange={(next) => {
+									setPrivacyBusy(true);
+									void setAnalyticsEnabled(next)
+										.catch(() =>
+											Alert.alert(
+												"Could not save privacy preference",
+												"Please try again. Analytics remain off if you turned them off.",
+											),
+										)
+										.finally(() => setPrivacyBusy(false));
+								}}
+							/>
+						}
+					/>
+				</ListSection>
 				<ListSection header="About">
 					<ListRow
 						symbol="hand.raised.fill"
