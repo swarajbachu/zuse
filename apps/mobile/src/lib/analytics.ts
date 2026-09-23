@@ -168,6 +168,10 @@ const hydrateAnalyticsState = async (
 	}
 	await SecureStore.setItemAsync(IDENTITY_KIND_KEY, identityKind);
 	if (enabled) {
+		if (client) {
+			client.reset();
+			client.identify(distinctId);
+		}
 		makeClient();
 		captureMobileAnalytics("app opened", { launch_type: "standard" });
 	}

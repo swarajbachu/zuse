@@ -11,11 +11,11 @@ import {
 import { File } from "expo-file-system";
 import { Mic, Square, X } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
-import { Alert, AppState, Modal, Pressable, Text, View } from "react-native";
+import { AppState, Modal, Pressable, Text, View } from "react-native";
 import { requestAiSharingConsent } from "~/lib/ai-sharing-consent";
-
 import { stopRecorderOnUnmount } from "~/lib/audio-recorder-lifecycle";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
+import { requestFeaturePermission } from "~/lib/device-permissions";
 import { prewarmVoice, resolveVoiceAuth, transcribeVoice } from "~/rpc/actions";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { colors } from "~/theme";
@@ -243,18 +243,18 @@ export function ComposerVoiceButton({
 			if (
 				!(await requestAiSharingConsent({
 					recipient: "OpenAI",
+					scope: connection.key ?? `${connection.host}:${connection.port}`,
 					destination: "voice",
 				}))
 			)
 				return;
-			const permission = await requestRecordingPermissionsAsync();
-			if (!permission.granted) {
-				Alert.alert(
-					"Microphone access needed",
-					"Allow microphone access in Settings to dictate a message.",
-				);
+			if (
+				!(await requestFeaturePermission(
+					requestRecordingPermissionsAsync,
+					"microphone",
+				))
+			)
 				return;
-			}
 			await Promise.all([
 				setAudioModeAsync({
 					allowsRecording: true,

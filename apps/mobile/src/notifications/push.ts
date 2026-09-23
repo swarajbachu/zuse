@@ -1,6 +1,6 @@
 import * as Notifications from "expo-notifications";
-import { Linking, Platform } from "react-native";
-
+import { router } from "expo-router";
+import { Platform } from "react-native";
 import { apiBaseUrl } from "../auth/config.ts";
 import type { WorkosAccount } from "../auth/workos.ts";
 import { captureMobileAnalytics } from "../lib/analytics.ts";
@@ -11,6 +11,7 @@ import {
 } from "../lib/device-identity.ts";
 import { registerDevice, revokeMobileDevice } from "../rpc/api-client.ts";
 import { registerPushTokenForAccount } from "./registration.ts";
+import { notificationRoute } from "./route";
 
 export const clearPushRegistration = (): Promise<void> => clearDeviceIdentity();
 
@@ -53,11 +54,12 @@ export const installNotificationResponseHandler = (): (() => void) => {
 		response: Notifications.NotificationResponse | null,
 	) => {
 		const target = response?.notification.request.content.data?.target;
-		if (typeof target !== "string" || target.length === 0) return;
+		const route = notificationRoute(target);
+		if (route === null) return;
 		captureMobileAnalytics("notification opened", {
 			notification_kind: "attention_required",
 		});
-		void Linking.openURL(target).catch(() => {});
+		router.replace(route);
 		void Notifications.clearLastNotificationResponseAsync();
 	};
 	void Notifications.getLastNotificationResponseAsync().then(openResponse);
