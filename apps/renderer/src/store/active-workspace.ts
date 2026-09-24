@@ -45,7 +45,7 @@ export type ActiveContext =
 			readonly environmentId: EnvironmentId;
 			readonly folderId: FolderId;
 			readonly folderPath: string;
-			readonly sessionId: SessionId;
+			readonly sessionId: SessionId | null;
 			readonly worktreeId: WorktreeId | null;
 	  }
 	| {
@@ -72,10 +72,23 @@ export type ActiveContext =
 	  };
 
 const useSelectedWorkspaceBinding = (folderId: FolderId | null) => {
+	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
+	// The current panels must follow the same session selection as the transcript.
+	// The per-project slot is navigation history and can lag a newly selected tab.
 	const sessionId = useSessionsStore((s) =>
-		folderId === null ? null : (s.selectedSessionByProject[folderId] ?? null),
+		folderId === null
+			? null
+			: folderId === selectedFolderId
+				? s.selectedSessionId
+				: (s.selectedSessionByProject[folderId] ?? null),
 	);
-	const selectedChatId = useChatsStore((s) => s.selectedChatId);
+	const selectedChatId = useChatsStore((s) =>
+		folderId === null
+			? null
+			: folderId === selectedFolderId
+				? s.selectedChatId
+				: (s.selectedChatByProject[folderId] ?? null),
+	);
 	const pendingCreation = useChatsStore((s) =>
 		selectedChatId === null
 			? null
@@ -91,7 +104,7 @@ const useSelectedWorkspaceBinding = (folderId: FolderId | null) => {
 		folderId === null
 			? null
 			: chatsByProject[folderId]?.find(
-					(row) => row.id === (session?.chatId ?? selectedChatId),
+					(row) => row.id === (selectedChatId ?? session?.chatId),
 				);
 	// Keep the completed reservation until entity summaries catch up. A later
 	// explicit chat binding supersedes it, including a switch to main.
@@ -101,29 +114,34 @@ const useSelectedWorkspaceBinding = (folderId: FolderId | null) => {
 			: creationOperationsByProject[folderId]?.find(
 					(row) =>
 						row.chatId === (chat?.id ?? selectedChatId) &&
-						row.initialSessionId === sessionId &&
 						row.phase !== "cancelled" &&
 						(row.phase !== "running" ||
 							chat == null ||
 							row.updatedAt.getTime() >= chat.updatedAt.getTime()),
 				);
 	const pending =
-		pendingCreation?.projectId === folderId &&
-		pendingCreation.sessionId === sessionId
-			? pendingCreation
-			: null;
+		pendingCreation?.projectId === folderId ? pendingCreation : null;
 	// The chat owns the binding. Its session summary and creation receipt can
 	// arrive independently; neither may erase a newer durable workspace intent.
+	const selectedSession =
+		selectedChatId === null || session?.chatId === selectedChatId
+			? session
+			: null;
 	const worktreeId =
 		chat?.worktreeId ??
-		session?.worktreeId ??
+		selectedSession?.worktreeId ??
 		creation?.worktreeId ??
 		pending?.worktreeId ??
 		null;
 	const workspaceRequested =
 		worktreeId !== null ||
 		(creation != null && creation.workspacePolicy._tag !== "main") ||
-		pending?.workspaceRequested === true;
+		pending?.workspaceRequested === true ||
+		// Missing summaries do not establish that a selected chat uses main.
+		// Opening a PTY here would permanently pin that terminal to the wrong cwd.
+		(chat == null &&
+			selectedSession == null &&
+			(selectedChatId !== null || sessionId !== null));
 	return { sessionId, selectedChatId, worktreeId, workspaceRequested };
 };
 
@@ -225,7 +243,6 @@ export const useActiveContext = (): ActiveContext => {
 		}
 		if (
 			workspaceRequested &&
-			sessionId !== null &&
 			(activeWorktreeId === null || worktreePath === null)
 		) {
 			return {
