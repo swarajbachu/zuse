@@ -1,288 +1,42 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-
+import { expect, test } from "vitest";
 import {
 	CloudSyncManager,
-	type CloudSyncStatus,
 	cloudSyncDefaultPath,
-	remoteRsyncMissing,
-	rsyncArgs,
 	SYNC_MARKER_FILE,
-	sshTransportFailed,
-	supportsGitignoreFilter,
 } from "../../src/sync/cloud-sync-service.ts";
 
-const createManager = (
-	...args: ConstructorParameters<typeof CloudSyncManager>
-) =>
-	new CloudSyncManager(args[0], args[1], args[2], async () => ({
-		code: 0,
-		stderr: "",
-	}));
+test("default path cannot escape the managed repository/branch directory", () => {
+	expect(
+		cloudSyncDefaultPath("/Users/me", "owner/repo.git", "feature/sync"),
+	).toBe("/Users/me/.zuse/cloud/repo/feature/sync");
+	expect(cloudSyncDefaultPath("/Users/me", "repo", "../escape")).toBeNull();
+});
 
-describe("cloud sync service", () => {
-	beforeEach(() => vi.useFakeTimers());
-	afterEach(() => vi.useRealTimers());
-	test("uses the managed repository and branch path", () => {
-		expect(cloudSyncDefaultPath("/Users/me", "owner/zuse.git", "pikachu")).toBe(
-			"/Users/me/.zuse/cloud/zuse/pikachu",
+test("refuses unrelated folders and markers belonging to another workspace", async () => {
+	const localPath = await mkdtemp(join(tmpdir(), "zuse-guard-"));
+	const manager = new CloudSyncManager(() => {});
+	const config = {
+		workspaceId: "one",
+		enabled: true,
+		localPath,
+		hostAlias: "zuse-one",
+		remotePath: "/repo",
+	};
+	try {
+		await writeFile(join(localPath, "precious"), "keep");
+		expect((await manager.configure(config)).error).toContain("not empty");
+		await writeFile(
+			join(localPath, SYNC_MARKER_FILE),
+			JSON.stringify({ workspaceId: "two" }),
 		);
-		expect(cloudSyncDefaultPath("/Users/me", "zuse", "../escape")).toBeNull();
-	});
-
-	test("rsync arguments mirror one-way with .git and marker excluded", () => {
-		const args = rsyncArgs({
-			hostAlias: "zuse-workspace_abc",
-			remotePath: "/home/zuse/workspace",
-			localPath: "/tmp/mirror",
-			sshConfigPath: "/home/u/.zuse/ssh/config",
-			gitignoreFilter: true,
-		});
-		expect(args).toEqual([
-			"-az",
-			"--checksum",
-			"--delay-updates",
-			"--delete-delay",
-			"--partial-dir=.zuse-rsync-partial",
-			"--timeout=30",
-			"--exclude=.git/",
-			`--exclude=${SYNC_MARKER_FILE}`,
-			"--exclude=node_modules/",
-			"--exclude=.cache/",
-			"--exclude=.turbo/",
-			"--exclude=**/.next/cache/",
-			"--exclude=__pycache__/",
-			"--exclude=.pytest_cache/",
-			"--exclude=.zuse-rsync-partial/",
-			"--filter=:- .gitignore",
-			"-e",
-			'ssh -F "/home/u/.zuse/ssh/config"',
-			"zuse-workspace_abc:/home/zuse/workspace/",
-			"/tmp/mirror/",
-		]);
-		expect(
-			rsyncArgs({
-				hostAlias: "zuse-a",
-				remotePath: "/home/zuse/workspace/",
-				localPath: "/tmp/mirror/",
-				sshConfigPath: "/c",
-				gitignoreFilter: false,
-			}),
-		).toContain("--rsync-path=rsync --filter=:-_.gitignore");
-	});
-
-	test("recognizes SSH transport failures that require fresh access", () => {
-		expect(sshTransportFailed("zuse ssh bridge: access rejected")).toBe(true);
-		expect(sshTransportFailed("kex_exchange_identification failed")).toBe(true);
-		expect(sshTransportFailed("repository file vanished")).toBe(false);
-	});
-
-	test("gitignore filter only with GNU rsync", () => {
-		expect(
-			supportsGitignoreFilter("rsync  version 3.2.7  protocol version 31"),
-		).toBe(true);
-		expect(supportsGitignoreFilter("openrsync: protocol version 27")).toBe(
-			false,
+		expect((await manager.configure(config)).error).toContain(
+			"different cloud workspace",
 		);
-	});
-
-	test("recognizes an old sandbox without remote rsync", () => {
-		expect(remoteRsyncMissing("bash: line 1: rsync: command not found")).toBe(
-			true,
-		);
-		expect(remoteRsyncMissing("rsync: connection unexpectedly closed")).toBe(
-			false,
-		);
-	});
-
-	test("refuses a non-empty local directory without the sync marker", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
-		await writeFile(join(dir, "precious.txt"), "do not clobber");
-		const events: Array<CloudSyncStatus> = [];
-		const manager = createManager(
-			(status) => events.push(status),
-			async () => ({ code: 0, stderr: "" }),
-		);
-		const status = await manager.configure({
-			workspaceId: "workspace_abc",
-			enabled: true,
-			localPath: dir,
-			hostAlias: "zuse-workspace_abc",
-			remotePath: "/home/zuse/workspace",
-		});
-		expect(status.state).toBe("error");
-		expect(status.error).toContain("not empty");
+	} finally {
 		await manager.dispose();
-	});
-
-	test("syncs an empty directory and reaches in-sync", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
-		const runs: Array<ReadonlyArray<string>> = [];
-		const manager = createManager(
-			() => {},
-			async (args) => {
-				runs.push(args);
-				return { code: 0, stderr: "" };
-			},
-		);
-		await manager.configure({
-			workspaceId: "workspace_abc",
-			enabled: true,
-			localPath: dir,
-			hostAlias: "zuse-workspace_abc",
-			remotePath: "/home/zuse/workspace",
-		});
-		await vi.advanceTimersByTimeAsync(5_000);
-		await vi.waitFor(() =>
-			expect(manager.status("workspace_abc").state).not.toBe("syncing"),
-		);
-		expect(runs.length).toBe(1);
-		expect(manager.status("workspace_abc").state).toBe("in-sync");
-		expect(manager.status("workspace_abc").lastSyncedAt).not.toBeNull();
-		await manager.dispose();
-	});
-
-	test("falls back for old sandboxes without rsync", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
-		let fallbackRuns = 0;
-		const manager = createManager(
-			() => {},
-			async () => ({
-				code: 127,
-				stderr: "bash: line 1: rsync: command not found",
-			}),
-			async () => {
-				fallbackRuns += 1;
-				return { code: 0, stderr: "" };
-			},
-		);
-		await manager.configure({
-			workspaceId: "workspace_old",
-			enabled: true,
-			localPath: dir,
-			hostAlias: "zuse-workspace_old",
-			remotePath: "/home/zuse/workspace",
-		});
-		await vi.advanceTimersByTimeAsync(5_000);
-		await vi.waitFor(() =>
-			expect(manager.status("workspace_abc").state).not.toBe("syncing"),
-		);
-		await vi.waitFor(() => expect(fallbackRuns).toBe(1));
-		expect(manager.status("workspace_old").state).toBe("in-sync");
-		await manager.dispose();
-	});
-
-	test("preserves a pending change debounce when a sync completes", async () => {
-		vi.useFakeTimers();
-		try {
-			const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
-			let finishFirst = () => {};
-			let runs = 0;
-			const manager = createManager(
-				() => {},
-				async () => {
-					runs += 1;
-					if (runs > 1) return { code: 0, stderr: "" };
-					return new Promise((resolve) => {
-						finishFirst = () => resolve({ code: 0, stderr: "" });
-					});
-				},
-			);
-			await manager.configure({
-				workspaceId: "workspace_debounce",
-				enabled: true,
-				localPath: dir,
-				hostAlias: "zuse-workspace_debounce",
-				remotePath: "/home/zuse/workspace",
-			});
-			await vi.advanceTimersByTimeAsync(5_000);
-			await vi.waitFor(() => expect(runs).toBe(1));
-			manager.requestSync("workspace_debounce");
-			finishFirst();
-			await vi.waitFor(() =>
-				expect(manager.status("workspace_debounce").state).toBe("pending"),
-			);
-			await vi.advanceTimersByTimeAsync(5_000);
-			await vi.waitFor(() => expect(runs).toBe(2));
-			await manager.dispose();
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
-	test("reports rsync failures with stderr tail and recovers on disable", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
-		const manager = createManager(
-			() => {},
-			async () => ({
-				code: 12,
-				stderr: "rsync: connection unexpectedly closed",
-			}),
-		);
-		await manager.configure({
-			workspaceId: "workspace_abc",
-			enabled: true,
-			localPath: dir,
-			hostAlias: "zuse-workspace_abc",
-			remotePath: "/home/zuse/workspace",
-		});
-		await vi.advanceTimersByTimeAsync(5_000);
-		await vi.waitFor(() =>
-			expect(manager.status("workspace_abc").state).not.toBe("syncing"),
-		);
-		expect(manager.status("workspace_abc").state).toBe("error");
-		expect(manager.status("workspace_abc").error).toContain(
-			"connection unexpectedly closed",
-		);
-		expect(manager.status("workspace_abc").accessRefreshRequired).toBe(true);
-		await manager.configure({
-			workspaceId: "workspace_abc",
-			enabled: false,
-			localPath: dir,
-			hostAlias: "zuse-workspace_abc",
-			remotePath: "/home/zuse/workspace",
-		});
-		expect(manager.status("workspace_abc").enabled).toBe(false);
-		expect(manager.status("workspace_abc").state).toBe("idle");
-		await manager.dispose();
-	});
-
-	test("cancels an in-flight transfer when sync is disabled", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "zuse-sync-"));
-		let observedSignal: AbortSignal | undefined;
-		const manager = createManager(
-			() => {},
-			async (_args, signal) => {
-				observedSignal = signal;
-				return new Promise((resolve) => {
-					signal?.addEventListener(
-						"abort",
-						() => resolve({ code: 1, stderr: "cancelled" }),
-						{ once: true },
-					);
-				});
-			},
-		);
-		await manager.configure({
-			workspaceId: "workspace_cancel",
-			enabled: true,
-			localPath: dir,
-			hostAlias: "zuse-workspace_cancel",
-			remotePath: "/home/zuse/workspace",
-		});
-		await vi.advanceTimersByTimeAsync(5_000);
-		await vi.waitFor(() => expect(observedSignal).toBeDefined());
-		await manager.configure({
-			workspaceId: "workspace_cancel",
-			enabled: false,
-			localPath: dir,
-			hostAlias: "zuse-workspace_cancel",
-			remotePath: "/home/zuse/workspace",
-		});
-		expect(observedSignal?.aborted).toBe(true);
-		expect(manager.status("workspace_cancel").enabled).toBe(false);
-	});
+		await rm(localPath, { recursive: true, force: true });
+	}
 });

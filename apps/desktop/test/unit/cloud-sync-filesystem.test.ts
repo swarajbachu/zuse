@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { watch } from "node:fs";
 import {
 	chmod,
@@ -13,141 +15,316 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setTimeout as settleIO } from "node:timers/promises";
+import { promisify } from "node:util";
 import { expect, test, vi } from "vitest";
-import { CloudSyncManager } from "../../src/sync/cloud-sync-service.ts";
+import {
+	applySnapshot,
+	downloadSnapshot,
+	localBaseline,
+	readSyncManifest,
+	writeSyncManifest,
+} from "../../src/sync/cloud-sync-snapshot.ts";
 
-// Execute the real remote rsync/tar commands locally, without credentials or a sandbox.
-// This exercises both production transports and the shared live-directory apply.
-// Real subprocesses and 1,000 watched file writes need headroom on shared CI
-// runners; the per-operation waits below still enforce their 30-second limits.
-test.each([
-	false,
-	true,
-])("staged filesystem sync is incremental (legacy=%s)", async (legacy) => {
-	vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
-	const root = await mkdtemp(join(tmpdir(), "zuse-sync-fs-"));
+const exec = promisify(execFile);
+
+test("Gateway archive Git-selected snapshots preserve tracked builds, ignore arbitrary outputs, and publish only changed bytes", async () => {
+	const root = await mkdtemp(join(tmpdir(), "zuse-snapshot-"));
 	const source = join(root, "source");
 	const target = join(root, "target");
 	const bin = join(root, "bin");
-	await Promise.all([mkdir(source), mkdir(bin)]);
+	await Promise.all([mkdir(source), mkdir(target), mkdir(bin)]);
+	// Execute the production SSH protocol locally. No rsync, tar, network, or credentials.
 	await writeFile(
 		join(bin, "ssh"),
-		`#!/bin/sh\nshift 3\n${legacy ? 'if [ "$1" = "rsync" ]; then echo "rsync: command not found" >&2; exit 127; fi\n' : ""}exec "$@"\n`,
+		'#!/bin/sh\nfor arg do command="$arg"; done\nexec sh -c "$command"\n',
 	);
 	await chmod(join(bin, "ssh"), 0o755);
 	vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
-	const manager = new CloudSyncManager(() => {});
 	let watcher: ReturnType<typeof watch> | undefined;
-	const settle = async () => {
-		const deadline = performance.now() + 30_000;
-		while (
-			manager.status("files").state === "syncing" &&
-			performance.now() < deadline
-		)
-			await settleIO(10);
-		expect(manager.status("files").error).toBeNull();
-		expect(manager.status("files").state).toBe("in-sync");
-	};
-	const batch = async () => {
-		manager.requestSync("files");
-		await vi.advanceTimersByTimeAsync(15_000);
-		await settle();
+	const controller = new AbortController();
+	let failGateway = false;
+	let reading = 0,
+		maxReading = 0;
+	const scan = async () => {
+		const staging = await mkdtemp(join(root, "stage-"));
+		try {
+			const previous = await readSyncManifest(target, "files");
+			const baseline = await localBaseline(target, previous.files);
+			const progress = vi.fn();
+			const files = await downloadSnapshot(
+				{
+					hostAlias: "test",
+					remotePath: source,
+					readRemoteFile: async (path) => {
+						if (failGateway) throw new Error("gateway lost");
+						reading++;
+						maxReading = Math.max(maxReading, reading);
+						try {
+							return new Uint8Array(await readFile(path));
+						} finally {
+							reading--;
+						}
+					},
+				},
+				staging,
+				baseline,
+				controller.signal,
+				progress,
+			);
+			expect(progress).toHaveBeenLastCalledWith(
+				expect.objectContaining({ files: files.length, total: files.length }),
+			);
+			await applySnapshot(target, staging, previous, files, controller.signal);
+			return files;
+		} finally {
+			await rm(staging, { recursive: true, force: true });
+		}
 	};
 	try {
-		for (const prefix of ["", "apps/web/"]) {
-			await mkdir(join(source, prefix, ".next/cache"), { recursive: true });
-			await writeFile(join(source, prefix, ".next/cache/pack"), "cache");
-			await writeFile(join(source, prefix, ".next/config.json"), "{}");
-		}
-		await writeFile(join(source, "app.js"), "export default 1;\n");
-		await writeFile(join(source, "old.js"), "old");
-		await writeFile(join(source, ".gitignore"), "private/\n");
+		await exec("git", ["init", "-q", source]);
+		await mkdir(join(source, "dist"));
+		await mkdir(join(source, "custom-output"));
+		await mkdir(join(source, "nested"));
+		await writeFile(join(source, "dist/tracked.js"), "tracked build");
+		await exec("git", ["-C", source, "add", "dist/tracked.js"]);
+		await writeFile(
+			join(source, ".gitignore"),
+			"dist/\ncustom-output/\n.context/\n*.generated\n!keep.generated\n",
+		);
+		await writeFile(join(source, "nested/.gitignore"), "cache/\n");
+		await mkdir(join(source, "nested/cache"));
+		await writeFile(join(source, "nested/cache/noise"), "ignored");
+		await writeFile(join(source, "dist/ignored.js"), "ignored build");
+		await writeFile(join(source, "custom-output/noise"), "ignored");
+		await writeFile(join(source, "keep.generated"), "explicitly included");
+		await writeFile(join(source, "app.js"), "version 1");
+		await writeFile(join(source, "spaces and\nnewlines.js"), "valid path");
 		await symlink("app.js", join(source, "link.js"));
-		await manager.configure({
+		await writeSyncManifest(target, {
+			version: 1,
 			workspaceId: "files",
-			enabled: true,
-			localPath: target,
-			hostAlias: "zuse-files",
-			remotePath: source,
+			files: [],
 		});
-		await vi.advanceTimersByTimeAsync(5_000);
-		await settle();
-		for (const prefix of ["", "apps/web/"]) {
-			expect(await readdir(join(target, prefix, ".next"))).toEqual([
-				"config.json",
-			]);
-		}
-		await Promise.all([
-			mkdir(join(target, "node_modules")),
-			mkdir(join(target, ".git")),
-			mkdir(join(target, "private")),
-		]);
-		await writeFile(join(target, "node_modules", "keep"), "dependency");
-		await writeFile(join(target, ".git", "keep"), "git");
-		await writeFile(join(target, "private", "keep"), "ignored");
-		const before = await stat(join(target, "app.js"));
+		await writeFile(join(source, "large.bin"), randomBytes(9 * 1024 * 1024));
+		const files = await scan();
+		expect(maxReading).toBe(2);
+		expect(files.map((f) => f.path)).toContain("dist/tracked.js");
+		expect(files.map((f) => f.path)).toContain("keep.generated");
+		expect(files.map((f) => f.path)).not.toContain("nested/cache/noise");
+		expect(await readdir(join(target, "dist"))).toEqual(["tracked.js"]);
+		expect(await readlink(join(target, "link.js"))).toBe("app.js");
+		await mkdir(join(target, "custom-output"));
+		await writeFile(join(target, "custom-output/local"), "keep local");
 		const events: string[] = [];
-		watcher = watch(target, { recursive: true }, (_event, filename) => {
-			if (filename !== null) events.push(filename.toString());
+		watcher = watch(target, (_event, file) => {
+			if (file !== null) events.push(file.toString());
 		});
-		await batch();
-		await settleIO(50);
+		const before = await stat(join(target, "app.js"));
+		await writeFile(join(source, "custom-output/noise"), "continuous build");
+		await scan();
 		expect(events).toEqual([]);
 		expect((await stat(join(target, "app.js"))).mtimeMs).toBe(before.mtimeMs);
-		expect((await stat(join(target, "app.js"))).ino).toBe(before.ino);
-		expect(await readFile(join(target, "private", "keep"), "utf8")).toBe(
-			"ignored",
+		await writeFile(join(source, "app.js"), "version 2");
+		await rm(join(source, "dist/tracked.js"));
+		await scan();
+		expect(await readFile(join(target, "app.js"), "utf8")).toBe("version 2");
+		expect(await readFile(join(target, "custom-output/local"), "utf8")).toBe(
+			"keep local",
 		);
-		// A large change is staged and applied together; the latest bytes win even at identical size/mtime.
-		await writeFile(join(source, "app.js"), "export default 2;\n");
-		await rm(join(source, "old.js"));
+		expect(
+			(await readSyncManifest(target, "files")).files.map((f) => f.path),
+		).not.toContain("dist/tracked.js");
+		// Local modifications must be repaired even when remote hashes are unchanged.
+		await writeFile(join(target, "app.js"), "local edit");
+		await scan();
+		expect(await readFile(join(target, "app.js"), "utf8")).toBe("version 2");
+		// A large change publishes full files, never transfer scratch files.
+		events.length = 0;
 		await Promise.all(
-			Array.from({ length: 1_000 }, (_, index) =>
-				writeFile(
-					join(source, `module-${index}.js`),
-					`export default ${index};\n`,
-				),
+			Array.from({ length: 1000 }, (_, i) =>
+				writeFile(join(source, `module-${i}.js`), `export default ${i};`),
 			),
 		);
-		await batch();
-		expect(await readFile(join(target, "app.js"), "utf8")).toBe(
-			"export default 2;\n",
-		);
-		expect(await readdir(target)).not.toContain("old.js");
+		await scan();
 		expect(await readFile(join(target, "module-999.js"), "utf8")).toBe(
-			"export default 999;\n",
+			"export default 999;",
 		);
-		expect(await readFile(join(target, "node_modules", "keep"), "utf8")).toBe(
-			"dependency",
+		expect(
+			events.some(
+				(path) => path.includes(".partial") || path.includes("objects"),
+			),
+		).toBe(false);
+		// File/directory replacements only remove owned paths.
+		await writeFile(join(source, "shape"), "file");
+		await scan();
+		await rm(join(source, "shape"));
+		await mkdir(join(source, "shape"));
+		await writeFile(join(source, "shape/child"), "nested");
+		await scan();
+		expect(await readFile(join(target, "shape/child"), "utf8")).toBe("nested");
+		await rm(join(source, "shape"), { recursive: true });
+		await writeFile(join(source, "shape"), "file again");
+		await scan();
+		expect(await readFile(join(target, "shape"), "utf8")).toBe("file again");
+		// Replay a process interrupted after publication but before manifest commit.
+		const committed = await readSyncManifest(target, "files");
+		await writeFile(
+			join(target, "interrupted"),
+			"orphan from incomplete batch",
 		);
-		expect(await readFile(join(target, ".git", "keep"), "utf8")).toBe("git");
-		expect(await readlink(join(target, "link.js"))).toBe("app.js");
-		// A failed download cannot remove or replace live files.
+		await writeSyncManifest(target, {
+			...committed,
+			pending: [
+				...committed.files,
+				{ path: "interrupted", hash: "a".repeat(64), mode: 420, size: 28 },
+			],
+		});
+		await scan();
+		expect(await readdir(target)).not.toContain("interrupted");
+		expect((await readSyncManifest(target, "files")).pending).toBeUndefined();
+		// A local symlink must never redirect a managed write outside the mirror.
+		const outside = join(root, "outside");
+		await mkdir(outside);
+		await rm(join(target, "nested"), { recursive: true });
+		await symlink(outside, join(target, "nested"));
+		await expect(scan()).rejects.toThrow("ancestor");
+		expect(await readdir(outside)).toEqual([]);
+		await rm(join(target, "nested"));
+		await scan();
+		failGateway = true;
+		await expect(scan()).rejects.toThrow("gateway lost");
+		failGateway = false;
+		// Stream failure cannot publish partial content or delete the last good state.
 		await writeFile(
 			join(bin, "ssh"),
-			"#!/bin/sh\necho 'connection closed' >&2\nexit 12\n",
+			'#!/bin/sh\nprintf "{\\"done\\":true}\\n"\nexit 1\n',
 		);
-		manager.requestSync("files");
-		await vi.advanceTimersByTimeAsync(15_000);
-		const deadline = performance.now() + 30_000;
-		while (
-			manager.status("files").state === "syncing" &&
-			performance.now() < deadline
-		)
-			await settleIO(10);
-		expect(manager.status("files").state).toBe("error");
-		expect(await readFile(join(target, "app.js"), "utf8")).toBe(
-			"export default 2;\n",
-		);
+		await expect(scan()).rejects.toThrow();
+		expect(await readFile(join(target, "app.js"), "utf8")).toBe("version 2");
 	} finally {
 		watcher?.close();
-		await manager.dispose();
-		expect(
-			(await readdir(root)).filter((name) => name.includes("incoming-")),
-		).toEqual([]);
-		await rm(root, { recursive: true, force: true });
 		vi.unstubAllEnvs();
-		vi.useRealTimers();
+		await rm(root, { recursive: true, force: true });
 	}
-}, 60_000);
+}, 30_000);
+
+test("interrupted transfers retain verified objects and retries reuse them", async () => {
+	const { createHash } = await import("node:crypto");
+	const { cachedBaseline } = await import(
+		"../../src/sync/cloud-sync-snapshot.ts"
+	);
+	const root = await mkdtemp(join(tmpdir(), "zuse-resume-"));
+	const bin = join(root, "bin");
+	const cache = join(root, "cache");
+	await Promise.all([mkdir(bin), mkdir(cache)]);
+	const bytes = Buffer.from("a completed file before the connection drops");
+	const file = {
+		path: "src/file.txt",
+		hash: createHash("sha256").update(bytes).digest("hex"),
+		mode: 420,
+		size: bytes.length,
+	};
+	const installStream = async (stream: Buffer, code: number) => {
+		await writeFile(
+			join(bin, "ssh"),
+			`#!/bin/sh\npython3 -c 'import sys;sys.stdout.buffer.write(bytes.fromhex("${stream.toString("hex")}"))'\nexit ${code}\n`,
+		);
+		await chmod(join(bin, "ssh"), 0o755);
+	};
+	vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
+	try {
+		await installStream(
+			Buffer.concat([
+				Buffer.from(`${JSON.stringify({ ...file, content: true })}\n`),
+				bytes,
+			]),
+			1,
+		);
+		await expect(
+			downloadSnapshot(
+				{ hostAlias: "test", remotePath: "/repo" },
+				cache,
+				[],
+				new AbortController().signal,
+			),
+		).rejects.toThrow();
+		const baseline = await cachedBaseline(cache);
+		expect(baseline).toEqual([file]);
+		const before = await stat(join(cache, "objects", file.hash));
+		await installStream(
+			Buffer.from(
+				`${JSON.stringify({ ...file, content: false })}\n{"done":true}\n`,
+			),
+			0,
+		);
+		expect(
+			await downloadSnapshot(
+				{ hostAlias: "test", remotePath: "/repo" },
+				cache,
+				baseline,
+				new AbortController().signal,
+			),
+		).toEqual([file]);
+		expect((await stat(join(cache, "objects", file.hash))).mtimeMs).toBe(
+			before.mtimeMs,
+		);
+		// A corrupt cached object is never offered as a valid baseline.
+		await writeFile(join(cache, "objects", file.hash), "corrupt");
+		expect(await cachedBaseline(cache)).toEqual([]);
+	} finally {
+		vi.unstubAllEnvs();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("malformed paths and corrupt payloads cannot become verified objects", async () => {
+	const { createHash } = await import("node:crypto");
+	const { cachedBaseline } = await import(
+		"../../src/sync/cloud-sync-snapshot.ts"
+	);
+	const root = await mkdtemp(join(tmpdir(), "zuse-reject-"));
+	const bin = join(root, "bin");
+	const cache = join(root, "cache");
+	await Promise.all([mkdir(bin), mkdir(cache)]);
+	vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
+	try {
+		for (const path of [
+			"../escape",
+			"nested/../../escape",
+			".git/config",
+			"file.txt",
+		]) {
+			const entry = {
+				path,
+				hash: createHash("sha256").update("correct").digest("hex"),
+				mode: 420,
+				size: 5,
+				content: true,
+			};
+			const stream = Buffer.from(
+				`${JSON.stringify(entry)}\nwrong{"done":true}\n`,
+			);
+			await writeFile(
+				join(bin, "ssh"),
+				`#!/bin/sh\npython3 -c 'import sys;sys.stdout.buffer.write(bytes.fromhex("${stream.toString("hex")}"))'\n`,
+			);
+			await chmod(join(bin, "ssh"), 0o755);
+			await expect(
+				downloadSnapshot(
+					{ hostAlias: "test", remotePath: "/repo" },
+					cache,
+					[],
+					new AbortController().signal,
+				),
+			).rejects.toThrow();
+			expect(await cachedBaseline(cache)).toEqual([]);
+		}
+		expect(await readdir(root)).toEqual(
+			expect.arrayContaining(["cache", "bin"]),
+		);
+		expect(await readdir(root)).not.toContain("escape");
+	} finally {
+		vi.unstubAllEnvs();
+		await rm(root, { recursive: true, force: true });
+	}
+});

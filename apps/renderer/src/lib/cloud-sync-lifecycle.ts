@@ -1,10 +1,9 @@
-/** Reconcile live sync workers with persisted preferences and connectivity. */
+/** Cloud readiness owns sync eligibility; the legacy environment catalog may be empty. */
 export const reconcileAutomaticCloudSyncs = (input: {
 	readonly summaries: ReadonlyArray<{
 		readonly workspaceId: string;
 		readonly state: string;
 	}>;
-	readonly connectedWorkspaceIds: ReadonlySet<string>;
 	readonly activeWorkspaceIds: ReadonlySet<string>;
 	readonly enabled: (workspaceId: string) => boolean;
 	readonly start: (workspaceId: string) => void;
@@ -12,21 +11,16 @@ export const reconcileAutomaticCloudSyncs = (input: {
 }): void => {
 	const available = new Set(
 		input.summaries
-			.filter((summary) => summary.state !== "archived")
+			.filter((summary) => summary.state === "ready")
 			.map((summary) => summary.workspaceId),
 	);
 	for (const workspaceId of input.activeWorkspaceIds) {
-		if (
-			!available.has(workspaceId) ||
-			!input.connectedWorkspaceIds.has(workspaceId) ||
-			!input.enabled(workspaceId)
-		)
+		if (!available.has(workspaceId) || !input.enabled(workspaceId))
 			input.stop(workspaceId);
 	}
 	for (const summary of input.summaries) {
 		if (
-			summary.state !== "archived" &&
-			input.connectedWorkspaceIds.has(summary.workspaceId) &&
+			summary.state === "ready" &&
 			input.enabled(summary.workspaceId) &&
 			!input.activeWorkspaceIds.has(summary.workspaceId)
 		)

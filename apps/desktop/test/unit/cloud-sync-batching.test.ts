@@ -4,63 +4,29 @@ import { join } from "node:path";
 import { setTimeout as settleIO } from "node:timers/promises";
 import { expect, test, vi } from "vitest";
 import { CloudSyncManager } from "../../src/sync/cloud-sync-service.ts";
+import type { SyncFile } from "../../src/sync/cloud-sync-snapshot.ts";
 
-test("continuous editing never launches an automatic batch", async () => {
-	vi.useFakeTimers();
-	const localPath = await mkdtemp(join(tmpdir(), "zuse-batching-"));
-	const download = vi.fn(async () => ({ code: 0, stderr: "" }));
-	const manager = new CloudSyncManager(() => {}, download);
-	try {
-		await manager.configure({
-			workspaceId: "batching",
-			enabled: true,
-			localPath,
-			hostAlias: "zuse-batching",
-			remotePath: "/workspace",
-		});
-		for (let i = 0; i < 40; i++) {
-			manager.requestSync("batching");
-			await vi.advanceTimersByTimeAsync(2_000);
-			await settleIO(5);
-		}
-		expect(download).not.toHaveBeenCalled();
-	} finally {
-		await manager.dispose();
-		await rm(localPath, { recursive: true, force: true });
-		vi.useRealTimers();
-	}
-});
-
-const ok = { code: 0, stderr: "" };
-const deferred = () => {
-	let resolve!: (value: typeof ok) => void;
-	const promise = new Promise<typeof ok>((done) => {
-		resolve = done;
-	});
-	return { promise, resolve };
+const advance = async (ms: number) => {
+	await vi.advanceTimersByTimeAsync(ms);
+	await settleIO(15);
 };
-
-const withManager = async (
+async function withManager(
 	run: (
 		manager: CloudSyncManager,
 		config: Parameters<CloudSyncManager["configure"]>[0],
 	) => Promise<void>,
-	download: NonNullable<
-		ConstructorParameters<typeof CloudSyncManager>[1]
-	> = async () => ok,
-	apply: NonNullable<
-		ConstructorParameters<typeof CloudSyncManager>[3]
-	> = async () => ok,
-) => {
+	download: ConstructorParameters<typeof CloudSyncManager>[1],
+	apply: ConstructorParameters<typeof CloudSyncManager>[2] = async () => {},
+) {
 	vi.useFakeTimers();
-	const localPath = await mkdtemp(join(tmpdir(), "zuse-batch-"));
-	const manager = new CloudSyncManager(() => {}, download, undefined, apply);
+	const localPath = await mkdtemp(join(tmpdir(), "zuse-snapshots-"));
+	const manager = new CloudSyncManager(() => {}, download, apply);
 	const config = {
 		workspaceId: "batch",
 		enabled: true,
 		localPath,
 		hostAlias: "zuse-batch",
-		remotePath: "/workspace",
+		remotePath: "/repo",
 	};
 	try {
 		await manager.configure(config);
@@ -68,232 +34,120 @@ const withManager = async (
 	} finally {
 		await manager.dispose();
 		await rm(localPath, { recursive: true, force: true });
+		await rm(`${localPath}.zuse-sync-cache`, { recursive: true, force: true });
 		vi.useRealTimers();
 	}
-};
+}
 
-const advance = async (ms: number) => {
-	await vi.advanceTimersByTimeAsync(ms);
-	await settleIO(20);
-};
-
-test("thousands of events coalesce into one settled batch", async () => {
-	const download = vi.fn(async () => ok);
-	const apply = vi.fn(async () => ok);
-	await withManager(
-		async (manager) => {
-			for (let i = 0; i < 3_000; i++) manager.requestSync("batch");
-			await advance(4_999);
-			expect(download.mock.calls.length).toBe(0);
-			await advance(1);
-			await vi.waitFor(() =>
-				expect(manager.status("batch").state).toBe("in-sync"),
-			);
-			expect(download.mock.calls.length).toBe(1);
-			expect(apply.mock.calls.length).toBe(1);
-		},
-		download,
-		apply,
-	);
-});
-
-test("a download racing changes is not applied and staging is reused", async () => {
-	const first = deferred();
-	const destinations: string[] = [];
-	const download = vi.fn(
-		async (
-			...args: Parameters<
-				ConstructorParameters<typeof CloudSyncManager>[1] & {}
-			>
-		) => {
-			destinations.push(args[0].at(-1) ?? "");
-			return destinations.length === 1 ? first.promise : ok;
-		},
-	);
-	const apply = vi.fn(async () => ok);
-	await withManager(
-		async (manager) => {
-			await advance(5_000);
-			await vi.waitFor(() => expect(download.mock.calls.length).toBe(1));
-			manager.requestSync("batch");
-			first.resolve(ok);
-			await advance(0);
-			expect(manager.status("batch").state).toBe("pending");
-			expect(apply.mock.calls.length).toBe(0);
-			await advance(4_999);
-			expect(download.mock.calls.length).toBe(1);
-			await advance(1);
-			await vi.waitFor(() => expect(apply.mock.calls.length).toBe(1));
-			expect(destinations[0]).toBe(destinations[1]);
-		},
-		download,
-		apply,
-	);
-});
-
-test("changes during apply wait for completion and the full cooldown", async () => {
-	const first = deferred();
-	const download = vi.fn(async () => ok);
-	const apply = vi.fn(async () =>
-		apply.mock.calls.length === 1 ? first.promise : ok,
-	);
-	await withManager(
-		async (manager) => {
-			await advance(5_000);
-			await vi.waitFor(() => expect(apply.mock.calls.length).toBe(1));
-			manager.requestSync("batch");
-			await advance(20_000);
-			expect(download.mock.calls.length).toBe(1);
-			first.resolve(ok);
-			await advance(0);
-			expect(manager.status("batch").state).toBe("pending");
-			await advance(14_999);
-			expect(download.mock.calls.length).toBe(1);
-			await advance(1);
-			await vi.waitFor(() => expect(download.mock.calls.length).toBe(2));
-		},
-		download,
-		apply,
-	);
-});
-
-test("filesystem events cannot bypass retry backoff", async () => {
-	const download = vi.fn(async () => ({
-		code: 12,
-		stderr: "network unavailable",
-	}));
+test("initial scan starts immediately and continuous hints cannot starve batches", async () => {
+	const download = vi.fn(async () => []);
 	await withManager(async (manager) => {
-		await advance(5_000);
-		await vi.waitFor(() => expect(manager.status("batch").state).toBe("error"));
-		await advance(5_000);
-		await vi.waitFor(() => expect(download.mock.calls.length).toBe(2));
 		await advance(0);
-		manager.requestSync("batch");
-		await advance(5_000);
-		expect(download.mock.calls.length).toBe(2);
-		await advance(5_000);
-		await vi.waitFor(() => expect(download.mock.calls.length).toBe(3));
-	}, download);
-});
-
-test("periodic reconciliation waits for quiet and performs one batch", async () => {
-	const download = vi.fn(async () => ok);
-	await withManager(async (manager) => {
-		await advance(5_000);
 		await vi.waitFor(() =>
 			expect(manager.status("batch").state).toBe("in-sync"),
 		);
-		await advance(60_000);
-		expect(manager.status("batch").state).toBe("pending");
-		expect(download.mock.calls.length).toBe(1);
-		await advance(4_000);
-		manager.requestSync("batch");
-		await advance(4_999);
-		expect(download.mock.calls.length).toBe(1);
-		await advance(1);
-		await vi.waitFor(() => expect(download.mock.calls.length).toBe(2));
+		expect(download).toHaveBeenCalledTimes(1);
+		for (let i = 0; i < 20; i++) {
+			manager.requestSync("batch");
+			await advance(1_000);
+		}
+		expect(download).toHaveBeenCalledTimes(2);
 	}, download);
 });
 
-test("reconfiguration waits for cancelled downloads and never applies their data", async () => {
-	const first = deferred();
-	let signal: AbortSignal | undefined;
+test("changes during a scan do not discard completed data or overlap scans", async () => {
+	let finish!: (files: SyncFile[]) => void;
 	const download = vi.fn(
-		async (_args: ReadonlyArray<string>, current?: AbortSignal) => {
-			signal = current;
-			return download.mock.calls.length === 1 ? first.promise : ok;
-		},
+		() =>
+			new Promise<SyncFile[]>((resolve) => {
+				finish = resolve;
+			}),
 	);
-	const apply = vi.fn(async () => ok);
-	await withManager(
-		async (manager, config) => {
-			await advance(5_000);
-			await vi.waitFor(() => expect(download.mock.calls.length).toBe(1));
-			const disable = manager.configure({ ...config, enabled: false });
-			const reconnect = manager.configure(config);
-			await advance(0);
-			expect(signal?.aborted).toBe(true);
-			expect(download.mock.calls.length).toBe(1);
-			first.resolve(ok);
-			await disable;
-			await reconnect;
-			expect(apply.mock.calls.length).toBe(0);
-			await advance(5_000);
-			await vi.waitFor(() => expect(apply.mock.calls.length).toBe(1));
-		},
-		download,
-		apply,
-	);
-});
-
-test("reconfiguration waits until an aborted apply has actually stopped", async () => {
-	const first = deferred();
-	const download = vi.fn(async () => ok);
-	let applySignal: AbortSignal | undefined;
-	const apply = vi.fn(
-		async (_args: ReadonlyArray<string>, signal?: AbortSignal) => {
-			applySignal = signal;
-			return apply.mock.calls.length === 1 ? first.promise : ok;
-		},
-	);
-	await withManager(
-		async (manager, config) => {
-			await advance(5_000);
-			await vi.waitFor(() => expect(apply.mock.calls.length).toBe(1));
-			const reconfigure = manager.configure(config);
-			await advance(20_000);
-			expect(applySignal?.aborted).toBe(true);
-			expect(download.mock.calls.length).toBe(1);
-			first.resolve(ok);
-			await reconfigure;
-			await advance(14_999);
-			expect(download.mock.calls.length).toBe(1);
-			await advance(1);
-			await vi.waitFor(() => expect(apply.mock.calls.length).toBe(2));
-		},
-		download,
-		apply,
-	);
-});
-
-test("an apply failure remains pending for retry and honors the batch cooldown", async () => {
-	const download = vi.fn(async () => ok);
-	const apply = vi.fn(async () => ({
-		code: 23,
-		stderr: "cannot write destination",
-	}));
+	const apply = vi.fn(async () => {});
 	await withManager(
 		async (manager) => {
-			await advance(5_000);
+			await advance(0);
+			await vi.waitFor(() => expect(download).toHaveBeenCalledTimes(1));
+			for (let i = 0; i < 10; i++) {
+				manager.requestSync("batch");
+				await advance(5_000);
+			}
+			expect(download).toHaveBeenCalledTimes(1);
+			finish([]);
+			await settleIO(20);
+			expect(apply).toHaveBeenCalledTimes(1);
+			expect(manager.status("batch").state).toBe("in-sync");
+			await advance(14_999);
+			expect(download).toHaveBeenCalledTimes(1);
+		},
+		download,
+		apply,
+	);
+});
+
+test("periodic scanning repairs missed watcher signals", async () => {
+	const download = vi.fn(async () => []);
+	await withManager(async (manager) => {
+		await advance(0);
+		await vi.waitFor(() =>
+			expect(manager.status("batch").state).toBe("in-sync"),
+		);
+		await advance(30_000);
+		await vi.waitFor(() => expect(download).toHaveBeenCalledTimes(2));
+	}, download);
+});
+
+test("failed scans retain the last good state and event storms cannot bypass backoff", async () => {
+	const download = vi.fn(async (): Promise<SyncFile[]> => {
+		throw new Error("connection closed");
+	});
+	const apply = vi.fn(async () => {});
+	await withManager(
+		async (manager) => {
+			await advance(0);
 			await vi.waitFor(() =>
 				expect(manager.status("batch").state).toBe("error"),
 			);
-			expect(manager.status("batch").lastSyncedAt).toBeNull();
-			manager.requestSync("batch");
-			await advance(10_000);
-			expect(download.mock.calls.length).toBe(1);
+			expect(manager.status("batch").accessRefreshRequired).toBe(true);
+			for (let i = 0; i < 10; i++) {
+				manager.requestSync("batch");
+				await advance(1_000);
+			}
+			expect(download).toHaveBeenCalledTimes(1);
+			expect(apply).not.toHaveBeenCalled();
 			await advance(5_000);
-			await vi.waitFor(() => expect(apply.mock.calls.length).toBe(2));
+			await vi.waitFor(() => expect(download).toHaveBeenCalledTimes(2));
 		},
 		download,
 		apply,
 	);
 });
 
-test("disconnect and reconnect preserve the previous batch cooldown", async () => {
-	const download = vi.fn(async () => ok);
-	await withManager(async (manager, config) => {
-		await advance(5_000);
-		await vi.waitFor(() =>
-			expect(manager.status("batch").state).toBe("in-sync"),
-		);
-		await manager.configure({ ...config, enabled: false });
-		manager.requestSync("batch");
-		expect(manager.status("batch").state).toBe("idle");
-		await manager.configure(config);
-		await advance(10_000);
-		expect(download.mock.calls.length).toBe(1);
-		await advance(5_000);
-		await vi.waitFor(() => expect(download.mock.calls.length).toBe(2));
-	}, download);
+test("disable cancels and joins the scan before reconfiguration", async () => {
+	const apply = vi.fn(async () => {});
+	const download = vi.fn(
+		async (
+			_config,
+			_staging,
+			_baseline,
+			signal: AbortSignal,
+		): Promise<SyncFile[]> =>
+			new Promise((resolve) =>
+				signal.addEventListener("abort", () => resolve([]), { once: true }),
+			),
+	);
+	await withManager(
+		async (manager, config) => {
+			await advance(0);
+			await vi.waitFor(() => expect(download).toHaveBeenCalledTimes(1));
+			await manager.configure({ ...config, enabled: false });
+			expect(manager.status("batch").state).toBe("idle");
+			expect(apply).not.toHaveBeenCalled();
+			await manager.configure(config);
+			await advance(10_000);
+			expect(download).toHaveBeenCalledTimes(1);
+		},
+		download,
+		apply,
+	);
 });

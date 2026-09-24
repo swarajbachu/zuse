@@ -1,3 +1,4 @@
+import { CloudSyncFileBridge } from "./sync/cloud-sync-file-bridge.ts";
 import "@zuse/i18n/english/desktop";
 import {
 	type ChildProcessWithoutNullStreams,
@@ -665,9 +666,27 @@ ipcMain.on("window:setAppearanceMode", (_event, value: unknown) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
-const cloudSyncManager = new CloudSyncManager((status) => {
-	mainWindow?.webContents.send("cloudSync:status", status);
+const cloudSyncFiles = new CloudSyncFileBridge((request) => {
+	if (!mainWindow) throw new Error("Renderer unavailable");
+	mainWindow.webContents.send("cloudSync:readFile", request);
 });
+ipcMain.on("app:cloudSyncReadFileResult", (_event, requestId, value) =>
+	cloudSyncFiles.complete(requestId, value),
+);
+const cloudSyncManager = new CloudSyncManager(
+	(status) => {
+		appendRemoteConnectionLog("cloud.sync.status", {
+			workspaceId: status.workspaceId,
+			state: status.state,
+			enabled: status.enabled,
+			error: status.error,
+		});
+		mainWindow?.webContents.send("cloudSync:status", status);
+	},
+	undefined,
+	undefined,
+	(id, path, signal) => cloudSyncFiles.read(id, path, signal),
+);
 let sshEnvironmentManager: SshEnvironmentManager | null = null;
 const portForwardManager = new PortForwardManager();
 let tailnetEnvironmentManager: TailnetEnvironmentManager | null = null;
@@ -2006,7 +2025,8 @@ async function createMainWindow() {
 	// first visible frame after a Dock click.
 	if (isDevelopment) {
 		void mainWindow.loadURL(DEV_SERVER_URL);
-		mainWindow.webContents.openDevTools({ mode: "right" });
+		// Keep DevTools opt-in via the View menu. Opening docked DevTools during
+		// startup can crash Electron 42.4.1 in DevToolsOpened / SetOwnerWindow.
 	} else {
 		// Use the secure standard origin for concurrent split-module loading.
 		void mainWindow.loadURL(PACKAGED_RENDERER_URL);
@@ -2260,6 +2280,7 @@ async function createMainWindow() {
 				(input.enabled && !input.remotePath.startsWith("/"))
 			)
 				return null;
+
 			return cloudSyncManager.configure({
 				workspaceId: input.workspaceId,
 				enabled: input.enabled,

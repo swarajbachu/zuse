@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
 	prepareRequests: 0,
 	keyRequests: 0,
 	keyFailure: null as unknown,
-	keyRetry: null as string | null,
+
 	clientReady: true,
 	attachRequests: 0,
 	accessFailure: null as unknown,
@@ -61,17 +61,21 @@ vi.mock("../../src/lib/environment-shell-client-bus.ts", () => ({
 		key: "test-key",
 		lease: { release: () => undefined },
 	}),
-	dispatchEnvironmentShellCommand: async (input: { retry?: string }) => {
-		mocks.keyRequests += 1;
-		mocks.keyRetry = input.retry ?? null;
-		if (mocks.keyFailure !== null) throw mocks.keyFailure;
-		return {};
-	},
 }));
 
 vi.mock("../../src/lib/session-timeline-client-bus.ts", () => ({
 	getRendererClientBus: () => ({
-		client: () => (mocks.clientReady ? {} : null),
+		client: () =>
+			mocks.clientReady
+				? {
+						"machine.sshKeys.add": () =>
+							Effect.promise(async () => {
+								mocks.keyRequests += 1;
+								if (mocks.keyFailure !== null) throw mocks.keyFailure;
+								return {};
+							}),
+					}
+				: null,
 		subscribe: () => () => {},
 	}),
 }));
@@ -104,7 +108,6 @@ describe("cloud SSH access", () => {
 		mocks.prepareRequests = 0;
 		mocks.keyRequests = 0;
 		mocks.keyFailure = null;
-		mocks.keyRetry = null;
 		mocks.clientReady = true;
 		mocks.attachRequests = 0;
 		mocks.accessFailure = null;
@@ -120,7 +123,6 @@ describe("cloud SSH access", () => {
 		expect(mocks.accessRequests).toBe(1);
 		expect(mocks.prepareRequests).toBe(1);
 		expect(mocks.keyRequests).toBe(1);
-		expect(mocks.keyRetry).toBe("safe");
 	});
 
 	it("reattaches a disconnected workspace before preparing access", async () => {

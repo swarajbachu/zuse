@@ -15,6 +15,7 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { useCloudSyncStatus } from "../lib/cloud-sync-client-bus.ts";
+import { cloudSyncPresentation } from "../lib/cloud-sync-presentation.ts";
 import {
 	cloudSummaryForChat,
 	useCloudChatCatalogStore,
@@ -409,27 +410,17 @@ function PlainTerminalSlot({
 
 	const inst = instance;
 	if (inst === undefined) return null;
-	const localSyncState = syncStatus?.state ?? "idle";
+	const syncPresentation = cloudSyncPresentation(syncStatus);
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			{localTerminal ? (
 				<div className="flex h-7 shrink-0 items-center gap-2 px-3 text-[11px] text-muted-foreground">
 					<span
-						className={`size-1.5 rounded-full ${
-							localSyncState === "in-sync"
-								? "bg-emerald-400"
-								: localSyncState === "error"
-									? "bg-rose-400"
-									: "animate-pulse bg-amber-400"
-						}`}
+						className={`size-1.5 rounded-full ${syncPresentation.dotClass}`}
 					/>
-					{localSyncState === "in-sync"
-						? uiMessage("chat:terminal_pane_file_changes_synced_to_local")
-						: localSyncState === "error"
-							? uiMessage("chat:terminal_pane_local_file_sync_failed")
-							: localSyncState === "pending"
-								? uiMessage("chat:terminal_pane_waiting_for_changes_to_settle")
-								: uiMessage("chat:terminal_pane_syncing_files_to_local")}
+					<span title={syncPresentation.detail ?? undefined}>
+						{syncPresentation.label}
+					</span>
 				</div>
 			) : null}
 			<div className="min-h-0 flex-1">
