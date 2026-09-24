@@ -5,6 +5,7 @@ export function ArticleStructuredData({
 	url,
 	image,
 	date,
+	updated,
 	author,
 }: {
 	title: string;
@@ -12,6 +13,7 @@ export function ArticleStructuredData({
 	url: string;
 	image: string;
 	date: Date;
+	updated?: Date;
 	author: string;
 }) {
 	const absoluteUrl = new URL(url, siteConfig.url).toString();
@@ -26,6 +28,7 @@ export function ArticleStructuredData({
 				url: absoluteUrl,
 				mainEntityOfPage: absoluteUrl,
 				datePublished: date.toISOString(),
+				dateModified: updated?.toISOString(),
 				image: new URL(image, siteConfig.url).toString(),
 				author: { "@type": "Organization", name: author, url: siteConfig.url },
 				publisher: {

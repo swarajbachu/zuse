@@ -2,6 +2,7 @@
 title: "Bring your own keys: why Zuse (Beta) never resells tokens"
 description: "Your API keys stay in your operating system's credential store. Zuse (Beta) is not a reseller and never marks up your model usage."
 date: "2026-06-04"
+updated: "2026-09-24"
 category: "Note"
 timeToRead: "4 min read"
 authorName: "Zuse (Beta) team"
@@ -79,3 +80,9 @@ The deeper reason for BYOK is alignment. A coding agent app should make it easy 
 Zuse (Beta) is built around that bias. The chat timeline shows tool calls and output instead of turning the session into a mystery. The changes pane makes diffs reviewable before they become commits. Worktrees isolate experiments so one agent's attempt does not silently bleed into another. BYOK fits the same pattern: keep the important mechanics visible, keep ownership close to the developer, and avoid inventing a dependency where the platform does not need one.
 
 There will still be teams that prefer centralized procurement, pooled credits, or a fully hosted product. That is fine. Zuse (Beta) is for the teams and individual developers who want the opposite shape: a desktop app that runs locally, respects the provider relationships they already have, and does not turn model access into a markup layer. If the app earns trust, it should be because it improves the work, not because it controls the meter.
+
+## Check credentials again when moving to cloud
+
+A separate execution environment may need its own agent authentication even when the same provider works locally. Verify model access and repository access independently before starting a long task. A successful checkout does not prove the model can receive a request, and a successful model request does not prove the workspace can push a branch.
+
+Keep model usage separate from cloud compute when reviewing costs. See [pricing](/pricing) for current infrastructure terms and the [open source cloud agents guide](/blog/open-source-cloud-agents) for an end-to-end setup checklist.

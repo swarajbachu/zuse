@@ -17,7 +17,7 @@ export default function PrivacyPage() {
 		<LegalPageShell>
 			<h1 className="mt-8 text-4xl font-semibold">Privacy policy</h1>
 			<p className="mt-3 text-sm text-muted-foreground">
-				Effective September 9, 2026
+				Effective September 24, 2026
 			</p>
 			<p className="mt-8 text-base leading-7 text-muted-foreground">
 				Zuse is built to keep the ordinary coding workspace on your computer.
@@ -101,8 +101,30 @@ export default function PrivacyPage() {
 						We receive information from you and your device, from the services
 						you authorize us to connect, and from service providers that help
 						verify an account, operate a cloud workspace, process a
-						notification, or measure reliability. The marketing website is not
-						part of the desktop and mobile product-analytics system.
+						notification, or measure reliability. Website analytics are labeled
+						separately from desktop and mobile events.
+					</p>
+				</section>
+
+				<section>
+					<h2 className="text-xl font-medium text-foreground">
+						Website analytics
+					</h2>
+					<p className="mt-2">
+						The website uses PostHog for page views and clicks on download and
+						pricing links. Events include page paths, referring origins, and
+						browser and device information. We remove URL query strings and
+						fragments before sending events, do not identify website visitors
+						with their Zuse account, and disable automatic interaction capture
+						and session replay.
+					</p>
+					<p className="mt-2">
+						Website analytics use temporary memory rather than persistent
+						analytics cookies or local storage. They are disabled when your
+						browser sends Do Not Track or Global Privacy Control. Your browser
+						can also block requests to the analytics service. These website
+						choices are separate from the usage-analytics setting in the desktop
+						and mobile apps.
 					</p>
 				</section>
 

@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/source", () => ({
 	blog: {
 		getPages: () => [
-			{ url: "/blog/first-article" },
-			{ url: "/blog/new-article" },
+			{ url: "/blog/first-article", data: {} },
+			{ url: "/blog/new-article", data: { updated: new Date("2026-09-24") } },
 		],
 	},
 }));
@@ -26,8 +26,9 @@ describe("public sitemap", () => {
 	});
 
 	it("does not manufacture modification dates for published content", () => {
-		expect(sitemap().every((entry) => entry.lastModified === undefined)).toBe(
-			true,
-		);
+		const dated = sitemap().filter((entry) => entry.lastModified);
+		expect(dated).toHaveLength(1);
+		expect(dated[0].url).toContain("/blog/new-article");
+		expect(dated[0].lastModified).toEqual(new Date("2026-09-24"));
 	});
 });

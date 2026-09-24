@@ -1,0 +1,122 @@
+---
+title: "Open source cloud agents: a practical guide for coding"
+description: "Learn how open source cloud agents work, what to check before running one, and how Zuse connects isolated workspaces, existing agents, and code review."
+date: "2026-09-24"
+category: "Guide"
+timeToRead: "8 min read"
+authorName: "Zuse team"
+authorRole: "Product and engineering"
+authorAvatar: "/app-icon.png"
+previewImage: "/brand/observatory-dither.webp"
+---
+
+Open source cloud agents are software agents whose available source code lets you inspect how they coordinate work in remote compute environments. For coding, that work typically includes reading a repository, editing files, running commands, and preparing changes for review. The cloud supplies the checkout and compute; a model supplies reasoning; the agent connects reasoning to tools.
+
+Those are separate choices. An open-source workspace does not require an open-weight model. A cloud environment does not automatically include model access. A tool that can produce a pull request still needs permissions, a working development environment, and a clear definition of success.
+
+[Zuse](/) is an open-source coding workspace with local execution and optional Cloud Workspaces in public beta. This guide explains the decisions behind that setup and gives you a repeatable way to evaluate a first cloud task.
+
+## What actually runs in the cloud?
+
+Think of a cloud coding task as four connected parts:
+
+- **The repository:** a particular checkout, branch, and set of uncommitted changes.
+- **The runtime:** compute, dependencies, environment variables, and services used to build or test the project.
+- **The agent:** the program that reads instructions, calls a model, and uses tools under configured permissions.
+- **The workspace:** the interface for following the conversation, inspecting files, reading terminal output, and reviewing the result.
+
+A useful evaluation starts by identifying each part. Where do files live? Which account pays for inference? What survives when compute pauses? Can you inspect the exact commands behind a claim that tests passed? These questions tell you more than a screenshot of an agent answering a prompt.
+
+In Zuse, the workspace brings conversations, terminal output, files, diffs, and pull-request context together. You choose the coding agent and execution environment. Read [where to run your agents](/blog/choose-where-agents-run) for the practical local-versus-cloud decision.
+
+## What does open source mean here?
+
+Inspect the repository and its license before choosing an agent workspace. Zuse publishes its [source code](https://github.com/swarajbachu/zuse) under the [AGPL-3.0 license](https://github.com/swarajbachu/zuse/blob/main/LICENSE). The license is the reference for the permissions and obligations that apply to that code.
+
+Source availability lets you examine implementation choices: how credentials reach the runtime, how a task becomes a process, and how state is stored. It also lets you report a reproducible issue against the implementation instead of relying only on a product description.
+
+Keep the scope of that openness clear. A repository license does not grant access to a model provider, make a managed cloud service free, or imply that every hosted feature is a turnkey self-hosting package. Verify the installation instructions for the component you intend to operate and check the provider's requirements separately.
+
+For a team evaluation, record the source revision and application version alongside your results. An observation about one build should not silently become a promise about every future release. Link to the relevant release notes when you share the evaluation.
+
+## When should a task run remotely?
+
+Cloud workspaces are useful when you want a separate compute environment for repository work. A task can use that environment's checkout and tools without relying on the same working directory as another task on your laptop. This is particularly useful when several changes need independent setup and review.
+
+Local execution remains useful when a task depends on tools, devices, services, or data already available on your machine. For example, a native application change may need device verification even if a cloud environment can run its unit tests. Choose the environment that can produce the evidence the task requires.
+
+Ask these questions before starting:
+
+1. Can the repository install and build in a fresh environment?
+2. Which services and credentials are required for the chosen checks?
+3. Does the task require hardware or local state that remote compute cannot access?
+4. Should this change use an isolated branch and checkout?
+5. Who will review the result, and what evidence will they need?
+
+The answer can vary within a single project. A documentation correction and a native startup failure do not need the same environment. Avoid moving work remotely just because the agent supports it; move it when the environment fits the job.
+
+## Prepare one bounded task
+
+Start with a change whose outcome you can verify. A focused bug with a reproducible trigger is a better evaluation than asking an agent to improve an entire application. Give it the affected behavior, constraints, and the checks that would demonstrate a fix.
+
+A task brief might say:
+
+> Fix the duplicate notification after reconnecting. Reproduce it by disconnecting during delivery and then reconnecting. Preserve the existing notification settings. Run the focused delivery tests and explain any checks you could not run. Prepare the diff for review.
+
+That brief identifies a trigger, an expected result, and a boundary. It also makes the agent's final answer easier to evaluate: you can compare its changes and evidence against the original task instead of judging the confidence of its prose.
+
+Before editing begins, confirm the repository and branch in the workspace. Run setup and a small baseline check. If dependencies cannot install, resolve that environment failure before interpreting the next test failure as a defect introduced by the agent.
+
+## Configure access deliberately
+
+A cloud workspace needs access to the repository and to the agent or model provider you select. Credentials that work on your laptop are not necessarily available in a separate runtime. Treat repository access and model access as separate setup steps.
+
+Grant the access required by the task. A code-reading investigation and a workflow that pushes a branch have different needs. Keep credentials in the supported configuration path rather than placing them in prompts or committing them to the repository.
+
+After setup, verify a small operation for each dependency. Can the checkout fetch? Can the agent start a turn? Can the test command connect to its required service? Distinguish authentication rejection from a network problem so that retries do not hide the actual failure.
+
+The [cloud provider guide](https://docs.zuse.sh/how-to/choose-cloud-provider) describes the available execution choices. For model credentials and subscription choices, read [bring your own keys](/blog/bring-your-own-keys).
+
+## Isolate parallel work
+
+Parallel agents need clear ownership of files and a plan for integration. Separate Git worktrees can keep one task's working directory from colliding with another. They do not make two incompatible changes to the same API compatible.
+
+Assign independent tasks where possible. If two changes depend on a shared interface, settle that interface first or sequence the dependent work. Ask each task to explain assumptions that affect another part of the project.
+
+Shared worktrees serve a different purpose: several sessions can inspect the same branch and files. That can be useful for a read-only review of an implementation, but concurrent writers need coordination. Decide which session owns the changes and which session reviews them.
+
+Read [Git worktrees for every chat](/blog/git-worktrees-for-every-chat) and [parallel agents without collisions](/blog/parallel-agents-without-collisions) before scaling from one task to several. Begin with one successful end-to-end change, then increase concurrency while watching setup time, conflicts, and review load.
+
+## Understand pauses, queues, and recovery
+
+A responsive interface and an active agent process are different states. A message might be waiting locally, accepted for delivery, or actively being processed. Likewise, a saved transcript can remain readable while the compute environment is asleep.
+
+Check how the workspace exposes those differences. An accepted message should not be described as completed work. Reconnecting should not require guessing whether the previous send succeeded. If a runtime cannot recover its files, cached conversation history should not be mistaken for a recovered checkout.
+
+Zuse's [0.21.0 release notes](/blog/zuse-0-21-cloud-workspaces) describe improvements to eligible queued cloud messages, reconnect behavior, and mobile access. Compatibility and message-type limits still matter. Our [recovery journal](/blog/cloud-agent-recovery-journal) explains the distinctions to look for when reviewing a cloud workflow.
+
+## Review the result before merging
+
+A useful agent result contains a diff and supporting evidence. Review the changed files, including configuration and dependency changes. Ask which checks actually ran in the intended environment and whether the task's original trigger was exercised.
+
+Separate the kinds of evidence. A type check can catch incompatible types. A unit test can exercise a narrow behavior. A browser run can demonstrate a user flow at a particular viewport. A passing cloud check does not establish that a native device launch succeeded.
+
+If a required check could not run, keep that limitation visible. The task may still produce a useful patch, but a reviewer should know which claims remain unverified. Do not let a long summary hide the one missing step that decides whether the change is ready.
+
+Use the checklist in [review the evidence](/blog/review-the-evidence) to make this routine. A second agent can provide another reading of the diff, but human ownership of the merge decision remains valuable, especially for permissions, migrations, and release behavior.
+
+## Compare costs at the right level
+
+Separate workspace software, compute, and model usage when estimating a workflow. Bringing an existing model subscription changes how the model is paid for; it does not remove the cost or limits of cloud infrastructure. More parallel tasks can also increase both compute usage and the amount of work waiting for review.
+
+Evaluate a representative task and record setup time, active runtime, model usage where visible, and review time. Those observations are more useful than assuming every task costs the same. Repeat the evaluation when the workload or environment changes substantially.
+
+Zuse Cloud remains in public beta. Check [current pricing](/pricing) for compute allowances and plan details instead of treating a historical article as a price quote. See [know your token spend](/blog/know-your-token-spend) for the model side of the workflow.
+
+## Start with a reviewable outcome
+
+For a first run, select a repository you understand, prepare its setup, authorize the agent, and choose a small change. Confirm that the environment is ready before beginning. At the end, inspect the branch, the diff, and the evidence together.
+
+That gives you a concrete answer to whether open source cloud agents fit your workflow. You can evaluate where the work ran, what access it used, what changed, and what still needs verification. Once those steps are predictable, parallel execution becomes easier to assess.
+
+[Download Zuse](/download), read the [setup documentation](https://docs.zuse.sh), or follow the [journal](/blog) for release notes and engineering updates.

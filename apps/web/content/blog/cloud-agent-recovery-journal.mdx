@@ -1,0 +1,63 @@
+---
+title: "Engineering journal: what cloud agent recovery needs to preserve"
+description: "Why a cloud agent's transcript, message delivery, and runtime need separate recovery checks, with practical scenarios drawn from Zuse's release notes."
+date: "2026-09-24"
+category: "Note"
+timeToRead: "4 min read"
+authorName: "Zuse team"
+authorRole: "Product and engineering"
+authorAvatar: "/app-icon.png"
+previewImage: "/brand/pegasus-dither.webp"
+---
+
+A cloud agent can fail at several boundaries: the client can lose its connection, a message can be waiting for delivery, an agent process can exit, or the runtime can be missing data. Each failure affects a different part of the task. Treating them all as “disconnected” makes it difficult to decide what to do next.
+
+This engineering journal explains those boundaries using the published [Zuse 0.21.0 release notes](https://github.com/swarajbachu/zuse/releases/tag/v0.21.0). It is a way to reason about recovery and review its behavior, rather than an incident report or a claim that every failure has been eliminated.
+
+## A transcript is one part of the task
+
+A conversation tells you what was requested and what the agent reported. The runtime contains the working files and tools that make the task executable. Either can be available while the other is unavailable.
+
+That is why saved history can remain useful while compute sleeps. You can review an earlier decision without waking every tool used to reach it. But if the runtime reports missing data, the history does not establish that an uncommitted patch or a dependency installation still exists.
+
+The 0.21.0 notes explicitly describe reporting missing runtime data while preserving cached transcripts. When reviewing such a recovery, ask two questions separately: can I read the conversation, and can I verify the current checkout? The answers may differ, and the interface needs to preserve that distinction.
+
+## Acceptance is different from execution
+
+There is an interval between sending a message and an agent acting on it. An unreliable connection makes that interval confusing: the client may stop receiving updates after a send without knowing whether the service received it.
+
+Retrying without understanding the delivery outcome can duplicate the requested work. Avoiding all retries can leave a task stalled. The useful behavior is an explicit outcome that helps a user distinguish a waiting message from accepted work and from an active turn.
+
+The release adds that behavior for eligible cloud text messages, including persistence across reconnects and restarts and protection against duplicate sends. The word “eligible” matters. A workflow should surface the actual outcome for the message being sent rather than implying that every attachment or action follows the same path.
+
+## Reconnecting the client is not restarting the task
+
+A restored network connection does not by itself tell you the state of the agent process. The process might still be running, might have finished, or might have exited unexpectedly. Recovery should reconnect the interface to the task state before deciding what needs restarting.
+
+The release addresses stale chat-client connections after Cloud Workspace recovery. It also settles active turns after unexpected Codex process exits and releases crashed provider handles so later work can start a fresh process.
+
+These are distinct improvements. One restores communication with a workspace; the other handles a process that is no longer available. When filing a bug, include which boundary failed and the visible result. A report that says the terminal is available but the conversation remains disconnected is more useful than a generic “cloud is broken.”
+
+## Authentication needs its own error
+
+Retrying a rejected credential as if it were a transient network failure wastes time and obscures the required action. Conversely, asking someone to sign in again for every connection interruption creates unnecessary work.
+
+The published changes distinguish rejected credentials from connection failures. For a user, the practical step is to read the error before retrying. For a reviewer, the useful check is whether the application presents an actionable difference between those cases.
+
+## A small recovery review
+
+Use a disposable task and preserve evidence when exercising failure paths. These are review scenarios, not claims that this article executed them:
+
+- Interrupt a connection after a text send. After reconnecting, inspect the delivery outcome and check whether the message appears once.
+- Pause compute, then open saved history. Confirm that readable history is not presented as an actively running task.
+- Restore a workspace connection. Verify that the conversation can receive new state without requiring a stale error screen to remain open.
+- Reject agent authentication in a test environment. Confirm the error points to authentication rather than encouraging indefinite network retries.
+- Inspect the checkout after recovery. Check the branch and changed files before assuming that a transcript proves the working state survived.
+
+Keep the client version, workspace image, and service compatibility in the report. A passing result for one combination is useful evidence, but should not be generalized to every deployment.
+
+## Reliability is part of the coding workflow
+
+For open source cloud agents, recovery is part of making code review possible. A reviewer needs to know which task ran, which files it changed, and which checks actually completed. Clear failure states help preserve that chain of evidence even when the environment is interrupted.
+
+Read the [0.21.0 release overview](/blog/zuse-0-21-cloud-workspaces), our [code-review checklist](/blog/review-the-evidence), or the [cloud agent guide](/blog/open-source-cloud-agents) to connect these recovery questions to a complete task.
