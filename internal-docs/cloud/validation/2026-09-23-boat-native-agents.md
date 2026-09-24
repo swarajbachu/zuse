@@ -81,3 +81,22 @@ model response, and shell-tool execution on staging. It does not verify every
 agent or desktop/mobile rendering. Claude model authentication was not tested
 because this staging account has no connected Claude subscription. Production
 configuration and existing production sandboxes were not changed.
+
+## Production rollout — 2026-09-24
+
+With explicit user authorization, deployed API version
+`c493dece-0c60-4d1b-9b77-8ba943e16018` from commit `413992b73`, including
+main's unique cloud branch fix, and promoted `zuse-base-v8` to production.
+The account image rebuild `image_NWmIx_LjVdMojxjP` became ready/active on v8;
+its signed runtime updater installed `5a39d307ad382cd2f0e75664eec5db5b68e8e841`.
+
+Fresh production workspace `workspace_clJxTZbe-UP66zcP` used that image and
+generated branch `hitmonlee-clJxTZbe-UP66zcP`. Message acceptance took
+26,236 ms for this sample. Codex (`gpt-6-sol`) authenticated, executed both
+version commands successfully, returned Codex 0.156.1 and Claude 2.1.281,
+and reached idle. The test workspace was then requested to pause.
+Existing production workspaces were not migrated or restarted. E2B's pinned
+agent installation remains unchanged. No desktop release was published.
+
+Validation before deployment: 94 API/runtime asset tests passed, API type
+check, applicable Biome checks, shell syntax, and diff checks passed.
