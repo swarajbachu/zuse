@@ -5,7 +5,7 @@
 	"see_how_it_works": "See how it works",
 	"free_in_beta_no_token_markup": "Free in beta · no token markup",
 	"meta_title": "Open Source Cloud Agents for Coding | Zuse",
-	"meta_description": "Run open source cloud agents with Zuse. Work locally or in isolated cloud workspaces, use your existing model subscriptions, and review every change.",
+	"meta_description": "Zuse is an open source Devin alternative for local and cloud coding agents. Bring your model subscriptions, isolate tasks, and review every change.",
 	"schema_parallel": "Run multiple coding agents from one workspace",
 	"schema_worktrees": "Isolated Git worktrees for parallel agent runs",
 	"schema_environments": "Local and cloud execution environments",

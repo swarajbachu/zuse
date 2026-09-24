@@ -967,16 +967,16 @@
 		"locations": [
 			{
 				"path": "apps/web/components/landing/page.tsx",
-				"line": 19
+				"line": 18
 			}
 		]
 	},
 	"landing:meta_description": {
-		"source": "Run open source cloud agents with Zuse. Work locally or in isolated cloud workspaces, use your existing model subscriptions, and review every change.",
+		"source": "Zuse is an open source Devin alternative for local and cloud coding agents. Bring your model subscriptions, isolate tasks, and review every change.",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/page.tsx",
-				"line": 20
+				"line": 19
 			},
 			{
 				"path": "apps/web/components/seo/homepage-structured-data.tsx",
@@ -1150,7 +1150,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 50
+				"line": 55
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
@@ -1172,7 +1172,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 51
+				"line": 56
 			}
 		]
 	},
@@ -1181,7 +1181,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 53
+				"line": 58
 			}
 		]
 	},
@@ -1190,7 +1190,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 54
+				"line": 59
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
@@ -1203,7 +1203,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 67
+				"line": 72
 			}
 		]
 	},
@@ -1212,7 +1212,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 116
+				"line": 121
 			}
 		]
 	},
@@ -1338,7 +1338,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 83
+				"line": 88
 			}
 		]
 	},
@@ -1365,7 +1365,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 52
+				"line": 57
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
