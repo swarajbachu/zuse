@@ -2,7 +2,7 @@
 	"name": "desktop",
 	"type": "module",
 	"productName": "Zuse (Beta)",
-	"version": "0.21.0",
+	"version": "0.22.1",
 	"description": "Zuse (Beta) desktop app",
 	"license": "AGPL-3.0-only",
 	"private": true,
