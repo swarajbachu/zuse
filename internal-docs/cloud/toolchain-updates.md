@@ -21,6 +21,22 @@ for detection. PR checks created by the repository token may require approval;
 review their status before merging. The candidate checks also run directly in
 the nightly job so they do not depend on PR-trigger behavior.
 
+## Boat agent ownership
+
+Boat templates preserve the provider's preinstalled agent launchers and binaries.
+Zuse installs its runtime, OS dependencies, Bun, and Corepack, but does not install
+Claude, Codex, or Grok on Boat. Template publication checks Claude and Codex as the
+unprivileged `zuse` user and fails if either cannot run; it does not silently
+replace them with Zuse's pinned versions. Other agents depend on Boat's base image
+availability. Validate supported agents when publishing a new template.
+
+E2B templates and the separate E2B authentication authority still use Zuse's
+validated agent versions. Nightly pin updates apply to those installations, not
+Boat's bundled agents. Workspace build/resume continues to skip agent toolchain
+reconciliation. This change applies to newly published Boat templates, not
+existing account images or workspaces; publish a new snapshot and rebuild images
+to roll it out. Verify real turns and tools against Boat's versions before promotion.
+
 ## Rollout
 
 Merging pins publishes the signed staging runtime through the existing cloud
