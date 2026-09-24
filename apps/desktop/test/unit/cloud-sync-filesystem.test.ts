@@ -27,6 +27,44 @@ import {
 
 const exec = promisify(execFile);
 
+test("gateway failures survive cancellation diagnostics from the snapshot producer", async () => {
+	const root = await mkdtemp(join(tmpdir(), "zuse-gateway-failure-"));
+	const gatewayFailure = new Error("gateway lost");
+	await writeFile(
+		join(root, "ssh"),
+		`#!/usr/bin/env python3
+import json, signal, sys, time
+def cancel(*args):
+ print('Snapshot cancelled', file=sys.stderr, flush=True)
+ sys.exit(1)
+signal.signal(signal.SIGTERM, cancel)
+print(json.dumps(dict(parts=['/tmp/zuse-sync-test/part-0'])), flush=True)
+while True: time.sleep(1)
+`,
+	);
+	await chmod(join(root, "ssh"), 0o755);
+	vi.stubEnv("PATH", `${root}:${process.env.PATH}`);
+	try {
+		await expect(
+			downloadSnapshot(
+				{
+					hostAlias: "test",
+					remotePath: "/repo",
+					readRemoteFile: async () => {
+						throw gatewayFailure;
+					},
+				},
+				root,
+				[],
+				new AbortController().signal,
+			),
+		).rejects.toBe(gatewayFailure);
+	} finally {
+		vi.unstubAllEnvs();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("Gateway archive Git-selected snapshots preserve tracked builds, ignore arbitrary outputs, and publish only changed bytes", async () => {
 	const root = await mkdtemp(join(tmpdir(), "zuse-snapshot-"));
 	const source = join(root, "source");
