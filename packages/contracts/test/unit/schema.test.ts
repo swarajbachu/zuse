@@ -38,6 +38,22 @@ const roundTrip = <A, I>(schema: Schema.Codec<A, I>, encoded: I): void => {
 };
 
 describe("Environment capabilities", () => {
+	it("decodes API environments advertising device commands", () => {
+		roundTrip(ApiEnvironmentList, {
+			environments: [
+				{
+					environmentId: "environment-1",
+					providerKind: "desktop",
+					linkedAt: 1,
+					capabilities: {
+						version: 1,
+						features: ["agents", "notifications", "device-commands-v1"],
+					},
+				},
+			],
+		});
+	});
+
 	it("decodes an older environment descriptor with no capabilities", () => {
 		roundTrip(EnvironmentDescriptor, {
 			environmentId: "environment-1",

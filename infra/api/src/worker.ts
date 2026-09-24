@@ -101,6 +101,7 @@ interface Env extends SlackBindings {
 		}>;
 	};
 	readonly API_ISSUER: string;
+	readonly API_PUBLIC_ORIGIN?: string;
 	readonly WORKOS_JWKS_URL: string;
 	readonly WORKOS_ISSUER: string;
 	readonly WORKOS_API_KEY?: string;
@@ -355,6 +356,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 	].every(isConfigured);
 	const configLayer = Config.layer({
 		apiIssuer: env.API_ISSUER,
+		publicApiOrigin: env.API_PUBLIC_ORIGIN,
 		workosJwksUrl: env.WORKOS_JWKS_URL,
 		workosIssuer: env.WORKOS_ISSUER,
 		workosApiKey: isConfigured(env.WORKOS_API_KEY)

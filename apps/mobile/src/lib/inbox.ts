@@ -24,7 +24,7 @@ export type InboxChatRow = {
 	projectName: string;
 	projectPath: string;
 	chat: Chat | null;
-	session: Session;
+	session: Session | null;
 	title: string;
 	/** Relative time since the last message ("2m", "3h", "Mon"). */
 	subtitle: string;
@@ -238,7 +238,6 @@ const buildRowsForProject = ({
 			chat.id,
 		);
 		const session = resolveActiveChatSession(chat, sessions);
-		if (session === null) continue;
 		rows.push(
 			rowForSession({
 				connection,
@@ -283,15 +282,18 @@ const rowForSession = ({
 }: {
 	connection: ConnectionRecord;
 	bundle: ProjectBundle;
-	session: Session;
+	session: Session | null;
 	chat: Chat | null;
 	statusBySession: Record<string, SessionStatus>;
 	pinnedChatKeys: ReadonlySet<string>;
 	siblingSessions: readonly Session[];
 }): InboxChatRow => {
 	const selectedStatus =
-		statusBySession[connectionSessionKey(connection.key, session.id)] ??
-		session.status;
+		(session === null
+			? undefined
+			: statusBySession[connectionSessionKey(connection.key, session.id)]) ??
+		session?.status ??
+		"idle";
 	const siblingStatuses = siblingSessions.map(
 		(item) =>
 			statusBySession[connectionSessionKey(connection.key, item.id)] ??
@@ -310,7 +312,7 @@ const rowForSession = ({
 		chat?.lastMessageAt ?? chat?.updatedAt ?? chat?.createdAt ?? 0,
 	);
 	return {
-		key: `chat:${connection.key}:${chat?.id ?? session.id}`,
+		key: `chat:${connection.key}:${chat?.id ?? session?.id}`,
 		connectionKey: connection.key,
 		connectionLabel: visibleConnectionLabel(connection.label),
 		projectId: bundle.project.id,
@@ -318,9 +320,10 @@ const rowForSession = ({
 		projectPath: bundle.project.path,
 		chat,
 		session,
-		title: chat?.title ?? session.title,
+		title: chat?.title ?? session?.title ?? "New chat",
 		subtitle: relativeTimeLabel(updatedAt),
-		providerModel: `${session.providerId} / ${session.model}`,
+		providerModel:
+			session === null ? "" : `${session.providerId} / ${session.model}`,
 		status,
 		unread: chat !== null && isUnreadChat(chat),
 		pinned:
@@ -328,7 +331,7 @@ const rowForSession = ({
 			pinnedChatKeys.has(JSON.stringify([connection.key, chat.id])),
 		threadCount: siblingSessions.length,
 		runningCount,
-		threadLabel: visibleThreadLabel(session, chat),
+		threadLabel: session === null ? "" : visibleThreadLabel(session, chat),
 		updatedAt,
 	};
 };
@@ -398,7 +401,7 @@ const matchesQuery = (row: InboxChatRow, query: string): boolean => {
 		row.providerModel,
 		row.status,
 		row.chat?.id,
-		row.session.id,
+		row.session?.id ?? "",
 	]
 		.filter(Boolean)
 		.join(" ")

@@ -132,6 +132,7 @@ const makeLayer = async (
 	liveCheckoutEnabled = false,
 	machineControlOverrides: Partial<MachineControlConfig> = {},
 	sandboxProvidersLayer: Layer.Layer<SandboxProviders> = SandboxProvidersFake,
+	publicApiOrigin?: string,
 ): Promise<Layer.Layer<ApiContext>> => {
 	const billingLayer =
 		typeof billingLayerOrMaxEnvironments === "number"
@@ -144,6 +145,7 @@ const makeLayer = async (
 	mintKey = (await eddsa()) as KeyPair;
 	const configLayer = Config.layer({
 		apiIssuer: API_ISSUER,
+		publicApiOrigin,
 		workosJwksUrl: "https://unused.test/jwks",
 		workosIssuer: "https://unused.test",
 		mintPrivateKey: Redacted.make(
@@ -1124,6 +1126,56 @@ describe("@zuse/api", () => {
 		expect(await response.json()).toMatchObject({
 			accessToken: expect.any(String),
 		});
+	});
+
+	test("binds DPoP to the configured public origin independently of the token issuer", async () => {
+		const publicOrigin = "https://api-staging.zuse.sh";
+		api = makeApi(
+			await makeLayer(undefined, undefined, false, {}, undefined, publicOrigin),
+		);
+		const device = (await ec()) as KeyPair;
+		const jwk = await exportJWK(device.publicKey);
+		for (const origin of [API_ISSUER, "https://untrusted.test", publicOrigin]) {
+			const response = await api.fetch(
+				new Request("http://worker.internal/v1/client/dpop-token", {
+					method: "POST",
+					headers: {
+						authorization: "Bearer test-token:user_public_origin",
+						dpop: await dpopProof(device, jwk, {
+							method: "POST",
+							url: `${origin}/v1/client/dpop-token`,
+						}),
+						"x-forwarded-host": "untrusted.test",
+					},
+				}),
+			);
+			expect(response.status).toBe(origin === publicOrigin ? 200 : 401);
+			if (origin !== publicOrigin) {
+				expect(await response.json()).toMatchObject({
+					error: "dpop_claims_mismatch",
+				});
+			} else {
+				const { accessToken } = await response.json();
+				const url = `${publicOrigin}/v1/mobile/devices`;
+				const registered = await api.fetch(
+					new Request(url, {
+						method: "POST",
+						headers: {
+							authorization: `DPoP ${accessToken}`,
+							dpop: await dpopProof(device, jwk, { method: "POST", url }),
+							"content-type": "application/json",
+						},
+						body: JSON.stringify({
+							deviceId: "phone_public_origin",
+							platform: "ios",
+							dpopJwk: jwk,
+							expoPushToken: "ExponentPushToken[test]",
+						}),
+					}),
+				);
+				expect(registered.status).toBe(200);
+			}
+		}
 	});
 
 	test("allows the hosted product origin without opening api CORS broadly", async () => {

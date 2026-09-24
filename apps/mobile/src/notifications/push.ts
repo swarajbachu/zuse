@@ -10,8 +10,34 @@ import {
 	getOrCreateDeviceId,
 } from "../lib/device-identity.ts";
 import { registerDevice, revokeMobileDevice } from "../rpc/api-client.ts";
+import {
+	logConnectionDiagnostic,
+	logConnectionProblem,
+} from "../rpc/connection-diagnostics";
 import { registerPushTokenForAccount } from "./registration.ts";
 import { notificationRoute } from "./route";
+
+export class PushRegistrationTimeout extends Error {}
+
+const withPushTimeout = async <T>(
+	operation: Promise<T>,
+	message: string,
+): Promise<T> => {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			operation,
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(
+					() => reject(new PushRegistrationTimeout(message)),
+					25_000,
+				);
+			}),
+		]);
+	} finally {
+		if (timer !== undefined) clearTimeout(timer);
+	}
+};
 
 export const clearPushRegistration = (): Promise<void> => clearDeviceIdentity();
 
@@ -25,7 +51,18 @@ const getExpoPushToken = async (): Promise<string | null> => {
 		decision: finalStatus === "granted" ? "granted" : "denied",
 	});
 	if (finalStatus !== "granted") return null;
-	return (await Notifications.getExpoPushTokenAsync()).data;
+	logConnectionDiagnostic("push.native_token.start");
+	const devicePushToken = await withPushTimeout(
+		Notifications.getDevicePushTokenAsync(),
+		"Apple or Google did not return a device token. Check your network and try again.",
+	);
+	logConnectionDiagnostic("push.native_token.ok");
+	const token = await withPushTimeout(
+		Notifications.getExpoPushTokenAsync({ devicePushToken }),
+		"The push notification service did not respond. Please try again.",
+	);
+	logConnectionDiagnostic("push.expo_token.ok");
+	return token.data;
 };
 
 export const registerCurrentDeviceForPush = async (
@@ -42,14 +79,27 @@ export const registerCurrentDeviceForPush = async (
 						: "web",
 			getDeviceId: getOrCreateDeviceId,
 			getPushToken: getExpoPushToken,
-			registerDevice,
+			registerDevice: (input) =>
+				withPushTimeout(
+					registerDevice(input),
+					"Zuse could not finish registering this device. Please try again.",
+				),
 		});
-	} catch {
-		return false;
+	} catch (error) {
+		logConnectionProblem("push.registration.fail", { error });
+		throw error;
 	}
 };
 
 export const installNotificationResponseHandler = (): (() => void) => {
+	Notifications.setNotificationHandler({
+		handleNotification: async () => ({
+			shouldShowBanner: true,
+			shouldShowList: true,
+			shouldPlaySound: true,
+			shouldSetBadge: false,
+		}),
+	});
 	const openResponse = (
 		response: Notifications.NotificationResponse | null,
 	) => {

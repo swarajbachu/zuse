@@ -1,9 +1,13 @@
 import { beforeEach, expect, test, vi } from "vitest";
+import type { NearbyService } from "../../../modules/local-connectivity";
 import { useLocalConnectivityRuntime } from "../../../src/store/local-connectivity-runtime";
 import { recoverLocalRoute } from "../../../src/store/local-route-recovery";
 
 const state = vi.hoisted(() => ({
 	listener: null as ((state: string) => void) | null,
+	servicesListener: null as
+		| ((services: readonly NearbyService[]) => void)
+		| null,
 	cleanups: [] as (() => void)[],
 	start: vi.fn(async () => {}),
 	stop: vi.fn(async () => {}),
@@ -30,7 +34,12 @@ vi.mock("../../../modules/local-connectivity", () => ({
 	stopLocalDiscovery: state.stop,
 	closeLocalProxy: vi.fn(async () => {}),
 	openLocalProxy: vi.fn(),
-	onNearbyServicesChanged: () => () => {},
+	onNearbyServicesChanged: (
+		listener: (services: readonly NearbyService[]) => void,
+	) => {
+		state.servicesListener = listener;
+		return () => {};
+	},
 	onLocalPathChanged: () => () => {},
 	onLocalDiscoveryStateChanged: () => () => {},
 }));
@@ -69,6 +78,16 @@ test("resume actively rediscovers routes after native proxies were cancelled", a
 
 test("manual route recovery restarts discovery when the service cache is empty", async () => {
 	useLocalConnectivityRuntime();
+	expect(recoverLocalRoute("paired:mac")).toBe(true);
+	await vi.waitFor(() => expect(state.start).toHaveBeenCalledTimes(2));
+	expect(state.stop).toHaveBeenCalledTimes(1);
+});
+
+test("manual retry rediscovers the Mac even when stale services remain cached", async () => {
+	useLocalConnectivityRuntime();
+	state.servicesListener?.([
+		{ name: "Old Mac", routeId: "stale-route" } as NearbyService,
+	]);
 	expect(recoverLocalRoute("paired:mac")).toBe(true);
 	await vi.waitFor(() => expect(state.start).toHaveBeenCalledTimes(2));
 	expect(state.stop).toHaveBeenCalledTimes(1);

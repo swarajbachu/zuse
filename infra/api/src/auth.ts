@@ -23,12 +23,12 @@ export type ApiScope = (typeof API_SCOPES)[keyof typeof API_SCOPES];
 
 const canonicalApiRequestUrl = (
 	request: Request,
-	apiIssuer: string,
+	publicApiOrigin: string,
 ): string => {
 	const requestUrl = new URL(request.url);
 	return new URL(
 		`${requestUrl.pathname}${requestUrl.search}`,
-		`${apiIssuer.replace(/\/+$/u, "")}/`,
+		`${publicApiOrigin.replace(/\/+$/u, "")}/`,
 	).toString();
 };
 
@@ -165,7 +165,10 @@ export const requireDpop = (
 		const dpop = yield* verifyDpopProof({
 			proof,
 			method: request.method.toUpperCase(),
-			url: canonicalApiRequestUrl(request, config.apiIssuer),
+			url: canonicalApiRequestUrl(
+				request,
+				config.publicApiOrigin ?? config.apiIssuer,
+			),
 			nowMs,
 		});
 		if (dpop.thumbprint !== claims.thumbprint) {
@@ -217,7 +220,10 @@ export const mintAccessToken = (
 		const dpop = yield* verifyDpopProof({
 			proof,
 			method: request.method.toUpperCase(),
-			url: canonicalApiRequestUrl(request, config.apiIssuer),
+			url: canonicalApiRequestUrl(
+				request,
+				config.publicApiOrigin ?? config.apiIssuer,
+			),
 			nowMs,
 		});
 		if (yield* store.isDpopThumbprintRevoked(dpop.thumbprint)) {

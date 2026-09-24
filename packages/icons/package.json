@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./dither-cloud": "./src/dither-cloud.ts",
 		"./bulk-rounded": "./src/free.ts",
 		"./solid-rounded": "./src/free.ts",
 		"./stroke-rounded": "./src/free.ts"

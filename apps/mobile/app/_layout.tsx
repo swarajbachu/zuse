@@ -24,6 +24,7 @@ import { noteMobileInteraction } from "~/lib/analytics";
 import { installCrashReporting } from "~/lib/crash-reporting";
 import { isLegacyPairingUrl } from "~/lib/pairing";
 import { installNotificationResponseHandler } from "~/notifications/push";
+import { usePushRegistration } from "~/notifications/use-push-registration";
 import { useCloudRuntimeLifecycle } from "~/store/cloud-runtime-lifecycle";
 import { useLocalConnectivityRuntime } from "~/store/local-connectivity-runtime";
 import { AppAtomProvider } from "~/store/registry";
@@ -42,6 +43,7 @@ Uniwind.setTheme("system");
 function ConnectivityRuntimeBridge() {
 	useLocalConnectivityRuntime();
 	useCloudRuntimeLifecycle();
+	usePushRegistration();
 	const pathname = usePathname();
 	useMobileAnalytics(pathname);
 	useEffect(() => {
@@ -139,9 +141,10 @@ export default function RootLayout() {
 								name="settings"
 								options={{
 									title: "Settings",
+									headerShown: false,
 									presentation: "formSheet",
 									headerLargeTitle: false,
-									sheetAllowedDetents: [0.7, 0.92],
+									sheetAllowedDetents: [0.92],
 									sheetInitialDetentIndex: 0,
 									sheetGrabberVisible: true,
 									headerTintColor: colors.fg,

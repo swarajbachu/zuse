@@ -259,15 +259,12 @@ export function useLocalConnectivityRuntime(): void {
 			void reconcile();
 		};
 		const removeRecovery = registerLocalRouteRecovery((key) => {
-			// An unchanged Bonjour id does not mean its phone-side proxy survived.
-			// Explicit Retry must discard that proxy instead of dialing its old port.
-			const route = activeRoutes.current.get(key);
-			activeRoutes.current.delete(key);
-			pathEpoch.current += 1;
-			if (route !== undefined)
-				void closeLocalProxy(route.proxy.id).catch(() => {});
-			if (services.current.length === 0) void restartDiscovery();
-			else void reconcile();
+			// A cached service can outlive the Mac's address or native proxy.
+			// Explicit Retry must browse again, even when the cache is nonempty.
+			console.info("[zuse:nearby] route.recovery.requested", {
+				connectionKey: key,
+			});
+			void restartDiscovery();
 		});
 
 		void startLocalDiscovery();
