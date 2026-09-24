@@ -27,13 +27,13 @@ import {
 	enableCloudSync,
 	useCloudSyncStatus,
 } from "../lib/cloud-sync-client-bus.ts";
+import { cloudSyncPresentation } from "../lib/cloud-sync-presentation.ts";
 import {
 	cloudSyncPreferenceEnabled,
 	useCloudChatCatalogStore,
 } from "../lib/cloud-workspace-catalog.ts";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { runControlPlane } from "../lib/control-plane-client.ts";
-import { displayPath } from "../lib/display-path.ts";
 import { errorMessage } from "../lib/error-message.ts";
 import { useMachineResources } from "../lib/machine-resources-client-bus.ts";
 import { copyText } from "../lib/platform-capabilities.ts";
@@ -225,23 +225,7 @@ export function CloudWorkspaceOpenSshMenu({
 		}
 	};
 
-	const syncState = syncStatus?.state ?? "idle";
-	const syncDotClass =
-		syncState === "in-sync"
-			? "bg-[var(--accent-green)]"
-			: syncState === "syncing"
-				? "animate-pulse bg-[var(--accent-yellow,#eab308)]"
-				: syncState === "error"
-					? "bg-[var(--accent-red)]"
-					: "bg-muted-foreground/50";
-	const syncStateLabel =
-		syncState === "in-sync"
-			? "In sync"
-			: syncState === "syncing"
-				? "Syncing…"
-				: syncState === "error"
-					? "Sync error"
-					: "Waiting";
+	const syncPresentation = cloudSyncPresentation(syncStatus);
 
 	const refreshTargets = async (): Promise<void> => {
 		const list = await getAppBridge()?.listOpenTargets?.("");
@@ -290,12 +274,12 @@ export function CloudWorkspaceOpenSshMenu({
 							)}
 				</TooltipPopup>
 			</Tooltip>
-			<MenuPopup align="end" className="min-w-56">
+			<MenuPopup align="end" className="w-64">
 				{SSH_TARGETS.map((target, index) => (
 					<MenuItem
 						key={target.id}
 						onClick={() => void launchSsh(workspaceId, target.id)}
-						className="flex w-full items-center gap-3 rounded px-2 py-1.5 text-sm hover:bg-sidebar-accent"
+						className="flex h-7 w-full items-center gap-2 rounded px-2 text-xs hover:bg-sidebar-accent"
 					>
 						<OpenTargetIcon target={iconTarget(target.id, target.label)} />
 						<span className="min-w-0 flex-1 truncate">{target.label}</span>
@@ -305,7 +289,7 @@ export function CloudWorkspaceOpenSshMenu({
 				<MenuSeparator />
 				<MenuItem
 					onClick={() => void copySshCommand(workspaceId)}
-					className="flex w-full items-center gap-3 rounded px-2 py-1.5 text-sm hover:bg-sidebar-accent"
+					className="flex h-7 w-full items-center gap-2 rounded px-2 text-xs hover:bg-sidebar-accent"
 				>
 					<HugeiconsIcon
 						icon={Copy01Icon}
@@ -322,13 +306,9 @@ export function CloudWorkspaceOpenSshMenu({
 						<MenuItem
 							closeOnClick={false}
 							onClick={() => void toggleSync()}
-							className="flex w-full items-center gap-3 rounded px-2 py-1.5 text-sm hover:bg-sidebar-accent"
+							className="flex h-7 w-full items-center gap-2 rounded px-2 text-xs hover:bg-sidebar-accent"
 						>
-							<span className="min-w-0 flex-1 truncate">
-								{uiMessage(
-									"connections:cloud_workspace_info_sync_to_a_local_directory",
-								)}
-							</span>
+							<span className="min-w-0 flex-1 truncate">Sync locally</span>
 							<Switch
 								checked={syncEnabled}
 								disabled={syncBusy || (!running && !syncEnabled)}
@@ -337,18 +317,22 @@ export function CloudWorkspaceOpenSshMenu({
 						</MenuItem>
 						{syncEnabled ? (
 							<div
-								className="flex items-center gap-2 px-2 pb-1.5 pt-0.5 text-xs text-muted-foreground"
-								title={syncStatus?.error ?? undefined}
+								className="flex items-start gap-2 px-2 py-1 text-[11px] text-muted-foreground"
+								title={
+									syncPresentation.detail ?? syncStatus?.localPath ?? undefined
+								}
 							>
 								<span
-									className={`size-1.5 shrink-0 rounded-full ${syncDotClass}`}
+									className={`mt-1 size-1.5 shrink-0 rounded-full ${syncPresentation.dotClass}`}
 								/>
-								<span className="shrink-0">{syncStateLabel}</span>
-								{syncStatus?.localPath != null ? (
-									<span className="min-w-0 flex-1 truncate text-right font-mono text-[10px]">
-										{displayPath(syncStatus.localPath)}
-									</span>
-								) : null}
+								<div className="min-w-0 flex-1">
+									<div className="truncate">{syncPresentation.label}</div>
+									{syncPresentation.detail ? (
+										<div className="mt-0.5 line-clamp-2 text-[10px] leading-relaxed opacity-75">
+											{syncPresentation.detail}
+										</div>
+									) : null}
+								</div>
 							</div>
 						) : null}
 					</>
