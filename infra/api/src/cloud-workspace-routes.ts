@@ -1301,19 +1301,19 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	const workspaceId = yield* randomToken("workspace", 12);
 	const chatId = `chat_${crypto.randomUUID()}`;
 	const initialSessionId = `s_${crypto.randomUUID()}`;
-	const unavailableBranches = new Set(
-		(yield* store.listWorkspaces(accountId, project.projectId)).map(
-			(workspace) => workspace.branch,
-		),
-	);
+	// Workspace records cannot tell us which names were used by local chats,
+	// other accounts, or deleted GitHub branches with historical PRs. Scope
+	// generated names to the full workspace identity instead of reusing a bare
+	// mascot name. Explicit "Create from" branches retain their identity.
 	const branch =
 		body.branch ??
-		allocatePokemonName({
-			catalog: POKEMON_BRANCH_CATALOG,
-			unavailableNames: unavailableBranches,
-			usedPokemonNumbers: new Set(),
-		})?.name ??
-		workspaceId.slice(-8);
+		`${
+			allocatePokemonName({
+				catalog: POKEMON_BRANCH_CATALOG,
+				unavailableNames: new Set(),
+				usedPokemonNumbers: new Set(),
+			})?.name ?? "cloud"
+		}-${workspaceId.slice("workspace_".length)}`;
 	if (
 		!/^[A-Za-z0-9._/-]+$/u.test(branch) ||
 		!/^[A-Za-z0-9._/#-]+$/u.test(body.baseRef)
