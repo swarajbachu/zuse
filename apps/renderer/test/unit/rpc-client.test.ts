@@ -26,6 +26,7 @@ const {
 	markCloudWorkspaceConnectionHealthy,
 	refreshCloudWorkspaceConnectionWithRecovery,
 	RENDERER_WEBSOCKET_OPEN_TIMEOUT,
+	rendererWebSocketOpenTimeout,
 	registerLocalEnvironment,
 	registerWebSocketEnvironment,
 	resolveRendererRpcTransportForTest,
@@ -64,6 +65,11 @@ describe("renderer RPC transport selection", () => {
 
 	it("bounds the WebSocket opening phase", () => {
 		expect(RENDERER_WEBSOCKET_OPEN_TIMEOUT).toBe("3 seconds");
+		expect(rendererWebSocketOpenTimeout("workspace:cloud-1")).toBe(
+			"15 seconds",
+		);
+		expect(rendererWebSocketOpenTimeout("local")).toBe("3 seconds");
+		expect(rendererWebSocketOpenTimeout("ws:remote-1")).toBe("3 seconds");
 	});
 	it("uses WebSocket mode when no Electron bridge is present", () => {
 		Object.defineProperty(globalThis, "window", {
