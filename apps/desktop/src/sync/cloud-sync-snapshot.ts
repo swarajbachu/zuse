@@ -540,9 +540,13 @@ export async function downloadSnapshot(
 		}
 		return files;
 	} catch (cause) {
+		// Cancelling the producer can emit its own diagnostics. Capture the
+		// transfer failure before cleanup so those cannot replace its cause.
+		const transferFailure =
+			failure ?? (stderr.trim() ? new Error(stderr.trim()) : cause);
 		abort();
 		await completed;
-		throw failure ?? (stderr.trim() ? new Error(stderr.trim()) : cause);
+		throw transferFailure;
 	} finally {
 		clearTimeout(timer);
 		clearTimeout(forced);
