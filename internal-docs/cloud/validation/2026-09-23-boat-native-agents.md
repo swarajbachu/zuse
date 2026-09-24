@@ -57,3 +57,27 @@ promotion; the fresh installation and pause/resume tests do not replace them.
 The shared pinned agent installers remain intentionally for E2B and its separate
 authentication authority. Boat skips that stage entirely. Existing Boat account
 images and workspaces are not migrated by this PR.
+
+## Staging rollout — 2026-09-24
+
+Published `zuse-base-v8` (snapshot `f980bd30-6332-469d-8068-9f3201582de9`)
+and deployed staging API version `fe42c08b-5fee-4f60-a9d4-f98d8d7ad70a`.
+Rebuilt the staging account image as `image_T0XGTibWiFt-xscD`; it reached
+ready/active with template version 8. Its signed runtime updater installed
+runtime `720f19a924872980a9a1a278a11a7e0f6e103935`.
+
+Fresh workspace `workspace_kfRukprqS-aD4oLX` forked from that image, enrolled,
+connected its gateway, delivered broker credentials, and accepted the initial
+message in 19,388 ms. This is one observed launch, not a latency guarantee.
+Codex (`gpt-6-sol`) produced an authenticated response. After approving the
+read-only version commands, both tools completed and the agent returned
+`codex-cli 0.156.1` and `2.1.281 (Claude Code)`; the session became idle.
+An earlier smoke request used unsupported `gpt-5.4` and failed at the model
+API; it was not a native CLI installation failure. The first tool approvals
+expired during test setup; a subsequent turn with timely approvals completed.
+
+This verifies the named-template fork, account-image build, credential broker,
+model response, and shell-tool execution on staging. It does not verify every
+agent or desktop/mobile rendering. Claude model authentication was not tested
+because this staging account has no connected Claude subscription. Production
+configuration and existing production sandboxes were not changed.
