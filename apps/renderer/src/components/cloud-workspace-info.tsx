@@ -308,7 +308,11 @@ export function CloudWorkspaceOpenSshMenu({
 							onClick={() => void toggleSync()}
 							className="flex h-7 w-full items-center gap-2 rounded px-2 text-xs hover:bg-sidebar-accent"
 						>
-							<span className="min-w-0 flex-1 truncate">Sync locally</span>
+							<span className="min-w-0 flex-1 truncate">
+								{uiMessage(
+									"connections:cloud_workspace_info_sync_to_a_local_directory",
+								)}
+							</span>
 							<Switch
 								checked={syncEnabled}
 								disabled={syncBusy || (!running && !syncEnabled)}
