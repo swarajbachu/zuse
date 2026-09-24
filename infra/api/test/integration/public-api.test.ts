@@ -292,6 +292,62 @@ const stageRuntimeCredential = async (
 };
 
 describe("public API (/v1/api)", () => {
+	test("generated cloud branches remain distinct when mascot names repeat, while retries and explicit branches stay stable", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await seedReadyProject(runtime, store);
+			const secret = await createApiKey(runtime);
+			vi.spyOn(Math, "random").mockReturnValue(0);
+			const create = async (key: string, branch?: string) => {
+				const response = await serve(runtime, "/v1/api/workspaces", {
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${secret}`,
+						"content-type": "application/json",
+						"idempotency-key": key,
+					},
+					body: JSON.stringify({
+						agent: "codex",
+						model: "gpt-5",
+						...(branch === undefined ? {} : { branch }),
+					}),
+				});
+				expect([200, 201]).toContain(response.status);
+				const result = (await response.json()) as {
+					workspace: { workspaceId: string };
+				};
+				const workspace = await runtime.runPromise(
+					store.getWorkspace(result.workspace.workspaceId),
+				);
+				if (workspace === null) throw new Error("workspace missing");
+				return workspace;
+			};
+			const first = await create("branch-first");
+			const second = await create("branch-second");
+			const suffix = (id: string) => id.slice("workspace_".length);
+			expect(first.branch.endsWith(`-${suffix(first.workspaceId)}`)).toBe(true);
+			expect(second.branch.endsWith(`-${suffix(second.workspaceId)}`)).toBe(
+				true,
+			);
+			expect(first.branch).not.toBe(second.branch);
+			const mascot = first.branch.slice(
+				0,
+				-suffix(first.workspaceId).length - 1,
+			);
+			expect(second.branch).toBe(`${mascot}-${suffix(second.workspaceId)}`);
+			// A bare name may belong to an old/local PR unknown to this account.
+			const explicit = await create("branch-explicit", mascot);
+			expect(explicit.branch).toBe(mascot);
+			const replay = await create("branch-first");
+			expect(replay.workspaceId).toBe(first.workspaceId);
+			expect(replay.branch).toBe(first.branch);
+		} finally {
+			vi.restoreAllMocks();
+			await runtime.dispose();
+		}
+	});
+
 	test("new API and Slack workspaces do not inherit a retained provider", async () => {
 		const runtime = await makeRuntime();
 		try {
