@@ -2,6 +2,7 @@
 title: "Review the evidence, not the confidence"
 description: "A repeatable checklist for reviewing AI-generated code: inspect the diff, verify behavior, and distinguish a passing test from a tested outcome."
 date: "2026-09-17"
+updated: "2026-09-24"
 category: "Guide"
 timeToRead: "3 min read"
 authorName: "Zuse team"
@@ -51,3 +52,9 @@ A separate perspective can surface assumptions, but it does not replace your ver
 Ask for a short account of what changed, why it changed, which checks ran, and what remains uncertain. Then compare that summary with the diff. The summary should help you navigate the evidence, not ask you to trust the agent's confidence.
 
 See [reviewing local changes](https://docs.zuse.sh/how-to/local-review-changes) and [agent orchestration](https://docs.zuse.sh/composer/orchestration) for the concrete workflow in Zuse.
+
+## Include the execution environment in cloud reviews
+
+For a remote task, ask which workspace ran each check and whether setup completed there. A failure caused by a missing service should remain distinguishable from a regression introduced by the patch. If a task recovered after disconnecting, inspect the current branch and files before accepting an earlier summary.
+
+Record local checks, cloud checks, and device verification separately when the change crosses those environments. Our [open source cloud agents guide](/blog/open-source-cloud-agents) connects this review process to repository setup, permissions, and runtime recovery.

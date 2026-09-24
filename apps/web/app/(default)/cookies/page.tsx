@@ -16,7 +16,7 @@ export default function CookiesPage() {
 			<header className="mt-8">
 				<h1 className="text-4xl font-semibold">Cookie policy</h1>
 				<p className="mt-3 text-sm text-muted-foreground">
-					Effective September 9, 2026
+					Effective September 24, 2026
 				</p>
 				<p className="mt-6 text-lg leading-8 text-muted-foreground">
 					This policy explains what cookies and similar browser storage are,
@@ -113,10 +113,10 @@ export default function CookiesPage() {
 						<div>
 							<dt className="font-medium text-foreground">Analytics</dt>
 							<dd className="mt-1">
-								Storage used to measure visits or feature use across the
-								website. The current marketing website does not use Zuse’s
-								desktop and mobile product-analytics system, and no website
-								analytics SDK is configured in the current site.
+								PostHog measures website page views and selected link clicks
+								using temporary memory. We disable persistent analytics cookies
+								and local storage, session replay, and automatic interaction
+								capture.
 							</dd>
 						</div>
 						<div>
@@ -124,9 +124,9 @@ export default function CookiesPage() {
 							<dd className="mt-1">
 								Storage set by a service other than the page’s operator. The
 								current website does not embed an advertising network, social
-								widget, or third-party analytics SDK. A linked service may set
-								its own cookies after you leave Zuse; its policy controls those
-								cookies.
+								widget. PostHog is the website analytics processor. A linked
+								service may set its own cookies after you leave Zuse; its policy
+								controls those cookies.
 							</dd>
 						</div>
 					</dl>
@@ -137,14 +137,14 @@ export default function CookiesPage() {
 						Current website practice
 					</h2>
 					<p className="mt-2">
-						As of the effective date above, the marketing site does not
-						intentionally set advertising cookies or run a website analytics
-						program. It has no website account sign-in flow evidenced in the
-						current public routes, and the public waitlist endpoint does not
-						require authentication. The site may still use browser-managed state
-						needed by the web framework or a feature you request. For example,
-						the appearance preference can be kept in local storage rather than a
-						server cookie.
+						The marketing site does not intentionally set advertising cookies.
+						Website analytics are disabled when your browser sends Do Not Track
+						or Global Privacy Control. It has no website account sign-in flow
+						evidenced in the current public routes, and the public waitlist
+						endpoint does not require authentication. The site may still use
+						browser-managed state needed by the web framework or a feature you
+						request. For example, the appearance preference can be kept in local
+						storage rather than a server cookie.
 					</p>
 					<p className="mt-3">
 						The language selector stores your choice in the zuse-language cookie

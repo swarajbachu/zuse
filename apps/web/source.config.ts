@@ -4,6 +4,7 @@ import { z } from "zod";
 
 const blogMetadataSchema = pageSchema.extend({
 	date: z.coerce.date(),
+	updated: z.coerce.date().optional(),
 	category: z.enum(["Guide", "Note", "News"]).default("Note"),
 	timeToRead: z.string(),
 	authorName: z.string(),

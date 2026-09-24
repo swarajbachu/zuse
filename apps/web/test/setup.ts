@@ -9,6 +9,6 @@ vi.mock("@/lib/source", () => ({
 		getPages: () =>
 			readdirSync(new URL("../content/blog/", import.meta.url))
 				.filter((name) => name.endsWith(".mdx"))
-				.map((name) => ({ url: `/blog/${name.slice(0, -4)}` })),
+				.map((name) => ({ url: `/blog/${name.slice(0, -4)}`, data: {} })),
 	},
 }));

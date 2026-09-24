@@ -1,7 +1,8 @@
 ---
-title: "Choose where your agents run"
+title: "Local vs cloud coding agents: choose your workspace"
 description: "Local worktrees and isolated cloud workspaces solve different problems. Here is how to choose where your coding agents run."
 date: "2026-09-17"
+updated: "2026-09-24"
 category: "Guide"
 timeToRead: "3 min read"
 authorName: "Zuse team"
@@ -41,3 +42,9 @@ Ask four questions:
 Then choose the workspace and verify its identity in the composer. That one decision makes later file changes, terminal output, and compute usage easier to understand.
 
 Continue with [choosing a cloud provider](https://docs.zuse.sh/how-to/choose-cloud-provider) or [starting with local worktrees](https://docs.zuse.sh/how-to/local-parallel-worktrees).
+
+## Make the first cloud task reproducible
+
+For a first remote run, choose a small change with a known check. Record the repository, branch, setup command, and agent authentication method before starting. If setup fails, fix the environment before asking the agent to change application code. Otherwise, an infrastructure failure can become an unnecessary patch.
+
+After the run, inspect the actual checkout and diff. A readable transcript does not prove that a paused runtime has recovered its files, and a queued message does not prove that an agent executed it. The [cloud recovery journal](/blog/cloud-agent-recovery-journal) explains those boundaries. Start with the [open source cloud agents guide](/blog/open-source-cloud-agents) for the complete evaluation workflow.
