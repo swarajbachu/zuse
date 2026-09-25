@@ -20,6 +20,11 @@ with the other adapters. The adapter lives in
    (`small` | `default` | `large`) and, for an org-fenced key, `BOXD_ORG` in the
    wrangler configuration, then `BOXD_ADAPTER_ENABLED=true`. Optional:
    `BOXD_BASE_URL` for a self-hosted cluster (HTTPS, gRPC-web port).
+   A deployment without E2B must also set `CLOUD_AUTH_PROVIDER_ID=boxd`: the
+   account login authority defaults to E2B, and every agent connection in
+   Cloud settings runs there. On boxd the authority is an ordinary isolated
+   machine from the base template; account images are never seeded from its
+   snapshot, so credentials reach workspaces through the brokers.
 4. Rebuild account images for boxd from Cloud settings; provider snapshots are
    never interchangeable.
 

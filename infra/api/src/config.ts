@@ -47,6 +47,12 @@ export interface ApiConfig {
 		readonly clientSecret?: Redacted.Redacted<string>;
 		readonly webhookSecret?: Redacted.Redacted<string>;
 	};
+	/**
+	 * Sandbox provider that hosts each account's cloud login authority.
+	 * Defaults to E2B; a deployment without E2B names another registered
+	 * provider here. Authority snapshots seed account images only on E2B.
+	 */
+	readonly cloudAuthProviderId?: string;
 	/** Billing webhook signing secrets keyed by sandbox provider id. */
 	readonly providerWebhookSecrets?: ReadonlyMap<
 		string,

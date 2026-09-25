@@ -150,6 +150,7 @@ interface Env extends SlackBindings {
 	readonly CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL?: string;
 	readonly CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
 	readonly SANDBOX_DEFAULT_PROVIDER_ID?: string;
+	readonly CLOUD_AUTH_PROVIDER_ID?: string;
 	readonly BOAT_ADAPTER_ENABLED?: string;
 	readonly BOAT_API_KEY?: string;
 	readonly BOAT_API_BASE_URL?: string;
@@ -371,6 +372,9 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		mintPublicKey: env.API_MINT_PUBLIC_JWK,
 		cloudDataEncryptionKey: isConfigured(cloudDataEncryptionKey)
 			? Redacted.make(cloudDataEncryptionKey)
+			: undefined,
+		cloudAuthProviderId: isConfigured(env.CLOUD_AUTH_PROVIDER_ID)
+			? env.CLOUD_AUTH_PROVIDER_ID.trim()
 			: undefined,
 		githubApp: githubAppConfigured
 			? {

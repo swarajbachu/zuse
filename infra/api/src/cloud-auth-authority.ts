@@ -33,9 +33,19 @@ const AUTH_LOGIN = `${AUTH_BOOTSTRAP_HOME}/login.mjs`;
 const AUTH_CANCEL = `${AUTH_BOOTSTRAP_HOME}/cancel.mjs`;
 const AUTH_VERIFY = `${AUTH_BOOTSTRAP_HOME}/verify.mjs`;
 const AUTH_CODEX_GRANT = `${AUTH_BOOTSTRAP_HOME}/codex-grant.mjs`;
+/** Default host of the login authority; `cloudAuthProviderId` overrides it. */
 export const CLOUD_AUTH_AUTHORITY_PROVIDER_ID = "e2b";
-export const canSeedCloudAuthSnapshot = (targetProviderId: string) =>
-	targetProviderId === CLOUD_AUTH_AUTHORITY_PROVIDER_ID;
+/**
+ * Authority snapshots seed account images only on E2B, whose template is a
+ * snapshot of the same shape. Every other provider, including an authority
+ * hosted elsewhere, delivers credentials through the brokers instead.
+ */
+export const canSeedCloudAuthSnapshot = (
+	targetProviderId: string,
+	authorityProviderId: string = CLOUD_AUTH_AUTHORITY_PROVIDER_ID,
+) =>
+	targetProviderId === authorityProviderId &&
+	authorityProviderId === CLOUD_AUTH_AUTHORITY_PROVIDER_ID;
 
 const AUTH_TIMEOUT_SECONDS = 60 * 60;
 const AUTH_PROVISIONING_LEASE_MS = 2 * 60 * 1000;
@@ -572,19 +582,26 @@ const legacyAuthorityLabel = (
 		});
 	});
 
-const e2bProvider = Effect.gen(function* () {
+const authorityProviderId = Effect.gen(function* () {
+	const config = yield* ApiConfiguration;
+	return config.cloudAuthProviderId ?? CLOUD_AUTH_AUTHORITY_PROVIDER_ID;
+});
+
+const authorityProvider = Effect.gen(function* () {
 	const providers = yield* SandboxProviders;
 	return yield* providers
-		.get(CLOUD_AUTH_AUTHORITY_PROVIDER_ID)
+		.get(yield* authorityProviderId)
 		.pipe(
-			Effect.mapError(() => serviceUnavailable("cloud_auth_e2b_unavailable")),
+			Effect.mapError(() =>
+				serviceUnavailable("cloud_auth_provider_unavailable"),
+			),
 		);
 });
 
 const recoverAuthority = Effect.fn("recoverCloudAuthAuthority")(function* (
 	accountId: string,
 ) {
-	const provider = yield* e2bProvider;
+	const provider = yield* authorityProvider;
 	const store = yield* CloudWorkspaceStore;
 	const locator = yield* store.getCloudAuthAuthority(accountId);
 	if (locator?.providerSandboxId !== undefined) {
@@ -787,7 +804,7 @@ const provisionAuthority = Effect.fn("provisionCloudAuthAuthority")(function* (
 				serviceUnavailable("codex-auth-reconnect-required"),
 			);
 	}
-	const provider = yield* e2bProvider;
+	const provider = yield* authorityProvider;
 	const store = yield* CloudWorkspaceStore;
 	const locator = yield* store.getCloudAuthAuthority(accountId);
 	const replacingLostAuthority = locator?.state === "ready";
@@ -1462,6 +1479,8 @@ export const snapshotCloudAuthAuthority = Effect.fn(
 	"snapshotCloudAuthAuthority",
 )(function* (accountId: string, name: string, targetProviderId: string) {
 	if (!canSeedCloudAuthSnapshot(targetProviderId)) return undefined;
+	if (!canSeedCloudAuthSnapshot(targetProviderId, yield* authorityProviderId))
+		return undefined;
 	const recovered = yield* recoverAuthority(accountId);
 	if (recovered === null) return undefined;
 	const authority = yield* ensureRunning(recovered);
