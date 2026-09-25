@@ -176,6 +176,13 @@ interface Env extends SlackBindings {
 	readonly E2B_VCPU_COUNT?: string;
 	readonly E2B_MEMORY_MIB?: string;
 	readonly E2B_WEBHOOK_SECRET?: string;
+	readonly BOXD_ADAPTER_ENABLED?: string;
+	readonly BOXD_API_KEY?: string;
+	readonly BOXD_ORG?: string;
+	readonly BOXD_BASE_URL?: string;
+	readonly BOXD_TEMPLATE_SNAPSHOT?: string;
+	readonly BOXD_TEMPLATE_VERSION?: string;
+	readonly BOXD_MACHINE_SIZE?: string;
 	readonly CLOUD_BILLING_ENFORCEMENT_ENABLED?: string;
 	readonly CLOUD_BILLING_EXPORT_ENABLED?: string;
 	readonly CLOUD_BILLING_CUTOVER_AT?: string;

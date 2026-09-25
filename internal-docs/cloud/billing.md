@@ -16,7 +16,8 @@ webhooks and normalizes lifecycle data into `ProviderExecutionEvidence`. The
 shared metering pipeline attributes the internal resource, applies that
 provider's immutable price schedule or reported period cost, and atomically
 finalizes the provider event with all usage, ledger, and outbox records. E2B uses
-the price schedule; Box uses provider-reported cost. Other providers should
+the price schedule; Box uses provider-reported cost; boxd has no usage
+endpoint and uses the price schedule like E2B. Other providers should
 integrate at this boundary rather than adding a separate billing pipeline. Raw payloads expire after 90 days; the
 pseudonymous finalization key remains for seven years so old redeliveries cannot
 be billed again.

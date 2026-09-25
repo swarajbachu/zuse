@@ -104,3 +104,74 @@ Provider-shape differences the adapter absorbs:
   --public` from `resolveEndpoint`, after the runtime listener exists, and then
   returns the stable subdomain URL. Registering during cold restore can leave
   a stale pre-listener route.
+
+## boxd
+
+`@zuse/sandbox-providers/boxd` provides the `boxd` adapter for
+[boxd](https://boxd.sh). It uses the `@boxd-sh/sdk/web` entry (grpc-web over
+`fetch`, so it runs in workerd) with an API key; the SDK exchanges the key for
+a session token, and one client is shared per credential because the api
+builds its registry per request. boxd machines are KVM microVMs that keep
+their memory across a pause: a hibernated workspace wakes in milliseconds with
+its runtime still running, so `preservesProcessesOnResume` is true and resume
+takes the same warm path as E2B.
+
+Provider-shape differences the adapter absorbs:
+
+- **Templates are snapshots.** The base template is a snapshot published by
+  `infra/cloud-sandboxes/boxd-publish.sh`; `snapshot` and `fork` use the same
+  store. A restore replays the captured machine, so `create` and `fork` are
+  both `machines.create({ fromSnapshot })` and must not pass environment
+  variables (the api passes none; a non-empty map is rejected rather than
+  silently dropped). Re-saving a snapshot name adds a version, so a retried
+  save is idempotent.
+- **Every machine is `isolated`.** No peers, no metadata endpoint, no in-VM
+  boxd CLI or integrations, and the flag is inherited by every fork and
+  restore. Egress is open; restricted and quarantined policies are rejected
+  before a machine is allocated, like Boat.
+- **Sizes are provider-wide.** `small` (1 vCPU / 4 GiB), `default`
+  (2 / 8) and `large` (4 / 16). A restore keeps its snapshot's size, so a
+  different placement is applied afterwards as a cold `resize` reboot; publish
+  the template at the deployment's default size (`BOXD_MACHINE_SIZE`) to make
+  that a no-op.
+- **Timeouts are idle timers.** `onTimeout: "pause"` arms
+  `autoHibernateTimeout` and `extendTimeout` re-arms it; `"terminate"` arms
+  `autoDestroyTimeout` at creation. The idle clock counts packets on
+  established connections too, so the runtime's outbound gateway session keeps
+  a working agent awake with the desktop closed (verified: a machine with a
+  60 s timer and only outbound requests stayed running for 150 s), and the
+  clock restarts on wake, so re-arming right after `resume` does not park the
+  machine again. Auto-suspend stays off. `pause` hibernates a
+  running machine (memory to disk, effectively free while parked) and confirms
+  it parked; a machine that is still booting is retried later rather than
+  recorded as paused. `resume` wakes, starts a stopped machine, and waits for
+  systemd before handing over. Only the wake and hibernate paths preserve
+  processes: a machine stopped outside the adapter boots cold, and a resize
+  reboots, so those resumes fall through to the reconciler's fenced restart.
+- **Fresh machines are primed before hand-over.** The reconciler gives an
+  allocated machine ten seconds to enroll, and a restored VM pages for its
+  first seconds: measured on the workspace image, the runtime listened after
+  2.7 s on a fresh restore (3.8 s with cold caches, 1.4 s warm) and the first
+  transient unit took 0.6 s (16 ms warm); real starts under load missed the
+  window by under a second. `allocate`, and the cold-boot resumes above, load
+  the runtime CLI once and start one throwaway unit as the runtime user, so
+  that cost lands before the window opens. Priming is best effort.
+- **Labels are machine names**, which are DNS labels (lowercase, digits,
+  hyphens, 63 characters). Labels that already qualify pass through; others
+  are lowercased with a digest suffix, and the same mapping drives
+  `recoverByLabel`, which resolves by name (API keys are fenced to one
+  organization). Names are unique, so a `failed` machine is deleted when it
+  is found and a machine that never becomes usable is deleted after the
+  readiness deadline; both keep the label free for the replacement.
+- **Processes reuse the Boat launcher.** Tagged processes run in transient
+  systemd units through the shared `box-process` helpers; untagged commands
+  run detached under `setsid`. Commands run as the `boxd` user with `sudo -n`.
+- **Routes are named proxies.** `p<port>.<machine>.boxd.sh` is created on
+  demand and the runtime port's route is captured in the template snapshot so
+  its DNS exists before the first connection. Proxies target the VM interface
+  while the runtime binds loopback, so `resolveEndpoint` starts the shared
+  port forwarder each time it is called; a restore or fork receives a fresh
+  interface address, and the forwarder rebinds it. WebSockets pass through.
+- **No usage endpoint.** Billing falls back to the price schedule, as for
+  E2B; there is no lifecycle webhook, so `/v1/cloud/billing/webhook/boxd`
+  is not registered.

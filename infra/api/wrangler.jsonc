@@ -97,6 +97,12 @@
 		"BOAT_TEMPLATE_VERSION": "8",
 		"BOAT_MACHINE_TYPE": "small",
 		"SANDBOX_DEFAULT_PROVIDER_ID": "box",
+		// Enable after publishing a template with infra/cloud-sandboxes/boxd-publish.sh
+		// and installing the BOXD_API_KEY secret; add BOXD_ORG when the key is org-fenced.
+		"BOXD_ADAPTER_ENABLED": "false",
+		"BOXD_TEMPLATE_SNAPSHOT": "",
+		"BOXD_TEMPLATE_VERSION": "",
+		"BOXD_MACHINE_SIZE": "default",
 		"E2B_TEMPLATE_ID": "zuse-cloud-sandbox",
 		"E2B_TEMPLATE_VERSION": "53cfaaf2-09fb-45d3-af34-37edaf57fab0",
 		"E2B_VCPU_COUNT": "2",

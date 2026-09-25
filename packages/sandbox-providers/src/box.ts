@@ -16,6 +16,8 @@ import {
 	SandboxProviderError,
 	type SandboxProviderResources,
 } from "./index.ts";
+import { clampSeconds, validatedEnv } from "./provider-input.ts";
+import { zuseSnapshotName } from "./snapshot-name.ts";
 
 // Box resumes from persisted disk with fresh processes and open networking.
 
@@ -165,17 +167,8 @@ const errorForStatus = (
 };
 
 const shellQuote = boxShellQuote;
-const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 
-const SNAPSHOT_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
-
-const snapshotName = (name: string): string => {
-	const sanitized = `zuse-${name.toLowerCase().replaceAll(/[^a-z0-9-]/gu, "-")}`
-		.replaceAll(/-{2,}/gu, "-")
-		.slice(0, 63)
-		.replace(/-+$/u, "");
-	return SNAPSHOT_NAME_PATTERN.test(sanitized) ? sanitized : "";
-};
+const snapshotName = zuseSnapshotName;
 
 // Box has no network-policy enforcement. Reject unsupported policies before
 // allocating a machine rather than silently granting unrestricted access.
@@ -436,17 +429,7 @@ export const makeBoxSandboxProvider = (
 		);
 
 	const clampTtlSeconds = (timeoutSeconds: number): number =>
-		Math.min(
-			MAX_TTL_SECONDS,
-			Math.max(MIN_TTL_SECONDS, Math.trunc(timeoutSeconds)),
-		);
-
-	const validatedEnv = (
-		env: Readonly<Record<string, string>>,
-	): Effect.Effect<Readonly<Record<string, string>>, SandboxProviderError> =>
-		Object.keys(env).every((key) => ENV_KEY_PATTERN.test(key))
-			? Effect.succeed(env)
-			: Effect.fail(providerError("rejected"));
+		clampSeconds(timeoutSeconds, MIN_TTL_SECONDS, MAX_TTL_SECONDS);
 
 	const machineTypeFor = (
 		sizeId: string | undefined,

@@ -191,3 +191,31 @@ Restricted Boat policies resolve hostnames to IPs when applied and enforce
 explicit denies before allows. They grant no blanket external DNS access.
 Use literal IPs or preconfigured local name resolution; this is not a
 domain-filtering resolver. Reapply policies to refresh DNS-derived IPs.
+
+## boxd template
+
+boxd (boxd.sh) restores machines from **snapshots** that capture disk and
+memory, so the template is built by provisioning a fresh isolated machine
+with the shared `provision.sh` stages plus the boxd-specific layer (`boxd/`)
+and saving it. Like the E2B image it installs the pinned agents; the stock
+image's agent and NVM launchers live in the `boxd` user's home and are
+replaced by system Node 22 and `/usr/local` installs the `zuse` user can run.
+The runtime port's proxy route (`p47837`) is registered before the capture so
+every restored machine has its DNS record from birth.
+
+Publish with the [boxd CLI](https://docs.boxd.sh/cli/installation) on PATH:
+
+```sh
+BOXD_API_KEY=... BOXD_ORG=<org> BOXD_MACHINE_SIZE=default infra/cloud-sandboxes/boxd-publish.sh <version>
+```
+
+`BOXD_MACHINE_SIZE` should match the api's `BOXD_MACHINE_SIZE`: a restore
+keeps its snapshot's size, and the adapter resizes (a cold reboot) only when
+the placement differs. Copy the printed `BOXD_TEMPLATE_SNAPSHOT` /
+`BOXD_TEMPLATE_VERSION` values into the api wrangler configuration, set the
+Worker secret with `bun --filter @zuse/api secret:boxd`, and set `BOXD_ORG`
+when the key is fenced to an organization. Snapshots do not count toward the
+50-machine organization cap; delete superseded base versions anyway. Run the
+live adapter suite against a freshly published template
+(`BOXD_API_KEY=... BOXD_ORG=<org> BOXD_TEMPLATE_SNAPSHOT=zuse-base-v<N> bun --filter
+@zuse/sandbox-providers test:live`) before pointing staging at it.
