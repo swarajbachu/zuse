@@ -5,7 +5,6 @@ import { readFile } from "node:fs/promises";
 import { Effect } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import type { Socket as SocketNs } from "effect/unstable/socket";
-import { Socket } from "effect/unstable/socket";
 
 /**
  * WebSocket ↔ sshd bridge for cloud workspaces.
@@ -57,7 +56,7 @@ const ticketAuthorized = (ticket: string | null): Promise<boolean> =>
 				() => false,
 			);
 
-const pumpSshd = (socket: SocketNs.Socket) =>
+export const pumpSshd = (socket: SocketNs.Socket) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const write = yield* socket.writer;
@@ -85,27 +84,19 @@ const pumpSshd = (socket: SocketNs.Socket) =>
 					child.kill("SIGKILL");
 				});
 			});
-			// `runRaw` returns once the peer closes, and closes the socket's write
-			// latch as it does; a close frame written after that waits on the
-			// latch forever, keeping this scope, and the sshd it owns, alive.
-			// Only sshd ending on its own leaves an open socket to close.
-			const peerClosed = yield* Effect.race(
+			// Ending or interrupting runRaw closes the socket's write latch. Never
+			// write after the race: either winner makes that write wait forever.
+			// The upgraded socket's acquisition scope owns WebSocket closure.
+			yield* Effect.race(
 				socket
 					.runRaw((data) => {
 						child.stdin.write(
 							typeof data === "string" ? Buffer.from(data) : data,
 						);
 					})
-					.pipe(
-						Effect.catch(() => Effect.void),
-						Effect.as(true),
-					),
-				childExited.pipe(Effect.as(false)),
+					.pipe(Effect.catch(() => Effect.void)),
+				childExited,
 			);
-			if (!peerClosed)
-				yield* write(new Socket.CloseEvent(1000)).pipe(
-					Effect.catch(() => Effect.void),
-				);
 		}),
 	);
 
