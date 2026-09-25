@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../src/lib/rpc-client.ts", () => ({
 	getControlPlaneRpcClient: vi.fn(async () => ({})),
@@ -12,6 +12,7 @@ const {
 } = await import("../../src/lib/control-plane-client.ts");
 
 describe("control-plane session cache", () => {
+	afterEach(() => vi.useRealTimers());
 	beforeEach(() => {
 		clearControlPlaneSessionCache();
 		vi.useRealTimers();
@@ -29,19 +30,18 @@ describe("control-plane session cache", () => {
 		expect(await load(true)).toBe(2);
 	});
 
-	it("reloads mutable values after their TTL", async () => {
+	it("reuses successful reads for the entire app session", async () => {
 		vi.useFakeTimers();
 		let calls = 0;
 		const load = () =>
-			runCachedControlPlane("mutable", () => Effect.succeed(++calls), {
-				maxAgeMs: 5_000,
-			});
+			runCachedControlPlane("mutable", () => Effect.succeed(++calls));
 
 		expect(await load()).toBe(1);
 		await vi.advanceTimersByTimeAsync(4_999);
 		expect(await load()).toBe(1);
-		await vi.advanceTimersByTimeAsync(1);
-		expect(await load()).toBe(2);
+		await vi.advanceTimersByTimeAsync(7 * 24 * 60 * 60 * 1_000);
+		expect(await load()).toBe(1);
+		expect(calls).toBe(1);
 	});
 
 	it("evicts failed requests so callers can retry", async () => {
@@ -57,7 +57,7 @@ describe("control-plane session cache", () => {
 		await expect(load()).rejects.toThrow("offline");
 		expect(await load()).toBe(2);
 	});
-	it("returns stale data immediately, deduplicates refreshes, and publishes the update", async () => {
+	it("returns cached data during explicit refreshes and publishes the update", async () => {
 		vi.useFakeTimers();
 		let complete!: (value: number) => void;
 		const pending = new Promise<number>((resolve) => {
@@ -73,7 +73,7 @@ describe("control-plane session cache", () => {
 						? Effect.succeed(1)
 						: Effect.promise(() => pending);
 				},
-				{ refresh, maxAgeMs: 5_000, staleWhileRevalidate: true },
+				{ refresh },
 			);
 		expect(await load()).toBe(1);
 		await vi.advanceTimersByTimeAsync(5_000);
@@ -83,12 +83,12 @@ describe("control-plane session cache", () => {
 		const refreshing = load(true);
 		await vi.advanceTimersByTimeAsync(15_000);
 		expect(await load()).toBe(1);
-		expect(calls).toBe(3);
+		expect(calls).toBe(2);
 		complete(2);
 		expect(await refreshing).toBe(2);
 		expect(changed).toHaveBeenCalledExactlyOnceWith("cloud");
 		expect(await load()).toBe(2);
-		expect(calls).toBe(3);
+		expect(calls).toBe(2);
 		unsubscribe();
 	});
 
@@ -99,7 +99,7 @@ describe("control-plane session cache", () => {
 			runCachedControlPlane(
 				"cloud",
 				() => (offline ? Effect.fail(new Error("offline")) : Effect.succeed(1)),
-				{ refresh, maxAgeMs: 5_000, staleWhileRevalidate: true },
+				{ refresh },
 			);
 		expect(await load()).toBe(1);
 		offline = true;
@@ -132,14 +132,14 @@ describe("control-plane session cache", () => {
 		).toBe(2);
 	});
 
-	it("deduplicates cold reads beyond the TTL and starts freshness at completion", async () => {
+	it("deduplicates slow cold reads and retains their results", async () => {
 		vi.useFakeTimers();
 		let complete!: (value: number) => void;
 		const pending = new Promise<number>((resolve) => {
 			complete = resolve;
 		});
 		const read = vi.fn(() => Effect.promise(() => pending));
-		const load = () => runCachedControlPlane("slow", read, { maxAgeMs: 5_000 });
+		const load = () => runCachedControlPlane("slow", read);
 		const first = load();
 		await vi.advanceTimersByTimeAsync(15_000);
 		expect(load()).toBe(first);

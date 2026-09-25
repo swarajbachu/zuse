@@ -19,7 +19,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
-it("shares subscribed placement across navigation while slow refreshes run", async () => {
+it("retains subscribed placement for the app session and refreshes only explicitly", async () => {
 	let slow = false;
 	let resolveImage!: (value: unknown) => void;
 	const pendingImage = new Promise((resolve) => {
@@ -46,18 +46,19 @@ it("shares subscribed placement across navigation while slow refreshes run", asy
 
 	expect((await loadCloudWorkspacePlacement()).subscribed).toBe(true);
 	slow = true;
-	await vi.advanceTimersByTimeAsync(60_000);
+	await vi.advanceTimersByTimeAsync(7 * 24 * 60 * 60 * 1_000);
 	const placement = await loadCloudWorkspacePlacement();
 	expect(placement.subscribed).toBe(true);
 	expect(placement.images).toEqual([image]);
-	// Settings and New Chat reuse both data and in-flight requests.
+	// Settings and New Chat reuse data without any timed network refresh.
 	expect(await loadCloudImage("box")).toEqual(image);
 	expect((await loadCloudEntitlements()).entitlements[0]?.status).toBe(
 		"active",
 	);
-	expect(imageStatus).toHaveBeenCalledTimes(2);
-	expect(entitlements).toHaveBeenCalledTimes(2);
+	expect(imageStatus).toHaveBeenCalledTimes(1);
+	expect(entitlements).toHaveBeenCalledTimes(1);
 	const refreshed = loadCloudImage("box", true);
+	expect(await loadCloudImage("box")).toEqual(image);
 	resolveImage({ ...image, state: "outdated" });
 	await refreshed;
 	expect((await loadCloudWorkspacePlacement()).images[0]?.state).toBe(

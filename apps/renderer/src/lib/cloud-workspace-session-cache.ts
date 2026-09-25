@@ -6,12 +6,6 @@ import type {
 
 import { runCachedControlPlane } from "./control-plane-client.ts";
 
-const MUTABLE_CLOUD_CACHE_MAX_AGE_MS = 5_000;
-const CLOUD_CACHE_OPTIONS = {
-	maxAgeMs: 60_000,
-	staleWhileRevalidate: true,
-} as const;
-
 const cloudWorkspaceCacheKeys = {
 	providers: "cloud-workspace:providers",
 	projects: "cloud-workspace:projects",
@@ -28,64 +22,56 @@ export const loadCloudProviders = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.providers,
 		(client) => client["cloud.providers"](),
-		{ ...CLOUD_CACHE_OPTIONS, refresh },
+		{ refresh },
 	);
 
 export const loadCloudProjects = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.projects,
 		(client) => client["cloud.projects.list"](),
-		{ ...CLOUD_CACHE_OPTIONS, refresh },
+		{ refresh },
 	);
 
 export const loadCloudEntitlements = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.entitlements,
 		(client) => client["machines.entitlements"](),
-		{ ...CLOUD_CACHE_OPTIONS, refresh },
+		{ refresh },
 	);
 
 export const loadCloudImage = (providerId?: string, refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.image(providerId),
 		(client) => client["cloud.image.status"]({ providerId }),
-		{
-			...CLOUD_CACHE_OPTIONS,
-			refresh,
-			maxAgeMs: MUTABLE_CLOUD_CACHE_MAX_AGE_MS,
-		},
+		{ refresh },
 	);
 
 export const loadCloudGithub = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.github,
 		(client) => client["cloud.github.status"](),
-		{ ...CLOUD_CACHE_OPTIONS, refresh },
+		{ refresh },
 	);
 
 export const loadCloudWorkspaces = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.workspaces,
 		(client) => client["cloud.workspaces.list"]({}),
-		{
-			...CLOUD_CACHE_OPTIONS,
-			refresh,
-			maxAgeMs: MUTABLE_CLOUD_CACHE_MAX_AGE_MS,
-		},
+		{ refresh },
 	);
 
 export const loadCloudBillingSummary = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.billingSummary,
 		(client) => client["cloud.billing.summary"](),
-		{ ...CLOUD_CACHE_OPTIONS, refresh },
+		{ refresh },
 	);
 
 export const loadCloudBillingUsage = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.billingUsage,
 		(client) => client["cloud.billing.usage"]({ limit: 20 }),
-		{ ...CLOUD_CACHE_OPTIONS, refresh },
+		{ refresh },
 	);
 
 export const hasCloudEntitlement = (

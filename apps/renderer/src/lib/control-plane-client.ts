@@ -13,7 +13,6 @@ export const runControlPlane = async <Result>(
 type SessionCacheEntry = {
 	value?: Promise<unknown>;
 	pending?: Promise<unknown>;
-	expiresAt: number;
 };
 
 const sessionCache = new Map<string, SessionCacheEntry>();
@@ -28,26 +27,21 @@ export const subscribeControlPlaneSessionCache = (
 	};
 };
 
-/** Shared reads deduplicate background requests. Opt-in stale
- * reads return the last successful value while revalidating in the background.
- * Freshness starts at completion, so slow requests never expire in flight.
+/** Successful reads stay cached for the renderer session until explicitly refreshed
+ * or cleared on account changes. Reads during a refresh retain the last value.
  */
 export const runCachedControlPlane = <Result>(
 	key: string,
 	effect: (client: MemoizeClient) => Effect.Effect<Result, unknown>,
-	options?: {
-		readonly refresh?: boolean;
-		readonly maxAgeMs?: number;
-		readonly staleWhileRevalidate?: boolean;
-	},
+	options?: { readonly refresh?: boolean },
 ): Promise<Result> => {
 	const previous = sessionCache.get(key);
 	// A refresh after a mutation must not join a read started before that write.
 	const entry: SessionCacheEntry = options?.refresh
-		? { value: previous?.value, expiresAt: 0 }
-		: (previous ?? { expiresAt: 0 });
+		? { value: previous?.value }
+		: (previous ?? {});
 	const cached = entry.value as Promise<Result> | undefined;
-	if (!options?.refresh && cached && entry.expiresAt > Date.now()) {
+	if (!options?.refresh && cached) {
 		return cached;
 	}
 	if (!entry.pending) {
@@ -57,7 +51,6 @@ export const runCachedControlPlane = <Result>(
 				if (sessionCache.get(key) === entry) {
 					entry.value = Promise.resolve(value);
 					entry.pending = undefined;
-					entry.expiresAt = Date.now() + (options?.maxAgeMs ?? Infinity);
 					for (const listener of cacheListeners) listener(key);
 				}
 				return value;
@@ -65,19 +58,12 @@ export const runCachedControlPlane = <Result>(
 			(cause) => {
 				if (sessionCache.get(key) === entry) {
 					entry.pending = undefined;
-					if (entry.value) {
-						// Preserve usable data through outages and avoid retry storms.
-						entry.expiresAt = Date.now() + 5_000;
-					} else sessionCache.delete(key);
+					if (!entry.value) sessionCache.delete(key);
 				}
 				throw cause;
 			},
 		);
 		entry.pending = request;
-	}
-	if (!options?.refresh && cached && options?.staleWhileRevalidate) {
-		void entry.pending.catch(() => {});
-		return cached;
 	}
 	return entry.pending as Promise<Result>;
 };
