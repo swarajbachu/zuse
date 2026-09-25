@@ -1,6 +1,7 @@
 import { AgentSessionId } from "@zuse/contracts";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { SessionsSnapshot } from "../../../src/offline/sessions-snapshot";
 import { summary, workspace } from "../../fixtures/cloud";
 
 const api = vi.hoisted(() => ({ list: vi.fn(), auth: vi.fn() }));
@@ -56,6 +57,71 @@ describe("account-owned mobile cloud catalog", () => {
 		});
 		expect(availableConnections(connections, false)).toEqual([]);
 	});
+	test("restores JSON cache dates before merging a newer cloud summary", () => {
+		const row = summary();
+		const initial = cloudCatalogBundles([row], {})["cloud:workspace-1"]?.[0];
+		if (!initial) throw new Error("Missing cloud fixture");
+		const snapshot = {
+			projects: [initial.project],
+			chats: initial.chats,
+			sessions: initial.sessions,
+			savedAt: 1,
+		};
+		// Existing cache files were written directly with JSON.stringify.
+		const restored = Schema.decodeUnknownSync(SessionsSnapshot)(
+			JSON.parse(JSON.stringify(snapshot)),
+		);
+		expect(restored.chats[0]?.updatedAt).toBeInstanceOf(Date);
+		expect(restored.projects[0]?.addedAt).toBeInstanceOf(Date);
+		expect(restored.sessions[0]?.createdAt).toBeInstanceOf(Date);
+		const bundles = cloudCatalogBundles(
+			[
+				{
+					...row,
+					updatedAt: row.updatedAt + 100,
+					activeSessionId: row.initialSessionId,
+					title: "Updated title",
+				},
+			],
+			{
+				"cloud:workspace-1": [
+					{
+						...initial,
+						chats: [...restored.chats],
+						sessions: [...restored.sessions],
+					},
+				],
+			},
+		);
+		expect(bundles["cloud:workspace-1"]?.[0]?.chats[0]?.title).toBe(
+			"Updated title",
+		);
+		expect(
+			Schema.decodeUnknownSync(SessionsSnapshot)(
+				Schema.encodeSync(SessionsSnapshot)(restored),
+			),
+		).toEqual(restored);
+	});
+	test("rejects malformed snapshot dates rather than putting them in the store", () => {
+		const initial = cloudCatalogBundles([summary()], {})[
+			"cloud:workspace-1"
+		]?.[0];
+		if (!initial) throw new Error("Missing cloud fixture");
+		expect(() =>
+			Schema.decodeUnknownSync(SessionsSnapshot)({
+				projects: [],
+				sessions: [],
+				chats: [
+					{
+						...JSON.parse(JSON.stringify(initial.chats[0])),
+						updatedAt: "invalid",
+					},
+				],
+				savedAt: 1,
+			}),
+		).toThrow();
+	});
+
 	test("deduplicates concurrent catalog requests", async () => {
 		await Promise.all([refreshCloudCatalog(), refreshCloudCatalog()]);
 		expect(api.list).toHaveBeenCalledTimes(1);

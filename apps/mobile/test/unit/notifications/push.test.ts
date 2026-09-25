@@ -76,8 +76,57 @@ describe("mobile push registration", () => {
 			},
 		};
 
-		expect(await registerPushTokenForAccount(null, deps)).toBe(false);
-		expect(await registerPushTokenForAccount(account, deps)).toBe(false);
+		await expect(registerPushTokenForAccount(null, deps)).rejects.toThrow(
+			"signed-in account",
+		);
+		await expect(registerPushTokenForAccount(account, deps)).rejects.toThrow(
+			"configured API",
+		);
 		expect(calls).toEqual([]);
+	});
+});
+
+describe("push registration failures", () => {
+	const deps = {
+		apiUrl: () => "https://api.test",
+		platform: "ios" as const,
+		getDeviceId: async () => "mobile_1",
+		getPushToken: async (): Promise<string | null> => "ExponentPushToken[test]",
+		registerDevice: async () => {},
+	};
+	test("returns false only when notification permission is denied", async () => {
+		let registered = false;
+		expect(
+			await registerPushTokenForAccount(account, {
+				...deps,
+				getPushToken: async () => null,
+				registerDevice: async () => {
+					registered = true;
+				},
+			}),
+		).toBe(false);
+		expect(registered).toBe(false);
+	});
+	test("preserves token errors instead of reporting disabled permission", async () => {
+		const error = new Error("push token unavailable");
+		await expect(
+			registerPushTokenForAccount(account, {
+				...deps,
+				getPushToken: async () => {
+					throw error;
+				},
+			}),
+		).rejects.toBe(error);
+	});
+	test("preserves server registration errors after permission is granted", async () => {
+		const error = new Error("registration failed");
+		await expect(
+			registerPushTokenForAccount(account, {
+				...deps,
+				registerDevice: async () => {
+					throw error;
+				},
+			}),
+		).rejects.toBe(error);
 	});
 });

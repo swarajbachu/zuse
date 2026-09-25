@@ -222,8 +222,9 @@ public final class ZuseLocalConnectivityModule: Module {
       self.startDiscovery()
     }
 
+    // Browser restarts must not disconnect proxies owned by other computers.
     AsyncFunction("stopDiscovery") { () -> Void in
-      self.stopDiscovery()
+      self.stopDiscovery(cancelProxies: false)
     }
 
     AsyncFunction("openProxy") { (service: NearbyServiceRecord) async throws -> LocalProxyRecord in
@@ -393,15 +394,17 @@ public final class ZuseLocalConnectivityModule: Module {
     connectivityQueue.asyncAfter(deadline: .now() + 0.5, execute: work)
   }
 
-  private func stopDiscovery() {
+  private func stopDiscovery(cancelProxies: Bool = true) {
     browserRetryWork?.cancel()
     browserRetryWork = nil
     browser?.cancel()
     browser = nil
     pathMonitor?.cancel()
     pathMonitor = nil
-    proxies.values.forEach { $0.cancel() }
-    proxies.removeAll()
+    if cancelProxies {
+      proxies.values.forEach { $0.cancel() }
+      proxies.removeAll()
+    }
   }
 
   private func scheduleBrowserRestart() {
