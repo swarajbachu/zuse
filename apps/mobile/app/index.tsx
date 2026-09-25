@@ -350,7 +350,9 @@ export default function HomeScreen() {
 		for (const connection of reachableConnections) {
 			const options = optionsForConnection(connection.key, connections);
 			if (options === null) continue;
-			retryConnection(connection.key, options);
+			if (connectionSnapshots[connection.key]?.status !== "connected") {
+				retryConnection(connection.key, options);
+			}
 			pending.push(hydrateSessions(connection.key, options));
 		}
 		await Promise.allSettled(pending);
@@ -617,6 +619,7 @@ export default function HomeScreen() {
 				keyboardShouldPersistTaps="handled"
 				refreshControl={
 					<RefreshControl
+						// Refreshes stay in the background; only the initial load shows progress.
 						refreshing={false}
 						tintColor={colors.accent}
 						onRefresh={retryHome}

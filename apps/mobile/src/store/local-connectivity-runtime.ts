@@ -114,7 +114,11 @@ export function useLocalConnectivityRuntime(): void {
 							currentRouteId: current?.routeId ?? null,
 							pinned: connection.serverPublicKey !== undefined,
 						});
-						if (hasCurrentLocalRoute(current?.routeId, candidates)) {
+						if (
+							(current !== undefined &&
+								getConnectionSnapshot(connection).status === "connected") ||
+							hasCurrentLocalRoute(current?.routeId, candidates)
+						) {
 							// Route is fine but the supervisor may have exhausted its
 							// retry budget while the network settled — nudge it awake.
 							if (getConnectionSnapshot(connection).status === "error") {
@@ -220,15 +224,17 @@ export function useLocalConnectivityRuntime(): void {
 			}
 		};
 
-		const invalidateRoutes = async () => {
+		const invalidateRoutes = async (key?: string) => {
 			pathEpoch.current += 1;
 			// Services discovered on the previous network are unreachable; a
 			// fresh browse (restarted below) will repopulate the cache.
 			services.current = [];
-			const current = [...activeRoutes.current.values()];
-			activeRoutes.current.clear();
+			const current = [...activeRoutes.current.entries()].filter(
+				([routeKey]) => key === undefined || routeKey === key,
+			);
+			for (const [routeKey] of current) activeRoutes.current.delete(routeKey);
 			await Promise.allSettled(
-				current.map((route) => closeLocalProxy(route.proxy.id)),
+				current.map(([, route]) => closeLocalProxy(route.proxy.id)),
 			);
 		};
 
@@ -244,12 +250,13 @@ export function useLocalConnectivityRuntime(): void {
 		// a flapping path can't thrash the radio.
 		let suppressNextPathRestart = true; // initial startLocalDiscovery below
 		let lastPathRestartAt = 0;
-		const restartDiscovery = async () => {
-			if (disposed || restartingDiscovery) return;
+		const restartDiscovery = async (key?: string) => {
+			if (disposed) return;
+			await invalidateRoutes(key);
+			if (restartingDiscovery) return;
 			console.info("[zuse:nearby] discovery.restart");
 			restartingDiscovery = true;
 			try {
-				await invalidateRoutes();
 				await stopLocalDiscovery().catch(() => {});
 				suppressNextPathRestart = true;
 				await startLocalDiscovery().catch(() => {});
@@ -264,7 +271,7 @@ export function useLocalConnectivityRuntime(): void {
 			console.info("[zuse:nearby] route.recovery.requested", {
 				connectionKey: key,
 			});
-			void restartDiscovery();
+			void restartDiscovery(key);
 		});
 
 		void startLocalDiscovery();

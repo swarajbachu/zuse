@@ -37,7 +37,7 @@ After a routing repair, compare authoritative DNS with the client's resolver.
 Cached Vercel addresses may remain until their DNS TTL expires. Verify the
 normal hostname after propagation, not just a request pinned to a Cloudflare IP.
 
-Staging's `API_PUBLIC_ORIGIN` is `https://api-staging.zuse.sh`. DPoP proofs
+Staging's `API_PUBLIC_ORIGIN` is `https://api-staging.zuse.sh`. Clients must use that URL; DPoP proofs for the retired hostname are intentionally rejected. A remaining legacy route does not imply client authentication compatibility. DPoP proofs
 bind to that configured public origin, including behind a rewritten Worker
 URL. `API_ISSUER` continues to identify existing signed credentials until the
 coordinated cutover; it must not determine the client's request URL. No

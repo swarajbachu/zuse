@@ -175,7 +175,10 @@ export default function SettingsScreen({
 				duration_ms: Date.now() - startedAt,
 				error_code: "connect_failed",
 			});
-			throw cause;
+			Alert.alert(
+				"Could not connect",
+				cause instanceof Error ? cause.message : "Please try again.",
+			);
 		} finally {
 			setConnecting(null);
 		}
@@ -246,6 +249,8 @@ export default function SettingsScreen({
 			setDownloadedBytes(0);
 			successTap();
 			returnToInbox(router);
+		} catch {
+			Alert.alert("Could not clear downloaded data", "Please try again.");
 		} finally {
 			setStorageBusy(false);
 		}
@@ -257,6 +262,8 @@ export default function SettingsScreen({
 			await clearMediaCache();
 			setMediaBytes(0);
 			successTap();
+		} catch {
+			Alert.alert("Could not clear media cache", "Please try again.");
 		} finally {
 			setStorageBusy(false);
 		}

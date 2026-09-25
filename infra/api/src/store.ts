@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Ref } from "effect";
+import { Context, Effect, Layer, Ref, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 export type ProviderKind = "desktop" | "ssh" | "cloud";
@@ -186,6 +186,7 @@ export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 		const challenges = yield* Ref.make(new Map<string, LinkChallengeRecord>());
 		const environments = yield* Ref.make(new Map<string, EnvironmentRecord>());
 		const credentials = yield* Ref.make(new Map<string, CredentialRecord>());
+		const deviceLock = yield* Semaphore.make(1);
 		const devices = yield* Ref.make(new Map<string, DeviceRecord>());
 		const revokedDpopThumbprints = yield* Ref.make(new Set<string>());
 		const dpop = yield* Ref.make(new Set<string>());
@@ -346,13 +347,26 @@ export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 					return next;
 				}),
 			upsertDevice: (device) =>
-				Ref.modify(devices, (map) => {
-					const current = map.get(device.deviceId);
-					if (current !== undefined && current.accountId !== device.accountId) {
-						return [false, map];
-					}
-					return [true, new Map(map).set(device.deviceId, device)];
-				}),
+				Semaphore.withPermit(
+					deviceLock,
+					Effect.gen(function* () {
+						if (
+							(yield* Ref.get(revokedDpopThumbprints)).has(
+								device.dpopThumbprint,
+							)
+						)
+							return false;
+						return yield* Ref.modify(devices, (map) => {
+							const current = map.get(device.deviceId);
+							if (
+								current !== undefined &&
+								current.accountId !== device.accountId
+							)
+								return [false, map];
+							return [true, new Map(map).set(device.deviceId, device)];
+						});
+					}),
+				),
 			listDevices: (accountId) =>
 				Ref.get(devices).pipe(
 					Effect.map((map) =>
@@ -378,6 +392,7 @@ export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 									new Set(set).add(thumbprint),
 								).pipe(Effect.as(true)),
 					),
+					(effect) => Semaphore.withPermit(deviceLock, effect),
 				),
 			isDpopThumbprintRevoked: (thumbprint) =>
 				Ref.get(revokedDpopThumbprints).pipe(
@@ -495,6 +510,20 @@ export const ApiStorePg: Layer.Layer<ApiStore, never, SqlClient.SqlClient> =
 			const sql = yield* SqlClient.SqlClient;
 			const orDie = <A>(effect: Effect.Effect<A, unknown>): Effect.Effect<A> =>
 				effect.pipe(Effect.orDie);
+
+			// Acquire before the write statement so it sees any completed revocation.
+			const withDeviceLock = <A>(
+				accountId: string,
+				operation: Effect.Effect<A, unknown>,
+			) =>
+				orDie(
+					sql.withTransaction(
+						Effect.gen(function* () {
+							yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`mobile-devices:${accountId}`}, 0))`;
+							return yield* operation;
+						}),
+					),
+				);
 
 			return ApiStore.of({
 				createChallenge: (challenge) =>
@@ -733,17 +762,20 @@ export const ApiStorePg: Layer.Layer<ApiStore, never, SqlClient.SqlClient> =
 						`.pipe(Effect.asVoid),
 					),
 				upsertDevice: (device) =>
-					orDie(
+					withDeviceLock(
+						device.accountId,
 						sql<{ readonly device_id: string }>`
             INSERT INTO api_devices
               (device_id, account_id, platform, push_token, dpop_jwk,
                dpop_thumbprint, updated_at)
-            VALUES (
+            SELECT
               ${device.deviceId}, ${device.accountId}, ${device.platform},
               ${device.pushToken ?? null},
               ${device.dpopJwk === undefined ? null : JSON.stringify(device.dpopJwk)},
               ${device.dpopThumbprint},
               ${device.updatedAtMs}
+            WHERE NOT EXISTS (
+              SELECT 1 FROM api_revoked_dpop_keys WHERE thumbprint = ${device.dpopThumbprint}
             )
             ON CONFLICT (device_id) DO UPDATE SET
               platform = EXCLUDED.platform,
@@ -782,7 +814,8 @@ export const ApiStorePg: Layer.Layer<ApiStore, never, SqlClient.SqlClient> =
 						),
 					),
 				revokeDevice: (deviceId, accountId) =>
-					orDie(
+					withDeviceLock(
+						accountId,
 						sql<{ readonly dpop_thumbprint: string }>`
               WITH revoked AS (
                 DELETE FROM api_devices
