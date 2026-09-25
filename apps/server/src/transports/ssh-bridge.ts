@@ -85,19 +85,27 @@ const pumpSshd = (socket: SocketNs.Socket) =>
 					child.kill("SIGKILL");
 				});
 			});
-			yield* Effect.race(
+			// `runRaw` returns once the peer closes, and closes the socket's write
+			// latch as it does; a close frame written after that waits on the
+			// latch forever, keeping this scope, and the sshd it owns, alive.
+			// Only sshd ending on its own leaves an open socket to close.
+			const peerClosed = yield* Effect.race(
 				socket
 					.runRaw((data) => {
 						child.stdin.write(
 							typeof data === "string" ? Buffer.from(data) : data,
 						);
 					})
-					.pipe(Effect.catch(() => Effect.void)),
-				childExited,
+					.pipe(
+						Effect.catch(() => Effect.void),
+						Effect.as(true),
+					),
+				childExited.pipe(Effect.as(false)),
 			);
-			yield* write(new Socket.CloseEvent(1000)).pipe(
-				Effect.catch(() => Effect.void),
-			);
+			if (!peerClosed)
+				yield* write(new Socket.CloseEvent(1000)).pipe(
+					Effect.catch(() => Effect.void),
+				);
 		}),
 	);
 
