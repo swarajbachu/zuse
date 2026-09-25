@@ -373,9 +373,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		cloudDataEncryptionKey: isConfigured(cloudDataEncryptionKey)
 			? Redacted.make(cloudDataEncryptionKey)
 			: undefined,
-		cloudAuthProviderId: isConfigured(env.CLOUD_AUTH_PROVIDER_ID)
-			? env.CLOUD_AUTH_PROVIDER_ID.trim()
-			: undefined,
+		cloudAuthProviderId: sandboxProvider.cloudAuthProviderId,
 		githubApp: githubAppConfigured
 			? {
 					appId: env.GITHUB_APP_ID as string,

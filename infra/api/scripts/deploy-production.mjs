@@ -54,6 +54,21 @@ const requiredValues = {
 const missingValues = Object.entries(requiredValues)
 	.filter(([, value]) => typeof value !== "string" || value.trim() === "")
 	.map(([name]) => name);
+const enabledAdapters = new Set([
+	"e2b",
+	...(boatEnabled ? ["box", "boat"] : []),
+	...(boxdEnabled ? ["boxd"] : []),
+]);
+const cloudAuthProvider =
+	typeof vars.CLOUD_AUTH_PROVIDER_ID === "string"
+		? vars.CLOUD_AUTH_PROVIDER_ID.trim()
+		: "";
+if (cloudAuthProvider !== "" && !enabledAdapters.has(cloudAuthProvider)) {
+	console.error(
+		`CLOUD_AUTH_PROVIDER_ID names a provider that is not enabled: ${cloudAuthProvider}.`,
+	);
+	process.exit(1);
+}
 if (
 	vars.E2B_ADAPTER_ENABLED !== "true" ||
 	vars.POLAR_ENVIRONMENT !== "production" ||

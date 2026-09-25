@@ -125,6 +125,24 @@ describe("sandbox provider configuration", () => {
 		).toThrow(SandboxProviderConfigurationError);
 	});
 
+	test("validates the cloud auth provider against the registered providers", () => {
+		expect(() =>
+			resolveSandboxProviderRuntime({
+				...configuredEnvironment,
+				CLOUD_AUTH_PROVIDER_ID: "boxd",
+			}),
+		).toThrow(SandboxProviderConfigurationError);
+		expect(
+			resolveSandboxProviderRuntime({
+				...configuredEnvironment,
+				CLOUD_AUTH_PROVIDER_ID: " e2b ",
+			}).cloudAuthProviderId,
+		).toBe("e2b");
+		expect(
+			resolveSandboxProviderRuntime(configuredEnvironment).cloudAuthProviderId,
+		).toBeUndefined();
+	});
+
 	test("advertises configured boxd beside the other providers", async () => {
 		const runtime = resolveSandboxProviderRuntime({
 			...configuredEnvironment,

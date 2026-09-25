@@ -8,6 +8,7 @@ import {
 	SandboxProviderError,
 	type SandboxProviderResources,
 } from "./index.ts";
+import { providerError } from "./provider-input.ts";
 
 const SandboxMetadata = Schema.optional(
 	Schema.NullOr(Schema.Record(Schema.String, Schema.String)),
@@ -68,10 +69,6 @@ export interface E2bHttpClient {
 const defaultHttpClient: E2bHttpClient = {
 	fetch: (input, init) => globalThis.fetch(input, init),
 };
-
-const providerError = (
-	code: SandboxProviderError["code"],
-): SandboxProviderError => new SandboxProviderError({ code });
 
 const errorForStatus = (status: number): SandboxProviderError =>
 	status === 404

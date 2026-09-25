@@ -19,7 +19,7 @@ import {
 	type WaitUntilReadyParams,
 } from "@boxd-sh/sdk/web";
 import { measureCloudStage } from "@zuse/utils/cloud-timing";
-import { Duration, Effect, Redacted } from "effect";
+import { Clock, Duration, Effect, Redacted } from "effect";
 import { BOX_PORT_FORWARDER } from "./box-port-forwarder.ts";
 import {
 	boxProcessScript,
@@ -27,16 +27,16 @@ import {
 	boxShellQuote,
 	boxSystemdProcessCommand,
 } from "./box-process.ts";
-import {
-	type ProviderSandbox,
-	type SandboxNetworkPolicy,
-	type SandboxProcessInput,
-	type SandboxProcessSelector,
-	type SandboxProviderAdapter,
+import type {
+	ProviderSandbox,
+	SandboxNetworkPolicy,
+	SandboxProcessInput,
+	SandboxProcessSelector,
+	SandboxProviderAdapter,
 	SandboxProviderError,
-	type SandboxProviderResources,
+	SandboxProviderResources,
 } from "./index.ts";
-import { clampSeconds, validatedEnv } from "./provider-input.ts";
+import { clampSeconds, providerError, validatedEnv } from "./provider-input.ts";
 import { zuseSnapshotName } from "./snapshot-name.ts";
 
 // boxd (boxd.sh) machines are KVM microVMs that hibernate with their memory:
@@ -113,6 +113,7 @@ const MACHINE_SIZES: ReadonlyArray<BoxdMachineSize> = [
 const RUNTIME_USER = "zuse";
 const COMMAND_USER = "boxd";
 const SECRETS_DIRECTORY = "/run/zuse-secrets";
+const BOOT_ID_COMMAND = "cat /proc/sys/kernel/random/boot_id";
 const MAX_TEXT_FILE_BYTES = 65_536;
 const MIN_IDLE_SECONDS = 1;
 const MAX_IDLE_SECONDS = 2_592_000;
@@ -128,13 +129,8 @@ const PAUSED_STATUSES = new Set<Machine["status"]>([
 	"stopped",
 ]);
 const ABSENT_STATUSES = new Set<Machine["status"]>(["failed", "destroyed"]);
-const BOOTING_STATUSES = new Set<Machine["status"]>(["pending", "starting"]);
 
 const shellQuote = boxShellQuote;
-
-const providerError = (
-	code: SandboxProviderError["code"],
-): SandboxProviderError => new SandboxProviderError({ code });
 
 const fnv1a32 = (value: string): string => {
 	let hash = 0x811c_9dc5;
@@ -147,9 +143,10 @@ const fnv1a32 = (value: string): string => {
 
 /**
  * boxd machine names are DNS labels: lowercase letters, digits and hyphens,
- * at most 63 characters. Labels that already satisfy that pass through, so
- * `recoverByLabel` finds them by name; anything else is lowercased and given
- * a digest suffix so two labels differing only in case stay distinct.
+ * at most 63 characters, not ending in a hyphen. Labels that already satisfy
+ * that pass through, so `recoverByLabel` finds them by name; anything else is
+ * lowercased and given a digest suffix so two labels that differ only in
+ * case, or only by a trailing hyphen, stay distinct.
  */
 export const boxdMachineName = (label: string): string => {
 	const lowered = label
@@ -158,7 +155,9 @@ export const boxdMachineName = (label: string): string => {
 		.replaceAll(/-{2,}/gu, "-")
 		.replace(/^-+/u, "");
 	const named =
-		lowered === label && label.length <= MACHINE_NAME_MAX_LENGTH
+		lowered === label &&
+		!label.endsWith("-") &&
+		label.length <= MACHINE_NAME_MAX_LENGTH
 			? lowered
 			: `${lowered.slice(0, MACHINE_NAME_MAX_LENGTH - 9).replace(/-+$/u, "")}-${fnv1a32(label)}`;
 	return named.slice(0, MACHINE_NAME_MAX_LENGTH).replace(/-+$/u, "");
@@ -227,10 +226,18 @@ const clients = new Map<string, BoxdSandboxClient>();
  * exchanges the API key for a session token on first use. Sharing one client
  * per credential keeps that exchange off the request path.
  */
+/**
+ * The SDK slices the scheme off the base URL and uses the rest as the host of
+ * every `${host}/${service}/${method}` request, so a trailing slash would put
+ * `//` in each path.
+ */
+export const boxdBaseUrl = (value: string | undefined): string =>
+	(value ?? BOXD_BASE_URL).replace(/\/+$/u, "");
+
 export const boxdSandboxClientFor = (
 	config: Pick<BoxdSandboxConfig, "apiKey" | "baseUrl">,
 ): BoxdSandboxClient => {
-	const baseURL = config.baseUrl ?? BOXD_BASE_URL;
+	const baseURL = boxdBaseUrl(config.baseUrl);
 	const key = `${baseURL}\u0000${Redacted.value(config.apiKey)}`;
 	const existing = clients.get(key);
 	if (existing !== undefined) return existing;
@@ -350,17 +357,34 @@ export const makeBoxdSandboxProvider = (
 	// A restore keeps the size its snapshot was captured at; a different
 	// placement is applied afterwards as a cold reboot (~3 s). Publishing the
 	// template at the deployment's default size makes this a no-op.
+	const bootId = (providerSandboxId: string) =>
+		runCommand(providerSandboxId, BOOT_ID_COMMAND).pipe(
+			Effect.map((result) => result.stdout.trim()),
+		);
+
+	// `resize` answers before its reboot lands, and readiness alone can be
+	// satisfied by the instance that is about to go away, so a resize is only
+	// complete once the machine reports a new boot.
 	const applySize = Effect.fn("BoxdSandboxProvider.applySize")(function* (
 		current: Machine,
 		size: BoxdMachineSize,
 	) {
 		if (machineSizeOf(current) === size) return current;
-		yield* call("machines.resize", () =>
+		const before = yield* bootId(current.id);
+		const resized = yield* call("machines.resize", () =>
 			client.machines.resize(current.id, {
 				vcpu: BOXD_MACHINE_RESOURCES[size].vcpuCount,
 			}),
 		);
-		return yield* ready(current.id);
+		if (!resized.rebooted) return yield* machine(current.id);
+		const deadline = (yield* Clock.currentTimeMillis) + readyDeadlineMs;
+		while (true) {
+			const after = yield* ready(current.id);
+			if ((yield* bootId(current.id)) !== before) return after;
+			if ((yield* Clock.currentTimeMillis) >= deadline)
+				return yield* providerError("transient");
+			yield* Effect.sleep(Duration.millis(pollIntervalMs));
+		}
 	});
 
 	// A cold boot (fresh create after resize, start after stop) reports exec
@@ -446,59 +470,70 @@ export const makeBoxdSandboxProvider = (
 		// boxd CLI or integrations. Auto-suspend stays off so the runtime's
 		// outbound gateway connection never freezes under it; the caller's
 		// timeout becomes the hibernate (pause) or destroy (terminate) timer.
-		const createMachine = call("machines.create", () =>
-			client.machines.create({
-				name,
-				...(org === undefined ? {} : { org }),
-				fromSnapshot: input.snapshot,
-				isolated: true,
-				config: {
-					autoSuspendTimeout: 0,
-					...(input.onTimeout === "terminate"
-						? { autoDestroyTimeout: idleSeconds }
-						: {}),
-				},
-			}),
-		);
-		// The label is the machine name, so a retried create after a lost
-		// response adopts the machine the first attempt made; a failed one is
-		// deleted and replaced.
-		const created = yield* createMachine.pipe(
-			Effect.catchTag("SandboxProviderError", (error) =>
-				error.code === "not-found"
-					? Effect.fail(error)
-					: settledByName(name).pipe(
-							Effect.flatMap((existing) =>
-								existing !== null
-									? Effect.succeed(existing)
-									: createMachine.pipe(
-											Effect.catchTag("SandboxProviderError", () =>
-												Effect.fail(error),
-											),
-										),
+		// ALREADY_EXISTS is the one create failure worth a second look: the
+		// label is the machine name, so a retried create after a lost response
+		// adopts the machine the first attempt made, and a failed one is
+		// deleted and replaced. Every other failure ends this attempt.
+		const createMachine = Effect.tryPromise({
+			try: async () => {
+				try {
+					return await client.machines.create({
+						name,
+						...(org === undefined ? {} : { org }),
+						fromSnapshot: input.snapshot,
+						isolated: true,
+						config: {
+							autoSuspendTimeout: 0,
+							...(input.onTimeout === "terminate"
+								? { autoDestroyTimeout: idleSeconds }
+								: {}),
+						},
+					});
+				} catch (cause) {
+					if (
+						cause instanceof ConflictError &&
+						cause.grpcCode === GRPC_ALREADY_EXISTS
+					)
+						return null;
+					throw cause;
+				}
+			},
+			catch: (cause) => {
+				reportRequestFailure("machines.create", cause);
+				return errorForCause(cause);
+			},
+		});
+		const created =
+			(yield* createMachine) ??
+			(yield* settledByName(name).pipe(
+				Effect.flatMap((existing) =>
+					existing !== null
+						? Effect.succeed(existing)
+						: createMachine.pipe(
+								Effect.flatMap((again) =>
+									again === null
+										? Effect.fail(providerError("transient"))
+										: Effect.succeed(again),
+								),
 							),
-						),
-			),
-		);
-		// A machine that never becomes usable would keep its label wedged and
-		// bill without any timer armed; delete it so the retry starts fresh.
+				),
+			));
+		// Arm the idle timer before waiting, so a machine that never answers
+		// is not left on the organization default. One that never becomes
+		// usable would keep its label wedged; delete it so the retry starts
+		// fresh instead of adopting it and timing out again.
+		if (input.onTimeout === "pause")
+			yield* call("machines.setAutoHibernateTimeout", () =>
+				client.machines.setAutoHibernateTimeout(created.id, idleSeconds),
+			);
 		const usable = yield* ready(created.id).pipe(
 			Effect.catchTag("SandboxProviderError", (error) =>
-				machine(created.id).pipe(
-					Effect.flatMap((current) =>
-						BOOTING_STATUSES.has(current.status)
-							? kill(created.id).pipe(Effect.ignore)
-							: Effect.void,
-					),
+				kill(created.id).pipe(
 					Effect.ignore,
 					Effect.andThen(Effect.fail(error)),
 				),
 			),
 		);
-		if (input.onTimeout === "pause")
-			yield* call("machines.setAutoHibernateTimeout", () =>
-				client.machines.setAutoHibernateTimeout(created.id, idleSeconds),
-			);
 		yield* applySize(usable, size);
 		yield* prepareRuntime(created.id);
 		yield* primeRuntime(created.id);
@@ -589,7 +624,10 @@ export const makeBoxdSandboxProvider = (
 			contents: string,
 			user?: string,
 		) {
-			if (new TextEncoder().encode(contents).byteLength > MAX_TEXT_FILE_BYTES)
+			if (
+				!path.startsWith("/") ||
+				new TextEncoder().encode(contents).byteLength > MAX_TEXT_FILE_BYTES
+			)
 				return yield* providerError("rejected");
 			// Uploads land as the command user; stage in /tmp, then install
 			// with owner-only permissions and parents created.

@@ -21,6 +21,7 @@ import {
 	BOXD_BASE_URL,
 	BOXD_PROVIDER_ID,
 	type BoxdSandboxClient,
+	boxdBaseUrl,
 	boxdMachineName,
 	boxdSandboxClientFor,
 	makeBoxdSandboxProvider,
@@ -100,6 +101,8 @@ class FakeBoxd implements BoxdSandboxClient {
 	execResults: ExecResult[] = [];
 	execHandler: ((params: ExecParams) => ExecResult) | undefined;
 	readonly failures = new Map<string, Error[]>();
+	/** Boot counter per machine; a resize reboot bumps it like a real VM. */
+	readonly bootIds = new Map<string, number>();
 	nextId = 1;
 	createdSnapshotNames: string[] = [];
 	private readonly failOnce = (method: string) => {
@@ -184,6 +187,7 @@ class FakeBoxd implements BoxdSandboxClient {
 		resize: async (id: string, params: MachineResizeParams) => {
 			this.record("machines.resize", [id, params]);
 			const current = this.byIdOrName(id);
+			this.bootIds.set(id, (this.bootIds.get(id) ?? 1) + 1);
 			const vcpu = params.vcpu ?? current.resources.vcpu;
 			this.set({
 				...current,
@@ -208,6 +212,8 @@ class FakeBoxd implements BoxdSandboxClient {
 			this.record("machines.exec", [id, params]);
 			this.execs.push({ id, params });
 			this.byIdOrName(id);
+			if (params.command.includes("boot_id"))
+				return exit(0, `boot-${this.bootIds.get(id) ?? 1}\n`);
 			if (this.execHandler !== undefined) return this.execHandler(params);
 			return this.execResults.shift() ?? exit(0);
 		},
@@ -331,6 +337,21 @@ describe("boxd machine names", () => {
 		expect(name.length).toBeLessThanOrEqual(63);
 		expect(name).toMatch(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/u);
 	});
+
+	test("keeps a label that ends in a hyphen distinct from its trimmed form", () => {
+		const plain = boxdMachineName("zuse-cloud-workspace-x");
+		const trailing = boxdMachineName("zuse-cloud-workspace-x-");
+		expect(plain).toBe("zuse-cloud-workspace-x");
+		expect(trailing).not.toBe(plain);
+		expect(trailing).toMatch(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/u);
+	});
+
+	test("strips trailing slashes from the base URL the SDK dials", () => {
+		expect(boxdBaseUrl("https://boxd.internal:9443/")).toBe(
+			"https://boxd.internal:9443",
+		);
+		expect(boxdBaseUrl(undefined)).toBe(BOXD_BASE_URL);
+	});
 });
 
 describe("boxd sandbox provider", () => {
@@ -362,8 +383,15 @@ describe("boxd sandbox provider", () => {
 	test("shares one SDK client per credential across adapter instances", () => {
 		const config = { apiKey: Redacted.make("bxd_cache_test") };
 		expect(boxdSandboxClientFor(config)).toBe(boxdSandboxClientFor(config));
-		expect(boxdSandboxClientFor(config)).not.toBe(
+		// A trailing slash is the same endpoint, not a second client.
+		expect(boxdSandboxClientFor(config)).toBe(
 			boxdSandboxClientFor({ ...config, baseUrl: `${BOXD_BASE_URL}/` }),
+		);
+		expect(boxdSandboxClientFor(config)).not.toBe(
+			boxdSandboxClientFor({
+				...config,
+				baseUrl: "https://boxd.internal:9443",
+			}),
 		);
 		expect(boxdSandboxClientFor(config)).not.toBe(
 			boxdSandboxClientFor({ apiKey: Redacted.make("bxd_other") }),
@@ -388,8 +416,8 @@ describe("boxd sandbox provider", () => {
 		});
 		expect(client.calls.map((call) => call.method)).toEqual([
 			"machines.create",
-			"machines.waitUntilReady",
 			"machines.setAutoHibernateTimeout",
+			"machines.waitUntilReady",
 			"machines.exec",
 			"machines.exec",
 		]);
@@ -569,7 +597,7 @@ describe("boxd sandbox provider", () => {
 		expect(client.store.has("vm_1")).toBe(false);
 	});
 
-	test("keeps a usable machine when only the readiness call failed", async () => {
+	test("deletes a running machine whose readiness probe failed instead of adopting it again", async () => {
 		const client = new FakeBoxd();
 		client.fail(
 			"machines.waitUntilReady",
@@ -584,8 +612,66 @@ describe("boxd sandbox provider", () => {
 		await expect(
 			run(makeAdapter(client).create(createInput)),
 		).rejects.toMatchObject({ code: "transient" });
-		expect(client.methods("machines.delete")).toHaveLength(0);
-		expect(client.store.has("vm_1")).toBe(true);
+		// The idle timer was armed before the wait, so even a machine that
+		// outlives a lost delete is not left on the organization default.
+		expect(client.calls.map((call) => call.method)).toEqual([
+			"machines.create",
+			"machines.setAutoHibernateTimeout",
+			"machines.waitUntilReady",
+			"machines.delete",
+		]);
+		expect(client.store.has("vm_1")).toBe(false);
+	});
+
+	test("does not retry a create the provider rejected outright", async () => {
+		const client = new FakeBoxd();
+		client.fail(
+			"machines.create",
+			new AuthenticationError("invalid api key", 16),
+		);
+		await expect(
+			run(makeAdapter(client).create(createInput)),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(client.methods("machines.create")).toHaveLength(1);
+		expect(client.methods("machines.get")).toHaveLength(0);
+	});
+
+	test("waits for a resized machine to report a new boot before handing it over", async () => {
+		const client = new FakeBoxd();
+		const resize = client.machines.resize;
+		client.machines.resize = async (id, params) => {
+			const result = await resize(id, params);
+			// The old instance still answers for a while after `resize` returns.
+			client.bootIds.set(id, 1);
+			client.set({ ...client.byIdOrName(id), status: "running" });
+			return result;
+		};
+		let reads = 0;
+		const exec = client.machines.exec;
+		client.machines.exec = async (id, params) => {
+			if (params.command.includes("boot_id") && ++reads === 3)
+				client.bootIds.set(id, 2);
+			return exec(id, params);
+		};
+		const created = await run(
+			makeAdapter(client).create({ ...createInput, sizeId: "small" }),
+		);
+		expect(created.state).toBe("running");
+		expect(client.methods("machines.waitUntilReady")).toHaveLength(3);
+	});
+
+	test("reports a resize whose reboot never lands as transient", async () => {
+		const client = new FakeBoxd();
+		const resize = client.machines.resize;
+		client.machines.resize = async (id, params) => {
+			const result = await resize(id, params);
+			client.bootIds.set(id, 1);
+			client.set({ ...client.byIdOrName(id), status: "running" });
+			return result;
+		};
+		await expect(
+			run(makeAdapter(client).create({ ...createInput, sizeId: "small" })),
+		).rejects.toMatchObject({ code: "transient" });
 	});
 
 	test("forks by restoring the account image snapshot in isolation", async () => {
@@ -812,6 +898,16 @@ describe("boxd sandbox provider", () => {
 		expect(client.execs[0]?.params.command).toBe(
 			"sudo -n head -c 65537 '/tmp/zuse-version'",
 		);
+	});
+
+	test("rejects a relative path before uploading anything", async () => {
+		const client = new FakeBoxd();
+		client.set(machineOf({ id: "vm_1" }));
+		await expect(
+			run(makeAdapter(client).writeTextFile("vm_1", "token", "x", "zuse")),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(client.uploads).toHaveLength(0);
+		expect(client.execs).toHaveLength(0);
 	});
 
 	test("writes a text file through staging with owner-only permissions", async () => {
@@ -1072,8 +1168,11 @@ describe("boxd sandbox provider", () => {
 			"vm_1",
 			{ vcpu: 4 },
 		]);
-		// The resize rebooted the machine, so the runtime is primed again.
+		// The resize rebooted the machine: the adapter waited for the new boot
+		// id, then prepared and primed the runtime again.
 		expect(client.execs.map((call) => call.params.command)).toEqual([
+			expect.stringContaining("boot_id"),
+			expect.stringContaining("boot_id"),
 			expect.stringContaining("systemctl is-system-running --wait"),
 			expect.stringContaining("zuse --version"),
 		]);

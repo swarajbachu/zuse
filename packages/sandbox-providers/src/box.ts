@@ -16,7 +16,7 @@ import {
 	SandboxProviderError,
 	type SandboxProviderResources,
 } from "./index.ts";
-import { clampSeconds, validatedEnv } from "./provider-input.ts";
+import { clampSeconds, providerError, validatedEnv } from "./provider-input.ts";
 import { zuseSnapshotName } from "./snapshot-name.ts";
 
 // Box resumes from persisted disk with fresh processes and open networking.
@@ -127,10 +127,6 @@ const RETRYABLE_CONFLICT_CODES = new Set([
 	"save_in_progress",
 	"stop_in_progress",
 ]);
-
-const providerError = (
-	code: SandboxProviderError["code"],
-): SandboxProviderError => new SandboxProviderError({ code });
 
 const reportRequestFailure = (input: {
 	readonly method: string;

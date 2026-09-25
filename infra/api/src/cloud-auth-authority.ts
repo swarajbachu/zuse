@@ -598,12 +598,29 @@ const authorityProvider = Effect.gen(function* () {
 		);
 });
 
+// A persisted authority stays on the provider that hosts it. Changing the
+// configured authority provider moves new authorities only; an existing one
+// whose provider is no longer registered fails loudly instead of being
+// mistaken for a lost sandbox and forcing the account to reconnect.
+const providerForAuthority = (locator: { readonly provider: string } | null) =>
+	Effect.gen(function* () {
+		if (locator === null) return yield* authorityProvider;
+		const providers = yield* SandboxProviders;
+		return yield* providers
+			.get(locator.provider)
+			.pipe(
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_auth_provider_unavailable"),
+				),
+			);
+	});
+
 const recoverAuthority = Effect.fn("recoverCloudAuthAuthority")(function* (
 	accountId: string,
 ) {
-	const provider = yield* authorityProvider;
 	const store = yield* CloudWorkspaceStore;
 	const locator = yield* store.getCloudAuthAuthority(accountId);
+	const provider = yield* providerForAuthority(locator);
 	if (locator?.providerSandboxId !== undefined) {
 		const sandbox = yield* provider
 			.inspect(locator.providerSandboxId)
@@ -1478,6 +1495,8 @@ export const issueProviderGrant = Effect.fn("issueProviderGrant")(function* (
 export const snapshotCloudAuthAuthority = Effect.fn(
 	"snapshotCloudAuthAuthority",
 )(function* (accountId: string, name: string, targetProviderId: string) {
+	// The pure check first: a target off E2B never seeds, whichever provider
+	// the authority runs on, and answering that needs no configuration.
 	if (!canSeedCloudAuthSnapshot(targetProviderId)) return undefined;
 	if (!canSeedCloudAuthSnapshot(targetProviderId, yield* authorityProviderId))
 		return undefined;

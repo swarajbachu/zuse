@@ -4,23 +4,16 @@ import {
 	makeBoxdSandboxProvider,
 } from "@zuse/sandbox-providers/boxd";
 import { Redacted, Schema } from "effect";
-import {
-	SandboxProviderConfigurationError,
-	type SandboxProviderEnvironment,
-	type SandboxProviderModule,
+import type {
+	SandboxProviderEnvironment,
+	SandboxProviderModule,
 } from "../sandbox-provider-module.ts";
+import {
+	ConfiguredString,
+	decodeProviderEnvironment,
+	HttpsUrl,
+} from "./environment.ts";
 
-const ConfiguredString = Schema.Trim.check(
-	Schema.isNonEmpty(),
-	Schema.makeFilter(
-		(value) =>
-			!value.startsWith("REPLACE_WITH") ||
-			"Placeholder values are not configured",
-	),
-);
-const HttpsUrl = Schema.URLFromString.check(
-	Schema.makeFilter((url) => url.protocol === "https:" || "URL must use HTTPS"),
-);
 const ActivationEnvironment = Schema.Struct({
 	BOXD_ADAPTER_ENABLED: Schema.optionalKey(Schema.Literals(["true", "false"])),
 });
@@ -35,29 +28,12 @@ const BoxdEnvironment = Schema.Struct({
 	),
 });
 
-const configurationError = (): SandboxProviderConfigurationError =>
-	new SandboxProviderConfigurationError({
-		message: "Invalid boxd sandbox provider configuration",
-	});
+const isActivated = (env: SandboxProviderEnvironment): boolean =>
+	decodeProviderEnvironment(ActivationEnvironment, env, "boxd")
+		.BOXD_ADAPTER_ENABLED === "true";
 
-const isActivated = (env: SandboxProviderEnvironment): boolean => {
-	try {
-		return (
-			Schema.decodeUnknownSync(ActivationEnvironment)(env)
-				.BOXD_ADAPTER_ENABLED === "true"
-		);
-	} catch {
-		throw configurationError();
-	}
-};
-
-const decodeEnvironment = (env: SandboxProviderEnvironment) => {
-	try {
-		return Schema.decodeUnknownSync(BoxdEnvironment)(env);
-	} catch {
-		throw configurationError();
-	}
-};
+const decodeEnvironment = (env: SandboxProviderEnvironment) =>
+	decodeProviderEnvironment(BoxdEnvironment, env, "boxd");
 
 export const BoxdSandboxProviderModule: SandboxProviderModule = {
 	providerId: BOXD_PROVIDER_ID,

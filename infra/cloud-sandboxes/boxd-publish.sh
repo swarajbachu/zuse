@@ -47,6 +47,10 @@ echo "==> building runtime artifacts"
 echo "==> creating builder machine"
 # Isolation is inherited by every restore, matching the adapter's placement.
 machine_id="$(boxd machine new ${org_args[@]+"${org_args[@]}"} "zuse-template-builder-$(date +%s)" --isolated ${size_args[@]+"${size_args[@]}"} --auto-hibernate-timeout 0 --json | jq -r '.id')"
+if [[ -z "$machine_id" || "$machine_id" == "null" ]]; then
+	echo "error: boxd machine new returned no machine id" >&2
+	exit 1
+fi
 echo "    machine: $machine_id"
 trap 'boxd machine remove ${org_args[@]+"${org_args[@]}"} "$machine_id" --confirm --json >/dev/null 2>&1 || true' EXIT
 

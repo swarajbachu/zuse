@@ -133,12 +133,17 @@ else process.exit(2);
 		"snapshot",
 		"version",
 		"secret",
+		"auth-provider",
 		"ready",
 	])("checks enabled boxd prerequisites before deployment: %s", async (scenario) => {
 		const directory = await mkdtemp(join(tmpdir(), "zuse-deploy-test-"));
 		try {
 			const config = parse(await readFile(productionWranglerConfigUrl, "utf8"));
-			config.vars.BOXD_ADAPTER_ENABLED = "true";
+			// The login authority may only name an enabled adapter.
+			config.vars.BOXD_ADAPTER_ENABLED =
+				scenario === "auth-provider" ? "false" : "true";
+			if (scenario === "auth-provider")
+				config.vars.CLOUD_AUTH_PROVIDER_ID = "boxd";
 			config.vars.BOXD_TEMPLATE_SNAPSHOT =
 				scenario === "snapshot" ? "" : "zuse-base-v1";
 			config.vars.BOXD_TEMPLATE_VERSION = scenario === "version" ? " " : "1";
@@ -191,7 +196,9 @@ else process.exit(2);
 						? "BOXD_TEMPLATE_SNAPSHOT"
 						: scenario === "version"
 							? "BOXD_TEMPLATE_VERSION"
-							: "BOXD_API_KEY",
+							: scenario === "auth-provider"
+								? "CLOUD_AUTH_PROVIDER_ID"
+								: "BOXD_API_KEY",
 				);
 			}
 		} finally {

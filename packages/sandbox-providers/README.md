@@ -134,9 +134,13 @@ Provider-shape differences the adapter absorbs:
   different placement is applied afterwards as a cold `resize` reboot; publish
   the template at the deployment's default size (`BOXD_MACHINE_SIZE`) to make
   that a no-op.
-- **Timeouts are idle timers.** `onTimeout: "pause"` arms
-  `autoHibernateTimeout` and `extendTimeout` re-arms it; `"terminate"` arms
-  `autoDestroyTimeout` at creation. The idle clock counts packets on
+- **Pause is an idle timer, terminate a wall clock.** `onTimeout: "pause"`
+  arms `autoHibernateTimeout` right after creation (before waiting for
+  readiness, so a machine that never answers is not left on the org default)
+  and `extendTimeout` re-arms it; `"terminate"` sets `autoDestroyTimeout` at
+  creation, which boxd counts from the machine's (re)start regardless of
+  activity and resets on a restart or wake, matching the reconciler's build
+  deadline. The idle clock counts packets on
   established connections too, so the runtime's outbound gateway session keeps
   a working agent awake with the desktop closed (verified: a machine with a
   60 s timer and only outbound requests stayed running for 150 s), and the
@@ -172,6 +176,9 @@ Provider-shape differences the adapter absorbs:
   while the runtime binds loopback, so `resolveEndpoint` starts the shared
   port forwarder each time it is called; a restore or fork receives a fresh
   interface address, and the forwarder rebinds it. WebSockets pass through.
-- **No usage endpoint.** Billing falls back to the price schedule, as for
-  E2B; there is no lifecycle webhook, so `/v1/cloud/billing/webhook/boxd`
-  is not registered.
+- **No billing evidence yet.** boxd has no lifecycle webhook, no event log
+  to replay, and its machine records carry only `createdAt` and
+  `hibernatedAt`, so there is no `BillingUsageSourceModule` for it: the
+  reconciler reserves boxd compute at the price schedule while a run lasts,
+  but nothing finalizes those reservations into the ledger. Metering boxd
+  needs provider-side execution events (see `internal-docs/cloud/billing.md`).

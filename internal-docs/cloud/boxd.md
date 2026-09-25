@@ -22,9 +22,16 @@ with the other adapters. The adapter lives in
    `BOXD_BASE_URL` for a self-hosted cluster (HTTPS, gRPC-web port).
    A deployment without E2B must also set `CLOUD_AUTH_PROVIDER_ID=boxd`: the
    account login authority defaults to E2B, and every agent connection in
-   Cloud settings runs there. On boxd the authority is an ordinary isolated
-   machine from the base template; account images are never seeded from its
-   snapshot, so credentials reach workspaces through the brokers.
+   Cloud settings runs there. The value must name an enabled adapter; the
+   worker refuses to boot and the production deploy guard refuses to deploy
+   otherwise. It applies to authorities created from then on: an account's
+   existing authority stays on the provider that hosts it, and if that
+   provider is no longer registered, Cloud authentication reports
+   `cloud_auth_provider_unavailable` for the account until it is registered
+   again or the account reconnects on the new provider. On boxd the authority
+   is an ordinary isolated machine from the base template; account images
+   are never seeded from its snapshot, so credentials reach workspaces
+   through the brokers.
 4. Rebuild account images for boxd from Cloud settings; provider snapshots are
    never interchangeable.
 
@@ -41,12 +48,13 @@ the snapshot, version, or `BOXD_API_KEY` secret missing.
   as retryable rather than recorded. A machine stopped from the boxd console
   boots cold on resume and reaches the runtime through the fenced restart
   after the warm reconnect window.
-- The caller's timeout becomes an idle timer: hibernate after
-  `keepAliveTimeoutSeconds` without network activity for workspaces, destroy
-  after `createTimeoutSeconds` for build sandboxes. Activity includes packets
-  on the runtime's own outbound gateway connection, so an agent working with
-  the desktop closed is not hibernated mid-run, and the clock restarts on
-  wake. The reconciler's own idle pause still runs first.
+- Workspaces get an idle timer: hibernate after `keepAliveTimeoutSeconds`
+  without network activity. Activity includes packets on the runtime's own
+  outbound gateway connection, so an agent working with the desktop closed is
+  not hibernated mid-run, and the clock restarts on wake. The reconciler's own
+  idle pause still runs first. Build sandboxes get boxd's destroy timer
+  instead, which counts `createTimeoutSeconds` from the machine's start
+  regardless of activity: a build that outlives the deadline is destroyed.
 - Every machine is isolated (no in-VM boxd CLI, integrations, or peers). Egress
   is open; restricted policies are rejected like Boat.
 - A restore keeps its snapshot's size. Choosing another placement in the
@@ -63,9 +71,12 @@ the snapshot, version, or `BOXD_API_KEY` secret missing.
   first connection; a new preview port resolves immediately under the
   machine's wildcard. Traffic to a proxy reaches the VM interface, so the
   adapter runs the shared loopback forwarder on every endpoint resolution.
-- There is no usage endpoint or lifecycle webhook. Billing uses the price
-  schedule for the `boxd` provider, as for E2B; add price windows before
-  enabling billing enforcement for boxd placements.
+- There is no usage endpoint, lifecycle webhook, or event log, and machine
+  records carry only `createdAt` and `hibernatedAt`, so no billing usage
+  source exists for boxd: reservations are made at the price schedule while
+  a run lasts, but nothing finalizes them. boxd placements are unbilled until
+  boxd exposes execution events; keep the adapter off where cloud billing is
+  enforced (`CLOUD_BILLING_ENFORCEMENT_ENABLED`).
 - The 50 concurrent machine cap per organization counts hibernated machines
   and forks. Deleted workspaces free their slot; snapshots do not count.
 
