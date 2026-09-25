@@ -12,4 +12,8 @@ UsePAM no
 # permission checks so runtime-written authorized_keys can never lock users out.
 StrictModes no
 PidFile none
+# A peer that vanishes without a close (desktop killed, tunnel dropped) must
+# not leave the per-connection sshd behind: probe it and give up quickly.
+ClientAliveInterval 15
+ClientAliveCountMax 2
 Subsystem sftp internal-sftp
