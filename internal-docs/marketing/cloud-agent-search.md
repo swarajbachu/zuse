@@ -14,6 +14,20 @@ to the release. Cloud remains a public beta; mobile requires compatible services
 and images. The engineering journal proposes checks and does not claim to have
 performed them.
 
+## Secondary alternative-intent page
+
+`/blog/open-source-coding-agent-alternative` owns the secondary alternative
+search intent. Its title and introduction identify Zuse as an independent
+alternative, disclose our affiliation, and link the public source used for the
+brief comparison. It does not claim benchmark superiority or feature parity.
+The English homepage retains the cloud-agent primary title and uses the
+alternative positioning in its description. Footer and guide links connect the
+pages; the existing content collection supplies sitemap and article metadata.
+
+Measure this article separately from the general cloud guide in Search Console
+and PostHog. Check the alternative-intent query group as well as the original
+cloud-agent group so one page's results do not obscure the other's.
+
 ## Deployment
 
 The website uses the app's PostHog project. At build time it reads
