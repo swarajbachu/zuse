@@ -4978,7 +4978,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		}
 	});
 
-	it("settles an orphaned turn after restart even when its status is idle", async () => {
+	it("settles an orphaned idle turn on the first restart without reopening the provider", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-orphaned-idle-turn-"));
 		const dbPath = join(directory, "test.sqlite");
 		const first = makeRuntime(dbPath);
@@ -5024,21 +5024,8 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
+			const startsBeforeRestart = providerStartInputs.length;
 			await first.dispose();
-			activeProviderSessions.clear();
-			providerTurnIds.clear();
-			// The first recovery opens a legacy pending provider-start intent in idle
-			// state, while the already-delivered turn remains durably active.
-			const intermediate = makeRuntime(dbPath, false);
-			try {
-				await intermediate.runPromise(
-					Effect.flatMap(store, (service) =>
-						service.resumeSession(initialSession.id),
-					),
-				);
-			} finally {
-				await intermediate.dispose();
-			}
 			activeProviderSessions.clear();
 			providerTurnIds.clear();
 			const restarted = makeRuntime(dbPath, false);
@@ -5053,12 +5040,19 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						restarted.runPromise(
 							Effect.gen(function* () {
 								const sql = yield* SqlClient.SqlClient;
-								return yield* sql`SELECT status, current_turn_id FROM sessions WHERE id = ${initialSession.id}`;
+								return yield* sql`SELECT status, current_turn_id, current_turn_phase FROM sessions WHERE id = ${initialSession.id}`;
 							}),
 						),
 					)
-					.toEqual([{ status: "error", current_turn_id: null }]);
+					.toEqual([
+						{
+							status: "error",
+							current_turn_id: null,
+							current_turn_phase: null,
+						},
+					]);
 				expect(providerSentTexts).toEqual(["do not replay this command"]);
+				expect(providerStartInputs).toHaveLength(startsBeforeRestart);
 			} finally {
 				await restarted.dispose();
 			}

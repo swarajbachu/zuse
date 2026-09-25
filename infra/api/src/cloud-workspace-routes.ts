@@ -97,6 +97,7 @@ import { cloudRepositoryWorkspacePath } from "./cloud-workspace-paths.ts";
 import {
 	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	withoutRuntimeBootstrapReceipt,
+	workspaceRuntimeReconnectTarget,
 } from "./cloud-workspace-reconciler.ts";
 import {
 	cloudWorkspaceGatewayEpoch,
@@ -3598,6 +3599,22 @@ export const routeCloudWorkspaceRequest = (
 				action === "resume" &&
 				"recoverRuntime" in actionRequest &&
 				actionRequest.recoverRuntime === true;
+			// A client socket failure does not prove the runtime or its agent died.
+			// Mailbox runtimes can acknowledge readiness over their independent HTTP
+			// control channel, so use the same verification as a preserved warm resume.
+			const verifyCurrentRuntime =
+				recoverRuntime &&
+				(workspace.state === "ready" ||
+					workspace.statusCode === "resume-runtime-waking") &&
+				workspace.desiredState === "ready" &&
+				workspace.providerSandboxId !== undefined &&
+				workspace.runtimeCredentialHash !== undefined &&
+				typeof workspace.requestConfig.runtimeCredentialExpiresAtMs ===
+					"number" &&
+				workspace.requestConfig.runtimeCredentialExpiresAtMs > nowMs &&
+				workspace.requestConfig.cloudMailboxFenceRequired !== true &&
+				workspaceSupportsCloudCommandMailbox(workspace);
+
 			let runtimeRecoveryBuild: CloudProjectBuildRecord | null = null;
 			if (recoverRuntime && workspace.providerSandboxId === undefined) {
 				const provider = yield* registeredProvider(workspace.provider);
@@ -3712,6 +3729,9 @@ export const routeCloudWorkspaceRequest = (
 				nextActionAtMs: nowMs,
 				revision: workspace.revision + 1,
 				updatedAtMs: nowMs,
+				...(verifyCurrentRuntime
+					? workspaceRuntimeReconnectTarget(workspace, nowMs)
+					: {}),
 			};
 			const received: CloudWorkspaceRecord = {
 				...updated,
@@ -3737,8 +3757,10 @@ export const routeCloudWorkspaceRequest = (
 				action,
 				deduplicateRequestedResume:
 					action === "resume" &&
-					!recoverRuntime &&
-					cloudWorkspaceResumeIsAlreadyRequested(workspace),
+					(recoverRuntime
+						? verifyCurrentRuntime &&
+							workspace.statusCode === "resume-runtime-waking"
+						: cloudWorkspaceResumeIsAlreadyRequested(workspace)),
 				createdAtMs: nowMs,
 			});
 			if (transition.kind === "missing")
