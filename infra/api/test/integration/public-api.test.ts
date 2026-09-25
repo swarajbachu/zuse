@@ -398,6 +398,141 @@ describe("public API (/v1/api)", () => {
 		}
 	});
 
+	test("verifies a live runtime before replacing it after a client connection failure", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await seedReadyProject(runtime, store);
+			const headers = { ...WORKOS_HEADERS, "content-type": "application/json" };
+			const created = await json<{ workspace: { workspaceId: string } }>(
+				await serve(runtime, "/v1/cloud/workspaces", {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						projectId: "project-1",
+						providerId: PROVIDER_ID,
+						baseRef: "origin/main",
+						agent: "codex",
+						model: "gpt-5",
+						firstMessage: "Inspect",
+						idempotencyKey: "live-runtime-recovery",
+					}),
+				}),
+				201,
+			);
+			const workspaceId = created.workspace.workspaceId;
+			await stageRuntimeCredential(
+				runtime,
+				store,
+				workspaceId,
+				"live-runtime-secret",
+			);
+			const workspace = await runtime.runPromise(
+				store.getWorkspace(workspaceId),
+			);
+			if (workspace === null) throw new Error("workspace missing");
+			await runtime.runPromise(
+				store.saveWorkspace({
+					...workspace,
+					state: "ready",
+					desiredState: "ready",
+					runtimeState: "online",
+					statusCode: "agent-running",
+					providerSandboxId: "retained-sandbox",
+					revision: workspace.revision + 1,
+					updatedAtMs: workspace.updatedAtMs + 1,
+					requestConfig: {
+						...workspace.requestConfig,
+						runtimeGeneration: 1,
+						cloudCommandProtocolVersion: CLOUD_COMMAND_PROTOCOL_VERSION,
+						cloudCommandRuntimeGeneration: 1,
+						sessionHeadVersion: 18,
+					},
+				}),
+			);
+			const recover = (commandId: string) =>
+				serve(runtime, `/v1/cloud/workspaces/${workspaceId}/resume`, {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						workspaceId,
+						recoverRuntime: true,
+						commandId,
+					}),
+				});
+			expect((await recover("connection-recovery-1")).status).toBe(200);
+			const checking = await runtime.runPromise(
+				store.getWorkspace(workspaceId),
+			);
+			expect(checking).toMatchObject({
+				state: "resuming",
+				runtimeState: "connecting",
+				statusCode: "resume-runtime-waking",
+				runtimeCredentialHash: workspace.runtimeCredentialHash,
+				requestConfig: { runtimeGeneration: 1, sessionHeadVersion: 18 },
+			});
+			expect(checking?.requestConfig.runtimeSessionRecoveryPending).not.toBe(
+				true,
+			);
+			// Another client cannot extend the deadline or fence the same live turn.
+			expect((await recover("connection-recovery-2")).status).toBe(200);
+			expect(
+				(await runtime.runPromise(store.getWorkspace(workspaceId)))
+					?.nextActionAtMs,
+			).toBe(checking?.nextActionAtMs);
+			const ready = await serve(
+				runtime,
+				`/v1/cloud/workspaces/${workspaceId}/ready`,
+				{
+					method: "POST",
+					headers: {
+						authorization: "Bearer live-runtime-secret",
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						phase: "repository-ready",
+						commandProtocolVersion: CLOUD_COMMAND_PROTOCOL_VERSION,
+					}),
+				},
+			);
+			expect(`${ready.status}: ${await ready.clone().text()}`).toMatch(/^200:/);
+			expect(
+				await runtime.runPromise(store.getWorkspace(workspaceId)),
+			).toMatchObject({
+				state: "ready",
+				runtimeState: "online",
+				providerSandboxId: "retained-sandbox",
+				runtimeCredentialHash: workspace.runtimeCredentialHash,
+				requestConfig: { runtimeGeneration: 1, sessionHeadVersion: 18 },
+			});
+			// A proven mailbox fence still requires replacement; readiness must not
+			// allow the old generation to continue processing uncertain delivery.
+			const healthy = await runtime.runPromise(store.getWorkspace(workspaceId));
+			if (healthy === null) throw new Error("workspace missing");
+			await runtime.runPromise(
+				store.saveWorkspace({
+					...healthy,
+					requestConfig: {
+						...healthy.requestConfig,
+						cloudMailboxFenceRequired: true,
+					},
+					revision: healthy.revision + 1,
+					updatedAtMs: healthy.updatedAtMs + 1,
+				}),
+			);
+			expect((await recover("connection-recovery-fenced")).status).toBe(200);
+			expect(
+				await runtime.runPromise(store.getWorkspace(workspaceId)),
+			).toMatchObject({
+				state: "resuming",
+				runtimeState: "offline",
+				statusCode: "resume-runtime-recovery-queued",
+			});
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
 	test.each([
 		false,
 		true,
