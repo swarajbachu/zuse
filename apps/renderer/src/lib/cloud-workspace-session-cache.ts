@@ -7,8 +7,12 @@ import type {
 import { runCachedControlPlane } from "./control-plane-client.ts";
 
 const MUTABLE_CLOUD_CACHE_MAX_AGE_MS = 5_000;
+const CLOUD_CACHE_OPTIONS = {
+	maxAgeMs: 60_000,
+	staleWhileRevalidate: true,
+} as const;
 
-export const cloudWorkspaceCacheKeys = {
+const cloudWorkspaceCacheKeys = {
 	providers: "cloud-workspace:providers",
 	projects: "cloud-workspace:projects",
 	entitlements: "cloud-workspace:entitlements",
@@ -24,59 +28,67 @@ export const loadCloudProviders = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.providers,
 		(client) => client["cloud.providers"](),
-		{ refresh },
+		{ ...CLOUD_CACHE_OPTIONS, refresh },
 	);
 
 export const loadCloudProjects = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.projects,
 		(client) => client["cloud.projects.list"](),
-		{ refresh },
+		{ ...CLOUD_CACHE_OPTIONS, refresh },
 	);
 
 export const loadCloudEntitlements = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.entitlements,
 		(client) => client["machines.entitlements"](),
-		{ refresh },
+		{ ...CLOUD_CACHE_OPTIONS, refresh },
 	);
 
 export const loadCloudImage = (providerId?: string, refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.image(providerId),
 		(client) => client["cloud.image.status"]({ providerId }),
-		{ refresh, maxAgeMs: MUTABLE_CLOUD_CACHE_MAX_AGE_MS },
+		{
+			...CLOUD_CACHE_OPTIONS,
+			refresh,
+			maxAgeMs: MUTABLE_CLOUD_CACHE_MAX_AGE_MS,
+		},
 	);
 
 export const loadCloudGithub = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.github,
 		(client) => client["cloud.github.status"](),
-		{ refresh },
+		{ ...CLOUD_CACHE_OPTIONS, refresh },
 	);
 
 export const loadCloudWorkspaces = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.workspaces,
 		(client) => client["cloud.workspaces.list"]({}),
-		{ refresh, maxAgeMs: MUTABLE_CLOUD_CACHE_MAX_AGE_MS },
+		{
+			...CLOUD_CACHE_OPTIONS,
+			refresh,
+			maxAgeMs: MUTABLE_CLOUD_CACHE_MAX_AGE_MS,
+		},
 	);
 
 export const loadCloudBillingSummary = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.billingSummary,
 		(client) => client["cloud.billing.summary"](),
-		{ refresh },
+		{ ...CLOUD_CACHE_OPTIONS, refresh },
 	);
 
 export const loadCloudBillingUsage = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.billingUsage,
 		(client) => client["cloud.billing.usage"]({ limit: 20 }),
-		{ refresh },
+		{ ...CLOUD_CACHE_OPTIONS, refresh },
 	);
 
-const hasCloudEntitlement = (
+export const hasCloudEntitlement = (
 	result: Awaited<ReturnType<typeof loadCloudEntitlements>>,
 ): boolean =>
 	result.entitlements.some(
@@ -89,7 +101,7 @@ const hasCloudEntitlement = (
 					item.paidThrough > Date.now())),
 	);
 
-export type CloudWorkspacePlacementSnapshot = Readonly<{
+type CloudWorkspacePlacementSnapshot = Readonly<{
 	providers: ReadonlyArray<CloudProviderOption>;
 	projects: ReadonlyArray<CloudProject>;
 	images: ReadonlyArray<CloudAccountImage>;

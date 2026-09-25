@@ -1,3 +1,4 @@
+import { subscribeControlPlaneSessionCache } from "~/lib/control-plane-client.ts";
 import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -551,8 +552,18 @@ export function ChatLanding() {
 			}
 		};
 		void loadCloudPlacement();
+		const unsubscribe = subscribeControlPlaneSessionCache((key) => {
+			if (
+				key === "cloud-workspace:providers" ||
+				key === "cloud-workspace:projects" ||
+				key === "cloud-workspace:entitlements" ||
+				key.startsWith("cloud-workspace:image:")
+			)
+				void loadCloudPlacement();
+		});
 		return () => {
 			cancelled = true;
+			unsubscribe();
 		};
 	}, [cloudRepositoryIdentity]);
 	const cloudPickerItems = useMemo<ReadonlyArray<CloudComputerPickerItem>>(
