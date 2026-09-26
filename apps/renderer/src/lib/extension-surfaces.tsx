@@ -70,7 +70,11 @@ export function ExtensionSurfaceHost() {
 					{extensionMessage("extensions:close")}
 				</button>
 			</header>
-			<ExtensionErrorBoundary extensionId={extension.extensionId}>
+			<ExtensionErrorBoundary
+				key={`${extension.extensionId}:${surface.id}`}
+				extensionId={extension.extensionId}
+				resetKey={extension.contributions}
+			>
 				{React.createElement(surface.Component, {
 					extensionId: extension.extensionId,
 					theme: extensionHostTheme,
@@ -118,7 +122,11 @@ export function ExtensionWorkspacePanelHost({
 		);
 	}
 	return (
-		<ExtensionErrorBoundary extensionId={extension.extensionId}>
+		<ExtensionErrorBoundary
+			key={`${extension.extensionId}:${panel.id}`}
+			extensionId={extension.extensionId}
+			resetKey={extension.contributions}
+		>
 			{React.createElement(panel.Component, {
 				extensionId: extension.extensionId,
 				theme: extensionHostTheme,

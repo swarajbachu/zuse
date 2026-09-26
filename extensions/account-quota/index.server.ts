@@ -52,6 +52,7 @@ export default function setup(e: ExtensionServerContext) {
 				error: null,
 			});
 		} catch (error) {
+			if (signal.aborted) lastAttempt.delete(account.id);
 			signal.throwIfAborted();
 			const message =
 				error instanceof Error &&

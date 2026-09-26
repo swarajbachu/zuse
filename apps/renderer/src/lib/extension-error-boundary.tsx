@@ -6,6 +6,7 @@ export class ExtensionErrorBoundary extends React.Component<
 	React.PropsWithChildren<{
 		readonly extensionId: string;
 		readonly fallback?: React.ReactNode;
+		readonly resetKey?: unknown;
 	}>,
 	{ readonly failed: boolean }
 > {
@@ -18,6 +19,10 @@ export class ExtensionErrorBoundary extends React.Component<
 			`[extension:${this.props.extensionId}] renderer contribution failed`,
 			cause,
 		);
+	}
+	override componentDidUpdate(previous: Readonly<typeof this.props>) {
+		if (previous.resetKey !== this.props.resetKey && this.state.failed)
+			this.setState({ failed: false });
 	}
 	override render() {
 		return this.state.failed

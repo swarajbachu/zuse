@@ -20,7 +20,7 @@ export interface ActiveRegistration extends RegisteredExtension {
 }
 
 const EMPTY: ReadonlyArray<RegisteredExtension> = [];
-class ExtensionRegistry {
+export class ExtensionRegistry {
 	private active = new Map<ExtensionId, ActiveRegistration>();
 	private snapshot: ReadonlyArray<RegisteredExtension> = EMPTY;
 	private listeners = new Set<() => void>();
@@ -50,7 +50,7 @@ class ExtensionRegistry {
 		);
 		for (const [id, registration] of this.active) {
 			const item = desired.get(id);
-			if (item?.clientBundle === registration.bundle) continue;
+			if (item !== undefined) continue;
 			try {
 				await boundedCleanup(registration.dispose);
 			} catch (cause) {
@@ -60,7 +60,9 @@ class ExtensionRegistry {
 			}
 		}
 		for (const [id, item] of desired) {
-			if (this.active.has(id) || item.clientBundle === null) continue;
+			const previous = this.active.get(id);
+			if (previous?.bundle === item.clientBundle || item.clientBundle === null)
+				continue;
 			const runnableItem = { ...item, clientBundle: item.clientBundle };
 			try {
 				const { evaluateExtension } = await withExtensionDeadline(
@@ -68,16 +70,32 @@ class ExtensionRegistry {
 					5000,
 					"Extension client loading timed out.",
 				);
-				this.active.set(id, await evaluateExtension(runnableItem));
+				const candidate = await evaluateExtension(runnableItem);
+				this.active.set(id, candidate);
+				if (previous) {
+					try {
+						await boundedCleanup(previous.dispose);
+					} catch (cause) {
+						console.error("[extensions] cleanup failed", cause);
+					}
+				}
 			} catch (cause) {
 				console.error(`[extensions] client setup failed: ${id}`, cause);
-				this.active.set(id, {
-					extensionId: id,
-					bundle: item.clientBundle,
-					contributions: emptyCollector(),
-					error: cause instanceof Error ? cause.message : String(cause),
-					dispose: async () => {},
-				});
+				this.active.set(
+					id,
+					previous
+						? {
+								...previous,
+								error: cause instanceof Error ? cause.message : String(cause),
+							}
+						: {
+								extensionId: id,
+								bundle: item.clientBundle,
+								contributions: emptyCollector(),
+								error: cause instanceof Error ? cause.message : String(cause),
+								dispose: async () => {},
+							},
+				);
 			}
 		}
 		this.snapshot = [...this.active.values()].sort((left, right) =>

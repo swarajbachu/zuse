@@ -364,7 +364,7 @@
     },
     "extensions/account-quota": {
       "name": "@zuse-extension/account-quota",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "dependencies": {
         "@types/node": "catalog:",
         "@zuse/extension-sdk": "workspace:*",
@@ -392,7 +392,7 @@
     },
     "extensions/code-follow-ups": {
       "name": "@zuse-extension/code-follow-ups",
-      "version": "0.1.0",
+      "version": "0.1.1",
     },
     "extensions/midnight-ocean": {
       "name": "@zuse-extension/midnight-ocean",
@@ -403,11 +403,11 @@
     },
     "extensions/project-playbook": {
       "name": "@zuse-extension/project-playbook",
-      "version": "0.1.0",
+      "version": "0.1.1",
     },
     "extensions/test-reports": {
       "name": "@zuse-extension/test-reports",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "fast-xml-parser": "5.11.1",
       },

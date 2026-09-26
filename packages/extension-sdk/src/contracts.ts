@@ -134,7 +134,7 @@ export interface ExtensionTimelineTransformerContribution {
 export interface ExtensionTimelineRendererProps<Data = unknown>
 	extends ExtensionHostProps {
 	readonly sessionId: string;
-	readonly item: ExtensionTimelineItem & { readonly data: Data };
+	readonly item: Omit<ExtensionTimelineItem, "data"> & { readonly data: Data };
 	readonly timestamp: Date;
 }
 

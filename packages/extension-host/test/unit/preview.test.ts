@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { decodeArtifact } from "../../src/artifact.ts";
 import { compileExtension } from "../../src/compiler.ts";
@@ -82,7 +83,12 @@ describe("desktop preview boundaries", () => {
 			for (const id of ["test-reports", "project-playbook", "code-follow-ups"])
 				await host.execute({
 					_tag: "install",
-					source: { _tag: "directory", path: resolve("extensions", id) },
+					source: {
+						_tag: "directory",
+						path: fileURLToPath(
+							new URL(`../../../../extensions/${id}`, import.meta.url),
+						),
+					},
 					grantedCapabilities: [
 						"ui",
 						"attachments",
@@ -282,10 +288,17 @@ it("installs precompiled catalog data, rejects tampering, and retains installed 
 	);
 	const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 	const manifest = await readExtensionManifest(
-		resolve("extensions/project-playbook"),
+		fileURLToPath(
+			new URL("../../../../extensions/project-playbook", import.meta.url),
+		),
 	);
 	const compiled = await compileExtension(
-		compileEntries(resolve("extensions/project-playbook"), manifest),
+		compileEntries(
+			fileURLToPath(
+				new URL("../../../../extensions/project-playbook", import.meta.url),
+			),
+			manifest,
+		),
 	);
 	const artifact = Buffer.from(
 		JSON.stringify({ schemaVersion: 1, manifest, compiled }),

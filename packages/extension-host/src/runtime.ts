@@ -224,6 +224,10 @@ export const startExtensionProcess = async (input: {
 		if (raw.type === "secret") {
 			void (async () => {
 				try {
+					if (!input.capabilities.includes("credentials"))
+						throw new Error(
+							"Secret access requires the credentials capability.",
+						);
 					if (raw.operation !== "get" && !active)
 						throw new Error(
 							"Secret writes are unavailable during extension preparation.",

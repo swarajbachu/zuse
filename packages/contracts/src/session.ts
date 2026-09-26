@@ -1565,6 +1565,12 @@ export const SessionQuestionAttachmentsRpc = Rpc.make(
 	},
 );
 
+/** An installed provider cannot perform the requested session operation. */
+export class SessionOperationUnsupportedError extends Schema.TaggedErrorClass<SessionOperationUnsupportedError>()(
+	"SessionOperationUnsupportedError",
+	{ message: Schema.String },
+) {}
+
 export const SessionAnswerQuestionRpc = Rpc.make("session.answerQuestion", {
 	payload: Schema.Struct({
 		commandId: CommandId,
@@ -1573,7 +1579,7 @@ export const SessionAnswerQuestionRpc = Rpc.make("session.answerQuestion", {
 		answers: Schema.Array(UserQuestionAnswer),
 	}),
 	success: Schema.Void,
-	error: SessionNotFoundError,
+	error: Schema.Union([SessionNotFoundError, SessionOperationUnsupportedError]),
 });
 
 export const SessionCancelQuestionRpc = Rpc.make("session.cancelQuestion", {

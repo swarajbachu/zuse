@@ -32,13 +32,13 @@ it("evaluates the deferred extension and removes its styles even when cleanup fa
 			entry: "index.ts",
 			zuseApi: "^1.1.0",
 			contributions: ["command"],
-			capabilities: ["ui"],
+			capabilities: ["ui", "commands"],
 			publisher: { name: "Tests" },
 		},
 		source: { _tag: "directory", path: "/test" },
 		status: "running",
 		enabled: true,
-		grantedCapabilities: ["ui"],
+		grantedCapabilities: ["ui", "commands"],
 		activeCommit: null,
 		availableCommit: null,
 		error: null,
@@ -46,6 +46,16 @@ it("evaluates the deferred extension and removes its styles even when cleanup fa
 		clientBundle,
 		clientCss: ".test { color: red; }",
 	});
+	await expect(
+		evaluateExtension({ ...item, clientBundle, grantedCapabilities: ["ui"] }),
+	).rejects.toThrow("commands capability grant");
+	await expect(
+		evaluateExtension({
+			...item,
+			clientBundle,
+			manifest: { ...item.manifest, capabilities: ["ui"] },
+		}),
+	).rejects.toThrow("commands capability declaration");
 	const registration = await evaluateExtension({ ...item, clientBundle });
 	expect(registration.contributions.commands[0]?.id).toBe("hello");
 	expect(
