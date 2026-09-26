@@ -151,6 +151,7 @@ interface Env extends SlackBindings {
 	readonly CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL?: string;
 	readonly CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
 	readonly SANDBOX_DEFAULT_PROVIDER_ID?: string;
+	readonly CLOUD_AUTH_PROVIDER_ID?: string;
 	readonly BOAT_ADAPTER_ENABLED?: string;
 	readonly BOAT_API_KEY?: string;
 	readonly BOAT_API_BASE_URL?: string;
@@ -177,6 +178,13 @@ interface Env extends SlackBindings {
 	readonly E2B_VCPU_COUNT?: string;
 	readonly E2B_MEMORY_MIB?: string;
 	readonly E2B_WEBHOOK_SECRET?: string;
+	readonly BOXD_ADAPTER_ENABLED?: string;
+	readonly BOXD_API_KEY?: string;
+	readonly BOXD_ORG?: string;
+	readonly BOXD_BASE_URL?: string;
+	readonly BOXD_TEMPLATE_SNAPSHOT?: string;
+	readonly BOXD_TEMPLATE_VERSION?: string;
+	readonly BOXD_MACHINE_SIZE?: string;
 	readonly CLOUD_BILLING_ENFORCEMENT_ENABLED?: string;
 	readonly CLOUD_BILLING_EXPORT_ENABLED?: string;
 	readonly CLOUD_BILLING_CUTOVER_AT?: string;
@@ -367,6 +375,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		cloudDataEncryptionKey: isConfigured(cloudDataEncryptionKey)
 			? Redacted.make(cloudDataEncryptionKey)
 			: undefined,
+		cloudAuthProviderId: sandboxProvider.cloudAuthProviderId,
 		githubApp: githubAppConfigured
 			? {
 					appId: env.GITHUB_APP_ID as string,

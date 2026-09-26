@@ -3,23 +3,16 @@ import {
 	makeE2bSandboxProvider,
 } from "@zuse/sandbox-providers/e2b";
 import { Redacted, Schema } from "effect";
-import {
-	SandboxProviderConfigurationError,
-	type SandboxProviderEnvironment,
-	type SandboxProviderModule,
+import type {
+	SandboxProviderEnvironment,
+	SandboxProviderModule,
 } from "../sandbox-provider-module.ts";
+import {
+	ConfiguredString,
+	decodeProviderEnvironment,
+	HttpsUrl,
+} from "./environment.ts";
 
-const ConfiguredString = Schema.Trim.check(
-	Schema.isNonEmpty(),
-	Schema.makeFilter(
-		(value) =>
-			!value.startsWith("REPLACE_WITH") ||
-			"Placeholder values are not configured",
-	),
-);
-const HttpsUrl = Schema.URLFromString.check(
-	Schema.makeFilter((url) => url.protocol === "https:" || "URL must use HTTPS"),
-);
 const ActivationEnvironment = Schema.Struct({
 	E2B_ADAPTER_ENABLED: Schema.optionalKey(Schema.Literals(["true", "false"])),
 });
@@ -37,29 +30,12 @@ const E2bEnvironment = Schema.Struct({
 	E2B_MEMORY_MIB: Schema.optionalKey(PositiveIntegerFromString),
 });
 
-const configurationError = (): SandboxProviderConfigurationError =>
-	new SandboxProviderConfigurationError({
-		message: "Invalid E2B sandbox provider configuration",
-	});
+const isActivated = (env: SandboxProviderEnvironment): boolean =>
+	decodeProviderEnvironment(ActivationEnvironment, env, "E2B")
+		.E2B_ADAPTER_ENABLED === "true";
 
-const isActivated = (env: SandboxProviderEnvironment): boolean => {
-	try {
-		return (
-			Schema.decodeUnknownSync(ActivationEnvironment)(env)
-				.E2B_ADAPTER_ENABLED === "true"
-		);
-	} catch {
-		throw configurationError();
-	}
-};
-
-const decodeEnvironment = (env: SandboxProviderEnvironment) => {
-	try {
-		return Schema.decodeUnknownSync(E2bEnvironment)(env);
-	} catch {
-		throw configurationError();
-	}
-};
+const decodeEnvironment = (env: SandboxProviderEnvironment) =>
+	decodeProviderEnvironment(E2bEnvironment, env, "E2B");
 
 export const E2bSandboxProviderModule: SandboxProviderModule = {
 	providerId: E2B_PROVIDER_ID,

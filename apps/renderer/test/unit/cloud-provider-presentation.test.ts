@@ -12,7 +12,30 @@ afterEach(async () => {
 describe("cloud provider size presentation", () => {
 	it("shows Boat for the retained Box provider ID", () => {
 		expect(cloudProviderLabel("box")).toBe("Boat");
+		expect(cloudProviderLabel("boxd")).toBe("boxd");
 		expect(cloudProviderLabel("e2b")).toBe("E2B");
+	});
+
+	it("localizes boxd's small, standard, and large placements", async () => {
+		await prepareLocale("fr", ["chat"]);
+		await activateLocale("fr");
+		expect(
+			cloudProviderSizeLabel("boxd", {
+				sizeId: "small",
+				displayName: "Small (1 vCPU / 4 GB)",
+				vcpuCount: 1,
+				memoryMib: 4096,
+			}),
+		).toBe("Petite (1 vCPU / 4 Go)");
+		await activateLocale("en");
+		expect(
+			cloudProviderSizeLabel("boxd", {
+				sizeId: "large",
+				displayName: "Large (4 vCPU / 16 GB)",
+				vcpuCount: 4,
+				memoryMib: 16384,
+			}),
+		).toBe("Large (4 vCPU / 16 GB)");
 	});
 	const size = {
 		sizeId: "small",

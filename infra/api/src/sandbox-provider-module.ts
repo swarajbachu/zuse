@@ -28,6 +28,8 @@ export interface SandboxProviderRuntime {
 		readonly productionReady: boolean;
 		readonly advertised: boolean;
 	}>;
+	/** `CLOUD_AUTH_PROVIDER_ID`, validated against the registered providers. */
+	readonly cloudAuthProviderId?: string;
 }
 
 export interface SandboxProviderModule {
@@ -52,6 +54,44 @@ const offerConfiguration = (): SandboxOfferConfig => ({
 const DefaultProviderEnvironment = Schema.Struct({
 	SANDBOX_DEFAULT_PROVIDER_ID: Schema.optionalKey(Schema.String),
 });
+const CloudAuthProviderEnvironment = Schema.Struct({
+	CLOUD_AUTH_PROVIDER_ID: Schema.optionalKey(Schema.String),
+});
+
+const isRegistered = (
+	registrations: ReadonlyArray<SandboxProviderRegistration>,
+	providerId: string,
+): boolean =>
+	registrations.some(
+		({ adapter, aliases = [] }) =>
+			adapter.providerId === providerId || aliases.includes(providerId),
+	);
+
+// The login authority must run on a registered provider. Checked at boot like
+// the default provider: a typo or a disabled adapter would otherwise surface
+// only as a 503 on every Cloud authentication request.
+const resolveCloudAuthProviderId = (
+	env: SandboxProviderEnvironment,
+	registrations: ReadonlyArray<SandboxProviderRegistration>,
+): string | undefined => {
+	let requested: string | undefined;
+	try {
+		requested = Schema.decodeUnknownSync(CloudAuthProviderEnvironment)(
+			env,
+		).CLOUD_AUTH_PROVIDER_ID?.trim();
+	} catch {
+		throw new SandboxProviderConfigurationError({
+			message: "Invalid CLOUD_AUTH_PROVIDER_ID",
+		});
+	}
+	if (requested === undefined || requested === "") return undefined;
+	if (!isRegistered(registrations, requested)) {
+		throw new SandboxProviderConfigurationError({
+			message: `CLOUD_AUTH_PROVIDER_ID is not a configured provider: ${requested}`,
+		});
+	}
+	return requested;
+};
 
 const resolveDefaultProviderId = (
 	env: SandboxProviderEnvironment,
@@ -78,11 +118,7 @@ const resolveDefaultProviderId = (
 	if (requested === undefined || requested === "") {
 		return firstRegistration.adapter.providerId;
 	}
-	const matches = registrations.some(
-		({ adapter, aliases = [] }) =>
-			adapter.providerId === requested || aliases.includes(requested),
-	);
-	if (!matches) {
+	if (!isRegistered(registrations, requested)) {
 		throw new SandboxProviderConfigurationError({
 			message: `SANDBOX_DEFAULT_PROVIDER_ID is not a configured provider: ${requested}`,
 		});
@@ -122,5 +158,10 @@ export const resolveSandboxProviderRuntimeFromModules = <
 		layer,
 		offer,
 		configuredProviders,
+		...(registrations.length === 0
+			? {}
+			: {
+					cloudAuthProviderId: resolveCloudAuthProviderId(env, registrations),
+				}),
 	};
 };

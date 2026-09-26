@@ -23,6 +23,7 @@ import {
 	AUTH_GRANT_SOURCE,
 	AUTH_INITIALIZER_SOURCE,
 	CODEX_GRANT_SOURCE,
+	canSeedCloudAuthSnapshot,
 	cloudAuthAuthorityLabel,
 	parseDeviceLoginOutput,
 	snapshotCloudAuthAuthority,
@@ -51,6 +52,13 @@ describe("cloud auth authority identity", () => {
 				>,
 			),
 		).resolves.toBeUndefined();
+	});
+	test("seeds images only when the authority and the image both live on E2B", () => {
+		expect(canSeedCloudAuthSnapshot("e2b")).toBe(true);
+		expect(canSeedCloudAuthSnapshot("e2b", "e2b")).toBe(true);
+		expect(canSeedCloudAuthSnapshot("e2b", "boxd")).toBe(false);
+		expect(canSeedCloudAuthSnapshot("boxd", "boxd")).toBe(false);
+		expect(canSeedCloudAuthSnapshot("box", "e2b")).toBe(false);
 	});
 	test("isolates deployments but remains stable across image updates", async () => {
 		const label = (apiIssuer: string) =>

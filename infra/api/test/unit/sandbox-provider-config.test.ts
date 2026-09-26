@@ -124,4 +124,101 @@ describe("sandbox provider configuration", () => {
 			resolveSandboxProviderRuntime({ BOX_ADAPTER_ENABLED: "true" }),
 		).toThrow(SandboxProviderConfigurationError);
 	});
+
+	test("validates the cloud auth provider against the registered providers", () => {
+		expect(() =>
+			resolveSandboxProviderRuntime({
+				...configuredEnvironment,
+				CLOUD_AUTH_PROVIDER_ID: "boxd",
+			}),
+		).toThrow(SandboxProviderConfigurationError);
+		expect(
+			resolveSandboxProviderRuntime({
+				...configuredEnvironment,
+				CLOUD_AUTH_PROVIDER_ID: " e2b ",
+			}).cloudAuthProviderId,
+		).toBe("e2b");
+		expect(
+			resolveSandboxProviderRuntime(configuredEnvironment).cloudAuthProviderId,
+		).toBeUndefined();
+	});
+
+	test("advertises configured boxd beside the other providers", async () => {
+		const runtime = resolveSandboxProviderRuntime({
+			...configuredEnvironment,
+			BOXD_ADAPTER_ENABLED: "true",
+			BOXD_API_KEY: "bxd_secret",
+			BOXD_ORG: "zuse",
+			BOXD_TEMPLATE_SNAPSHOT: "zuse-base-v1",
+			BOXD_TEMPLATE_VERSION: "1",
+			BOXD_MACHINE_SIZE: "small",
+			SANDBOX_DEFAULT_PROVIDER_ID: "boxd",
+		});
+		const providers = await Effect.runPromise(
+			Effect.gen(function* () {
+				const registry = yield* SandboxProviders;
+				const boxd = yield* registry.get("boxd");
+				return {
+					defaultProviderId: (yield* registry.getDefault).providerId,
+					availableProviderIds: registry.availableProviders.map(
+						(provider) => provider.providerId,
+					),
+					templateVersion: boxd.templateVersion,
+					resources: boxd.resources,
+					preservesProcessesOnResume: boxd.preservesProcessesOnResume,
+				};
+			}).pipe(Effect.provide(runtime.layer)),
+		);
+
+		expect(runtime.configuredProviders).toEqual([
+			{ providerId: "e2b", productionReady: true, advertised: true },
+			{ providerId: "boxd", productionReady: true, advertised: true },
+		]);
+		expect(providers).toEqual({
+			defaultProviderId: "boxd",
+			availableProviderIds: ["e2b", "boxd"],
+			templateVersion: "1",
+			resources: { vcpuCount: 1, memoryMib: 4_096 },
+			preservesProcessesOnResume: true,
+		});
+	});
+
+	test.each([
+		{ BOXD_ADAPTER_ENABLED: "true" },
+		{
+			BOXD_ADAPTER_ENABLED: "true",
+			BOXD_API_KEY: "REPLACE_WITH_KEY",
+			BOXD_TEMPLATE_SNAPSHOT: "zuse-base-v1",
+			BOXD_TEMPLATE_VERSION: "1",
+		},
+		{
+			BOXD_ADAPTER_ENABLED: "true",
+			BOXD_API_KEY: "bxd_secret",
+			BOXD_BASE_URL: "http://boxd.internal:9443",
+			BOXD_TEMPLATE_SNAPSHOT: "zuse-base-v1",
+			BOXD_TEMPLATE_VERSION: "1",
+		},
+		{
+			BOXD_ADAPTER_ENABLED: "true",
+			BOXD_API_KEY: "bxd_secret",
+			BOXD_TEMPLATE_SNAPSHOT: "zuse-base-v1",
+			BOXD_TEMPLATE_VERSION: "1",
+			BOXD_MACHINE_SIZE: "xlarge",
+		},
+	])("fails closed when an enabled boxd provider is incomplete: %j", (env) => {
+		expect(() => resolveSandboxProviderRuntime(env)).toThrow(
+			SandboxProviderConfigurationError,
+		);
+	});
+
+	test("leaves boxd unregistered until it is explicitly enabled", () => {
+		expect(
+			resolveSandboxProviderRuntime({
+				...configuredEnvironment,
+				BOXD_API_KEY: "bxd_secret",
+				BOXD_TEMPLATE_SNAPSHOT: "zuse-base-v1",
+				BOXD_TEMPLATE_VERSION: "1",
+			}).configuredProviders.map((provider) => provider.providerId),
+		).toEqual(["e2b"]);
+	});
 });

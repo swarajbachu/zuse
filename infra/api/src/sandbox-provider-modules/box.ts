@@ -5,23 +5,16 @@ import {
 } from "@zuse/sandbox-providers/box";
 import { Redacted, Schema } from "effect";
 import { readBoatEnvironment } from "../boat-environment.ts";
-import {
-	SandboxProviderConfigurationError,
-	type SandboxProviderEnvironment,
-	type SandboxProviderModule,
+import type {
+	SandboxProviderEnvironment,
+	SandboxProviderModule,
 } from "../sandbox-provider-module.ts";
+import {
+	ConfiguredString,
+	decodeProviderEnvironment,
+	HttpsUrl,
+} from "./environment.ts";
 
-const ConfiguredString = Schema.Trim.check(
-	Schema.isNonEmpty(),
-	Schema.makeFilter(
-		(value) =>
-			!value.startsWith("REPLACE_WITH") ||
-			"Placeholder values are not configured",
-	),
-);
-const HttpsUrl = Schema.URLFromString.check(
-	Schema.makeFilter((url) => url.protocol === "https:" || "URL must use HTTPS"),
-);
 const ActivationEnvironment = Schema.Struct({
 	BOAT_ADAPTER_ENABLED: Schema.optionalKey(Schema.Literals(["true", "false"])),
 });
@@ -36,29 +29,15 @@ const BoxEnvironment = Schema.Struct({
 	BOAT_HOSTED_PORT_DOMAIN: Schema.optionalKey(ConfiguredString),
 });
 
-const configurationError = (): SandboxProviderConfigurationError =>
-	new SandboxProviderConfigurationError({
-		message: "Invalid Boat sandbox provider configuration",
-	});
+const isActivated = (env: SandboxProviderEnvironment): boolean =>
+	decodeProviderEnvironment(
+		ActivationEnvironment,
+		readBoatEnvironment(env),
+		"Boat",
+	).BOAT_ADAPTER_ENABLED === "true";
 
-const isActivated = (env: SandboxProviderEnvironment): boolean => {
-	try {
-		return (
-			Schema.decodeUnknownSync(ActivationEnvironment)(readBoatEnvironment(env))
-				.BOAT_ADAPTER_ENABLED === "true"
-		);
-	} catch {
-		throw configurationError();
-	}
-};
-
-const decodeEnvironment = (env: SandboxProviderEnvironment) => {
-	try {
-		return Schema.decodeUnknownSync(BoxEnvironment)(readBoatEnvironment(env));
-	} catch {
-		throw configurationError();
-	}
-};
+const decodeEnvironment = (env: SandboxProviderEnvironment) =>
+	decodeProviderEnvironment(BoxEnvironment, readBoatEnvironment(env), "Boat");
 
 export const BoxSandboxProviderModule: SandboxProviderModule = {
 	providerId: BOX_PROVIDER_ID,

@@ -60,5 +60,5 @@ jobs:
             Refresh stable cloud CLI pins and the signed toolchain version.
             The nightly job runs formatting, type checks, and the real Codex external-auth contract test before opening this PR.
 
-            After merge, publish new E2B/Boat templates, update their immutable versions in the API configuration, and rebuild account images. This PR does not change running workspaces or deploy production.
+            After merge, publish new E2B/Boat/boxd templates, update their immutable versions in the API configuration, and rebuild account images. This PR does not change running workspaces or deploy production.
             See internal-docs/cloud/toolchain-updates.md for rollout and required setup.

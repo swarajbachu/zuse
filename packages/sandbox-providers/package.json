@@ -16,6 +16,11 @@
 			"import": "./src/box.ts",
 			"require": "./src/box.ts"
 		},
+		"./boxd": {
+			"types": "./src/boxd.ts",
+			"import": "./src/boxd.ts",
+			"require": "./src/boxd.ts"
+		},
 		"./e2b": {
 			"types": "./src/e2b.ts",
 			"import": "./src/e2b.ts",
@@ -34,6 +39,7 @@
 		"test:unit": "vitest run test/unit --passWithNoTests"
 	},
 	"dependencies": {
+		"@boxd-sh/sdk": "0.2.11",
 		"@zuse/provider-registry": "*",
 		"@zuse/utils": "*",
 		"effect": "catalog:"

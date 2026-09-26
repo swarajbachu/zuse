@@ -21,11 +21,18 @@ const config = parse(readFileSync(configPath, "utf8"));
 const vars = config.vars ?? {};
 const boat = readBoatEnvironment(vars);
 const boatEnabled = boat.BOAT_ADAPTER_ENABLED === "true";
+const boxdEnabled = vars.BOXD_ADAPTER_ENABLED === "true";
 const requiredValues = {
 	...(boatEnabled
 		? {
 				BOAT_TEMPLATE_SNAPSHOT: boat.BOAT_TEMPLATE_SNAPSHOT,
 				BOAT_TEMPLATE_VERSION: boat.BOAT_TEMPLATE_VERSION,
+			}
+		: {}),
+	...(boxdEnabled
+		? {
+				BOXD_TEMPLATE_SNAPSHOT: vars.BOXD_TEMPLATE_SNAPSHOT,
+				BOXD_TEMPLATE_VERSION: vars.BOXD_TEMPLATE_VERSION,
 			}
 		: {}),
 	HYPERDRIVE: config.hyperdrive?.[0]?.id,
@@ -47,6 +54,21 @@ const requiredValues = {
 const missingValues = Object.entries(requiredValues)
 	.filter(([, value]) => typeof value !== "string" || value.trim() === "")
 	.map(([name]) => name);
+const enabledAdapters = new Set([
+	"e2b",
+	...(boatEnabled ? ["box", "boat"] : []),
+	...(boxdEnabled ? ["boxd"] : []),
+]);
+const cloudAuthProvider =
+	typeof vars.CLOUD_AUTH_PROVIDER_ID === "string"
+		? vars.CLOUD_AUTH_PROVIDER_ID.trim()
+		: "";
+if (cloudAuthProvider !== "" && !enabledAdapters.has(cloudAuthProvider)) {
+	console.error(
+		`CLOUD_AUTH_PROVIDER_ID names a provider that is not enabled: ${cloudAuthProvider}.`,
+	);
+	process.exit(1);
+}
 if (
 	vars.E2B_ADAPTER_ENABLED !== "true" ||
 	vars.POLAR_ENVIRONMENT !== "production" ||
@@ -75,6 +97,7 @@ const requiredSecrets = [
 	...(boatEnabled && !installedSecrets.has("BOX_API_KEY")
 		? ["BOAT_API_KEY"]
 		: []),
+	...(boxdEnabled ? ["BOXD_API_KEY"] : []),
 	"RELAY_MINT_PRIVATE_JWK",
 	"WORKOS_API_KEY",
 	"CF_API_TOKEN",
