@@ -1,4 +1,9 @@
+import "@zuse/i18n/english/shell";
+import "@zuse/i18n/english/chat";
+import "@zuse/i18n/english/projects";
+import "@zuse/i18n/english/common";
 import { type ApiEnvironmentRecord, EnvironmentId } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useState } from "react";
 import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
 import {
@@ -47,6 +52,12 @@ const readLaptopPreference = (): HostedLaptopPreference => {
 };
 
 export function HostedSidebar() {
+	const { message: uiMessage } = useUiMessages([
+		"chat",
+		"common",
+		"projects",
+		"shell",
+	]);
 	const [preference, setPreference] = useState(readLaptopPreference);
 	const [computers, setComputers] = useState<
 		ReadonlyArray<ApiEnvironmentRecord>
@@ -61,9 +72,13 @@ export function HostedSidebar() {
 	useEffect(() => watchCloudChatCatalog(), []);
 	useEffect(() => {
 		void refreshHostedProjects().catch(() =>
-			setError("Could not load cloud projects. Retry or open Settings."),
+			setError(
+				uiMessage(
+					"shell:hosted_could_not_load_cloud_projects_retry_or_open_settings",
+				),
+			),
 		);
-	}, []);
+	}, [uiMessage]);
 	useEffect(() => {
 		if (!preference.enabled) return;
 		let active = true;
@@ -75,13 +90,14 @@ export function HostedSidebar() {
 				}
 			},
 			() => {
-				if (active) setCatalogError("Could not load computers.");
+				if (active)
+					setCatalogError(uiMessage("shell:hosted_could_not_load_computers"));
 			},
 		);
 		return () => {
 			active = false;
 		};
-	}, [preference.enabled]);
+	}, [preference.enabled, uiMessage]);
 	const update = (next: HostedLaptopPreference) => {
 		setPreference(next);
 		try {
@@ -101,7 +117,9 @@ export function HostedSidebar() {
 	return (
 		<aside className="flex h-full min-h-0 flex-col gap-3 p-3 text-xs">
 			<div className="flex items-center justify-between">
-				<span className="font-medium">Cloud chats</span>
+				<span className="font-medium">
+					{uiMessage("shell:hosted_cloud_chats")}
+				</span>
 				<Button
 					className="h-7"
 					variant="ghost"
@@ -110,12 +128,14 @@ export function HostedSidebar() {
 						useUiStore.getState().setActiveMainTab("chat");
 					}}
 				>
-					New chat
+					{uiMessage("projects:projects_sidebar_new_chat")}
 				</Button>
 			</div>
 			<div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto">
 				{cloudLoading && summaries.length === 0 && (
-					<p className="text-muted-foreground">Loading chats…</p>
+					<p className="text-muted-foreground">
+						{uiMessage("shell:hosted_loading_chats")}
+					</p>
 				)}
 				{(error || cloudError) && (
 					<div role="alert">
@@ -126,12 +146,12 @@ export function HostedSidebar() {
 							onClick={() => {
 								setError(null);
 								void refreshHostedProjects().catch(() =>
-									setError("Could not load projects."),
+									setError(uiMessage("shell:hosted_could_not_load_projects")),
 								);
 								void useCloudChatsStore.getState().hydrate();
 							}}
 						>
-							Retry
+							{uiMessage("common:retry")}
 						</Button>
 					</div>
 				)}
@@ -149,11 +169,14 @@ export function HostedSidebar() {
 									void openCloudChat(
 										summary,
 										hostedProjectFolderId(summary.projectId),
-									).catch(() => setError("Could not open chat."));
+									).catch(() =>
+										setError(uiMessage("shell:hosted_could_not_open_chat")),
+									);
 								}}
 							>
 								<span className="block truncate">
-									{summary.title || "New chat"}
+									{summary.title ||
+										uiMessage("projects:projects_sidebar_new_chat")}
 								</span>
 								<span className="block truncate text-[10px] text-muted-foreground">
 									{summary.repositoryDisplayName}
@@ -163,12 +186,20 @@ export function HostedSidebar() {
 								<button
 									type="button"
 									className="h-7 px-1 text-muted-foreground"
-									aria-label={`Archive ${summary.title}`}
+									aria-label={uiMessage("shell:hosted_archive_chat", {
+										title:
+											summary.title ||
+											uiMessage("projects:projects_sidebar_new_chat"),
+									})}
 									onClick={() =>
 										void useCloudChatsStore
 											.getState()
 											.archive(summary)
-											.catch(() => setError("Could not archive chat."))
+											.catch(() =>
+												setError(
+													uiMessage("shell:hosted_could_not_archive_chat"),
+												),
+											)
 									}
 								>
 									×
@@ -178,7 +209,11 @@ export function HostedSidebar() {
 								<button
 									type="button"
 									className="h-7 px-1 text-muted-foreground"
-									aria-label={`Restore ${summary.title}`}
+									aria-label={uiMessage("shell:hosted_restore_chat", {
+										title:
+											summary.title ||
+											uiMessage("projects:projects_sidebar_new_chat"),
+									})}
 									onClick={() => {
 										void runControlPlane((client) =>
 											client["cloud.workspaces.unarchive"]({
@@ -187,18 +222,23 @@ export function HostedSidebar() {
 											}),
 										)
 											.then(() => useCloudChatsStore.getState().hydrate())
-											.catch(() => setError("Could not restore chat."));
+											.catch(() =>
+												setError(
+													uiMessage("shell:hosted_could_not_restore_chat"),
+												),
+											);
 									}}
 								>
-									Restore
+									{uiMessage("shell:hosted_restore")}
 								</button>
 							)}
 						</div>
 					))}
 				{!cloudLoading && summaries.length === 0 && (
 					<p className="px-2 py-3 text-muted-foreground">
-						Your cloud chats will appear here. Set up your agents and
-						repositories in Settings to get started.
+						{uiMessage(
+							"shell:hosted_your_cloud_chats_will_appear_here_set_up_your_agents_and_repositories_in_settings_to_get_started",
+						)}
 					</p>
 				)}
 				<button
@@ -206,7 +246,9 @@ export function HostedSidebar() {
 					className="h-7 text-left text-muted-foreground"
 					onClick={() => setArchived(!archived)}
 				>
-					{archived ? "Show active chats" : "Archived chats"}
+					{archived
+						? uiMessage("shell:hosted_show_active_chats")
+						: uiMessage("projects:projects_sidebar_archived_chats")}
 				</button>
 			</div>
 			<label className="flex h-7 items-center gap-2">
@@ -215,22 +257,24 @@ export function HostedSidebar() {
 					checked={preference.enabled}
 					onChange={(e) => update({ ...preference, enabled: e.target.checked })}
 				/>
-				Include laptop chats
+				{uiMessage("shell:hosted_include_laptop_chats")}
 			</label>
 			{preference.enabled && (
 				<div className="space-y-2">
 					<select
-						aria-label="Computer"
+						aria-label={uiMessage("shell:hosted_computer")}
 						className="h-7 w-full rounded bg-muted px-2"
 						value={preference.environmentId ?? ""}
 						onChange={(e) =>
 							update({ ...preference, environmentId: e.target.value || null })
 						}
 					>
-						<option value="">Choose a computer</option>
+						<option value="">
+							{uiMessage("shell:hosted_choose_a_computer")}
+						</option>
 						{computers.map((c) => (
 							<option key={c.environmentId} value={c.environmentId}>
-								{c.label ?? "Computer"}
+								{c.label ?? uiMessage("shell:hosted_computer")}
 							</option>
 						))}
 					</select>
@@ -244,12 +288,18 @@ export function HostedSidebar() {
 				</div>
 			)}
 			<Button className="h-7 w-full" variant="ghost" onClick={settings}>
-				Settings
+				{uiMessage("common:settings")}
 			</Button>
 		</aside>
 	);
 }
 function LaptopChats({ environmentId }: { environmentId: string }) {
+	const { message: uiMessage } = useUiMessages([
+		"chat",
+		"common",
+		"projects",
+		"shell",
+	]);
 	const [ready, setReady] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [attempt, setAttempt] = useState(0);
@@ -273,13 +323,17 @@ function LaptopChats({ environmentId }: { environmentId: string }) {
 				},
 				() => {
 					if (active)
-						setError("Computer unavailable. Cloud chats are still ready.");
+						setError(
+							uiMessage(
+								"shell:hosted_computer_unavailable_cloud_chats_are_still_ready",
+							),
+						);
 				},
 			);
 		return () => {
 			active = false;
 		};
-	}, [environmentId, attempt]);
+	}, [environmentId, attempt, uiMessage]);
 	if (error)
 		return (
 			<div role="status">
@@ -289,17 +343,25 @@ function LaptopChats({ environmentId }: { environmentId: string }) {
 					variant="ghost"
 					onClick={() => setAttempt((a) => a + 1)}
 				>
-					Retry
+					{uiMessage("common:retry")}
 				</Button>
 			</div>
 		);
 	return ready ? (
 		<ConnectedLaptopChats environmentId={environmentId} />
 	) : (
-		<p className="text-muted-foreground">Connecting…</p>
+		<p className="text-muted-foreground">
+			{uiMessage("chat:browser_pane_connecting")}
+		</p>
 	);
 }
 function ConnectedLaptopChats({ environmentId }: { environmentId: string }) {
+	const { message: uiMessage } = useUiMessages([
+		"chat",
+		"common",
+		"projects",
+		"shell",
+	]);
 	const shell = useEnvironmentShellResource(
 		EnvironmentId.make(environmentId),
 		"connect",
@@ -308,7 +370,7 @@ function ConnectedLaptopChats({ environmentId }: { environmentId: string }) {
 		<div className="max-h-48 overflow-auto">
 			{shell.connection !== "connected" && (
 				<p className="text-muted-foreground">
-					Computer offline or reconnecting
+					{uiMessage("shell:hosted_computer_offline_or_reconnecting")}
 				</p>
 			)}
 			{Object.values(shell.data?.chatsByProject ?? {})
@@ -331,7 +393,7 @@ function ConnectedLaptopChats({ environmentId }: { environmentId: string }) {
 							useChatsStore.getState().select(chat.id);
 						}}
 					>
-						{chat.title || "New chat"}
+						{chat.title || uiMessage("projects:projects_sidebar_new_chat")}
 					</button>
 				))}
 		</div>

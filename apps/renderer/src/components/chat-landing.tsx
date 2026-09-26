@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/shell";
 import { subscribeControlPlaneSessionCache } from "~/lib/control-plane-client.ts";
 import { isHostedProduct } from "../lib/hosted-connect.ts";
 import "@zuse/i18n/english/common";
@@ -250,7 +251,7 @@ const formatThreadRelative = (date: Date): string => {
  * the next render.
  */
 export function ChatLanding() {
-	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+	const { message: uiMessage } = useUiMessages(["chat", "common", "shell"]);
 
 	const { originsByFolder: origins } = useActiveEnvironmentEntities();
 	const folders = useWorkspaceStore((s) => s.folders);
@@ -1028,7 +1029,9 @@ export function ChatLanding() {
 			selectedCloudProviderId === null
 		) {
 			setSubmitError(
-				"Set up a cloud workspace in Settings before starting a chat.",
+				uiMessage(
+					"shell:hosted_set_up_a_cloud_workspace_in_settings_before_starting_a_chat",
+				),
 			);
 			return;
 		}
@@ -1056,7 +1059,9 @@ export function ChatLanding() {
 				);
 				if (placement?.needsSetup !== false || placement.disabled) {
 					setSubmitError(
-						"Finish cloud workspace setup in Settings before starting a chat.",
+						uiMessage(
+							"shell:hosted_finish_cloud_workspace_setup_in_settings_before_starting_a_chat",
+						),
 					);
 					return;
 				}
@@ -1066,7 +1071,11 @@ export function ChatLanding() {
 				return;
 			}
 			if (selectedFolderId === null) {
-				setSubmitError("Select a repository before starting a cloud chat.");
+				setSubmitError(
+					uiMessage(
+						"shell:hosted_select_a_repository_before_starting_a_cloud_chat",
+					),
+				);
 				return;
 			}
 			if (draft.providerId !== "claude" && draft.providerId !== "codex") {
@@ -1981,7 +1990,7 @@ export function ChatLanding() {
 										setView("settings");
 									}}
 								>
-									Settings
+									{uiMessage("common:settings")}
 								</Button>
 							)}
 							{draftSession === null ? (
@@ -2021,7 +2030,7 @@ export function ChatLanding() {
 								setView("settings");
 							}}
 						>
-							Set up cloud agents and repositories
+							{uiMessage("shell:hosted_set_up_cloud_agents_and_repositories")}
 						</button>
 					)}
 				</div>

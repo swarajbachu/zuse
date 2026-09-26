@@ -259,10 +259,10 @@ function HostedAccessCard({
 
 	const title =
 		state.status === "loading"
-			? "Opening Zuse…"
+			? uiMessage("shell:hosted_opening_zuse")
 			: state.status === "signedOut"
-				? "Your cloud agents, anywhere"
-				: "Could not open Zuse";
+				? uiMessage("shell:hosted_your_cloud_agents_anywhere")
+				: uiMessage("shell:hosted_could_not_open_zuse");
 	return (
 		<div className="flex min-h-dvh w-full items-center justify-center bg-background px-4 py-8 text-foreground">
 			<main
@@ -276,14 +276,15 @@ function HostedAccessCard({
 				<h1 className="mt-1.5 font-heading text-lg font-semibold">{title}</h1>
 				{state.status === "loading" ? (
 					<p className="mt-2 text-sm leading-6 text-muted-foreground">
-						Signing in to your cloud workspace…
+						{uiMessage("shell:hosted_signing_in_to_your_cloud_workspace")}
 					</p>
 				) : null}
 				{state.status === "signedOut" ? (
 					<>
 						<p className="mt-2 text-sm leading-6 text-muted-foreground">
-							Sign in to set up cloud agents, connect repositories, and start
-							chatting.
+							{uiMessage(
+								"shell:hosted_sign_in_to_set_up_cloud_agents_connect_repositories_and_start_chatting",
+							)}
 						</p>
 						<button
 							className="mt-4 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"

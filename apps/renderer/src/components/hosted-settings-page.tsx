@@ -1,3 +1,7 @@
+import "@zuse/i18n/english/shell";
+import "@zuse/i18n/english/settings";
+import "@zuse/i18n/english/common";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useState } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
 import { refreshHostedProjects } from "../lib/hosted-workspace.ts";
@@ -8,6 +12,7 @@ import { DefaultModelsPane } from "./settings-page.tsx";
 import { Button } from "./ui/button.tsx";
 
 export function HostedSettingsPage() {
+	const { message: uiMessage } = useUiMessages(["common", "settings", "shell"]);
 	const [tab, setTab] = useState<"cloud" | "preferences" | "account">("cloud");
 	const settings = useSettingsStore((s) => s);
 	const auth = useAuth();
@@ -19,16 +24,19 @@ export function HostedSettingsPage() {
 		<div className="flex h-full w-full flex-col overflow-hidden">
 			<header className="flex items-center gap-4 px-5 py-3">
 				<Button className="h-7" variant="ghost" onClick={back}>
-					Back to chats
+					{uiMessage("shell:hosted_back_to_chats")}
 				</Button>
-				<h1 className="text-sm font-medium">Settings</h1>
+				<h1 className="text-sm font-medium">{uiMessage("common:settings")}</h1>
 			</header>
-			<nav aria-label="Settings" className="flex gap-2 px-5 pb-3">
+			<nav
+				aria-label={uiMessage("common:settings")}
+				className="flex gap-2 px-5 pb-3"
+			>
 				{(
 					[
-						["cloud", "Cloud agents"],
-						["preferences", "Preferences"],
-						["account", "Account"],
+						["cloud", uiMessage("shell:hosted_cloud_agents")],
+						["preferences", uiMessage("shell:hosted_preferences")],
+						["account", uiMessage("settings:settings_page_account")],
 					] as const
 				).map(([id, label]) => (
 					<Button
@@ -47,7 +55,7 @@ export function HostedSettingsPage() {
 					{tab === "preferences" && (
 						<div className="max-w-md space-y-4 text-xs">
 							<label className="flex items-center justify-between gap-4">
-								Appearance
+								{uiMessage("settings:settings_page_appearance")}
 								<select
 									className="h-7 rounded bg-muted px-2"
 									value={settings.appearanceMode}
@@ -57,14 +65,20 @@ export function HostedSettingsPage() {
 										)
 									}
 								>
-									<option value="system">System</option>
-									<option value="light">Light</option>
-									<option value="dark">Dark</option>
+									<option value="system">{uiMessage("common:system")}</option>
+									<option value="light">
+										{uiMessage("settings:settings_page_light")}
+									</option>
+									<option value="dark">
+										{uiMessage("settings:settings_page_dark")}
+									</option>
 								</select>
 							</label>
 							<DefaultModelsPane />
 							<p className="text-muted-foreground">
-								Browser preferences are saved for this account on this browser.
+								{uiMessage(
+									"shell:hosted_browser_preferences_are_saved_for_this_account_on_this_browser",
+								)}
 							</p>
 						</div>
 					)}
@@ -72,14 +86,16 @@ export function HostedSettingsPage() {
 						<div className="space-y-3 text-sm">
 							<p>{auth.name}</p>
 							<p className="text-xs text-muted-foreground">
-								Billing and usage are available under Cloud agents.
+								{uiMessage(
+									"shell:hosted_billing_and_usage_are_available_under_cloud_agents",
+								)}
 							</p>
 							<Button
 								className="h-7"
 								variant="secondary"
 								onClick={() => void auth.signOut()}
 							>
-								Sign out
+								{uiMessage("common:signOut")}
 							</Button>
 						</div>
 					)}
