@@ -28,6 +28,7 @@ import {
 	WORKSPACE_RUNTIME_RESUME_SCRIPT,
 	WORKSPACE_START_OBSERVATION_MS,
 	workspaceRuntimeProcessSelector,
+	workspaceRuntimeReconnectTarget,
 } from "../../src/cloud-workspace-reconciler.ts";
 import {
 	type CloudProjectBuildRecord,
@@ -428,6 +429,33 @@ describe("cloud workspace reconciler", () => {
 		]);
 	});
 
+	test("renews a running machine before replacing its runtime", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-restart-running",
+					state: "resuming",
+					desiredState: "ready",
+					statusCode: "restart-queued",
+					requestConfig: { runtimeGeneration: 4, gatewayEpoch: 4 },
+				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const extend = vi.spyOn(provider, "extendTimeout");
+				const replace = vi.spyOn(provider, "replaceProcess");
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				expect(extend).toHaveBeenCalledWith(workspace.providerSandboxId, 600);
+				const replacementOrder = replace.mock.invocationCallOrder[0];
+				if (replacementOrder === undefined)
+					throw new Error("runtime not replaced");
+				expect(extend.mock.invocationCallOrder[0]).toBeLessThan(
+					replacementOrder,
+				);
+				extend.mockRestore();
+				replace.mockRestore();
+			}).pipe(Effect.provide(testLayer)),
+		);
+	});
+
 	test("gives an enrolled runtime a fresh gateway connection window", async () => {
 		const enrolledAt = Date.now();
 		const result = await Effect.runPromise(
@@ -459,7 +487,10 @@ describe("cloud workspace reconciler", () => {
 		});
 	});
 
-	test("allocates one sandbox on demand and reuses it on reconciliation retry", async () => {
+	test.each([
+		"running",
+		"paused",
+	] as const)("reuses a %s allocation with a fresh startup window", async (recoveredState) => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -477,11 +508,35 @@ describe("cloud workspace reconciler", () => {
 					providerSandboxId: undefined,
 					revision: workspace.revision + 1,
 				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const start = vi.spyOn(provider, "startProcess");
+				const extend = vi.spyOn(provider, "extendTimeout");
+				const resume = vi.spyOn(provider, "resume");
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				expect(start).toHaveBeenCalledWith(
+					"fake-workspace-on-demand",
+					expect.objectContaining({
+						command: "/bin/bash",
+						args: ["/var/lib/zuse/project-build/workspace-bootstrap.sh"],
+					}),
+				);
+				expect(extend).toHaveBeenCalledWith("fake-workspace-on-demand", 600);
+				start.mockClear();
+				extend.mockClear();
 				const allocated = yield* store.getWorkspace(workspace.workspaceId);
 				if (allocated === null) throw new Error("workspace missing");
 				// Retry a queued allocation after the provider succeeded but its
 				// response was lost: recover by workspace label instead of forking again.
+				yield* Ref.update(control.sandboxes, (sandboxes) => {
+					const updated = new Map(sandboxes);
+					const sandbox = updated.get("fake-workspace-on-demand");
+					if (!sandbox) throw new Error("sandbox missing");
+					updated.set(sandbox.providerSandboxId, {
+						...sandbox,
+						state: recoveredState,
+					});
+					return updated;
+				});
 				yield* store.saveWorkspace({
 					...allocated,
 					state: "queued",
@@ -489,6 +544,16 @@ describe("cloud workspace reconciler", () => {
 					revision: allocated.revision + 1,
 				});
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const renewed = recoveredState === "paused" ? resume : extend;
+				expect(renewed).toHaveBeenCalledTimes(1);
+				expect(start).toHaveBeenCalledTimes(1);
+				const startOrder = start.mock.invocationCallOrder[0];
+				if (startOrder === undefined)
+					throw new Error("bootstrap did not start");
+				expect(renewed.mock.invocationCallOrder[0]).toBeLessThan(startOrder);
+				start.mockRestore();
+				extend.mockRestore();
+				resume.mockRestore();
 				return {
 					workspace: yield* store.getWorkspace(workspace.workspaceId),
 					sandboxes: yield* Ref.get(control.sandboxes),
@@ -877,6 +942,53 @@ describe("cloud workspace reconciler", () => {
 			nextActionAtMs: Number.MAX_SAFE_INTEGER,
 		});
 		expect(result.missing?.leaseOwner).toBeUndefined();
+	});
+
+	test("replaces an unresponsive runtime only after reconnect verification expires", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-unresponsive-runtime",
+					state: "ready",
+					desiredState: "ready",
+					runtimeState: "online",
+					statusCode: "agent-running",
+					requestConfig: { runtimeGeneration: 1, sessionHeadVersion: 18 },
+				});
+				const checking = workspaceRuntimeReconnectTarget(workspace, Date.now());
+				yield* store.saveWorkspace(checking);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				expect(yield* Ref.get(control.startProcessCalls)).toHaveLength(0);
+				expect(
+					(yield* store.getWorkspace(workspace.workspaceId))?.requestConfig
+						.runtimeGeneration,
+				).toBe(1);
+				const current = yield* store.getWorkspace(workspace.workspaceId);
+				if (current === null) return yield* Effect.die("workspace disappeared");
+				yield* store.saveWorkspace({
+					...current,
+					nextActionAtMs: Date.now() - 1,
+					revision: current.revision + 1,
+					updatedAtMs: current.updatedAtMs + 1,
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
+					starts: yield* Ref.get(control.startProcessCalls),
+					resumes: yield* Ref.get(control.resumeInputs),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.starts).toHaveLength(1);
+		expect(result.resumes).toHaveLength(0);
+		expect(result.workspace).toMatchObject({
+			state: "provisioning",
+			statusCode: "resume-runtime-restarting",
+			providerSandboxId: "source-workspace-unresponsive-runtime",
+			requestConfig: { runtimeGeneration: 2, sessionHeadVersion: 18 },
+		});
 	});
 
 	test("restart of a running workspace relaunches the runtime in place", async () => {

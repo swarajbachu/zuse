@@ -102,6 +102,7 @@ export const createComposerView = ({
 	const extensions: Extension[] = [
 		history(),
 		placeholder(placeholderText),
+		EditorView.contentAttributes.of({ "aria-label": "Message composer" }),
 		EditorView.lineWrapping,
 		composerTheme,
 		...chipExtensions,

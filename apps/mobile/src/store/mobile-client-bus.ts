@@ -8,6 +8,7 @@ import {
 	type ResourceDriverFactory,
 	type ResourceSynchronization,
 } from "@zuse/client-runtime/client-bus";
+import { rehydrateClientCommandPayload } from "@zuse/client-runtime/client-command-payload";
 import type {
 	ClientCommand,
 	ClientCommandExecutor,
@@ -55,6 +56,8 @@ import {
 	EnvironmentId,
 	type PermissionRequest,
 	type PtyId,
+	type PtyOwnerId,
+	type PtySummary,
 	type SessionId,
 	type SessionTimelineProjection,
 	type Skill,
@@ -90,12 +93,13 @@ type EnvironmentBinding = Readonly<{
 const bindings = new Map<EnvironmentId, EnvironmentBinding>();
 
 type RetainedTerminalSink = {
-	readonly ownerId: string;
+	readonly ownerId: PtyOwnerId;
 	readonly sink: TerminalOutputSink;
 	retainers: number;
 };
 
 const terminalSinks = new Map<string, RetainedTerminalSink>();
+const MOBILE_COMMAND_RECEIPT_LIMIT = 512;
 
 export class MobileCommandOutbox implements CommandOutbox {
 	private loaded: Promise<void> | null = null;
@@ -113,6 +117,16 @@ export class MobileCommandOutbox implements CommandOutbox {
 		await this.writeTail.catch(() => undefined);
 	}
 
+	private rememberReceipt(receipt: CommandReceipt): void {
+		this.receipts.delete(receipt.commandId);
+		this.receipts.set(receipt.commandId, receipt);
+		while (this.receipts.size > MOBILE_COMMAND_RECEIPT_LIMIT) {
+			const oldest = this.receipts.keys().next().value;
+			if (oldest === undefined) break;
+			this.receipts.delete(oldest);
+		}
+	}
+
 	private load(): Promise<void> {
 		this.loaded ??= Effect.runPromise(readClientCommandOutbox()).then(
 			(snapshot) => {
@@ -120,7 +134,7 @@ export class MobileCommandOutbox implements CommandOutbox {
 					this.entries.set(entry.command.commandId, entry);
 				}
 				for (const receipt of snapshot?.receipts ?? []) {
-					this.receipts.set(receipt.commandId, receipt);
+					this.rememberReceipt(receipt);
 				}
 			},
 		);
@@ -128,7 +142,7 @@ export class MobileCommandOutbox implements CommandOutbox {
 	}
 
 	private persist(): Promise<void> {
-		this.writeTail = this.writeTail
+		const attempt = this.writeTail
 			.catch(() => undefined)
 			.then(() =>
 				Effect.runPromise(
@@ -139,7 +153,10 @@ export class MobileCommandOutbox implements CommandOutbox {
 				),
 			)
 			.then(() => undefined);
-		return this.writeTail;
+		// A failed write rejects the initiating mutation, but must not poison all
+		// future snapshots. The next attempt persists the full in-memory state.
+		this.writeTail = attempt.catch(() => undefined);
+		return attempt;
 	}
 
 	async putOutbox(entry: OutboxEntry): Promise<void> {
@@ -188,7 +205,7 @@ export class MobileCommandOutbox implements CommandOutbox {
 				receipt.fingerprint,
 			);
 		}
-		this.receipts.set(receipt.commandId, receipt);
+		this.rememberReceipt(receipt);
 		await this.persist();
 	}
 
@@ -212,7 +229,7 @@ export class MobileCommandOutbox implements CommandOutbox {
 			);
 		}
 		this.entries.delete(receipt.commandId);
-		this.receipts.set(receipt.commandId, receipt);
+		this.rememberReceipt(receipt);
 		await this.persist();
 	}
 
@@ -475,10 +492,11 @@ const driverFor: ResourceDriverFactory<MemoizeClient> = (key) => {
 		return makeTerminalResourceDriver<MemoizeClient>({
 			sinkFor: (terminalKey) =>
 				terminalSinks.get(resourceKeyId(terminalKey))?.sink ?? null,
-			streamOutput: (client, ref, afterSequence) =>
+			streamOutput: (client, ref, afterSequence, processEpoch) =>
 				client["pty.output"]({
 					ptyId: ref.terminalId,
 					afterSequence,
+					processEpoch,
 					ownerId: terminalSinks.get(resourceKeyId(terminalResourceKey(ref)))
 						?.ownerId,
 				}),
@@ -516,9 +534,14 @@ const driverFor: ResourceDriverFactory<MemoizeClient> = (key) => {
 			}) as ReturnType<ResourceDriverFactory<MemoizeClient>>);
 };
 
+export const rehydrateMobileCommandPayload = rehydrateClientCommandPayload;
+
 const commandExecutor: ClientCommandExecutor<MemoizeClient> = {
 	execute: async (client, command) => {
-		const payload = command.payload as never;
+		const payload = rehydrateMobileCommandPayload(
+			command.kind,
+			command.payload,
+		) as never;
 		let result: unknown;
 		switch (command.kind) {
 			case "permission.decide":
@@ -535,6 +558,11 @@ const commandExecutor: ClientCommandExecutor<MemoizeClient> = {
 			case "session.setPermissionMode":
 				result = await Effect.runPromise(
 					client["session.setPermissionMode"](payload),
+				);
+				break;
+			case "session.cancelQuestion":
+				result = await Effect.runPromise(
+					client["session.cancelQuestion"](payload),
 				);
 				break;
 			case "fs.writeFile":
@@ -587,6 +615,12 @@ const commandExecutor: ClientCommandExecutor<MemoizeClient> = {
 				break;
 			case "pty.close":
 				result = await Effect.runPromise(client["pty.close"](payload));
+				break;
+			case "pty.rename":
+				result = await Effect.runPromise(client["pty.rename"](payload));
+				break;
+			case "pty.restart":
+				result = await Effect.runPromise(client["pty.restart"](payload));
 				break;
 			default:
 				throw new Error(
@@ -741,6 +775,10 @@ export const retryMobileClientBusConnections = (connKey?: string): void => {
 	}
 };
 
+/** Forward native app/connectivity edges to the shared ClientBus owner. */
+export const setMobileClientBusOnline = (online: boolean): void =>
+	mobileClientBus().setOnline(online);
+
 export const registerMobileEnvironment = (
 	connKey: string,
 	options: WsProtocolOptions,
@@ -851,9 +889,26 @@ export const dispatchMobileSessionCommandResult = async <Result>(options: {
 	return receipt.result;
 };
 
+type MobileTerminalCommandKind =
+	| "pty.write"
+	| "pty.resize"
+	| "pty.close"
+	| "pty.rename"
+	| "pty.restart";
+
+export const mobileTerminalCommandRetry = (
+	kind: MobileTerminalCommandKind,
+	epochQualifiedRestart = false,
+): "safe" | "never" =>
+	kind === "pty.close" ||
+	kind === "pty.rename" ||
+	(kind === "pty.restart" && epochQualifiedRestart)
+		? "safe"
+		: "never";
+
 const terminalCommand = <Result>(options: {
 	readonly ref: TerminalRef;
-	readonly kind: "pty.write" | "pty.resize" | "pty.close";
+	readonly kind: MobileTerminalCommandKind;
 	readonly payload: unknown;
 }): Promise<CommandReceipt<Result>> =>
 	dispatchMobileSessionCommand({
@@ -862,7 +917,14 @@ const terminalCommand = <Result>(options: {
 		environmentId: options.ref.environmentId,
 		resource: terminalResourceKey(options.ref),
 		payload: options.payload,
-		retry: "never",
+		retry: mobileTerminalCommandRetry(
+			options.kind,
+			options.kind === "pty.restart" &&
+				typeof options.payload === "object" &&
+				options.payload !== null &&
+				"expectedProcessEpoch" in options.payload &&
+				typeof options.payload.expectedProcessEpoch === "string",
+		),
 		createdAt: Date.now(),
 	});
 
@@ -870,7 +932,7 @@ export const retainMobileTerminalResource = (options: {
 	readonly connKey: string;
 	readonly connection: WsProtocolOptions;
 	readonly terminalId: PtyId;
-	readonly ownerId: string;
+	readonly ownerId: PtyOwnerId;
 	readonly sink: TerminalOutputSink;
 }) => {
 	const environmentId = registerMobileEnvironment(
@@ -924,7 +986,7 @@ export const retainMobileTerminalResource = (options: {
 
 export const dispatchMobileTerminalInput = (
 	ref: TerminalRef,
-	ownerId: string,
+	ownerId: PtyOwnerId,
 	data: string,
 ): Promise<void> =>
 	terminalCommand<void>({
@@ -935,7 +997,7 @@ export const dispatchMobileTerminalInput = (
 
 export const dispatchMobileTerminalResize = (
 	ref: TerminalRef,
-	ownerId: string,
+	ownerId: PtyOwnerId,
 	cols: number,
 	rows: number,
 ): Promise<void> =>
@@ -947,13 +1009,45 @@ export const dispatchMobileTerminalResize = (
 
 export const dispatchMobileTerminalClose = (
 	ref: TerminalRef,
-	ownerId: string,
+	ownerId: PtyOwnerId,
 ): Promise<void> =>
 	terminalCommand<void>({
 		ref,
 		kind: "pty.close",
 		payload: { ptyId: ref.terminalId, ownerId },
 	}).then(() => undefined);
+
+export const dispatchMobileTerminalRename = (
+	ref: TerminalRef,
+	ownerId: PtyOwnerId,
+	label: string | null,
+): Promise<PtySummary> =>
+	terminalCommand<PtySummary>({
+		ref,
+		kind: "pty.rename",
+		payload: { ptyId: ref.terminalId, ownerId, label },
+	}).then((receipt) => receipt.result);
+
+export const dispatchMobileTerminalRestart = async (
+	ref: TerminalRef,
+	ownerId: PtyOwnerId,
+	expectedProcessEpoch: string,
+): Promise<{ readonly ptyId: PtyId; readonly processEpoch: string }> => {
+	const receipt = await terminalCommand<{
+		readonly ptyId: PtyId;
+		readonly processEpoch: string;
+	}>({
+		ref,
+		kind: "pty.restart",
+		payload: { ptyId: ref.terminalId, ownerId, expectedProcessEpoch },
+	});
+	mobileClientBus().restart(terminalResourceKey(ref));
+	return receipt.result;
+};
+
+export const restartMobileTerminalResource = (ref: TerminalRef): void => {
+	mobileClientBus().restart(terminalResourceKey(ref));
+};
 
 export const resetMobileClientBus = async (): Promise<void> => {
 	const previous = bus;

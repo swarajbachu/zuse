@@ -4,15 +4,15 @@ import { getRendererClientBus } from "./session-timeline-client-bus.ts";
 let installed = false;
 
 /**
- * Wake the one ClientBus connection supervisor on a platform online edge.
- * Cached resources remain visible while offline; this only bypasses a pending
- * retry delay and cannot create per-feature reconnect loops.
+ * Forward browser connectivity edges to the one ClientBus runtime owner.
+ * Cached resources remain visible while offline; online starts one retained
+ * reconnect episode and cannot create per-feature retry loops.
  */
 export const installClientBusOnlineBridge = (): (() => void) => {
 	if (installed || typeof window === "undefined") return () => undefined;
 	installed = true;
 	const unsubscribe = subscribePlatformOnline(() => {
-		if (isPlatformOnline()) getRendererClientBus().retryRetainedConnections();
+		getRendererClientBus().setOnline(isPlatformOnline());
 	});
 	return () => {
 		unsubscribe();

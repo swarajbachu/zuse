@@ -337,6 +337,35 @@ describe("session decider", () => {
 		).toBe("PermissionNotPending");
 	});
 
+	test("records one idempotent question cancellation resolution", () => {
+		const event = Result.getOrThrow(
+			decide(created(), {
+				_tag: "ResolveQuestion",
+				itemId: "question-1",
+				resolution: "cancelled",
+				resolvedAt: 3,
+			}),
+		);
+		expect(event).toEqual([
+			{
+				_tag: "QuestionResolved",
+				itemId: "question-1",
+				resolution: "cancelled",
+				resolvedAt: 3,
+			},
+		]);
+		expect(
+			Result.getOrThrow(
+				decide(evolveAll(created(), event), {
+					_tag: "ResolveQuestion",
+					itemId: "question-1",
+					resolution: "cancelled",
+					resolvedAt: 4,
+				}),
+			),
+		).toEqual([]);
+	});
+
 	test("keeps provider attachment idempotent", () => {
 		const attached = evolveAll(created(), [
 			{ _tag: "ProviderAttached", providerId: "provider-1", attachedAt: 2 },

@@ -59,14 +59,6 @@ body,
 	-moz-osx-font-smoothing: grayscale;
 }
 
-.xterm-viewport::-webkit-scrollbar {
-	width: 8px;
-}
-.xterm-viewport::-webkit-scrollbar-thumb {
-	background: var(--bg-overlay);
-	border-radius: 4px;
-}
-
 @theme inline {
 	--animate-skeleton: skeleton 2s -1s infinite linear;
 	--animate-caret-blink: 1s ease-out infinite caret-blink;
@@ -101,6 +93,7 @@ body,
 	--color-accent-foreground: var(--accent-foreground);
 	--color-destructive: var(--destructive);
 	--color-destructive-foreground: var(--destructive-foreground);
+	--color-danger-text: var(--danger-text);
 	--color-success: var(--success);
 	--color-success-foreground: var(--success-foreground);
 	--color-warning: var(--warning);
@@ -336,6 +329,7 @@ body,
 	--warning-foreground: hsl(132 14% 13%);
 	--info: hsl(215.3 72% 49%);
 	--info-foreground: hsl(0 0% 100%);
+	--danger-text: hsl(0 74% 47%);
 
 	--alert-error-bg: hsl(0 100% 97.3%);
 	--alert-warning-bg: hsl(22.1 100% 96.3%);
@@ -458,6 +452,7 @@ body,
 
 	--destructive: hsl(0 92.1% 60.4%);
 	--destructive-foreground: hsl(0 0% 100%);
+	--danger-text: hsl(0 84% 64%);
 
 	--success: hsl(133.9 60.6% 48.8%);
 	--success-foreground: hsl(130 66% 10%);
@@ -583,14 +578,15 @@ html[data-sidebar-dragging] * {
 	user-select: none;
 }
 
-/* Applied only while a sidebar is programmatically opened or closed, so
-   manual resizing stays directly under the pointer. */
-.fz-sidebar-panel-motion {
+/* Animate all participating flex sizes together so their total stays constant.
+   Animating only the toggled panel makes the untouched sidebar briefly expand.
+   Manual resizing stays directly under the pointer. */
+.workspace-panel-group:has(> .fz-sidebar-panel-motion) > [data-panel] {
 	transition: flex-grow 220ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.fz-sidebar-panel-motion {
+	.workspace-panel-group:has(> .fz-sidebar-panel-motion) > [data-panel] {
 		transition: none;
 	}
 }
@@ -1528,7 +1524,7 @@ html[data-sidebar-dragging] * {
 		min-height: 1.3em;
 		padding: 0 10px;
 	}
-	/* Scrollbar polish — match xterm-viewport style. */
+	/* Scrollbar polish for code blocks. */
 	.code-block-scroll::-webkit-scrollbar {
 		width: 6px;
 		height: 6px;
@@ -1549,26 +1545,127 @@ html[data-sidebar-dragging] * {
 
 /* Tool branches remain attached while results grow; no transcript fade-ins. */
 .tool-activity-branch {
-  position: relative;
-  padding-inline-start: 0.5rem;
+	position: relative;
+	padding-inline-start: 0.5rem;
 }
 .tool-activity-branch::before {
-  content: "";
-  position: absolute;
-  inset-inline-start: var(--chat-assistant-gutter, 0.75rem);
-  top: 0;
-  bottom: 0;
-  border-inline-start: 1px solid var(--border);
+	content: "";
+	position: absolute;
+	inset-inline-start: var(--chat-assistant-gutter, 0.75rem);
+	top: 0;
+	bottom: 0;
+	border-inline-start: 1px solid var(--border);
 }
 .tool-activity-branch::after {
-  content: "";
-  position: absolute;
-  inset-inline-start: var(--chat-assistant-gutter, 0.75rem);
-  top: 0;
-  width: 0.5rem;
-  height: 1rem;
-  border-inline-start: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  border-end-start-radius: 0.5rem;
+	content: "";
+	position: absolute;
+	inset-inline-start: var(--chat-assistant-gutter, 0.75rem);
+	top: 0;
+	width: 0.5rem;
+	height: 1rem;
+	border-inline-start: 1px solid var(--border);
+	border-bottom: 1px solid var(--border);
+	border-end-start-radius: 0.5rem;
 }
-.tool-activity-last::before { display: none; }
+.tool-activity-last::before {
+	display: none;
+}
+
+/* Native scroll containers (including the virtualized transcript) use the
+   same thumb-only treatment as ScrollArea, even with macOS Always scrollbars. */
+@layer base {
+	.workspace-shell ::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+		background: transparent;
+	}
+	.workspace-shell ::-webkit-scrollbar-track,
+	.workspace-shell ::-webkit-scrollbar-track-piece,
+	.workspace-shell ::-webkit-scrollbar-corner {
+		background: transparent;
+		border: 0;
+		box-shadow: none;
+	}
+	.workspace-shell ::-webkit-scrollbar-thumb {
+		border: 1px solid transparent;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--foreground) 20%, transparent);
+		background-clip: padding-box;
+	}
+	.workspace-shell ::-webkit-scrollbar-thumb:hover {
+		background-color: color-mix(in srgb, var(--foreground) 35%, transparent);
+	}
+	.workspace-shell ::-webkit-scrollbar-button {
+		display: none;
+	}
+	@supports not selector(::-webkit-scrollbar) {
+		.workspace-shell * {
+			scrollbar-width: thin;
+			scrollbar-color: color-mix(in srgb, var(--foreground) 20%, transparent)
+				transparent;
+		}
+	}
+}
+
+/* Shared workspace framing. Gutters also carry the resize hit targets. */
+.workspace-shell {
+	--workspace-gutter: 4px;
+	--workspace-radius: 8px;
+}
+.workspace-column {
+	display: flex;
+	flex-direction: column;
+	gap: var(--workspace-gutter);
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	padding-block: var(--workspace-gutter);
+}
+.workspace-left-column {
+	padding-left: var(--workspace-gutter);
+}
+.workspace-right-column {
+	padding-right: var(--workspace-gutter);
+}
+.workspace-surface {
+	isolation: isolate;
+	overflow: hidden;
+	border-radius: var(--workspace-radius);
+	background: var(--background);
+}
+.workspace-separator {
+	position: relative;
+	width: var(--workspace-gutter);
+	flex-shrink: 0;
+	background: transparent;
+}
+.workspace-separator::after {
+	content: "";
+	position: absolute;
+	width: 2px;
+	inset-block: 14px;
+	left: calc(50% - 1px);
+	border-radius: 999px;
+	background: transparent;
+	transition: background-color 140ms;
+}
+.workspace-separator:hover::after,
+.workspace-separator:focus-visible::after {
+	background: var(--input);
+}
+.workspace-terminal-dock {
+	/* The resize handle sits in the gutter above the clipped terminal body. */
+	overflow: visible;
+}
+.workspace-terminal-resizer {
+	top: calc(-1 * var(--workspace-gutter));
+	height: var(--workspace-gutter);
+}
+.workspace-panel-tabs {
+	background: var(--background);
+	border-radius: var(--workspace-radius) var(--workspace-radius) 0 0;
+}
+.workspace-panel-body {
+	border-radius: 0 0 var(--workspace-radius) var(--workspace-radius);
+	overflow: hidden;
+}

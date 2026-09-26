@@ -12,9 +12,10 @@ import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 import { getCalendars } from "expo-localization";
 import * as SecureStore from "expo-secure-store";
-import PostHog from "posthog-react-native";
+import PostHog, { PostHogPersistedProperty } from "posthog-react-native";
 import { AppState, Platform } from "react-native";
 
+const CONSENT_KEY = "zuse.mobile.analytics.consent.v1";
 const ANONYMOUS_ID_KEY = "zuse.mobile.analytics.anonymous-id.v1";
 const IDENTITY_KIND_KEY = "zuse.mobile.analytics.identity-kind.v1";
 const PROJECT_KEY = (process.env.EXPO_PUBLIC_POSTHOG_KEY ?? "").trim();
@@ -26,7 +27,9 @@ const ENABLED_FOR_BUILD =
 	(!__DEV__ || process.env.EXPO_PUBLIC_POSTHOG_ENABLE_DEV === "1");
 
 let client: PostHog | null = null;
-let enabled = true;
+let enabled = false;
+let consentOperations = Promise.resolve();
+let preferenceVersion = 0;
 let distinctId = "";
 let identityKind: "anonymous" | "account" = "anonymous";
 let currentScreen = "unknown";
@@ -48,7 +51,7 @@ const makeClient = (): PostHog | null => {
 	if (client) return client;
 	client = new PostHog(PROJECT_KEY, {
 		host: HOST,
-		persistence: "file",
+		persistence: "memory",
 		captureAppLifecycleEvents: false,
 		enableSessionReplay: false,
 		disableRemoteFeatureFlags: true,
@@ -56,7 +59,7 @@ const makeClient = (): PostHog | null => {
 		preloadFeatureFlags: false,
 		setDefaultPersonProperties: false,
 		before_send: (event) => {
-			if (!event || typeof event.event !== "string") return null;
+			if (!enabled || !event || typeof event.event !== "string") return null;
 			if (event.event.startsWith("$")) {
 				if (event.event !== "$identify") return null;
 				const properties = event.properties ?? {};
@@ -148,10 +151,13 @@ const installActivityTracking = () => {
 	};
 };
 
-export const hydrateMobileAnalytics = async (
+const hydrateAnalyticsState = async (
 	accountId: string | null,
-): Promise<void> => {
-	enabled = true;
+): Promise<boolean> => {
+	const version = preferenceVersion;
+	const stored = await SecureStore.getItemAsync(CONSENT_KEY);
+	if (version !== preferenceVersion) return enabled;
+	enabled = stored === "true";
 	const previousKind = await SecureStore.getItemAsync(IDENTITY_KIND_KEY);
 	if (accountId) {
 		distinctId = analyticsAccountId(accountId);
@@ -162,11 +168,29 @@ export const hydrateMobileAnalytics = async (
 	}
 	await SecureStore.setItemAsync(IDENTITY_KIND_KEY, identityKind);
 	if (enabled) {
+		if (client) {
+			client.reset();
+			client.identify(distinctId);
+		}
 		makeClient();
 		captureMobileAnalytics("app opened", { launch_type: "standard" });
 	}
 	activityCleanup?.();
-	activityCleanup = installActivityTracking();
+	activityCleanup = enabled ? installActivityTracking() : null;
+	return enabled;
+};
+
+export const hydrateMobileAnalytics = (
+	accountId: string | null,
+): Promise<boolean> => {
+	const operation = consentOperations
+		.catch(() => undefined)
+		.then(() => hydrateAnalyticsState(accountId));
+	consentOperations = operation.then(
+		() => undefined,
+		() => undefined,
+	);
+	return operation;
 };
 
 export const setMobileAnalyticsAccount = async (
@@ -184,7 +208,7 @@ export const setMobileAnalyticsAccount = async (
 		? analyticsAccountId(accountId)
 		: await anonymousId(true);
 	await SecureStore.setItemAsync(IDENTITY_KIND_KEY, identityKind);
-	if (client) {
+	if (client && enabled) {
 		client.reset();
 		client.identify(distinctId);
 	}
@@ -194,7 +218,7 @@ export const resetMobileAnalyticsIdentity = async (): Promise<void> => {
 	identityKind = "anonymous";
 	distinctId = await anonymousId(true);
 	await SecureStore.setItemAsync(IDENTITY_KIND_KEY, identityKind);
-	if (client) {
+	if (client && enabled) {
 		client.reset();
 		client.identify(distinctId);
 	}
@@ -216,4 +240,38 @@ export const captureMobileControl = (control: string): void => {
 		control,
 		interaction_source: "touch",
 	});
+};
+
+/** Disable capture immediately; serialize storage and SDK changes with consent updates. */
+export const setMobileAnalyticsEnabled = (
+	next: boolean,
+	accountId: string | null,
+): Promise<void> => {
+	const version = ++preferenceVersion;
+	if (!next) {
+		enabled = false;
+		activityCleanup?.();
+		activityCleanup = null;
+	}
+	const update = consentOperations
+		.catch(() => undefined)
+		.then(async () => {
+			if (!next) {
+				enabled = false;
+				activityCleanup?.();
+				activityCleanup = null;
+				if (client) {
+					await client.ready();
+					await client.optOut();
+					client.setPersistedProperty(PostHogPersistedProperty.Queue, []);
+				}
+			}
+			await SecureStore.setItemAsync(CONSENT_KEY, String(next));
+			if (next && version === preferenceVersion) {
+				await hydrateAnalyticsState(accountId);
+				await client?.optIn();
+			}
+		});
+	consentOperations = update;
+	return update;
 };

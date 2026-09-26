@@ -64,6 +64,8 @@ describe("bundled model catalog", () => {
 	it("makes GPT-6 Astra the Codex default with the full reasoning ladder", () => {
 		expect(modelsForProvider(catalog, "codex").map((m) => m.id)).toEqual([
 			"gpt-6-astra",
+			"gpt-6-sol",
+			"gpt-6-luna",
 			"gpt-5.6-sol",
 			"gpt-5.6-terra",
 			"gpt-5.6-luna",
@@ -77,17 +79,21 @@ describe("bundled model catalog", () => {
 			{ id: "max", label: "Max" },
 			{ id: "ultra", label: "Ultra" },
 		];
-		for (const modelId of ["gpt-6-astra", "gpt-5.6-sol"]) {
+		for (const modelId of ["gpt-6-astra", "gpt-6-sol", "gpt-5.6-sol"]) {
 			expect(reasoningOptions("codex", modelId, "reasoning")).toEqual(ladder);
 		}
 		expect(resolveModelSlug(catalog, "codex", "gpt-6")).toBe("gpt-6-astra");
 		expect(
 			findModelDescriptor(catalog, "codex", "gpt-6-astra")?.badgeLabel,
 		).toBe("New");
+		expect(reasoningOptions("codex", "gpt-6-luna", "reasoning")).toEqual(
+			ladder.slice(0, -1),
+		);
 	});
 
 	it("makes Fable 5.1 the Claude default and keeps aliases routed", () => {
 		expect(modelsForProvider(catalog, "claude").map((m) => m.id)).toEqual([
+			"claude-opus-5-5",
 			"claude-fable-5-1",
 			"claude-fable-5",
 			"claude-opus-5",
@@ -95,7 +101,7 @@ describe("bundled model catalog", () => {
 		]);
 		expect(defaultModelFor(catalog, "claude")).toBe("claude-fable-5-1");
 		expect(visibleModelsForProvider(catalog, "claude")[0]?.id).toBe(
-			"claude-fable-5-1",
+			"claude-opus-5-5",
 		);
 		expect(isModelVisible(catalog, "claude", "claude-sonnet-5")).toBe(true);
 		expect(resolveModelSlug(catalog, "claude", "fable")).toBe(
@@ -107,7 +113,7 @@ describe("bundled model catalog", () => {
 		expect(resolveModelSlug(catalog, "claude", "fable-5")).toBe(
 			"claude-fable-5",
 		);
-		expect(resolveModelSlug(catalog, "claude", "opus")).toBe("claude-opus-5");
+		expect(resolveModelSlug(catalog, "claude", "opus")).toBe("claude-opus-5-5");
 		expect(reasoningOptions("claude", "claude-fable-5-1", "effort")).toEqual(
 			reasoningOptions("claude", "claude-fable-5", "effort"),
 		);
@@ -142,16 +148,58 @@ describe("bundled model catalog", () => {
 		expect(modelsForProvider(catalog, "kiro").map((m) => m.id)).toEqual([
 			"auto",
 			"claude-fable-5.1",
+			"claude-opus-5.5",
 			"claude-opus-5",
 			"claude-sonnet-5",
 			"gpt-6-astra",
+			"gpt-6-sol",
 			"gpt-5.6-sol",
 			"gpt-5.6-terra",
+			"gpt-6-luna",
 			"gpt-5.6-luna",
 		]);
 		expect(resolveModelSlug(catalog, "kiro", "claude-fable-5-1")).toBe(
 			"claude-fable-5.1",
 		);
+	});
+
+	it("routes the September releases and preserves their supported controls", () => {
+		for (const alias of ["opus", "opus-5.5", "opus-5-5", "claude-opus-5.5"]) {
+			expect(resolveModelSlug(catalog, "claude", alias)).toBe(
+				"claude-opus-5-5",
+			);
+		}
+		expect(resolveModelSlug(catalog, "claude", "opus-5")).toBe("claude-opus-5");
+		expect(resolveModelSlug(catalog, "kiro", "claude-opus-5-5")).toBe(
+			"claude-opus-5.5",
+		);
+		const opus = findModelDescriptor(catalog, "claude", "claude-opus-5-5");
+		expect(opus?.optionDescriptors).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: "effort", defaultId: "medium" }),
+				expect.objectContaining({
+					id: "contextWindow",
+					options: [{ id: "1m", label: "1M" }],
+				}),
+			]),
+		);
+		for (const provider of ["cursor", "opencode", "opencode2"] as const) {
+			const prefix = provider === "cursor" ? "" : "opencode/";
+			for (const model of [
+				"gpt-6-sol",
+				"gpt-6-luna",
+				"claude-opus-5-5",
+				"grok-4.7",
+			]) {
+				expect(
+					findModelDescriptor(catalog, provider, `${prefix}${model}`)
+						?.badgeLabel,
+				).toBe("New");
+			}
+		}
+		expect(
+			findModelDescriptor(catalog, "grok", "grok-4.7")?.supportsWebSearch,
+		).toBe("queryOnly");
 	});
 
 	it("keeps retired models out of every built-in catalog", () => {
@@ -164,7 +212,7 @@ describe("bundled model catalog", () => {
 		}
 		expect(defaultModelFor(catalog, "grok")).toBe("grok-build");
 		expect(resolveModelSlug(catalog, "grok", "grok-build-latest")).toBe(
-			"grok-4.6",
+			"grok-4.7",
 		);
 		const enabled = defaultModelEnabledByProvider(catalog);
 		expect(enabled.claude["claude-fable-5-1"]).toBe(true);
@@ -227,8 +275,10 @@ describe("resolveModelCatalog", () => {
 		expect(resolved.source).toBe("remote");
 		expect(codex.live.status).toBe("ok");
 		const ids = codex.models.map((m) => m.id);
-		expect(ids.slice(0, 4)).toEqual([
+		expect(ids.slice(0, 6)).toEqual([
 			"gpt-6-astra",
+			"gpt-6-sol",
+			"gpt-6-luna",
 			"gpt-5.6-sol",
 			"gpt-5.6-terra",
 			"gpt-5.6-luna",

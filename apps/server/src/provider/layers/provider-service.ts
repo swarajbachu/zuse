@@ -15,6 +15,7 @@ import type {
 } from "@zuse/agents/kernel/driver";
 import {
 	makeTurnScopedSessionHandle,
+	type TurnScopedProviderEventEnvelope,
 	type TurnScopedProviderSessionHandle,
 } from "@zuse/agents/kernel/turn-protocol";
 import { zuseWorkspaceInstructions } from "@zuse/agents/kernel/workspace-instructions";
@@ -27,6 +28,7 @@ import {
 import {
 	AgentAvailability,
 	AgentEvent,
+	type AgentItemId,
 	type AgentSessionId,
 	AgentSessionNotFoundError,
 	AgentSessionStartError,
@@ -39,6 +41,7 @@ import {
 	ProviderId,
 	ThreadGoal,
 	type ThreadGoalSetInput,
+	type UserQuestion,
 } from "@zuse/contracts";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
 import {
@@ -67,6 +70,8 @@ import { WorkspaceService } from "../../workspace/services/workspace-service.ts"
 import { validateApiKey } from "../api-key-validation.ts";
 import { probeProvidersWithPaths, resolveCliPath } from "../availability.ts";
 import { makeProviderSessionRegistry } from "../provider-session-registry.ts";
+import { makeQuestionAttachmentAuthority } from "../question-attachment-authority.ts";
+import { makeQuestionAttachmentSnapshotFeed } from "../question-attachment-feed.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
 import { PermissionService } from "../services/permission-service.ts";
@@ -79,6 +84,11 @@ import { RuntimeProviderCredentials } from "../services/runtime-provider-credent
  * the provider selected by a newer session command.
  */
 type SessionHandle = TurnScopedProviderSessionHandle;
+
+const isPublicProviderEvent = (
+	envelope: TurnScopedProviderEventEnvelope,
+): envelope is ProviderEventEnvelope =>
+	envelope.event._tag !== "QuestionCallbackReleased";
 
 /**
  * Handles that expose goal mode. Codex backs it with `thread/goal/*` RPCs;
@@ -125,6 +135,62 @@ export const ProviderServiceLive = Layer.effect(
 		const startupWorker = new KeyedEffectSerialWorker<string>();
 		const lifecycleWorker = new KeyedEffectSerialWorker<AgentSessionId>();
 		const startupPermits = yield* Semaphore.make(4);
+		const questionAttachments =
+			makeQuestionAttachmentAuthority<AgentSessionNotFoundError>();
+		const questionAttachmentChanges = yield* makeQuestionAttachmentSnapshotFeed;
+		const publishQuestionSnapshot = (): Effect.Effect<void> =>
+			questionAttachmentChanges.publish(questionAttachments.snapshot());
+		const attachQuestion = (
+			sessionId: AgentSessionId,
+			itemId: AgentItemId,
+			questions: ReadonlyArray<UserQuestion>,
+			handle: SessionHandle,
+		): Effect.Effect<"attached" | "duplicate" | "conflict" | "full"> =>
+			Effect.gen(function* () {
+				const attachment = { sessionId, itemId };
+				const admission = questionAttachments.attach(attachment, questions);
+				if (admission === "conflict") {
+					// A replay with different metadata must not replace or cancel the
+					// original callback authority. Suppress only the conflicting envelope;
+					// the first, exact question remains visible and answerable.
+					yield* Effect.logWarning(
+						`[ProviderService] suppressed conflicting question metadata for ${sessionId}/${itemId}`,
+					);
+					return admission;
+				}
+				if (admission === "duplicate") return admission;
+				if (admission === "full") {
+					// Never forward a durable question that has no corresponding live
+					// authority. Cancel the exact callback; if a broken driver cannot do
+					// that, close it so its bounded waiter registry is still drained.
+					yield* (handle.cancelQuestion?.(itemId) ?? handle.close()).pipe(
+						Effect.catch(() =>
+							handle.close().pipe(Effect.catch(() => Effect.void)),
+						),
+					);
+					return admission;
+				}
+				yield* publishQuestionSnapshot();
+				return admission;
+			});
+		const detachQuestion = (
+			sessionId: AgentSessionId,
+			itemId: AgentItemId,
+		): Effect.Effect<boolean> =>
+			Effect.gen(function* () {
+				const removed = questionAttachments.detach(sessionId, itemId);
+				if (!removed) return false;
+				yield* publishQuestionSnapshot();
+				return true;
+			});
+		const detachSessionQuestions = (
+			sessionId: AgentSessionId,
+		): Effect.Effect<void> =>
+			Effect.gen(function* () {
+				const detached = questionAttachments.detachSession(sessionId);
+				if (detached.length === 0) return;
+				yield* publishQuestionSnapshot();
+			});
 
 		// The Claude SDK's `canUseTool` callback returns a Promise; here we
 		// shim PermissionService.request into that signature using the live
@@ -1095,8 +1161,13 @@ export const ProviderServiceLive = Layer.effect(
 					sessionId,
 					Effect.flatMap(invalidate(sessionId), (entry) =>
 						entry === undefined
-							? Effect.fail(new AgentSessionNotFoundError({ sessionId }))
-							: entry.handle.close().pipe(
+							? detachSessionQuestions(sessionId).pipe(
+									Effect.andThen(
+										Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+									),
+								)
+							: detachSessionQuestions(sessionId).pipe(
+									Effect.andThen(entry.handle.close()),
 									Effect.withSpan("provider.close", {
 										attributes: {
 											"provider.id": entry.providerId,
@@ -1111,6 +1182,28 @@ export const ProviderServiceLive = Layer.effect(
 				Stream.unwrap(
 					Effect.map(lookup(sessionId), (entry) =>
 						entry.handle.events.pipe(
+							Stream.filterEffect((envelope) => {
+								const event = envelope.event;
+								if (event._tag === "QuestionCallbackReleased") {
+									return detachQuestion(sessionId, event.itemId).pipe(
+										Effect.as(false),
+									);
+								}
+								if (event._tag === "UserQuestion") {
+									return attachQuestion(
+										sessionId,
+										event.itemId,
+										event.questions,
+										entry.handle,
+									).pipe(
+										Effect.map(
+											(admission) =>
+												admission === "attached" || admission === "duplicate",
+										),
+									);
+								}
+								return Effect.succeed(true);
+							}),
 							Stream.tap((envelope) => {
 								const event = envelope.event;
 								if (event._tag === "UsageDelta") {
@@ -1202,6 +1295,7 @@ export const ProviderServiceLive = Layer.effect(
 								}
 								return Effect.void;
 							}),
+							Stream.filter(isPublicProviderEvent),
 						),
 					),
 				) as Stream.Stream<ProviderEventEnvelope, AgentSessionNotFoundError>,
@@ -1269,9 +1363,63 @@ export const ProviderServiceLive = Layer.effect(
 				Effect.flatMap(lookup(sessionId), ({ handle }) =>
 					handle.setPermissionMode(mode),
 				),
+			questionAttachments: () =>
+				questionAttachmentChanges.stream(() => questionAttachments.snapshot()),
+			hasQuestionAttachment: (sessionId, itemId) =>
+				Effect.sync(() => questionAttachments.has(sessionId, itemId)),
+			validateQuestionAnswer: (sessionId, itemId, answers) =>
+				questionAttachments.validateAnswer(sessionId, itemId, answers),
 			answerQuestion: (sessionId, itemId, answers) =>
-				Effect.flatMap(lookup(sessionId), ({ handle }) =>
-					handle.answerQuestion(itemId, answers),
+				lifecycleWorker.run(
+					sessionId,
+					Effect.gen(function* () {
+						const { handle } = yield* lookup(sessionId);
+						yield* questionAttachments.deliverAnswer(
+							sessionId,
+							itemId,
+							answers,
+							handle
+								.answerQuestion(itemId, answers)
+								.pipe(
+									Effect.mapError(
+										() => new AgentSessionNotFoundError({ sessionId }),
+									),
+								),
+						);
+					}),
+				),
+			cancelQuestion: (sessionId, itemId) =>
+				lifecycleWorker.run(
+					sessionId,
+					Effect.gen(function* () {
+						const { handle } = yield* lookup(sessionId);
+						const cancel = handle.cancelQuestion;
+						if (cancel === undefined) {
+							return yield* new AgentSessionNotFoundError({ sessionId });
+						}
+						yield* questionAttachments.deliverCancellation(
+							sessionId,
+							itemId,
+							cancel(itemId).pipe(
+								Effect.mapError(
+									() => new AgentSessionNotFoundError({ sessionId }),
+								),
+							),
+						);
+					}),
+				),
+			acknowledgeQuestionResolution: (sessionId, itemId) =>
+				lifecycleWorker.run(
+					sessionId,
+					Effect.flatMap(
+						lookup(sessionId),
+						({ handle }) =>
+							handle.acknowledgeQuestionAnswer?.(itemId) ?? Effect.void,
+					).pipe(
+						Effect.catch(() => Effect.void),
+						Effect.andThen(detachQuestion(sessionId, itemId)),
+						Effect.asVoid,
+					),
 				),
 			respondToPlan: (sessionId, toolCallId, outcome, feedback) =>
 				Effect.flatMap(lookup(sessionId), (entry) =>

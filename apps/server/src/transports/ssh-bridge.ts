@@ -5,7 +5,6 @@ import { readFile } from "node:fs/promises";
 import { Effect } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import type { Socket as SocketNs } from "effect/unstable/socket";
-import { Socket } from "effect/unstable/socket";
 
 /**
  * WebSocket ↔ sshd bridge for cloud workspaces.
@@ -57,7 +56,7 @@ const ticketAuthorized = (ticket: string | null): Promise<boolean> =>
 				() => false,
 			);
 
-const pumpSshd = (socket: SocketNs.Socket) =>
+export const pumpSshd = (socket: SocketNs.Socket) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const write = yield* socket.writer;
@@ -85,6 +84,9 @@ const pumpSshd = (socket: SocketNs.Socket) =>
 					child.kill("SIGKILL");
 				});
 			});
+			// Ending or interrupting runRaw closes the socket's write latch. Never
+			// write after the race: either winner makes that write wait forever.
+			// The upgraded socket's acquisition scope owns WebSocket closure.
 			yield* Effect.race(
 				socket
 					.runRaw((data) => {
@@ -94,9 +96,6 @@ const pumpSshd = (socket: SocketNs.Socket) =>
 					})
 					.pipe(Effect.catch(() => Effect.void)),
 				childExited,
-			);
-			yield* write(new Socket.CloseEvent(1000)).pipe(
-				Effect.catch(() => Effect.void),
 			);
 		}),
 	);

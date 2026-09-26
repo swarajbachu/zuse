@@ -35,9 +35,13 @@ export const registerPushTokenForAccount = async (
 			platform,
 		})
 	) {
-		return false;
+		throw new Error(
+			"Push registration requires a signed-in account and a configured API on a mobile device.",
+		);
 	}
-	if (platform !== "ios" && platform !== "android") return false;
+	if (platform !== "ios" && platform !== "android") {
+		throw new Error("Push registration requires a mobile device.");
+	}
 
 	const token = await deps.getPushToken();
 	if (token === null) return false;

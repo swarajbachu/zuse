@@ -80,7 +80,15 @@ export const parseDeviceLoginOutput = (
 	};
 };
 
-export const AUTH_INITIALIZER_SOURCE = `import { spawnSync } from "node:child_process";
+// Retained authentication machines outlive template updates. Every auth operation
+// must use the same validated CLI without changing the account's credential home.
+const AUTH_CODEX_PATH_SOURCE = `const authCodexPrefix = (process.env.ZUSE_CLOUD_AUTH_HOME ?? "/home/zuse/.zuse/cloud-auth") + "/toolchains/codex-${CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION}";
+process.env.PATH = authCodexPrefix + "/node_modules/.bin:" + (process.env.PATH ?? "");
+`;
+
+export const AUTH_INITIALIZER_SOURCE =
+	AUTH_CODEX_PATH_SOURCE +
+	`import { spawnSync } from "node:child_process";
 import { createHash, generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -106,8 +114,17 @@ const keyId = createHash("sha256").update(JSON.stringify(publicJwk)).digest("bas
 writeFileSync(home + "/key-id", keyId, { mode: 0o644 });
 if (!existsSync(home + "/storage-incarnation-id")) writeFileSync(home + "/storage-incarnation-id", randomUUID(), { mode: 0o600 });
 if (!existsSync(home + "/grant-fingerprint.key")) writeFileSync(home + "/grant-fingerprint.key", randomBytes(32).toString("base64url"), { mode: 0o600 });
-const codexVersion = spawnSync("codex", ["--version"], { encoding: "utf8" });
-writeFileSync(home + "/codex-toolchain-version", codexVersion.status === 0 ? codexVersion.stdout.trim() : "unavailable", { mode: 0o600 });
+const expectedCodexVersion = ${JSON.stringify(CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION)};
+const readCodexVersion = () => {
+  const result = spawnSync("codex", ["--version"], { encoding: "utf8", timeout: 10000 });
+  return result.status === 0 ? result.stdout.trim() : "unavailable";
+};
+let codexVersion = readCodexVersion();
+if (!codexVersion.split(/\\s+/u).includes(expectedCodexVersion)) {
+  spawnSync("npm", ["install", "--prefix", authCodexPrefix, "--no-audit", "--no-fund", "@openai/codex@" + expectedCodexVersion], { stdio: "ignore", timeout: 90000 });
+  codexVersion = readCodexVersion();
+}
+writeFileSync(home + "/codex-toolchain-version", codexVersion, { mode: 0o600 });
 const expectedGrokVersion = ${JSON.stringify(GROK_EXTERNAL_AUTH_TOOLCHAIN_VERSION)};
 const managedGrokBinary = process.env.ZUSE_AUTH_MANAGED_GROK_BINARY ?? "/home/zuse/.local/bin/grok";
 const systemGrokBinary = process.env.ZUSE_AUTH_SYSTEM_GROK_BINARY ?? "/usr/local/bin/grok";
@@ -137,7 +154,9 @@ writeFileSync(home + "/grok-toolchain-version", grokVersion(managedGrokBinary) |
 writeFileSync(completionPath, "ready", { mode: 0o600 });
 `;
 
-const CONFIGURATOR_SOURCE = String.raw`import { constants, privateDecrypt } from "node:crypto";
+const CONFIGURATOR_SOURCE =
+	AUTH_CODEX_PATH_SOURCE +
+	String.raw`import { constants, privateDecrypt } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 const home = "/home/zuse/.zuse/cloud-auth";
@@ -189,7 +208,9 @@ await writeFile(home + "/status/" + input.providerId + ".json", JSON.stringify(r
 await writeFile(resultPath, JSON.stringify(result), { mode: 0o600 });
 `;
 
-const LOGIN_SOURCE = `import { mkdir, readFile, writeFile } from "node:fs/promises";
+const LOGIN_SOURCE =
+	AUTH_CODEX_PATH_SOURCE +
+	`import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 const parseDeviceLoginOutput = ${parseDeviceLoginOutput.toString()};
 const home = "/home/zuse/.zuse/cloud-auth";
@@ -218,14 +239,18 @@ child.once("exit", async (code) => {
 });
 `;
 
-const CANCEL_SOURCE = `import { readFile, writeFile } from "node:fs/promises";
+const CANCEL_SOURCE =
+	AUTH_CODEX_PATH_SOURCE +
+	`import { readFile, writeFile } from "node:fs/promises";
 const path = process.argv[2];
 const current = JSON.parse(await readFile(path, "utf8"));
 if (typeof current.pid === "number") { try { process.kill(current.pid, "SIGTERM"); } catch {} }
 await writeFile(path, JSON.stringify({ providerId: current.providerId, state: "cancelled" }), { mode: 0o600 });
 `;
 
-const VERIFY_SOURCE = `import { mkdir, readFile, writeFile } from "node:fs/promises";
+const VERIFY_SOURCE =
+	AUTH_CODEX_PATH_SOURCE +
+	`import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 const home = "/home/zuse/.zuse/cloud-auth";
@@ -280,7 +305,9 @@ await Promise.all(providers.map(verify));
 await writeFile(markerPath, "ready", { mode: 0o600 });
 `;
 
-export const AUTH_GRANT_SOURCE = String.raw`import { createCipheriv, createHmac, createPublicKey, constants, publicEncrypt, randomBytes } from "node:crypto";
+export const AUTH_GRANT_SOURCE =
+	AUTH_CODEX_PATH_SOURCE +
+	String.raw`import { createCipheriv, createHmac, createPublicKey, constants, publicEncrypt, randomBytes } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname } from "node:path";
@@ -720,10 +747,16 @@ const initializeAuthority = Effect.fn("initializeCloudAuthAuthority")(
 			!codexToolchainVersion
 				.split(/\s+/u)
 				.includes(CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION)
-		)
+		) {
+			console.warn("[cloud-auth] authority toolchain mismatch", {
+				sandboxId: authority.sandboxId,
+				expected: CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION,
+				actual: codexToolchainVersion,
+			});
 			return yield* Effect.fail(
 				serviceUnavailable("codex-auth-update-required"),
 			);
+		}
 		return { ...authority, storageIncarnationId } satisfies Authority;
 	},
 );

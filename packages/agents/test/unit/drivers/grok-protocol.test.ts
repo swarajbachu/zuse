@@ -4,7 +4,6 @@ import {
 	classifyGrokRpcError,
 	createGrokEventCursor,
 	createGrokLifecycle,
-	decodeAskUserQuestionRequest,
 	decodeGrokInitializeResult,
 	decodeGrokNotification,
 	decodeGrokWireMethod,
@@ -166,21 +165,6 @@ describe("Grok native ACP protocol", () => {
 		expect(mapGrokMode("plan")).toBe("plan");
 		expect(mapGrokMode("default")).toBe("default");
 		expect(mapGrokMode("acceptEdits")).toBe("default");
-	});
-
-	it("decodes typed user questions", () => {
-		const request = decodeAskUserQuestionRequest({
-			sessionId: "s",
-			toolCallId: "ask-1",
-			mode: "plan",
-			questions: [
-				{
-					question: "Ship?",
-					options: [{ label: "Yes", description: "Ship now" }],
-				},
-			],
-		});
-		expect(request.questions[0]?.options[0]?.label).toBe("Yes");
 	});
 
 	it("deduplicates replay/live overlap and advances only on commit", () => {

@@ -1,0 +1,30 @@
+{
+	"androidApi": 24,
+	"artifacts": {
+		"include/**": "5dc9cf3fea2224c1a849ac4b5ff4dc19f7d5a6e07a255024189df714f7aabbed",
+		"LICENSE": "386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1",
+		"lib/arm64-v8a/libghostty-vt.a": "113349bffbef03d00c7b58828d348c4c9d0b10825b81e3321326dd542672cdde",
+		"lib/x86_64/libghostty-vt.a": "7cfd666fee70efadb0d13077c12384fbf8ebd504f693c984a123421c5d341578"
+	},
+	"abis": [
+		"arm64-v8a",
+		"x86_64"
+	],
+	"buildHost": "x86_64-linux",
+	"buildRecipeVersion": 4,
+	"deterministicPaths": {
+		"globalCache": "/tmp/zuse-ghostty-android-zig-global-9f62873b",
+		"ndk": "/tmp/zuse-ghostty-android-ndk-27.1.12297006",
+		"output": "/tmp/zuse-ghostty-android-build-9f62873b",
+		"source": "/tmp/zuse-ghostty-android-source-9f62873b",
+		"zig": "/tmp/zuse-ghostty-android-zig-0.15.2"
+	},
+	"ndkVersion": "27.1.12297006",
+	"revision": "9f62873bf195e4d8a762d768a1405a5f2f7b1697",
+	"seed": 0,
+	"simd": false,
+	"zigArchiveSha256": "02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239",
+	"zigBinarySha256": "2858dc89dbbfdd08cceda1b841e7fd0a793a1a67b49f150bc3d0d1de44ed7f51",
+	"zigDistribution": "zig-x86_64-linux-0.15.2.tar.xz",
+	"zigVersion": "0.15.2"
+}

@@ -260,6 +260,8 @@ export const refreshConnectionLabel = async (
 		key,
 		nextLabel,
 		descriptor.capabilities,
+		Date.now(),
+		descriptor.environmentId,
 	);
 	if (next === connections) return;
 	appAtomRegistry.set(connectionsAtom, next);

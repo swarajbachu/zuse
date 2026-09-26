@@ -4,6 +4,7 @@ import type {
 	Message,
 	PermissionRequest,
 	Session,
+	SessionInteraction,
 } from "@zuse/contracts";
 import type { NotchTrayItem, NotchTrayItemState } from "./bridge.ts";
 import {
@@ -12,6 +13,10 @@ import {
 	derivePermissionAttention,
 	mergeChatAttentionStates,
 } from "./chat-attention-state.ts";
+import {
+	filterActionableQuestionInteractions,
+	type QuestionAttachmentsByKey,
+} from "./question-actionability.ts";
 import {
 	effectiveSessionRuntimeState,
 	isSessionRuntimeBusy,
@@ -30,7 +35,11 @@ export type BuildNotchItemsInput = {
 	readonly sessionsByProject: Record<string, ReadonlyArray<Session>>;
 	readonly messagesBySession: Record<string, ReadonlyArray<Message>>;
 	readonly runtimeBySession: Readonly<Record<string, SessionRuntimeState>>;
+	readonly interactionsBySession: Readonly<
+		Record<string, ReadonlyArray<SessionInteraction>>
+	>;
 	readonly permissionRequests: ReadonlyArray<PermissionRequest>;
+	readonly questionAttachmentsByKey: QuestionAttachmentsByKey;
 	readonly recentCompletions: Readonly<Record<string, RecentCompletion>>;
 	readonly now: number;
 };
@@ -148,7 +157,9 @@ export const buildNotchItems = ({
 	sessionsByProject,
 	messagesBySession,
 	runtimeBySession,
+	interactionsBySession,
 	permissionRequests,
+	questionAttachmentsByKey,
 	recentCompletions,
 	now,
 }: BuildNotchItemsInput): ReadonlyArray<NotchTrayItem> => {
@@ -175,6 +186,11 @@ export const buildNotchItems = ({
 				deriveChatAttentionState(
 					messagesBySession[session.id] ?? [],
 					isSessionRuntimeBusy(runtimeState),
+					filterActionableQuestionInteractions(
+						session.id,
+						interactionsBySession[session.id] ?? [],
+						questionAttachmentsByKey,
+					),
 				),
 				derivePermissionAttention(permissionRequests, new Set([session.id])),
 			]);

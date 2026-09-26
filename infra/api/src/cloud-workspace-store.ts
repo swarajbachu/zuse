@@ -1512,8 +1512,12 @@ const completeLaunchWorkspace = (
 	input: CompleteLaunchIntentInput,
 ): CloudWorkspaceRecord => {
 	const startupTimings = recordOrEmpty(workspace.requestConfig.startupTimings);
-	const { runtimeSessionRecoveryPending: _, ...requestConfig } =
-		workspace.requestConfig;
+	const {
+		runtimeSessionRecoveryPending: _,
+		launchErrorCode: _launchError,
+		startupFailureDiagnostic: _startupFailure,
+		...requestConfig
+	} = workspace.requestConfig;
 	const requestedAt =
 		typeof startupTimings.requestedAt === "number"
 			? startupTimings.requestedAt

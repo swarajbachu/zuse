@@ -12,6 +12,7 @@ import type {
 import {
 	AgentSessionNotFoundError,
 	AgentTurnId,
+	PtyCatalog,
 	RepositorySettings,
 	Worktree,
 } from "@zuse/contracts";
@@ -82,6 +83,7 @@ import { Migration0047MessageCheckpoints } from "../../src/persistence/migration
 import { Migration0049ChatCreationStartupReady } from "../../src/persistence/migrations/0049_chat_creation_startup_ready.ts";
 import { Migration0053CloudCommandReceipts } from "../../src/persistence/migrations/0053_cloud_command_receipts.ts";
 import { Migration0054ProviderEffectOutcomes } from "../../src/persistence/migrations/0054_provider_effect_outcomes.ts";
+import { Migration0058QuestionAnswerDeliveries } from "../../src/persistence/migrations/0058_question_answer_deliveries.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -165,6 +167,7 @@ const runAllMigrations = Effect.all(
 		Migration0049ChatCreationStartupReady,
 		Migration0053CloudCommandReceipts,
 		Migration0054ProviderEffectOutcomes,
+		Migration0058QuestionAnswerDeliveries,
 	],
 	{ discard: true },
 );
@@ -222,7 +225,13 @@ export const makeConversationFixtureRuntime = (
 		setCredential: () => Effect.succeed({ verification: "notChecked" }),
 		removeCredential: () => Effect.void,
 		setPermissionMode: () => Effect.void,
+		questionAttachments: () =>
+			Stream.succeed({ _tag: "snapshot", attachments: [] }),
+		hasQuestionAttachment: () => Effect.succeed(false),
+		validateQuestionAnswer: () => Effect.void,
 		answerQuestion: () => Effect.void,
+		cancelQuestion: () => Effect.void,
+		acknowledgeQuestionResolution: () => Effect.void,
 		getGoal: () => Effect.succeed(null),
 		setGoal: () => Effect.die("not used"),
 		clearGoal: () => Effect.void,
@@ -301,10 +310,14 @@ export const makeConversationFixtureRuntime = (
 
 	const StubPtyLive = Layer.succeed(PtyService, {
 		open: () => Effect.die("not used"),
-		list: () => Effect.succeed([]),
+		list: () =>
+			Effect.succeed(PtyCatalog.make({ terminals: [], liveLimit: 1 })),
 		write: () => Effect.die("not used"),
 		resize: () => Effect.die("not used"),
+		rename: () => Effect.die("not used"),
+		restart: () => Effect.die("not used"),
 		close: () => Effect.die("not used"),
+		closeOwned: () => Effect.succeed(0),
 		closeByCwdPrefix: () => Effect.void,
 		subscribe: () => Stream.die("not used"),
 	});
@@ -324,6 +337,7 @@ export const makeConversationFixtureRuntime = (
 		renameBranch: () => Effect.die("not used"),
 		getUserName: () => Effect.succeed(""),
 		workspaceChanges: () => Stream.die("not used"),
+		workspaceSnapshot: () => Effect.die("not used"),
 		origin: () => Effect.die("not used"),
 		prState: () => Effect.die("not used"),
 		prDetails: () => Effect.die("not used"),

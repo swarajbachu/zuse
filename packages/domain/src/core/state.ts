@@ -63,6 +63,7 @@ export type SessionState = {
 	readonly messageIds: ReadonlySet<string>;
 	readonly messageCheckpoints: ReadonlyMap<string, MessageCheckpointState>;
 	readonly pendingPermissionIds: ReadonlySet<string>;
+	readonly resolvedQuestionIds: ReadonlySet<string>;
 	readonly providerId: string | null;
 	readonly attachedProviderId: string | null;
 	readonly version: number;
@@ -98,6 +99,7 @@ export const initialSessionState: SessionState = {
 	messageIds: new Set(),
 	messageCheckpoints: new Map(),
 	pendingPermissionIds: new Set(),
+	resolvedQuestionIds: new Set(),
 	providerId: null,
 	attachedProviderId: null,
 	version: 0,
@@ -312,6 +314,12 @@ export const evolve = (
 					state.pendingPermissionIds,
 					event.requestId,
 				),
+				version,
+			};
+		case "QuestionResolved":
+			return {
+				...state,
+				resolvedQuestionIds: added(state.resolvedQuestionIds, event.itemId),
 				version,
 			};
 		case "ProviderAttached":

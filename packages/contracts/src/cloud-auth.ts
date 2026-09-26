@@ -3,7 +3,7 @@ import { Rpc } from "effect/unstable/rpc";
 import { CloudWorkspaceOpError } from "./cloud-workspaces.ts";
 
 /** Codex release whose experimental external-auth protocol is contract-tested. */
-export const CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION = "0.144.5";
+export const CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION = "0.155.1";
 
 /** Grok release whose external-provider ACP contract is exercised by Zuse. */
 export const GROK_EXTERNAL_AUTH_TOOLCHAIN_VERSION = "1.0.13";

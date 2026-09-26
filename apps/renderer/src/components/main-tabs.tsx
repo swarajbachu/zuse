@@ -30,8 +30,10 @@ import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import { closeChatTab } from "../lib/close-chat-tab.ts";
 import { useActiveEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
+import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
 import { useExtensionContributions } from "../lib/extension-registry.tsx";
 import { selectAuthenticatedProvider } from "../lib/model-picker-availability.ts";
+import { filterActionableQuestionInteractions } from "../lib/question-actionability.ts";
 import {
 	type RendererSessionTimeline,
 	useRendererSessionTimelines,
@@ -132,6 +134,9 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 	// so a supervised-mode request is visible without opening the session.
 	// ExitPlanMode is excluded — plan mode owns its own inline approval card.
 	const requestsById = useEnvironmentPermissions().data?.requestsById ?? {};
+	const questionAttachmentsByKey =
+		useEnvironmentQuestionAttachments(environmentId).data?.attachmentsByKey ??
+		{};
 	const awaitingPermission = useMemo(() => {
 		const ids = new Set<SessionId>();
 		for (const req of Object.values(requestsById)) {
@@ -277,11 +282,20 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 								running={
 									runtimeState === "running" || runtimeState === "stopping"
 								}
-								activityState={deriveAgentActivityState(messages)}
+								activityState={deriveAgentActivityState(
+									messages,
+									filterActionableQuestionInteractions(
+										session.id,
+										timeline?.presentation.interactions.map(
+											(item) => item.interaction,
+										) ?? [],
+										questionAttachmentsByKey,
+									),
+								)}
 								awaitingPermission={awaitingPermission.has(session.id)}
 								awaitingPlanApproval={
 									awaitingPlanApproval.has(session.id) ||
-									deriveChatAttentionState(messages, false) === "planReady"
+									deriveChatAttentionState(messages, false, []) === "planReady"
 								}
 								onClick={() => {
 									if (selectedSessionId !== session.id) {

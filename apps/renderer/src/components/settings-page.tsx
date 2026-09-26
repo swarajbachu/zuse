@@ -1,6 +1,7 @@
 import "@zuse/i18n/english/extensions";
 import { formatDate as formatUiDate } from "@zuse/i18n";
 import { isInputComposing } from "../lib/input-composition.ts";
+import { WallpaperSettings } from "./settings/wallpaper-settings";
 import "@zuse/i18n/english/settings";
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -1349,6 +1350,7 @@ function GeneralPane() {
 						</div>
 					}
 				/>
+				<WallpaperSettings />
 				<LanguageSelector settingsRow />
 			</SettingsGroup>
 

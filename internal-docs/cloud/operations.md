@@ -6,6 +6,9 @@ provisioning and cutover checklist lives in the
 and billing procedures live in
 [cloud billing operations](billing.md).
 
+Before changing runtime storage paths or repairing missing chat data, follow
+[runtime data recovery](runtime-data-recovery.md).
+
 ## Environments
 
 Staging and production are isolated deployments:

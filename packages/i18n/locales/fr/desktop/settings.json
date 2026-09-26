@@ -873,5 +873,16 @@
 	"cloud_auth_not_allowed": "Votre session Zuse n’a pas pu autoriser cette action. Actualisez votre session et réessayez.",
 	"cloud_auth_login_failed": "La connexion à l’agent n’a pas pu être démarrée.",
 	"cloud_auth_temporarily_unavailable": "L’authentification Cloud est temporairement indisponible. Réessayez sans affecter vos discussions existantes.",
-	"cloud_machine_provider": "Fournisseur de machine"
+	"cloud_machine_provider": "Fournisseur de machine",
+	"wallpaper_title": "Fond d’écran",
+	"wallpaper_description": "Un fond discret pour les nouvelles discussions. Enregistré sur cet appareil.",
+	"wallpaper_saving": "Enregistrement…",
+	"wallpaper_replace": "Remplacer l’image",
+	"wallpaper_upload": "Importer une image",
+	"wallpaper_remove": "Supprimer",
+	"wallpaper_upload_label": "Importer un fond d’écran",
+	"wallpaper_opacity": "Opacité",
+	"wallpaper_opacity_label": "Opacité du fond d’écran",
+	"wallpaper_hint": "PNG, JPEG, WebP, AVIF ou GIF · Jusqu’à 20 Mo. Créez une texture avec",
+	"wallpaper_studio": "Dither studio"
 }

@@ -277,8 +277,9 @@ export default function DataRightsPage() {
 						Analytics opt-out
 					</h2>
 					<p className="mt-2">
-						Desktop and mobile product analytics are enabled by default and are
-						limited to the pseudonymous, sanitized events described in the{" "}
+						Desktop product analytics are enabled by default. Mobile analytics
+						require opt-in in Settings. Both are limited to the pseudonymous,
+						sanitized events described in the{" "}
 						<Link
 							href="/privacy"
 							className="text-primary underline underline-offset-4"
@@ -289,10 +290,11 @@ export default function DataRightsPage() {
 						<strong className="font-medium text-foreground">
 							Share usage analytics
 						</strong>
-						. New collection stops immediately and pending desktop analytics are
-						deleted locally. Signing out, resetting the app, or deleting the
-						account rotates the analytics identity; it does not retroactively
-						erase already-collected pseudonymous aggregate history.
+						. New collection stops immediately and pending desktop and mobile
+						analytics are deleted locally. Signing out, resetting the app, or
+						deleting the account rotates the analytics identity; it does not
+						retroactively erase already-collected pseudonymous aggregate
+						history.
 					</p>
 					<p className="mt-2">
 						This is separate from website cookies. The current marketing site
@@ -409,11 +411,15 @@ export default function DataRightsPage() {
 						device, or a Cloud Workspace, and include only the minimum
 						non-sensitive detail needed to identify the issue. Do not put
 						credentials or private workspace content in a public issue or
-						community channel. Zuse does not currently publish a dedicated
-						private privacy-request address. Do not post an account-specific
-						rights request publicly; use the in-app account deletion control
-						where it fits, and wait for a verified private intake channel for
-						other account-specific requests.
+						community channel. For private support and account-specific privacy
+						requests, email{" "}
+						<a
+							href="mailto:hi@zuse.sh"
+							className="text-primary hover:underline"
+						>
+							hi@zuse.sh
+						</a>
+						. You can also use the in-app account deletion control.
 					</p>
 					<p className="mt-2">
 						We do not publish an invented email address, fixed response

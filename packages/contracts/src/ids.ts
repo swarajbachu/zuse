@@ -11,6 +11,9 @@ export type FolderId = typeof FolderId.Type;
 export const PtyId = makeEntityId("PtyId");
 export type PtyId = typeof PtyId.Type;
 
+export const PtyOwnerId = makeEntityId("PtyOwnerId");
+export type PtyOwnerId = typeof PtyOwnerId.Type;
+
 export const AgentSessionId = makeEntityId("AgentSessionId");
 export type AgentSessionId = typeof AgentSessionId.Type;
 

@@ -3,10 +3,10 @@ import "@zuse/i18n/english/shell";
 
 import { Effect } from "effect";
 
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 
 import { TooltipProvider } from "./components/ui/tooltip-provider.tsx";
-
+import { useAuth } from "./hooks/use-auth.ts";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
@@ -21,7 +21,10 @@ import {
 import { AppearanceController } from "./lib/appearance.tsx";
 
 import { installClientBusOnlineBridge } from "./lib/client-bus-online.ts";
+import { prefetchCloudWorkspaceSession } from "./lib/cloud-workspace-session-cache.ts";
+import { clearControlPlaneSessionCache } from "./lib/control-plane-client.ts";
 import { ExtensionHostController } from "./lib/extension-registry.tsx";
+
 import { markRendererStartupMilestone } from "./lib/performance-marks.ts";
 
 import { installQueueOnlineRecovery } from "./lib/queue-recovery.ts";
@@ -31,6 +34,8 @@ import { getRpcClient } from "./lib/rpc-client.ts";
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
 
 import { useEnvironmentCatalogStore } from "./store/environment-catalog.ts";
+import { useModelCatalogStore } from "./store/model-catalog.ts";
+import { useProvidersStore } from "./store/providers.ts";
 
 import { useUiStore } from "./store/ui.ts";
 
@@ -80,9 +85,17 @@ const SettingsPage = lazy(() =>
 
 const loadUsageDashboard = () => import("./components/usage-dashboard.tsx");
 
+const ChatSwitcher = lazy(() =>
+	import("./components/chat-switcher.tsx").then((module) => ({
+		default: module.ChatSwitcher,
+	})),
+);
+
 function AmbientSurfaces() {
+	const chatSwitcherOpen = useUiStore((state) => state.chatSwitcherOpen);
 	return (
 		<Suspense fallback={null}>
+			{chatSwitcherOpen ? <ChatSwitcher /> : null}
 			<NotchTrayBridge />
 			<PrWatchController />
 			<NearbyPairingApproval />
@@ -131,6 +144,12 @@ function ReadyApp({
 	readonly onboardingCompleted: boolean;
 	readonly onReady?: () => void;
 }) {
+	const { isSignedIn, user } = useAuth();
+	const cloudCacheIdentity = useRef<string | null | undefined>(undefined);
+	const ensureModelCatalog = useModelCatalogStore(
+		(state) => state.ensureLoaded,
+	);
+	const loadProviderAvailability = useProvidersStore((state) => state.load);
 	useEffect(() => installClientBusOnlineBridge(), []);
 	useEffect(() => installQueueOnlineRecovery(), []);
 	useEffect(() => {
@@ -199,14 +218,16 @@ function ReadyApp({
 	const catalogInitialized = useEnvironmentCatalogStore(
 		(state) => state.initialized,
 	);
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
+	);
 	const catalogInitializationError = useEnvironmentCatalogStore(
 		(state) => state.initializationError,
 	);
 	const projectsLoading = useWorkspaceStore((state) => state.loading);
 	const desktopCatalogEnabled = window.zuse?.ssh !== undefined;
 	useEffect(() => {
-		if (!onboardingCompleted || view === "settings" || !desktopCatalogEnabled)
-			return;
+		if (!onboardingCompleted || !desktopCatalogEnabled) return;
 		void initializeEnvironmentCatalog().catch((cause) =>
 			console.error("[zuse] environment catalog initialize failed", cause),
 		);
@@ -214,8 +235,36 @@ function ReadyApp({
 		desktopCatalogEnabled,
 		initializeEnvironmentCatalog,
 		onboardingCompleted,
-		view,
 	]);
+	useEffect(() => {
+		if (!onboardingCompleted || !catalogInitialized) return;
+		void ensureModelCatalog().catch((cause) =>
+			console.error("[zuse] model catalog prefetch failed", cause),
+		);
+		void loadProviderAvailability().catch((cause) =>
+			console.error("[zuse] provider availability prefetch failed", cause),
+		);
+	}, [
+		activeEnvironmentId,
+		catalogInitialized,
+		ensureModelCatalog,
+		loadProviderAvailability,
+		onboardingCompleted,
+	]);
+	useEffect(() => {
+		if (!onboardingCompleted) return;
+		const identity = user?.id ?? null;
+		if (cloudCacheIdentity.current !== identity) {
+			clearControlPlaneSessionCache("cloud-workspace:");
+			cloudCacheIdentity.current = identity;
+		}
+		if (!isSignedIn) {
+			return;
+		}
+		void prefetchCloudWorkspaceSession().catch((cause) =>
+			console.error("[zuse] cloud workspace prefetch failed", cause),
+		);
+	}, [isSignedIn, onboardingCompleted, user?.id]);
 	useEffect(() => {
 		trackAnalyticsScreen(
 			onboardingCompleted
