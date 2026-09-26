@@ -30,7 +30,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { deriveEnvironmentPrRows } from "../lib/branch-workflow.ts";
 import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
 import { displayPath } from "../lib/display-path.ts";
-import { useActiveSessionById } from "../lib/environment-entity-hooks.ts";
+import { useEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
 import { deriveEnvironmentLocation } from "../lib/environment-location.ts";
 import { formatError } from "../lib/format-error.ts";
 import {
@@ -98,9 +98,13 @@ export function EnvironmentSummary() {
 			) ?? null,
 	);
 	const environmentLocation = deriveEnvironmentLocation({
-		activeEnvironmentId,
+		activeEnvironmentId:
+			ctx.status === "ready" ? ctx.environmentId : activeEnvironmentId,
 		localEnvironmentId: getLocalEnvironmentId(),
-		activeEntry: activeEnvironmentEntry,
+		activeEntry:
+			ctx.status === "ready" && ctx.environmentId !== activeEnvironmentId
+				? null
+				: activeEnvironmentEntry,
 	});
 	const EnvironmentIcon = environmentLocation.isLocal
 		? LaptopIcon
@@ -143,7 +147,13 @@ export function EnvironmentSummary() {
 	const revealPanelForChat = useUiStore((s) => s.revealPanelForChat);
 	const selectSubagent = useUiStore((s) => s.selectSubagent);
 	const sessionId = useSessionsStore((s) => s.selectedSessionId);
-	const session = useActiveSessionById(sessionId);
+	const { sessionsByProject } = useEnvironmentEntities(
+		environmentId ?? activeEnvironmentId,
+	);
+	const session =
+		Object.values(sessionsByProject)
+			.flat()
+			.find((candidate) => candidate.id === sessionId) ?? null;
 	const chatRef =
 		environmentId === null || session === null
 			? null

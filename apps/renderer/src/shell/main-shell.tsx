@@ -1,4 +1,3 @@
-import { isHostedProduct } from "../lib/hosted-connect.ts";
 import { SurfaceFallback } from "./surface-fallback.tsx";
 import "@zuse/i18n/english/shell";
 
@@ -448,12 +447,9 @@ export function MainShell() {
 		(s) => s.setRightSidebarWidthForChat,
 	);
 	const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
-	const environmentSummaryFits = useMediaQuery({ min: 1180 });
 	const compactWorkspace = useMediaQuery({ max: 900 });
 	const environmentSummaryAvailable =
-		environmentSummaryFits &&
-		selectedSessionId !== null &&
-		activeMainTab === "chat";
+		selectedSessionId !== null && activeMainTab === "chat";
 	const showEnvironmentSummary =
 		environmentSummaryAvailable && environmentSummaryOpen;
 
@@ -609,7 +605,7 @@ export function MainShell() {
 							</Suspense>
 							<div className="flex min-h-0 flex-1 flex-col">
 								<Suspense fallback={<SurfaceFallback />}>
-									{isHostedProduct() ? <HostedSidebar /> : <ProjectsSidebar />}
+									<ProjectsSidebar />
 								</Suspense>
 							</div>
 						</div>
@@ -881,9 +877,3 @@ function DirectoryUnavailableSurface({ label }: { readonly label: string }) {
 		</div>
 	);
 }
-
-const HostedSidebar = lazy(() =>
-	import("../components/hosted-sidebar.tsx").then((module) => ({
-		default: module.HostedSidebar,
-	})),
-);

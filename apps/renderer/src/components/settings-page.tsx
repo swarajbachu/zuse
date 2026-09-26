@@ -1,4 +1,6 @@
 import { formatDate as formatUiDate } from "@zuse/i18n";
+import { isHostedProduct } from "../lib/hosted-connect.ts";
+import { refreshHostedProjects } from "../lib/hosted-workspace.ts";
 import { isInputComposing } from "../lib/input-composition.ts";
 import { WallpaperSettings } from "./settings/wallpaper-settings";
 import "@zuse/i18n/english/settings";
@@ -129,7 +131,7 @@ export function SettingsPage() {
 			: section;
 
 	useEffect(() => {
-		if (folders.length === 0) void loadFolders();
+		if (!isHostedProduct() && folders.length === 0) void loadFolders();
 	}, [folders.length, loadFolders]);
 
 	useEffect(() => {
@@ -144,7 +146,11 @@ export function SettingsPage() {
 				<div className="w-16 shrink-0" />
 				<button
 					type="button"
-					onClick={() => setView("chat")}
+					onClick={() => {
+						if (isHostedProduct())
+							void refreshHostedProjects(true).catch(() => undefined);
+						setView("chat");
+					}}
 					aria-label={uiMessage("settings:settings_page_back_to_app")}
 					className="flex items-center gap-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground [-webkit-app-region:no-drag]"
 				>
@@ -196,8 +202,16 @@ function Rail({
 	return (
 		<nav className="flex w-52 shrink-0 flex-col gap-4 border-r border-sidebar-border bg-sidebar px-2.5 py-3 text-xs text-sidebar-foreground max-[800px]:w-12 max-[800px]:px-1.5">
 			<div className="flex flex-col gap-0.5">
-				{VISIBLE_RAIL.filter(
-					(item) => desktop || item.section.kind !== "machines",
+				{VISIBLE_RAIL.filter((item) =>
+					isHostedProduct()
+						? [
+								"general",
+								"providers",
+								"defaults",
+								"machines",
+								"shortcuts",
+							].includes(item.section.kind)
+						: desktop || item.section.kind !== "machines",
 				).map((item) => {
 					const active =
 						section.kind !== "repository" && section.kind === item.section.kind;
@@ -212,7 +226,7 @@ function Rail({
 					);
 				})}
 			</div>
-			{folders.length > 0 && (
+			{!isHostedProduct() && folders.length > 0 && (
 				<div className="flex flex-col gap-2 max-[800px]:hidden">
 					<div className="flex items-center justify-between px-2">
 						<RichMessage
@@ -400,7 +414,8 @@ function SectionTitle({
 function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "general") return <GeneralPane />;
 	if (section.kind === "defaults") return <DefaultModelsPane />;
-	if (section.kind === "providers") return <ProvidersPane />;
+	if (section.kind === "providers")
+		return isHostedProduct() ? <CloudWorkspacePool /> : <ProvidersPane />;
 	if (section.kind === "integrations") return <LinearIntegrationsPane />;
 	if (section.kind === "mcp") return <McpServersPane />;
 	if (section.kind === "devices") return <DevicesPane />;
@@ -1310,13 +1325,13 @@ function GeneralPane() {
 						</div>
 					}
 				/>
-				<WallpaperSettings />
+				{!isHostedProduct() && <WallpaperSettings />}
 				<LanguageSelector settingsRow />
 			</SettingsGroup>
 
-			<UpdateChannelSettings />
+			{!isHostedProduct() && <UpdateChannelSettings />}
 
-			<ComputerAwakeSettings />
+			{!isHostedProduct() && <ComputerAwakeSettings />}
 
 			<SettingsGroup title={uiMessage("settings:settings_page_notifications")}>
 				<SettingsRow
@@ -1458,27 +1473,29 @@ function GeneralPane() {
 				</SettingsRow>
 			</SettingsGroup>
 
-			<SettingsGroup title={uiMessage("settings:settings_page_setup")}>
-				<SettingsRow
-					title={uiMessage("settings:settings_page_onboarding")}
-					description={uiMessage(
-						"settings:settings_page_replay_the_first_launch_welcome_flow_your_existing_projects_and_creden",
-					)}
-					action={
-						<Button
-							variant="settings"
-							size="sm"
-							onClick={() => {
-								setView("chat");
-								setOnboardingCompleted(false);
-							}}
-						>
-							{uiMessage("settings:settings_page_show_again")}
-						</Button>
-					}
-				/>
-			</SettingsGroup>
-			<NotchSettingsPane />
+			{!isHostedProduct() && (
+				<SettingsGroup title={uiMessage("settings:settings_page_setup")}>
+					<SettingsRow
+						title={uiMessage("settings:settings_page_onboarding")}
+						description={uiMessage(
+							"settings:settings_page_replay_the_first_launch_welcome_flow_your_existing_projects_and_creden",
+						)}
+						action={
+							<Button
+								variant="settings"
+								size="sm"
+								onClick={() => {
+									setView("chat");
+									setOnboardingCompleted(false);
+								}}
+							>
+								{uiMessage("settings:settings_page_show_again")}
+							</Button>
+						}
+					/>
+				</SettingsGroup>
+			)}
+			{!isHostedProduct() && <NotchSettingsPane />}
 		</div>
 	);
 }

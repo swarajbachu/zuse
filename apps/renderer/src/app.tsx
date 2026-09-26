@@ -287,7 +287,7 @@ function ReadyApp({
 				<AppearanceController />
 				<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 					<Suspense fallback={<SurfaceFallback />}>
-						{isHostedProduct() ? <HostedSettingsPage /> : <SettingsPage />}
+						<SettingsPage />
 						<StartupReadySignal onReady={onReady} />
 					</Suspense>
 				</div>
@@ -316,11 +316,5 @@ function ReadyApp({
 const MainShell = lazy(() =>
 	import("./shell/main-shell.tsx").then((module) => ({
 		default: module.MainShell,
-	})),
-);
-
-const HostedSettingsPage = lazy(() =>
-	import("./components/hosted-settings-page.tsx").then((module) => ({
-		default: module.HostedSettingsPage,
 	})),
 );

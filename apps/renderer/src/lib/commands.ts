@@ -1,3 +1,4 @@
+import { isHostedProduct } from "./hosted-connect.ts";
 import "@zuse/i18n/english/commands";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { ChatId, Command, Session } from "@zuse/contracts";
@@ -189,6 +190,12 @@ function stepPanel(delta: 1 | -1): void {
 const HANDLERS: Record<Command, () => void> = {
 	"search-files": () => useUiStore.getState().setFileSearchOpen(true),
 	"new-chat": () => {
+		if (isHostedProduct()) {
+			void import("./hosted-workspace.ts").then((m) =>
+				m.selectHostedCloudHome(),
+			);
+			return;
+		}
 		const selectedChatId = useChatsStore.getState().selectedChatId;
 		const cloudProjectId =
 			selectedChatId === null ? null : localProjectForCloudChat(selectedChatId);
