@@ -1,4 +1,7 @@
-import { streamCloudCatalogChanges } from "@zuse/client-runtime/cloud-control-client";
+import {
+	streamCloudCatalogChanges,
+	streamCloudWorkspaceLifecycle,
+} from "@zuse/client-runtime/cloud-control-client";
 import {
 	ApiAccessToken,
 	ApiConnectGrant,
@@ -55,15 +58,7 @@ import {
 	PRODUCTION_API_URL,
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
-import {
-	Context,
-	Duration,
-	Effect,
-	Layer,
-	Schedule,
-	Schema,
-	Stream,
-} from "effect";
+import { Context, Effect, Layer, Schema, type Stream } from "effect";
 import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose";
 
 import { AuthService } from "../auth/services/auth-service.ts";
@@ -274,30 +269,7 @@ export class MachineControlService extends Context.Service<
  * stream. Polling and retry live here once per RPC subscription, never in UI
  * components or stores.
  */
-export const streamCloudWorkspaceLifecycle = (
-	read: Effect.Effect<CloudWorkspace, MachineControlError>,
-	afterRevision?: number,
-): Stream.Stream<CloudWorkspace, MachineControlError> =>
-	Stream.fromEffect(read).pipe(
-		Stream.repeat(Schedule.spaced("500 millis")),
-		Stream.retry(
-			Schedule.exponential("250 millis").pipe(
-				Schedule.modifyDelay(({ duration }) =>
-					Effect.succeed(
-						Duration.millis(Math.min(Duration.toMillis(duration), 10_000)),
-					),
-				),
-				Schedule.jittered,
-			),
-		),
-		Stream.mapAccum(
-			() => afterRevision ?? -1,
-			(appliedRevision, workspace) => {
-				if (workspace.revision <= appliedRevision) return [appliedRevision, []];
-				return [workspace.revision, [workspace]];
-			},
-		),
-	);
+export { streamCloudWorkspaceLifecycle } from "@zuse/client-runtime/cloud-control-client";
 
 export const resolveMachineApiUrl = (
 	env: Readonly<Record<string, string | undefined>> = process.env,

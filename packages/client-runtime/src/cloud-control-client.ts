@@ -1,17 +1,29 @@
 import {
 	ApiPaths,
+	BillingCheckout,
+	type BillingCheckoutRequest,
+	BillingPortal,
 	CloudAccountImage,
 	type CloudAccountImageBuildRequest,
+	CloudApiKey,
+	CloudApiKeyCreated,
+	CloudApiKeyList,
 	type CloudAuthConfigureRequest,
 	CloudAuthLoginOperation,
 	type CloudAuthLoginStartRequest,
 	type CloudAuthProvider,
 	CloudAuthProviderStatus,
 	CloudAuthStatus,
+	CloudBillingSummary,
+	CloudBillingUsagePage,
 	CloudChatChanges,
 	CloudChatList,
 	type CloudCommandEnvelope,
+	CloudGithubStatus,
+	CloudProject,
+	type CloudProjectConnectRequest,
 	CloudProjectList,
+	CloudProviderList,
 	CloudTranscriptCheckpointResult,
 	CloudTranscriptMessagePageResult,
 	CloudWorkspace,
@@ -21,15 +33,23 @@ import {
 	CloudWorkspaceLaunch,
 	CloudWorkspaceList,
 	type CloudWorkspaceOpError,
+	CloudWorkspacePreviewUrl,
+	CloudWorkspaceSshAccess,
 	CommandAcceptance,
 	CommandChangePage,
 	CommandStatus,
 	type DeviceBridgeAction,
 	DeviceBridgeResult,
+	EntitlementList,
+	type MachineCreateRequest,
+	type MachineDestroyRequest,
+	MachineList,
+	MachineOfferList,
+	MachineRecord,
 	type SessionId,
 	type SessionStreamCursor,
 } from "@zuse/contracts";
-import { Effect, Schedule, type Schema, Stream } from "effect";
+import { Duration, Effect, Schedule, Schema, Stream } from "effect";
 
 /** Account HTTP transport. No desktop, runtime credentials, or WebSocket needed. */
 export type CloudControlRequest = <A>(
@@ -40,6 +60,96 @@ export type CloudControlRequest = <A>(
 ) => Effect.Effect<A, CloudWorkspaceOpError>;
 
 export const makeCloudControlClient = (request: CloudControlRequest) => ({
+	"cloud.providers": () => request(ApiPaths.cloudProviders, CloudProviderList),
+	"cloud.projects.connect": (input: CloudProjectConnectRequest) =>
+		request(ApiPaths.cloudProjects, CloudProject, "POST", input),
+	"cloud.projects.remove": (input: { projectId: string }) =>
+		request(ApiPaths.cloudProject(input.projectId), CloudProject, "DELETE"),
+	"cloud.github.status": () => request(ApiPaths.cloudGithub, CloudGithubStatus),
+	"cloud.github.install": () =>
+		request(
+			ApiPaths.cloudGithubInstall,
+			Schema.Struct({ url: Schema.String }),
+			"POST",
+			{},
+		),
+	"cloud.github.disconnect": (input: { installationId: number }) =>
+		request(
+			ApiPaths.cloudGithubDisconnect(input.installationId),
+			Schema.Struct({ ok: Schema.Boolean }),
+			"DELETE",
+		),
+	"cloud.billing.summary": () =>
+		request(ApiPaths.cloudBillingSummary, CloudBillingSummary),
+	"cloud.billing.usage": (input: { cursor?: string; limit?: number }) =>
+		request(
+			`${ApiPaths.cloudBillingUsage}?${new URLSearchParams(
+				Object.entries(input)
+					.filter(([, v]) => v !== undefined)
+					.map(([k, v]): [string, string] => [k, String(v)]),
+			).toString()}`,
+			CloudBillingUsagePage,
+		),
+	"cloud.billing.setCap": (input: {
+		overageCapMicros: number;
+		idempotencyKey: string;
+	}) => request(ApiPaths.cloudBillingCap, CloudBillingSummary, "POST", input),
+	"cloud.apiKeys.list": () => request(ApiPaths.cloudApiKeys, CloudApiKeyList),
+	"cloud.apiKeys.create": (input: { name: string }) =>
+		request(ApiPaths.cloudApiKeys, CloudApiKeyCreated, "POST", input),
+	"cloud.apiKeys.revoke": (input: { keyId: string }) =>
+		request(ApiPaths.cloudApiKey(input.keyId), CloudApiKey, "DELETE"),
+	"cloud.workspaces.sshAccess": (input: { workspaceId: string }) =>
+		request(
+			ApiPaths.cloudWorkspaceSshAccess(input.workspaceId),
+			CloudWorkspaceSshAccess,
+			"POST",
+			input,
+		),
+	"cloud.workspaces.previewUrl": (input: {
+		workspaceId: string;
+		port: number;
+	}) =>
+		request(
+			ApiPaths.cloudWorkspacePreviewUrl(input.workspaceId),
+			CloudWorkspacePreviewUrl,
+			"POST",
+			{ port: input.port },
+		),
+	"cloud.workspaces.watch": (input: {
+		workspaceId: string;
+		afterRevision?: number;
+	}) =>
+		streamCloudWorkspaceLifecycle(
+			request(ApiPaths.cloudWorkspace(input.workspaceId), CloudWorkspace),
+			input.afterRevision,
+		),
+	"machines.entitlements": () =>
+		request(ApiPaths.billingEntitlements, EntitlementList),
+	"machines.offers": () => request(ApiPaths.machineOffers, MachineOfferList),
+	"machines.list": () => request(ApiPaths.machines, MachineList),
+	"machines.create": (input: MachineCreateRequest) =>
+		request(ApiPaths.machines, MachineRecord, "POST", input),
+	"machines.cancel": (input: { machineId: string }) =>
+		request(ApiPaths.machineCancel(input.machineId), MachineRecord, "POST", {}),
+	"machines.recover": (input: { machineId: string }) =>
+		request(
+			ApiPaths.machineRecover(input.machineId),
+			MachineRecord,
+			"POST",
+			{},
+		),
+	"machines.destroy": (input: MachineDestroyRequest) =>
+		request(
+			ApiPaths.machineDestroy(input.machineId),
+			MachineRecord,
+			"POST",
+			input,
+		),
+	"machines.checkout": (input: BillingCheckoutRequest) =>
+		request(ApiPaths.billingCheckout, BillingCheckout, "POST", input),
+	"machines.billingPortal": () =>
+		request(ApiPaths.billingPortal, BillingPortal, "POST", {}),
 	"deviceBridge.cloud": (input: {
 		workspaceId: string;
 		action: DeviceBridgeAction;
@@ -70,8 +180,11 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 		),
 	"cloud.projects.list": () =>
 		request(ApiPaths.cloudProjects, CloudProjectList),
-	"cloud.image.status": () =>
-		request(ApiPaths.cloudAccountImage, CloudAccountImage),
+	"cloud.image.status": (input: { providerId?: string } = {}) =>
+		request(
+			`${ApiPaths.cloudAccountImage}${input.providerId === undefined ? "" : `?providerId=${encodeURIComponent(input.providerId)}`}`,
+			CloudAccountImage,
+		),
 	"cloud.image.build": (input: CloudAccountImageBuildRequest) =>
 		request(ApiPaths.cloudAccountImageBuild, CloudAccountImage, "POST", input),
 	"cloud.auth.status": () => request(ApiPaths.cloudAuth, CloudAuthStatus),
@@ -109,8 +222,11 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 			CloudAuthProviderStatus,
 			"DELETE",
 		),
-	"cloud.workspaces.list": () =>
-		request(ApiPaths.cloudWorkspaces, CloudWorkspaceList),
+	"cloud.workspaces.list": (input: { projectId?: string }) =>
+		request(
+			`${ApiPaths.cloudWorkspaces}${input.projectId === undefined ? "" : `?projectId=${encodeURIComponent(input.projectId)}`}`,
+			CloudWorkspaceList,
+		),
 	"cloud.workspaces.get": (input: { workspaceId: string }) =>
 		request(ApiPaths.cloudWorkspace(input.workspaceId), CloudWorkspace),
 	"cloud.workspaces.create": (input: CloudWorkspaceCreateRequest) =>
@@ -121,6 +237,16 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 			CloudWorkspaceConnection,
 			"POST",
 			{},
+		),
+	"cloud.workspaces.restart": (input: {
+		workspaceId: string;
+		commandId?: string;
+	}) =>
+		request(
+			ApiPaths.cloudWorkspaceAction(input.workspaceId, "restart"),
+			CloudWorkspace,
+			"POST",
+			input,
 		),
 	"cloud.workspaces.resume": (input: {
 		workspaceId: string;
@@ -133,21 +259,30 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 			"POST",
 			input,
 		),
-	"cloud.workspaces.archive": (input: { workspaceId: string }) =>
+	"cloud.workspaces.archive": (input: {
+		workspaceId: string;
+		commandId?: string;
+	}) =>
 		request(
 			ApiPaths.cloudWorkspaceAction(input.workspaceId, "archive"),
 			CloudWorkspace,
 			"POST",
 			input,
 		),
-	"cloud.workspaces.unarchive": (input: { workspaceId: string }) =>
+	"cloud.workspaces.unarchive": (input: {
+		workspaceId: string;
+		commandId?: string;
+	}) =>
 		request(
 			ApiPaths.cloudWorkspaceAction(input.workspaceId, "unarchive"),
 			CloudWorkspace,
 			"POST",
 			input,
 		),
-	"cloud.workspaces.delete": (input: { workspaceId: string }) =>
+	"cloud.workspaces.delete": (input: {
+		workspaceId: string;
+		commandId?: string;
+	}) =>
 		request(
 			ApiPaths.cloudWorkspaceAction(input.workspaceId, "delete"),
 			CloudWorkspace,
@@ -247,4 +382,29 @@ export const streamCloudCatalogChanges = <E>(
 				}),
 			);
 		}),
+	);
+
+export const streamCloudWorkspaceLifecycle = <E>(
+	read: Effect.Effect<CloudWorkspace, E>,
+	afterRevision?: number,
+): Stream.Stream<CloudWorkspace, E> =>
+	Stream.fromEffect(read).pipe(
+		Stream.repeat(Schedule.spaced("500 millis")),
+		Stream.retry(
+			Schedule.exponential("250 millis").pipe(
+				Schedule.modifyDelay(({ duration }) =>
+					Effect.succeed(
+						Duration.millis(Math.min(Duration.toMillis(duration), 10_000)),
+					),
+				),
+				Schedule.jittered,
+			),
+		),
+		Stream.mapAccum(
+			() => afterRevision ?? -1,
+			(appliedRevision, workspace) => {
+				if (workspace.revision <= appliedRevision) return [appliedRevision, []];
+				return [workspace.revision, [workspace]];
+			},
+		),
 	);
