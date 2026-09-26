@@ -1,3 +1,4 @@
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 /** Builds the session-bound orchestration tool surface. */
 
 import {
@@ -14,7 +15,6 @@ import {
 	bundledResolvedModelCatalog,
 	type Chat,
 	type ChatId,
-	defaultModelFor,
 	type FolderId,
 	type Message,
 	PROVIDER_IDS,

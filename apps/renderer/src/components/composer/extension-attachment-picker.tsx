@@ -4,7 +4,7 @@ import type { ExtensionAttachmentSnapshot } from "@zuse/extension-sdk";
 import { useMessages as useExtensionMessages } from "@zuse/i18n/react";
 import { PackageIcon } from "@zuse/icons/solid-rounded";
 import { Schema } from "effect";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { extensionActions } from "~/lib/extension-client-bus.ts";
 import { useExtensionContributions } from "~/lib/extension-registry.tsx";
 import { getLocalEnvironmentId } from "../../lib/rpc-client.ts";
@@ -48,10 +48,14 @@ export function ExtensionAttachmentPicker({
 		ReadonlyArray<ExtensionAttachmentSnapshot>
 	>([]);
 	const [loading, setLoading] = useState(false);
+	const [attaching, setAttaching] = useState(false);
+	const attachingRef = useRef(false);
 	const active =
 		sources.find(
 			(item) => `${item.extensionId}:${item.source.id}` === sourceId,
 		) ?? sources[0];
+	const worktreePending =
+		workspace.status === "ready" && workspace.worktreePending;
 	const workspaceKey =
 		workspace.status === "ready"
 			? `${workspace.environmentId}:${workspace.rootPath}:${workspace.sessionId}`
@@ -61,7 +65,7 @@ export function ExtensionAttachmentPicker({
 		setPreview(null);
 		setError(null);
 		setQuery("");
-	}, [workspaceKey, sourceId]);
+	}, [workspaceKey, sourceId, worktreePending]);
 
 	useEffect(() => {
 		if (
@@ -118,7 +122,7 @@ export function ExtensionAttachmentPicker({
 			controller.abort();
 			window.clearTimeout(timeout);
 		};
-	}, [active, open, query, workspaceKey]);
+	}, [active, open, query, workspaceKey, worktreePending]);
 
 	if (
 		sources.length === 0 ||
@@ -213,11 +217,20 @@ export function ExtensionAttachmentPicker({
 								</pre>
 								<Button
 									className="h-7"
-									onClick={() =>
-										void onSelect(preview)
+									disabled={attaching}
+									onClick={() => {
+										if (attachingRef.current) return;
+										attachingRef.current = true;
+										setAttaching(true);
+										void Promise.resolve()
+											.then(() => onSelect(preview))
 											.then(() => setOpen(false))
 											.catch((cause) => setError(String(cause)))
-									}
+											.finally(() => {
+												attachingRef.current = false;
+												setAttaching(false);
+											});
+									}}
 								>
 									{extensionMessage("extensions:attach_selected")}
 								</Button>

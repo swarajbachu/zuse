@@ -577,10 +577,17 @@ export const useUiStore = create<UiState>((set, get) => ({
 		}
 		set({ activeMainTab: tab });
 	},
-	openExtensionPanel: (extensionPanel) =>
-		set({ view: "chat", activeMainTab: "extension", extensionPanel }),
-	closeExtensionPanel: () =>
-		set({ activeMainTab: "chat", extensionPanel: null }),
+	openExtensionPanel: (extensionPanel) => {
+		const open = () =>
+			set({ view: "chat", activeMainTab: "extension", extensionPanel });
+		if (get().activeMainTab === "changes") requestReviewLeave(open);
+		else open();
+	},
+	closeExtensionPanel: () => {
+		const close = () => set({ activeMainTab: "chat", extensionPanel: null });
+		if (get().activeMainTab === "changes") requestReviewLeave(close);
+		else close();
+	},
 	openUsage: (scope) =>
 		set({ view: "chat", activeMainTab: "usage", usageScope: scope }),
 	openFileInTab: (file) => {

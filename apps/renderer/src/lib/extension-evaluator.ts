@@ -119,6 +119,13 @@ export async function evaluateExtension(
 	}
 	try {
 		validateContributions(contributions, item.manifest);
+		if (
+			contributions.commands.length > 0 &&
+			!item.grantedCapabilities.includes("commands")
+		)
+			throw new Error(
+				"Command contributions require the commands capability grant.",
+			);
 	} catch (cause) {
 		clientRuntime.dispose();
 		void boundedCleanup(async () => {
@@ -172,6 +179,13 @@ const validateContributions = (
 			ids.add(id);
 		}
 	}
+	if (
+		collector.commands.length > 0 &&
+		!manifest.capabilities.includes("commands")
+	)
+		throw new Error(
+			"Command contributions require the commands capability declaration.",
+		);
 	const declarations = new Set(manifest.contributions);
 	const required = [
 		[collector.surfaces.length, "surface"],

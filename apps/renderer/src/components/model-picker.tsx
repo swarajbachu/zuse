@@ -1,3 +1,4 @@
+import { useExtensionProviderCatalog } from "../lib/extension-provider-catalog.ts";
 import "@zuse/i18n/english/providers";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
@@ -203,16 +204,7 @@ export function ModelPicker(props: ModelPickerProps) {
 	);
 	const catalog = useModelCatalogStore((s) => s.catalog);
 	const ensureCatalog = useModelCatalogStore((s) => s.ensureLoaded);
-	const extensionCatalog = useExtensionCatalog();
-	const extensionProviderById = useMemo(
-		() =>
-			new Map(
-				extensionCatalog.items.flatMap((item) =>
-					item.providers.map((provider) => [provider.id, provider] as const),
-				),
-			),
-		[extensionCatalog.items],
-	);
+	const { providers: extensionProviderById } = useExtensionProviderCatalog();
 
 	let userMessageCount = 0;
 	if (!isDefault) {

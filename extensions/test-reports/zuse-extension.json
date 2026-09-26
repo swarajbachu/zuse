@@ -3,7 +3,7 @@
 	"id": "test-reports",
 	"name": "Test Reports",
 	"description": "Turn a failed test report into the next agent task.",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"client": "index.client.tsx",
 	"server": "index.server.ts",
 	"zuseApi": "^1.0.0",

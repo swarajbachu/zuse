@@ -53,7 +53,9 @@ export function useResolvedAppearance(): ResolvedAppearance {
 				?.contributions.themes.find(
 					(candidate) => candidate.id === themeSelection.themeId,
 				);
-			return theme?.appearance ?? systemAppearance;
+			return (
+				theme?.appearance ?? resolveAppearance(appearanceMode, systemAppearance)
+			);
 		}
 		return resolveAppearance(
 			themeSelection.appearance ?? appearanceMode,

@@ -31,7 +31,17 @@ import type { MarketplaceCatalog } from "./marketplace.ts";
 import { sha256 } from "./marketplace.ts";
 import type { CompiledExtension } from "./types.ts";
 
-const execute = promisify(execFile);
+const executeFile = promisify(execFile);
+const execute = (
+	file: string,
+	args: readonly string[],
+	options: import("node:child_process").ExecFileOptions = {},
+) =>
+	executeFile(file, args, {
+		maxBuffer: 16 * 1024 * 1024,
+		...options,
+		encoding: "utf8",
+	});
 
 const assertNoNativeAddons = async (
 	directory: string,

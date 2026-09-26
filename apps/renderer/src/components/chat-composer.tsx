@@ -566,13 +566,15 @@ export function ChatComposer({
 
 	// Stacked annotations are a valid message on their own, so they enable Send
 	// even with an empty text box.
+	const hasComposerContent =
+		hasText || annotationCount > 0 || composerContexts.length > 0;
 	const canSend =
 		!directoryUnavailable &&
 		!submitDisabled &&
 		!submitting &&
 		!durableCloudSendPending &&
 		uploadingAttachmentCount === 0 &&
-		(hasText || annotationCount > 0 || composerContexts.length > 0);
+		hasComposerContent;
 
 	// Mount the CodeMirror view once per ChatComposer instance. The parent keys
 	// live chat composers by session id, and the landing keys them by project id,
@@ -1720,7 +1722,7 @@ export function ChatComposer({
 											session={session}
 										/>
 									) : null}
-									{sendPlanFeedbackNow && hasText ? (
+									{sendPlanFeedbackNow && hasComposerContent ? (
 										<Button
 											variant="default"
 											size="sm"

@@ -1,7 +1,7 @@
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 import "@zuse/i18n/english/errors";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-	defaultModelFor,
 	type EnvironmentId,
 	type FolderId,
 	findModelDescriptor,
