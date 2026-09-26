@@ -6,9 +6,7 @@ import type {
 
 import { runCachedControlPlane } from "./control-plane-client.ts";
 
-const MUTABLE_CLOUD_CACHE_MAX_AGE_MS = 5_000;
-
-export const cloudWorkspaceCacheKeys = {
+const cloudWorkspaceCacheKeys = {
 	providers: "cloud-workspace:providers",
 	projects: "cloud-workspace:projects",
 	entitlements: "cloud-workspace:entitlements",
@@ -45,7 +43,7 @@ export const loadCloudImage = (providerId?: string, refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.image(providerId),
 		(client) => client["cloud.image.status"]({ providerId }),
-		{ refresh, maxAgeMs: MUTABLE_CLOUD_CACHE_MAX_AGE_MS },
+		{ refresh },
 	);
 
 export const loadCloudGithub = (refresh = false) =>
@@ -59,7 +57,7 @@ export const loadCloudWorkspaces = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.workspaces,
 		(client) => client["cloud.workspaces.list"]({}),
-		{ refresh, maxAgeMs: MUTABLE_CLOUD_CACHE_MAX_AGE_MS },
+		{ refresh },
 	);
 
 export const loadCloudBillingSummary = (refresh = false) =>
@@ -76,7 +74,7 @@ export const loadCloudBillingUsage = (refresh = false) =>
 		{ refresh },
 	);
 
-const hasCloudEntitlement = (
+export const hasCloudEntitlement = (
 	result: Awaited<ReturnType<typeof loadCloudEntitlements>>,
 ): boolean =>
 	result.entitlements.some(
@@ -89,7 +87,7 @@ const hasCloudEntitlement = (
 					item.paidThrough > Date.now())),
 	);
 
-export type CloudWorkspacePlacementSnapshot = Readonly<{
+type CloudWorkspacePlacementSnapshot = Readonly<{
 	providers: ReadonlyArray<CloudProviderOption>;
 	projects: ReadonlyArray<CloudProject>;
 	images: ReadonlyArray<CloudAccountImage>;

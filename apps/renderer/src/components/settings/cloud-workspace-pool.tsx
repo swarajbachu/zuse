@@ -19,6 +19,7 @@ import { useAuth } from "../../hooks/use-auth.ts";
 import { cloudProviderLabel } from "../../lib/cloud-provider-presentation.ts";
 import { cloudWorkspaceAccessPresentation } from "../../lib/cloud-workspace-access.ts";
 import {
+	hasCloudEntitlement,
 	loadCloudBillingSummary,
 	loadCloudBillingUsage,
 	loadCloudEntitlements,
@@ -28,7 +29,10 @@ import {
 	loadCloudProviders,
 	loadCloudWorkspaces,
 } from "../../lib/cloud-workspace-session-cache.ts";
-import { runControlPlane } from "../../lib/control-plane-client.ts";
+import {
+	runControlPlane,
+	subscribeControlPlaneSessionCache,
+} from "../../lib/control-plane-client.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
@@ -137,20 +141,16 @@ export function CloudWorkspacePool() {
 		async (refresh = false) => {
 			if (!isSignedIn) return;
 			let loadedSubscribed = false;
+			const workspaceData = Promise.allSettled([
+				loadCloudProviders(refresh),
+				loadCloudProjects(refresh),
+				loadCloudWorkspaces(refresh),
+				loadCloudImage(imageProviderId, refresh),
+			]);
 			try {
 				try {
 					const entitlements = await loadCloudEntitlements(refresh);
-					loadedSubscribed =
-						loadedSubscribed ||
-						entitlements.entitlements.some(
-							(item) =>
-								item.kind === "cloud-workspace" &&
-								(item.status === "active" ||
-									item.status === "grace" ||
-									(item.status === "ended" &&
-										item.paidThrough !== undefined &&
-										item.paidThrough > Date.now())),
-						);
+					loadedSubscribed = hasCloudEntitlement(entitlements);
 					setEntitlementSubscribed(loadedSubscribed);
 					if (loadedSubscribed) {
 						const [summary, usage] = await Promise.all([
@@ -170,12 +170,7 @@ export function CloudWorkspacePool() {
 				}
 
 				const [providerResult, projectResult, workspaceResult, imageResult] =
-					await Promise.allSettled([
-						loadCloudProviders(refresh),
-						loadCloudProjects(refresh),
-						loadCloudWorkspaces(refresh),
-						loadCloudImage(imageProviderId, refresh),
-					]);
+					await workspaceData;
 				const apiResults = [
 					providerResult,
 					projectResult,
@@ -230,6 +225,10 @@ export function CloudWorkspacePool() {
 		if (authLoading || !isSignedIn) return;
 		void load();
 		void loadGithubRepos();
+		return subscribeControlPlaneSessionCache((key) => {
+			if (key === "cloud-workspace:github") void loadGithubRepos();
+			else if (key.startsWith("cloud-workspace:")) void load();
+		});
 	}, [authLoading, isSignedIn, load, loadGithubRepos]);
 
 	const run = async (
