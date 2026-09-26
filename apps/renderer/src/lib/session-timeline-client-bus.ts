@@ -41,6 +41,7 @@ import { Effect } from "effect";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import {
 	createClientCommandOutbox,
+	disposeClientCommandOutbox,
 	resetMemoryCommandOutboxForTest,
 } from "./client-command-outbox.ts";
 import { cloudCommandTransport } from "./cloud-command-transport.ts";
@@ -1712,9 +1713,15 @@ export const retryRendererEnvironmentConnection = (
 	getRendererClientBus().retryConnection(environmentId);
 };
 
-export const resetSessionTimelineClientBus = async (): Promise<void> => {
+export const resetSessionTimelineClientBus = async (
+	options: { clearAccount?: boolean } = {},
+): Promise<void> => {
 	stopCloudHistory();
 	await rendererClientBus.dispose();
+	if (options.clearAccount) {
+		await disposeClientCommandOutbox(commandOutbox);
+		commandOutbox = createClientCommandOutbox();
+	}
 	rendererClientBus = createBus();
 	optimisticRestorationByResource.clear();
 	olderSessionMessageLoads.clear();

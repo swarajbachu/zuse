@@ -88,5 +88,6 @@
 	"hosted_finish_cloud_workspace_setup_in_settings_before_starting_a_chat": "Finish cloud workspace setup in Settings before starting a chat.",
 	"hosted_select_a_repository_before_starting_a_cloud_chat": "Select a repository before starting a cloud chat.",
 	"hosted_archive_chat": "Archive {{title}}",
-	"hosted_restore_chat": "Restore {{title}}"
+	"hosted_restore_chat": "Restore {{title}}",
+	"hosted_sign_in_failed": "Could not sign in. Check your connection and try again."
 }

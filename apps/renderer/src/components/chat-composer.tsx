@@ -125,6 +125,7 @@ import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import {
 	cloudComposerSubmissionBlocked,
 	commitAcceptedComposerDelivery,
+	handoffComposerDraft,
 	isWaitingCloudSend,
 	shouldQueueComposerMessage,
 	withComposerContext,
@@ -271,6 +272,8 @@ export function ChatComposer({
 		input: ComposerInput,
 		opts: {
 			readonly asGoal: boolean;
+			/** Consume the draft only after landing validation succeeds. */
+			readonly accept: () => void;
 			readonly pendingAttachments: ReadonlyArray<PendingDraftAttachment>;
 			readonly pendingContextFiles: ReadonlyArray<PendingDraftContextFile>;
 		},
@@ -686,7 +689,7 @@ export function ChatComposer({
 			const v = editorViewRef.current;
 			if (v === null) return;
 			const sel = v.state.selection.main;
-			const insert = text + " ";
+			const insert = `${text} `;
 			v.dispatch({
 				changes: { from: sel.head, to: sel.head, insert },
 				selection: { anchor: sel.head + insert.length },
@@ -977,7 +980,7 @@ export function ChatComposer({
 			const blobUrl = isImage ? URL.createObjectURL(file) : "";
 			const token = `[image:${tempId}]`;
 			const sel = view.state.selection.main;
-			const insertText = token + " ";
+			const insertText = `${token} `;
 			const chipFrom = sel.from;
 			const chipTo = sel.from + token.length;
 
@@ -1270,17 +1273,22 @@ export function ChatComposer({
 		// Draft mode (new-chat landing): hand the input back to the landing, which
 		// creates the worktree + chat and queues this as the first message.
 		if (onDraftSubmit !== undefined) {
-			commitComposerSubmission();
 			const pendingDraftAttachments = pendingDraftAttachmentsRef.current;
 			const pendingDraftContextFiles = pendingDraftContextFilesRef.current;
-			pendingDraftAttachmentsRef.current = [];
-			pendingDraftContextFilesRef.current = [];
-			onDraftSubmit(input, {
-				asGoal: goalSendMode,
-				pendingAttachments: pendingDraftAttachments,
-				pendingContextFiles: pendingDraftContextFiles,
-			});
-			return true;
+			return handoffComposerDraft(
+				(accept) =>
+					onDraftSubmit(input, {
+						accept,
+						asGoal: goalSendMode,
+						pendingAttachments: pendingDraftAttachments,
+						pendingContextFiles: pendingDraftContextFiles,
+					}),
+				() => {
+					commitComposerSubmission();
+					pendingDraftAttachmentsRef.current = [];
+					pendingDraftContextFilesRef.current = [];
+				},
+			);
 		}
 		const sendAndCommitAfterAcceptance = (options?: {
 			readonly asGoal?: boolean;

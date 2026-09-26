@@ -88,5 +88,6 @@
 	"hosted_finish_cloud_workspace_setup_in_settings_before_starting_a_chat": "チャットを開始する前に、設定でクラウドワークスペースの設定を完了してください。",
 	"hosted_select_a_repository_before_starting_a_cloud_chat": "クラウドチャットを開始する前に、リポジトリを選択してください。",
 	"hosted_archive_chat": "{{title}} をアーカイブ",
-	"hosted_restore_chat": "{{title}} を復元"
+	"hosted_restore_chat": "{{title}} を復元",
+	"hosted_sign_in_failed": "サインインできませんでした。接続を確認して、もう一度お試しください。"
 }

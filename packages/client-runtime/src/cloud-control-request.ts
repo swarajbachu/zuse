@@ -67,6 +67,10 @@ export const makeCloudControlRequest =
 					new CloudWorkspaceOpError({
 						code:
 							(typeof error === "string" ? codes[error] : undefined) ??
+							(typeof error === "string" &&
+							error.startsWith("cloud_branch_in_use:")
+								? "branch-in-use"
+								: undefined) ??
 							(response.status === 401 || response.status === 403
 								? "not-allowed"
 								: response.status === 404

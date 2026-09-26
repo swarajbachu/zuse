@@ -331,7 +331,7 @@ function HostedAccessGate({ children }: { readonly children: ReactNode }) {
 		} catch {
 			setState({
 				status: "error",
-				description: "Could not sign in. Check your connection and try again.",
+				description: uiMessage("shell:hosted_sign_in_failed"),
 			});
 		}
 	}, []);

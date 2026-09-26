@@ -88,5 +88,6 @@
 	"hosted_finish_cloud_workspace_setup_in_settings_before_starting_a_chat": "開始聊天前，請在設定中完成雲端工作區配置。",
 	"hosted_select_a_repository_before_starting_a_cloud_chat": "開始雲端聊天前，請選擇一個儲存庫。",
 	"hosted_archive_chat": "封存 {{title}}",
-	"hosted_restore_chat": "還原 {{title}}"
+	"hosted_restore_chat": "還原 {{title}}",
+	"hosted_sign_in_failed": "無法登入。請檢查網路連線，然後重試。"
 }

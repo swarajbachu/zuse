@@ -53,6 +53,8 @@ describe("account-owned cloud HTTP", () => {
 	});
 	it.each([
 		[401, "expired", "not-allowed"],
+		[409, "cloud_branch_in_use:feature/demo", "branch-in-use"],
+		[409, "other_conflict", "conflict"],
 		[403, "cloud_entitlement_required", "entitlement-required"],
 		[409, "cloud_image_rebuild_required", "project-not-ready"],
 		[503, "unavailable", "provider-unavailable"],

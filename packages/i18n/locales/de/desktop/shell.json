@@ -88,5 +88,6 @@
 	"hosted_finish_cloud_workspace_setup_in_settings_before_starting_a_chat": "Schließe vor dem Start eines Chats die Einrichtung des Cloud-Arbeitsbereichs in den Einstellungen ab.",
 	"hosted_select_a_repository_before_starting_a_cloud_chat": "Wähle vor dem Start eines Cloud-Chats ein Repository aus.",
 	"hosted_archive_chat": "{{title}} archivieren",
-	"hosted_restore_chat": "{{title}} wiederherstellen"
+	"hosted_restore_chat": "{{title}} wiederherstellen",
+	"hosted_sign_in_failed": "Anmeldung fehlgeschlagen. Prüfe deine Verbindung und versuche es erneut."
 }

@@ -34,12 +34,9 @@ const transactionComplete = (transaction: IDBTransaction): Promise<void> =>
 			reject(transaction.error ?? new Error("IndexedDB transaction failed"));
 	});
 
-const openDatabase = (): Promise<IDBDatabase> =>
+const openDatabase = (name: string): Promise<IDBDatabase> =>
 	new Promise((resolve, reject) => {
-		const request = indexedDB.open(
-			hostedCacheDatabaseName(DATABASE_NAME),
-			DATABASE_VERSION,
-		);
+		const request = indexedDB.open(name, DATABASE_VERSION);
 		request.onupgradeneeded = (event) => {
 			const database = request.result;
 			if (!database.objectStoreNames.contains(OUTBOX_STORE)) {
@@ -174,9 +171,21 @@ const runtimeEntry = (entry: PersistedOutboxEntry): OutboxEntry => ({
 
 export class IndexedDbCommandOutbox implements CommandOutbox {
 	private database: Promise<IDBDatabase> | null = null;
+	private scope: string | null = null;
+	private closed = false;
+
+	async close(): Promise<void> {
+		this.closed = true;
+		const database = await this.database?.catch(() => null);
+		database?.close();
+	}
 
 	private db(): Promise<IDBDatabase> {
-		this.database ??= openDatabase();
+		const scope = hostedCacheDatabaseName(DATABASE_NAME);
+		if (this.closed || (this.scope !== null && this.scope !== scope))
+			throw new Error("Command outbox account changed");
+		this.scope = scope;
+		this.database ??= openDatabase(scope);
 		return this.database;
 	}
 
@@ -391,4 +400,12 @@ export const createClientCommandOutbox = (): CommandOutbox => {
 
 export const resetMemoryCommandOutboxForTest = (): void => {
 	memoryFallback = new MemoryCommandOutbox();
+};
+
+/** Release the old account database before resetting the renderer bus. */
+export const disposeClientCommandOutbox = async (
+	outbox: CommandOutbox,
+): Promise<void> => {
+	if (outbox instanceof IndexedDbCommandOutbox) await outbox.close();
+	memoryFallback = null;
 };

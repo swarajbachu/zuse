@@ -525,7 +525,7 @@ export const signOutHostedProduct = async (): Promise<void> => {
 	const { resetSessionTimelineClientBus } = await import(
 		"./session-timeline-client-bus.ts"
 	);
-	await resetSessionTimelineClientBus();
+	await resetSessionTimelineClientBus({ clearAccount: true });
 	if (typeof indexedDB.databases === "function") {
 		const databases = await indexedDB.databases();
 		for (const database of databases) {

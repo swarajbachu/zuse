@@ -88,5 +88,6 @@
 	"hosted_finish_cloud_workspace_setup_in_settings_before_starting_a_chat": "⟦Fïïnïïsh clôôüüd wôôrkspààcëë sëëtüüp ïïn Sëëttïïngs bëëfôôrëë stààrtïïng àà chààt.⟧",
 	"hosted_select_a_repository_before_starting_a_cloud_chat": "⟦Sëëlëëct àà rëëpôôsïïtôôry bëëfôôrëë stààrtïïng àà clôôüüd chààt.⟧",
 	"hosted_archive_chat": "⟦ÀÀrchïïvëë {{title}}⟧",
-	"hosted_restore_chat": "⟦Rëëstôôrëë {{title}}⟧"
+	"hosted_restore_chat": "⟦Rëëstôôrëë {{title}}⟧",
+	"hosted_sign_in_failed": "⟦Côôüüld nôôt sïïgn ïïn. Chëëck yôôüür côônnëëctïïôôn àànd try ààgààïïn.⟧"
 }

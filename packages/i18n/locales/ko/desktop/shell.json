@@ -88,5 +88,6 @@
 	"hosted_finish_cloud_workspace_setup_in_settings_before_starting_a_chat": "채팅을 시작하기 전에 설정에서 클라우드 작업 공간 구성을 완료하세요.",
 	"hosted_select_a_repository_before_starting_a_cloud_chat": "클라우드 채팅을 시작하기 전에 저장소를 선택하세요.",
 	"hosted_archive_chat": "{{title}} 보관",
-	"hosted_restore_chat": "{{title}} 복원"
+	"hosted_restore_chat": "{{title}} 복원",
+	"hosted_sign_in_failed": "로그인할 수 없습니다. 연결을 확인하고 다시 시도하세요."
 }

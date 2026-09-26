@@ -19,13 +19,8 @@ import {
 	resolveHostedLaptopPreference,
 } from "../lib/hosted-laptop-preferences.ts";
 import { selectHostedCloudHome } from "../lib/hosted-workspace.ts";
-import {
-	registerApiEnvironment,
-	setActiveEnvironment,
-} from "../lib/rpc-client.ts";
-import { useChatsStore } from "../store/chats.ts";
+import { registerApiEnvironment } from "../lib/rpc-client.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
-import { useWorkspaceStore } from "../store/workspace.ts";
 import { Button } from "./ui/button.tsx";
 import { Switch } from "./ui/switch.tsx";
 
@@ -198,12 +193,14 @@ function ConnectedLaptopChats({ environmentId }: { environmentId: string }) {
 		"projects",
 		"shell",
 	]);
+	const [activationError, setActivationError] = useState<string | null>(null);
 	const shell = useEnvironmentShellResource(
 		EnvironmentId.make(environmentId),
 		"connect",
 	);
 	return (
 		<div className="max-h-48 overflow-auto">
+			{activationError && <p role="alert">{activationError}</p>}
 			{shell.connection !== "connected" && (
 				<p className="text-muted-foreground">
 					{uiMessage("shell:hosted_computer_offline_or_reconnecting")}
@@ -218,15 +215,21 @@ function ConnectedLaptopChats({ environmentId }: { environmentId: string }) {
 						type="button"
 						className="block h-7 w-full truncate rounded px-2 text-left hover:bg-muted"
 						onClick={() => {
-							setActiveEnvironment(environmentId);
-							useEnvironmentCatalogStore.setState({
-								activeEnvironmentId: environmentId,
-							});
-							useWorkspaceStore.setState({
-								folders: shell.data?.folders ?? [],
-								selectedFolderId: chat.projectId,
-							});
-							useChatsStore.getState().select(chat.id);
+							if (shell.data == null) return;
+							setActivationError(null);
+							void useEnvironmentCatalogStore
+								.getState()
+								.activateTransient(environmentId, shell.data, {
+									folderId: chat.projectId,
+									chatId: chat.id,
+								})
+								.catch(() =>
+									setActivationError(
+										uiMessage(
+											"shell:hosted_computer_unavailable_cloud_chats_are_still_ready",
+										),
+									),
+								);
 						}}
 					>
 						{chat.title || uiMessage("projects:projects_sidebar_new_chat")}

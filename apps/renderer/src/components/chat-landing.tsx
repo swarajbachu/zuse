@@ -546,8 +546,12 @@ export function ChatLanding() {
 					) ?? null;
 				setCloudProviders(placement.providers);
 				if (isHostedProduct())
-					setSelectedCloudProviderId(
-						placement.providers[0]?.providerId ?? null,
+					setSelectedCloudProviderId((current) =>
+						placement.providers.some(
+							(provider) => provider.providerId === current,
+						)
+							? current
+							: (placement.providers[0]?.providerId ?? null),
 					);
 				setCloudProject(project);
 				setCloudAccountImages(images);
@@ -1018,6 +1022,7 @@ export function ChatLanding() {
 		input: ComposerInput,
 		opts: {
 			readonly asGoal: boolean;
+			readonly accept: () => void;
 			readonly pendingAttachments: ReadonlyArray<PendingDraftAttachment>;
 			readonly pendingContextFiles: ReadonlyArray<PendingDraftContextFile>;
 		},
@@ -1103,6 +1108,7 @@ export function ChatLanding() {
 				asGoal: opts.asGoal,
 			});
 			setSubmitError(null);
+			opts.accept();
 			setSubmitting(true);
 			setPendingPrompt(
 				input.text.trim().length > 0 ? input.text.trim() : "New chat",
@@ -1335,6 +1341,7 @@ export function ChatLanding() {
 				return;
 			}
 			setSubmitError(null);
+			opts.accept();
 			setSubmitting(true);
 			setPendingPrompt(
 				input.text.trim().length > 0 ? input.text.trim() : "New chat",
@@ -1411,6 +1418,7 @@ export function ChatLanding() {
 			startupOptionsFor(DRAFT_SESSION_ID),
 		);
 		setSubmitError(null);
+		opts.accept();
 		setSubmitting(true);
 		setPendingPrompt(
 			input.text.trim().length > 0 ? input.text.trim() : "New chat",

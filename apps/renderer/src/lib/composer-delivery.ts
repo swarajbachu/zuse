@@ -143,3 +143,17 @@ export const partitionCloudMessages = (
 		waiting: messages.filter((message) => waitingIds.has(message.id)),
 	};
 };
+
+/** Landing validation must accept ownership before any draft state is consumed. */
+export const handoffComposerDraft = (
+	deliver: (accept: () => void) => void,
+	commit: () => void,
+): boolean => {
+	let accepted = false;
+	deliver(() => {
+		if (accepted) return;
+		accepted = true;
+		commit();
+	});
+	return accepted;
+};

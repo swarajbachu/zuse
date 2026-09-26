@@ -88,5 +88,6 @@
 	"hosted_finish_cloud_workspace_setup_in_settings_before_starting_a_chat": "开始聊天前，请在设置中完成云端工作区配置。",
 	"hosted_select_a_repository_before_starting_a_cloud_chat": "开始云端聊天前，请选择一个仓库。",
 	"hosted_archive_chat": "归档 {{title}}",
-	"hosted_restore_chat": "恢复 {{title}}"
+	"hosted_restore_chat": "恢复 {{title}}",
+	"hosted_sign_in_failed": "无法登录。请检查网络连接，然后重试。"
 }
