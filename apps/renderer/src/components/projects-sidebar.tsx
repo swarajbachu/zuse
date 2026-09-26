@@ -1,4 +1,10 @@
+import {
+	refreshHostedProjects,
+	selectHostedCloudHome,
+} from "../lib/hosted-workspace.ts";
 import { isInputComposing } from "../lib/input-composition.ts";
+import { openProjectSetupDialog } from "../lib/project-setup-dialog-state.ts";
+import { HostedLaptopSection } from "./hosted-sidebar.tsx";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import {
@@ -27,7 +33,6 @@ import {
 	GitBranchIcon,
 	HelpCircleIcon,
 	Login03Icon,
-	Logout01Icon,
 	PencilIcon,
 	Robot01Icon,
 	ServerStack01Icon,
@@ -51,13 +56,7 @@ import { createPortal } from "react-dom";
 import { TypewriterText } from "~/components/typewriter-text.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { CompactEmptyState } from "~/components/ui/compact-empty-state";
-import {
-	Menu,
-	MenuItem,
-	MenuPopup,
-	MenuSeparator,
-	MenuTrigger,
-} from "~/components/ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuSeparator } from "~/components/ui/menu";
 import { toastManager } from "~/components/ui/toast.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useAuth } from "~/hooks/use-auth.ts";
@@ -69,11 +68,14 @@ import {
 } from "~/lib/chat-attention-state";
 import { displayPath } from "~/lib/display-path";
 import { activeSessionById } from "~/lib/environment-entities.ts";
-import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
+import {
+	useActiveEnvironmentEntities,
+	useEnvironmentEntities,
+} from "~/lib/environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "~/lib/environment-permissions-client-bus.ts";
 import { useEnvironmentQuestionAttachments } from "~/lib/environment-question-attachments-client-bus.ts";
 import { formatError } from "~/lib/format-error.ts";
-import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
+import { isHostedProduct } from "~/lib/hosted-connect.ts";
 import { filterActionableQuestionInteractions } from "~/lib/question-actionability.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
@@ -269,14 +271,22 @@ export function ProjectsSidebar() {
 	useSessionRuntimeEffects();
 	const paneRef = useRef<HTMLElement>(null);
 	useRegisterPane("sidebar", paneRef);
-	const folders = useWorkspaceStore((s) => s.folders);
+	const workspaceFolders = useWorkspaceStore((s) => s.folders);
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
 	const loading = useWorkspaceStore((s) => s.loading);
-	const remove = useWorkspaceStore((s) => s.remove);
-	const select = useWorkspaceStore((s) => s.select);
+	const removeFolder = useWorkspaceStore((s) => s.remove);
+	const remove = async (id: FolderId) => {
+		if (isHostedProduct()) openProjectSetupDialog();
+		else await removeFolder(id);
+	};
+	const selectFolder = useWorkspaceStore((s) => s.select);
+	const select = async (id: FolderId) => {
+		if (isHostedProduct()) selectHostedCloudHome(id);
+		else await selectFolder(id);
+	};
 	const catalogEntries = useEnvironmentCatalogStore((s) => s.entries);
-	const activeEnvironmentId = useEnvironmentCatalogStore(
-		(s) => s.activeEnvironmentId,
+	const activeEnvironmentId = useEnvironmentCatalogStore((s) =>
+		isHostedProduct() ? "local" : s.activeEnvironmentId,
 	);
 	const shellViews = useEnvironmentShellCatalog(
 		catalogEntries.map((entry) => entry.environmentId),
@@ -294,7 +304,15 @@ export function ProjectsSidebar() {
 		chatsByProject,
 		originsByFolder: origins,
 		sessionsByProject,
-	} = useActiveEnvironmentEntities();
+		folders: cloudFolders,
+	} = useEnvironmentEntities(activeEnvironmentId);
+	const folders = isHostedProduct() ? cloudFolders : workspaceFolders;
+	useEffect(() => {
+		if (isHostedProduct())
+			void refreshHostedProjects().catch((cause) =>
+				toastManager.add({ type: "error", title: formatError(cause) }),
+			);
+	}, []);
 	const storedCloudChats = useCloudChatCatalogStore((s) => s.summaries);
 	const cloudChats = CLOUD_WORKSPACE_BETA_AVAILABLE
 		? storedCloudChats
@@ -395,7 +413,7 @@ export function ProjectsSidebar() {
 			tabIndex={-1}
 			className="flex h-full min-h-0 w-full flex-col text-sidebar-foreground outline-none"
 		>
-			{desktopCatalogEnabled ? null : (
+			{desktopCatalogEnabled || isHostedProduct() ? null : (
 				<Suspense fallback={<div className="h-[60px]" />}>
 					<ComputerSwitcher />
 				</Suspense>
@@ -659,6 +677,7 @@ export function ProjectsSidebar() {
 					</>
 				)}
 			</ul>
+			{isHostedProduct() && <HostedLaptopSection />}
 			<SidebarFooter />
 			{organize.groupDialog !== null ? (
 				<Suspense fallback={null}>
@@ -1142,14 +1161,16 @@ function SidebarFooter() {
 		<div className="flex h-9 items-center justify-between px-2">
 			<SidebarAccount />
 			<div className="flex items-center gap-0.5">
-				<SidebarAgentCount />
-				<SidebarFooterIcon
-					icon={Analytics01Icon}
-					label={uiMessage("projects:projects_sidebar_usage")}
-					onPointerEnter={() => void prefetchUsage(null)}
-					onFocus={() => void prefetchUsage(null)}
-					onClick={() => openUsage("global")}
-				/>
+				{!isHostedProduct() && <SidebarAgentCount />}
+				{!isHostedProduct() && (
+					<SidebarFooterIcon
+						icon={Analytics01Icon}
+						label={uiMessage("projects:projects_sidebar_usage")}
+						onPointerEnter={() => void prefetchUsage(null)}
+						onFocus={() => void prefetchUsage(null)}
+						onClick={() => openUsage("global")}
+					/>
+				)}
 				<SidebarFooterIcon
 					icon={Settings01Icon}
 					label={uiMessage("common:settings")}
@@ -1214,40 +1235,6 @@ function SidebarAccount() {
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
 
 	const initial = (name || user?.email || "?").charAt(0).toUpperCase();
-	if (isHostedProduct()) {
-		return (
-			<Menu>
-				<MenuTrigger
-					render={
-						<button
-							type="button"
-							className="flex min-h-7 w-full items-center gap-1.5 rounded-md px-2 text-[12px] text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
-						>
-							<HugeiconsIcon icon={UserCircleIcon} className="size-4" />
-							<span className="min-w-0 flex-1 truncate text-left">
-								{uiMessage("projects:projects_sidebar_zuse_account")}
-							</span>
-						</button>
-					}
-				/>
-				<MenuPopup
-					side="top"
-					align="start"
-					sideOffset={6}
-					className="w-(--anchor-width) rounded-xl"
-				>
-					<MenuItem
-						variant="destructive"
-						onClick={() => void signOutHostedProduct()}
-						className="min-h-9 rounded-lg px-2.5 text-[13px]"
-					>
-						<HugeiconsIcon icon={Logout01Icon} />
-						{uiMessage("projects:projects_sidebar_sign_out_of_this_browser")}
-					</MenuItem>
-				</MenuPopup>
-			</Menu>
-		);
-	}
 
 	const label = isUnavailable
 		? "Account unavailable"
@@ -1277,7 +1264,10 @@ function SidebarAccount() {
 						onClick={openAccount}
 						disabled={isLoading || isUnavailable || signingIn}
 						aria-label={label}
-						className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+						className={cn(
+							"inline-flex h-7 min-w-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+							isHostedProduct() ? "gap-1.5 px-2 text-[12px]" : "w-7",
+						)}
 					>
 						{isSignedIn ? (
 							<Avatar className="size-5 text-[10px]">
@@ -1292,6 +1282,11 @@ function SidebarAccount() {
 							<HugeiconsIcon icon={UserCircleIcon} className="size-4" />
 						) : (
 							<HugeiconsIcon icon={Login03Icon} className="size-4" />
+						)}
+						{isHostedProduct() && (
+							<span className="truncate">
+								{name || uiMessage("projects:projects_sidebar_zuse_account")}
+							</span>
 						)}
 					</button>
 				}
@@ -2183,6 +2178,7 @@ function CloudChatRow({
 
 	const selected = selectedChatId === summary.chatId;
 	const open = () => {
+		if (isHostedProduct()) selectHostedCloudHome(projectId);
 		void openCloudChat(summary, projectId).catch((cause) =>
 			toastManager.add({
 				type: "error",
@@ -2417,7 +2413,7 @@ function ProjectContextMenu({
 				className="min-w-[196px]"
 			>
 				<MenuItem
-					onClick={onOpenSettings}
+					onClick={isHostedProduct() ? openProjectSetupDialog : onOpenSettings}
 					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 				>
 					<HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
@@ -2431,7 +2427,7 @@ function ProjectContextMenu({
 					{uiMessage("projects:projects_sidebar_archived_chats")}
 				</MenuItem>
 				<MenuItem
-					onClick={onOpenUsage}
+					onClick={isHostedProduct() ? openProjectSetupDialog : onOpenUsage}
 					className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-sidebar-accent"
 				>
 					<HugeiconsIcon icon={Analytics01Icon} className="size-3.5" />
@@ -2505,7 +2501,8 @@ function NewChatButton({ projectId }: { projectId: FolderId }) {
 
 	const onClick = (e: React.MouseEvent) => {
 		e.stopPropagation();
-		openNewChatLanding(projectId);
+		if (isHostedProduct()) selectHostedCloudHome(projectId);
+		else openNewChatLanding(projectId);
 	};
 
 	return (

@@ -1,6 +1,7 @@
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
+	EnvironmentId,
 	FolderId,
 	McpServerDescriptor,
 	McpServerStatus,
@@ -266,9 +267,11 @@ function AppGroup({
 }
 
 export function McpPopover({
+	environmentId,
 	projectId,
 	providerId,
 }: {
+	environmentId?: EnvironmentId;
 	projectId: FolderId | undefined;
 	providerId: ProviderId;
 }) {
@@ -283,8 +286,8 @@ export function McpPopover({
 	const setView = useUiStore((state) => state.setView);
 	const setSettingsSection = useUiStore((state) => state.setSettingsSection);
 	const scope = useMemo(
-		() => ({ projectId, provider: providerId }),
-		[projectId, providerId, uiMessage],
+		() => ({ environmentId, projectId, provider: providerId }),
+		[environmentId, projectId, providerId, uiMessage],
 	);
 
 	useEffect(() => {

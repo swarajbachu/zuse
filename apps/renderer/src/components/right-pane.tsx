@@ -1,3 +1,4 @@
+import { isHostedProduct } from "../lib/hosted-connect.ts";
 import { isInputComposing } from "../lib/input-composition.ts";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -257,7 +258,7 @@ const panelChoices = (
 				onClick: cloudTerminals.onAddLocal,
 				disabledReason: cloudTerminals.localDisabledReason,
 			},
-		];
+		].filter((choice) => !isHostedProduct() || choice.key !== "local-terminal");
 	const meta = PANEL_META[kind];
 	return [
 		{
@@ -358,6 +359,7 @@ export function RightPane({
 			// cloud is unavailable, restore only the local synced-checkout PTYs and
 			// leave cloud attachment to the existing explicit wake flow.
 			includeOwnerEnvironment,
+			includeLocalEnvironment: !isHostedProduct(),
 		}).catch(() => undefined);
 		return () => {
 			invalidateTerminalCatalog(
@@ -623,6 +625,7 @@ export function RightPane({
 		})();
 	};
 	const handleAddLocalTerminal = () => {
+		if (isHostedProduct()) return;
 		const token = beginTerminalAction("local");
 		if (token === null) return;
 		const expectedChatKey = chatKey;
@@ -661,13 +664,18 @@ export function RightPane({
 			}
 		})();
 	};
-	const addablePanels = addableKinds(panels).filter(
-		(kind) =>
-			!directoryUnavailable ||
-			(kind !== "files" &&
-				(kind !== "terminal" || cloudSummary !== null) &&
-				kind !== "changes"),
-	);
+	const addablePanels = addableKinds(panels)
+		.filter(
+			(kind) =>
+				kind !== "browser" || rendererPlatformCapabilities().integratedBrowser,
+		)
+		.filter(
+			(kind) =>
+				!directoryUnavailable ||
+				(kind !== "files" &&
+					(kind !== "terminal" || cloudSummary !== null) &&
+					kind !== "changes"),
+		);
 
 	// Glide dock tabs when panels are opened or closed. Declared with the other
 	// hooks (above the `selected === null` early return) to satisfy hook rules.
@@ -678,10 +686,15 @@ export function RightPane({
 	// A plan panel belongs to the selected session's final output. Keep its
 	// persisted layout slot, but do not expose an empty tab while another
 	// session in the same chat has no proposed plan.
-	const visiblePanels =
-		planMarkdown === null
-			? panels.filter((panel) => panel.kind !== "plan")
-			: panels;
+	const visiblePanels = panels.filter(
+		(panel) =>
+			(!isHostedProduct() ||
+				panel.kind !== "terminal" ||
+				termList[panel.slot]?.environmentId !== localTerminalEnvironmentId) &&
+			(panel.kind !== "plan" || planMarkdown !== null) &&
+			(panel.kind !== "browser" ||
+				rendererPlatformCapabilities().integratedBrowser),
+	);
 	const effectiveActiveId =
 		activeId !== null && visiblePanels.some((p) => p.id === activeId)
 			? activeId

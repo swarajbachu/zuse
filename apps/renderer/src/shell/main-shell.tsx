@@ -447,12 +447,9 @@ export function MainShell() {
 		(s) => s.setRightSidebarWidthForChat,
 	);
 	const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
-	const environmentSummaryFits = useMediaQuery({ min: 1180 });
 	const compactWorkspace = useMediaQuery({ max: 900 });
 	const environmentSummaryAvailable =
-		environmentSummaryFits &&
-		selectedSessionId !== null &&
-		activeMainTab === "chat";
+		selectedSessionId !== null && activeMainTab === "chat";
 	const showEnvironmentSummary =
 		environmentSummaryAvailable && environmentSummaryOpen;
 

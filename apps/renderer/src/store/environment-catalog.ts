@@ -29,6 +29,7 @@ import {
 	subscribeEnvironmentShell,
 } from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
+import { isHostedProduct } from "../lib/hosted-connect.ts";
 import { createInitializationGate } from "../lib/initialization-gate.ts";
 import { upsertLatestEntity } from "../lib/latest-entity.ts";
 import { markRendererStartupMilestone } from "../lib/performance-marks.ts";
@@ -914,6 +915,10 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			accountDiscoveryError: null,
 			hiddenApiEnvironmentIds: [],
 			initialize: () => {
+				if (isHostedProduct()) {
+					set({ initialized: true, initializing: false });
+					return Promise.resolve();
+				}
 				return initializeOnce(get().initialized, async () => {
 					markRendererStartupMilestone("environment-catalog-started");
 					set({ initializing: true, initializationError: null });

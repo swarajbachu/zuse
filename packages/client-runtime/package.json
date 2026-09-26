@@ -11,6 +11,7 @@
 		"./cloud-catalog": "./src/cloud-catalog.ts",
 		"./cloud-provider-availability": "./src/cloud-provider-availability.ts",
 		"./cloud-command-transport": "./src/cloud-command-transport.ts",
+		"./cloud-control-request": "./src/cloud-control-request.ts",
 		"./cloud-control-client": "./src/cloud-control-client.ts",
 		"./cloud-failure-presentation": "./src/cloud-failure-presentation.ts",
 		"./chat-threads": "./src/chat-threads.ts",

@@ -73,6 +73,8 @@ import {
 	registerCloudChatCatalogRefresh,
 	useCloudChatCatalogStore,
 } from "./cloud-workspace-catalog.ts";
+import { isHostedProduct } from "./hosted-connect.ts";
+import { hostedProjectFolderId } from "./hosted-workspace.ts";
 
 type CloudChatsState = {
 	readonly loading: boolean;
@@ -262,6 +264,12 @@ const refreshSummaryFromWorkspace = (
 	updatedAt: workspace.updatedAt,
 });
 
+/** Resolve account-owned projects even before a runtime mapping exists. */
+const projectForSummary = (summary: CloudChatSummary): FolderId | null =>
+	isHostedProduct()
+		? hostedProjectFolderId(summary.projectId)
+		: localProjectForCloudEnvironment(summary.workspaceId);
+
 const updateSummary = (summary: CloudChatSummary): void => {
 	const current = cloudSummaryForEnvironment(summary.workspaceId);
 	if (current !== null && compareCloudChatSummaryVersion(summary, current) < 0)
@@ -269,7 +277,7 @@ const updateSummary = (summary: CloudChatSummary): void => {
 	registerCloudChat(summary);
 	const accepted = cloudSummaryForEnvironment(summary.workspaceId) ?? summary;
 	registerCloudEnvironmentResolver(accepted);
-	const projectId = localProjectForCloudEnvironment(summary.workspaceId);
+	const projectId = projectForSummary(summary);
 	if (projectId !== null) stageCloudChat(accepted, projectId);
 };
 
@@ -594,9 +602,7 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 				if (generation !== catalogGeneration) return;
 				for (const cached of useCloudChatCatalogStore.getState().summaries) {
 					registerCloudEnvironmentResolver(cached);
-					const cachedProject = localProjectForCloudEnvironment(
-						cached.workspaceId,
-					);
+					const cachedProject = projectForSummary(cached);
 					if (cachedProject !== null) stageCloudChat(cached, cachedProject);
 				}
 				const client = await getControlPlaneRpcClient();
@@ -610,9 +616,7 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 					const accepted =
 						cloudSummaryForEnvironment(summary.workspaceId) ?? summary;
 					registerCloudEnvironmentResolver(accepted);
-					const projectId = localProjectForCloudEnvironment(
-						summary.workspaceId,
-					);
+					const projectId = projectForSummary(accepted);
 					if (projectId !== null) stageCloudChat(accepted, projectId);
 				}
 				void (async () => {
@@ -656,7 +660,7 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 			archivedAt,
 			commandId,
 		);
-		const projectId = localProjectForCloudEnvironment(summary.workspaceId);
+		const projectId = projectForSummary(summary);
 		if (projectId !== null) stageCloudChat(optimistic, projectId);
 		try {
 			const client = await getControlPlaneRpcClient();
@@ -769,9 +773,7 @@ export const watchCloudChatCatalog = (): (() => void) => {
 						const accepted =
 							cloudSummaryForEnvironment(summary.workspaceId) ?? summary;
 						registerCloudEnvironmentResolver(accepted);
-						const projectId = localProjectForCloudEnvironment(
-							summary.workspaceId,
-						);
+						const projectId = projectForSummary(accepted);
 						if (projectId !== null) stageCloudChat(accepted, projectId);
 					}
 					cursor = page.cursor;

@@ -1,10 +1,13 @@
 import { Effect } from "effect";
 
-import { getControlPlaneRpcClient, type MemoizeClient } from "./rpc-client.ts";
+import {
+	type ControlPlaneClient,
+	getControlPlaneRpcClient,
+} from "./rpc-client.ts";
 
 /** Single renderer boundary for API account and workspace lifecycle RPCs. */
 export const runControlPlane = async <Result>(
-	effect: (client: MemoizeClient) => Effect.Effect<Result, unknown>,
+	effect: (client: ControlPlaneClient) => Effect.Effect<Result, unknown>,
 ): Promise<Result> => {
 	const client = await getControlPlaneRpcClient();
 	return Effect.runPromise(effect(client));
@@ -32,7 +35,7 @@ export const subscribeControlPlaneSessionCache = (
  */
 export const runCachedControlPlane = <Result>(
 	key: string,
-	effect: (client: MemoizeClient) => Effect.Effect<Result, unknown>,
+	effect: (client: ControlPlaneClient) => Effect.Effect<Result, unknown>,
 	options?: { readonly refresh?: boolean },
 ): Promise<Result> => {
 	const previous = sessionCache.get(key);

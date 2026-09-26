@@ -2,6 +2,7 @@ import type { Folder, FolderId } from "@zuse/contracts";
 import { CommandId, EnvironmentId } from "@zuse/contracts";
 import { activeEnvironmentShellData } from "../lib/environment-entities.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import { isHostedProduct } from "../lib/hosted-connect.ts";
 import { getActiveEnvironment } from "../lib/rpc-client.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 
@@ -31,6 +32,7 @@ export const registerFolder = (
 };
 
 const persistSelection = async (folderId: FolderId | null): Promise<void> => {
+	if (isHostedProduct() && getActiveEnvironment() === "local") return;
 	try {
 		await dispatchWorkspaceCommand<void>("workspace.setSelected", { folderId });
 	} catch {

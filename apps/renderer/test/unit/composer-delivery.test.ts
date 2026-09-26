@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
 	cloudComposerSubmissionBlocked,
 	commitAcceptedComposerDelivery,
+	handoffComposerDraft,
 	partitionCloudMessages,
 	shouldQueueComposerMessage,
 	waitingCloudMessagePresentation,
@@ -275,5 +276,44 @@ describe("mailbox queue presentation", () => {
 				],
 			).transcript,
 		).toEqual([prompt]);
+	});
+});
+
+describe("landing draft ownership", () => {
+	it("preserves the entire draft when setup rejects submission", () => {
+		const draft = {
+			text: "keep my prompt",
+			contexts: ["file"],
+			annotations: ["comment"],
+			attachments: ["image"],
+		};
+		const before = structuredClone(draft);
+		const accepted = handoffComposerDraft(
+			() => {},
+			() => {
+				draft.text = "";
+				draft.contexts = [];
+				draft.annotations = [];
+				draft.attachments = [];
+			},
+		);
+		expect(accepted).toBe(false);
+		expect(draft).toEqual(before);
+	});
+	it("consumes exactly once only after the landing accepts", () => {
+		let commits = 0;
+		expect(
+			handoffComposerDraft(
+				(accept) => {
+					expect(commits).toBe(0);
+					accept();
+					accept();
+				},
+				() => {
+					commits++;
+				},
+			),
+		).toBe(true);
+		expect(commits).toBe(1);
 	});
 });

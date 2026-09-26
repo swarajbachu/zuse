@@ -6,9 +6,9 @@ import {
 	ResolvedModelCatalog as ResolvedModelCatalogSchema,
 } from "@zuse/contracts";
 import { Schema } from "effect";
-
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
+import { isHostedProduct } from "../lib/hosted-connect.ts";
 import { removeStorageKeys } from "../lib/storage-keys.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
@@ -138,6 +138,14 @@ const initial = (() => {
 
 export const useModelCatalogStore = create<State>((set, get) => {
 	const load = async (refresh: boolean): Promise<void> => {
+		if (isHostedProduct() && activeEnvironmentId() === "local") {
+			set({
+				loading: false,
+				loadedAt: Date.now(),
+				loadedEnvironmentId: activeEnvironmentId(),
+			});
+			return;
+		}
 		const environmentId = activeEnvironmentId();
 		const pendingLoad = pendingLoads.get(environmentId);
 		if (pendingLoad !== undefined) {

@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	createClientCommandOutbox,
+	disposeClientCommandOutbox,
 	resetMemoryCommandOutboxForTest,
 	upgradePersistedOutboxEntry,
 } from "../../src/lib/client-command-outbox.ts";
@@ -145,4 +146,19 @@ describe("renderer command outbox", () => {
 			lastAttemptAt: 3,
 		});
 	});
+});
+
+it("does not recover the previous account's commands after disposal", async () => {
+	resetMemoryCommandOutboxForTest();
+	const previous = createClientCommandOutbox();
+	await previous.putOutbox({
+		command,
+		fingerprint,
+		attempts: 0,
+		lastAttemptAt: null,
+	});
+	await disposeClientCommandOutbox(previous);
+	const next = createClientCommandOutbox();
+	expect(next).not.toBe(previous);
+	expect(await next.listOutbox()).toEqual([]);
 });

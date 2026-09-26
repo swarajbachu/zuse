@@ -7,8 +7,8 @@ import {
 	type SessionId,
 } from "@zuse/contracts";
 import { Schema } from "effect";
-
 import { createAtomStore as create } from "../state/atom-store.ts";
+import { isHostedProduct } from "./hosted-connect.ts";
 import { cloudChatCatalogPersistence } from "./session-timeline-cache.ts";
 
 export type CloudSyncPrefs = Readonly<{
@@ -168,7 +168,11 @@ export const hydrateCloudChatCatalogPersistence = async (): Promise<void> => {
 	if (catalogPersistenceReady || cloudChatCatalogPersistence === null) return;
 	catalogHydration ??= (async () => {
 		let stored = await cloudChatCatalogPersistence.load().catch(() => null);
-		if (stored === null && typeof window !== "undefined") {
+		if (
+			!isHostedProduct() &&
+			stored === null &&
+			typeof window !== "undefined"
+		) {
 			try {
 				const legacy = window.localStorage.getItem(
 					LEGACY_CLOUD_CATALOG_STORAGE_KEY,

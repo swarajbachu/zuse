@@ -880,5 +880,22 @@
 	"wallpaper_opacity": "불투명도",
 	"wallpaper_opacity_label": "배경화면 불투명도",
 	"wallpaper_hint": "PNG, JPEG, WebP, AVIF 또는 GIF · 최대 20 MB. 질감 만들기:",
-	"wallpaper_studio": "Dither studio"
+	"wallpaper_studio": "Dither studio",
+	"hosted_remote_description": "개인 컴퓨터를 이 계정에 연결하고 웹에서 채팅을 여세요.",
+	"hosted_remote_setup": "연결할 컴퓨터에 Zuse를 설치하고 같은 계정으로 로그인하세요. 설정 → 원격 액세스에서 Zuse Serve를 활성화한 후 이 목록을 새로 고치세요.",
+	"hosted_remote_download": "Zuse 다운로드",
+	"hosted_remote_show_chats": "채팅 보기",
+	"hosted_remote_refresh": "컴퓨터 새로 고침",
+	"hosted_remote_private": "계정에 연결된 컴퓨터만 표시됩니다. 원격 액세스를 끄려면 해당 컴퓨터에서 Zuse Serve를 비활성화하세요.",
+	"hosted_remote_online": "온라인",
+	"hosted_remote_offline": "오프라인 · 저장됨",
+	"hosted_remote_unknown": "상태 확인 불가",
+	"hosted_remote_localhost": "Localhost",
+	"hosted_remote_lan": "로컬 네트워크",
+	"hosted_remote_address": "Zuse Serve 주소",
+	"hosted_remote_last_seen": "마지막 확인 {{date}}",
+	"hosted_remote_routes_help": "이 주소들은 같은 Zuse Serve 컴퓨터에 연결됩니다. Localhost는 해당 컴퓨터에서만 작동하며 로컬 및 Tailscale 주소는 해당 네트워크에 접속해야 합니다. 상태는 연결 테스트가 아닌 최근 하트비트를 기준으로 합니다.",
+	"hosted_remote_remove": "컴퓨터 제거",
+	"hosted_remote_remove_help": "이 컴퓨터와 중복 등록을 계정에서 제거할까요? 원격 액세스가 취소되지만 컴퓨터의 채팅과 파일은 삭제되지 않습니다. 다시 연결하려면 해당 컴퓨터에서 Zuse Serve를 다시 활성화하세요.",
+	"hosted_remote_remove_failed": "일부 등록을 제거하지 못했습니다. 남은 등록을 제거하려면 다시 시도하세요."
 }

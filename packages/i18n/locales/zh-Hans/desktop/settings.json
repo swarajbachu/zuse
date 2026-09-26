@@ -880,5 +880,22 @@
 	"wallpaper_opacity": "不透明度",
 	"wallpaper_opacity_label": "壁纸不透明度",
 	"wallpaper_hint": "PNG、JPEG、WebP、AVIF 或 GIF · 最大 20 MB。纹理制作工具：",
-	"wallpaper_studio": "Dither studio"
+	"wallpaper_studio": "Dither studio",
+	"hosted_remote_description": "将个人电脑连接到此账户，并在网页上打开其聊天。",
+	"hosted_remote_setup": "在要连接的电脑上安装 Zuse，并登录同一账户。在设置 → 远程访问中启用 Zuse Serve，然后刷新此列表。",
+	"hosted_remote_download": "下载 Zuse",
+	"hosted_remote_show_chats": "显示聊天",
+	"hosted_remote_refresh": "刷新电脑列表",
+	"hosted_remote_private": "此处仅显示关联到你账户的电脑。在电脑上关闭 Zuse Serve 即可禁用远程访问。",
+	"hosted_remote_online": "在线",
+	"hosted_remote_offline": "离线 · 已保存",
+	"hosted_remote_unknown": "状态不可用",
+	"hosted_remote_localhost": "Localhost",
+	"hosted_remote_lan": "本地网络",
+	"hosted_remote_address": "Zuse Serve 地址",
+	"hosted_remote_last_seen": "最后在线 {{date}}",
+	"hosted_remote_routes_help": "这些是同一台 Zuse Serve 电脑的地址，并非不同电脑。Localhost 仅适用于该电脑；本地网络和 Tailscale 地址需要接入相应网络。可用状态依据最近的心跳，并非连接测试。",
+	"hosted_remote_remove": "移除电脑",
+	"hosted_remote_remove_help": "从账户中移除此电脑及其重复注册？这将撤销远程访问，但不会删除电脑上的聊天和文件。重新连接时，请再次启用 Zuse Serve。",
+	"hosted_remote_remove_failed": "部分注册未能移除。请重试以移除剩余注册。"
 }

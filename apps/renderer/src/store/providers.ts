@@ -10,6 +10,7 @@ import { cloudSummaryForEnvironment } from "../lib/cloud-workspace-catalog.ts";
 import { runControlPlane } from "../lib/control-plane-client.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
+import { isHostedProduct } from "../lib/hosted-connect.ts";
 import { getProviderStatusNotice } from "../lib/provider-status.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
@@ -192,10 +193,36 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 			const brokered =
 				cloudSummary?.providerAuthMode === "broker-v1" ||
 				cloudSummary?.codexAuthMode === "broker-v1";
-			const rawRequest = providerCommand<
-				{ readonly refresh: boolean },
-				ReadonlyArray<AgentAvailability>
-			>(environmentId, "provider.availability", { refresh: force });
+			const rawRequest =
+				isHostedProduct() && environmentId === "local"
+					? runControlPlane((client) => client["cloud.auth.status"]()).then(
+							(auth) =>
+								auth.providers
+									.filter(
+										(p) =>
+											p.providerId === "claude" || p.providerId === "codex",
+									)
+									.map((p) => ({
+										providerId: p.providerId,
+										displayName: p.providerId === "claude" ? "Claude" : "Codex",
+										runtimeAvailable: p.state === "connected",
+										cliInstalled: false,
+										cliLoggedIn: false,
+										hasApiKey: false,
+										authStatus:
+											p.state === "connected"
+												? ("authenticated" as const)
+												: ("unauthenticated" as const),
+										status:
+											p.state === "connected"
+												? ("ready" as const)
+												: ("warning" as const),
+									})),
+						)
+					: providerCommand<
+							{ readonly refresh: boolean },
+							ReadonlyArray<AgentAvailability>
+						>(environmentId, "provider.availability", { refresh: force });
 			const list = brokered
 				? await Promise.all([
 						rawRequest,

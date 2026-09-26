@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
+import { AuthUser } from "./auth.ts";
 import {
 	CapabilityManifest,
 	ConnectAuthError,
@@ -194,6 +195,7 @@ export const ApiAuthTokenGrant = Schema.Union([
 export type ApiAuthTokenGrant = typeof ApiAuthTokenGrant.Type;
 
 export const ApiAuthTokenResponse = Schema.Struct({
+	user: Schema.optional(AuthUser),
 	access_token: Schema.String,
 	refresh_token: Schema.String,
 });

@@ -1,3 +1,4 @@
+import type { CloudControlClient } from "@zuse/client-runtime/cloud-control-client";
 import {
 	makeRpcClientSession,
 	withWireProtocolVersion,
@@ -15,19 +16,19 @@ import {
 	MemoizeRpcs,
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, type Stream } from "effect";
 import {
 	type RpcClient,
 	type RpcGroup,
 	RpcSerialization,
 } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
-
 import type { RpcBridge } from "./bridge.ts";
 import { requestBrowserWebSocketUrl } from "./browser-session.ts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
+import { isHostedProduct } from "./hosted-connect.ts";
 import { isPlatformOnline, subscribePlatformOnline } from "./network-status.ts";
 import {
 	LOCAL_RENDERER_STORAGE_SCOPE,
@@ -568,11 +569,23 @@ export const getVerifiedRpcClient = async (
 };
 
 /**
- * Account and machine lifecycle operations always belong to the desktop that
- * owns this renderer, even while a project on another computer is active.
+ * Account operations use hosted HTTP on web and the owning desktop elsewhere,
+ * independently of the runtime selected for a chat.
  */
-export const getControlPlaneRpcClient = (): Promise<MemoizeClient> =>
-	getRpcClient(localEnvironmentId);
+export type ControlPlaneClient = {
+	[K in keyof CloudControlClient]: (
+		...args: Parameters<CloudControlClient[K]>
+	) => ReturnType<CloudControlClient[K]> extends Effect.Effect<infer A, unknown>
+		? Effect.Effect<A, unknown>
+		: ReturnType<CloudControlClient[K]> extends Stream.Stream<infer A, unknown>
+			? Stream.Stream<A, unknown>
+			: never;
+};
+export const getControlPlaneRpcClient =
+	async (): Promise<ControlPlaneClient> =>
+		isHostedProduct()
+			? (await import("./hosted-control-client.ts")).hostedControlClient
+			: getRpcClient(localEnvironmentId);
 
 export const registerWebSocketEnvironment = (
 	environmentId: string,

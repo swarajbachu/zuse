@@ -880,5 +880,22 @@
 	"wallpaper_opacity": "⟦ÔÔpààcïïty⟧",
 	"wallpaper_opacity_label": "⟦Wààllpààpëër ôôpààcïïty⟧",
 	"wallpaper_hint": "⟦PNG, JPËËG, WëëbP, ÀÀVÏÏF, ôôr GÏÏF · ÜÜp tôô 20 MB. Mààkëë àà tëëxtüürëë ààt⟧",
-	"wallpaper_studio": "⟦Dïïthëër stüüdïïôô⟧"
+	"wallpaper_studio": "⟦Dïïthëër stüüdïïôô⟧",
+	"hosted_remote_description": "⟦Côônnëëct yôôüür pëërsôônààl côômpüütëërs tôô thïïs ààccôôüünt àànd ôôpëën thëëïïr chààts frôôm thëë wëëb.⟧",
+	"hosted_remote_setup": "⟦ÔÔn thëë côômpüütëër yôôüü wàànt tôô côônnëëct, ïïnstààll Züüsëë àànd sïïgn ïïn wïïth thëë sààmëë ààccôôüünt. ÏÏn Sëëttïïngs → Rëëmôôtëë ààccëëss, ëënààblëë Züüsëë Sëërvëë. Thëën rëëfrëësh thïïs lïïst.⟧",
+	"hosted_remote_download": "⟦Dôôwnlôôààd Züüsëë⟧",
+	"hosted_remote_show_chats": "⟦Shôôw chààts⟧",
+	"hosted_remote_refresh": "⟦Rëëfrëësh côômpüütëërs⟧",
+	"hosted_remote_private": "⟦ÔÔnly côômpüütëërs lïïnkëëd tôô yôôüür ààccôôüünt ààppëëààr hëërëë. Tüürn ôôff Züüsëë Sëërvëë ôôn àà côômpüütëër tôô dïïsààblëë rëëmôôtëë ààccëëss.⟧",
+	"hosted_remote_online": "⟦ÔÔnlïïnëë⟧",
+	"hosted_remote_offline": "⟦ÔÔfflïïnëë · sààvëëd⟧",
+	"hosted_remote_unknown": "⟦Stààtüüs üünààvààïïlààblëë⟧",
+	"hosted_remote_localhost": "⟦Lôôcààlhôôst⟧",
+	"hosted_remote_lan": "⟦Lôôcààl nëëtwôôrk⟧",
+	"hosted_remote_address": "⟦Züüsëë Sëërvëë ààddrëëss⟧",
+	"hosted_remote_last_seen": "⟦Lààst sëëëën {{date}}⟧",
+	"hosted_remote_routes_help": "⟦Thëësëë ààrëë ààddrëëssëës fôôr thëë sààmëë Züüsëë Sëërvëë côômpüütëër, nôôt sëëpààrààtëë côômpüütëërs. Lôôcààlhôôst wôôrks ôônly ôôn thààt côômpüütëër; lôôcààl-nëëtwôôrk àànd Tààïïlscààlëë ààddrëëssëës nëëëëd ààccëëss tôô thààt nëëtwôôrk. ÀÀvààïïlààbïïlïïty rëëflëëcts thëë lààtëëst hëëààrtbëëààt, nôôt àà côônnëëctïïôôn tëëst.⟧",
+	"hosted_remote_remove": "⟦Rëëmôôvëë côômpüütëër⟧",
+	"hosted_remote_remove_help": "⟦Rëëmôôvëë thïïs côômpüütëër àànd ïïts düüplïïcààtëë rëëgïïstrààtïïôôns frôôm yôôüür ààccôôüünt? Thïïs rëëvôôkëës rëëmôôtëë ààccëëss fôôr yôôüür ààccôôüünt. Chààts àànd fïïlëës ôôn thëë côômpüütëër ààrëë nôôt dëëlëëtëëd. Tôô rëëcôônnëëct, ëënààblëë Züüsëë Sëërvëë ôôn thààt côômpüütëër ààgààïïn.⟧",
+	"hosted_remote_remove_failed": "⟦Sôômëë rëëgïïstrààtïïôôns côôüüld nôôt bëë rëëmôôvëëd. Rëëtry tôô rëëmôôvëë thëë rëëmààïïnïïng rëëgïïstrààtïïôôns.⟧"
 }

@@ -34,6 +34,7 @@ import { EnvironmentId as EnvironmentIdSchema } from "@zuse/contracts";
 import { Cause, Effect, Fiber, Stream } from "effect";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useSessionRuntimeStore } from "../store/session-runtime.ts";
+import { hostedCacheDatabaseName, isHostedProduct } from "./hosted-connect.ts";
 import { upsertLatestEntity } from "./latest-entity.ts";
 import { markRendererStartupMilestone } from "./performance-marks.ts";
 import type { MemoizeClient } from "./rpc-client.ts";
@@ -571,7 +572,10 @@ class IndexedDbEnvironmentShellPersistence implements ResourcePersistence {
 
 	private db(): Promise<IDBDatabase> {
 		this.database ??= new Promise((resolve, reject) => {
-			const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+			const request = indexedDB.open(
+				hostedCacheDatabaseName(DATABASE_NAME),
+				DATABASE_VERSION,
+			);
 			request.onupgradeneeded = () => {
 				if (!request.result.objectStoreNames.contains(STORE_NAME)) {
 					request.result.createObjectStore(STORE_NAME, { keyPath: "key" });
@@ -661,7 +665,12 @@ export const retainEnvironmentShell = (
 	const key = environmentShellResourceKey(ref);
 	return {
 		key,
-		lease: getRendererClientBus().retain(key, { activation }),
+		lease: getRendererClientBus().retain(key, {
+			activation:
+				isHostedProduct() && ref.environmentId === "local"
+					? "cache-only"
+					: activation,
+		}),
 	};
 };
 

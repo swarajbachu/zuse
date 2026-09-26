@@ -67,6 +67,7 @@ export function ComputerPicker({
 	entries,
 	onPickTarget,
 	cloudItems = [],
+	includeComputers = true,
 	selectedCloudProviderId = null,
 	selectedCloudSizeId = null,
 	onPickCloud,
@@ -78,6 +79,7 @@ export function ComputerPicker({
 	entries: ReadonlyArray<EnvironmentCatalogEntry>;
 	onPickTarget: (target: NewChatTarget) => void;
 	cloudItems?: ReadonlyArray<CloudComputerPickerItem>;
+	includeComputers?: boolean;
 	selectedCloudProviderId?: string | null;
 	selectedCloudSizeId?: string | null;
 	onPickCloud?: (providerId: string) => void;
@@ -99,7 +101,11 @@ export function ComputerPicker({
 		);
 	}
 
-	const computerItems = model.kind === "menu" ? model.items : [model.item];
+	const computerItems = !includeComputers
+		? []
+		: model.kind === "menu"
+			? model.items
+			: [model.item];
 	const current =
 		computerItems.find((item) => item.selected) ?? computerItems[0] ?? null;
 	const cloudSelected = selectedCloudProviderId !== null;
@@ -119,7 +125,11 @@ export function ComputerPicker({
 		<Menu>
 			<MenuTrigger
 				className="flex h-7 min-w-0 max-w-[14rem] items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] text-foreground transition-colors hover:bg-accent data-[popup-open]:bg-accent"
-				aria-label={uiMessage("chat:computer_picker_run_on_computer")}
+				aria-label={uiMessage(
+					includeComputers
+						? "chat:computer_picker_run_on_computer"
+						: "chat:computer_picker_cloud_sandbox",
+				)}
 			>
 				{cloudSelected ? (
 					<DitherCloudIcon className="size-4" />
@@ -249,19 +259,23 @@ export function ComputerPicker({
 						})()}
 					</>
 				) : null}
-				<MenuSeparator />
-				<MenuItem
-					onClick={() => openAddComputerDialog()}
-					className="grid h-7 grid-cols-[auto_1fr] items-center gap-x-2 rounded-md px-2 text-xs"
-				>
-					<HugeiconsIcon
-						icon={ComputerIcon}
-						className="col-start-1 row-start-1 size-3.5 opacity-80"
-					/>
-					<span className="col-start-2 row-start-1">
-						{uiMessage("chat:computer_picker_add_computer")}
-					</span>
-				</MenuItem>
+				{includeComputers && (
+					<>
+						<MenuSeparator />
+						<MenuItem
+							onClick={() => openAddComputerDialog()}
+							className="grid h-7 grid-cols-[auto_1fr] items-center gap-x-2 rounded-md px-2 text-xs"
+						>
+							<HugeiconsIcon
+								icon={ComputerIcon}
+								className="col-start-1 row-start-1 size-3.5 opacity-80"
+							/>
+							<span className="col-start-2 row-start-1">
+								{uiMessage("chat:computer_picker_add_computer")}
+							</span>
+						</MenuItem>
+					</>
+				)}
 			</MenuPopup>
 		</Menu>
 	);

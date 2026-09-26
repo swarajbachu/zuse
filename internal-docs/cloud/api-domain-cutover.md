@@ -7,6 +7,7 @@
 | `api.zuse.sh` | Cloudflare Worker Custom Domain | `zuse-relay` |
 | `api-staging.zuse.sh` | Cloudflare Worker Custom Domain | `zuse-relay-staging` |
 | `code.zuse.sh` | Vercel, production renderer | none |
+| `code-staging.zuse.sh` | Vercel, staging renderer preview | none |
 
 Keep the Worker names, secret bindings, Durable Object namespaces, Hyperdrive,
 R2 buckets, and managed-tunnel domains unchanged. `CF_ZONE_ID` in the Worker is
@@ -103,11 +104,27 @@ enrollment, signed provider callbacks, and the [required smoke journey](operatio
 Verify cross-environment authorization isolation, then run the
 [Slack app installation and automation journey](slack-app-operations.md).
 
-A separate staging renderer needs its own Vercel deployment, explicit
-`VITE_ZUSE_HOSTED=1`, `VITE_ZUSE_API_URL=https://api-staging.zuse.sh`, the staging
-`VITE_WORKOS_CLIENT_ID`, WorkOS redirect/origin registration, and an exact
-staging API CORS allowlist entry. `code-staging.zuse.sh` is the proposed URL,
-not an already-deployed app. Do not repoint production `code.zuse.sh`.
+The staging renderer is hosted at `https://code-staging.zuse.sh` on Vercel's
+`zuse-app` project. On 2026-09-26 this domain was attached to the
+`feat/standalone-cloud-web-app` preview branch, initially at commit `8037c562`.
+Its branch-scoped preview variables are `VITE_ZUSE_HOSTED=1`,
+`VITE_ZUSE_API_URL=https://api-staging.zuse.sh`, and
+`VITE_WORKOS_CLIENT_ID=client_01KW6ZEZKVMZ0G429A89XZD83Q`.
+Vercel Deployment Protection remains enabled.
+
+Reuse this domain for future staging builds. When testing another branch, set
+its preview variables to the staging values above, deploy it, and update the
+staging domain's branch assignment and deployment alias. Branch auto-deployment
+is disabled by the repository's `vercel.json`, so explicitly deploy each build.
+Do not repoint production `code.zuse.sh` or change production environment values.
+
+The staging API CORS allowlist includes `https://code-staging.zuse.sh`. WorkOS
+requires a one-time redirect registration for
+`https://code-staging.zuse.sh/auth/callback` and the web origin
+`https://code-staging.zuse.sh` in the staging client. As of 2026-09-26, the
+renderer and CORS configuration are verified, but WorkOS still returns
+`redirect-uri-invalid` until this dashboard registration is completed.
+Do not register per-deployment Vercel URLs for routine staging testing.
 
 ## Rollback
 

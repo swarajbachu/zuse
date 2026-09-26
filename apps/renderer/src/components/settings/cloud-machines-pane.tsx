@@ -1,4 +1,6 @@
 import { formatDate as formatUiDate } from "@zuse/i18n";
+import { Effect } from "effect";
+import { getLocalEnvironmentId, getRpcClient } from "../../lib/rpc-client.ts";
 import "@zuse/i18n/english/settings";
 import {
 	type MachineOffer,
@@ -340,8 +342,10 @@ export function CloudMachinesPane() {
 			return;
 		}
 		try {
-			const target = await runControlPlane((control) =>
-				control["machine.runtime.target"](),
+			const target = await Effect.runPromise(
+				(await getRpcClient(getLocalEnvironmentId()))[
+					"machine.runtime.target"
+				](),
 			);
 			setRuntimeTargetVersion(target.appVersion);
 			const next = await machineCommand<MachineRuntimeStatus>(

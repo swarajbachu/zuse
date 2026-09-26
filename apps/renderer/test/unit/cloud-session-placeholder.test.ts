@@ -5,13 +5,16 @@ import {
 	EnvironmentId,
 	FolderId,
 } from "@zuse/contracts";
+import { Effect, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
-
 import {
 	cloudConnectionRearmKey,
 	cloudSessionPlaceholder,
 	rearmReadyCloudConnection,
+	useCloudChatsStore,
+	watchCloudChatCatalog,
 } from "../../src/lib/cloud-workspaces.ts";
+import { seedHostedProjects } from "../../src/lib/hosted-workspace.ts";
 
 const readySummary = (revision = 1) =>
 	CloudChatSummary.make({
@@ -89,4 +92,57 @@ describe("cloudSessionPlaceholder", () => {
 		);
 		expect(retry).toHaveBeenCalledTimes(1);
 	});
+});
+
+const hostedMode = vi.hoisted(() => ({
+	enabled: false,
+	summaries: [] as unknown[],
+}));
+vi.mock("../../src/lib/hosted-connect.ts", async (original) => ({
+	...(await original<typeof import("../../src/lib/hosted-connect.ts")>()),
+	isHostedProduct: () => hostedMode.enabled,
+}));
+vi.mock("../../src/lib/rpc-client.ts", async (original) => ({
+	...(await original<typeof import("../../src/lib/rpc-client.ts")>()),
+	getControlPlaneRpcClient: async () => ({
+		"cloud.chats.list": () => Effect.succeed({ chats: [] }),
+		"cloud.chats.watch": () =>
+			Stream.make({
+				chats: hostedMode.summaries,
+				deletedWorkspaceIds: [],
+				cursor: 1,
+				reset: false,
+			}),
+	}),
+}));
+
+import { environmentShellSnapshot } from "../../src/lib/environment-shell-client-bus.ts";
+
+it("stages a newly watched hosted chat before any local mapping exists", async () => {
+	hostedMode.enabled = true;
+	seedHostedProjects([]);
+	const summary = CloudChatSummary.make({
+		...readySummary(),
+		workspaceId: "new-hosted-workspace",
+		chatId: ChatId.make("new-hosted-chat"),
+		projectId: "new-hosted-project",
+	});
+	hostedMode.summaries = [summary];
+	const stop = watchCloudChatCatalog();
+	try {
+		await vi.waitFor(() => {
+			expect(useCloudChatsStore.getState().error).toBeNull();
+			const shell = environmentShellSnapshot({
+				environmentId: EnvironmentId.make("local"),
+			}).data;
+			expect(
+				shell?.chatsByProject["cloud-project:new-hosted-project"]?.some(
+					(chat) => chat.id === summary.chatId,
+				),
+			).toBe(true);
+		});
+	} finally {
+		stop();
+		hostedMode.enabled = false;
+	}
 });

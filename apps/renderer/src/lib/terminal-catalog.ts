@@ -89,9 +89,14 @@ export const invalidateTerminalCatalog = (
 export const hydrateRightTerminalCatalog = async (
 	ref: ChatRef,
 	localEnvironmentId: EnvironmentId,
-	options: Readonly<{ includeOwnerEnvironment?: boolean }> = {},
+	options: Readonly<{
+		includeOwnerEnvironment?: boolean;
+		includeLocalEnvironment?: boolean;
+	}> = {},
 ): Promise<void> => {
-	const environments = new Set<EnvironmentId>([localEnvironmentId]);
+	const environments = new Set<EnvironmentId>();
+	if (options.includeLocalEnvironment !== false)
+		environments.add(localEnvironmentId);
 	if (options.includeOwnerEnvironment !== false) {
 		environments.add(ref.environmentId);
 	}

@@ -880,5 +880,22 @@
 	"wallpaper_opacity": "不透明度",
 	"wallpaper_opacity_label": "壁紙の不透明度",
 	"wallpaper_hint": "PNG、JPEG、WebP、AVIF、GIF · 最大20 MB。テクスチャの作成：",
-	"wallpaper_studio": "Dither studio"
+	"wallpaper_studio": "Dither studio",
+	"hosted_remote_description": "パソコンをこのアカウントに接続し、ウェブからチャットを開きます。",
+	"hosted_remote_setup": "接続するパソコンにZuseをインストールし、同じアカウントでサインインしてください。設定 → リモートアクセスでZuse Serveを有効にして、この一覧を更新してください。",
+	"hosted_remote_download": "Zuseをダウンロード",
+	"hosted_remote_show_chats": "チャットを表示",
+	"hosted_remote_refresh": "パソコン一覧を更新",
+	"hosted_remote_private": "このアカウントにリンクされたパソコンのみ表示されます。リモートアクセスを無効にするには、そのパソコンでZuse Serveをオフにしてください。",
+	"hosted_remote_online": "オンライン",
+	"hosted_remote_offline": "オフライン・保存済み",
+	"hosted_remote_unknown": "状態を取得できません",
+	"hosted_remote_localhost": "Localhost",
+	"hosted_remote_lan": "ローカルネットワーク",
+	"hosted_remote_address": "Zuse Serveアドレス",
+	"hosted_remote_last_seen": "最終確認 {{date}}",
+	"hosted_remote_routes_help": "これらは同じZuse Serveパソコンのアドレスです。Localhostはそのパソコン上でのみ利用でき、ローカルネットワークとTailscaleには該当ネットワークへの接続が必要です。状態は接続テストではなく、最後のハートビートに基づきます。",
+	"hosted_remote_remove": "パソコンを削除",
+	"hosted_remote_remove_help": "このパソコンと重複登録をアカウントから削除しますか？リモートアクセスは取り消されますが、チャットやファイルは削除されません。再接続するにはパソコンでZuse Serveを再度有効にしてください。",
+	"hosted_remote_remove_failed": "一部の登録を削除できませんでした。再試行してください。"
 }

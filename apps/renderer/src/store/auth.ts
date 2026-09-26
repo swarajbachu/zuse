@@ -1,3 +1,4 @@
+import { hostedAccountId, isHostedProduct } from "../lib/hosted-connect.ts";
 import "@zuse/i18n/english/connections";
 import { type AuthState, CommandId, EnvironmentId } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
@@ -19,8 +20,14 @@ import { createAtomStore as create } from "../state/atom-store.ts";
 const DISPLAY_NAME_KEY = "zuse.auth.displayName";
 const LEGACY_DISPLAY_NAME_KEYS = ["memoize.auth.displayName"] as const;
 
+const displayNameKey = () =>
+	isHostedProduct()
+		? `${DISPLAY_NAME_KEY}:hosted:${hostedAccountId()}`
+		: DISPLAY_NAME_KEY;
 const readDisplayName = (): string => {
 	try {
+		if (isHostedProduct())
+			return window.localStorage.getItem(displayNameKey()) ?? "";
 		return (
 			readStorageWithLegacy(
 				window.localStorage,
@@ -35,6 +42,10 @@ const readDisplayName = (): string => {
 
 const writeDisplayName = (value: string): void => {
 	try {
+		if (isHostedProduct()) {
+			window.localStorage.setItem(displayNameKey(), value);
+			return;
+		}
 		if (value.trim() === "") {
 			removeStorageKeys(
 				window.localStorage,

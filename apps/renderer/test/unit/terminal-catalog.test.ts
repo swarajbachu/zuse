@@ -202,6 +202,33 @@ describe("terminal catalog", () => {
 		);
 	});
 
+	it("hydrates only cloud terminals when local terminals are unavailable", async () => {
+		const ref = {
+			environmentId: EnvironmentId.make("hosted-cloud"),
+			chatId: "hosted-chat" as ChatId,
+		};
+		terminalClient.listOwnedTerminals.mockResolvedValue(catalogResult());
+		await hydrateRightTerminalCatalog(ref, EnvironmentId.make("local"), {
+			includeLocalEnvironment: false,
+		});
+		expect(terminalClient.listOwnedTerminals).toHaveBeenCalledOnce();
+		expect(terminalClient.listOwnedTerminals).toHaveBeenCalledWith(
+			ref.environmentId,
+			terminalOwnerId(ref, "right"),
+		);
+	});
+	it("does not connect to any terminal environment when hosted cloud is offline", async () => {
+		const ref = {
+			environmentId: EnvironmentId.make("hosted-offline"),
+			chatId: "hosted-offline-chat" as ChatId,
+		};
+		await hydrateRightTerminalCatalog(ref, EnvironmentId.make("local"), {
+			includeLocalEnvironment: false,
+			includeOwnerEnvironment: false,
+		});
+		expect(terminalClient.listOwnedTerminals).not.toHaveBeenCalled();
+	});
+
 	it("restores only local right terminals when the cloud owner is unavailable", async () => {
 		const ref = {
 			environmentId: EnvironmentId.make("unavailable-cloud"),

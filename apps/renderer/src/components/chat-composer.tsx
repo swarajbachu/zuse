@@ -1,5 +1,7 @@
 import { composerFeedbackText } from "@zuse/client-runtime/composer-feedback";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
+import { isHostedProduct } from "../lib/hosted-connect.ts";
+import { useActiveContext } from "../store/active-workspace.ts";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
@@ -123,6 +125,7 @@ import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import {
 	cloudComposerSubmissionBlocked,
 	commitAcceptedComposerDelivery,
+	handoffComposerDraft,
 	isWaitingCloudSend,
 	shouldQueueComposerMessage,
 	withComposerContext,
@@ -269,6 +272,8 @@ export function ChatComposer({
 		input: ComposerInput,
 		opts: {
 			readonly asGoal: boolean;
+			/** Consume the draft only after landing validation succeeds. */
+			readonly accept: () => void;
 			readonly pendingAttachments: ReadonlyArray<PendingDraftAttachment>;
 			readonly pendingContextFiles: ReadonlyArray<PendingDraftContextFile>;
 		},
@@ -293,6 +298,7 @@ export function ChatComposer({
 	const [reasoningLevel, setReasoningLevel] = useState<string | null>(null);
 	// Provider features the installed CLI supports (from the availability
 	// probe). Codex goal mode is version-gated; Grok advertises it natively.
+	const activeContext = useActiveContext();
 	const capabilities = useProvidersStore((s) =>
 		s.capabilitiesFor(session.providerId, qualifiedEnvironmentId),
 	);
@@ -555,9 +561,16 @@ export function ChatComposer({
 	);
 
 	useEffect(() => {
-		if (!isDraft) return;
+		if (!isDraft || (isHostedProduct() && qualifiedEnvironmentId === "local"))
+			return;
 		void hydrateDraftSkills(session.projectId, session.providerId);
-	}, [hydrateDraftSkills, isDraft, session.projectId, session.providerId]);
+	}, [
+		hydrateDraftSkills,
+		isDraft,
+		qualifiedEnvironmentId,
+		session.projectId,
+		session.providerId,
+	]);
 
 	// Stacked annotations are a valid message on their own, so they enable Send
 	// even with an empty text box.
@@ -676,7 +689,7 @@ export function ChatComposer({
 			const v = editorViewRef.current;
 			if (v === null) return;
 			const sel = v.state.selection.main;
-			const insert = text + " ";
+			const insert = `${text} `;
 			v.dispatch({
 				changes: { from: sel.head, to: sel.head, insert },
 				selection: { anchor: sel.head + insert.length },
@@ -967,7 +980,7 @@ export function ChatComposer({
 			const blobUrl = isImage ? URL.createObjectURL(file) : "";
 			const token = `[image:${tempId}]`;
 			const sel = view.state.selection.main;
-			const insertText = token + " ";
+			const insertText = `${token} `;
 			const chipFrom = sel.from;
 			const chipTo = sel.from + token.length;
 
@@ -1260,17 +1273,22 @@ export function ChatComposer({
 		// Draft mode (new-chat landing): hand the input back to the landing, which
 		// creates the worktree + chat and queues this as the first message.
 		if (onDraftSubmit !== undefined) {
-			commitComposerSubmission();
 			const pendingDraftAttachments = pendingDraftAttachmentsRef.current;
 			const pendingDraftContextFiles = pendingDraftContextFilesRef.current;
-			pendingDraftAttachmentsRef.current = [];
-			pendingDraftContextFilesRef.current = [];
-			onDraftSubmit(input, {
-				asGoal: goalSendMode,
-				pendingAttachments: pendingDraftAttachments,
-				pendingContextFiles: pendingDraftContextFiles,
-			});
-			return true;
+			return handoffComposerDraft(
+				(accept) =>
+					onDraftSubmit(input, {
+						accept,
+						asGoal: goalSendMode,
+						pendingAttachments: pendingDraftAttachments,
+						pendingContextFiles: pendingDraftContextFiles,
+					}),
+				() => {
+					commitComposerSubmission();
+					pendingDraftAttachmentsRef.current = [];
+					pendingDraftContextFilesRef.current = [];
+				},
+			);
 		}
 		const sendAndCommitAfterAcceptance = (options?: {
 			readonly asGoal?: boolean;
@@ -1670,12 +1688,19 @@ export function ChatComposer({
 												current={session.permissionMode}
 											/>
 										)}
-									{session.providerId !== "pi" && (
-										<McpPopover
-											projectId={session.projectId}
-											providerId={session.providerId}
-										/>
-									)}
+									{session.providerId !== "pi" &&
+										(!isHostedProduct() ||
+											(!isDraft && activeContext.status === "ready")) && (
+											<McpPopover
+												environmentId={qualifiedEnvironmentId}
+												projectId={
+													activeContext.status === "ready"
+														? activeContext.folderId
+														: session.projectId
+												}
+												providerId={session.providerId}
+											/>
+										)}
 								</div>
 								<div className="flex shrink-0 items-center gap-2">
 									<ComposerModelPicker

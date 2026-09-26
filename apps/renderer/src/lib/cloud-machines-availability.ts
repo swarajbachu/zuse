@@ -1,3 +1,4 @@
+import { isHostedProduct } from "./hosted-connect.ts";
 import { rendererPlatformCapabilities } from "./platform-capabilities.ts";
 
 export const cloudMachinesAvailable = ({
@@ -6,8 +7,9 @@ export const cloudMachinesAvailable = ({
 	readonly desktop: boolean;
 }): boolean => desktop;
 
-/** Cloud compute is desktop-only. The API owns account authorization. */
+/** Account authorization belongs to the API on desktop and hosted web. */
 export const cloudWorkspaceBetaAvailable = (): boolean =>
+	isHostedProduct() ||
 	cloudMachinesAvailable({
 		desktop: rendererPlatformCapabilities().desktop,
 	});

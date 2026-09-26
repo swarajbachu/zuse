@@ -2,7 +2,9 @@ import {
 	type ApiAuthTokenGrant,
 	type ApiConnectGrant,
 	type ApiEnvironmentList,
+	type ApiEnvironmentStatus,
 	ApiPaths,
+	type AuthUser,
 	HOSTED_APP_URL,
 	WIRE_PROTOCOL_VERSION,
 	WORKOS_PUBLIC_CLIENT_ID,
@@ -10,6 +12,9 @@ import {
 } from "@zuse/contracts";
 
 import { rendererApiUrl } from "./api-url.ts";
+
+let sessionEpoch = 0;
+export const hostedSessionEpoch = (): number => sessionEpoch;
 
 const WORKOS_API = "https://api.workos.com";
 const SESSION_KEY = "zuse.hosted.session.v1";
@@ -20,6 +25,7 @@ const DPOP_STORE = "keys";
 const DPOP_KEY = "account";
 
 type HostedSession = {
+	readonly user?: AuthUser | null;
 	readonly accessToken: string;
 	readonly refreshToken: string;
 	readonly expiresAt: number;
@@ -73,7 +79,7 @@ const environment = (): Record<string, string | undefined> =>
 	{};
 
 export const isHostedProduct = (
-	locationOrigin = window.location.origin,
+	locationOrigin = globalThis.window?.location?.origin ?? "",
 ): boolean =>
 	environment().VITE_ZUSE_HOSTED === "1" || locationOrigin === HOSTED_APP_URL;
 
@@ -111,7 +117,7 @@ const sha256 = async (value: string): Promise<string> =>
 		),
 	);
 
-const decodeJwtPayload = (
+export const decodeHostedJwtPayload = (
 	token: string,
 ): { readonly exp?: unknown; readonly sub?: unknown } | null => {
 	try {
@@ -128,7 +134,7 @@ const decodeJwtPayload = (
 };
 
 const jwtExpiry = (token: string): number => {
-	const payload = decodeJwtPayload(token);
+	const payload = decodeHostedJwtPayload(token);
 	return typeof payload?.exp === "number"
 		? payload.exp * 1_000
 		: Date.now() + 5 * 60_000;
@@ -136,10 +142,18 @@ const jwtExpiry = (token: string): number => {
 
 const readSession = (): HostedSession | null => {
 	try {
-		const raw = sessionStorage.getItem(SESSION_KEY);
+		let raw = localStorage.getItem(SESSION_KEY);
+		if (raw === null) {
+			raw = sessionStorage.getItem(SESSION_KEY);
+			if (raw !== null) {
+				localStorage.setItem(SESSION_KEY, raw);
+				sessionStorage.removeItem(SESSION_KEY);
+			}
+		}
 		if (raw === null) return null;
 		const value = JSON.parse(raw) as Partial<HostedSession>;
-		return typeof value.accessToken === "string" &&
+		return value !== null &&
+			typeof value.accessToken === "string" &&
 			typeof value.refreshToken === "string" &&
 			typeof value.expiresAt === "number"
 			? (value as HostedSession)
@@ -152,21 +166,77 @@ const readSession = (): HostedSession | null => {
 export const hostedAccountId = (): string | null => {
 	const token = readSession()?.accessToken;
 	if (token === undefined) return null;
-	const payload = decodeJwtPayload(token);
+	const payload = decodeHostedJwtPayload(token);
 	return typeof payload?.sub === "string" ? payload.sub : null;
 };
 
+export const hostedAccountUser = (): AuthUser | null =>
+	readSession()?.user ?? null;
+
+export const hostedCacheDatabaseName = (base: string): string =>
+	isHostedProduct() ? `${base}:hosted:${hostedAccountId()}` : base;
+
 const writeSession = (session: HostedSession): HostedSession => {
-	sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+	localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+	sessionStorage.removeItem(SESSION_KEY);
 	return session;
 };
 
 export const hostedAuthTokenEndpoint = (baseUrl = rendererApiUrl()): string =>
 	`${baseUrl.replace(/\/$/u, "")}${ApiPaths.authToken}`;
 
+/** Only authoritative credential rejection invalidates the persisted login. */
+class HostedAuthRejection extends Error {
+	constructor(
+		readonly status: number,
+		code: string,
+	) {
+		super(code);
+	}
+}
+const clearHostedSession = (): void => {
+	// A tombstone also prevents a still-open legacy tab from migrating old tokens.
+	localStorage.setItem(SESSION_KEY, "null");
+	sessionStorage.removeItem(SESSION_KEY);
+};
+
+/** Reload account-owned state when another tab signs out or changes account. */
+export const watchHostedAccountChanges = (): (() => void) => {
+	const account = (raw: string | null): string | null => {
+		try {
+			const token = JSON.parse(raw ?? "null")?.accessToken;
+			if (typeof token !== "string") return null;
+			const subject = decodeHostedJwtPayload(token)?.sub;
+			return typeof subject === "string" ? subject : null;
+		} catch {
+			return null;
+		}
+	};
+	const onStorage = (event: StorageEvent) => {
+		if (
+			event.storageArea !== localStorage ||
+			(event.key !== SESSION_KEY && event.key !== null)
+		)
+			return;
+		if (
+			event.key !== null &&
+			account(event.oldValue) === account(event.newValue)
+		)
+			return;
+		sessionEpoch++;
+		sessionStorage.removeItem(SESSION_KEY);
+		apiAccess = null;
+		rpcEndpointLease.clear();
+		window.location.replace("/");
+	};
+	window.addEventListener("storage", onStorage);
+	return () => window.removeEventListener("storage", onStorage);
+};
+
 const authenticate = async (
 	grant: ApiAuthTokenGrant,
 ): Promise<HostedSession> => {
+	const epoch = sessionEpoch;
 	const response = await fetch(hostedAuthTokenEndpoint(), {
 		method: "POST",
 		headers: { "content-type": "application/json" },
@@ -177,19 +247,28 @@ const authenticate = async (
 		readonly access_token?: unknown;
 		readonly refresh_token?: unknown;
 		readonly error?: unknown;
+		readonly user?: AuthUser;
 	};
 	if (
 		!response.ok ||
 		typeof value.access_token !== "string" ||
 		typeof value.refresh_token !== "string"
 	) {
-		throw new Error(
+		throw new HostedAuthRejection(
+			response.status,
 			typeof value.error === "string"
 				? value.error
 				: `workos_auth_${response.status}`,
 		);
 	}
+	if (
+		epoch !== sessionEpoch ||
+		(grant.grantType === "refresh_token" &&
+			readSession()?.refreshToken !== grant.refreshToken)
+	)
+		throw new Error("hosted_signed_out");
 	return writeSession({
+		user: value.user ?? null,
 		accessToken: value.access_token,
 		refreshToken: value.refresh_token,
 		expiresAt: jwtExpiry(value.access_token),
@@ -255,21 +334,61 @@ export const completeHostedSignIn = async (): Promise<boolean> => {
 	return true;
 };
 
-const accessToken = async (): Promise<string | null> => {
-	const session = readSession();
-	if (session === null) return null;
-	if (session.expiresAt - Date.now() > 60_000) return session.accessToken;
-	try {
-		return (
-			await authenticate({
-				grantType: "refresh_token",
-				refreshToken: session.refreshToken,
-			})
-		).accessToken;
-	} catch {
-		sessionStorage.removeItem(SESSION_KEY);
-		return null;
-	}
+let tokenRefresh: Promise<string | null> | null = null;
+export const hostedAccessToken = async (): Promise<string | null> => {
+	const current = readSession();
+	if (current === null) return null;
+	if (current.expiresAt - Date.now() > 60_000 && current.user !== undefined)
+		return current.accessToken;
+	if (tokenRefresh !== null) return tokenRefresh;
+	const epoch = sessionEpoch;
+	const refresh = async (): Promise<string | null> => {
+		// Re-read after acquiring the origin-wide lock: another tab may have rotated it.
+		const session = readSession();
+		if (epoch !== sessionEpoch || session === null) return null;
+		if (session.expiresAt - Date.now() > 60_000 && session.user !== undefined)
+			return session.accessToken;
+		try {
+			return (
+				await authenticate({
+					grantType: "refresh_token",
+					refreshToken: session.refreshToken,
+				})
+			).accessToken;
+		} catch (cause) {
+			if (
+				epoch !== sessionEpoch ||
+				readSession()?.refreshToken !== session.refreshToken
+			)
+				return null;
+			if (
+				cause instanceof HostedAuthRejection &&
+				[400, 401, 403].includes(cause.status) &&
+				[
+					"invalid_grant",
+					"invalid_refresh_token",
+					"refresh_token_revoked",
+					"session_revoked",
+				].includes(cause.message)
+			) {
+				clearHostedSession();
+				return null;
+			}
+			// Network errors, rate limits, and server failures are retryable, not sign-out.
+			throw cause;
+		}
+	};
+	tokenRefresh = (async () => {
+		if (globalThis.navigator?.locks)
+			return await navigator.locks.request(
+				"zuse.hosted.session.refresh",
+				refresh,
+			);
+		return refresh();
+	})().finally(() => {
+		tokenRefresh = null;
+	});
+	return tokenRefresh;
 };
 
 const openDpopDatabase = (): Promise<IDBDatabase> =>
@@ -376,11 +495,13 @@ const apiFetch = async (
 ): Promise<Response> => {
 	const target = `${rendererApiUrl()}${path}`;
 	const proof = await signDpopProof({ method: init.method, url: target });
-	const workosToken = init.token === undefined ? await accessToken() : null;
+	const workosToken =
+		init.token === undefined ? await hostedAccessToken() : null;
 	if (init.token === undefined && workosToken === null) {
 		throw new Error("hosted_signed_out");
 	}
 	return fetch(target, {
+		signal: AbortSignal.timeout(15_000),
 		method: init.method,
 		headers: {
 			authorization:
@@ -423,16 +544,48 @@ const ensureApiAccess = async (): Promise<string> => {
 };
 
 export const hostedSignedIn = async (): Promise<boolean> =>
-	(await accessToken()) !== null;
+	(await hostedAccessToken()) !== null && hostedAccountId() !== null;
 
 export const listHostedEnvironments = async (): Promise<ApiEnvironmentList> => {
-	const token = await accessToken();
+	const token = await hostedAccessToken();
 	if (token === null) throw new Error("hosted_signed_out");
 	const response = await fetch(`${rendererApiUrl()}${ApiPaths.environments}`, {
+		signal: AbortSignal.timeout(15_000),
 		headers: { authorization: `Bearer ${token}` },
 	});
 	if (!response.ok) throw new Error(`api_environments_${response.status}`);
 	return (await response.json()) as ApiEnvironmentList;
+};
+
+/** Presence checks do not connect to or wake the runtime. */
+export const getHostedComputerStatus = async (
+	environmentId: string,
+): Promise<ApiEnvironmentStatus> => {
+	const token = await ensureApiAccess();
+	const response = await apiFetch(ApiPaths.status(environmentId), {
+		method: "POST",
+		token,
+	});
+	if (!response.ok) throw new Error(`api_status_${response.status}`);
+	return (await response.json()) as ApiEnvironmentStatus;
+};
+
+export const removeHostedComputer = async (
+	environmentId: string,
+): Promise<void> => {
+	const token = await hostedAccessToken();
+	if (token === null) throw new Error("hosted_signed_out");
+	const response = await fetch(`${rendererApiUrl()}${ApiPaths.unlink}`, {
+		method: "POST",
+		signal: AbortSignal.timeout(15_000),
+		headers: {
+			authorization: `Bearer ${token}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({ environmentId }),
+	});
+	if (!response.ok && response.status !== 404)
+		throw new Error(`api_unlink_${response.status}`);
 };
 
 export const registerHostedClient = async (): Promise<void> => {
@@ -445,6 +598,7 @@ export const registerHostedClient = async (): Promise<void> => {
 	}
 	const target = `${rendererApiUrl()}${ApiPaths.devices}`;
 	const response = await fetch(target, {
+		signal: AbortSignal.timeout(15_000),
 		method: "POST",
 		headers: {
 			authorization: `DPoP ${token}`,
@@ -460,8 +614,16 @@ export const registerHostedClient = async (): Promise<void> => {
 	if (!response.ok) throw new Error(`api_device_${response.status}`);
 };
 
+export const hostedConnectGrantEndpoint = (grant: ApiConnectGrant): string => {
+	const url = new URL(grant.endpoint.wsBaseUrl);
+	url.searchParams.set("token", grant.connectToken);
+	url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
+	return url.toString();
+};
+
 export const connectHostedEnvironment = async (
 	environmentId: string,
+	options: { lease?: boolean } = {},
 ): Promise<ApiConnectGrant> => {
 	const token = await ensureApiAccess();
 	const response = await apiFetch(ApiPaths.connect(environmentId), {
@@ -482,10 +644,8 @@ export const connectHostedEnvironment = async (
 				: `api_connect_${response.status}`,
 		);
 	}
-	const url = new URL(body.endpoint.wsBaseUrl);
-	url.searchParams.set("token", body.connectToken);
-	url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
-	rpcEndpointLease.set(environmentId, url.toString());
+	if (options.lease !== false)
+		rpcEndpointLease.set(environmentId, hostedConnectGrantEndpoint(body));
 	return body;
 };
 
@@ -495,11 +655,27 @@ export const nextHostedRpcEndpoint = (): Promise<string> =>
 	});
 
 export const signOutHostedProduct = async (): Promise<void> => {
-	const token = await accessToken();
+	const accountId = hostedAccountId();
+	const token = readSession()?.accessToken ?? null;
+	sessionEpoch++;
+	clearHostedSession();
+	const { resetSessionTimelineClientBus } = await import(
+		"./session-timeline-client-bus.ts"
+	);
+	await resetSessionTimelineClientBus({ clearAccount: true });
+	if (typeof indexedDB.databases === "function") {
+		const databases = await indexedDB.databases();
+		for (const database of databases) {
+			if (database.name?.endsWith(`:hosted:${accountId}`))
+				indexedDB.deleteDatabase(database.name);
+		}
+	}
+
 	const deviceId = localStorage.getItem(DEVICE_ID_KEY);
 	if (token !== null && deviceId !== null) {
 		await fetch(`${rendererApiUrl()}${ApiPaths.client(deviceId)}`, {
 			method: "DELETE",
+			signal: AbortSignal.timeout(5_000),
 			headers: { authorization: `Bearer ${token}` },
 		}).catch(() => undefined);
 	}
