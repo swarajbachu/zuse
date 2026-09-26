@@ -1,0 +1,82 @@
+---
+title: Author an extension
+description: Build a standalone local tool with the versioned SDK.
+section: extensions
+order: 113
+platforms: [desktop]
+lastVerified: Extensions Preview (API 1.1)
+---
+
+## Quickstart
+
+After SDK publication, run:
+
+```sh
+zuse extension init --id project-notes --path ./project-notes
+cd project-notes
+npm run check-types
+zuse extension install --path .
+```
+
+The initializer writes a manifest, separate client/server entries, a standalone TypeScript configuration, and a package manifest; it installs locked npm dependencies and verifies types. The generated project uses public SDK exports, with no monorepo aliases. If installation fails, the project remains available with an actionable error.
+
+Before SDK publication, maintainers can run `bun run --cwd packages/extension-sdk pack:release`, then `npm pack` in `.context/sdk-release` and install that tarball for local development.
+
+## Manifest and modules
+
+`zuse-extension.json` declares identity, version, publisher, `zuseApi` (a semantic-version range), capabilities, and contribution kinds. Use `client` and `server` for explicit entry points. Legacy `entry` remains supported and compiles for both targets. `.client` modules cannot be imported by server bundles and `.server` modules cannot be imported by client bundles.
+
+- `@zuse/extension-sdk`: contracts, `defineRpc`, and shared workspace-tool schemas.
+- `@zuse/extension-sdk/client`: the reusable `WorkspaceTool` panel.
+- `@zuse/extension-sdk/server`: `registerWorkspaceTool` and server types.
+- `@zuse/extension-sdk/host`: host implementation only; unavailable inside extension bundles.
+
+The client runtime provides React, React JSX runtime, React DOM, `Schema` from Effect, Hugeicons React, and the documented Button/Card/Code/Dither UI modules. The server provides the SDK server exports, Effect Schema, and Node built-ins. Other dependencies are compiled into the artifact. Do not assume every private Zuse package or every Effect export is runtime-provided.
+
+Setup can be asynchronous and must return cleanup. Cleanup should stop work promptly. Host-owned registrations, styles, and state are cleared even if cleanup fails or times out.
+
+## Backend context and attachments
+
+Declare schemas with `defineRpc`; register handlers with `extension.handle(contract, (input, context) => …)`. The host resolves `context.workspace` from the selected project/worktree. `context.files.list()` and `context.files.read(relativePath)` require the filesystem capability, enforce workspace containment and bounded reads, and accept cancellation through `context.signal`. Do not accept arbitrary workspace roots from client input.
+
+Panels receive typed `invoke(contract, input, { signal })`, current project/session/worktree context, and `attach(snapshot)`. Attach adds a copied text snapshot to the ordinary composer; it never sends the conversation. Include source paths and line/test references in the text. The composer accepts at most 128 KiB per attachment.
+
+## Desktop workflow APIs
+
+SDK 0.2.0 / extension API 1.1 adds `extension.host`:
+
+- `useSessions()` and `usePullRequest(sessionId)` are React hooks returning local
+  session/branch state with loading, errors and staleness. Declare `sessions`.
+- `openSession(sessionId)` opens an existing conversation without sending a prompt.
+- `usePlanOutput(sessionId)` reads bounded current-turn plan/assistant output.
+- `preparePlan(sessionId, instructions)` enters Plan mode and attaches instructions
+  to the selected idle conversation. Declare `planning`. The user submits normally.
+
+Call hooks only inside React components. Render only visible PR cards so offscreen
+subscriptions are released. Host methods are revoked when the extension stops.
+The new API requires `zuseApi: "^1.1.0"`; older builds cannot install these examples.
+
+Use `extensions/agent-board` for live application views and navigation,
+`extensions/account-quota` for extension-owned multi-account collection, and
+`extensions/visual-plans` for a planning workflow with a sanitized HTML preview.
+Each has a manifest, implementation, tests, fixtures and README. Account Quota
+uses generic server RPC/storage/filesystem APIs; collectors are authored entirely
+inside the extension. Another extension can use `extension.secrets` for its own
+account connections instead. No quota collection algorithm is imposed by the host.
+
+Account switching can be implemented by trusted extension server code, but this
+preview does not offer a coordinated live account-switch API. Already-running
+agents may retain their old login. An account manager must coordinate sessions
+and reauthentication before claiming the active account changed.
+
+## Complete examples
+
+The source directories `extensions/test-reports`, `extensions/project-playbook`, and `extensions/code-follow-ups` each contain a manifest, client/server setup, parser/scanner, fixture, tests, and README. Each client registers its own `main` panel and attachment source. Zuse namespaces these IDs by extension identity. Each server registers `workspace-tool` and `search` privately within its process. No example depends on another.
+
+`registerWorkspaceTool` shares file listing, pagination, cancellation, bounded results, and attachment search. An extension supplies only its supported suffixes and a text-to-snapshot parser or scanner. Test parsers independently, then test installation and invocation through a real host process.
+
+## Distribution
+
+Official artifacts are immutable JSON envelopes containing the manifest and precompiled code/CSS. Zuse verifies the signed catalog, SHA-256 digest, manifest identity, compatibility, and size limits before activation. There is no archive extraction or user-side package installation. PR validation cannot access signing secrets; a protected release workflow signs only main-branch output and verifies the credential against the desktop trust root.
+
+Community catalog submissions, publisher delegation, agent plugins, service integrations, and ACP catalogs are later releases. Local and Git author installs remain available.

@@ -1,0 +1,16 @@
+{
+	"schemaVersion": 1,
+	"id": "account-quota",
+	"name": "Account Quota",
+	"description": "Track multiple Codex and Claude account profiles independently, with direct quota requests, reset times, and per-account errors.",
+	"version": "0.2.1",
+	"client": "index.client.tsx",
+	"zuseApi": "^1.1.0",
+	"contributions": ["workspace-panel"],
+	"capabilities": ["ui", "rpc", "storage", "filesystem", "network"],
+	"publisher": {
+		"name": "Zuse"
+	},
+	"homepage": "https://zuse.sh/extensions",
+	"server": "index.server.ts"
+}

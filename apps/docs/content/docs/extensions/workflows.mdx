@@ -1,0 +1,60 @@
+---
+title: Workflow extensions
+description: Track account allowances, watch local agents and PRs, and review visual plans.
+section: extensions
+order: 111
+platforms: [desktop]
+lastVerified: Extensions Preview (API 1.1)
+---
+
+These three desktop preview extensions install separately from **Settings →
+Extensions**. They require the updated preview build with extension API 1.1.
+Refresh the marketplace after updating. Installation does not send any prompts.
+
+## Account Quota
+
+Click **Connect Codex** or **Connect Claude Code** to read the existing CLI login and fetch quota immediately. On macOS, allow Keychain access if prompted. There is no credential-path form in the default flow.
+
+Current-login cards follow the account signed into that CLI. To track additional accounts independently, choose **Add a separate account…** and use a separate credential file for each. Up to 20 cards are supported.
+
+The extension makes its own provider requests; it does not use Zuse's quota collector. Credentials remain outside the renderer and are never attached to a prompt. Listing accounts does not access Keychain or make a provider request. Connect and Refresh are explicit actions, with at most one quota attempt per account per minute.
+
+If a login is missing or expired, sign in through `codex login` or Claude Code's `/login`, then retry. This extension does not switch accounts or renew tokens. Custom or managed credential stores may need an explicit file profile. Removing a card leaves the CLI login untouched.
+
+## Agent Board
+
+Open **Agent Board** from the sidebar or command palette.
+Search tasks, filter projects/agents, and see sessions grouped into **Needs
+attention**, **Starting**, **Running**, **Idle**, and **Closed**.
+
+Cards show their branch's PR state and check counts. Click a task to open its
+conversation. Idle means the agent is not running; it does not certify task
+completion. A disconnected board labels states as cached. The board shows local
+Zuse sessions and their branch PRs, not every PR in your GitHub account.
+
+## Visual Plans
+
+Open an idle Claude Code or Codex conversation and the **Visual Plans** tab.
+Edit the plan instructions if desired, then click **Prepare visual plan**.
+Zuse requests Plan mode and attaches instructions for a static HTML plan with
+SVG/CSS diagrams, steps, alternatives, and a testing checklist. Add your actual
+task and submit through the composer.
+
+Once the agent responds, choose **Preview latest HTML**. You can also paste a
+complete HTML document or fenced HTML block. Add revision feedback and attach
+it together with the exact previewed plan. Submit revisions normally; approve
+implementation through the ordinary conversation controls when you are ready.
+
+HTML previews are sanitized and sandboxed. Scripts, external resources, forms,
+and navigation are blocked. Previewing a plan never approves execution.
+
+## Data and removal
+
+Extensions remain trusted, unsandboxed desktop code. The HTML preview's sandbox
+protects the rendered plan; it does not sandbox the extension itself. Account
+Quota sends credentials only to its selected provider's quota endpoint. Plan
+instructions and revision snapshots go to the agent only when you submit them.
+
+Disable an extension to stop its runtime and remove its UI. Other extensions
+continue independently. Remove it from Settings → Extensions; delete extension
+data there if you also want to clear its saved configuration.

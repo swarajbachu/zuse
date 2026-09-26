@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import Path from "node:path";
 
 export const RENDERER_ASSET_HOST = "renderer";
@@ -112,6 +113,7 @@ type RendererFileFetch = (
 export const createRendererAssetHandler = (options: {
 	readonly rendererRoot: string;
 	readonly fetchFile: RendererFileFetch;
+	readonly realpath?: (path: string) => Promise<string>;
 }): ((request: Request) => Promise<Response>) => {
 	return async (request) => {
 		if (request.method !== "GET" && request.method !== "HEAD") {
@@ -126,7 +128,19 @@ export const createRendererAssetHandler = (options: {
 		}
 
 		try {
-			const file = await options.fetchFile(resolution.absolutePath, request);
+			const resolveRealPath = options.realpath ?? realpath;
+			const [root, filePath] = await Promise.all([
+				resolveRealPath(options.rendererRoot),
+				resolveRealPath(resolution.absolutePath),
+			]);
+			const relative = Path.relative(root, filePath);
+			if (
+				Path.isAbsolute(relative) ||
+				relative === ".." ||
+				relative.startsWith(`..${Path.sep}`)
+			)
+				return new Response(null, { status: 403 });
+			const file = await options.fetchFile(filePath, request);
 			if (!file.ok) return new Response(null, { status: 404 });
 			const headers = new Headers(file.headers);
 			headers.set("cache-control", resolution.cacheControl);

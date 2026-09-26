@@ -9,8 +9,8 @@ import {
 	relative,
 	resolve,
 } from "node:path";
-
 import { makeRpcClientSession } from "@zuse/client-runtime/connection";
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
 import {
 	AgentItemId,
@@ -20,7 +20,9 @@ import {
 	CommandId,
 	ComposerInput,
 	catalogProviderIds,
-	defaultModelFor,
+	ExtensionCapability,
+	ExtensionId,
+	type ExtensionSource,
 	type FileRef,
 	type LinearIssueRef,
 	MemoizeRpcs,
@@ -34,7 +36,8 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import { resolveZuseDesktopUserData } from "@zuse/utils/zuse-user-data";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
+import { initializeExtension } from "./extension-init.ts";
 
 type RpcClient = Awaited<ReturnType<typeof connect>>["client"];
 
@@ -49,6 +52,7 @@ const GROUPS = new Set([
 	"chat",
 	"session",
 	"thread",
+	"extension",
 ]);
 export const isAgentCliCommand = (argv: ReadonlyArray<string>): boolean =>
 	argv[0] !== undefined && GROUPS.has(argv[0]);
@@ -393,6 +397,17 @@ const commandManifest = () => ({
 		"session mode",
 		"session interrupt",
 		"session resume",
+		"extension init",
+		"extension inspect",
+		"extension install",
+		"extension list",
+		"extension reload",
+		"extension logs",
+		"extension enable",
+		"extension disable",
+		"extension remove",
+		"extension status",
+		"extension update",
 	],
 	commonOptions: ["--computer", "--ws-url", "--token", "--project"],
 	contextOptions: ["--attach", "--file", "--linear", "--transcript", "--plan"],
@@ -673,6 +688,15 @@ const execute = async (
 	const args = parse(argv);
 	let [group, action] = args.positionals;
 	if (group === "commands") return commandManifest();
+	if (group === "extension" && action === "init") {
+		const id = required(one(args, "id"), "--id");
+		return initializeExtension({
+			directory: one(args, "path") ?? process.cwd(),
+			id,
+			name: one(args, "name") ?? id,
+			publisher: one(args, "publisher") ?? "Local developer",
+		});
+	}
 	if (group === "thread") {
 		group = action === "create" ? "chat" : "session";
 	}
@@ -687,6 +711,97 @@ const execute = async (
 	}
 	try {
 		const client = session.client;
+		if (group === "extension") {
+			const extensionSource = (): ExtensionSource => {
+				const marketplaceId = one(args, "marketplace");
+				if (marketplaceId) {
+					return {
+						_tag: "marketplace",
+						catalogId: ExtensionId.make(marketplaceId),
+					};
+				}
+				const url = one(args, "git");
+				if (url)
+					return {
+						_tag: "git",
+						url,
+						...(one(args, "ref") ? { ref: one(args, "ref") } : {}),
+					};
+				return {
+					_tag: "directory",
+					path: resolve(
+						required(one(args, "path") ?? args.positionals[2], "--path"),
+					),
+				};
+			};
+			const extensionId = () =>
+				ExtensionId.make(
+					required(one(args, "id") ?? args.positionals[2], "--id"),
+				);
+			if (action === "list" || action === "status") {
+				const catalog = await rpc(client["extension.catalog"]());
+				return action === "status" && (one(args, "id") ?? args.positionals[2])
+					? (catalog.items.find((item) => item.id === extensionId()) ?? null)
+					: catalog;
+			}
+			if (action === "inspect")
+				return rpc(client["extension.inspect"]({ source: extensionSource() }));
+			if (action === "install") {
+				const source = extensionSource();
+				const manifest = await rpc(client["extension.inspect"]({ source }));
+				const granted = many(args, "grant").map((value) =>
+					Schema.decodeUnknownSync(ExtensionCapability)(value),
+				);
+				const missing = manifest.capabilities.filter(
+					(capability) => !granted.includes(capability),
+				);
+				if (missing.length > 0)
+					throw new CliError(
+						"confirmation_required",
+						`Grant requested capabilities with ${missing.map((item) => `--grant ${item}`).join(" ")}.`,
+					);
+				return rpc(
+					client["extension.install"]({ source, grantedCapabilities: granted }),
+				);
+			}
+			if (action === "enable")
+				return rpc(client["extension.enable"]({ id: extensionId() }));
+			if (action === "disable")
+				return rpc(client["extension.disable"]({ id: extensionId() }));
+			if (action === "reload")
+				return rpc(client["extension.reload"]({ id: extensionId() }));
+			if (action === "logs")
+				return rpc(client["extension.logs"]({ id: extensionId() }));
+			if (action === "remove") {
+				if (!bool(args, "confirm"))
+					throw new CliError(
+						"confirmation_required",
+						"extension remove requires --confirm.",
+					);
+				await rpc(
+					client["extension.remove"]({
+						id: extensionId(),
+						deleteData: bool(args, "delete-data"),
+					}),
+				);
+				return { id: extensionId(), removed: true };
+			}
+			if (action === "update") {
+				const granted = many(args, "grant").map((value) =>
+					Schema.decodeUnknownSync(ExtensionCapability)(value),
+				);
+				return rpc(
+					client["extension.update"]({
+						id: extensionId(),
+						grantedCapabilities: granted,
+					}),
+				);
+			}
+			throw new CliError(
+				"invalid_input",
+				`Unknown extension command: ${action ?? ""}.`,
+			);
+		}
 		if (group === "computer" && action === "list") {
 			const [current, connected] = await Promise.all([
 				rpc(client["connect.describe"]()),
@@ -716,7 +831,7 @@ const execute = async (
 						models:
 							catalog === null
 								? modelsForProvider(BUNDLED_MODEL_CATALOG, providerId)
-								: catalog.providers[providerId].models.filter(
+								: modelsForProvider(catalog, providerId).filter(
 										(model) => model.available,
 									),
 					}),

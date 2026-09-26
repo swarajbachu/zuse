@@ -1,0 +1,19 @@
+{
+	"name": "@zuse-extension/agent-board",
+	"version": "0.1.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "vitest run test",
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@zuse/extension-sdk": "workspace:*",
+		"react": "catalog:"
+	},
+	"devDependencies": {
+		"@types/react": "catalog:",
+		"vitest": "catalog:",
+		"typescript": "catalog:"
+	}
+}

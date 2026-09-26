@@ -32,7 +32,7 @@ export function DefaultsStep() {
 				<FieldRow label={uiMessage("onboarding:defaults_default_model")}>
 					<ModelSelect
 						providerId={defaultProviderId}
-						value={defaultModelByProvider[defaultProviderId]}
+						value={defaultModelByProvider[defaultProviderId] ?? "default"}
 						onChange={(model) => setDefaultModel(defaultProviderId, model)}
 					/>
 				</FieldRow>

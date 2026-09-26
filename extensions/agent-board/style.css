@@ -1,0 +1,130 @@
+.zb-board {
+	padding: 24px;
+	overflow: auto;
+	height: 100%;
+	color: var(--foreground);
+	font-size: 12px;
+}
+.zb-board header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 20px;
+}
+.zb-board h1 {
+	font-size: 20px;
+	font-weight: 600;
+	margin: 0 0 4px;
+}
+.zb-board p,
+.zb-board time,
+.zb-board footer {
+	color: var(--muted-foreground);
+}
+.zb-filters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 20px;
+}
+.zb-filters input {
+	flex: 1;
+	min-width: 180px;
+}
+.zb-board input,
+.zb-board select,
+.zb-board nav button {
+	height: 28px;
+	border: 0;
+	border-radius: 6px;
+	background: var(--muted);
+	color: var(--foreground);
+	padding: 0 9px;
+}
+.zb-columns {
+	display: grid;
+	grid-template-columns: repeat(5, minmax(210px, 1fr));
+	gap: 12px;
+	align-items: start;
+	overflow: auto;
+}
+.zb-column {
+	background: color-mix(in srgb, var(--muted) 50%, transparent);
+	border-radius: 8px;
+	padding: 10px;
+	min-height: 180px;
+}
+.zb-column h2 {
+	font-size: 12px;
+	display: flex;
+	justify-content: space-between;
+	margin: 2px 2px 12px;
+}
+.zb-column h2 span {
+	color: var(--muted-foreground);
+}
+.zb-card {
+	background: var(--background);
+	border-radius: 6px;
+	padding: 12px;
+	margin-bottom: 8px;
+	box-shadow: 0 1px 2px #0001;
+}
+.zb-title {
+	display: block;
+	text-align: left;
+	font-weight: 600;
+	color: var(--foreground);
+	background: none;
+	border: 0;
+	padding: 0;
+	cursor: pointer;
+	width: 100%;
+	line-height: 1.5;
+}
+.zb-title:hover {
+	text-decoration: underline;
+}
+.zb-card p {
+	margin: 5px 0;
+	overflow-wrap: anywhere;
+}
+.zb-model {
+	font-size: 11px;
+}
+.zb-branch {
+	font-family: monospace;
+	font-size: 11px;
+	margin: 12px 0 8px;
+	overflow-wrap: anywhere;
+}
+.zb-card time {
+	display: block;
+	font-size: 10px;
+	margin-top: 12px;
+}
+.zb-board [role="alert"] {
+	color: var(--destructive);
+}
+.zb-column nav {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 4px;
+}
+.zb-board button:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+.zb-board footer {
+	margin-top: 20px;
+	font-size: 11px;
+}
+.zb-empty {
+	padding: 12px 2px;
+}
+.zb-board :focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}

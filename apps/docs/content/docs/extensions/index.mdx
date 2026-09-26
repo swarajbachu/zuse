@@ -1,0 +1,31 @@
+---
+title: Extensions Preview
+description: Bring local project context into your Zuse conversations.
+section: extensions
+order: 110
+platforms: [desktop]
+lastVerified: Extensions Preview (API 1.1)
+---
+
+Zuse Extensions Preview adds independently installed tools to the local desktop app. Browse project information in a workspace tab, preview what matters, and attach a text snapshot to a conversation.
+
+The initial tools are **Test Reports**, **Project Playbook**, and **Code Follow-ups**. You can install any combination. Each has its own version, permissions, process, and removal controls.
+
+## Install
+
+1. Open a local project in Zuse desktop.
+2. Open **Settings → Extensions** and enable the preview.
+3. Select a catalog entry, review its description and capabilities, then install it.
+4. Open its workspace tab. Open a conversation before attaching context.
+
+Nothing is installed automatically. Catalog installation uses precompiled artifacts; users do not need Git, npm, Bun, or this repository. If the catalog is unavailable, installed tools remain installed. Use Refresh to retry and inspect the displayed error.
+
+**Release status:** the development preview branch offers the three tools through a signed staging marketplace. Restart the updated app, enable Extensions Preview, and install from the catalog. The production catalog and public desktop release remain gated on production signing, SDK publication, and packaged desktop verification.
+
+## Choose a workflow
+
+- [Inspect failed tests, browse procedures, or collect TODOs](./tools).
+- [Create your own extension](./authoring).
+- [Understand data handling, updates, and recovery](./trust-and-recovery).
+
+Extensions add tools and UI to Zuse. Later **agent plugins** will package agent instructions and tools; **integrations** will connect authenticated external services; **ACP adapters** will connect coding-agent runtimes. This preview does not import ChatGPT or VS Code plugins and does not provide cloud execution or mobile extension panels.

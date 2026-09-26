@@ -1,3 +1,4 @@
+import { providerLabel as getProviderLabel } from "@zuse/contracts";
 import "@zuse/i18n/english/onboarding";
 import "@zuse/i18n/english/providers";
 import "@zuse/i18n/english/shell";
@@ -9,7 +10,6 @@ import { LinkSquare01Icon, Tick01Icon } from "@zuse/icons/bulk-rounded";
 
 import { ApiKeyRow } from "~/components/api-key-row";
 import { ProviderIcon } from "~/components/provider-icons";
-import { PROVIDER_LABEL } from "~/components/settings-page";
 import { Button } from "~/components/ui/button";
 import { INSTALL_HINT } from "~/lib/provider-setup";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
@@ -203,7 +203,7 @@ function ProviderCard({
 			<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<span className="flex items-center gap-1.5">
 					<span className="truncate text-[13px] font-medium leading-none text-foreground">
-						{PROVIDER_LABEL[providerId]}
+						{getProviderLabel(providerId)}
 					</span>
 					{/* Only show the subscription chip when the probe actually detected
               an unmet plan requirement. Users with a valid tier see a clean
@@ -325,8 +325,8 @@ function ProviderStatus({
 	if (state.kind === "ready") {
 		const label =
 			state.via === "cli"
-				? `${PROVIDER_LABEL[providerId]} CLI is logged in. You're all set.`
-				: `${PROVIDER_LABEL[providerId]} API key saved. You're all set.`;
+				? `${getProviderLabel(providerId)} CLI is logged in. You're all set.`
+				: `${getProviderLabel(providerId)} API key saved. You're all set.`;
 		return (
 			<div className="flex items-center gap-2 rounded-md bg-alert-success-bg px-3 py-2 text-[12px] text-success">
 				<HugeiconsIcon icon={Tick01Icon} className="size-3.5" strokeWidth={3} />
@@ -341,7 +341,7 @@ function ProviderStatus({
 			<div className="flex items-center gap-2 rounded-md bg-muted/60 px-3 py-2 text-[12px] text-muted-foreground">
 				<RichMessage
 					id="onboarding:provider_checking_sentence"
-					values={{ value: PROVIDER_LABEL[providerId] }}
+					values={{ value: getProviderLabel(providerId) }}
 					components={{
 						part0: (
 							<span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
@@ -380,8 +380,8 @@ function ProviderStatus({
 				: state.kind === "subscription"
 					? "Your CLI login was detected, but the required paid plan was not confirmed."
 					: state.kind === "outdated"
-						? `${PROVIDER_LABEL[providerId]} ${state.current} is too old; Zuse (Beta) needs ${state.required}.`
-						: `${PROVIDER_LABEL[providerId]}'s CLI isn't on your PATH yet.`;
+						? `${getProviderLabel(providerId)} ${state.current} is too old; Zuse (Beta) needs ${state.required}.`
+						: `${getProviderLabel(providerId)}'s CLI isn't on your PATH yet.`;
 
 	const command =
 		state.kind === "signed-out"
@@ -460,7 +460,7 @@ function SubscriptionNotice({
 			<p className="text-[11px] leading-snug text-muted-foreground">
 				{uiMessage(
 					"onboarding:provider_sessions_will_fail_if_your_plan_doesn_apos_t_include_subscri_sentence",
-					{ plan: plan, value: PROVIDER_LABEL[providerId] },
+					{ plan: plan, value: getProviderLabel(providerId) },
 				)}
 			</p>
 			<div>

@@ -1150,7 +1150,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 55
+				"line": 58
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
@@ -1172,7 +1172,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 56
+				"line": 59
 			}
 		]
 	},
@@ -1181,7 +1181,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 58
+				"line": 61
 			}
 		]
 	},
@@ -1190,7 +1190,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 59
+				"line": 62
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
@@ -1203,7 +1203,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 72
+				"line": 75
 			}
 		]
 	},
@@ -1212,7 +1212,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 121
+				"line": 124
 			}
 		]
 	},
@@ -1338,7 +1338,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 88
+				"line": 91
 			}
 		]
 	},
@@ -1365,7 +1365,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 57
+				"line": 60
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",

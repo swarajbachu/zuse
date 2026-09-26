@@ -118,6 +118,23 @@ import {
 	DiagnosticsSignalRpc,
 } from "./diagnostics.ts";
 import {
+	ExtensionCancelRpc,
+	ExtensionCatalogGetRpc,
+	ExtensionCatalogStreamRpc,
+	ExtensionDisableRpc,
+	ExtensionEnableRpc,
+	ExtensionInspectRpc,
+	ExtensionInstallRpc,
+	ExtensionInvokeRpc,
+	ExtensionLogsRpc,
+	ExtensionMarketplaceListRpc,
+	ExtensionMarketplaceRefreshRpc,
+	ExtensionReloadRpc,
+	ExtensionRemoveRpc,
+	ExtensionSetGlobalEnabledRpc,
+	ExtensionUpdateRpc,
+} from "./extension.ts";
+import {
 	ExternalThreadsContinueRpc,
 	ExternalThreadsListRpc,
 } from "./external-thread.ts";
@@ -367,6 +384,21 @@ import {
  * Add new RPCs by importing them here and including them in the group.
  */
 export const MemoizeRpcs = RpcGroup.make(
+	ExtensionCatalogGetRpc,
+	ExtensionCatalogStreamRpc,
+	ExtensionSetGlobalEnabledRpc,
+	ExtensionInspectRpc,
+	ExtensionInstallRpc,
+	ExtensionEnableRpc,
+	ExtensionDisableRpc,
+	ExtensionReloadRpc,
+	ExtensionRemoveRpc,
+	ExtensionUpdateRpc,
+	ExtensionLogsRpc,
+	ExtensionInvokeRpc,
+	ExtensionCancelRpc,
+	ExtensionMarketplaceListRpc,
+	ExtensionMarketplaceRefreshRpc,
 	DeviceBridgeControlRpc,
 	CloudDeviceBridgeRpc,
 	PingRpc,

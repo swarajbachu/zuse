@@ -1,0 +1,11 @@
+{
+	"name": "@zuse-extension/code-follow-ups",
+	"version": "0.1.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "vitest run test",
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {}
+}

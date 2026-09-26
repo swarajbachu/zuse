@@ -1,7 +1,7 @@
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 import {
 	type AgentAvailability,
 	catalogProviderIds,
-	defaultModelFor,
 	findModelDescriptor,
 	type ModelCatalogView,
 	modelsForProvider,
@@ -70,7 +70,7 @@ export const PERMISSION_OPTIONS: readonly {
 export const providerOptions = (catalog: ModelCatalogView) =>
 	catalogProviderIds(catalog).map((providerId) => ({
 		value: providerId,
-		label: PROVIDER_LABEL[providerId],
+		label: PROVIDER_LABEL[providerId] ?? providerId,
 	}));
 
 export const modelOptionsForProvider = (

@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-26T17:41:01.560Z",
+  "entries": [
+    {
+      "manifest": {
+        "schemaVersion": 1,
+        "id": "code-follow-ups",
+        "name": "Code Follow-ups",
+        "description": "Find unfinished work and give your agent the exact context.",
+        "version": "0.1.1",
+        "client": "index.client.tsx",
+        "server": "index.server.ts",
+        "zuseApi": "^1.0.0",
+        "homepage": "https://zuse.sh/extensions",
+        "contributions": [
+          "workspace-panel",
+          "attachment-source",
+          "command"
+        ],
+        "capabilities": [
+          "ui",
+          "attachments",
+          "rpc",
+          "filesystem",
+          "commands"
+        ],
+        "publisher": {
+          "name": "Zuse"
+        }
+      },
+      "commit": "fcc1aa1a03f06477e85c36748a5ca6f3f414f2f9",
+      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/fcc1aa1a03f06477e85c36748a5ca6f3f414f2f9/apps/web/public/extensions/staging/artifacts/608ea5c67bd5a07cf5cab9d330dc4065ff7e698f985c1a0a40dc2062a78bd706.json",
+      "sha256": "608ea5c67bd5a07cf5cab9d330dc4065ff7e698f985c1a0a40dc2062a78bd706",
+      "changelog": "Find unfinished work and give your agent the exact context."
+    },
+    {
+      "manifest": {
+        "schemaVersion": 1,
+        "id": "midnight-ocean",
+        "name": "Midnight Ocean",
+        "description": "A deep navy theme with sea-glass accents. Install, then select it under Extension themes.",
+        "version": "0.1.0",
+        "client": "index.client.ts",
+        "zuseApi": "^1.0.0",
+        "homepage": "https://zuse.sh/extensions",
+        "contributions": [
+          "theme"
+        ],
+        "capabilities": [
+          "themes"
+        ],
+        "publisher": {
+          "name": "Zuse"
+        }
+      },
+      "commit": "e5065f5553feb67ba6d21d5cb5c0d0c7244a8a0b",
+      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/e5065f5553feb67ba6d21d5cb5c0d0c7244a8a0b/apps/web/public/extensions/staging/artifacts/7a2ebd415733555e27e788a96f3c999fd58aca192d98552f8a278e65755a803e.json",
+      "sha256": "7a2ebd415733555e27e788a96f3c999fd58aca192d98552f8a278e65755a803e",
+      "changelog": "A deep navy theme with sea-glass accents. Install, then select it under Extension themes."
+    },
+    {
+      "manifest": {
+        "schemaVersion": 1,
+        "id": "project-playbook",
+        "name": "Project Playbook",
+        "description": "Bring your team’s procedures into any agent conversation.",
+        "version": "0.1.1",
+        "client": "index.client.tsx",
+        "server": "index.server.ts",
+        "zuseApi": "^1.0.0",
+        "homepage": "https://zuse.sh/extensions",
+        "contributions": [
+          "workspace-panel",
+          "attachment-source"
+        ],
+        "capabilities": [
+          "ui",
+          "attachments",
+          "rpc",
+          "filesystem"
+        ],
+        "publisher": {
+          "name": "Zuse"
+        }
+      },
+      "commit": "fcc1aa1a03f06477e85c36748a5ca6f3f414f2f9",
+      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/fcc1aa1a03f06477e85c36748a5ca6f3f414f2f9/apps/web/public/extensions/staging/artifacts/8e6443cce1d8ac5a4fc86459eb4db05d46787456df517e9f2b7d66cb9ee5c1be.json",
+      "sha256": "8e6443cce1d8ac5a4fc86459eb4db05d46787456df517e9f2b7d66cb9ee5c1be",
+      "changelog": "Bring your team’s procedures into any agent conversation."
+    },
+    {
+      "manifest": {
+        "schemaVersion": 1,
+        "id": "test-reports",
+        "name": "Test Reports",
+        "description": "Turn a failed test report into the next agent task.",
+        "version": "0.1.1",
+        "client": "index.client.tsx",
+        "server": "index.server.ts",
+        "zuseApi": "^1.0.0",
+        "homepage": "https://zuse.sh/extensions",
+        "contributions": [
+          "workspace-panel",
+          "attachment-source"
+        ],
+        "capabilities": [
+          "ui",
+          "attachments",
+          "rpc",
+          "filesystem"
+        ],
+        "publisher": {
+          "name": "Zuse"
+        }
+      },
+      "commit": "fcc1aa1a03f06477e85c36748a5ca6f3f414f2f9",
+      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/fcc1aa1a03f06477e85c36748a5ca6f3f414f2f9/apps/web/public/extensions/staging/artifacts/8aabe46b39ceec0ae18a6a0a2fcb0af9df4960ae1d7c3d721a79949620c7e0e7.json",
+      "sha256": "8aabe46b39ceec0ae18a6a0a2fcb0af9df4960ae1d7c3d721a79949620c7e0e7",
+      "changelog": "Turn a failed test report into the next agent task."
+    },
+    {
+      "manifest": {
+        "schemaVersion": 1,
+        "id": "warm-paper",
+        "name": "Warm Paper",
+        "description": "A warm ivory theme with ink text and copper accents. Install, then select it under Extension themes.",
+        "version": "0.1.0",
+        "client": "index.client.ts",
+        "zuseApi": "^1.0.0",
+        "homepage": "https://zuse.sh/extensions",
+        "contributions": [
+          "theme"
+        ],
+        "capabilities": [
+          "themes"
+        ],
+        "publisher": {
+          "name": "Zuse"
+        }
+      },
+      "commit": "e5065f5553feb67ba6d21d5cb5c0d0c7244a8a0b",
+      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/e5065f5553feb67ba6d21d5cb5c0d0c7244a8a0b/apps/web/public/extensions/staging/artifacts/abe45c2c1f574b357272ba3200db8a893bf3171d13d78ee610e33664e23e22fc.json",
+      "sha256": "abe45c2c1f574b357272ba3200db8a893bf3171d13d78ee610e33664e23e22fc",
+      "changelog": "A warm ivory theme with ink text and copper accents. Install, then select it under Extension themes."
+    }
+  ]
+}

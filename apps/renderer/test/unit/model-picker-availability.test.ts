@@ -1,8 +1,10 @@
-import type { AgentAvailability, ProviderId } from "@zuse/contracts";
+import { type AgentAvailability, ProviderId } from "@zuse/contracts";
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
 	isModelPickerProviderVisible,
+	resolveReadyProvider,
 	selectAuthenticatedProvider,
 } from "../../src/lib/model-picker-availability.ts";
 
@@ -17,6 +19,31 @@ const availabilityFor = (
 	hasApiKey: false,
 	authStatus: "authenticated",
 	...patch,
+});
+
+describe("default provider recovery", () => {
+	it("temporarily falls back from a missing extension to a ready built-in", () => {
+		expect(
+			resolveReadyProvider({
+				preferred: Schema.decodeUnknownSync(ProviderId)("example-agent"),
+				availability: [availabilityFor("codex")],
+				providerEnabled: {},
+				availabilityLoaded: true,
+			}),
+		).toBe("codex");
+	});
+
+	it("keeps the persisted extension preference until availability is known", () => {
+		const extensionId = Schema.decodeUnknownSync(ProviderId)("example-agent");
+		expect(
+			resolveReadyProvider({
+				preferred: extensionId,
+				availability: [],
+				providerEnabled: {},
+				availabilityLoaded: false,
+			}),
+		).toBe(extensionId);
+	});
 });
 
 describe("model picker provider visibility", () => {

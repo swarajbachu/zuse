@@ -155,7 +155,7 @@ type SessionsState = {
 		sessionId: SessionId,
 		mode: PermissionMode,
 		environmentId?: EnvironmentId,
-	) => Promise<void>;
+	) => Promise<boolean>;
 	/**
 	 * Resolve a pending in-process AskUserQuestion call. Routes the
 	 * answers to the driver, which returns them as the tool result.
@@ -737,7 +737,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
 			set({ draftSession: Session.make({ ...draft, permissionMode: mode }) });
-			return;
+			return true;
 		}
 		set({ error: null });
 		patchActiveSession(sessionId, (session) =>
@@ -753,6 +753,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				"safe",
 				environmentId,
 			);
+			return true;
 		} catch (err) {
 			set({ error: formatError(err) });
 			const projectId = findSessionProject(
@@ -760,6 +761,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				sessionId,
 			);
 			if (projectId !== null) await get().hydrate(projectId);
+			return false;
 		}
 	},
 	answerQuestion: async (environmentId, sessionId, itemId, answers) => {

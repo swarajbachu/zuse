@@ -1,3 +1,4 @@
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 /** Builds the session-bound orchestration tool surface. */
 
 import {
@@ -14,7 +15,6 @@ import {
 	bundledResolvedModelCatalog,
 	type Chat,
 	type ChatId,
-	defaultModelFor,
 	type FolderId,
 	type Message,
 	PROVIDER_IDS,
@@ -393,7 +393,7 @@ export const makeConversationOrchestration = (
 				),
 			listModels: (input) =>
 				Promise.resolve().then(() => {
-					const allProviderIds = [...PROVIDER_IDS];
+					const allProviderIds: ReadonlyArray<ProviderId> = PROVIDER_IDS;
 					const providerIds =
 						input.providerId !== undefined
 							? allProviderIds.includes(input.providerId as ProviderId)

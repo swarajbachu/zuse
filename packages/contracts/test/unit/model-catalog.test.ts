@@ -15,7 +15,10 @@ import {
 	modelsForProvider,
 	normalizeModelCatalog,
 	PROVIDER_IDS,
+	ProviderId,
+	ProviderRuntimeKind,
 	pickNewerModelCatalog,
+	providerLabel,
 	ResolvedModelCatalog,
 	resolveModelCatalog,
 	resolveModelSlug,
@@ -489,4 +492,17 @@ describe("model labels", () => {
 			"Claude Haiku 4 5",
 		);
 	});
+});
+
+it("preserves extension providers absent from the fetched built-in model catalog", () => {
+	const provider = Schema.decodeUnknownSync(ProviderId)("example.agent");
+	expect(modelsForProvider(catalog, provider)).toEqual([]);
+	expect(defaultModelFor(catalog, provider)).toBeNull();
+	expect(resolveModelSlug(catalog, provider, "private-model")).toBe(
+		"private-model",
+	);
+	expect(providerLabel(provider)).toBe("example.agent");
+	expect(Schema.decodeUnknownSync(ProviderRuntimeKind)("extension")).toBe(
+		"extension",
+	);
 });

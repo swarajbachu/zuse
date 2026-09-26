@@ -1,5 +1,6 @@
-import type { ModelOption, ProviderId } from "../agent.ts";
-import { PROVIDER_IDS } from "../agent.ts";
+import { Schema } from "effect";
+import type { BuiltinProviderId, ModelOption } from "../agent.ts";
+import { isBuiltinProviderId, PROVIDER_IDS, ProviderId } from "../agent.ts";
 import { BUNDLED_MODEL_CATALOG } from "./bundled.ts";
 import type { ModelPricing } from "./schema.ts";
 
@@ -100,13 +101,21 @@ export const visibleModelsForProvider = <M extends CatalogModel>(
 /**
  * Preferred default for a provider: the flagged `defaultModel` when it is
  * visible and available, else the first visible available model, else the
- * first model, else the bundled snapshot's answer (so an empty live-only
- * provider never yields an empty string).
+ * first model, else the bundled snapshot's answer. Unknown providers without
+ * catalog models return null; runtime selection policy belongs to callers.
  */
-export const defaultModelFor = (
+export function defaultModelFor(
+	catalog: ModelCatalogView,
+	providerId: BuiltinProviderId,
+): string;
+export function defaultModelFor(
 	catalog: ModelCatalogView,
 	providerId: ProviderId,
-): string => {
+): string | null;
+export function defaultModelFor(
+	catalog: ModelCatalogView,
+	providerId: ProviderId,
+): string | null {
 	const models = modelsForProvider(catalog, providerId);
 	const usable = (m: CatalogModel) =>
 		m.defaultVisible !== false && m.available !== false;
@@ -115,9 +124,9 @@ export const defaultModelFor = (
 		models.find(usable) ??
 		models[0];
 	if (pick !== undefined) return pick.id;
-	if (catalog === (BUNDLED_MODEL_CATALOG as ModelCatalogView)) return "";
+	if (catalog === (BUNDLED_MODEL_CATALOG as ModelCatalogView)) return null;
 	return defaultModelFor(BUNDLED_MODEL_CATALOG, providerId);
-};
+}
 
 export const defaultModelEnabledByProvider = (
 	catalog: ModelCatalogView = BUNDLED_MODEL_CATALOG,
@@ -140,10 +149,19 @@ export const pricingFor = (
 /** Providers present in this catalog, in canonical `ProviderId` order. */
 export const catalogProviderIds = (
 	catalog: ModelCatalogView,
-): ReadonlyArray<ProviderId> =>
-	PROVIDER_IDS.filter(
+): ReadonlyArray<ProviderId> => [
+	...PROVIDER_IDS.filter(
 		(providerId) => catalog.providers[providerId] !== undefined,
-	);
+	),
+	...Object.keys(catalog.providers)
+		.filter(
+			(id): id is ProviderId =>
+				Schema.is(ProviderId)(id) &&
+				!isBuiltinProviderId(id) &&
+				catalog.providers[id] !== undefined,
+		)
+		.sort(),
+];
 
 /**
  * Best-effort display label for a model id when the catalog has no entry:

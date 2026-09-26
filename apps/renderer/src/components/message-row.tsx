@@ -1,3 +1,4 @@
+import { providerLabel as getProviderLabel } from "@zuse/contracts";
 import { useStreamingText } from "../hooks/use-streaming-text.ts";
 import { ContextPill, contextPillClass } from "./context-pill.tsx";
 import "@zuse/i18n/english/common";
@@ -663,7 +664,7 @@ export function UserBubble({
 								<span>
 									{uiMessage(
 										"chat:message_row_sent_by_from_another_chat_sentence",
-										{ value: PROVIDER_LABEL_FOR_ERROR[origin.providerId] },
+										{ value: getProviderLabel(origin.providerId) },
 									)}
 								</span>
 							</button>
@@ -825,18 +826,6 @@ const formatResetDetail = (info: RateLimitInfo): string => {
 	return "Try again later";
 };
 
-const PROVIDER_LABEL_FOR_ERROR: Record<ProviderId, string> = {
-	claude: "Claude Code",
-	codex: "Codex",
-	grok: "Grok",
-	gemini: "Gemini",
-	cursor: "Cursor",
-	opencode: "OpenCode",
-	opencode2: "OpenCode 2",
-	kiro: "Kiro",
-	pi: "Pi",
-};
-
 /**
  * "Authentication required" card shown when a login-capable provider reports
  * an auth failure. Reuses the shared `useProviderLogin` flow
@@ -888,7 +877,7 @@ function ProviderAuthCard({
 			})();
 		},
 	});
-	const label = PROVIDER_LABEL_FOR_ERROR[providerId];
+	const label = getProviderLabel(providerId);
 
 	// Resolved — the provider is authenticated now, so this historical card has
 	// nothing left to do. Render nothing (no nag, no spinner, no duplicate).
@@ -1043,7 +1032,7 @@ function CloudProviderAuthCard({
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
-	const providerLabel = PROVIDER_LABEL_FOR_ERROR[providerId];
+	const providerLabel = getProviderLabel(providerId);
 	const replacementProjectId = localProjectForCloudEnvironment(environmentId);
 	const legacy = authMode === "legacy-image";
 	const broker = authMode === "broker-v1";
@@ -1350,7 +1339,7 @@ export function ErrorBubble({
 		error.kind === "auth"
 			? `Sign in to ${
 					error.providerId
-						? PROVIDER_LABEL_FOR_ERROR[error.providerId]
+						? getProviderLabel(error.providerId)
 						: "your provider"
 				}`
 			: error.kind === "network"

@@ -1,0 +1,16 @@
+{
+	"schemaVersion": 1,
+	"id": "code-follow-ups",
+	"name": "Code Follow-ups",
+	"description": "Find unfinished work and give your agent the exact context.",
+	"version": "0.1.1",
+	"client": "index.client.tsx",
+	"server": "index.server.ts",
+	"zuseApi": "^1.0.0",
+	"contributions": ["workspace-panel", "attachment-source", "command"],
+	"capabilities": ["ui", "attachments", "rpc", "filesystem", "commands"],
+	"publisher": {
+		"name": "Zuse"
+	},
+	"homepage": "https://zuse.sh/extensions"
+}

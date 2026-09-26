@@ -6,6 +6,7 @@ import type common from "../../locales/en/desktop/common.json";
 import type connections from "../../locales/en/desktop/connections.json";
 import type desktop from "../../locales/en/desktop/desktop.json";
 import type errors from "../../locales/en/desktop/errors.json";
+import type extensions from "../../locales/en/desktop/extensions.json";
 import type onboarding from "../../locales/en/desktop/onboarding.json";
 import type projects from "../../locales/en/desktop/projects.json";
 import type providers from "../../locales/en/desktop/providers.json";
@@ -20,6 +21,7 @@ export type Namespace =
 	| "connections"
 	| "desktop"
 	| "errors"
+	| "extensions"
 	| "onboarding"
 	| "projects"
 	| "providers"
@@ -34,6 +36,7 @@ export type MessageKey =
 	| `connections:${keyof typeof connections}`
 	| `desktop:${keyof typeof desktop}`
 	| `errors:${keyof typeof errors}`
+	| `extensions:${keyof typeof extensions}`
 	| `onboarding:${keyof typeof onboarding}`
 	| `projects:${keyof typeof projects}`
 	| `providers:${keyof typeof providers}`
@@ -59,6 +62,7 @@ export const loaders: Readonly<
 		connections: () => import("../../locales/en/desktop/connections.json"),
 		desktop: () => import("../../locales/en/desktop/desktop.json"),
 		errors: () => import("../../locales/en/desktop/errors.json"),
+		extensions: () => import("../../locales/en/desktop/extensions.json"),
 		onboarding: () => import("../../locales/en/desktop/onboarding.json"),
 		projects: () => import("../../locales/en/desktop/projects.json"),
 		providers: () => import("../../locales/en/desktop/providers.json"),
@@ -74,6 +78,7 @@ export const loaders: Readonly<
 		connections: () => import("../../locales/fr/desktop/connections.json"),
 		desktop: () => import("../../locales/fr/desktop/desktop.json"),
 		errors: () => import("../../locales/fr/desktop/errors.json"),
+		extensions: () => import("../../locales/fr/desktop/extensions.json"),
 		onboarding: () => import("../../locales/fr/desktop/onboarding.json"),
 		projects: () => import("../../locales/fr/desktop/projects.json"),
 		providers: () => import("../../locales/fr/desktop/providers.json"),
@@ -89,6 +94,7 @@ export const loaders: Readonly<
 		connections: () => import("../../locales/de/desktop/connections.json"),
 		desktop: () => import("../../locales/de/desktop/desktop.json"),
 		errors: () => import("../../locales/de/desktop/errors.json"),
+		extensions: () => import("../../locales/de/desktop/extensions.json"),
 		onboarding: () => import("../../locales/de/desktop/onboarding.json"),
 		projects: () => import("../../locales/de/desktop/projects.json"),
 		providers: () => import("../../locales/de/desktop/providers.json"),
@@ -104,6 +110,7 @@ export const loaders: Readonly<
 		connections: () => import("../../locales/zh-Hans/desktop/connections.json"),
 		desktop: () => import("../../locales/zh-Hans/desktop/desktop.json"),
 		errors: () => import("../../locales/zh-Hans/desktop/errors.json"),
+		extensions: () => import("../../locales/zh-Hans/desktop/extensions.json"),
 		onboarding: () => import("../../locales/zh-Hans/desktop/onboarding.json"),
 		projects: () => import("../../locales/zh-Hans/desktop/projects.json"),
 		providers: () => import("../../locales/zh-Hans/desktop/providers.json"),
@@ -119,6 +126,7 @@ export const loaders: Readonly<
 		connections: () => import("../../locales/zh-Hant/desktop/connections.json"),
 		desktop: () => import("../../locales/zh-Hant/desktop/desktop.json"),
 		errors: () => import("../../locales/zh-Hant/desktop/errors.json"),
+		extensions: () => import("../../locales/zh-Hant/desktop/extensions.json"),
 		onboarding: () => import("../../locales/zh-Hant/desktop/onboarding.json"),
 		projects: () => import("../../locales/zh-Hant/desktop/projects.json"),
 		providers: () => import("../../locales/zh-Hant/desktop/providers.json"),
@@ -134,6 +142,7 @@ export const loaders: Readonly<
 		connections: () => import("../../locales/ja/desktop/connections.json"),
 		desktop: () => import("../../locales/ja/desktop/desktop.json"),
 		errors: () => import("../../locales/ja/desktop/errors.json"),
+		extensions: () => import("../../locales/ja/desktop/extensions.json"),
 		onboarding: () => import("../../locales/ja/desktop/onboarding.json"),
 		projects: () => import("../../locales/ja/desktop/projects.json"),
 		providers: () => import("../../locales/ja/desktop/providers.json"),
@@ -149,6 +158,7 @@ export const loaders: Readonly<
 		connections: () => import("../../locales/ko/desktop/connections.json"),
 		desktop: () => import("../../locales/ko/desktop/desktop.json"),
 		errors: () => import("../../locales/ko/desktop/errors.json"),
+		extensions: () => import("../../locales/ko/desktop/extensions.json"),
 		onboarding: () => import("../../locales/ko/desktop/onboarding.json"),
 		projects: () => import("../../locales/ko/desktop/projects.json"),
 		providers: () => import("../../locales/ko/desktop/providers.json"),
@@ -164,6 +174,7 @@ export const loaders: Readonly<
 		connections: () => import("../../locales/en-XA/desktop/connections.json"),
 		desktop: () => import("../../locales/en-XA/desktop/desktop.json"),
 		errors: () => import("../../locales/en-XA/desktop/errors.json"),
+		extensions: () => import("../../locales/en-XA/desktop/extensions.json"),
 		onboarding: () => import("../../locales/en-XA/desktop/onboarding.json"),
 		projects: () => import("../../locales/en-XA/desktop/projects.json"),
 		providers: () => import("../../locales/en-XA/desktop/providers.json"),

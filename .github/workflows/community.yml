@@ -46,6 +46,14 @@ jobs:
           ZUSE_ICON_MODE: free
         run: bun --filter renderer build
 
+      - name: Check hosted renderer budget with analytics enabled
+        env:
+          ZUSE_ICON_MODE: free
+          VITE_ZUSE_HOSTED: "1"
+          # Build-only fixture; no analytics requests or credentials are used.
+          VITE_POSTHOG_KEY: phc_ci_fixture_public_ingest_key
+        run: bun --filter renderer build
+
       - name: Bundle mobile app with public icons
         env:
           EXPO_NO_BUNDLE_SPLITTING: "1"

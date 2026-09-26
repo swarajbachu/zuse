@@ -1,6 +1,6 @@
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 import "@zuse/i18n/english/shell";
 import {
-	defaultModelFor,
 	EnvironmentId,
 	type FolderId,
 	PROVIDER_IDS,

@@ -133,6 +133,10 @@ import {
 } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
+import {
+	attachExtensionSnapshot,
+	registerExtensionComposer,
+} from "../lib/extension-composer.ts";
 import { subscribeKeybindings } from "../lib/keybindings-client-bus.ts";
 import { usePlatformOnline } from "../lib/network-status.ts";
 import {
@@ -175,6 +179,7 @@ import { useProvidersStore } from "../store/providers.ts";
 import { CloudConnectionNotice } from "./cloud-connection-notice.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { ContextTray } from "./composer/context-tray.tsx";
+import { ExtensionAttachmentAction } from "./composer/extension-attachment-action.tsx";
 import { FileTagPopover } from "./composer/file-tag-popover.tsx";
 import { NoConnectionTray } from "./composer/no-connection-tray.tsx";
 import {
@@ -561,13 +566,15 @@ export function ChatComposer({
 
 	// Stacked annotations are a valid message on their own, so they enable Send
 	// even with an empty text box.
+	const hasComposerContent =
+		hasText || annotationCount > 0 || composerContexts.length > 0;
 	const canSend =
 		!directoryUnavailable &&
 		!submitDisabled &&
 		!submitting &&
 		!durableCloudSendPending &&
 		uploadingAttachmentCount === 0 &&
-		(hasText || annotationCount > 0 || composerContexts.length > 0);
+		hasComposerContent;
 
 	// Mount the CodeMirror view once per ChatComposer instance. The parent keys
 	// live chat composers by session id, and the landing keys them by project id,
@@ -1114,6 +1121,13 @@ export function ChatComposer({
 			});
 		}
 	};
+	useEffect(
+		() =>
+			registerExtensionComposer(sessionId, (snapshot) =>
+				attachPastedText(snapshot.text),
+			),
+		[sessionId, attachPastedText],
+	);
 
 	// Paperclip → hidden file input.
 	const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1676,6 +1690,11 @@ export function ChatComposer({
 											providerId={session.providerId}
 										/>
 									)}
+									<ExtensionAttachmentAction
+										onSelect={(snapshot) =>
+											attachExtensionSnapshot(sessionId, snapshot)
+										}
+									/>
 								</div>
 								<div className="flex shrink-0 items-center gap-2">
 									<ComposerModelPicker
@@ -1703,7 +1722,7 @@ export function ChatComposer({
 											session={session}
 										/>
 									) : null}
-									{sendPlanFeedbackNow && hasText ? (
+									{sendPlanFeedbackNow && hasComposerContent ? (
 										<Button
 											variant="default"
 											size="sm"

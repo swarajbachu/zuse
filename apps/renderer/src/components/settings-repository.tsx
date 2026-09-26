@@ -1,3 +1,5 @@
+import { providerLabel as getProviderLabel } from "@zuse/contracts";
+import { useExtensionProviderCatalog } from "../lib/extension-provider-catalog.ts";
 import "@zuse/i18n/english/settings";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -14,7 +16,6 @@ import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { displayPath } from "~/lib/display-path";
 import { cn } from "~/lib/utils";
-import { useModelCatalogStore } from "~/store/model-catalog";
 import { useSettingsStore } from "../lib/settings-client-bus.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import {
@@ -26,12 +27,7 @@ import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { PermissionsInspector } from "./permissions-inspector.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
-import {
-	PROVIDER_LABEL,
-	RadioCheck,
-	SettingsGroup,
-	SettingsRow,
-} from "./settings-page.tsx";
+import { RadioCheck, SettingsGroup, SettingsRow } from "./settings-page.tsx";
 import { Button } from "./ui/button.tsx";
 import { Switch } from "./ui/switch.tsx";
 import { Textarea } from "./ui/textarea.tsx";
@@ -190,9 +186,10 @@ function ProviderOverrideSection({
 	);
 	const effectiveProvider: ProviderId = defaultProviderId ?? globalProviderId;
 	const globalModel = globalModelByProvider[globalProviderId];
-	const catalog = useModelCatalogStore((s) => s.catalog);
+	const { catalog, providers: extensionProviders } =
+		useExtensionProviderCatalog();
 	const globalModelLabel =
-		findModelDescriptor(catalog, globalProviderId, globalModel)?.label ??
+		findModelDescriptor(catalog, globalProviderId, globalModel ?? "")?.label ??
 		globalModel ??
 		"—";
 	const isOverridden = defaultProviderId !== null || defaultModel !== null;
@@ -206,7 +203,7 @@ function ProviderOverrideSection({
 
 	const firstModelFor = (pid: ProviderId): string | null =>
 		visibleModelsForProvider(catalog, pid, modelEnabledByProvider)[0]?.id ??
-		catalog.providers[pid].models[0]?.id ??
+		catalog.providers[pid]?.models[0]?.id ??
 		null;
 
 	const onToggle = (next: boolean) => {
@@ -270,19 +267,21 @@ function ProviderOverrideSection({
 								key={pid}
 								className="flex flex-col border-b border-border/40 last:border-b-0"
 							>
-								<button
-									type="button"
-									role="radio"
-									aria-checked={selected}
-									onClick={() => onPickProvider(pid)}
-									className="group flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/40"
-								>
+								<label className="group has-[:focus-visible]:outline has-[:focus-visible]:outline-ring flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/40">
+									<input
+										className="sr-only"
+										type="radio"
+										name="repository-provider"
+										checked={selected}
+										onChange={() => onPickProvider(pid)}
+									/>
 									<ProviderIcon providerId={pid} className="size-4 shrink-0" />
 									<span className="flex-1 truncate text-xs font-medium text-foreground">
-										{PROVIDER_LABEL[pid]}
+										{extensionProviders.get(pid)?.displayName ??
+											getProviderLabel(pid)}
 									</span>
 									<RadioCheck active={selected} />
-								</button>
+								</label>
 								{selected && models.length > 0 && (
 									<div className="flex flex-col gap-1.5 px-3 pb-3 pl-10">
 										<span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
@@ -292,26 +291,29 @@ function ProviderOverrideSection({
 											role="radiogroup"
 											aria-label={uiMessage(
 												"settings:settings_repository_model_for",
-												{ value1: String(PROVIDER_LABEL[pid]) },
+												{ value1: String(getProviderLabel(pid)) },
 											)}
 											className="flex flex-col"
 										>
 											{models.map((m) => {
 												const isCurrentModel = selectedModel === m.id;
 												return (
-													<button
+													<label
 														key={m.id}
-														type="button"
-														role="radio"
-														aria-checked={isCurrentModel}
-														onClick={() => onPickModel(m.id)}
-														className="group flex items-center gap-2.5 py-1 text-left"
+														className="group has-[:focus-visible]:outline has-[:focus-visible]:outline-ring flex items-center gap-2.5 py-1 text-left"
 													>
+														<input
+															className="sr-only"
+															type="radio"
+															name="repository-model"
+															checked={isCurrentModel}
+															onChange={() => onPickModel(m.id)}
+														/>
 														<RadioCheck active={isCurrentModel} />
 														<span className="text-xs text-foreground">
 															{m.label}
 														</span>
-													</button>
+													</label>
 												);
 											})}
 										</div>
@@ -326,7 +328,7 @@ function ProviderOverrideSection({
 					<RichMessage
 						id="settings:settings_repository_inheriting_sentence"
 						values={{
-							value: PROVIDER_LABEL[globalProviderId],
+							value: getProviderLabel(globalProviderId),
 							globalModelLabel: globalModelLabel,
 						}}
 						components={{ part0: <span className="text-foreground" /> }}
@@ -373,14 +375,17 @@ function RuntimeModeOverrideSection({
 						const m = MODE_META[mode];
 						const selected = effective === mode;
 						return (
-							<button
+							<label
 								key={mode}
-								type="button"
-								role="radio"
-								aria-checked={selected}
-								onClick={() => onChange(mode)}
-								className="group flex w-full items-start gap-2.5 border-b border-border/40 px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
+								className="group has-[:focus-visible]:outline has-[:focus-visible]:outline-ring flex w-full items-start gap-2.5 border-b border-border/40 px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-muted/40"
 							>
+								<input
+									className="sr-only"
+									type="radio"
+									name="repository-runtime-mode"
+									checked={selected}
+									onChange={() => onChange(mode)}
+								/>
 								<HugeiconsIcon
 									icon={m.Icon}
 									className="mt-0.5 size-4 shrink-0 text-muted-foreground"
@@ -394,7 +399,7 @@ function RuntimeModeOverrideSection({
 									</span>
 								</span>
 								<RadioCheck active={selected} className="mt-0.5" />
-							</button>
+							</label>
 						);
 					})}
 				</div>

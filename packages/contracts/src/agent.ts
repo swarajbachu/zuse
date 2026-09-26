@@ -3,12 +3,8 @@ import { Rpc } from "effect/unstable/rpc";
 
 import { AgentItemId, AgentSessionId, AgentTurnId, FolderId } from "./ids.ts";
 
-/**
- * Identifier for a provider implementation (driver). v1 ships claude + codex;
- * the literal union is the contract — adding a new provider is an additive
- * change here plus a new driver in `@zuse/agents`.
- */
-export const ProviderId = Schema.Literals([
+/** Core-owned provider identifiers. Extensions may not register these IDs. */
+export const BUILTIN_PROVIDER_IDS = [
 	"claude",
 	"codex",
 	"grok",
@@ -18,11 +14,32 @@ export const ProviderId = Schema.Literals([
 	"opencode2",
 	"kiro",
 	"pi",
+] as const;
+export type BuiltinProviderId = (typeof BUILTIN_PROVIDER_IDS)[number];
+
+export const isBuiltinProviderId = (
+	providerId: ProviderId,
+): providerId is BuiltinProviderId =>
+	(BUILTIN_PROVIDER_IDS as ReadonlyArray<string>).includes(providerId);
+
+const ExtensionProviderId = Schema.String.check(
+	Schema.isPattern(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/),
+	Schema.isMaxLength(128),
+).pipe(Schema.brand("ExtensionProviderId"));
+
+/**
+ * Identifier for a provider implementation. Built-ins use the identifiers
+ * above; extension providers use a stable, namespaced slug such as
+ * `publisher.extension.provider`.
+ */
+export const ProviderId = Schema.Union([
+	Schema.Literals(BUILTIN_PROVIDER_IDS),
+	ExtensionProviderId,
 ]);
 export type ProviderId = typeof ProviderId.Type;
 
 /** Every provider id in canonical order (picker + settings iteration). */
-export const PROVIDER_IDS: ReadonlyArray<ProviderId> = ProviderId.literals;
+export const PROVIDER_IDS = BUILTIN_PROVIDER_IDS;
 
 /**
  * How a session is being driven. `spawn-cli` is just a PTY launch with a known
@@ -240,7 +257,11 @@ export const ProviderApiKeyStatus = Schema.Literals([
 ]);
 export type ProviderApiKeyStatus = typeof ProviderApiKeyStatus.Type;
 
-export const ProviderRuntimeKind = Schema.Literals(["cli", "bundledSdk"]);
+export const ProviderRuntimeKind = Schema.Literals([
+	"cli",
+	"bundledSdk",
+	"extension",
+]);
 export type ProviderRuntimeKind = typeof ProviderRuntimeKind.Type;
 
 /**
