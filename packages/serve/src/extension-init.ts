@@ -1,7 +1,10 @@
 import { execFile } from "node:child_process";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { constants } from "node:fs";
+import { access, mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
+
+export class ExtensionInitInputError extends Error {}
 
 /** Standalone scaffold: no workspace aliases, private packages, or source-checkout imports. */
 export async function initializeExtension(options: {
@@ -10,10 +13,45 @@ export async function initializeExtension(options: {
 	name: string;
 	publisher: string;
 	sdk?: string;
+	template?: string;
+	command?: unknown;
 }) {
+	const template = options.template ?? "workspace";
+	if (template !== "workspace" && template !== "acp")
+		throw new ExtensionInitInputError("Choose --template workspace or acp.");
+	const acp = template === "acp";
+	const command = options.command;
+	if (
+		acp &&
+		(!Array.isArray(command) ||
+			!command.length ||
+			command.length > 128 ||
+			command.some(
+				(v) => typeof v !== "string" || v.includes("\0") || v.length > 8192,
+			) ||
+			!command[0].trim())
+	)
+		throw new ExtensionInitInputError(
+			`ACP requires --command as a JSON executable/argument array, for example '["opencode","acp"]'.`,
+		);
+	if (options.sdk !== undefined) {
+		if (!isAbsolute(options.sdk) || !/\.(?:tgz|tar\.gz)$/i.test(options.sdk))
+			throw new ExtensionInitInputError(
+				"--sdk requires an absolute path to an existing SDK .tgz or .tar.gz archive.",
+			);
+		const sdk = await stat(options.sdk).catch(() => null);
+		const readable = await access(options.sdk, constants.R_OK).then(
+			() => true,
+			() => false,
+		);
+		if (!sdk?.isFile() || !readable)
+			throw new ExtensionInitInputError(
+				"--sdk must point to an existing readable SDK archive.",
+			);
+	}
 	const directory = resolve(options.directory);
 	if (!/^[a-z][a-z0-9-]{0,62}$/.test(options.id))
-		throw new Error("Extension ID must be a lowercase slug.");
+		throw new ExtensionInitInputError("Extension ID must be a lowercase slug.");
 	const existing = await readdir(directory).catch(
 		(error: NodeJS.ErrnoException) => {
 			if (error.code === "ENOENT") return [];
@@ -21,7 +59,9 @@ export async function initializeExtension(options: {
 		},
 	);
 	if (existing.length)
-		throw new Error("Choose an empty directory for the new extension.");
+		throw new ExtensionInitInputError(
+			"Choose an empty directory for the new extension.",
+		);
 	await mkdir(join(directory, "src"), { recursive: true });
 	const json = async (name: string, value: unknown) =>
 		writeFile(join(directory, name), `${JSON.stringify(value, null, 2)}\n`, {
@@ -31,13 +71,19 @@ export async function initializeExtension(options: {
 		schemaVersion: 1,
 		id: options.id,
 		name: options.name,
-		description: "A local workspace tool for Zuse",
+		description: acp
+			? "A local ACP coding agent for Zuse"
+			: "A local workspace tool for Zuse",
 		version: "0.1.0",
-		client: "src/index.client.tsx",
+		...(!acp ? { client: "src/index.client.tsx" } : {}),
 		server: "src/index.server.ts",
-		zuseApi: "^1.1.0",
-		contributions: ["workspace-panel", "attachment-source"],
-		capabilities: ["ui", "attachments", "rpc", "filesystem"],
+		zuseApi: acp ? "^1.2.0" : "^1.1.0",
+		contributions: acp
+			? ["provider"]
+			: ["workspace-panel", "attachment-source"],
+		capabilities: acp
+			? ["providers", "process"]
+			: ["ui", "attachments", "rpc", "filesystem"],
 		publisher: { name: options.publisher },
 	});
 	await json("package.json", {
@@ -47,7 +93,7 @@ export async function initializeExtension(options: {
 		type: "module",
 		scripts: { "check-types": "tsc --noEmit" },
 		dependencies: {
-			"@zuse/extension-sdk": options.sdk ?? "0.2.0",
+			"@zuse/extension-sdk": options.sdk ?? "0.3.0",
 			effect: "4.0.0-beta.102",
 			react: "19.2.0",
 		},
@@ -66,14 +112,42 @@ export async function initializeExtension(options: {
 		},
 		include: ["src"],
 	});
-	await writeFile(
-		join(directory, "src/index.server.ts"),
-		`import type { ExtensionServerContext } from '@zuse/extension-sdk';\nimport { registerWorkspaceTool } from '@zuse/extension-sdk/server';\nexport default function setup(e: ExtensionServerContext) {\n return registerWorkspaceTool(e,{extensions:['.md'],read:(text,path)=>[{id:path,title:path,text:\`Source: \${path}\\n\\n\${text}\`}]});\n}\n`,
-	);
-	await writeFile(
-		join(directory, "src/index.client.tsx"),
-		`import type { ExtensionClientContext } from '@zuse/extension-sdk';\nimport { workspaceToolSearch } from '@zuse/extension-sdk';\nimport { WorkspaceTool } from '@zuse/extension-sdk/client';\nexport default function setup(e: ExtensionClientContext) {\n e.addWorkspacePanel({id:'main',title:'Project notes',icon:'package',Component:props=><WorkspaceTool {...props} title="Project notes" description="Select Markdown to attach to your conversation." mode="file"/>});\n e.addAttachmentSource({id:'notes',title:'Project notes',icon:'package',pickerTitle:'Project notes',searchPlaceholder:'Search loaded notes',search:workspaceToolSearch});\n return ()=>{};\n}\n`,
-	);
+	if (acp) {
+		await writeFile(
+			join(directory, "src/index.server.ts"),
+			`import type { ExtensionServerContext } from "@zuse/extension-sdk/server";
+
+export default function setup(extension: ExtensionServerContext) {
+  return extension.addAcpProvider({
+    id: ${JSON.stringify(`${options.id}.agent`)},
+    displayName: ${JSON.stringify(options.name)},
+    command: ${JSON.stringify(command)},
+    loginHint: "Sign in using the coding tool's own CLI before starting a conversation.",
+  });
+}
+`,
+		);
+		await writeFile(
+			join(directory, "README.md"),
+			`# ${options.name.replace(/[\r\n]/g, " ")}
+
+Install the agent command and sign in using its CLI. Run npm run check-types, then zuse extension install --path . and enable this extension in Settings → Extensions. Select ${options.name.replace(/[\r\n]/g, " ")} in a new chat's model picker.
+
+Edit src/index.server.ts to change the argv command or add native model IDs and mode mappings. Use an absolute executable path if desktop PATH cannot find it. The agent owns authentication and default model selection. No credentials belong in the manifest or source. This trusted extension launches unsandboxed local code.
+
+Text prompts, streamed output, one-time permission requests, cancellation and supported session resume are handled by Zuse. Image/file/skill attachments, forks, client filesystem/terminal RPC, MCP injection and automatic model discovery are not supported by this starter. Paste context into the prompt. Reload after editing; close active chats before reloading. Disable stops its sessions and retains history.
+`,
+		);
+	} else {
+		await writeFile(
+			join(directory, "src/index.server.ts"),
+			`import type { ExtensionServerContext } from '@zuse/extension-sdk';\nimport { registerWorkspaceTool } from '@zuse/extension-sdk/server';\nexport default function setup(e: ExtensionServerContext) {\n return registerWorkspaceTool(e,{extensions:['.md'],read:(text,path)=>[{id:path,title:path,text:\`Source: \${path}\\n\\n\${text}\`}]});\n}\n`,
+		);
+		await writeFile(
+			join(directory, "src/index.client.tsx"),
+			`import type { ExtensionClientContext } from '@zuse/extension-sdk';\nimport { workspaceToolSearch } from '@zuse/extension-sdk';\nimport { WorkspaceTool } from '@zuse/extension-sdk/client';\nexport default function setup(e: ExtensionClientContext) {\n e.addWorkspacePanel({id:'main',title:'Project notes',icon:'package',Component:props=><WorkspaceTool {...props} title="Project notes" description="Select Markdown to attach to your conversation." mode="file"/>});\n e.addAttachmentSource({id:'notes',title:'Project notes',icon:'package',pickerTitle:'Project notes',searchPlaceholder:'Search loaded notes',search:workspaceToolSearch});\n return ()=>{};\n}\n`,
+		);
+	}
 	try {
 		await promisify(execFile)(
 			"npm",

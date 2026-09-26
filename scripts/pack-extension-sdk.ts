@@ -1,10 +1,11 @@
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const source = join(root, "packages/extension-sdk");
 const target = join(root, ".context/sdk-release");
 await mkdir(target, { recursive: true });
+await rm(join(target, "dist"), { recursive: true, force: true });
 await cp(join(source, "dist"), join(target, "dist"), { recursive: true });
 const manifest = JSON.parse(
 	await readFile(join(source, "package.json"), "utf8"),
