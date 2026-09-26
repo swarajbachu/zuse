@@ -880,5 +880,11 @@
 	"wallpaper_opacity": "Opacity",
 	"wallpaper_opacity_label": "Wallpaper opacity",
 	"wallpaper_hint": "PNG, JPEG, WebP, AVIF, or GIF · Up to 20 MB. Make a texture at",
-	"wallpaper_studio": "Dither studio"
+	"wallpaper_studio": "Dither studio",
+	"hosted_remote_description": "Connect your personal computers to this account and open their chats from the web.",
+	"hosted_remote_setup": "On the computer you want to connect, install Zuse and sign in with the same account. In Settings → Remote access, enable Zuse Serve. Then refresh this list.",
+	"hosted_remote_download": "Download Zuse",
+	"hosted_remote_show_chats": "Show chats",
+	"hosted_remote_refresh": "Refresh computers",
+	"hosted_remote_private": "Only computers linked to your account appear here. Turn off Zuse Serve on a computer to disable remote access."
 }

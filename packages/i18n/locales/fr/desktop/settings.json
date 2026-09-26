@@ -884,5 +884,11 @@
 	"wallpaper_opacity": "Opacité",
 	"wallpaper_opacity_label": "Opacité du fond d’écran",
 	"wallpaper_hint": "PNG, JPEG, WebP, AVIF ou GIF · Jusqu’à 20 Mo. Créez une texture avec",
-	"wallpaper_studio": "Dither studio"
+	"wallpaper_studio": "Dither studio",
+	"hosted_remote_description": "Connectez vos ordinateurs à ce compte et ouvrez leurs discussions sur le web.",
+	"hosted_remote_setup": "Installez Zuse sur l’ordinateur à connecter et utilisez le même compte. Dans Paramètres → Accès à distance, activez Zuse Serve. Actualisez ensuite cette liste.",
+	"hosted_remote_download": "Télécharger Zuse",
+	"hosted_remote_show_chats": "Afficher les discussions",
+	"hosted_remote_refresh": "Actualiser les ordinateurs",
+	"hosted_remote_private": "Seuls les ordinateurs liés à votre compte apparaissent ici. Désactivez Zuse Serve sur un ordinateur pour couper son accès à distance."
 }

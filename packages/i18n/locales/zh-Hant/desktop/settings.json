@@ -880,5 +880,11 @@
 	"wallpaper_opacity": "不透明度",
 	"wallpaper_opacity_label": "桌布不透明度",
 	"wallpaper_hint": "PNG、JPEG、WebP、AVIF 或 GIF · 最大 20 MB。紋理製作工具：",
-	"wallpaper_studio": "Dither studio"
+	"wallpaper_studio": "Dither studio",
+	"hosted_remote_description": "將個人電腦連接到此帳戶，並在網頁上開啟其聊天。",
+	"hosted_remote_setup": "在要連接的電腦上安裝 Zuse，並登入同一帳戶。在設定 → 遠端存取中啟用 Zuse Serve，然後重新整理此清單。",
+	"hosted_remote_download": "下載 Zuse",
+	"hosted_remote_show_chats": "顯示聊天",
+	"hosted_remote_refresh": "重新整理電腦清單",
+	"hosted_remote_private": "此處僅顯示連結到你帳戶的電腦。在電腦上關閉 Zuse Serve 即可停用遠端存取。"
 }

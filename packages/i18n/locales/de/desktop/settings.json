@@ -880,5 +880,11 @@
 	"wallpaper_opacity": "Deckkraft",
 	"wallpaper_opacity_label": "Deckkraft des Hintergrundbilds",
 	"wallpaper_hint": "PNG, JPEG, WebP, AVIF oder GIF · Bis zu 20 MB. Erstelle eine Textur mit",
-	"wallpaper_studio": "Dither studio"
+	"wallpaper_studio": "Dither studio",
+	"hosted_remote_description": "Verbinde deine Computer mit diesem Konto und öffne ihre Chats im Web.",
+	"hosted_remote_setup": "Installiere Zuse auf dem gewünschten Computer und melde dich mit demselben Konto an. Aktiviere Zuse Serve unter Einstellungen → Fernzugriff. Aktualisiere anschließend diese Liste.",
+	"hosted_remote_download": "Zuse herunterladen",
+	"hosted_remote_show_chats": "Chats anzeigen",
+	"hosted_remote_refresh": "Computer aktualisieren",
+	"hosted_remote_private": "Hier erscheinen nur Computer, die mit deinem Konto verknüpft sind. Deaktiviere Zuse Serve auf einem Computer, um den Fernzugriff zu beenden."
 }

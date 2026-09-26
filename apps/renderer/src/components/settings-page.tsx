@@ -74,6 +74,7 @@ import { CloudWorkspacePool } from "./settings/cloud-workspace-pool.tsx";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
 import { DiagnosticsPane as FullDiagnosticsPane } from "./settings/diagnostics-pane.tsx";
+import { HostedDevicesPane } from "./settings/hosted-devices-pane.tsx";
 import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { LinearIntegrationsPane } from "./settings/linear-integrations-pane.tsx";
 import { McpServersPane } from "./settings/mcp-servers-pane.tsx";
@@ -209,6 +210,7 @@ function Rail({
 								"providers",
 								"defaults",
 								"machines",
+								"devices",
 								"shortcuts",
 							].includes(item.section.kind)
 						: desktop || item.section.kind !== "machines",
@@ -348,8 +350,9 @@ function SectionTitle({
 		if (section.kind === "devices") {
 			return {
 				title: uiMessage("settings:settings_page_remote_access"),
-				subtitle:
-					"Use this computer from your phone, a browser, or another computer.",
+				subtitle: isHostedProduct()
+					? uiMessage("settings:hosted_remote_description")
+					: "Use this computer from your phone, a browser, or another computer.",
 			};
 		}
 		if (section.kind === "machines") {
@@ -418,7 +421,8 @@ function Pane({ section }: { section: SettingsSection }) {
 		return isHostedProduct() ? <CloudWorkspacePool /> : <ProvidersPane />;
 	if (section.kind === "integrations") return <LinearIntegrationsPane />;
 	if (section.kind === "mcp") return <McpServersPane />;
-	if (section.kind === "devices") return <DevicesPane />;
+	if (section.kind === "devices")
+		return isHostedProduct() ? <HostedDevicesPane /> : <DevicesPane />;
 	if (section.kind === "machines") {
 		return (
 			<section className="flex min-h-0 flex-1 flex-col gap-4 text-xs">

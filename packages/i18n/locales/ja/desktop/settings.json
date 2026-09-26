@@ -880,5 +880,11 @@
 	"wallpaper_opacity": "不透明度",
 	"wallpaper_opacity_label": "壁紙の不透明度",
 	"wallpaper_hint": "PNG、JPEG、WebP、AVIF、GIF · 最大20 MB。テクスチャの作成：",
-	"wallpaper_studio": "Dither studio"
+	"wallpaper_studio": "Dither studio",
+	"hosted_remote_description": "パソコンをこのアカウントに接続し、ウェブからチャットを開きます。",
+	"hosted_remote_setup": "接続するパソコンにZuseをインストールし、同じアカウントでサインインしてください。設定 → リモートアクセスでZuse Serveを有効にして、この一覧を更新してください。",
+	"hosted_remote_download": "Zuseをダウンロード",
+	"hosted_remote_show_chats": "チャットを表示",
+	"hosted_remote_refresh": "パソコン一覧を更新",
+	"hosted_remote_private": "このアカウントにリンクされたパソコンのみ表示されます。リモートアクセスを無効にするには、そのパソコンでZuse Serveをオフにしてください。"
 }

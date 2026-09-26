@@ -26,3 +26,18 @@ export const resolveHostedLaptopPreference = (
 		return { enabled: false, environmentId: null };
 	}
 };
+
+/** Shared selection used by web settings and the optional laptop sidebar. */
+export const saveHostedLaptopPreference = (
+	accountId: string | null,
+	preference: HostedLaptopPreference,
+): void => {
+	try {
+		localStorage.setItem(
+			hostedLaptopPreferenceKey(accountId),
+			JSON.stringify(preference),
+		);
+	} catch {
+		/* Session-only fallback when storage is unavailable. */
+	}
+};

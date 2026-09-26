@@ -1,8 +1,9 @@
+import { useHostedComputers } from "../hooks/use-hosted-computers.ts";
 import "@zuse/i18n/english/shell";
 import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/projects";
 import "@zuse/i18n/english/common";
-import { type ApiEnvironmentRecord, EnvironmentId } from "@zuse/contracts";
+import { EnvironmentId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useState } from "react";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
@@ -10,13 +11,13 @@ import {
 	connectHostedEnvironment,
 	hostedAccountId,
 	hostedConnectGrantEndpoint,
-	listHostedEnvironments,
 	registerHostedClient,
 } from "../lib/hosted-connect.ts";
 import {
 	type HostedLaptopPreference,
 	hostedLaptopPreferenceKey,
 	resolveHostedLaptopPreference,
+	saveHostedLaptopPreference,
 } from "../lib/hosted-laptop-preferences.ts";
 import { selectHostedCloudHome } from "../lib/hosted-workspace.ts";
 import { registerApiEnvironment } from "../lib/rpc-client.ts";
@@ -43,36 +44,13 @@ export function HostedLaptopSection() {
 		"shell",
 	]);
 	const [preference, setPreference] = useState(readLaptopPreference);
-	const [computers, setComputers] = useState<
-		ReadonlyArray<ApiEnvironmentRecord>
-	>([]);
-	const [catalogError, setCatalogError] = useState<string | null>(null);
-	useEffect(() => {
-		if (!preference.enabled) return;
-		let active = true;
-		void listHostedEnvironments().then(
-			(catalog) => {
-				if (active) {
-					setComputers(catalog.environments);
-					setCatalogError(null);
-				}
-			},
-			() => {
-				if (active)
-					setCatalogError(uiMessage("shell:hosted_could_not_load_computers"));
-			},
-		);
-		return () => {
-			active = false;
-		};
-	}, [preference.enabled, uiMessage]);
+	const { computers, failed } = useHostedComputers(preference.enabled);
+	const catalogError = failed
+		? uiMessage("shell:hosted_could_not_load_computers")
+		: null;
 	const update = (next: HostedLaptopPreference) => {
 		setPreference(next);
-		try {
-			localStorage.setItem(preferenceKey(), JSON.stringify(next));
-		} catch {
-			/* Session-only fallback. */
-		}
+		saveHostedLaptopPreference(hostedAccountId(), next);
 		if (!next.enabled) {
 			if (useEnvironmentCatalogStore.getState().activeEnvironmentId !== "local")
 				selectHostedCloudHome();

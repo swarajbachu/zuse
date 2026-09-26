@@ -1,8 +1,9 @@
 import { environmentRoute } from "@zuse/client-runtime/environment-scope";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	hostedLaptopPreferenceKey,
 	resolveHostedLaptopPreference,
+	saveHostedLaptopPreference,
 } from "../../src/lib/hosted-laptop-preferences.ts";
 
 describe("optional hosted laptop access", () => {
@@ -34,4 +35,32 @@ describe("optional hosted laptop access", () => {
 			hostedLaptopPreferenceKey("account-2"),
 		);
 	});
+});
+
+afterEach(() => vi.unstubAllGlobals());
+it("shares the settings computer selection with the sidebar without changing other accounts", () => {
+	const values = new Map<string, string>();
+	vi.stubGlobal("localStorage", {
+		setItem: (key: string, value: string) => values.set(key, value),
+	});
+	saveHostedLaptopPreference("account-a", {
+		enabled: true,
+		environmentId: "laptop-a",
+	});
+	saveHostedLaptopPreference("account-b", {
+		enabled: false,
+		environmentId: "laptop-b",
+	});
+	expect(
+		resolveHostedLaptopPreference(
+			"/",
+			values.get(hostedLaptopPreferenceKey("account-a")) ?? null,
+		),
+	).toEqual({ enabled: true, environmentId: "laptop-a" });
+	expect(
+		resolveHostedLaptopPreference(
+			"/",
+			values.get(hostedLaptopPreferenceKey("account-b")) ?? null,
+		),
+	).toEqual({ enabled: false, environmentId: "laptop-b" });
 });

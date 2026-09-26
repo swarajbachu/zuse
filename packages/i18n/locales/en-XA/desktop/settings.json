@@ -880,5 +880,11 @@
 	"wallpaper_opacity": "⟦ÔÔpààcïïty⟧",
 	"wallpaper_opacity_label": "⟦Wààllpààpëër ôôpààcïïty⟧",
 	"wallpaper_hint": "⟦PNG, JPËËG, WëëbP, ÀÀVÏÏF, ôôr GÏÏF · ÜÜp tôô 20 MB. Mààkëë àà tëëxtüürëë ààt⟧",
-	"wallpaper_studio": "⟦Dïïthëër stüüdïïôô⟧"
+	"wallpaper_studio": "⟦Dïïthëër stüüdïïôô⟧",
+	"hosted_remote_description": "⟦Côônnëëct yôôüür pëërsôônààl côômpüütëërs tôô thïïs ààccôôüünt àànd ôôpëën thëëïïr chààts frôôm thëë wëëb.⟧",
+	"hosted_remote_setup": "⟦ÔÔn thëë côômpüütëër yôôüü wàànt tôô côônnëëct, ïïnstààll Züüsëë àànd sïïgn ïïn wïïth thëë sààmëë ààccôôüünt. ÏÏn Sëëttïïngs → Rëëmôôtëë ààccëëss, ëënààblëë Züüsëë Sëërvëë. Thëën rëëfrëësh thïïs lïïst.⟧",
+	"hosted_remote_download": "⟦Dôôwnlôôààd Züüsëë⟧",
+	"hosted_remote_show_chats": "⟦Shôôw chààts⟧",
+	"hosted_remote_refresh": "⟦Rëëfrëësh côômpüütëërs⟧",
+	"hosted_remote_private": "⟦ÔÔnly côômpüütëërs lïïnkëëd tôô yôôüür ààccôôüünt ààppëëààr hëërëë. Tüürn ôôff Züüsëë Sëërvëë ôôn àà côômpüütëër tôô dïïsààblëë rëëmôôtëë ààccëëss.⟧"
 }
