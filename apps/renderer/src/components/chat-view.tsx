@@ -1126,7 +1126,9 @@ function ExtensionTimelineContributions({
 	const rendered = useMemo(() => {
 		const output: Array<{
 			readonly extensionId: string;
-			readonly item: ExtensionTimelineItem;
+			readonly item: Omit<ExtensionTimelineItem, "data"> & {
+				readonly data: unknown;
+			};
 			readonly Component: import("react").ComponentType<
 				import("@zuse/extension-sdk").ExtensionTimelineRendererProps<unknown>
 			>;
@@ -1153,10 +1155,10 @@ function ExtensionTimelineContributions({
 								candidate.version === item.version,
 						);
 						if (renderer === undefined) continue;
-						Schema.decodeUnknownSync(renderer.schema)(item.data);
+						const data = Schema.decodeUnknownSync(renderer.schema)(item.data);
 						output.push({
 							extensionId: extension.extensionId,
-							item,
+							item: { ...item, data },
 							Component: renderer.Component,
 						});
 					}
@@ -1173,6 +1175,7 @@ function ExtensionTimelineContributions({
 	return rendered.map(({ extensionId, item, Component }, index) => (
 		<ExtensionErrorBoundary
 			key={`${extensionId}:${item.kind}:${item.version}:${index}`}
+			resetKey={Component}
 			extensionId={extensionId}
 		>
 			<Component

@@ -460,10 +460,9 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		});
 
 	/**
-	 * Switch SDK lifecycle mode mid-session. Persists, updates the cache,
-	 * then forwards to `provider.setPermissionMode` which calls
-	 * `Query.setPermissionMode` on the live SDK handle and emits a
-	 * `PermissionModeChanged` event the renderer subscribes to.
+	 * Switch SDK lifecycle mode mid-session. Apply it to the live provider before
+	 * persisting, so an unsupported operation cannot be acknowledged as success.
+	 * Closed sessions pick up the persisted mode on their next start.
 	 */
 	const setPermissionMode: ConversationOperations["setPermissionMode"] = (
 		sessionId,
@@ -477,18 +476,16 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					message:
 						"Pi manages permissions natively; Zuse permission modes are unsupported.",
 				});
+			// Reject unsupported live changes before updating the persisted mode.
+			yield* provider.setPermissionMode(sessionId, mode).pipe(
+				// Closed sessions receive the persisted mode on their next start.
+				Effect.catchTag("AgentSessionNotFoundError", () => Effect.void),
+			);
 			yield* dispatchSessionCommandWithId(sessionId, commandId, {
 				_tag: "SetPermissionMode",
 				permissionMode: mode,
 				updatedAt: yield* currentTimestamp,
 			});
-			yield* provider.setPermissionMode(sessionId, mode).pipe(
-				// The SDK session may have been closed (idle / closed status).
-				// Persisting the mode is enough — when the renderer hits Send,
-				// `restartProviderSession` will pass the persisted value back
-				// into `provider.start`'s Options.
-				Effect.catch(() => Effect.void),
-			);
 		});
 
 	/**
@@ -610,7 +607,11 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 
 				yield* provider
 					.answerQuestion(sessionId, itemId, durableDelivery.answers)
-					.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+					.pipe(
+						Effect.catchTag("AgentSessionNotFoundError", () =>
+							Effect.fail(new SessionNotFoundError({ sessionId })),
+						),
+					);
 				// There is no atomic commit spanning a provider callback and SQLite.
 				// Driver-local settled state makes same-process retries idempotent, but it
 				// intentionally does not survive process death. After restart, an

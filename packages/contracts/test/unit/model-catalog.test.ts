@@ -497,7 +497,7 @@ describe("model labels", () => {
 it("preserves extension providers absent from the fetched built-in model catalog", () => {
 	const provider = Schema.decodeUnknownSync(ProviderId)("example.agent");
 	expect(modelsForProvider(catalog, provider)).toEqual([]);
-	expect(defaultModelFor(catalog, provider)).toBe("default");
+	expect(defaultModelFor(catalog, provider)).toBeNull();
 	expect(resolveModelSlug(catalog, provider, "private-model")).toBe(
 		"private-model",
 	);

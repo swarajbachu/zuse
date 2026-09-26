@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 import {
 	DEFAULT_RUNTIME_MODE,
-	defaultModelFor,
 	type ProviderId,
 	providerLabel,
 	type RuntimeMode,

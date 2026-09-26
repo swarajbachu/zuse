@@ -39,6 +39,8 @@ import {
 	type PermissionKind,
 	type ProviderEventEnvelope,
 	ProviderId,
+	SessionModeUnsupportedError,
+	SessionOperationUnsupportedError,
 	ThreadGoal,
 	type ThreadGoalSetInput,
 	type UserQuestion,
@@ -595,17 +597,24 @@ export const ProviderServiceLive = Layer.effect(
 										sessionId,
 									})
 									.pipe(Effect.asVoid, Effect.orDie),
-							setPermissionMode: () => Effect.void,
+							setPermissionMode: () =>
+								Effect.fail(
+									new SessionModeUnsupportedError({
+										message:
+											"This extension does not support live permission-mode changes.",
+									}),
+								),
 							answerQuestion: (itemId, answers) =>
-								extensionDescriptor.capabilities.includes("answerQuestion")
-									? extensions
-											.invokeProvider(
-												extensionDescriptor.id,
-												"answerQuestion",
-												{ sessionId, itemId, answers },
-											)
-											.pipe(Effect.asVoid, Effect.orDie)
-									: Effect.void,
+								extensions
+									.invokeProvider(extensionDescriptor.id, "answerQuestion", {
+										sessionId,
+										itemId,
+										answers,
+									})
+									.pipe(
+										Effect.asVoid,
+										Effect.mapError((cause) => new Error(cause.reason)),
+									),
 							...(extensionDescriptor.capabilities.includes("planApproval")
 								? {
 										respondToPlan: (itemId, outcome, feedback) =>
@@ -1373,7 +1382,17 @@ export const ProviderServiceLive = Layer.effect(
 				lifecycleWorker.run(
 					sessionId,
 					Effect.gen(function* () {
-						const { handle } = yield* lookup(sessionId);
+						const { handle, providerId } = yield* lookup(sessionId);
+						const descriptor = (yield* extensions.providers()).find(
+							(candidate) => candidate.id === providerId,
+						);
+						if (
+							descriptor &&
+							!descriptor.capabilities.includes("answerQuestion")
+						)
+							return yield* new SessionOperationUnsupportedError({
+								message: "This extension does not support answering questions.",
+							});
 						yield* questionAttachments.deliverAnswer(
 							sessionId,
 							itemId,

@@ -70,6 +70,7 @@ export function registerWorkspaceTool(
 		let nextCursor: number | null = null;
 		let progress = "";
 		let truncated = false;
+		let skipped = 0;
 		if (input.action === "read") {
 			if (
 				!definition.read ||
@@ -90,13 +91,14 @@ export function registerWorkspaceTool(
 			const end = Math.min(input.cursor + 100, list.paths.length);
 			for (const path of list.paths.slice(input.cursor, end)) {
 				context.signal.throwIfAborted();
-				let text: string;
 				try {
-					text = await context.files.read(path);
+					const text = await context.files.read(path);
+					context.signal.throwIfAborted();
+					found.push(...definition.scan(text, path));
 				} catch {
-					continue;
+					context.signal.throwIfAborted();
+					skipped += 1;
 				}
-				found.push(...definition.scan(text, path));
 			}
 			items = found;
 			nextCursor = end < list.paths.length ? end : null;
@@ -127,7 +129,7 @@ export function registerWorkspaceTool(
 		return {
 			paths: [],
 			items: [...items],
-			status: `${previous.length + items.length} results loaded.`,
+			status: `${previous.length + items.length} results loaded.${skipped > 0 ? ` ${skipped} files could not be inspected.` : ""}`,
 			truncated,
 			nextCursor,
 			progress,

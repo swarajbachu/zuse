@@ -1,5 +1,5 @@
 import { readFile, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, normalize, relative, resolve } from "node:path";
+import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import {
 	BUILTIN_PROVIDER_IDS,
 	ExtensionManifest,
@@ -46,7 +46,7 @@ export const readExtensionManifest = async (
 			await realpath(directory),
 			await realpath(entryPath),
 		);
-		if (actual === ".." || actual.startsWith("../") || isAbsolute(actual))
+		if (actual === ".." || actual.startsWith(`..${sep}`) || isAbsolute(actual))
 			throw new Error("Extension entry resolves outside its source directory.");
 	}
 	return manifest;

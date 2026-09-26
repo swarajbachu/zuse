@@ -298,3 +298,14 @@ describe("Pi settings compatibility", () => {
 		});
 	});
 });
+
+it.each([
+	{},
+	[],
+	{ _tag: "extension" },
+	{ _tag: "built-in", appearance: "purple" },
+])("recovers invalid saved theme selection %j", (themeSelection) => {
+	expect(
+		coerceSettings({ appearanceMode: "light", themeSelection }).themeSelection,
+	).toEqual({ _tag: "built-in", appearance: "light" });
+});

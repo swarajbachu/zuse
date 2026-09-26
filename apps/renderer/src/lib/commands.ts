@@ -1,7 +1,8 @@
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 import "@zuse/i18n/english/commands";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { ChatId, Command, Session } from "@zuse/contracts";
-import { defaultModelFor, EnvironmentId, PROVIDER_IDS } from "@zuse/contracts";
+import { EnvironmentId, PROVIDER_IDS } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
 import { toastManager } from "../components/ui/toast.tsx";
 import { useChatsStore } from "../store/chats";

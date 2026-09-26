@@ -1,4 +1,5 @@
 import type { ResourceDriver } from "@zuse/client-runtime/client-bus";
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 import {
 	makeResourceKey,
 	type ResourceKey,
@@ -16,7 +17,6 @@ import {
 	CommandId,
 	CompletionSoundPreset,
 	defaultModelEnabledByProvider,
-	defaultModelFor,
 	EnvironmentId,
 	GitMergeMethod,
 	type ModelEnabledByProvider,
