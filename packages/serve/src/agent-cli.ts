@@ -10,6 +10,7 @@ import {
 	resolve,
 } from "node:path";
 import { makeRpcClientSession } from "@zuse/client-runtime/connection";
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
 import {
 	AgentItemId,
@@ -19,7 +20,6 @@ import {
 	CommandId,
 	ComposerInput,
 	catalogProviderIds,
-	defaultModelFor,
 	ExtensionCapability,
 	ExtensionId,
 	type ExtensionSource,

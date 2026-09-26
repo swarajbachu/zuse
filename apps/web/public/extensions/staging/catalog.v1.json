@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-14T06:30:59.150Z",
+  "generatedAt": "2026-09-26T17:41:01.560Z",
   "entries": [
     {
       "manifest": {
@@ -8,7 +8,7 @@
         "id": "code-follow-ups",
         "name": "Code Follow-ups",
         "description": "Find unfinished work and give your agent the exact context.",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "client": "index.client.tsx",
         "server": "index.server.ts",
         "zuseApi": "^1.0.0",
@@ -29,9 +29,9 @@
           "name": "Zuse"
         }
       },
-      "commit": "a1b8414e1181a251b427f3f3f0a39b65d14b146c",
-      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/a1b8414e1181a251b427f3f3f0a39b65d14b146c/apps/web/public/extensions/staging/artifacts/4eb974a9e1a2525f7ddd941624e57a802ccdfdb4c48d3c3bfe8a83eb30616736.json",
-      "sha256": "4eb974a9e1a2525f7ddd941624e57a802ccdfdb4c48d3c3bfe8a83eb30616736",
+      "commit": "fcc1aa1a03f06477e85c36748a5ca6f3f414f2f9",
+      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/fcc1aa1a03f06477e85c36748a5ca6f3f414f2f9/apps/web/public/extensions/staging/artifacts/608ea5c67bd5a07cf5cab9d330dc4065ff7e698f985c1a0a40dc2062a78bd706.json",
+      "sha256": "608ea5c67bd5a07cf5cab9d330dc4065ff7e698f985c1a0a40dc2062a78bd706",
       "changelog": "Find unfinished work and give your agent the exact context."
     },
     {
@@ -65,7 +65,7 @@
         "id": "project-playbook",
         "name": "Project Playbook",
         "description": "Bring your team’s procedures into any agent conversation.",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "client": "index.client.tsx",
         "server": "index.server.ts",
         "zuseApi": "^1.0.0",
@@ -84,9 +84,9 @@
           "name": "Zuse"
         }
       },
-      "commit": "a1b8414e1181a251b427f3f3f0a39b65d14b146c",
-      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/a1b8414e1181a251b427f3f3f0a39b65d14b146c/apps/web/public/extensions/staging/artifacts/b3064ae9c7f5504b2270c11a6b14db1ac46cc9ca2a1a9ddb89f22d3a95787d30.json",
-      "sha256": "b3064ae9c7f5504b2270c11a6b14db1ac46cc9ca2a1a9ddb89f22d3a95787d30",
+      "commit": "fcc1aa1a03f06477e85c36748a5ca6f3f414f2f9",
+      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/fcc1aa1a03f06477e85c36748a5ca6f3f414f2f9/apps/web/public/extensions/staging/artifacts/8e6443cce1d8ac5a4fc86459eb4db05d46787456df517e9f2b7d66cb9ee5c1be.json",
+      "sha256": "8e6443cce1d8ac5a4fc86459eb4db05d46787456df517e9f2b7d66cb9ee5c1be",
       "changelog": "Bring your team’s procedures into any agent conversation."
     },
     {
@@ -95,7 +95,7 @@
         "id": "test-reports",
         "name": "Test Reports",
         "description": "Turn a failed test report into the next agent task.",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "client": "index.client.tsx",
         "server": "index.server.ts",
         "zuseApi": "^1.0.0",
@@ -114,9 +114,9 @@
           "name": "Zuse"
         }
       },
-      "commit": "a1b8414e1181a251b427f3f3f0a39b65d14b146c",
-      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/a1b8414e1181a251b427f3f3f0a39b65d14b146c/apps/web/public/extensions/staging/artifacts/9331cdc6382d17ec2db7c7d556c07bfd27f24125bf4aff020741f2990c81355a.json",
-      "sha256": "9331cdc6382d17ec2db7c7d556c07bfd27f24125bf4aff020741f2990c81355a",
+      "commit": "fcc1aa1a03f06477e85c36748a5ca6f3f414f2f9",
+      "archiveUrl": "https://raw.githubusercontent.com/swarajbachu/zuse/fcc1aa1a03f06477e85c36748a5ca6f3f414f2f9/apps/web/public/extensions/staging/artifacts/8aabe46b39ceec0ae18a6a0a2fcb0af9df4960ae1d7c3d721a79949620c7e0e7.json",
+      "sha256": "8aabe46b39ceec0ae18a6a0a2fcb0af9df4960ae1d7c3d721a79949620c7e0e7",
       "changelog": "Turn a failed test report into the next agent task."
     },
     {

@@ -45,7 +45,8 @@
 		"./device-bridge-controller": "./src/device-bridge-controller.ts",
 		"./composer-feedback": "./src/composer-feedback.ts",
 		"./frame-subscription": "./src/frame-subscription.ts",
-		"./background-history": "./src/background-history.ts"
+		"./background-history": "./src/background-history.ts",
+		"./provider-selection": "./src/provider-selection.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",

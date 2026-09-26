@@ -1,7 +1,7 @@
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 import {
 	type AgentAvailability,
 	catalogProviderIds,
-	defaultModelFor,
 	findModelDescriptor,
 	type ModelCatalogView,
 	modelsForProvider,

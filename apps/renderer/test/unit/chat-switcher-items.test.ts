@@ -160,7 +160,7 @@ it("keeps extension commands alongside built-in command search with stable ident
 it("refreshes settings search and extension section labels after a language change", async () => {
 	const { activateLocale, prepareLocale } = await import("@zuse/i18n");
 	try {
-		await prepareLocale("fr");
+		await prepareLocale("fr", ["common", "settings", "extensions"]);
 		await activateLocale("fr");
 		const extension = {
 			kind: "extension" as const,
@@ -181,7 +181,7 @@ it("refreshes settings search and extension section labels after a language chan
 				section: { kind: "extensions" },
 			}),
 		);
-		await prepareLocale("de");
+		await prepareLocale("de", ["common", "settings", "extensions"]);
 		await activateLocale("de");
 		expect(
 			chatSwitcherSections([], "Erweiterungen").flatMap(
@@ -195,6 +195,7 @@ it("refreshes settings search and extension section labels after a language chan
 			}),
 		);
 	} finally {
+		await prepareLocale("en", ["common", "settings", "extensions"]);
 		await activateLocale("en");
 	}
 });

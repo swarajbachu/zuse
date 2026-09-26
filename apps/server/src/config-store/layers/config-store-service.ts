@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import * as fsSync from "node:fs";
 import { homedir } from "node:os";
 import * as NodePath from "node:path";
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 import {
 	type AppearanceMode,
 	type BranchNamingStyle,
@@ -9,7 +10,6 @@ import {
 	type Command,
 	type CompletionSoundPreset,
 	defaultModelEnabledByProvider,
-	defaultModelFor,
 	type KeybindingRule,
 	KeybindingsFile,
 	MAX_KEYBINDING_RULES,
@@ -20,14 +20,17 @@ import {
 	resolveModelSlug,
 	SettingsFile,
 	type SubagentPresetState,
+	ThemeSelection,
 } from "@zuse/contracts";
 import {
 	Effect,
 	FileSystem,
 	Layer,
+	Option,
 	Path,
 	PubSub,
 	Ref,
+	Schema,
 	Semaphore,
 	Stream,
 } from "effect";
@@ -245,10 +248,10 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 	const appearanceMode = isAppearanceMode(obj.appearanceMode)
 		? obj.appearanceMode
 		: base.appearanceMode;
-	const themeSelection =
-		typeof obj.themeSelection === "object" && obj.themeSelection !== null
-			? (obj.themeSelection as SettingsFile["themeSelection"])
-			: { _tag: "built-in" as const, appearance: appearanceMode };
+	const themeSelection = Option.getOrElse(
+		Schema.decodeUnknownOption(ThemeSelection)(obj.themeSelection),
+		() => ({ _tag: "built-in" as const, appearance: appearanceMode }),
+	);
 
 	const completionSoundEnabled =
 		typeof obj.completionSoundEnabled === "boolean"

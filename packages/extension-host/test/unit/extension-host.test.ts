@@ -5,6 +5,7 @@ import {
 	readFile,
 	rm,
 	stat,
+	symlink,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,6 +13,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { compileExtension } from "../../src/compiler.ts";
 import { ExtensionHost } from "../../src/host.ts";
+import { readExtensionManifest } from "../../src/manifest.ts";
 import { verifyMarketplaceCatalog } from "../../src/marketplace.ts";
 
 const manifest = (
@@ -469,4 +471,18 @@ describe("marketplace verification", () => {
 			}),
 		).toThrow(/signature is invalid/);
 	});
+});
+
+it("rejects entry symlinks outside the extension source", async () => {
+	const { root, extension } = await fixture();
+	try {
+		await writeFile(join(root, "outside.ts"), source);
+		await rm(join(extension, "index.ts"));
+		await symlink(join(root, "outside.ts"), join(extension, "index.ts"));
+		await expect(readExtensionManifest(extension)).rejects.toThrow(
+			"resolves outside",
+		);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });

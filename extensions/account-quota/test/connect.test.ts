@@ -142,6 +142,13 @@ it("cancels an in-flight connection and lets the next list reconcile its saved a
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.fetchedAt).toBeNull();
 		expect(readAccountCredential).toHaveBeenCalledTimes(1);
+		request.mockImplementation(
+			async () =>
+				new Response('{"rate_limit":{"primary_window":{"used_percent":24}}}'),
+		);
+		const refreshed = await h.invoke("connect");
+		expect(request).toHaveBeenCalledTimes(2);
+		expect(refreshed[0]?.windows[0]?.usedPercent).toBe(24);
 	} finally {
 		h.stop();
 	}

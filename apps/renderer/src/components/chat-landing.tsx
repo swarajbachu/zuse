@@ -1,3 +1,4 @@
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 import { subscribeControlPlaneSessionCache } from "~/lib/control-plane-client.ts";
 import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/chat";
@@ -15,7 +16,6 @@ import {
 	type CloudProviderOption,
 	CommandId,
 	ComposerInput,
-	defaultModelFor,
 	EnvironmentId,
 	type ExternalThread,
 	type FolderId,
@@ -715,6 +715,7 @@ export function ChatLanding() {
 	// edits the user makes inside the composer mutate the draft in place, so we
 	// must not clobber them on unrelated default-settings changes.
 	useLayoutEffect(() => {
+		if (!providerAvailabilityLoaded) return;
 		let cancelled = false;
 		// A create-from source is scoped to the project it was picked in, and a
 		// "Run on" override to the draft it was picked for.
@@ -754,7 +755,13 @@ export function ChatLanding() {
 			clearDraft();
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [activeEnvironmentId, selectedFolderId, remoteAnchor, draftAttempt]);
+	}, [
+		activeEnvironmentId,
+		selectedFolderId,
+		remoteAnchor,
+		draftAttempt,
+		providerAvailabilityLoaded,
+	]);
 
 	const headline =
 		anchoredGroup !== null

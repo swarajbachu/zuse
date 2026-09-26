@@ -18,6 +18,8 @@ import type {
 	ProviderNotAvailableError,
 	QuestionAttachmentChange,
 	RuntimeMode,
+	SessionModeUnsupportedError,
+	SessionOperationUnsupportedError,
 	SkillRef,
 	StartSessionInput,
 	ThreadGoal,
@@ -127,7 +129,10 @@ export interface ProviderServiceShape {
 	readonly setPermissionMode: (
 		sessionId: AgentSessionId,
 		mode: PermissionMode,
-	) => Effect.Effect<void, AgentSessionNotFoundError>;
+	) => Effect.Effect<
+		void,
+		AgentSessionNotFoundError | SessionModeUnsupportedError
+	>;
 
 	/**
 	 * Process-local authority for blocking question callbacks. Durable timeline
@@ -150,7 +155,10 @@ export interface ProviderServiceShape {
 		sessionId: AgentSessionId,
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
-	) => Effect.Effect<void, AgentSessionNotFoundError>;
+	) => Effect.Effect<
+		void,
+		AgentSessionNotFoundError | SessionOperationUnsupportedError
+	>;
 	readonly cancelQuestion: (
 		sessionId: AgentSessionId,
 		itemId: AgentItemId,

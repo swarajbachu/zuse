@@ -22,9 +22,9 @@ import { translateClaudeSdkMessages } from "@zuse/agents/drivers/claude";
 import { translateCodexItem } from "@zuse/agents/drivers/codex";
 import type { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
 import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
+import { runtimeDefaultModelFor as defaultModelFor } from "@zuse/client-runtime/provider-selection";
 import {
 	ContinueExternalThreadResult,
-	defaultModelFor,
 	ExternalThread,
 	type Folder,
 	type Message,

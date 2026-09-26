@@ -9,7 +9,7 @@ const Panel = (props: ExtensionWorkspacePanelProps) => (
 	<WorkspaceTool
 		{...props}
 		title="Project Playbook"
-		description="Bring your team\u2019s procedures into any agent conversation."
+		description="Bring your team’s procedures into any agent conversation."
 		mode="file"
 	/>
 );
