@@ -1,7 +1,10 @@
 import { execFile } from "node:child_process";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { constants } from "node:fs";
+import { access, mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
+
+export class ExtensionInitInputError extends Error {}
 
 /** Standalone scaffold: no workspace aliases, private packages, or source-checkout imports. */
 export async function initializeExtension(options: {
@@ -15,7 +18,7 @@ export async function initializeExtension(options: {
 }) {
 	const template = options.template ?? "workspace";
 	if (template !== "workspace" && template !== "acp")
-		throw new Error("Choose --template workspace or acp.");
+		throw new ExtensionInitInputError("Choose --template workspace or acp.");
 	const acp = template === "acp";
 	const command = options.command;
 	if (
@@ -28,12 +31,27 @@ export async function initializeExtension(options: {
 			) ||
 			!command[0].trim())
 	)
-		throw new Error(
+		throw new ExtensionInitInputError(
 			`ACP requires --command as a JSON executable/argument array, for example '["opencode","acp"]'.`,
 		);
+	if (options.sdk !== undefined) {
+		if (!isAbsolute(options.sdk) || !/\.(?:tgz|tar\.gz)$/i.test(options.sdk))
+			throw new ExtensionInitInputError(
+				"--sdk requires an absolute path to an existing SDK .tgz or .tar.gz archive.",
+			);
+		const sdk = await stat(options.sdk).catch(() => null);
+		const readable = await access(options.sdk, constants.R_OK).then(
+			() => true,
+			() => false,
+		);
+		if (!sdk?.isFile() || !readable)
+			throw new ExtensionInitInputError(
+				"--sdk must point to an existing readable SDK archive.",
+			);
+	}
 	const directory = resolve(options.directory);
 	if (!/^[a-z][a-z0-9-]{0,62}$/.test(options.id))
-		throw new Error("Extension ID must be a lowercase slug.");
+		throw new ExtensionInitInputError("Extension ID must be a lowercase slug.");
 	const existing = await readdir(directory).catch(
 		(error: NodeJS.ErrnoException) => {
 			if (error.code === "ENOENT") return [];
@@ -41,7 +59,9 @@ export async function initializeExtension(options: {
 		},
 	);
 	if (existing.length)
-		throw new Error("Choose an empty directory for the new extension.");
+		throw new ExtensionInitInputError(
+			"Choose an empty directory for the new extension.",
+		);
 	await mkdir(join(directory, "src"), { recursive: true });
 	const json = async (name: string, value: unknown) =>
 		writeFile(join(directory, name), `${JSON.stringify(value, null, 2)}\n`, {

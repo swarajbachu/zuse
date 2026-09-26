@@ -15,6 +15,8 @@ on:
       - "packages/agents/test/**/extension-acp*"
       - "packages/extension-*/**"
       - "packages/serve/src/extension-init.ts"
+      - "packages/serve/src/agent-cli.ts"
+      - "packages/serve/test/agent-cli.test.ts"
       - "packages/serve/test/extension-init.test.ts"
       - "scripts/test-extension-starters.ts"
       - "scripts/pack-extension-sdk.ts"
@@ -28,6 +30,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.10
@@ -38,7 +42,7 @@ jobs:
       - name: Check types
         run: bun run check-types
       - name: Test native plugins and supervised agents
-        run: bunx vitest run apps/server/test/unit/agent-plugin.test.ts apps/server/test/integration/agent-plugin.test.ts packages/acp/test packages/agents/test/unit/drivers/extension-acp.test.ts packages/extension-host/test packages/serve/test/extension-init.test.ts
+        run: bunx vitest run apps/server/test/unit/agent-plugin.test.ts apps/server/test/integration/agent-plugin.test.ts packages/acp/test packages/agents/test/unit/drivers/extension-acp.test.ts packages/extension-host/test packages/serve/test/extension-init.test.ts packages/serve/test/agent-cli.test.ts
       - name: Test plugin settings
         working-directory: apps/renderer
         run: bunx vp test run test/unit/agent-plugins-pane.test.tsx

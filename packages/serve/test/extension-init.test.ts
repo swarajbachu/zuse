@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -31,6 +31,8 @@ const root = async () => {
 };
 it("creates a server-only ACP project with literal argv and namespaced identity", async () => {
 	const directory = await root();
+	const archive = join(await root(), "sdk.tgz");
+	await writeFile(archive, "test archive fixture");
 	await initializeExtension({
 		directory,
 		id: "team-agent",
@@ -38,7 +40,7 @@ it("creates a server-only ACP project with literal argv and namespaced identity"
 		publisher: "Team",
 		template: "acp",
 		command: ["/path with spaces/agent", "--value=$(do-not-run)"],
-		sdk: "/tmp/sdk.tgz",
+		sdk: archive,
 	});
 	const manifest = JSON.parse(
 		await readFile(join(directory, "zuse-extension.json"), "utf8"),
@@ -81,6 +83,43 @@ it.each([
 			command,
 		}),
 	).rejects.toThrow("--command");
+	expect(await readdir(directory)).toEqual([]);
+	expect(commands).toEqual([]);
+});
+
+it.each([
+	"true",
+	"",
+	"relative.tgz",
+	"/missing/sdk.tgz",
+	"/tmp/not-an-archive",
+])("rejects invalid SDK operand %j without creating a project", async (sdk) => {
+	const directory = await root();
+	await expect(
+		initializeExtension({
+			directory,
+			id: "fixture",
+			name: "Fixture",
+			publisher: "Tests",
+			sdk,
+		}),
+	).rejects.toThrow("--sdk");
+	expect(await readdir(directory)).toEqual([]);
+	expect(commands).toEqual([]);
+});
+it("rejects directories named like an SDK archive before writing", async () => {
+	const directory = await root();
+	const sdk = join(await root(), "sdk.tgz");
+	await (await import("node:fs/promises")).mkdir(sdk);
+	await expect(
+		initializeExtension({
+			directory,
+			id: "fixture",
+			name: "Fixture",
+			publisher: "Tests",
+			sdk,
+		}),
+	).rejects.toThrow("--sdk");
 	expect(await readdir(directory)).toEqual([]);
 	expect(commands).toEqual([]);
 });

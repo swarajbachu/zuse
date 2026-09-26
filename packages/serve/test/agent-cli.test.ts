@@ -220,3 +220,39 @@ describe("agent CLI", () => {
 		});
 	});
 });
+
+test("preserves equals signs inside inline option values", async () => {
+	const command = '["agent","--model=x","--token=a=b=c"]';
+	expect(
+		__testing
+			.parse(["extension", "init", `--command=${command}`])
+			.flags.get("command"),
+	).toEqual([command]);
+	const expanded = await __testing.expandInputJson([
+		'--input-json={"text":"a=b=c"}',
+	]);
+	expect(__testing.parse(expanded).flags.get("text")).toEqual(["a=b=c"]);
+});
+test.each([
+	"[bad",
+	"",
+	"agent acp",
+])("reports malformed command JSON as invalid input: %j", async (command) => {
+	await expect(
+		__testing.execute(
+			["extension", "init", "--id=fixture", `--command=${command}`],
+			{},
+		),
+	).rejects.toMatchObject({
+		code: "invalid_input",
+		message: expect.stringContaining("--command"),
+	});
+});
+test("reports a valueless SDK option as invalid input", async () => {
+	await expect(
+		__testing.execute(["extension", "init", "--id=fixture", "--sdk"], {}),
+	).rejects.toMatchObject({
+		code: "invalid_input",
+		message: expect.stringContaining("--sdk"),
+	});
+});

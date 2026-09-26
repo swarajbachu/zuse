@@ -37,7 +37,10 @@ import {
 } from "@zuse/contracts";
 import { resolveZuseDesktopUserData } from "@zuse/utils/zuse-user-data";
 import { Effect, Schema } from "effect";
-import { initializeExtension } from "./extension-init.ts";
+import {
+	ExtensionInitInputError,
+	initializeExtension,
+} from "./extension-init.ts";
 
 type RpcClient = Awaited<ReturnType<typeof connect>>["client"];
 
@@ -100,6 +103,12 @@ type Args = {
 	readonly positionals: string[];
 	readonly flags: Map<string, string[]>;
 };
+const splitOption = (value: string): readonly [string, string | undefined] => {
+	const index = value.indexOf("=");
+	return index < 0
+		? [value, undefined]
+		: [value.slice(0, index), value.slice(index + 1)];
+};
 const parse = (argv: ReadonlyArray<string>): Args => {
 	const positionals: string[] = [];
 	const flags = new Map<string, string[]>();
@@ -110,7 +119,7 @@ const parse = (argv: ReadonlyArray<string>): Args => {
 			positionals.push(value);
 			continue;
 		}
-		const [rawKey, inline] = value.slice(2).split("=", 2);
+		const [rawKey, inline] = splitOption(value.slice(2));
 		if (!rawKey)
 			throw new CliError("invalid_input", `Invalid option ${value}.`);
 		const next = argv[i + 1];
@@ -144,7 +153,7 @@ const expandInputJson = async (
 		(value) => value === "--input-json" || value.startsWith("--input-json="),
 	);
 	if (index < 0) return result;
-	const inline = result[index]?.split("=", 2)[1];
+	const inline = splitOption(result[index] ?? "")[1];
 	const source = inline ?? result[index + 1];
 	if (source === undefined)
 		throw new CliError(
@@ -691,15 +700,32 @@ const execute = async (
 	if (group === "extension" && action === "init") {
 		const id = required(one(args, "id"), "--id");
 		const command = one(args, "command");
-		return initializeExtension({
-			directory: one(args, "path") ?? process.cwd(),
-			id,
-			name: one(args, "name") ?? id,
-			publisher: one(args, "publisher") ?? "Local developer",
-			template: one(args, "template"),
-			command: command ? JSON.parse(command) : undefined,
-			sdk: one(args, "sdk"),
-		});
+		let parsedCommand: unknown;
+		if (command !== undefined) {
+			try {
+				parsedCommand = JSON.parse(command);
+			} catch {
+				throw new CliError(
+					"invalid_input",
+					"--command must be a JSON executable/argument array.",
+				);
+			}
+		}
+		try {
+			return await initializeExtension({
+				directory: one(args, "path") ?? process.cwd(),
+				id,
+				name: one(args, "name") ?? id,
+				publisher: one(args, "publisher") ?? "Local developer",
+				template: one(args, "template"),
+				command: parsedCommand,
+				sdk: one(args, "sdk"),
+			});
+		} catch (cause) {
+			if (cause instanceof ExtensionInitInputError)
+				throw new CliError("invalid_input", cause.message);
+			throw cause;
+		}
 	}
 	if (group === "thread") {
 		group = action === "create" ? "chat" : "session";
