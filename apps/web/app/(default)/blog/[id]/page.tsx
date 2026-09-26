@@ -38,6 +38,7 @@ export async function generateMetadata(props: {
 			...metadata.openGraph,
 			type: "article",
 			publishedTime: page.data.date.toISOString(),
+			modifiedTime: page.data.updated?.toISOString(),
 			authors: [page.data.authorName],
 		},
 	};
@@ -61,6 +62,7 @@ export default async function BlogPostPage({
 				url={page.url}
 				image={page.data.previewImage ?? "/og.png"}
 				date={page.data.date}
+				updated={page.data.updated}
 				author={page.data.authorName}
 			/>
 			<BlogHeader page={page} />

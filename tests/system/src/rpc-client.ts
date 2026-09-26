@@ -36,7 +36,12 @@ export const connectSystemRpc = (
 
 export const connectDroppableSystemRpc = async (
 	endpoint: string,
-): Promise<ClientSession<SystemRpcClient> & { readonly drop: () => void }> => {
+): Promise<
+	ClientSession<SystemRpcClient> & {
+		readonly drop: () => void;
+		readonly pauseIncoming: () => void;
+	}
+> => {
 	let socket: WebSocket | undefined;
 	const webSocketConstructor = Layer.succeed(Socket.WebSocketConstructor)(
 		(url, protocols) => {
@@ -62,6 +67,15 @@ export const connectDroppableSystemRpc = async (
 	});
 	return {
 		...session,
+		pauseIncoming: () => {
+			if (socket === undefined) throw new Error("WebSocket was not acquired.");
+			// This connection is intentionally discarded after the tested write.
+			// Remove the Effect socket's message listener as well as pausing the
+			// underlying stream so an already-buffered RPC acknowledgement cannot
+			// race through while the test is waiting for server-side evidence.
+			socket.removeAllListeners("message");
+			socket.pause();
+		},
 		drop: () => {
 			if (socket === undefined) throw new Error("WebSocket was not acquired.");
 			socket.terminate();

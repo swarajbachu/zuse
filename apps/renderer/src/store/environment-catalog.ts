@@ -77,6 +77,7 @@ export type EnvironmentShellSeed = Readonly<{
 }>;
 
 export type EnvironmentActivation = Readonly<{
+	isCurrent?: () => boolean;
 	folderId?: Folder["id"];
 	chatId?: Chat["id"];
 	seed?: EnvironmentShellSeed;
@@ -700,6 +701,16 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			selection: EnvironmentActivation | undefined,
 			fallback?: EnvironmentShellData,
 		): Promise<Folder["id"] | null> => {
+			runtime.requestedActivation = "connect";
+			await runtime.lease.activate("connect");
+			const data = await waitForShellData(runtime).catch((cause) => {
+				if (fallback !== undefined)
+					return normalizeEnvironmentShellData(fallback);
+				throw cause;
+			});
+			// Connection work can finish after the user has opened another draft.
+			// Check before changing either the active environment or its selection.
+			if (selection?.isCurrent?.() === false) return null;
 			if (activeShellKey !== null && activeShellKey !== catalogKey) {
 				const previous = shellRuntimes.get(activeShellKey);
 				if (previous !== undefined) {
@@ -708,13 +719,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				}
 			}
 			activeShellKey = catalogKey;
-			runtime.requestedActivation = "connect";
-			await runtime.lease.activate("connect");
-			const data = await waitForShellData(runtime).catch((cause) => {
-				if (fallback !== undefined)
-					return normalizeEnvironmentShellData(fallback);
-				throw cause;
-			});
 			setActiveEnvironment(environmentId);
 			set({ activeEnvironmentId: environmentId });
 			activateAnnotationsEnvironment();

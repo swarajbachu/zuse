@@ -1,12 +1,13 @@
 import { Atom } from "effect/unstable/reactivity";
-
 import {
 	currentAccount,
 	type WorkosAccount,
 	signIn as workosSignIn,
 	signOut as workosSignOut,
 } from "../auth/workos.ts";
+import { resetAiSharingConsent } from "../lib/ai-sharing-consent";
 import { resetLocalMobileData } from "../lib/mobile-data.ts";
+import { revokeCurrentDevicePush } from "../notifications/push";
 import {
 	deleteAccount as deleteApiAccount,
 	resetApiAccessToken,
@@ -67,17 +68,34 @@ export const signIn = async (): Promise<void> => {
 };
 
 export const signOut = async (): Promise<void> => {
-	await workosSignOut();
-	resetApiAccessToken();
-	appAtomRegistry.set(authAccountAtom, null);
+	if (appAtomRegistry.get(authBusyAtom)) return;
+	appAtomRegistry.set(authBusyAtom, true);
+	appAtomRegistry.set(authErrorAtom, null);
+	try {
+		await revokeCurrentDevicePush();
+		await workosSignOut();
+		resetApiAccessToken();
+		resetAiSharingConsent();
+		appAtomRegistry.set(authAccountAtom, null);
+	} catch {
+		appAtomRegistry.set(
+			authErrorAtom,
+			"Could not finish signing out. Connect to the internet and retry so this device stops receiving account alerts.",
+		);
+	} finally {
+		appAtomRegistry.set(authBusyAtom, false);
+	}
 };
 
 export const resetApp = async (): Promise<void> => {
+	if (appAtomRegistry.get(authBusyAtom))
+		throw new Error("An account action is already in progress.");
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(authBusyAtom, true);
 		appAtomRegistry.set(authErrorAtom, null);
 	});
 	try {
+		if (appAtomRegistry.get(authAccountAtom)) await revokeCurrentDevicePush();
 		await resetLocalMobileData();
 		batchAtomUpdates(() => {
 			appAtomRegistry.set(authAccountAtom, null);

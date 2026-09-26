@@ -1,3 +1,4 @@
+import { CloudSyncFileBridge } from "./sync/cloud-sync-file-bridge.ts";
 import "@zuse/i18n/english/desktop";
 import {
 	type ChildProcessWithoutNullStreams,
@@ -123,7 +124,6 @@ import {
 	readLocalePreference,
 	writeLocalePreference,
 } from "./locale-preference.ts";
-import { serveRendererAsset } from "./renderer-assets.ts";
 import {
 	createTitleBarOverlay,
 	createWindowTitleBarOptions,
@@ -210,6 +210,11 @@ import {
 	sanitizeRemoteConnectionLog,
 	sanitizeRemoteDiagnosticValue,
 } from "./remote-diagnostic-sanitizer.ts";
+import {
+	createRendererAssetHandler,
+	PACKAGED_RENDERER_URL,
+	RENDERER_ASSET_HOST,
+} from "./renderer-assets.ts";
 import {
 	prepareCloudSshAccess,
 	sshTargetLaunch,
@@ -397,6 +402,8 @@ protocol.registerSchemesAsPrivileged([
 	{
 		scheme: "zuse",
 		privileges: {
+			codeCache: true,
+			corsEnabled: true,
 			secure: true,
 			standard: true,
 			supportFetchAPI: true,
@@ -659,9 +666,27 @@ ipcMain.on("window:setAppearanceMode", (_event, value: unknown) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
-const cloudSyncManager = new CloudSyncManager((status) => {
-	mainWindow?.webContents.send("cloudSync:status", status);
+const cloudSyncFiles = new CloudSyncFileBridge((request) => {
+	if (!mainWindow) throw new Error("Renderer unavailable");
+	mainWindow.webContents.send("cloudSync:readFile", request);
 });
+ipcMain.on("app:cloudSyncReadFileResult", (_event, requestId, value) =>
+	cloudSyncFiles.complete(requestId, value),
+);
+const cloudSyncManager = new CloudSyncManager(
+	(status) => {
+		appendRemoteConnectionLog("cloud.sync.status", {
+			workspaceId: status.workspaceId,
+			state: status.state,
+			enabled: status.enabled,
+			error: status.error,
+		});
+		mainWindow?.webContents.send("cloudSync:status", status);
+	},
+	undefined,
+	undefined,
+	(id, path, signal) => cloudSyncFiles.read(id, path, signal),
+);
 let sshEnvironmentManager: SshEnvironmentManager | null = null;
 const portForwardManager = new PortForwardManager();
 let tailnetEnvironmentManager: TailnetEnvironmentManager | null = null;
@@ -2000,10 +2025,11 @@ async function createMainWindow() {
 	// first visible frame after a Dock click.
 	if (isDevelopment) {
 		void mainWindow.loadURL(DEV_SERVER_URL);
-		mainWindow.webContents.openDevTools({ mode: "right" });
+		// Keep DevTools opt-in via the View menu. Opening docked DevTools during
+		// startup can crash Electron 42.4.1 in DevToolsOpened / SetOwnerWindow.
 	} else {
-		// Keep a stable app origin for extension modules and assets.
-		void mainWindow.loadURL("zuse://app/index.html");
+		// Use the secure standard origin for concurrent split-module loading.
+		void mainWindow.loadURL(PACKAGED_RENDERER_URL);
 	}
 
 	const [apiPort, networkAccessEnabled] = await startupPrerequisites;
@@ -2254,6 +2280,7 @@ async function createMainWindow() {
 				(input.enabled && !input.remotePath.startsWith("/"))
 			)
 				return null;
+
 			return cloudSyncManager.configure({
 				workspaceId: input.workspaceId,
 				enabled: input.enabled,
@@ -3678,6 +3705,17 @@ const isServableAttachmentPath = (
 };
 
 const registerZuseProtocol = (): void => {
+	const handleRendererAsset = createRendererAssetHandler({
+		rendererRoot: rendererDistDir(),
+		fetchFile: async (absolutePath) => {
+			// Do not delegate renderer chunks back to Chromium's file:// loader.
+			// Large split builds can exhaust that loader's concurrent resources;
+			// serving build-owned bytes here keeps the zuse:// module graph on one
+			// secure origin and avoids the file URL request pool entirely.
+			const bytes = await fs.readFile(absolutePath);
+			return new Response(Uint8Array.from(bytes));
+		},
+	});
 	const attachmentsDir = Path.join(app.getPath("userData"), "attachments");
 	const pokemonDir = Path.join(app.getPath("userData"), "pokemon-sprites");
 	const attachmentFilenames: AssetFilenameCache = {
@@ -3691,12 +3729,13 @@ const registerZuseProtocol = (): void => {
 
 	const handleAssetRequest = async (request: Request) => {
 		const url = new URL(request.url);
-		if (url.host === "app")
-			return serveRendererAsset(rendererDistDir(), request);
 		if (url.host === SITE_FAVICON_HOST) {
 			return fetchSiteFavicon(url.pathname.slice(1), (input, init) =>
 				net.fetch(input, init),
 			);
+		}
+		if (url.host === RENDERER_ASSET_HOST) {
+			return handleRendererAsset(request);
 		}
 		if (url.host === LINEAR_CONTEXT_HOST) {
 			try {

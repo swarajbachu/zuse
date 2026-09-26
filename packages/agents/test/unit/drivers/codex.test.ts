@@ -835,3 +835,33 @@ describe("Codex plan mode", () => {
 		});
 	});
 });
+
+describe("Codex reconnect notifications", () => {
+	it("keeps retryable errors nonterminal and reports exhausted retries", () => {
+		const notification = (willRetry: boolean, threadId = "thread-1") => ({
+			method: "error" as const,
+			params: {
+				threadId,
+				turnId: "turn-1",
+				willRetry,
+				error: {
+					message: "Reconnecting... 2/5",
+					codexErrorInfo: null,
+					additionalDetails: null,
+				},
+			},
+		});
+		expect(
+			translateCodexStatusNotification(notification(true), "thread-1"),
+		).toEqual([]);
+		expect(
+			translateCodexStatusNotification(notification(false), "thread-1"),
+		).toEqual([{ _tag: "Error", message: "Reconnecting... 2/5" }]);
+		expect(
+			translateCodexStatusNotification(
+				notification(false, "other-thread"),
+				"thread-1",
+			),
+		).toEqual([]);
+	});
+});

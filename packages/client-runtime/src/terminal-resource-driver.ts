@@ -17,6 +17,8 @@ import {
 export type TerminalResourceKey = ResourceKey<TerminalResourceState>;
 
 export type TerminalOutputSink = Readonly<{
+	/** Clear emulator state before bytes from a replacement process arrive. */
+	reset: (processEpoch: string) => Promise<void>;
 	write: (bytes: string) => Promise<void>;
 	exited: (exitCode: number | null, signal: number | null) => Promise<void>;
 }>;
@@ -25,6 +27,7 @@ export type TerminalDriverClient = Readonly<{
 	"pty.output": (payload: {
 		readonly ptyId: PtyId;
 		readonly afterSequence: number;
+		readonly processEpoch: string;
 	}) => Stream.Stream<typeof PtyEvent.Type, unknown>;
 }>;
 
@@ -34,6 +37,7 @@ type TerminalDriverOptions<Client> = Readonly<{
 		client: Client,
 		ref: TerminalRef,
 		afterSequence: number,
+		processEpoch: string,
 	) => Stream.Stream<typeof PtyEvent.Type, unknown>;
 	reportConnectionFailure: (
 		environmentId: EnvironmentId,
@@ -67,16 +71,27 @@ const metadata = (
 ): Parameters<typeof reduceTerminalOutput>[1] => {
 	switch (event._tag) {
 		case "data":
-			return { _tag: "data", sequence: event.sequence };
+			return {
+				_tag: "data",
+				processEpoch: event.processEpoch,
+				sequence: event.sequence,
+			};
 		case "exit":
 			return {
 				_tag: "exit",
+				processEpoch: event.processEpoch,
 				sequence: event.sequence,
 				exitCode: event.exitCode,
 				signal: event.signal,
 			};
 		case "cursor":
-			return { _tag: "cursor", sequence: event.sequence };
+			return {
+				_tag: "cursor",
+				processEpoch: event.processEpoch,
+				sequence: event.sequence,
+			};
+		case "epoch":
+			return event;
 		case "gap":
 			return event;
 	}
@@ -146,16 +161,35 @@ export const makeTerminalResourceDriver = <Client>(
 				if (!active || !context.isCurrent()) return Effect.void;
 				const reduction = reduceTerminalOutput(state, metadata(event));
 				if (reduction.kind === "duplicate") return Effect.void;
+				const resetSink =
+					reduction.resetEpoch === true
+						? Effect.tryPromise({
+								try: () => sink.reset(reduction.state.processEpoch),
+								catch: (cause) =>
+									new TerminalOutputSinkFailed(messageOf(cause)),
+							})
+						: Effect.void;
 				if (reduction.kind === "recover") {
-					state = reduction.state;
-					emitState("synchronizing");
-					return Effect.fail(new RecoverTerminalOutput());
+					return resetSink.pipe(
+						Effect.andThen(
+							Effect.sync(() => {
+								state = reduction.state;
+								emitState("synchronizing");
+							}),
+						),
+						Effect.andThen(Effect.fail(new RecoverTerminalOutput())),
+					);
 				}
 				if (reduction.kind === "failed") {
-					state = reduction.state;
-					emitState("failed");
-					active = false;
-					return Effect.void;
+					return resetSink.pipe(
+						Effect.andThen(
+							Effect.sync(() => {
+								state = reduction.state;
+								emitState("failed");
+								active = false;
+							}),
+						),
+					);
 				}
 
 				const commit = () => {
@@ -172,27 +206,44 @@ export const makeTerminalResourceDriver = <Client>(
 					}
 				};
 				if (event._tag === "data") {
-					return Effect.tryPromise({
-						try: () => sink.write(event.bytes),
-						catch: (cause) => new TerminalOutputSinkFailed(messageOf(cause)),
-					}).pipe(Effect.tap(() => Effect.sync(commit)));
+					return resetSink.pipe(
+						Effect.andThen(
+							Effect.tryPromise({
+								try: () => sink.write(event.bytes),
+								catch: (cause) =>
+									new TerminalOutputSinkFailed(messageOf(cause)),
+							}),
+						),
+						Effect.tap(() => Effect.sync(commit)),
+					);
 				}
 				if (event._tag === "exit") {
-					return Effect.tryPromise({
-						try: () => sink.exited(event.exitCode, event.signal),
-						catch: (cause) => new TerminalOutputSinkFailed(messageOf(cause)),
-					}).pipe(Effect.tap(() => Effect.sync(commit)));
+					return resetSink.pipe(
+						Effect.andThen(
+							Effect.tryPromise({
+								try: () => sink.exited(event.exitCode, event.signal),
+								catch: (cause) =>
+									new TerminalOutputSinkFailed(messageOf(cause)),
+							}),
+						),
+						Effect.tap(() => Effect.sync(commit)),
+					);
 				}
-				commit();
-				return Effect.void;
+				return resetSink.pipe(Effect.tap(() => Effect.sync(commit)));
 			};
 
 			const runOutput = (): Effect.Effect<void, unknown> =>
 				Stream.runForEach(
-					options.streamOutput?.(context.client, ref, state.outputSequence) ??
+					options.streamOutput?.(
+						context.client,
+						ref,
+						state.outputSequence,
+						state.processEpoch,
+					) ??
 						(context.client as TerminalDriverClient)["pty.output"]({
 							ptyId: ref.terminalId,
 							afterSequence: state.outputSequence,
+							processEpoch: state.processEpoch,
 						}),
 					handleEvent,
 				).pipe(

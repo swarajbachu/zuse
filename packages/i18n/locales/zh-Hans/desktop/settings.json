@@ -869,5 +869,16 @@
 	"cloud_auth_not_allowed": "您的 Zuse 会话无法授权此操作。请刷新会话后重试。",
 	"cloud_auth_login_failed": "无法启动智能体登录。",
 	"cloud_auth_temporarily_unavailable": "云端身份验证暂时不可用。重试不会影响现有聊天。",
-	"cloud_machine_provider": "机器提供商"
+	"cloud_machine_provider": "机器提供商",
+	"wallpaper_title": "壁纸",
+	"wallpaper_description": "新聊天的淡雅背景。保存在此设备上。",
+	"wallpaper_saving": "正在保存…",
+	"wallpaper_replace": "替换图片",
+	"wallpaper_upload": "上传图片",
+	"wallpaper_remove": "移除",
+	"wallpaper_upload_label": "上传壁纸",
+	"wallpaper_opacity": "不透明度",
+	"wallpaper_opacity_label": "壁纸不透明度",
+	"wallpaper_hint": "PNG、JPEG、WebP、AVIF 或 GIF · 最大 20 MB。纹理制作工具：",
+	"wallpaper_studio": "Dither studio"
 }

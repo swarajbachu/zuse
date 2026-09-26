@@ -27,6 +27,7 @@ export const switchToEnvironment = async (input: {
 	readonly folderId?: FolderId;
 	readonly chatId?: ChatId;
 	readonly seed?: EnvironmentShellSeed;
+	readonly isCurrent?: () => boolean;
 }): Promise<SwitchEnvironmentResult> => {
 	if (switchInFlight) return { switched: false, selectedFolderId: null };
 	const state = useEnvironmentCatalogStore.getState();
@@ -37,13 +38,18 @@ export const switchToEnvironment = async (input: {
 		return { switched: false, selectedFolderId: null };
 	}
 	switchInFlight = true;
+	let activationAllowed = true;
 	try {
 		const selectedFolderId = await state.activate(input.environmentId, {
 			folderId: input.folderId,
 			chatId: input.chatId,
 			seed: input.seed,
+			isCurrent: () => {
+				activationAllowed = input.isCurrent?.() !== false;
+				return activationAllowed;
+			},
 		});
-		return { switched: true, selectedFolderId };
+		return { switched: activationAllowed, selectedFolderId };
 	} finally {
 		switchInFlight = false;
 	}

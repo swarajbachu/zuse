@@ -106,6 +106,7 @@ export const refreshConnectionDescriptor = (
 	label: string,
 	capabilities: typeof CapabilityManifest.Type | undefined,
 	now: number = Date.now(),
+	environmentId?: string,
 ): ConnectionRecord[] => {
 	const current = connections.find((connection) => connection.key === key);
 	if (current === undefined) return connections;
@@ -118,10 +119,21 @@ export const refreshConnectionDescriptor = (
 			current.capabilities.features.every((feature) =>
 				capabilities.features.includes(feature),
 			));
-	if (current.label === label && sameCapabilities) return connections;
+	if (
+		current.label === label &&
+		sameCapabilities &&
+		(environmentId === undefined || current.environmentId === environmentId)
+	)
+		return connections;
 	return connections.map((connection) =>
 		connection.key === key
-			? { ...connection, label, capabilities, updatedAt: now }
+			? {
+					...connection,
+					label,
+					capabilities,
+					...(environmentId === undefined ? {} : { environmentId }),
+					updatedAt: now,
+				}
 			: connection,
 	);
 };

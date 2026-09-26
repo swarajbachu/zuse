@@ -361,6 +361,37 @@ const bridge = {
 				hostAlias,
 				remotePath,
 			) as Promise<boolean>,
+		onCloudSyncReadFile: (
+			handler: (request: {
+				requestId: string;
+				workspaceId: string;
+				path: string;
+			}) => Promise<Uint8Array>,
+		) => {
+			const wrapped = (
+				_event: Electron.IpcRendererEvent,
+				request: { requestId: string; workspaceId: string; path: string },
+			) => {
+				void handler(request).then(
+					(bytes) =>
+						ipcRenderer.send(
+							"app:cloudSyncReadFileResult",
+							request.requestId,
+							bytes,
+						),
+					(cause) =>
+						ipcRenderer.send(
+							"app:cloudSyncReadFileResult",
+							request.requestId,
+							cause instanceof Error
+								? cause.message
+								: "Snapshot gateway read failed.",
+						),
+				);
+			};
+			ipcRenderer.on("cloudSync:readFile", wrapped);
+			return () => ipcRenderer.off("cloudSync:readFile", wrapped);
+		},
 		cloudSyncConfigure: (input: {
 			readonly workspaceId: string;
 			readonly enabled: boolean;

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Shared sandbox provisioning steps. The E2B Dockerfile and the Box template
-# publisher (box-publish.sh) both run these stages so the two images cannot
-# drift: one behavior, one source of truth.
+# publisher (box-publish.sh) share runtime/layout stages. Boat supplies its own
+# agents; E2B also runs the pinned agent installation stage.
 #
 # Usage: provision.sh <stage> [...]
 #   packages  install the apt toolchain
-#   globals   install pinned npm globals
+#   globals   install runtime tools and pinned agents (E2B)
+#   runtime-tools  install Bun/Corepack without touching provider agents
 #   runtime   install the zuse server/serve tarballs from $ZUSE_PROVISION_DIR
 #   layout    create the zuse user, install scripts, and lay out directories
 #
@@ -42,14 +43,20 @@ stage_packages() {
 	rm -rf /var/lib/apt/lists/*
 }
 
-stage_globals() {
+stage_runtime_tools() {
 	npm install --global --prefix /usr/local \
-		@anthropic-ai/claude-code@2.1.224 \
-		@openai/codex@0.144.5 \
-		bun@1.3.10 \
-		corepack@0.34.1
+		bun@1.4.2 \
+		corepack@0.36.0
 	npm cache clean --force
-	# Pin the broker-compatible Grok CLI in both providers.
+}
+
+stage_globals() {
+	stage_runtime_tools
+	npm install --global --prefix /usr/local \
+		@anthropic-ai/claude-code@2.1.280 \
+		@openai/codex@0.155.1
+	npm cache clean --force
+	# Pin the broker-compatible Grok CLI in E2B images.
 	mkdir -p /opt/grok
 	# Reviewed installer digest; upstream changes fail closed until reviewed.
 	curl --proto '=https' --proto-redir '=https' -fsSL --max-time 60 https://x.ai/cli/install.sh -o /tmp/install-grok.sh
@@ -99,6 +106,7 @@ for stage in "$@"; do
 	case "$stage" in
 	packages) stage_packages ;;
 	globals) stage_globals ;;
+	runtime-tools) stage_runtime_tools ;;
 	runtime) stage_runtime ;;
 	layout) stage_layout ;;
 	*)

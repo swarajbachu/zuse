@@ -16,6 +16,7 @@ import type {
 	ProviderEventEnvelope,
 	ProviderId,
 	ProviderNotAvailableError,
+	QuestionAttachmentChange,
 	RuntimeMode,
 	SkillRef,
 	StartSessionInput,
@@ -129,14 +130,36 @@ export interface ProviderServiceShape {
 	) => Effect.Effect<void, AgentSessionNotFoundError>;
 
 	/**
-	 * Resolve the pending in-process AskUserQuestion call identified by
-	 * `itemId`. Claude only — Codex sessions accept the call but no-op.
+	 * Process-local authority for blocking question callbacks. Durable timeline
+	 * rows survive a restart, but they are not actionable until the replacement
+	 * provider emits the matching question and reattaches its callback.
 	 */
+	readonly questionAttachments: () => Stream.Stream<QuestionAttachmentChange>;
+	readonly hasQuestionAttachment: (
+		sessionId: AgentSessionId,
+		itemId: AgentItemId,
+	) => Effect.Effect<boolean>;
+	readonly validateQuestionAnswer: (
+		sessionId: AgentSessionId,
+		itemId: AgentItemId,
+		answers: ReadonlyArray<UserQuestionAnswer>,
+	) => Effect.Effect<void, AgentSessionNotFoundError>;
+
+	/** Resolve the exact pending in-process question callback by `itemId`. */
 	readonly answerQuestion: (
 		sessionId: AgentSessionId,
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
 	) => Effect.Effect<void, AgentSessionNotFoundError>;
+	readonly cancelQuestion: (
+		sessionId: AgentSessionId,
+		itemId: AgentItemId,
+	) => Effect.Effect<void, AgentSessionNotFoundError>;
+	/** Remove callback actionability only after its durable answer receipt exists. */
+	readonly acknowledgeQuestionResolution: (
+		sessionId: AgentSessionId,
+		itemId: AgentItemId,
+	) => Effect.Effect<void>;
 
 	readonly respondToPlan?: (
 		sessionId: AgentSessionId,

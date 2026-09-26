@@ -26,8 +26,18 @@
 				"rules": {
 					"suspicious": {
 						"noDuplicateCustomProperties": "off"
-	}
-}
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"apps/renderer/src/terminal/ghostty/vendor/provenance.json",
+				"apps/mobile/modules/mobile-terminal/Vendor/GhosttyVt.provenance.json",
+				"apps/mobile/modules/mobile-terminal/android/vendor/manifest.json"
+			],
+			"formatter": {
+				"expand": "always"
 			}
 		}
 	]

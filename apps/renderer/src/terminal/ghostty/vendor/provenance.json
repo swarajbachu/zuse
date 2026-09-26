@@ -1,0 +1,13 @@
+{
+	"artifacts": {
+		"ghostty-vt.wasm": "56f9eb384290a3ab5146bd0dba7032a9a23b3330ac5ad650322a41df4b9cc29c",
+		"pty-callback.wasm": "b3cbd717a5b5130d9358950b5ca92faedfbbfa9c513c9122a716d8a7adebefa6"
+	},
+	"ghosttyRevision": "9f62873bf195e4d8a762d768a1405a5f2f7b1697",
+	"jobs": 1,
+	"optimize": "ReleaseSmall",
+	"schemaVersion": 1,
+	"seed": 0,
+	"target": "wasm32-freestanding",
+	"zigVersion": "0.15.2"
+}

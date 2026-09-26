@@ -259,7 +259,7 @@
 	"github_base": "기준:",
 	"github_needs_rebase": "리베이스 필요",
 	"github_new_stack_branch": "새 스택 브랜치",
-	"github_submit_stack": "스택 푸시 및 초안 PR 만들기",
+	"github_submit_stack": "스택 게시",
 	"github_start_stack": "이 브랜치에서 스택 시작",
 	"github_stack_help": "GitHub 스택 설정 및 도움말 ↗",
 	"github_pr_number": "PR #{{number}}",
@@ -298,5 +298,6 @@
 	"worktree_setup_card_preparing_directory": "이 채팅을 위한 별도의 작업 디렉터리를 준비하고 있습니다.",
 	"worktree_setup_card_no_setup_script": "설정 스크립트가 필요하지 않습니다.",
 	"worktree_setup_card_workspace_ready_description": "작업 공간이 준비되었습니다.",
-	"worktree_setup_card_preparing_environment": "작업 공간 환경을 준비하고 있습니다."
+	"worktree_setup_card_preparing_environment": "작업 공간 환경을 준비하고 있습니다.",
+	"github_submit_stack_help": "모든 브랜치를 푸시하고 GitHub의 풀 리퀘스트를 업데이트합니다. 풀 리퀘스트가 없는 브랜치에는 아직 리뷰할 준비가 되지 않은 초안을 만듭니다. 기존의 열린 풀 리퀘스트는 열린 상태로 유지됩니다."
 }

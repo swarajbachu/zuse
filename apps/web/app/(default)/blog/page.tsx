@@ -5,9 +5,9 @@ import { getSEO } from "@/lib/seo";
 import { blog } from "@/lib/source";
 
 export const metadata = getSEO({
-	title: "Journal: guides, notes, and news from Zuse",
+	title: "Open Source Cloud Agents: Guides and Journal",
 	description:
-		"Practical guides, engineering notes, and product news on open-source coding agents, parallel worktrees, and reviewing AI-generated code.",
+		"Guides to open source cloud agents, Zuse release notes, and engineering journals on cloud workspaces, parallel coding, and reliable task recovery.",
 	path: "/blog",
 });
 const dateLabel = (date: Date) =>
@@ -34,7 +34,16 @@ export default function BlogIndexPage() {
 					The <span className="heading-accent text-primary">Journal.</span>
 				</h1>
 				<p className="mt-5 max-w-lg text-sm leading-6 text-muted-foreground">
-					Ideas, field notes, and practical guides for working with agents.
+					Practical guides, release notes, and engineering journals about open
+					source cloud agents.
+				</p>
+				<p className="mt-4 text-sm">
+					<Link
+						href="/blog/open-source-cloud-agents"
+						className="text-primary underline underline-offset-4"
+					>
+						Start here: a guide to open source cloud agents
+					</Link>
 				</p>
 				<nav
 					aria-label="Journal sections"

@@ -49,14 +49,6 @@ const session = (status: Session["status"] = "idle") =>
 		worktreeId: null,
 	}) as Session;
 
-const userQuestion = {
-	content: {
-		_tag: "user_question",
-		itemId: "q1",
-		questions: [{ question: "Which behavior?", options: ["A"] }],
-	},
-} as unknown as Message;
-
 const exitPlan = {
 	content: {
 		_tag: "tool_use",
@@ -83,7 +75,9 @@ const baseInput = {
 	sessionsByProject: { "project-1": [session()] },
 	messagesBySession: {},
 	runtimeBySession: { "session-1": runtimeProjection("idle") },
+	interactionsBySession: {},
 	permissionRequests: [],
+	questionAttachmentsByKey: {},
 	recentCompletions: {},
 	now,
 };
@@ -129,7 +123,17 @@ describe("buildNotchItems", () => {
 	it("prioritizes permission over question and plan states", () => {
 		const items = buildNotchItems({
 			...baseInput,
-			messagesBySession: { "session-1": [exitPlan, userQuestion] },
+			messagesBySession: { "session-1": [exitPlan] },
+			interactionsBySession: {
+				"session-1": [
+					{
+						_tag: "Question",
+						id: "q1" as never,
+						questions: [{ question: "Which behavior?", options: ["A"] }],
+						requestedAt: new Date(now),
+					},
+				],
+			},
 			runtimeBySession: {
 				"session-1": runtimeProjection("running"),
 			},
@@ -137,6 +141,24 @@ describe("buildNotchItems", () => {
 		});
 
 		expect(items[0]?.state).toBe("permission");
+	});
+
+	it("does not surface a quarantined durable permission before reattachment", () => {
+		const items = buildNotchItems({
+			...baseInput,
+			interactionsBySession: {
+				"session-1": [
+					{
+						_tag: "Permission",
+						id: permission.id,
+						request: permission,
+					},
+				],
+			},
+			permissionRequests: [],
+		});
+
+		expect(items).toHaveLength(0);
 	});
 
 	it("keeps recent completions for the TTL", () => {

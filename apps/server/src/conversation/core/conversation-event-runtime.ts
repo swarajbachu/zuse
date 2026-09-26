@@ -1,5 +1,6 @@
 /** Owns provider-event subscriptions and durable turn settlement. */
 import type {
+	AgentItemId,
 	AgentTurnId,
 	MessageContent,
 	PermissionMode,
@@ -61,6 +62,10 @@ export interface ConversationEventRuntimeOptions {
 		sessionId: SessionId,
 		activity: ApiActivity,
 	) => Effect.Effect<void>;
+	readonly reconcileQuestionResolution: (
+		sessionId: SessionId,
+		itemId: AgentItemId,
+	) => Effect.Effect<boolean>;
 	readonly ignoreError: (providerId: ProviderId, message: string) => boolean;
 	readonly isDuplicateToolUse: (
 		sessionId: SessionId,
@@ -210,6 +215,15 @@ export const makeConversationEventRuntime = Effect.fn(
 									if (
 										event._tag === "Error" &&
 										options.ignoreError(providerId, event.message)
+									) {
+										return;
+									}
+									if (
+										event._tag === "UserQuestion" &&
+										(yield* options.reconcileQuestionResolution(
+											sessionId,
+											event.itemId,
+										))
 									) {
 										return;
 									}

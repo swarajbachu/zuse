@@ -325,7 +325,7 @@ function main() {
 		const pkg = JSON.parse(readFileSync(path, "utf8"));
 		pkg.version = metadata.version;
 		writeFileSync(path, `${JSON.stringify(pkg, null, "\t")}\n`);
-		const configPath = "apps/desktop/electron-builder.yml";
+		const configPath = "apps/desktop/electron-builder.base.yml";
 		const config = parse(readFileSync(configPath, "utf8"));
 		config.publish.channel = metadata.updateChannel;
 		config.releaseInfo = {

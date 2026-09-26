@@ -21,11 +21,11 @@ import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
  * Three tiers, each instant:
  *   1. the bundled snapshot compiled into the app (first paint, always),
  *   2. the last server answer persisted to localStorage (survives restarts),
- *   3. the server's `model.catalog` RPC, refreshed stale-while-revalidate.
+ *   3. the server's `model.catalog` RPC, warmed once after app startup.
  *
- * Refreshes are deduped and rate-limited by `ensureLoaded({ maxAgeMs })`;
- * the server itself caches remote + live data, so calling this often is
- * cheap. Replaces the per-provider Kiro / OpenCode inventory stores.
+ * The server is loaded once per renderer lifetime. The persisted snapshot
+ * keeps first paint instant, while an explicit refresh remains available for
+ * provider mutations. Replaces the per-provider inventory stores.
  */
 export type ModelCatalogSource = "bundled" | "storage" | "server";
 
@@ -33,12 +33,11 @@ type State = {
 	readonly catalog: ResolvedModelCatalog;
 	readonly source: ModelCatalogSource;
 	readonly loadedAt: number | null;
+	readonly loadedEnvironmentId: string | null;
 	readonly loading: boolean;
 	readonly error: string | null;
-	/** Refresh from the server unless a load newer than `maxAgeMs` exists. */
-	readonly ensureLoaded: (options?: {
-		readonly maxAgeMs?: number;
-	}) => Promise<void>;
+	/** Load once from the server during this renderer lifetime. */
+	readonly ensureLoaded: () => Promise<void>;
 	/** Force the server to re-fetch the remote document and live listings. */
 	readonly refresh: () => Promise<void>;
 };
@@ -51,9 +50,6 @@ const LEGACY_INVENTORY_KEYS = [
 	"zuse.opencode.inventory.v2",
 	"memoize.opencode.inventory.v2",
 ] as const;
-const DEFAULT_MAX_AGE_MS = 2 * 60 * 1000;
-/** While any provider's live listing is still pending, re-check sooner. */
-const PENDING_MAX_AGE_MS = 15 * 1000;
 
 const activeEnvironmentId = (): EnvironmentId =>
 	EnvironmentId.make(useEnvironmentCatalogStore.getState().activeEnvironmentId);
@@ -111,9 +107,9 @@ const dropLegacyInventoryCaches = (): void => {
 };
 
 const fetchCatalog = async (
+	environmentId: EnvironmentId,
 	refresh: boolean,
 ): Promise<ResolvedModelCatalog> => {
-	const environmentId = activeEnvironmentId();
 	const receipt = await dispatchEnvironmentShellCommand<
 		{ readonly refresh?: boolean },
 		ResolvedModelCatalog
@@ -126,17 +122,12 @@ const fetchCatalog = async (
 	return receipt.result;
 };
 
-const hasPendingLive = (catalog: ResolvedModelCatalog): boolean =>
-	Object.values(catalog.providers).some(
-		(provider) => provider.live.status === "pending",
-	);
-
 const sameCatalog = (
 	a: ResolvedModelCatalog,
 	b: ResolvedModelCatalog,
 ): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-let pendingLoad: Promise<void> | null = null;
+const pendingLoads = new Map<string, Promise<void>>();
 
 const initial = (() => {
 	dropLegacyInventoryCaches();
@@ -148,27 +139,34 @@ const initial = (() => {
 
 export const useModelCatalogStore = create<State>((set, get) => {
 	const load = async (refresh: boolean): Promise<void> => {
-		if (pendingLoad !== null) {
+		const environmentId = activeEnvironmentId();
+		const pendingLoad = pendingLoads.get(environmentId);
+		if (pendingLoad !== undefined) {
 			await pendingLoad;
 			return;
 		}
-		const environmentId = activeEnvironmentId();
 		set({ loading: true, error: null });
 		const run = (async () => {
 			try {
-				const next = await fetchCatalog(refresh);
+				const next = await fetchCatalog(environmentId, refresh);
 				if (environmentId !== activeEnvironmentId()) {
-					set({ loading: false });
 					return;
 				}
 				const current = get().catalog;
 				if (sameCatalog(current, next)) {
-					set({ loading: false, loadedAt: Date.now(), source: "server" });
+					set({
+						loading: false,
+						loadedAt: Date.now(),
+						loadedEnvironmentId: environmentId,
+						source: "server",
+						error: null,
+					});
 				} else {
 					set({
 						catalog: next,
 						source: "server",
 						loadedAt: Date.now(),
+						loadedEnvironmentId: environmentId,
 						loading: false,
 						error: null,
 					});
@@ -177,12 +175,21 @@ export const useModelCatalogStore = create<State>((set, get) => {
 			} catch (err) {
 				// Old server without the RPC, or a transport blip: keep showing
 				// whatever we have (bundled or the last good answer).
-				set({ loading: false, error: formatError(err), loadedAt: Date.now() });
+				if (environmentId === activeEnvironmentId()) {
+					set({
+						loading: false,
+						error: formatError(err),
+						loadedAt: null,
+						loadedEnvironmentId: null,
+					});
+				}
 			}
 		})().finally(() => {
-			pendingLoad = null;
+			if (pendingLoads.get(environmentId) === run) {
+				pendingLoads.delete(environmentId);
+			}
 		});
-		pendingLoad = run;
+		pendingLoads.set(environmentId, run);
 		await run;
 	};
 
@@ -190,14 +197,11 @@ export const useModelCatalogStore = create<State>((set, get) => {
 		catalog: initial.catalog,
 		source: initial.source,
 		loadedAt: null,
+		loadedEnvironmentId: null,
 		loading: false,
 		error: null,
-		ensureLoaded: async (options) => {
-			const { loadedAt, catalog } = get();
-			const maxAgeMs =
-				options?.maxAgeMs ??
-				(hasPendingLive(catalog) ? PENDING_MAX_AGE_MS : DEFAULT_MAX_AGE_MS);
-			if (loadedAt !== null && Date.now() - loadedAt < maxAgeMs) return;
+		ensureLoaded: async () => {
+			if (get().loadedEnvironmentId === activeEnvironmentId()) return;
 			await load(false);
 		},
 		refresh: () => load(true),
@@ -218,6 +222,7 @@ export const resetModelCatalogForEnvironment = (): void => {
 		catalog: bundledResolvedModelCatalog(),
 		source: "bundled",
 		loadedAt: null,
+		loadedEnvironmentId: null,
 		loading: false,
 		error: null,
 	});

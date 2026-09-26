@@ -869,5 +869,16 @@
 	"cloud_auth_not_allowed": "Ihre Zuse-Sitzung konnte diese Aktion nicht autorisieren. Aktualisieren Sie Ihre Sitzung und versuchen Sie es erneut.",
 	"cloud_auth_login_failed": "Die Agent-Anmeldung konnte nicht gestartet werden.",
 	"cloud_auth_temporarily_unavailable": "Die Cloud-Authentifizierung ist vorübergehend nicht verfügbar. Versuchen Sie es erneut; bestehende Chats bleiben davon unberührt.",
-	"cloud_machine_provider": "Maschinenanbieter"
+	"cloud_machine_provider": "Maschinenanbieter",
+	"wallpaper_title": "Hintergrundbild",
+	"wallpaper_description": "Ein dezenter Hintergrund für neue Chats. Auf diesem Gerät gespeichert.",
+	"wallpaper_saving": "Wird gespeichert…",
+	"wallpaper_replace": "Bild ersetzen",
+	"wallpaper_upload": "Bild hochladen",
+	"wallpaper_remove": "Entfernen",
+	"wallpaper_upload_label": "Hintergrundbild hochladen",
+	"wallpaper_opacity": "Deckkraft",
+	"wallpaper_opacity_label": "Deckkraft des Hintergrundbilds",
+	"wallpaper_hint": "PNG, JPEG, WebP, AVIF oder GIF · Bis zu 20 MB. Erstelle eine Textur mit",
+	"wallpaper_studio": "Dither studio"
 }

@@ -38,7 +38,7 @@ const effectSchemaPath = require.resolve("effect/Schema");
 const fastCheckProductionStub = fileURLToPath(
 	new URL("./src/lib/fast-check-production-stub.ts", import.meta.url),
 );
-const fontPkgPath = require.resolve("@fontsource-variable/inter/package.json");
+const fontPkgPath = require.resolve("@fontsource-variable/geist/package.json");
 // .../node_modules/.bun/@fontsource-variable+inter@X.Y.Z/node_modules/@fontsource-variable/inter/package.json
 //                  ^^^^ walk up 5 dirs to reach `node_modules/.bun/`
 const bunStoreRoot = dirname(dirname(dirname(dirname(dirname(fontPkgPath)))));
@@ -126,9 +126,6 @@ export default defineConfig({
 			"@pierre/diffs/react",
 			"@pierre/trees",
 			"@pierre/trees/react",
-			"@xterm/addon-fit",
-			"@xterm/addon-webgl",
-			"@xterm/xterm",
 			"@zuse/icons/bulk-rounded",
 			"@zuse/icons/solid-rounded",
 			"@zuse/icons/stroke-rounded",

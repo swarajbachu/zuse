@@ -17,7 +17,10 @@ describe("platform symbol names", () => {
 		}
 	});
 	test("covers settings and onboarding glyphs", () => {
-		const settings = readFileSync(`${process.cwd()}/app/settings.tsx`, "utf8");
+		const settings = readFileSync(
+			`${process.cwd()}/src/components/settings-screen.tsx`,
+			"utf8",
+		);
 		for (const match of settings.matchAll(/symbol="([^"]+)"/g)) {
 			expect(materialSymbolNames[match[1] as SFSymbol]).toBeDefined();
 		}

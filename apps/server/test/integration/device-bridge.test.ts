@@ -50,6 +50,8 @@ it.each([
 						yield* client`DROP TABLE device_command_grants`;
 						yield* client`DROP TABLE device_bridge_config`;
 					}
+					// The simulated pre-bridge schema predates question delivery receipts.
+					yield* client`DROP TABLE question_answer_deliveries`;
 					yield* client`DELETE FROM effect_sql_migrations WHERE migration_id >= 55`;
 					const name =
 						databaseState === "other-branch"

@@ -28,9 +28,14 @@ import {
 import { type Cause, Effect, Queue, Stream } from "effect";
 
 import { AttachmentService } from "../kernel/attachment-service.ts";
-import type { ProviderSessionHandle } from "../kernel/driver.ts";
+import type {
+	ProviderDriverEvent,
+	ProviderSessionHandle,
+	QuestionCallbackReleased,
+} from "../kernel/driver.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
 import type { ResolvedMcpServer } from "../user-mcp/types.ts";
 import type { BrowserSend } from "./browser-tools.ts";
 import { scrubInheritedClaudeMarkers } from "./claude-env.ts";
@@ -81,7 +86,7 @@ const userMcpConfigEntries = (
  * RPCs to these methods.
  */
 export interface ClaudeSessionHandle extends ProviderSessionHandle {
-	readonly events: Stream.Stream<AgentEvent>;
+	readonly events: Stream.Stream<ProviderDriverEvent>;
 	readonly send: (
 		text: string,
 		attachments?: ReadonlyArray<AttachmentRef>,
@@ -105,7 +110,7 @@ export interface ClaudeSessionHandle extends ProviderSessionHandle {
 	readonly answerQuestion: (
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
-	) => Effect.Effect<void>;
+	) => Effect.Effect<void, Error>;
 }
 
 /**
@@ -1593,7 +1598,7 @@ export const startClaudeSession = (
 > =>
 	Effect.gen(function* () {
 		const attachments = yield* AttachmentService;
-		const events = yield* Queue.make<AgentEvent, Cause.Done>();
+		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 		const inputChannel = new UserInputChannel();
 		const abort = new AbortController();
 
@@ -1703,7 +1708,20 @@ export const startClaudeSession = (
 		type QuestionResolver = (
 			answers: ReadonlyArray<UserQuestionAnswer> | null,
 		) => void;
-		const pendingQuestions = new Map<string, QuestionResolver>();
+		const pendingQuestions =
+			makeBoundedQuestionCallbackRegistry<QuestionResolver>();
+		const releasePendingQuestions = (
+			reason: QuestionCallbackReleased["reason"],
+		): void => {
+			for (const [itemId, resolve] of pendingQuestions.drain()) {
+				resolve(null);
+				Queue.offerUnsafe(events, {
+					_tag: "QuestionCallbackReleased",
+					itemId: itemId as AgentItemId,
+					reason,
+				});
+			}
+		};
 		let currentPermissionMode = input.permissionMode ?? "default";
 
 		const mcpGatewaySession = yield* issueProviderMcpSession({
@@ -1728,16 +1746,19 @@ export const startClaudeSession = (
 								: {}),
 						}),
 					);
-					Queue.offerUnsafe(events, {
-						_tag: "UserQuestion",
-						itemId,
-						questions: userQuestions,
-						parentItemId: translateState.latestParentItemId,
-					});
 					const answers =
 						await new Promise<ReadonlyArray<UserQuestionAnswer> | null>(
 							(resolve) => {
-								pendingQuestions.set(itemId, resolve);
+								if (pendingQuestions.register(itemId, resolve) !== "accepted") {
+									resolve(null);
+									return;
+								}
+								Queue.offerUnsafe(events, {
+									_tag: "UserQuestion",
+									itemId,
+									questions: userQuestions,
+									parentItemId: translateState.latestParentItemId,
+								});
 							},
 						);
 					if (answers === null) {
@@ -1995,6 +2016,7 @@ export const startClaudeSession = (
 			Effect.ensuring(
 				Effect.sync(() => {
 					checkpointBatcher.flush();
+					releasePendingQuestions("transport_lost");
 					Queue.endUnsafe(events);
 				}),
 			),
@@ -2059,6 +2081,7 @@ export const startClaudeSession = (
 					// (`error_during_execution`) is translated into an `Interrupted`
 					// badge instead of an error bubble.
 					translateState.interrupted = true;
+					releasePendingQuestions("cancelled");
 				}).pipe(
 					Effect.andThen(
 						Effect.tryPromise({
@@ -2074,8 +2097,7 @@ export const startClaudeSession = (
 					// Unblock any in-flight AskUserQuestion calls so the SDK turn
 					// can unwind cleanly instead of leaking the MCP handler's
 					// pending Promise.
-					for (const resolve of pendingQuestions.values()) resolve(null);
-					pendingQuestions.clear();
+					releasePendingQuestions("closed");
 					inputChannel.close();
 					abort.abort();
 					void mcpGatewaySession.close();
@@ -2097,11 +2119,20 @@ export const startClaudeSession = (
 					Effect.catch(() => Effect.void),
 				),
 			answerQuestion: (itemId, answers) =>
-				Effect.sync(() => {
-					const resolve = pendingQuestions.get(itemId as string);
-					if (resolve === undefined) return;
-					pendingQuestions.delete(itemId as string);
-					resolve(answers);
+				Effect.try({
+					try: () => {
+						pendingQuestions.take(itemId)(answers);
+					},
+					catch: (cause) =>
+						cause instanceof Error ? cause : new Error(String(cause)),
+				}),
+			cancelQuestion: (itemId) =>
+				Effect.try({
+					try: () => {
+						pendingQuestions.take(itemId)(null);
+					},
+					catch: (cause) =>
+						cause instanceof Error ? cause : new Error(String(cause)),
 				}),
 		};
 		return handle;

@@ -25,6 +25,13 @@ Node 22 is intentional. It satisfies the server's runtime floor and remains
 compatible with the native tree-sitter dependency; Node 24 currently forces an
 incompatible source rebuild of that dependency on Linux.
 
+## Updating the cloud developer toolchain
+
+See the [nightly toolchain update runbook](../../internal-docs/cloud/toolchain-updates.md)
+for automated CLI checks, compatibility verification, and template rollout.
+Signed runtime publication does not publish sandbox templates or refresh existing
+workspaces.
+
 ## Build and configure staging
 
 Build the server tarballs from this exact checkout first. This avoids depending
@@ -101,15 +108,12 @@ lifecycle operations continue to use their recorded provider.
 
 Boat (boat.dev) has no custom-image API; its template is a **named
 snapshot** built by provisioning a fresh box and freezing it. All shared
-installation behavior lives in `provision.sh` — the same stages the
-Dockerfile runs — so the two templates cannot drift. The Boat-specific layer
-(`box/`) adds what the provider shape requires:
+runtime/layout behavior lives in `provision.sh`. E2B installs pinned agents;
+Boat preserves its bundled agents. The provider adapter registers requested
+ports through authenticated commands during endpoint resolution, after the
+listener exists. There is no boot-time host service: systemd does not inherit
+Boat's command credentials. The Boat-specific layer (`box/`) contains:
 
-- `zuse-host-ports.service` — re-hosts the runtime port on the box's stable
-  public HTTPS URL on ordinary boots. The adapter registers requested ports
-  during endpoint resolution, after the listener exists, because restored
-  units do not exist during initial systemd boot and Boat's tunnel binding is
-  listener-sensitive.
 - `install.sh` — root-side installer that pins system Node 22, excludes the
   stock user's NVM from provisioning, runs the shared stages,
   and strips sudo from the zuse user. Global packages use `/usr/local` explicitly;

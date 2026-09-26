@@ -17,6 +17,8 @@ import {
 	EnvironmentId,
 	type PtyEvent,
 	PtyId,
+	PtyOpenToken,
+	PtyOwnerId,
 	SessionId,
 } from "@zuse/contracts";
 import { Effect, Queue, Stream } from "effect";
@@ -25,8 +27,12 @@ import { describe, expect, it } from "vitest";
 import {
 	makeTerminalResourceDriver,
 	type TerminalDriverClient,
+	terminalCloseCommand,
+	terminalCloseOwnedCommand,
 	terminalInputCommand,
+	terminalOpenCommand,
 	terminalResourceKey,
+	terminalRestartCommand,
 } from "../../src/lib/terminal-client-bus.ts";
 
 const waitUntil = async (predicate: () => boolean): Promise<void> => {
@@ -39,6 +45,8 @@ const waitUntil = async (predicate: () => boolean): Promise<void> => {
 
 const environmentId = EnvironmentId.make("terminal-environment");
 const terminalId = PtyId.make("terminal-1");
+const ownerId = PtyOwnerId.make("desktop-owner");
+const processEpoch = `pty:${terminalId}`;
 const key = terminalResourceKey({ environmentId, terminalId });
 
 const makeContext = (
@@ -72,6 +80,7 @@ const makeContext = (
 	};
 	const driver = makeTerminalResourceDriver({
 		sinkFor: () => ({
+			reset: async () => undefined,
 			write,
 			exited: async () => undefined,
 		}),
@@ -112,6 +121,7 @@ describe("terminal ClientBus adapter", () => {
 				if (resource.kind === "terminal") {
 					return makeTerminalResourceDriver({
 						sinkFor: () => ({
+							reset: async () => undefined,
 							write: async () => undefined,
 							exited: async () => undefined,
 						}),
@@ -162,7 +172,12 @@ describe("terminal ClientBus adapter", () => {
 				}),
 		);
 		harness.driver.start(harness.context);
-		Queue.offerUnsafe(output, { _tag: "data", sequence: 1, bytes: "one" });
+		Queue.offerUnsafe(output, {
+			_tag: "data",
+			processEpoch,
+			sequence: 1,
+			bytes: "one",
+		});
 		await waitUntil(() => writes.length === 1);
 		expect(harness.cursor()?.version).toBe(0);
 		const finishWrite = completeWrite as (() => void) | null;
@@ -186,6 +201,7 @@ describe("terminal ClientBus adapter", () => {
 		};
 		const driver = makeTerminalResourceDriver({
 			sinkFor: () => ({
+				reset: async () => undefined,
 				write: async (bytes) => {
 					writes.push(bytes);
 				},
@@ -207,9 +223,19 @@ describe("terminal ClientBus adapter", () => {
 			},
 			isCurrent: () => true,
 		});
-		Queue.offerUnsafe(output, { _tag: "data", sequence: 1, bytes: "one" });
+		Queue.offerUnsafe(output, {
+			_tag: "data",
+			processEpoch,
+			sequence: 1,
+			bytes: "one",
+		});
 		await waitUntil(() => cursor?.version === 1);
-		Queue.offerUnsafe(output, { _tag: "data", sequence: 3, bytes: "three" });
+		Queue.offerUnsafe(output, {
+			_tag: "data",
+			processEpoch,
+			sequence: 3,
+			bytes: "three",
+		});
 		await waitUntil(() => afterSequences.length === 2);
 		expect(afterSequences).toEqual([0, 1]);
 		expect(writes).toEqual(["one"]);
@@ -224,6 +250,7 @@ describe("terminal ClientBus adapter", () => {
 		const command = terminalInputCommand({
 			ref: { environmentId, terminalId },
 			data: "ls\r",
+			ownerId,
 			commandId: CommandId.make("terminal-input"),
 		});
 		expect(command).toMatchObject({
@@ -231,6 +258,11 @@ describe("terminal ClientBus adapter", () => {
 			retry: "never",
 			environmentId,
 			resource: key,
+			payload: {
+				ptyId: terminalId,
+				data: "ls\r",
+				ownerId: "desktop-owner",
+			},
 		});
 
 		const persisted: OutboxEntry[] = [];
@@ -256,6 +288,79 @@ describe("terminal ClientBus adapter", () => {
 		expect(await outbox.listOutbox()).toEqual([]);
 	});
 
+	it("durably retries only logically idempotent terminal lifecycle commands", () => {
+		const openToken = PtyOpenToken.make("logical-terminal-1");
+		const tokenized = terminalOpenCommand({
+			environmentId,
+			commandId: CommandId.make("terminal-open-tokenized"),
+			payload: {
+				cwd: "/workspace",
+				cols: 80,
+				rows: 24,
+				ownership: { ownerId, openToken },
+			},
+		});
+		const legacy = terminalOpenCommand({
+			environmentId,
+			commandId: CommandId.make("terminal-open-legacy"),
+			payload: { cwd: "/workspace", cols: 80, rows: 24 },
+		});
+		const cleanup = terminalCloseOwnedCommand({
+			environmentId,
+			ownerId,
+			commandId: CommandId.make("terminal-close-owned"),
+		});
+		const ownedClose = terminalCloseCommand({
+			ref: { environmentId, terminalId },
+			ownerId,
+			commandId: CommandId.make("terminal-close-owned-pty"),
+		});
+		const legacyClose = terminalCloseCommand({
+			ref: { environmentId, terminalId },
+			commandId: CommandId.make("terminal-close-legacy"),
+		});
+		const epochRestart = terminalRestartCommand({
+			ref: { environmentId, terminalId },
+			ownerId,
+			expectedProcessEpoch: "epoch-before-restart",
+			commandId: CommandId.make("terminal-restart-epoch"),
+		});
+		const legacyRestart = terminalRestartCommand({
+			ref: { environmentId, terminalId },
+			ownerId,
+			commandId: CommandId.make("terminal-restart-legacy"),
+		});
+
+		expect(tokenized).toMatchObject({
+			kind: "pty.open",
+			retry: "safe",
+			payload: { ownership: { ownerId: "desktop-owner", openToken } },
+		});
+		expect(legacy.retry).toBe("never");
+		expect(cleanup).toMatchObject({
+			kind: "pty.closeOwned",
+			retry: "safe",
+			resource: null,
+			payload: { ownerId: "desktop-owner" },
+		});
+		expect(ownedClose).toMatchObject({
+			kind: "pty.close",
+			retry: "safe",
+			payload: { ptyId: terminalId, ownerId: "desktop-owner" },
+		});
+		expect(legacyClose.retry).toBe("never");
+		expect(epochRestart).toMatchObject({
+			kind: "pty.restart",
+			retry: "safe",
+			payload: {
+				ptyId: terminalId,
+				ownerId: "desktop-owner",
+				expectedProcessEpoch: "epoch-before-restart",
+			},
+		});
+		expect(legacyRestart.retry).toBe("never");
+	});
+
 	it("drops output from an obsolete connection generation before the byte sink", async () => {
 		const output = Effect.runSync(Queue.unbounded<typeof PtyEvent.Type>());
 		const writes: string[] = [];
@@ -271,6 +376,7 @@ describe("terminal ClientBus adapter", () => {
 		current = false;
 		Queue.offerUnsafe(output, {
 			_tag: "data",
+			processEpoch,
 			sequence: 1,
 			bytes: "stale-generation",
 		});

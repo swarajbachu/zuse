@@ -7,6 +7,7 @@ import {
 	type CodeAnnotation,
 	EnvironmentId,
 	type FolderId,
+	type PtyId,
 	type WorktreeId,
 } from "@zuse/contracts";
 import {
@@ -223,6 +224,8 @@ type UiState = {
 	readonly leftSidebarPeek: boolean;
 	/** Right-dock visibility and width, scoped per sidebar chat. */
 	readonly rightPaneLayoutByChat: Record<string, RightPaneLayout>;
+	/** Bottom-terminal visibility, scoped independently per sidebar chat. */
+	readonly bottomTerminalLayoutByChat: Record<string, BottomTerminalLayout>;
 	/** Whether the cross-project chat quick-switcher (Cmd+K) overlay is open. */
 	readonly chatSwitcherOpen: boolean;
 	readonly isFullScreen: boolean;
@@ -266,6 +269,15 @@ type UiState = {
 		ref: ChatRef,
 		widthPercent: number,
 	) => void;
+	readonly setBottomTerminalOpenForChat: (ref: ChatRef, open: boolean) => void;
+	readonly setBottomTerminalHeightForChat: (
+		ref: ChatRef,
+		heightPx: number,
+	) => void;
+	readonly setActiveBottomTerminalForChat: (
+		ref: ChatRef,
+		terminalId: PtyId | null,
+	) => void;
 	readonly setChatSwitcherOpen: (open: boolean) => void;
 	readonly toggleChatSwitcher: () => void;
 	readonly setFullScreen: (full: boolean) => void;
@@ -284,6 +296,12 @@ type UiState = {
 	 * instance (`useTerminalsStore.remove`). Re-indexes remaining terminal
 	 * slots. */
 	readonly closePanel: (ref: ChatRef, id: string) => void;
+	/** Remove panels for catalog-pruned terminal slots and shift surviving slot
+	 * references by exactly the removed indices. */
+	readonly reconcileTerminalPanelSlots: (
+		ref: ChatRef,
+		removedSlots: ReadonlyArray<number>,
+	) => void;
 	readonly setActiveRightPanel: (ref: ChatRef, id: string) => void;
 	/** Drop a chat's entire dock layout (on archive/delete). Terminal PTYs are
 	 * disposed separately via `useTerminalsStore.disposeChat`. */
@@ -311,11 +329,28 @@ export const ENVIRONMENT_SUMMARY_STORAGE_KEY =
 // from two environments could otherwise inherit each other's layout.
 export const RIGHT_PANE_WIDTHS_STORAGE_KEY = "zuse.rightPane.widths.v2";
 export const DEFAULT_RIGHT_PANE_WIDTH_PERCENT = 22;
+export const BOTTOM_TERMINAL_HEIGHTS_STORAGE_KEY =
+	"zuse.bottomTerminal.heights.v1";
+export const DEFAULT_BOTTOM_TERMINAL_HEIGHT_PX = 260;
 
 export type RightPaneLayout = {
 	readonly open: boolean;
 	readonly widthPercent: number;
 };
+
+export type BottomTerminalLayout = {
+	readonly open: boolean;
+	readonly heightPx: number;
+	readonly activeTerminalId: PtyId | null;
+};
+
+export const closedBottomTerminalLayout = (
+	heightPx = DEFAULT_BOTTOM_TERMINAL_HEIGHT_PX,
+): BottomTerminalLayout => ({
+	open: false,
+	heightPx,
+	activeTerminalId: null,
+});
 
 export const closedRightPaneLayout = (
 	widthPercent = DEFAULT_RIGHT_PANE_WIDTH_PERCENT,
@@ -352,6 +387,15 @@ export const rightPaneLayoutForChat = (
 		? closedRightPaneLayout()
 		: (state.rightPaneLayoutByChat[rightPaneKey(ref)] ??
 			closedRightPaneLayout());
+
+export const bottomTerminalLayoutForChat = (
+	state: Pick<UiState, "bottomTerminalLayoutByChat">,
+	ref: ChatRef | null,
+): BottomTerminalLayout =>
+	ref === null
+		? closedBottomTerminalLayout()
+		: (state.bottomTerminalLayoutByChat[rightPaneKey(ref)] ??
+			closedBottomTerminalLayout());
 
 const initialEnvironmentSummaryOpen = (): boolean => {
 	if (typeof window === "undefined") return true;
@@ -400,6 +444,33 @@ const initialRightPaneLayout = (): Record<string, RightPaneLayout> =>
 		]),
 	);
 
+const initialBottomTerminalHeights = (): Record<string, number> => {
+	if (typeof window === "undefined") return {};
+	try {
+		const parsed = JSON.parse(
+			window.localStorage.getItem(BOTTOM_TERMINAL_HEIGHTS_STORAGE_KEY) ?? "{}",
+		) as Record<string, unknown>;
+		return Object.fromEntries(
+			Object.entries(parsed).filter(
+				(entry): entry is [string, number] =>
+					typeof entry[1] === "number" &&
+					Number.isFinite(entry[1]) &&
+					entry[1] > 0,
+			),
+		);
+	} catch {
+		return {};
+	}
+};
+
+const initialBottomTerminalLayout = (): Record<string, BottomTerminalLayout> =>
+	Object.fromEntries(
+		Object.entries(initialBottomTerminalHeights()).map(([key, heightPx]) => [
+			key,
+			closedBottomTerminalLayout(heightPx),
+		]),
+	);
+
 const persistRightPaneWidths = (
 	layoutByChat: Record<string, RightPaneLayout>,
 ): void => {
@@ -417,6 +488,26 @@ const persistRightPaneWidths = (
 		);
 	} catch {
 		// Pane sizing remains available for this renderer session.
+	}
+};
+
+const persistBottomTerminalHeights = (
+	layoutByChat: Record<string, BottomTerminalLayout>,
+): void => {
+	try {
+		window.localStorage.setItem(
+			BOTTOM_TERMINAL_HEIGHTS_STORAGE_KEY,
+			JSON.stringify(
+				Object.fromEntries(
+					Object.entries(layoutByChat).map(([key, layout]) => [
+						key,
+						layout.heightPx,
+					]),
+				),
+			),
+		);
+	} catch {
+		// Resizing remains available for this renderer session when storage fails.
 	}
 };
 
@@ -472,6 +563,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	leftSidebarOpen: true,
 	leftSidebarPeek: false,
 	rightPaneLayoutByChat: initialRightPaneLayout(),
+	bottomTerminalLayoutByChat: initialBottomTerminalLayout(),
 	chatSwitcherOpen: false,
 	isFullScreen: false,
 	environmentSummaryOpen: initialEnvironmentSummaryOpen(),
@@ -582,6 +674,49 @@ export const useUiStore = create<UiState>((set, get) => ({
 			persistRightPaneWidths(rightPaneLayoutByChat);
 			return { rightPaneLayoutByChat };
 		}),
+	setBottomTerminalOpenForChat: (ref, open) =>
+		set((s) => {
+			const key = rightPaneKey(ref);
+			return {
+				bottomTerminalLayoutByChat: {
+					...s.bottomTerminalLayoutByChat,
+					[key]: {
+						...(s.bottomTerminalLayoutByChat[key] ??
+							closedBottomTerminalLayout()),
+						open,
+					},
+				},
+			};
+		}),
+	setBottomTerminalHeightForChat: (ref, heightPx) =>
+		set((s) => {
+			if (!Number.isFinite(heightPx) || heightPx <= 0) return s;
+			const key = rightPaneKey(ref);
+			const bottomTerminalLayoutByChat = {
+				...s.bottomTerminalLayoutByChat,
+				[key]: {
+					...(s.bottomTerminalLayoutByChat[key] ??
+						closedBottomTerminalLayout()),
+					heightPx,
+				},
+			};
+			persistBottomTerminalHeights(bottomTerminalLayoutByChat);
+			return { bottomTerminalLayoutByChat };
+		}),
+	setActiveBottomTerminalForChat: (ref, terminalId) =>
+		set((s) => {
+			const key = rightPaneKey(ref);
+			return {
+				bottomTerminalLayoutByChat: {
+					...s.bottomTerminalLayoutByChat,
+					[key]: {
+						...(s.bottomTerminalLayoutByChat[key] ??
+							closedBottomTerminalLayout()),
+						activeTerminalId: terminalId,
+					},
+				},
+			};
+		}),
 	setChatSwitcherOpen: (open) =>
 		set(
 			open
@@ -647,6 +782,32 @@ export const useUiStore = create<UiState>((set, get) => ({
 				: (s.activeRightPanelByChat[key] ?? null);
 			return writePanels(s, key, next, activeId);
 		}),
+	reconcileTerminalPanelSlots: (ref, removedSlots) =>
+		set((s) => {
+			if (removedSlots.length === 0) return s;
+			const key = rightPaneKey(ref);
+			const panels = s.rightPanelsByChat[key] ?? EMPTY_PANELS;
+			const removed = new Set(removedSlots);
+			const removedPanelIds = new Set(
+				panels
+					.filter(
+						(panel) => panel.kind === "terminal" && removed.has(panel.slot),
+					)
+					.map((panel) => panel.id),
+			);
+			const next = panels.flatMap((panel): ReadonlyArray<PanelInstance> => {
+				if (panel.kind !== "terminal") return [panel];
+				if (removed.has(panel.slot)) return [];
+				const shift = removedSlots.filter((slot) => slot < panel.slot).length;
+				return shift === 0 ? [panel] : [{ ...panel, slot: panel.slot - shift }];
+			});
+			const currentActive = s.activeRightPanelByChat[key] ?? null;
+			const activeId =
+				currentActive !== null && !removedPanelIds.has(currentActive)
+					? currentActive
+					: (next[0]?.id ?? null);
+			return writePanels(s, key, next, activeId);
+		}),
 	setActiveRightPanel: (ref, id) =>
 		set((s) => ({
 			activeRightPanelByChat: {
@@ -665,12 +826,16 @@ export const useUiStore = create<UiState>((set, get) => ({
 				s.selectedSubagentByChat;
 			const { [key]: _droppedLayout, ...rightPaneLayoutByChat } =
 				s.rightPaneLayoutByChat;
+			const { [key]: _droppedBottomTerminal, ...bottomTerminalLayoutByChat } =
+				s.bottomTerminalLayoutByChat;
 			persistRightPaneWidths(rightPaneLayoutByChat);
+			persistBottomTerminalHeights(bottomTerminalLayoutByChat);
 			return {
 				rightPanelsByChat,
 				activeRightPanelByChat,
 				selectedSubagentByChat,
 				rightPaneLayoutByChat,
+				bottomTerminalLayoutByChat,
 			};
 		}),
 	revealPanelForChat: (ref, kind) => {

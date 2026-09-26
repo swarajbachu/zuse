@@ -3,12 +3,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { NodeServices } from "@effect/platform-node";
 import type { OrchestrationSessionTools } from "@zuse/agents/drivers/orchestration-tools";
+import { validateUserQuestionAnswers } from "@zuse/agents/kernel/user-question-answer";
 import type {
 	AgentEvent,
 	AgentSessionId,
 	AutonomyLevel,
 	FolderId,
 	StartSessionInput,
+	UserQuestionAnswer,
 	WorktreeId,
 } from "@zuse/contracts";
 import {
@@ -20,6 +22,7 @@ import {
 	ComposerInput,
 	defaultModelFor,
 	MessageId,
+	PtyCatalog,
 	RepositorySettings,
 	SessionId,
 	ThreadGoal,
@@ -101,6 +104,7 @@ import { Migration0046SessionTimelineHead } from "../../src/persistence/migratio
 import { Migration0047MessageCheckpoints } from "../../src/persistence/migrations/0047_message_checkpoints.ts";
 import { Migration0053CloudCommandReceipts } from "../../src/persistence/migrations/0053_cloud_command_receipts.ts";
 import { Migration0054ProviderEffectOutcomes } from "../../src/persistence/migrations/0054_provider_effect_outcomes.ts";
+import { Migration0058QuestionAnswerDeliveries } from "../../src/persistence/migrations/0058_question_answer_deliveries.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -168,6 +172,19 @@ let providerInterruptCalls: Array<{
 	readonly turnId: AgentTurnId;
 }> = [];
 let providerEventsBarrier: Promise<void> | null = null;
+let providerQuestionAttached = false;
+let providerQuestionHasCalls = 0;
+let detachProviderQuestionAfterHasCall: number | null = null;
+let providerAnswerAttempts = 0;
+let providerAnswerPayloads: ReadonlyArray<ReadonlyArray<UserQuestionAnswer>> =
+	[];
+let failProviderAnswerAttempts = 0;
+let providerAnswerBarrier: Promise<void> | null = null;
+let providerCancelAttempts = 0;
+let failProviderCancelAttempts = 0;
+let providerCancelBarrier: Promise<void> | null = null;
+let providerQuestionConsumed = false;
+let providerQuestionContinuations = 0;
 let testAutonomyLevel: AutonomyLevel = "approval-gated";
 let createdWorktreeCount = 0;
 let createdWorktrees = new Map<string, Worktree>();
@@ -270,7 +287,66 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 	setCredential: () => Effect.succeed({ verification: "notChecked" }),
 	removeCredential: () => Effect.void,
 	setPermissionMode: () => Effect.void,
-	answerQuestion: () => Effect.void,
+	questionAttachments: () =>
+		Stream.succeed({ _tag: "snapshot", attachments: [] }),
+	hasQuestionAttachment: () =>
+		Effect.sync(() => {
+			providerQuestionHasCalls += 1;
+			const attached = providerQuestionAttached;
+			if (providerQuestionHasCalls === detachProviderQuestionAfterHasCall) {
+				providerQuestionAttached = false;
+			}
+			return attached;
+		}),
+	validateQuestionAnswer: (sessionId, itemId, answers) => {
+		const question = scriptedEvents.find(
+			(event) => event._tag === "UserQuestion" && event.itemId === itemId,
+		);
+		return providerQuestionAttached &&
+			question?._tag === "UserQuestion" &&
+			validateUserQuestionAnswers(question.questions, answers) === undefined
+			? Effect.void
+			: Effect.fail(new AgentSessionNotFoundError({ sessionId }));
+	},
+	answerQuestion: (sessionId, _itemId, answers) =>
+		Effect.gen(function* () {
+			providerAnswerAttempts += 1;
+			providerAnswerPayloads = [...providerAnswerPayloads, answers];
+			if (!providerQuestionAttached) {
+				return yield* new AgentSessionNotFoundError({ sessionId });
+			}
+			if (providerAnswerAttempts <= failProviderAnswerAttempts) {
+				return yield* new AgentSessionNotFoundError({ sessionId });
+			}
+			if (providerAnswerBarrier !== null) {
+				yield* Effect.promise(() => providerAnswerBarrier as Promise<void>);
+			}
+			if (!providerQuestionConsumed) {
+				providerQuestionConsumed = true;
+				providerQuestionContinuations += 1;
+			}
+		}),
+	cancelQuestion: (sessionId) =>
+		Effect.gen(function* () {
+			providerCancelAttempts += 1;
+			if (
+				!providerQuestionAttached ||
+				providerCancelAttempts <= failProviderCancelAttempts
+			) {
+				return yield* new AgentSessionNotFoundError({ sessionId });
+			}
+			if (providerCancelBarrier !== null) {
+				yield* Effect.promise(() => providerCancelBarrier as Promise<void>);
+			}
+			if (!providerQuestionConsumed) {
+				providerQuestionConsumed = true;
+				providerQuestionContinuations += 1;
+			}
+		}),
+	acknowledgeQuestionResolution: () =>
+		Effect.sync(() => {
+			providerQuestionAttached = false;
+		}),
 	respondToPlan: (sessionId) =>
 		Effect.fail(new AgentSessionNotFoundError({ sessionId })),
 	getGoal: (sessionId) =>
@@ -428,6 +504,7 @@ const StubGitLive = Layer.succeed(GitService, {
 	renameBranch: () => Effect.die("not used"),
 	getUserName: () => Effect.succeed(""),
 	workspaceChanges: () => Stream.die("not used"),
+	workspaceSnapshot: () => Effect.die("not used"),
 	origin: () => Effect.die("not used"),
 	prState: () => Effect.die("not used"),
 	prDetails: () => Effect.die("not used"),
@@ -549,10 +626,13 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 /** PTYs are only touched during worktree cleanup; these tests use no worktrees. */
 const StubPtyLive = Layer.succeed(PtyService, {
 	open: () => Effect.die("not used"),
-	list: () => Effect.succeed([]),
+	list: () => Effect.succeed(PtyCatalog.make({ terminals: [], liveLimit: 1 })),
 	write: () => Effect.die("not used"),
 	resize: () => Effect.die("not used"),
+	rename: () => Effect.die("not used"),
+	restart: () => Effect.die("not used"),
 	close: () => Effect.die("not used"),
+	closeOwned: () => Effect.succeed(0),
 	closeByCwdPrefix: () => Effect.void,
 	subscribe: () => Stream.die("not used"),
 });
@@ -604,6 +684,7 @@ const runAllMigrations = Effect.all(
 		Migration0047MessageCheckpoints,
 		Migration0053CloudCommandReceipts,
 		Migration0054ProviderEffectOutcomes,
+		Migration0058QuestionAnswerDeliveries,
 	],
 	{ discard: true },
 );
@@ -730,6 +811,18 @@ beforeEach(() => {
 	providerInterruptBarrier = null;
 	providerInterruptCalls = [];
 	providerEventsBarrier = null;
+	providerQuestionAttached = false;
+	providerQuestionHasCalls = 0;
+	detachProviderQuestionAfterHasCall = null;
+	providerAnswerAttempts = 0;
+	providerAnswerPayloads = [];
+	failProviderAnswerAttempts = 0;
+	providerAnswerBarrier = null;
+	providerCancelAttempts = 0;
+	failProviderCancelAttempts = 0;
+	providerCancelBarrier = null;
+	providerQuestionConsumed = false;
+	providerQuestionContinuations = 0;
 	testAutonomyLevel = "approval-gated";
 	createdWorktreeCount = 0;
 	createdWorktrees = new Map();
@@ -4885,7 +4978,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		}
 	});
 
-	it("settles an orphaned turn after restart even when its status is idle", async () => {
+	it("settles an orphaned idle turn on the first restart without reopening the provider", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-orphaned-idle-turn-"));
 		const dbPath = join(directory, "test.sqlite");
 		const first = makeRuntime(dbPath);
@@ -4931,21 +5024,8 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
+			const startsBeforeRestart = providerStartInputs.length;
 			await first.dispose();
-			activeProviderSessions.clear();
-			providerTurnIds.clear();
-			// The first recovery opens a legacy pending provider-start intent in idle
-			// state, while the already-delivered turn remains durably active.
-			const intermediate = makeRuntime(dbPath, false);
-			try {
-				await intermediate.runPromise(
-					Effect.flatMap(store, (service) =>
-						service.resumeSession(initialSession.id),
-					),
-				);
-			} finally {
-				await intermediate.dispose();
-			}
 			activeProviderSessions.clear();
 			providerTurnIds.clear();
 			const restarted = makeRuntime(dbPath, false);
@@ -4960,12 +5040,19 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						restarted.runPromise(
 							Effect.gen(function* () {
 								const sql = yield* SqlClient.SqlClient;
-								return yield* sql`SELECT status, current_turn_id FROM sessions WHERE id = ${initialSession.id}`;
+								return yield* sql`SELECT status, current_turn_id, current_turn_phase FROM sessions WHERE id = ${initialSession.id}`;
 							}),
 						),
 					)
-					.toEqual([{ status: "error", current_turn_id: null }]);
+					.toEqual([
+						{
+							status: "error",
+							current_turn_id: null,
+							current_turn_phase: null,
+						},
+					]);
 				expect(providerSentTexts).toEqual(["do not replay this command"]);
+				expect(providerStartInputs).toHaveLength(startsBeforeRestart);
 			} finally {
 				await restarted.dispose();
 			}
@@ -5691,6 +5778,611 @@ describe("ConversationServices — provider event persistence", () => {
 		} finally {
 			naming.resolve();
 			titleGenerationBarrier = null;
+			scriptedEvents = [];
+		}
+	});
+
+	it("keeps provider attachment authority until the durable answer receipt commits", async () => {
+		const itemId = "question-post-provider-db-failure" as never;
+		const answers = [
+			{ questionIndex: 1, selected: [2, 0], other: " custom " },
+			{ questionIndex: 0, selected: [1] },
+		];
+		const semanticallyEquivalentRetry = [
+			{ questionIndex: 0, selected: [1] },
+			{ questionIndex: 1, selected: [0, 2], other: "custom" },
+		];
+		scriptedEvents = [
+			{
+				_tag: "UserQuestion",
+				itemId,
+				questions: [
+					{
+						question: "Keep the pending changes?",
+						options: ["Keep", "Discard"],
+					},
+					{
+						question: "Which checks should run?",
+						options: ["Unit", "Integration", "System"],
+						multiSelect: true,
+					},
+				],
+			},
+		];
+		providerQuestionAttached = true;
+		try {
+			await withRuntime(async (run) => {
+				const { initialSession } = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "Ask before changing anything",
+						}),
+					),
+				);
+				const sessionId = initialSession.id;
+				await expect
+					.poll(() =>
+						run(
+							Effect.flatMap(store, (service) =>
+								service.listMessages(sessionId),
+							),
+						).then((messages) =>
+							messages.some(
+								(message) => message.content._tag === "user_question",
+							),
+						),
+					)
+					.toBe(true);
+				await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						yield* sql`
+							CREATE TRIGGER fail_question_answer_receipt
+							BEFORE INSERT ON messages
+							WHEN NEW.kind = 'user_question_answer'
+							BEGIN
+								SELECT RAISE(FAIL, 'injected question answer receipt failure');
+							END
+						`;
+					}),
+				);
+
+				const interruptedCommit = await run(
+					Effect.flatMap(store, (service) =>
+						Effect.exit(service.answerQuestion(sessionId, itemId, answers)),
+					),
+				);
+				expect(interruptedCommit._tag).toBe("Failure");
+				expect(providerQuestionContinuations).toBe(1);
+				expect(providerQuestionAttached).toBe(true);
+				const pending = await run(
+					Effect.gen(function* () {
+						const service = yield* store;
+						const sql = yield* SqlClient.SqlClient;
+						return {
+							answers: (yield* service.listMessages(sessionId)).filter(
+								(message) => message.content._tag === "user_question_answer",
+							),
+							intents: yield* sql<{ readonly answers_json: string }>`
+								SELECT answers_json FROM question_answer_deliveries
+								WHERE session_id = ${sessionId} AND item_id = ${itemId}
+							`,
+						};
+					}),
+				);
+				expect(pending.answers).toEqual([]);
+				expect(pending.intents).toEqual([
+					{ answers_json: JSON.stringify(answers) },
+				]);
+
+				await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						yield* sql`DROP TRIGGER fail_question_answer_receipt`;
+					}),
+				);
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.answerQuestion(
+							sessionId,
+							itemId,
+							semanticallyEquivalentRetry,
+						),
+					),
+				);
+				const recovered = await run(
+					Effect.gen(function* () {
+						const service = yield* store;
+						const sql = yield* SqlClient.SqlClient;
+						return {
+							answers: (yield* service.listMessages(sessionId)).filter(
+								(message) => message.content._tag === "user_question_answer",
+							),
+							intents: yield* sql<{ readonly item_id: string }>`
+								SELECT item_id FROM question_answer_deliveries
+								WHERE session_id = ${sessionId} AND item_id = ${itemId}
+							`,
+						};
+					}),
+				);
+				expect(providerAnswerAttempts).toBe(2);
+				expect(providerQuestionContinuations).toBe(1);
+				expect(providerQuestionAttached).toBe(false);
+				expect(recovered.answers).toHaveLength(1);
+				expect(recovered.answers[0]?.content).toMatchObject({
+					_tag: "user_question_answer",
+					answers,
+				});
+				expect(recovered.intents).toEqual([]);
+			});
+		} finally {
+			scriptedEvents = [];
+		}
+	});
+
+	it("keeps a rejected question answer pending and delivers its retry exactly once", async () => {
+		const itemId = "question-reject-once" as never;
+		const answers = [{ questionIndex: 0, selected: [0] }];
+		scriptedEvents = [
+			{
+				_tag: "UserQuestion",
+				itemId,
+				questions: [
+					{
+						question: "Keep the pending changes?",
+						options: ["Keep", "Discard"],
+						multiSelect: false,
+					},
+				],
+			},
+		];
+		providerQuestionAttached = true;
+		failProviderAnswerAttempts = 1;
+		try {
+			await withRuntime(async (run) => {
+				const { initialSession } = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "Ask before changing anything",
+						}),
+					),
+				);
+				const sessionId = initialSession.id;
+
+				await expect
+					.poll(() =>
+						run(
+							Effect.flatMap(store, (service) =>
+								service.listMessages(sessionId),
+							),
+						).then(
+							(messages) =>
+								messages.filter(
+									(message) =>
+										message.content._tag === "user_question" &&
+										message.content.itemId === itemId,
+								).length,
+						),
+					)
+					.toBe(1);
+
+				const rejected = await run(
+					Effect.flatMap(store, (service) =>
+						Effect.exit(service.answerQuestion(sessionId, itemId, answers)),
+					),
+				);
+				expect(rejected._tag).toBe("Failure");
+				expect(providerAnswerAttempts).toBe(1);
+
+				const afterRejection = await run(
+					Effect.flatMap(store, (service) => service.listMessages(sessionId)),
+				);
+				expect(
+					afterRejection.filter(
+						(message) =>
+							message.content._tag === "user_question_answer" &&
+							message.content.itemId === itemId,
+					),
+				).toEqual([]);
+
+				const pendingDelivery = await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						return yield* sql<{
+							readonly answers_json: string;
+						}>`
+								SELECT answers_json
+								FROM question_answer_deliveries
+								WHERE session_id = ${sessionId} AND item_id = ${itemId}
+							`;
+					}),
+				);
+				expect(pendingDelivery).toEqual([
+					{ answers_json: JSON.stringify(answers) },
+				]);
+
+				const retryGate = deferred<void>();
+				providerAnswerBarrier = retryGate.promise;
+				const firstRetry = run(
+					Effect.flatMap(store, (service) =>
+						service.answerQuestion(sessionId, itemId, answers),
+					),
+				);
+				await expect.poll(() => providerAnswerAttempts).toBe(2);
+				const concurrentRetry = run(
+					Effect.flatMap(store, (service) =>
+						service.answerQuestion(sessionId, itemId, answers),
+					),
+				);
+				retryGate.resolve();
+				await Promise.all([firstRetry, concurrentRetry]);
+				providerAnswerBarrier = null;
+				// Simulate a client retry after losing the successful RPC response.
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.answerQuestion(sessionId, itemId, answers),
+					),
+				);
+				// A provider may later reissue the same callback after the durable
+				// receipt already reached the client. A stale conflicting client must
+				// first settle that fresh callback with the original durable answer.
+				providerQuestionAttached = true;
+				providerQuestionConsumed = false;
+				await expect(
+					run(
+						Effect.flatMap(store, (service) =>
+							service.answerQuestion(sessionId, itemId, [
+								{ questionIndex: 0, selected: [1] },
+							]),
+						),
+					),
+				).rejects.toThrow();
+
+				const delivered = await run(
+					Effect.gen(function* () {
+						const service = yield* store;
+						const sql = yield* SqlClient.SqlClient;
+						return {
+							messages: yield* service.listMessages(sessionId),
+							delivery: yield* sql<{ readonly item_id: string }>`
+								SELECT item_id FROM question_answer_deliveries
+								WHERE session_id = ${sessionId} AND item_id = ${itemId}
+							`,
+						};
+					}),
+				);
+				expect(providerAnswerAttempts).toBe(3);
+				expect(providerAnswerPayloads.at(-1)).toEqual(answers);
+				expect(providerQuestionContinuations).toBe(2);
+				expect(providerQuestionAttached).toBe(false);
+				expect(
+					delivered.messages.filter(
+						(message) =>
+							message.content._tag === "user_question_answer" &&
+							message.content.itemId === itemId,
+					),
+				).toHaveLength(1);
+				expect(delivered.delivery).toEqual([]);
+			});
+		} finally {
+			scriptedEvents = [];
+		}
+	});
+
+	it("does not persist a receipt when callback authority detaches before delivery", async () => {
+		const itemId = "question-detach-race" as never;
+		const answers = [{ questionIndex: 0, selected: [0] }];
+		scriptedEvents = [
+			{
+				_tag: "UserQuestion",
+				itemId,
+				questions: [
+					{
+						question: "Continue?",
+						options: ["Continue", "Cancel"],
+					},
+				],
+			},
+		];
+		providerQuestionAttached = true;
+		try {
+			await withRuntime(async (run) => {
+				const { initialSession } = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "Ask before continuing",
+						}),
+					),
+				);
+				const sessionId = initialSession.id;
+				await expect
+					.poll(() =>
+						run(
+							Effect.flatMap(store, (service) =>
+								service.listMessages(sessionId),
+							),
+						).then((messages) =>
+							messages.some(
+								(message) =>
+									message.content._tag === "user_question" &&
+									message.content.itemId === itemId,
+							),
+						),
+					)
+					.toBe(true);
+
+				// answerQuestion checks attachment truth before inserting the intent and
+				// once more before invoking the provider. Detach immediately after the
+				// latter check to reproduce the callback-release race.
+				detachProviderQuestionAfterHasCall = providerQuestionHasCalls + 2;
+				const raced = await run(
+					Effect.flatMap(store, (service) =>
+						Effect.exit(service.answerQuestion(sessionId, itemId, answers)),
+					),
+				);
+				expect(raced._tag).toBe("Failure");
+				expect(providerAnswerAttempts).toBe(1);
+				const pending = await run(
+					Effect.gen(function* () {
+						const service = yield* store;
+						const sql = yield* SqlClient.SqlClient;
+						return {
+							answers: (yield* service.listMessages(sessionId)).filter(
+								(message) =>
+									message.content._tag === "user_question_answer" &&
+									message.content.itemId === itemId,
+							),
+							intents: yield* sql<{ readonly item_id: string }>`
+								SELECT item_id FROM question_answer_deliveries
+								WHERE session_id = ${sessionId} AND item_id = ${itemId}
+							`,
+						};
+					}),
+				);
+				expect(pending.answers).toEqual([]);
+				expect(pending.intents).toEqual([{ item_id: itemId }]);
+
+				detachProviderQuestionAfterHasCall = null;
+				providerQuestionAttached = true;
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.answerQuestion(sessionId, itemId, answers),
+					),
+				);
+				const recovered = await run(
+					Effect.flatMap(store, (service) => service.listMessages(sessionId)),
+				);
+				expect(
+					recovered.filter(
+						(message) =>
+							message.content._tag === "user_question_answer" &&
+							message.content.itemId === itemId,
+					),
+				).toHaveLength(1);
+				expect(providerQuestionContinuations).toBe(1);
+			});
+		} finally {
+			scriptedEvents = [];
+		}
+	});
+
+	it("rejects malformed answers before outbox persistence and accepts valid multi/free-text answers", async () => {
+		const itemId = "question-answer-validation" as never;
+		scriptedEvents = [
+			{
+				_tag: "UserQuestion",
+				itemId,
+				questions: [
+					{
+						question: "Keep the pending changes?",
+						options: ["Keep", "Discard"],
+						multiSelect: false,
+					},
+					{
+						question: "Which checks should run?",
+						options: ["Unit", "Integration", "System"],
+						multiSelect: true,
+					},
+				],
+			},
+		];
+		providerQuestionAttached = true;
+		try {
+			await withRuntime(async (run) => {
+				const { initialSession } = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "Ask before continuing",
+						}),
+					),
+				);
+				const sessionId = initialSession.id;
+				await expect
+					.poll(() =>
+						run(
+							Effect.flatMap(store, (service) =>
+								service.listMessages(sessionId),
+							),
+						).then((messages) =>
+							messages.some(
+								(message) => message.content._tag === "user_question",
+							),
+						),
+					)
+					.toBe(true);
+
+				const validSecond = { questionIndex: 1, selected: [0] };
+				const malformed = [
+					[],
+					[{ questionIndex: 0, selected: [0] }],
+					[{ questionIndex: -1, selected: [0] }, validSecond],
+					[{ questionIndex: 0.5, selected: [0] }, validSecond],
+					[{ questionIndex: 2, selected: [0] }, validSecond],
+					[
+						{ questionIndex: 0, selected: [0] },
+						{ questionIndex: 0, selected: [1] },
+					],
+					[{ questionIndex: 0, selected: [-1] }, validSecond],
+					[{ questionIndex: 0, selected: [0.5] }, validSecond],
+					[{ questionIndex: 0, selected: [2] }, validSecond],
+					[
+						{ questionIndex: 0, selected: [0] },
+						{ questionIndex: 1, selected: [0, 0] },
+					],
+					[{ questionIndex: 0, selected: [0, 1] }, validSecond],
+					[{ questionIndex: 0, selected: [] }, validSecond],
+					[{ questionIndex: 0, selected: [0], other: "   " }, validSecond],
+					[{ questionIndex: 0, selected: [0], other: "Third" }, validSecond],
+				];
+				for (const answers of malformed) {
+					await expect(
+						run(
+							Effect.flatMap(store, (service) =>
+								service.answerQuestion(sessionId, itemId, answers),
+							),
+						),
+					).rejects.toThrow();
+				}
+				const beforeValid = await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						return yield* sql<{ readonly count: number }>`
+							SELECT COUNT(*) AS count FROM question_answer_deliveries
+							WHERE session_id = ${sessionId} AND item_id = ${itemId}
+						`;
+					}),
+				);
+				expect(beforeValid).toEqual([{ count: 0 }]);
+				expect(providerAnswerAttempts).toBe(0);
+
+				const valid = [
+					{
+						questionIndex: 1,
+						selected: [2, 0],
+						other: "Run smoke too",
+					},
+					{ questionIndex: 0, selected: [], other: "Keep both variants" },
+				];
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.answerQuestion(sessionId, itemId, valid),
+					),
+				);
+				const messages = await run(
+					Effect.flatMap(store, (service) => service.listMessages(sessionId)),
+				);
+				expect(providerAnswerAttempts).toBe(1);
+				expect(
+					messages.find(
+						(message) => message.content._tag === "user_question_answer",
+					)?.content,
+				).toMatchObject({ _tag: "user_question_answer", answers: valid });
+			});
+		} finally {
+			scriptedEvents = [];
+		}
+	});
+
+	it("persists cancellation without a blank answer and rejects answer/cancel conflicts", async () => {
+		const itemId = "question-cancel" as never;
+		scriptedEvents = [
+			{
+				_tag: "UserQuestion",
+				itemId,
+				questions: [{ question: "Continue?", options: ["Continue", "Stop"] }],
+			},
+		];
+		providerQuestionAttached = true;
+		try {
+			await withRuntime(async (run) => {
+				const { initialSession } = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "Ask before continuing",
+						}),
+					),
+				);
+				const sessionId = initialSession.id;
+				await expect
+					.poll(() =>
+						run(
+							Effect.flatMap(store, (service) =>
+								service.listMessages(sessionId),
+							),
+						).then((messages) =>
+							messages.some(
+								(message) => message.content._tag === "user_question",
+							),
+						),
+					)
+					.toBe(true);
+
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.cancelQuestion(sessionId, itemId),
+					),
+				);
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.cancelQuestion(sessionId, itemId),
+					),
+				);
+				providerQuestionAttached = true;
+				providerQuestionConsumed = false;
+				await expect(
+					run(
+						Effect.flatMap(store, (service) =>
+							service.answerQuestion(sessionId, itemId, [
+								{ questionIndex: 0, selected: [0] },
+							]),
+						),
+					),
+				).rejects.toThrow();
+
+				const persisted = await run(
+					Effect.gen(function* () {
+						const service = yield* store;
+						const sql = yield* SqlClient.SqlClient;
+						return {
+							messages: yield* service.listMessages(sessionId),
+							resolutions: yield* sql<{ readonly count: number }>`
+								SELECT COUNT(*) AS count FROM events
+								WHERE stream_kind = 'session' AND stream_id = ${sessionId}
+								  AND type = 'QuestionResolved'
+							`,
+							outbox: yield* sql<{ readonly count: number }>`
+								SELECT COUNT(*) AS count FROM question_answer_deliveries
+								WHERE session_id = ${sessionId} AND item_id = ${itemId}
+							`,
+						};
+					}),
+				);
+				expect(providerCancelAttempts).toBe(2);
+				expect(providerQuestionContinuations).toBe(2);
+				expect(
+					persisted.messages.filter(
+						(message) => message.content._tag === "user_question_answer",
+					),
+				).toEqual([]);
+				expect(persisted.resolutions).toEqual([{ count: 1 }]);
+				expect(persisted.outbox).toEqual([{ count: 0 }]);
+			});
+		} finally {
 			scriptedEvents = [];
 		}
 	});

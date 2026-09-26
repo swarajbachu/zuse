@@ -11,7 +11,7 @@ describe("cloud SSH readiness", () => {
 			"access = await requestSshAccess(workspaceId)",
 		);
 		const authorizeKey = cloudSshSource.indexOf(
-			"await dispatchEnvironmentShellCommand<",
+			'client["machine.sshKeys.add"](',
 		);
 		const releaseGateway = cloudSshSource.indexOf("retained.lease.release()");
 

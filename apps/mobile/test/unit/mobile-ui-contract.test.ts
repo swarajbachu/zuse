@@ -151,7 +151,7 @@ describe("mobile UI contracts", () => {
 		const layout = appFile("_layout.tsx");
 		expect(layout).toContain('name="settings"');
 		expect(layout).toContain('presentation: "formSheet"');
-		expect(layout).toContain("sheetAllowedDetents: [0.7, 0.92]");
+		expect(layout).toContain("sheetAllowedDetents: [0.92]");
 		expect(layout).toContain("contentStyle: { backgroundColor: colors.bg }");
 	});
 
@@ -321,7 +321,10 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/components/onboarding/onboarding-flow.tsx`,
 			"utf8",
 		);
-		const settings = appFile("settings.tsx");
+		const settings = readFileSync(
+			`${process.cwd()}/src/components/settings-screen.tsx`,
+			"utf8",
+		);
 		expect(layout).toContain('name="onboarding"');
 		expect(layout).toContain('presentation: "fullScreenModal"');
 		expect(home).toContain("onboardingHydratedAtom");

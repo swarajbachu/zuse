@@ -1,0 +1,63 @@
+---
+title: "Zuse 0.21.0: cloud chat recovery and mobile access"
+description: "A closer look at Zuse 0.21.0: queued cloud messages, reconnect fixes, mobile cloud chats, and clearer workspace selection for coding agents."
+date: "2026-09-24"
+category: "News"
+timeToRead: "4 min read"
+authorName: "Zuse team"
+authorRole: "Product and engineering"
+authorAvatar: "/app-icon.png"
+previewImage: "/brand/handoff-dither.webp"
+---
+
+Zuse 0.21.0 improves the connection between a coding task and the environment that runs it. The release adds mobile access to account cloud chats without an online desktop, improves delivery and recovery for eligible cloud messages, and makes the choice between the main checkout and an isolated worktree clearer.
+
+This article is a September 24 review of the [0.21.0 release published September 5, 2026](https://github.com/swarajbachu/zuse/releases/tag/v0.21.0). The linked release notes are the source for the changes below. Cloud Workspaces remain in public beta, and mobile availability depends on compatible cloud services and workspace images.
+
+## Cloud messages have clearer delivery behavior
+
+The release notes describe eligible cloud text messages being accepted while compute sleeps, surviving reconnects and restarts, and exposing explicit delivery outcomes with duplicate-send protection. Offline composer queues also resume after reconnecting.
+
+That distinction matters when using open source cloud agents from an unreliable connection. Sending a message, having it accepted, and having an agent execute it are separate steps. An interface should help you understand which step has happened before you decide to retry.
+
+This is not a promise that every kind of message can be processed while compute is asleep. Eligibility matters, and execution still requires a working runtime. When investigating a failed send, preserve the delivery outcome and connection state rather than assuming every delay needs another copy of the prompt.
+
+## Recovery preserves useful context
+
+Recovered Cloud Workspaces now reconnect their chat client instead of leaving a stale connection error. The notes also distinguish rejected Codex credentials from connection failures. Those failures need different responses: a rejected credential calls for fixing authentication, while a connectivity problem calls for investigating the connection.
+
+Missing runtime data is reported while cached transcripts remain available. Malformed legacy resources no longer block recovery of unrelated workspaces. These changes make failure states more explicit without treating a readable conversation as proof that the underlying checkout has recovered.
+
+For a practical explanation of those boundaries, read our [cloud agent recovery journal](/blog/cloud-agent-recovery-journal). It includes a small set of scenarios to check when assessing a remote workflow.
+
+## Mobile can reach account cloud chats directly
+
+With compatible cloud services and workspace images, mobile can access account cloud chats without requiring an online desktop. Saved history can remain readable while compute sleeps, and new chats can start in existing cloud projects.
+
+The scope is important. Reading saved history and running an agent are different operations. Support for starting chats in existing cloud projects should not be read as a claim that every desktop project-management action is available on mobile.
+
+If you are checking this workflow after updating, verify the mobile client, cloud services, and workspace image together. A new desktop build alone does not establish compatibility across those components. Record which environment you tested when reporting a problem.
+
+## Choosing a checkout is more direct
+
+The composer now offers the main checkout or a fresh isolated worktree when starting a chat. This makes a consequential choice visible at the beginning of the task: should it edit the current working directory or use a separate checkout?
+
+An isolated worktree is useful for independent changes. The main checkout can be appropriate when the task deliberately needs the files already there. In both cases, confirm that setup has completed before interpreting test results. Read [choosing where agents run](/blog/choose-where-agents-run) for the broader environment decision.
+
+## Smaller navigation changes help with many tasks
+
+The release also brings combined search for chats, commands, settings, and workspace actions through Cmd/Ctrl+K. Use `>` for command-only search, or Cmd/Ctrl+P for project and worktree files. Sidebar projects can be organized into named groups with colored folder icons and reordered by dragging.
+
+Those additions matter once several agents are active: finding the right task and confirming its workspace becomes part of reviewing its output. The bottom-docked composer and compact controls also make project, computer, model, and reasoning selections easier to inspect.
+
+## What to check after updating
+
+Try one bounded task before moving a large workflow:
+
+1. Confirm the selected repository, checkout, and execution environment.
+2. Verify repository access and agent authentication separately.
+3. Send a small task and inspect its delivery state.
+4. Reconnect and confirm the conversation and task state agree.
+5. Inspect the diff and run checks appropriate to the requested change.
+
+See the [complete changelog](/changelog) for the other additions and fixes. If you are evaluating Zuse for the first time, begin with our [guide to open source cloud agents](/blog/open-source-cloud-agents), then [download the current build](/download).

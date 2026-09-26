@@ -1,6 +1,8 @@
+import { normalizeTerminalCatalog } from "@zuse/client-runtime/terminal-catalog";
 import type { ResolvedModelCatalog } from "@zuse/contracts";
 import {
 	type AgentAvailability,
+	type AgentItemId,
 	type AttachmentRef,
 	type Chat,
 	type ChatId,
@@ -26,6 +28,9 @@ import {
 	type PermissionMode,
 	type PlanApprovalOutcome,
 	type ProviderId,
+	type PtyId,
+	type PtyOpenToken,
+	type PtyOwnerId,
 	type RuntimeMode,
 	type Session,
 	type SessionId,
@@ -41,11 +46,15 @@ import {
 	connectionKeyForOptions,
 	dispatchMobileSessionCommandHandle,
 	dispatchMobileSessionCommandResult,
+	dispatchMobileTerminalRename,
+	dispatchMobileTerminalRestart,
 	mobileClientBus,
 	nextMobileCommandId,
+	registerMobileEnvironment,
 	sessionCommandContext,
 } from "~/store/mobile-client-bus";
 import { getConnectionClient, reportConnectionFailure } from "./connection";
+import { mobileTerminalOpenOwnership } from "./terminal-actions";
 import type { WsProtocolOptions } from "./ws-protocol";
 
 const dispatchSessionCommand = <Result>(
@@ -233,16 +242,21 @@ export const openSessionOnHost = (options: {
 
 export const listOwnedTerminals = (options: {
 	connection: WsProtocolOptions;
-	ownerId: string;
+	ownerId: PtyOwnerId;
 }) =>
 	Effect.gen(function* () {
 		const client = yield* getConnectionClient(options.connection);
-		return yield* client["pty.list"]({ ownerId: options.ownerId });
+		const result = yield* client["pty.list"]({
+			ownerId: options.ownerId,
+			includePolicy: true,
+		});
+		return normalizeTerminalCatalog(result);
 	});
 
 export const openMobileTerminal = (options: {
 	connection: WsProtocolOptions;
-	ownerId: string;
+	ownerId: PtyOwnerId;
+	openToken: PtyOpenToken;
 	cwd: string;
 	label: string;
 	cols: number;
@@ -255,12 +269,59 @@ export const openMobileTerminal = (options: {
 			cwd: options.cwd,
 			cols: options.cols,
 			rows: options.rows,
-			mobileOwnership: {
-				ownerId: options.ownerId,
-				label: options.label,
-				scope: options.sessionScoped === false ? "environment" : "session",
-			},
+			ownership: mobileTerminalOpenOwnership(
+				options.ownerId,
+				options.openToken,
+				options.label,
+				options.sessionScoped,
+			),
 		});
+	});
+
+export const renameOwnedTerminal = (options: {
+	connKey: string;
+	connection: WsProtocolOptions;
+	ownerId: PtyOwnerId;
+	ptyId: PtyId;
+	label: string | null;
+}) =>
+	Effect.tryPromise({
+		try: () =>
+			dispatchMobileTerminalRename(
+				{
+					environmentId: registerMobileEnvironment(
+						options.connKey,
+						options.connection,
+					),
+					terminalId: options.ptyId,
+				},
+				options.ownerId,
+				options.label,
+			),
+		catch: (cause) => cause,
+	});
+
+export const restartOwnedTerminal = (options: {
+	connKey: string;
+	connection: WsProtocolOptions;
+	ownerId: PtyOwnerId;
+	ptyId: PtyId;
+	expectedProcessEpoch: string;
+}) =>
+	Effect.tryPromise({
+		try: () =>
+			dispatchMobileTerminalRestart(
+				{
+					environmentId: registerMobileEnvironment(
+						options.connKey,
+						options.connection,
+					),
+					terminalId: options.ptyId,
+				},
+				options.ownerId,
+				options.expectedProcessEpoch,
+			),
+		catch: (cause) => cause,
 	});
 
 export const prewarmVoice = (options: { connection: WsProtocolOptions }) =>
@@ -492,7 +553,7 @@ export const respondToPlan = (options: {
 export const answerQuestion = (options: {
 	connection: WsProtocolOptions;
 	sessionId: SessionId;
-	itemId: string;
+	itemId: AgentItemId;
 	answers: readonly {
 		questionIndex: number;
 		selected: readonly number[];
@@ -517,6 +578,20 @@ export const answerQuestion = (options: {
 		Effect.tapError((cause) =>
 			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
 		),
+	);
+};
+
+export const cancelQuestion = (options: {
+	connection: WsProtocolOptions;
+	sessionId: SessionId;
+	itemId: AgentItemId;
+}) => {
+	const commandId = nextMobileCommandId("session-cancel-question");
+	return dispatchSessionCommand<void>(
+		options,
+		"session.cancelQuestion",
+		{ sessionId: options.sessionId, itemId: options.itemId },
+		commandId,
 	);
 };
 

@@ -7,16 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- The macOS installer has a dark, dithered city backdrop with clearer drag-to-Applications guidance and Retina artwork
-- Desktop startup diagnostics now record window, renderer, IPC, migration, projector, project-visibility, and shell-readiness milestones
-- Desktop startup now opens a single animated Zuse logo surface immediately while runtime and project initialization continue behind it
+## [0.22.1]
 
 ### Fixed
-- The project sidebar now refreshes its saved list after app restarts, preventing registered projects from remaining invisible
-- Cloud workspaces created from Slack or the API now attach to the desktop that sends the next message, allowing cloud agents to request approved commands on that device
-- Desktop startup no longer drops an early connection handshake, preventing the app from getting stuck on its loading screen
-- Projects now appear as soon as the workspace list loads while slow Git-origin metadata resolves independently in the background
+- Keep Files, Terminal, and Git on the selected local chat's worktree while session details load, instead of opening the main checkout or another chat's workspace
+- Fix cloud file sync stalls with verified, compressed transfers that preserve unchanged and unrelated local files, recover after interruptions, and show scanning, receiving, applying, and error states. Preserve the original transfer error when cleanup cancels the remote snapshot process
+- Prevent newly created cloud chats from reusing branch names associated with historical pull requests while preserving explicitly selected branches
+- Preserve Boat's bundled coding agents instead of replacing them with older Zuse-pinned versions when building cloud workspace templates
+- Prevent premature cloud connection timeouts during attachment uploads by allowing cloud gateway connections up to 15 seconds to open
+
+## [0.22.0]
+
+### Added
+- Choose Stable or Preview updates in Settings. Preview builds receive early changes and newer Stable releases; switching back to Stable supports an in-place downgrade while retaining sessions and settings.
+- Run Pi and OpenCode 2 coding-agent sessions with model selection, attachments, provider authentication, permission requests, context compaction, and conversation recovery.
+- Choose Boat or E2B for cloud chats, including configurable Boat machine sizes, shared agent authentication, provider-specific usage reporting, and reliable resume and restore behavior.
+- Start cloud workspaces with attachments, context files, goals, and branches or pull requests from the origin repository. Cloud agents can also request approved commands on linked desktops.
+- Repair pull-request feedback, failing checks, and merge conflicts from editable composer context; enable CI Auto Fix to watch checks and send bounded, resumable repairs to the originating agent chat.
+- Manage stacked pull requests through gh-stack, publish draft layers, inspect compact status rows, and continue merged work on a fresh branch from origin/main.
+- Use a persistent bottom terminal alongside the right-side terminal, with independent tabs per chat, resizing, and consolidated connection, rename, clear, and restart controls.
+- Select Claude Opus 5.5, GPT-6 Sol, GPT-6 Luna, and Grok 4.7 where supported, with provider-specific reasoning options.
+- Personalize the desktop chat landing page with a device-local wallpaper, opacity controls, replacement, and removal.
+- Create images in Dither Studio with local uploads, dithering algorithms, palettes, adjustments, comparison previews, zoom, and PNG export.
+- Manage Cloud Workspaces API keys for public API integrations, and use native Slack account linking and cloud tasks where configured.
+
+### Changed
+- New chats remember the last project and each project's computer, cloud provider, and workspace. First-time local chats now default to an isolated worktree with clearer setup progress.
+- Desktop startup opens the window and project list earlier, with a single animated loader while repository details finish loading.
+- Desktop terminals now use Ghostty, with improved keyboard handling, compact-window sizing, and recovery across reconnects, restarts, and renderer reloads.
+- Assistant responses stream more smoothly, consecutive tool calls form compact collapsible activity trees, and collapsed tools preview their inputs while keeping errors visible.
+- Cloud conversations load recent messages first and fetch earlier history in the background. Cached model, project, and workspace catalogs reduce repeated loading.
+- Cloud messages and attachments remain queued until a paused runtime claims them, while launch and synchronization stages stay visible and cancellable where supported.
+- Cloud-to-local sync batches settled edits and applies incremental changes without rewriting unchanged files or stalling on generated-cache activity.
+- The desktop workspace now uses tighter spacing, consistent rounded panels, fewer dividers, matching terminal headers, transparent scrollbar tracks, and refreshed project and Quick Start surfaces.
+- GitHub pull-request views provide complete review feedback, direct CI links, file and line navigation, removable context, and compact stack status displays that remain usable during refreshes.
+- Mobile pairing, reconnect recovery, navigation, transcript loading, notifications, privacy controls, account cleanup, and App Store readiness have been strengthened.
+
+### Fixed
+- Prevented intermittent desktop loading stalls when the renderer connected before the RPC runtime was ready.
+- Kept newly added, scaffolded, and worktree projects selected, visible after restart, and consistently connected to the correct Git, terminal, files, attachments, and issue context.
+- Fixed New Chat and cloud launch races so earlier launches cannot steal focus, restore stale selections, clear newer drafts, or attach pull-request repair context to the wrong session.
+- Improved cloud workspace resume, readiness, reconnect, restoration, and branch recovery, including preserved runtimes, delayed readiness, conflicting local edits, and stale recovery loops.
+- Kept active cloud turns interruptible during reconnects and history synchronization, without transient reconnect notices ending turns prematurely.
+- CI Auto Fix watchers now remain attached to their original chat across navigation and host differences, wait for an idle agent, recheck synchronization and closure state, and preserve duplicate and attempt limits.
+- Pull-request repair excludes resolved, outdated, dismissed, and otherwise inactive feedback from counts and agent context.
+- Fixed terminal focus, interactive input, sizing, and recovery; chat titles now also persist reliably across restarts.
+- Fixed Files panel deletion crashes, failed cloud restore recovery, mobile initial transcript delivery, and pairing-code redemption.
+- Dither Studio preserves work after failed uploads or exports, supports export retries, and prevents stale output after rendering failures; opening the right sidebar no longer shifts the left sidebar.
 
 ## [0.21.0]
 

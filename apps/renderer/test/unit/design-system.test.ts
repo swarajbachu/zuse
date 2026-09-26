@@ -2,13 +2,14 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { rendererStylesWithPalette } from "../support/renderer-styles.ts";
 
 const rendererSource = (path: string): string =>
 	readFileSync(new URL(`../../src/${path}`, import.meta.url), "utf8");
 
 describe("renderer design system", () => {
 	it("defines the green-neutral ladder in both themes", () => {
-		const styles = rendererSource("styles.css");
+		const styles = rendererStylesWithPalette();
 
 		for (const token of [
 			"--background: hsl(90 20% 97%)",
@@ -23,7 +24,7 @@ describe("renderer design system", () => {
 	});
 
 	it("uses Geist and keeps lime as the shared focus and primary color", () => {
-		const styles = rendererSource("styles.css");
+		const styles = rendererStylesWithPalette();
 
 		expect(styles).toContain('@import "@fontsource-variable/geist"');
 		expect(styles).not.toContain('@import "@fontsource-variable/inter"');

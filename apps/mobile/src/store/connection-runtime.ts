@@ -12,7 +12,10 @@ import {
 } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { recoverLocalRoute } from "./local-route-recovery";
-import { retryMobileClientBusConnections } from "./mobile-client-bus";
+import {
+	retryMobileClientBusConnections,
+	setMobileClientBusOnline,
+} from "./mobile-client-bus";
 import { appAtomRegistry } from "./registry";
 
 export const snapshotsByConnectionAtom = Atom.make<
@@ -30,16 +33,21 @@ const installAppStateOnlineBridge = () => {
 	if (appStateInstalled) return;
 	appStateInstalled = true;
 	let wasBackgrounded = AppState.currentState === "background";
-	if (wasBackgrounded) setConnectionOnline(false);
+	if (wasBackgrounded) {
+		setConnectionOnline(false);
+		setMobileClientBusOnline(false);
+	}
 	AppState.addEventListener("change", (next) => {
 		// Treat background as offline for transport ownership: active screens keep
 		// cached data, and the supervisor reconnects when the app wakes.
 		if (next === "background") {
 			wasBackgrounded = true;
 			setConnectionOnline(false);
+			setMobileClientBusOnline(false);
 		} else if (next === "active" && wasBackgrounded) {
 			wasBackgrounded = false;
 			setConnectionOnline(true);
+			setMobileClientBusOnline(true);
 			retryMobileClientBusConnections();
 		}
 	});

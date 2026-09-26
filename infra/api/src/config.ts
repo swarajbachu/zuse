@@ -31,6 +31,8 @@ export interface ManagedTunnelConfig {
 
 export interface ApiConfig {
 	readonly apiIssuer: string;
+	/** Public origin for DPoP request binding, independent of credential issuer. */
+	readonly publicApiOrigin?: string;
 	readonly workosJwksUrl: string;
 	readonly workosIssuer: string;
 	/** Server-side key used only for permanent identity deletion. */

@@ -3,6 +3,7 @@ import { Link } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 
+import { DitherCloudIcon } from "~/components/dither-cloud-icon";
 import { ProviderLogo } from "~/components/provider-logo";
 import { HugeIcon } from "~/components/ui/huge-icon";
 import { cn } from "~/lib/cn";
@@ -24,9 +25,14 @@ export function HomeChatRow({
 	const isActive = row.status === "running" || row.status === "booting";
 	const canPin = row.chat !== null;
 	const href =
-		`/c/${encodeURIComponent(row.connectionKey)}/session/${encodeURIComponent(
-			row.session.id,
-		)}` as const;
+		row.session === null
+			? {
+					pathname: "/new-chat" as const,
+					params: { conn: row.connectionKey, chatId: row.chat?.id },
+				}
+			: (`/c/${encodeURIComponent(row.connectionKey)}/session/${encodeURIComponent(
+					row.session.id,
+				)}` as const);
 
 	return (
 		<Swipeable
@@ -88,11 +94,15 @@ export function HomeChatRow({
 								className="h-5 w-5 items-center justify-center"
 								style={{ marginTop: 2 }}
 							>
-								<ProviderLogo
-									providerId={row.session.providerId}
-									size={17}
-									color={colors.secondaryFg}
-								/>
+								{row.connectionKey.startsWith("cloud:") ? (
+									<DitherCloudIcon />
+								) : (
+									<ProviderLogo
+										providerId={row.session?.providerId ?? "codex"}
+										size={17}
+										color={colors.secondaryFg}
+									/>
+								)}
 								{isActive || row.unread ? (
 									<View className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
 								) : null}
