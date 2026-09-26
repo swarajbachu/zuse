@@ -168,6 +168,7 @@ else process.exit(2);
 			{ pattern: "api-staging.stuff.md", custom_domain: true },
 		]);
 		expect(config.vars.API_ISSUER).toBe("https://api-staging.stuff.md");
+		expect(config.vars.API_PUBLIC_ORIGIN).toBe(STAGING_API_URL);
 		expect(config.vars.CLOUD_COMMAND_MAILBOX_ENABLED).toBe("true");
 		expect(config.vars.CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED).toBe("true");
 		expect(config.vars.CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED).toBe("true");

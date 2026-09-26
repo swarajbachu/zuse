@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 export const siteConfig = {
 	name: "Zuse",
 	description:
-		"Zuse is an open-source autonomous coding workspace for local and cloud agents. Plan, code, test, review diffs, and prepare pull requests with Claude Code, Codex, Cursor, Gemini, Grok, OpenCode, and Kiro.",
+		"Run open source cloud agents with Zuse. Work locally or in isolated cloud workspaces, use your existing model subscriptions, and review every change.",
 	// Override in production via NEXT_PUBLIC_SITE_URL.
 	url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://zuse.sh",
 	ogImage: "/og.png",

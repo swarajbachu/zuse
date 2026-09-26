@@ -245,6 +245,14 @@ function InlineTextHint({ value }: { value: string }) {
 	);
 }
 
+function ToolInputPreview({ value }: { value: string }) {
+	return (
+		<code className="min-w-0 truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+			{truncate(value.replace(/\s+/g, " ").trim(), 160)}
+		</code>
+	);
+}
+
 /** Soft +/− line counts for edit rows — muted but still readable as color. */
 function SoftDiffStats({ added, removed }: { added: number; removed: number }) {
 	if (added <= 0 && removed <= 0) return null;
@@ -759,21 +767,7 @@ const buildToolView = (
 		return {
 			icon: PlayIcon,
 			label: uiMessage("tools:tool_row_background_task"),
-			detail:
-				cmd === null && result?.isError !== true ? undefined : (
-					<>
-						{cmd === null ? null : (
-							<span className="truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
-								{cmd}
-							</span>
-						)}
-						{result?.isError === true ? (
-							<span className="text-[11px] text-destructive">
-								{uiMessage("tools:tool_row_failed")}
-							</span>
-						) : null}
-					</>
-				),
+			detail: cmd ? <ToolInputPreview value={cmd} /> : undefined,
 			fallbackBody:
 				cmd === null ? (
 					<PreBlock text={stringifyJson(input)} />
@@ -826,16 +820,11 @@ const buildToolView = (
 				(cmd === null || !isRedundantShellDescription(desc, cmd))
 					? desc
 					: fallbackLabel;
-			// Command lives under the chevron — collapsed row is just the label.
+			// Preview the command inline; keep the full command and output expanded.
 			return {
 				icon: TerminalIcon,
 				label,
-				detail:
-					normalizedTool === "local_command_execute" && cmd ? (
-						<code className="min-w-0 truncate rounded bg-muted/50 px-1.5 py-0.5 font-mono text-muted-foreground">
-							{cmd}
-						</code>
-					) : undefined,
+				detail: cmd ? <ToolInputPreview value={cmd} /> : undefined,
 				fallbackBody:
 					cmd === null ? (
 						<PreBlock text={stringifyJson(input)} />
@@ -1528,9 +1517,20 @@ const buildToolView = (
 				.filter(Boolean)
 				.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
 				.join(" ");
+			const preview =
+				asString(input) ??
+				asString(obj.command) ??
+				asString(obj.cmd) ??
+				asString(obj.file_path) ??
+				asString(obj.path) ??
+				asString(obj.query) ??
+				asString(obj.url) ??
+				asString(obj.description) ??
+				asString(obj.prompt);
 			return {
 				icon: iconForTool(tool), // will pick a heuristic icon
 				label: niceLabel || "Tool",
+				detail: preview ? <ToolInputPreview value={preview} /> : undefined,
 				fallbackBody: (
 					<CombinedPreBlock
 						input={stringifyJson(input)}
@@ -1946,16 +1946,18 @@ export function ToolRow({
 		}
 	}
 
-	// Collapsed failure signal when the view didn't supply its own detail —
-	// keeps the ErrorPill behind the chevron without per-case code.
+	// Keep failures visible alongside the input preview.
 	const detail =
-		view.detail !== undefined ? (
+		result?.isError === true ? (
+			<>
+				<span className="shrink-0 text-[11px] text-destructive">
+					{uiMessage("tools:tool_row_error_2")}
+				</span>
+				{view.detail}
+			</>
+		) : (
 			view.detail
-		) : result?.isError === true ? (
-			<span className="text-[11px] text-destructive">
-				{uiMessage("tools:tool_row_error_2")}
-			</span>
-		) : undefined;
+		);
 
 	return (
 		<ExpandableIconRow

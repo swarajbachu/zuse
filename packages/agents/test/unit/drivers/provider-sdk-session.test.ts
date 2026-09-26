@@ -196,6 +196,7 @@ describe("bundled provider SDK sessions", () => {
 	it("publishes assistant progress before the SDK run finishes", async () => {
 		const fake = makeAgent();
 		const firstChunkYielded = deferred<void>();
+		const progressObserved = deferred<void>();
 		const releaseCompletion = deferred<void>();
 		const run = {
 			...makeRun([]),
@@ -226,11 +227,19 @@ describe("bundled provider SDK sessions", () => {
 					sessionId,
 				);
 				const fiber = yield* Stream.runForEach(handle.events, (event) =>
-					Effect.sync(() => events.push(event)),
+					Effect.sync(() => {
+						events.push(event);
+						if (
+							event._tag === "AssistantMessage" &&
+							event.text === "Working on it"
+						) {
+							progressObserved.resolve();
+						}
+					}),
 				).pipe(Effect.forkChild);
 				yield* handle.send("make progress visible");
 				yield* Effect.promise(() => firstChunkYielded.promise);
-				yield* Effect.sleep("75 millis");
+				yield* Effect.promise(() => progressObserved.promise);
 
 				expect(
 					events.some(

@@ -3,13 +3,13 @@ import { Effect } from "effect";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
-
 import { uploadAttachment } from "~/rpc/actions";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import {
 	type LocalComposerAttachment,
 	protectComposerAttachment,
 } from "./composer-attachment-storage";
+import { requestFeaturePermission } from "./device-permissions";
 
 export type { LocalComposerAttachment } from "./composer-attachment-storage";
 
@@ -26,12 +26,12 @@ export async function pickComposerImages(): Promise<LocalComposerAttachment[]> {
 	return Promise.all(
 		result.assets.map((asset) =>
 			protectComposerAttachment({
-		id: localId(),
-		uri: asset.uri,
+				id: localId(),
+				uri: asset.uri,
 				name:
 					asset.fileName ?? `Photo.${asset.mimeType?.split("/")[1] ?? "jpg"}`,
-		mimeType: asset.mimeType ?? "image/jpeg",
-		size: asset.fileSize,
+				mimeType: asset.mimeType ?? "image/jpeg",
+				size: asset.fileSize,
 			}),
 		),
 	);
@@ -40,8 +40,13 @@ export async function pickComposerImages(): Promise<LocalComposerAttachment[]> {
 export async function captureComposerImage(): Promise<
 	LocalComposerAttachment[]
 > {
-	const permission = await ImagePicker.requestCameraPermissionsAsync();
-	if (!permission.granted) throw new Error("Camera permission is required.");
+	if (
+		!(await requestFeaturePermission(
+			ImagePicker.requestCameraPermissionsAsync,
+			"camera",
+		))
+	)
+		return [];
 	const result = await ImagePicker.launchCameraAsync({
 		mediaTypes: ["images"],
 		quality: 1,
@@ -71,11 +76,11 @@ export async function pickComposerFiles(): Promise<LocalComposerAttachment[]> {
 	return Promise.all(
 		result.assets.map((asset) =>
 			protectComposerAttachment({
-		id: localId(),
-		uri: asset.uri,
-		name: asset.name,
-		mimeType: asset.mimeType ?? "application/octet-stream",
-		size: asset.size,
+				id: localId(),
+				uri: asset.uri,
+				name: asset.name,
+				mimeType: asset.mimeType ?? "application/octet-stream",
+				size: asset.size,
 			}),
 		),
 	);

@@ -102,6 +102,8 @@ const eventTimestamp = (event: StoredEvent["event"]): number | undefined => {
 			return event.requestedAt;
 		case "PermissionResolved":
 			return event.resolvedAt;
+		case "QuestionResolved":
+			return event.resolvedAt;
 		case "ProviderAttached":
 			return event.attachedAt;
 		case "ProviderStopRequested":

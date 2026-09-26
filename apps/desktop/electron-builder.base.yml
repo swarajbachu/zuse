@@ -1,0 +1,207 @@
+# Keep the original bundle id so existing memoize Alpha installs can
+# auto-update in place through Squirrel.Mac. The visible app name and release
+# feed are Zuse, but macOS updater identity must remain stable.
+appId: app.memoize.desktop
+productName: Zuse (Beta)
+copyright: © ${author}
+
+# Register the `zuse://` custom scheme so packaged builds receive the WorkOS
+# OAuth callback (`zuse://auth/callback`) as a deep link. On macOS this
+# writes CFBundleURLTypes into Info.plist; combined with the unique appId above
+# the OS routes the scheme unambiguously (unlike dev's shared Electron.app).
+protocols:
+  - name: zuse
+    schemes:
+      - zuse
+
+# Output the .dmg + latest-mac.yml + blockmap to repo-root/dist so all
+# distributables for all apps land in one place. Build resources (icon,
+# entitlements) live in apps/desktop/build/.
+directories:
+  output: ../../dist
+  buildResources: build
+
+# What to pack inside app.asar. The renderer's Vite output is shipped
+# alongside (not inside) the asar via `extraResources` below — keeping
+# cross-package paths out of the asar avoids electron-builder's
+# `must be under …/apps/desktop/` filter complaining about asarUnpack
+# patterns evaluated against files originating outside this project.
+files:
+  - dist-electron/**/*
+  - "package.json"
+  - "!**/*.{ts,tsx,cts,mts,map,md}"
+  - "!**/tsconfig*.json"
+  # @zuse/* workspace packages are inlined into dist-electron/main.cjs by
+  # tsdown (`deps.alwaysBundle`), so we don't need their source in
+  # node_modules. Keep them in devDependencies only — production deps get
+  # packed and their bun symlinks (packages/ssh, apps/server, packages/contracts)
+  # trip electron-builder's "must be under apps/desktop/" check during the
+  # asarUnpack walk. This exclude is a backstop if one slips into deps.
+  - "!node_modules/@zuse/**"
+  # Build-time tooling and type packages — never required at runtime.
+  - "!node_modules/@repo/**"
+  - "!node_modules/@types/**"
+  - "!node_modules/@electron/rebuild/**"
+  - "!node_modules/electron-builder/**"
+  - "!node_modules/sharp/**"
+  - "!node_modules/tsdown/**"
+  - "!node_modules/typescript/**"
+extraResources:
+  - from: ../renderer/dist
+    to: app/renderer/dist
+    filter: ["**/*"]
+  - from: ../../native/libghostty-vt/LICENSE
+    to: app/licenses/libghostty-vt.LICENSE
+  - from: ../../LICENSE
+    to: app/licenses/Zuse.LICENSE
+  - from: ../../THIRD_PARTY_NOTICES.md
+    to: app/licenses/THIRD_PARTY_NOTICES.md
+  - from: ../../node_modules/@cursor/sdk/LICENSE.md
+    to: app/licenses/Cursor-SDK.LICENSE.md
+  - from: resources/skills
+    to: app/skills
+    filter: ["**/*"]
+  - from: ../../LICENSE
+    to: app/legal/LICENSE
+  - from: ../../THIRD_PARTY_NOTICES.md
+    to: app/legal/THIRD_PARTY_NOTICES.md
+
+# Native bindings can't load from inside an asar; they need to live as
+# real files on disk. electron-builder writes these to app.asar.unpacked/
+# and the loader transparently rewrites the path.
+# MCP child scripts are spawned by external agent processes that can't read
+# inside the asar, so they must be unpacked too; their bridges rewrite
+# app.asar → app.asar.unpacked when resolving them.
+asar: true
+asarUnpack:
+  - "node_modules/esbuild/**"
+  - "node_modules/@esbuild/**"
+  - "**/*.node"
+  - "dist-electron/browser-mcp-child.cjs"
+  - "dist-electron/orchestration-mcp-child.cjs"
+  - "dist-electron/extension-process-child.cjs"
+  # ssh spawns this ProxyCommand bridge outside Electron, so it must exist as
+  # a real file on disk.
+  - "dist-electron/ssh-bridge-child.cjs"
+  - "node_modules/node-pty/**"
+  - "node_modules/keytar/**"
+  # The bundled local runtime resolves executable helpers relative to its
+  # package. Keep the SDK and both macOS architecture packages on disk so the
+  # universal app works without a globally installed command.
+  - "node_modules/@cursor/sdk/**"
+  - "node_modules/@cursor/sdk-darwin-arm64/**"
+  - "node_modules/@cursor/sdk-darwin-x64/**"
+  - "node_modules/@cursor/sdk-linux-arm64/**"
+  - "node_modules/@cursor/sdk-linux-x64/**"
+
+# We rebuild the remaining native modules via the postinstall hook.
+# electron-builder's npmRebuild step doesn't understand bun workspaces.
+npmRebuild: false
+
+mac:
+  category: public.app-category.developer-tools
+  # Both per-architecture staging apps intentionally embed the same prebuilt
+  extraResources:
+    - from: native/local-connectivity/bin/zuse-local-connectivity
+      to: app/local-connectivity/zuse-local-connectivity
+    - from: native/browser-credentials/bin/zuse-browser-credentials
+      to: app/browser-credentials/zuse-browser-credentials
+  # universal Swift helpers. Allow the universal merger to keep that identical
+  # fat binary instead of rejecting it as an unexpected shared executable.
+  x64ArchFiles: "Contents/Resources/app/{local-connectivity,browser-credentials}/*"
+  # The bundled provider runtime has enough unpacked native files to exceed
+  # @electron/asar's minimatch pattern limit while merging architecture ASARs.
+  # Keep the architecture ASARs split; @electron/universal installs its tiny
+  # process.arch entrypoint and still produces one universal application.
+  mergeASARs: false
+  # Two targets, one signed/notarized `.app`:
+  #   * dmg  — what humans download from the Releases page for first install.
+  #   * zip  — what `electron-updater` (Squirrel.Mac under the hood) consumes
+  #            to apply auto-updates. Squirrel.Mac cannot read DMGs; without a
+  #            zip in `latest-mac.yml` the updater throws "ZIP file not
+  #            provided" and every installed copy is stranded on its current
+  #            version. See plans/zip-file-not-provided-jolly-lantern.md.
+  target:
+    - target: dmg
+      arch: universal
+    - target: zip
+      arch: universal
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  notarize: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  icon: build/icon.png
+  extendInfo:
+    NSCameraUsageDescription: Zuse (Beta) does not use the camera.
+    NSMicrophoneUsageDescription: Zuse (Beta) does not use the microphone.
+
+linux:
+  # Linux releases are x64-only. Native packages often publish every platform
+  # in one tarball; keep only the prebuilds this process can load. Scoping the
+  # filter under `linux` leaves both universal macOS slices untouched.
+  files:
+    # The JS config combines these exclusions with the common positive list.
+    - "!node_modules/{node-pty,tree-sitter,tree-sitter-javascript,tree-sitter-json,tree-sitter-typescript}/prebuilds/{darwin-*,linux-arm64,win32-*}/**"
+    - "!node_modules/**/@cursor/sdk-{darwin-*,linux-arm64,win32-*}/**"
+    # These packages publish compiler inputs and alternate module formats in
+    # their production tarballs. The desktop runtime uses compiled native
+    # grammars, node-pty's rebuilt binding, and the Cursor CJS export.
+    - "!node_modules/tree-sitter-{javascript,json}/{binding.gyp,grammar.js,*.wasm,bindings/node/*_test.js}"
+    - "!node_modules/tree-sitter-{javascript,json}/src/{grammar.json,parser.c,scanner.c,tree_sitter/**}"
+    - "!node_modules/tree-sitter-typescript/{binding.gyp,common/**,*.wasm,bindings/node/*_test.js}"
+    - "!node_modules/tree-sitter-typescript/{typescript,tsx}/grammar.js"
+    - "!node_modules/tree-sitter-typescript/{typescript,tsx}/src/{grammar.json,parser.c,scanner.c,tree_sitter/**}"
+    - "!node_modules/@cursor/sdk/dist/esm/**"
+    - "!node_modules/node-pty/lib/**/*.test.js"
+    - "!node_modules/node-pty/{src,scripts,deps,typings}/**"
+    - "!node_modules/node-pty/build/!(Release){,/**}"
+    - "!node_modules/node-pty/node_modules/node-addon-api/**"
+  target:
+    - target: AppImage
+      arch: x64
+    - target: deb
+      arch: x64
+  category: Development
+  executableName: zuse
+  icon: build/icon.png
+  artifactName: Zuse-${version}-linux-${arch}.${ext}
+  desktop:
+    Name: Zuse (Beta)
+    Comment: Desktop client for AI coding agents
+    Categories: Development;
+    Keywords: AI;Development;Coding;Agents;
+    StartupWMClass: zuse
+    Terminal: false
+
+deb:
+  packageName: zuse
+  depends:
+    - libsecret-1-0
+    - avahi-utils
+
+dmg:
+  writeUpdateInfo: true
+  sign: false
+  background: build/dmg-background.png
+  iconSize: 80
+  iconTextSize: 13
+  window:
+    width: 640
+    height: 440
+  contents:
+    - x: 180
+      y: 316
+    - x: 460
+      y: 316
+      type: link
+      path: /Applications
+
+# CI packages without publishing. A final job validates both platforms before
+# publishing a release; local publishing defaults to a draft.
+publish:
+  provider: github
+  owner: swarajbachu
+  repo: zuse
+  channel: latest
+  releaseType: draft

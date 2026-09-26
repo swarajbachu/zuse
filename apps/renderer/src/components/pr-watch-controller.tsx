@@ -11,22 +11,12 @@ import { runPrWatchRepair } from "../lib/pr-watch-repair.ts";
 import { sendSessionMessage } from "../lib/session-actions.ts";
 import { isSessionRuntimeBusy } from "../lib/session-runtime-state.ts";
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
-import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { type PrWatch, usePrWatchStore } from "../store/pr-watch.ts";
-import { useSessionsStore } from "../store/sessions.ts";
 import { toastManager } from "./ui/toast.tsx";
 
 const running = createPrWatchActivity();
 
 function Watch({ watch }: { watch: PrWatch }) {
-	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
-	const activeEnvironmentId = useEnvironmentCatalogStore(
-		(s) => s.activeEnvironmentId,
-	);
-	const isSelected = () =>
-		useSessionsStore.getState().selectedSessionId === watch.sessionId &&
-		useEnvironmentCatalogStore.getState().activeEnvironmentId ===
-			watch.ref.environmentId;
 	const workspace = useGitWorkspaceResource(watch.ref, "connect");
 	const detailsView = useGitPrDetailsResource(watch.ref, "connect");
 	const timeline = useRendererSessionTimeline(
@@ -38,7 +28,6 @@ function Watch({ watch }: { watch: PrWatch }) {
 	latestViews.current = { workspace, detailsView, timeline };
 	useEffect(() => {
 		if (
-			!isSelected() ||
 			running.has(watch) ||
 			workspace.sync !== "live" ||
 			detailsView.sync !== "live" ||
@@ -95,9 +84,10 @@ function Watch({ watch }: { watch: PrWatch }) {
 			canSend: () => {
 				const fresh = latestViews.current;
 				return (
-					isSelected() &&
 					fresh.workspace.data?.status?.branch === watch.branch &&
 					fresh.workspace.connection === "connected" &&
+					fresh.workspace.sync === "live" &&
+					fresh.timeline.projection?.status !== "closed" &&
 					!fresh.workspace.data?.error &&
 					!fresh.detailsView.data?.error &&
 					fresh.timeline.view.sync === "live" &&
@@ -134,14 +124,7 @@ function Watch({ watch }: { watch: PrWatch }) {
 				});
 			})
 			.finally(release);
-	}, [
-		watch,
-		workspace,
-		detailsView,
-		timeline,
-		selectedSessionId,
-		activeEnvironmentId,
-	]);
+	}, [watch, workspace, detailsView, timeline]);
 	return null;
 }
 

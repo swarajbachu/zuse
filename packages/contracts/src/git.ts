@@ -126,6 +126,16 @@ export const GitSwitchBranchRpc = Rpc.make("git.switchBranch", {
 	error: GitErrors,
 });
 
+/** Start fresh from origin/main using the shared Pokémon branch allocator. */
+export const GitContinueBranchRpc = Rpc.make("git.continueBranch", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: GitStatusSummary,
+	error: GitErrors,
+});
+
 export const GitRenameBranchRpc = Rpc.make("git.renameBranch", {
 	payload: Schema.Struct({
 		folderId: FolderId,
@@ -310,29 +320,6 @@ export const GitPrStateRpc = Rpc.make("git.prState", {
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 	}),
 	success: GitPrInfo,
-	error: GitErrors,
-});
-
-export class GitWorkspaceSnapshot extends Schema.Class<GitWorkspaceSnapshot>(
-	"GitWorkspaceSnapshot",
-)({
-	status: GitStatusSummary,
-	pr: GitPrInfo,
-	diffStat: Schema.Struct({
-		additions: Schema.Number,
-		deletions: Schema.Number,
-	}),
-	projectionVersion: Schema.Number,
-	observedAt: Schema.DateFromString,
-}) {}
-
-/** One lightweight, server-owned projection for the selected checkout shell. */
-export const GitWorkspaceSnapshotRpc = Rpc.make("git.workspaceSnapshot", {
-	payload: Schema.Struct({
-		folderId: FolderId,
-		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-	}),
-	success: GitWorkspaceSnapshot,
 	error: GitErrors,
 });
 
@@ -617,6 +604,38 @@ export class GitReviewSummary extends Schema.Class<GitReviewSummary>(
 	additions: Schema.Number,
 	deletions: Schema.Number,
 }) {}
+
+/**
+ * One coherent local projection for a checkout. Status, changed paths, and the
+ * review summary are captured by one server request and share one projection
+ * revision so renderer surfaces cannot combine independently refreshed views.
+ * Large patches and remote PR details remain lazy side reads.
+ */
+export class GitWorkspaceSnapshot extends Schema.Class<GitWorkspaceSnapshot>(
+	"GitWorkspaceSnapshot",
+)({
+	status: GitStatusSummary,
+	changes: Schema.Array(GitChange),
+	reviewSummary: GitReviewSummary,
+	/** Stable while the checkout's local Git/file state is unchanged. */
+	localFingerprint: Schema.String,
+	pr: GitPrInfo,
+	diffStat: Schema.Struct({
+		additions: Schema.Number,
+		deletions: Schema.Number,
+	}),
+	projectionVersion: Schema.Number,
+	observedAt: Schema.DateFromString,
+}) {}
+
+export const GitWorkspaceSnapshotRpc = Rpc.make("git.workspaceSnapshot", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: GitWorkspaceSnapshot,
+	error: GitErrors,
+});
 
 export const GitReviewSummaryRpc = Rpc.make("git.reviewSummary", {
 	payload: Schema.Struct({
@@ -936,6 +955,15 @@ export class GitStackResult extends Schema.Class<GitStackResult>(
 			isCurrent: Schema.Boolean,
 			isMerged: Schema.Boolean,
 			needsRebase: Schema.Boolean,
+			pr: Schema.optional(
+				Schema.Struct({
+					number: Schema.Number,
+					url: Schema.NullOr(Schema.String),
+					title: Schema.optional(Schema.String),
+					state: Schema.Literals(["open", "closed", "merged", "unknown"]),
+					isDraft: Schema.NullOr(Schema.Boolean),
+				}),
+			),
 		}),
 	),
 }) {}

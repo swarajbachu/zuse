@@ -1,7 +1,7 @@
+import { subscribeControlPlaneSessionCache } from "~/lib/control-plane-client.ts";
 import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ReactBitsDither } from "@repo/ui/react-bits-dither";
 import {
 	resourceRefKey,
 	type SessionRef,
@@ -80,6 +80,7 @@ import {
 import { cloudLaunchRequestForSource } from "~/lib/cloud-launch-source";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
 import { cloudProviderSizeLabel } from "~/lib/cloud-provider-presentation.ts";
+import { loadCloudWorkspacePlacement } from "~/lib/cloud-workspace-session-cache.ts";
 import {
 	ensureCloudWorkspaceAttached,
 	stageCloudChat,
@@ -101,6 +102,10 @@ import {
 } from "~/lib/linear-cloud-context";
 import { resolveReadyProvider } from "~/lib/model-picker-availability";
 import { newChatPreferences } from "~/lib/new-chat-preferences";
+import {
+	captureNewChatLanding,
+	resetCompletedChatDraft,
+} from "~/lib/open-new-chat-landing.ts";
 import {
 	buildLogicalProjectGroups,
 	defaultNewChatTarget,
@@ -149,6 +154,7 @@ import {
 	WorkspacePicker,
 } from "./composer/workspace-picker.tsx";
 import { ProviderIcon } from "./provider-icons";
+import { WallpaperBackground } from "./wallpaper-background";
 import {
 	CloudWorkspaceSetupView,
 	SetupCardView,
@@ -467,6 +473,12 @@ export function ChatLanding() {
 	const restoredProject = useRef(false);
 	useEffect(() => {
 		if (restoredProject.current || projectGroups.length === 0) return;
+		// An explicit New Chat request already chose its project. Restoring a
+		// remembered project here would undo that navigation on the fresh landing.
+		if (useChatsStore.getState().landingRevision > 0) {
+			restoredProject.current = true;
+			return;
+		}
 		const rememberedKey = newChatPreferences.lastProjectKey();
 		if (rememberedKey === null) {
 			restoredProject.current = true;
@@ -532,7 +544,6 @@ export function ChatLanding() {
 			: `${pickerGroup.origin.host}/${pickerGroup.origin.owner}/${pickerGroup.origin.repo}`.toLowerCase();
 	useEffect(() => {
 		let cancelled = false;
-		let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 		setSelectedCloudProviderId(null);
 		setSelectedCloudSizeId(null);
 		setCloudProviders([]);
@@ -544,59 +555,37 @@ export function ChatLanding() {
 			return;
 		const loadCloudPlacement = async (): Promise<void> => {
 			try {
-				const [providerResult, projectResult, entitlementResult] =
-					await Promise.all([
-						runControlPlane((client) => client["cloud.providers"]()),
-						runControlPlane((client) => client["cloud.projects.list"]()),
-						runControlPlane((client) => client["machines.entitlements"]()),
-					]);
-				const imageResults = await Promise.allSettled(
-					providerResult.providers.map((provider) =>
-						runControlPlane((client) =>
-							client["cloud.image.status"]({ providerId: provider.providerId }),
-						),
-					),
-				);
-				const images = imageResults.flatMap((result) =>
-					result.status === "fulfilled" ? [result.value] : [],
-				);
+				const placement = await loadCloudWorkspacePlacement();
+				const images = placement.images;
 				if (cancelled) return;
 				const project =
-					projectResult.projects.find(
+					placement.projects.find(
 						(project) =>
 							project.repositoryIdentity.toLowerCase() ===
 							cloudRepositoryIdentity,
 					) ?? null;
-				const subscribed = entitlementResult.entitlements.some(
-					(item) =>
-						item.kind === "cloud-workspace" &&
-						(item.status === "active" ||
-							item.status === "grace" ||
-							(item.status === "ended" &&
-								item.paidThrough !== undefined &&
-								item.paidThrough > Date.now())),
-				);
-				setCloudProviders(providerResult.providers);
+				setCloudProviders(placement.providers);
 				setCloudProject(project);
 				setCloudAccountImages(images);
-				setCloudSubscribed(subscribed);
+				setCloudSubscribed(placement.subscribed);
 				setCloudPlacementError(false);
-
-				const buildIsChanging =
-					imageResults.some((result) => result.status === "rejected") ||
-					images.some((image) => image.state === "building");
-				if (buildIsChanging && !cancelled)
-					refreshTimer = setTimeout(() => {
-						void loadCloudPlacement();
-					}, 2_000);
 			} catch {
 				if (!cancelled) setCloudPlacementError(true);
 			}
 		};
 		void loadCloudPlacement();
+		const unsubscribe = subscribeControlPlaneSessionCache((key) => {
+			if (
+				key === "cloud-workspace:providers" ||
+				key === "cloud-workspace:projects" ||
+				key === "cloud-workspace:entitlements" ||
+				key.startsWith("cloud-workspace:image:")
+			)
+				void loadCloudPlacement();
+		});
 		return () => {
 			cancelled = true;
-			if (refreshTimer !== undefined) clearTimeout(refreshTimer);
+			unsubscribe();
 		};
 	}, [cloudRepositoryIdentity]);
 	const cloudPickerItems = useMemo<ReadonlyArray<CloudComputerPickerItem>>(
@@ -1045,8 +1034,22 @@ export function ChatLanding() {
 		},
 	): Promise<void> => {
 		if (submitting) return;
-		const draft = useSessionsStore.getState().draftSession;
+		const { draftSession: draft, draftRevision } = useSessionsStore.getState();
 		if (draft === null) return;
+		const ownsLanding = captureNewChatLanding();
+		const resetStaleCompletion = () =>
+			resetCompletedChatDraft(draftRevision, () => {
+				setPendingInput(null);
+				setPendingPreviews({});
+				setPendingPrompt(null);
+				setPendingWorktreeId(null);
+				setPendingCloudStep(null);
+				setPendingCloudChatId(null);
+				setCreateSource(null);
+				setSubmitError(null);
+				setSubmitting(false);
+				setDraftAttempt((attempt) => attempt + 1);
+			});
 		if (selectedCloudProviderId !== null) {
 			if (!CLOUD_WORKSPACE_BETA_AVAILABLE) return;
 			if (cloudProject === null) {
@@ -1176,7 +1179,7 @@ export function ChatLanding() {
 					stagedMessage = { ref: sandboxSession, id: messageId };
 				staged = true;
 				setPendingCloudChatId(summary.chatId);
-				useChatsStore.getState().select(summary.chatId);
+				if (ownsLanding()) useChatsStore.getState().select(summary.chatId);
 				if (!usesDurableInitialMessage) {
 					// This control plane delivered the prompt with the launch intent,
 					// so there is no first message left for us to enrich.
@@ -1206,7 +1209,7 @@ export function ChatLanding() {
 							description: formatError(cause),
 						}),
 					);
-					useSessionsStore.getState().clearDraft();
+					useSessionsStore.getState().clearDraft(draftRevision);
 					setSelectedCloudProviderId(null);
 					setCreateSource(null);
 					return;
@@ -1242,7 +1245,7 @@ export function ChatLanding() {
 					messageId,
 				});
 				if (!accepted) return;
-				useSessionsStore.getState().clearDraft();
+				useSessionsStore.getState().clearDraft(draftRevision);
 				setSelectedCloudProviderId(null);
 				setCreateSource(null);
 			} catch (cause) {
@@ -1279,6 +1282,7 @@ export function ChatLanding() {
 				setPendingCloudStep(null);
 				setPendingCloudChatId(null);
 				setSubmitting(false);
+				if (staged) resetStaleCompletion();
 			}
 			return;
 		}
@@ -1339,13 +1343,22 @@ export function ChatLanding() {
 				setSubmitting(false);
 				return;
 			}
+			if (!ownsLanding()) {
+				resetStaleCompletion();
+				return;
+			}
 			const switched = await switchToEnvironment({
 				environmentId: remoteTarget.environmentId,
 				folderId: remoteTarget.folderId,
 				chatId: remoteResult.chatId,
 				seed: remoteResult.remoteSeed,
+				isCurrent: ownsLanding,
 			});
-			useSessionsStore.getState().clearDraft();
+			if (!switched.switched && !ownsLanding()) {
+				resetStaleCompletion();
+				return;
+			}
+			useSessionsStore.getState().clearDraft(draftRevision);
 			setRemoteAnchor(null);
 			setTargetOverride(null);
 			if (!switched.switched) {
@@ -1402,6 +1415,7 @@ export function ChatLanding() {
 					draft.model,
 					{
 						title: `${issue.identifier} ${issue.title}`,
+						preserveFocus: true,
 						runtimeMode: draft.runtimeMode,
 						permissionMode: draft.permissionMode,
 						workspacePolicy: workspacePolicyForMode(workspaceMode),
@@ -1485,10 +1499,15 @@ export function ChatLanding() {
 				setSubmitting(false);
 				return;
 			}
-			useChatsStore.getState().select(first.chatId);
-			useSessionsStore.getState().select(first.sessionId);
+			if (ownsLanding()) {
+				useChatsStore.getState().select(first.chatId);
+				useSessionsStore.getState().select(first.sessionId);
+			} else {
+				resetStaleCompletion();
+				return;
+			}
 			setCreateSource(null);
-			useSessionsStore.getState().clearDraft();
+			useSessionsStore.getState().clearDraft(draftRevision);
 			return;
 		}
 		// A "Create from…" PR/branch already checked out (or reused) a worktree —
@@ -1570,7 +1589,7 @@ export function ChatLanding() {
 			);
 		}
 		setCreateSource(null);
-		useSessionsStore.getState().clearDraft();
+		useSessionsStore.getState().clearDraft(draftRevision);
 	};
 
 	// Bridge: covers the brief create() RPC window (worktree → chat) before the
@@ -1862,7 +1881,7 @@ export function ChatLanding() {
 
 	return (
 		<div className="relative isolate flex min-h-0 flex-1 flex-col items-center overflow-hidden px-6 pb-4 pt-8 max-[800px]:px-4">
-			<ReactBitsDither className="absolute inset-0 -z-10" />
+			<WallpaperBackground />
 			<div className="relative flex min-h-0 w-full max-w-3xl flex-1 flex-col">
 				<div className="flex min-h-0 flex-1 items-center justify-center pb-6">
 					<h1 className="text-center text-2xl font-medium tracking-[-0.015em] text-foreground">

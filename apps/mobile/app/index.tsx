@@ -5,7 +5,7 @@ import { SymbolView } from "expo-symbols";
 import { Search } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-	Alert,
+	AppState,
 	FlatList,
 	Image,
 	Pressable,
@@ -186,7 +186,12 @@ export default function HomeScreen() {
 	]);
 
 	useEffect(() => {
-		if (account !== null) void refreshEnvironments();
+		if (account === null) return;
+		void refreshEnvironments();
+		const subscription = AppState.addEventListener("change", (state) => {
+			if (state === "active") void refreshEnvironments();
+		});
+		return () => subscription.remove();
 	}, [account]);
 
 	useEffect(() => {
@@ -319,20 +324,6 @@ export default function HomeScreen() {
 		const status = connectionSnapshots[connection.key]?.status;
 		return status === "connecting" || status === "reconnecting";
 	});
-	const retryFailedConnection = () => {
-		if (connectionFailure === null) {
-			if (account !== null) void refreshEnvironments();
-			return;
-		}
-		const [key] = connectionFailure;
-		const options = optionsForConnection(key, connections);
-		if (options !== null) retryConnection(key, options);
-	};
-	const retryRecoveringConnection = () => {
-		if (recoveringConnection === undefined) return;
-		const options = optionsForConnection(recoveringConnection.key, connections);
-		if (options !== null) retryConnection(recoveringConnection.key, options);
-	};
 	const [loadTimedOut, setLoadTimedOut] = useState(false);
 	const [loadAttempt, setLoadAttempt] = useState(0);
 	const waitingForHome = loading || recoveringConnection !== undefined;
@@ -349,19 +340,22 @@ export default function HomeScreen() {
 		(account !== null && environmentsError !== null) ||
 		Boolean(cloudCatalog.error);
 	const showHomeRecovery = feed.length === 0 && homeLoadFailed;
-	const retryHome = () => {
+	const retryHome = async () => {
+		const pending: Promise<unknown>[] = [];
 		setLoadTimedOut(false);
 		setLoadAttempt((attempt) => attempt + 1);
 		if (account !== null) {
-			void refreshEnvironments();
-			void refreshCloudCatalog();
+			pending.push(refreshEnvironments(), refreshCloudCatalog());
 		}
 		for (const connection of reachableConnections) {
 			const options = optionsForConnection(connection.key, connections);
 			if (options === null) continue;
-			retryConnection(connection.key, options);
-			void hydrateSessions(connection.key, options);
+			if (connectionSnapshots[connection.key]?.status !== "connected") {
+				retryConnection(connection.key, options);
+			}
+			pending.push(hydrateSessions(connection.key, options));
 		}
+		await Promise.allSettled(pending);
 	};
 
 	const updateGroup = useCallback((key: string, action: InboxDisplayAction) => {
@@ -386,7 +380,7 @@ export default function HomeScreen() {
 			successTap();
 			if (item.row.chat !== null) {
 				await archiveChat(item.row.connectionKey, options, item.row.chat.id);
-			} else {
+			} else if (item.row.session !== null) {
 				await archiveSession(
 					item.row.connectionKey,
 					options,
@@ -607,17 +601,7 @@ export default function HomeScreen() {
 				<Stack.Toolbar.Button
 					icon="square.and.pencil"
 					separateBackground
-					onPress={() => {
-						if (account === null) {
-							router.push("/new-chat");
-							return;
-						}
-						Alert.alert("New chat", "Choose where the agent runs.", [
-							{ text: "Cloud", onPress: () => router.push("/new-cloud-chat") },
-							{ text: "Computer", onPress: () => router.push("/new-chat") },
-							{ text: "Cancel", style: "cancel" },
-						]);
-					}}
+					onPress={() => router.push("/new-chat")}
 				/>
 			</Stack.Toolbar>
 			<FlatList
@@ -635,7 +619,8 @@ export default function HomeScreen() {
 				keyboardShouldPersistTaps="handled"
 				refreshControl={
 					<RefreshControl
-						refreshing={loading && !homeLoadFailed && feed.length > 0}
+						// Refreshes stay in the background; only the initial load shows progress.
+						refreshing={false}
 						tintColor={colors.accent}
 						onRefresh={retryHome}
 					/>
@@ -650,37 +635,6 @@ export default function HomeScreen() {
 								{cloudCatalog.error}
 							</Text>
 						) : null}
-						{cloudCatalog.chats
-							.filter(
-								(row) =>
-									row.activeSessionId === null &&
-									(!searching ||
-										`${row.title} ${row.repositoryDisplayName}`
-											.toLowerCase()
-											.includes(search.toLowerCase())),
-							)
-							.map((row) => (
-								<Pressable
-									key={row.workspaceId}
-									className="mx-4 mb-2 gap-1 rounded-lg bg-muted/50 p-3"
-									onPress={() =>
-										router.push({
-											pathname: "/new-chat",
-											params: {
-												conn: `cloud:${row.workspaceId}`,
-												chatId: row.chatId,
-											},
-										})
-									}
-								>
-									<Text className="font-sans-medium text-sm text-foreground">
-										{row.title || row.repositoryDisplayName}
-									</Text>
-									<Text className="font-sans text-xs text-muted-foreground">
-										Cloud · No active threads · Start a thread
-									</Text>
-								</Pressable>
-							))}
 						{showHomeRecovery ? null : ((account === null
 								? null
 								: environmentsError) ?? connectionError) ? (
@@ -690,7 +644,7 @@ export default function HomeScreen() {
 										(account === null ? null : environmentsError) ??
 											connectionError,
 									)}
-									onRetry={retryFailedConnection}
+									onRetry={retryHome}
 									onPairAgain={() => router.push("/connect/scan")}
 								/>
 							</View>
@@ -702,7 +656,7 @@ export default function HomeScreen() {
 											? "Computer unavailable. Check its connection and retry."
 											: `Reconnecting to ${recoveringConnection.label}…`
 									}
-									onRetry={loadTimedOut ? retryHome : retryRecoveringConnection}
+									onRetry={retryHome}
 									recovering={!loadTimedOut}
 								/>
 							</View>

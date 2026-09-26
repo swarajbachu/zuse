@@ -2,6 +2,7 @@ import { FolderId } from "@zuse/contracts";
 import { Schema } from "effect";
 import { describe, expect, test } from "vitest";
 
+import { buildHomeFeed } from "../../../src/lib/home-feed";
 import {
 	buildInboxGroups,
 	buildInboxListItems,
@@ -299,4 +300,41 @@ describe("mobile inbox helpers", () => {
 			8,
 		);
 	});
+});
+
+test("cloud chats without threads use the searchable normal feed without a fake session", () => {
+	const key = "cloud:workspace-1";
+	const input = {
+		connections: [{ ...connection, key, source: "cloud" as const }],
+		bundlesByConnection: {
+			[key]: [
+				{
+					project,
+					chats: [{ ...chat(), activeSessionId: null }] as never,
+					sessions: [],
+				},
+			],
+		},
+		statusBySession: {},
+		query: "",
+	};
+	const groups = buildInboxGroups(input);
+	expect(groups[0]?.rows[0]).toMatchObject({
+		title: "Mobile polish",
+		session: null,
+		threadCount: 0,
+		connectionKey: key,
+	});
+	const feed = buildHomeFeed({
+		groups,
+		displayStates: new Map(),
+		searching: false,
+	});
+	expect(
+		feed.filter((item) => item.type === "chat" && item.context === "recent"),
+	).toHaveLength(1);
+	expect(
+		buildInboxGroups({ ...input, query: "Mobile polish" })[0]?.rows,
+	).toHaveLength(1);
+	expect(buildInboxGroups({ ...input, query: "unrelated" })).toHaveLength(0);
 });

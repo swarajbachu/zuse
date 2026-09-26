@@ -4,7 +4,6 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		"./cloud-sync-paths": "./src/cloud-sync-paths.ts",
 		"./release-version": "./src/release-version.mjs",
 		"./cloud-auth-crypto": "./src/cloud-auth-crypto.ts",
 		"./browser-page": "./src/browser-page.ts",
@@ -22,6 +21,7 @@
 		"./push-bus": "./src/push-bus.ts",
 		"./readiness": "./src/readiness.ts",
 		"./rpc-payload-metrics": "./src/rpc-payload-metrics.ts",
+		"./structural-tuple-key": "./src/structural-tuple-key.ts",
 		"./zuse-user-data": "./src/zuse-user-data.ts",
 		"./reaper": "./src/reaper.ts",
 		"./workspace-files": "./src/workspace-files.ts",

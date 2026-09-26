@@ -6,7 +6,6 @@ import * as readline from "node:readline";
 import { decodeJsonRpcLine } from "@zuse/acp/protocol";
 import { AcpRpcClient } from "@zuse/acp/rpc-client";
 import {
-	type AgentEvent,
 	type AgentItemId,
 	type AgentSessionId,
 	AgentSessionStartError,
@@ -21,7 +20,10 @@ import { formatAcpError } from "../kernel/acp-error.ts";
 import { makeAcpPermissionContext } from "../kernel/acp-permission-context.ts";
 import { createAcpSession } from "../kernel/acp-session.ts";
 import { AttachmentService } from "../kernel/attachment-service.ts";
-import type { ProviderSessionHandle } from "../kernel/driver.ts";
+import type {
+	ProviderDriverEvent,
+	ProviderSessionHandle,
+} from "../kernel/driver.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
@@ -29,6 +31,7 @@ import { handleFsRequest } from "./acp/fs.ts";
 import { replyToAcpRequest } from "./acp/request-reply.ts";
 import { handleTerminalRequest } from "./acp/terminal.ts";
 import { createAcpTranslator } from "./acp/translate.ts";
+import { makeAcpUserQuestionRegistry } from "./acp/user-question.ts";
 import { browserMcpPromptHint } from "./browser-mcp-tools.ts";
 import type { BrowserSend } from "./browser-tools.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
@@ -59,7 +62,7 @@ import { applyPlanModePrefix } from "./planMode.ts";
  * be a migration of its own).
  */
 export interface GeminiSessionHandle extends ProviderSessionHandle {
-	readonly events: Stream.Stream<AgentEvent>;
+	readonly events: Stream.Stream<ProviderDriverEvent>;
 	readonly send: (
 		text: string,
 		attachments?: ReadonlyArray<AttachmentRef>,
@@ -73,14 +76,11 @@ export interface GeminiSessionHandle extends ProviderSessionHandle {
 	 * `PermissionModeChanged` so the renderer chip stays in sync.
 	 */
 	readonly setPermissionMode: (mode: PermissionMode) => Effect.Effect<void>;
-	/**
-	 * No ACP `UserQuestion` primitive yet — match Grok and stay a no-op so
-	 * RPC routing remains uniform.
-	 */
+	/** Resolve a blocking ACP user-question request by its provider item id. */
 	readonly answerQuestion: (
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
-	) => Effect.Effect<void>;
+	) => Effect.Effect<void, Error>;
 }
 
 const GEMINI_RPC_TRACE = process.env.MEMOIZE_DEBUG_GEMINI === "1";
@@ -191,7 +191,7 @@ export const startGeminiSession = (
 		// uniform with the other drivers; attachments themselves are not yet
 		// wired through ACP's `prompt: [{ type: "image", ... }]` shape.
 		yield* AttachmentService;
-		const events = yield* Queue.make<AgentEvent, Cause.Done>();
+		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 
@@ -295,6 +295,16 @@ export const startGeminiSession = (
 		};
 
 		const rpc = new AcpRpcClient(writeMessage);
+		const userQuestions = makeAcpUserQuestionRegistry({
+			send: writeMessage,
+			emit: (event) => Queue.offerUnsafe(events, event),
+			release: (itemId, reason) =>
+				Queue.offerUnsafe(events, {
+					_tag: "QuestionCallbackReleased",
+					itemId,
+					reason,
+				}),
+		});
 		const request = (
 			method: string,
 			params: unknown,
@@ -419,26 +429,10 @@ export const startGeminiSession = (
 						return;
 					}
 
-					// User question support for Gemini ACP (similar namespaced methods).
-					const isQuestionMethod =
-						msg.method?.includes("ask_user_question") ||
-						msg.method?.includes("user_question") ||
-						msg.method?.startsWith("_x.ai/") ||
-						msg.method?.startsWith("_google/");
-
-					if (isQuestionMethod) {
-						if (process.env.MEMOIZE_DEBUG_GEMINI) {
-							process.stderr.write(
-								`[gemini.rpc] auto-acking question method=${msg.method} id=${msg.id} params=${JSON.stringify(msg.params ?? {})}\n`,
-							);
-						}
-						// Gemini ACP may use a similar shape; provide `outcome` to avoid
-						// "missing field `outcome`" errors on the agent side.
-						writeMessage({
-							jsonrpc: "2.0",
-							id: msg.id,
-							result: { outcome: "approved" },
-						});
+					if (
+						userQuestions.handleRequest(msg.method, msg.params, msg.id) !==
+						"unhandled"
+					) {
 						return;
 					}
 
@@ -501,6 +495,7 @@ export const startGeminiSession = (
 					? `Gemini ACP exited (code ${code ?? "null"}, signal ${signal ?? "null"}): ${diagnostics}`
 					: `Gemini ACP exited unexpectedly (code ${code ?? "null"}, signal ${signal ?? "null"}).`;
 			rpc.rejectAll(new Error(exitDetail));
+			userQuestions.discardAll();
 			if (!closed) {
 				Queue.offerUnsafe(events, { _tag: "Error", message: exitDetail });
 				Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
@@ -723,6 +718,7 @@ export const startGeminiSession = (
 					// Best-effort cancel; do NOT SIGINT the child or the persistent
 					// session dies for every subsequent send.
 					notify("session/cancel", { sessionId: sid });
+					userQuestions.cancelAll("cancelled");
 					Queue.offerUnsafe(events, { _tag: "Interrupted" });
 					// Force-reject the in-flight `session/prompt` request so the
 					// `inflight` promise chain unblocks. Without this, if Gemini's
@@ -734,6 +730,7 @@ export const startGeminiSession = (
 			close: () =>
 				Effect.gen(function* () {
 					closed = true;
+					userQuestions.cancelAll("closed");
 					rpc.rejectAll(new Error("Gemini session closed"));
 					try {
 						child.stdin.end();
@@ -752,7 +749,24 @@ export const startGeminiSession = (
 					currentMode = mode;
 					Queue.offerUnsafe(events, { _tag: "PermissionModeChanged", mode });
 				}),
-			answerQuestion: () => Effect.void,
+			answerQuestion: (itemId, answers) =>
+				Effect.try({
+					try: () => {
+						userQuestions.answer(itemId, answers);
+					},
+					catch: (cause) =>
+						cause instanceof Error ? cause : new Error(String(cause)),
+				}),
+			cancelQuestion: (itemId) =>
+				Effect.try({
+					try: () => userQuestions.cancel(itemId),
+					catch: (cause) =>
+						cause instanceof Error ? cause : new Error(String(cause)),
+				}),
+			acknowledgeQuestionAnswer: (itemId) =>
+				Effect.sync(() => {
+					userQuestions.acknowledge(itemId);
+				}),
 		};
 		return handle;
 	});

@@ -2,8 +2,8 @@
  * "Create from…" for a cloud workspace means choosing which ref the sandbox
  * checks out, never a local worktree. The API accepts a `branch` (the
  * workspace's own branch) and a `baseRef` it is reset to; the sandbox image
- * only carries refs that exist under `origin`, so the mapping refuses
- * anything that could not be there.
+ * only carries branches from `origin`. GitHub PR head refs are fetched when
+ * initializing a workspace from a fork.
  */
 export type CloudLaunchSourceSelection =
 	| Readonly<{
@@ -44,11 +44,14 @@ export const cloudLaunchRequestForSource = (
 	)
 		return { ok: true, ref: { baseRef: `origin/${defaultBranch}` } };
 	if (selection.kind === "pr") {
-		if (selection.isCrossRepository)
+		if (selection.isCrossRepository) {
+			if (!Number.isSafeInteger(selection.number) || selection.number <= 0)
+				return { ok: false, message: "Invalid pull request number." };
 			return {
-				ok: false,
-				message: `PR #${selection.number} comes from a fork. PRs from forks can't start in the cloud yet.`,
+				ok: true,
+				ref: { baseRef: `refs/pull/${selection.number}/head` },
 			};
+		}
 		if (selection.headRefName.length === 0)
 			return {
 				ok: false,

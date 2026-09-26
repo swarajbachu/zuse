@@ -684,6 +684,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		PtyLayer,
 		GitLayer,
 		WorktreeLayer,
+		WorktreeNameAllocatorLive,
 		RepositorySettingsLayer,
 		PokemonLayer,
 		ConfigStoreLayer,

@@ -8,6 +8,7 @@ import { registerLocalRouteRecovery } from "../../../src/store/local-route-recov
 const runtime = vi.hoisted(() => ({
 	listener: null as ((state: string) => void) | null,
 	setOnline: vi.fn(),
+	setResourcesOnline: vi.fn(),
 	retryTransport: vi.fn(),
 	retryResources: vi.fn(),
 }));
@@ -29,6 +30,7 @@ vi.mock("~/rpc/connection", () => ({
 }));
 vi.mock("~/store/mobile-client-bus", () => ({
 	retryMobileClientBusConnections: runtime.retryResources,
+	setMobileClientBusOnline: runtime.setResourcesOnline,
 }));
 
 const options = { host: "localhost", port: 4000, token: null };
@@ -41,11 +43,14 @@ beforeEach(() => {
 test("background resume reconnects resources once and only after active", () => {
 	runtime.listener?.("background");
 	expect(runtime.setOnline).toHaveBeenLastCalledWith(false);
+	expect(runtime.setResourcesOnline).toHaveBeenLastCalledWith(false);
 	runtime.listener?.("inactive");
 	expect(runtime.setOnline).toHaveBeenCalledTimes(1);
+	expect(runtime.setResourcesOnline).toHaveBeenCalledTimes(1);
 	expect(runtime.retryResources).not.toHaveBeenCalled();
 	runtime.listener?.("active");
 	expect(runtime.setOnline).toHaveBeenLastCalledWith(true);
+	expect(runtime.setResourcesOnline).toHaveBeenLastCalledWith(true);
 	expect(runtime.retryResources).toHaveBeenCalledTimes(1);
 	runtime.listener?.("active");
 	expect(runtime.retryResources).toHaveBeenCalledTimes(1);
@@ -55,6 +60,7 @@ test("temporary inactive state does not replace a healthy connection", () => {
 	runtime.listener?.("inactive");
 	runtime.listener?.("active");
 	expect(runtime.setOnline).not.toHaveBeenCalled();
+	expect(runtime.setResourcesOnline).not.toHaveBeenCalled();
 	expect(runtime.retryResources).not.toHaveBeenCalled();
 });
 

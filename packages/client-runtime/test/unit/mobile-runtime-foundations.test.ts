@@ -69,7 +69,7 @@ describe("mobile runtime foundations", () => {
 			releaseFirst = resolve;
 		});
 		const pump = createTerminalInputPump({
-			timeoutMs: 1_000,
+			stallWarningMs: 1_000,
 			write: async (data) => {
 				calls.push(data);
 				if (calls.length === 1) await first;
@@ -82,6 +82,34 @@ describe("mobile runtime foundations", () => {
 		releaseFirst?.();
 		await pump.whenIdle();
 		expect(calls).toEqual(["a", "b"]);
+	});
+
+	it("fails closed instead of retaining an unbounded terminal input queue", async () => {
+		let releaseFirst: (() => void) | undefined;
+		const first = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		const calls: string[] = [];
+		const onFailure = vi.fn();
+		const pump = createTerminalInputPump({
+			stallWarningMs: 1_000,
+			maxQueuedCharacters: 4,
+			write: async (data) => {
+				calls.push(data);
+				if (calls.length === 1) await first;
+			},
+			onFailure,
+		});
+
+		pump.enqueue("a");
+		pump.enqueue("bc");
+		pump.enqueue("def");
+		expect(pump.failed).toBe(true);
+		expect(onFailure).toHaveBeenCalledOnce();
+		expect(onFailure).toHaveBeenCalledWith(expect.any(Error));
+		releaseFirst?.();
+		await pump.whenIdle();
+		expect(calls).toEqual(["a"]);
 	});
 
 	it("classifies supported previews and strips active SVG content", () => {

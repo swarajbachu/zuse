@@ -1,5 +1,4 @@
 import {
-	loadOpencodeInventory,
 	removeOpencodeProviderAuth,
 	setOpencodeProviderAuth,
 } from "@zuse/agents/drivers/opencode";
@@ -136,25 +135,6 @@ const UpdateProvider = MemoizeRpcs.toLayerHandler(
 			),
 		),
 );
-
-const requireKiroPath = (): Effect.Effect<
-	string,
-	AgentSessionStartError,
-	CommandExecutor.ChildProcessSpawner
-> =>
-	Effect.gen(function* () {
-		const kiroPath = yield* resolveCliPath("kiro-cli");
-		if (kiroPath === null) {
-			return yield* Effect.fail(
-				new AgentSessionStartError({
-					providerId: "kiro",
-					reason:
-						"Kiro CLI not found on PATH. Install from https://kiro.dev and ensure `kiro-cli` is available.",
-				}),
-			);
-		}
-		return kiroPath;
-	});
 
 // ---------------------------------------------------------------------------
 // OpenCode provider management. `setProviderAuth` / `addCustomProvider` write
@@ -1725,6 +1705,22 @@ const SessionAnswerQuestion = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const SessionCancelQuestion = MemoizeRpcs.toLayerHandler(
+	"session.cancelQuestion",
+	({ sessionId, itemId }) =>
+		Effect.flatMap(SessionService, (svc) =>
+			svc.cancelQuestion(sessionId, itemId),
+		),
+);
+
+const SessionQuestionAttachments = MemoizeRpcs.toLayerHandler(
+	"session.questionAttachments",
+	() =>
+		Stream.unwrap(
+			Effect.map(ProviderService, (svc) => svc.questionAttachments()),
+		),
+);
+
 const SessionPlanRespond = MemoizeRpcs.toLayerHandler(
 	"session.plan.respond",
 	({ sessionId, toolCallId, outcome, feedback }) =>
@@ -2183,7 +2179,9 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	SessionLatestPlan,
 	SessionSetRuntimeMode,
 	SessionSetPermissionMode,
+	SessionQuestionAttachments,
 	SessionAnswerQuestion,
+	SessionCancelQuestion,
 	SessionPlanRespond,
 	SessionMcpUpdate,
 	SessionSetWorktree,

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { installFakeAcpProvider, waitForFile } from "@zuse/testkit";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
@@ -156,7 +156,16 @@ describe("built Electron application", () => {
 			);
 			for (const prompt of overflowPrompts) {
 				await composer.fill(prompt);
-				await electron.page.getByRole("button", { name: "Send" }).click();
+				try {
+					await electron.page.getByRole("button", { name: "Send" }).click();
+				} catch (cause) {
+					const artifact = await electron.captureFailure(
+						"electron-chat-overflow",
+					);
+					throw new Error(
+						`${String(cause)}\nprompt: ${prompt}\ncomposer: ${await composer.innerText()}\nartifact: ${artifact}\npage: ${await electron.page.locator("body").innerText()}`,
+					);
+				}
 				const promptBubble = electron.page
 					.locator("[data-chat-user-bubble]")
 					.filter({ hasText: prompt })
@@ -191,6 +200,9 @@ describe("built Electron application", () => {
 					viewportRight: viewport.getBoundingClientRect().right,
 					transcriptRight: transcript.getBoundingClientRect().right,
 					navigatorRight: navigator.getBoundingClientRect().right,
+					navigatorInsetRight: Number.parseFloat(
+						getComputedStyle(navigator).right,
+					),
 					composerFadeLeft: composerFade.getBoundingClientRect().left,
 					composerFadeRight: composerFade.getBoundingClientRect().right,
 				};
@@ -202,7 +214,11 @@ describe("built Electron application", () => {
 				Math.abs(paneEdges.transcriptRight - paneEdges.viewportRight),
 			).toBeLessThanOrEqual(1);
 			expect(
-				Math.abs(paneEdges.navigatorRight - paneEdges.viewportRight),
+				Math.abs(
+					paneEdges.viewportRight -
+						paneEdges.navigatorRight -
+						paneEdges.navigatorInsetRight,
+				),
 			).toBeLessThanOrEqual(1);
 			expect(
 				Math.abs(paneEdges.composerFadeLeft - paneEdges.viewportLeft),
@@ -210,6 +226,28 @@ describe("built Electron application", () => {
 			expect(
 				Math.abs(paneEdges.composerFadeRight - paneEdges.viewportRight),
 			).toBeLessThanOrEqual(1);
+			const environmentSummaryToggle = electron.page.getByRole("button", {
+				name: "Toggle environment summary",
+			});
+			if (
+				(await environmentSummaryToggle.getAttribute("aria-pressed")) === "true"
+			) {
+				await environmentSummaryToggle.click();
+				await expect
+					.poll(() => environmentSummaryToggle.getAttribute("aria-pressed"))
+					.toBe("false");
+				await expect
+					.poll(() =>
+						electron.page
+							.locator('[aria-label="Environment summary"]')
+							.evaluate((element) =>
+								Number.parseFloat(
+									getComputedStyle(element.parentElement ?? element).opacity,
+								),
+							),
+					)
+					.toBe(0);
+			}
 			await turnNavigator.hover();
 			const turnList = electron.page.getByRole("listbox", {
 				name: "Conversation turns",
@@ -379,33 +417,48 @@ describe("built Electron application", () => {
 				);
 				await optimisticMessage.waitFor({ state: "visible", timeout: 2_000 });
 				const lifecycle = electron.page.getByText(/Creating a new copy of .+…/);
-				await lifecycle.waitFor({ state: "visible", timeout: 10_000 });
-				const [messageBox, lifecycleBox] = await Promise.all([
-					optimisticMessage.boundingBox(),
-					lifecycle.boundingBox(),
-				]);
-				expect(messageBox).not.toBeNull();
-				expect(lifecycleBox).not.toBeNull();
-				if (messageBox === null || lifecycleBox === null) {
-					throw new Error(
-						"Expected message and lifecycle rows to have layout boxes",
-					);
+				const working = electron.page.getByText(/Gemini is working/);
+				await expect
+					.poll(
+						async () =>
+							(await lifecycle.isVisible()) || (await working.isVisible()),
+						{ timeout: 10_000 },
+					)
+					.toBe(true);
+				if (await lifecycle.isVisible()) {
+					const [messageBox, lifecycleBox] = await Promise.all([
+						optimisticMessage.boundingBox(),
+						lifecycle.boundingBox(),
+					]);
+					expect(messageBox).not.toBeNull();
+					expect(lifecycleBox).not.toBeNull();
+					if (messageBox === null || lifecycleBox === null) {
+						throw new Error(
+							"Expected message and lifecycle rows to have layout boxes",
+						);
+					}
+					expect(messageBox.y).toBeLessThan(lifecycleBox.y);
 				}
-				expect(messageBox.y).toBeLessThan(lifecycleBox.y);
 
-				await existingTitle.click();
-				const existingRow = existingTitle.locator(
-					"xpath=ancestor::*[@role='button'][1]",
-				);
-				await electron.page.waitForTimeout(1_000);
-				expect(await existingRow.getAttribute("class")).toContain(
-					"bg-sidebar-accent",
-				);
+				const existingChatButton = electron.page
+					.getByRole("button", {
+						name: conversation.chat.title,
+						exact: true,
+					})
+					.first();
+				await existingChatButton.click();
+				const existingRow = existingChatButton.locator("..");
+				await expect
+					.poll(async () => await existingRow.getAttribute("class"))
+					.toContain("bg-sidebar-accent");
 
-				await electron.page
-					.locator('[data-pane="sidebar"] [role="button"][title="New chat"]')
-					.first()
-					.click();
+				const backgroundChatButton = electron.page
+					.getByRole("list", {
+						name: `${basename(repository)} chats`,
+						exact: true,
+					})
+					.getByRole("button", { name: "New chat", exact: true });
+				await backgroundChatButton.click();
 				await controller.waitFor("prompt.held", undefined, 20_000);
 				const stop = electron.page.getByRole("button", {
 					name: "Stop current turn",

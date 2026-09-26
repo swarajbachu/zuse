@@ -869,5 +869,16 @@
 	"cloud_auth_not_allowed": "Zuse 세션에서 이 작업을 승인하지 못했습니다. 세션을 새로 고친 후 다시 시도하세요.",
 	"cloud_auth_login_failed": "에이전트 로그인을 시작하지 못했습니다.",
 	"cloud_auth_temporarily_unavailable": "클라우드 인증을 일시적으로 사용할 수 없습니다. 기존 채팅에 영향을 주지 않고 다시 시도할 수 있습니다.",
-	"cloud_machine_provider": "머신 제공업체"
+	"cloud_machine_provider": "머신 제공업체",
+	"wallpaper_title": "배경화면",
+	"wallpaper_description": "새 채팅을 위한 은은한 배경입니다. 이 기기에 저장됩니다.",
+	"wallpaper_saving": "저장 중…",
+	"wallpaper_replace": "이미지 바꾸기",
+	"wallpaper_upload": "이미지 업로드",
+	"wallpaper_remove": "제거",
+	"wallpaper_upload_label": "배경화면 업로드",
+	"wallpaper_opacity": "불투명도",
+	"wallpaper_opacity_label": "배경화면 불투명도",
+	"wallpaper_hint": "PNG, JPEG, WebP, AVIF 또는 GIF · 최대 20 MB. 질감 만들기:",
+	"wallpaper_studio": "Dither studio"
 }

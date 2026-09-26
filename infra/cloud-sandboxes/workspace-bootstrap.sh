@@ -24,8 +24,9 @@ trap fail ERR
 # Runtime and GitHub identity must never survive a fork. Provider-owned agent
 # authentication intentionally belongs to the private account image.
 rm -rf /home/zuse/.zuse-data /home/zuse/.config/gh
-mkdir -p /home/zuse/.zuse-data
-chmod 700 /home/zuse/.zuse-data
+mkdir -p /var/lib/zuse/user-data
+chown zuse:zuse /var/lib/zuse/user-data
+chmod 700 /var/lib/zuse/user-data
 
 # GitHub access inside a cloud workspace is the Zuse GitHub App installation
 # token, minted per call by `zuse-github-auth`: `gh` is a shim that resolves a
@@ -79,7 +80,7 @@ export ZUSE_AUTH_POLICY=protected
 export ZUSE_ENABLE_PAIRING=0
 export ZUSE_MACHINE_RUNTIME_ROLE=cloud-environment
 export ZUSE_SERVER_READY_STDOUT=1
-export ZUSE_USER_DATA=/home/zuse/.zuse-data
+export ZUSE_USER_DATA=/var/lib/zuse/user-data
 credentials_event="$status_dir/credentials-ready-event"
 rm -f "$credentials_event"
 mkfifo -m 600 "$credentials_event"
@@ -100,19 +101,8 @@ runtime_pid=$!
 (IFS= read -r _ <"$credentials_event") &
 credentials_wait_pid=$!
 
-# The sandbox fork already isolates this normal checkout from every other chat.
-# Reset the requested branch locally; repository freshness belongs to image
-# updates, never this launch path.
-(
-  [[ -d "$workspace/.git" ]] || exit 73
-  target_ref="$ZUSE_BASE_REF"
-  git -C "$workspace" rev-parse --verify "$target_ref^{commit}" >/dev/null 2>&1 || \
-    target_ref="origin/${ZUSE_BASE_REF#origin/}"
-  git -C "$workspace" reset --hard
-  git -C "$workspace" clean -ffd
-  git -C "$workspace" checkout --force -B "$ZUSE_BRANCH" "$target_ref"
-  git -C "$workspace" remote set-url origin "${ZUSE_REPOSITORY_URL:?}"
-) &
+# Both initial startup and interrupted-startup recovery use the same safe setup.
+bash /var/lib/zuse/project-build/workspace-repository.sh &
 repository_pid=$!
 
 set +e

@@ -3,6 +3,7 @@ import {
 	DEFAULT_RUNTIME_MODE,
 	QueuedMessage,
 	QueueState,
+	type SessionInteraction,
 	type SessionTimelineEvent,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
@@ -21,7 +22,31 @@ export const emptyTimelineProjection = (): SessionTimelineProjection =>
 		queue: QueueState.make({ items: [], paused: false }),
 		permissionMode: DEFAULT_PERMISSION_MODE,
 		runtimeMode: DEFAULT_RUNTIME_MODE,
+		interactions: [],
 	});
+
+const upsertInteraction = (
+	interactions: ReadonlyArray<SessionInteraction>,
+	interaction: SessionInteraction,
+): ReadonlyArray<SessionInteraction> => {
+	const index = interactions.findIndex(
+		(existing) =>
+			existing._tag === interaction._tag && existing.id === interaction.id,
+	);
+	if (index === -1) return [...interactions, interaction];
+	const next = [...interactions];
+	next[index] = interaction;
+	return next;
+};
+
+const removeInteraction = (
+	interactions: ReadonlyArray<SessionInteraction>,
+	tag: SessionInteraction["_tag"],
+	id: string,
+): ReadonlyArray<SessionInteraction> =>
+	interactions.filter(
+		(interaction) => interaction._tag !== tag || interaction.id !== id,
+	);
 
 export const applyTimelineEvent = (
 	projection: SessionTimelineProjection,
@@ -35,7 +60,30 @@ export const applyTimelineEvent = (
 			const messages = [...projection.messages];
 			if (index === -1) messages.push(event.message);
 			else messages[index] = event.message;
-			return SessionTimelineProjection.make({ ...projection, messages });
+			const content = event.message.content;
+			const interactions = (() => {
+				if (content._tag === "user_question") {
+					return upsertInteraction(projection.interactions, {
+						_tag: "Question",
+						id: content.itemId,
+						questions: content.questions,
+						requestedAt: event.message.createdAt,
+					});
+				}
+				if (content._tag === "user_question_answer") {
+					return removeInteraction(
+						projection.interactions,
+						"Question",
+						content.itemId,
+					);
+				}
+				return projection.interactions;
+			})();
+			return SessionTimelineProjection.make({
+				...projection,
+				messages,
+				interactions,
+			});
 		}
 		case "StatusSet":
 			return SessionTimelineProjection.make({
@@ -72,6 +120,33 @@ export const applyTimelineEvent = (
 			return SessionTimelineProjection.make({
 				...projection,
 				runtimeMode: event.runtimeMode,
+			});
+		case "PermissionRequested":
+			return SessionTimelineProjection.make({
+				...projection,
+				interactions: upsertInteraction(projection.interactions, {
+					_tag: "Permission",
+					id: event.request.id,
+					request: event.request,
+				}),
+			});
+		case "PermissionResolved":
+			return SessionTimelineProjection.make({
+				...projection,
+				interactions: removeInteraction(
+					projection.interactions,
+					"Permission",
+					event.requestId,
+				),
+			});
+		case "QuestionResolved":
+			return SessionTimelineProjection.make({
+				...projection,
+				interactions: removeInteraction(
+					projection.interactions,
+					"Question",
+					event.itemId,
+				),
 			});
 		case "QueuePausedSet":
 			return SessionTimelineProjection.make({

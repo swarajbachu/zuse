@@ -1,6 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
+import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
 import {
 	type CodexSessionHandle,
 	startCodexSession,
@@ -12,7 +14,6 @@ import {
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import { makeTurnScopedSessionHandle } from "@zuse/agents/kernel/turn-protocol";
 import type {
-	AgentEvent,
 	AgentSessionId,
 	AgentTurnId,
 	FolderId,
@@ -20,6 +21,7 @@ import type {
 } from "@zuse/contracts";
 import { Effect, Fiber, Layer, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ProviderDriverEvent } from "../../../src/kernel/driver.ts";
 
 const AttachmentsTest = Layer.succeed(AttachmentService, {
 	upload: () => Effect.die("not used"),
@@ -40,6 +42,11 @@ const input = (
 	...overrides,
 });
 
+let appServerRequest:
+	| ((request: ServerRequest, respond: (result: unknown) => void) => void)
+	| null = null;
+let appServerExit: ((reason: Error) => void) | null = null;
+
 const installAppServer = (
 	missingResume: boolean,
 	initialMissingMcpInventories = 0,
@@ -48,9 +55,13 @@ const installAppServer = (
 	let mcpInventoryReads = 0;
 	let startupTerminated = false;
 	let terminate: ((error: Error) => void) | undefined;
+	let notify: ((notification: ServerNotification) => void) | undefined;
 	vi.spyOn(CodexAppServerClient, "start").mockImplementation(
 		async (options) => {
 			terminate = options.onUnexpectedTermination;
+			notify = options.onNotification;
+			appServerRequest = options.onServerRequest;
+			appServerExit = options.onUnexpectedTermination ?? null;
 			return {
 				request: vi.fn(async (method: string, params?: unknown) => {
 					const record = (params ?? {}) as Record<string, unknown>;
@@ -136,6 +147,10 @@ const installAppServer = (
 		},
 	);
 	return {
+		notify: (notification: ServerNotification) => {
+			if (notify === undefined) throw new Error("App server is not running");
+			notify(notification);
+		},
 		terminate: (error: Error) => {
 			if (terminate === undefined) throw new Error("App server is not running");
 			terminate(error);
@@ -191,9 +206,9 @@ const withSession = async <A>(
 };
 
 const takeEvents = (
-	events: Stream.Stream<AgentEvent>,
+	events: Stream.Stream<ProviderDriverEvent>,
 	count: number,
-): Promise<ReadonlyArray<AgentEvent>> =>
+): Promise<ReadonlyArray<ProviderDriverEvent>> =>
 	Effect.runPromise(
 		events.pipe(
 			Stream.take(count),
@@ -203,7 +218,54 @@ const takeEvents = (
 		),
 	);
 
+const requestNativeQuestion = (
+	itemId: string,
+	questions: ReadonlyArray<{
+		readonly id: string;
+		readonly header: string;
+		readonly question: string;
+		readonly isOther: boolean;
+		readonly isSecret: boolean;
+		readonly options: ReadonlyArray<{
+			readonly label: string;
+			readonly description: string;
+		}>;
+	}> = [
+		{
+			id: "choice",
+			header: "Choice",
+			question: "Continue?",
+			isOther: false,
+			isSecret: false,
+			options: [{ label: "Yes", description: "Continue" }],
+		},
+	],
+): Promise<unknown> =>
+	new Promise((resolve) => {
+		if (appServerRequest === null) {
+			throw new Error("Codex app-server request handler was not installed");
+		}
+		appServerRequest(
+			{
+				method: "item/tool/requestUserInput",
+				id: 1,
+				params: {
+					threadId: "thread-1",
+					turnId: "turn-1",
+					itemId,
+					questions: questions.map((question) => ({
+						...question,
+						options: [...question.options],
+					})),
+				},
+			},
+			resolve,
+		);
+	});
+
 afterEach(() => {
+	appServerRequest = null;
+	appServerExit = null;
 	vi.restoreAllMocks();
 });
 
@@ -240,6 +302,48 @@ describe("Codex session cursor persistence", () => {
 			),
 		});
 		expect(CodexAppServerClient.start).toHaveBeenCalledTimes(1);
+	});
+
+	it("continues delivering output after a retryable stream error", async () => {
+		await withSession({}, async (handle, appServer) => {
+			const scoped = await Effect.runPromise(
+				makeTurnScopedSessionHandle(handle),
+			);
+			const collected = Effect.runFork(Stream.runCollect(scoped.events));
+			const turnId = "turn-retry" as AgentTurnId;
+			await Effect.runPromise(scoped.send(turnId, "hello"));
+			appServer.notify({
+				method: "error",
+				params: {
+					threadId: "fresh-thread",
+					turnId: "turn-1",
+					willRetry: true,
+					error: {
+						message: "Reconnecting... 2/5",
+						codexErrorInfo: null,
+						additionalDetails: null,
+					},
+				},
+			});
+			appServer.notify({
+				method: "item/agentMessage/delta",
+				params: {
+					threadId: "fresh-thread",
+					turnId: "turn-1",
+					itemId: "reply",
+					delta: "Recovered response",
+				},
+			});
+			await Effect.runPromise(Effect.sleep("30 millis"));
+			await Effect.runPromise(handle.close());
+			const events = Array.from(
+				await Effect.runPromise(
+					Fiber.join(collected).pipe(Effect.timeout("2 seconds")),
+				),
+			);
+			expect(events.some((event) => event.event._tag === "Error")).toBe(false);
+			expect(JSON.stringify(events)).toContain("Recovered response");
+		});
 	});
 
 	it("publishes one terminal error and ends after app-server termination", async () => {
@@ -287,6 +391,157 @@ describe("Codex session cursor persistence", () => {
 		);
 	});
 
+	it("maps native preset and free-text question answers", async () => {
+		await withSession({}, async (handle) => {
+			const events: ProviderDriverEvent[] = [];
+			const subscription = Effect.runFork(
+				handle.events.pipe(
+					Stream.runForEach((event) =>
+						Effect.sync(() => {
+							events.push(event);
+						}),
+					),
+				),
+			);
+			const response = requestNativeQuestion("native-answer", [
+				{
+					id: "choice",
+					header: "Choice",
+					question: "Continue?",
+					isOther: false,
+					isSecret: false,
+					options: [
+						{ label: "Yes", description: "Continue" },
+						{ label: "No", description: "Stop" },
+					],
+				},
+				{
+					id: "reason",
+					header: "Reason",
+					question: "Why?",
+					isOther: true,
+					isSecret: false,
+					options: [],
+				},
+			]);
+			await expect
+				.poll(() =>
+					events.some(
+						(event) =>
+							event._tag === "UserQuestion" && event.itemId === "native-answer",
+					),
+				)
+				.toBe(true);
+
+			await Effect.runPromise(
+				handle.answerQuestion("native-answer" as never, [
+					{ questionIndex: 0, selected: [1] },
+					{ questionIndex: 1, selected: [], other: "Because it is safer" },
+				]),
+			);
+			await expect(response).resolves.toEqual({
+				answers: {
+					choice: { answers: ["No"] },
+					reason: { answers: ["Because it is safer"] },
+				},
+			});
+			await Effect.runPromise(Fiber.interrupt(subscription));
+		});
+	});
+
+	it("releases a native user-question callback on interrupt", async () => {
+		await withSession({}, async (handle) => {
+			const events: ProviderDriverEvent[] = [];
+			const subscription = Effect.runFork(
+				handle.events.pipe(
+					Stream.runForEach((event) =>
+						Effect.sync(() => {
+							events.push(event);
+						}),
+					),
+				),
+			);
+			const response = requestNativeQuestion("native-question");
+			await expect
+				.poll(() =>
+					events.some(
+						(event) =>
+							event._tag === "UserQuestion" &&
+							event.itemId === "native-question",
+					),
+				)
+				.toBe(true);
+
+			await Effect.runPromise(handle.interrupt());
+			await expect(response).resolves.toEqual({ answers: {} });
+			await expect
+				.poll(() =>
+					events.some(
+						(event) =>
+							event._tag === "QuestionCallbackReleased" &&
+							event.itemId === "native-question" &&
+							event.reason === "cancelled",
+					),
+				)
+				.toBe(true);
+			await expect(
+				Effect.runPromise(
+					handle.answerQuestion("native-question" as never, [
+						{ questionIndex: 0, selected: [0] },
+					]),
+				),
+			).rejects.toThrow("No pending user question: native-question");
+			await Effect.runPromise(Fiber.interrupt(subscription));
+		});
+	});
+
+	it("releases a native user-question callback when app-server exits", async () => {
+		await withSession({}, async (handle) => {
+			const events: ProviderDriverEvent[] = [];
+			const subscription = Effect.runFork(
+				handle.events.pipe(
+					Stream.runForEach((event) =>
+						Effect.sync(() => {
+							events.push(event);
+						}),
+					),
+				),
+			);
+			const response = requestNativeQuestion("exit-question");
+			await expect
+				.poll(() =>
+					events.some(
+						(event) =>
+							event._tag === "UserQuestion" && event.itemId === "exit-question",
+					),
+				)
+				.toBe(true);
+
+			if (appServerExit === null)
+				throw new Error("Codex app-server exit handler was not installed");
+			appServerExit(new Error("injected transport exit"));
+			await expect(response).resolves.toEqual({ answers: {} });
+			await expect
+				.poll(() =>
+					events.some(
+						(event) =>
+							event._tag === "QuestionCallbackReleased" &&
+							event.itemId === "exit-question" &&
+							event.reason === "transport_lost",
+					),
+				)
+				.toBe(true);
+			await expect(
+				Effect.runPromise(
+					handle.answerQuestion("exit-question" as never, [
+						{ questionIndex: 0, selected: [0] },
+					]),
+				),
+			).rejects.toThrow("No pending user question: exit-question");
+			await Effect.runPromise(Fiber.interrupt(subscription));
+		});
+	});
+
 	it("waits for the process-scoped MCP inventory to finish loading", async () => {
 		await withSession({ initialMissingMcpInventories: 1 }, async (handle) => {
 			const events = await takeEvents(handle.events, 1);
@@ -296,7 +551,7 @@ describe("Codex session cursor persistence", () => {
 
 	it("does not publish a provisional cursor before the first turn", async () => {
 		await withSession({}, async (handle) => {
-			const events: Array<AgentEvent> = [];
+			const events: Array<ProviderDriverEvent> = [];
 			const subscription = Effect.runFork(
 				handle.events.pipe(
 					Stream.runForEach((event) =>

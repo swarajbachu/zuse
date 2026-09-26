@@ -1,8 +1,6 @@
-import { isCloudSyncExcludedPath } from "@zuse/utils/cloud-sync-paths";
-import { Cause, Effect, Fiber, Stream } from "effect";
+import { EnvironmentId } from "@zuse/contracts";
+import { Effect } from "effect";
 import { useCallback, useSyncExternalStore } from "react";
-
-import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { type CloudSyncStatus, getAppBridge } from "./bridge.ts";
 import { prepareCloudWorkspaceSsh } from "./cloud-ssh-client-bus.ts";
 import {
@@ -17,15 +15,13 @@ import {
 	useCloudChatCatalogStore,
 } from "./cloud-workspace-catalog.ts";
 import { errorMessage } from "./error-message.ts";
-import { getRendererClientBus } from "./session-timeline-client-bus.ts";
 
 /**
  * Renderer side of the cloud→local file sync.
  *
- * The desktop main process owns the rsync mirror (cloud-sync-service.ts);
- * this adapter owns the change signal: while sync is enabled and the cloud
- * environment is connected, it holds an `fs.watchTree` subscription over the
- * existing gateway RPC connection and forwards change frames to the desktop.
+ * The desktop main process owns the snapshot worker (cloud-sync-service.ts);
+ * this adapter prepares access and reconciles enabled workspaces. The desktop
+ * polls Git-selected manifests; filesystem watchers do not control publication.
  * Preferences persist per workspace in the cloud chat catalog.
  */
 
@@ -57,14 +53,14 @@ const setLocalStatus = (
 };
 
 interface ActiveSync {
-	fiber: Fiber.Fiber<unknown, unknown> | null;
 	stopped: boolean;
-	changedBeforeConfigure: boolean;
-	configured: boolean;
+	abort: AbortController;
 }
 const active = new Map<string, ActiveSync>();
 const lifecycleQueue = new CloudSyncLifecycleQueue();
+let reconcileSyncs = () => {};
 const ACCESS_REFRESH_BACKOFF_MS = 1_000;
+const setupRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const accessRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const cancelAccessRefresh = (workspaceId: string): void => {
@@ -77,81 +73,55 @@ const scheduleAccessRefresh = (workspaceId: string): void => {
 	if (accessRefreshTimers.has(workspaceId) || !active.has(workspaceId)) return;
 	const timer = setTimeout(() => {
 		accessRefreshTimers.delete(workspaceId);
-		void prepareCloudWorkspaceSsh(workspaceId)
-			.then(() => getAppBridge()?.cloudSyncRequest?.(workspaceId))
+		void stopSync(workspaceId)
+			.then(() => startSync(workspaceId))
 			.catch(() => undefined);
 	}, ACCESS_REFRESH_BACKOFF_MS);
 	accessRefreshTimers.set(workspaceId, timer);
 };
 
-const resolveWorkspaceFolderId = async (
-	workspaceId: string,
-): Promise<string | null> => {
-	const client = getRendererClientBus().client(workspaceId as never);
-	if (client === null) return null;
-	const folders = await Effect.runPromise(client["workspace.list"]({}));
-	return folders[0]?.id ?? null;
-};
-
-const startWatcher = (
-	workspaceId: string,
-	entry: ActiveSync,
-): Promise<void> => {
-	const client = getRendererClientBus().client(workspaceId as never);
-	const app = getAppBridge();
-	if (client === null || app?.cloudSyncRequest === undefined)
-		return Promise.resolve();
-	return new Promise((resolve) => {
-		const ready = () => {
-			clearTimeout(timeout);
-			resolve();
-		};
-		// Unavailable watchers must not prevent periodic reconciliation.
-		const timeout = setTimeout(ready, 5_000);
-		const program = Effect.gen(function* () {
-			const folderId = yield* Effect.promise(() =>
-				resolveWorkspaceFolderId(workspaceId),
+const waitForAccess = (workspaceId: string, signal: AbortSignal) =>
+	new Promise<Awaited<ReturnType<typeof prepareCloudWorkspaceSsh>>>(
+		(resolve, reject) => {
+			const finish = () => {
+				clearTimeout(timer);
+				signal.removeEventListener("abort", abort);
+			};
+			const abort = () => {
+				finish();
+				reject(new Error("Sync setup cancelled."));
+			};
+			const timer = setTimeout(() => {
+				finish();
+				reject(
+					new Error(
+						"Timed out preparing cloud sync access. Reconnect the workspace and retry.",
+					),
+				);
+			}, 30_000);
+			signal.addEventListener("abort", abort, { once: true });
+			if (signal.aborted) {
+				abort();
+				return;
+			}
+			void prepareCloudWorkspaceSsh(workspaceId).then(
+				(value) => {
+					finish();
+					resolve(value);
+				},
+				(cause) => {
+					finish();
+					reject(cause);
+				},
 			);
-			if (folderId === null) return;
-			yield* Stream.runForEach(
-				client["fs.watchTree"]({ folderId: folderId as never }),
-				(event) =>
-					Effect.sync(() => {
-						ready();
-						if (entry.stopped || event._tag === "ready") return;
-						if (
-							event._tag === "changed" &&
-							event.paths.length > 0 &&
-							event.paths.every(isCloudSyncExcludedPath)
-						)
-							return;
-						if (entry.configured) void app.cloudSyncRequest?.(workspaceId);
-						else entry.changedBeforeConfigure = true;
-					}),
-			);
-		}).pipe(
-			Effect.catchCause((cause) =>
-				Effect.sync(() => {
-					if (entry.stopped || Cause.hasInterruptsOnly(cause)) return;
-					// The periodic fallback in the desktop service keeps the mirror
-					// converging even without change events; just drop the watcher.
-					ready();
-				}),
-			),
-		);
-		entry.fiber = Effect.runFork(
-			program.pipe(Effect.ensuring(Effect.sync(ready))),
-		);
-	});
-};
+		},
+	);
 
 const startSyncNow = async (workspaceId: string): Promise<void> => {
-	if (active.has(workspaceId)) return;
+	if (active.has(workspaceId) || setupRetryTimers.has(workspaceId)) return;
 	const entry: ActiveSync = {
-		fiber: null,
 		stopped: false,
-		configured: false,
-		changedBeforeConfigure: false,
+		abort: new AbortController(),
 	};
 	active.set(workspaceId, entry);
 	const app = getAppBridge();
@@ -169,9 +139,9 @@ const startSyncNow = async (workspaceId: string): Promise<void> => {
 			localPath,
 			error: null,
 		});
-		const prepared = await prepareCloudWorkspaceSsh(workspaceId);
-		await startWatcher(workspaceId, entry);
+		const prepared = await waitForAccess(workspaceId, entry.abort.signal);
 		if (entry.stopped) return;
+
 		const status = await app.cloudSyncConfigure({
 			workspaceId,
 			enabled: true,
@@ -179,17 +149,24 @@ const startSyncNow = async (workspaceId: string): Promise<void> => {
 			hostAlias: prepared.hostAlias,
 			remotePath: prepared.remotePath,
 		});
-		if (status !== null) {
-			statuses.set(workspaceId, status);
-			emit();
-		}
-		entry.configured = true;
-		if (entry.changedBeforeConfigure) await app.cloudSyncRequest?.(workspaceId);
+		if (status === null)
+			throw new Error("Desktop rejected the cloud sync configuration.");
+		statuses.set(workspaceId, status);
+		emit();
 	} catch (cause) {
+		if (entry.stopped) return;
 		entry.stopped = true;
-		if (entry.fiber !== null)
-			await Effect.runPromise(Fiber.interrupt(entry.fiber));
 		active.delete(workspaceId);
+		setupRetryTimers.set(
+			workspaceId,
+			setTimeout(() => {
+				setupRetryTimers.delete(workspaceId);
+				const ready =
+					cloudSummaryForEnvironment(workspaceId)?.state === "ready";
+				if (ready && cloudSyncPreferenceEnabled(cloudSyncPrefsFor(workspaceId)))
+					void startSync(workspaceId);
+			}, 30_000),
+		);
 		setLocalStatus(workspaceId, {
 			enabled: true,
 			state: "error",
@@ -216,13 +193,13 @@ export const cloudSyncLocalPath = async (
 
 const stopSyncNow = async (workspaceId: string): Promise<void> => {
 	cancelAccessRefresh(workspaceId);
+	clearTimeout(setupRetryTimers.get(workspaceId));
+	setupRetryTimers.delete(workspaceId);
 	const entry = active.get(workspaceId);
 	active.delete(workspaceId);
 	if (entry !== undefined) {
 		entry.stopped = true;
-		const fiber = entry.fiber;
-		entry.fiber = null;
-		if (fiber !== null) await Effect.runPromise(Fiber.interrupt(fiber));
+		entry.abort.abort();
 	}
 	const app = getAppBridge();
 	const status = await app?.cloudSyncConfigure?.({
@@ -240,11 +217,21 @@ const stopSyncNow = async (workspaceId: string): Promise<void> => {
 	}
 };
 
-const stopSync = (workspaceId: string): Promise<void> =>
-	lifecycleQueue.run(workspaceId, () => stopSyncNow(workspaceId));
+const stopSync = (workspaceId: string): Promise<void> => {
+	const entry = active.get(workspaceId);
+	if (entry) {
+		entry.stopped = true;
+		entry.abort.abort();
+	}
+	return lifecycleQueue
+		.run(workspaceId, () => stopSyncNow(workspaceId))
+		.finally(() => reconcileSyncs());
+};
 
 export const enableCloudSync = async (workspaceId: string): Promise<void> => {
 	setCloudSyncPrefs(workspaceId, { enabled: true });
+	clearTimeout(setupRetryTimers.get(workspaceId));
+	setupRetryTimers.delete(workspaceId);
 	await startSync(workspaceId);
 };
 
@@ -257,6 +244,22 @@ let wired = false;
 const wire = (): void => {
 	if (wired || typeof window === "undefined") return;
 	wired = true;
+	getAppBridge()?.onCloudSyncReadFile?.(async ({ workspaceId, path }) => {
+		const { getRendererClientBus } = await import(
+			"./session-timeline-client-bus.ts"
+		);
+		const client = getRendererClientBus().client(
+			EnvironmentId.make(workspaceId),
+		);
+		if (client === null)
+			throw new Error("Workspace gateway disconnected during sync.");
+		const file = await Effect.runPromise(
+			client["fs.readExternalFile"]({ path }).pipe(Effect.timeout(30000)),
+		);
+		return file.kind === "binary"
+			? file.bytes
+			: new TextEncoder().encode(file.content);
+	});
 	getAppBridge()?.onCloudSyncStatus?.((status) => {
 		statuses.set(status.workspaceId, status);
 		emit();
@@ -269,26 +272,20 @@ const wire = (): void => {
 	});
 	const startAutomaticSyncs = () => {
 		const summaries = useCloudChatCatalogStore.getState().summaries;
-		const connected = new Set(
-			useEnvironmentCatalogStore
-				.getState()
-				.entries.filter(
-					(entry) =>
-						entry.connectionKind === "api" && entry.status === "connected",
-				)
-				.map((entry) => entry.environmentId),
-		);
+
 		reconcileAutomaticCloudSyncs({
 			summaries,
-			connectedWorkspaceIds: connected,
-			activeWorkspaceIds: new Set(active.keys()),
+			activeWorkspaceIds: new Set([
+				...active.keys(),
+				...setupRetryTimers.keys(),
+			]),
 			enabled: (workspaceId) =>
 				cloudSyncPreferenceEnabled(cloudSyncPrefsFor(workspaceId)),
 			start: (workspaceId) => void startSync(workspaceId),
 			stop: (workspaceId) => void stopSync(workspaceId),
 		});
 	};
-	useEnvironmentCatalogStore.subscribe(startAutomaticSyncs);
+	reconcileSyncs = startAutomaticSyncs;
 	useCloudChatCatalogStore.subscribe(startAutomaticSyncs);
 	startAutomaticSyncs();
 };

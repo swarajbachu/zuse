@@ -30,6 +30,7 @@ import {
 	Text,
 	View,
 } from "react-native";
+import { requestAiSharingConsent } from "~/lib/ai-sharing-consent";
 import {
 	captureComposerImage,
 	type LocalComposerAttachment,
@@ -282,8 +283,22 @@ export const Composer = ({
 
 	const performSubmit = async () => {
 		if (!canSend) return;
+		if (session === null) {
+			setComposerError("Wait for this chat to load before sending.");
+			return;
+		}
 		const value = (inputRef.current?.getText() ?? "").trim();
 		if (value.length === 0 && attachments.length === 0) return;
+		if (
+			!(await requestAiSharingConsent({
+				recipient: session.providerId,
+				scope: connKey,
+				model: session.model,
+				destination:
+					connection.cloudWorkspaceId === undefined ? "computer" : "cloud",
+			}))
+		)
+			return;
 		if (!online && connection.cloudWorkspaceId === undefined) {
 			if (attachments.length > 0) {
 				setComposerError("Attachments require an active connection.");

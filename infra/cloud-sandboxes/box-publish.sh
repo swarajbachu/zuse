@@ -2,7 +2,7 @@
 # Publishes the zuse base template for the Box provider as a named snapshot.
 # Box has no custom-image API, so the template is built by provisioning a
 # fresh box with the shared provision.sh stages plus the Box-specific pieces
-# (boot-time port hosting), then freezing it.
+# (provider-owned agents and unprivileged runtime user), then freezing it.
 #
 # Usage: BOAT_API_KEY=... box-publish.sh <version>
 #   e.g. box-publish.sh 1   →  named snapshot "zuse-base-v1"

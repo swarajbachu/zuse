@@ -18,6 +18,7 @@ on:
     paths:
       - ".github/workflows/cloud-runtime-staging.yml"
       - "apps/server/**"
+      - "infra/cloud-sandboxes/**"
       - "infra/cloud-machines/**"
       - "packages/**"
       - "bun.lock"
@@ -27,6 +28,7 @@ on:
     paths:
       - ".github/workflows/cloud-runtime-staging.yml"
       - "apps/server/**"
+      - "infra/cloud-sandboxes/**"
       - "infra/cloud-machines/**"
       - "packages/**"
       - "bun.lock"
@@ -186,10 +188,11 @@ jobs:
           require("tree-sitter-json");
           require("tree-sitter-typescript");
           const toolchain = require("./toolchain-manifest.json");
+          const expectedToolchain = require(process.env.GITHUB_WORKSPACE + "/apps/server/scripts/toolchain-manifest.json");
           const runtime = require("./runtime-metadata.json");
           if (
             toolchain.architecture !== "linux-x64" ||
-            toolchain.npmPackages["@openai/codex"] !== "0.144.5" ||
+            JSON.stringify(toolchain) !== JSON.stringify(expectedToolchain) ||
             runtime.schemaVersion !== 1 ||
             typeof runtime.appVersion !== "string" ||
             typeof runtime.runtimeVersion !== "string"

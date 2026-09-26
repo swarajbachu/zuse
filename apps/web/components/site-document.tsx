@@ -54,12 +54,14 @@ const schibstedGrotesk = Schibsted_Grotesk({
 export async function SiteDocument({
 	children,
 	locale = "en",
+	studio = false,
 }: Readonly<{
 	children: React.ReactNode;
 	locale?: WebsiteLocale;
+	studio?: boolean;
 }>) {
 	const [githubStars, messages] = await Promise.all([
-		getGitHubStars(),
+		studio ? Promise.resolve(0) : getGitHubStars(),
 		loadWebsiteCatalog(locale),
 	]);
 
@@ -72,25 +74,33 @@ export async function SiteDocument({
 					DMMono.variable,
 					geist.variable,
 					schibstedGrotesk.variable,
-					`zuse-site bg-background relative overflow-x-hidden font-sans antialiased`,
+					studio
+						? "zuse-studio font-sans antialiased"
+						: "zuse-site bg-background relative overflow-x-hidden font-sans antialiased",
 				)}
 			>
 				<WebsiteProvider locale={locale} messages={messages}>
 					<ThemeProvider>
-						<DownloadShortcut />
-						{/* Framed column with dotted rails on both edges — the base layout's
+						{studio ? (
+							children
+						) : (
+							<>
+								<DownloadShortcut />
+								{/* Framed column with dotted rails on both edges — the base layout's
             signature. Everything on the site lives inside these rails. */}
-						<div className="relative mx-auto w-full max-w-6xl">
-							<VerticalLine />
-							<VerticalLine className="right-0 left-auto" />
-							<Navbar githubStars={githubStars} />
-							<div className="site-content">{children}</div>
-							<Footer />
-						</div>
-						<ProgressiveBlur
-							className="site-bottom-blur pointer-events-none fixed inset-x-0 bottom-0 z-40 mx-auto h-[8%] w-full max-w-6xl"
-							blurIntensity={1}
-						/>
+								<div className="relative mx-auto w-full max-w-6xl">
+									<VerticalLine />
+									<VerticalLine className="right-0 left-auto" />
+									<Navbar githubStars={githubStars} />
+									<div className="site-content">{children}</div>
+									<Footer />
+								</div>
+								<ProgressiveBlur
+									className="site-bottom-blur pointer-events-none fixed inset-x-0 bottom-0 z-40 mx-auto h-[8%] w-full max-w-6xl"
+									blurIntensity={1}
+								/>
+							</>
+						)}
 					</ThemeProvider>
 				</WebsiteProvider>
 			</body>

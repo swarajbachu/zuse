@@ -20,7 +20,7 @@ describe("cloud auth authority locator", () => {
 				accountId: "account-auth",
 				provider: "e2b",
 				candidateStorageIncarnationId: "incarnation-1",
-				toolchainVersion: "0.144.5",
+				toolchainVersion: "0.155.1",
 				leaseOwner: "worker-1",
 				nowMs: 100,
 				leaseExpiresAtMs: 200,
@@ -31,7 +31,7 @@ describe("cloud auth authority locator", () => {
 				accountId: "account-auth",
 				provider: "e2b",
 				candidateStorageIncarnationId: "incarnation-2",
-				toolchainVersion: "0.144.5",
+				toolchainVersion: "0.155.1",
 				leaseOwner: "worker-2",
 				nowMs: 150,
 				leaseExpiresAtMs: 250,
@@ -46,7 +46,7 @@ describe("cloud auth authority locator", () => {
 				accountId: "account-auth",
 				providerSandboxId: "sandbox-authority",
 				storageIncarnationId: "incarnation-1",
-				toolchainVersion: "0.144.5",
+				toolchainVersion: "0.155.1",
 				leaseOwner: "worker-1",
 				nowMs: 160,
 			}),
@@ -57,7 +57,7 @@ describe("cloud auth authority locator", () => {
 				accountId: "account-auth",
 				provider: "e2b",
 				candidateStorageIncarnationId: "incarnation-ignored",
-				toolchainVersion: "0.144.5",
+				toolchainVersion: "0.155.1",
 				leaseOwner: "worker-2",
 				nowMs: 165,
 				leaseExpiresAtMs: 265,
@@ -72,7 +72,7 @@ describe("cloud auth authority locator", () => {
 				accountId: "account-auth",
 				provider: "e2b",
 				candidateStorageIncarnationId: "incarnation-replacement",
-				toolchainVersion: "0.144.5",
+				toolchainVersion: "0.155.1",
 				leaseOwner: "worker-2",
 				nowMs: 166,
 				leaseExpiresAtMs: 266,
@@ -93,7 +93,7 @@ describe("cloud auth authority locator", () => {
 				accountId: "account-auth",
 				providerSandboxId: "sandbox-replacement",
 				storageIncarnationId: "incarnation-replacement",
-				toolchainVersion: "0.144.5",
+				toolchainVersion: "0.155.1",
 				leaseOwner: "worker-2",
 				nowMs: 168,
 			}),
@@ -2918,7 +2918,11 @@ describe("cloud workspace store", () => {
 			desiredState: "ready" as const,
 			statusCode: "agent-starting",
 			idempotencyKey: "workspace-launch-completion-key",
-			requestConfig: { startupTimings: { requestedAt: 100 } },
+			requestConfig: {
+				startupTimings: { requestedAt: 100 },
+				launchErrorCode: "runtime-storage-replaced",
+				startupFailureDiagnostic: "old failure",
+			},
 			nextActionAtMs: 100,
 			revision: 2,
 			createdAtMs: 100,
@@ -2948,6 +2952,11 @@ describe("cloud workspace store", () => {
 				nextActionAtMs: 10_000,
 			}),
 		);
+		const recovered = await runtime.runPromise(
+			store.getWorkspace(workspace.workspaceId),
+		);
+		expect(recovered?.requestConfig.launchErrorCode).toBeUndefined();
+		expect(recovered?.requestConfig.startupFailureDiagnostic).toBeUndefined();
 		expect(completed).toMatchObject({
 			kind: "completed",
 			workspace: {

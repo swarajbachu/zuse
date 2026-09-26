@@ -405,7 +405,7 @@ function ChangesReviewReady({
 								: file.conflict
 									? "Select this file in the navigator to resolve its conflicts."
 									: file.binary
-										? "Binary file changed — no textual diff is available."
+										? "Binary or oversized file changed — no textual diff is available."
 										: "No textual diff is available for this change.",
 						cacheKey: `${key}:${file.path}:placeholder`,
 					},

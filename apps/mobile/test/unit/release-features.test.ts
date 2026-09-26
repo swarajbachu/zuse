@@ -22,7 +22,10 @@ describe("mobile release feature boundaries", () => {
 		}
 	});
 	test("removes settings links and gates recording at the parent", () => {
-		const settings = readFileSync(`${process.cwd()}/app/settings.tsx`, "utf8");
+		const settings = readFileSync(
+			`${process.cwd()}/src/components/settings-screen.tsx`,
+			"utf8",
+		);
 		expect(settings).not.toContain('router.push("/usage")');
 		expect(settings).not.toContain('router.push("/developer-tools")');
 		const composer = readFileSync(

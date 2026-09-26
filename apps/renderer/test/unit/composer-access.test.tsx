@@ -25,6 +25,14 @@ vi.mock("../../src/lib/session-timeline-hooks.ts", async (original) => ({
 		view: { data: null, pendingCommands: [], failedCommands: [], sync: "live" },
 		messages: [],
 		runtime: "idle",
+		presentation: {
+			runtime: "idle",
+			busy: false,
+			turnActive: false,
+			turnInFlight: false,
+			attention: "idle",
+			interactions: [],
+		},
 	}),
 }));
 

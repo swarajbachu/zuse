@@ -134,7 +134,10 @@ export function CommandPaletteDialog<Value>({
 						}
 						onKeyDown={onKey}
 						value={query}
-						onChange={(event) => onQueryChange(event.target.value)}
+						onChange={(event) => {
+							setHighlight(0);
+							onQueryChange(event.target.value);
+						}}
 						aria-label={inputLabel}
 						placeholder={placeholder}
 						className="h-7 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
