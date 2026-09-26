@@ -2,6 +2,7 @@
 title: "Parallel agents, without collisions"
 description: "A practical workflow for isolating AI coding tasks with Git worktrees, sharing context deliberately, and reviewing the combined result."
 date: "2026-09-17"
+updated: "2026-09-24"
 category: "Guide"
 timeToRead: "3 min read"
 authorName: "Zuse team"
@@ -50,3 +51,9 @@ Keep one chat responsible for the combined result. Have each task report its cha
 The constraint is simple: independent tasks get independent checkouts; shared review gets a shared checkout with clear editing responsibility.
 
 Start with the [worktree guide](https://docs.zuse.sh/how-to/local-parallel-worktrees), then read [how to review changes](https://docs.zuse.sh/how-to/local-review-changes).
+
+## Apply the same ownership rules in cloud workspaces
+
+Moving agents to remote compute does not remove integration dependencies. Assign each task a clear area of responsibility and ask it to report shared interfaces it changes. If two tasks need the same contract, settle that contract before allowing both implementations to diverge.
+
+Before integrating the results, inspect the branches and run the checks against the combined changes. Two isolated tasks can pass their own tests and still conflict when brought together. The [guide to open source cloud agents](/blog/open-source-cloud-agents) covers environment setup and review alongside parallel execution.

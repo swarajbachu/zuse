@@ -21,7 +21,7 @@
     },
     "apps/desktop": {
       "name": "desktop",
-      "version": "0.21.0",
+      "version": "0.22.1",
       "dependencies": {
         "@cursor/sdk": "1.0.23",
         "electron-updater": "^6.3.9",
@@ -335,6 +335,7 @@
         "motion": "^12.23.24",
         "next": "16.0.10",
         "next-themes": "^0.4.6",
+        "posthog-js": "^1.406.2",
         "react": "19.2.0",
         "react-dom": "19.2.0",
         "shadcn": "^4.8.0",
@@ -344,6 +345,7 @@
         "zod": "^4.4.3",
       },
       "devDependencies": {
+        "@playwright/test": "^1.62.1",
         "@tailwindcss/postcss": "^4",
         "@types/node": "^20",
         "@types/react": "^19",

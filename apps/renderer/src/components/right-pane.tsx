@@ -799,7 +799,7 @@ export function RightPane({
 			{visiblePanels.length > 0 ? (
 				<div
 					ref={dockTabsRef}
-					className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto px-1 text-[11px]"
+					className="workspace-panel-tabs flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto px-2 text-[11px]"
 				>
 					{visiblePanels.map((panel) => {
 						const terminal =
@@ -870,7 +870,7 @@ export function RightPane({
 					</button>
 				</div>
 			) : null}
-			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+			<div className="workspace-panel-body flex min-h-0 min-w-0 flex-1 flex-col">
 				{visiblePanels.length === 0 ? (
 					<PanelLauncher
 						actions={addPanelMenu}

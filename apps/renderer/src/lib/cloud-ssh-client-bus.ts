@@ -1,14 +1,12 @@
 import "@zuse/i18n/english/connections";
-import { CommandId, EnvironmentId, type MachineSshKey } from "@zuse/contracts";
+import { EnvironmentId } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
+import { Effect } from "effect";
 
 import { type CloudSshPrepared, getAppBridge } from "./bridge.ts";
 import { cloudSummaryForEnvironment } from "./cloud-workspace-catalog.ts";
 import { runControlPlane } from "./control-plane-client.ts";
-import {
-	dispatchEnvironmentShellCommand,
-	retainEnvironmentShell,
-} from "./environment-shell-client-bus.ts";
+import { retainEnvironmentShell } from "./environment-shell-client-bus.ts";
 import { getRendererClientBus } from "./session-timeline-client-bus.ts";
 
 /**
@@ -26,7 +24,9 @@ export const cloudSshSupported = (): boolean =>
 
 const requestSshAccess = (workspaceId: string) =>
 	runControlPlane((client) =>
-		client["cloud.workspaces.sshAccess"]({ workspaceId }),
+		client["cloud.workspaces.sshAccess"]({ workspaceId }).pipe(
+			Effect.timeout(15_000),
+		),
 	);
 
 const SSH_GATEWAY_READY_TIMEOUT_MS = 30_000;
@@ -129,8 +129,8 @@ const prepareCloudWorkspaceSshOnce = async (
 	}
 	const retained = retainEnvironmentShell({ environmentId }, "wake");
 	try {
-		// A api workspace can report ready before its renderer gateway lease has
-		// finished reconnecting. SSH and rsync both require that live client for
+		// An API workspace can report ready before its renderer gateway lease has
+		// finished reconnecting. SSH and file sync require that live client for
 		// key authorization, so keep a transient wake lease through the command.
 		await waitForWorkspaceGateway(environmentId, retained.key);
 		let access: Awaited<ReturnType<typeof requestSshAccess>>;
@@ -175,19 +175,17 @@ const prepareCloudWorkspaceSshOnce = async (
 			throw new Error("Could not prepare SSH access on this device.");
 		// Idempotent: the sandbox host service dedupes keys by fingerprint.
 		try {
-			await dispatchEnvironmentShellCommand<
-				{ publicKey: string; label?: string },
-				MachineSshKey
-			>({
-				environmentId,
-				kind: "machine.sshKeys.add",
-				commandId: CommandId.make(`cloud-ssh-key:${crypto.randomUUID()}`),
-				payload: {
+			const client = getRendererClientBus().client(environmentId);
+			if (client === null)
+				throw new Error("Cloud workspace disconnected while preparing SSH.");
+			// Access preparation is an online prerequisite, not a durable user
+			// command. Do not wait behind the environment command outbox.
+			await Effect.runPromise(
+				client["machine.sshKeys.add"]({
 					publicKey: prepared.publicKey,
 					label: uiMessage("connections:cloud_ssh_client_bus_zuse_desktop"),
-				},
-				retry: "safe",
-			});
+				}).pipe(Effect.timeout(15_000)),
+			);
 		} catch (cause) {
 			if (!legacyMachineSshKeyEncodingFailure(cause)) throw cause;
 		}

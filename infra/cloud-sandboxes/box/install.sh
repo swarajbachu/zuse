@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Box-side template installation, executed as root inside a fresh box by
 # box-publish.sh. Runs the shared provision stages, then layers on the
-# Box-specific pieces: boot-time port hosting, and the no-sudo guarantee for the zuse user.
+# Box-specific pieces: provider-owned agents and the unprivileged zuse user.
 set -euo pipefail
 
 provision_dir="${ZUSE_PROVISION_DIR:-/tmp/zuse-provision}"
@@ -20,19 +20,21 @@ if ! command -v node >/dev/null 2>&1 || [ "$(node --version | cut -c2-3)" != "22
 	apt-get install -y nodejs
 fi
 
-# Replace stock launchers with the versions installed by the shared stages.
-for launcher in pnpm pnpx yarn yarnpkg corepack bun bunx claude codex; do
+# Replace only runtime-tool launchers. Preserve Boat-owned agent installations.
+for launcher in pnpm pnpx yarn yarnpkg corepack bun bunx; do
 	rm -f "/usr/local/bin/$launcher"
 done
 
-"$provision_dir/provision.sh" packages globals runtime layout
+"$provision_dir/provision.sh" packages runtime-tools runtime layout
+
+# Fail publication if Boat's agents cannot run as the unprivileged runtime user.
+# Do not replace them with our pinned versions on failure.
+for agent in claude codex; do
+	runuser -u zuse -- "$agent" --version
+done
 
 # Fail publication if native dependencies or the installed CLI cannot load.
 runuser -u zuse -- /usr/local/bin/zuse --help >/dev/null
-
-install -m 0644 "$provision_dir/box/zuse-host-ports.service" /etc/systemd/system/zuse-host-ports.service
-systemctl daemon-reload
-systemctl enable zuse-host-ports.service
 
 # Keep the runtime user unprivileged: no sudo or admin groups.
 gpasswd -d zuse sudo 2>/dev/null || true
@@ -41,8 +43,6 @@ gpasswd -d zuse docker 2>/dev/null || true
 printf 'zuse ALL=(ALL) !ALL\n' >/etc/sudoers.d/zuse-deny
 chmod 0440 /etc/sudoers.d/zuse-deny
 
-# Host the runtime port now so the publishing checks can reach it; the boot
-# unit repeats this on every box created from the snapshot.
-systemctl start zuse-host-ports.service || true
+# Hosted ports are registered by the provider adapter after its listener starts.
 
 echo "zuse box template installation complete"

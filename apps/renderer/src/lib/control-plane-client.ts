@@ -13,45 +13,62 @@ export const runControlPlane = async <Result>(
 	return Effect.runPromise(effect(client));
 };
 
-export const controlPlaneClient = (): Promise<ControlPlaneClient> =>
-	getControlPlaneRpcClient();
-
-type SessionCacheEntry = Readonly<{
-	promise: Promise<unknown>;
-	expiresAt: number;
-}>;
+type SessionCacheEntry = {
+	value?: Promise<unknown>;
+	pending?: Promise<unknown>;
+};
 
 const sessionCache = new Map<string, SessionCacheEntry>();
+const cacheListeners = new Set<(key: string) => void>();
 
-/**
- * App-lifetime cache for control-plane reads. Failed requests are evicted so a
- * later consumer can retry; successful values remain warm until an explicit
- * refresh or the renderer process exits.
+export const subscribeControlPlaneSessionCache = (
+	listener: (key: string) => void,
+): (() => void) => {
+	cacheListeners.add(listener);
+	return () => {
+		cacheListeners.delete(listener);
+	};
+};
+
+/** Successful reads stay cached for the renderer session until explicitly refreshed
+ * or cleared on account changes. Reads during a refresh retain the last value.
  */
 export const runCachedControlPlane = <Result>(
 	key: string,
 	effect: (client: ControlPlaneClient) => Effect.Effect<Result, unknown>,
-	options?: { readonly refresh?: boolean; readonly maxAgeMs?: number },
+	options?: { readonly refresh?: boolean },
 ): Promise<Result> => {
-	if (!options?.refresh) {
-		const cached = sessionCache.get(key);
-		if (cached !== undefined && cached.expiresAt > Date.now()) {
-			return cached.promise as Promise<Result>;
-		}
+	const previous = sessionCache.get(key);
+	// A refresh after a mutation must not join a read started before that write.
+	const entry: SessionCacheEntry = options?.refresh
+		? { value: previous?.value }
+		: (previous ?? {});
+	const cached = entry.value as Promise<Result> | undefined;
+	if (!options?.refresh && cached) {
+		return cached;
 	}
-
-	const request = runControlPlane(effect).catch((cause) => {
-		if (sessionCache.get(key)?.promise === request) sessionCache.delete(key);
-		throw cause;
-	});
-	sessionCache.set(key, {
-		promise: request,
-		expiresAt:
-			options?.maxAgeMs === undefined
-				? Number.POSITIVE_INFINITY
-				: Date.now() + options.maxAgeMs,
-	});
-	return request;
+	if (!entry.pending) {
+		sessionCache.set(key, entry);
+		const request = runControlPlane(effect).then(
+			(value) => {
+				if (sessionCache.get(key) === entry) {
+					entry.value = Promise.resolve(value);
+					entry.pending = undefined;
+					for (const listener of cacheListeners) listener(key);
+				}
+				return value;
+			},
+			(cause) => {
+				if (sessionCache.get(key) === entry) {
+					entry.pending = undefined;
+					if (!entry.value) sessionCache.delete(key);
+				}
+				throw cause;
+			},
+		);
+		entry.pending = request;
+	}
+	return entry.pending as Promise<Result>;
 };
 
 export const clearControlPlaneSessionCache = (prefix?: string): void => {

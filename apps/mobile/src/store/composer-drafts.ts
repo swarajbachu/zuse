@@ -10,6 +10,7 @@ import { Atom } from "effect/unstable/reactivity";
 import * as FileSystem from "expo-file-system/legacy";
 
 import {
+	clearProtectedComposerAttachments,
 	deleteProtectedComposerAttachment,
 	type LocalComposerAttachment,
 } from "~/lib/composer-attachment-storage";
@@ -37,6 +38,8 @@ const DRAFT_ROOT = `${FileSystem.documentDirectory ?? ""}zuse-composer-drafts`;
 const safeKey = (key: string): string =>
 	encodeURIComponent(key).replace(/%/g, "_").slice(0, 220);
 const draftPath = (key: string): string => `${DRAFT_ROOT}/${safeKey(key)}.json`;
+let generation = 0;
+let clearing: Promise<void> | null = null;
 const persistenceTails = new Map<string, Promise<void>>();
 
 const ComposerDraftSchema = Schema.Struct({
@@ -77,10 +80,11 @@ const queueDraftOperation = (
 	key: string,
 	operation: () => Promise<void>,
 ): void => {
+	const epoch = generation;
 	const previous = persistenceTails.get(key) ?? Promise.resolve();
 	const next = previous
 		.catch(() => undefined)
-		.then(operation)
+		.then(() => (epoch === generation ? operation() : undefined))
 		.finally(() => {
 			if (persistenceTails.get(key) === next) persistenceTails.delete(key);
 		});
@@ -90,6 +94,8 @@ const queueDraftOperation = (
 export const hydrateComposerDraft = async (
 	key: string,
 ): Promise<ComposerDraft | null> => {
+	if (clearing) return null;
+	const epoch = generation;
 	if (appAtomRegistry.get(draftsBySessionAtom)[key] !== undefined)
 		return appAtomRegistry.get(draftsBySessionAtom)[key] ?? null;
 	try {
@@ -98,13 +104,14 @@ export const hydrateComposerDraft = async (
 				Schema.decodeUnknownSync(ComposerDraftSchema)(value),
 			),
 		);
-		if (parsed === null) return null;
+		if (parsed === null || epoch !== generation) return null;
 		appAtomRegistry.update(draftsBySessionAtom, (drafts) => ({
 			...drafts,
 			[key]: parsed,
 		}));
 		return parsed;
 	} catch {
+		if (epoch !== generation) return null;
 		await Effect.runPromise(deletePath(draftPath(key))).catch(() => undefined);
 		return null;
 	}
@@ -123,6 +130,7 @@ export const composerDraft = (key: string): ComposerDraft =>
 	appAtomRegistry.get(draftsBySessionAtom)[key] ?? EMPTY_DRAFT;
 
 export const setComposerDraft = (key: string, draft: ComposerDraft): void => {
+	if (clearing) return;
 	const previous = appAtomRegistry.get(draftsBySessionAtom)[key];
 	appAtomRegistry.update(draftsBySessionAtom, (drafts) => ({
 		...drafts,
@@ -155,4 +163,28 @@ export const clearComposerDraft = (key: string): void => {
 	for (const attachment of previous?.attachments ?? [])
 		void deleteProtectedComposerAttachment(attachment.uri);
 	queueDraftOperation(key, () => Effect.runPromise(deletePath(draftPath(key))));
+};
+
+/** Invalidate reads and queued saves before draining writes and removing every draft. */
+export const clearComposerDrafts = (): Promise<void> => {
+	if (clearing) return clearing;
+	generation += 1;
+	appAtomRegistry.set(draftsBySessionAtom, {});
+	clearing = (async () => {
+		const results = await Promise.allSettled([
+			(async () => {
+				await Promise.allSettled([...persistenceTails.values()]);
+				await Effect.runPromise(deletePath(DRAFT_ROOT));
+			})(),
+			clearProtectedComposerAttachments(),
+		]);
+		if (results.some((result) => result.status === "rejected")) {
+			throw new Error(
+				"Some drafts or attachments could not be cleared. Please retry.",
+			);
+		}
+	})().finally(() => {
+		clearing = null;
+	});
+	return clearing;
 };

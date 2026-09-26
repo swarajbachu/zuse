@@ -305,6 +305,25 @@ const resetMailboxWakeObservation = (
 	};
 };
 
+/** Preserve the current runtime's authority while asking it to reassert readiness.
+ * Only the reconciler may replace it if no authenticated response arrives. */
+export const workspaceRuntimeReconnectTarget = (
+	workspace: CloudWorkspaceRecord,
+	nowMs: number,
+): CloudWorkspaceRecord => ({
+	...workspace,
+	desiredState: "ready",
+	runtimeState: "connecting",
+	state: "resuming",
+	statusCode: "resume-runtime-waking",
+	requestConfig: resetMailboxWakeObservation(workspace.requestConfig, nowMs),
+	nextActionAtMs: nowMs + WARM_RUNTIME_RECONNECT_GRACE_MS,
+	lastActivityAtMs: nowMs,
+	runningSinceMs: workspace.runningSinceMs ?? nowMs,
+	revision: workspace.revision + 1,
+	updatedAtMs: nowMs,
+});
+
 class CloudWorkspaceLeaseLostError extends Data.TaggedError(
 	"CloudWorkspaceLeaseLostError",
 )<{ readonly workspaceId: string }> {}
@@ -1122,19 +1141,8 @@ const wakePreservedWorkspaceRuntime = (
 			);
 		const resumedAtMs = yield* Clock.currentTimeMillis;
 		yield* saveWorkspace({
-			...workspace,
-			runtimeState: "connecting",
-			state: "resuming",
-			statusCode: "resume-runtime-waking",
-			requestConfig: resetMailboxWakeObservation(
-				workspace.requestConfig,
-				nowMs,
-			),
+			...workspaceRuntimeReconnectTarget(workspace, nowMs),
 			nextActionAtMs: resumedAtMs + WARM_RUNTIME_RECONNECT_GRACE_MS,
-			lastActivityAtMs: nowMs,
-			runningSinceMs: workspace.runningSinceMs ?? nowMs,
-			revision: workspace.revision + 1,
-			updatedAtMs: nowMs,
 		});
 	});
 

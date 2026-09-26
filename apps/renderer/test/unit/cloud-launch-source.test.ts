@@ -41,19 +41,21 @@ describe("cloud launch source", () => {
 		});
 	});
 
-	it("refuses a fork pull request the sandbox image cannot fetch", () => {
+	it("fetches a fork pull request by its GitHub head ref", () => {
 		const result = cloudLaunchRequestForSource(
 			{
 				kind: "pr",
 				number: 12,
-				headRefName: "patch-1",
+				headRefName: "feature+patch-1",
 				isCrossRepository: true,
 			},
 			"main",
 		);
 
-		expect(result.ok).toBe(false);
-		expect(result.ok === false && result.message).toContain("fork");
+		expect(result).toEqual({
+			ok: true,
+			ref: { baseRef: "refs/pull/12/head" },
+		});
 	});
 
 	it("refuses a branch that only exists locally", () => {

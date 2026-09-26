@@ -122,6 +122,7 @@ export const CapabilityFeature = Schema.Literals([
 	"voice-account-transcription-v1",
 	"git-remote-actions-v1",
 	"desktop-handoff-v1",
+	"device-commands-v1",
 ]);
 export type CapabilityFeature = typeof CapabilityFeature.Type;
 

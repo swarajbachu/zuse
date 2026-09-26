@@ -569,11 +569,7 @@ const hydrateSessionsOnce = async (
 	if (cached !== null && currentBundles(connKey).length === 0) {
 		setConnectionBundles(
 			connKey,
-			rebuildBundles(
-				cached.projects as readonly Folder[],
-				cached.chats as readonly Chat[],
-				cached.sessions as readonly Session[],
-			),
+			rebuildBundles(cached.projects, cached.chats, cached.sessions),
 		);
 	}
 

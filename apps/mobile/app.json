@@ -14,13 +14,12 @@
 				"NSCameraUsageDescription": "Scan pairing codes and capture images to attach to Zuse messages.",
 				"NSPhotoLibraryUsageDescription": "Choose images to attach to your Zuse messages.",
 				"NSPhotoLibraryAddUsageDescription": "Save image previews to your photo library.",
-				"NSMicrophoneUsageDescription": "Record speech to insert a transcript into your Zuse message.",
+				"NSMicrophoneUsageDescription": "Record speech and send audio to OpenAI to create a transcript for your Zuse message.",
 				"NSLocalNetworkUsageDescription": "Connect to a local Zuse server on your network.",
 				"NSBonjourServices": ["_zuse._tcp", "_expo._tcp"],
 				"NSAppTransportSecurity": {
 					"NSAllowsLocalNetworking": true
-				},
-				"ITSAppUsesNonExemptEncryption": false
+				}
 			},
 			"entitlements": {
 				"keychain-access-groups": [

@@ -4,7 +4,6 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		"./cloud-sync-paths": "./src/cloud-sync-paths.ts",
 		"./release-version": "./src/release-version.mjs",
 		"./cloud-auth-crypto": "./src/cloud-auth-crypto.ts",
 		"./browser-page": "./src/browser-page.ts",

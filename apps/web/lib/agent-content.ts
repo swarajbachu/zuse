@@ -1,6 +1,6 @@
 import { siteConfig } from "@/lib/seo";
 
-export const HOME_MARKDOWN = `# Zuse — All your coding agents in one workspace
+export const HOME_MARKDOWN = `# Zuse — Open source cloud agents for coding
 
 Zuse is an open-source desktop workspace for running and managing coding agents across real Git repositories. Use Claude Code, Codex, Cursor, Gemini, Grok, OpenCode, Kiro, and Pi from one place while keeping conversations, files, terminal output, diffs, checks, and pull-request context attached to the work.
 
@@ -24,11 +24,11 @@ Inspect diffs, terminal output, checks, browser runs, and pull-request state in 
 - Keep long-running agent sessions organized across repositories.
 - Review what an agent changed before merging it.
 - Move a coding task between supported agent tools while retaining its workspace context.
-- Use local agents today and prepare for remote workflows as Zuse Cloud develops.
+- Choose local agents or isolated cloud workspaces according to the task.
 
 ## Product availability
 
-The macOS desktop application is available now. Cloud and mobile experiences are under development and should not be treated as generally available.
+The macOS desktop application is available now. Cloud Workspaces are an optional public beta. Mobile cloud access depends on compatible cloud services and workspace images.
 
 ## Learn more
 
@@ -45,7 +45,7 @@ export const LLMS_TEXT = `# Zuse
 
 > ${siteConfig.description}
 
-Zuse brings supported coding agents into one desktop workspace. It keeps conversations, files, Git worktrees, terminal output, browser results, checks, and pull-request context together. The macOS desktop app is available now; cloud and mobile experiences are still under development.
+Zuse brings supported coding agents into one desktop workspace. It keeps conversations, files, Git worktrees, terminal output, browser results, checks, and pull-request context together. The macOS desktop app is available now; Cloud Workspaces are in public beta, and mobile cloud access requires compatible cloud services and workspace images.
 
 ## When to use Zuse
 
@@ -58,6 +58,12 @@ Use Zuse when a developer needs to run multiple coding-agent tasks in parallel, 
 - Read ${siteConfig.url}/openapi.json before calling the public web API.
 - The public web API is currently limited to cloud-waitlist registration. It does not expose desktop sessions, repositories, or provider credentials.
 - Zuse's local MCP integration uses stdio and the installed desktop application; it is not a public hosted HTTP endpoint.
+
+## Cloud agent guides
+
+- Guide: ${siteConfig.url}/blog/open-source-cloud-agents
+- Local or cloud: ${siteConfig.url}/blog/choose-where-agents-run
+- Journal: ${siteConfig.url}/blog
 
 ## Primary links
 

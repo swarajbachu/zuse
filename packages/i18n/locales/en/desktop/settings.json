@@ -869,5 +869,16 @@
 	"cloud_auth_not_allowed": "Your Zuse session could not authorize this action. Refresh your session and try again.",
 	"cloud_auth_login_failed": "The agent login could not be started.",
 	"cloud_auth_temporarily_unavailable": "Cloud authentication is temporarily unavailable. Retry without affecting your existing chats.",
-	"cloud_machine_provider": "Machine provider"
+	"cloud_machine_provider": "Machine provider",
+	"wallpaper_title": "Wallpaper",
+	"wallpaper_description": "A subtle background for new chats. Saved on this device.",
+	"wallpaper_saving": "Saving…",
+	"wallpaper_replace": "Replace image",
+	"wallpaper_upload": "Upload image",
+	"wallpaper_remove": "Remove",
+	"wallpaper_upload_label": "Upload wallpaper",
+	"wallpaper_opacity": "Opacity",
+	"wallpaper_opacity_label": "Wallpaper opacity",
+	"wallpaper_hint": "PNG, JPEG, WebP, AVIF, or GIF · Up to 20 MB. Make a texture at",
+	"wallpaper_studio": "Dither studio"
 }

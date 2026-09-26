@@ -282,6 +282,14 @@ const prepareRendererConnectionOptions = async (
 };
 
 export const RENDERER_WEBSOCKET_OPEN_TIMEOUT = "3 seconds" as const;
+export const CLOUD_WEBSOCKET_OPEN_TIMEOUT = "15 seconds" as const;
+
+// Cloud gateway opening includes the remote TLS/upgrade round trip. Keep
+// local failures fast without rejecting healthy, slower cloud connections.
+export const rendererWebSocketOpenTimeout = (key: string) =>
+	key.startsWith("workspace:")
+		? CLOUD_WEBSOCKET_OPEN_TIMEOUT
+		: RENDERER_WEBSOCKET_OPEN_TIMEOUT;
 
 export const isIgnorableRendererFailure = (cause: unknown): boolean =>
 	cause instanceof Error &&
@@ -320,7 +328,7 @@ const makeRendererRpcSession = async (
 						WIRE_PROTOCOL_VERSION,
 					),
 					{
-						openTimeout: RENDERER_WEBSOCKET_OPEN_TIMEOUT,
+						openTimeout: rendererWebSocketOpenTimeout(options.key),
 						makeWebSocket:
 							options.protocols === undefined
 								? undefined

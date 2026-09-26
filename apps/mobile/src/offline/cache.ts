@@ -18,6 +18,9 @@ import * as FileSystem from "expo-file-system/legacy";
 
 import { CacheCorrupt } from "../rpc/errors";
 import { slugConnectionKey } from "./cache-utils";
+import { SessionsSnapshot } from "./sessions-snapshot";
+
+export type { SessionsSnapshot } from "./sessions-snapshot";
 
 const ROOT = `${FileSystem.documentDirectory ?? ""}zuse-cache`;
 
@@ -66,13 +69,6 @@ export const clearDownloadedCache = () =>
 		},
 		catch: (cause) => cause,
 	});
-
-export type SessionsSnapshot = {
-	projects: readonly unknown[];
-	chats: readonly unknown[];
-	sessions: readonly unknown[];
-	savedAt: number;
-};
 
 export type MessagesSnapshot = {
 	schemaVersion: 1;
@@ -168,7 +164,10 @@ export const outboxPath = (connKey: string, sessionId: string) =>
 const clientCommandOutboxPath = () => `${ROOT}/client-command-outbox.json`;
 
 export const readSessionsSnapshot = (connKey: string) =>
-	readJson(sessionsPath(connKey), (u) => u as SessionsSnapshot).pipe(
+	readJson(
+		sessionsPath(connKey),
+		Schema.decodeUnknownSync(SessionsSnapshot),
+	).pipe(
 		Effect.catchTag("CacheCorrupt", (error) =>
 			Effect.andThen(deletePath(error.path), Effect.succeed(null)),
 		),
@@ -179,7 +178,12 @@ export const writeSessionsSnapshot = (
 	snapshot: SessionsSnapshot,
 ) =>
 	ensureDir(`${ROOT}/${slugConnectionKey(connKey)}`).pipe(
-		Effect.andThen(writeJson(sessionsPath(connKey), snapshot)),
+		Effect.andThen(
+			writeJson(
+				sessionsPath(connKey),
+				Schema.encodeSync(SessionsSnapshot)(snapshot),
+			),
+		),
 	);
 
 const EncodedMessagesSnapshot = Schema.Struct({

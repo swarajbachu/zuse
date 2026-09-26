@@ -7,6 +7,8 @@ import {
 	authHydratedAtom,
 	deleteAccount,
 	hydrateAuth,
+	resetApp,
+	signOut,
 } from "../../../src/store/auth";
 import { appAtomRegistry } from "../../../src/store/registry";
 
@@ -14,6 +16,13 @@ const workos = vi.hoisted(() => ({
 	currentAccount: vi.fn(),
 	signIn: vi.fn(),
 	signOut: vi.fn(),
+}));
+const revoke = vi.hoisted(() => vi.fn());
+vi.mock("../../../src/notifications/push", () => ({
+	revokeCurrentDevicePush: revoke,
+}));
+vi.mock("../../../src/lib/ai-sharing-consent", () => ({
+	resetAiSharingConsent: vi.fn(),
 }));
 const deletion = vi.hoisted(() => ({ api: vi.fn(), local: vi.fn() }));
 
@@ -93,5 +102,39 @@ describe("account deletion", () => {
 		appAtomRegistry.set(authBusyAtom, true);
 		await expect(deleteAccount()).rejects.toThrow("already in progress");
 		expect(deletion.api).not.toHaveBeenCalled();
+	});
+});
+
+describe("sign-out push revocation", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		revoke.mockReset().mockResolvedValue(undefined);
+		workos.signOut.mockReset().mockResolvedValue(undefined);
+		appAtomRegistry.set(authAccountAtom, {
+			id: "account-a",
+			email: "a@example.com",
+		});
+		appAtomRegistry.set(authBusyAtom, false);
+		appAtomRegistry.set(authErrorAtom, null);
+	});
+	it("revokes before discarding credentials", async () => {
+		await signOut();
+		expect(revoke.mock.invocationCallOrder[0]).toBeLessThan(
+			workos.signOut.mock.invocationCallOrder[0] ?? 0,
+		);
+		expect(appAtomRegistry.get(authAccountAtom)).toBeNull();
+	});
+	it("retains credentials and exposes retry when revocation fails offline", async () => {
+		revoke.mockRejectedValue(new Error("offline"));
+		await signOut();
+		expect(workos.signOut).not.toHaveBeenCalled();
+		expect(appAtomRegistry.get(authAccountAtom)?.id).toBe("account-a");
+		expect(appAtomRegistry.get(authErrorAtom)).toContain("retry");
+		expect(appAtomRegistry.get(authBusyAtom)).toBe(false);
+	});
+	it("does not reset local identity when revocation fails", async () => {
+		revoke.mockRejectedValue(new Error("offline"));
+		await expect(resetApp()).rejects.toThrow("offline");
+		expect(deletion.local).not.toHaveBeenCalled();
 	});
 });

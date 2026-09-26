@@ -1,9 +1,10 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { QrCode, X } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
 	ActivityIndicator,
+	AppState,
 	Linking,
 	Pressable,
 	StyleSheet,
@@ -22,7 +23,13 @@ import { colors } from "~/theme";
 
 export default function ScanScreen() {
 	const insets = useSafeAreaInsets();
-	const [permission, requestPermission] = useCameraPermissions();
+	const [permission, requestPermission, getPermission] = useCameraPermissions();
+	useEffect(() => {
+		const subscription = AppState.addEventListener("change", (state) => {
+			if (state === "active") void getPermission().catch(() => undefined);
+		});
+		return () => subscription.remove();
+	}, [getPermission]);
 	const [scanned, setScanned] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 

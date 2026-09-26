@@ -132,7 +132,7 @@ describe("cloud runtime assets", () => {
 		expect(reconciler).toContain("Provider auth delivery capability mismatch");
 	});
 
-	test("shares pinned agent runtimes and authentication setup across cloud images", async () => {
+	test("preserves Boat agents while retaining pinned E2B agents", async () => {
 		const [dockerfile, boxInstall, provision] = await Promise.all([
 			readWorkspaceFile("infra/cloud-sandboxes/Dockerfile"),
 			readWorkspaceFile("infra/cloud-sandboxes/box/install.sh"),
@@ -145,10 +145,57 @@ describe("cloud runtime assets", () => {
 			"RUN /tmp/zuse-provision/provision.sh runtime layout",
 		);
 		expect(boxInstall).toContain(
-			'"$provision_dir/provision.sh" packages globals runtime layout',
+			'"$provision_dir/provision.sh" packages runtime-tools runtime layout',
 		);
+		expect(boxInstall).not.toContain("zuse-host-ports.service");
 		expect(provision).toContain("install-grok.sh 1.0.13");
 		expect(provision).toContain("GROK_BIN_DIR=/usr/local/bin");
+	});
+
+	test("Boat runtime tooling never invokes an agent installer", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "boat-native-agents-"));
+		try {
+			const calls = join(directory, "npm-calls");
+			await writeFile(
+				join(directory, "npm"),
+				'#!/bin/sh\nprintf "%s\\n" "$*" >> "$NPM_CALLS"\n',
+				{ mode: 0o755 },
+			);
+			const result = spawnSync(
+				"bash",
+				[
+					fileURLToPath(workspaceFileUrl("infra/cloud-sandboxes/provision.sh")),
+					"runtime-tools",
+				],
+				{
+					env: {
+						...process.env,
+						PATH: `${directory}:${process.env.PATH}`,
+						NPM_CALLS: calls,
+					},
+					encoding: "utf8",
+				},
+			);
+			expect(result.status, result.stderr).toBe(0);
+			const commands = (await readFile(calls, "utf8")).trim().split("\n");
+			expect(commands).toHaveLength(2);
+			expect(commands[0]).toMatch(
+				/^install --global --prefix \/usr\/local bun@\S+ corepack@\S+$/u,
+			);
+			expect(commands[1]).toBe("cache clean --force");
+			const install = await readWorkspaceFile(
+				"infra/cloud-sandboxes/box/install.sh",
+			);
+			const launchers = /for launcher in (.*); do/u
+				.exec(install)?.[1]
+				?.split(" ");
+			expect(launchers).toBeDefined();
+			for (const agent of ["claude", "codex", "grok", "cursor-agent"])
+				expect(launchers).not.toContain(agent);
+			expect(install).toContain('runuser -u zuse -- "$agent" --version');
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
 	});
 
 	test("uses the image checkout directly without launch-time Git networking", async () => {

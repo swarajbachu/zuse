@@ -927,7 +927,7 @@
 		"locations": []
 	},
 	"landing:cloud_coding_agents_open_source": {
-		"source": "Cloud coding agents. <part0>Open source.</part0>",
+		"source": "Open source cloud agents. <part0>Your workspace.</part0>",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/hero.tsx",
@@ -963,7 +963,7 @@
 		]
 	},
 	"landing:meta_title": {
-		"source": "Zuse: All your coding agents in one workspace",
+		"source": "Open Source Cloud Agents for Coding | Zuse",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/page.tsx",
@@ -972,7 +972,7 @@
 		]
 	},
 	"landing:meta_description": {
-		"source": "Run coding agents side by side, carry context between them, and isolate every task in its own git worktree with Zuse.",
+		"source": "Zuse is an open source Devin alternative for local and cloud coding agents. Bring your model subscriptions, isolate tasks, and review every change.",
 		"locations": [
 			{
 				"path": "apps/web/components/landing/page.tsx",
@@ -1074,7 +1074,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 31
+				"line": 25
 			}
 		]
 	},
@@ -1083,7 +1083,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 32
+				"line": 26
 			}
 		]
 	},
@@ -1096,7 +1096,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 35
+				"line": 29
 			}
 		]
 	},
@@ -1105,7 +1105,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 97
+				"line": 91
 			}
 		]
 	},
@@ -1114,7 +1114,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 98
+				"line": 92
 			}
 		]
 	},
@@ -1123,7 +1123,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 161
+				"line": 155
 			}
 		]
 	},
@@ -1132,7 +1132,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 162
+				"line": 156
 			}
 		]
 	},
@@ -1141,7 +1141,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 170
+				"line": 164
 			}
 		]
 	},
@@ -1150,11 +1150,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 48
+				"line": 55
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 198
+				"line": 192
 			}
 		]
 	},
@@ -1163,7 +1163,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 213
+				"line": 207
 			}
 		]
 	},
@@ -1172,7 +1172,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 49
+				"line": 56
 			}
 		]
 	},
@@ -1181,7 +1181,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 51
+				"line": 58
 			}
 		]
 	},
@@ -1190,11 +1190,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 52
+				"line": 59
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 34
+				"line": 28
 			}
 		]
 	},
@@ -1203,7 +1203,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 65
+				"line": 72
 			}
 		]
 	},
@@ -1212,7 +1212,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 114
+				"line": 121
 			}
 		]
 	},
@@ -1338,7 +1338,7 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 81
+				"line": 88
 			}
 		]
 	},
@@ -1346,8 +1346,8 @@
 		"source": "Switch to light theme",
 		"locations": [
 			{
-				"path": "apps/web/components/navbar.tsx",
-				"line": 231
+				"path": "apps/web/components/theme-toggle.tsx",
+				"line": 20
 			}
 		]
 	},
@@ -1355,8 +1355,8 @@
 		"source": "Switch to dark theme",
 		"locations": [
 			{
-				"path": "apps/web/components/navbar.tsx",
-				"line": 231
+				"path": "apps/web/components/theme-toggle.tsx",
+				"line": 20
 			}
 		]
 	},
@@ -1365,11 +1365,11 @@
 		"locations": [
 			{
 				"path": "apps/web/components/footer/index.tsx",
-				"line": 50
+				"line": 57
 			},
 			{
 				"path": "apps/web/components/navbar.tsx",
-				"line": 33
+				"line": 27
 			}
 		]
 	},

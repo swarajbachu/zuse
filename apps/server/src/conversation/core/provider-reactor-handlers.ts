@@ -163,20 +163,26 @@ export const makeProviderReactorHandlers = (
 						);
 			const carriesLegacyPrompt =
 				request.initialPrompt !== null && request.initialPrompt.length > 0;
-			if (carriesLegacyPrompt) {
-				// Retained pre-atomic-creation rows can still carry their user prompt in
-				// provider.start. Fence that legacy external send exactly like a normal
-				// provider turn; a crash cannot safely distinguish accepted from unsent.
-				const effect = yield* reactorEffects.begin(reactorInput.commandId);
-				if (effect === "completed" || effect === "outcome-unknown") return;
-				if (effect === "already-started") {
-					yield* recoverUnknownProviderDelivery(
-						reactorInput.commandId,
-						sessionId,
-						activeTurnId,
-					);
-					return;
-				}
+			// Modern turns own startup through provider.turn. Replaying an empty
+			// session-creation intent can only open an idle handle; it cannot resume
+			// an already-delivered turn. Such a handle would incorrectly exempt that
+			// orphaned turn from startup recovery.
+			if (!carriesLegacyPrompt) {
+				yield* reactorEffects.complete(reactorInput.commandId);
+				return;
+			}
+			// Retained pre-atomic-creation rows can still carry their user prompt in
+			// provider.start. Fence that legacy external send exactly like a normal
+			// provider turn; a crash cannot safely distinguish accepted from unsent.
+			const effect = yield* reactorEffects.begin(reactorInput.commandId);
+			if (effect === "completed" || effect === "outcome-unknown") return;
+			if (effect === "already-started") {
+				yield* recoverUnknownProviderDelivery(
+					reactorInput.commandId,
+					sessionId,
+					activeTurnId,
+				);
+				return;
 			}
 			const start = ensureForTurn(sessionId, {
 				initialPrompt: request.initialPrompt ?? undefined,
@@ -188,37 +194,12 @@ export const makeProviderReactorHandlers = (
 			});
 			if (request.background) {
 				yield* start.pipe(
-					Effect.catch((error) =>
-						Effect.gen(function* () {
-							if (carriesLegacyPrompt) {
-								yield* recoverUnknownProviderDelivery(
-									reactorInput.commandId,
-									sessionId,
-									activeTurnId,
-								);
-								return;
-							}
-							yield* Effect.logWarning(
-								`[ConversationServices] provider.start failed for session ${sessionId} (${session.providerId}): ${error.reason}`,
-							);
-							const persistedError = yield* persistMessage(sessionId, {
-								_tag: "error",
-								message: error.reason,
-							});
-							yield* ndjsonAppend(sessionId, persistedError);
-							if (
-								request.initialTurnId !== null &&
-								request.initialTurnId !== undefined
-							) {
-								yield* settleTurnFromReactor(
-									sessionId,
-									request.initialTurnId,
-									"error",
-								);
-							} else {
-								yield* setStatus(sessionId, "error");
-							}
-						}),
+					Effect.catch(() =>
+						recoverUnknownProviderDelivery(
+							reactorInput.commandId,
+							sessionId,
+							activeTurnId,
+						),
 					),
 				);
 			} else {

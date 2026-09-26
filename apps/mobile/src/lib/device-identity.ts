@@ -52,3 +52,9 @@ export const deviceLabel = (): string =>
 		: Platform.OS === "android"
 			? "Android phone"
 			: "Mobile device";
+
+export const existingDeviceId = async (): Promise<string | null> => {
+	await pendingClear;
+	await pendingDeviceId;
+	return SecureStore.getItemAsync(DEVICE_ID_KEY);
+};

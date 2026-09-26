@@ -24,6 +24,8 @@ module.exports = ({ config }) => {
 			...config.ios,
 			bundleIdentifier,
 			entitlements: {
+				...config.ios?.entitlements,
+				"aps-environment": development ? "development" : "production",
 				"keychain-access-groups": [
 					development
 						? "$(AppIdentifierPrefix)com.zuse.sh.dev"

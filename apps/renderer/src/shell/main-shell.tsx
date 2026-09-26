@@ -566,14 +566,14 @@ export function MainShell() {
 	);
 
 	return (
-		<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
+		<div className="workspace-shell flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-sidebar text-foreground">
 			<ActiveGitWorkspaceLease />
 			<Group
 				id={PANEL_GROUP_ID}
 				orientation="horizontal"
 				defaultLayout={defaultLayout}
 				onLayoutChanged={onLayoutChanged}
-				className="flex-1"
+				className="workspace-panel-group flex-1"
 			>
 				<Panel
 					id="projects"
@@ -602,195 +602,201 @@ export function MainShell() {
 						if (open !== leftSidebarOpen) setLeftSidebarOpen(open);
 					}}
 				>
-					<div className="flex h-full min-h-0 flex-col bg-sidebar">
-						<Suspense fallback={<TopBarFallback />}>
-							<TopBarLeft />
-						</Suspense>
-						<div className="flex min-h-0 flex-1 flex-col">
-							<Suspense fallback={<SurfaceFallback />}>
-								{isHostedProduct() ? <HostedSidebar /> : <ProjectsSidebar />}
+					<div className="workspace-column workspace-left-column">
+						<div className="workspace-surface flex min-h-0 flex-1 flex-col">
+							<Suspense fallback={<TopBarFallback />}>
+								<TopBarLeft />
 							</Suspense>
+							<div className="flex min-h-0 flex-1 flex-col">
+								<Suspense fallback={<SurfaceFallback />}>
+									{isHostedProduct() ? <HostedSidebar /> : <ProjectsSidebar />}
+								</Suspense>
+							</div>
 						</div>
 					</div>
 				</Panel>
-				<Separator className="w-px bg-sidebar-border transition-colors hover:bg-input active:bg-muted-foreground/40" />
+				<Separator className="workspace-separator" />
 				<Panel id="main" minSize="30%">
-					<main className="flex h-full min-h-0 min-w-0 flex-col bg-background">
-						{showMainChrome ? (
-							<Suspense fallback={<TopBarFallback />}>
-								<TopBarMain />
-							</Suspense>
-						) : null}
-						<Suspense fallback={null}>
-							<UpdateBanner />
-							<ProviderUpdatesToast />
-						</Suspense>
-						{showMainTabs ? (
-							<Suspense fallback={<TabsFallback />}>
-								<MainTabs
-									environmentId={selectedEnvironmentId}
-									projectId={selectedFolderId}
-									emptyLabel={emptyTabLabel}
-								/>
-							</Suspense>
-						) : null}
-						<div
-							hidden={activeMainTab !== "chat"}
-							className="flex min-h-0 flex-1 flex-col"
-						>
-							{chatSurface === "session" &&
-							selectedSessionId !== null &&
-							selectedSession !== null ? (
-								// Render the chat as soon as the session exists — even while
-								// its worktree is still branching or the provider is booting.
-								// All that progress is surfaced inline by `WorktreeSetupCard`
-								// at the top of the timeline, with the composer pinned at the
-								// bottom (no full-screen takeover).
-								<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1">
-									<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-										<Suspense fallback={<ChatLoadingFallback />}>
-											<ChatView
-												sessionId={selectedSessionId}
-												environmentId={selectedEnvironmentId}
-												session={selectedSession}
-												endInset={composerInset}
+					<div className="workspace-column">
+						<main className="workspace-main flex min-h-0 min-w-0 flex-1 flex-col">
+							{showMainChrome ? (
+								<Suspense fallback={<TopBarFallback />}>
+									<TopBarMain />
+								</Suspense>
+							) : null}
+							<div className="workspace-surface flex min-h-0 min-w-0 flex-1 flex-col">
+								<Suspense fallback={null}>
+									<UpdateBanner />
+									<ProviderUpdatesToast />
+								</Suspense>
+								{showMainTabs ? (
+									<Suspense fallback={<TabsFallback />}>
+										<MainTabs
+											environmentId={selectedEnvironmentId}
+											projectId={selectedFolderId}
+											emptyLabel={emptyTabLabel}
+										/>
+									</Suspense>
+								) : null}
+								<div
+									hidden={activeMainTab !== "chat"}
+									className="flex min-h-0 flex-1 flex-col"
+								>
+									{chatSurface === "session" &&
+									selectedSessionId !== null &&
+									selectedSession !== null ? (
+										// Render the chat as soon as the session exists — even while
+										// its worktree is still branching or the provider is booting.
+										// All that progress is surfaced inline by `WorktreeSetupCard`
+										// at the top of the timeline, with the composer pinned at the
+										// bottom (no full-screen takeover).
+										<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1">
+											<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+												<Suspense fallback={<ChatLoadingFallback />}>
+													<ChatView
+														sessionId={selectedSessionId}
+														environmentId={selectedEnvironmentId}
+														session={selectedSession}
+														endInset={composerInset}
+													/>
+												</Suspense>
+												<div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-[var(--chat-row-gutter)]">
+													{/* Keep the fade on the full transcript plane. Code blocks
+											    can extend beyond the centered composer column. */}
+													<div
+														data-chat-composer-fade
+														aria-hidden
+														className="pointer-events-none absolute inset-x-0 -top-10 bottom-0 -z-10 backdrop-blur-md [mask-image:linear-gradient(to_bottom,transparent,black_45%)]"
+													/>
+													<div
+														ref={setComposerNode}
+														className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column)] pt-1"
+													>
+														<Suspense fallback={null}>
+															<CliUpgradeBanner
+																providerId={selectedSession.providerId}
+																constrain={false}
+															/>
+														</Suspense>
+														{directoryUnavailable ? (
+															<Suspense fallback={null}>
+																<DirectoryUnavailableBanner />
+															</Suspense>
+														) : null}
+														<Suspense fallback={<ComposerFallback />}>
+															<ChatComposer
+																key={selectedSession.id}
+																session={selectedSession}
+																environmentId={selectedEnvironmentId}
+																constrain={false}
+																directoryUnavailable={directoryUnavailable}
+															/>
+														</Suspense>
+													</div>
+												</div>
+											</div>
+											{environmentSummaryAvailable ? (
+												<div
+													className={`pointer-events-none absolute right-2 -top-2 z-20 max-h-[calc(100%+1rem)] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
+														showEnvironmentSummary
+															? "translate-x-0 opacity-100"
+															: "translate-x-2 opacity-0"
+													}`}
+													aria-hidden={!showEnvironmentSummary}
+													inert={!showEnvironmentSummary}
+												>
+													<Suspense fallback={null}>
+														<EnvironmentSummary />
+													</Suspense>
+												</div>
+											) : null}
+										</div>
+									) : chatSurface === "pending" && pendingCreation !== null ? (
+										<PendingChatCreationSurface creation={pendingCreation} />
+									) : chatSurface === "cloud-pending" ? (
+										<ChatLoadingFallback footer={<CloudConnectionNotice />} />
+									) : (
+										<Suspense fallback={<SurfaceFallback />}>
+											<ChatLanding
+												key={`${activeEnvironmentId}:${selectedFolderId}:${landingRevision}`}
 											/>
 										</Suspense>
-										<div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-[var(--chat-row-gutter)]">
-											{/* Keep the fade on the full transcript plane. Code blocks
-											    can extend beyond the centered composer column. */}
-											<div
-												data-chat-composer-fade
-												aria-hidden
-												className="pointer-events-none absolute inset-x-0 -top-10 bottom-0 -z-10 backdrop-blur-md [mask-image:linear-gradient(to_bottom,transparent,black_45%)]"
-											/>
-											<div
-												ref={setComposerNode}
-												className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column)] pt-1"
-											>
-												<Suspense fallback={null}>
-													<CliUpgradeBanner
-														providerId={selectedSession.providerId}
-														constrain={false}
-													/>
-												</Suspense>
-												{directoryUnavailable ? (
-													<Suspense fallback={null}>
-														<DirectoryUnavailableBanner />
-													</Suspense>
-												) : null}
-												<Suspense fallback={<ComposerFallback />}>
-													<ChatComposer
-														key={selectedSession.id}
-														session={selectedSession}
-														environmentId={selectedEnvironmentId}
-														constrain={false}
-														directoryUnavailable={directoryUnavailable}
-													/>
-												</Suspense>
-											</div>
-										</div>
-									</div>
-									{environmentSummaryAvailable ? (
-										<div
-											className={`pointer-events-none absolute right-2 -top-2 z-20 max-h-[calc(100%+1rem)] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
-												showEnvironmentSummary
-													? "translate-x-0 opacity-100"
-													: "translate-x-2 opacity-0"
-											}`}
-											aria-hidden={!showEnvironmentSummary}
-											inert={!showEnvironmentSummary}
-										>
-											<Suspense fallback={null}>
-												<EnvironmentSummary />
-											</Suspense>
-										</div>
-									) : null}
+									)}
 								</div>
-							) : chatSurface === "pending" && pendingCreation !== null ? (
-								<PendingChatCreationSurface creation={pendingCreation} />
-							) : chatSurface === "cloud-pending" ? (
-								<ChatLoadingFallback footer={<CloudConnectionNotice />} />
-							) : (
-								<Suspense fallback={<SurfaceFallback />}>
-									<ChatLanding
-										key={`${activeEnvironmentId}:${selectedFolderId}:${landingRevision}`}
-									/>
-								</Suspense>
-							)}
-						</div>
-						<div
-							hidden={activeMainTab !== "archives"}
-							className="flex min-h-0 flex-1 flex-col"
-						>
-							{activeMainTab === "archives" && (
-								<Suspense fallback={<SurfaceFallback />}>
-									<ArchivedChatsPage
-										projectId={selectedFolderId}
-										projectName={
-											selectedFolder?.name ?? "No repository selected"
-										}
-									/>
-								</Suspense>
-							)}
-						</div>
-						<div
-							hidden={activeMainTab !== "usage"}
-							className="flex min-h-0 flex-1 flex-col"
-						>
-							{activeMainTab === "usage" && (
-								<Suspense fallback={<SurfaceFallback />}>
-									<UsageDashboard
-										environmentId={EnvironmentId.make(activeEnvironmentId)}
-										projectId={
-											usageScope === "project" ? selectedFolderId : null
-										}
-										availableProjectId={selectedFolderId}
-										scopeLabel={
-											usageScope === "project"
-												? (selectedFolder?.name ?? "This project")
-												: "All projects"
-										}
-									/>
-								</Suspense>
-							)}
-						</div>
-						{openFile !== null && (
-							<div
-								hidden={activeMainTab !== "file"}
-								className="flex min-h-0 flex-1 flex-col"
-							>
-								<Suspense fallback={<SurfaceFallback />}>
-									{directoryUnavailable ? (
-										<DirectoryUnavailableSurface
-											label={uiMessage(
-												"shell:app_files_are_unavailable_because_this_directory_was_deleted",
-											)}
-										/>
-									) : (
-										<FileEditor />
+								<div
+									hidden={activeMainTab !== "archives"}
+									className="flex min-h-0 flex-1 flex-col"
+								>
+									{activeMainTab === "archives" && (
+										<Suspense fallback={<SurfaceFallback />}>
+											<ArchivedChatsPage
+												projectId={selectedFolderId}
+												projectName={
+													selectedFolder?.name ?? "No repository selected"
+												}
+											/>
+										</Suspense>
 									)}
-								</Suspense>
-							</div>
-						)}
-						{changesTabOpen ? (
-							<div
-								hidden={activeMainTab !== "changes"}
-								className="flex min-h-0 flex-1 flex-col"
-							>
-								<Suspense fallback={<SurfaceFallback />}>
-									{directoryUnavailable ? (
-										<DirectoryUnavailableSurface
-											label={uiMessage(
-												"shell:app_changes_are_unavailable_because_this_directory_was_deleted",
-											)}
-										/>
-									) : (
-										<ChangesReview />
+								</div>
+								<div
+									hidden={activeMainTab !== "usage"}
+									className="flex min-h-0 flex-1 flex-col"
+								>
+									{activeMainTab === "usage" && (
+										<Suspense fallback={<SurfaceFallback />}>
+											<UsageDashboard
+												environmentId={EnvironmentId.make(activeEnvironmentId)}
+												projectId={
+													usageScope === "project" ? selectedFolderId : null
+												}
+												availableProjectId={selectedFolderId}
+												scopeLabel={
+													usageScope === "project"
+														? (selectedFolder?.name ?? "This project")
+														: "All projects"
+												}
+											/>
+										</Suspense>
 									)}
-								</Suspense>
+								</div>
+								{openFile !== null && (
+									<div
+										hidden={activeMainTab !== "file"}
+										className="flex min-h-0 flex-1 flex-col"
+									>
+										<Suspense fallback={<SurfaceFallback />}>
+											{directoryUnavailable ? (
+												<DirectoryUnavailableSurface
+													label={uiMessage(
+														"shell:app_files_are_unavailable_because_this_directory_was_deleted",
+													)}
+												/>
+											) : (
+												<FileEditor />
+											)}
+										</Suspense>
+									</div>
+								)}
+								{changesTabOpen ? (
+									<div
+										hidden={activeMainTab !== "changes"}
+										className="flex min-h-0 flex-1 flex-col"
+									>
+										<Suspense fallback={<SurfaceFallback />}>
+											{directoryUnavailable ? (
+												<DirectoryUnavailableSurface
+													label={uiMessage(
+														"shell:app_changes_are_unavailable_because_this_directory_was_deleted",
+													)}
+												/>
+											) : (
+												<ChangesReview />
+											)}
+										</Suspense>
+									</div>
+								) : null}
 							</div>
-						) : null}
+						</main>
 						{selectedChatRef !== null && activeContext.status === "ready" ? (
 							<Suspense fallback={null}>
 								<BottomTerminalDock
@@ -800,9 +806,9 @@ export function MainShell() {
 								/>
 							</Suspense>
 						) : null}
-					</main>
+					</div>
 				</Panel>
-				<Separator className="w-px bg-sidebar-border transition-colors hover:bg-input active:bg-muted-foreground/40" />
+				<Separator className="workspace-separator" />
 				<Panel
 					id="files"
 					defaultSize="22%"
@@ -840,16 +846,18 @@ export function MainShell() {
 						}
 					}}
 				>
-					<div className="flex h-full min-h-0 flex-col bg-sidebar">
-						<Suspense fallback={<TopBarFallback />}>
-							<TopBarRight />
-						</Suspense>
-						<div className="flex min-h-0 flex-1 flex-col">
-							{shouldMountRightPane(rightSidebarOpen) ? (
-								<Suspense fallback={<SurfaceFallback />}>
-									<RightPane directoryUnavailable={directoryUnavailable} />
-								</Suspense>
-							) : null}
+					<div className="workspace-column workspace-right-column">
+						<div className="workspace-surface flex min-h-0 flex-1 flex-col">
+							<Suspense fallback={<TopBarFallback />}>
+								<TopBarRight />
+							</Suspense>
+							<div className="flex min-h-0 flex-1 flex-col">
+								{shouldMountRightPane(rightSidebarOpen) ? (
+									<Suspense fallback={<SurfaceFallback />}>
+										<RightPane directoryUnavailable={directoryUnavailable} />
+									</Suspense>
+								) : null}
+							</div>
 						</div>
 					</div>
 				</Panel>
