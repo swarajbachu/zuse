@@ -1,0 +1,64 @@
+name: Nightly cloud toolchain updates
+
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-toolchain-updates
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - name: Resolve stable CLI updates
+        run: |
+          node --test scripts/update-cloud-toolchain.test.mjs
+          node scripts/update-cloud-toolchain.mjs
+      - name: Detect updates
+        id: changes
+        run: |
+          if ! git diff --quiet; then
+            echo 'updated=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install candidate dependencies
+        if: steps.changes.outputs.updated == 'true'
+        run: bun install --ignore-scripts
+      - name: Validate candidate
+        if: steps.changes.outputs.updated == 'true'
+        run: |
+          bunx --no-install biome check scripts/update-cloud-toolchain.mjs apps/server/scripts/toolchain-manifest.json packages/contracts/src/cloud-auth.ts apps/server/test/unit/cloud-runtime-assets.test.ts package.json
+          bash -n infra/cloud-sandboxes/provision.sh
+          bun run --filter @zuse/contracts check-types
+          bun run --filter @zuse/agents check-types
+          (cd packages/agents && bunx --no-install vitest run test/unit/drivers/codex-app-server-client.test.ts)
+          (cd apps/server && bunx --no-install vp test run test/unit/cloud-runtime-assets.test.ts)
+      - name: Propose verified pins
+        if: steps.changes.outputs.updated == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/cloud-toolchain
+          commit-message: "chore: update cloud toolchain pins"
+          title: "chore: update cloud toolchain pins"
+          body: |
+            Refresh stable cloud CLI pins and the signed toolchain version.
+            The nightly job runs formatting, type checks, and the real Codex external-auth contract test before opening this PR.
+
+            After merge, publish new E2B/Boat templates, update their immutable versions in the API configuration, and rebuild account images. This PR does not change running workspaces or deploy production.
+            See internal-docs/cloud/toolchain-updates.md for rollout and required setup.

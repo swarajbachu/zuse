@@ -1,10 +1,63 @@
 {
   "schemaVersion": 1,
-  "revision": 2026091101,
-  "generatedAt": "2026-09-11T00:00:00.000Z",
+  "revision": 2026092201,
+  "generatedAt": "2026-09-22T00:00:00.000Z",
   "providers": {
     "claude": {
       "models": [
+        {
+          "id": "claude-opus-5-5",
+          "label": "Opus 5.5",
+          "badgeLabel": "New",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "effort",
+              "label": "Reasoning",
+              "options": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                },
+                {
+                  "id": "ultracode",
+                  "label": "Ultracode"
+                }
+              ],
+              "defaultId": "medium"
+            },
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true,
+          "supportsWebSearch": "native"
+        },
         {
           "id": "claude-fable-5-1",
           "label": "Fable 5.1",
@@ -242,7 +295,10 @@
         "claude-fable-5-1": "claude-fable-5-1",
         "fable-5": "claude-fable-5",
         "claude-fable-5": "claude-fable-5",
-        "opus": "claude-opus-5",
+        "opus": "claude-opus-5-5",
+        "opus-5.5": "claude-opus-5-5",
+        "opus-5-5": "claude-opus-5-5",
+        "claude-opus-5.5": "claude-opus-5-5",
         "opus-5": "claude-opus-5",
         "claude-opus-5": "claude-opus-5",
         "opus-4.8": "claude-opus-4-8",
@@ -297,6 +353,84 @@
                 {
                   "id": "ultra",
                   "label": "Ultra"
+                }
+              ],
+              "defaultId": "medium"
+            }
+          ],
+          "supportsPlanMode": true,
+          "supportsWebSearch": "native"
+        },
+        {
+          "id": "gpt-6-sol",
+          "label": "GPT-6 Sol",
+          "badgeLabel": "New",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "reasoning",
+              "label": "Reasoning",
+              "options": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                },
+                {
+                  "id": "ultra",
+                  "label": "Ultra"
+                }
+              ],
+              "defaultId": "medium"
+            }
+          ],
+          "supportsPlanMode": true,
+          "supportsWebSearch": "native"
+        },
+        {
+          "id": "gpt-6-luna",
+          "label": "GPT-6 Luna",
+          "badgeLabel": "New",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "reasoning",
+              "label": "Reasoning",
+              "options": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
                 }
               ],
               "defaultId": "medium"
@@ -441,6 +575,13 @@
           "supportsWebSearch": "queryOnly"
         },
         {
+          "id": "grok-4.7",
+          "label": "Grok 4.7",
+          "badgeLabel": "New",
+          "supportsPlanMode": true,
+          "supportsWebSearch": "queryOnly"
+        },
+        {
           "id": "grok-4.6",
           "label": "Grok 4.6",
           "supportsPlanMode": true,
@@ -454,9 +595,10 @@
         }
       ],
       "aliases": {
+        "grok-4.7-latest": "grok-4.7",
         "grok-4.6-latest": "grok-4.6",
         "grok-4.5-latest": "grok-4.5",
-        "grok-build-latest": "grok-4.6"
+        "grok-build-latest": "grok-4.7"
       }
     },
     "gemini": {
@@ -518,6 +660,26 @@
           "supportsPlanMode": true
         },
         {
+          "id": "claude-opus-5.5",
+          "label": "Claude Opus 5.5",
+          "badgeLabel": "New",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
           "id": "claude-opus-5",
           "label": "Claude Opus 5",
           "optionDescriptors": [
@@ -562,6 +724,12 @@
           "supportsPlanMode": true
         },
         {
+          "id": "gpt-6-sol",
+          "label": "GPT-6 Sol",
+          "badgeLabel": "New",
+          "supportsPlanMode": true
+        },
+        {
           "id": "gpt-5.6-sol",
           "label": "GPT-5.6 Sol",
           "supportsPlanMode": true
@@ -572,12 +740,19 @@
           "supportsPlanMode": true
         },
         {
+          "id": "gpt-6-luna",
+          "label": "GPT-6 Luna",
+          "badgeLabel": "New",
+          "supportsPlanMode": true
+        },
+        {
           "id": "gpt-5.6-luna",
           "label": "GPT-5.6 Luna",
           "supportsPlanMode": true
         }
       ],
       "aliases": {
+        "claude-opus-5-5": "claude-opus-5.5",
         "claude-fable-5-1": "claude-fable-5.1",
         "claude-opus-4-8": "claude-opus-4.8",
         "claude-opus-4-7": "claude-opus-4.7",
@@ -618,6 +793,12 @@
           "supportsPlanMode": true
         },
         {
+          "id": "claude-opus-5-5",
+          "label": "Opus 5.5",
+          "badgeLabel": "New",
+          "supportsPlanMode": true
+        },
+        {
           "id": "claude-opus-5",
           "label": "Opus 5",
           "supportsPlanMode": true
@@ -642,6 +823,12 @@
           "supportsPlanMode": true
         },
         {
+          "id": "gpt-6-sol",
+          "label": "GPT-6 Sol",
+          "badgeLabel": "New",
+          "supportsPlanMode": true
+        },
+        {
           "id": "gpt-5.6-sol",
           "label": "GPT-5.6 Sol",
           "supportsPlanMode": true
@@ -649,6 +836,12 @@
         {
           "id": "gpt-5.6-terra",
           "label": "GPT-5.6 Terra",
+          "supportsPlanMode": true
+        },
+        {
+          "id": "gpt-6-luna",
+          "label": "GPT-6 Luna",
+          "badgeLabel": "New",
           "supportsPlanMode": true
         },
         {
@@ -692,6 +885,12 @@
               "defaultId": "1m"
             }
           ],
+          "supportsPlanMode": true
+        },
+        {
+          "id": "grok-4.7",
+          "label": "Grok 4.7",
+          "badgeLabel": "New",
           "supportsPlanMode": true
         },
         {
@@ -805,6 +1004,26 @@
           "supportsPlanMode": true
         },
         {
+          "id": "opencode/claude-opus-5-5",
+          "label": "OpenCode · Claude Opus 5.5",
+          "badgeLabel": "New",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
           "id": "opencode/claude-opus-5",
           "label": "OpenCode · Claude Opus 5",
           "optionDescriptors": [
@@ -844,6 +1063,26 @@
           "supportsPlanMode": true
         },
         {
+          "id": "opencode/gpt-6-sol",
+          "label": "OpenCode · GPT-6 Sol",
+          "badgeLabel": "New",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
           "id": "opencode/gpt-5.6-sol",
           "label": "OpenCode · GPT-5.6 Sol",
           "optionDescriptors": [
@@ -865,6 +1104,26 @@
         {
           "id": "opencode/gpt-5.6-terra",
           "label": "OpenCode · GPT-5.6 Terra",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
+          "id": "opencode/gpt-6-luna",
+          "label": "OpenCode · GPT-6 Luna",
+          "badgeLabel": "New",
           "optionDescriptors": [
             {
               "kind": "select",
@@ -939,6 +1198,12 @@
           "supportsPlanMode": true
         },
         {
+          "id": "opencode/grok-4.7",
+          "label": "OpenCode · Grok 4.7",
+          "badgeLabel": "New",
+          "supportsPlanMode": true
+        },
+        {
           "id": "opencode/grok-4.6",
           "label": "OpenCode · Grok 4.6",
           "supportsPlanMode": true
@@ -969,8 +1234,48 @@
           "supportsPlanMode": true
         },
         {
+          "id": "opencode/claude-opus-5-5",
+          "label": "OpenCode 2 · Claude Opus 5.5",
+          "badgeLabel": "New",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
           "id": "opencode/claude-opus-5",
           "label": "OpenCode 2 · Claude Opus 5",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
+          "id": "opencode/gpt-6-sol",
+          "label": "OpenCode 2 · GPT-6 Sol",
+          "badgeLabel": "New",
           "optionDescriptors": [
             {
               "kind": "select",
@@ -1026,6 +1331,26 @@
           "supportsPlanMode": true
         },
         {
+          "id": "opencode/gpt-6-luna",
+          "label": "OpenCode 2 · GPT-6 Luna",
+          "badgeLabel": "New",
+          "optionDescriptors": [
+            {
+              "kind": "select",
+              "id": "contextWindow",
+              "label": "Context Window",
+              "options": [
+                {
+                  "id": "1m",
+                  "label": "1M"
+                }
+              ],
+              "defaultId": "1m"
+            }
+          ],
+          "supportsPlanMode": true
+        },
+        {
           "id": "opencode/gpt-5.6-luna",
           "label": "OpenCode 2 · GPT-5.6 Luna",
           "optionDescriptors": [
@@ -1064,6 +1389,12 @@
           "supportsPlanMode": true
         },
         {
+          "id": "opencode/grok-4.7",
+          "label": "OpenCode 2 · Grok 4.7",
+          "badgeLabel": "New",
+          "supportsPlanMode": true
+        },
+        {
           "id": "opencode/grok-4.6",
           "label": "OpenCode 2 · Grok 4.6",
           "supportsPlanMode": true
@@ -1073,6 +1404,24 @@
     }
   },
   "pricing": {
+    "gpt-6-sol": {
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.2,
+      "cacheCreate": 2.5
+    },
+    "gpt-6-luna": {
+      "input": 0.1,
+      "output": 0.5,
+      "cacheRead": 0.01,
+      "cacheCreate": 0.125
+    },
+    "claude-opus-5-5": {
+      "input": 4,
+      "output": 20,
+      "cacheRead": 0.2,
+      "cacheCreate": 5
+    },
     "claude-fable-5-1": {
       "input": 10,
       "output": 50,

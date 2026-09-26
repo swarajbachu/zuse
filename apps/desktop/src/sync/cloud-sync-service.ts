@@ -1,50 +1,20 @@
-import { execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import {
-	mkdir,
-	mkdtemp,
-	readdir,
-	readFile,
-	rename,
-	rm,
-	writeFile,
-} from "node:fs/promises";
-import { homedir } from "node:os";
+import { mkdir, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { promisify } from "node:util";
-
-import {
-	CLOUD_SYNC_GENERATED_DIRECTORIES,
-	CLOUD_SYNC_MARKER_FILE,
-	cloudSyncRsyncDirectoryPattern,
-} from "@zuse/utils/cloud-sync-paths";
 import { KeyedSerialWorker } from "@zuse/utils/keyed-worker";
+import {
+	applySnapshot,
+	cachedBaseline,
+	downloadSnapshot,
+	localBaseline,
+	readSyncManifest,
+	SYNC_MARKER_FILE,
+	writeSyncManifest,
+} from "./cloud-sync-snapshot.ts";
 
-import { cloudSshConfigPath } from "../ssh/cloud-ssh-service.ts";
+export { SYNC_MARKER_FILE } from "./cloud-sync-snapshot.ts";
 
-/**
- * One-way cloud→local file sync for cloud workspaces.
- *
- * Each enabled workspace mirrors `/home/zuse/workspace` from the sandbox into
- * a local directory with rsync over the Feature-B SSH channel (the `zuse-*`
- * host alias whose ProxyCommand bridges a WebSocket to `sshd -i`). The local
- * directory is a mirror: local edits are overwritten on the next sync.
- * Non-empty directories are refused unless they carry the `.zuse-sync.json`
- * marker from a previous sync, so an enable can never clobber unrelated data.
- */
-
-const execFileAsync = promisify(execFile);
-
-export const SYNC_MARKER_FILE = CLOUD_SYNC_MARKER_FILE;
-const QUIET_MS = 5_000;
-const BATCH_COOLDOWN_MS = 15_000;
-const PERIODIC_FALLBACK_MS = 60_000;
-const ERROR_BACKOFF_MIN_MS = 5_000;
-const ERROR_BACKOFF_MAX_MS = 60_000;
-const TICKET_STALE_MARGIN_MS = 10 * 60_000;
-const TRANSFER_INACTIVITY_TIMEOUT_MS = 30_000;
-const TRANSFER_TERMINATE_GRACE_MS = 2_000;
-
+const BATCH_INTERVAL_MS = 15_000;
+const RECONCILE_MS = 30_000;
 export type CloudSyncState =
 	| "idle"
 	| "pending"
@@ -53,6 +23,12 @@ export type CloudSyncState =
 	| "error";
 
 export interface CloudSyncStatus {
+	readonly progress?: {
+		phase: "scanning" | "downloading" | "applying";
+		files: number;
+		total: number;
+		bytes: number;
+	};
 	readonly workspaceId: string;
 	readonly enabled: boolean;
 	readonly state: CloudSyncState;
@@ -70,85 +46,6 @@ export interface CloudSyncConfigureInput {
 	readonly hostAlias: string;
 	readonly remotePath: string;
 }
-
-/** openrsync (macOS) rejects `--filter`; GNU rsync supports it. */
-export const supportsGitignoreFilter = (versionOutput: string): boolean =>
-	!versionOutput.includes("openrsync") && versionOutput.includes("version 3");
-
-export const remoteRsyncMissing = (stderr: string): boolean =>
-	/(?:rsync: )?command not found/u.test(stderr);
-
-const syncExcludes = [
-	"--exclude=.git/",
-	`--exclude=${SYNC_MARKER_FILE}`,
-	...CLOUD_SYNC_GENERATED_DIRECTORIES.map(
-		(path) => `--exclude=${cloudSyncRsyncDirectoryPattern(path)}/`,
-	),
-];
-
-/** No -t: an identical file must not be touched just because archive times differ. */
-export const localRsyncArgs = (
-	staging: string,
-	localPath: string,
-	gitignoreFilter: boolean,
-): ReadonlyArray<string> => [
-	"-rlpc",
-	"--delay-updates",
-	"--delete-delay",
-	"--partial-dir=.zuse-rsync-partial",
-	...syncExcludes,
-	...(gitignoreFilter ? ["--filter=:- .gitignore"] : []),
-	`${staging.replace(/\/$/u, "")}/`,
-	`${localPath.replace(/\/$/u, "")}/`,
-];
-
-export const rsyncArgs = (input: {
-	readonly hostAlias: string;
-	readonly remotePath: string;
-	readonly localPath: string;
-	readonly sshConfigPath: string;
-	readonly gitignoreFilter: boolean;
-}): ReadonlyArray<string> => [
-	"-az",
-	"--checksum",
-	"--delay-updates",
-	"--delete-delay",
-	"--partial-dir=.zuse-rsync-partial",
-	"--timeout=30",
-	...syncExcludes,
-	...(input.gitignoreFilter ? ["--filter=:- .gitignore"] : []),
-	...(!input.gitignoreFilter
-		? ["--rsync-path=rsync --filter=:-_.gitignore"]
-		: []),
-	"-e",
-	`ssh -F "${input.sshConfigPath}"`,
-	`${input.hostAlias}:${input.remotePath.replace(/\/$/u, "")}/`,
-	`${input.localPath.replace(/\/$/u, "")}/`,
-];
-
-interface SyncEntry {
-	config: CloudSyncConfigureInput;
-	state: CloudSyncState;
-	lastSyncedAt: number | null;
-	error: string | null;
-	accessRefreshRequired: boolean;
-	running: boolean;
-	dirty: boolean;
-	generation: number;
-	lastChangeAt: number;
-	lastCompletedAt: number | null;
-	retryNotBefore: number;
-	reconcileAt: number;
-	staging: string | null;
-	blocked: boolean;
-	backoffMs: number;
-	timer: NodeJS.Timeout | null;
-	abortController: AbortController | null;
-	completion: Promise<void> | null;
-}
-
-const ticketPath = (workspaceId: string): string =>
-	join(homedir(), ".zuse", "ssh", "tickets", `${workspaceId}.json`);
 
 export const cloudSyncDefaultPath = (
 	home: string,
@@ -169,39 +66,39 @@ export const cloudSyncDefaultPath = (
 		: join(home, ".zuse", "cloud", ...segments);
 };
 
-const ticketFresh = async (workspaceId: string): Promise<boolean> => {
-	try {
-		const parsed = JSON.parse(
-			await readFile(ticketPath(workspaceId), "utf8"),
-		) as { expiresAt?: unknown };
-		return (
-			typeof parsed.expiresAt === "number" &&
-			parsed.expiresAt > Date.now() + TICKET_STALE_MARGIN_MS
-		);
-	} catch {
-		return false;
-	}
-};
+interface SyncEntry {
+	progress?: CloudSyncStatus["progress"];
+	config: CloudSyncConfigureInput;
+	state: CloudSyncState;
+	lastSyncedAt: number | null;
+	error: string | null;
+	accessRefreshRequired: boolean;
+	generation: number;
+	dirty: boolean;
+	lastAttemptAt: number;
+	retryAt: number;
+	backoff: number;
+	timer: NodeJS.Timeout | null;
+	abort: AbortController | null;
+	completion: Promise<void> | null;
+	blocked: boolean;
+}
 
+/** Git-selected, content-verified incremental snapshots. Events are hints, not gates. */
 export class CloudSyncManager {
 	private readonly entries = new Map<string, SyncEntry>();
-	private gitignoreFilter: boolean | null = null;
 	private readonly configurations = new KeyedSerialWorker<string>();
 	private disposed = false;
-
 	constructor(
 		private readonly notify: (status: CloudSyncStatus) => void,
-		private readonly runRsync: (
-			args: ReadonlyArray<string>,
-			signal?: AbortSignal,
-		) => Promise<{ code: number; stderr: string }> = defaultRunRsync,
-		private readonly runLegacySync: (
-			input: CloudSyncConfigureInput,
-			signal?: AbortSignal,
-		) => Promise<{ code: number; stderr: string }> = defaultRunLegacySync,
-		private readonly applyRsync: typeof defaultRunRsync = defaultRunRsync,
+		private readonly download: typeof downloadSnapshot = downloadSnapshot,
+		private readonly apply: typeof applySnapshot = applySnapshot,
+		private readonly readRemoteFile?: (
+			workspaceId: string,
+			path: string,
+			signal: AbortSignal,
+		) => Promise<Uint8Array>,
 	) {}
-
 	status(workspaceId: string): CloudSyncStatus {
 		const entry = this.entries.get(workspaceId);
 		return {
@@ -212,448 +109,199 @@ export class CloudSyncManager {
 			lastSyncedAt: entry?.lastSyncedAt ?? null,
 			error: entry?.error ?? null,
 			accessRefreshRequired: entry?.accessRefreshRequired ?? false,
+			progress: entry?.progress,
 		};
 	}
-
+	private publish(id: string) {
+		this.notify(this.status(id));
+	}
 	configure(input: CloudSyncConfigureInput): Promise<CloudSyncStatus> {
-		if (this.disposed) return Promise.resolve(this.status(input.workspaceId));
-		return this.configurations.run(input.workspaceId, () =>
-			this.configureNow(input),
-		);
-	}
-
-	private async configureNow(
-		input: CloudSyncConfigureInput,
-	): Promise<CloudSyncStatus> {
-		const existing = this.entries.get(input.workspaceId);
-		if (existing !== undefined) {
-			this.entries.delete(input.workspaceId);
-			this.cancelEntry(existing);
-			await existing.completion;
-			await this.removeStaging(existing);
-		}
-		if (!input.enabled || this.disposed) {
-			// Retain scheduling history across disconnect/reconnect without keeping a worker alive.
-			if (existing !== undefined && !this.disposed) {
-				existing.config = { ...existing.config, enabled: false };
-				existing.state = "idle";
-				existing.error = null;
-				existing.accessRefreshRequired = false;
-				existing.blocked = true;
-				this.entries.set(input.workspaceId, existing);
+		return this.configurations.run(input.workspaceId, async () => {
+			const old = this.entries.get(input.workspaceId);
+			if (old) {
+				clearTimeout(old.timer ?? undefined);
+				old.blocked = true;
+				old.abort?.abort();
+				await old.completion;
 			}
-			const status = this.status(input.workspaceId);
-			this.notify(status);
-			return status;
-		}
-		const entry: SyncEntry = {
-			config: input,
-			state: "pending",
-			lastSyncedAt: existing?.lastSyncedAt ?? null,
-			error: null,
-			accessRefreshRequired: false,
-			running: false,
-			dirty: true,
-			generation: 0,
-			lastChangeAt: Date.now(),
-			lastCompletedAt: existing?.lastCompletedAt ?? null,
-			retryNotBefore: existing?.retryNotBefore ?? 0,
-			reconcileAt: Date.now() + PERIODIC_FALLBACK_MS,
-			staging: null,
-			blocked: true,
-			backoffMs: existing?.backoffMs ?? ERROR_BACKOFF_MIN_MS,
-			timer: null,
-			abortController: null,
-			completion: null,
-		};
-		this.entries.set(input.workspaceId, entry);
-		const guard = await this.guardLocalPath(input);
-		if (guard !== null) {
-			entry.state = "error";
-			entry.error = guard;
+			if (this.disposed) return this.status(input.workspaceId);
+			const entry: SyncEntry = {
+				config: input.enabled
+					? input
+					: { ...input, localPath: old?.config.localPath ?? input.localPath },
+				state: input.enabled ? "pending" : "idle",
+				lastSyncedAt: old?.lastSyncedAt ?? null,
+				error: null,
+				accessRefreshRequired: false,
+				generation: 0,
+				dirty: true,
+				lastAttemptAt: old?.lastAttemptAt ?? -Infinity,
+				retryAt: old?.retryAt ?? 0,
+				backoff: old?.backoff ?? BATCH_INTERVAL_MS,
+				timer: null,
+				abort: null,
+				completion: null,
+				blocked: !input.enabled,
+			};
+			this.entries.set(input.workspaceId, entry);
+			if (input.enabled) {
+				try {
+					await mkdir(input.localPath, { recursive: true });
+					const contents = await readdir(input.localPath);
+					if (contents.length === 0)
+						await writeSyncManifest(input.localPath, {
+							version: 1,
+							workspaceId: input.workspaceId,
+							files: [],
+						});
+					else if (!contents.includes(SYNC_MARKER_FILE))
+						throw new Error(
+							"The chosen folder is not empty. Pick an empty folder or a previous sync target.",
+						);
+					await readSyncManifest(input.localPath, input.workspaceId);
+					this.schedule(input.workspaceId, entry, 0);
+				} catch (cause) {
+					entry.blocked = true;
+					entry.state = "error";
+					entry.error = cause instanceof Error ? cause.message : String(cause);
+				}
+			}
 			this.publish(input.workspaceId);
 			return this.status(input.workspaceId);
-		}
-		entry.blocked = false;
-		this.schedule(input.workspaceId, entry);
-		this.publish(input.workspaceId);
-		return this.status(input.workspaceId);
+		});
 	}
-
-	/** All change signals enter the same quiet-period scheduler. */
-	requestSync(workspaceId: string): void {
-		const entry = this.entries.get(workspaceId);
-		if (entry === undefined || entry.blocked || this.disposed) return;
+	requestSync(id: string): void {
+		const entry = this.entries.get(id);
+		if (!entry || entry.blocked || this.disposed) return;
+		entry.generation++;
 		entry.dirty = true;
-		entry.generation += 1;
-		entry.lastChangeAt = Date.now();
-		if (
-			!entry.running &&
-			entry.state !== "error" &&
-			entry.state !== "pending"
-		) {
-			entry.state = "pending";
-			this.publish(workspaceId);
-		}
-		this.schedule(workspaceId, entry);
+		// A stream of hints can accelerate a periodic scan, never postpone one.
+		if (!entry.completion) this.schedule(id, entry, BATCH_INTERVAL_MS);
 	}
-
-	async dispose(): Promise<void> {
-		this.disposed = true;
-		for (const entry of this.entries.values()) this.cancelEntry(entry);
-		await this.configurations.close();
-		const entries = [...this.entries.values()];
-		this.entries.clear();
-		for (const entry of entries) this.cancelEntry(entry);
-		await Promise.all(
-			entries.map(async (entry) => {
-				await entry.completion;
-				await this.removeStaging(entry);
-			}),
+	private schedule(id: string, entry: SyncEntry, delay: number): void {
+		if (entry.blocked || this.disposed || entry.completion) return;
+		clearTimeout(entry.timer ?? undefined);
+		const due = Math.max(
+			Date.now() + (entry.dirty ? 0 : delay),
+			entry.lastAttemptAt + BATCH_INTERVAL_MS,
+			entry.retryAt,
 		);
-	}
-
-	private async removeStaging(entry: SyncEntry): Promise<void> {
-		if (entry.staging !== null)
-			await rm(entry.staging, { recursive: true, force: true });
-		entry.staging = null;
-	}
-
-	private cancelEntry(entry: SyncEntry): void {
-		this.clearTimers(entry);
-		entry.abortController?.abort();
-	}
-
-	private clearTimers(entry: SyncEntry): void {
-		if (entry.timer !== null) clearTimeout(entry.timer);
-		entry.timer = null;
-	}
-
-	private schedule(workspaceId: string, entry: SyncEntry): void {
-		this.clearTimers(entry);
-		if (entry.running || entry.blocked || this.disposed) return;
-		const due = entry.dirty
-			? Math.max(
-					entry.lastChangeAt + QUIET_MS,
-					(entry.lastCompletedAt ?? -Infinity) + BATCH_COOLDOWN_MS,
-					entry.retryNotBefore,
-				)
-			: entry.reconcileAt;
 		entry.timer = setTimeout(
 			() => {
 				entry.timer = null;
-				if (this.entries.get(workspaceId) !== entry || this.disposed) return;
-				if (!entry.dirty) {
-					// Reconciliation must obey exactly the same gates as observed changes.
-					this.requestSync(workspaceId);
+				if (entry.blocked || this.disposed || this.entries.get(id) !== entry)
 					return;
-				}
-				this.launchSync(workspaceId);
+				const operation = this.scan(id, entry).finally(() => {
+					entry.completion = null;
+					this.schedule(id, entry, RECONCILE_MS);
+				});
+				entry.completion = operation;
 			},
 			Math.max(0, due - Date.now()),
 		);
 		entry.timer.unref?.();
 	}
-
-	private launchSync(workspaceId: string): void {
-		const entry = this.entries.get(workspaceId);
-		if (entry === undefined || entry.running || entry.blocked || this.disposed)
-			return;
-		const operation = this.sync(workspaceId, entry).finally(() => {
-			if (entry.completion === operation) entry.completion = null;
-		});
-		entry.completion = operation;
-	}
-
-	private async guardLocalPath(
-		input: CloudSyncConfigureInput,
-	): Promise<string | null> {
-		try {
-			await mkdir(input.localPath, { recursive: true });
-			const contents = await readdir(input.localPath);
-			const marker = join(input.localPath, SYNC_MARKER_FILE);
-			if (contents.length > 0 && !existsSync(marker)) {
-				return "The chosen folder is not empty. Pick an empty folder or a previous sync target.";
-			}
-			await writeFile(
-				marker,
-				`${JSON.stringify({ workspaceId: input.workspaceId })}\n`,
-			);
-			return null;
-		} catch (cause) {
-			return cause instanceof Error ? cause.message : String(cause);
-		}
-	}
-
-	private publish(workspaceId: string): void {
-		this.notify(this.status(workspaceId));
-	}
-
-	private async resolveGitignoreFilter(): Promise<boolean> {
-		if (this.gitignoreFilter !== null) return this.gitignoreFilter;
-		try {
-			const { stdout } = await execFileAsync("rsync", ["--version"]);
-			this.gitignoreFilter = supportsGitignoreFilter(stdout);
-		} catch {
-			this.gitignoreFilter = false;
-		}
-		return this.gitignoreFilter;
-	}
-
-	private async sync(workspaceId: string, entry: SyncEntry): Promise<void> {
-		entry.running = true;
-		entry.state = "syncing";
+	private async scan(id: string, entry: SyncEntry): Promise<void> {
 		const generation = entry.generation;
-		let applying = false;
-		const abortController = new AbortController();
-		entry.abortController = abortController;
-		const cancelled = () =>
-			abortController.signal.aborted ||
-			this.entries.get(workspaceId) !== entry ||
-			this.disposed;
+		const controller = new AbortController();
+		entry.abort = controller;
+		entry.lastAttemptAt = Date.now();
+		entry.state = "syncing";
+		entry.error = null;
+		entry.progress = { phase: "scanning", files: 0, total: 0, bytes: 0 };
+		this.publish(id);
+		const staging = `${resolve(entry.config.localPath)}.zuse-sync-cache`;
 		try {
-			entry.accessRefreshRequired = !(await ticketFresh(workspaceId));
-			if (cancelled()) return;
-			this.publish(workspaceId);
-			entry.staging ??= await mkdtemp(
-				`${resolve(entry.config.localPath)}.incoming-`,
+			const previous = await readSyncManifest(entry.config.localPath, id);
+			const local = await localBaseline(entry.config.localPath, previous.files);
+			if (controller.signal.aborted) return;
+			await mkdir(staging, { recursive: true });
+			if ((await readdir(staging)).length === 0)
+				await writeSyncManifest(staging, {
+					version: 1,
+					workspaceId: id,
+					files: [],
+				});
+			await readSyncManifest(staging, id);
+			const cached = await cachedBaseline(staging);
+			const baseline = [
+				...new Map(
+					[...local, ...cached].map((file) => [file.path, file]),
+				).values(),
+			];
+			let lastProgressAt = 0;
+			const readRemoteFile = this.readRemoteFile;
+			const files = await this.download(
+				{
+					...entry.config,
+					readRemoteFile: readRemoteFile
+						? (path, signal) => readRemoteFile(id, path, signal)
+						: undefined,
+				},
+				staging,
+				baseline,
+				controller.signal,
+				(progress) => {
+					entry.progress = { ...progress, phase: "downloading" };
+					if (
+						Date.now() - lastProgressAt >= 250 &&
+						!controller.signal.aborted
+					) {
+						lastProgressAt = Date.now();
+						this.publish(id);
+					}
+				},
 			);
-			const gitignoreFilter = await this.resolveGitignoreFilter();
-			if (cancelled()) return;
-			const downloadConfig = { ...entry.config, localPath: entry.staging };
-			let result = await this.runRsync(
-				rsyncArgs({
-					...downloadConfig,
-					sshConfigPath: cloudSshConfigPath(),
-					gitignoreFilter,
-				}),
-				abortController.signal,
+			if (controller.signal.aborted) return;
+			entry.progress = {
+				files: files.length,
+				total: files.length,
+				bytes: entry.progress?.bytes ?? 0,
+				phase: "applying",
+			};
+			this.publish(id);
+			await this.apply(
+				entry.config.localPath,
+				staging,
+				previous,
+				files,
+				controller.signal,
 			);
-			if (
-				!cancelled() &&
-				result.code !== 0 &&
-				remoteRsyncMissing(result.stderr)
-			) {
-				result = await this.runLegacySync(
-					downloadConfig,
-					abortController.signal,
-				);
-			}
-			if (cancelled()) return;
-			if (result.code !== 0)
-				throw new Error(
-					result.stderr.trim().split("\n").slice(-3).join("\n") ||
-						"File sync failed.",
-				);
-			// Never publish a download known to have raced remote edits.
-			if (generation !== entry.generation) {
-				entry.state = "pending";
-				return;
-			}
-			applying = true;
-			result = await this.applyRsync(
-				localRsyncArgs(entry.staging, entry.config.localPath, gitignoreFilter),
-				abortController.signal,
-			);
-			if (cancelled()) return;
-			if (result.code !== 0)
-				throw new Error(result.stderr.trim() || "Applying file sync failed.");
-			entry.lastCompletedAt = Date.now();
-			entry.lastSyncedAt = entry.lastCompletedAt;
+			if (controller.signal.aborted) return;
+			entry.lastSyncedAt = Date.now();
+			entry.lastAttemptAt = Date.now();
 			entry.dirty = generation !== entry.generation;
-			entry.state = entry.dirty ? "pending" : "in-sync";
+			entry.state = "in-sync";
+			entry.progress = undefined;
 			entry.error = null;
-			entry.backoffMs = ERROR_BACKOFF_MIN_MS;
-			entry.retryNotBefore = 0;
 			entry.accessRefreshRequired = false;
+			entry.retryAt = 0;
+			entry.backoff = BATCH_INTERVAL_MS;
 		} catch (cause) {
-			if (cancelled()) return;
-			entry.state = "error";
-			entry.error = cause instanceof Error ? cause.message : String(cause);
-			if (sshTransportFailed(entry.error)) entry.accessRefreshRequired = true;
-			entry.retryNotBefore = Date.now() + entry.backoffMs;
-			entry.backoffMs = Math.min(entry.backoffMs * 2, ERROR_BACKOFF_MAX_MS);
-		} finally {
-			if (applying) entry.lastCompletedAt = Date.now();
-			entry.abortController = null;
-			entry.running = false;
-			if (!cancelled()) {
-				entry.reconcileAt = Date.now() + PERIODIC_FALLBACK_MS;
-				this.publish(workspaceId);
-				this.schedule(workspaceId, entry);
+			if (!controller.signal.aborted) {
+				entry.state = "error";
+				entry.error = cause instanceof Error ? cause.message : String(cause);
+				entry.accessRefreshRequired = sshTransportFailed(entry.error);
+				entry.dirty = true;
+				entry.retryAt = Date.now() + entry.backoff;
+				entry.backoff = Math.min(entry.backoff * 2, 60_000);
 			}
+		} finally {
+			entry.abort = null;
+			if (!entry.blocked && !this.disposed) this.publish(id);
 		}
+	}
+	async dispose(): Promise<void> {
+		this.disposed = true;
+		for (const entry of this.entries.values()) {
+			clearTimeout(entry.timer ?? undefined);
+			entry.abort?.abort();
+		}
+		await this.configurations.close();
+		await Promise.all([...this.entries.values()].map((e) => e.completion));
+		this.entries.clear();
 	}
 }
-
-const defaultRunRsync = (
-	args: ReadonlyArray<string>,
-	signal?: AbortSignal,
-): Promise<{ code: number; stderr: string }> =>
-	new Promise((resolve, reject) => {
-		const child = spawn("rsync", [...args], {
-			stdio: ["ignore", "ignore", "pipe"],
-		});
-		let stderr = "";
-		let settled = false;
-		let forcedTermination: NodeJS.Timeout | null = null;
-		const finish = (result: { code: number; stderr: string }): void => {
-			if (settled) return;
-			settled = true;
-			if (forcedTermination !== null) clearTimeout(forcedTermination);
-			signal?.removeEventListener("abort", abort);
-			resolve(result);
-		};
-		const fail = (cause: Error): void => {
-			if (settled) return;
-			settled = true;
-			if (forcedTermination !== null) clearTimeout(forcedTermination);
-			signal?.removeEventListener("abort", abort);
-			reject(cause);
-		};
-		const abort = (): void => {
-			child.kill("SIGTERM");
-			forcedTermination = setTimeout(
-				() => child.kill("SIGKILL"),
-				TRANSFER_TERMINATE_GRACE_MS,
-			);
-			forcedTermination.unref?.();
-		};
-		child.stderr.on("data", (chunk: Buffer) => {
-			stderr = `${stderr}${chunk.toString()}`.slice(-4_096);
-		});
-		child.once("error", (cause) => {
-			if (signal?.aborted) finish({ code: 1, stderr: "Sync cancelled." });
-			else fail(cause);
-		});
-		child.once("close", (code) =>
-			finish({
-				code: signal?.aborted ? 1 : (code ?? 1),
-				stderr: signal?.aborted ? "Sync cancelled." : stderr,
-			}),
-		);
-		if (signal?.aborted) abort();
-		else signal?.addEventListener("abort", abort, { once: true });
-	});
-
-/** Download compatibility path. input.localPath is private staging, never the live mirror. */
-const defaultRunLegacySync = async (
-	input: CloudSyncConfigureInput,
-	signal?: AbortSignal,
-): Promise<{ code: number; stderr: string }> => {
-	const staging = await mkdtemp(`${input.localPath}.incoming-`);
-	try {
-		const result = await streamTarArchive(input, staging, signal);
-		if (result.code !== 0) return result;
-		if (signal?.aborted) return { code: 1, stderr: "Sync cancelled." };
-		for (const name of await readdir(input.localPath)) {
-			if (name !== SYNC_MARKER_FILE)
-				await rm(join(input.localPath, name), { recursive: true, force: true });
-		}
-		for (const name of await readdir(staging))
-			await rename(join(staging, name), join(input.localPath, name));
-		return result;
-	} finally {
-		await rm(staging, { recursive: true, force: true });
-	}
-};
-
-const streamTarArchive = (
-	input: CloudSyncConfigureInput,
-	staging: string,
-	signal?: AbortSignal,
-): Promise<{ code: number; stderr: string }> =>
-	new Promise((resolve) => {
-		const remote = spawn(
-			"ssh",
-			[
-				"-F",
-				cloudSshConfigPath(),
-				input.hostAlias,
-				"tar",
-				"-C",
-				input.remotePath,
-				"--exclude=.git",
-				"--exclude-vcs-ignores",
-				`--exclude=${SYNC_MARKER_FILE}`,
-				...CLOUD_SYNC_GENERATED_DIRECTORIES.flatMap((path) =>
-					path.includes("/")
-						? [`--exclude=${path}`, `--exclude=*/${path}`]
-						: [`--exclude=${path}`],
-				),
-				"-czf",
-				"-",
-				".",
-			],
-			{ stdio: ["ignore", "pipe", "pipe"] },
-		);
-		const local = spawn("tar", ["-xzf", "-", "-C", staging], {
-			stdio: ["pipe", "ignore", "pipe"],
-		});
-		let stderr = "";
-		let settled = false;
-		let inactivityTimer: NodeJS.Timeout;
-		const terminate = (reason?: string): void => {
-			if (reason !== undefined) stderr = reason;
-			remote.kill("SIGTERM");
-			local.kill("SIGTERM");
-			const forced = setTimeout(() => {
-				remote.kill("SIGKILL");
-				local.kill("SIGKILL");
-			}, TRANSFER_TERMINATE_GRACE_MS);
-			forced.unref?.();
-		};
-		const abort = (): void => terminate();
-		const resetInactivity = (): void => {
-			clearTimeout(inactivityTimer);
-			inactivityTimer = setTimeout(
-				() =>
-					terminate(
-						"Sync timed out after 30 seconds without transferred data.",
-					),
-				TRANSFER_INACTIVITY_TIMEOUT_MS,
-			);
-			inactivityTimer.unref?.();
-		};
-		const appendError = (chunk: Buffer) => {
-			stderr = `${stderr}${chunk.toString()}`.slice(-4_096);
-			resetInactivity();
-		};
-		remote.stderr.on("data", appendError);
-		local.stderr.on("data", appendError);
-		remote.stdout.on("data", resetInactivity);
-		remote.stdout.pipe(local.stdin);
-		let remoteCode: number | null = null;
-		let localCode: number | null = null;
-		const finish = () => {
-			if (settled || remoteCode === null || localCode === null) return;
-			settled = true;
-			clearTimeout(inactivityTimer);
-			signal?.removeEventListener("abort", abort);
-			resolve({
-				code: !signal?.aborted && remoteCode === 0 && localCode === 0 ? 0 : 1,
-				stderr: signal?.aborted ? "Sync cancelled." : stderr,
-			});
-		};
-		remote.once("error", (cause) => {
-			terminate(cause.message);
-		});
-		local.once("error", (cause) => {
-			terminate(cause.message);
-		});
-		remote.once("close", (code) => {
-			remoteCode = code ?? 1;
-			finish();
-		});
-		local.once("close", (code) => {
-			localCode = code ?? 1;
-			finish();
-		});
-		resetInactivity();
-		if (signal?.aborted) abort();
-		else signal?.addEventListener("abort", abort, { once: true });
-	});
-
 export const sshTransportFailed = (stderr: string): boolean =>
 	/(?:zuse ssh bridge:|permission denied|connection (?:unexpectedly )?(?:closed|reset|timed out)|kex_exchange_identification|broken pipe|no route to host|could not resolve hostname)/iu.test(
 		stderr,

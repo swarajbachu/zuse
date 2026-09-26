@@ -19,6 +19,7 @@ import {
 	useEnvironmentPermissions,
 } from "../../lib/environment-permissions-client-bus.ts";
 import { findPendingNativePlanApproval } from "../../lib/plan-feedback-routing.ts";
+import { findPresentedPermissions } from "../../lib/question-actionability.ts";
 import { useRendererSessionTimeline } from "../../lib/session-timeline-hooks.ts";
 import { useComposerBridge } from "../../store/composer-bridge.ts";
 import { useSessionsStore } from "../../store/sessions.ts";
@@ -30,6 +31,26 @@ export const EMULATED_PLAN_APPROVAL_PROMPT = PLAN_APPROVAL_PROMPT;
 const latestPlanTextFromMessages = (
 	messages: ReturnType<typeof useRendererSessionTimeline>["messages"],
 ): string | null => latestProposedPlanMarkdown(messages);
+
+export function PlanApprovalSubmissionStatus({
+	submitting,
+	error,
+}: {
+	readonly submitting: boolean;
+	readonly error: string | null;
+}) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+	if (error !== null) {
+		return (
+			<span role="alert" className="text-danger-text">
+				{uiMessage("chat:plan_submit_failed", { error })}
+			</span>
+		);
+	}
+	return submitting
+		? uiMessage("chat:plan_submitting")
+		: uiMessage("chat:plan_feedback_or_approve");
+}
 
 /**
  * Pinned "Review plan" bar docked above the composer. The proposed plan still
@@ -54,27 +75,30 @@ export function PlanApprovalTray({
 	onCancelEmulatedPlan?: () => void;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
-
-	const permissionRequests =
-		useEnvironmentPermissions(environmentId).data?.requestsById ?? {};
-	const pendingRequest = (() => {
-		for (const req of Object.values(permissionRequests)) {
-			if (req.sessionId !== sessionId) continue;
-			if (req.kind._tag !== "Other") continue;
-			if (req.kind.tool !== "ExitPlanMode") continue;
-			return req;
-		}
-		return null;
-	})();
-	const decide = (
-		requestId: string,
-		decision: Parameters<typeof decideEnvironmentPermission>[1],
-	) => decideEnvironmentPermission(requestId, decision, environmentId);
-	const { messages } = useRendererSessionTimeline(
+	const timeline = useRendererSessionTimeline(
 		sessionId,
 		"connect",
 		environmentId,
 	);
+	const permissionRequests =
+		useEnvironmentPermissions(environmentId).data?.requestsById ?? {};
+	const pendingRequest =
+		findPresentedPermissions(
+			timeline.presentation.interactions,
+			permissionRequests,
+		).find((item) => {
+			const kind = item.interaction.request.kind;
+			return (
+				item.interaction.request.recoveryState !== "expired" &&
+				kind._tag === "Other" &&
+				kind.tool === "ExitPlanMode"
+			);
+		}) ?? null;
+	const decide = (
+		request: NonNullable<typeof pendingRequest>["interaction"]["request"],
+		decision: Parameters<typeof decideEnvironmentPermission>[1],
+	) => decideEnvironmentPermission(request, decision, environmentId);
+	const messages = timeline.messages;
 	const nativeRequest = useMemo(
 		() =>
 			pendingRequest === null ? findPendingNativePlanApproval(messages) : null,
@@ -86,7 +110,11 @@ export function PlanApprovalTray({
 
 	useEffect(() => {
 		setSubmitting(false);
-	}, [nativeRequest?.toolCallId, pendingRequest?.id, emulatedPlanReady]);
+	}, [
+		nativeRequest?.toolCallId,
+		pendingRequest?.interaction.id,
+		emulatedPlanReady,
+	]);
 
 	const respondNative = async (
 		outcome: "approved" | "cancelled" | "abandoned",
@@ -143,7 +171,7 @@ export function PlanApprovalTray({
 		const ref = await saveContextFile(environmentId, created, planText);
 		if (ref !== null) attachFileWhenReady(ref);
 		if (pendingRequest !== null) {
-			await decide(pendingRequest.id, { _tag: "Deny" });
+			await decide(pendingRequest.interaction.request, { _tag: "Deny" });
 			await useSessionsStore
 				.getState()
 				.setPermissionMode(sessionId, "default", environmentId);
@@ -171,6 +199,10 @@ export function PlanApprovalTray({
 	if (pendingRequest === null && nativeRequest === null && !emulatedPlanReady)
 		return null;
 	const isPermissionBacked = pendingRequest !== null;
+	const permissionSubmitting = pendingRequest?.submission === "submitting";
+	const interactionSubmitting = submitting || permissionSubmitting;
+	const permissionError =
+		pendingRequest?.submission === "failed" ? pendingRequest.error : null;
 
 	return (
 		<TrayPill
@@ -184,13 +216,18 @@ export function PlanApprovalTray({
 				/>
 			}
 			title={uiMessage("chat:plan_approval_tray_review_plan")}
-			subtitle="Type feedback below, or approve the plan"
+			subtitle={
+				<PlanApprovalSubmissionStatus
+					submitting={permissionSubmitting}
+					error={permissionError}
+				/>
+			}
 			actions={
 				<div className="flex items-center justify-end gap-1">
 					<button
 						type="button"
 						onClick={() => void handoff()}
-						disabled={submitting}
+						disabled={interactionSubmitting}
 						title={uiMessage(
 							"chat:plan_approval_tray_open_a_new_session_in_build_mode_with_this_plan_attached",
 						)}
@@ -201,18 +238,20 @@ export function PlanApprovalTray({
 					<button
 						type="button"
 						onClick={() => {
-							if (submitting) return;
+							if (interactionSubmitting) return;
 							if (nativeRequest !== null) {
 								void respondNative("abandoned");
 								return;
 							}
 							if (pendingRequest !== null) {
-								void decide(pendingRequest.id, { _tag: "Deny" });
+								void decide(pendingRequest.interaction.request, {
+									_tag: "Deny",
+								});
 								return;
 							}
 							onCancelEmulatedPlan?.();
 						}}
-						disabled={submitting}
+						disabled={interactionSubmitting}
 						className="rounded-md px-2.5 py-0.5 text-[12px] text-muted-foreground hover:bg-muted/60 hover:text-foreground"
 					>
 						{uiMessage("chat:plan_approval_tray_abandon")}
@@ -225,13 +264,15 @@ export function PlanApprovalTray({
 								return;
 							}
 							if (pendingRequest !== null) {
-								void decide(pendingRequest.id, { _tag: "AllowOnce" });
+								void decide(pendingRequest.interaction.request, {
+									_tag: "AllowOnce",
+								});
 								return;
 							}
 							onApproveEmulatedPlan?.();
 						}}
 						disabled={
-							submitting ||
+							interactionSubmitting ||
 							(nativeRequest === null &&
 								!isPermissionBacked &&
 								onApproveEmulatedPlan === undefined)

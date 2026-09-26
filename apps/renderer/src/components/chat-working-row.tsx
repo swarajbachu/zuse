@@ -1,6 +1,13 @@
 import "@zuse/i18n/english/chat";
 import type { PendingCommand } from "@zuse/client-runtime/resource-state";
-import type { ChatId, Message, ProviderId, SessionId } from "@zuse/contracts";
+import type { SessionRuntimeState } from "@zuse/client-runtime/session-presentation";
+import type {
+	ChatId,
+	Message,
+	ProviderId,
+	SessionId,
+	SessionInteraction,
+} from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -12,7 +19,6 @@ import {
 	providerStartupLabel,
 	useProviderStartupDelay,
 } from "../lib/provider-startup-delay.ts";
-import type { SessionRuntimeState } from "../lib/session-runtime-state.ts";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
@@ -39,6 +45,7 @@ export function ChatWorkingRow({
 	messages,
 	chatId,
 	sessionId,
+	interactions = [],
 	providerId,
 	pendingCommands,
 	runtimeState,
@@ -46,6 +53,7 @@ export function ChatWorkingRow({
 	readonly messages: ReadonlyArray<Message>;
 	readonly chatId: ChatId | null;
 	readonly sessionId: SessionId;
+	readonly interactions?: readonly SessionInteraction[];
 	readonly providerId: ProviderId;
 	readonly pendingCommands: readonly PendingCommand[];
 	readonly runtimeState: SessionRuntimeState;
@@ -90,7 +98,7 @@ export function ChatWorkingRow({
 	}, []);
 
 	const elapsed = anchorMs === null ? 0 : Math.max(0, now - anchorMs);
-	const activityState = deriveAgentActivityState(messages);
+	const activityState = deriveAgentActivityState(messages, interactions);
 
 	return (
 		<div

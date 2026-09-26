@@ -75,6 +75,7 @@ type SessionsState = {
 	 * `ChatComposer` for it runs with `onDraftSubmit`; nothing else touches it.
 	 */
 	readonly draftSession: Session | null;
+	readonly draftRevision: number;
 	readonly error: string | null;
 	readonly draftSkills: ReadonlyArray<import("@zuse/contracts").Skill>;
 	readonly loadDraftSkills: (
@@ -89,7 +90,7 @@ type SessionsState = {
 		runtimeMode: RuntimeMode;
 	}) => Session;
 	/** Tear down the draft session (on submit handoff or landing unmount). */
-	readonly clearDraft: () => void;
+	readonly clearDraft: (expectedRevision?: number) => void;
 	readonly hydrate: (projectId: FolderId) => Promise<void>;
 	readonly create: (
 		chatId: ChatId,
@@ -164,6 +165,12 @@ type SessionsState = {
 		sessionId: SessionId,
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
+	) => Promise<void>;
+	/** Cancel a pending AskUserQuestion without encoding an empty answer. */
+	readonly cancelQuestion: (
+		environmentId: EnvironmentId,
+		sessionId: SessionId,
+		itemId: AgentItemId,
 	) => Promise<void>;
 	readonly respondToPlan: (
 		sessionId: SessionId,
@@ -330,6 +337,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	loadingByProject: {},
 	creatingByChat: {},
 	draftSession: null,
+	draftRevision: 0,
 	draftSkills: [],
 	error: null,
 	beginDraft: ({ projectId, providerId, model, runtimeMode }) => {
@@ -354,10 +362,20 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			createdAt: now,
 			updatedAt: now,
 		});
-		set({ draftSession: draft });
+		set((state) => ({
+			draftSession: draft,
+			draftRevision: state.draftRevision + 1,
+		}));
 		return draft;
 	},
-	clearDraft: () => set({ draftSession: null, draftSkills: [] }),
+	clearDraft: (expectedRevision) => {
+		if (
+			expectedRevision !== undefined &&
+			get().draftRevision !== expectedRevision
+		)
+			return;
+		set({ draftSession: null, draftSkills: [] });
+	},
 	loadDraftSkills: async (projectId, providerId) => {
 		try {
 			const { result } = await dispatchTimelineCommand<
@@ -761,6 +779,24 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		} catch (err) {
 			const failure = cloudInteractionFailure(err);
 			set({ error: failure.presentation?.message ?? formatError(err) });
+			throw err;
+		}
+	},
+	cancelQuestion: async (environmentId, sessionId, itemId) => {
+		set({ error: null });
+		try {
+			const commandId = nextCommandId("session-cancel-question");
+			await dispatchTimelineCommand(
+				sessionId,
+				"session.cancelQuestion",
+				commandId,
+				{ commandId, sessionId, itemId },
+				"safe",
+				environmentId,
+			);
+		} catch (err) {
+			set({ error: formatError(err) });
+			throw err;
 		}
 	},
 	respondToPlan: async (sessionId, toolCallId, outcome, feedback, options) => {

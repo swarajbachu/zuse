@@ -22,9 +22,14 @@ import { ACP_CLIENT_CAPABILITIES } from "../kernel/acp-capabilities.ts";
 import { makeAcpPermissionContext } from "../kernel/acp-permission-context.ts";
 import { createAcpSession } from "../kernel/acp-session.ts";
 import { AttachmentService } from "../kernel/attachment-service.ts";
-import type { GoalCapableSessionHandle } from "../kernel/driver.ts";
+import type {
+	GoalCapableSessionHandle,
+	ProviderDriverEvent,
+	QuestionCallbackReleased,
+} from "../kernel/driver.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
+import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import { handleFsRequest } from "./acp/fs.ts";
 import {
@@ -34,6 +39,7 @@ import {
 import { replyToAcpRequest } from "./acp/request-reply.ts";
 import { handleTerminalRequest } from "./acp/terminal.ts";
 import { createAcpTranslator } from "./acp/translate.ts";
+import { makeAcpUserQuestionRegistry } from "./acp/user-question.ts";
 import { buildAcpPromptContent } from "./acp-image-content.ts";
 import type { BrowserSend } from "./browser-tools.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
@@ -47,14 +53,12 @@ import {
 	classifyGrokRpcError,
 	createGrokEventCursor,
 	createGrokLifecycle,
-	decodeAskUserQuestionRequest,
 	decodeGrokInitializeResult,
 	decodeGrokNotification,
 	decodeGrokWireMethod,
 	decodePlanApprovalRequest,
 	GROK_MINIMUM_VERSION,
 	GROK_UPDATE_COMMAND,
-	type GrokAskUserQuestionRequest,
 	grokSessionFailureAction,
 	isSupportedGrokVersion,
 	mapGrokMode,
@@ -87,7 +91,7 @@ class GrokProtocolError extends Error {
  * `SessionCursor { strategy: "grok-session-id" }` so it persists.
  */
 export interface GrokSessionHandle extends GoalCapableSessionHandle {
-	readonly events: Stream.Stream<AgentEvent>;
+	readonly events: Stream.Stream<ProviderDriverEvent>;
 	readonly send: (
 		text: string,
 		attachments?: ReadonlyArray<AttachmentRef>,
@@ -96,14 +100,11 @@ export interface GrokSessionHandle extends GoalCapableSessionHandle {
 	readonly close: () => Effect.Effect<void>;
 	/** Request the native mode; UI state changes only on CurrentModeUpdate. */
 	readonly setPermissionMode: (mode: PermissionMode) => Effect.Effect<void>;
-	/**
-	 * No ACP `UserQuestion` primitive yet — match Codex/Grok-headless and
-	 * stay a no-op so RPC routing remains uniform.
-	 */
+	/** Resolve a blocking ACP user-question request by its provider item id. */
 	readonly answerQuestion: (
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
-	) => Effect.Effect<void>;
+	) => Effect.Effect<void, Error>;
 	readonly respondToPlan: (
 		toolCallId: AgentItemId,
 		outcome: PlanApprovalOutcome,
@@ -200,7 +201,7 @@ export const startGrokSession = (
 > =>
 	Effect.gen(function* () {
 		const attachments = yield* AttachmentService;
-		const events = yield* Queue.make<AgentEvent, Cause.Done>();
+		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 
@@ -218,10 +219,22 @@ export const startGrokSession = (
 			getPermissionMode: () => currentMode,
 		});
 		let gatewayQuestionCounter = 0;
-		const gatewayQuestionResponses = new Map<
-			string,
-			(answers: ReadonlyArray<UserQuestionAnswer> | null) => void
-		>();
+		const gatewayQuestionResponses =
+			makeBoundedQuestionCallbackRegistry<
+				(answers: ReadonlyArray<UserQuestionAnswer> | null) => void
+			>();
+		const releaseGatewayQuestions = (
+			reason: QuestionCallbackReleased["reason"],
+		): void => {
+			for (const [itemId, resolve] of gatewayQuestionResponses.drain()) {
+				resolve(null);
+				Queue.offerUnsafe(events, {
+					_tag: "QuestionCallbackReleased",
+					itemId: itemId as AgentItemId,
+					reason,
+				});
+			}
+		};
 
 		const mcpGatewaySession = yield* issueProviderMcpSession({
 			providerId: "grok",
@@ -237,13 +250,18 @@ export const startGrokSession = (
 				askUserQuestion: (questions) => {
 					const itemId =
 						`grok_mcp_question_${Date.now()}_${++gatewayQuestionCounter}` as AgentItemId;
-					Queue.offerUnsafe(events, {
-						_tag: "UserQuestion",
-						itemId,
-						questions,
-					});
 					return new Promise((resolve) => {
-						gatewayQuestionResponses.set(itemId, resolve);
+						if (
+							gatewayQuestionResponses.register(itemId, resolve) !== "accepted"
+						) {
+							resolve(null);
+							return;
+						}
+						Queue.offerUnsafe(events, {
+							_tag: "UserQuestion",
+							itemId,
+							questions,
+						});
 					});
 				},
 			},
@@ -283,13 +301,6 @@ export const startGrokSession = (
 		const pendingPlanResponses = new Map<
 			string,
 			{ readonly rpcId: string | number }
-		>();
-		const pendingQuestionResponses = new Map<
-			string,
-			{
-				readonly rpcId: string | number;
-				readonly request: GrokAskUserQuestionRequest;
-			}
 		>();
 		const eventCursor = createGrokEventCursor(providerEventCursor);
 		const lifecycle = createGrokLifecycle();
@@ -423,6 +434,16 @@ export const startGrokSession = (
 		};
 
 		const rpc = new AcpRpcClient(writeMessage);
+		const userQuestions = makeAcpUserQuestionRegistry({
+			send: writeMessage,
+			emit: (event) => Queue.offerUnsafe(events, event),
+			release: (itemId, reason) =>
+				Queue.offerUnsafe(events, {
+					_tag: "QuestionCallbackReleased",
+					itemId,
+					reason,
+				}),
+		});
 		const request = (
 			method: string,
 			params: unknown,
@@ -725,45 +746,14 @@ export const startGrokSession = (
 							return;
 						}
 
-						// User question / interactive prompts from the Grok agent
-						// (e.g. _x.ai/ask_user_question or similar namespaced methods).
-						// These are used by the agent when it wants to ask the human for
-						// input (dummy edits, confirmations, plan decisions, etc.).
-						// For now we auto-ack so the agent's tool call doesn't hang/fail.
-						// Full round-trip (emit UserQuestionEvent + route answers back)
-						// can be added later once we have the exact param shape.
-						const isQuestionMethod =
-							extensionMethod === "x.ai/ask_user_question";
-
-						if (isQuestionMethod) {
-							try {
-								const questionRequest =
-									decodeAskUserQuestionRequest(methodParams);
-								pendingQuestionResponses.set(questionRequest.toolCallId, {
-									rpcId: msg.id,
-									request: questionRequest,
-								});
+						const questionResult = userQuestions.handleRequest(
+							extensionMethod,
+							methodParams,
+							msg.id,
+						);
+						if (questionResult !== "unhandled") {
+							if (questionResult === "accepted") {
 								lifecycle.transition("waiting-for-input");
-								Queue.offerUnsafe(events, {
-									_tag: "UserQuestion",
-									itemId: questionRequest.toolCallId as AgentItemId,
-									questions: questionRequest.questions.map((question) => ({
-										question: question.question,
-										options: question.options.map(({ label }) => label),
-										...(question.multiSelect === undefined
-											? {}
-											: { multiSelect: question.multiSelect }),
-									})),
-								});
-							} catch {
-								writeMessage({
-									jsonrpc: "2.0",
-									id: msg.id,
-									error: {
-										code: -32602,
-										message: "Invalid user question request",
-									},
-								});
 							}
 							return;
 						}
@@ -857,7 +847,7 @@ export const startGrokSession = (
 							isError: true,
 						});
 					}
-					for (const toolCallId of pendingQuestionResponses.keys()) {
+					for (const toolCallId of userQuestions.discardAll()) {
 						Queue.offerUnsafe(events, {
 							_tag: "ToolResult",
 							itemId: toolCallId as AgentItemId,
@@ -866,10 +856,7 @@ export const startGrokSession = (
 						});
 					}
 					pendingPlanResponses.clear();
-					pendingQuestionResponses.clear();
-					for (const resolve of gatewayQuestionResponses.values())
-						resolve(null);
-					gatewayQuestionResponses.clear();
+					releaseGatewayQuestions("transport_lost");
 					// Keep the mailbox alive — the next send() will transparently respawn
 					// the child + redo the handshake (see [[enqueuePrompt]]). Do not stop
 					// the visible turn for the known Grok AuthorizationRequired noise.
@@ -1245,6 +1232,8 @@ export const startGrokSession = (
 					// for this session. If `session/cancel` isn't recognised the
 					// server replies with an error we ignore.
 					notify("session/cancel", { sessionId: sid });
+					userQuestions.cancelAll("cancelled");
+					releaseGatewayQuestions("cancelled");
 					// Force-reject the in-flight prompt so the inflight chain
 					// unblocks even if grok's ACP doesn't honour `session/cancel`.
 					rejectCurrentPrompt("Interrupted by user");
@@ -1260,15 +1249,9 @@ export const startGrokSession = (
 							result: { outcome: "abandoned" },
 						});
 					}
-					for (const { rpcId } of pendingQuestionResponses.values()) {
-						writeMessage({
-							jsonrpc: "2.0",
-							id: rpcId,
-							result: { outcome: "cancelled" },
-						});
-					}
+					userQuestions.cancelAll("closed");
+					releaseGatewayQuestions("closed");
 					pendingPlanResponses.clear();
-					pendingQuestionResponses.clear();
 					if (lifecycle.current() !== "closed") lifecycle.transition("closed");
 					rpc.rejectAll(new Error("Grok session closed"));
 					try {
@@ -1292,57 +1275,36 @@ export const startGrokSession = (
 					});
 				}),
 			answerQuestion: (itemId, answers) =>
-				Effect.sync(() => {
-					const gatewayResolve = gatewayQuestionResponses.get(itemId);
-					if (gatewayResolve !== undefined) {
-						gatewayQuestionResponses.delete(itemId);
-						gatewayResolve(answers);
-						return;
-					}
-					const pending = pendingQuestionResponses.get(itemId);
-					if (pending === undefined)
-						throw new Error(`No pending Grok question ${itemId}.`);
-					const hasAnswer = answers.some(
-						(answer) =>
-							answer.selected.length > 0 ||
-							(answer.other !== undefined && answer.other.trim().length > 0),
-					);
-					if (!hasAnswer) {
-						writeMessage({
-							jsonrpc: "2.0",
-							id: pending.rpcId,
-							result: { outcome: "cancelled" },
-						});
-						pendingQuestionResponses.delete(itemId);
-						lifecycle.transition("running");
-						return;
-					}
-					const responseAnswers: Record<string, ReadonlyArray<string>> = {};
-					const annotations: Record<string, { notes: string }> = {};
-					for (const answer of answers) {
-						const question = pending.request.questions[answer.questionIndex];
-						if (question === undefined) continue;
-						const selected = answer.selected.flatMap((index) => {
-							const option = question.options[index];
-							return option === undefined ? [] : [option.label];
-						});
-						if (answer.other !== undefined && answer.other.trim().length > 0) {
-							selected.push("Other");
-							annotations[question.question] = { notes: answer.other.trim() };
+				Effect.try({
+					try: () => {
+						const gatewayResolve = gatewayQuestionResponses.get(itemId);
+						if (gatewayResolve !== undefined) {
+							gatewayQuestionResponses.take(itemId)(answers);
+							return;
 						}
-						responseAnswers[question.question] = selected;
-					}
-					writeMessage({
-						jsonrpc: "2.0",
-						id: pending.rpcId,
-						result: {
-							outcome: "accepted",
-							answers: responseAnswers,
-							...(Object.keys(annotations).length === 0 ? {} : { annotations }),
-						},
-					});
-					pendingQuestionResponses.delete(itemId);
-					lifecycle.transition("running");
+						if (userQuestions.answer(itemId, answers)) {
+							lifecycle.transition("running");
+						}
+					},
+					catch: (cause) =>
+						cause instanceof Error ? cause : new Error(String(cause)),
+				}),
+			cancelQuestion: (itemId) =>
+				Effect.try({
+					try: () => {
+						const gatewayResolve = gatewayQuestionResponses.get(itemId);
+						if (gatewayResolve !== undefined) {
+							gatewayQuestionResponses.take(itemId)(null);
+							return;
+						}
+						userQuestions.cancel(itemId);
+					},
+					catch: (cause) =>
+						cause instanceof Error ? cause : new Error(String(cause)),
+				}),
+			acknowledgeQuestionAnswer: (itemId) =>
+				Effect.sync(() => {
+					userQuestions.acknowledge(itemId);
 				}),
 			respondToPlan: (toolCallId, outcome, feedback) =>
 				Effect.sync(() => {

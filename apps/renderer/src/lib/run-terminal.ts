@@ -1,39 +1,47 @@
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 
-import {
-	type TerminalInstance,
-	useTerminalsStore,
-} from "../store/terminals.ts";
-import { useUiStore } from "../store/ui.ts";
+import { toastManager } from "../components/ui/toast.tsx";
+import type { TerminalInstance } from "../store/terminals.ts";
 
 /**
  * Spawn a command-bound terminal (e.g. the project's Run script) and surface
- * it in the owning chat's right dock: append the instance to that chat's
- * terminal list, open a terminal panel pinned to the instance's exact list
- * index, activate it, and open the sidebar.
+ * it in the owning chat's right dock. The shared right-terminal controller
+ * first reconciles the authoritative server catalog and owner limit; only then
+ * does it append and pin the fresh command instance to its exact list index.
  *
  * Terminals are scoped per chat, so the caller passes the chat that should own
  * the run (the active chat for the top-bar Run button, or the worktree's chat
- * for auto-run after setup). Pinning the panel to the command instance's real
- * list index (rather than the auto-computed "next terminal panel" slot) is what
- * guarantees the new tab shows the command output instead of a blank shell.
+ * for auto-run after setup). A Run action never adopts an unrelated restored
+ * shell, and a catalog/cap failure remains visible as a retryable toast instead
+ * of producing a doomed local slot.
  */
-export function openTerminalCommand(args: {
+export async function openTerminalCommand(args: {
 	readonly chatRef: ChatRef;
 	readonly cwd: string;
 	readonly title: string;
 	readonly command: NonNullable<TerminalInstance["command"]>;
-}): void {
-	const index = useTerminalsStore
-		.getState()
-		.add(
-			args.chatRef,
-			args.chatRef.environmentId,
-			args.cwd,
-			args.title,
-			args.command,
-		);
-	const ui = useUiStore.getState();
-	ui.addTerminalPanelForSlot(args.chatRef, index);
-	ui.setRightSidebarOpenForChat(args.chatRef, true);
+}): Promise<boolean> {
+	const { restoreOrAddRightTerminal } = await import(
+		"./right-terminal-controller.ts"
+	);
+	const result = await restoreOrAddRightTerminal({
+		ref: args.chatRef,
+		environmentId: args.chatRef.environmentId,
+		cwd: args.cwd,
+		title: args.title,
+		command: args.command,
+		reuseRestored: false,
+	});
+	if (result.status === "ready") return true;
+	if (result.status === "failed") {
+		toastManager.add({
+			type: "error",
+			title: `Could not open ${args.title} terminal`,
+			description:
+				result.cause instanceof Error
+					? result.cause.message
+					: String(result.cause),
+		});
+	}
+	return false;
 }

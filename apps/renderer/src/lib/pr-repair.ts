@@ -1,4 +1,7 @@
-import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
+import type {
+	ExecutionRef,
+	SessionRef,
+} from "@zuse/client-runtime/resource-ref";
 import {
 	CommandId,
 	ComposerInput,
@@ -10,6 +13,20 @@ import { saveContextFile } from "./context-handoff.ts";
 import { dispatchGitWorkspaceCommand } from "./git-workspace-client-bus.ts";
 
 export type PrRepairScope = "comments" | "checks" | "conflicts" | "everything";
+
+/**
+ * Resolve the composer target from the active execution context. Cloud chats run
+ * inside a workspace whose environment id can differ from the catalog's active
+ * host environment, so the execution ref is the only authoritative source.
+ */
+export const prRepairComposerTarget = (
+	executionRef: Pick<ExecutionRef, "environmentId">,
+	sessionId: SessionId | null,
+	selectedSessionId: SessionId | null,
+): SessionRef | null =>
+	sessionId !== null && selectedSessionId === sessionId
+		? { environmentId: executionRef.environmentId, sessionId }
+		: null;
 
 /** Shared by the repair badge and the context sent to the agent. */
 export const prRepairFeedback = (

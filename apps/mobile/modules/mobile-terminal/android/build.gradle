@@ -1,0 +1,99 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.zuse.mobileterminal'
+version = '1.0.0'
+
+def terminalModuleRoot = project.projectDir
+def repositoryRoot = terminalModuleRoot.toPath().resolve('../../../../../').normalize().toFile()
+def supportedArchitectures = ['arm64-v8a', 'x86_64'] as Set
+def configuredArchitectures = (findProperty('reactNativeArchitectures') ?: 'arm64-v8a,x86_64')
+  .toString()
+  .split(',')
+  .collect { it.trim() }
+  .findAll { !it.isEmpty() }
+def unsupportedArchitectures = configuredArchitectures.findAll {
+  !supportedArchitectures.contains(it)
+}
+if (!unsupportedArchitectures.isEmpty()) {
+  throw new GradleException(
+    "ZuseMobileTerminal does not support Android architectures: ${unsupportedArchitectures.join(', ')}. " +
+      'Set reactNativeArchitectures=arm64-v8a,x86_64.'
+  )
+}
+def requestedArchitectures = configuredArchitectures
+
+tasks.register('prepareGhosttyAndroid', Exec) {
+  workingDir repositoryRoot
+  commandLine(
+    'node',
+    new File(terminalModuleRoot, 'scripts/build-ghostty-android.mjs').absolutePath,
+    "--abis=${requestedArchitectures.join(',')}"
+  )
+  inputs.file(new File(repositoryRoot, 'native/libghostty-vt/VERSION'))
+  inputs.file(new File(repositoryRoot, 'native/libghostty-vt/LICENSE'))
+  inputs.file(new File(repositoryRoot, 'scripts/lib/ghostty-build-bootstrap.mjs'))
+  inputs.file(new File(terminalModuleRoot, 'scripts/build-ghostty-android.mjs'))
+  requestedArchitectures.each { abi ->
+    outputs.file(new File(terminalModuleRoot, "vendor/lib/${abi}/libghostty-vt.a"))
+  }
+  outputs.file(new File(terminalModuleRoot, 'vendor/include/ghostty/vt.h'))
+  outputs.file(new File(terminalModuleRoot, 'vendor/LICENSE'))
+  outputs.file(new File(terminalModuleRoot, 'vendor/REVISION'))
+  outputs.file(new File(terminalModuleRoot, 'vendor/manifest.json'))
+}
+
+android {
+  namespace 'com.zuse.mobileterminal'
+  ndkVersion rootProject.ext.ndkVersion
+
+  defaultConfig {
+    minSdk 24
+    versionCode 1
+    versionName '1.0.0'
+    testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+
+    externalNativeBuild {
+      cmake {
+        cppFlags '-std=c++20 -Wall -Wextra -Werror'
+        arguments "-DZUSE_GHOSTTY_VENDOR_DIR=${new File(terminalModuleRoot, 'vendor').absolutePath}"
+      }
+    }
+
+    ndk {
+      abiFilters(*requestedArchitectures)
+    }
+  }
+
+  externalNativeBuild {
+    cmake {
+      path 'src/main/cpp/CMakeLists.txt'
+      version '3.22.1'
+    }
+  }
+
+  packagingOptions {
+    jniLibs {
+      useLegacyPackaging false
+    }
+  }
+}
+
+tasks.named('preBuild').configure {
+  dependsOn(tasks.named('prepareGhosttyAndroid'))
+}
+
+tasks.configureEach { task ->
+  if (task.name.startsWith('configureCMake')) {
+    task.dependsOn(tasks.named('prepareGhosttyAndroid'))
+  }
+}
+
+dependencies {
+  testImplementation 'junit:junit:4.13.2'
+  androidTestImplementation 'com.facebook.react:react-android'
+  androidTestImplementation 'androidx.test.ext:junit:1.3.0'
+  androidTestImplementation 'androidx.test:runner:1.7.0'
+}

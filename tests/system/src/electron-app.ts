@@ -1,4 +1,10 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,6 +63,33 @@ export const closeElectronApplication = async (
 		child.kill("SIGKILL");
 };
 
+const readAppDiagnostics = (userData: string): string => {
+	const logDirectory = join(userData, "logs");
+	const output = makeBoundedTextBuffer(256 * 1024);
+	let entries: string[];
+	try {
+		entries = readdirSync(logDirectory, {
+			encoding: "utf8",
+			recursive: true,
+		}).sort();
+	} catch {
+		return "(no app log directory)";
+	}
+	for (const relativePath of entries) {
+		const absolutePath = join(logDirectory, relativePath);
+		try {
+			if (!statSync(absolutePath).isFile()) continue;
+			const contents = readFileSync(absolutePath, "utf8");
+			output.append(
+				`\n--- ${relativePath} ---\n${contents.slice(-64 * 1024)}\n`,
+			);
+		} catch {
+			// A diagnostic file can rotate while the failure artifact is captured.
+		}
+	}
+	return output.read();
+};
+
 export const launchElectronApp = async (options: {
 	readonly root: string;
 	readonly userData: string;
@@ -78,6 +111,15 @@ export const launchElectronApp = async (options: {
 		// "Keychain Not Found" dialog while preserving isolated browser state.
 		args: [
 			"--use-mock-keychain",
+			// Headless Linux runners have no usable hardware GL context. Use the
+			// bundled software renderer for UI surfaces that require WebGL.
+			...(process.platform === "linux"
+				? [
+						"--use-gl=angle",
+						"--use-angle=swiftshader",
+						"--enable-unsafe-swiftshader",
+					]
+				: []),
 			join(repoRoot, "apps/desktop/dist-electron/main.cjs"),
 		],
 		cwd: repoRoot,
@@ -107,9 +149,52 @@ export const launchElectronApp = async (options: {
 	const observePage = (page: Page): void => {
 		if (observedPages.has(page)) return;
 		observedPages.add(page);
+		void page
+			.context()
+			.newCDPSession(page)
+			.then(async (session) => {
+				const requests = new Map<string, string>();
+				session.on("Network.requestWillBeSent", (event) => {
+					requests.set(event.requestId, event.request.url);
+				});
+				session.on("Network.loadingFinished", (event) => {
+					requests.delete(event.requestId);
+				});
+				session.on("Network.loadingFailed", (event) => {
+					const detail = [
+						`type=${event.type}`,
+						`canceled=${event.canceled === true}`,
+						event.blockedReason === undefined
+							? null
+							: `blocked=${event.blockedReason}`,
+						event.corsErrorStatus === undefined
+							? null
+							: `cors=${event.corsErrorStatus.corsError}`,
+					]
+						.filter((value) => value !== null)
+						.join(" ");
+					pushError(
+						`CDP load failed: ${requests.get(event.requestId) ?? event.requestId} (${event.errorText}; ${detail})`,
+					);
+					requests.delete(event.requestId);
+				});
+				await session.send("Network.enable");
+			})
+			.catch(() => {});
 		page.on("pageerror", (error) => pushError(error.stack ?? error.message));
+		page.on("requestfailed", (request) => {
+			pushError(
+				`Request failed: ${request.url()} (${request.failure()?.errorText ?? "unknown error"})`,
+			);
+		});
 		page.on("console", (message) => {
-			if (message.type() === "error") pushError(message.text());
+			if (message.type() === "error") {
+				const location = message.location();
+				const source = location.url
+					? ` (${location.url}:${location.lineNumber}:${location.columnNumber})`
+					: "";
+				pushError(`${message.text()}${source}`);
+			}
 		});
 	};
 	app.on("window", observePage);
@@ -123,22 +208,20 @@ export const launchElectronApp = async (options: {
 		throw cause;
 	}
 	let closed = false;
+	const diagnostics = () =>
+		`renderer errors:\n${errors.join("\n")}\nmain stdout:\n${stdout.read()}\nmain stderr:\n${stderr.read()}\napp logs:\n${readAppDiagnostics(options.userData)}`;
 	return {
 		app,
 		page,
 		errors,
-		diagnostics: () =>
-			`renderer errors:\n${errors.join("\n")}\nmain stdout:\n${stdout.read()}\nmain stderr:\n${stderr.read()}`,
+		diagnostics,
 		captureFailure: async (name) => {
 			const directory = join(repoRoot, ".context", "test-artifacts");
 			mkdirSync(directory, { recursive: true });
 			const safeName = name.replace(/[^a-z0-9_-]+/gi, "-");
 			const prefix = join(directory, `${safeName}-${Date.now()}`);
 			await page.screenshot({ path: `${prefix}.png`, fullPage: true });
-			writeFileSync(
-				`${prefix}.log`,
-				`renderer errors:\n${errors.join("\n")}\nmain stdout:\n${stdout.read()}\nmain stderr:\n${stderr.read()}`,
-			);
+			writeFileSync(`${prefix}.log`, diagnostics());
 			return prefix;
 		},
 		close: async () => {

@@ -113,10 +113,18 @@ export const createBrowserSessionConnection = (
 export const logoutBrowserSession = (): Promise<BrowserSessionStatus> =>
 	jsonRequest<BrowserSessionStatus>("/auth/logout", { method: "POST" });
 
-export const requestBrowserWebSocketUrl = async (): Promise<string> => {
-	const { nextHostedRpcEndpoint, isHostedProduct } = await import(
-		"./hosted-connect.ts"
-	);
+type BrowserHostedConnect = {
+	readonly isHostedProduct: () => boolean;
+	readonly nextHostedRpcEndpoint: () => Promise<string>;
+};
+
+const loadBrowserHostedConnect = (): Promise<BrowserHostedConnect> =>
+	import("./hosted-connect.ts");
+
+export const requestBrowserWebSocketUrl = async (
+	loadHostedConnect: () => Promise<BrowserHostedConnect> = loadBrowserHostedConnect,
+): Promise<string> => {
+	const { nextHostedRpcEndpoint, isHostedProduct } = await loadHostedConnect();
 	if (isHostedProduct()) {
 		return nextHostedRpcEndpoint();
 	}

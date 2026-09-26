@@ -1,3 +1,4 @@
+import * as FileSystem from "expo-file-system/legacy";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("expo-file-system/legacy", () => ({
@@ -11,9 +12,11 @@ vi.mock("expo-file-system/legacy", () => ({
 
 import {
 	clearComposerDraft,
+	clearComposerDrafts,
 	composerDraft,
 	composerDraftAtom,
 	draftsBySessionAtom,
+	persistComposerDraft,
 	setComposerDraft,
 } from "../../../src/store/composer-drafts";
 import { appAtomRegistry } from "../../../src/store/registry";
@@ -76,5 +79,54 @@ describe("session-keyed composer drafts", () => {
 		});
 		expect(onPlanning).toHaveBeenCalledTimes(2);
 		unsubscribe();
+	});
+});
+
+describe("reset composer data", () => {
+	it("removes both draft and protected attachment roots and clears memory", async () => {
+		await persistComposerDraft("reset-test", {
+			text: "private draft",
+			attachments: [],
+			goalMode: false,
+		});
+		await clearComposerDrafts();
+		expect(composerDraft("reset-test").text).toBe("");
+		expect(FileSystem.deleteAsync).toHaveBeenCalledWith(
+			"file:///test/zuse-composer-drafts",
+			{ idempotent: true },
+		);
+		expect(FileSystem.deleteAsync).toHaveBeenCalledWith(
+			"file:///test/zuse-outbox-media",
+			{ idempotent: true },
+		);
+	});
+	it("drains an in-flight save before deletion and rejects writes during reset", async () => {
+		let finish!: () => void;
+		vi.mocked(FileSystem.writeAsStringAsync).mockImplementationOnce(
+			() =>
+				new Promise<void>((resolve) => {
+					finish = resolve;
+				}),
+		);
+		const saving = persistComposerDraft("pending", {
+			text: "secret",
+			attachments: [],
+			goalMode: false,
+		});
+		await vi.waitFor(() => expect(finish).toBeDefined());
+		const clearing = clearComposerDrafts();
+		setComposerDraft("stale-ui", {
+			text: "must not return",
+			attachments: [],
+			goalMode: false,
+		});
+		finish();
+		await saving;
+		await clearing;
+		expect(appAtomRegistry.get(draftsBySessionAtom)).toEqual({});
+		const writes = vi.mocked(FileSystem.writeAsStringAsync).mock
+			.invocationCallOrder;
+		const deletes = vi.mocked(FileSystem.deleteAsync).mock.invocationCallOrder;
+		expect(writes.at(-1)).toBeLessThan(deletes.at(-1) ?? 0);
 	});
 });

@@ -3,8 +3,8 @@ FROM node:22-bookworm
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ZUSE_PROVISION_DIR=/tmp/zuse-provision
 
-# All installation behavior lives in provision.sh, shared with the Box
-# template publisher (box-publish.sh) so the two images cannot drift.
+# Shared runtime/layout installation lives in provision.sh. E2B also installs
+# pinned agents; the Boat publisher preserves its provider-bundled agents.
 COPY --chmod=0755 provision.sh /tmp/zuse-provision/provision.sh
 
 RUN /tmp/zuse-provision/provision.sh packages

@@ -14,13 +14,12 @@ describe("cloud sync connection lifecycle", () => {
 		expect(cloudSyncPreferenceEnabled({ enabled: true })).toBe(true);
 	});
 
-	it("stops on disconnect and starts again when connected without changing prefs", () => {
+	it("stops when paused and starts ready workspaces without a legacy connection", () => {
 		const start = vi.fn();
 		const stop = vi.fn();
-		const summaries = [{ workspaceId: "workspace_a", state: "ready" }];
+		const summaries = [{ workspaceId: "workspace_a", state: "paused" }];
 		reconcileAutomaticCloudSyncs({
 			summaries,
-			connectedWorkspaceIds: new Set(),
 			activeWorkspaceIds: new Set(["workspace_a"]),
 			enabled: () => true,
 			start,
@@ -30,9 +29,9 @@ describe("cloud sync connection lifecycle", () => {
 		expect(start).not.toHaveBeenCalled();
 
 		stop.mockClear();
+		summaries.splice(0, 1, { workspaceId: "workspace_a", state: "ready" });
 		reconcileAutomaticCloudSyncs({
 			summaries,
-			connectedWorkspaceIds: new Set(["workspace_a"]),
 			activeWorkspaceIds: new Set(),
 			enabled: () => true,
 			start,
@@ -47,7 +46,6 @@ describe("cloud sync connection lifecycle", () => {
 		const stop = vi.fn();
 		reconcileAutomaticCloudSyncs({
 			summaries: [{ workspaceId: "workspace_a", state: "ready" }],
-			connectedWorkspaceIds: new Set(["workspace_a"]),
 			activeWorkspaceIds: new Set(["workspace_a"]),
 			enabled: () => false,
 			start,

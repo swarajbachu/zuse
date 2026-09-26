@@ -33,6 +33,10 @@ import {
 import { parseAgents, sessionFromRecord } from "./conversation-records.ts";
 import type { ConversationStateApi } from "./conversation-state.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
+import {
+	lookupDurableQuestionResolution,
+	settleDurableQuestionResolution,
+} from "./question-resolution-receipt.ts";
 
 export interface ConversationStoreRuntimeOptions {
 	readonly serviceScope: Scope.Scope;
@@ -629,6 +633,45 @@ export const makeConversationStoreRuntime = Effect.fn(
 				goal === null ? null : ThreadGoal.make(goal),
 			),
 		publishApiActivity,
+		reconcileQuestionResolution: (sessionId, itemId) =>
+			Effect.gen(function* () {
+				const receipt = yield* lookupDurableQuestionResolution(
+					sql,
+					sessionId,
+					itemId,
+				);
+				if (receipt._tag === "none") return false;
+				if (receipt._tag === "invalid") {
+					return yield* Effect.die(
+						new Error(
+							`Invalid durable question resolution for ${sessionId}/${itemId}`,
+						),
+					);
+				}
+				yield* settleDurableQuestionResolution(
+					sql,
+					provider,
+					sessionId,
+					itemId,
+					receipt,
+				);
+				return true;
+			}).pipe(
+				Effect.catchCause((cause) =>
+					Effect.logError(
+						`[ConversationEvents] failed to reconcile durable question resolution for ${sessionId}/${itemId}`,
+					).pipe(
+						Effect.andThen(Effect.logError(cause)),
+						// A failed local callback must not remain attached but hidden behind
+						// an already-resolved timeline item. Closing forces the provider to
+						// reissue it on the next resume, when this receipt is retried.
+						Effect.andThen(
+							provider.close(sessionId).pipe(Effect.catch(() => Effect.void)),
+						),
+						Effect.as(true),
+					),
+				),
+			),
 		ignoreError: () => false,
 		isDuplicateToolUse,
 		persist: (sessionId, turnId, content, providerItemIdentity) =>

@@ -11,12 +11,13 @@ import {
 	isPlanApprovalRequest,
 } from "@zuse/client-runtime/plan-interactions";
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
-import type {
-	FolderId,
-	MessageId,
-	PermissionRequest,
-	SessionId,
-	UserQuestion,
+import {
+	AgentItemId,
+	type FolderId,
+	type MessageId,
+	type PermissionRequest,
+	type SessionId,
+	type UserQuestion,
 } from "@zuse/contracts";
 import { PLAN_APPROVAL_PROMPT } from "@zuse/utils/proposed-plan";
 import { Effect } from "effect";
@@ -82,6 +83,7 @@ import {
 } from "~/lib/thread-view-state";
 import {
 	answerQuestion,
+	cancelQuestion,
 	createWorktree,
 	forkSessionFromMessage,
 	getWorktree,
@@ -517,8 +519,19 @@ function ThreadScreen() {
 					answerQuestion({
 						connection: options,
 						sessionId: normalizedSessionId,
-						itemId,
+						itemId: AgentItemId.make(itemId),
 						answers,
+					}),
+				);
+
+	const onCancelQuestion = (itemId: string) =>
+		options === null
+			? Promise.resolve()
+			: Effect.runPromise(
+					cancelQuestion({
+						connection: options,
+						sessionId: normalizedSessionId,
+						itemId: AgentItemId.make(itemId),
 					}),
 				);
 
@@ -1319,6 +1332,7 @@ function ThreadScreen() {
 								itemId={bottomState.blocking.question.itemId}
 								questions={bottomState.blocking.question.questions}
 								onSubmit={onAnswerQuestion}
+								onCancel={onCancelQuestion}
 							/>
 						</View>
 					) : bottomState.planReview !== null ? (

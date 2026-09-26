@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
-
 import {
+	appendPendingTerminalInput,
 	createTerminalInputPump,
 	retainPendingInitialInput,
-} from "../../src/lib/terminal-input-pump.ts";
+} from "@zuse/client-runtime/terminal-input-pump";
+import { describe, expect, it, vi } from "vitest";
 
 const deferred = () => {
 	let resolve!: () => void;
@@ -16,6 +16,30 @@ const deferred = () => {
 };
 
 describe("terminal input pump", () => {
+	it("preserves batched resume keys and paste in order", () => {
+		const updates = ["b", "u", "n", " ", "test --watch", "\r"];
+		const buffered = updates.reduce(
+			(current, input) => appendPendingTerminalInput(current, input),
+			{ data: "", overflowed: false },
+		);
+
+		expect(buffered).toEqual({
+			data: "bun test --watch\r",
+			overflowed: false,
+		});
+	});
+
+	it("rejects an overflowing resume chunk without sending a partial paste", () => {
+		const current = { data: "abc", overflowed: false };
+		const overflowed = appendPendingTerminalInput(current, "paste", 7);
+
+		expect(overflowed).toEqual({ data: "abc", overflowed: true });
+		expect(appendPendingTerminalInput(overflowed, "d", 7)).toEqual({
+			data: "abcd",
+			overflowed: false,
+		});
+	});
+
 	it("retains one trigger input when the terminal remounts before acknowledgement", () => {
 		expect(retainPendingInitialInput("bun dev\n", "bun dev\n")).toBe(
 			"bun dev\n",
@@ -29,7 +53,7 @@ describe("terminal input pump", () => {
 		let maxConcurrent = 0;
 		const completions = [first, second];
 		const pump = createTerminalInputPump({
-			timeoutMs: 3_000,
+			stallWarningMs: 3_000,
 			write: async (data) => {
 				writes.push(data);
 				concurrent += 1;
@@ -55,16 +79,19 @@ describe("terminal input pump", () => {
 		expect(maxConcurrent).toBe(1);
 	});
 
-	it("fails once on an ambiguous timeout and never replays queued input", async () => {
+	it("warns once and resumes queued input in order after a late acknowledgement", async () => {
 		vi.useFakeTimers();
+		const first = deferred();
+		const onStall = vi.fn();
 		const onFailure = vi.fn();
 		const writes: string[] = [];
 		const pump = createTerminalInputPump({
-			timeoutMs: 3_000,
+			stallWarningMs: 3_000,
 			write: async (data) => {
 				writes.push(data);
-				await new Promise<void>(() => undefined);
+				if (writes.length === 1) await first.promise;
 			},
+			onStall,
 			onFailure,
 		});
 
@@ -72,8 +99,50 @@ describe("terminal input pump", () => {
 		pump.enqueue("second");
 		await vi.advanceTimersByTimeAsync(3_000);
 
-		expect(onFailure).toHaveBeenCalledTimes(1);
-		expect(onFailure).toHaveBeenCalledWith("write-timeout", expect.any(Error));
+		expect(onStall).toHaveBeenCalledOnce();
+		expect(onStall).toHaveBeenCalledWith(3_000);
+		expect(onFailure).not.toHaveBeenCalled();
+		expect(writes).toEqual(["first"]);
+		expect(pump.failed).toBe(false);
+		await vi.advanceTimersByTimeAsync(30_000);
+		expect(onStall).toHaveBeenCalledOnce();
+
+		first.resolve();
+		await vi.waitFor(() => expect(writes).toEqual(["first", "second"]));
+		await pump.whenIdle();
+		expect(pump.failed).toBe(false);
+		expect(onFailure).not.toHaveBeenCalled();
+		vi.useRealTimers();
+	});
+
+	it("fails once on a late rejection without replaying queued input", async () => {
+		vi.useFakeTimers();
+		const first = deferred();
+		const onStall = vi.fn();
+		const onFailure = vi.fn();
+		const writes: string[] = [];
+		const pump = createTerminalInputPump({
+			stallWarningMs: 3_000,
+			write: async (data) => {
+				writes.push(data);
+				if (writes.length === 1) await first.promise;
+			},
+			onStall,
+			onFailure,
+		});
+
+		pump.enqueue("first");
+		pump.enqueue("second");
+		await vi.advanceTimersByTimeAsync(3_000);
+		expect(onStall).toHaveBeenCalledOnce();
+		expect(onFailure).not.toHaveBeenCalled();
+
+		const rejected = new Error("transport rejected the write");
+		first.reject(rejected);
+		await pump.whenIdle();
+
+		expect(onFailure).toHaveBeenCalledOnce();
+		expect(onFailure).toHaveBeenCalledWith(rejected);
 		expect(writes).toEqual(["first"]);
 		expect(pump.failed).toBe(true);
 		pump.enqueue("ignored");
@@ -84,7 +153,7 @@ describe("terminal input pump", () => {
 	it("acknowledges buffered input only after the PTY write succeeds", async () => {
 		const write = deferred();
 		const pump = createTerminalInputPump({
-			timeoutMs: 3_000,
+			stallWarningMs: 3_000,
 			write: () => write.promise,
 			onFailure: vi.fn(),
 		});
@@ -104,7 +173,7 @@ describe("terminal input pump", () => {
 		const second = deferred();
 		let writes = 0;
 		const pump = createTerminalInputPump({
-			timeoutMs: 3_000,
+			stallWarningMs: 3_000,
 			write: () => (++writes === 1 ? first.promise : second.promise),
 			onFailure: vi.fn(),
 		});

@@ -1,0 +1,6 @@
+ZUSE_MOBILE_TERMINAL_1.0 {
+  global:
+    Java_com_zuse_mobileterminal_GhosttyTerminalNative_*;
+  local:
+    *;
+};

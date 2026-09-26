@@ -18,8 +18,9 @@ describe("desktop startup readiness", () => {
 			mainSource.indexOf("mainWindow.loadURL("),
 		);
 		expect(protocolSetup).toBeLessThan(
-			mainSource.indexOf('mainWindow.loadURL("zuse://app/index.html")'),
+			mainSource.indexOf("mainWindow.loadURL(PACKAGED_RENDERER_URL)"),
 		);
+		expect(mainSource).not.toContain("mainWindow.loadFile(");
 	});
 
 	it("launches the critical runtime before optional services", () => {

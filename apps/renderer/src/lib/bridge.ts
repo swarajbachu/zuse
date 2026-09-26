@@ -61,6 +61,13 @@ export interface PairingBridge {
 }
 
 export interface AppBridge {
+	readonly onCloudSyncReadFile?: (
+		handler: (request: {
+			requestId: string;
+			workspaceId: string;
+			path: string;
+		}) => Promise<Uint8Array>,
+	) => () => void;
 	readonly openExternal: (url: string) => void;
 	readonly listOpenTargets?: (
 		path: string,
@@ -145,6 +152,12 @@ export interface CloudSyncConfigure {
 }
 
 export interface CloudSyncStatus {
+	readonly progress?: {
+		phase: "scanning" | "downloading" | "applying";
+		files: number;
+		total: number;
+		bytes: number;
+	};
 	readonly workspaceId: string;
 	readonly enabled: boolean;
 	readonly state: "idle" | "pending" | "syncing" | "in-sync" | "error";

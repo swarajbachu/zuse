@@ -75,7 +75,7 @@ Single-workspace deps that aren't part of an ecosystem we want to coordinate sta
 
 - `electron` — only `apps/desktop`
 - `vite`, `@vitejs/plugin-react`, `@tailwindcss/vite`, `tailwindcss` — only `apps/renderer`
-- `xterm/*`, `lucide-react`, `clsx`, `zustand` — only `apps/renderer`
+- `lucide-react`, `clsx`, `zustand` — only `apps/renderer`
 - `tsdown` — only `apps/desktop`
 - `next`, `@repo/ui` — only `apps/docs` (legacy scaffold)
 

@@ -2,8 +2,9 @@
 	"name": "desktop",
 	"type": "module",
 	"productName": "Zuse (Beta)",
-	"version": "0.21.0",
+	"version": "0.22.1",
 	"description": "Zuse (Beta) desktop app",
+	"license": "AGPL-3.0-only",
 	"private": true,
 	"author": {
 		"name": "Swaraj Bachu",
@@ -29,12 +30,13 @@
 		"dmg:background": "node scripts/make-dmg-background.mjs",
 		"native:build": "node scripts/build-local-connectivity-helper.mjs",
 		"native:build:universal": "node scripts/build-local-connectivity-helper.mjs --universal",
+		"check-package:linux": "bun scripts/package-content-smoke.ts ../../dist/linux-unpacked/resources/app.asar && ELECTRON_RUN_AS_NODE=1 ../../dist/linux-unpacked/zuse scripts/package-native-runtime-smoke.cjs ../../dist/linux-unpacked/resources/app.asar",
 		"predist:mac": "bun run native:build:universal",
 		"dist:mac": "electron-builder --mac --universal",
 		"predist:mac:unsigned": "bun run native:build:universal",
 		"dist:mac:unsigned": "electron-builder --mac --universal -c.mac.identity=null --publish never",
-		"dist:linux": "electron-builder --linux AppImage deb --x64",
-		"dist:linux:unsigned": "electron-builder --linux AppImage deb --x64 --publish never"
+		"dist:linux": "electron-builder --linux AppImage deb --x64 && bun run check-package:linux",
+		"dist:linux:unsigned": "electron-builder --linux AppImage deb --x64 --publish never && bun run check-package:linux"
 	},
 	"dependencies": {
 		"@cursor/sdk": "1.0.23",
@@ -50,6 +52,7 @@
 		"yaml": "2.9.0"
 	},
 	"devDependencies": {
+		"@electron/asar": "^3.4.1",
 		"@electron/rebuild": "^4.0.4",
 		"@zusehq/server": "*",
 		"@zuse/client-runtime": "*",

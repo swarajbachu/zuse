@@ -30,6 +30,7 @@ import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts"
 import { openExternal } from "../lib/platform-capabilities.ts";
 import {
 	type PrRepairScope,
+	prRepairComposerTarget,
 	prRepairDraft,
 	prRepairFeedback,
 	prRepairMarkdown,
@@ -39,7 +40,6 @@ import {
 	useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
 
-import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { useMergePrefs } from "../store/merge-prefs.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { PrAutoFix } from "./pr-auto-fix.tsx";
@@ -121,12 +121,20 @@ export function PrActionsMenu({
 				},
 			}),
 		);
-	const isSelectedChat = () =>
-		useSessionsStore.getState().selectedSessionId === sessionId &&
-		useEnvironmentCatalogStore.getState().activeEnvironmentId ===
-			executionRef.environmentId;
 	const addContextToChat = (scope: PrRepairScope, repairRequest = true) => {
-		if (!sessionId || !details || !isSelectedChat()) return;
+		if (!sessionId || !details) return;
+		const target = prRepairComposerTarget(
+			executionRef,
+			sessionId,
+			useSessionsStore.getState().selectedSessionId,
+		);
+		if (target === null) {
+			toastManager.add({
+				type: "error",
+				title: uiMessage("projects:github_repair_state_changed"),
+			});
+			return;
+		}
 		const label = uiMessage(
 			scope === "comments"
 				? "projects:github_comments"
@@ -136,19 +144,15 @@ export function PrActionsMenu({
 						? "chat:right_pane_merge_conflicts"
 						: "projects:github_everything",
 		);
-		useComposerDraftsStore.getState().addContext(
-			composerDraftKeyForSession({
-				environmentId: executionRef.environmentId,
-				sessionId,
-			}),
-			{
+		useComposerDraftsStore
+			.getState()
+			.addContext(composerDraftKeyForSession(target), {
 				sourceKey: `${details.url}:${scope}:${repairRequest}`,
 				label: `PR #${details.number} · ${label}`,
 				text: repairRequest
 					? prRepairDraft(details, scope)
 					: prRepairMarkdown(details, scope),
-			},
-		);
+			});
 		onChat();
 		toastManager.add({
 			type: "success",

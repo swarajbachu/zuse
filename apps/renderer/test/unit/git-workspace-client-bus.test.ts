@@ -3,9 +3,10 @@ import {
 	EnvironmentId,
 	FolderId,
 	GitNotARepoError,
+	type GitReviewPatch,
 	WorktreeId,
 } from "@zuse/contracts";
-import { Effect, Queue, Stream } from "effect";
+import { Effect, PubSub, Queue, Stream } from "effect";
 import {
 	RpcClientDefect,
 	RpcClientError,
@@ -15,6 +16,9 @@ import { toastManager } from "../../src/components/ui/toast.tsx";
 import {
 	gitWorkspaceDriverStartsForTest,
 	gitWorkspaceResourceKey,
+	refreshGitPrDetails,
+	refreshGitReview,
+	refreshGitWorkspace,
 	resetGitWorkspaceClientBusForTest,
 	retainGitWorkspace,
 } from "../../src/lib/git-workspace-client-bus.ts";
@@ -51,10 +55,12 @@ describe("renderer Git workspace ClientBus adapter", () => {
 
 	it("shares one invalidation stream and canonical snapshot across consumers", async () => {
 		const invalidations = Effect.runSync(
-			Queue.unbounded<{ revision: number }>(),
+			PubSub.unbounded<{ revision: number }>(),
 		);
 		let streamStarts = 0;
+		let snapshotLoads = 0;
 		let changeLoads = 0;
+		let reviewSummaryLoads = 0;
 		let reviewPatchLoads = 0;
 		let prDetailsLoads = 0;
 		setSessionTimelineRpcClientForTest(
@@ -62,31 +68,58 @@ describe("renderer Git workspace ClientBus adapter", () => {
 				({
 					"git.workspaceChanges": () => {
 						streamStarts += 1;
-						return Stream.fromQueue(invalidations);
+						return Stream.fromPubSub(invalidations);
 					},
 					"git.workspaceSnapshot": () =>
-						Effect.succeed({
-							status: { branch: "feature", ahead: 1, behind: 0, dirtyFiles: 2 },
-							pr: {
-								state: "none",
-								branch: "feature",
-								baseBranch: "main",
-								additions: 0,
-								deletions: 0,
-								number: null,
-								url: null,
-								isDraft: false,
-								checks: "none",
-								mergeable: "unknown",
-								checksTotal: 0,
-								checksRunning: 0,
-								checksPassing: 0,
-								checksFailing: 0,
-								autoMergeEnabled: false,
-							},
-							diffStat: { additions: 4, deletions: 1 },
-							projectionVersion: 1,
-							observedAt: new Date(),
+						Effect.sync(() => {
+							snapshotLoads += 1;
+							return {
+								status: {
+									branch: "feature",
+									ahead: 1,
+									behind: 0,
+									dirtyFiles: 2,
+								},
+								changes: [
+									{
+										path: "README.md",
+										oldPath: null,
+										staged: false,
+										kind: "modified" as const,
+									},
+								],
+								reviewSummary: {
+									baseRef: "main",
+									headRef: "feature",
+									scope: "branch" as const,
+									baseSha: "base",
+									headSha: "head",
+									files: [],
+									additions: 4,
+									deletions: 1,
+								},
+								pr: {
+									state: "none",
+									branch: "feature",
+									baseBranch: "main",
+									additions: 0,
+									deletions: 0,
+									number: null,
+									url: null,
+									isDraft: false,
+									checks: "none",
+									mergeable: "unknown",
+									checksTotal: 0,
+									checksRunning: 0,
+									checksPassing: 0,
+									checksFailing: 0,
+									autoMergeEnabled: false,
+								},
+								diffStat: { additions: 4, deletions: 1 },
+								projectionVersion: 1,
+								localFingerprint: "local-1",
+								observedAt: new Date(),
+							};
 						}),
 					"git.status": () =>
 						Effect.succeed({
@@ -125,15 +158,18 @@ describe("renderer Git workspace ClientBus adapter", () => {
 							autoMergeEnabled: false,
 						}),
 					"git.reviewSummary": () =>
-						Effect.succeed({
-							baseRef: "main",
-							headRef: "feature",
-							scope: "branch",
-							baseSha: "base",
-							headSha: "head",
-							files: [],
-							additions: 4,
-							deletions: 1,
+						Effect.sync(() => {
+							reviewSummaryLoads += 1;
+							return {
+								baseRef: "main",
+								headRef: "stale-separate-view",
+								scope: "branch",
+								baseSha: "base",
+								headSha: "head",
+								files: [],
+								additions: 4,
+								deletions: 1,
+							};
 						}),
 					"git.reviewPatches": () => {
 						reviewPatchLoads += 1;
@@ -166,29 +202,47 @@ describe("renderer Git workspace ClientBus adapter", () => {
 
 		const first = retainGitWorkspace(ref);
 		const second = retainGitWorkspace(ref);
+		const third = retainGitWorkspace(ref);
+		const fourth = retainGitWorkspace(ref);
+		const bus = getRendererClientBus();
 		await waitUntil(() => streamStarts === 1);
-		Queue.offerUnsafe(invalidations, { revision: 0 });
-		await waitUntil(
-			() => getRendererClientBus().snapshot(first.key).sync === "live",
-		);
+		PubSub.publishUnsafe(invalidations, { revision: 0 });
+		await waitUntil(() => bus.snapshot(first.key).sync === "live");
 
 		expect(streamStarts).toBe(1);
 		expect(gitWorkspaceDriverStartsForTest()).toBe(1);
+		expect(snapshotLoads).toBe(1);
 		expect(reviewPatchLoads).toBe(0);
 		expect(prDetailsLoads).toBe(0);
 		expect(changeLoads).toBe(0);
-		expect(getRendererClientBus().snapshot(second.key)).toMatchObject({
+		expect(reviewSummaryLoads).toBe(0);
+		expect(bus.snapshot(first.key)).toMatchObject({
 			connection: "connected",
 			sync: "live",
 			data: {
 				status: { branch: "feature", dirtyFiles: 2 },
+				changes: [{ path: "README.md", kind: "modified" }],
+				reviewSummary: { headRef: "feature", additions: 4, deletions: 1 },
 				diffStat: { additions: 4, deletions: 1 },
 				revision: 0,
 			},
 		});
-		first.lease.release();
+
+		await Promise.all([
+			refreshGitWorkspace(ref),
+			refreshGitReview(ref),
+			refreshGitPrDetails(ref),
+		]);
+		expect(snapshotLoads).toBe(2);
 		expect(streamStarts).toBe(1);
+		expect(changeLoads).toBe(0);
+		expect(reviewSummaryLoads).toBe(0);
+		expect(reviewPatchLoads).toBe(0);
+		expect(prDetailsLoads).toBe(0);
+		first.lease.release();
 		second.lease.release();
+		third.lease.release();
+		fourth.lease.release();
 	});
 
 	it("qualifies checkouts by environment and canonical folder/worktree identity", () => {
@@ -201,6 +255,151 @@ describe("renderer Git workspace ClientBus adapter", () => {
 
 		expect(resourceKeyId(first)).not.toBe(resourceKeyId(otherEnvironment));
 		expect(resourceKeyId(first)).toBe(resourceKeyId(otherRoot));
+	});
+
+	it("rejects a lazy patch response from an older workspace revision", async () => {
+		const invalidations = Effect.runSync(
+			PubSub.unbounded<{ revision: number }>(),
+		);
+		let observedRevision = 0;
+		let snapshotLoads = 0;
+		let patchStarts = 0;
+		let resolvePatch: (patch: GitReviewPatch) => void = () => {
+			throw new Error("patch resolver was not initialized");
+		};
+		const patch = new Promise<GitReviewPatch>((resolve) => {
+			resolvePatch = resolve;
+		});
+		const snapshot = () => ({
+			status: {
+				branch: "feature",
+				ahead: 0,
+				behind: 0,
+				dirtyFiles: 1,
+			},
+			changes: [
+				{
+					path: "README.md",
+					oldPath: null,
+					staged: false,
+					kind: "modified" as const,
+				},
+			],
+			reviewSummary: {
+				baseRef: "main",
+				headRef: "feature",
+				scope: "branch" as const,
+				baseSha: "base",
+				headSha: "head",
+				files: [
+					{
+						path: "README.md",
+						oldPath: null,
+						kind: "modified" as const,
+						additions: 1,
+						deletions: 0,
+						binary: false,
+						conflict: false,
+						hasUncommittedChanges: true,
+					},
+				],
+				additions: 1,
+				deletions: 0,
+			},
+			pr: {
+				state: "none" as const,
+				branch: "feature",
+				baseBranch: "main",
+				additions: 0,
+				deletions: 0,
+				number: null,
+				url: null,
+				isDraft: false,
+				checks: "none" as const,
+				mergeable: "unknown" as const,
+				checksTotal: 0,
+				checksRunning: 0,
+				checksPassing: 0,
+				checksFailing: 0,
+				autoMergeEnabled: false,
+			},
+			diffStat: { additions: 1, deletions: 0 },
+			projectionVersion: observedRevision,
+			localFingerprint: `local-${observedRevision}`,
+			observedAt: new Date(),
+		});
+		setSessionTimelineRpcClientForTest(
+			async () =>
+				({
+					"git.workspaceChanges": () => Stream.fromPubSub(invalidations),
+					"git.workspaceSnapshot": () =>
+						Effect.sync(() => {
+							snapshotLoads += 1;
+							return snapshot();
+						}),
+					"git.reviewPatches": () => {
+						patchStarts += 1;
+						return Stream.fromEffect(Effect.promise(() => patch));
+					},
+				}) as never,
+		);
+
+		const retained = retainGitWorkspace(ref);
+		await waitUntil(() => gitWorkspaceDriverStartsForTest() === 1);
+		PubSub.publishUnsafe(invalidations, { revision: 0 });
+		await waitUntil(() => snapshotLoads === 1);
+		const initial = getRendererClientBus().snapshot(retained.key);
+		getRendererClientBus().update(retained.key, {
+			expectedGeneration: initial.generation,
+			expectedCursor: initial.cursor,
+			update: (data) => ({
+				...data,
+				reviewPatches: {
+					"README.md": {
+						path: "README.md",
+						result: {
+							mode: "worktree" as const,
+							patch: "+cached",
+							truncated: false,
+							bytes: 7,
+						},
+						error: null,
+					},
+				},
+				reviewPatchesRevision: data.revision,
+			}),
+		});
+
+		observedRevision = 1;
+		const hydration = refreshGitReview(ref);
+		await waitUntil(() => snapshotLoads === 2 && patchStarts === 1);
+		observedRevision = 2;
+		PubSub.publishUnsafe(invalidations, { revision: 2 });
+		await waitUntil(
+			() =>
+				getRendererClientBus().snapshot(retained.key).data
+					?.projectionVersion === 2,
+		);
+		resolvePatch({
+			path: "README.md",
+			result: {
+				mode: "worktree",
+				patch: "+stale",
+				truncated: false,
+				bytes: 6,
+			},
+			error: null,
+		});
+		await hydration;
+
+		expect(getRendererClientBus().snapshot(retained.key).data).toMatchObject({
+			status: { branch: "feature" },
+			changes: [{ path: "README.md" }],
+			reviewSummary: { headSha: "head", additions: 1 },
+			reviewPatches: {},
+			projectionVersion: 2,
+		});
+		retained.lease.release();
 	});
 
 	it("announces one PR terminal transition across multiple workspaces", async () => {
@@ -242,9 +441,21 @@ describe("renderer Git workspace ClientBus adapter", () => {
 					"git.workspaceSnapshot": () =>
 						Effect.succeed({
 							status: { branch: "feature", ahead: 0, behind: 0, dirtyFiles: 0 },
+							changes: [],
+							reviewSummary: {
+								baseRef: "main",
+								headRef: "feature",
+								scope: "branch",
+								baseSha: "base",
+								headSha: "head",
+								files: [],
+								additions: 1,
+								deletions: 0,
+							},
 							pr: prInfo(),
 							diffStat: { additions: 1, deletions: 0 },
 							projectionVersion: 1,
+							localFingerprint: "local-1",
 							observedAt: new Date(),
 						}),
 					"git.status": () =>

@@ -46,6 +46,8 @@ This monorepo uses a multi-context domain-documentation layout. See `internal-do
 
 ## Documentation Boundaries
 
+- Before changing cloud runtime data paths, bootstrap scripts, or resume/recovery behavior, read [runtime data recovery](internal-docs/cloud/runtime-data-recovery.md). Verify existing sandbox data before initializing, moving, or replacing any runtime database.
+
 - Public documentation lives in `apps/docs/content/docs`. Keep repository guides, runbooks, architecture notes, decisions, specifications, and contributor instructions in top-level `internal-docs/`.
 
 ## Workspace Boundaries

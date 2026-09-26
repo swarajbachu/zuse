@@ -2,6 +2,7 @@ import { type ChatId, EnvironmentId, type SessionId } from "@zuse/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "~/lib/environment-permissions-client-bus.ts";
+import { useEnvironmentQuestionAttachments } from "~/lib/environment-question-attachments-client-bus.ts";
 import {
 	buildNotchItems,
 	deriveRunningSessions,
@@ -54,11 +55,24 @@ export function NotchTrayBridge(): null {
 			),
 		[timelines],
 	);
+	const interactionsBySession = useMemo(
+		() =>
+			Object.fromEntries(
+				timelines.map((timeline) => [
+					timeline.ref.sessionId,
+					timeline.presentation.interactions.map((item) => item.interaction),
+				]),
+			),
+		[timelines],
+	);
 	const reconciledRunningBySession = useMemo(
 		() => deriveRunningSessions(sessionsByProject, runtimeBySession),
 		[sessionsByProject, runtimeBySession],
 	);
 	const requestsById = useEnvironmentPermissions().data?.requestsById ?? {};
+	const questionAttachmentsByKey =
+		useEnvironmentQuestionAttachments(EnvironmentId.make(activeEnvironmentId))
+			.data?.attachmentsByKey ?? {};
 	const permissionRequests = useMemo(
 		() => Object.values(requestsById),
 		[requestsById],
@@ -108,7 +122,9 @@ export function NotchTrayBridge(): null {
 				sessionsByProject,
 				messagesBySession,
 				runtimeBySession,
+				interactionsBySession,
 				permissionRequests,
+				questionAttachmentsByKey,
 				recentCompletions,
 				now,
 			}),
@@ -118,7 +134,9 @@ export function NotchTrayBridge(): null {
 			sessionsByProject,
 			messagesBySession,
 			runtimeBySession,
+			interactionsBySession,
 			permissionRequests,
+			questionAttachmentsByKey,
 			recentCompletions,
 			now,
 		],

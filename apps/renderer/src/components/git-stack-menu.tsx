@@ -13,11 +13,17 @@ import {
 	type GitStackResult,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import { ArrowDown01Icon, Layers01Icon } from "@zuse/icons/solid-rounded";
+import {
+	ArrowDown01Icon,
+	GitBranchIcon,
+	GitMergeIcon,
+	GitPullRequestDraftIcon,
+	GitPullRequestIcon,
+	Layers01Icon,
+} from "@zuse/icons/solid-rounded";
 import { useEffect, useMemo, useState } from "react";
 import { formatError } from "../lib/format-error.ts";
 import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts";
-import { openExternal } from "../lib/platform-capabilities.ts";
 import {
 	compactMenuItemClass,
 	Menu,
@@ -29,6 +35,7 @@ import {
 	MenuSubTrigger,
 	MenuTrigger,
 } from "./ui/menu.tsx";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
 export function GitStackMenu({
 	executionRef,
@@ -48,7 +55,7 @@ export function GitStackMenu({
 	);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
-	const [name, setName] = useState("");
+	const [refreshing, setRefreshing] = useState(false);
 	const { environmentId, folderId, worktreeId, rootPath } = executionRef;
 	const stableRef = useMemo(
 		() => ({ environmentId, folderId, worktreeId, rootPath }),
@@ -72,7 +79,8 @@ export function GitStackMenu({
 
 	const command = async (action: GitStackAction) => {
 		if (busy) return;
-		setBusy(true);
+		if (action === "view") setRefreshing(true);
+		else setBusy(true);
 		setError(null);
 		try {
 			const execute = (next: GitStackAction) =>
@@ -81,7 +89,6 @@ export function GitStackMenu({
 						folderId: typeof executionRef.folderId;
 						worktreeId: typeof executionRef.worktreeId;
 						action: GitStackAction;
-						name?: string;
 					},
 					GitStackResult
 				>({
@@ -92,16 +99,15 @@ export function GitStackMenu({
 						folderId: executionRef.folderId,
 						worktreeId: executionRef.worktreeId,
 						action: next,
-						...(next === "add" ? { name } : {}),
 					},
 				});
 			if (action !== "view") await execute(action);
 			await readGitStack(stableRef, branch ?? "", true);
-			if (action === "add") setName("");
 		} catch (cause) {
 			setError(formatError(cause));
 		} finally {
-			setBusy(false);
+			if (action === "view") setRefreshing(false);
+			else setBusy(false);
 		}
 	};
 	if (!stack?.branches.some((item) => item.isCurrent && item.name === branch))
@@ -119,11 +125,21 @@ export function GitStackMenu({
 	);
 	const content = (
 		<>
-			{busy ? (
-				<div role="status" className="px-2 py-1 text-xs text-muted-foreground">
-					{uiMessage("projects:github_updating_stack")}
-				</div>
-			) : null}
+			<div className="flex h-7 items-center gap-2 px-2 text-xs">
+				<span className="font-medium">
+					{uiMessage("projects:github_stack")}
+				</span>
+				{busy || refreshing ? (
+					<span
+						role="status"
+						className="ml-auto text-[11px] text-muted-foreground"
+					>
+						{uiMessage(
+							busy ? "projects:github_updating_stack" : "common:loading",
+						)}
+					</span>
+				) : null}
+			</div>
 			{error ? (
 				<div
 					role="alert"
@@ -132,86 +148,119 @@ export function GitStackMenu({
 					{error}
 				</div>
 			) : null}
-			<div className="px-2 py-1 text-xs text-muted-foreground">
-				{uiMessage("projects:github_base")} {stack.trunk}
-			</div>
-			{stack.branches.map((branch) => (
-				<MenuItem
-					className={compactMenuItemClass}
-					key={branch.name}
-					disabled={busy || branch.isCurrent}
-					onClick={() => {
-						setBusy(true);
-						void dispatchGitWorkspaceCommand({
-							ref: executionRef,
-							kind: "git.switchBranch",
-							commandId: CommandId.make(
-								`stack-checkout:${crypto.randomUUID()}`,
-							),
-							payload: {
-								folderId: executionRef.folderId,
-								worktreeId: executionRef.worktreeId,
-								branch: branch.name,
-							},
-						})
-							.catch((cause) => setError(formatError(cause)))
-							.finally(() => setBusy(false));
-					}}
-				>
-					<span className="min-w-0 flex-1 truncate">{branch.name}</span>
-					<span className="text-xs text-muted-foreground">
-						{branch.isCurrent
-							? uiMessage("chat:computer_switcher_current")
-							: branch.isMerged
-								? uiMessage("projects:pr_pane_merged")
-								: branch.needsRebase
+			<div className="my-1">
+				{[...stack.branches].reverse().map((branch) => {
+					const pr = branch.pr;
+					const merged = branch.isMerged || pr?.state === "merged";
+					const icon = merged
+						? GitMergeIcon
+						: pr?.isDraft
+							? GitPullRequestDraftIcon
+							: pr
+								? GitPullRequestIcon
+								: GitBranchIcon;
+					const tone = merged
+						? "text-violet-400"
+						: pr?.state === "closed"
+							? "text-destructive"
+							: pr?.state === "open" && pr.isDraft === false
+								? "text-[var(--accent-green)]"
+								: "text-muted-foreground";
+					const status = merged
+						? uiMessage("projects:pr_pane_merged")
+						: pr?.state === "closed"
+							? uiMessage("projects:pr_pane_closed")
+							: pr?.isDraft
+								? uiMessage("projects:pr_pane_draft")
+								: pr?.state === "open" && pr.isDraft === false
+									? uiMessage("common:open")
+									: uiMessage("projects:pr_pane_branch");
+					return (
+						<MenuItem
+							className={`${compactMenuItemClass} relative ${branch.isCurrent ? "bg-accent/50 font-medium" : ""}`}
+							key={branch.name}
+							title={[
+								branch.name,
+								status,
+								branch.isCurrent
+									? uiMessage("chat:computer_switcher_current")
+									: "",
+								branch.needsRebase
 									? uiMessage("projects:github_needs_rebase")
-									: ""}
+									: "",
+							]
+								.filter(Boolean)
+								.join(" · ")}
+							aria-current={branch.isCurrent ? "step" : undefined}
+							closeOnClick={!branch.isCurrent}
+							disabled={busy}
+							onClick={() => {
+								if (branch.isCurrent) return;
+								setBusy(true);
+								void dispatchGitWorkspaceCommand({
+									ref: executionRef,
+									kind: "git.switchBranch",
+									commandId: CommandId.make(
+										`stack-checkout:${crypto.randomUUID()}`,
+									),
+									payload: {
+										folderId: executionRef.folderId,
+										worktreeId: executionRef.worktreeId,
+										branch: branch.name,
+									},
+								})
+									.catch((cause) => setError(formatError(cause)))
+									.finally(() => setBusy(false));
+							}}
+						>
+							<span className="relative flex size-[15px] shrink-0 items-center justify-center after:absolute after:top-full after:mt-0.5 after:h-[9px] after:w-px after:bg-muted-foreground/25">
+								<HugeiconsIcon
+									icon={icon}
+									className={`size-[15px] ${tone}`}
+									aria-label={status}
+								/>
+							</span>
+							<span className="min-w-0 flex-1 truncate">
+								{pr?.title || branch.name}
+							</span>
+							{pr && (
+								<span className="shrink-0 text-[11px] font-normal tabular-nums text-muted-foreground">
+									#{pr.number}
+								</span>
+							)}
+						</MenuItem>
+					);
+				})}
+				<div className="relative flex h-7 items-center gap-2 px-2 text-[11px] text-muted-foreground">
+					<span
+						aria-hidden="true"
+						className="flex size-[15px] shrink-0 items-center justify-center"
+					>
+						<span className="size-1.5 rounded-full border border-muted-foreground/60" />
 					</span>
-				</MenuItem>
-			))}
+					<span className="truncate font-mono" title={stack.trunk ?? undefined}>
+						{stack.trunk}
+					</span>
+				</div>
+			</div>
 			<MenuSeparator />
-			<form
-				className="flex gap-1 p-1"
-				onSubmit={(event) => {
-					event.preventDefault();
-					void command("add");
-				}}
-			>
-				<input
-					aria-label={uiMessage("projects:github_new_stack_branch")}
-					placeholder={uiMessage("projects:github_new_stack_branch")}
-					className="h-7 min-w-0 flex-1 rounded bg-muted px-2 text-xs outline-none"
-					value={name}
-					disabled={busy}
-					onChange={(event) => setName(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key !== "Escape") event.stopPropagation();
-					}}
-				/>
-				<button
-					type="submit"
-					disabled={busy || !name.trim()}
-					className="h-7 rounded bg-muted px-2 text-xs disabled:opacity-50"
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<MenuItem
+							className={compactMenuItemClass}
+							disabled={busy}
+							closeOnClick={false}
+							onClick={() => void command("submit")}
+						/>
+					}
 				>
-					{uiMessage("common:add")}
-				</button>
-			</form>
-			<MenuItem
-				className={compactMenuItemClass}
-				disabled={busy}
-				closeOnClick={false}
-				onClick={() => void command("submit")}
-			>
-				{uiMessage("projects:github_submit_stack")}
-			</MenuItem>
-			<MenuSeparator />
-			<MenuItem
-				className={compactMenuItemClass}
-				onClick={() => void openExternal("https://gh.io/stacks")}
-			>
-				{uiMessage("projects:github_stack_help")}
-			</MenuItem>
+					{uiMessage("projects:github_submit_stack")}
+				</TooltipTrigger>
+				<TooltipPopup className="max-w-64 text-xs">
+					{uiMessage("projects:github_submit_stack_help")}
+				</TooltipPopup>
+			</Tooltip>
 		</>
 	);
 	if (variant === "submenu")
@@ -224,7 +273,10 @@ export function GitStackMenu({
 					}}
 				>
 					<MenuSubTrigger compact>{label}</MenuSubTrigger>
-					<MenuSubPopup className="w-60" sideOffset={4}>
+					<MenuSubPopup
+						className="w-80 max-w-[calc(100vw-2rem)]"
+						sideOffset={4}
+					>
 						{content}
 					</MenuSubPopup>
 				</MenuSub>
@@ -244,7 +296,12 @@ export function GitStackMenu({
 					className="size-3 shrink-0 text-muted-foreground"
 				/>
 			</MenuTrigger>
-			<MenuPopup side="left" align="start" sideOffset={8} className="w-60">
+			<MenuPopup
+				side="left"
+				align="start"
+				sideOffset={8}
+				className="w-80 max-w-[calc(100vw-2rem)]"
+			>
 				{content}
 			</MenuPopup>
 		</Menu>

@@ -67,12 +67,21 @@ it.each([
 		projection: null,
 		messages: [prompt],
 		runtime: "starting",
+		presentation: {
+			runtime: "idle",
+			busy: false,
+			turnActive: false,
+			turnInFlight: false,
+			attention: "idle",
+			interactions: [],
+		},
 		view: {
 			...emptyResourceView<SessionTimelineProjection>(),
 			pendingCommands: [
 				{
 					commandId: CommandId.make("message-send:pending"),
 					kind: "messages.send",
+					targetId: null,
 					submittedAt: 1,
 				},
 			],

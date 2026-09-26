@@ -18,7 +18,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../../hooks/use-auth.ts";
 import { cloudProviderLabel } from "../../lib/cloud-provider-presentation.ts";
 import { cloudWorkspaceAccessPresentation } from "../../lib/cloud-workspace-access.ts";
-import { runControlPlane } from "../../lib/control-plane-client.ts";
+import {
+	hasCloudEntitlement,
+	loadCloudBillingSummary,
+	loadCloudBillingUsage,
+	loadCloudEntitlements,
+	loadCloudGithub,
+	loadCloudImage,
+	loadCloudProjects,
+	loadCloudProviders,
+	loadCloudWorkspaces,
+} from "../../lib/cloud-workspace-session-cache.ts";
+import {
+	runControlPlane,
+	subscribeControlPlaneSessionCache,
+} from "../../lib/control-plane-client.ts";
 import { openExternal } from "../../lib/platform-capabilities.ts";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
@@ -97,11 +111,11 @@ export function CloudWorkspacePool() {
 		serviceAvailable,
 	});
 	const subscribed = access.subscribed;
-	const loadGithubRepos = useCallback(async () => {
+	const loadGithubRepos = useCallback(async (refresh = false) => {
 		setReposLoading(true);
 		try {
 			const result = await Promise.race([
-				runControlPlane((client) => client["cloud.github.status"]()),
+				loadCloudGithub(refresh),
 				new Promise<never>((_, reject) =>
 					window.setTimeout(
 						() => reject(new Error("github_repository_list_timeout")),
@@ -123,114 +137,98 @@ export function CloudWorkspacePool() {
 		}
 	}, []);
 
-	const load = useCallback(async () => {
-		if (!isSignedIn) return;
-		let loadedSubscribed = false;
-		try {
+	const load = useCallback(
+		async (refresh = false) => {
+			if (!isSignedIn) return;
+			let loadedSubscribed = false;
+			const workspaceData = Promise.allSettled([
+				loadCloudProviders(refresh),
+				loadCloudProjects(refresh),
+				loadCloudWorkspaces(refresh),
+				loadCloudImage(imageProviderId, refresh),
+			]);
 			try {
-				const entitlements = await runControlPlane((client) =>
-					client["machines.entitlements"](),
-				);
-				loadedSubscribed =
-					loadedSubscribed ||
-					entitlements.entitlements.some(
-						(item) =>
-							item.kind === "cloud-workspace" &&
-							(item.status === "active" ||
-								item.status === "grace" ||
-								(item.status === "ended" &&
-									item.paidThrough !== undefined &&
-									item.paidThrough > Date.now())),
-					);
-				setEntitlementSubscribed(loadedSubscribed);
-				if (loadedSubscribed) {
-					const [summary, usage] = await Promise.all([
-						runControlPlane((client) => client["cloud.billing.summary"]()),
-						runControlPlane((client) =>
-							client["cloud.billing.usage"]({ limit: 20 }),
-						),
-					]);
-					setBilling(summary);
-					setBillingUsage(usage.items);
-					setCapDollars(String(summary.overageCapMicros / 1_000_000));
+				try {
+					const entitlements = await loadCloudEntitlements(refresh);
+					loadedSubscribed = hasCloudEntitlement(entitlements);
+					setEntitlementSubscribed(loadedSubscribed);
+					if (loadedSubscribed) {
+						const [summary, usage] = await Promise.all([
+							loadCloudBillingSummary(refresh),
+							loadCloudBillingUsage(refresh),
+						]);
+						setBilling(summary);
+						setBillingUsage(usage.items);
+						setCapDollars(String(summary.overageCapMicros / 1_000_000));
+					}
+				} catch {
+					if (!loadedSubscribed) {
+						setError(
+							"Your Cloud Workspace subscription could not be verified.",
+						);
+					}
 				}
-			} catch {
-				if (!loadedSubscribed) {
-					setError("Your Cloud Workspace subscription could not be verified.");
-				}
-			}
 
-			const [providerResult, projectResult, workspaceResult, imageResult] =
-				await Promise.allSettled([
-					runControlPlane((client) => client["cloud.providers"]()),
-					runControlPlane((client) => client["cloud.projects.list"]()),
-					runControlPlane((client) => client["cloud.workspaces.list"]({})),
-					runControlPlane((client) =>
-						client["cloud.image.status"]({ providerId: imageProviderId }),
-					),
-				]);
-			const apiResults = [
-				providerResult,
-				projectResult,
-				workspaceResult,
-				imageResult,
-			] as const;
-			const apiAvailable = apiResults.some(
-				(result) => result.status === "fulfilled",
-			);
-			setServiceAvailable(apiAvailable);
-			if (providerResult.status === "fulfilled") {
-				setProviders(providerResult.value.providers);
-			}
-			if (projectResult.status === "fulfilled")
-				setProjects(projectResult.value.projects);
-			if (workspaceResult.status === "fulfilled")
-				setWorkspaces(workspaceResult.value.workspaces);
-			if (imageSelection.current !== imageProviderId) return;
-			if (imageResult.status === "fulfilled")
-				setAccountImage(imageResult.value);
-			setImageError(
-				imageResult.status === "fulfilled"
-					? null
-					: "Cloud image status is temporarily unavailable. Refresh in a moment; existing cloud chats are unaffected.",
-			);
-			setError(
-				[providerResult, projectResult, workspaceResult].every(
+				const [providerResult, projectResult, workspaceResult, imageResult] =
+					await workspaceData;
+				const apiResults = [
+					providerResult,
+					projectResult,
+					workspaceResult,
+					imageResult,
+				] as const;
+				const apiAvailable = apiResults.some(
 					(result) => result.status === "fulfilled",
-				)
-					? null
-					: apiAvailable
-						? "Some cloud workspace data could not be refreshed. Connected accounts remain available."
-						: cloudWorkspaceAccessPresentation({
-								entitlementSubscribed: loadedSubscribed,
-								serviceAvailable: false,
-							}).serviceError,
-			);
-		} catch {
-			setServiceAvailable(false);
-			setError(
-				cloudWorkspaceAccessPresentation({
-					entitlementSubscribed: loadedSubscribed,
-					serviceAvailable: false,
-				}).serviceError,
-			);
-		}
-	}, [isSignedIn, imageProviderId]);
+				);
+				setServiceAvailable(apiAvailable);
+				if (providerResult.status === "fulfilled") {
+					setProviders(providerResult.value.providers);
+				}
+				if (projectResult.status === "fulfilled")
+					setProjects(projectResult.value.projects);
+				if (workspaceResult.status === "fulfilled")
+					setWorkspaces(workspaceResult.value.workspaces);
+				if (imageSelection.current !== imageProviderId) return;
+				if (imageResult.status === "fulfilled")
+					setAccountImage(imageResult.value);
+				setImageError(
+					imageResult.status === "fulfilled"
+						? null
+						: "Cloud image status is temporarily unavailable. Refresh in a moment; existing cloud chats are unaffected.",
+				);
+				setError(
+					[providerResult, projectResult, workspaceResult].every(
+						(result) => result.status === "fulfilled",
+					)
+						? null
+						: apiAvailable
+							? "Some cloud workspace data could not be refreshed. Connected accounts remain available."
+							: cloudWorkspaceAccessPresentation({
+									entitlementSubscribed: loadedSubscribed,
+									serviceAvailable: false,
+								}).serviceError,
+				);
+			} catch {
+				setServiceAvailable(false);
+				setError(
+					cloudWorkspaceAccessPresentation({
+						entitlementSubscribed: loadedSubscribed,
+						serviceAvailable: false,
+					}).serviceError,
+				);
+			}
+		},
+		[isSignedIn, imageProviderId],
+	);
 
 	useEffect(() => {
 		if (authLoading || !isSignedIn) return;
 		void load();
 		void loadGithubRepos();
-		const timer = window.setInterval(() => void load(), 5_000);
-		const refreshAfterBrowserFlow = () => {
-			void load();
-			void loadGithubRepos();
-		};
-		window.addEventListener("focus", refreshAfterBrowserFlow);
-		return () => {
-			window.clearInterval(timer);
-			window.removeEventListener("focus", refreshAfterBrowserFlow);
-		};
+		return subscribeControlPlaneSessionCache((key) => {
+			if (key === "cloud-workspace:github") void loadGithubRepos();
+			else if (key.startsWith("cloud-workspace:")) void load();
+		});
 	}, [authLoading, isSignedIn, load, loadGithubRepos]);
 
 	const run = async (
@@ -243,7 +241,7 @@ export function CloudWorkspacePool() {
 		setError(null);
 		try {
 			await operation();
-			await load();
+			await load(true);
 		} catch (cause) {
 			const message =
 				cause instanceof CloudWorkspaceOpError &&
@@ -315,7 +313,7 @@ export function CloudWorkspacePool() {
 			await runControlPlane((client) =>
 				client["cloud.github.disconnect"]({ installationId }),
 			);
-			await loadGithubRepos();
+			await loadGithubRepos(true);
 		});
 
 	const connectProjects = (selectedRepos: ReadonlyArray<string>) => {
@@ -516,7 +514,7 @@ export function CloudWorkspacePool() {
 						busy={busy}
 						onInstall={() => void installGithub()}
 						onManage={(installationId) => void manageGithub(installationId)}
-						onRefresh={() => void loadGithubRepos()}
+						onRefresh={() => void loadGithubRepos(true)}
 						onDisconnect={(installationId) =>
 							void disconnectGithub(installationId)
 						}
@@ -528,7 +526,7 @@ export function CloudWorkspacePool() {
 						loading={reposLoading}
 						busy={busy}
 						error={projectError}
-						onRefresh={() => void loadGithubRepos()}
+						onRefresh={() => void loadGithubRepos(true)}
 						onAdd={(names) => void connectProjects(names)}
 						onRemove={(project) => void removeProject(project)}
 					/>
@@ -581,7 +579,7 @@ export function CloudWorkspacePool() {
 									size="xs"
 									variant="ghost"
 									className={COMPACT_CLOUD_ACTION}
-									onClick={() => void load()}
+									onClick={() => void load(true)}
 								>
 									{uiMessage("common:retry")}
 								</Button>
@@ -620,7 +618,7 @@ export function CloudWorkspacePool() {
 									size="xs"
 									variant="ghost"
 									className={COMPACT_CLOUD_ACTION}
-									onClick={() => void load()}
+									onClick={() => void load(true)}
 								>
 									{uiMessage("common:retry")}
 								</Button>

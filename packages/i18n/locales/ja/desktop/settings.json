@@ -869,5 +869,16 @@
 	"cloud_auth_not_allowed": "Zuse セッションでこの操作を承認できませんでした。セッションを更新して再試行してください。",
 	"cloud_auth_login_failed": "エージェントのログインを開始できませんでした。",
 	"cloud_auth_temporarily_unavailable": "クラウド認証は一時的に利用できません。既存のチャットに影響を与えずに再試行できます。",
-	"cloud_machine_provider": "マシンプロバイダー"
+	"cloud_machine_provider": "マシンプロバイダー",
+	"wallpaper_title": "壁紙",
+	"wallpaper_description": "新しいチャット用の控えめな背景。このデバイスに保存されます。",
+	"wallpaper_saving": "保存中…",
+	"wallpaper_replace": "画像を変更",
+	"wallpaper_upload": "画像をアップロード",
+	"wallpaper_remove": "削除",
+	"wallpaper_upload_label": "壁紙をアップロード",
+	"wallpaper_opacity": "不透明度",
+	"wallpaper_opacity_label": "壁紙の不透明度",
+	"wallpaper_hint": "PNG、JPEG、WebP、AVIF、GIF · 最大20 MB。テクスチャの作成：",
+	"wallpaper_studio": "Dither studio"
 }

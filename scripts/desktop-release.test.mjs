@@ -9,6 +9,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -26,6 +27,19 @@ import {
 	validateNotes,
 	verifyReleaseAssets,
 } from "./desktop-release.mjs";
+
+test("Linux desktop packaging selects each bundled file once", async () => {
+	if (process.platform !== "linux") return;
+	const require = createRequire(import.meta.url);
+	const { getConfig } = require("app-builder-lib/out/util/config/config.js");
+	const config = await getConfig(join(import.meta.dirname, "../apps/desktop"));
+	const patterns = config.files.flatMap((fileSet) => fileSet.filter ?? []);
+	assert.equal(
+		patterns.filter((pattern) => pattern === "dist-electron/**/*").length,
+		1,
+	);
+	assert.equal(config.linux.files, undefined);
+});
 
 test("orders Preview numerically and promotes to Stable", () => {
 	const versions = [

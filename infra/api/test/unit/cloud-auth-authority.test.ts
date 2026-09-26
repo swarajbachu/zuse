@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION } from "@zuse/contracts";
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
@@ -207,11 +208,17 @@ describe("cloud auth authority provider grants", () => {
 				"#!/usr/bin/env bash\nprintf 'grok 1.0.13\\n'\n",
 				{ mode: 0o755 },
 			);
+			writeFileSync(
+				join(directory, "system", "codex"),
+				`#!/bin/sh\nprintf 'codex-cli ${CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION}\\n'\n`,
+				{ mode: 0o755 },
+			);
 			writeFileSync(scriptPath, AUTH_INITIALIZER_SOURCE);
 
 			execFileSync(process.execPath, [scriptPath, completionPath], {
 				env: {
 					...process.env,
+					PATH: `${join(directory, "system")}:${process.env.PATH}`,
 					ZUSE_AUTH_MANAGED_GROK_BINARY: managedGrok,
 					ZUSE_AUTH_SYSTEM_GROK_BINARY: systemGrok,
 					ZUSE_CLOUD_AUTH_HOME: authHome,
@@ -225,6 +232,73 @@ describe("cloud auth authority provider grants", () => {
 			expect(readFileSync(completionPath, "utf8")).toBe("ready");
 			expect(AUTH_GRANT_SOURCE).toContain(
 				'const grokBinary = process.env.ZUSE_GROK_BINARY ?? "/home/zuse/.local/bin/grok"',
+			);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test.each([
+		false,
+		true,
+	])("upgrades retained Codex without replacing login (install failure: %s)", (failInstall) => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-auth-upgrade-"));
+		try {
+			const authHome = join(directory, "authority");
+			const bin = join(directory, "bin");
+			mkdirSync(bin, { recursive: true });
+			mkdirSync(authHome, { recursive: true });
+			writeFileSync(
+				join(authHome, "storage-incarnation-id"),
+				"retained-identity",
+			);
+			writeFileSync(join(authHome, "saved-login"), "retained-login");
+			writeFileSync(join(bin, "codex"), "#!/bin/sh\necho codex-cli 0.144.5\n", {
+				mode: 0o755,
+			});
+			writeFileSync(join(bin, "grok"), "#!/bin/sh\necho grok 1.0.13\n", {
+				mode: 0o755,
+			});
+			const count = join(directory, "installs");
+			writeFileSync(
+				join(bin, "npm"),
+				`#!/bin/sh
+printf x >> '${count}'
+${
+	failInstall
+		? "exit 1"
+		: `mkdir -p "$3/node_modules/.bin"
+printf '#!/bin/sh\\necho codex-cli ${CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION}\\n' > "$3/node_modules/.bin/codex"
+chmod +x "$3/node_modules/.bin/codex"`
+}
+`,
+				{ mode: 0o755 },
+			);
+			const script = join(directory, "initialize.mjs");
+			writeFileSync(script, AUTH_INITIALIZER_SOURCE);
+			const run = () =>
+				execFileSync(process.execPath, [script, join(directory, "done")], {
+					env: {
+						...process.env,
+						PATH: `${bin}:${process.env.PATH}`,
+						ZUSE_CLOUD_AUTH_HOME: authHome,
+						ZUSE_AUTH_SYSTEM_GROK_BINARY: join(bin, "grok"),
+						ZUSE_AUTH_MANAGED_GROK_BINARY: join(directory, "managed-grok"),
+					},
+				});
+			run();
+			expect(
+				readFileSync(join(authHome, "codex-toolchain-version"), "utf8"),
+			).toBe(
+				`codex-cli ${failInstall ? "0.144.5" : CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION}`,
+			);
+			if (!failInstall) run();
+			expect(readFileSync(count, "utf8")).toBe("x");
+			expect(
+				readFileSync(join(authHome, "storage-incarnation-id"), "utf8"),
+			).toBe("retained-identity");
+			expect(readFileSync(join(authHome, "saved-login"), "utf8")).toBe(
+				"retained-login",
 			);
 		} finally {
 			rmSync(directory, { recursive: true, force: true });

@@ -259,7 +259,7 @@
 	"github_base": "ベース：",
 	"github_needs_rebase": "リベースが必要",
 	"github_new_stack_branch": "新しいスタックブランチ",
-	"github_submit_stack": "スタックをプッシュしてドラフト PR を作成",
+	"github_submit_stack": "スタックを公開",
 	"github_start_stack": "このブランチからスタックを開始",
 	"github_stack_help": "GitHub スタックの設定とヘルプ ↗",
 	"github_pr_number": "PR #{{number}}",
@@ -298,5 +298,6 @@
 	"worktree_setup_card_preparing_directory": "このチャット用の独立した作業ディレクトリを準備しています。",
 	"worktree_setup_card_no_setup_script": "セットアップスクリプトは不要です。",
 	"worktree_setup_card_workspace_ready_description": "ワークスペースの準備が完了しました。",
-	"worktree_setup_card_preparing_environment": "ワークスペースの環境を準備しています。"
+	"worktree_setup_card_preparing_environment": "ワークスペースの環境を準備しています。",
+	"github_submit_stack_help": "すべてのブランチをプッシュし、GitHub 上のプルリクエストを更新します。プルリクエストがないブランチには、レビュー準備前のドラフトを作成します。既存のオープンなプルリクエストはそのまま維持されます。"
 }

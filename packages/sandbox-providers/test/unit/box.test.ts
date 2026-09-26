@@ -409,8 +409,40 @@ describe("Box sandbox provider", () => {
 		).resolves.toBeNull();
 	});
 
+	test.each([
+		"init",
+		"provisioning",
+		"provisioned",
+		"cloning",
+	])("keeps %s machines retryable instead of reporting them running", async (state) => {
+		const http = makeHttp([{ status: 200, body: readyBox("bx_1", state) }]);
+		await expect(
+			Effect.runPromise(makeAdapter(http.client).inspect("bx_1")),
+		).rejects.toMatchObject({ code: "transient" });
+	});
+
+	test("does not replace a runtime when disk preparation fails", async () => {
+		const http = makeHttp([{ status: 200, body: commandResult(1) }]);
+		await expect(
+			Effect.runPromise(
+				makeAdapter(http.client).replaceProcess(
+					"bx_1",
+					{ tag: "zuse-runtime" },
+					{ command: "runtime", user: "zuse" },
+				),
+			),
+		).rejects.toMatchObject({ code: "transient" });
+		expect(http.calls).toHaveLength(1);
+		expect(JSON.parse(String(http.calls[0]?.init?.body)).command).not.toContain(
+			"systemctl stop",
+		);
+	});
+
 	test("starts tagged processes in systemd with user, env, cwd, and tag wrapping", async () => {
-		const http = makeHttp([{ status: 200, body: commandResult(0) }]);
+		const http = makeHttp([
+			{ status: 200, body: commandResult(0) },
+			{ status: 200, body: commandResult(0) },
+		]);
 		const adapter = makeAdapter(http.client);
 
 		await Effect.runPromise(
@@ -424,7 +456,10 @@ describe("Box sandbox provider", () => {
 			}),
 		);
 
-		const body = JSON.parse(String(http.calls[0]?.init?.body));
+		expect(JSON.parse(String(http.calls[0]?.init?.body)).command).toContain(
+			"readlink /home/repos",
+		);
+		const body = JSON.parse(String(http.calls[1]?.init?.body));
 		expect(body.detached).toBeUndefined();
 		const script = Buffer.from(
 			body.command.match(/printf %s ([A-Za-z0-9+/=]+)/)[1],
@@ -496,7 +531,7 @@ describe("Box sandbox provider", () => {
 	test("replaces a tagged process and cleans legacy runtimes", async () => {
 		const http = makeHttp([
 			{ status: 200, body: commandResult(0) },
-			{ status: 200, body: { processId: 8, pid: 43 } },
+			{ status: 200, body: commandResult(0) },
 		]);
 		const adapter = makeAdapter(http.client);
 
@@ -512,8 +547,11 @@ describe("Box sandbox provider", () => {
 			),
 		);
 
-		expect(http.calls).toHaveLength(1);
-		const body = JSON.parse(String(http.calls[0]?.init?.body));
+		expect(http.calls).toHaveLength(2);
+		expect(JSON.parse(String(http.calls[0]?.init?.body)).command).toContain(
+			"readlink /home/repos",
+		);
+		const body = JSON.parse(String(http.calls[1]?.init?.body));
 		const script = Buffer.from(
 			body.command.match(/printf %s ([A-Za-z0-9+/=]+)/)[1],
 			"base64",
@@ -778,6 +816,31 @@ describe("Box sandbox provider", () => {
 					`${shim}; findmnt() { echo fuse; }; install() { exit 94; }; ${command}`,
 				]),
 			).rejects.toMatchObject({ code: 75 });
+			await expect(
+				promisify(execFile)("bash", [
+					"-c",
+					`${shim}; findmnt() { printf 'ext4\\nfuse\\n'; }; install() { exit 94; }; ${command}`,
+				]),
+			).rejects.toMatchObject({ code: 75 });
+			// A restored temporary home must never overwrite authoritative data.
+			await rm(join(dir, "logical/zuse"));
+			await mkdir(join(dir, "logical/zuse/.zuse-data"), { recursive: true });
+			await writeFile(
+				join(dir, "logical/zuse/.zuse-data/zuse.sqlite"),
+				"empty replacement",
+			);
+			await writeFile(
+				join(dir, "persist/home/.zuse-data/zuse.sqlite"),
+				"original chat",
+			);
+			await promisify(execFile)("bash", [
+				"-c",
+				`${shim}; cp() { command cp "$@"; }; chown() { return 0; }; ${command}`,
+			]);
+			const preserved = await promisify(execFile)("cat", [
+				join(dir, "persist/home/.zuse-data/zuse.sqlite"),
+			]);
+			expect(preserved.stdout).toBe("original chat");
 			await rm(join(dir, "persist/.layout-v1"));
 			await expect(
 				promisify(execFile)("bash", ["-c", `${shim}; ${command}`]),

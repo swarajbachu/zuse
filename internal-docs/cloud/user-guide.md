@@ -63,20 +63,30 @@ using files, Git, review, terminal, or SSH does.
 
 The cloud terminal runs inside the hosted workspace. A local terminal uses the
 local synced checkout, normally under `~/.zuse/cloud/<repository>/<branch>`.
-Generated dependency and cache directories such as `node_modules` are not
-copied from cloud; install or generate them locally when needed.
+File sync follows Git: tracked files and non-ignored untracked files are included,
+with nested `.gitignore`, ignore exceptions, and repository-local excludes honored.
+Tracked build artifacts are included even if an ignore pattern matches them.
+Ignored dependencies, build outputs, and logs stay local to each machine; there is
+no framework-specific directory blacklist.
 
-The local checkout is a one-way, remote-authoritative mirror. Local edits are
-not uploaded and may be overwritten by the next sync. Zuse stops the transfer
-when the environment disconnects, keeps the enabled preference, and prepares
-fresh access before syncing again after reconnect.
+The checkout is a one-way, remote-authoritative mirror. Local edits to managed
+files are overwritten. Sync only deletes paths recorded in its ownership manifest;
+it preserves unrelated local files, including locally installed dependencies.
 
-Automatic file sync waits for five seconds without observed changes and at least
-15 seconds after the previous batch finishes. While files keep changing, the
-local terminal shows “Waiting for changes to settle…”. Downloads are staged
-before changed files are applied together; unchanged files are left untouched
-to avoid unnecessary dev-server reloads. Individual app watchers may still
-produce more than one reload for a batch.
+An initial scan starts immediately after access is prepared. Subsequent scans run
+30 seconds after completion (requests can accelerate this, with a 15-second minimum
+between batches). Filesystem activity cannot postpone a scan. Downloads are
+content-verified in private staging; only changed files are published. Unchanged
+files retain their inode and timestamp, avoiding unnecessary dev-server reloads.
+The update is a batch of per-file renames, not a repository-wide atomic snapshot;
+watchers may still produce multiple reloads. A persistent ownership journal lets
+the next scan repair interrupted publication. Transfer failures leave the live
+checkout unchanged and surface an error with bounded retry backoff.
+
+The remote workspace needs Git and Python 3. SSH starts a short-lived helper;
+compressed file data downloads through the authenticated workspace gateway.
+The Mac needs SSH, not rsync.
+See [file sync](file-sync.md) for protocol and recovery details.
 
 Open via SSH uses the managed `ssh zuse-<workspace>` host alias and does not
 publish an SSH listener. Dev-server previews open through a private forward on

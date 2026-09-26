@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { fileURLToPath, URL as NodeUrl } from "node:url";
 import type { ClientSession } from "@zuse/client-runtime/connection";
 import {
 	type FakeAcpController,
@@ -17,6 +18,10 @@ type HeadlessOptions = Omit<
 	NonNullable<Parameters<typeof startHeadlessServer>[0]>,
 	"root"
 >;
+
+const rendererDist = fileURLToPath(
+	new NodeUrl("../../../apps/renderer/dist", import.meta.url),
+);
 
 export type SystemTestScope = {
 	readonly root: string;
@@ -54,7 +59,12 @@ export const withSystemTest = <A>(
 				resources.acquire(startFakeAcpController, (value) => value.close()),
 			server: (options) =>
 				resources.acquire(
-					() => startHeadlessServer({ root: temporary.path, ...options }),
+					() =>
+						startHeadlessServer({
+							root: temporary.path,
+							staticDir: rendererDist,
+							...options,
+						}),
 					(value) => value.stop(),
 				),
 			rpc: (endpoint) =>

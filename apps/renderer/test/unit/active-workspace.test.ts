@@ -9,11 +9,20 @@ const state = vi.hoisted(() => ({
 		selectedFolderId: "project",
 		folders: [{ id: "project", path: "/main" }],
 	},
-	sessions: { selectedSessionByProject: { project: "session" } },
-	chats: { selectedChatId: "chat", pendingCreationByChat: {} },
+	sessions: {
+		selectedSessionId: "session" as string | null,
+		selectedSessionByProject: { project: "session" },
+	},
+	chats: {
+		selectedChatId: "chat" as string | null,
+		selectedChatByProject: { project: "chat" },
+		pendingCreationByChat: {},
+	},
 	entities: {
 		sessionsByProject: {
-			project: [{ id: "session", chatId: "chat", worktreeId: null }],
+			project: [
+				{ id: "session", chatId: "chat", worktreeId: null as string | null },
+			],
 		},
 		chatsByProject: {
 			project: [
@@ -94,6 +103,13 @@ const readRoot = () => {
 };
 
 beforeEach(() => {
+	state.workspace.selectedFolderId = "project";
+	state.chats.selectedChatId = "chat";
+	state.sessions.selectedSessionId = "session";
+	state.sessions.selectedSessionByProject.project = "session";
+	state.entities.sessionsByProject.project = [
+		{ id: "session", chatId: "chat", worktreeId: null },
+	];
 	state.entities.chatsByProject.project = [
 		{ id: "chat", updatedAt: new Date(0), worktreeId: "worktree" },
 	];
@@ -174,4 +190,89 @@ it("does not resurrect a completed reservation after a newer explicit main-check
 		},
 	];
 	expect(readContext()).toMatchObject({ status: "ready", rootPath: "/main" });
+});
+
+it("keeps panels on the selected local chat when the per-project session slot is stale", () => {
+	state.sessions.selectedSessionByProject.project = "previous-session";
+	state.entities.sessionsByProject.project.push({
+		id: "previous-session",
+		chatId: "previous-chat",
+		worktreeId: null,
+	});
+	state.entities.chatsByProject.project.push({
+		id: "previous-chat",
+		updatedAt: new Date(0),
+		worktreeId: null,
+	});
+	expect(readContext()).toMatchObject({
+		status: "ready",
+		sessionId: "session",
+		worktreeId: "worktree",
+		rootPath: "/worktree",
+	});
+	expect(readRoot()).toBe("/worktree");
+});
+it("does not open main while the selected local chat and session summaries are missing", () => {
+	state.entities.chatsByProject.project = [];
+	state.entities.sessionsByProject.project = [];
+	expect(readContext()).toMatchObject({ status: "worktree-pending" });
+	expect(readRoot()).toBeNull();
+});
+
+it("waits for a selected chat's worktree even before its session is selected", () => {
+	state.sessions.selectedSessionId = null;
+	state.worktrees.byProject.project = [];
+	expect(readContext()).toMatchObject({
+		status: "worktree-pending",
+		worktreeId: "worktree",
+	});
+	expect(readRoot()).toBeNull();
+});
+
+it("preserves fresh-workspace intent before a session has been selected", () => {
+	state.sessions.selectedSessionId = null;
+	state.entities.chatsByProject.project = [
+		{ id: "chat", updatedAt: new Date(0), worktreeId: null },
+	];
+	state.entities.creationOperationsByProject.project = [
+		{
+			chatId: "chat",
+			initialSessionId: "session",
+			workspacePolicy: { _tag: "fresh" },
+			worktreeId: null,
+			phase: "creating_workspace",
+			updatedAt: new Date(1),
+		},
+	];
+	expect(readContext()).toMatchObject({ status: "worktree-pending" });
+	expect(readRoot()).toBeNull();
+});
+
+it("still opens the repository when no chat or session is selected", () => {
+	state.chats.selectedChatId = null;
+	state.sessions.selectedSessionId = null;
+	expect(readContext()).toMatchObject({
+		status: "ready",
+		rootPath: "/main",
+		worktreeId: null,
+	});
+});
+it("does not borrow the previous chat's worktree during a selection change", () => {
+	state.entities.chatsByProject.project = [
+		{ id: "chat", updatedAt: new Date(0), worktreeId: null },
+	];
+	state.entities.sessionsByProject.project = [
+		{ id: "session", chatId: "previous-chat", worktreeId: "worktree" },
+	];
+	expect(readContext()).toMatchObject({
+		status: "ready",
+		rootPath: "/main",
+		worktreeId: null,
+	});
+});
+it("keeps per-project file mentions scoped to their own selection", () => {
+	state.workspace.selectedFolderId = "other-project";
+	state.sessions.selectedSessionId = "other-session";
+	state.chats.selectedChatId = "other-chat";
+	expect(readRoot()).toBe("/worktree");
 });

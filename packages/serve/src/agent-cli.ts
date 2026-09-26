@@ -12,6 +12,7 @@ import {
 import { makeRpcClientSession } from "@zuse/client-runtime/connection";
 import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
 import {
+	AgentItemId,
 	type AttachmentRef,
 	BUNDLED_MODEL_CATALOG,
 	type ChatId,
@@ -1226,7 +1227,7 @@ const execute = async (
 				client["session.answerQuestion"]({
 					commandId: commandId("session-answer-question"),
 					sessionId: selectedSessionId,
-					itemId: required(one(args, "item"), "--item"),
+					itemId: AgentItemId.make(required(one(args, "item"), "--item")),
 					answers: answers as Array<{
 						questionIndex: number;
 						selected: number[];
