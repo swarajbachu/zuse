@@ -31,6 +31,7 @@ import {
 import { Cause, Effect, Fiber, Schema, Stream } from "effect";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
+import { hostedAccountId, isHostedProduct } from "./hosted-connect.ts";
 import type { MemoizeClient } from "./rpc-client.ts";
 import {
 	getRendererClientBus,
@@ -250,6 +251,27 @@ const SettingsSliceSchema = Schema.Struct({
 	notchTrayEnabled: Schema.Boolean,
 	notchTrayPinned: Schema.Boolean,
 });
+
+const hostedListeners = new Set<() => void>();
+let hostedPreferences: SettingsSlice | null = null;
+let hostedPreferenceAccount: string | null = null;
+const hostedSettings = (): SettingsSlice => {
+	const account = hostedAccountId();
+	if (hostedPreferences !== null && hostedPreferenceAccount === account)
+		return hostedPreferences;
+	hostedPreferenceAccount = account;
+	try {
+		const raw = localStorage.getItem(`zuse.hosted.preferences:${account}`);
+		hostedPreferences =
+			raw === null
+				? null
+				: Schema.decodeUnknownSync(SettingsSliceSchema)(JSON.parse(raw));
+	} catch {
+		hostedPreferences = null;
+	}
+	hostedPreferences ??= { ...FALLBACK, onboardingCompleted: true };
+	return hostedPreferences;
+};
 
 const settingsPersistence = makeLocalStorageResourcePersistence<SettingsSlice>({
 	storage: () => (typeof window === "undefined" ? null : window.localStorage),
@@ -475,6 +497,7 @@ const activeResource = () => {
 export const resolveEnvironmentSettings = async (
 	environmentId: EnvironmentId,
 ): Promise<SettingsSlice> => {
+	if (isHostedProduct() && environmentId === "local") return hostedSettings();
 	const bus = getRendererClientBus();
 	const key = keyFor(environmentId);
 	const cached = bus.snapshot(key).data;
@@ -495,6 +518,20 @@ export const resolveEnvironmentSettings = async (
 };
 
 const update = (patchFor: (current: SettingsSlice) => SettingsPatch): void => {
+	if (isHostedProduct()) {
+		const current = hostedSettings();
+		hostedPreferences = applyPatch(current, patchFor(current));
+		try {
+			localStorage.setItem(
+				`zuse.hosted.preferences:${hostedAccountId()}`,
+				JSON.stringify(hostedPreferences),
+			);
+		} catch {
+			/* In-memory preferences remain usable when storage is unavailable. */
+		}
+		for (const listener of hostedListeners) listener();
+		return;
+	}
 	const { environmentId, key, bus } = activeResource();
 	const current = bus.snapshot(key)?.data ?? FALLBACK;
 	const patch = patchFor(current);
@@ -677,27 +714,38 @@ const ACTIONS = {
 	},
 };
 
-const state = (): SettingsState => ({
-	...(() => {
-		const { environmentId, key, bus } = activeResource();
-		const view = bus.snapshot(key);
-		return {
-			...(view.data ?? FALLBACK),
-			loaded: view.data !== null,
-			phase: deriveSurfacePhase(view),
-			origin: view.origin,
-			error: bus.connection(environmentId).error,
-		};
-	})(),
+const hostedState = (): SettingsState => ({
+	...hostedSettings(),
 	...ACTIONS,
+	loaded: true,
+	phase: "live",
+	origin: "cache",
+	error: null,
 });
+const state = (): SettingsState =>
+	isHostedProduct()
+		? hostedState()
+		: {
+				...(() => {
+					const { environmentId, key, bus } = activeResource();
+					const view = bus.snapshot(key);
+					return {
+						...(view.data ?? FALLBACK),
+						loaded: view.data !== null,
+						phase: deriveSurfacePhase(view),
+						origin: view.origin,
+						error: bus.connection(environmentId).error,
+					};
+				})(),
+				...ACTIONS,
+			};
 
 type SettingsHook = {
 	<Selected>(selector: (state: SettingsState) => Selected): Selected;
 	getState: () => SettingsState;
 };
 
-export const useSettingsStore: SettingsHook = Object.assign(
+const useRuntimeSettings: SettingsHook = Object.assign(
 	<Selected>(selector: (state: SettingsState) => Selected): Selected => {
 		const environmentId = EnvironmentId.make(
 			useEnvironmentCatalogStore((catalog) => catalog.activeEnvironmentId),
@@ -723,3 +771,26 @@ export const useSettingsStore: SettingsHook = Object.assign(
 	},
 	{ getState: state },
 );
+
+const useHostedSettings: SettingsHook = Object.assign(
+	<Selected>(selector: (state: SettingsState) => Selected): Selected => {
+		const preferences = useSyncExternalStore((listener) => {
+			hostedListeners.add(listener);
+			return () => {
+				hostedListeners.delete(listener);
+			};
+		}, hostedSettings);
+		return selector({
+			...preferences,
+			...ACTIONS,
+			loaded: true,
+			phase: "live",
+			origin: "cache",
+			error: null,
+		});
+	},
+	{ getState: hostedState },
+);
+export const useSettingsStore = isHostedProduct()
+	? useHostedSettings
+	: useRuntimeSettings;

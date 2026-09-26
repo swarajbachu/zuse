@@ -10,6 +10,7 @@ import {
 	commandFingerprint,
 } from "@zuse/client-runtime/client-persistence";
 import type { CommandId, EnvironmentId } from "@zuse/contracts";
+import { hostedCacheDatabaseName } from "./hosted-connect.ts";
 
 const DATABASE_NAME = "zuse-client-runtime";
 const DATABASE_VERSION = 3;
@@ -35,7 +36,10 @@ const transactionComplete = (transaction: IDBTransaction): Promise<void> =>
 
 const openDatabase = (): Promise<IDBDatabase> =>
 	new Promise((resolve, reject) => {
-		const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+		const request = indexedDB.open(
+			hostedCacheDatabaseName(DATABASE_NAME),
+			DATABASE_VERSION,
+		);
 		request.onupgradeneeded = (event) => {
 			const database = request.result;
 			if (!database.objectStoreNames.contains(OUTBOX_STORE)) {

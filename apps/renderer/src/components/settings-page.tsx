@@ -1481,7 +1481,7 @@ function GeneralPane() {
 	);
 }
 
-function DefaultModelsPane() {
+export function DefaultModelsPane() {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);

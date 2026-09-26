@@ -132,11 +132,16 @@ export async function flushRendererDiagnostics(): Promise<void> {
 	flushing = true;
 	const pending = pendingRendererLogs.slice();
 	try {
-		const [{ getControlPlaneRpcClient }, { Effect }] = await Promise.all([
+		const { isHostedProduct } = await import("./hosted-connect.ts");
+		if (isHostedProduct()) {
+			pendingRendererLogs.splice(0, pending.length);
+			return;
+		}
+		const [{ getRpcClient }, { Effect }] = await Promise.all([
 			import("./rpc-client.ts"),
 			import("effect"),
 		]);
-		const client = await getControlPlaneRpcClient();
+		const client = await getRpcClient();
 		await Effect.runPromise(
 			client["diagnostics.ingest"]({
 				events: pending.map((entry, index) => ({

@@ -2,6 +2,7 @@ import type { ResourceActivation } from "@zuse/client-runtime/environment-runtim
 import type { ResourceKey } from "@zuse/client-runtime/resource-ref";
 import type { ResourceView } from "@zuse/client-runtime/resource-state";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { isHostedProduct } from "./hosted-connect.ts";
 
 import { getRendererClientBus } from "./session-timeline-client-bus.ts";
 
@@ -14,7 +15,12 @@ export const useClientBusResource = <Data>(
 	const bus = getRendererClientBus();
 	useEffect(() => {
 		if (key === null) return;
-		return bus.retain(key, { activation }).release;
+		return bus.retain(key, {
+			activation:
+				isHostedProduct() && key.ref.environmentId === "local"
+					? "cache-only"
+					: activation,
+		}).release;
 	}, [activation, bus, key]);
 	const subscribe = useCallback(
 		(listener: () => void) =>

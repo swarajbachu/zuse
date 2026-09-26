@@ -15,6 +15,7 @@ import {
 	SessionTimelineProjection,
 } from "@zuse/contracts";
 import { Schema } from "effect";
+import { hostedCacheDatabaseName } from "./hosted-connect.ts";
 import {
 	decodeTimelineReadingPosition,
 	encodeTimelineReadingPosition,
@@ -146,7 +147,10 @@ const transactionComplete = (transaction: IDBTransaction): Promise<void> =>
 
 const openDatabase = (): Promise<IDBDatabase> =>
 	new Promise((resolve, reject) => {
-		const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+		const request = indexedDB.open(
+			hostedCacheDatabaseName(DATABASE_NAME),
+			DATABASE_VERSION,
+		);
 		request.onupgradeneeded = (event) => {
 			const database = request.result;
 			if (!database.objectStoreNames.contains(HISTORY_STORE_NAME)) {

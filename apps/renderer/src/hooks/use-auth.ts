@@ -1,6 +1,11 @@
 import type { AuthUser } from "@zuse/contracts";
-
 import { useEnvironmentAuth } from "../lib/auth-client-bus.ts";
+import {
+	beginHostedSignIn,
+	hostedAccountId,
+	isHostedProduct,
+	signOutHostedProduct,
+} from "../lib/hosted-connect.ts";
 import { useAuthStore } from "../store/auth.ts";
 
 /**
@@ -33,7 +38,7 @@ const profileName = (user: AuthUser | null): string => {
 	return full || user.email;
 };
 
-export function useAuth(): UseAuth {
+function useEnvironmentAccount(): UseAuth {
 	const auth = useEnvironmentAuth();
 	const state = auth.data?.state ?? null;
 	const signingIn = useAuthStore((s) => s.signingIn);
@@ -66,3 +71,34 @@ export function useAuth(): UseAuth {
 		signOut,
 	};
 }
+
+function useHostedAccount(): UseAuth {
+	const displayName = useAuthStore((s) => s.displayName);
+	const setDisplayName = useAuthStore((s) => s.setDisplayName);
+	const id = hostedAccountId();
+	return {
+		user:
+			id === null
+				? null
+				: {
+						id,
+						email: "",
+						firstName: null,
+						lastName: null,
+						profilePictureUrl: null,
+					},
+		isSignedIn: id !== null,
+		isLoading: false,
+		isUnavailable: false,
+		signingIn: false,
+		error: null,
+		name: displayName || "Your account",
+		displayName,
+		setDisplayName,
+		signIn: beginHostedSignIn,
+		signOut: signOutHostedProduct,
+	};
+}
+export const useAuth = isHostedProduct()
+	? useHostedAccount
+	: useEnvironmentAccount;

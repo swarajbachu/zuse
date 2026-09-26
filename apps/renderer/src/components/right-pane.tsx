@@ -661,13 +661,18 @@ export function RightPane({
 			}
 		})();
 	};
-	const addablePanels = addableKinds(panels).filter(
-		(kind) =>
-			!directoryUnavailable ||
-			(kind !== "files" &&
-				(kind !== "terminal" || cloudSummary !== null) &&
-				kind !== "changes"),
-	);
+	const addablePanels = addableKinds(panels)
+		.filter(
+			(kind) =>
+				kind !== "browser" || rendererPlatformCapabilities().integratedBrowser,
+		)
+		.filter(
+			(kind) =>
+				!directoryUnavailable ||
+				(kind !== "files" &&
+					(kind !== "terminal" || cloudSummary !== null) &&
+					kind !== "changes"),
+		);
 
 	// Glide dock tabs when panels are opened or closed. Declared with the other
 	// hooks (above the `selected === null` early return) to satisfy hook rules.
@@ -678,10 +683,12 @@ export function RightPane({
 	// A plan panel belongs to the selected session's final output. Keep its
 	// persisted layout slot, but do not expose an empty tab while another
 	// session in the same chat has no proposed plan.
-	const visiblePanels =
-		planMarkdown === null
-			? panels.filter((panel) => panel.kind !== "plan")
-			: panels;
+	const visiblePanels = panels.filter(
+		(panel) =>
+			(panel.kind !== "plan" || planMarkdown !== null) &&
+			(panel.kind !== "browser" ||
+				rendererPlatformCapabilities().integratedBrowser),
+	);
 	const effectiveActiveId =
 		activeId !== null && visiblePanels.some((p) => p.id === activeId)
 			? activeId

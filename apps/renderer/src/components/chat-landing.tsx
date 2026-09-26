@@ -1,3 +1,4 @@
+import { isHostedProduct } from "../lib/hosted-connect.ts";
 import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -542,6 +543,10 @@ export function ChatLanding() {
 							cloudRepositoryIdentity,
 					) ?? null;
 				setCloudProviders(placement.providers);
+				if (isHostedProduct())
+					setSelectedCloudProviderId(
+						placement.providers[0]?.providerId ?? null,
+					);
 				setCloudProject(project);
 				setCloudAccountImages(images);
 				setCloudSubscribed(placement.subscribed);
@@ -746,6 +751,11 @@ export function ChatLanding() {
 		setRemoteAnchor({ groupKey: group.key, member });
 	};
 	const onAdd = () => {
+		if (isHostedProduct()) {
+			setSettingsSection({ kind: "machines" });
+			setView("settings");
+			return;
+		}
 		void addFolder();
 	};
 
@@ -1001,6 +1011,16 @@ export function ChatLanding() {
 		},
 	): Promise<void> => {
 		if (submitting) return;
+		if (
+			isHostedProduct() &&
+			activeEnvironmentId === "local" &&
+			selectedCloudProviderId === null
+		) {
+			setSubmitError(
+				"Set up a cloud workspace in Settings before starting a chat.",
+			);
+			return;
+		}
 		const { draftSession: draft, draftRevision } = useSessionsStore.getState();
 		if (draft === null) return;
 		const ownsLanding = captureNewChatLanding();
@@ -1019,6 +1039,17 @@ export function ChatLanding() {
 			});
 		if (selectedCloudProviderId !== null) {
 			if (!CLOUD_WORKSPACE_BETA_AVAILABLE) return;
+			if (isHostedProduct()) {
+				const placement = cloudPickerItems.find(
+					(item) => item.providerId === selectedCloudProviderId,
+				);
+				if (placement?.needsSetup !== false || placement.disabled) {
+					setSubmitError(
+						"Finish cloud workspace setup in Settings before starting a chat.",
+					);
+					return;
+				}
+			}
 			if (cloudProject === null) {
 				setSubmitError(uiMessage("chat:cloud_connect_repository_first"));
 				return;
@@ -1607,6 +1638,9 @@ export function ChatLanding() {
 									{desktopCatalogEnabled || cloudPickerItems.length > 0 ? (
 										<ComputerPicker
 											group={pickerGroup}
+											includeComputers={
+												!(isHostedProduct() && activeEnvironmentId === "local")
+											}
 											target={resolvedTarget}
 											entries={catalogEntries}
 											onPickTarget={(target) => {
@@ -1651,7 +1685,8 @@ export function ChatLanding() {
 											onRetryEnvironment={retryComputer}
 										/>
 									) : null}
-									{selectedCloudProviderId === null ? (
+									{selectedCloudProviderId === null &&
+									!(isHostedProduct() && activeEnvironmentId === "local") ? (
 										<WorkspacePicker
 											value={workspaceMode}
 											onValueChange={(mode) => {
@@ -1667,18 +1702,20 @@ export function ChatLanding() {
 											}}
 										/>
 									) : null}
-									<ImportChatMenu
-										threads={externalThreads}
-										loading={externalThreadsLoading}
-										error={externalThreadsError}
-										continuingId={continuingExternalThreadId}
-										onOpen={() =>
-											void hydrateExternalThreads(importEnvironmentId)
-										}
-										onImport={(thread) =>
-											void continueExternalThread(thread, importEnvironmentId)
-										}
-									/>
+									{!(isHostedProduct() && activeEnvironmentId === "local") && (
+										<ImportChatMenu
+											threads={externalThreads}
+											loading={externalThreadsLoading}
+											error={externalThreadsError}
+											continuingId={continuingExternalThreadId}
+											onOpen={() =>
+												void hydrateExternalThreads(importEnvironmentId)
+											}
+											onImport={(thread) =>
+												void continueExternalThread(thread, importEnvironmentId)
+											}
+										/>
+									)}
 								</div>
 								<div className="flex min-w-0 items-center gap-1.5">
 									{createSource !== null && (
@@ -1762,7 +1799,8 @@ export function ChatLanding() {
 									)}
 									{/* Create-from browses the ACTIVE environment's PRs and
 										    branches — hidden for a remote-anchored draft. */}
-									{remoteAnchor === null ? (
+									{remoteAnchor === null &&
+									!(isHostedProduct() && activeEnvironmentId === "local") ? (
 										<CreateFromMenu
 											environmentId={EnvironmentId.make(activeEnvironmentId)}
 											folderId={selectedFolderId}
@@ -1922,6 +1960,19 @@ export function ChatLanding() {
 						<div className="mx-auto flex w-full max-w-2xl items-start gap-2 rounded-lg border border-rose-400/30 bg-rose-500/[0.08] px-3 py-2 text-[12px] text-rose-200">
 							<span className="mt-px shrink-0">⚠</span>
 							<span className="flex-1 leading-snug">{submitError}</span>
+							{isHostedProduct() && (
+								<Button
+									className="h-7"
+									size="xs"
+									variant="ghost"
+									onClick={() => {
+										setSettingsSection({ kind: "machines" });
+										setView("settings");
+									}}
+								>
+									Settings
+								</Button>
+							)}
 							{draftSession === null ? (
 								<Button
 									className="h-7"
@@ -1950,6 +2001,18 @@ export function ChatLanding() {
             tagging, model/thinking, fast mode, plan mode, runtime, etc. On
             send it hands the parsed input back to `handleDraftSubmit`. */}
 					{composer}
+					{isHostedProduct() && selectedFolderId === null && (
+						<button
+							type="button"
+							className="mx-auto h-7 rounded-md bg-primary px-3 text-xs text-primary-foreground"
+							onClick={() => {
+								setSettingsSection({ kind: "machines" });
+								setView("settings");
+							}}
+						>
+							Set up cloud agents and repositories
+						</button>
+					)}
 				</div>
 			</div>
 			{projectSetupOpen && pendingProjectSetup !== null ? (

@@ -1,15 +1,7 @@
 import "@zuse/i18n/english/shell";
-import {
-	environmentRoute,
-	parseEnvironmentRoute,
-} from "@zuse/client-runtime/environment-scope";
 import type { ConnectionSnapshot } from "@zuse/client-runtime/supervisor";
-import {
-	type ApiEnvironmentRecord,
-	ENVIRONMENT_PRESENCE_STALE_MS,
-} from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
-import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	type FormEvent,
 	type ReactNode,
@@ -27,11 +19,8 @@ import {
 import {
 	beginHostedSignIn,
 	completeHostedSignIn,
-	connectHostedEnvironment,
 	hostedSignedIn,
 	isHostedProduct,
-	listHostedEnvironments,
-	registerHostedClient,
 } from "../lib/hosted-connect.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import {
@@ -53,10 +42,6 @@ type AccessState =
 type HostedAccessState =
 	| { readonly status: "loading" }
 	| { readonly status: "signedOut" }
-	| {
-			readonly status: "select";
-			readonly environments: ReadonlyArray<ApiEnvironmentRecord>;
-	  }
 	| { readonly status: "ready" }
 	| { readonly status: "error"; readonly description: string };
 
@@ -276,10 +261,8 @@ function HostedAccessCard({
 		state.status === "loading"
 			? "Opening Zuse…"
 			: state.status === "signedOut"
-				? "Your computers, anywhere"
-				: state.status === "select"
-					? "Choose a computer"
-					: "Could not open this computer";
+				? "Your cloud agents, anywhere"
+				: "Could not open Zuse";
 	return (
 		<div className="flex min-h-dvh w-full items-center justify-center bg-background px-4 py-8 text-foreground">
 			<main
@@ -293,17 +276,14 @@ function HostedAccessCard({
 				<h1 className="mt-1.5 font-heading text-lg font-semibold">{title}</h1>
 				{state.status === "loading" ? (
 					<p className="mt-2 text-sm leading-6 text-muted-foreground">
-						{uiMessage(
-							"shell:browser_access_gate_signing_in_and_finding_your_served_computers",
-						)}
+						Signing in to your cloud workspace…
 					</p>
 				) : null}
 				{state.status === "signedOut" ? (
 					<>
 						<p className="mt-2 text-sm leading-6 text-muted-foreground">
-							{uiMessage(
-								"shell:browser_access_gate_sign_in_to_see_and_securely_control_the_computers_linked_to_your_accou",
-							)}
+							Sign in to set up cloud agents, connect repositories, and start
+							chatting.
 						</p>
 						<button
 							className="mt-4 h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring"
@@ -313,58 +293,6 @@ function HostedAccessCard({
 							{uiMessage("common:signIn")}
 						</button>
 					</>
-				) : null}
-				{state.status === "select" ? (
-					<div className="mt-3 flex flex-col gap-1">
-						{state.environments.map((environment) => {
-							const online =
-								environment.lastHeartbeat !== undefined &&
-								Date.now() - environment.lastHeartbeat <=
-									ENVIRONMENT_PRESENCE_STALE_MS;
-							return (
-								<button
-									className="flex h-7 items-center gap-2 rounded-md px-2.5 text-left text-xs outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-									key={environment.environmentId}
-									onClick={() =>
-										window.location.assign(
-											environmentRoute(environment.environmentId),
-										)
-									}
-									type="button"
-								>
-									<span
-										aria-hidden="true"
-										className={`size-1.5 shrink-0 rounded-full ${
-											online ? "bg-success" : "bg-muted-foreground/35"
-										}`}
-									/>
-									<span className="flex min-w-0 flex-1 items-center gap-2">
-										<span className="min-w-0 flex-1 truncate font-medium">
-											{environment.label ??
-												uiMessage("shell:browser_access_gate_unnamed_computer")}
-										</span>
-										<span className="shrink-0 text-[10px] text-muted-foreground">
-											{online
-												? uiMessage("shell:browser_access_gate_online")
-												: uiMessage("shell:browser_access_gate_offline")}
-											{environment.runtimeVersion
-												? ` · v${environment.runtimeVersion}`
-												: ""}
-										</span>
-									</span>
-								</button>
-							);
-						})}
-						{state.environments.length === 0 ? (
-							<p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-								<RichMessage
-									id="shell:browser_access_gate_no_computers_are_served_yet_run_npx_zusehq_serve_on_a_comput_sentence"
-									components={{ part0: <code /> }}
-									values={{ code0: "npx @zusehq/serve" }}
-								/>
-							</p>
-						) : null}
-					</div>
 				) : null}
 				{state.status === "error" ? (
 					<>
@@ -386,8 +314,6 @@ function HostedAccessCard({
 }
 
 function HostedAccessGate({ children }: { readonly children: ReactNode }) {
-	const { message: uiMessage } = useUiMessages(["common", "shell"]);
-
 	const [state, setState] = useState<HostedAccessState>({
 		status: "loading",
 	});
@@ -399,52 +325,22 @@ function HostedAccessGate({ children }: { readonly children: ReactNode }) {
 				setState({ status: "signedOut" });
 				return;
 			}
-			const catalog = await listHostedEnvironments();
-			const route = parseEnvironmentRoute(window.location.pathname);
-			if (route === null) {
-				setState({ status: "select", environments: catalog.environments });
-				return;
-			}
-			const target = catalog.environments.find(
-				(environment) => environment.environmentId === route.environmentId,
-			);
-			if (target === undefined) {
-				setState({
-					status: "error",
-					description: uiMessage(
-						"shell:browser_access_gate_this_computer_is_not_linked_to_your_account_it_may_have_been_remo",
-					),
-				});
-				return;
-			}
-			await registerHostedClient();
-			await connectHostedEnvironment(route.environmentId);
+
 			setState({ status: "ready" });
-		} catch (cause) {
-			const reason = cause instanceof Error ? cause.message : String(cause);
+		} catch {
 			setState({
 				status: "error",
-				description:
-					reason === "computer_limit_reached"
-						? "This account has reached its served-computer limit."
-						: reason === "version_incompatible"
-							? "This computer needs a Zuse Serve update before it can connect."
-							: "Check that the computer is online, then try again.",
+				description: "Could not sign in. Check your connection and try again.",
 			});
 		}
-	}, [uiMessage]);
+	}, []);
 	useEffect(() => {
 		void connect();
 	}, [connect]);
 	if (state.status !== "ready") {
 		return <HostedAccessCard retry={() => void connect()} state={state} />;
 	}
-	return (
-		<>
-			{children}
-			<ConnectionBanner />
-		</>
-	);
+	return <>{children}</>;
 }
 
 function DirectBrowserAccessGate({

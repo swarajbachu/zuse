@@ -5,9 +5,8 @@ import type {
 	ProviderId,
 } from "@zuse/contracts";
 import { CommandId, EnvironmentId } from "@zuse/contracts";
-
-import { formatError } from "../lib/format-error.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import { formatError } from "../lib/format-error.ts";
 import { runtimeOperationClient } from "../lib/runtime-operation-client.ts";
 import { runStreamOperation } from "../lib/stream-operation.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
@@ -19,9 +18,10 @@ const activeEnvironmentId = (): EnvironmentId =>
 const mcpCommand = async <Payload, Result>(
 	kind: string,
 	payload: Payload,
+	environmentId = activeEnvironmentId(),
 ): Promise<Result> => {
 	const receipt = await dispatchEnvironmentShellCommand<Payload, Result>({
-		environmentId: activeEnvironmentId(),
+		environmentId,
 		kind,
 		commandId: CommandId.make(`mcp:${crypto.randomUUID()}`),
 		payload,
@@ -30,6 +30,7 @@ const mcpCommand = async <Payload, Result>(
 };
 
 export interface McpScope {
+	readonly environmentId?: EnvironmentId;
 	readonly projectId?: FolderId;
 	readonly provider?: ProviderId;
 }
@@ -41,6 +42,7 @@ export interface McpScope {
  * `refresh()` explicitly forces discovery and status probes.
  */
 type State = {
+	readonly environmentId: EnvironmentId | null;
 	readonly servers: ReadonlyArray<McpServerDescriptor>;
 	readonly statuses: ReadonlyMap<string, McpServerStatus>;
 	readonly loaded: boolean;
@@ -77,6 +79,7 @@ const openExternal = (url: string): void => {
 };
 
 export const useMcpStore = create<State>((set, get) => ({
+	environmentId: null,
 	servers: [],
 	statuses: new Map(),
 	loaded: false,
@@ -85,8 +88,18 @@ export const useMcpStore = create<State>((set, get) => ({
 	authenticating: new Set(),
 
 	load: async (scope) => {
+		const environmentId = scope.environmentId ?? activeEnvironmentId();
+		if (get().environmentId !== environmentId)
+			set({
+				environmentId,
+				servers: [],
+				statuses: new Map(),
+				loaded: false,
+				refreshing: false,
+				authenticating: new Set(),
+				error: null,
+			});
 		try {
-			const environmentId = activeEnvironmentId();
 			const result = await mcpCommand<
 				{
 					readonly projectId: FolderId | undefined;
@@ -96,11 +109,15 @@ export const useMcpStore = create<State>((set, get) => ({
 					readonly servers: ReadonlyArray<McpServerDescriptor>;
 					readonly statuses: ReadonlyArray<McpServerStatus>;
 				}
-			>("mcp.list", {
-				projectId: scope.projectId,
-				provider: scope.provider,
-			});
-			if (environmentId !== activeEnvironmentId()) return;
+			>(
+				"mcp.list",
+				{
+					projectId: scope.projectId,
+					provider: scope.provider,
+				},
+				environmentId,
+			);
+			if (environmentId !== get().environmentId) return;
 			set({
 				servers: result.servers,
 				statuses: statusMap(result.statuses),
@@ -108,6 +125,7 @@ export const useMcpStore = create<State>((set, get) => ({
 				error: null,
 			});
 		} catch (err) {
+			if (environmentId !== get().environmentId) return;
 			// Keep the previous inventory visible; a transient RPC failure
 			// shouldn't blank a working popover.
 			set({ loaded: true, error: get().loaded ? null : formatError(err) });
@@ -115,9 +133,9 @@ export const useMcpStore = create<State>((set, get) => ({
 	},
 
 	refresh: async (scope) => {
-		set({ refreshing: true });
+		const environmentId = scope.environmentId ?? activeEnvironmentId();
+		set({ refreshing: true, environmentId });
 		try {
-			const environmentId = activeEnvironmentId();
 			const result = await mcpCommand<
 				{
 					readonly projectId: FolderId | undefined;
@@ -127,11 +145,15 @@ export const useMcpStore = create<State>((set, get) => ({
 					readonly servers: ReadonlyArray<McpServerDescriptor>;
 					readonly statuses: ReadonlyArray<McpServerStatus>;
 				}
-			>("mcp.refresh", {
-				projectId: scope.projectId,
-				provider: scope.provider,
-			});
-			if (environmentId !== activeEnvironmentId()) return;
+			>(
+				"mcp.refresh",
+				{
+					projectId: scope.projectId,
+					provider: scope.provider,
+				},
+				environmentId,
+			);
+			if (environmentId !== get().environmentId) return;
 			set({
 				servers: result.servers,
 				statuses: statusMap(result.statuses),
@@ -139,11 +161,13 @@ export const useMcpStore = create<State>((set, get) => ({
 				error: null,
 			});
 		} catch (err) {
+			if (environmentId !== get().environmentId) return;
 			set({ refreshing: false, error: formatError(err) });
 		}
 	},
 
 	setEnabled: async (key, enabled, projectId) => {
+		const environmentId = get().environmentId ?? activeEnvironmentId();
 		// Optimistic: flip the descriptor immediately, reconcile on reload.
 		set({
 			servers: get().servers.map((server) =>
@@ -155,32 +179,54 @@ export const useMcpStore = create<State>((set, get) => ({
 			),
 		});
 		try {
-			await mcpCommand("mcp.setEnabled", { key, enabled, projectId });
-			await get().load({ projectId });
+			await mcpCommand(
+				"mcp.setEnabled",
+				{ key, enabled, projectId },
+				environmentId,
+			);
+			if (environmentId !== get().environmentId) return;
+			await get().load({
+				projectId,
+				environmentId: environmentId,
+			});
 		} catch (err) {
+			if (environmentId !== get().environmentId) return;
 			set({ error: formatError(err) });
-			await get().load({ projectId });
+			if (environmentId !== get().environmentId) return;
+			await get().load({
+				projectId,
+				environmentId: environmentId,
+			});
 		}
 	},
 
 	authenticate: async (key, projectId, provider) => {
+		const environmentId = get().environmentId ?? activeEnvironmentId();
 		set({ authenticating: new Set([...get().authenticating, key]) });
 		try {
-			const client = await runtimeOperationClient(activeEnvironmentId());
+			const client = await runtimeOperationClient(environmentId);
 			await runStreamOperation(
 				client["mcp.authenticate"]({ key, projectId }),
 				(event) => {
+					if (environmentId !== get().environmentId) return;
 					if (event._tag === "browser-opened") openExternal(event.url);
 					if (event._tag === "failed") set({ error: event.error });
 				},
 			).done;
 		} catch (err) {
+			if (environmentId !== get().environmentId) return;
 			set({ error: formatError(err) });
 		} finally {
-			const next = new Set(get().authenticating);
-			next.delete(key);
-			set({ authenticating: next });
-			await get().refresh({ projectId, provider });
+			if (environmentId === get().environmentId) {
+				const next = new Set(get().authenticating);
+				next.delete(key);
+				set({ authenticating: next });
+				await get().refresh({
+					projectId,
+					provider,
+					environmentId: environmentId,
+				});
+			}
 		}
 	},
 }));

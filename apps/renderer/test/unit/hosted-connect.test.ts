@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
 	createHostedEndpointLease,
+	hostedAccessToken,
 	hostedAuthTokenEndpoint,
 	isHostedProduct,
 	resolveHostedWorkosClientId,
@@ -51,4 +52,41 @@ describe("hosted authentication", () => {
 		expect(refresh).toHaveBeenCalledOnce();
 		expect(refresh).toHaveBeenCalledWith("env-1");
 	});
+});
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
+});
+it("shares one refresh-token exchange between concurrent cloud requests", async () => {
+	const storage = new Map([
+		[
+			"zuse.hosted.session.v1",
+			JSON.stringify({
+				accessToken: "expired",
+				refreshToken: "rotate-once",
+				expiresAt: 0,
+			}),
+		],
+	]);
+	vi.stubGlobal("sessionStorage", {
+		getItem: (key: string) => storage.get(key) ?? null,
+		setItem: (key: string, value: string) => storage.set(key, value),
+		removeItem: (key: string) => storage.delete(key),
+	});
+	const fetch = vi.fn(async () =>
+		Response.json({ access_token: "fresh-token", refresh_token: "rotated" }),
+	);
+	vi.stubGlobal("fetch", fetch);
+	expect(
+		await Promise.all([
+			hostedAccessToken(),
+			hostedAccessToken(),
+			hostedAccessToken(),
+		]),
+	).toEqual(["fresh-token", "fresh-token", "fresh-token"]);
+	expect(fetch).toHaveBeenCalledTimes(1);
+	expect(
+		JSON.parse(storage.get("zuse.hosted.session.v1") ?? "null").refreshToken,
+	).toBe("rotated");
 });

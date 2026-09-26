@@ -73,6 +73,8 @@ import {
 	registerCloudChatCatalogRefresh,
 	useCloudChatCatalogStore,
 } from "./cloud-workspace-catalog.ts";
+import { isHostedProduct } from "./hosted-connect.ts";
+import { hostedProjectFolderId } from "./hosted-workspace.ts";
 
 type CloudChatsState = {
 	readonly loading: boolean;
@@ -610,9 +612,9 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 					const accepted =
 						cloudSummaryForEnvironment(summary.workspaceId) ?? summary;
 					registerCloudEnvironmentResolver(accepted);
-					const projectId = localProjectForCloudEnvironment(
-						summary.workspaceId,
-					);
+					const projectId = isHostedProduct()
+						? hostedProjectFolderId(summary.projectId)
+						: localProjectForCloudEnvironment(summary.workspaceId);
 					if (projectId !== null) stageCloudChat(accepted, projectId);
 				}
 				void (async () => {

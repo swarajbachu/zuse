@@ -1,3 +1,4 @@
+import { isHostedProduct } from "./lib/hosted-connect.ts";
 import { SurfaceFallback } from "./shell/surface-fallback.tsx";
 import "@zuse/i18n/english/shell";
 
@@ -180,6 +181,7 @@ function ReadyApp({
 	// One-shot RPC ping so we know the bridge is alive early. Only the failure
 	// is logged — the success path is silent to keep the renderer console clean.
 	useEffect(() => {
+		if (isHostedProduct()) return;
 		let cancelled = false;
 		void (async () => {
 			try {
@@ -224,7 +226,8 @@ function ReadyApp({
 		onboardingCompleted,
 	]);
 	useEffect(() => {
-		if (!onboardingCompleted || !catalogInitialized) return;
+		if (isHostedProduct() || !onboardingCompleted || !catalogInitialized)
+			return;
 		void ensureModelCatalog().catch((cause) =>
 			console.error("[zuse] model catalog prefetch failed", cause),
 		);
@@ -265,7 +268,7 @@ function ReadyApp({
 	if (!onboardingCompleted) {
 		return (
 			<TooltipProvider>
-				<AmbientSurfaces />
+				{!isHostedProduct() && <AmbientSurfaces />}
 				<AppearanceController />
 				<div className="relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 					<Suspense fallback={<SurfaceFallback />}>
@@ -280,11 +283,11 @@ function ReadyApp({
 	if (view === "settings") {
 		return (
 			<TooltipProvider>
-				<AmbientSurfaces />
+				{!isHostedProduct() && <AmbientSurfaces />}
 				<AppearanceController />
 				<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 					<Suspense fallback={<SurfaceFallback />}>
-						<SettingsPage />
+						{isHostedProduct() ? <HostedSettingsPage /> : <SettingsPage />}
 						<StartupReadySignal onReady={onReady} />
 					</Suspense>
 				</div>
@@ -294,7 +297,7 @@ function ReadyApp({
 
 	return (
 		<TooltipProvider>
-			<AmbientSurfaces />
+			{!isHostedProduct() && <AmbientSurfaces />}
 			<AppearanceController />
 			<Suspense fallback={<SurfaceFallback />}>
 				<MainShell />
@@ -313,5 +316,11 @@ function ReadyApp({
 const MainShell = lazy(() =>
 	import("./shell/main-shell.tsx").then((module) => ({
 		default: module.MainShell,
+	})),
+);
+
+const HostedSettingsPage = lazy(() =>
+	import("./components/hosted-settings-page.tsx").then((module) => ({
+		default: module.HostedSettingsPage,
 	})),
 );

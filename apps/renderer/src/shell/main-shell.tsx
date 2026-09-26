@@ -1,3 +1,4 @@
+import { isHostedProduct } from "../lib/hosted-connect.ts";
 import { SurfaceFallback } from "./surface-fallback.tsx";
 import "@zuse/i18n/english/shell";
 
@@ -607,7 +608,7 @@ export function MainShell() {
 						</Suspense>
 						<div className="flex min-h-0 flex-1 flex-col">
 							<Suspense fallback={<SurfaceFallback />}>
-								<ProjectsSidebar />
+								{isHostedProduct() ? <HostedSidebar /> : <ProjectsSidebar />}
 							</Suspense>
 						</div>
 					</div>
@@ -872,3 +873,9 @@ function DirectoryUnavailableSurface({ label }: { readonly label: string }) {
 		</div>
 	);
 }
+
+const HostedSidebar = lazy(() =>
+	import("../components/hosted-sidebar.tsx").then((module) => ({
+		default: module.HostedSidebar,
+	})),
+);

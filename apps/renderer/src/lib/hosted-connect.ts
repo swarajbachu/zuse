@@ -11,6 +11,9 @@ import {
 
 import { rendererApiUrl } from "./api-url.ts";
 
+let sessionEpoch = 0;
+export const hostedSessionEpoch = (): number => sessionEpoch;
+
 const WORKOS_API = "https://api.workos.com";
 const SESSION_KEY = "zuse.hosted.session.v1";
 const PKCE_KEY = "zuse.hosted.pkce.v1";
@@ -73,7 +76,7 @@ const environment = (): Record<string, string | undefined> =>
 	{};
 
 export const isHostedProduct = (
-	locationOrigin = window.location.origin,
+	locationOrigin = globalThis.window?.location?.origin ?? "",
 ): boolean =>
 	environment().VITE_ZUSE_HOSTED === "1" || locationOrigin === HOSTED_APP_URL;
 
@@ -111,7 +114,7 @@ const sha256 = async (value: string): Promise<string> =>
 		),
 	);
 
-const decodeJwtPayload = (
+export const decodeHostedJwtPayload = (
 	token: string,
 ): { readonly exp?: unknown; readonly sub?: unknown } | null => {
 	try {
@@ -128,7 +131,7 @@ const decodeJwtPayload = (
 };
 
 const jwtExpiry = (token: string): number => {
-	const payload = decodeJwtPayload(token);
+	const payload = decodeHostedJwtPayload(token);
 	return typeof payload?.exp === "number"
 		? payload.exp * 1_000
 		: Date.now() + 5 * 60_000;
@@ -152,9 +155,12 @@ const readSession = (): HostedSession | null => {
 export const hostedAccountId = (): string | null => {
 	const token = readSession()?.accessToken;
 	if (token === undefined) return null;
-	const payload = decodeJwtPayload(token);
+	const payload = decodeHostedJwtPayload(token);
 	return typeof payload?.sub === "string" ? payload.sub : null;
 };
+
+export const hostedCacheDatabaseName = (base: string): string =>
+	isHostedProduct() ? `${base}:hosted:${hostedAccountId()}` : base;
 
 const writeSession = (session: HostedSession): HostedSession => {
 	sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
@@ -167,6 +173,7 @@ export const hostedAuthTokenEndpoint = (baseUrl = rendererApiUrl()): string =>
 const authenticate = async (
 	grant: ApiAuthTokenGrant,
 ): Promise<HostedSession> => {
+	const epoch = sessionEpoch;
 	const response = await fetch(hostedAuthTokenEndpoint(), {
 		method: "POST",
 		headers: { "content-type": "application/json" },
@@ -189,6 +196,7 @@ const authenticate = async (
 				: `workos_auth_${response.status}`,
 		);
 	}
+	if (epoch !== sessionEpoch) throw new Error("hosted_signed_out");
 	return writeSession({
 		accessToken: value.access_token,
 		refreshToken: value.refresh_token,
@@ -255,21 +263,26 @@ export const completeHostedSignIn = async (): Promise<boolean> => {
 	return true;
 };
 
-const accessToken = async (): Promise<string | null> => {
+let tokenRefresh: Promise<string | null> | null = null;
+export const hostedAccessToken = async (): Promise<string | null> => {
 	const session = readSession();
 	if (session === null) return null;
 	if (session.expiresAt - Date.now() > 60_000) return session.accessToken;
-	try {
-		return (
-			await authenticate({
-				grantType: "refresh_token",
-				refreshToken: session.refreshToken,
-			})
-		).accessToken;
-	} catch {
-		sessionStorage.removeItem(SESSION_KEY);
-		return null;
-	}
+	if (tokenRefresh !== null) return tokenRefresh;
+	const epoch = sessionEpoch;
+	tokenRefresh = authenticate({
+		grantType: "refresh_token",
+		refreshToken: session.refreshToken,
+	})
+		.then((next) => next.accessToken)
+		.catch(() => {
+			if (epoch === sessionEpoch) sessionStorage.removeItem(SESSION_KEY);
+			return null;
+		})
+		.finally(() => {
+			tokenRefresh = null;
+		});
+	return tokenRefresh;
 };
 
 const openDpopDatabase = (): Promise<IDBDatabase> =>
@@ -376,11 +389,13 @@ const apiFetch = async (
 ): Promise<Response> => {
 	const target = `${rendererApiUrl()}${path}`;
 	const proof = await signDpopProof({ method: init.method, url: target });
-	const workosToken = init.token === undefined ? await accessToken() : null;
+	const workosToken =
+		init.token === undefined ? await hostedAccessToken() : null;
 	if (init.token === undefined && workosToken === null) {
 		throw new Error("hosted_signed_out");
 	}
 	return fetch(target, {
+		signal: AbortSignal.timeout(15_000),
 		method: init.method,
 		headers: {
 			authorization:
@@ -423,12 +438,13 @@ const ensureApiAccess = async (): Promise<string> => {
 };
 
 export const hostedSignedIn = async (): Promise<boolean> =>
-	(await accessToken()) !== null;
+	(await hostedAccessToken()) !== null && hostedAccountId() !== null;
 
 export const listHostedEnvironments = async (): Promise<ApiEnvironmentList> => {
-	const token = await accessToken();
+	const token = await hostedAccessToken();
 	if (token === null) throw new Error("hosted_signed_out");
 	const response = await fetch(`${rendererApiUrl()}${ApiPaths.environments}`, {
+		signal: AbortSignal.timeout(15_000),
 		headers: { authorization: `Bearer ${token}` },
 	});
 	if (!response.ok) throw new Error(`api_environments_${response.status}`);
@@ -445,6 +461,7 @@ export const registerHostedClient = async (): Promise<void> => {
 	}
 	const target = `${rendererApiUrl()}${ApiPaths.devices}`;
 	const response = await fetch(target, {
+		signal: AbortSignal.timeout(15_000),
 		method: "POST",
 		headers: {
 			authorization: `DPoP ${token}`,
@@ -460,8 +477,16 @@ export const registerHostedClient = async (): Promise<void> => {
 	if (!response.ok) throw new Error(`api_device_${response.status}`);
 };
 
+export const hostedConnectGrantEndpoint = (grant: ApiConnectGrant): string => {
+	const url = new URL(grant.endpoint.wsBaseUrl);
+	url.searchParams.set("token", grant.connectToken);
+	url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
+	return url.toString();
+};
+
 export const connectHostedEnvironment = async (
 	environmentId: string,
+	options: { lease?: boolean } = {},
 ): Promise<ApiConnectGrant> => {
 	const token = await ensureApiAccess();
 	const response = await apiFetch(ApiPaths.connect(environmentId), {
@@ -482,10 +507,8 @@ export const connectHostedEnvironment = async (
 				: `api_connect_${response.status}`,
 		);
 	}
-	const url = new URL(body.endpoint.wsBaseUrl);
-	url.searchParams.set("token", body.connectToken);
-	url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
-	rpcEndpointLease.set(environmentId, url.toString());
+	if (options.lease !== false)
+		rpcEndpointLease.set(environmentId, hostedConnectGrantEndpoint(body));
 	return body;
 };
 
@@ -495,11 +518,27 @@ export const nextHostedRpcEndpoint = (): Promise<string> =>
 	});
 
 export const signOutHostedProduct = async (): Promise<void> => {
-	const token = await accessToken();
+	const accountId = hostedAccountId();
+	const token = readSession()?.accessToken ?? null;
+	sessionEpoch++;
+	sessionStorage.removeItem(SESSION_KEY);
+	const { resetSessionTimelineClientBus } = await import(
+		"./session-timeline-client-bus.ts"
+	);
+	await resetSessionTimelineClientBus();
+	if (typeof indexedDB.databases === "function") {
+		const databases = await indexedDB.databases();
+		for (const database of databases) {
+			if (database.name?.endsWith(`:hosted:${accountId}`))
+				indexedDB.deleteDatabase(database.name);
+		}
+	}
+
 	const deviceId = localStorage.getItem(DEVICE_ID_KEY);
 	if (token !== null && deviceId !== null) {
 		await fetch(`${rendererApiUrl()}${ApiPaths.client(deviceId)}`, {
 			method: "DELETE",
+			signal: AbortSignal.timeout(5_000),
 			headers: { authorization: `Bearer ${token}` },
 		}).catch(() => undefined);
 	}
