@@ -26,6 +26,7 @@ function harness(
 					handler(Schema.decodeUnknownSync(contract.input)(input), context);
 		},
 		addProvider() {},
+		addAcpProvider: () => () => {},
 		emitProviderEvent() {},
 		storage: {
 			get: async () => undefined,

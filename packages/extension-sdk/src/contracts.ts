@@ -3,7 +3,7 @@ import type { ComponentType } from "react";
 
 import type { ExtensionClientHost } from "./client-host.ts";
 
-export const ZUSE_EXTENSION_API_VERSION = "1.1.0";
+export const ZUSE_EXTENSION_API_VERSION = "1.2.0";
 
 export type ExtensionCapability =
 	| "attachments"
@@ -247,6 +247,22 @@ export interface ExtensionProviderSessionInput {
 	readonly modelOptions: Readonly<Record<string, string>>;
 }
 
+/** A stdio ACP agent. Commands are argv arrays, never shell strings. */
+export interface ExtensionAcpProviderDefinition {
+	readonly id: string;
+	readonly displayName: string;
+	readonly command: readonly [string, ...string[]];
+	readonly env?: Readonly<Record<string, string>>;
+	/** Optional native model IDs; an empty list uses the agent default. */
+	readonly models?: ReadonlyArray<ExtensionProviderModel>;
+	/** Native ACP mode IDs. Unsupported Zuse modes fail explicitly. */
+	readonly modes?: Partial<
+		Readonly<Record<"default" | "plan" | "acceptEdits", string>>
+	>;
+	readonly loginHint?: string;
+	readonly startupTimeoutMs?: number;
+}
+
 export interface ExtensionProviderAdapter {
 	probe(): Promise<{
 		readonly available: boolean;
@@ -257,6 +273,10 @@ export interface ExtensionProviderAdapter {
 	start(input: ExtensionProviderSessionInput): Promise<void>;
 	send(sessionId: string, text: string): Promise<void>;
 	interrupt(sessionId: string, turnId?: string): Promise<void>;
+	setPermissionMode?(
+		sessionId: string,
+		mode: "default" | "plan" | "acceptEdits",
+	): Promise<void>;
 	close(sessionId: string): Promise<void>;
 	answerQuestion?(
 		sessionId: string,
@@ -280,6 +300,8 @@ export interface ExtensionProviderAdapter {
 
 export interface ExtensionServerContext {
 	readonly target: "server";
+	/** Register a supervised ACP agent; return this cleanup from your setup. API 1.2. */
+	addAcpProvider(definition: ExtensionAcpProviderDefinition): ExtensionCleanup;
 	handle<Input, Output>(
 		contract: ExtensionRpcContract<Input, Output>,
 		handler: (

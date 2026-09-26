@@ -33,6 +33,7 @@ function harness() {
 				handler(Schema.decodeUnknownSync(contract.input)(input), ctx);
 		},
 		addProvider: () => {},
+		addAcpProvider: () => () => {},
 		emitProviderEvent: () => {},
 		storage: {
 			get: async (key) => values.get(key),

@@ -1,4 +1,5 @@
 export type {
+	ExtensionAcpProviderDefinition,
 	ExtensionProviderAdapter,
 	ExtensionProviderSessionInput,
 	ExtensionServerContext,

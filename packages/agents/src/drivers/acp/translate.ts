@@ -23,7 +23,7 @@ import { appendStreamText } from "../../kernel/stream-text.ts";
  * (GEMINI/GROK/CURSOR) for raw JSON-RPC frame logs in the drivers.
  */
 
-export type AcpProviderTag = "grok" | "gemini" | "cursor" | "kiro";
+export type AcpProviderTag = "grok" | "gemini" | "cursor" | "kiro" | "generic";
 
 const ACP_TRACE = process.env.MEMOIZE_DEBUG_ACP === "1";
 

@@ -92,6 +92,7 @@ export const ResumeStrategy = Schema.Literals([
 	"opencode-session-id",
 	"opencode2-session-id",
 	"kiro-session-id",
+	"acp-session-id",
 	"pi-session-file",
 	"none",
 ]);

@@ -25,7 +25,9 @@
 		"esbuild": "catalog:",
 		"semver": "7.7.4",
 		"ignore": "^7.0.0",
-		"@zuse/utils": "*"
+		"@zuse/utils": "*",
+		"@zuse/agents": "workspace:*",
+		"@zuse/acp": "workspace:*"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",
