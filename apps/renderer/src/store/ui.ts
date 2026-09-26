@@ -35,6 +35,7 @@ export type SettingsSection =
 	| { readonly kind: "defaults" }
 	| { readonly kind: "providers" }
 	| { readonly kind: "extensions" }
+	| { readonly kind: "agent-plugins" }
 	| { readonly kind: "integrations" }
 	| { readonly kind: "mcp" }
 	| { readonly kind: "devices" }

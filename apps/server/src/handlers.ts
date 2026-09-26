@@ -1,5 +1,6 @@
 import { Layer } from "effect";
 import { AccountAccessHandlersLayer } from "./account-access/handlers.ts";
+import { AgentPluginHandlersLayer } from "./agent-plugin/handlers.ts";
 import { AnalyticsHandlersLayer } from "./analytics/handlers.ts";
 import { ApiHandlersLayer } from "./api/handlers.ts";
 import { AttachmentHandlersLayer } from "./attachment/handlers.ts";
@@ -36,6 +37,7 @@ import { WorktreeHandlersLayer } from "./worktree/handlers.ts";
  * sneaking into the handler boundary.
  */
 export const HandlersLayer = Layer.mergeAll(
+	AgentPluginHandlersLayer,
 	DeviceBridgeHandlersLayer,
 	PingHandlersLayer,
 	PreviewsHandlersLayer,

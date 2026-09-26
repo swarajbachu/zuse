@@ -1,3 +1,4 @@
+import { AgentPluginsPane } from "./settings/agent-plugins-pane.tsx";
 import "@zuse/i18n/english/extensions";
 import { formatDate as formatUiDate } from "@zuse/i18n";
 import { isInputComposing } from "../lib/input-composition.ts";
@@ -323,6 +324,12 @@ function SectionTitle({
 					"Verify what's installed, signed in, and which subscription each provider runs on.",
 			};
 		}
+		if (section.kind === "agent-plugins") {
+			return {
+				title: uiMessage("extensions:plugins_title"),
+				subtitle: uiMessage("extensions:plugins_subtitle"),
+			};
+		}
 		if (section.kind === "extensions") {
 			return {
 				title: uiMessage("extensions:title"),
@@ -420,6 +427,7 @@ function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "general") return <GeneralPane />;
 	if (section.kind === "defaults") return <DefaultModelsPane />;
 	if (section.kind === "providers") return <ProvidersPane />;
+	if (section.kind === "agent-plugins") return <AgentPluginsPane />;
 	if (section.kind === "extensions") return <ExtensionsPane />;
 	if (section.kind === "integrations") return <LinearIntegrationsPane />;
 	if (section.kind === "mcp") return <McpServersPane />;
