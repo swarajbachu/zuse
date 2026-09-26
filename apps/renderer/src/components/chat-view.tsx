@@ -1115,7 +1115,7 @@ function TimelineRow({
 	);
 }
 
-function ExtensionTimelineContributions({
+export function ExtensionTimelineContributions({
 	message,
 	sessionId,
 }: {
@@ -1126,6 +1126,7 @@ function ExtensionTimelineContributions({
 	const rendered = useMemo(() => {
 		const output: Array<{
 			readonly extensionId: string;
+			readonly registration: unknown;
 			readonly item: Omit<ExtensionTimelineItem, "data"> & {
 				readonly data: unknown;
 			};
@@ -1158,6 +1159,7 @@ function ExtensionTimelineContributions({
 						const data = Schema.decodeUnknownSync(renderer.schema)(item.data);
 						output.push({
 							extensionId: extension.extensionId,
+							registration: extension.contributions,
 							item: { ...item, data },
 							Component: renderer.Component,
 						});
@@ -1172,20 +1174,22 @@ function ExtensionTimelineContributions({
 		}
 		return output;
 	}, [extensions, message]);
-	return rendered.map(({ extensionId, item, Component }, index) => (
-		<ExtensionErrorBoundary
-			key={`${extensionId}:${item.kind}:${item.version}:${index}`}
-			resetKey={Component}
-			extensionId={extensionId}
-		>
-			<Component
+	return rendered.map(
+		({ extensionId, item, Component, registration }, index) => (
+			<ExtensionErrorBoundary
+				key={`${extensionId}:${item.kind}:${item.version}:${index}`}
+				resetKey={registration}
 				extensionId={extensionId}
-				theme={extensionHostTheme}
-				layout={{ compact: false, platform: "desktop" }}
-				sessionId={sessionId}
-				item={item}
-				timestamp={message.createdAt}
-			/>
-		</ExtensionErrorBoundary>
-	));
+			>
+				<Component
+					extensionId={extensionId}
+					theme={extensionHostTheme}
+					layout={{ compact: false, platform: "desktop" }}
+					sessionId={sessionId}
+					item={item}
+					timestamp={message.createdAt}
+				/>
+			</ExtensionErrorBoundary>
+		),
+	);
 }
