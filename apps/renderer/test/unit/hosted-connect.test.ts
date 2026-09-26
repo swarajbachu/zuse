@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	createHostedEndpointLease,
@@ -9,6 +9,23 @@ import {
 	resolveHostedWorkosClientId,
 } from "../../src/lib/hosted-connect.ts";
 
+const sessionKey = "zuse.hosted.session.v1";
+const storageMock = (entries: [string, string][] = []) => {
+	const values = new Map(entries);
+	return {
+		getItem: (key: string) => values.get(key) ?? null,
+		setItem: (key: string, value: string) => {
+			values.set(key, value);
+		},
+		removeItem: (key: string) => {
+			values.delete(key);
+		},
+	};
+};
+beforeEach(() => {
+	vi.stubGlobal("localStorage", storageMock());
+	vi.stubGlobal("sessionStorage", storageMock());
+});
 const STAGING_CLIENT_ID = "client_01KW6ZEZKVMZ0G429A89XZD83Q";
 const PRODUCTION_CLIENT_ID = "client_01KWGQ818571ARFATQ3G9AR2Y2";
 
@@ -105,6 +122,150 @@ it("shares one refresh-token exchange between concurrent cloud requests", async 
 		profilePictureUrl: "https://example.com/avatar.png",
 	});
 	expect(
-		JSON.parse(storage.get("zuse.hosted.session.v1") ?? "null").refreshToken,
+		JSON.parse(localStorage.getItem(sessionKey) ?? "null").refreshToken,
 	).toBe("rotated");
+});
+
+it("keeps a login when a tab closes and a new visit starts", async () => {
+	sessionStorage.setItem(
+		sessionKey,
+		JSON.stringify({
+			accessToken: "persisted",
+			refreshToken: "refresh",
+			expiresAt: Date.now() + 300000,
+			user: null,
+		}),
+	);
+	expect(await hostedAccessToken()).toBe("persisted");
+	vi.stubGlobal("sessionStorage", storageMock());
+	expect(await hostedAccessToken()).toBe("persisted");
+});
+it("keeps the refresh credential through a temporary network failure", async () => {
+	sessionStorage.setItem(
+		sessionKey,
+		JSON.stringify({
+			accessToken: "expired",
+			refreshToken: "retry-me",
+			expiresAt: 0,
+			user: null,
+		}),
+	);
+	vi.stubGlobal(
+		"fetch",
+		vi
+			.fn()
+			.mockRejectedValueOnce(new TypeError("offline"))
+			.mockResolvedValueOnce(
+				Response.json({
+					access_token: "recovered",
+					refresh_token: "rotated",
+					user: null,
+				}),
+			),
+	);
+	await expect(hostedAccessToken()).rejects.toThrow("offline");
+	expect(await hostedAccessToken()).toBe("recovered");
+});
+it("does not resurrect an old tab's login after shared sign-out", async () => {
+	sessionStorage.setItem(
+		sessionKey,
+		JSON.stringify({
+			accessToken: "old",
+			refreshToken: "old-refresh",
+			expiresAt: Date.now() + 300000,
+			user: null,
+		}),
+	);
+	localStorage.setItem(sessionKey, "null");
+	expect(await hostedAccessToken()).toBeNull();
+});
+
+it("uses a token another tab refreshed while waiting for the refresh lock", async () => {
+	localStorage.setItem(
+		sessionKey,
+		JSON.stringify({
+			accessToken: "expired",
+			refreshToken: "old",
+			expiresAt: 0,
+			user: null,
+		}),
+	);
+	const fetch = vi.fn();
+	vi.stubGlobal("fetch", fetch);
+	const request = vi.fn(
+		async (_name: string, run: () => Promise<string | null>) => {
+			localStorage.setItem(
+				sessionKey,
+				JSON.stringify({
+					accessToken: "other-tab-token",
+					refreshToken: "rotated",
+					expiresAt: Date.now() + 300000,
+					user: null,
+				}),
+			);
+			return run();
+		},
+	);
+	vi.stubGlobal("navigator", { locks: { request } });
+	expect(await hostedAccessToken()).toBe("other-tab-token");
+	expect(fetch).not.toHaveBeenCalled();
+	expect(request).toHaveBeenCalledOnce();
+});
+it.each([429, 500, 503])("preserves credentials on HTTP %s", async (status) => {
+	const stored = JSON.stringify({
+		accessToken: "expired",
+		refreshToken: "retry",
+		expiresAt: 0,
+		user: null,
+	});
+	localStorage.setItem(sessionKey, stored);
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => Response.json({ error: "unavailable" }, { status })),
+	);
+	await expect(hostedAccessToken()).rejects.toThrow("unavailable");
+	expect(localStorage.getItem(sessionKey)).toBe(stored);
+});
+it("clears a refresh credential only when the server rejects it", async () => {
+	localStorage.setItem(
+		sessionKey,
+		JSON.stringify({
+			accessToken: "expired",
+			refreshToken: "revoked",
+			expiresAt: 0,
+			user: null,
+		}),
+	);
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () =>
+			Response.json({ error: "invalid_grant" }, { status: 400 }),
+		),
+	);
+	expect(await hostedAccessToken()).toBeNull();
+	expect(localStorage.getItem(sessionKey)).toBe("null");
+});
+it("does not restore a login when another tab signs out during refresh", async () => {
+	localStorage.setItem(
+		sessionKey,
+		JSON.stringify({
+			accessToken: "expired",
+			refreshToken: "old",
+			expiresAt: 0,
+			user: null,
+		}),
+	);
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => {
+			localStorage.setItem(sessionKey, "null");
+			return Response.json({
+				access_token: "late-token",
+				refresh_token: "late-refresh",
+				user: null,
+			});
+		}),
+	);
+	expect(await hostedAccessToken()).toBeNull();
+	expect(localStorage.getItem(sessionKey)).toBe("null");
 });

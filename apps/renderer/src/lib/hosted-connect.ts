@@ -141,10 +141,18 @@ const jwtExpiry = (token: string): number => {
 
 const readSession = (): HostedSession | null => {
 	try {
-		const raw = sessionStorage.getItem(SESSION_KEY);
+		let raw = localStorage.getItem(SESSION_KEY);
+		if (raw === null) {
+			raw = sessionStorage.getItem(SESSION_KEY);
+			if (raw !== null) {
+				localStorage.setItem(SESSION_KEY, raw);
+				sessionStorage.removeItem(SESSION_KEY);
+			}
+		}
 		if (raw === null) return null;
 		const value = JSON.parse(raw) as Partial<HostedSession>;
-		return typeof value.accessToken === "string" &&
+		return value !== null &&
+			typeof value.accessToken === "string" &&
 			typeof value.refreshToken === "string" &&
 			typeof value.expiresAt === "number"
 			? (value as HostedSession)
@@ -168,12 +176,61 @@ export const hostedCacheDatabaseName = (base: string): string =>
 	isHostedProduct() ? `${base}:hosted:${hostedAccountId()}` : base;
 
 const writeSession = (session: HostedSession): HostedSession => {
-	sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+	localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+	sessionStorage.removeItem(SESSION_KEY);
 	return session;
 };
 
 export const hostedAuthTokenEndpoint = (baseUrl = rendererApiUrl()): string =>
 	`${baseUrl.replace(/\/$/u, "")}${ApiPaths.authToken}`;
+
+/** Only authoritative credential rejection invalidates the persisted login. */
+class HostedAuthRejection extends Error {
+	constructor(
+		readonly status: number,
+		code: string,
+	) {
+		super(code);
+	}
+}
+const clearHostedSession = (): void => {
+	// A tombstone also prevents a still-open legacy tab from migrating old tokens.
+	localStorage.setItem(SESSION_KEY, "null");
+	sessionStorage.removeItem(SESSION_KEY);
+};
+
+/** Reload account-owned state when another tab signs out or changes account. */
+export const watchHostedAccountChanges = (): (() => void) => {
+	const account = (raw: string | null): string | null => {
+		try {
+			const token = JSON.parse(raw ?? "null")?.accessToken;
+			if (typeof token !== "string") return null;
+			const subject = decodeHostedJwtPayload(token)?.sub;
+			return typeof subject === "string" ? subject : null;
+		} catch {
+			return null;
+		}
+	};
+	const onStorage = (event: StorageEvent) => {
+		if (
+			event.storageArea !== localStorage ||
+			(event.key !== SESSION_KEY && event.key !== null)
+		)
+			return;
+		if (
+			event.key !== null &&
+			account(event.oldValue) === account(event.newValue)
+		)
+			return;
+		sessionEpoch++;
+		sessionStorage.removeItem(SESSION_KEY);
+		apiAccess = null;
+		rpcEndpointLease.clear();
+		window.location.replace("/");
+	};
+	window.addEventListener("storage", onStorage);
+	return () => window.removeEventListener("storage", onStorage);
+};
 
 const authenticate = async (
 	grant: ApiAuthTokenGrant,
@@ -196,13 +253,19 @@ const authenticate = async (
 		typeof value.access_token !== "string" ||
 		typeof value.refresh_token !== "string"
 	) {
-		throw new Error(
+		throw new HostedAuthRejection(
+			response.status,
 			typeof value.error === "string"
 				? value.error
 				: `workos_auth_${response.status}`,
 		);
 	}
-	if (epoch !== sessionEpoch) throw new Error("hosted_signed_out");
+	if (
+		epoch !== sessionEpoch ||
+		(grant.grantType === "refresh_token" &&
+			readSession()?.refreshToken !== grant.refreshToken)
+	)
+		throw new Error("hosted_signed_out");
 	return writeSession({
 		user: value.user ?? null,
 		accessToken: value.access_token,
@@ -272,24 +335,58 @@ export const completeHostedSignIn = async (): Promise<boolean> => {
 
 let tokenRefresh: Promise<string | null> | null = null;
 export const hostedAccessToken = async (): Promise<string | null> => {
-	const session = readSession();
-	if (session === null) return null;
-	if (session.expiresAt - Date.now() > 60_000 && session.user !== undefined)
-		return session.accessToken;
+	const current = readSession();
+	if (current === null) return null;
+	if (current.expiresAt - Date.now() > 60_000 && current.user !== undefined)
+		return current.accessToken;
 	if (tokenRefresh !== null) return tokenRefresh;
 	const epoch = sessionEpoch;
-	tokenRefresh = authenticate({
-		grantType: "refresh_token",
-		refreshToken: session.refreshToken,
-	})
-		.then((next) => next.accessToken)
-		.catch(() => {
-			if (epoch === sessionEpoch) sessionStorage.removeItem(SESSION_KEY);
-			return null;
-		})
-		.finally(() => {
-			tokenRefresh = null;
-		});
+	const refresh = async (): Promise<string | null> => {
+		// Re-read after acquiring the origin-wide lock: another tab may have rotated it.
+		const session = readSession();
+		if (epoch !== sessionEpoch || session === null) return null;
+		if (session.expiresAt - Date.now() > 60_000 && session.user !== undefined)
+			return session.accessToken;
+		try {
+			return (
+				await authenticate({
+					grantType: "refresh_token",
+					refreshToken: session.refreshToken,
+				})
+			).accessToken;
+		} catch (cause) {
+			if (
+				epoch !== sessionEpoch ||
+				readSession()?.refreshToken !== session.refreshToken
+			)
+				return null;
+			if (
+				cause instanceof HostedAuthRejection &&
+				[400, 401, 403].includes(cause.status) &&
+				[
+					"invalid_grant",
+					"invalid_refresh_token",
+					"refresh_token_revoked",
+					"session_revoked",
+				].includes(cause.message)
+			) {
+				clearHostedSession();
+				return null;
+			}
+			// Network errors, rate limits, and server failures are retryable, not sign-out.
+			throw cause;
+		}
+	};
+	tokenRefresh = (async () => {
+		if (globalThis.navigator?.locks)
+			return await navigator.locks.request(
+				"zuse.hosted.session.refresh",
+				refresh,
+			);
+		return refresh();
+	})().finally(() => {
+		tokenRefresh = null;
+	});
 	return tokenRefresh;
 };
 
@@ -529,7 +626,7 @@ export const signOutHostedProduct = async (): Promise<void> => {
 	const accountId = hostedAccountId();
 	const token = readSession()?.accessToken ?? null;
 	sessionEpoch++;
-	sessionStorage.removeItem(SESSION_KEY);
+	clearHostedSession();
 	const { resetSessionTimelineClientBus } = await import(
 		"./session-timeline-client-bus.ts"
 	);

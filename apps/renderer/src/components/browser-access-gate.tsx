@@ -21,6 +21,7 @@ import {
 	completeHostedSignIn,
 	hostedSignedIn,
 	isHostedProduct,
+	watchHostedAccountChanges,
 } from "../lib/hosted-connect.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import {
@@ -337,6 +338,7 @@ function HostedAccessGate({ children }: { readonly children: ReactNode }) {
 	}, []);
 	useEffect(() => {
 		void connect();
+		return watchHostedAccountChanges();
 	}, [connect]);
 	if (state.status !== "ready") {
 		return <HostedAccessCard retry={() => void connect()} state={state} />;
