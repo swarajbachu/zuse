@@ -872,7 +872,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/hosted-sidebar.tsx",
-				"line": 163
+				"line": 166
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8359,7 +8359,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/hosted-sidebar.tsx",
-				"line": 155
+				"line": 158
 			},
 			{
 				"path": "apps/renderer/src/components/language-selector.tsx",
@@ -8411,7 +8411,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 97
+				"line": 138
 			},
 			{
 				"path": "apps/renderer/src/components/settings/remote-access/connect-link-card.tsx",
@@ -8564,6 +8564,10 @@
 			{
 				"path": "apps/renderer/src/components/settings/cloud-workspace-auth.tsx",
 				"line": 890
+			},
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 176
 			},
 			{
 				"path": "apps/renderer/src/components/settings/keybindings-editor.tsx",
@@ -13037,7 +13041,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/hosted-sidebar.tsx",
-				"line": 213
+				"line": 216
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
@@ -20746,6 +20750,10 @@
 		"source": "Tailscale",
 		"locations": [
 			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 316
+			},
+			{
 				"path": "apps/renderer/src/components/settings/remote-access/access-methods-card.tsx",
 				"line": 197
 			}
@@ -21081,7 +21089,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 35
+				"line": 52
 			},
 			{
 				"path": "apps/renderer/src/components/settings/remote-access/using-computers-card.tsx",
@@ -21105,11 +21113,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 50
+				"line": 67
 			},
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 110
+				"line": 214
 			},
 			{
 				"path": "apps/renderer/src/components/settings/remote-access/using-computers-card.tsx",
@@ -21123,7 +21131,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 63
+				"line": 80
 			},
 			{
 				"path": "apps/renderer/src/components/settings/remote-access/using-computers-card.tsx",
@@ -24885,7 +24893,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 36
+				"line": 53
 			},
 			{
 				"path": "apps/renderer/src/components/settings-page.tsx",
@@ -24899,7 +24907,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 113
+				"line": 217
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -24909,7 +24917,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 122
+				"line": 226
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -24919,7 +24927,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 86
+				"line": 111
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -24929,11 +24937,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 44
+				"line": 61
 			},
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 131
+				"line": 235
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -24943,7 +24951,125 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 103
+				"line": 144
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:hosted_remote_online": {
+		"source": "Online",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 299
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:hosted_remote_offline": {
+		"source": "Offline · saved",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 301
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:hosted_remote_unknown": {
+		"source": "Status unavailable",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 302
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:hosted_remote_localhost": {
+		"source": "Localhost",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 314
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:hosted_remote_lan": {
+		"source": "Local network",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 318
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:hosted_remote_address": {
+		"source": "Zuse Serve address",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 319
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:hosted_remote_last_seen": {
+		"source": "Last seen {{date}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 326
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:hosted_remote_routes_help": {
+		"source": "These are addresses for the same Zuse Serve computer, not separate computers. Localhost works only on that computer; local-network and Tailscale addresses need access to that network. Availability reflects the latest heartbeat, not a connection test.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 145
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:hosted_remote_remove": {
+		"source": "Remove computer",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 116
+			},
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 157
+			},
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 205
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:hosted_remote_remove_help": {
+		"source": "Remove this computer and its duplicate registrations from your account? This revokes remote access for your account. Chats and files on the computer are not deleted. To reconnect, enable Zuse Serve on that computer again.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 161
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:hosted_remote_remove_failed": {
+		"source": "Some registrations could not be removed. Retry to remove the remaining registrations.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
+				"line": 166
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -25628,7 +25754,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/hosted-sidebar.tsx",
-				"line": 71
+				"line": 77
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -25638,15 +25764,15 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/hosted-sidebar.tsx",
-				"line": 76
+				"line": 82
 			},
 			{
 				"path": "apps/renderer/src/components/hosted-sidebar.tsx",
-				"line": 88
+				"line": 94
 			},
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 73
+				"line": 294
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -25656,7 +25782,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/hosted-sidebar.tsx",
-				"line": 84
+				"line": 90
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -25666,7 +25792,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/hosted-sidebar.tsx",
-				"line": 184
+				"line": 187
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -25681,11 +25807,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/hosted-sidebar.tsx",
-				"line": 49
+				"line": 55
 			},
 			{
 				"path": "apps/renderer/src/components/settings/hosted-devices-pane.tsx",
-				"line": 95
+				"line": 136
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -25715,11 +25841,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/hosted-sidebar.tsx",
-				"line": 137
+				"line": 140
 			},
 			{
 				"path": "apps/renderer/src/components/hosted-sidebar.tsx",
-				"line": 207
+				"line": 210
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

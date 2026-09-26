@@ -41,3 +41,23 @@ export const saveHostedLaptopPreference = (
 		/* Session-only fallback when storage is unavailable. */
 	}
 };
+
+/** Forget a removed selection without changing another computer's preference. */
+export function forgetHostedLaptop(
+	accountId: string | null,
+	environmentId: string,
+) {
+	try {
+		const preference = resolveHostedLaptopPreference(
+			"/",
+			localStorage.getItem(hostedLaptopPreferenceKey(accountId)),
+		);
+		if (preference.environmentId === environmentId)
+			saveHostedLaptopPreference(accountId, {
+				...preference,
+				environmentId: null,
+			});
+	} catch {
+		/* Storage may be disabled. */
+	}
+}

@@ -2,6 +2,7 @@ import { ApiEnvironmentRecord, EnvironmentId } from "@zuse/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import { HostedDevicesPane } from "../../src/components/settings/hosted-devices-pane.tsx";
+import { groupHostedComputers } from "../../src/lib/hosted-computer-catalog.ts";
 
 const discovery = vi.hoisted(() => ({
 	computers: [] as ApiEnvironmentRecord[],
@@ -10,7 +11,10 @@ const discovery = vi.hoisted(() => ({
 	refresh: vi.fn(),
 }));
 vi.mock("../../src/hooks/use-hosted-computers.ts", () => ({
-	useHostedComputers: () => discovery,
+	useHostedComputers: () => ({
+		...discovery,
+		groups: groupHostedComputers(discovery.computers),
+	}),
 }));
 beforeEach(() => {
 	discovery.computers = [];
@@ -35,6 +39,8 @@ it("shows linked personal computers and a chat action", () => {
 	const html = renderToStaticMarkup(<HostedDevicesPane />);
 	expect(html).toContain("My laptop");
 	expect(html).toContain("Show chats");
+	expect(html).toContain("Remove computer");
+	expect(html).toContain("Status unavailable");
 });
 it("keeps the computer list visible when discovery temporarily fails", () => {
 	discovery.computers = [

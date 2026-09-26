@@ -890,5 +890,16 @@
 	"hosted_remote_download": "Télécharger Zuse",
 	"hosted_remote_show_chats": "Afficher les discussions",
 	"hosted_remote_refresh": "Actualiser les ordinateurs",
-	"hosted_remote_private": "Seuls les ordinateurs liés à votre compte apparaissent ici. Désactivez Zuse Serve sur un ordinateur pour couper son accès à distance."
+	"hosted_remote_private": "Seuls les ordinateurs liés à votre compte apparaissent ici. Désactivez Zuse Serve sur un ordinateur pour couper son accès à distance.",
+	"hosted_remote_online": "En ligne",
+	"hosted_remote_offline": "Hors ligne · enregistré",
+	"hosted_remote_unknown": "État indisponible",
+	"hosted_remote_localhost": "Localhost",
+	"hosted_remote_lan": "Réseau local",
+	"hosted_remote_address": "Adresse Zuse Serve",
+	"hosted_remote_last_seen": "Dernière activité : {{date}}",
+	"hosted_remote_routes_help": "Ces adresses appartiennent au même ordinateur Zuse Serve. Localhost fonctionne uniquement sur cet ordinateur ; les adresses locales et Tailscale nécessitent un accès au réseau concerné. La disponibilité repose sur le dernier signal reçu, pas sur un test de connexion.",
+	"hosted_remote_remove": "Supprimer l’ordinateur",
+	"hosted_remote_remove_help": "Supprimer cet ordinateur et ses inscriptions en double du compte ? L’accès à distance sera révoqué. Les discussions et fichiers restent sur l’ordinateur. Réactivez Zuse Serve pour le reconnecter.",
+	"hosted_remote_remove_failed": "Certaines inscriptions n’ont pas pu être supprimées. Réessayez pour supprimer les inscriptions restantes."
 }

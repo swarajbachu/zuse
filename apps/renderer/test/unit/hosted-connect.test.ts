@@ -6,6 +6,7 @@ import {
 	hostedAccountUser,
 	hostedAuthTokenEndpoint,
 	isHostedProduct,
+	removeHostedComputer,
 	resolveHostedWorkosClientId,
 } from "../../src/lib/hosted-connect.ts";
 
@@ -268,4 +269,72 @@ it("does not restore a login when another tab signs out during refresh", async (
 	);
 	expect(await hostedAccessToken()).toBeNull();
 	expect(localStorage.getItem(sessionKey)).toBe("null");
+});
+
+describe("removing hosted computers", () => {
+	it.each([
+		200, 404,
+	])("accepts successful and already removed registrations (%s)", async (status) => {
+		localStorage.setItem(
+			sessionKey,
+			JSON.stringify({
+				accessToken: "account-token",
+				user: {
+					id: "account-a",
+					email: "test@example.com",
+					firstName: null,
+					lastName: null,
+					profilePictureUrl: null,
+				},
+				refreshToken: "refresh",
+				expiresAt: Date.now() + 3600000,
+			}),
+		);
+		const fetch = vi.fn(async () => Response.json({}, { status }));
+		vi.stubGlobal("fetch", fetch);
+		await removeHostedComputer("computer-one");
+		expect(fetch).toHaveBeenCalledWith(
+			expect.stringContaining("/v1/client/environment-unlink"),
+			expect.objectContaining({
+				method: "POST",
+				headers: {
+					authorization: "Bearer account-token",
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ environmentId: "computer-one" }),
+			}),
+		);
+	});
+	it("surfaces a failed removal for retry", async () => {
+		localStorage.setItem(
+			sessionKey,
+			JSON.stringify({
+				accessToken: "account-token",
+				user: {
+					id: "account-a",
+					email: "test@example.com",
+					firstName: null,
+					lastName: null,
+					profilePictureUrl: null,
+				},
+				refreshToken: "refresh",
+				expiresAt: Date.now() + 3600000,
+			}),
+		);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => Response.json({}, { status: 503 })),
+		);
+		await expect(removeHostedComputer("computer-one")).rejects.toThrow(
+			"api_unlink_503",
+		);
+	});
+	it("does not issue unauthenticated removal requests", async () => {
+		const fetch = vi.fn();
+		vi.stubGlobal("fetch", fetch);
+		await expect(removeHostedComputer("computer-one")).rejects.toThrow(
+			"hosted_signed_out",
+		);
+		expect(fetch).not.toHaveBeenCalled();
+	});
 });

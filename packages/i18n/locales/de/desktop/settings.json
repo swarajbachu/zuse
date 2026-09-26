@@ -886,5 +886,16 @@
 	"hosted_remote_download": "Zuse herunterladen",
 	"hosted_remote_show_chats": "Chats anzeigen",
 	"hosted_remote_refresh": "Computer aktualisieren",
-	"hosted_remote_private": "Hier erscheinen nur Computer, die mit deinem Konto verknüpft sind. Deaktiviere Zuse Serve auf einem Computer, um den Fernzugriff zu beenden."
+	"hosted_remote_private": "Hier erscheinen nur Computer, die mit deinem Konto verknüpft sind. Deaktiviere Zuse Serve auf einem Computer, um den Fernzugriff zu beenden.",
+	"hosted_remote_online": "Online",
+	"hosted_remote_offline": "Offline · gespeichert",
+	"hosted_remote_unknown": "Status nicht verfügbar",
+	"hosted_remote_localhost": "Localhost",
+	"hosted_remote_lan": "Lokales Netzwerk",
+	"hosted_remote_address": "Zuse-Serve-Adresse",
+	"hosted_remote_last_seen": "Zuletzt gesehen {{date}}",
+	"hosted_remote_routes_help": "Diese Adressen gehören zum selben Zuse-Serve-Computer. Localhost funktioniert nur dort; lokale und Tailscale-Adressen benötigen Zugang zum jeweiligen Netzwerk. Die Verfügbarkeit basiert auf dem letzten Lebenszeichen, nicht auf einem Verbindungstest.",
+	"hosted_remote_remove": "Computer entfernen",
+	"hosted_remote_remove_help": "Diesen Computer und doppelte Registrierungen aus deinem Konto entfernen? Der Fernzugriff wird widerrufen. Chats und Dateien bleiben erhalten. Zum erneuten Verbinden Zuse Serve auf dem Computer aktivieren.",
+	"hosted_remote_remove_failed": "Einige Registrierungen konnten nicht entfernt werden. Versuche es erneut."
 }

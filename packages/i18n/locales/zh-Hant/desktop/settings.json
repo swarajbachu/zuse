@@ -886,5 +886,16 @@
 	"hosted_remote_download": "下載 Zuse",
 	"hosted_remote_show_chats": "顯示聊天",
 	"hosted_remote_refresh": "重新整理電腦清單",
-	"hosted_remote_private": "此處僅顯示連結到你帳戶的電腦。在電腦上關閉 Zuse Serve 即可停用遠端存取。"
+	"hosted_remote_private": "此處僅顯示連結到你帳戶的電腦。在電腦上關閉 Zuse Serve 即可停用遠端存取。",
+	"hosted_remote_online": "在線",
+	"hosted_remote_offline": "離線 · 已儲存",
+	"hosted_remote_unknown": "狀態無法取得",
+	"hosted_remote_localhost": "Localhost",
+	"hosted_remote_lan": "區域網路",
+	"hosted_remote_address": "Zuse Serve 位址",
+	"hosted_remote_last_seen": "最後在線 {{date}}",
+	"hosted_remote_routes_help": "這些是同一台 Zuse Serve 電腦的位址，並非不同電腦。Localhost 僅適用於該電腦；區域網路和 Tailscale 位址需要連接相應網路。可用狀態依據最近的心跳，而非連線測試。",
+	"hosted_remote_remove": "移除電腦",
+	"hosted_remote_remove_help": "從帳戶中移除此電腦及其重複註冊？這將撤銷遠端存取，但不會刪除電腦上的聊天和檔案。重新連接時，請再次啟用 Zuse Serve。",
+	"hosted_remote_remove_failed": "部分註冊未能移除。請重試以移除剩餘註冊。"
 }

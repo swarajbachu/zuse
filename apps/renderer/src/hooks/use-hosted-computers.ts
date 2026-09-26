@@ -1,5 +1,6 @@
 import type { ApiEnvironmentRecord } from "@zuse/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { groupHostedComputers } from "../lib/hosted-computer-catalog.ts";
 import { listHostedEnvironments } from "../lib/hosted-connect.ts";
 
 /** Account discovery never activates a computer or starts a cloud workspace. */
@@ -45,5 +46,12 @@ export function useHostedComputers(enabled = true) {
 			active = false;
 		};
 	}, [enabled, attempt]);
-	return { computers, loading, failed, refresh };
+	const groups = useMemo(() => groupHostedComputers(computers), [computers]);
+	return {
+		computers: groups.map((group) => group.computer),
+		groups,
+		loading,
+		failed,
+		refresh,
+	};
 }

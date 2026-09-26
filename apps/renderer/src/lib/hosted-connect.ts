@@ -2,6 +2,7 @@ import {
 	type ApiAuthTokenGrant,
 	type ApiConnectGrant,
 	type ApiEnvironmentList,
+	type ApiEnvironmentStatus,
 	ApiPaths,
 	type AuthUser,
 	HOSTED_APP_URL,
@@ -554,6 +555,37 @@ export const listHostedEnvironments = async (): Promise<ApiEnvironmentList> => {
 	});
 	if (!response.ok) throw new Error(`api_environments_${response.status}`);
 	return (await response.json()) as ApiEnvironmentList;
+};
+
+/** Presence checks do not connect to or wake the runtime. */
+export const getHostedComputerStatus = async (
+	environmentId: string,
+): Promise<ApiEnvironmentStatus> => {
+	const token = await ensureApiAccess();
+	const response = await apiFetch(ApiPaths.status(environmentId), {
+		method: "POST",
+		token,
+	});
+	if (!response.ok) throw new Error(`api_status_${response.status}`);
+	return (await response.json()) as ApiEnvironmentStatus;
+};
+
+export const removeHostedComputer = async (
+	environmentId: string,
+): Promise<void> => {
+	const token = await hostedAccessToken();
+	if (token === null) throw new Error("hosted_signed_out");
+	const response = await fetch(`${rendererApiUrl()}${ApiPaths.unlink}`, {
+		method: "POST",
+		signal: AbortSignal.timeout(15_000),
+		headers: {
+			authorization: `Bearer ${token}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({ environmentId }),
+	});
+	if (!response.ok && response.status !== 404)
+		throw new Error(`api_unlink_${response.status}`);
 };
 
 export const registerHostedClient = async (): Promise<void> => {

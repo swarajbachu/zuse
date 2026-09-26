@@ -44,7 +44,13 @@ export function HostedLaptopSection() {
 		"shell",
 	]);
 	const [preference, setPreference] = useState(readLaptopPreference);
-	const { computers, failed } = useHostedComputers(preference.enabled);
+	const { computers, groups, failed } = useHostedComputers(preference.enabled);
+	const selectedId =
+		groups.find((group) =>
+			group.registrations.some(
+				(entry) => entry.environmentId === preference.environmentId,
+			),
+		)?.computer.environmentId ?? preference.environmentId;
 	const catalogError = failed
 		? uiMessage("shell:hosted_could_not_load_computers")
 		: null;
@@ -75,7 +81,7 @@ export function HostedLaptopSection() {
 					<select
 						aria-label={uiMessage("shell:hosted_computer")}
 						className="h-7 w-full rounded bg-muted px-2"
-						value={preference.environmentId ?? ""}
+						value={selectedId ?? ""}
 						onChange={(e) =>
 							update({ ...preference, environmentId: e.target.value || null })
 						}
@@ -90,11 +96,8 @@ export function HostedLaptopSection() {
 						))}
 					</select>
 					{catalogError && <p role="alert">{catalogError}</p>}
-					{preference.environmentId && (
-						<LaptopChats
-							key={preference.environmentId}
-							environmentId={preference.environmentId}
-						/>
+					{selectedId && (
+						<LaptopChats key={selectedId} environmentId={selectedId} />
 					)}
 				</div>
 			)}

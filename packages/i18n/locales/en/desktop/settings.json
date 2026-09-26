@@ -886,5 +886,16 @@
 	"hosted_remote_download": "Download Zuse",
 	"hosted_remote_show_chats": "Show chats",
 	"hosted_remote_refresh": "Refresh computers",
-	"hosted_remote_private": "Only computers linked to your account appear here. Turn off Zuse Serve on a computer to disable remote access."
+	"hosted_remote_private": "Only computers linked to your account appear here. Turn off Zuse Serve on a computer to disable remote access.",
+	"hosted_remote_online": "Online",
+	"hosted_remote_offline": "Offline · saved",
+	"hosted_remote_unknown": "Status unavailable",
+	"hosted_remote_localhost": "Localhost",
+	"hosted_remote_lan": "Local network",
+	"hosted_remote_address": "Zuse Serve address",
+	"hosted_remote_last_seen": "Last seen {{date}}",
+	"hosted_remote_routes_help": "These are addresses for the same Zuse Serve computer, not separate computers. Localhost works only on that computer; local-network and Tailscale addresses need access to that network. Availability reflects the latest heartbeat, not a connection test.",
+	"hosted_remote_remove": "Remove computer",
+	"hosted_remote_remove_help": "Remove this computer and its duplicate registrations from your account? This revokes remote access for your account. Chats and files on the computer are not deleted. To reconnect, enable Zuse Serve on that computer again.",
+	"hosted_remote_remove_failed": "Some registrations could not be removed. Retry to remove the remaining registrations."
 }

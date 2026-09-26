@@ -1,6 +1,7 @@
 import { environmentRoute } from "@zuse/client-runtime/environment-scope";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	forgetHostedLaptop,
 	hostedLaptopPreferenceKey,
 	resolveHostedLaptopPreference,
 	saveHostedLaptopPreference,
@@ -63,4 +64,34 @@ it("shares the settings computer selection with the sidebar without changing oth
 			values.get(hostedLaptopPreferenceKey("account-b")) ?? null,
 		),
 	).toEqual({ enabled: false, environmentId: "laptop-b" });
+});
+
+it("forgets only the removed computer selection in its own account", () => {
+	const values = new Map<string, string>();
+	vi.stubGlobal("localStorage", {
+		getItem: (key: string) => values.get(key) ?? null,
+		setItem: (key: string, value: string) => values.set(key, value),
+	});
+	saveHostedLaptopPreference("a", { enabled: true, environmentId: "one" });
+	saveHostedLaptopPreference("b", { enabled: true, environmentId: "one" });
+	forgetHostedLaptop("a", "two");
+	expect(
+		resolveHostedLaptopPreference(
+			"/",
+			values.get(hostedLaptopPreferenceKey("a")) ?? null,
+		).environmentId,
+	).toBe("one");
+	forgetHostedLaptop("a", "one");
+	expect(
+		resolveHostedLaptopPreference(
+			"/",
+			values.get(hostedLaptopPreferenceKey("a")) ?? null,
+		).environmentId,
+	).toBeNull();
+	expect(
+		resolveHostedLaptopPreference(
+			"/",
+			values.get(hostedLaptopPreferenceKey("b")) ?? null,
+		).environmentId,
+	).toBe("one");
 });
