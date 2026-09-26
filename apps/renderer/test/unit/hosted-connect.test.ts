@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	createHostedEndpointLease,
 	hostedAccessToken,
+	hostedAccountUser,
 	hostedAuthTokenEndpoint,
 	isHostedProduct,
 	resolveHostedWorkosClientId,
@@ -75,7 +76,17 @@ it("shares one refresh-token exchange between concurrent cloud requests", async 
 		removeItem: (key: string) => storage.delete(key),
 	});
 	const fetch = vi.fn(async () =>
-		Response.json({ access_token: "fresh-token", refresh_token: "rotated" }),
+		Response.json({
+			access_token: "fresh-token",
+			refresh_token: "rotated",
+			user: {
+				id: "account-1",
+				email: "person@example.com",
+				firstName: "Test",
+				lastName: "Person",
+				profilePictureUrl: "https://example.com/avatar.png",
+			},
+		}),
 	);
 	vi.stubGlobal("fetch", fetch);
 	expect(
@@ -86,6 +97,13 @@ it("shares one refresh-token exchange between concurrent cloud requests", async 
 		]),
 	).toEqual(["fresh-token", "fresh-token", "fresh-token"]);
 	expect(fetch).toHaveBeenCalledTimes(1);
+	expect(hostedAccountUser()).toEqual({
+		id: "account-1",
+		email: "person@example.com",
+		firstName: "Test",
+		lastName: "Person",
+		profilePictureUrl: "https://example.com/avatar.png",
+	});
 	expect(
 		JSON.parse(storage.get("zuse.hosted.session.v1") ?? "null").refreshToken,
 	).toBe("rotated");

@@ -3,6 +3,7 @@ import {
 	type ApiConnectGrant,
 	type ApiEnvironmentList,
 	ApiPaths,
+	type AuthUser,
 	HOSTED_APP_URL,
 	WIRE_PROTOCOL_VERSION,
 	WORKOS_PUBLIC_CLIENT_ID,
@@ -23,6 +24,7 @@ const DPOP_STORE = "keys";
 const DPOP_KEY = "account";
 
 type HostedSession = {
+	readonly user?: AuthUser | null;
 	readonly accessToken: string;
 	readonly refreshToken: string;
 	readonly expiresAt: number;
@@ -159,6 +161,9 @@ export const hostedAccountId = (): string | null => {
 	return typeof payload?.sub === "string" ? payload.sub : null;
 };
 
+export const hostedAccountUser = (): AuthUser | null =>
+	readSession()?.user ?? null;
+
 export const hostedCacheDatabaseName = (base: string): string =>
 	isHostedProduct() ? `${base}:hosted:${hostedAccountId()}` : base;
 
@@ -184,6 +189,7 @@ const authenticate = async (
 		readonly access_token?: unknown;
 		readonly refresh_token?: unknown;
 		readonly error?: unknown;
+		readonly user?: AuthUser;
 	};
 	if (
 		!response.ok ||
@@ -198,6 +204,7 @@ const authenticate = async (
 	}
 	if (epoch !== sessionEpoch) throw new Error("hosted_signed_out");
 	return writeSession({
+		user: value.user ?? null,
 		accessToken: value.access_token,
 		refreshToken: value.refresh_token,
 		expiresAt: jwtExpiry(value.access_token),
@@ -267,7 +274,8 @@ let tokenRefresh: Promise<string | null> | null = null;
 export const hostedAccessToken = async (): Promise<string | null> => {
 	const session = readSession();
 	if (session === null) return null;
-	if (session.expiresAt - Date.now() > 60_000) return session.accessToken;
+	if (session.expiresAt - Date.now() > 60_000 && session.user !== undefined)
+		return session.accessToken;
 	if (tokenRefresh !== null) return tokenRefresh;
 	const epoch = sessionEpoch;
 	tokenRefresh = authenticate({

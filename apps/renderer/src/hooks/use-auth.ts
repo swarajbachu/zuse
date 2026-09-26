@@ -3,6 +3,7 @@ import { useEnvironmentAuth } from "../lib/auth-client-bus.ts";
 import {
 	beginHostedSignIn,
 	hostedAccountId,
+	hostedAccountUser,
 	isHostedProduct,
 	signOutHostedProduct,
 } from "../lib/hosted-connect.ts";
@@ -76,23 +77,15 @@ function useHostedAccount(): UseAuth {
 	const displayName = useAuthStore((s) => s.displayName);
 	const setDisplayName = useAuthStore((s) => s.setDisplayName);
 	const id = hostedAccountId();
+	const user = hostedAccountUser();
 	return {
-		user:
-			id === null
-				? null
-				: {
-						id,
-						email: "",
-						firstName: null,
-						lastName: null,
-						profilePictureUrl: null,
-					},
+		user,
 		isSignedIn: id !== null,
 		isLoading: false,
 		isUnavailable: false,
 		signingIn: false,
 		error: null,
-		name: displayName || "Your account",
+		name: displayName.trim() || profileName(user),
 		displayName,
 		setDisplayName,
 		signIn: beginHostedSignIn,

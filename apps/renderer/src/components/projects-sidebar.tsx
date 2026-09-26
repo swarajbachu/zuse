@@ -33,7 +33,6 @@ import {
 	GitBranchIcon,
 	HelpCircleIcon,
 	Login03Icon,
-	Logout01Icon,
 	PencilIcon,
 	Robot01Icon,
 	ServerStack01Icon,
@@ -57,13 +56,7 @@ import { createPortal } from "react-dom";
 import { TypewriterText } from "~/components/typewriter-text.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { CompactEmptyState } from "~/components/ui/compact-empty-state";
-import {
-	Menu,
-	MenuItem,
-	MenuPopup,
-	MenuSeparator,
-	MenuTrigger,
-} from "~/components/ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuSeparator } from "~/components/ui/menu";
 import { toastManager } from "~/components/ui/toast.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useAuth } from "~/hooks/use-auth.ts";
@@ -82,7 +75,7 @@ import {
 import { useEnvironmentPermissions } from "~/lib/environment-permissions-client-bus.ts";
 import { useEnvironmentQuestionAttachments } from "~/lib/environment-question-attachments-client-bus.ts";
 import { formatError } from "~/lib/format-error.ts";
-import { isHostedProduct, signOutHostedProduct } from "~/lib/hosted-connect.ts";
+import { isHostedProduct } from "~/lib/hosted-connect.ts";
 import { filterActionableQuestionInteractions } from "~/lib/question-actionability.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
@@ -1169,18 +1162,15 @@ function SidebarFooter() {
 			<SidebarAccount />
 			<div className="flex items-center gap-0.5">
 				{!isHostedProduct() && <SidebarAgentCount />}
-				<SidebarFooterIcon
-					icon={Analytics01Icon}
-					label={uiMessage("projects:projects_sidebar_usage")}
-					onPointerEnter={() => !isHostedProduct() && void prefetchUsage(null)}
-					onFocus={() => !isHostedProduct() && void prefetchUsage(null)}
-					onClick={() => {
-						if (isHostedProduct()) {
-							useUiStore.getState().setSettingsSection({ kind: "machines" });
-							setView("settings");
-						} else openUsage("global");
-					}}
-				/>
+				{!isHostedProduct() && (
+					<SidebarFooterIcon
+						icon={Analytics01Icon}
+						label={uiMessage("projects:projects_sidebar_usage")}
+						onPointerEnter={() => void prefetchUsage(null)}
+						onFocus={() => void prefetchUsage(null)}
+						onClick={() => openUsage("global")}
+					/>
+				)}
 				<SidebarFooterIcon
 					icon={Settings01Icon}
 					label={uiMessage("common:settings")}
@@ -1245,40 +1235,6 @@ function SidebarAccount() {
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
 
 	const initial = (name || user?.email || "?").charAt(0).toUpperCase();
-	if (isHostedProduct()) {
-		return (
-			<Menu>
-				<MenuTrigger
-					render={
-						<button
-							type="button"
-							className="flex min-h-7 w-full items-center gap-1.5 rounded-md px-2 text-[12px] text-muted-foreground outline-none hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
-						>
-							<HugeiconsIcon icon={UserCircleIcon} className="size-4" />
-							<span className="min-w-0 flex-1 truncate text-left">
-								{uiMessage("projects:projects_sidebar_zuse_account")}
-							</span>
-						</button>
-					}
-				/>
-				<MenuPopup
-					side="top"
-					align="start"
-					sideOffset={6}
-					className="w-(--anchor-width) rounded-xl"
-				>
-					<MenuItem
-						variant="destructive"
-						onClick={() => void signOutHostedProduct()}
-						className="min-h-9 rounded-lg px-2.5 text-[13px]"
-					>
-						<HugeiconsIcon icon={Logout01Icon} />
-						{uiMessage("projects:projects_sidebar_sign_out_of_this_browser")}
-					</MenuItem>
-				</MenuPopup>
-			</Menu>
-		);
-	}
 
 	const label = isUnavailable
 		? "Account unavailable"
@@ -1308,7 +1264,10 @@ function SidebarAccount() {
 						onClick={openAccount}
 						disabled={isLoading || isUnavailable || signingIn}
 						aria-label={label}
-						className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+						className={cn(
+							"inline-flex h-7 min-w-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+							isHostedProduct() ? "gap-1.5 px-2 text-[12px]" : "w-7",
+						)}
 					>
 						{isSignedIn ? (
 							<Avatar className="size-5 text-[10px]">
@@ -1323,6 +1282,11 @@ function SidebarAccount() {
 							<HugeiconsIcon icon={UserCircleIcon} className="size-4" />
 						) : (
 							<HugeiconsIcon icon={Login03Icon} className="size-4" />
+						)}
+						{isHostedProduct() && (
+							<span className="truncate">
+								{name || uiMessage("projects:projects_sidebar_zuse_account")}
+							</span>
 						)}
 					</button>
 				}

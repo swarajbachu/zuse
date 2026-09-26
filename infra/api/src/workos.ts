@@ -195,7 +195,27 @@ export const WorkosVerifierLive: Layer.Layer<
 							serviceUnavailable("workos_auth_invalid_response"),
 						);
 					}
+					const profile = body.user;
+					const user =
+						typeof profile === "object" && profile !== null
+							? (profile as Record<string, unknown>)
+							: null;
+					const nullableText = (value: unknown): string | null =>
+						typeof value === "string" ? value : null;
 					return {
+						...(user !== null &&
+						typeof user.id === "string" &&
+						typeof user.email === "string"
+							? {
+									user: {
+										id: user.id,
+										email: user.email,
+										firstName: nullableText(user.first_name),
+										lastName: nullableText(user.last_name),
+										profilePictureUrl: nullableText(user.profile_picture_url),
+									},
+								}
+							: {}),
 						access_token: body.access_token,
 						refresh_token: body.refresh_token,
 					};
