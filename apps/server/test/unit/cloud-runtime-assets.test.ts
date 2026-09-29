@@ -777,11 +777,11 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 		);
 		expect(build).toContain("Cloud runtime unexpectedly imports keytar");
 		expect(build).toContain('"node-gyp-build"');
-		expect(build).toContain(
-			'import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts"',
+		expect(build).toMatch(
+			/import\s*\{\s*MIN_SUPPORTED_WIRE_PROTOCOL_VERSION,\s*WIRE_PROTOCOL_VERSION,?\s*\}\s*from "@zuse\/contracts"/,
 		);
-		expect(build).toContain(
-			"wireProtocol: { min: WIRE_PROTOCOL_VERSION, max: WIRE_PROTOCOL_VERSION }",
+		expect(build).toMatch(
+			/wireProtocol:\s*\{\s*min: MIN_SUPPORTED_WIRE_PROTOCOL_VERSION,\s*max: WIRE_PROTOCOL_VERSION,?\s*\}/,
 		);
 		expect(build).toContain("appVersion,");
 		const buildConfig = await readWorkspaceFile(

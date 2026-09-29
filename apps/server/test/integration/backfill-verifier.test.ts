@@ -20,6 +20,9 @@ describe("backfill verifier", () => {
 			await runtime.runPromise(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
+					// Seed the pre-recency schema so the verifier exercises its backfill.
+					yield* sql`ALTER TABLE chats DROP COLUMN last_user_message_at`;
+					yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = 60`;
 					const createdAt = "2026-01-01T00:00:00.000Z";
 					const messageAt = "2026-01-02T00:00:00.000Z";
 					const sessionUpdatedAt = "2026-01-03T00:00:00.000Z";

@@ -21,7 +21,7 @@ describe("cloud workspace RPC activity", () => {
 		const observe = makeCloudWorkspaceRpcActivity(() => {
 			deadline = now + 600_000;
 		});
-		const relay = (
+		const forward = (
 			direction: WorkspaceGatewayFrameDirection,
 			message: unknown,
 		) => {
@@ -38,8 +38,8 @@ describe("cloud workspace RPC activity", () => {
 			expect(frame.payload).toBe(payload);
 		};
 		for (now = 0; now <= 660_000; now += 10_000) {
-			relay("client", { _tag: "Ping" });
-			relay("runtime", { _tag: "Pong" });
+			forward("client", { _tag: "Ping" });
+			forward("runtime", { _tag: "Pong" });
 			for (const tag of [
 				"git.status",
 				"pty.list",
@@ -50,11 +50,11 @@ describe("cloud workspace RPC activity", () => {
 				"pty.resize",
 				"diagnostics.overview",
 			]) {
-				relay("client", request(tag));
+				forward("client", request(tag));
 			}
-			relay("client", { _tag: "Ack", requestId: "1" });
-			relay("runtime", { _tag: "Chunk", requestId: "1", values: ["update"] });
-			relay("runtime", {
+			forward("client", { _tag: "Ack", requestId: "1" });
+			forward("runtime", { _tag: "Chunk", requestId: "1", values: ["update"] });
+			forward("runtime", {
 				_tag: "Exit",
 				requestId: "1",
 				exit: { _tag: "Success" },

@@ -52,6 +52,8 @@ it.each([
 					}
 					// The simulated pre-bridge schema predates question delivery receipts.
 					yield* client`DROP TABLE question_answer_deliveries`;
+					yield* client`DROP INDEX idx_events_kind_sequence`;
+					yield* client`ALTER TABLE chats DROP COLUMN last_user_message_at`;
 					yield* client`DELETE FROM effect_sql_migrations WHERE migration_id >= 55`;
 					const name =
 						databaseState === "other-branch"
