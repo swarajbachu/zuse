@@ -6318,7 +6318,7 @@
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"chat:message_row_to_resolve_sign_in_to_we_apos_ll_validate_the_login_automati_sentence": {
-		"source": "To resolve, sign in to {{label}}. We&apos;ll validate the login automatically.",
+		"source": "To resolve, sign in to {{label}}. We'll validate the login automatically.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/message-row.tsx",
@@ -11161,7 +11161,7 @@
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"onboarding:done_you_apos_re_all_set": {
-		"source": "You&apos;re all set",
+		"source": "You're all set",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/done.tsx",
@@ -11251,7 +11251,7 @@
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"onboarding:maximize_scanning_this_month_apos_s_local_agent_logs": {
-		"source": "Scanning this month&apos;s local agent logs...",
+		"source": "Scanning this month's local agent logs...",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/maximize.tsx",
@@ -11726,7 +11726,7 @@
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"onboarding:done_start_a_chat_from_the_sidebar_whenever_you_apos_re_ready_rep_sentence": {
-		"source": "Start a chat from the sidebar whenever you&apos;re ready. Replay this flow anytime from <part0>Settings → General</part0>.",
+		"source": "Start a chat from the sidebar whenever you're ready. Replay this flow anytime from <part0>Settings → General</part0>.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/done.tsx",
@@ -11786,7 +11786,7 @@
 		"context": "onboarding interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"onboarding:provider_sessions_will_fail_if_your_plan_doesn_apos_t_include_subscri_sentence": {
-		"source": "Sessions will fail if your plan doesn&apos;t include {{plan}}. Subscribe (or confirm your existing plan) before using {{value}}.",
+		"source": "Sessions will fail if your plan doesn't include {{plan}}. Subscribe (or confirm your existing plan) before using {{value}}.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/onboarding/steps/provider.tsx",
@@ -16055,7 +16055,7 @@
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"providers:provider_card_sessions_will_fail_if_your_plan_doesn_apos_t_include_subscri_sentence": {
-		"source": "Sessions will fail if your plan doesn&apos;t include {{value}}. Subscribe (or confirm your existing plan) before using {{value2}}.",
+		"source": "Sessions will fail if your plan doesn't include {{value}}. Subscribe (or confirm your existing plan) before using {{value2}}.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
@@ -26781,7 +26781,7 @@
 		"context": "tools interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"tools:tool_row_the_model_produced_a_thinking_block_the_sdk_forwarded_its_signed_recei": {
-		"source": "The model produced a thinking block (the SDK forwarded its signed receipt) but the underlying text was filtered out by Anthropic&apos;s agent SDK before it reached us. We can&apos;t expose the actual thoughts without bypassing the official SDK.",
+		"source": "The model produced a thinking block (the SDK forwarded its signed receipt) but the underlying text was filtered out by Anthropic's agent SDK before it reached us. We can't expose the actual thoughts without bypassing the official SDK.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/tool-row.tsx",

@@ -21,7 +21,7 @@
 	"tool_row_result": "⟦Rëësüült⟧",
 	"tool_row_error_2": "⟦ëërrôôr⟧",
 	"tool_row_thought_content_was_redacted_by_the_model": "⟦Thôôüüght côôntëënt wààs rëëdààctëëd by thëë môôdëël.⟧",
-	"tool_row_the_model_produced_a_thinking_block_the_sdk_forwarded_its_signed_recei": "⟦Thëë môôdëël prôôdüücëëd àà thïïnkïïng blôôck (thëë SDK fôôrwààrdëëd ïïts sïïgnëëd rëëcëëïïpt) büüt thëë üündëërlyïïng tëëxt wààs fïïltëërëëd ôôüüt by ÀÀnthrôôpïïc&ààpôôs;s ààgëënt SDK bëëfôôrëë ïït rëëààchëëd üüs. Wëë cààn&ààpôôs;t ëëxpôôsëë thëë ààctüüààl thôôüüghts wïïthôôüüt bypààssïïng thëë ôôffïïcïïààl SDK.⟧",
+	"tool_row_the_model_produced_a_thinking_block_the_sdk_forwarded_its_signed_recei": "⟦Thëë môôdëël prôôdüücëëd àà thïïnkïïng blôôck (thëë SDK fôôrwààrdëëd ïïts sïïgnëëd rëëcëëïïpt) büüt thëë üündëërlyïïng tëëxt wààs fïïltëërëëd ôôüüt by ÀÀnthrôôpïïc's ààgëënt SDK bëëfôôrëë ïït rëëààchëëd üüs. Wëë cààn't ëëxpôôsëë thëë ààctüüààl thôôüüghts wïïthôôüüt bypààssïïng thëë ôôffïïcïïààl SDK.⟧",
 	"tool_row_thinking": "⟦Thïïnkïïng⟧",
 	"code_block_code": "⟦{{name}} côôdëë⟧",
 	"tool_row_open": "⟦ÔÔpëën {{shownPath}}⟧",

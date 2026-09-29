@@ -609,7 +609,7 @@
 	"fork_menu_fork_from_this_sentence": "⟦Fôôrk frôôm thïïs {{label}}⟧",
 	"markdown_body_could_not_render_mermaid_diagram_sentence": "⟦Côôüüld nôôt rëëndëër Mëërmààïïd dïïààgrààm: {{value}}⟧",
 	"message_row_sent_by_from_another_chat_sentence": "⟦Sëënt by {{value}} frôôm àànôôthëër chààt⟧",
-	"message_row_to_resolve_sign_in_to_we_apos_ll_validate_the_login_automati_sentence": "⟦Tôô rëësôôlvëë, sïïgn ïïn tôô {{label}}. Wëë&ààpôôs;ll vààlïïdààtëë thëë lôôgïïn ààüütôômààtïïcààlly.⟧",
+	"message_row_to_resolve_sign_in_to_we_apos_ll_validate_the_login_automati_sentence": "⟦Tôô rëësôôlvëë, sïïgn ïïn tôô {{label}}. Wëë'll vààlïïdààtëë thëë lôôgïïn ààüütôômààtïïcààlly.⟧",
 	"turn_summary_more_sentence": "⟦+{{value}} môôrëë⟧",
 	"archived_chats_page_archived_sentence": "⟦ÀÀrchïïvëëd {{value}}⟧",
 	"permissions_inspector_permissions_sentence": "⟦Pëërmïïssïïôôns — {{projectName}}⟧",

@@ -113,7 +113,7 @@
 	"provider_card_models_shown_sentence": "<part0>Models</part0><part1>{{value}} shown</part1>",
 	"provider_card_custom_ids_are_passed_directly_to_sentence": "Custom IDs are passed directly to {{value}}.",
 	"provider_card_requires_subscription_sentence": "Requires {{value}} subscription",
-	"provider_card_sessions_will_fail_if_your_plan_doesn_apos_t_include_subscri_sentence": "Sessions will fail if your plan doesn&apos;t include {{value}}. Subscribe (or confirm your existing plan) before using {{value2}}.",
+	"provider_card_sessions_will_fail_if_your_plan_doesn_apos_t_include_subscri_sentence": "Sessions will fail if your plan doesn't include {{value}}. Subscribe (or confirm your existing plan) before using {{value2}}.",
 	"provider_card_sign_in_to_sentence": "Sign in to {{label}}",
 	"provider_card_or_run_sentence": "or run <part0>$ {{manualCommand}}</part0>",
 	"add_computer_dialog_label_for": "Label for {{value1}}",
