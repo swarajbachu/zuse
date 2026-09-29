@@ -1570,6 +1570,7 @@ export const startCodexSession = (
 			try: () =>
 				CodexAppServerClient.start({
 					codexPath,
+					apiKey,
 					externalAuthConsumerId: sessionId,
 					env: { ...process.env, ZUSE_MCP_TOKEN: mcpGatewaySession.token },
 					mcp: {
@@ -1608,15 +1609,6 @@ export const startCodexSession = (
 				}),
 			),
 		);
-
-		if (apiKey !== null && apiKey.length > 0) {
-			// app-server uses the same CLI auth stack as the TUI. The key is still
-			// accepted by the legacy SDK path, but app-server currently reads auth
-			// from the user's Codex home; keep a visible note for future debugging.
-			console.warn(
-				"[codex] API key credential present; app-server uses Codex CLI auth",
-			);
-		}
 
 		const supportsNativePlanMode = yield* Effect.promise(() =>
 			probeNativePlanMode(app),
@@ -1673,6 +1665,7 @@ export const startCodexSession = (
 					}
 					app = await CodexAppServerClient.start({
 						codexPath,
+						apiKey,
 						externalAuthConsumerId: sessionId,
 						env: process.env,
 						mcp: {

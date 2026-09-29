@@ -385,3 +385,32 @@ lines.on("line", (line) => {
 		}
 	});
 });
+
+describe("Codex app-server API-key authentication", () => {
+	it("authenticates the pinned binary without writing the key to disk", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-codex-api-key-"));
+		let client: CodexAppServerClient | null = null;
+		try {
+			client = await CodexAppServerClient.start({
+				codexPath: require.resolve("@openai/codex/bin/codex.js"),
+				env: {
+					...process.env,
+					CODEX_HOME: directory,
+					OPENAI_API_KEY: undefined,
+					CODEX_API_KEY: undefined,
+				},
+				apiKey: "test-api-key",
+				startupTimeoutMs: 5_000,
+				onNotification: () => {},
+				onServerRequest: () => {},
+			});
+			expect(
+				await client.request("account/read", { refreshToken: false }),
+			).toMatchObject({ account: { type: "apiKey" } });
+			expect(existsSync(join(directory, "auth.json"))).toBe(false);
+		} finally {
+			client?.close();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+});

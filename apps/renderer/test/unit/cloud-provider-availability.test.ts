@@ -1,7 +1,10 @@
 import { type AgentAvailability, CloudAuthStatus } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
-import { applyCloudProviderAuthentication } from "../../src/lib/cloud-provider-availability.ts";
+import {
+	applyCloudProviderAuthentication,
+	cloudProviderAuthenticationMode,
+} from "../../src/lib/cloud-provider-availability.ts";
 
 const availability = (
 	providerId: AgentAvailability["providerId"],
@@ -62,5 +65,39 @@ describe("broker-backed cloud provider availability", () => {
 			authStatus: "unauthenticated",
 			status: "disabled",
 		});
+	});
+});
+
+it("recognizes Codex API-key authentication through the provider broker", () => {
+	const result = applyCloudProviderAuthentication({
+		availability: [availability("codex")],
+		auth: new CloudAuthStatus({
+			authorityState: "ready",
+			providers: [{ providerId: "codex", state: "connected" }],
+		}),
+		codexAuthMode: "legacy-image",
+		providerAuthMode: "broker-v1",
+	});
+	expect(result[0]).toMatchObject({
+		authStatus: "authenticated",
+		status: "ready",
+	});
+});
+
+describe("cloud authentication error classification", () => {
+	it.each([
+		["broker-v1", "legacy-image", "broker-v1"],
+		["legacy-image", "broker-v1", "broker-v1"],
+		["legacy-image", "legacy-image", "legacy-image"],
+		["legacy-image", undefined, "legacy-image"],
+		[undefined, "broker-v1", "broker-v1"],
+		[undefined, undefined, "unknown"],
+	] as const)("classifies Codex mode %s with provider mode %s as %s", (codexAuthMode, providerAuthMode, expected) => {
+		expect(
+			cloudProviderAuthenticationMode("codex", {
+				codexAuthMode,
+				providerAuthMode,
+			}),
+		).toBe(expected);
 	});
 });

@@ -1,3 +1,4 @@
+import { cloudProviderAuthenticationMode } from "@zuse/client-runtime/cloud-provider-availability";
 import { useStreamingText } from "../hooks/use-streaming-text.ts";
 import { ContextPill, contextPillClass } from "./context-pill.tsx";
 import "@zuse/i18n/english/common";
@@ -1323,11 +1324,10 @@ export function ErrorBubble({
 			return (
 				<CloudProviderAuthCard
 					providerId={error.providerId}
-					authMode={
-						error.providerId === "codex"
-							? (cloudSummary?.codexAuthMode ?? "unknown")
-							: (cloudSummary?.providerAuthMode ?? "unknown")
-					}
+					authMode={cloudProviderAuthenticationMode(
+						error.providerId,
+						cloudSummary,
+					)}
 					environmentId={environmentId}
 					onOpenCloudSettings={onOpenCloudSettings}
 					onDismiss={onDismiss}

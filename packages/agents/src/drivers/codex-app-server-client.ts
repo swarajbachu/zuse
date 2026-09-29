@@ -189,6 +189,8 @@ export class CodexAppServerClient {
 
 	static async start(options: {
 		readonly codexPath: string | null;
+		/** Delivered over stdin using an in-memory credential store. */
+		readonly apiKey?: string | null;
 		readonly env?: NodeJS.ProcessEnv;
 		readonly mcp?: CodexAppMcpLaunchConfig;
 		readonly startupTimeoutMs?: number;
@@ -202,6 +204,9 @@ export class CodexAppServerClient {
 	}): Promise<CodexAppServerClient> {
 		const externalAuthProvider =
 			options.externalAuthProvider ?? defaultExternalAuthProvider;
+		const apiKey = externalAuthProvider === null ? options.apiKey : null;
+		const hasApiKey =
+			apiKey !== null && apiKey !== undefined && apiKey.length > 0;
 		const handleServerRequest: ServerRequestHandler = (request, respond) => {
 			if (
 				externalAuthProvider !== null &&
@@ -243,7 +248,10 @@ export class CodexAppServerClient {
 		};
 		const child = spawn(
 			options.codexPath ?? "codex",
-			[...codexAppServerLaunchArgs(options.mcp)],
+			[
+				...codexAppServerLaunchArgs(options.mcp),
+				...(hasApiKey ? ["-c", 'cli_auth_credentials_store="ephemeral"'] : []),
+			],
 			options.env === undefined ? undefined : { env: options.env },
 		);
 		child.stdout.setEncoding("utf8");
@@ -333,6 +341,12 @@ export class CodexAppServerClient {
 					accessToken: tokens.accessToken,
 					chatgptAccountId: tokens.chatgptAccountId,
 					chatgptPlanType: tokens.chatgptPlanType,
+				});
+			}
+			if (hasApiKey) {
+				await bootstrap.request("account/login/start", {
+					type: "apiKey",
+					apiKey,
 				});
 			}
 			return bootstrap;

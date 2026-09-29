@@ -14,6 +14,26 @@ const BROKER_PROVIDERS = new Set<ProviderId>([
 	"grok",
 ]);
 
+type CloudAuthenticationModes = {
+	readonly codexAuthMode?: CloudCodexAuthMode;
+	readonly providerAuthMode?: CloudProviderAuthMode;
+};
+
+/** Codex API keys use the general provider broker; subscription tokens use the Codex broker. */
+export const cloudProviderAuthenticationMode = (
+	providerId: ProviderId,
+	modes: CloudAuthenticationModes | null | undefined,
+): CloudProviderAuthMode | "unknown" => {
+	if (!BROKER_PROVIDERS.has(providerId)) return "unknown";
+	if (providerId === "codex" && modes?.codexAuthMode === "broker-v1")
+		return "broker-v1";
+	return (
+		modes?.providerAuthMode ??
+		(providerId === "codex" ? modes?.codexAuthMode : undefined) ??
+		"unknown"
+	);
+};
+
 /**
  * Replace native-file authentication signals with the account authority's
  * verdict for broker-backed cloud runtimes. The runtime probe still owns CLI
@@ -36,10 +56,10 @@ export const applyCloudProviderAuthentication = ({
 	);
 	return availability.map((entry) => {
 		const brokered =
-			(entry.providerId === "codex" && codexAuthMode === "broker-v1") ||
-			(entry.providerId !== "codex" &&
-				BROKER_PROVIDERS.has(entry.providerId) &&
-				providerAuthMode === "broker-v1");
+			cloudProviderAuthenticationMode(entry.providerId, {
+				codexAuthMode,
+				providerAuthMode,
+			}) === "broker-v1";
 		if (!brokered) {
 			return providerAuthMode === "broker-v1" &&
 				!BROKER_PROVIDERS.has(entry.providerId)

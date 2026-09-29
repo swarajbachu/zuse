@@ -161,6 +161,7 @@ const installAppServer = (
 const withSession = async <A>(
 	options: {
 		readonly resumeCursor?: string | null;
+		readonly apiKey?: string;
 		readonly forkFromResume?: boolean;
 		readonly missingResume?: boolean;
 		readonly initialMissingMcpInventories?: number;
@@ -183,7 +184,7 @@ const withSession = async <A>(
 			startCodexSession(
 				input({ forkFromResume: options.forkFromResume }),
 				cwd,
-				null,
+				options.apiKey ?? null,
 				"fake-codex",
 				"session-1" as AgentSessionId,
 				async () => ({ _tag: "AllowOnce" }),
@@ -665,6 +666,19 @@ describe("Codex session cursor persistence", () => {
 					text: "Started a fresh Codex thread.",
 				},
 			]);
+		});
+	});
+});
+
+describe("Codex API-key delivery", () => {
+	it("passes the supplied key to the app server before starting a thread", async () => {
+		await withSession({ apiKey: "test-api-key" }, async () => {
+			expect(
+				Reflect.get(
+					vi.mocked(CodexAppServerClient.start).mock.calls[0]?.[0] ?? {},
+					"apiKey",
+				),
+			).toBe("test-api-key");
 		});
 	});
 });
