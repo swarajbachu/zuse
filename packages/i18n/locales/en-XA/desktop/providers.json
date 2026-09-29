@@ -113,7 +113,7 @@
 	"provider_card_models_shown_sentence": "⟦<part0>Môôdëëls</part0><part1>{{value}} shôôwn</part1>⟧",
 	"provider_card_custom_ids_are_passed_directly_to_sentence": "⟦Cüüstôôm ÏÏDs ààrëë pààssëëd dïïrëëctly tôô {{value}}.⟧",
 	"provider_card_requires_subscription_sentence": "⟦Rëëqüüïïrëës {{value}} süübscrïïptïïôôn⟧",
-	"provider_card_sessions_will_fail_if_your_plan_doesn_apos_t_include_subscri_sentence": "⟦Sëëssïïôôns wïïll fààïïl ïïf yôôüür plààn dôôëësn&ààpôôs;t ïïnclüüdëë {{value}}. Süübscrïïbëë (ôôr côônfïïrm yôôüür ëëxïïstïïng plààn) bëëfôôrëë üüsïïng {{value2}}.⟧",
+	"provider_card_sessions_will_fail_if_your_plan_doesn_apos_t_include_subscri_sentence": "⟦Sëëssïïôôns wïïll fààïïl ïïf yôôüür plààn dôôëësn't ïïnclüüdëë {{value}}. Süübscrïïbëë (ôôr côônfïïrm yôôüür ëëxïïstïïng plààn) bëëfôôrëë üüsïïng {{value2}}.⟧",
 	"provider_card_sign_in_to_sentence": "⟦Sïïgn ïïn tôô {{label}}⟧",
 	"provider_card_or_run_sentence": "⟦ôôr rüün <part0>$ {{manualCommand}}</part0>⟧",
 	"add_computer_dialog_label_for": "⟦Lààbëël fôôr {{value1}}⟧",

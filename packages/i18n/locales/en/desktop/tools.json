@@ -21,7 +21,7 @@
 	"tool_row_result": "Result",
 	"tool_row_error_2": "error",
 	"tool_row_thought_content_was_redacted_by_the_model": "Thought content was redacted by the model.",
-	"tool_row_the_model_produced_a_thinking_block_the_sdk_forwarded_its_signed_recei": "The model produced a thinking block (the SDK forwarded its signed receipt) but the underlying text was filtered out by Anthropic&apos;s agent SDK before it reached us. We can&apos;t expose the actual thoughts without bypassing the official SDK.",
+	"tool_row_the_model_produced_a_thinking_block_the_sdk_forwarded_its_signed_recei": "The model produced a thinking block (the SDK forwarded its signed receipt) but the underlying text was filtered out by Anthropic's agent SDK before it reached us. We can't expose the actual thoughts without bypassing the official SDK.",
 	"tool_row_thinking": "Thinking",
 	"code_block_code": "{{name}} code",
 	"tool_row_open": "Open {{shownPath}}",
