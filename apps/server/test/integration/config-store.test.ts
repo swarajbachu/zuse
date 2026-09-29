@@ -75,6 +75,44 @@ afterEach(() => {
 });
 
 describe("config-store settings coercion", () => {
+	it("requires explicit opt-in for provider update notifications", () => {
+		for (const value of [undefined, null, false, "true", 1]) {
+			expect(
+				coerceSettings({ providerUpdateNotificationsEnabled: value })
+					.providerUpdateNotificationsEnabled,
+			).toBe(false);
+		}
+		expect(
+			coerceSettings({ providerUpdateNotificationsEnabled: true })
+				.providerUpdateNotificationsEnabled,
+		).toBe(true);
+	});
+
+	it("persists provider notification opt-in and opt-out", async () => {
+		await withRuntime(async ({ run, userConfig }) => {
+			const initial = await run(
+				Effect.flatMap(ConfigStoreService, (svc) => svc.getSettings()),
+			);
+			expect(initial.providerUpdateNotificationsEnabled).toBe(false);
+			for (const enabled of [true, false]) {
+				await run(
+					Effect.flatMap(ConfigStoreService, (svc) =>
+						svc.updateSettings({ providerUpdateNotificationsEnabled: enabled }),
+					),
+				);
+				await run(
+					Effect.flatMap(ConfigStoreService, (svc) =>
+						svc.updateSettings({ appearanceMode: "dark" }),
+					),
+				);
+				const saved = coerceSettings(
+					JSON.parse(readFileSync(join(userConfig, "settings.json"), "utf8")),
+				);
+				expect(saved.providerUpdateNotificationsEnabled).toBe(enabled);
+			}
+		});
+	});
+
 	it("preserves opencode as a valid default provider", () => {
 		const settings = coerceSettings({
 			defaultProviderId: "opencode",

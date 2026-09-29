@@ -48,6 +48,7 @@ export interface SettingsSlice {
 	readonly defaultRuntimeMode: RuntimeMode;
 	readonly defaultAutoCreateWorktree: boolean;
 	readonly defaultAutonomyLevel: AutonomyLevel;
+	readonly providerUpdateNotificationsEnabled: boolean;
 	readonly completionSoundEnabled: boolean;
 	readonly completionSoundPreset: CompletionSoundPreset;
 	readonly appearanceMode: AppearanceMode;
@@ -90,6 +91,7 @@ type SettingsState = SettingsSlice & {
 	readonly setDefaultRuntimeMode: (mode: RuntimeMode) => void;
 	readonly setDefaultAutoCreateWorktree: (value: boolean) => void;
 	readonly setDefaultAutonomyLevel: (level: AutonomyLevel) => void;
+	readonly setProviderUpdateNotificationsEnabled: (value: boolean) => void;
 	readonly setCompletionSoundEnabled: (value: boolean) => void;
 	readonly setCompletionSoundPreset: (preset: CompletionSoundPreset) => void;
 	readonly setAppearanceMode: (mode: AppearanceMode) => void;
@@ -184,6 +186,7 @@ const FALLBACK: SettingsSlice = {
 	defaultRuntimeMode: "approval-required",
 	defaultAutoCreateWorktree: true,
 	defaultAutonomyLevel: "approval-gated",
+	providerUpdateNotificationsEnabled: false,
 	completionSoundEnabled: false,
 	completionSoundPreset: "chime",
 	appearanceMode: "dark",
@@ -210,6 +213,9 @@ const SettingsSliceSchema = Schema.Struct({
 	defaultRuntimeMode: RuntimeMode,
 	defaultAutoCreateWorktree: Schema.Boolean,
 	defaultAutonomyLevel: AutonomyLevel,
+	providerUpdateNotificationsEnabled: Schema.Boolean.pipe(
+		Schema.withDecodingDefaultType(Effect.succeed(false)),
+	),
 	completionSoundEnabled: Schema.Boolean,
 	completionSoundPreset: CompletionSoundPreset,
 	appearanceMode: AppearanceMode,
@@ -301,6 +307,8 @@ const fromFile = (file: SettingsFile): SettingsSlice => {
 		defaultRuntimeMode: file.defaultRuntimeMode,
 		defaultAutoCreateWorktree: file.defaultAutoCreateWorktree,
 		defaultAutonomyLevel: file.defaultAutonomyLevel,
+		providerUpdateNotificationsEnabled:
+			file.providerUpdateNotificationsEnabled === true,
 		completionSoundEnabled: file.completionSoundEnabled,
 		completionSoundPreset: file.completionSoundPreset,
 		appearanceMode: file.appearanceMode,
@@ -607,6 +615,9 @@ const ACTIONS = {
 		update(() => ({ defaultAutoCreateWorktree })),
 	setDefaultAutonomyLevel: (defaultAutonomyLevel: AutonomyLevel) =>
 		update(() => ({ defaultAutonomyLevel })),
+	setProviderUpdateNotificationsEnabled: (
+		providerUpdateNotificationsEnabled: boolean,
+	) => update(() => ({ providerUpdateNotificationsEnabled })),
 	setCompletionSoundEnabled: (completionSoundEnabled: boolean) =>
 		update(() => ({ completionSoundEnabled })),
 	setCompletionSoundPreset: (completionSoundPreset: CompletionSoundPreset) =>

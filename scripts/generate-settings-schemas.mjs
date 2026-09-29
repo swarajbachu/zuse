@@ -171,6 +171,7 @@ writeSchema("settings.schema.json", {
 		defaultAutoCreateWorktree: { type: "boolean" },
 		onboardingCompleted: { type: "boolean" },
 		appearanceMode: { enum: appearanceModes },
+		providerUpdateNotificationsEnabled: { type: "boolean", default: false },
 		completionSoundEnabled: { type: "boolean" },
 		completionSoundPreset: { enum: completionSounds },
 		analyticsEnabled: { type: "boolean" },

@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 
 import { Button } from "~/components/ui/button";
 import { overlaySurface } from "~/components/ui/overlay-surface";
+import { useSettingsStore } from "~/lib/settings-client-bus";
 import { readStorageWithLegacy } from "~/lib/storage-keys";
 import { cn } from "~/lib/utils";
 import { useProvidersStore } from "~/store/providers";
@@ -58,12 +59,15 @@ function persistDismissed(keys: ReadonlySet<string>): void {
 export function ProviderUpdatesToast() {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
+	const enabled = useSettingsStore((s) => s.providerUpdateNotificationsEnabled);
 	const availability = useProvidersStore((s) => s.availability);
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
 	const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() =>
 		loadDismissed(),
 	);
+
+	if (!enabled) return null;
 
 	const candidates = availability.filter(
 		(a) => a.latestVersionStatus === "behind",

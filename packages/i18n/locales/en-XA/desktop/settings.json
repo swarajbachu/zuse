@@ -929,5 +929,7 @@
 	"cloud_setup_open_guide": "⟦ÔÔpëën sëëtüüp güüïïdëë⟧",
 	"cloud_setup_guide_description": "⟦Côônnëëct GïïtHüüb, sïïgn ïïn tôô yôôüür ààgëënts, àànd büüïïld yôôüür clôôüüd ïïmààgëës.⟧",
 	"cloud_images_details_description": "⟦Büüïïld prôôgrëëss, lôôgs, côônfïïgüürààtïïôôn, àànd prëëvïïôôüüs büüïïlds.⟧",
-	"cloud_images_no_builds": "⟦Nôô büüïïlds yëët. ÜÜsëë Rëëbüüïïld ïïmààgëë tôô büüïïld ïïmààgëës fôôr ààll prôôvïïdëërs.⟧"
+	"cloud_images_no_builds": "⟦Nôô büüïïlds yëët. ÜÜsëë Rëëbüüïïld ïïmààgëë tôô büüïïld ïïmààgëës fôôr ààll prôôvïïdëërs.⟧",
+	"settings_page_provider_update_notifications": "⟦Prôôvïïdëër üüpdààtëë nôôtïïfïïcààtïïôôns⟧",
+	"settings_page_provider_update_notifications_description": "⟦Shôôw àà nôôtïïfïïcààtïïôôn whëën àà nëëwëër vëërsïïôôn ôôf ààn ààgëënt prôôvïïdëër ïïs ààvààïïlààblëë. ÔÔff by dëëfààüült.⟧"
 }

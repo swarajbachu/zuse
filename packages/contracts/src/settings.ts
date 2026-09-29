@@ -81,6 +81,7 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 	defaultAutonomyLevel: AutonomyLevel,
 	onboardingCompleted: Schema.Boolean,
 	appearanceMode: AppearanceMode,
+	providerUpdateNotificationsEnabled: Schema.optional(Schema.Boolean),
 	completionSoundEnabled: Schema.Boolean,
 	completionSoundPreset: CompletionSoundPreset,
 	/**
@@ -205,6 +206,7 @@ export const SettingsPatch = Schema.Struct({
 	defaultAutonomyLevel: Schema.optional(AutonomyLevel),
 	onboardingCompleted: Schema.optional(Schema.Boolean),
 	appearanceMode: Schema.optional(AppearanceMode),
+	providerUpdateNotificationsEnabled: Schema.optional(Schema.Boolean),
 	completionSoundEnabled: Schema.optional(Schema.Boolean),
 	completionSoundPreset: Schema.optional(CompletionSoundPreset),
 	providerEnabled: Schema.optional(Schema.Record(ProviderId, Schema.Boolean)),

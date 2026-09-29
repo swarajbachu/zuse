@@ -929,5 +929,7 @@
 	"cloud_setup_open_guide": "Open setup guide",
 	"cloud_setup_guide_description": "Connect GitHub, sign in to your agents, and build your cloud images.",
 	"cloud_images_details_description": "Build progress, logs, configuration, and previous builds.",
-	"cloud_images_no_builds": "No builds yet. Use Rebuild image to build images for all providers."
+	"cloud_images_no_builds": "No builds yet. Use Rebuild image to build images for all providers.",
+	"settings_page_provider_update_notifications": "Benachrichtigungen zu Anbieter-Updates",
+	"settings_page_provider_update_notifications_description": "Eine Benachrichtigung anzeigen, wenn eine neuere Version eines Agenten-Anbieters verfügbar ist. Standardmäßig deaktiviert."
 }

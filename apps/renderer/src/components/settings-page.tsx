@@ -1122,6 +1122,12 @@ function GeneralPane() {
 
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
 	const setAppearanceMode = useSettingsStore((s) => s.setAppearanceMode);
+	const providerUpdateNotificationsEnabled = useSettingsStore(
+		(s) => s.providerUpdateNotificationsEnabled,
+	);
+	const setProviderUpdateNotificationsEnabled = useSettingsStore(
+		(s) => s.setProviderUpdateNotificationsEnabled,
+	);
 	const completionSoundEnabled = useSettingsStore(
 		(s) => s.completionSoundEnabled,
 	);
@@ -1338,6 +1344,23 @@ function GeneralPane() {
 			{!isHostedProduct() && <ComputerAwakeSettings />}
 
 			<SettingsGroup title={uiMessage("settings:settings_page_notifications")}>
+				<SettingsRow
+					title={uiMessage(
+						"settings:settings_page_provider_update_notifications",
+					)}
+					description={uiMessage(
+						"settings:settings_page_provider_update_notifications_description",
+					)}
+					action={
+						<Switch
+							aria-label={uiMessage(
+								"settings:settings_page_provider_update_notifications",
+							)}
+							checked={providerUpdateNotificationsEnabled}
+							onCheckedChange={setProviderUpdateNotificationsEnabled}
+						/>
+					}
+				/>
 				<SettingsRow
 					title={uiMessage("settings:settings_page_agent_completion_sound")}
 					description={uiMessage(
