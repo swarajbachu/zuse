@@ -9,9 +9,10 @@ desktop or mobile client remains a disposable viewer and controller. Closing
 the app, sleeping a laptop, or changing networks does not own or terminate an
 accepted agent turn.
 
-The current public beta uses E2B as its sandbox provider. The product model is
-provider-neutral: E2B is an adapter, not a second chat type. Local, SSH,
-pairing, and user-managed remote environments keep their existing paths.
+The public beta integrates Boat, E2B, and boxd through provider adapters.
+Availability depends on deployment configuration and billing eligibility. The
+product model is provider-neutral: placement does not create a second chat type.
+Local, SSH, pairing, and user-managed remote environments keep their existing paths.
 
 ## System invariants
 
@@ -45,6 +46,7 @@ pairing, and user-managed remote environments keep their existing paths.
 | [Realtime and storage](realtime-and-storage.md) | Offline opening, R2 catch-up, live synchronization, and large histories |
 | [Security](security.md) | Identity, authorization, credentials, encryption, and isolation |
 | [Public API](public-api.md) | API keys, integration endpoints, message delivery, and signed webhooks |
+| [boxd × Zuse](boxd.md) | Supported features, setup, forks, previews, billing boundaries, and boxd platform capabilities |
 | [Adding sandbox providers](adding-sandbox-providers.md) | Required usage reporting, settlement, Polar delivery, and rollout checks |
 | [Operations](operations.md) | Releases, environments, migrations, monitoring, incidents, and smoke tests |
 | [Incident debugging](incident-debugging.md) | Hands-on investigation of stuck chats: SSH, provider commands, logs, processes, data, and verified repair |
