@@ -694,5 +694,11 @@
 	"fork_menu_new_tab_on_this_machine": "このマシンで、このメッセージまでの会話を含む新しいタブを開きます。",
 	"fork_menu_fork_in_new_machine": "新しいマシンにフォーク",
 	"fork_menu_new_machine_description": "このマシンを複製し、別のチャットで会話を続けます。",
-	"fork_menu_forking_in_new_machine": "新しいマシンにフォーク中"
+	"fork_menu_forking_in_new_machine": "新しいマシンにフォーク中",
+	"runtime_mode_ask_for_approval": "承認を求める",
+	"runtime_mode_approve_for_me": "代わりに承認",
+	"runtime_mode_auto_description": "エージェントが操作を確認し、必要に応じて承認を求めます。",
+	"runtime_mode_change_stops_turn": "アクセス権を変更すると現在のターンが停止します。次のメッセージから新しいモードが適用されます。",
+	"runtime_mode_approval_description": "ファイルの編集、コマンドの実行、ネットワークへのアクセス前に承認を求めます。",
+	"runtime_mode_full_description": "承認なしで操作を許可します。プランモードは引き続き適用されます。"
 }

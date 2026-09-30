@@ -694,5 +694,11 @@
 	"fork_menu_new_tab_on_this_machine": "在此機器上開啟新標籤頁，包含截至此訊息的對話。",
 	"fork_menu_fork_in_new_machine": "分叉到新機器",
 	"fork_menu_new_machine_description": "複製此機器，並在獨立的聊天中繼續對話。",
-	"fork_menu_forking_in_new_machine": "正在分叉到新機器"
+	"fork_menu_forking_in_new_machine": "正在分叉到新機器",
+	"runtime_mode_ask_for_approval": "要求核准",
+	"runtime_mode_approve_for_me": "代我核准",
+	"runtime_mode_auto_description": "代理程式會審查操作，並在需要時詢問。",
+	"runtime_mode_change_stops_turn": "變更存取權限會停止目前回合。下一則訊息將使用新模式。",
+	"runtime_mode_approval_description": "編輯檔案、執行命令和存取網路前先詢問。",
+	"runtime_mode_full_description": "無需核准即可執行操作。計畫模式仍然適用。"
 }

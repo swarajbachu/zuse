@@ -18,6 +18,7 @@ const providerIds = [
 ];
 const runtimeModes = [
 	"approval-required",
+	"auto",
 	"auto-accept-edits",
 	"auto-accept-edits-and-bash",
 	"full-access",

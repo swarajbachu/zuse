@@ -289,13 +289,16 @@ export const handleAcpNativePermissionRequest = async (
 	if (!isAcpNativePermissionMethod(method)) return null;
 
 	const permission = classifyAcpNativePermission(method, params);
+	const runtimeMode = ctx.getRuntimeMode();
 	const policy = nativePermissionPolicy(
 		permission,
-		ctx.getRuntimeMode(),
+		runtimeMode,
 		ctx.getPermissionMode(),
 	);
 	const isStandardAcp = lower(method) === "session/request_permission";
-	if (policy.kind === "auto-allow")
+	// Auto-mode requests reaching the client are native reviewer escalations.
+	// A locally read-only classification must not silently override that decision.
+	if (policy.kind === "auto-allow" && runtimeMode !== "auto")
 		return isStandardAcp
 			? standardAcpPermissionResponse(params, "allow-once")
 			: nativePermissionResponse(true);
@@ -305,7 +308,7 @@ export const handleAcpNativePermissionRequest = async (
 			: nativePermissionResponse(false);
 
 	const decision = await ctx.requestPermission(permission.kind, {
-		forcePrompt: policy.forcePrompt,
+		forcePrompt: policy.kind === "prompt" ? policy.forcePrompt : false,
 	});
 	if (isStandardAcp) {
 		return standardAcpPermissionResponse(

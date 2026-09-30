@@ -694,5 +694,11 @@
 	"fork_menu_new_tab_on_this_machine": "이 머신에서 이 메시지까지의 대화를 포함하는 새 탭을 엽니다.",
 	"fork_menu_fork_in_new_machine": "새 머신으로 포크",
 	"fork_menu_new_machine_description": "이 머신을 복제하고 별도의 채팅에서 대화를 계속합니다.",
-	"fork_menu_forking_in_new_machine": "새 머신으로 포크 중"
+	"fork_menu_forking_in_new_machine": "새 머신으로 포크 중",
+	"runtime_mode_ask_for_approval": "승인 요청",
+	"runtime_mode_approve_for_me": "대신 승인",
+	"runtime_mode_auto_description": "에이전트가 작업을 검토하고 필요한 경우 승인을 요청합니다.",
+	"runtime_mode_change_stops_turn": "접근 권한을 변경하면 현재 턴이 중지됩니다. 다음 메시지부터 새 모드가 적용됩니다.",
+	"runtime_mode_approval_description": "파일 편집, 명령 실행, 네트워크 접근 전에 승인을 요청합니다.",
+	"runtime_mode_full_description": "승인 없이 작업을 허용합니다. 계획 모드는 계속 적용됩니다."
 }

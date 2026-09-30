@@ -44,6 +44,7 @@
         {
           "enum": [
             "approval-required",
+            "auto",
             "auto-accept-edits",
             "auto-accept-edits-and-bash",
             "full-access"

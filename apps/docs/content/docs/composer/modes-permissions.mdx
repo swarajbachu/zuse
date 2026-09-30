@@ -24,12 +24,17 @@ Use Plan mode when the implementation shape, scope, or tradeoff is not yet settl
 
 | Mode | Automatically allowed | Still asks |
 | --- | --- | --- |
-| **Supervised** | Read-only tools | Bash, edits, web requests, MCP and other tools |
-| **Auto-accept edits** | Read-only tools and file edits | Bash, web requests, MCP and other tools |
-| **Auto-accept edits + Bash** | Reads, edits, and Bash | Web requests, MCP and other tools |
+| **Ask for approval** (locked) | Read-only tools | Bash, edits, web requests, MCP and other tools |
+| **Approve for me** | Actions approved by the provider's native safety review | Actions the provider escalates for your decision |
 | **Full access** | Ordinary tools | Plan-mode exits and sensitive paths |
 
-Sensitive paths such as environment files, SSH material, credentials, and keys remain protected under Full access.
+Approve for me uses native automatic review in compatible Codex, Claude, and Grok installations. Grok requires its native Auto-mode feature to be enabled; when disabled, Grok asks for approval. Other providers ask for approval when this mode is inherited from a default. A provider that cannot start automatic review reports an error; Zuse does not silently grant Full access.
+
+Changing access stops the current turn and retires the old provider runtime. Your next message resumes the conversation with the selected mode. This also ensures locking a previously unrestricted session takes effect.
+
+Existing sessions saved with Auto-accept edits or Auto-accept edits + Bash retain their behavior until you choose a new mode. Those legacy modes are no longer offered for new selections.
+
+Full access uses the provider's unrestricted execution mode. Zuse-owned sensitive-path approval gates and read-only Plan mode still apply; Full access is not a sandbox.
 
 ## Permission prompts
 

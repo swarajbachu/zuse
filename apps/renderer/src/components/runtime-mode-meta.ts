@@ -5,6 +5,7 @@ import { message as uiMessage } from "@zuse/i18n";
 import {
 	LockIcon,
 	PencilEdit01Icon,
+	Shield01Icon,
 	SquareUnlock01Icon,
 	TerminalIcon,
 } from "@zuse/icons/solid-rounded";
@@ -14,9 +15,8 @@ import {
  * permission menu and the Settings page's "Default permission mode" radio
  * cards so they stay perfectly in sync.
  *
- * Descriptions spell out exactly which tools each mode skips and which it
- * still prompts on — the user feedback was that the previous one-line
- * copy left them guessing why `Auto-accept edits` still asked for Bash.
+ * Legacy modes remain displayable for persisted sessions; new selections
+ * use the three access postures in MODES_ORDER.
  */
 export type ModeMeta = {
 	readonly label: string;
@@ -25,14 +25,21 @@ export type ModeMeta = {
 };
 
 export const MODE_META: Record<RuntimeMode, ModeMeta> = {
-	"approval-required": {
+	auto: {
 		get label() {
-			return uiMessage("chat:runtime_mode_meta_supervised");
+			return uiMessage("chat:runtime_mode_approve_for_me");
 		},
 		get description() {
-			return uiMessage(
-				"chat:runtime_mode_meta_asks_before_every_bash_file_edit_web_request_or_mcp_call_read_onl",
-			);
+			return uiMessage("chat:runtime_mode_auto_description");
+		},
+		Icon: Shield01Icon,
+	},
+	"approval-required": {
+		get label() {
+			return uiMessage("chat:runtime_mode_ask_for_approval");
+		},
+		get description() {
+			return uiMessage("chat:runtime_mode_approval_description");
 		},
 		Icon: LockIcon,
 	},
@@ -63,9 +70,7 @@ export const MODE_META: Record<RuntimeMode, ModeMeta> = {
 			return uiMessage("chat:runtime_mode_meta_full_access");
 		},
 		get description() {
-			return uiMessage(
-				"chat:runtime_mode_meta_auto_allows_everything_plan_mode_and_sensitive_paths_env_ssh_cred",
-			);
+			return uiMessage("chat:runtime_mode_full_description");
 		},
 		Icon: SquareUnlock01Icon,
 	},
@@ -73,7 +78,6 @@ export const MODE_META: Record<RuntimeMode, ModeMeta> = {
 
 export const MODES_ORDER: ReadonlyArray<RuntimeMode> = [
 	"approval-required",
-	"auto-accept-edits",
-	"auto-accept-edits-and-bash",
+	"auto",
 	"full-access",
 ];

@@ -49,6 +49,7 @@ export type AgentStatus = typeof AgentStatus.Type;
  * declared in `session.ts`; lifted here so `AgentDefinition.permissionMode`
  * can reuse the same literal set without an import cycle.
  *
+ *   - `auto` — native risk review in Codex/Claude/Grok; other providers ask.
  *   - `approval-required` — prompt every write/Bash/Network/Task/MCP call.
  *   - `auto-accept-edits` — also auto-allow Edit / Write / MultiEdit /
  *     NotebookEdit. Bash / Network / Task / MCP still prompt.
@@ -58,6 +59,7 @@ export type AgentStatus = typeof AgentStatus.Type;
  *     mode (ExitPlanMode) ALWAYS prompts regardless of runtime mode.
  */
 export const RuntimeMode = Schema.Literals([
+	"auto",
 	"approval-required",
 	"auto-accept-edits",
 	"auto-accept-edits-and-bash",

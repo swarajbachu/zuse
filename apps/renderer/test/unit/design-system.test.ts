@@ -75,12 +75,13 @@ describe("renderer design system", () => {
 
 	it("keeps composer controls direct and landing menus bounded", () => {
 		const composer = rendererSource("components/chat-composer.tsx");
+		const accessPicker = rendererSource("components/runtime-access-picker.tsx");
 		const landing = rendererSource("components/chat-landing.tsx");
 		const modelPicker = rendererSource("components/model-picker.tsx");
 		const trays = rendererSource("components/composer/tray-pill.tsx");
 
 		expect(composer).toContain("<RuntimeAccessPicker");
-		expect(composer).toContain("chat:chat_composer_agent_access");
+		expect(accessPicker).toContain("chat:chat_composer_agent_access");
 		expect(composer).toContain("mx-auto flex min-h-8 w-14/15");
 		expect(composer).toContain("rounded-b-none rounded-t-[1.2rem]");
 		expect(composer).toContain("composer-glass rounded-[1.2rem]");

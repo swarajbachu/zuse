@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	makeClaudeUserMessage,
+	runtimeModeToSdkPermissionMode,
 	translateClaudeSdkMessages,
 } from "../../../src/drivers/claude.ts";
 
@@ -281,5 +282,22 @@ describe("Claude partial-message durability", () => {
 			{ _tag: "Thinking", text: "hmm", parentItemId: "agent-1" },
 			{ _tag: "AssistantMessage", text: "reply", parentItemId: "agent-1" },
 		]);
+	});
+});
+
+describe("Claude native access modes", () => {
+	it("delegates automatic review to the SDK instead of bypassing permissions", () => {
+		expect(runtimeModeToSdkPermissionMode("auto", "default")).toBe("auto");
+		expect(runtimeModeToSdkPermissionMode("approval-required", "default")).toBe(
+			"default",
+		);
+		expect(runtimeModeToSdkPermissionMode("full-access", "default")).toBe(
+			"bypassPermissions",
+		);
+	});
+	it("preserves read-only planning in every new access mode", () => {
+		for (const mode of ["approval-required", "auto", "full-access"] as const) {
+			expect(runtimeModeToSdkPermissionMode(mode, "plan")).toBe("plan");
+		}
 	});
 });

@@ -694,5 +694,11 @@
 	"fork_menu_new_tab_on_this_machine": "Öffnen Sie auf diesem Rechner einen neuen Tab mit der Unterhaltung bis zu dieser Nachricht.",
 	"fork_menu_fork_in_new_machine": "In neuen Rechner forken",
 	"fork_menu_new_machine_description": "Klonen Sie diesen Rechner und setzen Sie die Unterhaltung in einem separaten Chat fort.",
-	"fork_menu_forking_in_new_machine": "Neuer Rechner wird geforkt"
+	"fork_menu_forking_in_new_machine": "Neuer Rechner wird geforkt",
+	"runtime_mode_ask_for_approval": "Genehmigung anfordern",
+	"runtime_mode_approve_for_me": "Für mich genehmigen",
+	"runtime_mode_auto_description": "Der Agent prüft Aktionen und fragt bei Bedarf nach.",
+	"runtime_mode_change_stops_turn": "Eine Änderung des Zugriffs stoppt den aktuellen Durchlauf. Ihre nächste Nachricht verwendet den neuen Modus.",
+	"runtime_mode_approval_description": "Vor Dateiänderungen, Befehlen und Netzwerkzugriffen nachfragen.",
+	"runtime_mode_full_description": "Aktionen ohne Genehmigung zulassen. Der Planmodus gilt weiterhin."
 }

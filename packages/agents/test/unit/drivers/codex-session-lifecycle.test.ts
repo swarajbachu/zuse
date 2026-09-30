@@ -52,6 +52,7 @@ const installAppServer = (
 	initialMissingMcpInventories = 0,
 	terminateOnMcpInventory = false,
 ) => {
+	const requests: Array<{ method: string; params: unknown }> = [];
 	let mcpInventoryReads = 0;
 	let startupTerminated = false;
 	let terminate: ((error: Error) => void) | undefined;
@@ -64,6 +65,7 @@ const installAppServer = (
 			appServerExit = options.onUnexpectedTermination ?? null;
 			return {
 				request: vi.fn(async (method: string, params?: unknown) => {
+					requests.push({ method, params });
 					const record = (params ?? {}) as Record<string, unknown>;
 					switch (method) {
 						case "config/mcpServer/reload":
@@ -147,6 +149,7 @@ const installAppServer = (
 		},
 	);
 	return {
+		requests,
 		notify: (notification: ServerNotification) => {
 			if (notify === undefined) throw new Error("App server is not running");
 			notify(notification);
@@ -160,6 +163,7 @@ const installAppServer = (
 
 const withSession = async <A>(
 	options: {
+		readonly runtimeMode?: import("@zuse/contracts").RuntimeMode;
 		readonly resumeCursor?: string | null;
 		readonly apiKey?: string;
 		readonly forkFromResume?: boolean;
@@ -188,7 +192,7 @@ const withSession = async <A>(
 				"fake-codex",
 				"session-1" as AgentSessionId,
 				async () => ({ _tag: "AllowOnce" }),
-				() => "full-access",
+				() => options.runtimeMode ?? "full-access",
 				async () => ({ id: "browser-test", ok: true }),
 				"bun",
 				null,
@@ -271,6 +275,39 @@ afterEach(() => {
 });
 
 describe("Codex session cursor persistence", () => {
+	it("sends automatic review on fresh, resumed, and subsequent turns", async () => {
+		for (const resumeCursor of [null, "existing-thread"]) {
+			await withSession(
+				{ runtimeMode: "auto", resumeCursor },
+				async (handle, appServer) => {
+					const method =
+						resumeCursor === null ? "thread/start" : "thread/resume";
+					expect(appServer.requests).toContainEqual({
+						method,
+						params: expect.objectContaining({
+							approvalPolicy: "on-request",
+							approvalsReviewer: "auto_review",
+							sandbox: "workspace-write",
+						}),
+					});
+					await Effect.runPromise(handle.send("Review the project"));
+					await expect
+						.poll(() => appServer.requests)
+						.toContainEqual({
+							method: "turn/start",
+							params: expect.objectContaining({
+								approvalPolicy: "on-request",
+								approvalsReviewer: "auto_review",
+								sandboxPolicy: expect.objectContaining({
+									type: "workspaceWrite",
+								}),
+							}),
+						});
+				},
+			);
+		}
+	});
+
 	it("ends an idle stream once without inventing a turn failure", async () => {
 		const onUnexpectedTermination = vi.fn();
 		await withSession(

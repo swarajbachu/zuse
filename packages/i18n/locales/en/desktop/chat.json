@@ -694,5 +694,11 @@
 	"fork_menu_new_tab_on_this_machine": "Open a new tab on this machine with the conversation through this message.",
 	"fork_menu_fork_in_new_machine": "Fork in new machine",
 	"fork_menu_new_machine_description": "Clone this machine and continue the conversation in a separate chat.",
-	"fork_menu_forking_in_new_machine": "Forking in new machine"
+	"fork_menu_forking_in_new_machine": "Forking in new machine",
+	"runtime_mode_ask_for_approval": "Ask for approval",
+	"runtime_mode_approve_for_me": "Approve for me",
+	"runtime_mode_auto_description": "The agent reviews actions and asks when needed.",
+	"runtime_mode_change_stops_turn": "Changing access stops the current turn. Your next message uses the new mode.",
+	"runtime_mode_approval_description": "Ask before edits, commands, and network access.",
+	"runtime_mode_full_description": "Allow actions without approval. Plan mode still applies."
 }

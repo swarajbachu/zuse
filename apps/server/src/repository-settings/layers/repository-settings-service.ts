@@ -47,6 +47,7 @@ const isProviderId = (v: unknown): v is ProviderId =>
 	v === "kiro";
 
 const isRuntimeMode = (v: unknown): v is RuntimeMode =>
+	v === "auto" ||
 	v === "approval-required" ||
 	v === "auto-accept-edits" ||
 	v === "auto-accept-edits-and-bash" ||

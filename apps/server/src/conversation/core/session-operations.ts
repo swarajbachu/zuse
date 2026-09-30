@@ -433,9 +433,9 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		});
 
 	/**
-	 * Update the per-session runtime mode. Persists immediately. The driver's
-	 * `canUseTool` callback observes the new value via `provider.start`'s
-	 * runtime-mode getter on the next tool call — no need to restart the SDK.
+	 * Retire the old provider before publishing access changes. Native SDK modes
+	 * can bypass callbacks entirely, so changing only the cached policy is unsafe.
+	 * The next turn resumes the same conversation with the new native posture.
 	 */
 	const setRuntimeMode: ConversationOperations["setRuntimeMode"] = (
 		sessionId,
@@ -449,14 +449,20 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					message:
 						"Pi manages permissions natively; Zuse permission modes are unsupported.",
 				});
+			const changed = session.runtimeMode !== runtimeMode;
+			if (changed) {
+				yield* closeProvider(sessionId);
+				// Invalidate warm handles and in-flight boots as well as active turns.
+				yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
+				yield* interruptProviderFiber(sessionId);
+			}
 			yield* dispatchSessionCommandWithId(sessionId, commandId, {
 				_tag: "SetRuntimeMode",
 				runtimeMode,
 				updatedAt: yield* currentTimestamp,
 			});
-			// Poke the in-memory cache so the next `canUseTool` invocation picks
-			// up the new mode without restarting the SDK.
 			state.setRuntimeMode(sessionId, runtimeMode);
+			if (changed) yield* setStatus(sessionId, "idle");
 		});
 
 	/**

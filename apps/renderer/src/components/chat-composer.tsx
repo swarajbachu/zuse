@@ -41,7 +41,6 @@ import {
 	SquareIcon,
 	Upload01Icon,
 } from "@zuse/icons/solid-rounded";
-import { ChevronDown } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { Card, CardPanel } from "~/components/ui/card";
@@ -55,13 +54,6 @@ import {
 	DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
-import {
-	Menu,
-	MenuPopup,
-	MenuRadioGroup,
-	MenuRadioItem,
-	MenuTrigger,
-} from "~/components/ui/menu";
 import { Slider } from "~/components/ui/slider";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
@@ -227,7 +219,7 @@ import { useUiStore } from "../store/ui.ts";
 import { DevicePermissionCard } from "./device-permission-card.tsx";
 import { PermissionCard } from "./permission-card.tsx";
 import { QuestionCard } from "./question-card.tsx";
-import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
+import { RuntimeAccessPicker } from "./runtime-access-picker.tsx";
 
 const EMPTY_QUESTION_ATTACHMENTS: QuestionAttachmentsByKey = {};
 
@@ -897,7 +889,9 @@ export function ChatComposer({
 				}
 				if (
 					parsed.args === "approval-required" ||
+					parsed.args === "auto" ||
 					parsed.args === "auto-accept-edits" ||
+					parsed.args === "auto-accept-edits-and-bash" ||
 					parsed.args === "full-access"
 				) {
 					void setRuntimeMode(sessionId, parsed.args, qualifiedEnvironmentId);
@@ -1661,8 +1655,13 @@ export function ChatComposer({
 										</TooltipPopup>
 									</Tooltip>
 									<RuntimeAccessPicker
-										sessionId={sessionId}
-										environmentId={qualifiedEnvironmentId}
+										onChange={(mode) =>
+											void setRuntimeMode(
+												sessionId,
+												mode,
+												qualifiedEnvironmentId,
+											)
+										}
 										providerId={session.providerId}
 										current={appliedRuntimeMode}
 										pending={runtimeModePending}
@@ -1834,96 +1833,6 @@ export function ChatComposer({
 				</div>
 			</div>
 		</TooltipProvider>
-	);
-}
-
-function RuntimeAccessPicker({
-	sessionId,
-	environmentId,
-	providerId,
-	current,
-	pending,
-	confirmed,
-}: {
-	sessionId: SessionId;
-	environmentId: EnvironmentId;
-	providerId: ProviderId;
-	current: RuntimeMode;
-	pending: boolean;
-	confirmed: boolean;
-}) {
-	const { message: uiMessage } = useUiMessages(["chat", "common"]);
-
-	const setRuntimeMode = useSessionsStore((state) => state.setRuntimeMode);
-	const meta = MODE_META[current];
-	if (providerId === "pi")
-		return (
-			<span className="text-xs text-muted-foreground">
-				{uiMessage("chat:pi_permissions")}
-			</span>
-		);
-	const fixedSandbox = providerId === "cursor";
-	const highlighted = confirmed && current === "full-access";
-
-	return (
-		<Menu>
-			<MenuTrigger
-				disabled={fixedSandbox || pending}
-				aria-label={
-					fixedSandbox
-						? uiMessage("chat:chat_composer_cursor_uses_fixed_sandbox_access")
-						: uiMessage("chat:chat_composer_agent_access")
-				}
-				className={cn(
-					"flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors hover:bg-muted/60 data-[popup-open]:bg-muted/70 disabled:cursor-default disabled:opacity-60",
-					highlighted
-						? "text-warning"
-						: "text-muted-foreground hover:text-foreground",
-				)}
-			>
-				<HugeiconsIcon icon={meta.Icon} className="size-3.5" />
-				<span>
-					{fixedSandbox
-						? uiMessage("chat:chat_composer_sandboxed")
-						: confirmed
-							? meta.label
-							: uiMessage("chat:chat_composer_checking_access")}
-				</span>
-				{pending ? (
-					<span role="status" aria-live="polite">
-						{uiMessage("chat:chat_composer_updating")}
-					</span>
-				) : null}
-				{fixedSandbox ? null : <ChevronDown className="size-3 opacity-60" />}
-			</MenuTrigger>
-			<MenuPopup side="top" align="start" className="w-64 p-1">
-				<div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-					{uiMessage("chat:chat_composer_agent_access")}
-				</div>
-				<MenuRadioGroup
-					value={current}
-					onValueChange={(value) =>
-						void setRuntimeMode(sessionId, value as RuntimeMode, environmentId)
-					}
-				>
-					{MODES_ORDER.map((mode) => {
-						const option = MODE_META[mode];
-						return (
-							<MenuRadioItem
-								key={mode}
-								value={mode}
-								className="h-7 px-2 text-xs"
-							>
-								<span className="flex min-w-0 items-center gap-2 font-medium text-foreground">
-									<HugeiconsIcon icon={option.Icon} className="size-3.5" />
-									{option.label}
-								</span>
-							</MenuRadioItem>
-						);
-					})}
-				</MenuRadioGroup>
-			</MenuPopup>
-		</Menu>
 	);
 }
 

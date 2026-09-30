@@ -121,12 +121,14 @@ export interface ClaudeSessionHandle extends ProviderSessionHandle {
 const toSdkPermissionMode = (mode: PermissionMode): SdkPermissionMode =>
 	mode satisfies SdkPermissionMode;
 
-const runtimeModeToSdkPermissionMode = (
+export const runtimeModeToSdkPermissionMode = (
 	runtimeMode: RuntimeMode,
 	permissionMode: PermissionMode,
 ): SdkPermissionMode => {
 	if (permissionMode === "plan") return toSdkPermissionMode(permissionMode);
 	switch (runtimeMode) {
+		case "auto":
+			return "auto";
 		case "full-access":
 			return "bypassPermissions" as SdkPermissionMode;
 		case "auto-accept-edits":
@@ -2104,7 +2106,10 @@ export const startClaudeSession = (
 				}),
 			setPermissionMode: (mode) =>
 				Effect.tryPromise({
-					try: () => q.setPermissionMode(toSdkPermissionMode(mode)),
+					try: () =>
+						q.setPermissionMode(
+							runtimeModeToSdkPermissionMode(getRuntimeMode(), mode),
+						),
 					catch: (cause) => cause,
 				}).pipe(
 					Effect.tap(() =>

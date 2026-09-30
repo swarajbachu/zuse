@@ -212,3 +212,76 @@ describe("Grok native ACP permission handling", () => {
 		expect(result).toBeNull();
 	});
 });
+
+describe("Grok automatic review escalations", () => {
+	it.each([
+		"auto",
+		"approval-required",
+	] as const)("asks for a mutating native request in %s mode and respects denial", async (runtimeMode) => {
+		const requests: PermissionKind[] = [];
+		const result = await handleGrokNativePermissionRequest(
+			"tool/requestApproval",
+			{ tool: "Shell", command: "git push origin main" },
+			makeCtx({
+				runtimeMode,
+				decision: { _tag: "Deny" },
+				onRequest: (kind) => {
+					requests.push(kind);
+				},
+			}),
+		);
+		expect(requests).toEqual([
+			{ _tag: "Bash", command: "git push origin main" },
+		]);
+		expect(result).toMatchObject({ approved: false });
+	});
+	it("does not override the native reviewer for a locally read-only command", async () => {
+		const requests: PermissionKind[] = [];
+		const result = await handleGrokNativePermissionRequest(
+			"tool/requestApproval",
+			{ tool: "Shell", command: "cat /repo/notes.txt" },
+			makeCtx({
+				runtimeMode: "auto",
+				decision: { _tag: "Deny" },
+				onRequest: (kind) => {
+					requests.push(kind);
+				},
+			}),
+		);
+		expect(requests).toEqual([
+			{ _tag: "Bash", command: "cat /repo/notes.txt" },
+		]);
+		expect(result).toMatchObject({ approved: false });
+	});
+
+	it("does not auto-approve an escalated edit", async () => {
+		const requests: PermissionKind[] = [];
+		await handleGrokNativePermissionRequest(
+			"tool/requestApproval",
+			{ tool: "write_file", path: "/repo/src/app.ts" },
+			makeCtx({
+				runtimeMode: "auto",
+				onRequest: (kind) => {
+					requests.push(kind);
+				},
+			}),
+		);
+		expect(requests).toEqual([{ _tag: "FileWrite", path: "/repo/src/app.ts" }]);
+	});
+	it("keeps native automatic review read-only in plan mode", async () => {
+		let prompts = 0;
+		const result = await handleGrokNativePermissionRequest(
+			"tool/requestApproval",
+			{ tool: "Shell", command: "npm install" },
+			makeCtx({
+				runtimeMode: "auto",
+				permissionMode: "plan",
+				onRequest: () => {
+					prompts++;
+				},
+			}),
+		);
+		expect(result).toMatchObject({ approved: false });
+		expect(prompts).toBe(0);
+	});
+});

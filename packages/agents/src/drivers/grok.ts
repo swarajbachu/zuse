@@ -18,7 +18,6 @@ import {
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, Stream } from "effect";
-import { ACP_CLIENT_CAPABILITIES } from "../kernel/acp-capabilities.ts";
 import { makeAcpPermissionContext } from "../kernel/acp-permission-context.ts";
 import { createAcpSession } from "../kernel/acp-session.ts";
 import { AttachmentService } from "../kernel/attachment-service.ts";
@@ -59,6 +58,8 @@ import {
 	decodePlanApprovalRequest,
 	GROK_MINIMUM_VERSION,
 	GROK_UPDATE_COMMAND,
+	grokAgentArgs,
+	grokInitializeParams,
 	grokSessionFailureAction,
 	isSupportedGrokVersion,
 	mapGrokMode,
@@ -393,19 +394,15 @@ export const startGrokSession = (
 				lifecycle.current() === "start" ? "authentication" : "reconnecting",
 			);
 			const generation = ++connectionGeneration;
-			const nextChild = spawn(
-				grokPath,
-				["--trust", "agent", "--no-leader", "stdio"],
-				{
-					cwd,
-					env: {
-						...process.env,
-						GROK_CURSOR_MCPS_ENABLED: "0",
-						...(apiKey !== null ? { GROK_CODE_XAI_API_KEY: apiKey } : {}),
-					},
-					stdio: ["pipe", "pipe", "pipe"],
+			const nextChild = spawn(grokPath, grokAgentArgs(getRuntimeMode()), {
+				cwd,
+				env: {
+					...process.env,
+					GROK_CURSOR_MCPS_ENABLED: "0",
+					...(apiKey !== null ? { GROK_CODE_XAI_API_KEY: apiKey } : {}),
 				},
-			);
+				stdio: ["pipe", "pipe", "pipe"],
+			});
 			stderrTail = "";
 			nextChild.stdout.setEncoding("utf-8");
 			nextChild.stderr.setEncoding("utf-8");
@@ -881,10 +878,7 @@ export const startGrokSession = (
 			cursor: string | null,
 		): Promise<{ readonly sessionId: string; readonly resumed: boolean }> => {
 			const init = decodeGrokInitializeResult(
-				await request("initialize", {
-					protocolVersion: 1,
-					clientCapabilities: ACP_CLIENT_CAPABILITIES,
-				}),
+				await request("initialize", grokInitializeParams(getRuntimeMode())),
 			);
 			if (!isSupportedGrokVersion(init.agentVersion)) {
 				throw new Error(

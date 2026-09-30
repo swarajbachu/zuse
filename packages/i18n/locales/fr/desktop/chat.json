@@ -697,5 +697,11 @@
 	"fork_menu_new_tab_on_this_machine": "Ouvrez un nouvel onglet sur cette machine avec la conversation jusqu’à ce message.",
 	"fork_menu_fork_in_new_machine": "Fork dans une nouvelle machine",
 	"fork_menu_new_machine_description": "Clonez cette machine et poursuivez la conversation dans un chat séparé.",
-	"fork_menu_forking_in_new_machine": "Fork dans une nouvelle machine en cours"
+	"fork_menu_forking_in_new_machine": "Fork dans une nouvelle machine en cours",
+	"runtime_mode_ask_for_approval": "Demander l’approbation",
+	"runtime_mode_approve_for_me": "Approuver pour moi",
+	"runtime_mode_auto_description": "L’agent examine les actions et demande votre avis si nécessaire.",
+	"runtime_mode_change_stops_turn": "Changer l’accès arrête le tour en cours. Votre prochain message utilise le nouveau mode.",
+	"runtime_mode_approval_description": "Demander avant de modifier des fichiers, d’exécuter des commandes ou d’accéder au réseau.",
+	"runtime_mode_full_description": "Autoriser les actions sans approbation. Le mode Plan reste applicable."
 }

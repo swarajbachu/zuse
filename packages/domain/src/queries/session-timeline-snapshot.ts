@@ -12,6 +12,7 @@ import {
 	PermissionRequest,
 	QueuedMessage,
 	QueueState,
+	RuntimeMode,
 	type SessionId,
 	type SessionInteraction,
 	SessionTimelineProjection,
@@ -292,14 +293,9 @@ export const readSessionTimelineSnapshot = Effect.fn(
 					turnId: AgentTurnId.make(head.current_turn_id),
 					phase: phase.success,
 				};
-	const runtimeMode = Schema.decodeUnknownResult(
-		Schema.Literals([
-			"approval-required",
-			"auto-accept-edits",
-			"auto-accept-edits-and-bash",
-			"full-access",
-		]),
-	)(head.runtime_mode);
+	const runtimeMode = Schema.decodeUnknownResult(RuntimeMode)(
+		head.runtime_mode,
+	);
 	const permissionMode = Schema.decodeUnknownResult(
 		Schema.Literals(["default", "plan", "acceptEdits"]),
 	)(head.permission_mode);

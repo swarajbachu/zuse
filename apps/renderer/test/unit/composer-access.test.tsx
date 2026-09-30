@@ -54,7 +54,7 @@ describe("composer applied access", () => {
 				environmentId={EnvironmentId.make("cloud-1")}
 			/>,
 		);
-		expect(html).toContain("Supervised");
+		expect(html).toContain("Ask for approval");
 		expect(html).not.toContain("Full access");
 		expect(html).toContain('data-runtime-mode="approval-required"');
 	});

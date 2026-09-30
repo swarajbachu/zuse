@@ -1,8 +1,6 @@
-export type RuntimeMode =
-	| "approval-required"
-	| "auto-accept-edits"
-	| "auto-accept-edits-and-bash"
-	| "full-access";
+import type { RuntimeMode } from "@zuse/contracts";
+
+export type { RuntimeMode } from "@zuse/contracts";
 
 export type PermissionMode = "default" | "plan" | "acceptEdits";
 
@@ -54,11 +52,18 @@ export const decidePermission = (input: PermissionInput): PermissionVerdict => {
 		return promptOrDeny(input.canPrompt);
 	}
 	if (input.category === "read") return "allow";
-	if (input.permissionMode === "acceptEdits" && input.category === "edit") {
+	if (
+		input.runtimeMode !== "auto" &&
+		input.permissionMode === "acceptEdits" &&
+		input.category === "edit"
+	) {
 		return "allow";
 	}
 
 	switch (input.runtimeMode) {
+		// Native reviewers handle safe actions before invoking our approval hook.
+		// Requests reaching this layer must still ask, including unsupported providers.
+		case "auto":
 		case "approval-required":
 			return promptOrDeny(input.canPrompt);
 		case "auto-accept-edits":

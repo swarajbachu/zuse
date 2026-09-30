@@ -5,6 +5,11 @@ import { decidePermission } from "../../../src/kernel/permission-policy.js";
 describe("decidePermission", () => {
 	test.each([
 		["approval-required", "read", false, "allow"],
+		["auto", "read", false, "allow"],
+		["auto", "edit", false, "prompt"],
+		["auto", "execute", false, "prompt"],
+		["auto", "network", false, "prompt"],
+		["auto", "edit", true, "prompt"],
 		["approval-required", "edit", false, "prompt"],
 		["auto-accept-edits", "edit", false, "allow"],
 		["auto-accept-edits", "execute", false, "prompt"],
@@ -61,4 +66,32 @@ describe("decidePermission", () => {
 			}),
 		).toBe("deny");
 	});
+});
+
+test("native review escalations cannot be bypassed by legacy edit approval", () => {
+	expect(
+		decidePermission({
+			runtimeMode: "auto",
+			permissionMode: "acceptEdits",
+			category: "edit",
+			sensitive: false,
+		}),
+	).toBe("prompt");
+	expect(
+		decidePermission({
+			runtimeMode: "auto",
+			permissionMode: "plan",
+			category: "execute",
+			sensitive: false,
+		}),
+	).toBe("deny");
+	expect(
+		decidePermission({
+			runtimeMode: "auto",
+			permissionMode: "default",
+			category: "execute",
+			sensitive: false,
+			canPrompt: false,
+		}),
+	).toBe("deny");
 });

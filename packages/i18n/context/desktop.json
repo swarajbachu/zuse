@@ -1461,8 +1461,8 @@
 		"source": "Cursor uses fixed sandbox access",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/chat-composer.tsx",
-				"line": 1874
+				"path": "apps/renderer/src/components/runtime-access-picker.tsx",
+				"line": 47
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1471,12 +1471,12 @@
 		"source": "Agent access",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/chat-composer.tsx",
-				"line": 1875
+				"path": "apps/renderer/src/components/runtime-access-picker.tsx",
+				"line": 48
 			},
 			{
-				"path": "apps/renderer/src/components/chat-composer.tsx",
-				"line": 1901
+				"path": "apps/renderer/src/components/runtime-access-picker.tsx",
+				"line": 74
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1485,8 +1485,8 @@
 		"source": "Sandboxed",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/chat-composer.tsx",
-				"line": 1887
+				"path": "apps/renderer/src/components/runtime-access-picker.tsx",
+				"line": 60
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1495,8 +1495,8 @@
 		"source": "Checking access…",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/chat-composer.tsx",
-				"line": 1890
+				"path": "apps/renderer/src/components/runtime-access-picker.tsx",
+				"line": 63
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -1505,8 +1505,8 @@
 		"source": "Updating…",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/chat-composer.tsx",
-				"line": 1894
+				"path": "apps/renderer/src/components/runtime-access-picker.tsx",
+				"line": 67
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -5966,22 +5966,12 @@
 	},
 	"chat:runtime_mode_meta_supervised": {
 		"source": "Supervised",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
-				"line": 30
-			}
-		],
+		"locations": [],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"chat:runtime_mode_meta_asks_before_every_bash_file_edit_web_request_or_mcp_call_read_onl": {
 		"source": "Asks before every Bash, file edit, web request, or MCP call. Read-only tools (Read, Glob, Grep, LS) are always free.",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
-				"line": 34
-			}
-		],
+		"locations": [],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"chat:runtime_mode_meta_auto_accept_edits": {
@@ -5989,7 +5979,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
-				"line": 41
+				"line": 48
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -5999,7 +5989,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
-				"line": 45
+				"line": 52
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6009,7 +5999,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
-				"line": 52
+				"line": 59
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6019,7 +6009,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
-				"line": 56
+				"line": 63
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6029,19 +6019,14 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
-				"line": 63
+				"line": 70
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"chat:runtime_mode_meta_auto_allows_everything_plan_mode_and_sensitive_paths_env_ssh_cred": {
 		"source": "Auto-allows everything. Plan mode and sensitive paths (.env, .ssh, credentials, keys) still prompt.",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
-				"line": 67
-			}
-		],
+		"locations": [],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"chat:subagents_pane_done": {
@@ -6926,8 +6911,8 @@
 		"source": "Pi permissions",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/chat-composer.tsx",
-				"line": 1862
+				"path": "apps/renderer/src/components/runtime-access-picker.tsx",
+				"line": 35
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28212,5 +28197,65 @@
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:runtime_mode_ask_for_approval": {
+		"source": "Ask for approval",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
+				"line": 39
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:runtime_mode_approve_for_me": {
+		"source": "Approve for me",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
+				"line": 30
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:runtime_mode_auto_description": {
+		"source": "The agent reviews actions and asks when needed.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
+				"line": 33
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:runtime_mode_change_stops_turn": {
+		"source": "Changing access stops the current turn. Your next message uses the new mode.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/runtime-access-picker.tsx",
+				"line": 111
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:runtime_mode_approval_description": {
+		"source": "Ask before edits, commands, and network access.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
+				"line": 42
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"chat:runtime_mode_full_description": {
+		"source": "Allow actions without approval. Plan mode still applies.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/runtime-mode-meta.ts",
+				"line": 73
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	}
 }

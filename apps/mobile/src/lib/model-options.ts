@@ -23,10 +23,16 @@ export type RuntimeOption = {
 
 /** One visual vocabulary for runtime permissions across every mobile picker. */
 export const RUNTIME_OPTION_BY_VALUE = {
+	auto: {
+		value: "auto",
+		label: "Approve for me",
+		systemImage: "checkmark.shield",
+		tint: "#0A84FF",
+	},
 	"approval-required": {
 		value: "approval-required",
-		label: "Ask first",
-		systemImage: "hand.raised",
+		label: "Ask for approval",
+		systemImage: "lock.fill",
 		tint: "#8E8E93",
 	},
 	"auto-accept-edits": {
@@ -49,9 +55,11 @@ export const RUNTIME_OPTION_BY_VALUE = {
 	},
 } as const satisfies Record<RuntimeMode, RuntimeOption>;
 
-export const RUNTIME_OPTIONS: readonly RuntimeOption[] = Object.values(
-	RUNTIME_OPTION_BY_VALUE,
-);
+export const RUNTIME_OPTIONS: readonly RuntimeOption[] = [
+	RUNTIME_OPTION_BY_VALUE["approval-required"],
+	RUNTIME_OPTION_BY_VALUE.auto,
+	RUNTIME_OPTION_BY_VALUE["full-access"],
+];
 
 export const runtimeOptionFor = (value: RuntimeMode): RuntimeOption =>
 	RUNTIME_OPTION_BY_VALUE[value];

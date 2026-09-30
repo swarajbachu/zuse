@@ -8,6 +8,8 @@ import {
 	decodeGrokNotification,
 	decodeGrokWireMethod,
 	decodePlanApprovalRequest,
+	grokAgentArgs,
+	grokInitializeParams,
 	grokSessionFailureAction,
 	isSupportedGrokVersion,
 	mapGrokMode,
@@ -311,5 +313,57 @@ describe("Grok native ACP protocol", () => {
 			itemId: "call-1",
 			tool: "BackgroundTask",
 		});
+	});
+});
+
+describe("Grok runtime access", () => {
+	it("pins native approval modes instead of inheriting user defaults", () => {
+		expect(grokAgentArgs("approval-required")).toEqual([
+			"--trust",
+			"--permission-mode",
+			"default",
+			"agent",
+			"--no-leader",
+			"stdio",
+		]);
+		expect(grokAgentArgs("auto")).toEqual([
+			"--trust",
+			"--permission-mode",
+			"auto",
+			"agent",
+			"--no-leader",
+			"stdio",
+		]);
+		expect(grokAgentArgs("full-access")).toEqual([
+			"--trust",
+			"--permission-mode",
+			"bypassPermissions",
+			"agent",
+			"--no-leader",
+			"stdio",
+		]);
+	});
+	it("lets the native reviewer execute approved operations without a second raw I/O prompt", () => {
+		expect(grokInitializeParams("auto").clientCapabilities).toMatchObject({
+			fs: { readTextFile: false, writeTextFile: false },
+			terminal: false,
+		});
+		expect(
+			grokInitializeParams("approval-required").clientCapabilities,
+		).toMatchObject({
+			fs: { readTextFile: true, writeTextFile: true },
+			terminal: true,
+		});
+	});
+	it("identifies an interactive client so classifier escalations can prompt", () => {
+		expect(grokInitializeParams("auto")).toMatchObject({
+			clientInfo: { name: "zuse" },
+			_meta: { clientIdentifier: "zuse", clientType: "extension" },
+		});
+	});
+
+	it("keeps plan mode independent of the runtime permission posture", () => {
+		expect(mapGrokMode("plan")).toBe("plan");
+		expect(mapGrokMode("default")).toBe("default");
 	});
 });

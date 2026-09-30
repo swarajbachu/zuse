@@ -694,5 +694,11 @@
 	"fork_menu_new_tab_on_this_machine": "在此机器上打开新标签页，包含截至此消息的对话。",
 	"fork_menu_fork_in_new_machine": "分叉到新机器",
 	"fork_menu_new_machine_description": "克隆此机器，并在单独的聊天中继续对话。",
-	"fork_menu_forking_in_new_machine": "正在分叉到新机器"
+	"fork_menu_forking_in_new_machine": "正在分叉到新机器",
+	"runtime_mode_ask_for_approval": "请求批准",
+	"runtime_mode_approve_for_me": "替我批准",
+	"runtime_mode_auto_description": "智能体会审查操作，并在需要时询问。",
+	"runtime_mode_change_stops_turn": "更改访问权限会停止当前轮次。下一条消息将使用新模式。",
+	"runtime_mode_approval_description": "编辑文件、执行命令和访问网络前先询问。",
+	"runtime_mode_full_description": "无需批准即可执行操作。计划模式仍然适用。"
 }

@@ -2935,6 +2935,58 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it.each([
+		"warm",
+		"running",
+	] as const)("retires %s full access before locking and persists native automatic review", async (runtimeState) => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						runtimeMode: "full-access",
+					}),
+				),
+			);
+			const id = initialSession.id;
+			if (runtimeState === "running") {
+				await run(
+					Effect.flatMap(store, (s) =>
+						s.sendMessage(testCommandId("access-test"), id, "Start working"),
+					),
+				);
+				await expect.poll(() => activeProviderSessions.has(id)).toBe(true);
+			} else {
+				activeProviderSessions.add(id);
+			}
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.setRuntimeMode(id, "full-access", "same-access"),
+				),
+			);
+			expect(activeProviderSessions.has(id)).toBe(true);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.setRuntimeMode(id, "approval-required", "lock-access"),
+				),
+			);
+			expect(activeProviderSessions.has(id)).toBe(false);
+			expect(
+				await run(Effect.flatMap(store, (s) => s.getSession(id))),
+			).toMatchObject({ runtimeMode: "approval-required", status: "idle" });
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.setRuntimeMode(id, "auto", "automatic-review"),
+				),
+			);
+			expect(
+				await run(Effect.flatMap(store, (s) => s.getSession(id))),
+			).toMatchObject({ runtimeMode: "auto" });
+		});
+	});
+
 	it("sendMessage appends a user message to the log", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
