@@ -209,6 +209,13 @@ const handleRequest = (message) => {
 			}
 			return;
 		}
+		if (scenario === "resume-replay") {
+			// ACP session/load replays conversation history before its response.
+			update(params.sessionId, {
+				type: "text",
+				text: "OLD answer replayed from before the restart.",
+			});
+		}
 		write({ jsonrpc: "2.0", id, result: { sessionId: params.sessionId } });
 		report("session.loaded", { sessionId: params.sessionId });
 		return;
@@ -265,9 +272,17 @@ const handleRequest = (message) => {
 			);
 			return;
 		}
+		const responseText =
+			scenario === "hold"
+				? "Hello"
+				: scenario === "resume-replay"
+					? "NEW answer to the post-restart prompt."
+					: "Hello from deterministic provider.";
 		update(
 			sessionId,
-			scenario === "hold" ? "Hello" : "Hello from deterministic provider.",
+			scenario === "resume-replay"
+				? { type: "text", text: responseText }
+				: responseText,
 		);
 		if (scenario === "hold") {
 			pendingPrompts.set(id, sessionId);

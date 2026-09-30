@@ -178,6 +178,10 @@ export const startKiroSession = (
 		});
 
 		let acpSessionId: string | null = null;
+		// ACP session/load replays the existing conversation before its response.
+		// Zuse already owns that durable transcript; never let replayed items be
+		// mistaken for output from the next turn after the event consumer catches up.
+		let restoringSessionHistory = resumeCursor !== null;
 		let closed = false;
 		let inflight: Promise<void> = Promise.resolve();
 		let workspaceInstructionsPending = input.workspaceInstructions;
@@ -203,9 +207,13 @@ export const startKiroSession = (
 			mode: "sdk",
 		});
 
+		const offerTranslatedEvent = (event: ProviderDriverEvent): void => {
+			if (restoringSessionHistory && event._tag !== "UserQuestion") return;
+			Queue.offerUnsafe(events, event);
+		};
 		const translator = createAcpTranslator("kiro", {
 			onCheckpoint: (checkpointEvents) => {
-				for (const event of checkpointEvents) Queue.offerUnsafe(events, event);
+				for (const event of checkpointEvents) offerTranslatedEvent(event);
 			},
 		});
 
@@ -326,7 +334,7 @@ export const startKiroSession = (
 							: undefined;
 					if (update !== undefined) {
 						for (const ev of translator.translate(update)) {
-							Queue.offerUnsafe(events, ev);
+							offerTranslatedEvent(ev);
 						}
 					}
 					return;
@@ -355,7 +363,7 @@ export const startKiroSession = (
 				) {
 					if (msg.params !== undefined) {
 						for (const ev of translator.translate(msg.params)) {
-							Queue.offerUnsafe(events, ev);
+							offerTranslatedEvent(ev);
 						}
 					}
 					return;
@@ -602,9 +610,13 @@ export const startKiroSession = (
 		);
 		acpSessionId = acquiredSession.sessionId;
 		if (acquiredSession.resumed) {
-			for (const event of translator.flush()) Queue.offerUnsafe(events, event);
-			Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
+			// Flush and discard any partial assistant text from session/load. The
+			// server's durable messages are authoritative, and the runtime sets the
+			// resumed session's post-boot status; an idle marker here could settle a
+			// new turn if it remains queued until after the next send.
+			for (const event of translator.flush()) offerTranslatedEvent(event);
 		}
+		restoringSessionHistory = false;
 
 		Queue.offerUnsafe(events, {
 			_tag: "SessionCursor",
