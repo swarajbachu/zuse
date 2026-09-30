@@ -155,9 +155,11 @@ turned on. Cloud Workspace access requirements still apply. See
 the reporting and settlement rules.
 
 Zuse currently uses snapshots internally to prepare base templates and account
-images. It does not offer a workspace snapshot browser, in-place machine rollback,
-per-user custom-domain setup, or boxd organisation integration/secret management.
-GitHub and agent authentication go through Zuse's existing connection flows.
+images. It does not expose a workspace snapshot browser, in-place machine rollback,
+custom-domain setup, or boxd organisation integration and secret management to
+users. Operators can configure organisation-owned shared templates through
+`BOXD_ORG`; see [operator setup](boxd-operations.md#operator-setup). GitHub and
+agent authentication go through Zuse's existing connection flows.
 
 ## Implementation and operations
 
