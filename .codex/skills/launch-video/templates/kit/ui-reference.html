@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Zuse UI reference — film kit</title>
+<link rel="stylesheet" href="../compositions/kit/kit.css">
+<script src="../compositions/kit/icons.js"></script>
+<script src="../compositions/kit/kit.js"></script>
+<style>
+@font-face{font-family:"Archivo";font-weight:100 900;font-stretch:62% 125%;src:url("../assets/fonts/archivo.woff2")}
+@font-face{font-family:"Geist";font-weight:100 900;src:url("../assets/fonts/geist.woff2")}
+@font-face{font-family:"Geist Mono";font-weight:100 900;src:url("../assets/fonts/geist-mono.woff2")}
+body{margin:0;background:var(--canvas);padding:40px;display:flex;flex-direction:column;gap:40px;font-family:Geist,sans-serif}
+h2{font:500 13px "Geist Mono",monospace;color:#6b6b6b;margin:0 0 10px}
+.box{position:relative}
+</style>
+</head>
+<body>
+
+<!-- 1. SETTINGS → CLOUD WORKSPACES (the part of the page the film shows) -->
+<section>
+<h2>SETTINGS · Cloud workspaces · Cloud image (needs build → building → ready)</h2>
+<div class="box z-app" id="settings" style="width:1040px;height:720px">
+  <div class="z-window" style="inset:0;display:flex;flex-direction:column">
+    <div class="z-settings-header">${ZK_BACK}</div>
+    <div style="flex:1;display:flex;min-height:0">
+      <div class="z-rail" id="rail"></div>
+      <div style="flex:1;background:var(--z-bg);overflow:hidden">
+        <div class="z-settings-col">
+          <div>
+            <div class="z-section-title">Cloud workspaces</div>
+            <div class="z-section-sub">Connect GitHub and your coding agents, then keep work running when this app is closed.</div>
+          </div>
+          <div class="z-group">
+            <div class="z-group-head"><div><div class="z-group-title">Cloud image</div><div class="z-group-desc">Your repositories and tools for new Cloud chats. Rebuilding keeps existing chats and agent connections.</div></div></div>
+            <div class="z-card">
+              <div class="z-row" style="flex-direction:column;align-items:stretch;gap:8px">
+                <div><div class="z-row-title">Machine provider</div></div>
+                <div><span class="z-select" id="provider-select"><span>boxd</span><span id="sel-chev"></span></span></div>
+              </div>
+              <div class="z-needs" style="border-top:1px solid var(--z-border)">
+                <span id="warn-ic" style="color:var(--z-warning)"></span>
+                <div style="flex:1"><div class="z-row-title">Cloud image required</div><div class="z-row-desc">Build an image to start new Cloud chats on boxd.</div></div>
+                <span class="z-btn lime" id="build-btn"></span>
+              </div>
+              <div class="z-build-strip" style="border-top:1px solid var(--z-border)">
+                <span id="spin"></span>
+                <div style="flex:1"><div class="z-row-title">Building cloud image</div><div class="z-row-desc">Preparing repositories and agents</div></div>
+                <span class="z-badge progress">In progress</span>
+              </div>
+              <div class="z-row">
+                <div><div class="z-row-title">Cloud image ready</div><div class="z-row-desc">Repositories ready for new Cloud chats: 3.</div></div>
+                <div style="display:flex;align-items:center;gap:8px"><span class="z-badge ready">Ready</span><span class="z-btn ghost">Rebuild image</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- native select menu (open state) -->
+  <div class="z-native-menu z-app" style="left:560px;top:268px">
+    <div class="z-native-opt">Boat</div><div class="z-native-opt">E2B</div><div class="z-native-opt hl">✓ boxd</div>
+  </div>
+</div>
+</section>
+
+<!-- 2. NEW-CHAT COMPOSER + RUN ON MENU -->
+<section>
+<h2>COMPOSER · Run on menu open (Cloud · boxd, Standard)</h2>
+<div class="box z-app" style="width:1040px;height:560px;background:var(--z-bg);border-radius:12px">
+  <div class="z-landing-h1" style="position:absolute;left:0;right:0;top:170px">What should we build in zuse?</div>
+  <div class="z-composer" id="composer" style="position:absolute;left:136px;top:230px">
+    <div class="z-composer-toolbar">
+      <div class="left" id="tb-left"></div>
+      <div></div>
+    </div>
+    <div class="z-composer-card">
+      <div class="z-editor"><div class="z-editor-text placeholder">Ask to make changes at the @ mentioned files or run slash commands, shift enter for next line.</div></div>
+      <div class="z-actions">
+        <div class="left" id="act-left"></div>
+        <div class="right" id="act-right"></div>
+      </div>
+    </div>
+  </div>
+  <div class="z-menu" id="runon" style="left:236px;top:-10px"></div>
+</div>
+</section>
+
+<!-- 3. TRAY + BROWSER -->
+<section style="display:flex;gap:40px">
+  <div>
+  <h2>TRAY · paused / resuming</h2>
+  <div class="z-app" style="width:560px;background:var(--z-composer-toolbar);border-radius:19.2px 19.2px 0 0">
+    <div class="z-tray" id="tray1"></div>
+  </div>
+  <div class="z-app" style="width:560px;margin-top:12px;background:var(--z-composer-toolbar);border-radius:19.2px 19.2px 0 0">
+    <div class="z-tray" id="tray2"></div>
+  </div>
+  </div>
+  <div>
+  <h2>BROWSER PANE · preview URL</h2>
+  <div class="z-app" style="width:620px;height:380px;background:var(--z-bg);border-radius:8px;overflow:hidden;display:flex;flex-direction:column">
+    <div class="z-tabs" id="tabs"></div>
+    <div class="z-urlbar" id="urlbar"></div>
+    <div style="flex:1;background:#fff;padding:24px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;justify-content:space-between"><div style="width:90px;height:12px;border-radius:9px;background:#dcd9d2"></div><div style="width:150px;height:12px;border-radius:9px;background:#ecE9e3"></div></div>
+      <div style="width:62%;height:34px;border-radius:8px;background:#dcd9d2"></div>
+      <div style="width:40%;height:14px;border-radius:9px;background:#ecE9e3"></div>
+      <div style="display:flex;gap:14px;margin-top:auto"><div style="flex:1;height:90px;border-radius:10px;background:#f0ede7"></div><div style="flex:1;height:90px;border-radius:10px;background:#f0ede7"></div></div>
+    </div>
+  </div>
+  </div>
+</section>
+
+<script>
+const I = ZK.icon;
+document.querySelector(".z-settings-header").innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px">${I("ChevronLeft",14)}Back to app</span>`;
+const rail = [["Settings01","General"],["Package","Providers"],["TaskDone01","Default models"],["PlugSocket","MCP Servers"],["Connect","Integrations"],["SmartPhone01","Remote access"],["Connect","Cloud workspaces",true],["Browser","Browser"],["Keyboard","Keyboard shortcuts"],["DocumentAttachment","Diagnostics"]];
+document.getElementById("rail").innerHTML = rail.map(([ic,l,a]) => `<div class="z-rail-row${a?" active":""}">${I(ic,16)}<span>${l}</span>${a?'<span class="z-rail-beta">· Public beta</span>':""}</div>`).join("");
+document.getElementById("sel-chev").outerHTML = I("ChevronDown",12);
+document.getElementById("warn-ic").innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
+document.getElementById("build-btn").innerHTML = `${I("RefreshCw",14)}Build image`;
+document.getElementById("spin").outerHTML = I("LoaderCircle",16);
+document.getElementById("tb-left").innerHTML =
+  `<span class="z-pill">${I("Folder01",14)}zuse${I("ChevronDown",12)}</span>` +
+  `<span class="z-pill open">${I("DitherCloud",16,"cloud")}Cloud · boxd${I("ChevronDown",12)}</span>` +
+  `<span class="z-pill muted">${I("ChatDownload01",14)}Import chat</span>`;
+document.getElementById("act-left").innerHTML =
+  `<span class="z-icon-btn">${I("Attachment",14)}</span><span class="z-access">${I("SquareUnlock01",14)}Supervised${I("ChevronDown",12)}</span>` +
+  `<span class="z-icon-btn">${I("DashboardSpeed",14)}</span><span class="z-icon-btn">${I("Maps",14)}</span>`;
+document.getElementById("act-right").innerHTML =
+  `<span class="z-model"><img src="../assets/logos/claude.svg" style="width:12px;height:12px;filter:invert(1)">Opus 5.5 <span class="lvl">High</span>${I("ChevronDown",12)}</span><span class="z-send">${I("Sent",14)}</span>`;
+const row = (ic, label, opts = {}) => `<div class="z-menu-row${opts.sel?" selected":""}${opts.hover?" hover":""}">${ic}<span>${label}${opts.tag?`<span class="z-menu-tag">${opts.tag}</span>`:""}</span><span class="z-menu-status">${opts.status||""}</span>${opts.ind?`<span class="z-ind${opts.sel?" on":""}"></span>`:"<span></span>"}</div>`;
+document.getElementById("runon").innerHTML =
+  row(I("Computer",14),"This computer",{ind:true}) + '<div class="z-menu-sep"></div>' +
+  row(I("DitherCloud",16,"cloud"),"Cloud · Boat",{tag:"Beta",ind:true}) +
+  row(I("DitherCloud",16,"cloud"),"Cloud · E2B",{tag:"Beta",ind:true}) +
+  row(I("DitherCloud",16,"cloud"),"Cloud · boxd",{tag:"Beta",ind:true,sel:true}) + '<div class="z-menu-sep"></div>' +
+  '<div class="z-menu-head">Machine size</div>' +
+  row("<span></span>","Standard (2 vCPU / 8 GB)",{ind:true,sel:true}) +
+  row("<span></span>","Small (1 vCPU / 4 GB)",{ind:true,hover:true}) +
+  row("<span></span>","Large (4 vCPU / 16 GB)",{ind:true}) + '<div class="z-menu-sep"></div>' +
+  row(I("Computer",14),"Add computer…");
+document.getElementById("tray1").innerHTML = `${I("DitherCloud",14)}<span>Cloud workspace paused</span><span class="detail">Sending a message or opening a live tool will resume it.</span>`;
+document.getElementById("tray2").innerHTML = `${I("LoaderCircle",14)}<span>Resuming cloud workspace</span><span class="detail">The sandbox compute is waking up.</span>`;
+document.getElementById("tabs").innerHTML = [["Folder01","Files"],["ComputerTerminal01","Terminal"],["GitCompare","Changes"],["GitPullRequest","PR"],["Globe","Browser",1]].map(([i,l,a])=>`<span class="z-tab${a?" active":""}">${I(i,14)}${l}</span>`).join("");
+document.getElementById("urlbar").innerHTML = `<span class="nav">${I("ChevronLeft",14)}</span><span class="nav">${I("ChevronRight",14)}</span><span class="nav">${I("RefreshCw",14)}</span><span class="nav" style="opacity:.5">${I("Star",14)}</span><span class="z-url">https://p3000.m-7f3a.boxd.sh</span><span class="z-viewport">Fill</span><span class="nav">${I("MousePointerClick",14)}</span><span class="nav">${I("Camera",14)}</span>`;
+</script>
+</body>
+</html>
