@@ -1825,24 +1825,36 @@ export const startCodexSession = (
 				}),
 		});
 
-		const resolveImageInputs = async (
+		const resolveAttachmentInputs = async (
 			refs: ReadonlyArray<AttachmentRef>,
 		): Promise<ReadonlyArray<UserInput>> => {
-			const resolved: Array<UserInput | null> = await Promise.all(
-				refs.map(async (ref) => {
-					if (ref.id.startsWith("pending-")) return null;
+			return Promise.all(
+				refs.map(async (ref): Promise<UserInput> => {
+					if (ref.id.startsWith("pending-")) {
+						throw new Error(
+							`Attachment is still uploading: ${ref.originalName}`,
+						);
+					}
 					const normalizedMime =
 						ref.mimeType.toLowerCase() === "image/jpg"
 							? "image/jpeg"
 							: ref.mimeType.toLowerCase();
-					if (!SUPPORTED_CODEX_IMAGE_MIME.has(normalizedMime)) return null;
 					const meta = await Effect.runPromise(attachments.readPath(ref.id));
-					return meta === null
-						? null
-						: ({ type: "localImage", path: meta.path } as const);
+					if (meta === null) {
+						throw new Error(
+							`Attachment is unavailable: ${ref.originalName}. Please attach it again.`,
+						);
+					}
+					if (SUPPORTED_CODEX_IMAGE_MIME.has(normalizedMime)) {
+						return { type: "localImage", path: meta.path } as const;
+					}
+					return {
+						type: "text",
+						text: `The user attached a file. Read it before proceeding: ${JSON.stringify(meta.path)}`,
+						text_elements: [],
+					} as const;
 				}),
 			);
-			return resolved.filter((item): item is UserInput => item !== null);
 		};
 
 		const findSkillPath = async (name: string): Promise<string | null> => {
@@ -1886,7 +1898,7 @@ export const startCodexSession = (
 			if (cleanText.length > 0) {
 				out.push({ type: "text", text: cleanText, text_elements: [] });
 			}
-			out.push(...(await resolveImageInputs(attachmentRefs)));
+			out.push(...(await resolveAttachmentInputs(attachmentRefs)));
 			return out;
 		};
 

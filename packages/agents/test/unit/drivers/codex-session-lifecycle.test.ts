@@ -23,12 +23,16 @@ import { Effect, Fiber, Layer, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProviderDriverEvent } from "../../../src/kernel/driver.ts";
 
+const readAttachmentPath = vi.fn(() =>
+	Effect.succeed<{ path: string; mimeType: string } | null>(null),
+);
+
 const AttachmentsTest = Layer.succeed(AttachmentService, {
 	upload: () => Effect.die("not used"),
 	saveText: () => Effect.die("not used"),
 	read: () => Effect.succeed(null),
 	readForSession: () => Effect.succeed(null),
-	readPath: () => Effect.succeed(null),
+	readPath: readAttachmentPath,
 });
 
 const input = (
@@ -53,6 +57,7 @@ const installAppServer = (
 	terminateOnMcpInventory = false,
 ) => {
 	const requests: Array<{ method: string; params: unknown }> = [];
+	const turnInputs: unknown[] = [];
 	let mcpInventoryReads = 0;
 	let startupTerminated = false;
 	let terminate: ((error: Error) => void) | undefined;
@@ -132,6 +137,7 @@ const installAppServer = (
 							} as never);
 							return { thread: { id: "forked-thread" } };
 						case "turn/start":
+							turnInputs.push(record.input);
 							options.onNotification({
 								method: "turn/started",
 								params: {
@@ -150,6 +156,7 @@ const installAppServer = (
 	);
 	return {
 		requests,
+		turnInputs,
 		notify: (notification: ServerNotification) => {
 			if (notify === undefined) throw new Error("App server is not running");
 			notify(notification);
@@ -271,6 +278,8 @@ const requestNativeQuestion = (
 afterEach(() => {
 	appServerRequest = null;
 	appServerExit = null;
+	readAttachmentPath.mockReset();
+	readAttachmentPath.mockImplementation(() => Effect.succeed(null));
 	vi.restoreAllMocks();
 });
 
@@ -716,6 +725,70 @@ describe("Codex API-key delivery", () => {
 					"apiKey",
 				),
 			).toBe("test-api-key");
+		});
+	});
+});
+
+describe("Codex file attachments", () => {
+	it.each([
+		"image/png",
+		"image/jpg",
+	])("keeps %s attachments as native images", async (mimeType) => {
+		const path = "/workspace/.context/attachments/image";
+		readAttachmentPath.mockImplementation(() =>
+			Effect.succeed({ path, mimeType }),
+		);
+		await withSession({}, async (handle, appServer) => {
+			await Effect.runPromise(
+				handle.send("inspect", [
+					{ id: "image", originalName: "image", mimeType },
+				]),
+			);
+			await expect.poll(() => appServer.turnInputs.length).toBe(1);
+			expect(appServer.turnInputs[0]).toContainEqual({
+				type: "localImage",
+				path,
+			});
+		});
+	});
+
+	it.each([
+		"missing-report",
+		"pending-report",
+	])("reports %s instead of sending an incomplete turn", async (id) => {
+		await withSession({}, async (handle, appServer) => {
+			await Effect.runPromise(
+				handle.send("inspect", [
+					{ id, originalName: "report.md", mimeType: "text/markdown" },
+				]),
+			);
+			const events = await takeEvents(handle.events, 3);
+			expect(events).toContainEqual({
+				_tag: "Error",
+				message: expect.stringContaining("report.md"),
+			});
+			expect(appServer.turnInputs).toEqual([]);
+		});
+	});
+
+	it("includes an uploaded Markdown report in the agent turn", async () => {
+		const path =
+			"/workspace/.context/attachments/report/zuse-security-report.md";
+		readAttachmentPath.mockImplementation(() =>
+			Effect.succeed({ path, mimeType: "text/markdown" }),
+		);
+		await withSession({}, async (handle, appServer) => {
+			await Effect.runPromise(
+				handle.send("fix these issues", [
+					{
+						id: "report",
+						originalName: "zuse-security-report.md",
+						mimeType: "text/markdown",
+					},
+				]),
+			);
+			await expect.poll(() => appServer.turnInputs.length).toBe(1);
+			expect(JSON.stringify(appServer.turnInputs[0])).toContain(path);
 		});
 	});
 });
