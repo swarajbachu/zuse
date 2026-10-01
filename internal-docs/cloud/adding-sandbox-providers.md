@@ -54,10 +54,14 @@ attached to the overage price. `billable=false` metadata alone is not a Polar
 pricing safeguard.
 
 If the provider cannot supply reliable settlement evidence, runtime visibility
-is still mandatory. Document the limitation and exclude that provider from
-billing-enforced placement using the shared availability/deployment policy.
+is still mandatory. Unless an interim estimate policy is explicitly approved,
+document the limitation and exclude that provider from billing-enforced placement
+using the shared availability/deployment policy.
 Runtime observations, reservations, organization balance changes, and approximate
-cost displays must not become confirmed customer charges. Any new retail rate
+cost displays must not become confirmed customer charges. The explicitly approved
+[interim Boxd policy](billing.md#interim-boxd-balance-deductions) instead uses durable
+estimates to reduce spendable balance and enforce caps; it keeps them distinct
+from actual-cost settlement and invoices. Any new retail rate
 or currency-conversion policy requires an explicit product decision. Boxd's
 observed-runtime integration is an example of visibility without actual-cost
 settlement; Boat's integration also exports confirmed provider cost.

@@ -1,9 +1,10 @@
 // Boxd has no usage settlement source yet. Keep this policy shared by runtime
-// placement and deployment validation until its billing integration exists.
+// placement and deployment validation. Estimated balance enforcement is an explicit opt-in.
 export const supportsSandboxBilling = (
 	providerId: string,
 	billingEnforced: boolean,
-): boolean => !billingEnforced || providerId !== "boxd";
+	boxdEstimatesEnabled = false,
+): boolean => !billingEnforced || providerId !== "boxd" || boxdEstimatesEnabled;
 
 export const availableSandboxProviders = (
 	providers: ReadonlyArray<{
@@ -13,6 +14,7 @@ export const availableSandboxProviders = (
 	}>,
 	sandbox: boolean,
 	billingEnforced: boolean,
+	boxdEstimatesEnabled = false,
 ): Set<string> =>
 	new Set(
 		providers
@@ -20,7 +22,11 @@ export const availableSandboxProviders = (
 				(provider) =>
 					provider.advertised &&
 					(sandbox || provider.productionReady) &&
-					supportsSandboxBilling(provider.providerId, billingEnforced),
+					supportsSandboxBilling(
+						provider.providerId,
+						billingEnforced,
+						boxdEstimatesEnabled,
+					),
 			)
 			.map((provider) => provider.providerId),
 	);

@@ -19,11 +19,12 @@ shared metering pipeline attributes the internal resource, applies that
 provider's immutable price schedule or reported period cost, and atomically
 finalizes the provider event with all usage, ledger, and outbox records. E2B uses
 the price schedule; Boat uses provider-reported cost. boxd has no actual-cost
-settlement source yet: it offers no lifecycle webhook or event log, and its machine records carry
-only `createdAt` and `hibernatedAt`, so the reconciler's reservations for boxd
-runs are never finalized and boxd compute is unbilled until boxd exposes
-execution events. Other providers should
-integrate at this boundary rather than adding a separate billing pipeline. Raw payloads expire after 90 days; the
+settlement source yet: it offers no lifecycle webhook or event log, and its
+machine records carry only `createdAt` and `hibernatedAt`. The optional
+[interim estimate policy](#interim-boxd-balance-deductions) deducts estimated usage
+from available balance and enforces caps without mislabeling it as confirmed
+cost. Other providers should integrate at this boundary rather than adding a
+separate billing pipeline. Raw payloads expire after 90 days; the
 pseudonymous finalization key remains for seven years so old redeliveries cannot
 be billed again.
 
@@ -180,3 +181,70 @@ Deployment verification: observe a running Boat and Boxd workspace across two
 cron passes, check provider/resource metadata in Polar Events, retry an export
 with the same external ID, and confirm the overage meter did not move from
 informational events. Invoice export remains a separate reconciled rollout.
+
+## Interim Boxd balance deductions
+
+Boxd can provisionally consume an account's included allowance and overage cap
+before its attributable cost feed exists. This is an explicit estimate policy,
+not actual-cost settlement. `CLOUD_BOXD_ESTIMATES_CUTOVER_AT` opts in at a
+prospective timestamp. It enables durable estimated deductions and cap enforcement
+independently of the global invoice-export and usage-export switches. Existing
+estimates remain deducted if collection is later disabled; disabling the switch
+is not a refund. No workspace-start pricing dialog is added.
+
+Apply `0029_boxd_estimated_balance` before deploying. Install a separately
+versioned **USD, before-markup** rate schedule using the existing operations CLI:
+
+```sh
+bun run --cwd infra/api cloud-billing:ops add-boxd-estimate-price VERSION EFFECTIVE_AT_ISO CPU_NANO_USD_PER_SECOND MEMORY_NANO_USD_PER_GIB_SECOND
+```
+
+The schedule uses provider key `boxd-estimate`, not `boxd`. Values are integer
+nano-USD per vCPU-second and allocated GiB-second. New versions must take effect
+in the future; retries with the same version must match all values. Rate changes
+must not rewrite existing versions or earlier deductions. No numeric production
+rate is seeded: the published Boxd rate card uses EUR, while the observed account
+CLI reported USD. Confirm the account's USD rates or explicitly approve and record
+a conversion rule before installing a schedule. Do not treat EUR values as USD.
+The existing period policy applies its 5% markup **once, on overage**; do not add
+markup to the installed schedule. The $35 allowance and customer cap are unchanged.
+
+The first observation seeds a checkpoint. Consecutive running observations no
+more than two minutes apart produce an estimate, clipped at cutover and split at
+billing-period and rate-version boundaries. Paused/hibernated, missing, failed,
+stale, replacement, and changed-size observations do not invent usage. This uses
+allocated CPU/RAM, not Boxd's actual RAM/disk integrals; it can miss short runs,
+unsampled transitions and long outages. Storage and suspended memory are not
+estimated. Sampling is deliberately visible as an estimate, and is never exported
+as confirmed provider cost. A missing price, missing billing period, failed
+inspection, or failed durable write prevents additional Boxd execution at the
+next reconciler pass. The normal cap path pauses workspaces and blocks starts or
+resumes; builds follow the existing billing-hold cleanup path.
+
+Estimated usage is stored in `api_cloud_billing_usage` with
+`measurement='estimated'`, `status='provisional'`, machine ID and price version.
+The observation checkpoint and estimate insertion commit in one transaction.
+Entries survive pause, deletion, restarts, and reservation expiry. Short forward
+reservations cover only the next minute, avoiding counting the accrued run twice.
+The balance summary and usage page include outstanding estimates; settings label
+them estimated. The operator `report` also includes
+`estimated_balance_deductions_micros`. These are balance deductions and projected
+overage, not Polar invoice events. Actual invoices continue to use confirmed
+settlement through the existing invoice outbox.
+
+The future Boxd adapter must provide `providerSandboxId` on confirmed execution
+records, in addition to stable event/execution IDs. The
+`api_cloud_billing_estimate_balances` view subtracts the union of confirmed time
+windows for the same account, period, resource and machine from each estimate.
+Partial windows release only the covered estimate; machine replacements cannot
+release another machine's deductions. Original estimates remain for audit.
+Confirmed records, ledger amounts and exports still commit together. As confirmed
+cost replaces the estimate, available balance can rise or fall; no estimate is
+also sent as a second provider charge. The provider feed itself is not implemented
+until Boxd publishes its contract.
+
+Rollout: verify the migration, approved USD schedule, prospective cutover, a
+running workspace and image build, pause/resume, cap hold, and estimate visibility
+in staging before enabling production. Read-only local tests do not activate
+production billing. Reconcile sampled estimates against the forthcoming provider
+feed before changing the invoice policy.

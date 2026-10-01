@@ -149,8 +149,12 @@ preserving tunnels needed by other Zuse features.
 Zuse records observed runtime for boxd workspaces and image builds and can send
 it to Polar. This reports sampled running time, not exact provider costs.
 The current integration cannot reliably settle boxd compute charges against
-individual workspaces, so boxd is excluded when cloud billing enforcement is
-turned on. Cloud Workspace access requirements still apply. See
+individual workspaces. An optional [estimated balance policy](billing.md#interim-boxd-balance-deductions)
+deducts sampled allocated CPU/RAM costs from the available balance and enforces
+its cap. These estimates are not exported as confirmed invoice charges.
+Billing-enforced placement requires the explicit `CLOUD_BOXD_ESTIMATES_CUTOVER_AT`
+opt-in and an installed USD estimate price schedule. Cloud Workspace access
+requirements still apply. See
 [billing operations](billing.md#usage-visibility-independent-of-invoices) for
 the reporting and settlement rules.
 

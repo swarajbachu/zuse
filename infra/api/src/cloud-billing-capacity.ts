@@ -11,7 +11,12 @@ export type CloudBillingCapacity =
 /** Shared policy gate for explicit resume and durable mailbox wake. */
 export const cloudBillingCapacity = Effect.fn("cloudBillingCapacity")(
 	function* (accountId: string, nowMs: number) {
-		if (!(yield* ApiConfiguration).cloudBillingEnforcementEnabled)
+		const config = yield* ApiConfiguration;
+		if (
+			!config.cloudBillingEnforcementEnabled &&
+			(config.cloudBoxdEstimatesCutoverAtMs === undefined ||
+				nowMs < config.cloudBoxdEstimatesCutoverAtMs)
+		)
 			return "available" as const;
 		const billingStore = yield* CloudBillingStore;
 		const period = yield* ensureAccountCloudBillingPeriod(

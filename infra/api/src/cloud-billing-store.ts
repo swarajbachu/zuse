@@ -14,6 +14,7 @@ import {
 	customerOverageCents,
 	DEFAULT_CLOUD_BILLING_POLICY,
 } from "./cloud-billing.ts";
+import { estimatedRuntimeUsage } from "./cloud-billing-estimates.ts";
 import {
 	type CloudUsageStoreApi,
 	confirmedUsageExport,
@@ -224,6 +225,9 @@ interface UsageRow {
 	readonly resource_id: string;
 	readonly provider: string;
 	readonly provider_execution_id: string | null;
+	readonly provider_sandbox_id: string | null;
+	readonly measurement: "provider" | "estimated";
+	readonly price_version: string | null;
 	readonly started_at: number;
 	readonly ended_at: number;
 	readonly vcpu_count: number;
@@ -251,6 +255,9 @@ const toUsage = (row: UsageRow): CloudBillingUsageItem => ({
 	resourceId: row.resource_id,
 	provider: row.provider,
 	providerExecutionId: row.provider_execution_id ?? undefined,
+	providerSandboxId: row.provider_sandbox_id ?? undefined,
+	measurement: row.measurement,
+	priceVersion: row.price_version ?? undefined,
 	startedAt: Number(row.started_at),
 	endedAt: Number(row.ended_at),
 	vcpuCount: Number(row.vcpu_count),
@@ -278,13 +285,15 @@ export const CloudBillingStorePg = Layer.effect(
 					readonly confirmed_provider_cost: number;
 					readonly confirmed_overage_charge: number;
 					readonly reserved_provider_cost: number;
+					readonly estimated_provider_cost: number;
 				}>`SELECT
 					(SELECT COALESCE(SUM(amount_micros), 0) FROM api_cloud_billing_ledger WHERE period_id = ${period.periodId} AND kind = 'provider-cost') AS confirmed_provider_cost,
 					(SELECT COALESCE(SUM(amount_micros), 0) FROM api_cloud_billing_ledger WHERE period_id = ${period.periodId} AND kind = 'overage-charge') AS confirmed_overage_charge,
-					(SELECT COALESCE(SUM(provider_cost_micros), 0) FROM api_cloud_billing_reservations WHERE period_id = ${period.periodId} AND expires_at > ${nowMs}) AS reserved_provider_cost`;
+					(SELECT COALESCE(SUM(outstanding_cost_micros), 0) FROM api_cloud_billing_estimate_balances WHERE period_id = ${period.periodId}) AS estimated_provider_cost,
+ (SELECT COALESCE(SUM(provider_cost_micros), 0) FROM api_cloud_billing_reservations WHERE period_id = ${period.periodId} AND expires_at > ${nowMs}) AS reserved_provider_cost`;
 				const provisionalRows = yield* sql<{
 					readonly present: boolean;
-				}>`SELECT EXISTS(SELECT 1 FROM api_cloud_billing_usage WHERE period_id = ${period.periodId} AND status = 'provisional') OR EXISTS(SELECT 1 FROM api_cloud_billing_reservations WHERE period_id = ${period.periodId} AND expires_at > ${nowMs}) AS present`;
+				}>`SELECT EXISTS(SELECT 1 FROM api_cloud_billing_usage WHERE period_id = ${period.periodId} AND status = 'provisional' AND measurement <> 'estimated') OR EXISTS(SELECT 1 FROM api_cloud_billing_estimate_balances WHERE period_id=${period.periodId} AND outstanding_cost_micros > 0) OR EXISTS(SELECT 1 FROM api_cloud_billing_reservations WHERE period_id = ${period.periodId} AND expires_at > ${nowMs}) AS present`;
 				const reconciliationRows = yield* sql<{
 					readonly reconciled_at: number | null;
 				}>`SELECT MAX(created_at) AS reconciled_at FROM api_cloud_billing_usage WHERE period_id = ${period.periodId} AND status IN ('confirmed', 'corrected')`;
@@ -302,9 +311,12 @@ export const CloudBillingStorePg = Layer.effect(
 				const confirmedOverageCharge = Number(
 					totalsRows[0]?.confirmed_overage_charge ?? 0,
 				);
-				const reservedProviderCost = Number(
-					totalsRows[0]?.reserved_provider_cost ?? 0,
+				const estimatedProviderCost = Number(
+					totalsRows[0]?.estimated_provider_cost ?? 0,
 				);
+				const reservedProviderCost =
+					estimatedProviderCost +
+					Number(totalsRows[0]?.reserved_provider_cost ?? 0);
 				const confirmedTotals = calculateCloudBillingTotals(
 					confirmedProviderCost,
 					policy,
@@ -335,6 +347,7 @@ export const CloudBillingStorePg = Layer.effect(
 				});
 				return {
 					currency: "USD" as const,
+					estimatedProviderCostMicros: estimatedProviderCost,
 					status,
 					periodStart: period.periodStartMs,
 					periodEnd: period.periodEndMs,
@@ -359,8 +372,18 @@ export const CloudBillingStorePg = Layer.effect(
 					usageProvisional: provisionalRows[0]?.present ?? false,
 				};
 			}).pipe(Effect.orDie);
-		const usageExports = makeCloudUsageStorePg(sql);
-		return CloudBillingStore.of({
+		const usageExports = makeCloudUsageStorePg(sql, (event, cutover) =>
+			Effect.gen(function* () {
+				const records = yield* estimatedRuntimeUsage(event, cutover, service);
+				for (const input of records) {
+					// The checkpoint lock and insert share the observation transaction.
+					yield* sql`INSERT INTO api_cloud_billing_usage
+ (entry_id,period_id,account_id,resource_kind,resource_id,provider,provider_sandbox_id,started_at,ended_at,vcpu_count,memory_mib,provider_cost_micros,status,measurement,price_version,created_at)
+ VALUES (${input.entryId},${input.periodId},${input.accountId},${input.resourceKind},${input.resourceId},${input.provider},${input.providerSandboxId},${input.startedAt},${input.endedAt},${input.vcpuCount},${input.memoryMib},${input.providerCostMicros},'provisional','estimated',${input.priceVersion},${input.nowMs}) ON CONFLICT DO NOTHING`;
+				}
+			}).pipe(Effect.orDie),
+		);
+		const service: CloudBillingStoreApi = {
 			...usageExports,
 			hasProviderEvent: (provider, eventId) =>
 				sql<{
@@ -496,11 +519,14 @@ export const CloudBillingStorePg = Layer.effect(
 				}).pipe(sql.withTransaction, Effect.orDie),
 			listUsage: (periodId, cursor, limit) =>
 				sql<UsageRow>`SELECT * FROM (
-					SELECT entry_id, resource_kind, resource_id, provider, provider_execution_id, started_at, ended_at, vcpu_count, memory_mib, provider_cost_micros, status
-					FROM api_cloud_billing_usage WHERE period_id = ${periodId}
+					SELECT entry_id, resource_kind, resource_id, provider, provider_execution_id, started_at, ended_at, vcpu_count, memory_mib, provider_cost_micros, status, provider_sandbox_id, measurement, price_version
+ FROM api_cloud_billing_usage WHERE period_id = ${periodId} AND measurement <> 'estimated'
+ UNION ALL
+ SELECT entry_id, resource_kind, resource_id, provider, provider_execution_id, started_at, ended_at, vcpu_count, memory_mib, outstanding_cost_micros AS provider_cost_micros, status, provider_sandbox_id, measurement, price_version
+ FROM api_cloud_billing_estimate_balances WHERE period_id=${periodId} AND outstanding_cost_micros > 0
 					UNION ALL
 					SELECT 'reservation:' || resource_kind || ':' || resource_id AS entry_id, resource_kind, resource_id, provider, NULL AS provider_execution_id,
-						started_at, updated_at AS ended_at, vcpu_count, memory_mib, provider_cost_micros, 'provisional' AS status
+						started_at, updated_at AS ended_at, vcpu_count, memory_mib, provider_cost_micros, 'provisional' AS status, NULL AS provider_sandbox_id, 'provider' AS measurement, NULL AS price_version
 					FROM api_cloud_billing_reservations WHERE period_id = ${periodId} AND expires_at > EXTRACT(EPOCH FROM clock_timestamp()) * 1000
 				) AS usage_items WHERE (${cursor ?? null}::text IS NULL OR entry_id < ${cursor ?? null}) ORDER BY entry_id DESC LIMIT ${limit + 1}`.pipe(
 					Effect.map((rows) => ({
@@ -517,6 +543,10 @@ export const CloudBillingStorePg = Layer.effect(
 						batch.usage.length === 0 ||
 						batch.usage.some(
 							(item) =>
+								item.measurement === "estimated" ||
+								item.status === "provisional" ||
+								(item.provider === "boxd" &&
+									item.providerSandboxId === undefined) ||
 								item.provider !== batch.provider ||
 								item.providerExecutionId !== batch.providerExecutionId,
 						)
@@ -547,10 +577,10 @@ export const CloudBillingStorePg = Layer.effect(
 							readonly entry_id: string;
 						}>`INSERT INTO api_cloud_billing_usage (
 					entry_id, period_id, account_id, resource_kind, resource_id, provider, provider_event_id,
-					provider_execution_id, started_at, ended_at, vcpu_count, memory_mib, provider_cost_micros, status, created_at
+					provider_execution_id, started_at, ended_at, vcpu_count, memory_mib, provider_cost_micros, status, created_at, provider_sandbox_id
 				) VALUES (${input.entryId}, ${input.periodId}, ${input.accountId}, ${input.resourceKind}, ${input.resourceId}, ${input.provider},
 					${input.providerEventId ?? null}, ${input.providerExecutionId ?? null}, ${input.startedAt}, ${input.endedAt}, ${input.vcpuCount},
-					${input.memoryMib}, ${input.providerCostMicros}, ${input.status}, ${input.nowMs}) ON CONFLICT DO NOTHING RETURNING entry_id`;
+					${input.memoryMib}, ${input.providerCostMicros}, ${input.status}, ${input.nowMs}, ${input.providerSandboxId ?? null}) ON CONFLICT DO NOTHING RETURNING entry_id`;
 						if (inserted.length === 0) continue;
 						yield* usageExports.enqueueUsageExport(
 							confirmedUsageExport(input),
@@ -719,6 +749,7 @@ export const CloudBillingStorePg = Layer.effect(
 					}>`DELETE FROM api_provider_usage_events WHERE expires_at <= ${nowMs} RETURNING event_id`;
 					return rows.length;
 				}).pipe(Effect.orDie),
-		});
+		};
+		return service;
 	}),
 );

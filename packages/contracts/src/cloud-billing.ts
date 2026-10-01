@@ -31,6 +31,7 @@ export class CloudBillingSummary extends Schema.Class<CloudBillingSummary>(
 	lastProviderReconciledAt: Schema.optional(Schema.Number),
 	lastPolarReconciledAt: Schema.optional(Schema.Number),
 	usageProvisional: Schema.Boolean,
+	estimatedProviderCostMicros: Schema.optional(Schema.Number),
 }) {}
 
 export class CloudBillingUsageItem extends Schema.Class<CloudBillingUsageItem>(
@@ -41,6 +42,9 @@ export class CloudBillingUsageItem extends Schema.Class<CloudBillingUsageItem>(
 	resourceId: Schema.String,
 	provider: Schema.String,
 	providerExecutionId: Schema.optional(Schema.String),
+	providerSandboxId: Schema.optional(Schema.String),
+	measurement: Schema.optional(Schema.Literals(["provider", "estimated"])),
+	priceVersion: Schema.optional(Schema.String),
 	startedAt: Schema.Number,
 	endedAt: Schema.Number,
 	vcpuCount: Schema.Number,

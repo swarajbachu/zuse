@@ -873,6 +873,9 @@ export const apiCloudBillingUsage = pgTable(
 		resourceKind: text("resource_kind").notNull(),
 		resourceId: text("resource_id").notNull(),
 		provider: text("provider").notNull(),
+		providerSandboxId: text("provider_sandbox_id"),
+		measurement: text("measurement").notNull().default("provider"),
+		priceVersion: text("price_version"),
 		providerEventId: text("provider_event_id"),
 		providerExecutionId: text("provider_execution_id"),
 		startedAt: bigint("started_at", { mode: "number" }).notNull(),
@@ -886,6 +889,19 @@ export const apiCloudBillingUsage = pgTable(
 		createdAt: bigint("created_at", { mode: "number" }).notNull(),
 	},
 	(table) => [
+		check(
+			"api_usage_estimate_valid",
+			sql`${table.measurement} IN ('provider','estimated') AND (${table.measurement} <> 'estimated' OR (${table.status} = 'provisional' AND ${table.providerSandboxId} IS NOT NULL AND ${table.priceVersion} IS NOT NULL AND ${table.endedAt} > ${table.startedAt} AND ${table.providerCostMicros} >= 0))`,
+		),
+		index("api_cloud_billing_usage_settlement_idx").on(
+			table.periodId,
+			table.provider,
+			table.providerSandboxId,
+			table.resourceKind,
+			table.resourceId,
+			table.startedAt,
+			table.endedAt,
+		),
 		uniqueIndex("api_cloud_billing_usage_provider_event_idx").on(
 			table.provider,
 			table.providerEventId,

@@ -64,6 +64,8 @@ export interface ApiConfig {
 	readonly cloudBillingExportEnabled: boolean;
 	readonly cloudUsageExportEnabled: boolean;
 	readonly cloudBillingCutoverAtMs?: number;
+	/** Opt-in estimated Boxd balance deductions, independently of Polar export. */
+	readonly cloudBoxdEstimatesCutoverAtMs?: number;
 	readonly cloudBillingPolarMeterId?: string;
 	readonly cloudCommandMailboxEnabled: boolean;
 	/** Allows newly-created workspaces to opt into broker-v1 Codex auth. */

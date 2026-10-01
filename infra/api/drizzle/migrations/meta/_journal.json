@@ -204,6 +204,13 @@
 			"when": 1790640000001,
 			"tag": "0028_chat_user_message_time",
 			"breakpoints": true
+		},
+		{
+			"idx": 29,
+			"version": "7",
+			"when": 1790700000000,
+			"tag": "0029_boxd_estimated_balance",
+			"breakpoints": true
 		}
 	]
 }

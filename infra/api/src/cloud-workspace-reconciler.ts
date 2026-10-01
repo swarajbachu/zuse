@@ -17,6 +17,8 @@ import WORKSPACE_FORK_PREPARE_SOURCE from "../../cloud-sandboxes/workspace-fork-
 import WORKSPACE_REPOSITORY_SOURCE from "../../cloud-sandboxes/workspace-repository.sh";
 import { snapshotCloudAuthAuthority } from "./cloud-auth-authority.ts";
 import { allocatedComputeCostMicros } from "./cloud-billing.ts";
+import { BOXD_ESTIMATE_PRICE_PROVIDER } from "./cloud-billing-estimates.ts";
+import { ensureAccountCloudBillingPeriod } from "./cloud-billing-period.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { githubInstallationGrants } from "./cloud-github-app.ts";
 import { deleteCloudTranscriptObjects } from "./cloud-transcript.ts";
@@ -140,12 +142,17 @@ export const reserveProviderCost = Effect.fn("reserveProviderCost")(
 		readonly memoryMib: number;
 	}) {
 		const config = yield* ApiConfiguration;
-		yield* observeCloudRuntimeUsage({ ...input, observedAtMs: input.nowMs });
-		if (
-			!config.cloudBillingEnforcementEnabled &&
-			!config.cloudBillingExportEnabled
-		)
-			return false;
+		const estimatingBoxd =
+			input.provider === "boxd" &&
+			config.cloudBoxdEstimatesCutoverAtMs !== undefined &&
+			input.nowMs >= config.cloudBoxdEstimatesCutoverAtMs;
+		const observed = yield* observeCloudRuntimeUsage({
+			...input,
+			observedAtMs: input.nowMs,
+		});
+		if (estimatingBoxd && !observed) return true;
+		const enforcing = config.cloudBillingEnforcementEnabled || estimatingBoxd;
+		if (!enforcing && !config.cloudBillingExportEnabled) return false;
 		const billingStore = yield* CloudBillingStore;
 		const period = yield* billingStore.currentPeriod(
 			input.accountId,
@@ -161,10 +168,10 @@ export const reserveProviderCost = Effect.fn("reserveProviderCost")(
 					accountId: input.accountId,
 				},
 			);
-			return config.cloudBillingEnforcementEnabled;
+			return enforcing;
 		}
 		const startedAtMs = Math.max(
-			input.runningSinceMs ?? input.nowMs,
+			estimatingBoxd ? input.nowMs : (input.runningSinceMs ?? input.nowMs),
 			period.periodStartMs,
 			config.cloudBillingCutoverAtMs ?? input.runningSinceMs ?? input.nowMs,
 		);
@@ -176,6 +183,7 @@ export const reserveProviderCost = Effect.fn("reserveProviderCost")(
 			.get(input.provider)
 			.pipe(Effect.orDie);
 		const usage =
+			!estimatingBoxd &&
 			adapter.getUsage !== undefined &&
 			input.providerSandboxId !== undefined &&
 			input.nowMs > startedAtMs
@@ -203,7 +211,7 @@ export const reserveProviderCost = Effect.fn("reserveProviderCost")(
 					: 0);
 		} else {
 			const prices = yield* billingStore.priceWindows(
-				input.provider,
+				estimatingBoxd ? BOXD_ESTIMATE_PRICE_PROVIDER : input.provider,
 				startedAtMs,
 				endedAtMs,
 			);
@@ -213,7 +221,7 @@ export const reserveProviderCost = Effect.fn("reserveProviderCost")(
 					resourceKind: input.resourceKind,
 					resourceId: input.resourceId,
 				});
-				return config.cloudBillingEnforcementEnabled;
+				return enforcing;
 			}
 			providerCostMicros = prices.reduce(
 				(total, price) =>
@@ -242,7 +250,7 @@ export const reserveProviderCost = Effect.fn("reserveProviderCost")(
 			nowMs: input.nowMs,
 			expiresAtMs: input.nowMs + 2 * 60_000,
 		});
-		return config.cloudBillingEnforcementEnabled && !reservation.accepted;
+		return enforcing && !reservation.accepted;
 	},
 );
 
@@ -550,6 +558,11 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			.pipe(Effect.orDie);
 		const config = yield* SandboxOfferConfiguration;
 		const nowMs = yield* Clock.currentTimeMillis;
+		if (
+			build.provider === "boxd" &&
+			(yield* ApiConfiguration).cloudBoxdEstimatesCutoverAtMs !== undefined
+		)
+			yield* ensureAccountCloudBillingPeriod(build.accountId, nowMs);
 		const buildBillingHold = yield* reserveProviderCost({
 			accountId: build.accountId,
 			resourceKind: "build",
@@ -1547,6 +1560,12 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			}
 		}
 		const archiveDeleteAtMs = workspace.archiveDeleteAtMs;
+		if (
+			workspace.provider === "boxd" &&
+			workspace.desiredState === "ready" &&
+			(yield* ApiConfiguration).cloudBoxdEstimatesCutoverAtMs !== undefined
+		)
+			yield* ensureAccountCloudBillingPeriod(workspace.accountId, nowMs);
 		const workspaceBillingHold = yield* reserveProviderCost({
 			accountId: workspace.accountId,
 			resourceKind: "workspace",
@@ -1559,42 +1578,38 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		});
 		const mailboxWakePending =
 			workspace.requestConfig.cloudMailboxWakePending === true;
-		if (workspaceBillingHold && mailboxWakePending) {
-			if (
-				workspace.providerSandboxId !== undefined &&
-				workspace.runningSinceMs !== undefined
-			)
-				yield* provider.pause(workspace.providerSandboxId).pipe(Effect.ignore);
+		if (workspaceBillingHold && workspace.desiredState === "ready") {
+			if (workspace.providerSandboxId !== undefined) {
+				const paused = yield* provider
+					.pause(workspace.providerSandboxId)
+					.pipe(Effect.result);
+				if (paused._tag === "Failure") {
+					// Keep the running marker and retry: a rejected pause does not stop compute.
+					yield* saveWorkspace({
+						...workspace,
+						statusCode: "billing-hold",
+						nextActionAtMs: nowMs + RETRY_MS,
+						revision: workspace.revision + 1,
+						updatedAtMs: nowMs,
+					});
+					return;
+				}
+			}
+			const retryWhenFunded =
+				mailboxWakePending || workspace.providerSandboxId === undefined;
 			yield* saveWorkspace({
 				...workspace,
 				state:
 					workspace.providerSandboxId === undefined
 						? workspace.state
 						: "paused",
-				desiredState: "ready",
+				desiredState: retryWhenFunded ? "ready" : "paused",
 				runtimeState: "offline",
 				statusCode: "billing-hold",
 				runningSinceMs: undefined,
-				nextActionAtMs: nowMs + RETRY_MS,
-				revision: workspace.revision + 1,
-				updatedAtMs: nowMs,
-			});
-			return;
-		}
-		if (
-			workspaceBillingHold &&
-			workspace.providerSandboxId !== undefined &&
-			workspace.runningSinceMs !== undefined
-		) {
-			yield* provider.pause(workspace.providerSandboxId).pipe(Effect.ignore);
-			yield* saveWorkspace({
-				...workspace,
-				state: "paused",
-				desiredState: "paused",
-				runtimeState: "offline",
-				statusCode: "billing-hold",
-				runningSinceMs: undefined,
-				nextActionAtMs: Number.MAX_SAFE_INTEGER,
+				nextActionAtMs: retryWhenFunded
+					? nowMs + RETRY_MS
+					: Number.MAX_SAFE_INTEGER,
 				revision: workspace.revision + 1,
 				updatedAtMs: nowMs,
 			});

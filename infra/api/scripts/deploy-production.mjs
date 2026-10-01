@@ -31,6 +31,8 @@ if (
 	!supportsSandboxBilling(
 		"boxd",
 		vars.CLOUD_BILLING_ENFORCEMENT_ENABLED === "true",
+		typeof vars.CLOUD_BOXD_ESTIMATES_CUTOVER_AT === "string" &&
+			Number.isFinite(Date.parse(vars.CLOUD_BOXD_ESTIMATES_CUTOVER_AT)),
 	)
 ) {
 	console.error(

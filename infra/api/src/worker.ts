@@ -190,6 +190,7 @@ interface Env extends SlackBindings {
 	readonly CLOUD_BILLING_EXPORT_ENABLED?: string;
 	readonly CLOUD_USAGE_EXPORT_ENABLED?: string;
 	readonly CLOUD_BILLING_CUTOVER_AT?: string;
+	readonly CLOUD_BOXD_ESTIMATES_CUTOVER_AT?: string;
 	/** Additive rollout gate. Accepted rows continue draining when disabled. */
 	readonly CLOUD_COMMAND_MAILBOX_ENABLED?: string;
 	readonly CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED?: string;
@@ -305,6 +306,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		sandboxProvider.configuredProviders,
 		env.POLAR_ENVIRONMENT === "sandbox",
 		env.CLOUD_BILLING_ENFORCEMENT_ENABLED === "true",
+		isConfigured(env.CLOUD_BOXD_ESTIMATES_CUTOVER_AT),
 	);
 	const persistentCheckoutReady =
 		billing.liveCheckoutEnabled &&
@@ -329,6 +331,16 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 	const cloudBillingEnforcementEnabled =
 		env.CLOUD_BILLING_ENFORCEMENT_ENABLED === "true";
 	const cloudBillingExportEnabled = env.CLOUD_BILLING_EXPORT_ENABLED === "true";
+	const cloudBoxdEstimatesCutoverAtMs = isConfigured(
+		env.CLOUD_BOXD_ESTIMATES_CUTOVER_AT,
+	)
+		? Date.parse(env.CLOUD_BOXD_ESTIMATES_CUTOVER_AT)
+		: undefined;
+	if (
+		cloudBoxdEstimatesCutoverAtMs !== undefined &&
+		!Number.isSafeInteger(cloudBoxdEstimatesCutoverAtMs)
+	)
+		throw new Error("CLOUD_BOXD_ESTIMATES_CUTOVER_AT must be an ISO timestamp");
 	const cloudBillingCutoverAtMs = isConfigured(env.CLOUD_BILLING_CUTOVER_AT)
 		? Date.parse(env.CLOUD_BILLING_CUTOVER_AT)
 		: undefined;
@@ -403,6 +415,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		cloudBillingEnforcementEnabled,
 		cloudBillingExportEnabled,
 		cloudUsageExportEnabled: env.CLOUD_USAGE_EXPORT_ENABLED === "true",
+		cloudBoxdEstimatesCutoverAtMs,
 		cloudCommandMailboxEnabled: env.CLOUD_COMMAND_MAILBOX_ENABLED === "true",
 		cloudCodexAuthBrokerEnrollmentEnabled:
 			env.CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED === "true",

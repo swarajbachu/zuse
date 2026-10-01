@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Semaphore } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { CloudBillingUsageRecord } from "./cloud-billing-store.ts";
 
@@ -87,6 +87,8 @@ export const runtimeUsageInterval = (
 		previous.resourceKind !== current.resourceKind ||
 		previous.provider !== current.provider ||
 		previous.providerSandboxId !== current.providerSandboxId ||
+		previous.vcpuCount !== current.vcpuCount ||
+		previous.memoryMib !== current.memoryMib ||
 		previous.runningSinceMs === undefined ||
 		current.runningSinceMs === undefined ||
 		current.observedAtMs <= previous.observedAtMs ||
@@ -103,6 +105,16 @@ export const runtimeUsageInterval = (
 	};
 };
 
+export interface RuntimeObservationOptions {
+	readonly exportRuntime?: boolean;
+	readonly estimateCutoverAtMs?: number;
+}
+
+export type RecordRuntimeEstimate = (
+	event: RuntimeUsageEvent,
+	cutoverAtMs: number,
+) => Effect.Effect<void>;
+
 export interface CloudUsageStoreApi {
 	readonly enqueueUsageExport: (
 		event: CloudUsageExport,
@@ -110,6 +122,7 @@ export interface CloudUsageStoreApi {
 	) => Effect.Effect<void>;
 	readonly recordRuntimeObservation: (
 		input: RuntimeObservation,
+		options?: RuntimeObservationOptions,
 	) => Effect.Effect<void>;
 	readonly pendingUsageExports: (
 		nowMs: number,
@@ -138,9 +151,10 @@ const enqueueUsageExportPg = (
 
 export const makeCloudUsageStorePg = (
 	sql: SqlClient.SqlClient,
+	recordEstimate?: RecordRuntimeEstimate,
 ): CloudUsageStoreApi => ({
 	enqueueUsageExport: (event, nowMs) => enqueueUsageExportPg(sql, event, nowMs),
-	recordRuntimeObservation: (input) =>
+	recordRuntimeObservation: (input, options) =>
 		Effect.gen(function* () {
 			// Insert first, then lock: even two workers observing a new machine serialize.
 			yield* sql`INSERT INTO api_cloud_runtime_observations (provider, provider_sandbox_id, observation) VALUES (${input.provider}, ${input.providerSandboxId}, ${JSON.stringify(input)}::jsonb) ON CONFLICT DO NOTHING`;
@@ -151,7 +165,14 @@ export const makeCloudUsageStorePg = (
 			if (previous !== undefined && previous.observedAtMs >= input.observedAtMs)
 				return;
 			const event = runtimeUsageInterval(previous, input);
-			if (event !== null) {
+			if (
+				event !== null &&
+				options?.estimateCutoverAtMs !== undefined &&
+				recordEstimate !== undefined
+			) {
+				yield* recordEstimate(event, options.estimateCutoverAtMs);
+			}
+			if (event !== null && options?.exportRuntime !== false) {
 				yield* enqueueUsageExportPg(
 					sql,
 					runtimeUsageExport(event),
@@ -179,8 +200,11 @@ export const makeCloudUsageStorePg = (
 		),
 });
 
-export const makeCloudUsageStoreMemory = (): CloudUsageStoreApi => {
+export const makeCloudUsageStoreMemory = (
+	recordEstimate?: RecordRuntimeEstimate,
+): CloudUsageStoreApi => {
 	const observations = new Map<string, RuntimeObservation>();
+	const lock = Semaphore.makeUnsafe(1);
 	const pending = new Map<
 		string,
 		{ event: CloudUsageExport; attempts: number; nextAttemptAtMs: number }
@@ -194,8 +218,8 @@ export const makeCloudUsageStoreMemory = (): CloudUsageStoreApi => {
 	return {
 		enqueueUsageExport: (event, nowMs) =>
 			Effect.sync(() => enqueue(event, nowMs)),
-		recordRuntimeObservation: (input) =>
-			Effect.sync(() => {
+		recordRuntimeObservation: (input, options) =>
+			Effect.gen(function* () {
 				const key = JSON.stringify([input.provider, input.providerSandboxId]);
 				const previous = observations.get(key);
 				if (
@@ -204,10 +228,16 @@ export const makeCloudUsageStoreMemory = (): CloudUsageStoreApi => {
 				)
 					return;
 				const event = runtimeUsageInterval(previous, input);
-				if (event !== null)
+				if (
+					event !== null &&
+					options?.estimateCutoverAtMs !== undefined &&
+					recordEstimate !== undefined
+				)
+					yield* recordEstimate(event, options.estimateCutoverAtMs);
+				if (event !== null && options?.exportRuntime !== false)
 					enqueue(runtimeUsageExport(event), input.observedAtMs);
 				observations.set(key, input);
-			}),
+			}).pipe(lock.withPermits(1)),
 		pendingUsageExports: (nowMs, limit) =>
 			Effect.sync(() =>
 				[...pending.values()]

@@ -10,8 +10,14 @@ import {
 	DEFAULT_CLOUD_BILLING_POLICY,
 } from "./cloud-billing.ts";
 import {
+	estimatedRuntimeUsage,
+	outstandingEstimateMicros,
+} from "./cloud-billing-estimates.ts";
+import {
 	type CloudBillingPeriodRecord,
 	CloudBillingStore,
+	type CloudBillingStoreApi,
+	type CloudBillingUsageRecord,
 } from "./cloud-billing-store.ts";
 import {
 	confirmedUsageExport,
@@ -33,7 +39,18 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 		readonly occurredAtMs?: number;
 	}> = [];
 	const finalizedEvents = new Set<string>();
-	const usage = new Map<string, CloudBillingUsageItem & { periodId: string }>();
+	const usage = new Map<string, CloudBillingUsageRecord>();
+	const estimates = new Map<string, CloudBillingUsageRecord>();
+	const pendingEstimates = (periodId: string) =>
+		[...estimates.values()]
+			.filter((item) => item.periodId === periodId)
+			.map((item) => ({
+				...item,
+				providerCostMicros: outstandingEstimateMicros(item, [
+					...usage.values(),
+				]),
+			}))
+			.filter((item) => item.providerCostMicros > 0);
 	const reservations = new Map<
 		string,
 		{
@@ -51,11 +68,18 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 		const reservedCost = [...reservations.values()]
 			.filter((item) => item.periodId === period.periodId)
 			.reduce((total, item) => total + item.item.providerCostMicros, 0);
-		const totals = calculateCloudBillingTotals(confirmedCost + reservedCost, {
-			basePriceMicros: period.basePriceMicros,
-			includedProviderCostMicros: period.includedProviderCostMicros,
-			markupBasisPoints: period.markupBasisPoints,
-		});
+		const estimatedCost = pendingEstimates(period.periodId).reduce(
+			(sum, item) => sum + item.providerCostMicros,
+			0,
+		);
+		const totals = calculateCloudBillingTotals(
+			confirmedCost + estimatedCost + reservedCost,
+			{
+				basePriceMicros: period.basePriceMicros,
+				includedProviderCostMicros: period.includedProviderCostMicros,
+				markupBasisPoints: period.markupBasisPoints,
+			},
+		);
 		const overageChargeMicros = Math.min(
 			period.overageCapMicros,
 			totals.overageChargeMicros,
@@ -86,11 +110,18 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 			markupBasisPoints: period.markupBasisPoints,
 			lastProviderReconciledAt: undefined,
 			lastPolarReconciledAt: undefined,
-			usageProvisional: reservedCost > 0,
+			usageProvisional: reservedCost > 0 || estimatedCost > 0,
+			estimatedProviderCostMicros: estimatedCost,
 		};
 	};
-	const usageExports = makeCloudUsageStoreMemory();
-	return CloudBillingStore.of({
+	const usageExports = makeCloudUsageStoreMemory((event, cutover) =>
+		Effect.gen(function* () {
+			const records = yield* estimatedRuntimeUsage(event, cutover, service);
+			for (const item of records)
+				if (!estimates.has(item.entryId)) estimates.set(item.entryId, item);
+		}),
+	);
+	const service: CloudBillingStoreApi = {
 		...usageExports,
 		hasProviderEvent: (provider, eventId) =>
 			Effect.succeed(events.has(`${provider}:${eventId}`)),
@@ -214,6 +245,7 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 		listUsage: (periodId, _cursor, limit) =>
 			Effect.sync(() => {
 				const items = [
+					...pendingEstimates(periodId),
 					...[...usage.values()].filter((item) => item.periodId === periodId),
 					...[...reservations.values()]
 						.filter((item) => item.periodId === periodId)
@@ -227,6 +259,10 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 					batch.usage.length === 0 ||
 					batch.usage.some(
 						(item) =>
+							item.measurement === "estimated" ||
+							item.status === "provisional" ||
+							(item.provider === "boxd" &&
+								item.providerSandboxId === undefined) ||
 							item.provider !== batch.provider ||
 							item.providerExecutionId !== batch.providerExecutionId,
 					)
@@ -301,7 +337,11 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 					accepted:
 						period.status === "manual" ||
 						(period.status === "active" &&
-							summary.overageChargeMicros <= period.overageCapMicros),
+							calculateCloudBillingTotals(summary.providerCostMicros, {
+								basePriceMicros: period.basePriceMicros,
+								includedProviderCostMicros: period.includedProviderCostMicros,
+								markupBasisPoints: period.markupBasisPoints,
+							}).overageChargeMicros <= period.overageCapMicros),
 				};
 			}),
 		pendingOutbox: () => Effect.succeed([]),
@@ -310,5 +350,6 @@ export const CloudBillingStoreMemory = Layer.sync(CloudBillingStore, () => {
 		pendingMeterReconciliations: () => Effect.succeed([]),
 		recordMeterReconciliation: () => Effect.void,
 		purgeExpiredRawEvents: () => Effect.succeed(0),
-	});
+	};
+	return service;
 });

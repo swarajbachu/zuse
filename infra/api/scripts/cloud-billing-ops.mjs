@@ -13,7 +13,51 @@ const integer = (value, name) => {
 };
 
 try {
-	if (command === "import-platform-cost") {
+	if (command === "add-boxd-estimate-price") {
+		const [version, effectiveAt, cpuRate, memoryRate] = args;
+		if (args.length !== 4 || !version?.trim())
+			throw new Error(
+				"usage: add-boxd-estimate-price VERSION EFFECTIVE_AT_ISO CPU_NANO_USD_PER_SECOND MEMORY_NANO_USD_PER_GIB_SECOND",
+			);
+		const at = Date.parse(effectiveAt);
+		const cpu = integer(cpuRate, "CPU rate");
+		const memory = integer(memoryRate, "memory rate");
+		if (!Number.isSafeInteger(at) || cpu < 0 || memory < 0 || cpu + memory <= 0)
+			throw new Error(
+				"A valid timestamp and nonnegative, nonzero USD rates are required; do not include markup",
+			);
+		const existing = await pool.query(
+			"SELECT effective_at,cpu_nano_usd_per_second,memory_nano_usd_per_gib_second FROM api_provider_price_schedule WHERE provider='boxd-estimate' AND version=$1",
+			[version],
+		);
+		const row = existing.rows[0];
+		if (row) {
+			if (
+				Number(row.effective_at) !== at ||
+				Number(row.cpu_nano_usd_per_second) !== cpu ||
+				Number(row.memory_nano_usd_per_gib_second) !== memory
+			)
+				throw new Error(
+					"Price versions are immutable; choose a new version and future effective time",
+				);
+		} else {
+			if (at <= Date.now())
+				throw new Error("New estimate prices must take effect in the future");
+			await pool.query(
+				"INSERT INTO api_provider_price_schedule (provider,version,effective_at,base_nano_usd_per_second,cpu_nano_usd_per_second,memory_nano_usd_per_gib_second,storage_nano_usd_per_gib_second,created_at) VALUES ('boxd-estimate',$1,$2,0,$3,$4,0,$5)",
+				[version, at, cpu, memory, Date.now()],
+			);
+		}
+		console.log(
+			JSON.stringify({
+				configured: true,
+				version,
+				effectiveAt: new Date(at).toISOString(),
+				currency: "USD",
+				markupIncluded: false,
+			}),
+		);
+	} else if (command === "import-platform-cost") {
 		const [vendor, kind, amount, start, end, externalId] = args;
 		if (
 			[vendor, kind, amount, start, end, externalId].some(
@@ -68,6 +112,7 @@ try {
 		const result = await pool.query(
 			`SELECT p.period_id, p.account_id, p.period_start, p.period_end, p.base_price_micros,
 			 COALESCE((SELECT SUM(amount_micros) FROM api_cloud_billing_ledger WHERE period_id=p.period_id AND kind='provider-cost'),0) AS account_provider_cost_micros,
+ COALESCE((SELECT SUM(outstanding_cost_micros) FROM api_cloud_billing_estimate_balances WHERE period_id=p.period_id),0) AS estimated_balance_deductions_micros,
 			 COALESCE((SELECT SUM(l.amount_micros) FROM api_cloud_billing_ledger l JOIN api_cloud_billing_periods statement_period ON statement_period.period_id=l.period_id WHERE l.kind='provider-cost' AND statement_period.period_start=p.period_start AND statement_period.period_end=p.period_end),0) AS calculated_statement_scope_micros,
 			 COALESCE((SELECT SUM(cycle_period.base_price_micros) FROM api_cloud_billing_periods cycle_period WHERE cycle_period.period_start=p.period_start AND cycle_period.period_end=p.period_end),0) AS cycle_base_revenue_micros,
 			 COALESCE((SELECT SUM(l.amount_micros) FROM api_cloud_billing_ledger l JOIN api_cloud_billing_periods cycle_period ON cycle_period.period_id=l.period_id WHERE l.kind='overage-charge' AND cycle_period.period_start=p.period_start AND cycle_period.period_end=p.period_end),0) AS cycle_overage_revenue_micros,
@@ -125,7 +170,7 @@ try {
 		);
 	} else {
 		throw new Error(
-			"commands: report, import-platform-cost, import-provider-statement",
+			"commands: report, import-platform-cost, import-provider-statement, add-boxd-estimate-price",
 		);
 	}
 } finally {

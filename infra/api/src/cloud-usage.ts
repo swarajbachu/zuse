@@ -11,30 +11,40 @@ export const observeCloudRuntimeUsage = Effect.fn("observeCloudRuntimeUsage")(
 			readonly providerSandboxId?: string;
 		},
 	) {
+		const config = yield* ApiConfiguration;
+		const estimateCutoverAtMs =
+			input.provider === "boxd"
+				? config.cloudBoxdEstimatesCutoverAtMs
+				: undefined;
 		if (
-			!(yield* ApiConfiguration).cloudUsageExportEnabled ||
+			(!config.cloudUsageExportEnabled && estimateCutoverAtMs === undefined) ||
 			input.providerSandboxId === undefined
 		)
-			return;
+			return true;
 		const provider = yield* (yield* SandboxProviders).get(input.provider);
-		const running =
-			input.runningSinceMs !== undefined
-				? yield* provider.inspect(input.providerSandboxId).pipe(
-						Effect.timeout("2 seconds"),
-						Effect.map((sandbox) => sandbox?.state === "running"),
-						Effect.catch(() => Effect.succeed(false)),
-					)
-				: false;
-		yield* (yield* CloudBillingStore).recordRuntimeObservation({
-			...input,
-			providerSandboxId: input.providerSandboxId,
-			runningSinceMs: running ? input.runningSinceMs : undefined,
-		});
+		const sandbox = yield* provider.inspect(input.providerSandboxId).pipe(
+			Effect.timeout("2 seconds"),
+			Effect.catch(() => Effect.succeed(undefined)),
+		);
+		const running = sandbox?.state === "running";
+		yield* (yield* CloudBillingStore).recordRuntimeObservation(
+			{
+				...input,
+				providerSandboxId: input.providerSandboxId,
+				// Actual provider state takes precedence over a stale reconciler state.
+				runningSinceMs: running
+					? (input.runningSinceMs ?? input.observedAtMs)
+					: undefined,
+			},
+			{ exportRuntime: config.cloudUsageExportEnabled, estimateCutoverAtMs },
+		);
+		return sandbox !== undefined;
 	},
 	// Telemetry failure must not prevent a pause, deletion, or workspace recovery.
 	Effect.catchCause(() =>
 		Effect.sync(() => {
 			console.warn("[cloud-usage] runtime observation failed");
+			return false;
 		}),
 	),
 );

@@ -21,6 +21,7 @@ export interface ProviderExecutionEvidence {
 	readonly provider: string;
 	readonly eventId: string;
 	readonly providerExecutionId?: string;
+	readonly providerSandboxId?: string;
 	readonly internalResourceId: string;
 	readonly startedAtMs: number;
 	readonly endedAtMs: number;
@@ -214,6 +215,7 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 				resourceId: evidence.internalResourceId,
 				provider: evidence.provider,
 				providerExecutionId: evidence.providerExecutionId,
+				providerSandboxId: evidence.providerSandboxId,
 				vcpuCount: evidence.vcpuCount,
 				memoryMib: evidence.memoryMib,
 				status: "confirmed",

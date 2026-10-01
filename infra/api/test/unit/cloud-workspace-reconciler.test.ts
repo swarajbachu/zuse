@@ -37,6 +37,7 @@ import {
 	CloudWorkspaceStoreMemory,
 } from "../../src/cloud-workspace-store.ts";
 import * as Config from "../../src/config.ts";
+import { MachineStoreMemory } from "../../src/machine-store.ts";
 import { SandboxOfferConfiguration } from "../../src/sandbox-provider-module.ts";
 
 const apiTestConfig = {
@@ -55,6 +56,7 @@ const makeTestLayer = (cloudCommandMailboxEnabled = false) =>
 		}),
 		CloudWorkspaceStoreMemory,
 		CloudBillingStoreMemory,
+		MachineStoreMemory,
 		SandboxProvidersFake,
 		Layer.succeed(SandboxOfferConfiguration, {
 			port: 47_837,
@@ -2074,4 +2076,92 @@ test("automatically restarts the retained runtime once memory pressure clears", 
 		state: "provisioning",
 		statusCode: "resume-runtime-restarting",
 	});
+});
+
+test("billing hold blocks queued allocation, preserves failed pauses, and allows deletion", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const config = yield* Config.ApiConfiguration;
+			const providers = yield* SandboxProviders;
+			const adapter = yield* providers.getDefault;
+			const control = yield* FakeSandboxProviderControlService;
+			const run = (id: string) =>
+				reconcileCloudWorkspace(id).pipe(
+					Effect.provideService(Config.ApiConfiguration, {
+						...config,
+						cloudBillingEnforcementEnabled: true,
+					}),
+				);
+			const queued = yield* seedWorkspace({
+				workspaceId: "unfunded-new",
+				state: "queued",
+				desiredState: "ready",
+				statusCode: "queued",
+				requestConfig: {},
+			});
+			yield* store.saveWorkspace({
+				...queued,
+				revision: queued.revision + 1,
+				updatedAtMs: queued.updatedAtMs + 1,
+				providerSandboxId: undefined,
+			});
+			yield* run(queued.workspaceId);
+			expect(yield* store.getWorkspace(queued.workspaceId)).toMatchObject({
+				state: "queued",
+				statusCode: "billing-hold",
+			});
+			expect(yield* Ref.get(control.createCalls)).toBe(0);
+			const running = yield* seedWorkspace({
+				workspaceId: "unfunded-running",
+				state: "ready",
+				desiredState: "ready",
+				statusCode: "ready",
+				requestConfig: {},
+			});
+			const started = Date.now() - 60_000;
+			yield* store.saveWorkspace({
+				...running,
+				revision: running.revision + 1,
+				updatedAtMs: running.updatedAtMs + 1,
+				runningSinceMs: started,
+			});
+			yield* run(running.workspaceId).pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: () =>
+						Effect.succeed({
+							...adapter,
+							pause: () =>
+								Effect.fail(new SandboxProviderError({ code: "transient" })),
+						}),
+				}),
+			);
+			const retry = yield* store.getWorkspace(running.workspaceId);
+			expect(retry).toMatchObject({
+				state: "ready",
+				statusCode: "billing-hold",
+				runningSinceMs: started,
+			});
+			expect(retry?.nextActionAtMs).toBeLessThan(Number.MAX_SAFE_INTEGER);
+			const deleting = yield* seedWorkspace({
+				workspaceId: "unfunded-delete",
+				state: "ready",
+				desiredState: "deleted",
+				statusCode: "deleting",
+				requestConfig: {},
+			});
+			yield* store.saveWorkspace({
+				...deleting,
+				revision: deleting.revision + 1,
+				updatedAtMs: deleting.updatedAtMs + 1,
+				runningSinceMs: started,
+			});
+			yield* run(deleting.workspaceId);
+			expect(yield* store.getWorkspace(deleting.workspaceId)).toMatchObject({
+				state: "deleted",
+				desiredState: "deleted",
+			});
+		}).pipe(Effect.provide(testLayer)),
+	);
 });
