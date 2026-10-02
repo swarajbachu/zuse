@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	assertEnvironmentIdentity,
+	selfHostedSetupErrorCode,
 	waitForBounded,
 } from "../../src/ssh/environment-service.ts";
 
@@ -15,6 +16,21 @@ describe("SSH environment identity", () => {
 		expect(() => assertEnvironmentIdentity("env-a", "env-b")).toThrow(
 			/identity changed/u,
 		);
+	});
+});
+
+describe("self-hosted setup diagnostics", () => {
+	it("maps SSH failures to stable redacted codes", () => {
+		expect(
+			selfHostedSetupErrorCode(
+				new Error(
+					"Permission denied for alice@private.example -- identity /secret/key",
+				),
+			),
+		).toBe("ssh_authentication_failed");
+		expect(
+			selfHostedSetupErrorCode(new Error("arbitrary remote output token")),
+		).toBe("setup_failed");
 	});
 });
 

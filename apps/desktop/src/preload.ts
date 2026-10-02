@@ -497,6 +497,28 @@ const bridge = {
 			ipcRenderer.invoke("ssh:ensureEnvironment", input) as Promise<
 				import("@zuse/contracts").SshEnvironmentConnection
 			>,
+		startSelfHostedSetup: (
+			input: import("@zuse/contracts").SelfHostedSetupRequest,
+		) =>
+			ipcRenderer.invoke("ssh:startSelfHostedSetup", input) as Promise<
+				import("@zuse/contracts").SelfHostedSetupOperation
+			>,
+		cancelSelfHostedSetup: (operationId: string) =>
+			ipcRenderer.invoke(
+				"ssh:cancelSelfHostedSetup",
+				operationId,
+			) as Promise<void>,
+		onSelfHostedSetupEvent: (
+			handler: (event: import("@zuse/contracts").SelfHostedSetupEvent) => void,
+		) => {
+			const listener = (
+				_event: Electron.IpcRendererEvent,
+				event: import("@zuse/contracts").SelfHostedSetupEvent,
+			) => handler(event);
+			ipcRenderer.on("ssh:selfHostedSetupEvent", listener);
+			return () =>
+				ipcRenderer.removeListener("ssh:selfHostedSetupEvent", listener);
+		},
 		disconnectEnvironment: (profileId: string) =>
 			ipcRenderer.invoke(
 				"ssh:disconnectEnvironment",

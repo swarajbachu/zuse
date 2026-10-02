@@ -60,6 +60,9 @@ export class RemoteEnvironmentProfile extends Schema.Class<RemoteEnvironmentProf
 	environmentId: EnvironmentId,
 	label: Schema.String,
 	target: SshEnvironmentTarget,
+	connectionMode: Schema.optional(
+		Schema.Literals(["local-only", "account-linked"]),
+	),
 	lastConnectedAt: Schema.String,
 }) {}
 

@@ -310,6 +310,24 @@ import {
 	RepositorySettingsUpdateRpc,
 } from "./repository-settings.ts";
 import { RpcAuthorization } from "./rpc-authorization.ts";
+/**
+ * The single source of truth for every RPC method exposed by the main process.
+ * Both server (apps/desktop) and client (apps/renderer) build against this.
+ *
+ * Add new RPCs by importing them here and including them in the group.
+ */
+import {
+	SelfHostedDiagnosticsRpc,
+	SelfHostedGithubLoginCancelRpc,
+	SelfHostedGithubLoginPollRpc,
+	SelfHostedGithubLoginStartRpc,
+	SelfHostedGithubLogoutRpc,
+	SelfHostedGithubStatusRpc,
+	SelfHostedHostDetachRpc,
+	SelfHostedHostStatusRpc,
+	SelfHostedRuntimeRestartRpc,
+	SelfHostedRuntimeUpdateRpc,
+} from "./self-hosted.ts";
 import {
 	ChatArchiveJobsRpc,
 	ChatArchivePreviewRpc,
@@ -418,12 +436,6 @@ import {
 	WorktreeStartRunRpc,
 } from "./worktree.ts";
 
-/**
- * The single source of truth for every RPC method exposed by the main process.
- * Both server (apps/desktop) and client (apps/renderer) build against this.
- *
- * Add new RPCs by importing them here and including them in the group.
- */
 export const MemoizeRpcs = RpcGroup.make(
 	AcpDuplicateRpc,
 	AcpListRpc,
@@ -458,6 +470,16 @@ export const MemoizeRpcs = RpcGroup.make(
 	ModelConnectionDisconnectRpc,
 	ModelConnectionAcknowledgePlanRpc,
 	PluginsRequestRpc,
+	SelfHostedDiagnosticsRpc,
+	SelfHostedGithubLoginCancelRpc,
+	SelfHostedGithubLoginPollRpc,
+	SelfHostedGithubLoginStartRpc,
+	SelfHostedGithubLogoutRpc,
+	SelfHostedGithubStatusRpc,
+	SelfHostedHostDetachRpc,
+	SelfHostedHostStatusRpc,
+	SelfHostedRuntimeRestartRpc,
+	SelfHostedRuntimeUpdateRpc,
 	DeviceBridgeControlRpc,
 	CloudDeviceBridgeRpc,
 	PingRpc,

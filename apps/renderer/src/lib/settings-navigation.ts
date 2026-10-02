@@ -12,6 +12,7 @@ import {
 	PackageIcon,
 	PlugSocketIcon,
 	PuzzleIcon,
+	ServerStack01Icon,
 	Settings01Icon,
 	SmartPhone01Icon,
 	TaskDone01Icon,
@@ -68,6 +69,14 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		},
 		Icon: SmartPhone01Icon,
 		section: { kind: "devices" },
+	},
+	{
+		id: "self-hosted",
+		get label() {
+			return uiMessage("settings:self_hosted_servers");
+		},
+		Icon: ServerStack01Icon,
+		section: { kind: "self-hosted" },
 	},
 	{
 		id: "machines",
