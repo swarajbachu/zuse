@@ -7,14 +7,16 @@ import {
 	SessionId,
 	type SessionSummaryChange,
 } from "@zuse/contracts";
-import { Effect, Stream } from "effect";
+import { Deferred, Effect, Fiber, Stream, SubscriptionRef } from "effect";
 import { expect, it } from "vitest";
 import {
 	CatalogVisibility,
+	CatalogVisibilityChanges,
 	filterChatCatalog,
 	filterChats,
 	filterSessionCatalog,
 	projectChatAccess,
+	withCatalogChanges,
 } from "../../src/collaboration/services/catalog-visibility.ts";
 
 const projectId = FolderId.make("project");
@@ -174,4 +176,61 @@ it("preserves session cursors while suppressing private changes and removal IDs"
 		{ _tag: "remove", sequence: 14, sessionId: SessionId.make("visible") },
 		{ _tag: "remove", sequence: 16, sessionId: SessionId.make("new-visible") },
 	]);
+});
+
+it("replaces session snapshots on scope changes without inventing durable cursors", async () => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				const updates = yield* SubscriptionRef.make(scope("shared"));
+				const first = yield* Deferred.make<void>();
+				const second = yield* Deferred.make<void>();
+				const frames: SessionSummaryChange[] = [];
+				const source: Stream.Stream<SessionSummaryChange> = Stream.concat(
+					Stream.succeed({
+						_tag: "snapshot",
+						cursor: 10,
+						sessions: [session("visible"), session("secret", "private")],
+					}),
+					Stream.never,
+				);
+				const fiber = yield* source.pipe(
+					filterSessionCatalog,
+					withCatalogChanges,
+					Stream.provideService(
+						CatalogVisibilityChanges,
+						SubscriptionRef.changes(updates),
+					),
+					Stream.take(3),
+					Stream.runForEach((frame) =>
+						Effect.gen(function* () {
+							frames.push(frame);
+							if (frames.length === 1)
+								yield* Deferred.succeed(first, undefined);
+							if (frames.length === 2)
+								yield* Deferred.succeed(second, undefined);
+						}),
+					),
+					Effect.forkChild,
+				);
+				yield* Deferred.await(first);
+				yield* SubscriptionRef.set(updates, {
+					chats: new Set<ChatId>(),
+					projects: new Set<FolderId>(),
+				});
+				yield* Deferred.await(second);
+				yield* SubscriptionRef.set(updates, scope("private"));
+				yield* Fiber.join(fiber);
+				expect(frames).toEqual([
+					{ _tag: "snapshot", cursor: 10, sessions: [session("visible")] },
+					{ _tag: "snapshot", cursor: 10, sessions: [] },
+					{
+						_tag: "snapshot",
+						cursor: 10,
+						sessions: [session("secret", "private")],
+					},
+				]);
+			}),
+		),
+	);
 });

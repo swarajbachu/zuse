@@ -245,11 +245,14 @@ import {
 import {
 	OrganizationsCreateRpc,
 	OrganizationsGetRpc,
+	OrganizationsGetWorkspaceSharingRpc,
 	OrganizationsInviteRpc,
 	OrganizationsListRpc,
 	OrganizationsRemoveMemberRpc,
 	OrganizationsRevokeInviteRpc,
 	OrganizationsSetRoleRpc,
+	OrganizationsSetWorkspaceGrantRpc,
+	OrganizationsSetWorkspaceSharingRpc,
 } from "./organizations.ts";
 import {
 	PairingListNearbyRequestsRpc,
@@ -411,8 +414,11 @@ export const MemoizeRpcs = RpcGroup.make(
 	ModelConnectionDisconnectRpc,
 	ModelConnectionAcknowledgePlanRpc,
 	DeviceBridgeControlRpc,
+	OrganizationsSetWorkspaceSharingRpc,
 	CloudDeviceBridgeRpc,
+	OrganizationsGetWorkspaceSharingRpc,
 	PingRpc,
+	OrganizationsSetWorkspaceGrantRpc,
 	PreviewsListServersRpc,
 	AnalyticsGetContextRpc,
 	AnalyticsContextChangesRpc,

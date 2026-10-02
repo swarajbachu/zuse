@@ -122,6 +122,10 @@ export interface ApiStoreApi {
 	readonly listEnvironments: (
 		accountId: string,
 	) => Effect.Effect<ReadonlyArray<EnvironmentRecord>>;
+	/** Discovery candidates only; callers must verify current organization membership. */
+	readonly listSharedEnvironments: (
+		subject: string,
+	) => Effect.Effect<ReadonlyArray<EnvironmentRecord>>;
 	readonly getEnvironment: (
 		environmentId: string,
 	) => Effect.Effect<EnvironmentRecord | null>;
@@ -273,6 +277,18 @@ export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 				Ref.get(environments).pipe(
 					Effect.map((map) =>
 						[...map.values()].filter((env) => env.accountId === accountId),
+					),
+				),
+			listSharedEnvironments: (subject) =>
+				Ref.get(environments).pipe(
+					Effect.map((map) =>
+						[...map.values()].filter(
+							(env) =>
+								env.accountId !== subject &&
+								env.sharingAudience?.some(
+									(member) => member.subject === subject,
+								),
+						),
 					),
 				),
 			getEnvironment: (environmentId) =>
@@ -687,6 +703,15 @@ export const ApiStorePg: Layer.Layer<ApiStore, never, SqlClient.SqlClient> =
               WHERE account_id = ${accountId}
               ORDER BY linked_at DESC
             `.pipe(Effect.map((rows) => rows.map(toEnvironment))),
+					),
+				listSharedEnvironments: (subject) =>
+					orDie(
+						sql<EnvironmentRow>`
+						SELECT * FROM api_environments
+						WHERE account_id <> ${subject}
+						AND sharing_audience @> ${JSON.stringify([{ subject }])}::jsonb
+						ORDER BY linked_at DESC
+					`.pipe(Effect.map((rows) => rows.map(toEnvironment))),
 					),
 				getEnvironment: (environmentId) =>
 					orDie(

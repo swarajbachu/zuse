@@ -63,6 +63,7 @@ import { Migration0059EventSequenceIndex } from "./migrations/0059_event_sequenc
 import { Migration0060ChatUserMessageTime } from "./migrations/0060_chat_user_message_time.ts";
 import { Migration0061HarnessExecutions } from "./migrations/0061_harness_executions.ts";
 import { Migration0062ModelConnections } from "./migrations/0062_model_connections.ts";
+import { Migration0063SharedHostAccess } from "./migrations/0063_shared_host_access.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -155,6 +156,7 @@ const MigrationDefinitions = {
 	"0060_chat_user_message_time": Migration0060ChatUserMessageTime,
 	"0061_harness_executions": Migration0061HarnessExecutions,
 	"0062_model_connections": Migration0062ModelConnections,
+	"0063_shared_host_access": Migration0063SharedHostAccess,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */

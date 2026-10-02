@@ -86,6 +86,13 @@ import { MachineRuntimeRole } from "./machine-runtime-role.ts";
 import { RequestWorkspace } from "./request-workspace.ts";
 
 export interface MachineControlServiceShape {
+	readonly organizationMembership: (
+		organizationId: string,
+		subject: string,
+	) => Effect.Effect<
+		{ readonly role: string; readonly membershipId: string },
+		MachineControlError
+	>;
 	readonly listOrganizations: () => Effect.Effect<
 		ReadonlyArray<Organization>,
 		MachineControlError
@@ -428,6 +435,13 @@ export const MachineControlServiceLive: Layer.Layer<
 			});
 
 		return MachineControlService.of({
+			organizationMembership: (organizationId, subject) =>
+				request(
+					ApiPaths.organizationAuthorize,
+					Schema.Struct({ role: Schema.String, membershipId: Schema.String }),
+					"POST",
+					{ organizationId, subject },
+				),
 			listOrganizations: () =>
 				request(ApiPaths.organizations, Schema.Array(Organization)),
 			createOrganization: (input) =>

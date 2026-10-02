@@ -43,3 +43,12 @@ export type CommandId = typeof CommandId.Type;
 
 export const EventId = makeEntityId("EventId");
 export type EventId = typeof EventId.Type;
+
+export const TeamId = makeEntityId("TeamId");
+export type TeamId = typeof TeamId.Type;
+
+export const TeamMemberId = makeEntityId("TeamMemberId");
+export type TeamMemberId = typeof TeamMemberId.Type;
+
+export const AuditEventId = makeEntityId("AuditEventId");
+export type AuditEventId = typeof AuditEventId.Type;

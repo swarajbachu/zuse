@@ -14,6 +14,9 @@ import { Button } from "./ui/button.tsx";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover.tsx";
 import { Spinner } from "./ui/spinner.tsx";
 
+const WorkspaceSharingDialog = lazy(
+	() => import("./workspace-sharing-dialog.tsx"),
+);
 const CloudChatSharingDialog = lazy(
 	() => import("./cloud-chat-sharing-dialog.tsx"),
 );
@@ -44,7 +47,11 @@ export function WorkspaceSharingButton({
 			: undefined;
 	const [open, setOpen] = useState(false);
 	const [opened, setOpened] = useState(false);
-	if (!auth.isSignedIn || chat === null || organizationId === undefined)
+	if (
+		!auth.isSignedIn ||
+		chat === null ||
+		(chat.readOnly === true && organizationId === undefined)
+	)
 		return null;
 	if (
 		workspace.scope.kind === "organization" &&
@@ -87,7 +94,7 @@ export function WorkspaceSharingButton({
 							</div>
 						}
 					>
-						{
+						{organizationId !== undefined ? (
 							<CloudChatSharingDialog
 								key={`${chatRef.environmentId}:${auth.user?.id}:${workspace.epoch}`}
 								workspaceId={chatRef.environmentId}
@@ -95,7 +102,13 @@ export function WorkspaceSharingButton({
 								open={open}
 								onClose={() => setOpen(false)}
 							/>
-						}
+						) : (
+							<WorkspaceSharingDialog
+								key={`${chatRef.environmentId}:${chatRef.chatId}:${auth.user?.id}`}
+								chatRef={chatRef}
+								onClose={() => setOpen(false)}
+							/>
+						)}
 					</Suspense>
 				</PopoverPopup>
 			)}
