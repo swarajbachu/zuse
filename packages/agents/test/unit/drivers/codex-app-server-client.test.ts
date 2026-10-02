@@ -413,4 +413,118 @@ describe("Codex app-server API-key authentication", () => {
 			rmSync(directory, { recursive: true, force: true });
 		}
 	});
+
+	it("installs a brokered account API key in memory on the pinned binary", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-codex-broker-key-"));
+		let client: CodexAppServerClient | null = null;
+		try {
+			client = await CodexAppServerClient.start({
+				codexPath: require.resolve("@openai/codex/bin/codex.js"),
+				env: {
+					...process.env,
+					CODEX_HOME: directory,
+					OPENAI_API_KEY: undefined,
+					CODEX_API_KEY: undefined,
+				},
+				// Ignored whenever a broker is present: the broker is authoritative.
+				apiKey: "local-key-must-not-be-used",
+				startupTimeoutMs: 5_000,
+				onNotification: () => {},
+				onServerRequest: () => {},
+				externalAuthProvider: {
+					getTokens: async () => ({
+						kind: "api-key",
+						apiKey: "brokered-api-key",
+						expiresAt: Date.now() + 3_600_000,
+					}),
+				},
+			});
+			expect(
+				await client.request("account/read", { refreshToken: false }),
+			).toMatchObject({ account: { type: "apiKey" } });
+			expect(existsSync(join(directory, "auth.json"))).toBe(false);
+		} finally {
+			client?.close();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("does not hand an API key to a ChatGPT token refresh", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-codex-refresh-key-"));
+		const executable = join(directory, "fake-app-server.mjs");
+		const capture = join(directory, "capture.json");
+		let client: CodexAppServerClient | null = null;
+		try {
+			writeFileSync(
+				executable,
+				`#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+import readline from "node:readline";
+const capture = process.env.CAPTURE_PATH;
+const lines = readline.createInterface({ input: process.stdin });
+let login;
+lines.on("line", (line) => {
+	const message = JSON.parse(line);
+	if (message.method === "initialize") {
+		process.stdout.write(JSON.stringify({ id: message.id, result: { userAgent: "test", codexHome: "", platformFamily: "", platformOs: "" } }) + "\\n");
+		return;
+	}
+	if (message.method === "account/login/start") {
+		login = message.params;
+		process.stdout.write(JSON.stringify({ id: message.id, result: { type: "chatgptAuthTokens" } }) + "\\n");
+		process.stdout.write(JSON.stringify({ id: 99, method: "account/chatgptAuthTokens/refresh", params: { reason: "unauthorized", previousAccountId: "chatgpt-account" } }) + "\\n");
+		return;
+	}
+	if (message.id === 99 && message.method === undefined) {
+		writeFileSync(capture, JSON.stringify({ login, argv: process.argv.slice(2), refresh: message.result ?? null }));
+	}
+});
+`,
+				{ mode: 0o755 },
+			);
+			const failures: Array<{ consumerId?: string; reason: string }> = [];
+			client = await CodexAppServerClient.start({
+				codexPath: executable,
+				env: { ...process.env, CAPTURE_PATH: capture },
+				startupTimeoutMs: 2_000,
+				onNotification: () => {},
+				onServerRequest: () => {},
+				externalAuthConsumerId: "session-1",
+				externalAuthProvider: {
+					getTokens: async ({ reason }) =>
+						reason === "initial"
+							? {
+									kind: "chatgpt",
+									accessToken: "initial-access",
+									chatgptAccountId: "chatgpt-account",
+									chatgptPlanType: "pro",
+									expiresAt: Date.now() + 60_000,
+								}
+							: {
+									kind: "api-key",
+									apiKey: "switched-api-key",
+									expiresAt: Date.now() + 60_000,
+								},
+					onDeliveryFailure: (failure) => failures.push(failure),
+				},
+			});
+			for (let attempt = 0; attempt < 100 && !existsSync(capture); attempt += 1)
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			const recorded = JSON.parse(readFileSync(capture, "utf8")) as {
+				login: Record<string, unknown>;
+				argv: string[];
+				refresh: unknown;
+			};
+			expect(recorded.login).toMatchObject({ type: "chatgptAuthTokens" });
+			expect(recorded.argv.join(" ")).not.toContain("ephemeral");
+			expect(recorded.refresh).toBeNull();
+			expect(JSON.stringify(recorded)).not.toContain("switched-api-key");
+			expect(failures).toEqual([
+				{ consumerId: "session-1", reason: "codex-auth-reconnect-required" },
+			]);
+		} finally {
+			client?.close();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
 });

@@ -25,17 +25,34 @@ type UnexpectedTerminationHandler = (error: Error) => void;
 const STDERR_TAIL_LIMIT_BYTES = 4 * 1024;
 
 export interface CodexChatgptAuthTokens {
+	/** Absent on providers that predate API-key brokering. */
+	readonly kind?: "chatgpt";
 	readonly accessToken: string;
 	readonly chatgptAccountId: string;
 	readonly chatgptPlanType: string | null;
 	readonly expiresAt: number;
 }
 
+/** Account API key delivered by the cloud broker; installed in memory only. */
+export interface CodexApiKeyCredential {
+	readonly kind: "api-key";
+	readonly apiKey: string;
+	readonly expiresAt: number;
+}
+
+export type CodexExternalCredential =
+	| CodexChatgptAuthTokens
+	| CodexApiKeyCredential;
+
+export const isCodexApiKeyCredential = (
+	credential: CodexExternalCredential,
+): credential is CodexApiKeyCredential => credential.kind === "api-key";
+
 export interface CodexExternalAuthProvider {
 	readonly getTokens: (input: {
 		readonly reason: "initial" | "proactive" | "unauthorized";
 		readonly previousChatgptAccountId?: string;
-	}) => Promise<CodexChatgptAuthTokens>;
+	}) => Promise<CodexExternalCredential>;
 	readonly onDeliveryFailure?: (input: {
 		readonly consumerId?: string;
 		readonly reason: string;
@@ -79,7 +96,7 @@ export const beforeCodexExternalAuthDeadline = async <A>(
  */
 export const getDefaultCodexExternalAuthTokens = async (
 	reason: "proactive" | "unauthorized",
-): Promise<CodexChatgptAuthTokens | null> => {
+): Promise<CodexExternalCredential | null> => {
 	if (defaultExternalAuthProvider === null) return null;
 	return beforeCodexExternalAuthDeadline(
 		defaultExternalAuthProvider.getTokens({ reason }),
@@ -204,7 +221,37 @@ export class CodexAppServerClient {
 	}): Promise<CodexAppServerClient> {
 		const externalAuthProvider =
 			options.externalAuthProvider ?? defaultExternalAuthProvider;
-		const apiKey = externalAuthProvider === null ? options.apiKey : null;
+		const reportExternalAuthFailure = (cause: unknown): void => {
+			externalAuthProvider?.onDeliveryFailure?.({
+				...(options.externalAuthConsumerId === undefined
+					? {}
+					: { consumerId: options.externalAuthConsumerId }),
+				reason:
+					cause instanceof Error ? cause.message : "codex-auth-reconnecting",
+			});
+		};
+		// Resolve the brokered credential before spawning: an API key must be
+		// installed with Codex's ephemeral credential store so it never reaches
+		// CODEX_HOME, which is a launch-time option.
+		let externalCredential: CodexExternalCredential | null = null;
+		if (externalAuthProvider !== null) {
+			try {
+				externalCredential = await beforeCodexExternalAuthDeadline(
+					externalAuthProvider.getTokens({ reason: "initial" }),
+				);
+			} catch (cause) {
+				reportExternalAuthFailure(cause);
+				throw cause;
+			}
+		}
+		const apiKey =
+			externalCredential === null
+				? externalAuthProvider === null
+					? options.apiKey
+					: null
+				: isCodexApiKeyCredential(externalCredential)
+					? externalCredential.apiKey
+					: null;
 		const hasApiKey =
 			apiKey !== null && apiKey !== undefined && apiKey.length > 0;
 		const handleServerRequest: ServerRequestHandler = (request, respond) => {
@@ -223,23 +270,19 @@ export class CodexAppServerClient {
 								}),
 					}),
 				)
-					.then((tokens) =>
+					.then((tokens) => {
+						// The account switched to an API key mid-session. A ChatGPT
+						// session cannot adopt it in place; the next launch will.
+						if (isCodexApiKeyCredential(tokens))
+							throw new Error("codex-auth-reconnect-required");
 						respond({
 							accessToken: tokens.accessToken,
 							chatgptAccountId: tokens.chatgptAccountId,
 							chatgptPlanType: tokens.chatgptPlanType,
-						}),
-					)
-					.catch((cause) => {
-						externalAuthProvider.onDeliveryFailure?.({
-							...(options.externalAuthConsumerId === undefined
-								? {}
-								: { consumerId: options.externalAuthConsumerId }),
-							reason:
-								cause instanceof Error
-									? cause.message
-									: "codex-auth-reconnecting",
 						});
+					})
+					.catch((cause) => {
+						reportExternalAuthFailure(cause);
 						respond(null);
 					});
 				return;
@@ -318,29 +361,15 @@ export class CodexAppServerClient {
 							}),
 						]);
 			bootstrap.initializeResponse = init;
-			if (externalAuthProvider !== null) {
-				let tokens: CodexChatgptAuthTokens;
-				try {
-					tokens = await beforeCodexExternalAuthDeadline(
-						externalAuthProvider.getTokens({ reason: "initial" }),
-					);
-				} catch (cause) {
-					externalAuthProvider.onDeliveryFailure?.({
-						...(options.externalAuthConsumerId === undefined
-							? {}
-							: { consumerId: options.externalAuthConsumerId }),
-						reason:
-							cause instanceof Error
-								? cause.message
-								: "codex-auth-reconnecting",
-					});
-					throw cause;
-				}
+			if (
+				externalCredential !== null &&
+				!isCodexApiKeyCredential(externalCredential)
+			) {
 				await bootstrap.request("account/login/start", {
 					type: "chatgptAuthTokens",
-					accessToken: tokens.accessToken,
-					chatgptAccountId: tokens.chatgptAccountId,
-					chatgptPlanType: tokens.chatgptPlanType,
+					accessToken: externalCredential.accessToken,
+					chatgptAccountId: externalCredential.chatgptAccountId,
+					chatgptPlanType: externalCredential.chatgptPlanType,
 				});
 			}
 			if (hasApiKey) {

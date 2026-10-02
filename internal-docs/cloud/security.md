@@ -60,6 +60,11 @@ data key; decryption and authoritative application happen in the runtime.
   unavoidable CLI access-token cache is redirected to `/dev/shm`; its durable
   session/config directory remains credential-free. Existing `legacy-image`
   workspaces are never silently migrated.
+- A Codex account API key configured in Cloud Authentication is brokered the
+  same way: broker-v1 runtimes that declare `acceptsApiKey` receive a sealed,
+  short-lived API-key grant and install it with Codex's ephemeral credential
+  store, so it never reaches `CODEX_HOME`. Runtimes that predate this keep
+  receiving only ChatGPT access-token grants.
 - The base template and prepared project snapshots are credential-free.
 - Project snapshot sanitation removes repository tokens, agent credentials,
   runtime identity, authorized keys, and shell history.

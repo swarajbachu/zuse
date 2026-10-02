@@ -348,7 +348,8 @@ if (incarnation !== input.authorityIncarnationId) {
 }
 const fingerprintKey = Buffer.from((await readFile(home + "/grant-fingerprint.key", "utf8")).trim(), "base64url");
 const previousProviderAccountId = input.previousProviderAccountId ?? input.previousChatgptAccountId ?? null;
-const fingerprintPayload = JSON.stringify({ protocolVersion: input.protocolVersion, providerId, requestId: input.requestId, accountId: input.accountId, workspaceId: input.workspaceId, runtimeGeneration: input.runtimeGeneration, credentialPublicJwk: input.credentialPublicJwk, keyThumbprint: input.keyThumbprint, reason: input.reason, previousProviderAccountId, authorityIncarnationId: input.authorityIncarnationId, authorityEpoch: input.authorityEpoch });
+const acceptsCodexApiKey = providerId === "codex" && input.providerId === undefined && input.acceptsApiKey === true;
+const fingerprintPayload = JSON.stringify({ protocolVersion: input.protocolVersion, providerId, requestId: input.requestId, accountId: input.accountId, workspaceId: input.workspaceId, runtimeGeneration: input.runtimeGeneration, credentialPublicJwk: input.credentialPublicJwk, keyThumbprint: input.keyThumbprint, reason: input.reason, previousProviderAccountId, authorityIncarnationId: input.authorityIncarnationId, authorityEpoch: input.authorityEpoch, ...(acceptsCodexApiKey ? { acceptsApiKey: true } : {}) });
 const fingerprint = createHmac("sha256", fingerprintKey).update(fingerprintPayload).digest("base64url");
 const refreshMarkerPath = home + "/grant-cache/" + providerId + "-refresh-" + input.requestId;
 const wasRefreshedForRequest = async () => {
@@ -482,7 +483,15 @@ const refreshGrokAuth = (force) => new Promise((resolve, reject) => {
 let auth;
 try {
   if (providerId === "codex") {
-	const credential = input.providerId === undefined ? { native: true } : record(JSON.parse(await readFile(home + "/providers/codex.json", "utf8")));
+	let credential = { native: true };
+	if (input.providerId !== undefined) credential = record(JSON.parse(await readFile(home + "/providers/codex.json", "utf8")));
+	else {
+	  // The broker-v1 route historically assumed a native ChatGPT sign-in. An
+	  // account API key is served only to runtimes that declare support for it;
+	  // older runtimes keep the previous reconnect-required behavior.
+	  try { credential = record(JSON.parse(await readFile(home + "/providers/codex.json", "utf8"))); } catch {}
+	  if (credential.native !== true && credential.method !== "api-key") credential = { native: true };
+	}
 	if (credential.native === true) {
 	  auth = await readManagedAuth();
 	  if ((input.reason === "unauthorized" && !(await wasRefreshedForRequest())) || auth.expiresAt <= Date.now() + 5 * 60 * 1000) {
@@ -490,7 +499,8 @@ try {
 		await markRefreshedForRequest();
 		auth = await readManagedAuth();
 	  }
-	} else auth = await readProviderCredential();
+	} else if (input.providerId === undefined && !acceptsCodexApiKey) throw new Error("codex_api_key_unsupported_runtime");
+	else auth = await readProviderCredential();
   } else if (providerId === "grok") {
     const credential = record(JSON.parse(await readFile(home + "/providers/grok.json", "utf8")));
     if (credential.native === true) {
@@ -519,7 +529,8 @@ const issuedAt = Date.now();
 const expiresAt = auth.expiresAt;
 const aadObject = { protocolVersion: 1, ...(input.providerId === undefined ? {} : { providerId }), requestId: input.requestId, keyThumbprint: input.keyThumbprint, authorityIncarnationId: incarnation, authorityEpoch: input.authorityEpoch };
 const aad = Buffer.from(JSON.stringify(aadObject));
-const plaintext = Buffer.from(JSON.stringify({ zuseAccountId: input.accountId, workspaceId: input.workspaceId, runtimeGeneration: input.runtimeGeneration, keyThumbprint: input.keyThumbprint, authorityIncarnationId: incarnation, authorityEpoch: input.authorityEpoch, providerId, issuedAt, expiresAt, ...(providerId === "codex" && input.providerId === undefined ? { chatgptAccountId: auth.chatgptAccountId, chatgptPlanType: auth.chatgptPlanType, accessToken: auth.accessToken } : { method: auth.method, credentialKind: auth.credentialKind, secret: auth.secret, providerAccountId: auth.providerAccountId, issuer: auth.issuer }) }));
+const codexBrokerFields = providerId === "codex" && input.providerId === undefined ? (auth.credentialKind === "api-key" ? { credentialKind: "api-key", apiKey: auth.secret } : { credentialKind: "chatgpt", chatgptAccountId: auth.chatgptAccountId, chatgptPlanType: auth.chatgptPlanType, accessToken: auth.accessToken }) : null;
+const plaintext = Buffer.from(JSON.stringify({ zuseAccountId: input.accountId, workspaceId: input.workspaceId, runtimeGeneration: input.runtimeGeneration, keyThumbprint: input.keyThumbprint, authorityIncarnationId: incarnation, authorityEpoch: input.authorityEpoch, providerId, issuedAt, expiresAt, ...(codexBrokerFields ?? { method: auth.method, credentialKind: auth.credentialKind, secret: auth.secret, providerAccountId: auth.providerAccountId, issuer: auth.issuer }) }));
 const contentKey = randomBytes(32);
 const iv = randomBytes(12);
 const cipher = createCipheriv("aes-256-gcm", contentKey, iv);
@@ -1417,6 +1428,7 @@ export interface IssueCodexGrantInput {
 	readonly requestId: string;
 	readonly reason: CodexGrantRefreshReason;
 	readonly previousChatgptAccountId?: string;
+	readonly acceptsApiKey?: boolean;
 }
 
 export interface IssueProviderGrantInput {
@@ -1442,6 +1454,8 @@ interface IssueAuthorityGrantInput {
 	readonly requestId: string;
 	readonly reason: ProviderGrantRefreshReason;
 	readonly previousProviderAccountId?: string;
+	/** Broker-v1 Codex only: the runtime can launch Codex with an API key. */
+	readonly acceptsApiKey?: boolean;
 }
 
 const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
@@ -1478,6 +1492,7 @@ const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
 				credentialPublicJwk: input.recipientPublicJwk,
 				keyThumbprint: input.recipientKeyThumbprint,
 				reason: input.reason,
+				...(input.acceptsApiKey === true ? { acceptsApiKey: true } : {}),
 				...(input.previousProviderAccountId === undefined
 					? {}
 					: input.bindProviderId
@@ -1581,6 +1596,7 @@ export const issueCodexGrant = Effect.fn("issueCodexGrant")(function* (
 		...input,
 		providerId: "codex",
 		bindProviderId: false,
+		...(input.acceptsApiKey === true ? { acceptsApiKey: true } : {}),
 		...(input.previousChatgptAccountId === undefined
 			? {}
 			: { previousProviderAccountId: input.previousChatgptAccountId }),

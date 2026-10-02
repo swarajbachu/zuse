@@ -1,6 +1,6 @@
 import type {
-	CodexChatgptAuthTokens,
 	CodexExternalAuthProvider,
+	CodexExternalCredential,
 } from "@zuse/agents/drivers/codex-app-server-client";
 import {
 	type CodexGrantRefreshReason,
@@ -20,19 +20,27 @@ export type CloudCodexAuthStatus =
 	| "codex-auth-reconnect-required"
 	| "codex-auth-update-required";
 
-interface CodexGrantPlaintext {
+interface CodexGrantEnvelope {
 	readonly zuseAccountId: string;
 	readonly workspaceId: string;
 	readonly runtimeGeneration: number;
 	readonly keyThumbprint: string;
 	readonly authorityIncarnationId: string;
 	readonly authorityEpoch: number;
-	readonly chatgptAccountId: string;
-	readonly chatgptPlanType: string | null;
 	readonly issuedAt: number;
 	readonly expiresAt: number;
-	readonly accessToken: string;
 }
+
+type CodexGrantPlaintext = CodexGrantEnvelope &
+	(
+		| {
+				readonly credentialKind: "chatgpt";
+				readonly chatgptAccountId: string;
+				readonly chatgptPlanType: string | null;
+				readonly accessToken: string;
+		  }
+		| { readonly credentialKind: "api-key"; readonly apiKey: string }
+	);
 
 export interface CloudCodexAuthInput {
 	readonly zuseAccountId: string;
@@ -57,16 +65,15 @@ const failureReason = (cause: unknown): string => {
 
 const decodeGrantPlaintext = (value: unknown): CodexGrantPlaintext => {
 	if (!isRecord(value)) throw new Error("codex-auth-update-required");
+	const nonEmpty = (field: string): boolean =>
+		typeof value[field] === "string" && (value[field] as string).length > 0;
 	for (const field of [
 		"zuseAccountId",
 		"workspaceId",
 		"keyThumbprint",
 		"authorityIncarnationId",
-		"chatgptAccountId",
-		"accessToken",
 	] as const)
-		if (typeof value[field] !== "string" || value[field].length === 0)
-			throw new Error("codex-auth-update-required");
+		if (!nonEmpty(field)) throw new Error("codex-auth-update-required");
 	for (const field of [
 		"runtimeGeneration",
 		"authorityEpoch",
@@ -75,21 +82,35 @@ const decodeGrantPlaintext = (value: unknown): CodexGrantPlaintext => {
 	] as const)
 		if (typeof value[field] !== "number" || !Number.isSafeInteger(value[field]))
 			throw new Error("codex-auth-update-required");
+	// Authorities that predate API-key brokering omit credentialKind and only
+	// ever issue ChatGPT access-token grants.
+	if (value.credentialKind === "api-key") {
+		if (!nonEmpty("apiKey")) throw new Error("codex-auth-update-required");
+		return value as unknown as CodexGrantPlaintext;
+	}
+	if (value.credentialKind !== undefined && value.credentialKind !== "chatgpt")
+		throw new Error("codex-auth-update-required");
+	if (!nonEmpty("chatgptAccountId") || !nonEmpty("accessToken"))
+		throw new Error("codex-auth-update-required");
 	if (
 		value.chatgptPlanType !== null &&
 		typeof value.chatgptPlanType !== "string"
 	)
 		throw new Error("codex-auth-update-required");
-	return value as unknown as CodexGrantPlaintext;
+	return {
+		...(value as unknown as CodexGrantPlaintext),
+		credentialKind: "chatgpt",
+	} as CodexGrantPlaintext;
 };
 
 /**
- * Workspace-scoped, memory-only Codex access-token cache. Refreshes are
- * single-flight and every grant is generation/key/account fenced.
+ * Workspace-scoped, memory-only Codex credential cache (ChatGPT access token
+ * or account API key). Refreshes are single-flight and every grant is
+ * generation/key/account fenced.
  */
 export class CloudCodexAuth implements CodexExternalAuthProvider {
-	private cached: CodexChatgptAuthTokens | null = null;
-	private inFlight: Promise<CodexChatgptAuthTokens> | null = null;
+	private cached: CodexExternalCredential | null = null;
+	private inFlight: Promise<CodexExternalCredential> | null = null;
 	private proactiveTimer: NodeJS.Timeout | null = null;
 	private recoveryTimer: NodeJS.Timeout | null = null;
 	private readonly blockedConsumers = new Set<string>();
@@ -105,7 +126,7 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 	readonly getTokens = (request: {
 		readonly reason: CodexGrantRefreshReason;
 		readonly previousChatgptAccountId?: string;
-	}): Promise<CodexChatgptAuthTokens> => {
+	}): Promise<CodexExternalCredential> => {
 		const nowMs = Date.now();
 		if (
 			request.reason !== "unauthorized" &&
@@ -153,7 +174,7 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 	private async refresh(request: {
 		readonly reason: CodexGrantRefreshReason;
 		readonly previousChatgptAccountId?: string;
-	}): Promise<CodexChatgptAuthTokens> {
+	}): Promise<CodexExternalCredential> {
 		try {
 			const keyThumbprint = await this.keyThumbprint;
 			const requestId = crypto.randomUUID();
@@ -164,6 +185,7 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 					runtimeGeneration: this.input.runtimeGeneration,
 					credentialPublicJwk: this.input.credentialPublicJwk,
 					reason: request.reason,
+					acceptsApiKey: true,
 					...(request.previousChatgptAccountId === undefined
 						? {}
 						: {
@@ -195,15 +217,24 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 				throw new Error("codex-auth-update-required");
 			if (
 				request.previousChatgptAccountId !== undefined &&
-				request.previousChatgptAccountId !== grant.chatgptAccountId
+				(grant.credentialKind !== "chatgpt" ||
+					request.previousChatgptAccountId !== grant.chatgptAccountId)
 			)
 				throw new Error("codex-auth-reconnect-required");
-			const tokens: CodexChatgptAuthTokens = {
-				accessToken: grant.accessToken,
-				chatgptAccountId: grant.chatgptAccountId,
-				chatgptPlanType: grant.chatgptPlanType,
-				expiresAt: grant.expiresAt,
-			};
+			const tokens: CodexExternalCredential =
+				grant.credentialKind === "api-key"
+					? {
+							kind: "api-key",
+							apiKey: grant.apiKey,
+							expiresAt: grant.expiresAt,
+						}
+					: {
+							kind: "chatgpt",
+							accessToken: grant.accessToken,
+							chatgptAccountId: grant.chatgptAccountId,
+							chatgptPlanType: grant.chatgptPlanType,
+							expiresAt: grant.expiresAt,
+						};
 			this.cached = tokens;
 			this.scheduleProactiveRefresh(tokens.expiresAt);
 			if (this.recoveryTimer !== null) {

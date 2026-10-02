@@ -507,6 +507,7 @@ describe("cloud auth authority Codex grants", () => {
 				zuseAccountId: "account-1",
 				workspaceId: "workspace-1",
 				runtimeGeneration: 3,
+				credentialKind: "chatgpt",
 				accessToken,
 			});
 			run();
@@ -520,6 +521,122 @@ describe("cloud auth authority Codex grants", () => {
 			expect(JSON.parse(readFileSync(resultPath, "utf8"))).toEqual({
 				errorCode: "codex_grant_request_id_reused",
 			});
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test("serves an account API key only to runtimes that accept it", () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-codex-api-key-grant-"));
+		try {
+			const authHome = join(directory, "authority");
+			mkdirSync(join(authHome, "grant-cache"), { recursive: true });
+			mkdirSync(join(authHome, "providers"), { recursive: true });
+			writeFileSync(
+				join(authHome, "storage-incarnation-id"),
+				"authority-incarnation",
+			);
+			writeFileSync(
+				join(authHome, "grant-fingerprint.key"),
+				Buffer.alloc(32, 7).toString("base64url"),
+			);
+			writeFileSync(
+				join(authHome, "providers", "codex.json"),
+				JSON.stringify({
+					providerId: "codex",
+					method: "api-key",
+					secret: "sk-account-api-key",
+					updatedAt: Date.now(),
+				}),
+			);
+			const { publicKey, privateKey } = generateKeyPairSync("rsa", {
+				modulusLength: 2048,
+			});
+			const scriptPath = join(directory, "codex-grant.mjs");
+			const requestPath = join(directory, "request.json");
+			const resultPath = join(directory, "result.json");
+			writeFileSync(scriptPath, CODEX_GRANT_SOURCE);
+			const request = {
+				protocolVersion: 1,
+				requestId: "550e8400-e29b-41d4-a716-446655440001",
+				accountId: "account-1",
+				workspaceId: "workspace-1",
+				runtimeGeneration: 3,
+				credentialPublicJwk: JSON.stringify(
+					publicKey.export({ format: "jwk" }),
+				),
+				keyThumbprint: "runtime-key-thumbprint",
+				reason: "initial",
+				authorityIncarnationId: "authority-incarnation",
+				authorityEpoch: 4,
+			};
+			const run = (body: Record<string, unknown>, cacheName: string) => {
+				writeFileSync(requestPath, JSON.stringify(body));
+				execFileSync(
+					process.execPath,
+					[
+						scriptPath,
+						requestPath,
+						resultPath,
+						join(authHome, "grant-cache", cacheName),
+					],
+					{
+						env: {
+							...process.env,
+							ZUSE_CLOUD_AUTH_HOME: authHome,
+							ZUSE_CODEX_AUTH_FILE: join(directory, "missing-auth.json"),
+						},
+					},
+				);
+				return JSON.parse(readFileSync(resultPath, "utf8")) as {
+					readonly errorCode?: string;
+					readonly sealed?: Record<string, unknown>;
+				};
+			};
+
+			// A runtime that predates API-key brokering keeps its old behavior.
+			expect(run(request, "legacy.json")).toEqual({
+				errorCode: "codex-auth-reconnect-required",
+			});
+
+			const result = run(
+				{
+					...request,
+					requestId: "550e8400-e29b-41d4-a716-446655440002",
+					acceptsApiKey: true,
+				},
+				"accepting.json",
+			);
+			expect(JSON.stringify(result)).not.toContain("sk-account-api-key");
+			const sealed = result.sealed as Record<string, unknown>;
+			const contentKey = privateDecrypt(
+				{
+					key: privateKey,
+					oaepHash: "sha256",
+					padding: constants.RSA_PKCS1_OAEP_PADDING,
+				},
+				Buffer.from(String(sealed.wrappedKey), "base64url"),
+			);
+			const decipher = createDecipheriv(
+				"aes-256-gcm",
+				contentKey,
+				Buffer.from(String(sealed.iv), "base64url"),
+			);
+			decipher.setAAD(grantAdditionalData(sealed));
+			decipher.setAuthTag(Buffer.from(String(sealed.tag), "base64url"));
+			const plaintext = JSON.parse(
+				Buffer.concat([
+					decipher.update(Buffer.from(String(sealed.ciphertext), "base64url")),
+					decipher.final(),
+				]).toString("utf8"),
+			) as Record<string, unknown>;
+			expect(plaintext).toMatchObject({
+				workspaceId: "workspace-1",
+				credentialKind: "api-key",
+				apiKey: "sk-account-api-key",
+			});
+			expect(plaintext).not.toHaveProperty("accessToken");
+			expect(Number(plaintext.expiresAt)).toBeGreaterThan(Date.now());
 		} finally {
 			rmSync(directory, { recursive: true, force: true });
 		}

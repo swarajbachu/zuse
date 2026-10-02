@@ -18,6 +18,7 @@ const seal = async (input: {
 	readonly publicKey: CryptoKey;
 	readonly keyThumbprint: string;
 	readonly workspaceId?: string;
+	readonly credential?: Record<string, unknown>;
 }): Promise<SealedCodexGrant> => {
 	const authorityIncarnationId = "authority-storage-1";
 	const authorityEpoch = 3;
@@ -47,11 +48,13 @@ const seal = async (input: {
 			keyThumbprint: input.keyThumbprint,
 			authorityIncarnationId,
 			authorityEpoch,
-			chatgptAccountId: "chatgpt-account-1",
-			chatgptPlanType: "pro",
+			...(input.credential ?? {
+				chatgptAccountId: "chatgpt-account-1",
+				chatgptPlanType: "pro",
+				accessToken: "access-only-token",
+			}),
 			issuedAt: Date.now(),
 			expiresAt: Date.now() + 60 * 60_000,
-			accessToken: "access-only-token",
 		}),
 	);
 	const encrypted = new Uint8Array(
@@ -172,6 +175,99 @@ describe("CloudCodexAuth", () => {
 			"codex-auth-reconnecting",
 			"codex-auth-reconnect-required",
 		]);
+		auth.close();
+	});
+
+	test("advertises API-key support and decodes a brokered account API key", async () => {
+		const { pair, credentialPublicJwk, keyThumbprint } = await fixture();
+		const requests: CodexGrantRequest[] = [];
+		const auth = new CloudCodexAuth({
+			zuseAccountId: "account-1",
+			workspaceId: "workspace-1",
+			runtimeGeneration: 4,
+			credentialPublicJwk,
+			credentialPrivateKey: pair.privateKey,
+			issueGrant: (request) => {
+				requests.push(request);
+				return seal({
+					request,
+					publicKey: pair.publicKey,
+					keyThumbprint,
+					credential: { credentialKind: "api-key", apiKey: "sk-account-key" },
+				});
+			},
+		});
+
+		await expect(auth.getTokens({ reason: "initial" })).resolves.toMatchObject({
+			kind: "api-key",
+			apiKey: "sk-account-key",
+		});
+		expect(requests[0]?.acceptsApiKey).toBe(true);
+		// A ChatGPT session asking to refresh its account cannot adopt a key.
+		await expect(
+			auth.getTokens({
+				reason: "unauthorized",
+				previousChatgptAccountId: "chatgpt-account-1",
+			}),
+		).rejects.toThrow("codex-auth-reconnect-required");
+		auth.close();
+	});
+
+	test("labels legacy and explicit ChatGPT grants identically", async () => {
+		const { pair, credentialPublicJwk, keyThumbprint } = await fixture();
+		for (const credential of [
+			undefined,
+			{
+				credentialKind: "chatgpt",
+				chatgptAccountId: "chatgpt-account-1",
+				chatgptPlanType: null,
+				accessToken: "access-only-token",
+			},
+		]) {
+			const auth = new CloudCodexAuth({
+				zuseAccountId: "account-1",
+				workspaceId: "workspace-1",
+				runtimeGeneration: 4,
+				credentialPublicJwk,
+				credentialPrivateKey: pair.privateKey,
+				issueGrant: (request) =>
+					seal({
+						request,
+						publicKey: pair.publicKey,
+						keyThumbprint,
+						...(credential === undefined ? {} : { credential }),
+					}),
+			});
+			await expect(
+				auth.getTokens({ reason: "initial" }),
+			).resolves.toMatchObject({
+				kind: "chatgpt",
+				accessToken: "access-only-token",
+				chatgptAccountId: "chatgpt-account-1",
+			});
+			auth.close();
+		}
+	});
+
+	test("rejects an API-key grant that carries no key", async () => {
+		const { pair, credentialPublicJwk, keyThumbprint } = await fixture();
+		const auth = new CloudCodexAuth({
+			zuseAccountId: "account-1",
+			workspaceId: "workspace-1",
+			runtimeGeneration: 4,
+			credentialPublicJwk,
+			credentialPrivateKey: pair.privateKey,
+			issueGrant: (request) =>
+				seal({
+					request,
+					publicKey: pair.publicKey,
+					keyThumbprint,
+					credential: { credentialKind: "api-key" },
+				}),
+		});
+		await expect(auth.initialize()).rejects.toThrow(
+			"codex-auth-update-required",
+		);
 		auth.close();
 	});
 });

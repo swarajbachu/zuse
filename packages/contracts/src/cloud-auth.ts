@@ -87,6 +87,11 @@ export class CodexGrantRequest extends Schema.Class<CodexGrantRequest>(
 	credentialPublicJwk: Schema.String,
 	reason: CodexGrantRefreshReason,
 	previousChatgptAccountId: Schema.optional(Schema.String),
+	/**
+	 * Set by runtimes that can launch Codex with an account API key. Older
+	 * runtimes omit it and keep receiving only ChatGPT access-token grants.
+	 */
+	acceptsApiKey: Schema.optional(Schema.Boolean),
 }) {}
 
 /** API-routed ciphertext. Only the enrolled runtime RSA key can open it. */

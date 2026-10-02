@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Cloud workspaces now run Codex with an account API key configured in Cloud Authentication. Previously every cloud chat stopped with "Codex account needs reconnecting" because workspaces only accepted a ChatGPT sign-in; the key is still delivered as a sealed, memory-only grant and never written into the sandbox.
 - Let idle cloud workspaces pause even when connected clients send RPC heartbeats, poll status, or receive subscription updates, while preserving activity from user actions and active agent turns.
 
 ## [0.22.1]

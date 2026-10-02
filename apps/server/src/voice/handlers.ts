@@ -6,6 +6,7 @@ import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAcco
 import {
 	CodexAppServerClient,
 	getDefaultCodexExternalAuthTokens,
+	isCodexApiKeyCredential,
 } from "@zuse/agents/drivers/codex-app-server-client";
 import {
 	MemoizeRpcs,
@@ -71,6 +72,10 @@ const readAccountAuth = async (): Promise<AccountAuth> => {
 const refreshCompatibleAccount = async (): Promise<AccountAuth> => {
 	const external = await getDefaultCodexExternalAuthTokens("proactive");
 	if (external !== null) {
+		// Voice transcription uses the ChatGPT account endpoint; an account API
+		// key is not a compatible credential for it.
+		if (isCodexApiKeyCredential(external))
+			throw new Error("a compatible signed-in account is required");
 		return {
 			token: external.accessToken,
 			accountId: external.chatgptAccountId,
