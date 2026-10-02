@@ -81,8 +81,8 @@ import {
 import { isRetryableClientError } from "~/rpc/connection-failures";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
-const getCloudControl = async () =>
-	(await import("~/rpc/api-client")).cloudControlClient;
+const getCloudControl = async (workspaceId: string) =>
+	(await import("./cloud-catalog")).cloudControlForChat(workspaceId);
 const cloudTransport = makeCloudCommandTransport(getCloudControl);
 
 type EnvironmentBinding = Readonly<{
@@ -671,7 +671,7 @@ const makeBus = () =>
 						undefined
 				)
 					return null;
-				const control = await getCloudControl();
+				const control = await getCloudControl(ref.environmentId);
 				const result = await Effect.runPromise(
 					control["cloud.transcript.get"]({
 						workspaceId: ref.environmentId,
@@ -720,7 +720,7 @@ const messagePager = makeSessionMessagePager({
 			bindings.get(ref.environmentId)?.options.cloudWorkspaceId === undefined
 		)
 			return null;
-		const control = await getCloudControl();
+		const control = await getCloudControl(ref.environmentId);
 		const result = await Effect.runPromise(
 			control["cloud.transcript.messages.page"]({
 				workspaceId: ref.environmentId,

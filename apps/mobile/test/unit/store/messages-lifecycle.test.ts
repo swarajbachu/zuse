@@ -159,9 +159,9 @@ describe("message stream lifecycle", () => {
 });
 
 vi.mock("~/rpc/api-client", () => ({
-	cloudControlClient: {
+	cloudControlClientForWorkspace: vi.fn(() => ({
 		"cloud.transcript.get": () => Effect.succeed({ checkpoint: null }),
-	},
+	})),
 }));
 
 test.each([

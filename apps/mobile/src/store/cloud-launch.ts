@@ -9,9 +9,10 @@ import {
 import { Effect } from "effect";
 import { connectionSessionKey } from "~/lib/session-key";
 import { makeTextInput, sendCloudMessage } from "~/rpc/actions";
-import { cloudControlClient } from "~/rpc/api-client";
+import { cloudControlClientForWorkspace } from "~/rpc/api-client";
 import {
 	cloudCatalogAtom,
+	cloudCatalogGeneration,
 	cloudConnectionKey,
 	registerCloudSummary,
 } from "./cloud-catalog";
@@ -33,11 +34,17 @@ export const launchMobileCloudChat = async (input: {
 	runtimeMode: RuntimeMode;
 	text: string;
 }) => {
+	const generation = cloudCatalogGeneration();
+	const scope = appAtomRegistry.get(cloudCatalogAtom).scope;
 	const assertAccount = () => {
-		if (appAtomRegistry.get(cloudCatalogAtom).accountId !== input.accountId)
+		if (
+			appAtomRegistry.get(cloudCatalogAtom).accountId !== input.accountId ||
+			cloudCatalogGeneration() !== generation
+		)
 			throw new Error("Sign in to this account before sending.");
 	};
 	assertAccount();
+	const cloudControlClient = cloudControlClientForWorkspace(scope);
 	const request = {
 		projectId: input.project.projectId,
 		providerId: input.providerId,
@@ -48,7 +55,9 @@ export const launchMobileCloudChat = async (input: {
 		firstMessage: input.text,
 		initialMessageDelivery: "mailbox-v1" as const,
 	};
-	const encoded = JSON.stringify(request);
+	const encoded = JSON.stringify(
+		scope.kind === "personal" ? request : { scope, request },
+	);
 	const draft = composerDraft(input.draftKey);
 	const intent =
 		draft.cloudLaunch?.request === encoded
@@ -73,7 +82,7 @@ export const launchMobileCloudChat = async (input: {
 	);
 	assertAccount();
 	const summary = summaryFromLaunch({
-		workspaceScope: { kind: "personal" },
+		workspaceScope: scope,
 		workspace: launch.workspace,
 		repositoryIdentity: input.project.repositoryIdentity,
 		repositoryDisplayName: input.project.displayName,

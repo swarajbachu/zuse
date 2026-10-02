@@ -20,8 +20,8 @@ import {
 	Text,
 	View,
 } from "react-native";
-
 import { ReviewDiffList } from "~/components/diff/review-diff-list";
+import { withWorkspaceConnection } from "~/components/workspace-connection-screen";
 import { useWorkspaceReview } from "~/hooks/use-workspace-review";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
@@ -58,7 +58,9 @@ import { sessionMessagesAtom } from "~/store/messages";
 import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
 import { colors } from "~/theme";
 
-export default function WorkspaceReviewScreen() {
+export default withWorkspaceConnection(WorkspaceReviewScreen);
+
+function WorkspaceReviewScreen() {
 	const headerHeight = useHeaderHeight();
 	const { conn, sessionId } = useLocalSearchParams<{
 		conn: string;

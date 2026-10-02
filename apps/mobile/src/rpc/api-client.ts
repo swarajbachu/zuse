@@ -1,5 +1,16 @@
-import { makeCloudControlClient } from "@zuse/client-runtime/cloud-control-client";
-import { makeCloudControlRequest } from "@zuse/client-runtime/cloud-control-request";
+import {
+	type CloudControlRequest,
+	makeCloudControlClient,
+} from "@zuse/client-runtime/cloud-control-client";
+import {
+	type AccountControlRequest,
+	makeAccountControlRequest,
+} from "@zuse/client-runtime/cloud-control-request";
+import {
+	cloudControlError,
+	organizationControlError,
+} from "@zuse/client-runtime/control-api-error";
+import { makeOrganizationControlClient } from "@zuse/client-runtime/organization-control-client";
 import {
 	ApiAccessToken,
 	ApiConnectGrant,
@@ -7,6 +18,11 @@ import {
 	ApiEnvironmentStatus,
 	ApiPaths,
 	CloudWorkspaceOpError,
+	type MachineErrorCode,
+	OrganizationError,
+	WORKSPACE_API_PREFIX,
+	WORKSPACE_SCOPE_HEADER,
+	WorkspaceScope,
 } from "@zuse/contracts";
 import { Effect, Schema } from "effect";
 
@@ -278,21 +294,94 @@ export const resetApiAccessToken = (): void => {
 };
 
 /** Cloud control-plane access is account-owned, never proxied through a Mac. */
-const cloudRequest = makeCloudControlRequest({
-	token: getWorkosToken,
-	url,
-	epoch: () => apiAuthState.epoch,
-});
+const accountControlRequest =
+	<E>(
+		scope: WorkspaceScope,
+		toError: (code: MachineErrorCode) => E,
+		accountEpoch?: number,
+	): AccountControlRequest<E> =>
+	(path, schema, method, body) =>
+		Effect.gen(function* () {
+			const epoch = accountEpoch ?? apiAuthState.epoch;
+			if (epoch !== apiAuthState.epoch)
+				return yield* Effect.fail(toError("not-allowed"));
+			const token = yield* Effect.tryPromise({
+				try: getWorkosToken,
+				catch: () => toError("not-allowed"),
+			});
+			return yield* makeAccountControlRequest({
+				isCurrent: () => epoch === apiAuthState.epoch,
+				toError,
+				send: (path, method, body, signal) =>
+					fetch(
+						url(
+							scope.kind === "organization"
+								? `${WORKSPACE_API_PREFIX}${scope.organizationId}${path}`
+								: path,
+						),
+						{
+							method,
+							signal,
+							headers: {
+								[WORKSPACE_SCOPE_HEADER]:
+									scope.kind === "personal"
+										? "personal"
+										: `organization:${scope.organizationId}`,
+								authorization: `Bearer ${token}`,
+								...(body === undefined
+									? {}
+									: { "content-type": "application/json" }),
+							},
+							body: body === undefined ? undefined : JSON.stringify(body),
+						},
+					),
+			})(path, schema, method, body);
+		});
 
 // The server long-poll is bounded at 25s. Bound the native fetch too, so a
 // half-open mobile network cannot pin catalog refresh or mailbox recovery.
-export const cloudControlClient = makeCloudControlClient((...args) =>
-	cloudRequest(...args).pipe(
-		Effect.timeout("30 seconds"),
-		Effect.mapError((cause) =>
-			cause instanceof CloudWorkspaceOpError
-				? cause
-				: new CloudWorkspaceOpError({ code: "provider-unavailable" }),
+const boundedCloudClient = (request: CloudControlRequest) =>
+	makeCloudControlClient((...args) =>
+		request(...args).pipe(
+			Effect.timeout("30 seconds"),
+			Effect.mapError((cause) =>
+				cause instanceof CloudWorkspaceOpError
+					? cause
+					: new CloudWorkspaceOpError({ code: "provider-unavailable" }),
+			),
 		),
-	),
+	);
+
+/** Legacy callers remain Personal-only until their catalogs and routes are scoped. */
+export const cloudControlClient = boundedCloudClient(
+	accountControlRequest({ kind: "personal" }, cloudControlError),
 );
+
+/** Retained runtime clients keep their workspace and cannot cross an account reset. */
+export const cloudControlClientForWorkspace = (scope: WorkspaceScope) =>
+	boundedCloudClient(
+		accountControlRequest(
+			Schema.decodeUnknownSync(WorkspaceScope)(scope),
+			cloudControlError,
+			apiAuthState.epoch,
+		),
+	);
+
+/** Organization administration uses account endpoints, never a selected-host transport. */
+export const organizationControlClientForAccount = () => {
+	const request = accountControlRequest(
+		{ kind: "personal" },
+		organizationControlError,
+		apiAuthState.epoch,
+	);
+	return makeOrganizationControlClient((path, schema, body) =>
+		request(path, schema, body === undefined ? "GET" : "POST", body).pipe(
+			Effect.timeout("30 seconds"),
+			Effect.mapError((cause) =>
+				cause instanceof OrganizationError
+					? cause
+					: organizationControlError("provider-unavailable"),
+			),
+		),
+	);
+};

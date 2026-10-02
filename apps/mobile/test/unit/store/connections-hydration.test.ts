@@ -3,14 +3,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getConnectionClient } from "../../../src/rpc/connection";
 import { redeemPairingCode } from "../../../src/rpc/pairing-client";
-
+import {
+	registerCloudSummary,
+	setCloudCatalogAccount,
+	setCloudCatalogWorkspace,
+} from "../../../src/store/cloud-catalog";
 import {
 	addConnection,
+	allConnectionsAtom,
 	connectionsAtom,
 	connectionsHydratedAtom,
 	hydrateConnections,
 } from "../../../src/store/connections";
 import { appAtomRegistry } from "../../../src/store/registry";
+import { summary } from "../../fixtures/cloud";
 
 const secureStore = vi.hoisted(() => ({
 	getItemAsync: vi.fn<() => Promise<string | null>>(),
@@ -38,10 +44,35 @@ vi.mock("~/rpc/pairing-client", () => ({
 
 describe("connection hydration", () => {
 	beforeEach(() => {
+		setCloudCatalogAccount(null);
+		setCloudCatalogAccount("account-a");
 		secureStore.getItemAsync.mockReset();
 		secureStore.setItemAsync.mockClear();
 		appAtomRegistry.set(connectionsAtom, []);
 		appAtomRegistry.set(connectionsHydratedAtom, false);
+	});
+	it("shows only organization cloud connections without deleting Personal pairings", () => {
+		const personal = {
+			key: "laptop",
+			host: "localhost",
+			port: 4000,
+			label: "Laptop",
+			source: "paired" as const,
+			updatedAt: 1,
+		};
+		appAtomRegistry.set(connectionsAtom, [personal]);
+		expect(appAtomRegistry.get(allConnectionsAtom)).toEqual([personal]);
+		const scope = { kind: "organization", organizationId: "org_a" } as const;
+		setCloudCatalogWorkspace(scope);
+		registerCloudSummary({ ...summary(), workspaceScope: scope });
+		expect(
+			appAtomRegistry
+				.get(allConnectionsAtom)
+				.map((connection) => connection.key),
+		).toEqual(["cloud:workspace-1"]);
+		expect(appAtomRegistry.get(connectionsAtom)).toEqual([personal]);
+		setCloudCatalogWorkspace({ kind: "personal" });
+		expect(appAtomRegistry.get(allConnectionsAtom)).toEqual([personal]);
 	});
 
 	it("settles to an empty hydrated state when secure storage is unavailable", async () => {

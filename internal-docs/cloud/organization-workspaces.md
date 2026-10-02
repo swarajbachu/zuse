@@ -84,6 +84,7 @@ work.
   `organizations.capabilities` RPC. Production UI stays hidden until the backend
   approves creation or returns an accessible team. A separate
   `VITE_ORGANIZATION_WORKSPACES` production build is no longer required.
+- Mobile: `EXPO_PUBLIC_ORGANIZATION_WORKSPACES=true` at build time; default disabled.
 
 Create two boolean PostHog flags with everyone else excluded:
 

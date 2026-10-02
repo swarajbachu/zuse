@@ -7,11 +7,11 @@ import { router, Stack, useLocalSearchParams } from "expo-router";
 import { MessageSquare } from "lucide-react-native";
 import { useEffect, useMemo } from "react";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
-
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { SessionRow } from "~/components/session-row";
 import { EmptyState } from "~/components/ui/empty-state";
 import { ListSection } from "~/components/ui/list";
+import { withWorkspaceConnection } from "~/components/workspace-connection-screen";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
 	normalizeConnParam,
@@ -40,7 +40,9 @@ import {
 } from "~/store/sessions";
 import { colors } from "~/theme";
 
-export default function SessionsScreen() {
+export default withWorkspaceConnection(SessionsScreen);
+
+function SessionsScreen() {
 	const { conn } = useLocalSearchParams<{ conn: string }>();
 	const connKey = normalizeConnParam(conn);
 	const connections = useAtomValue(connectionsAtom);
