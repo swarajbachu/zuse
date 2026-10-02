@@ -775,53 +775,128 @@ describe("@zuse/api", () => {
 		}
 	});
 
-	test("does not discover or connect another owner's host through legacy sharing metadata", async () => {
+	test("discovers explicit team access and mints guest identity without owner pairing authority", async () => {
 		const environmentId = "shared-host";
 		const { credential } = await linkEnvironment({
 			account: "user_a",
 			environmentId,
 		});
-		const published = await api.fetch(
-			new Request(`${API_ISSUER}/v1/environments/${environmentId}/heartbeat`, {
-				method: "POST",
-				headers: {
-					authorization: `Bearer ${credential}`,
-					"content-type": "application/json",
-				},
-				body: JSON.stringify({
-					sharingAudience: [
+		let memberId = "member-b";
+		const provider = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input) => {
+				const url = new URL(String(input));
+				expect(url.origin).toBe("https://api.workos.com");
+				const user = url.searchParams.get("user_id");
+				return Response.json({
+					data: [
+						{
+							id: user === "user_a" ? "member-a" : memberId,
+							user_id: user,
+							organization_id: "org",
+							status: "active",
+							role: { slug: user === "user_a" ? "admin" : "member" },
+						},
+					],
+					list_metadata: { after: null },
+				});
+			});
+		try {
+			const publish = (sharingAudience: unknown) =>
+				api.fetch(
+					new Request(
+						`${API_ISSUER}/v1/environments/${environmentId}/heartbeat`,
+						{
+							method: "POST",
+							headers: {
+								authorization: `Bearer ${credential}`,
+								"content-type": "application/json",
+							},
+							body: JSON.stringify({
+								sharingAudience,
+								privateEndpoint: {
+									httpBaseUrl: "http://100.64.0.8:47837",
+									wsBaseUrl: "ws://100.64.0.8:47837",
+								},
+							}),
+						},
+					),
+				);
+			const list = async () =>
+				(
+					await (
+						await api.fetch(
+							new Request(`${API_ISSUER}/v1/environments`, {
+								headers: { authorization: "Bearer test-token:user_b" },
+							}),
+						)
+					).json()
+				).environments;
+			expect(await list()).toEqual([]);
+			expect(
+				(
+					await publish([
 						{
 							organizationId: "org",
 							membershipId: "member-b",
 							subject: "user_b",
 							adminOnly: false,
 						},
-					],
-				}),
-			}),
-		);
-		expect(published.status).toBe(200);
-		const listed = await api.fetch(
-			new Request(`${API_ISSUER}/v1/environments`, {
-				headers: { authorization: "Bearer test-token:user_b" },
-			}),
-		);
-		expect((await listed.json()).environments).toEqual([]);
-		const device = (await ec()) as KeyPair;
-		const jwk = await exportJWK(device.publicKey);
-		const access = await mintAccess("user_b", device, jwk);
-		for (const action of ["connect", "status"]) {
-			const url = `${API_ISSUER}/v1/environments/${environmentId}/${action}`;
-			const response = await api.fetch(
-				new Request(url, {
-					method: "POST",
-					headers: {
-						authorization: `DPoP ${access}`,
-						dpop: await dpopProof(device, jwk, { method: "POST", url }),
-					},
-				}),
+					])
+				).status,
+			).toBe(200);
+			expect(await list()).toMatchObject([{ environmentId }]);
+			const device = (await ec()) as KeyPair;
+			const jwk = await exportJWK(device.publicKey);
+			const access = await mintAccess("user_b", device, jwk);
+			const url = `${API_ISSUER}/v1/environments/${environmentId}/connect`;
+			const connect = async (body = {}) =>
+				api.fetch(
+					new Request(url, {
+						method: "POST",
+						headers: {
+							authorization: `DPoP ${access}`,
+							dpop: await dpopProof(device, jwk, { method: "POST", url }),
+							"content-type": "application/json",
+						},
+						body: JSON.stringify(body),
+					}),
+				);
+			const connected = await connect();
+			expect(connected.status).toBe(200);
+			const grant = await connected.json();
+			expect(
+				grant.endpointCandidates.map(
+					(candidate: { kind: string }) => candidate.kind,
+				),
+			).toEqual(["managed-tunnel"]);
+			const verified = await jwtVerify(
+				grant.connectToken,
+				await importJWK(await exportJWK(mintKey.publicKey), "EdDSA"),
+				{ issuer: API_ISSUER, audience: `zuse-env:${environmentId}` },
 			);
-			expect(response.status).toBe(404);
+			expect(verified.payload.sub).toBe("user_b");
+			expect(verified.payload.localPairing).toBeUndefined();
+			expect(
+				(
+					await connect({
+						localPairing: {
+							serverNonce: "discovery-nonce",
+							devicePublicKey: "D".repeat(43),
+							transportCertificatePin: "T".repeat(43),
+						},
+					})
+				).status,
+			).toBe(404);
+			memberId = "replacement-member";
+			expect(await list()).toEqual([]);
+			expect((await connect()).status).toBe(404);
+			memberId = "member-b";
+			expect((await publish([])).status).toBe(200);
+			expect(await list()).toEqual([]);
+			expect((await connect()).status).toBe(404);
+		} finally {
+			provider.mockRestore();
 		}
 	});
 	test("serves the GitHub App callback without a WorkOS bearer", async () => {

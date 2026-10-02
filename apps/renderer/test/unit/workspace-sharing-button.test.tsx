@@ -43,7 +43,7 @@ it.each([
 	{ isSignedIn: true, chat: { readOnly: true }, visible: false },
 	{ isSignedIn: true, chat: null, visible: false },
 	{ isSignedIn: false, chat: {}, visible: false },
-	{ isSignedIn: true, chat: {}, visible: false },
+	{ isSignedIn: true, chat: {}, visible: true },
 ])("shows sharing only for a signed-in writable chat: %j", (input) => {
 	state.scope = { kind: "personal" };
 	state.cloudOrganization = undefined;
@@ -58,6 +58,13 @@ it.each([
 		/>,
 	);
 	expect(markup.includes("<button")).toBe(input.visible);
+	if (input.visible) {
+		expect(markup).toContain("[-webkit-app-region:no-drag]");
+		expect(markup).toContain("<svg");
+		expect(markup).toContain('data-slot="popover-trigger"');
+		expect(markup).toContain("gap-2");
+		expect(markup).toContain("size-3");
+	}
 });
 
 it.each([

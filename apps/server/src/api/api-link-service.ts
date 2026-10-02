@@ -12,6 +12,7 @@ import { Clock, Context, Data, Effect, Fiber, Layer, Ref } from "effect";
 
 import { AccountAccessService } from "../account-access/service.ts";
 import { AuthService } from "../auth/services/auth-service.ts";
+import { CollaborationService } from "../collaboration/services/collaboration-service.ts";
 import { buildAdvertisedEndpoints } from "../lan-auth/advertised-endpoints.ts";
 import { defaultEnvironmentLabel } from "../lan-auth/environment-label.ts";
 import {
@@ -369,6 +370,7 @@ const makeApiLinkService = (options: {
 		const accountAccess = yield* AccountAccessService;
 		const tunnel = yield* ManagedTunnelRuntime;
 		const telemetry = yield* TelemetryStore;
+		const collaboration = yield* CollaborationService;
 		const heartbeatRef = yield* Ref.make<Fiber.Fiber<void> | null>(null);
 		let apiAccess: {
 			readonly token: string;
@@ -534,7 +536,13 @@ const makeApiLinkService = (options: {
 				const url = `${input.apiUrl}${ApiPaths.heartbeat(input.environmentId)}`;
 				const response = yield* postJson<{
 					readonly machineAction?: "sanitize-credentials";
-				}>(url, { bearer: input.credential, body: apiRuntimeMetadata() });
+				}>(url, {
+					bearer: input.credential,
+					body: {
+						...apiRuntimeMetadata(),
+						sharingAudience: yield* collaboration.connectionAudience,
+					},
+				});
 				if (response.machineAction !== "sanitize-credentials") return;
 				yield* accountAccess
 					.sanitizeCredentials()

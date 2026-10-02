@@ -58,6 +58,7 @@ import { Migration0054ProviderEffectOutcomes } from "./migrations/0054_provider_
 import { Migration0055StagingApiOrigin } from "./migrations/0055_staging_api_origin.ts";
 import { Migration0056DeviceBridge } from "./migrations/0056_device_bridge.ts";
 import { Migration0057DeviceBridgeDefaultAccess } from "./migrations/0057_device_bridge_default_access.ts";
+import { Migration0058CollaborationFoundation } from "./migrations/0058_collaboration_foundation.ts";
 import { Migration0058QuestionAnswerDeliveries } from "./migrations/0058_question_answer_deliveries.ts";
 import { Migration0059EventSequenceIndex } from "./migrations/0059_event_sequence_index.ts";
 import { Migration0060ChatUserMessageTime } from "./migrations/0060_chat_user_message_time.ts";

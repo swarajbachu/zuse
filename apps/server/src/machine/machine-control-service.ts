@@ -106,6 +106,13 @@ export interface MachineControlServiceShape {
 		OrganizationCapabilities,
 		MachineControlError
 	>;
+	readonly organizationMembership: (
+		organizationId: string,
+		subject: string,
+	) => Effect.Effect<
+		{ readonly role: string; readonly membershipId: string },
+		MachineControlError
+	>;
 	readonly listOrganizations: () => Effect.Effect<
 		ReadonlyArray<Organization>,
 		MachineControlError
@@ -510,6 +517,13 @@ export const MachineControlServiceLive: Layer.Layer<
 			),
 			organizationCapabilities: () =>
 				request(ApiPaths.organizationCapabilities, OrganizationCapabilities),
+			organizationMembership: (organizationId, subject) =>
+				request(
+					ApiPaths.organizationAuthorize,
+					Schema.Struct({ role: Schema.String, membershipId: Schema.String }),
+					"POST",
+					{ organizationId, subject },
+				),
 			listOrganizations: () =>
 				request(ApiPaths.organizations, Schema.Array(Organization)),
 			createOrganization: (input) =>

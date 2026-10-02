@@ -48,6 +48,7 @@ import {
 	filterPermissionCatalog,
 	filterSessionCatalog,
 	projectChatAccess,
+	withCatalogChanges,
 } from "../collaboration/services/catalog-visibility.ts";
 import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
 import {
@@ -512,7 +513,7 @@ const SessionStreamChanges = MemoizeRpcs.toLayerHandler(
 					live,
 				);
 			}),
-		).pipe(filterSessionCatalog, Stream.orDie),
+		).pipe(filterSessionCatalog, withCatalogChanges, Stream.orDie),
 );
 
 const SessionCreate = MemoizeRpcs.toLayerHandler("session.create", (input) =>
@@ -1495,6 +1496,7 @@ const ChatCreationStream = MemoizeRpcs.toLayerHandler(
 				_tag: "snapshot" as const,
 				operations,
 			})),
+			withCatalogChanges,
 		),
 );
 
@@ -1631,7 +1633,7 @@ const ChatStreamChanges = MemoizeRpcs.toLayerHandler(
 	({ projectId }) =>
 		Stream.unwrap(
 			Effect.map(ChatService, (svc) => svc.streamChatChanges(projectId)),
-		).pipe(filterChatCatalog),
+		).pipe(filterChatCatalog, withCatalogChanges),
 );
 
 const ChatSetWorktree = MemoizeRpcs.toLayerHandler(
