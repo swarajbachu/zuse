@@ -6,6 +6,16 @@ import {
 } from "../../src/serve/service-definition.ts";
 
 describe("Zuse Serve service definitions", () => {
+	it("persists self-hosted account mode in the Linux unit", () => {
+		const definition = systemdUserDefinition({
+			nodeExecutable: "/home/zuse/.zuse/bin/node",
+			executable: "/home/zuse/.zuse/runtime/bin.mjs",
+			dataDir: "/home/zuse/.zuse/self-hosted/data",
+			selfHosted: true,
+		});
+		expect(definition.contents).toContain("--self-hosted");
+		expect(definition.contents).toContain("ZUSE_SERVE_AUTO_LINK");
+	});
 	it("creates a restartable macOS LaunchAgent without embedding credentials", () => {
 		const definition = launchAgentDefinition({
 			nodeExecutable: "/opt/node/bin/node",

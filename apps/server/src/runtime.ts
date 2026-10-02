@@ -147,6 +147,7 @@ export interface MainLayerDeps {
 		readonly icloudTrustRecordId?: string;
 		readonly icloudTrustSecret?: string;
 		readonly transportCertificatePin?: string;
+		readonly providerKind?: import("@zuse/contracts").ProviderKind;
 		readonly onNearbyPairingRequest?: (
 			request: import("./lan-auth/services/lan-auth-service.ts").NearbyPairingRequest,
 		) => void;
@@ -198,6 +199,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		icloudTrustRecordId: deps.lanAuth?.icloudTrustRecordId,
 		icloudTrustSecret: deps.lanAuth?.icloudTrustSecret,
 		transportCertificatePin: deps.lanAuth?.transportCertificatePin,
+		providerKind: deps.lanAuth?.providerKind ?? "desktop",
 		onNearbyPairingRequest: deps.lanAuth?.onNearbyPairingRequest,
 		openHostSession: deps.openHostSession,
 	};

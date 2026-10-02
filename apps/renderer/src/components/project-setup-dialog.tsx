@@ -60,6 +60,7 @@ export function ProjectSetupDialog({
 	onOpenChange,
 	initialMode = "choose",
 	initialEnvironmentId,
+	initialParent,
 	sourceUrl,
 	sourceName,
 	onComplete,
@@ -68,6 +69,7 @@ export function ProjectSetupDialog({
 	readonly onOpenChange: (open: boolean) => void;
 	readonly initialMode?: ProjectSetupMode;
 	readonly initialEnvironmentId?: string;
+	readonly initialParent?: string;
 	readonly sourceUrl?: string;
 	readonly sourceName?: string;
 	readonly onComplete?: (
@@ -98,7 +100,7 @@ export function ProjectSetupDialog({
 	const [environmentId, setEnvironmentId] = useState(
 		initialEnvironmentId ?? getLocalEnvironmentId(),
 	);
-	const [parent, setParent] = useState("");
+	const [parent, setParent] = useState(initialParent ?? "");
 	const [parentReady, setParentReady] = useState(false);
 	const [url, setUrl] = useState(sourceUrl ?? "");
 	const [name, setName] = useState("");
@@ -119,7 +121,7 @@ export function ProjectSetupDialog({
 		setMode(initialMode);
 		setEnvironmentId(initialEnvironmentId ?? getLocalEnvironmentId());
 		setUrl(sourceUrl ?? "");
-		setParent("");
+		setParent(initialParent ?? "");
 		setParentReady(false);
 		setName("");
 		setError(null);
@@ -127,7 +129,7 @@ export function ProjectSetupDialog({
 		setRetryingConnection(false);
 		setRetryFailure(null);
 		setReposError(false);
-	}, [open, initialMode, initialEnvironmentId, sourceUrl]);
+	}, [open, initialMode, initialEnvironmentId, initialParent, sourceUrl]);
 
 	useEffect(() => {
 		if (

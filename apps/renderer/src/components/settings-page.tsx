@@ -79,6 +79,7 @@ import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { LinearIntegrationsPane } from "./settings/linear-integrations-pane.tsx";
 import { McpServersPane } from "./settings/mcp-servers-pane.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
+import { SelfHostedServersPane } from "./settings/self-hosted-servers-pane.tsx";
 import { UpdateChannelSettings } from "./settings/update-channel-settings.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
 import {
@@ -212,7 +213,9 @@ function Rail({
 								"devices",
 								"shortcuts",
 							].includes(item.section.kind)
-						: desktop || item.section.kind !== "machines",
+						: desktop ||
+							(item.section.kind !== "machines" &&
+								item.section.kind !== "self-hosted"),
 				).map((item) => {
 					const active =
 						section.kind !== "repository" && section.kind === item.section.kind;
@@ -354,6 +357,8 @@ function SectionTitle({
 					: "Use this computer from your phone, a browser, or another computer.",
 			};
 		}
+		if (section.kind === "self-hosted")
+			return { title: uiMessage("settings:self_hosted_servers"), subtitle: "" };
 		if (section.kind === "machines") {
 			return {
 				title: uiMessage("settings:settings_page_cloud_workspaces_beta"),
@@ -414,6 +419,7 @@ function SectionTitle({
 }
 
 function Pane({ section }: { section: SettingsSection }) {
+	if (section.kind === "self-hosted") return <SelfHostedServersPane />;
 	if (section.kind === "general") return <GeneralPane />;
 	if (section.kind === "defaults") return <DefaultModelsPane />;
 	if (section.kind === "providers")
