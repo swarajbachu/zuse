@@ -2,16 +2,16 @@ import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 /**
- * Durable identity and authorization foundation for private team workspaces.
+ * Durable identity and authorization for shared host workspaces.
  * OIDC credentials are intentionally not stored here: the identity boundary
  * resolves an immutable subject. WorkOS-backed membership is a projection;
  * these tables own local membership and private workspace grants.
  */
-export const Migration0058CollaborationFoundation = Effect.gen(function* () {
+export const Migration0065SharedHostAccess = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 
 	yield* sql`
-		CREATE TABLE collaboration_teams (
+		CREATE TABLE IF NOT EXISTS collaboration_teams (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			organization_id TEXT UNIQUE,
@@ -21,7 +21,7 @@ export const Migration0058CollaborationFoundation = Effect.gen(function* () {
 	`;
 
 	yield* sql`
-		CREATE TABLE collaboration_members (
+		CREATE TABLE IF NOT EXISTS collaboration_members (
 			id TEXT PRIMARY KEY,
 			team_id TEXT NOT NULL REFERENCES collaboration_teams(id) ON DELETE CASCADE,
 			subject TEXT NOT NULL,
@@ -39,12 +39,12 @@ export const Migration0058CollaborationFoundation = Effect.gen(function* () {
 	`;
 
 	yield* sql`
-		CREATE INDEX idx_collaboration_members_team_status
+		CREATE INDEX IF NOT EXISTS idx_collaboration_members_team_status
 		ON collaboration_members(team_id, status)
 	`;
 
 	yield* sql`
-		CREATE TABLE collaboration_invites (
+		CREATE TABLE IF NOT EXISTS collaboration_invites (
 			id TEXT PRIMARY KEY,
 			team_id TEXT NOT NULL REFERENCES collaboration_teams(id) ON DELETE CASCADE,
 			token_hash TEXT NOT NULL UNIQUE,
@@ -60,12 +60,12 @@ export const Migration0058CollaborationFoundation = Effect.gen(function* () {
 	`;
 
 	yield* sql`
-		CREATE INDEX idx_collaboration_invites_team_status
+		CREATE INDEX IF NOT EXISTS idx_collaboration_invites_team_status
 		ON collaboration_invites(team_id, status, expires_at)
 	`;
 
 	yield* sql`
-		CREATE TABLE collaboration_workspaces (
+		CREATE TABLE IF NOT EXISTS collaboration_workspaces (
 			chat_id TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
 			team_id TEXT NOT NULL REFERENCES collaboration_teams(id) ON DELETE CASCADE,
 			UNIQUE (chat_id, team_id)
@@ -73,7 +73,7 @@ export const Migration0058CollaborationFoundation = Effect.gen(function* () {
 	`;
 
 	yield* sql`
-		CREATE TABLE collaboration_chat_grants (
+		CREATE TABLE IF NOT EXISTS collaboration_chat_grants (
 			team_id TEXT NOT NULL REFERENCES collaboration_teams(id) ON DELETE CASCADE,
 			chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
 			member_id TEXT NOT NULL REFERENCES collaboration_members(id) ON DELETE CASCADE,
@@ -89,12 +89,12 @@ export const Migration0058CollaborationFoundation = Effect.gen(function* () {
 	`;
 
 	yield* sql`
-		CREATE INDEX idx_collaboration_chat_grants_member
+		CREATE INDEX IF NOT EXISTS idx_collaboration_chat_grants_member
 		ON collaboration_chat_grants(member_id, chat_id)
 	`;
 
 	yield* sql`
-		CREATE TABLE collaboration_audit_events (
+		CREATE TABLE IF NOT EXISTS collaboration_audit_events (
 			id TEXT PRIMARY KEY,
 			team_id TEXT NOT NULL REFERENCES collaboration_teams(id) ON DELETE CASCADE,
 			actor_member_id TEXT REFERENCES collaboration_members(id),
@@ -107,7 +107,7 @@ export const Migration0058CollaborationFoundation = Effect.gen(function* () {
 	`;
 
 	yield* sql`
-		CREATE INDEX idx_collaboration_audit_team_created
+		CREATE INDEX IF NOT EXISTS idx_collaboration_audit_team_created
 		ON collaboration_audit_events(team_id, created_at DESC)
 	`;
 });

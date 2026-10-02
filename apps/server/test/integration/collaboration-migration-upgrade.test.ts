@@ -5,10 +5,10 @@ import { expect, it } from "vitest";
 import { Migration0055StagingApiOrigin } from "../../src/persistence/migrations/0055_staging_api_origin.ts";
 import { Migration0056DeviceBridge } from "../../src/persistence/migrations/0056_device_bridge.ts";
 import { Migration0057DeviceBridgeDefaultAccess } from "../../src/persistence/migrations/0057_device_bridge_default_access.ts";
-import { Migration0058CollaborationFoundation } from "../../src/persistence/migrations/0058_collaboration_foundation.ts";
 import { Migration0058QuestionAnswerDeliveries } from "../../src/persistence/migrations/0058_question_answer_deliveries.ts";
 import { Migration0059EventSequenceIndex } from "../../src/persistence/migrations/0059_event_sequence_index.ts";
 import { Migration0060ChatUserMessageTime } from "../../src/persistence/migrations/0060_chat_user_message_time.ts";
+import { Migration0065SharedHostAccess } from "../../src/persistence/migrations/0065_shared_host_access.ts";
 import {
 	MigrationsLive,
 	MigrationsThrough0054Live,
@@ -51,7 +51,7 @@ it.each([
 					yield* Migration0059EventSequenceIndex;
 					yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (59, 'event_sequence_index')`;
 				}
-				yield* Migration0058CollaborationFoundation;
+				yield* Migration0065SharedHostAccess;
 				yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${legacyId}, 'collaboration_foundation')`;
 				yield* sql`INSERT INTO collaboration_teams (id, name, created_at, updated_at) VALUES ('team', 'Preserved', '2026-09-01', '2026-09-01')`;
 				if (recency) {

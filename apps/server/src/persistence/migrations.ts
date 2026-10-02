@@ -58,7 +58,6 @@ import { Migration0054ProviderEffectOutcomes } from "./migrations/0054_provider_
 import { Migration0055StagingApiOrigin } from "./migrations/0055_staging_api_origin.ts";
 import { Migration0056DeviceBridge } from "./migrations/0056_device_bridge.ts";
 import { Migration0057DeviceBridgeDefaultAccess } from "./migrations/0057_device_bridge_default_access.ts";
-import { Migration0058CollaborationFoundation } from "./migrations/0058_collaboration_foundation.ts";
 import { Migration0058QuestionAnswerDeliveries } from "./migrations/0058_question_answer_deliveries.ts";
 import { Migration0059EventSequenceIndex } from "./migrations/0059_event_sequence_index.ts";
 import { Migration0060ChatUserMessageTime } from "./migrations/0060_chat_user_message_time.ts";
@@ -66,6 +65,7 @@ import { Migration0061HarnessExecutions } from "./migrations/0061_harness_execut
 import { Migration0062ModelConnections } from "./migrations/0062_model_connections.ts";
 import { Migration0063ProjectWorkspaceKey } from "./migrations/0063_project_workspace_key.ts";
 import { Migration0064ProviderAccounts } from "./migrations/0064_provider_accounts.ts";
+import { Migration0065SharedHostAccess } from "./migrations/0065_shared_host_access.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -160,6 +160,7 @@ const MigrationDefinitions = {
 	"0062_model_connections": Migration0062ModelConnections,
 	"0063_project_workspace_key": Migration0063ProjectWorkspaceKey,
 	"0064_provider_accounts": Migration0064ProviderAccounts,
+	"0065_shared_host_access": Migration0065SharedHostAccess,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */
