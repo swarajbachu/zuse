@@ -21,6 +21,7 @@ import {
 import { ReviewDiffList } from "~/components/diff/review-diff-list";
 import { type FileTab, FileTabs } from "~/components/files/file-tabs";
 import { FileIcon } from "~/components/ui/file-icon";
+import { withWorkspaceConnection } from "~/components/workspace-connection-screen";
 import { prepareReviewLines } from "~/lib/review-diff-model";
 import { connectionSessionKey } from "~/lib/session-key";
 import { buildToolPresentation, toResultText } from "~/lib/tool-presentation";
@@ -41,7 +42,9 @@ const rawText = (tool: ToolUse, result: ToolResult | undefined): string => {
 	return output.length > 0 ? `${input}\n\n${output}` : input;
 };
 
-export default function ToolDetailScreen() {
+export default withWorkspaceConnection(ToolDetailScreen);
+
+function ToolDetailScreen() {
 	const headerHeight = useHeaderHeight();
 	const { conn, sessionId, itemId, filePath } = useLocalSearchParams<{
 		conn: string;

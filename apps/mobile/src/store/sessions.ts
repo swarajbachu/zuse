@@ -52,12 +52,16 @@ export const runtimeBundlesByConnectionAtom = Atom.make<
 >({}).pipe(Atom.keepAlive);
 export const bundlesByConnectionAtom = Atom.make((get) => {
 	const live = get(runtimeBundlesByConnectionAtom);
-	const devices = Object.fromEntries(
-		Object.entries(live).filter(([key]) => !key.startsWith("cloud:")),
-	);
+	const catalog = get(cloudCatalogAtom);
+	const devices =
+		catalog.scope.kind === "personal"
+			? Object.fromEntries(
+					Object.entries(live).filter(([key]) => !key.startsWith("cloud:")),
+				)
+			: {};
 	return {
 		...devices,
-		...cloudCatalogBundles(get(cloudCatalogAtom).chats, live),
+		...cloudCatalogBundles(catalog.chats, live),
 	};
 });
 

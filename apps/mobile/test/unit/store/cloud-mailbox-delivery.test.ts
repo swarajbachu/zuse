@@ -12,6 +12,12 @@ import {
 import { bytesToBase64Url } from "@zuse/utils/cloud-transcript-crypto";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { cloudControlClientForWorkspace } from "../../../src/rpc/api-client";
+import {
+	registerCloudSummary,
+	setCloudCatalogAccount,
+} from "../../../src/store/cloud-catalog";
+import { summary } from "../../fixtures/cloud";
 
 const state = vi.hoisted(() => ({
 	snapshot: { entries: [], receipts: [] } as {
@@ -43,7 +49,7 @@ vi.mock("~/rpc/connection", () => ({
 	reportConnectionFailure: vi.fn(),
 }));
 vi.mock("~/rpc/api-client", () => ({
-	cloudControlClient: {
+	cloudControlClientForWorkspace: vi.fn(() => ({
 		"cloud.commands.dataKey": () =>
 			Effect.succeed({
 				workspaceId: "workspace-1",
@@ -81,7 +87,7 @@ vi.mock("~/rpc/api-client", () => ({
 					publish({ changes: [status], nextRevision: 3, resetRequired: false });
 				return status;
 			}),
-	},
+	})),
 }));
 
 import { makeTextInput, sendCloudMessage } from "../../../src/rpc/actions";
@@ -109,6 +115,10 @@ const acceptance = {
 describe("mobile mailbox delivery without a connected computer", () => {
 	beforeEach(async () => {
 		await resetMobileClientBus();
+		vi.mocked(cloudControlClientForWorkspace).mockClear();
+		setCloudCatalogAccount(null);
+		setCloudCatalogAccount("account-1");
+		registerCloudSummary(summary());
 		state.snapshot = { entries: [], receipts: [] };
 		state.live.mockClear();
 		state.enqueue.mockReset().mockReturnValue(Effect.succeed(acceptance));
@@ -130,7 +140,13 @@ describe("mobile mailbox delivery without a connected computer", () => {
 		for (const publish of state.watches.splice(0))
 			publish({ changes: [], nextRevision: 3, resetRequired: false });
 	});
-	test("accepts encrypted content and persists acceptance before any runtime connection", async () => {
+	test.each([
+		"personal",
+		"organization",
+	] as const)("%s accepts encrypted content before any runtime connection", async (kind) => {
+		const scope =
+			kind === "personal" ? { kind } : { kind, organizationId: "org_a" };
+		registerCloudSummary({ ...summary(), workspaceScope: scope });
 		const handle = sendCloudMessage({
 			connection,
 			sessionId: SessionId.make("session-1"),
@@ -139,6 +155,7 @@ describe("mobile mailbox delivery without a connected computer", () => {
 		});
 		void handle.result.catch(() => undefined);
 		await handle.accepted;
+		expect(cloudControlClientForWorkspace).toHaveBeenCalledWith(scope);
 		expect(state.live).not.toHaveBeenCalled();
 		expect(state.snapshot.entries[0]?.acceptance).toMatchObject(acceptance);
 		const envelope = state.enqueue.mock.calls[0]?.[0] as CloudCommandEnvelope;

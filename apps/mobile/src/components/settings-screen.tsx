@@ -21,6 +21,7 @@ import { visibleConnectionLabel } from "~/lib/display-names";
 import { successTap } from "~/lib/haptics";
 import { clearMediaCache, mediaCacheSize } from "~/lib/media-cache";
 import { clearDownloadedMobileData } from "~/lib/mobile-data";
+import { mobileReleaseFeatures } from "~/lib/release-features";
 import { registerCurrentDeviceForPush } from "~/notifications/push";
 import { downloadedCacheSize } from "~/offline/cache";
 import {
@@ -40,6 +41,7 @@ import {
 	signIn,
 	signOut,
 } from "~/store/auth";
+import { cloudCatalogAtom } from "~/store/cloud-catalog";
 import {
 	connectionStatusLabel,
 	snapshotsByConnectionAtom,
@@ -83,6 +85,14 @@ export default function SettingsScreen({
 		else router.push(`/settings/${next}`);
 	};
 	const account = useAtomValue(authAccountAtom);
+	const catalog = useAtomValue(cloudCatalogAtom);
+	const scope = catalog.scope;
+	const organization =
+		scope.kind === "organization"
+			? catalog.organizations.find((entry) => entry.id === scope.organizationId)
+			: undefined;
+	const canConfigureWorkspace =
+		scope.kind === "personal" || organization?.role === "admin";
 	const analyticsEnabled = useAtomValue(analyticsEnabledAtom);
 	const analyticsReady = useAtomValue(analyticsHydratedAtom);
 	const [privacyBusy, setPrivacyBusy] = useState(false);
@@ -291,6 +301,52 @@ export default function SettingsScreen({
 				showsVerticalScrollIndicator={false}
 				contentContainerClassName="gap-5 px-5 pb-8 pt-4"
 			>
+				{page === "home" && account !== null ? (
+					<ListSection
+						header={`${scope.kind === "personal" ? "Personal" : (organization?.name ?? "Organization unavailable")} workspace`}
+						footer="Provider credentials and cloud images belong only to this workspace. Device and login preferences below remain personal."
+					>
+						{mobileReleaseFeatures.organizationWorkspaces && organization ? (
+							<ListRow
+								symbol="person.2"
+								title="Members"
+								subtitle="People and invitations in this organization"
+								onPress={() => router.push("/workspace-members")}
+							/>
+						) : null}
+						{canConfigureWorkspace ? (
+							<ListRow
+								symbol="key.fill"
+								title="Cloud Authentication"
+								subtitle="Provider credentials and cloud image"
+								onPress={() => router.push("/cloud-auth")}
+							/>
+						) : (
+							<ListRow
+								symbol="person.2"
+								title="Managed by organization administrators"
+								chevron={false}
+							/>
+						)}
+						{mobileReleaseFeatures.organizationWorkspaces &&
+						organization?.role === "admin" ? (
+							<ListRow
+								symbol="square.and.arrow.up"
+								title="Sharing defaults"
+								subtitle="Default access for new organization chats"
+								onPress={() => router.push("/workspace-sharing")}
+							/>
+						) : null}
+						{canConfigureWorkspace || organization?.role === "billing" ? (
+							<ListRow
+								symbol="creditcard"
+								title="Billing"
+								subtitle="Payment details and invoices for this workspace"
+								onPress={() => router.push("/workspace-billing")}
+							/>
+						) : null}
+					</ListSection>
+				) : null}
 				{page === "home" ? (
 					<>
 						<ListSection>

@@ -70,7 +70,7 @@ export type MessageRowContext = {
 	/** Whether the session is actively running (drives the shimmer on the last row). */
 	sessionRunning?: boolean;
 	lastAssistantMessageId?: Message["id"];
-	onAnswerQuestion: (
+	onAnswerQuestion?: (
 		itemId: string,
 		answers: readonly QuestionAnswer[],
 	) => void | Promise<void>;

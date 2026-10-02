@@ -62,8 +62,8 @@ of self-hosted servers and shared-host access are separate, deferred work.
   production configuration leaves it disabled.
 - Desktop/browser: `VITE_ORGANIZATION_WORKSPACES=true` at build time.
   The default is disabled.
-- Mobile organization support is isolated on `feat/organization-mobile`.
-  This branch retains main's Personal mobile behavior.
+- Mobile: `EXPO_PUBLIC_ORGANIZATION_WORKSPACES=true` at build time.
+  The default is disabled.
 
 A client flag is not an authorization boundary. The API rejects organization
 operations when its flag is disabled. Confirm API, client and runtime compatibility

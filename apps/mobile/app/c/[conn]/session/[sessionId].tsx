@@ -60,6 +60,7 @@ import { SessionActionsMenu } from "~/components/session-actions-menu";
 import { ThreadHeaderTitle } from "~/components/thread-header-title";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
+import { withWorkspaceConnection } from "~/components/workspace-connection-screen";
 import { useTranscriptScrollCoordinator } from "~/hooks/use-transcript-scroll-coordinator";
 import { coordinateChatBottomState } from "~/lib/chat-bottom-state";
 import { isFreshChat, summarizeComposerActivity } from "~/lib/composer-state";
@@ -94,6 +95,7 @@ import {
 	sendMessage,
 } from "~/rpc/actions";
 import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
+import { cloudSummary } from "~/store/cloud-catalog";
 import {
 	connectionSnapshotAtom,
 	retryConnection,
@@ -167,7 +169,9 @@ import {
 } from "~/store/sessions";
 import { colors, glass } from "~/theme";
 
-export default function ThreadScreenRoute() {
+export default withWorkspaceConnection(ThreadScreenRoute);
+
+function ThreadScreenRoute() {
 	const { conn, sessionId, openAtLatest } = useLocalSearchParams<{
 		conn: string;
 		sessionId: string;
@@ -295,6 +299,7 @@ function ThreadScreen() {
 		return (status ?? thread.status) === "running";
 	}).length;
 	const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
+	const canEdit = detail !== null && detail.chat?.readOnly !== true;
 	const sessionStatus = resolveSessionStatus(
 		statusBySession[stateKey] ?? detail?.session.status,
 		turnActivity,
@@ -609,8 +614,8 @@ function ThreadScreen() {
 		questionsByItemId,
 		toolResultsByItemId,
 		sessionRunning: sessionActive,
-		onAnswerQuestion,
-		onForkFromMessage,
+		onAnswerQuestion: canEdit ? onAnswerQuestion : undefined,
+		onForkFromMessage: canEdit ? onForkFromMessage : undefined,
 	};
 
 	useEffect(() => {
@@ -1050,6 +1055,18 @@ function ThreadScreen() {
 					),
 					headerRight: () => (
 						<SessionActionsMenu
+							onShare={
+								mobileReleaseFeatures.organizationWorkspaces &&
+								options?.cloudWorkspaceId &&
+								cloudSummary(options.cloudWorkspaceId)?.workspaceScope?.kind ===
+									"organization"
+									? () =>
+											router.push({
+												pathname: "/chat-sharing",
+												params: { workspaceId: options.cloudWorkspaceId },
+											})
+									: undefined
+							}
 							isPinned={isPinned}
 							onNewChat={() => router.push("/new-chat")}
 							onPin={
@@ -1057,15 +1074,20 @@ function ThreadScreen() {
 									? undefined
 									: () => void togglePinnedChat(currentPinKey)
 							}
-							onRenameChat={chatId === null ? undefined : onRenameChat}
-							onRenameSession={detail === null ? undefined : onRenameSession}
+							onRenameChat={
+								canEdit && chatId !== null ? onRenameChat : undefined
+							}
+							onRenameSession={canEdit ? onRenameSession : undefined}
 							onRenameBranch={
-								detail?.session.worktreeId == null ? undefined : onRenameBranch
+								canEdit && detail?.session.worktreeId != null
+									? onRenameBranch
+									: undefined
 							}
 							onThreads={openThreads}
 							onChanges={openChanges}
 							onFiles={openFiles}
 							onTerminal={
+								canEdit &&
 								mobileReleaseFeatures.terminal &&
 								(options?.cloudWorkspaceId !== undefined ||
 									connectionSupports(connectionRecord, "mobile-terminal-v1"))
@@ -1077,7 +1099,7 @@ function ThreadScreen() {
 									? openOnDesktop
 									: undefined
 							}
-							onArchive={onArchive}
+							onArchive={canEdit ? onArchive : undefined}
 						/>
 					),
 				}}
@@ -1318,7 +1340,7 @@ function ThreadScreen() {
 					onLayout={onBottomAccessoryLayout}
 					pointerEvents="box-none"
 				>
-					{options === null ? null : bottomState.blocking?.kind ===
+					{options === null || !canEdit ? null : bottomState.blocking?.kind ===
 						"permission" ? (
 						renderPermissionAccessory(bottomState.blocking.requests)
 					) : bottomState.blocking?.kind === "question" ? (
@@ -1342,7 +1364,12 @@ function ThreadScreen() {
 							onAction={runPlanAction}
 						/>
 					) : null}
-					{options === null ? null : (
+					{detail?.chat?.readOnly ? (
+						<Text className="px-4 py-3 text-center text-sm text-muted-foreground">
+							Read-only shared session
+						</Text>
+					) : null}
+					{options === null || !canEdit ? null : (
 						<View
 							pointerEvents="box-none"
 							style={

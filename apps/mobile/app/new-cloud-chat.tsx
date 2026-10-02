@@ -38,12 +38,18 @@ import {
 import { activeModelCatalogAtom } from "~/store/model-catalog";
 
 export default function NewCloudChatScreen() {
+	const account = useAtomValue(authAccountAtom);
+	const { scope } = useAtomValue(cloudCatalogAtom);
+	const draftKey = `new-cloud:${account?.id ?? "signed-out"}${scope.kind === "personal" ? "" : `:organization:${scope.organizationId}`}`;
+	return <NewCloudChatContent key={draftKey} draftKey={draftKey} />;
+}
+
+function NewCloudChatContent({ draftKey }: { draftKey: string }) {
 	const modelCatalog = useAtomValue(activeModelCatalogAtom);
 	const account = useAtomValue(authAccountAtom);
 	const catalog = useAtomValue(cloudCatalogAtom);
 	const providers = useAtomValue(cloudAuthenticatedProvidersAtom);
 	const params = useLocalSearchParams<{ draft?: string; projectId?: string }>();
-	const draftKey = `new-cloud:${account?.id ?? "signed-out"}`;
 	const [text, setText] = useState(
 		params.draft ?? composerDraft(draftKey).text,
 	);

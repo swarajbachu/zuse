@@ -23,9 +23,13 @@ import {
 	previewArchivedChat,
 	unarchiveChat,
 } from "~/rpc/actions";
-import { cloudControlClient } from "~/rpc/api-client";
-import { authAccountAtom } from "~/store/auth";
-import { refreshCloudCatalog } from "~/store/cloud-catalog";
+import { createCloudArchiveController } from "~/store/cloud-archives";
+import {
+	cloudCatalogAtom,
+	cloudCatalogGeneration,
+	cloudWorkspaceSnapshot,
+	refreshCloudCatalog,
+} from "~/store/cloud-catalog";
 import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import { bundlesByConnectionAtom } from "~/store/sessions";
 import { colors } from "~/theme";
@@ -50,10 +54,46 @@ const archivedCloudRow = (row: CloudChatSummary): ArchivedRow => {
 };
 
 export default function ArchivesScreen() {
+	const catalog = useAtomValue(cloudCatalogAtom);
+	const scope = catalog.scope;
+	if (
+		scope.kind === "organization" &&
+		!catalog.organizations.some(
+			(organization) =>
+				organization.id === scope.organizationId &&
+				organization.role !== "billing",
+		)
+	)
+		return (
+			<View className="flex-1 bg-background p-5">
+				<Text className="text-muted-foreground">
+					Workspace content access is required to view archived chats.
+				</Text>
+			</View>
+		);
+	return (
+		<ArchivesContent key={`${catalog.accountId}:${cloudCatalogGeneration()}`} />
+	);
+}
+
+function ArchivesContent() {
 	const connections = useAtomValue(connectionsAtom);
-	const account = useAtomValue(authAccountAtom);
-	const accountRef = useRef(account?.id);
-	accountRef.current = account?.id;
+	const [snapshot] = useState(cloudWorkspaceSnapshot);
+	const [cloudArchive] = useState(() =>
+		snapshot.accountId === null ? null : createCloudArchiveController(),
+	);
+	const active = useRef(true);
+	const refreshVersion = useRef(0);
+	const isCurrent = useCallback(
+		() => active.current && snapshot.isCurrent(),
+		[snapshot],
+	);
+	useEffect(() => {
+		active.current = true;
+		return () => {
+			active.current = false;
+		};
+	}, []);
 	const bundles = useAtomValue(bundlesByConnectionAtom);
 	const [rows, setRows] = useState<readonly ArchivedRow[]>([]);
 	const [cloudRows, setCloudRows] = useState<readonly ArchivedRow[]>([]);
@@ -62,15 +102,15 @@ export default function ArchivesScreen() {
 	const [error, setError] = useState<string | null>(null);
 
 	const refresh = useCallback(async () => {
+		const request = ++refreshVersion.current;
+		const current = () => isCurrent() && request === refreshVersion.current;
 		setLoading(true);
 		setError(null);
 		try {
-			if (account !== null) {
-				const result = await Effect.runPromise(
-					cloudControlClient["cloud.chats.list"]({ scope: "archived" }),
-				);
-				if (accountRef.current !== account.id) return;
-				setCloudRows(result.chats.map(archivedCloudRow));
+			if (cloudArchive !== null) {
+				const chats = await cloudArchive.list();
+				if (!current()) return;
+				setCloudRows(chats.map(archivedCloudRow));
 			} else setCloudRows([]);
 			const loaded = await Promise.all(
 				Object.entries(bundles).flatMap(([connectionKey, projectBundles]) => {
@@ -95,6 +135,7 @@ export default function ArchivesScreen() {
 					});
 				}),
 			);
+			if (!current()) return;
 			setRows(
 				loaded
 					.flat()
@@ -105,89 +146,96 @@ export default function ArchivesScreen() {
 					),
 			);
 		} catch (cause) {
+			if (!current()) return;
+			setCloudRows([]);
 			setError(connectionErrorMessage(cause));
 		} finally {
-			setLoading(false);
+			if (current()) setLoading(false);
 		}
-	}, [account, bundles, connections]);
+	}, [cloudArchive, isCurrent, bundles, connections]);
 
 	useEffect(() => {
 		void refresh();
 	}, [refresh]);
 
 	const restore = async (row: ArchivedRow) => {
+		if (!isCurrent()) return;
 		const connection = optionsForConnection(row.connectionKey, connections);
 		if (connection === null && row.cloudWorkspaceId === undefined) return;
 		setBusyId(row.chat.id);
 		try {
-			if (row.cloudWorkspaceId !== undefined)
-				await Effect.runPromise(
-					cloudControlClient["cloud.workspaces.unarchive"]({
-						workspaceId: row.cloudWorkspaceId,
-					}),
-				);
-			else if (connection !== null)
+			if (row.cloudWorkspaceId !== undefined) {
+				if (cloudArchive === null) return;
+				await cloudArchive.restore(row.cloudWorkspaceId);
+			} else if (connection !== null)
 				await Effect.runPromise(
 					unarchiveChat({ connection, chatId: row.chat.id }),
 				);
+			if (!isCurrent()) return;
 			if (row.cloudWorkspaceId !== undefined) {
 				setCloudRows((current) =>
 					current.filter((candidate) => candidate.chat.id !== row.chat.id),
 				);
 				await refreshCloudCatalog();
 			}
+			if (!isCurrent()) return;
 			setRows((current) =>
 				current.filter((candidate) => candidate.chat.id !== row.chat.id),
 			);
 		} catch (cause) {
-			Alert.alert("Could not unarchive", connectionErrorMessage(cause));
+			if (isCurrent())
+				Alert.alert("Could not unarchive", connectionErrorMessage(cause));
 		} finally {
-			setBusyId(null);
+			if (isCurrent()) setBusyId(null);
 		}
 	};
 
 	const confirmDelete = (row: ArchivedRow) => {
+		if (!isCurrent()) return;
 		const connection = optionsForConnection(row.connectionKey, connections);
 		if (connection === null && row.cloudWorkspaceId === undefined) return;
 		Alert.prompt(
 			"Delete permanently?",
 			`This permanently deletes “${row.chat.title}” and its sessions. Type DELETE to continue.`,
 			(value) => {
-				if (value !== "DELETE") return;
+				if (value !== "DELETE" || !isCurrent()) return;
 				setBusyId(row.chat.id);
 				const deletion =
 					row.cloudWorkspaceId !== undefined
-						? Effect.runPromise(
-								cloudControlClient["cloud.workspaces.delete"]({
-									workspaceId: row.cloudWorkspaceId,
-								}),
-							)
+						? (cloudArchive?.delete(row.cloudWorkspaceId) ??
+							Promise.reject(new Error("Workspace unavailable")))
 						: connection === null
 							? Promise.reject(new Error("Connection unavailable"))
 							: Effect.runPromise(
 									deleteArchivedChat({ connection, chatId: row.chat.id }),
 								);
 				void deletion
-					.then(() =>
-						setCloudRows((current) =>
-							current.filter((candidate) => candidate.chat.id !== row.chat.id),
-						),
+					.then(() => {
+						if (!isCurrent()) return;
+						const remaining = (current: readonly ArchivedRow[]) =>
+							current.filter(
+								(candidate) =>
+									candidate.connectionKey !== row.connectionKey ||
+									candidate.chat.id !== row.chat.id,
+							);
+						setCloudRows(remaining);
+						setRows(remaining);
+					})
+					.catch(
+						(cause) =>
+							isCurrent() &&
+							Alert.alert("Could not delete", connectionErrorMessage(cause)),
 					)
-					.then(() =>
-						setRows((current) =>
-							current.filter((candidate) => candidate.chat.id !== row.chat.id),
-						),
-					)
-					.catch((cause) =>
-						Alert.alert("Could not delete", connectionErrorMessage(cause)),
-					)
-					.finally(() => setBusyId(null));
+					.finally(() => {
+						if (isCurrent()) setBusyId(null);
+					});
 			},
 			"plain-text",
 		);
 	};
 
 	const showPreview = async (row: ArchivedRow) => {
+		if (!isCurrent()) return;
 		if (row.cloudWorkspaceId !== undefined) {
 			Alert.alert(row.chat.title, `Cloud workspace · ${row.projectName}`, [
 				{ text: "Cancel", style: "cancel" },
@@ -206,6 +254,7 @@ export default function ArchivesScreen() {
 			const preview = await Effect.runPromise(
 				previewArchivedChat({ connection, chatId: row.chat.id }),
 			);
+			if (!isCurrent()) return;
 			Alert.alert(
 				row.chat.title,
 				`${preview.sessions.length} ${preview.sessions.length === 1 ? "session" : "sessions"}\nProject: ${row.projectName}`,
@@ -220,7 +269,8 @@ export default function ArchivesScreen() {
 				],
 			);
 		} catch (cause) {
-			Alert.alert("Could not load preview", connectionErrorMessage(cause));
+			if (isCurrent())
+				Alert.alert("Could not load preview", connectionErrorMessage(cause));
 		}
 	};
 

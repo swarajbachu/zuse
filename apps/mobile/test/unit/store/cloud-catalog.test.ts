@@ -1,17 +1,28 @@
-import { AgentSessionId } from "@zuse/contracts";
+import { AgentSessionId, CloudWorkspaceOpError } from "@zuse/contracts";
 import { Effect, Schema } from "effect";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { SessionsSnapshot } from "../../../src/offline/sessions-snapshot";
+import {
+	cloudControlClientForWorkspace,
+	organizationControlClientForAccount,
+} from "../../../src/rpc/api-client";
 import { summary, workspace } from "../../fixtures/cloud";
 
-const api = vi.hoisted(() => ({ list: vi.fn(), auth: vi.fn() }));
+const api = vi.hoisted(() => ({
+	list: vi.fn(),
+	auth: vi.fn(),
+	organizations: vi.fn(),
+}));
 vi.mock("~/rpc/api-client", () => ({
-	cloudControlClient: {
+	organizationControlClientForAccount: vi.fn(() => ({
+		"organizations.list": () => Effect.promise(api.organizations),
+	})),
+	cloudControlClientForWorkspace: vi.fn(() => ({
 		"cloud.chats.list": () => Effect.promise(api.list),
 		"cloud.projects.list": () => Effect.succeed({ projects: [] }),
 		"cloud.auth.status": () => Effect.tryPromise(api.auth),
 		"cloud.image.status": () => Effect.succeed(null),
-	},
+	})),
 }));
 
 import { availableConnections } from "../../../src/lib/connection-records";
@@ -19,15 +30,22 @@ import {
 	cloudAuthenticatedProvidersAtom,
 	cloudCatalogAtom,
 	cloudCatalogBundles,
+	cloudCatalogGeneration,
 	cloudConnectionsAtom,
 	refreshCloudCatalog,
+	refreshCloudOrganizations,
 	registerCloudSummary,
+	selectCloudWorkspace,
 	setCloudCatalogAccount,
+	setCloudCatalogWorkspace,
 } from "../../../src/store/cloud-catalog";
 import { appAtomRegistry } from "../../../src/store/registry";
 
 describe("account-owned mobile cloud catalog", () => {
 	beforeEach(() => {
+		api.organizations.mockReset().mockResolvedValue([]);
+		vi.mocked(cloudControlClientForWorkspace).mockClear();
+		vi.mocked(organizationControlClientForAccount).mockClear();
 		setCloudCatalogAccount(null);
 		setCloudCatalogAccount("account-1");
 		api.list.mockReset().mockResolvedValue({ chats: [summary()] });
@@ -37,6 +55,205 @@ describe("account-owned mobile cloud catalog", () => {
 				{ providerId: "claude", state: "disconnected" },
 			],
 		});
+	});
+	test("loads memberships once per concurrent request and retains billing-only roles", async () => {
+		const organizations = [
+			{ id: "org_a", name: "Team A", role: "member" },
+			{ id: "org_b", name: "Finance", role: "billing" },
+		];
+		api.organizations.mockResolvedValue(organizations);
+		await Promise.all([
+			refreshCloudOrganizations(),
+			refreshCloudOrganizations(),
+		]);
+		expect(api.organizations).toHaveBeenCalledOnce();
+		expect(organizationControlClientForAccount).toHaveBeenCalledOnce();
+		expect(appAtomRegistry.get(cloudCatalogAtom).organizations).toEqual(
+			organizations,
+		);
+		setCloudCatalogWorkspace({ kind: "organization", organizationId: "org_a" });
+		expect(appAtomRegistry.get(cloudCatalogAtom).organizations).toEqual(
+			organizations,
+		);
+	});
+	test("discards old-account memberships even if the user returns to the same account", async () => {
+		const late = Promise.withResolvers<unknown[]>();
+		api.organizations.mockReturnValueOnce(late.promise);
+		const pending = refreshCloudOrganizations();
+		await vi.waitFor(() => expect(api.organizations).toHaveBeenCalled());
+		setCloudCatalogAccount("account-2");
+		setCloudCatalogAccount("account-1");
+		late.resolve([{ id: "org_a", name: "Stale", role: "admin" }]);
+		await expect(pending).rejects.toThrow("account changed");
+		expect(appAtomRegistry.get(cloudCatalogAtom).organizations).toEqual([]);
+	});
+	test("switches the complete catalog scope without reusing Personal resources", async () => {
+		await refreshCloudCatalog();
+		const scope = { kind: "organization", organizationId: "org_a" } as const;
+		setCloudCatalogWorkspace(scope);
+		expect(appAtomRegistry.get(cloudCatalogAtom)).toMatchObject({
+			scope,
+			chats: [],
+			projects: [],
+			image: null,
+			auth: null,
+		});
+		api.list.mockResolvedValue({
+			chats: [{ ...summary(), workspaceScope: scope }],
+		});
+		await refreshCloudCatalog();
+		expect(cloudControlClientForWorkspace).toHaveBeenLastCalledWith(scope);
+		expect(appAtomRegistry.get(cloudCatalogAtom).chats).toHaveLength(1);
+	});
+	test("selection verifies current membership before changing workspace", async () => {
+		await expect(
+			selectCloudWorkspace({
+				kind: "organization",
+				organizationId: "org_missing",
+			}),
+		).rejects.toThrow("no longer available");
+		expect(appAtomRegistry.get(cloudCatalogAtom).scope).toEqual({
+			kind: "personal",
+		});
+		api.organizations.mockResolvedValue([
+			{ id: "org_a", name: "Team A", role: "member" },
+		]);
+		await selectCloudWorkspace({
+			kind: "organization",
+			organizationId: "org_a",
+		});
+		expect(appAtomRegistry.get(cloudCatalogAtom).scope).toEqual({
+			kind: "organization",
+			organizationId: "org_a",
+		});
+	});
+	test("a late organization selection cannot replace a newer Personal selection", async () => {
+		const response = Promise.withResolvers<unknown[]>();
+		api.organizations.mockReturnValueOnce(response.promise);
+		const pending = selectCloudWorkspace({
+			kind: "organization",
+			organizationId: "org_a",
+		});
+		await vi.waitFor(() => expect(api.organizations).toHaveBeenCalled());
+		await selectCloudWorkspace({ kind: "personal" });
+		response.resolve([{ id: "org_a", name: "Team A", role: "admin" }]);
+		await expect(pending).rejects.toThrow("selection changed");
+		expect(appAtomRegistry.get(cloudCatalogAtom).scope).toEqual({
+			kind: "personal",
+		});
+	});
+	test("finance-only selection never requests content", async () => {
+		api.organizations.mockResolvedValue([
+			{ id: "org_a", name: "Finance", role: "billing" },
+		]);
+		await selectCloudWorkspace({
+			kind: "organization",
+			organizationId: "org_a",
+		});
+		await refreshCloudCatalog();
+		expect(api.list).not.toHaveBeenCalled();
+		expect(api.auth).not.toHaveBeenCalled();
+		expect(appAtomRegistry.get(cloudCatalogAtom).loading).toBe(false);
+		const epoch = cloudCatalogGeneration();
+		await refreshCloudOrganizations();
+		expect(cloudCatalogGeneration()).toBe(epoch);
+	});
+	test.each([
+		"member",
+		"billing",
+		"removed",
+	])("a membership change to %s clears content and fences an in-flight catalog", async (role) => {
+		const scope = { kind: "organization", organizationId: "org_a" } as const;
+		api.organizations.mockResolvedValue([
+			{ id: "org_a", name: "Team", role: "admin" },
+		]);
+		await selectCloudWorkspace(scope);
+		api.list.mockResolvedValue({
+			chats: [{ ...summary(), workspaceScope: scope }],
+		});
+		await refreshCloudCatalog();
+		expect(appAtomRegistry.get(cloudCatalogAtom).chats).toHaveLength(1);
+		const response = Promise.withResolvers<unknown>();
+		api.list.mockReturnValueOnce(response.promise);
+		const pending = refreshCloudCatalog();
+		await vi.waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+		api.organizations.mockResolvedValue(
+			role === "removed" ? [] : [{ id: "org_a", name: "Finance", role }],
+		);
+		await refreshCloudOrganizations();
+		response.resolve({ chats: [{ ...summary(), workspaceScope: scope }] });
+		await pending;
+		expect(appAtomRegistry.get(cloudCatalogAtom)).toMatchObject({
+			scope,
+			chats: [],
+			projects: [],
+			auth: null,
+			loading: false,
+		});
+	});
+	test("catalog authorization failures retain the account's workspace list", async () => {
+		const organizations = [{ id: "org_a", name: "Team", role: "member" }];
+		api.organizations.mockResolvedValue(organizations);
+		await refreshCloudOrganizations();
+		api.list.mockRejectedValueOnce(
+			new CloudWorkspaceOpError({ code: "not-allowed" }),
+		);
+		await refreshCloudCatalog();
+		expect(appAtomRegistry.get(cloudCatalogAtom).organizations).toEqual(
+			organizations,
+		);
+	});
+	test("client initialization errors clear loading and allow retry", async () => {
+		vi.mocked(cloudControlClientForWorkspace).mockImplementationOnce(() => {
+			throw new Error("unavailable");
+		});
+		await refreshCloudCatalog();
+		expect(appAtomRegistry.get(cloudCatalogAtom)).toMatchObject({
+			loading: false,
+			error: "Could not refresh cloud chats. Pull to retry.",
+		});
+		await refreshCloudCatalog();
+		expect(appAtomRegistry.get(cloudCatalogAtom)).toMatchObject({
+			loading: false,
+			error: null,
+		});
+		expect(appAtomRegistry.get(cloudCatalogAtom).chats).toHaveLength(1);
+	});
+	test("rejects catalogs containing another workspace's chats", async () => {
+		setCloudCatalogWorkspace({ kind: "organization", organizationId: "org_a" });
+		await refreshCloudCatalog();
+		expect(appAtomRegistry.get(cloudCatalogAtom).chats).toEqual([]);
+		expect(appAtomRegistry.get(cloudCatalogAtom).error).toContain(
+			"different workspace",
+		);
+	});
+	test("clears cached content after an authoritative access denial", async () => {
+		await refreshCloudCatalog();
+		expect(appAtomRegistry.get(cloudCatalogAtom).chats).toHaveLength(1);
+		api.list.mockRejectedValueOnce(
+			new CloudWorkspaceOpError({ code: "not-allowed" }),
+		);
+		await refreshCloudCatalog();
+		expect(appAtomRegistry.get(cloudCatalogAtom)).toMatchObject({
+			chats: [],
+			projects: [],
+			auth: null,
+			image: null,
+			loading: false,
+		});
+	});
+	test("ignores an old response after switching away and back", async () => {
+		const old = Promise.withResolvers<{
+			chats: ReturnType<typeof summary>[];
+		}>();
+		api.list.mockReturnValueOnce(old.promise);
+		const pending = refreshCloudCatalog();
+		await vi.waitFor(() => expect(api.list).toHaveBeenCalled());
+		setCloudCatalogWorkspace({ kind: "organization", organizationId: "org_a" });
+		setCloudCatalogWorkspace({ kind: "personal" });
+		old.resolve({ chats: [summary()] });
+		await pending;
+		expect(appAtomRegistry.get(cloudCatalogAtom).chats).toEqual([]);
 	});
 	test("lists account chats with zero devices and preserves runtime access defaults", async () => {
 		await refreshCloudCatalog();

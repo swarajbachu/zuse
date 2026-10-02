@@ -21,11 +21,11 @@ import {
 	useWindowDimensions,
 	View,
 } from "react-native";
-
 import { ReviewDiffList } from "~/components/diff/review-diff-list";
 import { type FileTab, FileTabs } from "~/components/files/file-tabs";
 import { FileIcon } from "~/components/ui/file-icon";
 import { GlassSurface } from "~/components/ui/glass-surface";
+import { withWorkspaceConnection } from "~/components/workspace-connection-screen";
 import { useWorkspaceReview } from "~/hooks/use-workspace-review";
 import {
 	normalizeConnParam,
@@ -37,7 +37,9 @@ import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
 import { colors } from "~/theme";
 
-export default function WorkspaceFilesScreen() {
+export default withWorkspaceConnection(WorkspaceFilesScreen);
+
+function WorkspaceFilesScreen() {
 	const { width } = useWindowDimensions();
 	const headerHeight = useHeaderHeight();
 	const {
