@@ -44,28 +44,20 @@ export function CloudWorkspaceGithub({
 				"settings:cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio",
 			)}
 			action={
-				connected ? (
-					<Button
-						size="xs"
-						className={COMPACT_CLOUD_ACTION}
-						loading={busy === "github-install"}
-						onClick={onInstall}
-					>
-						<GithubMark />
-						{uiMessage("settings:cloud_workspace_github_configure_app")}
-					</Button>
-				) : (
-					<Button
-						size="xs"
-						className={COMPACT_CLOUD_ACTION}
-						disabled={!configured}
-						loading={busy === "github-install"}
-						onClick={onInstall}
-					>
-						<GithubMark />
-						{uiMessage("settings:cloud_workspace_github_install_github_app")}
-					</Button>
-				)
+				<Button
+					size="xs"
+					className={COMPACT_CLOUD_ACTION}
+					disabled={!configured}
+					loading={busy === "github-install"}
+					onClick={onInstall}
+				>
+					<GithubMark />
+					{uiMessage(
+						status?.user
+							? "settings:cloud_workspace_github_configure_app"
+							: "settings:cloud_workspace_github_install_github_app",
+					)}
+				</Button>
 			}
 		>
 			{!configured ? (
@@ -111,6 +103,12 @@ export function CloudWorkspaceGithub({
 								{installation.suspended ? (
 									<Badge variant="warning">
 										{uiMessage("settings:cloud_workspace_github_suspended")}
+									</Badge>
+								) : status?.user === undefined ? (
+									<Badge variant="warning">
+										{uiMessage(
+											"settings:cloud_workspace_github_install_github_app",
+										)}
 									</Badge>
 								) : (
 									<Badge variant="success">
@@ -169,7 +167,13 @@ export function CloudWorkspaceGithub({
 			)}
 			{connected ? (
 				<CloudSettingsRow
-					title={uiMessage("settings:cloud_workspace_github_connection_status")}
+					title={
+						status?.user
+							? uiMessage("settings:cloud_workspace_github_user_connected", {
+									login: status.user.login,
+								})
+							: uiMessage("settings:cloud_workspace_github_connection_status")
+					}
 					description={uiMessage(
 						"settings:cloud_workspace_github_repository_changes_refresh_automatically_when_you_return_from_github_e",
 					)}

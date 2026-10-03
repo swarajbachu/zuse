@@ -210,14 +210,14 @@
 	"cloud_workspace_auth_start_device_login": "Start device login",
 	"cloud_workspace_auth_save_and_verify": "Save and verify",
 	"cloud_workspace_github_github": "GitHub",
-	"cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio": "Configure the Zuse GitHub App for your personal account or organizations. Zuse never reads or copies your Mac's GitHub login.",
-	"cloud_workspace_github_configure_app": " Configure app",
-	"cloud_workspace_github_install_github_app": " Install GitHub App",
+	"cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio": "Connect GitHub once to choose repositories and let cloud agents commit, push, and open pull requests as you.",
+	"cloud_workspace_github_configure_app": "Manage connection",
+	"cloud_workspace_github_install_github_app": "Connect GitHub",
 	"cloud_workspace_github_github_app_is_not_configured": "GitHub App is not configured",
 	"cloud_workspace_github_add_the_github_app_credentials_to_api_deploy_it_then_retry": "Add the GitHub App credentials to API, deploy it, then retry.",
 	"cloud_workspace_github_unavailable": "Unavailable",
 	"cloud_workspace_github_connect_repositories": "Connect repositories",
-	"cloud_workspace_github_start_here_so_the_callback_is_signed_and_linked_to_this_zuse_account_o": "Start here so the callback is signed and linked to this Zuse account. On GitHub, choose selected repositories.",
+	"cloud_workspace_github_start_here_so_the_callback_is_signed_and_linked_to_this_zuse_account_o": "Choose the repositories Zuse can access and authorize your GitHub account in the same connection.",
 	"cloud_workspace_github_check_connection": " Check connection",
 	"cloud_workspace_github_suspended": "Suspended",
 	"cloud_workspace_github_connected": " Connected",
@@ -1062,5 +1062,6 @@
 	"model_connections_account_hint": "Shared with your Zuse account. SuperGrok can be reused locally and in cloud runtimes. Native ChatGPT execution remains local only.",
 	"model_connections_account_error": "Shared connections could not be loaded. Sign in to Zuse and check that the account API is up to date.",
 	"zuse_harness_description": "Run ChatGPT and SuperGrok models with your subscription. No CLI needed.",
-	"zuse_harness_enable": "Use the Zuse agent"
+	"zuse_harness_enable": "Use the Zuse agent",
+	"cloud_workspace_github_user_connected": "Connected as {{login}}"
 }

@@ -66,7 +66,7 @@ read_token() {
 }
 
 # The image shadows the packaged gh binary. Each invocation resolves a current
-# installation token, so shells never retain an expired credential.
+# repository-scoped GitHub token, so shells never retain an expired credential.
 if [[ "$(basename "$0")" == "gh" ]]; then
 	GH_TOKEN=$(read_token) || exit 1
 	export GH_TOKEN

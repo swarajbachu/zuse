@@ -7,6 +7,12 @@ import {
 } from "@zuse/utils/integration-page";
 import { Clock, Effect, Redacted, Schema } from "effect";
 import { decodeJwt, importJWK, importPKCS8, jwtVerify, SignJWT } from "jose";
+import { githubRequest } from "./cloud-github-request.ts";
+import {
+	exchangeGithubUserToken,
+	GithubUserAuthorization,
+	prepareGithubUserAuthorization,
+} from "./cloud-github-user.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { parseJwk } from "./crypto.ts";
@@ -22,7 +28,6 @@ import { getOrganizationName } from "./organizations.ts";
 import { resolveWorkspaceActorAccess } from "./workspace-authorization.ts";
 import { workspaceScopeForOwner } from "./workspace-scope.ts";
 
-const GITHUB_API_VERSION = "2026-03-10";
 const INSTALL_STATE_TTL_MS = 10 * 60_000;
 const GithubInstallation = Schema.Struct({
 	id: Schema.Number,
@@ -106,37 +111,6 @@ export const githubInstallCallbackForwardUrl = (
 	target.searchParams.set("installation_id", String(installationId));
 	return target.toString();
 };
-
-const githubRequest = <A>(url: string, token: string, init?: RequestInit) =>
-	Effect.tryPromise({
-		try: async () => {
-			const response = await fetch(url, {
-				...init,
-				headers: {
-					accept: "application/vnd.github+json",
-					authorization: `Bearer ${token}`,
-					"user-agent": "Zuse-GitHub-App/1.0",
-					"x-github-api-version": GITHUB_API_VERSION,
-					...init?.headers,
-				},
-			});
-			if (!response.ok) {
-				console.warn("[cloud-github] GitHub API request rejected", {
-					endpoint: new URL(url).pathname,
-					status: response.status,
-				});
-				throw serviceUnavailable(
-					"github_app_unavailable",
-					`github_${response.status}`,
-				);
-			}
-			return (await response.json()) as A;
-		},
-		catch: (error) =>
-			error instanceof ApiError
-				? error
-				: serviceUnavailable("github_app_unavailable"),
-	});
 
 const appJwt = Effect.fn("githubAppJwt")(function* (forceAppId = false) {
 	const config = yield* ApiConfiguration;
@@ -343,6 +317,7 @@ const signGithubState = Effect.fn("signGithubState")(function* (
 	actorId: string,
 	nonce: string,
 	installationId?: number,
+	userAuthorization?: typeof GithubUserAuthorization.Type,
 ) {
 	const config = yield* ApiConfiguration;
 	const github = config.githubApp;
@@ -355,7 +330,12 @@ const signGithubState = Effect.fn("signGithubState")(function* (
 		catch: () => serviceUnavailable("github_install_state_failed"),
 	});
 	const state = yield* Effect.promise(() =>
-		new SignJWT({ purpose: "github-install", actorId, installationId })
+		new SignJWT({
+			purpose: "github-install",
+			actorId,
+			installationId,
+			userAuthorization,
+		})
 			.setProtectedHeader({ alg: "EdDSA", typ: "github-install+jwt" })
 			.setIssuer(config.apiIssuer)
 			.setAudience("github-app-install")
@@ -414,7 +394,16 @@ const verifyGithubState = Effect.fn("verifyGithubState")(function* (
 	);
 	if (access.ownerId !== verified.payload.sub)
 		return yield* badRequest("invalid_github_install_state");
+	const userAuthorization =
+		verified.payload.userAuthorization === undefined
+			? undefined
+			: yield* Schema.decodeUnknownEffect(GithubUserAuthorization)(
+					verified.payload.userAuthorization,
+				).pipe(
+					Effect.mapError(() => badRequest("invalid_github_install_state")),
+				);
 	return {
+		userAuthorization,
 		accountId: verified.payload.sub,
 		actorId: verified.payload.actorId,
 		nonce: verified.payload.jti,
@@ -427,22 +416,36 @@ export const completeGithubInstallation = Effect.fn(
 )(function* (state: string, installationId: number) {
 	const verified = yield* verifyGithubState(state);
 	// Only the OAuth-verified chooser can mint a state for a particular installation.
-	if (verified.installationId !== installationId)
+	if (
+		verified.installationId !== installationId ||
+		verified.userAuthorization === undefined
+	)
 		return yield* badRequest("invalid_github_install_state");
 	const installation = yield* readGithubInstallation(installationId);
 	const nowMs = yield* Clock.currentTimeMillis;
-	yield* (yield* CloudWorkspaceStore).saveGithubInstallation({
-		accountId: verified.accountId,
-		installationId,
-		githubAccountId: installation.account.id,
-		accountLogin: installation.account.login,
-		accountType: installation.account.type,
-		avatarUrl: installation.account.avatar_url,
-		repositorySelection: installation.repository_selection,
-		suspended: installation.suspended_at !== null,
-		createdAtMs: nowMs,
-		updatedAtMs: nowMs,
-	});
+	const store = yield* CloudWorkspaceStore;
+	const authorization = verified.userAuthorization;
+	yield* store.withGithubUserLock(
+		verified.accountId,
+		Effect.gen(function* () {
+			yield* store.saveGithubInstallation({
+				accountId: verified.accountId,
+				installationId,
+				githubAccountId: installation.account.id,
+				accountLogin: installation.account.login,
+				accountType: installation.account.type,
+				avatarUrl: installation.account.avatar_url,
+				repositorySelection: installation.repository_selection,
+				suspended: installation.suspended_at !== null,
+				createdAtMs: nowMs,
+				updatedAtMs: nowMs,
+			});
+			yield* store.saveGithubUser({
+				accountId: verified.accountId,
+				...authorization,
+			});
+		}),
+	);
 	return installation.account.login;
 });
 
@@ -550,35 +553,13 @@ export const githubAuthorizationCallback = Effect.fn(
 			headers: { ...BROWSER_PAGE_HEADERS, "set-cookie": stateCookie("", 0) },
 		});
 	}
-	const clientSecret = Redacted.value(github.clientSecret);
-	const token = yield* Effect.tryPromise({
-		try: async () => {
-			const response = await fetch(
-				"https://github.com/login/oauth/access_token",
-				{
-					method: "POST",
-					headers: {
-						accept: "application/json",
-						"content-type": "application/json",
-					},
-					body: JSON.stringify({
-						client_id: github.clientId,
-						client_secret: clientSecret,
-						code,
-						redirect_uri: callback,
-					}),
-				},
-			);
-			if (!response.ok) throw new Error("github_oauth_failed");
-			return Schema.decodeUnknownSync(
-				Schema.Struct({ access_token: Schema.String }),
-			)(await response.json());
-		},
-		catch: () => badRequest("github_authorization_failed"),
+	const credentials = yield* exchangeGithubUserToken({
+		code: code ?? "",
+		redirect_uri: callback,
 	});
-	const user = yield* githubRequest<{ id: number }>(
-		"https://api.github.com/user",
-		token.access_token,
+	const user = yield* prepareGithubUserAuthorization(
+		verified.accountId,
+		credentials,
 	);
 	const choices: Array<IntegrationPageInput["actions"][number]> = [];
 	let hasInstallations = false;
@@ -592,7 +573,7 @@ export const githubAuthorizationCallback = Effect.fn(
 			}>;
 		}>(
 			`https://api.github.com/user/installations?per_page=100&page=${page}`,
-			token.access_token,
+			credentials.accessToken,
 		);
 		for (const installation of result.installations) {
 			if (String(installation.app_id) === github.appId) hasInstallations = true;
@@ -610,7 +591,7 @@ export const githubAuthorizationCallback = Effect.fn(
 					state: string;
 				}>(
 					`https://api.github.com/user/memberships/orgs/${encodeURIComponent(installation.account.login)}`,
-					token.access_token,
+					credentials.accessToken,
 				).pipe(
 					Effect.catch((error) =>
 						error.detail === "github_404" || error.detail === "github_403"
@@ -639,6 +620,7 @@ export const githubAuthorizationCallback = Effect.fn(
 						verified.actorId,
 						verified.nonce,
 						installation.id,
+						user.authorization,
 					),
 				});
 		}

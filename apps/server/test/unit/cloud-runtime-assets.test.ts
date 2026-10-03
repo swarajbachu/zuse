@@ -384,7 +384,7 @@ describe("cloud runtime assets", () => {
 		expect(githubAuth).toContain("credentialUrl");
 		expect(runtime).toContain("writeGithubBrokerState");
 		expect(runtime).toContain("cloud-runtime-credential");
-		expect(routes).toContain("githubInstallationCredentialForRepository");
+		expect(routes).toContain("githubUserCredential");
 
 		const temporaryRoot = await mkdtemp(join(tmpdir(), "zuse-github-auth-"));
 		try {

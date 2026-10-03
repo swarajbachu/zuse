@@ -393,6 +393,14 @@ export const apiCloudProjects = pgTable(
 	],
 );
 
+export const apiCloudGithubUsers = pgTable("api_cloud_github_users", {
+	accountId: text("account_id").primaryKey(),
+	login: text("login").notNull(),
+	name: text("name").notNull(),
+	email: text("email").notNull(),
+	sealedCredentials: text("sealed_credentials").notNull(),
+});
+
 export const apiCloudGithubInstallations = pgTable(
 	"api_cloud_github_installations",
 	{

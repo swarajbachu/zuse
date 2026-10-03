@@ -77,12 +77,16 @@ import { hasUsableCloudWorkspaceEntitlement } from "./cloud-entitlement.ts";
 import {
 	githubAuthorizationCallback,
 	githubAuthorizationUrl,
-	githubInstallationCredentialForRepository,
 	githubInstallationGrants,
 	githubWebhook,
 	makeGithubInstallUrl,
 	refreshGithubConnections,
 } from "./cloud-github-app.ts";
+import {
+	disconnectGithubInstallation,
+	githubUserCredential,
+	githubUserIdentity,
+} from "./cloud-github-user.ts";
 import {
 	attachCloudMailboxBillingDirective,
 	attachCloudMailboxCommandDirective,
@@ -1867,6 +1871,7 @@ export const routeCloudWorkspaceRequest = (
 			return json({
 				workspaceId,
 				zuseAccountId: workspace.accountId,
+				gitIdentity: yield* githubUserIdentity(workspace.accountId),
 				workspaceScope: workspaceScopeForOwner(workspace.accountId),
 				providerSandboxId,
 				runtimeCredential,
@@ -2077,13 +2082,15 @@ export const routeCloudWorkspaceRequest = (
 			const project = yield* store.getProject(workspace.projectId);
 			if (project === null || project.accountId !== workspace.accountId)
 				return yield* Effect.fail(notFound("cloud_project_not_found"));
-			const credential = yield* githubInstallationCredentialForRepository(
+			const credential = yield* githubUserCredential(
 				workspace.accountId,
 				project.repositoryIdentity,
 			);
 			if (credential === null)
-				return yield* Effect.fail(forbidden("github_repository_not_granted"));
-			return json(credential);
+				return yield* Effect.fail(forbidden("github_user_connection_required"));
+			const response = json(credential);
+			response.headers.set("cache-control", "no-store");
+			return response;
 		}
 
 		const activityMatch =
@@ -3084,7 +3091,10 @@ export const routeCloudWorkspaceRequest = (
 				Effect.orElseSucceed(() => []),
 			);
 			return json({
-				configured: apiConfiguration.githubApp !== undefined,
+				configured:
+					apiConfiguration.githubApp?.clientId !== undefined &&
+					apiConfiguration.githubApp.clientSecret !== undefined,
+				user: yield* githubUserIdentity(ownerId),
 				installations: installations.map((installation) => ({
 					installationId: installation.installationId,
 					accountLogin: installation.accountLogin,
@@ -3125,7 +3135,7 @@ export const routeCloudWorkspaceRequest = (
 			const installationId = Number(githubDisconnectMatch[1]);
 			if (!Number.isSafeInteger(installationId))
 				return yield* Effect.fail(badRequest("invalid_github_installation"));
-			yield* store.removeGithubInstallation(ownerId, installationId);
+			yield* disconnectGithubInstallation(ownerId, installationId);
 			return json({ ok: true });
 		}
 		const requireBillingCapacity = () =>

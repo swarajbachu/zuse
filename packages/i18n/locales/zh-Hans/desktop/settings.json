@@ -217,14 +217,14 @@
 	"cloud_workspace_auth_start_device_login": "开始设备登录",
 	"cloud_workspace_auth_save_and_verify": "保存并验证",
 	"cloud_workspace_github_github": "GitHub",
-	"cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio": "为您的个人帐户或组织配置 Zuse GitHub 应用程序。 Zuse 绝不会读取或复制您 Mac 的 GitHub 登录信息。",
-	"cloud_workspace_github_configure_app": " 配置应用程序",
-	"cloud_workspace_github_install_github_app": " 安装GitHub应用程序",
+	"cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio": "连接 GitHub，选择仓库，让云端代理以你的身份提交、推送代码并创建拉取请求。",
+	"cloud_workspace_github_configure_app": "管理连接",
+	"cloud_workspace_github_install_github_app": "连接 GitHub",
 	"cloud_workspace_github_github_app_is_not_configured": "GitHub App未配置",
 	"cloud_workspace_github_add_the_github_app_credentials_to_api_deploy_it_then_retry": "将 GitHub 应用程序凭据添加到 API，部署它，然后重试。",
 	"cloud_workspace_github_unavailable": "不可用",
 	"cloud_workspace_github_connect_repositories": "连接存储库",
-	"cloud_workspace_github_start_here_so_the_callback_is_signed_and_linked_to_this_zuse_account_o": "从这里开始，以便对回调进行签名并链接到此 Zuse 帐户。在 GitHub 上，选择选定的存储库。",
+	"cloud_workspace_github_start_here_so_the_callback_is_signed_and_linked_to_this_zuse_account_o": "在同一次连接中选择 Zuse 可访问的仓库并授权你的 GitHub 账号。",
 	"cloud_workspace_github_check_connection": " 检查连接",
 	"cloud_workspace_github_suspended": "暂停",
 	"cloud_workspace_github_connected": " 已连接",
@@ -1062,5 +1062,6 @@
 	"model_connections_account_hint": "与你的 Zuse 账号共享。SuperGrok 可在本地和云端复用。原生 ChatGPT 执行仍仅限本地。",
 	"model_connections_account_error": "无法加载共享连接。请登录 Zuse，并确认账号 API 已更新。",
 	"zuse_harness_description": "使用你的订阅运行 ChatGPT 和 SuperGrok 模型，无需 CLI。",
-	"zuse_harness_enable": "使用 Zuse 智能体"
+	"zuse_harness_enable": "使用 Zuse 智能体",
+	"cloud_workspace_github_user_connected": "已连接为 {{login}}"
 }

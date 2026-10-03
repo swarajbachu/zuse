@@ -14,10 +14,22 @@ export class CloudGithubInstallation extends Schema.Class<CloudGithubInstallatio
 	suspended: Schema.Boolean,
 }) {}
 
+export const CloudGitIdentity = Schema.Struct({
+	name: Schema.String,
+	email: Schema.String,
+});
+
 export class CloudGithubStatus extends Schema.Class<CloudGithubStatus>(
 	"CloudGithubStatus",
 )({
 	configured: Schema.Boolean,
+	user: Schema.optional(
+		Schema.Struct({
+			login: Schema.String,
+			name: Schema.String,
+			email: Schema.String,
+		}),
+	),
 	installations: Schema.Array(CloudGithubInstallation),
 	repositories: Schema.Array(GithubRepoSummary),
 }) {}
