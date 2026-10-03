@@ -2,6 +2,7 @@ import {
 	formatDate as formatUiDate,
 	formatNumber as formatUiNumber,
 } from "@zuse/i18n";
+import { usageLimitsUnavailableLabel } from "~/lib/usage-limits-display";
 import "@zuse/i18n/english/usage";
 import type {
 	EnvironmentId,
@@ -482,19 +483,7 @@ function LimitPlaceholder({
 }) {
 	const message = !unavailable
 		? "Checking limits…"
-		: reason === "no-credentials"
-			? providerId === "kiro"
-				? "Sign in with kiro-cli login"
-				: "Sign in to see limits"
-			: reason === "expired"
-				? providerId === "kiro"
-					? "Session expired — run kiro-cli login"
-					: "Session expired — sign in again"
-				: reason === "error"
-					? "Could not load limits"
-					: reason === "unsupported"
-						? "Not available for this account"
-						: "No usage data available";
+		: usageLimitsUnavailableLabel(providerId, reason);
 	return (
 		<Card className="flex min-h-20 flex-row items-center gap-3 p-3">
 			<div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/45">
@@ -538,6 +527,14 @@ function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
 				<ProviderIcon providerId={provider.providerId} className="size-4" />
 			</div>
 			<div className="min-w-0 flex-1">
+				{provider.unavailableReason ? (
+					<div role="status" className="text-[11px] text-muted-foreground">
+						{uiMessage("usage:usage_limits_menu_stale")}{" "}
+						<time dateTime={provider.fetchedAt}>
+							{new Date(provider.fetchedAt).toLocaleString()}
+						</time>
+					</div>
+				) : null}
 				<div className="flex items-center justify-between gap-3">
 					<div className="min-w-0">
 						<div className="truncate text-xs font-medium">

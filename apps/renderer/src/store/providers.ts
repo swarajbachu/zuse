@@ -1,3 +1,5 @@
+import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
+import { useUsageLimitsStore } from "./usage-limits.ts";
 import "@zuse/i18n/english/providers";
 import type {
 	AgentAvailability,
@@ -262,6 +264,24 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 							}),
 					)
 				: await rawRequest;
+			if (environmentId === getLocalEnvironmentId()) {
+				const previous =
+					get().availabilityByEnvironment[key]?.availability ?? [];
+				for (const provider of list) {
+					const old = previous.find(
+						(item) => item.providerId === provider.providerId,
+					);
+					if (
+						old &&
+						(provider.authStatus === "authenticated" ||
+							provider.authStatus === "unauthenticated") &&
+						(old.authStatus !== provider.authStatus ||
+							old.authEmail !== provider.authEmail ||
+							old.authType !== provider.authType)
+					)
+						useUsageLimitsStore.getState().invalidate(provider.providerId);
+				}
+			}
 			const publishActive = environmentId === activeEnvironmentId();
 			set((state) => ({
 				availabilityByEnvironment: {
@@ -386,6 +406,8 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 				{ readonly providerId: ProviderId; readonly apiKey: string },
 				CredentialSetResult
 			>(environmentId, "provider.setCredential", { providerId, apiKey });
+			if (environmentId === getLocalEnvironmentId())
+				useUsageLimitsStore.getState().invalidate(providerId);
 			await get().refresh();
 			// A new key can unlock a different live model list (Cursor).
 			void useModelCatalogStore.getState().refresh();
@@ -404,6 +426,8 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 					providerId,
 				},
 			);
+			if (activeEnvironmentId() === getLocalEnvironmentId())
+				useUsageLimitsStore.getState().invalidate(providerId);
 			await get().refresh();
 			void useModelCatalogStore.getState().refresh();
 		} catch (err) {

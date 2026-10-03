@@ -12,6 +12,11 @@ import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 
 let pendingLoad: Promise<void> | null = null;
+const pendingRefreshes = new Map<string, Promise<void>>();
+const latestByProvider = new Map<string, number>();
+let requestSequence = 0;
+let activeRequests = 0;
+let historyVersion = 0;
 const STALE_AFTER_MS = 60_000;
 type UsageCommand = <Result>(
 	environmentId: EnvironmentId,
@@ -46,6 +51,7 @@ type State = {
 	error: string | null;
 	lastLoadedAt: number | null;
 	load: () => Promise<void>;
+	invalidate: (providerId: import("@zuse/contracts").ProviderId) => void;
 	loadHistory: () => Promise<void>;
 	refresh: (
 		force?: boolean,
@@ -58,21 +64,31 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 	loading: false,
 	error: null,
 	lastLoadedAt: null,
+	invalidate: (providerId) => {
+		historyVersion++;
+		latestByProvider.set(providerId, ++requestSequence);
+		// In-flight results for the previous account must not repopulate the card.
+		pendingRefreshes.delete(providerId);
+		pendingRefreshes.delete("all");
+		pendingLoad = null;
+		set({
+			providers: get().providers.filter((p) => p.providerId !== providerId),
+			history: get().history.filter((p) => p.providerId !== providerId),
+			lastLoadedAt: null,
+		});
+	},
 	load: async () => {
 		const lastLoadedAt = get().lastLoadedAt;
-		const kiro = get().providers.find((p) => p.providerId === "kiro");
-		const kiroNeedsRetry =
-			kiro !== undefined &&
-			kiro.windows.length === 0 &&
-			(kiro.unavailableReason === "no-credentials" ||
-				kiro.unavailableReason === "expired" ||
-				kiro.unavailableReason === "error");
-		// Soft-load when fresh — but never skip if Kiro previously missed; a
-		// sticky no-credentials cache is what made signed-in accounts look empty.
+		const retry =
+			get().error !== null ||
+			get().providers.some(
+				(p) =>
+					p.unavailableReason !== undefined &&
+					p.unavailableReason !== "unsupported",
+			);
 		if (
-			!kiroNeedsRetry &&
 			lastLoadedAt !== null &&
-			Date.now() - lastLoadedAt < STALE_AFTER_MS
+			Date.now() - lastLoadedAt < (retry ? 5_000 : STALE_AFTER_MS)
 		)
 			return;
 		if (pendingLoad !== null) {
@@ -80,7 +96,7 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 			return;
 		}
 		const load = get()
-			.refresh(kiroNeedsRetry)
+			.refresh(false)
 			.finally(() => {
 				if (pendingLoad === load) pendingLoad = null;
 			});
@@ -88,6 +104,7 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 		await load;
 	},
 	loadHistory: async () => {
+		const version = historyVersion;
 		try {
 			const response = await runUsageCommand<{
 				readonly points: ReadonlyArray<UsageLimitHistoryPoint>;
@@ -96,39 +113,61 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 				"usage.limits.history",
 				{},
 			);
-			set({ history: response.points });
+			if (version === historyVersion) set({ history: response.points });
 		} catch {
 			// History is supplementary; live limit cards remain useful without it.
 		}
 	},
-	refresh: async (force = false, providerId) => {
+	refresh: (force = false, providerId) => {
+		const key = providerId ?? "all";
+		const existing = pendingRefreshes.get(key);
+		if (existing) return existing;
+		const sequence = ++requestSequence;
+		const targets = providerId
+			? [providerId]
+			: ["claude", "codex", "grok", "gemini", "kiro"];
+		for (const id of targets) latestByProvider.set(id, sequence);
+		activeRequests++;
 		set({ loading: true, error: null });
-		try {
-			// Provider allowances come from credentials on this physical desktop,
-			// not from whichever local/SSH/cloud environment is currently selected.
-			const response = await runUsageCommand<{
-				readonly providers: ReadonlyArray<ProviderUsageLimits>;
-			}>(EnvironmentIdSchema.make(getLocalEnvironmentId()), "usage.limits", {
-				forceRefresh: force,
-				providerId,
-			});
-			set({
-				providers: providerId
-					? [
-							...get().providers.filter(
-								(item) => item.providerId !== providerId,
-							),
-							...response.providers,
-						]
-					: response.providers,
-				loading: false,
-				lastLoadedAt: Date.now(),
-			});
-		} catch (error) {
-			set({
-				loading: false,
-				error: error instanceof Error ? error.message : String(error),
-			});
-		}
+		const pending = (async () => {
+			try {
+				const response = await runUsageCommand<{
+					readonly providers: ReadonlyArray<ProviderUsageLimits>;
+				}>(EnvironmentIdSchema.make(getLocalEnvironmentId()), "usage.limits", {
+					forceRefresh: force,
+					providerId,
+				});
+				const accepted = response.providers.filter(
+					(p) => latestByProvider.get(p.providerId) === sequence,
+				);
+				const acceptedIds = new Set(accepted.map((p) => p.providerId));
+				const stillCurrent = targets.some(
+					(id) => latestByProvider.get(id) === sequence,
+				);
+				if (stillCurrent)
+					set({
+						providers: [
+							...get().providers.filter((p) => !acceptedIds.has(p.providerId)),
+							...accepted,
+						],
+						lastLoadedAt:
+							providerId === undefined ? Date.now() : get().lastLoadedAt,
+						...(sequence === requestSequence ? { error: null } : {}),
+					});
+			} catch (error) {
+				if (sequence === requestSequence)
+					set({
+						error: error instanceof Error ? error.message : String(error),
+					});
+			} finally {
+				activeRequests--;
+				set({ loading: activeRequests > 0 });
+			}
+		})();
+		pendingRefreshes.set(key, pending);
+		void pending.then(() => {
+			if (pendingRefreshes.get(key) === pending) pendingRefreshes.delete(key);
+		});
+		return pending;
 	},
 }));

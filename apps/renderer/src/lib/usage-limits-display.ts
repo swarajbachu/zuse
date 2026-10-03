@@ -9,6 +9,20 @@ export const usageLimitsUnavailableLabel = (
 	reason: ProviderUsageLimits["unavailableReason"],
 ): string => {
 	const providerName = PROVIDER_DISPLAY[providerId];
+	if (reason === "cli-unavailable")
+		return message("usage:usage_limits_cli_unavailable", {
+			provider: providerName,
+		});
+	if (reason === "unsupported-version")
+		return message("usage:usage_limits_upgrade_cli", {
+			provider: providerName,
+		});
+	if (reason === "timeout")
+		return message("usage:usage_limits_timeout", { provider: providerName });
+	if (reason === "invalid-response")
+		return message("usage:usage_limits_invalid_response", {
+			provider: providerName,
+		});
 	if (reason === "unsupported")
 		return message("usage:usage_limits_unavailable_account");
 	if (reason === "scope-missing")

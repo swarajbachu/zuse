@@ -179,6 +179,13 @@ function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
 							</div>
 						</div>
 					</div>
+					{provider.unavailableReason &&
+					(provider.windows.length > 0 ||
+						provider.creditsRemaining !== null) ? (
+						<div role="status" className="pb-2 text-xs text-muted-foreground">
+							{uiMessage("usage:usage_limits_menu_stale")}
+						</div>
+					) : null}
 					{provider.windows.length > 0 ? (
 						[...provider.windows]
 							.sort((a, b) => WINDOW_ORDER[a.scope] - WINDOW_ORDER[b.scope])

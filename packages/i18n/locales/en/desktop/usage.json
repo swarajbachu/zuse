@@ -82,6 +82,10 @@
 	"usage_limits_sign_in": "Sign in to {{provider}} to see limits",
 	"usage_limits_expired_kiro": "Session expired: run kiro-cli login",
 	"usage_limits_expired": "{{provider}} session expired: sign in again",
+	"usage_limits_cli_unavailable": "Install {{provider}} or check its configured CLI path.",
+	"usage_limits_upgrade_cli": "Update {{provider}} to read usage limits.",
+	"usage_limits_timeout": "{{provider}} did not respond. Try again.",
+	"usage_limits_invalid_response": "{{provider}} returned unreadable usage data. Try updating its CLI.",
 	"usage_limits_load_failed": "Could not load limits: try again",
 	"usage_limits_no_data": "No usage data available"
 }
