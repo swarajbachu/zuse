@@ -58,7 +58,7 @@ export function ProviderSignInTray({
 		(state) => state.errorByResource[errorKey] ?? null,
 	);
 	const commandError = localError ?? pendingSessionCommandError(ref);
-	const refreshProviders = useProvidersStore((s) => s.refresh);
+	const refreshProviders = useProvidersStore((s) => s.refreshFor);
 	const reopenSession = useSessionsStore((s) => s.resume);
 	const { state, signedInAt, start, cancel } = useProviderLogin(providerId, {
 		environmentId,
@@ -66,7 +66,7 @@ export function ProviderSignInTray({
 			// Re-probe first so the credential write has landed, then reopen the
 			// provider and release a fresh chat's queued first message.
 			void (async () => {
-				await refreshProviders();
+				await refreshProviders(environmentId);
 				const resumed = await resumeAfterProviderLogin({
 					reopen: () => reopenSession(sessionId, environmentId),
 					resumeQueue: () => resumeSessionQueue(ref, providerId),
