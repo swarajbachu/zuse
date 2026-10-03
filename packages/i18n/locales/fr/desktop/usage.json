@@ -83,5 +83,9 @@
 	"usage_limits_expired_kiro": "Session expirée : exécutez kiro-cli login",
 	"usage_limits_expired": "Session {{provider}} expirée : reconnectez-vous",
 	"usage_limits_load_failed": "Impossible de charger les limites : réessayez",
-	"usage_limits_no_data": "Aucune donnée d’utilisation disponible"
+	"usage_limits_no_data": "Aucune donnée d’utilisation disponible",
+	"usage_limits_cli_unavailable": "Installez {{provider}} ou vérifiez le chemin configuré de son CLI.",
+	"usage_limits_upgrade_cli": "Mettez à jour {{provider}} pour consulter les limites d’utilisation.",
+	"usage_limits_timeout": "{{provider}} n’a pas répondu. Réessayez.",
+	"usage_limits_invalid_response": "{{provider}} a renvoyé des données d’utilisation illisibles. Essayez de mettre à jour son CLI."
 }

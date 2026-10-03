@@ -83,5 +83,9 @@
 	"usage_limits_expired_kiro": "세션이 만료되었습니다: kiro-cli login을 실행하세요",
 	"usage_limits_expired": "{{provider}} 세션이 만료되었습니다: 다시 로그인하세요",
 	"usage_limits_load_failed": "한도를 불러올 수 없습니다: 다시 시도하세요",
-	"usage_limits_no_data": "사용량 데이터가 없습니다"
+	"usage_limits_no_data": "사용량 데이터가 없습니다",
+	"usage_limits_cli_unavailable": "{{provider}}를 설치하거나 설정된 CLI 경로를 확인하세요.",
+	"usage_limits_upgrade_cli": "사용 한도를 확인하려면 {{provider}}를 업데이트하세요.",
+	"usage_limits_timeout": "{{provider}}가 응답하지 않았습니다. 다시 시도하세요.",
+	"usage_limits_invalid_response": "{{provider}}가 읽을 수 없는 사용량 데이터를 반환했습니다. CLI를 업데이트해 보세요."
 }

@@ -83,5 +83,9 @@
 	"usage_limits_expired_kiro": "会话已过期：请运行 kiro-cli login",
 	"usage_limits_expired": "{{provider}} 会话已过期：请重新登录",
 	"usage_limits_load_failed": "无法加载限额：请重试",
-	"usage_limits_no_data": "暂无使用数据"
+	"usage_limits_no_data": "暂无使用数据",
+	"usage_limits_cli_unavailable": "请安装 {{provider}} 或检查其配置的 CLI 路径。",
+	"usage_limits_upgrade_cli": "请更新 {{provider}} 以查看使用限额。",
+	"usage_limits_timeout": "{{provider}} 未响应。请重试。",
+	"usage_limits_invalid_response": "{{provider}} 返回了无法读取的使用数据。请尝试更新其 CLI。"
 }

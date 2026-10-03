@@ -83,5 +83,9 @@
 	"usage_limits_expired_kiro": "セッションの有効期限が切れました：kiro-cli login を実行してください",
 	"usage_limits_expired": "{{provider}} のセッションの有効期限が切れました：再度サインインしてください",
 	"usage_limits_load_failed": "上限を読み込めませんでした：再試行してください",
-	"usage_limits_no_data": "使用量データがありません"
+	"usage_limits_no_data": "使用量データがありません",
+	"usage_limits_cli_unavailable": "{{provider}} をインストールするか、設定された CLI のパスを確認してください。",
+	"usage_limits_upgrade_cli": "使用上限を確認するには、{{provider}} を更新してください。",
+	"usage_limits_timeout": "{{provider}} が応答しませんでした。もう一度お試しください。",
+	"usage_limits_invalid_response": "{{provider}} が読み取れない使用状況データを返しました。CLI の更新をお試しください。"
 }

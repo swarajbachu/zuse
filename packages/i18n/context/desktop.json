@@ -29412,11 +29412,11 @@
 			},
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 195
+				"line": 202
 			},
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 264
+				"line": 271
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29426,7 +29426,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 220
+				"line": 227
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29436,7 +29436,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 225
+				"line": 232
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29446,7 +29446,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 227
+				"line": 234
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29456,7 +29456,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 228
+				"line": 235
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29466,7 +29466,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 286
+				"line": 293
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29476,7 +29476,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 151
+				"line": 152
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29486,7 +29486,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 159
+				"line": 160
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29496,7 +29496,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 172
+				"line": 173
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29506,7 +29506,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 186
+				"line": 187
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29516,7 +29516,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 191
+				"line": 192
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29526,15 +29526,15 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 277
-			},
-			{
-				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 214
+				"line": 284
 			},
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
 				"line": 215
+			},
+			{
+				"path": "apps/renderer/src/components/usage-dashboard.tsx",
+				"line": 216
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29544,7 +29544,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 264
+				"line": 265
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29554,7 +29554,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 267
+				"line": 268
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29564,7 +29564,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 401
+				"line": 402
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29574,7 +29574,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 450
+				"line": 451
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29584,7 +29584,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 453
+				"line": 454
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29594,7 +29594,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 565
+				"line": 562
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29604,7 +29604,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 714
+				"line": 711
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29614,7 +29614,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 755
+				"line": 752
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29624,7 +29624,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 756
+				"line": 753
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29634,7 +29634,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 767
+				"line": 764
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29644,7 +29644,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 779
+				"line": 776
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29654,7 +29654,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 780
+				"line": 777
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29664,7 +29664,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 784
+				"line": 781
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29674,7 +29674,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 786
+				"line": 783
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29684,7 +29684,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 787
+				"line": 784
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29694,7 +29694,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 823
+				"line": 820
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29704,7 +29704,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 895
+				"line": 892
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29714,7 +29714,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 903
+				"line": 900
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29724,7 +29724,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 957
+				"line": 954
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29734,7 +29734,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 986
+				"line": 983
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29744,7 +29744,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 988
+				"line": 985
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29754,7 +29754,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 989
+				"line": 986
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29764,7 +29764,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 991
+				"line": 988
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29774,15 +29774,15 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 337
+				"line": 338
 			},
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 993
+				"line": 990
 			},
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1194
+				"line": 1191
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29792,15 +29792,15 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 326
+				"line": 327
 			},
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 996
+				"line": 993
 			},
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1202
+				"line": 1199
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29810,7 +29810,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1007
+				"line": 1004
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29820,7 +29820,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1052
+				"line": 1049
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29830,11 +29830,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1144
+				"line": 1141
 			},
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1146
+				"line": 1143
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29844,7 +29844,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1159
+				"line": 1156
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29854,7 +29854,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1163
+				"line": 1160
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29864,7 +29864,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1175
+				"line": 1172
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29874,7 +29874,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1183
+				"line": 1180
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29884,7 +29884,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1186
+				"line": 1183
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29894,7 +29894,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1218
+				"line": 1215
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29904,7 +29904,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1259
+				"line": 1256
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29914,7 +29914,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1268
+				"line": 1265
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29948,7 +29948,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 63
+				"line": 64
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29958,7 +29958,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 70
+				"line": 71
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29968,7 +29968,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 77
+				"line": 78
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29978,7 +29978,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 84
+				"line": 85
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29988,7 +29988,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 346
+				"line": 347
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29998,7 +29998,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 355
+				"line": 356
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30008,7 +30008,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 402
+				"line": 403
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30018,7 +30018,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 558
+				"line": 555
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30028,7 +30028,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 677
+				"line": 674
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30038,7 +30038,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 770
+				"line": 767
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30068,7 +30068,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 230
+				"line": 231
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30078,7 +30078,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 395
+				"line": 396
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30088,7 +30088,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 722
+				"line": 719
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30098,7 +30098,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1115
+				"line": 1112
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30118,7 +30118,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 205
+				"line": 212
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30128,7 +30128,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 222
+				"line": 229
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30138,7 +30138,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 298
+				"line": 299
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30152,15 +30152,15 @@
 			},
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 251
+				"line": 258
 			},
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 295
+				"line": 302
 			},
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 549
+				"line": 546
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30170,7 +30170,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1053
+				"line": 1050
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30180,7 +30180,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage-dashboard.tsx",
-				"line": 1245
+				"line": 1242
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30200,7 +30200,15 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 257
+				"line": 186
+			},
+			{
+				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
+				"line": 264
+			},
+			{
+				"path": "apps/renderer/src/components/usage-dashboard.tsx",
+				"line": 532
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30210,7 +30218,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/usage/usage-limits-submenu.tsx",
-				"line": 258
+				"line": 265
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30220,7 +30228,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/usage-limits-display.ts",
-				"line": 13
+				"line": 27
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30230,7 +30238,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/usage-limits-display.ts",
-				"line": 15
+				"line": 29
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30240,7 +30248,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/usage-limits-display.ts",
-				"line": 18
+				"line": 32
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30250,7 +30258,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/usage-limits-display.ts",
-				"line": 19
+				"line": 33
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30260,7 +30268,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/usage-limits-display.ts",
-				"line": 23
+				"line": 37
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30270,7 +30278,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/usage-limits-display.ts",
-				"line": 24
+				"line": 38
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30280,7 +30288,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/usage-limits-display.ts",
-				"line": 26
+				"line": 40
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30290,7 +30298,47 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/usage-limits-display.ts",
-				"line": 27
+				"line": 41
+			}
+		],
+		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"usage:usage_limits_cli_unavailable": {
+		"source": "Install {{provider}} or check its configured CLI path.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/usage-limits-display.ts",
+				"line": 13
+			}
+		],
+		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"usage:usage_limits_upgrade_cli": {
+		"source": "Update {{provider}} to read usage limits.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/usage-limits-display.ts",
+				"line": 17
+			}
+		],
+		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"usage:usage_limits_timeout": {
+		"source": "{{provider}} did not respond. Try again.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/usage-limits-display.ts",
+				"line": 21
+			}
+		],
+		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"usage:usage_limits_invalid_response": {
+		"source": "{{provider}} returned unreadable usage data. Try updating its CLI.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/usage-limits-display.ts",
+				"line": 23
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
