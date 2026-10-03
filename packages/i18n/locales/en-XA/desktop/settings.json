@@ -210,14 +210,14 @@
 	"cloud_workspace_auth_start_device_login": "⟦Stààrt dëëvïïcëë lôôgïïn⟧",
 	"cloud_workspace_auth_save_and_verify": "⟦Sààvëë àànd vëërïïfy⟧",
 	"cloud_workspace_github_github": "⟦GïïtHüüb⟧",
-	"cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio": "⟦Côônfïïgüürëë thëë Züüsëë GïïtHüüb ÀÀpp fôôr yôôüür pëërsôônààl ààccôôüünt ôôr ôôrgàànïïzààtïïôôns. Züüsëë nëëvëër rëëààds ôôr côôpïïëës yôôüür Mààc's GïïtHüüb lôôgïïn.⟧",
-	"cloud_workspace_github_configure_app": "⟦ Côônfïïgüürëë ààpp⟧",
-	"cloud_workspace_github_install_github_app": "⟦ ÏÏnstààll GïïtHüüb ÀÀpp⟧",
+	"cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio": "⟦Côônnëëct GïïtHüüb ôôncëë tôô chôôôôsëë rëëpôôsïïtôôrïïëës àànd lëët clôôüüd ààgëënts côômmïït, püüsh, àànd ôôpëën püüll rëëqüüëësts ààs yôôüü.⟧",
+	"cloud_workspace_github_configure_app": "⟦Màànààgëë côônnëëctïïôôn⟧",
+	"cloud_workspace_github_install_github_app": "⟦Côônnëëct GïïtHüüb⟧",
 	"cloud_workspace_github_github_app_is_not_configured": "⟦GïïtHüüb ÀÀpp ïïs nôôt côônfïïgüürëëd⟧",
 	"cloud_workspace_github_add_the_github_app_credentials_to_api_deploy_it_then_retry": "⟦ÀÀdd thëë GïïtHüüb ÀÀpp crëëdëëntïïààls tôô ÀÀPÏÏ, dëëplôôy ïït, thëën rëëtry.⟧",
 	"cloud_workspace_github_unavailable": "⟦ÜÜnààvààïïlààblëë⟧",
 	"cloud_workspace_github_connect_repositories": "⟦Côônnëëct rëëpôôsïïtôôrïïëës⟧",
-	"cloud_workspace_github_start_here_so_the_callback_is_signed_and_linked_to_this_zuse_account_o": "⟦Stààrt hëërëë sôô thëë cààllbààck ïïs sïïgnëëd àànd lïïnkëëd tôô thïïs Züüsëë ààccôôüünt. ÔÔn GïïtHüüb, chôôôôsëë sëëlëëctëëd rëëpôôsïïtôôrïïëës.⟧",
+	"cloud_workspace_github_start_here_so_the_callback_is_signed_and_linked_to_this_zuse_account_o": "⟦Chôôôôsëë thëë rëëpôôsïïtôôrïïëës Züüsëë cààn ààccëëss àànd ààüüthôôrïïzëë yôôüür GïïtHüüb ààccôôüünt ïïn thëë sààmëë côônnëëctïïôôn.⟧",
 	"cloud_workspace_github_check_connection": "⟦ Chëëck côônnëëctïïôôn⟧",
 	"cloud_workspace_github_suspended": "⟦Süüspëëndëëd⟧",
 	"cloud_workspace_github_connected": "⟦ Côônnëëctëëd⟧",
@@ -1062,5 +1062,6 @@
 	"model_connections_account_hint": "⟦Shààrëëd wïïth yôôüür Züüsëë ààccôôüünt. SüüpëërGrôôk cààn bëë rëëüüsëëd lôôcààlly àànd ïïn clôôüüd rüüntïïmëës. Nààtïïvëë ChààtGPT ëëxëëcüütïïôôn rëëmààïïns lôôcààl ôônly.⟧",
 	"model_connections_account_error": "⟦Shààrëëd côônnëëctïïôôns côôüüld nôôt bëë lôôààdëëd. Sïïgn ïïn tôô Züüsëë àànd chëëck thààt thëë ààccôôüünt ÀÀPÏÏ ïïs üüp tôô dààtëë.⟧",
 	"zuse_harness_description": "⟦Rüün ChààtGPT àànd SüüpëërGrôôk môôdëëls wïïth yôôüür süübscrïïptïïôôn. Nôô CLÏÏ nëëëëdëëd.⟧",
-	"zuse_harness_enable": "⟦ÜÜsëë thëë Züüsëë ààgëënt⟧"
+	"zuse_harness_enable": "⟦ÜÜsëë thëë Züüsëë ààgëënt⟧",
+	"cloud_workspace_github_user_connected": "⟦Côônnëëctëëd ààs {{login}}⟧"
 }

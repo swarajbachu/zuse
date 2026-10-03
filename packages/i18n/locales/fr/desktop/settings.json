@@ -217,14 +217,14 @@
 	"cloud_workspace_auth_start_device_login": "Démarrer la connexion à l'appareil",
 	"cloud_workspace_auth_save_and_verify": "Enregistrer et vérifier",
 	"cloud_workspace_github_github": "GitHub",
-	"cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio": "Configurez l'application Zuse GitHub pour votre compte personnel ou vos organisations. Zuse ne lit ni ne copie jamais la connexion GitHub de votre Mac.",
-	"cloud_workspace_github_configure_app": " Configurer l'application",
-	"cloud_workspace_github_install_github_app": " Installer l'application GitHub",
+	"cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio": "Connectez GitHub pour choisir les dépôts et permettre aux agents cloud de créer des commits, de pousser du code et d’ouvrir des pull requests en votre nom.",
+	"cloud_workspace_github_configure_app": "Gérer la connexion",
+	"cloud_workspace_github_install_github_app": "Connecter GitHub",
 	"cloud_workspace_github_github_app_is_not_configured": "L'application GitHub n'est pas configurée",
 	"cloud_workspace_github_add_the_github_app_credentials_to_api_deploy_it_then_retry": "Ajoutez les informations d'identification de l'application GitHub à API, déployez-la, puis réessayez.",
 	"cloud_workspace_github_unavailable": "Indisponible",
 	"cloud_workspace_github_connect_repositories": "Connecter les référentiels",
-	"cloud_workspace_github_start_here_so_the_callback_is_signed_and_linked_to_this_zuse_account_o": "Commencez ici pour que le rappel soit signé et lié à ce compte Zuse. Sur GitHub, choisissez les référentiels sélectionnés.",
+	"cloud_workspace_github_start_here_so_the_callback_is_signed_and_linked_to_this_zuse_account_o": "Choisissez les dépôts accessibles à Zuse et autorisez votre compte GitHub lors de la même connexion.",
 	"cloud_workspace_github_check_connection": " Vérifier la connexion",
 	"cloud_workspace_github_suspended": "Suspendu",
 	"cloud_workspace_github_connected": " Connecté",
@@ -1066,5 +1066,6 @@
 	"model_connections_account_hint": "Partagé avec votre compte Zuse. SuperGrok peut être réutilisé localement et dans le cloud. L’exécution native de ChatGPT reste locale.",
 	"model_connections_account_error": "Impossible de charger les connexions partagées. Connectez-vous à Zuse et vérifiez que l’API du compte est à jour.",
 	"zuse_harness_description": "Utilisez les modèles ChatGPT et SuperGrok avec votre abonnement. Aucune CLI requise.",
-	"zuse_harness_enable": "Utiliser l’agent Zuse"
+	"zuse_harness_enable": "Utiliser l’agent Zuse",
+	"cloud_workspace_github_user_connected": "Connecté en tant que {{login}}"
 }

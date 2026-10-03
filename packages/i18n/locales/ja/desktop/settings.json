@@ -217,14 +217,14 @@
 	"cloud_workspace_auth_start_device_login": "デバイスログインを開始する",
 	"cloud_workspace_auth_save_and_verify": "保存して確認する",
 	"cloud_workspace_github_github": "GitHub",
-	"cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio": "個人アカウントまたは組織用に Zuse GitHub アプリを構成します。 Zuse は、Mac の GitHub ログインを読み取りまたはコピーすることはありません。",
-	"cloud_workspace_github_configure_app": " アプリの設定",
-	"cloud_workspace_github_install_github_app": " GitHubアプリをインストールする",
+	"cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio": "GitHub を接続してリポジトリを選ぶと、クラウドエージェントがあなたの名前でコミット、プッシュ、プルリクエストの作成を行います。",
+	"cloud_workspace_github_configure_app": "接続を管理",
+	"cloud_workspace_github_install_github_app": "GitHub を接続",
 	"cloud_workspace_github_github_app_is_not_configured": "GitHub アプリが設定されていません",
 	"cloud_workspace_github_add_the_github_app_credentials_to_api_deploy_it_then_retry": "GitHub アプリの資格情報を API に追加し、デプロイして、再試行します。",
 	"cloud_workspace_github_unavailable": "利用不可",
 	"cloud_workspace_github_connect_repositories": "リポジトリの接続",
-	"cloud_workspace_github_start_here_so_the_callback_is_signed_and_linked_to_this_zuse_account_o": "ここから開始して、コールバックが署名され、この Zuse アカウントにリンクされます。 GitHub で、選択したリポジトリを選択します。",
+	"cloud_workspace_github_start_here_so_the_callback_is_signed_and_linked_to_this_zuse_account_o": "同じ接続手順で Zuse がアクセスできるリポジトリを選び、GitHub アカウントを認証します。",
 	"cloud_workspace_github_check_connection": " 接続を確認してください",
 	"cloud_workspace_github_suspended": "一時停止中",
 	"cloud_workspace_github_connected": " 接続済み",
@@ -1062,5 +1062,6 @@
 	"model_connections_account_hint": "Zuse アカウントで共有します。SuperGrok はローカルとクラウドで再利用できます。ネイティブ ChatGPT の実行はローカルのみです。",
 	"model_connections_account_error": "共有接続を読み込めませんでした。Zuse にログインし、アカウント API が最新か確認してください。",
 	"zuse_harness_description": "サブスクリプションで ChatGPT と SuperGrok のモデルを実行します。CLI は不要です。",
-	"zuse_harness_enable": "Zuse エージェントを使用"
+	"zuse_harness_enable": "Zuse エージェントを使用",
+	"cloud_workspace_github_user_connected": "{{login}} として接続済み"
 }

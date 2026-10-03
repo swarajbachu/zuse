@@ -142,6 +142,9 @@ describe("GitHub installation failure isolation", () => {
 					workosIssuer: "unused",
 					workosApiKey: Redacted.make("workos-test"),
 					organizationWorkspacesEnabled: true,
+					cloudDataEncryptionKey: Redacted.make(
+						Buffer.alloc(32, 7).toString("base64url"),
+					),
 					mintPrivateKey: Redacted.make(
 						JSON.stringify(keys.privateKey.export({ format: "jwk" })),
 					),
@@ -194,7 +197,8 @@ describe("GitHub installation failure isolation", () => {
 					return Response.json({ id: "team", name: "Example team" });
 				if (url.endsWith("/login/oauth/access_token"))
 					return Response.json({ access_token: "user-token" });
-				if (url.endsWith("/user")) return Response.json({ id: 7 });
+				if (url.endsWith("/user"))
+					return Response.json({ id: 7, login: "octocat", name: "Octo Cat" });
 				if (url.includes("/user/installations?"))
 					return Response.json(
 						!installed
@@ -284,6 +288,7 @@ describe("GitHub installation failure isolation", () => {
 			expect(
 				await runtime.runPromise(store.listGithubInstallations(ownerId)),
 			).toEqual([]);
+			expect(await runtime.runPromise(store.getGithubUser(ownerId))).toBeNull();
 			const csrf = /name="csrf" value="([^"]+)"/.exec(html)?.[1] ?? "";
 			const select = () =>
 				new Request(callback.origin + callback.pathname, {
@@ -314,6 +319,16 @@ describe("GitHub installation failure isolation", () => {
 			);
 			expect(await connected.text()).toContain("octocat is connected");
 			expect(connected.headers.get("set-cookie")).toContain("Max-Age=0");
+			expect(
+				await runtime.runPromise(store.getGithubUser(ownerId)),
+			).toMatchObject({
+				login: "octocat",
+				name: "Octo Cat",
+				email: "7+octocat@users.noreply.github.com",
+			});
+			expect(
+				await runtime.runPromise(store.getGithubUser("other-account")),
+			).toBeNull();
 			expect(
 				await runtime.runPromise(store.listGithubInstallations(ownerId)),
 			).toHaveLength(1);

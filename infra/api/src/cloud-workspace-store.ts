@@ -11,7 +11,7 @@ import {
 	WorkspaceSettings,
 	type WorkspaceSettingsUpdate,
 } from "@zuse/contracts";
-import { Context, Effect, Layer, Ref, Schema } from "effect";
+import { Context, Effect, Layer, Ref, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
 	cloudWorkspaceGatewayEpoch,
@@ -48,6 +48,15 @@ export interface CloudProjectRecord {
 	readonly idempotencyKey: string;
 	readonly createdAtMs: number;
 	readonly updatedAtMs: number;
+}
+
+/** User credentials are sealed with account-bound authenticated encryption. */
+export interface CloudGithubUserRecord {
+	readonly accountId: string;
+	readonly login: string;
+	readonly name: string;
+	readonly email: string;
+	readonly sealedCredentials: string;
 }
 
 export interface CloudGithubInstallationRecord {
@@ -571,6 +580,16 @@ export interface CloudWorkspaceStoreApi {
 		readonly providerSandboxId: string;
 		readonly nowMs: number;
 	}) => Effect.Effect<CloudAuthAuthorityRecord | null>;
+	readonly getGithubUser: (
+		accountId: string,
+	) => Effect.Effect<CloudGithubUserRecord | null>;
+	readonly saveGithubUser: (user: CloudGithubUserRecord) => Effect.Effect<void>;
+	readonly removeGithubUser: (accountId: string) => Effect.Effect<void>;
+	/** Serialize OAuth exchange, refresh and disconnect across API workers. */
+	readonly withGithubUserLock: <A, E, R>(
+		accountId: string,
+		effect: Effect.Effect<A, E, R>,
+	) => Effect.Effect<A, E, R>;
 	readonly listGithubInstallations: (
 		accountId: string,
 	) => Effect.Effect<ReadonlyArray<CloudGithubInstallationRecord>>;
@@ -903,6 +922,7 @@ export class CloudWorkspaceStore extends Context.Service<
 interface MemoryState {
 	readonly workspaceSettings: Map<string, WorkspaceSettings>;
 	readonly authAuthorities: Map<string, CloudAuthAuthorityRecord>;
+	readonly githubUsers: Map<string, CloudGithubUserRecord>;
 	readonly githubInstallations: Map<string, CloudGithubInstallationRecord>;
 	readonly projects: Map<string, CloudProjectRecord>;
 	readonly builds: Map<string, CloudProjectBuildRecord>;
@@ -1651,10 +1671,12 @@ const canRecoverMissingLaunchIntent = (
 export const CloudWorkspaceStoreMemory = Layer.effect(
 	CloudWorkspaceStore,
 	Effect.gen(function* () {
+		const githubLocks = new Map<string, Semaphore.Semaphore>();
 		const catalogs = new Map<string, { signature: string; revision: number }>();
 		const state = yield* Ref.make<MemoryState>({
 			workspaceSettings: new Map(),
 			authAuthorities: new Map(),
+			githubUsers: new Map(),
 			githubInstallations: new Map(),
 			projects: new Map(),
 			builds: new Map(),
@@ -1819,6 +1841,30 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							),
 						},
 					] as const;
+				}),
+			getGithubUser: (accountId) =>
+				Ref.get(state).pipe(
+					Effect.map((current) => current.githubUsers.get(accountId) ?? null),
+				),
+			saveGithubUser: (user) =>
+				Ref.update(state, (current) => ({
+					...current,
+					githubUsers: new Map(current.githubUsers).set(user.accountId, user),
+				})),
+			removeGithubUser: (accountId) =>
+				Ref.update(state, (current) => {
+					const githubUsers = new Map(current.githubUsers);
+					githubUsers.delete(accountId);
+					return { ...current, githubUsers };
+				}),
+			withGithubUserLock: (accountId, effect) =>
+				Effect.suspend(() => {
+					let lock = githubLocks.get(accountId);
+					if (lock === undefined) {
+						lock = Semaphore.makeUnsafe(1);
+						githubLocks.set(accountId, lock);
+					}
+					return lock.withPermit(effect);
 				}),
 			listGithubInstallations: (accountId) =>
 				Ref.get(state).pipe(
@@ -3238,6 +3284,8 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						)
 					)
 						return [false, current] as const;
+					const githubUsers = new Map(current.githubUsers);
+					githubUsers.delete(accountId);
 					const githubInstallations = new Map(
 						[...current.githubInstallations].filter(
 							([, installation]) => installation.accountId !== accountId,
@@ -3316,6 +3364,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						{
 							...current,
 							authAuthorities,
+							githubUsers,
 							workspaceSettings,
 							githubInstallations,
 							projects,
@@ -4408,6 +4457,44 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						),
 					),
 				),
+			getGithubUser: (accountId) =>
+				sql<{
+					account_id: string;
+					login: string;
+					name: string;
+					email: string;
+					sealed_credentials: string;
+				}>`SELECT * FROM api_cloud_github_users WHERE account_id=${accountId}`.pipe(
+					Effect.map((rows) =>
+						rows[0] === undefined
+							? null
+							: {
+									accountId: rows[0].account_id,
+									login: rows[0].login,
+									name: rows[0].name,
+									email: rows[0].email,
+									sealedCredentials: rows[0].sealed_credentials,
+								},
+					),
+					Effect.orDie,
+				),
+			saveGithubUser: (user) =>
+				sql`INSERT INTO api_cloud_github_users (account_id, login, name, email, sealed_credentials) VALUES (${user.accountId}, ${user.login}, ${user.name}, ${user.email}, ${user.sealedCredentials}) ON CONFLICT (account_id) DO UPDATE SET login=EXCLUDED.login, name=EXCLUDED.name, email=EXCLUDED.email, sealed_credentials=EXCLUDED.sealed_credentials`.pipe(
+					Effect.asVoid,
+					Effect.orDie,
+				),
+			removeGithubUser: (accountId) =>
+				sql`DELETE FROM api_cloud_github_users WHERE account_id=${accountId}`.pipe(
+					Effect.asVoid,
+					Effect.orDie,
+				),
+			withGithubUserLock: (accountId, effect) =>
+				Effect.gen(function* () {
+					yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`github-user:${accountId}`}, 0))`.pipe(
+						Effect.orDie,
+					);
+					return yield* effect;
+				}).pipe(sql.withTransaction, Effect.catchTag("SqlError", Effect.die)),
 			listGithubInstallations: (accountId) =>
 				orDie(
 					sql`SELECT * FROM api_cloud_github_installations WHERE account_id=${accountId} ORDER BY created_at`.pipe(
@@ -5371,6 +5458,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						yield* sql`DELETE FROM api_cloud_workspace_usage WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_project_builds WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_projects WHERE account_id=${accountId}`;
+						yield* sql`DELETE FROM api_cloud_github_users WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_github_installations WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_api_webhooks WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_api_keys WHERE account_id=${accountId}`;

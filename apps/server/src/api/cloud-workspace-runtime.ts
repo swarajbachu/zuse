@@ -39,6 +39,7 @@ import {
 	CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY,
 	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
 	type CloudAuthProvider,
+	CloudGitIdentity,
 	CloudRuntimeAccessResponse,
 	CloudRuntimeAssetDownload,
 	CloudRuntimeCommandList,
@@ -132,6 +133,7 @@ import {
 	type WorkspaceServiceShape,
 } from "../workspace/services/workspace-service.ts";
 import { CloudCodexAuth } from "./cloud-codex-auth.ts";
+import { configureCloudGitIdentity } from "./cloud-git-identity.ts";
 import { CloudProviderAuth } from "./cloud-provider-auth.ts";
 import { cloudStorageIncarnationId } from "./cloud-storage-incarnation.ts";
 import { makeCloudWorkspaceRpcActivity } from "./cloud-workspace-activity.ts";
@@ -264,6 +266,7 @@ export const bufferWorkspaceLocalFrame = (
 };
 
 const BootstrapResponse = Schema.Struct({
+	gitIdentity: Schema.optional(CloudGitIdentity),
 	workspaceId: Schema.String,
 	zuseAccountId: Schema.optional(Schema.String),
 	workspaceScope: Schema.optional(WorkspaceScope),
@@ -2349,7 +2352,29 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					);
 					if (bootstrap.providerAuthMode !== "broker-v1")
 						yield* installImageProviderSecrets(credentials);
+					yield* Effect.tryPromise({
+						try: async () => {
+							for (const filename of [
+								"github-installation-token",
+								"github-installation-token-expires-at",
+							])
+								await unlink(join(cloudRuntimeDataDirectory(), filename)).catch(
+									(error: NodeJS.ErrnoException) => {
+										if (error.code !== "ENOENT") throw error;
+									},
+								);
+						},
+						catch: () => fail("workspace_github_cache_reset_failed"),
+					});
 					yield* writeGithubBrokerState(config, runtimeCredential.credential);
+					yield* Effect.tryPromise({
+						try: () =>
+							configureCloudGitIdentity(
+								cloudRuntimeDataDirectory(),
+								bootstrap.gitIdentity,
+							),
+						catch: () => fail("workspace_git_identity_failed"),
+					});
 					yield* superviseRuntimeCredential({
 						config,
 						signingPrivateKey: signingKeyPair.privateKey,
