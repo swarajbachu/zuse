@@ -263,7 +263,9 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 				windowMinutes: event.windowMinutes,
 			};
 		case "Error":
-			return { _tag: "error", message: event.message };
+			return event.kind === undefined
+				? { _tag: "error", message: event.message }
+				: { _tag: "error", message: event.message, kind: event.kind };
 		case "Interrupted":
 			return { _tag: "interrupted" };
 		case "UserQuestionResolved":

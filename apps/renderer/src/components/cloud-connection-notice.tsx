@@ -35,7 +35,7 @@ import {
 } from "../lib/session-timeline-client-bus.ts";
 import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useChatsStore } from "../store/chats.ts";
-import { TrayPill } from "./composer/tray-pill.tsx";
+import { TrayPill, trayPillTextActionClass } from "./composer/tray-pill.tsx";
 import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
 import { Spinner } from "./ui/spinner.tsx";
 
@@ -275,7 +275,7 @@ export function CloudConnectionNotice() {
 					<button
 						type="button"
 						disabled={signingIn}
-						className="inline-flex h-7 items-center gap-1 rounded-md px-2 font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						className={trayPillTextActionClass}
 						onClick={() => {
 							if (signInRequired) void signIn();
 							else retry();

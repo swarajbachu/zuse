@@ -28,7 +28,9 @@ export const supportsProviderLogin = (providerId: ProviderId): boolean =>
 const IDLE_LOGIN: ProviderLoginState = { kind: "idle" };
 const loginStore = createAtomStore<{
 	stateByKey: Record<string, ProviderLoginState>;
-}>(() => ({ stateByKey: {} }));
+	/** Epoch ms of the last in-app sign-in that succeeded, per computer and provider. */
+	signedInAtByKey: Record<string, number>;
+}>(() => ({ stateByKey: {}, signedInAtByKey: {} }));
 const owners = new Map<string, StreamOperationOwner>();
 const keyFor = (environmentId: string, providerId: ProviderId) =>
 	JSON.stringify([environmentId, providerId]);
@@ -37,7 +39,13 @@ const setState = (key: string, state: ProviderLoginState) =>
 		const stateByKey = { ...current.stateByKey };
 		if (state.kind === "idle") delete stateByKey[key];
 		else stateByKey[key] = state;
-		return { stateByKey };
+		return {
+			stateByKey,
+			signedInAtByKey:
+				state.kind === "success"
+					? { ...current.signedInAtByKey, [key]: Date.now() }
+					: current.signedInAtByKey,
+		};
 	});
 const cancelProviderLogin = (key: string) => {
 	owners.get(key)?.cancel();
@@ -111,7 +119,7 @@ const startProviderLogin = async (
  * Only an explicit cancel interrupts the stream, which closes the server-side
  * scope and SIGTERMs the child process.
  *
- * Used by both the provider settings card and the inline auth ErrorBubble so
+ * Used by both the provider settings card and the composer sign-in tray so
  * the flow (and its copy) stays identical wherever a user signs in. Each
  * mounted caller's `onSuccess` fires when it observes the attempt succeed.
  */
@@ -120,6 +128,8 @@ export function useProviderLogin(
 	opts?: { readonly onSuccess?: () => void; readonly environmentId?: string },
 ): {
 	readonly state: ProviderLoginState;
+	/** Epoch ms of the last successful in-app sign-in; 0 when none this run. */
+	readonly signedInAt: number;
 	readonly start: () => Promise<void>;
 	readonly cancel: () => void;
 } {
@@ -127,6 +137,7 @@ export function useProviderLogin(
 	const environmentId = opts?.environmentId ?? active;
 	const key = keyFor(environmentId, providerId);
 	const state = loginStore((current) => current.stateByKey[key] ?? IDLE_LOGIN);
+	const signedInAt = loginStore((current) => current.signedInAtByKey[key] ?? 0);
 	const onSuccessRef = useRef(opts?.onSuccess);
 	onSuccessRef.current = opts?.onSuccess;
 	const previousKind = useRef(state.kind);
@@ -138,6 +149,7 @@ export function useProviderLogin(
 
 	return {
 		state,
+		signedInAt,
 		start: () => startProviderLogin(environmentId, providerId),
 		cancel: () => cancelProviderLogin(key),
 	};

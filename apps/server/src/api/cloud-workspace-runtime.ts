@@ -128,7 +128,7 @@ import {
 	RuntimeModelConnections,
 } from "../harness/account-vault.ts";
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
-import { isProviderAuthenticationRequired } from "../provider/provider-auth-failure.ts";
+import { isProviderAuthenticationError } from "../provider/provider-auth-failure.ts";
 import { CredentialsService } from "../provider/services/credentials-service.ts";
 import { RuntimeProviderCredentials } from "../provider/services/runtime-provider-credentials.ts";
 import {
@@ -2073,9 +2073,7 @@ const recoverProviderAuthFailedSessions = Effect.fn(
 		(session) =>
 			input.messages.listMessages(session.id).pipe(
 				Effect.flatMap((history) => {
-					const last = history.at(-1)?.content;
-					return last?._tag === "error" &&
-						isProviderAuthenticationRequired(last.message)
+					return isProviderAuthenticationError(history.at(-1)?.content)
 						? input.sessions.resumeSession(session.id).pipe(Effect.asVoid)
 						: Effect.void;
 				}),

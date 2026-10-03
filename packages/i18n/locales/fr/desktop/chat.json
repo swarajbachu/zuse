@@ -333,7 +333,6 @@
 	"message_row_open_annotation": "Ouvrir l'annotation",
 	"message_row_sent_as_goal": "Envoyé comme objectif",
 	"message_row_error": "Erreur",
-	"message_row_authentication_required": "Authentification requise",
 	"message_row_dismiss": "Rejeter",
 	"message_row_waiting_for_browser_sign_in": "En attente de connexion au navigateur…",
 	"message_row_open_browser_again": "Ouvrir à nouveau le navigateur",
@@ -587,7 +586,6 @@
 	"fork_menu_fork_from_this_sentence": "Fourche de ce {{label}}",
 	"markdown_body_could_not_render_mermaid_diagram_sentence": "Impossible de restituer le diagramme Sirène : {{value}}",
 	"message_row_sent_by_from_another_chat_sentence": "Envoyé par {{value}} depuis un autre chat",
-	"message_row_to_resolve_sign_in_to_we_apos_ll_validate_the_login_automati_sentence": "Pour résoudre ce problème, connectez-vous à {{label}}. Nous validerons automatiquement la connexion.",
 	"turn_summary_more_sentence": "+{{value}} plus",
 	"archived_chats_page_archived_sentence": "Archivé {{value}}",
 	"permissions_inspector_permissions_sentence": "Autorisations — {{projectName}}",
@@ -615,8 +613,6 @@
 	"environment_summary_done": "{{value1}} terminé",
 	"message_row_empty": "(vide)",
 	"message_row_starting_sign_in": "Démarrage de la connexion {{label}}…",
-	"message_row_try_sign_in_again": "Essayez à nouveau de vous connecter au {{label}}.",
-	"message_row_sign_in_to": "Connectez-vous à {{label}}",
 	"subagent_row_empty": "(vide)",
 	"changes_review_conflict_remaining_many": "Conflits {{remaining}} restants",
 	"top_bar_change_plural0_sentence_many": "Modifications du {{value}}",
@@ -675,5 +671,8 @@
 	"runtime_mode_auto_description": "L’agent examine les actions et demande votre avis si nécessaire.",
 	"runtime_mode_change_stops_turn": "Changer l’accès arrête le tour en cours. Votre prochain message utilise le nouveau mode.",
 	"runtime_mode_approval_description": "Demander avant de modifier des fichiers, d’exécuter des commandes ou d’accéder au réseau.",
-	"runtime_mode_full_description": "Autoriser les actions sans approbation. Le mode Plan reste applicable."
+	"runtime_mode_full_description": "Autoriser les actions sans approbation. Le mode Plan reste applicable.",
+	"message_row_signed_out_of": "Vous êtes déconnecté de {{label}}.",
+	"provider_sign_in_tray_signed_out": "Déconnecté de {{label}}",
+	"provider_sign_in_tray_sign_in_to_continue": "Connectez-vous pour poursuivre cette conversation."
 }

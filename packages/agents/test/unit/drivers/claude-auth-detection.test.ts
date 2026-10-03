@@ -1,32 +1,66 @@
 import {
+	claudeAuthFailureText,
 	claudeResultErrorText,
-	looksLikeClaudeAuthFailure,
 } from "@zuse/agents/drivers/claude";
 import { describe, expect, it } from "vitest";
 
-// Regression coverage for the "stuck on a dead 'Not logged in' message"
-// report: an unauthenticated `claude` reports auth failures as plain output,
-// which we must recognise so the renderer can paint the sign-in card.
-describe("looksLikeClaudeAuthFailure", () => {
-	it("matches the CLI's not-logged-in output", () => {
+const assistant = (
+	text: string,
+	extra: Readonly<Record<string, unknown>> = {},
+): never =>
+	({
+		type: "assistant",
+		parent_tool_use_id: null,
+		message: { content: [{ type: "text", text }] },
+		...extra,
+	}) as never;
+
+// The CLI reports missing or expired credentials as a synthetic assistant
+// message tagged `error: "authentication_failed"`; that tag, not the prose, is
+// what turns it into a typed sign-in failure.
+describe("claudeAuthFailureText", () => {
+	it("reads the CLI's tagged authentication failures", () => {
 		expect(
-			looksLikeClaudeAuthFailure("Not logged in · Please run /login"),
-		).toBe(true);
-		expect(
-			looksLikeClaudeAuthFailure(
-				"Please run /login · API Error: 401 Invalid authentication credentials",
+			claudeAuthFailureText(
+				assistant(
+					"Failed to authenticate: OAuth session expired and could not be refreshed",
+					{ error: "authentication_failed" },
+				),
 			),
-		).toBe(true);
-		expect(looksLikeClaudeAuthFailure("Invalid API key · Fix external")).toBe(
-			true,
+		).toBe(
+			"Failed to authenticate: OAuth session expired and could not be refreshed",
 		);
+		expect(
+			claudeAuthFailureText(
+				assistant("Not logged in · Please run /login", {
+					error: "authentication_failed",
+				}),
+			),
+		).toBe("Not logged in · Please run /login");
 	});
 
-	it("does not match ordinary assistant prose", () => {
+	it("ignores assistant prose that only mentions login or a 401", () => {
 		expect(
-			looksLikeClaudeAuthFailure("I updated the login form component."),
-		).toBe(false);
-		expect(looksLikeClaudeAuthFailure("All tests pass.")).toBe(false);
+			claudeAuthFailureText(
+				assistant("The endpoint returns 401 until you run /login."),
+			),
+		).toBeNull();
+	});
+
+	it("ignores other error tags and sub-agent messages", () => {
+		expect(
+			claudeAuthFailureText(
+				assistant("You've hit your limit", { error: "rate_limit" }),
+			),
+		).toBeNull();
+		expect(
+			claudeAuthFailureText(
+				assistant("Not logged in", {
+					error: "authentication_failed",
+					parent_tool_use_id: "toolu_1",
+				}),
+			),
+		).toBeNull();
 	});
 });
 

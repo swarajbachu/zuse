@@ -2,6 +2,7 @@ import { Effect, Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 import {
 	AgentDefinition,
+	AgentErrorKind,
 	ContextUsagePrecision,
 	PermissionMode,
 	PlanApprovalOutcome,
@@ -261,6 +262,12 @@ const ToolResultContent = Schema.TaggedStruct("tool_result", {
 
 const ErrorContent = Schema.TaggedStruct("error", {
 	message: Schema.String,
+	/**
+	 * The driver's typed classification, when it had positive evidence (e.g.
+	 * Claude's `authentication_failed`). Absent on older rows; the renderer then
+	 * falls back to classifying the message text.
+	 */
+	kind: Schema.optional(AgentErrorKind),
 });
 
 /**

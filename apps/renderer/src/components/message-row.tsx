@@ -26,9 +26,6 @@ import {
 	AlertCircleIcon,
 	Copy01Icon,
 	DashboardSpeedIcon,
-	LinkSquare01Icon,
-	Loading02Icon,
-	PlayIcon,
 	Settings01Icon,
 	Tick01Icon,
 } from "@zuse/icons/solid-rounded";
@@ -56,13 +53,11 @@ import {
 	parseOrchestrationResult,
 } from "~/lib/orchestration-tools";
 import { attachmentUrl } from "~/lib/platform-capabilities";
-import { resumeAfterProviderLogin } from "~/lib/provider-auth-recovery";
+import { composerOwnsProviderSignIn } from "~/lib/provider-auth-recovery";
 import { isCloudWorkspaceEnvironment } from "~/lib/rpc-client.ts";
 import {
 	type ChatError,
-	classifyMessage,
-	clearSessionCommandError,
-	resumeSessionQueue,
+	classifyErrorContent,
 	retryLastSessionMessage,
 	sendSessionMessage,
 } from "~/lib/session-actions";
@@ -70,15 +65,8 @@ import { isSessionTurnActive } from "~/lib/session-runtime-state";
 import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks.ts";
 import { subagentTaskIdForBlockingWait } from "~/lib/subagent-wait";
 import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
-import {
-	openExternal,
-	supportsProviderLogin,
-	useProviderLogin,
-} from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
-import { useProvidersStore } from "~/store/providers";
-import { useSessionsStore } from "~/store/sessions";
 import { useUiStore } from "~/store/ui";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
 import {
@@ -120,7 +108,6 @@ import {
 	UserInputRow,
 } from "./tool-row.tsx";
 import { Button } from "./ui/button.tsx";
-import { ShimmerText } from "./ui/shimmer-text.tsx";
 import {
 	userBubbleClass,
 	userBubbleColumnClass,
@@ -304,19 +291,32 @@ function MessageRowImpl({
 		case "usage_limit":
 		case "subagent_progress":
 			return null;
-		case "error":
+		case "error": {
 			if (readOnly) return <ToolErrorRow output={message.content.message} />;
-			// Classify so an auth failure (expired OAuth / 401 / "Please run
-			// /login") gets the "Sign in to {provider}" headline + inline login
-			// button rather than a bare generic error.
+			// An auth failure is never shown as a raw provider error. For local
+			// providers with in-app sign-in the composer tray owns recovery, so
+			// the transcript just records that the provider signed out.
+			const error = classifyErrorContent(message.content, providerId);
+			if (
+				error.kind === "auth" &&
+				composerOwnsProviderSignIn(providerId, environmentId)
+			)
+				return (
+					<div className="px-4 py-2 text-xs text-muted-foreground">
+						{uiMessage("chat:message_row_signed_out_of", {
+							label: String(PROVIDER_LABEL_FOR_ERROR[providerId]),
+						})}
+					</div>
+				);
 			return (
 				<ErrorBubble
-					error={classifyMessage(message.content.message, providerId)}
+					error={error}
 					sessionId={sessionId}
 					environmentId={environmentId}
 					providerId={providerId}
 				/>
 			);
+		}
 		case "interrupted":
 			// The user stopped the turn — a normal action, so render a small muted
 			// badge rather than an error bubble.
@@ -834,198 +834,6 @@ const formatResetDetail = (info: RateLimitInfo): string => {
 	return "Try again later";
 };
 
-/**
- * "Authentication required" card shown when a login-capable provider reports
- * an auth failure. Reuses the shared `useProviderLogin` flow
- * (open browser → wait for the OAuth callback → done): on success it re-probes
- * availability and clears the bottom error.
- *
- * This card is a *persisted* message in scrollback, so it must not carry sticky
- * per-instance UI: once the provider reports `authenticated` (whether via this
- * card, another duplicate card, Settings, or the terminal) every auth card
- * resolves to nothing. That's what kills the "stuck on Signed in. Resuming…"
- * and the duplicate cards after a successful sign-in.
- */
-function ProviderAuthCard({
-	providerId,
-	sessionId,
-	environmentId,
-	onOpenSettings,
-	onDismiss,
-}: {
-	providerId: ProviderId;
-	sessionId: SessionId | undefined;
-	environmentId: EnvironmentId | undefined;
-	onOpenSettings: () => void;
-	onDismiss?: () => void;
-}) {
-	const { message: uiMessage } = useUiMessages(["chat", "common"]);
-
-	const refreshProviders = useProvidersStore((s) => s.refresh);
-	const authStatus = useProvidersStore(
-		(s) => s.availability.find((a) => a.providerId === providerId)?.authStatus,
-	);
-	const reopenSession = useSessionsStore((s) => s.resume);
-	const { state, start, cancel } = useProviderLogin(providerId, {
-		environmentId,
-		onSuccess: () => {
-			// Re-probe first so the keychain write has landed and this card
-			// resolves (hides) before recovery. Reopen the provider with the fresh
-			// credentials, then retry an existing turn or release a fresh chat's
-			// queued first message.
-			void (async () => {
-				await refreshProviders();
-				if (sessionId !== undefined && environmentId !== undefined) {
-					const ref = { environmentId, sessionId };
-					const resumed = await resumeAfterProviderLogin({
-						reopen: () => reopenSession(sessionId, environmentId),
-						resumeQueue: () => resumeSessionQueue(ref, providerId),
-					});
-					if (resumed) clearSessionCommandError(ref);
-				}
-			})();
-		},
-	});
-	const label = PROVIDER_LABEL_FOR_ERROR[providerId];
-
-	// Resolved — the provider is authenticated now, so this historical card has
-	// nothing left to do. Render nothing (no nag, no spinner, no duplicate).
-	if (authStatus === "authenticated") return null;
-
-	return (
-		<div className="px-4 py-2">
-			<div className="w-fit max-w-[80%] rounded-lg border border-border/60 bg-card px-3 py-2.5 text-xs text-foreground">
-				<div className="flex items-center justify-between gap-2">
-					<span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-						<HugeiconsIcon
-							icon={AlertCircleIcon}
-							className="size-3.5 text-destructive"
-							aria-hidden
-						/>
-						{uiMessage("chat:message_row_authentication_required")}
-					</span>
-					{onDismiss !== undefined && (
-						<button
-							type="button"
-							onClick={onDismiss}
-							className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-						>
-							{uiMessage("chat:message_row_dismiss")}
-						</button>
-					)}
-				</div>
-
-				{state.kind === "waiting" ? (
-					<div className="mt-2 flex min-h-[3.75rem] flex-col gap-2">
-						<div
-							className="flex items-center gap-2 text-[11px] text-muted-foreground"
-							role="status"
-							aria-live="polite"
-						>
-							<HugeiconsIcon
-								icon={Loading02Icon}
-								className="size-3.5 animate-spin motion-reduce:animate-none"
-								aria-hidden
-							/>
-							<ShimmerText as="span">
-								{state.url === null
-									? uiMessage("chat:message_row_starting_sign_in", {
-											label: String(label),
-										})
-									: uiMessage("chat:message_row_waiting_for_browser_sign_in")}
-							</ShimmerText>
-						</div>
-						<div className="flex flex-wrap items-center gap-1.5">
-							{state.url !== null && (
-								<Button
-									type="button"
-									size="xs"
-									variant="outline"
-									onClick={() => {
-										if (state.url !== null) openExternal(state.url);
-									}}
-									className="gap-1.5"
-								>
-									<HugeiconsIcon
-										icon={LinkSquare01Icon}
-										className="size-3"
-										aria-hidden
-									/>
-									{uiMessage("chat:message_row_open_browser_again")}
-								</Button>
-							)}
-							<Button type="button" size="xs" variant="ghost" onClick={cancel}>
-								{uiMessage("common:cancel")}
-							</Button>
-						</div>
-					</div>
-				) : state.kind === "success" ? (
-					<div
-						className="mt-2 flex min-h-[3.75rem] items-start gap-2 text-[11px] text-muted-foreground"
-						role="status"
-						aria-live="polite"
-					>
-						<HugeiconsIcon
-							icon={Loading02Icon}
-							className="size-3.5 animate-spin motion-reduce:animate-none"
-							aria-hidden
-						/>
-						<ShimmerText as="span">
-							{uiMessage("chat:message_row_signed_in_finishing")}
-						</ShimmerText>
-					</div>
-				) : (
-					<div className="min-h-[3.75rem]">
-						<p className="mt-1 leading-relaxed text-muted-foreground">
-							{uiMessage(
-								"chat:message_row_to_resolve_sign_in_to_we_apos_ll_validate_the_login_automati_sentence",
-								{ label: label },
-							)}
-						</p>
-						{state.kind === "failed" && (
-							<p className="mt-1 text-[11px] text-destructive">
-								{state.reason}
-							</p>
-						)}
-						<div className="mt-2 flex flex-wrap items-center gap-1.5">
-							<Button
-								type="button"
-								size="xs"
-								variant="outline"
-								onClick={() => void start()}
-								className="gap-1.5"
-							>
-								<HugeiconsIcon icon={PlayIcon} className="size-3" aria-hidden />
-								{state.kind === "failed"
-									? uiMessage("chat:message_row_try_sign_in_again", {
-											label: String(label),
-										})
-									: uiMessage("chat:message_row_sign_in_to", {
-											label: String(label),
-										})}
-							</Button>
-							<Button
-								type="button"
-								size="xs"
-								variant="ghost"
-								onClick={onOpenSettings}
-								className="gap-1"
-							>
-								<HugeiconsIcon
-									icon={Settings01Icon}
-									className="size-3"
-									aria-hidden
-								/>
-								{uiMessage("common:settings")}
-							</Button>
-						</div>
-					</div>
-				)}
-			</div>
-		</div>
-	);
-}
-
 function CloudProviderAuthCard({
 	providerId,
 	authMode,
@@ -1308,10 +1116,10 @@ export function ErrorBubble({
 		);
 	}
 
-	// Auth failure for a provider we can sign into in-app → the dedicated
-	// "Authentication required" card with the one-click OAuth button. Other
-	// providers (or auth errors without a provider) fall through to the generic
-	// bubble below with a "Open Provider Settings" link.
+	// Cloud workspace auth failures get the account-level reconnect card. Local
+	// providers with in-app sign-in are recovered by the composer sign-in tray;
+	// the rest fall through to the generic bubble below with an "Open Provider
+	// Settings" link.
 	if (error.kind === "auth" && error.providerId !== undefined) {
 		if (
 			environmentId !== undefined &&
@@ -1331,16 +1139,6 @@ export function ErrorBubble({
 				/>
 			);
 		}
-		if (supportsProviderLogin(error.providerId))
-			return (
-				<ProviderAuthCard
-					providerId={error.providerId}
-					sessionId={sessionId}
-					environmentId={environmentId}
-					onOpenSettings={onOpenSettings}
-					onDismiss={onDismiss}
-				/>
-			);
 	}
 
 	const headline =

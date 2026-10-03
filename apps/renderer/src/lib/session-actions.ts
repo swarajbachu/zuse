@@ -5,6 +5,7 @@ import {
 } from "@zuse/client-runtime/resource-ref";
 import type { SyncPhase } from "@zuse/client-runtime/resource-state";
 import {
+	type AgentErrorKind,
 	CommandId,
 	ComposerInput,
 	MessageId,
@@ -96,6 +97,23 @@ export const classifyMessage = (
 	if (presentation !== null)
 		return chatErrorForPresentation(presentation, providerId, readable);
 	return { kind: "generic", message: readable };
+};
+
+/**
+ * Classify a persisted transcript error. The driver's typed kind wins; older
+ * rows and drivers without positive evidence fall back to the message text.
+ */
+export const classifyErrorContent = (
+	content: Readonly<{ message: string; kind?: AgentErrorKind }>,
+	providerId?: ProviderId,
+): ChatError => {
+	if (content.kind === "auth")
+		return providerId === undefined
+			? { kind: "auth", message: content.message }
+			: { kind: "auth", providerId, message: content.message };
+	if (content.kind === "network")
+		return { kind: "network", message: content.message };
+	return classifyMessage(content.message, providerId);
 };
 
 export const classifyError = (

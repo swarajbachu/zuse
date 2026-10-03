@@ -555,7 +555,7 @@ function SubscriptionRow({
  * progress. The terminal `done` event triggers an availability refresh and
  * (on success) collapses the row. Cancel interrupts the stream, which closes
  * the server-side scope and SIGTERMs the child process. The whole state
- * machine lives in `useProviderLogin` so the inline auth ErrorBubble can reuse
+ * machine lives in `useProviderLogin` so the composer sign-in tray can reuse
  * it verbatim.
  */
 function ProviderSignInRow({

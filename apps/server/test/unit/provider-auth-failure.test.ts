@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { isProviderAuthenticationRequired } from "../../src/provider/provider-auth-failure.ts";
+import {
+	isProviderAuthenticationError,
+	isProviderAuthenticationRequired,
+} from "../../src/provider/provider-auth-failure.ts";
 
 describe("provider auth failure classification", () => {
 	test.each([
@@ -14,6 +17,7 @@ describe("provider auth failure classification", () => {
 		"Invalid authentication credentials",
 		"Please run /login",
 		"OAuth token has expired",
+		"Failed to authenticate: OAuth session expired and could not be refreshed",
 		"authentication_error",
 	])("recognizes %s as recoverable before another submission", (reason) => {
 		expect(isProviderAuthenticationRequired(reason)).toBe(true);
@@ -25,5 +29,19 @@ describe("provider auth failure classification", () => {
 				"socket closed after request submission",
 			),
 		).toBe(false);
+	});
+
+	test("trusts a typed auth error before its text", () => {
+		expect(
+			isProviderAuthenticationError({
+				_tag: "error",
+				message: "Something unrecognised",
+				kind: "auth",
+			}),
+		).toBe(true);
+		expect(
+			isProviderAuthenticationError({ _tag: "error", message: "Boom" }),
+		).toBe(false);
+		expect(isProviderAuthenticationError(undefined)).toBe(false);
 	});
 });

@@ -338,9 +338,9 @@ interface TranslateState {
 	lastContextUsedTokens: number | null;
 	pendingCompact: CompactSnapshot | null;
 	/**
-	 * Set once we've re-emitted an auth failure as an Error from a top-level
-	 * assistant text block, so the turn's terminal `result` doesn't surface the
-	 * same failure a second time.
+	 * Set once a tagged `authentication_failed` assistant message became a typed
+	 * auth Error, so the turn's terminal `result` doesn't surface the same
+	 * failure a second time.
 	 */
 	emittedAuthError: boolean;
 	/**
@@ -504,17 +504,28 @@ const claudeRateLimitEvents = (
 	];
 };
 
-// When the `claude` CLI/SDK runs without valid credentials it does NOT throw —
-// it reports the failure as ordinary output ("Not logged in · Please run
-// /login", "Invalid API key", a 401 result). Left untranslated that renders as
-// a confusing assistant message the user can't act on. We sniff the signature
-// so it can be re-emitted as a structured `Error` event, which the renderer
-// turns into the "Authentication required → Sign in to Claude" card.
-const CLAUDE_AUTH_FAILURE_PATTERN =
-	/not logged in|please run \/login|\/login\b|invalid api key|invalid authentication credentials|\bunauthorized\b|oauth token (?:has )?expired|authentication_error|\b401\b/i;
-
-export const looksLikeClaudeAuthFailure = (text: string): boolean =>
-	CLAUDE_AUTH_FAILURE_PATTERN.test(text);
+// When the `claude` CLI has no valid credentials it does not throw: it emits a
+// synthetic assistant message whose text is the failure ("Not logged in",
+// "OAuth session expired…") and tags it `error: "authentication_failed"`.
+// Translate that tag into a typed auth Error so the transcript never shows the
+// failure as assistant prose and the renderer can offer sign-in.
+export const claudeAuthFailureText = (msg: SDKMessage): string | null => {
+	if (msg.type !== "assistant" || msg.error !== "authentication_failed")
+		return null;
+	if (msg.parent_tool_use_id !== null) return null;
+	const content = msg.message.content;
+	const text = Array.isArray(content)
+		? content
+				.flatMap((block) =>
+					block.type === "text" && typeof block.text === "string"
+						? [block.text.trim()]
+						: [],
+				)
+				.filter((part) => part.length > 0)
+				.join("\n")
+		: "";
+	return text.length > 0 ? text : "Authentication failed.";
+};
 
 /**
  * Pull the human-readable error text out of a `result` message. Treat only
@@ -585,6 +596,18 @@ const translate = (
 	state.latestParentItemId = parentItemId;
 
 	if (msg.type === "assistant") {
+		const authFailure = claudeAuthFailureText(msg);
+		if (authFailure !== null) {
+			state.emittedAuthError = true;
+			return [
+				{
+					_tag: "Error",
+					message: authFailure,
+					kind: "auth",
+					providerId: "claude",
+				},
+			];
+		}
 		const out: AgentEvent[] = [];
 		const content = msg.message.content;
 		const messageId =
@@ -625,19 +648,6 @@ const translate = (
 			for (const [blockIndex, block] of content.entries()) {
 				blockTypes.push(String((block as { type?: unknown }).type));
 				if (block.type === "text" && typeof block.text === "string") {
-					// An unauthenticated `claude` surfaces "Not logged in · Please run
-					// /login" as a top-level assistant text block. Re-emit it as an
-					// Error so the renderer shows the sign-in card instead of a dead-end
-					// message. Only at the top level — a sub-agent quoting "/login" in
-					// its reasoning shouldn't trip this.
-					if (
-						parentItemId === undefined &&
-						looksLikeClaudeAuthFailure(block.text)
-					) {
-						out.push({ _tag: "Error", message: block.text.trim() });
-						state.emittedAuthError = true;
-						continue;
-					}
 					if (streamed) continue;
 					out.push({
 						_tag: "AssistantMessage",
@@ -1081,10 +1091,9 @@ const translate = (
 				state.emittedAuthError = false;
 				return out;
 			}
-			// Surface a failed result's text as an Error so it persists + renders
-			// (auth failures the SDK reports via the result rather than an assistant
-			// block land here). `state.emittedAuthError` dedupes against the
-			// assistant-block path above so we don't show the card twice.
+			// Surface a failed result's text as an Error so it persists + renders.
+			// `state.emittedAuthError` dedupes against the typed auth Error already
+			// emitted for the `authentication_failed` assistant message.
 			const resultError = claudeResultErrorText(msg);
 			if (resultError !== null && !state.emittedAuthError) {
 				out.push({ _tag: "Error", message: resultError });
@@ -1095,7 +1104,7 @@ const translate = (
 					: { _tag: "Completed", reason: "error" },
 			);
 			// The result closes the top-level turn — reset the per-turn auth dedupe
-			// so a later turn that fails auth still surfaces its own card.
+			// so a later turn that fails auth still surfaces its own error.
 			state.emittedAuthError = false;
 		}
 		return out;

@@ -164,7 +164,7 @@ const causeKind = (cause: unknown): CloudFailureKind | null => {
 	const exactText = categoryKind(text.trim(), undefined);
 	if (exactText !== null) return exactText;
 	if (
-		/\b401\b|\bunauthorized\b|expired token|refresh token|invalid_grant|signed?\s?out|sign\s?in required|please log ?in|please run \/login|not logged in|invalid authentication credentials|invalid api key|authorizationrequired|auth\(authorizationrequired\)|authentication (?:failed|required)/i.test(
+		/\b401\b|\bunauthorized\b|expired token|refresh token|invalid_grant|signed?\s?out|sign\s?in required|please log ?in|please run \/login|not logged in|invalid authentication credentials|invalid api key|authorizationrequired|auth\(authorizationrequired\)|authentication (?:failed|required)|failed to authenticate|oauth (?:token|session) (?:has )?expired/i.test(
 			text,
 		)
 	)

@@ -63,6 +63,7 @@ import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
+import { isComposerSignInError } from "../lib/provider-auth-recovery.ts";
 import {
 	rendererAccountSnapshot,
 	subscribeRendererAccount,
@@ -255,7 +256,14 @@ export function ChatView({
 	const recoveredPreAckError =
 		commandError !== null &&
 		isRecoveredPreAckSessionError(commandError, timeline.view);
-	const error = recoveredPreAckError ? null : commandError;
+	// A local provider sign-in failure is recovered from the composer tray, so
+	// it never also floats a destructive error bubble over the transcript.
+	const error =
+		recoveredPreAckError ||
+		(commandError !== null &&
+			isComposerSignInError(commandError, session.providerId, environmentId))
+			? null
+			: commandError;
 	useEffect(() => {
 		if (recoveredPreAckError) clearSessionCommandError(sessionRef);
 	}, [recoveredPreAckError, sessionRef]);

@@ -145,3 +145,7 @@ export function TrayPill({
  */
 export const trayPillActionClass =
 	"flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-35";
+
+/** Labeled text action inside a pill's `actions` slot (Sign in, Retry, …). */
+export const trayPillTextActionClass =
+	"inline-flex h-7 items-center gap-1 rounded-md px-2 font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
