@@ -21,19 +21,22 @@ import {
 	type PermissionKind,
 	type PermissionMode,
 	type RuntimeMode,
-	type StartSessionInput,
 	type UserQuestion,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
 import { fractionToPercent } from "@zuse/utils/usage-values";
 import { type Cause, Effect, Queue, Stream } from "effect";
-
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type {
 	ProviderDriverEvent,
 	ProviderSessionHandle,
 	QuestionCallbackReleased,
 } from "../kernel/driver.ts";
+import {
+	executionDiagnostics,
+	hasManagedEnvironment,
+} from "../kernel/execution-diagnostics.ts";
+import type { DriverStartSessionInput as StartSessionInput } from "../kernel/execution-environment.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
@@ -283,6 +286,7 @@ interface PendingAgent {
 }
 
 interface TranslateState {
+	diagnosticsDisabled?: boolean;
 	thinkingByIndex: Map<number, ThinkingAccumulator>;
 	currentMessageId: string | null;
 	/**
@@ -617,7 +621,10 @@ const translateMessage = (
 	msg: SDKMessage,
 	state: TranslateState,
 ): ReadonlyArray<AgentEvent> => {
-	tlog("sdk-msg", {
+	const sessionTrace: typeof tlog = (...args) => {
+		if (!state.diagnosticsDisabled) tlog(...args);
+	};
+	sessionTrace("sdk-msg", {
 		type: (msg as { type?: unknown }).type,
 		hasMessage: "message" in (msg as object),
 		sessionId: (msg as { session_id?: unknown }).session_id,
@@ -765,7 +772,7 @@ const translateMessage = (
 					// snapshot has — even if `thinking` is empty — so a row appears
 					// and we know thinking happened.
 					const text = (block as { thinking: string }).thinking;
-					tlog("assistant.thinking-block", {
+					sessionTrace("assistant.thinking-block", {
 						textLen: text.length,
 						streamed,
 						preview: summarize(text),
@@ -780,7 +787,7 @@ const translateMessage = (
 						});
 					}
 				} else if (block.type === "redacted_thinking") {
-					tlog("assistant.redacted-thinking-block", { streamed });
+					sessionTrace("assistant.redacted-thinking-block", { streamed });
 					if (!streamed) {
 						out.push({
 							_tag: "Thinking",
@@ -793,7 +800,10 @@ const translateMessage = (
 				}
 			}
 		}
-		tlog("assistant.blocks", { types: blockTypes, emitted: out.length });
+		sessionTrace("assistant.blocks", {
+			types: blockTypes,
+			emitted: out.length,
+		});
 		return out;
 	}
 	if (msg.type === "stream_event") {
@@ -801,7 +811,7 @@ const translateMessage = (
 			| Record<string, unknown>
 			| undefined;
 		if (ev === undefined || typeof ev.type !== "string") {
-			tlog("stream_event.malformed", { event: summarize(ev) });
+			sessionTrace("stream_event.malformed", { event: summarize(ev) });
 			return [];
 		}
 		if (ev.type === "message_start") {
@@ -812,13 +822,13 @@ const translateMessage = (
 			if (state.currentMessageId !== null) {
 				state.streamedMessageIds.add(state.currentMessageId);
 			}
-			tlog("stream_event.message_start");
+			sessionTrace("stream_event.message_start");
 			return [];
 		}
 		if (ev.type === "content_block_start") {
 			const index = typeof ev.index === "number" ? ev.index : null;
 			const block = ev.content_block as Record<string, unknown> | undefined;
-			tlog("stream_event.content_block_start", {
+			sessionTrace("stream_event.content_block_start", {
 				index,
 				blockType: block?.type,
 				block: summarize(block),
@@ -861,7 +871,7 @@ const translateMessage = (
 			const index = typeof ev.index === "number" ? ev.index : null;
 			const delta = ev.delta as Record<string, unknown> | undefined;
 			if (index === null || delta === undefined) {
-				tlog("stream_event.content_block_delta.malformed", {
+				sessionTrace("stream_event.content_block_delta.malformed", {
 					index,
 					delta: summarize(delta),
 				});
@@ -885,7 +895,7 @@ const translateMessage = (
 			}
 			if (delta.type === "thinking_delta") {
 				const chunk = typeof delta.thinking === "string" ? delta.thinking : "";
-				tlog("stream_event.thinking_delta", {
+				sessionTrace("stream_event.thinking_delta", {
 					index,
 					chunkLen: chunk.length,
 					chunkPreview: summarize(chunk, 80),
@@ -908,13 +918,16 @@ const translateMessage = (
 			} else if (delta.type === "signature_delta") {
 				// signatures confirm thinking happened even when text is empty
 				const sig = typeof delta.signature === "string" ? delta.signature : "";
-				tlog("stream_event.signature_delta", { index, sigLen: sig.length });
+				sessionTrace("stream_event.signature_delta", {
+					index,
+					sigLen: sig.length,
+				});
 				if (acc !== undefined) acc.signatureLength += sig.length;
 			} else if (
 				delta.type !== "text_delta" &&
 				delta.type !== "input_json_delta"
 			) {
-				tlog("stream_event.other_delta", {
+				sessionTrace("stream_event.other_delta", {
 					index,
 					deltaType: delta.type,
 					delta: summarize(delta),
@@ -928,7 +941,7 @@ const translateMessage = (
 			const acc = state.thinkingByIndex.get(index);
 			if (acc === undefined) return [];
 			state.thinkingByIndex.delete(index);
-			tlog("stream_event.content_block_stop[thinking]", {
+			sessionTrace("stream_event.content_block_stop[thinking]", {
 				index,
 				kind: acc.kind,
 				textLen: acc.text.length,
@@ -1666,6 +1679,10 @@ export const startClaudeSession = (
 	AttachmentService
 > =>
 	Effect.gen(function* () {
+		const diagnosticsDisabled = hasManagedEnvironment(
+			input.executionEnvironment,
+		);
+		const diagnostics = executionDiagnostics(diagnosticsDisabled);
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 		const inputChannel = new UserInputChannel();
@@ -1677,7 +1694,7 @@ export const startClaudeSession = (
 			Promise.all(
 				refs.map(async (ref): Promise<UserContentBlock | null> => {
 					if (ref.id.startsWith("pending-")) {
-						console.warn(
+						diagnostics.warn(
 							`[claude.attach] skipping pending attachment id=${ref.id} (upload didn't finish before send)`,
 						);
 						return null;
@@ -1691,20 +1708,20 @@ export const startClaudeSession = (
 					const isImage = SUPPORTED_IMAGE_MIME.has(normalizedMime);
 					const isPdf = normalizedMime === "application/pdf";
 					if (!isImage && !isPdf) {
-						console.warn(
+						diagnostics.warn(
 							`[claude.attach] dropping unsupported mime id=${ref.id} mime=${ref.mimeType}`,
 						);
 						return null;
 					}
 					const blob = await Effect.runPromise(attachments.read(ref.id));
 					if (blob === null) {
-						console.warn(
+						diagnostics.warn(
 							`[claude.attach] blob not found id=${ref.id} (db row missing or file deleted)`,
 						);
 						return null;
 					}
 					const base64 = Buffer.from(blob.bytes).toString("base64");
-					console.log(
+					diagnostics.log(
 						`[claude.attach] built ${
 							isPdf ? "document" : "image"
 						} block id=${ref.id} mime=${normalizedMime} bytes=${blob.bytes.byteLength} base64Len=${base64.length}`,
@@ -1764,6 +1781,7 @@ export const startClaudeSession = (
 			topLevelTurnOpen:
 				input.initialPrompt !== undefined && input.initialPrompt.length > 0,
 		});
+		translateState.diagnosticsDisabled = diagnosticsDisabled;
 		const emit = (event: AgentEvent): void => {
 			Queue.offerUnsafe(events, event);
 		};
@@ -1846,7 +1864,13 @@ export const startClaudeSession = (
 				? ({ kind: "api-key", secret: credential } as const)
 				: credential;
 		const env = applyClaudeCredentialEnv(
-			applyClaudeWorktreeEnv(scrubInheritedClaudeMarkers(process.env), cwd),
+			applyClaudeWorktreeEnv(
+				scrubInheritedClaudeMarkers({
+					...process.env,
+					...input.executionEnvironment,
+				}),
+				cwd,
+			),
 			managedCredential,
 		);
 		// Sub-agent map → SDK Options.agents. When at least one preset is
@@ -1953,7 +1977,7 @@ export const startClaudeSession = (
 				// changes the MCP-tool naming convention) we can see the
 				// exact toolName arriving and patch `isAskUserQuestion`.
 				// eslint-disable-next-line no-console
-				console.log(
+				diagnostics.log(
 					`[claude.canUseTool] tool=${toolName} policy=${policy.kind}`,
 				);
 				if (policy.kind === "auto-allow") {
@@ -2107,14 +2131,14 @@ export const startClaudeSession = (
 					const promptText = compactCommand
 						? text.trim()
 						: applyUltrathinkPrefix(input.modelOptions, text);
-					console.log(
+					diagnostics.log(
 						`[claude.send] sessionId=${sessionId} textLen=${promptText.length} attachments=${attachmentRefs?.length ?? 0}`,
 					);
 					const attachmentBlocks =
 						attachmentRefs !== undefined && attachmentRefs.length > 0
 							? await buildAttachmentBlocks(attachmentRefs)
 							: [];
-					console.log(
+					diagnostics.log(
 						`[claude.send] pushing user message: attachmentBlocks=${attachmentBlocks.length} content=${JSON.stringify(
 							[
 								...attachmentBlocks.map((b) =>

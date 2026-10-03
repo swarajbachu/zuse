@@ -34,6 +34,7 @@ import {
 import { CloudWorkspaceStorePg } from "./cloud-workspace-store.ts";
 import * as Config from "./config.ts";
 import { isConfigured } from "./environment.ts";
+import { EnvironmentVaultStorePg } from "./environment-vault.ts";
 import { withoutResponseHeaders } from "./http.ts";
 import { hyperdrivePoolConfig } from "./hyperdrive.ts";
 import { makeApi } from "./index.ts";
@@ -121,6 +122,8 @@ interface Env extends SlackBindings {
 	readonly PLUGIN_ENCRYPTION_KEY?: string;
 	readonly PLUGIN_APP_ORIGIN?: string;
 	readonly PLUGIN_VAULT: DurableObjectNamespace;
+	readonly ENVIRONMENT_VAULT_ENABLED?: string;
+	readonly CLOUD_DATA_PREVIOUS_ENCRYPTION_KEYS?: string;
 	readonly GITHUB_APP_ID?: string;
 	readonly GITHUB_APP_SLUG?: string;
 	readonly GITHUB_APP_CLIENT_ID?: string;
@@ -387,6 +390,14 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 			: undefined,
 		mintPrivateKey: Redacted.make(env.RELAY_MINT_PRIVATE_JWK),
 		mintPublicKey: env.API_MINT_PUBLIC_JWK,
+		environmentVaultEnabled: env.ENVIRONMENT_VAULT_ENABLED === "true",
+		cloudDataPreviousEncryptionKeys: (
+			env.CLOUD_DATA_PREVIOUS_ENCRYPTION_KEYS ?? ""
+		)
+			.split(",")
+			.map((key) => key.trim())
+			.filter(Boolean)
+			.map((key) => Redacted.make(key)),
 		cloudDataEncryptionKey: isConfigured(cloudDataEncryptionKey)
 			? Redacted.make(cloudDataEncryptionKey)
 			: undefined,
@@ -522,6 +533,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		ApiStorePg.pipe(Layer.provide(dbLayer)),
 		MachineStorePg.pipe(Layer.provide(dbLayer)),
 		CloudWorkspaceStorePg.pipe(Layer.provide(dbLayer)),
+		EnvironmentVaultStorePg.pipe(Layer.provide(dbLayer)),
 		CloudBillingStorePg.pipe(Layer.provide(dbLayer)),
 		Layer.effect(
 			CloudWorkspaceLaunchIntentCipher,

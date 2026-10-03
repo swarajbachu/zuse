@@ -32,6 +32,7 @@ export type View = "chat" | "settings";
  * so its overrides + worktree list render in the right pane.
  */
 export type SettingsSection =
+	| { readonly kind: "environment" }
 	| { readonly kind: "general" }
 	| { readonly kind: "defaults" }
 	| { readonly kind: "providers" }

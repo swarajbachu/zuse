@@ -42,6 +42,7 @@ import { ConversationServicesLive } from "./conversation/layers/conversation-ser
 import { PendingWorkspaceExecutionPolicy } from "./conversation/services/workspace-execution-policy.ts";
 import { DeviceBridgeServiceLive } from "./device-bridge/service.ts";
 import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
+import { makeEnvironmentRuntimeLayer } from "./environment/environment-runtime.ts";
 import { ExternalThreadServiceLive } from "./external-thread/layers/external-thread-service.ts";
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { RepositoryLocatorLive } from "./git/repository-locator-live.ts";
@@ -286,6 +287,24 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 
+	const CredentialsLayer = deps.credentialsLayer.pipe(
+		Layer.provide(AppPathsLayer),
+	);
+	const AuthLayer = AuthServiceLive.pipe(
+		Layer.provide(CredentialsLayer),
+		Layer.provide(SessionStoreLive),
+		Layer.provide(AuthShellLayer),
+	);
+	const EnvironmentLayer = makeEnvironmentRuntimeLayer(
+		deps.cloudWorkspaceRuntime !== undefined,
+	).pipe(
+		Layer.provide(AuthLayer),
+		Layer.provide(CredentialsLayer),
+		Layer.provide(WorkspaceLayer),
+		Layer.provide(AppPathsLayer),
+		Layer.provide(MigratedSqlite),
+	);
+
 	// Per-repo settings overrides on top of the global defaults.
 	const RepositorySettingsLayer = RepositorySettingsServiceLive.pipe(
 		Layer.provide(MigratedSqlite),
@@ -301,7 +320,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// shape as GitLayer + the SqlClient for persisting the rows.
 	const WorktreePortsLayer = Layer.mergeAll(
 		ProjectLocatorLive.pipe(Layer.provide(WorkspaceLayer)),
-		RepositorySettingsReaderLive.pipe(Layer.provide(RepositorySettingsLayer)),
+		RepositorySettingsReaderLive.pipe(
+			Layer.provide(RepositorySettingsLayer),
+			Layer.provide(EnvironmentLayer),
+			Layer.provide(WorkspaceLayer),
+		),
 		WorktreeNameAllocatorLive,
 		WorktreeDecorationLive,
 		PokemonAssignmentLive.pipe(Layer.provide(PokemonLayer)),
@@ -326,7 +349,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 
-	const PtyLayer = PtyServiceLive;
+	const PtyLayer = PtyServiceLive.pipe(Layer.provide(EnvironmentLayer));
 
 	// Global settings + user keybindings live in user-editable JSON files under
 	// ~/.zuse (or ~/.zuse-dev for dev builds), with one-time migration from
@@ -335,9 +358,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(AppPathsLayer),
 		Layer.provide(NodeServices.layer),
 	);
-	const CredentialsLayer = deps.credentialsLayer.pipe(
-		Layer.provide(AppPathsLayer),
-	);
+
 	const EnrolledLanAuthLayer = LanAuthLayer.pipe(
 		Layer.provideMerge(
 			makeCloudEnrollmentLayer(deps.cloudEnrollment).pipe(
@@ -353,11 +374,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 
 	// Auth owns the account transition that analytics uses to move between a
 	// random installation identity and a namespaced account hash.
-	const AuthLayer = AuthServiceLive.pipe(
-		Layer.provide(CredentialsLayer),
-		Layer.provide(SessionStoreLive),
-		Layer.provide(AuthShellLayer),
-	);
 
 	const AnalyticsLayer = AnalyticsServiceLive.pipe(
 		Layer.provide(MigratedSqlite),
@@ -511,6 +527,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const ProviderLayer = ProviderServiceLive.pipe(
 		Layer.provide(AcpAgentLayer),
 		Layer.provide(HarnessProviderLayer),
+		Layer.provide(EnvironmentLayer),
 		Layer.provide(ModelCatalogLayer),
 		Layer.provide(CredentialsLayer),
 		Layer.provide(RuntimeProviderCredentialsLayer),
@@ -593,6 +610,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 			: PendingWorkspaceExecutionPolicy;
 	const ConversationServicesLayer = ConversationServicesLive.pipe(
 		Layer.provide(ExecutionPolicyLayer),
+		Layer.provide(EnvironmentLayer),
 		Layer.provide(ConversationState.layer),
 		Layer.provide(ProviderLayer),
 		Layer.provide(ModelCatalogLayer),
@@ -620,6 +638,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(CredentialsLayer),
 		Layer.provide(AttachmentLayer),
 		Layer.provide(RuntimeProviderCredentialsLayer),
+		Layer.provide(EnvironmentLayer),
 		Layer.provide(EnrolledLanAuthLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(ConversationServicesLayer),
@@ -701,6 +720,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		// provided), merged in here to satisfy the auth.* handlers without adding
 		// another `.pipe` step — the Handlers pipe is at its 20-arg overload cap.
 		AuthLayer,
+		EnvironmentLayer,
 	);
 
 	const DeviceBridgeLayer = DeviceBridgeServiceLive.pipe(

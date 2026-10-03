@@ -979,6 +979,7 @@ interface AcpTranslator {
 }
 
 export interface AcpTranslatorCheckpointOptions {
+	readonly diagnosticsDisabled?: boolean;
 	readonly onCheckpoint: (events: ReadonlyArray<AgentEvent>) => void;
 	readonly intervalMs?: number;
 	readonly maxBytes?: number;
@@ -1154,6 +1155,14 @@ export const createAcpTranslator = (
 	provider: AcpProviderTag,
 	checkpointOptions?: AcpTranslatorCheckpointOptions,
 ): AcpTranslator => {
+	const sessionTrace: typeof trace = (...args) => {
+		if (!checkpointOptions?.diagnosticsDisabled) trace(...args);
+	};
+	const sessionUnknownTool: typeof logUnknownToolIfNeeded = (...args) => {
+		if (!checkpointOptions?.diagnosticsDisabled)
+			logUnknownToolIfNeeded(...args);
+	};
+
 	// Buffers are cumulative for the lifetime of one logical provider item.
 	// Checkpoint emission never clears them; only a final/order boundary does.
 	let assistantBuffer = "";
@@ -1191,7 +1200,7 @@ export const createAcpTranslator = (
 			checkpoint: { revision: assistantRevision, final: true },
 		};
 		noteGrokCursorTaskChild(parentItemId, assistantBuffer);
-		trace(
+		sessionTrace(
 			provider,
 			`flush AssistantMessage itemId=${ev.itemId} len=${assistantBuffer.length} preview=${safePreview(assistantBuffer)}`,
 		);
@@ -1215,7 +1224,7 @@ export const createAcpTranslator = (
 			checkpoint: { revision: thinkingRevision, final: true },
 		};
 		noteGrokCursorTaskChild(parentItemId);
-		trace(
+		sessionTrace(
 			provider,
 			`flush Thinking itemId=${ev.itemId} len=${thinkingBuffer.length} preview=${safePreview(thinkingBuffer)}`,
 		);
@@ -1526,7 +1535,7 @@ export const createAcpTranslator = (
 			}
 			if (thinkingItemId === null) thinkingItemId = extractCallId(u);
 			thinkingBuffer = appendStreamText(thinkingBuffer, text, "sentence-start");
-			trace(
+			sessionTrace(
 				provider,
 				`buffer thinking chunk len=${text.length} totalLen=${thinkingBuffer.length}`,
 			);
@@ -1547,7 +1556,7 @@ export const createAcpTranslator = (
 				text,
 				"sentence-start",
 			);
-			trace(
+			sessionTrace(
 				provider,
 				`buffer message chunk len=${text.length} totalLen=${assistantBuffer.length}`,
 			);
@@ -1580,7 +1589,7 @@ export const createAcpTranslator = (
 					const nestedText = [...summary, ...content].join("\n").trim();
 					const text = nestedText || asText(u["content"]);
 					if (text === null || text.length === 0) return [];
-					trace(provider, `emit Thinking len=${text.length}`);
+					sessionTrace(provider, `emit Thinking len=${text.length}`);
 					return [
 						{
 							_tag: "Thinking",
@@ -1606,13 +1615,13 @@ export const createAcpTranslator = (
 					// thought — we already surface those via `thinking_chunk`,
 					// so don't double-render as a tool row.
 					if (provider === "gemini" && rawKind === "think") {
-						trace(provider, `skip think tool_call`);
+						sessionTrace(provider, `skip think tool_call`);
 						return [];
 					}
 
 					const callId = extractCallId(u);
 					const toolName = extractToolName(u);
-					logUnknownToolIfNeeded(provider, u, toolName, "tool_call");
+					sessionUnknownTool(provider, u, toolName, "tool_call");
 					const input = buildCanonicalInput(toolName, u);
 					if (input !== null && typeof input === "object") {
 						rememberGrokCursorTask(callId, input as Record<string, unknown>);
@@ -1633,7 +1642,7 @@ export const createAcpTranslator = (
 					// skip. Happens when an ACP server sends the same `tool_call`
 					// twice (some implementations do for pending/in_progress).
 					if (state.useEmitted && state.lastInputJson === inputJson) {
-						trace(
+						sessionTrace(
 							provider,
 							`skip duplicate tool_call id=${callId} tool=${toolName}`,
 						);
@@ -1642,7 +1651,7 @@ export const createAcpTranslator = (
 					state.useEmitted = true;
 					state.lastInputJson = inputJson;
 					noteGrokCursorTaskChild(parentItemId);
-					trace(
+					sessionTrace(
 						provider,
 						`emit ToolUse id=${callId} tool=${toolName} input=${safePreview(input)}`,
 					);
@@ -1681,7 +1690,7 @@ export const createAcpTranslator = (
 							? state.toolName
 							: updateToolName;
 					if (state.toolName === null) state.toolName = toolName;
-					logUnknownToolIfNeeded(provider, u, toolName, "tool_call_update");
+					sessionUnknownTool(provider, u, toolName, "tool_call_update");
 					const input = buildCanonicalInput(toolName, u);
 					if (input !== null && typeof input === "object") {
 						rememberGrokCursorTask(callId, input as Record<string, unknown>);
@@ -1707,7 +1716,7 @@ export const createAcpTranslator = (
 							state.lastInputJson.includes('"prompt"') &&
 							!state.lastInputJson.includes('"description":"Task"')
 						) {
-							trace(
+							sessionTrace(
 								provider,
 								`skip duplicate CursorTask update id=${callId} tool=${toolName}`,
 							);
@@ -1718,7 +1727,7 @@ export const createAcpTranslator = (
 							state.lastInputJson = inputJson;
 							state.useEmitted = true;
 							noteGrokCursorTaskChild(parentItemId);
-							trace(
+							sessionTrace(
 								provider,
 								`emit ToolUse(update) id=${callId} tool=${toolName} input=${safePreview(input)}`,
 							);
@@ -1730,7 +1739,7 @@ export const createAcpTranslator = (
 								parentItemId,
 							});
 						} else {
-							trace(
+							sessionTrace(
 								provider,
 								`skip duplicate tool_call_update id=${callId} tool=${toolName}`,
 							);
@@ -1763,7 +1772,7 @@ export const createAcpTranslator = (
 							u["isError"] === true ||
 							u["is_error"] === true ||
 							status === "failed";
-						trace(
+						sessionTrace(
 							provider,
 							`emit ToolResult id=${callId} tool=${toolName} status=${status ?? "(none)"} isError=${isError} output=${safePreview(output)}`,
 						);
@@ -1776,7 +1785,7 @@ export const createAcpTranslator = (
 						});
 						noteGrokCursorTaskChild(parentItemId);
 					} else if (state.resultEmitted) {
-						trace(
+						sessionTrace(
 							provider,
 							`skip late tool_call_update id=${callId} (result already emitted)`,
 						);
@@ -1793,7 +1802,7 @@ export const createAcpTranslator = (
 					const callId = extractCallId(u);
 					const state = getOrInitToolState(callId);
 					if (state.resultEmitted) {
-						trace(
+						sessionTrace(
 							provider,
 							`skip duplicate ${kind} id=${callId} (result already emitted)`,
 						);
@@ -1809,7 +1818,7 @@ export const createAcpTranslator = (
 						u["input"] ?? u["arguments"] ?? null,
 					);
 					noteGrokCursorTaskChild(parentItemId);
-					trace(
+					sessionTrace(
 						provider,
 						`emit ToolResult(${kind}) id=${callId} isError=${isError} output=${safePreview(output)}`,
 					);
@@ -2125,7 +2134,7 @@ export const createAcpTranslator = (
 					if (!state.useEmitted || isTerminal) {
 						state.useEmitted = true;
 						state.lastInputJson = JSON.stringify(input);
-						trace(
+						sessionTrace(
 							provider,
 							`emit CollabToolUse id=${callId} tool=${toolName} receivers=${receiverThreadIds.length} status=${status ?? ""}`,
 						);
@@ -2165,7 +2174,7 @@ export const createAcpTranslator = (
 					// Intermediate state updates (agentsStates changing while running) — we can
 					// optionally emit a non-intrusive result or just trace. For v1 we stay silent
 					// to avoid spamming the timeline; the live states live in the initial row's input.
-					trace(
+					sessionTrace(
 						provider,
 						`skip duplicate collab update id=${callId} tool=${tool}`,
 					);
@@ -2173,7 +2182,10 @@ export const createAcpTranslator = (
 				}
 
 				default:
-					trace(provider, `unknown kind=${kind} payload=${safePreview(u)}`);
+					sessionTrace(
+						provider,
+						`unknown kind=${kind} payload=${safePreview(u)}`,
+					);
 					return [];
 			}
 		})();

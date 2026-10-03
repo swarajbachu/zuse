@@ -28,6 +28,7 @@
 		"./reaper": "./src/reaper.ts",
 		"./linux-memory": "./src/linux-memory.ts",
 		"./canonical-json": "./src/canonical-json.ts",
+		"./environment": "./src/environment.ts",
 		"./feature-access": "./src/feature-access.ts"
 	},
 	"scripts": {

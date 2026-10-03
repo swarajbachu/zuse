@@ -13,6 +13,7 @@ export interface WorktreeRepositorySettings {
 	readonly runScript: string | null;
 	readonly environmentVariables: Readonly<Record<string, string>>;
 	readonly fileIncludeGlobs: string;
+	readonly secretValues?: readonly string[];
 }
 
 export interface WorktreeNameAllocation {
@@ -34,7 +35,8 @@ export class RepositorySettingsReader extends Context.Service<
 	{
 		readonly get: (
 			projectId: FolderId,
-		) => Effect.Effect<WorktreeRepositorySettings>;
+			resolveEnvironment?: boolean,
+		) => Effect.Effect<WorktreeRepositorySettings, Error>;
 	}
 >()("zuse/git/worktree/RepositorySettingsReader") {}
 

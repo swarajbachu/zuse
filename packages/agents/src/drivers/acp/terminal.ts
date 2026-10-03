@@ -171,14 +171,16 @@ async function createTerminal(
 	const child = useShell
 		? spawn(command, {
 				cwd: spawnCwd,
-				env: { ...process.env, ...env },
+				env: { ...process.env, ...env, ...ctx.executionEnvironment },
 				shell: true,
+				detached: process.platform !== "win32",
 				stdio: ["pipe", "pipe", "pipe"],
 			})
 		: spawn(command, args, {
 				cwd: spawnCwd,
-				env: { ...process.env, ...env },
+				env: { ...process.env, ...env, ...ctx.executionEnvironment },
 				shell: false,
+				detached: process.platform !== "win32",
 				stdio: ["pipe", "pipe", "pipe"],
 			});
 
@@ -249,12 +251,22 @@ function writeInput(params: unknown): unknown {
 	return { status: "written" };
 }
 
+const signalTerminal = (child: ChildProcess, signal: NodeJS.Signals): void => {
+	try {
+		if (process.platform !== "win32" && child.pid !== undefined)
+			process.kill(-child.pid, signal);
+		else child.kill(signal);
+	} catch {
+		/* Already exited. */
+	}
+};
+
 function killTerminal(params: unknown): unknown {
 	const rec = recordOf(params, "terminal/kill");
 	if (rec.exitStatus === null) {
-		rec.child.kill("SIGTERM");
+		signalTerminal(rec.child, "SIGTERM");
 		const timer = setTimeout(() => {
-			if (rec.exitStatus === null) rec.child.kill("SIGKILL");
+			if (rec.exitStatus === null) signalTerminal(rec.child, "SIGKILL");
 		}, 2000);
 		timer.unref?.();
 	}
@@ -266,7 +278,7 @@ function releaseTerminal(params: unknown): unknown {
 	if (id !== undefined) {
 		const rec = terminals.get(id);
 		if (rec !== undefined && rec.exitStatus === null) {
-			rec.child.kill("SIGKILL");
+			signalTerminal(rec.child, "SIGKILL");
 		}
 		terminals.delete(id);
 	}

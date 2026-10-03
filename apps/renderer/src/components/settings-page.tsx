@@ -3,6 +3,7 @@ import { isHostedProduct } from "../lib/hosted-connect.ts";
 import { refreshHostedProjects } from "../lib/hosted-workspace.ts";
 import { isInputComposing } from "../lib/input-composition.ts";
 import { AcpAgentManager } from "./acp-agent-manager.tsx";
+import { EnvironmentPane } from "./settings/environment-pane.tsx";
 import { ModelConnectionsPane } from "./settings/model-connections-pane.tsx";
 import { PluginsSettingsPane } from "./settings/plugins-settings-pane.tsx";
 import { WallpaperSettings } from "./settings/wallpaper-settings";
@@ -463,6 +464,12 @@ function SectionTitle({
 				subtitle: uiMessage("settings:organizations_manage_team"),
 			};
 
+		if (section.kind === "environment")
+			return {
+				title: "Environment",
+				subtitle:
+					"Encrypted variables and secrets for your projects, shared across local and cloud workspaces.",
+			};
 		const f = folders.find((x) => x.id === section.projectId);
 		return {
 			title: f?.name ?? "Repository",
@@ -526,6 +533,7 @@ function Pane({ section }: { section: SettingsSection }) {
 		return isHostedProduct() ? <CloudWorkspacePool /> : <ProvidersPane />;
 	if (section.kind === "plugins")
 		return <PluginsSettingsPane initialTab={section.tab} />;
+	if (section.kind === "environment") return <EnvironmentPane />;
 	if (section.kind === "devices")
 		return isHostedProduct() ? <HostedDevicesPane /> : <DevicesPane />;
 	if (section.kind === "machines") {

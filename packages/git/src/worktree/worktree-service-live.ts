@@ -25,6 +25,7 @@ import {
 	type WorktreeSetupStatus,
 	WorktreeSetupStatusEvent,
 } from "@zuse/contracts";
+import { createSecretMasker } from "@zuse/utils/environment";
 import {
 	type Cause,
 	DateTime,
@@ -269,11 +270,13 @@ export const WorktreeServiceLive = Layer.effect(
 				cwd,
 				env,
 				onData,
+				secretValues,
 			}: {
 				readonly script: string;
 				readonly cwd: string;
 				readonly env: Readonly<Record<string, string>>;
 				readonly onData?: (accumulated: string) => void;
+				readonly secretValues?: readonly string[];
 			}) {
 				return yield* Effect.scoped(
 					Effect.gen(function* () {
@@ -292,8 +295,18 @@ export const WorktreeServiceLive = Layer.effect(
 							},
 						);
 						const childProcess = yield* executor.spawn(command);
-						const output = yield* childProcess.all.pipe(
-							Stream.decodeText({ encoding: "utf-8" }),
+						const stdoutMasker = createSecretMasker(secretValues ?? []);
+						const stderrMasker = createSecretMasker(secretValues ?? []);
+						const output = yield* Stream.merge(
+							childProcess.stdout.pipe(
+								Stream.decodeText({ encoding: "utf-8" }),
+								Stream.map((chunk) => stdoutMasker.write(chunk)),
+							),
+							childProcess.stderr.pipe(
+								Stream.decodeText({ encoding: "utf-8" }),
+								Stream.map((chunk) => stderrMasker.write(chunk)),
+							),
+						).pipe(
 							Stream.runFold(
 								() => "",
 								(accumulated, chunk) => {
@@ -304,7 +317,11 @@ export const WorktreeServiceLive = Layer.effect(
 							),
 						);
 						const exitCode = yield* childProcess.exitCode;
-						return { exitCode, output } as const;
+						const finalOutput = truncateOutput(
+							output + stdoutMasker.end() + stderrMasker.end(),
+						);
+						onData?.(finalOutput);
+						return { exitCode, output: finalOutput } as const;
 					}),
 				).pipe(Effect.timeout(SETUP_TIMEOUT_MS));
 			},
@@ -737,7 +754,15 @@ export const WorktreeServiceLive = Layer.effect(
 						`.pipe(Effect.orDie);
 					}
 				}
-				const createSettings = yield* repositorySettings.get(projectId);
+				const createSettings = yield* repositorySettings.get(projectId).pipe(
+					Effect.mapError(
+						() =>
+							new WorktreeCreateError({
+								projectId,
+								reason: "Environment configuration could not be resolved.",
+							}),
+					),
+				);
 				// Layout: ~/.zuse/<repo-name>-<projectId-short>/<branch>/. Living
 				// in the user's home dir (next to Downloads, Developer, etc.) keeps
 				// the repo itself untouched — `git status`, file pickers, and any
@@ -1843,7 +1868,17 @@ export const WorktreeServiceLive = Layer.effect(
 					new WorktreeSetupError({ worktreeId, reason: "project not found" }),
 				);
 			}
-			const settings = yield* repositorySettings.get(worktree.projectId);
+			const settings = yield* repositorySettings
+				.get(worktree.projectId, true)
+				.pipe(
+					Effect.mapError(
+						() =>
+							new WorktreeSetupError({
+								worktreeId,
+								reason: "Environment configuration could not be resolved.",
+							}),
+					),
+				);
 			const script = settings.setupScript?.trim() ?? "";
 			const startedAtDate = yield* DateTime.nowAsDate;
 			const startedAt = startedAtDate.toISOString();
@@ -1903,6 +1938,7 @@ export const WorktreeServiceLive = Layer.effect(
 				script,
 				cwd: worktree.path,
 				env: setupEnv(folder.path, worktree, settings.environmentVariables),
+				secretValues: settings.secretValues,
 				onData: (acc) =>
 					emit(
 						worktreeId,
@@ -2047,7 +2083,15 @@ export const WorktreeServiceLive = Layer.effect(
 						new WorktreeSetupError({ worktreeId, reason: "project not found" }),
 					);
 				}
-				const settings = yield* repositorySettings.get(worktree.projectId);
+				const settings = yield* repositorySettings.get(worktree.projectId).pipe(
+					Effect.mapError(
+						() =>
+							new WorktreeSetupError({
+								worktreeId,
+								reason: "Environment configuration could not be resolved.",
+							}),
+					),
+				);
 				const script = settings.runScript?.trim() ?? "";
 				if (script.length === 0) {
 					return yield* Effect.fail(

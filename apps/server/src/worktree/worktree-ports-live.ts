@@ -13,7 +13,8 @@ import {
 	pokemonSpriteStem,
 } from "@zuse/pokemon-data";
 import { allocatePokemonName } from "@zuse/pokemon-data/name-allocator";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
+import { EnvironmentRuntime } from "../environment/environment-runtime.ts";
 
 import { PokemonService } from "../pokemon/services/pokemon-service.ts";
 import { RepositorySettingsService } from "../repository-settings/services/repository-settings-service.ts";
@@ -33,17 +34,30 @@ export const RepositorySettingsReaderLive = Layer.effect(
 	RepositorySettingsReader,
 	Effect.gen(function* () {
 		const settings = yield* RepositorySettingsService;
+		const environment = yield* Effect.serviceOption(EnvironmentRuntime);
 		return RepositorySettingsReader.of({
-			get: (projectId) =>
-				settings.get(projectId).pipe(
-					Effect.map((value) => ({
+			get: (projectId, resolveEnvironment = false) =>
+				Effect.gen(function* () {
+					const value = yield* settings.get(projectId);
+					const resolved =
+						resolveEnvironment && Option.isSome(environment)
+							? yield* environment.value.resolve("", projectId)
+							: null;
+					return {
 						worktreeBaseDir: value.worktreeBaseDir,
 						setupScript: value.setupScript,
 						runScript: value.runScript,
-						environmentVariables: value.environmentVariables,
+						environmentVariables: {
+							...value.environmentVariables,
+							...resolved?.values,
+						},
 						fileIncludeGlobs: value.fileIncludeGlobs,
-					})),
-				),
+						secretValues:
+							resolved?.secretNames.map(
+								(name) => resolved.values[name] ?? "",
+							) ?? [],
+					};
+				}),
 		});
 	}),
 );

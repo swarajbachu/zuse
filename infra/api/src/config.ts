@@ -32,6 +32,11 @@ export interface ManagedTunnelConfig {
 export interface ApiConfig {
 	/** Staging-only rollout gate. Keep off until all resource paths are scoped. */
 	readonly organizationWorkspacesEnabled: boolean;
+	readonly environmentVaultEnabled?: boolean;
+	/** Previous cloud data keys remain read-only during vault rotation. */
+	readonly cloudDataPreviousEncryptionKeys?: ReadonlyArray<
+		Redacted.Redacted<string>
+	>;
 	readonly apiIssuer: string;
 	/** Public origin for DPoP request binding, independent of credential issuer. */
 	readonly publicApiOrigin?: string;

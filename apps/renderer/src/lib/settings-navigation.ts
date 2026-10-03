@@ -8,6 +8,7 @@ import {
 	CloudIcon,
 	DocumentAttachmentIcon,
 	KeyboardIcon,
+	LockPasswordIcon,
 	PackageIcon,
 	PlugSocketIcon,
 	PuzzleIcon,
@@ -59,6 +60,12 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		},
 		Icon: PlugSocketIcon,
 		section: { kind: "plugins" },
+	},
+	{
+		id: "environment",
+		label: "Environment",
+		Icon: LockPasswordIcon,
+		section: { kind: "environment" },
 	},
 	{
 		id: "devices",

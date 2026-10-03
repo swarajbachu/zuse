@@ -11,7 +11,6 @@ import {
 	type Part as SdkPart,
 	type ToolPart as SdkToolPart,
 } from "@opencode-ai/sdk";
-
 import {
 	type AgentEvent,
 	type AgentItemId,
@@ -23,13 +22,16 @@ import {
 	type OpencodeInventoryAgent,
 	type OpencodeInventoryProvider,
 	type PermissionMode,
-	type StartSessionInput,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, Stream } from "effect";
-
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
+import {
+	executionDiagnostics,
+	hasManagedEnvironment,
+} from "../kernel/execution-diagnostics.ts";
+import type { DriverStartSessionInput as StartSessionInput } from "../kernel/execution-environment.ts";
 import { CheckpointFlushScheduler } from "../kernel/provider-checkpoint-batcher.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import {
@@ -228,6 +230,7 @@ const spawnOpencodeServer = (
 	cwd: string,
 	configContent: string = OPENCODE_EMPTY_CONFIG,
 	timeoutMs = 10_000,
+	environment: Readonly<Record<string, string>> = {},
 ): Promise<OpencodeServerProcess> =>
 	findFreePort().then(
 		(port) =>
@@ -239,6 +242,7 @@ const spawnOpencodeServer = (
 						cwd,
 						env: {
 							...process.env,
+							...environment,
 							OPENCODE_CONFIG_CONTENT: configContent,
 						},
 						// Detach so SIGTERM can take down the whole process group on Unix.
@@ -564,10 +568,11 @@ const translatePart = (
 				part.state.input,
 				title,
 			);
-			dlog(
-				`tool ${rawTool}→${canonicalTool} status=${status} callID=${part.callID ?? "(none)"} id=${part.id}`,
-			);
-			ddump(`  tool.state`, part.state);
+			if (!state.diagnosticsDisabled)
+				dlog(
+					`tool ${rawTool}→${canonicalTool} status=${status} callID=${part.callID ?? "(none)"} id=${part.id}`,
+				);
+			if (!state.diagnosticsDisabled) ddump(`  tool.state`, part.state);
 			// Opencode emits a `message.part.updated` frame for every state
 			// transition (pending → running → completed). The persistence layer
 			// doesn't dedupe by itemId, so each ToolUse becomes its own row.
@@ -624,6 +629,7 @@ const translatePart = (
  * Stored at session scope by `startOpencodeSession`.
  */
 interface DeltaState {
+	diagnosticsDisabled?: boolean;
 	readonly textByPartId: Map<string, string>;
 	readonly reasoningByPartId: Map<string, string>;
 	readonly checkpointRevisionByPartId: Map<string, number>;
@@ -901,12 +907,23 @@ export const startOpencodeSession = (
 	AttachmentService
 > =>
 	Effect.gen(function* () {
+		const diagnosticsDisabled = hasManagedEnvironment(
+			input.executionEnvironment,
+		);
+		const diagnostics = executionDiagnostics(diagnosticsDisabled);
+		const sessionLog: typeof dlog = (...args) => {
+			if (!diagnosticsDisabled) dlog(...args);
+		};
+		const sessionDump: typeof ddump = (...args) => {
+			if (!diagnosticsDisabled) ddump(...args);
+		};
 		yield* AttachmentService;
 		const events = yield* Queue.make<AgentEvent, Cause.Done>();
 
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 		let closed = false;
 		const deltaState = makeOpencodeDeltaState();
+		deltaState.diagnosticsDisabled = diagnosticsDisabled;
 		const emit = (event: AgentEvent): void => {
 			if (!closed) Queue.offerUnsafe(events, event);
 		};
@@ -925,7 +942,7 @@ export const startOpencodeSession = (
 		});
 
 		if (resumeCursor !== null) {
-			dlog(`resumeCursor=${resumeCursor} ignored — using fresh session`);
+			sessionLog(`resumeCursor=${resumeCursor} ignored — using fresh session`);
 		}
 
 		// === Boot: spawn server, open SSE FIRST, then create session. ===
@@ -953,12 +970,14 @@ export const startOpencodeSession = (
 								}
 							: {}),
 					}),
+					10_000,
+					input.executionEnvironment,
 				);
-				dlog(`server ready at ${proc.url}`);
+				sessionLog(`server ready at ${proc.url}`);
 				const c = createOpencodeClient({ baseUrl: proc.url });
 				const ac = new AbortController();
 				const sse = await c.event.subscribe({ signal: ac.signal });
-				dlog("SSE subscribed");
+				sessionLog("SSE subscribed");
 				const session = await c.session.create({
 					throwOnError: true,
 					body: { title: "Zuse session" },
@@ -967,7 +986,7 @@ export const startOpencodeSession = (
 				if (sessionData === undefined || typeof sessionData.id !== "string") {
 					throw new Error("opencode session.create returned no session id");
 				}
-				dlog(`session created: ${sessionData.id}`);
+				sessionLog(`session created: ${sessionData.id}`);
 				return {
 					server: proc,
 					client: c,
@@ -1004,14 +1023,14 @@ export const startOpencodeSession = (
 					path: { id: opencodeSessionId, permissionID },
 				});
 			} catch (cause) {
-				dlog(
+				sessionLog(
 					`permission respond failed: ${cause instanceof Error ? cause.message : String(cause)}`,
 				);
 			}
 		};
 
 		// === Event pump — translate SSE frames into AgentEvents. ===
-		dlog(`==== EVENT PUMP STARTED for session ${opencodeSessionId} ====`);
+		sessionLog(`==== EVENT PUMP STARTED for session ${opencodeSessionId} ====`);
 		let eventCount = 0;
 		void (async () => {
 			try {
@@ -1025,13 +1044,13 @@ export const startOpencodeSession = (
 					// frames with part.type=tool in this stream; if those never
 					// appear, the model isn't actually issuing tool calls (or the
 					// agent's permission policy is blocking them server-side).
-					dlog(`#${eventCount} event=${type}`);
-					ddump(`  raw`, sdkEvent);
+					sessionLog(`#${eventCount} event=${type}`);
+					sessionDump(`  raw`, sdkEvent);
 					if (type === "message.part.updated") {
 						const part = sdkEvent.properties.part;
 						const partType = (part as { type?: string }).type ?? "(unknown)";
 						if (partType === "tool") {
-							dlog(`  *** TOOL PART RECEIVED ***`);
+							sessionLog(`  *** TOOL PART RECEIVED ***`);
 						}
 					}
 					if (
@@ -1052,23 +1071,25 @@ export const startOpencodeSession = (
 							emit(event);
 					}
 					if (translated.length > 0) {
-						dlog(
+						sessionLog(
 							`  → emit ${translated.length}: ${translated.map((e) => e._tag).join(", ")}`,
 						);
 					} else if (type === "message.part.updated") {
 						// Translator dropped a part frame — log so we can see what was
 						// discarded (e.g. a part.sessionID mismatch on the global event
 						// bus, or a part.type we don't translate yet).
-						dlog(`  (translator dropped this frame)`);
+						sessionLog(`  (translator dropped this frame)`);
 					}
 					for (const out of translated) emit(out);
 				}
-				dlog(`event stream ended after ${eventCount} events`);
+				sessionLog(`event stream ended after ${eventCount} events`);
 			} catch (cause) {
 				if (closed) return;
 				const message = cause instanceof Error ? cause.message : String(cause);
 				if (/abort/i.test(message)) return;
-				dlog(`event stream failed after ${eventCount} events: ${message}`);
+				sessionLog(
+					`event stream failed after ${eventCount} events: ${message}`,
+				);
 				Queue.offerUnsafe(events, {
 					_tag: "Error",
 					message: `OpenCode event stream failed: ${message}`,
@@ -1144,17 +1165,17 @@ export const startOpencodeSession = (
 						...(modelField !== null ? { model: modelField } : {}),
 						parts: [{ type: "text" as const, text: promptText }],
 					};
-					dlog(
+					sessionLog(
 						`prompt: agent=${agent} providerID=${providerID ?? "(default)"} modelID=${modelID ?? "(default)"} variant=${variantOpt ?? "(default)"} textLen=${promptText.length}`,
 					);
-					ddump(`  prompt.body`, body);
+					sessionDump(`  prompt.body`, body);
 					try {
 						const res = await client.session.prompt({
 							throwOnError: true,
 							path: { id: opencodeSessionId },
 							body,
 						});
-						dlog("prompt resolved");
+						sessionLog("prompt resolved");
 						// Fallback: if the SSE pump missed the final assistant text
 						// (race with subscribe handshake, server restart, etc.), pull
 						// it directly from the prompt response so the user still sees
@@ -1180,12 +1201,12 @@ export const startOpencodeSession = (
 							});
 						}
 						const parts = data?.parts ?? [];
-						dlog(
+						sessionLog(
 							`prompt fallback: ${parts.length} parts in response: ${parts
 								.map((p) => (p as { type?: string }).type ?? "?")
 								.join(", ")}`,
 						);
-						ddump(`  prompt.info`, data?.info);
+						sessionDump(`  prompt.info`, data?.info);
 						for (const part of parts) {
 							const partId = (part as { id?: string }).id;
 							// Skip text/reasoning parts already streamed via SSE deltas —
@@ -1209,10 +1230,10 @@ export const startOpencodeSession = (
 									continue;
 								}
 							}
-							ddump(`  prompt.part`, part);
+							sessionDump(`  prompt.part`, part);
 							const out = translatePart(part as SdkPart, deltaState);
 							if (out.length > 0) {
-								dlog(`    → emit ${out.map((e) => e._tag).join(", ")}`);
+								sessionLog(`    → emit ${out.map((e) => e._tag).join(", ")}`);
 							}
 							if (partId !== undefined) deltaState.flushedPartIds.add(partId);
 							for (const evt of out) {
@@ -1241,7 +1262,7 @@ export const startOpencodeSession = (
 							cause instanceof Error ? cause.message : String(cause);
 						const isCancellation = /abort|cancel/i.test(reason);
 						if (!isCancellation) {
-							dlog(`prompt failed: ${reason}`);
+							sessionLog(`prompt failed: ${reason}`);
 							Queue.offerUnsafe(events, {
 								_tag: "Error",
 								message: `OpenCode prompt failed: ${reason}`,
@@ -1267,7 +1288,7 @@ export const startOpencodeSession = (
 						// attachment → URL bridge yet; drop with a warn so the rest
 						// of the turn still works.
 						// eslint-disable-next-line no-console
-						console.warn(
+						diagnostics.warn(
 							`[opencode.attach] dropping ${attachmentRefs.length} attachment(s) — file part bridge not wired`,
 						);
 					}
@@ -1281,7 +1302,7 @@ export const startOpencodeSession = (
 							path: { id: opencodeSessionId },
 						});
 					} catch (cause) {
-						dlog(
+						sessionLog(
 							`interrupt failed: ${cause instanceof Error ? cause.message : String(cause)}`,
 						);
 					}

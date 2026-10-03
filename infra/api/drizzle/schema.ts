@@ -11,6 +11,7 @@ import {
 	pgTable,
 	primaryKey,
 	text,
+	timestamp,
 	unique,
 	uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -1362,5 +1363,32 @@ export const apiModelConnectionLeases = pgTable(
 			"model_connection_lease_provider",
 			sql`${table.provider} IN ('chatgpt','supergrok')`,
 		),
+	],
+);
+export const apiEnvironmentVaults = pgTable(
+	"api_environment_vaults",
+	{
+		owner: text("owner").primaryKey(),
+		revision: integer("revision").notNull(),
+		ciphertext: text("ciphertext").notNull(),
+	},
+	(table) => [
+		check("api_environment_vaults_revision_check", sql`${table.revision} > 0`),
+	],
+);
+export const apiEnvironmentVaultAudit = pgTable(
+	"api_environment_vault_audit",
+	{
+		id: bigint("id", { mode: "number" })
+			.primaryKey()
+			.generatedAlwaysAsIdentity(),
+		owner: text("owner").notNull(),
+		event: text("event").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(table) => [
+		index("api_environment_vault_audit_owner").on(table.owner, table.id),
 	],
 );

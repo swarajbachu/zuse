@@ -62,6 +62,8 @@ import {
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { AnalyticsService } from "../../analytics/services/analytics-service.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
+import { EnvironmentRuntime } from "../../environment/environment-runtime.ts";
+import { createProviderEventMasker } from "../../environment/mask-provider-event.ts";
 import { HarnessProvider } from "../../harness/provider.ts";
 import {
 	legacyAppOwnedCodexServerNames,
@@ -131,6 +133,7 @@ export const ProviderServiceLive = Layer.effect(
 		const runtimeCredentials = yield* RuntimeProviderCredentials;
 		const modelCatalog = yield* ModelCatalogService;
 		const workspace = yield* WorkspaceService;
+		const environment = yield* Effect.serviceOption(EnvironmentRuntime);
 		const permissions = yield* PermissionService;
 		const attachmentService = yield* AttachmentService;
 		const browserBridge = yield* BrowserBridgeService;
@@ -450,15 +453,37 @@ export const ProviderServiceLive = Layer.effect(
 										canonicalModel,
 									),
 								);
+					const launchEnvironment = Option.isSome(environment)
+						? yield* environment.value.resolve(cwd, input.folderId).pipe(
+								Effect.mapError(
+									() =>
+										new AgentSessionStartError({
+											providerId: input.providerId,
+											reason:
+												"Environment secrets could not be resolved. Check account access and project settings.",
+										}),
+								),
+							)
+						: null;
 					const driverInput = {
+						executionEnvironment: launchEnvironment?.values,
 						...input,
 						...(canonicalModel !== undefined ? { model: canonicalModel } : {}),
 						...(modelDescriptor !== undefined ? { modelDescriptor } : {}),
-						workspaceInstructions: zuseWorkspaceInstructions({
-							projectPath: folder.path,
-							includeAppTools: providerCapabilities(input.providerId).appTools,
-							cwd,
-						}),
+						workspaceInstructions: [
+							zuseWorkspaceInstructions({
+								projectPath: folder.path,
+								includeAppTools: providerCapabilities(input.providerId)
+									.appTools,
+								cwd,
+							}),
+							...(launchEnvironment &&
+							Object.keys(launchEnvironment.values).length > 0
+								? [
+										`Managed environment names: ${Object.keys(launchEnvironment.values).join(", ")}. Use these variables from processes; pass secrets through stdin when supported. Never print their values or copy them into chat or repository files.`,
+									]
+								: []),
+						].join("\n\n"),
 					};
 					const brokeredCredential = yield* Effect.tryPromise({
 						try: () =>
@@ -835,6 +860,15 @@ export const ProviderServiceLive = Layer.effect(
 							resumeCursor,
 							userMcpServers,
 							managedMcp,
+							{
+								getRuntimeMode: runtimeModeGetter,
+								requestPermission: (kind, options) =>
+									buildRequestPermission(input.folderId)(
+										sessionId,
+										kind,
+										options,
+									),
+							},
 						).pipe(Effect.provideService(AttachmentService, attachmentService));
 					} else if (input.providerId === "claude") {
 						// Point the SDK at the user's installed `claude` binary. We
@@ -987,8 +1021,17 @@ export const ProviderServiceLive = Layer.effect(
 								),
 						};
 					}
+					const secretValues =
+						launchEnvironment?.secretNames.map(
+							(name) => launchEnvironment.values[name] ?? "",
+						) ?? [];
 					const handle = yield* makeTurnScopedSessionHandle(
-						providerHandle,
+						{
+							...providerHandle,
+							events: providerHandle.events.pipe(
+								Stream.map(createProviderEventMasker(secretValues)),
+							),
+						},
 						input.initialTurnId,
 					);
 					const entry: SessionEntry = {

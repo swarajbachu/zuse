@@ -6,7 +6,6 @@ import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
-
 import {
 	type AgentEvent,
 	type AgentItemId,
@@ -20,13 +19,16 @@ import {
 	type OpencodeInventoryProvider,
 	type PermissionKind,
 	type PermissionMode,
-	type StartSessionInput,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, Stream } from "effect";
-
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
+import {
+	executionDiagnostics,
+	hasManagedEnvironment,
+} from "../kernel/execution-diagnostics.ts";
+import type { DriverStartSessionInput as StartSessionInput } from "../kernel/execution-environment.ts";
 import { isSensitivePath } from "../kernel/permission-policy.ts";
 import { CheckpointFlushScheduler } from "../kernel/provider-checkpoint-batcher.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
@@ -266,6 +268,7 @@ const spawnOpencode2Server = (
 	cwd: string,
 	timeoutMs = SERVE_TIMEOUT_MS,
 	managedMcp?: import("../user-mcp/types.ts").ResolvedMcpServer,
+	environment: Readonly<Record<string, string>> = {},
 ): Promise<Opencode2ServerProcess> =>
 	findFreePort().then(
 		(port) =>
@@ -277,6 +280,7 @@ const spawnOpencode2Server = (
 						cwd,
 						env: {
 							...process.env,
+							...environment,
 							...(managedMcp
 								? {
 										OPENCODE_CONFIG_CONTENT: JSON.stringify({
@@ -1161,6 +1165,13 @@ export const startOpencode2Session = (
 	AttachmentService
 > =>
 	Effect.gen(function* () {
+		const diagnosticsDisabled = hasManagedEnvironment(
+			input.executionEnvironment,
+		);
+		const diagnostics = executionDiagnostics(diagnosticsDisabled);
+		const sessionLog: typeof dlog = (...args) => {
+			if (!diagnosticsDisabled) dlog(...args);
+		};
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<AgentEvent, Cause.Done>();
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
@@ -1208,6 +1219,7 @@ export const startOpencode2Session = (
 					cwd,
 					SERVE_TIMEOUT_MS,
 					managedMcp,
+					input.executionEnvironment,
 				);
 				const eventAbort = new AbortController();
 				try {
@@ -1456,7 +1468,7 @@ export const startOpencode2Session = (
 												},
 											);
 										})().catch((cause) => {
-											dlog(
+											sessionLog(
 												`permission reply failed: ${cause instanceof Error ? cause.message : String(cause)}`,
 											);
 										});
@@ -1620,7 +1632,7 @@ export const startOpencode2Session = (
 							{ method: "POST", body: { agent } },
 						);
 					} catch (cause) {
-						dlog(
+						sessionLog(
 							`switch agent failed: ${cause instanceof Error ? cause.message : String(cause)}`,
 						);
 					}
@@ -1644,7 +1656,7 @@ export const startOpencode2Session = (
 								},
 							);
 						} catch (cause) {
-							dlog(
+							sessionLog(
 								`switch model failed: ${cause instanceof Error ? cause.message : String(cause)}`,
 							);
 						}
@@ -1706,7 +1718,7 @@ export const startOpencode2Session = (
 							cause instanceof Error ? cause.message : String(cause);
 						const isCancellation = /abort|cancel/i.test(reason);
 						if (!isCancellation) {
-							dlog(`prompt failed: ${reason}`);
+							sessionLog(`prompt failed: ${reason}`);
 							Queue.offerUnsafe(events, {
 								_tag: "Error",
 								message: `OpenCode 2 prompt failed: ${reason}`,
@@ -1764,7 +1776,7 @@ export const startOpencode2Session = (
 							{ method: "POST", body: {} },
 						);
 					} catch (cause) {
-						dlog(
+						sessionLog(
 							`interrupt failed: ${cause instanceof Error ? cause.message : String(cause)}`,
 						);
 					}

@@ -34,6 +34,7 @@ export interface ProviderCredentialInput {
  * login stores created on this machine remain outside this service.
  */
 export interface CredentialsServiceShape {
+	readonly encryptedAtRest?: boolean;
 	readonly getProviderCredential: (
 		providerId: ProviderId,
 	) => Effect.Effect<ProviderCredential | null, CredentialsError>;

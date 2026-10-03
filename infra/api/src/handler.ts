@@ -39,6 +39,10 @@ import {
 	verifyEnvironmentLinkProof,
 } from "./crypto.ts";
 import {
+	EnvironmentVaultStore,
+	routeEnvironmentVaultRequest,
+} from "./environment-vault.ts";
+import {
 	type ApiError,
 	badRequest,
 	conflict,
@@ -362,6 +366,8 @@ const route = (
 		if (cloudBillingResponse !== null) return cloudBillingResponse;
 		// Route the narrow API-key management surface before the broad
 		// `/v1/cloud/**` workspace router.
+		const vaultResponse = yield* routeEnvironmentVaultRequest(request);
+		if (vaultResponse !== null) return vaultResponse;
 		const apiKeyResponse = yield* routeApiKeyRequest(request);
 		if (apiKeyResponse !== null) return apiKeyResponse;
 		const cloudWorkspaceResponse = yield* routeCloudWorkspaceRequest(request);
@@ -885,6 +891,8 @@ const route = (
 					try: () => slack.value.removeAccount(principal.accountId),
 					catch: () => serviceUnavailable("slack_account_cleanup_failed"),
 				});
+			const vault = yield* Effect.serviceOption(EnvironmentVaultStore);
+			if (Option.isSome(vault)) yield* vault.value.purge(principal.accountId);
 			yield* accountIdentity.deleteUser(principal.accountId);
 			return json({ ok: true, cleanupPending: false });
 		}

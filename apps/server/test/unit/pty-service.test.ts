@@ -1,6 +1,7 @@
 import { PtyId, PtyOpenToken, PtyOwnerId } from "@zuse/contracts";
-import { Effect, Fiber, Stream } from "effect";
+import { Effect, Fiber, Layer, Stream } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EnvironmentRuntime } from "../../src/environment/environment-runtime.ts";
 
 const spawnMock = vi.hoisted(() => vi.fn());
 
@@ -65,6 +66,54 @@ describe("PtyService", () => {
 			spawnedPtys.push(fakePty);
 			return fakePty;
 		});
+	});
+
+	it("injects per-launch values and masks split output before replay without modifying stdin", async () => {
+		let revision = 1;
+		const environment = Layer.succeed(EnvironmentRuntime, {
+			resolve: () =>
+				Effect.succeed({
+					revision,
+					values: { DEPLOY_SECRET: `private-value-${revision}` },
+					secretNames: ["DEPLOY_SECRET"],
+					sources: {},
+					resolvedAt: 1,
+					offline: false,
+				}),
+			link: () => Effect.succeed(null),
+			status: () => ({}),
+			install: () => () => {},
+		});
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const service = yield* PtyService;
+					const { ptyId } = yield* service.open("/tmp", 80, 24);
+					expect(spawnMock.mock.calls[0]?.[2]?.env.DEPLOY_SECRET).toBe(
+						"private-value-1",
+					);
+					fakePty.emitData("before private-");
+					fakePty.emitData("value-1 after");
+					const replay = yield* service
+						.subscribe(ptyId)
+						.pipe(Stream.take(2), Stream.runCollect);
+					expect(
+						[...replay]
+							.filter((event) => event._tag === "data")
+							.map((event) => event.bytes)
+							.join(""),
+					).toBe("before [secret] after");
+					yield* service.write(ptyId, "private-value-1");
+					expect(fakePty.write).toHaveBeenCalledWith("private-value-1");
+					revision = 2;
+					yield* service.open("/tmp", 80, 24);
+					expect(spawnMock.mock.calls[1]?.[2]?.env.DEPLOY_SECRET).toBe(
+						"private-value-2",
+					);
+					expect(process.env.DEPLOY_SECRET).toBeUndefined();
+				}),
+			).pipe(Effect.provide(PtyServiceLive.pipe(Layer.provide(environment)))),
+		);
 	});
 
 	it("hands a subscriber gap-free output after the previous cursor", async () => {

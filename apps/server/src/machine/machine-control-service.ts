@@ -61,6 +61,8 @@ import {
 	DeviceBridgeResult,
 	EntitlementList,
 	type EnvironmentId,
+	type EnvironmentVaultCommand,
+	EnvironmentVaultResult,
 	type MachineCreateRequest,
 	type MachineDestroyRequest,
 	MachineErrorCode,
@@ -281,6 +283,9 @@ export interface MachineControlServiceShape {
 		workspaceId: string,
 		port?: number,
 	) => Effect.Effect<CloudWorkspacePreviewRevoked, MachineControlError>;
+	readonly environmentVault: (
+		input: EnvironmentVaultCommand,
+	) => Effect.Effect<EnvironmentVaultResult, MachineControlError>;
 	readonly listCloudApiKeys: () => Effect.Effect<
 		CloudApiKeyList,
 		MachineControlError
@@ -495,6 +500,8 @@ export const MachineControlServiceLive: Layer.Layer<
 					"POST",
 					input,
 				).pipe(Effect.asVoid),
+			environmentVault: (input) =>
+				request("/v1/environment-vault", EnvironmentVaultResult, "POST", input),
 			cloudAccountImage: (providerId) =>
 				request(
 					providerId === undefined

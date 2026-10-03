@@ -53,6 +53,7 @@ import {
 	DEFAULT_RUNTIME_MODE,
 	DEVICE_BRIDGE_VERSION,
 	decodeWorkspaceGatewayFrame,
+	EnvironmentResolved,
 	encodeWorkspaceGatewayFrame,
 	FolderId,
 	MessageContent,
@@ -123,6 +124,7 @@ import {
 } from "../conversation/services/conversation-services.ts";
 import { WorkspaceExecutionPolicy } from "../conversation/services/workspace-execution-policy.ts";
 import { CloudDeviceCommandClient } from "../device-bridge/cloud-client.ts";
+import { EnvironmentRuntime } from "../environment/environment-runtime.ts";
 import {
 	connectionStorageRequest,
 	RuntimeModelConnections,
@@ -2234,6 +2236,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 	| SessionService
 	| CredentialsService
 	| RuntimeProviderCredentials
+	| EnvironmentRuntime
 	| SessionDomain
 	| SqlClient.SqlClient
 > =>
@@ -2251,6 +2254,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const sql = yield* SqlClient.SqlClient;
 					const credentials = yield* CredentialsService;
 					const runtimeProviderCredentials = yield* RuntimeProviderCredentials;
+					const environmentRuntime = yield* EnvironmentRuntime;
 					const sessionDomain = yield* SessionDomain;
 					cloudTimingEvent(
 						{ workspaceId: config.workspaceId },
@@ -2338,6 +2342,23 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							}),
 						);
 					}
+					yield* Effect.acquireRelease(
+						Effect.sync(() =>
+							environmentRuntime.install(() =>
+								Effect.runPromise(
+									requestJson({
+										schema: EnvironmentResolved,
+										url: `${config.apiUrl}/v1/cloud/workspaces/${encodeURIComponent(config.workspaceId)}/runtime/environment`,
+										token: runtimeCredential.credential,
+										method: "POST",
+										body: {},
+									}),
+								),
+							),
+						),
+						(uninstall) => Effect.sync(uninstall),
+					);
+
 					const deviceClient = new CloudDeviceCommandClient(
 						`${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeDeviceBridge(config.workspaceId)}`,
 						() => runtimeCredential.credential,

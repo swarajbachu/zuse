@@ -1,12 +1,13 @@
 import { cloudControlError } from "@zuse/client-runtime/control-api-error";
 import {
-	type CloudWorkspaceOpError,
+	CloudWorkspaceOpError,
 	ConnectAuthError,
 	DeviceBridgeError,
 	MachineOpError,
 	MemoizeRpcs,
 } from "@zuse/contracts";
 import { Effect, Layer, Stream } from "effect";
+import { EnvironmentRuntime } from "../environment/environment-runtime.ts";
 
 import {
 	type MachineControlError,
@@ -255,6 +256,36 @@ const UpdateCloudSharingDefaults = MemoizeRpcs.toLayerHandler(
 	(input) =>
 		withCloudControl((service) => service.updateCloudSharingDefaults(input)),
 );
+const EnvironmentLink = MemoizeRpcs.toLayerHandler(
+	"environment.link",
+	({ folderId, projectId }) =>
+		Effect.flatMap(EnvironmentRuntime, (service) =>
+			service.link(folderId, projectId).pipe(
+				Effect.map((projectId) => ({
+					projectId,
+					...service.status(folderId),
+				})),
+			),
+		).pipe(
+			Effect.mapError(
+				() => new CloudWorkspaceOpError({ code: "invalid-request" }),
+			),
+		),
+);
+const EnvironmentVault = MemoizeRpcs.toLayerHandler(
+	"environment.vault",
+	(input) =>
+		withCloudControl((service) => service.environmentVault(input)).pipe(
+			Effect.tap(() =>
+				input.action === "list" || input.action === "reveal"
+					? Effect.void
+					: Effect.flatMap(
+							EnvironmentRuntime,
+							(service) => service.invalidate ?? Effect.void,
+						),
+			),
+		),
+);
 const CloudApiKeysList = MemoizeRpcs.toLayerHandler("cloud.apiKeys.list", () =>
 	withCloudControl((service) => service.listCloudApiKeys()),
 );
@@ -496,6 +527,8 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	UpdateCloudSharingDefaults,
 	CloudSettings,
 	UpdateCloudSettings,
+	EnvironmentVault,
+	EnvironmentLink,
 	CloudApiKeysList,
 	CloudApiKeysCreate,
 	CloudApiKeysRevoke,

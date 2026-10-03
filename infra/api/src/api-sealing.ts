@@ -196,3 +196,67 @@ export const apiTurnReceiptDigestContext = (
 	workspaceId: string,
 	turnId: string,
 ): string => `turn-receipt\n${accountId}\n${workspaceId}\n${turnId}`;
+
+const keyIdentifier = (key: Redacted.Redacted<string>) =>
+	Effect.tryPromise({
+		try: async () => {
+			const hash = await crypto.subtle.digest(
+				"SHA-256",
+				new TextEncoder().encode(Redacted.value(key)),
+			);
+			return [...new Uint8Array(hash)]
+				.map((byte) => byte.toString(16).padStart(2, "0"))
+				.join("");
+		},
+		catch: () => serviceUnavailable("api_content_key_invalid"),
+	});
+
+/** Versioned key selection for new stores; existing ciphertext formats stay unchanged. */
+export const sealVersionedApiString = (context: string, plaintext: string) =>
+	Effect.gen(function* () {
+		const config = yield* ApiConfiguration;
+		if (!config.cloudDataEncryptionKey)
+			return yield* Effect.fail(
+				serviceUnavailable("api_content_encryption_not_configured"),
+			);
+		const keyId = yield* keyIdentifier(config.cloudDataEncryptionKey);
+		const ciphertext = yield* sealApiString(
+			`${context}\nkey:${keyId}`,
+			plaintext,
+		);
+		return JSON.stringify({ version: 2, keyId, ciphertext });
+	});
+
+export const openVersionedApiString = (context: string, ciphertext: string) =>
+	Effect.gen(function* () {
+		const envelope = yield* Effect.try({
+			try: () =>
+				Schema.decodeUnknownSync(
+					Schema.Struct({
+						version: Schema.Literal(2),
+						keyId: Schema.String,
+						ciphertext: Schema.String,
+					}),
+				)(JSON.parse(ciphertext)),
+			catch: () => serviceUnavailable("api_content_open_failed"),
+		});
+		const config = yield* ApiConfiguration;
+		for (const key of [
+			config.cloudDataEncryptionKey,
+			...(config.cloudDataPreviousEncryptionKeys ?? []),
+		]) {
+			if (key && (yield* keyIdentifier(key)) === envelope.keyId)
+				return yield* openApiString(
+					`${context}\nkey:${envelope.keyId}`,
+					envelope.ciphertext,
+				).pipe(
+					Effect.provideService(ApiConfiguration, {
+						...config,
+						cloudDataEncryptionKey: key,
+					}),
+				);
+		}
+		return yield* Effect.fail(
+			serviceUnavailable("api_content_key_unavailable"),
+		);
+	});

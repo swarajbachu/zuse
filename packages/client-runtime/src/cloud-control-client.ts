@@ -47,6 +47,8 @@ import {
 	type DeviceBridgeAction,
 	DeviceBridgeResult,
 	EntitlementList,
+	type EnvironmentVaultCommand,
+	EnvironmentVaultResult,
 	type PluginRequest,
 	PluginResponse,
 	type SessionId,
@@ -67,6 +69,8 @@ export type CloudControlRequest = <A>(
 export const makeCloudControlClient = (request: CloudControlRequest) => ({
 	"plugins.request": (input: PluginRequest) =>
 		request("/v1/plugins", PluginResponse, "POST", input),
+	"environment.vault": (input: EnvironmentVaultCommand) =>
+		request("/v1/environment-vault", EnvironmentVaultResult, "POST", input),
 	"cloud.providers": () => request(ApiPaths.cloudProviders, CloudProviderList),
 	"cloud.projects.connect": (input: CloudProjectConnectRequest) =>
 		request(ApiPaths.cloudProjects, CloudProject, "POST", input),

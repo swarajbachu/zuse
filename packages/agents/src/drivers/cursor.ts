@@ -1,5 +1,4 @@
 import { join } from "node:path";
-
 import {
 	Agent,
 	AgentNotFoundError,
@@ -23,20 +22,21 @@ import {
 	type FileRef,
 	type PermissionMode,
 	type SkillRef,
-	type StartSessionInput,
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, Result, Stream } from "effect";
-
+import type { AcpPermissionContext } from "../kernel/acp-permission-context.ts";
 import {
 	AttachmentService,
 	type AttachmentServiceShape,
 } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
+import type { DriverStartSessionInput as StartSessionInput } from "../kernel/execution-environment.ts";
 import { normalizeNativeToolName } from "../kernel/native-tool-name.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { appendStreamText } from "../kernel/stream-text.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import type { ResolvedMcpServer } from "../user-mcp/types.ts";
+import { makeEnvironmentCommand } from "./environment-command.ts";
 
 const SDK_START_TIMEOUT_MS = 30_000;
 const SDK_SEND_TIMEOUT_MS = 30_000;
@@ -441,6 +441,10 @@ export const startCursorSession = (
 	resumeCursor: string | null = null,
 	initialMcpServers: ReadonlyArray<ResolvedMcpServer> = [],
 	managedMcp?: ResolvedMcpServer,
+	permissions?: Pick<
+		AcpPermissionContext,
+		"requestPermission" | "getRuntimeMode"
+	>,
 ): Effect.Effect<
 	CursorSessionHandle,
 	AgentSessionStartError,
@@ -453,6 +457,18 @@ export const startCursorSession = (
 			join(getDefaultSdkStateRoot(cwd), STORE_DIRECTORY),
 		);
 		const selection = modelSelection(input.model);
+		let currentMode: PermissionMode = input.permissionMode ?? "default";
+		const environmentCommand =
+			Object.keys(input.executionEnvironment ?? {}).length === 0
+				? null
+				: makeEnvironmentCommand({
+						cwd,
+						projectId: input.folderId,
+						sessionId,
+						executionEnvironment: input.executionEnvironment,
+						...permissions,
+						getPermissionMode: () => currentMode,
+					});
 		const options: AgentOptions = {
 			...(apiKey === null ? {} : { apiKey }),
 			model: selection,
@@ -463,6 +479,9 @@ export const startCursorSession = (
 				sandboxOptions: { enabled: true },
 				settingSources: ["project"],
 				enableAgentRetries: true,
+				...(environmentCommand
+					? { customTools: { run_with_environment: environmentCommand.tool } }
+					: {}),
 			},
 			mode:
 				input.permissionMode === "plan"
@@ -547,8 +566,14 @@ export const startCursorSession = (
 		let interrupted = false;
 		let cancellationGeneration = 0;
 		let activeRun: Run | null = null;
-		let currentMode: PermissionMode = input.permissionMode ?? "default";
-		let workspaceInstructions = input.workspaceInstructions;
+		let workspaceInstructions: string | undefined = [
+			input.workspaceInstructions,
+			environmentCommand
+				? `Use run_with_environment for commands requiring these managed variables: ${Object.keys(input.executionEnvironment ?? {}).join(", ")}. Values are injected into that command only; the ordinary shell does not inherit them.`
+				: "",
+		]
+			.filter(Boolean)
+			.join("\n");
 		const managedPluginServers = managedMcp ? [managedMcp] : [];
 		let mcpServers = normalizeCursorMcpServers([
 			...initialMcpServers,
@@ -700,6 +725,7 @@ export const startCursorSession = (
 				Effect.promise(async () => {
 					cancellationGeneration += 1;
 					interrupted = true;
+					await environmentCommand?.close();
 					await activeRun?.cancel();
 				}),
 			close: () =>
@@ -710,6 +736,7 @@ export const startCursorSession = (
 					}
 					closed = true;
 					cancellationGeneration += 1;
+					await environmentCommand?.close();
 					await activeRun?.cancel().catch(() => undefined);
 					agent.close();
 					Queue.endUnsafe(events);

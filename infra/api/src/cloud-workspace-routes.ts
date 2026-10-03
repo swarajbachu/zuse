@@ -44,7 +44,7 @@ import {
 	bytesToBase64Url,
 	sha256Base64Url,
 } from "@zuse/utils/cloud-transcript-crypto";
-import { Clock, Effect, Redacted, Schema } from "effect";
+import { Clock, Effect, Option, Redacted, Schema } from "effect";
 import { CompactEncrypt, importJWK, type JWK } from "jose";
 import { getApiAsset } from "./api-assets.ts";
 import { decodeApiMessageContent } from "./api-message-content.ts";
@@ -146,6 +146,11 @@ import {
 	verifyWorkspaceRuntimeTicket,
 } from "./crypto.ts";
 import { forwardDeviceBridge } from "./device-bridge.ts";
+import {
+	EnvironmentVaultStore,
+	environmentVaultOwner,
+	resolveEnvironmentVault,
+} from "./environment-vault.ts";
 import {
 	type ApiError,
 	badRequest,
@@ -1617,6 +1622,33 @@ export const routeCloudWorkspaceRequest = (
 		const launchIntentCipher = yield* CloudWorkspaceLaunchIntentCipher;
 		const apiConfiguration = yield* ApiConfiguration;
 		const idlePauseMs = apiConfiguration.cloudWorkspaceIdleTimeoutMs;
+		const environmentMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/environment$/u.exec(path);
+		if (environmentMatch && method === "POST") {
+			const workspace = yield* requireRuntime(
+				request,
+				environmentMatch[1] ?? "",
+				nowMs,
+			);
+			const vault = yield* Effect.serviceOption(EnvironmentVaultStore);
+			if (!apiConfiguration.environmentVaultEnabled || Option.isNone(vault))
+				return json({
+					revision: 0,
+					values: {},
+					secretNames: [],
+					sources: {},
+					resolvedAt: nowMs,
+				});
+			const result = yield* resolveEnvironmentVault(
+				environmentVaultOwner(workspace.accountId),
+				workspace.projectId,
+				"cloud",
+			).pipe(Effect.provideService(EnvironmentVaultStore, vault.value));
+			const response = json(result);
+			response.headers.set("cache-control", "no-store");
+			return response;
+		}
+
 		const deviceBridgeMatch =
 			/^\/v1\/cloud\/workspaces\/([^/]+)\/(runtime\/)?device-bridge$/u.exec(
 				path,

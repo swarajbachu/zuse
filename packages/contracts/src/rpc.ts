@@ -140,6 +140,10 @@ import {
 	DiagnosticsSignalRpc,
 } from "./diagnostics.ts";
 import {
+	EnvironmentLinkRpc,
+	EnvironmentVaultRpc,
+} from "./environment-vault.ts";
+import {
 	ExternalThreadsContinueRpc,
 	ExternalThreadsListRpc,
 } from "./external-thread.ts";
@@ -499,6 +503,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudWorkspaceDataKeyRpc,
 	CloudTranscriptCheckpointGetRpc,
 	CloudTranscriptMessagePageGetRpc,
+	EnvironmentVaultRpc,
+	EnvironmentLinkRpc,
 	CloudApiKeysListRpc,
 	CloudApiKeysCreateRpc,
 	CloudApiKeysRevokeRpc,

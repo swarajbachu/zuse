@@ -15,8 +15,10 @@ import {
 	PtySpawnError,
 	PtySummary,
 } from "@zuse/contracts";
-import { Effect, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
+import { createSecretMasker } from "@zuse/utils/environment";
+import { Effect, Layer, Option, PubSub, Ref, Semaphore, Stream } from "effect";
 import * as pty from "node-pty";
+import { EnvironmentRuntime } from "../../environment/environment-runtime.ts";
 import { ensureNodePtySpawnHelperExecutable } from "../node-pty-helper.ts";
 import { PtyEventJournal } from "../pty-event-journal.ts";
 import { PtyService } from "../services/pty-service.ts";
@@ -117,6 +119,7 @@ const toSummary = (ptyId: PtyId, active: ActivePty): PtySummary =>
 export const PtyServiceLive = Layer.effect(
 	PtyService,
 	Effect.gen(function* () {
+		const environment = yield* Effect.serviceOption(EnvironmentRuntime);
 		const ref = yield* Ref.make<ReadonlyMap<PtyId, ActivePty>>(new Map());
 		// One gate makes owner admission and every catalog/process replacement
 		// atomic. PTY byte IO remains outside it and never waits on catalog work.
@@ -172,6 +175,20 @@ export const PtyServiceLive = Layer.effect(
 		const spawnChild = Effect.fn("PtyService.spawnChild")(function* (
 			active: PtyLaunchConfig,
 		) {
+			const resolved = Option.isSome(environment)
+				? yield* environment.value.resolve(active.cwd).pipe(
+						Effect.mapError(
+							() =>
+								new PtySpawnError({
+									reason:
+										"Environment secrets could not be resolved. Check project settings and account access.",
+								}),
+						),
+					)
+				: null;
+			const masker = createSecretMasker(
+				resolved?.secretNames.map((name) => resolved.values[name] ?? "") ?? [],
+			);
 			const cmd = active.command?.cmd ?? defaultShell();
 			const args = active.command?.args ?? [];
 			return yield* Effect.try({
@@ -185,6 +202,7 @@ export const PtyServiceLive = Layer.effect(
 						env: {
 							...(process.env as Record<string, string>),
 							...(active.command?.env ?? {}),
+							...resolved?.values,
 							TERM: "xterm-256color",
 						},
 					});
@@ -198,14 +216,19 @@ export const PtyServiceLive = Layer.effect(
 						// Attach inside the same synchronous spawn boundary. Effect may
 						// cooperatively yield before the catalog entry is ready, so callbacks
 						// must already have somewhere to wait.
-						child.onData((bytes) => capture({ _tag: "data", bytes }));
-						child.onExit(({ exitCode, signal }) =>
+						child.onData((bytes) => {
+							const masked = masker.write(bytes);
+							if (masked) capture({ _tag: "data", bytes: masked });
+						});
+						child.onExit(({ exitCode, signal }) => {
+							const trailing = masker.end();
+							if (trailing) capture({ _tag: "data", bytes: trailing });
 							capture({
 								_tag: "exit",
 								exitCode: exitCode ?? null,
 								signal: signal ?? null,
-							}),
-						);
+							});
+						});
 					} catch (cause) {
 						try {
 							child.kill();

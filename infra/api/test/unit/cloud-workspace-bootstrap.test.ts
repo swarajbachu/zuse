@@ -33,6 +33,10 @@ import {
 	sha256Hex,
 	signWorkspaceClientTicket,
 } from "../../src/crypto.ts";
+import {
+	EnvironmentVaultStore,
+	type VaultRow,
+} from "../../src/environment-vault.ts";
 import { handleRequest } from "../../src/handler.ts";
 import { MachineControlConfiguration } from "../../src/machine-config.ts";
 import { MachineStore, MachineStoreMemory } from "../../src/machine-store.ts";
@@ -57,9 +61,11 @@ vi.mock("../../src/cloud-github-app.ts", async (importOriginal) => {
 const ISSUER = "https://api.test";
 
 const makeRuntime = async (organizationWorkspacesEnabled = false) => {
+	const vaultRows = new Map<string, VaultRow>();
 	const mint = await generateKeyPair("EdDSA", { extractable: true });
 	const config = configurationLayer({
 		apiIssuer: ISSUER,
+		environmentVaultEnabled: true,
 		workosJwksUrl: "https://unused.test/jwks",
 		workosIssuer: "https://unused.test",
 		organizationWorkspacesEnabled,
@@ -73,6 +79,17 @@ const makeRuntime = async (organizationWorkspacesEnabled = false) => {
 		),
 	});
 	const layer = Layer.mergeAll(
+		Layer.succeed(EnvironmentVaultStore, {
+			load: (owner) => Effect.succeed(vaultRows.get(owner) ?? null),
+			purge: () => Effect.void,
+			audit: () => Effect.void,
+			commit: (owner, previous, ciphertext) =>
+				Effect.sync(() => {
+					if ((vaultRows.get(owner)?.revision ?? 0) !== previous) return false;
+					vaultRows.set(owner, { revision: previous + 1, ciphertext });
+					return true;
+				}),
+		}),
 		config,
 		WorkosVerifierTest,
 		ApiStoreMemory,
@@ -1015,6 +1032,81 @@ describe("cloud workspace runtime bootstrap", () => {
 			).status,
 		).toBe(401);
 		const credential = String(first.runtimeCredential);
+		const environmentRequest = (token: string) =>
+			runtime.runPromise(
+				handleRequest(
+					new Request(
+						`${ISSUER}/v1/cloud/workspaces/${workspaceId}/runtime/environment`,
+						{ method: "POST", headers: { authorization: `Bearer ${token}` } },
+					),
+				),
+			);
+		const savedEnvironment = await runtime.runPromise(
+			handleRequest(
+				new Request(`${ISSUER}/v1/environment-vault`, {
+					method: "POST",
+					headers: {
+						authorization: "Bearer test-token:account-1",
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						action: "save",
+						expectedRevision: 0,
+						entry: {
+							id: "",
+							name: "DEPLOY_SECRET",
+							kind: "secret",
+							scope: "personal",
+							projectIds: ["project-1"],
+							excludedProjectIds: [],
+							target: "both",
+							revision: 0,
+							updatedAt: 0,
+						},
+						value: "exact-cloud-secret",
+					}),
+				}),
+			),
+		);
+		expect(savedEnvironment.status).toBe(200);
+		const emptyEnvironment = await environmentRequest(credential);
+		expect(emptyEnvironment.status).toBe(200);
+		expect(
+			((await emptyEnvironment.json()) as { values: unknown }).values,
+		).toEqual({ DEPLOY_SECRET: "exact-cloud-secret" });
+		expect((await environmentRequest("wrong-runtime")).status).toBe(401);
+		const localEnvironment = await runtime.runPromise(
+			handleRequest(
+				new Request(`${ISSUER}/v1/environment-vault/resolve`, {
+					method: "POST",
+					headers: {
+						authorization: "Bearer test-token:account-1",
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({ projectId: "project-1" }),
+				}),
+			),
+		);
+		expect(localEnvironment.status).toBe(200);
+		expect(
+			((await localEnvironment.json()) as { values: unknown }).values,
+		).toEqual({ DEPLOY_SECRET: "exact-cloud-secret" });
+		expect(JSON.stringify(first)).not.toContain("exact-cloud-secret");
+
+		const vaultByRuntime = await runtime.runPromise(
+			handleRequest(
+				new Request(`${ISSUER}/v1/environment-vault`, {
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${credential}`,
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({ action: "list" }),
+				}),
+			),
+		);
+		expect(vaultByRuntime.status).toBe(401);
+
 		const githubCredential = await runtime.runPromise(
 			handleRequest(
 				new Request(

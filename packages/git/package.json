@@ -21,7 +21,8 @@
 	},
 	"dependencies": {
 		"@zuse/contracts": "*",
-		"effect": "catalog:"
+		"effect": "catalog:",
+		"@zuse/utils": "*"
 	},
 	"devDependencies": {
 		"@effect/platform-node": "catalog:",

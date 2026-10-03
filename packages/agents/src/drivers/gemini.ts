@@ -11,7 +11,6 @@ import {
 	AgentSessionStartError,
 	type AttachmentRef,
 	type PermissionMode,
-	type StartSessionInput,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, Stream } from "effect";
@@ -24,6 +23,11 @@ import type {
 	ProviderDriverEvent,
 	ProviderSessionHandle,
 } from "../kernel/driver.ts";
+import {
+	executionDiagnostics,
+	hasManagedEnvironment,
+} from "../kernel/execution-diagnostics.ts";
+import type { DriverStartSessionInput as StartSessionInput } from "../kernel/execution-environment.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
@@ -187,6 +191,10 @@ export const startGeminiSession = (
 	AttachmentService
 > =>
 	Effect.gen(function* () {
+		const diagnosticsDisabled = hasManagedEnvironment(
+			input.executionEnvironment,
+		);
+		const diagnostics = executionDiagnostics(diagnosticsDisabled);
 		// Keep AttachmentService in the requirement set so layer wiring stays
 		// uniform with the other drivers; attachments themselves are not yet
 		// wired through ACP's `prompt: [{ type: "image", ... }]` shape.
@@ -199,6 +207,7 @@ export const startGeminiSession = (
 		// and command execution are gated through PermissionService + RuntimeMode,
 		// exactly like Claude/Codex. `currentMode` is read live.
 		const acpHandlerContext = makeAcpPermissionContext({
+			executionEnvironment: input.executionEnvironment,
 			cwd,
 			sessionId,
 			projectId: input.folderId,
@@ -258,6 +267,7 @@ export const startGeminiSession = (
 		// one AssistantMessage per burst so the renderer doesn't show one
 		// bubble per token.
 		const translator = createAcpTranslator("gemini", {
+			diagnosticsDisabled,
 			onCheckpoint: (checkpointEvents) => {
 				for (const event of checkpointEvents) Queue.offerUnsafe(events, event);
 			},
@@ -269,6 +279,7 @@ export const startGeminiSession = (
 				cwd,
 				env: {
 					...process.env,
+					...input.executionEnvironment,
 					...(apiKey !== null ? { GEMINI_API_KEY: apiKey } : {}),
 				},
 				stdio: ["pipe", "pipe", "pipe"],
@@ -290,7 +301,7 @@ export const startGeminiSession = (
 		const writeMessage = (msg: Record<string, unknown>): void => {
 			if (!child.stdin.writable) return;
 			const line = JSON.stringify(msg);
-			if (GEMINI_RPC_TRACE) process.stderr.write(`[gemini.rpc.send] ${line}\n`);
+			if (GEMINI_RPC_TRACE) diagnostics.write(`[gemini.rpc.send] ${line}\n`);
 			child.stdin.write(`${line}\n`);
 		};
 
@@ -347,7 +358,7 @@ export const startGeminiSession = (
 			if (cancelled === null) return;
 			currentPromptRpcId = null;
 			if (GEMINI_RPC_TRACE) {
-				process.stderr.write(
+				diagnostics.write(
 					`[gemini.rpc.cancel] force-reject id=${id} method=${cancelled.method} reason=${reason}\n`,
 				);
 			}
@@ -355,7 +366,7 @@ export const startGeminiSession = (
 
 		rl.on("line", (line: string) => {
 			if (line.trim().length === 0) return;
-			if (GEMINI_RPC_TRACE) process.stderr.write(`[gemini.rpc.recv] ${line}\n`);
+			if (GEMINI_RPC_TRACE) diagnostics.write(`[gemini.rpc.recv] ${line}\n`);
 			const msg = decodeJsonRpcLine(line);
 			if (msg === null) {
 				// Known issue: Gemini CLI sometimes emits plain text to stdout
@@ -363,7 +374,7 @@ export const startGeminiSession = (
 				// Log to stderr so the leak is visible during debugging, but don't
 				// abort — assistant content rides typed `session/update` frames.
 				stdoutNoiseTail = `${stdoutNoiseTail}${line}\n`.slice(-4096);
-				process.stderr.write(`[gemini.stdout.nonjson] ${line}\n`);
+				diagnostics.write(`[gemini.stdout.nonjson] ${line}\n`);
 				return;
 			}
 
@@ -388,7 +399,7 @@ export const startGeminiSession = (
 					msg.method.startsWith("thread/")
 				) {
 					if (GEMINI_RPC_TRACE) {
-						process.stderr.write(
+						diagnostics.write(
 							`[gemini.rpc] ${msg.method} params=${JSON.stringify(msg.params ?? {})}\n`,
 						);
 					}
@@ -403,7 +414,7 @@ export const startGeminiSession = (
 				if (msg.id !== undefined && msg.id !== null) {
 					const isFs = msg.method.startsWith("fs/");
 					if (GEMINI_RPC_TRACE || isFs) {
-						process.stderr.write(
+						diagnostics.write(
 							`[gemini.rpc] server→client request method=${msg.method} id=${msg.id} params=${JSON.stringify(msg.params ?? {})}\n`,
 						);
 					}
@@ -444,7 +455,7 @@ export const startGeminiSession = (
 							message: `Method not supported by Zuse ACP client: ${msg.method}`,
 						},
 					});
-					console.warn(
+					diagnostics.warn(
 						`[gemini.rpc] replied to unhandled server→client request method=${msg.method} id=${msg.id}`,
 					);
 					return;
@@ -457,11 +468,11 @@ export const startGeminiSession = (
 					let rawEnvelope = "";
 					try {
 						rawEnvelope = JSON.stringify(error, null, 2);
-						process.stderr.write(
+						diagnostics.write(
 							`[gemini.rpc.error] method=${context.method} id=${context.id} ${rawEnvelope}\n`,
 						);
 					} catch {
-						process.stderr.write(
+						diagnostics.write(
 							`[gemini.rpc.error] method=${context.method} id=${context.id} (unserialisable)\n`,
 						);
 					}
@@ -478,7 +489,7 @@ export const startGeminiSession = (
 
 		child.stderr.on("data", (chunk: string) => {
 			stderrTail = (stderrTail + chunk).slice(-4096);
-			process.stderr.write(`[gemini.stderr] ${chunk}`);
+			diagnostics.write(`[gemini.stderr] ${chunk}`);
 		});
 
 		child.on("error", (err) => {
@@ -579,7 +590,7 @@ export const startGeminiSession = (
 		});
 
 		if (resumeCursor !== null && !acquiredSession.resumed) {
-			console.warn(
+			diagnostics.warn(
 				`[gemini] previous cursor ${resumeCursor} was unavailable; using new session ${acpSessionId}`,
 			);
 		}
@@ -627,7 +638,7 @@ export const startGeminiSession = (
 				.then(async () => {
 					if (closed) return;
 					if (GEMINI_RPC_TRACE) {
-						process.stderr.write(
+						diagnostics.write(
 							`[gemini.prompt] enqueue len=${finalPromptText.length} mode=${currentMode}\n`,
 						);
 					}
@@ -648,7 +659,7 @@ export const startGeminiSession = (
 							},
 						);
 						if (GEMINI_RPC_TRACE) {
-							process.stderr.write(`[gemini.prompt] completed\n`);
+							diagnostics.write(`[gemini.prompt] completed\n`);
 						}
 						if (compactSnapshot !== null && !closed) {
 							Queue.offerUnsafe(
@@ -665,7 +676,7 @@ export const startGeminiSession = (
 						const reason =
 							cause instanceof Error ? cause.message : String(cause);
 						if (GEMINI_RPC_TRACE) {
-							process.stderr.write(`[gemini.prompt] failed: ${reason}\n`);
+							diagnostics.write(`[gemini.prompt] failed: ${reason}\n`);
 						}
 						// Cancellation is a clean stop, not an error condition — the
 						// user already knows they interrupted. Surface other failures
@@ -702,7 +713,7 @@ export const startGeminiSession = (
 			send: (text, attachmentRefs) =>
 				Effect.sync(() => {
 					if (attachmentRefs !== undefined && attachmentRefs.length > 0) {
-						console.warn(
+						diagnostics.warn(
 							`[gemini.attach] dropping ${attachmentRefs.length} attachment(s) — ACP image content shape not wired`,
 						);
 					}
@@ -713,7 +724,7 @@ export const startGeminiSession = (
 					const sid = acpSessionId;
 					if (sid === null) return;
 					if (GEMINI_RPC_TRACE) {
-						process.stderr.write(
+						diagnostics.write(
 							`[gemini.interrupt] sid=${sid} pendingPrompt=${currentPromptRpcId ?? "(none)"}\n`,
 						);
 					}

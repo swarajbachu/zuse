@@ -8,11 +8,11 @@ import {
 	AgentItemId,
 	type AgentSessionId,
 	AgentSessionStartError,
-	type StartSessionInput,
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, Stream } from "effect";
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
+import type { DriverStartSessionInput as StartSessionInput } from "../kernel/execution-environment.ts";
 import { normalizeNativeToolName } from "../kernel/native-tool-name.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
@@ -401,6 +401,7 @@ export const startPiSession = (
 					void Effect.runPromise(Queue.end(events));
 				}
 			},
+			input.executionEnvironment,
 		);
 		yield* attempt(async () => {
 			const state = await rpc.request("get_state");

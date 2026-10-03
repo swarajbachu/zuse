@@ -25,7 +25,6 @@ import {
 	type PermissionMode,
 	type RuntimeMode,
 	type SkillRef,
-	type StartSessionInput,
 	ThreadGoal,
 	type ThreadGoalSetInput,
 	type ThreadGoalStatus,
@@ -38,6 +37,7 @@ import type {
 	ProviderDriverEvent,
 	QuestionCallbackReleased,
 } from "../kernel/driver.ts";
+import type { DriverStartSessionInput as StartSessionInput } from "../kernel/execution-environment.ts";
 import { getBashPolicy, getFsPolicy } from "../kernel/policy.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
@@ -652,7 +652,13 @@ interface CodexRawProtocolLogger {
 const createCodexRawProtocolLogger = (
 	cwd: string,
 	sessionId: AgentSessionId,
+	enabled = true,
 ): CodexRawProtocolLogger => {
+	if (!enabled)
+		return {
+			path: "Diagnostics disabled for managed environments",
+			append: () => {},
+		};
 	const dir = join(cwd, ".context");
 	const path = join(dir, `codex-raw.${sessionId}.log`);
 	return {
@@ -679,7 +685,13 @@ const createCodexRawProtocolLogger = (
 const createCodexToolTranslationLogger = (
 	cwd: string,
 	sessionId: AgentSessionId,
+	enabled = true,
 ): CodexToolTranslationLogger => {
+	if (!enabled)
+		return {
+			path: "Diagnostics disabled for managed environments",
+			append: () => {},
+		};
 	const dir = join(cwd, ".context");
 	const path = join(dir, `codex-tools.${sessionId}.ndjson`);
 	const safeJson = (value: unknown): string => {
@@ -734,7 +746,13 @@ interface CodexStatusLogger {
 const createCodexStatusLogger = (
 	cwd: string,
 	sessionId: AgentSessionId,
+	enabled = true,
 ): CodexStatusLogger => {
+	if (!enabled)
+		return {
+			path: "Diagnostics disabled for managed environments",
+			append: () => {},
+		};
 	const dir = join(cwd, ".context");
 	const path = join(dir, `codex-status.${sessionId}.ndjson`);
 	const safeJson = (value: unknown): string => {
@@ -1381,9 +1399,21 @@ export const startCodexSession = (
 	Effect.gen(function* () {
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
-		const toolTranslationLog = createCodexToolTranslationLogger(cwd, sessionId);
-		const statusLog = createCodexStatusLogger(cwd, sessionId);
-		const rawProtocolLog = createCodexRawProtocolLogger(cwd, sessionId);
+		const toolTranslationLog = createCodexToolTranslationLogger(
+			cwd,
+			sessionId,
+			Object.keys(input.executionEnvironment ?? {}).length === 0,
+		);
+		const statusLog = createCodexStatusLogger(
+			cwd,
+			sessionId,
+			Object.keys(input.executionEnvironment ?? {}).length === 0,
+		);
+		const rawProtocolLog = createCodexRawProtocolLogger(
+			cwd,
+			sessionId,
+			Object.keys(input.executionEnvironment ?? {}).length === 0,
+		);
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 		let activeModel =
 			input.model ?? defaultModelFor(BUNDLED_MODEL_CATALOG, "codex");
@@ -1534,7 +1564,11 @@ export const startCodexSession = (
 					codexPath,
 					apiKey,
 					externalAuthConsumerId: sessionId,
-					env: { ...process.env, ZUSE_MCP_TOKEN: mcpGatewaySession.token },
+					env: {
+						...process.env,
+						...input.executionEnvironment,
+						ZUSE_MCP_TOKEN: mcpGatewaySession.token,
+					},
 					mcp: {
 						transport: "http",
 						url: mcpGatewaySession.codexServerConfig.url,
@@ -1629,7 +1663,7 @@ export const startCodexSession = (
 						codexPath,
 						apiKey,
 						externalAuthConsumerId: sessionId,
-						env: process.env,
+						env: { ...process.env, ...input.executionEnvironment },
 						mcp: {
 							transport: "stdio",
 							command: fallback.command,

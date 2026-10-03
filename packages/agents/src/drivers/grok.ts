@@ -12,7 +12,6 @@ import {
 	type AttachmentRef,
 	type PermissionMode,
 	type PlanApprovalOutcome,
-	type StartSessionInput,
 	ThreadGoal,
 	type ThreadGoalSetInput,
 	type UserQuestionAnswer,
@@ -26,6 +25,11 @@ import type {
 	ProviderDriverEvent,
 	QuestionCallbackReleased,
 } from "../kernel/driver.ts";
+import {
+	executionDiagnostics,
+	hasManagedEnvironment,
+} from "../kernel/execution-diagnostics.ts";
+import type { DriverStartSessionInput as StartSessionInput } from "../kernel/execution-environment.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
@@ -201,6 +205,13 @@ export const startGrokSession = (
 	AttachmentService
 > =>
 	Effect.gen(function* () {
+		const diagnosticsDisabled = hasManagedEnvironment(
+			input.executionEnvironment,
+		);
+		const diagnostics = executionDiagnostics(diagnosticsDisabled);
+		const sessionDiag: typeof grokDiag = (...args) => {
+			if (!diagnosticsDisabled) grokDiag(...args);
+		};
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 
@@ -211,6 +222,7 @@ export const startGrokSession = (
 		// RuntimeMode, exactly like Claude/Codex. `currentMode` is read live so a
 		// mid-session mode toggle takes effect on the next tool call.
 		const acpHandlerContext = makeAcpPermissionContext({
+			executionEnvironment: input.executionEnvironment,
 			cwd,
 			sessionId,
 			projectId: input.folderId,
@@ -337,6 +349,7 @@ export const startGrokSession = (
 		// one AssistantMessage per burst so the renderer doesn't show one
 		// bubble per token.
 		const translator = createAcpTranslator("grok", {
+			diagnosticsDisabled,
 			onCheckpoint: (checkpointEvents) => {
 				for (const event of checkpointEvents) Queue.offerUnsafe(events, event);
 			},
@@ -348,6 +361,7 @@ export const startGrokSession = (
 			const existing = translatorsBySession.get(providerSessionId);
 			if (existing !== undefined) return existing;
 			const created = createAcpTranslator("grok", {
+				diagnosticsDisabled,
 				onCheckpoint: (checkpointEvents) => {
 					for (const event of checkpointEvents) {
 						Queue.offerUnsafe(
@@ -398,6 +412,7 @@ export const startGrokSession = (
 				cwd,
 				env: {
 					...process.env,
+					...input.executionEnvironment,
 					GROK_CURSOR_MCPS_ENABLED: "0",
 					...(apiKey !== null ? { GROK_CODE_XAI_API_KEY: apiKey } : {}),
 				},
@@ -423,7 +438,7 @@ export const startGrokSession = (
 			if (!child.stdin.writable) return;
 			const line = JSON.stringify(msg);
 			if (GROK_RPC_TRACE) {
-				process.stderr.write(
+				diagnostics.write(
 					`[grok.rpc.send] method=${typeof msg.method === "string" ? msg.method : "response"} id=${String(msg.id ?? "-")}\n`,
 				);
 			}
@@ -475,7 +490,7 @@ export const startGrokSession = (
 			if (cancelled === null) return;
 			currentPromptRpcId = null;
 			if (GROK_RPC_TRACE) {
-				process.stderr.write(
+				diagnostics.write(
 					`[grok.rpc.cancel] force-reject id=${id} method=${cancelled.method} reason=${reason}\n`,
 				);
 			}
@@ -489,7 +504,7 @@ export const startGrokSession = (
 			sourceRl.on("line", (line: string) => {
 				if (generation !== connectionGeneration) return;
 				if (line.trim().length === 0) return;
-				if (GROK_RPC_TRACE) process.stderr.write("[grok.rpc.recv] frame\n");
+				if (GROK_RPC_TRACE) diagnostics.write("[grok.rpc.recv] frame\n");
 				const msg = decodeJsonRpcLine(line);
 				if (msg === null) {
 					// Non-JSON line on stdout (e.g. a tracing log leak). Drop silently
@@ -588,7 +603,7 @@ export const startGrokSession = (
 									});
 							}
 						} catch (cause) {
-							grokDiag(
+							sessionDiag(
 								"invalid session/update",
 								cause instanceof Error ? cause.message : String(cause),
 							);
@@ -616,7 +631,7 @@ export const startGrokSession = (
 						normalizedMethod.startsWith("thread/")
 					) {
 						if (GROK_RPC_TRACE) {
-							process.stderr.write(`[grok.rpc] ${normalizedMethod}\n`);
+							diagnostics.write(`[grok.rpc] ${normalizedMethod}\n`);
 						}
 						if (methodParams !== undefined) {
 							const update = {
@@ -675,7 +690,7 @@ export const startGrokSession = (
 						//    tools (list_dir etc.) which our translator now renders nicely.
 						const isFs = normalizedMethod.startsWith("fs/");
 						if (GROK_RPC_TRACE || isFs) {
-							process.stderr.write(
+							diagnostics.write(
 								`[grok.rpc] server→client request method=${normalizedMethod} id=${msg.id}\n`,
 							);
 						}
@@ -709,7 +724,7 @@ export const startGrokSession = (
 						}
 
 						if (isGrokNativePermissionMethod(normalizedMethod)) {
-							process.stderr.write(
+							diagnostics.write(
 								`[grok.rpc] native permission request method=${normalizedMethod} id=${msg.id}\n`,
 							);
 							handleGrokNativePermissionRequest(
@@ -766,7 +781,7 @@ export const startGrokSession = (
 								message: `Method not supported by Zuse ACP client: ${normalizedMethod}`,
 							},
 						});
-						grokDiag("replied to unhandled server→client request", {
+						sessionDiag("replied to unhandled server→client request", {
 							method: normalizedMethod,
 							id: msg.id,
 						});
@@ -781,7 +796,7 @@ export const startGrokSession = (
 					mapError: (error, context) => {
 						const classified = classifyGrokRpcError(error);
 						const rpcCode = asRecord(error)?.code;
-						process.stderr.write(
+						diagnostics.write(
 							`[grok.rpc.error] method=${context.method} id=${context.id} kind=${classified} code=${typeof rpcCode === "number" ? rpcCode : "unknown"}\n`,
 						);
 						const errorRecord = asRecord(error);
@@ -815,7 +830,7 @@ export const startGrokSession = (
 				if (generation !== connectionGeneration) return;
 				if (closed) return;
 				dead = true;
-				grokDiag("child process error event", { message: err.message });
+				sessionDiag("child process error event", { message: err.message });
 				// Don't end the mailbox — child errors are almost always followed by a
 				// `close` event, and the next send() will trigger a transparent respawn.
 				// We still want the diagnostic in the logs.
@@ -829,7 +844,7 @@ export const startGrokSession = (
 				const trimmedStderr = stderrTail.trim();
 				const exitDetail = `Grok ACP transport closed (code ${code ?? "null"}, signal ${signal ?? "null"}).`;
 
-				grokDiag("child process closed", {
+				sessionDiag("child process closed", {
 					code,
 					signal,
 					stderrTailLen: trimmedStderr.length,
@@ -858,7 +873,7 @@ export const startGrokSession = (
 					// the child + redo the handshake (see [[enqueuePrompt]]). Do not stop
 					// the visible turn for the known Grok AuthorizationRequired noise.
 					Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
-					grokDiag(
+					sessionDiag(
 						"child closed — keeping mailbox alive for transparent respawn on next send",
 						{
 							transportClosed: true,
@@ -886,7 +901,10 @@ export const startGrokSession = (
 				);
 			}
 
-			grokDiag("handshake initialize returned authMethods", init.authMethods);
+			sessionDiag(
+				"handshake initialize returned authMethods",
+				init.authMethods,
+			);
 
 			const authSelection = selectGrokHandshakeAuth(
 				init.authMethods,
@@ -906,7 +924,7 @@ export const startGrokSession = (
 			}
 			const { methodId } = authSelection;
 			authMethodUsed = methodId;
-			grokDiag("choosing auth method", {
+			sessionDiag("choosing auth method", {
 				methodId,
 				hasApiKey: apiKey !== null,
 			});
@@ -915,7 +933,7 @@ export const startGrokSession = (
 				methodId,
 				_meta: { headless: true },
 			});
-			grokDiag("authenticate succeeded", {
+			sessionDiag("authenticate succeeded", {
 				methodId,
 				authMethodUsed,
 			});
@@ -934,7 +952,7 @@ export const startGrokSession = (
 				shouldReplaceMissingSession: (cause) =>
 					cause instanceof GrokProtocolError && cause.sessionMissing,
 			});
-			grokDiag(
+			sessionDiag(
 				acquisition.resumed
 					? "session/load succeeded"
 					: "session/new succeeded",
@@ -981,7 +999,7 @@ export const startGrokSession = (
 		});
 
 		if (resumeCursor !== null && !initialAcquisition.resumed) {
-			console.warn(
+			diagnostics.warn(
 				`[grok] cursor ${resumeCursor} was unavailable; using replacement session ${acpSessionId}`,
 			);
 		}
@@ -1025,7 +1043,9 @@ export const startGrokSession = (
 					// transparently respawn before sending and load the durable ACP
 					// session so provider context survives the worker process.
 					if (dead) {
-						grokDiag("respawning grok child before send (previous child died)");
+						sessionDiag(
+							"respawning grok child before send (previous child died)",
+						);
 						try {
 							const acquisition = await connectChild(acpSessionId);
 							Queue.offerUnsafe(events, {
@@ -1036,7 +1056,7 @@ export const startGrokSession = (
 						} catch (cause) {
 							const reason =
 								cause instanceof Error ? cause.message : String(cause);
-							grokDiag("respawn failed", { reason });
+							sessionDiag("respawn failed", { reason });
 							const reconnectKind =
 								cause instanceof GrokProtocolError ? cause.kind : "transport";
 							const failureAction = grokSessionFailureAction(reconnectKind);
@@ -1093,7 +1113,7 @@ export const startGrokSession = (
 							};
 						},
 					);
-					grokDiag("session/prompt starting", {
+					sessionDiag("session/prompt starting", {
 						permissionMode: currentMode,
 						model: input.model,
 					});
@@ -1110,9 +1130,9 @@ export const startGrokSession = (
 							},
 						);
 						if (GROK_RPC_TRACE || GROK_DIAG) {
-							process.stderr.write(`[grok.prompt] completed\n`);
+							diagnostics.write(`[grok.prompt] completed\n`);
 						}
-						grokDiag("session/prompt completed successfully");
+						sessionDiag("session/prompt completed successfully");
 						if (compactSnapshot !== null && !closed) {
 							Queue.offerUnsafe(
 								events,
@@ -1128,9 +1148,9 @@ export const startGrokSession = (
 						const reason =
 							cause instanceof Error ? cause.message : String(cause);
 						if (GROK_RPC_TRACE || GROK_DIAG) {
-							process.stderr.write(`[grok.prompt] failed: ${reason}\n`);
+							diagnostics.write(`[grok.prompt] failed: ${reason}\n`);
 						}
-						grokDiag("session/prompt failed", { reason });
+						sessionDiag("session/prompt failed", { reason });
 						const errorKind =
 							cause instanceof GrokProtocolError ? cause.kind : "provider";
 						const isCancellation = errorKind === "cancellation";
@@ -1217,7 +1237,7 @@ export const startGrokSession = (
 					const sid = acpSessionId;
 					if (sid === null) return;
 					if (GROK_RPC_TRACE) {
-						process.stderr.write(
+						diagnostics.write(
 							`[grok.interrupt] sid=${sid} pendingPrompt=${currentPromptRpcId ?? "(none)"}\n`,
 						);
 					}

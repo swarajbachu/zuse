@@ -331,6 +331,18 @@ export const AuthServiceLive = Layer.effect(
 				.withPermits(1)(store.withLock(store.clear()))
 				.pipe(
 					Effect.catch(() => Effect.void),
+					Effect.andThen(
+						Effect.gen(function* () {
+							const owners = yield* credentials.listIntegrationAccounts(
+								"environment-personal-cache",
+							);
+							for (const owner of owners)
+								yield* credentials.removeIntegration(
+									"environment-personal-cache",
+									owner,
+								);
+						}).pipe(Effect.catch(() => Effect.void)),
+					),
 					Effect.andThen(Ref.set(lastKnown, null)),
 					Effect.andThen(PubSub.publish(pubsub, SIGNED_OUT)),
 					Effect.asVoid,

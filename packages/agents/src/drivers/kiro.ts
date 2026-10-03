@@ -8,7 +8,6 @@ import {
 	AgentSessionStartError,
 	type AttachmentRef,
 	type PermissionMode,
-	type StartSessionInput,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, Stream } from "effect";
@@ -21,6 +20,11 @@ import type {
 	ProviderDriverEvent,
 	ProviderSessionHandle,
 } from "../kernel/driver.ts";
+import {
+	executionDiagnostics,
+	hasManagedEnvironment,
+} from "../kernel/execution-diagnostics.ts";
+import type { DriverStartSessionInput as StartSessionInput } from "../kernel/execution-environment.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
@@ -142,6 +146,10 @@ export const startKiroSession = (
 	AttachmentService
 > =>
 	Effect.gen(function* () {
+		const diagnosticsDisabled = hasManagedEnvironment(
+			input.executionEnvironment,
+		);
+		const diagnostics = executionDiagnostics(diagnosticsDisabled);
 		// AttachmentService resolves uploaded image blobs for ACP image content
 		// (Kiro advertises promptCapabilities.image).
 		const attachments = yield* AttachmentService;
@@ -150,6 +158,7 @@ export const startKiroSession = (
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 
 		const acpHandlerContext = makeAcpPermissionContext({
+			executionEnvironment: input.executionEnvironment,
 			cwd,
 			sessionId,
 			projectId: input.folderId,
@@ -204,6 +213,7 @@ export const startKiroSession = (
 		});
 
 		const translator = createAcpTranslator("kiro", {
+			diagnosticsDisabled,
 			onCheckpoint: (checkpointEvents) => {
 				for (const event of checkpointEvents) Queue.offerUnsafe(events, event);
 			},
@@ -247,7 +257,7 @@ export const startKiroSession = (
 		const writeMessage = (msg: Record<string, unknown>): void => {
 			if (!child.stdin.writable) return;
 			const line = JSON.stringify(msg);
-			if (KIRO_RPC_TRACE) process.stderr.write(`[kiro.rpc.send] ${line}\n`);
+			if (KIRO_RPC_TRACE) diagnostics.write(`[kiro.rpc.send] ${line}\n`);
 			child.stdin.write(`${line}\n`);
 		};
 
@@ -302,7 +312,7 @@ export const startKiroSession = (
 			if (cancelled === null) return;
 			currentPromptRpcId = null;
 			if (KIRO_RPC_TRACE) {
-				process.stderr.write(
+				diagnostics.write(
 					`[kiro.rpc.cancel] force-reject id=${id} method=${cancelled.method} reason=${reason}\n`,
 				);
 			}
@@ -310,11 +320,11 @@ export const startKiroSession = (
 
 		rl.on("line", (line: string) => {
 			if (line.trim().length === 0) return;
-			if (KIRO_RPC_TRACE) process.stderr.write(`[kiro.rpc.recv] ${line}\n`);
+			if (KIRO_RPC_TRACE) diagnostics.write(`[kiro.rpc.recv] ${line}\n`);
 			const msg = decodeJsonRpcLine(line);
 			if (msg === null) {
 				stdoutNoiseTail = `${stdoutNoiseTail}${line}\n`.slice(-4096);
-				process.stderr.write(`[kiro.stdout.nonjson] ${line}\n`);
+				diagnostics.write(`[kiro.stdout.nonjson] ${line}\n`);
 				return;
 			}
 
@@ -342,7 +352,7 @@ export const startKiroSession = (
 						msg.method.startsWith("_session/"))
 				) {
 					if (KIRO_RPC_TRACE) {
-						process.stderr.write(
+						diagnostics.write(
 							`[kiro.rpc] extension ${msg.method} params=${JSON.stringify(msg.params ?? {})}\n`,
 						);
 					}
@@ -364,7 +374,7 @@ export const startKiroSession = (
 				if (msg.id !== undefined && msg.id !== null) {
 					const isFs = msg.method.startsWith("fs/");
 					if (KIRO_RPC_TRACE || isFs) {
-						process.stderr.write(
+						diagnostics.write(
 							`[kiro.rpc] server→client request method=${msg.method} id=${msg.id} params=${JSON.stringify(msg.params ?? {})}\n`,
 						);
 					}
@@ -391,7 +401,7 @@ export const startKiroSession = (
 					}
 
 					if (isAcpNativePermissionMethod(msg.method)) {
-						process.stderr.write(
+						diagnostics.write(
 							`[kiro.rpc] native permission request method=${msg.method} id=${msg.id}\n`,
 						);
 						handleAcpNativePermissionRequest(
@@ -440,7 +450,7 @@ export const startKiroSession = (
 							message: `Method not supported by Zuse ACP client: ${msg.method}`,
 						},
 					});
-					console.warn(
+					diagnostics.warn(
 						`[kiro.rpc] replied to unhandled server→client request method=${msg.method} id=${msg.id}`,
 					);
 					return;
@@ -453,11 +463,11 @@ export const startKiroSession = (
 					let rawEnvelope = "";
 					try {
 						rawEnvelope = JSON.stringify(error, null, 2);
-						process.stderr.write(
+						diagnostics.write(
 							`[kiro.rpc.error] method=${context.method} id=${context.id} ${rawEnvelope}\n`,
 						);
 					} catch {
-						process.stderr.write(
+						diagnostics.write(
 							`[kiro.rpc.error] method=${context.method} id=${context.id} (unserialisable)\n`,
 						);
 					}
@@ -474,7 +484,7 @@ export const startKiroSession = (
 
 		child.stderr.on("data", (chunk: string) => {
 			stderrTail = (stderrTail + chunk).slice(-4096);
-			process.stderr.write(`[kiro.stderr] ${chunk}`);
+			diagnostics.write(`[kiro.stderr] ${chunk}`);
 		});
 
 		child.on("error", (err) => {
@@ -557,7 +567,7 @@ export const startKiroSession = (
 						});
 					} catch (cause) {
 						// Non-fatal: some older builds may not implement set_model.
-						console.warn(
+						diagnostics.warn(
 							`[kiro] session/set_model failed: ${
 								cause instanceof Error ? cause.message : String(cause)
 							}`,
@@ -574,7 +584,7 @@ export const startKiroSession = (
 							modeId: agentMode,
 						});
 					} catch (cause) {
-						console.warn(
+						diagnostics.warn(
 							`[kiro] session/set_mode(${agentMode}) failed: ${
 								cause instanceof Error ? cause.message : String(cause)
 							}`,
@@ -613,7 +623,7 @@ export const startKiroSession = (
 		});
 
 		if (resumeCursor !== null && !acquiredSession.resumed) {
-			console.warn(
+			diagnostics.warn(
 				`[kiro] previous cursor ${resumeCursor} was unavailable; using new session ${acpSessionId}`,
 			);
 		}
@@ -681,7 +691,7 @@ export const startKiroSession = (
 						},
 					);
 					if (KIRO_RPC_TRACE) {
-						process.stderr.write(
+						diagnostics.write(
 							`[kiro.prompt] enqueue parts=${prompt.length} mode=${currentMode}\n`,
 						);
 					}
@@ -702,7 +712,7 @@ export const startKiroSession = (
 							},
 						);
 						if (KIRO_RPC_TRACE) {
-							process.stderr.write(`[kiro.prompt] completed\n`);
+							diagnostics.write(`[kiro.prompt] completed\n`);
 						}
 						if (compactSnapshot !== null && !closed) {
 							Queue.offerUnsafe(
@@ -719,7 +729,7 @@ export const startKiroSession = (
 						const reason =
 							cause instanceof Error ? cause.message : String(cause);
 						if (KIRO_RPC_TRACE) {
-							process.stderr.write(`[kiro.prompt] failed: ${reason}\n`);
+							diagnostics.write(`[kiro.prompt] failed: ${reason}\n`);
 						}
 						const isCancellation = /cancel|interrupt/i.test(reason);
 						if (!closed && !isCancellation) {
@@ -755,7 +765,7 @@ export const startKiroSession = (
 					const sid = acpSessionId;
 					if (sid === null) return;
 					if (KIRO_RPC_TRACE) {
-						process.stderr.write(
+						diagnostics.write(
 							`[kiro.interrupt] sid=${sid} pendingPrompt=${currentPromptRpcId ?? "(none)"}\n`,
 						);
 					}

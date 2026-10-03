@@ -2,6 +2,7 @@ import {
 	ChatAlreadyStartedError,
 	type ChatArchiveJob,
 	type ChatArchiveResult,
+	ChatArchiveScriptError,
 	ChatArchiveWorktreeError,
 	ChatId,
 	ChatNotFoundError,
@@ -29,6 +30,7 @@ import {
 	Semaphore,
 } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
+import { EnvironmentRuntime } from "../../environment/environment-runtime.ts";
 import type { makeReactorEffectJournal } from "../../provider/reactor-effect-journal.ts";
 import type { PtyServiceShape } from "../../pty/services/pty-service.ts";
 import type { RepositorySettingsServiceShape } from "../../repository-settings/services/repository-settings-service.ts";
@@ -126,6 +128,7 @@ export interface ArchiveOperationsOptions {
 
 export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 	function* (options: ArchiveOperationsOptions) {
+		const environment = yield* Effect.serviceOption(EnvironmentRuntime);
 		const {
 			sql,
 			currentTimestamp,
@@ -786,11 +789,31 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 				) {
 					yield* updateJob(chatId, "running", "cleanup-script");
 					const rootPath = yield* projectPath(chat.projectId);
+					const resolved = Option.isSome(environment)
+						? yield* environment.value
+								.resolve(worktree.path, chat.projectId)
+								.pipe(
+									Effect.mapError(
+										() =>
+											new ChatArchiveScriptError({
+												chatId,
+												exitCode: null,
+												signal: null,
+												output: "Environment secrets could not be resolved.",
+											}),
+									),
+								)
+						: null;
 					const cleanup = yield* runArchiveScript({
+						secretValues: resolved?.secretNames.map(
+							(name) => resolved.values[name] ?? "",
+						),
 						chatId,
 						script,
 						cwd: worktree.path,
 						env: {
+							...settings.environmentVariables,
+							...resolved?.values,
 							ZUSE_ROOT_PATH: rootPath ?? "",
 							ZUSE_WORKSPACE_PATH: worktree.path,
 							ZUSE_CHAT_ID: chatId,

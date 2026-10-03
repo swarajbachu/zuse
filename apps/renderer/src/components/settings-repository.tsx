@@ -1,3 +1,6 @@
+import { useAuth } from "../hooks/use-auth.ts";
+import { useEnvironmentAuth } from "../lib/auth-client-bus.ts";
+import { EnvironmentProjectSettings } from "./settings/environment-project-settings.tsx";
 import "@zuse/i18n/english/settings";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -39,6 +42,12 @@ import { Textarea } from "./ui/textarea.tsx";
  */
 export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { user } = useAuth();
+	const auth = useEnvironmentAuth();
+	const organizationId =
+		auth.data?.state?._tag === "SignedIn"
+			? auth.data.state.session.organizationId
+			: null;
 
 	const environmentId = EnvironmentId.make(
 		useEnvironmentCatalogStore((state) => state.activeEnvironmentId),
@@ -124,6 +133,24 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 				projectName={folder.name}
 			/>
 
+			<EnvironmentProjectSettings
+				key={JSON.stringify([
+					user?.id,
+					organizationId,
+					environmentId,
+					projectId,
+				])}
+				environmentId={environmentId}
+				folderId={projectId}
+				legacy={settings.environmentVariables}
+				cloudLegacy={settings.cloudEnvironmentVariables}
+				onRemoveLegacy={() =>
+					update(environmentId, projectId, {
+						environmentVariables: {},
+						cloudEnvironmentVariables: {},
+					})
+				}
+			/>
 			<ScriptsSection
 				setupScript={settings.setupScript}
 				runScript={settings.runScript}

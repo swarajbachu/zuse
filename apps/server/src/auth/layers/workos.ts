@@ -210,6 +210,10 @@ const authenticate = (
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(body),
 				signal: AbortSignal.timeout(15_000),
+			}).catch(() => {
+				throw Object.assign(new Error("WorkOS network unavailable."), {
+					networkUnavailable: true,
+				});
 			});
 			if (!res.ok) {
 				const text = await res.text().catch(() => "");
@@ -231,7 +235,9 @@ const authenticate = (
 					cause instanceof Error &&
 					(cause as { workosCode?: unknown }).workosCode === "invalid_grant"
 						? "invalid_grant"
-						: undefined,
+						: cause instanceof Error && "networkUnavailable" in cause
+							? "network"
+							: undefined,
 				cause,
 			}),
 	}).pipe(Effect.map(toBundle));

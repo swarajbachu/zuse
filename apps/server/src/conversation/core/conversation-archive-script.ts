@@ -5,6 +5,7 @@ import {
 	ChatArchiveTimeoutError,
 	type ChatId,
 } from "@zuse/contracts";
+import { createSecretMasker } from "@zuse/utils/environment";
 import { Effect } from "effect";
 import { signalProcessGroup } from "../../process/process-group.ts";
 
@@ -20,6 +21,7 @@ const truncateOutput = (value: string): string =>
 export interface RunArchiveScriptOptions {
 	readonly chatId: ChatId;
 	readonly script: string;
+	readonly secretValues?: readonly string[];
 	readonly cwd: string;
 	readonly env: Readonly<Record<string, string>>;
 }
@@ -35,6 +37,8 @@ export const runArchiveScript = (
 		ChatArchiveScriptError | ChatArchiveTimeoutError
 	>((resume) => {
 		let output = "";
+		const stdoutMasker = createSecretMasker(options.secretValues ?? []);
+		const stderrMasker = createSecretMasker(options.secretValues ?? []);
 		let timedOut = false;
 		let settled = false;
 		const child = spawn("/bin/zsh", ["-lc", options.script], {
@@ -47,11 +51,14 @@ export const runArchiveScript = (
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 
-		const append = (chunk: unknown) => {
-			output = truncateOutput(output + String(chunk));
-		};
-		child.stdout?.on("data", append);
-		child.stderr?.on("data", append);
+		const append =
+			(masker: ReturnType<typeof createSecretMasker>) => (chunk: string) => {
+				output = truncateOutput(output + masker.write(chunk));
+			};
+		child.stdout?.setEncoding("utf8");
+		child.stderr?.setEncoding("utf8");
+		child.stdout?.on("data", append(stdoutMasker));
+		child.stderr?.on("data", append(stderrMasker));
 
 		const timer = setTimeout(() => {
 			timedOut = true;
@@ -77,7 +84,9 @@ export const runArchiveScript = (
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
-			const finalOutput = truncateOutput(output);
+			const finalOutput = truncateOutput(
+				output + stdoutMasker.end() + stderrMasker.end(),
+			);
 			if (timedOut) {
 				resume(
 					Effect.fail(

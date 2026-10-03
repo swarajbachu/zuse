@@ -235,6 +235,7 @@ export const CredentialsServiceLive = Layer.effect(
 			});
 
 		return CredentialsService.of({
+			encryptedAtRest: true,
 			getProviderCredential: (providerId) =>
 				read((contents) => contents.providers[providerId] ?? null),
 			setProviderCredential: (providerId, credential) =>
