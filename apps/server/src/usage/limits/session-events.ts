@@ -1,8 +1,43 @@
-import type { ProviderId, UsageLimitWindow } from "@zuse/contracts";
-import { Effect } from "effect";
+import { ProviderId, UsageLimitWindow } from "@zuse/contracts";
+import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-
 import { type SessionUsageWindow, usageWindowKey } from "./merge.ts";
+
+export const parseSessionUsageWindow = (
+	raw: string,
+	createdAt: string,
+): SessionUsageWindow | null => {
+	try {
+		if (!Number.isFinite(Date.parse(createdAt))) return null;
+		const value = JSON.parse(raw) as UsageLimitWindow & {
+			providerId?: ProviderId;
+		};
+		const providerId = Schema.decodeUnknownSync(ProviderId)(value.providerId);
+		const legacyModel =
+			providerId === "claude" && typeof value.label === "string"
+				? /^Weekly limit \((.+)\)$/.exec(value.label)?.[1]
+				: undefined;
+		const scope =
+			value.scope ??
+			(legacyModel
+				? "model"
+				: value.windowMinutes && value.windowMinutes <= 1440
+					? "session"
+					: "weekly");
+		const label = legacyModel ? `${legacyModel} only` : value.label;
+		const window = Schema.decodeUnknownSync(UsageLimitWindow)({
+			id: value.id ?? `${providerId}:${scope}:${label}`,
+			label,
+			scope,
+			usedPercent: value.usedPercent,
+			resetsAt: value.resetsAt,
+			windowMinutes: value.windowMinutes,
+		});
+		return { providerId, createdAt, window };
+	} catch {
+		return null;
+	}
+};
 
 export const loadSessionUsageWindows = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
@@ -13,35 +48,12 @@ export const loadSessionUsageWindows = Effect.gen(function* () {
 	const seen = new Set<string>();
 	const results: SessionUsageWindow[] = [];
 	for (const row of rows) {
-		try {
-			const value = JSON.parse(row.content_json) as UsageLimitWindow & {
-				providerId?: ProviderId;
-				_tag?: string;
-			};
-			if (!value.providerId) continue;
-			const window: UsageLimitWindow = {
-				id: value.id,
-				label: value.label,
-				scope:
-					value.scope ??
-					(value.windowMinutes && value.windowMinutes <= 1_440
-						? "session"
-						: "weekly"),
-				usedPercent: value.usedPercent,
-				resetsAt: value.resetsAt,
-				windowMinutes: value.windowMinutes,
-			};
-			const key = `${value.providerId}:${usageWindowKey(window)}`;
-			if (seen.has(key)) continue;
-			seen.add(key);
-			results.push({
-				providerId: value.providerId,
-				createdAt: row.created_at,
-				window: { ...window, id: window.id ?? key },
-			});
-		} catch {
-			/* Historical malformed rows are ignored. */
-		}
+		const event = parseSessionUsageWindow(row.content_json, row.created_at);
+		if (!event) continue;
+		const key = `${event.providerId}:${usageWindowKey(event.window)}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		results.push(event);
 	}
 	return results;
 });

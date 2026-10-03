@@ -49,6 +49,7 @@ import {
 	CodexAppServerRequestError,
 } from "./codex-app-server-client.ts";
 import { reportCodexStderr } from "./codex-stderr-reporter.ts";
+import { mapCodexRateLimits } from "./codex-usage-limits.ts";
 import {
 	type CompactSnapshot,
 	finishCompactEvent,
@@ -630,32 +631,6 @@ const decisionToCodex = (
 		: decision._tag === "AllowOnce"
 			? "accept"
 			: "decline";
-
-const codexResetDate = (value: number | null): string | null => {
-	if (value === null || !Number.isFinite(value)) return null;
-	return new Date(
-		value > 1_000_000_000_000 ? value : value * 1000,
-	).toISOString();
-};
-
-const codexLimitLabel = (value: string | null): string =>
-	value !== null && value.trim().length > 0 ? value.trim() : "Codex usage";
-
-const codexWindowLimitLabel = (
-	windowMinutes: number | null,
-	fallback: string | null,
-): string => {
-	if (windowMinutes !== null && Number.isFinite(windowMinutes)) {
-		if (windowMinutes % (60 * 24) === 0) {
-			return `${windowMinutes / (60 * 24)}d limit`;
-		}
-		if (windowMinutes % 60 === 0) {
-			return `${windowMinutes / 60}h limit`;
-		}
-		return `${windowMinutes}m limit`;
-	}
-	return codexLimitLabel(fallback);
-};
 
 interface CodexToolTranslationLogger {
 	readonly path: string;
@@ -1318,35 +1293,13 @@ export const translateCodexStatusNotification = (
 				},
 			];
 		case "account/rateLimits/updated": {
-			const limits = notification.params.rateLimits;
-			const out: AgentEvent[] = [];
-			if (limits.primary !== null) {
-				out.push({
-					_tag: "UsageLimit",
-					providerId: "codex",
-					label: codexWindowLimitLabel(
-						limits.primary.windowDurationMins,
-						limits.limitName,
-					),
-					usedPercent: limits.primary.usedPercent,
-					resetsAt: codexResetDate(limits.primary.resetsAt),
-					windowMinutes: limits.primary.windowDurationMins,
-				});
-			}
-			if (limits.secondary !== null) {
-				out.push({
-					_tag: "UsageLimit",
-					providerId: "codex",
-					label: codexWindowLimitLabel(
-						limits.secondary.windowDurationMins,
-						limits.limitName,
-					),
-					usedPercent: limits.secondary.usedPercent,
-					resetsAt: codexResetDate(limits.secondary.resetsAt),
-					windowMinutes: limits.secondary.windowDurationMins,
-				});
-			}
-			return out;
+			return mapCodexRateLimits({
+				rateLimits: notification.params.rateLimits,
+			}).windows.map((window) => ({
+				_tag: "UsageLimit" as const,
+				providerId: "codex" as const,
+				...window,
+			}));
 		}
 		default:
 			return null;

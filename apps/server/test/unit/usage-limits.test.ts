@@ -15,6 +15,24 @@ import {
 import { mergeUsageLimits } from "../../src/usage/limits/merge.ts";
 
 describe("usage limit normalization", () => {
+	it.each([
+		[],
+		{ models: [] },
+		{ utilization: null },
+		{ utilization: "25" },
+	])("does not render Claude breakdown metadata as a model allowance: %j", (breakdown) => {
+		const result = parseClaudeUsagePayload({
+			seven_day: { utilization: 29 },
+			seven_day_breakdown: breakdown,
+			seven_day_fable: { utilization: 0 },
+		});
+		expect(result.windows).toMatchObject([
+			{ label: "Weekly", usedPercent: 29 },
+			{ label: "Fable only", usedPercent: 0 },
+		]);
+		expect(result.windows).toHaveLength(2);
+	});
+
 	it("normalizes Claude windows and discovers model-specific weekly limits", () => {
 		const result = parseClaudeUsagePayload(
 			{
@@ -25,7 +43,7 @@ describe("usage limit normalization", () => {
 			"2026-01-01T00:00:00Z",
 		);
 		expect(result.windows).toMatchObject([
-			{ scope: "session", usedPercent: 40, windowMinutes: 300 },
+			{ scope: "session", usedPercent: 0.4, windowMinutes: 300 },
 			{ label: "Fable only", scope: "model", usedPercent: 82 },
 		]);
 		expect(result.creditsRemaining).toBe(12);
@@ -93,7 +111,7 @@ describe("usage limit normalization", () => {
 		});
 
 		expect(result.windows).toMatchObject([
-			{ label: "General", scope: "weekly" },
+			{ label: "Weekly", scope: "weekly" },
 			{ label: "GPT Spark", scope: "model" },
 		]);
 	});
@@ -184,6 +202,7 @@ describe("usage limit normalization", () => {
 					},
 				},
 			],
+			Date.parse("2026-01-01T00:02:00Z"),
 		);
 		expect(result[0]?.source).toBe("session-event");
 		expect(result[0]?.windows[0]?.usedPercent).toBe(20);
@@ -213,6 +232,7 @@ describe("usage limit normalization", () => {
 					},
 				},
 			],
+			Date.parse("2026-01-01T00:02:00Z"),
 		);
 
 		expect(result[0]?.windows).toMatchObject([

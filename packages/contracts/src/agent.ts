@@ -558,7 +558,17 @@ const ContextCompactionEvent = Schema.TaggedStruct("ContextCompaction", {
 	status: Schema.Literals(["in_progress", "completed", "failed"]),
 });
 
+export const UsageLimitScope = Schema.Literals([
+	"session",
+	"weekly",
+	"model",
+	"overall",
+]);
+export type UsageLimitScope = typeof UsageLimitScope.Type;
+
 const UsageLimitEvent = Schema.TaggedStruct("UsageLimit", {
+	id: Schema.optional(Schema.String),
+	scope: Schema.optional(UsageLimitScope),
 	providerId: ProviderId,
 	label: Schema.String,
 	usedPercent: Schema.NullOr(Schema.Number),

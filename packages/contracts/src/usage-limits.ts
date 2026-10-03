@@ -1,15 +1,7 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
-import { ProviderId } from "./agent.ts";
-
-export const UsageLimitScope = Schema.Literals([
-	"session",
-	"weekly",
-	"model",
-	"overall",
-]);
-export type UsageLimitScope = typeof UsageLimitScope.Type;
+import { ProviderId, UsageLimitScope } from "./agent.ts";
 
 export class UsageLimitWindow extends Schema.Class<UsageLimitWindow>(
 	"UsageLimitWindow",
@@ -38,6 +30,10 @@ export class ProviderUsageLimits extends Schema.Class<ProviderUsageLimits>(
 			"scope-missing",
 			"unsupported",
 			"error",
+			"cli-unavailable",
+			"unsupported-version",
+			"timeout",
+			"invalid-response",
 		]),
 	),
 }) {}

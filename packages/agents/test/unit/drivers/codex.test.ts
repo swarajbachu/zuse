@@ -643,7 +643,7 @@ describe("translateCodexStatusNotification", () => {
 		);
 
 		expect(ev.providerId).toBe("codex");
-		expect(ev.label).toBe("7d limit");
+		expect(ev.label).toBe("Weekly");
 		expect(ev.usedPercent).toBe(42);
 		expect(ev.windowMinutes).toBe(10_080);
 		expect(ev.resetsAt).toBe("2027-01-15T08:00:00.000Z");
@@ -684,11 +684,11 @@ describe("translateCodexStatusNotification", () => {
 		expect(tags(events)).toEqual(["UsageLimit", "UsageLimit"]);
 		const primary = events[0] as Extract<AgentEvent, { _tag: "UsageLimit" }>;
 		const secondary = events[1] as Extract<AgentEvent, { _tag: "UsageLimit" }>;
-		expect(primary.label).toBe("5h limit");
+		expect(primary.label).toBe("Session");
 		expect(primary.usedPercent).toBe(14);
 		expect(primary.windowMinutes).toBe(300);
 		expect(primary.resetsAt).toBe("2026-07-02T16:35:00.000Z");
-		expect(secondary.label).toBe("7d limit");
+		expect(secondary.label).toBe("Weekly");
 		expect(secondary.usedPercent).toBe(40);
 		expect(secondary.windowMinutes).toBe(10_080);
 		expect(secondary.resetsAt).toBe("2026-07-08T08:44:00.000Z");

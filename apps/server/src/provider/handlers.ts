@@ -67,6 +67,10 @@ import {
 	TranscriptService,
 } from "../conversation/services/conversation-services.ts";
 import { connectionWorkspaceActor } from "../lan-auth/services/connection-identity.ts";
+import {
+	invalidateUsageLimits,
+	observeUsageAccounts,
+} from "../usage/limits/service.ts";
 import { resolveCliPath, resolveUpdateCommand } from "./availability.ts";
 import { BrowserBridgeService } from "./services/browser-bridge-service.ts";
 import { CredentialsService } from "./services/credentials-service.ts";
@@ -86,7 +90,13 @@ import { sessionSummaryEvents } from "./session-summary-events.ts";
 const Availability = MemoizeRpcs.toLayerHandler(
 	"provider.availability",
 	({ refresh }) =>
-		Effect.flatMap(ProviderService, (svc) => svc.availability(refresh)),
+		Effect.flatMap(ProviderService, (svc) =>
+			svc
+				.availability(refresh)
+				.pipe(
+					Effect.tap((list) => Effect.sync(() => observeUsageAccounts(list))),
+				),
+		),
 );
 
 const SetCredential = MemoizeRpcs.toLayerHandler(
@@ -94,6 +104,7 @@ const SetCredential = MemoizeRpcs.toLayerHandler(
 	({ providerId, apiKey }) =>
 		Effect.flatMap(ProviderService, (svc) =>
 			svc.setCredential(providerId, apiKey).pipe(
+				Effect.tap(() => Effect.sync(() => invalidateUsageLimits(providerId))),
 				Effect.catchTag("CredentialsError", (err) =>
 					Effect.fail(
 						new CredentialStoreError({
@@ -111,6 +122,7 @@ const RemoveCredential = MemoizeRpcs.toLayerHandler(
 	({ providerId }) =>
 		Effect.flatMap(ProviderService, (svc) =>
 			svc.removeCredential(providerId).pipe(
+				Effect.tap(() => Effect.sync(() => invalidateUsageLimits(providerId))),
 				Effect.catchTag("CredentialsError", (err) =>
 					Effect.fail(
 						new CredentialStoreError({

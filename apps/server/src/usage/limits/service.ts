@@ -1,124 +1,216 @@
-import type { ProviderId, ProviderUsageLimits } from "@zuse/contracts";
-
-import { fetchClaudeUsage } from "./claude-usage.ts";
-import { fetchCodexUsage } from "./codex-usage.ts";
+import {
+	type AgentAvailability,
+	type ProviderId,
+	ProviderUsageLimits,
+} from "@zuse/contracts";
+import { Schema } from "effect";
 import { fetchGeminiUsage } from "./gemini-usage.ts";
 import { fetchGrokUsage } from "./grok-usage.ts";
 import { fetchKiroUsage } from "./kiro-usage.ts";
+import { unavailable } from "./shared.ts";
 
 const TTL_MS = 60_000;
-/** Auth misses should not stick for a full minute — retry quickly. */
 const UNAVAILABLE_TTL_MS = 5_000;
+const AUTH_RETRY_MS = 5 * 60_000;
+export const USAGE_FETCH_TIMEOUT_MS = 30_000;
+export type UsageLimitFetcher = (
+	signal: AbortSignal,
+) => Promise<ProviderUsageLimits>;
 const defaultFetchers = {
-	claude: fetchClaudeUsage,
-	codex: fetchCodexUsage,
+	claude: async () => unavailable("claude", "cli-unavailable"),
+	codex: async () => unavailable("codex", "cli-unavailable"),
 	grok: fetchGrokUsage,
 	gemini: fetchGeminiUsage,
 	kiro: fetchKiroUsage,
-} satisfies Partial<Record<ProviderId, () => Promise<ProviderUsageLimits>>>;
+} satisfies Partial<Record<ProviderId, UsageLimitFetcher>>;
 export type PolledProviderId = keyof typeof defaultFetchers;
-let fetchers = { ...defaultFetchers };
+export type UsageLimitFetchers = Partial<
+	Record<PolledProviderId, UsageLimitFetcher>
+>;
+let fetchers: Record<PolledProviderId, UsageLimitFetcher> = {
+	...defaultFetchers,
+};
 const cache = new Map<ProviderId, { at: number; value: ProviderUsageLimits }>();
 const inFlight = new Map<ProviderId, Promise<ProviderUsageLimits>>();
-const authSuppressedForPoll = new Set<ProviderId>();
-
-export const setUsageLimitFetcherForTest = (
-	providerId: PolledProviderId,
-	fetcher: () => Promise<ProviderUsageLimits>,
+const authRetryAt = new Map<ProviderId, number>();
+const accountIdentity = new Map<ProviderId, string>();
+const accountChangedAt = new Map<ProviderId, number>();
+export const usageEventBelongsToCurrentAccount = (event: {
+	providerId: ProviderId;
+	createdAt: string;
+}): boolean =>
+	Date.parse(event.createdAt) >
+	(accountChangedAt.get(event.providerId) ?? -Infinity);
+export const observeUsageAccounts = (
+	providers: ReadonlyArray<AgentAvailability>,
 ): void => {
-	fetchers[providerId] = fetcher;
+	for (const provider of providers) {
+		if (
+			provider.authStatus !== "authenticated" &&
+			provider.authStatus !== "unauthenticated"
+		)
+			continue;
+		const identity = JSON.stringify([
+			provider.authStatus,
+			provider.authType,
+			provider.authEmail,
+		]);
+		const previous = accountIdentity.get(provider.providerId);
+		accountIdentity.set(provider.providerId, identity);
+		if (previous !== undefined && previous !== identity)
+			invalidateUsageLimits(provider.providerId);
+	}
 };
+const generation = new Map<ProviderId, number>();
 
+export const invalidateUsageLimits = (providerId: ProviderId): void => {
+	accountChangedAt.set(providerId, Date.now());
+	generation.set(providerId, (generation.get(providerId) ?? 0) + 1);
+	cache.delete(providerId);
+	inFlight.delete(providerId);
+	authRetryAt.delete(providerId);
+};
+export const setUsageLimitFetcherForTest = (
+	id: PolledProviderId,
+	fetcher: UsageLimitFetcher,
+): void => {
+	fetchers[id] = fetcher;
+};
 export const resetUsageLimitsCacheForTest = () => {
 	cache.clear();
 	inFlight.clear();
-	authSuppressedForPoll.clear();
+	authRetryAt.clear();
+	generation.clear();
+	accountIdentity.clear();
+	accountChangedAt.clear();
 	fetchers = { ...defaultFetchers };
 };
-
-const suppressesBackgroundPoll = (value: ProviderUsageLimits): boolean =>
+const authFailure = (value: ProviderUsageLimits): boolean =>
 	value.unavailableReason === "no-credentials" ||
 	value.unavailableReason === "expired" ||
 	value.unavailableReason === "scope-missing";
-
-const cacheTtlMs = (value: ProviderUsageLimits): number =>
-	suppressesBackgroundPoll(value) || value.unavailableReason === "error"
-		? UNAVAILABLE_TTL_MS
-		: TTL_MS;
+const transientFailure = (value: ProviderUsageLimits): boolean =>
+	value.unavailableReason === "error" ||
+	value.unavailableReason === "timeout" ||
+	value.unavailableReason === "invalid-response" ||
+	value.unavailableReason === "cli-unavailable";
 
 const loadProvider = (
-	providerId: keyof typeof fetchers,
+	id: PolledProviderId,
 	force: boolean,
 	now: number,
+	overrides: UsageLimitFetchers,
 ): Promise<ProviderUsageLimits> => {
-	if (force) authSuppressedForPoll.delete(providerId);
-	const cached = cache.get(providerId);
-	// Force always bypasses cache. Soft loads skip only while a *healthy*
-	// result is fresh — auth misses / errors re-fetch after a short window
-	// so a transient SQLite lock or expired token does not stick.
+	if (force) authRetryAt.delete(id);
+	const cached = cache.get(id);
+	const pending = inFlight.get(id);
+	if (pending) return pending;
 	if (
 		!force &&
-		cached !== undefined &&
-		now - cached.at < cacheTtlMs(cached.value)
-	) {
+		cached &&
+		now - cached.at <
+			(cached.value.unavailableReason ? UNAVAILABLE_TTL_MS : TTL_MS)
+	)
 		return Promise.resolve({ ...cached.value, source: "cache" });
-	}
-	const pending = inFlight.get(providerId);
-	if (pending) return pending;
-	const promise = fetchers[providerId]()
-		.then((value) => {
-			cache.set(providerId, { at: now, value });
-			if (process.env.MEMOIZE_DEBUG_USAGE === "1") {
-				console.info(
-					`[usage.limits] ${providerId}`,
-					value.unavailableReason ?? "ok",
-					`windows=${value.windows.length}`,
-					value.planLabel ?? "",
-				);
+	const version = generation.get(id) ?? 0;
+	const controller = new AbortController();
+	let timer: ReturnType<typeof setTimeout>;
+	const timedOut = new Promise<ProviderUsageLimits>((resolve) => {
+		timer = setTimeout(() => {
+			resolve(unavailable(id, "timeout"));
+			controller.abort();
+		}, USAGE_FETCH_TIMEOUT_MS);
+	});
+	const operation = Promise.resolve()
+		.then(() => (overrides[id] ?? fetchers[id])(controller.signal))
+		.then((raw) => {
+			try {
+				const value = Schema.decodeUnknownSync(ProviderUsageLimits)(raw);
+				if (
+					value.providerId !== id ||
+					!Number.isFinite(Date.parse(value.fetchedAt)) ||
+					value.windows.some(
+						(w) => w.usedPercent !== null && !Number.isFinite(w.usedPercent),
+					)
+				)
+					return unavailable(id, "invalid-response");
+				return value;
+			} catch {
+				return unavailable(id, "invalid-response");
 			}
-			return value;
 		})
-		.finally(() => inFlight.delete(providerId));
-	inFlight.set(providerId, promise);
+		.catch((error: unknown) =>
+			unavailable(
+				id,
+				error instanceof Error &&
+					(error.name === "TimeoutError" || error.name === "AbortError")
+					? "timeout"
+					: "error",
+			),
+		);
+	const promise = Promise.race([operation, timedOut])
+		.then((value) => {
+			if ((generation.get(id) ?? 0) !== version)
+				return unavailable(id, "no-credentials");
+			const result =
+				transientFailure(value) &&
+				cached &&
+				(cached.value.windows.length > 0 ||
+					cached.value.creditsRemaining !== null)
+					? {
+							...cached.value,
+							source: "cache" as const,
+							unavailableReason: value.unavailableReason,
+						}
+					: value;
+			if (
+				value.unavailableReason &&
+				value.unavailableReason !== cached?.value.unavailableReason &&
+				process.env.MEMOIZE_DEBUG_USAGE === "1"
+			)
+				console.info("[usage.limits]", id, value.unavailableReason);
+			cache.set(id, { at: now, value: result });
+			if (authFailure(value)) authRetryAt.set(id, now + AUTH_RETRY_MS);
+			else authRetryAt.delete(id);
+			return result;
+		})
+		.finally(() => {
+			clearTimeout(timer);
+			if (inFlight.get(id) === promise) inFlight.delete(id);
+		});
+	inFlight.set(id, promise);
 	return promise;
 };
 
-export const loadUsageLimitsForPoll = async (
+export const loadUsageLimitsForPoll = (
 	providerIds: ReadonlyArray<PolledProviderId>,
 	now = Date.now(),
+	overrides: UsageLimitFetchers = {},
 ): Promise<ProviderUsageLimits[]> =>
 	Promise.all(
 		providerIds
-			.filter((providerId) => !authSuppressedForPoll.has(providerId))
-			.map(async (providerId) => {
-				const value = await loadProvider(providerId, false, now);
-				if (suppressesBackgroundPoll(value))
-					authSuppressedForPoll.add(providerId);
-				return value;
-			}),
+			.filter((id) => now >= (authRetryAt.get(id) ?? 0))
+			.map((id) => loadProvider(id, false, now, overrides)),
 	);
 
 export const loadUsageLimitsCached = (
 	force = false,
 	providerId?: ProviderId,
 	now = Date.now(),
+	overrides: UsageLimitFetchers = {},
 ): Promise<ProviderUsageLimits[]> => {
-	if (providerId && providerId in fetchers)
-		return loadProvider(providerId as keyof typeof fetchers, force, now).then(
-			(value) => {
-				if (!suppressesBackgroundPoll(value))
-					authSuppressedForPoll.delete(providerId);
-				return [value];
-			},
-		);
+	if (providerId)
+		return providerId in fetchers
+			? loadProvider(
+					providerId as PolledProviderId,
+					force,
+					now,
+					overrides,
+				).then((value) => [value])
+			: Promise.resolve([unavailable(providerId, "unsupported")]);
 	return Promise.all(
-		(Object.keys(fetchers) as Array<keyof typeof fetchers>).map((id) =>
-			loadProvider(id, force, now),
+		(Object.keys(fetchers) as PolledProviderId[]).map((id) =>
+			loadProvider(id, force, now, overrides),
 		),
-	).then((values) => {
-		for (const value of values)
-			if (!suppressesBackgroundPoll(value))
-				authSuppressedForPoll.delete(value.providerId);
-		return values;
-	});
+	);
 };

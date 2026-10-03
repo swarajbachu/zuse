@@ -256,6 +256,8 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 		case "UsageLimit":
 			return {
 				_tag: "usage_limit",
+				...(event.id === undefined ? {} : { id: event.id }),
+				...(event.scope === undefined ? {} : { scope: event.scope }),
 				providerId: event.providerId,
 				label: event.label,
 				usedPercent: event.usedPercent,

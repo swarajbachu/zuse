@@ -8,9 +8,14 @@ import {
 	persistPricedUsageOnce,
 } from "../cost-history.ts";
 import { loadPricedUsageCached } from "../report-cache.ts";
+import { usageCliFetchers } from "./cli-fetchers.ts";
 import { mergeUsageLimits, type SessionUsageWindow } from "./merge.ts";
 import { recordLimitSnapshots } from "./recorder.ts";
-import { loadUsageLimitsForPoll, type PolledProviderId } from "./service.ts";
+import {
+	loadUsageLimitsForPoll,
+	type PolledProviderId,
+	usageEventBelongsToCurrentAccount,
+} from "./service.ts";
 import { loadSessionUsageWindows } from "./session-events.ts";
 
 const POLL_PROVIDER_IDS: ReadonlyArray<PolledProviderId> = [
@@ -58,10 +63,16 @@ const poll = Effect.gen(function* () {
 		),
 	);
 	const providerIds = providerIdsForUsagePoll(events);
+	const fetchers = yield* usageCliFetchers;
 	const providers = yield* Effect.tryPromise(() =>
-		loadUsageLimitsForPoll(providerIds),
+		loadUsageLimitsForPoll(providerIds, now, fetchers),
 	);
-	yield* recordLimitSnapshots(mergeUsageLimits(providers, events));
+	yield* recordLimitSnapshots(
+		mergeUsageLimits(
+			providers,
+			events.filter(usageEventBelongsToCurrentAccount),
+		),
+	);
 	if (shouldPersistDailyCosts(now, lastDailyCostPersistAt)) {
 		const paths = yield* AppPaths;
 		const priced = yield* Effect.tryPromise(() =>

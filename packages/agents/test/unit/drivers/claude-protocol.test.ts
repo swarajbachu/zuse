@@ -301,3 +301,27 @@ describe("Claude native access modes", () => {
 		}
 	});
 });
+
+describe("Claude streamed usage windows", () => {
+	it("keeps model windows separate and converts fraction units explicitly", () => {
+		const events = translateClaudeSdkMessages([
+			{
+				type: "rate_limit_event",
+				rate_limit_info: {
+					rateLimitType: "seven_day_opus",
+					utilization: 0.005,
+					resetsAt: 1800000000,
+				},
+			},
+		] as never);
+		expect(events).toMatchObject([
+			{
+				_tag: "UsageLimit",
+				id: "seven_day_opus",
+				scope: "model",
+				label: "Opus only",
+				usedPercent: 0.5,
+			},
+		]);
+	});
+});

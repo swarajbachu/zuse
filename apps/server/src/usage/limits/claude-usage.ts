@@ -1,6 +1,8 @@
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import type { SDKControlGetUsageResponse } from "@anthropic-ai/claude-agent-sdk";
+import {
+	type ClaudeControlOptions,
+	withClaudeControlClient,
+} from "@zuse/agents/drivers/claude-control-client";
 import type { ProviderUsageLimits, UsageLimitWindow } from "@zuse/contracts";
 
 import { normalizePercent, normalizeReset, unavailable } from "./shared.ts";
@@ -16,7 +18,13 @@ type ClaudeScopedLimit = {
 	} | null;
 };
 type ClaudePayload = Record<string, unknown> & {
-	extra_usage?: { balance?: number; credits_remaining?: number };
+	extra_usage?: {
+		balance?: number;
+		credits_remaining?: number;
+		is_enabled?: boolean;
+		monthly_limit?: number | null;
+		used_credits?: number | null;
+	} | null;
 	subscriptionType?: string;
 	rate_limit_tier?: string;
 	limits?: ClaudeScopedLimit[];
@@ -41,14 +49,18 @@ export const parseClaudeUsagePayload = (
 ): ProviderUsageLimits => {
 	const windows: UsageLimitWindow[] = [];
 	for (const [key, raw] of Object.entries(payload)) {
-		if (raw === null || typeof raw !== "object") continue;
+		if (raw === null || typeof raw !== "object" || Array.isArray(raw)) continue;
 		const item = raw as ClaudeWindow;
+		// Prefixes also identify metadata such as seven_day_breakdown. A real
+		// allowance must carry a finite usage percentage; zero is valid.
+		const usedPercent = normalizePercent(item.utilization);
+		if (usedPercent === null) continue;
 		if (key === "five_hour")
 			windows.push({
 				id: key,
 				label: "Session",
 				scope: "session",
-				usedPercent: normalizePercent(item.utilization),
+				usedPercent,
 				resetsAt: normalizeReset(item.resets_at),
 				windowMinutes: 300,
 			});
@@ -57,7 +69,7 @@ export const parseClaudeUsagePayload = (
 				id: key,
 				label: "Weekly",
 				scope: "weekly",
-				usedPercent: normalizePercent(item.utilization),
+				usedPercent,
 				resetsAt: normalizeReset(item.resets_at),
 				windowMinutes: 10_080,
 			});
@@ -67,7 +79,7 @@ export const parseClaudeUsagePayload = (
 				id: key,
 				label: `${model} only`,
 				scope: "model",
-				usedPercent: normalizePercent(item.utilization),
+				usedPercent,
 				resetsAt: normalizeReset(item.resets_at),
 				windowMinutes: 10_080,
 			});
@@ -109,64 +121,68 @@ export const parseClaudeUsagePayload = (
 	};
 };
 
-export type ClaudeCredentialResult =
-	| { token: string; reason?: never }
-	| { token?: never; reason: "no-credentials" | "expired" | "scope-missing" };
-
-type ClaudeCredentialBlob = {
-	claudeAiOauth?: {
-		accessToken?: string;
-		expiresAt?: number;
-		scopes?: string[];
-	};
-};
-
-const credentialFromBlob = (raw: string): ClaudeCredentialResult => {
-	const oauth = (JSON.parse(raw) as ClaudeCredentialBlob).claudeAiOauth;
-	if (!oauth?.accessToken) return { reason: "no-credentials" };
-	if (oauth.expiresAt && oauth.expiresAt < Date.now())
-		return { reason: "expired" };
-	if (oauth.scopes && !oauth.scopes.includes("user:profile"))
-		return { reason: "scope-missing" };
-	return { token: oauth.accessToken };
-};
-
-export const readClaudeAccessToken =
-	async (): Promise<ClaudeCredentialResult> => {
+export const fetchClaudeUsage = async (
+	args: ClaudeControlOptions,
+): Promise<ProviderUsageLimits> => {
+	if (!args.claudeExecutablePath)
+		return unavailable("claude", "cli-unavailable");
+	return withClaudeControlClient(args, async (client) => {
+		let response: SDKControlGetUsageResponse;
 		try {
-			return credentialFromBlob(
-				await readFile(join(homedir(), ".claude", ".credentials.json"), "utf8"),
-			);
-		} catch {
-			// Never fall back to macOS Keychain. Usage polling is passive and must
-			// not create a permission prompt simply because the CLI stores its
-			// credential somewhere other than its normal credentials file.
-			return { reason: "no-credentials" };
+			response =
+				await client.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
+					skipBehaviors: true,
+				});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (
+				/unknown (?:control )?(?:request|method)|unsupported|not supported|unrecognized/i.test(
+					message,
+				)
+			) {
+				return unavailable("claude", "unsupported-version");
+			}
+			if (/not logged in|not authenticated|login required/i.test(message))
+				return unavailable("claude", "no-credentials");
+			if (/token.*expired|session.*expired/i.test(message))
+				return unavailable("claude", "expired");
+			throw error;
 		}
-	};
-
-export const fetchClaudeUsage = async (): Promise<ProviderUsageLimits> => {
-	const credential = await readClaudeAccessToken();
-	if (!("token" in credential)) return unavailable("claude", credential.reason);
-	try {
-		const response = await fetch("https://api.anthropic.com/api/oauth/usage", {
-			headers: {
-				Authorization: `Bearer ${credential.token}`,
-				"anthropic-beta": "oauth-2025-04-20",
-			},
-			signal: AbortSignal.timeout(5_000),
-		});
-		if (!response.ok)
+		if (!response || typeof response.rate_limits_available !== "boolean")
+			return unavailable("claude", "invalid-response");
+		if (!response.rate_limits_available || !response.rate_limits) {
+			const account = await client.accountInfo();
+			const hasToken = account.tokenSource && account.tokenSource !== "none";
+			const hasKey = account.apiKeySource && account.apiKeySource !== "none";
+			const external =
+				account.apiProvider && account.apiProvider !== "firstParty";
+			if (!hasToken && !hasKey && !external && args.credential === null)
+				return unavailable("claude", "no-credentials");
 			return unavailable(
 				"claude",
-				response.status === 401
-					? "expired"
-					: response.status === 403
-						? "scope-missing"
-						: "error",
+				response.subscription_type ? "error" : "unsupported",
 			);
-		return parseClaudeUsagePayload((await response.json()) as ClaudePayload);
-	} catch {
-		return unavailable("claude", "error");
-	}
+		}
+		const payload: ClaudePayload = {
+			...response.rate_limits,
+			subscriptionType: response.subscription_type ?? undefined,
+		};
+		const scoped = (response.rate_limits as { model_scoped?: unknown })
+			.model_scoped;
+		if (Array.isArray(scoped))
+			payload.limits = scoped.flatMap((item) =>
+				item && typeof item.display_name === "string"
+					? [
+							{
+								kind: "weekly_scoped",
+								group: "weekly",
+								percent: item.utilization,
+								resets_at: item.resets_at,
+								scope: { model: { display_name: item.display_name } },
+							},
+						]
+					: [],
+			);
+		return parseClaudeUsagePayload(payload);
+	});
 };

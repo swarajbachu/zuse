@@ -9,7 +9,9 @@ export const recordLimitSnapshots = (
 		const sql = yield* SqlClient.SqlClient;
 		const now = new Date();
 		const hour = `${now.toISOString().slice(0, 13)}:00:00.000Z`;
-		for (const provider of providers)
+		for (const provider of providers.filter(
+			(value) => !value.unavailableReason,
+		))
 			for (const item of provider.windows)
 				yield* sql`
     INSERT INTO usage_limit_snapshots(provider_id, account_key, window_id, captured_hour, used_percent, resets_at, window_minutes, source, updated_at)

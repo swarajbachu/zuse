@@ -32,9 +32,12 @@ export const mapGrokBillingResult = (
 	};
 };
 
-const fetchGrokCliBilling = async (): Promise<GrokBillingResult | null> => {
+const fetchGrokCliBilling = async (
+	signal?: AbortSignal,
+): Promise<GrokBillingResult | null> => {
 	const child = spawn("grok", ["agent", "stdio"], {
 		env: process.env,
+		signal,
 		stdio: ["pipe", "pipe", "ignore"],
 	});
 	const lines = createInterface({ input: child.stdout });
@@ -109,6 +112,7 @@ export const fetchGrokCreditsWithRetry = async (
 	input: Parameters<typeof fetch>[0],
 	init: RequestInit,
 	fetcher: typeof fetch = fetch,
+	signal?: AbortSignal,
 ): Promise<Response> => {
 	try {
 		const first = await fetcher(input, init);
@@ -116,7 +120,14 @@ export const fetchGrokCreditsWithRetry = async (
 	} catch {
 		// A single retry handles transient network and timeout failures.
 	}
-	return fetcher(input, { ...init, signal: AbortSignal.timeout(5_000) });
+	signal?.throwIfAborted();
+	return fetcher(input, {
+		...init,
+		signal: AbortSignal.any([
+			AbortSignal.timeout(5_000),
+			...(signal ? [signal] : []),
+		]),
+	});
 };
 
 export const readGrokAuthEntry = async (): Promise<AuthEntry | null> => {
@@ -249,7 +260,9 @@ export const parseGrokCreditsResponse = (
 	};
 };
 
-export const fetchGrokUsage = async (): Promise<ProviderUsageLimits> => {
+export const fetchGrokUsage = async (
+	signal?: AbortSignal,
+): Promise<ProviderUsageLimits> => {
 	const auth = await readGrokAuthEntry();
 	if (!auth?.key) return unavailable("grok", "no-credentials");
 	if (
@@ -259,7 +272,7 @@ export const fetchGrokUsage = async (): Promise<ProviderUsageLimits> => {
 	)
 		return unavailable("grok", "expired");
 	try {
-		const cli = await fetchGrokCliBilling();
+		const cli = await fetchGrokCliBilling(signal);
 		const parsed = cli ? mapGrokBillingResult(cli) : null;
 		const response = parsed
 			? null
@@ -276,8 +289,13 @@ export const fetchGrokUsage = async (): Promise<ProviderUsageLimits> => {
 							Referer: "https://grok.com/?_s=usage",
 						},
 						body: new Uint8Array(5),
-						signal: AbortSignal.timeout(5_000),
+						signal: AbortSignal.any([
+							AbortSignal.timeout(5_000),
+							...(signal ? [signal] : []),
+						]),
 					},
+					undefined,
+					signal,
 				);
 		if (response && !response.ok)
 			return unavailable(

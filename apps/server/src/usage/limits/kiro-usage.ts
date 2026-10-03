@@ -1,6 +1,6 @@
 import {
 	kiroControlPlaneRequest,
-	readKiroAuthContext,
+	readKiroAuthContextAsync,
 	resolveKiroCliPath,
 } from "@zuse/agents/drivers/kiro-auth";
 import type { ProviderUsageLimits, UsageLimitWindow } from "@zuse/contracts";
@@ -101,12 +101,14 @@ export const mapKiroUsageLimits = (
 	};
 };
 
-export const fetchKiroUsage = async (): Promise<ProviderUsageLimits> => {
+export const fetchKiroUsage = async (
+	signal?: AbortSignal,
+): Promise<ProviderUsageLimits> => {
 	const kiroPath = resolveKiroCliPath();
 	// Always allow a CLI refresh — short-lived OIDC tokens expire while the
 	// desktop still shows "authenticated" from the last availability probe.
-	const auth = readKiroAuthContext({
-		refreshIfExpired: true,
+	const auth = await readKiroAuthContextAsync({
+		signal,
 		kiroPath,
 	});
 	if (auth === null) {
@@ -137,6 +139,7 @@ export const fetchKiroUsage = async (): Promise<ProviderUsageLimits> => {
 			"GetUsageLimits",
 			body,
 			15_000,
+			signal,
 		);
 		return mapKiroUsageLimits(response);
 	} catch (cause) {
@@ -144,8 +147,8 @@ export const fetchKiroUsage = async (): Promise<ProviderUsageLimits> => {
 		console.warn(`[kiro-usage] GetUsageLimits failed: ${message}`);
 		if (/invalid token|unauthori[sz]ed|access denied|expired/i.test(message)) {
 			// One more refresh + retry — common when the token expired mid-request.
-			const retried = readKiroAuthContext({
-				refreshIfExpired: true,
+			const retried = await readKiroAuthContextAsync({
+				signal,
 				kiroPath,
 			});
 			if (
@@ -165,6 +168,7 @@ export const fetchKiroUsage = async (): Promise<ProviderUsageLimits> => {
 									: { profileArn: retried.profileArn }),
 							},
 							15_000,
+							signal,
 						);
 					return mapKiroUsageLimits(response);
 				} catch (retryCause) {

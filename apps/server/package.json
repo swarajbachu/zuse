@@ -58,7 +58,8 @@
 		"tree-sitter-typescript": "^0.23.0"
 	},
 	"devDependencies": {
-		"@anthropic-ai/claude-agent-sdk": "^0.2.126",
+		"@anthropic-ai/claude-agent-sdk": "0.3.276",
+		"@anthropic-ai/sdk": "0.93.0",
 		"@cursor/sdk": "1.0.32",
 		"@effect/vitest": "catalog:",
 		"@effect/platform-node": "catalog:",

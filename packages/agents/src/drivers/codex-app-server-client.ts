@@ -364,7 +364,9 @@ export class CodexAppServerClient {
 			| CodexGoalRequestMethod
 			| CodexExperimentalRequestMethod,
 		params: unknown,
+		signal?: AbortSignal,
 	): Promise<T> {
+		if (signal?.aborted) return Promise.reject(signal.reason);
 		if (this.closed) {
 			return Promise.reject(new Error("Codex app-server is closed"));
 		}
@@ -372,13 +374,27 @@ export class CodexAppServerClient {
 		const message =
 			params === undefined ? { id, method } : { id, method, params };
 		return new Promise<T>((resolve, reject) => {
+			const cleanup = () => signal?.removeEventListener("abort", onAbort);
+			const onAbort = () => {
+				this.pending.delete(id);
+				cleanup();
+				reject(signal?.reason);
+			};
+			signal?.addEventListener("abort", onAbort, { once: true });
 			this.pending.set(id, {
-				resolve: (value) => resolve(value as T),
-				reject,
+				resolve: (value) => {
+					cleanup();
+					resolve(value as T);
+				},
+				reject: (error) => {
+					cleanup();
+					reject(error);
+				},
 			});
 			this.child.stdin.write(`${JSON.stringify(message)}\n`, (err) => {
 				if (err) {
 					this.pending.delete(id);
+					cleanup();
 					reject(err);
 				}
 			});

@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
 	copyFileSync,
 	existsSync,
@@ -401,6 +401,36 @@ export const readKiroAuthContext = (
 	return readOnce() ?? first;
 };
 
+/** Passive usage reads must not block the server while the CLI refreshes auth. */
+export const readKiroAuthContextAsync = async (
+	options: { kiroPath?: string; signal?: AbortSignal } = {},
+): Promise<KiroAuthContext | null> => {
+	const first = readKiroAuthContext({
+		refreshIfExpired: false,
+		kiroPath: options.kiroPath,
+	});
+	if (first && !tokenExpired(first.token)) return first;
+	options.signal?.throwIfAborted();
+	await new Promise<void>((resolve) => {
+		const child = spawn(resolveKiroCliPath(options.kiroPath), ["whoami"], {
+			stdio: "ignore",
+			timeout: 12_000,
+			signal: options.signal,
+			env: process.env,
+			shell: false,
+		});
+		child.once("error", () => resolve());
+		child.once("close", () => resolve());
+	});
+	options.signal?.throwIfAborted();
+	return (
+		readKiroAuthContext({
+			refreshIfExpired: false,
+			kiroPath: options.kiroPath,
+		}) ?? first
+	);
+};
+
 export const kiroManagementEndpoint = (region: string): string =>
 	`https://management.${region}.kiro.dev`;
 
@@ -409,6 +439,7 @@ export const kiroControlPlaneRequest = async <T>(
 	operation: string,
 	body: Record<string, unknown>,
 	timeoutMs = 8_000,
+	signal?: AbortSignal,
 ): Promise<T> => {
 	const endpoint = kiroManagementEndpoint(auth.region);
 	const controller = new AbortController();
@@ -423,7 +454,7 @@ export const kiroControlPlaneRequest = async <T>(
 				"User-Agent": "zuse-kiro-client/1.0",
 			},
 			body: JSON.stringify(body),
-			signal: controller.signal,
+			signal: AbortSignal.any([controller.signal, ...(signal ? [signal] : [])]),
 		});
 		const text = await response.text();
 		let json: unknown = null;

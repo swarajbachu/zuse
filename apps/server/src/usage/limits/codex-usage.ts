@@ -1,96 +1,32 @@
 import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
-import type { ProviderUsageLimits, UsageLimitWindow } from "@zuse/contracts";
+import { mapCodexRateLimits } from "@zuse/agents/drivers/codex-usage-limits";
+import type { ProviderUsageLimits } from "@zuse/contracts";
+import { unavailable } from "./shared.ts";
 
-import { normalizePercent, normalizeReset, unavailable } from "./shared.ts";
+export { mapCodexRateLimits };
 
-type RateWindow = {
-	usedPercent?: number;
-	resetsAt?: number;
-	windowDurationMins?: number;
-};
-type RateLimit = {
-	limitName?: string | null;
-	primary?: RateWindow | null;
-	secondary?: RateWindow | null;
-	credits?: { balance?: string | number | null } | null;
-	planType?: string | null;
-};
-
-export const mapCodexRateLimits = (
-	response: unknown,
-	fetchedAt = new Date().toISOString(),
-): ProviderUsageLimits => {
-	const raw = response as unknown as {
-		rateLimitsByLimitId?: Record<string, RateLimit>;
-		rateLimits?: RateLimit | RateLimit[];
-	};
-	const values = Array.isArray(raw.rateLimits)
-		? raw.rateLimits
-		: raw.rateLimitsByLimitId
-			? Object.values(raw.rateLimitsByLimitId)
-			: raw.rateLimits
-				? [raw.rateLimits]
-				: [];
-	const windows: UsageLimitWindow[] = [];
-	const hasMultipleLimits = values.length > 1;
-	for (const [index, limit] of values.entries())
-		for (const [kind, item] of [
-			["primary", limit.primary],
-			["secondary", limit.secondary],
-		] as const) {
-			if (!item) continue;
-			const minutes = item.windowDurationMins ?? null;
-			const shortWindow = minutes !== null && minutes <= 1_440;
-			const limitName = limit.limitName?.trim() || null;
-			const genericLimit =
-				limitName === null || /^(general|default|weekly)$/i.test(limitName);
-			windows.push({
-				id: `${index}:${kind}`,
-				label: limitName ?? (shortWindow ? "Session" : "Weekly"),
-				scope: shortWindow
-					? "session"
-					: hasMultipleLimits && !genericLimit
-						? "model"
-						: "weekly",
-				usedPercent: normalizePercent(item.usedPercent),
-				resetsAt: normalizeReset(item.resetsAt),
-				windowMinutes: minutes,
-			});
-		}
-	return {
-		providerId: "codex",
-		planLabel: values.find((value) => value.planType)?.planType ?? null,
-		windows,
-		creditsRemaining: (() => {
-			const balance = values.find((value) => value.credits?.balance != null)
-				?.credits?.balance;
-			if (balance === null || balance === undefined) return null;
-			const numeric = typeof balance === "number" ? balance : Number(balance);
-			return Number.isFinite(numeric) ? numeric : null;
-		})(),
-		fetchedAt,
-		source: "api",
-	};
-};
-
-export const fetchCodexUsage = async (): Promise<ProviderUsageLimits> => {
-	let timeout: ReturnType<typeof setTimeout> | undefined;
-	const timedOut = Symbol("timed-out");
-	try {
-		const timeoutPromise = new Promise<typeof timedOut>((resolve) => {
-			timeout = setTimeout(() => resolve(timedOut), 5_000);
-		});
-		const result = await withCodexControlClient("codex", (client) =>
-			Promise.race([
-				client.request<unknown>("account/rateLimits/read", {}),
-				timeoutPromise,
-			]),
+export const fetchCodexUsage = async (
+	codexPath: string | null,
+	signal?: AbortSignal,
+): Promise<ProviderUsageLimits> => {
+	if (!codexPath) return unavailable("codex", "cli-unavailable");
+	return withCodexControlClient(codexPath, async (client) => {
+		// The shared client bounds startup separately. Give the read its full deadline.
+		const requestSignal = AbortSignal.any([
+			AbortSignal.timeout(5_000),
+			...(signal ? [signal] : []),
+		]);
+		const result = await client.request<unknown>(
+			"account/rateLimits/read",
+			{},
+			requestSignal,
 		);
-		if (result === timedOut) return unavailable("codex", "error");
+		if (
+			!result ||
+			typeof result !== "object" ||
+			!("rateLimits" in result || "rateLimitsByLimitId" in result)
+		)
+			return unavailable("codex", "invalid-response");
 		return mapCodexRateLimits(result);
-	} catch {
-		return unavailable("codex", "error");
-	} finally {
-		if (timeout !== undefined) clearTimeout(timeout);
-	}
+	});
 };

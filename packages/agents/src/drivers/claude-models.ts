@@ -1,13 +1,7 @@
 import {
-	type Options,
-	query,
-	type SDKUserMessage,
-} from "@anthropic-ai/claude-agent-sdk";
-
-import {
-	applyClaudeCredentialEnv,
-	type ClaudeManagedCredential,
-} from "./claude.ts";
+	type ClaudeControlOptions,
+	withClaudeControlClient,
+} from "./claude-control-client.ts";
 
 export interface ClaudeListedModel {
 	readonly id: string;
@@ -24,50 +18,11 @@ export interface ClaudeListedModel {
  * the process. Not authoritative: Claude Code reports a curated list that
  * may lag the API, so the catalog only *adds* from it.
  */
-export const listClaudeModels = async (args: {
-	readonly claudeExecutablePath: string | null;
-	readonly credential: ClaudeManagedCredential | null;
-	readonly cwd: string;
-	readonly timeoutMs: number;
-}): Promise<ReadonlyArray<ClaudeListedModel>> => {
-	const abort = new AbortController();
-	let release = (): void => {};
-	const released = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	const idle: AsyncIterable<SDKUserMessage> = {
-		[Symbol.asyncIterator]: () => ({
-			next: async () => {
-				await released;
-				return { done: true, value: undefined as never };
-			},
-		}),
-	};
-	const options: Options = {
-		cwd: args.cwd,
-		abortController: abort,
-		env: applyClaudeCredentialEnv(process.env, args.credential) as Record<
-			string,
-			string | undefined
-		>,
-		maxTurns: 1,
-		persistSession: false,
-		tools: [],
-		...(args.claudeExecutablePath !== null
-			? { pathToClaudeCodeExecutable: args.claudeExecutablePath }
-			: {}),
-	};
-	const timer = setTimeout(() => abort.abort(), args.timeoutMs);
-	const q = query({ prompt: idle, options });
-	try {
-		const models = await Promise.race([
-			q.supportedModels(),
-			new Promise<never>((_, reject) => {
-				abort.signal.addEventListener("abort", () =>
-					reject(new Error("Claude model listing timed out.")),
-				);
-			}),
-		]);
+export const listClaudeModels = async (
+	args: ClaudeControlOptions,
+): Promise<ReadonlyArray<ClaudeListedModel>> =>
+	withClaudeControlClient(args, async (q) => {
+		const models = await q.supportedModels();
 		return models.map((model) => ({
 			id: model.value,
 			label: model.displayName,
@@ -85,13 +40,4 @@ export const listClaudeModels = async (args: {
 					? model.supportsFastMode
 					: null,
 		}));
-	} finally {
-		clearTimeout(timer);
-		release();
-		try {
-			q.close();
-		} catch {
-			// process already gone
-		}
-	}
-};
+	});

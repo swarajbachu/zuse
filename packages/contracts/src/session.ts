@@ -9,6 +9,7 @@ import {
 	ProviderId,
 	ProviderMessageCheckpoint,
 	RuntimeMode,
+	UsageLimitScope,
 	UserQuestion,
 } from "./agent.ts";
 import { WorkspaceActor } from "./collaboration.ts";
@@ -344,6 +345,8 @@ const ContextCompactionContent = Schema.TaggedStruct("context_compaction", {
 });
 
 const UsageLimitContent = Schema.TaggedStruct("usage_limit", {
+	id: Schema.optional(Schema.String),
+	scope: Schema.optional(UsageLimitScope),
 	providerId: ProviderId,
 	label: Schema.String,
 	usedPercent: Schema.NullOr(Schema.Number),

@@ -29,9 +29,13 @@ import {
 	persistPricedUsageOnce,
 	resetPersistedPricedUsageForTest,
 } from "./cost-history.ts";
+import { usageCliFetchers } from "./limits/cli-fetchers.ts";
 import { mergeUsageLimits } from "./limits/merge.ts";
 import { recordLimitSnapshots } from "./limits/recorder.ts";
-import { loadUsageLimitsCached } from "./limits/service.ts";
+import {
+	loadUsageLimitsCached,
+	usageEventBelongsToCurrentAccount,
+} from "./limits/service.ts";
 import { loadSessionUsageWindows } from "./limits/session-events.ts";
 import {
 	loadPricedUsageCached,
@@ -433,14 +437,19 @@ const UsageLimits = MemoizeRpcs.toLayerHandler(
 			const events = yield* loadSessionUsageWindows.pipe(
 				Effect.catch(() => Effect.succeed([])),
 			);
+			const fetchers = yield* usageCliFetchers;
 			const providers = yield* Effect.tryPromise(() =>
-				loadUsageLimitsCached(forceRefresh, providerId),
+				loadUsageLimitsCached(forceRefresh, providerId, Date.now(), fetchers),
 			).pipe(Effect.orDie);
 			const merged = mergeUsageLimits(
 				providers,
 				providerId === undefined
-					? events
-					: events.filter((event) => event.providerId === providerId),
+					? events.filter(usageEventBelongsToCurrentAccount)
+					: events.filter(
+							(event) =>
+								event.providerId === providerId &&
+								usageEventBelongsToCurrentAccount(event),
+						),
 			);
 			yield* recordLimitSnapshots(merged).pipe(
 				Effect.catchCause((cause) =>

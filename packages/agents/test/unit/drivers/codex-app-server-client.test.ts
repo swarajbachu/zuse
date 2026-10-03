@@ -414,3 +414,45 @@ describe("Codex app-server API-key authentication", () => {
 		}
 	});
 });
+
+describe("Codex control request cancellation", () => {
+	it("cancels a hung read without closing other callers' shared client", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-codex-cancel-"));
+		const executable = join(directory, "codex.mjs");
+		let client: CodexAppServerClient | undefined;
+		try {
+			writeFileSync(
+				executable,
+				`#!/usr/bin/env node
+import readline from "node:readline";
+readline.createInterface({input:process.stdin}).on("line", line => {
+ const r=JSON.parse(line);
+ if (r.id === undefined || r.method === "account/rateLimits/read") return;
+ process.stdout.write(JSON.stringify({id:r.id,result:{userAgent:"test"}})+"\\n");
+});
+`,
+				{ mode: 0o755 },
+			);
+			client = await CodexAppServerClient.start({
+				codexPath: executable,
+				startupTimeoutMs: 2000,
+				onNotification: () => {},
+				onServerRequest: () => {},
+			});
+			const controller = new AbortController();
+			const pending = client.request(
+				"account/rateLimits/read",
+				{},
+				controller.signal,
+			);
+			controller.abort(new DOMException("Timed out", "TimeoutError"));
+			await expect(pending).rejects.toMatchObject({ name: "TimeoutError" });
+			await expect(client.request("account/read", {})).resolves.toEqual({
+				userAgent: "test",
+			});
+		} finally {
+			client?.close();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+});

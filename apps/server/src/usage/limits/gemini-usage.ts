@@ -94,7 +94,9 @@ export const mapGeminiQuota = (
 	};
 };
 
-export const fetchGeminiUsage = async (): Promise<ProviderUsageLimits> => {
+export const fetchGeminiUsage = async (
+	signal?: AbortSignal,
+): Promise<ProviderUsageLimits> => {
 	try {
 		const root = join(homedir(), ".gemini");
 		const settings = JSON.parse(
@@ -124,7 +126,10 @@ export const fetchGeminiUsage = async (): Promise<ProviderUsageLimits> => {
 				body: JSON.stringify({
 					metadata: { ideType: "GEMINI_CLI", pluginType: "GEMINI" },
 				}),
-				signal: AbortSignal.timeout(5_000),
+				signal: AbortSignal.any([
+					AbortSignal.timeout(5_000),
+					...(signal ? [signal] : []),
+				]),
 			},
 		);
 		if (!load.ok)
@@ -139,7 +144,10 @@ export const fetchGeminiUsage = async (): Promise<ProviderUsageLimits> => {
 				"https://cloudresourcemanager.googleapis.com/v1/projects",
 				{
 					headers: { Authorization: `Bearer ${creds.access_token}` },
-					signal: AbortSignal.timeout(5_000),
+					signal: AbortSignal.any([
+						AbortSignal.timeout(5_000),
+						...(signal ? [signal] : []),
+					]),
 				},
 			);
 			if (resources.status === 401) return unavailable("gemini", "expired");
@@ -161,7 +169,10 @@ export const fetchGeminiUsage = async (): Promise<ProviderUsageLimits> => {
 				method: "POST",
 				headers,
 				body: JSON.stringify({ project }),
-				signal: AbortSignal.timeout(5_000),
+				signal: AbortSignal.any([
+					AbortSignal.timeout(5_000),
+					...(signal ? [signal] : []),
+				]),
 			},
 		);
 		if (!quota.ok)

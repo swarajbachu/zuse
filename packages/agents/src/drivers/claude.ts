@@ -25,6 +25,7 @@ import {
 	type UserQuestion,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
+import { fractionToPercent } from "@zuse/utils/usage-values";
 import { type Cause, Effect, Queue, Stream } from "effect";
 
 import { AttachmentService } from "../kernel/attachment-service.ts";
@@ -455,8 +456,9 @@ interface ClaudeRateLimitInfo {
 const CLAUDE_LIMIT_LABELS: Record<string, string> = {
 	five_hour: "5-hour limit",
 	seven_day: "Weekly limit",
-	seven_day_opus: "Weekly limit (Opus)",
-	seven_day_sonnet: "Weekly limit (Sonnet)",
+	seven_day_opus: "Opus only",
+	seven_day_sonnet: "Sonnet only",
+	seven_day_overage_included: "Model weekly limit",
 	overage: "Overage",
 };
 
@@ -464,28 +466,21 @@ const CLAUDE_LIMIT_WINDOW_MINUTES: Record<string, number> = {
 	five_hour: 5 * 60,
 	seven_day: 7 * 24 * 60,
 	seven_day_opus: 7 * 24 * 60,
+	seven_day_overage_included: 7 * 24 * 60,
 	seven_day_sonnet: 7 * 24 * 60,
 };
 
 /**
  * Map a subscription `rate_limit_event` into a `UsageLimit` event. Only
  * fires for claude.ai subscription sessions; API-key sessions never emit
- * it. `utilization` arrives as a 0–1 fraction or a 0–100 percent depending
- * on SDK version, so normalise defensively.
+ * it. `utilization` arrives as a 0–1 fraction; snapshot APIs use 0–100.
  */
 const claudeRateLimitEvents = (
 	info: ClaudeRateLimitInfo,
 ): ReadonlyArray<AgentEvent> => {
 	const type = info.rateLimitType;
 	if (type === undefined) return [];
-	const utilization =
-		typeof info.utilization === "number" ? info.utilization : null;
-	const usedPercent =
-		utilization === null
-			? null
-			: utilization <= 1
-				? utilization * 100
-				: utilization;
+	const usedPercent = fractionToPercent(info.utilization);
 	const resetsAt =
 		typeof info.resetsAt === "number" && Number.isFinite(info.resetsAt)
 			? new Date(
@@ -496,6 +491,15 @@ const claudeRateLimitEvents = (
 		{
 			_tag: "UsageLimit",
 			providerId: "claude",
+			id: type,
+			scope:
+				type === "five_hour"
+					? "session"
+					: type === "seven_day"
+						? "weekly"
+						: type.startsWith("seven_day_")
+							? "model"
+							: "overall",
 			label: CLAUDE_LIMIT_LABELS[type] ?? "Usage limit",
 			usedPercent,
 			resetsAt,
