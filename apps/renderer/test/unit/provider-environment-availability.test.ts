@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
 	dispatch: vi.fn(),
 	toast: vi.fn(),
+	activeEnvironmentId: "local",
 }));
 
 vi.mock("../../src/components/ui/toast.tsx", () => ({
@@ -16,10 +17,11 @@ vi.mock("../../src/lib/environment-shell-client-bus.ts", () => ({
 
 vi.mock("../../src/store/environment-catalog.ts", () => ({
 	useEnvironmentCatalogStore: {
-		getState: () => ({ activeEnvironmentId: "local" }),
+		getState: () => ({ activeEnvironmentId: mocks.activeEnvironmentId }),
 	},
 }));
 
+const { useUsageLimitsStore } = await import("../../src/store/usage-limits.ts");
 const { useProvidersStore } = await import("../../src/store/providers.ts");
 
 const availability = (providerId: "codex" | "claude"): AgentAvailability => ({
@@ -33,6 +35,7 @@ const availability = (providerId: "codex" | "claude"): AgentAvailability => ({
 
 describe("provider availability by environment", () => {
 	beforeEach(() => {
+		mocks.activeEnvironmentId = "local";
 		mocks.dispatch.mockReset();
 		mocks.toast.mockReset();
 		useProvidersStore.setState({
@@ -75,5 +78,47 @@ describe("provider availability by environment", () => {
 				?.availability,
 		).toEqual(cloudAvailability);
 		expect(useProvidersStore.getState().availability).toEqual([]);
+	});
+	it("ignores an older account response after a newer availability refresh", async () => {
+		let resolve!: (value: unknown) => void;
+		mocks.dispatch.mockReturnValueOnce(
+			new Promise((done) => {
+				resolve = done;
+			}),
+		);
+		const older = useProvidersStore.getState().refresh();
+		const current = [
+			{ ...availability("claude"), authEmail: "new@example.com" },
+		];
+		mocks.dispatch.mockResolvedValueOnce({ result: current });
+		await useProvidersStore.getState().refresh();
+		const invalidate = vi.spyOn(useUsageLimitsStore.getState(), "invalidate");
+		resolve({
+			result: [{ ...availability("claude"), authEmail: "old@example.com" }],
+		});
+		await older;
+		expect(useProvidersStore.getState().availability).toEqual(current);
+		expect(invalidate).not.toHaveBeenCalled();
+		invalidate.mockRestore();
+	});
+	it.each([
+		["local", "remote", true],
+		["remote", "local", false],
+	])("keeps removal bound to %s when switching to %s", async (initial, next, shouldInvalidate) => {
+		mocks.activeEnvironmentId = initial;
+		let resolve!: (value: unknown) => void;
+		mocks.dispatch.mockReturnValueOnce(
+			new Promise((done) => {
+				resolve = done;
+			}),
+		);
+		mocks.dispatch.mockResolvedValue({ result: [] });
+		const invalidate = vi.spyOn(useUsageLimitsStore.getState(), "invalidate");
+		const pending = useProvidersStore.getState().removeCredential("claude");
+		mocks.activeEnvironmentId = next;
+		resolve({ result: undefined });
+		await pending;
+		expect(invalidate.mock.calls.length > 0).toBe(shouldInvalidate);
+		invalidate.mockRestore();
 	});
 });

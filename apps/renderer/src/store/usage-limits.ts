@@ -68,8 +68,10 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 		historyVersion++;
 		latestByProvider.set(providerId, ++requestSequence);
 		// In-flight results for the previous account must not repopulate the card.
-		pendingRefreshes.delete(providerId);
-		pendingRefreshes.delete("all");
+		for (const target of [providerId, "all"]) {
+			pendingRefreshes.delete(`${target}:true`);
+			pendingRefreshes.delete(`${target}:false`);
+		}
 		pendingLoad = null;
 		set({
 			providers: get().providers.filter((p) => p.providerId !== providerId),
@@ -119,8 +121,13 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 		}
 	},
 	refresh: (force = false, providerId) => {
-		const key = providerId ?? "all";
-		const existing = pendingRefreshes.get(key);
+		const key = `${providerId ?? "all"}:${force}`;
+		const accountVersion = historyVersion;
+		const existing =
+			pendingRefreshes.get(key) ??
+			(!force
+				? pendingRefreshes.get(`${providerId ?? "all"}:true`)
+				: undefined);
 		if (existing) return existing;
 		const sequence = ++requestSequence;
 		const targets = providerId
@@ -151,7 +158,9 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 							...accepted,
 						],
 						lastLoadedAt:
-							providerId === undefined ? Date.now() : get().lastLoadedAt,
+							providerId === undefined && accountVersion === historyVersion
+								? Date.now()
+								: get().lastLoadedAt,
 						...(sequence === requestSequence ? { error: null } : {}),
 					});
 			} catch (error) {

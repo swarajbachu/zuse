@@ -3,7 +3,7 @@ import {
 	type ProviderId,
 	ProviderUsageLimits,
 } from "@zuse/contracts";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { fetchGeminiUsage } from "./gemini-usage.ts";
 import { fetchGrokUsage } from "./grok-usage.ts";
 import { fetchKiroUsage } from "./kiro-usage.ts";
@@ -39,8 +39,9 @@ export const usageEventBelongsToCurrentAccount = (event: {
 	providerId: ProviderId;
 	createdAt: string;
 }): boolean =>
+	!credentialChanges.has(event.providerId) &&
 	Date.parse(event.createdAt) >
-	(accountChangedAt.get(event.providerId) ?? -Infinity);
+		(accountChangedAt.get(event.providerId) ?? -Infinity);
 export const observeUsageAccounts = (
 	providers: ReadonlyArray<AgentAvailability>,
 ): void => {
@@ -62,6 +63,30 @@ export const observeUsageAccounts = (
 	}
 };
 const generation = new Map<ProviderId, number>();
+const credentialChanges = new Map<ProviderId, number>();
+
+/** Fence readings until credential storage settles, even if the caller disconnects. */
+export const withUsageCredentialChange = <A, E, R>(
+	providerId: ProviderId,
+	operation: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> =>
+	Effect.acquireUseRelease(
+		Effect.sync(() => {
+			credentialChanges.set(
+				providerId,
+				(credentialChanges.get(providerId) ?? 0) + 1,
+			);
+			invalidateUsageLimits(providerId);
+		}),
+		() => operation,
+		() =>
+			Effect.sync(() => {
+				const remaining = (credentialChanges.get(providerId) ?? 1) - 1;
+				if (remaining) credentialChanges.set(providerId, remaining);
+				else credentialChanges.delete(providerId);
+				invalidateUsageLimits(providerId);
+			}),
+	).pipe(Effect.uninterruptible);
 
 export const invalidateUsageLimits = (providerId: ProviderId): void => {
 	accountChangedAt.set(providerId, Date.now());
@@ -81,6 +106,7 @@ export const resetUsageLimitsCacheForTest = () => {
 	inFlight.clear();
 	authRetryAt.clear();
 	generation.clear();
+	credentialChanges.clear();
 	accountIdentity.clear();
 	accountChangedAt.clear();
 	fetchers = { ...defaultFetchers };
@@ -101,6 +127,8 @@ const loadProvider = (
 	now: number,
 	overrides: UsageLimitFetchers,
 ): Promise<ProviderUsageLimits> => {
+	if (credentialChanges.has(id))
+		return Promise.resolve(unavailable(id, "error"));
 	if (force) authRetryAt.delete(id);
 	const cached = cache.get(id);
 	const pending = inFlight.get(id);
@@ -151,7 +179,7 @@ const loadProvider = (
 	const promise = Promise.race([operation, timedOut])
 		.then((value) => {
 			if ((generation.get(id) ?? 0) !== version)
-				return unavailable(id, "no-credentials");
+				return loadProvider(id, true, Date.now(), overrides);
 			const result =
 				transientFailure(value) &&
 				cached &&

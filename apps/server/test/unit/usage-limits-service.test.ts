@@ -1,4 +1,5 @@
 import type { ProviderUsageLimits } from "@zuse/contracts";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	invalidateUsageLimits,
@@ -7,6 +8,7 @@ import {
 	resetUsageLimitsCacheForTest,
 	setUsageLimitFetcherForTest,
 	USAGE_FETCH_TIMEOUT_MS,
+	withUsageCredentialChange,
 } from "../../src/usage/limits/service.ts";
 
 const reading = (
@@ -119,9 +121,48 @@ describe("isolated usage reads", () => {
 		await Promise.resolve();
 		expect(fetcher).toHaveBeenCalledOnce();
 		invalidateUsageLimits("claude");
+		const current = { ...reading(), planLabel: "New account" };
+		setUsageLimitFetcherForTest("claude", async () => current);
 		resolve(reading());
-		expect((await a)[0]?.windows).toEqual([]);
+		expect((await a)[0]?.planLabel).toBe("New account");
 		await b;
+		setUsageLimitFetcherForTest("claude", async () => {
+			throw new Error("offline");
+		});
+		expect((await loadUsageLimitsCached(true, "claude"))[0]?.planLabel).toBe(
+			"New account",
+		);
+	});
+	it.each([
+		false,
+		true,
+	])("fences credential changes through failure or interruption (%s)", async (interrupt) => {
+		setUsageLimitFetcherForTest("claude", async () => reading());
+		await loadUsageLimitsCached(true, "claude");
+		let finish!: () => void;
+		let started!: () => void;
+		const entered = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		const controller = new AbortController();
+		const operation = Effect.promise(
+			() =>
+				new Promise<void>((resolve) => {
+					finish = resolve;
+					started();
+				}),
+		).pipe(Effect.andThen(Effect.fail("write failed after replacement")));
+		const pending = Effect.runPromise(
+			withUsageCredentialChange("claude", operation),
+			{ signal: controller.signal },
+		).catch(() => undefined);
+		await entered;
+		if (interrupt) controller.abort();
+		expect((await loadUsageLimitsCached(true, "claude"))[0]?.windows).toEqual(
+			[],
+		);
+		finish();
+		await pending;
 		setUsageLimitFetcherForTest("claude", async () => {
 			throw new Error("offline");
 		});

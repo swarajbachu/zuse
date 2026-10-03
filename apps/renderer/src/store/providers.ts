@@ -52,6 +52,7 @@ export const providerUpdateKey = (
 // a provider row) must not cancel the install or lose its status.
 const providerUpdateOwners = new Map<string, StreamOperationOwner>();
 
+const availabilityRequests = new Map<string, symbol>();
 const pendingAvailabilityLoads = new Map<string, Promise<void>>();
 let activeProviderStatusNotice: string | null = null;
 
@@ -228,6 +229,8 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 	},
 	refreshFor: async (environmentId, force = true) => {
 		const key = environmentId as string;
+		const request = Symbol();
+		availabilityRequests.set(key, request);
 		const isActive = environmentId === activeEnvironmentId();
 		set((state) => ({
 			availabilityByEnvironment: {
@@ -264,6 +267,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 							}),
 					)
 				: await rawRequest;
+			if (availabilityRequests.get(key) !== request) return;
 			if (environmentId === getLocalEnvironmentId()) {
 				const previous =
 					get().availabilityByEnvironment[key]?.availability ?? [];
@@ -304,6 +308,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 			}));
 			if (publishActive) notifyProviderStatus(list);
 		} catch (err) {
+			if (availabilityRequests.get(key) !== request) return;
 			const error = formatError(err);
 			const publishActive = environmentId === activeEnvironmentId();
 			set((state) => ({
@@ -400,8 +405,8 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 		);
 	},
 	setCredential: async (providerId, apiKey) => {
+		const environmentId = activeEnvironmentId();
 		try {
-			const environmentId = activeEnvironmentId();
 			const result = await providerCommand<
 				{ readonly providerId: ProviderId; readonly apiKey: string },
 				CredentialSetResult
@@ -413,24 +418,25 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 			void useModelCatalogStore.getState().refresh();
 			return result;
 		} catch (err) {
+			if (environmentId === getLocalEnvironmentId())
+				useUsageLimitsStore.getState().invalidate(providerId);
 			set({ error: formatError(err) });
 			throw err;
 		}
 	},
 	removeCredential: async (providerId) => {
+		const environmentId = activeEnvironmentId();
 		try {
-			await providerCommand(
-				activeEnvironmentId(),
-				"provider.removeCredential",
-				{
-					providerId,
-				},
-			);
-			if (activeEnvironmentId() === getLocalEnvironmentId())
+			await providerCommand(environmentId, "provider.removeCredential", {
+				providerId,
+			});
+			if (environmentId === getLocalEnvironmentId())
 				useUsageLimitsStore.getState().invalidate(providerId);
 			await get().refresh();
 			void useModelCatalogStore.getState().refresh();
 		} catch (err) {
+			if (environmentId === getLocalEnvironmentId())
+				useUsageLimitsStore.getState().invalidate(providerId);
 			set({ error: formatError(err) });
 			throw err;
 		}
