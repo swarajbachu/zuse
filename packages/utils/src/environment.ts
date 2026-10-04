@@ -24,6 +24,43 @@ export function validateEnvironmentName(name: string): void {
 		throw new Error("reserved_environment_name");
 }
 
+type EnvironmentAssignment = Pick<
+	EnvironmentBinding,
+	"name" | "scope" | "projectIds" | "excludedProjectIds" | "target"
+>;
+
+/**
+ * Why two assignments cannot coexist, or null when they can. A project value
+ * may override an all-project default; two defaults, or two project values
+ * for the same project and target, are ambiguous.
+ */
+export function environmentAssignmentConflict(
+	entry: EnvironmentAssignment,
+	other: EnvironmentAssignment,
+): "duplicate_environment_default" | "overlapping_environment_projects" | null {
+	if (other.name !== entry.name || other.scope !== entry.scope) return null;
+	if (
+		other.target !== "both" &&
+		entry.target !== "both" &&
+		other.target !== entry.target
+	)
+		return null;
+	if (entry.projectIds === null && other.projectIds === null)
+		return "duplicate_environment_default";
+	if (
+		entry.projectIds !== null &&
+		other.projectIds !== null &&
+		entry.projectIds.some(
+			(id) =>
+				other.projectIds?.includes(id) &&
+				!entry.excludedProjectIds.includes(id) &&
+				!other.excludedProjectIds.includes(id),
+		)
+	)
+		return "overlapping_environment_projects";
+	return null;
+}
+
 export function validateEnvironmentBindings(
 	entries: readonly EnvironmentBinding[],
 ): void {
@@ -32,32 +69,9 @@ export function validateEnvironmentBindings(
 		if (entry.projectIds?.length === 0)
 			throw new Error("select_at_least_one_project");
 		for (const other of entries) {
-			if (
-				other === entry ||
-				other.id === entry.id ||
-				other.name !== entry.name ||
-				other.scope !== entry.scope
-			)
-				continue;
-			if (
-				other.target !== "both" &&
-				entry.target !== "both" &&
-				other.target !== entry.target
-			)
-				continue;
-			if (entry.projectIds === null && other.projectIds === null)
-				throw new Error("duplicate_environment_default");
-			if (
-				entry.projectIds !== null &&
-				other.projectIds !== null &&
-				entry.projectIds.some(
-					(id) =>
-						other.projectIds?.includes(id) &&
-						!entry.excludedProjectIds.includes(id) &&
-						!other.excludedProjectIds.includes(id),
-				)
-			)
-				throw new Error("overlapping_environment_projects");
+			if (other === entry || other.id === entry.id) continue;
+			const conflict = environmentAssignmentConflict(entry, other);
+			if (conflict) throw new Error(conflict);
 		}
 	}
 }
@@ -87,6 +101,7 @@ export function selectEnvironmentBindings<T extends EnvironmentBinding>(
 /** Parse dotenv as data. Deliberately does not interpolate or execute anything. */
 export function parseEnvironmentFile(
 	text: string,
+	options: { readonly validateNames?: boolean } = {},
 ): readonly { name: string; value: string }[] {
 	if (text.length > 1_048_576) throw new Error("environment_file_too_large");
 	const input = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
@@ -109,7 +124,7 @@ export function parseEnvironmentFile(
 				`invalid_environment_line_${input.slice(0, cursor).split("\n").length}`,
 			);
 		const name = start[1] ?? "";
-		validateEnvironmentName(name);
+		if (options.validateNames !== false) validateEnvironmentName(name);
 		cursor += start[0].length;
 		let value = "";
 		const quote = input[cursor];
@@ -140,11 +155,12 @@ export function parseEnvironmentFile(
 			cursor += trailing[0].length;
 		} else {
 			const end = input.indexOf("\n", cursor);
-			value =
-				input
-					.slice(cursor, end < 0 ? undefined : end)
-					.split("#")[0]
-					?.trimEnd() ?? "";
+			// Like dotenv, `#` starts a comment only after whitespace, so URLs and
+			// tokens containing `#` survive unquoted.
+			value = input
+				.slice(cursor, end < 0 ? undefined : end)
+				.replace(/(?:^|[ \t]+)#.*$/, "")
+				.trimEnd();
 			cursor = end < 0 ? input.length : end + 1;
 		}
 		result.push({ name, value });

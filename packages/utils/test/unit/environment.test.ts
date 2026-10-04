@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
 	createSecretMasker,
 	type EnvironmentBinding,
+	environmentAssignmentConflict,
 	parseEnvironmentFile,
 	selectEnvironmentBindings,
 	validateEnvironmentBindings,
@@ -81,6 +82,40 @@ describe("environment selection", () => {
 		}
 	});
 });
+describe("assignment conflicts", () => {
+	const base = {
+		name: "A",
+		scope: "personal" as const,
+		excludedProjectIds: [],
+		target: "both" as const,
+	};
+	test("allows a project value to override a default, rejects ambiguity", () => {
+		expect(
+			environmentAssignmentConflict(
+				{ ...base, projectIds: null },
+				{ ...base, projectIds: ["p"] },
+			),
+		).toBeNull();
+		expect(
+			environmentAssignmentConflict(
+				{ ...base, projectIds: ["p"] },
+				{ ...base, projectIds: ["q"] },
+			),
+		).toBeNull();
+		expect(
+			environmentAssignmentConflict(
+				{ ...base, projectIds: null },
+				{ ...base, projectIds: null },
+			),
+		).toBe("duplicate_environment_default");
+		expect(
+			environmentAssignmentConflict(
+				{ ...base, projectIds: ["p", "q"] },
+				{ ...base, projectIds: ["q"] },
+			),
+		).toBe("overlapping_environment_projects");
+	});
+});
 describe("dotenv parsing", () => {
 	test("imports quotes, multiline, empty and duplicate values without execution or interpolation", () => {
 		expect(
@@ -93,6 +128,25 @@ describe("dotenv parsing", () => {
 			{ name: "A", value: "second" },
 			{ name: "C", value: "${A} $(echo hello)" },
 			{ name: "D", value: "multi\nline" },
+		]);
+	});
+	test("keeps unquoted # that is not preceded by whitespace", () => {
+		expect(
+			parseEnvironmentFile(
+				"URL=postgres://u:p#w@db/app # primary\nTOKEN=abc#def\nEMPTY=# note\n",
+			),
+		).toEqual([
+			{ name: "URL", value: "postgres://u:p#w@db/app" },
+			{ name: "TOKEN", value: "abc#def" },
+			{ name: "EMPTY", value: "" },
+		]);
+	});
+	test("can defer name validation to the caller", () => {
+		expect(
+			parseEnvironmentFile("ZUSE_TOKEN=x\nOK=y", { validateNames: false }),
+		).toEqual([
+			{ name: "ZUSE_TOKEN", value: "x" },
+			{ name: "OK", value: "y" },
 		]);
 	});
 	test.each([

@@ -1,17 +1,12 @@
-import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import type {
 	EnvironmentEntry,
 	EnvironmentProject,
 	EnvironmentVaultCommand,
 	EnvironmentVaultSnapshot,
 } from "@zuse/contracts";
-import {
-	parseEnvironmentFile,
-	validateEnvironmentName,
-} from "@zuse/utils/environment";
+import { parseEnvironmentFile } from "@zuse/utils/environment";
 import {
 	Check,
-	ChevronsUpDown,
 	Copy,
 	Eye,
 	EyeOff,
@@ -49,7 +44,6 @@ import { CompactEmptyState } from "../ui/compact-empty-state.tsx";
 import {
 	Dialog,
 	DialogClose,
-	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogPanel,
@@ -57,38 +51,29 @@ import {
 	DialogTitle,
 } from "../ui/dialog.tsx";
 import { Input } from "../ui/input.tsx";
-import {
-	selectTriggerIconClassName,
-	selectTriggerVariants,
-} from "../ui/select.tsx";
 import { SettingsFrame, SettingsGroup } from "../ui/settings-panel.tsx";
 import { Skeleton } from "../ui/skeleton.tsx";
 import { Switch } from "../ui/switch.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import {
-	blankEnvironmentEntry,
+	type EnvironmentBulkAddSession,
+	EnvironmentBulkAddSheet,
+	type EnvironmentBulkSave,
+} from "./environment-bulk-add-sheet.tsx";
+import {
+	draftToEntry,
+	environmentNameProblem,
+	mergePastedDrafts,
+} from "./environment-drafts.ts";
+import { Field, OptionRow, ProjectMultiSelect } from "./environment-fields.tsx";
+import {
 	callEnvironmentVault,
 	ENVIRONMENT_TARGET_LABEL,
 	environmentVaultFailure,
 } from "./environment-vault.ts";
 
-type ImportedEntries = ReturnType<typeof parseEnvironmentFile>;
-
 /** Rows above which the variable list grows a search field. */
 const SEARCH_THRESHOLD = 6;
-
-const nameProblem = (name: string): string | null => {
-	if (name.length === 0) return null;
-	try {
-		validateEnvironmentName(name);
-		return null;
-	} catch (cause) {
-		return cause instanceof Error &&
-			cause.message === "reserved_environment_name"
-			? "This name is reserved by Zuse or the runtime."
-			: "Use letters, digits, and underscores. Start with a letter or underscore.";
-	}
-};
 
 const projectName = (projects: ReadonlyArray<EnvironmentProject>, id: string) =>
 	projects.find((project) => project.id === id)?.name ?? "Unknown project";
@@ -149,8 +134,7 @@ function EnvironmentAccountPane({ signedIn }: { signedIn: boolean }) {
 	const [copied, setCopied] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<EnvironmentEntry | null>(null);
 	const [newProject, setNewProject] = useState("");
-	const [imported, setImported] = useState<ImportedEntries | null>(null);
-	const [duplicates, setDuplicates] = useState<"skip" | "replace">("skip");
+	const [bulk, setBulk] = useState<EnvironmentBulkAddSession | null>(null);
 	const [changed, setChanged] = useState(false);
 	const fileInput = useRef<HTMLInputElement>(null);
 	const alive = useRef(true);
@@ -235,65 +219,60 @@ function EnvironmentAccountPane({ signedIn }: { signedIn: boolean }) {
 		if (result?.value !== undefined)
 			setRevealed({ id: entry.id, value: result.value });
 	};
+	const openBulk = (drafts: EnvironmentBulkAddSession["drafts"] = []) => {
+		setError(null);
+		setBulk({ id: crypto.randomUUID(), drafts });
+	};
 	const importFile = async (file: File | undefined) => {
 		if (!file) return;
 		try {
 			if (file.size > 1_048_576) throw new Error();
-			const entries = parseEnvironmentFile(await file.text());
-			if (alive.current) {
-				setImported(entries);
-				setDuplicates("skip");
-				setError(null);
-			}
+			const parsed = parseEnvironmentFile(await file.text(), {
+				validateNames: false,
+			});
+			if (alive.current) openBulk(mergePastedDrafts([], 0, parsed));
 		} catch {
 			setError(
 				"Could not import this .env file. Check its syntax and size (maximum 1 MB).",
 			);
 		}
 	};
-	const saveImport = async () => {
-		if (!snapshot || !imported) return;
+	/** Saves rows in order; on failure the unsaved rows stay in the dialog. */
+	const saveBulk = async ({
+		drafts,
+		kind,
+	}: EnvironmentBulkSave): Promise<ReadonlySet<string>> => {
+		const saved = new Set<string>();
+		if (!snapshot) return saved;
 		setBusy(true);
 		setError(null);
 		let current = snapshot;
-		let completed = 0;
 		try {
-			for (const item of imported) {
-				const existing = current.entries.find(
-					(entry) =>
-						entry.name === item.name &&
-						entry.projectIds === null &&
-						entry.target === "both",
-				);
-				if (existing && duplicates === "skip") {
-					completed++;
-					continue;
-				}
+			for (const draft of drafts) {
 				const result = await callEnvironmentVault({
 					action: "save",
 					expectedRevision: current.revision,
-					entry: existing
-						? { ...existing, kind: "secret" }
-						: blankEnvironmentEntry({ name: item.name }),
-					value: item.value,
+					entry: draftToEntry(draft, kind, current.entries),
+					value: draft.value,
 				});
 				current = result.snapshot;
-				completed++;
-				if (!alive.current) return;
+				saved.add(draft.key);
+				if (!alive.current) return saved;
 				setSnapshot(current);
 				setChanged(true);
 			}
-			setImported(null);
+			setBulk(null);
 		} catch (cause) {
-			if (alive.current) {
-				setImported(imported.slice(completed));
+			if (alive.current)
 				setError(
-					`${completed} rows processed. ${environmentVaultFailure(cause)}`,
+					saved.size > 0
+						? `${saved.size} saved. ${environmentVaultFailure(cause)}`
+						: environmentVaultFailure(cause),
 				);
-			}
 		} finally {
 			if (alive.current) setBusy(false);
 		}
+		return saved;
 	};
 	const addProject = async () => {
 		if (!snapshot) return;
@@ -332,7 +311,7 @@ function EnvironmentAccountPane({ signedIn }: { signedIn: boolean }) {
 		snapshot?.entries.filter((entry) =>
 			entry.name.toLowerCase().includes(query.trim().toLowerCase()),
 		) ?? [];
-	const dialogError = editor !== null || imported !== null || deleting !== null;
+	const dialogError = editor !== null || bulk !== null || deleting !== null;
 
 	return (
 		<div className="flex flex-col gap-5">
@@ -392,10 +371,10 @@ function EnvironmentAccountPane({ signedIn }: { signedIn: boolean }) {
 							<Button
 								className="px-2.5"
 								disabled={busy || !snapshot}
-								onClick={() => edit(blankEnvironmentEntry())}
+								onClick={() => openBulk()}
 							>
 								<Plus aria-hidden />
-								Add variable
+								Add variables
 							</Button>
 						</div>
 					</>
@@ -414,7 +393,7 @@ function EnvironmentAccountPane({ signedIn }: { signedIn: boolean }) {
 					<CompactEmptyState
 						className="py-8"
 						title="No variables yet"
-						description="Add a variable or import an existing .env file."
+						description="Add variables, paste a .env file, or import one."
 					/>
 				) : (
 					<>
@@ -544,26 +523,19 @@ function EnvironmentAccountPane({ signedIn }: { signedIn: boolean }) {
 				/>
 			) : null}
 
-			<ImportDialog
-				imported={imported}
-				existingNames={
-					new Set(
-						snapshot?.entries
-							.filter(
-								(entry) => entry.projectIds === null && entry.target === "both",
-							)
-							.map((entry) => entry.name) ?? [],
-					)
-				}
-				duplicates={duplicates}
-				busy={busy}
-				error={imported ? error : null}
-				onDuplicatesChange={setDuplicates}
-				onClose={() => {
-					if (!busy) setImported(null);
-				}}
-				onImport={() => void saveImport()}
-			/>
+			{snapshot ? (
+				<EnvironmentBulkAddSheet
+					session={bulk}
+					projects={snapshot.projects}
+					entries={snapshot.entries}
+					busy={busy}
+					error={bulk ? error : null}
+					onClose={() => {
+						if (!busy) setBulk(null);
+					}}
+					onSave={saveBulk}
+				/>
+			) : null}
 
 			<AlertDialog
 				open={deleting !== null}
@@ -772,136 +744,6 @@ function IconAction({
 	);
 }
 
-function Field({
-	label,
-	error,
-	children,
-}: {
-	label: string;
-	error?: string | null;
-	children: ReactNode;
-}) {
-	return (
-		<div className="flex flex-col gap-1.5">
-			<span className="text-[11px] font-medium text-muted-foreground">
-				{label}
-			</span>
-			{children}
-			{error ? (
-				<p className="text-[11px] leading-4 text-destructive">{error}</p>
-			) : null}
-		</div>
-	);
-}
-
-function OptionRow({
-	title,
-	description,
-	children,
-}: {
-	title: string;
-	description?: string;
-	children: ReactNode;
-}) {
-	return (
-		<div className="flex min-h-11 items-center justify-between gap-3 px-3 py-2">
-			<div className="min-w-0">
-				<p className="text-xs font-medium leading-4 text-foreground">{title}</p>
-				{description === undefined ? null : (
-					<p className="text-[11px] leading-4 text-muted-foreground">
-						{description}
-					</p>
-				)}
-			</div>
-			<div className="flex shrink-0 items-center">{children}</div>
-		</div>
-	);
-}
-
-function ProjectMultiSelect({
-	label,
-	placeholder,
-	projects,
-	value,
-	onChange,
-}: {
-	label: string;
-	placeholder: string;
-	projects: ReadonlyArray<EnvironmentProject>;
-	value: ReadonlyArray<string>;
-	onChange: (ids: string[]) => void;
-}) {
-	const selected = projects.filter((project) => value.includes(project.id));
-	return (
-		<ComboboxPrimitive.Root
-			multiple
-			items={projects}
-			value={selected}
-			itemToStringLabel={(project: EnvironmentProject) => project.name}
-			isItemEqualToValue={(a: EnvironmentProject, b: EnvironmentProject) =>
-				a.id === b.id
-			}
-			onValueChange={(next) => onChange(next.map((project) => project.id))}
-		>
-			<ComboboxPrimitive.Trigger
-				aria-label={label}
-				className={cn(selectTriggerVariants(), "w-44")}
-			>
-				<span className="flex-1 truncate">
-					{selected.length === 0 ? (
-						<span className="text-muted-foreground">{placeholder}</span>
-					) : selected.length <= 2 ? (
-						selected.map((project) => project.name).join(", ")
-					) : (
-						`${selected.length} projects`
-					)}
-				</span>
-				<ChevronsUpDown className={selectTriggerIconClassName} />
-			</ComboboxPrimitive.Trigger>
-			<ComboboxPrimitive.Portal>
-				<ComboboxPrimitive.Positioner
-					align="end"
-					sideOffset={4}
-					className="z-50 select-none"
-				>
-					<ComboboxPrimitive.Popup className="w-60 overflow-hidden rounded-lg border border-border/80 bg-popover text-foreground shadow-overlay outline-none">
-						<div className="relative border-border/60 border-b">
-							<Search
-								className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-								aria-hidden
-							/>
-							<ComboboxPrimitive.Input
-								aria-label="Search projects"
-								placeholder="Search projects…"
-								className="h-7 w-full bg-transparent pr-2.5 pl-7 text-xs outline-none placeholder:text-muted-foreground/72"
-							/>
-						</div>
-						<ComboboxPrimitive.Empty className="px-3 py-2 text-[11px] text-muted-foreground empty:hidden">
-							No matching projects.
-						</ComboboxPrimitive.Empty>
-						<ComboboxPrimitive.List className="max-h-56 overflow-y-auto p-1 empty:hidden">
-							{(project: EnvironmentProject) => (
-								<ComboboxPrimitive.Item
-									key={project.id}
-									value={project}
-									className="grid min-h-7 cursor-default grid-cols-[0.875rem_1fr] items-center gap-1.5 rounded-md ps-1.5 pe-3 text-xs outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
-								>
-									<ComboboxPrimitive.ItemIndicator className="col-start-1">
-										<Check className="size-3.5" aria-hidden />
-									</ComboboxPrimitive.ItemIndicator>
-									<span className="col-start-2 min-w-0 truncate">
-										{project.name}
-									</span>
-								</ComboboxPrimitive.Item>
-							)}
-						</ComboboxPrimitive.List>
-					</ComboboxPrimitive.Popup>
-				</ComboboxPrimitive.Positioner>
-			</ComboboxPrimitive.Portal>
-		</ComboboxPrimitive.Root>
-	);
-}
-
 function VariableEditorDialog({
 	entry,
 	projects,
@@ -933,7 +775,7 @@ function VariableEditorDialog({
 	const current = entry ?? last.current;
 	if (!current) return null;
 	const allProjects = current.projectIds === null;
-	const problem = nameProblem(current.name);
+	const problem = environmentNameProblem(current.name);
 	const canSave =
 		!busy &&
 		current.name.length > 0 &&
@@ -1088,116 +930,6 @@ function VariableEditorDialog({
 						</Button>
 					</DialogFooter>
 				</form>
-			</DialogPopup>
-		</Dialog>
-	);
-}
-
-function ImportDialog({
-	imported,
-	existingNames,
-	duplicates,
-	busy,
-	error,
-	onDuplicatesChange,
-	onClose,
-	onImport,
-}: {
-	imported: ImportedEntries | null;
-	existingNames: ReadonlySet<string>;
-	duplicates: "skip" | "replace";
-	busy: boolean;
-	error: string | null;
-	onDuplicatesChange: (value: "skip" | "replace") => void;
-	onClose: () => void;
-	onImport: () => void;
-}) {
-	const last = useRef(imported);
-	if (imported) last.current = imported;
-	const items = imported ?? last.current ?? [];
-	const conflicts = items.filter((item) => existingNames.has(item.name)).length;
-	const count = duplicates === "skip" ? items.length - conflicts : items.length;
-	return (
-		<Dialog
-			open={imported !== null}
-			onOpenChange={(open) => {
-				if (!open) onClose();
-			}}
-		>
-			<DialogPopup className="max-w-md">
-				<DialogHeader>
-					<DialogTitle>Import .env</DialogTitle>
-					<DialogDescription>
-						{items.length} {items.length === 1 ? "entry" : "entries"} will be
-						saved as secrets for all projects.
-					</DialogDescription>
-				</DialogHeader>
-				<DialogPanel className="flex flex-col gap-4">
-					{items.length === 0 ? (
-						<CompactEmptyState
-							title="Nothing to import"
-							description="The file has no variable assignments."
-						/>
-					) : (
-						<div className="flex max-h-48 flex-col overflow-y-auto rounded-md bg-muted/40 py-1">
-							{items.map((item) => (
-								<div
-									key={item.name}
-									className="flex h-7 items-center justify-between gap-2 px-2.5"
-								>
-									<span className="truncate font-mono text-xs">
-										{item.name}
-									</span>
-									{existingNames.has(item.name) ? (
-										<Badge size="sm" variant="warning">
-											{duplicates === "skip" ? "Skipped" : "Replaces existing"}
-										</Badge>
-									) : (
-										<Badge size="sm" variant="success">
-											New
-										</Badge>
-									)}
-								</div>
-							))}
-						</div>
-					)}
-					{conflicts > 0 ? (
-						<div className="rounded-lg bg-muted/40">
-							<OptionRow
-								title="Replace existing values"
-								description={`${conflicts} ${conflicts === 1 ? "name already exists" : "names already exist"}.`}
-							>
-								<Switch
-									aria-label="Replace existing values"
-									checked={duplicates === "replace"}
-									onCheckedChange={(replace) =>
-										onDuplicatesChange(replace ? "replace" : "skip")
-									}
-								/>
-							</OptionRow>
-						</div>
-					) : null}
-					{error ? (
-						<p role="alert" className="text-[11px] leading-4 text-destructive">
-							{error}
-						</p>
-					) : null}
-				</DialogPanel>
-				<DialogFooter>
-					<DialogClose
-						disabled={busy}
-						render={<Button type="button" variant="ghost" />}
-					>
-						Cancel
-					</DialogClose>
-					<Button
-						loading={busy}
-						disabled={busy || count === 0}
-						onClick={onImport}
-					>
-						Import {count} {count === 1 ? "secret" : "secrets"}
-					</Button>
-				</DialogFooter>
 			</DialogPopup>
 		</Dialog>
 	);
