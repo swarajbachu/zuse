@@ -355,7 +355,7 @@ export default function SettingsScreen({
 				{page === "computers" ? (
 					<ListSection
 						header="Connections"
-						footer="Pairing works directly over your local network and does not require an account."
+						footer="Pairs over your local network. No account needed."
 					>
 						<ListRow
 							analyticsId="connections.nearby.open"
@@ -444,7 +444,7 @@ export default function SettingsScreen({
 								/>
 								<ListRow
 									symbol="key.fill"
-									title="Cloud Authentication"
+									title="Cloud Providers"
 									subtitle="Shared across your cloud chats"
 									onPress={() => router.push("/cloud-auth")}
 								/>

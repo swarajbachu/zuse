@@ -43,7 +43,7 @@ export function MessageHistoryStatus({
 			) : (
 				<Button
 					variant="ghost"
-					className="h-7"
+					size="sm"
 					onPress={() => mobileHistory.retry(key)}
 				>
 					{message("chat:cloud_history_retry")}

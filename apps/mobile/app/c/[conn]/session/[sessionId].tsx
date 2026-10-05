@@ -1306,11 +1306,13 @@ function ThreadScreen() {
 						left: 0,
 						right: 0,
 						bottom: 0,
-						height: bottomAccessoryHeight + 40,
+						// A soft fade, not an opaque floor: the transcript stays visible
+						// through the composer's glass so the blur reads as iOS material.
+						height: bottomAccessoryHeight + 16,
 						experimental_backgroundImage:
 							theme === "dark"
-								? "linear-gradient(to bottom, rgba(15,15,15,0) 0%, rgba(15,15,15,0.72) 55%, rgb(15,15,15) 100%)"
-								: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.72) 55%, rgb(255,255,255) 100%)",
+								? "linear-gradient(to bottom, rgba(15,15,15,0) 0%, rgba(15,15,15,0.45) 60%, rgba(15,15,15,0.85) 100%)"
+								: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.45) 60%, rgba(255,255,255,0.85) 100%)",
 					}}
 				/>
 				<View

@@ -132,15 +132,13 @@ export default function NewCloudChatScreen() {
 			keyboardShouldPersistTaps="handled"
 		>
 			<Stack.Screen
-				options={{ title: "New cloud chat", headerLargeTitle: false }}
+				options={{ title: "New Cloud Chat", headerLargeTitle: false }}
 			/>
 			<Text className="font-sans text-sm text-muted-foreground">
 				Runs in your account’s cloud workspace. No connected computer needed.
 			</Text>
 			{account === null ? (
-				<Button className="h-7" onPress={() => void signIn()}>
-					Sign in
-				</Button>
+				<Button onPress={() => void signIn()}>Sign In</Button>
 			) : (
 				<>
 					<SelectorRow
@@ -209,16 +207,15 @@ export default function NewCloudChatScreen() {
 						}))}
 					/>
 					<Button
-						className="h-7"
+						size="sm"
 						variant="ghost"
 						onPress={() => router.push("/cloud-auth")}
 					>
-						Cloud Authentication
+						Manage Providers
 					</Button>
 					{project === undefined ? (
 						<Text className="font-sans text-sm text-muted-foreground">
-							Connect a repository in Cloud Workspace settings before creating a
-							chat.
+							Connect a repository in Cloud Workspace settings first.
 						</Text>
 					) : null}
 					<TextInput
@@ -234,20 +231,19 @@ export default function NewCloudChatScreen() {
 						<View accessibilityLiveRegion="polite" className="flex-row gap-2">
 							<ActivityIndicator />
 							<Text className="font-sans text-sm text-muted-foreground">
-								Saving your message to the cloud…
+								Starting…
 							</Text>
 						</View>
 					) : null}
 					{(error ?? catalog.error) ? (
 						<Text
 							accessibilityRole="alert"
-							className="font-sans text-sm text-destructive"
+							className="font-sans text-sm text-danger"
 						>
 							{error ?? catalog.error}
 						</Text>
 					) : null}
 					<Button
-						className="h-7"
 						disabled={
 							busy ||
 							!hydrated ||
@@ -257,7 +253,7 @@ export default function NewCloudChatScreen() {
 						}
 						onPress={() => void submit()}
 					>
-						Start cloud chat
+						Start Chat
 					</Button>
 				</>
 			)}

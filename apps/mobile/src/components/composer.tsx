@@ -14,11 +14,7 @@ import {
 	type SessionStatus,
 	type SkillRef,
 } from "@zuse/contracts";
-import {
-	ArrowUp02Icon,
-	CloudOffIcon,
-	StopIcon,
-} from "@zuse/icons/solid-rounded";
+import { CloudOffIcon, SentIcon, StopIcon } from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
@@ -576,11 +572,15 @@ export const Composer = ({
 			) : null}
 
 			<GlassSurface
+				tinted
 				style={{
 					gap: 8,
-					paddingHorizontal: expanded ? 16 : 12,
-					paddingVertical: expanded ? 10 : 6,
-					borderRadius: 26,
+					// Collapsed, the composer is a narrow capsule floating over the
+					// transcript; focused, it widens to the full input frame.
+					marginHorizontal: expanded ? 0 : 12,
+					paddingHorizontal: expanded ? 12 : 6,
+					paddingVertical: expanded ? 8 : 0,
+					borderRadius: 22,
 				}}
 			>
 				{expanded ? (
@@ -729,7 +729,7 @@ export const Composer = ({
 						/>
 					</>
 				) : (
-					<View className="h-11 flex-row items-center gap-1">
+					<View className="h-11 flex-row items-center gap-0.5">
 						{modelValue === null ? null : (
 							<ComposerActionSlot>
 								<ComposerPlusMenu
@@ -768,7 +768,10 @@ export const Composer = ({
 								setFocused(true);
 							}}
 						>
-							<Text className="font-sans text-[17px] text-muted-foreground">
+							<Text
+								numberOfLines={1}
+								className="font-sans text-[16px] text-muted-foreground"
+							>
 								{online ? "Ask Zuse" : "Offline · message will queue"}
 							</Text>
 						</Pressable>
@@ -814,8 +817,10 @@ const SendButton = ({
 	<Button
 		size="sm"
 		variant={showInterrupt ? "secondary" : online ? "primary" : "secondary"}
-		className="h-10 w-10 rounded-2xl px-0"
-		hitSlop={4}
+		// Mirrors the desktop composer's compact square send control; hitSlop
+		// keeps the touch target at 44pt.
+		className="h-8 w-8 rounded-[9px] px-0"
+		hitSlop={6}
 		disabled={disabled}
 		onPress={onPress}
 		accessibilityLabel={
@@ -831,15 +836,11 @@ const SendButton = ({
 				color={showInterrupt ? colors.fg : colors.primaryForeground}
 			/>
 		) : showInterrupt ? (
-			<HugeIcon icon={StopIcon} size={15} color={colors.fg as string} />
+			<HugeIcon icon={StopIcon} size={13} color={colors.fg as string} />
 		) : online ? (
-			<HugeIcon
-				icon={ArrowUp02Icon}
-				size={16}
-				color={colors.primaryForeground}
-			/>
+			<HugeIcon icon={SentIcon} size={14} color={colors.primaryForeground} />
 		) : (
-			<HugeIcon icon={CloudOffIcon} size={15} color={colors.fg as string} />
+			<HugeIcon icon={CloudOffIcon} size={14} color={colors.fg as string} />
 		)}
 	</Button>
 );

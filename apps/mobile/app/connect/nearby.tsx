@@ -352,7 +352,7 @@ export default function NearbyConnectScreen() {
 											variant="secondary"
 											onPress={() => router.push("/connect/scan")}
 										>
-											Scan QR instead
+											Use QR Code
 										</Button>
 									</>
 								) : null}
@@ -401,7 +401,7 @@ export default function NearbyConnectScreen() {
 									className="mt-3"
 									onPress={() => router.push("/connect/scan")}
 								>
-									Scan QR instead
+									Use QR Code
 								</Button>
 							</View>
 						)}

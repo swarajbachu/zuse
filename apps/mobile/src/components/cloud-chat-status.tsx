@@ -83,7 +83,7 @@ export function CloudChatStatus({
 	const label = legacy
 		? "This retained chat uses legacy authentication."
 		: providerAuthFailure
-			? "Reconnect your provider once in Cloud Authentication."
+			? "Reconnect your provider once in Sign In."
 			: reconnectingAuth
 				? "Reconnecting agent authentication…"
 				: (failure?.message ??
@@ -113,7 +113,7 @@ export function CloudChatStatus({
 			<View className="flex-row flex-wrap gap-2">
 				{pending?.cancellable ? (
 					<Button
-						className="h-7"
+						size="sm"
 						variant="ghost"
 						onPress={() =>
 							void mobileClientBus()
@@ -125,21 +125,21 @@ export function CloudChatStatus({
 								)
 						}
 					>
-						Cancel queued message
+						Cancel Message
 					</Button>
 				) : null}
 				{providerAuthFailure ? (
 					<Button
-						className="h-7"
+						size="sm"
 						variant="ghost"
 						onPress={() => router.push("/cloud-auth")}
 					>
-						Cloud Authentication
+						Providers
 					</Button>
 				) : null}
 				{legacy || storageLost || outcomeUnknown ? (
 					<Button
-						className="h-7"
+						size="sm"
 						variant="ghost"
 						onPress={() =>
 							router.push({
@@ -148,32 +148,32 @@ export function CloudChatStatus({
 							})
 						}
 					>
-						{outcomeUnknown ? "Create draft" : "Create replacement chat"}
+						{outcomeUnknown ? "New Draft" : "New Chat"}
 					</Button>
 				) : null}
 				{failure?.kind === "update-required" ? (
 					<Button
-						className="h-7"
+						size="sm"
 						variant="ghost"
 						onPress={() => router.push("/cloud-auth")}
 					>
-						Cloud settings
+						Settings
 					</Button>
 				) : null}
 				{failure?.kind === "network" && !reconnectingAuth ? (
 					<Button
-						className="h-7"
+						size="sm"
 						variant="ghost"
 						onPress={() => void refreshCloudCatalog()}
 					>
-						Refresh status
+						Refresh
 					</Button>
 				) : null}
 			</View>
 			{actionError ? (
 				<Text
 					accessibilityRole="alert"
-					className="font-sans text-xs text-destructive"
+					className="font-sans text-xs text-danger"
 				>
 					{actionError}
 				</Text>

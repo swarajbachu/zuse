@@ -10,9 +10,13 @@ type ButtonProps = PressableProps & {
 	size?: "sm" | "md";
 };
 
-function textClassName(variant: NonNullable<ButtonProps["variant"]>) {
+function textClassName(
+	variant: NonNullable<ButtonProps["variant"]>,
+	size: NonNullable<ButtonProps["size"]>,
+) {
 	return cn(
-		"font-sans-medium text-[16px]",
+		"font-sans-medium",
+		size === "sm" ? "text-[15px]" : "text-[16px]",
 		variant === "danger"
 			? "text-white"
 			: variant === "primary"
@@ -24,9 +28,10 @@ function textClassName(variant: NonNullable<ButtonProps["variant"]>) {
 function renderButtonChild(
 	child: React.ReactNode,
 	variant: NonNullable<ButtonProps["variant"]>,
+	size: NonNullable<ButtonProps["size"]>,
 ) {
 	if (typeof child === "string" || typeof child === "number") {
-		return <Text className={textClassName(variant)}>{child}</Text>;
+		return <Text className={textClassName(variant, size)}>{child}</Text>;
 	}
 
 	return child;
@@ -67,8 +72,8 @@ export const Button = forwardRef<
 			}
 			style={{ borderCurve: "continuous" }}
 			className={cn(
-				"h-11 items-center justify-center rounded-full border active:opacity-80",
-				size === "sm" ? "px-3" : "px-4",
+				"items-center justify-center rounded-full border active:opacity-80",
+				size === "sm" ? "h-9 px-3.5" : "h-11 px-4",
 				variant === "primary" && "border-primary bg-primary",
 				variant === "secondary" && "border-border bg-card-elevated",
 				variant === "ghost" && "border-transparent bg-transparent",
@@ -79,7 +84,9 @@ export const Button = forwardRef<
 			{...props}
 		>
 			<View className="flex-row items-center justify-center gap-2">
-				{Children.map(children, (child) => renderButtonChild(child, variant))}
+				{Children.map(children, (child) =>
+					renderButtonChild(child, variant, size),
+				)}
 			</View>
 		</Pressable>
 	),

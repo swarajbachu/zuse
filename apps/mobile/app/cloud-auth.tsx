@@ -85,7 +85,7 @@ export default function CloudAuthenticationScreen() {
 		if (provider === null || busy) return;
 		const assertAccount = () => {
 			if (currentAccount.current !== accountId)
-				throw new Error("Account changed. Reopen Cloud Authentication.");
+				throw new Error("Account changed. Reopen Cloud Providers.");
 		};
 		setBusy(true);
 		setError(null);
@@ -113,7 +113,7 @@ export default function CloudAuthenticationScreen() {
 					status.encryptionKeyId === undefined
 				)
 					throw new Error(
-						"Cloud Authentication is still preparing. Try again shortly.",
+						"Cloud Providers is still preparing. Try again shortly.",
 					);
 				const ciphertext = await sealCloudAuthSecret(
 					status.encryptionPublicJwk,
@@ -149,16 +149,13 @@ export default function CloudAuthenticationScreen() {
 			keyboardShouldPersistTaps="handled"
 		>
 			<Stack.Screen
-				options={{ title: "Cloud Authentication", headerLargeTitle: false }}
+				options={{ title: "Cloud Providers", headerLargeTitle: false }}
 			/>
 			<Text className="font-sans text-sm text-muted-foreground">
-				One ChatGPT login is shared by all new Codex cloud chats. Other
-				connected providers are also managed at account level.
+				Connect providers once for all your new cloud chats.
 			</Text>
 			{account === null ? (
-				<Button className="h-7" onPress={() => void signIn()}>
-					Sign in
-				</Button>
+				<Button onPress={() => void signIn()}>Sign In</Button>
 			) : (
 				<>
 					<View className="gap-2">
@@ -171,10 +168,10 @@ export default function CloudAuthenticationScreen() {
 							className="font-sans text-xs text-muted-foreground"
 						>
 							{catalog.image?.progressPhase ??
-								"Update the image after connecting a provider. Existing retained chats keep their original authentication mode."}
+								"Update after connecting a provider. Existing chats keep their setup."}
 						</Text>
 						<Button
-							className="h-7"
+							size="sm"
 							variant="ghost"
 							disabled={busy || catalog.image?.state === "building"}
 							onPress={() => {
@@ -191,7 +188,7 @@ export default function CloudAuthenticationScreen() {
 									.finally(() => setBusy(false));
 							}}
 						>
-							Update account image
+							Update Image
 						</Button>
 					</View>
 					{(["codex", "claude", "grok", "cursor"] as const).map((id) => (
@@ -206,7 +203,7 @@ export default function CloudAuthenticationScreen() {
 								</Text>
 							</View>
 							<Button
-								className="h-7"
+								size="sm"
 								variant="ghost"
 								disabled={busy || operation?.state === "authorizing"}
 								onPress={() => {
@@ -227,20 +224,20 @@ export default function CloudAuthenticationScreen() {
 							</Text>
 							<View className="flex-row gap-2">
 								<Button
-									className="h-7"
-									variant="ghost"
+									size="sm"
+									variant={method === "subscription" ? "secondary" : "ghost"}
 									disabled={busy || operation?.state === "authorizing"}
 									onPress={() => setMethod("subscription")}
 								>
 									Subscription
 								</Button>
 								<Button
-									className="h-7"
-									variant="ghost"
+									size="sm"
+									variant={method === "api-key" ? "secondary" : "ghost"}
 									disabled={busy || operation?.state === "authorizing"}
 									onPress={() => setMethod("api-key")}
 								>
-									API key
+									API Key
 								</Button>
 							</View>
 							{!deviceLogin ? (
@@ -260,7 +257,7 @@ export default function CloudAuthenticationScreen() {
 										autoCorrect={false}
 										value={secret}
 										onChangeText={setSecret}
-										className="h-7 rounded-md bg-muted px-2 font-sans text-sm text-foreground"
+										className="h-9 rounded-lg bg-muted px-3 font-sans text-[15px] text-foreground"
 									/>
 								</>
 							) : null}
@@ -273,23 +270,22 @@ export default function CloudAuthenticationScreen() {
 										{operation.verificationCode}
 									</Text>
 									<Text className="font-sans text-xs text-muted-foreground">
-										Complete the account login in your browser, then return
-										here.
+										Finish signing in in your browser, then come back.
 									</Text>
 									{operation.verificationUrl ? (
 										<Button
-											className="h-7"
+											size="sm"
 											onPress={() =>
 												operation.verificationUrl === undefined
 													? undefined
 													: void Linking.openURL(operation.verificationUrl)
 											}
 										>
-											Open sign-in page
+											Open Browser
 										</Button>
 									) : null}
 									<Button
-										className="h-7"
+										size="sm"
 										variant="ghost"
 										onPress={() =>
 											void Effect.runPromise(
@@ -303,16 +299,16 @@ export default function CloudAuthenticationScreen() {
 												)
 										}
 									>
-										Cancel login
+										Cancel
 									</Button>
 								</View>
 							) : (
 								<Button
-									className="h-7"
+									size="sm"
 									disabled={busy || (!deviceLogin && secret.trim().length < 8)}
 									onPress={() => void configure()}
 								>
-									{deviceLogin ? "Start account login" : "Save credential"}
+									{deviceLogin ? "Sign In" : "Save"}
 								</Button>
 							)}
 						</View>
@@ -321,7 +317,7 @@ export default function CloudAuthenticationScreen() {
 						<View accessibilityLiveRegion="polite" className="flex-row gap-2">
 							<ActivityIndicator />
 							<Text className="font-sans text-sm text-muted-foreground">
-								Updating Cloud Authentication…
+								Updating…
 							</Text>
 						</View>
 					) : null}
@@ -333,7 +329,7 @@ export default function CloudAuthenticationScreen() {
 					{error || operation?.state === "error" ? (
 						<Text
 							accessibilityRole="alert"
-							className="font-sans text-sm text-destructive"
+							className="font-sans text-sm text-danger"
 						>
 							{error ??
 								operation?.errorCode ??

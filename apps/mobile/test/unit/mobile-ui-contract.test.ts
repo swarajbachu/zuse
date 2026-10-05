@@ -75,9 +75,9 @@ describe("mobile UI contracts", () => {
 		expect(home).toContain("startLoadingDeadline");
 		expect(home).toContain("showHomeRecovery ? (");
 		expect(home).toContain("Couldn’t load your chats");
-		expect(home).toContain("<Button onPress={retryHome}>Try again</Button>");
-		expect(home).toContain("Connection settings");
-		expect(home).toContain("Scan a new QR code");
+		expect(home).toContain("<Button onPress={retryHome}>Try Again</Button>");
+		expect(home).toContain('router.push("/settings")');
+		expect(home).toContain("Scan QR Code");
 		const connection = readFileSync(
 			`${process.cwd()}/src/rpc/connection.ts`,
 			"utf8",
@@ -332,7 +332,7 @@ describe("mobile UI contracts", () => {
 		expect(onboarding).toContain(
 			'"Connection", "Desktop", "Settings", "Connect"',
 		);
-		expect(onboarding).toContain("Zuse is open on my computer");
+		expect(onboarding).toContain("Zuse Is Open");
 		expect(onboarding).toContain("Cloud sandboxes");
 		expect(onboarding).toContain("Local connection");
 		expect(onboarding).toContain("You can use both");
@@ -362,14 +362,14 @@ describe("mobile UI contracts", () => {
 			"utf8",
 		);
 		expect(home).toContain('onPress={() => router.push("/connect/nearby")}');
-		expect(home).toContain("Find nearby Mac");
+		expect(home).toContain("Find Nearby");
 		const emptyActions = home.slice(
 			home.indexOf("!searching && reachableConnections.length === 0"),
 		);
-		expect(emptyActions).toContain('"Sign in"');
-		expect(emptyActions).toContain("Scan QR code");
-		expect(emptyActions.indexOf('"Sign in"')).toBeLessThan(
-			emptyActions.indexOf("Scan QR code"),
+		expect(emptyActions).toContain('"Sign In"');
+		expect(emptyActions).toContain("Scan QR Code");
+		expect(emptyActions.indexOf('"Sign In"')).toBeLessThan(
+			emptyActions.indexOf("Scan QR Code"),
 		);
 		expect(emptyActions).toContain('router.push("/connect/scan")');
 		expect(nearby).toContain("<ScrollView");
