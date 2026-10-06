@@ -32,7 +32,11 @@ The following must never be captured: prompts, responses, reasoning, tool input 
 Signed-out installs use a random local identity. Signed-in clients use a namespaced SHA-256 account hash so desktop and mobile activity can be measured together without sending the account identifier. Signing out, resetting the app, or deleting an account rotates to a fresh anonymous identity. Previously collected pseudonymous aggregate history is retained. Standard geographic enrichment is applied by the analytics processor.
 
 Autocapture, session replay, remote feature flags/configuration, and
-exception/source capture are disabled. Active time counts only while the app is
+exception/source capture are disabled in the analytics SDKs. Server-side
+[organization rollout checks](../cloud/organization-workspaces.md#rollout-flags)
+are operational access decisions, independent of analytics consent; they use
+pseudonymous account IDs and organization IDs without capturing analytics events.
+Active time counts only while the app is
 foregrounded and the user has interacted within 60 seconds, and is emitted in
 aggregate intervals.
 

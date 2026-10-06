@@ -58,16 +58,60 @@ of self-hosted servers and shared-host access are separate, deferred work.
 
 ## Rollout flags
 
-- API: `ORGANIZATION_WORKSPACES_ENABLED=true`. Staging configuration enables it;
-  production configuration leaves it disabled.
-- Desktop/browser: `VITE_ORGANIZATION_WORKSPACES=true` at build time.
-  The default is disabled.
-- Mobile organization support is isolated on `feat/organization-mobile`.
-  This branch retains main's Personal mobile behavior.
+- API: `ORGANIZATION_WORKSPACES_ENABLED=true` is the global kill switch.
+  Staging enables it; production keeps it disabled until a compatible deployment.
+- API: `ORGANIZATION_ROLLOUT_ENABLED=true` restricts access using server-side
+  PostHog flags. Production configuration enables targeted rollout; staging
+  retains unrestricted organization testing. Missing keys or failed evaluations
+  deny targeted access.
+- Set the Worker secret `ORGANIZATION_POSTHOG_KEY` to the PostHog project token,
+  and `ORGANIZATION_POSTHOG_HOST` to its ingestion origin (defaults to
+  `https://us.i.posthog.com`; EU uses `https://eu.i.posthog.com`). Never use a
+  personal administrative API key here.
+- Desktop/browser reads `GET /v1/organizations/capabilities` through account-scoped
+  `organizations.capabilities` RPC. Production UI stays hidden until the backend
+  approves creation or returns an accessible team. A separate
+  `VITE_ORGANIZATION_WORKSPACES` production build is no longer required.
 
-A client flag is not an authorization boundary. The API rejects organization
-operations when its flag is disabled. Confirm API, client and runtime compatibility
-before enabling access. Code changes do not update an already-published runtime.
+Create two boolean PostHog flags with everyone else excluded:
+
+1. `organization-creation`, targeted by person, enables selected users at 100%.
+   Use the existing pseudonymous PostHog distinct ID, not email or raw WorkOS ID.
+   Obtain it from the existing PostHog person, or calculate it locally with
+   `bun -e 'import { analyticsAccountId } from "./packages/analytics/src/identity.ts"; console.log(analyticsAccountId(process.argv[1]))' user_EXAMPLE`.
+2. `organization-access`, targeted by the `organization` group, optionally
+   enables existing organization IDs at 100%. Configure the group type using
+   [PostHog group analytics](https://posthog.com/docs/product-analytics/group-analytics).
+   Evaluations send the organization ID as the group key and `$group_key` property.
+
+Teams created by approved users get access automatically, including existing
+teams whose WorkOS `zuse_creator` metadata names that user. Members and invitees
+need no individual flag approval. The backend reads creator metadata from WorkOS;
+requesting members cannot nominate a creator. An organization is enabled if its
+creator has `organization-creation` or its ID has `organization-access`.
+Removing creator approval also removes inherited team access unless the team is
+explicitly enabled. Use the global switch to disable all organization access.
+
+Flags supplement WorkOS membership and role authorization. Shared authorization,
+organization catalogs, creation, and GitHub/domain auto-join use the same rollout
+policy. GitHub account linking remains available on the API so an eligible person
+can link before joining; it does not grant membership to an unapproved team.
+
+Evaluations use `/flags/?v=2`, a three-second timeout, bounded worker-local caches,
+and a 30-second approval TTL. Concurrent evaluations coalesce. Failed evaluations
+cache denial for five seconds and never extend stale approval. The client refreshes
+capabilities while visible every 30 seconds and on focus, resets them on account
+changes, and returns to Personal when a refreshed catalog removes the selected
+team or a capability refresh fails. Backend decisions are independent of the usage analytics consent setting;
+no capture events or browser analytics SDK flags are enabled by this rollout.
+Flag changes can take about 30 seconds to reach backend checks and one further
+client refresh to reach the visible catalog. Existing accepted runtime turns retain
+their current lifecycle semantics; this does not forcibly terminate running work.
+
+Deploy the compatible API and desktop/browser before enabling the production
+kill switch. Code changes do not update an already-published runtime. Keep
+existing sandbox data, databases and session IDs intact. Older clients retain
+their build-time UI gate; backend access checks still restrict them.
 
 ## Release verification
 
