@@ -783,24 +783,32 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 /** Keep quiet, active turns alive without keeping an idle workspace running. */
 export const keepCloudRuntimeActive = <E, R>(input: {
 	readonly sessions: Effect.Effect<
-		ReadonlyArray<Pick<Session, "chatId" | "status">>,
+		ReadonlyArray<Pick<Session, "id" | "chatId" | "status">>,
 		E,
 		R
 	>;
 	readonly chatId: ChatId;
+	readonly isWaitingForInput?: (
+		session: Pick<Session, "id" | "chatId" | "status">,
+	) => Effect.Effect<boolean, E, R>;
 	readonly publish: Effect.Effect<unknown, E, R>;
 }) =>
 	Effect.forever(
 		Effect.gen(function* () {
 			const current = yield* input.sessions;
-			if (
-				current.some(
-					(session) =>
-						session.chatId === input.chatId &&
-						(session.status === "running" || session.status === "booting"),
+			for (const session of current) {
+				if (
+					session.chatId !== input.chatId ||
+					(session.status !== "running" && session.status !== "booting")
 				)
-			) {
+					continue;
+				if (
+					input.isWaitingForInput !== undefined &&
+					(yield* input.isWaitingForInput(session))
+				)
+					continue;
 				yield* input.publish;
+				break;
 			}
 		}).pipe(
 			Effect.catch(() =>
@@ -1906,6 +1914,67 @@ export const recoverCloudMailboxReadiness = <A, R, R2>(
 		),
 	);
 
+/** Repeated rejection must retire the whole runtime, including its other network loops. */
+export const runCloudMailboxPolling = (input: {
+	readonly poll: Effect.Effect<unknown, CloudWorkspaceRuntimeError>;
+	readonly credential: () => string;
+	readonly onRuntimeRejected: Effect.Effect<void>;
+}): Effect.Effect<never> =>
+	Effect.suspend(() => {
+		let rejectedCredential: string | undefined;
+		let rejectedAtMs: number | undefined;
+		return Effect.forever(
+			Effect.gen(function* () {
+				const credential = input.credential();
+				const result = yield* input.poll.pipe(Effect.result);
+				if (result._tag === "Success") {
+					rejectedCredential = undefined;
+					rejectedAtMs = undefined;
+				} else {
+					const error = result.failure;
+					const authorizationRejected =
+						error.httpStatus === 401 ||
+						error.reason === "workspace_runtime_rejected" ||
+						error.reason === "workspace_runtime_fenced";
+					let retire = false;
+					if (authorizationRejected) {
+						// An in-flight request can carry the token replaced by renewal. Retry
+						// with the live token; allow renewal response-loss recovery for one minute.
+						// Sustained rejection of the same credential then retires the runtime.
+						if (input.credential() !== credential) {
+							rejectedCredential = undefined;
+							rejectedAtMs = undefined;
+						} else {
+							const nowMs = yield* Clock.currentTimeMillis;
+							if (
+								rejectedCredential !== credential ||
+								rejectedAtMs === undefined
+							)
+								rejectedAtMs = nowMs;
+							rejectedCredential = credential;
+							retire = nowMs - rejectedAtMs >= 60_000;
+						}
+					} else {
+						// A transport outage does not prove a previously rejected token is valid.
+						retire = classifyCloudMailboxAckFailure(error) === "stop-retrying";
+					}
+					if (retire) {
+						yield* Effect.logError(
+							"cloud mailbox polling retired rejected runtime",
+							{ reason: error.reason, httpStatus: error.httpStatus },
+						);
+						yield* input.onRuntimeRejected;
+						return yield* Effect.never;
+					}
+					yield* Effect.logWarning("cloud mailbox poll failed", {
+						reason: error.reason,
+					});
+				}
+				yield* Effect.sleep("1 second");
+			}),
+		);
+	});
+
 const runCloudMailboxConsumer = (input: {
 	readonly organizationWorkspace: boolean;
 	readonly recoverReadiness: Effect.Effect<void, CloudWorkspaceRuntimeError>;
@@ -1972,13 +2041,12 @@ const runCloudMailboxConsumer = (input: {
 		onRuntimeFenceRequired: Effect.sync(() => {
 			process.kill(process.pid, "SIGTERM");
 		}),
-	}).pipe(
-		Effect.catch((error) =>
-			Effect.logWarning("cloud mailbox poll failed", { reason: error.reason }),
-		),
-		Effect.andThen(Effect.sleep("1 second")),
-	);
-	return poll.pipe(Effect.forever);
+	});
+	return runCloudMailboxPolling({
+		poll,
+		credential: () => input.runtimeCredential.credential,
+		onRuntimeRejected: Effect.sync(() => process.kill(process.pid, "SIGTERM")),
+	});
 };
 
 const postReady = (
@@ -3529,6 +3597,15 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					yield* keepCloudRuntimeActive({
 						chatId: runtimeChat.id,
 						sessions: sessions.listSessions(runtimeChat.projectId, false),
+						isWaitingForInput: (session) =>
+							sessionDomain.timelineSnapshot(session.id).pipe(
+								Effect.map(
+									(timeline) => timeline.projection.interactions.length > 0,
+								),
+								Effect.mapError(() =>
+									fail("workspace_active_interactions_unavailable"),
+								),
+							),
 						publish: summaryPublisher.publish("activity"),
 					}).pipe(Effect.forkScoped({ startImmediately: true }));
 					yield* chats.streamChatChanges(runtimeChat.projectId).pipe(

@@ -31,6 +31,7 @@ import {
 	workspaceRuntimeProcessSelector,
 	workspaceRuntimeReconnectTarget,
 } from "../../src/cloud-workspace-reconciler.ts";
+import { cloudWorkspaceResumeTarget } from "../../src/cloud-workspace-routes.ts";
 import {
 	type CloudProjectBuildRecord,
 	type CloudWorkspaceRecord,
@@ -2215,5 +2216,76 @@ test("automatically restarts the retained runtime once memory pressure clears", 
 		providerSandboxId: "source-memory-clears",
 		state: "provisioning",
 		statusCode: "resume-runtime-restarting",
+	});
+});
+
+test("pauses an idle ready workspace before recovering its offline runtime", async () => {
+	const result = await Effect.runPromise(
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const control = yield* FakeSandboxProviderControlService;
+			const workspace = yield* seedWorkspace({
+				workspaceId: "workspace-idle-offline",
+				state: "ready",
+				desiredState: "ready",
+				runtimeState: "offline",
+				statusCode: "agent-running",
+				requestConfig: {},
+			});
+			yield* store.saveWorkspace({
+				...workspace,
+				lastActivityAtMs: Date.now() - 60 * 60 * 1000,
+				revision: workspace.revision + 1,
+			});
+			yield* reconcileCloudWorkspace(workspace.workspaceId);
+			return {
+				workspace: yield* store.getWorkspace(workspace.workspaceId),
+				resumed: yield* Ref.get(control.resumeInputs),
+				started: yield* Ref.get(control.startProcessCalls),
+				sandbox: (yield* Ref.get(control.sandboxes)).get(
+					workspace.providerSandboxId ?? "",
+				),
+			};
+		}).pipe(Effect.provide(testLayer)),
+	);
+	expect(result.workspace).toMatchObject({
+		state: "paused",
+		desiredState: "paused",
+	});
+	expect(result.sandbox?.state).toBe("paused");
+	expect(result.resumed).toHaveLength(0);
+	expect(result.started).toHaveLength(0);
+});
+
+test("honors an explicit resume after an old session became idle", async () => {
+	const result = await Effect.runPromise(
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const control = yield* FakeSandboxProviderControlService;
+			const workspace = yield* seedWorkspace({
+				workspaceId: "workspace-explicit-resume",
+				state: "ready",
+				desiredState: "ready",
+				runtimeState: "offline",
+				statusCode: "agent-running",
+				requestConfig: {},
+			});
+			yield* store.saveWorkspace(
+				cloudWorkspaceResumeTarget(
+					{ ...workspace, lastActivityAtMs: Date.now() - 60 * 60 * 1000 },
+					Date.now(),
+				),
+			);
+			yield* reconcileCloudWorkspace(workspace.workspaceId);
+			return {
+				workspace: yield* store.getWorkspace(workspace.workspaceId),
+				resumed: yield* Ref.get(control.resumeInputs),
+			};
+		}).pipe(Effect.provide(testLayer)),
+	);
+	expect(result.resumed).toHaveLength(1);
+	expect(result.workspace).toMatchObject({
+		state: "resuming",
+		desiredState: "ready",
 	});
 });

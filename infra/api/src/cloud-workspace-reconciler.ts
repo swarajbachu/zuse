@@ -2218,6 +2218,19 @@ exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 			return;
 		}
 
+		// Enforce the idle deadline before repairing an offline runtime.
+		if (
+			workspace.state === "ready" &&
+			nowMs >=
+				workspace.lastActivityAtMs + apiConfig.cloudWorkspaceIdleTimeoutMs
+		)
+			return yield* pauseWorkspace(
+				workspace,
+				provider,
+				nowMs,
+				false,
+				saveWorkspace,
+			);
 		if (
 			(workspace.state === "paused" ||
 				(workspace.state === "ready" && workspace.runtimeState !== "online")) &&
@@ -2249,19 +2262,6 @@ exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 				saveWorkspace,
 			);
 		}
-
-		if (
-			workspace.state === "ready" &&
-			nowMs >=
-				workspace.lastActivityAtMs + apiConfig.cloudWorkspaceIdleTimeoutMs
-		)
-			return yield* pauseWorkspace(
-				workspace,
-				provider,
-				nowMs,
-				false,
-				saveWorkspace,
-			);
 
 		if (workspace.state === "ready" && workspace.runningSinceMs !== undefined) {
 			yield* saveWorkspace({
