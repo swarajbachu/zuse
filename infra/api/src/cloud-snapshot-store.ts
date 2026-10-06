@@ -59,6 +59,7 @@ export interface CloudSnapshotStoreApi {
 	readonly list: (
 		accountId?: string,
 		includeDeleted?: boolean,
+		includeUnsettledDeleted?: boolean,
 	) => Effect.Effect<ReadonlyArray<CloudSnapshotRecord>>;
 	readonly get: (
 		accountId: string,
@@ -83,10 +84,14 @@ export const makeCloudSnapshotStorePg = (
 			Effect.map((rows) => rows[0]?.record ?? null),
 			Effect.orDie,
 		),
-	list: (accountId, includeDeleted = accountId !== undefined) =>
+	list: (
+		accountId,
+		includeDeleted = accountId !== undefined,
+		includeUnsettledDeleted = false,
+	) =>
 		sql<{
 			readonly record: CloudSnapshotRecord;
-		}>`SELECT record FROM api_cloud_snapshots WHERE (${accountId ?? null}::text IS NULL OR account_id = ${accountId ?? null}) AND (${includeDeleted} OR state != 'deleted') ORDER BY created_at, snapshot_id`.pipe(
+		}>`SELECT record FROM api_cloud_snapshots WHERE (${accountId ?? null}::text IS NULL OR account_id = ${accountId ?? null}) AND (${includeDeleted} OR state != 'deleted' OR (${includeUnsettledDeleted} AND state = 'deleted' AND (record->>'retainedAtMs')::bigint IS NOT NULL AND COALESCE((record->>'checkpointAtMs')::bigint, (record->>'retainedAtMs')::bigint) < (record->>'stoppedAtMs')::bigint)) ORDER BY created_at, snapshot_id`.pipe(
 			Effect.map((rows) => rows.map((row) => row.record)),
 			Effect.orDie,
 		),
@@ -131,13 +136,22 @@ export const makeCloudSnapshotStoreMemory = (): CloudSnapshotStoreApi => {
 				const record = records.get(snapshotId);
 				return record?.accountId === accountId ? { ...record } : null;
 			}),
-		list: (accountId, includeDeleted = accountId !== undefined) =>
+		list: (
+			accountId,
+			includeDeleted = accountId !== undefined,
+			includeUnsettledDeleted = false,
+		) =>
 			Effect.sync(() =>
 				[...records.values()]
 					.filter(
 						(r) =>
 							(accountId === undefined || r.accountId === accountId) &&
-							(includeDeleted || r.state !== "deleted"),
+							(includeDeleted ||
+								r.state !== "deleted" ||
+								(includeUnsettledDeleted &&
+									r.retainedAtMs !== undefined &&
+									r.stoppedAtMs !== undefined &&
+									(r.checkpointAtMs ?? r.retainedAtMs) < r.stoppedAtMs)),
 					)
 					.map((r) => ({ ...r })),
 			),

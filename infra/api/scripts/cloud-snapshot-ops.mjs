@@ -25,8 +25,9 @@ const request = async (path, method = "GET") => {
 		redirect: "error",
 		signal: AbortSignal.timeout(30_000),
 	});
-	if (method === "DELETE" && response.status === 404) return;
+	if (response.status === 404) return null;
 	if (!response.ok) throw new Error(`Boat request failed (${response.status})`);
+	if (method === "DELETE") return;
 	return await response.json();
 };
 const readReferences = async (client) => {
@@ -163,9 +164,10 @@ try {
 			Boolean,
 		);
 		if (
-			info.snapshot.name !== snapshotName ||
-			info.snapshot.status === "saving" ||
-			!sourceIds.includes(info.snapshot.sourceSandboxId)
+			info !== null &&
+			(info.snapshot.name !== snapshotName ||
+				info.snapshot.status === "saving" ||
+				!sourceIds.includes(info.snapshot.sourceSandboxId))
 		)
 			throw new Error(
 				"Exact provider source ownership could not be verified; preserve the snapshot",

@@ -1457,6 +1457,11 @@ export const apiCloudSnapshots = pgTable(
 		index("api_cloud_snapshots_live_idx")
 			.on(table.state)
 			.where(sql`${table.state} != 'deleted'`),
+		index("api_cloud_snapshots_unsettled_idx")
+			.on(table.accountId)
+			.where(
+				sql`${table.state} = 'deleted' AND (${table.record}->>'retainedAtMs')::bigint IS NOT NULL AND COALESCE((${table.record}->>'checkpointAtMs')::bigint, (${table.record}->>'retainedAtMs')::bigint) < (${table.record}->>'stoppedAtMs')::bigint`,
+			),
 		check("api_cloud_snapshots_provider_check", sql`${table.provider} = 'box'`),
 		check(
 			"api_cloud_snapshots_state_check",

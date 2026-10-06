@@ -11,6 +11,7 @@ CREATE TABLE api_cloud_snapshots (
 CREATE UNIQUE INDEX api_cloud_snapshots_retained_idx ON api_cloud_snapshots(account_id,provider) WHERE state = 'retained';
 CREATE INDEX api_cloud_snapshots_account_idx ON api_cloud_snapshots(account_id, state);
 CREATE INDEX api_cloud_snapshots_live_idx ON api_cloud_snapshots(state) WHERE state != 'deleted';
+CREATE INDEX api_cloud_snapshots_unsettled_idx ON api_cloud_snapshots(account_id) WHERE state = 'deleted' AND (record->>'retainedAtMs')::bigint IS NOT NULL AND COALESCE((record->>'checkpointAtMs')::bigint, (record->>'retainedAtMs')::bigint) < (record->>'stoppedAtMs')::bigint;
 CREATE TABLE api_snapshot_price_schedule (
  provider text NOT NULL,
  version text NOT NULL,

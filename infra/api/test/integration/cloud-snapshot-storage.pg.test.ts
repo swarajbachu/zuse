@@ -13,9 +13,12 @@ import {
 	CloudBillingStorePg,
 } from "../../src/cloud-billing-store.ts";
 import {
+	assertSnapshotUsable,
+	deleteRetainedSnapshot,
 	prepareSnapshotIntent,
 	promoteRetainedSnapshot,
 	reconcileSnapshotStorage,
+	withSnapshotLifecycleLock,
 } from "../../src/cloud-snapshot-storage.ts";
 import { SNAPSHOT_MONTH_MS } from "../../src/cloud-snapshot-store.ts";
 import {
@@ -155,6 +158,84 @@ it.skipIf(!connectionString)(
 				prepareSnapshotIntent(first, first.buildId, start),
 			);
 			await runtime.runPromise(promoteRetainedSnapshot(first, start));
+			const raceAccount = `${accountId}-restore`;
+			const raceSnapshot = `zuse-${id}-restore`;
+			await runtime.runPromise(
+				billing.snapshots.save({
+					snapshotId: raceSnapshot,
+					provider: "box",
+					accountId: raceAccount,
+					buildId: "restore",
+					state: "retained",
+					createdAtMs: start,
+					retainedAtMs: start,
+					remainder: 0,
+					attempts: 0,
+					nextAttemptAtMs: start,
+				}),
+			);
+			let signalEntered = () => {};
+			const entered = new Promise<void>((resolve) => {
+				signalEntered = resolve;
+			});
+			let signalRelease = () => {};
+			const release = new Promise<void>((resolve) => {
+				signalRelease = resolve;
+			});
+			let diskReplaced = false;
+			const restore = runtime.runPromise(
+				withSnapshotLifecycleLock(
+					raceAccount,
+					"box",
+					Effect.gen(function* () {
+						yield* assertSnapshotUsable(raceAccount, "box", raceSnapshot);
+						signalEntered();
+						yield* Effect.promise(() => release);
+						yield* assertSnapshotUsable(raceAccount, "box", raceSnapshot);
+						diskReplaced = true;
+					}),
+				),
+			);
+			await entered;
+			const deletion = runtime.runPromise(
+				deleteRetainedSnapshot(raceAccount, raceSnapshot, start + 100),
+			);
+			try {
+				await expect
+					.poll(async () =>
+						Number(
+							(
+								await db.query(
+									"SELECT count(*) AS count FROM pg_locks WHERE locktype='advisory' AND NOT granted AND objid=((hashtextextended($1,0) & 4294967295)::oid) AND classid=(((hashtextextended($1,0) >> 32) & 4294967295)::oid)",
+									[`snapshot:${raceAccount}`],
+								)
+							).rows[0].count,
+						),
+					)
+					.toBe(1);
+				expect(
+					(
+						await runtime.runPromise(
+							billing.snapshots.get(raceAccount, raceSnapshot),
+						)
+					)?.state,
+				).toBe("retained");
+			} finally {
+				signalRelease();
+				await Promise.all([restore, deletion]);
+			}
+			expect(diskReplaced).toBe(true);
+			expect(
+				(
+					await runtime.runPromise(
+						billing.snapshots.get(raceAccount, raceSnapshot),
+					)
+				)?.state,
+			).toBe("deleting");
+			await db.query("DELETE FROM api_cloud_snapshots WHERE snapshot_id=$1", [
+				raceSnapshot,
+			]);
+
 			const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
 			const { tmpdir } = await import("node:os");
 			const { join } = await import("node:path");

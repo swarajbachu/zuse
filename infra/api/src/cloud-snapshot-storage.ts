@@ -31,7 +31,15 @@ const settleSnapshot = Effect.fn("settleSnapshot")(function* (
 		(record.stoppedAtMs === undefined &&
 			end - cursor < SNAPSHOT_SETTLEMENT_INTERVAL_MS)
 	)
-		return record;
+		return end <= cursor
+			? {
+					...record,
+					checkpointAtMs: Math.max(
+						record.checkpointAtMs ?? record.retainedAtMs,
+						end,
+					),
+				}
+			: record;
 	const periods = yield* billing.periodsOverlapping(
 		record.accountId,
 		cursor,
@@ -224,6 +232,20 @@ export const assertSnapshotUsable = Effect.fn("assertSnapshotUsable")(
 	},
 );
 
+/** Provider calls that consume saved images share the same fence as deletion and promotion. */
+export const withSnapshotLifecycleLock = <A, E, R>(
+	accountId: string,
+	provider: string,
+	effect: Effect.Effect<A, E, R>,
+) =>
+	Effect.gen(function* () {
+		if (provider !== "box") return yield* effect;
+		return yield* (yield* CloudBillingStore).snapshots.transaction(
+			accountId,
+			effect,
+		);
+	});
+
 /** Deletion intent has committed before any irreversible provider call. */
 const cleanupAccountSnapshots = Effect.fn("cleanupAccountSnapshots")(function* (
 	accountId: string,
@@ -318,9 +340,11 @@ export const reconcileSnapshotStorage = Effect.fn("reconcileSnapshotStorage")(
 		const config = yield* ApiConfiguration;
 		const accounts = [
 			...new Set(
-				(yield* billing.snapshots.list())
-					.filter((r) => r.state !== "deleted")
-					.map((r) => r.accountId),
+				(yield* billing.snapshots.list(
+					undefined,
+					false,
+					config.cloudSnapshotBillingCutoverAtMs !== undefined,
+				)).map((r) => r.accountId),
 			),
 		];
 		yield* Effect.forEach(
@@ -337,8 +361,15 @@ export const reconcileSnapshotStorage = Effect.fn("reconcileSnapshotStorage")(
 							for (const initial of yield* billing.snapshots.list(
 								accountId,
 								false,
+								config.cloudSnapshotBillingCutoverAtMs !== undefined,
 							)) {
 								let record = initial;
+								if (record.state === "deleting" || record.state === "deleted") {
+									yield* billing.snapshots.save(
+										yield* settleSnapshot(record, nowMs),
+									);
+									continue;
+								}
 								if (record.state === "retained") {
 									const provider = yield* (yield* SandboxProviders).get(
 										record.provider,

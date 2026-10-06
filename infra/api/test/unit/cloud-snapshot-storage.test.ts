@@ -6,7 +6,7 @@ import {
 } from "@zuse/sandbox-providers";
 import { makeSandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CloudBillingStore } from "../../src/cloud-billing-store.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import {
@@ -456,4 +456,49 @@ describe("Boat image storage", () => {
 			await missing.runtime.dispose();
 		}
 	});
+});
+
+it("settles stopped images after confirmed deletion when period evidence arrives late", async () => {
+	const s = await setup();
+	try {
+		await s.saveImage();
+		const missing = vi
+			.spyOn(s.billing, "periodsOverlapping")
+			.mockReturnValue(Effect.succeed([]));
+		const stop = start + SNAPSHOT_MONTH_MS / 2;
+		await s.runtime.runPromise(
+			deleteRetainedSnapshot("account", "zuse-build", stop),
+		);
+		await s.runtime.runPromise(reconcileSnapshotStorage(stop));
+		expect(
+			(
+				await s.runtime.runPromise(
+					s.billing.snapshots.get("account", "zuse-build"),
+				)
+			)?.state,
+		).toBe("deleted");
+		missing.mockRestore();
+		await s.runtime.runPromise(reconcileSnapshotStorage(stop + 1));
+		const usage = await s.runtime.runPromise(
+			s.billing.listUsage(periodId, undefined, 100),
+		);
+		expect(usage.items).toHaveLength(1);
+		expect(usage.items[0]?.providerCostMicros).toBe(850_000);
+		expect(
+			await s.runtime.runPromise(
+				s.billing.snapshots.list(undefined, false, true),
+			),
+		).toEqual([]);
+		await s.runtime.runPromise(reconcileSnapshotStorage(stop + 2));
+		expect(
+			(
+				await s.runtime.runPromise(
+					s.billing.listUsage(periodId, undefined, 100),
+				)
+			).items,
+		).toHaveLength(1);
+	} finally {
+		vi.restoreAllMocks();
+		await s.runtime.dispose();
+	}
 });

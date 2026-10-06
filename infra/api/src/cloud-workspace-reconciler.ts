@@ -23,6 +23,7 @@ import {
 	assertSnapshotUsable,
 	prepareSnapshotIntent,
 	promoteRetainedSnapshot,
+	withSnapshotLifecycleLock,
 } from "./cloud-snapshot-storage.ts";
 import { deleteCloudTranscriptObjects } from "./cloud-transcript.ts";
 import { observeCloudRuntimeUsage } from "./cloud-usage.ts";
@@ -668,48 +669,59 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 							previousAccountBuild,
 							build.templateVersion,
 						));
-			if (reusableSnapshotId !== undefined)
-				yield* assertSnapshotUsable(
-					build.accountId,
-					build.provider,
-					reusableSnapshotId,
+			const allocateBuild = Effect.gen(function* () {
+				if (reusableSnapshotId !== undefined)
+					yield* assertSnapshotUsable(
+						build.accountId,
+						build.provider,
+						reusableSnapshotId,
+					);
+				return (
+					existing ??
+					(reusableSnapshotId === undefined
+						? yield* provider
+								.create({
+									sandboxId: build.buildId,
+									providerLabel: label,
+									metadata: {
+										"zuse-account-id": build.accountId,
+										"zuse-resource-kind": "build",
+										"zuse-project-id": build.projectId,
+										"zuse-build-id": build.buildId,
+									},
+									timeoutSeconds: config.createTimeoutSeconds,
+									env: {},
+									network: { kind: "open" },
+									onTimeout: "terminate",
+								})
+								.pipe(Effect.orDie)
+						: yield* provider
+								.fork({
+									sandboxId: build.buildId,
+									providerLabel: label,
+									metadata: {
+										"zuse-account-id": build.accountId,
+										"zuse-resource-kind": "build",
+										"zuse-project-id": build.projectId,
+										"zuse-build-id": build.buildId,
+									},
+									snapshotId: reusableSnapshotId,
+									timeoutSeconds: config.createTimeoutSeconds,
+									env: {},
+									network: { kind: "open" },
+									onTimeout: "terminate",
+								})
+								.pipe(Effect.orDie))
 				);
+			});
 			const sandbox =
-				existing ??
-				(reusableSnapshotId === undefined
-					? yield* provider
-							.create({
-								sandboxId: build.buildId,
-								providerLabel: label,
-								metadata: {
-									"zuse-account-id": build.accountId,
-									"zuse-resource-kind": "build",
-									"zuse-project-id": build.projectId,
-									"zuse-build-id": build.buildId,
-								},
-								timeoutSeconds: config.createTimeoutSeconds,
-								env: {},
-								network: { kind: "open" },
-								onTimeout: "terminate",
-							})
-							.pipe(Effect.orDie)
-					: yield* provider
-							.fork({
-								sandboxId: build.buildId,
-								providerLabel: label,
-								metadata: {
-									"zuse-account-id": build.accountId,
-									"zuse-resource-kind": "build",
-									"zuse-project-id": build.projectId,
-									"zuse-build-id": build.buildId,
-								},
-								snapshotId: reusableSnapshotId,
-								timeoutSeconds: config.createTimeoutSeconds,
-								env: {},
-								network: { kind: "open" },
-								onTimeout: "terminate",
-							})
-							.pipe(Effect.orDie));
+				reusableSnapshotId === undefined
+					? yield* allocateBuild
+					: yield* withSnapshotLifecycleLock(
+							build.accountId,
+							build.provider,
+							allocateBuild,
+						);
 			if (authSnapshotId !== undefined)
 				yield* provider.deleteSnapshot(authSnapshotId).pipe(Effect.ignore);
 			yield* provider
@@ -1879,51 +1891,81 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				(workspace.statusCode === "resume-queued" ||
 					workspace.statusCode === "resume-runtime-recovery-queued") &&
 				workspace.providerSandboxId !== undefined;
-			if (replacingFailedSandbox && workspace.providerSandboxId !== undefined) {
-				// A deleted account image must not cause recovery to destroy the existing disk.
-				yield* assertSnapshotUsable(
-					workspace.accountId,
-					build.provider,
-					build.snapshotId,
-				);
-				yield* provider.kill(workspace.providerSandboxId);
-			}
 			const preparedSnapshotAvailable =
 				build.snapshotId !== undefined &&
 				build.templateVersion === provider.templateVersion;
-			const recovered = !replacingFailedSandbox
-				? yield* provider.recoverByLabel(label).pipe(
-						measureCloudStage(
-							{
-								workspaceId: workspace.workspaceId,
-								provider: provider.providerId,
-							},
-							"provider.recoverByLabel",
-						),
-					)
-				: null;
-			if (
-				recovered === null &&
-				preparedSnapshotAvailable &&
-				build.snapshotId !== undefined
-			)
-				yield* assertSnapshotUsable(
-					workspace.accountId,
-					build.provider,
-					build.snapshotId,
-				);
-			const sandbox =
-				recovered ??
-				(machineFork !== undefined
-					? yield* forkCloudWorkspaceMachine(
-							workspace,
-							provider,
-							label,
-							config.keepAliveTimeoutSeconds,
+			const allocate = Effect.gen(function* () {
+				if (
+					replacingFailedSandbox &&
+					workspace.providerSandboxId !== undefined
+				) {
+					// A deleted account image must not cause recovery to destroy the existing disk.
+					yield* assertSnapshotUsable(
+						workspace.accountId,
+						build.provider,
+						build.snapshotId,
+					);
+					yield* provider.kill(workspace.providerSandboxId);
+				}
+				const recovered = !replacingFailedSandbox
+					? yield* provider.recoverByLabel(label).pipe(
+							measureCloudStage(
+								{
+									workspaceId: workspace.workspaceId,
+									provider: provider.providerId,
+								},
+								"provider.recoverByLabel",
+							),
 						)
-					: preparedSnapshotAvailable
-						? yield* provider
-								.fork({
+					: null;
+				if (
+					recovered === null &&
+					preparedSnapshotAvailable &&
+					build.snapshotId !== undefined
+				)
+					yield* assertSnapshotUsable(
+						workspace.accountId,
+						build.provider,
+						build.snapshotId,
+					);
+				const sandbox =
+					recovered ??
+					(machineFork !== undefined
+						? yield* forkCloudWorkspaceMachine(
+								workspace,
+								provider,
+								label,
+								config.keepAliveTimeoutSeconds,
+							)
+						: preparedSnapshotAvailable
+							? yield* provider
+									.fork({
+										sandboxId: workspace.workspaceId,
+										providerLabel: label,
+										metadata: {
+											"zuse-account-id": workspace.accountId,
+											"zuse-resource-kind": "workspace",
+											"zuse-project-id": workspace.projectId,
+											"zuse-build-id": workspace.buildId,
+											"zuse-workspace-id": workspace.workspaceId,
+										},
+										sizeId: workspaceSizeId(workspace),
+										snapshotId: build.snapshotId as string,
+										timeoutSeconds: config.keepAliveTimeoutSeconds,
+										env: {},
+										network: { kind: "open" },
+										onTimeout: "pause",
+									})
+									.pipe(
+										measureCloudStage(
+											{
+												workspaceId: workspace.workspaceId,
+												provider: provider.providerId,
+											},
+											"provider.fork",
+										),
+									)
+							: yield* provider.create({
 									sandboxId: workspace.workspaceId,
 									providerLabel: label,
 									metadata: {
@@ -1934,37 +1976,22 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 										"zuse-workspace-id": workspace.workspaceId,
 									},
 									sizeId: workspaceSizeId(workspace),
-									snapshotId: build.snapshotId as string,
 									timeoutSeconds: config.keepAliveTimeoutSeconds,
 									env: {},
 									network: { kind: "open" },
 									onTimeout: "pause",
-								})
-								.pipe(
-									measureCloudStage(
-										{
-											workspaceId: workspace.workspaceId,
-											provider: provider.providerId,
-										},
-										"provider.fork",
-									),
-								)
-						: yield* provider.create({
-								sandboxId: workspace.workspaceId,
-								providerLabel: label,
-								metadata: {
-									"zuse-account-id": workspace.accountId,
-									"zuse-resource-kind": "workspace",
-									"zuse-project-id": workspace.projectId,
-									"zuse-build-id": workspace.buildId,
-									"zuse-workspace-id": workspace.workspaceId,
-								},
-								sizeId: workspaceSizeId(workspace),
-								timeoutSeconds: config.keepAliveTimeoutSeconds,
-								env: {},
-								network: { kind: "open" },
-								onTimeout: "pause",
-							}));
+								}));
+				return { sandbox, recovered };
+			});
+			// Fence deletion/promotion through the entire replacement and restore call.
+			const { sandbox, recovered } =
+				replacingFailedSandbox || preparedSnapshotAvailable
+					? yield* withSnapshotLifecycleLock(
+							workspace.accountId,
+							build.provider,
+							allocate,
+						)
+					: yield* allocate;
 			// Persist the native child before preparation so failed forks can still be
 			// inspected and deleted through the normal workspace lifecycle.
 			const allocatedWorkspace =
