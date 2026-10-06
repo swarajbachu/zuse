@@ -81,6 +81,10 @@ import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import type { CredentialsService } from "./provider/services/credentials-service.ts";
 import {
+	makeRuntimeGitExecution,
+	RuntimeGitExecution,
+} from "./provider/services/runtime-git-execution.ts";
+import {
 	makeRuntimeProviderCredentials,
 	RuntimeProviderCredentials,
 } from "./provider/services/runtime-provider-credentials.ts";
@@ -449,6 +453,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
 	);
+	const RuntimeGitExecutionLayer = Layer.succeed(
+		RuntimeGitExecution,
+		makeRuntimeGitExecution(deps.cloudWorkspaceRuntime !== undefined),
+	);
 	const RuntimeProviderCredentialsLayer = Layer.succeed(
 		RuntimeProviderCredentials,
 		makeRuntimeProviderCredentials(),
@@ -514,6 +522,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(ModelCatalogLayer),
 		Layer.provide(CredentialsLayer),
 		Layer.provide(RuntimeProviderCredentialsLayer),
+		Layer.provide(RuntimeGitExecutionLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(PermissionLayer),
 		Layer.provide(AttachmentLayer),
@@ -620,6 +629,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(CredentialsLayer),
 		Layer.provide(AttachmentLayer),
 		Layer.provide(RuntimeProviderCredentialsLayer),
+		Layer.provide(RuntimeGitExecutionLayer),
 		Layer.provide(EnrolledLanAuthLayer),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(ConversationServicesLayer),

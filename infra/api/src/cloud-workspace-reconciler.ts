@@ -1461,6 +1461,12 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 					WORKSPACE_REPOSITORY_SOURCE,
 					"zuse",
 				),
+				provider.writeTextFile(
+					providerSandboxId,
+					GITHUB_AUTH_FILE,
+					GITHUB_AUTH_SOURCE,
+					"zuse",
+				),
 				writeRuntimeSigningKey(provider, providerSandboxId, config).pipe(
 					measureCloudStage(
 						{
@@ -2080,6 +2086,12 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			});
 			yield* Effect.all(
 				[
+					provider.writeTextFile(
+						sandbox.providerSandboxId,
+						GITHUB_AUTH_FILE,
+						GITHUB_AUTH_SOURCE,
+						"zuse",
+					),
 					writeRuntimeSigningKey(provider, sandbox.providerSandboxId, config),
 					provider.writeTextFile(
 						sandbox.providerSandboxId,

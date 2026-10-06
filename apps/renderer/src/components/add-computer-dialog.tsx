@@ -5,7 +5,7 @@ import {
 	type SshEnvironmentTarget,
 } from "@zuse/contracts";
 import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
-import { Pencil, RotateCw, Trash2, Unplug } from "lucide-react";
+import { Pencil, RotateCw, Unplug } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 
 import { describePairingLinkKind } from "../lib/pairing-link.ts";
@@ -15,14 +15,7 @@ import {
 	useEnvironmentCatalogStore,
 	validateSshTarget,
 } from "../store/environment-catalog.ts";
-import {
-	AlertDialog,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogPopup,
-	AlertDialogTitle,
-} from "./ui/alert-dialog.tsx";
+import { RemoveComputerButton } from "./remove-computer-button.tsx";
 import { Button } from "./ui/button.tsx";
 import {
 	Dialog,
@@ -186,11 +179,7 @@ export function AddComputerDialog({
 		(state) => state.retryEnvironment,
 	);
 	const disconnect = useEnvironmentCatalogStore((state) => state.disconnect);
-	const remove = useEnvironmentCatalogStore((state) => state.remove);
 	const rename = useEnvironmentCatalogStore((state) => state.rename);
-	const hideApiEnvironment = useEnvironmentCatalogStore(
-		(state) => state.hideApiEnvironment,
-	);
 	const unhideApiEnvironments = useEnvironmentCatalogStore(
 		(state) => state.unhideApiEnvironments,
 	);
@@ -209,10 +198,6 @@ export function AddComputerDialog({
 	const [manageError, setManageError] = useState<string | null>(null);
 	const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
 	const [editedLabel, setEditedLabel] = useState("");
-	const [pendingRemoval, setPendingRemoval] = useState<{
-		readonly profileId: string;
-		readonly label: string;
-	} | null>(null);
 
 	// Fresh dialog on every open: reset to the link view, prefill a deep link
 	// when one arrived, and make sure the catalog is hydrated.
@@ -226,7 +211,6 @@ export function AddComputerDialog({
 		setSshError(null);
 		setManageError(null);
 		setEditingProfileId(null);
-		setPendingRemoval(null);
 		void initialize().catch((cause) => setLinkError(errorText(cause)));
 	}, [open, initialLink, initialView, initialize]);
 
@@ -326,341 +310,461 @@ export function AddComputerDialog({
 		setSshError(null);
 	};
 
-	const confirmRemoval = (): void => {
-		if (pendingRemoval === null) return;
-		const { profileId } = pendingRemoval;
-		setPendingRemoval(null);
-		void remove(profileId).catch((cause) => setManageError(errorText(cause)));
-	};
-
 	return (
-		<>
-			<Dialog open={open} onOpenChange={onOpenChange}>
-				<DialogPopup className="max-w-xl">
-					<DialogHeader className="pb-3">
-						<DialogTitle>
-							{view === "manage"
-								? uiMessage("providers:add_computer_dialog_your_computers")
-								: uiMessage("providers:add_computer_dialog_connect_a_computer")}
-						</DialogTitle>
-						<DialogDescription>
-							{view === "manage"
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogPopup className="max-w-xl">
+				<DialogHeader className="pb-3">
+					<DialogTitle>
+						{view === "manage"
+							? uiMessage("providers:add_computer_dialog_your_computers")
+							: uiMessage("providers:add_computer_dialog_connect_a_computer")}
+					</DialogTitle>
+					<DialogDescription>
+						{view === "manage"
+							? uiMessage(
+									"providers:add_computer_dialog_rename_reconnect_or_remove_computers_saved_on_this_device",
+								)
+							: initialLink !== undefined && pairingLink === initialLink
 								? uiMessage(
-										"providers:add_computer_dialog_rename_reconnect_or_remove_computers_saved_on_this_device",
+										"providers:add_computer_dialog_review_this_link_then_press_connect_to_pair_with_the_other_computer",
 									)
-								: initialLink !== undefined && pairingLink === initialLink
-									? uiMessage(
-											"providers:add_computer_dialog_review_this_link_then_press_connect_to_pair_with_the_other_computer",
-										)
-									: uiMessage(
-											"providers:add_computer_dialog_use_a_connect_link_or_your_existing_ssh_setup",
-										)}
-						</DialogDescription>
-					</DialogHeader>
-					<div className="min-h-0 space-y-3 overflow-y-auto px-4 pb-3">
-						<div className="flex items-center justify-between gap-2">
-							{view !== "manage" ? (
-								<SegmentedTabs
-									value={view}
-									ariaLabel={uiMessage("common:connection_method")}
-									className="w-48"
-									options={[
-										{ value: "link", label: "Connect link" },
-										{ value: "ssh", label: "SSH" },
-									]}
-									onValueChange={(next) => {
-										if (next === "link") {
-											setView("link");
-											setLinkError(null);
-										} else {
-											setView("ssh");
-											setSshError(null);
-										}
-									}}
-								/>
-							) : (
-								<span />
-							)}
-							{hasManageable || hiddenApiIds.length > 0 ? (
-								<Button
-									type="button"
-									size="xs"
-									variant="ghost"
-									onClick={() => {
-										setView((current) =>
-											current === "manage" ? "link" : "manage",
-										);
-										setManageError(null);
-									}}
-								>
-									{view === "manage"
-										? uiMessage("providers:add_computer_dialog_add_computer")
-										: uiMessage("providers:add_computer_dialog_manage")}
-								</Button>
-							) : null}
-						</div>
+								: uiMessage(
+										"providers:add_computer_dialog_use_a_connect_link_or_your_existing_ssh_setup",
+									)}
+					</DialogDescription>
+				</DialogHeader>
+				<div className="min-h-0 space-y-3 overflow-y-auto px-4 pb-3">
+					<div className="flex items-center justify-between gap-2">
+						{view !== "manage" ? (
+							<SegmentedTabs
+								value={view}
+								ariaLabel={uiMessage("common:connection_method")}
+								className="w-48"
+								options={[
+									{ value: "link", label: "Connect link" },
+									{ value: "ssh", label: "SSH" },
+								]}
+								onValueChange={(next) => {
+									if (next === "link") {
+										setView("link");
+										setLinkError(null);
+									} else {
+										setView("ssh");
+										setSshError(null);
+									}
+								}}
+							/>
+						) : (
+							<span />
+						)}
+						{hasManageable || hiddenApiIds.length > 0 ? (
+							<Button
+								type="button"
+								size="xs"
+								variant="ghost"
+								onClick={() => {
+									setView((current) =>
+										current === "manage" ? "link" : "manage",
+									);
+									setManageError(null);
+								}}
+							>
+								{view === "manage"
+									? uiMessage("providers:add_computer_dialog_add_computer")
+									: uiMessage("providers:add_computer_dialog_manage")}
+							</Button>
+						) : null}
+					</div>
 
-						{view === "manage" ? (
-							<>
-								{profileEntries.length > 0 ? (
-									<section aria-labelledby="saved-computers-heading">
-										<h3
-											id="saved-computers-heading"
-											className="mb-2 text-xs font-medium text-muted-foreground"
-										>
-											{uiMessage(
-												"providers:add_computer_dialog_saved_computers",
-											)}
-										</h3>
-										<div className="space-y-1">
-											{profileEntries.map((entry) => (
-												<div
-													key={entry.profileId}
-													className="flex min-h-11 items-center gap-2 rounded-lg border border-border/50 px-3 py-2"
-												>
-													<div className="min-w-0 flex-1">
-														{editingProfileId === entry.profileId ? (
-															<form
-																className="flex gap-1"
-																onSubmit={(event) => {
-																	event.preventDefault();
-																	if (entry.profileId === null) return;
-																	void rename(entry.profileId, editedLabel)
-																		.then(() => setEditingProfileId(null))
-																		.catch((cause) =>
-																			setManageError(errorText(cause)),
-																		);
-																}}
-															>
-																<Input
-																	aria-label={uiMessage(
-																		"providers:add_computer_dialog_label_for",
-																		{ value1: String(entry.label) },
-																	)}
-																	autoFocus
-																	value={editedLabel}
-																	onChange={(event) =>
-																		setEditedLabel(event.target.value)
-																	}
-																/>
-																<Button size="sm" type="submit">
-																	{uiMessage("common:save")}
-																</Button>
-															</form>
-														) : (
-															<div className="truncate text-sm font-medium">
-																{entry.label}
-															</div>
-														)}
-														<div className="truncate text-xs text-muted-foreground">
-															{entry.error ??
-																`${entry.connectionKind === "tailnet" ? "Connect link" : (entry.target?.hostname ?? "SSH")} · ${entry.status}`}
-														</div>
-													</div>
-													<Button
-														aria-label={uiMessage(
-															"providers:add_computer_dialog_edit_label_for",
-															{ value1: String(entry.label) },
-														)}
-														size="icon-sm"
-														variant="ghost"
-														onClick={() => {
-															setEditingProfileId(entry.profileId);
-															setEditedLabel(entry.label);
-														}}
-													>
-														<Pencil />
-													</Button>
-													{entry.status !== "connected" ? (
-														<Button
-															aria-label={uiMessage(
-																"providers:add_computer_dialog_retry",
-																{ value1: String(entry.label) },
-															)}
-															size="icon-sm"
-															variant="ghost"
-															onClick={() =>
-																void retry(entry.profileId as string).catch(
-																	(cause) => setManageError(errorText(cause)),
-																)
-															}
+					{view === "manage" ? (
+						<>
+							{profileEntries.length > 0 ? (
+								<section aria-labelledby="saved-computers-heading">
+									<h3
+										id="saved-computers-heading"
+										className="mb-2 text-xs font-medium text-muted-foreground"
+									>
+										{uiMessage("providers:add_computer_dialog_saved_computers")}
+									</h3>
+									<div className="space-y-1">
+										{profileEntries.map((entry) => (
+											<div
+												key={entry.profileId}
+												className="flex min-h-11 items-center gap-2 rounded-lg border border-border/50 px-3 py-2"
+											>
+												<div className="min-w-0 flex-1">
+													{editingProfileId === entry.profileId ? (
+														<form
+															className="flex gap-1"
+															onSubmit={(event) => {
+																event.preventDefault();
+																if (entry.profileId === null) return;
+																void rename(entry.profileId, editedLabel)
+																	.then(() => setEditingProfileId(null))
+																	.catch((cause) =>
+																		setManageError(errorText(cause)),
+																	);
+															}}
 														>
-															<RotateCw />
-														</Button>
+															<Input
+																aria-label={uiMessage(
+																	"providers:add_computer_dialog_label_for",
+																	{ value1: String(entry.label) },
+																)}
+																autoFocus
+																value={editedLabel}
+																onChange={(event) =>
+																	setEditedLabel(event.target.value)
+																}
+															/>
+															<Button size="sm" type="submit">
+																{uiMessage("common:save")}
+															</Button>
+														</form>
 													) : (
-														<Button
-															aria-label={uiMessage(
-																"providers:add_computer_dialog_disconnect",
-																{ value1: String(entry.label) },
-															)}
-															disabled={entry.environmentId === activeId}
-															size="icon-sm"
-															variant="ghost"
-															onClick={() =>
-																void disconnect(
-																	entry.profileId as string,
-																).catch((cause) =>
-																	setManageError(errorText(cause)),
-																)
-															}
-														>
-															<Unplug />
-														</Button>
-													)}
-													<Button
-														aria-label={uiMessage(
-															"providers:add_computer_dialog_remove",
-															{ value1: String(entry.label) },
-														)}
-														disabled={entry.environmentId === activeId}
-														size="icon-sm"
-														variant="ghost"
-														onClick={() =>
-															setPendingRemoval({
-																profileId: entry.profileId as string,
-																label: entry.label,
-															})
-														}
-													>
-														<Trash2 />
-													</Button>
-												</div>
-											))}
-										</div>
-									</section>
-								) : null}
-								{apiEntries.length > 0 ? (
-									<section aria-labelledby="account-computers-heading">
-										<h3
-											id="account-computers-heading"
-											className="mb-2 text-xs font-medium text-muted-foreground"
-										>
-											{uiMessage(
-												"providers:add_computer_dialog_on_your_account",
-											)}
-										</h3>
-										<div className="space-y-1">
-											{apiEntries.map((entry) => (
-												<div
-													key={entry.environmentId}
-													className="flex min-h-11 items-center gap-2 rounded-lg border border-border/50 px-3 py-2"
-												>
-													<StatusDot status={entry.status} />
-													<div className="min-w-0 flex-1">
 														<div className="truncate text-sm font-medium">
 															{entry.label}
 														</div>
-														<div className="truncate text-xs text-muted-foreground">
-															{apiStatusText(entry)}
-														</div>
+													)}
+													<div className="truncate text-xs text-muted-foreground">
+														{entry.error ??
+															`${entry.connectionKind === "tailnet" ? "Connect link" : (entry.target?.hostname ?? "SSH")} · ${entry.status}`}
 													</div>
-													{entry.status === "error" ? (
-														<Button
-															size="xs"
-															variant="ghost"
-															onClick={() =>
-																void retryEnvironment(
-																	entry.environmentId,
-																).catch((cause) =>
-																	setManageError(errorText(cause)),
-																)
-															}
-														>
-															{uiMessage("common:retry")}
-														</Button>
-													) : null}
+												</div>
+												<Button
+													aria-label={uiMessage(
+														"providers:add_computer_dialog_edit_label_for",
+														{ value1: String(entry.label) },
+													)}
+													size="icon-sm"
+													variant="ghost"
+													onClick={() => {
+														setEditingProfileId(entry.profileId);
+														setEditedLabel(entry.label);
+													}}
+												>
+													<Pencil />
+												</Button>
+												{entry.status !== "connected" ? (
 													<Button
-														disabled={entry.environmentId === activeId}
-														size="xs"
+														aria-label={uiMessage(
+															"providers:add_computer_dialog_retry",
+															{ value1: String(entry.label) },
+														)}
+														size="icon-sm"
 														variant="ghost"
 														onClick={() =>
-															void hideApiEnvironment(
-																entry.environmentId,
-															).catch((cause) =>
-																setManageError(errorText(cause)),
+															void retry(entry.profileId as string).catch(
+																(cause) => setManageError(errorText(cause)),
 															)
 														}
 													>
-														{uiMessage("providers:add_computer_dialog_hide")}
+														<RotateCw />
 													</Button>
-												</div>
-											))}
-										</div>
-									</section>
-								) : null}
-								{hiddenApiIds.length > 0 ? (
-									<Button
-										size="xs"
-										variant="ghost"
-										onClick={() =>
-											void unhideApiEnvironments().catch((cause) =>
-												setManageError(errorText(cause)),
-											)
-										}
+												) : (
+													<Button
+														aria-label={uiMessage(
+															"providers:add_computer_dialog_disconnect",
+															{ value1: String(entry.label) },
+														)}
+														disabled={entry.environmentId === activeId}
+														size="icon-sm"
+														variant="ghost"
+														onClick={() =>
+															void disconnect(entry.profileId as string).catch(
+																(cause) => setManageError(errorText(cause)),
+															)
+														}
+													>
+														<Unplug />
+													</Button>
+												)}
+												<RemoveComputerButton entry={entry} />
+											</div>
+										))}
+									</div>
+								</section>
+							) : null}
+							{apiEntries.length > 0 ? (
+								<section aria-labelledby="account-computers-heading">
+									<h3
+										id="account-computers-heading"
+										className="mb-2 text-xs font-medium text-muted-foreground"
 									>
-										{uiMessage(
-											"providers:add_computer_dialog_show_hidden_computers_sentence",
-											{ value: hiddenApiIds.length },
-										)}
-									</Button>
-								) : null}
-								{manageError !== null ? (
-									<p role="alert" className="text-xs text-destructive">
-										{manageError}
-									</p>
-								) : null}
-								<p className="text-xs text-muted-foreground">
-									{uiMessage(
-										"providers:add_computer_dialog_removing_a_computer_only_forgets_it_here_its_projects_and_data_remain",
-									)}
-								</p>
-							</>
-						) : null}
-
-						{view === "link" ? (
-							<>
-								<form
-									id="add-computer-link-form"
-									className="space-y-3"
-									onSubmit={(event) => void submitLink(event)}
+										{uiMessage("providers:add_computer_dialog_on_your_account")}
+									</h3>
+									<div className="space-y-1">
+										{apiEntries.map((entry) => (
+											<div
+												key={entry.environmentId}
+												className="flex min-h-11 items-center gap-2 rounded-lg border border-border/50 px-3 py-2"
+											>
+												<StatusDot status={entry.status} />
+												<div className="min-w-0 flex-1">
+													<div className="truncate text-sm font-medium">
+														{entry.label}
+													</div>
+													<div className="truncate text-xs text-muted-foreground">
+														{apiStatusText(entry)}
+													</div>
+												</div>
+												{entry.status === "error" ? (
+													<Button
+														size="xs"
+														variant="ghost"
+														onClick={() =>
+															void retryEnvironment(entry.environmentId).catch(
+																(cause) => setManageError(errorText(cause)),
+															)
+														}
+													>
+														{uiMessage("common:retry")}
+													</Button>
+												) : null}
+												<RemoveComputerButton entry={entry} />
+											</div>
+										))}
+									</div>
+								</section>
+							) : null}
+							{hiddenApiIds.length > 0 ? (
+								<Button
+									size="xs"
+									variant="ghost"
+									onClick={() =>
+										void unhideApiEnvironments().catch((cause) =>
+											setManageError(errorText(cause)),
+										)
+									}
 								>
-									<div className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
-										{uiMessage(
-											"providers:add_computer_dialog_on_the_other_computer_open_settings_remote_access_connect_a_device_the",
+									{uiMessage(
+										"providers:add_computer_dialog_show_hidden_computers_sentence",
+										{ value: hiddenApiIds.length },
+									)}
+								</Button>
+							) : null}
+							{manageError !== null ? (
+								<p role="alert" className="text-xs text-destructive">
+									{manageError}
+								</p>
+							) : null}
+							<p className="text-xs text-muted-foreground">
+								{uiMessage(
+									"providers:add_computer_dialog_removing_a_computer_only_forgets_it_here_its_projects_and_data_remain",
+								)}
+							</p>
+						</>
+					) : null}
+
+					{view === "link" ? (
+						<>
+							<form
+								id="add-computer-link-form"
+								className="space-y-3"
+								onSubmit={(event) => void submitLink(event)}
+							>
+								<div className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
+									{uiMessage(
+										"providers:add_computer_dialog_on_the_other_computer_open_settings_remote_access_connect_a_device_the",
+									)}
+								</div>
+								<div>
+									<label
+										htmlFor="add-computer-link"
+										className="mb-1 block text-xs font-medium"
+									>
+										{uiMessage("providers:add_computer_dialog_connect_link")}
+									</label>
+									<Input
+										id="add-computer-link"
+										autoFocus
+										autoComplete="off"
+										value={pairingLink}
+										onChange={(event) => setPairingLink(event.target.value)}
+										placeholder={uiMessage(
+											"providers:add_computer_dialog_zuse_connect_pair",
 										)}
-									</div>
-									<div>
-										<label
-											htmlFor="add-computer-link"
-											className="mb-1 block text-xs font-medium"
-										>
-											{uiMessage("providers:add_computer_dialog_connect_link")}
-										</label>
-										<Input
-											id="add-computer-link"
-											autoFocus
-											autoComplete="off"
-											value={pairingLink}
-											onChange={(event) => setPairingLink(event.target.value)}
-											placeholder={uiMessage(
-												"providers:add_computer_dialog_zuse_connect_pair",
-											)}
-											aria-invalid={linkError !== null || undefined}
+										aria-invalid={linkError !== null || undefined}
+									/>
+									<p
+										className="mt-1 min-h-4 text-xs text-muted-foreground"
+										aria-live="polite"
+									>
+										{linkSubtext}
+									</p>
+								</div>
+								<div>
+									<label
+										htmlFor="add-computer-name"
+										className="mb-1 block text-xs font-medium"
+									>
+										<RichMessage
+											id="providers:add_computer_dialog_computer_name_optional_sentence"
+											components={{
+												part0: (
+													<span className="font-normal text-muted-foreground" />
+												),
+											}}
 										/>
-										<p
-											className="mt-1 min-h-4 text-xs text-muted-foreground"
-											aria-live="polite"
-										>
-											{linkSubtext}
-										</p>
+									</label>
+									<Input
+										id="add-computer-name"
+										value={label}
+										onChange={(event) => setLabel(event.target.value)}
+										placeholder={uiMessage(
+											"providers:add_computer_dialog_linux_computer",
+										)}
+									/>
+								</div>
+							</form>
+							{linkError !== null ? (
+								<p role="alert" className="text-xs text-destructive">
+									{linkError}
+								</p>
+							) : null}
+							<section aria-labelledby="account-computers-list-heading">
+								<h3
+									id="account-computers-list-heading"
+									className="mb-2 text-xs font-medium text-muted-foreground"
+								>
+									{uiMessage("providers:add_computer_dialog_on_your_account")}
+								</h3>
+								{accountDiscoveryError !== null ? (
+									<p
+										className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3 text-xs text-destructive"
+										role="alert"
+									>
+										{accountDiscoveryError.toLowerCase().includes("auth")
+											? uiMessage(
+													"providers:add_computer_dialog_sign_in_to_see_the_computers_on_your_zuse_account",
+												)
+											: uiMessage(
+													"providers:add_computer_dialog_could_not_load_account_computers",
+													{
+														accountDiscoveryError: String(
+															accountDiscoveryError,
+														),
+													},
+												)}
+									</p>
+								) : apiEntries.length === 0 ? (
+									<p className="rounded-lg border border-dashed border-border/60 px-3 py-3 text-xs text-muted-foreground">
+										{uiMessage(
+											"providers:add_computer_dialog_computers_signed_in_to_your_zuse_account_appear_here_automatically",
+										)}
+									</p>
+								) : (
+									<div className="space-y-1">
+										{apiEntries.map((entry) => (
+											<div
+												key={entry.environmentId}
+												className="flex min-h-11 items-center gap-2 rounded-lg border border-border/50 px-3 py-2"
+											>
+												<StatusDot status={entry.status} />
+												<div className="min-w-0 flex-1">
+													<div className="truncate text-sm font-medium">
+														{entry.label}
+													</div>
+													<div className="truncate text-xs text-muted-foreground">
+														{apiStatusText(entry)}
+													</div>
+												</div>
+												{entry.status === "error" ? (
+													<Button
+														size="xs"
+														variant="ghost"
+														onClick={() =>
+															void retryEnvironment(entry.environmentId).catch(
+																(cause) => setLinkError(errorText(cause)),
+															)
+														}
+													>
+														{uiMessage("common:retry")}
+													</Button>
+												) : null}
+											</div>
+										))}
 									</div>
+								)}
+							</section>
+						</>
+					) : null}
+
+					{view === "ssh" ? (
+						<>
+							{suggestions.length > 0 ? (
+								<section aria-labelledby="suggested-computers-heading">
+									<h3
+										id="suggested-computers-heading"
+										className="mb-2 text-xs font-medium text-muted-foreground"
+									>
+										{uiMessage("providers:add_computer_dialog_suggestions")}
+									</h3>
+									<div className="grid gap-1 sm:grid-cols-2">
+										{suggestions.map((host) => (
+											<Button
+												key={`${host.source}:${host.alias}`}
+												variant="outline"
+												className="h-auto min-h-11 justify-start px-3 py-2 text-left"
+												onClick={() => chooseSuggestion(host)}
+											>
+												<span className="min-w-0">
+													<span className="block truncate text-sm">
+														{host.displayName}
+													</span>
+													<span className="block truncate text-xs font-normal text-muted-foreground">
+														{host.source === "tailscale"
+															? uiMessage(
+																	"providers:add_computer_dialog_tailnet",
+																)
+															: uiMessage(
+																	"providers:add_computer_dialog_ssh_config",
+																)}{" "}
+														· {host.hostname}
+													</span>
+												</span>
+											</Button>
+										))}
+									</div>
+								</section>
+							) : null}
+							<form
+								id="add-computer-ssh-form"
+								className="space-y-3"
+								onSubmit={(event) => void submitSsh(event)}
+							>
+								<div>
+									<label
+										htmlFor="computer-host"
+										className="mb-1 block text-xs font-medium"
+									>
+										{uiMessage("providers:add_computer_dialog_host")}
+									</label>
+									<Input
+										id="computer-host"
+										autoComplete="off"
+										value={target.hostname}
+										onChange={(event) =>
+											setTarget((current) => ({
+												...current,
+												hostname: event.target.value,
+												alias: event.target.value,
+											}))
+										}
+										aria-invalid={sshError !== null || undefined}
+										placeholder={uiMessage(
+											"providers:add_computer_dialog_server_example_com",
+										)}
+									/>
+								</div>
+								<div className="grid gap-3 sm:grid-cols-2">
 									<div>
 										<label
-											htmlFor="add-computer-name"
+											htmlFor="computer-user"
 											className="mb-1 block text-xs font-medium"
 										>
 											<RichMessage
-												id="providers:add_computer_dialog_computer_name_optional_sentence"
+												id="providers:add_computer_dialog_username_optional_sentence"
 												components={{
 													part0: (
 														<span className="font-normal text-muted-foreground" />
@@ -669,302 +773,104 @@ export function AddComputerDialog({
 											/>
 										</label>
 										<Input
-											id="add-computer-name"
-											value={label}
-											onChange={(event) => setLabel(event.target.value)}
-											placeholder={uiMessage(
-												"providers:add_computer_dialog_linux_computer",
-											)}
-										/>
-									</div>
-								</form>
-								{linkError !== null ? (
-									<p role="alert" className="text-xs text-destructive">
-										{linkError}
-									</p>
-								) : null}
-								<section aria-labelledby="account-computers-list-heading">
-									<h3
-										id="account-computers-list-heading"
-										className="mb-2 text-xs font-medium text-muted-foreground"
-									>
-										{uiMessage("providers:add_computer_dialog_on_your_account")}
-									</h3>
-									{accountDiscoveryError !== null ? (
-										<p
-											className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3 text-xs text-destructive"
-											role="alert"
-										>
-											{accountDiscoveryError.toLowerCase().includes("auth")
-												? uiMessage(
-														"providers:add_computer_dialog_sign_in_to_see_the_computers_on_your_zuse_account",
-													)
-												: uiMessage(
-														"providers:add_computer_dialog_could_not_load_account_computers",
-														{
-															accountDiscoveryError: String(
-																accountDiscoveryError,
-															),
-														},
-													)}
-										</p>
-									) : apiEntries.length === 0 ? (
-										<p className="rounded-lg border border-dashed border-border/60 px-3 py-3 text-xs text-muted-foreground">
-											{uiMessage(
-												"providers:add_computer_dialog_computers_signed_in_to_your_zuse_account_appear_here_automatically",
-											)}
-										</p>
-									) : (
-										<div className="space-y-1">
-											{apiEntries.map((entry) => (
-												<div
-													key={entry.environmentId}
-													className="flex min-h-11 items-center gap-2 rounded-lg border border-border/50 px-3 py-2"
-												>
-													<StatusDot status={entry.status} />
-													<div className="min-w-0 flex-1">
-														<div className="truncate text-sm font-medium">
-															{entry.label}
-														</div>
-														<div className="truncate text-xs text-muted-foreground">
-															{apiStatusText(entry)}
-														</div>
-													</div>
-													{entry.status === "error" ? (
-														<Button
-															size="xs"
-															variant="ghost"
-															onClick={() =>
-																void retryEnvironment(
-																	entry.environmentId,
-																).catch((cause) =>
-																	setLinkError(errorText(cause)),
-																)
-															}
-														>
-															{uiMessage("common:retry")}
-														</Button>
-													) : null}
-												</div>
-											))}
-										</div>
-									)}
-								</section>
-							</>
-						) : null}
-
-						{view === "ssh" ? (
-							<>
-								{suggestions.length > 0 ? (
-									<section aria-labelledby="suggested-computers-heading">
-										<h3
-											id="suggested-computers-heading"
-											className="mb-2 text-xs font-medium text-muted-foreground"
-										>
-											{uiMessage("providers:add_computer_dialog_suggestions")}
-										</h3>
-										<div className="grid gap-1 sm:grid-cols-2">
-											{suggestions.map((host) => (
-												<Button
-													key={`${host.source}:${host.alias}`}
-													variant="outline"
-													className="h-auto min-h-11 justify-start px-3 py-2 text-left"
-													onClick={() => chooseSuggestion(host)}
-												>
-													<span className="min-w-0">
-														<span className="block truncate text-sm">
-															{host.displayName}
-														</span>
-														<span className="block truncate text-xs font-normal text-muted-foreground">
-															{host.source === "tailscale"
-																? uiMessage(
-																		"providers:add_computer_dialog_tailnet",
-																	)
-																: uiMessage(
-																		"providers:add_computer_dialog_ssh_config",
-																	)}{" "}
-															· {host.hostname}
-														</span>
-													</span>
-												</Button>
-											))}
-										</div>
-									</section>
-								) : null}
-								<form
-									id="add-computer-ssh-form"
-									className="space-y-3"
-									onSubmit={(event) => void submitSsh(event)}
-								>
-									<div>
-										<label
-											htmlFor="computer-host"
-											className="mb-1 block text-xs font-medium"
-										>
-											{uiMessage("providers:add_computer_dialog_host")}
-										</label>
-										<Input
-											id="computer-host"
-											autoComplete="off"
-											value={target.hostname}
+											id="computer-user"
+											autoComplete="username"
+											value={target.username ?? ""}
 											onChange={(event) =>
 												setTarget((current) => ({
 													...current,
-													hostname: event.target.value,
-													alias: event.target.value,
+													username: event.target.value || null,
 												}))
 											}
-											aria-invalid={sshError !== null || undefined}
+										/>
+									</div>
+									<div>
+										<label
+											htmlFor="computer-port"
+											className="mb-1 block text-xs font-medium"
+										>
+											<RichMessage
+												id="providers:add_computer_dialog_port_optional_sentence"
+												components={{
+													part0: (
+														<span className="font-normal text-muted-foreground" />
+													),
+												}}
+											/>
+										</label>
+										<Input
+											id="computer-port"
+											inputMode="numeric"
+											value={target.port ?? ""}
+											onChange={(event) =>
+												setTarget((current) => ({
+													...current,
+													port:
+														event.target.value === ""
+															? null
+															: Number(event.target.value),
+												}))
+											}
+										/>
+									</div>
+									<div className="sm:col-span-2">
+										<label
+											htmlFor="computer-label"
+											className="mb-1 block text-xs font-medium"
+										>
+											<RichMessage
+												id="providers:add_computer_dialog_label_optional_sentence"
+												components={{
+													part0: (
+														<span className="font-normal text-muted-foreground" />
+													),
+												}}
+											/>
+										</label>
+										<Input
+											id="computer-label"
+											value={label}
+											onChange={(event) => setLabel(event.target.value)}
 											placeholder={uiMessage(
-												"providers:add_computer_dialog_server_example_com",
+												"providers:add_computer_dialog_build_computer",
 											)}
 										/>
 									</div>
-									<div className="grid gap-3 sm:grid-cols-2">
-										<div>
-											<label
-												htmlFor="computer-user"
-												className="mb-1 block text-xs font-medium"
-											>
-												<RichMessage
-													id="providers:add_computer_dialog_username_optional_sentence"
-													components={{
-														part0: (
-															<span className="font-normal text-muted-foreground" />
-														),
-													}}
-												/>
-											</label>
-											<Input
-												id="computer-user"
-												autoComplete="username"
-												value={target.username ?? ""}
-												onChange={(event) =>
-													setTarget((current) => ({
-														...current,
-														username: event.target.value || null,
-													}))
-												}
-											/>
-										</div>
-										<div>
-											<label
-												htmlFor="computer-port"
-												className="mb-1 block text-xs font-medium"
-											>
-												<RichMessage
-													id="providers:add_computer_dialog_port_optional_sentence"
-													components={{
-														part0: (
-															<span className="font-normal text-muted-foreground" />
-														),
-													}}
-												/>
-											</label>
-											<Input
-												id="computer-port"
-												inputMode="numeric"
-												value={target.port ?? ""}
-												onChange={(event) =>
-													setTarget((current) => ({
-														...current,
-														port:
-															event.target.value === ""
-																? null
-																: Number(event.target.value),
-													}))
-												}
-											/>
-										</div>
-										<div className="sm:col-span-2">
-											<label
-												htmlFor="computer-label"
-												className="mb-1 block text-xs font-medium"
-											>
-												<RichMessage
-													id="providers:add_computer_dialog_label_optional_sentence"
-													components={{
-														part0: (
-															<span className="font-normal text-muted-foreground" />
-														),
-													}}
-												/>
-											</label>
-											<Input
-												id="computer-label"
-												value={label}
-												onChange={(event) => setLabel(event.target.value)}
-												placeholder={uiMessage(
-													"providers:add_computer_dialog_build_computer",
-												)}
-											/>
-										</div>
-									</div>
-								</form>
-								{sshError !== null ? (
-									<p role="alert" className="text-xs text-destructive">
-										{sshError}
-									</p>
-								) : null}
-							</>
-						) : null}
-					</div>
-					<DialogFooter className="py-2">
-						{view === "manage" ? (
-							<Button onClick={() => onOpenChange(false)}>
-								{uiMessage("common:done")}
+								</div>
+							</form>
+							{sshError !== null ? (
+								<p role="alert" className="text-xs text-destructive">
+									{sshError}
+								</p>
+							) : null}
+						</>
+					) : null}
+				</div>
+				<DialogFooter className="py-2">
+					{view === "manage" ? (
+						<Button onClick={() => onOpenChange(false)}>
+							{uiMessage("common:done")}
+						</Button>
+					) : (
+						<>
+							<Button variant="ghost" onClick={() => onOpenChange(false)}>
+								{uiMessage("common:cancel")}
 							</Button>
-						) : (
-							<>
-								<Button variant="ghost" onClick={() => onOpenChange(false)}>
-									{uiMessage("common:cancel")}
-								</Button>
-								<Button
-									form={
-										view === "link"
-											? "add-computer-link-form"
-											: "add-computer-ssh-form"
-									}
-									type="submit"
-									loading={view === "link" ? submittingLink : submittingSsh}
-								>
-									{uiMessage("common:connect")}
-								</Button>
-							</>
-						)}
-					</DialogFooter>
-				</DialogPopup>
-			</Dialog>
-			<AlertDialog
-				open={pendingRemoval !== null}
-				onOpenChange={(alertOpen) => {
-					if (!alertOpen) setPendingRemoval(null);
-				}}
-			>
-				<AlertDialogPopup className="max-w-sm">
-					<AlertDialogHeader>
-						<AlertDialogTitle>
-							{uiMessage("providers:add_computer_dialog_remove_sentence", {
-								value: pendingRemoval?.label ?? "",
-							})}
-						</AlertDialogTitle>
-						<AlertDialogDescription>
-							{uiMessage(
-								"providers:add_computer_dialog_zuse_will_forget_this_computer_on_this_device_projects_and_d_sentence",
-								{ value: pendingRemoval?.label ?? "" },
-							)}
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<Button variant="ghost" onClick={() => setPendingRemoval(null)}>
-							{uiMessage("common:cancel")}
-						</Button>
-						<Button variant="destructive" onClick={confirmRemoval}>
-							{uiMessage("common:remove")}
-						</Button>
-					</AlertDialogFooter>
-				</AlertDialogPopup>
-			</AlertDialog>
-		</>
+							<Button
+								form={
+									view === "link"
+										? "add-computer-link-form"
+										: "add-computer-ssh-form"
+								}
+								type="submit"
+								loading={view === "link" ? submittingLink : submittingSsh}
+							>
+								{uiMessage("common:connect")}
+							</Button>
+						</>
+					)}
+				</DialogFooter>
+			</DialogPopup>
+		</Dialog>
 	);
 }

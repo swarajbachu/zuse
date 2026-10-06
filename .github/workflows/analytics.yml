@@ -1,0 +1,36 @@
+name: Analytics
+on:
+  pull_request:
+    paths:
+      - 'packages/analytics/**'
+      - 'apps/web/**'
+      - 'apps/docs/**'
+      - 'apps/renderer/src/lib/analytics.ts'
+      - 'apps/server/src/analytics/**'
+      - 'scripts/*analytics*'
+      - '.github/workflows/analytics.yml'
+      - 'bun.lock'
+permissions:
+  contents: read
+jobs:
+  contracts-and-sites:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bunx biome check packages/analytics/src/public-site.ts packages/analytics/src/platform.ts scripts/analytics-dashboards.mjs scripts/provision-analytics.mjs scripts/provision-analytics.test.mjs apps/web/instrumentation-client.ts apps/docs/src/instrumentation-client.ts apps/web/lib/download-analytics.ts
+      - run: bun run --cwd packages/analytics test
+      - run: node --test scripts/provision-analytics.test.mjs
+      - run: bun run --cwd apps/web test
+      - run: bun run --cwd apps/docs test
+      - run: bun run --cwd packages/analytics check-types
+      - run: bun run --cwd apps/web check-types
+      - run: bun run --cwd apps/docs check-types
+      - run: bun run --cwd apps/web build
+      - run: bun run --cwd apps/docs build

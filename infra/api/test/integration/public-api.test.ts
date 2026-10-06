@@ -2,6 +2,7 @@ import { BillingProvidersManual } from "@zuse/billing-providers";
 import {
 	CLOUD_COMMAND_PROTOCOL_VERSION,
 	CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
+	CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
 } from "@zuse/contracts";
 import { MachineProvidersFake } from "@zuse/machine-providers/testing";
 import {
@@ -1273,6 +1274,7 @@ describe("public API (/v1/api)", () => {
 				},
 				body: JSON.stringify({
 					text: "Inspect this screenshot",
+					githubBot: true,
 					attachments: [uploaded.asset.assetId],
 				}),
 			}),
@@ -1290,6 +1292,7 @@ describe("public API (/v1/api)", () => {
 		expect(oldRuntimeCommands.commands).toEqual([]);
 		await stageRuntimeCredential(runtime, store, workspaceId, "asset-runtime", [
 			CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
+			CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
 		]);
 		const commands = await json<{
 			commands: ReadonlyArray<{
@@ -1308,6 +1311,7 @@ describe("public API (/v1/api)", () => {
 			text: "Inspect this screenshot",
 			attachments: [{ assetId: uploaded.asset.assetId }],
 		});
+		expect(commands.commands[0]).not.toHaveProperty("githubBot", true);
 		// Web/mobile mailbox ACKs share the URL but must reach their own receipt
 		// authority, even while the public API queue has an outstanding command.
 		const mailboxAck = await serve(
@@ -1528,6 +1532,7 @@ describe("public API (/v1/api)", () => {
 						routeAccountWorkspaceRequest(
 							new Request(ISSUER + path, init),
 							accountId,
+							{ githubBot: true },
 						),
 					)) ?? new Response(null, { status: 404 }),
 			}),
@@ -1701,6 +1706,7 @@ describe("public API (/v1/api)", () => {
 			throw new Error("Slack import did not create its workspace mapping");
 		await stageRuntimeCredential(runtime, store, workspaceId, "slack-runtime", [
 			CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
+			CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
 		]);
 		const runtimeHeaders = {
 			authorization: "Bearer slack-runtime",
@@ -1724,6 +1730,7 @@ describe("public API (/v1/api)", () => {
 				200,
 			);
 		const command = (await drain()).commands[0];
+		expect(command).toMatchObject({ githubBot: true });
 		if (command === undefined)
 			throw new Error("Slack import did not enqueue context");
 		expect(command.text).toContain("Fix this screen");

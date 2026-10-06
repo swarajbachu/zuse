@@ -1,5 +1,4 @@
 import { join } from "node:path";
-
 import {
 	Agent,
 	AgentNotFoundError,
@@ -10,7 +9,6 @@ import {
 	JsonlLocalAgentStore,
 	type McpServerConfig,
 	type ModelSelection,
-	type Run,
 	type SDKMessage,
 	type SDKUserMessage,
 } from "@cursor/sdk";
@@ -26,7 +24,6 @@ import {
 	type StartSessionInput,
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, Result, Stream } from "effect";
-
 import {
 	AttachmentService,
 	type AttachmentServiceShape,
@@ -37,6 +34,10 @@ import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher
 import { appendStreamText } from "../kernel/stream-text.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import type { ResolvedMcpServer } from "../user-mcp/types.ts";
+import {
+	type CursorRun,
+	startIsolatedCursorAgent,
+} from "./cursor-isolated-agent.ts";
 
 const SDK_START_TIMEOUT_MS = 30_000;
 const SDK_SEND_TIMEOUT_MS = 30_000;
@@ -473,6 +474,18 @@ export const startCursorSession = (
 		const result = yield* Effect.result(
 			Effect.tryPromise({
 				try: async () => {
+					if (input.executionEnv !== undefined)
+						return await withTimeout(
+							startIsolatedCursorAgent(
+								options,
+								join(getDefaultSdkStateRoot(cwd), STORE_DIRECTORY),
+								resumeCursor,
+								input.executionEnv,
+							),
+							SDK_START_TIMEOUT_MS,
+							"Local agent startup",
+							(result) => result.agent.close(),
+						);
 					if (resumeCursor !== null && resumeCursor.trim().length > 0) {
 						try {
 							const agent = await withTimeout(
@@ -546,7 +559,7 @@ export const startCursorSession = (
 		let closed = false;
 		let interrupted = false;
 		let cancellationGeneration = 0;
-		let activeRun: Run | null = null;
+		let activeRun: CursorRun | null = null;
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 		let workspaceInstructions = input.workspaceInstructions;
 		const managedPluginServers = managedMcp ? [managedMcp] : [];

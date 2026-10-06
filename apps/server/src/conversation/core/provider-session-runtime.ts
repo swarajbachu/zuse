@@ -8,10 +8,11 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import type { WorktreeServiceShape } from "@zuse/git/worktree-service";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { ConfigStoreServiceShape } from "../../config-store/services/config-store-service.ts";
 import type { ModelCatalogServiceShape } from "../../model-catalog/services/model-catalog-service.ts";
 import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
+import { RuntimeGitExecution } from "../../provider/services/runtime-git-execution.ts";
 import type {
 	ConversationOperations,
 	CreateChatInput,
@@ -118,6 +119,24 @@ export const makeProviderSessionRuntime = (
 			state.setRuntimeMode(session.id, session.runtimeMode);
 			const subagents = agentsFor(session.id);
 			const cwdOverride = yield* cwdForWorktree(session.worktreeId);
+			const gitService = yield* Effect.serviceOption(RuntimeGitExecution);
+			const execution = Option.isSome(gitService)
+				? yield* Effect.tryPromise({
+						try: () => gitService.value.resolve(session.id),
+						catch: (cause) =>
+							new SessionStartError({
+								providerId: session.providerId,
+								reason:
+									cause instanceof Error
+										? cause.message
+										: "GitHub authentication required",
+							}),
+					})
+				: undefined;
+			const author = {
+				actor: execution?.context.actor,
+				githubSlackMessageId: execution?.context.slackMessageId,
+			};
 			const orchestrationTools = yield* makeConversationOrchestration(
 				{
 					runtime,
@@ -125,8 +144,8 @@ export const makeProviderSessionRuntime = (
 					getModelCatalog: modelCatalog.current,
 					createWorktree: (projectId, source) =>
 						worktrees.create(projectId, source),
-					createChat: (input) => createChat(input),
-					createSession: (input) => createSession(input),
+					createChat: (input) => createChat({ ...input, ...author }),
+					createSession: (input) => createSession({ ...input, ...author }),
 					getChat: lookupChat,
 					getSession: lookupSession,
 					sendToSession: (sessionId, text, origin) =>
@@ -141,6 +160,9 @@ export const makeProviderSessionRuntime = (
 							undefined,
 							undefined,
 							origin,
+							undefined,
+							author.actor,
+							author.githubSlackMessageId,
 						),
 					listMessages,
 					listChats,

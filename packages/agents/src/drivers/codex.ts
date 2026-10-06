@@ -1534,7 +1534,11 @@ export const startCodexSession = (
 					codexPath,
 					apiKey,
 					externalAuthConsumerId: sessionId,
-					env: { ...process.env, ZUSE_MCP_TOKEN: mcpGatewaySession.token },
+					env: {
+						...process.env,
+						...input.executionEnv,
+						ZUSE_MCP_TOKEN: mcpGatewaySession.token,
+					},
 					mcp: {
 						transport: "http",
 						url: mcpGatewaySession.codexServerConfig.url,

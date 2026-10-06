@@ -88,6 +88,7 @@ import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
 import { PermissionService } from "../services/permission-service.ts";
 import { ProviderService } from "../services/provider-service.ts";
+import { RuntimeGitExecution } from "../services/runtime-git-execution.ts";
 import { RuntimeProviderCredentials } from "../services/runtime-provider-credentials.ts";
 
 /**
@@ -112,6 +113,7 @@ type SessionEntry = {
 	readonly providerId: ProviderId;
 	readonly model: string;
 	readonly handle: SessionHandle;
+	readonly gitExecutionKey?: string;
 	turnStartedAt: number | null;
 	turnAnalytics: TurnAnalyticsAccumulator;
 };
@@ -129,6 +131,7 @@ export const ProviderServiceLive = Layer.effect(
 		const harness = yield* Effect.serviceOption(HarnessProvider);
 		const credentials = yield* CredentialsService;
 		const runtimeCredentials = yield* RuntimeProviderCredentials;
+		const gitExecution = yield* RuntimeGitExecution;
 		const modelCatalog = yield* ModelCatalogService;
 		const workspace = yield* WorkspaceService;
 		const permissions = yield* PermissionService;
@@ -383,6 +386,17 @@ export const ProviderServiceLive = Layer.effect(
 					: "custom";
 				const startupKey = `${sessionId}\u0000${input.providerId}\u0000${requestedModel}`;
 				const start = Effect.gen(function* () {
+					const execution = yield* Effect.tryPromise({
+						try: () => gitExecution.resolve(sessionId),
+						catch: (cause) =>
+							new AgentSessionStartError({
+								providerId: input.providerId,
+								reason:
+									cause instanceof Error
+										? cause.message
+										: "GitHub connection is unavailable.",
+							}),
+					});
 					const binaryPaths =
 						(yield* configStore.getSettings()).providerBinaryPaths ?? {};
 					// Reserve ownership before awaiting process teardown. If `begin` moved
@@ -393,7 +407,8 @@ export const ProviderServiceLive = Layer.effect(
 							const existing = registry.lookup(sessionId);
 							if (
 								existing?.providerId === input.providerId &&
-								existing.model === requestedModel
+								existing.model === requestedModel &&
+								existing.gitExecutionKey === execution?.key
 							) {
 								return {
 									_tag: "reuse" as const,
@@ -452,6 +467,7 @@ export const ProviderServiceLive = Layer.effect(
 								);
 					const driverInput = {
 						...input,
+						executionEnv: execution?.env,
 						...(canonicalModel !== undefined ? { model: canonicalModel } : {}),
 						...(modelDescriptor !== undefined ? { modelDescriptor } : {}),
 						workspaceInstructions: zuseWorkspaceInstructions({
@@ -992,6 +1008,7 @@ export const ProviderServiceLive = Layer.effect(
 						input.initialTurnId,
 					);
 					const entry: SessionEntry = {
+						gitExecutionKey: execution?.key,
 						providerId: input.providerId,
 						model: requestedModel,
 						handle,
@@ -1053,6 +1070,24 @@ export const ProviderServiceLive = Layer.effect(
 			send: (sessionId, turnId, text, attachments, fileRefs, skillRefs) =>
 				Effect.flatMap(lookup(sessionId), (entry) =>
 					Effect.gen(function* () {
+						const execution = yield* Effect.tryPromise({
+							try: () => gitExecution.resolve(sessionId),
+							catch: () => new AgentSessionNotFoundError({ sessionId }),
+						});
+						if (registry.lookup(sessionId) !== entry)
+							return yield* new AgentSessionNotFoundError({ sessionId });
+						if (entry.gitExecutionKey !== execution?.key) {
+							yield* lifecycleWorker.run(
+								sessionId,
+								Effect.sync(() =>
+									registry.lookup(sessionId) === entry
+										? registry.invalidate(sessionId)
+										: undefined,
+								),
+							);
+							yield* entry.handle.close().pipe(Effect.ignore);
+							return yield* new AgentSessionNotFoundError({ sessionId });
+						}
 						entry.turnStartedAt = Date.now();
 						entry.turnAnalytics = new TurnAnalyticsAccumulator();
 						yield* analytics.capture("message submitted", {

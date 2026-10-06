@@ -252,6 +252,7 @@ export const CLOUD_RUNTIME_API_ASSETS_CAPABILITY = "api-assets-v1";
 export class CloudRuntimeCommand extends Schema.Class<CloudRuntimeCommand>(
 	"CloudRuntimeCommand",
 )({
+	githubBot: Schema.optional(Schema.Boolean),
 	messageId: Schema.String,
 	/** Domain command id (`api:<messageId>`) so redelivery stays idempotent. */
 	commandId: Schema.String,

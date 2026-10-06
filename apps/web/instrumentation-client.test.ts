@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sdk = vi.hoisted(() => ({ init: vi.fn(), capture: vi.fn() }));
 vi.mock("posthog-js", () => ({ default: sdk }));
+vi.mock("@zuse/analytics/public-site", async (importOriginal) => ({
+	...(await importOriginal<object>()),
+	installPublicSiteTracking: vi.fn(),
+}));
 
 beforeEach(() => {
 	vi.resetModules();
@@ -26,10 +30,10 @@ describe("website analytics startup", () => {
 				expect.objectContaining({ api_host: "https://eu.i.posthog.com" }),
 			),
 		);
-		expect(document.addEventListener).toHaveBeenCalledWith(
-			"click",
-			expect.any(Function),
+		const { installPublicSiteTracking } = await import(
+			"@zuse/analytics/public-site"
 		);
+		expect(installPublicSiteTracking).toHaveBeenCalledWith(sdk, "website");
 	});
 	it.each([
 		{ doNotTrack: "1" },

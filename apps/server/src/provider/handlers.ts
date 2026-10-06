@@ -428,6 +428,7 @@ const SessionCreate = MemoizeRpcs.toLayerHandler("session.create", (input) =>
 		const svc = yield* SessionService;
 		const analytics = yield* AnalyticsService;
 		const result = yield* svc.createSession({
+			actor: yield* connectionWorkspaceActor,
 			sessionId: input.sessionId,
 			chatId: input.chatId,
 			providerId: input.providerId,
@@ -833,6 +834,7 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 								? storedInput?.text.trim()
 								: input.initialPrompt;
 							const result = yield* svc.createChat({
+								actor: yield* connectionWorkspaceActor,
 								chatId,
 								initialSessionId: sessionId,
 								commandId: `chat-create:${operationId}:bootstrap`,
@@ -1257,6 +1259,7 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 						}
 						const result = yield* svc
 							.createChat({
+								actor: yield* connectionWorkspaceActor,
 								chatId:
 									durableOperation === undefined
 										? input.chatId

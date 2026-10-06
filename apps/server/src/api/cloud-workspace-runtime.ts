@@ -39,10 +39,13 @@ import {
 	CLOUD_COMMAND_PROTOCOL_VERSION,
 	CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
 	CLOUD_RUNTIME_COMMAND_AUTHOR_CAPABILITY,
+	CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
 	CLOUD_RUNTIME_MACHINE_FORK_CAPABILITY,
 	CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY,
 	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
 	type CloudAuthProvider,
+	CloudGithubCredentialRequest,
+	CloudGitIdentity,
 	CloudRuntimeAccessResponse,
 	CloudRuntimeAssetDownload,
 	CloudRuntimeCommandList,
@@ -130,12 +133,15 @@ import {
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
 import { isProviderAuthenticationError } from "../provider/provider-auth-failure.ts";
 import { CredentialsService } from "../provider/services/credentials-service.ts";
+import { RuntimeGitExecution } from "../provider/services/runtime-git-execution.ts";
 import { RuntimeProviderCredentials } from "../provider/services/runtime-provider-credentials.ts";
 import {
 	WorkspaceService,
 	type WorkspaceServiceShape,
 } from "../workspace/services/workspace-service.ts";
 import { CloudCodexAuth } from "./cloud-codex-auth.ts";
+import { makeCloudGitExecution } from "./cloud-git-execution.ts";
+import { configureCloudGitIdentity } from "./cloud-git-identity.ts";
 import { CloudProviderAuth } from "./cloud-provider-auth.ts";
 import { cloudStorageIncarnationId } from "./cloud-storage-incarnation.ts";
 import { makeCloudWorkspaceRpcActivity } from "./cloud-workspace-activity.ts";
@@ -268,6 +274,8 @@ export const bufferWorkspaceLocalFrame = (
 };
 
 const BootstrapResponse = Schema.Struct({
+	gitIdentity: Schema.optional(CloudGitIdentity),
+	initialGithubContext: Schema.optional(CloudGithubCredentialRequest),
 	workspaceId: Schema.String,
 	zuseAccountId: Schema.optional(Schema.String),
 	workspaceScope: Schema.optional(WorkspaceScope),
@@ -2092,6 +2100,7 @@ const removeBootToken = (path: string | undefined) =>
 			}).pipe(Effect.ignore);
 
 export const startCloudWorkspaceLaunchIntent = (input: {
+	readonly githubContext?: typeof CloudGithubCredentialRequest.Type;
 	readonly transcripts?: TranscriptServiceShape;
 	readonly workspaceId?: string;
 	readonly workspaces: WorkspaceServiceShape;
@@ -2152,6 +2161,8 @@ export const startCloudWorkspaceLaunchIntent = (input: {
 				model: input.launchIntent.model,
 				runtimeMode: input.launchIntent.runtimeMode ?? DEFAULT_RUNTIME_MODE,
 				initialPrompt: input.launchIntent.firstMessage,
+				actor: input.githubContext?.actor,
+				githubSlackMessageId: input.githubContext?.slackMessageId,
 				background: false,
 			})
 			.pipe(Effect.mapError(() => fail("workspace_agent_start_failed")));
@@ -2233,6 +2244,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 	| MessageService
 	| SessionService
 	| CredentialsService
+	| RuntimeGitExecution
 	| RuntimeProviderCredentials
 	| SessionDomain
 	| SqlClient.SqlClient
@@ -2251,6 +2263,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					const sql = yield* SqlClient.SqlClient;
 					const credentials = yield* CredentialsService;
 					const runtimeProviderCredentials = yield* RuntimeProviderCredentials;
+					const runtimeGitExecution = yield* RuntimeGitExecution;
 					const sessionDomain = yield* SessionDomain;
 					cloudTimingEvent(
 						{ workspaceId: config.workspaceId },
@@ -2293,6 +2306,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								signingPublicJwk,
 								capabilities: [
 									CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
+									CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
 									CLOUD_RUNTIME_MACHINE_FORK_CAPABILITY,
 									CLOUD_RUNTIME_COMMAND_AUTHOR_CAPABILITY,
 									CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY,
@@ -2358,7 +2372,42 @@ export const makeCloudWorkspaceRuntimeLayer = (
 					);
 					if (bootstrap.providerAuthMode !== "broker-v1")
 						yield* installImageProviderSecrets(credentials);
+					yield* Effect.tryPromise({
+						try: async () => {
+							for (const filename of [
+								"github-installation-token",
+								"github-installation-token-expires-at",
+							])
+								await unlink(join(cloudRuntimeDataDirectory(), filename)).catch(
+									(error: NodeJS.ErrnoException) => {
+										if (error.code !== "ENOENT") throw error;
+									},
+								);
+						},
+						catch: () => fail("workspace_github_cache_reset_failed"),
+					});
 					yield* writeGithubBrokerState(config, runtimeCredential.credential);
+					yield* Effect.tryPromise({
+						try: () =>
+							configureCloudGitIdentity(
+								cloudRuntimeDataDirectory(),
+								bootstrap.gitIdentity,
+							),
+						catch: () => fail("workspace_git_identity_failed"),
+					});
+					const releaseGitExecution = runtimeGitExecution.install(
+						makeCloudGitExecution({
+							sql,
+							directory: cloudRuntimeDataDirectory(),
+							authHelperPath: "/var/lib/zuse/project-build/github-auth.sh",
+							credentialUrl: `${config.apiUrl}${ApiPaths.cloudWorkspaceRuntimeGithubCredential(config.workspaceId)}`,
+							credential: () => runtimeCredential.credential,
+							initialSessionId: bootstrap.initialSessionId,
+							initialTurnId: bootstrap.launchIntent?.turnId,
+							initialContext: bootstrap.initialGithubContext,
+						}),
+					);
+					yield* Effect.addFinalizer(() => Effect.sync(releaseGitExecution));
 					yield* superviseRuntimeCredential({
 						config,
 						signingPrivateKey: signingKeyPair.privateKey,
@@ -2907,6 +2956,9 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								return yield* messages
 									.sendMessageWithInput({
 										commandId: command.commandId,
+										githubSlackMessageId: command.githubBot
+											? command.messageId
+											: undefined,
 										sessionId,
 										text:
 											materialized.length === 0
@@ -3382,6 +3434,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 
 					if (launchIntent !== undefined) {
 						const started = yield* startCloudWorkspaceLaunchIntent({
+							githubContext: bootstrap.initialGithubContext,
 							transcripts,
 							workspaceId: config.workspaceId,
 							workspaces,

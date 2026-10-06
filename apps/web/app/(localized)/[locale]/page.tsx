@@ -1,6 +1,9 @@
 import { isWebsiteLocale, websiteLocales } from "@zuse/i18n/registry";
 import { notFound, permanentRedirect } from "next/navigation";
 import { getLandingMetadata, LandingPage } from "@/components/landing/page";
+
+export const dynamicParams = false;
+
 export function generateStaticParams() {
 	return websiteLocales.map((locale) => ({ locale }));
 }

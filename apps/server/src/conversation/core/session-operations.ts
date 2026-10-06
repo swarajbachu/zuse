@@ -356,6 +356,8 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 										...(origin !== undefined ? { origin } : {}),
 									}),
 									providerInputJson: JSON.stringify({
+										actor: input.actor,
+										githubSlackMessageId: input.githubSlackMessageId,
 										text: input.initialPrompt ?? "",
 										attachments: [],
 										fileRefs: [],

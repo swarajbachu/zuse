@@ -222,7 +222,10 @@ export const routePublicApiRequest = (
 export const routeAccountWorkspaceRequest = (
 	request: Request,
 	accountId: string,
-	options?: { readonly internalWebhookTarget?: (url: string) => boolean },
+	options?: {
+		readonly githubBot?: boolean;
+		readonly internalWebhookTarget?: (url: string) => boolean;
+	},
 ): Effect.Effect<Response | null, ApiError, CloudWorkspaceRouteContext> =>
 	Effect.gen(function* () {
 		const url = new URL(request.url);
@@ -273,6 +276,7 @@ export const routeAccountWorkspaceRequest = (
 				`workspace-create-receipt\n${principal.accountId}\n${selectedIdempotencyKey}`,
 				JSON.stringify({
 					prompt,
+					...(options?.githubBot === true ? { githubBot: true } : {}),
 					projectId: body.projectId ?? null,
 					providerId: body.providerId ?? null,
 					baseRef: body.baseRef ?? null,
@@ -403,6 +407,7 @@ export const routeAccountWorkspaceRequest = (
 								}),
 						idempotencyKey: `api:${selectedIdempotencyKey}`,
 						publicApiRequestDigest: requestDigest,
+						githubBot: options?.githubBot,
 					},
 					nowMs,
 				);
@@ -427,7 +432,11 @@ export const routeAccountWorkspaceRequest = (
 						workspace.workspaceId,
 						`msg_launch_${workspace.workspaceId}`,
 					),
-					encodeApiMessageContent({ text: prompt, attachments: [] }),
+					encodeApiMessageContent({
+						text: prompt,
+						attachments: [],
+						githubBot: options?.githubBot,
+					}),
 				);
 				yield* store.appendApiMessage({
 					messageId: `msg_launch_${workspace.workspaceId}`,
@@ -572,7 +581,11 @@ export const routeAccountWorkspaceRequest = (
 						),
 					{ concurrency: 4 },
 				);
-				const messageContent = encodeApiMessageContent({ text, attachments });
+				const messageContent = encodeApiMessageContent({
+					text,
+					attachments,
+					githubBot: options?.githubBot,
+				});
 				const selectedIdempotencyKey = yield* idempotencyKey(
 					body.idempotencyKey,
 					headerIdempotencyKey,

@@ -4,6 +4,11 @@
  * Idempotently provisions product analytics. This script requires an
  * operations-only personal API key; only public ingest keys ship in apps.
  */
+import {
+	analyticsDashboards,
+	layoutAnalyticsDashboard,
+} from "./analytics-dashboards.mjs";
+
 const dryRun = process.argv.includes("--dry-run");
 const apiKey =
 	process.env.POSTHOG_PERSONAL_API_KEY?.trim() || (dryRun ? "dry-run" : "");
@@ -50,19 +55,37 @@ const listAll = async (path) => {
 	return items;
 };
 
+const resourceLists = new Map();
 const upsertNamed = async (resource, name, body) => {
-	const existing = (await listAll(`/${resource}/?limit=200`)).find(
-		(item) => item.name === name,
-	);
-	return existing
-		? request(`/${resource}/${existing.id}/`, {
+	if (!resourceLists.has(resource))
+		resourceLists.set(resource, await listAll(`/${resource}/?limit=200`));
+	const items = resourceLists.get(resource);
+	const existing = items.find((item) => item.name === name);
+	if (existing && resource === "insights" && body.dashboards) {
+		body = {
+			...body,
+			dashboards: [
+				...new Set([
+					...(existing.dashboards ?? []),
+					...(existing.dashboard_tiles ?? [])
+						.filter((tile) => !tile.deleted)
+						.map((tile) => tile.dashboard_id),
+					...body.dashboards,
+				]),
+			],
+		};
+	}
+	const result = existing
+		? await request(`/${resource}/${existing.id}/`, {
 				method: "PATCH",
 				body: JSON.stringify(body),
 			})
-		: request(`/${resource}/`, {
+		: await request(`/${resource}/`, {
 				method: "POST",
 				body: JSON.stringify({ name, ...body }),
 			});
+	if (!existing) items.push(result);
+	return result;
 };
 
 const property = (key, value) => ({
@@ -75,13 +98,20 @@ const event = (id, properties = []) => ({
 	id,
 	name: id,
 	type: "events",
+	math: id === "app active interval" ? "dau" : "total",
 	order: 0,
 	properties: [property("analytics_schema_version", 2), ...properties],
 });
 const trend = (events, extra = {}) => ({
 	insight: "TRENDS",
 	display: "ActionsLineGraph",
-	events: events.map((item) => (typeof item === "string" ? event(item) : item)),
+	events: events.map((item, order) => ({
+		...(typeof item === "string" ? event(item) : item),
+		order,
+		...(extra.math
+			? { math: extra.math, math_property: extra.math_property }
+			: {}),
+	})),
 	...extra,
 });
 const retention = (start, returning, period, intervals) => ({
@@ -95,7 +125,10 @@ const retention = (start, returning, period, intervals) => ({
 });
 const funnel = (events) => ({
 	insight: "FUNNELS",
-	events: events.map((item) => (typeof item === "string" ? event(item) : item)),
+	events: events.map((item, order) => ({
+		...(typeof item === "string" ? event(item) : item),
+		order,
+	})),
 	funnel_window_interval: 14,
 	funnel_window_interval_unit: "day",
 });
@@ -368,6 +401,30 @@ for (const [dashboardName, insights] of Object.entries(dashboards)) {
 	}
 }
 
+for (const definition of analyticsDashboards) {
+	const dashboard = await upsertNamed("dashboards", definition.name, {
+		description: definition.description,
+		pinned: true,
+	});
+	for (const tile of definition.tiles) {
+		await upsertNamed("insights", tile.name, {
+			...tile,
+			dashboards: [dashboard.id],
+		});
+	}
+	if (!dryRun) {
+		const current = await request(`/dashboards/${dashboard.id}/`);
+		await request(`/dashboards/${dashboard.id}/`, {
+			method: "PATCH",
+			body: JSON.stringify({
+				tiles: layoutAnalyticsDashboard(definition, current.tiles ?? []),
+				grid_spacing: "condensed",
+				layout_compaction: "stable",
+			}),
+		});
+	}
+}
+
 console.log(
-	`Provisioned ${Object.keys(dashboards).length} dashboards${dryRun ? " (dry run)" : ""}.`,
+	`Provisioned ${Object.keys(dashboards).length + analyticsDashboards.length} dashboards${dryRun ? " (dry run)" : ""}.`,
 );

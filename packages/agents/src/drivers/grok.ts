@@ -211,6 +211,7 @@ export const startGrokSession = (
 		// RuntimeMode, exactly like Claude/Codex. `currentMode` is read live so a
 		// mid-session mode toggle takes effect on the next tool call.
 		const acpHandlerContext = makeAcpPermissionContext({
+			executionEnv: input.executionEnv,
 			cwd,
 			sessionId,
 			projectId: input.folderId,
@@ -398,6 +399,7 @@ export const startGrokSession = (
 				cwd,
 				env: {
 					...process.env,
+					...input.executionEnv,
 					GROK_CURSOR_MCPS_ENABLED: "0",
 					...(apiKey !== null ? { GROK_CODE_XAI_API_KEY: apiKey } : {}),
 				},

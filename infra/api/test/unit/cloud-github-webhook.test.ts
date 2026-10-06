@@ -10,6 +10,7 @@ import {
 	CloudWorkspaceStoreMemory,
 } from "../../src/cloud-workspace-store.ts";
 import { layer as configurationLayer } from "../../src/config.ts";
+import { ApiStore, ApiStoreMemory } from "../../src/store.ts";
 
 const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
 	.privateKey.export({ format: "pem", type: "pkcs8" })
@@ -17,6 +18,7 @@ const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
 const makeRuntime = (secret: string | undefined = "webhook-secret") =>
 	ManagedRuntime.make(
 		Layer.mergeAll(
+			ApiStoreMemory,
 			CloudWorkspaceStoreMemory,
 			configurationLayer({
 				apiIssuer: "https://api-staging.zuse.sh",
@@ -70,6 +72,52 @@ const request = (
 afterEach(() => vi.unstubAllGlobals());
 
 describe("GitHub installation webhooks", () => {
+	test("organization membership events invalidate durable eligibility without enrolling anyone", async () => {
+		const runtime = makeRuntime();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => Response.json(installation)),
+		);
+		try {
+			const store = await runtime.runPromise(ApiStore);
+			await runtime.runPromise(
+				store.githubJoining.savePolicy({
+					organizationId: "org",
+					installationId: 123,
+					githubOrgId: 7,
+					login: "acme",
+					enabled: true,
+					revision: "before",
+				}),
+			);
+			const event = () =>
+				request(
+					"organization",
+					JSON.stringify({
+						action: "member_removed",
+						installation: { id: 123 },
+						membership: { user: { id: 10 } },
+					}),
+				);
+			await runtime.runPromise(githubWebhook(event()));
+			const first = await runtime.runPromise(
+				store.githubJoining.listPolicies(),
+			);
+			expect(first[0]?.revision).not.toBe("before");
+			await runtime.runPromise(githubWebhook(event()));
+			const second = await runtime.runPromise(
+				store.githubJoining.listPolicies(),
+			);
+			expect(second[0]?.revision).not.toBe(first[0]?.revision);
+			expect(second[0]?.enabled).toBe(true);
+			expect(
+				await runtime.runPromise(store.githubJoining.listEnrollments()),
+			).toEqual([]);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
 	test("bounds chunked bodies without trusting Content-Length", async () => {
 		const runtime = makeRuntime();
 		let cancelled = false;

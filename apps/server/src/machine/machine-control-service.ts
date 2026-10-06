@@ -7,6 +7,7 @@ import {
 	streamCloudWorkspaceLifecycle,
 } from "@zuse/client-runtime/cloud-control-client";
 import { controlApiErrorCode } from "@zuse/client-runtime/control-api-error";
+import { makeOrganizationAutoJoinControlClient } from "@zuse/client-runtime/organization-control-client";
 
 export { streamCloudWorkspaceLifecycle } from "@zuse/client-runtime/cloud-control-client";
 
@@ -93,6 +94,9 @@ import { MachineRuntimeRole } from "./machine-runtime-role.ts";
 import { RequestWorkspace } from "./request-workspace.ts";
 
 export interface MachineControlServiceShape {
+	readonly organizationAutoJoin: ReturnType<
+		typeof makeOrganizationAutoJoinControlClient<MachineControlError>
+	>;
 	readonly listOrganizations: () => Effect.Effect<
 		ReadonlyArray<Organization>,
 		MachineControlError
@@ -463,6 +467,10 @@ export const MachineControlServiceLive: Layer.Layer<
 			});
 
 		return MachineControlService.of({
+			organizationAutoJoin: makeOrganizationAutoJoinControlClient(
+				(path, schema, body) =>
+					request(path, schema, body === undefined ? "GET" : "POST", body),
+			),
 			listOrganizations: () =>
 				request(ApiPaths.organizations, Schema.Array(Organization)),
 			createOrganization: (input) =>

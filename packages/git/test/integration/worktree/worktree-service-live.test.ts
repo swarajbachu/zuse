@@ -125,7 +125,14 @@ describe("WorktreeServiceLive", () => {
 					}),
 			}),
 			Layer.succeed(WorktreeNameAllocator, {
-				allocate: () => Effect.succeed({ name: "bulbasaur", pokemonNumber: 1 }),
+				allocate: ({ unavailableNames }) => {
+					const names = ["bulbasaur", "ivysaur", "venusaur"];
+					const index = names.findIndex((name) => !unavailableNames.has(name));
+					const name = names[index];
+					return Effect.succeed(
+						name === undefined ? null : { name, pokemonNumber: index + 1 },
+					);
+				},
 			}),
 			Layer.succeed(PokemonAssignment, {
 				record: () => Effect.void,
@@ -182,6 +189,59 @@ describe("WorktreeServiceLive", () => {
 			`,
 		);
 		expect(rows[0]?.count).toBe(1);
+	});
+
+	test("branches from a fresh origin base and reuses it for a burst of creates", async () => {
+		const originRoot = join(temporaryRoot, "origin.git");
+		git(temporaryRoot, "clone", "--bare", repositoryRoot, originRoot);
+		git(repositoryRoot, "remote", "add", "origin", originRoot);
+		git(repositoryRoot, "fetch", "origin");
+		git(repositoryRoot, "remote", "set-head", "origin", "main");
+		const pushToOrigin = (file: string) => {
+			const clone = join(temporaryRoot, `push-${file}`);
+			git(temporaryRoot, "clone", originRoot, clone);
+			git(clone, "config", "user.name", "Test User");
+			git(clone, "config", "user.email", "test@example.com");
+			writeFileSync(join(clone, file), `${file}\n`);
+			git(clone, "add", file);
+			git(clone, "commit", "-m", file);
+			git(clone, "push", "origin", "main");
+			return git(clone, "rev-parse", "HEAD");
+		};
+
+		const remoteTip = pushToOrigin("first.txt");
+		const first = await run((service) => service.create(projectId));
+		expect(first.baseBranch).toBe("main");
+		expect(git(first.path, "rev-parse", "HEAD")).toBe(remoteTip);
+
+		pushToOrigin("second.txt");
+		const second = await run((service) => service.create(projectId));
+		expect(git(second.path, "rev-parse", "HEAD")).toBe(remoteTip);
+	});
+
+	test("follows origin's advertised default over a stale local origin/HEAD", async () => {
+		const originRoot = join(temporaryRoot, "origin.git");
+		git(temporaryRoot, "clone", "--bare", repositoryRoot, originRoot);
+		git(repositoryRoot, "remote", "add", "origin", originRoot);
+		git(repositoryRoot, "fetch", "origin");
+		git(repositoryRoot, "remote", "set-head", "origin", "main");
+		const clone = join(temporaryRoot, "rename-default");
+		git(temporaryRoot, "clone", originRoot, clone);
+		git(clone, "config", "user.name", "Test User");
+		git(clone, "config", "user.email", "test@example.com");
+		git(clone, "switch", "-c", "trunk");
+		writeFileSync(join(clone, "trunk.txt"), "trunk\n");
+		git(clone, "add", "trunk.txt");
+		git(clone, "commit", "-m", "trunk");
+		git(clone, "push", "origin", "trunk");
+		git(originRoot, "symbolic-ref", "HEAD", "refs/heads/trunk");
+
+		const created = await run((service) => service.create(projectId));
+
+		expect(created.baseBranch).toBe("trunk");
+		expect(git(created.path, "rev-parse", "HEAD")).toBe(
+			git(clone, "rev-parse", "HEAD"),
+		);
 	});
 
 	test("renames a pending branch automatically exactly once", async () => {

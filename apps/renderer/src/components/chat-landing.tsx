@@ -9,9 +9,14 @@ import {
 	peekCloudAuth,
 } from "../lib/cloud-workspace-session-cache.ts";
 import { isHostedProduct } from "../lib/hosted-connect.ts";
-import { connectedCloudProviders } from "../lib/model-picker-availability.ts";
+import {
+	type CloudAuthLoadState,
+	cloudSendBlocker,
+	connectedCloudProviders,
+} from "../lib/model-picker-availability.ts";
 import { environmentBelongsToWorkspace } from "../lib/rpc-client.ts";
 import { useCloudProjects } from "../lib/use-cloud-projects.ts";
+import { CloudAgentSignInTray } from "./composer/cloud-agent-sign-in-tray.tsx";
 import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -562,6 +567,9 @@ function WorkspaceChatLanding({
 	);
 	const cloudTarget = cloudOnlyHome || selectedCloudProviderId !== null;
 	const [cloudAuth, setCloudAuth] = useState<CloudAuthStatus | null>(null);
+	const [cloudAuthLoad, setCloudAuthLoad] =
+		useState<CloudAuthLoadState>("loading");
+	const [cloudAuthAttempt, setCloudAuthAttempt] = useState(0);
 	const enabledProviders = useSettingsStore((state) => state.providerEnabled);
 	const cloudProviderIds = useMemo(
 		() =>
@@ -573,34 +581,46 @@ function WorkspaceChatLanding({
 	useEffect(() => {
 		if (!cloudTarget) {
 			setCloudAuth(null);
+			setCloudAuthLoad("loading");
 			return;
 		}
 		let cancelled = false;
 		let loading = false;
-		const load = async () => {
+		const load = async (refresh: boolean) => {
 			if (loading || cancelled) return;
 			loading = true;
 			try {
-				await loadCloudAuth();
-				if (!cancelled) setCloudAuth(peekCloudAuth() ?? null);
+				await loadCloudAuth(refresh);
+				if (cancelled) return;
+				setCloudAuth(peekCloudAuth() ?? null);
+				setCloudAuthLoad("ready");
 			} catch {
-				if (!cancelled) setCloudAuth(null);
+				if (cancelled) return;
+				setCloudAuth(null);
+				setCloudAuthLoad("failed");
 			} finally {
 				loading = false;
 			}
 		};
-		void load();
+		setCloudAuthLoad("loading");
+		void load(cloudAuthAttempt > 0);
 		const unsubscribe = subscribeControlPlaneSessionCache((key) => {
 			if (key === "cloud-workspace:auth") {
 				setCloudAuth(peekCloudAuth() ?? null);
-				void load();
+				void load(false);
 			}
 		});
 		return () => {
 			cancelled = true;
 			unsubscribe();
 		};
-	}, [cloudTarget]);
+	}, [cloudTarget, cloudAuthAttempt]);
+	// Why a cloud draft can't be sent yet. Without this the Send button is
+	// simply disabled with no explanation or way forward.
+	const cloudAuthBlocker =
+		!cloudTarget || draftSession === null
+			? null
+			: cloudSendBlocker(cloudAuthLoad, cloudProviderIds);
 	useEffect(() => {
 		if (
 			!cloudTarget ||
@@ -1485,6 +1505,18 @@ function WorkspaceChatLanding({
 								)
 					}
 					onDraftSubmit={(input, opts) => void handleDraftSubmit(input, opts)}
+					draftTray={
+						cloudAuthBlocker === null ? undefined : (
+							<CloudAgentSignInTray
+								blocker={cloudAuthBlocker}
+								onRetry={() => setCloudAuthAttempt((attempt) => attempt + 1)}
+								onOpenSettings={() => {
+									setSettingsSection({ kind: "cloud", page: "agents" });
+									setView("settings");
+								}}
+							/>
+						)
+					}
 					headerSlot={
 						submitting ? undefined : (
 							<div className="flex w-full items-center justify-between gap-2">

@@ -7,7 +7,7 @@ export const GITHUB_URL = "https://github.com/swarajbachu/zuse";
 export const RELEASES_URL = "https://github.com/swarajbachu/zuse/releases";
 export const X_URL = "https://x.com/zuse_sh";
 export const INSTAGRAM_URL = "https://www.instagram.com/zuse.sh/";
-export const DISCORD_URL = "https://discord.gg/cvGpmMGd5";
+export const DISCORD_URL = "https://discord.gg/9E8Rhd3ke";
 
 // Stable site route that redirects to the latest installer for the visitor's OS.
 export const DOWNLOAD_URL = "/download";

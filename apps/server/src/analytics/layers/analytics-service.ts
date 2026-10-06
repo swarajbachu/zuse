@@ -6,6 +6,7 @@ import {
 	createAnonymousAnalyticsId,
 	sanitizeAnalyticsProperties,
 } from "@zuse/analytics";
+import { normalizeAnalyticsOs } from "@zuse/analytics/platform";
 import {
 	AnalyticsContext,
 	type AnalyticsContext as SharedAnalyticsContext,
@@ -60,7 +61,7 @@ const commonProperties = (context: SharedAnalyticsContext) => {
 	const now = new Date();
 	return {
 		surface: "desktop",
-		os: process.platform,
+		os: normalizeAnalyticsOs(process.platform),
 		architecture: process.arch,
 		app_version: process.env.ZUSE_APP_VERSION ?? "unknown",
 		release_channel: process.env.ZUSE_RELEASE_CHANNEL ?? "unknown",

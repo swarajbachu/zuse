@@ -44,7 +44,6 @@ import {
 	CHAT_LIST_ANCHOR_OFFSET,
 	resolveChatListAnchoredEndSpace,
 } from "../lib/chat-list-anchor.ts";
-import { resolveChatErrorBottom } from "../lib/chat-overlay-position.ts";
 import {
 	type ChatTimelineRow,
 	createCloudTimelineRows,
@@ -63,7 +62,6 @@ import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentPermissions } from "../lib/environment-permissions-client-bus.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
-import { isComposerSignInError } from "../lib/provider-auth-recovery.ts";
 import {
 	rendererAccountSnapshot,
 	subscribeRendererAccount,
@@ -108,7 +106,7 @@ import { ChatTurnNavigator } from "./chat-turn-navigator.tsx";
 import { ChatWorkingRow } from "./chat-working-row.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
-import { ErrorBubble, MessageRow } from "./message-row.tsx";
+import { MessageRow } from "./message-row.tsx";
 import { NextUnreadButton } from "./next-unread-button.tsx";
 import {
 	ChatCreationFailureActions,
@@ -253,17 +251,11 @@ export function ChatView({
 		(state) => state.errorByResource[errorKey] ?? null,
 	);
 	const commandError = localError ?? pendingSessionCommandError(sessionRef);
+	// Command failures are presented by the provider error tray above the
+	// composer; a pre-ack failure the timeline already recovered from is cleared.
 	const recoveredPreAckError =
 		commandError !== null &&
 		isRecoveredPreAckSessionError(commandError, timeline.view);
-	// A local provider sign-in failure is recovered from the composer tray, so
-	// it never also floats a destructive error bubble over the transcript.
-	const error =
-		recoveredPreAckError ||
-		(commandError !== null &&
-			isComposerSignInError(commandError, session.providerId, environmentId))
-			? null
-			: commandError;
 	useEffect(() => {
 		if (recoveredPreAckError) clearSessionCommandError(sessionRef);
 	}, [recoveredPreAckError, sessionRef]);
@@ -1006,22 +998,6 @@ export function ChatView({
 							});
 						}}
 					/>
-					{error === null ? null : (
-						<div
-							className="pointer-events-none absolute inset-x-0 z-20 px-[var(--chat-row-gutter,0.75rem)]"
-							style={{ bottom: resolveChatErrorBottom(endInset) }}
-						>
-							<div className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
-								<ErrorBubble
-									error={error}
-									sessionId={sessionId}
-									environmentId={environmentId}
-									providerId={session?.providerId}
-									onDismiss={() => clearSessionCommandError(sessionRef)}
-								/>
-							</div>
-						</div>
-					)}
 					<div
 						className="pointer-events-none absolute inset-x-0 z-30 px-[var(--chat-row-gutter,0.75rem)]"
 						style={{ bottom: Math.max(0, endInset - 8) }}

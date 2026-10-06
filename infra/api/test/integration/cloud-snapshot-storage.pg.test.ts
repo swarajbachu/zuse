@@ -345,7 +345,7 @@ it.skipIf(!connectionString)(
 			await db.query(
 				readFileSync(
 					new URL(
-						"../../drizzle/migrations/0034_cloud_snapshot_storage.sql",
+						"../../drizzle/migrations/0037_cloud_snapshot_storage.sql",
 						import.meta.url,
 					),
 					"utf8",

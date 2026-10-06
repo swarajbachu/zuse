@@ -6,6 +6,7 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, test } from "vitest";
 import { AccountIdentity } from "../../src/account-identity.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
+import { CloudWorkspaceStoreMemory } from "../../src/cloud-workspace-store.ts";
 import * as Config from "../../src/config.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import { routeMachineRequest } from "../../src/machine-routes.ts";
@@ -45,6 +46,7 @@ const makeTestLayer = (
 	tunnel: ManagedTunnelProviderApi,
 ) =>
 	Layer.mergeAll(
+		CloudWorkspaceStoreMemory,
 		configLayer,
 		WorkosVerifierTest,
 		Layer.succeed(

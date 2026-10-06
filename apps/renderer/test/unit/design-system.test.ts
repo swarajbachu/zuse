@@ -82,7 +82,10 @@ describe("renderer design system", () => {
 
 		expect(composer).toContain("<RuntimeAccessPicker");
 		expect(accessPicker).toContain("chat:chat_composer_agent_access");
-		expect(composer).toContain("mx-auto flex min-h-8 w-14/15");
+		expect(composer).toContain(
+			"composer-attached-toolbar relative z-10 mx-auto w-14/15",
+		);
+		expect(composer).toContain("flex min-h-8 items-center");
 		expect(composer).toContain("rounded-b-none rounded-t-[1.2rem]");
 		expect(composer).toContain("composer-glass rounded-[1.2rem]");
 		expect(composer).not.toContain("<FrameFooter");

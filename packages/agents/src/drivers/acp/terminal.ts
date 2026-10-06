@@ -171,13 +171,13 @@ async function createTerminal(
 	const child = useShell
 		? spawn(command, {
 				cwd: spawnCwd,
-				env: { ...process.env, ...env },
+				env: { ...process.env, ...env, ...ctx.executionEnv },
 				shell: true,
 				stdio: ["pipe", "pipe", "pipe"],
 			})
 		: spawn(command, args, {
 				cwd: spawnCwd,
-				env: { ...process.env, ...env },
+				env: { ...process.env, ...env, ...ctx.executionEnv },
 				shell: false,
 				stdio: ["pipe", "pipe", "pipe"],
 			});

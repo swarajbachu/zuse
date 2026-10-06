@@ -1,7 +1,8 @@
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 import { LEGAL_PAGES } from "@/lib/legal-pages";
-import { proxy } from "./proxy";
+import { config, proxy } from "./proxy";
 
 const makeRequest = (path: string, accept?: string) =>
 	new NextRequest(`https://zuse.sh${path}`, {
@@ -9,6 +10,24 @@ const makeRequest = (path: string, accept?: string) =>
 	});
 
 describe("proxy", () => {
+	it.each([
+		"/_next/static/chunks/app.js",
+		"/_next/image?url=%2Fog.png&w=640&q=75",
+	])("skips negotiation for framework asset %s", (url) => {
+		expect(unstable_doesMiddlewareMatch({ config, url })).toBe(false);
+	});
+
+	it.each([
+		"/",
+		"/en",
+		"/fr",
+		"/home.md",
+		"/api/missing",
+		"/missing-page",
+	])("preserves negotiation and errors for %s", (url) => {
+		expect(unstable_doesMiddlewareMatch({ config, url })).toBe(true);
+	});
+
 	it("serves the homepage Markdown representation at the same URL", () => {
 		const response = proxy(makeRequest("/", "text/markdown"));
 		expect(response.status).toBe(200);

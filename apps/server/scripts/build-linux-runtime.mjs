@@ -74,6 +74,26 @@ if (
 }
 await mkdir(runtimeRoot, { recursive: true });
 await cp(bundlePath, join(runtimeRoot, "bin.mjs"));
+run(
+	"bunx",
+	["tsdown", "--config", "tsdown.cursor-worker.config.ts"],
+	packageRoot,
+);
+const cursorSdkRoot = join(runtimeRoot, "node_modules", "@cursor", "sdk");
+await mkdir(cursorSdkRoot, { recursive: true });
+await cp(
+	join(outputRoot, "cursor", "cursor-sdk.mjs"),
+	join(cursorSdkRoot, "index.mjs"),
+);
+await writeFile(
+	join(cursorSdkRoot, "package.json"),
+	JSON.stringify({
+		name: "@cursor/sdk",
+		type: "module",
+		main: "./index.mjs",
+		exports: "./index.mjs",
+	}),
+);
 await cp(
 	join(packageRoot, "scripts", "runtime-updater.mjs"),
 	join(runtimeRoot, "runtime-updater.mjs"),

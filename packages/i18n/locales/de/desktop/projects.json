@@ -300,5 +300,8 @@
 	"worktree_setup_card_no_setup_script": "Kein Einrichtungsskript erforderlich.",
 	"worktree_setup_card_workspace_ready_description": "Dein Arbeitsbereich ist bereit.",
 	"worktree_setup_card_preparing_environment": "Die Arbeitsumgebung wird vorbereitet.",
-	"github_submit_stack_help": "Pusht alle Branches und aktualisiert ihre Pull Requests auf GitHub. Für Branches ohne Pull Request wird ein Entwurf erstellt, der noch nicht zur Überprüfung bereit ist. Bereits offene Pull Requests bleiben offen."
+	"github_submit_stack_help": "Pusht alle Branches und aktualisiert ihre Pull Requests auf GitHub. Für Branches ohne Pull Request wird ein Entwurf erstellt, der noch nicht zur Überprüfung bereit ist. Bereits offene Pull Requests bleiben offen.",
+	"projects_sidebar_upgrade": "Upgraden",
+	"projects_sidebar_plan_cloud": "Cloud",
+	"projects_sidebar_plan_cloud_tooltip": "Zuse-Cloud-Tarif · Abrechnung verwalten"
 }

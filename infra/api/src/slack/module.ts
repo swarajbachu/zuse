@@ -67,6 +67,7 @@ export const makeSlackModule = (options: SlackOptions) =>
 							new Request(new URL(path, config.apiIssuer), init),
 							accountId,
 							{
+								githubBot: true,
 								internalWebhookTarget: (url) =>
 									isSlackWebhookTarget(url, options.publicOrigin),
 							},

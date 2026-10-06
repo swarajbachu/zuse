@@ -33,8 +33,10 @@ describe("terminal menu shortcut routing", () => {
 			key(letter);
 			expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
 		}
-		key("c", false, true);
-		expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+		for (const letter of ["c", "a"]) {
+			key(letter, false, true);
+			expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+		}
 		key("Backspace", false, true);
 		expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
 		key("w", false, true);
@@ -50,5 +52,49 @@ describe("terminal menu shortcut routing", () => {
 		contents.emit("did-start-loading");
 		key("r");
 		expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
+	});
+
+	it("keeps native Command+V paste enabled across terminal focus and navigation", () => {
+		const contents = Object.assign(new EventEmitter(), {
+			mainFrame: {},
+			setIgnoreMenuShortcuts: vi.fn(),
+		});
+		installTerminalShortcutRouting(contents as unknown as WebContents);
+		const paste = () => {
+			contents.emit(
+				"before-input-event",
+				{},
+				{
+					key: "v",
+					control: false,
+					meta: true,
+					alt: false,
+				},
+			);
+			expect(contents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
+		};
+		paste();
+		contents.emit(
+			"ipc-message",
+			{ senderFrame: contents.mainFrame },
+			TERMINAL_FOCUS_CHANNEL,
+			true,
+		);
+		paste();
+		contents.emit(
+			"ipc-message",
+			{ senderFrame: contents.mainFrame },
+			TERMINAL_FOCUS_CHANNEL,
+			false,
+		);
+		paste();
+		contents.emit(
+			"ipc-message",
+			{ senderFrame: contents.mainFrame },
+			TERMINAL_FOCUS_CHANNEL,
+			true,
+		);
+		contents.emit("did-start-loading");
+		paste();
 	});
 });

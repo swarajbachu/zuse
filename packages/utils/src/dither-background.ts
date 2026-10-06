@@ -1,11 +1,12 @@
 /**
- * Animated dithered-wave backdrop for the loopback callback pages. A
- * dependency-free, single-pass WebGL port of React Bits' "Dither" background
+ * Animated dithered-wave backdrop for the browser-facing connect pages (the
+ * desktop sign-in loopback and the api's integration pages). A dependency-free,
+ * single-pass WebGL port of React Bits' "Dither" background
  * (reactbits.dev/backgrounds/dither): fbm Perlin waves, an 8×8 Bayer dither,
  * and waves that part around the pointer. It's progressive enhancement: the
- * CSS grid stays until WebGL draws, motion stops for reduced-motion users, and
- * the loop pauses while the tab is hidden. Pages allow exactly this script by
- * hash, so the CSP still forbids anything else.
+ * page's `.stage::before` fallback stays until WebGL draws, motion stops for
+ * reduced-motion users, and the loop pauses while the tab is hidden. Pages
+ * allow exactly this script by hash, so the CSP still forbids anything else.
  */
 
 import { createHash } from "node:crypto";

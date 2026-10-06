@@ -8,6 +8,7 @@ import {
 	type Mock,
 	vi,
 } from "vitest";
+import { CloudWorkspaceStoreMemory } from "../../src/cloud-workspace-store.ts";
 import { layer as configurationLayer } from "../../src/config.ts";
 import {
 	getOrganizationSharingDefaults,
@@ -50,7 +51,12 @@ const config = (organizationWorkspacesEnabled = true) =>
 	});
 const makeRuntime = () =>
 	ManagedRuntime.make(
-		Layer.mergeAll(config(), ApiStoreMemory, WorkosVerifierTest),
+		Layer.mergeAll(
+			CloudWorkspaceStoreMemory,
+			config(),
+			ApiStoreMemory,
+			WorkosVerifierTest,
+		),
 	);
 
 describe("organization access and lifecycle", () => {
@@ -621,7 +627,12 @@ describe("organization access and lifecycle", () => {
 		"/authorize",
 	])("rejects disabled organization route %s before contacting WorkOS", async (path) => {
 		const disabled = ManagedRuntime.make(
-			Layer.mergeAll(ApiStoreMemory, WorkosVerifierTest, config(false)),
+			Layer.mergeAll(
+				CloudWorkspaceStoreMemory,
+				ApiStoreMemory,
+				WorkosVerifierTest,
+				config(false),
+			),
 		);
 		try {
 			await expect(

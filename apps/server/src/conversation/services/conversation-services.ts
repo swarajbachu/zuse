@@ -68,6 +68,8 @@ import { Context, type Effect, type Stream } from "effect";
  *   persisted as messages.
  */
 export interface CreateSessionInput {
+	readonly actor?: WorkspaceActor;
+	readonly githubSlackMessageId?: string;
 	/** Stable identity minted by an optimistic client. */
 	readonly sessionId?: SessionId;
 	/** Stable receipt identity for a retry-safe session bootstrap. */
@@ -143,6 +145,8 @@ export interface CreateSessionInput {
 }
 
 export interface CreateChatInput {
+	readonly actor?: WorkspaceActor;
+	readonly githubSlackMessageId?: string;
 	/** Stable identities minted by an optimistic client. */
 	readonly chatId?: ChatId;
 	readonly initialSessionId?: SessionId;
@@ -210,6 +214,8 @@ export interface ForkSessionResult {
 
 /** Named-input boundary shared by RPC sends and durable internal transports. */
 export interface MessageSendInput {
+	/** Sealed Slack command, supplied only by the internal API pump. */
+	readonly githubSlackMessageId?: string;
 	readonly commandId: string;
 	readonly sessionId: SessionId;
 	readonly text: string;
@@ -567,6 +573,7 @@ export interface ConversationOperations {
 		origin?: MessageOrigin,
 		receiptIdentity?: CommandReceiptIdentity,
 		actor?: WorkspaceActor,
+		githubSlackMessageId?: string,
 	) => Effect.Effect<void, SessionNotFoundError | DirectoryUnavailableError>;
 
 	readonly interruptSession: (

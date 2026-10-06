@@ -64,6 +64,7 @@ afterEach(() => {
 });
 
 it("leaves native Personal settings on the legacy path until scoped-client rollout is enabled", async () => {
+	vi.stubEnv("VITE_ZUSE_API_URL", "https://api.zuse.sh");
 	vi.stubEnv("VITE_ORGANIZATION_WORKSPACES", "false");
 	selectRendererWorkspace({ kind: "personal" });
 	expect(usesAccountWorkspaceSettings()).toBe(false);

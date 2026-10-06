@@ -4,6 +4,7 @@ const PREFIX = "zuse-api-message-v1:";
 
 export interface ApiMessageContent {
 	readonly text: string;
+	readonly githubBot?: boolean;
 	readonly attachments: ReadonlyArray<ApiAsset>;
 }
 
@@ -15,6 +16,7 @@ export interface ApiMessageContent {
 export const encodeApiMessageContent = (content: ApiMessageContent): string =>
 	`${PREFIX}${JSON.stringify({
 		text: content.text,
+		...(content.githubBot === true ? { githubBot: true } : {}),
 		attachments: content.attachments,
 	})}`;
 
@@ -26,6 +28,7 @@ export const decodeApiMessageContent = (
 	try {
 		const decoded = JSON.parse(sealedPlaintext.slice(PREFIX.length)) as {
 			readonly text?: unknown;
+			readonly githubBot?: unknown;
 			readonly attachments?: unknown;
 		};
 		if (
@@ -48,6 +51,7 @@ export const decodeApiMessageContent = (
 			throw new Error("invalid API message envelope");
 		return {
 			text: decoded.text,
+			...(decoded.githubBot === true ? { githubBot: true } : {}),
 			attachments: decoded.attachments as ReadonlyArray<ApiAsset>,
 		};
 	} catch {

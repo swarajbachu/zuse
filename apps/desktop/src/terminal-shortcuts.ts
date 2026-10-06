@@ -24,7 +24,9 @@ export function installTerminalShortcutRouting(contents: WebContents): void {
 			input.meta &&
 			!input.control &&
 			!input.alt &&
-			["a", "c", "v", "backspace"].includes(input.key.toLowerCase());
+			// Paste must retain its native accelerator so Electron dispatches the
+			// clipboard event consumed by the terminal's renderer.
+			["a", "c", "backspace"].includes(input.key.toLowerCase());
 		contents.setIgnoreMenuShortcuts(
 			terminalFocused && ((input.control && !input.meta) || terminalCommand),
 		);

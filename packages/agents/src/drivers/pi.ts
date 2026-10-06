@@ -401,6 +401,7 @@ export const startPiSession = (
 					void Effect.runPromise(Queue.end(events));
 				}
 			},
+			input.executionEnv,
 		);
 		yield* attempt(async () => {
 			const state = await rpc.request("get_state");

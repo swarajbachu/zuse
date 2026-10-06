@@ -882,6 +882,8 @@ export const StartSessionInput = Schema.Struct({
 	 * where available.
 	 */
 	workspaceInstructions: Schema.optional(Schema.String),
+	/** Replaced by ProviderService from the trusted runtime hook before starting a driver. */
+	executionEnv: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 	// Optional caller-supplied id. When omitted, ProviderService mints a fresh
 	// one. The conversation domain uses this to lazy-restart a closed session without
 	// moving its persisted history to a new row.

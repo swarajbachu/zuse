@@ -1846,7 +1846,10 @@ export const startClaudeSession = (
 				? ({ kind: "api-key", secret: credential } as const)
 				: credential;
 		const env = applyClaudeCredentialEnv(
-			applyClaudeWorktreeEnv(scrubInheritedClaudeMarkers(process.env), cwd),
+			applyClaudeWorktreeEnv(
+				scrubInheritedClaudeMarkers({ ...process.env, ...input.executionEnv }),
+				cwd,
+			),
 			managedCredential,
 		);
 		// Sub-agent map → SDK Options.agents. When at least one preset is

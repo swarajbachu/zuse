@@ -17,12 +17,14 @@ import { CloudWorkspaceStoreMemory } from "../../src/cloud-workspace-store.ts";
 import { layer as configurationLayer } from "../../src/config.ts";
 import { MachineStore, MachineStoreMemory } from "../../src/machine-store.ts";
 import { requireOrganizationMember } from "../../src/organizations.ts";
+import { ApiStoreMemory } from "../../src/store.ts";
 import { WorkosVerifierTest } from "../../src/workos.ts";
 import { requireWorkspaceAccess } from "../../src/workspace-authorization.ts";
 
 const makeRuntime = (organizationWorkspacesEnabled = true) =>
 	ManagedRuntime.make(
 		Layer.mergeAll(
+			ApiStoreMemory,
 			MachineStoreMemory,
 			CloudBillingStoreMemory,
 			CloudWorkspaceStoreMemory,

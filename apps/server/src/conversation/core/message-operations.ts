@@ -258,6 +258,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			receiptIdentity?: CommandReceiptIdentity,
 			turnIdOverride?: AgentTurnId,
 			actor?: WorkspaceActor,
+			githubSlackMessageId?: string,
 		): ReturnType<ConversationOperations["sendMessageWithInput"]> =>
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
@@ -386,7 +387,11 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 								sessionId,
 								turnId,
 								content,
-								JSON.stringify(providerInput),
+								JSON.stringify({
+									...providerInput,
+									actor,
+									githubSlackMessageId,
+								}),
 								clientMessageId,
 								commandId,
 								receiptIdentity,
@@ -479,6 +484,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 						input.receiptIdentity,
 						input.turnId,
 						input.actor,
+						input.githubSlackMessageId,
 					);
 					if (!result.accepted) {
 						const turnId = yield* resolveActiveTurn(input.sessionId);
@@ -501,6 +507,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			origin,
 			receiptIdentity,
 			actor,
+			githubSlackMessageId,
 		) =>
 			sendMessageWithInput({
 				commandId,
@@ -515,6 +522,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 				origin,
 				receiptIdentity,
 				actor,
+				githubSlackMessageId,
 			}).pipe(Effect.asVoid);
 
 		const queueRuntime = yield* makeQueueServiceRuntime({

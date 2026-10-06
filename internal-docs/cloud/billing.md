@@ -236,7 +236,7 @@ informational events. Invoice export remains a separate reconciled rollout.
 
 ## Boat named-image storage
 
-Apply `0034_cloud_snapshot_storage` before deploying this change. Boat's public
+Apply `0037_cloud_snapshot_storage` before deploying this change. Boat's public
 [List named snapshots](https://docs.boat.dev/api/reference/snapshots/list-named-snapshots.md)
 API now documents ten free snapshots per wallet and $1.70 per extra snapshot per
 month, deducted daily from credits. Zuse's free slots are already occupied.

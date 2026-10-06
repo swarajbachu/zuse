@@ -111,20 +111,22 @@ export default function PrivacyPage() {
 						Website analytics
 					</h2>
 					<p className="mt-2">
-						The website uses PostHog for page views and clicks on download and
-						pricing links. Events include page paths, referring origins, and
-						browser and device information. We remove URL query strings and
-						fragments before sending events, do not identify website visitors
-						with their Zuse account, and disable automatic interaction capture
-						and session replay.
+						The website and documentation use PostHog for page views, selected
+						link clicks, and aggregate active-reading engagement. Events include
+						page paths, referring origins, and browser and device information.
+						We remove URL query strings and fragments before sending events, do
+						not identify website visitors with their Zuse account, and disable
+						automatic interaction capture and session replay.
 					</p>
 					<p className="mt-2">
-						Website analytics use temporary memory rather than persistent
-						analytics cookies or local storage. They are disabled when your
-						browser sends Do Not Track or Global Privacy Control. Your browser
-						can also block requests to the analytics service. These website
-						choices are separate from the usage-analytics setting in the desktop
-						and mobile apps.
+						A first-party cookie stores an anonymous browser identity for 90
+						days, renewed during visits and shared between zuse.sh and
+						docs.zuse.sh. This lets us measure repeat visits and journeys into
+						the docs. Collection is disabled when your browser sends Do Not
+						Track or Global Privacy Control. Your browser can also block
+						requests to the analytics service. These website choices are
+						separate from the usage-analytics setting in the desktop and mobile
+						apps.
 					</p>
 				</section>
 

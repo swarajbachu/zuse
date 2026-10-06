@@ -199,6 +199,7 @@ export const startGeminiSession = (
 		// and command execution are gated through PermissionService + RuntimeMode,
 		// exactly like Claude/Codex. `currentMode` is read live.
 		const acpHandlerContext = makeAcpPermissionContext({
+			executionEnv: input.executionEnv,
 			cwd,
 			sessionId,
 			projectId: input.folderId,
@@ -269,6 +270,7 @@ export const startGeminiSession = (
 				cwd,
 				env: {
 					...process.env,
+					...input.executionEnv,
 					...(apiKey !== null ? { GEMINI_API_KEY: apiKey } : {}),
 				},
 				stdio: ["pipe", "pipe", "pipe"],

@@ -9,7 +9,9 @@ export async function getGitHubStars(): Promise<number | null> {
 				Accept: "application/vnd.github+json",
 				"User-Agent": "zuse-web",
 			},
-			next: { revalidate: 3600 },
+			// This fetch sets the ISR interval for pages using the shared layout.
+			// Refresh the decorative star count daily to avoid hourly page rewrites.
+			next: { revalidate: 86400 },
 		});
 		if (!response.ok) return null;
 

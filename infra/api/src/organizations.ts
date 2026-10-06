@@ -13,7 +13,7 @@ import {
 	OrganizationRole,
 	OrganizationRoleInput,
 } from "@zuse/contracts";
-import { Clock, Effect, Redacted, Schema } from "effect";
+import { Clock, Effect, Schema } from "effect";
 import { requireWorkos } from "./auth.ts";
 import { ApiConfiguration } from "./config.ts";
 import {
@@ -23,14 +23,19 @@ import {
 	notFound,
 	serviceUnavailable,
 } from "./errors.ts";
+import { requireGithubEnrollment } from "./github-membership.ts";
 import { decodeBody, json } from "./http.ts";
+import {
+	listWorkos,
+	organizationSeatsFull,
+	requestWorkos,
+	reservesSeat,
+	WorkosInvitation,
+	WorkosMember,
+	WorkosOrganization,
+	WorkosUser,
+} from "./organization-workos.ts";
 import { ApiStore } from "./store.ts";
-
-const WorkosOrganization = Schema.Struct({
-	id: Schema.String,
-	name: Schema.String,
-	metadata: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-});
 
 /** Resolve display identity only after the caller has verified membership. */
 export const getOrganizationName = Effect.fn("getOrganizationName")(function* (
@@ -92,104 +97,6 @@ export const setOrganizationSharingDefaults = Effect.fn(
 		}),
 	);
 });
-const WorkosMember = Schema.Struct({
-	id: Schema.String,
-	user_id: Schema.String,
-	organization_id: Schema.String,
-	status: Schema.String,
-	role: Schema.Struct({ slug: Schema.String }),
-	directory_managed: Schema.optional(Schema.Boolean),
-});
-const WorkosInvitation = Schema.Struct({
-	id: Schema.String,
-	email: Schema.String,
-	organization_id: Schema.NullOr(Schema.String),
-	state: OrganizationInvitation.fields.state,
-	expires_at: Schema.String,
-});
-const WorkosUser = Schema.Struct({
-	email: Schema.String,
-	first_name: Schema.NullOr(Schema.String),
-	last_name: Schema.NullOr(Schema.String),
-});
-
-/** Server-only WorkOS access. Provider bodies and invitation tokens never leave this boundary. */
-const requestWorkos = <A, I>(
-	path: string,
-	schema: Schema.Codec<A, I>,
-	method = "GET",
-	body?: unknown,
-) =>
-	Effect.gen(function* () {
-		const config = yield* ApiConfiguration;
-		const apiKey = config.workosApiKey;
-		if (apiKey === undefined)
-			return yield* serviceUnavailable("organizations_not_configured");
-		const response = yield* Effect.tryPromise({
-			try: (signal) =>
-				fetch(`https://api.workos.com${path}`, {
-					method,
-					headers: {
-						authorization: `Bearer ${Redacted.value(apiKey)}`,
-						"content-type": "application/json",
-					},
-					body: body === undefined ? undefined : JSON.stringify(body),
-					signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
-				}),
-			catch: () => serviceUnavailable("organizations_unavailable"),
-		});
-		if (!response.ok) {
-			if (response.status === 404)
-				return yield* notFound("organization_resource_not_found");
-			if (response.status === 409)
-				return yield* conflict("organization_conflict");
-			if (response.status === 400 || response.status === 422)
-				return yield* badRequest("organization_invalid_request");
-			return yield* serviceUnavailable("organizations_unavailable");
-		}
-		const payload =
-			response.status === 204
-				? null
-				: yield* Effect.tryPromise({
-						try: () => response.json(),
-						catch: () => serviceUnavailable("organizations_invalid_response"),
-					});
-		return yield* Schema.decodeUnknownEffect(schema)(payload).pipe(
-			Effect.mapError(() =>
-				serviceUnavailable("organizations_invalid_response"),
-			),
-		);
-	});
-
-/** Follow provider cursors; never silently authorize against a truncated roster. */
-const listWorkos = <A, I>(path: string, schema: Schema.Codec<A, I>) =>
-	Effect.gen(function* () {
-		const rows: A[] = [];
-		let after: string | null = null;
-		const cursors = new Set<string>();
-		do {
-			const query: string = `${path}${path.includes("?") ? "&" : "?"}limit=100${after === null ? "" : `&after=${encodeURIComponent(after)}`}`;
-			const page: {
-				readonly data: ReadonlyArray<A>;
-				readonly list_metadata: { readonly after: string | null };
-			} = yield* requestWorkos(
-				query,
-				Schema.Struct({
-					data: Schema.Array(schema),
-					list_metadata: Schema.Struct({ after: Schema.NullOr(Schema.String) }),
-				}),
-			);
-			rows.push(...page.data);
-			after = page.list_metadata.after;
-			if (after !== null) {
-				if (cursors.has(after) || cursors.size >= 100)
-					return yield* serviceUnavailable("organization_roster_too_large");
-				cursors.add(after);
-			}
-		} while (after !== null);
-		return rows;
-	});
-
 export const requireOrganizationMembership = Effect.fn(
 	"requireOrganizationMembership",
 )(function* (accountId: string, organizationId: string) {
@@ -204,6 +111,13 @@ export const requireOrganizationMembership = Effect.fn(
 			m.status === "active",
 	);
 	if (member === undefined)
+		return yield* forbidden("organization_access_denied");
+	const githubManaged = yield* requireGithubEnrollment(
+		accountId,
+		organizationId,
+		member.id,
+	);
+	if (githubManaged && member.role.slug !== "member")
 		return yield* forbidden("organization_access_denied");
 	return member;
 });
@@ -259,15 +173,6 @@ const invitation = (value: typeof WorkosInvitation.Type) =>
 		expiresAt: value.expires_at,
 	});
 
-const reservesSeat = (
-	invite: typeof WorkosInvitation.Type,
-	organizationId: string,
-	now: number,
-) =>
-	invite.organization_id === organizationId &&
-	invite.state === "pending" &&
-	!(Date.parse(invite.expires_at) <= now);
-
 export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 	function* (request: Request) {
 		const path = new URL(request.url).pathname;
@@ -287,13 +192,28 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 				`/user_management/organization_memberships?user_id=${encodeURIComponent(userId)}`,
 				WorkosMember,
 			);
-			const organizations = yield* Effect.forEach(
+			const authorizedMemberships = yield* Effect.filter(
 				memberships.filter(
 					(m) =>
 						m.user_id === userId &&
 						m.status === "active" &&
 						Schema.is(OrganizationRole)(m.role.slug),
 				),
+				(member) =>
+					requireGithubEnrollment(
+						userId,
+						member.organization_id,
+						member.id,
+					).pipe(
+						Effect.map((managed) => !managed || member.role.slug === "member"),
+						Effect.catch((error) =>
+							error.status === 403 ? Effect.succeed(false) : Effect.fail(error),
+						),
+					),
+				{ concurrency: 4 },
+			);
+			const organizations = yield* Effect.forEach(
+				authorizedMemberships,
 				(member) =>
 					requestWorkos(
 						`/organizations/${encodeURIComponent(member.organization_id)}`,
@@ -457,6 +377,14 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 								user.email,
 							role: member.role.slug,
 							directoryManaged: member.directory_managed ?? false,
+							...(user.profile_picture_url
+								? { profilePictureUrl: user.profile_picture_url }
+								: {}),
+							githubManaged:
+								(yield* (yield* ApiStore).githubJoining.getEnrollment(
+									organizationId,
+									member.user_id,
+								)) !== null,
 						});
 					}),
 				{ concurrency: 4 },
@@ -491,30 +419,7 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 				input.organizationId,
 				Effect.gen(function* () {
 					yield* requireOrganizationMember(userId, input.organizationId, true);
-					const now = yield* Clock.currentTimeMillis;
-					// Read invitations first: an acceptance between reads may temporarily
-					// count twice, but must never leave an uncounted seat.
-					const invites = yield* listWorkos(
-						`/user_management/invitations?organization_id=${encodeURIComponent(input.organizationId)}`,
-						WorkosInvitation,
-					);
-					const roster = yield* listWorkos(
-						`/user_management/organization_memberships?organization_id=${encodeURIComponent(input.organizationId)}`,
-						WorkosMember,
-					);
-					const occupied = new Set(
-						roster
-							.filter(
-								(member) =>
-									member.organization_id === input.organizationId &&
-									member.status === "active",
-							)
-							.map((member) => member.user_id),
-					).size;
-					const reserved = invites.filter((invite) =>
-						reservesSeat(invite, input.organizationId, now),
-					).length;
-					if (occupied + reserved >= ORGANIZATION_MEMBER_LIMIT)
+					if (yield* organizationSeatsFull(input.organizationId))
 						return yield* conflict("organization_member_limit_reached");
 					const result = yield* requestWorkos(
 						"/user_management/invitations",
@@ -560,6 +465,48 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 				request,
 			);
 			const store = yield* ApiStore;
+			// Commit the self-service block before the external removal. If its
+			// response is lost, authorization still denies the removed member.
+			if (removing)
+				yield* store.withOrganizationLock(
+					input.organizationId,
+					Effect.gen(function* () {
+						yield* requireOrganizationMember(
+							userId,
+							input.organizationId,
+							true,
+						);
+						const target = yield* requestWorkos(
+							`/user_management/organization_memberships/${encodeURIComponent(input.memberId)}`,
+							WorkosMember,
+						);
+						if (target.organization_id !== input.organizationId)
+							return yield* forbidden("organization_access_denied");
+						if (target.directory_managed)
+							return yield* conflict("organization_member_managed");
+						const enrollment = yield* store.githubJoining.getEnrollment(
+							input.organizationId,
+							target.user_id,
+						);
+						if (enrollment)
+							yield* store.githubJoining.saveEnrollment({
+								...enrollment,
+								blocked: true,
+								reservedUntil: 0,
+								revision: crypto.randomUUID(),
+							});
+						// Admin removal also stops email-domain auto-join from re-adding them.
+						const domainEnrollment = yield* store.domainJoining.getEnrollment(
+							input.organizationId,
+							target.user_id,
+						);
+						if (domainEnrollment)
+							yield* store.domainJoining.saveEnrollment({
+								...domainEnrollment,
+								blocked: true,
+							});
+					}),
+				);
 			return yield* store.withOrganizationLock(
 				input.organizationId,
 				Effect.gen(function* () {
@@ -570,6 +517,12 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 					);
 					if (target.organization_id !== input.organizationId)
 						return yield* forbidden("organization_access_denied");
+					const enrollment = yield* store.githubJoining.getEnrollment(
+						input.organizationId,
+						target.user_id,
+					);
+					if (enrollment && !removing)
+						return yield* conflict("organization_member_managed");
 					if (target.directory_managed)
 						return yield* conflict("organization_member_managed");
 					if (

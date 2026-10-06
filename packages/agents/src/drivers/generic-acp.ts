@@ -72,6 +72,7 @@ export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 		getPermissionMode: () => mode,
 	};
 	const context = makeAcpPermissionContext({
+		executionEnv: input.executionEnv,
 		cwd,
 		sessionId,
 		projectId: input.folderId,
@@ -97,7 +98,7 @@ export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 	const releaseTerminals = terminals.close;
 	let notifications: Promise<void> = Promise.resolve();
 	const connection = launchAcpProcess(
-		launch,
+		{ ...launch, env: { ...launch.env, ...input.executionEnv } },
 		cwd,
 		(message) => {
 			if (message.method === "session/update") {

@@ -70,7 +70,10 @@ import {
 	computerAwakeStatusText,
 } from "../lib/computer-awake.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
-import { useOrganizationWorkspaces } from "../lib/organization-workspaces.ts";
+import {
+	organizationWorkspacesAvailable,
+	useOrganizationWorkspaces,
+} from "../lib/organization-workspaces.ts";
 import { providerDisplayName } from "../lib/provider-labels.ts";
 import {
 	rendererWorkspaceSnapshot,
@@ -87,6 +90,7 @@ import { LanguageSelector } from "./language-selector.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import { ProviderSettingsRow } from "./provider-card.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
+import { AccountGithubConnection } from "./settings/account-github.tsx";
 import { CloudWorkspacePool } from "./settings/cloud-workspace-pool.tsx";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
@@ -168,7 +172,9 @@ export function SettingsPage() {
 							(item) => item.section.kind === section.kind,
 						)
 					? { kind: "organizations" }
-					: !CLOUD_MACHINES_AVAILABLE && section.kind === "machines"
+					: (!CLOUD_MACHINES_AVAILABLE && section.kind === "machines") ||
+							(workspace.scope.kind === "personal" &&
+								section.kind === "organizations")
 						? { kind: "general" }
 						: section;
 
@@ -503,15 +509,9 @@ function Pane({ section }: { section: SettingsSection }) {
 		return <CloudWorkspacePool section={section.page} />;
 	}
 	if (section.kind === "organizations")
-		return (
-			<OrganizationsPane
-				organizationId={
-					workspace.scope.kind === "organization"
-						? workspace.scope.organizationId
-						: undefined
-				}
-			/>
-		);
+		return workspace.scope.kind === "organization" ? (
+			<OrganizationsPane organizationId={workspace.scope.organizationId} />
+		) : null;
 	if (section.kind === "general")
 		return (
 			<div className="flex flex-col gap-4">
@@ -1368,7 +1368,10 @@ function GeneralPane() {
 							{uiMessage("common:signOut")}
 						</Button>
 					</div>
-				) : isLoading ? (
+				) : null}
+				{isSignedIn && organizationWorkspacesAvailable() ? (
+					<AccountGithubConnection />
+				) : isSignedIn ? null : isLoading ? (
 					<SettingsRow
 						title={
 							isUnavailable

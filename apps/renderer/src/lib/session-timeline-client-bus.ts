@@ -1474,6 +1474,28 @@ export const dispatchSessionCommand = <Payload, Result>(input: {
 		awaitResourceReflection: input.kind === "messages.send",
 	});
 
+/**
+ * Session-addressed workspace I/O (attachment bytes, context files) whose
+ * caller owns the failure. It is not a transcript command: a new chat probes
+ * these before its workspace exists, and those expected "not ready" failures
+ * must never surface as a pending or failed command on the chat timeline.
+ */
+export const dispatchSessionWorkspaceCommand = <Payload, Result>(input: {
+	readonly ref: SessionRef;
+	readonly kind: string;
+	readonly commandId: ClientCommand["commandId"];
+	readonly payload: Payload;
+}): Promise<CommandReceipt<Result>> =>
+	rendererClientBus.dispatch({
+		kind: input.kind,
+		commandId: input.commandId,
+		environmentId: input.ref.environmentId,
+		resource: null,
+		payload: input.payload,
+		retry: "never",
+		createdAt: Date.now(),
+	});
+
 export const dispatchSessionCommandHandle = <Payload, Result>(input: {
 	readonly ref: SessionRef;
 	readonly kind: string;

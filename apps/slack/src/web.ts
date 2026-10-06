@@ -1,4 +1,5 @@
 import { BROWSER_PAGE_HEADERS, escapeHtml } from "@zuse/utils/browser-page";
+import { INTEGRATION_PAGE_SCRIPT_SOURCE } from "@zuse/utils/integration-page";
 import type { AppEnv } from "./types.ts";
 export const htmlEscape = escapeHtml;
 export const SLACK_PAGE_HEADERS = {
@@ -6,8 +7,7 @@ export const SLACK_PAGE_HEADERS = {
 	// no-referrer makes native form POSTs send Origin: null. Keep same-origin
 	// forms verifiable without sending callback URLs to external destinations.
 	"referrer-policy": "same-origin",
-	"content-security-policy":
-		"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+	"content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; script-src ${INTEGRATION_PAGE_SCRIPT_SOURCE}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
 };
 export const appOrigin = (env: AppEnv): string => {
 	const url = new URL(env.APP_ORIGIN);

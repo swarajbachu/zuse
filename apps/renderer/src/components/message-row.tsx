@@ -1,4 +1,3 @@
-import { cloudProviderAuthenticationMode } from "@zuse/client-runtime/cloud-provider-availability";
 import { providerDisplayName } from "~/lib/provider-labels";
 import { useStreamingText } from "../hooks/use-streaming-text.ts";
 import { ContextPill, contextPillClass } from "./context-pill.tsx";
@@ -22,13 +21,7 @@ import type {
 	SkillRef,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import {
-	AlertCircleIcon,
-	Copy01Icon,
-	DashboardSpeedIcon,
-	Settings01Icon,
-	Tick01Icon,
-} from "@zuse/icons/solid-rounded";
+import { AlertCircleIcon, DashboardSpeedIcon } from "@zuse/icons/solid-rounded";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -41,26 +34,15 @@ import {
 	downloadAttachment,
 	useAttachmentUrl,
 } from "~/lib/attachments";
-import {
-	localProjectForCloudEnvironment,
-	useCloudChatCatalogStore,
-} from "~/lib/cloud-workspace-catalog.ts";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { formatError } from "~/lib/format-error";
-import { openNewChatLanding } from "~/lib/open-new-chat-landing.ts";
 import {
 	orchestrationToolName,
 	parseOrchestrationResult,
 } from "~/lib/orchestration-tools";
 import { attachmentUrl } from "~/lib/platform-capabilities";
-import { composerOwnsProviderSignIn } from "~/lib/provider-auth-recovery";
-import { isCloudWorkspaceEnvironment } from "~/lib/rpc-client.ts";
-import {
-	type ChatError,
-	classifyErrorContent,
-	retryLastSessionMessage,
-	sendSessionMessage,
-} from "~/lib/session-actions";
+import { describeProviderError } from "~/lib/provider-error-notice";
+import { type ChatError, classifyErrorContent } from "~/lib/session-actions";
 import { isSessionTurnActive } from "~/lib/session-runtime-state";
 import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks.ts";
 import { subagentTaskIdForBlockingWait } from "~/lib/subagent-wait";
@@ -74,9 +56,16 @@ import {
 	MessageActions,
 } from "./assistant-message-actions.tsx";
 import { useChatLookups } from "./chat-lookups.tsx";
+import { CopyButton } from "./copy-button.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
+import { useProviderErrorCopy } from "./provider-error-copy.ts";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { SkillIcon } from "./skill-icon.tsx";
+import {
+	Collapsible,
+	CollapsiblePanel,
+	CollapsibleTrigger,
+} from "./ui/collapsible.tsx";
 import { UserMessageText } from "./user-message-text.tsx";
 
 const _isBrowserAnnotation = (
@@ -107,7 +96,6 @@ import {
 	ToolRow,
 	UserInputRow,
 } from "./tool-row.tsx";
-import { Button } from "./ui/button.tsx";
 import {
 	userBubbleClass,
 	userBubbleColumnClass,
@@ -127,20 +115,6 @@ const stringifyJson = (value: unknown): string => {
 	} catch {
 		return String(value);
 	}
-};
-
-const RECONNECTING_PATTERN =
-	/^\s*Reconnecting\s*\.{3}\s*(\d+)\s*\/\s*(\d+)\s*$/i;
-
-const parseReconnectingStatus = (
-	message: string,
-): { readonly attempt: number; readonly maxAttempts: number } | null => {
-	const match = RECONNECTING_PATTERN.exec(message);
-	if (match === null) return null;
-	const attempt = Number(match[1]);
-	const maxAttempts = Number(match[2]);
-	if (!Number.isFinite(attempt) || !Number.isFinite(maxAttempts)) return null;
-	return { attempt, maxAttempts };
 };
 
 const formatDuration = (ms: number): string => {
@@ -293,27 +267,14 @@ function MessageRowImpl({
 			return null;
 		case "error": {
 			if (readOnly) return <ToolErrorRow output={message.content.message} />;
-			// An auth failure is never shown as a raw provider error. For local
-			// providers with in-app sign-in the composer tray owns recovery, so
-			// the transcript just records that the provider signed out.
-			const error = classifyErrorContent(message.content, providerId);
-			if (
-				error.kind === "auth" &&
-				composerOwnsProviderSignIn(providerId, environmentId)
-			)
-				return (
-					<div className="px-4 py-2 text-xs text-muted-foreground">
-						{uiMessage("chat:message_row_signed_out_of", {
-							label: providerDisplayName(providerId),
-						})}
-					</div>
-				);
+			// Failures stay quiet in the transcript. Anything that needs action
+			// (sign-in, usage limits, reconnecting an account) is surfaced above
+			// the composer by the provider error and sign-in trays.
 			return (
-				<ErrorBubble
-					error={error}
-					sessionId={sessionId}
-					environmentId={environmentId}
+				<ProviderErrorRow
+					error={classifyErrorContent(message.content, providerId)}
 					providerId={providerId}
+					environmentId={environmentId}
 				/>
 			);
 		}
@@ -790,450 +751,96 @@ function ToolErrorRow({ output }: { output: unknown }) {
 	);
 }
 
-type RateLimitInfo = {
-	readonly resetText?: string;
-	readonly period?: "weekly" | "monthly" | "daily";
-};
-
-// Parse rate-limit / usage-limit messages emitted by Claude Code, the
-// Anthropic SDK, or other providers. We see them as plain strings (the
-// wire ErrorEvent carries no structured metadata) so this is best-effort
-// pattern matching against the human-readable text.
-const parseRateLimit = (text: string): RateLimitInfo | null => {
-	const isRateLimit =
-		/usage limit|rate[-\s]?limit|quota|429|too many requests|overloaded|hit your limit|reached (?:your |the )?limit|agent reached limit/i.test(
-			text,
-		);
-	if (!isRateLimit) return null;
-
-	const resetMatch =
-		text.match(
-			/reset(?:s|ing)?(?:\s+at)?\s+(\d{1,2}(?::\d{2})?\s*[ap]m(?:\s*\([^)]+\))?)/i,
-		) ??
-		text.match(
-			/(?:try|see|check)\s+again\s+at\s+(\d{1,2}(?::\d{2})?\s*[ap]m(?:\s*(?:\([^)]+\)|[A-Z][A-Za-z_/-]*(?:\s+time)?))?)/i,
-		) ??
-		text.match(/reset(?:s|ing)?(?:\s+at)?\s+(\d{4}-\d{2}-\d{2}[T0-9:.Z+-]*)/i);
-
-	const lower = text.toLowerCase();
-	const period: RateLimitInfo["period"] = lower.includes("monthly")
-		? "monthly"
-		: lower.includes("weekly")
-			? "weekly"
-			: lower.includes("daily")
-				? "daily"
-				: undefined;
-
-	return { resetText: resetMatch?.[1], period };
-};
-
-const formatResetDetail = (info: RateLimitInfo): string => {
-	if (info.resetText !== undefined) return `Resets ${info.resetText}`;
-	if (info.period !== undefined) {
-		const label = info.period.charAt(0).toUpperCase() + info.period.slice(1);
-		return `${label} limit`;
-	}
-	return "Try again later";
-};
-
-function CloudProviderAuthCard({
-	providerId,
-	authMode,
-	environmentId,
-	onOpenCloudSettings,
-	onDismiss,
-}: {
-	providerId: ProviderId;
-	authMode: "legacy-image" | "broker-v1" | "unknown";
-	environmentId: EnvironmentId;
-	onOpenCloudSettings: () => void;
-	onDismiss?: () => void;
-}) {
-	const { message: uiMessage } = useUiMessages(["chat", "common"]);
-
-	const providerLabel = providerDisplayName(providerId);
-	const replacementProjectId = localProjectForCloudEnvironment(environmentId);
-	const legacy = authMode === "legacy-image";
-	const broker = authMode === "broker-v1";
-	return (
-		<div className="px-4 py-2">
-			<div className="w-fit max-w-[80%] rounded-lg bg-alert-error-bg px-3 py-2.5 text-xs text-foreground">
-				<div className="flex items-center justify-between gap-2">
-					<span className="inline-flex items-center gap-1.5 font-medium">
-						<HugeiconsIcon
-							icon={AlertCircleIcon}
-							className="size-3.5 text-destructive"
-							aria-hidden
-						/>
-						{legacy
-							? uiMessage(
-									"chat:message_row_this_cloud_chat_uses_legacy_authentication",
-									{ providerLabel: String(providerLabel) },
-								)
-							: broker
-								? uiMessage("chat:message_row_account_needs_reconnecting", {
-										providerLabel: String(providerLabel),
-									})
-								: uiMessage("chat:message_row_authentication_is_unavailable", {
-										providerLabel: String(providerLabel),
-									})}
-					</span>
-					{onDismiss !== undefined && (
-						<button
-							type="button"
-							onClick={onDismiss}
-							className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-						>
-							{uiMessage("chat:message_row_dismiss")}
-						</button>
-					)}
-				</div>
-				<p className="mt-1.5 max-w-[32rem] text-[11px] leading-4 text-muted-foreground">
-					{legacy
-						? uiMessage(
-								"chat:message_row_its_image_owned_credential_cannot_be_migrated_safely_reconnect_on",
-								{ providerLabel: String(providerLabel) },
-							)
-						: broker
-							? uiMessage(
-									"chat:message_row_reconnect_once_in_cloud_workspace_settings_the_account_credential",
-									{ providerLabel: String(providerLabel) },
-								)
-							: uiMessage(
-									"chat:message_row_open_cloud_workspace_settings_to_restore_account_level_authentica",
-									{ providerLabel: String(providerLabel) },
-								)}
-				</p>
-				<div className="mt-2 flex flex-wrap items-center gap-1.5">
-					{legacy && replacementProjectId !== null ? (
-						<Button
-							type="button"
-							size="xs"
-							variant="outline"
-							onClick={() => openNewChatLanding(replacementProjectId)}
-						>
-							{uiMessage("chat:message_row_create_replacement_chat")}
-						</Button>
-					) : null}
-					<Button
-						type="button"
-						size="xs"
-						variant={legacy ? "ghost" : "outline"}
-						onClick={onOpenCloudSettings}
-					>
-						<HugeiconsIcon
-							icon={Settings01Icon}
-							className="size-3"
-							aria-hidden
-						/>
-						{uiMessage("chat:message_row_open_cloud_authentication")}
-					</Button>
-				</div>
-			</div>
-		</div>
-	);
-}
-
-const GEMINI_UPGRADE_COMMAND = "npm i -g @google/gemini-cli@latest";
-
-const isGeminiAcpUpgradeError = (text: string): boolean =>
-	/Gemini CLI.*(?:does not support ACP|--experimental-acp)|Unknown arguments?:.*(?:experimental-acp|experimentalAcp)/is.test(
-		text,
-	);
-
-function GeminiUpgradeCard({ onDismiss }: { onDismiss?: () => void }) {
-	const { message: uiMessage } = useUiMessages(["chat", "common"]);
-
-	const [copied, setCopied] = useState(false);
-	const copyCommand = () => {
-		void navigator.clipboard.writeText(GEMINI_UPGRADE_COMMAND).then(() => {
-			setCopied(true);
-			window.setTimeout(() => setCopied(false), 1600);
-		});
-	};
-
-	return (
-		<div className="px-4 py-2">
-			<div className="max-w-[34rem] rounded-xl border border-warning/25 bg-alert-warning-bg px-4 py-3 text-xs text-foreground shadow-sm">
-				<div className="flex items-start gap-3">
-					<div className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-warning/12 text-warning">
-						<HugeiconsIcon
-							icon={AlertCircleIcon}
-							strokeWidth={2}
-							aria-hidden="true"
-							className="size-4"
-						/>
-					</div>
-					<div className="min-w-0 flex-1">
-						<div className="text-sm font-medium text-foreground">
-							{uiMessage("chat:message_row_gemini_cli_needs_an_upgrade")}
-						</div>
-						<p className="mt-1 leading-relaxed text-muted-foreground">
-							{uiMessage(
-								"chat:message_row_your_installed_gemini_cli_does_not_support_acp_mode_yet_so_zuse_zuse_b",
-							)}
-						</p>
-						<div className="mt-3 flex flex-wrap items-center gap-2">
-							<code className="rounded-md border border-border/60 bg-background/60 px-2 py-1 font-mono text-[11px] text-foreground">
-								{GEMINI_UPGRADE_COMMAND}
-							</code>
-							<Button size="xs" variant="outline" onClick={copyCommand}>
-								{copied ? (
-									<HugeiconsIcon icon={Tick01Icon} className="size-3.5" />
-								) : (
-									<HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
-								)}
-								{copied
-									? uiMessage("common:copied")
-									: uiMessage("chat:message_row_copy_upgrade_command")}
-							</Button>
-							{onDismiss !== undefined && (
-								<Button size="xs" variant="ghost" onClick={onDismiss}>
-									{uiMessage("chat:message_row_dismiss")}
-								</Button>
-							)}
-						</div>
-					</div>
-				</div>
-			</div>
-		</div>
-	);
-}
-
-export function ErrorBubble({
+function ProviderErrorRow({
 	error,
-	sessionId,
-	environmentId,
 	providerId,
-	onDismiss,
+	environmentId,
 }: {
 	error: ChatError;
-	sessionId?: SessionId;
-	environmentId?: EnvironmentId;
 	providerId?: ProviderId;
-	onDismiss?: () => void;
+	environmentId?: EnvironmentId;
 }) {
-	const { message: uiMessage } = useUiMessages(["chat", "common"]);
-
-	const setView = useUiStore((s) => s.setView);
-	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
-	const cloudSummary = useCloudChatCatalogStore((state) =>
-		environmentId === undefined
-			? null
-			: (state.summaries.find(
-					(summary) => summary.workspaceId === environmentId,
-				) ?? null),
+	const describe = useProviderErrorCopy(environmentId);
+	const [open, setOpen] = useState(false);
+	const notice = describeProviderError(error, providerId, environmentId);
+	const copy = describe(notice, error);
+	const fullText = error.message.trim();
+	// Only unexplained failures get a red icon; limits, reconnects and sign-in
+	// prompts are expected states with recovery above the composer.
+	const quiet =
+		notice.kind !== "generic" &&
+		notice.kind !== "terminal" &&
+		notice.kind !== "network";
+	const summary = (
+		<>
+			<span className="font-medium text-foreground/90">{copy.title}</span>
+			{copy.detail.length > 0 ? (
+				<span className="min-w-0 truncate text-muted-foreground">
+					{copy.detail}
+				</span>
+			) : null}
+		</>
+	);
+	const icon = (
+		<HugeiconsIcon
+			icon={AlertCircleIcon}
+			strokeWidth={2}
+			aria-hidden="true"
+			className={cn(
+				"col-start-1 row-start-1 size-3.5",
+				quiet ? "text-muted-foreground" : "text-destructive/80",
+			)}
+		/>
 	);
 
-	const onRetry = () => {
-		if (sessionId !== undefined && environmentId !== undefined) {
-			void retryLastSessionMessage({ environmentId, sessionId }, providerId);
-		}
-	};
-	const onKeepGoing = () => {
-		if (sessionId !== undefined && environmentId !== undefined) {
-			void sendSessionMessage({ environmentId, sessionId }, "keep going", {
-				providerId,
-			});
-		}
-	};
-	const onOpenSettings = () => {
-		setView("settings");
-		setSettingsSection({ kind: "providers" });
-	};
-	const onOpenCloudSettings = () => {
-		setView("settings");
-		setSettingsSection({ kind: "machines" });
-	};
-
-	if (isGeminiAcpUpgradeError(error.message)) {
-		return <GeminiUpgradeCard onDismiss={onDismiss} />;
-	}
-
-	const rateLimit = parseRateLimit(error.message);
-	if (rateLimit !== null) {
+	if (fullText.length === 0)
 		return (
-			<div className="px-4 py-1.5">
-				<div className="inline-flex max-w-[88%] items-center gap-2 rounded-md border border-border/45 bg-[color-mix(in_oklch,var(--bg-elevated)_34%,var(--background))] px-2.5 py-1.5 text-xs text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]">
-					<span className="font-medium">
-						{uiMessage("chat:message_row_limit_reached")}
+			<div className="px-4 py-0.5">
+				<div className="flex min-w-0 max-w-full items-center gap-2 px-1.5 py-0.5 text-xs">
+					<span className="grid size-4 shrink-0 place-items-center">
+						{icon}
 					</span>
-					<span className="text-muted-foreground">
-						{formatResetDetail(rateLimit)}
-					</span>
-					{onDismiss !== undefined && (
-						<button
-							type="button"
-							onClick={onDismiss}
-							className="rounded-[0.1875rem] px-1 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-							aria-label={uiMessage("chat:message_row_dismiss_limit_status")}
-						>
-							{uiMessage("chat:message_row_dismiss")}
-						</button>
-					)}
+					{summary}
 				</div>
 			</div>
 		);
-	}
-
-	const reconnecting = parseReconnectingStatus(error.message);
-	if (reconnecting !== null) {
-		const isFinalAttempt = reconnecting.attempt >= reconnecting.maxAttempts;
-		return (
-			<div className="px-4 py-1.5">
-				<div className="inline-flex max-w-[88%] items-center gap-2 rounded-md border border-border/45 bg-[color-mix(in_oklch,var(--bg-elevated)_34%,var(--background))] px-2.5 py-1.5 text-xs text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]">
-					<span className="font-medium">
-						{uiMessage("chat:message_row_reconnecting")}
-					</span>
-					<span className="font-mono text-muted-foreground">
-						{reconnecting.attempt}/{reconnecting.maxAttempts}
-					</span>
-					{isFinalAttempt && (
-						<>
-							<span className="h-3 w-px bg-border/60" aria-hidden="true" />
-							<button
-								type="button"
-								onClick={onKeepGoing}
-								disabled={sessionId === undefined}
-								className="rounded-[0.1875rem] bg-secondary px-1.5 py-0.5 font-medium text-secondary-foreground transition-colors hover:bg-secondary/90"
-							>
-								{uiMessage("common:retry")}
-							</button>
-						</>
-					)}
-					{onDismiss !== undefined && (
-						<button
-							type="button"
-							onClick={onDismiss}
-							className="rounded-[0.1875rem] px-1 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-							aria-label={uiMessage(
-								"chat:message_row_dismiss_reconnecting_status",
-							)}
-						>
-							{uiMessage("chat:message_row_dismiss")}
-						</button>
-					)}
-				</div>
-			</div>
-		);
-	}
-
-	// Cloud workspace auth failures get the account-level reconnect card. Local
-	// providers with in-app sign-in are recovered by the composer sign-in tray;
-	// the rest fall through to the generic bubble below with an "Open Provider
-	// Settings" link.
-	if (error.kind === "auth" && error.providerId !== undefined) {
-		if (
-			environmentId !== undefined &&
-			isCloudWorkspaceEnvironment(environmentId) &&
-			["claude", "codex", "cursor", "grok"].includes(error.providerId)
-		) {
-			return (
-				<CloudProviderAuthCard
-					providerId={error.providerId}
-					authMode={cloudProviderAuthenticationMode(
-						error.providerId,
-						cloudSummary,
-					)}
-					environmentId={environmentId}
-					onOpenCloudSettings={onOpenCloudSettings}
-					onDismiss={onDismiss}
-				/>
-			);
-		}
-	}
-
-	const headline =
-		error.kind === "auth"
-			? `Sign in to ${
-					error.providerId
-						? providerDisplayName(error.providerId)
-						: "your provider"
-				}`
-			: error.kind === "network"
-				? "Connection lost"
-				: error.kind === "terminal"
-					? error.headline
-					: null;
-
-	const iconTone =
-		error.kind === "auth"
-			? "text-destructive"
-			: error.kind === "network"
-				? "text-warning"
-				: "text-destructive";
-	const bg =
-		error.kind === "network" ? "bg-alert-warning-bg" : "bg-alert-error-bg";
 
 	return (
-		<div className="py-2">
-			<div
-				className={cn(
-					"w-full rounded-xl px-3 py-2 text-xs text-foreground",
-					bg,
-				)}
-			>
-				<div className="flex min-w-0 items-start gap-2">
-					<HugeiconsIcon
-						icon={AlertCircleIcon}
-						strokeWidth={2}
+		<Collapsible open={open} onOpenChange={setOpen} className="px-4 py-0.5">
+			<CollapsibleTrigger className="group flex w-fit min-w-0 max-w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
+				<span className="grid size-4 shrink-0 place-items-center">
+					<span
+						className={cn(
+							"col-start-1 row-start-1 grid place-items-center transition-opacity duration-150 ease-out motion-reduce:transition-none",
+							open ? "opacity-0" : "group-hover:opacity-0",
+						)}
+					>
+						{icon}
+					</span>
+					<ChevronRight
 						aria-hidden="true"
-						className={cn("mt-px size-3.5 shrink-0", iconTone)}
+						className={cn(
+							"col-start-1 row-start-1 size-3.5 text-muted-foreground transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none",
+							open
+								? "rotate-90 opacity-100"
+								: "opacity-0 group-hover:opacity-100",
+						)}
 					/>
-					<div className="flex min-w-0 flex-1 flex-col gap-1">
-						{headline !== null ? (
-							<span className="font-medium text-foreground">{headline}</span>
-						) : (
-							<span className="font-medium text-foreground">
-								{uiMessage("chat:message_row_provider_error")}
-							</span>
-						)}
-						<pre className="min-w-0 max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
-							{error.message || uiMessage("chat:message_row_empty")}
-						</pre>
-						{sessionId !== undefined && error.kind !== "terminal" && (
-							<div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-								<Button
-									type="button"
-									size="xs"
-									variant="outline"
-									onClick={onRetry}
-									className="gap-1"
-								>
-									<RefreshIcon className="size-3" aria-hidden />
-									{uiMessage("common:retry")}
-								</Button>
-								{error.kind === "auth" && (
-									<Button
-										type="button"
-										size="xs"
-										variant="ghost"
-										onClick={onOpenSettings}
-										className="gap-1"
-									>
-										<HugeiconsIcon
-											icon={Settings01Icon}
-											className="size-3"
-											aria-hidden
-										/>
-										{uiMessage("chat:message_row_open_provider_settings")}
-									</Button>
-								)}
-							</div>
-						)}
-					</div>
-					{onDismiss !== undefined && (
-						<button
-							type="button"
-							onClick={onDismiss}
-							className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-						>
-							{uiMessage("chat:message_row_dismiss")}
-						</button>
-					)}
+				</span>
+				{summary}
+			</CollapsibleTrigger>
+			<CollapsiblePanel>
+				<div className="group/error relative mt-1 mb-1.5 ml-[1.625rem] w-fit max-w-[min(46rem,calc(100%-1.625rem))] rounded-lg bg-muted/40">
+					<pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words py-2 pr-9 pl-3 font-mono text-[11px] leading-relaxed text-muted-foreground select-text [overflow-wrap:anywhere]">
+						{fullText}
+					</pre>
+					<CopyButton
+						text={fullText}
+						className="absolute top-1 right-1 opacity-0 transition-opacity group-hover/error:opacity-100 focus-visible:opacity-100"
+					/>
 				</div>
-			</div>
-		</div>
+			</CollapsiblePanel>
+		</Collapsible>
 	);
 }
 

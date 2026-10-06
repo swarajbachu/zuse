@@ -152,5 +152,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-	matcher: "/:path*",
+	// Framework assets never need language or content negotiation.
+	matcher: "/((?!_next/static|_next/image).*)",
 };

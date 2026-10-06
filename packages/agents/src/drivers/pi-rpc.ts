@@ -29,10 +29,11 @@ export class PiRpcClient {
 		cwd: string,
 		onEvent: (event: PiFrame) => void,
 		onExit: (error: Error) => void = () => {},
+		executionEnv?: Readonly<Record<string, string>>,
 	) {
 		this.child = spawn(binary, args, {
 			cwd,
-			env: process.env,
+			env: { ...process.env, ...executionEnv },
 			detached: process.platform !== "win32",
 			stdio: ["pipe", "pipe", "pipe"],
 		});

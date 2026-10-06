@@ -11,6 +11,23 @@ export const connectedCloudProviders = (
 		.filter((provider) => provider.state === "connected")
 		.map((provider) => ProviderId.make(provider.providerId)) ?? [];
 
+export type CloudAuthLoadState = "loading" | "ready" | "failed";
+
+/**
+ * Why a cloud draft can't be sent, or null when nothing blocks it. A provider
+ * that's merely not the selected one is not a blocker: the landing switches
+ * the draft to a connected provider on its own.
+ */
+export const cloudSendBlocker = (
+	load: CloudAuthLoadState,
+	connectedProviderIds: ReadonlyArray<ProviderId>,
+): "auth-check-failed" | "no-connected-agents" | null => {
+	if (load === "failed") return "auth-check-failed";
+	if (load === "ready" && connectedProviderIds.length === 0)
+		return "no-connected-agents";
+	return null;
+};
+
 export function isModelPickerProviderVisible({
 	providerId,
 	availability,

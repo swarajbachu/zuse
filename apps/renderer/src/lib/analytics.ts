@@ -4,11 +4,11 @@ import {
 	type AnalyticsProperties,
 	sanitizeAnalyticsProperties,
 } from "@zuse/analytics";
+import { normalizeAnalyticsOs } from "@zuse/analytics/platform";
 import type { AnalyticsContext } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
-
-import { hostDescriptor } from "./host-platform.ts";
 import { createDeferredRuntime } from "./deferred-runtime.ts";
+import { hostDescriptor } from "./host-platform.ts";
 import { sanitizePostHogEvent } from "./posthog-event.ts";
 import { getRpcClient } from "./rpc-client.ts";
 
@@ -37,12 +37,7 @@ const common = (context: AnalyticsContext) => {
 	const host = hostDescriptor();
 	return {
 		surface: "desktop",
-		os:
-			host.platform === "darwin"
-				? "macos"
-				: host.platform === "win32"
-					? "windows"
-					: "linux",
+		os: normalizeAnalyticsOs(host.platform),
 		architecture: host.arch,
 		app_version: import.meta.env.VITE_APP_VERSION ?? "unknown",
 		release_channel: import.meta.env.MODE,

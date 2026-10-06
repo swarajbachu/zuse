@@ -113,10 +113,11 @@ export default function CookiesPage() {
 						<div>
 							<dt className="font-medium text-foreground">Analytics</dt>
 							<dd className="mt-1">
-								PostHog measures website page views and selected link clicks
-								using temporary memory. We disable persistent analytics cookies
-								and local storage, session replay, and automatic interaction
-								capture.
+								PostHog measures website and documentation page views, selected
+								link clicks, and active reading. A first-party analytics cookie,
+								renewed for 90 days, stores an anonymous browser identity shared
+								between zuse.sh and docs.zuse.sh. We disable session replay and
+								automatic interaction capture.
 							</dd>
 						</div>
 						<div>
@@ -212,10 +213,10 @@ export default function CookiesPage() {
 					<p className="mt-2">
 						Session storage usually lasts until the relevant browser session
 						ends. Persistent cookies or local storage remain until they expire
-						or you, the browser, or the service removes them. We do not state
-						exact periods here because they can depend on the browser,
-						deployment, and purpose. You can clear website storage through your
-						browser controls.
+						or you, the browser, or the service removes them. The analytics
+						cookie has the 90-day rolling expiry described above. Other storage
+						periods depend on the browser, deployment, and purpose. You can
+						clear website storage through your browser controls.
 					</p>
 					<p className="mt-3">
 						For explicitly imported desktop cookies, Zuse preserves an expiry
@@ -248,11 +249,9 @@ export default function CookiesPage() {
 					</h2>
 					<p className="mt-2">
 						The current website does not advertise a separate Do Not Track (DNT)
-						or Global Privacy Control (GPC) preference workflow. Because the
-						marketing site currently has no advertising or website analytics
-						program, there is no website analytics profile for these signals to
-						opt you out of. If the site’s storage practice changes, we will
-						update this policy and describe how those signals are handled.
+						or Global Privacy Control (GPC) preference workflow. The website and
+						documentation do not initialize PostHog when your browser sends DNT
+						or sets the GPC signal.
 					</p>
 				</section>
 
@@ -262,12 +261,12 @@ export default function CookiesPage() {
 					</h2>
 					<p className="mt-2">
 						There is currently no cookie banner or cookie-preference center on
-						the marketing website. You can use your browser’s storage controls
-						and the website’s appearance setting to manage the browser state
-						that exists today. If Zuse introduces non-essential website cookies
-						or similar tracking technologies, this policy will be revised and
-						the site will present an appropriate way to make the choices offered
-						for that practice.
+						the marketing website. The analytics cookie described above is part
+						of the website and documentation analytics. You can use your
+						browser’s storage controls to block or clear it. Clearing the cookie
+						removes the stored browser identity; a later visit can create a new
+						one unless you block cookies or enable DNT or GPC. The website’s
+						appearance setting separately controls its saved theme.
 					</p>
 				</section>
 

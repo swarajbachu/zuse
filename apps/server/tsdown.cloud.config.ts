@@ -17,6 +17,7 @@ export default defineConfig({
 	deps: {
 		alwaysBundle: [/.*/u],
 		neverBundle: [
+			"@cursor/sdk",
 			"bindings",
 			"node-pty",
 			"tree-sitter",
@@ -25,6 +26,7 @@ export default defineConfig({
 			"tree-sitter-typescript",
 		],
 		onlyImport: [
+			"@cursor/sdk",
 			"bindings",
 			"node-pty",
 			"tree-sitter",

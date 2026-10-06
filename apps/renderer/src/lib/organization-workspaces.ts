@@ -1,5 +1,6 @@
-import type { Organization } from "@zuse/contracts";
+import { type Organization, STAGING_API_URL } from "@zuse/contracts";
 import { createAtomStore } from "../state/atom-store.ts";
+import { rendererApiUrl } from "./api-url.ts";
 import {
 	assertRendererAccountCurrent,
 	rendererAccountSnapshot,
@@ -7,6 +8,7 @@ import {
 } from "./renderer-account.ts";
 
 export const organizationWorkspacesAvailable = (): boolean =>
+	rendererApiUrl() === STAGING_API_URL ||
 	import.meta.env.VITE_ORGANIZATION_WORKSPACES === "true";
 
 export const useOrganizationWorkspaces = createAtomStore<{
