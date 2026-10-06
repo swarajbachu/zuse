@@ -9,7 +9,10 @@ import {
 	Search01Icon,
 } from "@zuse/icons/solid-rounded";
 import { useEffect, useMemo, useState } from "react";
-import { usePluginAccount } from "~/lib/connected-plugins.ts";
+import {
+	pluginConnectionName,
+	usePluginAccount,
+} from "~/lib/connected-plugins.ts";
 import {
 	notifyPluginsChanged,
 	pluginRequest,
@@ -172,7 +175,9 @@ function rowsOf(snapshot: PluginSnapshot): readonly PluginRow[] {
 			const plugin = catalog.get(connection.pluginId);
 			return {
 				connection,
-				name: plugin?.name ?? connection.label,
+				name: plugin
+					? pluginConnectionName(plugin.name, connection.label)
+					: connection.label,
 				description: plugin?.description ?? "",
 				domain: plugin?.domain ?? "",
 			};

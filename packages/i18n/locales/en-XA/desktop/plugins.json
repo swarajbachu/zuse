@@ -60,5 +60,8 @@
 	"plugins_skills_personal": "⟦Pëërsôônààl⟧",
 	"plugins_skills_project": "⟦Prôôjëëct⟧",
 	"plugins_skills_codex_note": "⟦Côôdëëx tôôgglëës ààrëë sààvëëd ïïn Côôdëëx's ôôwn côônfïïg, sôô thëëy ààlsôô ààpply ôôüütsïïdëë Züüsëë.⟧",
-	"plugins_skills_loading": "⟦Lôôààdïïng skïïlls…⟧"
+	"plugins_skills_loading": "⟦Lôôààdïïng skïïlls…⟧",
+	"plugins_connection_name": "⟦Côônnëëctïïôôn nààmëë⟧",
+	"plugins_connection_name_placeholder": "⟦Wôôrk, pëërsôônààl, ôôr côômpààny nààmëë⟧",
+	"plugins_connect_another": "⟦Côônnëëct àànôôthëër ààccôôüünt⟧"
 }

@@ -7,7 +7,10 @@ import {
 	addChipEffect,
 	chipExtensions,
 } from "../../src/lib/codemirror/composer-chips.ts";
-import { pluginToolAddress } from "../../src/lib/connected-plugins.ts";
+import {
+	connectedOf,
+	pluginToolAddress,
+} from "../../src/lib/connected-plugins.ts";
 
 const meta = {
 	kind: "plugin",
@@ -47,6 +50,81 @@ describe("@plugin mentions", () => {
 			...meta,
 			domain: "",
 		});
+	});
+	it("keeps two account mentions distinct through queued-message editing", () => {
+		const doc = "Ask @Linear / Work and @Linear / Personal";
+		let state = EditorState.create({ doc, extensions: chipExtensions });
+		for (const [name, connectionId] of [
+			["Linear / Work", "work-id"],
+			["Linear / Personal", "personal-id"],
+		] as const) {
+			const token = `@${name}`;
+			const from = doc.indexOf(token);
+			state = state.update({
+				effects: addChipEffect.of({
+					from,
+					to: from + token.length,
+					meta: { ...meta, name, connectionId },
+				}),
+			}).state;
+		}
+		const input = parseComposerInput(state, "zuse");
+		expect(input.annotations.map((a) => a.id)).toEqual([
+			"plugin:linear:work-id",
+			"plugin:linear:personal-id",
+		]);
+		expect(input.annotations[0]).toMatchObject({
+			comment: expect.stringContaining('"tools.linear.user.work-id."'),
+		});
+		const snapshot = composerSnapshotFromInput(input);
+		expect(snapshot.doc).toBe(doc);
+		expect(snapshot.chips.map((chip) => chip.meta)).toEqual([
+			{ ...meta, name: "Linear / Work", connectionId: "work-id", domain: "" },
+			{
+				...meta,
+				name: "Linear / Personal",
+				connectionId: "personal-id",
+				domain: "",
+			},
+		]);
+	});
+	it("lists enabled accounts separately and excludes unavailable connections", () => {
+		const connection = {
+			id: "work",
+			pluginId: "linear",
+			label: "Work",
+			owner: "user" as const,
+			state: "connected" as const,
+			enabled: true,
+			createdAt: 1,
+		};
+		expect(
+			connectedOf({
+				kind: "snapshot",
+				tenantId: "personal:test",
+				tenants: [],
+				endpoint: "",
+				catalog: [
+					{
+						id: "linear",
+						name: "Linear",
+						domain: "linear.app",
+						description: "",
+						category: null,
+						featured: false,
+					},
+				],
+				connections: [
+					connection,
+					{ ...connection, id: "personal", label: "Personal" },
+					{ ...connection, id: "disabled", enabled: false },
+					{ ...connection, id: "pending", state: "connecting" },
+				],
+			}).map((p) => [p.connectionId, p.name]),
+		).toEqual([
+			["work", "Linear / Work"],
+			["personal", "Linear / Personal"],
+		]);
 	});
 });
 

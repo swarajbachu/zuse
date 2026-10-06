@@ -151,6 +151,7 @@ export function FileTagPopover({
 			replaceWithChip(view, trigger.from, trigger.to, `@${item.plugin.name}`, {
 				kind: "plugin",
 				pluginId: item.plugin.id,
+				connectionId: item.plugin.connectionId,
 				name: item.plugin.name,
 				domain: item.plugin.domain,
 			});
@@ -233,7 +234,7 @@ export function FileTagPopover({
 					) : null;
 				if (item.kind === "plugin")
 					return (
-						<div key={`plugin:${item.plugin.id}`}>
+						<div key={`plugin:${item.plugin.id}:${item.plugin.connectionId}`}>
 							{heading}
 							<button
 								type="button"

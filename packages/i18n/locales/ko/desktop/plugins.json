@@ -60,5 +60,8 @@
 	"plugins_skills_personal": "개인",
 	"plugins_skills_project": "프로젝트",
 	"plugins_skills_codex_note": "Codex 설정은 Codex 자체 구성에 저장되므로 Zuse 밖에서도 적용됩니다.",
-	"plugins_skills_loading": "스킬을 불러오는 중…"
+	"plugins_skills_loading": "스킬을 불러오는 중…",
+	"plugins_connection_name": "연결 이름",
+	"plugins_connection_name_placeholder": "업무용, 개인용 또는 회사 이름",
+	"plugins_connect_another": "다른 계정 연결"
 }
