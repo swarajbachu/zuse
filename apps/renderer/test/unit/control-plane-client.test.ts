@@ -7,7 +7,9 @@ vi.mock("../../src/lib/rpc-client.ts", () => ({
 }));
 
 import {
+	peekControlPlaneCache,
 	runCachedControlPlane,
+	runCachedRead,
 	runControlPlane,
 } from "../../src/lib/control-plane-client.ts";
 import { observeRendererAccount } from "../../src/lib/renderer-account.ts";
@@ -92,4 +94,29 @@ it("partitions cached reads by workspace and reuses only that workspace's result
 	selectRendererWorkspace({ kind: "personal" });
 	expect(await runCachedControlPlane("cloud.image", read)).toBe("personal");
 	expect(read).toHaveBeenCalledTimes(2);
+});
+
+it("serves a cached read instantly and keeps it per account", async () => {
+	const decode = (value: unknown) => value as { members: number };
+	const read = vi.fn(async () => ({ members: 2 }));
+	await expect(
+		runCachedRead("organizations:test", read, { decode, scope: "account" }),
+	).resolves.toEqual({ members: 2 });
+	expect(
+		peekControlPlaneCache("organizations:test", decode, "account"),
+	).toEqual({ members: 2 });
+	// A background refresh replaces the snapshot without clearing it first.
+	read.mockResolvedValueOnce({ members: 3 });
+	await runCachedRead("organizations:test", read, {
+		decode,
+		scope: "account",
+		refresh: true,
+	});
+	expect(
+		peekControlPlaneCache("organizations:test", decode, "account"),
+	).toEqual({ members: 3 });
+	observeRendererAccount("bob");
+	expect(
+		peekControlPlaneCache("organizations:test", decode, "account"),
+	).toBeUndefined();
 });

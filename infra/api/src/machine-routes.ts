@@ -23,6 +23,7 @@ import { cancelProviderSubscription } from "./billing-operations.ts";
 import { renderCheckoutCompletePage } from "./checkout-complete-page.ts";
 import { ensureCloudBillingPeriod } from "./cloud-billing-period.ts";
 import type { CloudBillingStore } from "./cloud-billing-store.ts";
+import type { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import {
 	parseJwk,
@@ -64,6 +65,7 @@ import { requireWorkspaceAccess } from "./workspace-authorization.ts";
 import { workspaceScopeForOwner } from "./workspace-scope.ts";
 
 export type MachineRouteContext =
+	| CloudWorkspaceStore
 	| WorkosVerifier
 	| AccountIdentity
 	| MachineStore

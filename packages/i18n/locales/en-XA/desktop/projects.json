@@ -300,5 +300,8 @@
 	"worktree_setup_card_preparing_directory": "⟦Prëëpààrïïng àà sëëpààrààtëë wôôrkïïng dïïrëëctôôry fôôr thïïs chààt.⟧",
 	"worktree_setup_card_no_setup_script": "⟦Nôô sëëtüüp scrïïpt nëëëëdëëd.⟧",
 	"worktree_setup_card_workspace_ready_description": "⟦Yôôüür wôôrkspààcëë ïïs rëëààdy.⟧",
-	"worktree_setup_card_preparing_environment": "⟦Prëëpààrïïng thëë wôôrkspààcëë ëënvïïrôônmëënt.⟧"
+	"worktree_setup_card_preparing_environment": "⟦Prëëpààrïïng thëë wôôrkspààcëë ëënvïïrôônmëënt.⟧",
+	"projects_sidebar_upgrade": "⟦ÜÜpgrààdëë⟧",
+	"projects_sidebar_plan_cloud": "⟦Clôôüüd⟧",
+	"projects_sidebar_plan_cloud_tooltip": "⟦Züüsëë Clôôüüd plààn · Màànààgëë bïïllïïng⟧"
 }

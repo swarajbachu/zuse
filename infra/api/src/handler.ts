@@ -1,5 +1,6 @@
 import {
 	ApiAuthTokenGrant,
+	ApiPaths,
 	EnvironmentSharingAudience,
 	WORKSPACE_API_PREFIX,
 	WORKSPACE_SCOPE_HEADER,
@@ -47,6 +48,10 @@ import {
 	notFound,
 	serviceUnavailable,
 } from "./errors.ts";
+import {
+	routeGithubOrganizationRequest,
+	syncGithubAutoJoin,
+} from "./github-organizations.ts";
 import { json } from "./http.ts";
 import { requestMachineDestruction } from "./machine-lifecycle.ts";
 import {
@@ -57,6 +62,10 @@ import { MachineStore } from "./machine-store.ts";
 import { ManagedTunnelProvider } from "./managed-tunnel.ts";
 import { routeModelConnectionRequest } from "./model-connection-routes.ts";
 import { ModelConnectionStore } from "./model-connection-store.ts";
+import {
+	routeOrganizationDomainRequest,
+	syncDomainAutoJoin,
+} from "./organization-domains.ts";
 import { routeOrganizationRequest } from "./organizations.ts";
 import { routePluginRequest } from "./plugin-routes.ts";
 import { routePublicApiRequest } from "./public-api-routes.ts";
@@ -350,6 +359,34 @@ const route = (
 		const accountIdentity = yield* AccountIdentity;
 		const workos = yield* WorkosVerifier;
 		const nowMs = yield* Clock.currentTimeMillis;
+		const githubOrganizationResponse =
+			yield* routeGithubOrganizationRequest(request);
+		if (githubOrganizationResponse !== null) return githubOrganizationResponse;
+		// Loading organizations is when members are matched to auto-join.
+		// Matching is best effort: it must never block listing organizations.
+		if (
+			path === ApiPaths.organizations &&
+			method === "GET" &&
+			config.organizationWorkspacesEnabled
+		)
+			yield* requireWorkos(request).pipe(
+				Effect.flatMap(({ accountId }) =>
+					Effect.all(
+						[
+							syncGithubAutoJoin(accountId).pipe(
+								Effect.catch(() => Effect.void),
+							),
+							syncDomainAutoJoin(accountId).pipe(
+								Effect.catch(() => Effect.void),
+							),
+						],
+						{ discard: true },
+					),
+				),
+				Effect.catch(() => Effect.void),
+			);
+		const domainResponse = yield* routeOrganizationDomainRequest(request);
+		if (domainResponse !== null) return domainResponse;
 		const organizationResponse = yield* routeOrganizationRequest(request);
 		if (organizationResponse !== null) return organizationResponse;
 		const modelConnectionResponse = yield* routeModelConnectionRequest(request);

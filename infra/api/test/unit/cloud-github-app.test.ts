@@ -135,6 +135,7 @@ describe("GitHub installation failure isolation", () => {
 		const app = generateKeyPairSync("rsa", { modulusLength: 2048 });
 		const runtime = ManagedRuntime.make(
 			Layer.mergeAll(
+				ApiStoreMemory,
 				CloudWorkspaceStoreMemory,
 				ApiStoreMemory,
 				configurationLayer({
@@ -221,9 +222,21 @@ describe("GitHub installation failure isolation", () => {
 												type: "Organization",
 											},
 										},
+										{
+											...installation,
+											id: 790,
+											account: {
+												id: 10,
+												login: "no-members-org",
+												type: "Organization",
+											},
+										},
 									],
 								},
 					);
+				// The installation lacks the Members permission.
+				if (url.endsWith("/memberships/orgs/no-members-org"))
+					return new Response("{}", { status: 403 });
 				if (url.includes("/memberships/orgs/"))
 					return Response.json({
 						role: url.endsWith("/octocat") ? "admin" : "member",
@@ -301,7 +314,11 @@ describe("GitHub installation failure isolation", () => {
 			);
 			const html = await chooser.text();
 			expect(html).toContain("Use this account: octocat");
+			// Shown with the fix, never as a linkable choice.
+			expect(html).not.toContain("Use this account: no-members-org");
 			if (role === "admin") {
+				expect(html).toContain("Approve on GitHub: no-members-org");
+				expect(html).toContain("Needs approval");
 				expect(html).toContain("Manage access");
 				expect(html).toContain('target="_blank" rel="noopener noreferrer"');
 			} else {
@@ -379,7 +396,8 @@ describe("GitHub installation failure isolation", () => {
 	test("an installation ID and install state alone cannot link an unverified GitHub account", async () => {
 		const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 		const runtime = ManagedRuntime.make(
-			Layer.merge(
+			Layer.mergeAll(
+				ApiStoreMemory,
 				CloudWorkspaceStoreMemory,
 				configurationLayer({
 					apiIssuer: "https://api-staging.zuse.sh",
@@ -419,7 +437,8 @@ describe("GitHub installation failure isolation", () => {
 	])("handles installation status %s without hiding outages", async (status) => {
 		const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 		const runtime = ManagedRuntime.make(
-			Layer.merge(
+			Layer.mergeAll(
+				ApiStoreMemory,
 				CloudWorkspaceStoreMemory,
 				configurationLayer({
 					apiIssuer: "https://api-staging.stuff.md",
@@ -501,6 +520,197 @@ describe("GitHub installation failure isolation", () => {
 					_tag: "Failure",
 					failure: { code: "github_app_unavailable", status: 503 },
 				});
+		} finally {
+			await runtime.dispose();
+		}
+	});
+});
+
+describe("GitHub account linking without a second choice", () => {
+	const makeRuntime = () => {
+		const keys = generateKeyPairSync("ed25519");
+		const app = generateKeyPairSync("rsa", { modulusLength: 2048 });
+		return ManagedRuntime.make(
+			Layer.mergeAll(
+				ApiStoreMemory,
+				CloudWorkspaceStoreMemory,
+				configurationLayer({
+					apiIssuer: "https://api-staging.zuse.sh",
+					workosJwksUrl: "unused",
+					workosIssuer: "unused",
+					workosApiKey: Redacted.make("workos-test"),
+					organizationWorkspacesEnabled: true,
+					cloudDataEncryptionKey: Redacted.make(
+						Buffer.alloc(32, 7).toString("base64url"),
+					),
+					mintPrivateKey: Redacted.make(
+						JSON.stringify(keys.privateKey.export({ format: "jwk" })),
+					),
+					mintPublicKey: JSON.stringify(
+						keys.publicKey.export({ format: "jwk" }),
+					),
+					githubApp: {
+						appId: "1",
+						clientId: "client",
+						clientSecret: Redacted.make("secret"),
+						slug: "zuse",
+						privateKey: Redacted.make(
+							app.privateKey
+								.export({ format: "pem", type: "pkcs8" })
+								.toString(),
+						),
+					},
+				}),
+			),
+		);
+	};
+	const installation = {
+		id: 123,
+		app_id: 1,
+		account: { id: 50, login: "acme", type: "Organization" },
+		repository_selection: "all",
+		suspended_at: null,
+	};
+	const stubGithub = (membersPermission: boolean) =>
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: string | URL | Request) => {
+				const url = String(input);
+				if (url.endsWith("/login/oauth/access_token"))
+					return Response.json({ access_token: "user-token" });
+				if (url.endsWith("/user"))
+					return Response.json({ id: 7, login: "octocat", name: "Octo Cat" });
+				if (url.includes("/user/installations?"))
+					return Response.json({ installations: [installation] });
+				if (url.includes("/memberships/orgs/acme"))
+					return membersPermission
+						? Response.json({ role: "admin", state: "active" })
+						: new Response("{}", { status: 403 });
+				if (url.endsWith("/app/installations/123"))
+					return Response.json(installation);
+				throw new Error(`Unexpected GitHub request ${url}`);
+			}),
+		);
+	/** Follows the callback through GitHub OAuth like a browser would. */
+	const returnFromGithub = async (
+		runtime: ReturnType<typeof makeRuntime>,
+		entry: URL,
+	) => {
+		const start = await runtime.runPromise(
+			githubAuthorizationCallback(new Request(entry)),
+		);
+		const cookie = start.headers.get("set-cookie")?.split(";")[0] ?? "";
+		const authorize = new URL(start.headers.get("location") ?? "");
+		const callback = new URL(authorize.searchParams.get("redirect_uri") ?? "");
+		callback.searchParams.set(
+			"state",
+			authorize.searchParams.get("state") ?? "",
+		);
+		callback.searchParams.set("code", "code");
+		return runtime.runPromise(
+			githubAuthorizationCallback(
+				new Request(callback, { headers: { cookie } }),
+			),
+		);
+	};
+	const installReturn = async (runtime: ReturnType<typeof makeRuntime>) => {
+		const install = new URL(
+			await runtime.runPromise(makeGithubInstallUrl("account")),
+		);
+		const entry = new URL(
+			githubAuthorizationUrl(install.toString(), "https://api-staging.zuse.sh"),
+		);
+		entry.searchParams.delete("authorize");
+		entry.searchParams.set("installation_id", "123");
+		entry.searchParams.set("setup_action", "install");
+		return entry;
+	};
+	afterEach(() => vi.unstubAllGlobals());
+
+	test("links a just-installed organization when the GitHub user is already the actor's", async () => {
+		const runtime = makeRuntime();
+		stubGithub(true);
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await runtime.runPromise(
+				store.saveGithubUser({
+					accountId: "account",
+					login: "octocat",
+					name: "Octo Cat",
+					email: "7+octocat@users.noreply.github.com",
+					sealedCredentials: "sealed",
+				}),
+			);
+			const page = await returnFromGithub(
+				runtime,
+				await installReturn(runtime),
+			);
+			expect(await page.text()).toContain("acme is connected");
+			expect(
+				await runtime.runPromise(store.listGithubInstallations("account")),
+			).toHaveLength(1);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
+	test("still asks an unknown GitHub user to choose, so a foreign link cannot attach their account", async () => {
+		const runtime = makeRuntime();
+		stubGithub(true);
+		try {
+			const page = await returnFromGithub(
+				runtime,
+				await installReturn(runtime),
+			);
+			expect(await page.text()).toContain("Use this account: acme");
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			expect(
+				await runtime.runPromise(store.listGithubInstallations("account")),
+			).toEqual([]);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
+	test("resumes after approval on GitHub and then links without another choice", async () => {
+		const runtime = makeRuntime();
+		stubGithub(false);
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await runtime.runPromise(
+				store.saveGithubUser({
+					accountId: "account",
+					login: "octocat",
+					name: "Octo Cat",
+					email: "7+octocat@users.noreply.github.com",
+					sealedCredentials: "sealed",
+				}),
+			);
+			const install = new URL(
+				await runtime.runPromise(makeGithubInstallUrl("account")),
+			);
+			const chooser = await (
+				await returnFromGithub(
+					runtime,
+					new URL(
+						githubAuthorizationUrl(
+							install.toString(),
+							"https://api-staging.zuse.sh",
+						),
+					),
+				)
+			).text();
+			expect(chooser).toContain("Approve on GitHub: acme");
+			const resume = /data-resume="([^"]+)"/u
+				.exec(chooser)?.[1]
+				?.replaceAll("&amp;", "&");
+			expect(resume).toBeDefined();
+			stubGithub(true); // The organization approved the Members permission.
+			const page = await returnFromGithub(runtime, new URL(resume ?? ""));
+			expect(await page.text()).toContain("acme is connected");
+			expect(
+				await runtime.runPromise(store.listGithubInstallations("account")),
+			).toHaveLength(1);
 		} finally {
 			await runtime.dispose();
 		}

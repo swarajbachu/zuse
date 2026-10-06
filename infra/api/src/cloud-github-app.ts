@@ -1,3 +1,17 @@
+import {
+	invalidateGithubJoining,
+	reconcileGithubMemberships,
+	refreshGithubRosters,
+} from "./github-membership.ts";
+import { autoJoinInstallation } from "./github-organizations.ts";
+import {
+	githubAppRequest,
+	githubRequest,
+	readGithubInstallation,
+} from "./github-transport.ts";
+
+export { normalizeGithubPrivateKey } from "./github-transport.ts";
+
 import { ApiPaths, PRODUCTION_API_URL, STAGING_API_URL } from "@zuse/contracts";
 import { githubInstallationSettingsUrl } from "@zuse/utils/github-installation";
 import {
@@ -6,13 +20,14 @@ import {
 	renderIntegrationPage,
 } from "@zuse/utils/integration-page";
 import { Clock, Effect, Redacted, Schema } from "effect";
-import { decodeJwt, importJWK, importPKCS8, jwtVerify, SignJWT } from "jose";
-import { githubRequest } from "./cloud-github-request.ts";
+
+import { decodeJwt, importJWK, jwtVerify, SignJWT } from "jose";
 import {
 	exchangeGithubUserToken,
 	GithubUserAuthorization,
 	prepareGithubUserAuthorization,
 } from "./cloud-github-user.ts";
+
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { parseJwk } from "./crypto.ts";
@@ -28,68 +43,11 @@ import {
 } from "./github-callback-page.ts";
 import { json } from "./http.ts";
 import { getOrganizationName } from "./organizations.ts";
+import { ApiStore } from "./store.ts";
 import { resolveWorkspaceActorAccess } from "./workspace-authorization.ts";
 import { workspaceScopeForOwner } from "./workspace-scope.ts";
 
 const INSTALL_STATE_TTL_MS = 10 * 60_000;
-const GithubInstallation = Schema.Struct({
-	id: Schema.Number,
-	account: Schema.Struct({
-		id: Schema.Number,
-		login: Schema.String,
-		type: Schema.Literals(["User", "Organization"]),
-		avatar_url: Schema.optionalKey(Schema.String),
-	}),
-	repository_selection: Schema.Literals(["all", "selected"]),
-	suspended_at: Schema.NullOr(Schema.String),
-});
-const RSA_ALGORITHM_IDENTIFIER = Uint8Array.from([
-	0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
-	0x05, 0x00,
-]);
-
-const derLength = (length: number): Uint8Array => {
-	if (length < 0x80) return Uint8Array.of(length);
-	const bytes: Array<number> = [];
-	for (let remaining = length; remaining > 0; remaining >>>= 8)
-		bytes.unshift(remaining & 0xff);
-	return Uint8Array.of(0x80 | bytes.length, ...bytes);
-};
-
-const derValue = (tag: number, value: Uint8Array): Uint8Array =>
-	Uint8Array.from([tag, ...derLength(value.length), ...value]);
-
-const pemBody = (pem: string): Uint8Array => {
-	const encoded = pem.replace(/-----[^-]+-----|\s/gu, "");
-	return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
-};
-
-const encodePem = (label: string, der: Uint8Array): string => {
-	let binary = "";
-	for (const byte of der) binary += String.fromCharCode(byte);
-	const encoded =
-		btoa(binary)
-			.match(/.{1,64}/gu)
-			?.join("\n") ?? "";
-	return `-----BEGIN ${label}-----\n${encoded}\n-----END ${label}-----`;
-};
-
-/** GitHub currently downloads RSA keys as PKCS#1; jose imports PKCS#8. */
-export const normalizeGithubPrivateKey = (pem: string): string => {
-	if (pem.includes("-----BEGIN PRIVATE KEY-----")) return pem;
-	if (!pem.includes("-----BEGIN RSA PRIVATE KEY-----"))
-		throw new Error("unsupported_github_private_key");
-	const privateKey = derValue(0x04, pemBody(pem));
-	const body = Uint8Array.from([
-		0x02,
-		0x01,
-		0x00,
-		...RSA_ALGORITHM_IDENTIFIER,
-		...privateKey,
-	]);
-	return encodePem("PRIVATE KEY", derValue(0x30, body));
-};
-
 /**
  * The GitHub App has one Setup URL. Production owns it and forwards a state
  * that claims the exact staging issuer to staging, where the signature is
@@ -114,69 +72,6 @@ export const githubInstallCallbackForwardUrl = (
 	target.searchParams.set("installation_id", String(installationId));
 	return target.toString();
 };
-
-const appJwt = Effect.fn("githubAppJwt")(function* (forceAppId = false) {
-	const config = yield* ApiConfiguration;
-	const github = config.githubApp;
-	if (github === undefined)
-		return yield* Effect.fail(serviceUnavailable("github_app_not_configured"));
-	const now = Math.floor(Date.now() / 1_000);
-	const key = yield* Effect.tryPromise({
-		try: () =>
-			importPKCS8(
-				normalizeGithubPrivateKey(Redacted.value(github.privateKey)),
-				"RS256",
-			),
-		catch: () => serviceUnavailable("github_app_key_invalid"),
-	});
-	return yield* Effect.promise(() =>
-		new SignJWT({})
-			.setProtectedHeader({ alg: "RS256" })
-			// GitHub accepts either identifier, but recommends the client ID for
-			// the JWT issuer. Keep App ID as a compatibility fallback.
-			.setIssuer(forceAppId ? github.appId : (github.clientId ?? github.appId))
-			.setIssuedAt(now - 60)
-			.setExpirationTime(now + 9 * 60)
-			.sign(key),
-	);
-});
-
-const githubAppRequest = <A>(url: string, init?: RequestInit) =>
-	Effect.gen(function* () {
-		const github = (yield* ApiConfiguration).githubApp;
-		const primaryJwt = yield* appJwt();
-		const primary = githubRequest<A>(url, primaryJwt, init);
-		if (github?.clientId === undefined) return yield* primary;
-		return yield* primary.pipe(
-			Effect.catch((error) =>
-				error.detail !== "github_401"
-					? Effect.fail(error)
-					: Effect.gen(function* () {
-							const fallbackJwt = yield* appJwt(true);
-							return yield* githubRequest<A>(url, fallbackJwt, init);
-						}),
-			),
-		);
-	});
-
-const readGithubInstallation = Effect.fn("readGithubInstallation")(function* (
-	installationId: number,
-) {
-	const installation = yield* githubAppRequest<unknown>(
-		`https://api.github.com/app/installations/${installationId}`,
-		{ signal: AbortSignal.timeout(5_000) },
-	).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(GithubInstallation)),
-		Effect.mapError((error) =>
-			error instanceof ApiError
-				? error
-				: serviceUnavailable("invalid_github_installation"),
-		),
-	);
-	if (installation.id !== installationId)
-		return yield* badRequest("github_installation_mismatch");
-	return installation;
-});
 
 /** Read current GitHub state, not historical webhook payloads. Replays and
  * out-of-order events cannot re-enroll a disconnected workspace. */
@@ -285,7 +180,11 @@ export const githubWebhook = Effect.fn("githubWebhook")(function* (
 	if (!valid) return yield* unauthorized("invalid_github_signature");
 	const event = request.headers.get("x-github-event");
 	if (event === "ping") return json({ accepted: true });
-	if (event !== "installation" && event !== "installation_repositories")
+	if (
+		event !== "installation" &&
+		event !== "installation_repositories" &&
+		event !== "organization"
+	)
 		return json({ ignored: true });
 	const payload = yield* Effect.try({
 		try: (): unknown => JSON.parse(new TextDecoder().decode(body)),
@@ -296,7 +195,7 @@ export const githubWebhook = Effect.fn("githubWebhook")(function* (
 				Schema.Struct({
 					installation: Schema.Struct({
 						id: Schema.Number,
-						app_id: Schema.Number,
+						app_id: Schema.optional(Schema.Number),
 					}),
 				}),
 			),
@@ -304,14 +203,23 @@ export const githubWebhook = Effect.fn("githubWebhook")(function* (
 		Effect.mapError(() => badRequest("invalid_github_event")),
 	);
 	if (
-		String(payload.installation.app_id) !== github.appId ||
+		(event !== "organization" && payload.installation.app_id === undefined) ||
+		(payload.installation.app_id !== undefined &&
+			String(payload.installation.app_id) !== github.appId) ||
 		!Number.isSafeInteger(payload.installation.id) ||
 		payload.installation.id <= 0
 	)
 		return yield* badRequest("invalid_github_installation");
 	// No insert, tokens, or jobs: duplicate deliveries simply reconcile the same
 	// existing links. Failed requests return non-2xx and are safe to redeliver.
+	yield* invalidateGithubJoining(payload.installation.id);
 	yield* refreshGithubInstallation(payload.installation.id);
+	yield* reconcileGithubMemberships(payload.installation.id);
+	yield* refreshGithubRosters(payload.installation.id);
+	// Linked members newly added on GitHub join organizations with auto-join on.
+	yield* autoJoinInstallation(payload.installation.id).pipe(
+		Effect.catch(() => Effect.void),
+	);
 	return json({ accepted: true });
 });
 
@@ -467,6 +375,19 @@ export const completeGithubInstallation = Effect.fn(
 });
 
 const GITHUB_STATE_COOKIE = "__Host-zuse-github";
+/** Whether a GitHub user was previously linked by this Zuse account. */
+const isActorGithubUser = Effect.fn("isActorGithubUser")(function* (
+	actorId: string,
+	githubUserId: number,
+) {
+	const stored = yield* (yield* CloudWorkspaceStore).getGithubUser(actorId);
+	// Stored commit emails are `${githubUserId}+${login}@users.noreply.github.com`.
+	if (stored && Number(stored.email.split("+")[0]) === githubUserId)
+		return true;
+	const identity = yield* (yield* ApiStore).githubJoining.getIdentity(actorId);
+	return identity?.githubUserId === githubUserId;
+});
+
 const stateCookie = (nonce: string, maxAge = 600) =>
 	`${GITHUB_STATE_COOKIE}=${nonce}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
 
@@ -534,10 +455,28 @@ export const githubAuthorizationCallback = Effect.fn(
 	).toString();
 	const code = url.searchParams.get("code");
 	if (request.method === "GET" && code === null) {
+		// Returning from installing an account carries its installation id.
+		// Keep it through OAuth so that account links without another choice.
+		const pending =
+			typeof verified.installationId !== "number" &&
+			Number.isSafeInteger(installationHint) &&
+			installationHint > 0
+				? installationHint
+				: undefined;
 		const authorize = new URL("https://github.com/login/oauth/authorize");
 		authorize.searchParams.set("client_id", github.clientId);
 		authorize.searchParams.set("redirect_uri", callback);
-		authorize.searchParams.set("state", state);
+		authorize.searchParams.set(
+			"state",
+			pending === undefined
+				? state
+				: yield* signGithubState(
+						verified.accountId,
+						verified.actorId,
+						verified.nonce,
+						pending,
+					),
+		);
 		return new Response(null, {
 			status: 302,
 			headers: {
@@ -583,6 +522,8 @@ export const githubAuthorizationCallback = Effect.fn(
 	);
 	const choices: Array<IntegrationPageInput["actions"][number]> = [];
 	let hasInstallations = false;
+	let needsApproval = false;
+	const linkable = new Set<number>();
 	const linkedInstallations =
 		yield* (yield* CloudWorkspaceStore).listGithubInstallations(
 			verified.accountId,
@@ -592,7 +533,12 @@ export const githubAuthorizationCallback = Effect.fn(
 			installations: Array<{
 				id: number;
 				app_id: number;
-				account: { id: number; login: string; type: string };
+				account: {
+					id: number;
+					login: string;
+					type: string;
+					avatar_url?: string;
+				};
 				suspended_at: string | null;
 			}>;
 		}>(
@@ -621,11 +567,42 @@ export const githubAuthorizationCallback = Effect.fn(
 					credentials.accessToken,
 				).pipe(
 					Effect.catch((error) =>
-						error.detail === "github_404" || error.detail === "github_403"
+						error.detail === "github_404"
 							? Effect.succeed(null)
-							: Effect.fail(error),
+							: error.detail === "github_403"
+								? Effect.succeed("permission_missing" as const)
+								: Effect.fail(error),
 					),
 				);
+				// Without the app's Members permission GitHub cannot prove the
+				// person administers the organization. Show it with the fix
+				// instead of hiding it; it stays unlinkable until approved.
+				if (membership === "permission_missing") {
+					needsApproval = true;
+					const resume = new URL(callback);
+					resume.searchParams.set(
+						"state",
+						yield* signGithubState(
+							verified.accountId,
+							verified.actorId,
+							verified.nonce,
+							installation.id,
+						),
+					);
+					choices.push({
+						label: "Approve on GitHub",
+						accountName: installation.account.login,
+						avatarUrl: installation.account.avatar_url,
+						description: "Organization · Needs approval",
+						href: githubInstallationSettingsUrl(installation.id, {
+							accountType: installation.account.type,
+							accountLogin: installation.account.login,
+						}),
+						// Coming back after approving links this organization directly.
+						resumeHref: resume.toString(),
+					});
+					continue;
+				}
 				canAdminister =
 					membership?.role === "admin" && membership.state === "active";
 			}
@@ -635,9 +612,12 @@ export const githubAuthorizationCallback = Effect.fn(
 					(item) => item.installationId === installation.id && !item.suspended,
 				)
 			)
+				linkable.add(installation.id);
+			if (linkable.has(installation.id))
 				choices.push({
 					label: "Use this account",
 					accountName: installation.account.login,
+					avatarUrl: installation.account.avatar_url,
 					description:
 						installation.account.type === "Organization"
 							? "Organization"
@@ -659,6 +639,38 @@ export const githubAuthorizationCallback = Effect.fn(
 				});
 		}
 		if (result.installations.length < 100) break;
+	}
+	// The person already chose this account (installed it, or approved it and
+	// came back): link it now instead of asking them to choose it again.
+	const chosen =
+		typeof verified.installationId === "number"
+			? verified.installationId
+			: undefined;
+	// The browser carries no Zuse session, so the chooser naming the workspace
+	// is the confirmation. Skip it only when this GitHub account is already
+	// known to be the actor's: a link minted for someone else's workspace then
+	// still stops at the chooser instead of attaching this account to it.
+	if (
+		chosen !== undefined &&
+		linkable.has(chosen) &&
+		(yield* isActorGithubUser(verified.actorId, user.id))
+	) {
+		const login = yield* completeGithubInstallation(
+			yield* signGithubState(
+				verified.accountId,
+				verified.actorId,
+				verified.nonce,
+				chosen,
+				user.authorization,
+			),
+			chosen,
+		);
+		return new Response(renderGithubConnectedPage(login), {
+			headers: {
+				...githubCallbackPageHeaders,
+				"set-cookie": stateCookie("", 0),
+			},
+		});
 	}
 	if (!hasInstallations && verified.canManageInstallation)
 		return new Response(null, {
@@ -683,11 +695,13 @@ export const githubAuthorizationCallback = Effect.fn(
 			title: "Choose a GitHub account",
 			description: `For your ${workspaceName} workspace.`,
 			status: "Connect",
-			hint: !verified.canManageInstallation
-				? "Connect your own GitHub identity to repositories already linked to this workspace. If none appear, ask an organization administrator to link the GitHub installation and confirm your repository access."
-				: choices.length === 0
-					? "No installations you administer are available. Install the app, or ask your GitHub organization owner to connect it. Organization verification requires the app's Members read permission."
-					: `Choose repositories on GitHub, then return to connect. ${scope.kind === "organization" ? "Selected repositories are shared with workspace members." : "Add them as projects in Zuse after connecting."}`,
+			hint: needsApproval
+				? "Zuse needs read access to organization members to confirm you administer an organization. Approve it on GitHub, then reopen this page from Zuse."
+				: !verified.canManageInstallation
+					? "Connect your own GitHub identity to repositories already linked to this workspace. If none appear, ask an organization administrator to link the GitHub installation and confirm your repository access."
+					: choices.length === 0
+						? "No installations you administer are available. Install the app, or ask your GitHub organization owner to connect it. Organization verification requires the app's Members read permission."
+						: `Choose repositories on GitHub, then return to connect. ${scope.kind === "organization" ? "Selected repositories are shared with workspace members." : "Add them as projects in Zuse after connecting."}`,
 			actions: [
 				...choices,
 				...(verified.canManageInstallation

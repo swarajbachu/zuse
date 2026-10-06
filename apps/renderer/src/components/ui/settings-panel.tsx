@@ -114,6 +114,31 @@ export function SettingsGroup({
 	);
 }
 
+/** Inline status or error line that sits between rows of a settings group. */
+export function SettingsNote({
+	tone = "muted",
+	children,
+}: {
+	tone?: "muted" | "error";
+	children: ReactNode;
+}) {
+	return tone === "error" ? (
+		<p
+			role="alert"
+			className="px-3 py-2.5 text-[11px] leading-4 text-destructive"
+		>
+			{children}
+		</p>
+	) : (
+		<p
+			role="status"
+			className="flex items-center gap-1.5 px-3 py-2.5 text-[11px] leading-4 text-muted-foreground"
+		>
+			{children}
+		</p>
+	);
+}
+
 export function SettingsCard({
 	className,
 	children,
@@ -159,6 +184,7 @@ export function SettingsCardHeader({
 
 export function SettingsRow({
 	icon: Icon,
+	leading,
 	title,
 	description,
 	action,
@@ -166,6 +192,8 @@ export function SettingsRow({
 	className,
 }: {
 	icon?: IconSvgElement;
+	/** Visual identity before the title, such as an avatar; at most `size-7`. */
+	leading?: ReactNode;
 	title: string;
 	description?: ReactNode;
 	action?: ReactNode;
@@ -181,6 +209,9 @@ export function SettingsRow({
 						className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
 						aria-hidden
 					/>
+				)}
+				{leading === undefined ? null : (
+					<div className="flex h-7 shrink-0 items-center">{leading}</div>
 				)}
 				<div className="min-w-0 flex-1">
 					<p className="text-xs font-medium leading-4 text-foreground">

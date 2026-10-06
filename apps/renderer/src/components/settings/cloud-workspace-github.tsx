@@ -40,9 +40,7 @@ export function CloudWorkspaceGithub({
 	return (
 		<CloudSettingsGroup
 			title={uiMessage("settings:cloud_workspace_github_github")}
-			help={uiMessage(
-				"settings:cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio",
-			)}
+			help={`${uiMessage("settings:cloud_workspace_github_configure_the_zuse_github_app_for_your_personal_account_or_organizatio")} ${uiMessage("settings:organizations_github_disconnect_help")}`}
 			action={
 				<Button
 					size="xs"

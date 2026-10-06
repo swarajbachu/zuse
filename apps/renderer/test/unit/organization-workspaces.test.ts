@@ -10,13 +10,15 @@ const request = vi.hoisted(() => vi.fn());
 afterEach(() => vi.unstubAllEnvs());
 
 it.each([
-	[true, "https://api-staging.zuse.sh", undefined, false],
+	[false, "https://api-staging.zuse.sh/", "false", true],
+	[false, "https://api.zuse.sh", "true", true],
+	[true, "https://api-staging.zuse.sh", undefined, true],
 	[true, "https://api.zuse.sh", undefined, false],
-	[false, "https://api-staging.zuse.sh", undefined, false],
-	[true, undefined, undefined, false],
+	[false, "https://api-staging.zuse.sh", undefined, true],
+	[true, undefined, undefined, true],
 	[false, undefined, undefined, false],
 	[false, "https://api.zuse.sh", "false", false],
-	[true, "https://api-staging.zuse.sh", "false", false],
+	[true, "https://api-staging.zuse.sh", "false", true],
 	[false, "https://api-staging.zuse.sh", "true", true],
 ])("workspace switcher availability: dev=%s api=%s flag=%s", (dev, api, flag, expected) => {
 	vi.stubEnv("DEV", dev);

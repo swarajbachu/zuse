@@ -13,12 +13,14 @@ import type { ApiConfiguration } from "./config.ts";
 import { type ApiError, badRequest, conflict } from "./errors.ts";
 import { decodeBody, json } from "./http.ts";
 import type { MachineStore } from "./machine-store.ts";
+import type { ApiStore } from "./store.ts";
 import type { WorkosVerifier } from "./workos.ts";
 import { requireWorkspaceAccess } from "./workspace-authorization.ts";
 
 export { verifyE2bSignature } from "./cloud-billing-usage-sources/e2b.ts";
 
 export type CloudBillingRouteContext =
+	| ApiStore
 	| CloudWorkspaceStore
 	| MachineStore
 	| ApiConfiguration

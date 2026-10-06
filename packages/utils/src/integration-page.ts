@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { browserPageHeaders, escapeHtml } from "./browser-page.ts";
 import {
 	DITHER_BACKGROUND_SCRIPT,
@@ -5,11 +6,21 @@ import {
 	DITHER_BACKGROUND_STYLES,
 } from "./dither-background.ts";
 
-/** Integration pages run only the dither backdrop script. */
+/**
+ * After an action finishes in another tab (approving permissions on GitHub),
+ * returning to this tab resumes the flow at the row's same-origin resume URL.
+ */
+const RESUME_SCRIPT = `(()=>{const k="zuse.integration.resume";document.addEventListener("click",e=>{const a=e.target instanceof Element?e.target.closest("a[data-resume]"):null;if(a)sessionStorage.setItem(k,a.dataset.resume);});const go=()=>{if(document.visibilityState!=="visible")return;const u=sessionStorage.getItem(k);if(!u)return;sessionStorage.removeItem(k);const t=new URL(u,location.href);if(t.origin===location.origin)location.assign(t.href);};document.addEventListener("visibilitychange",go);addEventListener("focus",go);})();`;
+const RESUME_SCRIPT_SOURCE = `'sha256-${createHash("sha256").update(RESUME_SCRIPT).digest("base64")}'`;
+
+/** Integration pages run only the dither backdrop and, when needed, resume scripts. */
 export const INTEGRATION_PAGE_SCRIPT_SOURCE = DITHER_BACKGROUND_SCRIPT_SOURCE;
-export const INTEGRATION_PAGE_HEADERS = browserPageHeaders([
-	INTEGRATION_PAGE_SCRIPT_SOURCE,
-]);
+/** Account avatars are the only remote resource these pages load. */
+const AVATAR_ORIGIN = "https://avatars.githubusercontent.com";
+export const INTEGRATION_PAGE_HEADERS = browserPageHeaders(
+	[INTEGRATION_PAGE_SCRIPT_SOURCE, RESUME_SCRIPT_SOURCE],
+	[AVATAR_ORIGIN],
+);
 
 // Colours match the dither backdrop's paper so the card floats on one surface.
 const STYLES = `
@@ -19,7 +30,7 @@ const STYLES = `
 body{margin:0;min-height:100svh;display:grid;place-items:center;padding:40px 20px;background:var(--bg);color:var(--fg);font:13px/1.5 var(--font);-webkit-font-smoothing:antialiased}
 .stage{position:relative;width:100%;display:grid;justify-items:center}
 .stage::before{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:24px 24px;-webkit-mask-image:radial-gradient(circle at center,#000,transparent 74%);mask-image:radial-gradient(circle at center,#000,transparent 74%)}
-.card{position:relative;z-index:1;width:min(100%,448px);padding:24px;border-radius:14px;background:var(--panel);box-shadow:0 0 0 1px var(--ring),0 24px 48px -28px rgb(0 0 0 / 45%);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);animation:card-in 360ms cubic-bezier(.23,1,.32,1) both}
+.card{position:relative;z-index:1;width:min(100%,448px);padding:24px;border-radius:14px;background:var(--panel);box-shadow:0 0 0 1px var(--ring);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);animation:card-in 360ms cubic-bezier(.23,1,.32,1) both}
 @keyframes card-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .eyebrow{display:flex;align-items:center;gap:6px;margin:0 0 18px;font:700 10px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
 .eyebrow strong{color:var(--fg)}
@@ -30,6 +41,7 @@ h1{margin:0;font-size:20px;line-height:1.25;letter-spacing:-.025em;font-weight:6
 a.row:hover{background:var(--hover)}
 .mark{display:grid;place-items:center;width:28px;height:28px;border-radius:7px;background:var(--hover);font:600 12px/1 var(--mono);text-transform:uppercase}
 .mark svg{width:12px;height:12px;color:var(--muted)}
+img.mark{object-fit:cover}
 .name{display:block;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .meta{display:flex;align-items:center;gap:6px;overflow:hidden;white-space:nowrap;font-size:12px;color:var(--muted)}
 .meta a{position:relative;display:inline-flex;align-items:center;gap:2px;color:inherit;text-decoration:none}
@@ -54,7 +66,16 @@ form{margin:0}
 const EXTERNAL = `<svg viewBox="0 0 12 12" fill="none" aria-hidden="true" focusable="false"><path d="M3.5 8.5l5-5M4.5 3.5h4v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const PLUS = `<svg viewBox="0 0 12 12" fill="none" aria-hidden="true" focusable="false"><path d="M6 2.5v7M2.5 6h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
 
-type LinkAction = { readonly label: string; readonly href: string };
+type LinkAction = {
+	readonly label: string;
+	readonly href: string;
+	/** Renders the link as an account row that needs action elsewhere first. */
+	readonly accountName?: string;
+	readonly description?: string;
+	readonly avatarUrl?: string;
+	/** Same-origin URL that resumes the flow when the person returns. */
+	readonly resumeHref?: string;
+};
 type FormAction = {
 	readonly label: string;
 	readonly action: string;
@@ -63,6 +84,8 @@ type FormAction = {
 	readonly accountName?: string;
 	readonly description?: string;
 	readonly manageUrl?: string;
+	/** GitHub avatar; other hosts fall back to the initial. */
+	readonly avatarUrl?: string;
 };
 
 export interface IntegrationPageInput {
@@ -77,21 +100,30 @@ export interface IntegrationPageInput {
 const form = (action: FormAction, className: string, ariaLabel: string) =>
 	`<form method="post" action="${escapeHtml(action.action)}"><input type="hidden" name="csrf" value="${escapeHtml(action.csrf)}"><button class="${className}" type="submit" aria-label="${escapeHtml(ariaLabel)}">${escapeHtml(action.label)}</button></form>`;
 
-const accountRow = (action: FormAction & { readonly accountName: string }) => {
+const accountRow = (
+	action: (FormAction | LinkAction) & { readonly accountName: string },
+) => {
 	const meta = [
 		action.description ? `<span>${escapeHtml(action.description)}</span>` : "",
-		action.manageUrl
+		"manageUrl" in action && action.manageUrl
 			? `<a href="${escapeHtml(action.manageUrl)}" target="_blank" rel="noopener noreferrer">Manage access${EXTERNAL}<span class="sr-only"> to repositories (opens in a new tab)</span></a>`
 			: "",
 	]
 		.filter(Boolean)
 		.join(`<span aria-hidden="true">·</span>`);
-	return `<div class="row"><span class="mark" aria-hidden="true">${escapeHtml(Array.from(action.accountName)[0] ?? "")}</span><div><span class="name">${escapeHtml(action.accountName)}</span>${meta ? `<div class="meta">${meta}</div>` : ""}</div>${form(action, "button", `${action.label}: ${action.accountName}`)}</div>`;
+	const mark = action.avatarUrl?.startsWith(`${AVATAR_ORIGIN}/`)
+		? `<img class="mark" src="${escapeHtml(action.avatarUrl)}" alt="" width="28" height="28">`
+		: `<span class="mark" aria-hidden="true">${escapeHtml(Array.from(action.accountName)[0] ?? "")}</span>`;
+	return `<div class="row">${mark}<div><span class="name">${escapeHtml(action.accountName)}</span>${meta ? `<div class="meta">${meta}</div>` : ""}</div>${
+		"href" in action
+			? `<a class="button secondary" href="${escapeHtml(action.href)}"${action.resumeHref ? ` data-resume="${escapeHtml(action.resumeHref)}"` : ""} target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(`${action.label}: ${action.accountName}`)}">${escapeHtml(action.label)}</a>`
+			: form(action, "button", `${action.label}: ${action.accountName}`)
+	}</div>`;
 };
 
 const isAccount = (
 	action: LinkAction | FormAction,
-): action is FormAction & { readonly accountName: string } =>
+): action is (FormAction | LinkAction) & { readonly accountName: string } =>
 	"accountName" in action && action.accountName !== undefined;
 
 export const renderIntegrationPage = (input: IntegrationPageInput): string => {
@@ -118,5 +150,9 @@ export const renderIntegrationPage = (input: IntegrationPageInput): string => {
 						})
 						.join("")}</div>`
 				: "";
-	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(input.integration)} ${escapeHtml(input.status.toLowerCase())} · Zuse</title><style>${STYLES}${DITHER_BACKGROUND_STYLES}</style></head><body><main class="stage"><section class="card"><p class="eyebrow"><strong>Zuse</strong><span aria-hidden="true">/</span>${escapeHtml(input.integration)}</p><h1>${escapeHtml(input.title ?? `${input.integration} connected`)}</h1><p class="description">${escapeHtml(input.description)}</p>${body}<p class="hint">${escapeHtml(input.hint)}</p></section></main>${DITHER_BACKGROUND_SCRIPT}</body></html>`;
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(input.integration)} ${escapeHtml(input.status.toLowerCase())} · Zuse</title><style>${STYLES}${DITHER_BACKGROUND_STYLES}</style></head><body><main class="stage"><section class="card"><p class="eyebrow"><strong>Zuse</strong><span aria-hidden="true">/</span>${escapeHtml(input.integration)}</p><h1>${escapeHtml(input.title ?? `${input.integration} connected`)}</h1><p class="description">${escapeHtml(input.description)}</p>${body}<p class="hint">${escapeHtml(input.hint)}</p></section></main>${DITHER_BACKGROUND_SCRIPT}${
+		input.actions.some((action) => "resumeHref" in action && action.resumeHref)
+			? `<script>${RESUME_SCRIPT}</script>`
+			: ""
+	}</body></html>`;
 };
