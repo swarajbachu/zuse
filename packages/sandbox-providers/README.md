@@ -176,9 +176,9 @@ Provider-shape differences the adapter absorbs:
   while the runtime binds loopback, so `resolveEndpoint` starts the shared
   port forwarder each time it is called; a restore or fork receives a fresh
   interface address, and the forwarder rebinds it. WebSockets pass through.
-- **No billing evidence yet.** boxd has no lifecycle webhook, no event log
-  to replay, and its machine records carry only `createdAt` and
-  `hibernatedAt`, so there is no `BillingUsageSourceModule` for it: the
-  reconciler reserves boxd compute at the price schedule while a run lasts,
-  but nothing finalizes those reservations into the ledger. Metering boxd
-  needs provider-side execution events (see `internal-docs/cloud/billing.md`).
+- **Completed usage is opt-in.** SDK 0.2.14 supplies historical machine costs,
+  including deleted machines. `getUsage` requires `billingUsageEnabled`, a matching
+  machine/window, completed metering, and USD. It rejects EUR and incomplete data.
+  The API's shared settlement pipeline polls daily windows and applies the cloud
+  allowance, markup and cap. These costs are estimates at current provider rates;
+  actual billing activity is organization-wide. See `internal-docs/cloud/billing.md`.

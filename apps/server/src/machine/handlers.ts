@@ -130,6 +130,11 @@ const CloudAccountImageStatus = MemoizeRpcs.toLayerHandler(
 	(input) =>
 		withCloudControl((service) => service.cloudAccountImage(input?.providerId)),
 );
+const CloudAccountImageDelete = MemoizeRpcs.toLayerHandler(
+	"cloud.image.delete",
+	(input) =>
+		withCloudControl((service) => service.deleteCloudAccountImage(input)),
+);
 const CloudAccountImageBuild = MemoizeRpcs.toLayerHandler(
 	"cloud.image.build",
 	(input) =>
@@ -474,6 +479,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudProviders,
 	CloudAccountImageStatus,
 	CloudAccountImageBuild,
+	CloudAccountImageDelete,
 	CloudProjects,
 	ConnectCloudProject,
 	RemoveCloudProject,

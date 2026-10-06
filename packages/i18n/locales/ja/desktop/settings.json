@@ -249,7 +249,7 @@
 	"cloud_workspace_pool_usage_details_are_temporarily_unavailable": "使用状況の詳細は一時的に利用できなくなります。",
 	"cloud_workspace_pool_could_not_load_billing": "請求書を読み込めませんでした",
 	"cloud_workspace_pool_refresh_cloud_settings_to_try_again_existing_workspaces_are_unaffected": "クラウド設定を更新して再試行してください。既存のワークスペースは影響を受けません。",
-	"cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a": "月額 40 ドルには、サンドボックス コンピューティングの 35 ドルが含まれます。追加のコンピューティングには、プロバイダー費用 + 5% が請求されます。",
+	"cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a": "月額40ドルには、サンドボックスのコンピューティングとBoatイメージのストレージ利用枠35ドルが含まれます。超過分には5%が上乗せされます。",
 	"cloud_workspace_pool_paused": "一時停止中",
 	"cloud_workspace_pool_active": "アクティブ",
 	"cloud_workspace_pool_billing_hold": "請求保留",
@@ -1099,5 +1099,16 @@
 	"acp_agents_busy_duplicating": "複製中…",
 	"acp_agents_busy_updating": "エージェントを更新中…",
 	"acp_agents_busy_removing": "エージェントを削除中…",
-	"acp_agents_busy_installing": "{{name}} をインストール中…"
+	"acp_agents_busy_installing": "{{name}} をインストール中…",
+	"cloud_snapshot_storage": "イメージのストレージ",
+	"cloud_snapshot_storage_rate": "Boatイメージは30日あたり1.70米ドルで、保持時間に応じて按分されます。",
+	"cloud_snapshot_retained_images": "保持中のBoatイメージ",
+	"cloud_snapshot_storage_allowance": "ストレージは35米ドルのクラウド利用枠を消費します。超過分には既存の5%の上乗せと超過料金の上限が適用されます。",
+	"cloud_snapshot_deletion_pending": "削除待ちです。ストレージの課金は停止しました。",
+	"cloud_snapshot_grace": "このイメージを保持するには{{date}}までに課金を再開してください。再開しない場合は7日間の猶予期間後に削除されます。",
+	"cloud_snapshot_delete_explanation": "削除後、今後のワークスペースにはイメージの再ビルドが必要です。既存ワークスペースのディスクと認証は保持されます。",
+	"cloud_snapshot_billing_not_started": "ストレージの課金はまだ開始されていません。削除後、今後のワークスペースにはイメージの再ビルドが必要です。",
+	"cloud_snapshot_delete_image": "保存済みイメージを削除",
+	"cloud_snapshot_usage": "今期のストレージ利用額",
+	"cloud_snapshot_usage_recent": "クラウド利用料金の合計に含まれます。"
 }

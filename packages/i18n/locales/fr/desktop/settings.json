@@ -249,7 +249,7 @@
 	"cloud_workspace_pool_usage_details_are_temporarily_unavailable": "Les détails d'utilisation sont temporairement indisponibles.",
 	"cloud_workspace_pool_could_not_load_billing": "Impossible de charger la facturation",
 	"cloud_workspace_pool_refresh_cloud_settings_to_try_again_existing_workspaces_are_unaffected": "Actualisez les paramètres cloud pour réessayer. Les espaces de travail existants ne sont pas affectés.",
-	"cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a": "40 $/mois comprend 35 $ de calcul sandbox. Le calcul supplémentaire est facturé au coût du fournisseur + 5 %.",
+	"cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a": "40 $/mois comprend 35 $ de calcul sandbox et de stockage d’images Boat. La consommation supplémentaire est majorée de 5 %.",
 	"cloud_workspace_pool_paused": "En pause",
 	"cloud_workspace_pool_active": "Actif",
 	"cloud_workspace_pool_billing_hold": "Retard de facturation",
@@ -1103,5 +1103,16 @@
 	"acp_agents_busy_duplicating": "Duplication…",
 	"acp_agents_busy_updating": "Mise à jour de l’agent…",
 	"acp_agents_busy_removing": "Suppression de l’agent…",
-	"acp_agents_busy_installing": "Installation de {{name}}…"
+	"acp_agents_busy_installing": "Installation de {{name}}…",
+	"cloud_snapshot_storage": "Stockage des images",
+	"cloud_snapshot_storage_rate": "Les images Boat coûtent 1,70 $ par période de 30 jours, au prorata de leur durée de conservation.",
+	"cloud_snapshot_retained_images": "Images Boat conservées",
+	"cloud_snapshot_storage_allowance": "Le stockage utilise votre crédit cloud de 35 $. La consommation supplémentaire reste soumise à la majoration de 5 % et au plafond existants.",
+	"cloud_snapshot_deletion_pending": "La suppression est en attente. La facturation du stockage est arrêtée.",
+	"cloud_snapshot_grace": "Rétablissez la facturation avant le {{date}} pour conserver cette image. Sinon, elle sera supprimée après le délai de grâce de sept jours.",
+	"cloud_snapshot_delete_explanation": "La suppression nécessite de reconstruire l’image pour les futurs espaces de travail. Les disques des espaces existants et l’authentification sont conservés.",
+	"cloud_snapshot_billing_not_started": "La facturation du stockage n’a pas commencé. La suppression nécessite de reconstruire l’image pour les futurs espaces de travail.",
+	"cloud_snapshot_delete_image": "Supprimer l’image enregistrée",
+	"cloud_snapshot_usage": "Stockage utilisé sur cette période",
+	"cloud_snapshot_usage_recent": "Inclus dans le total de votre consommation cloud."
 }

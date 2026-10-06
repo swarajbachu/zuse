@@ -66,6 +66,8 @@ export interface ApiConfig {
 	readonly cloudBillingExportEnabled: boolean;
 	readonly cloudUsageExportEnabled: boolean;
 	readonly cloudBillingCutoverAtMs?: number;
+	readonly cloudBillingProviderCutoverAtMs?: ReadonlyMap<string, number>;
+	readonly cloudSnapshotBillingCutoverAtMs?: number;
 	readonly cloudBillingPolarMeterId?: string;
 	readonly cloudCommandMailboxEnabled: boolean;
 	/** Allows newly-created workspaces to opt into broker-v1 Codex auth. */

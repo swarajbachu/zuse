@@ -70,7 +70,20 @@ export const confirmedUsageExport = (
 		started_at: new Date(input.startedAt).toISOString(),
 		ended_at: new Date(input.endedAt).toISOString(),
 		currency: "USD",
-		measurement: "confirmed",
+		measurement:
+			input.provider === "boxd" ? "completed-provider-estimate" : "confirmed",
+		...(input.provider === "boxd"
+			? {
+					cost_source: "provider-current-rates",
+					provider_machine_id: input.providerExecutionId?.split(":")[1] ?? "",
+				}
+			: {}),
+		...(input.resourceKind === "snapshot"
+			? {
+					cost_source: "approved-storage-schedule",
+					provider_snapshot_id: input.resourceId,
+				}
+			: {}),
 		billable: "false",
 	},
 });
@@ -104,6 +117,10 @@ export const runtimeUsageInterval = (
 };
 
 export interface CloudUsageStoreApi {
+	readonly getRuntimeObservation: (
+		provider: string,
+		providerSandboxId: string,
+	) => Effect.Effect<RuntimeObservation | null>;
 	readonly enqueueUsageExport: (
 		event: CloudUsageExport,
 		nowMs: number,
@@ -140,6 +157,13 @@ export const makeCloudUsageStorePg = (
 	sql: SqlClient.SqlClient,
 ): CloudUsageStoreApi => ({
 	enqueueUsageExport: (event, nowMs) => enqueueUsageExportPg(sql, event, nowMs),
+	getRuntimeObservation: (provider, id) =>
+		sql<{
+			observation: RuntimeObservation;
+		}>`SELECT observation FROM api_cloud_runtime_observations WHERE provider=${provider} AND provider_sandbox_id=${id}`.pipe(
+			Effect.map((rows) => rows[0]?.observation ?? null),
+			Effect.orDie,
+		),
 	recordRuntimeObservation: (input) =>
 		Effect.gen(function* () {
 			// Insert first, then lock: even two workers observing a new machine serialize.
@@ -192,6 +216,10 @@ export const makeCloudUsageStoreMemory = (): CloudUsageStoreApi => {
 		pending.set(event.eventId, { event, attempts: 0, nextAttemptAtMs: nowMs });
 	};
 	return {
+		getRuntimeObservation: (provider, id) =>
+			Effect.sync(
+				() => observations.get(JSON.stringify([provider, id])) ?? null,
+			),
 		enqueueUsageExport: (event, nowMs) =>
 			Effect.sync(() => enqueue(event, nowMs)),
 		recordRuntimeObservation: (input) =>

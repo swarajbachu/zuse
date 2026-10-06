@@ -249,7 +249,7 @@
 	"cloud_workspace_pool_usage_details_are_temporarily_unavailable": "일시적으로 사용량 세부정보를 확인할 수 없습니다.",
 	"cloud_workspace_pool_could_not_load_billing": "결제를 로드할 수 없습니다.",
 	"cloud_workspace_pool_refresh_cloud_settings_to_try_again_existing_workspaces_are_unaffected": "다시 시도하려면 클라우드 설정을 새로고침하세요. 기존 작업공간은 영향을 받지 않습니다.",
-	"cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a": "월 $40에는 $35의 샌드박스 컴퓨팅이 포함됩니다. 추가 컴퓨팅에는 공급자 비용 + 5%가 청구됩니다.",
+	"cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a": "월 40달러에는 샌드박스 컴퓨팅과 Boat 이미지 저장 공간 이용 한도 35달러가 포함됩니다. 추가 사용량에는 5% 할증이 적용됩니다.",
 	"cloud_workspace_pool_paused": "일시중지됨",
 	"cloud_workspace_pool_active": "활성",
 	"cloud_workspace_pool_billing_hold": "청구 보류",
@@ -1099,5 +1099,16 @@
 	"acp_agents_busy_duplicating": "복제 중…",
 	"acp_agents_busy_updating": "에이전트 업데이트 중…",
 	"acp_agents_busy_removing": "에이전트 제거 중…",
-	"acp_agents_busy_installing": "{{name}} 설치 중…"
+	"acp_agents_busy_installing": "{{name}} 설치 중…",
+	"cloud_snapshot_storage": "이미지 저장 공간",
+	"cloud_snapshot_storage_rate": "Boat 이미지는 30일당 미화 1.70달러이며 보관 시간에 비례해 청구됩니다.",
+	"cloud_snapshot_retained_images": "보관 중인 Boat 이미지",
+	"cloud_snapshot_storage_allowance": "저장 공간은 35달러의 클라우드 이용 한도를 사용합니다. 추가 사용량에는 기존 5% 할증과 초과 요금 상한이 적용됩니다.",
+	"cloud_snapshot_deletion_pending": "삭제 대기 중입니다. 저장 공간 요금 청구가 중지되었습니다.",
+	"cloud_snapshot_grace": "이 이미지를 유지하려면 {{date}} 전에 결제를 복구하세요. 그렇지 않으면 7일의 유예 기간 후 삭제됩니다.",
+	"cloud_snapshot_delete_explanation": "삭제하면 향후 워크스페이스에 사용할 이미지를 다시 빌드해야 합니다. 기존 워크스페이스의 디스크와 인증은 유지됩니다.",
+	"cloud_snapshot_billing_not_started": "저장 공간 요금 청구가 아직 시작되지 않았습니다. 삭제하면 향후 워크스페이스에 사용할 이미지를 다시 빌드해야 합니다.",
+	"cloud_snapshot_delete_image": "저장된 이미지 삭제",
+	"cloud_snapshot_usage": "이번 기간의 저장 공간 사용료",
+	"cloud_snapshot_usage_recent": "전체 클라우드 사용 요금에 포함됩니다."
 }

@@ -22,6 +22,7 @@ import {
 	type CloudBillingRouteContext,
 	routeCloudBillingRequest,
 } from "./cloud-billing-routes.ts";
+import { queueAccountSnapshotDeletion } from "./cloud-snapshot-storage.ts";
 import {
 	type CloudWorkspaceRouteContext,
 	routeCloudWorkspaceRequest,
@@ -842,6 +843,8 @@ const route = (
 			) {
 				return json({ ok: true, cleanupPending: true }, 202);
 			}
+			if (yield* queueAccountSnapshotDeletion(principal.accountId, nowMs))
+				return json({ ok: true, cleanupPending: true }, 202);
 			const cloudProjects = yield* cloudStore.listProjects(principal.accountId);
 			const sandboxProviders = yield* SandboxProviders;
 			for (const project of cloudProjects) {

@@ -1,6 +1,7 @@
 import { BillingProviders } from "@zuse/billing-providers";
 import { Effect } from "effect";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
+import { reconcileSnapshotStorage } from "./cloud-snapshot-storage.ts";
 import { flushCloudUsage } from "./cloud-usage.ts";
 import { ApiConfiguration } from "./config.ts";
 
@@ -83,6 +84,7 @@ export const maintainCloudBilling = Effect.fn("maintainCloudBilling")(
 	function* (nowMs: number) {
 		const store = yield* CloudBillingStore;
 		const config = yield* ApiConfiguration;
+		yield* reconcileSnapshotStorage(nowMs);
 		const exported = yield* flushCloudBillingOutbox(
 			nowMs,
 			25,

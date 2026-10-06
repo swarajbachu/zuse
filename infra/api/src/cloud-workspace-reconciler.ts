@@ -19,6 +19,11 @@ import { snapshotCloudAuthAuthority } from "./cloud-auth-authority.ts";
 import { allocatedComputeCostMicros } from "./cloud-billing.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { githubInstallationGrants } from "./cloud-github-app.ts";
+import {
+	assertSnapshotUsable,
+	prepareSnapshotIntent,
+	promoteRetainedSnapshot,
+} from "./cloud-snapshot-storage.ts";
 import { deleteCloudTranscriptObjects } from "./cloud-transcript.ts";
 import { observeCloudRuntimeUsage } from "./cloud-usage.ts";
 import {
@@ -663,6 +668,12 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 							previousAccountBuild,
 							build.templateVersion,
 						));
+			if (reusableSnapshotId !== undefined)
+				yield* assertSnapshotUsable(
+					build.accountId,
+					build.provider,
+					reusableSnapshotId,
+				);
 			const sandbox =
 				existing ??
 				(reusableSnapshotId === undefined
@@ -1065,6 +1076,11 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 		// saving this stage; retries must resume the same snapshot, not re-run setup.
 		if (build.state === "sanitizing" && build.providerSandboxId !== undefined) {
 			const providerSandboxId = build.providerSandboxId;
+			yield* prepareSnapshotIntent(
+				build,
+				`${project.projectId}-${build.buildId}`,
+				nowMs,
+			);
 			const snapshotId =
 				build.snapshotId ??
 				(yield* provider
@@ -1134,6 +1150,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 				undefined,
 				nowMs,
 			);
+			const promotedAtMs = yield* Clock.currentTimeMillis;
 			const promoted = {
 				...build,
 				lastErrorCode: undefined,
@@ -1142,9 +1159,9 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 				state: "ready",
 				nextActionAtMs: Number.MAX_SAFE_INTEGER,
 				revision: build.revision + 1,
-				updatedAtMs: nowMs,
+				updatedAtMs: promotedAtMs,
 			} as const;
-			yield* store.saveBuild(promoted);
+			yield* promoteRetainedSnapshot(promoted, promotedAtMs);
 			const superseded = (yield* store.listAccountBuilds(
 				build.accountId,
 				build.provider,
@@ -1154,10 +1171,12 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					candidate.snapshotId !== undefined,
 			);
 			for (const candidate of superseded) {
+				if (build.provider === "box") continue; // Durable inventory owns Boat deletion retries.
 				if (candidate.snapshotId === undefined) continue;
-				yield* provider
+				const cleanup = yield* provider
 					.deleteSnapshot(candidate.snapshotId)
-					.pipe(Effect.ignore);
+					.pipe(Effect.result);
+				if (cleanup._tag === "Failure") continue;
 				yield* store.saveBuild({
 					...candidate,
 					snapshotId: undefined,
@@ -1854,8 +1873,15 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				(workspace.statusCode === "resume-queued" ||
 					workspace.statusCode === "resume-runtime-recovery-queued") &&
 				workspace.providerSandboxId !== undefined;
-			if (replacingFailedSandbox && workspace.providerSandboxId !== undefined)
+			if (replacingFailedSandbox && workspace.providerSandboxId !== undefined) {
+				// A deleted account image must not cause recovery to destroy the existing disk.
+				yield* assertSnapshotUsable(
+					workspace.accountId,
+					build.provider,
+					build.snapshotId,
+				);
 				yield* provider.kill(workspace.providerSandboxId);
+			}
 			const preparedSnapshotAvailable =
 				build.snapshotId !== undefined &&
 				build.templateVersion === provider.templateVersion;
@@ -1870,6 +1896,16 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 						),
 					)
 				: null;
+			if (
+				recovered === null &&
+				preparedSnapshotAvailable &&
+				build.snapshotId !== undefined
+			)
+				yield* assertSnapshotUsable(
+					workspace.accountId,
+					build.provider,
+					build.snapshotId,
+				);
 			const sandbox =
 				recovered ??
 				(machineFork !== undefined

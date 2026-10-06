@@ -5,7 +5,7 @@ provider evidence is retained but no execution is charged. Enforcement and Polar
 export default to disabled independently.
 
 The Cloud Workspace subscription is $40 monthly and includes $35 of attributable
-provider compute. Additional provider cost receives a 5% markup, subject to a
+provider usage (compute and retained Boat images). Additional provider cost receives a 5% markup, subject to a
 $25 default pre-tax overage cap selected by the user.
 
 ## Provider boundary
@@ -18,11 +18,8 @@ webhooks and normalizes lifecycle data into `ProviderExecutionEvidence`. The
 shared metering pipeline attributes the internal resource, applies that
 provider's immutable price schedule or reported period cost, and atomically
 finalizes the provider event with all usage, ledger, and outbox records. E2B uses
-the price schedule; Boat uses provider-reported cost. boxd has no actual-cost
-settlement source yet: it offers no lifecycle webhook or event log, and its machine records carry
-only `createdAt` and `hibernatedAt`, so the reconciler's reservations for boxd
-runs are never finalized and boxd compute is unbilled until boxd exposes
-execution events. Other providers should
+the price schedule; Boat uses provider-reported cost. Boxd can opt into completed
+per-machine USD cost estimates through `BOXD_BILLING_ENABLED=true`. Other providers should
 integrate at this boundary rather than adding a separate billing pipeline. Raw payloads expire after 90 days; the
 pseudonymous finalization key remains for seven years so old redeliveries cannot
 be billed again.
@@ -68,16 +65,44 @@ failed execution in a recovery batch is logged with its provider, event ID, and
 error code; it remains unfinalized while later events can settle. Subsequent
 polls can retry it while the provider still lists the archived/error sandbox.
 
-Boxd still has no actual-cost settlement feed. As checked on September 29, 2026, its
-[published API](https://docs.boxd.sh/reference/grpc-proto.md) exposes an
-organization credit balance and optional `accruing_micro_eur`. That pending
-amount is explicitly a display-only approximation. Its per-VM listing supplies
-identity and state, not attributable cost or historical execution intervals.
-An organization balance delta cannot be assigned to customer workspaces or
-converted into finalized USD charges. Actual-cost settlement needs durable
-per-machine usage/cost evidence and an explicit EUR-to-USD conversion policy.
-A Zuse-defined runtime rate would instead be a separate billing-policy decision;
-do not finalize existing reservations as if they were provider-reported costs.
+Boxd SDK 0.2.14 adds historical `orgs.usage`, `machines.usage`, and
+`orgs.billingActivity`. Deleted machines retain their usage identity. See the
+[usage API](https://docs.boxd.sh/reference/typescript-sdk#usage-and-cost).
+
+`BOXD_BILLING_ENABLED=true` explicitly opts into charging completed per-machine
+USD estimates against the same $35 allowance, 5% markup and overage cap. Both
+checked-in environments enable settlement from `2026-10-06T17:15:42Z`; invoice
+export and enforcement remain disabled pending staging reconciliation. On October 6, 2026, the
+product owner approved using completed per-machine costs at boxd's current rates,
+with the existing allowance, markup and cap. Fetch rates and costs from the
+provider for each settlement; no manually maintained boxd price table is needed.
+Billing-enforced placement requires this flag and an explicit
+`BOXD_BILLING_CUTOVER_AT` (whole-second ISO timestamp). The latter prevents
+retroactive charges when Boat's shared cutover is older. The shared settlement
+path uses boxd's provider cutover independently of other providers' cutovers.
+EUR reports remain unbillable;
+there is no implicit exchange rate. This applies to machine compute, resident
+RAM and used disk in every state; Boat's $1.70 saved-image rate does not apply.
+
+The minute cron discovers complete machines in fixed UTC daily windows, including
+deleted machines. It always checks the latest closed day after 30 minutes of
+metering lag and rotates seven historical days per pass. Cutover must have whole
+second precision. Provider windows and period/cutover splits use the documented
+15-minute bucket-start attribution, rather than elapsed-time proration. Customer
+settlement can lag by about a day; provisional reservations remain necessary for
+admission/cap checks. Failed/incomplete evidence stays retryable. Costs are queried
+separately for each billing period, and original responses are retained for audit.
+Runtime observations preserve ownership when a machine is replaced; unknown
+machines are excluded. Stable window identities prevent repeat charges.
+
+Boxd costs use its **current** rates and round each component up to micro-units.
+`complete` means metering has finished, not that a historical invoice is exact.
+Polar metadata labels these `completed-provider-estimate` / `provider-current-rates`.
+`ListBillingActivity` gives actual organization-wide charges; use it for operator
+reconciliation, never assign its balance changes to individual users. Reconcile
+completed USD usage against `boxd manage billing activity` before enabling invoice
+export. Provider rate changes can change unsettled historical estimates; committed
+usage is never repriced. Keep export disabled if this policy is unsuitable.
 
 ## Rollout
 
@@ -208,3 +233,74 @@ Deployment verification: observe a running Boat and Boxd workspace across two
 cron passes, check provider/resource metadata in Polar Events, retry an export
 with the same external ID, and confirm the overage meter did not move from
 informational events. Invoice export remains a separate reconciled rollout.
+
+## Boat named-image storage
+
+Apply `0034_cloud_snapshot_storage` before deploying this change. Boat's public
+[List named snapshots](https://docs.boat.dev/api/reference/snapshots/list-named-snapshots.md)
+API now documents ten free snapshots per wallet and $1.70 per extra snapshot per
+month, deducted daily from credits. Zuse's free slots are already occupied.
+Snapshot charges are not reconstructed from wallet balances or sandbox usage.
+
+Zuse charges only the retained account image: $1.70 per fixed 30 days, prorated
+by elapsed milliseconds. It consumes the existing $35 allowance and receives the
+existing 5% overage markup and cap. Temporary rebuild overlap, creation intents,
+and failed cleanup are platform overhead. The versioned approved price is
+`boat-snapshot-2026-10-v1`; insert a new schedule/version for future changes rather
+than updating this rate. Stored usage has `resourceKind=snapshot`; usage API responses expose
+`resourceKind=other` plus `usageKind=snapshot-storage` so older clients can still
+decode billing history. The named snapshot is the `resourceId`, and `cost_source=approved-storage-schedule` in the
+informational Polar export. The existing overage meter remains the sole invoice
+meter. Billing summaries expose `storageCostMicros` for the full period.
+
+Set `CLOUD_SNAPSHOT_BILLING_CUTOVER_AT` explicitly to enable accrual; it defaults
+to absent independently of the compute cutover. Existing retained images start
+at migration time or the storage cutover, whichever is later. There is no
+historical back-billing. Minute maintenance checkpoints storage at most hourly,
+with immediate final settlement on replacement/deletion. Integer rational
+arithmetic carries fractional micro-USD across checkpoints and period boundaries.
+Period evidence gaps remain uncharged. Checkpoints, ledger and both Polar queues
+commit in one account-serialized transaction.
+
+Creation intents persist the exact name before Boat publication. Promotion
+atomically starts the new image and stops the old one. Deletion keeps the
+identity/reference until Boat confirms success or absence. Inspection failures
+remain retryable. Settings/image reads use the stored inventory without waking
+machines. `cloud.image.delete` queues authenticated, account-scoped deletion of a
+specific named image, making retries safe even after a replacement. Existing
+workspace disks and authentication authorities are preserved.
+
+With billing enforcement enabled, an ended subscription or billing hold starts
+a persisted seven-day deadline. Recovery before deletion begins cancels it;
+expiry fences new image restores and queues cleanup. An in-flight workspace
+replacement delays cleanup so its existing disk remains protected. Cap overflow is absorbed by
+the existing ledger policy. With enforcement disabled, shadow metering never
+expires user images. This is Zuse's user retention policy, independent of Boat's
+wallet-level grace. Account deletion also waits for tracked snapshot cleanup.
+
+Operator tools (require `DATABASE_URL`):
+
+```sh
+bun run --cwd infra/api cloud-snapshots:ops report
+bun run --cwd infra/api cloud-snapshots:ops cleanup-orphan EXACT_NAME
+```
+
+`report` shows retained images, creation/rebuild overlap, pending cleanup, retry
+errors and untracked provider names. Set `BOAT_API_KEY` (or legacy `BOX_API_KEY`)
+to query the provider list, or `SNAPSHOT_INVENTORY_FILE` to inspect a captured
+list offline. Provider credentials are never printed. Set
+`SNAPSHOT_REFERENCE_DATABASE_URL` to the other environment's database to compare
+staging and production. `cleanup-orphan` requires both databases, locks both
+account domains, rechecks build/workspace references and verifies the exact
+provider source sandbox. Unknown ownership, missing source evidence, in-flight
+publication, and any remaining cross-environment references block removal.
+Only failed builds or verified superseded images qualify for orphan removal.
+Tracked images use the durable reconciler instead. Successfully removed orphans
+receive an inventory tombstone.
+
+Before rollout, inspect the backfilled inventory and shadow usage in staging.
+Verify allowance/cap behavior, replacement cleanup, seven-day recovery/expiry,
+and a complete snapshot-to-ledger-to-Polar example with stable retry IDs. Set
+cutover before enabling storage settlement; enable invoice export only through
+the existing reconciled rollout. Local PostgreSQL tests do not verify live Polar
+delivery or deploy the migration to staging/production.

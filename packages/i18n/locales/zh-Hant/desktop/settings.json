@@ -249,7 +249,7 @@
 	"cloud_workspace_pool_usage_details_are_temporarily_unavailable": "暫時無法取得使用詳情。",
 	"cloud_workspace_pool_could_not_load_billing": "無法載入帳單",
 	"cloud_workspace_pool_refresh_cloud_settings_to_try_again_existing_workspaces_are_unaffected": "刷新雲端設定以重試。現有工作區不受影響。",
-	"cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a": "40 美元/月包括 35 美元的沙盒計算。額外計算費用以提供者成本 + 5% 計費。",
+	"cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a": "每月 40 美元包含 35 美元的沙盒計算和 Boat 映像儲存空間額度。額外用量加收 5%。",
 	"cloud_workspace_pool_paused": "已暫停",
 	"cloud_workspace_pool_active": "活躍",
 	"cloud_workspace_pool_billing_hold": "計費保留",
@@ -1099,5 +1099,16 @@
 	"acp_agents_busy_duplicating": "正在複製…",
 	"acp_agents_busy_updating": "正在更新智慧代理…",
 	"acp_agents_busy_removing": "正在移除智慧代理…",
-	"acp_agents_busy_installing": "正在安裝 {{name}}…"
+	"acp_agents_busy_installing": "正在安裝 {{name}}…",
+	"cloud_snapshot_storage": "映像儲存空間",
+	"cloud_snapshot_storage_rate": "Boat 映像每 30 天收費 1.70 美元，按保留時間比例計費。",
+	"cloud_snapshot_retained_images": "保留的 Boat 映像",
+	"cloud_snapshot_storage_allowance": "儲存費用計入您的 35 美元雲端用量額度。超出部分適用現有的 5% 加價和超額費用上限。",
+	"cloud_snapshot_deletion_pending": "正在等待刪除。儲存空間計費已停止。",
+	"cloud_snapshot_grace": "請在 {{date}} 前恢復計費以保留此映像，否則將在七天寬限期後刪除。",
+	"cloud_snapshot_delete_explanation": "刪除後，未來的工作區需要重新建置映像。現有工作區磁碟和驗證將保留。",
+	"cloud_snapshot_billing_not_started": "儲存空間計費尚未開始。刪除後，未來的工作區需要重新建置映像。",
+	"cloud_snapshot_delete_image": "刪除已儲存的映像",
+	"cloud_snapshot_usage": "本期儲存空間用量費用",
+	"cloud_snapshot_usage_recent": "已計入您的雲端用量費用總額。"
 }

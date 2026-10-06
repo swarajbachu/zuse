@@ -249,7 +249,7 @@
 	"cloud_workspace_pool_usage_details_are_temporarily_unavailable": "Nutzungsdetails sind vorübergehend nicht verfügbar.",
 	"cloud_workspace_pool_could_not_load_billing": "Die Abrechnung konnte nicht geladen werden",
 	"cloud_workspace_pool_refresh_cloud_settings_to_try_again_existing_workspaces_are_unaffected": "Aktualisieren Sie die Cloud-Einstellungen, um es erneut zu versuchen. Bestehende Arbeitsbereiche sind davon nicht betroffen.",
-	"cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a": "40 $/Monat beinhalten 35 $ Sandbox-Rechenleistung. Zusätzliche Rechenleistung wird zum Anbieterpreis + 5 % berechnet.",
+	"cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a": "40 $/Monat beinhalten 35 $ für Sandbox-Rechenleistung und Boat-Image-Speicher. Zusätzliche Nutzung hat einen Aufschlag von 5 %.",
 	"cloud_workspace_pool_paused": "Angehalten",
 	"cloud_workspace_pool_active": "Aktiv",
 	"cloud_workspace_pool_billing_hold": "Abrechnungssperre",
@@ -1099,5 +1099,16 @@
 	"acp_agents_busy_duplicating": "Wird dupliziert …",
 	"acp_agents_busy_updating": "Agent wird aktualisiert …",
 	"acp_agents_busy_removing": "Agent wird entfernt …",
-	"acp_agents_busy_installing": "{{name}} wird installiert …"
+	"acp_agents_busy_installing": "{{name}} wird installiert …",
+	"cloud_snapshot_storage": "Image-Speicher",
+	"cloud_snapshot_storage_rate": "Boat-Images kosten 1,70 USD pro 30 Tage, anteilig für die Aufbewahrungsdauer.",
+	"cloud_snapshot_retained_images": "Gespeicherte Boat-Images",
+	"cloud_snapshot_storage_allowance": "Der Speicher nutzt Ihr Cloud-Guthaben von 35 USD. Für zusätzliche Nutzung gelten der bestehende Aufschlag von 5 % und die Obergrenze.",
+	"cloud_snapshot_deletion_pending": "Die Löschung steht aus. Die Speicherabrechnung wurde beendet.",
+	"cloud_snapshot_grace": "Stellen Sie die Abrechnung vor {{date}} wieder her, um dieses Image zu behalten. Andernfalls wird es nach der siebentägigen Nachfrist gelöscht.",
+	"cloud_snapshot_delete_explanation": "Nach dem Löschen muss das Image für künftige Workspaces neu erstellt werden. Vorhandene Workspace-Datenträger und die Authentifizierung bleiben erhalten.",
+	"cloud_snapshot_billing_not_started": "Die Speicherabrechnung hat noch nicht begonnen. Nach dem Löschen muss das Image für künftige Workspaces neu erstellt werden.",
+	"cloud_snapshot_delete_image": "Gespeichertes Image löschen",
+	"cloud_snapshot_usage": "Speichernutzung in diesem Zeitraum",
+	"cloud_snapshot_usage_recent": "In Ihren gesamten Cloud-Nutzungskosten enthalten."
 }

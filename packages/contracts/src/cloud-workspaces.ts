@@ -280,6 +280,15 @@ export class CloudAccountImage extends Schema.Class<CloudAccountImage>(
 	"CloudAccountImage",
 )({
 	state: CloudAccountImageState,
+	storage: Schema.optional(
+		Schema.Struct({
+			snapshotId: Schema.String,
+			state: Schema.Literals(["retained", "deleting"]),
+			monthlyCostMicros: Schema.Number,
+			graceUntil: Schema.optional(Schema.Number),
+			billingEnabled: Schema.Boolean,
+		}),
+	),
 	generation: Schema.optional(Schema.String),
 	providerId: Schema.optional(Schema.String),
 	runtimeVersion: Schema.optional(Schema.String),
@@ -690,6 +699,14 @@ export const CloudAccountImageStatusRpc = Rpc.make("cloud.image.status", {
 		Schema.Struct({ providerId: Schema.optional(Schema.String) }),
 		Schema.Void,
 	]),
+	success: CloudAccountImage,
+	error: CloudWorkspaceOpError,
+});
+export class CloudAccountImageDeleteRequest extends Schema.Class<CloudAccountImageDeleteRequest>(
+	"CloudAccountImageDeleteRequest",
+)({ snapshotId: Schema.String }) {}
+export const CloudAccountImageDeleteRpc = Rpc.make("cloud.image.delete", {
+	payload: CloudAccountImageDeleteRequest,
 	success: CloudAccountImage,
 	error: CloudWorkspaceOpError,
 });

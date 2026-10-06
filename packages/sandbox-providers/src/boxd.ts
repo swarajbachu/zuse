@@ -11,6 +11,7 @@ import {
 	type MachineCreateParams,
 	type MachineForkParams,
 	type MachineResizeParams,
+	type MachineUsageReport,
 	NotFoundError,
 	PermissionDeniedError,
 	type Proxy as ProxyRoute,
@@ -54,6 +55,7 @@ export interface BoxdSandboxConfig {
 	readonly machineSize?: BoxdMachineSize;
 	/** gRPC-web endpoint; defaults to production. */
 	readonly baseUrl?: string;
+	readonly billingUsageEnabled?: boolean;
 	readonly readyDeadlineMs?: number;
 	readonly snapshotDeadlineMs?: number;
 	readonly pollIntervalMs?: number;
@@ -62,6 +64,10 @@ export interface BoxdSandboxConfig {
 /** The slice of `@boxd-sh/sdk/web` this adapter uses; tests inject an in-memory fake. */
 export interface BoxdSandboxClient {
 	readonly machines: {
+		usage?(
+			id: string,
+			params: { since: number; until: number; org?: string },
+		): Promise<MachineUsageReport>;
 		create(params: MachineCreateParams): Promise<Machine>;
 		fork(id: string, params: MachineForkParams): Promise<Machine>;
 		setEgressAllow(id: string, entries: string[]): Promise<string[]>;
@@ -229,7 +235,7 @@ const validateCreateEnv = (env: Readonly<Record<string, string>>) =>
 const clampIdleSeconds = (timeoutSeconds: number): number =>
 	clampSeconds(timeoutSeconds, MIN_IDLE_SECONDS, MAX_IDLE_SECONDS);
 
-const clients = new Map<string, BoxdSandboxClient>();
+const clients = new Map<string, Boxd>();
 
 /**
  * The API constructs its provider registry per request, and every SDK client
@@ -246,12 +252,16 @@ export const boxdBaseUrl = (value: string | undefined): string =>
 
 export const boxdSandboxClientFor = (
 	config: Pick<BoxdSandboxConfig, "apiKey" | "baseUrl">,
-): BoxdSandboxClient => {
+): Boxd => {
 	const baseURL = boxdBaseUrl(config.baseUrl);
 	const key = `${baseURL}\u0000${Redacted.value(config.apiKey)}`;
 	const existing = clients.get(key);
 	if (existing !== undefined) return existing;
-	const created = new Boxd({ apiKey: Redacted.value(config.apiKey), baseURL });
+	const created = new Boxd({
+		apiKey: Redacted.value(config.apiKey),
+		baseURL,
+		timeout: 30_000,
+	});
 	clients.set(key, created);
 	return created;
 };
@@ -991,6 +1001,38 @@ export const makeBoxdSandboxProvider = (
 		displayName: "boxd",
 		templateVersion: config.templateVersion,
 		preservesProcessesOnResume: true,
+		getUsage: config.billingUsageEnabled
+			? (id, window) =>
+					call("usage", async () => {
+						if (client.machines.usage === undefined)
+							throw new Error("boxd usage API unavailable");
+						const usage = await client.machines.usage(id, {
+							since: Math.ceil(window.startedAtMs / 1000),
+							until: Math.ceil(window.endedAtMs / 1000),
+							org: config.org,
+						});
+						if (
+							usage.machineId !== id ||
+							!usage.complete ||
+							usage.currency !== "usd" ||
+							usage.period.start.getTime() !==
+								Math.ceil(window.startedAtMs / 1000) * 1000 ||
+							usage.period.end.getTime() !==
+								Math.ceil(window.endedAtMs / 1000) * 1000 ||
+							!Number.isSafeInteger(usage.costMicro) ||
+							usage.costMicro < 0
+						)
+							throw new Error("boxd usage is incomplete, invalid or not USD");
+						return {
+							...window,
+							providerCostMicros: usage.costMicro,
+							evidence: usage,
+							billableSeconds: usage.seconds.running,
+							running: false,
+							costMicrosPerSecond: 0,
+						};
+					})
+			: undefined,
 		resources: BOXD_MACHINE_RESOURCES[machineSize],
 		sizes: [
 			machineSize,

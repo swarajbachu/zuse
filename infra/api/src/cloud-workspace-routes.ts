@@ -10,6 +10,7 @@ import {
 	CLOUD_RUNTIME_TURN_REPLY_MAX_LENGTH,
 	CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY,
 	CloudAccountImageBuildRequest,
+	CloudAccountImageDeleteRequest,
 	CloudAuthConfigureRequest,
 	CloudAuthLoginStartRequest,
 	CloudAuthProvider,
@@ -72,7 +73,7 @@ import {
 	type CloudBillingCapacity,
 	cloudBillingCapacity,
 } from "./cloud-billing-capacity.ts";
-import type { CloudBillingStore } from "./cloud-billing-store.ts";
+import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { hasUsableCloudWorkspaceEntitlement } from "./cloud-entitlement.ts";
 import {
 	githubAuthorizationCallback,
@@ -88,6 +89,11 @@ import {
 	attachCloudMailboxCommandDirective,
 	attachCloudMailboxLifecycleDirective,
 } from "./cloud-mailbox-directive.ts";
+import {
+	assertSnapshotUsable,
+	deleteRetainedSnapshot,
+} from "./cloud-snapshot-storage.ts";
+import { SNAPSHOT_MONTH_MICROS } from "./cloud-snapshot-store.ts";
 import {
 	cloudTranscriptMessagePageObjectKey,
 	cloudTranscriptObjectKey,
@@ -594,6 +600,23 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 			: [
 					...(yield* store.listAccountBuilds(accountId, provider.providerId)),
 				].sort((left, right) => right.createdAtMs - left.createdAtMs);
+	const snapshotRecords =
+		provider?.providerId === "box"
+			? yield* (yield* CloudBillingStore).snapshots.list(accountId, false)
+			: [];
+	const storage =
+		snapshotRecords.find((r) => r.state === "retained") ??
+		snapshotRecords.find(
+			(r) => r.state === "deleting" && r.retainedAtMs !== undefined,
+		);
+	const unavailable = new Set(
+		snapshotRecords
+			.filter((r) => r.state === "deleting" || r.state === "deleted")
+			.map((r) => r.snapshotId),
+	);
+	const usableBuilds = builds.filter(
+		(b) => b.snapshotId === undefined || !unavailable.has(b.snapshotId),
+	);
 	const latest = builds[0];
 	const building = builds.find(
 		(candidate) =>
@@ -602,7 +625,7 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 			candidate.state === "sanitizing",
 	);
 	const active = selectActiveAccountImageBuild(
-		builds,
+		usableBuilds,
 		provider?.templateVersion,
 	);
 	const auth = yield* cloudAuthStatus(accountId);
@@ -664,8 +687,11 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 				? { requiredProviderAuthDeliveryVersion: 1 as const }
 				: {}),
 		});
-	const latestFailedAfterActive =
+	const latestBuildFailed =
 		latest?.state === "failed" &&
+		latest.lastErrorCode !== "saved-image-deleted";
+	const latestFailedAfterActive =
+		latestBuildFailed &&
 		(active === undefined || latest.createdAtMs > active.updatedAtMs);
 	const state =
 		building !== undefined
@@ -673,7 +699,7 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 			: latestFailedAfterActive
 				? ("failed" as const)
 				: active === undefined
-					? latest?.state === "failed"
+					? latestBuildFailed
 						? ("failed" as const)
 						: ("not-built" as const)
 					: authBroken
@@ -692,6 +718,22 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 	return {
 		state,
 		generation: active?.buildId,
+		storage:
+			storage === undefined
+				? undefined
+				: {
+						snapshotId: storage.snapshotId,
+						state:
+							storage.state === "retained"
+								? ("retained" as const)
+								: ("deleting" as const),
+						monthlyCostMicros: SNAPSHOT_MONTH_MICROS,
+						graceUntil: storage.graceUntilMs,
+						billingEnabled:
+							apiConfiguration.cloudSnapshotBillingCutoverAtMs !== undefined &&
+							apiConfiguration.cloudSnapshotBillingCutoverAtMs <=
+								(yield* Clock.currentTimeMillis),
+					},
 		providerId: provider?.providerId,
 		runtimeVersion: active?.templateVersion ?? provider?.templateVersion,
 		buildMode: buildMode(statusBuild),
@@ -1388,6 +1430,8 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	)
 		return yield* Effect.fail(conflict("cloud_project_not_ready"));
 	const build = accountBuild;
+	if (forkSource === null && build.snapshotId !== undefined)
+		yield* assertSnapshotUsable(accountId, build.provider, build.snapshotId);
 	if (
 		apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled &&
 		build.settings?.codexAuthDeliveryVersion !== 1
@@ -3368,6 +3412,11 @@ export const routeCloudWorkspaceRequest = (
 			);
 		}
 
+		if (method === "POST" && path === ApiPaths.cloudAccountImageDelete) {
+			const body = yield* decodeBody(CloudAccountImageDeleteRequest, request);
+			yield* deleteRetainedSnapshot(ownerId, body.snapshotId, nowMs);
+			return json(yield* cloudAccountImage(ownerId, "box"), 202);
+		}
 		if (method === "POST" && path === ApiPaths.cloudAccountImageBuild) {
 			if (!(yield* hasEntitlement(ownerId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));

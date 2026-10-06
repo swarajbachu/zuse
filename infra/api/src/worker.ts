@@ -48,7 +48,10 @@ import { ModelConnectionStoreLive } from "./model-connection-store.ts";
 import { PluginHost } from "./plugin-host.ts";
 import { makeCloudflarePluginHost } from "./plugin-host-cloudflare.ts";
 import { PushDeliveryLive } from "./push.ts";
-import { availableSandboxProviders } from "./sandbox-provider-availability.ts";
+import {
+	availableSandboxProviders,
+	boxdBillingConfigured,
+} from "./sandbox-provider-availability.ts";
 import {
 	resolveSandboxProviderRuntime,
 	SandboxOfferConfiguration,
@@ -193,6 +196,8 @@ interface Env extends SlackBindings {
 	readonly E2B_MEMORY_MIB?: string;
 	readonly E2B_WEBHOOK_SECRET?: string;
 	readonly BOXD_ADAPTER_ENABLED?: string;
+	readonly BOXD_BILLING_ENABLED?: string;
+	readonly BOXD_BILLING_CUTOVER_AT?: string;
 	readonly BOXD_API_KEY?: string;
 	readonly BOXD_ORG?: string;
 	readonly BOXD_BASE_URL?: string;
@@ -203,6 +208,7 @@ interface Env extends SlackBindings {
 	readonly CLOUD_BILLING_EXPORT_ENABLED?: string;
 	readonly CLOUD_USAGE_EXPORT_ENABLED?: string;
 	readonly CLOUD_BILLING_CUTOVER_AT?: string;
+	readonly CLOUD_SNAPSHOT_BILLING_CUTOVER_AT?: string;
 	/** Additive rollout gate. Accepted rows continue draining when disabled. */
 	readonly CLOUD_COMMAND_MAILBOX_ENABLED?: string;
 	readonly CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED?: string;
@@ -318,6 +324,10 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		sandboxProvider.configuredProviders,
 		env.POLAR_ENVIRONMENT === "sandbox",
 		env.CLOUD_BILLING_ENFORCEMENT_ENABLED === "true",
+		boxdBillingConfigured(
+			env.BOXD_BILLING_ENABLED,
+			env.BOXD_BILLING_CUTOVER_AT,
+		),
 	);
 	const persistentCheckoutReady =
 		billing.liveCheckoutEnabled &&
@@ -342,6 +352,28 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 	const cloudBillingEnforcementEnabled =
 		env.CLOUD_BILLING_ENFORCEMENT_ENABLED === "true";
 	const cloudBillingExportEnabled = env.CLOUD_BILLING_EXPORT_ENABLED === "true";
+	if (
+		env.BOXD_BILLING_ENABLED === "true" &&
+		!boxdBillingConfigured(
+			env.BOXD_BILLING_ENABLED,
+			env.BOXD_BILLING_CUTOVER_AT,
+		)
+	)
+		throw new Error(
+			"BOXD_BILLING_CUTOVER_AT must be a positive whole-second timestamp before enabling boxd billing",
+		);
+	const cloudSnapshotBillingCutoverAtMs = isConfigured(
+		env.CLOUD_SNAPSHOT_BILLING_CUTOVER_AT,
+	)
+		? Date.parse(env.CLOUD_SNAPSHOT_BILLING_CUTOVER_AT)
+		: undefined;
+	if (
+		cloudSnapshotBillingCutoverAtMs !== undefined &&
+		!Number.isFinite(cloudSnapshotBillingCutoverAtMs)
+	)
+		throw new Error(
+			"CLOUD_SNAPSHOT_BILLING_CUTOVER_AT must be an ISO timestamp",
+		);
 	const cloudBillingCutoverAtMs = isConfigured(env.CLOUD_BILLING_CUTOVER_AT)
 		? Date.parse(env.CLOUD_BILLING_CUTOVER_AT)
 		: undefined;
@@ -428,6 +460,13 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		cloudProviderAuthBrokerServingEnabled:
 			env.CLOUD_PROVIDER_AUTH_BROKER_SERVING_ENABLED === "true",
 		cloudBillingCutoverAtMs,
+		cloudBillingProviderCutoverAtMs: boxdBillingConfigured(
+			env.BOXD_BILLING_ENABLED,
+			env.BOXD_BILLING_CUTOVER_AT,
+		)
+			? new Map([["boxd", Date.parse(env.BOXD_BILLING_CUTOVER_AT ?? "")]])
+			: undefined,
+		cloudSnapshotBillingCutoverAtMs,
 		cloudBillingPolarMeterId: isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID)
 			? env.POLAR_CLOUD_OVERAGE_METER_ID
 			: undefined,

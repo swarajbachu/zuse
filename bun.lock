@@ -646,7 +646,7 @@
       "name": "@zuse/sandbox-providers",
       "version": "0.0.0",
       "dependencies": {
-        "@boxd-sh/sdk": "0.2.11",
+        "@boxd-sh/sdk": "0.2.14",
         "@zuse/provider-registry": "*",
         "@zuse/utils": "*",
         "effect": "catalog:",
@@ -1074,7 +1074,7 @@
 
     "@blazediff/core": ["@blazediff/core@1.9.1", "", {}, "sha512-ehg3jIkYKulZh+8om/O25vkvSsXXwC+skXmyA87FFx6A/45eqOkZsBltMw/TVteb0mloiGT8oGRTcjRAz66zaA=="],
 
-    "@boxd-sh/sdk": ["@boxd-sh/sdk@0.2.11", "", { "dependencies": { "@bufbuild/protobuf": "^2.10.2", "@grpc/grpc-js": "^1.12.0" } }, "sha512-WsLgO+pb5JEXpnteiQ9BMe9q9/Q0WkDNQSCnahLp1wsCT+Wk0UARRth3tEyMP8dopdpLHjACpNQe4kLZnirLJQ=="],
+    "@boxd-sh/sdk": ["@boxd-sh/sdk@0.2.14", "", { "dependencies": { "@bufbuild/protobuf": "^2.10.2", "@grpc/grpc-js": "^1.12.0" } }, "sha512-QmUMsAOOEj+E5YPDxxI3WafjIfPwfn/rk3GOzyF8mH6ekPr+iYKic3xQQITqfyCi8EPn5hCbh9uVAjNwo8DXFQ=="],
 
     "@braintree/sanitize-url": ["@braintree/sanitize-url@7.1.2", "", {}, "sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA=="],
 

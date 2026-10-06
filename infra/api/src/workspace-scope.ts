@@ -81,6 +81,7 @@ export const workspaceAccessForPath = (
 		path === ApiPaths.cloudProviders ||
 		path === ApiPaths.cloudAccountImage ||
 		path === ApiPaths.cloudAccountImageBuild ||
+		path === ApiPaths.cloudAccountImageDelete ||
 		path === ApiPaths.cloudProjects ||
 		path.startsWith(`${ApiPaths.cloudProjects}/`) ||
 		path === ApiPaths.cloudAuth ||

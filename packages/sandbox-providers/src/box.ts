@@ -873,6 +873,19 @@ export const makeBoxSandboxProvider = (
 			},
 		),
 		kill,
+		inspectSnapshot: (snapshotId) =>
+			request(
+				"GET",
+				`/named-snapshots/${encodeURIComponent(snapshotId)}`,
+				NamedSnapshotInfoResponse,
+			).pipe(
+				Effect.map((info) => info.snapshot.status),
+				Effect.catchTag("SandboxProviderError", (error) =>
+					error.code === "not-found"
+						? Effect.succeed(null)
+						: Effect.fail(error),
+				),
+			),
 		deleteSnapshot: (snapshotId) =>
 			requestVoid(
 				"DELETE",

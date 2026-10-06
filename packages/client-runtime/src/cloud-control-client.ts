@@ -8,6 +8,7 @@ import {
 	type ChatSharingUpdate,
 	CloudAccountImage,
 	type CloudAccountImageBuildRequest,
+	type CloudAccountImageDeleteRequest,
 	CloudApiKey,
 	CloudApiKeyCreated,
 	CloudApiKeyList,
@@ -173,6 +174,8 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 			`${ApiPaths.cloudAccountImage}${input.providerId === undefined ? "" : `?providerId=${encodeURIComponent(input.providerId)}`}`,
 			CloudAccountImage,
 		),
+	"cloud.image.delete": (input: CloudAccountImageDeleteRequest) =>
+		request(ApiPaths.cloudAccountImageDelete, CloudAccountImage, "POST", input),
 	"cloud.image.build": (input: CloudAccountImageBuildRequest) =>
 		request(ApiPaths.cloudAccountImageBuild, CloudAccountImage, "POST", input),
 	"cloud.auth.status": () => request(ApiPaths.cloudAuth, CloudAuthStatus),

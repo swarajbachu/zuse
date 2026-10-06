@@ -242,7 +242,7 @@
 	"cloud_workspace_pool_usage_details_are_temporarily_unavailable": "⟦ÜÜsààgëë dëëtààïïls ààrëë tëëmpôôrààrïïly üünààvààïïlààblëë.⟧",
 	"cloud_workspace_pool_could_not_load_billing": "⟦Côôüüld nôôt lôôààd bïïllïïng⟧",
 	"cloud_workspace_pool_refresh_cloud_settings_to_try_again_existing_workspaces_are_unaffected": "⟦Rëëfrëësh clôôüüd sëëttïïngs tôô try ààgààïïn. ËËxïïstïïng wôôrkspààcëës ààrëë üünààffëëctëëd.⟧",
-	"cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a": "⟦$40/môônth ïïnclüüdëës $35 ôôf sààndbôôx côômpüütëë. ÀÀddïïtïïôônààl côômpüütëë ïïs bïïllëëd ààt prôôvïïdëër côôst + 5%.⟧",
+	"cloud_workspace_pool_40_month_includes_35_of_sandbox_compute_additional_compute_is_billed_a": "⟦$40/môônth ïïnclüüdëës $35 ôôf sààndbôôx côômpüütëë àànd Bôôààt ïïmààgëë stôôrààgëë. ÀÀddïïtïïôônààl üüsààgëë hààs àà 5% mààrküüp.⟧",
 	"cloud_workspace_pool_paused": "⟦Pààüüsëëd⟧",
 	"cloud_workspace_pool_active": "⟦ÀÀctïïvëë⟧",
 	"cloud_workspace_pool_billing_hold": "⟦Bïïllïïng hôôld⟧",
@@ -1099,5 +1099,16 @@
 	"acp_agents_busy_duplicating": "⟦Düüplïïcààtïïng…⟧",
 	"acp_agents_busy_updating": "⟦ÜÜpdààtïïng ààgëënt…⟧",
 	"acp_agents_busy_removing": "⟦Rëëmôôvïïng ààgëënt…⟧",
-	"acp_agents_busy_installing": "⟦ÏÏnstààllïïng {{name}}…⟧"
+	"acp_agents_busy_installing": "⟦ÏÏnstààllïïng {{name}}…⟧",
+	"cloud_snapshot_storage": "⟦ÏÏmààgëë stôôrààgëë⟧",
+	"cloud_snapshot_storage_rate": "⟦Bôôààt ïïmààgëës côôst $1.70 pëër 30 dààys, prôôrààtëëd whïïlëë rëëtààïïnëëd.⟧",
+	"cloud_snapshot_retained_images": "⟦Rëëtààïïnëëd Bôôààt ïïmààgëës⟧",
+	"cloud_snapshot_storage_allowance": "⟦Stôôrààgëë üüsëës yôôüür $35 clôôüüd ààllôôwààncëë. ÀÀddïïtïïôônààl üüsààgëë hààs thëë ëëxïïstïïng 5% mààrküüp àànd ôôvëërààgëë cààp.⟧",
+	"cloud_snapshot_deletion_pending": "⟦Dëëlëëtïïôôn ïïs pëëndïïng. Stôôrààgëë bïïllïïng hààs stôôppëëd.⟧",
+	"cloud_snapshot_grace": "⟦Rëëstôôrëë bïïllïïng bëëfôôrëë {{date}} tôô këëëëp thïïs ïïmààgëë. ÏÏt wïïll ôôthëërwïïsëë bëë dëëlëëtëëd ààftëër thëë sëëvëën-dàày grààcëë pëërïïôôd.⟧",
+	"cloud_snapshot_delete_explanation": "⟦Dëëlëëtïïng thïïs ïïmààgëë rëëqüüïïrëës àà rëëbüüïïld fôôr füütüürëë wôôrkspààcëës. ËËxïïstïïng wôôrkspààcëë dïïsks àànd ààüüthëëntïïcààtïïôôn ààrëë prëësëërvëëd.⟧",
+	"cloud_snapshot_billing_not_started": "⟦Stôôrààgëë bïïllïïng hààs nôôt stààrtëëd. Dëëlëëtïïng thïïs ïïmààgëë rëëqüüïïrëës àà rëëbüüïïld fôôr füütüürëë wôôrkspààcëës.⟧",
+	"cloud_snapshot_delete_image": "⟦Dëëlëëtëë sààvëëd ïïmààgëë⟧",
+	"cloud_snapshot_usage": "⟦Stôôrààgëë üüsààgëë thïïs pëërïïôôd⟧",
+	"cloud_snapshot_usage_recent": "⟦ÏÏnclüüdëëd ïïn yôôüür clôôüüd üüsààgëë tôôtààls.⟧"
 }
