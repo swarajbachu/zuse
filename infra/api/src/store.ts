@@ -2,6 +2,11 @@ import type { EnvironmentSharingAudience } from "@zuse/contracts";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
 import { Context, Effect, Layer, Ref, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import {
+	type DomainJoiningStore,
+	makeDomainJoiningMemory,
+	makeDomainJoiningSql,
+} from "./domain-joining-store.ts";
 import { type ApiError, serviceUnavailable } from "./errors.ts";
 import {
 	type GithubJoiningStore,
@@ -107,6 +112,7 @@ export type EnvironmentRegistrationMode =
 
 export interface ApiStoreApi {
 	readonly githubJoining: GithubJoiningStore;
+	readonly domainJoining: DomainJoiningStore;
 	/** Serialize membership edits across API workers before checking current authority. */
 	readonly withOrganizationLock: <A, E, R>(
 		organizationId: string,
@@ -220,8 +226,10 @@ export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 		const organizationLock = new KeyedEffectSerialWorker<string>();
 
 		const githubJoining = makeGithubJoiningMemory();
+		const domainJoining = makeDomainJoiningMemory();
 		return ApiStore.of({
 			githubJoining,
+			domainJoining,
 			withOrganizationLock: (organizationId, operation) =>
 				organizationDeadline(organizationLock.run(organizationId, operation)),
 			createChallenge: (challenge) =>
@@ -444,6 +452,7 @@ export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 				Effect.all(
 					[
 						githubJoining.deleteAccount(accountId),
+						domainJoining.deleteAccount(accountId),
 						Ref.update(
 							challenges,
 							(map) =>
@@ -561,8 +570,10 @@ export const ApiStorePg: Layer.Layer<ApiStore, never, SqlClient.SqlClient> =
 				);
 
 			const githubJoining = makeGithubJoiningSql(sql);
+			const domainJoining = makeDomainJoiningSql(sql);
 			return ApiStore.of({
 				githubJoining,
+				domainJoining,
 				withOrganizationLock: (organizationId, operation) =>
 					sql
 						.withTransaction(
@@ -912,7 +923,7 @@ export const ApiStorePg: Layer.Layer<ApiStore, never, SqlClient.SqlClient> =
 				deleteAccountData: (accountId) =>
 					orDie(
 						sql`
-              WITH deleted_github_identity AS (DELETE FROM api_github_identities WHERE account_id = ${accountId}), deleted_github_enrollments AS (DELETE FROM api_github_enrollments WHERE account_id = ${accountId}), deleted_activity AS (
+              WITH deleted_github_identity AS (DELETE FROM api_github_identities WHERE account_id = ${accountId}), deleted_github_enrollments AS (DELETE FROM api_github_enrollments WHERE account_id = ${accountId}), deleted_domain_enrollments AS (DELETE FROM api_organization_domain_enrollments WHERE account_id = ${accountId}), deleted_activity AS (
                 DELETE FROM api_agent_activity WHERE account_id = ${accountId}
               ), deleted_devices AS (
                 DELETE FROM api_devices WHERE account_id = ${accountId}

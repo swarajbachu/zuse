@@ -11,8 +11,13 @@ import {
 	githubMemberEligible,
 	invalidateGithubJoining,
 	reconcileGithubMemberships,
+	refreshGithubRosters,
 } from "../../src/github-membership.ts";
-import { routeGithubOrganizationRequest } from "../../src/github-organizations.ts";
+import {
+	joinGithubOrganization,
+	routeGithubOrganizationRequest,
+	syncGithubAutoJoin,
+} from "../../src/github-organizations.ts";
 import {
 	requireOrganizationMembership,
 	routeOrganizationRequest,
@@ -105,6 +110,12 @@ const makeRuntime = () =>
 			}),
 		),
 	);
+/** GitHub accounts each Zuse account linked through Zuse's GitHub App. */
+const githubSignIns: Record<string, number> = {
+	user_alice: 10,
+	user_bob: 11,
+	user_new: 12,
+};
 const policy = {
 	organizationId: "org-a",
 	installationId: 123,
@@ -152,10 +163,16 @@ describe("GitHub organization joining", () => {
 			),
 		);
 	const join = (account = "user_alice") =>
-		call(ApiPaths.organizationGithubJoin, account, {
-			organizationId: "org-a",
-			installationId: 123,
-		});
+		runtime.runPromise(
+			joinGithubOrganization(account, githubSignIns[account] ?? -1, {
+				organizationId: "org-a",
+				installationId: 123,
+			}),
+		);
+	const sync = (account: string) =>
+		runtime.runPromise(syncGithubAutoJoin(account));
+	const active = (account: string) =>
+		members.filter((m) => m.user_id === account && m.status === "active");
 	const store = () => runtime.runPromise(ApiStore);
 	beforeEach(async () => {
 		github.members = [10, 11, 12];
@@ -274,39 +291,54 @@ describe("GitHub organization joining", () => {
 		vi.unstubAllGlobals();
 		vi.useRealTimers();
 	});
-	it("discovers verified organizations and joins only as Member without duplicating retries", async () => {
-		expect(
-			await (await call(ApiPaths.organizationGithubDiscover))?.json(),
-		).toMatchObject({
-			connected: true,
-			organizations: [{ state: "available", name: "Acme" }],
-		});
-		await join();
-		await join();
+	it("auto-joins linked GitHub accounts listed in the roster, once, as Member", async () => {
+		await runtime.runPromise(refreshGithubRosters(123));
+		await sync("user_alice");
+		await sync("user_alice");
 		expect(members.filter((m) => m.user_id === "user_alice")).toEqual([
 			makeMember("user_alice"),
 		]);
-		expect(
-			await (await call(ApiPaths.organizationGithubDiscover))?.json(),
-		).toMatchObject({ organizations: [{ state: "joined" }] });
 	});
-	it("does not reveal matches before identity verification or to nonmembers", async () => {
-		expect(
-			await (
-				await call(ApiPaths.organizationGithubDiscover, "user_unknown")
-			)?.json(),
-		).toEqual({ connected: false, organizations: [] });
+	it("skips accounts without a linked GitHub account or outside the roster", async () => {
 		github.members = [11];
-		expect(
-			await (await call(ApiPaths.organizationGithubDiscover))?.json(),
-		).toEqual({
-			connected: true,
-			verificationId: "verified",
-			organizations: [],
-		});
+		await runtime.runPromise(refreshGithubRosters(123));
+		await sync("user_unknown");
+		await sync("user_alice");
+		expect(active("user_unknown")).toHaveLength(0);
+		expect(active("user_alice")).toHaveLength(0);
 		await expect(join()).rejects.toMatchObject({
 			code: "organization_access_denied",
 		});
+	});
+	it("does not auto-join while auto-join is off", async () => {
+		await runtime.runPromise(refreshGithubRosters(123));
+		await runtime.runPromise(
+			(await store()).githubJoining.savePolicy({ ...policy, enabled: false }),
+		);
+		await sync("user_alice");
+		expect(active("user_alice")).toHaveLength(0);
+	});
+	it("joins linked roster members as soon as auto-join turns on", async () => {
+		await runtime.runPromise(
+			(await store()).githubJoining.savePolicy({ ...policy, enabled: false }),
+		);
+		await call(ApiPaths.organizationGithubPolicy, "user_owner", {
+			organizationId: "org-a",
+			installationId: 123,
+			enabled: true,
+		});
+		expect(active("user_alice")).toHaveLength(1);
+		expect(active("user_bob")).toHaveLength(1);
+	});
+	it("reports the linked GitHub account", async () => {
+		expect(
+			await (await call(ApiPaths.organizationGithubConnection))?.json(),
+		).toEqual({ connected: true, login: "alice" });
+		expect(
+			await (
+				await call(ApiPaths.organizationGithubConnection, "user_unknown")
+			)?.json(),
+		).toEqual({ connected: false });
 	});
 	it("paginates private membership and coalesces concurrent verification", async () => {
 		github.members = [...Array.from({ length: 100 }, (_, i) => i + 100), 10];
@@ -537,6 +569,61 @@ describe("GitHub organization joining", () => {
 			),
 		).toBe(false);
 	});
+	it("expires OAuth state without linking an identity", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const result = await (
+			await call(ApiPaths.organizationGithubAuthorize, "user_new")
+		)?.json();
+		const start = await runtime.runPromise(
+			routeGithubOrganizationRequest(new Request(result.url)),
+		);
+		const cookie = start?.headers.get("set-cookie")?.split(";")[0] ?? "";
+		const callback = new URL(result.url);
+		callback.searchParams.set("code", "verified-code");
+		vi.setSystemTime(Date.now() + 601_000);
+		await expect(
+			runtime.runPromise(
+				routeGithubOrganizationRequest(
+					new Request(callback, { headers: { cookie } }),
+				),
+			),
+		).rejects.toMatchObject({ code: "invalid_github_join_state" });
+		expect(
+			await runtime.runPromise(
+				(await store()).githubJoining.getIdentity("user_new"),
+			),
+		).toBeNull();
+	});
+	it("auto-joins when GitHub is linked and lets an account switch GitHub accounts", async () => {
+		const link = async (accountId: string) => {
+			const result = await (
+				await call(ApiPaths.organizationGithubAuthorize, accountId)
+			)?.json();
+			const start = await runtime.runPromise(
+				routeGithubOrganizationRequest(new Request(result.url)),
+			);
+			const cookie = start?.headers.get("set-cookie")?.split(";")[0] ?? "";
+			const callback = new URL(result.url);
+			callback.searchParams.set("code", "verified-code");
+			return runtime.runPromise(
+				routeGithubOrganizationRequest(
+					new Request(callback, { headers: { cookie } }),
+				),
+			);
+		};
+		await runtime.runPromise(refreshGithubRosters(123));
+		github.userId = 12;
+		expect(await (await link("user_new"))?.text()).toContain("You joined Acme");
+		expect(active("user_new")).toHaveLength(1);
+		github.members = [10, 11, 12, 13];
+		github.userId = 13;
+		await link("user_new");
+		expect(
+			await runtime.runPromise(
+				(await store()).githubJoining.getIdentity("user_new"),
+			),
+		).toMatchObject({ githubUserId: 13 });
+	});
 	it("rechecks gateway and queued-command authority after a GitHub departure", async () => {
 		await join();
 		const workspace = {
@@ -563,46 +650,5 @@ describe("GitHub organization joining", () => {
 				cloudWorkspaceActorPermission(workspace, "user_alice", "m-user_alice"),
 			),
 		).rejects.toMatchObject({ status: 403 });
-	});
-	it("does not probe unrelated organizations during discovery", async () => {
-		const api = await store();
-		await runtime.runPromise(
-			api.githubJoining.savePolicy({
-				...policy,
-				organizationId: "unrelated",
-				installationId: 456,
-				githubOrgId: 999,
-			}),
-		);
-		const response = await (
-			await call(ApiPaths.organizationGithubDiscover)
-		)?.json();
-		expect(response.organizations).toHaveLength(1);
-		expect(github.reads).toBe(1);
-	});
-	it("expires OAuth state without linking an identity", async () => {
-		vi.useFakeTimers({ toFake: ["Date"] });
-		const result = await (
-			await call(ApiPaths.organizationGithubAuthorize, "user_new")
-		)?.json();
-		const start = await runtime.runPromise(
-			routeGithubOrganizationRequest(new Request(result.url)),
-		);
-		const cookie = start?.headers.get("set-cookie")?.split(";")[0] ?? "";
-		const callback = new URL(result.url);
-		callback.searchParams.set("code", "verified-code");
-		vi.setSystemTime(Date.now() + 601_000);
-		await expect(
-			runtime.runPromise(
-				routeGithubOrganizationRequest(
-					new Request(callback, { headers: { cookie } }),
-				),
-			),
-		).rejects.toMatchObject({ code: "invalid_github_join_state" });
-		expect(
-			await runtime.runPromise(
-				(await store()).githubJoining.getIdentity("user_new"),
-			),
-		).toBeNull();
 	});
 });

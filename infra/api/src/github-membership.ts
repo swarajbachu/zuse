@@ -109,6 +109,11 @@ export const githubMemberEligible = Effect.fn("githubMemberEligible")(
 					for (const row of rows) result.add(row.id);
 					if (rows.length < 100) {
 						local.values.set(key, { members: result, expires: now + 60_000 });
+						// Persist the complete roster so sign-in matching is a lookup.
+						yield* store.githubJoining.replaceRoster(
+							policy.installationId,
+							result,
+						);
 						return result;
 					}
 				}
@@ -217,6 +222,23 @@ export const invalidateGithubJoining = Effect.fn("invalidateGithubJoining")(
 							revision: crypto.randomUUID(),
 						});
 				}),
+			);
+		}
+	},
+);
+
+/** Re-read rosters for an installation's enabled policies after GitHub changes. */
+export const refreshGithubRosters = Effect.fn("refreshGithubRosters")(
+	function* (installationId: number) {
+		const store = yield* ApiStore;
+		for (const policy of yield* store.githubJoining.listPolicies({
+			installationId,
+		})) {
+			if (!policy.enabled) continue;
+			// An unavailable installation keeps its last roster; access is still
+			// checked live on every join and request.
+			yield* githubMemberEligible(policy, -1).pipe(
+				Effect.catch(() => Effect.void),
 			);
 		}
 	},

@@ -300,5 +300,8 @@
 	"worktree_setup_card_preparing_directory": "Preparing a separate working directory for this chat.",
 	"worktree_setup_card_no_setup_script": "No setup script needed.",
 	"worktree_setup_card_workspace_ready_description": "Your workspace is ready.",
-	"worktree_setup_card_preparing_environment": "Preparing the workspace environment."
+	"worktree_setup_card_preparing_environment": "Preparing the workspace environment.",
+	"projects_sidebar_upgrade": "Upgrade",
+	"projects_sidebar_plan_cloud": "Cloud",
+	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud plan · Manage billing"
 }

@@ -36,15 +36,16 @@ test.skipIf(!url)(
 			),
 		);
 		try {
-			await pools[0]?.query(
-				await readFile(
-					new URL(
-						"../../drizzle/migrations/0035_github_organization_joining.sql",
-						import.meta.url,
+			for (const migration of [
+				"0035_github_organization_joining.sql",
+				"0036_organization_auto_join.sql",
+			])
+				await pools[0]?.query(
+					await readFile(
+						new URL(`../../drizzle/migrations/${migration}`, import.meta.url),
+						"utf8",
 					),
-					"utf8",
-				),
-			);
+				);
 			const first = runtimes[0];
 			const second = runtimes[1];
 			if (!first || !second) throw new Error("missing runtime");
@@ -60,21 +61,61 @@ test.skipIf(!url)(
 			expect(
 				await first.runPromise(a.githubJoining.saveIdentity(identity)),
 			).toBe(true);
+			// One GitHub account never links to two Zuse accounts.
 			expect(
 				await second.runPromise(
 					b.githubJoining.saveIdentity({ ...identity, accountId: "other" }),
 				),
 			).toBe(false);
-			await first.runPromise(
-				a.githubJoining.saveIdentity({
-					...identity,
-					verificationId: "two",
-					organizationIds: [99, 100],
-				}),
-			);
+			// An account may switch to another GitHub account.
+			expect(
+				await first.runPromise(
+					a.githubJoining.saveIdentity({ ...identity, githubUserId: 12 }),
+				),
+			).toBe(true);
 			expect(
 				await second.runPromise(b.githubJoining.getIdentity("alice")),
-			).toMatchObject({ verificationId: "two", organizationIds: [99, 100] });
+			).toMatchObject({ githubUserId: 12 });
+			// Rosters replace atomically and are visible to other workers.
+			await first.runPromise(
+				a.githubJoining.replaceRoster(123, new Set([10, 11])),
+			);
+			await first.runPromise(
+				a.githubJoining.replaceRoster(123, new Set([10, 12])),
+			);
+			expect(
+				await second.runPromise(b.githubJoining.installationsWithMember(10)),
+			).toEqual([123]);
+			expect(
+				await second.runPromise(b.githubJoining.installationsWithMember(11)),
+			).toEqual([]);
+			expect(
+				await second.runPromise(b.githubJoining.identitiesInRoster(123)),
+			).toMatchObject([{ accountId: "alice", githubUserId: 12 }]);
+			// A domain belongs to one organization.
+			const domain = {
+				domain: "acme.dev",
+				organizationId: "org",
+				createdBy: "alice",
+			};
+			expect(await first.runPromise(a.domainJoining.claimDomain(domain))).toBe(
+				true,
+			);
+			expect(
+				await second.runPromise(
+					b.domainJoining.claimDomain({ ...domain, organizationId: "rival" }),
+				),
+			).toBe(false);
+			await second.runPromise(
+				b.domainJoining.removeDomain("rival", "acme.dev"),
+			);
+			expect(
+				await first.runPromise(a.domainJoining.getDomain("acme.dev")),
+			).toMatchObject({ organizationId: "org" });
+			await second.runPromise(b.domainJoining.removeDomain("org", "acme.dev"));
+			expect(
+				await first.runPromise(a.domainJoining.getDomain("acme.dev")),
+			).toBeNull();
 			const enrollment = {
 				organizationId: "org",
 				accountId: "alice",
@@ -117,12 +158,12 @@ test.skipIf(!url)(
 			);
 			expect(
 				await second.runPromise(
-					b.githubJoining.listPolicies({ githubOrgIds: [100] }),
+					b.githubJoining.listPolicies({ installationIds: [456] }),
 				),
 			).toEqual([]);
 			expect(
 				await second.runPromise(
-					b.githubJoining.listPolicies({ githubOrgIds: [99] }),
+					b.githubJoining.listPolicies({ installationIds: [123] }),
 				),
 			).toHaveLength(1);
 			// Separate workers serialize read-modify-write operations on the same org.

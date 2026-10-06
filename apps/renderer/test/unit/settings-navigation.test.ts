@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { settingsNavigationFor } from "../../src/lib/settings-navigation.ts";
 
 describe("settings contexts", () => {
@@ -43,24 +43,16 @@ describe("settings contexts", () => {
 		).toBe(false);
 	});
 	for (const desktop of [true, false]) {
-		it(`lists organizations in personal settings only with organization workspaces (${desktop ? "desktop" : "web"})`, () => {
-			vi.stubEnv("VITE_ORGANIZATION_WORKSPACES", "true");
+		it(`keeps organization features out of personal settings (${desktop ? "desktop" : "web"})`, () => {
 			const personal = settingsNavigationFor({ kind: "general" }, desktop).map(
 				(item) => item.id,
 			);
 			expect(personal).toContain("general");
-			expect(personal).toContain("organizations");
+			expect(personal).not.toContain("organizations");
 			if (!desktop) {
 				expect(personal).not.toContain("self-hosted");
 				expect(personal).not.toContain("machines");
 			}
-			vi.stubEnv("VITE_ORGANIZATION_WORKSPACES", "false");
-			expect(
-				settingsNavigationFor({ kind: "general" }, desktop).map(
-					(item) => item.id,
-				),
-			).not.toContain("organizations");
-			vi.unstubAllEnvs();
 		});
 	}
 });

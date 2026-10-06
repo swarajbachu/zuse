@@ -1,7 +1,6 @@
 import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/settings";
 import type {
-	Organization,
 	OrganizationDetails,
 	OrganizationMember,
 	OrganizationRole,
@@ -12,11 +11,12 @@ import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../../hooks/use-auth.ts";
 import { useOrganizationAction } from "../../hooks/use-organization-action.ts";
-import { openOrganizationWorkspace } from "../../lib/open-organization-workspace.ts";
 import { runOrganizations } from "../../lib/organization-client.ts";
 import { organizationErrorMessage } from "../../lib/organization-error.ts";
-import { loadOrganizationWorkspaces } from "../../lib/organization-workspaces.ts";
-import { requestReviewLeave } from "../../lib/review-edit-guard.ts";
+import {
+	loadOrganizationDetails,
+	peekOrganizationDetails,
+} from "../../lib/organization-settings-cache.ts";
 import {
 	AlertDialog,
 	AlertDialogClose,
@@ -36,18 +36,9 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "../ui/select.tsx";
-import {
-	SettingsFrame,
-	SettingsGroup,
-	SettingsNote,
-	SettingsRow,
-} from "../ui/settings-panel.tsx";
-import { Spinner } from "../ui/spinner.tsx";
+import { SettingsGroup, SettingsRow } from "../ui/settings-panel.tsx";
+import { OrganizationAutoJoin } from "./organization-auto-join.tsx";
 import { OrganizationAvatar } from "./organization-avatar.tsx";
-import {
-	OrganizationGithubAccess,
-	OrganizationGithubJoin,
-} from "./organization-github.tsx";
 
 const roleLabel = (role: string) =>
 	role === "admin"
@@ -100,15 +91,14 @@ function OrganizationRoleSelect({
 }
 
 /**
- * Organizations settings. Inside an organization workspace this manages that
- * organization only; in personal settings it lists the account's
- * organizations, each managed from its own workspace.
+ * Settings for the organization workspace that is open. Personal settings have
+ * no organization features; the workspace switcher creates and joins them.
  */
 export function OrganizationsPane({
 	organizationId,
 }: {
-	organizationId?: string;
-} = {}) {
+	organizationId: string;
+}) {
 	useUiMessages(["common", "settings"]);
 	const auth = useAuth();
 	const currentUserId = auth.user?.id;
@@ -133,152 +123,11 @@ export function OrganizationsPane({
 				/>
 			</SettingsGroup>
 		);
-	return organizationId === undefined ? (
-		<OrganizationDirectory key={currentUserId} />
-	) : (
+	return (
 		<OrganizationManagement
 			key={`${currentUserId}:${organizationId}`}
 			organizationId={organizationId}
 		/>
-	);
-}
-
-/** Account-level view: organizations you belong to and ways to get into one. */
-function OrganizationDirectory() {
-	const { busy, error, setError, guard, run } = useOrganizationAction();
-	const [organizations, setOrganizations] = useState<
-		ReadonlyArray<Organization>
-	>([]);
-	const [loading, setLoading] = useState(true);
-	const [name, setName] = useState("");
-	const createAttempt = useRef<{ name: string; operationId: string } | null>(
-		null,
-	);
-
-	const refresh = useCallback(async () => {
-		const current = guard();
-		setLoading(true);
-		setError(null);
-		try {
-			const list = await loadOrganizationWorkspaces(true);
-			if (current()) setOrganizations(list);
-		} catch (cause) {
-			if (current()) setError(organizationErrorMessage(cause));
-		} finally {
-			if (current()) setLoading(false);
-		}
-	}, [guard, setError]);
-
-	useEffect(() => {
-		void refresh();
-	}, [refresh]);
-
-	const open = (organization: Organization) =>
-		requestReviewLeave(() => openOrganizationWorkspace(organization));
-
-	const canCreate =
-		!loading && !error && !organizations.some((org) => org.isCreator);
-	return (
-		<div className="flex flex-col gap-4 text-xs">
-			<SettingsGroup
-				title={uiMessage("settings:organizations_your_organizations")}
-				action={
-					<Button
-						className="h-7"
-						size="default"
-						variant="ghost"
-						disabled={busy || loading}
-						onClick={() => void refresh()}
-					>
-						{uiMessage("settings:organizations_refresh")}
-					</Button>
-				}
-			>
-				{error && <SettingsNote tone="error">{error}</SettingsNote>}
-				{loading && organizations.length === 0 && (
-					<SettingsNote>
-						<Spinner className="size-3" />
-						{uiMessage("settings:organizations_loading_organization")}
-					</SettingsNote>
-				)}
-				{!loading && !error && organizations.length === 0 && (
-					<SettingsNote>
-						{uiMessage(
-							"settings:organizations_no_organizations_yet_create_one_below_or_accept_an_invitation_from_your_team",
-						)}
-					</SettingsNote>
-				)}
-				{organizations.map((org) => (
-					<SettingsRow
-						key={org.id}
-						leading={<OrganizationAvatar seed={org.id} />}
-						title={org.name}
-						description={roleLabel(org.role)}
-						action={
-							<DitherActionButton
-								tone="secondary"
-								disabled={busy}
-								onClick={() => open(org)}
-							>
-								{uiMessage("common:open")}
-							</DitherActionButton>
-						}
-					/>
-				))}
-			</SettingsGroup>
-			<OrganizationGithubJoin onJoined={refresh} />
-			{canCreate && (
-				<SettingsFrame
-					title={uiMessage("settings:organizations_create_an_organization")}
-					description={uiMessage("settings:organizations_creation_limit")}
-				>
-					<form
-						className="flex items-center gap-2"
-						onSubmit={(event) => {
-							event.preventDefault();
-							if (loading || !name.trim()) return;
-							void run(async (current) => {
-								const trimmed = name.trim();
-								if (createAttempt.current?.name !== trimmed)
-									createAttempt.current = {
-										name: trimmed,
-										operationId: crypto.randomUUID(),
-									};
-								const attempt = createAttempt.current;
-								const created = await runOrganizations((client) =>
-									client["organizations.create"](attempt),
-								);
-								if (!current()) return;
-								createAttempt.current = null;
-								setName("");
-								await refresh();
-								// A new organization's next step is inviting people.
-								if (current()) open(created);
-							});
-						}}
-					>
-						<Input
-							className="h-7 min-w-0 flex-1 border-0 shadow-none"
-							aria-label={uiMessage("settings:organizations_organization_name")}
-							required
-							maxLength={100}
-							value={name}
-							disabled={busy || loading}
-							onChange={(event) => setName(event.target.value)}
-							placeholder={uiMessage(
-								"settings:organizations_organization_name",
-							)}
-						/>
-						<DitherActionButton
-							type="submit"
-							disabled={busy || loading || !name.trim()}
-						>
-							{uiMessage("settings:organizations_create")}
-						</DitherActionButton>
-					</form>
-				</SettingsFrame>
-			)}
-		</div>
 	);
 }
 
@@ -289,8 +138,12 @@ function OrganizationManagement({
 	organizationId: string;
 }) {
 	const { busy, error, setError, guard, run } = useOrganizationAction();
-	const [details, setDetails] = useState<OrganizationDetails | null>(null);
-	const [loading, setLoading] = useState(true);
+	// Open from the cached snapshot; only a first visit shows loading.
+	const [details, setDetails] = useState<OrganizationDetails | null>(
+		() => peekOrganizationDetails(organizationId) ?? null,
+	);
+	const [loading, setLoading] = useState(details === null);
+	const shown = useRef(details !== null);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [email, setEmail] = useState("");
 	const [role, setRole] = useState<OrganizationRole>("member");
@@ -298,13 +151,13 @@ function OrganizationManagement({
 
 	const refresh = useCallback(async () => {
 		const current = guard();
-		setLoading(true);
+		if (!shown.current) setLoading(true);
 		setError(null);
 		try {
-			const next = await runOrganizations((client) =>
-				client["organizations.get"]({ organizationId }),
-			);
-			if (current()) setDetails(next);
+			const next = await loadOrganizationDetails(organizationId, true);
+			if (!current()) return;
+			shown.current = true;
+			setDetails(next);
 		} catch (cause) {
 			if (current()) setError(organizationErrorMessage(cause));
 		} finally {
@@ -365,7 +218,12 @@ function OrganizationManagement({
 					{details.members.map((member) => (
 						<SettingsRow
 							key={member.id}
-							leading={<OrganizationAvatar seed={member.userId} />}
+							leading={
+								<OrganizationAvatar
+									seed={member.userId}
+									imageUrl={member.profilePictureUrl}
+								/>
+							}
 							title={
 								member.userId === details.currentUserId
 									? uiMessage("settings:organizations_current_member", {
@@ -518,7 +376,7 @@ function OrganizationManagement({
 					))}
 				</SettingsGroup>
 			)}
-			{admin && <OrganizationGithubAccess organizationId={organizationId} />}
+			{admin && <OrganizationAutoJoin organizationId={organizationId} />}
 			<AlertDialog
 				open={removing !== null}
 				onOpenChange={(open) => {

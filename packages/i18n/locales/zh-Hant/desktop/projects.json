@@ -300,5 +300,8 @@
 	"worktree_setup_card_no_setup_script": "無需設定腳本。",
 	"worktree_setup_card_workspace_ready_description": "你的工作區已就緒。",
 	"worktree_setup_card_preparing_environment": "正在準備工作區環境。",
-	"github_submit_stack_help": "推送所有分支並更新 GitHub 上對應的拉取請求。沒有拉取請求的分支會建立草稿，表示尚未準備好接受審查。既有的開放拉取請求保持開放。"
+	"github_submit_stack_help": "推送所有分支並更新 GitHub 上對應的拉取請求。沒有拉取請求的分支會建立草稿，表示尚未準備好接受審查。既有的開放拉取請求保持開放。",
+	"projects_sidebar_upgrade": "升級",
+	"projects_sidebar_plan_cloud": "Cloud",
+	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 方案 · 管理帳單"
 }

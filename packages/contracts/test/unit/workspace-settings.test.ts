@@ -1,5 +1,10 @@
-import { Schema } from "effect";
+import { Exit, Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 import { describe, expect, it } from "vitest";
+import {
+	CloudSettingsGetRpc,
+	CloudSettingsUpdateRpc,
+} from "../../src/cloud-workspaces.ts";
 import {
 	WorkspaceSettings,
 	WorkspaceSettingsUpdate,
@@ -38,3 +43,31 @@ describe("workspace settings across provider additions", () => {
 		).toThrow();
 	});
 });
+
+for (const values of [
+	legacyValues,
+	{},
+	{
+		defaultModelByProvider: { "acp-custom": "custom-model" },
+		providerEnabled: { "acp-custom": false },
+		modelEnabledByProvider: { "acp-custom": { "custom-model": false } },
+		customModelIdsByProvider: { "acp-custom": ["custom-model"] },
+	},
+]) {
+	it("round-trips sparse preferences through the cloud settings RPC codecs", () => {
+		const settings = { revision: 3, values };
+		const exitCodec = Schema.toCodecJson(Rpc.exitSchema(CloudSettingsGetRpc));
+		const exit = Exit.succeed(settings);
+		const encodedExit = Schema.encodeSync(exitCodec)(exit);
+		expect(Schema.decodeUnknownSync(exitCodec)(encodedExit)).toEqual(exit);
+		const updateCodec = Schema.toCodecJson(
+			CloudSettingsUpdateRpc.payloadSchema,
+		);
+		const update = { expectedRevision: 3, values };
+		expect(
+			Schema.decodeUnknownSync(updateCodec)(
+				Schema.encodeSync(updateCodec)(update),
+			),
+		).toEqual(update);
+	});
+}

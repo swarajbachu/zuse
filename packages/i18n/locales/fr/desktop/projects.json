@@ -306,5 +306,8 @@
 	"worktree_setup_card_no_setup_script": "Aucun script de configuration nécessaire.",
 	"worktree_setup_card_workspace_ready_description": "Votre espace de travail est prêt.",
 	"worktree_setup_card_preparing_environment": "Préparation de l’environnement de travail.",
-	"github_submit_stack_help": "Pousse toutes les branches et met à jour leurs pull requests sur GitHub. Les branches sans pull request en reçoivent une en brouillon, pas encore prête pour la revue. Les pull requests déjà ouvertes restent ouvertes."
+	"github_submit_stack_help": "Pousse toutes les branches et met à jour leurs pull requests sur GitHub. Les branches sans pull request en reçoivent une en brouillon, pas encore prête pour la revue. Les pull requests déjà ouvertes restent ouvertes.",
+	"projects_sidebar_upgrade": "Passer à Cloud",
+	"projects_sidebar_plan_cloud": "Cloud",
+	"projects_sidebar_plan_cloud_tooltip": "Forfait Zuse Cloud · Gérer la facturation"
 }

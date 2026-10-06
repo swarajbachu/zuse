@@ -2,7 +2,9 @@ import { Effect, Schema, Struct } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
 import {
+	AcpProviderId,
 	AgentDefinition,
+	BuiltinProviderId,
 	OpencodeCustomProvider,
 	ProviderId,
 	RuntimeMode,
@@ -278,6 +280,14 @@ export const DevicePreferences = SettingsPatch.mapFields(
 );
 export type DevicePreferences = typeof DevicePreferences.Type;
 
+// Literal keys need optional values to preserve sparse saved preferences. Dynamic
+// ACP keys are already sparse; optional values there break the JSON RPC codec.
+const sparseProviderPreferences = <S extends Schema.Constraint>(value: S) =>
+	Schema.StructWithRest(
+		Schema.Record(BuiltinProviderId, Schema.optional(value)),
+		[Schema.Record(AcpProviderId, value)],
+	);
+
 /** Shared, non-secret configuration. Device preferences and host paths stay local. */
 export const WorkspaceSettingsValues = SettingsPatch.mapFields(
 	Struct.pick([
@@ -300,21 +310,15 @@ export const WorkspaceSettingsValues = SettingsPatch.mapFields(
 ).mapFields((fields) => ({
 	...fields,
 	// Persisted account preferences must survive additions to the provider catalog.
-	// ACP provider ids are a pattern key, which only permits `Schema.optional` values.
 	defaultModelByProvider: Schema.optional(
-		Schema.Record(ProviderId, Schema.optional(Schema.String)),
+		sparseProviderPreferences(Schema.String),
 	),
-	providerEnabled: Schema.optional(
-		Schema.Record(ProviderId, Schema.optional(Schema.Boolean)),
-	),
+	providerEnabled: Schema.optional(sparseProviderPreferences(Schema.Boolean)),
 	modelEnabledByProvider: Schema.optional(
-		Schema.Record(
-			ProviderId,
-			Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
-		),
+		sparseProviderPreferences(Schema.Record(Schema.String, Schema.Boolean)),
 	),
 	customModelIdsByProvider: Schema.optional(
-		Schema.Record(ProviderId, Schema.optional(Schema.Array(Schema.String))),
+		sparseProviderPreferences(Schema.Array(Schema.String)),
 	),
 }));
 export type WorkspaceSettingsValues = typeof WorkspaceSettingsValues.Type;

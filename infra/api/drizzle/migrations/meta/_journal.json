@@ -260,6 +260,13 @@
 			"when": 1790940000004,
 			"tag": "0035_github_organization_joining",
 			"breakpoints": true
+		},
+		{
+			"idx": 37,
+			"version": "7",
+			"when": 1790940000005,
+			"tag": "0036_organization_auto_join",
+			"breakpoints": true
 		}
 	]
 }

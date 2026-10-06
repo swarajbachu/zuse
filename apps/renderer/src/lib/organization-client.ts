@@ -24,10 +24,13 @@ type OrganizationRpc = Extract<
 			| "organizations.setRole"
 			| "organizations.removeMember"
 			| "organizations.githubAuthorize"
-			| "organizations.githubDiscover"
+			| "organizations.githubConnection"
+			| "organizations.domains"
+			| "organizations.domainAdd"
+			| "organizations.domainRemove"
+			| "organizations.domainRestore"
 			| "organizations.githubSettings"
 			| "organizations.githubPolicy"
-			| "organizations.githubJoin"
 			| "organizations.githubRestore";
 	}
 >;

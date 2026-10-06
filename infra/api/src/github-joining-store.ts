@@ -34,10 +34,24 @@ export interface GithubPolicyFilter {
 	readonly organizationId?: string;
 	readonly installationId?: number;
 	readonly githubOrgIds?: ReadonlyArray<number>;
+	readonly installationIds?: ReadonlyArray<number>;
 }
 export interface GithubJoiningStore {
 	getIdentity(accountId: string): Effect.Effect<GithubIdentity | null>;
 	saveIdentity(identity: GithubIdentity): Effect.Effect<boolean>;
+	/** Replace an installation's roster with a complete, freshly read one. */
+	replaceRoster(
+		installationId: number,
+		githubUserIds: ReadonlySet<number>,
+	): Effect.Effect<void>;
+	/** Installations whose last complete roster includes this GitHub user. */
+	installationsWithMember(
+		githubUserId: number,
+	): Effect.Effect<ReadonlyArray<number>>;
+	/** Linked identities whose GitHub account is in an installation's roster. */
+	identitiesInRoster(
+		installationId: number,
+	): Effect.Effect<ReadonlyArray<GithubIdentity>>;
 	listPolicies(
 		filter?: GithubPolicyFilter,
 	): Effect.Effect<ReadonlyArray<GithubJoinPolicy>>;
@@ -55,6 +69,7 @@ export interface GithubJoiningStore {
 }
 export const makeGithubJoiningMemory = (): GithubJoiningStore => {
 	const identities = new Map<string, GithubIdentity>();
+	const rosters = new Map<number, ReadonlySet<number>>();
 	const policies = new Map<string, GithubJoinPolicy>();
 	const enrollments = new Map<string, GithubEnrollment>();
 	return {
@@ -69,11 +84,25 @@ export const makeGithubJoiningMemory = (): GithubJoiningStore => {
 					)
 				)
 					return false;
-				const previous = identities.get(value.accountId);
-				if (previous && previous.githubUserId !== value.githubUserId)
-					return false;
 				identities.set(value.accountId, value);
 				return true;
+			}),
+		replaceRoster: (installationId, ids) =>
+			Effect.sync(() => {
+				rosters.set(installationId, new Set(ids));
+			}),
+		installationsWithMember: (githubUserId) =>
+			Effect.sync(() =>
+				[...rosters]
+					.filter(([, members]) => members.has(githubUserId))
+					.map(([installationId]) => installationId),
+			),
+		identitiesInRoster: (installationId) =>
+			Effect.sync(() => {
+				const members = rosters.get(installationId);
+				return [...identities.values()].filter(
+					(i) => members?.has(i.githubUserId) === true,
+				);
 			}),
 		listPolicies: (filter = {}) =>
 			Effect.sync(() =>
@@ -81,6 +110,8 @@ export const makeGithubJoiningMemory = (): GithubJoiningStore => {
 					(p) =>
 						(filter.githubOrgIds === undefined ||
 							filter.githubOrgIds.includes(p.githubOrgId)) &&
+						(filter.installationIds === undefined ||
+							filter.installationIds.includes(p.installationId)) &&
 						(filter.organizationId === undefined ||
 							p.organizationId === filter.organizationId) &&
 						(filter.installationId === undefined ||
@@ -132,28 +163,56 @@ export const makeGithubJoiningSql = (
 					Effect.map((rows) => decode(GithubIdentity, rows)[0] ?? null),
 				),
 			),
+		// An account may switch GitHub accounts; one GitHub account never links to
+		// two Zuse accounts (the unique github_user_id index enforces races).
 		saveIdentity: (i) =>
+			sql<{
+				account_id: string;
+			}>`SELECT account_id FROM api_github_identities WHERE github_user_id=${i.githubUserId}`.pipe(
+				Effect.flatMap((rows) =>
+					rows.some((row) => row.account_id !== i.accountId)
+						? Effect.succeed(false)
+						: sql`INSERT INTO api_github_identities (account_id, github_user_id, data) VALUES (${i.accountId}, ${i.githubUserId}, ${JSON.stringify(i)}::jsonb) ON CONFLICT (account_id) DO UPDATE SET github_user_id=EXCLUDED.github_user_id, data=EXCLUDED.data`.pipe(
+								Effect.as(true),
+							),
+				),
+				Effect.catch(() => Effect.succeed(false)),
+			),
+		replaceRoster: (installationId, ids) => {
+			const members = JSON.stringify([...ids]);
+			return durable(
+				sql
+					.withTransaction(
+						sql`DELETE FROM api_github_org_members WHERE installation_id=${installationId} AND NOT (github_user_id = ANY (SELECT jsonb_array_elements_text(${members}::jsonb)::bigint))`.pipe(
+							Effect.andThen(
+								sql`INSERT INTO api_github_org_members (installation_id, github_user_id) SELECT ${installationId}, jsonb_array_elements_text(${members}::jsonb)::bigint ON CONFLICT DO NOTHING`,
+							),
+						),
+					)
+					.pipe(Effect.asVoid),
+			);
+		},
+		installationsWithMember: (githubUserId) =>
 			durable(
-				sql`INSERT INTO api_github_identities (account_id, github_user_id, data) VALUES (${i.accountId}, ${i.githubUserId}, ${JSON.stringify(i)}::jsonb) ON CONFLICT DO NOTHING`.pipe(
-					Effect.andThen(
-						sql`UPDATE api_github_identities SET data=${JSON.stringify(i)}::jsonb WHERE account_id=${i.accountId} AND github_user_id=${i.githubUserId}`,
-					),
-					Effect.andThen(
-						sql<{
-							data: unknown;
-						}>`SELECT data FROM api_github_identities WHERE account_id=${i.accountId}`,
-					),
-					Effect.map(
-						(rows) =>
-							decode(GithubIdentity, rows)[0]?.githubUserId === i.githubUserId,
-					),
+				sql<{
+					installation_id: string | number;
+				}>`SELECT installation_id FROM api_github_org_members WHERE github_user_id=${githubUserId}`.pipe(
+					Effect.map((rows) => rows.map((r) => Number(r.installation_id))),
+				),
+			),
+		identitiesInRoster: (installationId) =>
+			durable(
+				sql<{
+					data: unknown;
+				}>`SELECT i.data FROM api_github_identities i JOIN api_github_org_members m ON m.github_user_id = i.github_user_id WHERE m.installation_id=${installationId}`.pipe(
+					Effect.map((rows) => decode(GithubIdentity, rows)),
 				),
 			),
 		listPolicies: (filter = {}) =>
 			durable(
 				sql<{
 					data: unknown;
-				}>`SELECT data FROM api_github_join_policies WHERE (${filter.organizationId ?? null}::text IS NULL OR organization_id=${filter.organizationId ?? null}) AND (${filter.installationId ?? null}::bigint IS NULL OR installation_id=${filter.installationId ?? null}) AND ${filter.githubOrgIds === undefined ? sql`TRUE` : sql.in("github_org_id", filter.githubOrgIds)}`.pipe(
+				}>`SELECT data FROM api_github_join_policies WHERE (${filter.organizationId ?? null}::text IS NULL OR organization_id=${filter.organizationId ?? null}) AND (${filter.installationId ?? null}::bigint IS NULL OR installation_id=${filter.installationId ?? null}) AND ${filter.githubOrgIds === undefined ? sql`TRUE` : sql.in("github_org_id", filter.githubOrgIds)} AND ${filter.installationIds === undefined ? sql`TRUE` : filter.installationIds.length === 0 ? sql`FALSE` : sql.in("installation_id", filter.installationIds)}`.pipe(
 					Effect.map((rows) => decode(GithubJoinPolicy, rows)),
 				),
 			),

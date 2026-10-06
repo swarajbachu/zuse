@@ -1,7 +1,9 @@
 import {
 	invalidateGithubJoining,
 	reconcileGithubMemberships,
+	refreshGithubRosters,
 } from "./github-membership.ts";
+import { autoJoinInstallation } from "./github-organizations.ts";
 import {
 	githubAppRequest,
 	githubRequest,
@@ -41,6 +43,7 @@ import {
 } from "./github-callback-page.ts";
 import { json } from "./http.ts";
 import { getOrganizationName } from "./organizations.ts";
+import { ApiStore } from "./store.ts";
 import { resolveWorkspaceActorAccess } from "./workspace-authorization.ts";
 import { workspaceScopeForOwner } from "./workspace-scope.ts";
 
@@ -212,6 +215,11 @@ export const githubWebhook = Effect.fn("githubWebhook")(function* (
 	yield* invalidateGithubJoining(payload.installation.id);
 	yield* refreshGithubInstallation(payload.installation.id);
 	yield* reconcileGithubMemberships(payload.installation.id);
+	yield* refreshGithubRosters(payload.installation.id);
+	// Linked members newly added on GitHub join organizations with auto-join on.
+	yield* autoJoinInstallation(payload.installation.id).pipe(
+		Effect.catch(() => Effect.void),
+	);
 	return json({ accepted: true });
 });
 
@@ -367,6 +375,19 @@ export const completeGithubInstallation = Effect.fn(
 });
 
 const GITHUB_STATE_COOKIE = "__Host-zuse-github";
+/** Whether a GitHub user was previously linked by this Zuse account. */
+const isActorGithubUser = Effect.fn("isActorGithubUser")(function* (
+	actorId: string,
+	githubUserId: number,
+) {
+	const stored = yield* (yield* CloudWorkspaceStore).getGithubUser(actorId);
+	// Stored commit emails are `${githubUserId}+${login}@users.noreply.github.com`.
+	if (stored && Number(stored.email.split("+")[0]) === githubUserId)
+		return true;
+	const identity = yield* (yield* ApiStore).githubJoining.getIdentity(actorId);
+	return identity?.githubUserId === githubUserId;
+});
+
 const stateCookie = (nonce: string, maxAge = 600) =>
 	`${GITHUB_STATE_COOKIE}=${nonce}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
 
@@ -434,10 +455,28 @@ export const githubAuthorizationCallback = Effect.fn(
 	).toString();
 	const code = url.searchParams.get("code");
 	if (request.method === "GET" && code === null) {
+		// Returning from installing an account carries its installation id.
+		// Keep it through OAuth so that account links without another choice.
+		const pending =
+			typeof verified.installationId !== "number" &&
+			Number.isSafeInteger(installationHint) &&
+			installationHint > 0
+				? installationHint
+				: undefined;
 		const authorize = new URL("https://github.com/login/oauth/authorize");
 		authorize.searchParams.set("client_id", github.clientId);
 		authorize.searchParams.set("redirect_uri", callback);
-		authorize.searchParams.set("state", state);
+		authorize.searchParams.set(
+			"state",
+			pending === undefined
+				? state
+				: yield* signGithubState(
+						verified.accountId,
+						verified.actorId,
+						verified.nonce,
+						pending,
+					),
+		);
 		return new Response(null, {
 			status: 302,
 			headers: {
@@ -483,6 +522,8 @@ export const githubAuthorizationCallback = Effect.fn(
 	);
 	const choices: Array<IntegrationPageInput["actions"][number]> = [];
 	let hasInstallations = false;
+	let needsApproval = false;
+	const linkable = new Set<number>();
 	const linkedInstallations =
 		yield* (yield* CloudWorkspaceStore).listGithubInstallations(
 			verified.accountId,
@@ -492,7 +533,12 @@ export const githubAuthorizationCallback = Effect.fn(
 			installations: Array<{
 				id: number;
 				app_id: number;
-				account: { id: number; login: string; type: string };
+				account: {
+					id: number;
+					login: string;
+					type: string;
+					avatar_url?: string;
+				};
 				suspended_at: string | null;
 			}>;
 		}>(
@@ -521,11 +567,42 @@ export const githubAuthorizationCallback = Effect.fn(
 					credentials.accessToken,
 				).pipe(
 					Effect.catch((error) =>
-						error.detail === "github_404" || error.detail === "github_403"
+						error.detail === "github_404"
 							? Effect.succeed(null)
-							: Effect.fail(error),
+							: error.detail === "github_403"
+								? Effect.succeed("permission_missing" as const)
+								: Effect.fail(error),
 					),
 				);
+				// Without the app's Members permission GitHub cannot prove the
+				// person administers the organization. Show it with the fix
+				// instead of hiding it; it stays unlinkable until approved.
+				if (membership === "permission_missing") {
+					needsApproval = true;
+					const resume = new URL(callback);
+					resume.searchParams.set(
+						"state",
+						yield* signGithubState(
+							verified.accountId,
+							verified.actorId,
+							verified.nonce,
+							installation.id,
+						),
+					);
+					choices.push({
+						label: "Approve on GitHub",
+						accountName: installation.account.login,
+						avatarUrl: installation.account.avatar_url,
+						description: "Organization · Needs approval",
+						href: githubInstallationSettingsUrl(installation.id, {
+							accountType: installation.account.type,
+							accountLogin: installation.account.login,
+						}),
+						// Coming back after approving links this organization directly.
+						resumeHref: resume.toString(),
+					});
+					continue;
+				}
 				canAdminister =
 					membership?.role === "admin" && membership.state === "active";
 			}
@@ -535,9 +612,12 @@ export const githubAuthorizationCallback = Effect.fn(
 					(item) => item.installationId === installation.id && !item.suspended,
 				)
 			)
+				linkable.add(installation.id);
+			if (linkable.has(installation.id))
 				choices.push({
 					label: "Use this account",
 					accountName: installation.account.login,
+					avatarUrl: installation.account.avatar_url,
 					description:
 						installation.account.type === "Organization"
 							? "Organization"
@@ -559,6 +639,38 @@ export const githubAuthorizationCallback = Effect.fn(
 				});
 		}
 		if (result.installations.length < 100) break;
+	}
+	// The person already chose this account (installed it, or approved it and
+	// came back): link it now instead of asking them to choose it again.
+	const chosen =
+		typeof verified.installationId === "number"
+			? verified.installationId
+			: undefined;
+	// The browser carries no Zuse session, so the chooser naming the workspace
+	// is the confirmation. Skip it only when this GitHub account is already
+	// known to be the actor's: a link minted for someone else's workspace then
+	// still stops at the chooser instead of attaching this account to it.
+	if (
+		chosen !== undefined &&
+		linkable.has(chosen) &&
+		(yield* isActorGithubUser(verified.actorId, user.id))
+	) {
+		const login = yield* completeGithubInstallation(
+			yield* signGithubState(
+				verified.accountId,
+				verified.actorId,
+				verified.nonce,
+				chosen,
+				user.authorization,
+			),
+			chosen,
+		);
+		return new Response(renderGithubConnectedPage(login), {
+			headers: {
+				...githubCallbackPageHeaders,
+				"set-cookie": stateCookie("", 0),
+			},
+		});
 	}
 	if (!hasInstallations && verified.canManageInstallation)
 		return new Response(null, {
@@ -583,11 +695,13 @@ export const githubAuthorizationCallback = Effect.fn(
 			title: "Choose a GitHub account",
 			description: `For your ${workspaceName} workspace.`,
 			status: "Connect",
-			hint: !verified.canManageInstallation
-				? "Connect your own GitHub identity to repositories already linked to this workspace. If none appear, ask an organization administrator to link the GitHub installation and confirm your repository access."
-				: choices.length === 0
-					? "No installations you administer are available. Install the app, or ask your GitHub organization owner to connect it. Organization verification requires the app's Members read permission."
-					: `Choose repositories on GitHub, then return to connect. ${scope.kind === "organization" ? "Selected repositories are shared with workspace members." : "Add them as projects in Zuse after connecting."}`,
+			hint: needsApproval
+				? "Zuse needs read access to organization members to confirm you administer an organization. Approve it on GitHub, then reopen this page from Zuse."
+				: !verified.canManageInstallation
+					? "Connect your own GitHub identity to repositories already linked to this workspace. If none appear, ask an organization administrator to link the GitHub installation and confirm your repository access."
+					: choices.length === 0
+						? "No installations you administer are available. Install the app, or ask your GitHub organization owner to connect it. Organization verification requires the app's Members read permission."
+						: `Choose repositories on GitHub, then return to connect. ${scope.kind === "organization" ? "Selected repositories are shared with workspace members." : "Add them as projects in Zuse after connecting."}`,
 			actions: [
 				...choices,
 				...(verified.canManageInstallation

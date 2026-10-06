@@ -47,12 +47,14 @@ export const clampedText = (
  */
 export const browserPageHeaders = (
 	scriptSources: readonly string[] = [],
+	imageSources: readonly string[] = [],
 ): Readonly<Record<string, string>> => ({
 	"cache-control": "no-store",
 	"content-security-policy": [
 		"default-src 'none'",
 		"style-src 'unsafe-inline'",
 		...(scriptSources.length ? [`script-src ${scriptSources.join(" ")}`] : []),
+		...(imageSources.length ? [`img-src ${imageSources.join(" ")}`] : []),
 		"frame-ancestors 'none'",
 	].join("; "),
 	"content-type": "text/html; charset=utf-8",

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
 import {
 	INTEGRATION_PAGE_HEADERS,
@@ -61,5 +62,50 @@ describe("integration page", () => {
 		expect(page).not.toContain('class="list"');
 		expect(page).toContain('<a class="button" href="slack://app">');
 		expect(page).toContain('class="button secondary" type="submit"');
+	});
+	test("shows GitHub avatars and nothing from other image hosts", () => {
+		const page = renderIntegrationPage({
+			integration: "GitHub",
+			description: "For your QA workspace.",
+			status: "Connect",
+			hint: "",
+			actions: [
+				{
+					label: "Use this account",
+					accountName: "octocat",
+					avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
+					action: "https://api.test/callback",
+					csrf: "token",
+				},
+				{
+					label: "Approve on GitHub",
+					accountName: "acme",
+					avatarUrl: "https://evil.example/pixel.png",
+					href: "https://github.com/organizations/acme/settings/installations/2",
+					resumeHref: "/callback?state=resume",
+				},
+			],
+		});
+		expect(page).toContain(
+			'<img class="mark" src="https://avatars.githubusercontent.com/u/1?v=4"',
+		);
+		expect(page).not.toContain("evil.example");
+		expect(page).toContain('aria-label="Approve on GitHub: acme"');
+		// Returning from GitHub resumes at the row's same-origin URL.
+		expect(page).toContain('data-resume="/callback?state=resume"');
+		expect(page.match(/<script/gu)).toHaveLength(2);
+		const scripts = [...page.matchAll(/<script>([\s\S]*?)<\/script>/gu)].map(
+			(match) =>
+				`'sha256-${createHash("sha256")
+					.update(match[1] ?? "")
+					.digest("base64")}'`,
+		);
+		for (const source of scripts)
+			expect(INTEGRATION_PAGE_HEADERS["content-security-policy"]).toContain(
+				source,
+			);
+		expect(INTEGRATION_PAGE_HEADERS["content-security-policy"]).toContain(
+			"img-src https://avatars.githubusercontent.com",
+		);
 	});
 });

@@ -98,10 +98,15 @@ import {
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
 import { cloudWorkspaceBetaAvailable } from "../lib/cloud-machines-availability.ts";
+import { startCloudCheckout } from "../lib/cloud-onboarding.ts";
 import {
 	cloudSummaryActiveSessionId,
 	useCloudChatCatalogStore,
 } from "../lib/cloud-workspace-catalog.ts";
+import {
+	hasCloudEntitlement,
+	loadCloudEntitlements,
+} from "../lib/cloud-workspace-session-cache.ts";
 import {
 	openCloudChat,
 	repositoryIdentityForOrigin,
@@ -172,6 +177,7 @@ import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
+import { DitherActionButton } from "./ui/dither-action-button.tsx";
 import { Spinner } from "./ui/spinner";
 
 const CLOUD_WORKSPACE_BETA_AVAILABLE = cloudWorkspaceBetaAvailable();
@@ -1333,9 +1339,74 @@ function SidebarAgentCount() {
 }
 
 /**
- * Compact account affordance. Account details and sign-out live in General
- * settings, keeping the sidebar footer free of a second navigation menu.
+ * The account's plan: a quiet Cloud label that opens billing, or an Upgrade
+ * button that starts Cloud checkout. Profile and sign-out live in the
+ * workspace switcher and General settings.
  */
+function SidebarPlan() {
+	const { message: uiMessage } = useUiMessages(["projects"]);
+	const { user } = useAuth();
+	const setView = useUiStore((s) => s.setView);
+	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
+	const [entitled, setEntitled] = useState<boolean | null>(null);
+	const [opening, setOpening] = useState(false);
+	useEffect(() => {
+		if (!user?.id) return;
+		let live = true;
+		void loadCloudEntitlements()
+			.then((result) => {
+				if (live) setEntitled(hasCloudEntitlement(result));
+			})
+			.catch(() => undefined);
+		return () => {
+			live = false;
+		};
+	}, [user?.id]);
+	if (entitled === null) return <span className="h-7" />;
+	if (!entitled)
+		return (
+			<DitherActionButton
+				className="px-2.5"
+				loading={opening}
+				onClick={() => {
+					setOpening(true);
+					void startCloudCheckout()
+						.catch(() => undefined)
+						.finally(() => setOpening(false));
+				}}
+			>
+				{uiMessage("projects:projects_sidebar_upgrade")}
+			</DitherActionButton>
+		);
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<button
+						type="button"
+						onClick={() => {
+							setSettingsSection(
+								cloudWorkspaceBetaAvailable()
+									? { kind: "machines" }
+									: { kind: "general" },
+							);
+							setView("settings");
+						}}
+						className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					>
+						<DitherCloudIcon className="size-3.5" />
+						{uiMessage("projects:projects_sidebar_plan_cloud")}
+					</button>
+				}
+			/>
+			<TooltipPopup side="top">
+				{uiMessage("projects:projects_sidebar_plan_cloud_tooltip")}
+			</TooltipPopup>
+		</Tooltip>
+	);
+}
+
+/** Sign-in affordance while signed out; the plan once signed in. */
 function SidebarAccount() {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
@@ -1351,7 +1422,7 @@ function SidebarAccount() {
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
 
-	const initial = (name || user?.email || "?").charAt(0).toUpperCase();
+	const _initial = (name || user?.email || "?").charAt(0).toUpperCase();
 
 	const label = isUnavailable
 		? "Account unavailable"
@@ -1372,6 +1443,7 @@ function SidebarAccount() {
 		setView("settings");
 	};
 
+	if (isSignedIn) return <SidebarPlan />;
 	return (
 		<Tooltip>
 			<TooltipTrigger
@@ -1386,16 +1458,7 @@ function SidebarAccount() {
 							isHostedProduct() ? "gap-1.5 px-2 text-[12px]" : "w-7",
 						)}
 					>
-						{isSignedIn ? (
-							<Avatar className="size-5 text-[10px]">
-								{user?.profilePictureUrl ? (
-									<AvatarImage src={user.profilePictureUrl} alt={name} />
-								) : null}
-								<AvatarFallback className="text-[10px]">
-									{initial}
-								</AvatarFallback>
-							</Avatar>
-						) : isLoading ? (
+						{isLoading ? (
 							<HugeiconsIcon icon={UserCircleIcon} className="size-4" />
 						) : (
 							<HugeiconsIcon icon={Login03Icon} className="size-4" />

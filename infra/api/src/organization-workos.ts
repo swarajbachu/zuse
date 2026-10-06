@@ -34,6 +34,8 @@ export const WorkosInvitation = Schema.Struct({
 });
 export const WorkosUser = Schema.Struct({
 	email: Schema.String,
+	email_verified: Schema.optional(Schema.Boolean),
+	profile_picture_url: Schema.optional(Schema.NullOr(Schema.String)),
 	first_name: Schema.NullOr(Schema.String),
 	last_name: Schema.NullOr(Schema.String),
 });
@@ -159,3 +161,51 @@ export const organizationSeatsFull = Effect.fn("organizationSeatsFull")(
 		);
 	},
 );
+
+/**
+ * Admit an account as Member for automatic joining. Reactivates the account's
+ * previous self-joined membership instead of creating a duplicate. Callers hold
+ * the organization lock and have already checked eligibility and capacity.
+ */
+export const admitOrganizationMember = (
+	organizationId: string,
+	accountId: string,
+	memberships: ReadonlyArray<typeof WorkosMember.Type>,
+) => {
+	const previous = memberships.find(
+		(m) =>
+			m.status === "inactive" &&
+			!m.directory_managed &&
+			m.role.slug === "member",
+	);
+	return previous
+		? requestWorkos(
+				`/user_management/organization_memberships/${encodeURIComponent(previous.id)}/reactivate`,
+				WorkosMember,
+				"PUT",
+				{},
+			)
+		: requestWorkos(
+				"/user_management/organization_memberships",
+				WorkosMember,
+				"POST",
+				{
+					organization_id: organizationId,
+					user_id: accountId,
+					role_slug: "member",
+				},
+			);
+};
+
+/** An account's memberships in one organization. */
+export const membershipsFor = (accountId: string, organizationId: string) =>
+	listWorkos(
+		`/user_management/organization_memberships?organization_id=${encodeURIComponent(organizationId)}&user_id=${encodeURIComponent(accountId)}`,
+		WorkosMember,
+	).pipe(
+		Effect.map((rows) =>
+			rows.filter(
+				(m) => m.organization_id === organizationId && m.user_id === accountId,
+			),
+		),
+	);

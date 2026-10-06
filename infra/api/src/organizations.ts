@@ -377,6 +377,9 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 								user.email,
 							role: member.role.slug,
 							directoryManaged: member.directory_managed ?? false,
+							...(user.profile_picture_url
+								? { profilePictureUrl: user.profile_picture_url }
+								: {}),
 							githubManaged:
 								(yield* (yield* ApiStore).githubJoining.getEnrollment(
 									organizationId,
@@ -491,6 +494,16 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 								blocked: true,
 								reservedUntil: 0,
 								revision: crypto.randomUUID(),
+							});
+						// Admin removal also stops email-domain auto-join from re-adding them.
+						const domainEnrollment = yield* store.domainJoining.getEnrollment(
+							input.organizationId,
+							target.user_id,
+						);
+						if (domainEnrollment)
+							yield* store.domainJoining.saveEnrollment({
+								...domainEnrollment,
+								blocked: true,
 							});
 					}),
 				);

@@ -10,15 +10,15 @@ import {
 	subscribeCloudImages,
 } from "../../lib/cloud-image-monitor.ts";
 import {
-	CLOUD_CHECKOUT_STARTED,
 	type CloudSetupProgress,
 	type CloudSetupStep,
 	requestCloudOnboarding,
+	startCloudCheckout,
 } from "../../lib/cloud-onboarding.ts";
 import { peekCloudGithub } from "../../lib/cloud-workspace-session-cache.ts";
+import { connectGithub } from "../../lib/connect-github.ts";
 import "@zuse/i18n/english/settings";
 import {
-	CLOUD_WORKSPACE_OFFER_ID,
 	type CloudAccountImage,
 	type CloudBillingSummary,
 	type CloudBillingUsageItem,
@@ -462,16 +462,7 @@ function ScopedCloudWorkspacePool({
 		}
 	};
 
-	const checkout = () =>
-		run("checkout", () =>
-			openExternal(async () => {
-				const result = await runCloudControl((client) =>
-					client["machines.checkout"]({ offerId: CLOUD_WORKSPACE_OFFER_ID }),
-				);
-				window.dispatchEvent(new Event(CLOUD_CHECKOUT_STARTED));
-				return result.checkoutUrl;
-			}),
-		);
+	const checkout = () => run("checkout", startCloudCheckout);
 
 	const saveOverageCap = () =>
 		run("billing-cap", async () => {
@@ -497,15 +488,7 @@ function ScopedCloudWorkspacePool({
 			}),
 		);
 
-	const installGithub = () =>
-		run("github-install", () =>
-			openExternal(async () => {
-				const result = await runCloudControl((client) =>
-					client["cloud.github.install"](),
-				);
-				return result.url;
-			}),
-		);
+	const installGithub = () => run("github-install", connectGithub);
 
 	const manageGithub = (installationId: number) => {
 		const installation = githubStatus?.installations.find(

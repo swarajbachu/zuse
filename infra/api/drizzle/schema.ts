@@ -1378,6 +1378,37 @@ export const apiGithubIdentities = pgTable("api_github_identities", {
 	githubUserId: bigint("github_user_id", { mode: "number" }).notNull().unique(),
 	data: jsonb("data").notNull(),
 });
+/** Last complete GitHub roster per installation, so auto-join is one lookup. */
+export const apiGithubOrgMembers = pgTable(
+	"api_github_org_members",
+	{
+		installationId: bigint("installation_id", { mode: "number" }).notNull(),
+		githubUserId: bigint("github_user_id", { mode: "number" }).notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.installationId, t.githubUserId] }),
+		index("api_github_org_members_user").on(t.githubUserId),
+	],
+);
+/** An email domain belongs to at most one organization. */
+export const apiOrganizationDomains = pgTable(
+	"api_organization_domains",
+	{
+		domain: text("domain").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		data: jsonb("data").notNull(),
+	},
+	(t) => [index("api_organization_domains_org").on(t.organizationId)],
+);
+export const apiOrganizationDomainEnrollments = pgTable(
+	"api_organization_domain_enrollments",
+	{
+		organizationId: text("organization_id").notNull(),
+		accountId: text("account_id").notNull(),
+		data: jsonb("data").notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.organizationId, t.accountId] })],
+);
 export const apiGithubJoinPolicies = pgTable(
 	"api_github_join_policies",
 	{

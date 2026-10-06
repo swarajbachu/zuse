@@ -1,8 +1,6 @@
 import {
 	ApiPaths,
-	type OrganizationGithubDiscovery,
 	OrganizationGithubInput,
-	OrganizationGithubJoinInput,
 	OrganizationGithubPolicyInput,
 	OrganizationGithubRestoreInput,
 } from "@zuse/contracts";
@@ -27,7 +25,8 @@ import {
 } from "./github-transport.ts";
 import { decodeBody, json } from "./http.ts";
 import {
-	listWorkos,
+	admitOrganizationMember,
+	membershipsFor,
 	organizationSeatsFull,
 	requestWorkos,
 	WorkosMember,
@@ -45,17 +44,186 @@ const callbackUrl = Effect.gen(function* () {
 		config.publicApiOrigin ?? config.apiIssuer,
 	).toString();
 });
-const membershipsFor = (accountId: string, organizationId: string) =>
-	listWorkos(
-		`/user_management/organization_memberships?organization_id=${encodeURIComponent(organizationId)}&user_id=${encodeURIComponent(accountId)}`,
-		WorkosMember,
-	).pipe(
-		Effect.map((rows) =>
-			rows.filter(
-				(m) => m.organization_id === organizationId && m.user_id === accountId,
-			),
-		),
+
+/** Admit an eligible GitHub member, reserving the seat before calling WorkOS. */
+export const joinGithubOrganization = Effect.fn("joinGithubOrganization")(
+	function* (
+		accountId: string,
+		githubUserId: number,
+		input: { readonly organizationId: string; readonly installationId: number },
+	) {
+		const store = yield* ApiStore;
+		const joining = store.githubJoining;
+		// Commit enrollment intent and its seat reservation before calling WorkOS.
+		// This uses the existing one-connection transaction lock without a second
+		// database connection or a transaction spanning both durable writes.
+		const prepared = yield* store.withOrganizationLock(
+			input.organizationId,
+			Effect.gen(function* () {
+				const policy = (yield* joining.listPolicies({
+					organizationId: input.organizationId,
+				})).find(
+					(p) =>
+						p.organizationId === input.organizationId &&
+						p.installationId === input.installationId &&
+						p.enabled,
+				);
+				const enrollment = yield* joining.getEnrollment(
+					input.organizationId,
+					accountId,
+				);
+				if (
+					!policy ||
+					enrollment?.blocked ||
+					!(yield* githubMemberEligible(policy, githubUserId))
+				)
+					return yield* forbidden("organization_access_denied");
+				const memberships = yield* membershipsFor(
+					accountId,
+					input.organizationId,
+				);
+				const active = memberships.find((m) => m.status === "active");
+				if (active) return null; // Never convert a manually admitted membership.
+				if (!enrollment && memberships.length > 0)
+					return yield* forbidden("organization_access_denied");
+				if (yield* organizationSeatsFull(input.organizationId, accountId))
+					return yield* conflict("organization_member_limit_reached");
+				const pending = {
+					organizationId: input.organizationId,
+					accountId,
+					githubUserId,
+					installationId: policy.installationId,
+					githubOrgId: policy.githubOrgId,
+					blocked: false,
+					memberId: enrollment?.memberId ?? null,
+					reservedUntil: (yield* Clock.currentTimeMillis) + 600_000,
+					revision: crypto.randomUUID(),
+				};
+				yield* joining.saveEnrollment(pending);
+				return pending;
+			}),
+		);
+		if (!prepared) return;
+		return yield* store.withOrganizationLock(
+			input.organizationId,
+			Effect.gen(function* () {
+				const enrollment = yield* joining.getEnrollment(
+					input.organizationId,
+					accountId,
+				);
+				const policy = (yield* joining.listPolicies({
+					organizationId: input.organizationId,
+				})).find(
+					(p) =>
+						p.organizationId === input.organizationId &&
+						p.installationId === input.installationId &&
+						p.enabled,
+				);
+				if (
+					!enrollment ||
+					enrollment.installationId !== input.installationId ||
+					enrollment.blocked ||
+					!policy ||
+					!(yield* githubMemberEligible(policy, githubUserId))
+				)
+					return yield* forbidden("organization_access_denied");
+				const memberships = yield* membershipsFor(
+					accountId,
+					input.organizationId,
+				);
+				const active = memberships.find((m) => m.status === "active");
+				if (active) {
+					yield* joining.saveEnrollment({
+						...enrollment,
+						memberId: active.id,
+						reservedUntil: 0,
+					});
+					return;
+				}
+				if (yield* organizationSeatsFull(input.organizationId, accountId))
+					return yield* conflict("organization_member_limit_reached");
+				const member = yield* admitOrganizationMember(
+					input.organizationId,
+					accountId,
+					memberships,
+				);
+				yield* joining.saveEnrollment({
+					...enrollment,
+					memberId: member.id,
+					reservedUntil: 0,
+				});
+				return;
+			}),
+		);
+	},
+);
+
+/** Joins one organization; skips blocked, already joined and full cases. */
+const autoJoin = (
+	accountId: string,
+	githubUserId: number,
+	policy: { readonly organizationId: string; readonly installationId: number },
+) =>
+	Effect.gen(function* () {
+		const enrollment = yield* (yield* ApiStore).githubJoining.getEnrollment(
+			policy.organizationId,
+			accountId,
+		);
+		if (
+			enrollment?.blocked ||
+			(enrollment?.memberId && !enrollment.reservedUntil)
+		)
+			return false;
+		// One organization failing (full, removed, GitHub unavailable) never
+		// blocks the others or the caller.
+		return yield* joinGithubOrganization(accountId, githubUserId, policy).pipe(
+			Effect.as(true),
+			Effect.catch(() => Effect.succeed(false)),
+		);
+	});
+
+/**
+ * Join every organization whose admins turned on auto-join for a GitHub
+ * organization this account's linked GitHub account belongs to. Returns the
+ * organizations joined now.
+ */
+export const syncGithubAutoJoin = Effect.fn("syncGithubAutoJoin")(function* (
+	accountId: string,
+) {
+	const joining = (yield* ApiStore).githubJoining;
+	const identity = yield* joining.getIdentity(accountId);
+	if (!identity) return [];
+	const installationIds = yield* joining.installationsWithMember(
+		identity.githubUserId,
 	);
+	if (installationIds.length === 0) return [];
+	const joined: string[] = [];
+	for (const policy of yield* joining.listPolicies({ installationIds })) {
+		if (!policy.enabled || joined.includes(policy.organizationId)) continue;
+		if (yield* autoJoin(accountId, identity.githubUserId, policy))
+			joined.push(policy.organizationId);
+	}
+	return joined;
+});
+
+/**
+ * Join every linked account in an installation's roster to the organizations
+ * with auto-join on for it. Runs when auto-join turns on and when GitHub
+ * reports membership changes, so members join without opening Zuse.
+ */
+export const autoJoinInstallation = Effect.fn("autoJoinInstallation")(
+	function* (installationId: number) {
+		const joining = (yield* ApiStore).githubJoining;
+		const identities = yield* joining.identitiesInRoster(installationId);
+		for (const policy of yield* joining.listPolicies({ installationId })) {
+			if (!policy.enabled) continue;
+			for (const identity of identities) {
+				if (yield* organizationSeatsFull(policy.organizationId)) break;
+				yield* autoJoin(identity.accountId, identity.githubUserId, policy);
+			}
+		}
+	},
+);
 
 export const routeGithubOrganizationRequest = Effect.fn(
 	"routeGithubOrganizationRequest",
@@ -163,12 +331,26 @@ export const routeGithubOrganizationRequest = Effect.fn(
 			}))
 		)
 			return yield* conflict("github_identity_already_linked");
+		const joined = yield* syncGithubAutoJoin(accountId).pipe(
+			Effect.flatMap((ids) =>
+				Effect.forEach(ids, (id) =>
+					requestWorkos(
+						`/organizations/${encodeURIComponent(id)}`,
+						WorkosOrganization,
+					).pipe(Effect.map((org) => org.name)),
+				),
+			),
+			Effect.catch(() => Effect.succeed([] as string[])),
+		);
 		return new Response(
 			renderIntegrationPage({
 				integration: "GitHub",
-				title: "GitHub verified",
-				status: "Verified",
-				description: "Return to Zuse to find and join your organization.",
+				title: "GitHub connected",
+				status: "Connected",
+				description:
+					joined.length > 0
+						? `@${user.login} is connected. You joined ${joined.join(", ")}.`
+						: `@${user.login} is connected. Teams that turn on auto-join for your GitHub organizations add you automatically.`,
 				hint: "You can close this tab.",
 				actions: [],
 			}),
@@ -182,6 +364,14 @@ export const routeGithubOrganizationRequest = Effect.fn(
 	}
 	const { accountId } = yield* requireWorkos(request);
 	if (request.method !== "POST") return yield* notFound();
+	if (url.pathname === ApiPaths.organizationGithubConnection) {
+		const identity = yield* joining.getIdentity(accountId);
+		return json(
+			identity
+				? { connected: true, login: identity.login }
+				: { connected: false },
+		);
+	}
 	if (url.pathname === ApiPaths.organizationGithubAuthorize) {
 		if (!config.githubApp?.clientId || !config.githubApp.clientSecret)
 			return yield* serviceUnavailable("github_app_oauth_not_configured");
@@ -198,6 +388,7 @@ export const routeGithubOrganizationRequest = Effect.fn(
 		target.searchParams.set("state", state);
 		return json({ url: target.toString(), attemptId: nonce });
 	}
+
 	if (url.pathname === ApiPaths.organizationGithubSettings) {
 		const { organizationId } = yield* decodeBody(
 			OrganizationGithubInput,
@@ -229,6 +420,7 @@ export const routeGithubOrganizationRequest = Effect.fn(
 				.map((c) => ({
 					installationId: c.installationId,
 					login: c.accountLogin,
+					...(c.avatarUrl ? { avatarUrl: c.avatarUrl } : {}),
 					suspended: c.suspended,
 					enabled: policies.some(
 						(p) =>
@@ -242,7 +434,7 @@ export const routeGithubOrganizationRequest = Effect.fn(
 	}
 	if (url.pathname === ApiPaths.organizationGithubPolicy) {
 		const input = yield* decodeBody(OrganizationGithubPolicyInput, request);
-		return yield* store.withOrganizationLock(
+		yield* store.withOrganizationLock(
 			input.organizationId,
 			Effect.gen(function* () {
 				yield* requireOrganizationMember(accountId, input.organizationId, true);
@@ -273,12 +465,16 @@ export const routeGithubOrganizationRequest = Effect.fn(
 					enabled: input.enabled,
 					revision: crypto.randomUUID(),
 				};
-				// A complete roster read proves Members permission before enabling discovery.
+				// A complete roster read proves Members permission and stores the roster.
 				if (input.enabled) yield* githubMemberEligible(policy, -1);
 				yield* joining.savePolicy(policy);
-				return json({ ok: true });
 			}),
 		);
+		if (input.enabled)
+			yield* autoJoinInstallation(input.installationId).pipe(
+				Effect.catch(() => Effect.void),
+			);
+		return json({ ok: true });
 	}
 	if (url.pathname === ApiPaths.organizationGithubRestore) {
 		const input = yield* decodeBody(OrganizationGithubRestoreInput, request);
@@ -308,186 +504,6 @@ export const routeGithubOrganizationRequest = Effect.fn(
 					...e,
 					blocked: false,
 					revision: crypto.randomUUID(),
-				});
-				return json({ ok: true });
-			}),
-		);
-	}
-	const identity = yield* joining.getIdentity(accountId);
-	if (url.pathname === ApiPaths.organizationGithubDiscover) {
-		if (!identity) return json({ connected: false, organizations: [] });
-		const organizations: Array<
-			(typeof OrganizationGithubDiscovery.Type.organizations)[number]
-		> = [];
-		for (const policy of yield* joining.listPolicies({
-			githubOrgIds: identity.organizationIds,
-		})) {
-			if (
-				!policy.enabled ||
-				organizations.some(
-					(org) => org.organizationId === policy.organizationId,
-				)
-			)
-				continue;
-			const enrollment = yield* joining.getEnrollment(
-				policy.organizationId,
-				accountId,
-			);
-			if (
-				enrollment?.blocked ||
-				!(yield* githubMemberEligible(policy, identity.githubUserId).pipe(
-					Effect.catch((error) =>
-						error.code === "github_installation_unavailable"
-							? Effect.succeed(false)
-							: Effect.fail(error),
-					),
-				))
-			)
-				continue;
-			const org = yield* requestWorkos(
-				`/organizations/${encodeURIComponent(policy.organizationId)}`,
-				WorkosOrganization,
-			);
-			const joined = (yield* membershipsFor(
-				accountId,
-				policy.organizationId,
-			)).some((m) => m.status === "active");
-			organizations.push({
-				organizationId: org.id,
-				name: org.name,
-				installationId: policy.installationId,
-				githubLogin: policy.login,
-				state: joined
-					? "joined"
-					: (yield* organizationSeatsFull(org.id, accountId))
-						? "full"
-						: "available",
-			});
-		}
-		return json({
-			connected: true,
-			verificationId: identity.verificationId,
-			organizations,
-		});
-	}
-	if (url.pathname === ApiPaths.organizationGithubJoin) {
-		const input = yield* decodeBody(OrganizationGithubJoinInput, request);
-		if (!identity) return yield* forbidden("github_identity_required");
-		// Commit enrollment intent and its seat reservation before calling WorkOS.
-		// This uses the existing one-connection transaction lock without a second
-		// database connection or a transaction spanning both durable writes.
-		const prepared = yield* store.withOrganizationLock(
-			input.organizationId,
-			Effect.gen(function* () {
-				const policy = (yield* joining.listPolicies({
-					organizationId: input.organizationId,
-				})).find(
-					(p) =>
-						p.organizationId === input.organizationId &&
-						p.installationId === input.installationId &&
-						p.enabled,
-				);
-				const enrollment = yield* joining.getEnrollment(
-					input.organizationId,
-					accountId,
-				);
-				if (
-					!policy ||
-					enrollment?.blocked ||
-					!(yield* githubMemberEligible(policy, identity.githubUserId))
-				)
-					return yield* forbidden("organization_access_denied");
-				const memberships = yield* membershipsFor(
-					accountId,
-					input.organizationId,
-				);
-				const active = memberships.find((m) => m.status === "active");
-				if (active) return null; // Never convert a manually admitted membership.
-				if (!enrollment && memberships.length > 0)
-					return yield* forbidden("organization_access_denied");
-				if (yield* organizationSeatsFull(input.organizationId, accountId))
-					return yield* conflict("organization_member_limit_reached");
-				const pending = {
-					organizationId: input.organizationId,
-					accountId,
-					githubUserId: identity.githubUserId,
-					installationId: policy.installationId,
-					githubOrgId: policy.githubOrgId,
-					blocked: false,
-					memberId: enrollment?.memberId ?? null,
-					reservedUntil: (yield* Clock.currentTimeMillis) + 600_000,
-					revision: crypto.randomUUID(),
-				};
-				yield* joining.saveEnrollment(pending);
-				return pending;
-			}),
-		);
-		if (!prepared) return json({ ok: true });
-		return yield* store.withOrganizationLock(
-			input.organizationId,
-			Effect.gen(function* () {
-				const enrollment = yield* joining.getEnrollment(
-					input.organizationId,
-					accountId,
-				);
-				const policy = (yield* joining.listPolicies({
-					organizationId: input.organizationId,
-				})).find(
-					(p) =>
-						p.organizationId === input.organizationId &&
-						p.installationId === input.installationId &&
-						p.enabled,
-				);
-				if (
-					!enrollment ||
-					enrollment.installationId !== input.installationId ||
-					enrollment.blocked ||
-					!policy ||
-					!(yield* githubMemberEligible(policy, identity.githubUserId))
-				)
-					return yield* forbidden("organization_access_denied");
-				const memberships = yield* membershipsFor(
-					accountId,
-					input.organizationId,
-				);
-				const active = memberships.find((m) => m.status === "active");
-				if (active) {
-					yield* joining.saveEnrollment({
-						...enrollment,
-						memberId: active.id,
-						reservedUntil: 0,
-					});
-					return json({ ok: true });
-				}
-				if (yield* organizationSeatsFull(input.organizationId, accountId))
-					return yield* conflict("organization_member_limit_reached");
-				const previous = memberships.find(
-					(m) =>
-						m.status === "inactive" &&
-						!m.directory_managed &&
-						m.role.slug === "member",
-				);
-				const member = previous
-					? yield* requestWorkos(
-							`/user_management/organization_memberships/${encodeURIComponent(previous.id)}/reactivate`,
-							WorkosMember,
-							"PUT",
-							{},
-						)
-					: yield* requestWorkos(
-							"/user_management/organization_memberships",
-							WorkosMember,
-							"POST",
-							{
-								organization_id: input.organizationId,
-								user_id: accountId,
-								role_slug: "member",
-							},
-						);
-				yield* joining.saveEnrollment({
-					...enrollment,
-					memberId: member.id,
-					reservedUntil: 0,
 				});
 				return json({ ok: true });
 			}),
