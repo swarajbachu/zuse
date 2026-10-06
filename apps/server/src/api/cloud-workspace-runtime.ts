@@ -1956,7 +1956,9 @@ export const runCloudMailboxPolling = (input: {
 						}
 					} else {
 						// A transport outage does not prove a previously rejected token is valid.
-						retire = classifyCloudMailboxAckFailure(error) === "stop-retrying";
+						retire =
+							error.httpStatus !== undefined &&
+							classifyCloudMailboxAckFailure(error) === "stop-retrying";
 					}
 					if (retire) {
 						yield* Effect.logError(

@@ -2015,3 +2015,47 @@ it("bounds rejected credentials even when transport failures occur between rejec
 		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
 	);
 });
+
+it.each([
+	"workspace_summary_publish_failed",
+	"workspace_readiness_publish_failed",
+])("retries status-less readiness recovery failure %s without retiring the runtime", async (reason) => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			let leases = 0;
+			let repairs = 0;
+			let stopped = 0;
+			const lease = Effect.suspend(() => {
+				leases++;
+				return repairs < 2
+					? Effect.fail(
+							new CloudWorkspaceRuntimeError({
+								reason: "cloud_workspace_runtime_not_ready",
+								httpStatus: 409,
+							}),
+						)
+					: Effect.void;
+			});
+			const fiber = yield* Effect.forkScoped(
+				runCloudMailboxPolling({
+					credential: () => "healthy-credential",
+					onRuntimeRejected: Effect.sync(() => {
+						stopped++;
+					}),
+					poll: recoverCloudMailboxReadiness(
+						lease,
+						Effect.suspend(() => {
+							repairs++;
+							return Effect.fail(new CloudWorkspaceRuntimeError({ reason }));
+						}),
+					),
+				}),
+			);
+			yield* TestClock.adjust("70 seconds");
+			expect(stopped).toBe(0);
+			expect(repairs).toBe(2);
+			expect(leases).toBeGreaterThan(2);
+			yield* Fiber.interrupt(fiber);
+		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+	);
+});
