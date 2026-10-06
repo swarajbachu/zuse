@@ -47,3 +47,14 @@ minutes. The stuck build was closed by the timeout. Redeployed API version:
 
 Open: the same key passed the save-time lookup, so why boxd refuses it during
 the build is not yet known.
+
+## Short boxd machine names
+
+boxd machines are now named with a one-letter kind and a 64-bit label digest
+(for example `w3k9x0m2q7a1bz`), so preview hosts look like
+`p3001.w3k9x0m2q7a1bz.boxd.zuse.sh`. Recovery still finds machines named by
+the previous 43- and 63-character schemes, so existing workspaces keep their
+current hosts until they are recreated. Redeployed API version:
+`646216c5-0ef7-4339-a5d8-a422c572bd99`; the first attempt again hit the
+startup CPU limit, so the Worker has little headroom left and needs further
+startup reductions.
