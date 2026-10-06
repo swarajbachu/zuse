@@ -1,5 +1,6 @@
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import { githubInstallationSettingsUrl } from "@zuse/utils/github-installation";
+import { startCloudCheckout } from "../../lib/cloud-checkout.ts";
 import {
 	cloudImageGroupStatus,
 	rebuildCloudImages,
@@ -13,7 +14,6 @@ import {
 	type CloudSetupProgress,
 	type CloudSetupStep,
 	requestCloudOnboarding,
-	startCloudCheckout,
 } from "../../lib/cloud-onboarding.ts";
 import { peekCloudGithub } from "../../lib/cloud-workspace-session-cache.ts";
 import { connectGithub } from "../../lib/connect-github.ts";

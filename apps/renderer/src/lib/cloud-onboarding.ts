@@ -39,20 +39,3 @@ export const completeCloudOnboarding = (
 export const requestCloudOnboarding = (): void => {
 	window.dispatchEvent(new Event(CLOUD_ONBOARDING_RESUME));
 };
-
-/** Opens Cloud checkout in the browser; callers handle errors. */
-export const startCloudCheckout = async (): Promise<void> => {
-	const [{ CLOUD_WORKSPACE_OFFER_ID }, { runCloudControl }, { openExternal }] =
-		await Promise.all([
-			import("@zuse/contracts"),
-			import("./control-plane-client.ts"),
-			import("./platform-capabilities.ts"),
-		]);
-	await openExternal(async () => {
-		const result = await runCloudControl((client) =>
-			client["machines.checkout"]({ offerId: CLOUD_WORKSPACE_OFFER_ID }),
-		);
-		window.dispatchEvent(new Event(CLOUD_CHECKOUT_STARTED));
-		return result.checkoutUrl;
-	});
-};

@@ -97,8 +97,8 @@ import {
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
+import { startCloudCheckout } from "../lib/cloud-checkout.ts";
 import { cloudWorkspaceBetaAvailable } from "../lib/cloud-machines-availability.ts";
-import { startCloudCheckout } from "../lib/cloud-onboarding.ts";
 import {
 	cloudSummaryActiveSessionId,
 	useCloudChatCatalogStore,
