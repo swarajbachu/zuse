@@ -94,6 +94,22 @@ export const OrganizationRevokeInviteInput = Schema.Struct({
 	invitationId: Identifier,
 });
 
+export class OrganizationCapabilities extends Schema.Class<OrganizationCapabilities>(
+	"OrganizationCapabilities",
+)({
+	canCreate: Schema.Boolean,
+	organizations: Schema.Array(Organization),
+}) {}
+
+export const OrganizationsCapabilitiesRpc = Rpc.make(
+	"organizations.capabilities",
+	{
+		payload: Schema.Struct({}),
+		success: OrganizationCapabilities,
+		error: OrganizationError,
+	},
+);
+
 export const OrganizationsListRpc = Rpc.make("organizations.list", {
 	payload: Schema.Struct({}),
 	success: Schema.Array(Organization),

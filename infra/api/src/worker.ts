@@ -135,6 +135,9 @@ interface Env extends SlackBindings {
 	readonly MAX_ENVIRONMENTS_PER_ACCOUNT?: string;
 	readonly ALLOWED_BROWSER_ORIGINS?: string;
 	readonly ORGANIZATION_WORKSPACES_ENABLED?: string;
+	readonly ORGANIZATION_ROLLOUT_ENABLED?: string;
+	readonly ORGANIZATION_POSTHOG_KEY?: string;
+	readonly ORGANIZATION_POSTHOG_HOST?: string;
 	// Managed Cloudflare tunnel (optional — absent disables provisioning).
 	readonly CF_API_TOKEN?: string;
 	readonly CF_ACCOUNT_ID?: string;
@@ -379,6 +382,14 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 	const configLayer = Config.layer({
 		organizationWorkspacesEnabled:
 			env.ORGANIZATION_WORKSPACES_ENABLED === "true",
+		organizationRolloutEnabled: env.ORGANIZATION_ROLLOUT_ENABLED === "true",
+		organizationPosthog: isConfigured(env.ORGANIZATION_POSTHOG_KEY)
+			? {
+					projectKey: Redacted.make(env.ORGANIZATION_POSTHOG_KEY),
+					host:
+						env.ORGANIZATION_POSTHOG_HOST?.trim() || "https://us.i.posthog.com",
+				}
+			: undefined,
 		apiIssuer: env.API_ISSUER,
 		publicApiOrigin: env.API_PUBLIC_ORIGIN,
 		workosJwksUrl: env.WORKOS_JWKS_URL,

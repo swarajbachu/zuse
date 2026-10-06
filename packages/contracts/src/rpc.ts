@@ -249,6 +249,7 @@ import {
 	ModelConnectRpc,
 } from "./model-connections.ts";
 import {
+	OrganizationsCapabilitiesRpc,
 	OrganizationsCreateRpc,
 	OrganizationsDomainAddRpc,
 	OrganizationsDomainRemoveRpc,
@@ -424,6 +425,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	AcpInstallRpc,
 	AcpAuthenticateRpc,
 	OrganizationsListRpc,
+	OrganizationsCapabilitiesRpc,
 	OrganizationsCreateRpc,
 	OrganizationsGetRpc,
 	OrganizationsInviteRpc,

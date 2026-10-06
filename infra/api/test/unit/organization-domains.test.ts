@@ -1,8 +1,11 @@
 import { ApiPaths } from "@zuse/contracts";
-import { Layer, ManagedRuntime, Redacted } from "effect";
+import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudWorkspaceStoreMemory } from "../../src/cloud-workspace-store.ts";
-import { layer as configurationLayer } from "../../src/config.ts";
+import {
+	ApiConfiguration,
+	layer as configurationLayer,
+} from "../../src/config.ts";
 import {
 	routeOrganizationDomainRequest,
 	syncDomainAutoJoin,
@@ -171,6 +174,21 @@ describe("email domain auto-join", () => {
 		});
 	});
 
+	it("does not auto-join a matching verified domain when rollout denies the team", async () => {
+		await addDomain();
+		const joined = await runtime.runPromise(
+			Effect.flatMap(ApiConfiguration, (config) =>
+				syncDomainAutoJoin("user_alice").pipe(
+					Effect.provideService(ApiConfiguration, {
+						...config,
+						organizationRolloutEnabled: true,
+					}),
+				),
+			),
+		);
+		expect(joined).toEqual([]);
+		expect(active("user_alice")).toHaveLength(0);
+	});
 	it("never auto-joins unverified emails or after the domain is turned off", async () => {
 		await addDomain();
 		await sync("user_unverified");

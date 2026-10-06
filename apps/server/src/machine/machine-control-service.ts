@@ -71,6 +71,7 @@ import {
 	MachineOfferList,
 	MachineRecord,
 	Organization,
+	OrganizationCapabilities,
 	type OrganizationCreateInput,
 	OrganizationDetails,
 	OrganizationInvitation,
@@ -97,6 +98,10 @@ import { RequestWorkspace } from "./request-workspace.ts";
 export interface MachineControlServiceShape {
 	readonly organizationAutoJoin: ReturnType<
 		typeof makeOrganizationAutoJoinControlClient<MachineControlError>
+	>;
+	readonly organizationCapabilities: () => Effect.Effect<
+		OrganizationCapabilities,
+		MachineControlError
 	>;
 	readonly listOrganizations: () => Effect.Effect<
 		ReadonlyArray<Organization>,
@@ -479,6 +484,8 @@ export const MachineControlServiceLive: Layer.Layer<
 				(path, schema, body) =>
 					request(path, schema, body === undefined ? "GET" : "POST", body),
 			),
+			organizationCapabilities: () =>
+				request(ApiPaths.organizationCapabilities, OrganizationCapabilities),
 			listOrganizations: () =>
 				request(ApiPaths.organizations, Schema.Array(Organization)),
 			createOrganization: (input) =>

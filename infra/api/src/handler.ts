@@ -365,7 +365,8 @@ const route = (
 		// Loading organizations is when members are matched to auto-join.
 		// Matching is best effort: it must never block listing organizations.
 		if (
-			path === ApiPaths.organizations &&
+			(path === ApiPaths.organizations ||
+				path === ApiPaths.organizationCapabilities) &&
 			method === "GET" &&
 			config.organizationWorkspacesEnabled
 		)

@@ -91,3 +91,19 @@ test("preserves member-limit errors from the transport", async () => {
 	);
 	expect(result).toBe(failure);
 });
+
+test("capabilities use the account endpoint and decode both creation and team access", async () => {
+	let requested: string | undefined;
+	const client = makeOrganizationControlClient((path, schema, body) => {
+		requested = path;
+		expect(body).toBeUndefined();
+		return Schema.decodeUnknownEffect(schema)({
+			canCreate: false,
+			organizations: [{ id: "org-a", name: "Team", role: "member" }],
+		});
+	});
+	expect(
+		await Effect.runPromise(client["organizations.capabilities"]({})),
+	).toMatchObject({ canCreate: false, organizations: [{ id: "org-a" }] });
+	expect(requested).toBe(ApiPaths.organizationCapabilities);
+});

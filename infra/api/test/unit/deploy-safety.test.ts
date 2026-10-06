@@ -71,6 +71,8 @@ describe("api deployment safety", () => {
 		) as WranglerTarget;
 		expect(staging.vars.ORGANIZATION_WORKSPACES_ENABLED).toBe("true");
 		expect(production.vars.ORGANIZATION_WORKSPACES_ENABLED).not.toBe("true");
+		expect(production.vars.ORGANIZATION_ROLLOUT_ENABLED).toBe("true");
+		expect(staging.vars.ORGANIZATION_ROLLOUT_ENABLED).not.toBe("true");
 	});
 
 	test.each([

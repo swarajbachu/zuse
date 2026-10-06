@@ -30,6 +30,7 @@ import { EnvironmentId } from "./ids.ts";
 export const ApiPaths = {
 	authToken: "/v1/auth/token",
 	organizations: "/v1/organizations",
+	organizationCapabilities: "/v1/organizations/capabilities",
 	organizationGithubAuthorize: "/v1/organizations/github/authorize",
 	organizationGithubCallback: "/v1/organizations/github/callback",
 	organizationGithubConnection: "/v1/organizations/github/connection",
