@@ -31,11 +31,6 @@ export const OrganizationHandlersLayer = Layer.mergeAll(
 			service.organizationAutoJoin["organizations.domainAdd"](input),
 		),
 	),
-	MemoizeRpcs.toLayerHandler("organizations.domainVerify", (input) =>
-		withOrganizations((service) =>
-			service.organizationAutoJoin["organizations.domainVerify"](input),
-		),
-	),
 	MemoizeRpcs.toLayerHandler("organizations.domainRemove", (input) =>
 		withOrganizations((service) =>
 			service.organizationAutoJoin["organizations.domainRemove"](input),

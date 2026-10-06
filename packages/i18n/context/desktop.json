@@ -28456,7 +28456,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 161
+				"line": 106
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28466,7 +28466,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 162
+				"line": 107
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28476,7 +28476,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 177
+				"line": 122
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28486,7 +28486,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 299
+				"line": 217
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28496,7 +28496,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 312
+				"line": 230
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28526,7 +28526,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 192
+				"line": 137
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28536,7 +28536,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 200
+				"line": 145
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28546,7 +28546,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 298
+				"line": 216
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28556,7 +28556,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 176
+				"line": 121
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28566,7 +28566,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 169
+				"line": 114
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28576,7 +28576,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 194
+				"line": 139
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28586,7 +28586,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 195
+				"line": 140
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28666,17 +28666,17 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 223
+				"line": 168
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:organizations_domains_help": {
-		"source": "People who sign in with a verified email on a verified domain join automatically.",
+		"source": "People who sign in with a verified email on these domains join automatically.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 224
+				"line": 169
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28686,17 +28686,17 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 228
+				"line": 173
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:organizations_domain_add_help": {
-		"source": "Off. Turn on, then prove you own @{{domain}} with a DNS record.",
+		"source": "Off. Turn on to let anyone with a verified @{{domain}} email join.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 239
+				"line": 184
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28706,7 +28706,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 248
+				"line": 190
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -28716,67 +28716,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 241
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:organizations_domain_pending_help": {
-		"source": "Not verified yet. Add this DNS record to prove you own @{{domain}}; nobody joins until then.",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 242
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:organizations_domain_record_type": {
-		"source": "Type",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 53
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:organizations_domain_record_name": {
-		"source": "Name",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 54
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:organizations_domain_record_value": {
-		"source": "Value",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 55
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:organizations_domain_verify": {
-		"source": "Verify",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 59
-			}
-		],
-		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"settings:organizations_domain_not_found": {
-		"source": "Record not found yet. DNS changes can take a few minutes.",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/settings/organization-auto-join.tsx",
-				"line": 63
+				"line": 183
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

@@ -1123,15 +1123,9 @@
 	"account_github_change": "Change",
 	"account_github_waiting": "Finish connecting GitHub in your browser.",
 	"organizations_domains": "Email domains",
-	"organizations_domains_help": "People who sign in with a verified email on a verified domain join automatically.",
+	"organizations_domains_help": "People who sign in with a verified email on these domains join automatically.",
 	"organizations_domains_none": "Turn on auto-join for your company email domain here. Only admins whose verified email uses the domain can, and personal domains like gmail.com aren’t allowed.",
-	"organizations_domain_add_help": "Off. Turn on, then prove you own @{{domain}} with a DNS record.",
+	"organizations_domain_add_help": "Off. Turn on to let anyone with a verified @{{domain}} email join.",
 	"organizations_domain_auto_join": "Auto-join for @{{domain}}",
-	"organizations_domain_on_help": "Anyone with a verified @{{domain}} email joins automatically.",
-	"organizations_domain_pending_help": "Not verified yet. Add this DNS record to prove you own @{{domain}}; nobody joins until then.",
-	"organizations_domain_record_type": "Type",
-	"organizations_domain_record_name": "Name",
-	"organizations_domain_record_value": "Value",
-	"organizations_domain_verify": "Verify",
-	"organizations_domain_not_found": "Record not found yet. DNS changes can take a few minutes."
+	"organizations_domain_on_help": "Anyone with a verified @{{domain}} email joins automatically."
 }

@@ -103,14 +103,10 @@ invitations are not in rosters.
 
 ### Email domains
 
-An administrator can start a claim only for the domain of their own verified
-WorkOS email; personal mailbox providers (gmail.com and similar) are rejected.
-A claim admits nobody until DNS proves ownership: the organization publishes a
-TXT record `_zuse-verification.<domain>` with `zuse-domain-verification=<token>`
-and **Verify** checks it over DNS-over-HTTPS. A verified domain belongs to one
-organization; an unverified claim proves nothing, so an organization that
-verifies can take it over. With a verified domain, anyone whose verified email
-is on it joins when their organizations load. Domains and domain-join
+An administrator can add only the domain of their own verified WorkOS email;
+personal mailbox providers (gmail.com and similar) are rejected, and a domain
+belongs to one organization. With auto-join on, anyone whose verified email is
+on that domain joins when their organizations load. Domains and domain-join
 provenance live in `api_organization_domains` and
 `api_organization_domain_enrollments`.
 

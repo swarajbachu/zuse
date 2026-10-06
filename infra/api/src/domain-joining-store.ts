@@ -5,9 +5,6 @@ export const OrganizationDomain = Schema.Struct({
 	domain: Schema.String,
 	organizationId: Schema.String,
 	createdBy: Schema.String,
-	/** Proven by a DNS TXT record; only verified domains admit anyone. */
-	verified: Schema.optional(Schema.Boolean),
-	verificationToken: Schema.optional(Schema.String),
 });
 export type OrganizationDomain = typeof OrganizationDomain.Type;
 /** Provenance for a domain auto-join, and the admin-removal block. */
@@ -25,13 +22,8 @@ export interface DomainJoiningStore {
 	listDomains(
 		organizationId: string,
 	): Effect.Effect<ReadonlyArray<OrganizationDomain>>;
-	/**
-	 * Claims a domain; false when another organization verified it. An
-	 * unverified claim proves nothing, so another organization may replace it.
-	 */
+	/** Claims a domain; false when another organization already owns it. */
 	claimDomain(domain: OrganizationDomain): Effect.Effect<boolean>;
-	/** Updates this organization's claim (e.g. after verification). */
-	saveDomain(domain: OrganizationDomain): Effect.Effect<void>;
 	removeDomain(organizationId: string, domain: string): Effect.Effect<void>;
 	getEnrollment(
 		organizationId: string,
@@ -58,15 +50,10 @@ export const makeDomainJoiningMemory = (): DomainJoiningStore => {
 		claimDomain: (value) =>
 			Effect.sync(() => {
 				const existing = domains.get(value.domain);
-				if (existing?.organizationId === value.organizationId) return true;
-				if (existing?.verified) return false;
-				domains.set(value.domain, value);
+				if (existing && existing.organizationId !== value.organizationId)
+					return false;
+				if (!existing) domains.set(value.domain, value);
 				return true;
-			}),
-		saveDomain: (value) =>
-			Effect.sync(() => {
-				if (domains.get(value.domain)?.organizationId === value.organizationId)
-					domains.set(value.domain, value);
 			}),
 		removeDomain: (organizationId, domain) =>
 			Effect.sync(() => {
@@ -119,19 +106,13 @@ export const makeDomainJoiningSql = (
 			),
 		claimDomain: (d) =>
 			durable(
-				sql`INSERT INTO api_organization_domains (domain, organization_id, data) VALUES (${d.domain}, ${d.organizationId}, ${JSON.stringify(d)}::jsonb) ON CONFLICT (domain) DO UPDATE SET organization_id=EXCLUDED.organization_id, data=EXCLUDED.data WHERE api_organization_domains.organization_id <> EXCLUDED.organization_id AND COALESCE((api_organization_domains.data->>'verified')::boolean, false) = false`.pipe(
+				sql`INSERT INTO api_organization_domains (domain, organization_id, data) VALUES (${d.domain}, ${d.organizationId}, ${JSON.stringify(d)}::jsonb) ON CONFLICT (domain) DO NOTHING`.pipe(
 					Effect.andThen(
 						sql<{
 							organization_id: string;
 						}>`SELECT organization_id FROM api_organization_domains WHERE domain=${d.domain}`,
 					),
 					Effect.map((rows) => rows[0]?.organization_id === d.organizationId),
-				),
-			),
-		saveDomain: (d) =>
-			durable(
-				sql`UPDATE api_organization_domains SET data=${JSON.stringify(d)}::jsonb WHERE domain=${d.domain} AND organization_id=${d.organizationId}`.pipe(
-					Effect.asVoid,
 				),
 			),
 		removeDomain: (organizationId, domain) =>

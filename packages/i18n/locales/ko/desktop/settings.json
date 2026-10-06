@@ -1123,15 +1123,9 @@
 	"account_github_change": "변경",
 	"account_github_waiting": "브라우저에서 GitHub 연결을 완료하세요.",
 	"organizations_domains": "이메일 도메인",
-	"organizations_domains_help": "인증된 도메인의 인증된 이메일로 로그인한 사람은 자동으로 가입합니다.",
+	"organizations_domains_help": "이 도메인의 인증된 이메일로 로그인한 사람은 자동으로 가입합니다.",
 	"organizations_domains_none": "여기에서 회사 이메일 도메인의 자동 가입을 켤 수 있습니다. 해당 도메인의 인증된 이메일을 가진 관리자만 가능하며, gmail.com 같은 개인 도메인은 사용할 수 없습니다.",
-	"organizations_domain_add_help": "꺼짐. 켠 다음 DNS 레코드로 @{{domain}} 소유를 증명하세요.",
+	"organizations_domain_add_help": "꺼짐. 켜면 인증된 @{{domain}} 이메일을 가진 누구나 가입할 수 있습니다.",
 	"organizations_domain_auto_join": "@{{domain}} 자동 가입",
-	"organizations_domain_on_help": "인증된 @{{domain}} 이메일을 가진 누구나 자동으로 가입합니다.",
-	"organizations_domain_pending_help": "아직 인증되지 않았습니다. @{{domain}} 소유를 증명하려면 이 DNS 레코드를 추가하세요. 그 전까지는 아무도 가입하지 않습니다.",
-	"organizations_domain_record_type": "유형",
-	"organizations_domain_record_name": "이름",
-	"organizations_domain_record_value": "값",
-	"organizations_domain_verify": "인증",
-	"organizations_domain_not_found": "아직 레코드를 찾을 수 없습니다. DNS 변경에는 몇 분이 걸릴 수 있습니다."
+	"organizations_domain_on_help": "인증된 @{{domain}} 이메일을 가진 누구나 자동으로 가입합니다."
 }

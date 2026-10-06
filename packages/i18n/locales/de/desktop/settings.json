@@ -1123,15 +1123,9 @@
 	"account_github_change": "Ändern",
 	"account_github_waiting": "Schließe die Verbindung mit GitHub in deinem Browser ab.",
 	"organizations_domains": "E-Mail-Domains",
-	"organizations_domains_help": "Personen, die sich mit einer bestätigten E-Mail-Adresse einer bestätigten Domain anmelden, treten automatisch bei.",
+	"organizations_domains_help": "Personen, die sich mit einer bestätigten E-Mail-Adresse dieser Domains anmelden, treten automatisch bei.",
 	"organizations_domains_none": "Hier aktivierst du den automatischen Beitritt für die E-Mail-Domain deiner Firma. Das können nur Administratoren mit einer bestätigten E-Mail-Adresse dieser Domain; private Domains wie gmail.com sind nicht erlaubt.",
-	"organizations_domain_add_help": "Aus. Aktiviere es und belege dann mit einem DNS-Eintrag, dass dir @{{domain}} gehört.",
+	"organizations_domain_add_help": "Aus. Aktiviere es, damit alle mit einer bestätigten @{{domain}}-E-Mail-Adresse beitreten können.",
 	"organizations_domain_auto_join": "Automatischer Beitritt für @{{domain}}",
-	"organizations_domain_on_help": "Alle mit einer bestätigten @{{domain}}-E-Mail-Adresse treten automatisch bei.",
-	"organizations_domain_pending_help": "Noch nicht bestätigt. Füge diesen DNS-Eintrag hinzu, um zu belegen, dass dir @{{domain}} gehört; bis dahin tritt niemand bei.",
-	"organizations_domain_record_type": "Typ",
-	"organizations_domain_record_name": "Name",
-	"organizations_domain_record_value": "Wert",
-	"organizations_domain_verify": "Bestätigen",
-	"organizations_domain_not_found": "Eintrag noch nicht gefunden. DNS-Änderungen können einige Minuten dauern."
+	"organizations_domain_on_help": "Alle mit einer bestätigten @{{domain}}-E-Mail-Adresse treten automatisch bei."
 }

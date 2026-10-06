@@ -56,8 +56,6 @@ const makeRuntime = () =>
 describe("email domain auto-join", () => {
 	let runtime: ReturnType<typeof makeRuntime>;
 	let members: Member[];
-	/** TXT records the fake DNS-over-HTTPS resolver serves. */
-	let dnsRecords: Map<string, string>;
 	const call = (
 		path: string,
 		body: unknown,
@@ -83,44 +81,12 @@ describe("email domain auto-join", () => {
 			accountId,
 			org,
 		);
-	/** Publishes the claim's TXT record, then asks Zuse to check it. */
-	const verifyDomain = async (
-		accountId = "user_owner",
-		org = "org-a",
-		publish = true,
-	) => {
-		const settings = await (
-			await call(
-				ApiPaths.organizationDomains,
-				{ organizationId: org },
-				accountId,
-				org,
-			)
-		)?.json();
-		const claim = settings.domains.find(
-			(d: { domain: string }) => d.domain === "acme.dev",
-		);
-		if (publish) dnsRecords.set(claim.recordName, claim.recordValue);
-		return (
-			await call(
-				ApiPaths.organizationDomainVerify,
-				{ organizationId: org, domain: "acme.dev" },
-				accountId,
-				org,
-			)
-		)?.json();
-	};
-	const addVerifiedDomain = async () => {
-		await addDomain();
-		await verifyDomain();
-	};
 	const sync = (account: string) =>
 		runtime.runPromise(syncDomainAutoJoin(account));
 	const active = (account: string) =>
 		members.filter((m) => m.user_id === account && m.status === "active");
 
 	beforeEach(() => {
-		dnsRecords = new Map();
 		members = [
 			makeMember("user_owner", "org-a", "admin"),
 			makeMember("user_other_admin", "org-b", "admin"),
@@ -133,14 +99,6 @@ describe("email domain auto-join", () => {
 				const method = init?.method ?? "GET";
 				const body = init?.body ? JSON.parse(String(init.body)) : {};
 				const json = (data: unknown) => new Response(JSON.stringify(data));
-				if (url.hostname === "cloudflare-dns.com") {
-					const value = dnsRecords.get(url.searchParams.get("name") ?? "");
-					return json(
-						value === undefined
-							? { Status: 3 }
-							: { Status: 0, Answer: [{ type: 16, data: `"${value}"` }] },
-					);
-				}
 				if (url.pathname === "/user_management/organization_memberships") {
 					if (method === "POST") {
 						const member = makeMember(body.user_id, body.organization_id);
@@ -200,13 +158,6 @@ describe("email domain auto-join", () => {
 			)?.json(),
 		).toEqual({ domains: [], suggestedDomain: "acme.dev", blockedMembers: [] });
 		await addDomain();
-		// A claim admits nobody until DNS proves the organization owns the domain.
-		await sync("user_alice");
-		expect(active("user_alice")).toHaveLength(0);
-		expect(await verifyDomain("user_owner", "org-a", false)).toEqual({
-			verified: false,
-		});
-		expect(await verifyDomain()).toEqual({ verified: true });
 		await sync("user_alice");
 		await sync("user_alice");
 		expect(active("user_alice")).toHaveLength(1);
@@ -215,22 +166,13 @@ describe("email domain auto-join", () => {
 				await call(ApiPaths.organizationDomains, { organizationId: "org-a" })
 			)?.json(),
 		).toMatchObject({
-			domains: [{ domain: "acme.dev", verified: true }],
+			domains: ["acme.dev"],
 			suggestedDomain: null,
 		});
 	});
 
-	it("lets the organization that proves ownership take over an unverified claim", async () => {
-		await addDomain("user_other_admin", "org-b");
-		await addDomain();
-		expect(await verifyDomain()).toEqual({ verified: true });
-		await expect(addDomain("user_other_admin", "org-b")).rejects.toMatchObject({
-			code: "organization_domain_claimed",
-		});
-	});
-
 	it("never auto-joins unverified emails or after the domain is turned off", async () => {
-		await addVerifiedDomain();
+		await addDomain();
 		await sync("user_unverified");
 		expect(active("user_unverified")).toHaveLength(0);
 		await call(ApiPaths.organizationDomainRemove, {
@@ -248,7 +190,7 @@ describe("email domain auto-join", () => {
 				domain: "other.dev",
 			}),
 		).rejects.toMatchObject({ code: "organization_domain_unverified" });
-		await addVerifiedDomain();
+		await addDomain();
 		await expect(addDomain("user_other_admin", "org-b")).rejects.toMatchObject({
 			code: "organization_domain_claimed",
 		});
@@ -275,7 +217,7 @@ describe("email domain auto-join", () => {
 	});
 
 	it("blocks rejoining after an admin removal until restored", async () => {
-		await addVerifiedDomain();
+		await addDomain();
 		await sync("user_alice");
 		await runtime.runPromise(
 			routeOrganizationRequest(
@@ -312,7 +254,7 @@ describe("email domain auto-join", () => {
 	});
 
 	it("skips joining when the organization is full", async () => {
-		await addVerifiedDomain();
+		await addDomain();
 		for (const user of ["s1", "s2", "s3", "s4"]) members.push(makeMember(user));
 		await sync("user_bob");
 		expect(active("user_bob")).toHaveLength(0);

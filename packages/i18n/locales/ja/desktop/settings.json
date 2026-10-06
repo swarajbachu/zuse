@@ -1123,15 +1123,9 @@
 	"account_github_change": "変更",
 	"account_github_waiting": "ブラウザーで GitHub の接続を完了してください。",
 	"organizations_domains": "メールドメイン",
-	"organizations_domains_help": "確認済みドメインの確認済みメールでサインインした人は自動で参加します。",
+	"organizations_domains_help": "これらのドメインの確認済みメールでサインインした人は自動で参加します。",
 	"organizations_domains_none": "ここで会社のメールドメインの自動参加をオンにできます。そのドメインの確認済みメールを持つ管理者のみが操作でき、gmail.com などの個人用ドメインは使用できません。",
-	"organizations_domain_add_help": "オフ。オンにしてから、DNS レコードで @{{domain}} の所有を証明してください。",
+	"organizations_domain_add_help": "オフ。オンにすると、確認済みの @{{domain}} メールを持つ人が参加できます。",
 	"organizations_domain_auto_join": "@{{domain}} の自動参加",
-	"organizations_domain_on_help": "確認済みの @{{domain}} メールを持つ人は自動で参加します。",
-	"organizations_domain_pending_help": "未確認です。@{{domain}} の所有を証明するためにこの DNS レコードを追加してください。それまでは誰も参加しません。",
-	"organizations_domain_record_type": "種類",
-	"organizations_domain_record_name": "名前",
-	"organizations_domain_record_value": "値",
-	"organizations_domain_verify": "確認",
-	"organizations_domain_not_found": "レコードがまだ見つかりません。DNS の変更には数分かかる場合があります。"
+	"organizations_domain_on_help": "確認済みの @{{domain}} メールを持つ人は自動で参加します。"
 }

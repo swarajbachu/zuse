@@ -1123,15 +1123,9 @@
 	"account_github_change": "更改",
 	"account_github_waiting": "请在浏览器中完成 GitHub 连接。",
 	"organizations_domains": "邮箱域名",
-	"organizations_domains_help": "使用已验证域名的已验证邮箱登录的人会自动加入。",
+	"organizations_domains_help": "使用这些域名的已验证邮箱登录的人会自动加入。",
 	"organizations_domains_none": "可在此为公司邮箱域名开启自动加入。只有已验证邮箱使用该域名的管理员才能操作，gmail.com 等个人邮箱域名不可用。",
-	"organizations_domain_add_help": "已关闭。开启后，请用 DNS 记录证明你拥有 @{{domain}}。",
+	"organizations_domain_add_help": "已关闭。开启后，拥有已验证 @{{domain}} 邮箱的人即可加入。",
 	"organizations_domain_auto_join": "@{{domain}} 自动加入",
-	"organizations_domain_on_help": "拥有已验证 @{{domain}} 邮箱的人会自动加入。",
-	"organizations_domain_pending_help": "尚未验证。添加此 DNS 记录以证明你拥有 @{{domain}}；在此之前不会有人加入。",
-	"organizations_domain_record_type": "类型",
-	"organizations_domain_record_name": "名称",
-	"organizations_domain_record_value": "值",
-	"organizations_domain_verify": "验证",
-	"organizations_domain_not_found": "尚未找到记录。DNS 更改可能需要几分钟。"
+	"organizations_domain_on_help": "拥有已验证 @{{domain}} 邮箱的人会自动加入。"
 }

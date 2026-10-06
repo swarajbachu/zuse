@@ -1123,15 +1123,9 @@
 	"account_github_change": "變更",
 	"account_github_waiting": "請在瀏覽器中完成 GitHub 連結。",
 	"organizations_domains": "電子郵件網域",
-	"organizations_domains_help": "使用已驗證網域的已驗證電子郵件登入的人會自動加入。",
+	"organizations_domains_help": "使用這些網域的已驗證電子郵件登入的人會自動加入。",
 	"organizations_domains_none": "可在此為公司電子郵件網域開啟自動加入。只有已驗證電子郵件使用該網域的管理員才能操作，gmail.com 等個人網域無法使用。",
-	"organizations_domain_add_help": "已關閉。開啟後，請用 DNS 記錄證明你擁有 @{{domain}}。",
+	"organizations_domain_add_help": "已關閉。開啟後，擁有已驗證 @{{domain}} 電子郵件的人即可加入。",
 	"organizations_domain_auto_join": "@{{domain}} 自動加入",
-	"organizations_domain_on_help": "擁有已驗證 @{{domain}} 電子郵件的人會自動加入。",
-	"organizations_domain_pending_help": "尚未驗證。新增此 DNS 記錄以證明你擁有 @{{domain}}；在此之前不會有人加入。",
-	"organizations_domain_record_type": "類型",
-	"organizations_domain_record_name": "名稱",
-	"organizations_domain_record_value": "值",
-	"organizations_domain_verify": "驗證",
-	"organizations_domain_not_found": "尚未找到記錄。DNS 變更可能需要幾分鐘。"
+	"organizations_domain_on_help": "擁有已驗證 @{{domain}} 電子郵件的人會自動加入。"
 }
