@@ -1127,9 +1127,15 @@
 	"account_github_change": "Modifier",
 	"account_github_waiting": "Terminez la connexion à GitHub dans votre navigateur.",
 	"organizations_domains": "Domaines e-mail",
-	"organizations_domains_help": "Les personnes qui se connectent avec une adresse e-mail vérifiée de ces domaines rejoignent automatiquement.",
+	"organizations_domains_help": "Les personnes qui se connectent avec une adresse e-mail vérifiée d’un domaine vérifié rejoignent automatiquement.",
 	"organizations_domains_none": "Activez ici l’adhésion automatique pour le domaine e-mail de votre entreprise. Seuls les administrateurs dont l’adresse vérifiée utilise ce domaine le peuvent ; les domaines personnels comme gmail.com ne sont pas acceptés.",
-	"organizations_domain_add_help": "Désactivé. Activez-le pour permettre à toute personne ayant une adresse @{{domain}} vérifiée de rejoindre.",
+	"organizations_domain_add_help": "Désactivé. Activez-le, puis prouvez que @{{domain}} vous appartient avec un enregistrement DNS.",
 	"organizations_domain_auto_join": "Adhésion automatique pour @{{domain}}",
-	"organizations_domain_on_help": "Toute personne ayant une adresse @{{domain}} vérifiée rejoint automatiquement."
+	"organizations_domain_on_help": "Toute personne ayant une adresse @{{domain}} vérifiée rejoint automatiquement.",
+	"organizations_domain_pending_help": "Pas encore vérifié. Ajoutez cet enregistrement DNS pour prouver que @{{domain}} vous appartient ; personne ne rejoint d’ici là.",
+	"organizations_domain_record_type": "Type",
+	"organizations_domain_record_name": "Nom",
+	"organizations_domain_record_value": "Valeur",
+	"organizations_domain_verify": "Vérifier",
+	"organizations_domain_not_found": "Enregistrement introuvable pour l’instant. Les modifications DNS peuvent prendre quelques minutes."
 }

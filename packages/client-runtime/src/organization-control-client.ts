@@ -97,6 +97,12 @@ export const makeOrganizationAutoJoinControlClient = <E>(
 		request(ApiPaths.organizationDomainAdd, acknowledgement, input).pipe(
 			Effect.asVoid,
 		),
+	"organizations.domainVerify": (input: typeof OrganizationDomainInput.Type) =>
+		request(
+			ApiPaths.organizationDomainVerify,
+			Schema.Struct({ verified: Schema.Boolean }),
+			input,
+		),
 	"organizations.domainRemove": (input: typeof OrganizationDomainInput.Type) =>
 		request(ApiPaths.organizationDomainRemove, acknowledgement, input).pipe(
 			Effect.asVoid,

@@ -299,6 +299,20 @@ describe("GitHub organization joining", () => {
 			makeMember("user_alice"),
 		]);
 	});
+	it("re-admits an auto-joined member who left GitHub and came back", async () => {
+		await runtime.runPromise(refreshGithubRosters(123));
+		await sync("user_alice");
+		github.members = [];
+		await runtime.runPromise(invalidateGithubJoining(123));
+		await runtime.runPromise(reconcileGithubMemberships(123));
+		expect(active("user_alice")).toHaveLength(0);
+		github.members = [10, 11, 12];
+		await runtime.runPromise(invalidateGithubJoining(123));
+		await runtime.runPromise(refreshGithubRosters(123));
+		await sync("user_alice");
+		expect(active("user_alice")).toHaveLength(1);
+		expect(members.filter((m) => m.user_id === "user_alice")).toHaveLength(1);
+	});
 	it("skips accounts without a linked GitHub account or outside the roster", async () => {
 		github.members = [11];
 		await runtime.runPromise(refreshGithubRosters(123));
@@ -543,11 +557,43 @@ describe("GitHub organization joining", () => {
 			),
 		);
 		expect(response?.status).toBe(200);
+		// Returning from GitHub only asks to confirm the named Zuse account.
+		const page = (await response?.text()) ?? "";
+		expect(page).toContain("member@example.com");
+		expect(page).toContain("Link @octocat");
+		expect(
+			await runtime.runPromise(
+				(await store()).githubJoining.getIdentity("user_new"),
+			),
+		).toBeNull();
+		const csrf = /name="csrf" value="([^"]+)"/u.exec(page)?.[1] ?? "";
+		const confirm = (headers: Record<string, string>) =>
+			runtime.runPromise(
+				routeGithubOrganizationRequest(
+					new Request(callback.origin + callback.pathname, {
+						method: "POST",
+						headers,
+						body: new URLSearchParams({ csrf }),
+					}),
+				),
+			);
+		await expect(confirm({ origin: callback.origin })).rejects.toMatchObject({
+			code: "invalid_github_browser_state",
+		});
+		await expect(
+			confirm({ cookie, origin: "https://attacker.example" }),
+		).rejects.toMatchObject({ code: "invalid_github_join_state" });
+		expect(
+			await (await confirm({ cookie, origin: callback.origin }))?.text(),
+		).toContain("@octocat is connected");
 		expect(
 			await runtime.runPromise(
 				(await store()).githubJoining.getIdentity("user_new"),
 			),
 		).toMatchObject({ githubUserId: 12 });
+		await expect(
+			confirm({ cookie, origin: callback.origin }),
+		).rejects.toMatchObject({ code: "invalid_github_join_state" });
 		await expect(
 			runtime.runPromise(
 				routeGithubOrganizationRequest(
@@ -605,9 +651,21 @@ describe("GitHub organization joining", () => {
 			const cookie = start?.headers.get("set-cookie")?.split(";")[0] ?? "";
 			const callback = new URL(result.url);
 			callback.searchParams.set("code", "verified-code");
+			const page = await (
+				await runtime.runPromise(
+					routeGithubOrganizationRequest(
+						new Request(callback, { headers: { cookie } }),
+					),
+				)
+			)?.text();
+			const csrf = /name="csrf" value="([^"]+)"/u.exec(page ?? "")?.[1] ?? "";
 			return runtime.runPromise(
 				routeGithubOrganizationRequest(
-					new Request(callback, { headers: { cookie } }),
+					new Request(callback.origin + callback.pathname, {
+						method: "POST",
+						headers: { cookie, origin: callback.origin },
+						body: new URLSearchParams({ csrf }),
+					}),
 				),
 			);
 		};

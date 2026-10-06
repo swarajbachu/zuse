@@ -1123,9 +1123,15 @@
 	"account_github_change": "⟦Chààngëë⟧",
 	"account_github_waiting": "⟦Fïïnïïsh côônnëëctïïng GïïtHüüb ïïn yôôüür brôôwsëër.⟧",
 	"organizations_domains": "⟦ËËmààïïl dôômààïïns⟧",
-	"organizations_domains_help": "⟦Pëëôôplëë whôô sïïgn ïïn wïïth àà vëërïïfïïëëd ëëmààïïl ôôn thëësëë dôômààïïns jôôïïn ààüütôômààtïïcààlly.⟧",
+	"organizations_domains_help": "⟦Pëëôôplëë whôô sïïgn ïïn wïïth àà vëërïïfïïëëd ëëmààïïl ôôn àà vëërïïfïïëëd dôômààïïn jôôïïn ààüütôômààtïïcààlly.⟧",
 	"organizations_domains_none": "⟦Tüürn ôôn ààüütôô-jôôïïn fôôr yôôüür côômpààny ëëmààïïl dôômààïïn hëërëë. ÔÔnly ààdmïïns whôôsëë vëërïïfïïëëd ëëmààïïl üüsëës thëë dôômààïïn cààn, àànd pëërsôônààl dôômààïïns lïïkëë gmààïïl.côôm ààrëën’t ààllôôwëëd.⟧",
-	"organizations_domain_add_help": "⟦ÔÔff. Tüürn ôôn tôô lëët àànyôônëë wïïth àà vëërïïfïïëëd @{{domain}} ëëmààïïl jôôïïn.⟧",
+	"organizations_domain_add_help": "⟦ÔÔff. Tüürn ôôn, thëën prôôvëë yôôüü ôôwn @{{domain}} wïïth àà DNS rëëcôôrd.⟧",
 	"organizations_domain_auto_join": "⟦ÀÀüütôô-jôôïïn fôôr @{{domain}}⟧",
-	"organizations_domain_on_help": "⟦ÀÀnyôônëë wïïth àà vëërïïfïïëëd @{{domain}} ëëmààïïl jôôïïns ààüütôômààtïïcààlly.⟧"
+	"organizations_domain_on_help": "⟦ÀÀnyôônëë wïïth àà vëërïïfïïëëd @{{domain}} ëëmààïïl jôôïïns ààüütôômààtïïcààlly.⟧",
+	"organizations_domain_pending_help": "⟦Nôôt vëërïïfïïëëd yëët. ÀÀdd thïïs DNS rëëcôôrd tôô prôôvëë yôôüü ôôwn @{{domain}}; nôôbôôdy jôôïïns üüntïïl thëën.⟧",
+	"organizations_domain_record_type": "⟦Typëë⟧",
+	"organizations_domain_record_name": "⟦Nààmëë⟧",
+	"organizations_domain_record_value": "⟦Vààlüüëë⟧",
+	"organizations_domain_verify": "⟦Vëërïïfy⟧",
+	"organizations_domain_not_found": "⟦Rëëcôôrd nôôt fôôüünd yëët. DNS chààngëës cààn tààkëë àà fëëw mïïnüütëës.⟧"
 }

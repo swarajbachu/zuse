@@ -92,11 +92,14 @@ test.skipIf(!url)(
 			expect(
 				await second.runPromise(b.githubJoining.identitiesInRoster(123)),
 			).toMatchObject([{ accountId: "alice", githubUserId: 12 }]);
-			// A domain belongs to one organization.
+			// An unverified claim proves nothing and can be taken over; a verified
+			// one belongs to its organization.
 			const domain = {
 				domain: "acme.dev",
 				organizationId: "org",
 				createdBy: "alice",
+				verified: false,
+				verificationToken: "token",
 			};
 			expect(await first.runPromise(a.domainJoining.claimDomain(domain))).toBe(
 				true,
@@ -105,17 +108,21 @@ test.skipIf(!url)(
 				await second.runPromise(
 					b.domainJoining.claimDomain({ ...domain, organizationId: "rival" }),
 				),
-			).toBe(false);
-			await second.runPromise(
-				b.domainJoining.removeDomain("rival", "acme.dev"),
+			).toBe(true);
+			expect(await first.runPromise(a.domainJoining.claimDomain(domain))).toBe(
+				true,
+			);
+			await first.runPromise(
+				a.domainJoining.saveDomain({ ...domain, verified: true }),
 			);
 			expect(
-				await first.runPromise(a.domainJoining.getDomain("acme.dev")),
-			).toMatchObject({ organizationId: "org" });
-			await second.runPromise(b.domainJoining.removeDomain("org", "acme.dev"));
+				await second.runPromise(
+					b.domainJoining.claimDomain({ ...domain, organizationId: "rival" }),
+				),
+			).toBe(false);
 			expect(
-				await first.runPromise(a.domainJoining.getDomain("acme.dev")),
-			).toBeNull();
+				await second.runPromise(b.domainJoining.getDomain("acme.dev")),
+			).toMatchObject({ organizationId: "org", verified: true });
 			const enrollment = {
 				organizationId: "org",
 				accountId: "alice",

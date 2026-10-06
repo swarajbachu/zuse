@@ -84,7 +84,11 @@ GitHub owners do not receive Zuse administrator privileges.
 
 People link a GitHub account in **Settings → General → Account → GitHub** through
 Zuse's GitHub App OAuth flow (`/v1/organizations/github/authorize` and
-`/callback`), not a second sign-in system. The linked GitHub account may use a
+`/callback`), not a second sign-in system. The browser has no Zuse session,
+so after OAuth the verified identity is held for ten minutes and a page names
+the target Zuse account by email; only its same-browser, same-origin POST
+links the identity. A link minted for someone else's account therefore cannot
+attach a GitHub account silently. The linked GitHub account may use a
 different email than the WorkOS account, and an account can switch to another
 GitHub account. One GitHub account never links to two Zuse accounts. GitHub
 tokens are used only during linking and are not stored.
@@ -99,11 +103,15 @@ invitations are not in rosters.
 
 ### Email domains
 
-An administrator can add only the domain of their own verified WorkOS
-email; personal mailbox providers (gmail.com and similar) are rejected, and a
-domain belongs to one organization. With auto-join on, anyone whose verified
-email is on that domain joins when their organizations load. Domains and
-domain-join provenance live in `api_organization_domains` and
+An administrator can start a claim only for the domain of their own verified
+WorkOS email; personal mailbox providers (gmail.com and similar) are rejected.
+A claim admits nobody until DNS proves ownership: the organization publishes a
+TXT record `_zuse-verification.<domain>` with `zuse-domain-verification=<token>`
+and **Verify** checks it over DNS-over-HTTPS. A verified domain belongs to one
+organization; an unverified claim proves nothing, so an organization that
+verifies can take it over. With a verified domain, anyone whose verified email
+is on it joins when their organizations load. Domains and domain-join
+provenance live in `api_organization_domains` and
 `api_organization_domain_enrollments`.
 
 ### Consistency and authorization

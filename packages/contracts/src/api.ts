@@ -36,6 +36,7 @@ export const ApiPaths = {
 	organizationDomains: "/v1/organizations/domains",
 	organizationDomainAdd: "/v1/organizations/domains/add",
 	organizationDomainRemove: "/v1/organizations/domains/remove",
+	organizationDomainVerify: "/v1/organizations/domains/verify",
 	organizationDomainRestore: "/v1/organizations/domains/restore",
 	organizationGithubSettings: "/v1/organizations/github/settings",
 	organizationGithubPolicy: "/v1/organizations/github/policy",

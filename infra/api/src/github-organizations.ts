@@ -5,7 +5,10 @@ import {
 	OrganizationGithubRestoreInput,
 } from "@zuse/contracts";
 import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
-import { renderIntegrationPage } from "@zuse/utils/integration-page";
+import {
+	INTEGRATION_PAGE_HEADERS,
+	renderIntegrationPage,
+} from "@zuse/utils/integration-page";
 import { Clock, Effect, Schema } from "effect";
 import { requireWorkos } from "./auth.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
@@ -37,6 +40,12 @@ import { requireOrganizationMember } from "./organizations.ts";
 import { ApiStore } from "./store.ts";
 
 const cookieName = "zuse_github_join";
+/** The confirmation form posts back here; keep the Origin header for its check. */
+const confirmationPageHeaders = {
+	...INTEGRATION_PAGE_HEADERS,
+	"referrer-policy": "strict-origin",
+	"content-security-policy": `${INTEGRATION_PAGE_HEADERS["content-security-policy"]}; form-action 'self'`,
+};
 const callbackUrl = Effect.gen(function* () {
 	const config = yield* ApiConfiguration;
 	return new URL(
@@ -45,7 +54,10 @@ const callbackUrl = Effect.gen(function* () {
 	).toString();
 });
 
-/** Admit an eligible GitHub member, reserving the seat before calling WorkOS. */
+/**
+ * Admit an eligible GitHub member, reserving the seat before calling WorkOS.
+ * Resolves true only when this call admitted (or re-admitted) the member.
+ */
 export const joinGithubOrganization = Effect.fn("joinGithubOrganization")(
 	function* (
 		accountId: string,
@@ -103,7 +115,7 @@ export const joinGithubOrganization = Effect.fn("joinGithubOrganization")(
 				return pending;
 			}),
 		);
-		if (!prepared) return;
+		if (!prepared) return false;
 		return yield* store.withOrganizationLock(
 			input.organizationId,
 			Effect.gen(function* () {
@@ -138,7 +150,7 @@ export const joinGithubOrganization = Effect.fn("joinGithubOrganization")(
 						memberId: active.id,
 						reservedUntil: 0,
 					});
-					return;
+					return false;
 				}
 				if (yield* organizationSeatsFull(input.organizationId, accountId))
 					return yield* conflict("organization_member_limit_reached");
@@ -152,7 +164,7 @@ export const joinGithubOrganization = Effect.fn("joinGithubOrganization")(
 					memberId: member.id,
 					reservedUntil: 0,
 				});
-				return;
+				return true;
 			}),
 		);
 	},
@@ -169,15 +181,21 @@ const autoJoin = (
 			policy.organizationId,
 			accountId,
 		);
+		if (enrollment?.blocked) return false;
+		// A finished enrollment whose membership is still active needs nothing.
+		// One that lost access (left GitHub, then returned) is re-admitted.
 		if (
-			enrollment?.blocked ||
-			(enrollment?.memberId && !enrollment.reservedUntil)
+			enrollment?.memberId &&
+			!enrollment.reservedUntil &&
+			(yield* membershipsFor(accountId, policy.organizationId).pipe(
+				Effect.map((rows) => rows.some((m) => m.status === "active")),
+				Effect.catch(() => Effect.succeed(true)),
+			))
 		)
 			return false;
 		// One organization failing (full, removed, GitHub unavailable) never
 		// blocks the others or the caller.
 		return yield* joinGithubOrganization(accountId, githubUserId, policy).pipe(
-			Effect.as(true),
 			Effect.catch(() => Effect.succeed(false)),
 		);
 	});
@@ -321,11 +339,93 @@ export const routeGithubOrganizationRequest = Effect.fn(
 			);
 			if (memberships.length < 100) break;
 		}
+		// The browser carries no Zuse session, so a link minted for another
+		// account must not attach this GitHub account silently. Hold the
+		// verified identity and ask the person to confirm the named account.
+		yield* store.createChallenge({
+			challengeId: `github-join-confirm:${nonce}`,
+			accountId,
+			challenge: JSON.stringify({
+				githubUserId: user.id,
+				login: user.login,
+				organizationIds,
+			}),
+			apiIssuer: config.apiIssuer,
+			expiresAtMs: (yield* Clock.currentTimeMillis) + 600_000,
+		});
+		const target = yield* requestWorkos(
+			`/user_management/users/${encodeURIComponent(accountId)}`,
+			WorkosUser,
+		);
+		return new Response(
+			renderIntegrationPage({
+				integration: "GitHub",
+				title: "Link your GitHub account",
+				status: "Confirm",
+				description: `Link GitHub @${user.login} to the Zuse account ${target.email}?`,
+				hint: `Only continue if ${target.email} is your Zuse account. If you didn't start this from Zuse, close this tab.`,
+				actions: [
+					{
+						label: `Link @${user.login}`,
+						action: callback,
+						csrf: nonce,
+					},
+				],
+			}),
+			{ headers: confirmationPageHeaders },
+		);
+	}
+	if (
+		url.pathname === ApiPaths.organizationGithubCallback &&
+		request.method === "POST"
+	) {
+		const callback = yield* callbackUrl;
+		if (request.headers.get("origin") !== new URL(callback).origin)
+			return yield* badRequest("invalid_github_join_state");
+		const form = yield* Effect.tryPromise({
+			try: () => request.formData(),
+			catch: () => badRequest("invalid_github_join_state"),
+		});
+		const nonce = form.get("csrf");
+		const cookieState = (request.headers.get("cookie") ?? "")
+			.split(";")
+			.map((c) => c.trim())
+			.find((c) => c.startsWith(`${cookieName}=`))
+			?.slice(cookieName.length + 1);
+		const [accountId, cookieNonce] = (cookieState ?? "").split(":");
+		if (
+			typeof nonce !== "string" ||
+			!accountId ||
+			!/^user_[A-Za-z0-9]+$/u.test(accountId) ||
+			cookieNonce !== nonce
+		)
+			return yield* badRequest("invalid_github_browser_state");
+		const pending = yield* store.consumeChallenge(
+			`github-join-confirm:${nonce}`,
+			accountId,
+		);
+		if (
+			!pending ||
+			pending.apiIssuer !== config.apiIssuer ||
+			pending.expiresAtMs <= (yield* Clock.currentTimeMillis)
+		)
+			return yield* badRequest("invalid_github_join_state");
+		const user = yield* Schema.decodeUnknownEffect(
+			Schema.fromJsonString(
+				Schema.Struct({
+					githubUserId: Schema.Number,
+					login: Schema.String,
+					organizationIds: Schema.Array(Schema.Number),
+				}),
+			),
+		)(pending.challenge).pipe(
+			Effect.mapError(() => badRequest("invalid_github_join_state")),
+		);
 		if (
 			!(yield* joining.saveIdentity({
-				accountId: accountId,
-				githubUserId: user.id,
-				organizationIds,
+				accountId,
+				githubUserId: user.githubUserId,
+				organizationIds: user.organizationIds,
 				verificationId: nonce,
 				login: user.login,
 			}))

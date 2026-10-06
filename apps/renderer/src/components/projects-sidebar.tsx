@@ -1353,11 +1353,15 @@ function SidebarPlan() {
 	useEffect(() => {
 		if (!user?.id) return;
 		let live = true;
+		setEntitled(null);
 		void loadCloudEntitlements()
 			.then((result) => {
 				if (live) setEntitled(hasCloudEntitlement(result));
 			})
-			.catch(() => undefined);
+			.catch(() => {
+				// Show Upgrade rather than nothing when the plan can't be read.
+				if (live) setEntitled(false);
+			});
 		return () => {
 			live = false;
 		};

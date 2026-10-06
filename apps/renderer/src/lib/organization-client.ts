@@ -28,6 +28,7 @@ type OrganizationRpc = Extract<
 			| "organizations.domains"
 			| "organizations.domainAdd"
 			| "organizations.domainRemove"
+			| "organizations.domainVerify"
 			| "organizations.domainRestore"
 			| "organizations.githubSettings"
 			| "organizations.githubPolicy"

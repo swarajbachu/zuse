@@ -199,8 +199,18 @@ const BlockedMember = Schema.Struct({
 	displayName: Schema.String,
 });
 export const OrganizationDomainSettings = Schema.Struct({
-	/** Domains whose verified emails auto-join this organization. */
-	domains: Schema.Array(Schema.String),
+	/**
+	 * Claimed domains. Verified ones admit verified emails; pending ones show
+	 * the DNS TXT record that proves ownership.
+	 */
+	domains: Schema.Array(
+		Schema.Struct({
+			domain: Schema.String,
+			verified: Schema.Boolean,
+			recordName: Schema.optional(Schema.String),
+			recordValue: Schema.optional(Schema.String),
+		}),
+	),
 	/** The admin's own email domain, when it can still be added. */
 	suggestedDomain: Schema.NullOr(Schema.String),
 	blockedMembers: Schema.Array(BlockedMember),
@@ -214,12 +224,21 @@ export const OrganizationsDomainsRpc = Rpc.make("organizations.domains", {
 	success: OrganizationDomainSettings,
 	error: OrganizationError,
 });
-/** Turns on auto-join for the domain the admin's verified email uses. */
+/** Claims the admin's own email domain, pending DNS verification. */
 export const OrganizationsDomainAddRpc = Rpc.make("organizations.domainAdd", {
 	payload: OrganizationDomainInput,
 	success: Schema.Void,
 	error: OrganizationError,
 });
+/** Checks the claim's DNS TXT record; verified domains start admitting people. */
+export const OrganizationsDomainVerifyRpc = Rpc.make(
+	"organizations.domainVerify",
+	{
+		payload: OrganizationDomainInput,
+		success: Schema.Struct({ verified: Schema.Boolean }),
+		error: OrganizationError,
+	},
+);
 export const OrganizationsDomainRemoveRpc = Rpc.make(
 	"organizations.domainRemove",
 	{
