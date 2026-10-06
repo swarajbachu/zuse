@@ -77,7 +77,9 @@ product owner approved using completed per-machine costs at boxd's current rates
 with the existing allowance, markup and cap. Fetch rates and costs from the
 provider for each settlement; no manually maintained boxd price table is needed.
 Billing-enforced placement requires this flag and an explicit
-`BOXD_BILLING_CUTOVER_AT` (whole-second ISO timestamp). The latter prevents
+`BOXD_BILLING_CUTOVER_AT` (whole-second ISO timestamp). Production keeps this opt-in
+disabled and its cutover empty until staging provider-to-ledger-to-Polar reconciliation
+is verified; select the production cutover when enabling it. The latter prevents
 retroactive charges when Boat's shared cutover is older. The shared settlement
 path uses boxd's provider cutover independently of other providers' cutovers.
 EUR reports remain unbillable;
@@ -262,10 +264,18 @@ arithmetic carries fractional micro-USD across checkpoints and period boundaries
 Period evidence gaps remain uncharged. Checkpoints, ledger and both Polar queues
 commit in one account-serialized transaction.
 
+Provider operations hold a durable account lease for five minutes, renewed every 30 seconds,
+without keeping a database transaction open. Promotion, deletion, account cleanup and
+reconciliation honor the same lease; crashes release it through expiry. Lease acquisition
+waits at most 15 seconds before returning a retryable conflict. Settlement and reference
+updates remain atomic in short SQL transactions, with the live owner checked under
+a lease-row lock. Provider side effects also recheck ownership immediately before
+execution so a resumed stale worker is rejected.
+
 Creation intents persist the exact name before Boat publication. Promotion
 atomically starts the new image and stops the old one. Deletion keeps the
 identity/reference until Boat confirms success or absence. Inspection failures
-remain retryable. Settings/image reads use the stored inventory without waking
+leave presence unknown and do not block other settlement or cleanup. Settings/image reads use the stored inventory without waking
 machines. `cloud.image.delete` queues authenticated, account-scoped deletion of a
 specific named image, making retries safe even after a replacement. Existing
 workspace disks and authentication authorities are preserved.

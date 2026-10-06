@@ -84,7 +84,7 @@ export const maintainCloudBilling = Effect.fn("maintainCloudBilling")(
 	function* (nowMs: number) {
 		const store = yield* CloudBillingStore;
 		const config = yield* ApiConfiguration;
-		yield* reconcileSnapshotStorage(nowMs);
+
 		const exported = yield* flushCloudBillingOutbox(
 			nowMs,
 			25,
@@ -102,6 +102,12 @@ export const maintainCloudBilling = Effect.fn("maintainCloudBilling")(
 			),
 			store.purgeExpiredRawEvents(nowMs),
 		]);
+		yield* reconcileSnapshotStorage(nowMs).pipe(
+			Effect.catchCause(() => {
+				console.warn("[cloud-snapshots] storage maintenance failed");
+				return Effect.void;
+			}),
+		);
 		return { exported, usageExported, meterReconciled, purgedRawEvents };
 	},
 );

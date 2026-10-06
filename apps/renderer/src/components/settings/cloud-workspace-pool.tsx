@@ -966,13 +966,18 @@ function ScopedCloudWorkspacePool({
 											disabled={storage.state === "deleting" || busy !== null}
 											loading={busy === "delete-image"}
 											onClick={() =>
+												window.confirm(
+													uiMessage(
+														"settings:cloud_snapshot_delete_explanation",
+													),
+												) &&
 												void run("delete-image", async () => {
 													await runCloudControl((client) =>
 														client["cloud.image.delete"]({
 															snapshotId: storage.snapshotId,
 														}),
 													);
-													await refreshCloudImages();
+													await refreshCloudImages().catch(() => undefined);
 												})
 											}
 										>

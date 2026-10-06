@@ -1,3 +1,8 @@
+CREATE TABLE api_cloud_snapshot_leases (
+ account_id text PRIMARY KEY,
+ owner text NOT NULL,
+ expires_at bigint NOT NULL
+);
 CREATE TABLE api_cloud_snapshots (
  provider text NOT NULL CHECK (provider = 'box'),
  snapshot_id text NOT NULL,

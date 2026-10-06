@@ -114,6 +114,16 @@ try {
 				"SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
 				[`snapshot:${owner.account_id}`],
 			);
+		for (const client of [primary, reference]) {
+			const active = await client.query(
+				"SELECT owner FROM api_cloud_snapshot_leases WHERE account_id=$1 AND expires_at > floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+				[owner.account_id],
+			);
+			if (active.rows.length > 0)
+				throw new Error(
+					"Snapshot lifecycle operation is in progress; retry cleanup later",
+				);
+		}
 		const fresh = await readReferences(primary);
 		const other = await readReferences(reference);
 		const current = fresh.builds.find((b) => b.build_id === owner.build_id);

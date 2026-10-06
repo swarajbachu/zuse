@@ -18,9 +18,13 @@ import {
 	prepareSnapshotIntent,
 	promoteRetainedSnapshot,
 	reconcileSnapshotStorage,
+	withSnapshotLeaseCheck,
 	withSnapshotLifecycleLock,
 } from "../../src/cloud-snapshot-storage.ts";
-import { SNAPSHOT_MONTH_MS } from "../../src/cloud-snapshot-store.ts";
+import {
+	SNAPSHOT_MONTH_MS,
+	SnapshotLifecycleLease,
+} from "../../src/cloud-snapshot-store.ts";
 import {
 	type CloudProjectBuildRecord,
 	CloudWorkspaceStore,
@@ -201,18 +205,21 @@ it.skipIf(!connectionString)(
 				deleteRetainedSnapshot(raceAccount, raceSnapshot, start + 100),
 			);
 			try {
-				await expect
-					.poll(async () =>
-						Number(
-							(
-								await db.query(
-									"SELECT count(*) AS count FROM pg_locks WHERE locktype='advisory' AND NOT granted AND objid=((hashtextextended($1,0) & 4294967295)::oid) AND classid=(((hashtextextended($1,0) >> 32) & 4294967295)::oid)",
-									[`snapshot:${raceAccount}`],
-								)
-							).rows[0].count,
-						),
-					)
-					.toBe(1);
+				expect(
+					await runtime.runPromise(
+						billing.snapshots.claimLease(raceAccount, "other-restore", 60_000),
+					),
+				).toBe(false);
+				expect(
+					Number(
+						(
+							await db.query(
+								"SELECT count(*) AS count FROM pg_locks WHERE locktype='advisory' AND objid=((hashtextextended($1,0) & 4294967295)::oid) AND classid=(((hashtextextended($1,0) >> 32) & 4294967295)::oid)",
+								[`snapshot:${raceAccount}`],
+							)
+						).rows[0].count,
+					),
+				).toBe(0);
 				expect(
 					(
 						await runtime.runPromise(
@@ -235,6 +242,84 @@ it.skipIf(!connectionString)(
 			await db.query("DELETE FROM api_cloud_snapshots WHERE snapshot_id=$1", [
 				raceSnapshot,
 			]);
+			expect(
+				await runtime.runPromise(
+					billing.snapshots.claimLease(raceAccount, "crashed", 60_000),
+				),
+			).toBe(true);
+			expect(
+				await runtime.runPromise(
+					billing.snapshots.renewLease(raceAccount, "crashed", 60_000),
+				),
+			).toBe(true);
+			await db.query(
+				"UPDATE api_cloud_snapshot_leases SET expires_at=0 WHERE account_id=$1",
+				[raceAccount],
+			);
+			expect(
+				await runtime.runPromise(
+					billing.snapshots.claimLease(raceAccount, "recovered", 60_000),
+				),
+			).toBe(true);
+			expect(
+				await runtime.runPromise(
+					billing.snapshots.renewLease(raceAccount, "crashed", 60_000),
+				),
+			).toBe(false);
+			await runtime.runPromise(
+				billing.snapshots.releaseLease(raceAccount, "crashed"),
+			);
+			const staleContext = Effect.provideService(SnapshotLifecycleLease, {
+				accountId: raceAccount,
+				owner: "crashed",
+			});
+			let staleEffectRan = false;
+			const staleEffect = Effect.sync(() => {
+				staleEffectRan = true;
+			});
+			await expect(
+				runtime.runPromise(
+					billing.snapshots
+						.transaction(raceAccount, staleEffect)
+						.pipe(staleContext),
+				),
+			).rejects.toThrow("lease lost");
+			await expect(
+				runtime.runPromise(
+					withSnapshotLeaseCheck(staleEffect).pipe(staleContext),
+				),
+			).rejects.toThrow("lease lost");
+			await expect(
+				runtime.runPromise(
+					billing.snapshots
+						.save({
+							snapshotId: raceSnapshot,
+							accountId: raceAccount,
+							provider: "box",
+							buildId: "restore",
+							state: "retained",
+							createdAtMs: start,
+							attempts: 0,
+							remainder: 0,
+							nextAttemptAtMs: start,
+						})
+						.pipe(staleContext),
+				),
+			).rejects.toThrow("lease lost");
+			expect(staleEffectRan).toBe(false);
+			expect(
+				await runtime.runPromise(
+					billing.snapshots.get(raceAccount, raceSnapshot),
+				),
+			).toBeNull();
+			expect(
+				await runtime.runPromise(
+					billing.snapshots.claimLease(raceAccount, "third", 60_000),
+				),
+			).toBe(false);
+			await runtime.runPromise(
+				billing.snapshots.releaseLease(raceAccount, "recovered"),
+			);
 
 			const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
 			const { tmpdir } = await import("node:os");

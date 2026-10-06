@@ -1437,6 +1437,12 @@ export const apiGithubEnrollments = pgTable(
 	],
 );
 
+export const apiCloudSnapshotLeases = pgTable("api_cloud_snapshot_leases", {
+	accountId: text("account_id").primaryKey(),
+	owner: text("owner").notNull(),
+	expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+});
+
 export const apiCloudSnapshots = pgTable(
 	"api_cloud_snapshots",
 	{

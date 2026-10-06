@@ -178,6 +178,10 @@ else process.exit(2);
 					? "true"
 					: "false";
 			if (scenario === "billing") config.vars.BOXD_BILLING_ENABLED = "false";
+			if (scenario === "paid-billing-ready") {
+				config.vars.BOXD_BILLING_ENABLED = "true";
+				config.vars.BOXD_BILLING_CUTOVER_AT = "2026-10-06T17:15:42Z";
+			}
 			// The login authority may only name an enabled adapter.
 			config.vars.BOXD_ADAPTER_ENABLED =
 				scenario === "auth-provider" ? "false" : "true";

@@ -1,5 +1,5 @@
 import { SandboxProviders, zuseSnapshotName } from "@zuse/sandbox-providers";
-import { Effect } from "effect";
+import { Clock, Effect } from "effect";
 import { ensureAccountCloudBillingPeriod } from "./cloud-billing-period.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
 import {
@@ -7,6 +7,7 @@ import {
 	SNAPSHOT_GRACE_MS,
 	SNAPSHOT_RATE_VERSION,
 	SNAPSHOT_SETTLEMENT_INTERVAL_MS,
+	SnapshotLifecycleLease,
 	snapshotStorageCost,
 } from "./cloud-snapshot-store.ts";
 import {
@@ -15,6 +16,8 @@ import {
 } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { conflict } from "./errors.ts";
+
+const SNAPSHOT_LEASE_TTL_MS = 5 * 60_000;
 
 /** Called under the account transaction. Existing saved images are never back-billed. */
 const settleSnapshot = Effect.fn("settleSnapshot")(function* (
@@ -102,7 +105,7 @@ export const prepareSnapshotIntent = Effect.fn("prepareSnapshotIntent")(
 	function* (build: CloudProjectBuildRecord, name: string, nowMs: number) {
 		if (build.provider !== "box") return;
 		const billing = yield* CloudBillingStore;
-		yield* billing.snapshots.transaction(
+		yield* snapshotTransaction(
 			build.accountId,
 			Effect.gen(function* () {
 				const snapshotId = zuseSnapshotName(name);
@@ -142,7 +145,7 @@ export const promoteRetainedSnapshot = Effect.fn("promoteRetainedSnapshot")(
 		if (build.provider !== "box" || build.snapshotId === undefined)
 			return yield* store.saveBuild(build);
 		const billing = yield* CloudBillingStore;
-		yield* billing.snapshots.transaction(
+		yield* snapshotTransaction(
 			build.accountId,
 			Effect.gen(function* () {
 				const records = yield* billing.snapshots.list(build.accountId, false);
@@ -185,7 +188,7 @@ export const deleteRetainedSnapshot = Effect.fn("deleteRetainedSnapshot")(
 	function* (accountId: string, snapshotId: string, nowMs: number) {
 		const billing = yield* CloudBillingStore;
 		const store = yield* CloudWorkspaceStore;
-		yield* billing.snapshots.transaction(
+		yield* snapshotTransaction(
 			accountId,
 			Effect.gen(function* () {
 				const record = yield* billing.snapshots.get(accountId, snapshotId);
@@ -240,11 +243,68 @@ export const withSnapshotLifecycleLock = <A, E, R>(
 ) =>
 	Effect.gen(function* () {
 		if (provider !== "box") return yield* effect;
-		return yield* (yield* CloudBillingStore).snapshots.transaction(
-			accountId,
-			effect,
+		const snapshots = (yield* CloudBillingStore).snapshots;
+		const owner = crypto.randomUUID();
+		const ttlMs = SNAPSHOT_LEASE_TTL_MS;
+		const acquire = Effect.gen(function* () {
+			const deadline = (yield* Clock.currentTimeMillis) + 15_000;
+			while (!(yield* snapshots.claimLease(accountId, owner, ttlMs))) {
+				if ((yield* Clock.currentTimeMillis) >= deadline)
+					return yield* Effect.fail(conflict("cloud_snapshot_busy"));
+				yield* Effect.sleep("100 millis");
+			}
+		});
+		const renew = Effect.gen(function* () {
+			yield* Effect.sleep("30 seconds");
+			if (!(yield* snapshots.renewLease(accountId, owner, ttlMs)))
+				return yield* Effect.die(new Error("snapshot lifecycle lease lost"));
+		}).pipe(Effect.forever);
+		return yield* Effect.acquireUseRelease(
+			acquire,
+			() =>
+				Effect.raceFirst(
+					effect.pipe(
+						Effect.provideService(SnapshotLifecycleLease, { accountId, owner }),
+					),
+					renew,
+				),
+			() => snapshots.releaseLease(accountId, owner),
 		);
 	});
+
+/** Recheck immediately before provider side effects, including after a paused worker resumes. */
+export const withSnapshotLeaseCheck = <A, E, R>(
+	effect: Effect.Effect<A, E, R>,
+) =>
+	Effect.gen(function* () {
+		const lease = yield* SnapshotLifecycleLease;
+		if (
+			lease !== undefined &&
+			!(yield* (yield* CloudBillingStore).snapshots.renewLease(
+				lease.accountId,
+				lease.owner,
+				SNAPSHOT_LEASE_TTL_MS,
+			))
+		)
+			return yield* Effect.die(new Error("snapshot lifecycle lease lost"));
+		return yield* effect;
+	});
+
+/** All lifecycle mutations honor the provider-operation lease; SQL transactions stay short. */
+const snapshotTransaction = <A, E, R>(
+	accountId: string,
+	effect: Effect.Effect<A, E, R>,
+) =>
+	withSnapshotLifecycleLock(
+		accountId,
+		"box",
+		Effect.gen(function* () {
+			return yield* (yield* CloudBillingStore).snapshots.transaction(
+				accountId,
+				effect,
+			);
+		}),
+	);
 
 /** Deletion intent has committed before any irreversible provider call. */
 const cleanupAccountSnapshots = Effect.fn("cleanupAccountSnapshots")(function* (
@@ -253,84 +313,83 @@ const cleanupAccountSnapshots = Effect.fn("cleanupAccountSnapshots")(function* (
 ) {
 	const billing = yield* CloudBillingStore;
 	const store = yield* CloudWorkspaceStore;
-	yield* billing.snapshots.transaction(
-		accountId,
-		Effect.gen(function* () {
-			for (const record of yield* billing.snapshots.list(accountId, false)) {
-				if (record.state === "deleting" && record.deletionReason === "expiry") {
-					const period = yield* ensureAccountCloudBillingPeriod(
-						accountId,
-						nowMs,
-					);
-					const status =
-						period === null ? "ended" : (yield* billing.summary(period)).status;
-					const replacement = (yield* billing.snapshots.list(
-						accountId,
-						false,
-					)).some((r) => r.state === "retained");
-					if (!replacement && (status === "active" || status === "manual")) {
-						yield* billing.snapshots.save({
-							...record,
-							state: "retained",
-							stoppedAtMs: undefined,
-							deletionReason: undefined,
-							graceUntilMs: undefined,
-							checkpointAtMs: nowMs,
-						});
-						continue;
-					}
-				}
-				if (record.state !== "deleting" || record.nextAttemptAtMs > nowMs)
-					continue;
-				const restoring = (yield* store.listWorkspaces(accountId)).some(
-					(workspace) =>
-						workspace.buildId === record.buildId &&
-						workspace.state === "queued" &&
-						workspace.desiredState === "ready" &&
-						workspace.providerSandboxId !== undefined,
-				);
-				if (restoring) {
+	yield* Effect.gen(function* () {
+		for (const record of yield* billing.snapshots.list(accountId, false)) {
+			if (record.state === "deleting" && record.deletionReason === "expiry") {
+				const period = yield* ensureAccountCloudBillingPeriod(accountId, nowMs);
+				const status =
+					period === null ? "ended" : (yield* billing.summary(period)).status;
+				const replacement = (yield* billing.snapshots.list(
+					accountId,
+					false,
+				)).some((r) => r.state === "retained");
+				if (!replacement && (status === "active" || status === "manual")) {
 					yield* billing.snapshots.save({
 						...record,
-						nextAttemptAtMs: nowMs + 60_000,
-						lastError: "workspace-restore-pending",
+						state: "retained",
+						stoppedAtMs: undefined,
+						deletionReason: undefined,
+						graceUntilMs: undefined,
+						checkpointAtMs: nowMs,
 					});
 					continue;
 				}
-				const provider = yield* (yield* SandboxProviders).get(record.provider);
-				const result = yield* provider
-					.deleteSnapshot(record.snapshotId)
-					.pipe(Effect.result);
-				if (result._tag === "Failure" && result.failure.code !== "not-found") {
-					yield* billing.snapshots.save({
-						...record,
-						attempts: record.attempts + 1,
-						lastError: result.failure.code,
-						nextAttemptAtMs:
-							nowMs +
-							Math.min(60 * 60_000, 30_000 * 2 ** Math.min(record.attempts, 7)),
-					});
-					continue;
-				}
-				const build = yield* store.getBuild(record.buildId);
-				if (build !== null && build.snapshotId === record.snapshotId)
-					yield* store.saveBuild({
-						...build,
-						snapshotId: undefined,
-						state: "failed",
-						lastErrorCode: "saved-image-deleted",
-						revision: build.revision + 1,
-						updatedAtMs: nowMs,
-					});
+			}
+			if (record.state !== "deleting" || record.nextAttemptAtMs > nowMs)
+				continue;
+			const restoring = (yield* store.listWorkspaces(accountId)).some(
+				(workspace) =>
+					workspace.buildId === record.buildId &&
+					workspace.state === "queued" &&
+					workspace.desiredState === "ready" &&
+					workspace.providerSandboxId !== undefined,
+			);
+			if (restoring) {
 				yield* billing.snapshots.save({
 					...record,
-					state: "deleted",
-					deletedAtMs: nowMs,
-					lastError: undefined,
+					nextAttemptAtMs: nowMs + 60_000,
+					lastError: "workspace-restore-pending",
 				});
+				continue;
 			}
-		}),
-	);
+			const provider = yield* (yield* SandboxProviders).get(record.provider);
+			const result = yield* provider
+				.deleteSnapshot(record.snapshotId)
+				.pipe(withSnapshotLeaseCheck, Effect.result);
+			if (result._tag === "Failure" && result.failure.code !== "not-found") {
+				yield* billing.snapshots.save({
+					...record,
+					attempts: record.attempts + 1,
+					lastError: result.failure.code,
+					nextAttemptAtMs:
+						nowMs +
+						Math.min(60 * 60_000, 30_000 * 2 ** Math.min(record.attempts, 7)),
+				});
+				continue;
+			}
+			yield* billing.snapshots.transaction(
+				accountId,
+				Effect.gen(function* () {
+					const build = yield* store.getBuild(record.buildId);
+					if (build !== null && build.snapshotId === record.snapshotId)
+						yield* store.saveBuild({
+							...build,
+							snapshotId: undefined,
+							state: "failed",
+							lastErrorCode: "saved-image-deleted",
+							revision: build.revision + 1,
+							updatedAtMs: nowMs,
+						});
+					yield* billing.snapshots.save({
+						...record,
+						state: "deleted",
+						deletedAtMs: nowMs,
+						lastError: undefined,
+					});
+				}),
+			);
+		}
+	});
 });
 
 export const reconcileSnapshotStorage = Effect.fn("reconcileSnapshotStorage")(
@@ -350,95 +409,121 @@ export const reconcileSnapshotStorage = Effect.fn("reconcileSnapshotStorage")(
 		yield* Effect.forEach(
 			accounts,
 			(accountId) =>
-				billing.snapshots
-					.transaction(
-						accountId,
-						Effect.gen(function* () {
-							const period = yield* ensureAccountCloudBillingPeriod(
-								accountId,
-								nowMs,
+				withSnapshotLifecycleLock(
+					accountId,
+					"box",
+					Effect.gen(function* () {
+						const presence = new Map<
+							string,
+							"ready" | "saving" | "failed" | "unknown" | null
+						>();
+						for (const record of yield* billing.snapshots.list(
+							accountId,
+							false,
+						)) {
+							if (record.state !== "retained") continue;
+							const provider = yield* (yield* SandboxProviders).get(
+								record.provider,
 							);
-							for (const initial of yield* billing.snapshots.list(
+							const inspected =
+								provider.inspectSnapshot === undefined
+									? "unknown"
+									: yield* provider
+											.inspectSnapshot(record.snapshotId)
+											.pipe(
+												Effect.catchTag("SandboxProviderError", () =>
+													Effect.succeed("unknown" as const),
+												),
+											);
+							presence.set(record.snapshotId, inspected);
+						}
+						yield* billing.snapshots
+							.transaction(
 								accountId,
-								false,
-								config.cloudSnapshotBillingCutoverAtMs !== undefined,
-							)) {
-								let record = initial;
-								if (record.state === "deleting" || record.state === "deleted") {
-									yield* billing.snapshots.save(
-										yield* settleSnapshot(record, nowMs),
+								Effect.gen(function* () {
+									const period = yield* ensureAccountCloudBillingPeriod(
+										accountId,
+										nowMs,
 									);
-									continue;
-								}
-								if (record.state === "retained") {
-									const provider = yield* (yield* SandboxProviders).get(
-										record.provider,
-									);
-									if (
-										provider.inspectSnapshot !== undefined &&
-										(yield* provider.inspectSnapshot(record.snapshotId)) ===
-											null
-									)
-										record = {
-											...record,
-											state: "deleting",
-											deletionReason: "missing",
-											stoppedAtMs: nowMs,
-											nextAttemptAtMs: nowMs,
-										};
-									record = yield* settleSnapshot(record, nowMs);
-									const status =
-										period === null
-											? "ended"
-											: (yield* billing.summary(period)).status;
-									const held =
-										status === "ended" ||
-										status === "billing-hold" ||
-										status === "grace";
-									if (config.cloudBillingEnforcementEnabled) {
-										if (!held) record = { ...record, graceUntilMs: undefined };
-										else if (record.graceUntilMs === undefined)
-											record = {
-												...record,
-												graceUntilMs: nowMs + SNAPSHOT_GRACE_MS,
-											};
-										else if (record.graceUntilMs <= nowMs)
-											record = {
-												...record,
-												state: "deleting",
-												deletionReason: "expiry",
-												stoppedAtMs: nowMs,
-												nextAttemptAtMs: nowMs,
-											};
+									for (const initial of yield* billing.snapshots.list(
+										accountId,
+										false,
+										config.cloudSnapshotBillingCutoverAtMs !== undefined,
+									)) {
+										let record = initial;
+										if (
+											record.state === "deleting" ||
+											record.state === "deleted"
+										) {
+											yield* billing.snapshots.save(
+												yield* settleSnapshot(record, nowMs),
+											);
+											continue;
+										}
+										if (record.state === "retained") {
+											if (presence.get(record.snapshotId) === null)
+												record = {
+													...record,
+													state: "deleting",
+													deletionReason: "missing",
+													stoppedAtMs: nowMs,
+													nextAttemptAtMs: nowMs,
+												};
+											record = yield* settleSnapshot(record, nowMs);
+											const status =
+												period === null
+													? "ended"
+													: (yield* billing.summary(period)).status;
+											const held =
+												status === "ended" ||
+												status === "billing-hold" ||
+												status === "grace";
+											if (config.cloudBillingEnforcementEnabled) {
+												if (!held)
+													record = { ...record, graceUntilMs: undefined };
+												else if (record.graceUntilMs === undefined)
+													record = {
+														...record,
+														graceUntilMs: nowMs + SNAPSHOT_GRACE_MS,
+													};
+												else if (record.graceUntilMs <= nowMs)
+													record = {
+														...record,
+														state: "deleting",
+														deletionReason: "expiry",
+														stoppedAtMs: nowMs,
+														nextAttemptAtMs: nowMs,
+													};
+											}
+											yield* billing.snapshots.save(record);
+										}
+										if (record.state === "creating") {
+											const build = yield* store.getBuild(record.buildId);
+											if (build === null || build.state === "failed") {
+												record = {
+													...record,
+													state: "deleting",
+													deletionReason: "failed-build",
+													stoppedAtMs: nowMs,
+													nextAttemptAtMs: nowMs,
+												};
+												yield* billing.snapshots.save(record);
+											}
+										}
 									}
-									yield* billing.snapshots.save(record);
-								}
-								if (record.state === "creating") {
-									const build = yield* store.getBuild(record.buildId);
-									if (build === null || build.state === "failed") {
-										record = {
-											...record,
-											state: "deleting",
-											deletionReason: "failed-build",
-											stoppedAtMs: nowMs,
-											nextAttemptAtMs: nowMs,
-										};
-										yield* billing.snapshots.save(record);
-									}
-								}
-							}
-						}),
-					)
-					.pipe(
-						Effect.andThen(cleanupAccountSnapshots(accountId, nowMs)),
-						Effect.catchCause((cause) => {
-							console.warn("[cloud-snapshots] account reconciliation failed", {
-								accountId,
-								cause: String(cause),
-							});
-							return Effect.void;
-						}),
-					),
+								}),
+							)
+							.pipe(Effect.andThen(cleanupAccountSnapshots(accountId, nowMs)));
+					}),
+				).pipe(
+					Effect.catchCause((cause) => {
+						console.warn("[cloud-snapshots] account reconciliation failed", {
+							accountId,
+							cause: String(cause),
+						});
+						return Effect.void;
+					}),
+				),
 			{ concurrency: 4, discard: true },
 		);
 	},
@@ -448,7 +533,7 @@ export const queueAccountSnapshotDeletion = Effect.fn(
 	"queueAccountSnapshotDeletion",
 )(function* (accountId: string, nowMs: number) {
 	const billing = yield* CloudBillingStore;
-	return yield* billing.snapshots.transaction(
+	return yield* snapshotTransaction(
 		accountId,
 		Effect.gen(function* () {
 			for (const record of yield* billing.snapshots.list(accountId, false)) {

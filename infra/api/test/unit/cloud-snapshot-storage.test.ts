@@ -14,10 +14,14 @@ import {
 	prepareSnapshotIntent,
 	promoteRetainedSnapshot,
 	reconcileSnapshotStorage,
+	withSnapshotLeaseCheck,
+	withSnapshotLifecycleLock,
 } from "../../src/cloud-snapshot-storage.ts";
 import {
+	makeCloudSnapshotStoreMemory,
 	SNAPSHOT_GRACE_MS,
 	SNAPSHOT_MONTH_MS,
+	SnapshotLifecycleLease,
 	snapshotStorageCost,
 } from "../../src/cloud-snapshot-store.ts";
 import {
@@ -425,19 +429,30 @@ describe("Boat image storage", () => {
 		}
 	});
 
-	it("provider inspection failures remain retryable while confirmed absence stops billing", async () => {
+	it("provider inspection failures preserve retained images while settlement and queued cleanup continue", async () => {
 		const s = await setup({ inspectFails: true });
 		try {
 			await s.saveImage();
-			await s.runtime.runPromise(reconcileSnapshotStorage(start + 100));
+			await s.saveImage("replacement", start + 100);
+			await s.runtime.runPromise(
+				reconcileSnapshotStorage(start + SNAPSHOT_MONTH_MS / 2),
+			);
 			expect(
 				(
 					await s.runtime.runPromise(
 						s.billing.listUsage(periodId, undefined, 100),
 					)
 				).items,
-			).toHaveLength(0);
-			expect(s.deletes).toHaveLength(0);
+			).toHaveLength(2);
+			expect(s.deletes).toEqual(["zuse-build"]);
+			expect(
+				await s.runtime.runPromise(
+					s.billing.snapshots.get("account", "zuse-replacement"),
+				),
+			).toMatchObject({
+				state: "retained",
+				checkpointAtMs: start + SNAPSHOT_MONTH_MS / 2,
+			});
 		} finally {
 			await s.runtime.dispose();
 		}
@@ -454,6 +469,111 @@ describe("Boat image storage", () => {
 			).toBe("deleted");
 		} finally {
 			await missing.runtime.dispose();
+		}
+	});
+
+	it("renews a lifecycle lease and interrupts provider work if ownership is lost", async () => {
+		vi.useFakeTimers();
+		const s = await setup();
+		let started = false;
+		const renew = vi
+			.spyOn(s.billing.snapshots, "renewLease")
+			.mockReturnValue(Effect.succeed(false));
+		try {
+			const pending = s.runtime.runPromiseExit(
+				withSnapshotLifecycleLock(
+					"account",
+					"box",
+					Effect.sync(() => {
+						started = true;
+					}).pipe(Effect.andThen(Effect.never)),
+				),
+			);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(started).toBe(true);
+			await vi.advanceTimersByTimeAsync(30_000);
+			expect((await pending)._tag).toBe("Failure");
+			expect(renew).toHaveBeenCalledOnce();
+			expect(
+				await s.runtime.runPromise(
+					s.billing.snapshots.claimLease(
+						"account",
+						"replacement-owner",
+						60_000,
+					),
+				),
+			).toBe(true);
+		} finally {
+			vi.useRealTimers();
+			await s.runtime.dispose();
+		}
+	});
+
+	it("expired leases can be reclaimed and stale owners cannot renew or release them", async () => {
+		vi.useFakeTimers();
+		const snapshots = makeCloudSnapshotStoreMemory();
+		try {
+			expect(
+				await Effect.runPromise(
+					snapshots.claimLease("account", "first", 1_000),
+				),
+			).toBe(true);
+			expect(
+				await Effect.runPromise(
+					snapshots.claimLease("account", "second", 1_000),
+				),
+			).toBe(false);
+			await vi.advanceTimersByTimeAsync(1_001);
+			expect(
+				await Effect.runPromise(
+					snapshots.claimLease("account", "second", 1_000),
+				),
+			).toBe(true);
+			expect(
+				await Effect.runPromise(
+					snapshots.renewLease("account", "first", 1_000),
+				),
+			).toBe(false);
+			const staleContext = Effect.provideService(SnapshotLifecycleLease, {
+				accountId: "account",
+				owner: "first",
+			});
+			let mutated = false;
+			const sideEffect = Effect.sync(() => {
+				mutated = true;
+			});
+			await expect(
+				Effect.runPromise(
+					snapshots.transaction("account", sideEffect).pipe(staleContext),
+				),
+			).rejects.toThrow("lease lost");
+			const s = await setup();
+			try {
+				await s.runtime.runPromise(
+					s.billing.snapshots.claimLease("account", "second", 60_000),
+				);
+				await expect(
+					s.runtime.runPromise(
+						withSnapshotLeaseCheck(sideEffect).pipe(staleContext),
+					),
+				).rejects.toThrow("lease lost");
+			} finally {
+				await s.runtime.dispose();
+			}
+			expect(mutated).toBe(false);
+			await Effect.runPromise(snapshots.releaseLease("account", "first"));
+			expect(
+				await Effect.runPromise(
+					snapshots.claimLease("account", "third", 1_000),
+				),
+			).toBe(false);
+			expect(
+				await Effect.runPromise(
+					snapshots.renewLease("account", "second", 1_000),
+				),
+			).toBe(true);
+		} finally {
+			vi.useRealTimers();
 		}
 	});
 });

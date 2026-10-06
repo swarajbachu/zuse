@@ -23,6 +23,7 @@ import {
 	assertSnapshotUsable,
 	prepareSnapshotIntent,
 	promoteRetainedSnapshot,
+	withSnapshotLeaseCheck,
 	withSnapshotLifecycleLock,
 } from "./cloud-snapshot-storage.ts";
 import { deleteCloudTranscriptObjects } from "./cloud-transcript.ts";
@@ -694,7 +695,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 									network: { kind: "open" },
 									onTimeout: "terminate",
 								})
-								.pipe(Effect.orDie)
+								.pipe(withSnapshotLeaseCheck, Effect.orDie)
 						: yield* provider
 								.fork({
 									sandboxId: build.buildId,
@@ -711,7 +712,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 									network: { kind: "open" },
 									onTimeout: "terminate",
 								})
-								.pipe(Effect.orDie))
+								.pipe(withSnapshotLeaseCheck, Effect.orDie))
 				);
 			});
 			const sandbox =
@@ -1905,10 +1906,13 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 						build.provider,
 						build.snapshotId,
 					);
-					yield* provider.kill(workspace.providerSandboxId);
+					yield* provider
+						.kill(workspace.providerSandboxId)
+						.pipe(withSnapshotLeaseCheck);
 				}
 				const recovered = !replacingFailedSandbox
 					? yield* provider.recoverByLabel(label).pipe(
+							withSnapshotLeaseCheck,
 							measureCloudStage(
 								{
 									workspaceId: workspace.workspaceId,
@@ -1957,6 +1961,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 										onTimeout: "pause",
 									})
 									.pipe(
+										withSnapshotLeaseCheck,
 										measureCloudStage(
 											{
 												workspaceId: workspace.workspaceId,
