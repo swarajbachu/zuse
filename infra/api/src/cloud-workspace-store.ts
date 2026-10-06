@@ -5463,6 +5463,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						yield* sql`DELETE FROM api_api_webhooks WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_api_keys WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_auth_authorities WHERE account_id=${accountId}`;
+						yield* sql`DELETE FROM api_cloud_provider_connections WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_workspace_settings WHERE owner_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_catalog_changes WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_catalog_heads WHERE account_id=${accountId}`;

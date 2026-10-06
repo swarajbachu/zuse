@@ -27,6 +27,8 @@ import {
 	CloudProject,
 	type CloudProjectConnectRequest,
 	CloudProjectList,
+	type CloudProviderConnectionInput,
+	CloudProviderConnectionList,
 	CloudProviderList,
 	CloudTranscriptCheckpointResult,
 	CloudTranscriptMessagePageResult,
@@ -67,6 +69,22 @@ export type CloudControlRequest = <A>(
 export const makeCloudControlClient = (request: CloudControlRequest) => ({
 	"plugins.request": (input: PluginRequest) =>
 		request("/v1/plugins", PluginResponse, "POST", input),
+	"cloud.providerConnections.list": () =>
+		request(ApiPaths.cloudProviderConnections, CloudProviderConnectionList),
+	"cloud.providerConnections.save": (input: CloudProviderConnectionInput) =>
+		request(
+			ApiPaths.cloudProviderConnections,
+			CloudProviderConnectionList,
+			"POST",
+			input,
+		),
+	"cloud.providerConnections.disconnect": (input: { connectionId: string }) =>
+		request(
+			ApiPaths.cloudProviderConnections,
+			CloudProviderConnectionList,
+			"DELETE",
+			input,
+		),
 	"cloud.providers": () => request(ApiPaths.cloudProviders, CloudProviderList),
 	"cloud.projects.connect": (input: CloudProjectConnectRequest) =>
 		request(ApiPaths.cloudProjects, CloudProject, "POST", input),

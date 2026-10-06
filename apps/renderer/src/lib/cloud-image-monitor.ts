@@ -29,15 +29,18 @@ export const refreshCloudImages = async (): Promise<
 > => {
 	const epoch = generation;
 	const sequence = ++requestSequence;
-	const entitlements = await loadCloudEntitlements(true);
+	// Provider-key access arrives with the provider list; a subscription is
+	// the fallback for APIs that do not report eligibility there.
+	const { providers, entitled } = await loadCloudProviders(true);
+	const hasAccess =
+		entitled ?? hasCloudEntitlement(await loadCloudEntitlements(true));
 	if (epoch !== generation || sequence !== requestSequence) return latestImages;
-	if (!hasCloudEntitlement(entitlements)) {
+	if (!hasAccess) {
 		latestImages = [];
 		setCloudSettingsUnbuiltChanges(false);
 		for (const listener of listeners) listener(latestImages);
 		return latestImages;
 	}
-	const { providers } = await loadCloudProviders(true);
 	const results = await Promise.allSettled([
 		loadCloudImage(undefined, true),
 		...providers.map((provider) => loadCloudImage(provider.providerId, true)),
@@ -56,10 +59,13 @@ export const refreshCloudImages = async (): Promise<
 		providers.some((provider) => provider.providerId === image.providerId),
 	);
 
+	// Only warn when no image can serve a cloud chat yet. Providers the user
+	// does not build for would otherwise block leaving Settings every time.
 	setCloudSettingsUnbuiltChanges(
-		latestImages.some(
-			(image) => image.state === "outdated" || image.state === "not-built",
-		),
+		!latestImages.some((image) => image.state === "ready") &&
+			latestImages.some(
+				(image) => image.state === "outdated" || image.state === "not-built",
+			),
 	);
 	for (const listener of listeners) listener(latestImages);
 	if (results.some((result) => result.status === "rejected"))

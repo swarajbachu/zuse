@@ -26,6 +26,7 @@ import {
 } from "./api-sealing.ts";
 import { safeApiWebhookTarget } from "./api-webhook-target.ts";
 import { requireApiKey } from "./auth.ts";
+import { connectionIdFor } from "./cloud-provider-connections.ts";
 import {
 	type CloudWorkspaceRouteContext,
 	cloudWorkspaceResumeIsAlreadyRequested,
@@ -620,7 +621,11 @@ export const routeAccountWorkspaceRequest = (
 					);
 				// Authorization is a precondition for the durable command. A denied
 				// request must never leave a row that can execute on a later wake.
-				yield* requireCloudBillingCapacity(principal.accountId, nowMs);
+				yield* requireCloudBillingCapacity(
+					principal.accountId,
+					nowMs,
+					connectionIdFor(workspace),
+				);
 				const sealed = yield* sealApiString(
 					apiMessageSealContext(principal.accountId, workspaceId, messageId),
 					messageContent,

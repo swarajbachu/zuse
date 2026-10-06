@@ -5,7 +5,6 @@ import {
 	WORKSPACE_API_PREFIX,
 	WORKSPACE_SCOPE_HEADER,
 } from "@zuse/contracts";
-import { SandboxProviders } from "@zuse/sandbox-providers";
 import { Clock, Effect, Option, Redacted, Schema } from "effect";
 import { AccountIdentity } from "./account-identity.ts";
 import {
@@ -23,6 +22,7 @@ import {
 	type CloudBillingRouteContext,
 	routeCloudBillingRequest,
 } from "./cloud-billing-routes.ts";
+import { resolveResourceProvider } from "./cloud-provider-connections.ts";
 import {
 	type CloudWorkspaceRouteContext,
 	routeCloudWorkspaceRequest,
@@ -880,17 +880,14 @@ const route = (
 				return json({ ok: true, cleanupPending: true }, 202);
 			}
 			const cloudProjects = yield* cloudStore.listProjects(principal.accountId);
-			const sandboxProviders = yield* SandboxProviders;
 			for (const project of cloudProjects) {
 				for (const build of yield* cloudStore.listBuilds(project.projectId)) {
 					if (build.snapshotId === undefined) continue;
-					const provider = yield* sandboxProviders
-						.get(build.provider)
-						.pipe(
-							Effect.mapError(() =>
-								serviceUnavailable("cloud_provider_unavailable"),
-							),
-						);
+					const provider = yield* resolveResourceProvider(build).pipe(
+						Effect.mapError(() =>
+							serviceUnavailable("cloud_provider_unavailable"),
+						),
+					);
 					yield* provider
 						.deleteSnapshot(build.snapshotId)
 						.pipe(

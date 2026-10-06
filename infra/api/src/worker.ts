@@ -27,6 +27,7 @@ import {
 	coordinateCloudMailboxResponse,
 	deliverCloudMailboxLifecycle,
 } from "./cloud-mailbox-coordinator.ts";
+import { CloudProviderConnectionsLive } from "./cloud-provider-connections.ts";
 import {
 	CloudWorkspaceLaunchIntentCipher,
 	CloudWorkspaceLaunchIntentCipherLive,
@@ -513,6 +514,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 			? Layer.succeed(PluginHost, makeCloudflarePluginHost(env.PLUGIN_VAULT))
 			: Layer.empty,
 		configLayer,
+		CloudProviderConnectionsLive.pipe(Layer.provide(dbLayer)),
 		ModelConnectionStoreLive.pipe(
 			Layer.provide(Layer.merge(dbLayer, configLayer)),
 		),

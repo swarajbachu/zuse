@@ -252,6 +252,11 @@ export const boxdSandboxClientFor = (
 	const existing = clients.get(key);
 	if (existing !== undefined) return existing;
 	const created = new Boxd({ apiKey: Redacted.value(config.apiKey), baseURL });
+	// BYOK accounts must not grow an isolate-wide secret/client cache without bound.
+	if (clients.size >= 64) {
+		const oldest = clients.keys().next().value;
+		if (oldest !== undefined) clients.delete(oldest);
+	}
 	clients.set(key, created);
 	return created;
 };
@@ -987,6 +992,13 @@ export const makeBoxdSandboxProvider = (
 		});
 
 	return {
+		withCredentials: (credentials) =>
+			makeBoxdSandboxProvider({
+				...config,
+				apiKey: credentials.apiKey,
+				templateSnapshot: credentials.templateId ?? config.templateSnapshot,
+				org: credentials.organization,
+			}),
 		providerId: BOXD_PROVIDER_ID,
 		displayName: "boxd",
 		templateVersion: config.templateVersion,

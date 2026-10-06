@@ -105,6 +105,7 @@ import {
 	summaryFromLaunch,
 	useCloudChatSummaryForSelection,
 } from "~/lib/cloud-workspaces.ts";
+import { dispatchCommand } from "~/lib/commands";
 import { runCloudControl } from "~/lib/control-plane-client.ts";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { useEnvironmentShellCatalog } from "~/lib/environment-shell-client-bus";
@@ -120,6 +121,7 @@ import {
 	defaultNewChatTarget,
 	type LogicalProjectGroup,
 	type LogicalProjectMember,
+	landingDefaultProject,
 	type NewChatTarget,
 	preferredGroupMember,
 } from "~/lib/project-groups";
@@ -518,17 +520,13 @@ function WorkspaceChatLanding({
 			restoredProject.current = true;
 			return;
 		}
-		const rememberedKey = newChatPreferences.lastProjectKey();
-		if (rememberedKey === null) {
-			restoredProject.current = true;
-			return;
-		}
-		const group = projectGroups.find(
-			(candidate) => candidate.key === rememberedKey,
-		);
-		if (group === undefined) return;
 		restoredProject.current = true;
-		if (group.key === selectedGroup?.key) return;
+		const group = landingDefaultProject(
+			projectGroups,
+			newChatPreferences.lastProjectKey(),
+			selectedGroup?.key ?? null,
+		);
+		if (group === null || group.key === selectedGroup?.key) return;
 		const member = preferredGroupMember(group);
 		if (member === null) return;
 		if (member.isActive) {
@@ -1655,12 +1653,26 @@ function WorkspaceChatLanding({
 					}
 				/>
 			</Suspense>
-		) : (
+		) : projectGroups.length > 0 ? (
 			<p className="text-center text-sm text-muted-foreground">
-				{uiMessage(
-					"chat:chat_landing_pick_a_project_below_to_start_a_new_chat",
-				)}
+				{uiMessage("chat:chat_landing_choose_a_project_in_the_sidebar")}
 			</p>
+		) : (
+			<div className="flex flex-col items-center gap-3">
+				<p className="text-center text-sm text-muted-foreground">
+					{uiMessage("chat:chat_landing_add_a_project_to_start")}
+				</p>
+				{isHostedProduct() ? null : (
+					<Button
+						size="xs"
+						className="h-7"
+						onClick={() => dispatchCommand("open-project")}
+					>
+						<HugeiconsIcon icon={FolderAddIcon} aria-hidden />
+						{uiMessage("chat:chat_landing_add_project")}
+					</Button>
+				)}
+			</div>
 		);
 
 	// Show the submitted bubble before the cloud chat has an identity.

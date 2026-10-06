@@ -19,6 +19,11 @@ import { snapshotCloudAuthAuthority } from "./cloud-auth-authority.ts";
 import { allocatedComputeCostMicros } from "./cloud-billing.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { githubInstallationGrants } from "./cloud-github-app.ts";
+import {
+	connectionIdFor,
+	resolveResourceProvider,
+	resourceProviderConnectionId,
+} from "./cloud-provider-connections.ts";
 import { deleteCloudTranscriptObjects } from "./cloud-transcript.ts";
 import { observeCloudRuntimeUsage } from "./cloud-usage.ts";
 import {
@@ -141,6 +146,13 @@ export const reserveProviderCost = Effect.fn("reserveProviderCost")(
 	}) {
 		const config = yield* ApiConfiguration;
 		yield* observeCloudRuntimeUsage({ ...input, observedAtMs: input.nowMs });
+		if (
+			(yield* resourceProviderConnectionId(
+				input.resourceKind,
+				input.resourceId,
+			)) !== undefined
+		)
+			return false;
 		if (
 			!config.cloudBillingEnforcementEnabled &&
 			!config.cloudBillingExportEnabled
@@ -545,9 +557,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 		const store = yield* CloudWorkspaceStore;
 		const project = yield* store.getProject(build.projectId);
 		if (project === null) return;
-		const provider = yield* (yield* SandboxProviders)
-			.get(build.provider)
-			.pipe(Effect.orDie);
+		const provider = yield* resolveResourceProvider(build).pipe(Effect.orDie);
 		const config = yield* SandboxOfferConfiguration;
 		const nowMs = yield* Clock.currentTimeMillis;
 		const buildBillingHold = yield* reserveProviderCost({
@@ -635,9 +645,68 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 				});
 				return;
 			}
+			// A queued build that cannot start must end visibly. Retrying a
+			// permanent provider refusal, or retrying forever, leaves the image
+			// "in progress" with no output.
+			const failQueuedBuild = (failureCode: string, logText: string) =>
+				Effect.gen(function* () {
+					yield* Effect.sync(() =>
+						console.warn("[cloud-workspace] project build failed", {
+							buildId: build.buildId,
+							failureCode,
+						}),
+					);
+					const previous = yield* store.getActiveAccountBuild(
+						build.accountId,
+						build.provider,
+					);
+					yield* store.saveBuild({
+						...build,
+						state: "failed",
+						lastErrorCode: failureCode,
+						logText,
+						nextActionAtMs: Number.MAX_SAFE_INTEGER,
+						revision: build.revision + 1,
+						updatedAtMs: nowMs,
+					});
+					yield* saveAccountProjectState(
+						build.accountId,
+						previous === null ? "failed" : "ready",
+						failureCode,
+						nowMs,
+					);
+				});
+			const ownKey = connectionIdFor(build) !== undefined;
+			const rejectedLog = ownKey
+				? `${provider.displayName} refused this request with your provider key (permission denied). Check that the key can read and create machines in its organization and can use the configured template, then rebuild.`
+				: `${provider.displayName} refused this request (permission denied). Try again later or choose another provider.`;
+			// Only a permanent refusal ends the build; anything else retries.
+			const unlessRejected = <A, R>(
+				effect: Effect.Effect<A, SandboxProviderError, R>,
+			) =>
+				effect.pipe(
+					Effect.map((value) => ({ rejected: false as const, value })),
+					Effect.catchTag("SandboxProviderError", (error) =>
+						error.code === "rejected"
+							? Effect.succeed({ rejected: true as const })
+							: Effect.die(error),
+					),
+				);
+			if (nowMs - build.updatedAtMs >= PROJECT_BUILD_TIMEOUT_MS) {
+				yield* failQueuedBuild(
+					"project-start-timeout",
+					`The build could not start on ${provider.displayName} within 15 minutes. Rebuild to try again.`,
+				);
+				return;
+			}
 			const label = providerLabel("build", build.buildId);
 			const apiConfig = yield* ApiConfiguration;
-			const existing = yield* provider.recoverByLabel(label).pipe(Effect.orDie);
+			const recovered = yield* unlessRejected(provider.recoverByLabel(label));
+			if (recovered.rejected) {
+				yield* failQueuedBuild("provider-rejected", rejectedLog);
+				return;
+			}
+			const existing = recovered.value;
 			const previousAccountBuild = yield* store.getActiveAccountBuild(
 				build.accountId,
 				build.provider,
@@ -646,15 +715,17 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 				"account-image:rebuild:",
 			);
 			const authSnapshotId =
-				cleanRebuild ||
-				previousAccountBuild === null ||
-				previousAccountBuild.templateVersion !== build.templateVersion
-					? yield* snapshotCloudAuthAuthority(
-							build.accountId,
-							`account-auth-${build.buildId}`,
-							build.provider,
-						).pipe(Effect.orElseSucceed(() => undefined))
-					: undefined;
+				connectionIdFor(build) !== undefined
+					? undefined
+					: cleanRebuild ||
+							previousAccountBuild === null ||
+							previousAccountBuild.templateVersion !== build.templateVersion
+						? yield* snapshotCloudAuthAuthority(
+								build.accountId,
+								`account-auth-${build.buildId}`,
+								build.provider,
+							).pipe(Effect.orElseSucceed(() => undefined))
+						: undefined;
 			const reusableSnapshotId =
 				authSnapshotId ??
 				(cleanRebuild
@@ -663,42 +734,48 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 							previousAccountBuild,
 							build.templateVersion,
 						));
-			const sandbox =
-				existing ??
-				(reusableSnapshotId === undefined
-					? yield* provider
-							.create({
-								sandboxId: build.buildId,
-								providerLabel: label,
-								metadata: {
-									"zuse-account-id": build.accountId,
-									"zuse-resource-kind": "build",
-									"zuse-project-id": build.projectId,
-									"zuse-build-id": build.buildId,
-								},
-								timeoutSeconds: config.createTimeoutSeconds,
-								env: {},
-								network: { kind: "open" },
-								onTimeout: "terminate",
-							})
-							.pipe(Effect.orDie)
-					: yield* provider
-							.fork({
-								sandboxId: build.buildId,
-								providerLabel: label,
-								metadata: {
-									"zuse-account-id": build.accountId,
-									"zuse-resource-kind": "build",
-									"zuse-project-id": build.projectId,
-									"zuse-build-id": build.buildId,
-								},
-								snapshotId: reusableSnapshotId,
-								timeoutSeconds: config.createTimeoutSeconds,
-								env: {},
-								network: { kind: "open" },
-								onTimeout: "terminate",
-							})
-							.pipe(Effect.orDie));
+			const allocated =
+				existing !== null
+					? { rejected: false as const, value: existing }
+					: yield* unlessRejected(
+							reusableSnapshotId === undefined
+								? provider.create({
+										sandboxId: build.buildId,
+										providerLabel: label,
+										metadata: {
+											"zuse-account-id": build.accountId,
+											"zuse-resource-kind": "build",
+											"zuse-project-id": build.projectId,
+											"zuse-build-id": build.buildId,
+										},
+										timeoutSeconds: config.createTimeoutSeconds,
+										env: {},
+										network: { kind: "open" },
+										onTimeout: "terminate",
+									})
+								: provider.fork({
+										sandboxId: build.buildId,
+										providerLabel: label,
+										metadata: {
+											"zuse-account-id": build.accountId,
+											"zuse-resource-kind": "build",
+											"zuse-project-id": build.projectId,
+											"zuse-build-id": build.buildId,
+										},
+										snapshotId: reusableSnapshotId,
+										timeoutSeconds: config.createTimeoutSeconds,
+										env: {},
+										network: { kind: "open" },
+										onTimeout: "terminate",
+									}),
+						);
+			if (allocated.rejected) {
+				if (authSnapshotId !== undefined)
+					yield* provider.deleteSnapshot(authSnapshotId).pipe(Effect.ignore);
+				yield* failQueuedBuild("provider-rejected", rejectedLog);
+				return;
+			}
+			const sandbox = allocated.value;
 			if (authSnapshotId !== undefined)
 				yield* provider.deleteSnapshot(authSnapshotId).pipe(Effect.ignore);
 			yield* provider
@@ -1155,7 +1232,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			);
 			for (const candidate of superseded) {
 				if (candidate.snapshotId === undefined) continue;
-				yield* provider
+				yield* (yield* resolveResourceProvider(candidate))
 					.deleteSnapshot(candidate.snapshotId)
 					.pipe(Effect.ignore);
 				yield* store.saveBuild({
@@ -1545,7 +1622,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		saveWorkspace: SaveClaimedWorkspace,
 	) {
 		const store = yield* CloudWorkspaceStore;
-		const provider = yield* (yield* SandboxProviders).get(workspace.provider);
+		const provider = yield* resolveResourceProvider(workspace);
 		const config = yield* SandboxOfferConfiguration;
 		const apiConfig = yield* ApiConfiguration;
 		const nowMs = yield* Clock.currentTimeMillis;
@@ -2380,6 +2457,26 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 					),
 				);
 		yield* reconcileWorkspaceRecord(workspace, saveWorkspace).pipe(
+			Effect.catchTag("ApiError", (error) =>
+				Effect.gen(function* () {
+					const failedAtMs = yield* Clock.currentTimeMillis;
+					const unavailable = error.code === "cloud_provider_unavailable";
+					yield* saveWorkspace({
+						...currentWorkspace,
+						...(unavailable
+							? { state: "failed" as const, runtimeState: "offline" as const }
+							: {}),
+						statusCode: unavailable
+							? "provider-unavailable"
+							: "provider-connection-unavailable",
+						nextActionAtMs: unavailable
+							? Number.MAX_SAFE_INTEGER
+							: failedAtMs + RETRY_MS,
+						revision: currentWorkspace.revision + 1,
+						updatedAtMs: failedAtMs,
+					});
+				}),
+			),
 			Effect.catchTag("ProviderSelectionError", () =>
 				Effect.gen(function* () {
 					const failedAtMs = yield* Clock.currentTimeMillis;
@@ -2509,7 +2606,7 @@ export const reconcileCloudWorkspaceStartup = Effect.fn(
 	if (scheduleColdStartup) {
 		const workspace = yield* store.getWorkspace(workspaceId);
 		if (workspace === null) return;
-		const provider = yield* (yield* SandboxProviders).get(workspace.provider);
+		const provider = yield* resolveResourceProvider(workspace);
 		// Cold providers can outlive an HTTP request. Preserved runtimes keep the
 		// existing immediate warm-reconnect observation path.
 		if (provider.preservesProcessesOnResume === false)

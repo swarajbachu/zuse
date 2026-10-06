@@ -5,6 +5,7 @@ import {
 import { Effect, Schema } from "effect";
 import { meterProviderExecution } from "./cloud-billing-provider.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
+import { connectionIdFor } from "./cloud-provider-connections.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { serviceUnavailable } from "./errors.ts";
 
@@ -166,6 +167,14 @@ export const ingestBoxLifecycleEvent = Effect.fn("ingestBoxLifecycleEvent")(
 				});
 			return { eventInserted, metered: false, reason: "unmatched" as const };
 		}
+
+		const resource = workspace ?? build;
+		if (resource !== null && connectionIdFor(resource) !== undefined)
+			return {
+				eventInserted,
+				metered: false,
+				reason: "provider-billed" as const,
+			};
 
 		// The webhook payload carries no compute dimensions; the configured
 		// adapter's machine profile is the deterministic source.

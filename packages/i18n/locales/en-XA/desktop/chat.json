@@ -187,7 +187,6 @@
 	"chat_landing_clone_project": "⟦Clôônëë prôôjëëct⟧",
 	"chat_landing_dismiss_error": "⟦Dïïsmïïss ëërrôôr⟧",
 	"chat_landing_clear_create_from_source": "⟦Clëëààr crëëààtëë-frôôm sôôüürcëë⟧",
-	"chat_landing_pick_a_project_below_to_start_a_new_chat": "⟦Pïïck àà prôôjëëct bëëlôôw tôô stààrt àà nëëw chààt.⟧",
 	"chat_landing_import_an_existing_chat": "⟦ÏÏmpôôrt ààn ëëxïïstïïng chààt⟧",
 	"chat_landing_import_chat": "⟦ÏÏmpôôrt chààt⟧",
 	"chat_landing_recent_provider_chats": "⟦Rëëcëënt prôôvïïdëër chààts⟧",
@@ -684,5 +683,8 @@
 	"runtime_mode_full_description": "⟦ÀÀllôôw ààctïïôôns wïïthôôüüt ààpprôôvààl. Plààn môôdëë stïïll ààpplïïëës.⟧",
 	"message_row_signed_out_of": "⟦Yôôüü'rëë sïïgnëëd ôôüüt ôôf {{label}}.⟧",
 	"provider_sign_in_tray_signed_out": "⟦Sïïgnëëd ôôüüt ôôf {{label}}⟧",
-	"provider_sign_in_tray_sign_in_to_continue": "⟦Sïïgn ïïn tôô côôntïïnüüëë thïïs chààt.⟧"
+	"provider_sign_in_tray_sign_in_to_continue": "⟦Sïïgn ïïn tôô côôntïïnüüëë thïïs chààt.⟧",
+	"chat_landing_choose_a_project_in_the_sidebar": "⟦Chôôôôsëë àà prôôjëëct ïïn thëë sïïdëëbààr tôô stààrt àà nëëw chààt.⟧",
+	"chat_landing_add_a_project_to_start": "⟦ÀÀdd àà prôôjëëct tôô stààrt yôôüür fïïrst chààt.⟧",
+	"chat_landing_add_project": "⟦ÀÀdd prôôjëëct⟧"
 }

@@ -187,7 +187,6 @@
 	"chat_landing_clone_project": "Projekt klonen",
 	"chat_landing_dismiss_error": "Fehler verwerfen",
 	"chat_landing_clear_create_from_source": "Löschen Sie „Erstellen aus Quelle“.",
-	"chat_landing_pick_a_project_below_to_start_a_new_chat": "Wählen Sie unten ein Projekt aus, um einen neuen Chat zu starten.",
 	"chat_landing_import_an_existing_chat": "Importieren Sie einen vorhandenen Chat",
 	"chat_landing_import_chat": "Chat importieren",
 	"chat_landing_recent_provider_chats": "Aktuelle Anbieter-Chats",
@@ -684,5 +683,8 @@
 	"runtime_mode_full_description": "Aktionen ohne Genehmigung zulassen. Der Planmodus gilt weiterhin.",
 	"message_row_signed_out_of": "Sie sind von {{label}} abgemeldet.",
 	"provider_sign_in_tray_signed_out": "Von {{label}} abgemeldet",
-	"provider_sign_in_tray_sign_in_to_continue": "Melden Sie sich an, um diesen Chat fortzusetzen."
+	"provider_sign_in_tray_sign_in_to_continue": "Melden Sie sich an, um diesen Chat fortzusetzen.",
+	"chat_landing_choose_a_project_in_the_sidebar": "Wähle in der Seitenleiste ein Projekt, um einen neuen Chat zu starten.",
+	"chat_landing_add_a_project_to_start": "Füge ein Projekt hinzu, um deinen ersten Chat zu starten.",
+	"chat_landing_add_project": "Projekt hinzufügen"
 }

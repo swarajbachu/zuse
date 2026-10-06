@@ -123,6 +123,107 @@ test.each([
 	);
 });
 
+describe("queued image builds that cannot start", () => {
+	const reconcileQueued = (
+		workspaceId: string,
+		override: {
+			readonly recoverByLabel?: (
+				label: string,
+			) => Effect.Effect<null, SandboxProviderError>;
+			readonly create?: () => Effect.Effect<never, SandboxProviderError>;
+		},
+		updatedAtMs = Date.now(),
+	) =>
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId,
+				requestConfig: {},
+				state: "ready",
+				desiredState: "ready",
+				statusCode: "ready",
+			});
+			const store = yield* CloudWorkspaceStore;
+			const build = yield* store.getBuild(workspace.buildId);
+			if (build === null) throw new Error("Missing build");
+			yield* store.saveBuild({
+				...build,
+				state: "queued",
+				snapshotId: undefined,
+				providerSandboxId: undefined,
+				logText: undefined,
+				idempotencyKey: `account-image:rebuild:${workspaceId}`,
+				nextActionAtMs: 0,
+				updatedAtMs,
+			});
+			const providers = yield* SandboxProviders;
+			const provider = yield* providers.get(build.provider);
+			const exit = yield* reconcileCloudBuild(build.buildId).pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: () =>
+						Effect.succeed({
+							...provider,
+							...(override.recoverByLabel === undefined
+								? {}
+								: { recoverByLabel: override.recoverByLabel }),
+							...(override.create === undefined
+								? {}
+								: { create: override.create }),
+						}),
+				}),
+				Effect.exit,
+			);
+			return { exit, build: yield* store.getBuild(build.buildId) };
+		});
+
+	test("fails visibly when the provider refuses the machine lookup", async () => {
+		const { build } = await Effect.runPromise(
+			reconcileQueued("queued-lookup-rejected", {
+				recoverByLabel: () =>
+					Effect.fail(new SandboxProviderError({ code: "rejected" })),
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(build?.state).toBe("failed");
+		expect(build?.lastErrorCode).toBe("provider-rejected");
+		expect(build?.logText).toContain("permission denied");
+		expect(build?.nextActionAtMs).toBe(Number.MAX_SAFE_INTEGER);
+	});
+
+	test("fails visibly when the provider refuses machine creation", async () => {
+		const { build } = await Effect.runPromise(
+			reconcileQueued("queued-create-rejected", {
+				recoverByLabel: () => Effect.succeed(null),
+				create: () =>
+					Effect.fail(new SandboxProviderError({ code: "rejected" })),
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(build?.state).toBe("failed");
+		expect(build?.lastErrorCode).toBe("provider-rejected");
+	});
+
+	test("retries transient start failures, then gives up after the start window", async () => {
+		const transient = {
+			recoverByLabel: () =>
+				Effect.fail(new SandboxProviderError({ code: "transient" })),
+		};
+		const recent = await Effect.runPromise(
+			reconcileQueued("queued-transient", transient).pipe(
+				Effect.provide(testLayer),
+			),
+		);
+		expect(recent.exit._tag).toBe("Failure");
+		expect(recent.build?.state).toBe("queued");
+		const stale = await Effect.runPromise(
+			reconcileQueued("queued-stale", transient, Date.now() - 16 * 60_000).pipe(
+				Effect.provide(testLayer),
+			),
+		);
+		expect(stale.build?.state).toBe("failed");
+		expect(stale.build?.lastErrorCode).toBe("project-start-timeout");
+		expect(stale.build?.logText).toContain("could not start");
+	});
+});
+
 test("resumes a persisted snapshot stage after the original worker exits", async () => {
 	await Effect.runPromise(
 		Effect.gen(function* () {

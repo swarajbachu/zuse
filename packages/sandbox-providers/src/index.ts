@@ -3,7 +3,7 @@ import {
 	type ProviderRegistry,
 	type ProviderRegistryConfigError,
 } from "@zuse/provider-registry";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, type Redacted, Schema } from "effect";
 
 export class SandboxProviderError extends Schema.TaggedErrorClass<SandboxProviderError>()(
 	"SandboxProviderError",
@@ -79,7 +79,17 @@ export interface ProviderSandboxUsage {
 	readonly costMicrosPerSecond: number;
 }
 
+export interface SandboxProviderCredentials {
+	readonly apiKey: Redacted.Redacted<string>;
+	readonly templateId?: string;
+	readonly organization?: string;
+}
+
 export interface SandboxProviderAdapter {
+	/** Rebind infrastructure access without changing the provider identity. */
+	readonly withCredentials?: (
+		credentials: SandboxProviderCredentials,
+	) => SandboxProviderAdapter;
 	readonly providerId: string;
 	readonly displayName: string;
 	readonly getUsage?: (
