@@ -30,6 +30,7 @@ import { EnvironmentId } from "./ids.ts";
 export const ApiPaths = {
 	authToken: "/v1/auth/token",
 	organizations: "/v1/organizations",
+	organizationCapabilities: "/v1/organizations/capabilities",
 	organizationGithubAuthorize: "/v1/organizations/github/authorize",
 	organizationGithubCallback: "/v1/organizations/github/callback",
 	organizationGithubConnection: "/v1/organizations/github/connection",
@@ -89,6 +90,7 @@ export const ApiPaths = {
 	cloudBillingUsage: "/v1/cloud/billing/usage",
 	cloudBillingCap: "/v1/cloud/billing/cap",
 	cloudProviders: "/v1/cloud/providers",
+	cloudProviderConnections: "/v1/cloud/provider-connections",
 	cloudAuth: "/v1/cloud/auth",
 	cloudAuthProvision: "/v1/cloud/auth/provision",
 	cloudAuthConfigure: "/v1/cloud/auth/configure",

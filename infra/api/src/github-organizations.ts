@@ -28,6 +28,10 @@ import {
 } from "./github-transport.ts";
 import { decodeBody, json } from "./http.ts";
 import {
+	organizationAccessAllowed,
+	requireOrganizationRollout,
+} from "./organization-rollout.ts";
+import {
 	admitOrganizationMember,
 	membershipsFor,
 	organizationSeatsFull,
@@ -64,6 +68,7 @@ export const joinGithubOrganization = Effect.fn("joinGithubOrganization")(
 		githubUserId: number,
 		input: { readonly organizationId: string; readonly installationId: number },
 	) {
+		yield* requireOrganizationRollout(input.organizationId);
 		const store = yield* ApiStore;
 		const joining = store.githubJoining;
 		// Commit enrollment intent and its seat reservation before calling WorkOS.
@@ -177,6 +182,8 @@ const autoJoin = (
 	policy: { readonly organizationId: string; readonly installationId: number },
 ) =>
 	Effect.gen(function* () {
+		if (!(yield* organizationAccessAllowed(policy.organizationId)))
+			return false;
 		const enrollment = yield* (yield* ApiStore).githubJoining.getEnrollment(
 			policy.organizationId,
 			accountId,

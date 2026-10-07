@@ -21,11 +21,51 @@ import {
 	runServePackageCli,
 	SERVE_HELP,
 	shouldAutoLinkForeground,
+	tailnetRecoveryAction,
 } from "../../src/serve/package-cli.ts";
 import {
 	readServeSettings,
 	writeServeSettings,
 } from "../../src/serve/settings.ts";
+
+describe("Tailscale recovery after a failed boot-time share", () => {
+	it("restarts a managed service once, shortly after boot", () => {
+		expect(
+			tailnetRecoveryAction({
+				managedByService: true,
+				restartedForRecovery: false,
+				elapsedMs: 60_000,
+			}),
+		).toBe("restart");
+	});
+
+	it("never restarts again when the previous recovery restart did not help", () => {
+		expect(
+			tailnetRecoveryAction({
+				managedByService: true,
+				restartedForRecovery: true,
+				elapsedMs: 60_000,
+			}),
+		).toBe("notify");
+	});
+
+	it("asks instead of restarting late or outside a managed service", () => {
+		expect(
+			tailnetRecoveryAction({
+				managedByService: true,
+				restartedForRecovery: false,
+				elapsedMs: 11 * 60_000,
+			}),
+		).toBe("notify");
+		expect(
+			tailnetRecoveryAction({
+				managedByService: false,
+				restartedForRecovery: false,
+				elapsedMs: 60_000,
+			}),
+		).toBe("notify");
+	});
+});
 
 describe("serve data directory", () => {
 	it("uses the desktop dev profile when run from a Linux source checkout", () => {

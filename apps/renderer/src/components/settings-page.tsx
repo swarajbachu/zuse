@@ -1223,6 +1223,7 @@ function ComputerAwakeSettings() {
 }
 
 function GeneralPane() {
+	useOrganizationWorkspaces();
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);

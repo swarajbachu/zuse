@@ -6,7 +6,10 @@ import {
 	CloudWorkspaceStore,
 	CloudWorkspaceStoreMemory,
 } from "../../src/cloud-workspace-store.ts";
-import { layer as configurationLayer } from "../../src/config.ts";
+import {
+	ApiConfiguration,
+	layer as configurationLayer,
+} from "../../src/config.ts";
 import {
 	githubMemberEligible,
 	invalidateGithubJoining,
@@ -14,6 +17,7 @@ import {
 	refreshGithubRosters,
 } from "../../src/github-membership.ts";
 import {
+	autoJoinInstallation,
 	joinGithubOrganization,
 	routeGithubOrganizationRequest,
 	syncGithubAutoJoin,
@@ -298,6 +302,32 @@ describe("GitHub organization joining", () => {
 		expect(members.filter((m) => m.user_id === "user_alice")).toEqual([
 			makeMember("user_alice"),
 		]);
+	});
+
+	it("does not auto-join from account linking or webhooks when rollout denies the team", async () => {
+		await runtime.runPromise(refreshGithubRosters(123));
+		const denied = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+			Effect.flatMap(ApiConfiguration, (config) =>
+				effect.pipe(
+					Effect.provideService(ApiConfiguration, {
+						...config,
+						organizationRolloutEnabled: true,
+					}),
+				),
+			);
+		await runtime.runPromise(denied(syncGithubAutoJoin("user_alice")));
+		await runtime.runPromise(denied(autoJoinInstallation(123)));
+		expect(active("user_alice")).toHaveLength(0);
+		await expect(
+			runtime.runPromise(
+				denied(
+					joinGithubOrganization("user_alice", 10, {
+						organizationId: "org-a",
+						installationId: 123,
+					}),
+				),
+			),
+		).rejects.toMatchObject({ code: "organization_workspaces_disabled" });
 	});
 	it("re-admits an auto-joined member who left GitHub and came back", async () => {
 		await runtime.runPromise(refreshGithubRosters(123));

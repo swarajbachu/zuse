@@ -39,7 +39,10 @@ const member = (
 	status: "active",
 	role: { slug: role },
 });
-const config = (organizationWorkspacesEnabled = true) =>
+const config = (
+	organizationWorkspacesEnabled = true,
+	organizationRolloutEnabled = false,
+) =>
 	configurationLayer({
 		apiIssuer: "https://api.test",
 		workosIssuer: "https://auth.test",
@@ -48,12 +51,17 @@ const config = (organizationWorkspacesEnabled = true) =>
 		mintPublicKey: "unused",
 		workosApiKey: Redacted.make("secret-workos-key"),
 		organizationWorkspacesEnabled,
+		organizationRolloutEnabled,
+		organizationPosthog: {
+			projectKey: Redacted.make("project-key"),
+			host: "https://posthog.test",
+		},
 	});
-const makeRuntime = () =>
+const makeRuntime = (targeted = false) =>
 	ManagedRuntime.make(
 		Layer.mergeAll(
 			CloudWorkspaceStoreMemory,
-			config(),
+			config(true, targeted),
 			ApiStoreMemory,
 			WorkosVerifierTest,
 		),
@@ -306,7 +314,14 @@ describe("organization access and lifecycle", () => {
 			),
 		).toBe(false);
 	});
-	it("resumes a partial organization creation without duplicating it or re-enrolling a removed admin", async () => {
+	it.each([
+		false,
+		true,
+	])("resumes partial creation without duplicates or re-enrolling removed admins (targeted=%s)", async (targeted) => {
+		if (targeted) {
+			await runtime.dispose();
+			runtime = makeRuntime(true);
+		}
 		const fallback = provider.getMockImplementation();
 		let organization:
 			| { id: string; name: string; metadata: Record<string, string> }
@@ -315,6 +330,15 @@ describe("organization access and lifecycle", () => {
 		let enrollments = 0;
 		let failEnrollment = true;
 		provider.mockImplementation(async (input: string, init?: RequestInit) => {
+			if (new URL(input).host === "posthog.test")
+				return Response.json({
+					flags: {
+						"organization-creation": { enabled: true },
+						"organization-access": { enabled: false },
+					},
+					errorsWhileComputingFlags: false,
+				});
+
 			const path = new URL(input).pathname;
 			const method = init?.method ?? "GET";
 			const json = (value: unknown, status = 200) =>

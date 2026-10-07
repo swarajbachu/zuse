@@ -62,6 +62,9 @@ export const OrganizationHandlersLayer = Layer.mergeAll(
 		),
 	),
 
+	MemoizeRpcs.toLayerHandler("organizations.capabilities", () =>
+		withOrganizations((service) => service.organizationCapabilities()),
+	),
 	MemoizeRpcs.toLayerHandler("organizations.list", () =>
 		withOrganizations((service) => service.listOrganizations()),
 	),

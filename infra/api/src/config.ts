@@ -30,8 +30,14 @@ export interface ManagedTunnelConfig {
 }
 
 export interface ApiConfig {
-	/** Staging-only rollout gate. Keep off until all resource paths are scoped. */
+	/** Global organization kill switch; targeted rollout can narrow enabled deployments. */
 	readonly organizationWorkspacesEnabled: boolean;
+	/** When enabled, PostHog must explicitly approve creation and team access. */
+	readonly organizationRolloutEnabled?: boolean;
+	readonly organizationPosthog?: {
+		readonly projectKey: Redacted.Redacted<string>;
+		readonly host: string;
+	};
 	readonly apiIssuer: string;
 	/** Public origin for DPoP request binding, independent of credential issuer. */
 	readonly publicApiOrigin?: string;

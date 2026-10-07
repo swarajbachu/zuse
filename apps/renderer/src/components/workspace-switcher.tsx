@@ -130,11 +130,26 @@ export function WorkspaceSwitcher() {
 		subscribeRendererWorkspace,
 		rendererWorkspaceSnapshot,
 	);
-	const { organizations, loading, error } = useOrganizationWorkspaces();
+	const {
+		organizations,
+		loading,
+		error,
+		canCreate: creationAllowed,
+	} = useOrganizationWorkspaces();
 	const [creating, setCreating] = useState(false);
 	useEffect(() => {
-		if (user?.id && organizationWorkspacesAvailable())
-			void loadOrganizationWorkspaces().catch(() => undefined);
+		if (!user?.id) return;
+		const refresh = () => {
+			if (!document.hidden)
+				void loadOrganizationWorkspaces().catch(() => undefined);
+		};
+		refresh();
+		const timer = window.setInterval(refresh, 30_000);
+		window.addEventListener("focus", refresh);
+		return () => {
+			window.clearInterval(timer);
+			window.removeEventListener("focus", refresh);
+		};
 	}, [user?.id]);
 	if (!organizationWorkspacesAvailable() || !user) return null;
 
@@ -146,6 +161,7 @@ export function WorkspaceSwitcher() {
 				)
 			: undefined;
 	const canCreate =
+		creationAllowed &&
 		!loading &&
 		error == null &&
 		!organizations.some((organization) => organization.isCreator);
@@ -153,7 +169,7 @@ export function WorkspaceSwitcher() {
 	const personal = message("settings:workspace_personal");
 
 	return (
-		<>
+		<div className="px-2 py-1">
 			<Menu>
 				<MenuTrigger
 					aria-label={message("settings:workspace_switcher")}
@@ -245,6 +261,6 @@ export function WorkspaceSwitcher() {
 				</MenuPopup>
 			</Menu>
 			<CreateOrganizationDialog open={creating} onOpenChange={setCreating} />
-		</>
+		</div>
 	);
 }

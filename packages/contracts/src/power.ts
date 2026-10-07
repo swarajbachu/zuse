@@ -16,6 +16,12 @@ export const POWER_REPORT_LAG_CHANNEL = "zuse:power-report-lag" as const;
 export const POWER_GET_HISTORY_CHANNEL = "zuse:power-get-history" as const;
 export const POWER_CLEAR_HISTORY_CHANNEL = "zuse:power-clear-history" as const;
 export const POWER_RECORDING_DURATION_MINUTES = [5, 15, 30] as const;
+/**
+ * Main → renderer edge sent when this computer resumes from sleep or the
+ * screen unlocks. Sockets may have died silently while timers were frozen, so
+ * connection owners re-probe immediately instead of waiting for backoff.
+ */
+export const SYSTEM_RESUME_CHANNEL = "zuse:system-resume" as const;
 
 export const COMPUTER_AWAKE_STATE_CHANNEL =
 	"zuse:computer-awake-state" as const;

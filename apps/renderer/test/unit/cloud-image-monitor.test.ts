@@ -2,7 +2,7 @@ import type { CloudAccountImage } from "@zuse/contracts";
 import { beforeEach, expect, it, vi } from "vitest";
 
 vi.mock("../../src/lib/cloud-workspace-session-cache.ts", () => ({
-	hasCloudEntitlement: () => true,
+	hasCloudEntitlement: vi.fn(() => true),
 	loadCloudEntitlements: vi.fn(async () => ({})),
 	loadCloudProviders: vi.fn(async () => ({
 		providers: [
@@ -12,9 +12,8 @@ vi.mock("../../src/lib/cloud-workspace-session-cache.ts", () => ({
 	})),
 	loadCloudImage: vi.fn(),
 }));
-const { loadCloudImage, loadCloudProviders } = await import(
-	"../../src/lib/cloud-workspace-session-cache.ts"
-);
+const { hasCloudEntitlement, loadCloudImage, loadCloudProviders } =
+	await import("../../src/lib/cloud-workspace-session-cache.ts");
 const { refreshCloudImages, resetCloudImageMonitor, subscribeCloudImages } =
 	await import("../../src/lib/cloud-image-monitor.ts");
 const { requestCloudSettingsLeave } = await import(
@@ -116,6 +115,25 @@ it("discovers a newly added provider and marks its missing image for rebuilding"
 			?.state,
 	).toBe("not-built");
 	expect(loadCloudProviders).toHaveBeenLastCalledWith(true);
+	// Another provider's image is ready, so leaving Settings is not blocked.
+	const confirm = vi.fn(() => false);
+	vi.stubGlobal("window", { confirm });
+	try {
+		expect(requestCloudSettingsLeave()).toBe(true);
+		expect(confirm).not.toHaveBeenCalled();
+	} finally {
+		vi.unstubAllGlobals();
+	}
+});
+
+it("asks before leaving Settings only when no image is ready", async () => {
+	vi.mocked(loadCloudImage).mockImplementation(async (providerId) =>
+		image(
+			providerId ?? "boxd",
+			providerId === "e2b" ? "not-built" : "outdated",
+		),
+	);
+	await refreshCloudImages();
 	const confirm = vi.fn(() => false);
 	vi.stubGlobal("window", { confirm });
 	try {
@@ -123,5 +141,21 @@ it("discovers a newly added provider and marks its missing image for rebuilding"
 		expect(confirm).toHaveBeenCalledOnce();
 	} finally {
 		vi.unstubAllGlobals();
+	}
+});
+
+it("treats provider-key eligibility as cloud access without a subscription", async () => {
+	vi.mocked(hasCloudEntitlement).mockReturnValue(false);
+	vi.mocked(loadCloudProviders).mockResolvedValueOnce({
+		providers: [{ providerId: "boxd", displayName: "boxd" }],
+		entitled: true,
+	});
+	vi.mocked(loadCloudImage).mockImplementation(async (providerId) =>
+		image(providerId ?? "boxd", "ready"),
+	);
+	try {
+		expect((await refreshCloudImages()).length).toBeGreaterThan(0);
+	} finally {
+		vi.mocked(hasCloudEntitlement).mockReturnValue(true);
 	}
 });

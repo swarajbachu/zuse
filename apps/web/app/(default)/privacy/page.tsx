@@ -201,8 +201,14 @@ export default function PrivacyPage() {
 						paths, URLs, branches, titles, account identifiers, names, email
 						addresses, credentials, tokens, diagnostic contents, or error stacks
 						for product analytics. We do not use autocapture, session replay,
-						remote feature flags or remote configuration, or exception/source
-						capture in this system.
+						remote configuration, or exception/source capture in this analytics
+						system.
+					</p>
+					<p className="mt-2">
+						Organization beta access may use server-side PostHog feature flags.
+						These operational checks use a pseudonymous account identifier and
+						organization identifiers, and work independently of the “Share usage
+						analytics” setting. They do not enable product analytics collection.
 					</p>
 					<p className="mt-2">
 						This analytics boundary does not mean every local diagnostic is

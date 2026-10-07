@@ -7,9 +7,9 @@ import {
 import {
 	type ApiEnvironmentRecord,
 	type CommandId,
-	ENVIRONMENT_PRESENCE_STALE_MS,
 	EnvironmentId,
 	HOSTED_APP_URL,
+	isEnvironmentPresenceFresh,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ComputerIcon } from "@zuse/icons/solid-rounded";
@@ -179,9 +179,7 @@ function HostedComputerSwitcher() {
 						<span className="block truncate text-[10px] text-muted-foreground">
 							{selected === null
 								? uiMessage("chat:computer_switcher_local_workspace")
-								: selected.lastHeartbeat !== undefined &&
-										Date.now() - selected.lastHeartbeat <=
-											ENVIRONMENT_PRESENCE_STALE_MS
+								: isEnvironmentPresenceFresh(selected.lastHeartbeat)
 									? uiMessage("chat:computer_switcher_online")
 									: uiMessage("chat:computer_switcher_offline", {
 											value1: String(relativeTime(selected.lastHeartbeat)),
@@ -202,10 +200,9 @@ function HostedComputerSwitcher() {
 						{uiMessage("chat:computer_switcher_computers")}
 					</div>
 					{environments.map((environment) => {
-						const online =
-							environment.lastHeartbeat !== undefined &&
-							Date.now() - environment.lastHeartbeat <=
-								ENVIRONMENT_PRESENCE_STALE_MS;
+						const online = isEnvironmentPresenceFresh(
+							environment.lastHeartbeat,
+						);
 						const active = environment.environmentId === selectedId;
 						return (
 							<MenuItem

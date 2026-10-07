@@ -1,4 +1,22 @@
+/**
+ * The launchd label and systemd unit one install owns. SSH-managed hosts get
+ * their own so connecting over SSH never replaces the user's own `zuse serve`.
+ */
+export interface ServeServiceName {
+	readonly label: "sh.zuse.serve" | "sh.zuse.ssh";
+	readonly unitName: "zuse-serve.service" | "zuse-ssh.service";
+}
+
+export const serveServiceName = (input: {
+	readonly sshManaged?: boolean;
+}): ServeServiceName =>
+	input.sshManaged === true
+		? { label: "sh.zuse.ssh", unitName: "zuse-ssh.service" }
+		: { label: "sh.zuse.serve", unitName: "zuse-serve.service" };
+
 export interface ServeServiceDefinitionInput {
+	/** Defaults to the name implied by `sshManaged`. */
+	readonly service?: ServeServiceName;
 	readonly nodeExecutable: string;
 	readonly executable: string;
 	readonly dataDir: string;
@@ -32,12 +50,12 @@ const autoLinkEnabled = (input: ServeServiceDefinitionInput): boolean =>
 	input.sshManaged !== true && input.noAccount !== true;
 
 export interface LaunchAgentDefinition {
-	readonly label: "sh.zuse.serve";
+	readonly label: ServeServiceName["label"];
 	readonly contents: string;
 }
 
 export interface SystemdUserDefinition {
-	readonly unitName: "zuse-serve.service";
+	readonly unitName: ServeServiceName["unitName"];
 	readonly contents: string;
 }
 
@@ -57,14 +75,15 @@ export const launchAgentDefinition = (
 ): LaunchAgentDefinition => {
 	const logDir = input.logDir ?? `${input.dataDir}/logs`;
 	const apiUrl = input.apiUrl ?? "https://api.zuse.sh";
+	const { label } = input.service ?? serveServiceName(input);
 	return {
-		label: "sh.zuse.serve",
+		label,
 		contents: `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>sh.zuse.serve</string>
+  <string>${label}</string>
   <key>ProgramArguments</key>
   <array>
     <string>${escapeXml(input.nodeExecutable)}</string>
@@ -107,7 +126,7 @@ export const systemdUserDefinition = (
 ): SystemdUserDefinition => {
 	const apiUrl = input.apiUrl ?? "https://api.zuse.sh";
 	return {
-		unitName: "zuse-serve.service",
+		unitName: (input.service ?? serveServiceName(input)).unitName,
 		contents: `[Unit]
 Description=Zuse Serve
 After=network-online.target

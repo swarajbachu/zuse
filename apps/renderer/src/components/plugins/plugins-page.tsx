@@ -24,6 +24,7 @@ import {
 	useState,
 } from "react";
 import { useAuth } from "~/hooks/use-auth.ts";
+import { hasPluginConnectionLabel } from "~/lib/connected-plugins.ts";
 import {
 	openExternal,
 	rendererPlatformCapabilities,
@@ -140,6 +141,7 @@ function usePlugins() {
 	};
 }
 
+/** Browse plugins and manage private account connections through the shared control plane. */
 export function PluginsPage() {
 	const { message: m } = useUiMessages(["plugins"]);
 	const { isSignedIn, isLoading } = useAuth();
@@ -182,15 +184,26 @@ export function PluginsPage() {
 	);
 	useEffect(() => setLimit(PAGE_SIZE), [deferredQuery, tab]);
 
+	/** Validate account names before starting an independent connection attempt. */
 	const connect = async (plugin: PluginDefinition, label = plugin.name) => {
 		if (!snapshot || busy || attempt) return;
+		const trimmedLabel = label.trim() || plugin.name;
+		if (
+			hasPluginConnectionLabel(snapshot.connections, plugin.id, trimmedLabel)
+		) {
+			toastManager.add({
+				title: m("plugins:plugins_connection_name_exists"),
+				type: "error",
+			});
+			return;
+		}
 		state.setBusy(plugin.id);
 		try {
 			const result = await pluginRequest({
 				action: "connect",
 				tenantId: snapshot.tenantId,
 				pluginId: plugin.id,
-				label: label.trim() || plugin.name,
+				label: trimmedLabel,
 				requestId: crypto.randomUUID(),
 				returnTo: await pluginReturnTo(),
 			});
@@ -304,6 +317,7 @@ export function PluginsPage() {
 							plugin={detail}
 							status={statusOf(detail)}
 							connections={connectedById.get(detail.id) ?? []}
+							allConnections={snapshot?.connections ?? []}
 							locked={attempt !== null || busy !== null}
 							onBack={() => setSelected(null)}
 							onConnect={(label) => void connect(detail, label)}
@@ -590,10 +604,12 @@ function PendingBanner({
 	);
 }
 
+/** Show account controls and validate names against every connection for this plugin. */
 function PluginDetail({
 	plugin,
 	status,
 	connections,
+	allConnections,
 	locked,
 	onBack,
 	onConnect,
@@ -602,6 +618,7 @@ function PluginDetail({
 	readonly plugin: PluginDefinition;
 	readonly status: PluginStatus;
 	readonly connections: readonly PluginConnection[];
+	readonly allConnections: readonly PluginConnection[];
 	readonly locked: boolean;
 	readonly onBack: () => void;
 	readonly onConnect: (label: string) => void;
@@ -609,6 +626,11 @@ function PluginDetail({
 }) {
 	const { message: m } = useUiMessages(["plugins"]);
 	const [label, setLabel] = useState("");
+	const duplicateLabel = hasPluginConnectionLabel(
+		allConnections,
+		plugin.id,
+		label,
+	);
 	return (
 		<>
 			<nav className="flex items-center gap-1 text-muted-foreground">
@@ -689,13 +711,22 @@ function PluginDetail({
 				className="flex flex-wrap items-center gap-2"
 				onSubmit={(event) => {
 					event.preventDefault();
-					if (!locked && status !== "connecting" && label.trim())
+					if (
+						!locked &&
+						status !== "connecting" &&
+						label.trim() &&
+						!duplicateLabel
+					)
 						onConnect(label.trim());
 				}}
 			>
 				<input
 					className="h-7 w-48 rounded-md bg-muted/55 px-2.5 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/24"
 					aria-label={m("plugins:plugins_connection_name")}
+					aria-invalid={duplicateLabel || undefined}
+					aria-describedby={
+						duplicateLabel ? "plugin-connection-name-error" : undefined
+					}
 					placeholder={m("plugins:plugins_connection_name_placeholder")}
 					maxLength={80}
 					value={label}
@@ -705,7 +736,9 @@ function PluginDetail({
 				<Button
 					className="h-7"
 					type="submit"
-					disabled={locked || status === "connecting" || !label.trim()}
+					disabled={
+						locked || status === "connecting" || !label.trim() || duplicateLabel
+					}
 				>
 					<HugeiconsIcon icon={PlusSignIcon} className="size-3.5" />
 					{m(
@@ -714,6 +747,15 @@ function PluginDetail({
 							: "plugins:plugins_connect",
 					)}
 				</Button>
+				{duplicateLabel && (
+					<p
+						id="plugin-connection-name-error"
+						role="status"
+						className="w-full text-xs text-muted-foreground"
+					>
+						{m("plugins:plugins_connection_name_exists")}
+					</p>
+				)}
 			</form>
 			<section className="flex flex-col gap-1">
 				<h2 className="text-[13px] font-medium">

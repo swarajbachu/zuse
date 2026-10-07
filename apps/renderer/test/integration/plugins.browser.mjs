@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import { createServer } from "vite-plus";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -183,6 +183,22 @@ try {
 		.click();
 	await page.getByRole("heading", { name: "Information" }).waitFor();
 	await shot("plugins-detail-connected");
+	await page
+		.getByRole("textbox", { name: "Connection name" })
+		.fill(" cloudflare docs ");
+	await expect(
+		page.getByRole("button", { name: "Connect another account", exact: true }),
+	).toBeDisabled();
+	await page
+		.getByText(
+			"This name is already in use. Choose a different connection name.",
+			{ exact: true },
+		)
+		.waitFor();
+	await page.getByRole("textbox", { name: "Connection name" }).press("Enter");
+	await expect(
+		page.getByRole("button", { name: "Disconnect", exact: true }),
+	).toHaveCount(1);
 	await page.getByRole("textbox", { name: "Connection name" }).fill("Personal");
 	await page
 		.getByRole("button", { name: "Connect another account", exact: true })
@@ -200,11 +216,20 @@ try {
 		/Personal/,
 	);
 	await shot("plugins-multiple-accounts");
-	await page
+	const personalRow = page
 		.getByRole("button", { name: "Disconnect", exact: true })
-		.nth(1)
+		.locator("..")
+		.filter({ hasText: "Personal" });
+	await personalRow
+		.getByRole("button", { name: "Disconnect", exact: true })
 		.click();
-	await page.getByRole("button", { name: "Disconnect", exact: true }).waitFor();
+	await expect(personalRow).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: "Disconnect", exact: true }),
+	).toHaveCount(1);
+	await expect(
+		page.getByRole("button", { name: "Disconnect", exact: true }).locator(".."),
+	).toContainText("Cloudflare Docs");
 	await page.getByRole("button", { name: "Disconnect", exact: true }).click();
 	await page.getByRole("button", { name: "Connect", exact: true }).waitFor();
 	await page.getByRole("button", { name: "Plugins", exact: true }).click();

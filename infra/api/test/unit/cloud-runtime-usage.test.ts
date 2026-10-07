@@ -21,6 +21,7 @@ import {
 	runtimeUsageInterval,
 } from "../../src/cloud-usage-store.ts";
 import { reserveProviderCost } from "../../src/cloud-workspace-reconciler.ts";
+import { CloudWorkspaceStoreMemory } from "../../src/cloud-workspace-store.ts";
 import { layer as configLayer } from "../../src/config.ts";
 
 const observation: RuntimeObservation = {
@@ -152,6 +153,7 @@ it("exports runtime independently of invoice export, preserving event identity a
 			}),
 	};
 	const layer = Layer.mergeAll(
+		CloudWorkspaceStoreMemory,
 		config(true),
 		Layer.succeed(CloudBillingStore, store),
 		BillingProviders.layer({
@@ -213,6 +215,7 @@ it("exports runtime independently of invoice export, preserving event identity a
 
 it("does not observe or export when the usage switch is disabled", async () => {
 	const layer = Layer.mergeAll(
+		CloudWorkspaceStoreMemory,
 		config(false),
 		CloudBillingStoreMemory,
 		makeSandboxProvidersFake(),
@@ -233,6 +236,7 @@ it("does not observe or export when the usage switch is disabled", async () => {
 
 it("breaks observed intervals on hibernation and provider outages", async () => {
 	const layer = Layer.mergeAll(
+		CloudWorkspaceStoreMemory,
 		config(true),
 		CloudBillingStoreMemory,
 		makeSandboxProvidersFake(),

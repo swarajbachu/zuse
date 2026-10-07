@@ -20,14 +20,82 @@ import {
 	LanAuthService,
 } from "../lan-auth/services/lan-auth-service.ts";
 import { TelemetryStore } from "../observability/telemetry-store.ts";
+import { hostRuntimeVersion } from "../runtime-version.ts";
 import { appendApiDiagnostic } from "./api-diagnostics.ts";
 import { signEnvironmentLinkProof } from "./link-proof.ts";
 import { ManagedTunnelRuntime } from "./managed-tunnel-runtime.ts";
 
-const HEARTBEAT_INTERVAL = "30 seconds";
+const HEARTBEAT_INTERVAL_MS = 30_000;
+/** Quick retries after a failed heartbeat so a blip doesn't read as offline. */
+const HEARTBEAT_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const;
+/** Granularity at which the heartbeat wait notices the host waking up. */
+const HEARTBEAT_WAKE_CHECK_MS = 5_000;
+/** Wall-clock drift beyond one wait tick that means this machine slept. */
+const HEARTBEAT_WAKE_GAP_MS = 10_000;
+
+/** Delay before the next heartbeat after `consecutiveFailures` failures. */
+export const heartbeatDelayMs = (consecutiveFailures: number): number =>
+	consecutiveFailures === 0
+		? HEARTBEAT_INTERVAL_MS
+		: (HEARTBEAT_RETRY_DELAYS_MS[consecutiveFailures - 1] ??
+			HEARTBEAT_INTERVAL_MS);
+
+/**
+ * Wait up to `delayMs` before the next heartbeat, returning early when this
+ * machine resumes from sleep. Timers freeze while the machine sleeps but the
+ * wall clock keeps moving, so a large wall-clock jump across one short tick
+ * means clients have seen this computer go stale and need a heartbeat now.
+ */
+export const waitForNextHeartbeat = (
+	delayMs: number,
+	wallClock: () => number = Date.now,
+): Effect.Effect<void> =>
+	Effect.gen(function* () {
+		let remaining = delayMs;
+		while (remaining > 0) {
+			const tick = Math.min(remaining, HEARTBEAT_WAKE_CHECK_MS);
+			const before = wallClock();
+			yield* Effect.sleep(tick);
+			if (wallClock() - before > tick + HEARTBEAT_WAKE_GAP_MS) return;
+			remaining -= tick;
+		}
+	});
+
+/**
+ * Heartbeat until interrupted: every 30s while healthy, quick retries after a
+ * failure, and immediately after this machine wakes from sleep.
+ */
+export const heartbeatUntilInterrupted = <E>(
+	beat: Effect.Effect<void, E>,
+	options: {
+		readonly wallClock?: () => number;
+		readonly onFailure?: (error: E, failures: number) => Effect.Effect<void>;
+		readonly onRecovered?: (failures: number) => Effect.Effect<void>;
+	} = {},
+): Effect.Effect<never> =>
+	Effect.gen(function* () {
+		let failures = 0;
+		while (true) {
+			const failed = yield* beat.pipe(
+				Effect.as(null),
+				Effect.catch((error) => Effect.succeed({ error })),
+			);
+			if (failed === null) {
+				if (failures > 0) yield* options.onRecovered?.(failures) ?? Effect.void;
+				failures = 0;
+			} else {
+				failures += 1;
+				yield* options.onFailure?.(failed.error, failures) ?? Effect.void;
+			}
+			yield* waitForNextHeartbeat(
+				heartbeatDelayMs(failures),
+				options.wallClock,
+			);
+		}
+	});
 export const apiRuntimeMetadata = () =>
 	({
-		runtimeVersion: process.env.ZUSE_RUNTIME_VERSION?.trim() || "0.0.0",
+		runtimeVersion: hostRuntimeVersion(),
 		wireProtocolVersion: WIRE_PROTOCOL_VERSION,
 		capabilities: {
 			version: 1,
@@ -454,11 +522,16 @@ export const ApiLinkServiceLive: Layer.Layer<
 			readonly environmentId: EnvironmentId;
 			readonly credential: string;
 		}) =>
-			heartbeatOnce(input).pipe(
-				Effect.ignore,
-				Effect.andThen(Effect.sleep(HEARTBEAT_INTERVAL)),
-				Effect.forever,
-			);
+			heartbeatUntilInterrupted(heartbeatOnce(input), {
+				// Report the start of an outage once, not every quick retry.
+				onFailure: (error, failures) =>
+					failures === 1
+						? log("heartbeat.failed", {
+								reason: error instanceof ApiLinkError ? error.reason : null,
+							})
+						: Effect.void,
+				onRecovered: (failures) => log("heartbeat.recovered", { failures }),
+			});
 
 		const startHeartbeat = Effect.fn("ApiLinkService.startHeartbeat")(
 			function* (input: {

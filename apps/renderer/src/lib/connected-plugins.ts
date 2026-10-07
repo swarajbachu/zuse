@@ -1,4 +1,8 @@
-import type { PluginDefinition, PluginSnapshot } from "@zuse/contracts";
+import type {
+	PluginConnection,
+	PluginDefinition,
+	PluginSnapshot,
+} from "@zuse/contracts";
 import { useMemo } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
 import { usePluginSnapshot } from "./plugins-client.ts";
@@ -18,6 +22,24 @@ export const pluginConnectionName = (
 	label: string,
 ): string => (label === pluginName ? pluginName : `${pluginName} / ${label}`);
 
+/** Names must distinguish accounts within the same plugin, including disabled connections. */
+export const hasPluginConnectionLabel = (
+	connections: readonly Pick<PluginConnection, "pluginId" | "label">[],
+	pluginId: string,
+	label: string,
+): boolean => {
+	const normalized = label.trim().toLowerCase();
+	return (
+		normalized.length > 0 &&
+		connections.some(
+			(connection) =>
+				connection.pluginId === pluginId &&
+				connection.label.trim().toLowerCase() === normalized,
+		)
+	);
+};
+
+/** List usable connections individually so mentions can select the exact account. */
 export const connectedOf = (
 	snapshot: PluginSnapshot | null,
 ): readonly ConnectedPlugin[] => {

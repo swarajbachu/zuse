@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	resolveServeServicePaths,
 	type ServeServicePaths,
 	startServeService,
 	stopServeService,
@@ -8,10 +9,44 @@ import {
 
 const paths: ServeServicePaths = {
 	platform: "darwin",
+	service: { label: "sh.zuse.serve", unitName: "zuse-serve.service" },
 	definitionPath: "/Users/dev/Library/LaunchAgents/sh.zuse.serve.plist",
 	dataDir: "/Users/dev/.local/share/zuse",
 	logDir: "/Users/dev/.local/share/zuse/logs",
 };
+
+describe("Zuse Serve service identity", () => {
+	it("gives SSH-managed hosts their own launchd label and systemd unit", () => {
+		const own = resolveServeServicePaths({
+			platform: "darwin",
+			homeDir: "/Users/dev",
+			dataDir: "/Users/dev/data",
+		});
+		const ssh = resolveServeServicePaths({
+			platform: "darwin",
+			homeDir: "/Users/dev",
+			dataDir: "/Users/dev/.zuse/ssh/data",
+			sshManaged: true,
+		});
+		const sshLinux = resolveServeServicePaths({
+			platform: "linux",
+			homeDir: "/home/dev",
+			dataDir: "/home/dev/.zuse/ssh/data",
+			sshManaged: true,
+		});
+
+		expect(own.definitionPath).toBe(
+			"/Users/dev/Library/LaunchAgents/sh.zuse.serve.plist",
+		);
+		expect(ssh.service.label).toBe("sh.zuse.ssh");
+		expect(ssh.definitionPath).toBe(
+			"/Users/dev/Library/LaunchAgents/sh.zuse.ssh.plist",
+		);
+		expect(sshLinux.definitionPath).toBe(
+			"/home/dev/.config/systemd/user/zuse-ssh.service",
+		);
+	});
+});
 
 describe("Zuse Serve service lifecycle", () => {
 	it("unloads a stopped macOS service and bootstraps it again on start", async () => {

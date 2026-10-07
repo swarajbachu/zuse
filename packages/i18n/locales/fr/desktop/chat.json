@@ -187,7 +187,6 @@
 	"chat_landing_clone_project": "Projet de clonage",
 	"chat_landing_dismiss_error": "Ignorer l'erreur",
 	"chat_landing_clear_create_from_source": "Effacer la création à partir de la source",
-	"chat_landing_pick_a_project_below_to_start_a_new_chat": "Choisissez un projet ci-dessous pour démarrer une nouvelle discussion.",
 	"chat_landing_import_an_existing_chat": "Importer une discussion existante",
 	"chat_landing_import_chat": "Importer une discussion",
 	"chat_landing_recent_provider_chats": "Discussions récentes avec les fournisseurs",
@@ -686,5 +685,8 @@
 	"runtime_mode_full_description": "Autoriser les actions sans approbation. Le mode Plan reste applicable.",
 	"message_row_signed_out_of": "Vous êtes déconnecté de {{label}}.",
 	"provider_sign_in_tray_signed_out": "Déconnecté de {{label}}",
-	"provider_sign_in_tray_sign_in_to_continue": "Connectez-vous pour poursuivre cette conversation."
+	"provider_sign_in_tray_sign_in_to_continue": "Connectez-vous pour poursuivre cette conversation.",
+	"chat_landing_choose_a_project_in_the_sidebar": "Choisissez un projet dans la barre latérale pour démarrer une nouvelle conversation.",
+	"chat_landing_add_a_project_to_start": "Ajoutez un projet pour démarrer votre première conversation.",
+	"chat_landing_add_project": "Ajouter un projet"
 }

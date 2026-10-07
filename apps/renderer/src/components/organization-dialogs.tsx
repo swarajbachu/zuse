@@ -67,9 +67,16 @@ export function CreateOrganizationDialog({ open, onOpenChange }: DialogProps) {
 								attempt.current = null;
 								setName("");
 								// The organization exists; a failed list refresh must not strand it.
-								await loadOrganizationWorkspaces(true).catch(() => undefined);
+								const organizations = await loadOrganizationWorkspaces(
+									true,
+								).catch(() => []);
 								if (!current()) return;
-								openInSettings(created);
+								if (
+									organizations.some(
+										(organization) => organization.id === created.id,
+									)
+								)
+									openInSettings(created);
 								onOpenChange(false);
 							});
 						}}

@@ -187,7 +187,6 @@
 	"chat_landing_clone_project": "克隆項目",
 	"chat_landing_dismiss_error": "消除錯誤",
 	"chat_landing_clear_create_from_source": "清除創建來源",
-	"chat_landing_pick_a_project_below_to_start_a_new_chat": "選擇下面的一個專案來開始新的聊天。",
 	"chat_landing_import_an_existing_chat": "匯入現有聊天記錄",
 	"chat_landing_import_chat": "匯入聊天記錄",
 	"chat_landing_recent_provider_chats": "最近的提供者聊天記錄",
@@ -684,5 +683,8 @@
 	"runtime_mode_full_description": "無需核准即可執行操作。計畫模式仍然適用。",
 	"message_row_signed_out_of": "你已登出 {{label}}。",
 	"provider_sign_in_tray_signed_out": "已登出 {{label}}",
-	"provider_sign_in_tray_sign_in_to_continue": "登入以繼續此聊天。"
+	"provider_sign_in_tray_sign_in_to_continue": "登入以繼續此聊天。",
+	"chat_landing_choose_a_project_in_the_sidebar": "在側邊欄中選擇一個專案以開始新聊天。",
+	"chat_landing_add_a_project_to_start": "新增一個專案以開始你的第一次聊天。",
+	"chat_landing_add_project": "新增專案"
 }

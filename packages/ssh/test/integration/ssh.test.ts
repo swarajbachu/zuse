@@ -8,6 +8,7 @@ import {
 	parseTailscaleStatus,
 	remoteBootstrapScript,
 	remoteLaunchScript,
+	SSH_MANAGED_SERVE_PORT,
 	sshGArgs,
 	tunnelArgs,
 	validateSshTargetSafety,
@@ -36,6 +37,10 @@ describe("@zuse/ssh", () => {
 		expect(script).toContain("Node 22.5 or newer");
 		expect(script).toContain("active.json");
 		expect(script).toContain("unverified service");
+		// Never share the default `zuse serve` port with the SSH-managed host.
+		expect(script).toContain(`PORT="${SSH_MANAGED_SERVE_PORT}"`);
+		expect(SSH_MANAGED_SERVE_PORT).not.toBe(4859);
+		expect(script).toContain('serve start --ssh-managed --port "$PORT"');
 		expect(() => remoteBootstrapScript("latest; rm -rf /")).toThrow(
 			"Invalid compatible Serve runtime version",
 		);

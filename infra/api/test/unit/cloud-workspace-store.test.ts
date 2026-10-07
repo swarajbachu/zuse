@@ -618,6 +618,75 @@ describe("cloud workspace store", () => {
 		await runtime.dispose();
 	});
 
+	test("persists newer activity on a deduplicated resume without replacing lifecycle state", async () => {
+		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await runtime.runPromise(store.connectProject(project));
+			await runtime.runPromise(store.createBuild(build));
+			const workspace = {
+				...workspaceRecord("workspace-resume-activity"),
+				state: "ready" as const,
+				desiredState: "ready" as const,
+				runtimeState: "offline" as const,
+				statusCode: "agent-idle",
+				lastActivityAtMs: 100,
+				revision: 4,
+				updatedAtMs: 200,
+			};
+			await runtime.runPromise(
+				store.createWorkspace(workspace, startCommand(workspace.workspaceId)),
+			);
+			const input = {
+				workspace: {
+					...workspace,
+					statusCode: "resume-queued",
+					lastActivityAtMs: 300,
+				},
+				expectedRevision: workspace.revision,
+				expectedUpdatedAtMs: workspace.updatedAtMs,
+				expectedState: workspace.state,
+				expectedDesiredState: workspace.desiredState,
+				commandId: "resume-activity",
+				action: "resume" as const,
+				deduplicateRequestedResume: true,
+				createdAtMs: 200,
+			};
+			const result = await runtime.runPromise(
+				store.transitionWorkspaceLifecycle(input),
+			);
+			if (result.kind !== "applied")
+				throw new Error("resume transition was not applied");
+			expect(result).toMatchObject({ kind: "applied" });
+			const expected = {
+				...workspace,
+				lastActivityAtMs: 300,
+				revision: 5,
+				updatedAtMs: 201,
+			};
+			expect(result.workspace).toEqual(expected);
+			expect(
+				await runtime.runPromise(store.getWorkspace(workspace.workspaceId)),
+			).toEqual(expected);
+			expect(
+				await runtime.runPromise(store.transitionWorkspaceLifecycle(input)),
+			).toMatchObject({ kind: "replay", workspace: expected });
+			const older = await runtime.runPromise(
+				store.transitionWorkspaceLifecycle({
+					...input,
+					workspace: { ...expected, lastActivityAtMs: 250 },
+					expectedRevision: 5,
+					expectedUpdatedAtMs: 201,
+					commandId: "resume-older-activity",
+					createdAtMs: 301,
+				}),
+			);
+			expect(older).toMatchObject({ kind: "applied", workspace: expected });
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
 	test("retains account rows until the delete fence is acknowledged", async () => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);

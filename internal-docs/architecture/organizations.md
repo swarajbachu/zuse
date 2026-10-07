@@ -140,7 +140,11 @@ OAuth callback URLs, grant Members read access, and subscribe the signed webhook
 to organization membership events. Existing installations may need their owner
 to approve the permission. The renderer always enables organization workspaces
 when its resolved API URL is staging (including the default local dev target).
-Other API targets retain the `VITE_ORGANIZATION_WORKSPACES=true` opt-in. The API
-retains its `ORGANIZATION_WORKSPACES_ENABLED` rollout flag. Verify linking with a
+Production reads account-scoped organization capabilities from the API before
+showing organization UI; a separate `VITE_ORGANIZATION_WORKSPACES` build is no
+longer required. The API retains `ORGANIZATION_WORKSPACES_ENABLED` as a global
+kill switch. With `ORGANIZATION_ROLLOUT_ENABLED=true`, PostHog approves selected
+creators and their teams automatically, or existing teams by organization ID.
+See [rollout setup](../cloud/organization-workspaces.md#rollout-flags). Verify linking with a
 GitHub account whose email differs, roster webhooks, domain joining, removal and
 reconnect with separate staging accounts before production enablement.

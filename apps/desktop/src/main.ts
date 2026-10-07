@@ -66,6 +66,7 @@ import {
 	PowerWorkloadState,
 	PRODUCTION_API_URL,
 	STAGING_API_URL,
+	SYSTEM_RESUME_CHANNEL,
 	TailnetShareState,
 } from "@zuse/contracts";
 import {
@@ -4013,6 +4014,16 @@ void app.whenReady().then(async () => {
 		(arg) => isAuthDeepLink(arg) && !isPairingDeepLink(arg),
 	);
 	if (initialDeepLink !== undefined) handleAuthCallback(initialDeepLink);
+
+	// Sockets can die silently while the machine sleeps. Tell every window to
+	// re-probe its connections now instead of waiting for retry backoff.
+	const broadcastSystemResume = (): void => {
+		for (const window of BrowserWindow.getAllWindows()) {
+			if (!window.isDestroyed()) window.webContents.send(SYSTEM_RESUME_CHANNEL);
+		}
+	};
+	nativePowerMonitor.on("resume", broadcastSystemResume);
+	nativePowerMonitor.on("unlock-screen", broadcastSystemResume);
 
 	if (process.platform === "darwin") {
 		const mode = await readComputerAwakePreference(app.getPath("userData"));

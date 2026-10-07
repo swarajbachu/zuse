@@ -31,6 +31,7 @@ import {
 	workspaceRuntimeProcessSelector,
 	workspaceRuntimeReconnectTarget,
 } from "../../src/cloud-workspace-reconciler.ts";
+import { cloudWorkspaceResumeTarget } from "../../src/cloud-workspace-routes.ts";
 import {
 	type CloudProjectBuildRecord,
 	type CloudWorkspaceRecord,
@@ -121,6 +122,107 @@ test.each([
 			}
 		}).pipe(Effect.provide(testLayer)),
 	);
+});
+
+describe("queued image builds that cannot start", () => {
+	const reconcileQueued = (
+		workspaceId: string,
+		override: {
+			readonly recoverByLabel?: (
+				label: string,
+			) => Effect.Effect<null, SandboxProviderError>;
+			readonly create?: () => Effect.Effect<never, SandboxProviderError>;
+		},
+		updatedAtMs = Date.now(),
+	) =>
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId,
+				requestConfig: {},
+				state: "ready",
+				desiredState: "ready",
+				statusCode: "ready",
+			});
+			const store = yield* CloudWorkspaceStore;
+			const build = yield* store.getBuild(workspace.buildId);
+			if (build === null) throw new Error("Missing build");
+			yield* store.saveBuild({
+				...build,
+				state: "queued",
+				snapshotId: undefined,
+				providerSandboxId: undefined,
+				logText: undefined,
+				idempotencyKey: `account-image:rebuild:${workspaceId}`,
+				nextActionAtMs: 0,
+				updatedAtMs,
+			});
+			const providers = yield* SandboxProviders;
+			const provider = yield* providers.get(build.provider);
+			const exit = yield* reconcileCloudBuild(build.buildId).pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: () =>
+						Effect.succeed({
+							...provider,
+							...(override.recoverByLabel === undefined
+								? {}
+								: { recoverByLabel: override.recoverByLabel }),
+							...(override.create === undefined
+								? {}
+								: { create: override.create }),
+						}),
+				}),
+				Effect.exit,
+			);
+			return { exit, build: yield* store.getBuild(build.buildId) };
+		});
+
+	test("fails visibly when the provider refuses the machine lookup", async () => {
+		const { build } = await Effect.runPromise(
+			reconcileQueued("queued-lookup-rejected", {
+				recoverByLabel: () =>
+					Effect.fail(new SandboxProviderError({ code: "rejected" })),
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(build?.state).toBe("failed");
+		expect(build?.lastErrorCode).toBe("provider-rejected");
+		expect(build?.logText).toContain("permission denied");
+		expect(build?.nextActionAtMs).toBe(Number.MAX_SAFE_INTEGER);
+	});
+
+	test("fails visibly when the provider refuses machine creation", async () => {
+		const { build } = await Effect.runPromise(
+			reconcileQueued("queued-create-rejected", {
+				recoverByLabel: () => Effect.succeed(null),
+				create: () =>
+					Effect.fail(new SandboxProviderError({ code: "rejected" })),
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(build?.state).toBe("failed");
+		expect(build?.lastErrorCode).toBe("provider-rejected");
+	});
+
+	test("retries transient start failures, then gives up after the start window", async () => {
+		const transient = {
+			recoverByLabel: () =>
+				Effect.fail(new SandboxProviderError({ code: "transient" })),
+		};
+		const recent = await Effect.runPromise(
+			reconcileQueued("queued-transient", transient).pipe(
+				Effect.provide(testLayer),
+			),
+		);
+		expect(recent.exit._tag).toBe("Failure");
+		expect(recent.build?.state).toBe("queued");
+		const stale = await Effect.runPromise(
+			reconcileQueued("queued-stale", transient, Date.now() - 16 * 60_000).pipe(
+				Effect.provide(testLayer),
+			),
+		);
+		expect(stale.build?.state).toBe("failed");
+		expect(stale.build?.lastErrorCode).toBe("project-start-timeout");
+		expect(stale.build?.logText).toContain("could not start");
+	});
 });
 
 test("resumes a persisted snapshot stage after the original worker exits", async () => {
@@ -2215,5 +2317,76 @@ test("automatically restarts the retained runtime once memory pressure clears", 
 		providerSandboxId: "source-memory-clears",
 		state: "provisioning",
 		statusCode: "resume-runtime-restarting",
+	});
+});
+
+test("pauses an idle ready workspace before recovering its offline runtime", async () => {
+	const result = await Effect.runPromise(
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const control = yield* FakeSandboxProviderControlService;
+			const workspace = yield* seedWorkspace({
+				workspaceId: "workspace-idle-offline",
+				state: "ready",
+				desiredState: "ready",
+				runtimeState: "offline",
+				statusCode: "agent-running",
+				requestConfig: {},
+			});
+			yield* store.saveWorkspace({
+				...workspace,
+				lastActivityAtMs: Date.now() - 60 * 60 * 1000,
+				revision: workspace.revision + 1,
+			});
+			yield* reconcileCloudWorkspace(workspace.workspaceId);
+			return {
+				workspace: yield* store.getWorkspace(workspace.workspaceId),
+				resumed: yield* Ref.get(control.resumeInputs),
+				started: yield* Ref.get(control.startProcessCalls),
+				sandbox: (yield* Ref.get(control.sandboxes)).get(
+					workspace.providerSandboxId ?? "",
+				),
+			};
+		}).pipe(Effect.provide(testLayer)),
+	);
+	expect(result.workspace).toMatchObject({
+		state: "paused",
+		desiredState: "paused",
+	});
+	expect(result.sandbox?.state).toBe("paused");
+	expect(result.resumed).toHaveLength(0);
+	expect(result.started).toHaveLength(0);
+});
+
+test("honors an explicit resume after an old session became idle", async () => {
+	const result = await Effect.runPromise(
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const control = yield* FakeSandboxProviderControlService;
+			const workspace = yield* seedWorkspace({
+				workspaceId: "workspace-explicit-resume",
+				state: "ready",
+				desiredState: "ready",
+				runtimeState: "offline",
+				statusCode: "agent-running",
+				requestConfig: {},
+			});
+			yield* store.saveWorkspace(
+				cloudWorkspaceResumeTarget(
+					{ ...workspace, lastActivityAtMs: Date.now() - 60 * 60 * 1000 },
+					Date.now(),
+				),
+			);
+			yield* reconcileCloudWorkspace(workspace.workspaceId);
+			return {
+				workspace: yield* store.getWorkspace(workspace.workspaceId),
+				resumed: yield* Ref.get(control.resumeInputs),
+			};
+		}).pipe(Effect.provide(testLayer)),
+	);
+	expect(result.resumed).toHaveLength(1);
+	expect(result.workspace).toMatchObject({
+		state: "resuming",
+		desiredState: "ready",
 	});
 });

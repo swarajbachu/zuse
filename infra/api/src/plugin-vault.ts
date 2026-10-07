@@ -7,12 +7,10 @@ import {
 	type PluginReturnTo,
 	type PluginToolRequest,
 } from "@zuse/contracts";
-import {
-	createPluginEngine,
-	type EngineConnection,
-	type PluginEngine,
-	PluginEngineError,
-	type PluginEngineErrorCode,
+import type {
+	EngineConnection,
+	PluginEngine,
+	PluginEngineErrorCode,
 } from "@zuse/executor-v2";
 import {
 	decryptAesGcmEnvelope,
@@ -58,10 +56,18 @@ const ENGINE_ERRORS: Record<PluginEngineErrorCode, PluginErrorCode> = {
 	auth_unsupported: "plugin_auth_unsupported",
 	unreachable: "plugin_unreachable",
 };
+/** Loaded on first use: evaluating the engine at module load exceeds the
+ * Worker startup CPU limit. Engine errors only exist once it has loaded. */
+let engineModule: typeof import("@zuse/executor-v2") | undefined;
+const loadEngineModule = async () => {
+	engineModule ??= await import("@zuse/executor-v2");
+	return engineModule;
+};
 const errorCode = (error: unknown): PluginErrorCode =>
 	error instanceof PluginOperationError
 		? error.code
-		: error instanceof PluginEngineError
+		: engineModule !== undefined &&
+				error instanceof engineModule.PluginEngineError
 			? ENGINE_ERRORS[error.code]
 			: "plugin_operation_failed";
 const TTL = 10 * 60_000;
@@ -91,6 +97,7 @@ export class PluginVault {
 				throw new Error("Plugin storage requires an explicit v1 migration");
 			if (!env.PLUGIN_ENCRYPTION_KEY)
 				throw new Error("Plugins are not configured");
+			const { createPluginEngine } = await loadEngineModule();
 			const engine = await createPluginEngine({
 				storage: ctx.storage,
 				encryptionKey: env.PLUGIN_ENCRYPTION_KEY,

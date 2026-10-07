@@ -27,9 +27,9 @@ export const openCloudChatLink = async (pathname: string): Promise<void> => {
 	const previous = rendererWorkspaceSnapshot();
 	if (!account.subject) throw new Error("chat_link_unavailable");
 	if (scope.kind === "organization") {
-		if (!organizationWorkspacesAvailable())
-			throw new Error("chat_link_update_required");
 		const organizations = await loadOrganizationWorkspaces(true);
+		if (!organizationWorkspacesAvailable())
+			throw new Error("chat_link_unavailable");
 		assertRendererAccountCurrent(account);
 		assertRendererWorkspaceCurrent(previous);
 		if (

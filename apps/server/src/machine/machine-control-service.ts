@@ -43,6 +43,8 @@ import {
 	type CloudProjectConnectRequest,
 	CloudProjectList,
 	type CloudProjectPrepareRequest,
+	type CloudProviderConnectionInput,
+	CloudProviderConnectionList,
 	CloudProviderList,
 	CloudTranscriptCheckpointResult,
 	CloudTranscriptMessagePageResult,
@@ -69,6 +71,7 @@ import {
 	MachineOfferList,
 	MachineRecord,
 	Organization,
+	OrganizationCapabilities,
 	type OrganizationCreateInput,
 	OrganizationDetails,
 	OrganizationInvitation,
@@ -95,6 +98,10 @@ import { RequestWorkspace } from "./request-workspace.ts";
 export interface MachineControlServiceShape {
 	readonly organizationAutoJoin: ReturnType<
 		typeof makeOrganizationAutoJoinControlClient<MachineControlError>
+	>;
+	readonly organizationCapabilities: () => Effect.Effect<
+		OrganizationCapabilities,
+		MachineControlError
 	>;
 	readonly listOrganizations: () => Effect.Effect<
 		ReadonlyArray<Organization>,
@@ -174,6 +181,16 @@ export interface MachineControlServiceShape {
 	readonly plugins: (
 		input: PluginRequest,
 	) => Effect.Effect<PluginResponse, MachineControlError>;
+	readonly cloudProviderConnections: () => Effect.Effect<
+		CloudProviderConnectionList,
+		MachineControlError
+	>;
+	readonly saveCloudProviderConnection: (
+		input: CloudProviderConnectionInput,
+	) => Effect.Effect<CloudProviderConnectionList, MachineControlError>;
+	readonly disconnectCloudProviderConnection: (input: {
+		connectionId: string;
+	}) => Effect.Effect<CloudProviderConnectionList, MachineControlError>;
 	readonly cloudProviders: () => Effect.Effect<
 		CloudProviderList,
 		MachineControlError
@@ -467,6 +484,8 @@ export const MachineControlServiceLive: Layer.Layer<
 				(path, schema, body) =>
 					request(path, schema, body === undefined ? "GET" : "POST", body),
 			),
+			organizationCapabilities: () =>
+				request(ApiPaths.organizationCapabilities, OrganizationCapabilities),
 			listOrganizations: () =>
 				request(ApiPaths.organizations, Schema.Array(Organization)),
 			createOrganization: (input) =>
@@ -581,6 +600,22 @@ export const MachineControlServiceLive: Layer.Layer<
 					idempotencyKey,
 				}),
 			plugins: (input) => request("/v1/plugins", PluginResponse, "POST", input),
+			cloudProviderConnections: () =>
+				request(ApiPaths.cloudProviderConnections, CloudProviderConnectionList),
+			saveCloudProviderConnection: (input) =>
+				request(
+					ApiPaths.cloudProviderConnections,
+					CloudProviderConnectionList,
+					"POST",
+					input,
+				),
+			disconnectCloudProviderConnection: (input) =>
+				request(
+					ApiPaths.cloudProviderConnections,
+					CloudProviderConnectionList,
+					"DELETE",
+					input,
+				),
 			cloudProviders: () => request(ApiPaths.cloudProviders, CloudProviderList),
 			cloudProjects: () => request(ApiPaths.cloudProjects, CloudProjectList),
 			connectCloudProject: (input) =>

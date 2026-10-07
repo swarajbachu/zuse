@@ -63,5 +63,6 @@
 	"plugins_skills_loading": "正在加载技能…",
 	"plugins_connection_name": "连接名称",
 	"plugins_connection_name_placeholder": "工作、个人或公司名称",
-	"plugins_connect_another": "连接另一个账号"
+	"plugins_connect_another": "连接另一个账号",
+	"plugins_connection_name_exists": "此名称已被使用。请选择其他连接名称。"
 }

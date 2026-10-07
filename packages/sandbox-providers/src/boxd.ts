@@ -123,10 +123,10 @@ const MIN_IDLE_SECONDS = 1;
 const MAX_IDLE_SECONDS = 2_592_000;
 const COMMAND_TIMEOUT_MS = 60_000;
 const MACHINE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
-// Boxd currently limits the entire proxy hostname to 63 characters. Reserve
-// room for the longest port label and our active org domain:
-// p65535.<machine>.boxd.zuse.sh (6 + 1 + 43 + 1 + 12 = 63).
-const MACHINE_NAME_MAX_LENGTH = 43;
+// Boxd limits the entire proxy hostname to 63 characters. Names created
+// before short names used up to 43 (p65535.<machine>.boxd.zuse.sh = 63), and
+// the first generation up to 63; both stay recoverable.
+const PREVIOUS_MACHINE_NAME_MAX_LENGTH = 43;
 const LEGACY_MACHINE_NAME_MAX_LENGTH = 63;
 const PARK_SETTLE_ATTEMPTS = 5;
 const GRPC_INVALID_ARGUMENT = 3;
@@ -169,8 +169,44 @@ const machineNameWithinLimit = (label: string, maxLength: number): string => {
 	return named.slice(0, maxLength).replace(/-+$/u, "");
 };
 
+const FNV64_OFFSET = 0xcbf2_9ce4_8422_2325n;
+const FNV64_PRIME = 0x100_0000_01b3n;
+const UINT64 = (1n << 64n) - 1n;
+
+/** 64-bit FNV-1a as 13 base36 characters: short, stable and DNS-safe. */
+const fnv1a64Base36 = (value: string): string => {
+	let hash = FNV64_OFFSET;
+	for (const byte of new TextEncoder().encode(value)) {
+		hash ^= BigInt(byte);
+		hash = (hash * FNV64_PRIME) & UINT64;
+	}
+	return hash.toString(36).padStart(13, "0");
+};
+
+const machineKind = (label: string): string =>
+	label.startsWith("zuse-cloud-workspace-")
+		? "w"
+		: label.startsWith("zuse-cloud-build-")
+			? "b"
+			: label.startsWith("zuse-auth-")
+				? "a"
+				: label.startsWith("zuse-machine")
+					? "m"
+					: "z";
+
+/**
+ * Machine names appear in every preview URL, so they are a one-letter kind
+ * plus a 64-bit digest of the full label (e.g. `w3k9x0m2q7a1bz`). Distinct
+ * labels, including ones that differ only in case, get distinct names.
+ */
 export const boxdMachineName = (label: string): string =>
-	machineNameWithinLimit(label, MACHINE_NAME_MAX_LENGTH);
+	`${machineKind(label)}${fnv1a64Base36(label)}`;
+
+/** Earlier naming generations, newest first, for recovering existing machines. */
+const previousBoxdMachineNames = (label: string): ReadonlyArray<string> => [
+	machineNameWithinLimit(label, PREVIOUS_MACHINE_NAME_MAX_LENGTH),
+	machineNameWithinLimit(label, LEGACY_MACHINE_NAME_MAX_LENGTH),
+];
 
 const errorForCause = (cause: unknown): SandboxProviderError => {
 	if (cause instanceof NotFoundError) return providerError("not-found");
@@ -252,6 +288,11 @@ export const boxdSandboxClientFor = (
 	const existing = clients.get(key);
 	if (existing !== undefined) return existing;
 	const created = new Boxd({ apiKey: Redacted.value(config.apiKey), baseURL });
+	// BYOK accounts must not grow an isolate-wide secret/client cache without bound.
+	if (clients.size >= 64) {
+		const oldest = clients.keys().next().value;
+		if (oldest !== undefined) clients.delete(oldest);
+	}
 	clients.set(key, created);
 	return created;
 };
@@ -676,14 +717,15 @@ export const makeBoxdSandboxProvider = (
 		function* (providerLabel: string) {
 			const name = boxdMachineName(providerLabel);
 			let found = yield* settledByName(name);
-			// Keep pre-workaround machines discoverable without renaming them or
-			// allocating replacements for their existing runtime data.
-			const legacyName = machineNameWithinLimit(
-				providerLabel,
-				LEGACY_MACHINE_NAME_MAX_LENGTH,
-			);
-			if (found === null && legacyName !== name)
-				found = yield* settledByName(legacyName);
+			// Keep machines named by earlier schemes discoverable without
+			// renaming them or allocating replacements for their runtime data.
+			const tried = new Set([name]);
+			for (const previous of previousBoxdMachineNames(providerLabel)) {
+				if (found !== null) break;
+				if (tried.has(previous)) continue;
+				tried.add(previous);
+				found = yield* settledByName(previous);
+			}
 			return found === null ? null : yield* settledSandbox(found);
 		},
 	);
@@ -987,6 +1029,13 @@ export const makeBoxdSandboxProvider = (
 		});
 
 	return {
+		withCredentials: (credentials) =>
+			makeBoxdSandboxProvider({
+				...config,
+				apiKey: credentials.apiKey,
+				templateSnapshot: credentials.templateId ?? config.templateSnapshot,
+				org: credentials.organization,
+			}),
 		providerId: BOXD_PROVIDER_ID,
 		displayName: "boxd",
 		templateVersion: config.templateVersion,

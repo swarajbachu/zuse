@@ -165,6 +165,7 @@ type ConnectedPluginRows = {
 	readonly reload: () => Promise<void>;
 };
 
+/** Keep one named settings row per connected account, including disabled accounts. */
 function rowsOf(snapshot: PluginSnapshot): readonly PluginRow[] {
 	const catalog = new Map(
 		snapshot.catalog.map((plugin) => [plugin.id, plugin]),

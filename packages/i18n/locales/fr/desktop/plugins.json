@@ -63,5 +63,6 @@
 	"plugins_skills_loading": "Chargement des compétences…",
 	"plugins_connection_name": "Nom de la connexion",
 	"plugins_connection_name_placeholder": "Travail, personnel ou nom de l’entreprise",
-	"plugins_connect_another": "Connecter un autre compte"
+	"plugins_connect_another": "Connecter un autre compte",
+	"plugins_connection_name_exists": "Ce nom est déjà utilisé. Choisissez un autre nom de connexion."
 }

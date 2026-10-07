@@ -63,5 +63,6 @@
 	"plugins_skills_loading": "⟦Lôôààdïïng skïïlls…⟧",
 	"plugins_connection_name": "⟦Côônnëëctïïôôn nààmëë⟧",
 	"plugins_connection_name_placeholder": "⟦Wôôrk, pëërsôônààl, ôôr côômpààny nààmëë⟧",
-	"plugins_connect_another": "⟦Côônnëëct àànôôthëër ààccôôüünt⟧"
+	"plugins_connect_another": "⟦Côônnëëct àànôôthëër ààccôôüünt⟧",
+	"plugins_connection_name_exists": "⟦Thïïs nààmëë ïïs ààlrëëààdy ïïn üüsëë. Chôôôôsëë àà dïïffëërëënt côônnëëctïïôôn nààmëë.⟧"
 }

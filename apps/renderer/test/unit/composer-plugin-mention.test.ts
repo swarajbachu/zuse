@@ -9,6 +9,7 @@ import {
 } from "../../src/lib/codemirror/composer-chips.ts";
 import {
 	connectedOf,
+	hasPluginConnectionLabel,
 	pluginToolAddress,
 } from "../../src/lib/connected-plugins.ts";
 
@@ -136,5 +137,20 @@ describe("plugin tool addresses", () => {
 		});
 		expect(pluginToolAddress("tools.linear")).toBeNull();
 		expect(pluginToolAddress("")).toBeNull();
+	});
+});
+
+describe("connection names", () => {
+	it("rejects trimmed, case-insensitive duplicates only within the same plugin", () => {
+		const connections = [{ pluginId: "linear", label: " Work " }];
+		expect(hasPluginConnectionLabel(connections, "linear", "work")).toBe(true);
+		expect(hasPluginConnectionLabel(connections, "linear", " WORK ")).toBe(
+			true,
+		);
+		expect(hasPluginConnectionLabel(connections, "linear", "Personal")).toBe(
+			false,
+		);
+		expect(hasPluginConnectionLabel(connections, "other", "Work")).toBe(false);
+		expect(hasPluginConnectionLabel(connections, "linear", " ")).toBe(false);
 	});
 });

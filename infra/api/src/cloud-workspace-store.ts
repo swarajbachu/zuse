@@ -204,7 +204,7 @@ export interface CloudWorkspaceLifecycleTransitionInput {
 	readonly expectedDesiredState: CloudWorkspaceDesiredState;
 	readonly commandId?: string;
 	readonly action: CloudWorkspaceLifecycleAction;
-	/** Persist the receipt without rewriting an already-requested normal resume. */
+	/** Preserve an already-requested resume while receipting it and advancing activity. */
 	readonly deduplicateRequestedResume?: boolean;
 	readonly createdAtMs: number;
 }
@@ -1511,8 +1511,22 @@ const prepareWorkspaceLifecycleTransition = (
 		input.deduplicateRequestedResume === true &&
 		current.desiredState === "ready" &&
 		current.state !== "failed"
-	)
-		return { kind: "ready", workspace: current };
+	) {
+		const lastActivityAtMs = Math.max(
+			current.lastActivityAtMs,
+			input.workspace.lastActivityAtMs,
+		);
+		const workspace =
+			lastActivityAtMs === current.lastActivityAtMs
+				? current
+				: {
+						...current,
+						lastActivityAtMs,
+						revision: current.revision + 1,
+						updatedAtMs: Math.max(input.createdAtMs, current.updatedAtMs + 1),
+					};
+		return { kind: "ready", workspace };
+	}
 
 	const currentFence = workspaceDestructionFence(current);
 	const destructiveAction =
@@ -5463,6 +5477,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 						yield* sql`DELETE FROM api_api_webhooks WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_api_keys WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_auth_authorities WHERE account_id=${accountId}`;
+						yield* sql`DELETE FROM api_cloud_provider_connections WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_workspace_settings WHERE owner_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_catalog_changes WHERE account_id=${accountId}`;
 						yield* sql`DELETE FROM api_cloud_catalog_heads WHERE account_id=${accountId}`;

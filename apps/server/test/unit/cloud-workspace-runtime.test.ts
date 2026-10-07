@@ -48,6 +48,7 @@ import {
 	retainedCloudRuntimeStorageFailure,
 	retryCloudWorkspaceBootstrap,
 	runCloudMailboxConsumerCycle,
+	runCloudMailboxPolling,
 	runtimeCredentialRenewalDelayMs,
 	runtimeReadyPhaseOnGatewayOpen,
 	signRuntimeRenewalProof,
@@ -1744,10 +1745,15 @@ describe("cloud active work keepalive", () => {
 						chatId,
 						sessions: Effect.sync(() => [
 							{
+								id: SessionId.make("quiet-session"),
 								chatId,
 								status: active ? ("running" as const) : ("idle" as const),
 							},
-							{ chatId: ChatId.make("other-chat"), status: "running" as const },
+							{
+								id: SessionId.make("other-session"),
+								chatId: ChatId.make("other-chat"),
+								status: "running" as const,
+							},
 						]),
 						publish: Effect.suspend(() =>
 							++attempts === 1 ? Effect.fail("network") : Effect.void,
@@ -1766,4 +1772,290 @@ describe("cloud active work keepalive", () => {
 			}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
 		);
 	});
+});
+
+describe("cloud mailbox polling lifetime", () => {
+	it("stops repeated rejected credentials instead of keeping idle compute awake", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				let attempts = 0;
+				let stopped = 0;
+				const fiber = yield* Effect.forkScoped(
+					runCloudMailboxPolling({
+						poll: Effect.suspend(() => {
+							attempts++;
+							return Effect.fail(
+								new CloudWorkspaceRuntimeError({
+									reason: "workspace_runtime_rejected",
+									httpStatus: 401,
+								}),
+							);
+						}),
+						credential: () => "same-credential",
+						onRuntimeRejected: Effect.sync(() => {
+							stopped++;
+						}),
+					}),
+				);
+				yield* TestClock.adjust("30 seconds");
+				expect(stopped).toBe(0);
+				yield* TestClock.adjust("40 seconds");
+				expect(stopped).toBe(1);
+				const beforeRetirement = attempts;
+				yield* TestClock.adjust("1 minute");
+				expect(attempts).toBe(beforeRetirement);
+				yield* Fiber.interrupt(fiber);
+			}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+		);
+	});
+});
+
+it("does not keep approval-blocked turns alive and resumes keepalive after a decision", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const chatId = ChatId.make("approval-chat");
+			let waiting = true;
+			let attempts = 0;
+			const fiber = yield* Effect.forkScoped(
+				keepCloudRuntimeActive({
+					chatId,
+					sessions: Effect.succeed([
+						{
+							id: SessionId.make("approval-session"),
+							chatId,
+							status: "running" as const,
+						},
+					]),
+					isWaitingForInput: () => Effect.sync(() => waiting),
+					publish: Effect.sync(() => {
+						attempts++;
+					}),
+				}),
+			);
+			yield* TestClock.adjust("11 minutes");
+			expect(attempts).toBe(0);
+			waiting = false;
+			yield* TestClock.adjust("1 minute");
+			expect(attempts).toBeGreaterThan(0);
+			yield* Fiber.interrupt(fiber);
+		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+	);
+});
+
+it("retries mailbox outages and in-flight credential rotation without retiring a live runtime", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			let credential = "before-renewal";
+			let attempts = 0;
+			let stopped = 0;
+			const fiber = yield* Effect.forkScoped(
+				runCloudMailboxPolling({
+					credential: () => credential,
+					onRuntimeRejected: Effect.sync(() => {
+						stopped++;
+					}),
+					poll: Effect.suspend(() => {
+						attempts++;
+						if (attempts === 1) {
+							credential = "after-renewal";
+							return Effect.fail(
+								new CloudWorkspaceRuntimeError({
+									reason: "workspace_runtime_rejected",
+									httpStatus: 401,
+								}),
+							);
+						}
+						if (attempts === 2)
+							return Effect.fail(
+								new CloudWorkspaceRuntimeError({
+									reason: "api_http_rejected",
+									httpStatus: 503,
+								}),
+							);
+						return Effect.void;
+					}),
+				}),
+			);
+			yield* TestClock.adjust("10 seconds");
+			expect(attempts).toBeGreaterThan(3);
+			expect(stopped).toBe(0);
+			yield* Fiber.interrupt(fiber);
+		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+	);
+});
+
+it("does not combine credential rejections across successful mailbox polls", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			let attempts = 0;
+			let stopped = 0;
+			const fiber = yield* Effect.forkScoped(
+				runCloudMailboxPolling({
+					credential: () => "live-credential",
+					onRuntimeRejected: Effect.sync(() => {
+						stopped++;
+					}),
+					poll: Effect.suspend(() =>
+						++attempts % 3 === 0
+							? Effect.void
+							: Effect.fail(
+									new CloudWorkspaceRuntimeError({
+										reason: "workspace_runtime_rejected",
+										httpStatus: 401,
+									}),
+								),
+					),
+				}),
+			);
+			yield* TestClock.adjust("10 seconds");
+			expect(attempts).toBeGreaterThan(3);
+			expect(stopped).toBe(0);
+			yield* Fiber.interrupt(fiber);
+		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+	);
+});
+
+it.each([
+	403, 404,
+])("retires permanently rejected mailbox polling with HTTP %s", async (httpStatus) => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			let attempts = 0;
+			let stopped = 0;
+			const fiber = yield* Effect.forkScoped(
+				runCloudMailboxPolling({
+					credential: () => "credential",
+					onRuntimeRejected: Effect.sync(() => {
+						stopped++;
+					}),
+					poll: Effect.suspend(() => {
+						attempts++;
+						return Effect.fail(
+							new CloudWorkspaceRuntimeError({
+								reason: "api_http_rejected",
+								httpStatus,
+							}),
+						);
+					}),
+				}),
+			);
+			yield* TestClock.adjust("10 seconds");
+			expect(attempts).toBe(1);
+			expect(stopped).toBe(1);
+			yield* Fiber.interrupt(fiber);
+		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+	);
+});
+
+it("allows delayed credential renewal before retiring repeated authorization rejection", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			let credential = "old-credential";
+			let attempts = 0;
+			let stopped = 0;
+			const fiber = yield* Effect.forkScoped(
+				runCloudMailboxPolling({
+					credential: () => credential,
+					onRuntimeRejected: Effect.sync(() => {
+						stopped++;
+					}),
+					poll: Effect.suspend(() => {
+						attempts++;
+						return credential === "old-credential"
+							? Effect.fail(
+									new CloudWorkspaceRuntimeError({
+										reason: "workspace_runtime_rejected",
+										httpStatus: 401,
+									}),
+								)
+							: Effect.void;
+					}),
+				}),
+			);
+			yield* TestClock.adjust("45 seconds");
+			expect(stopped).toBe(0);
+			credential = "renewed-credential";
+			yield* TestClock.adjust("1 minute");
+			expect(stopped).toBe(0);
+			expect(attempts).toBeGreaterThan(60);
+			yield* Fiber.interrupt(fiber);
+		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+	);
+});
+
+it("bounds rejected credentials even when transport failures occur between rejections", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			let attempts = 0;
+			let stopped = 0;
+			const fiber = yield* Effect.forkScoped(
+				runCloudMailboxPolling({
+					credential: () => "rejected-credential",
+					onRuntimeRejected: Effect.sync(() => {
+						stopped++;
+					}),
+					poll: Effect.suspend(() => {
+						attempts++;
+						return Effect.fail(
+							new CloudWorkspaceRuntimeError(
+								attempts % 2 === 0
+									? { reason: "api_request_failed" }
+									: { reason: "workspace_runtime_rejected", httpStatus: 401 },
+							),
+						);
+					}),
+				}),
+			);
+			yield* TestClock.adjust("70 seconds");
+			expect(stopped).toBe(1);
+			const retiredAttempts = attempts;
+			yield* TestClock.adjust("1 minute");
+			expect(attempts).toBe(retiredAttempts);
+			yield* Fiber.interrupt(fiber);
+		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+	);
+});
+
+it.each([
+	"workspace_summary_publish_failed",
+	"workspace_readiness_publish_failed",
+])("retries status-less readiness recovery failure %s without retiring the runtime", async (reason) => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			let leases = 0;
+			let repairs = 0;
+			let stopped = 0;
+			const lease = Effect.suspend(() => {
+				leases++;
+				return repairs < 2
+					? Effect.fail(
+							new CloudWorkspaceRuntimeError({
+								reason: "cloud_workspace_runtime_not_ready",
+								httpStatus: 409,
+							}),
+						)
+					: Effect.void;
+			});
+			const fiber = yield* Effect.forkScoped(
+				runCloudMailboxPolling({
+					credential: () => "healthy-credential",
+					onRuntimeRejected: Effect.sync(() => {
+						stopped++;
+					}),
+					poll: recoverCloudMailboxReadiness(
+						lease,
+						Effect.suspend(() => {
+							repairs++;
+							return Effect.fail(new CloudWorkspaceRuntimeError({ reason }));
+						}),
+					),
+				}),
+			);
+			yield* TestClock.adjust("70 seconds");
+			expect(stopped).toBe(0);
+			expect(repairs).toBe(2);
+			expect(leases).toBeGreaterThan(2);
+			yield* Fiber.interrupt(fiber);
+		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+	);
 });

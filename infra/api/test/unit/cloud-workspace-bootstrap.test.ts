@@ -5,7 +5,10 @@ import {
 	CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY,
 } from "@zuse/contracts";
 import { MachineProvidersFake } from "@zuse/machine-providers/testing";
-import { SandboxProviders } from "@zuse/sandbox-providers";
+import {
+	makeSandboxProviders,
+	SandboxProviders,
+} from "@zuse/sandbox-providers";
 import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { exportJWK, exportPKCS8, generateKeyPair } from "jose";
@@ -19,6 +22,10 @@ import { apiMessageSealContext, sealApiString } from "../../src/api-sealing.ts";
 import { CloudBillingStore } from "../../src/cloud-billing-store.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import { takeCloudMailboxDirective } from "../../src/cloud-mailbox-directive.ts";
+import {
+	CloudProviderConnections,
+	type ProviderConnectionRecord,
+} from "../../src/cloud-provider-connections.ts";
 import {
 	CloudWorkspaceLaunchIntentCipher,
 	CloudWorkspaceLaunchIntentCipherLive,
@@ -1361,4 +1368,160 @@ describe("cloud workspace runtime bootstrap", () => {
 		expect(leaseDuringDelete.status).toBe(401);
 		await runtime.dispose();
 	});
+});
+
+test("provider connections require account authentication and organization administration", async () => {
+	const runtime = await makeRuntime(true);
+	let role = "admin";
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: string) =>
+			Response.json({
+				data: [
+					{
+						id: "membership",
+						user_id: "alice",
+						organization_id: new URL(input).searchParams.get("organization_id"),
+						status: "active",
+						role: { slug: role },
+					},
+				],
+				list_metadata: { after: null },
+			}),
+		),
+	);
+	const call = (scope: string, method = "GET", authenticated = true) =>
+		runtime.runPromise(
+			handleRequest(
+				new Request(`${ISSUER}${ApiPaths.cloudProviderConnections}`, {
+					method,
+					headers: {
+						...(authenticated
+							? { authorization: "Bearer test-token:alice" }
+							: {}),
+						"x-zuse-workspace": scope,
+						"content-type": "application/json",
+					},
+					...(method === "GET"
+						? {}
+						: { body: JSON.stringify({ connectionId: "retained" }) }),
+				}),
+			),
+		);
+	try {
+		expect((await call("personal", "GET", false)).status).toBe(401);
+		const personal = await call("personal");
+		expect(personal.status).toBe(200);
+		expect(personal.headers.get("cache-control")).toBe("no-store");
+		expect(await personal.json()).toEqual({ connections: [] });
+		expect((await call("organization:org_a")).status).toBe(200);
+		for (const deniedRole of ["member", "billing"]) {
+			role = deniedRole;
+			for (const method of ["GET", "POST", "DELETE"])
+				expect((await call("organization:org_a", method)).status).toBe(403);
+		}
+	} finally {
+		vi.unstubAllGlobals();
+		await runtime.dispose();
+	}
+});
+
+test("free provider keys pin image builds and cannot authorize managed compute", async () => {
+	const runtime = await makeRuntime();
+	const records: ProviderConnectionRecord[] = [];
+	const connections = CloudProviderConnections.of({
+		list: (accountId) =>
+			Effect.succeed(
+				records.filter((record) => record.accountId === accountId),
+			),
+		save: (record) =>
+			Effect.sync(() => {
+				records.push(record);
+			}),
+		disconnect: () => Effect.void,
+	});
+	try {
+		const registry = await runtime.runPromise(SandboxProviders);
+		const fake = await runtime.runPromise(registry.get("fake"));
+		const own = {
+			...fake,
+			providerId: "boxd",
+			withCredentials: () => ({ ...fake, providerId: "boxd" }),
+		};
+		const providers = await runtime.runPromise(
+			makeSandboxProviders({
+				defaultProviderId: "fake",
+				registrations: [{ adapter: fake }, { adapter: own }],
+			}),
+		);
+		const call = (path: string, body?: unknown) =>
+			runtime.runPromise(
+				handleRequest(
+					new Request(`${ISSUER}${path}`, {
+						method: body === undefined ? "GET" : "POST",
+						headers: {
+							authorization: "Bearer test-token:alice",
+							"content-type": "application/json",
+						},
+						...(body === undefined ? {} : { body: JSON.stringify(body) }),
+					}),
+				).pipe(
+					Effect.provideService(CloudProviderConnections, connections),
+					Effect.provideService(SandboxProviders, providers),
+				),
+			);
+		const saved = await call(ApiPaths.cloudProviderConnections, {
+			providerId: "boxd",
+			apiKey: "customer-key",
+		});
+		expect(saved.status).toBe(200);
+		expect(await saved.text()).not.toContain("customer-key");
+		const available = await call(ApiPaths.cloudProviders);
+		expect(await available.json()).toMatchObject({
+			entitled: true,
+			providers: [{ providerId: "boxd", billingSource: "provider" }],
+		});
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(
+			store.connectProject({
+				projectId: "project",
+				accountId: "alice",
+				repositoryIdentity: "github.com/acme/app",
+				repositoryUrl: "https://github.com/acme/app.git",
+				displayName: "App",
+				defaultBranch: "main",
+				visibility: "private",
+				gitConnectionKind: "github-app",
+				cloudEnvironment: {},
+				secretBindings: [],
+				configurationDigest: "digest",
+				state: "ready",
+				idempotencyKey: "project",
+				createdAtMs: 1,
+				updatedAtMs: 1,
+			}),
+		);
+		const buildResponse = await call(ApiPaths.cloudAccountImageBuild, {
+			providerId: "boxd",
+			idempotencyKey: "own-build",
+			mode: "rebuild",
+		});
+		expect(buildResponse.status).toBe(202);
+		const builds = await runtime.runPromise(
+			store.listAccountBuilds("alice", "boxd"),
+		);
+		expect(builds).toHaveLength(1);
+		expect(builds[0]?.settings?.providerConnectionId).toBe(
+			records[0]?.connectionId,
+		);
+		expect(builds[0]?.templateVersion).toContain(records[0]?.connectionId);
+		const denied = await call(ApiPaths.cloudAccountImageBuild, {
+			providerId: "fake",
+			idempotencyKey: "managed-build",
+			mode: "rebuild",
+		});
+		expect(denied.status).toBe(403);
+	} finally {
+		await runtime.dispose();
+	}
 });

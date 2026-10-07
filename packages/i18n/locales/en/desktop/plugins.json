@@ -63,5 +63,6 @@
 	"plugins_skills_loading": "Loading skills…",
 	"plugins_connection_name": "Connection name",
 	"plugins_connection_name_placeholder": "Work, personal, or company name",
-	"plugins_connect_another": "Connect another account"
+	"plugins_connect_another": "Connect another account",
+	"plugins_connection_name_exists": "This name is already in use. Choose a different connection name."
 }
