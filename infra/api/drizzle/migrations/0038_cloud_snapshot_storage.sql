@@ -1,7 +1,9 @@
 CREATE TABLE api_cloud_snapshot_leases (
- account_id text PRIMARY KEY,
+ account_id text NOT NULL,
  owner text NOT NULL,
- expires_at bigint NOT NULL
+ mode text NOT NULL DEFAULT 'exclusive' CHECK (mode IN ('shared', 'exclusive')),
+ expires_at bigint NOT NULL,
+ PRIMARY KEY (account_id, owner)
 );
 CREATE TABLE api_cloud_snapshots (
  provider text NOT NULL CHECK (provider = 'box'),

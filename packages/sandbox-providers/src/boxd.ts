@@ -1055,6 +1055,9 @@ export const makeBoxdSandboxProvider = (
 					call("usage", async () => {
 						if (client.machines.usage === undefined)
 							throw new Error("boxd usage API unavailable");
+						// Bucket starts are integral seconds. Ceiling both bounds preserves
+						// their membership in the requested half-open interval; flooring
+						// a later period boundary would assign its preceding bucket to the wrong period.
 						const usage = await client.machines.usage(id, {
 							since: Math.ceil(window.startedAtMs / 1000),
 							until: Math.ceil(window.endedAtMs / 1000),

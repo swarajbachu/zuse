@@ -121,6 +121,7 @@ type CloudWorkspacePoolProps = {
 	};
 };
 
+/** Resolves workspace permissions and resets Cloud settings when the active scope changes. */
 export function CloudWorkspacePool({
 	section = "all",
 	onboarding,
@@ -325,7 +326,7 @@ function ScopedCloudWorkspacePool({
 					if (requestSequence !== loadSequence.current) return;
 					if (images !== undefined)
 						setProviderImages((current) =>
-							reconcileCloudImages(current, images.images),
+							reconcileCloudImages(current, images.images, images.complete),
 						);
 					setServiceAvailable(true);
 					return;
@@ -356,7 +357,11 @@ function ScopedCloudWorkspacePool({
 					setWorkspaces(workspaceResult.value.workspaces);
 				if (imageResult.status === "fulfilled")
 					setProviderImages((current) =>
-						reconcileCloudImages(current, imageResult.value.images),
+						reconcileCloudImages(
+							current,
+							imageResult.value.images,
+							imageResult.value.complete,
+						),
 					);
 				setFailedImageProviders(
 					imageResult.status === "fulfilled" &&

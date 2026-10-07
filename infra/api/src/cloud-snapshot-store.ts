@@ -7,19 +7,25 @@ export const SNAPSHOT_MONTH_MICROS = 1_700_000;
 export const SNAPSHOT_SETTLEMENT_INTERVAL_MS = 60 * 60_000;
 export const SNAPSHOT_GRACE_MS = 7 * 24 * 60 * 60 * 1_000;
 
+export type SnapshotLeaseMode = "shared" | "exclusive";
+
 /** Propagates the lease token so short writes can reject a resumed stale worker. */
 export const SnapshotLifecycleLease = Context.Reference<
-	{ accountId: string; owner: string } | undefined
+	{ accountId: string; owner: string; mode?: SnapshotLeaseMode } | undefined
 >("SnapshotLifecycleLease", { defaultValue: () => undefined });
 
 const checkLeasePg = (sql: SqlClient.SqlClient, accountId: string) =>
 	Effect.gen(function* () {
 		const lease = yield* SnapshotLifecycleLease;
 		if (lease === undefined) return;
+		if (lease.mode === "shared")
+			return yield* Effect.die(
+				new Error("snapshot mutation requires exclusive lease"),
+			);
 		if (lease.accountId !== accountId)
 			return yield* Effect.die(new Error("snapshot lease account mismatch"));
 		const rows =
-			yield* sql`SELECT owner FROM api_cloud_snapshot_leases WHERE account_id=${accountId} AND owner=${lease.owner} AND expires_at > floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint FOR UPDATE`;
+			yield* sql`SELECT owner FROM api_cloud_snapshot_leases WHERE account_id=${accountId} AND owner=${lease.owner} AND mode='exclusive' AND expires_at > floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint FOR UPDATE`;
 		if (rows.length !== 1)
 			return yield* Effect.die(new Error("snapshot lifecycle lease lost"));
 	});
@@ -77,6 +83,7 @@ export interface CloudSnapshotStoreApi {
 		accountId: string,
 		owner: string,
 		ttlMs: number,
+		mode?: SnapshotLeaseMode,
 	) => Effect.Effect<boolean>;
 	readonly renewLease: (
 		accountId: string,
@@ -108,11 +115,15 @@ export interface CloudSnapshotStoreApi {
 export const makeCloudSnapshotStorePg = (
 	sql: SqlClient.SqlClient,
 ): CloudSnapshotStoreApi => ({
-	claimLease: (accountId, owner, ttlMs) =>
+	claimLease: (accountId, owner, ttlMs, mode = "exclusive") =>
 		Effect.gen(function* () {
 			yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`snapshot:${accountId}`}, 0))`;
+			const active =
+				yield* sql`SELECT owner FROM api_cloud_snapshot_leases WHERE account_id=${accountId} AND expires_at > floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint AND (${mode} = 'exclusive' OR mode = 'exclusive')`;
+			if (active.length > 0) return false;
+			yield* sql`DELETE FROM api_cloud_snapshot_leases WHERE account_id=${accountId} AND expires_at <= floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint`;
 			const rows =
-				yield* sql`INSERT INTO api_cloud_snapshot_leases(account_id, owner, expires_at) VALUES (${accountId}, ${owner}, floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint + ${ttlMs}) ON CONFLICT(account_id) DO UPDATE SET owner=EXCLUDED.owner, expires_at=EXCLUDED.expires_at WHERE api_cloud_snapshot_leases.expires_at <= floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint RETURNING owner`;
+				yield* sql`INSERT INTO api_cloud_snapshot_leases(account_id, owner, mode, expires_at) VALUES (${accountId}, ${owner}, ${mode}, floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint + ${ttlMs}) ON CONFLICT(account_id, owner) DO NOTHING RETURNING owner`;
 			return rows.length === 1;
 		}).pipe(sql.withTransaction, Effect.orDie),
 	renewLease: (accountId, owner, ttlMs) =>
@@ -183,13 +194,25 @@ export const makeCloudSnapshotStorePg = (
 
 export const makeCloudSnapshotStoreMemory = (): CloudSnapshotStoreApi => {
 	const records = new Map<string, CloudSnapshotRecord>();
-	const leases = new Map<string, { owner: string; expiresAt: number }>();
+	const leases = new Map<
+		string,
+		{
+			accountId: string;
+			owner: string;
+			mode: SnapshotLeaseMode;
+			expiresAt: number;
+		}
+	>();
+	const leaseKey = (accountId: string, owner: string) =>
+		JSON.stringify([accountId, owner]);
 	const checkLease = (accountId: string) =>
 		Effect.gen(function* () {
 			const token = yield* SnapshotLifecycleLease;
 			if (token === undefined) return;
-			const lease = leases.get(accountId);
+			const lease = leases.get(leaseKey(accountId, token.owner));
 			if (
+				token.mode === "shared" ||
+				lease?.mode !== "exclusive" ||
 				token.accountId !== accountId ||
 				lease?.owner !== token.owner ||
 				lease.expiresAt <= Date.now()
@@ -197,23 +220,33 @@ export const makeCloudSnapshotStoreMemory = (): CloudSnapshotStoreApi => {
 				return yield* Effect.die(new Error("snapshot lifecycle lease lost"));
 		});
 	return {
-		claimLease: (accountId, owner, ttlMs) =>
+		claimLease: (accountId, owner, ttlMs, mode = "exclusive") =>
 			Effect.sync(() => {
-				if ((leases.get(accountId)?.expiresAt ?? 0) > Date.now()) return false;
-				leases.set(accountId, { owner, expiresAt: Date.now() + ttlMs });
+				const now = Date.now();
+				for (const [key, lease] of leases) {
+					if (lease.expiresAt <= now) leases.delete(key);
+					else if (
+						lease.accountId === accountId &&
+						(mode === "exclusive" || lease.mode === "exclusive")
+					)
+						return false;
+				}
+				const key = leaseKey(accountId, owner);
+				if (leases.has(key)) return false;
+				leases.set(key, { accountId, owner, mode, expiresAt: now + ttlMs });
 				return true;
 			}),
 		renewLease: (accountId, owner, ttlMs) =>
 			Effect.sync(() => {
-				const lease = leases.get(accountId);
-				if (lease?.owner !== owner || lease.expiresAt <= Date.now())
-					return false;
-				leases.set(accountId, { owner, expiresAt: Date.now() + ttlMs });
+				const key = leaseKey(accountId, owner);
+				const lease = leases.get(key);
+				if (lease === undefined || lease.expiresAt <= Date.now()) return false;
+				leases.set(key, { ...lease, expiresAt: Date.now() + ttlMs });
 				return true;
 			}),
 		releaseLease: (accountId, owner) =>
 			Effect.sync(() => {
-				if (leases.get(accountId)?.owner === owner) leases.delete(accountId);
+				leases.delete(leaseKey(accountId, owner));
 			}),
 		get: (accountId, snapshotId) =>
 			Effect.sync(() => {

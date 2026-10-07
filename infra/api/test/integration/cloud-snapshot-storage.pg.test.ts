@@ -198,9 +198,31 @@ it.skipIf(!connectionString)(
 						yield* assertSnapshotUsable(raceAccount, "box", raceSnapshot);
 						diskReplaced = true;
 					}),
+					"shared",
 				),
 			);
 			await entered;
+			// A second restore must finish while the first is still blocked in the provider.
+			await runtime.runPromise(
+				withSnapshotLifecycleLock(
+					raceAccount,
+					"box",
+					assertSnapshotUsable(raceAccount, "box", raceSnapshot),
+					"shared",
+				),
+			);
+			await expect(
+				runtime.runPromise(
+					billing.snapshots.transaction(raceAccount, Effect.void).pipe(
+						Effect.provideService(SnapshotLifecycleLease, {
+							accountId: raceAccount,
+							owner: "forged-reader",
+							mode: "shared",
+						}),
+					),
+				),
+			).rejects.toThrow("requires exclusive");
+
 			const deletion = runtime.runPromise(
 				deleteRetainedSnapshot(raceAccount, raceSnapshot, start + 100),
 			);

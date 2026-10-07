@@ -799,6 +799,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 							build.accountId,
 							build.provider,
 							allocateBuild,
+							"shared",
 						);
 			if (allocated.rejected) {
 				if (authSnapshotId !== undefined)
@@ -2086,6 +2087,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 							workspace.accountId,
 							build.provider,
 							allocate,
+							"shared",
 						)
 					: yield* allocate;
 			// Persist the native child before preparation so failed forks can still be

@@ -667,3 +667,38 @@ it("settles stopped images after confirmed deletion when period evidence arrives
 		await s.runtime.dispose();
 	}
 });
+
+it("allows concurrent snapshot readers while fencing lifecycle writers and stale readers", async () => {
+	const store = makeCloudSnapshotStoreMemory();
+	const claim = (owner: string, mode: "shared" | "exclusive") =>
+		Effect.runPromise(store.claimLease("account", owner, 60_000, mode));
+	expect(await claim("reader-a", "shared")).toBe(true);
+	expect(await claim("reader-b", "shared")).toBe(true);
+	expect(await claim("delete", "exclusive")).toBe(false);
+	await expect(
+		Effect.runPromise(
+			store.transaction("account", Effect.void).pipe(
+				Effect.provideService(SnapshotLifecycleLease, {
+					accountId: "account",
+					owner: "reader-a",
+					mode: "shared",
+				}),
+			),
+		),
+	).rejects.toThrow();
+	await Effect.runPromise(store.releaseLease("account", "reader-a"));
+	expect(await claim("delete", "exclusive")).toBe(false);
+	expect(
+		await Effect.runPromise(store.renewLease("account", "reader-a", 60_000)),
+	).toBe(false);
+	await Effect.runPromise(store.releaseLease("account", "reader-b"));
+	expect(await claim("delete", "exclusive")).toBe(true);
+	expect(await claim("reader-c", "shared")).toBe(false);
+	expect(
+		await Effect.runPromise(
+			store.claimLease("other-account", "reader-c", 60_000, "shared"),
+		),
+	).toBe(true);
+	await Effect.runPromise(store.releaseLease("account", "delete"));
+	expect(await claim("reader-c", "shared")).toBe(true);
+});

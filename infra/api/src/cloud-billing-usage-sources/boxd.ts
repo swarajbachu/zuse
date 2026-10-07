@@ -132,7 +132,17 @@ export const BoxdBillingUsageSourceModule: BillingUsageSourceModule = {
 							memoryMib: observation?.memoryMib ?? adapter.resources.memoryMib,
 						},
 						reportedCost: (window) =>
-							getUsage(event.machineId, window).pipe(
+							getUsage(event.machineId, {
+								...window,
+								// Creation can occur inside the first metering bucket. Its cost
+								// belongs to the creation segment; the VM has no earlier usage.
+								// Later boundaries remain exact: bucket-start attribution must
+								// never pull usage from a preceding billing period or cutover.
+								startedAtMs:
+									window.startedAtMs === resource.createdAtMs
+										? Math.floor(window.startedAtMs / 900_000) * 900_000
+										: window.startedAtMs,
+							}).pipe(
 								Effect.flatMap((usage) =>
 									billing
 										.recordProviderEvent({

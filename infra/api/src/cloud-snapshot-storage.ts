@@ -8,6 +8,7 @@ import {
 	SNAPSHOT_GRACE_MS,
 	SNAPSHOT_RATE_VERSION,
 	SNAPSHOT_SETTLEMENT_INTERVAL_MS,
+	type SnapshotLeaseMode,
 	SnapshotLifecycleLease,
 	snapshotStorageCost,
 } from "./cloud-snapshot-store.ts";
@@ -253,6 +254,7 @@ export const withSnapshotLifecycleLock = <A, E, R>(
 	accountId: string,
 	provider: string,
 	effect: Effect.Effect<A, E, R>,
+	mode: SnapshotLeaseMode = "exclusive",
 ) =>
 	Effect.gen(function* () {
 		if (provider !== "box") return yield* effect;
@@ -261,7 +263,7 @@ export const withSnapshotLifecycleLock = <A, E, R>(
 		const ttlMs = SNAPSHOT_LEASE_TTL_MS;
 		const acquire = Effect.gen(function* () {
 			const deadline = (yield* Clock.currentTimeMillis) + 15_000;
-			while (!(yield* snapshots.claimLease(accountId, owner, ttlMs))) {
+			while (!(yield* snapshots.claimLease(accountId, owner, ttlMs, mode))) {
 				if ((yield* Clock.currentTimeMillis) >= deadline)
 					return yield* Effect.fail(conflict("cloud_snapshot_busy"));
 				yield* Effect.sleep("100 millis");
@@ -277,7 +279,11 @@ export const withSnapshotLifecycleLock = <A, E, R>(
 			() =>
 				Effect.raceFirst(
 					effect.pipe(
-						Effect.provideService(SnapshotLifecycleLease, { accountId, owner }),
+						Effect.provideService(SnapshotLifecycleLease, {
+							accountId,
+							owner,
+							mode,
+						}),
 					),
 					renew,
 				),

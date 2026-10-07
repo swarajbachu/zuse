@@ -1649,6 +1649,7 @@ describe("native boxd machine forks", () => {
 describe("boxd completed usage", () => {
 	test.each([
 		"valid",
+		"fractional",
 		"incomplete",
 		"eur",
 		"wrong-window",
@@ -1664,8 +1665,8 @@ describe("boxd completed usage", () => {
 		};
 		const client = boxdSandboxClientFor(config);
 		const window = {
-			startedAtMs: 1_800_000_000_000,
-			endedAtMs: 1_800_000_060_000,
+			startedAtMs: 1_800_000_000_000 + (kind === "fractional" ? 250 : 0),
+			endedAtMs: 1_800_000_060_000 + (kind === "fractional" ? 250 : 0),
 		};
 		const usage = vi.spyOn(client.machines, "usage").mockResolvedValue({
 			machineId: kind === "wrong-machine" ? "other" : "vm",
@@ -1675,8 +1676,11 @@ describe("boxd completed usage", () => {
 			shared: false,
 			status: "deleted",
 			period: {
-				start: new Date(window.startedAtMs),
-				end: new Date(window.endedAtMs + (kind === "wrong-window" ? 1000 : 0)),
+				start: new Date(Math.ceil(window.startedAtMs / 1000) * 1000),
+				end: new Date(
+					Math.ceil(window.endedAtMs / 1000) * 1000 +
+						(kind === "wrong-window" ? 1000 : 0),
+				),
 			},
 			currency: kind === "eur" ? "eur" : "usd",
 			complete: kind !== "incomplete",
@@ -1703,12 +1707,14 @@ describe("boxd completed usage", () => {
 			const result = await Effect.runPromise(
 				Effect.result(adapter.getUsage("vm", window)),
 			);
-			expect(result._tag).toBe(kind === "valid" ? "Success" : "Failure");
+			expect(result._tag).toBe(
+				kind === "valid" || kind === "fractional" ? "Success" : "Failure",
+			);
 			if (result._tag === "Success")
 				expect(result.success.providerCostMicros).toBe(123);
 			expect(usage).toHaveBeenCalledWith("vm", {
-				since: window.startedAtMs / 1000,
-				until: window.endedAtMs / 1000,
+				since: Math.ceil(window.startedAtMs / 1000),
+				until: Math.ceil(window.endedAtMs / 1000),
 				org: undefined,
 			});
 		} finally {

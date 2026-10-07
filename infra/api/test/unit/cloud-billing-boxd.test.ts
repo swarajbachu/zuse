@@ -49,9 +49,13 @@ it("uses stable, disjoint windows and waits for metering lag", () => {
 });
 
 it.each([
-	undefined,
-	boundary + 30_000,
-])("uses boxd cutover independently of global cutover %s, splits costs and deduplicates retries", async (globalCutover) => {
+	{ globalCutover: undefined, createdAtMs: boundary - 120_000 },
+	{ globalCutover: boundary + 30_000, createdAtMs: boundary - 120_000 },
+	{ globalCutover: undefined, createdAtMs: boundary - 20_000 + 250 },
+])("uses independent cutover and attributes creation buckets across periods ($createdAtMs)", async ({
+	globalCutover,
+	createdAtMs,
+}) => {
 	const mint = await generateKeyPair("EdDSA", { extractable: true });
 	const calls: Array<{ startedAtMs: number; endedAtMs: number }> = [];
 	let fail = true;
@@ -66,7 +70,13 @@ it.each([
 				? Effect.fail(new SandboxProviderError({ code: "transient" }))
 				: Effect.succeed({
 						...window,
-						providerCostMicros: window.startedAtMs === boundary ? 200 : 100,
+						providerCostMicros:
+							window.startedAtMs === boundary
+								? 200
+								: createdAtMs > boundary - 30_000 &&
+										window.startedAtMs > boundary - 900_000
+									? 0
+									: 100,
 						billableSeconds: 60,
 						running: false,
 						costMicrosPerSecond: 0,
@@ -123,7 +133,7 @@ it.each([
 					idempotencyKey: "build",
 					nextActionAtMs: boundary,
 					revision: 0,
-					createdAtMs: boundary - 120_000,
+					createdAtMs,
 					updatedAtMs: boundary,
 				});
 				yield* billing.recordRuntimeObservation({
@@ -163,7 +173,10 @@ it.each([
 		const results = await Promise.all([ingest(), ingest()]);
 		expect(results.reduce((a, b) => a + b)).toBe(1);
 		expect(calls).toContainEqual({
-			startedAtMs: boundary - 30_000,
+			startedAtMs:
+				createdAtMs > boundary - 30_000
+					? boundary - 900_000
+					: boundary - 30_000,
 			endedAtMs: boundary,
 		});
 		const exports = await runtime.runPromise(

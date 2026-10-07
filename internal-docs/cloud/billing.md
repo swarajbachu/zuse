@@ -262,12 +262,15 @@ at migration time or the storage cutover, whichever is later. There is no
 historical back-billing. Minute maintenance checkpoints storage at most hourly,
 with immediate final settlement on replacement/deletion. Integer rational
 arithmetic carries fractional micro-USD across checkpoints and period boundaries.
-Period evidence gaps remain uncharged. Checkpoints, ledger and both Polar queues
+Storage without a valid subscription period is absorbed by the platform. An unsettled
+suffix remains pending when period evidence is late and can settle after that evidence
+arrives. Checkpoints, ledger and both Polar queues
 commit in one account-serialized transaction.
 
-Provider operations hold a durable account lease for five minutes, renewed every 30 seconds,
-without keeping a database transaction open. Promotion, deletion, account cleanup and
-reconciliation honor the same lease; crashes release it through expiry. Lease acquisition
+Snapshot-consuming restores and rebuilds hold shared durable account leases, allowing
+concurrent allocations. Promotion, deletion, account cleanup and reconciliation require
+an exclusive lease and wait for all readers. Leases last five minutes, renewed every 30 seconds,
+without keeping a database transaction open; crashes release them through expiry. Lease acquisition
 waits at most 15 seconds before returning a retryable conflict. Settlement and reference
 updates remain atomic in short SQL transactions, with the live owner checked under
 a lease-row lock. Provider side effects also recheck ownership immediately before
@@ -315,3 +318,10 @@ and a complete snapshot-to-ledger-to-Polar example with stable retry IDs. Set
 cutover before enabling storage settlement; enable invoice export only through
 the existing reconciled rollout. Local PostgreSQL tests do not verify live Polar
 delivery or deploy the migration to staging/production.
+
+For boxd machine costs, a machine's initial metering bucket belongs to the segment
+in which that machine was created, including fractional creation timestamps. Only
+that segment queries back to the bucket start: the machine has no earlier usage.
+Later billing-period and cutover boundaries use half-open bucket-start attribution;
+rounding these boundaries up to integral seconds preserves membership without
+double-counting or importing pre-cutover usage.
