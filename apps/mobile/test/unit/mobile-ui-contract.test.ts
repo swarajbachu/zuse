@@ -70,6 +70,16 @@ describe("mobile UI contracts", () => {
 		expect(turn).not.toContain('accessibilityLabel="Share response"');
 		expect(turn).not.toContain('accessibilityLabel="Copy response"');
 	});
+	test("lets people remove a saved computer from Settings", () => {
+		const settings = readFileSync(
+			`${process.cwd()}/src/components/settings-screen.tsx`,
+			"utf8",
+		);
+		expect(settings).toContain('text: "Remove Computer"');
+		expect(settings).toContain("void removeConnection(key)");
+		// Account-linked computers come back from the account; only saved ones.
+		expect(settings).toContain('connection.source === "paired"');
+	});
 	test("offers bounded home loading and explicit recovery actions", () => {
 		const home = appFile("index.tsx");
 		expect(home).toContain("startLoadingDeadline");

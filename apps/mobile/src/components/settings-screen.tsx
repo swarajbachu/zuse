@@ -48,6 +48,7 @@ import {
 	connectionsAtom,
 	connectionsHydratedAtom,
 	hydrateConnections,
+	removeConnection,
 } from "~/store/connections";
 import {
 	connectToEnvironment,
@@ -183,6 +184,37 @@ export default function SettingsScreen({
 			setConnecting(null);
 		}
 	};
+
+	// Paired and manually added Macs are saved on this phone; account-linked
+	// computers come back from the account, so only saved ones can be removed.
+	const manageSavedComputer = (key: string, label: string) =>
+		Alert.alert(label, undefined, [
+			{ text: "Show Chats", onPress: () => returnToInbox(router) },
+			{
+				text: "Remove Computer",
+				style: "destructive",
+				onPress: () =>
+					Alert.alert(
+						`Remove ${label}?`,
+						"Its chats disappear from this phone. Pair again to reconnect.",
+						[
+							{ text: "Cancel", style: "cancel" },
+							{
+								text: "Remove",
+								style: "destructive",
+								onPress: () =>
+									void removeConnection(key).catch(() =>
+										Alert.alert(
+											"Could not remove computer",
+											"Please try again.",
+										),
+									),
+							},
+						],
+					),
+			},
+			{ text: "Cancel", style: "cancel" },
+		]);
 
 	const changeNotifications = async (enabled: boolean) => {
 		if (!enabled) {
@@ -387,22 +419,29 @@ export default function SettingsScreen({
 											: environment?.presence === "offline"
 												? "Offline"
 												: "Checking…";
+							const title = visibleConnectionLabel(
+								connection?.label ?? environment?.label,
+							);
+							const saved =
+								connection !== undefined &&
+								(connection.source === "paired" ||
+									connection.source === "manual");
 							return (
 								<ListRow
 									key={key}
 									symbol="desktopcomputer"
 									iconTone={connected ? "brand" : "neutral"}
-									title={visibleConnectionLabel(
-										connection?.label ?? environment?.label,
-									)}
+									title={title}
 									subtitle={subtitle}
-									chevron={canConnect}
+									chevron={canConnect || saved}
 									onPress={
 										canConnect
 											? () => void onConnect(environment.environmentId)
-											: connection
-												? () => returnToInbox(router)
-												: undefined
+											: saved
+												? () => manageSavedComputer(connection.key, title)
+												: connection
+													? () => returnToInbox(router)
+													: undefined
 									}
 								/>
 							);
