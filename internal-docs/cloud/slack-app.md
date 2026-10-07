@@ -15,8 +15,8 @@ If the installation page says Slack is not enabled, contact the Zuse operator.
    to Slack after confirmation. Slack uses the organization from the verified sign-in
    without another chooser. Organization connections use that organization’s
    repositories and cloud usage; membership is checked for each request. Sign-ins
-   without an organization connect to Personal. Disconnect and reconnect to change
-   the organization.
+   without an organization, or with organization workspaces disabled, connect to
+   Personal. Disconnect and reconnect to change the organization.
    No API key, agent ID, or model ID is needed. A channel-initiated connection also
    sends a success notice visible only to you. If you started with a task, that
    notice includes **Select repository** to continue the saved message and its
@@ -70,8 +70,9 @@ project access and cloud usage.
 
 Thread context is limited to the latest 500 messages and 60,000 text characters,
 with up to eight supported files, each at most 20 MiB. Rate limits can delay
-processing. Native loading depends on Slack support; the progress message remains
-visible without it. Results include a workspace ID, not a one-click web session link.
+processing. Native loading depends on Slack support; activity reactions provide a fallback
+when their permission is available. Results include a **View in Zuse** link to
+the workspace in the browser, where users can also open the desktop app.
 If permissions were recently added, reauthorize the app through the installation
 link. Deploying an updated backend alone does not grant those permissions.
 
@@ -84,10 +85,6 @@ Removing a rule does not cancel an already-running agent. Disconnect the Zuse
 account from App Home to revoke new requests, use the private automation settings
 page to also remove its rules, or uninstall the
 app from Slack. Do not give investigation agents production deployment secrets.
-
-Slack uses your most recent cloud workspace's agent/model configuration. If your
-account has no defaults, choose the agent/model privately in Slack to continue.
-This selection does not replace connecting the provider's cloud credentials in Zuse.
 
 ### Slack execution defaults
 

@@ -61,7 +61,10 @@ export const makeSlackModule = (options: SlackOptions) =>
 								codeVerifier: verifier,
 							});
 							const principal = yield* identity.verify(tokens.access_token);
-							if (principal.orgId === undefined)
+							if (
+								principal.orgId === undefined ||
+								!config.organizationWorkspacesEnabled
+							)
 								return { accountId: principal.accountId };
 							yield* resolveWorkspaceActorAccess(
 								principal,

@@ -56,7 +56,8 @@ the older `stuff.md` token issuer. Do not change token issuers for Slack setup.
    For staging, change all manifest URLs to the staging API host.
 2. Register the WorkOS redirect above on the same WorkOS client used by that API.
    This uses [WorkOS AuthKit's PKCE flow](https://workos.com/docs/reference/authkit/authentication/get-authorization-url).
-3. Apply API migrations through `0023_slack_members` using the existing guarded
+3. Apply all pending API migrations from `drizzle/migrations/meta/_journal.json`
+   using the existing guarded
    `db:migrate:staging` / `db:migrate:production` scripts. Migration 0022 adds
    three installation/state tables; 0023 adds encrypted per-member connections;
    no existing account/workspace tables are rewritten.
@@ -147,9 +148,11 @@ the older `stuff.md` token issuer. Do not change token issuers for Slack setup.
   Only missing-default responses trigger this; timeouts and other errors never
   change creation parameters. Notice delivery retries independently of task launch.
   First accepted choices are immutable on redelivery; expiry, reconnects, and policy
-  changes invalidate the picker. Options come from `CloudAuthProvider` and the shared
-  bundled visible model catalog, capped at the [Slack static-select limit of 100 options](https://docs.slack.dev/reference/block-kit/block-elements/select-menu-element/),
-  not live account-specific availability.
+  changes invalidate the picker. Options filter `CloudAuthProvider` by cached cloud authentication status
+  for the active account or organization and use the shared visible model catalog,
+  capped at the [Slack static-select limit of 100 options](https://docs.slack.dev/reference/block-kit/block-elements/select-menu-element/).
+  Submission and queued execution recheck availability; the picker does not inspect
+  runtime CLI installation or model entitlements.
   Provider credentials must already be connected in Zuse. Selection does not connect
   or authorize a provider, and the picker is not a GitHub repository import flow.
 
@@ -181,8 +184,9 @@ the older `stuff.md` token issuer. Do not change token issuers for Slack setup.
   staging-upload system. Long rate-limited threads may need operator replay.
 - Temporary checkpoints expire after 24 hours; mappings/import markers after 30
   days. Expired rows are pruned on later writes.
-- Results include a workspace ID. A one-click authenticated web session landing
-  route is not implemented here.
+- Results include a **View in Zuse** link to the workspace in the configured
+  browser app. The browser route also offers opening it in the desktop app;
+  normal account authentication and workspace permissions still apply.
 - Live agents are instructed to investigate, prepare minimal fixes, test, and
   request review—not merge/deploy. Prompts are not a security boundary. Restrict
   account/repository credentials; never supply production deployment secrets.

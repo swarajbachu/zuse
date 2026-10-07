@@ -1,6 +1,14 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
@@ -175,28 +183,85 @@ printf launched`,
 	}
 });
 
-// A failed pinned checksum must abort even when the caller uses `if ! install_grok`.
-test("Grok installer rejects changed downloads before executing them", async () => {
-	const root = await mkdtemp(join(tmpdir(), "zuse-grok-checksum-"));
+// Explicit error propagation must survive callers using `if ! install_grok`.
+test.each([
+	{ name: "verified x86_64", arch: "x86_64", success: true },
+	{ name: "verified aarch64", arch: "aarch64", success: true },
+	{ name: "changed binary", arch: "x86_64", success: false, corrupt: true },
+	{
+		name: "failed download",
+		arch: "x86_64",
+		success: false,
+		downloadFailure: true,
+	},
+	{
+		name: "unusable binary",
+		arch: "x86_64",
+		success: false,
+		startupFailure: true,
+	},
+	{ name: "unsupported platform", arch: "other", success: false },
+])("Grok binary installation: $name", async (scenario) => {
+	const root = await mkdtemp(join(tmpdir(), "zuse-grok-install-"));
 	try {
-		const source = readFileSync(
+		const target = join(root, "grok");
+		const marker = join(root, "executed");
+		const artifact = `#!/bin/sh\nprintf executed > "$GROK_TEST_MARKER"\nexit ${scenario.startupFailure ? 1 : 0}\n`;
+		const fixture = join(root, "fixture");
+		await writeFile(fixture, artifact);
+		await writeFile(target, "existing executable");
+		let source = readFileSync(
 			new URL("../../../cloud-sandboxes/install-grok.sh", import.meta.url),
 			"utf8",
 		);
+		if (!scenario.corrupt)
+			source = source.replace(
+				/digest=[a-f0-9]{64}/gu,
+				`digest=${createHash("sha256").update(artifact).digest("hex")}`,
+			);
+		const generation =
+			scenario.arch === "aarch64" ? "1787956595467474" : "1787956692848119";
 		const result = spawnSync(
 			"bash",
 			[
 				"-c",
 				`${source}
-  curl() { local target; while [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; target="$1"; fi; shift; done; printf 'touch "$HOME/executed"' > "$target"; }
-  if ! install_grok; then exit 23; fi`,
+uname() { if [ "$1" = -s ]; then printf Linux; else printf '%s' "$GROK_TEST_ARCH"; fi; }
+curl() {
+  local target url
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -o) shift; target="$1" ;;
+      https:*) url="$1" ;;
+    esac
+    shift
+  done
+  [ "$url" = "https://storage.googleapis.com/grok-build-public-artifacts/cli/grok-1.0.13-linux-${scenario.arch}?generation=${generation}" ] || return 91
+  ${scenario.downloadFailure ? "return 1" : 'cp "$GROK_TEST_FIXTURE" "$target"'}
+}
+if ! install_grok; then exit 23; fi`,
 			],
-			{ encoding: "utf8", timeout: 5000, env: { ...process.env, HOME: root } },
+			{
+				encoding: "utf8",
+				timeout: 5000,
+				env: {
+					...process.env,
+					GROK_BIN_DIR: root,
+					GROK_TEST_MARKER: marker,
+					GROK_TEST_FIXTURE: fixture,
+					GROK_TEST_ARCH: scenario.arch,
+				},
+			},
 		);
-		expect(result.status).toBe(23);
-		expect(
-			await readFile(join(root, "executed"), "utf8").catch(() => null),
-		).toBeNull();
+		expect(result.error).toBeUndefined();
+		expect(result.status, result.stderr).toBe(scenario.success ? 0 : 23);
+		expect(await readFile(target, "utf8")).toBe(
+			scenario.success ? artifact : "existing executable",
+		);
+		if (scenario.success) expect((await stat(target)).mode & 0o777).toBe(0o755);
+		expect(await readFile(marker, "utf8").catch(() => null)).toBe(
+			scenario.success || scenario.startupFailure ? "executed" : null,
+		);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

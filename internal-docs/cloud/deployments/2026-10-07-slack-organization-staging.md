@@ -392,7 +392,7 @@ completed: checkpoints showed assistant responses at 14:50 UTC with no current
 turn remaining.
 
 Template provisioning and workspace launch/resume now share `install-grok.sh`,
-including the pinned installer checksum, bounded download/install, and executable
+including versioned binary generation and digest pins, bounded download/install, and executable
 verification. Older snapshots install the missing CLI before starting their
 runtime. Installation failures fail startup with `installing-agent-cli` rather
 than starting a runtime whose Grok requests cannot execute. Already installed

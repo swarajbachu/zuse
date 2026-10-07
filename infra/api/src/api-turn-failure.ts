@@ -90,9 +90,13 @@ export const readApiTurnFailure = Effect.fn("readApiTurnFailure")(function* (
 		.reverse()
 		.find((message) => message.role === "user");
 	const error = projection.messages.at(-1);
+	const launchMessageId =
+		submitted.messageId === `msg_launch_${workspace.workspaceId}`
+			? `launch:${workspace.workspaceId}:message`
+			: undefined;
 	if (
 		(user
-			? user.id !== submitted.messageId
+			? user.id !== submitted.messageId && user.id !== launchMessageId
 			: projection.currentTurn?.turnId !== submitted.turnId) ||
 		!error ||
 		error.createdAt < new Date(submitted.createdAtMs) ||

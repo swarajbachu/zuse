@@ -351,10 +351,11 @@ describe("public API (/v1/api)", () => {
 					workspace.wrappedTranscriptKey,
 				),
 			);
+			const runtimeMessageId = `launch:${workspace.workspaceId}:message`;
 			let version = 0;
 			const checkpoint = async (
 				turnId = submitted.turnId,
-				userId = submitted.messageId,
+				userId = runtimeMessageId,
 				generation = 1,
 				status = "error",
 				corrupt = false,
@@ -456,7 +457,7 @@ describe("public API (/v1/api)", () => {
 			]) {
 				await checkpoint(
 					submitted.turnId,
-					submitted.messageId,
+					runtimeMessageId,
 					1,
 					"error",
 					false,
@@ -474,7 +475,7 @@ describe("public API (/v1/api)", () => {
 			}
 			await checkpoint(
 				submitted.turnId,
-				submitted.messageId,
+				runtimeMessageId,
 				1,
 				"error",
 				false,
@@ -487,7 +488,7 @@ describe("public API (/v1/api)", () => {
 			});
 			await checkpoint(
 				submitted.turnId,
-				submitted.messageId,
+				runtimeMessageId,
 				1,
 				"error",
 				false,
@@ -500,11 +501,11 @@ describe("public API (/v1/api)", () => {
 			expect(await poll()).not.toHaveProperty("startupFailure");
 			await checkpoint(submitted.turnId, "different-user-message");
 			expect(await poll()).not.toHaveProperty("startupFailure");
-			await checkpoint(submitted.turnId, submitted.messageId, 1, "running");
+			await checkpoint(submitted.turnId, runtimeMessageId, 1, "running");
 			expect(await poll()).not.toHaveProperty("startupFailure");
-			await checkpoint(submitted.turnId, submitted.messageId, 1, "error", true);
+			await checkpoint(submitted.turnId, runtimeMessageId, 1, "error", true);
 			expect(await poll()).not.toHaveProperty("startupFailure");
-			await checkpoint(submitted.turnId, submitted.messageId, 2);
+			await checkpoint(submitted.turnId, runtimeMessageId, 2);
 			expect(await poll()).not.toHaveProperty("startupFailure");
 			const explicit = await runtime.runPromise(
 				routeAccountWorkspaceRequest(
@@ -1771,15 +1772,14 @@ describe("public API (/v1/api)", () => {
 	});
 
 	test.each([
-		undefined,
-		"org_team",
-	])("links Slack only to verified WorkOS account and organization %s", async (orgId) => {
-		const runtime = await makeRuntime(
-			false,
-			false,
-			undefined,
-			orgId !== undefined,
-		);
+		{ orgId: undefined, enabled: false },
+		{ orgId: "org_team", enabled: true },
+		{ orgId: "org_team", enabled: false },
+	])("links Slack to verified account: $orgId, organizations enabled=$enabled", async ({
+		orgId,
+		enabled,
+	}) => {
+		const runtime = await makeRuntime(false, false, undefined, enabled);
 		await seedReadyProject(
 			runtime,
 			await runtime.runPromise(CloudWorkspaceStore),
@@ -1887,7 +1887,7 @@ describe("public API (/v1/api)", () => {
 			expect((await finish(await begin())).status).toBe(503);
 			expect((await installations.get("T1"))?.credentials.zuse).toBeUndefined();
 			valid = true;
-			if (orgId) {
+			if (orgId && enabled) {
 				active = false;
 				expect((await finish(await begin())).status).toBe(503);
 				expect(
@@ -1910,7 +1910,8 @@ describe("public API (/v1/api)", () => {
 				await installations.member(installed, installed.ownerId)
 			).connection;
 			expect(connected?.accountId).toBe(ACCOUNT);
-			expect(connected?.organizationId).toBe(orgId);
+			expect(connected?.organizationId).toBe(enabled ? orgId : undefined);
+			if (orgId && !enabled) expect(fetch).not.toHaveBeenCalled();
 			expect(JSON.stringify(connected)).not.toMatch(
 				/exchanged-token|discard-me|apiKey/u,
 			);
