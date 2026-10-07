@@ -90,10 +90,36 @@ describe("WorkOS token refresh", () => {
 		expect(secureStore.setItemAsync).not.toHaveBeenCalled();
 	});
 
+	test("a malformed request keeps the session; only invalid_grant ends it", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ error: "invalid_request" }), {
+						status: 400,
+					}),
+			),
+		);
+		const expired = vi.fn();
+		const release = onSessionExpired(expired);
+		try {
+			await expect(getAccessToken()).rejects.toThrow("workos_authenticate_400");
+			expect(expired).not.toHaveBeenCalled();
+			expect(secureStore.peek()).not.toBeNull();
+		} finally {
+			release();
+		}
+	});
+
 	test("a rejected refresh token ends the session instead of failing forever", async () => {
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(async () => new Response("invalid_grant", { status: 400 })),
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ error: "invalid_grant" }), {
+						status: 400,
+					}),
+			),
 		);
 		const expired = vi.fn();
 		const release = onSessionExpired(expired);

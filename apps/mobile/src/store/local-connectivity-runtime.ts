@@ -188,7 +188,17 @@ export function useLocalConnectivityRuntime(): void {
 								connectionKey: connection.key,
 								candidateCount: candidates.length,
 							});
-							if (current === undefined)
+							// A recorded proxy whose service is gone (and which is not
+							// carrying a live connection) is dead too: close it and fall
+							// back to the paired address.
+							if (
+								current !== undefined &&
+								getConnectionSnapshot(connection).status !== "connected"
+							) {
+								activeRoutes.current.delete(connection.key);
+								await closeLocalProxy(current.proxy.id).catch(() => {});
+							}
+							if (!activeRoutes.current.has(connection.key))
 								await fallBackToPairedRoutes([connection.key]);
 							continue;
 						}

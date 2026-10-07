@@ -30,12 +30,21 @@ export const onSessionExpired = (listener: () => void): (() => void) => {
 	};
 };
 
-// 400 invalid_grant / 401: the refresh token is dead. Retrying cannot recover,
-// so stop presenting the account as signed in. Network failures keep it.
+/** A failed WorkOS authenticate call, with the OAuth `error` code if any. */
+class WorkosAuthenticateError extends Error {
+	constructor(
+		readonly status: number,
+		readonly code: string | undefined,
+	) {
+		super(`workos_authenticate_${status}`);
+	}
+}
+
+// Only `invalid_grant` means the refresh token itself is dead; retrying cannot
+// recover, so stop presenting the account as signed in. A malformed request,
+// server error or network failure keeps the session for a later retry.
 const isRejectedRefresh = (cause: unknown): boolean =>
-	cause instanceof Error &&
-	(cause.message === "workos_authenticate_400" ||
-		cause.message === "workos_authenticate_401");
+	cause instanceof WorkosAuthenticateError && cause.code === "invalid_grant";
 
 export interface WorkosAccount {
 	readonly id: string;
@@ -88,7 +97,13 @@ const authenticate = async (
 		body: JSON.stringify({ client_id: workosClientId(), ...body }),
 	});
 	if (!response.ok) {
-		throw new Error(`workos_authenticate_${response.status}`);
+		const body = (await response.json().catch(() => null)) as {
+			readonly error?: unknown;
+		} | null;
+		throw new WorkosAuthenticateError(
+			response.status,
+			typeof body?.error === "string" ? body.error : undefined,
+		);
 	}
 	const data = (await response.json()) as AuthenticateResponse;
 	return {

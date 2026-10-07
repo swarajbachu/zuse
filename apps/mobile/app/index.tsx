@@ -681,7 +681,7 @@ export default function HomeScreen() {
 							</Text>
 							<View className="gap-1">
 								<Button onPress={retryHome}>Try Again</Button>
-								<View className="flex-row justify-center">
+								<View className="flex-row justify-center gap-2">
 									<Button
 										size="sm"
 										variant="ghost"
@@ -743,7 +743,7 @@ export default function HomeScreen() {
 										/>
 										Scan QR Code
 									</Button>
-									<View className="flex-row justify-center">
+									<View className="flex-row justify-center gap-2">
 										<Button
 											size="sm"
 											variant="ghost"

@@ -395,17 +395,19 @@ const modelOptionsPayload = (options: SendMessageOptions) =>
 		? {}
 		: { modelOptions: { ...options.modelOptions } };
 
-/** Forget a send that failed, so its message can be resent or removed. */
-export const dismissFailedSessionCommands = (
+/** Forget one failed send, keeping the session's other failures. */
+export const dismissFailedSessionCommand = (
 	connection: WsProtocolOptions,
 	sessionId: SessionId,
+	commandId: CommandId,
 ): void => {
-	mobileClientBus().dismissFailedCommands(
+	mobileClientBus().dismissFailedCommand(
 		sessionCommandContext(
 			connectionKeyForOptions(connection),
 			connection,
 			sessionId,
 		).resource,
+		commandId,
 	);
 };
 

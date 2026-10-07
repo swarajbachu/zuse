@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import {
-	dismissFailedSessionCommands,
+	dismissFailedSessionCommand,
 	makeTextInput,
 	sendMessage,
 } from "~/rpc/actions";
@@ -15,6 +15,7 @@ import {
 	removeOptimisticMessage,
 	sessionDeliveryAtom,
 } from "~/store/messages";
+import { sessionModelOptionsAtom } from "~/store/session-model-options";
 
 /** Cloud sends carry a `message-send:` prefix; local sends use the id itself. */
 const messageIdOf = (commandId: string): string =>
@@ -22,10 +23,27 @@ const messageIdOf = (commandId: string): string =>
 		? commandId.slice("message-send:".length)
 		: commandId;
 
-const textOf = (message: Message): string | null =>
-	message.content._tag === "user" || message.content._tag === "user_rich"
-		? message.content.text
-		: null;
+/** Rebuild the original send: text, attachments, references and goal mode. */
+const inputOf = (message: Message) => {
+	const content = message.content;
+	if (content._tag === "user")
+		return {
+			input: makeTextInput(content.text, [], content.goal),
+			asGoal: content.goal,
+		};
+	if (content._tag === "user_rich")
+		return {
+			input: makeTextInput(
+				content.text,
+				content.attachments,
+				content.goal,
+				content.fileRefs,
+				content.skillRefs,
+			),
+			asGoal: content.goal,
+		};
+	return null;
+};
 
 /**
  * Marks the message whose send failed, right under it, with Resend and
@@ -43,6 +61,8 @@ export function UndeliveredMessage({
 	messages: readonly Message[];
 }) {
 	const delivery = useAtomValue(sessionDeliveryAtom(stateKey));
+	// The chat's current reasoning selection, as the composer would send it.
+	const modelOptions = useAtomValue(sessionModelOptionsAtom(stateKey));
 	const [busy, setBusy] = useState(false);
 	const failed = delivery.failed.findLast(
 		(command) => command.kind === "messages.send",
@@ -51,13 +71,13 @@ export function UndeliveredMessage({
 		failed === undefined
 			? undefined
 			: messages.find((row) => row.id === messageIdOf(failed.commandId));
-	const text = message === undefined ? null : textOf(message);
-	if (failed === undefined || message === undefined || text === null)
+	const original = message === undefined ? null : inputOf(message);
+	if (failed === undefined || message === undefined || original === null)
 		return null;
 
 	const remove = () => {
 		removeOptimisticMessage(stateKey, message.id);
-		dismissFailedSessionCommands(connection, sessionId);
+		dismissFailedSessionCommand(connection, sessionId, failed.commandId);
 	};
 	const resend = async () => {
 		setBusy(true);
@@ -72,8 +92,10 @@ export function UndeliveredMessage({
 			sendMessage({
 				connection,
 				sessionId,
-				input: makeTextInput(text),
+				input: original.input,
+				...(original.asGoal === undefined ? {} : { asGoal: original.asGoal }),
 				clientMessageId,
+				modelOptions,
 			}),
 		).catch(() => undefined);
 		setBusy(false);

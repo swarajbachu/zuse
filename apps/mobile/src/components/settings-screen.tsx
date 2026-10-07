@@ -186,9 +186,15 @@ export default function SettingsScreen({
 
 	// Paired and manually added Macs are saved on this phone; account-linked
 	// computers come back from the account, so only saved ones can be removed.
-	const manageSavedComputer = (key: string, label: string) =>
+	const manageSavedComputer = (
+		key: string,
+		label: string,
+		connect?: () => void,
+	) =>
 		Alert.alert(label, undefined, [
-			{ text: "Show Chats", onPress: () => returnToInbox(router) },
+			connect === undefined
+				? { text: "Show Chats", onPress: () => returnToInbox(router) }
+				: { text: "Connect", onPress: connect },
 			{
 				text: "Remove Computer",
 				style: "destructive",
@@ -434,10 +440,19 @@ export default function SettingsScreen({
 									subtitle={subtitle}
 									chevron={canConnect || saved}
 									onPress={
-										canConnect
-											? () => void onConnect(environment.environmentId)
-											: saved
-												? () => manageSavedComputer(connection.key, title)
+										// Saved computers always open their menu so an offline one
+										// can still be removed; Connect is offered when possible.
+										saved
+											? () =>
+													manageSavedComputer(
+														connection.key,
+														title,
+														canConnect
+															? () => void onConnect(environment.environmentId)
+															: undefined,
+													)
+											: canConnect
+												? () => void onConnect(environment.environmentId)
 												: connection
 													? () => returnToInbox(router)
 													: undefined

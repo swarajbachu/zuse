@@ -86,7 +86,7 @@ export function CloudChatStatus({
 	const label = legacy
 		? "This retained chat uses legacy authentication."
 		: providerAuthFailure
-			? "Reconnect your provider once in Sign In."
+			? "Reconnect your provider once in Cloud Providers."
 			: reconnectingAuth
 				? "Reconnecting agent authentication…"
 				: (failure?.message ??

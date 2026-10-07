@@ -968,9 +968,17 @@ export default function NewChatScreen() {
 												size="sm"
 												variant="ghost"
 												disabled={rebuildingImage}
-												onPress={() => void rebuildCloudImage()}
+												onPress={() =>
+													// Broken auth needs reconnecting before a rebuild;
+													// an update would keep the broken credentials.
+													cloudStatus.setup === "rebuild-authentication"
+														? router.push("/cloud-auth")
+														: void rebuildCloudImage()
+												}
 											>
-												Update Image
+												{cloudStatus.setup === "rebuild-authentication"
+													? "Reconnect"
+													: "Update Image"}
 											</Button>
 										) : null}
 									</View>

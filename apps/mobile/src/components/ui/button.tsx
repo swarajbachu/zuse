@@ -57,6 +57,8 @@ export const Button = forwardRef<
 		<Pressable
 			ref={ref}
 			disabled={disabled}
+			// The 36pt small button keeps a 44pt touch target; callers may override.
+			hitSlop={size === "sm" ? 4 : undefined}
 			onPress={
 				onPress
 					? (event) => {
