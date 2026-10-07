@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { isWaitingCloudSend } from "@zuse/client-runtime/cloud-send-delivery";
 import {
 	cloudPhaseLabel,
 	cloudPhaseRank,
@@ -7,11 +8,12 @@ import { Effect } from "effect";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-
 import { cloudLifecycle } from "~/lib/cloud-lifecycle";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
+import { connectionSessionKey } from "~/lib/session-key";
 import { cloudControlClient } from "~/rpc/api-client";
 import { cloudCatalogAtom, refreshCloudCatalog } from "~/store/cloud-catalog";
+import { sessionDeliveryAtom } from "~/store/messages";
 import { colors } from "~/theme";
 
 const STEP_COUNT = 4;
@@ -40,13 +42,31 @@ const useElapsed = (key: string | null): number => {
  * resuming, asleep or failed — the mobile counterpart of desktop's composer
  * connection tray. The first message waits in the durable outbox meanwhile.
  */
-export function CloudLifecycleBar({ workspaceId }: { workspaceId: string }) {
+export function CloudLifecycleBar({
+	workspaceId,
+	connKey,
+	sessionId,
+}: {
+	workspaceId: string;
+	connKey: string;
+	sessionId: string;
+}) {
 	const catalog = useAtomValue(cloudCatalogAtom);
 	const summary = catalog.chats.find((row) => row.workspaceId === workspaceId);
+	const delivery = useAtomValue(
+		sessionDeliveryAtom(connectionSessionKey(connKey, sessionId)),
+	);
+	const queued = delivery.pending.some(isWaitingCloudSend);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const lifecycle = cloudLifecycle(summary);
-	const waiting = lifecycle === "starting" || lifecycle === "resuming";
+	const workspaceLifecycle = cloudLifecycle(summary);
+	// Once compute is up, a mailbox send nobody has claimed is the wait.
+	const lifecycle =
+		workspaceLifecycle ?? (queued ? ("waiting-for-agent" as const) : null);
+	const waiting =
+		lifecycle === "starting" ||
+		lifecycle === "resuming" ||
+		lifecycle === "waiting-for-agent";
 	// A visible clock tells a slow boot apart from a hang.
 	const elapsed = useElapsed(
 		waiting ? `${lifecycle}:${summary?.startupPhase ?? ""}` : null,
@@ -75,9 +95,11 @@ export function CloudLifecycleBar({ workspaceId }: { workspaceId: string }) {
 			? cloudPhaseLabel(summary.startupPhase, summary.statusCode)
 			: lifecycle === "resuming"
 				? "Resuming cloud workspace…"
-				: lifecycle === "paused"
-					? "Asleep · your next message wakes it"
-					: cloudPhaseLabel("failed", summary.statusCode));
+				: lifecycle === "waiting-for-agent"
+					? "Waiting for agent…"
+					: lifecycle === "paused"
+						? "Asleep · your next message wakes it"
+						: cloudPhaseLabel("failed", summary.statusCode));
 	const action = lifecycle === "paused" ? "Resume" : failed ? "Retry" : null;
 
 	return (
@@ -87,7 +109,7 @@ export function CloudLifecycleBar({ workspaceId }: { workspaceId: string }) {
 			// Same inset as the collapsed composer capsule beneath it.
 			className="mx-6 mb-2 min-h-9 flex-row items-center gap-2 rounded-full bg-card-elevated px-3"
 		>
-			{lifecycle === "starting" || lifecycle === "resuming" || busy ? (
+			{waiting || busy ? (
 				<ActivityIndicator size="small" color={colors.secondaryFg} />
 			) : (
 				<SymbolView

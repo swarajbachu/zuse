@@ -53,7 +53,6 @@ export function CloudChatStatus({
 	// CloudLifecycleBar shows startup progress and a failed startup; every
 	// other delivery, account or provider problem is still reported here.
 	const lifecycle = cloudLifecycle(summary);
-	const workspaceBooting = lifecycle === "starting" || lifecycle === "resuming";
 	const failure = cloudFailurePresentation({
 		state: failed?.terminal?.state,
 		category:
@@ -89,11 +88,8 @@ export function CloudChatStatus({
 			: reconnectingAuth
 				? "Reconnecting agent authentication…"
 				: (failure?.message ??
-					(pending !== undefined && !workspaceBooting
-						? "Waiting for agent"
-						: error
-							? "Cloud history could not refresh. Pull to retry."
-							: null));
+					// "Waiting for agent" lives in CloudLifecycleBar above the composer.
+					(error ? "Cloud history could not refresh. Pull to retry." : null));
 	if (label === null && actionError === null) return null;
 	const lastUser = messages[lastUserIndex];
 	const draft =

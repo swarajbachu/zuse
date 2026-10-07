@@ -1,3 +1,4 @@
+import { isWaitingCloudSend } from "@zuse/client-runtime/cloud-send-delivery";
 import type { PendingCommand } from "@zuse/client-runtime/resource-state";
 import type { Message } from "@zuse/contracts";
 import { ComposerInput } from "@zuse/contracts";
@@ -39,15 +40,7 @@ const blockedCommandLabel = (command: PendingCommand): string => {
 	return "Waiting for agent";
 };
 
-/** Acceptance is not runtime ownership, including the first local dispatch frame. */
-export const isWaitingCloudSend = (command: PendingCommand): boolean =>
-	command.kind === "messages.send" &&
-	(command.deliveryPhase === undefined ||
-		command.deliveryPhase === "persisting" ||
-		command.deliveryPhase === "reserved" ||
-		command.deliveryPhase === "accepted" ||
-		command.deliveryPhase === "waiting-for-runtime" ||
-		command.deliveryPhase === "blocked");
+export { isWaitingCloudSend };
 
 /** One presentation model for every mailbox state that is still waiting. */
 export const waitingCloudMessagePresentation = (

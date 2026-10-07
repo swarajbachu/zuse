@@ -1391,7 +1391,11 @@ function ThreadScreen() {
 							}
 						>
 							{options.cloudWorkspaceId === undefined ? null : (
-								<CloudLifecycleBar workspaceId={options.cloudWorkspaceId} />
+								<CloudLifecycleBar
+									workspaceId={options.cloudWorkspaceId}
+									connKey={connKey}
+									sessionId={normalizedSessionId}
+								/>
 							)}
 							{connectionNotice === null ||
 							cloudLifecycleState !== null ? null : (
