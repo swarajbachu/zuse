@@ -490,6 +490,17 @@ test("native plugin bridge enforces permissions and revokes its session token", 
 		expect(request).not.toHaveBeenCalled();
 		const discovery = await listTools(lease.endpoint, lease.token);
 		expect(discovery.raw).toContain("plugins_search");
+		expect(discovery.raw).toContain("plugins_list");
+		const plugins = await fetch(endpoint, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${lease.token}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ name: "plugins_list", args: {} }),
+		});
+		expect(plugins.status).toBe(200);
+		expect(request).toHaveBeenCalledWith({ action: "list" });
 	} finally {
 		await lease.close();
 	}

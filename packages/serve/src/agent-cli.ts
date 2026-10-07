@@ -45,6 +45,7 @@ const GROUPS = new Set([
 	"help",
 	"workspace",
 	"preview",
+	"plugins",
 	"computer",
 	"project",
 	"model",
@@ -374,6 +375,10 @@ const rpc = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
 
 const commandManifest = () => ({
 	commands: [
+		"plugins list",
+		"plugins search",
+		"plugins schema",
+		"plugins call",
 		"workspace providers",
 		"workspace projects",
 		"workspace list",
@@ -438,6 +443,8 @@ const commandManifest = () => ({
 		"--cloud-workspace",
 	],
 	usage: {
+		plugins:
+			'plugins list; plugins search --query "linear issue"; plugins schema --address <address>; plugins call --address <address> --arguments-json <object> (uses the current agent session and its permissions)',
 		workspace:
 			"workspace create --project <cloud-project-id> --sandbox-provider <id> [--base-ref <branch>] [--branch <name>] [--provider <agent>] [--model <id>] [--prompt <text> | --prompt-file <path|->] [--idempotency-key <key>]",
 		rename:
@@ -821,6 +828,80 @@ const executeCloudCommand = async (
 	}
 };
 
+const executePluginCommand = async (
+	args: Args,
+	env: NodeJS.ProcessEnv,
+): Promise<unknown> => {
+	for (const selector of ["cloud-workspace", "computer", "ws-url", "token"]) {
+		if (one(args, selector) !== undefined)
+			throw new CliError(
+				"invalid_input",
+				"Plugin commands use the current agent session; remote connection overrides are unsupported.",
+			);
+	}
+	const action = args.positionals[1];
+	const input =
+		action === "list"
+			? {}
+			: action === "search"
+				? { query: required(one(args, "query"), "--query") }
+				: {
+						address: required(one(args, "address"), "--address"),
+						...(action === "call"
+							? {
+									arguments: jsonObject(
+										required(one(args, "arguments-json"), "--arguments-json"),
+										"--arguments-json",
+									),
+								}
+							: {}),
+					};
+	if (
+		"arguments" in input &&
+		(input.arguments === null ||
+			typeof input.arguments !== "object" ||
+			Array.isArray(input.arguments))
+	)
+		throw new CliError(
+			"invalid_input",
+			"--arguments-json must contain an object.",
+		);
+	if (!env.ZUSE_PLUGIN_URL || !env.ZUSE_PLUGIN_AUTH)
+		throw new CliError(
+			"plugin_session_required",
+			"Run plugin commands inside a Zuse agent session, or use its plugins_search MCP tool. Connect services in Zuse Settings → Integrations.",
+		);
+	const response = await fetch(env.ZUSE_PLUGIN_URL, {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${env.ZUSE_PLUGIN_AUTH}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({ name: `plugins_${action}`, args: input }),
+		signal: AbortSignal.timeout(300_000),
+	});
+	if (!response.ok)
+		throw new CliError(
+			"plugin_request_failed",
+			response.status === 401
+				? "Plugin session expired. Retry from an active Zuse agent session."
+				: "Plugin request failed or was denied. Check session permissions and Zuse Settings → Integrations.",
+		);
+	const result = (await response.json()) as {
+		isError?: boolean;
+		content?: Array<{ type: string; text?: string }>;
+	};
+	if (result.isError)
+		throw new CliError(
+			"plugin_request_failed",
+			"Plugin request failed. Check Zuse Settings → Integrations.",
+		);
+	const content = result.content?.find((item) => item.type === "text")?.text;
+	if (content === undefined)
+		throw new CliError("plugin_request_failed", "Invalid plugin response.");
+	return JSON.parse(content);
+};
+
 const execute = async (
 	argv: ReadonlyArray<string>,
 	env: NodeJS.ProcessEnv,
@@ -836,6 +917,7 @@ const execute = async (
 			"invalid_input",
 			`Unknown command: ${args.positionals.join(" ")}. Run zuse commands.`,
 		);
+	if (group === "plugins") return executePluginCommand(args, env);
 	const connectionEndpoint = await endpoint(args, env);
 	let session: Awaited<ReturnType<typeof connect>>;
 	try {

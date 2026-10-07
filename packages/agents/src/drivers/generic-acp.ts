@@ -33,6 +33,7 @@ import { buildAcpPromptContent } from "./acp-image-content.ts";
 import type { BrowserSend } from "./browser-tools.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
 import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
+import { pluginCliEnv } from "./plugin-tools.ts";
 
 export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 	input: StartSessionInput,
@@ -71,13 +72,7 @@ export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 		getRuntimeMode,
 		getPermissionMode: () => mode,
 	};
-	const context = makeAcpPermissionContext({
-		executionEnv: input.executionEnv,
-		cwd,
-		sessionId,
-		projectId: input.folderId,
-		...permission,
-	});
+
 	const gateway = yield* issueProviderMcpSession({
 		providerId: input.providerId,
 		sessionId,
@@ -85,6 +80,17 @@ export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 		browserSend,
 		...permission,
 		orchestrationTools,
+	});
+	const executionEnv = {
+		...input.executionEnv,
+		...pluginCliEnv(gateway.endpoint, gateway.token),
+	};
+	const context = makeAcpPermissionContext({
+		executionEnv,
+		cwd,
+		sessionId,
+		projectId: input.folderId,
+		...permission,
 	});
 	const fallback = makeStdioMcpFallback({
 		command: mcpCommand,
@@ -98,7 +104,13 @@ export const startGenericAcpSession = Effect.fn("ACP.start")(function* (
 	const releaseTerminals = terminals.close;
 	let notifications: Promise<void> = Promise.resolve();
 	const connection = launchAcpProcess(
-		{ ...launch, env: { ...launch.env, ...input.executionEnv } },
+		{
+			...launch,
+			env: {
+				...launch.env,
+				...executionEnv,
+			},
+		},
 		cwd,
 		(message) => {
 			if (message.method === "session/update") {

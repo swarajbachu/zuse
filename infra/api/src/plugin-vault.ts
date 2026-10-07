@@ -513,8 +513,19 @@ export class PluginVault {
 		);
 		const prefix = (row: PluginConnection) =>
 			`tools.${row.pluginId}.user.${row.id}.`;
+		if (input.action === "list") {
+			return connected.map(({ id, pluginId, label }) => ({
+				connectionId: id,
+				pluginId,
+				label,
+			}));
+		}
 		if (input.action === "search") {
-			const query = input.query.slice(0, 200).toLowerCase();
+			const terms = input.query
+				.slice(0, 200)
+				.toLowerCase()
+				.split(/\s+/)
+				.filter(Boolean);
 			const tools = [];
 			for (const row of connected) {
 				const list = await e.list(
@@ -525,9 +536,11 @@ export class PluginVault {
 				const plugin = `${row.pluginId} ${row.label}`;
 				for (const tool of list) {
 					if (
-						`${plugin} ${tool.name} ${tool.description}`
-							.toLowerCase()
-							.includes(query)
+						terms.every((term) =>
+							`${plugin} ${tool.name} ${tool.description}`
+								.toLowerCase()
+								.includes(term),
+						)
 					)
 						tools.push({
 							address: prefix(row) + tool.name,

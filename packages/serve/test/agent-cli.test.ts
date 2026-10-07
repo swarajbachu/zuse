@@ -437,3 +437,83 @@ describe("cloud agent commands", () => {
 		).toEqual(["a=b=c"]);
 	});
 });
+
+describe("plugin CLI", () => {
+	test("requires an agent session without falling back to account credentials", async () => {
+		await expect(
+			__testing.execute(["plugins", "list"], {}),
+		).rejects.toMatchObject({ code: "plugin_session_required" });
+	});
+	test("searches directly and passes tool arguments through the session gateway", async () => {
+		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify([
+								{ address: "tools.linear.user.work.issue" },
+							]),
+						},
+					],
+				}),
+			),
+		);
+		const env = {
+			ZUSE_PLUGIN_URL: "http://127.0.0.1:1234/plugins",
+			ZUSE_PLUGIN_AUTH: "session-secret",
+		};
+		try {
+			expect(
+				await __testing.execute(
+					["plugins", "search", "--query", "linear issue"],
+					env,
+				),
+			).toEqual([{ address: "tools.linear.user.work.issue" }]);
+			expect(fetchMock).toHaveBeenCalledWith(
+				env.ZUSE_PLUGIN_URL,
+				expect.objectContaining({
+					headers: {
+						authorization: "Bearer session-secret",
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						name: "plugins_search",
+						args: { query: "linear issue" },
+					}),
+				}),
+			);
+			fetchMock.mockResolvedValueOnce(new Response("denied", { status: 403 }));
+			await expect(
+				__testing.execute(
+					[
+						"plugins",
+						"call",
+						"--address",
+						"tools.linear.user.work.issue",
+						"--arguments-json",
+						'{"id":"ABC-123"}',
+					],
+					env,
+				),
+			).rejects.toMatchObject({ code: "plugin_request_failed" });
+			expect(
+				JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body)),
+			).toEqual({
+				name: "plugins_call",
+				args: {
+					address: "tools.linear.user.work.issue",
+					arguments: { id: "ABC-123" },
+				},
+			});
+			await expect(
+				__testing.execute(
+					["plugins", "call", "--address", "tool", "--arguments-json", "[]"],
+					env,
+				),
+			).rejects.toMatchObject({ code: "invalid_input" });
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+});

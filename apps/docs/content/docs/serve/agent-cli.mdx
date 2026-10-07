@@ -360,3 +360,16 @@ zuse session list \
 6. Use `session read` for progress and `session send` for follow-up instructions.
 
 For deciding when work needs an isolated workspace rather than a shared session tab, continue with [Agent orchestration](/composer/orchestration/).
+
+## Connected plugins
+
+Inside a Zuse agent session, the CLI automatically uses that session's connected plugins and permissions:
+
+```sh
+zuse plugins list
+zuse plugins search --query "linear issue"
+zuse plugins schema --address <returned-address>
+zuse plugins call --address <returned-address> --arguments-json '{"id":"TEAM-123"}'
+```
+
+Search directly by service and task; listing plugins first is optional. Use the returned schema to construct the call arguments (the example above is illustrative). Calls follow session approval and plan-mode rules. Connect or reauthenticate services in **Settings → Integrations**. An ordinary terminal outside an agent session has no plugin session credential; use the agent's plugin tools there instead.

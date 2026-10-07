@@ -9,7 +9,10 @@ import { startKiroSession } from "@zuse/agents/drivers/kiro";
 import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
 import { startOpencode2Session } from "@zuse/agents/drivers/opencode2";
 import { startPiSession } from "@zuse/agents/drivers/pi";
-import { getDefaultPluginClient } from "@zuse/agents/drivers/plugin-tools";
+import {
+	getDefaultPluginClient,
+	pluginCliEnv,
+} from "@zuse/agents/drivers/plugin-tools";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import type {
 	GoalCapableSessionHandle,
@@ -544,13 +547,18 @@ export const ProviderServiceLive = Layer.effect(
 									reason: "Could not prepare connected plugins",
 								}),
 						});
-						if (managedPlugins)
+						if (managedPlugins) {
+							driverInput.executionEnv = {
+								...driverInput.executionEnv,
+								...pluginCliEnv(managedPlugins.endpoint, managedPlugins.token),
+							};
 							managedMcp = {
 								name: "zuse-plugins",
 								transport: "http",
 								url: managedPlugins.endpoint,
 								headers: { Authorization: `Bearer ${managedPlugins.token}` },
 							};
+						}
 					}
 					let providerHandle: ProviderSessionHandle;
 					if (isAcpProviderId(input.providerId)) {

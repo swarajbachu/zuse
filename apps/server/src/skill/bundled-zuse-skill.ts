@@ -6,7 +6,7 @@ import type { ProviderId } from "@zuse/contracts";
 
 const FALLBACK_SKILL = `---
 name: zuse
-description: Configure Zuse projects and scripts, orchestrate agents and cloud workspaces with the CLI, share preview URLs, and troubleshoot MCP and provider skills.
+description: Configure Zuse projects and scripts, orchestrate agents and cloud workspaces with the CLI, share preview URLs, and use connected plugins such as Linear.
 ---
 
 # Zuse
@@ -20,6 +20,20 @@ Canonical repository settings live in \`.zuse/settings.toml\`. Use
 \`file_include_globs\` for files that should be linked from the main checkout
 into every worktree. Public schemas are served from
 \`https://zuse.sh/schemas/\`.
+
+## Connected plugins
+
+For tasks involving connected services such as Linear, use Zuse's system plugins by default. Search directly with \`plugins_search\`, for example \`{"query":"linear issue"}\`; no initial list or empty query is needed. Get \`plugins_schema\` for the returned address, then use \`plugins_call\` with arguments matching that schema. Use \`plugins_list\` only when you need to browse connected services and account labels.
+
+The same tools are available inside Zuse agent shells:
+
+\`\`\`sh
+zuse plugins search --query "linear issue"
+zuse plugins schema --address <returned-address>
+zuse plugins call --address <returned-address> --arguments-json '{"id":"TEAM-123"}'
+\`\`\`
+
+The example arguments must be adapted to the returned schema. CLI access uses the current agent session automatically and preserves its approvals and plan-mode restrictions. If the service is missing or needs authentication, direct the user to Zuse Settings → Integrations. Use a provider-specific integration only when the user explicitly requests it.
 
 ## Self-Orchestration
 

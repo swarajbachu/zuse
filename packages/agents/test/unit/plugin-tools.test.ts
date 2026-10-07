@@ -2,6 +2,7 @@ import { expect, test, vi } from "vitest";
 import {
 	handlePluginTool,
 	type PluginPermissionOptions,
+	pluginCliEnv,
 } from "../../src/drivers/plugin-tools.ts";
 
 const args = {
@@ -15,6 +16,8 @@ test("discovery is available but invocation is blocked in plan mode", async () =
 		getPermissionMode: () => "plan",
 		requestPermission: vi.fn(),
 	};
+	await handlePluginTool("plugins_list", {}, { request }, permissions);
+	expect(request).toHaveBeenCalledWith({ action: "list" });
 	await handlePluginTool(
 		"plugins_search",
 		{ query: "issue" },
@@ -24,7 +27,7 @@ test("discovery is available but invocation is blocked in plan mode", async () =
 	await expect(
 		handlePluginTool("plugins_call", args, { request }, permissions),
 	).rejects.toThrow("plan mode");
-	expect(request).toHaveBeenCalledTimes(1);
+	expect(request).toHaveBeenCalledTimes(2);
 });
 test("denial prevents upstream invocation; approval binds the actual tool arguments", async () => {
 	const request = vi.fn(async () => ({ ok: true }));
@@ -45,5 +48,16 @@ test("denial prevents upstream invocation; approval binds the actual tool argume
 	expect(request).toHaveBeenCalledWith({ action: "call", ...args });
 	expect(requestPermission.mock.calls[0]?.[0]).toMatchObject({
 		tool: args.address,
+	});
+});
+
+test("session plugin credentials survive provider shell secret-name filtering", () => {
+	const env = pluginCliEnv("http://127.0.0.1:1234/mcp", "session-auth");
+	const shellEnv = Object.fromEntries(
+		Object.entries(env).filter(([key]) => !/KEY|SECRET|TOKEN/i.test(key)),
+	);
+	expect(shellEnv).toEqual({
+		ZUSE_PLUGIN_URL: "http://127.0.0.1:1234/plugins",
+		ZUSE_PLUGIN_AUTH: "session-auth",
 	});
 });

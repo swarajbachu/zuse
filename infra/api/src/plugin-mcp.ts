@@ -28,6 +28,7 @@ export async function servePluginMcp(
 	server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
 		const action = (
 			{
+				plugins_list: "list",
 				plugins_search: "search",
 				plugins_schema: "schema",
 				plugins_call: "call",

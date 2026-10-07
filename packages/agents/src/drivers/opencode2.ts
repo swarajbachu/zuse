@@ -266,6 +266,7 @@ const spawnOpencode2Server = (
 	cwd: string,
 	timeoutMs = SERVE_TIMEOUT_MS,
 	managedMcp?: import("../user-mcp/types.ts").ResolvedMcpServer,
+	executionEnv?: Readonly<Record<string, string>>,
 ): Promise<Opencode2ServerProcess> =>
 	findFreePort().then(
 		(port) =>
@@ -277,6 +278,7 @@ const spawnOpencode2Server = (
 						cwd,
 						env: {
 							...process.env,
+							...executionEnv,
 							...(managedMcp
 								? {
 										OPENCODE_CONFIG_CONTENT: JSON.stringify({
@@ -1208,6 +1210,7 @@ export const startOpencode2Session = (
 					cwd,
 					SERVE_TIMEOUT_MS,
 					managedMcp,
+					input.executionEnv,
 				);
 				const eventAbort = new AbortController();
 				try {
