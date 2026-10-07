@@ -28,6 +28,7 @@ import {
 	connectionsAtom,
 	connectionsHydratedAtom,
 	currentConnections,
+	restorePairedConnectionRoutes,
 	updateDiscoveredConnectionRoute,
 } from "./connections";
 import { registerLocalRouteRecovery } from "./local-route-recovery";
@@ -63,6 +64,19 @@ export function useLocalConnectivityRuntime(): void {
 	useEffect(() => {
 		if (!hydrated) return;
 		let disposed = false;
+
+		// Until a proxy route is re-established, reconnect on the paired LAN
+		// address instead of retrying a dead loopback port.
+		const fallBackToPairedRoutes = async (keys: ReadonlyArray<string>) => {
+			const restored = await restorePairedConnectionRoutes(keys);
+			for (const record of restored) {
+				console.info("[zuse:nearby] route.paired_fallback", {
+					connectionKey: record.key,
+				});
+				applyConnectionOptions(record);
+				retryMobileClientBusConnections(record.key);
+			}
+		};
 
 		const reconcile = async () => {
 			if (disposed) return;
@@ -174,6 +188,8 @@ export function useLocalConnectivityRuntime(): void {
 								connectionKey: connection.key,
 								candidateCount: candidates.length,
 							});
+							if (current === undefined)
+								await fallBackToPairedRoutes([connection.key]);
 							continue;
 						}
 						if (pathEpoch.current !== epoch) {
@@ -235,6 +251,12 @@ export function useLocalConnectivityRuntime(): void {
 			for (const [routeKey] of current) activeRoutes.current.delete(routeKey);
 			await Promise.allSettled(
 				current.map(([, route]) => closeLocalProxy(route.proxy.id)),
+			);
+			// Closed proxies leave records pointing at dead loopback ports.
+			await fallBackToPairedRoutes(
+				key === undefined
+					? currentConnections().map((connection) => connection.key)
+					: [key],
 			);
 		};
 
