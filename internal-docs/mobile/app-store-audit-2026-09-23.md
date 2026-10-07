@@ -23,10 +23,9 @@ inspected. This report does not establish what shipped in build 8.
   for identifiers and marks reliability data linked. Production network/SDK and
   App Store label reconciliation still requires the archive.
 - **Finding 2:** a per-session "Share data with your AI provider?" prompt was
-  added, then removed on 2026-10-07 by product decision (matching T3 Code's
-  mobile app). Disclosure now relies on the Privacy Policy (linked in mobile
-  Settings → Privacy), which describes sharing with the chosen agent/model
-  services and dictation. Re-evaluate against 5.1.2(i) if App Review objects.
+  added, then removed on 2026-10-07 by product decision. Disclosure now relies
+  on the Privacy Policy (linked in mobile Settings → Privacy), which describes
+  sharing with the chosen agent/model services and dictation. Re-evaluate against 5.1.2(i) if App Review objects.
 - **Finding 3:** reset/deletion clears draft memory, persisted drafts and protected
   attachment files, invalidates stale hydration and drains in-flight saves.
 - **Finding 4:** sign-out/reset revokes the registered device before dropping auth,
