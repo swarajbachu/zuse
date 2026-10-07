@@ -138,7 +138,11 @@ through its session gateway, so users do not copy URLs or tokens.
 ## Agents and UI
 
 Plugins is a main page reached from the sidebar, below New chat and New
-project. It contains the searchable catalog and connection management. OAuth
+project. It contains the searchable catalog and connection management. Plugin details let
+users name and connect additional accounts, and disconnect each independently.
+Composer plugin mentions select an enabled connection and carry its exact tool
+address prefix; queued-message editing preserves that connection ID. Legacy
+plugin-wide mentions remain readable. OAuth
 returns are redeemed automatically (no confirmation click) and reported with a
 toast. Linear is provided only as a managed plugin; the former per-computer
 Linear integration (Settings → Integrations) has been removed. Account data is
