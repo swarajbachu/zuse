@@ -24,6 +24,7 @@ import {
 	resolveResourceProvider,
 	resourceProviderConnectionId,
 } from "./cloud-provider-connections.ts";
+import { importedSnapshot, reconcileSnapshotImport } from "./cloud-snapshot.ts";
 import {
 	assertSnapshotUsable,
 	prepareSnapshotIntent,
@@ -44,7 +45,12 @@ import {
 	MEMORY_RECOVERY_WINDOW_MS,
 	readCloudMemory,
 } from "./cloud-workspace-memory.ts";
-import { cloudRepositoryWorkspacePath } from "./cloud-workspace-paths.ts";
+import {
+	cloudRepositoryWorkspacePath,
+	cloudWorkspaceLayout,
+	cloudWorkspaceLayoutEnvironment,
+	cloudWorkspaceRepositoryPath,
+} from "./cloud-workspace-paths.ts";
 import { nextCloudWorkspaceRuntimeFence } from "./cloud-workspace-runtime-fence.ts";
 import { WORKSPACE_RUNTIME_UPDATE_SCRIPT } from "./cloud-workspace-runtime-update.ts";
 import {
@@ -86,16 +92,19 @@ export const MAILBOX_RUNTIME_STALL_TIMEOUT_MS =
 	CLOUD_COMMAND_LEASE_TTL_MS + 5_000;
 const ARCHIVE_QUIESCE_GRACE_MS = 1_500;
 const BILLING_RESERVATION_REFRESH_MS = 60_000;
-const RUNTIME_SIGNING_PUBLIC_JWK_FILE =
-	"/home/zuse/.zuse-runtime-signing-public.jwk";
+const runtimeSigningKeyPath = (snapshot = false) =>
+	snapshot
+		? "/var/lib/zuse/runtime-signing-public.jwk"
+		: "/home/zuse/.zuse-runtime-signing-public.jwk";
 const runtimeUpdateEnvironment = (
 	config: SandboxOfferConfig,
+	snapshot = false,
 ): Readonly<Record<string, string>> =>
 	config.runtimeManifestUrl === undefined
 		? {}
 		: {
 				ZUSE_RUNTIME_MANIFEST_URL: config.runtimeManifestUrl,
-				ZUSE_RUNTIME_PUBLIC_KEY_FILE: RUNTIME_SIGNING_PUBLIC_JWK_FILE,
+				ZUSE_RUNTIME_PUBLIC_KEY_FILE: runtimeSigningKeyPath(snapshot),
 				ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
 			};
 
@@ -103,14 +112,16 @@ const writeRuntimeSigningKey = (
 	provider: SandboxProviderAdapter,
 	providerSandboxId: string,
 	config: SandboxOfferConfig,
+	user = "zuse",
+	snapshot = false,
 ) =>
 	config.runtimeSigningPublicJwk === undefined
 		? Effect.void
 		: provider.writeTextFile(
 				providerSandboxId,
-				RUNTIME_SIGNING_PUBLIC_JWK_FILE,
+				runtimeSigningKeyPath(snapshot),
 				config.runtimeSigningPublicJwk,
-				"zuse",
+				user,
 			);
 
 const PROJECT_BUILD_DIAGNOSTIC_MAX_LENGTH = 2_048;
@@ -420,7 +431,7 @@ export const cloudWorkspaceHasRetainedRuntimeData = (
 	workspace.statusCode === "agent-starting" ||
 	workspace.statusCode === "agent-running";
 
-export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; timing() { echo "[cloud-timing] workspaceId=$ZUSE_CLOUD_WORKSPACE_ID generation=$ZUSE_RUNTIME_GENERATION stage=$1 atMs=$(date +%s%3N)" >> /var/lib/zuse/workspace/runtime.log; }; timing runtime.shell-start; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed /var/lib/zuse/workspace/credentials-ready /var/lib/zuse/workspace/credentials-ready-event;
+export const WORKSPACE_RUNTIME_RESUME_SCRIPT = `set -e; if [ "\${ZUSE_SNAPSHOT_NATIVE:-}" = 1 ]; then source /etc/zuse/snapshot.env; fi; timing() { echo "[cloud-timing] workspaceId=$ZUSE_CLOUD_WORKSPACE_ID generation=$ZUSE_RUNTIME_GENERATION stage=$1 atMs=$(date +%s%3N)" >> /var/lib/zuse/workspace/runtime.log; }; timing runtime.shell-start; runtime=/opt/zuse/current/bin.mjs; fallback=/usr/local/bin/zuse; log=/var/lib/zuse/workspace/runtime.log; rm -f /var/lib/zuse/workspace/failed /var/lib/zuse/workspace/credentials-ready /var/lib/zuse/workspace/credentials-ready-event;
 ${WORKSPACE_RUNTIME_UPDATE_SCRIPT}
 ensure_workspace_runtime 1
 if [ ! -f /var/lib/zuse/workspace/repository-ready ]; then
@@ -435,7 +446,7 @@ touch /var/lib/zuse/workspace/failed
 exit 1
 fi
 fi
-timing runtime.exec; if [ -f "$runtime" ]; then exec node "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
+timing runtime.exec; if [ -f "$runtime" ]; then exec "\${ZUSE_RUNTIME_NODE:-node}" "$runtime" serve >> "$log" 2>&1; else exec "$fallback" serve --foreground >> "$log" 2>&1 </dev/null; fi`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
 
@@ -562,6 +573,60 @@ const saveAccountProjectState = Effect.fn("saveAccountProjectState")(function* (
 const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 	function* (build: CloudProjectBuildRecord) {
 		const store = yield* CloudWorkspaceStore;
+		if (importedSnapshot(build)) {
+			const provider = yield* resolveResourceProvider(build).pipe(Effect.orDie);
+			yield* reserveProviderCost({
+				accountId: build.accountId,
+				resourceKind: "build",
+				resourceId: build.buildId,
+				provider: build.provider,
+				providerSandboxId: build.providerSandboxId,
+				runningSinceMs:
+					build.state === "queued" ? undefined : build.createdAtMs,
+				nowMs: yield* Clock.currentTimeMillis,
+				...provider.resources,
+			});
+			const now = yield* Clock.currentTimeMillis;
+			return yield* reconcileSnapshotImport(build, provider, now).pipe(
+				Effect.catchTag("SandboxProviderError", (error) =>
+					Effect.gen(function* () {
+						const latest = (yield* store.getBuild(build.buildId)) ?? build;
+						const terminal =
+							error.code === "rejected" || error.code === "not-found";
+						if (terminal && latest.providerSandboxId !== undefined) {
+							yield* provider
+								.kill(latest.providerSandboxId)
+								.pipe(
+									Effect.catchTag("SandboxProviderError", (cleanupError) =>
+										cleanupError.code === "not-found"
+											? Effect.void
+											: Effect.fail(cleanupError),
+									),
+								);
+							yield* observeCloudRuntimeUsage({
+								accountId: latest.accountId,
+								resourceKind: "build",
+								resourceId: latest.buildId,
+								provider: latest.provider,
+								providerSandboxId: latest.providerSandboxId,
+								observedAtMs: now,
+								...provider.resources,
+							});
+						}
+						yield* store.saveBuild({
+							...latest,
+							state: terminal ? "failed" : latest.state,
+							lastErrorCode: `snapshot-provider-${error.code}`,
+							nextActionAtMs: terminal ? Number.MAX_SAFE_INTEGER : now + 5_000,
+							revision: latest.revision + 1,
+							updatedAtMs: now,
+						});
+					}),
+				),
+				Effect.orDie,
+			);
+		}
+		if (build.projectId === null) return;
 		const project = yield* store.getProject(build.projectId);
 		if (project === null) return;
 		const provider = yield* resolveResourceProvider(build).pipe(Effect.orDie);
@@ -763,7 +828,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 												metadata: {
 													"zuse-account-id": build.accountId,
 													"zuse-resource-kind": "build",
-													"zuse-project-id": build.projectId,
+													"zuse-project-id": project.projectId,
 													"zuse-build-id": build.buildId,
 												},
 												timeoutSeconds: config.createTimeoutSeconds,
@@ -779,7 +844,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 												metadata: {
 													"zuse-account-id": build.accountId,
 													"zuse-resource-kind": "build",
-													"zuse-project-id": build.projectId,
+													"zuse-project-id": project.projectId,
 													"zuse-build-id": build.buildId,
 												},
 												snapshotId: reusableSnapshotId,
@@ -1274,7 +1339,8 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					connectionIdFor(candidate) === undefined
 				)
 					continue; // Durable inventory owns platform Boat deletion retries.
-				if (candidate.snapshotId === undefined) continue;
+				if (candidate.snapshotId === undefined || importedSnapshot(candidate))
+					continue;
 				const cleanup = yield* (yield* resolveResourceProvider(candidate))
 					.deleteSnapshot(candidate.snapshotId)
 					.pipe(Effect.result);
@@ -1435,7 +1501,8 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 		const api = yield* ApiConfiguration;
 		const project = yield* store.getProject(workspace.projectId);
 		if (project === null) return;
-		const workspaceRoot = cloudRepositoryWorkspacePath(
+		const workspaceRoot = cloudWorkspaceRepositoryPath(
+			workspace,
 			project.repositoryIdentity,
 		);
 
@@ -1561,15 +1628,21 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 					providerSandboxId,
 					WORKSPACE_REPOSITORY_FILE,
 					WORKSPACE_REPOSITORY_SOURCE,
-					"zuse",
+					cloudWorkspaceLayout(workspace).user,
 				),
 				provider.writeTextFile(
 					providerSandboxId,
 					GITHUB_AUTH_FILE,
 					GITHUB_AUTH_SOURCE,
-					"zuse",
+					cloudWorkspaceLayout(workspace).user,
 				),
-				writeRuntimeSigningKey(provider, providerSandboxId, config).pipe(
+				writeRuntimeSigningKey(
+					provider,
+					providerSandboxId,
+					config,
+					cloudWorkspaceLayout(workspace).user,
+					cloudWorkspaceLayout(workspace).snapshot,
+				).pipe(
 					measureCloudStage(
 						{
 							workspaceId: workspace.workspaceId,
@@ -1624,9 +1697,10 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 			.replaceProcess(providerSandboxId, workspaceRuntimeProcessSelector(), {
 				command: "/bin/bash",
 				args: ["-lc", WORKSPACE_RUNTIME_RESUME_SCRIPT],
-				cwd: "/home/zuse",
+				cwd: cloudWorkspaceLayout(workspace).home,
 				env: {
 					...project.cloudEnvironment,
+					...cloudWorkspaceLayoutEnvironment(workspace),
 					ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
 					ZUSE_RUNTIME_BOOT_TOKEN: boot.token,
 					ZUSE_API_URL: api.apiIssuer,
@@ -1647,9 +1721,12 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 					ZUSE_USER_DATA: "/var/lib/zuse/user-data",
 					ZUSE_RUNTIME_GENERATION: String(runtimeFence.runtimeGeneration),
 					ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
-					...runtimeUpdateEnvironment(config),
+					...runtimeUpdateEnvironment(
+						config,
+						cloudWorkspaceLayout(workspace).snapshot,
+					),
 				},
-				user: "zuse",
+				user: cloudWorkspaceLayout(workspace).user,
 			})
 			.pipe(
 				measureCloudStage(
@@ -1974,7 +2051,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			const project = yield* store.getProject(workspace.projectId);
 			if (build === null || project === null) return;
 			const label = providerLabel("workspace", workspace.workspaceId);
-			const workspaceRoot = cloudRepositoryWorkspacePath(
+			const workspaceRoot = cloudWorkspaceRepositoryPath(
+				workspace,
 				project.repositoryIdentity,
 			);
 			const replacingFailedSandbox =
@@ -1983,7 +2061,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				workspace.providerSandboxId !== undefined;
 			const preparedSnapshotAvailable =
 				build.snapshotId !== undefined &&
-				build.templateVersion === provider.templateVersion;
+				(importedSnapshot(build) ||
+					build.templateVersion === provider.templateVersion);
 			const allocate = Effect.gen(function* () {
 				if (
 					replacingFailedSandbox &&
@@ -2046,6 +2125,11 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 										},
 										sizeId: workspaceSizeId(workspace),
 										snapshotId: build.snapshotId as string,
+										snapshotVersion:
+											importedSnapshot(build) &&
+											typeof build.settings?.snapshotVersion === "number"
+												? build.settings.snapshotVersion
+												: undefined,
 										timeoutSeconds: config.keepAliveTimeoutSeconds,
 										env: {},
 										network: { kind: "open" },
@@ -2129,7 +2213,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					!(yield* provider.pathExists(
 						sandbox.providerSandboxId,
 						marker,
-						"zuse",
+						cloudWorkspaceLayout(workspace).user,
 					))
 				) {
 					yield* provider.replaceProcess(
@@ -2137,10 +2221,15 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 						workspaceRuntimeProcessSelector(),
 						{
 							command: "/bin/bash",
-							args: ["-c", WORKSPACE_FORK_PREPARE_SOURCE],
-							user: "zuse",
+							args: [
+								"-lc",
+								`if [[ "\${ZUSE_SNAPSHOT_NATIVE:-}" == 1 ]]; then source /etc/zuse/snapshot.env; fi
+${WORKSPACE_FORK_PREPARE_SOURCE}`,
+							],
+							user: cloudWorkspaceLayout(workspace).user,
 							env: {
 								ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
+								...cloudWorkspaceLayoutEnvironment(workspace),
 								ZUSE_FORK_CHAT_ID: machineFork.chatId,
 								ZUSE_FORK_SESSION_ID: machineFork.sessionId,
 								ZUSE_FORK_MESSAGE_ID: machineFork.messageId,
@@ -2152,14 +2241,14 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 						!(yield* provider.pathExists(
 							sandbox.providerSandboxId,
 							marker,
-							"zuse",
+							cloudWorkspaceLayout(workspace).user,
 						))
 					) {
 						if (
 							yield* provider.pathExists(
 								sandbox.providerSandboxId,
 								marker.replace(/prepared$/, "failed"),
-								"zuse",
+								cloudWorkspaceLayout(workspace).user,
 							)
 						)
 							return yield* new SandboxProviderError({ code: "rejected" });
@@ -2215,20 +2304,26 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 						sandbox.providerSandboxId,
 						GITHUB_AUTH_FILE,
 						GITHUB_AUTH_SOURCE,
-						"zuse",
+						cloudWorkspaceLayout(workspace).user,
 					),
-					writeRuntimeSigningKey(provider, sandbox.providerSandboxId, config),
+					writeRuntimeSigningKey(
+						provider,
+						sandbox.providerSandboxId,
+						config,
+						cloudWorkspaceLayout(workspace).user,
+						cloudWorkspaceLayout(workspace).snapshot,
+					),
 					provider.writeTextFile(
 						sandbox.providerSandboxId,
 						WORKSPACE_BOOTSTRAP_FILE,
 						WORKSPACE_BOOTSTRAP_SOURCE,
-						"zuse",
+						cloudWorkspaceLayout(workspace).user,
 					),
 					provider.writeTextFile(
 						sandbox.providerSandboxId,
 						WORKSPACE_REPOSITORY_FILE,
 						WORKSPACE_REPOSITORY_SOURCE,
-						"zuse",
+						cloudWorkspaceLayout(workspace).user,
 					),
 				],
 				{ concurrency: "unbounded", discard: true },
@@ -2238,15 +2333,20 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				args: [
 					"-lc",
 					`set -e
+if [[ "\${ZUSE_SNAPSHOT_NATIVE:-}" == 1 ]]; then source /etc/zuse/snapshot.env; fi
 ${WORKSPACE_RUNTIME_UPDATE_SCRIPT}
 ensure_workspace_runtime 1
 exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 				],
 				tag: WORKSPACE_RUNTIME_PROCESS.tag,
-				cwd: "/home/zuse",
+				cwd: cloudWorkspaceLayout(workspace).home,
 				env: {
 					...project.cloudEnvironment,
-					...runtimeUpdateEnvironment(config),
+					...cloudWorkspaceLayoutEnvironment(workspace),
+					...runtimeUpdateEnvironment(
+						config,
+						cloudWorkspaceLayout(workspace).snapshot,
+					),
 					ZUSE_CLOUD_WORKSPACE_ID: workspace.workspaceId,
 					ZUSE_RUNTIME_BOOT_TOKEN: boot.token,
 					ZUSE_API_URL: api.apiIssuer,
@@ -2259,7 +2359,7 @@ exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 					ZUSE_GATEWAY_EPOCH: String(runtimeFence.gatewayEpoch),
 					...(machineFork === undefined ? {} : { ZUSE_FORK_CHECKOUT: "1" }),
 				},
-				user: "zuse",
+				user: cloudWorkspaceLayout(workspace).user,
 			};
 			const startRuntime =
 				machineFork === undefined
@@ -2332,7 +2432,7 @@ exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 				yield* provider.pathExists(
 					workspace.providerSandboxId,
 					"/var/lib/zuse/workspace/failed",
-					"zuse",
+					cloudWorkspaceLayout(workspace).user,
 				)
 			) {
 				const runtimeDiagnostic = yield* readWorkspaceRuntimeDiagnostic(
@@ -2343,7 +2443,7 @@ exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`,
 					.readTextFile(
 						workspace.providerSandboxId,
 						"/var/lib/zuse/workspace/failure-phase",
-						"zuse",
+						cloudWorkspaceLayout(workspace).user,
 					)
 					.pipe(
 						Effect.map((phase) => phase.trim()),

@@ -564,6 +564,15 @@ function WorkspaceChatLanding({
 		null,
 	);
 	const cloudTarget = cloudOnlyHome || selectedCloudProviderId !== null;
+	const [cloudAccountImages, setCloudAccountImages] = useState<
+		ReadonlyArray<CloudAccountImage>
+	>([]);
+	const snapshotNative = cloudAccountImages.some(
+		(image) =>
+			image.providerId === selectedCloudProviderId &&
+			image.snapshot !== undefined &&
+			image.snapshot.agentAuthentication !== "zuse",
+	);
 	const [cloudAuth, setCloudAuth] = useState<CloudAuthStatus | null>(null);
 	const [cloudAuthLoad, setCloudAuthLoad] =
 		useState<CloudAuthLoadState>("loading");
@@ -571,10 +580,11 @@ function WorkspaceChatLanding({
 	const enabledProviders = useSettingsStore((state) => state.providerEnabled);
 	const cloudProviderIds = useMemo(
 		() =>
-			connectedCloudProviders(cloudAuth).filter(
-				(id) => enabledProviders[id] !== false,
-			),
-		[cloudAuth, enabledProviders],
+			(snapshotNative
+				? (["claude", "codex"] as const)
+				: connectedCloudProviders(cloudAuth)
+			).filter((id) => enabledProviders[id] !== false),
+		[cloudAuth, enabledProviders, snapshotNative],
 	);
 	useEffect(() => {
 		if (!cloudTarget) {
@@ -618,7 +628,10 @@ function WorkspaceChatLanding({
 	const cloudAuthBlocker =
 		!cloudTarget || draftSession === null
 			? null
-			: cloudSendBlocker(cloudAuthLoad, cloudProviderIds);
+			: cloudSendBlocker(
+					snapshotNative ? "ready" : cloudAuthLoad,
+					cloudProviderIds,
+				);
 	useEffect(() => {
 		if (
 			!cloudTarget ||
@@ -641,9 +654,6 @@ function WorkspaceChatLanding({
 		ReadonlyArray<CloudProviderOption>
 	>([]);
 	const [cloudProject, setCloudProject] = useState<CloudProject | null>(null);
-	const [cloudAccountImages, setCloudAccountImages] = useState<
-		ReadonlyArray<CloudAccountImage>
-	>([]);
 	const [cloudSubscribed, setCloudSubscribed] = useState(false);
 	const [cloudPlacementError, setCloudPlacementError] = useState(false);
 	const setView = useUiStore((state) => state.setView);

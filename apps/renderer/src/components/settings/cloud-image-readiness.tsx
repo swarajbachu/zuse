@@ -85,6 +85,28 @@ export function CloudImageReadiness({
 			/>
 		);
 
+	if (image.source === "custom-snapshot" || image.snapshot !== undefined)
+		return (
+			<CloudSettingsRow
+				title={
+					building
+						? "Inspecting custom snapshot"
+						: state === "ready"
+							? "Custom snapshot ready"
+							: "Custom snapshot needs attention"
+				}
+				description={
+					building
+						? "Discovering repository locations on your Boxd account."
+						: "Manage the snapshot and repository paths under Provider keys. Authentication is checked in each workspace."
+				}
+				action={
+					<Badge variant={state === "ready" ? "success" : "warning"}>
+						{state}
+					</Badge>
+				}
+			/>
+		);
 	if (state === "ready" && !starting) {
 		return (
 			<CloudSettingsRow

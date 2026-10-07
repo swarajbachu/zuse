@@ -12,12 +12,22 @@ fi
 # Never reset a recovered checkout: it may already contain the user's edits.
 git -C "$workspace" rev-parse --git-dir >/dev/null
 git check-ref-format --branch "$branch" >/dev/null
-git -C "$workspace" remote set-url origin "${ZUSE_REPOSITORY_URL:?}"
+if [[ "${ZUSE_SNAPSHOT_NATIVE:-}" != 1 ]]; then
+  git -C "$workspace" remote set-url origin "${ZUSE_REPOSITORY_URL:?}"
+else
+  [[ -r "$workspace" && -w "$workspace" && -x "$workspace" ]]
+  # A custom checkout's remote/credential helper belongs to its owner.
+  actual="$(git -C "$workspace" remote get-url origin)"
+  "${ZUSE_RUNTIME_NODE:-node}" - "$actual" "${ZUSE_REPOSITORY_URL:?}" <<'JS'
+const identity = value => { const url = new URL(value.replace(/^git@github\.com:/, 'https://github.com/').replace(/^ssh:\/\/git@github\.com\//, 'https://github.com/')); return (url.hostname + url.pathname).replace(/\.git$/, '').toLowerCase(); };
+if (identity(process.argv[2]) !== identity(process.argv[3])) process.exit(1);
+JS
+fi
 if [[ "$(git -C "$workspace" branch --show-current)" != "$branch" ]]; then
   if git -C "$workspace" show-ref --verify --quiet "refs/heads/$branch"; then
     # --merge preserves overlapping unstaged edits as conflicts, but can lose
     # staged changes. Keep Git's normal safety checks when the index is dirty.
-    if git -C "$workspace" diff --cached --quiet; then
+    if [[ "${ZUSE_SNAPSHOT_NATIVE:-}" != 1 ]] && git -C "$workspace" diff --cached --quiet; then
       git -C "$workspace" switch --merge "$branch"
     else
       git -C "$workspace" switch "$branch"

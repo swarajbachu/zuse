@@ -22,7 +22,11 @@ export const workspaceAccessForPath = (
 		(method === "POST" && path === ApiPaths.cloudGithubInstall)
 	)
 		return "content";
-	if (path === ApiPaths.cloudProviderConnections) return "administration";
+	if (
+		path === ApiPaths.cloudProviderConnections ||
+		path === ApiPaths.cloudSnapshotImport
+	)
+		return "administration";
 	if (path === ApiPaths.cloudSettings) {
 		if (method === "GET") return "content";
 		if (method === "PUT") return "administration";

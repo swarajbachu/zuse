@@ -39,6 +39,7 @@ import {
 	CloudSettingsRow,
 	COMPACT_CLOUD_ACTION,
 } from "./cloud-settings-ui.tsx";
+import { CloudSnapshotSettings } from "./cloud-snapshot-settings.tsx";
 
 type ProviderId = CloudProviderConnectionInput["providerId"];
 
@@ -164,6 +165,7 @@ export function CloudProviderKeys({
 	const [connections, setConnections] = useState<
 		readonly CloudProviderConnection[] | null
 	>(null);
+	const [customSnapshotsEnabled, setCustomSnapshotsEnabled] = useState(false);
 	const [providerId, setProviderId] = useState<ProviderId>("boxd");
 	const [apiKey, setApiKey] = useState("");
 	const [templateId, setTemplateId] = useState("");
@@ -192,6 +194,7 @@ export function CloudProviderKeys({
 			);
 			if (!mounted.current) return;
 			setConnections(result.connections);
+			setCustomSnapshotsEnabled(result.customSnapshotsEnabled === true);
 			setLoadError(false);
 		} catch {
 			if (mounted.current) setLoadError(true);
@@ -236,6 +239,7 @@ export function CloudProviderKeys({
 			);
 			if (!mounted.current) return;
 			setConnections(result.connections);
+			setCustomSnapshotsEnabled(result.customSnapshotsEnabled === true);
 			setApiKey("");
 			setTemplateId("");
 			setOrganization("");
@@ -265,6 +269,7 @@ export function CloudProviderKeys({
 			);
 			if (!mounted.current) return;
 			setConnections(result.connections);
+			setCustomSnapshotsEnabled(result.customSnapshotsEnabled === true);
 			setDisconnectTarget(null);
 			await onChanged();
 		} catch {
@@ -298,6 +303,18 @@ export function CloudProviderKeys({
 					setDisconnectTarget(connection);
 				}}
 			/>
+			{active
+				.filter(
+					(connection) =>
+						customSnapshotsEnabled && connection.providerId === "boxd",
+				)
+				.map((connection) => (
+					<CloudSnapshotSettings
+						key={connection.connectionId}
+						connectionId={connection.connectionId}
+						onChanged={onChanged}
+					/>
+				))}
 			<CloudSettingsRow
 				title={
 					replacing

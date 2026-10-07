@@ -14,7 +14,7 @@ afterEach(() => {
 		rmSync(root, { recursive: true, force: true });
 });
 const fixture = () => {
-	const root = mkdtempSync(join(tmpdir(), "zuse-cloud-branch-"));
+	const root = mkdtempSync(join(tmpdir(), "zuse cloud branch-"));
 	roots.push(root);
 	const git = (...args: string[]) =>
 		execFileSync("git", ["-C", root, ...args], {
@@ -32,6 +32,7 @@ const fixture = () => {
 		base = "main",
 		repositoryUrl = "https://example.com/repo.git",
 		fork = false,
+		native = false,
 	) =>
 		execFileSync("bash", [script.pathname], {
 			env: {
@@ -40,6 +41,7 @@ const fixture = () => {
 				ZUSE_BRANCH: "vileplume",
 				ZUSE_BASE_REF: base,
 				ZUSE_FORK_CHECKOUT: fork ? "1" : "",
+				ZUSE_SNAPSHOT_NATIVE: native ? "1" : "",
 				ZUSE_REPOSITORY_URL: repositoryUrl,
 			},
 			stdio: "pipe",
@@ -154,4 +156,34 @@ describe("cloud workspace branch initialization", () => {
 		expect(git("diff", "--cached")).toBe(index);
 		expect(readFileSync(join(root, "file"), "utf8")).toBe("staged work\n");
 	});
+});
+
+test("custom snapshot startup preserves native remotes, staged and untracked files on repeated launch", () => {
+	const { root, git, run } = fixture();
+	git("remote", "set-url", "origin", "git@github.com:acme/repo.git");
+	git("config", "credential.helper", "native-helper");
+	writeFileSync(join(root, "file"), "staged");
+	git("add", "file");
+	writeFileSync(join(root, "file"), "working");
+	writeFileSync(join(root, "untracked"), "keep");
+	const head = git("rev-parse", "HEAD");
+	run("HEAD", "https://github.com/acme/repo.git", false, true);
+	run("HEAD", "https://github.com/acme/repo.git", false, true);
+	expect(git("rev-parse", "HEAD")).toBe(head);
+	expect(git("remote", "get-url", "origin")).toBe(
+		"git@github.com:acme/repo.git",
+	);
+	expect(git("config", "credential.helper")).toBe("native-helper");
+	expect(git("show", ":file")).toBe("staged");
+	expect(readFileSync(join(root, "file"), "utf8")).toBe("working");
+	expect(readFileSync(join(root, "untracked"), "utf8")).toBe("keep");
+});
+test("custom snapshot rejects a mismatched repository without mutating its checkout", () => {
+	const { git, run } = fixture();
+	const head = git("rev-parse", "HEAD");
+	expect(() =>
+		run("HEAD", "https://github.com/acme/other.git", false, true),
+	).toThrow();
+	expect(git("rev-parse", "HEAD")).toBe(head);
+	expect(git("branch", "--show-current")).toBe("main");
 });

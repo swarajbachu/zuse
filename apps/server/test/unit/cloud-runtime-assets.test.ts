@@ -539,20 +539,22 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 		expect(bootstrap).toContain("export ZUSE_HOST=127.0.0.1");
 		expect(bootstrap).toContain('touch "$status_dir/repository-ready"');
 		expect(bootstrap).toContain(
-			"runtime_command=(node /opt/zuse/current/bin.mjs serve)",
+			`runtime_command=("\${ZUSE_RUNTIME_NODE:-node}" /opt/zuse/current/bin.mjs serve)`,
 		);
 		expect(bootstrap).not.toContain(
 			"runtime_command=(node /opt/zuse/current/bin.mjs serve --foreground)",
 		);
-		expect(reconciler).toContain('exec node "$runtime" serve');
+		expect(reconciler).toContain(
+			`exec "\\\${ZUSE_RUNTIME_NODE:-node}" "$runtime" serve`,
+		);
 		expect(bootstrap).not.toContain("runtime-updater.mjs");
 		expect(reconciler).toContain("ZUSE_RUNTIME_INSTALL_ONLY=1");
 		expect(reconciler).toContain("ZUSE_RUNTIME_SKIP_TOOLCHAIN=1");
 		expect(reconciler).toContain("WORKSPACE_BOOTSTRAP_SOURCE");
 		expect(reconciler).toContain('command: "/bin/bash"');
 		expect(reconciler).toContain("replacingFailedSandbox");
-		expect(reconciler).toContain(
-			"yield* provider.kill(workspace.providerSandboxId)",
+		expect(reconciler).toMatch(
+			/yield\* provider\s*\.kill\(workspace\.providerSandboxId\)/u,
 		);
 		expect(bootstrap).not.toContain("workspace-ready.ts");
 		expect(runtime).toContain("bootstrap.gatewayUrl");

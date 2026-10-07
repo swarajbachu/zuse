@@ -183,3 +183,102 @@ test("cloud startup waits for its resolver and fails closed after disposal", asy
 		await makeRuntimeGitExecution().resolve("local-session"),
 	).toBeUndefined();
 });
+
+test("managed Git fallback rewrites SSH only in the agent process and preserves native config", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "native git-"));
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () =>
+			Response.json({
+				token: "test-token",
+				expiresAtMs: Date.now() + 60000,
+				identity: { name: "Alice", email: "alice@example.test" },
+			}),
+		),
+	);
+	try {
+		execFileSync("git", ["init", "-q", directory]);
+		execFileSync("git", [
+			"-C",
+			directory,
+			"remote",
+			"add",
+			"origin",
+			"git@github.com:acme/repo.git",
+		]);
+		execFileSync("git", [
+			"-C",
+			directory,
+			"config",
+			"credential.helper",
+			"native-helper",
+		]);
+		const execution = await prepareGitExecution({
+			directory,
+			nativeRepositoryPath: directory,
+			authHelperPath,
+			key: "native-fallback",
+			context: { actor: { subject: "alice", membershipId: "a" } },
+			credentialUrl: "https://api.test/token",
+			credential: "runtime",
+		});
+		const git = (args: string[], env = process.env) =>
+			execFileSync("git", ["-C", directory, ...args], {
+				env,
+				encoding: "utf8",
+			}).trim();
+		expect(
+			git(["remote", "get-url", "origin"], {
+				...process.env,
+				...execution.env,
+			}),
+		).toBe("https://github.com/acme/repo.git");
+		expect(git(["remote", "get-url", "origin"])).toBe(
+			"git@github.com:acme/repo.git",
+		);
+		expect(git(["config", "credential.helper"])).toBe("native-helper");
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("native Git honors the repository SSH command and never silently borrows a managed identity", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "native-access-"));
+	const runtime = ManagedRuntime.make(
+		layer({ filename: join(directory, "db.sqlite") }),
+	);
+	const fetch = vi.fn();
+	vi.stubGlobal("fetch", fetch);
+	try {
+		execFileSync("git", ["init", "-q", directory]);
+		execFileSync("git", [
+			"-C",
+			directory,
+			"remote",
+			"add",
+			"origin",
+			"git@github.com:acme/repo.git",
+		]);
+		const ssh = join(directory, "native-ssh");
+		await writeFile(
+			ssh,
+			"#!/bin/sh\necho 'Permission denied (publickey)' >&2\nexit 1\n",
+			{ mode: 0o700 },
+		);
+		execFileSync("git", ["-C", directory, "config", "core.sshCommand", ssh]);
+		const resolve = makeCloudGitExecution({
+			nativeRepositoryPath: directory,
+			sql: await runtime.runPromise(SqlClient.SqlClient),
+			directory,
+			authHelperPath,
+			credentialUrl: "https://api.test/token",
+			credential: () => "runtime",
+			initialSessionId: "session",
+		});
+		await expect(resolve("session")).rejects.toThrow("Authentication required");
+		expect(fetch).not.toHaveBeenCalled();
+	} finally {
+		await runtime.dispose();
+		await rm(directory, { recursive: true, force: true });
+	}
+});

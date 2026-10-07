@@ -87,6 +87,7 @@ export interface SandboxProviderCredentials {
 	readonly apiKey: Redacted.Redacted<string>;
 	readonly templateId?: string;
 	readonly organization?: string;
+	readonly runtimeUser?: string;
 }
 
 export interface SandboxProviderAdapter {
@@ -126,6 +127,7 @@ export interface SandboxProviderAdapter {
 		readonly metadata?: Readonly<Record<string, string>>;
 		readonly sizeId?: string;
 		readonly snapshotId: string;
+		readonly snapshotVersion?: number;
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
 		readonly network: SandboxNetworkPolicy;
@@ -194,6 +196,12 @@ export interface SandboxProviderAdapter {
 		providerSandboxId: string,
 		network: SandboxNetworkPolicy,
 	) => Effect.Effect<void, SandboxProviderError>;
+	readonly resolveSnapshotSource?: (
+		snapshotId: string,
+	) => Effect.Effect<
+		{ readonly snapshotId: string; readonly version: number },
+		SandboxProviderError
+	>;
 	readonly snapshot: (
 		providerSandboxId: string,
 		name: string,

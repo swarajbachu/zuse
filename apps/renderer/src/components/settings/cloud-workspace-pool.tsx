@@ -420,10 +420,21 @@ function ScopedCloudWorkspacePool({
 		});
 	}, [authLoading, isSignedIn, load, loadGithubRepos, section]);
 
-	const githubReady = githubAuthenticated && projects.length > 0;
-	const authReady = providerImages.some((image) =>
-		image.providers.some((provider) => provider.state === "connected"),
+	const customSnapshotReady = providerImages.some(
+		(image) => image.state === "ready" && image.snapshot !== undefined,
 	);
+	const githubReady =
+		customSnapshotReady || (githubAuthenticated && projects.length > 0);
+	const authReady =
+		providerImages.some(
+			(image) =>
+				image.state === "ready" &&
+				image.snapshot !== undefined &&
+				image.snapshot.agentAuthentication !== "zuse",
+		) ||
+		providerImages.some((image) =>
+			image.providers.some((provider) => provider.state === "connected"),
+		);
 	const imageReady =
 		accountImage?.state === "ready" &&
 		!busy?.startsWith("image:") &&
@@ -756,7 +767,8 @@ function ScopedCloudWorkspacePool({
 		(section === "all" || section === pageSection) &&
 		(onboarding === undefined || onboarding.step === step);
 	const advancedProviderKeys =
-		canManageProviders && (section === "all" || section === "image");
+		canManageProviders &&
+		(onboarding !== undefined || section === "all" || section === "image");
 	const advancedApiKeys =
 		setupVisible && (section === "all" || section === "agents");
 	const advancedGuide = setupVisible && section === "all";
@@ -764,7 +776,7 @@ function ScopedCloudWorkspacePool({
 		onboarding === undefined &&
 		section !== "billing" &&
 		(!subscribed || setupVisible) &&
-		(advancedProviderKeys || advancedApiKeys || advancedGuide);
+		(advancedApiKeys || advancedGuide);
 
 	return (
 		<>
@@ -925,6 +937,10 @@ function ScopedCloudWorkspacePool({
 				</>
 			) : null}
 
+			{advancedProviderKeys ? (
+				<CloudProviderKeys onChanged={() => load(true)} />
+			) : null}
+
 			{showAdvanced ? (
 				<CloudAdvancedSettings>
 					{advancedGuide ? (
@@ -941,9 +957,6 @@ function ScopedCloudWorkspacePool({
 								{uiMessage("settings:cloud_setup_open_guide")}
 							</Button>
 						</div>
-					) : null}
-					{advancedProviderKeys ? (
-						<CloudProviderKeys onChanged={() => load(true)} />
 					) : null}
 					{advancedApiKeys ? <CloudApiKeys scope={workspaceScope} /> : null}
 				</CloudAdvancedSettings>
@@ -1228,7 +1241,13 @@ function ScopedCloudWorkspacePool({
 							<CloudSettingsRow
 								key={workspace.workspaceId}
 								title={workspace.branch}
-								description={workspace.statusCode}
+								description={[
+									workspace.statusCode,
+									...(workspace.nativeAgentAccess ?? []).map(
+										(access) =>
+											`${access.providerId}: ${access.state} (last checked ${new Date(access.checkedAt).toLocaleString()})`,
+									),
+								].join(" · ")}
 								action={
 									<Badge variant={stateVariant(workspace.state)}>
 										{workspace.state}

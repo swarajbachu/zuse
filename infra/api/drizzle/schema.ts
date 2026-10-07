@@ -468,9 +468,9 @@ export const apiCloudProjectBuilds = pgTable(
 	"api_cloud_project_builds",
 	{
 		buildId: text("build_id").primaryKey(),
-		projectId: text("project_id")
-			.notNull()
-			.references(() => apiCloudProjects.projectId, { onDelete: "cascade" }),
+		projectId: text("project_id").references(() => apiCloudProjects.projectId, {
+			onDelete: "cascade",
+		}),
 		accountId: text("account_id").notNull(),
 		provider: text("provider").notNull(),
 		providerSandboxId: text("provider_sandbox_id"),
@@ -492,6 +492,9 @@ export const apiCloudProjectBuilds = pgTable(
 		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 	},
 	(table) => [
+		uniqueIndex("api_cloud_imported_builds_idempotency_idx")
+			.on(table.accountId, table.provider, table.idempotencyKey)
+			.where(sql`${table.projectId} IS NULL`),
 		uniqueIndex("api_cloud_builds_project_provider_idempotency_idx").on(
 			table.projectId,
 			table.provider,
@@ -659,6 +662,7 @@ export const apiCloudWorkspaceRuntimeSummaries = pgTable(
 			mode: "number",
 		}).notNull(),
 		summaryRevision: bigint("summary_revision", { mode: "number" }).notNull(),
+		nativeAgentAccess: jsonb("native_agent_access").notNull().default([]),
 		title: text("title").notNull(),
 		lastActivityAt: bigint("last_activity_at", { mode: "number" }).notNull(),
 		lastUserMessageAt: bigint("last_user_message_at", { mode: "number" }),
