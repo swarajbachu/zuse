@@ -458,3 +458,31 @@ active staging API already points to that channel. New workspace starts and
 explicit restarts receive the provider replay fix. Existing running workspaces
 were not forcibly restarted. This runtime publication does not update the
 installed desktop renderer; that remains a separate desktop build.
+
+
+## Stopped sandbox recovery diagnostic (not deployed)
+
+Read-only staging inspection at 2026-10-07T20:40Z found
+`workspace_iBAnLfKSImyKGwZX` in `failed` / `provider-unavailable`, last updated
+at 15:33:51Z, with Box sandbox `bx_j2z4csa5`. Its organization has no custom
+provider connection; deployed staging still enables the platform Box adapter and
+has its API-key binding. The provider reports the sandbox as `stopped`, healthy,
+and recoverable from a snapshot completed and verified at 15:33:22Z. The provider
+account reports `canStart: true`, available starts, and positive compute balance.
+No live sandbox resume, database write, or runtime data replacement was performed.
+The temporary authenticated database inspection Worker was deleted afterward.
+
+The adapter recognized `archiving` and `archived` as paused but rejected the live
+`stopped` state as transient. A focused reproduction failed both inspection and
+label recovery for that state. The fix includes `stopped` in the shared paused
+states and derives recovery-list filters from those states; 71 Box adapter tests
+pass after the change. This fixes a verified resume blocker, independently of the
+older missing-Grok diagnostic.
+
+The persisted workspace status discards the original provider error detail.
+Historical telemetry queries were rejected because the available Cloudflare
+credentials lack Workers Observability access. Therefore the exact operation
+that first marked this workspace `provider-unavailable` remains unverified;
+the stopped-state defect must not be described as proof of that original error.
+Already-failed workspaces reject Slack messages before automatic resume, so this
+row still needs an explicit authenticated resume after deploying the fix.
