@@ -386,7 +386,14 @@ export type SendMessageOptions = {
 	input: ComposerInputType;
 	asGoal?: boolean;
 	clientMessageId?: MessageId;
+	/** Reasoning/effort for this message, as the desktop composer sends it. */
+	modelOptions?: Readonly<Record<string, string>>;
 };
+
+const modelOptionsPayload = (options: SendMessageOptions) =>
+	options.modelOptions === undefined
+		? {}
+		: { modelOptions: { ...options.modelOptions } };
 
 /** Composer completion means durable acceptance, not compute availability. */
 export const sendCloudMessage = (
@@ -409,6 +416,7 @@ export const sendCloudMessage = (
 			input: options.input,
 			asGoal: options.asGoal,
 			clientMessageId: options.clientMessageId,
+			...modelOptionsPayload(options),
 		},
 		retry: "safe",
 		createdAt: Date.now(),
@@ -437,6 +445,7 @@ export const sendMessage = (options: SendMessageOptions) => {
 			input: options.input,
 			...(options.asGoal === undefined ? {} : { asGoal: options.asGoal }),
 			clientMessageId: options.clientMessageId,
+			...modelOptionsPayload(options),
 		};
 		return dispatchSessionCommand(options, "messages.send", payload, commandId);
 	}
@@ -449,6 +458,7 @@ export const sendMessage = (options: SendMessageOptions) => {
 		...(options.clientMessageId === undefined
 			? {}
 			: { clientMessageId: options.clientMessageId }),
+		...modelOptionsPayload(options),
 	};
 	return dispatchSessionCommand(options, "messages.send", payload, commandId);
 };

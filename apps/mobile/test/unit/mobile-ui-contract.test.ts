@@ -70,6 +70,21 @@ describe("mobile UI contracts", () => {
 		expect(turn).not.toContain('accessibilityLabel="Share response"');
 		expect(turn).not.toContain('accessibilityLabel="Copy response"');
 	});
+	test("lets existing chats choose reasoning and sends it with each message", () => {
+		const composer = readFileSync(
+			`${process.cwd()}/src/components/composer.tsx`,
+			"utf8",
+		);
+		const actions = readFileSync(`${process.cwd()}/src/rpc/actions.ts`, "utf8");
+		expect(composer).not.toContain("canChangeReasoning={fresh}");
+		expect(composer).toContain(
+			"setSessionModelOptions(stateKey, next.modelOptions)",
+		);
+		expect(composer).toMatch(/clientMessageId: messageId,\s*modelOptions,/);
+		expect(actions.match(/\.\.\.modelOptionsPayload\(options\)/g)).toHaveLength(
+			3,
+		);
+	});
 	test("lets people remove a saved computer from Settings", () => {
 		const settings = readFileSync(
 			`${process.cwd()}/src/components/settings-screen.tsx`,

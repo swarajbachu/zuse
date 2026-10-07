@@ -78,6 +78,10 @@ import {
 } from "~/store/model-catalog";
 import { enqueueOutboxMessage } from "~/store/outbox";
 import {
+	sessionModelOptionsAtom,
+	setSessionModelOptions,
+} from "~/store/session-model-options";
+import {
 	setPermissionMode as setPermissionModeOptimistic,
 	setRuntimeMode as setRuntimeModeOptimistic,
 } from "~/store/sessions";
@@ -241,6 +245,7 @@ export const Composer = ({
 
 	const canSend = (hasText || attachments.length > 0) && !busy;
 	const showInterrupt = isInterruptVisible(status);
+	const modelOptions = useAtomValue(sessionModelOptionsAtom(stateKey));
 	const modelValue: ModelModeValue | null =
 		session === null
 			? null
@@ -249,6 +254,8 @@ export const Composer = ({
 					model: session.model,
 					runtimeMode: session.runtimeMode,
 					permissionMode: session.permissionMode,
+					modelOptions:
+						modelOptions === undefined ? undefined : { ...modelOptions },
 				};
 	const planMode = modelValue?.permissionMode === "plan";
 	// Modes remain visible in both layouts, but only editor activity expands the
@@ -366,6 +373,7 @@ export const Composer = ({
 				input,
 				asGoal: goalMode,
 				clientMessageId: messageId,
+				modelOptions,
 			};
 			if (connection.cloudWorkspaceId !== undefined) {
 				const handle = sendCloudMessage(messageOptions);
@@ -458,6 +466,8 @@ export const Composer = ({
 		if (session === null) return;
 		const actions = nextModelChangeActions(session, next, fresh);
 		setComposerError(null);
+		// Reasoning is chosen per chat and sent with each message.
+		setSessionModelOptions(stateKey, next.modelOptions);
 		try {
 			for (const action of actions) {
 				switch (action.type) {
@@ -786,7 +796,7 @@ export const Composer = ({
 					availableProviders={availableProviders}
 					strictProviders={connection.cloudWorkspaceId !== undefined}
 					canChangeProvider={fresh}
-					canChangeReasoning={fresh}
+					canChangeReasoning
 					onChange={(next) => void changeModelMode(next)}
 				/>
 			)}
