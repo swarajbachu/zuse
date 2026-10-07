@@ -200,7 +200,11 @@ describe("cloud runtime assets", () => {
 			"RUN /tmp/zuse-provision/provision.sh runtime layout",
 		);
 		expect(boxInstall).not.toContain("zuse-host-ports.service");
-		expect(provision).toContain("install-grok.sh 1.0.13");
+		expect(provision).toContain('source "$provision_dir/install-grok.sh"');
+		expect(provision).toContain("GROK_BIN_DIR=/usr/local/bin install_grok");
+		expect(
+			await readWorkspaceFile("infra/cloud-sandboxes/install-grok.sh"),
+		).toContain("grok-1.0.13-linux-");
 		expect(provision).toContain("GROK_BIN_DIR=/usr/local/bin");
 	});
 
