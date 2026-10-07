@@ -49,6 +49,7 @@ import { ModelConnectionStoreLive } from "./model-connection-store.ts";
 import { PluginHost } from "./plugin-host.ts";
 import { makeCloudflarePluginHost } from "./plugin-host-cloudflare.ts";
 import { PushDeliveryLive } from "./push.ts";
+import { ReviewStorePg } from "./review-store.ts";
 import {
 	availableSandboxProviders,
 	boxdBillingConfigured,
@@ -565,6 +566,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 			: Layer.empty,
 		configLayer,
 		CloudProviderConnectionsLive.pipe(Layer.provide(dbLayer)),
+		ReviewStorePg.pipe(Layer.provide(dbLayer)),
 		ModelConnectionStoreLive.pipe(
 			Layer.provide(Layer.merge(dbLayer, configLayer)),
 		),
@@ -785,6 +787,7 @@ export default {
 						),
 				}),
 				api.maintainCloudBilling(controller.scheduledTime),
+				api.reconcileReviews(),
 				api.deliverApiWebhooks().catch((error) => {
 					console.error("[public-api] webhook delivery sweep failed", error);
 					return 0;

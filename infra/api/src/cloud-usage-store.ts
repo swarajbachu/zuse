@@ -4,7 +4,7 @@ import type { CloudBillingUsageRecord } from "./cloud-billing-store.ts";
 
 export interface RuntimeObservation {
 	readonly accountId: string;
-	readonly resourceKind: "workspace" | "build";
+	readonly resourceKind: "workspace" | "build" | "review";
 	readonly resourceId: string;
 	readonly provider: string;
 	readonly providerSandboxId: string;

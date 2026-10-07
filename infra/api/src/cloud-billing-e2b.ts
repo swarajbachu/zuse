@@ -138,6 +138,7 @@ export const ingestE2bLifecycleEvent = Effect.fn("ingestE2bLifecycleEvent")(
 				eventId: event.id,
 				providerExecutionId: event.sandbox_execution_id,
 				internalResourceId: internalId,
+				providerSandboxId: event.sandbox_id,
 				startedAtMs: providerStartedAt,
 				endedAtMs: endedAt,
 				vcpuCount: execution.vcpu_count,

@@ -78,6 +78,7 @@
 		"@zuse/git": "*",
 		"@zuse/index": "*",
 		"@zuse/pokemon-data": "*",
+		"@zuse/review": "*",
 		"@zuse/sqlite": "*",
 		"@zuse/tailnet": "*",
 		"@zuse/utils": "*",

@@ -100,6 +100,7 @@ import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { OrganizationSharingPane } from "./settings/organization-sharing-pane.tsx";
 import { OrganizationsPane } from "./settings/organizations-pane.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
+import { ReviewPane } from "./settings/review-pane.tsx";
 import { UpdateChannelSettings } from "./settings/update-channel-settings.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
 import {
@@ -379,6 +380,11 @@ function SectionTitle({
 	);
 
 	const { title, subtitle } = useMemo(() => {
+		if (section.kind === "review")
+			return {
+				title: uiMessage("settings:review_title"),
+				subtitle: uiMessage("settings:review_subtitle"),
+			};
 		if (section.kind === "cloud")
 			return {
 				title:
@@ -501,6 +507,7 @@ function Pane({ section }: { section: SettingsSection }) {
 				entry.id === workspace.scope.organizationId,
 		),
 	);
+	if (section.kind === "review") return <ReviewPane />;
 	if (section.kind === "cloud") {
 		if (section.page === "sharing")
 			return organization === undefined ? null : (

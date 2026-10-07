@@ -82,6 +82,11 @@ const PairingLinkAccept = lazy(() =>
 		default: module.PairingLinkAccept,
 	})),
 );
+const ReviewLinkAccept = lazy(() =>
+	import("./components/review-link-accept.tsx").then((module) => ({
+		default: module.ReviewLinkAccept,
+	})),
+);
 
 const OnboardingWizard = lazy(() =>
 	import("./components/onboarding/onboarding-wizard.tsx").then((module) => ({
@@ -135,6 +140,7 @@ function AmbientSurfaces() {
 			<PrWatchController />
 			<NearbyPairingApproval />
 			<PairingLinkAccept />
+			<ReviewLinkAccept />
 		</Suspense>
 	);
 }

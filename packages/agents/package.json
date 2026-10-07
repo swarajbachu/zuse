@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./review/eligibility": "./src/review/eligibility.ts",
 		"./codex-generated": "./src/drivers/codex/generated/index.ts",
 		"./codex-generated/*": "./src/drivers/codex/generated/*.ts",
 		"./drivers/*": "./src/drivers/*.ts",

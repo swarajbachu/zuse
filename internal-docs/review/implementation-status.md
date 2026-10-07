@@ -1,0 +1,43 @@
+# Zuse Review implementation status
+
+Updated 2026-10-03. This branch implements a tested, disabled foundation. It is **not a runnable hosted review service** and is not ready for an external beta. Connecting GitHub cannot enable reviews or allocate review compute. No live subscription inference, GitHub publication, worker provisioning, or Polar export was performed for this work.
+
+## Rebase and expanded direction — 2026-10-07
+
+Rebased onto `origin/main` at `98701f95`, preserving the Review foundation and upstream desktop, organization, GitHub transport and cloud-billing behavior. The additive review migration is now `0039_review_control_plane.sql`; the old unshipped number is not retained.
+
+The requested deeper reviewer is specified in [repository understanding and executable verification](deep-review-direction.md). It permits test execution only in a separate credential-free runner, superseding the prior blanket no-execution scope for that runner. Repository mapping, semantic impact tracing and executable verification remain proposed work; the rebase does not implement them or enable hosted execution.
+
+Post-rebase checks passed: affected package/app type checks, architecture and API terminology, localization, Biome on 98 changed source/JSON files, 70 client/server/desktop behavior tests, 64 API tests including the real PostgreSQL review-store test, 21 review/index tests, 8 renderer tests, and the 720×480 review browser fixture. These are focused rebase checks; the larger suite totals below describe the original foundation verification, not a fresh full-suite run. Provider eligibility, live inference/publication/billing and the real quality corpus remain unverified.
+
+## Implemented
+
+- Shared review schemas, authenticated client mappings and server RPC handlers; payer-scoped history, run details, cancellation and enrollment disable operations.
+- Additive PostgreSQL review records: identity/authorization intents, enrollments, immutable run sponsorship, execution attempts, inbox, leases and publication outbox. Routing selects a personal enrollment before readiness and never falls back to shared spending. Automatic comparisons deduplicate independently of enrollment version.
+- Signed GitHub webhook ingestion and scheduled inbox reconciliation, including base-reference refreshes, debounce and stale-refresh fencing. Admission currently produces blocked work only; no production dispatcher exists.
+- `@zuse/review`: immutable Git-object snapshots, bounded repository tools, existing-index integration, TypeScript/JavaScript symbols and relative imports, investigation and independent verification interfaces, exact evidence/anchor validation, severity ordering, deduplication and conservative finding reconciliation.
+- Shared index traversal streams bounded batches, applies file/byte ceilings and excludes symlinks. Immutable snapshot manifests cannot silently reuse a commit identity for different bytes.
+- Worker composition harness with independent agent sessions, cancellation, shutdown confirmation and validated artifact output. The native production entry explicitly rejects every provider.
+- Trusted GitHub publication adapter with neutral commit-bound checks, a five-inline limit, full findings in summaries, freshness validation and remote marker reconciliation. Cross-commit findings update existing discussion with explicit current location rather than pretending to move the old anchor. The adapter requires a scoped transport and output screening supplied by the caller.
+- Billing resource type `review` and durable attempt-to-sandbox attribution for the existing settlement path. This does **not** implement worker allocation or atomic monetary reservation enforcement.
+- Compact Review settings/history, explicit unavailable/partial states, separate estimated and settled charges, opaque desktop deep links, signed-out continuation, selected-finding context copying and explicit staging into the user's chosen chat composer. Staging never starts an agent or inherits sponsor credentials.
+- Provider version/hash probe, fail-closed provider and infrastructure readiness gates, and an evaluation harness that rejects missing human adjudication, undersized held-out sets and repository leakage.
+
+## Required before the hosted service can work
+
+1. Obtain provider authorization for the precise paid hosted subscription use case, separately covering personal and shared coverage. Prove pinned native authentication persistence and confinement with hostile repositories and credential canaries. See [provider feasibility](provider-feasibility.md). A working generic Zuse agent connection does not qualify.
+2. Implement the authenticated external-browser setup bridge and native account identity verification/reconnection. Current OAuth proof code requires the initiating Zuse actor; forwarding an authorization URL must never bind another human's GitHub identity. Finish the repository/coverage/connection/worker/payer enrollment editor, explicit delegated-connection consent and administrative ownership-transfer flow.
+3. Implement the production worker image and placement profile, durable native auth storage, run/attempt-bound worker authentication, provider-identity leases, actual provisioning and shutdown reconciliation. Enforce aggregate attempts/runtime and atomic conservative monetary reservations jointly with workspace workloads. Add quota/reconnect recovery and exact-SHA fork approval. Wire explicit request/backfill/rerun operations; they currently reject safely.
+4. Wire the publication adapter to a production outbox drain, repository-restricted write credentials and a proven output/secret-screening policy. Resolve ambiguous creation states operationally without blind reposting. Finish the HTTPS/mobile landing and authenticated identity-verification flow for contributors who have no review enrollment. Desktop deep links alone are not the complete landing experience.
+5. Freeze and human-adjudicate at least 50 defect and 50 clean held-out PRs, including cross-file and adversarial examples. Run the matched direct-diff baseline, context engine and verifier comparison. The evaluation harness and synthetic tests are not measured review quality. See [evaluation requirements](evaluations.md).
+6. Run a real staging PR through native subscription execution, comments, shutdown, provider evidence, usage ledger and Polar; replay deliveries and push new commits. Only then progress through shadow runs, human-approved posts and opt-in automation.
+
+Provider eligibility alone cannot enable the service. `infra/api/src/review-readiness.ts` separately blocks the missing production infrastructure. Future implementation must replace each blocker with verified behavior; an environment switch or a caller assertion is insufficient. Boxd remains excluded from billed review placement.
+
+## Verification
+
+Affected contracts, clients, agents, index, review engine, renderer, desktop, server and API type checks passed. Architecture/API terminology checks passed. Biome passed on all 97 changed JavaScript/TypeScript/JSON files, using a 2 MB one-off file limit to include the generated translation context. Diff whitespace checks passed. The renderer unit suite passed 1,585 tests. The API passed 593 unit tests and 90 integration tests with no skips. The integration suite ran against an isolated local PostgreSQL 15 instance after applying the full migration chain, including concurrent comparison admission, personal payer selection, lease fencing, cancellation and restart publication state. These tests exercise real local persistence, not production provider settlement.
+
+The local browser regression passed at 720×480 (`CHROME_PATH=/usr/bin/google-chrome bun run --cwd apps/renderer test:review-browser`), including keyboard expansion, signed-out continuation, stale-head disclosure, wrong-repository refusal and explicit draft attachment. The contracts suite passed 182 tests; the worker harness passed 8 focused tests. Localization checks passed after translating 63 strings into the six non-English locales (translations remain drafts pending native review). Such fixtures substitute account/transport boundaries and must not be described as a live end-to-end review. Check results and remaining limitations are reported with the delivery; no quality or performance release targets are claimed.
+
+Production migrations have not been applied. Existing workspace runtime databases and recovery paths were not initialized, moved or replaced.

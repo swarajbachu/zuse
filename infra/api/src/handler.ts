@@ -71,6 +71,7 @@ import { routeOrganizationRequest } from "./organizations.ts";
 import { routePluginRequest } from "./plugin-routes.ts";
 import { routePublicApiRequest } from "./public-api-routes.ts";
 import { PushDelivery } from "./push.ts";
+import { routeReviewRequest } from "./review-routes.ts";
 import type { SandboxOfferConfiguration } from "./sandbox-provider-module.ts";
 import { SlackPersistence } from "./slack/persistence.ts";
 import {
@@ -389,6 +390,8 @@ const route = (
 			);
 		const domainResponse = yield* routeOrganizationDomainRequest(request);
 		if (domainResponse !== null) return domainResponse;
+		const reviewResponse = yield* routeReviewRequest(request);
+		if (reviewResponse !== null) return reviewResponse;
 		const organizationResponse = yield* routeOrganizationRequest(request);
 		if (organizationResponse !== null) return organizationResponse;
 		const modelConnectionResponse = yield* routeModelConnectionRequest(request);

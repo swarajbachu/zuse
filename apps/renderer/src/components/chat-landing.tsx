@@ -17,6 +17,7 @@ import {
 import { environmentBelongsToWorkspace } from "../lib/rpc-client.ts";
 import { useCloudProjects } from "../lib/use-cloud-projects.ts";
 import { CloudAgentSignInTray } from "./composer/cloud-agent-sign-in-tray.tsx";
+import { ReviewDraftBanner } from "./review-draft-banner.tsx";
 import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -1469,6 +1470,22 @@ function WorkspaceChatLanding({
 	const composer =
 		draftSession !== null ? (
 			<Suspense fallback={<div className="h-28" aria-busy="true" />}>
+				<ReviewDraftBanner
+					repositoryIdentity={cloudRepositoryIdentity}
+					draftKey={
+						remoteAnchor !== null
+							? composerDraftKeyForRemoteLanding(
+									EnvironmentId.make(remoteAnchor.member.environmentId),
+									remoteAnchor.member.folderId,
+									workspace.scope,
+								)
+							: composerDraftKeyForLanding(
+									EnvironmentId.make(activeEnvironmentId),
+									selectedFolderId,
+									workspace.scope,
+								)
+					}
+				/>
 				<ChatComposer
 					cloudProviderIds={cloudTarget ? cloudProviderIds : undefined}
 					constrain={!submitting}

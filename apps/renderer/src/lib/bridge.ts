@@ -69,6 +69,11 @@ export interface PluginsBridge {
 	readonly subscribeReturns: () => void;
 }
 
+export interface ReviewBridge {
+	readonly onReviewLink: (handler: (link: string) => void) => () => void;
+	readonly subscribeReviewLinks: () => void;
+}
+
 export interface AppBridge {
 	readonly onCloudSyncReadFile?: (
 		handler: (request: {
@@ -516,6 +521,7 @@ export interface ZuseBridge {
 	readonly window?: WindowBridge;
 	readonly pairing?: PairingBridge;
 	readonly plugins?: PluginsBridge;
+	readonly review?: ReviewBridge;
 	readonly menu?: MenuBridge;
 	readonly app?: AppBridge;
 	readonly network?: NetworkBridge;

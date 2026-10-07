@@ -68,7 +68,8 @@
 		"@zuse/utils": "*",
 		"effect": "catalog:",
 		"jose": "^6.2.3",
-		"@zuse/executor-v2": "*"
+		"@zuse/executor-v2": "*",
+		"@zuse/agents": "*"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20260601.1",

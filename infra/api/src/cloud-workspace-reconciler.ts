@@ -142,7 +142,7 @@ export const WORKSPACE_START_OBSERVATION_MS =
 export const reserveProviderCost = Effect.fn("reserveProviderCost")(
 	function* (input: {
 		readonly accountId: string;
-		readonly resourceKind: "workspace" | "build";
+		readonly resourceKind: "workspace" | "build" | "review";
 		readonly resourceId: string;
 		readonly provider: string;
 		readonly providerSandboxId?: string;

@@ -107,6 +107,16 @@ const bridge = {
 			ipcRenderer.send("window:setAppearanceMode", mode);
 		},
 	},
+	review: {
+		onReviewLink: (handler: (link: string) => void) => {
+			const wrapped = (_event: IpcRendererEvent, link: unknown) => {
+				if (typeof link === "string") handler(link);
+			};
+			ipcRenderer.on("review:link", wrapped);
+			return () => ipcRenderer.off("review:link", wrapped);
+		},
+		subscribeReviewLinks: () => ipcRenderer.send("review:link-subscribe"),
+	},
 	pairing: {
 		onNearbyRequest: (handler: (request: unknown) => void) => {
 			console.info("[zuse:pairing] preload.subscription.installed");

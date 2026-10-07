@@ -111,6 +111,37 @@ const CloudGithubStatus = MemoizeRpcs.toLayerHandler(
 	"cloud.github.status",
 	() => withCloudControl((service) => service.cloudGithubStatus()),
 );
+const ReviewCoverage = MemoizeRpcs.toLayerHandler("review.coverage", () =>
+	withCloudControl((s) => s.review["review.coverage"]()),
+);
+const ReviewEnrollments = MemoizeRpcs.toLayerHandler("review.enrollments", () =>
+	withCloudControl((s) => s.review["review.enrollments"]()),
+);
+const ReviewEnroll = MemoizeRpcs.toLayerHandler("review.enroll", (input) =>
+	withCloudControl((s) => s.review["review.enroll"](input)),
+);
+const ReviewDisable = MemoizeRpcs.toLayerHandler("review.disable", (input) =>
+	withCloudControl((s) => s.review["review.disable"](input)),
+);
+const ReviewRuns = MemoizeRpcs.toLayerHandler("review.runs", (input) =>
+	withCloudControl((s) => s.review["review.runs"](input)),
+);
+const ReviewGet = MemoizeRpcs.toLayerHandler("review.get", (input) =>
+	withCloudControl((s) => s.review["review.get"](input)),
+);
+const ReviewRequest = MemoizeRpcs.toLayerHandler("review.request", (input) =>
+	withCloudControl((s) => s.review["review.request"](input)),
+);
+const ReviewCancel = MemoizeRpcs.toLayerHandler("review.cancel", (input) =>
+	withCloudControl((s) => s.review["review.cancel"](input)),
+);
+const ReviewRetry = MemoizeRpcs.toLayerHandler("review.retry", (input) =>
+	withCloudControl((s) => s.review["review.retry"](input)),
+);
+const ReviewFixContext = MemoizeRpcs.toLayerHandler(
+	"review.fixContext",
+	(input) => withCloudControl((s) => s.review["review.fixContext"](input)),
+);
 const CloudGithubInstall = MemoizeRpcs.toLayerHandler(
 	"cloud.github.install",
 	() => withCloudControl((service) => service.installCloudGithub()),
@@ -493,6 +524,16 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudAuthLoginPoll,
 	CloudAuthLoginCancel,
 	CloudAuthDisconnect,
+	ReviewCoverage,
+	ReviewEnrollments,
+	ReviewEnroll,
+	ReviewDisable,
+	ReviewRuns,
+	ReviewGet,
+	ReviewRequest,
+	ReviewCancel,
+	ReviewRetry,
+	ReviewFixContext,
 	CloudGithubStatus,
 	CloudGithubInstall,
 	CloudGithubDisconnect,

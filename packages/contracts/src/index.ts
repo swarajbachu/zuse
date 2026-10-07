@@ -50,6 +50,7 @@ export * from "./previews.ts";
 export * from "./provider-capabilities.ts";
 export * from "./pty.ts";
 export * from "./repository-settings.ts";
+export * from "./review.ts";
 export * from "./rpc.ts";
 export * from "./rpc-authorization.ts";
 export * from "./serve.ts";

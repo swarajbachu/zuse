@@ -150,7 +150,7 @@ export interface CloudBillingStoreApi extends CloudUsageStoreApi {
 	readonly reserveCost: (input: {
 		readonly periodId: string;
 		readonly accountId: string;
-		readonly resourceKind: "workspace" | "build";
+		readonly resourceKind: "workspace" | "build" | "review";
 		readonly resourceId: string;
 		readonly provider: string;
 		readonly providerCostMicros: number;
@@ -225,7 +225,12 @@ interface PeriodRow {
 }
 interface UsageRow {
 	readonly entry_id: string;
-	readonly resource_kind: "workspace" | "build" | "other" | "snapshot";
+	readonly resource_kind:
+		| "workspace"
+		| "build"
+		| "review"
+		| "other"
+		| "snapshot";
 	readonly resource_id: string;
 	readonly provider: string;
 	readonly provider_execution_id: string | null;

@@ -3,8 +3,19 @@ import { describe, expect, it } from "vitest";
 import {
 	createBufferedChannel,
 	isPairingDeepLink,
+	isReviewDeepLink,
 	pluginReturnOf,
 } from "../../src/deep-link.ts";
+
+describe("review deep-link routing", () => {
+	it("separates review navigation from pairing and rejects credentials", () => {
+		const link = "zuse:///review/fix?runId=run-1&findingId=finding-1";
+		expect(isReviewDeepLink(link)).toBe(true);
+		expect(isPairingDeepLink(link)).toBe(false);
+		expect(isReviewDeepLink(`${link}&token=secret`)).toBe(false);
+		expect(isReviewDeepLink("zuse:///connect/pair")).toBe(false);
+	});
+});
 
 describe("isPairingDeepLink", () => {
 	it.each([

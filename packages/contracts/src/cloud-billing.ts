@@ -38,7 +38,13 @@ export class CloudBillingUsageItem extends Schema.Class<CloudBillingUsageItem>(
 	"CloudBillingUsageItem",
 )({
 	entryId: Schema.String,
-	resourceKind: Schema.Literals(["workspace", "build", "other", "snapshot"]),
+	resourceKind: Schema.Literals([
+		"workspace",
+		"build",
+		"review",
+		"other",
+		"snapshot",
+	]),
 	usageKind: Schema.optional(Schema.Literal("snapshot-storage")),
 	resourceId: Schema.String,
 	provider: Schema.String,

@@ -302,6 +302,18 @@ import {
 	RepositorySettingsGetRpc,
 	RepositorySettingsUpdateRpc,
 } from "./repository-settings.ts";
+import {
+	ReviewCancelRpc,
+	ReviewCoverageRpc,
+	ReviewDisableRpc,
+	ReviewEnrollmentsRpc,
+	ReviewEnrollRpc,
+	ReviewFixContextRpc,
+	ReviewGetRpc,
+	ReviewRequestRpc,
+	ReviewRetryRpc,
+	ReviewRunsRpc,
+} from "./review.ts";
 import { RpcAuthorization } from "./rpc-authorization.ts";
 import {
 	ChatArchiveJobsRpc,
@@ -426,6 +438,16 @@ export const MemoizeRpcs = RpcGroup.make(
 	AcpTestRpc,
 	AcpInstallRpc,
 	AcpAuthenticateRpc,
+	ReviewCoverageRpc,
+	ReviewEnrollmentsRpc,
+	ReviewEnrollRpc,
+	ReviewDisableRpc,
+	ReviewRunsRpc,
+	ReviewGetRpc,
+	ReviewRequestRpc,
+	ReviewCancelRpc,
+	ReviewRetryRpc,
+	ReviewFixContextRpc,
 	OrganizationsListRpc,
 	OrganizationsCapabilitiesRpc,
 	OrganizationsCreateRpc,

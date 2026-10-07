@@ -291,6 +291,7 @@
         "@zuse/git": "*",
         "@zuse/index": "*",
         "@zuse/pokemon-data": "*",
+        "@zuse/review": "*",
         "@zuse/sqlite": "*",
         "@zuse/tailnet": "*",
         "@zuse/utils": "*",
@@ -372,6 +373,7 @@
       "dependencies": {
         "@effect/sql-pg": "catalog:",
         "@modelcontextprotocol/sdk": "1.29.0",
+        "@zuse/agents": "*",
         "@zuse/analytics": "*",
         "@zuse/billing-providers": "*",
         "@zuse/cloud-commands": "*",
@@ -638,6 +640,21 @@
       "name": "@zuse/provider-registry",
       "version": "0.0.0",
       "dependencies": {
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/review": {
+      "name": "@zuse/review",
+      "version": "0.0.0",
+      "dependencies": {
+        "@zuse/contracts": "*",
+        "@zuse/index": "*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -2346,6 +2363,8 @@
     "@zuse/pokemon-data": ["@zuse/pokemon-data@workspace:packages/pokemon-data"],
 
     "@zuse/provider-registry": ["@zuse/provider-registry@workspace:packages/provider-registry"],
+
+    "@zuse/review": ["@zuse/review@workspace:packages/review"],
 
     "@zuse/sandbox-providers": ["@zuse/sandbox-providers@workspace:packages/sandbox-providers"],
 

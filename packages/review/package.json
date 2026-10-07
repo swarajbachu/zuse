@@ -1,0 +1,25 @@
+{
+	"name": "@zuse/review",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit"
+	},
+	"dependencies": {
+		"@zuse/contracts": "*",
+		"effect": "catalog:",
+		"@zuse/index": "*"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

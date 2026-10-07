@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { allocatedComputeCostMicros } from "./cloud-billing.ts";
 import { ensureAccountCloudBillingPeriod } from "./cloud-billing-period.ts";
 import {
@@ -9,6 +9,7 @@ import { connectionIdFor } from "./cloud-provider-connections.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { type ApiError, conflict } from "./errors.ts";
+import { ReviewStore } from "./review-store.ts";
 
 export interface ProviderPriceWindow {
 	readonly startedAtMs: number;
@@ -23,6 +24,7 @@ export interface ProviderExecutionEvidence {
 	readonly eventId: string;
 	readonly providerExecutionId?: string;
 	readonly internalResourceId: string;
+	readonly providerSandboxId?: string;
 	readonly startedAtMs: number;
 	readonly endedAtMs: number;
 	readonly vcpuCount: number;
@@ -130,11 +132,33 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 			workspace === null
 				? yield* workspaces.getBuild(evidence.internalResourceId)
 				: null;
-		const resource = workspace ?? build;
+		const reviewStore = yield* Effect.serviceOption(ReviewStore);
+		const review =
+			workspace === null && build === null && Option.isSome(reviewStore)
+				? yield* Effect.tryPromise({
+						try: () =>
+							reviewStore.value.getBillingResource(
+								evidence.provider,
+								evidence.internalResourceId,
+							),
+						catch: () => conflict("review_billing_attribution_unavailable"),
+					})
+				: null;
+		if (
+			review !== null &&
+			(review.providerSandboxId === null ||
+				evidence.providerSandboxId !== review.providerSandboxId)
+		)
+			return yield* Effect.fail(conflict("review_billing_sandbox_mismatch"));
+		const resource = workspace ?? build ?? review;
 		if (resource === null)
 			return { metered: false, reason: "unmatched" as const };
 
-		if (connectionIdFor(resource) !== undefined)
+		const workspaceResource = workspace ?? build;
+		if (
+			workspaceResource !== null &&
+			connectionIdFor(workspaceResource) !== undefined
+		)
 			return { metered: false, reason: "provider-billed" as const };
 
 		const period = yield* ensureAccountCloudBillingPeriod(
@@ -218,7 +242,12 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 				providerCostMicros,
 				periodId: executionPeriod.periodId,
 				accountId: resource.accountId,
-				resourceKind: workspace === null ? "build" : "workspace",
+				resourceKind:
+					review !== null
+						? "review"
+						: workspace === null
+							? "build"
+							: "workspace",
 				resourceId: evidence.internalResourceId,
 				provider: evidence.provider,
 				providerExecutionId: evidence.providerExecutionId,

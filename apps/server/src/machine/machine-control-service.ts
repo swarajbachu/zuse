@@ -8,6 +8,10 @@ import {
 } from "@zuse/client-runtime/cloud-control-client";
 import { controlApiErrorCode } from "@zuse/client-runtime/control-api-error";
 import { makeOrganizationAutoJoinControlClient } from "@zuse/client-runtime/organization-control-client";
+import {
+	makeReviewControlClient,
+	type ReviewControlClient,
+} from "@zuse/client-runtime/review-control-client";
 import { resolveAccountApiUrl } from "../api/api-url.ts";
 import { RuntimeCloudControl } from "./runtime-cloud-control.ts";
 
@@ -105,6 +109,7 @@ export interface MachineControlServiceShape {
 		OrganizationCapabilities,
 		MachineControlError
 	>;
+	readonly review: ReviewControlClient<MachineControlError>;
 	readonly listOrganizations: () => Effect.Effect<
 		ReadonlyArray<Organization>,
 		MachineControlError
@@ -595,6 +600,7 @@ export const MachineControlServiceLive: Layer.Layer<
 					CloudAuthProviderStatus,
 					"DELETE",
 				),
+			review: makeReviewControlClient(request),
 			cloudGithubStatus: () => request(ApiPaths.cloudGithub, CloudGithubStatus),
 			installCloudGithub: () =>
 				request(
