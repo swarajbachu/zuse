@@ -58,9 +58,9 @@ is still mandatory. Document the limitation and exclude that provider from
 billing-enforced placement using the shared availability/deployment policy.
 Runtime observations, reservations, organization balance changes, and approximate
 cost displays must not become confirmed customer charges. Any new retail rate
-or currency-conversion policy requires an explicit product decision. Boxd's
-observed-runtime integration is an example of visibility without actual-cost
-settlement; Boat's integration also exports confirmed provider cost.
+or currency-conversion policy requires an explicit product decision. Boxd supports completed USD per-machine estimates behind an explicit pricing-policy
+opt-in; these are labeled separately from actual organization charges. Boat's
+integration exports confirmed provider cost.
 
 ## Required verification before rollout
 

@@ -24,6 +24,7 @@ import {
 	type ChatSharingUpdate,
 	CloudAccountImage,
 	type CloudAccountImageBuildRequest,
+	type CloudAccountImageDeleteRequest,
 	CloudApiKey,
 	CloudApiKeyCreated,
 	CloudApiKeyList,
@@ -127,6 +128,9 @@ export interface MachineControlServiceShape {
 	) => Effect.Effect<void, MachineControlError>;
 	readonly cloudAccountImage: (
 		providerId?: string,
+	) => Effect.Effect<CloudAccountImage, MachineControlError>;
+	readonly deleteCloudAccountImage: (
+		input: CloudAccountImageDeleteRequest,
 	) => Effect.Effect<CloudAccountImage, MachineControlError>;
 	readonly buildCloudAccountImage: (
 		input: CloudAccountImageBuildRequest,
@@ -528,6 +532,13 @@ export const MachineControlServiceLive: Layer.Layer<
 						? ApiPaths.cloudAccountImage
 						: `${ApiPaths.cloudAccountImage}?providerId=${encodeURIComponent(providerId)}`,
 					CloudAccountImage,
+				),
+			deleteCloudAccountImage: (input) =>
+				request(
+					ApiPaths.cloudAccountImageDelete,
+					CloudAccountImage,
+					"POST",
+					input,
 				),
 			buildCloudAccountImage: (input) =>
 				request(

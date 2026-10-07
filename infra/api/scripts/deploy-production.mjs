@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import { parse } from "jsonc-parser";
 import { WIRE_PROTOCOL_VERSION } from "../../../packages/contracts/src/handshake.ts";
 import { readBoatEnvironment } from "../src/boat-environment.ts";
-import { supportsSandboxBilling } from "../src/sandbox-provider-availability.ts";
+import {
+	boxdBillingConfigured,
+	supportsSandboxBilling,
+} from "../src/sandbox-provider-availability.ts";
 import { assertRuntimeCompatibility } from "./runtime-deploy-compatibility.mjs";
 
 const confirmation = "deploy-api.zuse.sh";
@@ -31,10 +34,14 @@ if (
 	!supportsSandboxBilling(
 		"boxd",
 		vars.CLOUD_BILLING_ENFORCEMENT_ENABLED === "true",
+		boxdBillingConfigured(
+			vars.BOXD_BILLING_ENABLED,
+			vars.BOXD_BILLING_CUTOVER_AT,
+		),
 	)
 ) {
 	console.error(
-		"BOXD_ADAPTER_ENABLED cannot be true when CLOUD_BILLING_ENFORCEMENT_ENABLED is true.",
+		"CLOUD_BILLING_ENFORCEMENT_ENABLED boxd placement requires BOXD_BILLING_ENABLED=true and BOXD_BILLING_CUTOVER_AT (completed USD usage estimates).",
 	);
 	process.exit(1);
 }

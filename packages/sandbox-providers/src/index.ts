@@ -1,3 +1,5 @@
+export { zuseSnapshotName } from "./snapshot-name.ts";
+
 import {
 	makeProviderRegistry,
 	type ProviderRegistry,
@@ -69,6 +71,8 @@ export interface SandboxProcessSelector {
 
 /** Provider-reported list-price usage for one exact time window. */
 export interface ProviderSandboxUsage {
+	/** Original provider evidence for settlement audits. */
+	readonly evidence?: unknown;
 	readonly startedAtMs: number;
 	readonly endedAtMs: number;
 	/** Provider billing units; any size multiplier is already applied. */
@@ -197,6 +201,12 @@ export interface SandboxProviderAdapter {
 	readonly kill: (
 		providerSandboxId: string,
 	) => Effect.Effect<void, SandboxProviderError>;
+	readonly inspectSnapshot?: (
+		snapshotId: string,
+	) => Effect.Effect<
+		"saving" | "ready" | "failed" | null,
+		SandboxProviderError
+	>;
 	readonly deleteSnapshot: (
 		snapshotId: string,
 	) => Effect.Effect<void, SandboxProviderError>;

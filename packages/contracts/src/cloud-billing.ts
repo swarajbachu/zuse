@@ -21,6 +21,7 @@ export class CloudBillingSummary extends Schema.Class<CloudBillingSummary>(
 	basePriceMicros: Schema.Number,
 	includedProviderCostMicros: Schema.Number,
 	providerCostMicros: Schema.Number,
+	storageCostMicros: Schema.optional(Schema.Number),
 	includedUsedMicros: Schema.Number,
 	includedRemainingMicros: Schema.Number,
 	overageProviderCostMicros: Schema.Number,
@@ -37,7 +38,8 @@ export class CloudBillingUsageItem extends Schema.Class<CloudBillingUsageItem>(
 	"CloudBillingUsageItem",
 )({
 	entryId: Schema.String,
-	resourceKind: Schema.Literals(["workspace", "build", "other"]),
+	resourceKind: Schema.Literals(["workspace", "build", "other", "snapshot"]),
+	usageKind: Schema.optional(Schema.Literal("snapshot-storage")),
 	resourceId: Schema.String,
 	provider: Schema.String,
 	providerExecutionId: Schema.optional(Schema.String),
