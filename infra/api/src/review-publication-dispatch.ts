@@ -1,4 +1,5 @@
 import { Context, Effect, Option } from "effect";
+import { ApiConfiguration } from "./config.ts";
 import type { ReviewRunRecord } from "./review-domain.ts";
 import {
 	publishReviewPublication,
@@ -6,7 +7,7 @@ import {
 } from "./review-publication.ts";
 import { getReviewReadiness } from "./review-readiness.ts";
 import { ReviewStore } from "./review-store.ts";
-/** Deliberately has no live layer until scoped GitHub transport and screening are verified. */
+/** Scoped GitHub transport; admissions and publication remain independently gated. */
 export class ReviewPublicationGateway extends Context.Service<
 	ReviewPublicationGateway,
 	{
@@ -16,9 +17,11 @@ export class ReviewPublicationGateway extends Context.Service<
 export const drainReviewPublicationOutbox = Effect.fn(
 	"drainReviewPublicationOutbox",
 )(function* () {
+	const config = yield* ApiConfiguration;
+	if (!config.review?.publicationEnabled) return { published: 0 };
 	if (
 		!["codex", "claude"].some(
-			(provider) => getReviewReadiness(provider).available,
+			(provider) => getReviewReadiness(provider, config.review).available,
 		)
 	)
 		return { published: 0 };
@@ -33,7 +36,10 @@ export const drainReviewPublicationOutbox = Effect.fn(
 		const run = yield* Effect.promise(() =>
 			store.value.getRun(publication.runId),
 		);
-		if (!run || !getReviewReadiness(run.agentProvider).available) {
+		if (
+			!run ||
+			!getReviewReadiness(run.agentProvider, config.review).available
+		) {
 			yield* Effect.promise(() =>
 				store.value.cancelPublication(
 					publication.id,
@@ -48,6 +54,35 @@ export const drainReviewPublicationOutbox = Effect.fn(
 				.forRun(run)
 				.then((deps) => publishReviewPublication(publication, run, deps)),
 		).pipe(Effect.result);
+
+		if (
+			(outcome._tag === "Failure" && publication.mayCreate) ||
+			(outcome._tag === "Success" && outcome.success.kind === "unwritten")
+		) {
+			yield* Effect.promise(() =>
+				store.value.finishPublication(
+					publication.id,
+					publication.leaseToken,
+					null,
+					Date.now(),
+					"unwritten",
+				),
+			);
+			continue;
+		}
+		if (outcome._tag === "Success" && outcome.success.kind === "stale") {
+			const githubId = outcome.success.githubId ?? null;
+			yield* Effect.promise(() =>
+				store.value.finishPublication(
+					publication.id,
+					publication.leaseToken,
+					githubId,
+					Date.now(),
+					"superseded",
+				),
+			);
+			continue;
+		}
 		if (outcome._tag === "Failure" || outcome.success.kind === "ambiguous") {
 			yield* Effect.promise(() =>
 				store.value.finishPublication(

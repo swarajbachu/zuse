@@ -105,6 +105,10 @@ export const ApiPaths = {
 	cloudGithubInstall: "/v1/cloud/github/install",
 	cloudGithubCallback: "/v1/cloud/github/callback",
 	cloudGithubWebhook: "/v1/cloud/github/webhook",
+	reviewConnections: "/v1/review/connections",
+	reviewConnection: (id: string) =>
+		`/v1/review/connections/${encodeURIComponent(id)}`,
+	reviewSetup: "/v1/review/setup",
 	reviewCoverage: "/v1/review/coverage",
 	reviewEnrollments: "/v1/review/enrollments",
 	reviewEnrollment: (id: string) =>

@@ -1,6 +1,6 @@
 # Zuse Review: repository understanding and executable verification
 
-Status: proposed implementation direction, 2026-10-07. This extends the disabled foundation; it does not describe a working hosted review service. Inspected the review/index implementation and the main-branch sandbox/runtime interfaces during the rebase onto `98701f95`. No conflict files or runtime state were changed for this assessment.
+Status: hosted MVP implementation with release gates, 2026-10-07. The repository now includes native Claude review sessions, immutable indexed retrieval in an isolated reader process, dedicated native-auth sandbox lifecycle, publication, and a separate paired-check runner. No provider is release-eligible until authorization, exact-binary confinement and live infrastructure/auth/billing staging pass. The deeper semantic-graph and hypothesis-driven execution described below remain future work.
 
 ## Intended result
 
@@ -8,7 +8,7 @@ A useful review explains how a change affects a real workflow, investigates the 
 
 Architecture means concrete boundaries, dependencies and invariants. Relevant processes include both runtime processes and product workflows: requests, jobs, events, persistence, authorization, retries, reconnection, cleanup and billing settlement. Store their supporting code/document locations and versions. Do not present generated architecture prose as authoritative truth.
 
-**Scope update:** this direction supersedes the earlier blanket exclusion of repository code execution **only in a separately provisioned, credential-free test runner**. The credentialed review worker remains read-only and must not execute repository scripts, install dependencies, start application servers, or mount the runner's writable filesystem. No existing user workspace or account image containing credentials may be cloned into a test runner.
+**Scope update:** this direction supersedes the earlier blanket exclusion of repository code execution **only in a separately provisioned, credential-free test runner**. The native-auth review worker remains read-only and must not execute repository scripts, install dependencies, start application servers, or mount the runner's writable filesystem. No existing user workspace or account image containing credentials may be cloned into a test runner.
 
 ## Existing foundation and concrete gaps
 
@@ -17,11 +17,11 @@ Architecture means concrete boundaries, dependencies and invariants. Relevant pr
 | Comparison | Immutable repository/base/head/merge-base identities; Git-object reads; bounded patches and explicit partial output | Durable impact/coverage records; distinct merge-base regression and target-base integration comparisons |
 | Repository retrieval | `packages/index`: content deduplication, immutable manifests, TS/JS symbol chunks, BM25, relative static imports/re-exports | TS project/alias/package export resolution, authoritative references where supported, changed-symbol mapping, workflow maps, dependency/test relationships, versioned documentation facts |
 | Investigation | `packages/review`: bounded read/search/related-file tools, injected investigator, fresh verifier, quoted evidence and changed-line validation | Explicit hypotheses, counterexample search, impact-driven task routing, execution requests and artifacts, richer verifier dispositions |
-| Agent lifecycle | `apps/server/src/review/worker.ts`: adapter harness, cancellation and fresh-session checks | Eligible production subscription adapter; connected dispatch remains disabled |
-| Execution primitives | Main branch has sandbox create/fork, network policy, timeout, inspect/kill and usage interfaces; process-group supervision and per-execution authorization | Credential-free review runner image/protocol, approved test profiles, artifact ingestion, paired runs, cleanup attestation and review-specific budget integration |
+| Agent lifecycle | Real pinned Claude SDK investigator/verifier, fresh structured sessions, process-group cleanup, typed auth/quota failures, dedicated native login/callback and paused auth sandbox | Provider authorization and exact-binary adversarial proof; live refresh/resume/account-match staging; additional eligible providers |
+| Execution primitives | Separate credential-free runner image; fixed base-approved root test/typecheck commands paired at merge-base/head; frozen script-free dependency preparation; network quarantine before execution; bounded evidence, aggregate budget, usage and cleanup lifecycle | Hypothesis-specific generated regressions, service-backed integration profiles, richer artifacts, flaky-test handling and language coverage |
 | Evaluation | Human-adjudicated corpus gates, metrics and synthetic behavior tests | Frozen real corpus, executable regression cases, architecture/cross-file slices, matched ablations and live staging evidence |
 
-The existing `refs` table is not a populated semantic call graph. Static imports currently resolve relative paths conservatively and leave aliases unresolved. There is no general workflow model or test runner. Existing shell/process helpers manage execution lifecycle; they are not a security boundary by themselves. Current hosted readiness remains blocked independently of this proposal.
+The existing `refs` table is not a populated semantic call graph. Static imports currently resolve relative paths conservatively and leave aliases unresolved. There is no general workflow model. The implemented runner executes conventional root test/typecheck scripts, not model-generated reproductions or arbitrary application workflows. Existing shell/process helpers manage execution lifecycle; they are not a security boundary by themselves. Current hosted readiness remains blocked independently of implementation availability.
 
 ## Architecture and ownership
 
@@ -87,7 +87,7 @@ Use existing run/connection leases and comparison fencing for admission. Child t
 
 ## Complexity and boundaries
 
-This is a substantive engine and execution-system project, not an OSS wrapper or a prompt revision. Rough planning ranges for experienced engineers are 2–4 engineer-weeks for repository facts/resolution, 2–4 for impact and hypothesis orchestration, 3–6 for runner isolation/profiles/paired evidence, and 3–5 for evaluations, recovery and rollout integration. These ranges overlap and are not a calendar commitment; production subscription eligibility and the still-missing hosted dispatch/auth/billing wiring are additional launch dependencies. A narrow TS/JS pilot is credible before broad language or application parity. Private dependency preparation, flaky distributed tests and persistent quality evaluation are likely long poles.
+This is a substantive engine and execution-system project, not an OSS wrapper or a prompt revision. Rough planning ranges for experienced engineers are 2–4 engineer-weeks for repository facts/resolution, 2–4 for impact and hypothesis orchestration, 3–6 for runner isolation/profiles/paired evidence, and 3–5 for evaluations, recovery and rollout integration. These ranges overlap and are not a calendar commitment; these estimates describe the future advanced engine, not the implemented narrow hosted MVP. Production subscription eligibility and live verification of the implemented dispatch/auth/billing wiring remain launch dependencies. A narrow TS/JS pilot is credible before broad language or application parity. Private dependency preparation, flaky distributed tests and persistent quality evaluation are likely long poles.
 
 Do not launch a universal graph, cross-repository access, production-observability ingestion, automatic fixes/merge, or arbitrary external-network test environments in the first phase. Extend only after representative cases demonstrate measurable added value and maintainers explicitly authorize the data/process scope.
 
@@ -98,3 +98,26 @@ Official product documentation describes repository-wide relationships plus dete
 - [Repository-context and analysis capabilities](https://docs.coderabbit.ai/guides/code-review-overview), consulted 2026-10-07.
 - [Code validation direction and runtime investigation](https://www.greptile.com/blog/automating-code-validation), published 2026-07-10; consulted 2026-10-07.
 - [Historical introducing-commit benchmark methodology](https://www.macroscope.com/benchmark), consulted 2026-10-07.
+
+
+## Implemented MVP execution and reproducibility
+
+The runtime executes native structured Claude sessions using the existing pinned SDK. A trusted root supervisor runs native code as uid1000 and immutable Git/index reads as uid1001; each child's environment is allowlisted. The reader cannot read the private native authhome or supervisor environment, and the native process cannot read repository files directly. Native tool suppression still requires adversarial proof against the exact shipped binary. Tests run only after native cleanup and pause, in a different sandbox with no subscription auth. This preserves one authorized aggregate run budget and never puts repository setup scripts into the subscription sandbox.
+
+The check profile selects at most `test`, `typecheck`, and `check-types` from the merge-base root manifest. It executes the identical command at both revisions, records separate passed/failed/timeout/inconclusive outcomes, and publishes no claim that an existing test failure proves a particular model finding. An exclusive root run lock plus durable launch marker prevents duplicate execution after delayed status or an unknown launch response. Evidence is persisted before termination; uncertain teardown preserves that evidence for reconciliation.
+
+Supported dependency preparation is registry-only npm or Bun text lockfiles, including bounded declared workspaces and Bun catalogs. Local workspace links must match declared in-checkout packages. Installs ignore lifecycle scripts; repository manager configuration, external dependency URLs, unknown local links, binary Bun lockfiles and unsafe filesystem paths fail conservatively. Large installs/full monorepo suites may exceed the allocated budget and remain inconclusive. No private registry credentials, production services or provider model credentials are supplied. Missing scripts are reported `not_available`, never as passed checks.
+
+Build and inspect locally without provider credentials:
+
+```sh
+node apps/server/scripts/build-review-worker.mjs
+sudo node apps/server/scripts/probe-review-isolation.mjs
+sudo node apps/server/scripts/probe-review-checks.mjs
+docker build -f apps/server/review-image/Dockerfile -t zuse-review-worker:local apps/server
+docker build -f apps/server/review-image/Dockerfile.checks -t zuse-review-checks:local apps/server
+```
+
+The build emits `apps/server/dist-review/manifest.json` with native/worker hashes and `releaseApproved: false`. The check image copies only the standalone runner and JSONC parser, never the native agent or auth data. Both images require trusted root supervisors; their untrusted children drop to distinct UIDs. Deployment must pin images, provision separate templates, enforce registry-only preparation followed by network quarantine for tests, and verify provider termination/usage settlement. The root-owned status file is `/run/zuse-review-checks/status.json`; the control plane invokes `/opt/zuse/review-check-runner.mjs prepare|run` with immutable SHAs and a hard deadline. Only `prepare` receives a transient read-only GitHub token.
+
+Actual credential-free probes cover UID permission canaries, immutable source reads, indexed search/import edges, base-success/head-failure, root-status protection, absent child credentials, parent-environment denial, timeout termination, and missing-script reporting. They do not establish live subscription permission, full agent confinement, or Greptile-equivalent quality. See [provider feasibility](provider-feasibility.md) for the remaining release evidence.

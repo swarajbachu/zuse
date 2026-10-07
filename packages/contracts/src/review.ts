@@ -61,7 +61,23 @@ export const ReviewCoverage = Schema.Struct({
 	contextLimited: Schema.Boolean,
 });
 export type ReviewCoverage = typeof ReviewCoverage.Type;
+export const ReviewCheckOutcome = Schema.Struct({
+	status: Schema.Literals(["passed", "failed", "timeout", "inconclusive"]),
+	exitCode: Schema.optional(Schema.Number.check(Schema.isInt())),
+	output: Schema.String.check(Schema.isMaxLength(8000)),
+});
+export const ReviewCheck = Schema.Struct({
+	script: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+	command: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000)),
+	base: ReviewCheckOutcome,
+	head: ReviewCheckOutcome,
+});
+export type ReviewCheck = typeof ReviewCheck.Type;
 export const ReviewResult = Schema.Struct({
+	checks: Schema.optional(
+		Schema.Array(ReviewCheck).check(Schema.isMaxLength(3)),
+	),
+	checksReason: Schema.optional(Schema.String.check(Schema.isMaxLength(256))),
 	snapshot: ReviewSnapshot,
 	status: Schema.Literals(["completed", "partial"]),
 	reason: Schema.optional(Schema.String),
@@ -97,6 +113,7 @@ export const ReviewEnrollment = Schema.Struct({
 export type ReviewEnrollment = typeof ReviewEnrollment.Type;
 /** Identity, payer and permission proofs are resolved by the server, never accepted here. */
 export const ReviewEnrollmentRequest = Schema.Struct({
+	acknowledgedCharges: Schema.Literal(true),
 	repositoryId: Positive,
 	kind: Schema.Literals(["personal", "shared"]),
 	modelConnectionId: Id,
@@ -105,9 +122,96 @@ export const ReviewEnrollmentRequest = Schema.Struct({
 	worker: ReviewWorkerSettings,
 });
 export type ReviewEnrollmentRequest = typeof ReviewEnrollmentRequest.Type;
-export const ReviewEnrollmentSetup = Schema.Struct({
-	authorizationUrl: Schema.String,
+export const ReviewConnection = Schema.Struct({
+	id: Id,
+	label: Schema.String,
+	agentProvider: Id,
+	state: Schema.Literals([
+		"new",
+		"authenticating",
+		"ready",
+		"reconnect",
+		"revoked",
+	]),
+	verificationUrl: Schema.optional(Schema.String),
+	verificationCode: Schema.optional(Schema.String),
+	expiresAtMs: Schema.optional(Count),
+	reason: Schema.optional(Schema.String),
 });
+export type ReviewConnection = typeof ReviewConnection.Type;
+export const ReviewConnectionCreate = Schema.Struct({
+	label: Id,
+	agentProvider: Schema.Literal("claude"),
+	size: Id,
+	acknowledgedCharges: Schema.Literal(true),
+});
+export type ReviewConnectionCreate = typeof ReviewConnectionCreate.Type;
+export const ReviewConnectionCreateRpc = Rpc.make("review.connectionCreate", {
+	payload: ReviewConnectionCreate,
+	success: ReviewConnection,
+	error: CloudWorkspaceOpError,
+});
+export const ReviewConnectionGetRpc = Rpc.make("review.connection", {
+	payload: Schema.Struct({ id: Id }),
+	success: ReviewConnection,
+	error: CloudWorkspaceOpError,
+});
+export const ReviewConnectionLoginRpc = Rpc.make("review.connectionLogin", {
+	payload: Schema.Struct({ id: Id }),
+	success: ReviewConnection,
+	error: CloudWorkspaceOpError,
+});
+export const ReviewConnectionCompleteRpc = Rpc.make(
+	"review.connectionComplete",
+	{
+		payload: Schema.Struct({
+			id: Id,
+			callbackUrl: Schema.String.check(
+				Schema.isMinLength(1),
+				Schema.isMaxLength(4096),
+			),
+		}),
+		success: ReviewConnection,
+		error: CloudWorkspaceOpError,
+	},
+);
+export const ReviewConnectionRevokeRpc = Rpc.make("review.connectionRevoke", {
+	payload: Schema.Struct({ id: Id }),
+	success: ReviewConnection,
+	error: CloudWorkspaceOpError,
+});
+export const ReviewSetup = Schema.Struct({
+	repositories: Schema.Array(
+		Schema.Struct({
+			id: Positive,
+			fullName: Id,
+			canAdminister: Schema.Boolean,
+		}),
+	),
+	connections: Schema.Array(
+		Schema.Struct({
+			id: Id,
+			label: Schema.String,
+			agentProvider: Id,
+			models: Schema.Array(Id),
+			available: Schema.Boolean,
+			reasons: Schema.Array(Schema.String),
+		}),
+	),
+	placements: Schema.Array(
+		Schema.Struct({
+			provider: Id,
+			size: Id,
+			label: Schema.String,
+			available: Schema.Boolean,
+			reasons: Schema.Array(Schema.String),
+			estimatedMaxCostMicros: Count,
+		}),
+	),
+	payer: Schema.Struct({ id: Id, label: Schema.String }),
+	identity: Schema.NullOr(Schema.Struct({ githubUserId: Positive, login: Id })),
+});
+export type ReviewSetup = typeof ReviewSetup.Type;
 export const ReviewRunState = Schema.Literals([
 	"queued",
 	"provisioning",
@@ -180,10 +284,17 @@ export const ReviewFixContext = Schema.Struct({
 export type ReviewFixContext = typeof ReviewFixContext.Type;
 
 export const ReviewRequest = Schema.Struct({
+	expectedHeadSha: Schema.optional(Sha),
+	approveFork: Schema.optional(Schema.Boolean),
 	repositoryId: Positive,
 	pullNumber: Positive,
 });
 export type ReviewRequest = typeof ReviewRequest.Type;
+export const ReviewSetupRpc = Rpc.make("review.setup", {
+	payload: Schema.Void,
+	success: ReviewSetup,
+	error: CloudWorkspaceOpError,
+});
 export const ReviewCoverageRpc = Rpc.make("review.coverage", {
 	payload: Schema.Void,
 	success: ReviewAvailability,
@@ -196,7 +307,7 @@ export const ReviewEnrollmentsRpc = Rpc.make("review.enrollments", {
 });
 export const ReviewEnrollRpc = Rpc.make("review.enroll", {
 	payload: ReviewEnrollmentRequest,
-	success: ReviewEnrollmentSetup,
+	success: ReviewEnrollment,
 	error: CloudWorkspaceOpError,
 });
 export const ReviewDisableRpc = Rpc.make("review.disable", {

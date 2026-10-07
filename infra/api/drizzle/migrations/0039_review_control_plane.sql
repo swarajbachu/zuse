@@ -39,7 +39,7 @@ CREATE TABLE api_review_attempts (
  owner_id text NOT NULL, provider text NOT NULL, provider_sandbox_id text,
  allocated_at_ms bigint, stopped_at_ms bigint, maximum_lifetime_ms bigint NOT NULL CHECK (maximum_lifetime_ms BETWEEN 1 AND 600000),
  lease_token text NOT NULL, created_at_ms bigint NOT NULL,
- UNIQUE(run_id,ordinal), UNIQUE(provider,provider_sandbox_id)
+ UNIQUE(run_id,ordinal)
 );
 CREATE TABLE api_review_publications (
  id text PRIMARY KEY, run_id text NOT NULL REFERENCES api_review_runs(id), owner_id text NOT NULL,
@@ -51,3 +51,33 @@ CREATE TABLE api_review_publications (
 CREATE INDEX api_review_publications_due ON api_review_publications(available_at_ms) WHERE state IN ('pending','reconcile');
 
 CREATE TABLE api_review_repository_leases (repository_id bigint PRIMARY KEY,token text NOT NULL,expires_at_ms bigint NOT NULL);
+CREATE TABLE api_review_native_connections (
+ id text PRIMARY KEY,owner_actor_id text NOT NULL,state text NOT NULL,
+ data jsonb NOT NULL,lease_token text,lease_expires_at_ms bigint,
+ CHECK(state IN ('login-required','authenticating','ready','revoked','lost'))
+);
+CREATE INDEX api_review_native_connections_actor ON api_review_native_connections(owner_actor_id);
+ALTER TABLE api_review_attempts ADD COLUMN lifecycle jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE api_review_attempts ADD COLUMN supervisor_token text;
+ALTER TABLE api_review_attempts ADD COLUMN supervisor_expires_at_ms bigint;
+CREATE TABLE api_review_fork_approvals(repository_id bigint NOT NULL,pull_number integer NOT NULL,head_sha text NOT NULL,actor_id text NOT NULL,created_at_ms bigint NOT NULL,PRIMARY KEY(repository_id,pull_number,head_sha));
+--> statement-breakpoint
+CREATE TABLE api_review_native_activities (
+ id text PRIMARY KEY,
+ connection_id text NOT NULL REFERENCES api_review_native_connections(id),
+ owner_id text NOT NULL,
+ provider text NOT NULL,
+ provider_sandbox_id text,
+ started_at_ms bigint NOT NULL,
+ stopped_at_ms bigint,
+ deadline_ms bigint NOT NULL,
+ maximum_cost_micros bigint NOT NULL,
+ state text NOT NULL CHECK(state IN ('admitted','running','stopped','unknown'))
+);
+--> statement-breakpoint
+CREATE INDEX api_review_native_activity_open_idx ON api_review_native_activities(state,deadline_ms);
+--> statement-breakpoint
+ALTER TABLE api_review_native_activities ADD COLUMN kind text NOT NULL DEFAULT 'login' CHECK(kind IN ('login','check'));
+ALTER TABLE api_review_native_activities ADD COLUMN run_id text REFERENCES api_review_runs(id);
+ALTER TABLE api_review_native_activities ADD COLUMN attempt_id text REFERENCES api_review_attempts(id);
+ALTER TABLE api_review_native_activities ADD COLUMN size text;

@@ -30,6 +30,16 @@ export interface ManagedTunnelConfig {
 }
 
 export interface ApiConfig {
+	readonly review?: {
+		readonly enabled: boolean;
+		readonly stagingVerified: boolean;
+		readonly publicationEnabled?: boolean;
+		readonly checkTemplateId?: string;
+		readonly templateId: string;
+		readonly workerModule: string;
+		readonly claudeExecutable: string;
+		readonly models: readonly string[];
+	};
 	/** Global organization kill switch; targeted rollout can narrow enabled deployments. */
 	readonly organizationWorkspacesEnabled: boolean;
 	/** When enabled, PostHog must explicitly approve creation and team access. */

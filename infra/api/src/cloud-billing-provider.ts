@@ -9,7 +9,7 @@ import { connectionIdFor } from "./cloud-provider-connections.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { type ApiError, conflict } from "./errors.ts";
-import { ReviewStore } from "./review-store.ts";
+import { ReviewBillingAttribution } from "./review-billing-attribution.ts";
 
 export interface ProviderPriceWindow {
 	readonly startedAtMs: number;
@@ -132,15 +132,11 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 			workspace === null
 				? yield* workspaces.getBuild(evidence.internalResourceId)
 				: null;
-		const reviewStore = yield* Effect.serviceOption(ReviewStore);
+		const reviewStore = yield* Effect.serviceOption(ReviewBillingAttribution);
 		const review =
 			workspace === null && build === null && Option.isSome(reviewStore)
 				? yield* Effect.tryPromise({
-						try: () =>
-							reviewStore.value.getBillingResource(
-								evidence.provider,
-								evidence.internalResourceId,
-							),
+						try: () => reviewStore.value.resolve(evidence),
 						catch: () => conflict("review_billing_attribution_unavailable"),
 					})
 				: null;
@@ -248,7 +244,7 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 						: workspace === null
 							? "build"
 							: "workspace",
-				resourceId: evidence.internalResourceId,
+				resourceId: review?.resourceId ?? evidence.internalResourceId,
 				provider: evidence.provider,
 				providerExecutionId: evidence.providerExecutionId,
 				vcpuCount: evidence.vcpuCount,

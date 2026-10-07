@@ -6,7 +6,7 @@ export type {
 	RepositoryContextOptions,
 } from "./context.ts";
 export { discoverRepositoryContext } from "./context.ts";
-export { runReview } from "./engine.ts";
+export { Investigation, runReview } from "./engine.ts";
 export type {
 	ReviewEvaluationCase,
 	ReviewEvaluationObservation,

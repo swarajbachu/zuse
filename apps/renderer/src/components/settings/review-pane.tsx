@@ -34,6 +34,7 @@ import { useReviewHandoffStore } from "../../store/review-handoff.ts";
 import { useUiStore } from "../../store/ui.ts";
 import { Button } from "../ui/button.tsx";
 import { CloudSettingsGroup, CloudSettingsRow } from "./cloud-settings-ui.tsx";
+import { ReviewRequestForm, ReviewSetupForm } from "./review-setup.tsx";
 
 export function ReviewPane() {
 	const account = useSyncExternalStore(
@@ -327,7 +328,18 @@ function ReviewPaneContent() {
 							{!availability.available && (
 								<CloudSettingsRow
 									title={m("settings:review_unavailable")}
-									description={m("settings:review_unavailable_detail")}
+									description={[
+										m("settings:review_unavailable_detail"),
+										availability.reason,
+										...availability.providers
+											.filter((provider) => !provider.available)
+											.map(
+												(provider) =>
+													`${provider.provider}: ${provider.reasons.join(", ")}`,
+											),
+									]
+										.filter(Boolean)
+										.join(" · ")}
 								/>
 							)}
 							{availability.enrollments.length === 0 ? (
@@ -373,6 +385,20 @@ function ReviewPaneContent() {
 					)
 				)}
 			</CloudSettingsGroup>
+			{availability && (
+				<>
+					<ReviewSetupForm
+						availability={availability}
+						busy={busy}
+						onAction={action}
+					/>
+					<ReviewRequestForm
+						availability={availability}
+						busy={busy}
+						onAction={action}
+					/>
+				</>
+			)}
 			<CloudSettingsGroup
 				title={m("settings:review_history")}
 				description={m("settings:review_charge_notice")}
@@ -502,6 +528,32 @@ function ReviewRunRow({
 						</p>
 					)}
 					<p>
+						{m("settings:review_created", {
+							time: new Date(run.createdAtMs).toLocaleString(),
+						})}
+					</p>
+					{run.blockedReason && (
+						<p>{m("settings:review_reason", { reason: run.blockedReason })}</p>
+					)}
+					{run.result?.reason && (
+						<p>{m("settings:review_reason", { reason: run.result.reason })}</p>
+					)}
+					{run.result?.coverage.contextLimited && (
+						<p>{m("settings:review_context_limited")}</p>
+					)}
+					{run.result && run.result.coverage.unreviewedPaths.length > 0 && (
+						<details>
+							<summary>{m("settings:review_unreviewed")}</summary>
+							<ul>
+								{run.result.coverage.unreviewedPaths.map((path) => (
+									<li className="break-all" key={path}>
+										{path}
+									</li>
+								))}
+							</ul>
+						</details>
+					)}
+					<p>
 						<code>
 							{run.baseSha.slice(0, 8)}…{run.headSha.slice(0, 8)}
 						</code>
@@ -515,10 +567,72 @@ function ReviewRunRow({
 							minutes: run.worker.maxRuntimeMs / 60_000,
 						})}
 					</p>
+
+					{run.result && (
+						<div className="space-y-2 py-2">
+							<p className="font-medium">{m("settings:review_checks")}</p>
+							<p className="text-muted-foreground">
+								{m("settings:review_checks_detail")}
+							</p>
+							{run.result.checksReason && <p>{run.result.checksReason}</p>}
+							{(run.result.checks ?? []).length === 0 && (
+								<p>{m("settings:review_checks_none")}</p>
+							)}
+							{run.result.checks?.map((check, index) => (
+								<details key={`${check.script}:${index}`}>
+									<summary className="cursor-pointer break-all">
+										{check.script} · {m("settings:review_check_base")}:{" "}
+										{m(`settings:review_check_${check.base.status}`)} ·{" "}
+										{m("settings:review_check_head")}:{" "}
+										{m(`settings:review_check_${check.head.status}`)}
+									</summary>
+									<p className="break-all py-1 font-mono">{check.command}</p>
+									{(["base", "head"] as const).map((side) => (
+										<div key={side}>
+											<p>
+												{m(`settings:review_check_${side}`)}
+												{check[side].exitCode !== undefined
+													? ` · ${m("settings:review_exit_code", { code: check[side].exitCode })}`
+													: ""}
+											</p>
+											<pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all text-muted-foreground">
+												{check[side].output}
+											</pre>
+										</div>
+									))}
+								</details>
+							))}
+						</div>
+					)}
 					{run.result?.findings.map((finding) => (
 						<div key={finding.id} className="py-1">
-							<p className="font-medium">{finding.title}</p>
+							<p className="font-medium">
+								{finding.severity} · {finding.title}
+							</p>
+							<p className="break-all text-muted-foreground">
+								{finding.location.path}:{finding.location.startLine}–
+								{finding.location.endLine}
+							</p>
 							<p className="text-muted-foreground">{finding.explanation}</p>
+							<p>
+								{m("settings:review_trigger")}: {finding.trigger}
+							</p>
+							<p>
+								{m("settings:review_consequence")}: {finding.consequence}
+							</p>
+							<details>
+								<summary>{m("settings:review_evidence")}</summary>
+								{finding.evidence.map((evidence, index) => (
+									<div key={`${evidence.path}:${evidence.startLine}:${index}`}>
+										<p className="break-all">
+											{evidence.path}:{evidence.startLine}
+										</p>
+										<pre className="whitespace-pre-wrap break-all text-muted-foreground">
+											{evidence.quote}
+										</pre>
+									</div>
+								))}
+							</details>
 							<Button
 								className="mt-1 h-7"
 								variant="ghost"

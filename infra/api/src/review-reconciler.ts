@@ -1,4 +1,3 @@
-import { getReviewProviderEligibility } from "@zuse/agents/review/eligibility";
 import { Effect, Option, Schema } from "effect";
 import { badRequest, serviceUnavailable } from "./errors.ts";
 import { githubRequest } from "./github-transport.ts";
@@ -7,6 +6,9 @@ import {
 	shouldAutomaticallyReviewPull,
 } from "./review-domain.ts";
 import { reviewInstallationToken } from "./review-github.ts";
+import { ReviewLifecycle } from "./review-lifecycle.ts";
+import { ReviewLifecycleStore } from "./review-lifecycle-store.ts";
+import { reconcileReviewConnections } from "./review-native-connections.ts";
 import { drainReviewPublicationOutbox } from "./review-publication-dispatch.ts";
 import { type ReviewInboxEntry, ReviewStore } from "./review-store.ts";
 
@@ -132,32 +134,17 @@ export const reconcileReviewInbox = Effect.fn("reconcileReviewInbox")(
 			});
 			if (result._tag === "Success") processed++;
 		}
-		const due = yield* Effect.tryPromise({
-			try: () => store.dueRunIds(Date.now(), 100),
-			catch: () => serviceUnavailable("review_storage_unavailable"),
-		});
-		for (const id of due) {
-			const claim = yield* Effect.tryPromise({
-				try: () => store.claimRun(id, Date.now()),
-				catch: () => serviceUnavailable("review_storage_unavailable"),
-			});
-			if (!claim) continue;
-			const profile = getReviewProviderEligibility(claim.run.agentProvider);
+		const native = yield* Effect.serviceOption(ReviewLifecycleStore);
+		if (Option.isSome(native))
+			yield* reconcileReviewConnections().pipe(
+				Effect.provideService(ReviewLifecycleStore, native.value),
+			);
+		const lifecycle = yield* Effect.serviceOption(ReviewLifecycle);
+		if (Option.isSome(lifecycle))
 			yield* Effect.tryPromise({
-				try: () =>
-					store.blockRun(
-						id,
-						claim.leaseToken,
-						claim.run.fork
-							? "fork_approval_required"
-							: profile.status === "blocked"
-								? profile.reasons.join(",")
-								: "review_dispatch_unavailable",
-						Date.now(),
-					),
-				catch: () => serviceUnavailable("review_storage_unavailable"),
+				try: () => lifecycle.value.reconcile(Date.now()),
+				catch: () => serviceUnavailable("review_lifecycle_unavailable"),
 			});
-		}
 		yield* drainReviewPublicationOutbox();
 		return { processed };
 	},
@@ -271,23 +258,13 @@ const processEvent = Effect.fn("processReviewEvent")(function* (
 				store.createRun(comparison, Date.now(), "automatic", refreshToken),
 			catch: () => serviceUnavailable("review_storage_unavailable"),
 		});
-		if (created?.state !== "queued") continue;
-		const claimed = yield* Effect.tryPromise({
-			try: () => store.claimRun(created.id, Date.now()),
-			catch: () => serviceUnavailable("review_storage_unavailable"),
-		});
-		if (!claimed) continue;
-		const profile = getReviewProviderEligibility(created.agentProvider);
-		const reason = created.fork
-			? "fork_approval_required"
-			: profile.status === "blocked"
-				? profile.reasons.join(",")
-				: "review_dispatch_unavailable";
-		// No allocation until a certified provider and enrolled native runner are installed.
-		yield* Effect.tryPromise({
-			try: () =>
-				store.blockRun(created.id, claimed.leaseToken, reason, Date.now()),
-			catch: () => serviceUnavailable("review_storage_unavailable"),
-		});
+		if (created?.state === "queued") {
+			const lifecycle = yield* Effect.serviceOption(ReviewLifecycle);
+			if (Option.isSome(lifecycle))
+				yield* Effect.tryPromise({
+					try: () => lifecycle.value.dispatch(created.id, Date.now()),
+					catch: () => serviceUnavailable("review_lifecycle_unavailable"),
+				});
+		}
 	}
 });

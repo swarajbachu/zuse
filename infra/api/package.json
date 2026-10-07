@@ -61,6 +61,7 @@
 		"@zuse/billing-providers": "*",
 		"@zuse/cloud-commands": "*",
 		"@zuse/contracts": "*",
+		"@zuse/client-runtime": "*",
 		"@zuse/machine-providers": "*",
 		"@zuse/pokemon-data": "*",
 		"@zuse/sandbox-providers": "*",

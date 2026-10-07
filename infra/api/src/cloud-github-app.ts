@@ -43,7 +43,6 @@ import {
 } from "./github-callback-page.ts";
 import { json } from "./http.ts";
 import { getOrganizationName } from "./organizations.ts";
-import { reviewGithubCallback } from "./review-github.ts";
 import { ingestReviewGithubEvent } from "./review-reconciler.ts";
 import { ReviewStore } from "./review-store.ts";
 import { ApiStore } from "./store.ts";
@@ -433,8 +432,6 @@ export const githubAuthorizationUrl = (installUrl: string, issuer: string) => {
 export const githubAuthorizationCallback = Effect.fn(
 	"githubAuthorizationCallback",
 )(function* (request: Request) {
-	const reviewResponse = yield* reviewGithubCallback(request);
-	if (reviewResponse !== null) return reviewResponse;
 	const config = yield* ApiConfiguration;
 	const stateHint = new URL(request.url).searchParams.get("state");
 	const installationHint = Number(

@@ -1,14 +1,16 @@
 import {
 	ApiPaths,
 	ReviewAvailability,
+	ReviewConnection,
+	type ReviewConnectionCreate,
 	ReviewEnrollment,
 	ReviewEnrollmentList,
 	type ReviewEnrollmentRequest,
-	ReviewEnrollmentSetup,
 	ReviewFixContext,
 	type ReviewRequest,
 	ReviewRun,
 	ReviewRunPage,
+	ReviewSetup,
 } from "@zuse/contracts";
 import type { Effect, Schema } from "effect";
 
@@ -23,11 +25,43 @@ export type ReviewControlRequest<E> = <A>(
 export const makeReviewControlClient = <E>(
 	request: ReviewControlRequest<E>,
 ) => ({
+	"review.connectionCreate": (input: ReviewConnectionCreate) =>
+		request(ApiPaths.reviewConnections, ReviewConnection, "POST", input),
+	"review.connection": ({ id }: { id: string }) =>
+		request(ApiPaths.reviewConnection(id), ReviewConnection),
+	"review.connectionLogin": ({ id }: { id: string }) =>
+		request(
+			`${ApiPaths.reviewConnection(id)}/login`,
+			ReviewConnection,
+			"POST",
+			{},
+		),
+	"review.connectionComplete": ({
+		id,
+		callbackUrl,
+	}: {
+		id: string;
+		callbackUrl: string;
+	}) =>
+		request(
+			`${ApiPaths.reviewConnection(id)}/complete`,
+			ReviewConnection,
+			"POST",
+			{ callbackUrl },
+		),
+	"review.connectionRevoke": ({ id }: { id: string }) =>
+		request(
+			`${ApiPaths.reviewConnection(id)}/revoke`,
+			ReviewConnection,
+			"POST",
+			{},
+		),
+	"review.setup": () => request(ApiPaths.reviewSetup, ReviewSetup),
 	"review.coverage": () => request(ApiPaths.reviewCoverage, ReviewAvailability),
 	"review.enrollments": () =>
 		request(ApiPaths.reviewEnrollments, ReviewEnrollmentList),
 	"review.enroll": (input: ReviewEnrollmentRequest) =>
-		request(ApiPaths.reviewEnrollments, ReviewEnrollmentSetup, "POST", input),
+		request(ApiPaths.reviewEnrollments, ReviewEnrollment, "POST", input),
 	"review.disable": ({ id }: { id: string }) =>
 		request(ApiPaths.reviewEnrollmentDisable(id), ReviewEnrollment, "POST", {}),
 	"review.runs": ({ cursor }: { cursor?: string }) =>

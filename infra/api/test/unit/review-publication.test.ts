@@ -2,6 +2,7 @@ import type { ReviewFinding, ReviewResult } from "@zuse/contracts";
 import { describe, expect, it, vi } from "vitest";
 import type { ReviewRunRecord } from "../../src/review-domain.ts";
 import { reviewMarker } from "../../src/review-domain.ts";
+import { screenReviewOutput } from "../../src/review-output-screen.ts";
 import {
 	publishReviewPublication,
 	type ReviewGithubRequest,
@@ -339,6 +340,91 @@ describe("trusted review publication", () => {
 				request,
 				screenOutput: async () => false,
 			}),
+		).toEqual({ kind: "rejected" });
+		expect(request).not.toHaveBeenCalled();
+	});
+
+	it("retries a pre-write read outage without losing creation permission", async () => {
+		const base = dependencies();
+		const request = vi.fn(async () => {
+			throw Error("GitHub GET unavailable");
+		});
+		expect(
+			await publishReviewPublication(summary, run, { ...base, request }),
+		).toEqual({ kind: "unwritten" });
+		expect(
+			await publishReviewPublication({ ...summary, mayCreate: false }, run, {
+				...base,
+				request,
+			}),
+		).toEqual({ kind: "ambiguous" });
+	});
+	it("supports an approved exact-head fork while requiring the trusted authorization guard", async () => {
+		const base = dependencies();
+		const forkRun = { ...run, fork: true };
+		const request = vi.fn(async (input: ReviewGithubRequest) =>
+			input.path.endsWith("/pulls/2")
+				? { ...pull, head: { ...pull.head, repo: { id: 99 } } }
+				: base.request(input),
+		);
+		expect(
+			await publishReviewPublication(summary, forkRun, { ...base, request }),
+		).toEqual({ kind: "delivered", githubId: "100" });
+		expect(
+			await publishReviewPublication(summary, forkRun, {
+				...base,
+				request,
+				assertCurrent: async () => false,
+			}),
+		).toEqual({ kind: "stale" });
+	});
+	it("includes findings beyond the five-inline-comment limit in the bounded check summary", async () => {
+		const base = dependencies();
+		const findings = Array.from({ length: 8 }, (_, index) => ({
+			...finding,
+			id: `finding-${index}`,
+			title: `Bug ${index}`,
+		}));
+		const nextResult = { ...result, findings };
+		const request = vi.fn(base.request);
+		expect(
+			await publishReviewPublication(
+				{ ...summary, payload: { kind: "summary", result: nextResult } },
+				{ ...run, result: nextResult },
+				{ ...base, request },
+			),
+		).toEqual({ kind: "delivered", githubId: "100" });
+		expect(
+			JSON.stringify(
+				request.mock.calls.find(([input]) => input.method === "POST")?.[0].body,
+			),
+		).toContain("Bug 7");
+	});
+
+	it("screens raw finding content before Markdown escaping disguises a secret", async () => {
+		const secret = `ghp_${"a".repeat(30)}`;
+		const unsafeFinding = {
+			...finding,
+			explanation: `Accidentally exposed ${secret}`,
+		};
+		const unsafeResult = { ...result, findings: [unsafeFinding] };
+		const request = vi.fn(dependencies().request);
+		expect(
+			await publishReviewPublication(
+				{
+					...inline,
+					payload: {
+						kind: "finding",
+						finding: unsafeFinding,
+						snapshot: result.snapshot,
+					},
+				},
+				{ ...run, result: unsafeResult },
+				dependencies({
+					request,
+					screenOutput: async (text) => screenReviewOutput(text),
+				}),
+			),
 		).toEqual({ kind: "rejected" });
 		expect(request).not.toHaveBeenCalled();
 	});

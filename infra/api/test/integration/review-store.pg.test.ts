@@ -6,6 +6,10 @@ import { Pool } from "pg";
 import { expect, test } from "vitest";
 import type { ReviewComparison } from "../../src/review-domain.ts";
 import {
+	ReviewLifecycleStore,
+	ReviewLifecycleStorePg,
+} from "../../src/review-lifecycle-store.ts";
+import {
 	type ReviewAuthorization,
 	ReviewStore,
 	ReviewStorePg,
@@ -22,7 +26,7 @@ test.skipIf(!url)(
 			connectionString: url,
 			options: `-c search_path=${schema}`,
 		});
-		const layer = ReviewStorePg.pipe(
+		const layer = Layer.merge(ReviewStorePg, ReviewLifecycleStorePg).pipe(
 			Layer.provide(
 				PgClient.layerFrom(
 					PgClient.fromPool({ acquire: Effect.succeed(pool) }),
@@ -52,6 +56,7 @@ test.skipIf(!url)(
 				request: {
 					repositoryId: 1,
 					kind,
+					acknowledgedCharges: true,
 					modelConnectionId: "conn",
 					agentProvider: "codex",
 					model: "model",
@@ -111,6 +116,61 @@ test.skipIf(!url)(
 					4,
 				),
 			).rejects.toThrow();
+			const eventPayload = { installationId: 2, pullNumber: 3 };
+			await store.enqueueEvent(
+				"delivery-a",
+				1,
+				"pull_request",
+				eventPayload,
+				1000,
+			);
+			await store.enqueueEvent(
+				"delivery-b",
+				1,
+				"pull_request",
+				eventPayload,
+				21000,
+			);
+			expect(
+				await store.enqueueEvent(
+					"delivery-b",
+					1,
+					"pull_request",
+					eventPayload,
+					22000,
+				),
+			).toBe(false);
+			expect(await store.claimEvents(31000, 10)).toHaveLength(0);
+			const debounced = await store.claimEvents(51000, 10);
+			expect(debounced).toHaveLength(1);
+			const delivered = debounced[0];
+			if (!delivered) throw Error("missing debounced event");
+			await store.finishEvent(
+				delivered.deliveryId,
+				delivered.leaseToken,
+				51001,
+			);
+			await store.enqueueEvent(
+				"bounded-a",
+				1,
+				"push",
+				{ installationId: 2, baseRef: "main" },
+				100000,
+			);
+			for (let i = 1; i <= 4; i++)
+				await store.enqueueEvent(
+					`bounded-${i}`,
+					1,
+					"push",
+					{ installationId: 2, baseRef: "main" },
+					100000 + i * 25000,
+				);
+			const bounded = await store.claimEvents(220000, 10);
+			expect(bounded).toHaveLength(1);
+			expect(bounded[0]?.deliveryId).toBe("bounded-a");
+			const capped = bounded[0];
+			if (!capped) throw Error("missing bounded event");
+			await store.finishEvent(capped.deliveryId, capped.leaseToken, 220001);
 			const comparison: ReviewComparison = {
 				repositoryId: 1,
 				repositoryFullName: "org/repo",
@@ -190,6 +250,48 @@ test.skipIf(!url)(
 					nowMs: 20,
 				}),
 			).toBe(false);
+			await pool.query(
+				"INSERT INTO api_review_native_connections(id,owner_actor_id,state,data,lease_token,lease_expires_at_ms) VALUES('conn','sponsor','ready','{}',$1,999999)",
+				[lease.leaseToken],
+			);
+			await pool.query(
+				"UPDATE api_review_attempts SET lifecycle=$1::jsonb WHERE id='attempt'",
+				[JSON.stringify({ bootHash: "worker-hash", deadlineMs: 1000 })],
+			);
+			const native = await runtime.runPromise(ReviewLifecycleStore);
+			expect(
+				await native.authenticateAttempt("attempt", "forged-hash", 21),
+			).toBeNull();
+			expect(
+				await native.authenticateAttempt("another-attempt", "worker-hash", 21),
+			).toBeNull();
+			expect(
+				await native.authenticateAttempt("attempt", "worker-hash", 1001),
+			).toBeNull();
+			expect(
+				(await native.authenticateAttempt("attempt", "worker-hash", 21))
+					?.ownerId,
+			).toBe("sponsor");
+			await pool.query(
+				"UPDATE api_review_runs SET lease_token='replacement' WHERE id=$1",
+				[retry.id],
+			);
+			expect(
+				await native.authenticateAttempt("attempt", "worker-hash", 21),
+			).toBeNull();
+			await pool.query(
+				"UPDATE api_review_runs SET lease_token=$1 WHERE id=$2",
+				[lease.leaseToken, retry.id],
+			);
+			await pool.query(
+				"UPDATE api_review_native_connections SET state='revoked' WHERE id='conn'",
+			);
+			expect(
+				await native.authenticateAttempt("attempt", "worker-hash", 21),
+			).toBeNull();
+			await pool.query(
+				"UPDATE api_review_native_connections SET state='ready' WHERE id='conn'",
+			);
 			const result: ReviewResult = {
 				snapshot: {
 					repositoryId: 1,
@@ -230,16 +332,29 @@ test.skipIf(!url)(
 			expect(publications[0]?.mayCreate).toBe(true);
 			const publication = publications[0];
 			if (!publication) throw Error("publication missing");
+
 			await store.finishPublication(
 				publication.id,
 				publication.leaseToken,
 				null,
 				23,
+				"unwritten",
 			);
+			const beforeWrite = await store.claimPublications(60024, 20);
+			expect(beforeWrite[0]?.mayCreate).toBe(true);
+			const beforeWritePublication = beforeWrite[0];
+			if (!beforeWritePublication) throw Error("publication missing");
+			await store.finishPublication(
+				publication.id,
+				beforeWritePublication.leaseToken,
+				null,
+				60025,
+			);
+
 			await runtime.dispose();
 			runtime = ManagedRuntime.make(layer);
 			store = await runtime.runPromise(ReviewStore);
-			const recovered = await store.claimPublications(60024, 20);
+			const recovered = await store.claimPublications(120026, 20);
 			expect(recovered[0]?.mayCreate).toBe(false);
 			const recoveredPublication = recovered[0];
 			if (!recoveredPublication) throw Error("publication missing");
@@ -247,11 +362,38 @@ test.skipIf(!url)(
 				publication.id,
 				recoveredPublication.leaseToken,
 				"github-123",
-				60025,
+				120027,
 			);
 			expect((await store.getRun(retry.id))?.state).toBe("completed");
+			await pool.query(
+				"UPDATE api_review_runs SET state='publishing' WHERE id=$1",
+				[retry.id],
+			);
+			await pool.query(
+				"UPDATE api_review_publications SET state='pending',available_at_ms=120028 WHERE id=$1",
+				[publication.id],
+			);
+			const stale = (await store.claimPublications(120028, 20))[0];
+			if (!stale) throw Error("stale publication missing");
+			await store.finishPublication(
+				stale.id,
+				stale.leaseToken,
+				"github-raced",
+				120029,
+				"superseded",
+			);
+			expect((await store.getRun(retry.id))?.state).toBe("superseded");
+			expect(
+				(
+					await pool.query(
+						"SELECT github_id FROM api_review_publications WHERE id=$1",
+						[stale.id],
+					)
+				).rows[0].github_id,
+			).toBe("github-raced");
+
 			expect(await store.canReadRunArtifacts(retry.id)).toBe(true);
-			await store.disableEnrollment("sponsor", shared.id, 60026);
+			await store.disableEnrollment("sponsor", shared.id, 120030);
 			expect(await store.canReadRunArtifacts(retry.id)).toBe(false);
 			expect(await store.getBillingResource("e2b", "attempt")).toEqual({
 				accountId: "sponsor",
@@ -259,12 +401,12 @@ test.skipIf(!url)(
 			});
 			expect(await store.getBillingResource("other", "attempt")).toBeNull();
 			await store.releaseRepositoryRefresh(1, refreshToken);
-			const nextRefresh = await store.claimRepositoryRefresh(1, 60027);
+			const nextRefresh = await store.claimRepositoryRefresh(1, 120031);
 			expect(nextRefresh).not.toBeNull();
 			await expect(
 				store.createRun(
 					{ ...comparison, headSha: "c".repeat(40) },
-					60028,
+					120032,
 					"automatic",
 					refreshToken,
 				),

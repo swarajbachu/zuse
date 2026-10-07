@@ -111,6 +111,32 @@ const CloudGithubStatus = MemoizeRpcs.toLayerHandler(
 	"cloud.github.status",
 	() => withCloudControl((service) => service.cloudGithubStatus()),
 );
+const ReviewConnectionCreate = MemoizeRpcs.toLayerHandler(
+	"review.connectionCreate",
+	(input) =>
+		withCloudControl((s) => s.review["review.connectionCreate"](input)),
+);
+const ReviewConnection = MemoizeRpcs.toLayerHandler(
+	"review.connection",
+	(input) => withCloudControl((s) => s.review["review.connection"](input)),
+);
+const ReviewConnectionLogin = MemoizeRpcs.toLayerHandler(
+	"review.connectionLogin",
+	(input) => withCloudControl((s) => s.review["review.connectionLogin"](input)),
+);
+const ReviewConnectionComplete = MemoizeRpcs.toLayerHandler(
+	"review.connectionComplete",
+	(input) =>
+		withCloudControl((s) => s.review["review.connectionComplete"](input)),
+);
+const ReviewConnectionRevoke = MemoizeRpcs.toLayerHandler(
+	"review.connectionRevoke",
+	(input) =>
+		withCloudControl((s) => s.review["review.connectionRevoke"](input)),
+);
+const ReviewSetup = MemoizeRpcs.toLayerHandler("review.setup", () =>
+	withCloudControl((s) => s.review["review.setup"]()),
+);
 const ReviewCoverage = MemoizeRpcs.toLayerHandler("review.coverage", () =>
 	withCloudControl((s) => s.review["review.coverage"]()),
 );
@@ -524,6 +550,12 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudAuthLoginPoll,
 	CloudAuthLoginCancel,
 	CloudAuthDisconnect,
+	ReviewConnectionCreate,
+	ReviewConnection,
+	ReviewConnectionLogin,
+	ReviewConnectionComplete,
+	ReviewConnectionRevoke,
+	ReviewSetup,
 	ReviewCoverage,
 	ReviewEnrollments,
 	ReviewEnroll,

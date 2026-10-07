@@ -29315,7 +29315,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 195
+				"line": 196
 			},
 			{
 				"path": "apps/renderer/src/components/settings-page.tsx",
@@ -29343,7 +29343,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 197
+				"line": 198
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29353,7 +29353,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 204
+				"line": 205
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29363,7 +29363,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 311
+				"line": 312
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29373,15 +29373,19 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 232
+				"line": 233
 			},
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 322
+				"line": 323
 			},
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 500
+				"line": 526
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 87
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29390,8 +29394,16 @@
 		"source": "Reviews could not be loaded. Check your account access and try again.",
 		"locations": [
 			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 225
+			},
+			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 317
+				"line": 318
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 83
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29401,7 +29413,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 329
+				"line": 330
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29411,7 +29423,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 330
+				"line": 332
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 248
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29421,7 +29437,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 302
+				"line": 303
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 129
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29431,7 +29451,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 303
+				"line": 304
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29441,7 +29461,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 340
+				"line": 352
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 132
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29451,7 +29475,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 340
+				"line": 352
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 135
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29461,7 +29489,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 340
+				"line": 352
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29471,7 +29499,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 340
+				"line": 352
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29481,7 +29509,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 362
+				"line": 374
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29491,7 +29519,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 350
+				"line": 362
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29501,7 +29529,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 378
+				"line": 404
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29511,7 +29539,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 370
+				"line": 382
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29521,7 +29549,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 377
+				"line": 403
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29531,7 +29559,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 382
+				"line": 408
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29541,7 +29569,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 415
+				"line": 441
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29551,7 +29579,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 474
+				"line": 500
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29561,7 +29589,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 474
+				"line": 500
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29571,7 +29599,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 399
+				"line": 425
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 391
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29581,7 +29613,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 293
+				"line": 294
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29591,7 +29623,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 296
+				"line": 297
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29601,11 +29633,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 214
+				"line": 215
 			},
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 531
+				"line": 645
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29615,7 +29647,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 215
+				"line": 216
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29629,11 +29661,11 @@
 			},
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 228
+				"line": 229
 			},
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 499
+				"line": 525
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29643,7 +29675,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 241
+				"line": 242
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29683,7 +29715,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 492
+				"line": 518
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29693,7 +29725,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 480
+				"line": 506
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29703,7 +29735,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 537
+				"line": 651
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29713,7 +29745,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 540
+				"line": 654
 			},
 			{
 				"path": "apps/renderer/src/lib/review-presentation.ts",
@@ -29817,14 +29849,19 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 243
+				"line": 244
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:review_reconnect": {
-		"source": "Reconnect account",
-		"locations": [],
+		"source": "Reconnect",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 119
+			}
+		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:review_limits": {
@@ -29842,19 +29879,33 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 510
+				"line": 562
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 167
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:review_payer": {
 		"source": "Billed account",
-		"locations": [],
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 178
+			}
+		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:review_agent": {
 		"source": "AI account",
-		"locations": [],
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 143
+			}
+		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:review_runtime": {
@@ -29862,14 +29913,23 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 514
+				"line": 566
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:review_setup": {
 		"source": "Enable automatic reviews",
-		"locations": [],
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 78
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 286
+			}
+		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:review_not_enabled": {
@@ -29877,7 +29937,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 334
+				"line": 346
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29896,7 +29956,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 222
+				"line": 223
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29906,7 +29966,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/review-pane.tsx",
-				"line": 278
+				"line": 279
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -29937,6 +29997,574 @@
 			{
 				"path": "apps/renderer/src/components/review-draft-banner.tsx",
 				"line": 88
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_setup_detail": {
+		"source": "Choose repository coverage, a subscription account and hosted worker. Connecting GitHub alone never enables spending.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 79
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_repository": {
+		"source": "Repository",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 116
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 323
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_model": {
+		"source": "Model",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 157
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_runtime_limit": {
+		"source": "Maximum minutes (1–10)",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 182
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 186
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_cost_limit": {
+		"source": "Per-review limit (USD)",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 197
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 201
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_optional": {
+		"source": "Optional",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 205
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_estimate": {
+		"source": "Estimated maximum compute at the ten-minute limit: ${{amount}}. Final settlement may differ.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 214
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_no_connections": {
+		"source": "No eligible subscription account is available. Connect an approved review account before enabling reviews.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 243
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_spending_ack": {
+		"source": "I authorize this account to pay for worker compute, including indexing, retries, failed and canceled reviews.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 259
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_no_backfill": {
+		"source": "Existing pull requests are not reviewed automatically. Request them explicitly below.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 289
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_request": {
+		"source": "Request a review",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 319
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 403
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_request_detail": {
+		"source": "Review an existing pull request using its enrolled account and compute limits.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 320
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_pull_number": {
+		"source": "Pull request number",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 337
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 341
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_context_limited": {
+		"source": "Repository context was limited.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 542
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_unreviewed": {
+		"source": "Files not reviewed",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 546
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_evidence": {
+		"source": "Evidence",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 624
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_trigger": {
+		"source": "Trigger",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 618
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_consequence": {
+		"source": "Consequence",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 621
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_created": {
+		"source": "Requested {{time}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 531
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_reason": {
+		"source": "Reason: {{reason}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 536
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 539
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_fork_approval": {
+		"source": "Approve a fork pull request",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 355
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_fork_detail": {
+		"source": "Repository administrators can approve a fork for this exact head commit. A new commit requires new approval.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 357
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_head_sha": {
+		"source": "Exact fork head SHA",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 361
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_fork_ack": {
+		"source": "I approve reviewing this exact fork commit.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 376
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_accounts": {
+		"source": "Hosted subscription accounts",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 91
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_accounts_detail": {
+		"source": "Review accounts use a dedicated private native login, separate from your chat accounts. Authentication and repository analysis run separately.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 93
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_account_ready": {
+		"source": "Ready",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 101
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_revoke": {
+		"source": "Revoke",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 138
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_revoke_confirm": {
+		"source": "Revoke this review account and stop its active reviews? Incurred compute remains chargeable.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 126
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_account_label": {
+		"source": "Account label",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 181
+			},
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 184
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_login_charge": {
+		"source": "I authorize hosted authentication compute charged to the billed account shown below, including failed or canceled sign-in.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 194
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_connect_account": {
+		"source": "Connect review account",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 221
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_open_login": {
+		"source": "Open provider sign-in",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 251
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_copy_code": {
+		"source": "Copy verification code",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 289
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_login_provider": {
+		"source": "Sign-in provider",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 145
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_login_size": {
+		"source": "Authentication worker size",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 161
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_callback_detail": {
+		"source": "Complete sign-in in your browser. If redirected to an unavailable localhost page, paste that full callback URL below. It is used only to finish this login.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 256
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_callback_url": {
+		"source": "Browser callback URL",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 259
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_complete_login": {
+		"source": "Complete sign-in",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 282
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_account_new": {
+		"source": "Not signed in",
+		"locations": [],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_account_authenticating": {
+		"source": "Waiting for sign-in",
+		"locations": [],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_account_reconnect": {
+		"source": "Reconnect required",
+		"locations": [],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_account_revoked": {
+		"source": "Revoked",
+		"locations": [],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_login_expires": {
+		"source": "Sign-in expires {{time}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 236
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_reconnect_confirm": {
+		"source": "Start hosted sign-in for this account? Authentication compute is charged to its billed account even if sign-in fails or is canceled.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-native-accounts.tsx",
+				"line": 68
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_connect_github": {
+		"source": "Connect your GitHub identity",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 93
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_connect_github_detail": {
+		"source": "Link GitHub in Account settings, then return and refresh. This does not enable reviews or authorize compute.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 94
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_account_settings": {
+		"source": "Account settings",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-setup.tsx",
+				"line": 104
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_checks": {
+		"source": "Repository checks",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 573
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_checks_detail": {
+		"source": "Checks run separately from the review agent. Passing checks do not establish that the PR is bug-free; failing checks may be pre-existing.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 575
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_checks_none": {
+		"source": "No executable checks completed.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 579
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_check_base": {
+		"source": "Base",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 584
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_check_head": {
+		"source": "Head",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 586
+			}
+		],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_check_passed": {
+		"source": "Passed",
+		"locations": [],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_check_failed": {
+		"source": "Failed",
+		"locations": [],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_check_timeout": {
+		"source": "Timed out",
+		"locations": [],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_check_inconclusive": {
+		"source": "Inconclusive",
+		"locations": [],
+		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"settings:review_exit_code": {
+		"source": "Exit {{code}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/review-pane.tsx",
+				"line": 595
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

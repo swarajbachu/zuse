@@ -45,6 +45,30 @@ export interface ReviewPublication {
 	leaseToken: string;
 }
 export interface ReviewStoreApi {
+	/** Gross compute value with period markup, before included allowance; not an invoice charge. */
+	getRunCosts(
+		ownerId: string,
+		runIds: readonly string[],
+	): Promise<
+		Record<string, { estimatedCostMicros?: number; settledCostMicros?: number }>
+	>;
+	publicationIsCurrent(
+		id: string,
+		leaseToken: string,
+		nowMs: number,
+	): Promise<boolean>;
+	approveFork(
+		repositoryId: number,
+		pullNumber: number,
+		headSha: string,
+		actorId: string,
+		nowMs: number,
+	): Promise<void>;
+	checkForkApproved(
+		repositoryId: number,
+		pullNumber: number,
+		headSha: string,
+	): Promise<boolean>;
 	claimRepositoryRefresh(
 		repositoryId: number,
 		nowMs: number,
@@ -91,6 +115,7 @@ export interface ReviewStoreApi {
 		nowMs: number,
 		generation?: string,
 		refreshToken?: string,
+		authorizedOwnerId?: string,
 	): Promise<ReviewRunRecord | null>;
 	listRuns(
 		ownerId: string,
@@ -158,6 +183,7 @@ export interface ReviewStoreApi {
 		leaseToken: string,
 		githubId: string | null,
 		nowMs: number,
+		disposition?: "ambiguous" | "unwritten" | "superseded",
 	): Promise<void>;
 }
 export class ReviewStore extends Context.Service<ReviewStore, ReviewStoreApi>()(
@@ -225,6 +251,18 @@ export const ReviewStorePg = Layer.effect(
 				sql<RunRow>`SELECT snapshot,state,blocked_reason,updated_at_ms FROM api_review_runs WHERE id=${id}`,
 			).then((rows) => (rows[0] ? runFromRow(rows[0]) : null));
 		const api: ReviewStoreApi = {
+			publicationIsCurrent: (id, token, nowMs) =>
+				run(
+					sql`SELECT p.id FROM api_review_publications p JOIN api_review_runs r ON r.id=p.run_id JOIN api_review_enrollments e ON e.id=r.enrollment_id WHERE p.id=${id} AND p.lease_token=${token} AND p.lease_expires_at_ms>${nowMs} AND p.state='reconcile' AND r.state='publishing' AND e.enabled AND e.version=r.enrollment_version`,
+				).then((rows) => rows.length > 0),
+			approveFork: (repo, pull, sha, actor, nowMs) =>
+				run(
+					sql`INSERT INTO api_review_fork_approvals(repository_id,pull_number,head_sha,actor_id,created_at_ms) VALUES(${repo},${pull},${sha},${actor},${nowMs}) ON CONFLICT(repository_id,pull_number,head_sha) DO NOTHING`,
+				).then(() => undefined),
+			checkForkApproved: (repo, pull, sha) =>
+				run(
+					sql`SELECT head_sha FROM api_review_fork_approvals WHERE repository_id=${repo} AND pull_number=${pull} AND head_sha=${sha}`,
+				).then((rows) => rows.length > 0),
 			claimRepositoryRefresh: (id, nowMs) => {
 				const token = crypto.randomUUID();
 				return run(
@@ -303,8 +341,13 @@ export const ReviewStorePg = Layer.effect(
 									new Error("review_identity_transfer_required"),
 								);
 							yield* sql`INSERT INTO api_review_github_identities(actor_id,github_user_id,verified_at_ms) VALUES(${auth.actor_id},${proof.githubUserId},${nowMs}) ON CONFLICT(actor_id) DO UPDATE SET verified_at_ms=excluded.verified_at_ms`;
+							const previous = yield* sql<{
+								id: string;
+								version: number;
+								created_at_ms: string;
+							}>`SELECT id,version,created_at_ms FROM api_review_enrollments WHERE repository_id=${proof.repositoryId} AND kind=${auth.request.kind} AND owner_id=${auth.owner_id} AND enabled_by=${auth.actor_id} AND (github_user_id IS NOT DISTINCT FROM ${auth.request.kind === "personal" ? proof.githubUserId : null}::bigint) ORDER BY updated_at_ms DESC LIMIT 1`;
 							const e: ReviewEnrollmentRecord = {
-								id: crypto.randomUUID(),
+								id: previous[0]?.id ?? crypto.randomUUID(),
 								repositoryId: proof.repositoryId,
 								repositoryFullName: proof.repositoryFullName,
 								installationId: proof.installationId,
@@ -318,11 +361,14 @@ export const ReviewStorePg = Layer.effect(
 								model: auth.request.model,
 								worker: auth.request.worker,
 								enabled: true,
-								version: 1,
-								createdAtMs: nowMs,
+								version: (previous[0]?.version ?? 0) + 1,
+								createdAtMs: previous[0]
+									? Number(previous[0].created_at_ms)
+									: nowMs,
 								updatedAtMs: nowMs,
 							};
-							yield* sql`INSERT INTO api_review_enrollments(id,repository_id,repository_full_name,installation_id,kind,github_user_id,owner_id,enabled_by,model_connection_id,settings,enabled,version,created_at_ms,updated_at_ms) VALUES(${e.id},${e.repositoryId},${e.repositoryFullName},${e.installationId},${e.kind},${e.githubUserId},${e.ownerId},${e.enabledBy},${e.modelConnectionId},${JSON.stringify({ agentProvider: e.agentProvider, model: e.model, worker: e.worker })}::jsonb,true,1,${nowMs},${nowMs})`;
+							if (previous[0]) yield* cancelEnrollmentRuns(e.id, nowMs);
+							yield* sql`INSERT INTO api_review_enrollments(id,repository_id,repository_full_name,installation_id,kind,github_user_id,owner_id,enabled_by,model_connection_id,settings,enabled,version,created_at_ms,updated_at_ms) VALUES(${e.id},${e.repositoryId},${e.repositoryFullName},${e.installationId},${e.kind},${e.githubUserId},${e.ownerId},${e.enabledBy},${e.modelConnectionId},${JSON.stringify({ agentProvider: e.agentProvider, model: e.model, worker: e.worker })}::jsonb,true,${e.version},${e.createdAtMs},${nowMs}) ON CONFLICT(id) DO UPDATE SET repository_full_name=excluded.repository_full_name,installation_id=excluded.installation_id,model_connection_id=excluded.model_connection_id,settings=excluded.settings,enabled=true,version=excluded.version,updated_at_ms=excluded.updated_at_ms`;
 							yield* sql`UPDATE api_review_authorizations SET consumed_at_ms=${nowMs} WHERE id=${id}`;
 							return e;
 						}),
@@ -345,8 +391,29 @@ export const ReviewStorePg = Layer.effect(
 				),
 			enqueueEvent: (deliveryId, repositoryId, event, payload, nowMs) =>
 				run(
-					sql`INSERT INTO api_review_inbox(delivery_id,repository_id,event,payload,received_at_ms,available_at_ms) SELECT ${deliveryId},${repositoryId},${event},${JSON.stringify(payload)}::jsonb,${nowMs},${nowMs + REVIEW_POLICY.debounceMs} WHERE EXISTS(SELECT 1 FROM api_review_enrollments WHERE repository_id=${repositoryId} AND enabled) ON CONFLICT(delivery_id) DO NOTHING RETURNING delivery_id`,
-				).then((rows) => rows.length === 1),
+					sql.withTransaction(
+						Effect.gen(function* () {
+							yield* lock(repositoryId);
+							const inserted =
+								yield* sql`INSERT INTO api_review_inbox(delivery_id,repository_id,event,payload,received_at_ms,available_at_ms) SELECT ${deliveryId},${repositoryId},${event},${JSON.stringify(payload)}::jsonb,${nowMs},${nowMs + REVIEW_POLICY.debounceMs} WHERE EXISTS(SELECT 1 FROM api_review_enrollments WHERE repository_id=${repositoryId} AND enabled) ON CONFLICT(delivery_id) DO NOTHING RETURNING delivery_id`;
+							if (!inserted.length) return false;
+							const earlier = yield* sql<{
+								delivery_id: string;
+								received_at_ms: string;
+							}>`SELECT delivery_id,received_at_ms FROM api_review_inbox WHERE repository_id=${repositoryId} AND event=${event} AND payload=${JSON.stringify(payload)}::jsonb AND processed_at_ms IS NULL AND lease_token IS NULL AND delivery_id<>${deliveryId} ORDER BY received_at_ms,delivery_id LIMIT 1 FOR UPDATE`;
+							if (earlier[0]) {
+								const due = Math.min(
+									nowMs + REVIEW_POLICY.debounceMs,
+									Number(earlier[0].received_at_ms) +
+										REVIEW_POLICY.maxDebounceMs,
+								);
+								yield* sql`UPDATE api_review_inbox SET available_at_ms=${due} WHERE delivery_id=${earlier[0].delivery_id}`;
+								yield* sql`UPDATE api_review_inbox SET processed_at_ms=${nowMs},error_code='coalesced' WHERE delivery_id=${deliveryId}`;
+							}
+							return true;
+						}),
+					),
+				),
 			claimEvents: (nowMs, limit) =>
 				run(
 					sql<{
@@ -371,7 +438,13 @@ export const ReviewStorePg = Layer.effect(
 				run(
 					sql`UPDATE api_review_inbox SET processed_at_ms=${errorCode ? null : nowMs},error_code=${errorCode ?? null},available_at_ms=${nowMs + 60000},lease_token=NULL,lease_expires_at_ms=NULL WHERE delivery_id=${id} AND lease_token=${token} AND lease_expires_at_ms>${nowMs}`,
 				).then(() => undefined),
-			createRun: (comparison, nowMs, generation = "automatic", refreshToken) =>
+			createRun: (
+				comparison,
+				nowMs,
+				generation = "automatic",
+				refreshToken,
+				authorizedOwnerId,
+			) =>
 				run(
 					sql.withTransaction(
 						Effect.gen(function* () {
@@ -388,7 +461,12 @@ export const ReviewStorePg = Layer.effect(
 								enrollments.map(enrollmentFromRow),
 								comparison.authorGithubUserId,
 							);
-							if (!e) return null;
+							if (
+								!e ||
+								(authorizedOwnerId !== undefined &&
+									e.ownerId !== authorizedOwnerId)
+							)
+								return null;
 							if (e.installationId !== comparison.installationId) return null;
 							const key = reviewComparisonKey(
 								comparison,
@@ -439,7 +517,7 @@ export const ReviewStorePg = Layer.effect(
 				).then((rows) => rows.map((r) => r.id)),
 			renewRun: (id, token, nowMs) =>
 				run(
-					sql`UPDATE api_review_runs r SET lease_expires_at_ms=${nowMs + 60000} WHERE r.id=${id} AND r.lease_token=${token} AND r.lease_expires_at_ms>${nowMs} AND r.state IN ('queued','provisioning','reviewing') AND EXISTS(SELECT 1 FROM api_review_enrollments e WHERE e.id=r.enrollment_id AND e.enabled AND e.version=r.enrollment_version) RETURNING r.id`,
+					sql`UPDATE api_review_runs r SET lease_expires_at_ms=${nowMs + 60000} WHERE r.id=${id} AND r.lease_token=${token} AND (r.lease_expires_at_ms>${nowMs} OR EXISTS(SELECT 1 FROM api_review_attempts a WHERE a.run_id=r.id AND a.lease_token=${token} AND a.stopped_at_ms IS NOT NULL AND a.lifecycle->>'stage'='checking')) AND r.state IN ('queued','provisioning','reviewing') AND EXISTS(SELECT 1 FROM api_review_enrollments e WHERE e.id=r.enrollment_id AND e.enabled AND e.version=r.enrollment_version) RETURNING r.id`,
 				).then((rows) => rows.length > 0),
 			cancelRun: (ownerId, id, nowMs) =>
 				run(
@@ -477,6 +555,40 @@ export const ReviewStorePg = Layer.effect(
 						}),
 					),
 				).then(() => undefined),
+			getRunCosts: (ownerId, runIds) =>
+				runIds.length === 0
+					? Promise.resolve({})
+					: run(sql<{
+							run_id: string;
+							estimate: string;
+							resource_count: string;
+							settled: boolean;
+							cost: string;
+						}>`
+ WITH resources AS (
+ SELECT r.id AS run_id,a.id AS resource_id,a.provider,a.owner_id,a.provider_sandbox_id,a.stopped_at_ms,COALESCE((a.lifecycle->>'maximumCostMicros')::bigint,0) AS estimate
+ FROM api_review_attempts a JOIN api_review_runs r ON r.id=a.run_id WHERE r.owner_id=${ownerId} AND r.id IN ${sql.in(runIds.slice(0, 100))}
+ UNION ALL SELECT r.id,a.id,a.provider,a.owner_id,a.provider_sandbox_id,a.stopped_at_ms,a.maximum_cost_micros FROM api_review_native_activities a JOIN api_review_runs r ON r.id=a.run_id WHERE a.kind='check' AND r.owner_id=${ownerId} AND r.id IN ${sql.in(runIds.slice(0, 100))}
+ ), amounts AS (
+ SELECT r.*,COUNT(u.entry_id) FILTER(WHERE u.status IN ('confirmed','corrected') AND p.period_id IS NOT NULL) AS confirmed,COUNT(u.entry_id) FILTER(WHERE u.status='provisional') AS provisional,CEIL(COALESCE(SUM(u.provider_cost_micros::numeric*(10000+p.markup_basis_points)) FILTER(WHERE u.status IN ('confirmed','corrected')),0)/10000) AS cost
+ FROM resources r LEFT JOIN api_cloud_billing_usage u ON u.account_id=r.owner_id AND u.resource_kind='review' AND u.resource_id=r.resource_id AND u.provider=r.provider LEFT JOIN api_cloud_billing_periods p ON p.period_id=u.period_id AND p.account_id=r.owner_id
+ GROUP BY r.run_id,r.resource_id,r.provider,r.owner_id,r.provider_sandbox_id,r.stopped_at_ms,r.estimate
+ ) SELECT run_id,SUM(estimate) AS estimate,COUNT(*) AS resource_count,BOOL_AND(stopped_at_ms IS NOT NULL AND ((provider_sandbox_id IS NULL AND estimate=0) OR (confirmed>0 AND provisional=0))) AND BOOL_OR(provider_sandbox_id IS NOT NULL) AS settled,SUM(cost) AS cost FROM amounts GROUP BY run_id
+ `).then((rows) =>
+							Object.fromEntries(
+								rows.map((r) => [
+									r.run_id,
+									{
+										...(Number(r.estimate) > 0
+											? { estimatedCostMicros: Number(r.estimate) }
+											: {}),
+										...(r.settled
+											? { settledCostMicros: Math.max(0, Number(r.cost)) }
+											: {}),
+									},
+								]),
+							),
+						),
 			getBillingResource: (provider, id) =>
 				run(
 					sql<{
@@ -503,7 +615,7 @@ export const ReviewStorePg = Layer.effect(
 							yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`review-connection:${r.ownerId}:${r.modelConnectionId}`},0))`;
 							const token = crypto.randomUUID();
 							const claimed =
-								yield* sql`UPDATE api_review_runs r SET lease_token=${token},lease_expires_at_ms=${nowMs + 60000},updated_at_ms=${nowMs} WHERE r.id=${id} AND r.state='queued' AND (r.lease_expires_at_ms IS NULL OR r.lease_expires_at_ms<=${nowMs}) AND EXISTS(SELECT 1 FROM api_review_enrollments e WHERE e.id=r.enrollment_id AND e.enabled AND e.version=r.enrollment_version) AND NOT EXISTS(SELECT 1 FROM api_review_runs other WHERE other.id<>r.id AND other.owner_id=r.owner_id AND other.model_connection_id=r.model_connection_id AND (other.state IN ('provisioning','reviewing') OR other.lease_expires_at_ms>${nowMs})) AND NOT EXISTS(SELECT 1 FROM api_review_attempts a JOIN api_review_runs busy ON busy.id=a.run_id WHERE a.stopped_at_ms IS NULL AND ((busy.repository_id=r.repository_id AND busy.pull_number=r.pull_number) OR (busy.owner_id=r.owner_id AND busy.model_connection_id=r.model_connection_id))) RETURNING id`;
+								yield* sql`UPDATE api_review_runs r SET lease_token=${token},lease_expires_at_ms=${nowMs + 60000},updated_at_ms=${nowMs} WHERE r.id=${id} AND r.state='queued' AND (r.lease_expires_at_ms IS NULL OR r.lease_expires_at_ms<=${nowMs}) AND EXISTS(SELECT 1 FROM api_review_enrollments e WHERE e.id=r.enrollment_id AND e.enabled AND e.version=r.enrollment_version) AND NOT EXISTS(SELECT 1 FROM api_review_runs other WHERE other.id<>r.id AND other.owner_id=r.owner_id AND other.model_connection_id=r.model_connection_id AND (other.state IN ('provisioning','reviewing') OR other.lease_expires_at_ms>${nowMs})) AND NOT EXISTS(SELECT 1 FROM api_review_attempts a JOIN api_review_runs busy ON busy.id=a.run_id WHERE (a.stopped_at_ms IS NULL OR a.lifecycle->>'stage'='checking') AND ((busy.repository_id=r.repository_id AND busy.pull_number=r.pull_number) OR (busy.owner_id=r.owner_id AND busy.model_connection_id=r.model_connection_id))) RETURNING id`;
 							return claimed.length ? { run: r, leaseToken: token } : null;
 						}),
 					),
@@ -620,12 +732,26 @@ export const ReviewStorePg = Layer.effect(
 				),
 			cancelPublication: (id, token, nowMs) =>
 				run(
-					sql`UPDATE api_review_publications SET state='cancelled',lease_token=NULL,lease_expires_at_ms=NULL WHERE id=${id} AND lease_token=${token} AND lease_expires_at_ms>${nowMs}`,
+					sql`WITH cancelled AS (UPDATE api_review_publications SET state='cancelled',lease_token=NULL,lease_expires_at_ms=NULL WHERE id=${id} AND lease_token=${token} AND lease_expires_at_ms>${nowMs} RETURNING run_id) UPDATE api_review_runs SET state='blocked',blocked_reason='review_publication_rejected',updated_at_ms=${nowMs} WHERE id IN (SELECT run_id FROM cancelled) AND state='publishing'`,
 				).then(() => undefined),
-			finishPublication: (id, token, githubId, nowMs) =>
+			finishPublication: (
+				id,
+				token,
+				githubId,
+				nowMs,
+				disposition = "ambiguous",
+			) =>
 				run(
 					sql.withTransaction(
 						Effect.gen(function* () {
+							if (disposition === "unwritten") {
+								yield* sql`UPDATE api_review_publications SET state='pending',retry_count=retry_count+1,available_at_ms=${nowMs + 60000},lease_token=NULL,lease_expires_at_ms=NULL WHERE id=${id} AND lease_token=${token} AND lease_expires_at_ms>${nowMs} AND state='reconcile' AND github_id IS NULL`;
+								return;
+							}
+							if (disposition === "superseded") {
+								yield* sql`WITH stale AS (UPDATE api_review_publications SET state='cancelled',github_id=COALESCE(${githubId},github_id),lease_token=NULL,lease_expires_at_ms=NULL WHERE id=${id} AND lease_token=${token} AND lease_expires_at_ms>${nowMs} AND state='reconcile' RETURNING run_id) UPDATE api_review_runs SET state='superseded',updated_at_ms=${nowMs} WHERE id IN (SELECT run_id FROM stale) AND state='publishing'`;
+								return;
+							}
 							const rows = yield* sql<{
 								run_id: string;
 							}>`UPDATE api_review_publications SET state=${githubId ? "delivered" : "reconcile"},retry_count=retry_count+${githubId ? 0 : 1},github_id=${githubId},available_at_ms=${nowMs + 60000},lease_token=NULL,lease_expires_at_ms=NULL WHERE id=${id} AND lease_token=${token} AND lease_expires_at_ms>${nowMs} AND state='reconcile' RETURNING run_id`;

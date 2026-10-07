@@ -30,6 +30,7 @@ export type ReviewPublicationOutcome =
 	| { readonly kind: "delivered"; readonly githubId: string }
 	| { readonly kind: "stale"; readonly githubId?: string }
 	| { readonly kind: "ambiguous" }
+	| { readonly kind: "unwritten" }
 	| { readonly kind: "rejected" };
 
 const record = (value: unknown): Record<string, unknown> | null =>
@@ -73,6 +74,32 @@ function trustedLink(
 	return value;
 }
 
+function rawResultText(result: ReviewResult): string {
+	return [
+		result.reason,
+		result.checksReason,
+		...result.findings.flatMap((finding) => [
+			finding.title,
+			finding.explanation,
+			finding.trigger,
+			finding.consequence,
+			finding.location.path,
+			...finding.evidence.flatMap((evidence) => [
+				evidence.path,
+				evidence.quote,
+			]),
+		]),
+		...(result.checks ?? []).flatMap((check) => [
+			check.script,
+			check.command,
+			check.base.output,
+			check.head.output,
+		]),
+	]
+		.filter((value) => value !== undefined)
+		.join("\n");
+}
+
 function sameSnapshot(snapshot: ReviewSnapshot, run: ReviewRunRecord): boolean {
 	return (
 		snapshot.repositoryId === run.repositoryId &&
@@ -92,8 +119,7 @@ function prepare(
 		publication.runId !== run.id ||
 		publication.marker !== reviewMarker(run.id, publication.id) ||
 		run.state !== "publishing" ||
-		!run.result ||
-		run.fork
+		!run.result
 	)
 		throw new Error("Invalid review publication binding");
 	const payload = record(publication.payload);
@@ -109,7 +135,25 @@ function prepare(
 			result.status === "partial"
 				? "Review incomplete"
 				: `${result.findings.length} verified findings`;
-		const summary = `${result.status === "partial" ? "Partial review" : "Review completed"}. Reviewed ${coverage.reviewedFiles} of ${coverage.eligibleFiles} eligible files; ${coverage.excludedFiles} excluded.\n\n[Open in Zuse](${trustedLink(deps, run.id)})\n\n${publication.marker}`;
+		let summary = `${result.status === "partial" ? "Partial review" : "Review completed"}. Reviewed ${coverage.reviewedFiles} of ${coverage.eligibleFiles} eligible files; ${coverage.excludedFiles} excluded.\n\n[Open all findings in Zuse](${trustedLink(deps, run.id)})\n\n${publication.marker}`;
+
+		if (result.checks?.length) {
+			summary +=
+				"\n\nRepository checks (passing does not prove absence of bugs):";
+			for (const check of result.checks)
+				summary += `\n- ${reviewPlainText(check.script, 128)}: base ${check.base.status}; head ${check.head.status}`;
+		} else summary += "\n\nNo executable checks completed.";
+		if (result.checksReason)
+			summary += `\n${reviewPlainText(result.checksReason, 256)}`;
+		let rendered = 0;
+		for (const finding of result.findings) {
+			const entry = `\n\n**${reviewPlainText(finding.severity, 20)}: ${reviewPlainText(finding.title, 180)}** — ${reviewPlainText(finding.location.path, 240)}:${finding.location.startLine}\n\n${reviewPlainText(finding.explanation, 700)}\n\nTrigger: ${reviewPlainText(finding.trigger, 300)}\n\nConsequence: ${reviewPlainText(finding.consequence, 300)}`;
+			if (new TextEncoder().encode(summary + entry).length > 60000) break;
+			summary += entry;
+			rendered++;
+		}
+		if (rendered < result.findings.length)
+			summary += `\n\n${result.findings.length - rendered} additional verified findings are available in Zuse (GitHub summary size limit).`;
 		return {
 			kind: "summary" as const,
 			body: {
@@ -166,7 +210,7 @@ function prepare(
 }
 
 /** One outbox item per call. Retrying publication has no access to analysis. */
-export async function publishReviewPublication(
+async function publishReviewPublicationInternal(
 	publication: ReviewPublication,
 	run: ReviewRunRecord,
 	deps: ReviewPublicationDependencies,
@@ -184,7 +228,14 @@ export async function publishReviewPublication(
 		!numericId(run.pullNumber)
 	)
 		return { kind: "rejected" };
-	if (!(await deps.screenOutput(prepared.text))) return { kind: "rejected" };
+	// Screen original content too: Markdown escaping can split recognizable secret formats.
+	if (
+		!(await deps.screenOutput(
+			rawResultText(Schema.decodeUnknownSync(ReviewResult)(run.result)),
+		)) ||
+		!(await deps.screenOutput(prepared.text))
+	)
+		return { kind: "rejected" };
 	const repository = `/repos/${run.repositoryFullName}`;
 	const comments = `${repository}/pulls/${run.pullNumber}/comments`;
 	const current = async () => {
@@ -203,7 +254,10 @@ export async function publishReviewPublication(
 			base?.sha === run.baseSha &&
 			base?.ref === run.baseRef &&
 			record(base?.repo)?.id === run.repositoryId &&
-			record(head?.repo)?.id === run.repositoryId
+			(run.fork
+				? numericId(record(head?.repo)?.id) !== null &&
+					record(head?.repo)?.id !== run.repositoryId
+				: record(head?.repo)?.id === run.repositoryId)
 		);
 	};
 	const reconcile = async (): Promise<{
@@ -290,4 +344,27 @@ export async function publishReviewPublication(
 	return (await current())
 		? { kind: "delivered", githubId }
 		: { kind: "stale", githubId };
+}
+
+/** Transport failures before any write preserve the initial creation permission. */
+export async function publishReviewPublication(
+	publication: ReviewPublication,
+	run: ReviewRunRecord,
+	deps: ReviewPublicationDependencies,
+): Promise<ReviewPublicationOutcome> {
+	let writeAttempted = false;
+	try {
+		return await publishReviewPublicationInternal(publication, run, {
+			...deps,
+			request: (request) => {
+				if (request.method !== "GET") writeAttempted = true;
+				return deps.request(request);
+			},
+		});
+	} catch {
+		return {
+			kind:
+				!writeAttempted && publication.mayCreate ? "unwritten" : "ambiguous",
+		};
+	}
 }

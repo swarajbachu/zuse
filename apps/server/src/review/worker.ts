@@ -1,3 +1,4 @@
+import type { NativeReviewProfile } from "@zuse/agents/review/claude-profile";
 import { getReviewProviderEligibility } from "@zuse/agents/review/eligibility";
 import type { ReviewResult, ReviewSnapshot } from "@zuse/contracts";
 import {
@@ -7,6 +8,7 @@ import {
 	runReview,
 	type VerifierInput,
 } from "@zuse/review";
+import { createNativeReviewFactory } from "./native-adapter.ts";
 
 export interface ReviewWorkerBinding {
 	readonly runId: string;
@@ -53,12 +55,16 @@ export class ReviewProviderUnavailableError extends Error {
 	}
 }
 
-/** Production entry point: there is no approved native subscription profile yet. */
+/** Production admission gate. The native implementation is shared with staging. */
 export async function runNativeReviewWorker(
 	input: ReviewWorkerInput,
+	profile?: NativeReviewProfile,
 ): Promise<ReviewWorkerArtifact> {
 	const eligibility = getReviewProviderEligibility(input.binding.providerId);
-	throw new ReviewProviderUnavailableError(eligibility.reasons);
+	if (eligibility.status === "blocked")
+		throw new ReviewProviderUnavailableError(eligibility.reasons);
+	if (!profile) throw new Error("Native review profile required");
+	return runReviewWithAdapter(input, createNativeReviewFactory(profile));
 }
 
 function validateBinding(input: ReviewWorkerInput): void {

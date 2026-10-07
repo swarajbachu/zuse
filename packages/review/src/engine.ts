@@ -18,7 +18,7 @@ import {
 	type ReviewLimits,
 } from "./types.ts";
 
-const Investigation = Schema.Struct({
+export const Investigation = Schema.Struct({
 	findings: Schema.Array(ReviewFinding).check(Schema.isMaxLength(100)),
 	reviewedPaths: Schema.Array(Schema.String).check(Schema.isMaxLength(50000)),
 });

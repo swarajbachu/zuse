@@ -39,7 +39,12 @@ const server = await createServer({
 				if (id.startsWith("\0review-fixture-")) return id;
 				const subject =
 					importer?.includes("review-pane.tsx") ||
+					importer?.includes("review-setup.tsx") ||
+					importer?.includes("review-native-accounts.tsx") ||
+					importer?.includes("review-link-accept.tsx") ||
 					importer?.includes("review-draft-banner.tsx");
+				if (subject && id.endsWith("platform-capabilities.ts"))
+					return virtual("platform");
 				if (subject && id.endsWith("use-auth.ts")) return virtual("auth");
 				if (subject && id.endsWith("control-plane-client.ts"))
 					return virtual("client");
@@ -56,6 +61,8 @@ const server = await createServer({
 					return virtual("composer");
 			},
 			load(id) {
+				if (id === virtual("platform"))
+					return `export const openExternal=async(url)=>{window.fixture.openedUrl=url};`;
 				if (id === virtual("auth"))
 					return `
         import {useSyncExternalStore} from 'react';
@@ -70,13 +77,19 @@ const server = await createServer({
 				if (id === virtual("chats"))
 					return `export const useChatsStore={getState:()=>({select:id=>{window.fixture.selectedChat=id}})};`;
 				if (id === virtual("ui"))
-					return `export const useUiStore={getState:()=>({setView:view=>{window.fixture.view=view;window.dispatchEvent(new Event('fixture-view'))}})};`;
+					return `export const useUiStore={getState:()=>({setSettingsSection:section=>{window.fixture.section=section},setView:view=>{window.fixture.view=view;window.dispatchEvent(new Event('fixture-view'))}})};`;
 				if (id === virtual("composer"))
 					return `export const useComposerDraftsStore={getState:()=>({addContext:(key,context)=>{window.fixture.contexts.push({key,context});window.dispatchEvent(new Event('fixture-context'))}})};`;
 				if (id === virtual("client"))
 					return `export const runCloudControl=operation=>operation(new Proxy({}, {get:(_target,name)=>async input=>{
         window.fixture.requests.push({name,input});
-        if(name==='review.coverage')return {available:false,reason:'provider_verification_required',providers:[],enrollments:[]};
+        if(name==='review.coverage')return {available:window.fixture.available,reason:'provider_verification_required',providers:[{provider:'claude',available:window.fixture.available,reasons:[]}],enrollments:window.fixture.enrollments};
+ if(name==='review.setup')return {repositories:[{id:1,fullName:'example/review-fixture',canAdminister:true}],connections:[{id:'native-account',label:'Review Claude',agentProvider:'claude',models:['sonnet'],available:true,reasons:[]}],placements:[{provider:'e2b',size:'small',label:'E2B small',available:true,reasons:[],estimatedMaxCostMicros:25000}],payer:{id:'fixture-account',label:'My account'},identity:{githubUserId:7,login:'fixture'}};
+ if(name==='review.enroll'){const enrollment={...input,id:'enrollment',repositoryFullName:'example/review-fixture',enabled:true};window.fixture.enrollments=[enrollment];return enrollment;}
+ if(name==='review.request')return window.fixture.runs[0];
+ if(name==='review.connectionCreate')return {id:'new-native',label:input.label,agentProvider:'claude',state:'new'};
+ if(name==='review.connectionLogin'||name==='review.connection')return {id:input.id,label:'Native login',agentProvider:'claude',state:'authenticating',verificationUrl:'https://claude.ai/oauth/authorize?fixture=1'};
+ if(name==='review.connectionComplete')return {id:input.id,label:'Native login',agentProvider:'claude',state:'ready'};
         if(name==='review.runs')return {items:window.fixture.runs.map(({result,...summary})=>summary)};
         if(name==='review.get')return window.fixture.runs.find(run=>run.id===input.id);
         if(name==='review.fixContext')return window.fixture.context;
@@ -87,20 +100,21 @@ const server = await createServer({
         import React,{useEffect,useState} from 'react';
         import {createRoot} from 'react-dom/client';
         import {ReviewPane} from '/src/components/settings/review-pane.tsx';
+ import {ReviewLinkAccept} from '/src/components/review-link-accept.tsx';
         import {ReviewDraftBanner} from '/src/components/review-draft-banner.tsx';
         import {useReviewHandoffStore} from '/src/store/review-handoff.ts';
         import '/src/styles.css';
         const snapshot={repositoryId:1,baseRef:'main',baseSha:'a'.repeat(40),mergeBaseSha:'a'.repeat(40),headSha:'b'.repeat(40)};
         const finding={id:'finding-1',severity:'high',title:'Guard absent before dereference',explanation:'An empty response can reach the caller.',trigger:'Empty response',consequence:'Caller throws',location:{path:'src/read.ts',side:'RIGHT',startLine:2,endLine:2},evidence:[{path:'src/read.ts',side:'RIGHT',startLine:2,endLine:2,quote:'return response.value'}]};
         const base={repositoryId:1,repositoryFullName:'example/review-fixture',pullNumber:42,baseRef:'main',baseSha:snapshot.baseSha,headSha:snapshot.headSha,enrollmentId:'enrollment',enrollmentVersion:1,ownerId:'fixture-account',modelConnectionId:'fixture-connection',agentProvider:'codex',model:'fixture-model',worker:{provider:'e2b',size:'small',maxRuntimeMs:600000},createdAtMs:1,updatedAtMs:2};
-        const partial={snapshot,status:'partial',reason:'coverage_limit',findings:[finding],coverage:{eligibleFiles:4,reviewedFiles:2,excludedFiles:1,unreviewedPaths:['src/other.ts','src/test.ts'],contextLimited:false}};
-        window.fixture={requests:[],contexts:[],view:'settings',runs:[{...base,id:'run-partial',state:'partial',result:partial},{...base,id:'run-complete',pullNumber:43,state:'completed',result:{...partial,status:'completed',reason:undefined,findings:[],coverage:{...partial.coverage,reviewedFiles:4,unreviewedPaths:[]}}},{...base,id:'run-blocked',pullNumber:44,state:'blocked',blockedReason:'provider_verification_required'}],context:{runId:'run-partial',repositoryId:1,repositoryFullName:base.repositoryFullName,pullNumber:42,snapshot,findings:[finding,{...finding,id:'finding-2',title:'Unselected finding'}],currentHeadSha:'c'.repeat(40)}};
-        useReviewHandoffStore.getState().accept({runId:'run-partial',findingId:'finding-1'});
+        const partial={checks:[{script:'test',command:'npm test',base:{status:'passed',exitCode:0,output:'base ok'},head:{status:'failed',exitCode:1,output:'<script>untrusted log</script>'}}],snapshot,status:'partial',reason:'coverage_limit',findings:[finding],coverage:{eligibleFiles:4,reviewedFiles:2,excludedFiles:1,unreviewedPaths:['src/other.ts','src/test.ts'],contextLimited:false}};
+        window.fixture={available:false,enrollments:[],requests:[],contexts:[],view:'settings',runs:[{...base,id:'run-partial',state:'partial',result:partial},{...base,id:'run-complete',pullNumber:43,state:'completed',result:{...partial,status:'completed',reason:undefined,findings:[],coverage:{...partial.coverage,reviewedFiles:4,unreviewedPaths:[]}}},{...base,id:'run-blocked',pullNumber:44,state:'blocked',blockedReason:'provider_verification_required'}],context:{runId:'run-partial',repositoryId:1,repositoryFullName:base.repositoryFullName,pullNumber:42,snapshot,findings:[finding,{...finding,id:'finding-2',title:'Unselected finding'}],currentHeadSha:'c'.repeat(40)}};
+
         document.documentElement.classList.add('dark');
         function Fixture(){
           const [view,setView]=useState('settings'); const [repository,setRepository]=useState('github.com/example/wrong'); const [count,setCount]=useState(0);
           useEffect(()=>{const onView=()=>setView(window.fixture.view); const onContext=()=>setCount(window.fixture.contexts.length);window.addEventListener('fixture-view',onView);window.addEventListener('fixture-context',onContext);return()=>{window.removeEventListener('fixture-view',onView);window.removeEventListener('fixture-context',onContext)}},[]);
-          return React.createElement('main',{style:{padding:16,width:'100%',boxSizing:'border-box'}}, view==='settings'?React.createElement(ReviewPane):React.createElement(React.Fragment,null,
+          return React.createElement('main',{style:{padding:16,width:'100%',boxSizing:'border-box'}}, React.createElement(ReviewLinkAccept),view==='settings'?React.createElement(ReviewPane):React.createElement(React.Fragment,null,
             React.createElement('label',null,'Fixture destination',React.createElement('select',{'aria-label':'Fixture destination',value:repository,onChange:event=>setRepository(event.target.value)},React.createElement('option',{value:'github.com/example/wrong'},'Other repository'),React.createElement('option',{value:'github.com/example/review-fixture'},'Review repository'))),
             React.createElement(ReviewDraftBanner,{draftKey:'fixture-draft',repositoryIdentity:repository}),React.createElement('p',null,'Attached contexts: '+count)));
         }
@@ -121,12 +135,13 @@ try {
 	const errors = [];
 	page.on("pageerror", (error) => errors.push(error.message));
 	await page.goto(
-		`http://127.0.0.1:${server.httpServer.address().port}/__review`,
+		`http://127.0.0.1:${server.httpServer.address().port}/__review?reviewRunId=run-partial&reviewFindingId=finding-1&fixture=keep`,
 	);
 	await page
 		.getByRole("button", { name: "Sign in", exact: true })
 		.waitFor({ timeout: 30000 });
 	assert.deepEqual(await page.evaluate(() => window.fixture.requests), []);
+	assert.equal(new URL(page.url()).search, "?fixture=keep");
 	await page.getByRole("button", { name: "Sign in", exact: true }).click();
 	await page
 		.getByText("Automatic reviews are not available yet", { exact: true })
@@ -154,6 +169,126 @@ try {
 	assert.equal(await retries.count(), 3);
 	for (const retry of await retries.all())
 		assert.equal(await retry.isDisabled(), true);
+	// Enablement always requires explicit reviewed choices and spending acknowledgement.
+	await page.evaluate(() => {
+		window.fixture.available = true;
+	});
+	await page.getByRole("button", { name: "Refresh", exact: true }).click();
+	const selectChoice = async (label, option) => {
+		await page
+			.getByRole("combobox", { name: label, exact: true })
+			.first()
+			.click();
+		await page.getByRole("option", { name: option, exact: true }).click();
+	};
+	await selectChoice("Repository", "example/review-fixture");
+	await selectChoice("AI account", "Review Claude");
+	await selectChoice("Model", "sonnet");
+	await selectChoice("Worker", "E2B small");
+	const enable = page.getByRole("button", {
+		name: "Enable automatic reviews",
+		exact: true,
+	});
+	assert.equal(await enable.isDisabled(), true);
+	await page
+		.getByRole("checkbox", { name: /I authorize this account/ })
+		.check();
+	assert.equal(await enable.isEnabled(), true);
+	await page
+		.getByRole("spinbutton", { name: "Maximum minutes (1–10)", exact: true })
+		.fill("5");
+	assert.equal(await enable.isDisabled(), true);
+	await page
+		.getByRole("checkbox", { name: /I authorize this account/ })
+		.check();
+	await enable.click();
+	await page
+		.getByRole("button", { name: "Disable and stop reviews", exact: true })
+		.waitFor();
+	const enrollment = await page.evaluate(
+		() =>
+			window.fixture.requests.find((item) => item.name === "review.enroll")
+				.input,
+	);
+	assert.equal(enrollment.acknowledgedCharges, true);
+	assert.equal(enrollment.worker.maxRuntimeMs, 300000);
+	assert.equal(enrollment.modelConnectionId, "native-account");
+	await page
+		.getByRole("combobox", { name: "Repository", exact: true })
+		.nth(1)
+		.click();
+	await page
+		.getByRole("option", { name: "example/review-fixture", exact: true })
+		.click();
+	await page
+		.getByRole("spinbutton", { name: "Pull request number", exact: true })
+		.fill("42");
+	await page.getByText("Approve a fork pull request", { exact: true }).click();
+	await page
+		.getByRole("textbox", { name: "Exact fork head SHA", exact: true })
+		.fill("b".repeat(40));
+	await page
+		.getByRole("checkbox", {
+			name: "I approve reviewing this exact fork commit.",
+			exact: true,
+		})
+		.check();
+	page.once("dialog", (dialog) => dialog.accept());
+	await page
+		.getByRole("button", { name: "Request a review", exact: true })
+		.click();
+	await page.waitForFunction(() =>
+		window.fixture.requests.some((item) => item.name === "review.request"),
+	);
+	const reviewRequest = await page.evaluate(
+		() =>
+			window.fixture.requests.find((item) => item.name === "review.request")
+				.input,
+	);
+	assert.equal(reviewRequest.expectedHeadSha, "b".repeat(40));
+	assert.equal(reviewRequest.approveFork, true);
+	assert.equal(reviewRequest.pullNumber, 42);
+	await page.getByText("Hosted subscription accounts", { exact: true }).click();
+	await selectChoice("Sign-in provider", "claude");
+	await selectChoice("Authentication worker size", "small");
+	await page
+		.getByRole("textbox", { name: "Account label", exact: true })
+		.fill("Native login");
+	assert.equal(
+		await page
+			.getByRole("button", { name: "Connect review account", exact: true })
+			.isDisabled(),
+		true,
+	);
+	await page
+		.getByRole("checkbox", {
+			name: /I authorize hosted authentication compute/,
+		})
+		.check();
+	await page
+		.getByRole("button", { name: "Connect review account", exact: true })
+		.click();
+	await page
+		.getByRole("button", { name: "Open provider sign-in", exact: true })
+		.click();
+	assert.equal(
+		await page.evaluate(() => window.fixture.openedUrl),
+		"https://claude.ai/oauth/authorize?fixture=1",
+	);
+	await page
+		.getByRole("textbox", { name: "Browser callback URL", exact: true })
+		.fill("http://localhost:1234/callback?code=fixture&state=fixture");
+	await page
+		.getByRole("button", { name: "Complete sign-in", exact: true })
+		.click();
+	await page.getByText("Native login: Ready", { exact: true }).waitFor();
+	assert.equal(
+		await page
+			.getByRole("textbox", { name: "Browser callback URL", exact: true })
+			.count(),
+		0,
+	);
+
 	const details = page.locator("summary").filter({ hasText: "Review details" });
 	await details.nth(0).focus();
 	await page.keyboard.press("Enter");
@@ -163,6 +298,15 @@ try {
 	);
 	await page
 		.getByText("Reviewed 2 of 4 eligible files; 1 excluded.", { exact: true })
+		.waitFor();
+
+	await page
+		.getByText("test · Base: Passed · Head: Failed", { exact: true })
+		.first()
+		.click();
+	await page
+		.getByText("<script>untrusted log</script>", { exact: true })
+		.first()
 		.waitFor();
 	await page
 		.getByText("Maximum worker runtime: 10 minutes", { exact: true })
@@ -219,6 +363,13 @@ try {
 	assert.ok(
 		captured.requests.every((request) =>
 			[
+				"review.setup",
+				"review.enroll",
+				"review.request",
+				"review.connectionCreate",
+				"review.connectionLogin",
+				"review.connection",
+				"review.connectionComplete",
 				"review.coverage",
 				"review.runs",
 				"review.get",

@@ -304,6 +304,11 @@ import {
 } from "./repository-settings.ts";
 import {
 	ReviewCancelRpc,
+	ReviewConnectionCompleteRpc,
+	ReviewConnectionCreateRpc,
+	ReviewConnectionGetRpc,
+	ReviewConnectionLoginRpc,
+	ReviewConnectionRevokeRpc,
 	ReviewCoverageRpc,
 	ReviewDisableRpc,
 	ReviewEnrollmentsRpc,
@@ -313,6 +318,7 @@ import {
 	ReviewRequestRpc,
 	ReviewRetryRpc,
 	ReviewRunsRpc,
+	ReviewSetupRpc,
 } from "./review.ts";
 import { RpcAuthorization } from "./rpc-authorization.ts";
 import {
@@ -438,6 +444,12 @@ export const MemoizeRpcs = RpcGroup.make(
 	AcpTestRpc,
 	AcpInstallRpc,
 	AcpAuthenticateRpc,
+	ReviewConnectionCreateRpc,
+	ReviewConnectionGetRpc,
+	ReviewConnectionLoginRpc,
+	ReviewConnectionCompleteRpc,
+	ReviewConnectionRevokeRpc,
+	ReviewSetupRpc,
 	ReviewCoverageRpc,
 	ReviewEnrollmentsRpc,
 	ReviewEnrollRpc,

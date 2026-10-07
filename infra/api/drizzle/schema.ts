@@ -1656,6 +1656,11 @@ export const apiReviewAttempts = pgTable(
 		providerSandboxId: text("provider_sandbox_id"),
 		allocatedAtMs: bigint("allocated_at_ms", { mode: "number" }),
 		stoppedAtMs: bigint("stopped_at_ms", { mode: "number" }),
+		lifecycle: jsonb("lifecycle").notNull().default({}),
+		supervisorToken: text("supervisor_token"),
+		supervisorExpiresAtMs: bigint("supervisor_expires_at_ms", {
+			mode: "number",
+		}),
 		maximumLifetimeMs: bigint("maximum_lifetime_ms", {
 			mode: "number",
 		}).notNull(),
@@ -1664,7 +1669,6 @@ export const apiReviewAttempts = pgTable(
 	},
 	(table) => [
 		unique().on(table.runId, table.ordinal),
-		unique().on(table.provider, table.providerSandboxId),
 		check("api_review_attempt_ordinal", sql`${table.ordinal} BETWEEN 1 AND 2`),
 		check(
 			"api_review_attempt_lifetime",
@@ -1708,4 +1712,69 @@ export const apiReviewRepositoryLeases = pgTable(
 		token: text("token").notNull(),
 		expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(),
 	},
+);
+
+export const apiReviewNativeConnections = pgTable(
+	"api_review_native_connections",
+	{
+		id: text("id").primaryKey(),
+		ownerActorId: text("owner_actor_id").notNull(),
+		state: text("state").notNull(),
+		data: jsonb("data").notNull(),
+		leaseToken: text("lease_token"),
+		leaseExpiresAtMs: bigint("lease_expires_at_ms", { mode: "number" }),
+	},
+	(t) => [
+		index("api_review_native_connections_actor").on(t.ownerActorId),
+		check(
+			"api_review_native_connection_state",
+			sql`${t.state} IN ('login-required','authenticating','ready','revoked','lost')`,
+		),
+	],
+);
+export const apiReviewForkApprovals = pgTable(
+	"api_review_fork_approvals",
+	{
+		repositoryId: bigint("repository_id", { mode: "number" }).notNull(),
+		pullNumber: integer("pull_number").notNull(),
+		headSha: text("head_sha").notNull(),
+		actorId: text("actor_id").notNull(),
+		createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.repositoryId, t.pullNumber, t.headSha] })],
+);
+
+export const apiReviewNativeActivities = pgTable(
+	"api_review_native_activities",
+	{
+		kind: text("kind").notNull().default("login"),
+		runId: text("run_id").references(() => apiReviewRuns.id),
+		attemptId: text("attempt_id").references(() => apiReviewAttempts.id),
+		size: text("size"),
+		id: text("id").primaryKey(),
+		connectionId: text("connection_id")
+			.notNull()
+			.references(() => apiReviewNativeConnections.id),
+		ownerId: text("owner_id").notNull(),
+		provider: text("provider").notNull(),
+		providerSandboxId: text("provider_sandbox_id"),
+		startedAtMs: bigint("started_at_ms", { mode: "number" }).notNull(),
+		stoppedAtMs: bigint("stopped_at_ms", { mode: "number" }),
+		deadlineMs: bigint("deadline_ms", { mode: "number" }).notNull(),
+		maximumCostMicros: bigint("maximum_cost_micros", {
+			mode: "number",
+		}).notNull(),
+		state: text("state").notNull(),
+	},
+	(t) => [
+		index("api_review_native_activity_open_idx").on(t.state, t.deadlineMs),
+		check(
+			"api_review_native_activity_kind",
+			sql`${t.kind} IN ('login','check')`,
+		),
+		check(
+			"api_review_native_activity_state",
+			sql`${t.state} IN ('admitted','running','stopped','unknown')`,
+		),
+	],
 );
