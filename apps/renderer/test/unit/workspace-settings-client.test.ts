@@ -353,3 +353,30 @@ it("clears revoked access and rejects an older successful write response", async
 	await expect(write).rejects.toThrow("access changed");
 	expect(useWorkspaceSettingsState.getState().data).toBeNull();
 });
+
+it("shows an organization's cached settings at once when switching back, then revalidates", async () => {
+	await loadWorkspaceSettings();
+	selectRendererWorkspace({ kind: "organization", organizationId: "org_b" });
+	expect(useWorkspaceSettingsState.getState().data).toBeNull();
+	selectRendererWorkspace({ kind: "organization", organizationId: "org_a" });
+	expect(useWorkspaceSettingsState.getState()).toMatchObject({
+		data: { revision: 1, values: { branchNamingPrefix: "a" } },
+		origin: "cache",
+	});
+	// Cached settings are display-only; readers still get a live copy.
+	mocks.read.mockReturnValue(
+		Effect.succeed({ revision: 2, values: { branchNamingPrefix: "a2" } }),
+	);
+	expect(await loadWorkspaceSettings()).toEqual({
+		revision: 2,
+		values: { branchNamingPrefix: "a2" },
+	});
+	expect(useWorkspaceSettingsState.getState().origin).toBe("runtime");
+});
+
+it("never shows another account's cached organization settings", async () => {
+	await loadWorkspaceSettings();
+	observeRendererAccount("bob");
+	selectRendererWorkspace({ kind: "organization", organizationId: "org_a" });
+	expect(useWorkspaceSettingsState.getState().data).toBeNull();
+});

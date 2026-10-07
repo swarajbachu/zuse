@@ -9,7 +9,10 @@ import {
 } from "@zuse/contracts";
 import { Schema } from "effect";
 import { createAtomStore as create } from "../state/atom-store.ts";
-import { rendererAccountSnapshot } from "./renderer-account.ts";
+import {
+	rendererAccountSnapshot,
+	subscribeRendererAccount,
+} from "./renderer-account.ts";
 import {
 	rendererWorkspaceSnapshot,
 	subscribeRendererWorkspace,
@@ -172,17 +175,29 @@ export const useCloudChatCatalogStore = create<CloudChatCatalogState>(
 	() => EMPTY_CATALOG,
 );
 
+/** Cache owner: the account, plus the organization for organization workspaces. */
+const catalogSubject = (): string | null => {
+	const account = rendererAccountSnapshot();
+	if (typeof account.subject !== "string") return null;
+	const workspace = rendererWorkspaceSnapshot();
+	return workspace.key === "personal"
+		? account.subject
+		: JSON.stringify([account.subject, workspace.key]);
+};
+
+// Last catalog per owner, so switching back paints immediately and then
+// revalidates. Keys include the account, so owners never share a snapshot.
+const catalogSnapshots = new Map<string, CloudChatCatalogState>();
+subscribeRendererAccount(() => catalogSnapshots.clear());
+
 let catalogPersistenceReady = false;
 let catalogHydration: Promise<void> | null = null;
 let catalogWriteTail = Promise.resolve();
 export const hydrateCloudChatCatalogPersistence = async (): Promise<void> => {
 	const account = rendererAccountSnapshot();
 	const workspace = rendererWorkspaceSnapshot();
-	if (typeof account.subject !== "string") return;
-	const subject =
-		workspace.key === "personal"
-			? account.subject
-			: JSON.stringify([account.subject, workspace.key]);
+	const subject = catalogSubject();
+	if (subject === null) return;
 	const persistence = cloudChatCatalogPersistence;
 	if (catalogPersistenceReady || persistence === null) return;
 	catalogHydration ??= (async () => {
@@ -234,7 +249,11 @@ void hydrateCloudChatCatalogPersistence();
 const resetCatalog = () => {
 	catalogPersistenceReady = false;
 	catalogHydration = null;
-	useCloudChatCatalogStore.setState(EMPTY_CATALOG);
+	const subject = catalogSubject();
+	useCloudChatCatalogStore.setState(
+		(subject === null ? undefined : catalogSnapshots.get(subject)) ??
+			EMPTY_CATALOG,
+	);
 	void hydrateCloudChatCatalogPersistence();
 };
 // Account changes already reset the workspace; one notification owns hydration.
@@ -245,13 +264,9 @@ if (import.meta.hot)
 	});
 useCloudChatCatalogStore.subscribe((state) => {
 	if (!catalogPersistenceReady) return;
-	const account = rendererAccountSnapshot();
-	const workspace = rendererWorkspaceSnapshot();
-	if (typeof account.subject !== "string") return;
-	const subject =
-		workspace.key === "personal"
-			? account.subject
-			: JSON.stringify([account.subject, workspace.key]);
+	const subject = catalogSubject();
+	if (subject === null) return;
+	catalogSnapshots.set(subject, state);
 	catalogWriteTail = catalogWriteTail
 		.then(() => cloudChatCatalogPersistence?.save(subject, state))
 		.then(() => undefined)

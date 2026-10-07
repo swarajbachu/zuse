@@ -66,14 +66,16 @@ describe("browser startup ordering", () => {
 			observeRendererAccount(null);
 		}
 	});
-	it("allows returning to Personal while organization settings are still loading", () => {
+	it("shows only a quiet Loading while organization settings first load", () => {
 		state.authenticated = true;
 		observeRendererAccount("alice");
 		selectRendererWorkspace({ kind: "organization", organizationId: "org_a" });
 		try {
 			const markup = renderToStaticMarkup(<StartupApplication />);
-			expect(markup).toContain("Personal");
 			expect(markup).toContain('role="status"');
+			expect(markup).toContain(">Loading<");
+			// The Personal escape appears only after a slow load (5 s timer).
+			expect(markup).not.toContain("Personal");
 			expect(markup).not.toContain("Retry");
 		} finally {
 			observeRendererAccount(null);
