@@ -205,6 +205,9 @@ export function CloudProviderKeys({
 
 	useEffect(() => {
 		void load();
+		const reload = () => void load();
+		window.addEventListener("focus", reload);
+		return () => window.removeEventListener("focus", reload);
 	}, [load]);
 
 	const active = (connections ?? []).filter((connection) => connection.active);
