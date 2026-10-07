@@ -72,7 +72,7 @@ import {
 	makeTextInput,
 	sendMessage,
 } from "~/rpc/actions";
-import { authAccountAtom, signIn } from "~/store/auth";
+import { authAccountAtom } from "~/store/auth";
 import {
 	connectionAvailabilityAtom,
 	hydrateAvailability,
@@ -478,18 +478,11 @@ export default function NewChatScreen() {
 					.finally(() => setConnectingEnvironment(false));
 			},
 		}));
-	// Cloud is always offered: per provider once the list loads, otherwise one
-	// entry that opens the cloud screen (which explains any loading failure).
+	// Signed in, Cloud is always offered: per provider once the list loads,
+	// otherwise one entry that opens the cloud screen (which explains failures).
 	const cloudOptions =
 		account === null
-			? [
-					{
-						key: "cloud:sign-in",
-						label: "Cloud · Sign in",
-						selected: false,
-						onSelect: () => void signIn(),
-					},
-				]
+			? []
 			: cloudCatalog.providers.length === 0
 				? [
 						{
