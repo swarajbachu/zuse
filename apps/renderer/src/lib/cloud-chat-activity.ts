@@ -31,12 +31,7 @@ export type CloudChatActivityInput = {
 	readonly timeline?: ResourceView<SessionTimelineProjection>;
 };
 
-/** Whether the durable cloud lifecycle still owns the initial chat setup UI. */
-export const cloudWorkspaceIsStarting = (summary: CloudChatSummary): boolean =>
-	summary.startupPhase === "allocating" ||
-	summary.startupPhase === "booting" ||
-	summary.startupPhase === "authenticating-runtime" ||
-	summary.startupPhase === "syncing-repository";
+export { cloudWorkspaceIsStarting } from "@zuse/client-runtime/cloud-startup-presentation";
 
 /** A runtime claim bridges the gap before its live turn arrives. Unclaimed
  * mailbox sends remain in the queue; stale cached turns never imply work. */

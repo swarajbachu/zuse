@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { Button } from "~/components/ui/button";
+import { cloudLifecycle } from "~/lib/cloud-lifecycle";
 import { connectionSessionKey } from "~/lib/session-key";
 import { cloudCatalogAtom, refreshCloudCatalog } from "~/store/cloud-catalog";
 import { sessionDeliveryAtom } from "~/store/messages";
@@ -49,10 +50,15 @@ export function CloudChatStatus({
 		providerError?.content._tag === "error"
 			? providerError.content.message
 			: undefined;
+	// Preparing, resuming, sleeping and failed startup are shown by
+	// CloudStartupCard; this line covers delivery and account problems.
+	const lifecycleOwned = cloudLifecycle(summary) !== null;
 	const failure = cloudFailurePresentation({
 		state: failed?.terminal?.state,
 		category:
-			failed?.terminal?.category ?? pending?.category ?? summary?.statusCode,
+			failed?.terminal?.category ??
+			pending?.category ??
+			(lifecycleOwned ? undefined : summary?.statusCode),
 		blockedUntil: pending?.blockedUntil,
 		cause: failed?.error ?? providerText ?? error,
 	});
@@ -72,11 +78,6 @@ export function CloudChatStatus({
 			: summary?.providerAuthMode) === "legacy-image";
 	const storageLost = failure?.kind === "workspace-storage-unavailable";
 	const outcomeUnknown = failure?.kind === "outcome-unknown";
-	const waking =
-		summary !== undefined &&
-		summary.state !== "ready" &&
-		summary.desiredState === "ready" &&
-		summary.state !== "failed";
 	const reconnectingAuth = (pending?.category ?? providerText ?? "").includes(
 		"-auth-reconnecting",
 	);
@@ -87,15 +88,11 @@ export function CloudChatStatus({
 			: reconnectingAuth
 				? "Reconnecting agent authentication…"
 				: (failure?.message ??
-					(pending !== undefined
+					(pending !== undefined && !lifecycleOwned
 						? "Waiting for agent"
-						: waking
-							? "Waking cloud workspace…"
-							: summary?.state === "paused"
-								? "Cloud workspace is sleeping. Your next message will wake it."
-								: error
-									? "Cloud history could not refresh. Pull to retry."
-									: null));
+						: error && !lifecycleOwned
+							? "Cloud history could not refresh. Pull to retry."
+							: null));
 	if (label === null && actionError === null) return null;
 	const lastUser = messages[lastUserIndex];
 	const draft =
@@ -105,11 +102,7 @@ export function CloudChatStatus({
 	return (
 		<View role="status" aria-live="polite" className="gap-2 px-4 py-2">
 			<Text className="font-sans text-sm text-muted-foreground">{label}</Text>
-			{pending !== undefined && waking ? (
-				<Text className="font-sans text-xs text-muted-foreground">
-					Waking cloud workspace · {summary?.startupPhase.replaceAll("-", " ")}
-				</Text>
-			) : null}
+
 			<View className="flex-row flex-wrap gap-2">
 				{pending?.cancellable ? (
 					<Button

@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
 	draft: { text: "", attachments: [], goalMode: false } as ComposerDraft,
 	create: vi.fn(),
 	send: vi.fn(),
+	optimistic: vi.fn(),
 	saved: vi.fn(),
 	clear: vi.fn(),
 }));
@@ -23,6 +24,9 @@ vi.mock("~/rpc/api-client", () => ({
 vi.mock("~/rpc/actions", () => ({
 	makeTextInput: (text: string) => ({ text }),
 	sendCloudMessage: (input: unknown) => state.send(input),
+}));
+vi.mock("~/store/messages", () => ({
+	addOptimisticMessage: (...args: unknown[]) => state.optimistic(...args),
 }));
 vi.mock("~/store/composer-drafts", () => ({
 	composerDraft: () => state.draft,
@@ -83,7 +87,7 @@ describe("mobile initial cloud launch intent", () => {
 			result: new Promise(() => undefined),
 		});
 	});
-	test("persists identity before creating compute and clears only after durable acceptance", async () => {
+	test("opens the chat once compute exists, before the first message is accepted", async () => {
 		let accepted!: () => void;
 		state.send.mockReturnValue({
 			accepted: new Promise<void>((resolve) => {
@@ -91,15 +95,23 @@ describe("mobile initial cloud launch intent", () => {
 			}),
 			result: new Promise(() => undefined),
 		});
-		const request = launchMobileCloudChat(input);
-		await vi.waitFor(() => expect(state.send).toHaveBeenCalled());
-		expect(state.clear).not.toHaveBeenCalled();
-		accepted();
-		expect(await request).toEqual({
+		state.optimistic.mockReset();
+		// Returns while the sandbox still boots; the prompt is shown at once.
+		expect(await launchMobileCloudChat(input)).toEqual({
 			connectionKey: "cloud:workspace-1",
 			sessionId: "session-1",
 		});
-		expect(state.clear).toHaveBeenCalledTimes(1);
+		expect(state.optimistic).toHaveBeenCalledWith(
+			expect.stringContaining("session-1"),
+			expect.objectContaining({
+				role: "user",
+				content: expect.objectContaining({ text: "Fix the tests" }),
+			}),
+		);
+		// The recoverable draft is cleared only after durable acceptance.
+		expect(state.clear).not.toHaveBeenCalled();
+		accepted();
+		await vi.waitFor(() => expect(state.clear).toHaveBeenCalledTimes(1));
 		expect(state.create.mock.calls[0]?.[0]).toMatchObject({
 			runtimeMode: "full-access",
 			initialMessageDelivery: "mailbox-v1",

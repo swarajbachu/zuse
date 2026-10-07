@@ -45,6 +45,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwind } from "uniwind";
 import { CloudChatStatus } from "~/components/cloud-chat-status";
 import { CloudDeviceAccess } from "~/components/cloud-device-access";
+import { CloudStartupCard } from "~/components/cloud-startup-card";
 import { Composer } from "~/components/composer";
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { InlineErrorNotice } from "~/components/inline-error-notice";
@@ -62,6 +63,7 @@ import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
 import { useTranscriptScrollCoordinator } from "~/hooks/use-transcript-scroll-coordinator";
 import { coordinateChatBottomState } from "~/lib/chat-bottom-state";
+import { cloudLifecycle } from "~/lib/cloud-lifecycle";
 import { isFreshChat, summarizeComposerActivity } from "~/lib/composer-state";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
@@ -94,6 +96,7 @@ import {
 	sendMessage,
 } from "~/rpc/actions";
 import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
+import { cloudCatalogAtom } from "~/store/cloud-catalog";
 import {
 	connectionSnapshotAtom,
 	retryConnection,
@@ -243,6 +246,15 @@ function ThreadScreen() {
 	const [transcriptTimedOut, setTranscriptTimedOut] = useState(false);
 	const [transcriptAttempt, setTranscriptAttempt] = useState(0);
 	const initialTranscriptLoading = !transcriptReady && rawMessages.length === 0;
+	const cloudCatalogState = useAtomValue(cloudCatalogAtom);
+	const cloudLifecycleState =
+		options?.cloudWorkspaceId === undefined
+			? null
+			: cloudLifecycle(
+					cloudCatalogState.chats.find(
+						(row) => row.workspaceId === options.cloudWorkspaceId,
+					),
+				);
 	const messagesError = useAtomValue(sessionMessagesErrorAtom(stateKey));
 	const serverQueued = useAtomValue(sessionQueueAtom(stateKey));
 	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
@@ -1161,6 +1173,9 @@ function ThreadScreen() {
 							sessionId={normalizedSessionId}
 						/>
 						{options?.cloudWorkspaceId !== undefined ? (
+							<CloudStartupCard workspaceId={options.cloudWorkspaceId} />
+						) : null}
+						{options?.cloudWorkspaceId !== undefined ? (
 							<CloudChatStatus
 								workspaceId={options.cloudWorkspaceId}
 								connKey={connKey}
@@ -1192,7 +1207,11 @@ function ThreadScreen() {
 				onEndVisible={onEndVisible}
 				scrollEventThrottle={16}
 			/>
-			{initialTranscriptLoading && turns.length === 0 ? (
+			{initialTranscriptLoading &&
+			turns.length === 0 &&
+			// A preparing or resuming workspace has no history yet; its setup
+			// card is the loading state, never a false "couldn't load".
+			cloudLifecycleState === null ? (
 				<View
 					pointerEvents="box-none"
 					style={{

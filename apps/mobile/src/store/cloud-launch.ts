@@ -1,11 +1,13 @@
 import { summaryFromLaunch } from "@zuse/client-runtime/cloud-catalog";
 import {
 	type CloudProject,
+	Message,
 	MessageId,
 	type ProviderId,
 	type RuntimeMode,
 } from "@zuse/contracts";
 import { Effect } from "effect";
+import { connectionSessionKey } from "~/lib/session-key";
 import { makeTextInput, sendCloudMessage } from "~/rpc/actions";
 import { cloudControlClient } from "~/rpc/api-client";
 import {
@@ -18,6 +20,7 @@ import {
 	composerDraft,
 	persistComposerDraft,
 } from "./composer-drafts";
+import { addOptimisticMessage } from "./messages";
 import { appAtomRegistry } from "./registry";
 
 export const launchMobileCloudChat = async (input: {
@@ -82,6 +85,21 @@ export const launchMobileCloudChat = async (input: {
 	registerCloudSummary(summary);
 	const key = cloudConnectionKey(summary.workspaceId);
 	if (launch.initialMessageDelivery === "mailbox-v1") {
+		const messageId = MessageId.make(intent.messageId);
+		// Like desktop, open the chat as soon as the workspace exists: show the
+		// prompt now and let the durable outbox deliver it while the sandbox
+		// boots. The draft (with its idempotent launch intent) is cleared only
+		// once the mailbox accepts, so a killed app can still recover it.
+		addOptimisticMessage(
+			connectionSessionKey(key, launch.initialSessionId),
+			Message.make({
+				id: messageId,
+				sessionId: launch.initialSessionId,
+				role: "user",
+				content: { _tag: "user", text: input.text, goal: false },
+				createdAt: new Date(),
+			}),
+		);
 		const handle = sendCloudMessage({
 			connection: {
 				key,
@@ -92,12 +110,17 @@ export const launchMobileCloudChat = async (input: {
 			},
 			sessionId: launch.initialSessionId,
 			input: makeTextInput(input.text),
-			clientMessageId: MessageId.make(intent.messageId),
+			clientMessageId: messageId,
 		});
 		void handle.result.catch(() => undefined);
-		await handle.accepted;
+		void handle.accepted
+			.then(() => {
+				if (appAtomRegistry.get(cloudCatalogAtom).accountId === input.accountId)
+					clearComposerDraft(input.draftKey);
+			})
+			.catch(() => undefined);
+	} else {
+		clearComposerDraft(input.draftKey);
 	}
-	assertAccount();
-	clearComposerDraft(input.draftKey);
 	return { connectionKey: key, sessionId: launch.initialSessionId };
 };
