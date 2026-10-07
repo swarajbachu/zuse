@@ -339,7 +339,9 @@ export function ChatView({
 		useChatsStore.getState().completeCreation(session.chatId);
 	}, [providerOutputStarted, session.chatId]);
 	const cloudSetupActive =
-		cloudSummary !== null && cloudWorkspaceIsStarting(cloudSummary);
+		cloudSummary !== null &&
+		cloudWorkspaceIsStarting(cloudSummary) &&
+		!inFlight;
 	const workspaceProgressActive = workspaceCreationProgressIsActive({
 		workspaceRequested: pendingCreation?.workspaceRequested === true,
 		setupStatus: worktreeSetupStatus,
