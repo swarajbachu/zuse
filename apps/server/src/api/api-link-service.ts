@@ -317,17 +317,9 @@ const computeOrigin = (config: LanAuthConfigShape) => ({
 	localHttpPort: config.port ?? DEFAULT_LOCAL_DESKTOP_PORT,
 });
 
-export const ApiLinkServiceLive: Layer.Layer<
-	ApiLinkService,
-	never,
-	| LanAuthService
-	| LanAuthConfig
-	| AuthService
-	| AccountAccessService
-	| ManagedTunnelRuntime
-	| TelemetryStore
-> = Layer.effect(
-	ApiLinkService,
+const makeApiLinkService = (options: {
+	readonly resumeExistingLink?: boolean;
+}) =>
 	Effect.gen(function* () {
 		const auth = yield* LanAuthService;
 		const config = yield* LanAuthConfig;
@@ -568,9 +560,10 @@ export const ApiLinkServiceLive: Layer.Layer<
 			);
 
 		// Resume heartbeating (and the managed-tunnel connector) on boot if linked.
-		const existing = yield* auth
-			.getApiConfig()
-			.pipe(Effect.orElseSucceed(() => null));
+		const existing =
+			options.resumeExistingLink === false
+				? null
+				: yield* auth.getApiConfig().pipe(Effect.orElseSucceed(() => null));
 		if (existing !== null) {
 			yield* log("service.existing_config", {
 				environmentId: existing.environmentId,
@@ -934,5 +927,19 @@ export const ApiLinkServiceLive: Layer.Layer<
 					yield* log("unlink.success");
 				}),
 		});
-	}),
-);
+	});
+
+export const makeApiLinkServiceLive = (
+	options: { readonly resumeExistingLink?: boolean } = {},
+): Layer.Layer<
+	ApiLinkService,
+	never,
+	| LanAuthService
+	| LanAuthConfig
+	| AuthService
+	| AccountAccessService
+	| ManagedTunnelRuntime
+	| TelemetryStore
+> => Layer.effect(ApiLinkService, makeApiLinkService(options));
+
+export const ApiLinkServiceLive = makeApiLinkServiceLive();

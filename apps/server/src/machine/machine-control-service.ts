@@ -8,6 +8,7 @@ import {
 } from "@zuse/client-runtime/cloud-control-client";
 import { controlApiErrorCode } from "@zuse/client-runtime/control-api-error";
 import { makeOrganizationAutoJoinControlClient } from "@zuse/client-runtime/organization-control-client";
+import { resolveAccountApiUrl } from "../api/api-url.ts";
 import { RuntimeCloudControl } from "./runtime-cloud-control.ts";
 
 export { streamCloudWorkspaceLifecycle } from "@zuse/client-runtime/cloud-control-client";
@@ -83,7 +84,6 @@ import {
 	type OrganizationRoleInput,
 	type PluginRequest,
 	PluginResponse,
-	PRODUCTION_API_URL,
 	WIRE_PROTOCOL_VERSION,
 	WORKSPACE_API_PREFIX,
 	WORKSPACE_SCOPE_HEADER,
@@ -367,9 +367,7 @@ export class MachineControlService extends Context.Service<
 	MachineControlServiceShape
 >()("zuse/MachineControlService") {}
 
-export const resolveMachineApiUrl = (
-	env: Readonly<Record<string, string | undefined>> = process.env,
-): string => (env.ZUSE_API_URL ?? PRODUCTION_API_URL).replace(/\/+$/u, "");
+export { resolveAccountApiUrl as resolveMachineApiUrl } from "../api/api-url.ts";
 
 export const mapApiErrorCode = (
 	status: number,
@@ -388,7 +386,7 @@ export const MachineControlServiceLive: Layer.Layer<
 		const auth = yield* AuthService;
 		const runtimeRole = yield* MachineRuntimeRole;
 		const runtimeControl = yield* Effect.serviceOption(RuntimeCloudControl);
-		const apiUrl = resolveMachineApiUrl();
+		const apiUrl = resolveAccountApiUrl();
 		if (runtimeRole === "control-plane") {
 			setDefaultPluginClientFactory(async () => {
 				const session = await Effect.runPromise(auth.getSession());
