@@ -5,7 +5,7 @@ import {
 } from "@zuse/client-runtime/cloud-startup-presentation";
 import { Effect } from "effect";
 import { SymbolView } from "expo-symbols";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
 import { cloudLifecycle } from "~/lib/cloud-lifecycle";
@@ -15,6 +15,25 @@ import { cloudCatalogAtom, refreshCloudCatalog } from "~/store/cloud-catalog";
 import { colors } from "~/theme";
 
 const STEP_COUNT = 4;
+
+const elapsedLabel = (ms: number): string => {
+	const seconds = Math.max(0, Math.floor(ms / 1000));
+	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+};
+
+/** Seconds since the workspace entered its current lifecycle stage. */
+const useElapsed = (key: string | null): number => {
+	const [startedAt, setStartedAt] = useState(() => Date.now());
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		setStartedAt(Date.now());
+		setNow(Date.now());
+		if (key === null) return;
+		const timer = setInterval(() => setNow(Date.now()), 1000);
+		return () => clearInterval(timer);
+	}, [key]);
+	return now - startedAt;
+};
 
 /**
  * One quiet line above the composer for a cloud workspace that is preparing,
@@ -27,6 +46,11 @@ export function CloudLifecycleBar({ workspaceId }: { workspaceId: string }) {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const lifecycle = cloudLifecycle(summary);
+	const waiting = lifecycle === "starting" || lifecycle === "resuming";
+	// A visible clock tells a slow boot apart from a hang.
+	const elapsed = useElapsed(
+		waiting ? `${lifecycle}:${summary?.startupPhase ?? ""}` : null,
+	);
 	if (summary === undefined || lifecycle === null) return null;
 
 	const resume = async () => {
@@ -60,7 +84,8 @@ export function CloudLifecycleBar({ workspaceId }: { workspaceId: string }) {
 		<View
 			role="status"
 			aria-live="polite"
-			className="mx-3 mb-2 min-h-9 flex-row items-center gap-2 rounded-full bg-card-elevated px-3"
+			// Same inset as the collapsed composer capsule beneath it.
+			className="mx-6 mb-2 min-h-9 flex-row items-center gap-2 rounded-full bg-card-elevated px-3"
 		>
 			{lifecycle === "starting" || lifecycle === "resuming" || busy ? (
 				<ActivityIndicator size="small" color={colors.secondaryFg} />
@@ -81,12 +106,14 @@ export function CloudLifecycleBar({ workspaceId }: { workspaceId: string }) {
 			>
 				{label}
 			</Text>
-			{lifecycle === "starting" ? (
+			{waiting ? (
 				<Text
 					className="font-sans text-[12px] text-muted-foreground"
 					style={{ fontVariant: ["tabular-nums"] }}
 				>
-					{`${Math.max(1, cloudPhaseRank[summary.startupPhase] + 1)} of ${STEP_COUNT}`}
+					{lifecycle === "starting"
+						? `${Math.max(1, cloudPhaseRank[summary.startupPhase] + 1)} of ${STEP_COUNT} · ${elapsedLabel(elapsed)}`
+						: elapsedLabel(elapsed)}
 				</Text>
 			) : null}
 			{action !== null ? (

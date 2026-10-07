@@ -260,6 +260,9 @@ function ThreadScreen() {
 	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
+	// A chat opened right after New Chat already holds its first prompt, so it
+	// never went through a send here. Pin that prompt to the top like a send.
+	const anchoredFirstTurnFor = useRef<string | null>(null);
 	// Computed here (not in the composer) so keystrokes never touch it and the
 	// composer needs no subscription to the message store.
 	const composerActivity = summarizeComposerActivity(turns.at(-1));
@@ -726,6 +729,19 @@ function ThreadScreen() {
 		setHasUnseenContent(false);
 		setJumpAccessible(false);
 	};
+	useEffect(() => {
+		if (anchoredFirstTurnFor.current === stateKey) return;
+		const only = turns.length === 1 ? turns[0] : undefined;
+		if (
+			only === undefined ||
+			only.user === null ||
+			only.body.length > 0 ||
+			transcriptScroll.anchorIndex !== null
+		)
+			return;
+		anchoredFirstTurnFor.current = stateKey;
+		transcriptScroll.onMessageWillAppend(0);
+	}, [stateKey, transcriptScroll, turns]);
 	const onMessageAppendFailed = () => {
 		transcriptScroll.onMessageAppendFailed();
 		markSessionTurnStartFailed(stateKey);
