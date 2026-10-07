@@ -31,9 +31,6 @@ const revoke = vi.hoisted(() => vi.fn());
 vi.mock("../../../src/notifications/push", () => ({
 	revokeCurrentDevicePush: revoke,
 }));
-vi.mock("../../../src/lib/ai-sharing-consent", () => ({
-	resetAiSharingConsent: vi.fn(),
-}));
 const deletion = vi.hoisted(() => ({ api: vi.fn(), local: vi.fn() }));
 
 vi.mock("../../../src/auth/workos", () => workos);

@@ -22,10 +22,11 @@ inspected. This report does not establish what shipped in build 8.
   withdrawal. The privacy manifest adds product interaction and analytics purposes
   for identifiers and marks reliability data linked. Production network/SDK and
   App Store label reconciliation still requires the archive.
-- **Finding 2:** new-chat, message and dictation actions disclose sharing and ask
-  before transmission. Choices are scoped to agent/model and destination for the
-  app session, can be reset in Settings, and are cleared on sign-out/reset.
-  Previously accepted work can continue; resetting choices does not recall it.
+- **Finding 2:** a per-session "Share data with your AI provider?" prompt was
+  added, then removed on 2026-10-07 by product decision (matching T3 Code's
+  mobile app). Disclosure now relies on the Privacy Policy (linked in mobile
+  Settings → Privacy), which describes sharing with the chosen agent/model
+  services and dictation. Re-evaluate against 5.1.2(i) if App Review objects.
 - **Finding 3:** reset/deletion clears draft memory, persisted drafts and protected
   attachment files, invalidates stale hydration and drains in-flight saves.
 - **Finding 4:** sign-out/reset revokes the registered device before dropping auth,

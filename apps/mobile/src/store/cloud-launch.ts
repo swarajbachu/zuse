@@ -6,7 +6,6 @@ import {
 	type RuntimeMode,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { requestAiSharingConsent } from "~/lib/ai-sharing-consent";
 import { makeTextInput, sendCloudMessage } from "~/rpc/actions";
 import { cloudControlClient } from "~/rpc/api-client";
 import {
@@ -35,17 +34,6 @@ export const launchMobileCloudChat = async (input: {
 		if (appAtomRegistry.get(cloudCatalogAtom).accountId !== input.accountId)
 			throw new Error("Sign in to this account before sending.");
 	};
-	assertAccount();
-	if (
-		!(await requestAiSharingConsent({
-			recipient: input.agent,
-			scope: `${input.accountId}:${input.project.projectId}`,
-			model: input.model,
-			destination: "cloud",
-		}))
-	) {
-		throw new Error("Data sharing was cancelled. Your draft has been kept.");
-	}
 	assertAccount();
 	const request = {
 		projectId: input.project.projectId,

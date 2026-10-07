@@ -7,13 +7,9 @@ import { workspace } from "../../fixtures/cloud";
 const state = vi.hoisted(() => ({
 	draft: { text: "", attachments: [], goalMode: false } as ComposerDraft,
 	create: vi.fn(),
-	consent: vi.fn(),
 	send: vi.fn(),
 	saved: vi.fn(),
 	clear: vi.fn(),
-}));
-vi.mock("~/lib/ai-sharing-consent", () => ({
-	requestAiSharingConsent: state.consent,
 }));
 vi.mock("~/rpc/api-client", () => ({
 	cloudControlClient: {
@@ -73,7 +69,6 @@ const launch = () => {
 };
 describe("mobile initial cloud launch intent", () => {
 	beforeEach(() => {
-		state.consent.mockResolvedValue(true);
 		setCloudCatalogAccount(null);
 		setCloudCatalogAccount("account-1");
 		state.draft = { text: "", attachments: [], goalMode: false };
@@ -130,16 +125,6 @@ describe("mobile initial cloud launch intent", () => {
 		await expect(launchMobileCloudChat(input)).rejects.toThrow(
 			"Sign in to this account",
 		);
-		expect(state.send).not.toHaveBeenCalled();
-		expect(state.clear).not.toHaveBeenCalled();
-	});
-
-	test("does not create or send cloud data when sharing is declined", async () => {
-		state.consent.mockResolvedValue(false);
-		await expect(launchMobileCloudChat(input)).rejects.toThrow(
-			"Data sharing was cancelled",
-		);
-		expect(state.create).not.toHaveBeenCalled();
 		expect(state.send).not.toHaveBeenCalled();
 		expect(state.clear).not.toHaveBeenCalled();
 	});

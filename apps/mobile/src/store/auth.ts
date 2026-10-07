@@ -6,7 +6,6 @@ import {
 	signIn as workosSignIn,
 	signOut as workosSignOut,
 } from "../auth/workos.ts";
-import { resetAiSharingConsent } from "../lib/ai-sharing-consent";
 import { resetLocalMobileData } from "../lib/mobile-data.ts";
 import { revokeCurrentDevicePush } from "../notifications/push";
 import {
@@ -84,7 +83,6 @@ export const signOut = async (): Promise<void> => {
 		await revokeCurrentDevicePush();
 		await workosSignOut();
 		resetApiAccessToken();
-		resetAiSharingConsent();
 		appAtomRegistry.set(authAccountAtom, null);
 	} catch {
 		appAtomRegistry.set(
