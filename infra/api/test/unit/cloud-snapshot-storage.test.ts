@@ -145,6 +145,51 @@ const setup = async (
 };
 
 describe("Boat image storage", () => {
+	it("leaves customer-key images with the provider and outside platform storage billing", async () => {
+		const s = await setup();
+		try {
+			const image = {
+				...build("customer"),
+				settings: { providerConnectionId: "customer-key" },
+			};
+			await s.runtime.runPromise(
+				prepareSnapshotIntent(image, "customer", start),
+			);
+			await s.runtime.runPromise(promoteRetainedSnapshot(image, start));
+			expect(
+				await s.runtime.runPromise(s.billing.snapshots.list("account")),
+			).toEqual([]);
+			expect(
+				await s.runtime.runPromise(s.store.getBuild(image.buildId)),
+			).toMatchObject({
+				snapshotId: image.snapshotId,
+				settings: image.settings,
+			});
+			await s.saveImage("platform", start + 100);
+			const replacement = { ...build("replacement"), settings: image.settings };
+			const stop = start + SNAPSHOT_MONTH_MS / 2;
+			await s.runtime.runPromise(
+				prepareSnapshotIntent(replacement, "replacement", stop),
+			);
+			await s.runtime.runPromise(promoteRetainedSnapshot(replacement, stop));
+			expect(
+				await s.runtime.runPromise(
+					s.billing.snapshots.get("account", "zuse-platform"),
+				),
+			).toMatchObject({ state: "deleting", stoppedAtMs: stop });
+			await s.saveImage("latest", stop + 100);
+			await s.runtime.runPromise(
+				promoteRetainedSnapshot(replacement, stop + 200),
+			);
+			expect(
+				await s.runtime.runPromise(
+					s.billing.snapshots.get("account", "zuse-latest"),
+				),
+			).toMatchObject({ state: "retained" });
+		} finally {
+			await s.runtime.dispose();
+		}
+	});
 	it("prorates exactly and carries fractional micro-USD over arbitrary checkpoints", () => {
 		expect(snapshotStorageCost(SNAPSHOT_MONTH_MS / 2)).toEqual({
 			micros: 850_000,

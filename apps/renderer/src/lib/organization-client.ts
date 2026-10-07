@@ -17,6 +17,7 @@ type OrganizationRpc = Extract<
 	{
 		readonly _tag:
 			| "organizations.list"
+			| "organizations.capabilities"
 			| "organizations.get"
 			| "organizations.create"
 			| "organizations.invite"

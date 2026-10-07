@@ -98,10 +98,10 @@ it("keeps Personal links Personal and does not require organization membership",
 it("fails closed while organization rollout is disabled", async () => {
 	mocks.enabled = false;
 	await expect(openCloudChatLink(path)).rejects.toThrow(
-		"chat_link_update_required",
+		"chat_link_unavailable",
 	);
 	expect(mocks.client).not.toHaveBeenCalled();
-	expect(mocks.organizations).not.toHaveBeenCalled();
+	expect(mocks.organizations).toHaveBeenCalledWith(true);
 });
 
 it.each([

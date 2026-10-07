@@ -502,16 +502,20 @@ it.skipIf(!connectionString)(
 			await db.query(`CREATE SCHEMA ${schema}`);
 			await db.query(`SET LOCAL search_path TO ${schema}`);
 			await db.query(
-				"CREATE TABLE api_cloud_project_builds (provider text, snapshot_id text, account_id text, build_id text, state text, created_at bigint, updated_at bigint)",
+				"CREATE TABLE api_cloud_project_builds (provider text, snapshot_id text, account_id text, build_id text, state text, created_at bigint, updated_at bigint, settings jsonb NOT NULL DEFAULT '{}'::jsonb)",
 			);
 			await db.query(
 				"INSERT INTO api_cloud_project_builds VALUES ('box','old','account','old','ready',1,1),('box','new','account','new','ready',2,2),('box','pending','account','pending','sanitizing',3,3),('boxd','other','other','other','ready',1,1)",
+			);
+			await db.query(
+				"INSERT INTO api_cloud_project_builds VALUES ('box','shadow-old','customer','shadow-old','ready',1,1,'{}'),('box','customer-image','customer','customer-image','ready',2,2,$1::jsonb)",
+				[JSON.stringify({ providerConnectionId: "customer-key" })],
 			);
 			const before = Date.now();
 			await db.query(
 				readFileSync(
 					new URL(
-						"../../drizzle/migrations/0037_cloud_snapshot_storage.sql",
+						"../../drizzle/migrations/0038_cloud_snapshot_storage.sql",
 						import.meta.url,
 					),
 					"utf8",
@@ -524,6 +528,7 @@ it.skipIf(!connectionString)(
 				["new", "retained"],
 				["old", "deleting"],
 				["pending", "creating"],
+				["shadow-old", "deleting"],
 			]);
 			expect(result.rows[0].record.retainedAtMs).toBeGreaterThanOrEqual(before);
 			expect(result.rows[1].record.retainedAtMs).toBeUndefined();

@@ -1,6 +1,7 @@
 import {
 	ApiPaths,
 	Organization,
+	OrganizationCapabilities,
 	type OrganizationCreateInput,
 	OrganizationDetails,
 	type OrganizationDomainInput,
@@ -32,6 +33,8 @@ export const makeOrganizationControlClient = <E>(
 	request: OrganizationControlRequest<E>,
 ) => ({
 	...makeOrganizationAutoJoinControlClient(request),
+	"organizations.capabilities": (_input: Record<string, never>) =>
+		request(ApiPaths.organizationCapabilities, OrganizationCapabilities),
 	"organizations.list": (_input: Record<string, never>) =>
 		request(ApiPaths.organizations, Schema.Array(Organization)),
 	"organizations.get": (input: { organizationId: string }) =>

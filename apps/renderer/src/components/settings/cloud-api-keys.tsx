@@ -211,7 +211,7 @@ function PersonalCloudApiKeys() {
 	return (
 		<CloudSettingsGroup
 			title={uiMessage("settings:cloud_api_keys_api_keys")}
-			description={uiMessage(
+			help={uiMessage(
 				"settings:cloud_api_keys_api_keys_let_slack_bots_scripts_and_other_integrations_start_cloud_workspaces_and_exchange_messages_over_the_public_api",
 			)}
 			action={

@@ -19,6 +19,7 @@ import {
 	CloudGithubCredentialRequest,
 	CloudProjectConnectRequest,
 	CloudProjectPrepareRequest,
+	CloudProviderConnectionInput,
 	CloudRuntimeAccessRequest,
 	CloudRuntimeCommandAck,
 	CloudRuntimeTurnEventUpload,
@@ -96,6 +97,17 @@ import {
 	attachCloudMailboxCommandDirective,
 	attachCloudMailboxLifecycleDirective,
 } from "./cloud-mailbox-directive.ts";
+import {
+	accountSandboxProviders,
+	CloudProviderConnections,
+	type ConnectedSandboxProvider,
+	connectionIdFor,
+	hasProviderConnection,
+	listProviderConnections,
+	publicProviderConnections,
+	resolveResourceProvider,
+	saveProviderConnection,
+} from "./cloud-provider-connections.ts";
 import {
 	assertSnapshotUsable,
 	deleteRetainedSnapshot,
@@ -595,7 +607,7 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 	const apiConfiguration = yield* ApiConfiguration;
 	const sandboxProviders = yield* SandboxProviders;
 	// Each provider owns its image; omitted selections retain the account default.
-	const provider = sandboxProviders.availableProviders.find(
+	const provider = (yield* accountSandboxProviders(accountId)).find(
 		(candidate) =>
 			candidate.providerId ===
 			(requestedProviderId ?? sandboxProviders.defaultProviderId),
@@ -608,7 +620,7 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 					...(yield* store.listAccountBuilds(accountId, provider.providerId)),
 				].sort((left, right) => right.createdAtMs - left.createdAtMs);
 	const snapshotRecords =
-		provider?.providerId === "box"
+		provider?.providerId === "box" && provider.connectionId === undefined
 			? yield* (yield* CloudBillingStore).snapshots.list(accountId, false)
 			: [];
 	const storage =
@@ -1004,74 +1016,84 @@ export const publicCloudWorkspaceSummary = (
 	};
 };
 
-// Retained workspaces remain manageable when their provider stops accepting
-// new placements. Account ownership is checked by the lifecycle route first.
-const registeredProvider = Effect.fn("registeredCloudProvider")(function* (
-	providerId: string,
-) {
-	return yield* (yield* SandboxProviders)
-		.get(providerId)
-		.pipe(
-			Effect.mapError(() => serviceUnavailable("cloud_provider_unavailable")),
-		);
-});
-
 const selectedProvider = Effect.fn("selectedCloudProvider")(function* (
+	accountId: string,
 	requested?: string,
 ) {
-	const providers = yield* SandboxProviders;
+	const registry = yield* SandboxProviders;
 	const config = yield* MachineControlConfiguration;
-	const available = providers.availableProviders.filter(
+	const available = (yield* accountSandboxProviders(accountId)).filter(
 		(provider) =>
-			config.availableSandboxProviderIds?.has(provider.providerId) ?? true,
+			provider.connectionId !== undefined ||
+			(config.availableSandboxProviderIds?.has(provider.providerId) ?? true),
 	);
 	if (requested !== undefined) {
-		if (!available.some((provider) => provider.providerId === requested))
-			return yield* Effect.fail(
-				serviceUnavailable("cloud_provider_unavailable"),
-			);
-		return yield* providers
-			.get(requested)
-			.pipe(
-				Effect.mapError(() => serviceUnavailable("cloud_provider_unavailable")),
-			);
+		const selected = available.find(
+			(provider) => provider.providerId === requested,
+		);
+		if (selected === undefined)
+			return yield* serviceUnavailable("cloud_provider_unavailable");
+		return selected;
 	}
-	if (available.length === 0)
-		return yield* Effect.fail(serviceUnavailable("cloud_provider_unavailable"));
-	const preferred = available.find(
-		(provider) => provider.providerId === providers.defaultProviderId,
+	const connected = available.filter(
+		(provider) => provider.connectionId !== undefined,
 	);
-	if (preferred !== undefined) return preferred;
-	if (available.length === 1) return available[0] as (typeof available)[number];
-	return yield* Effect.fail(badRequest("cloud_provider_required"));
+	if (connected.length === 1 && connected[0]) return connected[0];
+	const selected =
+		available.find(
+			(provider) => provider.providerId === registry.defaultProviderId,
+		) ?? (available.length === 1 ? available[0] : undefined);
+	if (!selected) return yield* serviceUnavailable("cloud_provider_required");
+	return selected;
 });
+
+const hasPaidEntitlement = Effect.fn("hasPaidCloudWorkspaceEntitlement")(
+	function* (accountId: string, nowMs: number) {
+		const machineStore = yield* MachineStore;
+		const config = yield* MachineControlConfiguration;
+		let entitlements = yield* machineStore.listEntitlements(accountId);
+		if (
+			config.manualEntitlementsEnabled &&
+			config.allowlistedAccountIds.has(accountId) &&
+			!entitlements.some((item) => item.kind === "cloud-workspace")
+		) {
+			yield* machineStore.upsertEntitlement({
+				entitlementId: `manual-cloud-workspace:${accountId}`,
+				accountId,
+				kind: "cloud-workspace",
+				offerId: "cloud-workspace-standard-v1",
+				provider: "manual",
+				status: "active",
+				createdAtMs: nowMs,
+				updatedAtMs: nowMs,
+			});
+			entitlements = yield* machineStore.listEntitlements(accountId);
+		}
+		return hasUsableCloudWorkspaceEntitlement(entitlements, nowMs);
+	},
+);
 
 const hasEntitlement = Effect.fn("hasCloudWorkspaceEntitlement")(function* (
 	accountId: string,
 	nowMs: number,
 ) {
-	const machineStore = yield* MachineStore;
-	const config = yield* MachineControlConfiguration;
-	let entitlements = yield* machineStore.listEntitlements(accountId);
-	if (
-		config.manualEntitlementsEnabled &&
-		config.allowlistedAccountIds.has(accountId) &&
-		!entitlements.some((item) => item.kind === "cloud-workspace")
-	) {
-		yield* machineStore.upsertEntitlement({
-			entitlementId: `manual-cloud-workspace:${accountId}`,
-			accountId,
-			kind: "cloud-workspace",
-			offerId: "cloud-workspace-standard-v1",
-			provider: "manual",
-			status: "active",
-			createdAtMs: nowMs,
-			updatedAtMs: nowMs,
-		});
-		entitlements = yield* machineStore.listEntitlements(accountId);
-	}
-	return hasUsableCloudWorkspaceEntitlement(entitlements, nowMs);
+	return (
+		(yield* hasProviderConnection(accountId)) ||
+		(yield* hasPaidEntitlement(accountId, nowMs))
+	);
 });
+const requirePlacementAccess = Effect.fn("requireCloudPlacementAccess")(
+	function* (
+		accountId: string,
+		nowMs: number,
+		provider: ConnectedSandboxProvider,
+	) {
+		if (provider.connectionId !== undefined) return;
+		if (!(yield* hasPaidEntitlement(accountId, nowMs)))
+			return yield* forbidden("cloud_entitlement_required");
+		yield* requireCloudBillingCapacity(accountId, nowMs);
+	},
+);
 
 /** Shared fail-closed entitlement gate for WorkOS and API-key callers. */
 export const requireCloudWorkspaceEntitlement = Effect.fn(
@@ -1083,8 +1105,12 @@ export const requireCloudWorkspaceEntitlement = Effect.fn(
 
 export const requireCloudBillingCapacity = Effect.fn(
 	"requireCloudBillingCapacity",
-)(function* (accountId: string, nowMs: number) {
-	const capacity = yield* cloudBillingCapacity(accountId, nowMs);
+)(function* (accountId: string, nowMs: number, providerConnectionId?: string) {
+	const capacity = yield* cloudBillingCapacity(
+		accountId,
+		nowMs,
+		providerConnectionId,
+	);
 	if (capacity === "period-missing")
 		return yield* Effect.fail(forbidden("cloud_billing_period_missing"));
 	if (capacity === "billing-hold")
@@ -1367,7 +1393,6 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 				}
 			: undefined;
 	yield* requireCloudWorkspaceEntitlement(accountId, nowMs);
-	yield* requireCloudBillingCapacity(accountId, nowMs);
 	const apiConfiguration = yield* ApiConfiguration;
 	if (body.localDeviceId !== undefined) {
 		const devices = yield* ApiStore;
@@ -1382,7 +1407,8 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	const project = yield* store.getProject(body.projectId);
 	if (project === null || project.accountId !== accountId)
 		return yield* Effect.fail(notFound("cloud_project_not_found"));
-	const provider = yield* selectedProvider(body.providerId);
+	const provider = yield* selectedProvider(accountId, body.providerId);
+	yield* requirePlacementAccess(accountId, nowMs, provider);
 	const forkSource =
 		body.forkSource === undefined
 			? null
@@ -1390,6 +1416,8 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	if (body.forkSource !== undefined) {
 		if (forkSource === null || forkSource.accountId !== accountId)
 			return yield* Effect.fail(notFound("cloud_workspace_not_found"));
+		if (connectionIdFor(forkSource) !== provider.connectionId)
+			return yield* conflict("cloud_provider_connection_changed");
 		if (
 			provider.providerId !== "boxd" ||
 			forkSource.provider !== "boxd" ||
@@ -1438,7 +1466,11 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	)
 		return yield* Effect.fail(conflict("cloud_project_not_ready"));
 	const build = accountBuild;
-	if (forkSource === null && build.snapshotId !== undefined)
+	if (
+		forkSource === null &&
+		build.snapshotId !== undefined &&
+		connectionIdFor(build) === undefined
+	)
 		yield* assertSnapshotUsable(accountId, build.provider, build.snapshotId);
 	if (
 		apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled &&
@@ -1528,6 +1560,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		wrappedTranscriptKey: transcriptKey.envelope,
 		idempotencyKey: body.idempotencyKey,
 		requestConfig: {
+			providerConnectionId: provider.connectionId,
 			...(machineFork === undefined ? {} : { machineFork }),
 			...(sharingPolicy === undefined ? {} : { sharingPolicy }),
 			initialGithubContext:
@@ -1738,9 +1771,9 @@ export const routeCloudWorkspaceRequest = (
 					updated?.providerSandboxId !== undefined &&
 					updated.state !== "paused"
 				) {
-					const provider = yield* (yield* SandboxProviders)
-						.get(updated.provider)
-						.pipe(Effect.orDie);
+					const provider = yield* resolveResourceProvider(updated).pipe(
+						Effect.orDie,
+					);
 					yield* provider
 						.extendTimeout(
 							updated.providerSandboxId,
@@ -2747,7 +2780,11 @@ export const routeCloudWorkspaceRequest = (
 				);
 			const billingCapacity =
 				action === "lease"
-					? yield* cloudBillingCapacity(workspace.accountId, nowMs)
+					? yield* cloudBillingCapacity(
+							workspace.accountId,
+							nowMs,
+							connectionIdFor(workspace),
+						)
 					: undefined;
 			const mailboxWakePending =
 				workspace.requestConfig.cloudMailboxWakePending === true;
@@ -3181,7 +3218,11 @@ export const routeCloudWorkspaceRequest = (
 						}),
 						workspace,
 					),
-					yield* cloudBillingCapacity(workspace.accountId, nowMs),
+					yield* cloudBillingCapacity(
+						workspace.accountId,
+						nowMs,
+						connectionIdFor(workspace),
+					),
 					workspace.accountId,
 				);
 			}
@@ -3199,7 +3240,11 @@ export const routeCloudWorkspaceRequest = (
 				return action === "status"
 					? attachMailboxBillingPolicy(
 							attachMailboxLifecycle(response, workspace),
-							yield* cloudBillingCapacity(workspace.accountId, nowMs),
+							yield* cloudBillingCapacity(
+								workspace.accountId,
+								nowMs,
+								connectionIdFor(workspace),
+							),
 							workspace.accountId,
 						)
 					: attachMailboxLifecycle(response, workspace);
@@ -3260,8 +3305,6 @@ export const routeCloudWorkspaceRequest = (
 			yield* disconnectGithubInstallation(ownerId, installationId);
 			return json({ ok: true });
 		}
-		const requireBillingCapacity = () =>
-			requireCloudBillingCapacity(ownerId, nowMs);
 
 		if (method === "GET" && path === ApiPaths.cloudAuth) {
 			if (!(yield* hasEntitlement(ownerId, nowMs)))
@@ -3466,18 +3509,61 @@ export const routeCloudWorkspaceRequest = (
 			});
 		}
 
+		if (path === ApiPaths.cloudProviderConnections) {
+			let result: ReturnType<typeof publicProviderConnections>;
+			if (method === "POST") {
+				const body = yield* decodeBody(
+					CloudProviderConnectionInput,
+					request,
+					8192,
+				);
+				result = yield* saveProviderConnection(ownerId, body, nowMs);
+			} else if (method === "DELETE") {
+				const body = yield* decodeBody(
+					Schema.Struct({ connectionId: Schema.String }),
+					request,
+				);
+				const connections = yield* Effect.serviceOption(
+					CloudProviderConnections,
+				);
+				if (Option.isNone(connections))
+					return yield* serviceUnavailable(
+						"cloud_provider_connection_storage_unavailable",
+					);
+				yield* connections.value.disconnect(ownerId, body.connectionId);
+				result = publicProviderConnections(
+					yield* listProviderConnections(ownerId),
+				);
+			} else if (method === "GET") {
+				result = publicProviderConnections(
+					yield* listProviderConnections(ownerId),
+				);
+			} else return yield* badRequest("invalid_method");
+			const response = json(result);
+			response.headers.set("cache-control", "no-store");
+			return response;
+		}
+
 		if (method === "GET" && path === ApiPaths.cloudProviders) {
-			const providers = yield* SandboxProviders;
 			const config = yield* MachineControlConfiguration;
-			const available = providers.availableProviders.filter(
+			const configured = yield* accountSandboxProviders(ownerId);
+			const onlyOwnKeys =
+				configured.some((provider) => provider.connectionId !== undefined) &&
+				!(yield* hasPaidEntitlement(ownerId, nowMs));
+			const available = configured.filter(
 				(provider) =>
-					config.availableSandboxProviderIds?.has(provider.providerId) ?? true,
+					provider.connectionId !== undefined ||
+					(!onlyOwnKeys &&
+						(config.availableSandboxProviderIds?.has(provider.providerId) ??
+							true)),
 			);
 			return json({
 				entitled: yield* hasEntitlement(ownerId, nowMs),
 				providers: available.map((provider) => ({
 					providerId: provider.providerId,
 					displayName: provider.displayName,
+					billingSource:
+						provider.connectionId === undefined ? "zuse" : "provider",
 					sizes: provider.sizes.map((size) => ({
 						sizeId: size.sizeId,
 						displayName: size.displayName,
@@ -3490,7 +3576,7 @@ export const routeCloudWorkspaceRequest = (
 
 		if (method === "GET" && path === ApiPaths.cloudAccountImage) {
 			const requested = url.searchParams.get("providerId") ?? undefined;
-			if (requested !== undefined) yield* selectedProvider(requested);
+			if (requested !== undefined) yield* selectedProvider(ownerId, requested);
 			return json(
 				yield* cloudAccountImage(
 					ownerId,
@@ -3508,14 +3594,12 @@ export const routeCloudWorkspaceRequest = (
 		if (method === "POST" && path === ApiPaths.cloudAccountImageBuild) {
 			if (!(yield* hasEntitlement(ownerId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));
-			yield* requireBillingCapacity();
 			const body = yield* decodeBody(CloudAccountImageBuildRequest, request);
 			const projects = yield* store.listProjects(ownerId);
 			if (projects.length === 0)
 				return yield* Effect.fail(conflict("cloud_image_has_no_repositories"));
-			const provider = yield* selectedProvider(
-				body.providerId ?? (yield* SandboxProviders).defaultProviderId,
-			);
+			const provider = yield* selectedProvider(ownerId, body.providerId);
+			yield* requirePlacementAccess(ownerId, nowMs, provider);
 			const builds = yield* store.listAccountBuilds(
 				ownerId,
 				provider.providerId,
@@ -3573,6 +3657,7 @@ export const routeCloudWorkspaceRequest = (
 				templateVersion: provider.templateVersion,
 				configurationDigest,
 				settings: {
+					providerConnectionId: provider.connectionId,
 					mode: effectiveMode,
 					...(apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled
 						? { codexAuthDeliveryVersion: 1 }
@@ -3614,9 +3699,9 @@ export const routeCloudWorkspaceRequest = (
 
 		if (method === "GET" && path === ApiPaths.cloudProjects) {
 			const projects = yield* store.listProjects(ownerId);
-			const providers = yield* SandboxProviders;
+			const providers = yield* accountSandboxProviders(ownerId);
 			const currentTemplateVersions = new Map(
-				providers.availableProviders.map((provider) => [
+				providers.map((provider) => [
 					provider.providerId,
 					provider.templateVersion,
 				]),
@@ -3707,7 +3792,6 @@ export const routeCloudWorkspaceRequest = (
 		if (method === "POST" && path === ApiPaths.cloudProjects) {
 			if (!(yield* hasEntitlement(ownerId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));
-			yield* requireBillingCapacity();
 			const body = yield* decodeBody(CloudProjectConnectRequest, request);
 			const repository = normalizeRepository(body.repositoryUrl);
 			if (
@@ -3744,9 +3828,9 @@ export const routeCloudWorkspaceRequest = (
 				updatedAtMs: nowMs,
 			};
 			const connected = yield* store.connectProject(project);
-			const providers = yield* SandboxProviders;
+			const providers = yield* accountSandboxProviders(ownerId);
 			const currentTemplateVersions = new Map(
-				providers.availableProviders.map((provider) => [
+				providers.map((provider) => [
 					provider.providerId,
 					provider.templateVersion,
 				]),
@@ -3772,7 +3856,6 @@ export const routeCloudWorkspaceRequest = (
 		if (method === "POST" && prepareMatch !== null) {
 			if (!(yield* hasEntitlement(ownerId, nowMs)))
 				return yield* Effect.fail(forbidden("cloud_entitlement_required"));
-			yield* requireBillingCapacity();
 			const projectId = decodeURIComponent(prepareMatch[1] ?? "");
 			const body = yield* decodeBody(CloudProjectPrepareRequest, request);
 			if (body.projectId !== projectId)
@@ -3780,7 +3863,8 @@ export const routeCloudWorkspaceRequest = (
 			const project = yield* store.getProject(projectId);
 			if (project === null || project.accountId !== ownerId)
 				return yield* Effect.fail(notFound("cloud_project_not_found"));
-			const provider = yield* selectedProvider(body.providerId);
+			const provider = yield* selectedProvider(ownerId, body.providerId);
+			yield* requirePlacementAccess(ownerId, nowMs, provider);
 			const build: CloudProjectBuildRecord = {
 				buildId: yield* randomToken("build", 12),
 				projectId,
@@ -3788,6 +3872,7 @@ export const routeCloudWorkspaceRequest = (
 				provider: provider.providerId,
 				templateVersion: provider.templateVersion,
 				configurationDigest: project.configurationDigest,
+				settings: { providerConnectionId: provider.connectionId },
 				state: "queued",
 				idempotencyKey: body.idempotencyKey,
 				nextActionAtMs: nowMs,
@@ -3900,13 +3985,9 @@ export const routeCloudWorkspaceRequest = (
 			const project = yield* store.getProject(workspace.projectId);
 			if (project === null)
 				return yield* Effect.fail(notFound("cloud_project_not_found"));
-			const provider = yield* (yield* SandboxProviders)
-				.get(workspace.provider)
-				.pipe(
-					Effect.mapError(() =>
-						serviceUnavailable("cloud_provider_unavailable"),
-					),
-				);
+			const provider = yield* resolveResourceProvider(workspace).pipe(
+				Effect.mapError(() => serviceUnavailable("cloud_provider_unavailable")),
+			);
 			const ticket = yield* randomToken("workspace_ssh", 32);
 			const ticketExpiresAtMs = nowMs + WORKSPACE_SSH_TICKET_TTL_MS;
 			yield* provider
@@ -3984,13 +4065,9 @@ export const routeCloudWorkspaceRequest = (
 			// port with no further auth. The high-entropy sandbox id is the trust
 			// model (like sharing a tunnel link). Pausing does not revoke a route:
 			// providers such as boxd can wake the machine on inbound traffic.
-			const provider = yield* (yield* SandboxProviders)
-				.get(workspace.provider)
-				.pipe(
-					Effect.mapError(() =>
-						serviceUnavailable("cloud_provider_unavailable"),
-					),
-				);
+			const provider = yield* resolveResourceProvider(workspace).pipe(
+				Effect.mapError(() => serviceUnavailable("cloud_provider_unavailable")),
+			);
 			if (method === "DELETE") {
 				if (provider.revokeEndpoint === undefined)
 					return yield* Effect.fail(
@@ -4091,9 +4168,18 @@ export const routeCloudWorkspaceRequest = (
 				"edit"
 			)
 				return yield* forbidden("workspace_access_denied");
+			if (
+				(action === "resume" || action === "restart") &&
+				connectionIdFor(workspace) === undefined
+			)
+				if (!(yield* hasPaidEntitlement(ownerId, nowMs)))
+					return yield* forbidden("cloud_entitlement_required");
 			if (action === "resume" || action === "restart")
-				yield* requireCloudWorkspaceEntitlement(ownerId, nowMs);
-			if (action === "resume") yield* requireBillingCapacity();
+				yield* requireCloudBillingCapacity(
+					ownerId,
+					nowMs,
+					connectionIdFor(workspace),
+				);
 			const actionRequest =
 				action === "resume"
 					? yield* decodeBody(CloudWorkspaceResumeRequest, request)
@@ -4122,7 +4208,7 @@ export const routeCloudWorkspaceRequest = (
 
 			let runtimeRecoveryBuild: CloudProjectBuildRecord | null = null;
 			if (recoverRuntime && workspace.providerSandboxId === undefined) {
-				const provider = yield* registeredProvider(workspace.provider);
+				const provider = yield* resolveResourceProvider(workspace);
 				runtimeRecoveryBuild = yield* store.getActiveAccountBuild(
 					ownerId,
 					provider.providerId,
@@ -4139,7 +4225,7 @@ export const routeCloudWorkspaceRequest = (
 				!recoverRuntime &&
 				workspace.state === "failed"
 			) {
-				const provider = yield* registeredProvider(workspace.provider);
+				const provider = yield* resolveResourceProvider(workspace);
 				failedRetryBuild = yield* store.getActiveAccountBuild(
 					ownerId,
 					provider.providerId,

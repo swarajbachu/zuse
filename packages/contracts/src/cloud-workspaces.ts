@@ -156,12 +156,41 @@ export type CloudCodexAuthMode = typeof CloudCodexAuthMode.Type;
 export const CloudProviderAuthMode = CloudCodexAuthMode;
 export type CloudProviderAuthMode = CloudCodexAuthMode;
 
+export const CloudProviderConnectionInput = Schema.Struct({
+	providerId: Schema.Literals(["e2b", "boxd", "box"]),
+	apiKey: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096)),
+	templateId: Schema.optional(
+		Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
+	),
+	organization: Schema.optional(
+		Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+	),
+});
+export type CloudProviderConnectionInput =
+	typeof CloudProviderConnectionInput.Type;
+export class CloudProviderConnection extends Schema.Class<CloudProviderConnection>(
+	"CloudProviderConnection",
+)({
+	connectionId: Schema.String,
+	providerId: Schema.String,
+	active: Schema.Boolean,
+	templateId: Schema.optional(Schema.String),
+	organization: Schema.optional(Schema.String),
+	createdAt: Schema.Number,
+}) {}
+export class CloudProviderConnectionList extends Schema.Class<CloudProviderConnectionList>(
+	"CloudProviderConnectionList",
+)({
+	connections: Schema.Array(CloudProviderConnection),
+}) {}
+
 export class CloudProviderOption extends Schema.Class<CloudProviderOption>(
 	"CloudProviderOption",
 )({
 	providerId: Schema.String,
 	displayName: Schema.String,
 	sizes: Schema.optional(Schema.Array(CloudProviderSize)),
+	billingSource: Schema.optional(Schema.Literals(["zuse", "provider"])),
 }) {}
 
 export class CloudProviderList extends Schema.Class<CloudProviderList>(
@@ -949,3 +978,27 @@ export const CloudChatsWatchRpc = Rpc.make("cloud.chats.watch", {
 	error: CloudWorkspaceOpError,
 	stream: true,
 });
+
+export const CloudProviderConnectionsListRpc = Rpc.make(
+	"cloud.providerConnections.list",
+	{
+		success: CloudProviderConnectionList,
+		error: CloudWorkspaceOpError,
+	},
+);
+export const CloudProviderConnectionsSaveRpc = Rpc.make(
+	"cloud.providerConnections.save",
+	{
+		payload: CloudProviderConnectionInput,
+		success: CloudProviderConnectionList,
+		error: CloudWorkspaceOpError,
+	},
+);
+export const CloudProviderConnectionsDisconnectRpc = Rpc.make(
+	"cloud.providerConnections.disconnect",
+	{
+		payload: Schema.Struct({ connectionId: Schema.String }),
+		success: CloudProviderConnectionList,
+		error: CloudWorkspaceOpError,
+	},
+);

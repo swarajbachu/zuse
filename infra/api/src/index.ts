@@ -11,6 +11,7 @@ import { cloudBillingCapacity } from "./cloud-billing-capacity.ts";
 import { maintainCloudBilling } from "./cloud-billing-outbox.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { findBillingUsageSourceModule } from "./cloud-billing-usage-source-config.ts";
+import { connectionIdFor } from "./cloud-provider-connections.ts";
 import {
 	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	reconcileCloudBuild,
@@ -207,7 +208,11 @@ export const makeApi = (
 						return "destroyed" as const;
 					const nowMs = Date.now();
 					const configuration = yield* ApiConfiguration;
-					const billingCapacity = yield* cloudBillingCapacity(accountId, nowMs);
+					const billingCapacity = yield* cloudBillingCapacity(
+						accountId,
+						nowMs,
+						connectionIdFor(workspace),
+					);
 					const updated = yield* store.requestMailboxWake(
 						workspaceId,
 						accountId,

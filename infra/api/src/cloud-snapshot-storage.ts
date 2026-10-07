@@ -2,6 +2,7 @@ import { SandboxProviders, zuseSnapshotName } from "@zuse/sandbox-providers";
 import { Clock, Effect } from "effect";
 import { ensureAccountCloudBillingPeriod } from "./cloud-billing-period.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
+import { connectionIdFor } from "./cloud-provider-connections.ts";
 import {
 	type CloudSnapshotRecord,
 	SNAPSHOT_GRACE_MS,
@@ -103,7 +104,8 @@ const settleSnapshot = Effect.fn("settleSnapshot")(function* (
 
 export const prepareSnapshotIntent = Effect.fn("prepareSnapshotIntent")(
 	function* (build: CloudProjectBuildRecord, name: string, nowMs: number) {
-		if (build.provider !== "box") return;
+		if (build.provider !== "box" || connectionIdFor(build) !== undefined)
+			return;
 		const billing = yield* CloudBillingStore;
 		yield* snapshotTransaction(
 			build.accountId,
@@ -149,17 +151,27 @@ export const promoteRetainedSnapshot = Effect.fn("promoteRetainedSnapshot")(
 			build.accountId,
 			Effect.gen(function* () {
 				const records = yield* billing.snapshots.list(build.accountId, false);
-				const image = records.find(
-					(r) =>
-						r.snapshotId === build.snapshotId && r.buildId === build.buildId,
-				);
+				const customerOwned = connectionIdFor(build) !== undefined;
 				if (
-					image === undefined ||
-					image.state === "deleting" ||
-					image.state === "deleted"
+					customerOwned &&
+					(yield* store.getBuild(build.buildId))?.state === "ready"
+				)
+					return;
+				const image = customerOwned
+					? undefined
+					: records.find(
+							(r) =>
+								r.snapshotId === build.snapshotId &&
+								r.buildId === build.buildId,
+						);
+				if (
+					!customerOwned &&
+					(image === undefined ||
+						image.state === "deleting" ||
+						image.state === "deleted")
 				)
 					return yield* Effect.fail(conflict("cloud_snapshot_unavailable"));
-				if (image.state === "retained") return; // A retry cannot reset accrual.
+				if (image?.state === "retained") return; // A retry cannot reset accrual.
 				for (const previous of records.filter((r) => r.state === "retained")) {
 					const stopped = yield* settleSnapshot(
 						{ ...previous, stoppedAtMs: nowMs },
@@ -172,12 +184,13 @@ export const promoteRetainedSnapshot = Effect.fn("promoteRetainedSnapshot")(
 						nextAttemptAtMs: nowMs,
 					});
 				}
-				yield* billing.snapshots.save({
-					...image,
-					state: "retained",
-					retainedAtMs: nowMs,
-					checkpointAtMs: nowMs,
-				});
+				if (image !== undefined)
+					yield* billing.snapshots.save({
+						...image,
+						state: "retained",
+						retainedAtMs: nowMs,
+						checkpointAtMs: nowMs,
+					});
 				yield* store.saveBuild(build);
 			}),
 		);

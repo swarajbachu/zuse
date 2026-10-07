@@ -15,10 +15,7 @@ import {
 } from "../lib/renderer-workspace.ts";
 import { useCloudProjects } from "../lib/use-cloud-projects.ts";
 import { HostedLaptopSection } from "./hosted-sidebar.tsx";
-import {
-	organizationWorkspacesAvailable,
-	WorkspaceSwitcher,
-} from "./workspace-switcher.tsx";
+import { WorkspaceSwitcher } from "./workspace-switcher.tsx";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import {
@@ -505,11 +502,7 @@ export function ProjectsSidebar() {
 			tabIndex={-1}
 			className="flex h-full min-h-0 w-full flex-col text-sidebar-foreground outline-none"
 		>
-			{organizationWorkspacesAvailable() && (
-				<div className="px-2 py-1">
-					<WorkspaceSwitcher />
-				</div>
-			)}
+			<WorkspaceSwitcher />
 			{desktopCatalogEnabled || isHostedProduct() ? null : (
 				<Suspense fallback={<div className="h-[60px]" />}>
 					<ComputerSwitcher />

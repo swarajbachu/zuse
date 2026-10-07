@@ -10,7 +10,6 @@ import { ApiConfiguration } from "./config.ts";
 import { badRequest, forbidden, serviceUnavailable } from "./errors.ts";
 import { readLimitedJsonBody } from "./http.ts";
 import { PluginHost, PluginOperationError } from "./plugin-host.ts";
-import { servePluginMcp } from "./plugin-mcp.ts";
 
 export const pluginTenants = (
 	accountId: string,
@@ -59,13 +58,15 @@ export const routePluginRequest = (request: Request) =>
 				)
 			)
 				return yield* Effect.fail(forbidden("plugin_tenant_rejected"));
-			return yield* attempt(() =>
-				servePluginMcp(
+			// The MCP SDK loads on first use to keep Worker startup within limits.
+			return yield* attempt(async () => {
+				const { servePluginMcp } = await import("./plugin-mcp.ts");
+				return servePluginMcp(
 					request,
 					{ tenant, subject: principal.accountId },
 					host.value,
-				),
-			);
+				);
+			});
 		}
 		if (request.method !== "POST")
 			return yield* Effect.fail(badRequest("invalid_plugin_method"));

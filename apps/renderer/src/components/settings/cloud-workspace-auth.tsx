@@ -437,7 +437,7 @@ export function CloudWorkspaceAuth() {
 		<>
 			<CloudSettingsGroup
 				title={uiMessage("settings:cloud_workspace_auth_agent_authentication")}
-				description={uiMessage(
+				help={uiMessage(
 					"settings:cloud_workspace_auth_authorize_each_provider_once_account_credentials_are_shared_by_new_clo",
 				)}
 				action={

@@ -44,5 +44,6 @@ SELECT provider, snapshot_id, account_id, build_id,
   'stoppedAtMs', CASE WHEN state NOT IN ('building','sanitizing') AND (state != 'ready' OR rank != 1) THEN floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint END,
   'remainder', 0, 'attempts', 0, 'nextAttemptAtMs', 0))
 FROM (SELECT *, row_number() OVER (PARTITION BY account_id, provider ORDER BY CASE WHEN state = 'ready' THEN 0 ELSE 1 END, updated_at DESC, build_id DESC) AS rank
- FROM api_cloud_project_builds WHERE provider = 'box' AND snapshot_id IS NOT NULL) builds
+ FROM api_cloud_project_builds WHERE provider = 'box' AND snapshot_id IS NOT NULL ) builds
+WHERE settings->>'providerConnectionId' IS NULL
 ON CONFLICT DO NOTHING;

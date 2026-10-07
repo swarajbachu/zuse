@@ -26,6 +26,11 @@ import {
 import { requireGithubEnrollment } from "./github-membership.ts";
 import { decodeBody, json } from "./http.ts";
 import {
+	organizationAccessAllowed,
+	organizationCreationAllowed,
+	requireOrganizationRollout,
+} from "./organization-rollout.ts";
+import {
 	listWorkos,
 	organizationSeatsFull,
 	requestWorkos,
@@ -100,6 +105,7 @@ export const setOrganizationSharingDefaults = Effect.fn(
 export const requireOrganizationMembership = Effect.fn(
 	"requireOrganizationMembership",
 )(function* (accountId: string, organizationId: string) {
+	yield* requireOrganizationRollout(organizationId);
 	const memberships = yield* listWorkos(
 		`/user_management/organization_memberships?user_id=${encodeURIComponent(accountId)}&organization_id=${encodeURIComponent(organizationId)}`,
 		WorkosMember,
@@ -173,6 +179,66 @@ const invitation = (value: typeof WorkosInvitation.Type) =>
 		expiresAt: value.expires_at,
 	});
 
+const listAccessibleOrganizations = Effect.fn("listAccessibleOrganizations")(
+	function* (userId: string) {
+		const memberships = yield* listWorkos(
+			`/user_management/organization_memberships?user_id=${encodeURIComponent(userId)}`,
+			WorkosMember,
+		);
+		const authorizedMemberships = yield* Effect.filter(
+			memberships.filter(
+				(m) =>
+					m.user_id === userId &&
+					m.status === "active" &&
+					Schema.is(OrganizationRole)(m.role.slug),
+			),
+			(member) =>
+				organizationAccessAllowed(member.organization_id).pipe(
+					Effect.flatMap((allowed) =>
+						allowed
+							? requireGithubEnrollment(
+									userId,
+									member.organization_id,
+									member.id,
+								).pipe(
+									Effect.map(
+										(managed) => !managed || member.role.slug === "member",
+									),
+									Effect.catch((error) =>
+										error.status === 403
+											? Effect.succeed(false)
+											: Effect.fail(error),
+									),
+								)
+							: Effect.succeed(false),
+					),
+				),
+			{ concurrency: 4 },
+		);
+		const organizations = yield* Effect.forEach(
+			authorizedMemberships,
+			(member) =>
+				requestWorkos(
+					`/organizations/${encodeURIComponent(member.organization_id)}`,
+					WorkosOrganization,
+				).pipe(
+					Effect.map((org) =>
+						Organization.make({
+							id: org.id,
+							name: org.name,
+							role: Schema.decodeUnknownSync(OrganizationRole)(
+								member.role.slug,
+							),
+							isCreator: org.metadata?.zuse_creator === userId,
+						}),
+					),
+				),
+			{ concurrency: 4 },
+		);
+		return organizations;
+	},
+);
+
 export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 	function* (request: Request) {
 		const path = new URL(request.url).pathname;
@@ -181,6 +247,19 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 			!path.startsWith(`${ApiPaths.organizations}/`)
 		)
 			return null;
+		if (
+			path === ApiPaths.organizationCapabilities &&
+			request.method === "GET"
+		) {
+			const principal = yield* requireWorkos(request);
+			const enabled = (yield* ApiConfiguration).organizationWorkspacesEnabled;
+			return json({
+				canCreate: yield* organizationCreationAllowed(principal.accountId),
+				organizations: enabled
+					? yield* listAccessibleOrganizations(principal.accountId)
+					: [],
+			});
+		}
 		if (!(yield* ApiConfiguration).organizationWorkspacesEnabled)
 			return yield* forbidden("organization_workspaces_disabled");
 		const principal = yield* requireWorkos(request);
@@ -188,53 +267,11 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 		const method = request.method;
 
 		if (path === ApiPaths.organizations && method === "GET") {
-			const memberships = yield* listWorkos(
-				`/user_management/organization_memberships?user_id=${encodeURIComponent(userId)}`,
-				WorkosMember,
-			);
-			const authorizedMemberships = yield* Effect.filter(
-				memberships.filter(
-					(m) =>
-						m.user_id === userId &&
-						m.status === "active" &&
-						Schema.is(OrganizationRole)(m.role.slug),
-				),
-				(member) =>
-					requireGithubEnrollment(
-						userId,
-						member.organization_id,
-						member.id,
-					).pipe(
-						Effect.map((managed) => !managed || member.role.slug === "member"),
-						Effect.catch((error) =>
-							error.status === 403 ? Effect.succeed(false) : Effect.fail(error),
-						),
-					),
-				{ concurrency: 4 },
-			);
-			const organizations = yield* Effect.forEach(
-				authorizedMemberships,
-				(member) =>
-					requestWorkos(
-						`/organizations/${encodeURIComponent(member.organization_id)}`,
-						WorkosOrganization,
-					).pipe(
-						Effect.map((org) =>
-							Organization.make({
-								id: org.id,
-								name: org.name,
-								role: Schema.decodeUnknownSync(OrganizationRole)(
-									member.role.slug,
-								),
-								isCreator: org.metadata?.zuse_creator === userId,
-							}),
-						),
-					),
-				{ concurrency: 4 },
-			);
-			return json(organizations);
+			return json(yield* listAccessibleOrganizations(userId));
 		}
 		if (path === ApiPaths.organizations && method === "POST") {
+			if (!(yield* organizationCreationAllowed(userId)))
+				return yield* forbidden("organization_creation_disabled");
 			const input = yield* decodeBody(OrganizationCreateInput, request);
 			if (input.name.trim().length === 0)
 				return yield* badRequest("organization_name_required");

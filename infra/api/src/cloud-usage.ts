@@ -1,7 +1,10 @@
 import { BillingProviders } from "@zuse/billing-providers";
-import { SandboxProviders } from "@zuse/sandbox-providers";
 import { Effect } from "effect";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
+import {
+	resolveConnectedProvider,
+	resourceProviderConnectionId,
+} from "./cloud-provider-connections.ts";
 import type { RuntimeObservation } from "./cloud-usage-store.ts";
 import { ApiConfiguration } from "./config.ts";
 
@@ -16,7 +19,11 @@ export const observeCloudRuntimeUsage = Effect.fn("observeCloudRuntimeUsage")(
 			input.providerSandboxId === undefined
 		)
 			return;
-		const provider = yield* (yield* SandboxProviders).get(input.provider);
+		const provider = yield* resolveConnectedProvider(
+			input.accountId,
+			input.provider,
+			yield* resourceProviderConnectionId(input.resourceKind, input.resourceId),
+		);
 		const running =
 			input.runningSinceMs !== undefined
 				? yield* provider.inspect(input.providerSandboxId).pipe(

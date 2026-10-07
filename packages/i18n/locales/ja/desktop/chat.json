@@ -187,7 +187,6 @@
 	"chat_landing_clone_project": "クローンプロジェクト",
 	"chat_landing_dismiss_error": "エラーを無視",
 	"chat_landing_clear_create_from_source": "ソースからの作成をクリアする",
-	"chat_landing_pick_a_project_below_to_start_a_new_chat": "新しいチャットを開始するには、以下のプロジェクトを選択してください。",
 	"chat_landing_import_an_existing_chat": "既存のチャットをインポートする",
 	"chat_landing_import_chat": "チャットをインポートする",
 	"chat_landing_recent_provider_chats": "最近のプロバイダーチャット",
@@ -684,5 +683,8 @@
 	"runtime_mode_full_description": "承認なしで操作を許可します。プランモードは引き続き適用されます。",
 	"message_row_signed_out_of": "{{label}} からサインアウトされています。",
 	"provider_sign_in_tray_signed_out": "{{label}} からサインアウトされました",
-	"provider_sign_in_tray_sign_in_to_continue": "このチャットを続けるにはサインインしてください。"
+	"provider_sign_in_tray_sign_in_to_continue": "このチャットを続けるにはサインインしてください。",
+	"chat_landing_choose_a_project_in_the_sidebar": "サイドバーでプロジェクトを選んで新しいチャットを開始します。",
+	"chat_landing_add_a_project_to_start": "プロジェクトを追加して最初のチャットを開始しましょう。",
+	"chat_landing_add_project": "プロジェクトを追加"
 }

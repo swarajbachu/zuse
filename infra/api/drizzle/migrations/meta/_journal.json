@@ -271,8 +271,15 @@
 		{
 			"idx": 38,
 			"version": "7",
+			"when": 1790985600000,
+			"tag": "0037_cloud_provider_connections",
+			"breakpoints": true
+		},
+		{
+			"idx": 39,
+			"version": "7",
 			"when": 1791072000000,
-			"tag": "0037_cloud_snapshot_storage",
+			"tag": "0038_cloud_snapshot_storage",
 			"breakpoints": true
 		}
 	]

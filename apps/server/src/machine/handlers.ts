@@ -57,6 +57,22 @@ const Offers = MemoizeRpcs.toLayerHandler("machines.offers", () =>
 const Plugins = MemoizeRpcs.toLayerHandler("plugins.request", (input) =>
 	withCloudControl((service) => service.plugins(input)),
 );
+const CloudProviderConnectionsList = MemoizeRpcs.toLayerHandler(
+	"cloud.providerConnections.list",
+	() => withCloudControl((service) => service.cloudProviderConnections()),
+);
+const CloudProviderConnectionsSave = MemoizeRpcs.toLayerHandler(
+	"cloud.providerConnections.save",
+	(input) =>
+		withCloudControl((service) => service.saveCloudProviderConnection(input)),
+);
+const CloudProviderConnectionsDisconnect = MemoizeRpcs.toLayerHandler(
+	"cloud.providerConnections.disconnect",
+	(input) =>
+		withCloudControl((service) =>
+			service.disconnectCloudProviderConnection(input),
+		),
+);
 const CloudProviders = MemoizeRpcs.toLayerHandler("cloud.providers", () =>
 	withCloudControl((service) => service.cloudProviders()),
 );
@@ -477,6 +493,9 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudBillingUsageHandler,
 	CloudBillingSetCapHandler,
 	CloudProviders,
+	CloudProviderConnectionsList,
+	CloudProviderConnectionsSave,
+	CloudProviderConnectionsDisconnect,
 	CloudAccountImageStatus,
 	CloudAccountImageBuild,
 	CloudAccountImageDelete,

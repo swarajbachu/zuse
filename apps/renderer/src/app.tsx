@@ -1,5 +1,4 @@
 import { CloudBuildMonitor } from "./components/cloud-build-monitor.tsx";
-import { PluginReturnHandler } from "./components/plugin-return-handler.tsx";
 import { Spinner } from "./components/ui/spinner.tsx";
 import { useCloudOnboarding } from "./hooks/use-cloud-onboarding.ts";
 import { SurfaceFallback } from "./shell/surface-fallback.tsx";
@@ -106,6 +105,22 @@ const ChatSwitcher = lazy(() =>
 		default: module.ChatSwitcher,
 	})),
 );
+
+const LazyPluginReturnHandler = lazy(() =>
+	import("./components/plugin-return-handler.tsx").then((module) => ({
+		default: module.PluginReturnHandler,
+	})),
+);
+
+// Plugin callbacks run across every surface without making their client and
+// schemas part of the shell's static startup graph.
+function PluginReturnHandler() {
+	return (
+		<Suspense fallback={null}>
+			<LazyPluginReturnHandler />
+		</Suspense>
+	);
+}
 
 function AmbientSurfaces() {
 	const chatSwitcherOpen = useUiStore((state) => state.chatSwitcherOpen);

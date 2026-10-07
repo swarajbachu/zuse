@@ -39,6 +39,7 @@
 		]
 	},
 	"vars": {
+		"ORGANIZATION_ROLLOUT_ENABLED": "true",
 		"PLUGIN_APP_ORIGIN": "https://code.zuse.sh",
 		"SLACK_ENABLED": "true",
 		"SLACK_APP_ID": "A0C4UAJHRMX",

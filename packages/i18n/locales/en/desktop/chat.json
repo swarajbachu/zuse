@@ -187,7 +187,6 @@
 	"chat_landing_clone_project": "Clone project",
 	"chat_landing_dismiss_error": "Dismiss error",
 	"chat_landing_clear_create_from_source": "Clear create-from source",
-	"chat_landing_pick_a_project_below_to_start_a_new_chat": "Pick a project below to start a new chat.",
 	"chat_landing_import_an_existing_chat": "Import an existing chat",
 	"chat_landing_import_chat": "Import chat",
 	"chat_landing_recent_provider_chats": "Recent provider chats",
@@ -684,5 +683,8 @@
 	"runtime_mode_full_description": "Allow actions without approval. Plan mode still applies.",
 	"message_row_signed_out_of": "You're signed out of {{label}}.",
 	"provider_sign_in_tray_signed_out": "Signed out of {{label}}",
-	"provider_sign_in_tray_sign_in_to_continue": "Sign in to continue this chat."
+	"provider_sign_in_tray_sign_in_to_continue": "Sign in to continue this chat.",
+	"chat_landing_choose_a_project_in_the_sidebar": "Choose a project in the sidebar to start a new chat.",
+	"chat_landing_add_a_project_to_start": "Add a project to start your first chat.",
+	"chat_landing_add_project": "Add project"
 }

@@ -119,7 +119,8 @@ describe("relay migration reconciliation", () => {
 			{ idx: 35, tag: "0034_cloud_github_users" },
 			{ idx: 36, tag: "0035_github_organization_joining" },
 			{ idx: 37, tag: "0036_organization_auto_join" },
-			{ idx: 38, tag: "0037_cloud_snapshot_storage" },
+			{ idx: 38, tag: "0037_cloud_provider_connections" },
+			{ idx: 39, tag: "0038_cloud_snapshot_storage" },
 		]);
 	});
 

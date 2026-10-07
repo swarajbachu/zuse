@@ -307,6 +307,26 @@ export const preferredGroupMember = (
 	null;
 
 /**
+ * The project the new-chat landing opens on: the remembered one, else the
+ * current selection, else the first openable project. Never leaves the
+ * landing without a composer while any project can be opened.
+ */
+export const landingDefaultProject = (
+	groups: ReadonlyArray<LogicalProjectGroup>,
+	rememberedKey: string | null,
+	selectedKey: string | null,
+): LogicalProjectGroup | null => {
+	const openable = (group: LogicalProjectGroup) =>
+		preferredGroupMember(group) !== null;
+	const remembered = groups.find(
+		(group) => group.key === rememberedKey && openable(group),
+	);
+	if (remembered !== undefined) return remembered;
+	if (selectedKey !== null) return null;
+	return groups.find(openable) ?? null;
+};
+
+/**
  * Where a new chat runs unless the user picks otherwise: this desktop's
  * member of the group when present, else the first connected member.
  */

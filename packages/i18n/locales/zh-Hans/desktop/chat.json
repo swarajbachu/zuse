@@ -187,7 +187,6 @@
 	"chat_landing_clone_project": "克隆项目",
 	"chat_landing_dismiss_error": "消除错误",
 	"chat_landing_clear_create_from_source": "清除创建来源",
-	"chat_landing_pick_a_project_below_to_start_a_new_chat": "选择下面的一个项目来开始新的聊天。",
 	"chat_landing_import_an_existing_chat": "导入现有聊天记录",
 	"chat_landing_import_chat": "导入聊天记录",
 	"chat_landing_recent_provider_chats": "最近的提供商聊天记录",
@@ -684,5 +683,8 @@
 	"runtime_mode_full_description": "无需批准即可执行操作。计划模式仍然适用。",
 	"message_row_signed_out_of": "你已退出 {{label}} 登录。",
 	"provider_sign_in_tray_signed_out": "已退出 {{label}} 登录",
-	"provider_sign_in_tray_sign_in_to_continue": "登录以继续此聊天。"
+	"provider_sign_in_tray_sign_in_to_continue": "登录以继续此聊天。",
+	"chat_landing_choose_a_project_in_the_sidebar": "在侧边栏中选择一个项目以开始新聊天。",
+	"chat_landing_add_a_project_to_start": "添加一个项目以开始你的第一次聊天。",
+	"chat_landing_add_project": "添加项目"
 }

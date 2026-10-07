@@ -23,6 +23,7 @@ describe("organization configuration route permissions", () => {
 	});
 
 	it.each([
+		ApiPaths.cloudProviderConnections,
 		ApiPaths.cloudAuthLoginStart,
 		ApiPaths.cloudAuthLoginPoll("operation_a"),
 		ApiPaths.cloudAccountImageBuild,

@@ -8,6 +8,7 @@ import {
 import {
 	hasCloudEntitlement,
 	loadCloudEntitlements,
+	loadCloudProviders,
 	loadCloudWorkspacePlacement,
 } from "../lib/cloud-workspace-session-cache.ts";
 import { subscribeControlPlaneSessionCache } from "../lib/control-plane-client.ts";
@@ -29,9 +30,14 @@ export function useCloudOnboarding(accountId: string | null, enabled: boolean) {
 			if (openRef.current) return;
 			const request = ++sequence;
 			try {
-				const entitlements = await loadCloudEntitlements();
+				// Provider-key eligibility arrives with the provider list; older APIs
+				// or a failed list still fall back to subscription entitlements.
+				const providers = await loadCloudProviders().catch(() => null);
+				const entitled =
+					providers?.entitled ??
+					hasCloudEntitlement(await loadCloudEntitlements());
 				if (disposed || request !== sequence) return;
-				if (!hasCloudEntitlement(entitlements)) {
+				if (!entitled) {
 					setOwner(null);
 					return;
 				}
@@ -65,7 +71,11 @@ export function useCloudOnboarding(accountId: string | null, enabled: boolean) {
 			}
 		};
 		const stop = subscribeControlPlaneSessionCache((key) => {
-			if (key === "cloud-workspace:entitlements") void check();
+			if (
+				key === "cloud-workspace:entitlements" ||
+				key === "cloud-workspace:providers"
+			)
+				void check();
 		});
 		const resume = () => {
 			// Explicit navigation must not wait on entitlement or image requests.

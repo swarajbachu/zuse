@@ -1495,3 +1495,26 @@ export const apiSnapshotPriceSchedule = pgTable(
 		),
 	],
 );
+export const apiCloudProviderConnections = pgTable(
+	"api_cloud_provider_connections",
+	{
+		connectionId: text("connection_id").primaryKey(),
+		accountId: text("account_id").notNull(),
+		provider: text("provider").notNull(),
+		envelope: text("envelope").notNull(),
+		active: boolean("active").notNull().default(true),
+		templateId: text("template_id"),
+		organization: text("organization"),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		check(
+			"cloud_provider_connection_provider",
+			sql`${table.provider} IN ('e2b', 'boxd', 'box')`,
+		),
+		uniqueIndex("api_cloud_provider_connections_active")
+			.on(table.accountId, table.provider)
+			.where(sql`${table.active}`),
+		index("api_cloud_provider_connections_owner").on(table.accountId),
+	],
+);

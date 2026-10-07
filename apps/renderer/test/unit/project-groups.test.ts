@@ -11,6 +11,8 @@ import {
 	buildLogicalProjectGroups,
 	computerPickerItems,
 	type LogicalProjectGroup,
+	type LogicalProjectMember,
+	landingDefaultProject,
 	preferredGroupMember,
 } from "../../src/lib/project-groups.ts";
 import type { EnvironmentCatalogEntry } from "../../src/store/environment-catalog.ts";
@@ -484,5 +486,60 @@ describe("computerPickerItems", () => {
 		const remoteOnly = build({ entries: [remoteEntry] })[0];
 		if (remoteOnly === undefined) throw new Error("expected a group");
 		expect(preferredGroupMember(remoteOnly)?.environmentId).toBe("env-remote");
+	});
+});
+
+describe("landingDefaultProject", () => {
+	const group = (key: string, connected = true): LogicalProjectGroup => ({
+		key,
+		displayName: key,
+		origin: null,
+		members: [
+			{
+				environmentId: "env",
+				environmentLabel: "This Mac",
+				connectionKind: "local",
+				status: "connected",
+				folderId: key,
+				folderName: key,
+				isActive: connected,
+				local: connected,
+				connected,
+			} as unknown as LogicalProjectMember,
+		],
+		chats: [],
+		environmentPresence: "local-only",
+	});
+
+	it("opens the first project when nothing is remembered or selected", () => {
+		expect(
+			landingDefaultProject([group("a"), group("b")], null, null)?.key,
+		).toBe("a");
+	});
+
+	it("falls back to the first project when the remembered one is gone", () => {
+		expect(landingDefaultProject([group("a")], "deleted", null)?.key).toBe("a");
+	});
+
+	it("prefers the remembered project over the current selection", () => {
+		expect(landingDefaultProject([group("a"), group("b")], "b", "a")?.key).toBe(
+			"b",
+		);
+	});
+
+	it("keeps an existing selection when nothing is remembered", () => {
+		expect(landingDefaultProject([group("a"), group("b")], null, "b")).toBe(
+			null,
+		);
+	});
+
+	it("skips projects with no reachable computer", () => {
+		expect(
+			landingDefaultProject([group("offline", false), group("b")], null, null)
+				?.key,
+		).toBe("b");
+		expect(landingDefaultProject([group("offline", false)], null, null)).toBe(
+			null,
+		);
 	});
 });

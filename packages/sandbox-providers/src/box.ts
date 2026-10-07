@@ -653,6 +653,12 @@ export const makeBoxSandboxProvider = (
 	);
 
 	return {
+		withCredentials: (credentials) =>
+			makeBoxSandboxProvider({
+				...config,
+				apiKey: credentials.apiKey,
+				templateSnapshot: credentials.templateId ?? config.templateSnapshot,
+			}),
 		providerId: BOX_PROVIDER_ID,
 		displayName: "Boat",
 		getUsage: Effect.fn("BoxSandboxProvider.getUsage")(

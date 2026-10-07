@@ -9,6 +9,7 @@ import { requireWorkos } from "./auth.ts";
 import { ApiConfiguration } from "./config.ts";
 import { conflict, forbidden, notFound } from "./errors.ts";
 import { decodeBody, json } from "./http.ts";
+import { organizationAccessAllowed } from "./organization-rollout.ts";
 import {
 	admitOrganizationMember,
 	membershipsFor,
@@ -81,6 +82,7 @@ export const syncDomainAutoJoin = Effect.fn("syncDomainAutoJoin")(function* (
 	const owner = yield* store.domainJoining.getDomain(domain);
 	if (!owner) return [];
 	const organizationId = owner.organizationId;
+	if (!(yield* organizationAccessAllowed(organizationId))) return [];
 	const joined = yield* store.withOrganizationLock(
 		organizationId,
 		Effect.gen(function* () {
