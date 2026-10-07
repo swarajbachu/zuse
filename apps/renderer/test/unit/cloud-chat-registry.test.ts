@@ -693,3 +693,19 @@ describe("cloud chat catalog", () => {
 		});
 	});
 });
+
+it("keeps the selected summary stable when binding its runtime project", () => {
+	const row = summary({
+		workspaceId: "linked-runtime",
+		chatId: "linked-chat",
+		sessionId: "linked-session",
+		revision: 1,
+	});
+	registerCloudChat(row);
+	const selected = cloudSummaryForChat(row.chatId);
+	registerCloudChat(selected ?? row, FolderId.make("runtime-checkout"));
+	expect(cloudSummaryForChat(row.chatId)).toBe(selected);
+	expect(localProjectForCloudChat(row.chatId)).toBe("runtime-checkout");
+	registerCloudChat(selected ?? row, FolderId.make("runtime-checkout"));
+	expect(cloudSummaryForChat(row.chatId)).toBe(selected);
+});
