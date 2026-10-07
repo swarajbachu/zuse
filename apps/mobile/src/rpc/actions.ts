@@ -395,6 +395,20 @@ const modelOptionsPayload = (options: SendMessageOptions) =>
 		? {}
 		: { modelOptions: { ...options.modelOptions } };
 
+/** Forget a send that failed, so its message can be resent or removed. */
+export const dismissFailedSessionCommands = (
+	connection: WsProtocolOptions,
+	sessionId: SessionId,
+): void => {
+	mobileClientBus().dismissFailedCommands(
+		sessionCommandContext(
+			connectionKeyForOptions(connection),
+			connection,
+			sessionId,
+		).resource,
+	);
+};
+
 /** Composer completion means durable acceptance, not compute availability. */
 export const sendCloudMessage = (
 	options: SendMessageOptions & { clientMessageId: MessageId },

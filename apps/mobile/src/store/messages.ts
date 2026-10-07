@@ -228,15 +228,19 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 		view.connection === "waking";
 	batchAtomUpdates(() => {
 		patchReconnecting(liveKey, reconnecting);
+		// A failed message send is marked on the message itself (Resend/Remove).
+		const failedOther = view.failedCommands.filter(
+			(command) => command.kind !== "messages.send",
+		);
 		patchError(
 			liveKey,
-			view.failedCommands.length > 0
+			failedOther.length > 0
 				? (cloudFailurePresentation({
-						state: view.failedCommands.at(-1)?.terminal?.state,
-						category: view.failedCommands.at(-1)?.terminal?.category,
-						cause: view.failedCommands.at(-1)?.error,
+						state: failedOther.at(-1)?.terminal?.state,
+						category: failedOther.at(-1)?.terminal?.category,
+						cause: failedOther.at(-1)?.error,
 					})?.message ??
-						view.failedCommands.at(-1)?.error ??
+						failedOther.at(-1)?.error ??
 						null)
 				: view.sync === "failed" || view.sync === "stale"
 					? "Transcript synchronization failed."

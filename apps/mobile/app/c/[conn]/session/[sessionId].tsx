@@ -63,6 +63,7 @@ import { SessionActionsMenu } from "~/components/session-actions-menu";
 import { ThreadHeaderTitle } from "~/components/thread-header-title";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
+import { UndeliveredMessage } from "~/components/undelivered-message";
 import { useTranscriptScrollCoordinator } from "~/hooks/use-transcript-scroll-coordinator";
 import { coordinateChatBottomState } from "~/lib/chat-bottom-state";
 import { cloudLifecycle } from "~/lib/cloud-lifecycle";
@@ -1241,6 +1242,14 @@ function ThreadScreen() {
 				}
 				ListFooterComponent={
 					<View style={{ minHeight: endRunwayHeight, paddingTop: 4 }}>
+						{options === null ? null : (
+							<UndeliveredMessage
+								stateKey={stateKey}
+								connection={options}
+								sessionId={normalizedSessionId}
+								messages={messages}
+							/>
+						)}
 						{options?.cloudWorkspaceId && (
 							<CloudDeviceAccess workspaceId={options.cloudWorkspaceId} />
 						)}

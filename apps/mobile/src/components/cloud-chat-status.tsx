@@ -36,7 +36,10 @@ export function CloudChatStatus({
 	const lastUserIndex = messages.findLastIndex(
 		(message) => message.role === "user",
 	);
-	const lastFailed = delivery.failed.at(-1);
+	// Failed message sends are marked on the message (UndeliveredMessage).
+	const lastFailed = delivery.failed.findLast(
+		(command) => command.kind !== "messages.send",
+	);
 	const failed =
 		pending === undefined &&
 		(lastFailed?.failedAt ?? 0) >=
@@ -77,7 +80,6 @@ export function CloudChatStatus({
 			? summary.codexAuthMode
 			: summary?.providerAuthMode) === "legacy-image";
 	const storageLost = failure?.kind === "workspace-storage-unavailable";
-	const outcomeUnknown = failure?.kind === "outcome-unknown";
 	const reconnectingAuth = (pending?.category ?? providerText ?? "").includes(
 		"-auth-reconnecting",
 	);
@@ -127,7 +129,7 @@ export function CloudChatStatus({
 						Providers
 					</Button>
 				) : null}
-				{legacy || storageLost || outcomeUnknown ? (
+				{legacy || storageLost ? (
 					<Button
 						size="sm"
 						variant="ghost"
@@ -142,7 +144,7 @@ export function CloudChatStatus({
 							})
 						}
 					>
-						{outcomeUnknown ? "New Draft" : "New Chat"}
+						New Chat
 					</Button>
 				) : null}
 				{failure?.kind === "update-required" ? (
