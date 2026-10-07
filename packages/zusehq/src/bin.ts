@@ -5,9 +5,9 @@ import { installSnapshot } from "./snapshot.ts";
 async function main() {
 	const args = process.argv.slice(2);
 	if (args[0] === "snapshot") {
-		if (args[1] !== "install")
+		if (args[1] !== "install" && args[1] !== "update")
 			throw new Error(
-				"Usage: npx zusehq snapshot install [--user development-user]",
+				"Usage: npx zusehq snapshot <install|update> [--user development-user]",
 			);
 		return installSnapshot(args.slice(2));
 	}

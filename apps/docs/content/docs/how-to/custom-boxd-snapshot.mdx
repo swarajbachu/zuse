@@ -59,6 +59,20 @@ Copied OAuth logins can become invalid when several workspace copies refresh the
 
 Snapshot inspection does not guarantee future authentication or network readiness. Zuse validates the actual checkout and agent access again at launch. Last-checked agent status is shown for each workspace in Cloud settings.
 
+## Update the base snapshot
+
+On the original base machine, run:
+
+```bash
+npx zusehq@latest snapshot update
+```
+
+Add `--user developer` when running directly as root. This reruns the same setup with the latest published runtime, preserving your development tools, repositories, and native credentials. Create a new Boxd snapshot afterward and select its new ID in Zuse; existing workspaces keep their pinned snapshot configuration.
+
+Both commands require administrator privileges for system setup. When started as your development user, the installer uses sudo and retains that username. When started directly as root, `--user` identifies the existing non-root development user who will run Zuse and whose repositories and agent logins will be used.
+
+The update command is for base machines without enrolled Zuse workspace data. Existing workspaces use the normal runtime-update mechanism, which preserves their chat database.
+
 ## Changes and recovery
 
 Changing the snapshot, paths, or authentication preferences creates a new configuration generation. Existing workspaces retain their original provider key and configuration. Disconnecting a key prevents new placement; it does not migrate retained machines onto Zuse credentials.

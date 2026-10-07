@@ -31,7 +31,7 @@ export async function installSnapshot(
 ): Promise<void> {
 	if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
 		console.log(
-			"Usage: npx zusehq snapshot install [--user development-user]\nInstall the Zuse runtime on a Debian/Ubuntu Boxd snapshot machine.\nRepository paths and authentication are configured in the Zuse UI.",
+			"Usage: npx zusehq snapshot <install|update> [--user development-user]\nInstall or update the Zuse runtime on a Debian/Ubuntu Boxd base snapshot machine.\nRepository paths and authentication are configured in the Zuse UI.",
 		);
 		return;
 	}
@@ -45,7 +45,7 @@ export async function installSnapshot(
 		)
 	)
 		throw new Error(
-			"Usage: npx zusehq snapshot install [--user development-user]. Set repository paths in the Zuse UI.",
+			"Usage: npx zusehq snapshot <install|update> [--user development-user]. Set repository paths in the Zuse UI.",
 		);
 	if (dependencies.platform !== "linux" || dependencies.arch !== "x64")
 		throw new Error(
