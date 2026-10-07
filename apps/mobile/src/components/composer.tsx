@@ -26,6 +26,7 @@ import {
 	Text,
 	View,
 } from "react-native";
+import { cn } from "~/lib/cn";
 import {
 	captureComposerImage,
 	type LocalComposerAttachment,
@@ -567,7 +568,9 @@ export const Composer = ({
 					// Collapsed, the composer is a narrow capsule floating over the
 					// transcript; focused, it widens to the full input frame.
 					marginHorizontal: expanded ? 0 : 12,
-					paddingHorizontal: expanded ? 12 : 6,
+					paddingLeft: expanded ? 12 : 6,
+					// Inset the collapsed send circle from the capsule's curved end.
+					paddingRight: expanded ? 12 : 8,
 					paddingVertical: expanded ? 8 : 0,
 					borderRadius: 22,
 				}}
@@ -765,6 +768,7 @@ export const Composer = ({
 							</Text>
 						</Pressable>
 						<SendButton
+							round
 							showInterrupt={showInterrupt}
 							online={online}
 							busy={busy}
@@ -796,7 +800,10 @@ const SendButton = ({
 	busy,
 	disabled,
 	onPress,
+	round = false,
 }: {
+	/** Collapsed capsule: a circle so it sits inside the pill's curve. */
+	round?: boolean;
 	showInterrupt: boolean;
 	online: boolean;
 	busy: boolean;
@@ -808,7 +815,7 @@ const SendButton = ({
 		variant={showInterrupt ? "secondary" : online ? "primary" : "secondary"}
 		// Mirrors the desktop composer's compact square send control; hitSlop
 		// keeps the touch target at 44pt.
-		className="h-8 w-8 rounded-[9px] px-0"
+		className={cn("h-8 w-8 px-0", round ? "rounded-full" : "rounded-[9px]")}
 		hitSlop={6}
 		disabled={disabled}
 		onPress={onPress}

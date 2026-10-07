@@ -1135,7 +1135,10 @@ function ThreadScreen() {
 							anchoredEndSpace,
 						})}
 				maintainScrollAtEnd={
-					transcriptScroll.readerDetached
+					// While a sent message holds the top, a growing reply extends
+					// below the fold (desktop behavior) instead of dragging it down.
+					transcriptScroll.readerDetached ||
+					transcriptScroll.anchorIndex !== null
 						? false
 						: {
 								animated: false,
