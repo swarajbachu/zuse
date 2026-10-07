@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { getAccessToken, signOut } from "../../../src/auth/workos";
+import {
+	getAccessToken,
+	onSessionExpired,
+	signOut,
+} from "../../../src/auth/workos";
 
 const secureStore = vi.hoisted(() => {
 	let stored: string | null = null;
@@ -84,5 +88,39 @@ describe("WorkOS token refresh", () => {
 		await expect(pending).rejects.toThrow("not_signed_in");
 		expect(secureStore.peek()).toBeNull();
 		expect(secureStore.setItemAsync).not.toHaveBeenCalled();
+	});
+
+	test("a rejected refresh token ends the session instead of failing forever", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("invalid_grant", { status: 400 })),
+		);
+		const expired = vi.fn();
+		const release = onSessionExpired(expired);
+		try {
+			await expect(getAccessToken()).rejects.toThrow("not_signed_in");
+			expect(expired).toHaveBeenCalledTimes(1);
+			expect(secureStore.peek()).toBeNull();
+		} finally {
+			release();
+		}
+	});
+
+	test("a network failure keeps the session for a later retry", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => {
+				throw new TypeError("Network request failed");
+			}),
+		);
+		const expired = vi.fn();
+		const release = onSessionExpired(expired);
+		try {
+			await expect(getAccessToken()).rejects.toThrow("Network request failed");
+			expect(expired).not.toHaveBeenCalled();
+			expect(secureStore.peek()).not.toBeNull();
+		} finally {
+			release();
+		}
 	});
 });

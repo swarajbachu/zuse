@@ -1,6 +1,7 @@
 import { Atom } from "effect/unstable/reactivity";
 import {
 	currentAccount,
+	onSessionExpired,
 	type WorkosAccount,
 	signIn as workosSignIn,
 	signOut as workosSignOut,
@@ -32,6 +33,14 @@ const message = (cause: unknown): string => {
 	}
 	return text;
 };
+
+onSessionExpired(() => {
+	resetApiAccessToken();
+	batchAtomUpdates(() => {
+		appAtomRegistry.set(authAccountAtom, null);
+		appAtomRegistry.set(authErrorAtom, "Your session expired. Sign in again.");
+	});
+});
 
 export const hydrateAuth = async (): Promise<void> => {
 	let account: WorkosAccount | null = null;

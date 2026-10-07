@@ -20,6 +20,22 @@ let refreshFlight: Promise<string> | null = null;
 // Bumped on sign-in/out so a refresh that finishes afterwards cannot
 // resurrect or overwrite the replaced session.
 let sessionGeneration = 0;
+const expiryListeners = new Set<() => void>();
+
+/** Notified when WorkOS rejects the stored refresh token and the session is gone. */
+export const onSessionExpired = (listener: () => void): (() => void) => {
+	expiryListeners.add(listener);
+	return () => {
+		expiryListeners.delete(listener);
+	};
+};
+
+// 400 invalid_grant / 401: the refresh token is dead. Retrying cannot recover,
+// so stop presenting the account as signed in. Network failures keep it.
+const isRejectedRefresh = (cause: unknown): boolean =>
+	cause instanceof Error &&
+	(cause.message === "workos_authenticate_400" ||
+		cause.message === "workos_authenticate_401");
 
 export interface WorkosAccount {
 	readonly id: string;
@@ -130,6 +146,14 @@ const refreshSession = async (
 	const refreshed = await authenticate({
 		grant_type: "refresh_token",
 		refresh_token: session.refreshToken,
+	}).catch(async (cause: unknown) => {
+		if (isRejectedRefresh(cause) && generation === sessionGeneration) {
+			sessionGeneration += 1;
+			await SecureStore.deleteItemAsync(SESSION_KEY);
+			for (const listener of expiryListeners) listener();
+			throw new Error("not_signed_in");
+		}
+		throw cause;
 	});
 	if (generation !== sessionGeneration) throw new Error("not_signed_in");
 	await writeSession(refreshed);

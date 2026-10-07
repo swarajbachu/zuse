@@ -12,11 +12,21 @@ import {
 } from "../../../src/store/auth";
 import { appAtomRegistry } from "../../../src/store/registry";
 
-const workos = vi.hoisted(() => ({
-	currentAccount: vi.fn(),
-	signIn: vi.fn(),
-	signOut: vi.fn(),
-}));
+const workos = vi.hoisted(() => {
+	const expiry = new Set<() => void>();
+	return {
+		currentAccount: vi.fn(),
+		signIn: vi.fn(),
+		signOut: vi.fn(),
+		onSessionExpired: (listener: () => void) => {
+			expiry.add(listener);
+			return () => expiry.delete(listener);
+		},
+		expire: () => {
+			for (const listener of expiry) listener();
+		},
+	};
+});
 const revoke = vi.hoisted(() => vi.fn());
 vi.mock("../../../src/notifications/push", () => ({
 	revokeCurrentDevicePush: revoke,
@@ -51,6 +61,18 @@ describe("auth hydration", () => {
 
 		expect(appAtomRegistry.get(authHydratedAtom)).toBe(true);
 		expect(appAtomRegistry.get(authAccountAtom)).toBeNull();
+	});
+
+	it("shows signed out with a reason when the stored session expires", () => {
+		appAtomRegistry.set(authAccountAtom, {
+			id: "test-account",
+			email: "test@example.com",
+		});
+		workos.expire();
+		expect(appAtomRegistry.get(authAccountAtom)).toBeNull();
+		expect(appAtomRegistry.get(authErrorAtom)).toBe(
+			"Your session expired. Sign in again.",
+		);
 	});
 });
 
