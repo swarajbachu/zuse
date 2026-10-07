@@ -127,7 +127,14 @@ describe("custom snapshot import", () => {
 					snapshot,
 					deleteSnapshot: remove,
 					pathExists: () => Effect.succeed(true),
-					readTextFile: () => Effect.succeed(JSON.stringify(inspected)),
+					readTextFile: (_id: string, path: string) =>
+						Effect.succeed(
+							JSON.stringify(
+								path === "/etc/zuse/snapshot.json"
+									? { schemaVersion: 1, runtimeUser: "developer" }
+									: inspected,
+							),
+						),
 				};
 				yield* store.createBuild(build());
 				yield* reconcileSnapshotImport(build(), provider, 1);
@@ -151,6 +158,51 @@ describe("custom snapshot import", () => {
 			}).pipe(Effect.provide(layer)),
 		);
 	});
+	test.each([
+		"queued",
+		"building",
+	] as const)("rejects a mismatched user during %s without waiting for a result", async (state) => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const base = yield* (yield* SandboxProviders).get("fake");
+				const allocated = yield* base.fork({
+					sandboxId: "test",
+					providerLabel: "test-inspection",
+					snapshotId: "external-snapshot",
+					timeoutSeconds: 600,
+					env: {},
+					network: { kind: "open" },
+					onTimeout: "terminate",
+				});
+				const input = build({
+					state,
+					...(state === "building"
+						? { providerSandboxId: allocated.providerSandboxId }
+						: {}),
+				});
+				const launch = vi.fn(base.replaceProcess);
+				const provider = {
+					...base,
+					pathExists: () => Effect.succeed(true),
+					readTextFile: () =>
+						Effect.succeed(
+							JSON.stringify({ schemaVersion: 1, runtimeUser: "actual-user" }),
+						),
+					replaceProcess: launch,
+				};
+				yield* store.createBuild(input);
+				yield* reconcileSnapshotImport(input, provider, 1);
+				const failed = yield* store.getBuild(input.buildId);
+				expect(failed?.state).toBe("failed");
+				expect(failed?.lastErrorCode).toBe("snapshot-runtime-user-mismatch");
+				expect(launch).not.toHaveBeenCalled();
+				if (failed?.providerSandboxId)
+					expect(yield* base.inspect(failed.providerSandboxId)).toBeNull();
+			}).pipe(Effect.provide(layer)),
+		);
+	});
+
 	test("recovers a persisted inspection after the disposable machine is already gone", async () => {
 		await Effect.runPromise(
 			Effect.gen(function* () {

@@ -126,6 +126,37 @@ export const reconcileSnapshotImport = Effect.fn("reconcileSnapshotImport")(
 				...provider.resources,
 			});
 		});
+		const validateRuntimeUser = Effect.fn("validateSnapshotRuntimeUser")(
+			function* () {
+				if (!build.providerSandboxId) return false;
+				const manifest = yield* Schema.decodeUnknownEffect(
+					Schema.fromJsonString(
+						Schema.Struct({
+							schemaVersion: Schema.Literals([1]),
+							runtimeUser: Schema.String,
+						}),
+					),
+				)(
+					yield* provider.readTextFile(
+						build.providerSandboxId,
+						"/etc/zuse/snapshot.json",
+					),
+				).pipe(Effect.result);
+				if (
+					manifest._tag === "Failure" ||
+					manifest.success.runtimeUser !== settings.runtimeUser
+				) {
+					yield* cleanup();
+					yield* fail(
+						manifest._tag === "Failure"
+							? "snapshot-installer-required"
+							: "snapshot-runtime-user-mismatch",
+					);
+					return false;
+				}
+				return true;
+			},
+		);
 		if (nowMs - build.createdAtMs > 10 * 60_000) {
 			yield* cleanup();
 			return yield* fail("snapshot-inspection-timeout");
@@ -194,6 +225,7 @@ export const reconcileSnapshotImport = Effect.fn("reconcileSnapshotImport")(
 					return yield* fail("snapshot-installer-required");
 				}
 			}
+			if (!(yield* validateRuntimeUser())) return;
 			yield* provider.writeTextFile(
 				sandbox.providerSandboxId,
 				scriptFile,
@@ -228,6 +260,11 @@ export const reconcileSnapshotImport = Effect.fn("reconcileSnapshotImport")(
 		}
 		if (!build.providerSandboxId)
 			return yield* fail("snapshot-inspection-machine-missing");
+		if (
+			build.settings?.inspectionResult === undefined &&
+			!(yield* validateRuntimeUser())
+		)
+			return;
 		if (
 			build.settings?.inspectionResult === undefined &&
 			!(yield* provider.pathExists(build.providerSandboxId, resultFile))
