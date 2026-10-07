@@ -611,6 +611,7 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		slack: slackConfig
 			? {
 					...slackConfig,
+					workspaceAppOrigin: env.PLUGIN_APP_ORIGIN ?? HOSTED_APP_URL,
 					dispatch: async (response) => {
 						// The outer request/queue owns the runtime. Individual operations must not dispose it.
 						const scoped = { ...api, dispose: async () => {} };

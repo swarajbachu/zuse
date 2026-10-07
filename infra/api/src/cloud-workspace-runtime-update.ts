@@ -1,8 +1,21 @@
-export const WORKSPACE_RUNTIME_UPDATE_SCRIPT = `# Account snapshots can lack runtime fixes without a wire-protocol change.
+import INSTALL_GROK_SOURCE from "../../cloud-sandboxes/install-grok.sh";
+
+export const WORKSPACE_RUNTIME_UPDATE_SCRIPT = `${INSTALL_GROK_SOURCE}
+# Account snapshots can lack runtime fixes without a wire-protocol change.
 # First launches and explicit restarts check the signed channel before starting.
 ensure_workspace_runtime() {
-  [[ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]] || return 0
   local status_dir=/var/lib/zuse/workspace
+  mkdir -p "$status_dir"
+  export PATH="$HOME/.local/bin:$PATH"
+  # Runtime publication does not refresh provider tools in saved account images.
+  if ! command -v grok >/dev/null 2>&1; then
+    if ! install_grok >>"$status_dir/runtime.log" 2>&1; then
+      printf 'installing-agent-cli\\n' >"$status_dir/failure-phase"
+      touch "$status_dir/failed"
+      return 1
+    fi
+  fi
+  [[ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]] || return 0
   local metadata="\${ZUSE_CURRENT_LINK:-/opt/zuse/current}/runtime-metadata.json"
   mkdir -p "$status_dir"
   runtime_is_compatible() {

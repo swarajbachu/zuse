@@ -3052,6 +3052,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								return yield* messages
 									.sendMessageWithInput({
 										commandId: command.commandId,
+										actor: command.actor,
 										githubSlackMessageId: command.githubBot
 											? command.messageId
 											: undefined,

@@ -107,13 +107,17 @@ the older `stuff.md` token issuer. Do not change token issuers for Slack setup.
   check the Slack member, installation revision, connection ID and account's ready
   project catalog. Only the account owner can change defaults. Stale views cannot
   cross an account reconnect or workspace policy change.
-- One progress message is updated through preparation and then replaced by the
-  actual result. Native Slack loading is best effort, refreshed while work runs.
+- Requests receive an eyes acknowledgment reaction on the original message.
+  While work runs, a custom `one_sec_cooking` reaction accompanies native Slack
+  loading (standard hourglass fallback when the custom emoji is absent). New
+  tasks post only actual results/errors, with no intermediate working card.
+  Cooking cleanup retries independently with generation/version checks.
+  Native Slack loading is best effort, refreshed while work runs.
   Clearing the indicator is retryable: transient failures enqueue an independent
   `status-clear` job, honoring Slack rate limits without restarting the agent or
   reposting the result. A later status supersedes queued cleanup for that thread;
   reinstall generations also invalidate old jobs. Unavailable native-status
-  features or revoked permissions are logged and use the durable card as fallback.
+  features or revoked permissions are logged while reactions remain the activity fallback.
   If cleanup cannot be queued, failure notification is retried rather than silently
   acknowledged. This follows Slack's [explicit empty-status cleanup](https://docs.slack.dev/reference/methods/assistant.threads.setStatus/).
   It is not raw model reasoning or token/tool streaming. Webhooks are correlated
@@ -134,7 +138,8 @@ the older `stuff.md` token issuer. Do not change token issuers for Slack setup.
   picker then has its normal one-hour lifetime. Expiry, a policy change, or an
   account replacement prevents continuation. Duplicate notifications are
   checkpointed and cannot reset an accepted repository choice.
-- Connections reuse the account's most recent cloud workspace agent/model defaults.
+- Slack connections use explicitly saved agent/model defaults; otherwise new tasks
+  ask for a choice. They do not inherit the most recent cloud workspace’s agent.
   No raw IDs are requested. A workspace-create `agent_and_model_required` response
   queues a private **Choose agent** notice instead of failing the conversation.
   The existing picker keeps the selected repository and original message/files,
@@ -198,9 +203,12 @@ establish live distribution readiness.
 
 ### Upgrading an existing staging installation
 
-1. Apply `0023_slack_members` to the staging PostgreSQL database, then deploy the
-   updated API bundle (it includes the `@zuse/slack` workspace). Never deploy the
-   new bundle against a database that only has migration 0022.
+1. Apply all pending migrations from `infra/api/drizzle/migrations/meta/_journal.json`
+   to the verified staging PostgreSQL database before deploying the API bundle.
+   Migration 0023 adds Slack members; migration 0038 adds snapshot tables required
+   by workspace creation. Verify the latest migration journal entry and required
+   tables on the actual database. Tests and Wrangler dry-runs do not verify that
+   staging has been migrated.
 2. In Slack **OAuth & Permissions**, add `app_mentions:read` and `im:history`.
 3. In **Event Subscriptions**, keep existing events and add `app_mention` and `message.im`.
 4. In **App Home**, enable the Messages tab and allow users to send messages.
@@ -219,6 +227,20 @@ establish live distribution readiness.
    Test team sharing only with explicit installer consent, then restore individual
    mode and verify other members no longer execute against the installer account.
 
-No additional Slack scopes or callback URL changes are needed for the per-member
-upgrade if the earlier conversation manifest is already authorized. Native loading
+The reaction activity upgrade requests `reactions:write` on the bot token.
+Existing installations must reauthorize through Add to Slack to grant it.
+Callback URLs and subscriptions remain unchanged. Native loading
 must still be checked in the real Slack client; mock tests cannot prove its rendering.
+
+### Agent error diagnostics
+
+The integration message poll can return `turnFailure` from an encrypted,
+authenticated transcript checkpoint for older runtimes that leave the turn running
+after an agent error. This checks current runtime generation, cursor,
+workspace/session identity, user message, exact turn, error status, and ciphertext
+integrity. It does not create a settlement or modify the runtime. Slack shows the recorded agent error, clears its status, and stops result polling.
+Missing-agent errors include agent selection guidance; failed outcomes without
+diagnostic details still show failure and recovery guidance. Polling and signed
+webhooks use the same error formatting. The older `startupFailure` field remains
+available for missing CLI compatibility.
+Unavailable/corrupt checkpoints leave the normal ledger polling behavior intact.

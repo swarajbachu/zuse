@@ -5,6 +5,7 @@ const PREFIX = "zuse-api-message-v1:";
 export interface ApiMessageContent {
 	readonly text: string;
 	readonly githubBot?: boolean;
+	readonly actor?: { readonly subject: string; readonly membershipId: string };
 	readonly attachments: ReadonlyArray<ApiAsset>;
 }
 
@@ -18,6 +19,7 @@ export const encodeApiMessageContent = (content: ApiMessageContent): string =>
 		text: content.text,
 		...(content.githubBot === true ? { githubBot: true } : {}),
 		attachments: content.attachments,
+		...(content.actor === undefined ? {} : { actor: content.actor }),
 	})}`;
 
 export const decodeApiMessageContent = (
@@ -29,6 +31,10 @@ export const decodeApiMessageContent = (
 		const decoded = JSON.parse(sealedPlaintext.slice(PREFIX.length)) as {
 			readonly text?: unknown;
 			readonly githubBot?: unknown;
+			readonly actor?: {
+				readonly subject?: unknown;
+				readonly membershipId?: unknown;
+			};
 			readonly attachments?: unknown;
 		};
 		if (
@@ -53,6 +59,16 @@ export const decodeApiMessageContent = (
 			text: decoded.text,
 			...(decoded.githubBot === true ? { githubBot: true } : {}),
 			attachments: decoded.attachments as ReadonlyArray<ApiAsset>,
+			...(decoded.actor &&
+			typeof decoded.actor.subject === "string" &&
+			typeof decoded.actor.membershipId === "string"
+				? {
+						actor: {
+							subject: decoded.actor.subject,
+							membershipId: decoded.actor.membershipId,
+						},
+					}
+				: {}),
 		};
 	} catch {
 		// This indicates corrupted authenticated content. Returning the literal

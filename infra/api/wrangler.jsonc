@@ -20,6 +20,7 @@
 				"**/*.yaml.tmpl",
 				"**/runtime-updater.mjs",
 				"**/project-builder.sh",
+				"**/install-grok.sh",
 				"**/workspace-bootstrap.sh",
 				"**/github-auth.sh",
 				"**/workspace-repository.sh",

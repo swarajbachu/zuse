@@ -9,6 +9,7 @@ import {
 	startProgress,
 	updateProgress,
 } from "./progress.ts";
+import { setMessageReaction } from "./reactions.ts";
 import { pendingRepository, promptRepository } from "./repositories.ts";
 import {
 	runnerEnv,
@@ -23,6 +24,11 @@ import {
 	slackApi,
 } from "./slack.ts";
 import { setThreadStatus } from "./thread-status.ts";
+import {
+	turnFailureText,
+	turnResultText,
+	workspaceFailureText,
+} from "./turn-errors.ts";
 import type { AppEnv, AppJob } from "./types.ts";
 import {
 	createWorkspace,
@@ -69,6 +75,14 @@ export const runConversation = async (
 	const dedupe = `conversation:${job.channel}:${job.messageTs}`;
 	const receipt = await state.get(dedupe);
 	if (receipt === "1" || (receipt && !job.selectionToken)) return;
+	await setMessageReaction(
+		env,
+		installation,
+		job.channel,
+		job.messageTs,
+		"eyes",
+		true,
+	);
 	const reply = async (text: string) => {
 		await postSlackMessage({
 			botToken: installation.credentials.botToken,
@@ -179,9 +193,12 @@ export const runConversation = async (
 	}
 	const config = {
 		...scoped.CLOUD,
-		workspaceDefaults: job.agentSelection ?? {
-			agent: connection.agent,
-			model: connection.model,
+		workspaceDefaults: {
+			providerId: connection.providerId,
+			...(job.agentSelection ?? {
+				agent: connection.agent,
+				model: connection.model,
+			}),
 		},
 	};
 	await setThreadStatus(
@@ -212,6 +229,7 @@ export const runConversation = async (
 		key,
 		channel: job.channel,
 		threadTs: job.threadTs,
+		messageTs: job.messageTs,
 	});
 	if (progress.completed) {
 		await refreshStatus(scoped, key, "");
@@ -280,8 +298,11 @@ export const runConversation = async (
 				if (
 					!(error instanceof ZuseApiError) ||
 					error.status !== 400 ||
-					!error.message.includes("agent_and_model_required") ||
-					job.agentSelection
+					!(
+						error.message.includes("agent_and_model_required") ||
+						error.code === "agent_not_available"
+					) ||
+					(job.agentSelection && error.code !== "agent_not_available")
 				)
 					throw error;
 				await updateProgress(
@@ -321,11 +342,7 @@ export const runConversation = async (
 			`${scoped.NAMESPACE}:conversation:${key}`,
 		);
 		// Save progress before submission: a very fast completed webhook must never be overwritten.
-		await updateProgress(
-			scoped,
-			key,
-			"Working on your request; the result will appear here",
-		);
+		await updateProgress(scoped, key, "Working on your request");
 		const message = await sendMessage(config, {
 			workspaceId,
 			text: [
@@ -392,17 +409,26 @@ export const pollProgress = async (
 	const { workspace } = await getWorkspace(scoped.CLOUD, job.workspaceId);
 	const messageId = await scoped.THREADS.get(`submitted:${job.turnKey}`);
 	if (messageId) {
-		const { result, requestStatus } = await readTurn(
+		const { result, requestStatus, turnFailure } = await readTurn(
 			scoped.CLOUD,
 			job.workspaceId,
 			messageId,
 			Number((await scoped.THREADS.get(`submitted-seq:${job.turnKey}`)) ?? "0"),
 		);
+		if (turnFailure && (!result || result.outcome === "error")) {
+			await finishProgress(
+				scoped,
+				job.turnKey,
+				turnFailureText(turnFailure),
+				"failed",
+			);
+			return;
+		}
 		if (result) {
 			await finishProgress(
 				scoped,
 				job.turnKey,
-				result.text || `The turn settled (${result.outcome}).`,
+				turnResultText(result.text, result.outcome),
 				result.outcome === "completed" ? "completed" : "failed",
 			);
 			return;
@@ -421,7 +447,7 @@ export const pollProgress = async (
 		await finishProgress(
 			scoped,
 			job.turnKey,
-			`Workspace is ${workspace.state}. Check the workspace in Zuse before retrying.`,
+			workspaceFailureText(workspace),
 			"failed",
 		);
 		return;

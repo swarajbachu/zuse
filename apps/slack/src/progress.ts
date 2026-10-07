@@ -1,11 +1,14 @@
 import type { RunnerEnv } from "./runner.ts";
 import { postSlackMessage, SlackApiError, slackApi } from "./slack.ts";
+import { workspaceLink } from "./workspace-link.ts";
 
 export interface TurnProgress {
 	readonly key: string;
 	readonly channel: string;
 	readonly threadTs: string;
 	readonly statusTs?: string;
+	readonly messageTs?: string;
+	readonly workingReaction?: string;
 	readonly startedAt: number;
 	readonly phase: string;
 	readonly completed?: boolean;
@@ -45,24 +48,28 @@ const nativeStatus = async (
 
 export const startProgress = async (
 	env: RunnerEnv,
-	input: { key: string; channel: string; threadTs: string },
+	input: { key: string; channel: string; threadTs: string; messageTs?: string },
 ): Promise<TurnProgress> => {
 	const existing = await readProgress(env, input.key);
 	if (existing) return existing;
 	const phase = "Zusing…";
-	const native = await nativeStatus(env, input.channel, input.threadTs, phase);
-	const message = native
-		? undefined
-		: await postSlackMessage({
-				botToken: env.SLACK_BOT_TOKEN,
-				channel: input.channel,
-				threadTs: input.threadTs,
-				text: `:hourglass_flowing_sand: ${phase}`,
-				idempotencyKey: `${env.NAMESPACE}:progress:${input.key}`,
-			});
+	await nativeStatus(env, input.channel, input.threadTs, phase);
+	const messageTs = input.messageTs ?? input.threadTs;
+	let workingReaction = "one_sec_cooking";
+	const reaction = await env.setReaction(
+		input.channel,
+		messageTs,
+		workingReaction,
+		true,
+	);
+	if (reaction === "invalid_name") {
+		workingReaction = "hourglass_flowing_sand";
+		await env.setReaction(input.channel, messageTs, workingReaction, true);
+	}
 	const progress = {
 		...input,
-		statusTs: message?.ts,
+		messageTs,
+		workingReaction,
 		startedAt: Date.now(),
 		phase,
 	};
@@ -86,6 +93,13 @@ export const refreshStatus = async (
 	// Completion may arrive while the Slack call is in flight. Do not revive its spinner.
 	if (!progress.completed && (await readProgress(env, key))?.completed)
 		await nativeStatus(env, progress.channel, progress.threadTs, "");
+	if (progress.completed && progress.workingReaction)
+		await env.setReaction(
+			progress.channel,
+			progress.messageTs ?? progress.threadTs,
+			progress.workingReaction,
+			false,
+		);
 	return native;
 };
 
@@ -97,42 +111,24 @@ export const updateProgress = async (
 ): Promise<void> => {
 	const progress = await readProgress(env, key);
 	if (!progress || progress.completed) return;
-	const native = await refreshStatus(env, key, phase);
+	await refreshStatus(env, key, phase);
 	if ((await readProgress(env, key))?.completed) return;
-	let statusTs = progress.statusTs;
-	if (native) {
-		if (statusTs) {
-			try {
-				await slackApi(env.SLACK_BOT_TOKEN, "chat.delete", {
-					channel: progress.channel,
-					ts: statusTs,
-				});
-			} catch (error) {
-				if (
-					!(error instanceof SlackApiError) ||
-					error.code !== "message_not_found"
-				)
-					throw error;
-			}
-			statusTs = undefined;
+	// Remove loading cards written by older deployments; new tasks use reactions.
+	if (progress.statusTs) {
+		try {
+			await slackApi(env.SLACK_BOT_TOKEN, "chat.delete", {
+				channel: progress.channel,
+				ts: progress.statusTs,
+			});
+		} catch (error) {
+			if (
+				!(error instanceof SlackApiError) ||
+				error.code !== "message_not_found"
+			)
+				throw error;
 		}
-	} else if (!statusTs) {
-		const message = await postSlackMessage({
-			botToken: env.SLACK_BOT_TOKEN,
-			channel: progress.channel,
-			threadTs: progress.threadTs,
-			text: `:hourglass_flowing_sand: ${phase}`,
-			idempotencyKey: `${env.NAMESPACE}:progress:${key}:${phase}`,
-		});
-		statusTs = message.ts;
-	} else if (progress.phase !== phase)
-		await slackApi(env.SLACK_BOT_TOKEN, "chat.update", {
-			channel: progress.channel,
-			ts: progress.statusTs,
-			text: `:hourglass_flowing_sand: ${phase}…`,
-			unfurl_links: false,
-			unfurl_media: false,
-		});
+	}
+	const statusTs = undefined;
 	await saveProgress(env, { ...progress, phase, statusTs });
 };
 
@@ -149,7 +145,7 @@ export const finishProgress = async (
 		const body = {
 			channel: progress.channel,
 			ts: progress.statusTs,
-			text: `${outcome === "failed" ? ":warning:" : ":white_check_mark:"} ${outcome === "failed" ? "Needs attention" : "Done"}\n\n${text.length > 38000 ? `${text.slice(0, 38000)}\n_(Reply truncated; read the full result in Zuse.)_` : text}${progress.workspaceId ? `\n\nWorkspace: \`${progress.workspaceId}\`` : ""}`,
+			text: `${outcome === "failed" ? ":warning:" : ":white_check_mark:"} ${outcome === "failed" ? "Needs attention" : "Done"}\n\n${text.length > 38000 ? `${text.slice(0, 38000)}\n_(Reply truncated; read the full result in Zuse.)_` : text}${progress.workspaceId ? `\n\n${workspaceLink(env, progress.workspaceId)}` : ""}`,
 			unfurl_links: false,
 			unfurl_media: false,
 		};
@@ -183,5 +179,12 @@ export const finishProgress = async (
 		});
 	}
 	await nativeStatus(env, progress.channel, progress.threadTs, "");
+	if (progress.workingReaction)
+		await env.setReaction(
+			progress.channel,
+			progress.messageTs ?? progress.threadTs,
+			progress.workingReaction,
+			false,
+		);
 	return true;
 };

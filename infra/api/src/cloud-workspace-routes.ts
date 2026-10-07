@@ -1017,6 +1017,38 @@ export const publicCloudWorkspaceSummary = (
 	};
 };
 
+export const cloudProviderOptions = Effect.fn("cloudProviderOptions")(
+	function* (ownerId: string, nowMs: number) {
+		const config = yield* MachineControlConfiguration;
+		const configured = yield* accountSandboxProviders(ownerId);
+		const onlyOwnKeys =
+			configured.some((provider) => provider.connectionId !== undefined) &&
+			!(yield* hasPaidEntitlement(ownerId, nowMs));
+		const available = configured.filter(
+			(provider) =>
+				provider.connectionId !== undefined ||
+				(!onlyOwnKeys &&
+					(config.availableSandboxProviderIds?.has(provider.providerId) ??
+						true)),
+		);
+		return {
+			entitled: yield* hasEntitlement(ownerId, nowMs),
+			providers: available.map((provider) => ({
+				providerId: provider.providerId,
+				displayName: provider.displayName,
+				billingSource:
+					provider.connectionId === undefined ? "zuse" : "provider",
+				sizes: provider.sizes.map((size) => ({
+					sizeId: size.sizeId,
+					displayName: size.displayName,
+					vcpuCount: size.vcpuCount,
+					memoryMib: size.memoryMib,
+				})),
+			})),
+		};
+	},
+);
+
 const selectedProvider = Effect.fn("selectedCloudProvider")(function* (
 	accountId: string,
 	requested?: string,
@@ -2447,6 +2479,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 							sessionId: workspace.initialSessionId,
 							text: content.text,
 							githubBot: content.githubBot,
+							actor: content.actor,
 							...(content.attachments.length === 0
 								? {}
 								: { attachments: content.attachments }),
@@ -3594,35 +3627,8 @@ const routeCloudWorkspaceRequestWithAccess = (
 			return response;
 		}
 
-		if (method === "GET" && path === ApiPaths.cloudProviders) {
-			const config = yield* MachineControlConfiguration;
-			const configured = yield* accountSandboxProviders(ownerId);
-			const onlyOwnKeys =
-				configured.some((provider) => provider.connectionId !== undefined) &&
-				!(yield* hasPaidEntitlement(ownerId, nowMs));
-			const available = configured.filter(
-				(provider) =>
-					provider.connectionId !== undefined ||
-					(!onlyOwnKeys &&
-						(config.availableSandboxProviderIds?.has(provider.providerId) ??
-							true)),
-			);
-			return json({
-				entitled: yield* hasEntitlement(ownerId, nowMs),
-				providers: available.map((provider) => ({
-					providerId: provider.providerId,
-					displayName: provider.displayName,
-					billingSource:
-						provider.connectionId === undefined ? "zuse" : "provider",
-					sizes: provider.sizes.map((size) => ({
-						sizeId: size.sizeId,
-						displayName: size.displayName,
-						vcpuCount: size.vcpuCount,
-						memoryMib: size.memoryMib,
-					})),
-				})),
-			});
-		}
+		if (method === "GET" && path === ApiPaths.cloudProviders)
+			return json(yield* cloudProviderOptions(ownerId, nowMs));
 
 		if (method === "GET" && path === ApiPaths.cloudAccountImage) {
 			const requested = url.searchParams.get("providerId") ?? undefined;

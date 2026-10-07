@@ -1,11 +1,12 @@
 import { executionAccount } from "./access.ts";
-import { finishProgress } from "./progress.ts";
+import { finishProgress, readProgress } from "./progress.ts";
 import { pendingRepository, repositoryLoadingView } from "./repositories.ts";
 import { runnerEnv } from "./runner.ts";
 import { postSlackMessage, slackApi } from "./slack.ts";
 import { setThreadStatus } from "./thread-status.ts";
+import { workspaceFailureText } from "./turn-errors.ts";
 import type { AppEnv, AppJob } from "./types.ts";
-import { ZuseApiError } from "./zuse.ts";
+import { getWorkspace, ZuseApiError } from "./zuse.ts";
 
 export const reportJobFailure = async (
 	env: AppEnv,
@@ -15,11 +16,13 @@ export const reportJobFailure = async (
 ) => {
 	const installation = await env.store.get(job.teamId);
 	if (installation?.generation !== job.generation) return;
-	const failure =
-		error instanceof ZuseApiError &&
-		error.message.includes("agent_and_model_required")
-			? "Your Zuse account needs a cloud agent configured first. Open Zuse, start a cloud workspace and choose an agent and model, then send this request again. You do not need to enter internal IDs in Slack."
-			: "I couldn’t complete this request. Check your Zuse account, repository access, and Slack permissions in App Home. If permissions changed, reinstall Zuse to authorize them. Any already-submitted work may still finish in Zuse.";
+	let failure =
+		error instanceof ZuseApiError && error.code === "agent_not_available"
+			? "The selected agent is no longer connected for this account or organization. Connect it in Zuse → Settings → Cloud Workspaces, or choose another connected agent in Slack Home, then send your request again."
+			: error instanceof ZuseApiError &&
+					error.message.includes("agent_and_model_required")
+				? "Your Zuse account needs a cloud agent configured first. Open Zuse, start a cloud workspace and choose an agent and model, then send this request again. You do not need to enter internal IDs in Slack."
+				: "I couldn’t complete this request. Check your Zuse account, repository access, and Slack permissions in App Home. If permissions changed, reinstall Zuse to authorize them. Any already-submitted work may still finish in Zuse.";
 	if (job.kind === "picker") {
 		await slackApi(installation.credentials.botToken, "views.update", {
 			view_id: job.viewId,
@@ -79,6 +82,23 @@ export const reportJobFailure = async (
 	const scoped = active
 		? runnerEnv(env, installation, active.connection)
 		: null;
+	if (
+		error instanceof ZuseApiError &&
+		error.code === "workspace_not_accepting_messages"
+	) {
+		failure = workspaceFailureText();
+		const progress =
+			turnKey && scoped
+				? await readProgress(scoped, turnKey).catch(() => null)
+				: null;
+		if (progress?.workspaceId && scoped) {
+			const status = await getWorkspace(
+				scoped.CLOUD,
+				progress.workspaceId,
+			).catch(() => null);
+			if (status) failure = workspaceFailureText(status.workspace);
+		}
+	}
 	const updated =
 		turnKey && scoped
 			? await finishProgress(

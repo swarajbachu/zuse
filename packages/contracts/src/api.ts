@@ -119,6 +119,8 @@ export const ApiPaths = {
 	cloudApiKey: (keyId: string) =>
 		`/v1/cloud/api-keys/${encodeURIComponent(keyId)}`,
 	apiProjects: "/v1/api/projects",
+	apiProviders: "/v1/api/providers",
+	apiAgents: "/v1/api/agents",
 	apiWorkspaces: "/v1/api/workspaces",
 	apiWorkspace: (workspaceId: string) =>
 		`/v1/api/workspaces/${encodeURIComponent(workspaceId)}`,
