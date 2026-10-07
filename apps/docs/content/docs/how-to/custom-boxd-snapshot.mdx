@@ -15,18 +15,23 @@ Custom snapshots are available when enabled for your Zuse Cloud installation. A 
 
 Use a Debian or Ubuntu Linux x86_64 Boxd machine with systemd and an existing non-root development user. Keep your repositories, dependencies, Git configuration, and agent installations on that machine. Install Claude Code or Codex using your usual process and sign in if you want workspaces to use those logins.
 
-Download the **snapshot installer** from **Cloud → Provider keys → Custom Boxd snapshot**, extract the complete archive, then run:
+With Node.js 22.13 or newer available, run:
 
 ```bash
-tar -xzf zuse-snapshot-installer.tar.gz
-bash install-snapshot.sh
+npx zusehq snapshot install
 ```
 
 When running directly as root, specify the existing development user:
 
 ```bash
-bash install-snapshot.sh --user developer
+npx zusehq snapshot install --user developer
 ```
+
+The command downloads the official installer bundle, checks its file checksums, and runs setup, requesting sudo when needed. The runtime itself is verified by the signed runtime updater. Repository paths and GitHub credentials are configured later in the UI.
+
+If Node.js is unavailable, download the **snapshot installer** from **Cloud → Provider keys → Custom Boxd snapshot**, extract the archive, and run `bash install-snapshot.sh` (adding `--user developer` when running as root).
+
+The CLI command requires a package release containing snapshot installation and a published production installer bundle.
 
 The installer prints the username to enter in Zuse. It installs an isolated Zuse runtime and Node executable, SQLite support, and SSH dependencies. It does not replace your development Node installation, ask for repository paths, enroll a workspace, or start a persistent agent. It can be rerun for the same user. It refuses to initialize over an existing Zuse workspace database.
 

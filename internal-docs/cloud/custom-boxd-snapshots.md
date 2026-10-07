@@ -7,8 +7,9 @@ Cloud-provider BYOK remains subscription-free, retaining existing encrypted cred
 `CLOUD_BOXD_CUSTOM_SNAPSHOTS_ENABLED` defaults to false. It controls new imports and the client settings capability. Disable it to stop new configuration imports without changing retained resource lifecycle. Release order:
 
 1. Build and publish the signed cloud runtime and `zuse-snapshot-installer.tar.gz` using the cloud-runtime workflow. Verify the installer archive, signature validation, runtime metadata `snapshotSupportVersion: 1`, and production download URL.
-2. Apply migration `0039_cloud_snapshot_import.sql`, then deploy the backward-compatible API/runtime changes.
-3. Ship the client, validate on a disposable Boxd snapshot, then enable the flag. Production deployment and publication are separate operations.
+2. Publish the `zusehq` package containing `snapshot install` after verifying the production installer URL; verify `npx zusehq snapshot install --help` from the published package.
+3. Apply migration `0039_cloud_snapshot_import.sql`, then deploy the backward-compatible API/runtime changes.
+4. Ship the client, validate on a disposable Boxd snapshot, then enable the flag. Production deployment and publication are separate operations.
 
 Do not enable before testing a real Boxd snapshot. Local fake-provider and shell tests cannot establish Boxd permissions, snapshot provenance support, or validity of copied OAuth credentials.
 

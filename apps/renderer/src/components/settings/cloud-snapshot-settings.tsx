@@ -108,8 +108,8 @@ export function CloudSnapshotSettings({
 					Download snapshot installer
 				</a>
 				<p className="text-xs text-muted-foreground">
-					Run the installer on your machine. It does not need repository paths
-					or GitHub credentials.
+					Run <code>npx zusehq snapshot install</code> on your machine. It does
+					not need repository paths or GitHub credentials.
 				</p>
 				<Input
 					className="h-7"
