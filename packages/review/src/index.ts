@@ -1,3 +1,11 @@
+export type {
+	ContextExcerptReader,
+	RepositoryContext,
+	RepositoryContextEntry,
+	RepositoryContextKind,
+	RepositoryContextOptions,
+} from "./context.ts";
+export { discoverRepositoryContext } from "./context.ts";
 export { runReview } from "./engine.ts";
 export type {
 	ReviewEvaluationCase,

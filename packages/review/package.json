@@ -14,7 +14,8 @@
 	"dependencies": {
 		"@zuse/contracts": "*",
 		"effect": "catalog:",
-		"@zuse/index": "*"
+		"@zuse/index": "*",
+		"jsonc-parser": "^3.3.1"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",

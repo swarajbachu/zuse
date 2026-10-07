@@ -35,7 +35,13 @@ export function createReviewTools(
 	limits: ReviewLimits,
 	signal: AbortSignal,
 	onLimited: () => void,
-): ReviewTools {
+): ReviewTools & {
+	readonly contextExcerpt: (
+		path: string,
+		side: "LEFT" | "RIGHT",
+		maxCharacters: number,
+	) => Promise<{ text: string; truncated: boolean; endLine: number }>;
+} {
 	const files = {
 		LEFT: new Set(source.files.LEFT),
 		RIGHT: new Set(source.files.RIGHT),
@@ -64,6 +70,25 @@ export function createReviewTools(
 		return content;
 	};
 	return {
+		contextExcerpt: async (path, side, maxCharacters) => {
+			admit();
+			if (
+				!Number.isSafeInteger(maxCharacters) ||
+				maxCharacters < 1 ||
+				maxCharacters > 16_000 ||
+				!["LEFT", "RIGHT"].includes(side)
+			)
+				throw new Error("Invalid context read limit");
+			const full = await readFile(side, path);
+			const lines = full.split("\n");
+			const text = lines
+				.slice(0, limits.maxReadLines)
+				.join("\n")
+				.slice(0, maxCharacters);
+			const truncated = text.length < full.length;
+			if (truncated) onLimited();
+			return { text, truncated, endLine: text.split("\n").length };
+		},
 		relatedFiles: async (path, side = "RIGHT") => {
 			admit();
 			if (

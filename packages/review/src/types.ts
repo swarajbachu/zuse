@@ -3,6 +3,7 @@ import type {
 	ReviewLocation,
 	ReviewSnapshot,
 } from "@zuse/contracts";
+import type { RepositoryContext } from "./context.ts";
 
 export interface ReviewChange {
 	readonly path: string;
@@ -91,6 +92,7 @@ export interface ReviewTools {
 }
 
 export interface InvestigatorInput {
+	readonly repositoryContext: RepositoryContext;
 	readonly snapshot: ReviewSnapshot;
 	readonly changes: readonly ReviewChange[];
 	readonly tools: ReviewTools;

@@ -4,6 +4,7 @@ import {
 	ReviewSnapshot,
 } from "@zuse/contracts";
 import { Schema } from "effect";
+import { discoverRepositoryContext } from "./context.ts";
 import { deduplicateFindings } from "./reconcile.ts";
 import {
 	createReviewTools,
@@ -122,9 +123,21 @@ export async function runReview(
 			lines += count;
 		}
 		if (selected.length > 0) {
+			const repositoryContext = await interruptible(
+				() =>
+					discoverRepositoryContext(
+						input.source,
+						tools.contextExcerpt,
+						controller.signal,
+						{ maxEntries: Math.min(12, Math.floor(limits.maxToolCalls / 4)) },
+					),
+				controller.signal,
+			);
+			if (repositoryContext.limited) contextLimited = true;
 			const raw = await interruptible(
 				() =>
 					input.investigate({
+						repositoryContext,
 						snapshot,
 						changes: selected,
 						tools,
