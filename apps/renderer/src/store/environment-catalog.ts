@@ -8,6 +8,7 @@ import {
 	type EnvironmentDescriptor,
 	EnvironmentId,
 	type Folder,
+	isEnvironmentPresenceFresh,
 	type RemoteEnvironmentProfile,
 	type Session,
 	type SshEnvironmentTarget,
@@ -1239,6 +1240,34 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				);
 				for (const environment of accountEnvironments) {
 					apiRecords.set(environment.environmentId, environment);
+				}
+				// Refresh presence for computers already in the catalog. A computer
+				// whose heartbeat just turned fresh came back from sleep or a network
+				// drop: skip its retry backoff so it reconnects right away.
+				const now = Date.now();
+				const cameOnline: string[] = [];
+				set((state) => ({
+					entries: state.entries.map((entry) => {
+						if (entry.connectionKind !== "api") return entry;
+						const record = apiRecords.get(entry.environmentId);
+						if (
+							record === undefined ||
+							record.lastHeartbeat === entry.lastHeartbeat
+						)
+							return entry;
+						if (
+							isEnvironmentPresenceFresh(record.lastHeartbeat, now) &&
+							!isEnvironmentPresenceFresh(entry.lastHeartbeat, now) &&
+							entry.status !== "connected"
+						)
+							cameOnline.push(entry.environmentId);
+						return { ...entry, lastHeartbeat: record.lastHeartbeat };
+					}),
+				}));
+				for (const environmentId of cameOnline) {
+					getRendererClientBus().retryConnection(
+						EnvironmentId.make(environmentId),
+					);
 				}
 
 				const knownEnvironmentIds = new Set(

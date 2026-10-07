@@ -308,6 +308,12 @@ cat "$LOG" >&2 || true
 exit 1
 `;
 
+/**
+ * SSH-managed hosts listen on their own port and service label so connecting
+ * over SSH never replaces the user's own `zuse serve` (default port 4859).
+ */
+export const SSH_MANAGED_SERVE_PORT = 4860;
+
 export const remoteBootstrapScript = (version: string): string => {
 	if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(version)) {
 		throw new Error("Invalid compatible Serve runtime version");
@@ -316,7 +322,7 @@ export const remoteBootstrapScript = (version: string): string => {
 set -eu
 ROOT="$HOME/.zuse/ssh"
 VERSION="${version}"
-PORT="4859"
+PORT="${SSH_MANAGED_SERVE_PORT}"
 PREFIX="$ROOT/runtime/$VERSION"
 ZUSE_BIN="$PREFIX/node_modules/@zusehq/serve/dist/bin.mjs"
 DATA_DIR="$ROOT/data"
@@ -347,14 +353,14 @@ is_ready() {
 ACTIVE_VERSION="$("$NODE_BIN" -e "const fs=require('fs');try{const v=JSON.parse(fs.readFileSync(process.argv[1],'utf8')).version;process.stdout.write(typeof v==='string'?v:'')}catch{}" "$DATA_DIR/runtime/active.json")"
 if ! { [ "$ACTIVE_VERSION" = "$VERSION" ] && is_ready; }; then
   if command -v launchctl >/dev/null 2>&1 || { command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; }; then
-    "$NODE_BIN" "$ZUSE_BIN" serve start --ssh-managed --data-dir "$DATA_DIR" >&2
+    "$NODE_BIN" "$ZUSE_BIN" serve start --ssh-managed --port "$PORT" --data-dir "$DATA_DIR" >&2
   else
     if is_ready; then
       echo "Port $PORT is already used by an unverified service" >&2
       exit 1
     fi
     LOG="$ROOT/serve.log"
-    nohup "$NODE_BIN" "$ZUSE_BIN" serve --foreground --ssh-managed --data-dir "$DATA_DIR" >"$LOG" 2>&1 </dev/null &
+    nohup "$NODE_BIN" "$ZUSE_BIN" serve --foreground --ssh-managed --port "$PORT" --data-dir "$DATA_DIR" >"$LOG" 2>&1 </dev/null &
   fi
 fi
 for i in $(seq 1 150); do

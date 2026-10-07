@@ -204,7 +204,7 @@ export interface CloudWorkspaceLifecycleTransitionInput {
 	readonly expectedDesiredState: CloudWorkspaceDesiredState;
 	readonly commandId?: string;
 	readonly action: CloudWorkspaceLifecycleAction;
-	/** Persist the receipt without rewriting an already-requested normal resume. */
+	/** Preserve an already-requested resume while receipting it and advancing activity. */
 	readonly deduplicateRequestedResume?: boolean;
 	readonly createdAtMs: number;
 }
@@ -1511,8 +1511,22 @@ const prepareWorkspaceLifecycleTransition = (
 		input.deduplicateRequestedResume === true &&
 		current.desiredState === "ready" &&
 		current.state !== "failed"
-	)
-		return { kind: "ready", workspace: current };
+	) {
+		const lastActivityAtMs = Math.max(
+			current.lastActivityAtMs,
+			input.workspace.lastActivityAtMs,
+		);
+		const workspace =
+			lastActivityAtMs === current.lastActivityAtMs
+				? current
+				: {
+						...current,
+						lastActivityAtMs,
+						revision: current.revision + 1,
+						updatedAtMs: Math.max(input.createdAtMs, current.updatedAtMs + 1),
+					};
+		return { kind: "ready", workspace };
+	}
 
 	const currentFence = workspaceDestructionFence(current);
 	const destructiveAction =

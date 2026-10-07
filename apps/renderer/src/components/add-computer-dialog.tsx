@@ -1,7 +1,7 @@
 import "@zuse/i18n/english/providers";
 import {
 	type DiscoveredSshHost,
-	ENVIRONMENT_PRESENCE_STALE_MS,
+	isEnvironmentPresenceFresh,
 	type SshEnvironmentTarget,
 } from "@zuse/contracts";
 import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
@@ -121,8 +121,7 @@ export const apiStatusText = (entry: EnvironmentCatalogEntry): string => {
 	if (entry.status === "error") return entry.error ?? "Connection failed";
 	if (
 		entry.connectionKind === "api" &&
-		entry.lastHeartbeat !== undefined &&
-		Date.now() - entry.lastHeartbeat <= ENVIRONMENT_PRESENCE_STALE_MS
+		isEnvironmentPresenceFresh(entry.lastHeartbeat)
 	) {
 		return "Online";
 	}

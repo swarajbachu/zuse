@@ -783,7 +783,7 @@ export const setTailnetShareEnabled = async (
 				...before,
 				availability: "error",
 				detail:
-					"Tailscale sharing is managed by zuse serve on this computer. Run `zuse serve --stop` to change it.",
+					"Tailscale sharing is managed by zuse serve on this computer. Run `zuse serve stop` to change it.",
 			});
 		}
 		const existing = await run(["serve", "status"], 5_000);
