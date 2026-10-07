@@ -83,6 +83,18 @@ test("rejects corrupted downloads before invoking setup", async () => {
 	);
 });
 
+test.each([
+	["--channel", "staging", "--user", "developer"],
+	["--user", "developer", "--channel", "staging"],
+])("selects staging without forwarding channel options: %j", async (...args) => {
+	const deps = dependencies(await bundle());
+	await installSnapshot(args, deps);
+	expect(deps.fetch.mock.calls[0]?.[0]).toContain("/cloud-runtime-staging/");
+	expect(
+		deps.run.mock.calls.find(([command]) => command === "bash")?.[1].slice(1),
+	).toEqual(["--user", "developer"]);
+});
+
 test("reports failed setup and cleans temporary files", async () => {
 	const deps = dependencies(await bundle(), true);
 	await expect(installSnapshot([], deps)).rejects.toThrow(
@@ -100,6 +112,9 @@ test.each(
 		["--user", "root"],
 		["--user"],
 		["--user", "dev;echo hi"],
+		["--channel", "unknown"],
+		["--channel"],
+		["--channel", "staging", "--channel", "production"],
 	].map((args) => ({ args })),
 )("rejects invalid options %j without downloading", async ({ args }) => {
 	const deps = dependencies();

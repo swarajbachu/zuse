@@ -4,8 +4,8 @@ import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const installerUrl =
-	"https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-production/zuse-snapshot-installer.tar.gz";
+const usage =
+	"Usage: npx zusehq snapshot <install|update> [--user development-user] [--channel production|staging]";
 const installerFiles = [
 	"install-snapshot.sh",
 	"runtime-updater.mjs",
@@ -31,22 +31,33 @@ export async function installSnapshot(
 ): Promise<void> {
 	if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
 		console.log(
-			"Usage: npx zusehq snapshot <install|update> [--user development-user]\nInstall or update the Zuse runtime on a Debian/Ubuntu Boxd base snapshot machine.\nRepository paths and authentication are configured in the Zuse UI.",
+			`${usage}\nInstall or update the Zuse runtime on a Debian/Ubuntu Boxd base snapshot machine.\nRepository paths and authentication are configured in the Zuse UI.`,
 		);
 		return;
 	}
-	if (
-		args.length !== 0 &&
-		!(
-			args.length === 2 &&
-			args[0] === "--user" &&
-			/^[a-z_][a-z0-9_-]{0,31}$/u.test(args[1] ?? "") &&
-			args[1] !== "root"
+	let channel = "production";
+	const installerArgs: string[] = [];
+	const seen = new Set<string>();
+	for (let index = 0; index < args.length; index += 2) {
+		const option = args[index];
+		const value = args[index + 1];
+		if (option === undefined || value === undefined || seen.has(option))
+			throw new Error(usage);
+		seen.add(option);
+		if (
+			option === "--channel" &&
+			(value === "production" || value === "staging")
 		)
-	)
-		throw new Error(
-			"Usage: npx zusehq snapshot <install|update> [--user development-user]. Set repository paths in the Zuse UI.",
-		);
+			channel = value;
+		else if (
+			option === "--user" &&
+			/^[a-z_][a-z0-9_-]{0,31}$/u.test(value) &&
+			value !== "root"
+		)
+			installerArgs.push(option, value);
+		else throw new Error(usage);
+	}
+	const installerUrl = `https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-${channel}/zuse-snapshot-installer.tar.gz`;
 	if (dependencies.platform !== "linux" || dependencies.arch !== "x64")
 		throw new Error(
 			"Run this command inside your Linux x86_64 Boxd machine, not on your desktop.",
@@ -59,7 +70,7 @@ export async function installSnapshot(
 		});
 		if (!response.ok || !response.body)
 			throw new Error(
-				`Snapshot installer download failed (HTTP ${response.status}). Check your connection and that the production snapshot installer has been published, then retry.`,
+				`Snapshot installer download failed (HTTP ${response.status}). Check your connection and that the ${channel} snapshot installer has been published, then retry.`,
 			);
 		const chunks: Uint8Array[] = [];
 		let size = 0;
@@ -104,7 +115,7 @@ export async function installSnapshot(
 		}
 		await dependencies.run("bash", [
 			join(directory, "install-snapshot.sh"),
-			...args,
+			...installerArgs,
 		]);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
