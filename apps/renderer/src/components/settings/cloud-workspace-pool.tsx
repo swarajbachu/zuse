@@ -150,6 +150,7 @@ export function CloudWorkspacePool({
 	);
 }
 
+/** Displays cloud workspaces, saved images and billing controls for the selected workspace scope. */
 function ScopedCloudWorkspacePool({
 	onboarding,
 	section,
