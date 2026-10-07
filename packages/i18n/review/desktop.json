@@ -8,42 +8,42 @@
 		"status": "draft",
 		"sourceRevision": "",
 		"reviewer": null,
-		"draftSourceRevision": "3e3c030fa0e61d215185713489440bb8bbf722fa8eeea3162f32ec0ec2121990",
+		"draftSourceRevision": "065155868b542106f3fa0d6606bc00a735f97bedd627b03940a2f051abc88cf1",
 		"provenance": "Machine translation draft with automated structural validation; native-speaker review pending."
 	},
 	"de": {
 		"status": "draft",
 		"sourceRevision": "",
 		"reviewer": null,
-		"draftSourceRevision": "3e3c030fa0e61d215185713489440bb8bbf722fa8eeea3162f32ec0ec2121990",
+		"draftSourceRevision": "065155868b542106f3fa0d6606bc00a735f97bedd627b03940a2f051abc88cf1",
 		"provenance": "Machine translation draft with automated structural validation; native-speaker review pending."
 	},
 	"zh-Hans": {
 		"status": "draft",
 		"sourceRevision": "",
 		"reviewer": null,
-		"draftSourceRevision": "3e3c030fa0e61d215185713489440bb8bbf722fa8eeea3162f32ec0ec2121990",
+		"draftSourceRevision": "065155868b542106f3fa0d6606bc00a735f97bedd627b03940a2f051abc88cf1",
 		"provenance": "Machine translation draft with automated structural validation; native-speaker review pending."
 	},
 	"zh-Hant": {
 		"status": "draft",
 		"sourceRevision": "",
 		"reviewer": null,
-		"draftSourceRevision": "3e3c030fa0e61d215185713489440bb8bbf722fa8eeea3162f32ec0ec2121990",
+		"draftSourceRevision": "065155868b542106f3fa0d6606bc00a735f97bedd627b03940a2f051abc88cf1",
 		"provenance": "Machine translation draft with automated structural validation; native-speaker review pending."
 	},
 	"ja": {
 		"status": "draft",
 		"sourceRevision": "",
 		"reviewer": null,
-		"draftSourceRevision": "3e3c030fa0e61d215185713489440bb8bbf722fa8eeea3162f32ec0ec2121990",
+		"draftSourceRevision": "065155868b542106f3fa0d6606bc00a735f97bedd627b03940a2f051abc88cf1",
 		"provenance": "Machine translation draft with automated structural validation; native-speaker review pending."
 	},
 	"ko": {
 		"status": "draft",
 		"sourceRevision": "",
 		"reviewer": null,
-		"draftSourceRevision": "3e3c030fa0e61d215185713489440bb8bbf722fa8eeea3162f32ec0ec2121990",
+		"draftSourceRevision": "065155868b542106f3fa0d6606bc00a735f97bedd627b03940a2f051abc88cf1",
 		"provenance": "Machine translation draft with automated structural validation; native-speaker review pending."
 	}
 }

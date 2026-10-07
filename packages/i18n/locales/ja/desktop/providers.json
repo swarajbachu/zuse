@@ -140,5 +140,6 @@
 	"update_to_latest": "{{name}} を最新バージョンに更新",
 	"sign_in_failed": "サインインに失敗しました。",
 	"sign_in_incomplete": "サインインが完了前に終了しました。",
-	"update_incomplete": "更新が完了前に終了しました。"
+	"update_incomplete": "更新が完了前に終了しました。",
+	"remove_computer_account_description": "アカウントから {{value}} を削除して、コンピューターの登録枠を空けます。Zuse 経由のリモートアクセスは停止します。コンピューター上のプロジェクトとデータは保持されます。"
 }

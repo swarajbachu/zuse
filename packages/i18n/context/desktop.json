@@ -8658,7 +8658,7 @@
 			},
 			{
 				"path": "apps/desktop/src/main.ts",
-				"line": 4189
+				"line": 4194
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10697,7 +10697,7 @@
 		"locations": [
 			{
 				"path": "apps/desktop/src/main.ts",
-				"line": 3452
+				"line": 3457
 			}
 		],
 		"context": "desktop interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10707,7 +10707,7 @@
 		"locations": [
 			{
 				"path": "apps/desktop/src/main.ts",
-				"line": 3453
+				"line": 3458
 			}
 		],
 		"context": "desktop interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10717,7 +10717,7 @@
 		"locations": [
 			{
 				"path": "apps/desktop/src/main.ts",
-				"line": 4195
+				"line": 4200
 			}
 		],
 		"context": "desktop interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10727,7 +10727,7 @@
 		"locations": [
 			{
 				"path": "apps/desktop/src/main.ts",
-				"line": 4190
+				"line": 4195
 			}
 		],
 		"context": "desktop interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10737,7 +10737,7 @@
 		"locations": [
 			{
 				"path": "apps/desktop/src/main.ts",
-				"line": 4191
+				"line": 4196
 			}
 		],
 		"context": "desktop interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10747,7 +10747,7 @@
 		"locations": [
 			{
 				"path": "apps/desktop/src/main.ts",
-				"line": 4197
+				"line": 4202
 			}
 		],
 		"context": "desktop interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10757,7 +10757,7 @@
 		"locations": [
 			{
 				"path": "apps/desktop/src/main.ts",
-				"line": 4196
+				"line": 4201
 			}
 		],
 		"context": "desktop interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10767,7 +10767,7 @@
 		"locations": [
 			{
 				"path": "apps/desktop/src/main.ts",
-				"line": 4196
+				"line": 4201
 			}
 		],
 		"context": "desktop interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10777,7 +10777,7 @@
 		"locations": [
 			{
 				"path": "apps/desktop/src/main.ts",
-				"line": 4196
+				"line": 4201
 			}
 		],
 		"context": "desktop interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

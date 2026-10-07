@@ -140,5 +140,6 @@
 	"update_to_latest": "{{name}}을(를) 최신 버전으로 업데이트",
 	"sign_in_failed": "로그인에 실패했습니다.",
 	"sign_in_incomplete": "로그인이 완료되기 전에 종료되었습니다.",
-	"update_incomplete": "업데이트가 완료되기 전에 종료되었습니다."
+	"update_incomplete": "업데이트가 완료되기 전에 종료되었습니다.",
+	"remove_computer_account_description": "계정에서 {{value}}을(를) 제거하여 컴퓨터 등록 한 자리를 확보합니다. Zuse를 통한 원격 액세스가 중단됩니다. 컴퓨터의 프로젝트와 데이터는 유지됩니다."
 }
