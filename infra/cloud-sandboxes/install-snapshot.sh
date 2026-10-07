@@ -63,9 +63,14 @@ writeFileSync('/etc/zuse/snapshot.env', [
 ].join('\n') + '\n', { mode: 0o644 });
 JS
 runuser -u "$runtime_user" -- bash -lc 'source /etc/zuse/snapshot.env; ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 "$ZUSE_RUNTIME_NODE" /usr/local/lib/zuse/runtime-updater.mjs'
+"$node_bin" --input-type=module - <<'JS'
+import { readFileSync } from 'node:fs';
+const metadata = JSON.parse(readFileSync('/opt/zuse/current/runtime-metadata.json', 'utf8'));
+if (metadata.snapshotSupportVersion !== 1) throw new Error('This runtime channel does not support custom snapshots. Publish a snapshot-compatible runtime, then rerun this installer before saving a snapshot.');
+JS
 cat >/opt/zuse/bin/zuse <<'SH'
 #!/bin/sh
-exec /opt/zuse/node/bin/node /opt/zuse/current/bin.mjs "$@"
+exec /opt/zuse/node/bin/node /opt/zuse/current/cli/zuse "$@"
 SH
 chmod 0755 /opt/zuse/bin/zuse
 install -D -m 0644 "$asset_dir/sshd_config" /usr/local/share/zuse/sshd_config

@@ -20,6 +20,39 @@ const readWorkspaceFile = (relativePath: string) =>
 	readFile(workspaceFileUrl(relativePath), "utf8");
 
 describe("cloud runtime assets", () => {
+	test("snapshot installer wrapper invokes the orchestration CLI without starting a server", async () => {
+		const installer = await readWorkspaceFile(
+			"infra/cloud-sandboxes/install-snapshot.sh",
+		);
+		const directory = await mkdtemp(join(tmpdir(), "snapshot-cli-"));
+		try {
+			await mkdir(join(directory, "cli"));
+			await writeFile(
+				join(directory, "bin.mjs"),
+				"throw new Error('server entrypoint must not run');",
+			);
+			await writeFile(
+				join(directory, "cli/zuse"),
+				"if (process.argv[2] !== '--help') process.exit(1); console.log('CLI help');",
+			);
+			const wrapper = installer
+				.split("cat >/opt/zuse/bin/zuse <<'SH'\n")[1]
+				?.split("\nSH")[0];
+			expect(wrapper).toBeDefined();
+			const result = spawnSync(
+				"sh",
+				[
+					"-c",
+					`${wrapper?.replaceAll("/opt/zuse/node/bin/node", process.execPath).replaceAll("/opt/zuse/current", directory)} --help`,
+				],
+				{ encoding: "utf8" },
+			);
+			expect(result.status, result.stderr).toBe(0);
+			expect(result.stdout).toContain("CLI help");
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
 	test("prepares repository snapshots without installing project dependencies", async () => {
 		const builder = await readWorkspaceFile(
 			"infra/cloud-sandboxes/project-builder.sh",
