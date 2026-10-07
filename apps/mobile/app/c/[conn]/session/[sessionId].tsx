@@ -6,6 +6,7 @@ import {
 } from "@legendapp/list/keyboard";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { orderedChatSessions } from "@zuse/client-runtime/chat-threads";
+import { isWaitingCloudSend } from "@zuse/client-runtime/cloud-send-delivery";
 import {
 	findPendingPlanInteraction,
 	isPlanApprovalRequest,
@@ -16,6 +17,7 @@ import {
 	type FolderId,
 	type MessageId,
 	type PermissionRequest,
+	providerLabel,
 	type SessionId,
 	type UserQuestion,
 } from "@zuse/contracts";
@@ -96,6 +98,7 @@ import {
 	sendMessage,
 } from "~/rpc/actions";
 import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
+import { getConnectionClient } from "~/rpc/connection";
 import { cloudCatalogAtom } from "~/store/cloud-catalog";
 import {
 	connectionSnapshotAtom,
@@ -122,6 +125,7 @@ import {
 	reorderQueuedMessages,
 	resumeQueue,
 	runQueuedMessageNext,
+	sessionDeliveryAtom,
 	sessionMessagesAtom,
 	sessionMessagesErrorAtom,
 	sessionQueueAtom,
@@ -525,6 +529,35 @@ function ThreadScreen() {
 		pendingQuestion === null &&
 		pendingPlanInteraction === null;
 	const workingSince = turns.at(-1)?.startedAt.getTime() ?? screenOpenedAt;
+	// Desktop-style wording: "Codex is working", or "Waiting for Codex" while a
+	// cloud message still sits in the mailbox for its runtime to claim.
+	const delivery = useAtomValue(sessionDeliveryAtom(stateKey));
+	const cloudSendWaiting =
+		options?.cloudWorkspaceId !== undefined &&
+		cloudLifecycleState === null &&
+		delivery.pending.some(isWaitingCloudSend);
+	const agentName =
+		detail?.session.providerId === undefined
+			? "Agent"
+			: providerLabel(detail.session.providerId);
+	const workingLabel = cloudSendWaiting
+		? `Waiting for ${agentName}`
+		: `${agentName} is working`;
+	// Like desktop's attach after create: once compute is up, connect so the
+	// runtime is recovered if it never came online to claim the message.
+	const attachedFor = useRef<string | null>(null);
+	useEffect(() => {
+		if (
+			!cloudSendWaiting ||
+			options === null ||
+			attachedFor.current === stateKey
+		)
+			return;
+		attachedFor.current = stateKey;
+		void Effect.runPromise(getConnectionClient(options, true)).catch(
+			() => undefined,
+		);
+	}, [cloudSendWaiting, options, stateKey]);
 
 	const onAnswerQuestion: MessageRowContext["onAnswerQuestion"] = (
 		itemId,
@@ -1211,7 +1244,9 @@ function ThreadScreen() {
 						{options?.cloudWorkspaceId && (
 							<CloudDeviceAccess workspaceId={options.cloudWorkspaceId} />
 						)}
-						{workingActive ? <WorkingIndicator since={workingSince} /> : null}
+						{workingActive || cloudSendWaiting ? (
+							<WorkingIndicator since={workingSince} label={workingLabel} />
+						) : null}
 					</View>
 				}
 				onScroll={onScroll}
@@ -1391,11 +1426,7 @@ function ThreadScreen() {
 							}
 						>
 							{options.cloudWorkspaceId === undefined ? null : (
-								<CloudLifecycleBar
-									workspaceId={options.cloudWorkspaceId}
-									connKey={connKey}
-									sessionId={normalizedSessionId}
-								/>
+								<CloudLifecycleBar workspaceId={options.cloudWorkspaceId} />
 							)}
 							{connectionNotice === null ||
 							cloudLifecycleState !== null ? null : (
