@@ -348,6 +348,9 @@ export interface MachineControlServiceShape {
 		ApiEnvironmentList,
 		MachineControlError
 	>;
+	readonly removeEnvironment: (
+		environmentId: EnvironmentId,
+	) => Effect.Effect<void, MachineControlError>;
 	readonly connectEnvironment: (
 		environmentId: EnvironmentId,
 	) => Effect.Effect<ApiConnectGrant, MachineControlError>;
@@ -831,6 +834,24 @@ export const MachineControlServiceLive: Layer.Layer<
 			entitlements: () =>
 				request(ApiPaths.billingEntitlements, EntitlementList),
 			environments: () => request(ApiPaths.environments, ApiEnvironmentList),
+			removeEnvironment: (environmentId) =>
+				request(
+					ApiPaths.unlink,
+					Schema.Struct({ ok: Schema.Boolean }),
+					"POST",
+					{ environmentId },
+				).pipe(
+					Effect.asVoid,
+					Effect.timeoutOrElse({
+						duration: "15 seconds",
+						orElse: () =>
+							Effect.fail(new MachineControlError("provider-unavailable")),
+					}),
+					Effect.catchIf(
+						(error) => error.code === "not-found",
+						() => Effect.void,
+					),
+				),
 			connectEnvironment: (environmentId) =>
 				Effect.gen(function* () {
 					if (runtimeRole !== "control-plane") {

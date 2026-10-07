@@ -140,5 +140,6 @@
 	"update_to_latest": "⟦ÜÜpdààtëë {{name}} tôô thëë lààtëëst vëërsïïôôn⟧",
 	"sign_in_failed": "⟦Sïïgn-ïïn fààïïlëëd.⟧",
 	"sign_in_incomplete": "⟦Sïïgn-ïïn ëëndëëd bëëfôôrëë côômplëëtïïôôn.⟧",
-	"update_incomplete": "⟦ÜÜpdààtëë ëëndëëd bëëfôôrëë côômplëëtïïôôn.⟧"
+	"update_incomplete": "⟦ÜÜpdààtëë ëëndëëd bëëfôôrëë côômplëëtïïôôn.⟧",
+	"remove_computer_account_description": "⟦Rëëmôôvëë {{value}} frôôm yôôüür ààccôôüünt àànd frëëëë ïïts côômpüütëër slôôt. Rëëmôôtëë ààccëëss thrôôüügh Züüsëë wïïll stôôp. Prôôjëëcts àànd dààtàà ôôn thëë côômpüütëër ààrëë këëpt.⟧"
 }

@@ -404,6 +404,13 @@ const Environments = MemoizeRpcs.toLayerHandler("environments.list", () =>
 		Effect.mapError((error) => new ConnectAuthError({ reason: error.code })),
 	),
 );
+const RemoveEnvironment = MemoizeRpcs.toLayerHandler(
+	"environments.remove",
+	({ environmentId }) =>
+		withControl((service) => service.removeEnvironment(environmentId)).pipe(
+			Effect.mapError((error) => new ConnectAuthError({ reason: error.code })),
+		),
+);
 const ConnectEnvironment = MemoizeRpcs.toLayerHandler(
 	"environments.connect",
 	({ environmentId }) =>
@@ -547,6 +554,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	BillingPortal,
 	Entitlements,
 	Environments,
+	RemoveEnvironment,
 	ConnectEnvironment,
 	AddSshKey,
 	ListSshKeys,

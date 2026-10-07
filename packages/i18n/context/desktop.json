@@ -2204,7 +2204,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-view.tsx",
-				"line": 906
+				"line": 908
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -2214,7 +2214,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-view.tsx",
-				"line": 1023
+				"line": 1025
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6323,11 +6323,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-view.tsx",
-				"line": 865
+				"line": 867
 			},
 			{
 				"path": "apps/renderer/src/components/chat-view.tsx",
-				"line": 902
+				"line": 904
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6848,7 +6848,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-view.tsx",
-				"line": 930
+				"line": 932
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6858,7 +6858,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/chat-view.tsx",
-				"line": 937
+				"line": 939
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8590,7 +8590,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/remove-computer-button.tsx",
-				"line": 112
+				"line": 114
 			},
 			{
 				"path": "apps/renderer/src/components/rename-dialog.tsx",
@@ -8842,7 +8842,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/remove-computer-button.tsx",
-				"line": 121
+				"line": 123
 			},
 			{
 				"path": "apps/renderer/src/components/settings/cloud-machines-pane.tsx",
@@ -16918,7 +16918,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/remove-computer-button.tsx",
-				"line": 95
+				"line": 97
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -17305,6 +17305,16 @@
 			{
 				"path": "apps/renderer/src/store/providers.ts",
 				"line": 378
+			}
+		],
+		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"providers:remove_computer_account_description": {
+		"source": "Remove {{value}} from your account and free its computer slot. Remote access through Zuse will stop. Projects and data on the computer are kept.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/remove-computer-button.tsx",
+				"line": 96
 			}
 		],
 		"context": "providers interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

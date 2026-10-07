@@ -392,6 +392,13 @@ export const EnvironmentsListRpc = Rpc.make("environments.list", {
 	error: ConnectAuthError,
 });
 
+/** Delete an account computer registration without touching its local data. */
+export const EnvironmentRemoveRpc = Rpc.make("environments.remove", {
+	payload: Schema.Struct({ environmentId: EnvironmentId }),
+	success: Schema.Void,
+	error: ConnectAuthError,
+});
+
 export const EnvironmentConnectRpc = Rpc.make("environments.connect", {
 	payload: Schema.Struct({ environmentId: EnvironmentId }),
 	success: ApiConnectGrant,

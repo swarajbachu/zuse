@@ -34,6 +34,7 @@ import {
 	ApiEnvironmentsRpc,
 	ApiRevokeClientRpc,
 	EnvironmentConnectRpc,
+	EnvironmentRemoveRpc,
 	EnvironmentsListRpc,
 } from "./api.ts";
 import {
@@ -473,6 +474,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	ApiStatusRpc,
 	ApiUnlinkRpc,
 	EnvironmentsListRpc,
+	EnvironmentRemoveRpc,
 	EnvironmentConnectRpc,
 	CloudBillingSummaryRpc,
 	CloudBillingUsageRpc,
