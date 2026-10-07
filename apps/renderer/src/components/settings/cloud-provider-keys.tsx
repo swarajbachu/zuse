@@ -2,6 +2,7 @@ import "@zuse/i18n/english/settings";
 import type {
 	CloudProviderConnection,
 	CloudProviderConnectionInput,
+	CloudProviderConnectionList,
 } from "@zuse/contracts";
 import { formatDate } from "@zuse/i18n";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
@@ -35,11 +36,9 @@ import {
 	SelectValue,
 } from "../ui/select.tsx";
 import {
-	CloudSettingsGroup,
 	CloudSettingsRow,
 	COMPACT_CLOUD_ACTION,
 } from "./cloud-settings-ui.tsx";
-import { CloudSnapshotSettings } from "./cloud-snapshot-settings.tsx";
 
 type ProviderId = CloudProviderConnectionInput["providerId"];
 
@@ -107,6 +106,7 @@ export function CloudProviderKeyList({
 	return active.map((connection) => {
 		const provider = cloudProviderLabel(connection.providerId);
 		const details = [
+			uiMessage("settings:cloud_hosting_provider_billed"),
 			uiMessage("settings:cloud_provider_keys_connected_on", {
 				date: formatDate(connection.createdAt, {
 					month: "short",
@@ -156,28 +156,18 @@ export function CloudProviderKeyList({
 	});
 }
 
-export function CloudProviderKeys({
-	onChanged,
-}: {
-	readonly onChanged: () => Promise<void>;
-}) {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+export type CloudProviderConnections = ReturnType<
+	typeof useCloudProviderConnections
+>;
+
+/** Single source for the account's provider keys and custom-snapshot capability. */
+export function useCloudProviderConnections() {
 	const [connections, setConnections] = useState<
 		readonly CloudProviderConnection[] | null
 	>(null);
 	const [customSnapshotsEnabled, setCustomSnapshotsEnabled] = useState(false);
-	const [providerId, setProviderId] = useState<ProviderId>("boxd");
-	const [apiKey, setApiKey] = useState("");
-	const [templateId, setTemplateId] = useState("");
-	const [organization, setOrganization] = useState("");
-	const [advancedOpen, setAdvancedOpen] = useState(false);
-	const [busy, setBusy] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [loadError, setLoadError] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [disconnectTarget, setDisconnectTarget] =
-		useState<CloudProviderConnection | null>(null);
-	const [disconnectError, setDisconnectError] = useState<string | null>(null);
 	const mounted = useRef(true);
 	useEffect(() => {
 		mounted.current = true;
@@ -186,38 +176,72 @@ export function CloudProviderKeys({
 		};
 	}, []);
 
-	const load = useCallback(async () => {
+	const apply = useCallback((result: CloudProviderConnectionList) => {
+		if (!mounted.current) return;
+		setConnections(result.connections);
+		setCustomSnapshotsEnabled(result.customSnapshotsEnabled === true);
+		setLoadError(false);
+	}, []);
+
+	const reload = useCallback(async () => {
 		setLoading(true);
 		try {
-			const result = await runCloudControl((client) =>
-				client["cloud.providerConnections.list"](),
+			apply(
+				await runCloudControl((client) =>
+					client["cloud.providerConnections.list"](),
+				),
 			);
-			if (!mounted.current) return;
-			setConnections(result.connections);
-			setCustomSnapshotsEnabled(result.customSnapshotsEnabled === true);
-			setLoadError(false);
 		} catch {
 			if (mounted.current) setLoadError(true);
 		} finally {
 			if (mounted.current) setLoading(false);
 		}
-	}, []);
+	}, [apply]);
 
 	useEffect(() => {
-		void load();
-		const reload = () => void load();
-		window.addEventListener("focus", reload);
-		return () => window.removeEventListener("focus", reload);
-	}, [load]);
+		void reload();
+		const onFocus = () => void reload();
+		window.addEventListener("focus", onFocus);
+		return () => window.removeEventListener("focus", onFocus);
+	}, [reload]);
 
-	const active = (connections ?? []).filter((connection) => connection.active);
-	const replacing = active.some(
+	return {
+		connections,
+		active: (connections ?? []).filter((connection) => connection.active),
+		customSnapshotsEnabled,
+		loading,
+		loadError,
+		reload,
+		apply,
+	};
+}
+
+/** Provider key form; `providerId` pins the provider when a flow needs one. */
+export function CloudProviderConnectForm({
+	keys,
+	providerId: pinnedProvider,
+	onChanged,
+}: {
+	readonly keys: CloudProviderConnections;
+	readonly providerId?: ProviderId;
+	readonly onChanged: () => Promise<void>;
+}) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const [selectedProvider, setSelectedProvider] = useState<ProviderId>("boxd");
+	const providerId = pinnedProvider ?? selectedProvider;
+	const [apiKey, setApiKey] = useState("");
+	const [templateId, setTemplateId] = useState("");
+	const [organization, setOrganization] = useState("");
+	const [advancedOpen, setAdvancedOpen] = useState(false);
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const replacing = keys.active.some(
 		(connection) => connection.providerId === providerId,
 	);
 	const providerName = cloudProviderLabel(providerId);
 
 	const selectProvider = (value: ProviderId) => {
-		setProviderId(value);
+		setSelectedProvider(value);
 		setApiKey("");
 		setTemplateId("");
 		setOrganization("");
@@ -225,63 +249,197 @@ export function CloudProviderKeys({
 	};
 
 	const save = async () => {
-		if (busy !== null) return;
-		setBusy("save");
+		if (saving) return;
+		setSaving(true);
 		setError(null);
 		try {
-			const result = await runCloudControl((client) =>
-				client["cloud.providerConnections.save"]({
-					providerId,
-					apiKey: apiKey.trim(),
-					templateId: templateId.trim() || undefined,
-					organization:
-						providerId === "boxd"
-							? organization.trim() || undefined
-							: undefined,
-				}),
+			keys.apply(
+				await runCloudControl((client) =>
+					client["cloud.providerConnections.save"]({
+						providerId,
+						apiKey: apiKey.trim(),
+						templateId: templateId.trim() || undefined,
+						organization:
+							providerId === "boxd"
+								? organization.trim() || undefined
+								: undefined,
+					}),
+				),
 			);
-			if (!mounted.current) return;
-			setConnections(result.connections);
-			setCustomSnapshotsEnabled(result.customSnapshotsEnabled === true);
 			setApiKey("");
 			setTemplateId("");
 			setOrganization("");
 			setAdvancedOpen(false);
 			await onChanged();
 		} catch {
-			if (mounted.current)
-				setError(
-					uiMessage("settings:cloud_provider_keys_save_failed", {
-						provider: providerName,
-					}),
-				);
+			setError(
+				uiMessage("settings:cloud_provider_keys_save_failed", {
+					provider: providerName,
+				}),
+			);
 		} finally {
-			if (mounted.current) setBusy(null);
+			setSaving(false);
 		}
 	};
+
+	return (
+		<form
+			className="flex flex-col gap-2"
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (apiKey.trim().length > 0) void save();
+			}}
+		>
+			<div className="flex items-center gap-2">
+				{pinnedProvider === undefined ? (
+					<Select
+						value={providerId}
+						disabled={saving}
+						onValueChange={(value) => {
+							if (isProviderId(value)) selectProvider(value);
+						}}
+					>
+						<SelectTrigger
+							className="h-7 w-28 min-w-0"
+							aria-label={uiMessage("settings:cloud_provider_keys_provider")}
+						>
+							<SelectValue>{providerName}</SelectValue>
+						</SelectTrigger>
+						<SelectPopup>
+							{PROVIDER_IDS.map((id) => (
+								<SelectItem key={id} value={id}>
+									{cloudProviderLabel(id)}
+								</SelectItem>
+							))}
+						</SelectPopup>
+					</Select>
+				) : null}
+				<Input
+					aria-label={uiMessage("settings:cloud_provider_keys_api_key", {
+						provider: providerName,
+					})}
+					type="password"
+					autoComplete="off"
+					spellCheck={false}
+					placeholder={uiMessage("settings:cloud_provider_keys_api_key", {
+						provider: providerName,
+					})}
+					className="h-7 min-w-0 flex-1 text-xs"
+					value={apiKey}
+					disabled={saving}
+					aria-invalid={error !== null && !saving ? true : undefined}
+					onChange={(event) => {
+						setApiKey(event.target.value);
+						setError(null);
+					}}
+				/>
+				<Button
+					type="submit"
+					size="xs"
+					className={COMPACT_CLOUD_ACTION}
+					disabled={saving || keys.connections === null || !apiKey.trim()}
+					loading={saving}
+				>
+					{replacing
+						? uiMessage("settings:cloud_provider_keys_replace")
+						: uiMessage("settings:cloud_provider_keys_connect")}
+				</Button>
+			</div>
+			{error === null ? null : (
+				<p role="alert" className="text-[11px] text-destructive">
+					{error}
+				</p>
+			)}
+			<p className="text-[11px] leading-4 text-muted-foreground">
+				{replacing
+					? uiMessage("settings:cloud_provider_keys_replace_description")
+					: uiMessage("settings:cloud_provider_keys_footer")}
+			</p>
+			<Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+				<CollapsibleTrigger className="flex h-7 items-center gap-1 rounded-md text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+					<ChevronRight
+						className={cn(
+							"size-3 transition-transform duration-150",
+							advancedOpen && "rotate-90",
+						)}
+						aria-hidden
+					/>
+					{uiMessage("settings:cloud_provider_keys_advanced")}
+				</CollapsibleTrigger>
+				<CollapsiblePanel>
+					<div className="flex flex-col gap-2 pt-1">
+						<div className="flex items-center gap-2">
+							<Input
+								aria-label={uiMessage("settings:cloud_provider_keys_template")}
+								placeholder={uiMessage("settings:cloud_provider_keys_template")}
+								className="h-7 min-w-0 flex-1 text-xs"
+								spellCheck={false}
+								value={templateId}
+								disabled={saving}
+								onChange={(event) => setTemplateId(event.target.value)}
+							/>
+							{providerId === "boxd" ? (
+								<Input
+									aria-label={uiMessage(
+										"settings:cloud_provider_keys_organization",
+									)}
+									placeholder={uiMessage(
+										"settings:cloud_provider_keys_organization",
+									)}
+									className="h-7 min-w-0 flex-1 text-xs"
+									spellCheck={false}
+									value={organization}
+									disabled={saving}
+									onChange={(event) => setOrganization(event.target.value)}
+								/>
+							) : null}
+						</div>
+						<p className="text-[11px] leading-4 text-muted-foreground">
+							{uiMessage("settings:cloud_provider_keys_template_hint", {
+								provider: providerName,
+							})}
+						</p>
+					</div>
+				</CollapsiblePanel>
+			</Collapsible>
+		</form>
+	);
+}
+
+/** Connected keys, the connect form and disconnect confirmation. */
+export function CloudProviderKeyPanel({
+	keys,
+	onChanged,
+}: {
+	readonly keys: CloudProviderConnections;
+	readonly onChanged: () => Promise<void>;
+}) {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const [busy, setBusy] = useState<string | null>(null);
+	const [disconnectTarget, setDisconnectTarget] =
+		useState<CloudProviderConnection | null>(null);
+	const [disconnectError, setDisconnectError] = useState<string | null>(null);
 
 	const disconnect = async (connection: CloudProviderConnection) => {
 		if (busy !== null) return;
 		setBusy(`disconnect:${connection.connectionId}`);
 		setDisconnectError(null);
 		try {
-			const result = await runCloudControl((client) =>
-				client["cloud.providerConnections.disconnect"]({
-					connectionId: connection.connectionId,
-				}),
+			keys.apply(
+				await runCloudControl((client) =>
+					client["cloud.providerConnections.disconnect"]({
+						connectionId: connection.connectionId,
+					}),
+				),
 			);
-			if (!mounted.current) return;
-			setConnections(result.connections);
-			setCustomSnapshotsEnabled(result.customSnapshotsEnabled === true);
 			setDisconnectTarget(null);
 			await onChanged();
 		} catch {
-			if (mounted.current)
-				setDisconnectError(
-					uiMessage("settings:cloud_provider_keys_disconnect_failed"),
-				);
+			setDisconnectError(
+				uiMessage("settings:cloud_provider_keys_disconnect_failed"),
+			);
 		} finally {
-			if (mounted.current) setBusy(null);
+			setBusy(null);
 		}
 	};
 
@@ -291,167 +449,23 @@ export function CloudProviderKeys({
 			: cloudProviderLabel(disconnectTarget.providerId);
 
 	return (
-		<CloudSettingsGroup
-			title={uiMessage("settings:cloud_provider_keys_title")}
-			help={`${uiMessage("settings:cloud_provider_keys_description")} ${uiMessage("settings:cloud_provider_keys_footer")}`}
-		>
-			<CloudProviderKeyList
-				connections={connections}
-				loading={loading}
-				loadError={loadError}
-				busy={busy}
-				onRetry={() => void load()}
-				onDisconnect={(connection) => {
-					setDisconnectError(null);
-					setDisconnectTarget(connection);
-				}}
-			/>
-			{active
-				.filter(
-					(connection) =>
-						customSnapshotsEnabled && connection.providerId === "boxd",
-				)
-				.map((connection) => (
-					<CloudSnapshotSettings
-						key={connection.connectionId}
-						connectionId={connection.connectionId}
-						onChanged={onChanged}
-					/>
-				))}
-			<CloudSettingsRow
-				title={
-					replacing
-						? uiMessage("settings:cloud_provider_keys_replace_title", {
-								provider: providerName,
-							})
-						: uiMessage("settings:cloud_provider_keys_connect_title")
-				}
-				description={
-					replacing
-						? uiMessage("settings:cloud_provider_keys_replace_description")
-						: uiMessage("settings:cloud_provider_keys_connect_description", {
-								provider: providerName,
-							})
-				}
-			>
-				<form
-					className="flex flex-col gap-2"
-					onSubmit={(event) => {
-						event.preventDefault();
-						if (apiKey.trim().length > 0) void save();
+		<>
+			{keys.active.length > 0 || keys.loadError || keys.connections === null ? (
+				<CloudProviderKeyList
+					connections={keys.connections}
+					loading={keys.loading}
+					loadError={keys.loadError}
+					busy={busy}
+					onRetry={() => void keys.reload()}
+					onDisconnect={(connection) => {
+						setDisconnectError(null);
+						setDisconnectTarget(connection);
 					}}
-				>
-					<div className="flex items-center gap-2">
-						<Select
-							value={providerId}
-							disabled={busy !== null}
-							onValueChange={(value) => {
-								if (isProviderId(value)) selectProvider(value);
-							}}
-						>
-							<SelectTrigger
-								className="h-7 w-28 min-w-0"
-								aria-label={uiMessage("settings:cloud_provider_keys_provider")}
-							>
-								<SelectValue>{providerName}</SelectValue>
-							</SelectTrigger>
-							<SelectPopup>
-								{PROVIDER_IDS.map((id) => (
-									<SelectItem key={id} value={id}>
-										{cloudProviderLabel(id)}
-									</SelectItem>
-								))}
-							</SelectPopup>
-						</Select>
-						<Input
-							aria-label={uiMessage("settings:cloud_provider_keys_api_key", {
-								provider: providerName,
-							})}
-							type="password"
-							autoComplete="off"
-							spellCheck={false}
-							placeholder={uiMessage("settings:cloud_provider_keys_api_key", {
-								provider: providerName,
-							})}
-							className="h-7 min-w-0 flex-1 text-xs"
-							value={apiKey}
-							disabled={busy !== null}
-							aria-invalid={error !== null && busy === null ? true : undefined}
-							onChange={(event) => {
-								setApiKey(event.target.value);
-								setError(null);
-							}}
-						/>
-						<Button
-							type="submit"
-							size="xs"
-							className={COMPACT_CLOUD_ACTION}
-							disabled={busy !== null || connections === null || !apiKey.trim()}
-							loading={busy === "save"}
-						>
-							{replacing
-								? uiMessage("settings:cloud_provider_keys_replace")
-								: uiMessage("settings:cloud_provider_keys_connect")}
-						</Button>
-					</div>
-					{error === null ? null : (
-						<p role="alert" className="text-[11px] text-destructive">
-							{error}
-						</p>
-					)}
-					<Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-						<CollapsibleTrigger className="flex h-7 items-center gap-1 rounded-md text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
-							<ChevronRight
-								className={cn(
-									"size-3 transition-transform duration-150",
-									advancedOpen && "rotate-90",
-								)}
-								aria-hidden
-							/>
-							{uiMessage("settings:cloud_provider_keys_advanced")}
-						</CollapsibleTrigger>
-						<CollapsiblePanel>
-							<div className="flex flex-col gap-2 pt-1">
-								<div className="flex items-center gap-2">
-									<Input
-										aria-label={uiMessage(
-											"settings:cloud_provider_keys_template",
-										)}
-										placeholder={uiMessage(
-											"settings:cloud_provider_keys_template",
-										)}
-										className="h-7 min-w-0 flex-1 text-xs"
-										spellCheck={false}
-										value={templateId}
-										disabled={busy !== null}
-										onChange={(event) => setTemplateId(event.target.value)}
-									/>
-									{providerId === "boxd" ? (
-										<Input
-											aria-label={uiMessage(
-												"settings:cloud_provider_keys_organization",
-											)}
-											placeholder={uiMessage(
-												"settings:cloud_provider_keys_organization",
-											)}
-											className="h-7 min-w-0 flex-1 text-xs"
-											spellCheck={false}
-											value={organization}
-											disabled={busy !== null}
-											onChange={(event) => setOrganization(event.target.value)}
-										/>
-									) : null}
-								</div>
-								<p className="text-[11px] leading-4 text-muted-foreground">
-									{uiMessage("settings:cloud_provider_keys_template_hint", {
-										provider: providerName,
-									})}
-								</p>
-							</div>
-						</CollapsiblePanel>
-					</Collapsible>
-				</form>
-			</CloudSettingsRow>
+				/>
+			) : null}
+			<div className="px-3 py-2.5">
+				<CloudProviderConnectForm keys={keys} onChanged={onChanged} />
+			</div>
 			<AlertDialog
 				open={disconnectTarget !== null}
 				onOpenChange={(open) => {
@@ -507,6 +521,6 @@ export function CloudProviderKeys({
 					</AlertDialogFooter>
 				</AlertDialogPopup>
 			</AlertDialog>
-		</CloudSettingsGroup>
+		</>
 	);
 }

@@ -96,6 +96,15 @@ export function CloudImageProviders({
 										className="accent-primary"
 									/>
 									{providerName(provider.providerId)}
+									{provider.billingSource ? (
+										<span className="text-[11px] text-muted-foreground">
+											{message(
+												provider.billingSource === "provider"
+													? "settings:cloud_hosting_provider_billed"
+													: "settings:cloud_hosting_zuse_billed",
+											)}
+										</span>
+									) : null}
 								</label>
 							) : null}
 							<button
@@ -108,6 +117,15 @@ export function CloudImageProviders({
 								onClick={() => setSelected(provider.providerId)}
 							>
 								{!onSelectProvider ? providerName(provider.providerId) : null}
+								{image ? (
+									<span className="text-[11px] text-muted-foreground">
+										{message(
+											image?.source === "custom-snapshot"
+												? "settings:cloud_hosting_own_snapshot"
+												: "settings:cloud_hosting_zuse_image",
+										)}
+									</span>
+								) : null}
 								{status(image)}
 								<span className="text-[11px] text-muted-foreground">
 									{message("settings:diagnostics_pane_open_logs")}

@@ -9,14 +9,26 @@ test("snapshot setup offers discovery, explicit paths and separate agent/Git aut
 	const markup = renderToStaticMarkup(
 		<CloudSnapshotSettings connectionId="own-key" onChanged={async () => {}} />,
 	);
-	expect(markup).toContain("Leave paths empty");
-	expect(markup).toContain("Add repository path");
-	expect(markup).toContain("Use my Zuse GitHub connection for Git and gh");
-	expect(markup).toContain("Use my Zuse agent accounts for new workspaces");
+	expect(markup).toContain("npx zusehq snapshot install");
+	expect(markup).toContain("Repository paths: found automatically");
+	expect(markup).toContain("Use logins from snapshot");
+	expect(markup).toContain("Use credentials from snapshot");
+	// On means "use what is already in the snapshot", the default for both.
+	expect(markup.match(/role="switch"[^>]*aria-checked="true"/g)).toHaveLength(
+		2,
+	);
+	expect(markup).toContain("On: Claude Code and Codex use the logins");
+	expect(markup).toContain("On: Git and gh use the credentials");
 	expect(markup).not.toContain("--repo");
 	expect(markup).not.toContain("Subscribe");
 	for (const control of markup.match(/<(?:input|button)[^>]*>/g) ?? [])
-		if (!control.includes('type="checkbox"')) expect(control).toContain("h-7");
+		if (
+			!control.includes('data-slot="switch"') &&
+			!control.includes("tooltip") &&
+			// Base UI's visually hidden form input behind each switch.
+			!control.includes("clip-path")
+		)
+			expect(control).toMatch(/h-7|size-6/);
 });
 test("imported snapshots never offer a managed-image rebuild action", () => {
 	const image = new CloudAccountImage({
@@ -53,8 +65,8 @@ test("snapshot settings translate labels while preserving the installation comma
 				onChanged={async () => {}}
 			/>,
 		);
-		expect(markup).toContain("Instantané Boxd personnalisé");
-		expect(markup).toContain("Ajouter un chemin de dépôt");
+		expect(markup).toContain("Connexions des agents");
+		expect(markup).toContain("Chemins des dépôts");
 		expect(markup).toContain("npx zusehq snapshot install");
 		expect(markup).not.toContain("settings:snapshot_");
 	} finally {

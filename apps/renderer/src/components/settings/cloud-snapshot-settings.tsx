@@ -1,13 +1,26 @@
+import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/settings";
 import type { CloudAccountImage } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import { useEffect, useRef, useState } from "react";
+import { ChevronRight, Info } from "lucide-react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
+import { cn } from "~/lib/utils";
 import { refreshCloudImages } from "../../lib/cloud-image-monitor.ts";
 import { loadCloudImage } from "../../lib/cloud-workspace-session-cache.ts";
 import { runCloudControl } from "../../lib/control-plane-client.ts";
 import { Button } from "../ui/button.tsx";
+import {
+	Collapsible,
+	CollapsiblePanel,
+	CollapsibleTrigger,
+} from "../ui/collapsible.tsx";
 import { Input } from "../ui/input.tsx";
-import { CloudSettingsRow } from "./cloud-settings-ui.tsx";
+import { Switch } from "../ui/switch.tsx";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip.tsx";
+import { COMPACT_CLOUD_ACTION } from "./cloud-settings-ui.tsx";
+import { DeviceCode } from "./connection-login-steps.tsx";
+
+export const SNAPSHOT_INSTALL_COMMAND = "npx zusehq snapshot install";
 
 export function CloudSnapshotSettings({
 	connectionId,
@@ -16,7 +29,8 @@ export function CloudSnapshotSettings({
 	readonly connectionId: string;
 	readonly onChanged: () => Promise<void>;
 }) {
-	const { message: uiMessage } = useUiMessages(["settings"]);
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const fieldId = useId();
 	const initialized = useRef(false);
 	const changed = useRef(onChanged);
 	changed.current = onChanged;
@@ -30,6 +44,7 @@ export function CloudSnapshotSettings({
 	const [gitAuthentication, setGitAuthentication] = useState<"native" | "zuse">(
 		"native",
 	);
+	const [pathsOpen, setPathsOpen] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const inspecting = image?.state === "building";
@@ -91,143 +106,185 @@ export function CloudSnapshotSettings({
 			setSaving(false);
 		}
 	};
+	const authChoices = [
+		{
+			key: "agents",
+			value: agentAuthentication,
+			onChange: setAgentAuthentication,
+			label: uiMessage("settings:snapshot_agent_logins"),
+			help: uiMessage("settings:snapshot_agent_logins_help"),
+			switchLabel: uiMessage("settings:snapshot_agent_logins_switch"),
+		},
+		{
+			key: "github",
+			value: gitAuthentication,
+			onChange: setGitAuthentication,
+			label: uiMessage("settings:snapshot_github_login"),
+			help: uiMessage("settings:snapshot_github_login_help"),
+			switchLabel: uiMessage("settings:snapshot_github_login_switch"),
+		},
+	] as const;
+	const status = error ?? snapshotErrorMessage(image?.errorCode, uiMessage);
 	return (
-		<CloudSettingsRow
-			title={uiMessage("settings:snapshot_title")}
-			description={uiMessage("settings:snapshot_description")}
-		>
-			<div className="flex flex-col gap-2">
-				<a
-					className="text-xs underline"
-					href="https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-production/zuse-snapshot-installer.tar.gz"
-					target="_blank"
-					rel="noreferrer"
-				>
-					{uiMessage("settings:snapshot_download")}
-				</a>
-				<p className="text-xs text-muted-foreground">
-					{uiMessage("settings:snapshot_install_command", {
-						command: "npx zusehq snapshot install",
-					})}
+		<div className="flex flex-col gap-2.5 px-3 py-2.5">
+			<div className="flex flex-col gap-1.5">
+				<p className="text-[11px] text-muted-foreground">
+					{uiMessage("settings:snapshot_install_step")}
 				</p>
+				<DeviceCode
+					code={SNAPSHOT_INSTALL_COMMAND}
+					label={uiMessage("settings:snapshot_copy_command")}
+				/>
+			</div>
+			<p className="text-[11px] text-muted-foreground">
+				{uiMessage("settings:snapshot_connect_step")}
+			</p>
+			<div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2">
+				<label htmlFor={`${fieldId}-snapshot`} className="text-xs">
+					{uiMessage("settings:snapshot_id_label")}
+				</label>
 				<Input
-					className="h-7"
-					aria-label={uiMessage("settings:snapshot_id_label")}
-					placeholder={
-						image?.snapshot?.snapshotId ??
-						uiMessage("settings:snapshot_id_placeholder")
-					}
+					id={`${fieldId}-snapshot`}
+					className="h-7 min-w-0 text-xs"
+					spellCheck={false}
+					placeholder={uiMessage("settings:snapshot_id_placeholder")}
 					value={snapshotId}
+					disabled={saving || inspecting}
 					onChange={(event) => setSnapshotId(event.target.value)}
 				/>
+				<label htmlFor={`${fieldId}-user`} className="text-xs">
+					{uiMessage("settings:snapshot_user_label")}
+				</label>
 				<Input
-					className="h-7"
-					aria-label={uiMessage("settings:snapshot_user_label")}
+					id={`${fieldId}-user`}
+					className="h-7 w-56 text-xs"
+					spellCheck={false}
 					value={runtimeUser}
+					disabled={saving || inspecting}
 					onChange={(event) => setRuntimeUser(event.target.value)}
 				/>
-				<label className="flex items-center gap-2 text-xs">
-					<input
-						type="checkbox"
-						checked={agentAuthentication === "zuse"}
-						onChange={(event) =>
-							setAgentAuthentication(event.target.checked ? "zuse" : "native")
-						}
+				{authChoices.map((choice) => (
+					<Fragment key={choice.key}>
+						<span className="flex items-center gap-1 text-xs">
+							{choice.label}
+							<Tooltip>
+								<TooltipTrigger
+									className="flex size-5 items-center justify-center rounded-md text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+									aria-label={choice.help}
+								>
+									<Info className="size-3" aria-hidden />
+								</TooltipTrigger>
+								<TooltipPopup className="max-w-64">{choice.help}</TooltipPopup>
+							</Tooltip>
+						</span>
+						<div className="flex h-7 items-center gap-2">
+							<Switch
+								id={`${fieldId}-${choice.key}`}
+								checked={choice.value === "native"}
+								disabled={saving || inspecting}
+								onCheckedChange={(checked) =>
+									choice.onChange(checked ? "native" : "zuse")
+								}
+							/>
+							<label
+								htmlFor={`${fieldId}-${choice.key}`}
+								className="text-xs text-muted-foreground"
+							>
+								{choice.switchLabel}
+							</label>
+						</div>
+					</Fragment>
+				))}
+			</div>
+			<Collapsible open={pathsOpen} onOpenChange={setPathsOpen}>
+				<CollapsibleTrigger className="flex h-7 items-center gap-1 rounded-md text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+					<ChevronRight
+						className={cn(
+							"size-3 transition-transform duration-150",
+							pathsOpen && "rotate-90",
+						)}
+						aria-hidden
 					/>
-					{uiMessage("settings:snapshot_agent_accounts")}
-				</label>
-				<label className="flex items-center gap-2 text-xs">
-					<input
-						type="checkbox"
-						checked={gitAuthentication === "zuse"}
-						onChange={(event) =>
-							setGitAuthentication(event.target.checked ? "zuse" : "native")
-						}
-					/>
-					{uiMessage("settings:snapshot_github_connection")}
-				</label>
-				<p className="text-xs text-muted-foreground">
-					{uiMessage("settings:snapshot_discovery_hint")}
-				</p>
-				{paths.map((path, index) => (
-					<div className="flex gap-2" key={index}>
-						<Input
-							className="h-7"
-							aria-label={uiMessage("settings:snapshot_repository_path", {
-								number: index + 1,
-							})}
-							placeholder={uiMessage("settings:snapshot_path_example")}
-							value={path}
-							onChange={(event) =>
-								setPaths(
-									paths.map((value, position) =>
-										position === index ? event.target.value : value,
-									),
-								)
-							}
-						/>
+					{paths.length > 0
+						? uiMessage("settings:snapshot_paths_count", {
+								value: paths.length,
+							})
+						: uiMessage("settings:snapshot_paths_automatic")}
+				</CollapsibleTrigger>
+				<CollapsiblePanel>
+					<div className="flex flex-col gap-2 pt-1">
+						{paths.map((path, index) => (
+							<div className="flex gap-2" key={index}>
+								<Input
+									className="h-7 text-xs"
+									spellCheck={false}
+									aria-label={uiMessage("settings:snapshot_repository_path", {
+										number: index + 1,
+									})}
+									placeholder={uiMessage("settings:snapshot_path_example")}
+									value={path}
+									onChange={(event) =>
+										setPaths(
+											paths.map((value, position) =>
+												position === index ? event.target.value : value,
+											),
+										)
+									}
+								/>
+								<Button
+									className={COMPACT_CLOUD_ACTION}
+									variant="ghost"
+									size="xs"
+									onClick={() =>
+										setPaths(paths.filter((_, position) => position !== index))
+									}
+								>
+									{uiMessage("settings:snapshot_remove")}
+								</Button>
+							</div>
+						))}
 						<Button
-							className="h-7"
-							variant="ghost"
+							className={cn(COMPACT_CLOUD_ACTION, "w-fit")}
 							size="xs"
-							onClick={() =>
-								setPaths(paths.filter((_, position) => position !== index))
-							}
+							variant="ghost"
+							disabled={paths.length >= 32}
+							onClick={() => setPaths([...paths, ""])}
 						>
-							{uiMessage("settings:snapshot_remove")}
+							{uiMessage("settings:snapshot_add_path")}
 						</Button>
 					</div>
-				))}
-				<div className="flex gap-2">
-					<Button
-						className="h-7"
-						size="xs"
-						variant="ghost"
-						disabled={paths.length >= 32}
-						onClick={() => setPaths([...paths, ""])}
-					>
-						{uiMessage("settings:snapshot_add_path")}
-					</Button>
-					<Button
-						className="h-7"
-						size="xs"
-						disabled={
-							!snapshotId.trim() || !runtimeUser.trim() || inspecting || saving
-						}
-						loading={saving}
-						onClick={() => void inspect()}
-					>
-						{inspecting
-							? uiMessage("settings:snapshot_inspecting")
-							: uiMessage("settings:snapshot_use")}
-					</Button>
-				</div>
-				{image?.snapshot?.repositories.map((repository) => (
-					<div className="text-xs" key={repository.projectId}>
-						<p>{repository.path}</p>
-						<p className="text-muted-foreground">
-							{repository.gitAccess === "readable"
-								? uiMessage("settings:snapshot_git_readable")
-								: repository.gitAccess === "authentication-required"
-									? uiMessage("settings:snapshot_git_login")
-									: uiMessage("settings:snapshot_git_unavailable")}
-						</p>
-					</div>
-				))}
-				{image?.snapshot ? (
-					<p className="text-xs text-muted-foreground">
-						{image.snapshot.agentAuthentication === "zuse"
-							? uiMessage("settings:snapshot_managed_agents")
-							: uiMessage("settings:snapshot_native_agents")}
-					</p>
-				) : null}
-				{error || image?.errorCode ? (
-					<p className="text-xs text-destructive" role="alert">
-						{error ?? snapshotErrorMessage(image?.errorCode, uiMessage)}
-					</p>
-				) : null}
+				</CollapsiblePanel>
+			</Collapsible>
+			<div className="flex items-center justify-between gap-3">
+				<p
+					role={status ? "alert" : "status"}
+					className={cn(
+						"min-w-0 text-[11px] leading-4",
+						status ? "text-destructive" : "text-muted-foreground",
+					)}
+				>
+					{status ??
+						(inspecting
+							? uiMessage("settings:snapshot_discovering")
+							: image?.snapshot && image.state === "ready"
+								? uiMessage("settings:snapshot_ready_summary")
+								: null)}
+				</p>
+				<Button
+					className={COMPACT_CLOUD_ACTION}
+					size="xs"
+					disabled={
+						!snapshotId.trim() || !runtimeUser.trim() || inspecting || saving
+					}
+					loading={saving || inspecting}
+					onClick={() => void inspect()}
+				>
+					{inspecting
+						? uiMessage("settings:snapshot_inspecting")
+						: uiMessage("common:save")}
+				</Button>
 			</div>
-		</CloudSettingsRow>
+		</div>
 	);
 }
 
