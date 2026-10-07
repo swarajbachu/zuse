@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 const appFile = (relativePath: string): string =>
@@ -84,6 +84,15 @@ describe("mobile UI contracts", () => {
 		expect(actions.match(/\.\.\.modelOptionsPayload\(options\)/g)).toHaveLength(
 			3,
 		);
+	});
+	test("starts cloud chats from the same New Chat screen", () => {
+		const newChat = appFile("new-chat.tsx");
+		expect(newChat).toContain("launchMobileCloudChat(");
+		expect(newChat).toContain(
+			"onSelect: () => setCloudSandbox(provider.providerId)",
+		);
+		expect(newChat).not.toContain("/new-cloud-chat");
+		expect(existsSync(`${process.cwd()}/app/new-cloud-chat.tsx`)).toBe(false);
 	});
 	test("lets people remove a saved computer from Settings", () => {
 		const settings = readFileSync(

@@ -6,6 +6,7 @@ import {
 import {
 	cloudProviderLabel,
 	orderedCloudProviders,
+	selectedCloudProvider,
 } from "@zuse/client-runtime/cloud-sandbox-providers";
 import type {
 	ChatId,
@@ -37,6 +38,7 @@ import type { ModelModeValue } from "~/components/model-mode-menu";
 import { ModelSheet } from "~/components/model-sheet";
 import { ModelSheetTrigger } from "~/components/model-sheet-trigger";
 import { SelectorRow } from "~/components/selector-row";
+import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { cloudSandboxStatus } from "~/lib/cloud-sandbox-setup";
 import {
@@ -72,6 +74,7 @@ import {
 	makeTextInput,
 	sendMessage,
 } from "~/rpc/actions";
+import { cloudControlClient } from "~/rpc/api-client";
 import { authAccountAtom } from "~/store/auth";
 import {
 	connectionAvailabilityAtom,
@@ -82,6 +85,7 @@ import {
 	cloudCatalogAtom,
 	refreshCloudCatalog,
 } from "~/store/cloud-catalog";
+import { launchMobileCloudChat } from "~/store/cloud-launch";
 import {
 	clearComposerDraft,
 	composerDraft,
@@ -120,9 +124,19 @@ import { colors } from "~/theme";
 
 export default function NewChatScreen() {
 	const insets = useSafeAreaInsets();
-	const { conn, chatId } = useLocalSearchParams<{
+	const {
+		conn,
+		chatId,
+		sandbox,
+		cloudProjectId: requestedCloudProjectId,
+		draft: requestedDraft,
+	} = useLocalSearchParams<{
 		conn?: string;
 		chatId?: string;
+		/** Start in Cloud mode; empty selects the account's default sandbox. */
+		sandbox?: string;
+		cloudProjectId?: string;
+		draft?: string;
 	}>();
 	const requestedConnectionKey = conn?.trim() ?? "";
 	const requestedChatId = (chatId?.trim() ?? "") as ChatId;
@@ -130,7 +144,16 @@ export default function NewChatScreen() {
 	const [initialDraft] = useState(() => composerDraft(draftKey));
 	const inheritedModel = useRef(false);
 	const submitGateRef = useRef(false);
-	const [text, setText] = useState(initialDraft.text);
+	const [text, setText] = useState(requestedDraft ?? initialDraft.text);
+	// `null` runs on a computer; otherwise the chosen cloud sandbox provider
+	// ("" until the provider list loads and the account default applies).
+	const [cloudSandbox, setCloudSandbox] = useState<string | null>(
+		sandbox ?? null,
+	);
+	const cloudMode = cloudSandbox !== null;
+	const [cloudProjectId, setCloudProjectId] = useState<string | null>(
+		requestedCloudProjectId ?? null,
+	);
 	const [draftHydrated, setDraftHydrated] = useState(false);
 	const [preferencesHydrated, setPreferencesHydrated] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
@@ -340,10 +363,10 @@ export default function NewChatScreen() {
 	const cloudProviders = useAtomValue(cloudAuthenticatedProvidersAtom);
 	const availableProviders = useMemo(
 		() =>
-			requestedConnectionKey.startsWith("cloud:")
+			cloudMode || requestedConnectionKey.startsWith("cloud:")
 				? cloudProviders
 				: availableProviderIds(availability),
-		[availability, cloudProviders, requestedConnectionKey],
+		[availability, cloudMode, cloudProviders, requestedConnectionKey],
 	);
 
 	useEffect(() => {
@@ -433,8 +456,9 @@ export default function NewChatScreen() {
 	const machineOptions = connections.map((connection) => ({
 		key: connection.key,
 		label: connection.label,
-		selected: connection.key === effectiveConnectionKey,
+		selected: !cloudMode && connection.key === effectiveConnectionKey,
 		onSelect: () => {
+			setCloudSandbox(null);
 			setSelectedConnectionKey(connection.key);
 			setSelectedProjectId(null);
 			setSource(MAIN_SOURCE);
@@ -469,6 +493,7 @@ export default function NewChatScreen() {
 				setError(null);
 				void connectToEnvironment(environment.environmentId)
 					.then((key) => {
+						setCloudSandbox(null);
 						setSelectedConnectionKey(key);
 						setSelectedProjectId(null);
 						setSource(MAIN_SOURCE);
@@ -478,8 +503,58 @@ export default function NewChatScreen() {
 					.finally(() => setConnectingEnvironment(false));
 			},
 		}));
+	// Cloud runs in this same screen. Repositories come from the account, and
+	// the sandbox defaults to one whose image is ready for the repository.
+	const cloudProject =
+		cloudCatalog.projects.find(
+			(project) => project.projectId === cloudProjectId,
+		) ?? cloudCatalog.projects[0];
+	const cloudSandboxId =
+		selectedCloudProvider(
+			cloudCatalog.providers,
+			cloudSandbox || cloudCatalog.image?.providerId || null,
+			cloudCatalog.providers
+				.filter(
+					(provider) =>
+						cloudSandboxStatus(
+							cloudCatalog,
+							provider.providerId,
+							cloudProject?.projectId ?? null,
+						).setup === "ready",
+				)
+				.map((provider) => provider.providerId),
+		) ??
+		cloudCatalog.image?.providerId ??
+		"e2b";
+	const cloudStatus = cloudSandboxStatus(
+		cloudCatalog,
+		cloudSandboxId,
+		cloudProject?.projectId ?? null,
+	);
+	// Only block on known readiness; without provider data the server decides.
+	const cloudBlocked =
+		cloudCatalog.providers.length > 0 && cloudStatus.setup !== "ready";
+	const [rebuildingImage, setRebuildingImage] = useState(false);
+	const rebuildCloudImage = async () => {
+		setRebuildingImage(true);
+		setError(null);
+		try {
+			await Effect.runPromise(
+				cloudControlClient["cloud.image.build"]({
+					mode: "update",
+					providerId: cloudSandboxId,
+					idempotencyKey: crypto.randomUUID(),
+				}),
+			);
+			await refreshCloudCatalog();
+		} catch (cause) {
+			setError(connectionErrorMessage(cause));
+		} finally {
+			setRebuildingImage(false);
+		}
+	};
 	// Signed in, Cloud is always offered: per provider once the list loads,
-	// otherwise one entry that opens the cloud screen (which explains failures).
+	// otherwise one entry using the account's default sandbox.
 	const cloudOptions =
 		account === null
 			? []
@@ -488,29 +563,21 @@ export default function NewChatScreen() {
 						{
 							key: "cloud",
 							label: "Cloud",
-							selected: false,
-							onSelect: () =>
-								router.replace({
-									pathname: "/new-cloud-chat",
-									params: { draft: text },
-								}),
+							selected: cloudMode,
+							onSelect: () => setCloudSandbox(""),
 						},
 					]
 				: orderedCloudProviders(cloudCatalog.providers).map((provider) => {
 						const status = cloudSandboxStatus(
 							cloudCatalog,
 							provider.providerId,
+							cloudProject?.projectId ?? null,
 						);
 						return {
 							key: `cloud:${provider.providerId}`,
-							// Not-ready providers stay pickable so the cloud screen can say why.
 							label: `Cloud · ${cloudProviderLabel(provider.providerId)}${status.label === null ? "" : ` — ${status.label}`}`,
-							selected: false,
-							onSelect: () =>
-								router.replace({
-									pathname: "/new-cloud-chat",
-									params: { sandbox: provider.providerId, draft: text },
-								}),
+							selected: cloudMode && cloudSandboxId === provider.providerId,
+							onSelect: () => setCloudSandbox(provider.providerId),
 						};
 					});
 	const destinationOptions = [
@@ -520,9 +587,11 @@ export default function NewChatScreen() {
 	];
 	const machineLabel = connectingEnvironment
 		? "Connecting…"
-		: (connections.find(
-				(connection) => connection.key === effectiveConnectionKey,
-			)?.label ?? (connections.length === 0 ? "No machines" : "Machine"));
+		: cloudMode
+			? `Cloud · ${cloudProviderLabel(cloudSandboxId)}`
+			: (connections.find(
+					(connection) => connection.key === effectiveConnectionKey,
+				)?.label ?? (connections.length === 0 ? "No machines" : "Machine"));
 
 	const projectOptions = projectChoices.map((item) => ({
 		key: item.project.id,
@@ -590,17 +659,66 @@ export default function NewChatScreen() {
 				? source.label
 				: emptyBranchLabel;
 
-	const canSubmit =
-		effectiveConnectionKey !== null &&
-		selectedOptions !== null &&
-		effectiveProjectId !== null &&
+	const cloudProjectOptions = cloudCatalog.projects.map((project) => ({
+		key: project.projectId,
+		label: project.displayName,
+		selected: project.projectId === cloudProject?.projectId,
+		onSelect: () => setCloudProjectId(project.projectId),
+	}));
+	const cloudCanSubmit =
+		account !== null &&
+		cloudProject !== undefined &&
+		!cloudBlocked &&
+		cloudProviders.some((id) => id === effectiveModelMode.providerId) &&
 		text.trim().length > 0 &&
-		!submitting &&
-		// For a non-"main" work mode, require a concrete sub-option (a real
-		// worktree/branch/PR) — otherwise `source` is still the MAIN fallback and
-		// we'd silently create a main-checkout chat.
-		(threadMode || sourceKind === "main" || source.kind === sourceKind) &&
-		(!threadMode || threadContext !== null);
+		!submitting;
+	const canSubmit = cloudMode
+		? cloudCanSubmit
+		: effectiveConnectionKey !== null &&
+			selectedOptions !== null &&
+			effectiveProjectId !== null &&
+			text.trim().length > 0 &&
+			!submitting &&
+			// For a non-"main" work mode, require a concrete sub-option (a real
+			// worktree/branch/PR) — otherwise `source` is still the MAIN fallback and
+			// we'd silently create a main-checkout chat.
+			(threadMode || sourceKind === "main" || source.kind === sourceKind) &&
+			(!threadMode || threadContext !== null);
+
+	const performCloudSubmit = async () => {
+		if (!cloudCanSubmit || account === null || cloudProject === undefined)
+			return;
+		if (attachments.length > 0) {
+			setError("Attachments aren't supported when starting a cloud chat yet.");
+			return;
+		}
+		if (submitGateRef.current) return;
+		submitGateRef.current = true;
+		setSubmitting(true);
+		setError(null);
+		try {
+			const result = await launchMobileCloudChat({
+				accountId: account.id,
+				draftKey,
+				project: cloudProject,
+				providerId: cloudSandboxId,
+				agent: effectiveModelMode.providerId,
+				model: effectiveModelMode.model,
+				runtimeMode: effectiveModelMode.runtimeMode,
+				text,
+			});
+			Keyboard.dismiss();
+			router.replace({
+				pathname: "/c/[conn]/session/[sessionId]",
+				params: { conn: result.connectionKey, sessionId: result.sessionId },
+			});
+		} catch (cause) {
+			setError(connectionErrorMessage(cause));
+		} finally {
+			submitGateRef.current = false;
+			setSubmitting(false);
+		}
+	};
 
 	const performSubmit = useCallback(async () => {
 		const payload = buildNewChatCreatePayload({
@@ -734,6 +852,10 @@ export default function NewChatScreen() {
 	]);
 
 	const submit = useCallback(() => {
+		if (cloudMode) {
+			void performCloudSubmit();
+			return;
+		}
 		if (!threadMode || threadContext === null) {
 			void performSubmit();
 			return;
@@ -758,7 +880,9 @@ export default function NewChatScreen() {
 			],
 		);
 	}, [
+		cloudMode,
 		effectiveConnectionKey,
+		performCloudSubmit,
 		performSubmit,
 		statusBySession,
 		threadContext,
@@ -826,29 +950,66 @@ export default function NewChatScreen() {
 				) : (
 					<View className="mb-4 gap-1 px-1">
 						<SelectorRow
-							symbol="laptopcomputer"
+							symbol={cloudMode ? "cloud" : "laptopcomputer"}
 							label={machineLabel}
 							options={destinationOptions}
 							emptyLabel="No machines"
 						/>
-						<SelectorRow
-							symbol="folder"
-							label={projectLabel}
-							options={projectOptions}
-							emptyLabel={loading ? "Loading projects" : "No projects"}
-						/>
-						<SelectorRow
-							symbol="desktopcomputer"
-							label={workModeLabel(sourceKind)}
-							options={workModeOptions}
-						/>
-						<SelectorRow
-							symbol="arrow.triangle.branch"
-							label={branchLabel}
-							options={branchOptions}
-							disabled={sourceKind === "main"}
-							emptyLabel={emptyBranchLabel}
-						/>
+						{cloudMode ? (
+							<>
+								<SelectorRow
+									symbol="folder"
+									label={cloudProject?.displayName ?? "No cloud repositories"}
+									options={cloudProjectOptions}
+									emptyLabel="No cloud repositories"
+								/>
+								{cloudBlocked && cloudStatus.label !== null ? (
+									<View className="flex-row items-center gap-2 px-1">
+										<Text className="flex-1 font-sans text-[13px] text-muted-foreground">
+											{cloudStatus.label}
+										</Text>
+										{cloudStatus.setup === "update-image" ||
+										cloudStatus.setup === "rebuild-authentication" ? (
+											<Button
+												size="sm"
+												variant="ghost"
+												disabled={rebuildingImage}
+												onPress={() => void rebuildCloudImage()}
+											>
+												Update Image
+											</Button>
+										) : null}
+									</View>
+								) : null}
+								{cloudCatalog.providers.length === 0 &&
+								cloudCatalog.providersError ? (
+									<Text className="px-1 font-sans text-[13px] text-danger">
+										{cloudCatalog.providersError}
+									</Text>
+								) : null}
+							</>
+						) : (
+							<>
+								<SelectorRow
+									symbol="folder"
+									label={projectLabel}
+									options={projectOptions}
+									emptyLabel={loading ? "Loading projects" : "No projects"}
+								/>
+								<SelectorRow
+									symbol="desktopcomputer"
+									label={workModeLabel(sourceKind)}
+									options={workModeOptions}
+								/>
+								<SelectorRow
+									symbol="arrow.triangle.branch"
+									label={branchLabel}
+									options={branchOptions}
+									disabled={sourceKind === "main"}
+									emptyLabel={emptyBranchLabel}
+								/>
+							</>
+						)}
 					</View>
 				)}
 				<GlassSurface
@@ -930,7 +1091,7 @@ export default function NewChatScreen() {
 									onPress={() => setModelSheetOpen(true)}
 								/>
 								<ComposerSendButton
-									online={selectedOptions !== null}
+									online={cloudMode || selectedOptions !== null}
 									busy={submitting}
 									disabled={!canSubmit}
 									onPress={() => void submit()}
@@ -944,7 +1105,9 @@ export default function NewChatScreen() {
 					onOpenChange={setModelSheetOpen}
 					value={effectiveModelMode}
 					availableProviders={availableProviders}
-					strictProviders={selectedOptions?.cloudWorkspaceId !== undefined}
+					strictProviders={
+						cloudMode || selectedOptions?.cloudWorkspaceId !== undefined
+					}
 					canChangeProvider
 					canChangeReasoning
 					onChange={setModelMode}

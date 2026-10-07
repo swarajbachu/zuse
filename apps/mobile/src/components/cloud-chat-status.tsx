@@ -143,8 +143,12 @@ export function CloudChatStatus({
 						variant="ghost"
 						onPress={() =>
 							router.push({
-								pathname: "/new-cloud-chat",
-								params: { projectId: summary?.projectId, draft },
+								pathname: "/new-chat",
+								params: {
+									sandbox: "",
+									cloudProjectId: summary?.projectId,
+									draft,
+								},
 							})
 						}
 					>
