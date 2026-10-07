@@ -1,3 +1,4 @@
+import { hasCloudEntitlement } from "@zuse/client-runtime/cloud-sandbox-providers";
 import type {
 	CloudAccountImage,
 	CloudProject,
@@ -113,18 +114,7 @@ export const loadCloudBillingUsage = (refresh = false) =>
 		{ refresh },
 	);
 
-export const hasCloudEntitlement = (
-	result: Awaited<ReturnType<typeof loadCloudEntitlements>>,
-): boolean =>
-	result.entitlements.some(
-		(item) =>
-			item.kind === "cloud-workspace" &&
-			(item.status === "active" ||
-				item.status === "grace" ||
-				(item.status === "ended" &&
-					item.paidThrough !== undefined &&
-					item.paidThrough > Date.now())),
-	);
+export { hasCloudEntitlement };
 
 type CloudWorkspacePlacementSnapshot = Readonly<{
 	providers: ReadonlyArray<CloudProviderOption>;

@@ -11,6 +11,7 @@ import {
 	providerLabel,
 	type RuntimeMode,
 } from "@zuse/contracts";
+import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -22,8 +23,10 @@ import {
 } from "react-native";
 import { SelectorRow } from "~/components/selector-row";
 import { Button } from "~/components/ui/button";
+import { cloudSandboxStatus } from "~/lib/cloud-sandbox-setup";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { modelOptionsForProvider, RUNTIME_OPTIONS } from "~/lib/model-options";
+import { cloudControlClient } from "~/rpc/api-client";
 import { authAccountAtom, signIn } from "~/store/auth";
 import {
 	cloudAuthenticatedProvidersAtom,
@@ -56,13 +59,6 @@ export default function NewCloudChatScreen() {
 	const [projectId, setProjectId] = useState(params.projectId);
 	const [sandbox, setSandbox] = useState<string | null>(params.sandbox ?? null);
 	const sandboxProviders = orderedCloudProviders(catalog.providers);
-	const sandboxProvider =
-		selectedCloudProvider(
-			catalog.providers,
-			sandbox ?? catalog.image?.providerId ?? null,
-		) ??
-		catalog.image?.providerId ??
-		"e2b";
 	const [agent, setAgent] = useState<ProviderId | null>(null);
 	const [model, setModel] = useState<string | null>(null);
 	const [runtimeMode, setRuntimeMode] =
@@ -75,6 +71,32 @@ export default function NewCloudChatScreen() {
 	const project =
 		catalog.projects.find((row) => row.projectId === projectId) ??
 		catalog.projects[0];
+	// Prefer a provider whose image is ready for this repository, as desktop does.
+	const sandboxProvider =
+		selectedCloudProvider(
+			catalog.providers,
+			sandbox ?? catalog.image?.providerId ?? null,
+			catalog.providers
+				.filter(
+					(row) =>
+						cloudSandboxStatus(
+							catalog,
+							row.providerId,
+							project?.projectId ?? null,
+						).setup === "ready",
+				)
+				.map((row) => row.providerId),
+		) ??
+		catalog.image?.providerId ??
+		"e2b";
+	const sandboxStatus = cloudSandboxStatus(
+		catalog,
+		sandboxProvider,
+		project?.projectId ?? null,
+	);
+	// Only block on known readiness; without provider data the server decides.
+	const sandboxBlocked =
+		catalog.providers.length > 0 && sandboxStatus.setup !== "ready";
 	const provider =
 		agent !== null && providers.some((id) => id === agent)
 			? agent
@@ -107,12 +129,32 @@ export default function NewCloudChatScreen() {
 		if (hydrated && !busy && !completed.current)
 			setComposerDraft(draftKey, { ...composerDraft(draftKey), text });
 	}, [draftKey, hydrated, busy, text]);
+	// Rebuild just the selected provider's image; readiness refreshes after.
+	const rebuildSandboxImage = async () => {
+		setBusy(true);
+		setError(null);
+		try {
+			await Effect.runPromise(
+				cloudControlClient["cloud.image.build"]({
+					mode: "update",
+					providerId: sandboxProvider,
+					idempotencyKey: crypto.randomUUID(),
+				}),
+			);
+			await refreshCloudCatalog();
+		} catch (cause) {
+			setError(connectionErrorMessage(cause));
+		} finally {
+			setBusy(false);
+		}
+	};
 	const submit = async () => {
 		if (
 			submitting.current ||
 			account === null ||
 			project === undefined ||
 			provider === undefined ||
+			sandboxBlocked ||
 			!text.trim()
 		)
 			return;
@@ -179,7 +221,16 @@ export default function NewCloudChatScreen() {
 							disabled={busy}
 							options={sandboxProviders.map((row) => ({
 								key: row.providerId,
-								label: cloudProviderLabel(row.providerId),
+								label: [
+									cloudProviderLabel(row.providerId),
+									cloudSandboxStatus(
+										catalog,
+										row.providerId,
+										project?.projectId ?? null,
+									).label,
+								]
+									.filter((part) => part !== null)
+									.join(" — "),
 								selected: row.providerId === sandboxProvider,
 								onSelect: () => setSandbox(row.providerId),
 							}))}
@@ -249,6 +300,23 @@ export default function NewCloudChatScreen() {
 						<Text className="font-sans text-sm text-muted-foreground">
 							Connect a repository in Cloud Workspace settings first.
 						</Text>
+					) : sandboxBlocked && sandboxStatus.label !== null ? (
+						<View className="flex-row items-center gap-2">
+							<Text className="flex-1 font-sans text-sm text-muted-foreground">
+								{`${cloudProviderLabel(sandboxProvider)}: ${sandboxStatus.label}`}
+							</Text>
+							{sandboxStatus.setup === "update-image" ||
+							sandboxStatus.setup === "rebuild-authentication" ? (
+								<Button
+									size="sm"
+									variant="ghost"
+									disabled={busy}
+									onPress={() => void rebuildSandboxImage()}
+								>
+									Update Image
+								</Button>
+							) : null}
+						</View>
 					) : null}
 					<TextInput
 						accessibilityLabel="First message"
@@ -281,7 +349,8 @@ export default function NewCloudChatScreen() {
 							!hydrated ||
 							!text.trim() ||
 							provider === undefined ||
-							project === undefined
+							project === undefined ||
+							sandboxBlocked
 						}
 						onPress={() => void submit()}
 					>

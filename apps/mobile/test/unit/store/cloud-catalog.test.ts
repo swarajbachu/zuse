@@ -11,6 +11,7 @@ vi.mock("~/rpc/api-client", () => ({
 		"cloud.projects.list": () => Effect.succeed({ projects: [] }),
 		"cloud.auth.status": () => Effect.tryPromise(api.auth),
 		"cloud.image.status": () => Effect.succeed(null),
+		"machines.entitlements": () => Effect.succeed({ entitlements: [] }),
 		"cloud.providers": () =>
 			Effect.succeed({
 				providers: [

@@ -41,6 +41,7 @@ import { SelectorRow } from "~/components/selector-row";
 import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { HugeIcon } from "~/components/ui/huge-icon";
+import { cloudSandboxStatus } from "~/lib/cloud-sandbox-setup";
 import {
 	captureComposerImage,
 	type LocalComposerAttachment,
@@ -483,16 +484,20 @@ export default function NewChatScreen() {
 	const cloudOptions =
 		account === null
 			? []
-			: orderedCloudProviders(cloudCatalog.providers).map((provider) => ({
-					key: `cloud:${provider.providerId}`,
-					label: `Cloud · ${cloudProviderLabel(provider.providerId)}`,
-					selected: false,
-					onSelect: () =>
-						router.replace({
-							pathname: "/new-cloud-chat",
-							params: { sandbox: provider.providerId, draft: text },
-						}),
-				}));
+			: orderedCloudProviders(cloudCatalog.providers).map((provider) => {
+					const status = cloudSandboxStatus(cloudCatalog, provider.providerId);
+					return {
+						key: `cloud:${provider.providerId}`,
+						// Not-ready providers stay pickable so the cloud screen can say why.
+						label: `Cloud · ${cloudProviderLabel(provider.providerId)}${status.label === null ? "" : ` — ${status.label}`}`,
+						selected: false,
+						onSelect: () =>
+							router.replace({
+								pathname: "/new-cloud-chat",
+								params: { sandbox: provider.providerId, draft: text },
+							}),
+					};
+				});
 	const destinationOptions = [
 		...machineOptions,
 		...environmentOptions,

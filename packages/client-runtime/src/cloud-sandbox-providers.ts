@@ -1,4 +1,8 @@
-import type { CloudProviderOption } from "@zuse/contracts";
+import type {
+	CloudAccountImage,
+	CloudProviderOption,
+	EntitlementList,
+} from "@zuse/contracts";
 
 /** Display name for a cloud sandbox provider id. */
 export const cloudProviderLabel = (providerId: string): string =>
@@ -36,3 +40,58 @@ export const selectedCloudProvider = (
 		null
 	);
 };
+
+/** A provider's image can start chats for this repository. */
+export const cloudImageReadyForProject = (
+	image: CloudAccountImage | undefined,
+	projectId: string | undefined,
+): boolean =>
+	projectId !== undefined &&
+	(image?.state === "ready" || image?.state === "outdated") &&
+	image.repositories.some((repository) => repository.projectId === projectId);
+
+/** An active (or still paid-through) Cloud Workspace subscription. */
+export const hasCloudEntitlement = (result: EntitlementList): boolean =>
+	result.entitlements.some(
+		(item) =>
+			item.kind === "cloud-workspace" &&
+			(item.status === "active" ||
+				item.status === "grace" ||
+				(item.status === "ended" &&
+					item.paidThrough !== undefined &&
+					item.paidThrough > Date.now())),
+	);
+
+export type CloudSandboxSetup =
+	| "ready"
+	| "unavailable"
+	| "subscription-required"
+	| "connect-repository"
+	| "building-image"
+	| "rebuild-authentication"
+	| "update-image";
+
+/**
+ * Whether a sandbox provider can start a chat for a project, and what to do
+ * first if not. Desktop and mobile word each state themselves.
+ */
+export const cloudSandboxSetup = (input: {
+	readonly image: CloudAccountImage | undefined;
+	readonly subscribed: boolean;
+	/** `null` when the repository is not connected to Cloud Workspaces. */
+	readonly projectId: string | null;
+	readonly placementFailed?: boolean;
+}): CloudSandboxSetup =>
+	input.placementFailed === true || input.image === undefined
+		? "unavailable"
+		: !input.subscribed
+			? "subscription-required"
+			: input.projectId === null
+				? "connect-repository"
+				: cloudImageReadyForProject(input.image, input.projectId)
+					? "ready"
+					: input.image.state === "building"
+						? "building-image"
+						: input.image.state === "auth-broken"
+							? "rebuild-authentication"
+							: "update-image";
