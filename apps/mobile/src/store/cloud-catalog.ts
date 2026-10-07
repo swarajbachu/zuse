@@ -33,6 +33,8 @@ type CloudCatalog = Readonly<{
 	providerImages: readonly CloudAccountImage[];
 	/** Cloud Workspace subscription; `null` until known. */
 	subscribed: boolean | null;
+	/** Why the sandbox provider list could not load, if it failed. */
+	providersError: string | null;
 	image: CloudAccountImage | null;
 	auth: CloudAuthStatus | null;
 	loading: boolean;
@@ -46,6 +48,7 @@ const empty = (accountId: string | null): CloudCatalog => ({
 	providers: [],
 	providerImages: [],
 	subscribed: null,
+	providersError: null,
 	image: null,
 	auth: null,
 	loading: false,
@@ -258,6 +261,11 @@ export const refreshCloudCatalog = (): Promise<void> => {
 					? providers.value.providers
 					: state.providers,
 			providerImages: providerImages ?? state.providerImages,
+			providersError:
+				providers.status === "rejected"
+					? (cloudFailurePresentation({ cause: providers.reason })?.message ??
+						"Could not load cloud sandboxes. Pull to retry.")
+					: null,
 			subscribed: subscribed ?? state.subscribed,
 			loading: false,
 			error:

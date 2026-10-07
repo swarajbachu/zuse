@@ -13,12 +13,10 @@ import type {
 	GitBranchInfo,
 	GitPrSummary,
 } from "@zuse/contracts";
-import { ArrowUpIcon, CloudOffIcon } from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-	ActivityIndicator,
 	Alert,
 	Keyboard,
 	KeyboardAvoidingView,
@@ -34,13 +32,12 @@ import { ComposerAttachmentStrip } from "~/components/composer-attachment-strip"
 import { ComposerInputFrame } from "~/components/composer-input-frame";
 import { ComposerModeChip } from "~/components/composer-mode-chip";
 import { ComposerPlusMenu } from "~/components/composer-plus-menu";
+import { ComposerSendButton } from "~/components/composer-send-button";
 import type { ModelModeValue } from "~/components/model-mode-menu";
 import { ModelSheet } from "~/components/model-sheet";
 import { ModelSheetTrigger } from "~/components/model-sheet-trigger";
 import { SelectorRow } from "~/components/selector-row";
-import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
-import { HugeIcon } from "~/components/ui/huge-icon";
 import { cloudSandboxStatus } from "~/lib/cloud-sandbox-setup";
 import {
 	captureComposerImage,
@@ -75,7 +72,7 @@ import {
 	makeTextInput,
 	sendMessage,
 } from "~/rpc/actions";
-import { authAccountAtom } from "~/store/auth";
+import { authAccountAtom, signIn } from "~/store/auth";
 import {
 	connectionAvailabilityAtom,
 	hydrateAvailability,
@@ -481,23 +478,48 @@ export default function NewChatScreen() {
 					.finally(() => setConnectingEnvironment(false));
 			},
 		}));
+	// Cloud is always offered: per provider once the list loads, otherwise one
+	// entry that opens the cloud screen (which explains any loading failure).
 	const cloudOptions =
 		account === null
-			? []
-			: orderedCloudProviders(cloudCatalog.providers).map((provider) => {
-					const status = cloudSandboxStatus(cloudCatalog, provider.providerId);
-					return {
-						key: `cloud:${provider.providerId}`,
-						// Not-ready providers stay pickable so the cloud screen can say why.
-						label: `Cloud · ${cloudProviderLabel(provider.providerId)}${status.label === null ? "" : ` — ${status.label}`}`,
+			? [
+					{
+						key: "cloud:sign-in",
+						label: "Cloud · Sign in",
 						selected: false,
-						onSelect: () =>
-							router.replace({
-								pathname: "/new-cloud-chat",
-								params: { sandbox: provider.providerId, draft: text },
-							}),
-					};
-				});
+						onSelect: () => void signIn(),
+					},
+				]
+			: cloudCatalog.providers.length === 0
+				? [
+						{
+							key: "cloud",
+							label: "Cloud",
+							selected: false,
+							onSelect: () =>
+								router.replace({
+									pathname: "/new-cloud-chat",
+									params: { draft: text },
+								}),
+						},
+					]
+				: orderedCloudProviders(cloudCatalog.providers).map((provider) => {
+						const status = cloudSandboxStatus(
+							cloudCatalog,
+							provider.providerId,
+						);
+						return {
+							key: `cloud:${provider.providerId}`,
+							// Not-ready providers stay pickable so the cloud screen can say why.
+							label: `Cloud · ${cloudProviderLabel(provider.providerId)}${status.label === null ? "" : ` — ${status.label}`}`,
+							selected: false,
+							onSelect: () =>
+								router.replace({
+									pathname: "/new-cloud-chat",
+									params: { sandbox: provider.providerId, draft: text },
+								}),
+						};
+					});
 	const destinationOptions = [
 		...machineOptions,
 		...environmentOptions,
@@ -914,30 +936,12 @@ export default function NewChatScreen() {
 									value={effectiveModelMode}
 									onPress={() => setModelSheetOpen(true)}
 								/>
-								<Button
-									size="sm"
-									variant="primary"
-									className="h-8 w-8 rounded-[9px] px-0"
-									hitSlop={6}
+								<ComposerSendButton
+									online={selectedOptions !== null}
+									busy={submitting}
 									disabled={!canSubmit}
 									onPress={() => void submit()}
-								>
-									{submitting ? (
-										<ActivityIndicator color={colors.primaryForeground} />
-									) : selectedOptions === null ? (
-										<HugeIcon
-											icon={CloudOffIcon}
-											size={15}
-											color={colors.primaryForeground}
-										/>
-									) : (
-										<HugeIcon
-											icon={ArrowUpIcon}
-											size={18}
-											color={colors.primaryForeground}
-										/>
-									)}
-								</Button>
+								/>
 							</View>
 						}
 					/>

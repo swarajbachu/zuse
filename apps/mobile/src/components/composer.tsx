@@ -14,19 +14,11 @@ import {
 	type SessionStatus,
 	type SkillRef,
 } from "@zuse/contracts";
-import { CloudOffIcon, SentIcon, StopIcon } from "@zuse/icons/solid-rounded";
 import { Effect } from "effect";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-	ActivityIndicator,
-	Keyboard,
-	Pressable,
-	Text,
-	View,
-} from "react-native";
-import { cn } from "~/lib/cn";
+import { Keyboard, Pressable, Text, View } from "react-native";
 import {
 	captureComposerImage,
 	type LocalComposerAttachment,
@@ -97,6 +89,7 @@ import { ComposerContextTray } from "./composer-context-tray";
 import { ComposerInputFrame } from "./composer-input-frame";
 import { ComposerModeChip } from "./composer-mode-chip";
 import { ComposerPlusMenu } from "./composer-plus-menu";
+import { ComposerSendButton } from "./composer-send-button";
 import {
 	ComposerTextInput,
 	type ComposerTextInputHandle,
@@ -106,9 +99,7 @@ import { InlineErrorNotice } from "./inline-error-notice";
 import type { ModelModeValue } from "./model-mode-menu";
 import { ModelSheet } from "./model-sheet";
 import { ModelSheetTrigger } from "./model-sheet-trigger";
-import { Button } from "./ui/button";
 import { GlassSurface } from "./ui/glass-surface";
-import { HugeIcon } from "./ui/huge-icon";
 
 export const Composer = ({
 	connKey,
@@ -719,7 +710,7 @@ export const Composer = ({
 											onError={setComposerError}
 										/>
 									) : null}
-									<SendButton
+									<ComposerSendButton
 										showInterrupt={showInterrupt}
 										online={online}
 										busy={busy}
@@ -777,7 +768,7 @@ export const Composer = ({
 								{online ? "Ask Zuse" : "Offline · message will queue"}
 							</Text>
 						</Pressable>
-						<SendButton
+						<ComposerSendButton
 							round
 							showInterrupt={showInterrupt}
 							online={online}
@@ -803,53 +794,6 @@ export const Composer = ({
 		</View>
 	);
 };
-
-const SendButton = ({
-	showInterrupt,
-	online,
-	busy,
-	disabled,
-	onPress,
-	round = false,
-}: {
-	/** Collapsed capsule: a circle so it sits inside the pill's curve. */
-	round?: boolean;
-	showInterrupt: boolean;
-	online: boolean;
-	busy: boolean;
-	disabled: boolean;
-	onPress: () => void;
-}) => (
-	<Button
-		size="sm"
-		variant={showInterrupt ? "secondary" : online ? "primary" : "secondary"}
-		// Mirrors the desktop composer's compact square send control; hitSlop
-		// keeps the touch target at 44pt.
-		className={cn("h-8 w-8 px-0", round ? "rounded-full" : "rounded-[9px]")}
-		hitSlop={6}
-		disabled={disabled}
-		onPress={onPress}
-		accessibilityLabel={
-			showInterrupt
-				? "Stop response"
-				: online
-					? "Send message"
-					: "Queue message"
-		}
-	>
-		{busy ? (
-			<ActivityIndicator
-				color={showInterrupt ? colors.fg : colors.primaryForeground}
-			/>
-		) : showInterrupt ? (
-			<HugeIcon icon={StopIcon} size={13} color={colors.fg as string} />
-		) : online ? (
-			<HugeIcon icon={SentIcon} size={14} color={colors.primaryForeground} />
-		) : (
-			<HugeIcon icon={CloudOffIcon} size={14} color={colors.fg as string} />
-		)}
-	</Button>
-);
 
 function StatusPill({
 	label,

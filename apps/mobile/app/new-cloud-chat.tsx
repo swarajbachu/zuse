@@ -335,6 +335,14 @@ export default function NewCloudChatScreen() {
 							</Text>
 						</View>
 					) : null}
+					{catalog.providers.length === 0 && catalog.providersError ? (
+						<Text
+							accessibilityRole="alert"
+							className="font-sans text-sm text-danger"
+						>
+							{catalog.providersError}
+						</Text>
+					) : null}
 					{(error ?? catalog.error) ? (
 						<Text
 							accessibilityRole="alert"
