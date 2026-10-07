@@ -23,6 +23,8 @@ export const workspaceAccessForPath = (
 	)
 		return "content";
 	if (path === ApiPaths.cloudProviderConnections) return "administration";
+	if (path.startsWith("/v1/review/"))
+		return method === "GET" ? "content" : "administration";
 	if (path === ApiPaths.cloudSettings) {
 		if (method === "GET") return "content";
 		if (method === "PUT") return "administration";

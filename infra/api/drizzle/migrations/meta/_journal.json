@@ -281,6 +281,13 @@
 			"when": 1791072000000,
 			"tag": "0038_cloud_snapshot_storage",
 			"breakpoints": true
+		},
+		{
+			"idx": 40,
+			"version": "7",
+			"when": 1791072000001,
+			"tag": "0039_review_control_plane",
+			"breakpoints": true
 		}
 	]
 }

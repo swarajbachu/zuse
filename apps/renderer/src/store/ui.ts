@@ -39,6 +39,7 @@ export type SettingsSection =
 	| { readonly kind: "devices" }
 	| { readonly kind: "organizations" }
 	| { readonly kind: "machines" }
+	| { readonly kind: "review" }
 	| {
 			readonly kind: "cloud";
 			readonly page:

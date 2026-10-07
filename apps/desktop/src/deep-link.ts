@@ -3,7 +3,12 @@
  * so routing decisions and delivery buffering stay unit-testable.
  */
 
+import { parseReviewFixLink } from "@zuse/client-runtime/review-links";
+
 const PAIRING_SCHEMES = new Set(["zuse:", "memoize:"]);
+
+export const isReviewDeepLink = (arg: string): boolean =>
+	parseReviewFixLink(arg) !== null;
 
 /**
  * True when the argument is a Zuse connect/pair deep link, in either the

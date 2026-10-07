@@ -58,6 +58,7 @@ import {
 	type WorkspaceSettingsUpdate,
 } from "@zuse/contracts";
 import { Duration, Effect, Schedule, Schema, Stream } from "effect";
+import { makeReviewControlClient } from "./review-control-client.ts";
 
 /** Account HTTP transport. No desktop, runtime credentials, or WebSocket needed. */
 export type CloudControlRequest = <A>(
@@ -86,6 +87,7 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 			"DELETE",
 			input,
 		),
+	...makeReviewControlClient(request),
 	"cloud.providers": () => request(ApiPaths.cloudProviders, CloudProviderList),
 	"cloud.projects.connect": (input: CloudProjectConnectRequest) =>
 		request(ApiPaths.cloudProjects, CloudProject, "POST", input),

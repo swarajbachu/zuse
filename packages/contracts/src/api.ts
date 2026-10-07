@@ -105,6 +105,24 @@ export const ApiPaths = {
 	cloudGithubInstall: "/v1/cloud/github/install",
 	cloudGithubCallback: "/v1/cloud/github/callback",
 	cloudGithubWebhook: "/v1/cloud/github/webhook",
+	reviewConnections: "/v1/review/connections",
+	reviewConnection: (id: string) =>
+		`/v1/review/connections/${encodeURIComponent(id)}`,
+	reviewSetup: "/v1/review/setup",
+	reviewCoverage: "/v1/review/coverage",
+	reviewEnrollments: "/v1/review/enrollments",
+	reviewEnrollment: (id: string) =>
+		`/v1/review/enrollments/${encodeURIComponent(id)}`,
+	reviewEnrollmentDisable: (id: string) =>
+		`/v1/review/enrollments/${encodeURIComponent(id)}/disable`,
+	reviewRuns: "/v1/review/runs",
+	reviewRun: (id: string) => `/v1/review/runs/${encodeURIComponent(id)}`,
+	reviewRunCancel: (id: string) =>
+		`/v1/review/runs/${encodeURIComponent(id)}/cancel`,
+	reviewRunRetry: (id: string) =>
+		`/v1/review/runs/${encodeURIComponent(id)}/retry`,
+	reviewFixContext: (id: string) =>
+		`/v1/review/runs/${encodeURIComponent(id)}/fix-context`,
 	cloudGithubDisconnect: (installationId: number) =>
 		`/v1/cloud/github/installations/${installationId}`,
 	cloudProjects: "/v1/cloud/projects",

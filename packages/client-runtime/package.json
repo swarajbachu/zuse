@@ -16,6 +16,8 @@
 		"./cloud-command-transport": "./src/cloud-command-transport.ts",
 		"./cloud-control-request": "./src/cloud-control-request.ts",
 		"./cloud-control-client": "./src/cloud-control-client.ts",
+		"./review-control-client": "./src/review-control-client.ts",
+		"./review-links": "./src/review-links.ts",
 		"./cloud-failure-presentation": "./src/cloud-failure-presentation.ts",
 		"./chat-threads": "./src/chat-threads.ts",
 		"./client-bus": "./src/client-bus.ts",

@@ -180,6 +180,7 @@ import {
 import {
 	createBufferedChannel,
 	isPairingDeepLink,
+	isReviewDeepLink,
 	type PluginReturn,
 	pluginReturnOf,
 } from "./deep-link.ts";
@@ -475,6 +476,18 @@ const isAuthDeepLink = (arg: string): boolean =>
 // publish into a buffered channel and flush once the renderer subscribes.
 // Raw strings pass through untouched — the `#token=` fragment must survive.
 const pairingLinkChannel = createBufferedChannel<string>();
+const reviewLinkChannel = createBufferedChannel<string>();
+
+ipcMain.on("review:link-subscribe", (event) => {
+	if (
+		event.sender !== mainWindow?.webContents ||
+		event.senderFrame !== mainWindow.webContents.mainFrame
+	)
+		return;
+	reviewLinkChannel.subscribe((url) => {
+		mainWindow?.webContents.send("review:link", url);
+	});
+});
 
 ipcMain.on("pairing:link-subscribe", () => {
 	pairingLinkChannel.subscribe((url) => {
@@ -657,6 +670,11 @@ const desktopRunId = `desktop_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
 // macOS: deep links arrive here (also on cold launch, before whenReady).
 app.on("open-url", (event, url) => {
 	event.preventDefault();
+	if (isReviewDeepLink(url)) {
+		reviewLinkChannel.publish(url);
+		focusMainWindow();
+		return;
+	}
 	if (isPairingDeepLink(url)) {
 		handlePairingDeepLink(url);
 		return;
@@ -1380,10 +1398,13 @@ const rendererDistDir = (): string =>
 // the primary instance. Pull any auth deep-link arg out of its argv and focus
 // the existing window.
 app.on("second-instance", (_event, argv) => {
+	const reviewUrl = argv.find(isReviewDeepLink);
+	if (reviewUrl !== undefined) reviewLinkChannel.publish(reviewUrl);
 	const pairingUrl = argv.find(isPairingDeepLink);
 	if (pairingUrl !== undefined) pairingLinkChannel.publish(pairingUrl);
 	const url = argv.find(
-		(arg) => isAuthDeepLink(arg) && !isPairingDeepLink(arg),
+		(arg) =>
+			isAuthDeepLink(arg) && !isPairingDeepLink(arg) && !isReviewDeepLink(arg),
 	);
 	if (url !== undefined) handleAuthCallback(url);
 	focusMainWindow();
@@ -4012,11 +4033,15 @@ void app.whenReady().then(async () => {
 
 	// Win/Linux cold launch from a deep link: the URL is an argv entry.
 	const initialPairingLink = process.argv.find(isPairingDeepLink);
+	const initialReviewLink = process.argv.find(isReviewDeepLink);
+	if (initialReviewLink !== undefined)
+		reviewLinkChannel.publish(initialReviewLink);
 	if (initialPairingLink !== undefined) {
 		pairingLinkChannel.publish(initialPairingLink);
 	}
 	const initialDeepLink = process.argv.find(
-		(arg) => isAuthDeepLink(arg) && !isPairingDeepLink(arg),
+		(arg) =>
+			isAuthDeepLink(arg) && !isPairingDeepLink(arg) && !isReviewDeepLink(arg),
 	);
 	if (initialDeepLink !== undefined) handleAuthCallback(initialDeepLink);
 

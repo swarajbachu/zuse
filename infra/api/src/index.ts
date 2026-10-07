@@ -26,6 +26,7 @@ import {
 import { ApiConfiguration } from "./config.ts";
 import { type ApiContext, handleRequest } from "./handler.ts";
 import { reconcileMachine, reconcileMachines } from "./machine-reconciler.ts";
+import { reconcileReviewInbox } from "./review-reconciler.ts";
 import { makeSlackModule, type SlackOptions } from "./slack/module.ts";
 
 export * from "./account-identity.ts";
@@ -82,6 +83,7 @@ export const makeApi = (
 		readonly claimed: number;
 		readonly processed: number;
 	}>;
+	readonly reconcileReviews: () => Promise<{ processed: number }>;
 	readonly reconcileCloud: () => Promise<{
 		readonly builds: number;
 		readonly workspaces: number;
@@ -179,6 +181,7 @@ export const makeApi = (
 		reconcileMachine: (machineId, owner) =>
 			runtime.runPromise(reconcileMachine({ machineId, owner })),
 		reconcileCloud: () => runtime.runPromise(reconcileCloudResources()),
+		reconcileReviews: () => runtime.runPromise(reconcileReviewInbox()),
 		reconcileCloudBuild: (buildId) =>
 			runtime.runPromise(reconcileCloudBuild(buildId)),
 		reconcileCloudWorkspace: (workspaceId) =>

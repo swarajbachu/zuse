@@ -183,7 +183,12 @@ export const resolveResourceProvider = (
 	);
 export const resourceProviderConnectionId = Effect.fn(
 	"resourceProviderConnectionId",
-)(function* (resourceKind: "workspace" | "build", resourceId: string) {
+)(function* (
+	resourceKind: "workspace" | "build" | "review",
+	resourceId: string,
+) {
+	// Hosted review has no customer-owned compute connection; its attempt pins Zuse placement.
+	if (resourceKind === "review") return undefined;
 	const store = yield* CloudWorkspaceStore;
 	const resource =
 		resourceKind === "workspace"

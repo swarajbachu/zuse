@@ -49,6 +49,12 @@ import { ModelConnectionStoreLive } from "./model-connection-store.ts";
 import { PluginHost } from "./plugin-host.ts";
 import { makeCloudflarePluginHost } from "./plugin-host-cloudflare.ts";
 import { PushDeliveryLive } from "./push.ts";
+import { ReviewBillingAttributionLive } from "./review-billing-attribution.ts";
+import { ReviewCheckExecutionLive } from "./review-check-execution.ts";
+import { ReviewLifecycleLive } from "./review-lifecycle.ts";
+import { ReviewLifecycleStorePg } from "./review-lifecycle-store.ts";
+import { ReviewPublicationGatewayLive } from "./review-publication-live.ts";
+import { ReviewStorePg } from "./review-store.ts";
 import {
 	availableSandboxProviders,
 	boxdBillingConfigured,
@@ -173,6 +179,14 @@ interface Env extends SlackBindings {
 	readonly CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK?: string;
 	readonly SANDBOX_DEFAULT_PROVIDER_ID?: string;
 	readonly CLOUD_AUTH_PROVIDER_ID?: string;
+	readonly REVIEW_TEMPLATE_ID?: string;
+	readonly REVIEW_ENABLED?: string;
+	readonly REVIEW_PUBLICATION_ENABLED?: string;
+	readonly REVIEW_CHECK_TEMPLATE_ID?: string;
+	readonly REVIEW_STAGING_VERIFIED?: string;
+	readonly REVIEW_WORKER_MODULE?: string;
+	readonly REVIEW_CLAUDE_EXECUTABLE?: string;
+	readonly REVIEW_MODELS?: string;
 	readonly BOAT_ADAPTER_ENABLED?: string;
 	readonly BOAT_API_KEY?: string;
 	readonly BOAT_API_BASE_URL?: string;
@@ -435,6 +449,19 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 			? Redacted.make(cloudDataEncryptionKey)
 			: undefined,
 		cloudAuthProviderId: sandboxProvider.cloudAuthProviderId,
+		review: {
+			templateId: env.REVIEW_TEMPLATE_ID ?? "",
+			enabled: env.REVIEW_ENABLED === "true",
+			publicationEnabled: env.REVIEW_PUBLICATION_ENABLED === "true",
+			checkTemplateId: env.REVIEW_CHECK_TEMPLATE_ID ?? "",
+			stagingVerified: env.REVIEW_STAGING_VERIFIED === "true",
+			workerModule: env.REVIEW_WORKER_MODULE ?? "/opt/zuse/review-worker.mjs",
+			claudeExecutable: env.REVIEW_CLAUDE_EXECUTABLE ?? "/opt/zuse/claude",
+			models: (env.REVIEW_MODELS ?? "claude-sonnet-4-6")
+				.split(",")
+				.map((x) => x.trim())
+				.filter(Boolean),
+		},
 		githubApp: githubAppConfigured
 			? {
 					appId: env.GITHUB_APP_ID as string,
@@ -559,12 +586,15 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		finalSnapshotRetentionMs: 14 * 24 * 60 * 60 * 1_000,
 		reconcileLeaseMs: 5 * 60 * 1_000,
 	};
-	const appLayer = Layer.mergeAll(
+	const baseAppLayer = Layer.mergeAll(
 		env.PLUGIN_ENCRYPTION_KEY && env.PLUGIN_APP_ORIGIN
 			? Layer.succeed(PluginHost, makeCloudflarePluginHost(env.PLUGIN_VAULT))
 			: Layer.empty,
 		configLayer,
 		CloudProviderConnectionsLive.pipe(Layer.provide(dbLayer)),
+		ReviewStorePg.pipe(Layer.provide(dbLayer)),
+		ReviewLifecycleStorePg.pipe(Layer.provide(dbLayer)),
+		ReviewBillingAttributionLive.pipe(Layer.provide(dbLayer)),
 		ModelConnectionStoreLive.pipe(
 			Layer.provide(Layer.merge(dbLayer, configLayer)),
 		),
@@ -588,6 +618,15 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		PushDeliveryLive,
 	).pipe(Layer.orDie);
 
+	const reviewExecutionLayer = Layer.merge(
+		baseAppLayer,
+		ReviewCheckExecutionLive.pipe(Layer.provide(baseAppLayer)),
+	);
+	const appLayer = Layer.mergeAll(
+		reviewExecutionLayer,
+		ReviewLifecycleLive.pipe(Layer.provide(reviewExecutionLayer)),
+		ReviewPublicationGatewayLive.pipe(Layer.provide(baseAppLayer)),
+	);
 	const pending = new Set<Promise<unknown>>();
 	const context = {
 		waitUntil(task: Promise<unknown>) {
@@ -785,6 +824,7 @@ export default {
 						),
 				}),
 				api.maintainCloudBilling(controller.scheduledTime),
+				api.reconcileReviews(),
 				api.deliverApiWebhooks().catch((error) => {
 					console.error("[public-api] webhook delivery sweep failed", error);
 					return 0;

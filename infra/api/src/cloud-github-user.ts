@@ -201,6 +201,33 @@ const refreshGithubUserCredentials = Effect.fn("refreshGithubUserCredentials")(
 );
 
 /** A connected user never falls back to installation permissions after auth failure. */
+/** Control-plane GitHub identity/access checks reuse serialized native GitHub refresh. Never returns the parent token. */
+export const githubUserApiRequest = Effect.fn("githubUserApiRequest")(
+	function* (accountId: string, path: string) {
+		if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\"))
+			return yield* badRequest("invalid_github_path");
+		const store = yield* CloudWorkspaceStore;
+		const token = yield* store.withGithubUserLock(
+			accountId,
+			Effect.gen(function* () {
+				const connection = yield* readGithubUserCredentials(accountId);
+				if (!connection)
+					return yield* serviceUnavailable("github_user_reconnect_required");
+				const credentials =
+					connection.credentials.expiresAtMs <=
+					(yield* Clock.currentTimeMillis) + 300_000
+						? yield* refreshGithubUserCredentials(connection)
+						: connection.credentials;
+				return credentials.accessToken;
+			}),
+		);
+		return yield* githubRequest<unknown>(
+			`https://api.github.com${path}`,
+			token,
+		);
+	},
+);
+
 export const githubUserCredential = Effect.fn("githubUserCredential")(
 	function* (
 		accountId: string,

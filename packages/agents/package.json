@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./review/eligibility": "./src/review/eligibility.ts",
 		"./codex-generated": "./src/drivers/codex/generated/index.ts",
 		"./codex-generated/*": "./src/drivers/codex/generated/*.ts",
 		"./drivers/*": "./src/drivers/*.ts",
@@ -23,7 +24,8 @@
 		"./harness/*": "./src/harness/*.ts",
 		"./kernel/provider-checkpoint-batcher": "./src/kernel/provider-checkpoint-batcher.ts",
 		"./kernel/native-tool-name": "./src/kernel/native-tool-name.ts",
-		"./kernel/file-validation": "./src/kernel/file-validation.ts"
+		"./kernel/file-validation": "./src/kernel/file-validation.ts",
+		"./review/claude-profile": "./src/review/claude-profile.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",

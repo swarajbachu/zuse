@@ -61,6 +61,14 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		section: { kind: "plugins" },
 	},
 	{
+		id: "review",
+		get label() {
+			return uiMessage("settings:review_title");
+		},
+		Icon: TaskDone01Icon,
+		section: { kind: "review" },
+	},
+	{
 		id: "devices",
 		get label() {
 			return uiMessage("settings:settings_navigation_remote_access");
@@ -139,6 +147,7 @@ export function settingsNavigationFor(
 
 export const ORGANIZATION_NAVIGATION: ReadonlyArray<SettingsNavigationItem> = [
 	...TOP_RAIL.filter((item) => item.id === "general"),
+	...TOP_RAIL.filter((item) => item.id === "review"),
 	{
 		id: "organizations",
 		get label() {

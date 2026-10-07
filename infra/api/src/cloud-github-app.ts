@@ -19,7 +19,7 @@ import {
 	type IntegrationPageInput,
 	renderIntegrationPage,
 } from "@zuse/utils/integration-page";
-import { Clock, Effect, Redacted, Schema } from "effect";
+import { Clock, Effect, Option, Redacted, Schema } from "effect";
 
 import { decodeJwt, importJWK, jwtVerify, SignJWT } from "jose";
 import {
@@ -43,6 +43,8 @@ import {
 } from "./github-callback-page.ts";
 import { json } from "./http.ts";
 import { getOrganizationName } from "./organizations.ts";
+import { ingestReviewGithubEvent } from "./review-reconciler.ts";
+import { ReviewStore } from "./review-store.ts";
 import { ApiStore } from "./store.ts";
 import { resolveWorkspaceActorAccess } from "./workspace-authorization.ts";
 import { workspaceScopeForOwner } from "./workspace-scope.ts";
@@ -181,6 +183,15 @@ export const githubWebhook = Effect.fn("githubWebhook")(function* (
 	const event = request.headers.get("x-github-event");
 	if (event === "ping") return json({ accepted: true });
 	if (
+		event &&
+		(yield* ingestReviewGithubEvent(
+			event,
+			request.headers.get("x-github-delivery"),
+			body,
+		))
+	)
+		return json({ accepted: true });
+	if (
 		event !== "installation" &&
 		event !== "installation_repositories" &&
 		event !== "organization"
@@ -220,6 +231,21 @@ export const githubWebhook = Effect.fn("githubWebhook")(function* (
 	yield* autoJoinInstallation(payload.installation.id).pipe(
 		Effect.catch(() => Effect.void),
 	);
+	const reviewStore = yield* Effect.serviceOption(ReviewStore);
+	if (Option.isSome(reviewStore)) {
+		const raw = JSON.parse(new TextDecoder().decode(body)) as {
+			action?: string;
+		};
+		if (["deleted", "suspend", "removed"].includes(raw.action ?? ""))
+			yield* Effect.tryPromise({
+				try: () =>
+					reviewStore.value.suspendInstallation(
+						payload.installation.id,
+						Date.now(),
+					),
+				catch: () => serviceUnavailable("review_storage_unavailable"),
+			});
+	}
 	return json({ accepted: true });
 });
 
