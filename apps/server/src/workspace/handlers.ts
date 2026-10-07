@@ -7,16 +7,18 @@ import { FolderPicker } from "./services/folder-picker.ts";
 import { ProjectScaffold } from "./services/project-scaffold.ts";
 import { WorkspaceService } from "./services/workspace-service.ts";
 
-const Add = MemoizeRpcs.toLayerHandler("workspace.add", ({ path }) =>
-	Effect.gen(function* () {
-		const ws = yield* WorkspaceService;
-		const analytics = yield* AnalyticsService;
-		const result = yield* ws.add(path);
-		yield* analytics.capture("project added", {
-			source: "folder",
-		});
-		return result;
-	}),
+const Add = MemoizeRpcs.toLayerHandler(
+	"workspace.add",
+	({ path, workspaceKey, moveFrom }) =>
+		Effect.gen(function* () {
+			const ws = yield* WorkspaceService;
+			const analytics = yield* AnalyticsService;
+			const result = yield* ws.add(path, { workspaceKey, moveFrom });
+			yield* analytics.capture("project added", {
+				source: "folder",
+			});
+			return result;
+		}),
 );
 
 const List = MemoizeRpcs.toLayerHandler("workspace.list", () =>
@@ -87,12 +89,12 @@ const SearchFiles = MemoizeRpcs.toLayerHandler(
 // for SQLite registration + the standard sidebar/code-index side effects.
 const CloneRepo = MemoizeRpcs.toLayerHandler(
 	"workspace.cloneRepo",
-	({ url, parent }) =>
+	({ url, parent, workspaceKey }) =>
 		Effect.gen(function* () {
 			const scaffold = yield* ProjectScaffold;
 			const ws = yield* WorkspaceService;
 			const path = yield* scaffold.cloneRepo(url, parent);
-			return yield* ws.add(path);
+			return yield* ws.add(path, { workspaceKey });
 		}),
 );
 
@@ -101,7 +103,7 @@ const CloneRepo = MemoizeRpcs.toLayerHandler(
 // scaffold service never has to worry about `undefined`.
 const CreateProject = MemoizeRpcs.toLayerHandler(
 	"workspace.createProject",
-	({ name, parent, template, alsoCreateGithubRepo }) =>
+	({ name, parent, template, alsoCreateGithubRepo, workspaceKey }) =>
 		Effect.gen(function* () {
 			const scaffold = yield* ProjectScaffold;
 			const ws = yield* WorkspaceService;
@@ -111,7 +113,7 @@ const CreateProject = MemoizeRpcs.toLayerHandler(
 				template,
 				alsoCreateGithubRepo === true,
 			);
-			return yield* ws.add(path);
+			return yield* ws.add(path, { workspaceKey });
 		}),
 );
 

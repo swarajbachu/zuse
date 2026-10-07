@@ -1592,7 +1592,8 @@ function WorkspaceChatLanding({
 											}}
 										/>
 									) : null}
-									{!cloudOnlyHome && (
+									{/* Imports register Personal projects; keep them out of organizations. */}
+									{!cloudOnlyHome && workspace.scope.kind === "personal" && (
 										<ImportChatMenu
 											threads={externalThreads}
 											loading={externalThreadsLoading}

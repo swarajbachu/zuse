@@ -303,5 +303,7 @@
 	"worktree_setup_card_preparing_environment": "⟦Prëëpààrïïng thëë wôôrkspààcëë ëënvïïrôônmëënt.⟧",
 	"projects_sidebar_upgrade": "⟦ÜÜpgrààdëë⟧",
 	"projects_sidebar_plan_cloud": "⟦Clôôüüd⟧",
-	"projects_sidebar_plan_cloud_tooltip": "⟦Züüsëë Clôôüüd plààn · Màànààgëë bïïllïïng⟧"
+	"projects_sidebar_plan_cloud_tooltip": "⟦Züüsëë Clôôüüd plààn · Màànààgëë bïïllïïng⟧",
+	"project_setup_dialog_in_other_workspace": "⟦Thïïs fôôldëër ïïs ààlrëëààdy àà prôôjëëct ïïn àànôôthëër wôôrkspààcëë. Môôvëë ïït hëërëë? ÏÏts chààts môôvëë wïïth ïït.⟧",
+	"project_setup_dialog_move_here": "⟦Môôvëë hëërëë⟧"
 }

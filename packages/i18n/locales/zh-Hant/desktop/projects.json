@@ -303,5 +303,7 @@
 	"github_submit_stack_help": "推送所有分支並更新 GitHub 上對應的拉取請求。沒有拉取請求的分支會建立草稿，表示尚未準備好接受審查。既有的開放拉取請求保持開放。",
 	"projects_sidebar_upgrade": "升級",
 	"projects_sidebar_plan_cloud": "Cloud",
-	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 方案 · 管理帳單"
+	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 方案 · 管理帳單",
+	"project_setup_dialog_in_other_workspace": "此資料夾已是另一個工作區中的專案。要移到這裡嗎？其聊天會一併移動。",
+	"project_setup_dialog_move_here": "移到這裡"
 }

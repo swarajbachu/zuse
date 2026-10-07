@@ -303,5 +303,7 @@
 	"worktree_setup_card_preparing_environment": "Preparing the workspace environment.",
 	"projects_sidebar_upgrade": "Upgrade",
 	"projects_sidebar_plan_cloud": "Cloud",
-	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud plan · Manage billing"
+	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud plan · Manage billing",
+	"project_setup_dialog_in_other_workspace": "This folder is already a project in another workspace. Move it here? Its chats move with it.",
+	"project_setup_dialog_move_here": "Move here"
 }

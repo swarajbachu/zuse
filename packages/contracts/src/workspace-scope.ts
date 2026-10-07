@@ -21,3 +21,8 @@ export const WORKSPACE_API_PREFIX = "/v1/organization-workspaces/";
 export const WorkspaceScopeHeader = Schema.String.check(
 	Schema.isPattern(/^(?:personal|organization:[A-Za-z0-9_-]{1,128})$/u),
 );
+
+/** Persisted owner of a desktop project row; same encoding as the scope header. */
+export const WorkspaceKey = WorkspaceScopeHeader;
+export type WorkspaceKey = typeof WorkspaceKey.Type;
+export const PERSONAL_WORKSPACE_KEY: WorkspaceKey = "personal";

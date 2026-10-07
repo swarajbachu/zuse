@@ -303,5 +303,7 @@
 	"github_submit_stack_help": "すべてのブランチをプッシュし、GitHub 上のプルリクエストを更新します。プルリクエストがないブランチには、レビュー準備前のドラフトを作成します。既存のオープンなプルリクエストはそのまま維持されます。",
 	"projects_sidebar_upgrade": "アップグレード",
 	"projects_sidebar_plan_cloud": "Cloud",
-	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud プラン · 請求を管理"
+	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud プラン · 請求を管理",
+	"project_setup_dialog_in_other_workspace": "このフォルダーは既に別のワークスペースのプロジェクトです。ここに移動しますか？チャットも一緒に移動します。",
+	"project_setup_dialog_move_here": "ここに移動"
 }

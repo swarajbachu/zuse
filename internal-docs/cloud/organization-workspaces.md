@@ -53,8 +53,20 @@ and the current settings revision. Device preferences remain local. Applied API
 migrations, including `0030_workspace_settings`, stay in place. Do not recreate
 sandboxes, runtime databases or session IDs during rollout.
 
-Local laptops and ordinary SSH profiles stay Personal. Organization enrollment
-of self-hosted servers and shared-host access are separate, deferred work.
+The desktop's own local server serves every workspace. Each local project row
+records its owning workspace in `projects.workspace_key` (`personal` or
+`organization:<id>`, migration 0063). Projects added while an organization is
+selected belong to that organization and merge with its cloud project by git
+origin. The renderer shows only the selected workspace's projects, and their
+chats and sessions, through `scopeEnvironmentShell`. Adding a path owned by
+another workspace offers a move; the move is a compare-and-swap on the owner.
+This is presentation separation for the same machine owner, not an access
+boundary. Machine-wide bookkeeping (keep-awake, update deferral) still counts
+every workspace's agents, and external-chat import stays Personal-only.
+
+Ordinary SSH and other remote device profiles stay Personal. Organization
+enrollment of self-hosted servers and shared-host access are separate, deferred
+work.
 
 ## Rollout flags
 
