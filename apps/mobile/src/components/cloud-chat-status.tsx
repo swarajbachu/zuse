@@ -50,15 +50,16 @@ export function CloudChatStatus({
 		providerError?.content._tag === "error"
 			? providerError.content.message
 			: undefined;
-	// Preparing, resuming, sleeping and failed startup are shown by
-	// CloudStartupCard; this line covers delivery and account problems.
-	const lifecycleOwned = cloudLifecycle(summary) !== null;
+	// CloudLifecycleBar shows startup progress and a failed startup; every
+	// other delivery, account or provider problem is still reported here.
+	const lifecycle = cloudLifecycle(summary);
+	const workspaceBooting = lifecycle === "starting" || lifecycle === "resuming";
 	const failure = cloudFailurePresentation({
 		state: failed?.terminal?.state,
 		category:
 			failed?.terminal?.category ??
 			pending?.category ??
-			(lifecycleOwned ? undefined : summary?.statusCode),
+			(lifecycle === "failed" ? undefined : summary?.statusCode),
 		blockedUntil: pending?.blockedUntil,
 		cause: failed?.error ?? providerText ?? error,
 	});
@@ -88,9 +89,9 @@ export function CloudChatStatus({
 			: reconnectingAuth
 				? "Reconnecting agent authentication…"
 				: (failure?.message ??
-					(pending !== undefined && !lifecycleOwned
+					(pending !== undefined && !workspaceBooting
 						? "Waiting for agent"
-						: error && !lifecycleOwned
+						: error
 							? "Cloud history could not refresh. Pull to retry."
 							: null));
 	if (label === null && actionError === null) return null;

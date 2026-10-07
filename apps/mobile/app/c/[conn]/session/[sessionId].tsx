@@ -45,7 +45,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwind } from "uniwind";
 import { CloudChatStatus } from "~/components/cloud-chat-status";
 import { CloudDeviceAccess } from "~/components/cloud-device-access";
-import { CloudStartupCard } from "~/components/cloud-startup-card";
+import { CloudLifecycleBar } from "~/components/cloud-lifecycle-bar";
 import { Composer } from "~/components/composer";
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { InlineErrorNotice } from "~/components/inline-error-notice";
@@ -516,6 +516,8 @@ function ThreadScreen() {
 	// prompt takeover (permission / question / plan) owns the bottom slot.
 	const workingActive =
 		sessionActive &&
+		// Nothing runs while the cloud workspace itself is starting or asleep.
+		cloudLifecycleState === null &&
 		headPermission === null &&
 		pendingQuestion === null &&
 		pendingPlanInteraction === null;
@@ -1173,9 +1175,6 @@ function ThreadScreen() {
 							sessionId={normalizedSessionId}
 						/>
 						{options?.cloudWorkspaceId !== undefined ? (
-							<CloudStartupCard workspaceId={options.cloudWorkspaceId} />
-						) : null}
-						{options?.cloudWorkspaceId !== undefined ? (
 							<CloudChatStatus
 								workspaceId={options.cloudWorkspaceId}
 								connKey={connKey}
@@ -1375,7 +1374,11 @@ function ThreadScreen() {
 									: undefined
 							}
 						>
-							{connectionNotice === null ? null : (
+							{options.cloudWorkspaceId === undefined ? null : (
+								<CloudLifecycleBar workspaceId={options.cloudWorkspaceId} />
+							)}
+							{connectionNotice === null ||
+							cloudLifecycleState !== null ? null : (
 								<View className="px-3 pt-2">
 									<ConnectionRecoveryBanner
 										message={connectionNotice}
@@ -1468,9 +1471,13 @@ function ThreadScreen() {
 								connection={options}
 								sessionId={normalizedSessionId}
 								session={detail?.session ?? null}
-								status={sessionStatus}
+								status={cloudLifecycleState === null ? sessionStatus : "idle"}
 								fresh={fresh}
-								online={transportOnline}
+								// Cloud sends go to the account mailbox, which accepts them
+								// while the sandbox boots or sleeps.
+								online={
+									options.cloudWorkspaceId !== undefined || transportOnline
+								}
 								onMessageAppendFailed={onMessageAppendFailed}
 								onMessageWillAppend={onMessageWillAppend}
 								onFocusChange={(focused) => {

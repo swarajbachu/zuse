@@ -19,13 +19,13 @@ import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	Alert,
-	Keyboard,
 	KeyboardAvoidingView,
 	ScrollView,
 	Text,
 	TextInput,
 	View,
 } from "react-native";
+import { KeyboardController } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ComposerActionSlot } from "~/components/composer-action-slot";
 import { ComposerApprovalMenu } from "~/components/composer-approval-menu";
@@ -707,7 +707,9 @@ export default function NewChatScreen() {
 				runtimeMode: effectiveModelMode.runtimeMode,
 				text,
 			});
-			Keyboard.dismiss();
+			// Let the keyboard finish closing first; a chat screen that mounts
+			// mid-close never hears it and keeps its composer lifted.
+			await KeyboardController.dismiss();
 			router.replace({
 				pathname: "/c/[conn]/session/[sessionId]",
 				params: { conn: result.connectionKey, sessionId: result.sessionId },
@@ -774,7 +776,7 @@ export default function NewChatScreen() {
 						}),
 					);
 				}
-				Keyboard.dismiss();
+				await KeyboardController.dismiss();
 				clearComposerDraft(draftKey);
 				router.replace(
 					`/c/${encodeURIComponent(effectiveConnectionKey)}/session/${encodeURIComponent(session.id)}`,
@@ -824,7 +826,7 @@ export default function NewChatScreen() {
 					}),
 				);
 			}
-			Keyboard.dismiss();
+			await KeyboardController.dismiss();
 			clearComposerDraft(draftKey);
 			router.replace(
 				`/c/${encodeURIComponent(effectiveConnectionKey)}/session/${encodeURIComponent(
@@ -851,7 +853,7 @@ export default function NewChatScreen() {
 		threadMode,
 	]);
 
-	const submit = useCallback(() => {
+	const submit = () => {
 		if (cloudMode) {
 			void performCloudSubmit();
 			return;
@@ -879,15 +881,7 @@ export default function NewChatScreen() {
 				{ text: "Start thread", onPress: () => void performSubmit() },
 			],
 		);
-	}, [
-		cloudMode,
-		effectiveConnectionKey,
-		performCloudSubmit,
-		performSubmit,
-		statusBySession,
-		threadContext,
-		threadMode,
-	]);
+	};
 	const addAttachments = (
 		pick: () => Promise<LocalComposerAttachment[]>,
 	): void => {
