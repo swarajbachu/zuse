@@ -80,6 +80,7 @@ import {
 } from "./cloud-github.ts";
 import {
 	CloudAccountImageBuildRpc,
+	CloudAccountImageDeleteRpc,
 	CloudAccountImageStatusRpc,
 	CloudChatsListRpc,
 	CloudChatsWatchRpc,
@@ -488,6 +489,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudGithubDisconnectRpc,
 	CloudAccountImageStatusRpc,
 	CloudAccountImageBuildRpc,
+	CloudAccountImageDeleteRpc,
 	CloudProvidersRpc,
 	CloudProviderConnectionsListRpc,
 	CloudProviderConnectionsSaveRpc,

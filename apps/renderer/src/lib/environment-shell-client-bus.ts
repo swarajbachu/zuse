@@ -36,9 +36,14 @@ import { EnvironmentId as EnvironmentIdSchema } from "@zuse/contracts";
 import { Cause, Effect, Fiber, Stream } from "effect";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useSessionRuntimeStore } from "../store/session-runtime.ts";
+import { scopeEnvironmentShellView } from "./environment-shell-scope.ts";
 import { hostedCacheDatabaseName, isHostedProduct } from "./hosted-connect.ts";
 import { upsertLatestEntity } from "./latest-entity.ts";
 import { markRendererStartupMilestone } from "./performance-marks.ts";
+import {
+	rendererWorkspaceSnapshot,
+	subscribeRendererWorkspace,
+} from "./renderer-workspace.ts";
 import { isRpcClientTransportError, type MemoizeClient } from "./rpc-client.ts";
 import {
 	getRendererClientBus,
@@ -681,10 +686,27 @@ export const retainEnvironmentShell = (
 	};
 };
 
+/**
+ * Public reads are scoped to the selected workspace. The driver, overlays and
+ * persistence keep the full cell, so switching workspace never refetches.
+ */
+const scopedView = (
+	ref: EnvironmentRef,
+	view: ResourceView<EnvironmentShellData>,
+): ResourceView<EnvironmentShellData> =>
+	scopeEnvironmentShellView(
+		ref.environmentId,
+		view,
+		rendererWorkspaceSnapshot().scope,
+	);
+
 export const environmentShellSnapshot = (
 	ref: EnvironmentRef,
 ): ResourceView<EnvironmentShellData> =>
-	getRendererClientBus().snapshot(environmentShellResourceKey(ref));
+	scopedView(
+		ref,
+		getRendererClientBus().snapshot(environmentShellResourceKey(ref)),
+	);
 
 export const dispatchEnvironmentShellCommand = <Payload, Result>(input: {
 	readonly environmentId: EnvironmentId;
@@ -709,7 +731,9 @@ export const subscribeEnvironmentShell = (
 	ref: EnvironmentRef,
 	listener: (view: ResourceView<EnvironmentShellData>) => void,
 ): (() => void) =>
-	getRendererClientBus().subscribe(environmentShellResourceKey(ref), listener);
+	getRendererClientBus().subscribe(environmentShellResourceKey(ref), (view) =>
+		listener(scopedView(ref, view)),
+	);
 
 export const subscribeEnvironmentShellIfPresent = (
 	ref: EnvironmentRef,
@@ -717,7 +741,7 @@ export const subscribeEnvironmentShellIfPresent = (
 ): (() => void) =>
 	getRendererClientBus().subscribeIfPresent(
 		environmentShellResourceKey(ref),
-		listener,
+		(view) => listener(scopedView(ref, view)),
 	);
 
 const catalogSnapshotCache = new Map<
@@ -767,9 +791,12 @@ export const useEnvironmentShellCatalog = (
 	);
 	const subscribe = useCallback(
 		(listener: () => void) => {
-			const releases = ids.map((environmentId) =>
-				subscribeEnvironmentShellIfPresent({ environmentId }, listener),
-			);
+			const releases = [
+				...ids.map((environmentId) =>
+					subscribeEnvironmentShellIfPresent({ environmentId }, listener),
+				),
+				subscribeRendererWorkspace(listener),
+			];
 			return () => {
 				for (const release of releases) release();
 			};
@@ -789,6 +816,11 @@ const EMPTY_ENVIRONMENT_SHELL_VIEW = emptyResourceView<EnvironmentShellData>();
 export const useEnvironmentShellResource = (
 	environmentId: EnvironmentId | null,
 	activation: ResourceActivation = "cache-only",
+	/**
+	 * `all` reads every workspace's projects on this desktop. Only machine-wide
+	 * bookkeeping (keep-awake, update deferral) may use it; UI must not.
+	 */
+	workspaces: "selected" | "all" = "selected",
 ): ResourceView<EnvironmentShellData> => {
 	const ref = useMemo<EnvironmentRef | null>(
 		() => (environmentId === null ? null : { environmentId }),
@@ -798,5 +830,17 @@ export const useEnvironmentShellResource = (
 		() => (ref === null ? null : environmentShellResourceKey(ref)),
 		[ref],
 	);
-	return useClientBusResource(key, EMPTY_ENVIRONMENT_SHELL_VIEW, activation);
+	const view = useClientBusResource(
+		key,
+		EMPTY_ENVIRONMENT_SHELL_VIEW,
+		activation,
+	);
+	const workspace = useSyncExternalStore(
+		subscribeRendererWorkspace,
+		rendererWorkspaceSnapshot,
+		rendererWorkspaceSnapshot,
+	);
+	return environmentId === null || workspaces === "all"
+		? view
+		: scopeEnvironmentShellView(environmentId, view, workspace.scope);
 };

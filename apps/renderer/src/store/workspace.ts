@@ -3,6 +3,7 @@ import { CommandId, EnvironmentId } from "@zuse/contracts";
 import { isCloudProjectFolder } from "../lib/cloud-project-folders.ts";
 import { activeEnvironmentShellData } from "../lib/environment-entities.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import { newProjectWorkspaceKey } from "../lib/environment-shell-scope.ts";
 import { isHostedProduct } from "../lib/hosted-connect.ts";
 import { getActiveEnvironment } from "../lib/rpc-client.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
@@ -109,6 +110,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 			const folder = (
 				await dispatchWorkspaceCommand<Folder>("workspace.add", {
 					path,
+					workspaceKey: newProjectWorkspaceKey(getActiveEnvironment()),
 				})
 			).result;
 			set((s) => registerFolder(s, folder));

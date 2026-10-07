@@ -144,7 +144,10 @@ export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 		if (period === null)
 			return { metered: false, reason: "no-period" as const };
 
-		const cutoverAt = (yield* ApiConfiguration).cloudBillingCutoverAtMs;
+		const configuration = yield* ApiConfiguration;
+		const cutoverAt =
+			configuration.cloudBillingProviderCutoverAtMs?.get(evidence.provider) ??
+			configuration.cloudBillingCutoverAtMs;
 		if (cutoverAt === undefined)
 			return { metered: false, reason: "cutover-not-configured" as const };
 		if (evidence.endedAtMs <= cutoverAt)

@@ -105,6 +105,8 @@
 		"SANDBOX_DEFAULT_PROVIDER_ID": "box",
 		// Verified Boxd template; install BOXD_API_KEY before deploying staging.
 		"BOXD_ADAPTER_ENABLED": "true",
+		"BOXD_BILLING_ENABLED": "true",
+		"BOXD_BILLING_CUTOVER_AT": "2026-10-06T17:15:42Z",
 		"BOXD_TEMPLATE_SNAPSHOT": "zuse-base-v20260927-1",
 		"BOXD_TEMPLATE_VERSION": "20260927-1",
 		"BOXD_MACHINE_SIZE": "default",

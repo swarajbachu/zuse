@@ -4,7 +4,7 @@
 	"private": true,
 	"scripts": {
 		"dev": "node ../../scripts/generate-website-changelog.mjs && next dev --port 3001",
-		"build": "node ../../scripts/generate-website-changelog.mjs && next build",
+		"build": "node ../../scripts/generate-website-changelog.mjs && next build --webpack",
 		"start": "next start --port 3001",
 		"lint": "eslint",
 		"content:generate": "fumadocs-mdx",

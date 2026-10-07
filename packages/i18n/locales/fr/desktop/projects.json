@@ -309,5 +309,7 @@
 	"github_submit_stack_help": "Pousse toutes les branches et met à jour leurs pull requests sur GitHub. Les branches sans pull request en reçoivent une en brouillon, pas encore prête pour la revue. Les pull requests déjà ouvertes restent ouvertes.",
 	"projects_sidebar_upgrade": "Passer à Cloud",
 	"projects_sidebar_plan_cloud": "Cloud",
-	"projects_sidebar_plan_cloud_tooltip": "Forfait Zuse Cloud · Gérer la facturation"
+	"projects_sidebar_plan_cloud_tooltip": "Forfait Zuse Cloud · Gérer la facturation",
+	"project_setup_dialog_in_other_workspace": "Ce dossier est déjà un projet dans un autre espace de travail. Le déplacer ici ? Ses discussions seront déplacées avec lui.",
+	"project_setup_dialog_move_here": "Déplacer ici"
 }

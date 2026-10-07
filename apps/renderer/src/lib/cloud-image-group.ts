@@ -1,13 +1,23 @@
 import type { CloudAccountImage } from "@zuse/contracts";
 
-/** Requests can finish out of order. Build revisions, not arrival order, win. */
+/** Newer build revisions win; only complete responses may remove a provider. */
 export const reconcileCloudImages = (
 	current: readonly CloudAccountImage[],
 	incoming: readonly CloudAccountImage[],
+	complete = true,
 ): readonly CloudAccountImage[] => {
 	const revision = (image: CloudAccountImage) =>
 		Math.max(image.updatedAt, ...image.builds.map((build) => build.updatedAt));
-	return incoming.map((image) => {
+	const images = complete
+		? incoming
+		: [
+				...incoming,
+				...current.filter(
+					(image) =>
+						!incoming.some((item) => item.providerId === image.providerId),
+				),
+			];
+	return images.map((image) => {
 		const previous = current.find(
 			(item) => item.providerId === image.providerId,
 		);

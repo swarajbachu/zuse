@@ -3,12 +3,15 @@ import { Rpc } from "effect/unstable/rpc";
 
 import { DirectoryUnavailableError, FsFolderNotFoundError } from "./fs.ts";
 import { FolderId, WorktreeId } from "./ids.ts";
+import { WorkspaceKey } from "./workspace-scope.ts";
 
 export class Folder extends Schema.Class<Folder>("Folder")({
 	id: FolderId,
 	path: Schema.String,
 	name: Schema.String,
 	addedAt: Schema.DateFromString,
+	/** Owning workspace. Omitted by older servers, which only know Personal. */
+	workspaceKey: Schema.optional(WorkspaceKey),
 }) {}
 
 export const WorkspaceDirectoryEntryKind = Schema.Literals([
@@ -36,7 +39,12 @@ export class WorkspaceDirectoryListing extends Schema.Class<WorkspaceDirectoryLi
 
 export class WorkspaceDuplicatePathError extends Schema.TaggedErrorClass<WorkspaceDuplicatePathError>()(
 	"WorkspaceDuplicatePathError",
-	{ path: Schema.String },
+	{
+		path: Schema.String,
+		/** Set when the existing row belongs to a different workspace. */
+		folderId: Schema.optional(FolderId),
+		workspaceKey: Schema.optional(WorkspaceKey),
+	},
 ) {}
 
 export class WorkspaceNotFoundError extends Schema.TaggedErrorClass<WorkspaceNotFoundError>()(
@@ -112,7 +120,16 @@ export const ProjectTemplate = Schema.Literals([
 export type ProjectTemplate = typeof ProjectTemplate.Type;
 
 export const WorkspaceAddRpc = Rpc.make("workspace.add", {
-	payload: Schema.Struct({ path: Schema.String }),
+	payload: Schema.Struct({
+		path: Schema.String,
+		/** Workspace that owns the new project. Defaults to Personal. */
+		workspaceKey: Schema.optional(WorkspaceKey),
+		/**
+		 * Moves an already-registered path from this workspace to `workspaceKey`.
+		 * The move only applies while the row still belongs to `moveFrom`.
+		 */
+		moveFrom: Schema.optional(WorkspaceKey),
+	}),
 	success: Folder,
 	error: Schema.Union([WorkspaceDuplicatePathError, WorkspaceInvalidPathError]),
 });
@@ -180,6 +197,7 @@ export const WorkspaceCloneRepoRpc = Rpc.make("workspace.cloneRepo", {
 	payload: Schema.Struct({
 		url: Schema.String,
 		parent: Schema.String,
+		workspaceKey: Schema.optional(WorkspaceKey),
 	}),
 	success: Folder,
 	error: Schema.Union([
@@ -204,6 +222,7 @@ export const WorkspaceCreateProjectRpc = Rpc.make("workspace.createProject", {
 		parent: Schema.String,
 		template: ProjectTemplate,
 		alsoCreateGithubRepo: Schema.optional(Schema.Boolean),
+		workspaceKey: Schema.optional(WorkspaceKey),
 	}),
 	success: Folder,
 	error: Schema.Union([

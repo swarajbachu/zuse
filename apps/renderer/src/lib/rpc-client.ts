@@ -667,12 +667,23 @@ export const getCloudWorkspaceScope = (
 ): WorkspaceScope | undefined =>
 	cloudWorkspaceRegistrations.get(workspaceId)?.workspaceScope;
 
-/** Local/legacy device connections remain Personal until explicitly enrolled. */
+/**
+ * This desktop's own server. It serves every workspace: each of its projects
+ * records an owning workspace, and `scopeEnvironmentShell` shows only the
+ * projects of the selected one.
+ */
+export const isDesktopLocalEnvironment = (environmentId: string): boolean =>
+	!isHostedProduct() &&
+	(environmentId === LOCAL_ENVIRONMENT_KEY ||
+		environmentId === localEnvironmentId);
+
+/** Remote device connections (SSH, tailnet, paired) remain Personal. */
 export const environmentBelongsToWorkspace = (
 	environmentId: string,
 	scope: WorkspaceScope = rendererWorkspaceSnapshot().scope,
 ): boolean =>
-	(environmentId === LOCAL_ENVIRONMENT_KEY && isHostedProduct()) ||
+	environmentId === LOCAL_ENVIRONMENT_KEY ||
+	isDesktopLocalEnvironment(environmentId) ||
 	workspaceScopeKey(
 		getCloudWorkspaceScope(environmentId) ?? { kind: "personal" },
 	) === workspaceScopeKey(scope);

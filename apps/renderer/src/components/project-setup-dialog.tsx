@@ -13,9 +13,13 @@ import {
 	cloneEnvironmentProject,
 	createEnvironmentProject,
 	listEnvironmentGithubRepos,
+	ProjectInOtherWorkspaceError,
 } from "~/lib/environment-projects.ts";
 import { GITHUB_LOGO_PATH } from "~/lib/github-logo";
-import { getLocalEnvironmentId } from "~/lib/rpc-client.ts";
+import {
+	environmentBelongsToWorkspace,
+	getLocalEnvironmentId,
+} from "~/lib/rpc-client.ts";
 import { useEnvironmentCatalogStore } from "~/store/environment-catalog.ts";
 import { EnvironmentPathBrowser } from "./environment-path-browser.tsx";
 import { Button } from "./ui/button.tsx";
@@ -78,8 +82,15 @@ export function ProjectSetupDialog({
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
 	const entries = useEnvironmentCatalogStore((state) => state.entries);
+	// Remote machines stay Personal; only offer machines that can own a
+	// project in the selected workspace.
 	const connected = useMemo(
-		() => entries.filter((entry) => entry.status === "connected"),
+		() =>
+			entries.filter(
+				(entry) =>
+					entry.status === "connected" &&
+					environmentBelongsToWorkspace(entry.environmentId),
+			),
 		[entries, uiMessage],
 	);
 	const catalogInitializing = useEnvironmentCatalogStore(
@@ -113,6 +124,9 @@ export function ProjectSetupDialog({
 	const [retryingConnection, setRetryingConnection] = useState(false);
 	const [retryFailure, setRetryFailure] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	// Owner of a folder that is already a project in another workspace.
+	const [moveFrom, setMoveFrom] = useState<string | null>(null);
+	useEffect(() => setMoveFrom(null), [parent, environmentId, mode]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -123,6 +137,7 @@ export function ProjectSetupDialog({
 		setParentReady(false);
 		setName("");
 		setError(null);
+		setMoveFrom(null);
 		setSubmitting(false);
 		setRetryingConnection(false);
 		setRetryFailure(null);
@@ -195,10 +210,11 @@ export function ProjectSetupDialog({
 					? parent.trim().length > 0 && parentReady
 					: false);
 
-	const submit = async (): Promise<void> => {
+	const submit = async (move?: string): Promise<void> => {
 		if (!canSubmit) return;
 		setSubmitting(true);
 		setError(null);
+		setMoveFrom(null);
 		try {
 			const folder =
 				mode === "clone"
@@ -214,10 +230,19 @@ export function ProjectSetupDialog({
 								template,
 								alsoCreateGithubRepo,
 							})
-						: await addEnvironmentFolder(environmentId, parent.trim());
+						: await addEnvironmentFolder(environmentId, parent.trim(), {
+								moveFrom: move,
+							});
 			onComplete?.(folder, environmentId);
 			onOpenChange(false);
 		} catch (cause) {
+			if (
+				cause instanceof ProjectInOtherWorkspaceError &&
+				mode === "existing"
+			) {
+				setMoveFrom(cause.workspaceKey);
+				return;
+			}
 			setError(cause instanceof Error ? cause.message : String(cause));
 		} finally {
 			setSubmitting(false);
@@ -591,6 +616,23 @@ export function ProjectSetupDialog({
 							<p className="text-[11px] text-destructive" role="alert">
 								{error}
 							</p>
+						) : null}
+						{moveFrom !== null ? (
+							<div className="flex items-center gap-2" role="alert">
+								<p className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+									{uiMessage(
+										"projects:project_setup_dialog_in_other_workspace",
+									)}
+								</p>
+								<Button
+									type="button"
+									variant="outline"
+									disabled={submitting}
+									onClick={() => void submit(moveFrom)}
+								>
+									{uiMessage("projects:project_setup_dialog_move_here")}
+								</Button>
+							</div>
 						) : null}
 					</div>
 				</DialogPanel>

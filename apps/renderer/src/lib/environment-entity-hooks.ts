@@ -29,10 +29,12 @@ export const useEnvironmentChat = (ref: ChatRef | null): Chat | null => {
 export const useEnvironmentEntities = (
 	environmentId: string,
 	enabled = true,
+	workspaces: "selected" | "all" = "selected",
 ) => {
 	const view = useEnvironmentShellResource(
 		enabled ? EnvironmentId.make(environmentId) : null,
 		"connect",
+		workspaces,
 	);
 	return {
 		environmentId,

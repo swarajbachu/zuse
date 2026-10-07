@@ -957,6 +957,34 @@ describe("Box sandbox provider", () => {
 		).rejects.toMatchObject({ code: "rejected" });
 	});
 
+	test("inspects a named snapshot without creating or waking a sandbox", async () => {
+		const http = makeHttp([
+			{
+				status: 200,
+				body: { snapshot: { name: "zuse-build-1", status: "ready" } },
+			},
+			{ status: 404 },
+			{ status: 503 },
+		]);
+		const adapter = makeAdapter(http.client);
+		if (adapter.inspectSnapshot === undefined)
+			throw new Error("missing snapshot inspection");
+		await expect(
+			Effect.runPromise(adapter.inspectSnapshot("zuse-build-1")),
+		).resolves.toBe("ready");
+		await expect(
+			Effect.runPromise(adapter.inspectSnapshot("zuse-build-1")),
+		).resolves.toBeNull();
+		expect(
+			(
+				await Effect.runPromise(
+					adapter.inspectSnapshot("zuse-build-1").pipe(Effect.result),
+				)
+			)._tag,
+		).toBe("Failure");
+		expect(http.calls.every((call) => call.init?.method === "GET")).toBe(true);
+	});
+
 	test("deletes named snapshots idempotently", async () => {
 		const http = makeHttp([{ status: 404 }]);
 		const adapter = makeAdapter(http.client);

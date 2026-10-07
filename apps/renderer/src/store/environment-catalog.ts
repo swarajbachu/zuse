@@ -40,9 +40,13 @@ import {
 	rendererAccountSnapshot,
 	subscribeRendererAccount,
 } from "../lib/renderer-account.ts";
-import { rendererWorkspaceSnapshot } from "../lib/renderer-workspace.ts";
+import {
+	rendererWorkspaceSnapshot,
+	subscribeRendererWorkspace,
+} from "../lib/renderer-workspace.ts";
 import {
 	environmentBelongsToWorkspace,
+	isDesktopLocalEnvironment,
 	LOCAL_ENVIRONMENT_KEY,
 	registerApiEnvironment,
 	registerLocalEnvironment,
@@ -776,6 +780,29 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			}
 		});
 		if (import.meta.hot) import.meta.hot.dispose(unsubscribeAccount);
+		// This desktop's projects are split by workspace at read time. Re-project
+		// on switch so stores never keep the previous workspace's projects.
+		const unsubscribeWorkspace = subscribeRendererWorkspace(() => {
+			const state = get();
+			if (
+				!state.initialized ||
+				!isDesktopLocalEnvironment(state.activeEnvironmentId)
+			)
+				return;
+			projectEnvironmentShell(
+				environmentShellSnapshot({
+					environmentId: EnvironmentId.make(state.activeEnvironmentId),
+				}).data ?? {
+					folders: [],
+					originsByFolder: {},
+					chatsByProject: {},
+					sessionsByProject: {},
+					creationOperationsByProject: {},
+				},
+				{ resetOptimisticState: true },
+			);
+		});
+		if (import.meta.hot) import.meta.hot.dispose(unsubscribeWorkspace);
 		const waitForShellData = (
 			runtime: EnvironmentShellRuntime,
 		): Promise<EnvironmentShellData> => {

@@ -88,6 +88,8 @@
 		"BOAT_MACHINE_TYPE": "small",
 		// Uses the verified organization template and production BOXD_API_KEY secret.
 		"BOXD_ADAPTER_ENABLED": "true",
+		"BOXD_BILLING_ENABLED": "false",
+		"BOXD_BILLING_CUTOVER_AT": "",
 		"BOXD_TEMPLATE_SNAPSHOT": "zuse-base-v20260927-1",
 		"BOXD_TEMPLATE_VERSION": "20260927-1",
 		"BOXD_MACHINE_SIZE": "default",

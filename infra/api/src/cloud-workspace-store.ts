@@ -4593,7 +4593,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				),
 			getActiveAccountBuild: (accountId, provider) =>
 				orDie(
-					sql`SELECT * FROM api_cloud_project_builds WHERE account_id=${accountId} AND provider=${provider} AND state='ready' ORDER BY updated_at DESC LIMIT 1`.pipe(
+					sql`SELECT * FROM api_cloud_project_builds b WHERE account_id=${accountId} AND provider=${provider} AND state='ready' AND NOT EXISTS (SELECT 1 FROM api_cloud_snapshots s WHERE s.provider = b.provider AND s.snapshot_id = b.snapshot_id AND s.state IN ('deleting', 'deleted')) ORDER BY updated_at DESC LIMIT 1`.pipe(
 						Effect.map((rows) =>
 							rows[0] ? buildFromRow(rows[0] as Row) : null,
 						),

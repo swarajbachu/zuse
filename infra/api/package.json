@@ -51,7 +51,8 @@
 		"dev": "wrangler dev --env=",
 		"deploy": "wrangler deploy --env=",
 		"deploy:staging": "wrangler deploy --env=",
-		"deploy:production": "node scripts/deploy-production.mjs"
+		"deploy:production": "node scripts/deploy-production.mjs",
+		"cloud-snapshots:ops": "node scripts/cloud-snapshot-ops.mjs"
 	},
 	"dependencies": {
 		"@effect/sql-pg": "catalog:",

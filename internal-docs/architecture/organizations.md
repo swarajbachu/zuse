@@ -42,7 +42,9 @@ lock is not safe. Changes made directly in WorkOS remain outside this lock.
 Organization cloud chats use the existing cloud workspace authorization and
 transport. They do not use a second team registry or local sharing service.
 
-Local laptop and SSH environments remain owner-only. Shared-host access and
+Local laptop and SSH environments remain owner-only. The laptop's own server
+tags each project with its owning workspace so one machine can hold Personal
+and organization checkouts; see [organization workspaces](../cloud/organization-workspaces.md). Shared-host access and
 self-hosted server management are split out for separate review. The old SQLite
 migration slot 61 remains reserved by `0061_shared_host_compatibility.ts`; its
 historical ledger name is retained. Previously created tables are not dropped,

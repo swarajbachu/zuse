@@ -121,6 +121,7 @@ type CloudWorkspacePoolProps = {
 	};
 };
 
+/** Resolves workspace permissions and resets Cloud settings when the active scope changes. */
 export function CloudWorkspacePool({
 	section = "all",
 	onboarding,
@@ -161,6 +162,7 @@ export function CloudWorkspacePool({
 	);
 }
 
+/** Displays cloud workspaces, saved images and billing controls for the selected workspace scope. */
 function ScopedCloudWorkspacePool({
 	onboarding,
 	section,
@@ -273,6 +275,14 @@ function ScopedCloudWorkspacePool({
 		async (refresh = false) => {
 			if (!isSignedIn) return;
 			const requestSequence = ++loadSequence.current;
+			const billingImages =
+				section === "billing"
+					? loadCloudProviders(refresh)
+							.then(({ providers }) =>
+								loadCloudProviderImages(providers, refresh),
+							)
+							.catch(() => undefined)
+					: undefined;
 			const workspaceData =
 				section === "billing"
 					? undefined
@@ -312,6 +322,12 @@ function ScopedCloudWorkspacePool({
 				}
 
 				if (workspaceData === undefined) {
+					const images = await billingImages;
+					if (requestSequence !== loadSequence.current) return;
+					if (images !== undefined)
+						setProviderImages((current) =>
+							reconcileCloudImages(current, images.images, images.complete),
+						);
 					setServiceAvailable(true);
 					return;
 				}
@@ -341,7 +357,11 @@ function ScopedCloudWorkspacePool({
 					setWorkspaces(workspaceResult.value.workspaces);
 				if (imageResult.status === "fulfilled")
 					setProviderImages((current) =>
-						reconcileCloudImages(current, imageResult.value.images),
+						reconcileCloudImages(
+							current,
+							imageResult.value.images,
+							imageResult.value.complete,
+						),
 					);
 				setFailedImageProviders(
 					imageResult.status === "fulfilled" &&
@@ -929,6 +949,94 @@ function ScopedCloudWorkspacePool({
 				</CloudAdvancedSettings>
 			) : null}
 
+			{serviceAvailable &&
+			canManageBilling &&
+			(section === "billing" ||
+				section === "image" ||
+				(section === "all" && view === "usage")) ? (
+				<CloudSettingsGroup
+					title={uiMessage("settings:cloud_snapshot_storage")}
+					description={uiMessage("settings:cloud_snapshot_storage_rate")}
+				>
+					<CloudSettingsRow
+						title={uiMessage("settings:cloud_snapshot_retained_images")}
+						description={uiMessage("settings:cloud_snapshot_storage_allowance")}
+						action={
+							<Badge variant="outline">
+								{
+									providerImages.filter(
+										(image) => image.storage?.state === "retained",
+									).length
+								}
+							</Badge>
+						}
+					/>
+					{providerImages
+						.filter((image) => image.storage !== undefined)
+						.map((image) => {
+							const storage = image.storage;
+							if (storage === undefined) return null;
+							return (
+								<CloudSettingsRow
+									key={storage.snapshotId}
+									title={cloudProviderLabel(image.providerId ?? "box")}
+									description={
+										storage.state === "deleting"
+											? uiMessage("settings:cloud_snapshot_deletion_pending")
+											: storage.graceUntil !== undefined
+												? uiMessage("settings:cloud_snapshot_grace", {
+														date: new Date(storage.graceUntil).toLocaleString(),
+													})
+												: storage.billingEnabled
+													? uiMessage(
+															"settings:cloud_snapshot_delete_explanation",
+														)
+													: uiMessage(
+															"settings:cloud_snapshot_billing_not_started",
+														)
+									}
+									action={
+										<Button
+											size="xs"
+											variant="ghost"
+											className={COMPACT_CLOUD_ACTION}
+											disabled={storage.state === "deleting" || busy !== null}
+											loading={busy === "delete-image"}
+											onClick={() =>
+												window.confirm(
+													uiMessage(
+														"settings:cloud_snapshot_delete_explanation",
+													),
+												) &&
+												void run("delete-image", async () => {
+													await runCloudControl((client) =>
+														client["cloud.image.delete"]({
+															snapshotId: storage.snapshotId,
+														}),
+													);
+													await refreshCloudImages().catch(() => undefined);
+												})
+											}
+										>
+											{uiMessage("settings:cloud_snapshot_delete_image")}
+										</Button>
+									}
+								/>
+							);
+						})}
+					<CloudSettingsRow
+						title={uiMessage("settings:cloud_snapshot_usage")}
+						action={
+							<Badge variant="outline">
+								{billing?.storageCostMicros === undefined
+									? "—"
+									: formatUsdMicros(billing.storageCostMicros)}
+							</Badge>
+						}
+						description={uiMessage("settings:cloud_snapshot_usage_recent")}
+					/>
+				</CloudSettingsGroup>
+			) : null}
 			{subscribed && serviceAvailable && canManageBilling && usageVisible ? (
 				!paidSubscription &&
 				providers.some((provider) => provider.billingSource === "provider") ? (
@@ -1064,7 +1172,7 @@ function ScopedCloudWorkspacePool({
 											.slice(0, 3)
 											.map(
 												(item) =>
-													`${item.resourceKind} ${item.resourceId}: ${formatUsdMicros(item.providerCostMicros)}${item.status === "provisional" ? " (provisional)" : ""}`,
+													`${item.usageKind ?? item.resourceKind} ${item.resourceId}: ${formatUsdMicros(item.providerCostMicros)}${item.status === "provisional" ? " (provisional)" : ""}`,
 											)
 											.join(" · ")
 							}

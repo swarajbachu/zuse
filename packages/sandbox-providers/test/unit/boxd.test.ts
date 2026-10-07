@@ -17,7 +17,7 @@ import {
 	type UploadSource,
 } from "@boxd-sh/sdk/web";
 import { Effect, Redacted } from "effect";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
 	BOXD_BASE_URL,
 	BOXD_PROVIDER_ID,
@@ -46,6 +46,7 @@ const machineOf = (
 	},
 	org: { id: "org_1", name: "zuse" },
 	shared: false,
+	botProtection: true,
 	networking: { networks: [], isolated: true },
 	egressAllow: [],
 	access: {
@@ -1642,5 +1643,82 @@ describe("native boxd machine forks", () => {
 		).rejects.toMatchObject({ code: "rejected" });
 		expect(client.methods("machines.fork")).toHaveLength(0);
 		expect(client.methods("machines.setEgressAllow")).toHaveLength(0);
+	});
+});
+
+describe("boxd completed usage", () => {
+	test.each([
+		"valid",
+		"fractional",
+		"incomplete",
+		"eur",
+		"wrong-window",
+		"wrong-machine",
+		"negative",
+		"unsafe",
+	])("validates %s evidence before billing", async (kind) => {
+		const config = {
+			apiKey: Redacted.make("usage-test"),
+			templateSnapshot: "base",
+			templateVersion: "v1",
+			billingUsageEnabled: true,
+		};
+		const client = boxdSandboxClientFor(config);
+		const window = {
+			startedAtMs: 1_800_000_000_000 + (kind === "fractional" ? 250 : 0),
+			endedAtMs: 1_800_000_060_000 + (kind === "fractional" ? 250 : 0),
+		};
+		const usage = vi.spyOn(client.machines, "usage").mockResolvedValue({
+			machineId: kind === "wrong-machine" ? "other" : "vm",
+			name: "vm",
+			ownerId: null,
+			ownerName: null,
+			shared: false,
+			status: "deleted",
+			period: {
+				start: new Date(Math.ceil(window.startedAtMs / 1000) * 1000),
+				end: new Date(
+					Math.ceil(window.endedAtMs / 1000) * 1000 +
+						(kind === "wrong-window" ? 1000 : 0),
+				),
+			},
+			currency: kind === "eur" ? "eur" : "usd",
+			complete: kind !== "incomplete",
+			resources: { vcpu: 1, memoryBytes: 4 * 1024 ** 3, diskBytes: 0 },
+			seconds: { running: 10, standby: 20, stopped: 30, hibernated: 0 },
+			vcpuHours: 0,
+			ramGibHours: 0,
+			diskGibHours: 0,
+			costMicro:
+				kind === "negative"
+					? -1
+					: kind === "unsafe"
+						? Number.MAX_SAFE_INTEGER + 1
+						: 123,
+			rates: { vcpuHourMicro: 1, ramGibHourMicro: 1, diskGibHourMicro: 1 },
+		});
+		try {
+			expect(
+				makeBoxdSandboxProvider({ ...config, billingUsageEnabled: false })
+					.getUsage,
+			).toBeUndefined();
+			const adapter = makeBoxdSandboxProvider(config);
+			if (adapter.getUsage === undefined) throw new Error("usage disabled");
+			const result = await Effect.runPromise(
+				Effect.result(adapter.getUsage("vm", window)),
+			);
+			expect(result._tag).toBe(
+				kind === "valid" || kind === "fractional" ? "Success" : "Failure",
+			);
+			if (result._tag === "Success")
+				expect(result.success.providerCostMicros).toBe(123);
+			expect(usage).toHaveBeenCalledWith("vm", {
+				since: Math.ceil(window.startedAtMs / 1000),
+				until: Math.ceil(window.endedAtMs / 1000),
+				org: undefined,
+			});
+		} finally {
+			usage.mockRestore();
+		}
 	});
 });

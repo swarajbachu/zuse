@@ -3,13 +3,22 @@ import type {
 	FolderId,
 	WorkspaceDuplicatePathError,
 	WorkspaceInvalidPathError,
+	WorkspaceKey,
 	WorkspaceNotFoundError,
 } from "@zuse/contracts";
 import { Context, type Effect, type Stream } from "effect";
 
+export interface WorkspaceAddOptions {
+	/** Owning workspace for a new row. Defaults to Personal. */
+	readonly workspaceKey?: WorkspaceKey;
+	/** Reassign an existing row only while it still belongs to this workspace. */
+	readonly moveFrom?: WorkspaceKey;
+}
+
 export interface WorkspaceServiceShape {
 	readonly add: (
 		path: string,
+		options?: WorkspaceAddOptions,
 	) => Effect.Effect<
 		Folder,
 		WorkspaceDuplicatePathError | WorkspaceInvalidPathError
