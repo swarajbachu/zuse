@@ -1,5 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
+	cloudProviderLabel,
+	orderedCloudProviders,
+	selectedCloudProvider,
+} from "@zuse/client-runtime/cloud-sandbox-providers";
+import {
 	DEFAULT_RUNTIME_MODE,
 	defaultModelFor,
 	type ProviderId,
@@ -39,12 +44,25 @@ export default function NewCloudChatScreen() {
 	const account = useAtomValue(authAccountAtom);
 	const catalog = useAtomValue(cloudCatalogAtom);
 	const providers = useAtomValue(cloudAuthenticatedProvidersAtom);
-	const params = useLocalSearchParams<{ draft?: string; projectId?: string }>();
+	const params = useLocalSearchParams<{
+		draft?: string;
+		projectId?: string;
+		sandbox?: string;
+	}>();
 	const draftKey = `new-cloud:${account?.id ?? "signed-out"}`;
 	const [text, setText] = useState(
 		params.draft ?? composerDraft(draftKey).text,
 	);
 	const [projectId, setProjectId] = useState(params.projectId);
+	const [sandbox, setSandbox] = useState<string | null>(params.sandbox ?? null);
+	const sandboxProviders = orderedCloudProviders(catalog.providers);
+	const sandboxProvider =
+		selectedCloudProvider(
+			catalog.providers,
+			sandbox ?? catalog.image?.providerId ?? null,
+		) ??
+		catalog.image?.providerId ??
+		"e2b";
 	const [agent, setAgent] = useState<ProviderId | null>(null);
 	const [model, setModel] = useState<string | null>(null);
 	const [runtimeMode, setRuntimeMode] =
@@ -106,7 +124,7 @@ export default function NewCloudChatScreen() {
 				accountId: account.id,
 				draftKey,
 				project,
-				providerId: catalog.image?.providerId ?? "e2b",
+				providerId: sandboxProvider,
 				agent: provider,
 				model: selectedModel,
 				runtimeMode,
@@ -153,6 +171,20 @@ export default function NewCloudChatScreen() {
 							onSelect: () => setProjectId(row.projectId),
 						}))}
 					/>
+					{sandboxProviders.length > 1 ? (
+						<SelectorRow
+							compact
+							symbol="cloud"
+							label={`Cloud · ${cloudProviderLabel(sandboxProvider)}`}
+							disabled={busy}
+							options={sandboxProviders.map((row) => ({
+								key: row.providerId,
+								label: cloudProviderLabel(row.providerId),
+								selected: row.providerId === sandboxProvider,
+								onSelect: () => setSandbox(row.providerId),
+							}))}
+						/>
+					) : null}
 					<SelectorRow
 						compact
 						symbol="cpu"

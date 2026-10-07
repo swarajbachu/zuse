@@ -13,6 +13,7 @@
 		"./cloud-transcript": "./src/cloud-transcript.ts",
 		"./cloud-catalog": "./src/cloud-catalog.ts",
 		"./cloud-provider-availability": "./src/cloud-provider-availability.ts",
+		"./cloud-sandbox-providers": "./src/cloud-sandbox-providers.ts",
 		"./cloud-command-transport": "./src/cloud-command-transport.ts",
 		"./cloud-control-request": "./src/cloud-control-request.ts",
 		"./cloud-control-client": "./src/cloud-control-client.ts",

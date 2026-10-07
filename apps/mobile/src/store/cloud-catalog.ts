@@ -10,6 +10,7 @@ import {
 	type CloudAuthStatus,
 	type CloudChatSummary,
 	type CloudProject,
+	type CloudProviderOption,
 	type CloudWorkspace,
 	Folder,
 	FolderId,
@@ -25,6 +26,8 @@ type CloudCatalog = Readonly<{
 	accountId: string | null;
 	chats: readonly CloudChatSummary[];
 	projects: readonly CloudProject[];
+	/** Sandbox providers (boxd, Boat, E2B…) this account can run cloud chats on. */
+	providers: readonly CloudProviderOption[];
 	image: CloudAccountImage | null;
 	auth: CloudAuthStatus | null;
 	loading: boolean;
@@ -35,6 +38,7 @@ const empty = (accountId: string | null): CloudCatalog => ({
 	accountId,
 	chats: [],
 	projects: [],
+	providers: [],
 	image: null,
 	auth: null,
 	loading: false,
@@ -192,9 +196,10 @@ export const refreshCloudCatalog = (): Promise<void> => {
 			Effect.runPromise(cloudControlClient["cloud.projects.list"]()),
 			Effect.runPromise(cloudControlClient["cloud.auth.status"]()),
 			Effect.runPromise(cloudControlClient["cloud.image.status"]()),
+			Effect.runPromise(cloudControlClient["cloud.providers"]()),
 		]);
 		if (epoch !== generation) return;
-		const [chats, projects, auth, image] = results;
+		const [chats, projects, auth, image, providers] = results;
 		appAtomRegistry.update(cloudCatalogAtom, (state) => ({
 			...state,
 			chats:
@@ -215,6 +220,10 @@ export const refreshCloudCatalog = (): Promise<void> => {
 					: state.projects,
 			auth: auth.status === "fulfilled" ? auth.value : null,
 			image: image.status === "fulfilled" ? image.value : state.image,
+			providers:
+				providers.status === "fulfilled"
+					? providers.value.providers
+					: state.providers,
 			loading: false,
 			error:
 				chats.status === "rejected"

@@ -11,6 +11,13 @@ vi.mock("~/rpc/api-client", () => ({
 		"cloud.projects.list": () => Effect.succeed({ projects: [] }),
 		"cloud.auth.status": () => Effect.tryPromise(api.auth),
 		"cloud.image.status": () => Effect.succeed(null),
+		"cloud.providers": () =>
+			Effect.succeed({
+				providers: [
+					{ providerId: "e2b", displayName: "E2B" },
+					{ providerId: "boxd", displayName: "boxd" },
+				],
+			}),
 	},
 }));
 
@@ -56,6 +63,12 @@ describe("account-owned mobile cloud catalog", () => {
 			runtimeMode: "full-access",
 		});
 		expect(availableConnections(connections, false)).toEqual([]);
+		// Sandbox providers feed the new-chat "Cloud · …" destinations.
+		expect(
+			appAtomRegistry
+				.get(cloudCatalogAtom)
+				.providers.map((provider) => provider.providerId),
+		).toEqual(["e2b", "boxd"]);
 	});
 	test("restores JSON cache dates before merging a newer cloud summary", () => {
 		const row = summary();

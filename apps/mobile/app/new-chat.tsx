@@ -3,6 +3,10 @@ import {
 	orderedChatSessions,
 	resolveActiveChatSession,
 } from "@zuse/client-runtime/chat-threads";
+import {
+	cloudProviderLabel,
+	orderedCloudProviders,
+} from "@zuse/client-runtime/cloud-sandbox-providers";
 import type {
 	ChatId,
 	Folder,
@@ -75,7 +79,11 @@ import {
 	connectionAvailabilityAtom,
 	hydrateAvailability,
 } from "~/store/availability";
-import { cloudAuthenticatedProvidersAtom } from "~/store/cloud-catalog";
+import {
+	cloudAuthenticatedProvidersAtom,
+	cloudCatalogAtom,
+	refreshCloudCatalog,
+} from "~/store/cloud-catalog";
 import {
 	clearComposerDraft,
 	composerDraft,
@@ -88,6 +96,11 @@ import {
 	hydrateConnections,
 	refreshConnectionLabel,
 } from "~/store/connections";
+import {
+	connectToEnvironment,
+	environmentsAtom,
+	refreshEnvironments,
+} from "~/store/environments";
 import {
 	activeModelCatalog,
 	activeModelCatalogAtom,
@@ -430,9 +443,66 @@ export default function NewChatScreen() {
 			setSourceKind("main");
 		},
 	}));
-	const machineLabel =
-		connections.find((connection) => connection.key === effectiveConnectionKey)
-			?.label ?? (connections.length === 0 ? "No machines" : "Machine");
+	// Account computers that aren't connected yet, and cloud sandboxes, so a new
+	// chat can start anywhere the desktop "Run on" menu offers.
+	const accountEnvironments = useAtomValue(environmentsAtom);
+	const cloudCatalog = useAtomValue(cloudCatalogAtom);
+	const [connectingEnvironment, setConnectingEnvironment] = useState(false);
+	useEffect(() => {
+		if (account === null) return;
+		void refreshEnvironments();
+		void refreshCloudCatalog();
+	}, [account]);
+	const environmentOptions = accountEnvironments
+		.filter(
+			(environment) =>
+				!connections.some(
+					(connection) =>
+						connection.environmentId === environment.environmentId,
+				),
+		)
+		.map((environment) => ({
+			key: `environment:${environment.environmentId}`,
+			label: environment.label,
+			selected: false,
+			onSelect: () => {
+				if (connectingEnvironment) return;
+				setConnectingEnvironment(true);
+				setError(null);
+				void connectToEnvironment(environment.environmentId)
+					.then((key) => {
+						setSelectedConnectionKey(key);
+						setSelectedProjectId(null);
+						setSource(MAIN_SOURCE);
+						setSourceKind("main");
+					})
+					.catch((cause) => setError(connectionErrorMessage(cause)))
+					.finally(() => setConnectingEnvironment(false));
+			},
+		}));
+	const cloudOptions =
+		account === null
+			? []
+			: orderedCloudProviders(cloudCatalog.providers).map((provider) => ({
+					key: `cloud:${provider.providerId}`,
+					label: `Cloud · ${cloudProviderLabel(provider.providerId)}`,
+					selected: false,
+					onSelect: () =>
+						router.replace({
+							pathname: "/new-cloud-chat",
+							params: { sandbox: provider.providerId, draft: text },
+						}),
+				}));
+	const destinationOptions = [
+		...machineOptions,
+		...environmentOptions,
+		...cloudOptions,
+	];
+	const machineLabel = connectingEnvironment
+		? "Connecting…"
+		: (connections.find(
+				(connection) => connection.key === effectiveConnectionKey,
+			)?.label ?? (connections.length === 0 ? "No machines" : "Machine"));
 
 	const projectOptions = projectChoices.map((item) => ({
 		key: item.project.id,
@@ -738,7 +808,7 @@ export default function NewChatScreen() {
 						<SelectorRow
 							symbol="laptopcomputer"
 							label={machineLabel}
-							options={machineOptions}
+							options={destinationOptions}
 							emptyLabel="No machines"
 						/>
 						<SelectorRow
@@ -842,8 +912,8 @@ export default function NewChatScreen() {
 								<Button
 									size="sm"
 									variant="primary"
-									className="h-10 w-10 rounded-2xl px-0"
-									hitSlop={4}
+									className="h-8 w-8 rounded-[9px] px-0"
+									hitSlop={6}
 									disabled={!canSubmit}
 									onPress={() => void submit()}
 								>
