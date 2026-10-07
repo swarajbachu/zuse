@@ -1,4 +1,6 @@
+import "@zuse/i18n/english/settings";
 import type { CloudAccountImage } from "@zuse/contracts";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useRef, useState } from "react";
 import { refreshCloudImages } from "../../lib/cloud-image-monitor.ts";
 import { loadCloudImage } from "../../lib/cloud-workspace-session-cache.ts";
@@ -14,6 +16,7 @@ export function CloudSnapshotSettings({
 	readonly connectionId: string;
 	readonly onChanged: () => Promise<void>;
 }) {
+	const { message: uiMessage } = useUiMessages(["settings"]);
 	const initialized = useRef(false);
 	const changed = useRef(onChanged);
 	changed.current = onChanged;
@@ -55,10 +58,7 @@ export function CloudSnapshotSettings({
 					if (!disposed) await changed.current();
 				}
 			} catch {
-				if (!disposed)
-					setError(
-						"Could not refresh snapshot status. Reopen settings to retry.",
-					);
+				if (!disposed) setError(uiMessage("settings:snapshot_refresh_error"));
 			}
 		};
 		void load();
@@ -66,7 +66,7 @@ export function CloudSnapshotSettings({
 			disposed = true;
 			if (timer) clearTimeout(timer);
 		};
-	}, [connectionId, inspecting]);
+	}, [connectionId, inspecting, uiMessage]);
 	const inspect = async () => {
 		setSaving(true);
 		setError(null);
@@ -86,17 +86,15 @@ export function CloudSnapshotSettings({
 			await refreshCloudImages();
 			await onChanged();
 		} catch {
-			setError(
-				"Could not inspect the snapshot. Check its ID, Linux user, and Boxd key permissions.",
-			);
+			setError(uiMessage("settings:snapshot_inspect_error"));
 		} finally {
 			setSaving(false);
 		}
 	};
 	return (
 		<CloudSettingsRow
-			title="Custom Boxd snapshot"
-			description="Install Zuse, create a snapshot, then discover its repositories. Inspection briefly starts a machine on your Boxd account."
+			title={uiMessage("settings:snapshot_title")}
+			description={uiMessage("settings:snapshot_description")}
 		>
 			<div className="flex flex-col gap-2">
 				<a
@@ -105,22 +103,26 @@ export function CloudSnapshotSettings({
 					target="_blank"
 					rel="noreferrer"
 				>
-					Download snapshot installer
+					{uiMessage("settings:snapshot_download")}
 				</a>
 				<p className="text-xs text-muted-foreground">
-					Run <code>npx zusehq snapshot install</code> on your machine. It does
-					not need repository paths or GitHub credentials.
+					{uiMessage("settings:snapshot_install_command", {
+						command: "npx zusehq snapshot install",
+					})}
 				</p>
 				<Input
 					className="h-7"
-					aria-label="Boxd snapshot ID"
-					placeholder={image?.snapshot?.snapshotId ?? "Snapshot ID"}
+					aria-label={uiMessage("settings:snapshot_id_label")}
+					placeholder={
+						image?.snapshot?.snapshotId ??
+						uiMessage("settings:snapshot_id_placeholder")
+					}
 					value={snapshotId}
 					onChange={(event) => setSnapshotId(event.target.value)}
 				/>
 				<Input
 					className="h-7"
-					aria-label="Snapshot Linux user"
+					aria-label={uiMessage("settings:snapshot_user_label")}
 					value={runtimeUser}
 					onChange={(event) => setRuntimeUser(event.target.value)}
 				/>
@@ -132,7 +134,7 @@ export function CloudSnapshotSettings({
 							setAgentAuthentication(event.target.checked ? "zuse" : "native")
 						}
 					/>
-					Use my Zuse agent accounts for new workspaces
+					{uiMessage("settings:snapshot_agent_accounts")}
 				</label>
 				<label className="flex items-center gap-2 text-xs">
 					<input
@@ -142,18 +144,19 @@ export function CloudSnapshotSettings({
 							setGitAuthentication(event.target.checked ? "zuse" : "native")
 						}
 					/>
-					Use my Zuse GitHub connection for Git and gh
+					{uiMessage("settings:snapshot_github_connection")}
 				</label>
 				<p className="text-xs text-muted-foreground">
-					Use the Linux username printed by the installer. Leave paths empty to
-					find repositories automatically.
+					{uiMessage("settings:snapshot_discovery_hint")}
 				</p>
 				{paths.map((path, index) => (
 					<div className="flex gap-2" key={index}>
 						<Input
 							className="h-7"
-							aria-label={`Repository path ${index + 1}`}
-							placeholder="/home/boxd/my-repository"
+							aria-label={uiMessage("settings:snapshot_repository_path", {
+								number: index + 1,
+							})}
+							placeholder={uiMessage("settings:snapshot_path_example")}
 							value={path}
 							onChange={(event) =>
 								setPaths(
@@ -171,7 +174,7 @@ export function CloudSnapshotSettings({
 								setPaths(paths.filter((_, position) => position !== index))
 							}
 						>
-							Remove
+							{uiMessage("settings:snapshot_remove")}
 						</Button>
 					</div>
 				))}
@@ -183,7 +186,7 @@ export function CloudSnapshotSettings({
 						disabled={paths.length >= 32}
 						onClick={() => setPaths([...paths, ""])}
 					>
-						Add repository path
+						{uiMessage("settings:snapshot_add_path")}
 					</Button>
 					<Button
 						className="h-7"
@@ -194,7 +197,9 @@ export function CloudSnapshotSettings({
 						loading={saving}
 						onClick={() => void inspect()}
 					>
-						{inspecting ? "Inspecting snapshot…" : "Use snapshot"}
+						{inspecting
+							? uiMessage("settings:snapshot_inspecting")
+							: uiMessage("settings:snapshot_use")}
 					</Button>
 				</div>
 				{image?.snapshot?.repositories.map((repository) => (
@@ -202,23 +207,23 @@ export function CloudSnapshotSettings({
 						<p>{repository.path}</p>
 						<p className="text-muted-foreground">
 							{repository.gitAccess === "readable"
-								? "Git read access detected"
+								? uiMessage("settings:snapshot_git_readable")
 								: repository.gitAccess === "authentication-required"
-									? "Git login needed — connect GitHub in Cloud settings"
-									: "Git access could not be verified; check the connection"}
+									? uiMessage("settings:snapshot_git_login")
+									: uiMessage("settings:snapshot_git_unavailable")}
 						</p>
 					</div>
 				))}
 				{image?.snapshot ? (
 					<p className="text-xs text-muted-foreground">
 						{image.snapshot.agentAuthentication === "zuse"
-							? "New workspaces use your connected Zuse agent accounts."
-							: "Existing Claude Code and Codex logins will be checked when you open a workspace. A detected login is not a guarantee of access; expired credentials require signing in again."}
+							? uiMessage("settings:snapshot_managed_agents")
+							: uiMessage("settings:snapshot_native_agents")}
 					</p>
 				) : null}
 				{error || image?.errorCode ? (
 					<p className="text-xs text-destructive" role="alert">
-						{error ?? snapshotErrorMessage(image?.errorCode)}
+						{error ?? snapshotErrorMessage(image?.errorCode, uiMessage)}
 					</p>
 				) : null}
 			</div>
@@ -226,25 +231,28 @@ export function CloudSnapshotSettings({
 	);
 }
 
-const snapshotErrorMessage = (code: string | undefined) => {
+const snapshotErrorMessage = (
+	code: string | undefined,
+	uiMessage: ReturnType<typeof useUiMessages>["message"],
+) => {
 	switch (code) {
 		case "snapshot-installer-required":
-			return "Install Zuse on the source machine, create a new snapshot, then retry with its ID.";
+			return uiMessage("settings:snapshot_installer_required");
 		case "snapshot-runtime-user-mismatch":
-			return "Enter the Linux user printed by the installer.";
+			return uiMessage("settings:snapshot_user_mismatch");
 		case "snapshot-no-repositories-add-paths":
-			return "No GitHub repositories found. Add their absolute paths and inspect again.";
+			return uiMessage("settings:snapshot_no_repositories");
 		case "snapshot-repository-ambiguous":
-			return "Multiple checkouts have the same GitHub origin. Add an explicit path to choose one.";
+			return uiMessage("settings:snapshot_ambiguous");
 		case "snapshot-runtime-update-required":
-			return "Rerun the latest installer and create a new snapshot.";
+			return uiMessage("settings:snapshot_update_required");
 		case "snapshot-repository-invalid":
-			return "A repository path must point to the writable root of a Git checkout.";
+			return uiMessage("settings:snapshot_invalid_repository");
 		case "snapshot-inspection-timeout":
-			return "Snapshot inspection timed out. Check the snapshot and retry.";
+			return uiMessage("settings:snapshot_timeout");
 		default:
 			return code
-				? `Snapshot could not be used (${code}). Check the installer, paths and Boxd permissions, then retry.`
+				? uiMessage("settings:snapshot_unknown_error", { code })
 				: null;
 	}
 };

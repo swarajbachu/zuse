@@ -1,4 +1,5 @@
 import { CloudAccountImage } from "@zuse/contracts";
+import { activateLocale, prepareLocale } from "@zuse/i18n";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 import { CloudImageReadiness } from "../../src/components/settings/cloud-image-readiness.tsx";
@@ -40,4 +41,23 @@ test("imported snapshots never offer a managed-image rebuild action", () => {
 	);
 	expect(markup).toContain("Custom snapshot ready");
 	expect(markup).not.toContain("Rebuild");
+});
+
+test("snapshot settings translate labels while preserving the installation command", async () => {
+	await prepareLocale("fr", ["settings"]);
+	await activateLocale("fr");
+	try {
+		const markup = renderToStaticMarkup(
+			<CloudSnapshotSettings
+				connectionId="own-key"
+				onChanged={async () => {}}
+			/>,
+		);
+		expect(markup).toContain("Instantané Boxd personnalisé");
+		expect(markup).toContain("Ajouter un chemin de dépôt");
+		expect(markup).toContain("npx zusehq snapshot install");
+		expect(markup).not.toContain("settings:snapshot_");
+	} finally {
+		await activateLocale("en");
+	}
 });

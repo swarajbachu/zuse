@@ -90,15 +90,15 @@ export function CloudImageReadiness({
 			<CloudSettingsRow
 				title={
 					building
-						? "Inspecting custom snapshot"
+						? uiMessage("settings:snapshot_checking")
 						: state === "ready"
-							? "Custom snapshot ready"
-							: "Custom snapshot needs attention"
+							? uiMessage("settings:snapshot_ready")
+							: uiMessage("settings:snapshot_attention")
 				}
 				description={
 					building
-						? "Discovering repository locations on your Boxd account."
-						: "Manage the snapshot and repository paths under Provider keys. Authentication is checked in each workspace."
+						? uiMessage("settings:snapshot_discovering")
+						: uiMessage("settings:snapshot_manage_hint")
 				}
 				action={
 					<Badge variant={state === "ready" ? "success" : "warning"}>
