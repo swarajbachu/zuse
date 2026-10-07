@@ -93,6 +93,10 @@ const fixture = () => {
 			apiIssuer: "https://api.example.com",
 		},
 		core: {
+			cancelRun: async () => {
+				a.run = { ...a.run, state: "cancelled" };
+				events.push("cancel");
+			},
 			canReadRunArtifacts: async () => true,
 			renewRun: async () => true,
 			acceptResult: async () => {
@@ -187,6 +191,21 @@ const fixture = () => {
 	};
 };
 describe("hosted review lifecycle", () => {
+	it("deployment rollback cancels and stops active compute while retaining usage", async () => {
+		const f = fixture();
+		const review = f.dependencies.configuration.review;
+		if (!review) throw Error("fixture review configuration missing");
+		f.dependencies.configuration = {
+			...f.dependencies.configuration,
+			review: { ...review, enabled: false },
+		};
+		await f.lifecycle.supervise(f.a, now);
+		expect(f.events).toContain("cancel");
+		expect(f.events).toContain("kill");
+		expect(f.events).toContain("observe");
+		expect(f.events).not.toContain("publish");
+		expect(f.a.run.state).toBe("cancelled");
+	});
 	it("pauses a confirmed clean worker before publishing and retains settlement reservation", async () => {
 		const f = fixture();
 		f.a.lifecycle.cleanupConfirmed = true;

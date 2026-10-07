@@ -1,6 +1,4 @@
 import type { CloudControlClient } from "@zuse/client-runtime/cloud-control-client";
-import { makeAccountControlRequest } from "@zuse/client-runtime/cloud-control-request";
-import { cloudControlError } from "@zuse/client-runtime/control-api-error";
 import type { WorkspaceScope } from "@zuse/contracts";
 import { isHostedProduct } from "./platform-capabilities.ts";
 import {
@@ -18,11 +16,17 @@ export const getCloudControlClient = async (
 > => {
 	if (!isHostedProduct()) return getControlPlaneRpcClient(scope);
 	const account = rendererAccountSnapshot();
-	const [{ hostedAccountRequest }, { makeCloudControlClient }] =
-		await Promise.all([
-			import("./hosted-connect.ts"),
-			import("@zuse/client-runtime/cloud-control-client"),
-		]);
+	const [
+		{ hostedAccountRequest },
+		{ makeCloudControlClient },
+		{ makeAccountControlRequest },
+		{ cloudControlError },
+	] = await Promise.all([
+		import("./hosted-connect.ts"),
+		import("@zuse/client-runtime/cloud-control-client"),
+		import("@zuse/client-runtime/cloud-control-request"),
+		import("@zuse/client-runtime/control-api-error"),
+	]);
 	assertRendererAccountCurrent(account);
 	return makeCloudControlClient(
 		makeAccountControlRequest({

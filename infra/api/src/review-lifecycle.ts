@@ -184,13 +184,17 @@ export const makeReviewLifecycle = (
 			)
 				return;
 			a = current;
+			if (!d.configuration.review?.enabled)
+				await d.core.cancelRun(a.ownerId, a.runId, nowMs);
 			const c = await d.store.getConnection(a.run.modelConnectionId);
 			if (!a.lifecycle.connectionId) {
 				await finish(a, nowMs, false);
 				return;
 			}
 			const revoked =
-				c?.state !== "ready" || !(await d.core.canReadRunArtifacts(a.runId));
+				!d.configuration.review?.enabled ||
+				c?.state !== "ready" ||
+				!(await d.core.canReadRunArtifacts(a.runId));
 			const uncertainStart =
 				a.lifecycle.stage === "starting" && !a.lifecycle.workerStarted;
 			const cancelled = [

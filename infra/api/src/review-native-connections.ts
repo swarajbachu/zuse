@@ -161,6 +161,8 @@ const stopLoginActivity = Effect.fn("stopReviewLoginActivity")(function* (
 		a.providerSandboxId ??
 		recovered?.providerSandboxId ??
 		null;
+	if (!sandboxId && Date.now() < a.deadlineMs)
+		return yield* serviceUnavailable("review_login_allocation_unconfirmed");
 	if (sandboxId) {
 		const exists = yield* p.inspect(sandboxId);
 		if (exists) {
@@ -506,12 +508,24 @@ export const reconcileReviewConnections = Effect.fn(
 	"reconcileReviewConnections",
 )(function* () {
 	const store = yield* ReviewLifecycleStore;
+	const enabled = (yield* ApiConfiguration).review?.enabled === true;
 	const activities = yield* io(() => store.listOpenActivities());
 	for (const a of activities.filter((a) => a.kind !== "check")) {
 		const c = yield* io(() => store.getConnection(a.connectionId));
 		if (!c) continue;
-		if (c.state === "revoked") {
-			yield* stopLoginActivity(c, a, false).pipe(Effect.result);
+		if (c.state === "revoked" || !enabled) {
+			const stopped = yield* stopLoginActivity(c, a, false).pipe(Effect.result);
+			if (stopped._tag === "Success" && !enabled && c.state !== "revoked")
+				yield* io(() =>
+					store.saveConnection({
+						...c,
+						state: "lost",
+						providerSandboxId: null,
+						verificationUrl: undefined,
+						expiresAtMs: undefined,
+						updatedAtMs: Date.now(),
+					}),
+				);
 		} else yield* refreshReviewConnection(c).pipe(Effect.result);
 	}
 	const review = yield* Effect.serviceOption(ReviewStore);
@@ -526,6 +540,7 @@ export const reconcileReviewConnections = Effect.fn(
 					? yield* io(() => core.canReadRunArtifacts(run.id))
 					: false;
 				if (
+					enabled &&
 					allowed &&
 					run &&
 					["provisioning", "reviewing"].includes(run.state) &&
@@ -543,6 +558,7 @@ export const reconcileReviewConnections = Effect.fn(
 					if (yield* provider.inspect(sandboxId))
 						return yield* serviceUnavailable("review_check_stop_unconfirmed");
 				}
+				if (!sandboxId && Date.now() < a.deadlineMs) return;
 				const stoppedAtMs = Date.now();
 				yield* observeCloudRuntimeUsage({
 					accountId: a.ownerId,
