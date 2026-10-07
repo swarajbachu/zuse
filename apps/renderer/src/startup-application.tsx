@@ -85,6 +85,14 @@ function ConnectedStartupApplication({
 		: settingsPresentation === "ready" && !applicationReady
 			? "loading"
 			: settingsPresentation;
+	// Offer a way back to Personal only if a first organization load is slow.
+	const [workspaceSlow, setWorkspaceSlow] = useState(false);
+	useEffect(() => {
+		setWorkspaceSlow(false);
+		if (!workspacePending) return;
+		const timer = window.setTimeout(() => setWorkspaceSlow(true), 5_000);
+		return () => window.clearTimeout(timer);
+	}, [workspacePending, workspace]);
 	useEffect(() => {
 		onStartupStateChange?.({
 			presentation,
@@ -94,16 +102,31 @@ function ConnectedStartupApplication({
 	}, [onStartupStateChange, presentation, settings.error, settings.retry]);
 
 	if (workspacePending) {
+		// Only the first visit to an organization on this device waits here;
+		// later switches render its cached settings immediately.
 		return (
 			<>
 				<AppearanceController />
 				<div className="flex h-dvh items-center justify-center bg-background text-foreground">
-					<div className="max-w-sm space-y-3 px-6 text-center text-sm">
-						<p role={settings.error === null ? "status" : "alert"}>
-							{settings.error ?? message("common:loading")}
-						</p>
-						<div className="flex justify-center gap-2">
-							{settings.error !== null && (
+					{settings.error === null ? (
+						<div className="flex flex-col items-center gap-3">
+							<p role="status" className="text-xs text-muted-foreground">
+								{message("common:workspace_loading")}
+							</p>
+							{workspaceSlow && (
+								<button
+									type="button"
+									className="h-7 rounded-md bg-muted px-2.5 text-xs focus-visible:outline focus-visible:outline-ring"
+									onClick={() => selectRendererWorkspace({ kind: "personal" })}
+								>
+									{message("settings:workspace_personal")}
+								</button>
+							)}
+						</div>
+					) : (
+						<div className="max-w-sm space-y-3 px-6 text-center text-sm">
+							<p role="alert">{settings.error}</p>
+							<div className="flex justify-center gap-2">
 								<button
 									type="button"
 									className="h-7 rounded-md bg-primary px-2.5 text-xs text-primary-foreground focus-visible:outline focus-visible:outline-ring"
@@ -111,16 +134,16 @@ function ConnectedStartupApplication({
 								>
 									{message("common:retry")}
 								</button>
-							)}
-							<button
-								type="button"
-								className="h-7 rounded-md bg-muted px-2.5 text-xs focus-visible:outline focus-visible:outline-ring"
-								onClick={() => selectRendererWorkspace({ kind: "personal" })}
-							>
-								{message("settings:workspace_personal")}
-							</button>
+								<button
+									type="button"
+									className="h-7 rounded-md bg-muted px-2.5 text-xs focus-visible:outline focus-visible:outline-ring"
+									onClick={() => selectRendererWorkspace({ kind: "personal" })}
+								>
+									{message("settings:workspace_personal")}
+								</button>
+							</div>
 						</div>
-					</div>
+					)}
 				</div>
 			</>
 		);

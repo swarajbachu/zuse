@@ -64,5 +64,6 @@
 	"startup_surface_try_again": "もう一度試してください",
 	"startup_surface_reload": "リロード",
 	"startup_surface_copy_details": "詳細をコピーする",
-	"copy_failed": "コピーに失敗しました"
+	"copy_failed": "コピーに失敗しました",
+	"workspace_loading": "読み込み中"
 }

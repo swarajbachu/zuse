@@ -1,6 +1,9 @@
 import { type CloudProject, CloudWorkspaceOpError } from "@zuse/contracts";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { loadCloudProjects } from "./cloud-workspace-session-cache.ts";
+import {
+	loadCloudProjects,
+	peekCloudProjects,
+} from "./cloud-workspace-session-cache.ts";
 import { subscribeControlPlaneSessionCache } from "./control-plane-client.ts";
 import {
 	rendererAccountSnapshot,
@@ -56,7 +59,8 @@ export const useCloudProjects = (): ReadonlyArray<CloudProject> => {
 						cause instanceof CloudWorkspaceOpError &&
 						cause.code === "not-allowed"
 					)
-						setResult(null);
+						// Lost access: never fall back to the cached projects.
+						setResult({ workspace, account, projects: EMPTY });
 					/* Retain the last scoped snapshot; settings exposes retry. */
 				})
 				.finally(() => {
@@ -73,7 +77,9 @@ export const useCloudProjects = (): ReadonlyArray<CloudProject> => {
 			unsubscribe();
 		};
 	}, [workspace, account]);
-	return result?.workspace === workspace && result.account === account
-		? result.projects
-		: EMPTY;
+	if (result?.workspace === workspace && result.account === account)
+		return result.projects;
+	// Until this workspace's load settles, show its cached projects rather than
+	// an empty list. The cache is keyed by account and workspace.
+	return account.subject ? (peekCloudProjects()?.projects ?? EMPTY) : EMPTY;
 };

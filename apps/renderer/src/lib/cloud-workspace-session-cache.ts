@@ -60,11 +60,15 @@ export const loadCloudProviders = (refresh = false) =>
 export const invalidateCloudProjects = () =>
 	invalidateControlPlaneCache(cloudWorkspaceCacheKeys.projects);
 
+const decodeProjects = Schema.decodeUnknownSync(CloudProjectList);
+/** The selected workspace's last known projects, read synchronously for switches. */
+export const peekCloudProjects = () =>
+	peekControlPlaneCache(cloudWorkspaceCacheKeys.projects, decodeProjects);
 export const loadCloudProjects = (refresh = false) =>
 	runCachedControlPlane(
 		cloudWorkspaceCacheKeys.projects,
 		(client) => client["cloud.projects.list"](),
-		{ refresh, decode: Schema.decodeUnknownSync(CloudProjectList) },
+		{ refresh, decode: decodeProjects },
 	);
 
 export const loadCloudEntitlements = (refresh = false) =>

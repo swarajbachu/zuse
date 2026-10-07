@@ -53,17 +53,23 @@ export const useWorkspaceSettingsState = createAtomStore<State>(() => ({
 let pendingRead: Promise<WorkspaceSettings> | null = null;
 let pendingWrite: Promise<unknown> = Promise.resolve();
 let accessEpoch = 0;
+// Last settings per account and workspace, so switching back renders at once
+// and revalidates in the background. Display only: writes reload first.
+const snapshots = new Map<string, WorkspaceSettings>();
 const reset = () => {
 	accessEpoch += 1;
 	pendingRead = null;
 	pendingWrite = Promise.resolve();
+	const cache = settingsCache();
+	const cached = cache === null ? undefined : snapshots.get(cache.namespace);
 	useWorkspaceSettingsState.setState({
-		data: null,
-		origin: "none",
+		data: cached ?? null,
+		origin: cached === undefined ? "none" : "cache",
 		loading: false,
 		error: null,
 	});
 };
+subscribeRendererAccount(() => snapshots.clear());
 subscribeRendererAccount(reset);
 subscribeRendererWorkspace(reset);
 
@@ -113,6 +119,27 @@ export const retainWorkspaceSettings = (): (() => void) => {
 	};
 };
 
+/** Desktop caches each account's Personal and organization settings separately. */
+function settingsCache() {
+	const account = rendererAccountSnapshot();
+	if (
+		!organizationWorkspacesAvailable() ||
+		isHostedProduct() ||
+		!rendererPlatformCapabilities().desktop ||
+		typeof account.subject !== "string"
+	)
+		return null;
+	return {
+		key: makeResourceKey<WorkspaceSettings>("workspace-settings", {
+			environmentId: EnvironmentId.make(getLocalEnvironmentId()),
+		}),
+		namespace: JSON.stringify([
+			account.subject,
+			rendererWorkspaceSnapshot().key,
+		]),
+	};
+}
+
 const requestContext = () => {
 	const epoch = accessEpoch;
 	const account = rendererAccountSnapshot();
@@ -124,14 +151,7 @@ const requestContext = () => {
 	return {
 		scope: workspace.scope,
 		migratePersonal: personal,
-		cache: personal
-			? {
-					key: makeResourceKey<WorkspaceSettings>("workspace-settings", {
-						environmentId: EnvironmentId.make(getLocalEnvironmentId()),
-					}),
-					namespace: JSON.stringify([account.subject, workspace.key]),
-				}
-			: null,
+		cache: settingsCache(),
 		assertCurrent: () => {
 			assertRendererAccountCurrent(account);
 			assertRendererWorkspaceCurrent(workspace);
@@ -156,6 +176,8 @@ const accept = (
 
 const persist = (context: ReturnType<typeof requestContext>) => {
 	const data = useWorkspaceSettingsState.getState().data;
+	if (context.cache !== null && data !== null && context.isCurrent())
+		snapshots.set(context.cache.namespace, data);
 	if (context.cache !== null && data !== null)
 		void personalPersistence.saveResource(
 			context.cache.key,
@@ -172,8 +194,11 @@ export const loadWorkspaceSettings = (
 	refresh = false,
 ): Promise<WorkspaceSettings> => {
 	if (pendingRead !== null) return pendingRead;
-	const existing = useWorkspaceSettingsState.getState().data;
-	if (!refresh && existing !== null) return Promise.resolve(existing);
+	const current = useWorkspaceSettingsState.getState();
+	const existing = current.data;
+	// Cached settings are for display; callers asking for settings get live ones.
+	if (!refresh && existing !== null && current.origin !== "cache")
+		return Promise.resolve(existing);
 	const context = requestContext();
 	useWorkspaceSettingsState.setState({ loading: true, error: null });
 	const request = (async () => {
@@ -184,7 +209,10 @@ export const loadWorkspaceSettings = (
 					context.cache.namespace,
 				);
 				context.assertCurrent();
-				if (cached !== null) accept(cached.data, "cache");
+				if (cached !== null) {
+					accept(cached.data, "cache");
+					snapshots.set(context.cache.namespace, cached.data);
+				}
 			}
 			const client = await getCloudControlClient(context.scope);
 			context.assertCurrent();
@@ -235,6 +263,7 @@ export const loadWorkspaceSettings = (
 						origin: "none",
 						loading: false,
 					});
+					if (context.cache !== null) snapshots.delete(context.cache.namespace);
 					if (context.cache !== null)
 						void personalPersistence.removeResource(
 							context.cache.key,

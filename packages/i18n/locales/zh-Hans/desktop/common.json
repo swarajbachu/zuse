@@ -64,5 +64,6 @@
 	"startup_surface_try_again": "再试一次",
 	"startup_surface_reload": "重新加载",
 	"startup_surface_copy_details": "复制详细信息",
-	"copy_failed": "复制失败"
+	"copy_failed": "复制失败",
+	"workspace_loading": "加载中"
 }

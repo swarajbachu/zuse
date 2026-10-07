@@ -8068,7 +8068,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/workspace-settings-client.ts",
-				"line": 245
+				"line": 275
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8082,7 +8082,7 @@
 			},
 			{
 				"path": "apps/renderer/src/lib/workspace-settings-client.ts",
-				"line": 293
+				"line": 323
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8305,10 +8305,6 @@
 			{
 				"path": "apps/renderer/src/notch-main.tsx",
 				"line": 242
-			},
-			{
-				"path": "apps/renderer/src/startup-application.tsx",
-				"line": 103
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8470,7 +8466,7 @@
 			},
 			{
 				"path": "apps/renderer/src/startup-application.tsx",
-				"line": 112
+				"line": 116
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9354,6 +9350,16 @@
 			{
 				"path": "apps/renderer/src/components/copy-button.tsx",
 				"line": 43
+			}
+		],
+		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"common:workspace_loading": {
+		"source": "Loading",
+		"locations": [
+			{
+				"path": "apps/renderer/src/startup-application.tsx",
+				"line": 105
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -27206,7 +27212,7 @@
 			},
 			{
 				"path": "apps/renderer/src/startup-application.tsx",
-				"line": 120
+				"line": 123
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
