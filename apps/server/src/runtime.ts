@@ -63,6 +63,7 @@ import {
 } from "./machine/machine-host-service.ts";
 import { MachineResourceServiceLive } from "./machine/machine-resource-service.ts";
 import { MachineRuntimeRole } from "./machine/machine-runtime-role.ts";
+import { RuntimeCloudControl } from "./machine/runtime-cloud-control.ts";
 import { McpServiceLive } from "./mcp/layers/mcp-service.ts";
 import { ModelCatalogPollerLive } from "./model-catalog/layers/model-catalog-poller.ts";
 import { ModelCatalogServiceLive } from "./model-catalog/layers/model-catalog-service.ts";
@@ -270,7 +271,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 							await mkdir(dirname(target), { recursive: true });
 							await writeFile(
 								temporary,
-								`${JSON.stringify({ schemaVersion: 1, wsUrl, token: minted.token })}\n`,
+								`${JSON.stringify({ schemaVersion: 1, wsUrl, token: minted.token, cloudWorkspaceId: deps.cloudWorkspaceRuntime?.workspaceId })}\n`,
 								{ mode: 0o600 },
 							);
 							await chmod(temporary, 0o600);
@@ -576,7 +577,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(EnrolledLanAuthLayer),
 	);
 
+	const RuntimeCloudControlLayer = Layer.succeed(RuntimeCloudControl, {
+		current: null,
+	});
 	const MachineControlLayer = MachineControlServiceLive.pipe(
+		Layer.provide(RuntimeCloudControlLayer),
 		Layer.provide(AuthLayer),
 		Layer.provide(MachineRuntimeRoleLayer),
 	);
@@ -624,6 +629,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const CloudWorkspaceRuntimeLayer = makeCloudWorkspaceRuntimeLayer(
 		deps.cloudWorkspaceRuntime,
 	).pipe(
+		Layer.provide(RuntimeCloudControlLayer),
 		Layer.provide(ExecutionPolicyLayer),
 		Layer.provide(RuntimeModelConnectionsLayer),
 		Layer.provide(CredentialsLayer),

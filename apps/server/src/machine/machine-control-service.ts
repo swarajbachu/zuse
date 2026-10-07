@@ -8,6 +8,7 @@ import {
 } from "@zuse/client-runtime/cloud-control-client";
 import { controlApiErrorCode } from "@zuse/client-runtime/control-api-error";
 import { makeOrganizationAutoJoinControlClient } from "@zuse/client-runtime/organization-control-client";
+import { RuntimeCloudControl } from "./runtime-cloud-control.ts";
 
 export { streamCloudWorkspaceLifecycle } from "@zuse/client-runtime/cloud-control-client";
 
@@ -382,6 +383,7 @@ export const MachineControlServiceLive: Layer.Layer<
 	Effect.gen(function* () {
 		const auth = yield* AuthService;
 		const runtimeRole = yield* MachineRuntimeRole;
+		const runtimeControl = yield* Effect.serviceOption(RuntimeCloudControl);
 		const apiUrl = resolveMachineApiUrl();
 		if (runtimeRole === "control-plane") {
 			setDefaultPluginClientFactory(async () => {
@@ -431,26 +433,39 @@ export const MachineControlServiceLive: Layer.Layer<
 					workspaceScope === "personal"
 						? path
 						: `${WORKSPACE_API_PREFIX}${workspaceScope.slice(13)}${path}`;
-				if (runtimeRole !== "control-plane") {
-					return yield* Effect.fail(new MachineControlError("not-allowed"));
-				}
-				const token = yield* auth
-					.getAccessToken()
-					.pipe(Effect.mapError(() => new MachineControlError("not-allowed")));
-				const response = yield* Effect.tryPromise({
-					try: () =>
-						fetch(`${apiUrl}${scopedPath}`, {
-							method,
-							headers: {
-								[WORKSPACE_SCOPE_HEADER]: workspaceScope,
-								authorization: `Bearer ${token}`,
-								...(body === undefined
-									? {}
-									: { "content-type": "application/json" }),
-							},
-							body: body === undefined ? undefined : JSON.stringify(body),
-						}),
-					catch: () => new MachineControlError("provider-unavailable"),
+				const response = yield* Effect.gen(function* () {
+					if (runtimeRole !== "control-plane") {
+						const transport =
+							runtimeControl._tag === "Some"
+								? runtimeControl.value.current
+								: null;
+						if (workspaceScope !== "personal" || transport === null)
+							return yield* Effect.fail(new MachineControlError("not-allowed"));
+						return yield* Effect.tryPromise({
+							try: () => transport.request(path, method, body),
+							catch: () => new MachineControlError("provider-unavailable"),
+						});
+					}
+					const token = yield* auth
+						.getAccessToken()
+						.pipe(
+							Effect.mapError(() => new MachineControlError("not-allowed")),
+						);
+					return yield* Effect.tryPromise({
+						try: () =>
+							fetch(`${apiUrl}${scopedPath}`, {
+								method,
+								headers: {
+									[WORKSPACE_SCOPE_HEADER]: workspaceScope,
+									authorization: `Bearer ${token}`,
+									...(body === undefined
+										? {}
+										: { "content-type": "application/json" }),
+								},
+								body: body === undefined ? undefined : JSON.stringify(body),
+							}),
+						catch: () => new MachineControlError("provider-unavailable"),
+					});
 				});
 				if (!response.ok) {
 					const payload = yield* Effect.promise(

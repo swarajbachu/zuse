@@ -107,6 +107,7 @@ import {
 	resolveResourceProvider,
 	saveProviderConnection,
 } from "./cloud-provider-connections.ts";
+import { runtimeControlPathAllowed } from "./cloud-runtime-control.ts";
 import {
 	cloudTranscriptMessagePageObjectKey,
 	cloudTranscriptObjectKey,
@@ -1624,6 +1625,12 @@ export const queueCloudWorkspaceResume = Effect.fn("queueCloudWorkspaceResume")(
 export const routeCloudWorkspaceRequest = (
 	request: Request,
 ): Effect.Effect<Response | null, ApiError, CloudWorkspaceRouteContext> =>
+	routeCloudWorkspaceRequestWithAccess(request);
+
+const routeCloudWorkspaceRequestWithAccess = (
+	request: Request,
+	delegatedAccess?: Effect.Success<ReturnType<typeof requireWorkspaceAccess>>,
+): Effect.Effect<Response | null, ApiError, CloudWorkspaceRouteContext> =>
 	Effect.gen(function* () {
 		const url = new URL(request.url);
 		const path = url.pathname;
@@ -1661,6 +1668,46 @@ export const routeCloudWorkspaceRequest = (
 		const launchIntentCipher = yield* CloudWorkspaceLaunchIntentCipher;
 		const apiConfiguration = yield* ApiConfiguration;
 		const idlePauseMs = apiConfiguration.cloudWorkspaceIdleTimeoutMs;
+		const controlMatch =
+			/^\/v1\/cloud\/workspaces\/([^/]+)\/runtime\/control$/u.exec(path);
+		if (method === "POST" && controlMatch !== null) {
+			const source = yield* requireRuntime(
+				request,
+				decodeURIComponent(controlMatch[1] ?? ""),
+				nowMs,
+			);
+			// A shared organization runtime cannot impersonate its creator. Actor-scoped
+			// delegation must precede enabling cross-workspace control there.
+			if (source.accountId.startsWith("organization:"))
+				return yield* forbidden("runtime_control_requires_personal_workspace");
+			if (source.state !== "ready")
+				return yield* conflict("cloud_workspace_unavailable");
+			const input = yield* decodeBody(
+				Schema.Struct({
+					path: Schema.String,
+					method: Schema.String,
+					body: Schema.optional(Schema.Unknown),
+				}),
+				request,
+			);
+			if (
+				(input.method === "GET" && input.body !== undefined) ||
+				!runtimeControlPathAllowed(input.path, input.method)
+			)
+				return yield* forbidden("runtime_control_operation_not_allowed");
+			const target = new Request(`${url.origin}${input.path}`, {
+				method: input.method,
+				headers: { "content-type": "application/json" },
+				body: input.body === undefined ? undefined : JSON.stringify(input.body),
+			});
+			return yield* routeCloudWorkspaceRequestWithAccess(target, {
+				actor: { accountId: source.accountId, orgId: undefined },
+				scope: { kind: "personal" },
+				ownerId: source.accountId,
+				membership: null,
+			});
+		}
+
 		const deviceBridgeMatch =
 			/^\/v1\/cloud\/workspaces\/([^/]+)\/(runtime\/)?device-bridge$/u.exec(
 				path,
@@ -2940,10 +2987,12 @@ export const routeCloudWorkspaceRequest = (
 			/^\/v1\/cloud\/workspaces\/([^/]+)\/(pause|resume|restart|archive|unarchive|delete)$/u.exec(
 				path,
 			);
-		const access = yield* requireWorkspaceAccess(
-			request,
-			workspaceAccessForPath(path, method) ?? "content",
-		);
+		const access =
+			delegatedAccess ??
+			(yield* requireWorkspaceAccess(
+				request,
+				workspaceAccessForPath(path, method) ?? "content",
+			));
 		if (
 			access.scope.kind === "organization" &&
 			workspaceAccessForPath(path, method) === undefined

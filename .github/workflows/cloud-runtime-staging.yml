@@ -201,6 +201,8 @@ jobs:
           }
           await import("./bin.mjs");
           NODE
+          node cli/zuse commands > "$RUNNER_TEMP/zuse-commands.json"
+          node --input-type=module -e 'import fs from "node:fs"; const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (!result.ok || !result.data.commands.includes("preview set") || !result.data.commands.includes("workspace create")) throw new Error("Cloud CLI missing orchestration commands");' "$RUNNER_TEMP/zuse-commands.json"
           node --check runtime-updater.mjs
           node --check runtime-update-trigger.mjs
           node --check toolchain-reconciler.mjs

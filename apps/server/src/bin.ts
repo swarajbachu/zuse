@@ -13,7 +13,7 @@
  */
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -167,6 +167,16 @@ export const runHeadlessServer = (
 			? undefined
 			: readFileSync(enrollmentTokenFile, "utf8").trim());
 	const workspaceId = process.env.ZUSE_CLOUD_WORKSPACE_ID;
+	if (workspaceId) {
+		process.env.ZUSE_CLI_ACCESS_FILE = join(userData, "cli-access.json");
+		const bundledCliDirectory = join(
+			dirname(fileURLToPath(import.meta.url)),
+			"cli",
+		);
+		if (existsSync(join(bundledCliDirectory, "zuse")))
+			process.env.PATH = `${bundledCliDirectory}:${process.env.PATH ?? ""}`;
+	}
+
 	const machineId = process.env.ZUSE_MACHINE_ID;
 	const apiUrl = process.env.ZUSE_API_URL?.replace(/\/+$/u, "");
 	const apiIssuer = process.env.ZUSE_API_ISSUER?.replace(/\/+$/u, "");

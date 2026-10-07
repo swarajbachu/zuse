@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash, createPrivateKey, sign } from "node:crypto";
 import {
+	chmod,
 	cp,
 	mkdir,
 	readdir,
@@ -74,6 +75,15 @@ if (
 }
 await mkdir(runtimeRoot, { recursive: true });
 await cp(bundlePath, join(runtimeRoot, "bin.mjs"));
+const cliRoot = join(workspaceRoot, "packages", "serve");
+run("bunx", ["tsdown", "--config", "tsdown.cloud.config.ts"], cliRoot);
+await mkdir(join(runtimeRoot, "cli"), { recursive: true });
+await cp(
+	join(cliRoot, "dist-cloud", "bin.mjs"),
+	join(runtimeRoot, "cli", "zuse"),
+);
+await chmod(join(runtimeRoot, "cli", "zuse"), 0o755);
+
 run(
 	"bunx",
 	["tsdown", "--config", "tsdown.cursor-worker.config.ts"],

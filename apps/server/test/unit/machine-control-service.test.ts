@@ -4,15 +4,19 @@ import {
 	ChatId,
 	CloudWorkspace,
 } from "@zuse/contracts";
-import { Effect, Stream } from "effect";
-import { describe, expect, it } from "vitest";
-
+import { Effect, Layer, Stream } from "effect";
+import { describe, expect, it, vi } from "vitest";
+import { AuthService } from "../../src/auth/services/auth-service.ts";
 import {
 	MachineControlError,
+	MachineControlService,
+	MachineControlServiceLive,
 	mapApiErrorCode,
 	resolveMachineApiUrl,
 	streamCloudWorkspaceLifecycle,
 } from "../../src/machine/machine-control-service.ts";
+import { MachineRuntimeRole } from "../../src/machine/machine-runtime-role.ts";
+import { RuntimeCloudControl } from "../../src/machine/runtime-cloud-control.ts";
 
 const workspace = (
 	revision: number,
@@ -189,5 +193,40 @@ describe("machine control api URL", () => {
 		expect(observed).toEqual([2]);
 		expect(failure).toBe(denied);
 		expect(reads).toBe(2);
+	});
+});
+
+describe("cloud runtime control transport", () => {
+	it("uses the enrolled transport without accessing account credentials", async () => {
+		const getAccessToken = vi.fn(() => Effect.succeed("must-not-be-used"));
+		const request = vi.fn(async () => Response.json({ workspaces: [] }));
+		const layer = MachineControlServiceLive.pipe(
+			Layer.provide(
+				Layer.mergeAll(
+					Layer.succeed(MachineRuntimeRole, "cloud-environment"),
+					Layer.succeed(RuntimeCloudControl, { current: { request } }),
+					Layer.succeed(AuthService, {
+						getAccessToken,
+						getSession: () => Effect.succeed({ _tag: "SignedOut" }),
+						signIn: () => Effect.succeed({ _tag: "SignedOut" }),
+						signOut: () => Effect.void,
+						sessionChanges: () => Stream.empty,
+					}),
+				),
+			),
+		);
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* MachineControlService;
+				return yield* service.cloudWorkspaces();
+			}).pipe(Effect.provide(layer)),
+		);
+		expect(result.workspaces).toEqual([]);
+		expect(request).toHaveBeenCalledWith(
+			ApiPaths.cloudWorkspaces,
+			"GET",
+			undefined,
+		);
+		expect(getAccessToken).not.toHaveBeenCalled();
 	});
 });

@@ -1525,3 +1525,132 @@ test("free provider keys pin image builds and cannot authorize managed compute",
 		await runtime.dispose();
 	}
 });
+
+describe("cloud runtime orchestration", () => {
+	test("authenticates runtime delegation, isolates accounts, and fences expired credentials", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const now = Date.now();
+			const seed = async (
+				workspaceId: string,
+				accountId: string,
+				expiresAt = now + 60_000,
+			) => {
+				await runtime.runPromise(
+					store.createWorkspace(
+						{
+							workspaceId,
+							accountId,
+							projectId: "project",
+							buildId: "build",
+							provider: "fake",
+							providerSandboxId: "sandbox",
+							runtimeState: "online",
+							chatId: `chat-${workspaceId}`,
+							initialSessionId: `session-${workspaceId}`,
+							branch: workspaceId,
+							baseRef: "main",
+							state: "ready",
+							desiredState: "ready",
+							statusCode: "ready",
+							idempotencyKey: workspaceId,
+							runtimeCredentialHash: await runtime.runPromise(
+								sha256Hex("runtime-secret"),
+							),
+							nextActionAtMs: now,
+							revision: 1,
+							createdAtMs: now,
+							updatedAtMs: now,
+							lastActivityAtMs: now,
+							requestConfig: { runtimeCredentialExpiresAtMs: expiresAt },
+						},
+						{
+							workspaceId,
+							accountId,
+							chatId: `chat-${workspaceId}`,
+							sessionId: `session-${workspaceId}`,
+							turnId: "turn",
+							commandId: `launch-${workspaceId}`,
+							ciphertext: "unused",
+							expiresAtMs: now + 60_000,
+							createdAtMs: now,
+						},
+					),
+				);
+			};
+			await seed("source", "alice");
+			await seed("sibling", "alice");
+			await seed("foreign", "bob");
+			await seed("expired", "alice", now - 1);
+			await seed("organization", "organization:org");
+			const call = (
+				path: string,
+				method = "GET",
+				source = "source",
+				token = "runtime-secret",
+				body?: unknown,
+			) =>
+				runtime.runPromise(
+					handleRequest(
+						new Request(
+							`${ISSUER}/v1/cloud/workspaces/${source}/runtime/control`,
+							{
+								method: "POST",
+								headers: {
+									authorization: `Bearer ${token}`,
+									"content-type": "application/json",
+								},
+								body: JSON.stringify({ path, method, body }),
+							},
+						),
+					),
+				);
+			const list = await call("/v1/cloud/workspaces");
+			expect(list.status).toBe(200);
+			expect(
+				(await list.json()).workspaces.map(
+					(workspace: { workspaceId: string }) => workspace.workspaceId,
+				),
+			).not.toContain("foreign");
+			expect((await call("/v1/cloud/workspaces/sibling")).status).toBe(200);
+			expect((await call("/v1/cloud/workspaces/foreign")).status).toBe(404);
+			expect(
+				(
+					await call(
+						"/v1/cloud/workspaces/foreign/preview-url",
+						"POST",
+						"source",
+						"runtime-secret",
+						{ port: 8123 },
+					)
+				).status,
+			).toBe(404);
+			const preview = await call(
+				"/v1/cloud/workspaces/source/preview-url",
+				"POST",
+				"source",
+				"runtime-secret",
+				{ port: 8123 },
+			);
+			expect(preview.status).toBe(200);
+			expect(await preview.json()).toMatchObject({
+				workspaceId: "source",
+				port: 8123,
+				url: expect.any(String),
+			});
+			expect((await call("/v1/cloud/api-keys", "POST")).status).toBe(403);
+			expect(
+				(await call("/v1/cloud/workspaces", "GET", "source", "wrong")).status,
+			).toBe(401);
+			expect(
+				(await call("/v1/cloud/workspaces", "GET", "expired")).status,
+			).toBe(401);
+			expect(
+				(await call("/v1/cloud/workspaces", "GET", "organization")).status,
+			).toBe(403);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+});

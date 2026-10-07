@@ -131,6 +131,7 @@ import {
 	RuntimeModelConnections,
 } from "../harness/account-vault.ts";
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
+import { RuntimeCloudControl } from "../machine/runtime-cloud-control.ts";
 import { isProviderAuthenticationError } from "../provider/provider-auth-failure.ts";
 import { CredentialsService } from "../provider/services/credentials-service.ts";
 import { RuntimeGitExecution } from "../provider/services/runtime-git-execution.ts";
@@ -2398,6 +2399,31 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						generation: bootstrap.runtimeGeneration,
 						gatewayEpoch: bootstrap.gatewayEpoch,
 					};
+					const control = yield* Effect.serviceOption(RuntimeCloudControl);
+					if (control._tag === "Some") {
+						const transport = {
+							request: (path: string, method: string, body?: unknown) =>
+								fetch(
+									`${config.apiUrl}/v1/cloud/workspaces/${encodeURIComponent(config.workspaceId)}/runtime/control`,
+									{
+										method: "POST",
+										headers: {
+											authorization: `Bearer ${runtimeCredential.credential}`,
+											"content-type": "application/json",
+										},
+										body: JSON.stringify({ path, method, body }),
+										signal: AbortSignal.timeout(30_000),
+									},
+								),
+						};
+						control.value.current = transport;
+						yield* Effect.addFinalizer(() =>
+							Effect.sync(() => {
+								if (control.value.current === transport)
+									control.value.current = null;
+							}),
+						);
+					}
 					const modelConnections = yield* Effect.serviceOption(
 						RuntimeModelConnections,
 					);
