@@ -333,19 +333,15 @@ export const makeProviderReactorHandlers = (
 					message: restarted.error.reason,
 				});
 				yield* ndjsonAppend(sessionId, persistedError);
-				// Keep the durable turn active. Explicit Retry and boot recovery can
+				// Keep the durable turn active. Explicit Retry can
 				// replay this exact provider request without reconstructing user input.
 				yield* setStatus(sessionId, "error");
-				// Authentication is recoverable through explicit resume, which replays
-				// this same durable turn. Completing the receipt prevents catch-up from
-				// racing that user-driven retry; other transient failures stay replayable.
+				// Acknowledge this automatic effect before propagating failure to its
+				// caller (which may need to restore a claimed queue item). Catch-up must
+				// never repeatedly restart a failed provider. The durable turn remains
+				// available for explicit Retry after the user repairs its configuration.
 				if (!isProviderAuthenticationRequired(restarted.error.reason)) {
-					// ProviderService.send can fail only with AgentSessionNotFoundError,
-					// and ensureForTurn reports this branch only when its replacement send
-					// also never reached a live provider handle. That is positive evidence
-					// that delivery did not occur, so this exact durable turn remains safe
-					// for explicit retry. All interrupted/uncertain paths retain `started`.
-					yield* reactorEffects.releaseUndelivered(reactorInput.commandId);
+					yield* reactorEffects.complete(reactorInput.commandId);
 					return yield* Effect.die(
 						new Error(
 							`Provider turn could not be started after durable intent: ${restarted.error.reason}`,

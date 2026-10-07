@@ -526,6 +526,8 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			}).pipe(Effect.asVoid);
 
 		const queueRuntime = yield* makeQueueServiceRuntime({
+			resumeFailedSession: (sessionId) =>
+				restartSession(sessionId).pipe(Effect.asVoid, Effect.orDie),
 			serviceScope,
 			sql,
 			lookupSession,

@@ -3090,7 +3090,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				evidence.messages.some((message) => message.content._tag === "user"),
 			).toBe(true);
 			expect(evidence.currentChat.title).toBe("New chat");
-			expect(evidence.receipts).toHaveLength(0);
+			expect(evidence.receipts).toHaveLength(1);
 
 			const settledTurnKeys = await run(
 				Effect.gen(function* () {
@@ -3109,7 +3109,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) => s.resumeSession(initialSession.id)),
 			);
-			expect(providerSentTexts).toContain("trigger provider recovery");
+			expect(
+				providerSentTexts.filter(
+					(text) => text === "trigger provider recovery",
+				),
+			).toHaveLength(1);
 		});
 	});
 
