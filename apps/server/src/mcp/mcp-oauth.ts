@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -50,6 +51,7 @@ class RedirectRequested extends Error {
 const makeProvider = (options: {
 	readonly bundle: McpOauthBundle;
 	readonly redirectUrl: string | undefined;
+	readonly state?: string;
 	readonly persist: () => Promise<void>;
 	readonly onRedirect: (url: string) => void;
 }): OAuthClientProvider => ({
@@ -84,6 +86,9 @@ const makeProvider = (options: {
 		await options.persist();
 	},
 	codeVerifier: () => options.bundle.codeVerifier ?? "",
+	...(options.state === undefined
+		? {}
+		: { state: () => options.state as string }),
 });
 
 const CALLBACK_PATH = "/callback";
@@ -91,16 +96,20 @@ const CALLBACK_PATH = "/callback";
 /**
  * One loopback HTTP listener per flow, on an ephemeral 127.0.0.1 port —
  * the same shape the WorkOS dev flow uses. Resolves with the `code` query
- * param of the first `/callback` hit.
+ * param of the `/callback` hit that echoes the per-flow `state`.
  */
-const listenForCallback = (
+export const listenForCallback = (
 	serverLabel: string | undefined,
 ): Promise<{
 	redirectUrl: string;
+	state: string;
 	waitForCode: Promise<string>;
 	close: () => void;
 }> =>
 	new Promise((resolveListener, rejectListener) => {
+		// Minted per flow and sent through the authorization URL; callbacks
+		// that do not echo it are not ours and are ignored.
+		const state = randomUUID();
 		let resolveCode: (code: string) => void;
 		let rejectCode: (error: Error) => void;
 		const waitForCode = new Promise<string>((resolve, reject) => {
@@ -111,6 +120,17 @@ const listenForCallback = (
 			const url = new URL(req.url ?? "/", "http://127.0.0.1");
 			if (url.pathname !== CALLBACK_PATH) {
 				res.writeHead(404).end();
+				return;
+			}
+			if (url.searchParams.get("state") !== state) {
+				res.writeHead(400, BROWSER_PAGE_HEADERS).end(
+					renderMcpCallbackPage({
+						detail:
+							"The authorization response did not match this sign-in attempt.",
+						outcome: "error",
+						serverLabel,
+					}),
+				);
 				return;
 			}
 			// Classify before responding: a denied authorization must not be shown
@@ -146,6 +166,7 @@ const listenForCallback = (
 			const address = server.address() as AddressInfo;
 			resolveListener({
 				redirectUrl: `http://127.0.0.1:${address.port}${CALLBACK_PATH}`,
+				state,
 				waitForCode,
 				close: () => server.close(),
 			});
@@ -187,6 +208,7 @@ export const runMcpOauthFlow = (options: {
 				const provider = makeProvider({
 					bundle,
 					redirectUrl: listener.redirectUrl,
+					state: listener.state,
 					persist: () => options.store.save(JSON.stringify(bundle)),
 					onRedirect: options.onAuthorizationUrl,
 				});
