@@ -302,6 +302,14 @@ export const makeConversationOrchestration = (
 					Effect.gen(function* () {
 						const sessionId = input.sessionId as SessionId;
 						const target = yield* dependencies.getSession(sessionId);
+						if (
+							(target.projectId as string) !== (context.projectId as string)
+						) {
+							return {
+								ok: false as const,
+								error: `sessionId ${sessionId as string} does not belong to this project`,
+							};
+						}
 						yield* dependencies.sendToSession(sessionId, input.text, {
 							chatId: context.chatId,
 							sessionId: context.sessionId,
@@ -326,6 +334,14 @@ export const makeConversationOrchestration = (
 					Effect.gen(function* () {
 						const sessionId = input.sessionId as SessionId;
 						const session = yield* dependencies.getSession(sessionId);
+						if (
+							(session.projectId as string) !== (context.projectId as string)
+						) {
+							return {
+								ok: false as const,
+								error: `sessionId ${sessionId as string} does not belong to this project`,
+							};
+						}
 						const messages = yield* dependencies.listMessages(sessionId);
 						const limit = input.limit ?? 20;
 						return {
