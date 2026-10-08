@@ -80,7 +80,18 @@ export function AccessScreen({
 						)}
 					</div>
 				) : (
-					<Suspense fallback={null}>
+					<Suspense
+						fallback={
+							<section className="mt-4 w-full space-y-2">
+								<h1 id={headingId} ref={headingRef} tabIndex={-1}>
+									{title}
+								</h1>
+								<div>{description}</div>
+								{children}
+								{footer}
+							</section>
+						}
+					>
 						<AccessScreenDetails
 							title={title}
 							description={description}
