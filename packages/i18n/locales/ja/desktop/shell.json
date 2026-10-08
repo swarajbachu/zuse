@@ -62,6 +62,7 @@
 	"chat_loading_fallback_loading_chat": "チャットを読み込み中…",
 	"hosted_opening_zuse": "Zuse を開いています…",
 	"hosted_your_cloud_agents_anywhere": "どこでも使えるクラウドエージェント",
+	"hosted_create_account": "アカウントを作成",
 	"hosted_could_not_open_zuse": "Zuse を開けませんでした",
 	"hosted_signing_in_to_your_cloud_workspace": "クラウドワークスペースにサインインしています…",
 	"hosted_sign_in_to_set_up_cloud_agents_connect_repositories_and_start_chatting": "サインインしてクラウドエージェントの設定、リポジトリの接続、チャットの開始ができます。",

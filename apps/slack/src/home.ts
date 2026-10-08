@@ -1,9 +1,11 @@
 import { executionAccount, policyOptions } from "./access.ts";
 import { connectUrl } from "./accounts.ts";
 import {
+	agentOptions,
 	agentSettingOptions,
 	defaultAgentModel,
 	modelSettingOptions,
+	resolveAgentChoice,
 } from "./agent-choice.ts";
 import type { Installation } from "./installations.ts";
 import { repositoryOptions } from "./repositories.ts";
@@ -48,7 +50,7 @@ export const selectExecutionDefault = async (
 	env: AppEnv,
 	installation: Installation,
 	userId: string,
-	field: "agent" | "model" | "providerId",
+	field: "agent" | "model" | "agentModel" | "providerId",
 	value: string,
 	revision: number,
 	memberRevision: number,
@@ -73,7 +75,16 @@ export const selectExecutionDefault = async (
 						),
 					)
 				).agents;
-	if (field === "agent") {
+	if (field === "agentModel") {
+		if (value === "__default")
+			connection = { ...connection, agent: undefined, model: undefined };
+		else {
+			const choice = resolveAgentChoice(value);
+			if (!choice || !available?.includes(choice.agent))
+				return publishHome(env, installation, userId);
+			connection = { ...connection, ...choice };
+		}
+	} else if (field === "agent") {
 		if (value === "__default")
 			connection = { ...connection, agent: undefined, model: undefined };
 		else if (
@@ -253,19 +264,14 @@ export const publishHome = async (
 			value: "__default",
 			text: { type: "plain_text", text: "Use account default" },
 		};
+		const availability = await agentsPromise;
 		const agents = [
 			{
-				...accountDefault,
+				value: "__default",
 				text: { type: "plain_text", text: "Choose when starting a task" },
 			},
-			...agentSettingOptions((await agentsPromise)?.agents ?? []),
+			...agentOptions(availability?.agents ?? []).slice(0, 99),
 		];
-		const availability = await agentsPromise;
-		const models =
-			active.connection.agent &&
-			availability?.agents.includes(active.connection.agent)
-				? modelSettingOptions(active.connection.agent)
-				: [];
 		const control = (
 			label: string,
 			action: string,
@@ -315,16 +321,14 @@ export const publishHome = async (
 			});
 		blocks.push(
 			control(
-				"Agent",
-				"default_agent",
+				"Agent and model",
+				"default_agent_model",
 				agents,
-				active.connection.agent ?? "__default",
+				active.connection.agent && active.connection.model
+					? `${active.connection.agent}:${active.connection.model}`
+					: "__default",
 			),
 		);
-		if (models.length)
-			blocks.push(
-				control("Model", "default_model", models, active.connection.model),
-			);
 		const catalog = await providersPromise;
 		if (catalog?.providers) {
 			const options = [

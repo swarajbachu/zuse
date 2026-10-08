@@ -7,11 +7,13 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "react";
+import { AccessScreen } from "./components/access-screen.tsx";
 import { BrowserAccessGate } from "./components/browser-access-gate.tsx";
 import {
 	StartupSurface,
 	startupPresentation,
 } from "./components/startup-surface.tsx";
+import { Button } from "./components/ui/button.tsx";
 import { AppearanceController } from "./lib/appearance.tsx";
 import { markRendererStartupMilestone } from "./lib/performance-marks.ts";
 import {
@@ -97,31 +99,26 @@ function ConnectedStartupApplication({
 		return (
 			<>
 				<AppearanceController />
-				<div className="flex h-dvh items-center justify-center bg-background text-foreground">
-					<div className="max-w-sm space-y-3 px-6 text-center text-sm">
-						<p role={settings.error === null ? "status" : "alert"}>
-							{settings.error ?? message("common:loading")}
-						</p>
-						<div className="flex justify-center gap-2">
-							{settings.error !== null && (
-								<button
-									type="button"
-									className="h-7 rounded-md bg-primary px-2.5 text-xs text-primary-foreground focus-visible:outline focus-visible:outline-ring"
-									onClick={settings.retry}
-								>
-									{message("common:retry")}
-								</button>
-							)}
-							<button
-								type="button"
-								className="h-7 rounded-md bg-muted px-2.5 text-xs focus-visible:outline focus-visible:outline-ring"
-								onClick={() => selectRendererWorkspace({ kind: "personal" })}
-							>
-								{message("settings:workspace_personal")}
-							</button>
-						</div>
+				<AccessScreen
+					loaderLabel={message("common:loading")}
+					loading={settings.error === null}
+					title={settings.error ?? message("common:loading")}
+				>
+					<div className="flex gap-2">
+						{settings.error !== null && (
+							<Button className="flex-1" onClick={settings.retry}>
+								{message("common:retry")}
+							</Button>
+						)}
+						<Button
+							className="flex-1"
+							onClick={() => selectRendererWorkspace({ kind: "personal" })}
+							variant="outline"
+						>
+							{message("settings:workspace_personal")}
+						</Button>
 					</div>
-				</div>
+				</AccessScreen>
 			</>
 		);
 	}

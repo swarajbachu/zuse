@@ -136,15 +136,42 @@ export const promptConnection = async (
 	});
 };
 
+const expiredConnectionLink = () =>
+	page(
+		"<h1>Connection link expired</h1><p>Reopen Zuse’s Home tab or mention Zuse for a new private connection button.</p>",
+		401,
+	);
+
+const claimConnectionLink = async (
+	env: AppEnv,
+	installation: Installation,
+	userId: string,
+	token: string,
+): Promise<boolean> => {
+	const login = await env.store.authenticate(token, "login", true);
+	return (
+		login !== null &&
+		login.team_id === installation.teamId &&
+		login.generation === installation.generation &&
+		login.owner_id === userId
+	);
+};
+
 const beginSignIn = async (
 	env: AppEnv,
 	installation: Installation,
 	userId: string,
 	channel?: string,
 	pendingRequest?: PendingConnectionRequest,
+	loginToken?: string,
 ) => {
 	const profile = await env.store.member(installation, userId);
-	if (profile.connection)
+	if (profile.connection) {
+		if (
+			loginToken &&
+			!(await claimConnectionLink(env, installation, userId, loginToken))
+		)
+			return expiredConnectionLink();
 		return connectionComplete(
 			env,
 			installation,
@@ -153,12 +180,14 @@ const beginSignIn = async (
 			channel,
 			pendingRequest,
 		);
+	}
 	const verifier = randomSecret();
 	const state = await env.store.session(
 		"workos",
 		installation,
 		JSON.stringify({
 			verifier,
+			loginToken,
 			revision: profile.revision,
 			channel,
 			pendingRequest,
@@ -195,6 +224,7 @@ const beginSignIn = async (
 };
 
 interface PendingSignIn {
+	readonly loginToken?: string;
 	readonly revision: number;
 	readonly channel?: string;
 	readonly pendingRequest?: PendingConnectionRequest;
@@ -214,6 +244,13 @@ const finishSignIn = async (
 			"<h1>Connection changed</h1><p>Return to Slack and start again.</p>",
 			409,
 		);
+	// Link previews and browser retries must not consume admission before sign-in.
+	// After verified authentication, only one attempt can claim this Slack link.
+	if (
+		pending.loginToken &&
+		!(await claimConnectionLink(env, installation, userId, pending.loginToken))
+	)
+		return expiredConnectionLink();
 	const cloud = env.cloud(accountId, organization?.id);
 	const webhook = await registerWebhook(
 		cloud,
@@ -339,14 +376,10 @@ export const accountRoutes = async (
 		const login = await env.store.authenticate(
 			url.searchParams.get("token") ?? "",
 			"login",
-			true,
 		);
 		const installation = login ? await env.store.get(login.team_id) : null;
 		if (!login || !installation || installation.generation !== login.generation)
-			return page(
-				"<h1>Connection link expired</h1><p>Reopen Zuse’s Home tab or mention Zuse for a new private connection button.</p>",
-				401,
-			);
+			return expiredConnectionLink();
 		const { channel, pendingRequest } = JSON.parse(login.payload || "{}");
 		return beginSignIn(
 			env,
@@ -354,6 +387,7 @@ export const accountRoutes = async (
 			login.owner_id,
 			channel,
 			pendingRequest,
+			url.searchParams.get("token") ?? undefined,
 		);
 	}
 	// Compatibility with already-issued installer setup sessions. No raw model/agent form.
@@ -409,11 +443,8 @@ export const accountRoutes = async (
 			"<h1>Connection cancelled or expired</h1><p>Your account was not connected. Return to Slack to try again.</p>",
 			400,
 		);
-	const pending = JSON.parse(session.payload) as {
+	const pending = JSON.parse(session.payload) as PendingSignIn & {
 		verifier: string;
-		revision: number;
-		channel?: string;
-		pendingRequest?: PendingConnectionRequest;
 	};
 	const profile = await env.store.member(installation, session.owner_id);
 	if (profile.connection || profile.revision !== pending.revision)

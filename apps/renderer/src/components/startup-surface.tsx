@@ -3,9 +3,12 @@ import type { SurfacePhase } from "@zuse/client-runtime/resource-state";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useState } from "react";
 
-import { LogoTraceLoader } from "./logo-trace-loader.tsx";
+import { AccessScreen } from "./access-screen.tsx";
+import { Button } from "./ui/button.tsx";
 
 export const SLOW_STARTUP_DELAY_MS = 4_000;
+
+const SURFACE_CLASS_NAME = "fixed inset-0 z-50 h-dvh max-h-dvh min-h-0";
 
 export type StartupPresentation = "loading" | "error" | "ready";
 
@@ -80,79 +83,60 @@ export function StartupSurface({
 		);
 	};
 
+	if (presentation === "loading") {
+		return (
+			<AccessScreen
+				className={SURFACE_CLASS_NAME}
+				description={
+					slow
+						? uiMessage("common:startup_surface_still_starting_zuse")
+						: undefined
+				}
+				loaderComplete={!activelyLoading}
+				loaderLabel={uiMessage("common:startup_surface_loading_zuse")}
+				loading
+				onLoaderDone={onDone}
+			/>
+		);
+	}
+
 	return (
-		<div
-			aria-busy={activelyLoading}
-			className="fixed inset-0 z-50 flex h-dvh max-h-dvh min-h-0 w-screen items-center justify-center overflow-hidden bg-background px-6 text-foreground"
-		>
-			{presentation === "loading" ? (
-				<main aria-live="polite" className="flex flex-col items-center gap-3">
-					<LogoTraceLoader
-						ariaLabel={uiMessage("common:startup_surface_loading_zuse")}
-						className="text-foreground"
-						loading={activelyLoading}
-						onDone={onDone}
-						size={72}
-					/>
-					{slow ? (
-						<p className="text-muted-foreground text-xs">
-							{uiMessage("common:startup_surface_still_starting_zuse")}
-						</p>
-					) : null}
-				</main>
-			) : (
-				<main
-					aria-labelledby="startup-error-title"
-					className="w-full max-w-sm text-center"
-				>
-					<div className="font-semibold text-base tracking-tight">
-						{uiMessage("common:startup_surface_zuse")}
-					</div>
-					<h1 id="startup-error-title" className="mt-4 font-medium text-sm">
-						{uiMessage("common:startup_surface_zuse_couldn_t_start")}
-					</h1>
-					<p className="mt-1 text-muted-foreground text-xs leading-5">
-						{uiMessage(
-							"common:startup_surface_the_local_server_did_not_become_available_your_data_is_still_on_disk",
-						)}
-					</p>
-					{safeError === null ? null : (
-						<p
-							className="mt-3 break-words text-muted-foreground text-xs"
-							role="alert"
-						>
-							{safeError}
-						</p>
-					)}
-					<div className="mt-4 flex items-center justify-center gap-2">
-						<button
-							className="inline-flex h-7 items-center justify-center rounded-md bg-primary px-2.5 font-medium text-primary-foreground text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-							onClick={onRetry}
-							type="button"
-						>
-							{uiMessage("common:startup_surface_try_again")}
-						</button>
-						<button
-							className="inline-flex h-7 items-center justify-center rounded-md bg-muted px-2.5 font-medium text-foreground text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-							onClick={() => window.location.reload()}
-							type="button"
-						>
-							{uiMessage("common:startup_surface_reload")}
-						</button>
-						{safeError === null ? null : (
-							<button
-								className="inline-flex h-7 items-center justify-center rounded-md px-2.5 font-medium text-muted-foreground text-xs outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-								onClick={copyDetails}
-								type="button"
-							>
-								{copied
-									? uiMessage("common:copied")
-									: uiMessage("common:startup_surface_copy_details")}
-							</button>
-						)}
-					</div>
-				</main>
+		<AccessScreen
+			className={SURFACE_CLASS_NAME}
+			description={uiMessage(
+				"common:startup_surface_the_local_server_did_not_become_available_your_data_is_still_on_disk",
 			)}
-		</div>
+			footer={
+				safeError === null ? undefined : (
+					<p className="break-words font-mono" role="alert">
+						{safeError}
+					</p>
+				)
+			}
+			headingId="startup-error-title"
+			loaderLabel={uiMessage("common:startup_surface_zuse")}
+			loading={false}
+			title={uiMessage("common:startup_surface_zuse_couldn_t_start")}
+		>
+			<div className="flex gap-2">
+				<Button className="flex-1" onClick={onRetry}>
+					{uiMessage("common:startup_surface_try_again")}
+				</Button>
+				<Button
+					className="flex-1"
+					onClick={() => window.location.reload()}
+					variant="outline"
+				>
+					{uiMessage("common:startup_surface_reload")}
+				</Button>
+				{safeError === null ? null : (
+					<Button onClick={copyDetails} variant="ghost">
+						{copied
+							? uiMessage("common:copied")
+							: uiMessage("common:startup_surface_copy_details")}
+					</Button>
+				)}
+			</div>
+		</AccessScreen>
 	);
 }

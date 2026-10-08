@@ -88,10 +88,11 @@ app from Slack. Do not give investigation agents production deployment secrets.
 
 ### Slack execution defaults
 
-App Home exposes Agent, Model, and Sandbox provider settings for the owner of the
-active connection. Models use the shared curated agent catalog; sandbox choices
+App Home exposes an Agent and model selector and a separate Sandbox provider
+setting for the owner of the active connection. Models use the shared curated agent catalog; sandbox choices
 use the same account or organization availability rules as cloud settings.
-Changing the agent selects its default model. These settings apply to new task
+The agent and model are saved together, so a saved pair skips the task picker
+in new threads. These settings apply to new task
 workspaces and live alert automations; existing Slack threads keep their workspace.
 With a shared installer account, only the installer can change these defaults.
 Agent credentials must already be connected in Zuse. Sandbox provider account defaults remain available, and unavailable saved providers
@@ -123,3 +124,7 @@ new task creation requires a connected selection. Both modal submission and queu
 execution recheck authorization. The account-scoped agent listing returns IDs only,
 without credentials, keys, or account labels. This does not inspect or wake runtimes
 to verify CLI installation or query model entitlements; runtime errors remain explicit.
+
+Private account connection links expire after ten minutes. Opening one starts
+authentication without consuming it, so previews and failed sign-ins can be
+retried. Successful sign-in consumes the link; OAuth callbacks remain single-use.

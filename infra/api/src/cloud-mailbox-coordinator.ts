@@ -99,7 +99,7 @@ const watchRevision = (body: string): number => {
  * command response and the Worker should continue its normal gateway/reconcile
  * processing. Every command variant is terminally handled here.
  */
-export const coordinateCloudMailboxResponse = async (input: {
+const coordinateCloudMailboxResponseInternal = async (input: {
 	readonly response: Response;
 	readonly mailboxes: WorkspaceMailboxNamespace;
 	readonly mailboxEnabled: boolean;
@@ -404,4 +404,29 @@ export const coordinateCloudMailboxResponse = async (input: {
 		});
 		return cloudMailboxUnavailableResponse();
 	}
+};
+
+/** Preserve the router's approved browser policy when the mailbox replaces its response. */
+export const coordinateCloudMailboxResponse = async (
+	input: Parameters<typeof coordinateCloudMailboxResponseInternal>[0],
+): Promise<Response | undefined> => {
+	const response = await coordinateCloudMailboxResponseInternal(input);
+	if (
+		response === undefined ||
+		!input.response.headers.has("access-control-allow-origin")
+	)
+		return response;
+	const headers = new Headers(response.headers);
+	input.response.headers.forEach((value, name) => {
+		if (name.startsWith("access-control-")) headers.set(name, value);
+	});
+	const vary = [headers.get("vary"), input.response.headers.get("vary")]
+		.filter((value) => value !== null)
+		.join(", ");
+	if (vary !== "") headers.set("vary", vary);
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
 };

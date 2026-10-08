@@ -116,10 +116,10 @@ describe("renderer design system", () => {
 	it("uses 28px visible controls in browser authentication", () => {
 		const accessGate = rendererSource("components/browser-access-gate.tsx");
 
-		expect(accessGate).toContain(
-			'className="h-7 min-w-0 flex-1 rounded-md border border-input',
-		);
-		expect(accessGate).not.toContain("min-h-11 rounded-lg bg-primary");
+		// The shared Input and default Button are both h-7.
+		expect(accessGate).toContain("<Input");
+		expect(accessGate).toContain("<Button");
+		expect(accessGate).not.toMatch(/\b(?:h-8|h-11|min-h-11)\b/);
 	});
 
 	it("keeps the project rail quiet while giving every chat a rich hover state", () => {
