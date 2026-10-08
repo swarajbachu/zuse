@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +9,7 @@ import { Effect, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+	checkNativeGitAccess,
 	makeCloudGitExecution,
 	prepareGitExecution,
 } from "../../src/api/cloud-git-execution.ts";
@@ -279,6 +281,48 @@ test("native Git honors the repository SSH command and never silently borrows a 
 		expect(fetch).not.toHaveBeenCalled();
 	} finally {
 		await runtime.dispose();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test.each([
+	"environment",
+	"config",
+])("native Git check suppresses %s askpass prompts", async (source) => {
+	const directory = await mkdtemp(join(tmpdir(), "git-askpass-"));
+	const server = createServer((_request, response) => {
+		response.writeHead(401);
+		response.end();
+	});
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	try {
+		const address = server.address();
+		if (!address || typeof address === "string")
+			throw new Error("No test server port");
+		const git = (...args: string[]) =>
+			execFileSync("git", ["-C", directory, ...args]);
+		git("init", "-q");
+		git("remote", "add", "origin", `http://127.0.0.1:${address.port}/repo`);
+		git("config", "credential.helper", "");
+		const helper = join(directory, "askpass");
+		const marker = join(directory, "prompted");
+		await writeFile(helper, `#!/bin/sh\ntouch '${marker}'\nexit 1\n`, {
+			mode: 0o700,
+		});
+		if (source === "environment") vi.stubEnv("GIT_ASKPASS", helper);
+		else {
+			vi.stubEnv("GIT_ASKPASS", undefined);
+			git("config", "core.askPass", helper);
+		}
+		expect(await checkNativeGitAccess(directory)).toBe(
+			"authentication-required",
+		);
+		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+	} finally {
+		vi.unstubAllEnvs();
+		await new Promise<void>((resolve, reject) =>
+			server.close((error) => (error ? reject(error) : resolve())),
+		);
 		await rm(directory, { recursive: true, force: true });
 	}
 });

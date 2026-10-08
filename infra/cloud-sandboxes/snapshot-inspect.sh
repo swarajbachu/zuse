@@ -11,7 +11,7 @@ const output = process.env.ZUSE_SNAPSHOT_RESULT;
 const result = { repositories: [], agents: [], truncated: false };
 const git = (path, args, timeout = 3000) => spawnSync('git', ['-C', path, ...args], {
   encoding: 'utf8', timeout, maxBuffer: 16384,
-  env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', SSH_ASKPASS_REQUIRE: 'never' },
+  env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GCM_INTERACTIVE: 'never', SSH_ASKPASS_REQUIRE: 'never' },
 });
 try {
   const manifest = JSON.parse(await readFile('/etc/zuse/snapshot.json', 'utf8'));
@@ -40,10 +40,12 @@ try {
   }
   const seen = new Set();
   for (const candidate of candidates) {
-    const path = await realpath(candidate);
+    const path = await realpath(candidate).catch(() => null);
+    if (!path) { if (requested.length) throw new Error('snapshot-repository-invalid'); continue; }
     if (seen.has(path)) continue;
     seen.add(path);
-    await access(path, constants.R_OK | constants.W_OK | constants.X_OK);
+    const usable = await access(path, constants.R_OK | constants.W_OK | constants.X_OK).then(() => true, () => false);
+    if (!usable) { if (requested.length) throw new Error('snapshot-repository-not-writable'); continue; }
     const top = git(path, ['rev-parse', '--show-toplevel']);
     if (top.status !== 0 || top.stdout.trim() !== path) { if (requested.length) throw new Error('snapshot-repository-invalid'); continue; }
     const raw = git(path, ['remote', 'get-url', 'origin']).stdout?.trim() ?? '';

@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -75,7 +76,13 @@ const fixture = () => {
 			"/opt/zuse/current/runtime-metadata.json",
 			join(root, "metadata.json"),
 		);
-	writeFileSync(join(root, "inspect.sh"), script);
+	writeFileSync(
+		join(root, "inspect.sh"),
+		script.replace(
+			"[user.homedir, '/workspace', '/workspaces', '/home', '/app', '/srv']",
+			JSON.stringify([root]),
+		),
+	);
 	const inspect = (paths = [repo], error = "", loggedOut = false) => {
 		execFileSync("bash", [join(root, "inspect.sh")], {
 			env: {
@@ -152,4 +159,27 @@ test("installer takes no repository or credential arguments", () => {
 		),
 	).toThrow();
 	execFileSync("bash", ["-n", script]);
+});
+
+test("automatic discovery skips an unwritable checkout; explicit paths report it", () => {
+	const { root, repo, inspect } = fixture();
+	const blocked = join(root, "blocked");
+	mkdirSync(join(blocked, ".git"), { recursive: true });
+	chmodSync(blocked, 0o500);
+	try {
+		const automatic = inspect([]);
+		expect(automatic.error).toBeUndefined();
+		expect(
+			automatic.repositories.map((entry: { path: string }) => entry.path),
+		).toEqual([repo]);
+		expect(inspect([blocked]).error).toBe("snapshot-repository-not-writable");
+	} finally {
+		chmodSync(blocked, 0o700);
+	}
+});
+test("an explicitly requested missing path has an actionable error", () => {
+	const { root, inspect } = fixture();
+	expect(inspect([join(root, "missing")]).error).toBe(
+		"snapshot-repository-invalid",
+	);
 });

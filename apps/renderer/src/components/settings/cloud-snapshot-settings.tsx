@@ -317,6 +317,7 @@ const snapshotErrorMessage = (
 			return uiMessage("settings:snapshot_ambiguous");
 		case "snapshot-runtime-update-required":
 			return uiMessage("settings:snapshot_update_required");
+		case "snapshot-repository-not-writable":
 		case "snapshot-repository-invalid":
 			return uiMessage("settings:snapshot_invalid_repository");
 		case "snapshot-inspection-timeout":

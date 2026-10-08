@@ -174,6 +174,47 @@ const writeOwnerOnlyFile = (
 		catch: () => fail("workspace_github_broker_state_failed"),
 	});
 
+/** Credential status is advisory; failed lookups must not stop event publishing. */
+export const trackSnapshotNativeAccess = <E, R, E2, R2>(input: {
+	readonly session: Effect.Effect<
+		{ readonly id: AgentSessionId; readonly providerId: string },
+		E,
+		R
+	>;
+	readonly history: (
+		id: AgentSessionId,
+	) => Effect.Effect<
+		ReadonlyArray<{ readonly content: MessageContent }>,
+		E2,
+		R2
+	>;
+	readonly outcome: string;
+	readonly access: Map<string, SnapshotAgentAccess>;
+}) =>
+	Effect.gen(function* () {
+		const session = yield* input.session;
+		const providerId = session.providerId;
+		if (providerId === "claude" || providerId === "codex") {
+			const history =
+				input.outcome === "error" ? yield* input.history(session.id) : [];
+			const previous = input.access.get(providerId);
+			const state = isProviderAuthenticationError(history.at(-1)?.content)
+				? previous?.state === "detected" ||
+					previous?.state === "verified" ||
+					previous?.state === "expired"
+					? "expired"
+					: "authentication-required"
+				: input.outcome === "completed"
+					? "verified"
+					: (previous?.state ?? "unavailable");
+			input.access.set(providerId, {
+				providerId,
+				state,
+				checkedAt: Date.now(),
+			});
+		}
+	}).pipe(Effect.ignore);
+
 export const writeGithubBrokerState = (
 	config: CloudWorkspaceRuntimeConfig,
 	runtimeCredential: string,
@@ -3543,33 +3584,14 @@ export const makeCloudWorkspaceRuntimeLayer = (
 										bootstrap.providerAuthMode === "snapshot-native" &&
 										record.event._tag === "TurnSettled"
 									) {
-										const session = yield* sessions.getSession(
-											AgentSessionId.make(record.streamId),
-										);
-										const providerId = session.providerId;
-										if (providerId === "claude" || providerId === "codex") {
-											const history =
-												record.event.outcome === "error"
-													? yield* messages.listMessages(session.id)
-													: [];
-											const previous = nativeAgentAccess.get(providerId);
-											const state = isProviderAuthenticationError(
-												history.at(-1)?.content,
-											)
-												? previous?.state === "detected" ||
-													previous?.state === "verified" ||
-													previous?.state === "expired"
-													? "expired"
-													: "authentication-required"
-												: record.event.outcome === "completed"
-													? "verified"
-													: (previous?.state ?? "unavailable");
-											nativeAgentAccess.set(providerId, {
-												providerId,
-												state,
-												checkedAt: Date.now(),
-											});
-										}
+										yield* trackSnapshotNativeAccess({
+											session: sessions.getSession(
+												AgentSessionId.make(record.streamId),
+											),
+											history: (id) => messages.listMessages(id),
+											outcome: record.event.outcome,
+											access: nativeAgentAccess,
+										});
 									}
 
 									const reason: RuntimeSummaryReason | null =

@@ -201,6 +201,7 @@ export const checkNativeGitAccess = (
 				env: {
 					...process.env,
 					GIT_TERMINAL_PROMPT: "0",
+					GIT_ASKPASS: "",
 					GCM_INTERACTIVE: "never",
 					SSH_ASKPASS_REQUIRE: "never",
 				},

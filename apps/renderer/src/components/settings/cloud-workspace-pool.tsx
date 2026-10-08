@@ -13,6 +13,7 @@ import {
 import {
 	type CloudSetupProgress,
 	type CloudSetupStep,
+	readyCloudOnboardingSnapshot,
 	requestCloudOnboarding,
 } from "../../lib/cloud-onboarding.ts";
 import { peekCloudGithub } from "../../lib/cloud-workspace-session-cache.ts";
@@ -458,21 +459,19 @@ function ScopedCloudWorkspacePool({
 		});
 	}, [authLoading, isSignedIn, load, loadGithubRepos, section]);
 
-	const customSnapshotReady = providerImages.some(
-		(image) => image.state === "ready" && image.snapshot !== undefined,
+	const readySnapshot = readyCloudOnboardingSnapshot(
+		providerImages,
+		selectedProvider,
 	);
 	const githubReady =
-		customSnapshotReady || (githubAuthenticated && projects.length > 0);
+		readySnapshot !== undefined || (githubAuthenticated && projects.length > 0);
 	const authReady =
-		providerImages.some(
-			(image) =>
-				image.state === "ready" &&
-				image.snapshot !== undefined &&
-				image.snapshot.agentAuthentication !== "zuse",
-		) ||
+		(readySnapshot !== undefined &&
+			readySnapshot.agentAuthentication !== "zuse") ||
 		providerImages.some((image) =>
 			image.providers.some((provider) => provider.state === "connected"),
 		);
+
 	const imageReady =
 		accountImage?.state === "ready" &&
 		!busy?.startsWith("image:") &&
