@@ -4,7 +4,7 @@ import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useState } from "react";
 
 import { AccessScreen } from "./access-screen.tsx";
-import { Button } from "./ui/button.tsx";
+import { buttonVariants } from "./ui/button-variants.ts";
 
 export const SLOW_STARTUP_DELAY_MS = 4_000;
 
@@ -119,22 +119,33 @@ export function StartupSurface({
 			title={uiMessage("common:startup_surface_zuse_couldn_t_start")}
 		>
 			<div className="flex gap-2">
-				<Button className="flex-1" onClick={onRetry}>
+				<button
+					type="button"
+					className={buttonVariants({ className: "flex-1" })}
+					onClick={onRetry}
+				>
 					{uiMessage("common:startup_surface_try_again")}
-				</Button>
-				<Button
-					className="flex-1"
+				</button>
+				<button
+					type="button"
+					className={buttonVariants({
+						className: "flex-1",
+						variant: "outline",
+					})}
 					onClick={() => window.location.reload()}
-					variant="outline"
 				>
 					{uiMessage("common:startup_surface_reload")}
-				</Button>
+				</button>
 				{safeError === null ? null : (
-					<Button onClick={copyDetails} variant="ghost">
+					<button
+						type="button"
+						onClick={copyDetails}
+						className={buttonVariants({ variant: "ghost" })}
+					>
 						{copied
 							? uiMessage("common:copied")
 							: uiMessage("common:startup_surface_copy_details")}
-					</Button>
+					</button>
 				)}
 			</div>
 		</AccessScreen>

@@ -35,7 +35,7 @@ describe("renderer design system", () => {
 
 	it("keeps compact settings actions at 28px", () => {
 		const settings = rendererSource("components/ui/settings-panel.tsx");
-		const buttons = rendererSource("components/ui/button.tsx");
+		const buttons = rendererSource("components/ui/button-variants.ts");
 
 		expect(settings).toContain('className="flex h-7 shrink-0 items-center"');
 		expect(buttons).toContain('default: "h-7');
@@ -53,7 +53,7 @@ describe("renderer design system", () => {
 	});
 
 	it("gives text buttons deliberate horizontal spacing", () => {
-		const buttons = rendererSource("components/ui/button.tsx");
+		const buttons = rendererSource("components/ui/button-variants.ts");
 
 		expect(buttons).toContain('default: "h-7 px-[calc(--spacing(4)-1px)]"');
 		expect(buttons).toContain(

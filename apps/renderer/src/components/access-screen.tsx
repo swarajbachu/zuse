@@ -1,8 +1,7 @@
 import type { ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 import { LogoTraceLoader } from "./logo-trace-loader.tsx";
-import { Card } from "./ui/card.tsx";
-import { Frame, FrameFooter, FrameHeader } from "./ui/frame.tsx";
+import { Frame, FrameFooter, FrameHeader, FramePanel } from "./ui/frame.tsx";
 
 /**
  * Full-window surface for everything shown before the app itself can render:
@@ -97,7 +96,9 @@ export function AccessScreen({
 							)}
 						</FrameHeader>
 						{children === undefined ? null : (
-							<Card className="gap-2 p-3">{children}</Card>
+							<FramePanel className="flex flex-col gap-2 p-3">
+								{children}
+							</FramePanel>
 						)}
 						{footer === undefined ? null : (
 							<FrameFooter className="px-3 py-2 text-[11px] text-muted-foreground leading-4">
