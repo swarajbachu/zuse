@@ -1324,6 +1324,9 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 	"BashOutput",
 	"TodoWrite",
 	ASK_USER_QUESTION_FQN,
+	// Sandboxed, app-owned visuals publish only into the caller's conversation.
+	`mcp__${ZUSE_MCP_NAME}__html_preview`,
+	`mcp__${ZUSE_MCP_NAME}__html_render`,
 	// Agent browser — navigate / screenshot / snapshot / wait are read-only and
 	// fully visible to the user (the page loads in the on-screen webview,
 	// screenshots flash a shutter). Auto-allow like Grep/Glob.

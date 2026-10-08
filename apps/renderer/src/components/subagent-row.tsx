@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import {
 	type AgentItemId,
+	type EnvironmentId,
 	labelForModelId,
 	type Message,
 } from "@zuse/contracts";
@@ -58,6 +59,7 @@ function SubagentRowImpl({
 	summary,
 	readOnly = false,
 	chatRef = null,
+	environmentId,
 }: {
 	readonly agentToolUseId: AgentItemId;
 	readonly agentName: string;
@@ -75,6 +77,7 @@ function SubagentRowImpl({
 	} | null;
 	readonly readOnly?: boolean;
 	readonly chatRef?: ChatRef | null;
+	readonly environmentId?: EnvironmentId;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
@@ -160,7 +163,12 @@ function SubagentRowImpl({
 					<PromptRow text={prompt} />
 					<div className="flex flex-col">
 						{children.map((m) => (
-							<MessageRow key={m.id} message={m} readOnly={readOnly} />
+							<MessageRow
+								key={m.id}
+								message={m}
+								readOnly={readOnly}
+								environmentId={environmentId ?? chatRef?.environmentId}
+							/>
 						))}
 					</div>
 					{summary !== null && summary.text.length > 0 ? (

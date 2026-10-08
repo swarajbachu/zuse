@@ -1,7 +1,12 @@
 import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { LegendList } from "@legendapp/list/react";
-import type { FolderId, Message, SessionId } from "@zuse/contracts";
+import type {
+	EnvironmentId,
+	FolderId,
+	Message,
+	SessionId,
+} from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useCallback, useMemo } from "react";
 
@@ -17,10 +22,12 @@ import { TurnSummary } from "./turn-summary.tsx";
 
 export function ArchivedChatTimeline({
 	projectId,
+	environmentId,
 	sessionId,
 	messages,
 }: {
 	readonly projectId: FolderId;
+	readonly environmentId: EnvironmentId;
 	readonly sessionId: SessionId;
 	readonly messages: ReadonlyArray<Message>;
 }) {
@@ -43,11 +50,12 @@ export function ArchivedChatTimeline({
 		({ item }: { item: ChatTimelineRow }) => (
 			<ArchivedTimelineRow
 				row={item}
+				environmentId={environmentId}
 				sessionId={sessionId}
 				projectId={projectId}
 			/>
 		),
-		[projectId, sessionId],
+		[environmentId, projectId, sessionId],
 	);
 
 	return (
@@ -79,10 +87,12 @@ function ArchivedTimelineRow({
 	row,
 	sessionId,
 	projectId,
+	environmentId,
 }: {
 	readonly row: ChatTimelineRow;
 	readonly sessionId: SessionId;
 	readonly projectId: FolderId;
+	readonly environmentId: EnvironmentId;
 }) {
 	switch (row.kind) {
 		case "tool-activity":
@@ -90,6 +100,7 @@ function ArchivedTimelineRow({
 				<ToolActivityTree
 					messages={row.messages}
 					sessionId={sessionId}
+					environmentId={environmentId}
 					readOnly
 					forkDestination="chat"
 					sourceProjectId={projectId}
@@ -101,6 +112,7 @@ function ArchivedTimelineRow({
 				<MessageRow
 					message={row.message}
 					sessionId={sessionId}
+					environmentId={environmentId}
 					readOnly
 					forkDestination="chat"
 					sourceProjectId={projectId}
@@ -111,6 +123,7 @@ function ArchivedTimelineRow({
 			return (
 				<SubagentRow
 					agentToolUseId={row.parentItemId}
+					environmentId={environmentId}
 					agentName={row.agentName}
 					prompt={row.prompt}
 					modelRequested={row.modelRequested}
@@ -125,6 +138,7 @@ function ArchivedTimelineRow({
 			return (
 				<TurnSummary
 					body={row.body}
+					environmentId={environmentId}
 					sessionId={sessionId}
 					forkDestination="chat"
 					sourceProjectId={projectId}

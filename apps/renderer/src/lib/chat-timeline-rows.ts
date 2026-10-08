@@ -1,10 +1,11 @@
+import { isHtmlRenderTool } from "@zuse/client-runtime/html-render";
 import {
 	isUserMessage,
 	normalizeTimelineMessages,
 } from "@zuse/client-runtime/timeline";
 import type { AgentItemId, Message } from "@zuse/contracts";
-
 import { groupMessages } from "./group-messages.ts";
+import { normalizeToolCallEnvelope } from "./tool-call-envelope.ts";
 
 export type ChatTimelineRow =
 	| {
@@ -146,6 +147,16 @@ export const isForkableAssistantMessage = (message: Message): boolean =>
 		message.content.parentItemId === undefined);
 
 /** Rows drawn as branches of a tool tree, with the connector on the left. */
+export const isVisualMessage = (message: Message): boolean =>
+	message.content._tag === "tool_use" &&
+	isHtmlRenderTool(
+		normalizeToolCallEnvelope(
+			message.content.tool,
+			message.content.input,
+			undefined,
+		).tool,
+	);
+
 export const isToolTreeBranch = (message: Message): boolean =>
 	message.content._tag === "tool_use" || message.content._tag === "thinking";
 
@@ -210,7 +221,11 @@ export function deriveChatTimelineRows({
 				message.content._tag === "assistant" &&
 				message.content.text.trim().length > 0,
 		);
-		const showSummary = !isLive && hasToolCalls && hasFinalText;
+		const showSummary =
+			!isLive &&
+			hasToolCalls &&
+			hasFinalText &&
+			!turn.body.some(isVisualMessage);
 		const bodyGroups = groupMessages(turn.body);
 		const planMessages = turn.body.filter(
 			(message) =>
@@ -371,6 +386,7 @@ export function groupToolActivityRows(
 					row.message.content.text.trim().length === 0));
 		if (
 			row.kind === "message" &&
+			!isVisualMessage(row.message) &&
 			(tag === "tool_use" || (active !== undefined && joinsActivity))
 		) {
 			if (active === undefined) {

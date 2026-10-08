@@ -122,6 +122,8 @@ await cp(
 );
 
 const nativePackages = [
+	"playwright",
+	"playwright-core",
 	"bindings",
 	"file-uri-to-path",
 	"node-gyp-build",

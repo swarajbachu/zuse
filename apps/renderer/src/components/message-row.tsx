@@ -1,6 +1,11 @@
+import {
+	isHtmlRenderTool,
+	readHtmlRenderResult,
+} from "@zuse/client-runtime/html-render";
 import { providerDisplayName } from "~/lib/provider-labels";
 import { useStreamingText } from "../hooks/use-streaming-text.ts";
 import { ContextPill, contextPillClass } from "./context-pill.tsx";
+import { HtmlVisual } from "./html-visual.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import "@zuse/i18n/english/chat";
@@ -228,6 +233,11 @@ function MessageRowImpl({
 		case "tool_use":
 			return (
 				<ToolUseMessageRow
+					sessionRef={
+						environmentId
+							? { environmentId, sessionId: message.sessionId }
+							: undefined
+					}
 					content={message.content}
 					createdAt={message.createdAt}
 				/>
@@ -320,9 +330,11 @@ function ThinkingMessageRow({
 }
 
 function ToolUseMessageRow({
+	sessionRef,
 	content,
 	createdAt,
 }: {
+	sessionRef?: SessionRef;
 	content: MessageContent<"tool_use">;
 	createdAt: Date;
 }) {
@@ -350,6 +362,15 @@ function ToolUseMessageRow({
 		content.input,
 		result,
 	);
+	if (
+		sessionRef &&
+		isHtmlRenderTool(normalized.tool) &&
+		normalized.result &&
+		!normalized.result.isError
+	) {
+		const visual = readHtmlRenderResult(normalized.result.output);
+		if (visual) return <HtmlVisual visual={visual} sessionRef={sessionRef} />;
+	}
 	const orch = orchestrationToolName(normalized.tool);
 	if (
 		orch === "create_thread" ||

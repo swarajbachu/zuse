@@ -76,6 +76,8 @@ afterPack: scripts/cursor-sdk-package.mjs
 
 asar: true
 asarUnpack:
+  - "node_modules/playwright/**"
+  - "node_modules/playwright-core/**"
   - "**/*.node"
   - "dist-electron/browser-mcp-child.cjs"
   - "dist-electron/orchestration-mcp-child.cjs"

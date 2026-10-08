@@ -24,6 +24,7 @@ export * from "./fs.ts";
 export * from "./git.ts";
 export * from "./handshake.ts";
 export * from "./host.ts";
+export * from "./html-render.ts";
 export * from "./ids.ts";
 export * from "./keybindings.ts";
 export * from "./keybindings-parse.ts";

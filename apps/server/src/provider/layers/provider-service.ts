@@ -5,6 +5,7 @@ import { startCursorSession } from "@zuse/agents/drivers/cursor";
 import { startGeminiSession } from "@zuse/agents/drivers/gemini";
 import { startGenericAcpSession } from "@zuse/agents/drivers/generic-acp";
 import { startGrokSession } from "@zuse/agents/drivers/grok";
+import { HtmlTools } from "@zuse/agents/drivers/html-tools";
 import { startKiroSession } from "@zuse/agents/drivers/kiro";
 import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
 import { startOpencode2Session } from "@zuse/agents/drivers/opencode2";
@@ -66,6 +67,7 @@ import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process"
 import { AnalyticsService } from "../../analytics/services/analytics-service.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { HarnessProvider } from "../../harness/provider.ts";
+import { createHtmlTools } from "../../html-render/service.ts";
 import {
 	legacyAppOwnedCodexServerNames,
 	readNativeServers,
@@ -139,6 +141,10 @@ export const ProviderServiceLive = Layer.effect(
 		const workspace = yield* WorkspaceService;
 		const permissions = yield* PermissionService;
 		const attachmentService = yield* AttachmentService;
+		const htmlTools = yield* Effect.acquireRelease(
+			Effect.sync(() => createHtmlTools(attachmentService)),
+			(tools) => Effect.promise(() => tools.close()),
+		);
 		const browserBridge = yield* BrowserBridgeService;
 		const configStore = yield* ConfigStoreService;
 		const mcp = yield* McpService;
@@ -517,27 +523,31 @@ export const ProviderServiceLive = Layer.effect(
 						managedPlugins = yield* Effect.tryPromise({
 							try: async () => {
 								const client = await getDefaultPluginClient();
-								if (!client) return undefined;
+
 								return issueMcpGatewaySession({
 									sessionId,
 									scopes: {
 										browser: false,
 										orchestration: false,
-										plugins: true,
+										plugins: client !== undefined,
+										html: true,
 									},
 									ctx: {
-										plugins: {
-											client,
-											requestPermission: (kind, options) =>
-												buildRequestPermission(input.folderId)(
-													sessionId,
-													kind,
-													options,
-												),
-											getRuntimeMode: () =>
-												getRuntimeMode?.() ?? "approval-required",
-											getPermissionMode: () => managedPermissionMode,
-										},
+										html: { client: htmlTools.client, cwd },
+										plugins: client
+											? {
+													client,
+													requestPermission: (kind, options) =>
+														buildRequestPermission(input.folderId)(
+															sessionId,
+															kind,
+															options,
+														),
+													getRuntimeMode: () =>
+														getRuntimeMode?.() ?? "approval-required",
+													getPermissionMode: () => managedPermissionMode,
+												}
+											: undefined,
 									},
 								});
 							},
@@ -553,7 +563,7 @@ export const ProviderServiceLive = Layer.effect(
 								...pluginCliEnv(managedPlugins.endpoint, managedPlugins.token),
 							};
 							managedMcp = {
-								name: "zuse-plugins",
+								name: "zuse",
 								transport: "http",
 								url: managedPlugins.endpoint,
 								headers: { Authorization: `Bearer ${managedPlugins.token}` },
@@ -1046,6 +1056,7 @@ export const ProviderServiceLive = Layer.effect(
 						startupKey,
 						startupPermits.withPermits(1)(
 							start.pipe(
+								Effect.provideService(HtmlTools, htmlTools.client),
 								Effect.onError(() =>
 									Effect.promise(async () => {
 										await managedPlugins?.close();

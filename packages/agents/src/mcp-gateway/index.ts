@@ -22,6 +22,11 @@ import {
 	handleDeviceCommandTool,
 } from "../drivers/device-command-tools.ts";
 import {
+	HTML_MCP_TOOLS,
+	type HtmlToolsClient,
+	handleHtmlTool,
+} from "../drivers/html-tools.ts";
+import {
 	handleImageTool,
 	IMAGE_MCP_TOOLS,
 	type ImageMcpToolOptions,
@@ -75,6 +80,7 @@ export interface McpGatewaySessionContext {
 		readonly deps: OrchestrationToolDeps;
 	};
 	readonly images?: ImageMcpToolOptions;
+	readonly html?: { readonly client: HtmlToolsClient; readonly cwd: string };
 	readonly interaction?: AppMcpInteractionOptions;
 }
 
@@ -85,6 +91,7 @@ export interface McpGatewayIssueInput {
 		readonly plugins?: boolean;
 		readonly orchestration: boolean;
 		readonly images?: boolean;
+		readonly html?: boolean;
 		readonly deviceCommands?: boolean;
 		readonly interaction?: boolean;
 	};
@@ -123,6 +130,7 @@ interface RegistryRecord {
 		readonly plugins?: boolean;
 		readonly orchestration: boolean;
 		readonly images?: boolean;
+		readonly html?: boolean;
 		readonly deviceCommands?: boolean;
 		readonly interaction?: boolean;
 	};
@@ -296,10 +304,17 @@ type AppToolDefinition = {
 	readonly name: string;
 	readonly description: string;
 	readonly inputSchema: Record<string, unknown>;
+	readonly annotations?: {
+		readonly readOnlyHint?: boolean;
+		readonly destructiveHint?: boolean;
+		readonly idempotentHint?: boolean;
+		readonly openWorldHint?: boolean;
+	};
 };
 
 const buildAppServer = (record: RegistryRecord): Server => {
 	const definitions: AppToolDefinition[] = [
+		...(record.scopes.html && record.ctx.html ? HTML_MCP_TOOLS : []),
 		...(record.scopes.plugins && record.ctx.plugins ? PLUGIN_TOOLS : []),
 		...(record.scopes.deviceCommands && record.ctx.deviceCommands
 			? DEVICE_COMMAND_TOOLS
@@ -334,6 +349,9 @@ const buildAppServer = (record: RegistryRecord): Server => {
 			name: definition.name,
 			description: definition.description,
 			inputSchema: definition.inputSchema,
+			...(definition.annotations
+				? { annotations: definition.annotations }
+				: {}),
 		})),
 	}));
 	server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -381,6 +399,17 @@ const buildAppServer = (record: RegistryRecord): Server => {
 					name,
 					args,
 					record.ctx.getPermissionMode?.() === "plan",
+					extra.signal,
+				);
+			}
+			if (
+				HTML_MCP_TOOLS.some((tool) => tool.name === name) &&
+				record.ctx.html
+			) {
+				return await handleHtmlTool(
+					name,
+					args,
+					{ ...record.ctx.html, sessionId: record.sessionId },
 					extra.signal,
 				);
 			}

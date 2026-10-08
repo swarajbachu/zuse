@@ -51,7 +51,8 @@
 		"./frame-subscription": "./src/frame-subscription.ts",
 		"./background-history": "./src/background-history.ts",
 		"./organization-control-client": "./src/organization-control-client.ts",
-		"./control-api-error": "./src/control-api-error.ts"
+		"./control-api-error": "./src/control-api-error.ts",
+		"./html-render": "./src/html-render.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",

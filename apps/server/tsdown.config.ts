@@ -23,6 +23,8 @@ const shared = {
 			"@zuse/utils/**",
 		],
 		neverBundle: [
+			"playwright",
+			"playwright-core",
 			"bindings",
 			"keytar",
 			"node-pty",
@@ -32,6 +34,8 @@ const shared = {
 			"tree-sitter-typescript",
 		],
 		onlyImport: [
+			"playwright",
+			"playwright-core",
 			"bindings",
 			"keytar",
 			"node-pty",
