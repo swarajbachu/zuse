@@ -303,5 +303,9 @@
 	"github_submit_stack_help": "すべてのブランチをプッシュし、GitHub 上のプルリクエストを更新します。プルリクエストがないブランチには、レビュー準備前のドラフトを作成します。既存のオープンなプルリクエストはそのまま維持されます。",
 	"projects_sidebar_upgrade": "アップグレード",
 	"projects_sidebar_plan_cloud": "Cloud",
-	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud プラン · 請求を管理"
+	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud プラン · 請求を管理",
+	"projects_sidebar_threads": "スレッド",
+	"projects_sidebar_no_threads_yet": "スレッドはまだありません",
+	"projects_sidebar_start_a_chat_to_see_it_here": "いずれかのプロジェクトでチャットを開始すると、ここに表示されます。",
+	"projects_sidebar_show_all_threads": "{{count}} 件のスレッドをすべて表示"
 }

@@ -303,5 +303,9 @@
 	"github_submit_stack_help": "推送所有分支并更新 GitHub 上对应的拉取请求。没有拉取请求的分支会创建草稿，表示尚未准备好接受审查。已有的开放拉取请求保持开放。",
 	"projects_sidebar_upgrade": "升级",
 	"projects_sidebar_plan_cloud": "Cloud",
-	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 套餐 · 管理账单"
+	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 套餐 · 管理账单",
+	"projects_sidebar_threads": "线程",
+	"projects_sidebar_no_threads_yet": "暂无线程",
+	"projects_sidebar_start_a_chat_to_see_it_here": "在任意项目中开始聊天即可在此查看。",
+	"projects_sidebar_show_all_threads": "显示全部 {{count}} 个线程"
 }

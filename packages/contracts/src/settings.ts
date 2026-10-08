@@ -202,6 +202,11 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 	notchTrayEnabled: Schema.Boolean,
 	/** Keep the notch tray expanded instead of only expanding on hover. */
 	notchTrayPinned: Schema.Boolean,
+	/**
+	 * Experimental: replace the sidebar project tree with one flat,
+	 * recency-sorted list of every thread.
+	 */
+	experimentalThreadListSidebar: Schema.Boolean,
 }) {}
 
 /**
@@ -264,6 +269,7 @@ export const SettingsPatch = Schema.Struct({
 	mergePrefs: Schema.optional(MergePrefs),
 	notchTrayEnabled: Schema.optional(Schema.Boolean),
 	notchTrayPinned: Schema.optional(Schema.Boolean),
+	experimentalThreadListSidebar: Schema.optional(Schema.Boolean),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 
@@ -276,6 +282,7 @@ export const DevicePreferences = SettingsPatch.mapFields(
 		"onboardingCompleted",
 		"notchTrayEnabled",
 		"notchTrayPinned",
+		"experimentalThreadListSidebar",
 	]),
 );
 export type DevicePreferences = typeof DevicePreferences.Type;

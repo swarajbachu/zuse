@@ -303,5 +303,9 @@
 	"worktree_setup_card_preparing_environment": "⟦Prëëpààrïïng thëë wôôrkspààcëë ëënvïïrôônmëënt.⟧",
 	"projects_sidebar_upgrade": "⟦ÜÜpgrààdëë⟧",
 	"projects_sidebar_plan_cloud": "⟦Clôôüüd⟧",
-	"projects_sidebar_plan_cloud_tooltip": "⟦Züüsëë Clôôüüd plààn · Màànààgëë bïïllïïng⟧"
+	"projects_sidebar_plan_cloud_tooltip": "⟦Züüsëë Clôôüüd plààn · Màànààgëë bïïllïïng⟧",
+	"projects_sidebar_threads": "⟦Thrëëààds⟧",
+	"projects_sidebar_no_threads_yet": "⟦Nôô thrëëààds yëët⟧",
+	"projects_sidebar_start_a_chat_to_see_it_here": "⟦Stààrt àà chààt ïïn ààny prôôjëëct tôô sëëëë ïït hëërëë.⟧",
+	"projects_sidebar_show_all_threads": "⟦Shôôw ààll {{count}} thrëëààds⟧"
 }

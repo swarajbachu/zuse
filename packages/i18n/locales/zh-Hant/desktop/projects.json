@@ -303,5 +303,9 @@
 	"github_submit_stack_help": "推送所有分支並更新 GitHub 上對應的拉取請求。沒有拉取請求的分支會建立草稿，表示尚未準備好接受審查。既有的開放拉取請求保持開放。",
 	"projects_sidebar_upgrade": "升級",
 	"projects_sidebar_plan_cloud": "Cloud",
-	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 方案 · 管理帳單"
+	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 方案 · 管理帳單",
+	"projects_sidebar_threads": "執行緒",
+	"projects_sidebar_no_threads_yet": "尚無執行緒",
+	"projects_sidebar_start_a_chat_to_see_it_here": "在任一專案中開始聊天即可在此查看。",
+	"projects_sidebar_show_all_threads": "顯示全部 {{count}} 個執行緒"
 }

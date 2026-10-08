@@ -110,6 +110,7 @@ const freshSettings = (): SettingsFile =>
 		mergePrefs: { method: "merge", deleteBranch: false },
 		notchTrayEnabled: false,
 		notchTrayPinned: false,
+		experimentalThreadListSidebar: false,
 	});
 
 const freshKeybindings = (): KeybindingsFile =>
@@ -557,6 +558,11 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 			? obj.notchTrayPinned
 			: base.notchTrayPinned;
 
+	const experimentalThreadListSidebar =
+		typeof obj.experimentalThreadListSidebar === "boolean"
+			? obj.experimentalThreadListSidebar
+			: base.experimentalThreadListSidebar;
+
 	return SettingsFile.make({
 		schemaVersion: 1,
 		defaultProviderId: provider,
@@ -599,6 +605,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 		mergePrefs,
 		notchTrayEnabled,
 		notchTrayPinned,
+		experimentalThreadListSidebar,
 	});
 };
 
@@ -897,6 +904,9 @@ export const ConfigStoreServiceLive = Layer.effect(
 					mergePrefs: patch.mergePrefs ?? cur.mergePrefs,
 					notchTrayEnabled: patch.notchTrayEnabled ?? cur.notchTrayEnabled,
 					notchTrayPinned: patch.notchTrayPinned ?? cur.notchTrayPinned,
+					experimentalThreadListSidebar:
+						patch.experimentalThreadListSidebar ??
+						cur.experimentalThreadListSidebar,
 				});
 				const serialized = serialize(next);
 				yield* writeAtomically(settingsPath, serialized);
@@ -941,7 +951,9 @@ export const ConfigStoreServiceLive = Layer.effect(
 						cur.mergePrefs.method === baseline.mergePrefs.method &&
 						cur.mergePrefs.deleteBranch === baseline.mergePrefs.deleteBranch &&
 						cur.notchTrayEnabled === baseline.notchTrayEnabled &&
-						cur.notchTrayPinned === baseline.notchTrayPinned;
+						cur.notchTrayPinned === baseline.notchTrayPinned &&
+						cur.experimentalThreadListSidebar ===
+							baseline.experimentalThreadListSidebar;
 					if (!currentLooksFresh) return cur;
 
 					let provider: SettingsFile["defaultProviderId"] =
@@ -1036,6 +1048,7 @@ export const ConfigStoreServiceLive = Layer.effect(
 						mergePrefs: cur.mergePrefs,
 						notchTrayEnabled: cur.notchTrayEnabled,
 						notchTrayPinned: cur.notchTrayPinned,
+						experimentalThreadListSidebar: cur.experimentalThreadListSidebar,
 					});
 
 					const serialized = serialize(merged);

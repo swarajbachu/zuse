@@ -1164,5 +1164,11 @@
 	"cloud_workspace_pool_tab_setup": "Einrichtung",
 	"cloud_workspace_pool_tab_usage": "Nutzung",
 	"cloud_advanced_title": "Erweitert",
-	"cloud_advanced_hint": "Eigener Anbieterschlüssel, API-Schlüssel, Einrichtungsassistent"
+	"cloud_advanced_hint": "Eigener Anbieterschlüssel, API-Schlüssel, Einrichtungsassistent",
+	"settings_navigation_experimental": "Experimentell",
+	"settings_page_experimental": "Experimentell",
+	"settings_page_experimental_description": "Frühe Funktionen, an denen wir noch arbeiten. Sie können sich ändern oder entfernt werden.",
+	"settings_page_thread_list_sidebar": "Seitenleiste als Thread-Liste",
+	"settings_page_thread_list_sidebar_description": "Ersetzt den Projektbaum durch eine Liste aller Threads Ihrer Projekte, neueste zuerst, mit Repository, Live-Agentenstatus, Pull-Request-Status und Diff. Projekte können Sie weiterhin über die Kopfzeile der Seitenleiste hinzufügen.",
+	"settings_page_experimental_sidebar": "Seitenleiste"
 }

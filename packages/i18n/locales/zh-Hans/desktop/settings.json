@@ -1164,5 +1164,11 @@
 	"cloud_workspace_pool_tab_setup": "设置",
 	"cloud_workspace_pool_tab_usage": "用量",
 	"cloud_advanced_title": "高级",
-	"cloud_advanced_hint": "自有提供商密钥、API 密钥、设置指南"
+	"cloud_advanced_hint": "自有提供商密钥、API 密钥、设置指南",
+	"settings_navigation_experimental": "实验性",
+	"settings_page_experimental": "实验性",
+	"settings_page_experimental_description": "仍在打磨的早期功能，可能会更改或移除。",
+	"settings_page_thread_list_sidebar": "线程列表侧边栏",
+	"settings_page_thread_list_sidebar_description": "将项目树替换为一个列表，按最新排序显示所有项目中的线程，并显示仓库、实时智能体状态、拉取请求状态和差异。你仍可从侧边栏顶部添加项目。",
+	"settings_page_experimental_sidebar": "侧边栏"
 }

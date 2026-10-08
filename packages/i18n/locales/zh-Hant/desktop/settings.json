@@ -1164,5 +1164,11 @@
 	"cloud_workspace_pool_tab_setup": "設定",
 	"cloud_workspace_pool_tab_usage": "用量",
 	"cloud_advanced_title": "進階",
-	"cloud_advanced_hint": "自有供應商金鑰、API 金鑰、設定指南"
+	"cloud_advanced_hint": "自有供應商金鑰、API 金鑰、設定指南",
+	"settings_navigation_experimental": "實驗性",
+	"settings_page_experimental": "實驗性",
+	"settings_page_experimental_description": "仍在打磨的早期功能，可能會變更或移除。",
+	"settings_page_thread_list_sidebar": "執行緒清單側邊欄",
+	"settings_page_thread_list_sidebar_description": "將專案樹替換為一個清單，依最新排序顯示所有專案中的執行緒，並顯示儲存庫、即時代理程式狀態、拉取請求狀態和差異。你仍可從側邊欄頂部新增專案。",
+	"settings_page_experimental_sidebar": "側邊欄"
 }

@@ -1164,5 +1164,11 @@
 	"cloud_workspace_pool_tab_setup": "⟦Sëëtüüp⟧",
 	"cloud_workspace_pool_tab_usage": "⟦ÜÜsààgëë⟧",
 	"cloud_advanced_title": "⟦ÀÀdvààncëëd⟧",
-	"cloud_advanced_hint": "⟦Yôôüür ôôwn prôôvïïdëër këëy, ÀÀPÏÏ këëys, sëëtüüp güüïïdëë⟧"
+	"cloud_advanced_hint": "⟦Yôôüür ôôwn prôôvïïdëër këëy, ÀÀPÏÏ këëys, sëëtüüp güüïïdëë⟧",
+	"settings_navigation_experimental": "⟦ËËxpëërïïmëëntààl⟧",
+	"settings_page_experimental": "⟦ËËxpëërïïmëëntààl⟧",
+	"settings_page_experimental_description": "⟦ËËààrly fëëààtüürëës wëë'rëë stïïll shààpïïng. Thëëy màày chààngëë ôôr bëë rëëmôôvëëd.⟧",
+	"settings_page_thread_list_sidebar": "⟦Thrëëààd lïïst sïïdëëbààr⟧",
+	"settings_page_thread_list_sidebar_description": "⟦Rëëplààcëës thëë prôôjëëct trëëëë wïïth ôônëë lïïst ôôf ëëvëëry thrëëààd ààcrôôss yôôüür prôôjëëcts, nëëwëëst fïïrst, shôôwïïng ëëààch rëëpôôsïïtôôry, lïïvëë ààgëënt stààtüüs, püüll rëëqüüëëst stààtëë, àànd dïïff. Yôôüü cààn stïïll ààdd prôôjëëcts frôôm thëë sïïdëëbààr hëëààdëër.⟧",
+	"settings_page_experimental_sidebar": "⟦Sïïdëëbààr⟧"
 }

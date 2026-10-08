@@ -303,5 +303,9 @@
 	"github_submit_stack_help": "Pusht alle Branches und aktualisiert ihre Pull Requests auf GitHub. Für Branches ohne Pull Request wird ein Entwurf erstellt, der noch nicht zur Überprüfung bereit ist. Bereits offene Pull Requests bleiben offen.",
 	"projects_sidebar_upgrade": "Upgraden",
 	"projects_sidebar_plan_cloud": "Cloud",
-	"projects_sidebar_plan_cloud_tooltip": "Zuse-Cloud-Tarif · Abrechnung verwalten"
+	"projects_sidebar_plan_cloud_tooltip": "Zuse-Cloud-Tarif · Abrechnung verwalten",
+	"projects_sidebar_threads": "Threads",
+	"projects_sidebar_no_threads_yet": "Noch keine Threads",
+	"projects_sidebar_start_a_chat_to_see_it_here": "Starten Sie einen Chat in einem Projekt, um ihn hier zu sehen.",
+	"projects_sidebar_show_all_threads": "Alle {{count}} Threads anzeigen"
 }

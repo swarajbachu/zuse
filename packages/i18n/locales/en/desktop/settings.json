@@ -1164,5 +1164,11 @@
 	"cloud_workspace_pool_tab_setup": "Setup",
 	"cloud_workspace_pool_tab_usage": "Usage",
 	"cloud_advanced_title": "Advanced",
-	"cloud_advanced_hint": "Your own provider key, API keys, setup guide"
+	"cloud_advanced_hint": "Your own provider key, API keys, setup guide",
+	"settings_navigation_experimental": "Experimental",
+	"settings_page_experimental": "Experimental",
+	"settings_page_experimental_description": "Early features we're still shaping. They may change or be removed.",
+	"settings_page_thread_list_sidebar": "Thread list sidebar",
+	"settings_page_thread_list_sidebar_description": "Replaces the project tree with one list of every thread across your projects, newest first, showing each repository, live agent status, pull request state, and diff. You can still add projects from the sidebar header.",
+	"settings_page_experimental_sidebar": "Sidebar"
 }

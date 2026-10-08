@@ -87,3 +87,23 @@ export const derivePermissionAttention = (
 	}
 	return "idle";
 };
+
+/** Short status text shared by sidebar rows, pills, and hover cards. */
+export const chatAttentionLabel = (
+	state: ChatAttentionState,
+	creationPending = false,
+): string => {
+	if (creationPending) return "Starting agent";
+	switch (state) {
+		case "running":
+			return "Working";
+		case "question":
+			return "Awaiting input";
+		case "permission":
+			return "Needs approval";
+		case "planReady":
+			return "Plan ready";
+		case "idle":
+			return "Inactive";
+	}
+};

@@ -452,6 +452,12 @@ function SectionTitle({
 				subtitle: "These also appear under the menu bar.",
 			};
 		}
+		if (section.kind === "experimental") {
+			return {
+				title: uiMessage("settings:settings_page_experimental"),
+				subtitle: uiMessage("settings:settings_page_experimental_description"),
+			};
+		}
 		if (section.kind === "developer") {
 			return {
 				title: uiMessage("settings:settings_page_developer"),
@@ -539,6 +545,7 @@ function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "pokedex") return <PokedexPane />;
 	if (section.kind === "diagnostics") return <FullDiagnosticsPane />;
 	if (section.kind === "shortcuts") return <KeybindingsPane />;
+	if (section.kind === "experimental") return <ExperimentalPane />;
 	if (section.kind === "developer") return <DeveloperPane />;
 	return <RepositorySettings projectId={section.projectId} />;
 }
@@ -914,6 +921,36 @@ function BrowserTestLoginsPane() {
 				</div>
 			</SettingsFrame>
 		</div>
+	);
+}
+
+function ExperimentalPane() {
+	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+
+	const threadListSidebar = useSettingsStore(
+		(s) => s.experimentalThreadListSidebar,
+	);
+	const setThreadListSidebar = useSettingsStore(
+		(s) => s.setExperimentalThreadListSidebar,
+	);
+
+	return (
+		<SettingsGroup
+			title={uiMessage("settings:settings_page_experimental_sidebar")}
+		>
+			<SettingsRow
+				title={uiMessage("settings:settings_page_thread_list_sidebar")}
+				description={uiMessage(
+					"settings:settings_page_thread_list_sidebar_description",
+				)}
+				action={
+					<Switch
+						checked={threadListSidebar}
+						onCheckedChange={setThreadListSidebar}
+					/>
+				}
+			/>
+		</SettingsGroup>
 	);
 }
 

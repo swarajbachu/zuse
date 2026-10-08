@@ -1164,5 +1164,11 @@
 	"cloud_workspace_pool_tab_setup": "セットアップ",
 	"cloud_workspace_pool_tab_usage": "使用状況",
 	"cloud_advanced_title": "詳細設定",
-	"cloud_advanced_hint": "独自のプロバイダーキー、API キー、セットアップガイド"
+	"cloud_advanced_hint": "独自のプロバイダーキー、API キー、セットアップガイド",
+	"settings_navigation_experimental": "実験的機能",
+	"settings_page_experimental": "実験的機能",
+	"settings_page_experimental_description": "開発中の早期機能です。変更または削除される場合があります。",
+	"settings_page_thread_list_sidebar": "スレッド一覧サイドバー",
+	"settings_page_thread_list_sidebar_description": "プロジェクトツリーを、すべてのプロジェクトのスレッドを新しい順に並べた 1 つのリストに置き換え、リポジトリ、エージェントのライブ状態、プルリクエストの状態、差分を表示します。プロジェクトは引き続きサイドバーのヘッダーから追加できます。",
+	"settings_page_experimental_sidebar": "サイドバー"
 }

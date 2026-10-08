@@ -781,6 +781,7 @@ const SETTINGS_FIXTURE: typeof SettingsFile.Encoded = {
 	mergePrefs: { method: "squash", deleteBranch: true },
 	notchTrayEnabled: true,
 	notchTrayPinned: false,
+	experimentalThreadListSidebar: false,
 };
 
 const { disabledSkills: _omitted, ...LEGACY_SETTINGS } = SETTINGS_FIXTURE;
@@ -869,6 +870,7 @@ describe("SettingsFile round-trip", () => {
 				mergePrefs: { method: "merge", deleteBranch: false },
 				notchTrayEnabled: false,
 				notchTrayPinned: false,
+				experimentalThreadListSidebar: false,
 			}),
 		).toThrow();
 	});
@@ -917,6 +919,7 @@ describe("SettingsFile round-trip", () => {
 				mergePrefs: { method: "merge", deleteBranch: false },
 				notchTrayEnabled: false,
 				notchTrayPinned: false,
+				experimentalThreadListSidebar: false,
 			}),
 		).toThrow();
 	});

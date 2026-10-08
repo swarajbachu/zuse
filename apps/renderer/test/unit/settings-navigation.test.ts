@@ -48,6 +48,7 @@ describe("settings contexts", () => {
 				(item) => item.id,
 			);
 			expect(personal).toContain("general");
+			expect(personal).toContain("experimental");
 			expect(personal).not.toContain("organizations");
 			if (!desktop) {
 				expect(personal).not.toContain("self-hosted");
