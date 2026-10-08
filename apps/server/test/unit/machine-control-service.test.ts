@@ -3,6 +3,7 @@ import {
 	ApiPaths,
 	ChatId,
 	CloudWorkspace,
+	EnvironmentId,
 } from "@zuse/contracts";
 import { Effect, Layer, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
@@ -228,5 +229,74 @@ describe("cloud runtime control transport", () => {
 			undefined,
 		);
 		expect(getAccessToken).not.toHaveBeenCalled();
+	});
+});
+
+describe("computer registration removal", () => {
+	const layer = MachineControlServiceLive.pipe(
+		Layer.provide(
+			Layer.mergeAll(
+				Layer.succeed(MachineRuntimeRole, "control-plane"),
+				Layer.succeed(AuthService, {
+					getAccessToken: () => Effect.succeed("account-token"),
+					getSession: () => Effect.succeed({ _tag: "SignedOut" }),
+					signIn: () => Effect.succeed({ _tag: "SignedOut" }),
+					signOut: () => Effect.void,
+					sessionChanges: () => Stream.empty,
+				}),
+			),
+		),
+	);
+	const remove = () =>
+		Effect.runPromise(
+			Effect.gen(function* () {
+				const service = yield* MachineControlService;
+				yield* service.removeEnvironment(EnvironmentId.make("stale-computer"));
+			}).pipe(Effect.provide(layer)),
+		);
+	it("uses account credentials even when this desktop has no registration", async () => {
+		const fetch = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(Response.json({ ok: true }));
+		try {
+			await remove();
+			expect(fetch).toHaveBeenCalledWith(
+				expect.stringContaining(ApiPaths.unlink),
+				expect.objectContaining({
+					method: "POST",
+					body: JSON.stringify({ environmentId: "stale-computer" }),
+					headers: expect.objectContaining({
+						authorization: "Bearer account-token",
+						"x-zuse-workspace": "personal",
+					}),
+				}),
+			);
+		} finally {
+			fetch.mockRestore();
+		}
+	});
+	it("treats an already removed computer as success", async () => {
+		const fetch = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(
+				Response.json({ error: "not_found" }, { status: 404 }),
+			);
+		try {
+			await remove();
+		} finally {
+			fetch.mockRestore();
+		}
+	});
+	it("reports backend failure instead of claiming deletion succeeded", async () => {
+		const fetch = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(
+				Response.json({ error: "unavailable" }, { status: 503 }),
+			);
+		try {
+			await expect(remove()).rejects.toThrow();
+		} finally {
+			fetch.mockRestore();
+		}
 	});
 });

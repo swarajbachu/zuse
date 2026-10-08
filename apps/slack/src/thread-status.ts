@@ -47,7 +47,7 @@ export const setThreadStatus = async (
 			});
 			return false;
 		}
-		if (status) return false; // The durable progress card is the activity fallback.
+		if (status) return false; // Message reactions are the activity fallback.
 		await env.JOBS.send(
 			{
 				kind: "status-clear",

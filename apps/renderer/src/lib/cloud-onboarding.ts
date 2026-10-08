@@ -1,3 +1,5 @@
+import type { CloudAccountImage } from "@zuse/contracts";
+
 export const CLOUD_ONBOARDING_RESUME = "zuse:cloud-onboarding:resume";
 export const CLOUD_CHECKOUT_STARTED = "zuse:cloud-checkout:started";
 export type CloudSetupStep = "github" | "auth" | "image";
@@ -39,3 +41,15 @@ export const completeCloudOnboarding = (
 export const requestCloudOnboarding = (): void => {
 	window.dispatchEvent(new Event(CLOUD_ONBOARDING_RESUME));
 };
+
+/** Snapshot prerequisites only apply to the provider being configured. */
+export const readyCloudOnboardingSnapshot = (
+	images: ReadonlyArray<CloudAccountImage>,
+	providerId: string | null,
+) =>
+	images.find(
+		(image) =>
+			image.providerId === providerId &&
+			image.state === "ready" &&
+			image.snapshot !== undefined,
+	)?.snapshot;

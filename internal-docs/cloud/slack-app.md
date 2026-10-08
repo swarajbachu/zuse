@@ -11,7 +11,12 @@ If the installation page says Slack is not enabled, contact the Zuse operator.
 
 1. Visit `https://api.zuse.sh/slack/install` and authorize a Slack workspace.
 2. Return to Slack. Open **Zuse → Home** or mention Zuse, then click your private
-   **Connect Zuse account** button. Sign in and return to Slack after confirmation.
+   **Connect Zuse account** button. Sign in and choose your organization in WorkOS when prompted, then return
+   to Slack after confirmation. Slack uses the organization from the verified sign-in
+   without another chooser. Organization connections use that organization’s
+   repositories and cloud usage; membership is checked for each request. Sign-ins
+   without an organization, or with organization workspaces disabled, connect to
+   Personal. Disconnect and reconnect to change the organization.
    No API key, agent ID, or model ID is needed. A channel-initiated connection also
    sends a success notice visible only to you. If you started with a task, that
    notice includes **Select repository** to continue the saved message and its
@@ -42,7 +47,8 @@ then select a project, channel ID, source alert bot ID, and dry-run/live mode.
 Matching alerts start cloud investigations and return results to their thread.
 
 Each member can link their own account privately. The installer chooses one mode
-in App Home: installer-only, everyone uses their own account, or the whole team uses
+in App Home under **Workspace task access**. This is one workspace-wide setting;
+other members see a read-only summary. The modes are installer-only, everyone uses their own account, or the whole team uses
 the installer's shared account. Sharing requires explicit confirmation and grants
 access to that account's cloud repositories and usage. New installations default to
 individual accounts; older installations remain installer-only. Only an account's
@@ -64,8 +70,9 @@ project access and cloud usage.
 
 Thread context is limited to the latest 500 messages and 60,000 text characters,
 with up to eight supported files, each at most 20 MiB. Rate limits can delay
-processing. Native loading depends on Slack support; the progress message remains
-visible without it. Results include a workspace ID, not a one-click web session link.
+processing. Native loading depends on Slack support; activity reactions provide a fallback
+when their permission is available. Results include a **View in Zuse** link to
+the workspace in the browser, where users can also open the desktop app.
 If permissions were recently added, reauthorize the app through the installation
 link. Deploying an updated backend alone does not grant those permissions.
 
@@ -79,6 +86,40 @@ account from App Home to revoke new requests, use the private automation setting
 page to also remove its rules, or uninstall the
 app from Slack. Do not give investigation agents production deployment secrets.
 
-Slack uses your most recent cloud workspace's agent/model configuration. If your
-account has no defaults, choose the agent/model privately in Slack to continue.
-This selection does not replace connecting the provider's cloud credentials in Zuse.
+### Slack execution defaults
+
+App Home exposes Agent, Model, and Sandbox provider settings for the owner of the
+active connection. Models use the shared curated agent catalog; sandbox choices
+use the same account or organization availability rules as cloud settings.
+Changing the agent selects its default model. These settings apply to new task
+workspaces and live alert automations; existing Slack threads keep their workspace.
+With a shared installer account, only the installer can change these defaults.
+Agent credentials must already be connected in Zuse. Sandbox provider account defaults remain available, and unavailable saved providers
+are flagged in Home. When no agent is saved, Slack asks for an agent and model
+instead of inheriting the organization’s most recent workspace choice. Agent errors replace the loading indicator with the reported error and recovery
+guidance. A missing CLI suggests choosing another agent in Home and starting a
+new thread; existing threads retain their workspace.
+
+### Task activity reactions
+
+Zuse acknowledges a request with 👀 on that message, then adds `:one_sec_cooking:`
+while it works, alongside native Slack loading/status. The cooking reaction is
+removed after completion or an error; the acknowledgment stays. If the custom
+emoji does not exist in the workspace, Zuse uses ⏳ instead. New tasks no longer
+post a separate working message. Reauthorize an existing Slack installation via
+Add to Slack to grant `reactions:write`; native status and task delivery continue
+if reaction permission is unavailable.
+
+The private repository/agent picker can remember the selected agent and model for
+future requests on the active connection. The checkbox is initially selected when
+no agent default exists. Only the connection owner can save defaults; unchecking
+it keeps the selection limited to the current request. Existing threads retain
+their existing workspace and agent.
+
+Slack Home and the private task picker show agents whose cached cloud authentication
+status is connected for the active account or organization. An unavailable status
+fails closed. A saved disconnected agent is not shown as an available choice;
+new task creation requires a connected selection. Both modal submission and queued
+execution recheck authorization. The account-scoped agent listing returns IDs only,
+without credentials, keys, or account labels. This does not inspect or wake runtimes
+to verify CLI installation or query model entitlements; runtime errors remain explicit.

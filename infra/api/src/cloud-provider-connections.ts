@@ -139,6 +139,7 @@ export const resolveConnectedProvider = Effect.fn("resolveConnectedProvider")(
 		accountId: string,
 		providerId: string,
 		connectionId?: string,
+		runtimeUser?: string,
 	): Effect.fn.Return<
 		ConnectedSandboxProvider,
 		ApiError,
@@ -166,6 +167,7 @@ export const resolveConnectedProvider = Effect.fn("resolveConnectedProvider")(
 				apiKey: Redacted.make(apiKey),
 				templateId: record.templateId,
 				organization: record.organization,
+				runtimeUser,
 			}),
 			connectionId,
 			// Prevent snapshots being reused across provider accounts or credential versions.
@@ -173,6 +175,18 @@ export const resolveConnectedProvider = Effect.fn("resolveConnectedProvider")(
 		};
 	},
 );
+const resourceRuntimeUser = (
+	resource: CloudProjectBuildRecord | CloudWorkspaceRecord,
+) => {
+	const configuration =
+		"requestConfig" in resource
+			? resource.requestConfig
+			: resource.settings?.snapshot;
+	if (typeof configuration !== "object" || configuration === null)
+		return undefined;
+	const user = Reflect.get(configuration, "runtimeUser");
+	return typeof user === "string" ? user : undefined;
+};
 export const resolveResourceProvider = (
 	resource: CloudProjectBuildRecord | CloudWorkspaceRecord,
 ) =>
@@ -180,6 +194,7 @@ export const resolveResourceProvider = (
 		resource.accountId,
 		resource.provider,
 		connectionIdFor(resource),
+		resourceRuntimeUser(resource),
 	);
 export const resourceProviderConnectionId = Effect.fn(
 	"resourceProviderConnectionId",

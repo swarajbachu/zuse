@@ -140,5 +140,6 @@
 	"update_to_latest": "将 {{name}} 更新至最新版本",
 	"sign_in_failed": "登录失败。",
 	"sign_in_incomplete": "登录尚未完成便已结束。",
-	"update_incomplete": "更新尚未完成便已结束。"
+	"update_incomplete": "更新尚未完成便已结束。",
+	"remove_computer_account_description": "从您的账户中移除 {{value}}，以释放一个计算机名额。通过 Zuse 的远程访问将停止。计算机上的项目和数据将保留。"
 }

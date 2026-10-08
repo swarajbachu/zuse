@@ -1,6 +1,8 @@
+import type { WorkspaceScope } from "@zuse/contracts";
 import { ALERT_INSTRUCTIONS, type AlertRule } from "./automation.ts";
 import type { Installation, ZuseConnection } from "./installations.ts";
 import { finishProgress } from "./progress.ts";
+import { setMessageReaction } from "./reactions.ts";
 import {
 	downloadSlackFile,
 	postSlackMessage,
@@ -9,7 +11,9 @@ import {
 	verifyZuseSignature,
 } from "./slack.ts";
 import { setThreadStatus } from "./thread-status.ts";
+import { turnFailureText, turnResultText } from "./turn-errors.ts";
 import type { AppEnv, AppJob, StateStore } from "./types.ts";
+import { workspaceLink } from "./workspace-link.ts";
 import {
 	createWorkspace,
 	readTurn,
@@ -19,6 +23,14 @@ import {
 } from "./zuse.ts";
 
 export interface RunnerEnv {
+	readonly WORKSPACE_APP_ORIGIN?: string;
+	readonly WORKSPACE_SCOPE?: WorkspaceScope;
+	readonly setReaction: (
+		channel: string,
+		messageTs: string,
+		name: string,
+		active: boolean,
+	) => Promise<boolean | "invalid_name">;
 	readonly setStatus: (
 		channel: string,
 		threadTs: string,
@@ -43,6 +55,12 @@ export const runnerEnv = (
 	const namespace = `${installation.teamId}:${installation.generation}:${zuse.webhookId}`;
 	const state = env.store.state(installation);
 	return {
+		WORKSPACE_APP_ORIGIN: env.WORKSPACE_APP_ORIGIN,
+		WORKSPACE_SCOPE: zuse.organizationId
+			? { kind: "organization", organizationId: zuse.organizationId }
+			: { kind: "personal" },
+		setReaction: (channel, messageTs, name, active) =>
+			setMessageReaction(env, installation, channel, messageTs, name, active),
 		setStatus: (channel, threadTs, status) =>
 			setThreadStatus(env, installation, channel, threadTs, status),
 		NAMESPACE: namespace,
@@ -52,7 +70,14 @@ export const runnerEnv = (
 			put: (key, value, options) =>
 				state.put(`${zuse.webhookId}:${key}`, value, options),
 		},
-		CLOUD: env.cloud(zuse.accountId),
+		CLOUD: {
+			...env.cloud(zuse.accountId, zuse.organizationId),
+			workspaceDefaults: {
+				agent: zuse.agent,
+				model: zuse.model,
+				providerId: zuse.providerId,
+			},
+		},
 		SLACK_BOT_TOKEN: installation.credentials.botToken,
 		SLACK_USER_TOKEN: installation.credentials.userToken,
 		ZUSE_AGENT: zuse.agent,
@@ -69,7 +94,11 @@ const zuseConfig = (
 	requestTimeoutMs?: number,
 ): ZuseClientConfig => ({
 	...env.CLOUD,
-	workspaceDefaults: { agent: env.ZUSE_AGENT, model: env.ZUSE_MODEL },
+	workspaceDefaults: {
+		...env.CLOUD.workspaceDefaults,
+		agent: env.ZUSE_AGENT,
+		model: env.ZUSE_MODEL,
+	},
 	...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
 });
 export const saveThreadMapping = async (
@@ -195,7 +224,7 @@ export const runAutomation = async (
 		botToken: env.SLACK_BOT_TOKEN,
 		channel: input.channel,
 		threadTs: input.threadTs,
-		text: `Started cloud workspace \`${workspace.branch}\` with this thread and its supported files. The result will be posted in this thread.\nWorkspace ID: ${workspace.workspaceId}`,
+		text: `Started cloud workspace \`${workspace.branch}\` with this thread and its supported files. The result will be posted in this thread.\n\n${workspaceLink(env, workspace.workspaceId)}`,
 		idempotencyKey: `${env.NAMESPACE}:thread-workspace:${input.channel}:${input.threadTs}`,
 	});
 	await saveThreadMapping(
@@ -269,10 +298,11 @@ export const handleZuseWebhook = async (
 	if (channel === undefined || threadTs === undefined)
 		return new Response("invalid workspace mapping", { status: 500 });
 	const replyText = event.reply?.text?.trim();
-	const text =
-		replyText === undefined || replyText.length === 0
-			? `The agent finished this turn (${event.outcome ?? "completed"}).`
-			: `${replyText}${event.reply?.truncated === true ? "\n_(reply truncated)_" : ""}`;
+	let text =
+		turnResultText(replyText, event.outcome) +
+		(replyText && event.reply?.truncated === true
+			? "\n_(reply truncated)_"
+			: "");
 	try {
 		const turnKey = await env.THREADS.get(
 			`workspace-turn:${event.workspaceId}`,
@@ -282,7 +312,7 @@ export const handleZuseWebhook = async (
 			// Completion can race the submission response; ask the durable outbox to retry.
 			if (!messageId)
 				return new Response("submission pending", { status: 503 });
-			const { turnId } = await readTurn(
+			const { turnId, turnFailure } = await readTurn(
 				env.CLOUD,
 				event.workspaceId,
 				messageId,
@@ -290,6 +320,8 @@ export const handleZuseWebhook = async (
 			);
 			if (!turnId) return new Response("turn pending", { status: 503 });
 			if (turnId !== event.turnId) return new Response("ok");
+			if (event.outcome === "error" && turnFailure)
+				text = turnFailureText(turnFailure);
 		}
 		const updated = turnKey
 			? await finishProgress(
@@ -304,7 +336,7 @@ export const handleZuseWebhook = async (
 				botToken: env.SLACK_BOT_TOKEN,
 				channel,
 				threadTs,
-				text,
+				text: `${text}\n\n${workspaceLink(env, event.workspaceId)}`,
 				idempotencyKey: `${env.NAMESPACE}:turn:${event.eventId}`,
 			});
 		// Mark delivered only after Slack accepted the post. A Slack or KV failure

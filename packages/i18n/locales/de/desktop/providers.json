@@ -140,5 +140,6 @@
 	"update_to_latest": "{{name}} auf die neueste Version aktualisieren",
 	"sign_in_failed": "Anmeldung fehlgeschlagen.",
 	"sign_in_incomplete": "Die Anmeldung wurde vorzeitig beendet.",
-	"update_incomplete": "Das Update wurde vorzeitig beendet."
+	"update_incomplete": "Das Update wurde vorzeitig beendet.",
+	"remove_computer_account_description": "Entfernen Sie {{value}} aus Ihrem Konto, um einen Computerplatz freizugeben. Der Fernzugriff über Zuse wird beendet. Projekte und Daten auf dem Computer bleiben erhalten."
 }

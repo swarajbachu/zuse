@@ -16,7 +16,14 @@ const formatElapsed = (ms: number): string => {
  * shown for the whole time the agent is running (like the desktop). Ticks once
  * a second from `since` (epoch ms of the current turn's start).
  */
-export function WorkingIndicator({ since }: { since: number }) {
+export function WorkingIndicator({
+	since,
+	label = "Working",
+}: {
+	since: number;
+	/** e.g. "Codex is working" or "Waiting for Codex", like desktop. */
+	label?: string;
+}) {
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		const id = setInterval(() => setNow(Date.now()), 1000);
@@ -26,7 +33,7 @@ export function WorkingIndicator({ since }: { since: number }) {
 		<View className="flex-row items-center gap-2 px-2 py-2">
 			<ActivityIndicator size="small" color={colors.secondaryFg} />
 			<ShimmerText className="font-sans text-[13px] text-muted-foreground">
-				{`Working · ${formatElapsed(now - since)}`}
+				{`${label} · ${formatElapsed(now - since)}`}
 			</ShimmerText>
 		</View>
 	);

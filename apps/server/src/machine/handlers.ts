@@ -57,6 +57,10 @@ const Offers = MemoizeRpcs.toLayerHandler("machines.offers", () =>
 const Plugins = MemoizeRpcs.toLayerHandler("plugins.request", (input) =>
 	withCloudControl((service) => service.plugins(input)),
 );
+const CloudSnapshotImport = MemoizeRpcs.toLayerHandler(
+	"cloud.snapshot.import",
+	(input) => withCloudControl((service) => service.importCloudSnapshot(input)),
+);
 const CloudProviderConnectionsList = MemoizeRpcs.toLayerHandler(
 	"cloud.providerConnections.list",
 	() => withCloudControl((service) => service.cloudProviderConnections()),
@@ -404,6 +408,13 @@ const Environments = MemoizeRpcs.toLayerHandler("environments.list", () =>
 		Effect.mapError((error) => new ConnectAuthError({ reason: error.code })),
 	),
 );
+const RemoveEnvironment = MemoizeRpcs.toLayerHandler(
+	"environments.remove",
+	({ environmentId }) =>
+		withControl((service) => service.removeEnvironment(environmentId)).pipe(
+			Effect.mapError((error) => new ConnectAuthError({ reason: error.code })),
+		),
+);
 const ConnectEnvironment = MemoizeRpcs.toLayerHandler(
 	"environments.connect",
 	({ environmentId }) =>
@@ -493,6 +504,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudBillingUsageHandler,
 	CloudBillingSetCapHandler,
 	CloudProviders,
+	CloudSnapshotImport,
 	CloudProviderConnectionsList,
 	CloudProviderConnectionsSave,
 	CloudProviderConnectionsDisconnect,
@@ -547,6 +559,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	BillingPortal,
 	Entitlements,
 	Environments,
+	RemoveEnvironment,
 	ConnectEnvironment,
 	AddSshKey,
 	ListSshKeys,

@@ -6,6 +6,7 @@ import {
 } from "@legendapp/list/keyboard";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { orderedChatSessions } from "@zuse/client-runtime/chat-threads";
+import { isWaitingCloudSend } from "@zuse/client-runtime/cloud-send-delivery";
 import {
 	findPendingPlanInteraction,
 	isPlanApprovalRequest,
@@ -16,6 +17,7 @@ import {
 	type FolderId,
 	type MessageId,
 	type PermissionRequest,
+	providerLabel,
 	type SessionId,
 	type UserQuestion,
 } from "@zuse/contracts";
@@ -45,6 +47,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwind } from "uniwind";
 import { CloudChatStatus } from "~/components/cloud-chat-status";
 import { CloudDeviceAccess } from "~/components/cloud-device-access";
+import { CloudLifecycleBar } from "~/components/cloud-lifecycle-bar";
 import { Composer } from "~/components/composer";
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { InlineErrorNotice } from "~/components/inline-error-notice";
@@ -60,8 +63,10 @@ import { SessionActionsMenu } from "~/components/session-actions-menu";
 import { ThreadHeaderTitle } from "~/components/thread-header-title";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
+import { UndeliveredMessage } from "~/components/undelivered-message";
 import { useTranscriptScrollCoordinator } from "~/hooks/use-transcript-scroll-coordinator";
 import { coordinateChatBottomState } from "~/lib/chat-bottom-state";
+import { cloudLifecycle } from "~/lib/cloud-lifecycle";
 import { isFreshChat, summarizeComposerActivity } from "~/lib/composer-state";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
@@ -94,6 +99,8 @@ import {
 	sendMessage,
 } from "~/rpc/actions";
 import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
+import { getConnectionClient } from "~/rpc/connection";
+import { cloudCatalogAtom } from "~/store/cloud-catalog";
 import {
 	connectionSnapshotAtom,
 	retryConnection,
@@ -119,6 +126,7 @@ import {
 	reorderQueuedMessages,
 	resumeQueue,
 	runQueuedMessageNext,
+	sessionDeliveryAtom,
 	sessionMessagesAtom,
 	sessionMessagesErrorAtom,
 	sessionQueueAtom,
@@ -243,11 +251,23 @@ function ThreadScreen() {
 	const [transcriptTimedOut, setTranscriptTimedOut] = useState(false);
 	const [transcriptAttempt, setTranscriptAttempt] = useState(0);
 	const initialTranscriptLoading = !transcriptReady && rawMessages.length === 0;
+	const cloudCatalogState = useAtomValue(cloudCatalogAtom);
+	const cloudLifecycleState =
+		options?.cloudWorkspaceId === undefined
+			? null
+			: cloudLifecycle(
+					cloudCatalogState.chats.find(
+						(row) => row.workspaceId === options.cloudWorkspaceId,
+					),
+				);
 	const messagesError = useAtomValue(sessionMessagesErrorAtom(stateKey));
 	const serverQueued = useAtomValue(sessionQueueAtom(stateKey));
 	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
+	// A chat opened right after New Chat already holds its first prompt, so it
+	// never went through a send here. Pin that prompt to the top like a send.
+	const anchoredFirstTurnFor = useRef<string | null>(null);
 	// Computed here (not in the composer) so keystrokes never touch it and the
 	// composer needs no subscription to the message store.
 	const composerActivity = summarizeComposerActivity(turns.at(-1));
@@ -504,10 +524,41 @@ function ThreadScreen() {
 	// prompt takeover (permission / question / plan) owns the bottom slot.
 	const workingActive =
 		sessionActive &&
+		// Nothing runs while the cloud workspace itself is starting or asleep.
+		cloudLifecycleState === null &&
 		headPermission === null &&
 		pendingQuestion === null &&
 		pendingPlanInteraction === null;
 	const workingSince = turns.at(-1)?.startedAt.getTime() ?? screenOpenedAt;
+	// Desktop-style wording: "Codex is working", or "Waiting for Codex" while a
+	// cloud message still sits in the mailbox for its runtime to claim.
+	const delivery = useAtomValue(sessionDeliveryAtom(stateKey));
+	const cloudSendWaiting =
+		options?.cloudWorkspaceId !== undefined &&
+		cloudLifecycleState === null &&
+		delivery.pending.some(isWaitingCloudSend);
+	const agentName =
+		detail?.session.providerId === undefined
+			? "Agent"
+			: providerLabel(detail.session.providerId);
+	const workingLabel = cloudSendWaiting
+		? `Waiting for ${agentName}`
+		: `${agentName} is working`;
+	// Like desktop's attach after create: once compute is up, connect so the
+	// runtime is recovered if it never came online to claim the message.
+	const attachedFor = useRef<string | null>(null);
+	useEffect(() => {
+		if (
+			!cloudSendWaiting ||
+			options === null ||
+			attachedFor.current === stateKey
+		)
+			return;
+		attachedFor.current = stateKey;
+		void Effect.runPromise(getConnectionClient(options, true)).catch(
+			() => undefined,
+		);
+	}, [cloudSendWaiting, options, stateKey]);
 
 	const onAnswerQuestion: MessageRowContext["onAnswerQuestion"] = (
 		itemId,
@@ -712,6 +763,19 @@ function ThreadScreen() {
 		setHasUnseenContent(false);
 		setJumpAccessible(false);
 	};
+	useEffect(() => {
+		if (anchoredFirstTurnFor.current === stateKey) return;
+		const only = turns.length === 1 ? turns[0] : undefined;
+		if (
+			only === undefined ||
+			only.user === null ||
+			only.body.length > 0 ||
+			transcriptScroll.anchorIndex !== null
+		)
+			return;
+		anchoredFirstTurnFor.current = stateKey;
+		transcriptScroll.onMessageWillAppend(0);
+	}, [stateKey, transcriptScroll, turns]);
 	const onMessageAppendFailed = () => {
 		transcriptScroll.onMessageAppendFailed();
 		markSessionTurnStartFailed(stateKey);
@@ -1135,7 +1199,10 @@ function ThreadScreen() {
 							anchoredEndSpace,
 						})}
 				maintainScrollAtEnd={
-					transcriptScroll.readerDetached
+					// While a sent message holds the top, a growing reply extends
+					// below the fold (desktop behavior) instead of dragging it down.
+					transcriptScroll.readerDetached ||
+					transcriptScroll.anchorIndex !== null
 						? false
 						: {
 								animated: false,
@@ -1175,10 +1242,20 @@ function ThreadScreen() {
 				}
 				ListFooterComponent={
 					<View style={{ minHeight: endRunwayHeight, paddingTop: 4 }}>
+						{options === null ? null : (
+							<UndeliveredMessage
+								stateKey={stateKey}
+								connection={options}
+								sessionId={normalizedSessionId}
+								messages={messages}
+							/>
+						)}
 						{options?.cloudWorkspaceId && (
 							<CloudDeviceAccess workspaceId={options.cloudWorkspaceId} />
 						)}
-						{workingActive ? <WorkingIndicator since={workingSince} /> : null}
+						{workingActive || cloudSendWaiting ? (
+							<WorkingIndicator since={workingSince} label={workingLabel} />
+						) : null}
 					</View>
 				}
 				onScroll={onScroll}
@@ -1189,7 +1266,11 @@ function ThreadScreen() {
 				onEndVisible={onEndVisible}
 				scrollEventThrottle={16}
 			/>
-			{initialTranscriptLoading && turns.length === 0 ? (
+			{initialTranscriptLoading &&
+			turns.length === 0 &&
+			// A preparing or resuming workspace has no history yet; its setup
+			// card is the loading state, never a false "couldn't load".
+			cloudLifecycleState === null ? (
 				<View
 					pointerEvents="box-none"
 					style={{
@@ -1306,11 +1387,13 @@ function ThreadScreen() {
 						left: 0,
 						right: 0,
 						bottom: 0,
-						height: bottomAccessoryHeight + 40,
+						// A soft fade, not an opaque floor: the transcript stays visible
+						// through the composer's glass so the blur reads as iOS material.
+						height: bottomAccessoryHeight + 16,
 						experimental_backgroundImage:
 							theme === "dark"
-								? "linear-gradient(to bottom, rgba(15,15,15,0) 0%, rgba(15,15,15,0.72) 55%, rgb(15,15,15) 100%)"
-								: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.72) 55%, rgb(255,255,255) 100%)",
+								? "linear-gradient(to bottom, rgba(15,15,15,0) 0%, rgba(15,15,15,0.45) 60%, rgba(15,15,15,0.85) 100%)"
+								: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.45) 60%, rgba(255,255,255,0.85) 100%)",
 					}}
 				/>
 				<View
@@ -1351,7 +1434,11 @@ function ThreadScreen() {
 									: undefined
 							}
 						>
-							{connectionNotice === null ? null : (
+							{options.cloudWorkspaceId === undefined ? null : (
+								<CloudLifecycleBar workspaceId={options.cloudWorkspaceId} />
+							)}
+							{connectionNotice === null ||
+							cloudLifecycleState !== null ? null : (
 								<View className="px-3 pt-2">
 									<ConnectionRecoveryBanner
 										message={connectionNotice}
@@ -1444,9 +1531,13 @@ function ThreadScreen() {
 								connection={options}
 								sessionId={normalizedSessionId}
 								session={detail?.session ?? null}
-								status={sessionStatus}
+								status={cloudLifecycleState === null ? sessionStatus : "idle"}
 								fresh={fresh}
-								online={transportOnline}
+								// Cloud sends go to the account mailbox, which accepts them
+								// while the sandbox boots or sleeps.
+								online={
+									options.cloudWorkspaceId !== undefined || transportOnline
+								}
 								onMessageAppendFailed={onMessageAppendFailed}
 								onMessageWillAppend={onMessageWillAppend}
 								onFocusChange={(focused) => {

@@ -3,7 +3,13 @@ import "@zuse/i18n/english/settings";
 import type { CloudAccountImageBuildAttempt } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
 import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
-import { CheckCircle2, ChevronDown, CircleX, LoaderCircle } from "lucide-react";
+import {
+	CheckCircle2,
+	ChevronDown,
+	ChevronRight,
+	CircleX,
+	LoaderCircle,
+} from "lucide-react";
 import { useState } from "react";
 
 import { useRelativeTimeTick } from "../../lib/use-relative-time.ts";
@@ -11,6 +17,7 @@ import { CopyButton } from "../copy-button.tsx";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import { COMPACT_CLOUD_ACTION } from "./cloud-settings-ui.tsx";
+import { RepositoryAvatar } from "./cloud-workspace-repositories.tsx";
 
 const PAGE_SIZE = 5;
 
@@ -61,9 +68,11 @@ function BuildIcon({
 
 function BuildAccordion({
 	build,
+	customSnapshot = build.source === "custom-snapshot",
 	defaultOpen = false,
 }: {
 	readonly build: CloudAccountImageBuildAttempt;
+	readonly customSnapshot?: boolean;
 	readonly defaultOpen?: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["settings"]);
@@ -74,9 +83,11 @@ function BuildAccordion({
 			<summary className="flex h-7 cursor-pointer list-none items-center gap-2 px-3 hover:bg-muted/40">
 				<BuildIcon state={build.state} />
 				<span className="min-w-0 flex-1 truncate text-xs font-medium">
-					{build.mode === "rebuild"
-						? uiMessage("settings:cloud_image_build_history_clean_rebuild")
-						: uiMessage("settings:cloud_image_build_history_image_update")}
+					{customSnapshot
+						? uiMessage("settings:snapshot_check_title")
+						: build.mode === "rebuild"
+							? uiMessage("settings:cloud_image_build_history_clean_rebuild")
+							: uiMessage("settings:cloud_image_build_history_image_update")}
 				</span>
 				<span className="hidden text-[10px] text-muted-foreground sm:inline">
 					{formatUiDate(new Date(build.createdAt), {
@@ -109,72 +120,106 @@ function BuildAccordion({
 						label={uiMessage(
 							"settings:cloud_image_build_history_copy_build_logs",
 						)}
-						className="absolute top-2 right-2 size-7"
+						className="absolute top-1 right-1 size-7"
 					/>
 					<pre className="max-h-72 overflow-auto whitespace-pre-wrap pr-8 font-mono text-[10px] leading-4 text-foreground/85">
 						{build.logText ||
-							(build.state === "failed"
-								? `Logs were not retained for this older build.\nError: ${build.errorCode ?? "unknown"}`
-								: build.state === "sanitizing"
-									? "Preparing snapshot…"
-									: build.state === "ready"
-										? "Build completed. No output was retained."
-										: "Waiting for build output…")}
+							(customSnapshot
+								? uiMessage(
+										build.state === "ready"
+											? "settings:snapshot_ready"
+											: build.state === "failed"
+												? "settings:snapshot_unknown_error"
+												: "settings:snapshot_inspecting",
+										{ code: build.errorCode ?? "unknown" },
+									)
+								: build.state === "failed"
+									? `Logs were not retained for this older build.\nError: ${build.errorCode ?? "unknown"}`
+									: build.state === "sanitizing"
+										? "Preparing snapshot…"
+										: build.state === "ready"
+											? "Build completed. No output was retained."
+											: "Waiting for build output…")}
 					</pre>
 				</div>
-				<details>
-					<summary className="cursor-pointer text-[11px] font-medium text-muted-foreground hover:text-foreground">
-						{uiMessage("settings:cloud_image_build_history_build_settings")}
-					</summary>
-					<div className="mt-2 space-y-2 text-[11px]">
-						<div className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5">
-							<RichMessage
-								id="settings:cloud_image_build_history_runtimerepositoriesagents_sentence"
-								values={{
-									value: build.runtimeVersion,
-									value2: build.repositories.length,
-									value3:
-										build.providers
-											.filter((provider) => provider.state === "connected")
-											.map((provider) => provider.providerId)
-											.join(", ") || "None",
-								}}
-								components={{
-									part0: <span className="text-muted-foreground" />,
-									part1: <span />,
-									part2: <span className="text-muted-foreground" />,
-									part3: <span />,
-									part4: <span className="text-muted-foreground" />,
-									part5: <span />,
-								}}
+				{customSnapshot ? (
+					<BuildRepositories build={build} />
+				) : (
+					<details className="group/settings">
+						<summary className="flex h-7 cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+							<ChevronRight
+								className="size-3 transition-transform duration-150 group-open/settings:rotate-90"
+								aria-hidden
 							/>
+							{uiMessage("settings:cloud_image_build_history_build_settings")}
+						</summary>
+						<div className="space-y-2 pt-1 text-[11px]">
+							<div className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5">
+								<RichMessage
+									id="settings:cloud_image_build_history_runtimerepositoriesagents_sentence"
+									values={{
+										value: build.runtimeVersion,
+										value2: build.repositories.length,
+										value3:
+											build.providers
+												.filter((provider) => provider.state === "connected")
+												.map((provider) => provider.providerId)
+												.join(", ") || "None",
+									}}
+									components={{
+										part0: <span className="text-muted-foreground" />,
+										part1: <span />,
+										part2: <span className="text-muted-foreground" />,
+										part3: <span />,
+										part4: <span className="text-muted-foreground" />,
+										part5: <span />,
+									}}
+								/>
+							</div>
+							<BuildRepositories build={build} />
 						</div>
-						<div className="divide-y divide-border/60 rounded-md bg-background/50">
-							{build.repositories.map((repository) => (
-								<div
-									key={repository.projectId}
-									className="flex h-7 items-center justify-between gap-3 px-3"
-								>
-									<span className="truncate">{repository.displayName}</span>
-									<span className="shrink-0 text-[10px] text-muted-foreground">
-										{repository.defaultBranch}
-									</span>
-								</div>
-							))}
-						</div>
-					</div>
-				</details>
+					</details>
+				)}
 			</div>
 		</details>
+	);
+}
+
+/** Repositories captured by one build, listed with their branch. */
+function BuildRepositories({
+	build,
+}: {
+	readonly build: CloudAccountImageBuildAttempt;
+}) {
+	if (build.repositories.length === 0) return null;
+	return (
+		<div className="divide-y divide-border/60 rounded-md bg-muted/30 text-[11px]">
+			{build.repositories.map((repository) => (
+				<div
+					key={repository.projectId}
+					className="flex h-8 items-center justify-between gap-3 px-2"
+				>
+					<span className="flex min-w-0 items-center gap-2">
+						<RepositoryAvatar name={repository.displayName} />
+						<span className="truncate">{repository.displayName}</span>
+					</span>
+					<span className="shrink-0 text-[10px] text-muted-foreground">
+						{repository.defaultBranch}
+					</span>
+				</div>
+			))}
+		</div>
 	);
 }
 
 export function CloudImageBuildHistory({
 	builds,
 	expandLatest = false,
+	latestSource,
 }: {
 	readonly builds: ReadonlyArray<CloudAccountImageBuildAttempt>;
 	readonly expandLatest?: boolean;
+	readonly latestSource?: "managed" | "custom-snapshot";
 }) {
 	const { message: uiMessage } = useUiMessages(["settings"]);
 
@@ -204,6 +249,7 @@ export function CloudImageBuildHistory({
 			<BuildAccordion
 				key={latest.buildId}
 				build={latest}
+				customSnapshot={(latest.source ?? latestSource) === "custom-snapshot"}
 				defaultOpen={expandLatest}
 			/>
 			{previous.length === 0 ? null : (

@@ -10,6 +10,8 @@ export const glass = {
 	borderLight: "rgba(0,0,0,0.12)",
 	fillDark: "rgba(24,24,24,0.72)",
 	fillLight: "rgba(255,255,255,0.78)",
+	tintDark: "rgba(24,24,24,0.35)",
+	tintLight: "rgba(255,255,255,0.4)",
 	surfaceDark: "hsl(0 0% 12%)",
 	surfaceLight: "#ffffff",
 	hairlineDark: "rgba(255,255,255,0.1)",

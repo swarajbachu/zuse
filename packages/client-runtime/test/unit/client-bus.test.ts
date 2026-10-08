@@ -1594,6 +1594,41 @@ describe("ClientBus", () => {
 		await bus.dispose();
 	});
 
+	it("dismisses one failed command and keeps the resource's other failures", async () => {
+		const bus = new ClientBus<Client>({
+			resolver: immediateResolver(),
+			commandExecutor: {
+				execute: async () => {
+					throw new Error("offline");
+				},
+			},
+		});
+		for (const id of ["send-a", "send-b"])
+			await expect(
+				bus.dispatch({
+					kind: "messages.send",
+					commandId: CommandId.make(id),
+					environmentId,
+					resource: timelineKey,
+					payload: {},
+					retry: "never",
+					createdAt: 1,
+				}),
+			).rejects.toThrow("offline");
+		expect(bus.snapshot(timelineKey).failedCommands).toHaveLength(2);
+
+		expect(
+			bus.dismissFailedCommand(timelineKey, CommandId.make("send-a")),
+		).toBe(true);
+		expect(
+			bus.snapshot(timelineKey).failedCommands.map((row) => row.commandId),
+		).toEqual(["send-b"]);
+		expect(
+			bus.dismissFailedCommand(timelineKey, CommandId.make("send-a")),
+		).toBe(false);
+		await bus.dispose();
+	});
+
 	it("bounds in-memory command receipts for high-volume terminal-style commands", async () => {
 		let executions = 0;
 		const bus = new ClientBus<Client>({

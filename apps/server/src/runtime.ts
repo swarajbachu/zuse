@@ -19,8 +19,8 @@ import { AnalyticsServiceLive } from "./analytics/layers/analytics-service.ts";
 import { ApiActivityPublisherLive } from "./api/activity-publisher.ts";
 import {
 	ApiLinkService,
-	ApiLinkServiceLive,
 	autoLinkUntilLinked,
+	makeApiLinkServiceLive,
 	makeDisabledApiLinkService,
 } from "./api/api-link-service.ts";
 import {
@@ -169,6 +169,8 @@ export interface MainLayerDeps {
 		readonly apiUrl: string;
 		readonly label?: string;
 	};
+	/** Resume a saved computer registration and tunnel on boot. Defaults to true. */
+	readonly resumeApiLink?: boolean;
 	readonly apiEnabled?: boolean;
 	readonly cliAccess?: {
 		readonly path: string;
@@ -691,7 +693,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const ApiLinkLayer =
 		deps.apiEnabled === false
 			? makeDisabledApiLinkService(lanAuthConfig)
-			: ApiLinkServiceLive.pipe(
+			: makeApiLinkServiceLive({ resumeExistingLink: deps.resumeApiLink }).pipe(
 					Layer.provide(AccountAccessLayer),
 					Layer.provide(EnrolledLanAuthLayer),
 					Layer.provide(LanAuthConfigLayer),

@@ -146,6 +146,7 @@ export class CloudProviderSize extends Schema.Class<CloudProviderSize>(
 export const CloudCodexAuthMode = Schema.Literals([
 	"legacy-image",
 	"broker-v1",
+	"snapshot-native",
 ]);
 export type CloudCodexAuthMode = typeof CloudCodexAuthMode.Type;
 
@@ -182,6 +183,7 @@ export class CloudProviderConnectionList extends Schema.Class<CloudProviderConne
 	"CloudProviderConnectionList",
 )({
 	connections: Schema.Array(CloudProviderConnection),
+	customSnapshotsEnabled: Schema.optional(Schema.Boolean),
 }) {}
 
 export class CloudProviderOption extends Schema.Class<CloudProviderOption>(
@@ -200,6 +202,77 @@ export class CloudProviderList extends Schema.Class<CloudProviderList>(
 	/** Eligibility only: safe for content members, unlike financial records. */
 	entitled: Schema.optional(Schema.Boolean),
 }) {}
+
+/** Explicit inspection runs on the customer's Boxd account, never during polling. */
+export const CloudSnapshotImportRequest = Schema.Struct({
+	connectionId: Schema.NonEmptyString,
+	agentAuthentication: Schema.optional(Schema.Literals(["native", "zuse"])),
+	gitAuthentication: Schema.optional(Schema.Literals(["native", "zuse"])),
+	snapshotId: Schema.String.check(
+		Schema.isMinLength(1),
+		Schema.isMaxLength(512),
+	),
+	runtimeUser: Schema.String.check(
+		Schema.isPattern(/^[a-z_][a-z0-9_-]{0,31}$/u),
+	),
+	/** Empty means bounded discovery; otherwise inspect these exact checkouts. */
+	repositoryPaths: Schema.Array(
+		Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096)),
+	).check(Schema.isMaxLength(32)),
+	idempotencyKey: Schema.NonEmptyString,
+});
+export type CloudSnapshotImportRequest = typeof CloudSnapshotImportRequest.Type;
+
+export const SnapshotAgentAccess = Schema.Struct({
+	providerId: Schema.Literals(["claude", "codex"]),
+	state: Schema.Literals([
+		"detected",
+		"verified",
+		"authentication-required",
+		"expired",
+		"unavailable",
+		"missing-tool",
+	]),
+	checkedAt: Schema.Number,
+	/** Non-secret account label reported by the agent CLI, such as an email. */
+	account: Schema.optional(Schema.String),
+});
+export type SnapshotAgentAccess = typeof SnapshotAgentAccess.Type;
+
+/** GitHub CLI login found on a custom snapshot when it was inspected. */
+export const SnapshotGithubAccess = Schema.Struct({
+	state: Schema.Literals([
+		"authenticated",
+		"authentication-required",
+		"missing-tool",
+		"unavailable",
+	]),
+	login: Schema.optional(Schema.String),
+	checkedAt: Schema.Number,
+});
+export type SnapshotGithubAccess = typeof SnapshotGithubAccess.Type;
+
+export const CloudSnapshotConfiguration = Schema.Struct({
+	agentAuthentication: Schema.optional(Schema.Literals(["native", "zuse"])),
+	gitAuthentication: Schema.optional(Schema.Literals(["native", "zuse"])),
+	snapshotId: Schema.String,
+	runtimeUser: Schema.String,
+	revision: Schema.String,
+	agents: Schema.optional(Schema.Array(SnapshotAgentAccess)),
+	github: Schema.optional(SnapshotGithubAccess),
+	repositories: Schema.Array(
+		Schema.Struct({
+			projectId: Schema.String,
+			path: Schema.String,
+			gitAccess: Schema.Literals([
+				"readable",
+				"authentication-required",
+				"unavailable",
+			]),
+		}),
+	),
+});
+export type CloudSnapshotConfiguration = typeof CloudSnapshotConfiguration.Type;
 
 export class CloudProjectBuildStatus extends Schema.Class<CloudProjectBuildStatus>(
 	"CloudProjectBuildStatus",
@@ -248,7 +321,7 @@ export class CloudProjectBuild extends Schema.Class<CloudProjectBuild>(
 	"CloudProjectBuild",
 )({
 	buildId: Schema.String,
-	projectId: Schema.String,
+	projectId: Schema.NullOr(Schema.String),
 	providerId: Schema.String,
 	state: CloudProjectBuildState,
 	sourceCommit: Schema.optional(Schema.String),
@@ -289,6 +362,7 @@ export class CloudAccountImageProvider extends Schema.Class<CloudAccountImagePro
 export class CloudAccountImageBuildAttempt extends Schema.Class<CloudAccountImageBuildAttempt>(
 	"CloudAccountImageBuildAttempt",
 )({
+	source: Schema.optional(Schema.Literals(["managed", "custom-snapshot"])),
 	buildId: Schema.String,
 	state: CloudProjectBuildState,
 	mode: CloudAccountImageBuildMode,
@@ -308,6 +382,8 @@ export class CloudAccountImageBuildAttempt extends Schema.Class<CloudAccountImag
 export class CloudAccountImage extends Schema.Class<CloudAccountImage>(
 	"CloudAccountImage",
 )({
+	snapshot: Schema.optional(CloudSnapshotConfiguration),
+	source: Schema.optional(Schema.Literals(["managed", "custom-snapshot"])),
 	state: CloudAccountImageState,
 	storage: Schema.optional(
 		Schema.Struct({
@@ -352,6 +428,7 @@ export class CloudProjectPrepareRequest extends Schema.Class<CloudProjectPrepare
 export class CloudWorkspace extends Schema.Class<CloudWorkspace>(
 	"CloudWorkspace",
 )({
+	nativeAgentAccess: Schema.optional(Schema.Array(SnapshotAgentAccess)),
 	workspaceId: Schema.String,
 	projectId: Schema.String,
 	/** Legacy internal row id retained during the account-image migration. */
@@ -417,6 +494,7 @@ export class CloudWorkspaceConnection extends Schema.Class<CloudWorkspaceConnect
 export class CloudWorkspaceRuntimeSummary extends Schema.Class<CloudWorkspaceRuntimeSummary>(
 	"CloudWorkspaceRuntimeSummary",
 )({
+	nativeAgentAccess: Schema.optional(Schema.Array(SnapshotAgentAccess)),
 	summaryRevision: Schema.Number,
 	title: Schema.String,
 	lastActivityAt: Schema.Number,
@@ -430,6 +508,7 @@ export class CloudWorkspaceRuntimeSummary extends Schema.Class<CloudWorkspaceRun
 export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 	"CloudChatSummary",
 )({
+	nativeAgentAccess: Schema.optional(Schema.Array(SnapshotAgentAccess)),
 	workspaceScope: Schema.optional(WorkspaceScope),
 	workspaceId: Schema.String,
 	projectId: Schema.String,
@@ -1002,3 +1081,9 @@ export const CloudProviderConnectionsDisconnectRpc = Rpc.make(
 		error: CloudWorkspaceOpError,
 	},
 );
+
+export const CloudSnapshotImportRpc = Rpc.make("cloud.snapshot.import", {
+	payload: CloudSnapshotImportRequest,
+	success: CloudAccountImage,
+	error: CloudWorkspaceOpError,
+});

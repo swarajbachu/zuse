@@ -4,12 +4,14 @@ import {
 	compareCloudChatSummaryVersion,
 } from "@zuse/client-runtime/cloud-catalog";
 import { cloudFailurePresentation } from "@zuse/client-runtime/cloud-failure-presentation";
+import { hasCloudEntitlement } from "@zuse/client-runtime/cloud-sandbox-providers";
 import {
 	type CapabilityManifest,
 	type CloudAccountImage,
 	type CloudAuthStatus,
 	type CloudChatSummary,
 	type CloudProject,
+	type CloudProviderOption,
 	type CloudWorkspace,
 	Folder,
 	FolderId,
@@ -25,6 +27,14 @@ type CloudCatalog = Readonly<{
 	accountId: string | null;
 	chats: readonly CloudChatSummary[];
 	projects: readonly CloudProject[];
+	/** Sandbox providers (boxd, Boat, E2B…) this account can run cloud chats on. */
+	providers: readonly CloudProviderOption[];
+	/** Each provider's account image, for per-repository readiness. */
+	providerImages: readonly CloudAccountImage[];
+	/** Cloud Workspace subscription; `null` until known. */
+	subscribed: boolean | null;
+	/** Why the sandbox provider list could not load, if it failed. */
+	providersError: string | null;
 	image: CloudAccountImage | null;
 	auth: CloudAuthStatus | null;
 	loading: boolean;
@@ -35,6 +45,10 @@ const empty = (accountId: string | null): CloudCatalog => ({
 	accountId,
 	chats: [],
 	projects: [],
+	providers: [],
+	providerImages: [],
+	subscribed: null,
+	providersError: null,
 	image: null,
 	auth: null,
 	loading: false,
@@ -192,9 +206,36 @@ export const refreshCloudCatalog = (): Promise<void> => {
 			Effect.runPromise(cloudControlClient["cloud.projects.list"]()),
 			Effect.runPromise(cloudControlClient["cloud.auth.status"]()),
 			Effect.runPromise(cloudControlClient["cloud.image.status"]()),
+			Effect.runPromise(cloudControlClient["cloud.providers"]()),
 		]);
 		if (epoch !== generation) return;
-		const [chats, projects, auth, image] = results;
+		const [chats, projects, auth, image, providers] = results;
+		// Placement readiness, as on desktop: each provider's image and the
+		// subscription. Failures leave the previous values (shown as unavailable).
+		const [providerImages, subscribed] =
+			providers.status === "fulfilled"
+				? await Promise.all([
+						Promise.allSettled(
+							providers.value.providers.map((provider) =>
+								Effect.runPromise(
+									cloudControlClient["cloud.image.status"]({
+										providerId: provider.providerId,
+									}),
+								),
+							),
+						).then((settled) =>
+							settled.flatMap((result) =>
+								result.status === "fulfilled" ? [result.value] : [],
+							),
+						),
+						providers.value.entitled !== undefined
+							? Promise.resolve(providers.value.entitled)
+							: Effect.runPromise(cloudControlClient["machines.entitlements"]())
+									.then(hasCloudEntitlement)
+									.catch(() => null),
+					])
+				: [null, null];
+		if (epoch !== generation) return;
 		appAtomRegistry.update(cloudCatalogAtom, (state) => ({
 			...state,
 			chats:
@@ -215,6 +256,17 @@ export const refreshCloudCatalog = (): Promise<void> => {
 					: state.projects,
 			auth: auth.status === "fulfilled" ? auth.value : null,
 			image: image.status === "fulfilled" ? image.value : state.image,
+			providers:
+				providers.status === "fulfilled"
+					? providers.value.providers
+					: state.providers,
+			providerImages: providerImages ?? state.providerImages,
+			providersError:
+				providers.status === "rejected"
+					? (cloudFailurePresentation({ cause: providers.reason })?.message ??
+						"Could not load cloud sandboxes. Pull to retry.")
+					: null,
+			subscribed: subscribed ?? state.subscribed,
 			loading: false,
 			error:
 				chats.status === "rejected"

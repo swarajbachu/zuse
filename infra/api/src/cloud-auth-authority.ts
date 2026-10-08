@@ -1633,3 +1633,15 @@ export type CloudAuthAuthorityContext =
 	| SandboxProviders
 	| ApiConfiguration
 	| CloudWorkspaceStore;
+
+/** Cached account-scoped authorization; does not wake the authentication VM. */
+export const availableCloudAgents = Effect.fn("availableCloudAgents")(
+	function* (accountId: string) {
+		const status = yield* cloudAuthStatus(accountId);
+		return status.authorityState === "ready"
+			? status.providers
+					.filter((provider) => provider.state === "connected")
+					.map((provider) => provider.providerId)
+			: [];
+	},
+);

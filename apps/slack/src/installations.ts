@@ -12,11 +12,14 @@ export interface Cipher {
 }
 export type AccessMode = "installer" | "shared" | "personal";
 export interface ZuseConnection {
+	readonly organizationId?: string;
+	readonly organizationName?: string;
 	readonly accountId: string;
 	readonly webhookId: string;
 	readonly webhookSecret: string;
 	readonly agent?: string;
 	readonly model?: string;
+	readonly providerId?: string;
 	readonly projectId?: string;
 }
 export interface MemberProfile {

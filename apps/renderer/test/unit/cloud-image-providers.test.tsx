@@ -30,3 +30,61 @@ it("shows compact status buttons without expanding build history into settings",
 	expect(markup).not.toContain("Latest build");
 	expect(markup).not.toContain("Previous builds");
 });
+
+it("distinguishes provider billing from the environment installed on the machine", () => {
+	const markup = renderToStaticMarkup(
+		<CloudImageProviders
+			providers={[
+				{ providerId: "boxd", displayName: "boxd", billingSource: "provider" },
+				{ providerId: "e2b", displayName: "E2B", billingSource: "zuse" },
+			]}
+			images={[
+				{
+					providerId: "boxd",
+					source: "custom-snapshot",
+					state: "ready",
+					repositories: [],
+					providers: [],
+					builds: [],
+					updatedAt: 1,
+				},
+				{
+					providerId: "e2b",
+					source: "managed",
+					state: "ready",
+					repositories: [],
+					providers: [],
+					builds: [],
+					updatedAt: 1,
+				},
+			]}
+			selectedProvider="boxd"
+			onSelectProvider={() => {}}
+		/>,
+	);
+	expect(markup).toContain("Billed by your provider");
+	expect(markup).toContain("Billed by Zuse");
+	expect(markup).toContain("Your custom snapshot");
+	expect(markup).toContain("Zuse image");
+});
+
+it("labels custom snapshot inspection without claiming an image build", () => {
+	const markup = renderToStaticMarkup(
+		<CloudImageProviders
+			providers={[{ providerId: "boxd", displayName: "boxd" }]}
+			images={[
+				{
+					providerId: "boxd",
+					source: "custom-snapshot",
+					state: "building",
+					repositories: [],
+					providers: [],
+					builds: [],
+					updatedAt: 1,
+				},
+			]}
+		/>,
+	);
+	expect(markup).toContain("Inspecting snapshot");
+	expect(markup).not.toContain(">Building<");
+});

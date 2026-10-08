@@ -24,6 +24,9 @@ export class TranscriptScrollCoordinator {
 	private actions: TranscriptScrollActions;
 	private anchorRequestId = 0;
 	private anchorScrollStartedForRequest = 0;
+	// The send whose one-time "move to the top" scroll is still owed. Reader
+	// gestures cancel it without removing the sent message's runway.
+	private positionRequestId = 0;
 	private jumpRequestId = 0;
 	private listeners = new Set<() => void>();
 	private operationTail = Promise.resolve();
@@ -59,6 +62,7 @@ export class TranscriptScrollCoordinator {
 		this.readerDetachedBeforeAppend = this.snapshot.readerDetached;
 		this.anchorRequestId += 1;
 		this.anchorScrollStartedForRequest = 0;
+		this.positionRequestId = this.anchorRequestId;
 		this.updateSnapshot({
 			anchorIndex: preAppendTurnCount,
 			pendingJumpRequestId: null,
@@ -69,7 +73,11 @@ export class TranscriptScrollCoordinator {
 	onAnchorReady = async (info: TranscriptAnchorReadyInfo): Promise<void> => {
 		const { anchorIndex } = this.snapshot;
 		const requestId = this.anchorRequestId;
-		if (anchorIndex === null || info.anchorIndex !== anchorIndex) {
+		if (
+			anchorIndex === null ||
+			info.anchorIndex !== anchorIndex ||
+			this.positionRequestId !== requestId
+		) {
 			return;
 		}
 		return this.tryStartAnchorScroll(requestId, anchorIndex);
@@ -117,22 +125,22 @@ export class TranscriptScrollCoordinator {
 		if (!this.scrollOperationActive) this.actions.releaseFreeze();
 	};
 
+	/**
+	 * Like desktop, the sent message keeps its runway after the reply settles,
+	 * so it stays at the top instead of dropping down to the composer.
+	 */
 	onTurnSettled = (): void => {
 		this.readerDetachedBeforeAppend = null;
-		const hadAnchor = this.snapshot.anchorIndex !== null;
-		this.clearAnchor();
-		if (hadAnchor && !this.scrollOperationActive) this.actions.releaseFreeze();
+		if (this.snapshot.anchorIndex !== null && !this.scrollOperationActive)
+			this.actions.releaseFreeze();
 	};
 
+	/** Reader control cancels pending positioning but keeps the runway. */
 	onReaderDetached = (): void => {
 		this.readerDetachedBeforeAppend = null;
 		this.anchorRequestId += 1;
 		this.anchorScrollStartedForRequest = 0;
-		this.updateSnapshot({
-			...this.snapshot,
-			anchorIndex: null,
-			readerDetached: true,
-		});
+		this.updateSnapshot({ ...this.snapshot, readerDetached: true });
 	};
 
 	onFollowingRequested = (): void => {

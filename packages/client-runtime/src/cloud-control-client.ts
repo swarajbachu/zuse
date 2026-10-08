@@ -31,6 +31,7 @@ import {
 	type CloudProviderConnectionInput,
 	CloudProviderConnectionList,
 	CloudProviderList,
+	type CloudSnapshotImportRequest,
 	CloudTranscriptCheckpointResult,
 	CloudTranscriptMessagePageResult,
 	CloudWorkspace,
@@ -68,6 +69,8 @@ export type CloudControlRequest = <A>(
 ) => Effect.Effect<A, CloudWorkspaceOpError>;
 
 export const makeCloudControlClient = (request: CloudControlRequest) => ({
+	"cloud.snapshot.import": (input: CloudSnapshotImportRequest) =>
+		request(ApiPaths.cloudSnapshotImport, CloudAccountImage, "POST", input),
 	"plugins.request": (input: PluginRequest) =>
 		request("/v1/plugins", PluginResponse, "POST", input),
 	"cloud.providerConnections.list": () =>

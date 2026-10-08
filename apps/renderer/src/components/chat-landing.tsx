@@ -21,6 +21,10 @@ import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+	type CloudSandboxSetup,
+	cloudSandboxSetup,
+} from "@zuse/client-runtime/cloud-sandbox-providers";
+import {
 	resourceRefKey,
 	type SessionRef,
 } from "@zuse/client-runtime/resource-ref";
@@ -92,6 +96,16 @@ import {
 	chatLandingProgress,
 } from "~/lib/chat-landing-progress";
 import { cloudImageReadyForProject } from "~/lib/cloud-image-group.ts";
+
+const CLOUD_SETUP_MESSAGE = {
+	unavailable: "chat:cloud_setup_unavailable",
+	"subscription-required": "chat:cloud_setup_subscription_required",
+	"connect-repository": "chat:cloud_setup_connect_repository",
+	"building-image": "chat:cloud_setup_building_image",
+	"rebuild-authentication": "chat:cloud_setup_rebuild_authentication",
+	"update-image": "chat:cloud_setup_update_image",
+} as const satisfies Record<Exclude<CloudSandboxSetup, "ready">, string>;
+
 import { cloudLaunchRequestForSource } from "~/lib/cloud-launch-source";
 import { cloudWorkspaceBetaAvailable } from "~/lib/cloud-machines-availability.ts";
 import {
@@ -564,6 +578,15 @@ function WorkspaceChatLanding({
 		null,
 	);
 	const cloudTarget = cloudOnlyHome || selectedCloudProviderId !== null;
+	const [cloudAccountImages, setCloudAccountImages] = useState<
+		ReadonlyArray<CloudAccountImage>
+	>([]);
+	const snapshotNative = cloudAccountImages.some(
+		(image) =>
+			image.providerId === selectedCloudProviderId &&
+			image.snapshot !== undefined &&
+			image.snapshot.agentAuthentication !== "zuse",
+	);
 	const [cloudAuth, setCloudAuth] = useState<CloudAuthStatus | null>(null);
 	const [cloudAuthLoad, setCloudAuthLoad] =
 		useState<CloudAuthLoadState>("loading");
@@ -571,10 +594,11 @@ function WorkspaceChatLanding({
 	const enabledProviders = useSettingsStore((state) => state.providerEnabled);
 	const cloudProviderIds = useMemo(
 		() =>
-			connectedCloudProviders(cloudAuth).filter(
-				(id) => enabledProviders[id] !== false,
-			),
-		[cloudAuth, enabledProviders],
+			(snapshotNative
+				? (["claude", "codex"] as const)
+				: connectedCloudProviders(cloudAuth)
+			).filter((id) => enabledProviders[id] !== false),
+		[cloudAuth, enabledProviders, snapshotNative],
 	);
 	useEffect(() => {
 		if (!cloudTarget) {
@@ -618,7 +642,10 @@ function WorkspaceChatLanding({
 	const cloudAuthBlocker =
 		!cloudTarget || draftSession === null
 			? null
-			: cloudSendBlocker(cloudAuthLoad, cloudProviderIds);
+			: cloudSendBlocker(
+					snapshotNative ? "ready" : cloudAuthLoad,
+					cloudProviderIds,
+				);
 	useEffect(() => {
 		if (
 			!cloudTarget ||
@@ -641,9 +668,6 @@ function WorkspaceChatLanding({
 		ReadonlyArray<CloudProviderOption>
 	>([]);
 	const [cloudProject, setCloudProject] = useState<CloudProject | null>(null);
-	const [cloudAccountImages, setCloudAccountImages] = useState<
-		ReadonlyArray<CloudAccountImage>
-	>([]);
 	const [cloudSubscribed, setCloudSubscribed] = useState(false);
 	const [cloudPlacementError, setCloudPlacementError] = useState(false);
 	const setView = useUiStore((state) => state.setView);
@@ -726,20 +750,14 @@ function WorkspaceChatLanding({
 					cloudAccountImage,
 					cloudProject?.projectId,
 				);
+				const setup = cloudSandboxSetup({
+					image: cloudAccountImage,
+					subscribed: cloudSubscribed,
+					projectId: cloudProject?.projectId ?? null,
+					placementFailed: cloudPlacementError,
+				});
 				const statusText =
-					cloudPlacementError || cloudAccountImage === undefined
-						? uiMessage("chat:cloud_setup_unavailable")
-						: !cloudSubscribed
-							? uiMessage("chat:cloud_setup_subscription_required")
-							: cloudProject === null
-								? uiMessage("chat:cloud_setup_connect_repository")
-								: ready
-									? null
-									: cloudAccountImage?.state === "building"
-										? uiMessage("chat:cloud_setup_building_image")
-										: cloudAccountImage?.state === "auth-broken"
-											? uiMessage("chat:cloud_setup_rebuild_authentication")
-											: uiMessage("chat:cloud_setup_update_image");
+					setup === "ready" ? null : uiMessage(CLOUD_SETUP_MESSAGE[setup]);
 				return {
 					providerId: provider.providerId,
 					disabled: cloudPlacementError || cloudAccountImage === undefined,

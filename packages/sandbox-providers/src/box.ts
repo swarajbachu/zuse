@@ -115,9 +115,16 @@ export const BOX_MACHINE_RESOURCES: Record<
 };
 
 const USABLE_STATES = new Set(["ready", "idle", "running"]);
-const PAUSED_STATES = new Set(["archiving", "archived"]);
-const RECOVERABLE_STATES =
-	"init,provisioning,provisioned,cloning,ready,idle,running,archiving,archived";
+// Current Box responses use stopped; retain older snapshot lifecycle states.
+const PAUSED_STATES = new Set(["archiving", "archived", "stopped"]);
+const RECOVERABLE_STATES = [
+	"init",
+	"provisioning",
+	"provisioned",
+	"cloning",
+	...USABLE_STATES,
+	...PAUSED_STATES,
+].join(",");
 const MAX_RECOVERY_PAGES = 10;
 const MAX_TEXT_FILE_BYTES = 65_536;
 const MIN_TTL_SECONDS = 1;

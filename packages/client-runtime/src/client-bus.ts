@@ -619,6 +619,23 @@ export class ClientBus<Client> {
 		return true;
 	}
 
+	/** Clears one acknowledged failure, keeping the resource's other failures. */
+	dismissFailedCommand(
+		key: ResourceKey<unknown>,
+		commandId: CommandId,
+	): boolean {
+		if (this.disposed) return false;
+		const entry = this.entries.get(resourceKeyId(key));
+		if (entry === undefined) return false;
+		const failedCommands = entry.view.failedCommands.filter(
+			(command) => command.commandId !== commandId,
+		);
+		if (failedCommands.length === entry.view.failedCommands.length)
+			return false;
+		this.setView(entry, { ...entry.view, failedCommands });
+		return true;
+	}
+
 	connection(environmentId: EnvironmentId): ConnectionView {
 		return this.environment(environmentId).runtime.snapshot();
 	}

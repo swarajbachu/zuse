@@ -14,10 +14,12 @@
 				"**/*.yaml.tmpl",
 				"**/runtime-updater.mjs",
 				"**/project-builder.sh",
+				"**/install-grok.sh",
 				"**/workspace-bootstrap.sh",
 				"**/github-auth.sh",
 				"**/workspace-repository.sh",
-				"**/workspace-fork-prepare.sh"
+				"**/workspace-fork-prepare.sh",
+				"**/snapshot-inspect.sh"
 			],
 			"fallthrough": true
 		}

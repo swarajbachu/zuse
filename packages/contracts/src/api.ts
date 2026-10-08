@@ -113,12 +113,15 @@ export const ApiPaths = {
 	cloudAccountImage: "/v1/cloud/image",
 	cloudAccountImageDelete: "/v1/cloud/image/delete",
 	cloudAccountImageBuild: "/v1/cloud/image/build",
+	cloudSnapshotImport: "/v1/cloud/image/snapshot",
 	cloudProjectPrepare: (projectId: string) =>
 		`/v1/cloud/projects/${encodeURIComponent(projectId)}/prepare`,
 	cloudApiKeys: "/v1/cloud/api-keys",
 	cloudApiKey: (keyId: string) =>
 		`/v1/cloud/api-keys/${encodeURIComponent(keyId)}`,
 	apiProjects: "/v1/api/projects",
+	apiProviders: "/v1/api/providers",
+	apiAgents: "/v1/api/agents",
 	apiWorkspaces: "/v1/api/workspaces",
 	apiWorkspace: (workspaceId: string) =>
 		`/v1/api/workspaces/${encodeURIComponent(workspaceId)}`,
@@ -389,6 +392,13 @@ export class ApiLocalPairingBinding extends Schema.Class<ApiLocalPairingBinding>
 export const EnvironmentsListRpc = Rpc.make("environments.list", {
 	payload: Schema.Void,
 	success: ApiEnvironmentList,
+	error: ConnectAuthError,
+});
+
+/** Delete an account computer registration without touching its local data. */
+export const EnvironmentRemoveRpc = Rpc.make("environments.remove", {
+	payload: Schema.Struct({ environmentId: EnvironmentId }),
+	success: Schema.Void,
 	error: ConnectAuthError,
 });
 

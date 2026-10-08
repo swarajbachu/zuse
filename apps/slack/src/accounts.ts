@@ -42,7 +42,7 @@ export const successPage = async (
 	const html = renderIntegrationPage({
 		integration: "Slack",
 		description: connected
-			? "Your Zuse account is connected. Choose your repository and agent in Slack."
+			? `Your Zuse account is connected to ${profile?.connection?.organizationName ?? "Personal"}. Choose your repository and agent in Slack.`
 			: "Zuse is installed. Return to Slack and connect your account privately.",
 		status: connected ? "Connected" : "Installed",
 		hint: token
@@ -191,6 +191,63 @@ const beginSignIn = async (
 	return redirect(
 		target.toString(),
 		cookie("__Host-zuse-slack-account", state, 600),
+	);
+};
+
+interface PendingSignIn {
+	readonly revision: number;
+	readonly channel?: string;
+	readonly pendingRequest?: PendingConnectionRequest;
+}
+
+const finishSignIn = async (
+	env: AppEnv,
+	installation: Installation,
+	userId: string,
+	accountId: string,
+	pending: PendingSignIn,
+	organization?: { id: string; name: string },
+) => {
+	const profile = await env.store.member(installation, userId);
+	if (profile.connection || profile.revision !== pending.revision)
+		return page(
+			"<h1>Connection changed</h1><p>Return to Slack and start again.</p>",
+			409,
+		);
+	const cloud = env.cloud(accountId, organization?.id);
+	const webhook = await registerWebhook(
+		cloud,
+		`${appOrigin(env)}/slack/webhook/${installation.teamId}/${installation.generation}/${userId}`,
+	);
+	if (
+		!(await env.store.saveMember(installation, userId, {
+			...profile,
+			connection: {
+				accountId,
+				...(organization
+					? {
+							organizationId: organization.id,
+							organizationName: organization.name,
+						}
+					: {}),
+				webhookId: webhook.webhook.webhookId,
+				webhookSecret: webhook.secret,
+			},
+		}))
+	) {
+		await deleteWebhook(cloud, webhook.webhook.webhookId);
+		return page(
+			"<h1>Connection changed</h1><p>Return to Slack and retry.</p>",
+			409,
+		);
+	}
+	return connectionComplete(
+		env,
+		installation,
+		userId,
+		webhook.webhook.webhookId,
+		pending.channel,
+		pending.pendingRequest,
 	);
 };
 
@@ -364,35 +421,17 @@ export const accountRoutes = async (
 			"<h1>Connection changed</h1><p>Return to Slack and start again.</p>",
 			409,
 		);
-	const { accountId } = await env.identity.exchange(code, pending.verifier);
-	const cloud = env.cloud(accountId);
-	const webhook = await registerWebhook(
-		cloud,
-		`${appOrigin(env)}/slack/webhook/${installation.teamId}/${installation.generation}/${session.owner_id}`,
+	const { accountId, organization } = await env.identity.exchange(
+		code,
+		pending.verifier,
 	);
-	if (
-		!(await env.store.saveMember(installation, session.owner_id, {
-			...profile,
-			connection: {
-				accountId,
-				webhookId: webhook.webhook.webhookId,
-				webhookSecret: webhook.secret,
-			},
-		}))
-	) {
-		await deleteWebhook(cloud, webhook.webhook.webhookId);
-		return page(
-			"<h1>Connection changed</h1><p>Return to Slack and retry.</p>",
-			409,
-		);
-	}
-	const response = await connectionComplete(
+	const response = await finishSignIn(
 		env,
 		installation,
 		session.owner_id,
-		webhook.webhook.webhookId,
-		pending.channel,
-		pending.pendingRequest,
+		accountId,
+		pending,
+		organization,
 	);
 	response.headers.append(
 		"set-cookie",

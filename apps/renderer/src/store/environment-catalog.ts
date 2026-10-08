@@ -23,6 +23,7 @@ import {
 	cloudSummaryForChat,
 	localProjectForCloudChat,
 } from "../lib/cloud-workspace-catalog.ts";
+import { runControlPlane } from "../lib/control-plane-client.ts";
 import {
 	type EnvironmentShellData,
 	environmentShellSnapshot,
@@ -397,6 +398,7 @@ type EnvironmentCatalogState = {
 	disconnect: (profileId: string) => Promise<void>;
 	remove: (profileId: string) => Promise<void>;
 	rename: (profileId: string, label: string) => Promise<void>;
+	removeApiEnvironment: (environmentId: string) => Promise<void>;
 	hideApiEnvironment: (environmentId: string) => Promise<void>;
 	unhideApiEnvironments: () => Promise<void>;
 	activate: (
@@ -1577,6 +1579,43 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				patchEntry(`${entry?.connectionKind ?? "ssh"}:${profileId}`, {
 					label: profile.label,
 				});
+			},
+			removeApiEnvironment: async (environmentId) => {
+				if (get().activeEnvironmentId === environmentId) {
+					throw new Error(
+						"Switch to another computer before removing this one.",
+					);
+				}
+				const account = rendererAccountSnapshot();
+				if (isHostedProduct()) {
+					const { removeHostedComputer } = await import(
+						"../lib/hosted-connect.ts"
+					);
+					await removeHostedComputer(environmentId);
+				} else {
+					await runControlPlane(
+						(client) =>
+							client["environments.remove"]({
+								environmentId: EnvironmentId.make(environmentId),
+							}),
+						{ scope: "account" },
+					);
+				}
+				assertRendererAccountCurrent(account);
+				apiRecords.delete(environmentId);
+				stopEntryRuntime(`api:${environmentId}`);
+				await removeRendererEnvironment(environmentId).catch(() => undefined);
+				assertRendererAccountCurrent(account);
+				const hiddenApiEnvironmentIds = readHiddenApiEnvironmentIds().filter(
+					(id) => id !== environmentId,
+				);
+				writeHiddenApiEnvironmentIds(hiddenApiEnvironmentIds);
+				set((state) => ({
+					hiddenApiEnvironmentIds,
+					entries: state.entries.filter(
+						(entry) => entry.environmentId !== environmentId,
+					),
+				}));
 			},
 			hideApiEnvironment: async (environmentId) => {
 				if (get().activeEnvironmentId === environmentId) {

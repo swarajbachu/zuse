@@ -4,8 +4,8 @@ import {
 	type ModelSignInEvent,
 } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
+import { resolveAccountApiUrl } from "../api/api-url.ts";
 import { AuthService } from "../auth/services/auth-service.ts";
-import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
 import type { CredentialsServiceShape } from "../provider/services/credentials-service.ts";
 import {
 	type AccountConnectionTransport,
@@ -42,7 +42,6 @@ export const accountModelConnections = (
 ) =>
 	Effect.gen(function* () {
 		const identity = yield* AuthService;
-		const lan = yield* LanAuthService;
 		const runtime = yield* RuntimeModelConnections;
 		let cached: {
 			transport: AccountConnectionTransport;
@@ -63,23 +62,22 @@ export const accountModelConnections = (
 				key = transport?.accountId ?? "";
 			} else {
 				const session = await Effect.runPromise(identity.getSession());
-				const link = await Effect.runPromise(lan.getApiConfig());
-				if (session._tag === "SignedIn" && link) {
+				const apiUrl = resolveAccountApiUrl();
+				if (session._tag === "SignedIn") {
 					const accountId = session.session.user.id;
-					key = `${link.apiUrl}:${accountId}`;
+					key = `${apiUrl}:${accountId}`;
 					transport = {
 						accountId,
 						request: async (body) => {
 							const current = await Effect.runPromise(identity.getSession());
-							const currentLink = await Effect.runPromise(lan.getApiConfig());
 							if (
 								current._tag !== "SignedIn" ||
 								current.session.user.id !== accountId ||
-								currentLink?.apiUrl !== link.apiUrl
+								resolveAccountApiUrl() !== apiUrl
 							)
 								throw new ModelConnectionError({ code: "unavailable" });
 							return connectionStorageRequest(
-								`${link.apiUrl}/v1/model-connections/storage`,
+								`${apiUrl}/v1/model-connections/storage`,
 								{
 									authorization: `Bearer ${await Effect.runPromise(identity.getAccessToken())}`,
 								},

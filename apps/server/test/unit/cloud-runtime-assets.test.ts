@@ -20,6 +20,39 @@ const readWorkspaceFile = (relativePath: string) =>
 	readFile(workspaceFileUrl(relativePath), "utf8");
 
 describe("cloud runtime assets", () => {
+	test("snapshot installer wrapper invokes the orchestration CLI without starting a server", async () => {
+		const installer = await readWorkspaceFile(
+			"infra/cloud-sandboxes/install-snapshot.sh",
+		);
+		const directory = await mkdtemp(join(tmpdir(), "snapshot-cli-"));
+		try {
+			await mkdir(join(directory, "cli"));
+			await writeFile(
+				join(directory, "bin.mjs"),
+				"throw new Error('server entrypoint must not run');",
+			);
+			await writeFile(
+				join(directory, "cli/zuse"),
+				"if (process.argv[2] !== '--help') process.exit(1); console.log('CLI help');",
+			);
+			const wrapper = installer
+				.split("cat >/opt/zuse/bin/zuse <<'SH'\n")[1]
+				?.split("\nSH")[0];
+			expect(wrapper).toBeDefined();
+			const result = spawnSync(
+				"sh",
+				[
+					"-c",
+					`${wrapper?.replaceAll("/opt/zuse/node/bin/node", process.execPath).replaceAll("/opt/zuse/current", directory)} --help`,
+				],
+				{ encoding: "utf8" },
+			);
+			expect(result.status, result.stderr).toBe(0);
+			expect(result.stdout).toContain("CLI help");
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
 	test("prepares repository snapshots without installing project dependencies", async () => {
 		const builder = await readWorkspaceFile(
 			"infra/cloud-sandboxes/project-builder.sh",
@@ -200,7 +233,11 @@ describe("cloud runtime assets", () => {
 			"RUN /tmp/zuse-provision/provision.sh runtime layout",
 		);
 		expect(boxInstall).not.toContain("zuse-host-ports.service");
-		expect(provision).toContain("install-grok.sh 1.0.13");
+		expect(provision).toContain('source "$provision_dir/install-grok.sh"');
+		expect(provision).toContain("GROK_BIN_DIR=/usr/local/bin install_grok");
+		expect(
+			await readWorkspaceFile("infra/cloud-sandboxes/install-grok.sh"),
+		).toContain("grok-1.0.13-linux-");
 		expect(provision).toContain("GROK_BIN_DIR=/usr/local/bin");
 	});
 
@@ -539,20 +576,22 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 		expect(bootstrap).toContain("export ZUSE_HOST=127.0.0.1");
 		expect(bootstrap).toContain('touch "$status_dir/repository-ready"');
 		expect(bootstrap).toContain(
-			"runtime_command=(node /opt/zuse/current/bin.mjs serve)",
+			`runtime_command=("\${ZUSE_RUNTIME_NODE:-node}" /opt/zuse/current/bin.mjs serve)`,
 		);
 		expect(bootstrap).not.toContain(
 			"runtime_command=(node /opt/zuse/current/bin.mjs serve --foreground)",
 		);
-		expect(reconciler).toContain('exec node "$runtime" serve');
+		expect(reconciler).toContain(
+			`exec "\\\${ZUSE_RUNTIME_NODE:-node}" "$runtime" serve`,
+		);
 		expect(bootstrap).not.toContain("runtime-updater.mjs");
 		expect(reconciler).toContain("ZUSE_RUNTIME_INSTALL_ONLY=1");
 		expect(reconciler).toContain("ZUSE_RUNTIME_SKIP_TOOLCHAIN=1");
 		expect(reconciler).toContain("WORKSPACE_BOOTSTRAP_SOURCE");
 		expect(reconciler).toContain('command: "/bin/bash"');
 		expect(reconciler).toContain("replacingFailedSandbox");
-		expect(reconciler).toContain(
-			"yield* provider.kill(workspace.providerSandboxId)",
+		expect(reconciler).toMatch(
+			/yield\* provider\s*\.kill\(workspace\.providerSandboxId\)/u,
 		);
 		expect(bootstrap).not.toContain("workspace-ready.ts");
 		expect(runtime).toContain("bootstrap.gatewayUrl");

@@ -34,6 +34,7 @@ import {
 	ApiEnvironmentsRpc,
 	ApiRevokeClientRpc,
 	EnvironmentConnectRpc,
+	EnvironmentRemoveRpc,
 	EnvironmentsListRpc,
 } from "./api.ts";
 import {
@@ -102,6 +103,7 @@ import {
 	CloudSharingDefaultsUpdateRpc,
 	CloudSharingGetRpc,
 	CloudSharingUpdateRpc,
+	CloudSnapshotImportRpc,
 	CloudTranscriptCheckpointGetRpc,
 	CloudTranscriptMessagePageGetRpc,
 	CloudWorkspaceDataKeyRpc,
@@ -473,6 +475,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	ApiStatusRpc,
 	ApiUnlinkRpc,
 	EnvironmentsListRpc,
+	EnvironmentRemoveRpc,
 	EnvironmentConnectRpc,
 	CloudBillingSummaryRpc,
 	CloudBillingUsageRpc,
@@ -493,6 +496,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudProvidersRpc,
 	CloudProviderConnectionsListRpc,
 	CloudProviderConnectionsSaveRpc,
+	CloudSnapshotImportRpc,
 	CloudProviderConnectionsDisconnectRpc,
 	CloudProjectsListRpc,
 	CloudProjectsConnectRpc,

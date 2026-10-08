@@ -311,6 +311,7 @@
       "name": "@zuse/slack",
       "version": "0.0.0",
       "dependencies": {
+        "@zuse/client-runtime": "*",
         "@zuse/contracts": "*",
         "@zuse/utils": "*",
       },

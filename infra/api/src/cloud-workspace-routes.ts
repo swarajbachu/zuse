@@ -23,6 +23,7 @@ import {
 	CloudRuntimeAccessRequest,
 	CloudRuntimeCommandAck,
 	CloudRuntimeTurnEventUpload,
+	CloudSnapshotImportRequest,
 	CloudTranscriptCheckpointUpload,
 	CloudTranscriptMessagePageUpload,
 	CloudWorkspaceActionRequest,
@@ -110,6 +111,13 @@ import {
 } from "./cloud-provider-connections.ts";
 import { runtimeControlPathAllowed } from "./cloud-runtime-control.ts";
 import {
+	importedSnapshot,
+	snapshotBuildCompatible,
+	snapshotLogins,
+	snapshotRepositoryLayout,
+	snapshotSettings,
+} from "./cloud-snapshot.ts";
+import {
 	assertSnapshotUsable,
 	deleteRetainedSnapshot,
 } from "./cloud-snapshot-storage.ts";
@@ -134,7 +142,10 @@ import {
 	makeCloudWorkspaceLaunchIntent,
 	selectCloudWorkspaceInitialMessageDelivery,
 } from "./cloud-workspace-launch-intent.ts";
-import { cloudRepositoryWorkspacePath } from "./cloud-workspace-paths.ts";
+import {
+	cloudWorkspaceLayout,
+	cloudWorkspaceRepositoryPath,
+} from "./cloud-workspace-paths.ts";
 import {
 	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	withoutRuntimeBootstrapReceipt,
@@ -223,7 +234,6 @@ const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 // SSH bridge access: the hashed ticket is staged inside the sandbox (like the
 // runtime boot token) and verified by the runtime's /ssh WebSocket route.
 const WORKSPACE_SSH_TICKET_TTL_MS = 12 * 60 * 60_000;
-const WORKSPACE_SSH_TICKET_FILE = "/home/zuse/.zuse-ssh-ticket";
 const escapeHtml = (value: string): string =>
 	value.replace(
 		/[&<>"']/gu,
@@ -367,8 +377,12 @@ export const currentActiveCloudProjectBuilds = (
 			.filter(
 				(build) =>
 					build.state === "ready" &&
-					currentTemplateVersions.get(build.provider) === build.templateVersion,
+					snapshotBuildCompatible(
+						build,
+						currentTemplateVersions.get(build.provider),
+					),
 			)
+			.sort((left, right) => left.updatedAtMs - right.updatedAtMs)
 			.map((build) => [build.provider, build.buildId]),
 	);
 
@@ -393,7 +407,7 @@ export const selectCloudWorkspaceBuild = (
 	const preparedBuild = candidates.find(
 		(build) =>
 			build.snapshotId !== undefined &&
-			build.templateVersion === currentTemplateVersion,
+			snapshotBuildCompatible(build, currentTemplateVersion),
 	);
 	const build = preparedBuild ?? candidates[0];
 	return build === undefined
@@ -566,7 +580,7 @@ export const selectActiveAccountImageBuild = (
 		(candidate) =>
 			candidate.state === "ready" &&
 			candidate.snapshotId !== undefined &&
-			candidate.templateVersion === currentTemplateVersion,
+			snapshotBuildCompatible(candidate, currentTemplateVersion),
 	);
 
 export const codexAuthModeForAccountBuild = (
@@ -658,16 +672,18 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 		method: status.method,
 		verifiedAt: status.verifiedAt,
 	}));
-	const authBroken = providers.some(
-		(status) =>
-			active?.settings?.providerAuthDeliveryVersion !== 1 &&
-			!(
-				active?.settings?.codexAuthDeliveryVersion === 1 &&
-				status.providerId === "codex"
-			) &&
-			status.method !== undefined &&
-			(status.state === "expired" || status.state === "error"),
-	);
+	const authBroken =
+		!importedSnapshot(active) &&
+		providers.some(
+			(status) =>
+				active?.settings?.providerAuthDeliveryVersion !== 1 &&
+				!(
+					active?.settings?.codexAuthDeliveryVersion === 1 &&
+					status.providerId === "codex"
+				) &&
+				status.method !== undefined &&
+				(status.state === "expired" || status.state === "error"),
+		);
 	const currentConfigurationDigest =
 		active === undefined
 			? undefined
@@ -686,6 +702,7 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 				);
 	const outdated =
 		active !== undefined &&
+		!importedSnapshot(active) &&
 		isCloudAccountImageOutdated({
 			imagePromotedAtMs: active.updatedAtMs,
 			configurationChanged:
@@ -737,6 +754,20 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 				);
 	return {
 		state,
+		source: importedSnapshot(statusBuild) ? "custom-snapshot" : "managed",
+		...(active !== undefined && importedSnapshot(active)
+			? {
+					snapshot: {
+						snapshotId: snapshotSettings(active).snapshotId,
+						agentAuthentication: snapshotSettings(active).agentAuthentication,
+						gitAuthentication: snapshotSettings(active).gitAuthentication,
+						runtimeUser: snapshotSettings(active).runtimeUser,
+						revision: active.buildId,
+						...snapshotLogins(active),
+						repositories: active.settings?.repositories ?? [],
+					},
+				}
+			: {}),
 		generation: active?.buildId,
 		storage:
 			storage === undefined
@@ -762,6 +793,9 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 		repositories,
 		providers,
 		builds: builds.slice(0, 12).map((build) => ({
+			source: importedSnapshot(build)
+				? ("custom-snapshot" as const)
+				: ("managed" as const),
 			buildId: build.buildId,
 			state: build.state,
 			mode: buildMode(build) ?? "update",
@@ -872,20 +906,24 @@ const workspaceFailureDiagnostic = (
 			? workspace.requestConfig.launchErrorCode
 			: undefined;
 
-const publicWorkspace = (workspace: CloudWorkspaceRecord) => ({
+const workspaceAuthMode = (
+	value: unknown,
+): "legacy-image" | "broker-v1" | "snapshot-native" =>
+	value === "snapshot-native" || value === "broker-v1" ? value : "legacy-image";
+
+const publicWorkspace = (
+	workspace: CloudWorkspaceRecord,
+	summary?: CloudWorkspaceRuntimeSummaryRecord | null,
+) => ({
+	nativeAgentAccess: currentCloudRuntimeSummary(workspace, summary)
+		?.nativeAgentAccess,
 	workspaceId: workspace.workspaceId,
 	projectId: workspace.projectId,
 	buildId: workspace.buildId,
 	imageGeneration: workspace.buildId,
 	providerId: workspace.provider,
-	codexAuthMode:
-		workspace.requestConfig.codexAuthMode === "broker-v1"
-			? ("broker-v1" as const)
-			: ("legacy-image" as const),
-	providerAuthMode:
-		workspace.requestConfig.providerAuthMode === "broker-v1"
-			? ("broker-v1" as const)
-			: ("legacy-image" as const),
+	codexAuthMode: workspaceAuthMode(workspace.requestConfig.codexAuthMode),
+	providerAuthMode: workspaceAuthMode(workspace.requestConfig.providerAuthMode),
 	branch: workspace.branch,
 	baseRef: workspace.baseRef,
 	state: workspace.state,
@@ -969,14 +1007,10 @@ export const publicCloudWorkspaceSummary = (
 				: workspace.branch),
 		branch: workspace.branch,
 		providerId: workspace.provider,
-		codexAuthMode:
-			workspace.requestConfig.codexAuthMode === "broker-v1"
-				? ("broker-v1" as const)
-				: ("legacy-image" as const),
-		providerAuthMode:
-			workspace.requestConfig.providerAuthMode === "broker-v1"
-				? ("broker-v1" as const)
-				: ("legacy-image" as const),
+		codexAuthMode: workspaceAuthMode(workspace.requestConfig.codexAuthMode),
+		providerAuthMode: workspaceAuthMode(
+			workspace.requestConfig.providerAuthMode,
+		),
 		agent:
 			typeof workspace.requestConfig.agent === "string"
 				? workspace.requestConfig.agent
@@ -994,6 +1028,7 @@ export const publicCloudWorkspaceSummary = (
 		startupPhase: startupPhase(workspace),
 		revision: workspace.revision,
 		summaryRevision: currentSummary?.summaryRevision ?? 0,
+		nativeAgentAccess: currentSummary?.nativeAgentAccess,
 		sessionHeadVersion:
 			currentSummary?.sessionHeadVersion ??
 			(recoveringRetainedStorage
@@ -1016,6 +1051,38 @@ export const publicCloudWorkspaceSummary = (
 		),
 	};
 };
+
+export const cloudProviderOptions = Effect.fn("cloudProviderOptions")(
+	function* (ownerId: string, nowMs: number) {
+		const config = yield* MachineControlConfiguration;
+		const configured = yield* accountSandboxProviders(ownerId);
+		const onlyOwnKeys =
+			configured.some((provider) => provider.connectionId !== undefined) &&
+			!(yield* hasPaidEntitlement(ownerId, nowMs));
+		const available = configured.filter(
+			(provider) =>
+				provider.connectionId !== undefined ||
+				(!onlyOwnKeys &&
+					(config.availableSandboxProviderIds?.has(provider.providerId) ??
+						true)),
+		);
+		return {
+			entitled: yield* hasEntitlement(ownerId, nowMs),
+			providers: available.map((provider) => ({
+				providerId: provider.providerId,
+				displayName: provider.displayName,
+				billingSource:
+					provider.connectionId === undefined ? "zuse" : "provider",
+				sizes: provider.sizes.map((size) => ({
+					sizeId: size.sizeId,
+					displayName: size.displayName,
+					vcpuCount: size.vcpuCount,
+					memoryMib: size.memoryMib,
+				})),
+			})),
+		};
+	},
+);
 
 const selectedProvider = Effect.fn("selectedCloudProvider")(function* (
 	accountId: string,
@@ -1460,7 +1527,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		accountBuild === null ||
 		(forkSource === null && accountBuild.snapshotId === undefined) ||
 		(forkSource === null &&
-			accountBuild.templateVersion !== provider.templateVersion) ||
+			!snapshotBuildCompatible(accountBuild, provider.templateVersion)) ||
 		!storedBuildRepositories(
 			accountBuild,
 			accountImageRepositories([project]),
@@ -1475,23 +1542,40 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	)
 		yield* assertSnapshotUsable(accountId, build.provider, build.snapshotId);
 	if (
+		importedSnapshot(build) &&
+		snapshotRepositoryLayout(build, project.projectId) === undefined
+	)
+		return yield* Effect.fail(
+			conflict("snapshot-repository-configuration-invalid"),
+		);
+	if (
+		!importedSnapshot(build) &&
 		apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled &&
 		build.settings?.codexAuthDeliveryVersion !== 1
 	)
 		return yield* Effect.fail(conflict("codex-auth-update-required"));
 	if (
+		!importedSnapshot(build) &&
 		apiConfiguration.cloudProviderAuthBrokerEnrollmentEnabled &&
 		build.settings?.providerAuthDeliveryVersion !== 1
 	)
 		return yield* Effect.fail(conflict("provider-auth-update-required"));
-	const codexAuthMode = codexAuthModeForAccountBuild(
-		build,
-		apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled,
-	);
-	const providerAuthMode = providerAuthModeForAccountBuild(
-		build,
-		apiConfiguration.cloudProviderAuthBrokerEnrollmentEnabled,
-	);
+	const codexAuthMode = importedSnapshot(build)
+		? snapshotSettings(build).agentAuthentication === "zuse"
+			? "broker-v1"
+			: "snapshot-native"
+		: codexAuthModeForAccountBuild(
+				build,
+				apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled,
+			);
+	const providerAuthMode = importedSnapshot(build)
+		? snapshotSettings(build).agentAuthentication === "zuse"
+			? "broker-v1"
+			: "snapshot-native"
+		: providerAuthModeForAccountBuild(
+				build,
+				apiConfiguration.cloudProviderAuthBrokerEnrollmentEnabled,
+			);
 	const workspaceId = yield* randomToken("workspace", 12);
 	const chatId = `chat_${crypto.randomUUID()}`;
 	const initialSessionId = `s_${crypto.randomUUID()}`;
@@ -1555,7 +1639,13 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		chatId,
 		initialSessionId,
 		branch,
-		baseRef: forkSource?.branch ?? body.baseRef,
+		baseRef:
+			forkSource?.branch ??
+			(importedSnapshot(build) &&
+			body.branch === undefined &&
+			body.baseRef === project.defaultBranch
+				? "HEAD"
+				: body.baseRef),
 		state: "queued",
 		desiredState: "ready",
 		statusCode: "provisioning-queued",
@@ -1563,6 +1653,19 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		idempotencyKey: body.idempotencyKey,
 		requestConfig: {
 			providerConnectionId: provider.connectionId,
+			...(importedSnapshot(build)
+				? snapshotRepositoryLayout(build, project.projectId)
+				: {}),
+			...(forkSource?.requestConfig.snapshotRevision !== undefined
+				? {
+						runtimeUser: forkSource.requestConfig.runtimeUser,
+						runtimeHome: forkSource.requestConfig.runtimeHome,
+						workspacePath: forkSource.requestConfig.workspacePath,
+						snapshotRevision: forkSource.requestConfig.snapshotRevision,
+						snapshotGitAuthentication:
+							forkSource.requestConfig.snapshotGitAuthentication,
+					}
+				: {}),
 			...(machineFork === undefined ? {} : { machineFork }),
 			...(sharingPolicy === undefined ? {} : { sharingPolicy }),
 			initialGithubContext:
@@ -2033,14 +2136,12 @@ const routeCloudWorkspaceRequestWithAccess = (
 				gatewayProtocol: WORKSPACE_GATEWAY_PROTOCOL,
 				chatId: workspace.chatId,
 				initialSessionId: workspace.initialSessionId,
-				codexAuthMode:
-					enrolled.workspace.requestConfig.codexAuthMode === "broker-v1"
-						? "broker-v1"
-						: "legacy-image",
-				providerAuthMode:
-					enrolled.workspace.requestConfig.providerAuthMode === "broker-v1"
-						? "broker-v1"
-						: "legacy-image",
+				codexAuthMode: workspaceAuthMode(
+					enrolled.workspace.requestConfig.codexAuthMode,
+				),
+				providerAuthMode: workspaceAuthMode(
+					enrolled.workspace.requestConfig.providerAuthMode,
+				),
 				runtimeGeneration: enrolled.receipt.generation,
 				gatewayEpoch: enrolled.receipt.gatewayEpoch,
 				runtimeCredentialExpiresAt:
@@ -2298,6 +2399,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				workspaceId,
 				runtimeGeneration: cloudWorkspaceRuntimeGeneration(workspace),
 				summaryRevision: body.summaryRevision,
+				nativeAgentAccess: body.nativeAgentAccess,
 				title: body.title,
 				lastActivityAtMs: body.lastActivityAt,
 				lastUserMessageAtMs: body.lastUserMessageAt,
@@ -2447,6 +2549,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 							sessionId: workspace.initialSessionId,
 							text: content.text,
 							githubBot: content.githubBot,
+							actor: content.actor,
 							...(content.attachments.length === 0
 								? {}
 								: { attachments: content.attachments }),
@@ -3589,40 +3692,17 @@ const routeCloudWorkspaceRequestWithAccess = (
 					yield* listProviderConnections(ownerId),
 				);
 			} else return yield* badRequest("invalid_method");
-			const response = json(result);
+			const response = json({
+				...result,
+				customSnapshotsEnabled:
+					apiConfiguration.cloudBoxdCustomSnapshotsEnabled,
+			});
 			response.headers.set("cache-control", "no-store");
 			return response;
 		}
 
-		if (method === "GET" && path === ApiPaths.cloudProviders) {
-			const config = yield* MachineControlConfiguration;
-			const configured = yield* accountSandboxProviders(ownerId);
-			const onlyOwnKeys =
-				configured.some((provider) => provider.connectionId !== undefined) &&
-				!(yield* hasPaidEntitlement(ownerId, nowMs));
-			const available = configured.filter(
-				(provider) =>
-					provider.connectionId !== undefined ||
-					(!onlyOwnKeys &&
-						(config.availableSandboxProviderIds?.has(provider.providerId) ??
-							true)),
-			);
-			return json({
-				entitled: yield* hasEntitlement(ownerId, nowMs),
-				providers: available.map((provider) => ({
-					providerId: provider.providerId,
-					displayName: provider.displayName,
-					billingSource:
-						provider.connectionId === undefined ? "zuse" : "provider",
-					sizes: provider.sizes.map((size) => ({
-						sizeId: size.sizeId,
-						displayName: size.displayName,
-						vcpuCount: size.vcpuCount,
-						memoryMib: size.memoryMib,
-					})),
-				})),
-			});
-		}
+		if (method === "GET" && path === ApiPaths.cloudProviders)
+			return json(yield* cloudProviderOptions(ownerId, nowMs));
 
 		if (method === "GET" && path === ApiPaths.cloudAccountImage) {
 			const requested = url.searchParams.get("providerId") ?? undefined;
@@ -3634,6 +3714,89 @@ const routeCloudWorkspaceRequestWithAccess = (
 					access.membership === null || access.membership.role.slug === "admin",
 				),
 			);
+		}
+
+		if (method === "POST" && path === ApiPaths.cloudSnapshotImport) {
+			if (!apiConfiguration.cloudBoxdCustomSnapshotsEnabled)
+				return yield* conflict("custom_snapshots_not_enabled");
+			const body = yield* decodeBody(
+				CloudSnapshotImportRequest,
+				request,
+				160_000,
+			);
+			const provider = yield* selectedProvider(ownerId, "boxd");
+			if (
+				provider.connectionId === undefined ||
+				provider.connectionId !== body.connectionId
+			)
+				return yield* forbidden("cloud_provider_connection_required");
+			if (
+				body.runtimeUser === "root" ||
+				body.repositoryPaths.some(
+					(path) => !path.startsWith("/") || /[\0\r\n]/u.test(path),
+				)
+			)
+				return yield* badRequest("invalid_snapshot_configuration");
+			const builds = yield* store.listAccountBuilds(ownerId, "boxd");
+			if (
+				body.agentAuthentication === "zuse" &&
+				(!apiConfiguration.cloudCodexAuthBrokerEnrollmentEnabled ||
+					!apiConfiguration.cloudProviderAuthBrokerEnrollmentEnabled)
+			)
+				return yield* conflict("provider-auth-update-required");
+			const digest = yield* sha256Hex(JSON.stringify(body));
+			const previous = builds.find(
+				(build) => build.idempotencyKey === `snapshot:${body.idempotencyKey}`,
+			);
+			if (previous) {
+				if (previous.configurationDigest !== digest)
+					return yield* conflict("idempotency_key_reused");
+				const response = json(yield* cloudAccountImage(ownerId, "boxd"), 202);
+				response.headers.set("x-zuse-reconcile-cloud-build", previous.buildId);
+				return response;
+			}
+
+			if (
+				builds.some(
+					(build) =>
+						build.state === "queued" ||
+						build.state === "building" ||
+						build.state === "sanitizing",
+				)
+			)
+				return yield* conflict("cloud_image_operation_in_progress");
+			if (!provider.resolveSnapshotSource)
+				return yield* conflict("custom_snapshots_not_supported");
+			const source = yield* provider
+				.resolveSnapshotSource(body.snapshotId)
+				.pipe(
+					Effect.mapError(() => badRequest("snapshot_not_ready_or_accessible")),
+				);
+			if (source.snapshotId !== body.snapshotId)
+				return yield* badRequest("snapshot_id_required");
+			const created = yield* store.createBuild({
+				buildId: yield* randomToken("image", 12),
+				projectId: null,
+				accountId: ownerId,
+				provider: "boxd",
+				templateVersion: provider.templateVersion,
+				configurationDigest: digest,
+				settings: {
+					source: "custom-snapshot",
+					snapshotVersion: source.version,
+					snapshot: body,
+					providerConnectionId: provider.connectionId,
+				},
+				state: "queued",
+				idempotencyKey: `snapshot:${body.idempotencyKey}`,
+				nextActionAtMs: nowMs,
+				revision: 0,
+				createdAtMs: nowMs,
+				updatedAtMs: nowMs,
+			});
+			const response = json(yield* cloudAccountImage(ownerId, "boxd"), 202);
+			response.headers.set("x-zuse-reconcile-cloud-build", created.buildId);
+			return response;
 		}
 
 		if (method === "POST" && path === ApiPaths.cloudAccountImageDelete) {
@@ -3749,6 +3912,10 @@ const routeCloudWorkspaceRequestWithAccess = (
 
 		if (method === "GET" && path === ApiPaths.cloudProjects) {
 			const projects = yield* store.listProjects(ownerId);
+			const imports = (yield* store.listAccountBuilds(ownerId, "boxd")).filter(
+				importedSnapshot,
+			);
+
 			const providers = yield* accountSandboxProviders(ownerId);
 			const currentTemplateVersions = new Map(
 				providers.map((provider) => [
@@ -3762,7 +3929,18 @@ const routeCloudWorkspaceRequestWithAccess = (
 						.listBuilds(project.projectId)
 						.pipe(
 							Effect.map((builds) =>
-								publicProject(project, builds, currentTemplateVersions),
+								publicProject(
+									project,
+									[
+										...builds,
+										...imports.filter(
+											(build) =>
+												snapshotRepositoryLayout(build, project.projectId) !==
+												undefined,
+										),
+									],
+									currentTemplateVersions,
+								),
 							),
 						),
 				),
@@ -3954,7 +4132,16 @@ const routeCloudWorkspaceRequestWithAccess = (
 				),
 			);
 			return json({
-				workspaces: visible.map(publicWorkspace),
+				workspaces: yield* Effect.forEach(
+					visible,
+					(workspace) =>
+						store
+							.getRuntimeSummary(workspace.workspaceId)
+							.pipe(
+								Effect.map((summary) => publicWorkspace(workspace, summary)),
+							),
+					{ concurrency: 8 },
+				),
 			});
 		}
 
@@ -3966,7 +4153,12 @@ const routeCloudWorkspaceRequestWithAccess = (
 			if (workspace === null || workspace.accountId !== ownerId)
 				return yield* Effect.fail(notFound("cloud_workspace_not_found"));
 			yield* cloudWorkspacePermission(access, workspace);
-			return json(publicWorkspace(workspace));
+			return json(
+				publicWorkspace(
+					workspace,
+					yield* store.getRuntimeSummary(workspace.workspaceId),
+				),
+			);
 		}
 
 		const connectionTicketMatch =
@@ -4043,12 +4235,12 @@ const routeCloudWorkspaceRequestWithAccess = (
 			yield* provider
 				.writeTextFile(
 					workspace.providerSandboxId,
-					WORKSPACE_SSH_TICKET_FILE,
+					cloudWorkspaceLayout(workspace).sshTicket,
 					JSON.stringify({
 						tokenHash: yield* sha256Hex(ticket),
 						expiresAtMs: ticketExpiresAtMs,
 					}),
-					"zuse",
+					cloudWorkspaceLayout(workspace).user,
 				)
 				.pipe(
 					Effect.mapError((error) =>
@@ -4077,8 +4269,11 @@ const routeCloudWorkspaceRequestWithAccess = (
 				wsUrl: `${endpoint.wsBaseUrl}/ssh`,
 				ticket,
 				expiresAt: ticketExpiresAtMs,
-				user: "zuse",
-				workspacePath: cloudRepositoryWorkspacePath(project.repositoryIdentity),
+				user: cloudWorkspaceLayout(workspace).user,
+				workspacePath: cloudWorkspaceRepositoryPath(
+					workspace,
+					project.repositoryIdentity,
+				),
 			});
 		}
 
@@ -4265,7 +4460,10 @@ const routeCloudWorkspaceRequestWithAccess = (
 				);
 				if (
 					runtimeRecoveryBuild?.snapshotId === undefined ||
-					runtimeRecoveryBuild.templateVersion !== provider.templateVersion
+					!snapshotBuildCompatible(
+						runtimeRecoveryBuild,
+						provider.templateVersion,
+					)
 				)
 					return yield* Effect.fail(conflict("cloud_image_rebuild_required"));
 			}
@@ -4282,7 +4480,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				);
 				if (
 					failedRetryBuild?.snapshotId === undefined ||
-					failedRetryBuild.templateVersion !== provider.templateVersion
+					!snapshotBuildCompatible(failedRetryBuild, provider.templateVersion)
 				)
 					return yield* Effect.fail(conflict("cloud_image_rebuild_required"));
 			}

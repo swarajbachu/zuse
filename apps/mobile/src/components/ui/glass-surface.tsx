@@ -17,7 +17,15 @@ const styles = StyleSheet.create({
  * everywhere else. Layout (flex/padding/etc.) is supplied by the caller via
  * `style`; this component only owns the background/border/corner treatment.
  */
-export function GlassSurface({ style, children, ...rest }: ViewProps) {
+export function GlassSurface({
+	style,
+	children,
+	tinted = false,
+	...rest
+}: ViewProps & {
+	/** Adds a soft background tint so text on busy content stays legible. */
+	tinted?: boolean;
+}) {
 	const { theme } = useUniwind();
 	const supportsGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable();
 
@@ -26,6 +34,13 @@ export function GlassSurface({ style, children, ...rest }: ViewProps) {
 			<GlassView
 				glassEffectStyle="regular"
 				isInteractive
+				tintColor={
+					tinted
+						? theme === "dark"
+							? glass.tintDark
+							: glass.tintLight
+						: undefined
+				}
 				colorScheme={theme === "dark" ? "dark" : "light"}
 				style={[styles.base, styles.glass, style]}
 				{...rest}

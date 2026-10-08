@@ -1,11 +1,11 @@
 import { Atom } from "effect/unstable/reactivity";
 import {
 	currentAccount,
+	onSessionExpired,
 	type WorkosAccount,
 	signIn as workosSignIn,
 	signOut as workosSignOut,
 } from "../auth/workos.ts";
-import { resetAiSharingConsent } from "../lib/ai-sharing-consent";
 import { resetLocalMobileData } from "../lib/mobile-data.ts";
 import { revokeCurrentDevicePush } from "../notifications/push";
 import {
@@ -32,6 +32,14 @@ const message = (cause: unknown): string => {
 	}
 	return text;
 };
+
+onSessionExpired(() => {
+	resetApiAccessToken();
+	batchAtomUpdates(() => {
+		appAtomRegistry.set(authAccountAtom, null);
+		appAtomRegistry.set(authErrorAtom, "Your session expired. Sign in again.");
+	});
+});
 
 export const hydrateAuth = async (): Promise<void> => {
 	let account: WorkosAccount | null = null;
@@ -75,7 +83,6 @@ export const signOut = async (): Promise<void> => {
 		await revokeCurrentDevicePush();
 		await workosSignOut();
 		resetApiAccessToken();
-		resetAiSharingConsent();
 		appAtomRegistry.set(authAccountAtom, null);
 	} catch {
 		appAtomRegistry.set(

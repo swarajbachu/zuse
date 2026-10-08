@@ -5,7 +5,12 @@ import { randomSecret } from "./installations.ts";
 import { slackApi } from "./slack.ts";
 import { setThreadStatus } from "./thread-status.ts";
 import type { AppEnv, AppJob } from "./types.ts";
-import { listProjects, type ZuseProject } from "./zuse.ts";
+import {
+	listAgents,
+	listProjects,
+	ZuseApiError,
+	type ZuseProject,
+} from "./zuse.ts";
 
 export const repositoryOptions = (projects: readonly ZuseProject[]) =>
 	projects
@@ -166,118 +171,153 @@ export const loadRepositoryView = async (
 		return;
 	}
 	const { projects } = await listProjects(
-		env.cloud(selected.active.connection.accountId),
+		env.cloud(
+			selected.active.connection.accountId,
+			selected.active.connection.organizationId,
+		),
 	);
 	const options = repositoryOptions(projects);
 	const initialProject = options.find(
 		(option) => option.value === selected.pending.job.projectId,
 	);
-	const agents = agentOptions();
+	const { agents: available } = await listAgents(
+		env.cloud(
+			selected.active.connection.accountId,
+			selected.active.connection.organizationId,
+		),
+	);
+	const agents = agentOptions(available);
 	const connection = selected.active.connection;
 	const initialAgent = agents.find(
 		(option) => option.value === `${connection.agent}:${connection.model}`,
 	);
-	const blocks: Record<string, unknown>[] = options.length
-		? [
-				{
-					type: "input",
-					block_id: "repository",
-					label: { type: "plain_text", text: "Repository" },
-					element: {
-						type: "static_select",
-						action_id: "project",
-						placeholder: { type: "plain_text", text: "Search repositories…" },
-						options,
-						...(initialProject ? { initial_option: initialProject } : {}),
-					},
-				},
-				{
-					type: "input",
-					optional: !selected.pending.needsAgent,
-					block_id: "agent",
-					label: { type: "plain_text", text: "Agent and model" },
-					element: {
-						type: "static_select",
-						action_id: "choice",
-						placeholder: {
-							type: "plain_text",
-							text: "Choose an agent and model…",
+	const blocks: Record<string, unknown>[] =
+		options.length && agents.length
+			? [
+					{
+						type: "input",
+						block_id: "repository",
+						label: { type: "plain_text", text: "Repository" },
+						element: {
+							type: "static_select",
+							action_id: "project",
+							placeholder: { type: "plain_text", text: "Search repositories…" },
+							options,
+							...(initialProject ? { initial_option: initialProject } : {}),
 						},
-						options: agents,
-						...(initialAgent ? { initial_option: initialAgent } : {}),
 					},
-				},
-				{
-					type: "context",
-					elements: [
-						{
-							type: "plain_text",
-							text:
-								"Uses your connected account’s cloud credentials and usage. Choosing an agent does not connect its provider account." +
-								(selected.pending.needsAgent
-									? " Choose an agent and model to continue."
-									: " Leave blank to use your account’s existing agent default."),
-						},
-					],
-				},
-				...(selected.active.ownerId === job.userId
-					? [
-							{
-								type: "input",
-								optional: true,
-								block_id: "defaults",
-								label: { type: "plain_text", text: "Remember repository" },
-								element: {
-									type: "checkboxes",
-									action_id: "remember",
-									options: [
-										{
-											text: {
-												type: "plain_text",
-												text: "Set as default for this channel",
-											},
-											value: "channel",
-										},
-										{
-											text: {
-												type: "plain_text",
-												text: "Set as my default repository",
-											},
-											value: "personal",
-										},
-									],
-								},
+					{
+						type: "input",
+						optional: !selected.pending.needsAgent,
+						block_id: "agent",
+						label: { type: "plain_text", text: "Agent and model" },
+						element: {
+							type: "static_select",
+							action_id: "choice",
+							placeholder: {
+								type: "plain_text",
+								text: "Choose an agent and model…",
 							},
-						]
-					: []),
-				{
-					type: "context",
-					elements: [
-						{
-							type: "plain_text",
-							text:
-								selected.active.ownerId === job.userId
-									? "Defaults belong to your connected account. Existing threads keep their repository."
-									: "Using the team’s shared account. Only its owner can change shared defaults.",
+							options: agents,
+							...(initialAgent ? { initial_option: initialAgent } : {}),
 						},
-					],
-				},
-			]
-		: [
-				{
-					type: "section",
-					text: {
-						type: "plain_text",
-						text: "No ready repositories yet. Prepare a cloud project in Zuse, then send your request again.",
 					},
-				},
-			];
+					{
+						type: "context",
+						elements: [
+							{
+								type: "plain_text",
+								text:
+									"Uses your connected account’s cloud credentials and usage. Choosing an agent does not connect its provider account." +
+									(selected.pending.needsAgent
+										? " Choose an agent and model to continue."
+										: " Leave blank to use your account’s existing agent default."),
+							},
+						],
+					},
+					...(selected.active.ownerId === job.userId
+						? [
+								{
+									type: "input",
+									optional: true,
+									block_id: "defaults",
+									label: {
+										type: "plain_text",
+										text: "Defaults for future requests",
+									},
+									element: {
+										type: "checkboxes",
+										action_id: "remember",
+										...(!selected.active.connection.agent
+											? {
+													initial_options: [
+														{
+															text: {
+																type: "plain_text",
+																text: "Use this agent and model for future requests",
+															},
+															value: "agent",
+														},
+													],
+												}
+											: {}),
+										options: [
+											{
+												text: {
+													type: "plain_text",
+													text: "Use this agent and model for future requests",
+												},
+												value: "agent",
+											},
+											{
+												text: {
+													type: "plain_text",
+													text: "Set as default for this channel",
+												},
+												value: "channel",
+											},
+											{
+												text: {
+													type: "plain_text",
+													text: "Set as my default repository",
+												},
+												value: "personal",
+											},
+										],
+									},
+								},
+							]
+						: []),
+					{
+						type: "context",
+						elements: [
+							{
+								type: "plain_text",
+								text:
+									selected.active.ownerId === job.userId
+										? "Defaults belong to your connected account. Existing threads keep their repository."
+										: "Using the team’s shared account. Only its owner can change shared defaults.",
+							},
+						],
+					},
+				]
+			: [
+					{
+						type: "section",
+						text: {
+							type: "plain_text",
+							text: !agents.length
+								? "No connected agents are available for this account or organization. Connect an agent in Zuse → Settings → Cloud Workspaces, then reopen this picker."
+								: "No ready repositories yet. Prepare a cloud project in Zuse, then send your request again.",
+						},
+					},
+				];
 	await slackApi(installation.credentials.botToken, "views.update", {
 		view_id: job.viewId,
 		view: {
 			...repositoryLoadingView(job.token),
 			blocks,
-			...(options.length
+			...(options.length && agents.length
 				? { submit: { type: "plain_text", text: "Start request" } }
 				: {}),
 		},
@@ -300,6 +340,22 @@ export const acceptRepository = async (
 	const agentSelection = resolveAgentChoice(job.agentChoice);
 	if ((pending.needsAgent || job.agentChoice !== undefined) && !agentSelection)
 		return null;
+	if (
+		agentSelection &&
+		!(
+			await listAgents(
+				env.cloud(
+					active.connection.accountId,
+					active.connection.organizationId,
+				),
+			)
+		).agents.includes(agentSelection.agent)
+	)
+		throw new ZuseApiError(
+			400,
+			JSON.stringify({ code: "agent_not_available" }),
+			"workspace_create",
+		);
 	if (pending.projectId && pending.agentChoice !== job.agentChoice) return null;
 	// Queue consumers are serialized. The first accepted choice is immutable on redelivery.
 	if (pending.projectId && pending.projectId !== job.projectId) return null;
@@ -311,7 +367,7 @@ export const acceptRepository = async (
 	)
 		return null;
 	const { projects } = await listProjects(
-		env.cloud(active.connection.accountId),
+		env.cloud(active.connection.accountId, active.connection.organizationId),
 	);
 	if (
 		!projects.some((p) => p.projectId === job.projectId && p.state === "ready")
@@ -333,13 +389,18 @@ export const acceptRepository = async (
 		{ expirationTtl: 3600 },
 	);
 	if (
-		(job.channelDefault || job.personalDefault) &&
+		(job.channelDefault ||
+			job.personalDefault ||
+			(job.agentDefault && agentSelection)) &&
 		active.ownerId === job.userId &&
 		active.profile.revision === pending.profileRevision
 	) {
 		if (
 			!(await env.store.saveMember(installation, active.ownerId, {
 				...active.profile,
+				...(job.agentDefault && agentSelection
+					? { connection: { ...active.connection, ...agentSelection } }
+					: {}),
 				defaults: {
 					...active.profile.defaults,
 					...(job.personalDefault ? { projectId: job.projectId } : {}),
@@ -354,6 +415,16 @@ export const acceptRepository = async (
 		)
 			throw new Error("slack_defaults_changed");
 	}
+	console.info("[slack-app] agent selection accepted", {
+		agent: agentSelection?.agent,
+		model: agentSelection?.model,
+		savedDefault: Boolean(
+			job.agentDefault &&
+				agentSelection &&
+				active.ownerId === job.userId &&
+				active.profile.revision === pending.profileRevision,
+		),
+	});
 	return {
 		...pending.job,
 		...(agentSelection ? { agentSelection } : {}),

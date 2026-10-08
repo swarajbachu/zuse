@@ -127,6 +127,7 @@ import {
 	readLocalePreference,
 	writeLocalePreference,
 } from "./locale-preference.ts";
+import { desktopRemoteAccessPolicy } from "./remote-access-policy.ts";
 import {
 	createTitleBarOverlay,
 	createWindowTitleBarOptions,
@@ -611,6 +612,7 @@ const startAuthLoopback = async (): Promise<void> => {
 
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL?.trim() || "";
 const isDevelopment = Boolean(DEV_SERVER_URL);
+const remoteAccessPolicy = desktopRemoteAccessPolicy(isDevelopment);
 
 const APP_NAME = isDevelopment ? "Zuse (Beta) (Dev)" : "Zuse (Beta)";
 const STABLE_USER_DATA_NAME = zuseDesktopProfileName(isDevelopment);
@@ -3384,11 +3386,14 @@ async function createMainWindow() {
 			makeMainLayer({
 				userData,
 				telemetryIdentity: { kind: "desktop", instance: "local" },
-				autoApiLink: {
-					apiUrl:
-						process.env.ZUSE_API_URL?.trim() ||
-						(isDevelopment ? STAGING_API_URL : PRODUCTION_API_URL),
-				},
+				resumeApiLink: remoteAccessPolicy.resumeLink,
+				autoApiLink: remoteAccessPolicy.autoLink
+					? {
+							apiUrl:
+								process.env.ZUSE_API_URL?.trim() ||
+								(isDevelopment ? STAGING_API_URL : PRODUCTION_API_URL),
+						}
+					: undefined,
 				folderPicker,
 				serverProtocol,
 				additionalServerProtocols: [

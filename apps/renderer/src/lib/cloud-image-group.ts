@@ -26,13 +26,7 @@ export const reconcileCloudImages = (
 };
 
 /** Readiness for a particular repository, not just a completed setup wizard. */
-export const cloudImageReadyForProject = (
-	image: CloudAccountImage | undefined,
-	projectId: string | undefined,
-): boolean =>
-	projectId !== undefined &&
-	(image?.state === "ready" || image?.state === "outdated") &&
-	image.repositories.some((repository) => repository.projectId === projectId);
+export { cloudImageReadyForProject } from "@zuse/client-runtime/cloud-sandbox-providers";
 
 /** A group is ready only when every currently available provider is ready. */
 export const cloudImageGroupStatus = (

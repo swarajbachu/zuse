@@ -4,12 +4,15 @@ import worker from "@zuse/slack/worker";
 import { Effect, Option } from "effect";
 import { ApiConfiguration } from "../config.ts";
 import type { ApiContext } from "../handler.ts";
+import { getOrganizationName } from "../organizations.ts";
 import { routeAccountWorkspaceRequest } from "../public-api-routes.ts";
 import { expectedWorkosClientId, WorkosVerifier } from "../workos.ts";
+import { resolveWorkspaceActorAccess } from "../workspace-authorization.ts";
 import { SlackPersistence } from "./persistence.ts";
 
 export interface SlackOptions {
 	readonly publicOrigin: string;
+	readonly workspaceAppOrigin?: string;
 	readonly appId: string;
 	readonly clientId: string;
 	readonly clientSecret: string;
@@ -41,6 +44,7 @@ export const makeSlackModule = (options: SlackOptions) =>
 		const env: AppEnv = {
 			store: persistence.value,
 			APP_ORIGIN: options.publicOrigin,
+			WORKSPACE_APP_ORIGIN: options.workspaceAppOrigin,
 			SLACK_APP_ID: options.appId,
 			SLACK_CLIENT_ID: options.clientId,
 			SLACK_CLIENT_SECRET: options.clientSecret,
@@ -56,11 +60,28 @@ export const makeSlackModule = (options: SlackOptions) =>
 								code,
 								codeVerifier: verifier,
 							});
-							return yield* identity.verify(tokens.access_token);
+							const principal = yield* identity.verify(tokens.access_token);
+							if (
+								principal.orgId === undefined ||
+								!config.organizationWorkspacesEnabled
+							)
+								return { accountId: principal.accountId };
+							yield* resolveWorkspaceActorAccess(
+								principal,
+								{ kind: "organization", organizationId: principal.orgId },
+								"content",
+							);
+							return {
+								accountId: principal.accountId,
+								organization: {
+									id: principal.orgId,
+									name: yield* getOrganizationName(principal.orgId),
+								},
+							};
 						}),
 					),
 			},
-			cloud: (accountId) => ({
+			cloud: (accountId, organizationId) => ({
 				request: async (path, init) => {
 					const response = await run(
 						routeAccountWorkspaceRequest(
@@ -68,6 +89,8 @@ export const makeSlackModule = (options: SlackOptions) =>
 							accountId,
 							{
 								githubBot: true,
+								requireExplicitAgent: true,
+								organizationId,
 								internalWebhookTarget: (url) =>
 									isSlackWebhookTarget(url, options.publicOrigin),
 							},

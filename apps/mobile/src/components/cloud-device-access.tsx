@@ -44,7 +44,7 @@ export function CloudDeviceAccess({ workspaceId }: { workspaceId: string }) {
 				</Text>
 			)}
 			{error && (
-				<Text role="alert" className="font-sans text-xs text-destructive">
+				<Text role="alert" className="font-sans text-xs text-danger">
 					{error}
 				</Text>
 			)}
@@ -63,22 +63,22 @@ export function CloudDeviceAccess({ workspaceId }: { workspaceId: string }) {
 							DEVICE_PERMISSION_CHOICES.map(([decision, label]) => (
 								<Button
 									key={decision}
-									className="h-7"
+									size="sm"
 									disabled={busy}
 									onPress={() =>
 										void act({ _tag: "decide", id: command.id, decision })
 									}
 								>
-									<Text className="text-xs">{label}</Text>
+									{label}
 								</Button>
 							))
 						) : (
 							<Button
-								className="h-7"
+								size="sm"
 								disabled={busy}
 								onPress={() => void act({ _tag: "cancel", id: command.id })}
 							>
-								<Text className="text-xs">Stop command</Text>
+								Stop
 							</Button>
 						)}
 					</View>
@@ -87,13 +87,12 @@ export function CloudDeviceAccess({ workspaceId }: { workspaceId: string }) {
 			{status.grants.map((grant) => (
 				<Button
 					key={grant.id}
-					className="h-7 self-start"
+					size="sm"
+					className="self-start"
 					disabled={busy}
 					onPress={() => void act({ _tag: "revoke", id: grant.id })}
 				>
-					<Text className="text-xs">
-						Revoke {grant.chatId ? "session access" : "always allow"}
-					</Text>
+					{grant.chatId ? "Revoke Chat Access" : "Revoke Always Allow"}
 				</Button>
 			))}
 		</View>

@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { CloudAccountImage } from "@zuse/contracts";
+import { describe, expect, it, test } from "vitest";
 import {
 	cloudOnboardingCompleted,
 	cloudOnboardingRequired,
 	completeCloudOnboarding,
 	firstIncompleteCloudStep,
+	readyCloudOnboardingSnapshot,
 } from "../../src/lib/cloud-onboarding.ts";
 
 describe("cloud onboarding eligibility", () => {
@@ -75,4 +77,32 @@ describe("cloud onboarding eligibility", () => {
 		expect(cloudOnboardingCompleted(storage, "alice")).toBe(false);
 		expect(() => completeCloudOnboarding(storage, "alice")).not.toThrow();
 	});
+});
+
+test("snapshot onboarding prerequisites belong to the selected provider", () => {
+	const image = new CloudAccountImage({
+		providerId: "boxd",
+		state: "ready",
+		updatedAt: 1,
+		repositories: [],
+		providers: [],
+		builds: [],
+		snapshot: {
+			snapshotId: "snapshot",
+			runtimeUser: "developer",
+			revision: "1",
+			repositories: [],
+			agentAuthentication: "native",
+			gitAuthentication: "native",
+		},
+	});
+	const images = [image];
+	expect(readyCloudOnboardingSnapshot(images, "e2b")).toBeUndefined();
+	expect(readyCloudOnboardingSnapshot(images, null)).toBeUndefined();
+	expect(readyCloudOnboardingSnapshot(images, "boxd")).toEqual(
+		images[0]?.snapshot,
+	);
+	expect(
+		readyCloudOnboardingSnapshot([{ ...image, state: "building" }], "boxd"),
+	).toBeUndefined();
 });

@@ -13,7 +13,7 @@ if [[ ! -f "$source_dir/prepared" ]]; then
   if [[ ! -d "$source_dir/user-data" ]]; then
     [[ -f "$user_data/zuse.sqlite" ]]
     [[ ! -L "$user_data" ]]
-    node - "$user_data/zuse.sqlite" "${ZUSE_FORK_CHAT_ID:?}" "${ZUSE_FORK_SESSION_ID:?}" "${ZUSE_FORK_MESSAGE_ID:?}" <<'JS'
+    "${ZUSE_RUNTIME_NODE:-node}" - "$user_data/zuse.sqlite" "${ZUSE_FORK_CHAT_ID:?}" "${ZUSE_FORK_SESSION_ID:?}" "${ZUSE_FORK_MESSAGE_ID:?}" <<'JS'
 const { DatabaseSync } = require('node:sqlite');
 const db = new DatabaseSync(process.argv[2], { readOnly: true });
 try {
@@ -31,7 +31,13 @@ JS
     mkdir -p "$user_data/attachments"
     cp -a "$source_dir/user-data/attachments/." "$user_data/attachments/"
   fi
-  rm -rf /run/zuse-secrets/* /home/zuse/.config/gh
-  rm -f /home/zuse/.ssh/host_ed25519_key /home/zuse/.ssh/host_ed25519_key.pub /home/zuse/.ssh/authorized_keys
+  rm -rf /run/zuse-secrets/*
+  if [[ "${ZUSE_SNAPSHOT_NATIVE:-}" == 1 ]]; then
+    rm -f /var/lib/zuse/ssh/host_ed25519_key /var/lib/zuse/ssh/host_ed25519_key.pub /var/lib/zuse/ssh/authorized_keys /var/lib/zuse/ssh/ticket
+    printf '%s\n' "$ZUSE_CLOUD_WORKSPACE_ID" >/var/lib/zuse/workspace/owner
+  else
+    rm -rf /home/zuse/.config/gh
+    rm -f /home/zuse/.ssh/host_ed25519_key /home/zuse/.ssh/host_ed25519_key.pub /home/zuse/.ssh/authorized_keys
+  fi
   touch "$source_dir/prepared"
 fi

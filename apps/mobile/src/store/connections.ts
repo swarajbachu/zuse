@@ -15,6 +15,7 @@ import {
 	type LocalPathType,
 	refreshConnectionDescriptor,
 	replaceDiscoveredRoute,
+	restorePairedRoute,
 } from "~/lib/connection-records";
 import { deviceLabel, getOrCreateDeviceId } from "~/lib/device-identity";
 import { visibleConnectionLabel } from "~/lib/display-names";
@@ -297,6 +298,24 @@ export const updateDiscoveredConnectionRoute = async ({
 	);
 	appAtomRegistry.set(connectionsAtom, next);
 	await Effect.runPromise(saveConnections(next));
+};
+
+/** Return proxied paired Macs to the address they were paired on. */
+export const restorePairedConnectionRoutes = async (
+	keys: ReadonlyArray<string>,
+): Promise<ReadonlyArray<ConnectionRecord>> => {
+	const connections = currentConnections();
+	const restored: ConnectionRecord[] = [];
+	const next = connections.map((connection) => {
+		if (!keys.includes(connection.key)) return connection;
+		const updated = restorePairedRoute(connection);
+		if (updated !== connection) restored.push(updated);
+		return updated;
+	});
+	if (restored.length === 0) return restored;
+	appAtomRegistry.set(connectionsAtom, next);
+	await Effect.runPromise(saveConnections(next));
+	return restored;
 };
 
 export const removeConnection = async (key: string): Promise<void> => {
