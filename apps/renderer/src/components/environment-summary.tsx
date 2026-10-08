@@ -1,6 +1,7 @@
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import { useGitPrState } from "../lib/use-git-pr-state.ts";
 import { GitStackMenu } from "./git-stack-menu.tsx";
+import { GitHubStatusNotice } from "./github-status-notice.tsx";
 import { PrActionsMenu } from "./pr-actions-menu.tsx";
 import { PrAutoFix } from "./pr-auto-fix.tsx";
 import { PrChecksPreview } from "./pr-checks-preview.tsx";
@@ -471,6 +472,7 @@ export function EnvironmentSummary() {
 					</span>
 				</button>
 			)}
+			<GitHubStatusNotice pr={pr} executionRef={executionRef} />
 			{prRows.checks !== null ? (
 				<div className={`${rowClass} justify-between`}>
 					<PreviewCard

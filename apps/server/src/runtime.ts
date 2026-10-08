@@ -7,6 +7,7 @@ import { ChatDomain } from "@zuse/domain/engine/chat-domain";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitServiceLive } from "@zuse/git/git-service-live";
+import { GitHubClient, GitHubClientService } from "@zuse/git/github-client";
 import { WorktreeServiceLive } from "@zuse/git/worktree-service-live";
 import { Effect, Layer } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
@@ -44,6 +45,7 @@ import { DeviceBridgeServiceLive } from "./device-bridge/service.ts";
 import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
 import { ExternalThreadServiceLive } from "./external-thread/layers/external-thread-service.ts";
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
+import { runtimeGitHubCredential } from "./git/github-credentials.ts";
 import { RepositoryLocatorLive } from "./git/repository-locator-live.ts";
 import { HandlersLayer } from "./handlers.ts";
 import { RuntimeModelConnections } from "./harness/account-vault.ts";
@@ -312,7 +314,17 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		PokemonAssignmentLive.pipe(Layer.provide(PokemonLayer)),
 	);
 
+	const GitHubLayer = Layer.effect(
+		GitHubClientService,
+		Effect.acquireRelease(
+			Effect.sync(
+				() => new GitHubClient({ resolveCredential: runtimeGitHubCredential }),
+			),
+			(client) => Effect.sync(() => client.close()),
+		),
+	);
 	const WorktreeLayer = WorktreeServiceLive.pipe(
+		Layer.provide(GitHubLayer),
 		Layer.provide(WorktreePortsLayer),
 		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
@@ -322,6 +334,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// so `git.status` can resolve cwd to the active worktree when set, and
 	// CommandExecutor (via NodeServices) for spawning git.
 	const GitLayer = GitServiceLive.pipe(
+		Layer.provide(GitHubLayer),
 		Layer.provide(
 			RepositoryLocatorLive.pipe(
 				Layer.provide(WorkspaceLayer),

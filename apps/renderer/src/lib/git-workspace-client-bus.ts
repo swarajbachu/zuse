@@ -148,6 +148,8 @@ const notifyPrStateTransition = async (
 	if (
 		previous?.state !== "open" ||
 		next === null ||
+		next.stale === true ||
+		previous.url !== next.url ||
 		(next.state !== "merged" && next.state !== "closed")
 	) {
 		return;
@@ -196,6 +198,8 @@ const pullRequestIdentity = (pr: GitPrInfo | null): string =>
 				pr.checksFailing,
 				pr.mergeable,
 				pr.autoMergeEnabled,
+				pr.headSha,
+				pr.remarksRevision,
 			]);
 
 const makeWorkspaceDriver = (): ResourceDriver<
@@ -298,21 +302,13 @@ const makeWorkspaceDriver = (): ResourceDriver<
 							};
 						} else {
 							const observedPr = snapshot.value.pr;
-							const nextPr =
-								observedPr.prCapability !== undefined &&
-								observedPr.prCapability !== "available" &&
-								previous?.pr !== null &&
-								previous?.pr !== undefined &&
-								previous.pr.state !== "none"
-									? {
-											...previous.pr,
-											prCapability: observedPr.prCapability,
-											stale: true,
-										}
-									: observedPr;
+							const nextPr = observedPr;
 							const sameReview =
 								previous !== null &&
 								previous.localFingerprint === snapshot.value.localFingerprint;
+							const samePrTarget =
+								previous?.pr?.url === nextPr.url &&
+								previous?.pr?.branch === nextPr.branch;
 							const samePullRequest =
 								previous !== null &&
 								pullRequestIdentity(previous.pr) ===
@@ -338,7 +334,7 @@ const makeWorkspaceDriver = (): ResourceDriver<
 										? targetRevision
 										: null,
 								reviewPatchesLoading: false,
-								prDetails: samePullRequest ? previous.prDetails : null,
+								prDetails: samePrTarget ? (previous?.prDetails ?? null) : null,
 								prDetailsIdentity: samePullRequest
 									? previous.prDetailsError === null
 										? previous.prDetailsIdentity
@@ -398,6 +394,7 @@ const makeWorkspaceDriver = (): ResourceDriver<
 
 			const program = Stream.runForEach(
 				context.client["git.workspaceChanges"]({
+					visible: true,
 					folderId: ref.folderId,
 					worktreeId: ref.worktreeId,
 				}).pipe(
@@ -841,6 +838,14 @@ export const refreshGitReview = async (ref: ExecutionRef): Promise<void> => {
 };
 
 export const refreshGitPrDetails = async (ref: ExecutionRef): Promise<void> => {
+	const client = getRendererClientBus().client(ref.environmentId);
+	if (client)
+		await Effect.runPromise(
+			client["git.prState"]({
+				folderId: ref.folderId,
+				worktreeId: ref.worktreeId,
+			}),
+		);
 	await refreshGitWorkspace(ref);
 	await hydrateGitPrDetails(ref, true);
 };

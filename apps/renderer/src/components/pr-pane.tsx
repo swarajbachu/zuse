@@ -3,6 +3,7 @@ import { isHttpUrl, openHttpLink as openExternal } from "../lib/http-links.ts";
 import { checkKind, summarizeChecks } from "../lib/pr-checks.ts";
 import { useGitPrState } from "../lib/use-git-pr-state.ts";
 import { GitHubAvatar } from "./github-avatar.tsx";
+import { GitHubStatusNotice } from "./github-status-notice.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -187,6 +188,7 @@ export function PrPane({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3 text-xs">
+			<GitHubStatusNotice pr={pr} executionRef={executionRef} />
 			{detailsView.data?.error && (
 				<div
 					role="status"

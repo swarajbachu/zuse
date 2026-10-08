@@ -42,6 +42,14 @@ import {
 	ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
 import { SqlClient } from "effect/unstable/sql";
+import { parseRemoteUrl, resolveGitHubRepository } from "../git-remote.ts";
+import {
+	GitHubClient,
+	GitHubClientService,
+	GitHubFailure,
+	githubExecutionEnvironment,
+} from "../github-client.ts";
+import { GitHubPullRequests } from "../github-pull-requests.ts";
 import {
 	ARCHIVE_CHECKPOINT_MESSAGE,
 	archiveCheckpointTrailer,
@@ -268,6 +276,15 @@ export const WorktreeServiceLive = Layer.effect(
 		const executor = yield* CommandExecutor.ChildProcessSpawner;
 		const fs = yield* FileSystem.FileSystem;
 		const sql = yield* SqlClient.SqlClient;
+		const providedGitHub = yield* GitHubClientService;
+		const github = providedGitHub ?? new GitHubClient();
+		const pullRequests = new GitHubPullRequests(github);
+		yield* Effect.addFinalizer(() =>
+			Effect.sync(() => {
+				pullRequests.close();
+				if (!providedGitHub) github.close();
+			}),
+		);
 		const runShellScript = Effect.fn("WorktreeService.runShellScript")(
 			function* ({
 				script,
@@ -418,7 +435,13 @@ export const WorktreeServiceLive = Layer.effect(
 				Effect.gen(function* () {
 					const cmd = Command.make("git", args, {
 						cwd,
-						...(env === undefined ? {} : { env, extendEnv: true }),
+						env: {
+							...(yield* githubExecutionEnvironment.pipe(
+								Effect.mapError((error) => error.message),
+							)),
+							...env,
+						},
+						extendEnv: true,
 					});
 					const proc = yield* executor.spawn(cmd);
 					const stdout = yield* collectText(proc.stdout);
@@ -434,32 +457,6 @@ export const WorktreeServiceLive = Layer.effect(
 					Effect.fail(
 						error.reason._tag === "NotFound"
 							? "git is not installed"
-							: error.message,
-					),
-				),
-			);
-
-		// Same shape as `runGit` but for the GitHub CLI — used when checking out a
-		// PR into a new worktree (`gh pr checkout`), which handles fork remotes +
-		// upstream tracking that a raw `git worktree add` can't.
-		const runGh = (cwd: string, args: ReadonlyArray<string>) =>
-			Effect.scoped(
-				Effect.gen(function* () {
-					const cmd = Command.make("gh", args, { cwd });
-					const proc = yield* executor.spawn(cmd);
-					const stdout = yield* collectText(proc.stdout);
-					const stderr = yield* collectText(proc.stderr);
-					const exitCode = yield* proc.exitCode;
-					if (exitCode === 0) return stdout;
-					return yield* Effect.fail(
-						stderr.trim() || `gh exited with code ${exitCode}`,
-					);
-				}),
-			).pipe(
-				Effect.catchTag("PlatformError", (error) =>
-					Effect.fail(
-						error.reason._tag === "NotFound"
-							? "the GitHub CLI (gh) is not installed"
 							: error.message,
 					),
 				),
@@ -573,26 +570,22 @@ export const WorktreeServiceLive = Layer.effect(
 				"--list",
 				`*/${current}`,
 			]).pipe(Effect.catch(() => Effect.succeed("")))).trim();
-			const hasPullRequest = yield* runGh(row.path, [
-				"pr",
-				"view",
-				"--json",
-				"number",
-			]).pipe(
-				Effect.map((output) => {
-					try {
-						const decoded = JSON.parse(output) as { readonly number?: unknown };
-						return (
-							typeof decoded.number === "number" &&
-							Number.isInteger(decoded.number) &&
-							decoded.number > 0
-						);
-					} catch {
-						return false;
-					}
-				}),
-				Effect.catch(() => Effect.succeed(false)),
-			);
+			const repository = yield* resolveGitHubRepository(row.path, (args) =>
+				runGit(row.path, args),
+			).pipe(Effect.mapError((message) => fail("git-failed", message)));
+			const hasPullRequest = repository
+				? yield* Effect.tryPromise({
+						try: (signal) =>
+							pullRequests.discover(repository, current, signal, true, true),
+						catch: (error) =>
+							fail(
+								"git-failed",
+								error instanceof GitHubFailure
+									? error.message
+									: "Could not verify GitHub branch state.",
+							),
+					}).pipe(Effect.map((number) => number !== null))
+				: false;
 			// A fresh worktree branch is created from origin/<base> and Git may
 			// automatically retain that base as its upstream. That does not mean
 			// the temporary branch itself was published. Only another upstream,
@@ -964,18 +957,128 @@ export const WorktreeServiceLive = Layer.effect(
 								`${remoteName}/${source.branch}`,
 							]);
 						}
-						// PR: add the worktree detached at the base, then let `gh pr
-						// checkout` switch it onto the PR head (handles fork remotes +
-						// tracking). `checkedOutBranch` becomes the PR's head branch.
-						checkedOutBranch = source.headRefName;
+						const repository = yield* resolveGitHubRepository(
+							repoPath,
+							(args) => runGit(repoPath, args),
+						);
+						if (!repository)
+							return yield* Effect.fail(
+								"No GitHub repository is available for this pull request.",
+							);
+						const pr = yield* Effect.tryPromise({
+							try: (signal) =>
+								pullRequests.read(repository, source.number, signal, {
+									force: true,
+								}),
+							catch: (error) =>
+								error instanceof GitHubFailure
+									? error.message
+									: "Could not read the pull request.",
+						});
+						const defaultBranch = pr.headRepository?.defaultBranchRef?.name;
+						checkedOutBranch =
+							pr.isCrossRepository &&
+							(pr.headRefName === defaultBranch ||
+								pr.headRefName === pr.baseRefName)
+								? `${pr.headRepositoryOwner?.login ?? "fork"}/${pr.headRefName}`
+								: pr.headRefName;
 						yield* runGit(repoPath, [
-							"worktree",
-							"add",
-							"--detach",
-							target,
-							baseRef,
+							"check-ref-format",
+							"--branch",
+							checkedOutBranch,
 						]);
-						yield* runGh(target, ["pr", "checkout", String(source.number)]);
+						let remoteName = "origin";
+						const remoteNames = (yield* runGit(repoPath, ["remote"]))
+							.trim()
+							.split("\n");
+						const headRepository = pr.headRepository?.nameWithOwner;
+						let found = false;
+						for (const candidate of remoteNames) {
+							const remote = parseRemoteUrl(
+								(yield* runGit(repoPath, [
+									"remote",
+									"get-url",
+									candidate,
+								])).trim(),
+							);
+							if (
+								remote?.host === repository.host &&
+								`${remote.owner}/${remote.repo}`.toLowerCase() ===
+									headRepository?.toLowerCase()
+							) {
+								remoteName = candidate;
+								found = true;
+								break;
+							}
+						}
+						if (!found && pr.headRepository) {
+							remoteName = pr.headRepositoryOwner?.login ?? "fork";
+							if (remoteNames.includes(remoteName))
+								remoteName = `pr-${source.number}-${remoteName}`;
+							yield* runGit(repoPath, [
+								"remote",
+								"add",
+								remoteName,
+								`${pr.headRepository.url}.git`,
+							]);
+							found = true;
+						}
+						// GitHub's PR ref remains fetchable when the fork has been deleted.
+						if (found)
+							yield* runGit(repoPath, [
+								"fetch",
+								remoteName,
+								`+refs/heads/${pr.headRefName}:refs/remotes/${remoteName}/${pr.headRefName}`,
+							]);
+						else
+							yield* runGit(repoPath, [
+								"fetch",
+								`https://${repository.host}/${repository.owner}/${repository.repo}.git`,
+								`refs/pull/${source.number}/head`,
+							]);
+						const ref = found
+							? `${remoteName}/${pr.headRefName}`
+							: "FETCH_HEAD";
+						const fetched = (yield* runGit(repoPath, [
+							"rev-parse",
+							ref,
+						])).trim();
+						if (fetched !== pr.headRefOid)
+							return yield* Effect.fail(
+								"The pull request changed during checkout. Retry to use its current head.",
+							);
+						const localExists = yield* runGit(repoPath, [
+							"show-ref",
+							"--verify",
+							`refs/heads/${checkedOutBranch}`,
+						]).pipe(
+							Effect.as(true),
+							Effect.catch(() => Effect.succeed(false)),
+						);
+						if (localExists) {
+							yield* runGit(repoPath, [
+								"worktree",
+								"add",
+								target,
+								checkedOutBranch,
+							]);
+							yield* runGit(target, ["merge", "--ff-only", ref]);
+						} else
+							yield* runGit(repoPath, [
+								"worktree",
+								"add",
+								"-b",
+								checkedOutBranch,
+								target,
+								ref,
+							]);
+						if (found)
+							yield* runGit(target, [
+								"branch",
+								"--set-upstream-to",
+								`${remoteName}/${pr.headRefName}`,
+								checkedOutBranch,
+							]);
 						return "";
 					}).pipe(Effect.result);
 					yield* Effect.logInfo(

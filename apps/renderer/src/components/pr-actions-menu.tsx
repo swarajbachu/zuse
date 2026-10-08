@@ -256,6 +256,8 @@ export function PrActionsMenu({
 							<MenuItem
 								className={compactMenuItemClass}
 								disabled={
+									pr.stale === true ||
+									pr.checksComplete === false ||
 									pr.mergeable !== "clean" ||
 									pr.checks === "failure" ||
 									pr.checks === "pending"

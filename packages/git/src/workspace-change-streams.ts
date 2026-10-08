@@ -6,6 +6,7 @@ type WorkspaceChangeRevision = Readonly<{ revision: number }>;
 type WorkspaceChangeSource<E> = (
 	folderId: FolderId,
 	worktreeId: WorktreeId | null,
+	scopeKey: string,
 ) => Stream.Stream<WorkspaceChangeRevision, E>;
 
 const IDLE_TIME_TO_LIVE = "2 seconds";
@@ -13,6 +14,7 @@ const IDLE_TIME_TO_LIVE = "2 seconds";
 class CheckoutIdentity extends Data.Class<{
 	readonly folderId: FolderId;
 	readonly worktreeId: WorktreeId | null;
+	readonly scopeKey: string;
 }> {}
 
 /**
@@ -24,6 +26,7 @@ export type WorkspaceChangeStreams<E> = Readonly<{
 	stream: (
 		folderId: FolderId,
 		worktreeId: WorktreeId | null,
+		scopeKey?: string,
 	) => Stream.Stream<WorkspaceChangeRevision, E>;
 	retainedCheckoutCount: Effect.Effect<number>;
 }>;
@@ -34,19 +37,25 @@ export const makeWorkspaceChangeStreams = <E>(
 	Effect.gen(function* () {
 		const entries = yield* RcMap.make({
 			lookup: (identity: CheckoutIdentity) =>
-				Stream.share(source(identity.folderId, identity.worktreeId), {
-					capacity: 1,
-					strategy: "sliding",
-					replay: 1,
-					idleTimeToLive: IDLE_TIME_TO_LIVE,
-				}),
+				Stream.share(
+					source(identity.folderId, identity.worktreeId, identity.scopeKey),
+					{
+						capacity: 1,
+						strategy: "sliding",
+						replay: 1,
+						idleTimeToLive: IDLE_TIME_TO_LIVE,
+					},
+				),
 			idleTimeToLive: IDLE_TIME_TO_LIVE,
 		});
 
 		return {
-			stream: (folderId, worktreeId) =>
+			stream: (folderId, worktreeId, scopeKey = "") =>
 				Stream.unwrap(
-					RcMap.get(entries, new CheckoutIdentity({ folderId, worktreeId })),
+					RcMap.get(
+						entries,
+						new CheckoutIdentity({ folderId, worktreeId, scopeKey }),
+					),
 				),
 			retainedCheckoutCount: RcMap.keys(entries).pipe(
 				Effect.map((keys) => Array.from(keys).length),

@@ -4,6 +4,8 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./workspace-change-streams": "./src/workspace-change-streams.ts",
+		"./github-client": "./src/github-client.ts",
 		"./check-runs": "./src/check-runs.ts",
 		"./git-service": "./src/git-service.ts",
 		"./git-service-live": "./src/git-service-live.ts",

@@ -19,16 +19,33 @@ export function resolveGitPrState(
 	const checkRuns = pr?.checkRuns ?? details?.checkRuns ?? null;
 	const summary = checkRuns === null ? null : summarizeChecks(checkRuns);
 	const metadata = new Map(
-		details?.checkRuns.map((run) => [JSON.stringify([run.name, run.url]), run]),
+		(pr?.headSha && details?.headSha !== pr.headSha
+			? []
+			: details?.checkRuns
+		)?.map((run) => [JSON.stringify([run.name, run.url]), run]),
 	);
+	const complete = pr?.checksComplete !== false;
 	return {
-		pr: pr && checkRuns ? { ...pr, ...summary, checkRuns } : pr,
+		pr:
+			pr && checkRuns
+				? {
+						...pr,
+						...summary,
+						...(!complete && summary?.checks !== "failure"
+							? { checks: "pending" as const }
+							: {}),
+						checkRuns,
+					}
+				: pr,
 		checkRuns,
 		details:
 			details && checkRuns
 				? {
 						...details,
 						...summary,
+						...(!complete && summary?.checks !== "failure"
+							? { checks: "pending" as const }
+							: {}),
 						checkRuns: checkRuns.map((run) =>
 							GitPrCheckRun.make({
 								...metadata.get(JSON.stringify([run.name, run.url])),
@@ -38,4 +55,31 @@ export function resolveGitPrState(
 					}
 				: details,
 	};
+}
+
+export function gitHubStatusLabel(pr: GitPrInfo | null): string | null {
+	if (!pr) return null;
+	if (pr.monitoringPaused) return "GitHub monitoring paused · Retry";
+	switch (pr.prCapability) {
+		case "authentication":
+			return "Reconnect GitHub";
+		case "access":
+			return "GitHub access unavailable";
+		case "rate_limited":
+			return "GitHub rate limited · Refresh paused";
+		case "offline":
+			return "GitHub offline · Cached status";
+		case "timeout":
+			return "GitHub timed out · Cached status";
+		case "unknown":
+			return "GitHub status unavailable";
+		default:
+			return pr.stale
+				? pr.state === "none"
+					? "Loading GitHub status…"
+					: "Cached GitHub status"
+				: pr.checksComplete === false
+					? "Checks are incomplete"
+					: null;
+	}
 }
