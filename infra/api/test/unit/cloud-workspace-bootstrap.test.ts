@@ -1529,7 +1529,10 @@ test("free provider keys pin image builds and cannot authorize managed compute",
 	}
 });
 
-test("custom snapshot imports are gated, subscription-free, connection-pinned and idempotent", async () => {
+test.each([
+	"immutable-snapshot",
+	"my-snapshot-name",
+])("custom snapshot import %s is gated, connection-pinned and idempotent", async (snapshotReference) => {
 	const runtime = await makeRuntime();
 	const records: ProviderConnectionRecord[] = [];
 	const connections = CloudProviderConnections.of({
@@ -1548,11 +1551,13 @@ test("custom snapshot imports are gated, subscription-free, connection-pinned an
 		const fake = await runtime.runPromise(
 			(await runtime.runPromise(SandboxProviders)).get("fake"),
 		);
+		const resolveSnapshotSource = vi.fn(() =>
+			Effect.succeed({ snapshotId: "immutable-snapshot", version: 3 }),
+		);
 		const own = {
 			...fake,
 			providerId: "boxd",
-			resolveSnapshotSource: () =>
-				Effect.succeed({ snapshotId: "immutable-snapshot", version: 3 }),
+			resolveSnapshotSource,
 		};
 		const providers = await runtime.runPromise(
 			makeSandboxProviders({
@@ -1591,7 +1596,7 @@ test("custom snapshot imports are gated, subscription-free, connection-pinned an
 		const connectionId = records[0]?.connectionId;
 		const body = {
 			connectionId,
-			snapshotId: "immutable-snapshot",
+			snapshotId: snapshotReference,
 			runtimeUser: "developer",
 			repositoryPaths: [],
 			idempotencyKey: "import-one",
@@ -1608,6 +1613,10 @@ test("custom snapshot imports are gated, subscription-free, connection-pinned an
 			).status,
 		).toBe(403);
 		expect((await call(ApiPaths.cloudSnapshotImport, body)).status).toBe(202);
+		expect(resolveSnapshotSource).toHaveBeenCalledWith(snapshotReference);
+		resolveSnapshotSource.mockImplementation(() =>
+			Effect.succeed({ snapshotId: "replacement-snapshot", version: 4 }),
+		);
 		expect((await call(ApiPaths.cloudSnapshotImport, body)).status).toBe(202);
 		expect(
 			(
@@ -1621,12 +1630,14 @@ test("custom snapshot imports are gated, subscription-free, connection-pinned an
 		const builds = await runtime.runPromise(
 			store.listAccountBuilds("alice", "boxd"),
 		);
+		expect(resolveSnapshotSource).toHaveBeenCalledTimes(1);
 		expect(builds).toHaveLength(1);
 		expect(builds[0]?.projectId).toBeNull();
 		expect(builds[0]?.settings).toMatchObject({
 			source: "custom-snapshot",
 			providerConnectionId: connectionId,
 			snapshotVersion: 3,
+			snapshot: { snapshotId: "immutable-snapshot" },
 		});
 		expect(await runtime.runPromise(store.listProjects("alice"))).toHaveLength(
 			0,

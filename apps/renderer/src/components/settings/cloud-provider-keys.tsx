@@ -301,7 +301,15 @@ export function CloudProviderConnectForm({
 			setTemplateId("");
 			setOrganization("");
 			setAdvancedOpen(false);
-			await onChanged();
+			// The key is already persisted. A refresh must not extend saving or
+			// turn a successful mutation into a rejected-key error.
+			void onChanged().catch(() => {
+				setError(
+					uiMessage(
+						"settings:cloud_workspace_pool_refresh_cloud_settings_to_try_again_existing_workspaces_are_unaffected",
+					),
+				);
+			});
 		} catch {
 			setError(
 				uiMessage("settings:cloud_provider_keys_save_failed", {

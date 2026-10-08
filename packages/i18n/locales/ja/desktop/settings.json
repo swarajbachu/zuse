@@ -1176,7 +1176,7 @@
 	"snapshot_refresh_error": "スナップショットの状態を更新できませんでした。設定を開き直して再試行してください。",
 	"snapshot_inspect_error": "スナップショットを検査できませんでした。ID、Linux ユーザー、Boxd キーの権限を確認してください。",
 	"snapshot_id_label": "スナップショット",
-	"snapshot_id_placeholder": "スナップショット ID",
+	"snapshot_id_placeholder": "スナップショット名または ID",
 	"snapshot_user_label": "Linux ユーザー",
 	"snapshot_remove": "削除",
 	"snapshot_add_path": "リポジトリのパスを追加",

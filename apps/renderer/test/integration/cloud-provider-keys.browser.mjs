@@ -45,7 +45,7 @@ const server = await createServer({
 			load(id) {
 				if (id === "\0provider-client")
 					return `
-                    export const runCloudControl = () => { throw new Error('Unexpected mutation'); };
+                    export const runCloudControl = () => Promise.resolve(window.saveResult);
                     export const subscribeControlPlaneSessionCache = listener => { window.cacheListener = listener; return () => { window.cacheListener = null; }; };
                 `;
 				if (id === "\0provider-cache")
@@ -58,12 +58,12 @@ const server = await createServer({
 					return `
                     import React from 'react';
                     import {createRoot} from 'react-dom/client';
-                    import {useCloudProviderConnections} from '/src/components/settings/cloud-provider-keys.tsx';
+                    import {CloudProviderConnectForm, useCloudProviderConnections} from '/src/components/settings/cloud-provider-keys.tsx';
                     window.requests = [];
                     function Probe() {
                         const keys = useCloudProviderConnections();
                         window.keys = keys;
-                        return React.createElement('pre', {id:'state'}, JSON.stringify({active:keys.active.length, enabled:keys.customSnapshotsEnabled, loading:keys.loading, error:keys.loadError}));
+                        return React.createElement(React.Fragment, null, React.createElement('pre', {id:'state'}, JSON.stringify({active:keys.active.length, enabled:keys.customSnapshotsEnabled, loading:keys.loading, error:keys.loadError})), React.createElement(CloudProviderConnectForm, {keys, providerId:'boxd', onChanged: () => new Promise((resolve,reject) => { window.refreshAfterSave = {resolve,reject}; })}));
                     }
                     createRoot(document.getElementById('root')).render(React.createElement(Probe));
                 `;
@@ -177,6 +177,27 @@ try {
 		loading: false,
 		error: true,
 	});
+	// A successful save releases the form even while unrelated settings refresh.
+	await page.evaluate((value) => {
+		window.saveResult = value;
+	}, connected);
+	const keyInput = page.getByPlaceholder("boxd API key");
+	await keyInput.fill("test-key");
+	await page.getByRole("button", { name: "Connect", exact: true }).click();
+	await page.waitForFunction(() => window.refreshAfterSave !== undefined);
+	await flush();
+	assert.equal(
+		await keyInput.isEnabled(),
+		true,
+		"Saved key must not wait for settings refresh",
+	);
+	await page.evaluate(() =>
+		window.refreshAfterSave.reject(new Error("refresh offline")),
+	);
+	await flush();
+	assert.equal(await page.getByText(/didn't accept this key/).count(), 0);
+	assert.equal(await keyInput.inputValue(), "");
+	assert.equal((await state()).active, 1);
 	assert.deepEqual(errors, []);
 	console.log("Provider connection refresh races: passed");
 } finally {

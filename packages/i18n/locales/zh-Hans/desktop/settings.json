@@ -1176,7 +1176,7 @@
 	"snapshot_refresh_error": "无法刷新快照状态。请重新打开设置以重试。",
 	"snapshot_inspect_error": "无法检查快照。请检查其 ID、Linux 用户和 Boxd 密钥权限。",
 	"snapshot_id_label": "快照",
-	"snapshot_id_placeholder": "快照 ID",
+	"snapshot_id_placeholder": "快照名称或 ID",
 	"snapshot_user_label": "Linux 用户",
 	"snapshot_remove": "移除",
 	"snapshot_add_path": "添加仓库路径",

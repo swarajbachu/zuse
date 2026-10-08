@@ -1176,7 +1176,7 @@
 	"snapshot_refresh_error": "Der Snapshot-Status konnte nicht aktualisiert werden. Öffnen Sie die Einstellungen erneut, um es noch einmal zu versuchen.",
 	"snapshot_inspect_error": "Der Snapshot konnte nicht geprüft werden. Prüfen Sie ID, Linux-Benutzer und Berechtigungen des Boxd-Schlüssels.",
 	"snapshot_id_label": "Snapshot",
-	"snapshot_id_placeholder": "Snapshot-ID",
+	"snapshot_id_placeholder": "Snapshot-Name oder ID",
 	"snapshot_user_label": "Linux-Benutzer",
 	"snapshot_remove": "Entfernen",
 	"snapshot_add_path": "Repository-Pfad hinzufügen",

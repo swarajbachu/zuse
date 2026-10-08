@@ -41,6 +41,7 @@
 		]
 	},
 	"vars": {
+		"CLOUD_BOXD_CUSTOM_SNAPSHOTS_ENABLED": "true",
 		"ORGANIZATION_ROLLOUT_ENABLED": "true",
 		"PLUGIN_APP_ORIGIN": "https://code.zuse.sh",
 		"SLACK_ENABLED": "true",

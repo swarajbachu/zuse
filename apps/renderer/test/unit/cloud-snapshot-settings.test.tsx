@@ -14,6 +14,7 @@ test("snapshot setup offers discovery, explicit paths and separate agent/Git aut
 		<CloudSnapshotSettings connectionId="own-key" onChanged={async () => {}} />,
 	);
 	expect(markup).toContain("npx zusehq snapshot install");
+	expect(markup).toContain('placeholder="Snapshot name or ID"');
 	expect(markup).toContain("Repository paths: found automatically");
 	expect(markup).toContain("Use logins from snapshot");
 	expect(markup).toContain("Use credentials from snapshot");
