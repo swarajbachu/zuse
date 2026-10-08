@@ -18,6 +18,7 @@ import {
 	readCatalog,
 	safeArchivePath,
 } from "../../src/provider/acp/catalog.ts";
+import { COMMUNITY_ACP_AGENTS } from "../../src/provider/acp/community-catalog.ts";
 import { makeAcpAgentStore, probeAcp } from "../../src/provider/acp/service.ts";
 
 const directories: string[] = [];
@@ -525,4 +526,73 @@ it("prefers an upstream OMP entry without duplicating the community adapter", as
 	expect(entries.filter((entry) => entry.id === "omp-acp")).toEqual([
 		expect.objectContaining({ origin: "registry", version: "0.2.0" }),
 	]);
+});
+
+it.each([
+	"hermes",
+	"openclaw",
+])("offers and persists the host-installed %s harness", async (catalogId) => {
+	const root = await directory();
+	const secrets = secretStore();
+	const resolved: string[] = [];
+	const dependencies = {
+		catalog: async () => ({ version: "1", agents: [] }),
+		resolveExecutable: async (name: string) => {
+			resolved.push(name);
+			return process.execPath;
+		},
+	};
+	const store = makeAcpAgentStore(root, secrets, dependencies);
+	expect(
+		(await store.catalog()).find((entry) => entry.id === catalogId),
+	).toMatchObject({
+		compatible: true,
+		version: "host",
+		origin: "community",
+	});
+	const installed = await store.install(catalogId);
+	expect(resolved).toEqual([catalogId]);
+	const restored = makeAcpAgentStore(root, secrets, dependencies);
+	const launch = await restored.launch(installed.id);
+	expect(launch).toMatchObject({
+		command: process.execPath,
+		args: ["acp"],
+		...(catalogId === "hermes"
+			? { env: { HERMES_ACP_SKIP_CONFIGURED_MCP: "1" } }
+			: { mcpEnabled: false }),
+	});
+	const copy = await restored.duplicate(installed.id);
+	expect(await restored.launch(copy.id)).toEqual(launch);
+	await restored.save({ ...copy, name: "Renamed" });
+	expect(await restored.launch(copy.id)).toEqual(launch);
+});
+
+it("reports a missing host harness without saving a broken definition", async () => {
+	const store = makeAcpAgentStore(await directory(), secretStore(), {
+		catalog: async () => ({ version: "1", agents: [] }),
+		resolveExecutable: async () => {
+			throw new Error("Executable hermes not found");
+		},
+	});
+	await expect(store.install("hermes")).rejects.toThrow("hermes not found");
+	expect(await store.list()).toEqual([]);
+});
+
+it("resolves local harnesses without downloading or invoking package runners", async () => {
+	const agent = COMMUNITY_ACP_AGENTS.find((entry) => entry.id === "openclaw");
+	if (!agent) throw new Error("Missing OpenClaw preset");
+	const launch = await installCatalogAgent(
+		agent,
+		await directory(),
+		async () => {
+			throw new Error("Unexpected download");
+		},
+		async (name) => `/host/bin/${name}`,
+	);
+	expect(launch).toEqual({
+		command: "/host/bin/openclaw",
+		args: ["acp"],
+		env: {},
+		mcpEnabled: false,
+	});
 });

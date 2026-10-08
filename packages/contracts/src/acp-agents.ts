@@ -35,6 +35,7 @@ export const AcpDefinition = Schema.Struct({
 	command: Schema.String,
 	args: Schema.Array(Schema.String),
 	envKeys: Schema.Array(Schema.String),
+	mcpEnabled: Schema.optional(Schema.Boolean),
 	enabled: Schema.Boolean,
 	catalogId: Schema.optional(Schema.String),
 	version: Schema.optional(Schema.String),
@@ -49,6 +50,7 @@ export const AcpDefinitionInput = Schema.Struct({
 	args: Schema.Array(Schema.String),
 	enabled: Schema.Boolean,
 	env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+	mcpEnabled: Schema.optional(Schema.Boolean),
 });
 export type AcpDefinitionInput = typeof AcpDefinitionInput.Type;
 export const AcpCatalogEntry = Schema.Struct({

@@ -265,6 +265,7 @@ export const makeAcpAgentStore = (
 			command: await (dependencies.resolveExecutable?.(entry.command) ??
 				Promise.resolve(entry.command)),
 			args: [...entry.args],
+			mcpEnabled: entry.mcpEnabled,
 			env: secret ? Schema.decodeUnknownSync(Secrets)(JSON.parse(secret)) : {},
 		};
 	};
@@ -294,7 +295,8 @@ export const makeAcpAgentStore = (
 				!old ||
 				input.command !== old.command ||
 				JSON.stringify(input.args) !== JSON.stringify(old.args) ||
-				input.env !== undefined;
+				input.env !== undefined ||
+				(input.mcpEnabled !== undefined && input.mcpEnabled !== old.mcpEnabled);
 			const definition: StoredDefinition = {
 				...old,
 				credentialId,
@@ -303,6 +305,7 @@ export const makeAcpAgentStore = (
 				name: input.name.trim(),
 				command: input.command,
 				args: [...input.args],
+				mcpEnabled: input.mcpEnabled ?? old?.mcpEnabled,
 				enabled: input.enabled,
 				envKeys: input.env ? Object.keys(input.env) : (old?.envKeys ?? []),
 				probe: changed ? undefined : old?.probe,
@@ -385,6 +388,7 @@ export const makeAcpAgentStore = (
 				name: `${entry.name} copy`,
 				command: entry.command,
 				args: entry.args,
+				mcpEnabled: entry.mcpEnabled,
 				enabled: entry.enabled,
 				env: secret
 					? Schema.decodeUnknownSync(Secrets)(JSON.parse(secret))
@@ -457,6 +461,7 @@ export const makeAcpAgentStore = (
 						name: old?.name ?? agent.name,
 						command: prepared.command,
 						args: prepared.args,
+						mcpEnabled: prepared.mcpEnabled,
 						enabled: old?.enabled ?? true,
 						envKeys: Object.keys(prepared.env),
 						catalogId,

@@ -22,13 +22,19 @@ const attachments = Layer.succeed(AttachmentService, {
 	readPath: () => Effect.succeed(null),
 	readForSession: () => Effect.succeed(null),
 });
-const start = (cwd: string, scenario: string, cursor: string | null = null) =>
+const start = (
+	cwd: string,
+	scenario: string,
+	cursor: string | null = null,
+	mcpEnabled = true,
+) =>
 	startGenericAcpSession(
 		{ providerId: "acp-test", folderId: FolderId.make("test"), mode: "sdk" },
 		cwd,
 		{
 			command: process.execPath,
 			args: [fixture],
+			mcpEnabled,
 			env: {
 				ZUSE_FAKE_ACP_SCENARIO: scenario,
 				ZUSE_FAKE_ACP_HTTP: "1",
@@ -51,6 +57,35 @@ const waitFor = async (condition: () => boolean, timeoutMs = 2_000) => {
 	throw new Error("Timed out waiting for ACP events");
 };
 describe("generic ACP session", () => {
+	it("starts and resumes bridges that reject per-session MCP without launching a fallback", async () => {
+		const root = await mkdtemp(join(tmpdir(), "generic-acp-"));
+		try {
+			await Effect.runPromise(
+				Effect.scoped(
+					Effect.gen(function* () {
+						const handle = yield* start(root, "no-mcp", null, false);
+						yield* Effect.addFinalizer(() => handle.close());
+						const cursor = yield* Stream.runHead(
+							handle.events.pipe(
+								Stream.filter((event) => event._tag === "SessionCursor"),
+							),
+						);
+						if (cursor._tag !== "Some") throw new Error("No cursor");
+						yield* handle.close();
+						const resumed = yield* start(
+							root,
+							"no-mcp",
+							cursor.value.cursor,
+							false,
+						);
+						yield* resumed.close();
+					}),
+				).pipe(Effect.provide(attachments)),
+			);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
 	it("streams tools and persists a cursor that resumes the same session", async () => {
 		const root = await mkdtemp(join(tmpdir(), "generic-acp-"));
 		const events: ProviderDriverEvent[] = [];

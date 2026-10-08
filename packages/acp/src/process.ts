@@ -6,6 +6,8 @@ export interface AcpLaunch {
 	readonly command: string;
 	readonly args: readonly string[];
 	readonly env?: Readonly<Record<string, string>>;
+	/** Some ACP bridges reject all per-session MCP servers, including stdio. */
+	readonly mcpEnabled?: boolean;
 }
 
 /** Bounds a stderr line when an agent never writes a newline. */

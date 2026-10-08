@@ -129,6 +129,18 @@ if (controlPort > 0) {
 let authenticated = false;
 const handleRequest = (message) => {
 	const { id, method, params = {} } = message;
+	if (
+		scenario === "no-mcp" &&
+		(method === "session/new" || method === "session/load") &&
+		params.mcpServers?.length
+	) {
+		write({
+			jsonrpc: "2.0",
+			id,
+			error: { code: -32602, message: "Per-session MCP servers unsupported" },
+		});
+		return;
+	}
 	if (method === "initialize") {
 		write({
 			jsonrpc: "2.0",
@@ -138,9 +150,11 @@ const handleRequest = (message) => {
 				authMethods: [{ id: "cached_token", name: "Deterministic test auth" }],
 				agentCapabilities: {
 					loadSession: scenario !== "no-resume",
-					...(process.env.ZUSE_FAKE_ACP_HTTP === "1"
-						? { mcpCapabilities: { http: true } }
-						: {}),
+					...(scenario === "no-mcp"
+						? { mcpCapabilities: { http: false, sse: false } }
+						: process.env.ZUSE_FAKE_ACP_HTTP === "1"
+							? { mcpCapabilities: { http: true } }
+							: {}),
 				},
 			},
 		});
