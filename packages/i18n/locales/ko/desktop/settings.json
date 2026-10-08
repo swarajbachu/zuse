@@ -1183,7 +1183,7 @@
 	"snapshot_inspecting": "스냅샷 검사 중…",
 	"snapshot_git_login": "Git 로그인 필요 — 클라우드 설정에서 GitHub를 연결하세요",
 	"snapshot_git_unavailable": "Git 접근을 확인할 수 없습니다. 연결을 확인하세요",
-	"snapshot_native_agents": "Claude Code와 Codex는 스냅샷의 로그인을 사용합니다. 만료되면 원본 머신에서 다시 로그인하고 새 스냅샷을 저장하세요.",
+	"snapshot_native_agents": "저장된 스냅샷 검사 결과이며 현재 작업 공간의 접근 상태가 아닙니다. 복사된 로그인 정보는 만료되거나 무효화될 수 있습니다.",
 	"snapshot_installer_required": "원본 머신에 Zuse를 설치하고 새 스냅샷을 만든 다음 해당 ID로 재시도하세요.",
 	"snapshot_user_mismatch": "설치 프로그램에 표시된 Linux 사용자를 입력하세요.",
 	"snapshot_no_repositories": "GitHub 저장소를 찾을 수 없습니다. 절대 경로를 추가하고 다시 검사하세요.",
@@ -1249,7 +1249,7 @@
 	"snapshot_login_unavailable": "이 로그인을 확인할 수 없습니다",
 	"snapshot_agent_missing_tool": "스냅샷에 설치되어 있지 않음",
 	"snapshot_agent_signed_in": "스냅샷에서 로그인됨",
-	"snapshot_agent_signed_out": "로그인되지 않았습니다. 원본 머신에서 로그인한 다음 새 스냅샷을 저장하세요.",
+	"snapshot_agent_signed_out": "해당 작업 공간에서 로그인하거나 새 작업 공간에 Zuse 계정을 사용하세요.",
 	"snapshot_login_signed_in": "로그인됨",
 	"snapshot_login_signed_out": "로그아웃됨",
 	"snapshot_login_not_installed": "설치 안 됨",
@@ -1258,5 +1258,9 @@
 	"cloud_hosting_switch_to_zuse": "Zuse Cloud 사용",
 	"cloud_hosting_switch_to_zuse_title": "Zuse Cloud로 전환할까요?",
 	"cloud_hosting_switch_to_zuse_description": "{{provider}} 키 연결이 해제되고 새 작업 공간은 구독 중인 Zuse Cloud에서 실행됩니다. 기존 작업 공간은 정리를 위해 키를 유지합니다. 내 계정이나 스냅샷을 다시 사용하려면 키를 다시 연결하고 스냅샷을 저장하세요.",
-	"snapshot_check_title": "스냅샷 확인"
+	"snapshot_check_title": "스냅샷 확인",
+	"snapshot_use_zuse_accounts": "Zuse 에이전트 계정 사용",
+	"snapshot_managed_auth_help": "아래에서 Claude Code 또는 Codex를 연결한 후 저장하세요. 새 작업 공간은 Zuse 계정을 사용합니다. 스냅샷을 다시 만들 필요가 없습니다. 기존 작업 공간의 인증은 유지됩니다.",
+	"snapshot_login_detected": "로그인 정보 감지됨",
+	"snapshot_inspected_user": "검사한 Linux 사용자: {{user}}."
 }

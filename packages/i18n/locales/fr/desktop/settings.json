@@ -1187,7 +1187,7 @@
 	"snapshot_inspecting": "Inspection de l’instantané…",
 	"snapshot_git_login": "Connexion Git requise — connectez GitHub dans les paramètres Cloud",
 	"snapshot_git_unavailable": "Impossible de vérifier l’accès Git ; vérifiez la connexion",
-	"snapshot_native_agents": "Claude Code et Codex utilisent les connexions de votre instantané. Si l’une expire, reconnectez-vous sur la machine source et enregistrez un nouvel instantané.",
+	"snapshot_native_agents": "Ces vérifications enregistrées concernent l’instantané, pas l’accès actuel aux espaces. Les identifiants copiés peuvent expirer ou devenir invalides.",
 	"snapshot_installer_required": "Installez Zuse sur la machine source, créez un nouvel instantané, puis réessayez avec son ID.",
 	"snapshot_user_mismatch": "Saisissez l’utilisateur Linux affiché par le programme d’installation.",
 	"snapshot_no_repositories": "Aucun dépôt GitHub trouvé. Ajoutez les chemins absolus des dépôts et relancez l’inspection.",
@@ -1253,7 +1253,7 @@
 	"snapshot_login_unavailable": "Impossible de vérifier cette connexion",
 	"snapshot_agent_missing_tool": "Non installé dans l’instantané",
 	"snapshot_agent_signed_in": "Connecté dans votre instantané",
-	"snapshot_agent_signed_out": "Non connecté. Connectez-vous sur la machine source, puis enregistrez un nouvel instantané.",
+	"snapshot_agent_signed_out": "Connectez-vous dans l’espace concerné ou utilisez les comptes Zuse pour les nouveaux espaces.",
 	"snapshot_login_signed_in": "Connecté",
 	"snapshot_login_signed_out": "Déconnecté",
 	"snapshot_login_not_installed": "Non installé",
@@ -1262,5 +1262,9 @@
 	"cloud_hosting_switch_to_zuse": "Utiliser Zuse Cloud",
 	"cloud_hosting_switch_to_zuse_title": "Passer à Zuse Cloud ?",
 	"cloud_hosting_switch_to_zuse_description": "Cela déconnecte votre clé {{provider}} : les nouveaux espaces s’exécutent sur Zuse Cloud avec votre abonnement. Les espaces existants conservent la clé pour le nettoyage. Pour réutiliser votre compte ou votre instantané, reconnectez la clé et enregistrez l’instantané.",
-	"snapshot_check_title": "Vérification de l’instantané"
+	"snapshot_check_title": "Vérification de l’instantané",
+	"snapshot_use_zuse_accounts": "Utiliser les comptes d’agent Zuse",
+	"snapshot_managed_auth_help": "Connectez Claude Code ou Codex ci-dessous, puis enregistrez. Les nouveaux espaces utilisent vos comptes Zuse. Aucune reconstruction de l’instantané n’est nécessaire. Les espaces existants conservent leur authentification.",
+	"snapshot_login_detected": "Connexion détectée",
+	"snapshot_inspected_user": "Utilisateur Linux inspecté : {{user}}."
 }

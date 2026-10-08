@@ -841,6 +841,21 @@ describe("boxd sandbox provider", () => {
 		});
 	});
 
+	test("preserves Boxd integrations when launching a custom snapshot", async () => {
+		const client = new FakeBoxd();
+		await run(
+			makeAdapter(client).fork({
+				...createInput,
+				snapshotId: "customer-snapshot",
+				snapshotSource: "custom-snapshot",
+			}),
+		);
+		expect(client.methods("machines.create")[0]?.args[0]).toMatchObject({
+			fromSnapshot: "customer-snapshot",
+			isolated: false,
+		});
+	});
+
 	test.each([
 		["running", "running"],
 		["hibernated", "paused"],

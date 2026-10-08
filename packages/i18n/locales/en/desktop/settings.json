@@ -1183,7 +1183,7 @@
 	"snapshot_inspecting": "Inspecting snapshot…",
 	"snapshot_git_login": "Git login needed — connect GitHub in Cloud settings",
 	"snapshot_git_unavailable": "Git access could not be verified; check the connection",
-	"snapshot_native_agents": "Claude Code and Codex use the logins on your snapshot. If one expires, sign in again on the source machine and save a new snapshot.",
+	"snapshot_native_agents": "These are saved snapshot checks, not live workspace access. Copied logins can expire or become invalid.",
 	"snapshot_installer_required": "Install Zuse on the source machine, create a new snapshot, then retry with its ID.",
 	"snapshot_user_mismatch": "Enter the Linux user printed by the installer.",
 	"snapshot_no_repositories": "No GitHub repositories found. Add their absolute paths and inspect again.",
@@ -1249,7 +1249,7 @@
 	"snapshot_login_unavailable": "Couldn’t check this login",
 	"snapshot_agent_missing_tool": "Not installed on the snapshot",
 	"snapshot_agent_signed_in": "Signed in on your snapshot",
-	"snapshot_agent_signed_out": "Not signed in. Sign in on the source machine, then save a new snapshot.",
+	"snapshot_agent_signed_out": "Sign in inside the affected workspace, or use Zuse agent accounts for new workspaces.",
 	"snapshot_login_signed_in": "Signed in",
 	"snapshot_login_signed_out": "Signed out",
 	"snapshot_login_not_installed": "Not installed",
@@ -1258,5 +1258,9 @@
 	"cloud_hosting_switch_to_zuse": "Use Zuse Cloud",
 	"cloud_hosting_switch_to_zuse_title": "Switch to Zuse Cloud?",
 	"cloud_hosting_switch_to_zuse_description": "This disconnects your {{provider}} key, so new workspaces run on Zuse Cloud under your subscription. Existing workspaces keep the key for cleanup. To use your own account or custom snapshot again, reconnect the key and save the snapshot.",
-	"snapshot_check_title": "Snapshot check"
+	"snapshot_check_title": "Snapshot check",
+	"snapshot_use_zuse_accounts": "Use Zuse agent accounts",
+	"snapshot_managed_auth_help": "Connect Claude Code or Codex below, then save. New workspaces use your Zuse agent accounts. No snapshot rebuild is needed. Existing workspaces keep their current authentication.",
+	"snapshot_login_detected": "Login detected",
+	"snapshot_inspected_user": "Inspected Linux user: {{user}}."
 }

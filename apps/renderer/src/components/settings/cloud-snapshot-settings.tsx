@@ -21,15 +21,18 @@ import { Input } from "../ui/input.tsx";
 import { Switch } from "../ui/switch.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip.tsx";
 import { COMPACT_CLOUD_ACTION } from "./cloud-settings-ui.tsx";
+import { CloudWorkspaceAuth } from "./cloud-workspace-auth.tsx";
 import { DeviceCode } from "./connection-login-steps.tsx";
 
 export const SNAPSHOT_INSTALL_COMMAND = "npx zusehq snapshot install";
 
 export function CloudSnapshotSettings({
 	connectionId,
+	initialAgentAuthentication,
 	onChanged,
 }: {
 	readonly connectionId: string;
+	readonly initialAgentAuthentication?: "zuse";
 	readonly onChanged: () => Promise<void>;
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
@@ -54,7 +57,11 @@ export function CloudSnapshotSettings({
 	);
 	const [agentAuthentication, setAgentAuthentication] = useState<
 		"native" | "zuse"
-	>(cachedSnapshot?.agentAuthentication ?? "native");
+	>(
+		initialAgentAuthentication ??
+			cachedSnapshot?.agentAuthentication ??
+			"native",
+	);
 	const [gitAuthentication, setGitAuthentication] = useState<"native" | "zuse">(
 		cachedSnapshot?.gitAuthentication ?? "native",
 	);
@@ -77,7 +84,11 @@ export function CloudSnapshotSettings({
 					setPaths(
 						next.snapshot.repositories.map((repository) => repository.path),
 					);
-					setAgentAuthentication(next.snapshot.agentAuthentication ?? "native");
+					setAgentAuthentication(
+						initialAgentAuthentication ??
+							next.snapshot.agentAuthentication ??
+							"native",
+					);
 					setGitAuthentication(next.snapshot.gitAuthentication ?? "native");
 				}
 				if (next.state === "building")
@@ -95,7 +106,7 @@ export function CloudSnapshotSettings({
 			disposed = true;
 			if (timer) clearTimeout(timer);
 		};
-	}, [connectionId, inspecting, uiMessage]);
+	}, [connectionId, inspecting, initialAgentAuthentication, uiMessage]);
 	const inspect = async () => {
 		setSaving(true);
 		setError(null);
@@ -210,6 +221,14 @@ export function CloudSnapshotSettings({
 					</Fragment>
 				))}
 			</div>
+			{agentAuthentication === "zuse" ? (
+				<>
+					<p className="text-[11px] text-muted-foreground">
+						{uiMessage("settings:snapshot_managed_auth_help")}
+					</p>
+					<CloudWorkspaceAuth />
+				</>
+			) : null}
 			<Collapsible open={pathsOpen} onOpenChange={setPathsOpen}>
 				<CollapsibleTrigger className="flex h-7 items-center gap-1 rounded-md text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
 					<ChevronRight

@@ -1183,7 +1183,7 @@
 	"snapshot_inspecting": "正在检查快照…",
 	"snapshot_git_login": "需要登录 Git — 请在云设置中连接 GitHub",
 	"snapshot_git_unavailable": "无法验证 Git 访问权限；请检查连接",
-	"snapshot_native_agents": "Claude Code 和 Codex 使用快照中的登录信息。如有过期，请在源机器上重新登录并保存新快照。",
+	"snapshot_native_agents": "这是已保存的快照检查结果，并非工作区的实时访问状态。复制的登录信息可能过期或失效。",
 	"snapshot_installer_required": "在源机器上安装 Zuse，创建新快照，然后使用其 ID 重试。",
 	"snapshot_user_mismatch": "请输入安装程序显示的 Linux 用户。",
 	"snapshot_no_repositories": "未找到 GitHub 仓库。请添加仓库的绝对路径并重新检查。",
@@ -1249,7 +1249,7 @@
 	"snapshot_login_unavailable": "无法检查此登录",
 	"snapshot_agent_missing_tool": "快照中未安装",
 	"snapshot_agent_signed_in": "已在快照中登录",
-	"snapshot_agent_signed_out": "未登录。请在源机器上登录，然后保存新快照。",
+	"snapshot_agent_signed_out": "请在受影响的工作区内登录，或为新工作区使用 Zuse 智能体账号。",
 	"snapshot_login_signed_in": "已登录",
 	"snapshot_login_signed_out": "未登录",
 	"snapshot_login_not_installed": "未安装",
@@ -1258,5 +1258,9 @@
 	"cloud_hosting_switch_to_zuse": "使用 Zuse Cloud",
 	"cloud_hosting_switch_to_zuse_title": "切换到 Zuse Cloud？",
 	"cloud_hosting_switch_to_zuse_description": "这会断开你的 {{provider}} 密钥，新工作区将使用你的订阅在 Zuse Cloud 上运行。现有工作区会保留该密钥用于清理。如需再次使用你自己的账户或快照，请重新连接密钥并保存快照。",
-	"snapshot_check_title": "快照检查"
+	"snapshot_check_title": "快照检查",
+	"snapshot_use_zuse_accounts": "使用 Zuse 智能体账号",
+	"snapshot_managed_auth_help": "在下方连接 Claude Code 或 Codex，然后保存。新工作区将使用你的 Zuse 智能体账号，无需重建快照。现有工作区保留当前认证方式。",
+	"snapshot_login_detected": "检测到登录信息",
+	"snapshot_inspected_user": "已检查的 Linux 用户：{{user}}。"
 }

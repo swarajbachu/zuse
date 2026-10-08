@@ -518,6 +518,7 @@ export const makeBoxdSandboxProvider = (
 		readonly providerLabel: string;
 		readonly snapshot: string;
 		readonly snapshotVersion?: number;
+		readonly snapshotSource?: "custom-snapshot";
 		readonly sizeId?: string;
 		readonly timeoutSeconds: number;
 		readonly env: Readonly<Record<string, string>>;
@@ -531,8 +532,9 @@ export const makeBoxdSandboxProvider = (
 		if (!MACHINE_NAME_PATTERN.test(name))
 			return yield* providerError("rejected");
 		const idleSeconds = clampIdleSeconds(input.timeoutSeconds);
-		// Every machine is isolated: no peers, no metadata endpoint, no in-VM
-		// boxd CLI or integrations. Auto-suspend stays off so the runtime's
+		// Managed images are isolated. User-owned snapshots retain Boxd
+		// account integrations, including agent credential injection.
+		// Auto-suspend stays off so the runtime's
 		// outbound gateway connection never freezes under it; the caller's
 		// timeout becomes the hibernate (pause) or destroy (terminate) timer.
 		// ALREADY_EXISTS is the one create failure worth a second look: the
@@ -546,7 +548,7 @@ export const makeBoxdSandboxProvider = (
 						name,
 						...(org === undefined ? {} : { org }),
 						fromSnapshot: input.snapshot,
-						isolated: true,
+						isolated: input.snapshotSource !== "custom-snapshot",
 						config: {
 							autoSuspendTimeout: 0,
 							...(input.onTimeout === "terminate"
@@ -1138,6 +1140,7 @@ export const makeBoxdSandboxProvider = (
 				providerLabel: input.providerLabel,
 				snapshot: input.snapshotId,
 				snapshotVersion: input.snapshotVersion,
+				snapshotSource: input.snapshotSource,
 				sizeId: input.sizeId,
 				timeoutSeconds: input.timeoutSeconds,
 				env: input.env,

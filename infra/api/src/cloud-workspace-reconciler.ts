@@ -2125,6 +2125,9 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 										},
 										sizeId: workspaceSizeId(workspace),
 										snapshotId: build.snapshotId as string,
+										snapshotSource: importedSnapshot(build)
+											? "custom-snapshot"
+											: undefined,
 										snapshotVersion:
 											importedSnapshot(build) &&
 											typeof build.settings?.snapshotVersion === "number"
