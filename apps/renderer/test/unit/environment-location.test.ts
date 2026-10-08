@@ -29,7 +29,12 @@ describe("deriveEnvironmentLocation", () => {
 					label: "My Mac",
 				}),
 			}),
-		).toEqual({ isLocal: true, label: "Local", menuLabel: "This Mac" });
+		).toEqual({
+			isLocal: true,
+			connected: true,
+			label: "Local",
+			menuLabel: "This Mac",
+		});
 	});
 
 	it("shows the selected remote computer's real name", () => {
@@ -39,7 +44,12 @@ describe("deriveEnvironmentLocation", () => {
 				localEnvironmentId: "local-one",
 				activeEntry: entry({ label: "whizzy" }),
 			}),
-		).toEqual({ isLocal: false, label: "whizzy", menuLabel: "whizzy" });
+		).toEqual({
+			isLocal: false,
+			connected: true,
+			label: "whizzy",
+			menuLabel: "whizzy",
+		});
 	});
 
 	it("does not claim an unknown remote environment is local", () => {
@@ -51,6 +61,7 @@ describe("deriveEnvironmentLocation", () => {
 			}),
 		).toEqual({
 			isLocal: false,
+			connected: false,
 			label: "Remote computer",
 			menuLabel: "Remote computer",
 		});

@@ -3387,6 +3387,7 @@ async function createMainWindow() {
 				userData,
 				telemetryIdentity: { kind: "desktop", instance: "local" },
 				resumeApiLink: remoteAccessPolicy.resumeLink,
+				retireApiLink: remoteAccessPolicy.retireLink,
 				autoApiLink: remoteAccessPolicy.autoLink
 					? {
 							apiUrl:

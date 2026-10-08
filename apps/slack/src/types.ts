@@ -44,7 +44,7 @@ export type AppJob = {
 	| {
 			readonly kind: "execution-default";
 			readonly userId: string;
-			readonly field: "agent" | "model" | "providerId";
+			readonly field: "agent" | "model" | "agentModel" | "providerId";
 			readonly value: string;
 			readonly revision: number;
 			readonly memberRevision: number;

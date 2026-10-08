@@ -4,6 +4,8 @@ import type { EnvironmentCatalogEntry } from "../store/environment-catalog.ts";
 
 export type EnvironmentLocation = {
 	readonly isLocal: boolean;
+	/** Whether the remote connection is live; always true for this computer. */
+	readonly connected: boolean;
 	readonly label: string;
 	readonly menuLabel: string;
 };
@@ -19,6 +21,7 @@ export const deriveEnvironmentLocation = (input: {
 	if (isLocal) {
 		return {
 			isLocal: true,
+			connected: true,
 			label: uiMessage("shell:environment_location_local"),
 			menuLabel: "This Mac",
 		};
@@ -27,6 +30,7 @@ export const deriveEnvironmentLocation = (input: {
 	const remoteLabel = input.activeEntry?.label.trim() || "Remote computer";
 	return {
 		isLocal: false,
+		connected: input.activeEntry?.status === "connected",
 		label: remoteLabel,
 		menuLabel: remoteLabel,
 	};

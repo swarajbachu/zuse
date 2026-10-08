@@ -1,7 +1,14 @@
-import { useCloudMessageQueue } from "../../lib/cloud-message-queue.ts";
+import {
+	useCloudMessageQueue,
+	useCloudQueueStatus,
+} from "../../lib/cloud-message-queue.ts";
 import { CloudMailboxQueue } from "./cloud-mailbox-queue.tsx";
 import "@zuse/i18n/english/chat";
-import type { EnvironmentId, SessionId } from "@zuse/contracts";
+import type {
+	CloudChatSummary,
+	EnvironmentId,
+	SessionId,
+} from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useState } from "react";
 import { usePlatformOnline } from "../../lib/network-status.ts";
@@ -23,11 +30,13 @@ import { TrayPill } from "./tray-pill.tsx";
 export function QueueTray({
 	sessionId,
 	environmentId,
+	cloudSummary = null,
 	waitingForSandbox = false,
 	creationInProgress = false,
 }: {
 	sessionId: SessionId;
 	environmentId: EnvironmentId;
+	readonly cloudSummary?: CloudChatSummary | null;
 	readonly waitingForSandbox?: boolean;
 	readonly creationInProgress?: boolean;
 }) {
@@ -63,14 +72,15 @@ export function QueueTray({
 			holdQueueUntilOnline({ environmentId, sessionId });
 	}, [online, resumable, environmentId, sessionId]);
 	const mailbox = useCloudMessageQueue(timeline);
-	if (items.length === 0)
-		return (
-			<CloudMailboxQueue
-				messages={mailbox.waiting}
-				commands={timeline.view.pendingCommands}
-				waitingForCloud={waitingForSandbox}
-			/>
-		);
+	const cloudStatus = useCloudQueueStatus(cloudSummary, timeline);
+	const mailboxQueue = (
+		<CloudMailboxQueue
+			messages={mailbox.waiting}
+			commands={timeline.view.pendingCommands}
+			status={cloudStatus}
+		/>
+	);
+	if (items.length === 0) return mailboxQueue;
 
 	const move = (from: number, to: number) => {
 		if (from === to || to < 0 || to >= items.length) return;
@@ -88,14 +98,11 @@ export function QueueTray({
 
 	return (
 		<div ref={listRef}>
-			<CloudMailboxQueue
-				messages={mailbox.waiting}
-				commands={timeline.view.pendingCommands}
-				waitingForCloud={waitingForSandbox}
-			/>
+			{mailboxQueue}
 			<div className="border-b border-border/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-				{waitingForSandbox
-					? uiMessage("chat:cloud_queue_waiting_for_cloud")
+				{/* The mailbox header above already narrates cloud startup. */}
+				{waitingForSandbox && mailbox.waiting.length === 0
+					? cloudStatus.label
 					: online
 						? uiMessage("chat:queue_tray_queued")
 						: uiMessage("chat:queue_tray_waiting_for_connection")}

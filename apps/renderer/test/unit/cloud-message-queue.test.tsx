@@ -13,6 +13,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it } from "vitest";
 import { CloudMailboxQueue } from "../../src/components/composer/cloud-mailbox-queue.tsx";
 import { useCloudMessageQueue } from "../../src/lib/cloud-message-queue.ts";
+import { cloudQueueStatus } from "../../src/lib/cloud-queue-status.ts";
 import { useCloudChatCatalogStore } from "../../src/lib/cloud-workspace-catalog.ts";
 import { isCloudWorkspaceEnvironment } from "../../src/lib/rpc-client.ts";
 import type { RendererSessionTimeline } from "../../src/lib/session-timeline-hooks.ts";
@@ -95,11 +96,18 @@ it.each([
 			<CloudMailboxQueue
 				messages={result.waiting}
 				commands={timeline.view.pendingCommands}
-				waitingForCloud
+				status={cloudQueueStatus({
+					summary: useCloudChatCatalogStore.getState().summaries[0] ?? null,
+					activity: "paused",
+					connection: "dormant",
+					pendingCommands: timeline.view.pendingCommands,
+				})}
 			/>
 		);
 	}
 	const html = renderToStaticMarkup(<Surface />);
-	expect(html).toContain("Waiting for cloud to start");
+	// Sending to a paused workspace wakes it: one resume status, no agent wait.
+	expect(html).toContain("Resuming cloud workspace…");
+	expect(html).not.toContain("Waiting for agent");
 	expect(html).toContain("Wait for cloud");
 });

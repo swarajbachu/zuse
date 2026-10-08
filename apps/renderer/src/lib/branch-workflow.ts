@@ -125,14 +125,22 @@ export type EnvironmentChecksRow = {
 	canFix: boolean;
 };
 
+/**
+ * The single next step offered on the Summary PR row, ranked by what unblocks
+ * the merge next: conflicts, then draft status, then failing checks. Merge is
+ * offered only once the branch is clean and no check is failing or running —
+ * a merge offered mid-run would race the checks that gate it.
+ */
+export type EnvironmentPrAction = "resolve" | "ready" | "fix" | "merge";
+
 export const deriveEnvironmentPrRows = (
 	pr: WorkflowPr | null,
 ): {
 	checks: EnvironmentChecksRow | null;
-	conflicts: boolean;
+	action: EnvironmentPrAction | null;
 } => {
 	if (pr === null || pr.state !== "open") {
-		return { checks: null, conflicts: false };
+		return { checks: null, action: null };
 	}
 
 	const summary =
@@ -170,8 +178,19 @@ export const deriveEnvironmentPrRows = (
 		}
 	}
 
-	return {
-		checks,
-		conflicts: pr.mergeable === "conflicting",
-	};
+	const action: EnvironmentPrAction | null =
+		pr.mergeable === "conflicting"
+			? "resolve"
+			: pr.isDraft === true
+				? "ready"
+				: checksFailing > 0
+					? "fix"
+					: !pr.stale &&
+							pr.checksComplete !== false &&
+							checksRunning === 0 &&
+							pr.mergeable === "clean"
+						? "merge"
+						: null;
+
+	return { checks, action };
 };

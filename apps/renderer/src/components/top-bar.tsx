@@ -644,6 +644,7 @@ export function BranchMenuButton({
 	onOpen,
 	onRename,
 	onSwitch,
+	variant = "toolbar",
 }: {
 	showIcon?: boolean;
 	branchLabel: string;
@@ -657,6 +658,8 @@ export function BranchMenuButton({
 	onOpen: () => void;
 	onRename: () => void;
 	onSwitch: (branch: GitBranchInfo) => void;
+	/** The Summary aside already shows the change count on its own row. */
+	variant?: "toolbar" | "summary";
 }) {
 	const { message: uiMessage } = useUiMessages([
 		"connections",
@@ -694,7 +697,7 @@ export function BranchMenuButton({
 					{showIcon ? (
 						<HugeiconsIcon
 							icon={GitBranchIcon}
-							className="size-3.5 shrink-0 text-muted-foreground"
+							className={`${variant === "summary" ? "size-4" : "size-3.5"} shrink-0 text-muted-foreground`}
 						/>
 					) : null}
 					<span
@@ -703,7 +706,7 @@ export function BranchMenuButton({
 					>
 						{branchLabel}
 					</span>
-					{dirtyFiles > 0 ? (
+					{variant === "toolbar" && dirtyFiles > 0 ? (
 						<span className="shrink-0 text-muted-foreground">
 							· {dirtyFiles}
 						</span>

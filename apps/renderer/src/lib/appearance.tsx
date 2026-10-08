@@ -1,60 +1,28 @@
-import type { AppearanceMode } from "@zuse/contracts";
-import { useLayoutEffect, useMemo, useSyncExternalStore } from "react";
+import { useLayoutEffect } from "react";
 
+import {
+	applyResolvedAppearance,
+	LAST_APPEARANCE_MODE_KEY,
+	type ResolvedAppearance,
+	useAppearanceForMode,
+} from "./appearance-mode.tsx";
 import { useSettingsStore } from "./settings-client-bus.ts";
 
-export type ResolvedAppearance = "light" | "dark";
-
-const subscribeSystemAppearance = (onStoreChange: () => void): (() => void) => {
-	if (
-		typeof window === "undefined" ||
-		typeof window.matchMedia !== "function"
-	) {
-		return () => {};
-	}
-	const media = window.matchMedia("(prefers-color-scheme: dark)");
-	media.addEventListener("change", onStoreChange);
-	return () => media.removeEventListener("change", onStoreChange);
-};
-
-const getSystemAppearance = (): ResolvedAppearance => {
-	if (
-		typeof window === "undefined" ||
-		typeof window.matchMedia !== "function"
-	) {
-		return "dark";
-	}
-	return window.matchMedia("(prefers-color-scheme: dark)").matches
-		? "dark"
-		: "light";
-};
-
-export const resolveAppearance = (
-	mode: AppearanceMode,
-	systemAppearance: ResolvedAppearance,
-): ResolvedAppearance => (mode === "system" ? systemAppearance : mode);
-
 export function useResolvedAppearance(): ResolvedAppearance {
-	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
-	const systemAppearance = useSyncExternalStore(
-		subscribeSystemAppearance,
-		getSystemAppearance,
-		(): ResolvedAppearance => "dark",
-	);
-	return useMemo(
-		() => resolveAppearance(appearanceMode, systemAppearance),
-		[appearanceMode, systemAppearance],
-	);
+	return useAppearanceForMode(useSettingsStore((s) => s.appearanceMode));
 }
 
 export function AppearanceController() {
 	const appearanceMode = useSettingsStore((s) => s.appearanceMode);
-	const resolvedAppearance = useResolvedAppearance();
+	const resolvedAppearance = useAppearanceForMode(appearanceMode);
 
 	useLayoutEffect(() => {
-		const root = document.documentElement;
-		root.classList.toggle("dark", resolvedAppearance === "dark");
-		root.style.colorScheme = resolvedAppearance;
+		applyResolvedAppearance(resolvedAppearance);
+		try {
+			window.localStorage.setItem(LAST_APPEARANCE_MODE_KEY, appearanceMode);
+		} catch {
+			// Storage can be unavailable in private windows; the theme still applies.
+		}
 		window.zuse?.window?.setAppearanceMode?.(appearanceMode);
 		window.dispatchEvent(
 			new CustomEvent("zuse:appearance-change", {

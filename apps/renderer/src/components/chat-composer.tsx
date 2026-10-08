@@ -1486,6 +1486,7 @@ export function ChatComposer({
 						environmentId={qualifiedEnvironmentId}
 						sessionId={sessionId}
 						creationInProgress={creationInProgress}
+						cloudSummary={cloudSummary}
 						waitingForSandbox={
 							cloudSummary !== null && !isCloudWorkspaceReady(cloudSummary)
 						}

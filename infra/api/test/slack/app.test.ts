@@ -710,6 +710,52 @@ describe("conversational Slack app", () => {
 			),
 		);
 	};
+	const confirmConnection = async (
+		app: Awaited<ReturnType<typeof setup>>,
+		link: string,
+	) => {
+		const preview = await app.fetch(new Request(link));
+		expect(preview.status).toBe(200);
+		return app.fetch(
+			new Request(link, {
+				method: "POST",
+				headers: {
+					origin: "https://app.test",
+					cookie: preview.headers.get("set-cookie")?.split(";")[0] ?? "",
+				},
+			}),
+		);
+	};
+	it("keeps a fresh connection link valid after a preview fetch, then consumes it after sign-in", async () => {
+		const app = await setup("T1", false);
+		mockServices();
+		const link = await connectUrl(app.env, app.installation, "U1");
+		const preview = await app.fetch(new Request(link));
+		expect(preview.status).toBe(303);
+		const connected = await completeSignIn(app, link);
+		expect(connected.status).toBe(200);
+		expect(
+			(await app.store.member(app.installation, "U1")).connection?.accountId,
+		).toBe("user_new");
+		const replay = await app.fetch(new Request(link));
+		expect(replay.status).toBe(401);
+		expect(await replay.text()).toContain("Connection link expired");
+	});
+	it("allows retrying the same connection link after authentication fails", async () => {
+		const app = await setup("T1", false);
+		mockServices();
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+		vi.mocked(app.env.identity.exchange).mockRejectedValueOnce(
+			new Error("temporary identity failure"),
+		);
+		const link = await connectUrl(app.env, app.installation, "U1");
+		expect((await completeSignIn(app, link)).status).toBe(503);
+		expect(
+			(await app.store.member(app.installation, "U1")).connection,
+		).toBeNull();
+		expect((await completeSignIn(app, link)).status).toBe(200);
+		expect((await app.fetch(new Request(link))).status).toBe(401);
+	});
 	it("requests fresh authentication after disconnecting from Slack Home", async () => {
 		const app = await setup();
 		mockServices();
@@ -795,8 +841,9 @@ describe("conversational Slack app", () => {
 	it("does not allow an old browser page to disconnect a replacement account", async () => {
 		const app = await setup();
 		mockServices();
-		const response = await app.fetch(
-			new Request(await connectUrl(app.env, app.installation, "U1")),
+		const response = await confirmConnection(
+			app,
+			await connectUrl(app.env, app.installation, "U1"),
 		);
 		const csrf = (await response.text()).match(
 			/name="csrf" value="([a-f0-9]+)"/u,
@@ -914,7 +961,7 @@ describe("conversational Slack app", () => {
 		const other = await connectUrl(app.env, app.installation, "U1");
 		expect((await completeSignIn(app, other)).status).toBe(200);
 		await consumeNext(app);
-		expect((await app.fetch(new Request(original))).status).toBe(200);
+		expect((await confirmConnection(app, original)).status).toBe(200);
 		await consumeNext(app);
 		expect(pickerToken(http)).toMatch(/^[a-f0-9]{64}$/u);
 		expect(app.env.identity.exchange).toHaveBeenCalledTimes(1);
@@ -979,14 +1026,53 @@ describe("conversational Slack app", () => {
 		)?.[1];
 		if (!retry) throw new Error("Expected recoverable notification link");
 		expect(app.jobs).toHaveLength(0);
+		send.mockRejectedValue(new Error("queue still unavailable"));
+		for (let i = 0; i < 2; i++) {
+			expect((await app.fetch(new Request(retry))).status).toBe(200);
+		}
+		expect(send).toHaveBeenCalledTimes(1);
+		expect(app.jobs).toHaveLength(0);
+		const token = new URL(retry).searchParams.get("token") ?? "";
+		expect(await app.store.authenticate(token, "login")).not.toBeNull();
+		expect(
+			(
+				await app.fetch(
+					new Request(retry, {
+						method: "POST",
+						headers: { origin: "https://evil.test" },
+					}),
+				)
+			).status,
+		).toBe(403);
 		send.mockRestore();
-		expect((await app.fetch(new Request(retry))).status).toBe(200);
+		expect((await confirmConnection(app, retry)).status).toBe(200);
+		expect((await app.fetch(new Request(retry))).status).toBe(401);
 		expect((await consumeNext(app)).retry).not.toHaveBeenCalled();
 		expect(pickerToken(http)).toMatch(/^[a-f0-9]{64}$/u);
 		expect(app.env.identity.exchange).toHaveBeenCalledTimes(1);
 		expect(http.calls.filter((c) => c.url.endsWith("/webhooks"))).toHaveLength(
 			1,
 		);
+	});
+	it("confirms a connected Home link without consuming it during previews", async () => {
+		const app = await setup();
+		mockServices();
+		const link = await connectUrl(app.env, app.installation, "U1");
+		expect((await app.fetch(new Request(link))).status).toBe(200);
+		expect(app.jobs).toHaveLength(0);
+		expect(
+			(
+				await app.fetch(
+					new Request(link, {
+						method: "POST",
+						headers: { origin: "https://app.test" },
+					}),
+				)
+			).status,
+		).toBe(403);
+		expect((await confirmConnection(app, link)).status).toBe(200);
+		expect(app.jobs).toHaveLength(1);
+		expect((await app.fetch(new Request(link))).status).toBe(401);
 	});
 	it("cannot use a notification retry to move a request to a replacement account", async () => {
 		const app = await setup("T1", false);
@@ -1012,7 +1098,7 @@ describe("conversational Slack app", () => {
 				webhookId: "wh_replacement",
 			},
 		});
-		expect((await app.fetch(new Request(retry))).status).toBe(409);
+		expect((await confirmConnection(app, retry)).status).toBe(409);
 		expect(app.jobs).toHaveLength(0);
 	});
 	it("opens a loading modal, restricts it to its user, resumes the task and remembers defaults exactly once", async () => {
@@ -1757,6 +1843,62 @@ describe("conversational Slack app", () => {
 			(await app.store.member(app.installation, "U1")).connection?.agent,
 		).toBe("codex");
 	});
+	it("lets Home save an agent and model together before any task picker", async () => {
+		const app = await setup();
+		const http = mockServices();
+		const profile = await app.store.member(app.installation, "U1");
+		if (!profile.connection) throw new Error("Expected connection");
+		await app.store.saveMember(app.installation, "U1", {
+			...profile,
+			connection: {
+				...profile.connection,
+				agent: undefined,
+				model: undefined,
+				providerId: "box",
+			},
+		});
+		await publishHome(app.env, app.installation, "U1");
+		const home = http.calls
+			.filter((c) => c.url.endsWith("views.publish"))
+			.at(-1)?.body;
+		expect(JSON.stringify(home)).toContain("default_agent_model");
+		expect(JSON.stringify(home)).toContain("claude:claude-sonnet-5-5");
+		const current = await app.store.member(app.installation, "U1");
+		await interactWith(app, {
+			type: "block_actions",
+			view: {
+				private_metadata: JSON.stringify({
+					revision: app.installation.revision,
+					memberRevision: current.revision,
+				}),
+			},
+			actions: [
+				{
+					action_id: "default_agent_model",
+					selected_option: { value: "claude:claude-sonnet-5-5" },
+				},
+			],
+		});
+		expect((await consumeNext(app)).retry).not.toHaveBeenCalled();
+		expect(
+			(await app.store.member(app.installation, "U1")).connection,
+		).toMatchObject({
+			agent: "claude",
+			model: "claude-sonnet-5-5",
+			providerId: "box",
+		});
+		http.result.missingAgent = true;
+		await app.event(mention);
+		await consumeNext(app);
+		expect(app.jobs.some((j) => j.kind === "agent-required")).toBe(false);
+		expect(
+			http.calls.find((c) => c.url.endsWith("/v1/api/workspaces"))?.body,
+		).toMatchObject({
+			agent: "claude",
+			model: "claude-sonnet-5-5",
+			providerId: "box",
+		});
+	});
 	it("saves independent execution defaults and sends them when creating a task", async () => {
 		const app = await setup();
 		const http = mockServices();
@@ -1790,7 +1932,7 @@ describe("conversational Slack app", () => {
 			http.calls.filter((call) => call.url.endsWith("views.publish")).at(-1)
 				?.body,
 		);
-		for (const action of ["default_agent", "default_model", "default_provider"])
+		for (const action of ["default_agent_model", "default_provider"])
 			expect(home).toContain(action);
 		expect(home).toContain("Boxd");
 		expect(home).not.toContain('"value":"boat"');
@@ -1812,6 +1954,8 @@ describe("conversational Slack app", () => {
 		for (const [field, value] of [
 			["providerId", "boat"],
 			["model", "made-up-model"],
+			["agentModel", "claude:gpt-6-astra"],
+			["agentModel", "forged:model"],
 		] as const) {
 			await selectExecutionDefault(
 				app.env,
@@ -3000,7 +3144,7 @@ describe("customer installation and account connection", () => {
 		const link = await connectUrl(app.env, app.installation, "UOTHER", "C1");
 		const begin = await app.fetch(new Request(link));
 		expect(begin.status).toBe(303);
-		expect((await app.fetch(new Request(link))).status).toBe(401);
+		expect((await app.fetch(new Request(link))).status).toBe(303);
 		const location = new URL(begin.headers.get("location") ?? "");
 		const callback = new Request(
 			`https://app.test/slack/auth/callback?code=verified&state=${location.searchParams.get("state")}`,
@@ -3013,6 +3157,7 @@ describe("customer installation and account connection", () => {
 		const response = await app.fetch(callback.clone());
 		expect(response.status).toBe(200);
 		expect(await response.text()).toContain("Your Zuse account is connected");
+		expect((await app.fetch(new Request(link))).status).toBe(401);
 		expect((await app.fetch(callback)).status).toBe(400);
 		expect(
 			(await app.store.member(app.installation, "UOTHER")).connection

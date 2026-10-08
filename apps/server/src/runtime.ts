@@ -22,6 +22,7 @@ import {
 	autoLinkUntilLinked,
 	makeApiLinkServiceLive,
 	makeDisabledApiLinkService,
+	retireUntilRetired,
 } from "./api/api-link-service.ts";
 import {
 	type CloudEnrollmentConfig,
@@ -171,6 +172,12 @@ export interface MainLayerDeps {
 	};
 	/** Resume a saved computer registration and tunnel on boot. Defaults to true. */
 	readonly resumeApiLink?: boolean;
+	/**
+	 * Remove a saved computer registration from the account on boot. For
+	 * runtimes that must not publish themselves, so registrations they made
+	 * earlier don't linger in the account as offline computers.
+	 */
+	readonly retireApiLink?: boolean;
 	readonly apiEnabled?: boolean;
 	readonly cliAccess?: {
 		readonly path: string;
@@ -723,6 +730,18 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 					}),
 				).pipe(Layer.provide(ApiLinkLayer));
 
+	const RetireApiLinkLayer =
+		deps.retireApiLink === true && autoApiLink === undefined
+			? Layer.effectDiscard(
+					Effect.gen(function* () {
+						const api = yield* ApiLinkService;
+						yield* retireUntilRetired(api.retire()).pipe(
+							Effect.forkScoped({ startImmediately: true }),
+						);
+					}),
+				).pipe(Layer.provide(ApiLinkLayer))
+			: Layer.empty;
+
 	const HandlerSupportLayer = Layer.mergeAll(
 		AppPathsLayer,
 		MigratedSqlite,
@@ -844,6 +863,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		UsagePoller,
 		ModelCatalogPoller,
 		AutoApiLinkLayer,
+		RetireApiLinkLayer,
 		CloudWorkspaceRuntimeLayer,
 		RuntimePerformanceLayer,
 		CliAccessLayer,

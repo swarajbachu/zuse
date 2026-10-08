@@ -17,6 +17,10 @@ import {
 import { environmentBelongsToWorkspace } from "../lib/rpc-client.ts";
 import { useCloudProjects } from "../lib/use-cloud-projects.ts";
 import { CloudAgentSignInTray } from "./composer/cloud-agent-sign-in-tray.tsx";
+import {
+	CloudQueuedPrompt,
+	CloudQueueStatusHeader,
+} from "./composer/cloud-mailbox-queue.tsx";
 import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -94,8 +98,10 @@ import { resolveChatRuntimeMode } from "~/lib/auto-worktree";
 import {
 	type CloudLaunchStep,
 	chatLandingProgress,
+	cloudLaunchStepLabel,
 } from "~/lib/chat-landing-progress";
 import { cloudImageReadyForProject } from "~/lib/cloud-image-group.ts";
+import { cloudLifecycleLabel } from "~/lib/cloud-queue-status";
 
 const CLOUD_SETUP_MESSAGE = {
 	unavailable: "chat:cloud_setup_unavailable",
@@ -169,7 +175,6 @@ import {
 	rendererWorkspaceSnapshot,
 	subscribeRendererWorkspace,
 } from "../lib/renderer-workspace.ts";
-import { ChatStartupView } from "./chat-startup-view.tsx";
 import {
 	type CloudComputerPickerItem,
 	ComputerPicker,
@@ -184,10 +189,7 @@ import {
 } from "./composer/workspace-picker.tsx";
 import { ProviderIcon } from "./provider-icons";
 import { WallpaperBackground } from "./wallpaper-background";
-import {
-	CloudWorkspaceSetupView,
-	SetupCardView,
-} from "./worktree-setup-card.tsx";
+import { SetupCardView } from "./worktree-setup-card.tsx";
 
 const ChatComposer = lazy(() =>
 	import("./chat-composer.tsx").then((module) => ({
@@ -362,9 +364,6 @@ function WorkspaceChatLanding({
 	// setup-card bridge so the form can be hidden during the RPC without the
 	// user losing visual continuity with what they sent (shown as queued).
 	const [pendingInput, setPendingInput] = useState<ComposerInput | null>(null);
-	const [pendingPreviews, setPendingPreviews] = useState<
-		Readonly<Record<string, string>>
-	>({});
 	const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
 	// The worktree resolved for this submit (null = main checkout). Lets the
 	// bridge card show the real worktree name/branch the instant it exists.
@@ -1051,7 +1050,6 @@ function WorkspaceChatLanding({
 			if (!ownsLanding()) return;
 			resetCompletedChatDraft(draftRevision, () => {
 				setPendingInput(null);
-				setPendingPreviews({});
 				setPendingPrompt(null);
 				setPendingWorktreeId(null);
 				setPendingCloudStep(null);
@@ -1117,11 +1115,6 @@ function WorkspaceChatLanding({
 				input.text.trim().length > 0 ? input.text.trim() : "New chat",
 			);
 			setPendingInput(startupInput);
-			setPendingPreviews(
-				Object.fromEntries(
-					opts.pendingAttachments.map((item) => [item.tempId, item.previewUrl]),
-				),
-			);
 			setPendingCloudStep("creating");
 			let staged = false;
 			let stagedMessage: { ref: SessionRef; id: MessageId } | null = null;
@@ -1291,7 +1284,6 @@ function WorkspaceChatLanding({
 						forgetAttachmentPreview(stagedMessage.ref, item.tempId);
 				}
 				setPendingInput(null);
-				setPendingPreviews({});
 				releaseDraftAttachmentPreviews(opts.pendingAttachments);
 				setPendingCloudStep(null);
 				setPendingCloudChatId(null);
@@ -1484,6 +1476,32 @@ function WorkspaceChatLanding({
 
 	// Bridge: covers the brief create() RPC window (worktree → chat) before the
 	// session exists and MainShell swaps us for the real ChatView + composer.
+	// Until the chat exists, the submitted prompt waits in the same queue tray
+	// the live chat uses, so it never jumps between transcript and queue.
+	const pendingCloudQueue =
+		submitting && pendingPrompt !== null && pendingCloudStep !== null ? (
+			<div>
+				<CloudQueueStatusHeader
+					status={{
+						busy: true,
+						label: cloudLaunchStepLabel(
+							pendingCloudStep,
+							cloudLifecycleLabel({
+								summary: pendingCloudSummary,
+								activity: null,
+								connection: "dormant",
+							}),
+						),
+					}}
+				/>
+				<CloudQueuedPrompt
+					text={pendingInput?.text ?? pendingPrompt}
+					attachmentNames={(pendingInput?.attachments ?? []).map(
+						(file) => file.originalName,
+					)}
+				/>
+			</div>
+		) : null;
 	const composer =
 		draftSession !== null ? (
 			<Suspense fallback={<div className="h-28" aria-busy="true" />}>
@@ -1522,7 +1540,8 @@ function WorkspaceChatLanding({
 					}
 					onDraftSubmit={(input, opts) => void handleDraftSubmit(input, opts)}
 					draftTray={
-						cloudAuthBlocker === null ? undefined : (
+						pendingCloudQueue ??
+						(cloudAuthBlocker === null ? undefined : (
 							<CloudAgentSignInTray
 								blocker={cloudAuthBlocker}
 								onRetry={() => setCloudAuthAttempt((attempt) => attempt + 1)}
@@ -1531,7 +1550,7 @@ function WorkspaceChatLanding({
 									setView("settings");
 								}}
 							/>
-						)
+						))
 					}
 					headerSlot={
 						submitting ? undefined : (
@@ -1705,28 +1724,14 @@ function WorkspaceChatLanding({
 		});
 		if (progress.kind === "cloud") {
 			return (
-				<ChatStartupView
-					input={
-						pendingInput ??
-						ComposerInput.make({
-							text: pendingPrompt,
-							attachments: [],
-							fileRefs: [],
-							skillRefs: [],
-						})
-					}
-					previews={pendingPreviews}
-					composer={composer}
-					progress={
-						<CloudWorkspaceSetupView
-							phase={pendingCloudSummary?.startupPhase ?? "allocating"}
-							statusCode={pendingCloudSummary?.statusCode}
-							failureDiagnostic={
-								pendingCloudSummary?.failureDiagnostic ?? undefined
-							}
-						/>
-					}
-				/>
+				<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1 flex-col [container-type:inline-size]">
+					<div className="min-h-0 flex-1" />
+					<div className="shrink-0 px-[var(--chat-row-gutter)] pb-4 pt-2">
+						<div className="mx-auto w-full max-w-[var(--chat-reading-column)]">
+							{composer}
+						</div>
+					</div>
+				</div>
 			);
 		}
 		return (

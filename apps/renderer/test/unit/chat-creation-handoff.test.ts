@@ -16,10 +16,7 @@ import {
 	shouldRenderGenericAgentStartup,
 } from "../../src/components/chat-view.tsx";
 import { ChatCreationPromptBubble } from "../../src/components/pending-chat-creation.tsx";
-import {
-	CloudWorkspaceSetupView,
-	SetupCardView,
-} from "../../src/components/worktree-setup-card.tsx";
+import { SetupCardView } from "../../src/components/worktree-setup-card.tsx";
 import worktreeSetupSource from "../../src/components/worktree-setup-card.tsx?raw";
 import worktreeLifecycleSource from "../../src/hooks/use-worktree-setup-lifecycle.ts?raw";
 import { selectChatSurface } from "../../src/lib/chat-surface-selection.ts";
@@ -310,22 +307,6 @@ describe("chat creation handoff", () => {
 		expect(html).not.toContain("Preparing workspace");
 		expect(html).not.toContain("Starting agent");
 		expect(html).not.toContain("rounded-xl");
-	});
-
-	it("uses the compact lifecycle accordion for cloud creation", () => {
-		const preparing = renderToStaticMarkup(
-			createElement(CloudWorkspaceSetupView, { phase: "syncing-repository" }),
-		);
-		const startingAgent = renderToStaticMarkup(
-			createElement(CloudWorkspaceSetupView, { phase: "starting-agent" }),
-		);
-
-		expect(preparing).toContain("<details");
-		expect(preparing).not.toContain("<details open");
-		expect(preparing).toContain("Preparing repository…");
-		expect(preparing).not.toContain("Fetching the latest Git changes");
-		expect(startingAgent).toContain("Cloud workspace ready");
-		expect(startingAgent).not.toContain("Starting agent");
 	});
 });
 

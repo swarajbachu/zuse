@@ -16,15 +16,19 @@ export const chatLandingProgress = (input: {
 	return { kind: "none" };
 };
 
-/** What the queued first message is actually waiting on. */
-export const cloudLaunchStepLabel = (step: CloudLaunchStep): string => {
+/** What the queued first message is actually waiting on. Sandbox-owned
+ * steps defer to the durable lifecycle label so it advances with the boot. */
+export const cloudLaunchStepLabel = (
+	step: CloudLaunchStep,
+	lifecycleLabel: string,
+): string => {
 	switch (step) {
 		case "creating":
 		case "starting":
-			return "Waiting for sandbox";
+			return lifecycleLabel;
 		case "preparing":
-			return "Copying files to the sandbox";
+			return "Copying files to the sandbox…";
 		case "sending":
-			return "Sending message";
+			return "Sending message…";
 	}
 };
