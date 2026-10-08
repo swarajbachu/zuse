@@ -26,10 +26,29 @@ const repositorySettingsFor = async (
 	);
 };
 
+// Runtime modes ordered by how much they auto-approve. A repository may
+// tighten the user's default but must never raise it — otherwise a cloned
+// repo could silently disable the permission prompts the user relies on.
+const RUNTIME_MODE_RANK: Record<RuntimeMode, number> = {
+	"approval-required": 0,
+	"auto-accept-edits": 1,
+	"auto-accept-edits-and-bash": 2,
+	auto: 3,
+	"full-access": 4,
+};
+
 export const effectiveChatRuntimeMode = (
 	globalDefault: RuntimeMode,
 	repositorySettings: Pick<RepositorySettings, "defaultRuntimeMode"> | null,
-): RuntimeMode => repositorySettings?.defaultRuntimeMode ?? globalDefault;
+): RuntimeMode => {
+	const repositoryMode = repositorySettings?.defaultRuntimeMode;
+	if (repositoryMode === null || repositoryMode === undefined) {
+		return globalDefault;
+	}
+	return RUNTIME_MODE_RANK[repositoryMode] <= RUNTIME_MODE_RANK[globalDefault]
+		? repositoryMode
+		: globalDefault;
+};
 
 /** Resolve the repository override before creating a new chat/session. */
 export async function resolveChatRuntimeMode(

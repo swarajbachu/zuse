@@ -56,12 +56,22 @@ describe("effectiveChatRuntimeMode", () => {
 		).toBe("full-access");
 		expect(requested).toEqual([getActiveEnvironment()]);
 	});
-	it("uses a repository permission override for new chats", () => {
+	it("lets a repository tighten but never loosen the runtime mode", () => {
 		expect(
 			effectiveChatRuntimeMode("approval-required", {
 				defaultRuntimeMode: "full-access",
 			} as RepositorySettings),
-		).toBe("full-access");
+		).toBe("approval-required");
+		expect(
+			effectiveChatRuntimeMode("full-access", {
+				defaultRuntimeMode: "approval-required",
+			} as RepositorySettings),
+		).toBe("approval-required");
+		expect(
+			effectiveChatRuntimeMode("auto-accept-edits-and-bash", {
+				defaultRuntimeMode: "auto-accept-edits",
+			} as RepositorySettings),
+		).toBe("auto-accept-edits");
 	});
 
 	it("falls back to the global permission default", () => {
