@@ -37,17 +37,7 @@ export type EnvironmentRuntimeOptions = Readonly<{
 	requiresNetwork?: (environmentId: EnvironmentId) => boolean;
 	schedule?: (delayMs: number, task: () => void) => () => void;
 	random?: () => number;
-	/**
-	 * How long automatic retries continue after a failure. `bounded` keeps a
-	 * terminal failed state once the backoff ladder is exhausted, so billable
-	 * cloud machines are not re-woken forever. `unbounded` keeps retrying at a
-	 * steady interval, so a self-hosted computer that slept or dropped off the
-	 * network reconnects on its own when it returns. Default: bounded.
-	 */
-	retryPolicy?: (environmentId: EnvironmentId) => EnvironmentRetryPolicy;
 }>;
-
-export type EnvironmentRetryPolicy = "bounded" | "unbounded";
 
 export type EnvironmentRuntimeLease<Client> = Readonly<{
 	activate: (activation: ResourceActivation) => Promise<Client | null>;
@@ -80,8 +70,6 @@ export class EnvironmentRuntime<Client> {
 	private static readonly RETRY_DELAYS_MS = [
 		250, 500, 1_000, 2_000, 5_000, 10_000,
 	] as const;
-	/** Interval for unbounded retries once the backoff ladder is exhausted. */
-	static readonly STEADY_RETRY_DELAY_MS = 30_000;
 	private current: ResolvedEnvironment<Client> | null = null;
 	private achieved: ResourceActivation = "cache-only";
 	private desired: ResourceActivation = "cache-only";
@@ -409,17 +397,15 @@ export class EnvironmentRuntime<Client> {
 		) {
 			return false;
 		}
-		// For bounded environments, a failure that survives the whole backoff
-		// ladder is not transient — keep the terminal failed state instead of
-		// retrying (and re-waking the environment) forever. A user retry, a
-		// stronger activation, or the platform online edge starts a fresh episode.
-		// Offline stays unbounded: it emits no oscillating phases and clears on
-		// the online edge anyway.
-		const ladderExhausted =
-			this.retryAttempt >= EnvironmentRuntime.RETRY_DELAYS_MS.length;
-		const unbounded =
-			this.options.retryPolicy?.(this.environmentId) === "unbounded";
-		if (faultPhase === "failed" && ladderExhausted && !unbounded) {
+		// A failure that survives the whole backoff ladder is not transient —
+		// keep the terminal failed state instead of retrying (and re-waking the
+		// environment) forever. A user retry, a stronger activation, or the
+		// platform online edge starts a fresh episode. Offline stays unbounded:
+		// it emits no oscillating phases and clears on the online edge anyway.
+		if (
+			faultPhase === "failed" &&
+			this.retryAttempt >= EnvironmentRuntime.RETRY_DELAYS_MS.length
+		) {
 			return false;
 		}
 		const schedule =
@@ -429,11 +415,13 @@ export class EnvironmentRuntime<Client> {
 				return () => clearTimeout(timer);
 			});
 		const random = this.options.random ?? Math.random;
-		const baseDelay = ladderExhausted
-			? unbounded
-				? EnvironmentRuntime.STEADY_RETRY_DELAY_MS
-				: 10_000
-			: (EnvironmentRuntime.RETRY_DELAYS_MS[this.retryAttempt] ?? 10_000);
+		const baseDelay =
+			EnvironmentRuntime.RETRY_DELAYS_MS[
+				Math.min(
+					this.retryAttempt,
+					EnvironmentRuntime.RETRY_DELAYS_MS.length - 1,
+				)
+			] ?? 10_000;
 		this.retryAttempt += 1;
 		const delayMs = Math.round(baseDelay * (0.75 + random() * 0.5));
 		this.retryCancel = schedule(delayMs, () => {
@@ -499,14 +487,9 @@ export class EnvironmentRuntimeRegistry<Client> {
 		return [...this.runtimes.values()].map((runtime) => runtime.snapshot());
 	}
 
-	/**
-	 * Immediately wake every retained runtime after an OS/network online edge.
-	 * `include` narrows the episode, e.g. to environments that are safe to
-	 * retry without user intent after the device resumes from sleep.
-	 */
-	retryRetained(include?: (environmentId: EnvironmentId) => boolean): void {
+	/** Immediately wake every retained runtime after an OS/network online edge. */
+	retryRetained(): void {
 		for (const runtime of this.runtimes.values()) {
-			if (include !== undefined && !include(runtime.environmentId)) continue;
 			if (runtime.snapshot().phase !== "dormant") {
 				void runtime.retryNow().catch(() => undefined);
 			}

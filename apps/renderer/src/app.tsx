@@ -20,10 +20,7 @@ import {
 
 import { AppearanceController } from "./lib/appearance.tsx";
 
-import {
-	installClientBusOnlineBridge,
-	installConnectionWakeups,
-} from "./lib/client-bus-online.ts";
+import { installClientBusOnlineBridge } from "./lib/client-bus-online.ts";
 import { prefetchCloudWorkspaceSession } from "./lib/cloud-workspace-session-cache.ts";
 import {
 	clearControlPlaneSessionCache,
@@ -239,15 +236,6 @@ function ReadyApp({
 	);
 	const loadProviderAvailability = useProvidersStore((state) => state.load);
 	useEffect(() => installClientBusOnlineBridge(), []);
-	useEffect(
-		() =>
-			installConnectionWakeups(() => {
-				const catalog = useEnvironmentCatalogStore.getState();
-				if (!catalog.initialized) return;
-				void catalog.syncAccountEnvironments().catch(() => undefined);
-			}),
-		[],
-	);
 	useEffect(() => installQueueOnlineRecovery(), []);
 	useEffect(() => {
 		let stop: (() => void) | undefined;

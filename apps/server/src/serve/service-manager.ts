@@ -1,13 +1,11 @@
 import { execFile } from "node:child_process";
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 import {
 	launchAgentDefinition,
-	type ServeServiceName,
-	serveServiceName,
 	systemdUserDefinition,
 } from "./service-definition.ts";
 
@@ -17,8 +15,6 @@ export type SupportedServePlatform = "darwin" | "linux";
 
 export interface ServeServicePaths {
 	readonly platform: SupportedServePlatform;
-	/** launchd label / systemd unit this install owns. */
-	readonly service: ServeServiceName;
 	readonly definitionPath: string;
 	readonly dataDir: string;
 	readonly logDir: string;
@@ -68,7 +64,6 @@ const isMissingLaunchctlService = (cause: unknown): boolean => {
 
 const bootoutLaunchAgent = async (input: {
 	readonly target: string;
-	readonly label: string;
 	readonly definitionPath: string;
 	readonly runCommand: ServeServiceCommandRunner;
 }): Promise<void> => {
@@ -82,7 +77,7 @@ const bootoutLaunchAgent = async (input: {
 		try {
 			await input.runCommand("launchctl", [
 				"print",
-				`${input.target}/${input.label}`,
+				`${input.target}/sh.zuse.serve`,
 			]);
 		} catch (probeCause) {
 			if (isMissingLaunchctlService(probeCause)) return;
@@ -95,20 +90,17 @@ export const resolveServeServicePaths = (input: {
 	readonly platform?: NodeJS.Platform;
 	readonly homeDir?: string;
 	readonly dataDir: string;
-	readonly sshManaged?: boolean;
 }): ServeServicePaths => {
 	const platform = input.platform ?? process.platform;
 	const homeDir = input.homeDir ?? homedir();
-	const service = serveServiceName({ sshManaged: input.sshManaged });
 	if (platform === "darwin") {
 		return {
 			platform,
-			service,
 			definitionPath: join(
 				homeDir,
 				"Library",
 				"LaunchAgents",
-				`${service.label}.plist`,
+				"sh.zuse.serve.plist",
 			),
 			dataDir: input.dataDir,
 			logDir: join(input.dataDir, "logs"),
@@ -117,13 +109,12 @@ export const resolveServeServicePaths = (input: {
 	if (platform === "linux") {
 		return {
 			platform,
-			service,
 			definitionPath: join(
 				homeDir,
 				".config",
 				"systemd",
 				"user",
-				service.unitName,
+				"zuse-serve.service",
 			),
 			dataDir: input.dataDir,
 			logDir: join(input.dataDir, "logs"),
@@ -153,31 +144,6 @@ const isSystemdUserAvailable = async (): Promise<boolean> => {
 	}
 };
 
-/**
- * Earlier SSH bootstraps installed under the default `sh.zuse.serve` label.
- * Retire that install when it is SSH-managed so the host doesn't run twice;
- * a user's own `zuse serve` under the same label is never touched.
- */
-const retireLegacySshService = async (
-	paths: ServeServicePaths,
-): Promise<void> => {
-	const legacy: ServeServicePaths = {
-		...paths,
-		service: serveServiceName({ sshManaged: false }),
-		definitionPath: join(
-			dirname(paths.definitionPath),
-			paths.platform === "darwin"
-				? "sh.zuse.serve.plist"
-				: "zuse-serve.service",
-		),
-	};
-	const contents = await readFile(legacy.definitionPath, "utf8").catch(
-		() => null,
-	);
-	if (contents === null || !contents.includes("--ssh-managed")) return;
-	await uninstallServeService(legacy);
-};
-
 export const installServeService = async (input: {
 	readonly executable: string;
 	readonly paths: ServeServicePaths;
@@ -192,13 +158,9 @@ export const installServeService = async (input: {
 	await mkdir(dirname(input.paths.definitionPath), { recursive: true });
 	await mkdir(input.paths.logDir, { recursive: true, mode: 0o700 });
 	await mkdir(input.paths.dataDir, { recursive: true, mode: 0o700 });
-	if (input.paths.service.label === "sh.zuse.ssh") {
-		await retireLegacySshService(input.paths);
-	}
 
 	if (input.paths.platform === "darwin") {
 		const definition = launchAgentDefinition({
-			service: input.paths.service,
 			nodeExecutable: process.execPath,
 			executable: input.executable,
 			dataDir: input.paths.dataDir,
@@ -217,7 +179,6 @@ export const installServeService = async (input: {
 		const target = launchctlTarget();
 		await bootoutLaunchAgent({
 			target,
-			label: definition.label,
 			definitionPath: input.paths.definitionPath,
 			runCommand: run,
 		});
@@ -237,7 +198,6 @@ export const installServeService = async (input: {
 		);
 	}
 	const definition = systemdUserDefinition({
-		service: input.paths.service,
 		nodeExecutable: process.execPath,
 		executable: input.executable,
 		dataDir: input.paths.dataDir,
@@ -264,27 +224,30 @@ export const startServeService = async (
 ): Promise<void> => {
 	if (paths.platform === "darwin") {
 		const target = launchctlTarget();
-		const job = `${target}/${paths.service.label}`;
-		await runCommand("launchctl", ["enable", job]);
+		await runCommand("launchctl", ["enable", `${target}/sh.zuse.serve`]);
 		await runCommand("launchctl", [
 			"bootstrap",
 			target,
 			paths.definitionPath,
 		]).catch(async (cause) => {
 			try {
-				await runCommand("launchctl", ["print", job]);
+				await runCommand("launchctl", ["print", `${target}/sh.zuse.serve`]);
 			} catch {
 				throw cause;
 			}
 		});
-		await runCommand("launchctl", ["kickstart", "-k", job]);
+		await runCommand("launchctl", [
+			"kickstart",
+			"-k",
+			`${target}/sh.zuse.serve`,
+		]);
 		return;
 	}
 	await runCommand("systemctl", [
 		"--user",
 		"enable",
 		"--now",
-		paths.service.unitName,
+		"zuse-serve.service",
 	]);
 };
 
@@ -294,13 +257,9 @@ export const stopServeService = async (
 ): Promise<void> => {
 	if (paths.platform === "darwin") {
 		const target = launchctlTarget();
-		await runCommand("launchctl", [
-			"disable",
-			`${target}/${paths.service.label}`,
-		]);
+		await runCommand("launchctl", ["disable", `${target}/sh.zuse.serve`]);
 		await bootoutLaunchAgent({
 			target,
-			label: paths.service.label,
 			definitionPath: paths.definitionPath,
 			runCommand,
 		});
@@ -310,7 +269,7 @@ export const stopServeService = async (
 		"--user",
 		"disable",
 		"--now",
-		paths.service.unitName,
+		"zuse-serve.service",
 	]);
 };
 
@@ -322,13 +281,13 @@ export const getServeServiceStatus = async (
 	try {
 		if (paths.platform === "darwin") {
 			const target = launchctlTarget();
-			await run("launchctl", ["print", `${target}/${paths.service.label}`]);
+			await run("launchctl", ["print", `${target}/sh.zuse.serve`]);
 		} else {
 			await run("systemctl", [
 				"--user",
 				"is-active",
 				"--quiet",
-				paths.service.unitName,
+				"zuse-serve.service",
 			]);
 		}
 		return { installed: true, running: true, durable: true };
@@ -356,7 +315,7 @@ export const uninstallServeService = async (
 			"--user",
 			"disable",
 			"--now",
-			paths.service.unitName,
+			"zuse-serve.service",
 		]).catch(() => undefined);
 	}
 	await rm(paths.definitionPath, { force: true });

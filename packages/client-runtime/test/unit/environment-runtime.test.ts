@@ -369,60 +369,6 @@ describe("EnvironmentRuntimeRegistry", () => {
 		await registry.dispose();
 	});
 
-	it("keeps retrying an unbounded environment at a steady interval", async () => {
-		let resolves = 0;
-		let available = false;
-		const delays: number[] = [];
-		const scheduled: Array<() => void> = [];
-		const registry = new EnvironmentRuntimeRegistry<{ id: number }>(
-			{
-				resolve: () => {
-					resolves += 1;
-					return available
-						? Effect.succeed({
-								client: { id: resolves },
-								dispose: () => Promise.resolve(),
-							})
-						: Effect.fail({
-								phase: "failed" as const,
-								message: "computer asleep",
-							});
-				},
-			},
-			{
-				random: () => 0.5,
-				retryPolicy: () => "unbounded",
-				schedule: (delay, task) => {
-					delays.push(delay);
-					scheduled.push(task);
-					return () => undefined;
-				},
-			},
-		);
-		const runtime = registry.get(EnvironmentId.make("environment-asleep"));
-		const lease = runtime.retain("connect");
-		await waitUntil(() => scheduled.length === 1);
-
-		// Drain well past the bounded ladder; every failure schedules another try.
-		for (let index = 0; index < 9; index += 1) {
-			const before = resolves;
-			scheduled[index]?.();
-			await waitUntil(() => resolves === before + 1);
-			for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
-		}
-		expect(scheduled.length).toBe(10);
-		expect(runtime.snapshot().phase).toBe("reconnecting");
-		expect(delays.slice(6)).toEqual([30_000, 30_000, 30_000, 30_000]);
-
-		// The computer wakes: the next steady retry connects without user action.
-		available = true;
-		scheduled[9]?.();
-		await waitUntil(() => runtime.snapshot().phase === "connected");
-
-		lease.release();
-		await registry.dispose();
-	});
-
 	it("retries retained runtimes immediately after a platform online edge", async () => {
 		let available = false;
 		let resolves = 0;

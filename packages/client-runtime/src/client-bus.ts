@@ -645,10 +645,8 @@ export class ClientBus<Client> {
 	 * The registry remains the sole reconnect owner, so many retained surfaces
 	 * still create only one transport attempt per environment.
 	 */
-	retryRetainedConnections(
-		include?: (environmentId: EnvironmentId) => boolean,
-	): void {
-		if (!this.disposed) this.runtimes.retryRetained(include);
+	retryRetainedConnections(): void {
+		if (!this.disposed) this.runtimes.retryRetained();
 	}
 
 	retryConnection(environmentId: EnvironmentId): void {

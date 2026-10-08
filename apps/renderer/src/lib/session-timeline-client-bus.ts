@@ -20,7 +20,6 @@ import type {
 import type {
 	EnvironmentFault,
 	EnvironmentResolver,
-	EnvironmentRetryPolicy,
 	ResourceActivation,
 } from "@zuse/client-runtime/environment-runtime";
 import { subscribeOnAnimationFrame } from "@zuse/client-runtime/frame-subscription";
@@ -1202,16 +1201,6 @@ const isCloudTimelineEnvironment = (environmentId: EnvironmentId): boolean =>
 	activationByEnvironment.get(environmentId)?.environmentKind ===
 	"cloud-workspace";
 
-// Cloud workspaces keep a bounded ladder so retries never keep waking billable
-// compute. Self-hosted computers retry until they come back from sleep.
-export const environmentRetryPolicy = (
-	environmentId: EnvironmentId,
-): EnvironmentRetryPolicy =>
-	isCloudTimelineEnvironment(environmentId) ||
-	isCloudWorkspaceEnvironment(environmentId)
-		? "bounded"
-		: "unbounded";
-
 const makeTimelineDriver = (
 	reportFailure: (
 		environmentId: EnvironmentId,
@@ -1309,7 +1298,6 @@ const createBus = (): ClientBus<MemoizeClient> => {
 		runtime: {
 			isOnline: isPlatformOnline,
 			requiresNetwork: environmentRequiresNetwork,
-			retryPolicy: environmentRetryPolicy,
 		},
 		synchronizer: {
 			synchronize: async <Data>(

@@ -247,7 +247,7 @@ export function AccessMethodsCard({
 							<RichMessage
 								id="settings:access_methods_card_the_zuse_serve_daemon_on_this_computer_owns_the_tailscale_se_sentence"
 								components={{ part0: <code />, part1: <code /> }}
-								values={{ code0: "zuse serve", code1: "zuse serve stop" }}
+								values={{ code0: "zuse serve", code1: "zuse serve --stop" }}
 							/>
 						</DialogDescription>
 					</DialogHeader>

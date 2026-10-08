@@ -30,7 +30,6 @@ import {
 	type PowerMonitorState,
 	type PowerRecordingDurationMinutes,
 	type PowerWorkloadState,
-	SYSTEM_RESUME_CHANNEL,
 	UPDATE_CHANNEL_GET,
 	UPDATE_CHANNEL_SET,
 	UPDATE_CHECK_CHANNEL,
@@ -617,13 +616,6 @@ const bridge = {
 				if (powerStateSubscriberCount === 0) {
 					ipcRenderer.send(POWER_UNSUBSCRIBE_CHANNEL);
 				}
-			};
-		},
-		onResume: (handler: () => void) => {
-			const wrapped = () => handler();
-			ipcRenderer.on(SYSTEM_RESUME_CHANNEL, wrapped);
-			return () => {
-				ipcRenderer.off(SYSTEM_RESUME_CHANNEL, wrapped);
 			};
 		},
 		startRecording: (durationMinutes: PowerRecordingDurationMinutes) =>

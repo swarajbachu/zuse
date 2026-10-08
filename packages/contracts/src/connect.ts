@@ -20,14 +20,6 @@ export const DEFAULT_SERVE_PORT = 4859;
  */
 export const ENVIRONMENT_PRESENCE_STALE_MS = 90_000;
 
-/** Whether a last api heartbeat still counts the environment as online. */
-export const isEnvironmentPresenceFresh = (
-	lastHeartbeat: number | undefined,
-	now: number = Date.now(),
-): boolean =>
-	lastHeartbeat !== undefined &&
-	now - lastHeartbeat <= ENVIRONMENT_PRESENCE_STALE_MS;
-
 // ---------------------------------------------------------------------------
 // Environment abstraction
 // ---------------------------------------------------------------------------

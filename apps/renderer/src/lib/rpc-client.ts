@@ -317,18 +317,6 @@ export const rendererWebSocketOpenTimeout = (key: string) =>
 		? CLOUD_WEBSOCKET_OPEN_TIMEOUT
 		: RENDERER_WEBSOCKET_OPEN_TIMEOUT;
 
-const CLOUD_WORKSPACE_MAX_AUTOMATIC_ATTEMPTS = 6;
-
-// Retrying a cloud workspace can wake a billable machine, so its background
-// retries stop after a short ladder. A self-hosted computer that sleeps or
-// drops off the network must reconnect on its own when it comes back.
-export const rendererMaxAutomaticAttempts = (
-	options: Pick<RendererConnectionOptions, "key">,
-): number =>
-	options.key.startsWith("workspace:")
-		? CLOUD_WORKSPACE_MAX_AUTOMATIC_ATTEMPTS
-		: Number.POSITIVE_INFINITY;
-
 export const isIgnorableRendererFailure = (cause: unknown): boolean =>
 	cause instanceof Error &&
 	cause.message === "All fibers interrupted without error";
@@ -426,7 +414,7 @@ const supervisor = createConnectionSupervisor<
 	isOnline: isPlatformOnline,
 	requiresNetwork: connectionRequiresNetwork,
 	isIgnorableFailure: isIgnorableRendererFailure,
-	maxAutomaticAttempts: rendererMaxAutomaticAttempts,
+	maxAutomaticAttempts: 6,
 	schedule: (delayMs, reconnect) => {
 		const timer = setTimeout(reconnect, delayMs);
 		return () => clearTimeout(timer);
@@ -902,19 +890,6 @@ export const subscribeRendererRpcConnection = (
 	listener: (snapshot: ConnectionSnapshot) => void,
 	environmentId = activeEnvironmentId,
 ): (() => void) => getRendererEntry(environmentId).subscribe(listener);
-
-/**
- * Restart interrupted self-hosted connections after this device resumes or
- * regains focus. Cloud workspaces keep their bounded ladder so a wake never
- * starts billable compute without user intent.
- */
-export const retryInterruptedRendererRpcConnections = (): void => {
-	for (const entry of rendererEntries.values()) {
-		const { key, status } = entry.snapshot();
-		if (key.startsWith("workspace:")) continue;
-		if (status === "reconnecting" || status === "error") entry.retryNow();
-	}
-};
 
 export const retryRendererRpcConnection = (environmentId?: unknown): void =>
 	getRendererEntry(

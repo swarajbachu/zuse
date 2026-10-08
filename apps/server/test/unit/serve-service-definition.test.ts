@@ -59,9 +59,6 @@ describe("Zuse Serve service definitions", () => {
 		expect(systemd.contents).toContain(' "--ssh-managed"');
 		expect(launchAgent.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
 		expect(systemd.contents).not.toContain("ZUSE_SERVE_AUTO_LINK");
-		expect(launchAgent.label).toBe("sh.zuse.ssh");
-		expect(launchAgent.contents).toContain("<string>sh.zuse.ssh</string>");
-		expect(systemd.unitName).toBe("zuse-ssh.service");
 	});
 
 	it("keeps the account api active alongside Tailnet sharing", () => {

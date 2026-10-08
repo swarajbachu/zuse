@@ -31,7 +31,6 @@ import {
 	type LanAuthServiceShape,
 	PairingRedeemError,
 } from "../lan-auth/services/lan-auth-service.ts";
-import { hostRuntimeVersion } from "../runtime-version.ts";
 import {
 	BROWSER_SECURITY_HEADERS,
 	type BrowserRequestSecurity,
@@ -682,7 +681,6 @@ export const wsServerProtocolLayer = (
 					{
 						status: "ok",
 						wireProtocolVersion: WIRE_PROTOCOL_VERSION,
-						version: hostRuntimeVersion(),
 					},
 					200,
 				),
