@@ -164,9 +164,22 @@ const beginSignIn = async (
 	channel?: string,
 	pendingRequest?: PendingConnectionRequest,
 	loginToken?: string,
+	confirmed = false,
 ) => {
 	const profile = await env.store.member(installation, userId);
 	if (profile.connection) {
+		// Reading a private link must never enqueue work or consume its token.
+		if (!confirmed) {
+			if (!loginToken) return successPage(env, installation, true, userId);
+			const response = page(
+				`<h1>Your account is connected</h1><p>Continue to notify Slack and resume any saved request.</p><form method="post" action="/slack/account/connect?token=${htmlEscape(loginToken)}"><button>Continue in Slack</button></form>`,
+			);
+			response.headers.append(
+				"set-cookie",
+				cookie("__Host-zuse-slack-retry", loginToken, 600),
+			);
+			return response;
+		}
 		if (
 			loginToken &&
 			!(await claimConnectionLink(env, installation, userId, loginToken))
@@ -372,11 +385,19 @@ export const accountRoutes = async (
 		);
 		return response;
 	}
-	if (request.method === "GET" && url.pathname === "/slack/account/connect") {
-		const login = await env.store.authenticate(
-			url.searchParams.get("token") ?? "",
-			"login",
-		);
+	if (
+		(request.method === "GET" || request.method === "POST") &&
+		url.pathname === "/slack/account/connect"
+	) {
+		const token = url.searchParams.get("token") ?? "";
+		if (
+			request.method === "POST" &&
+			(request.headers.get("origin") !== appOrigin(env) ||
+				!token ||
+				readCookie(request, "__Host-zuse-slack-retry") !== token)
+		)
+			return new Response("invalid origin or retry session", { status: 403 });
+		const login = await env.store.authenticate(token, "login");
 		const installation = login ? await env.store.get(login.team_id) : null;
 		if (!login || !installation || installation.generation !== login.generation)
 			return expiredConnectionLink();
@@ -387,7 +408,8 @@ export const accountRoutes = async (
 			login.owner_id,
 			channel,
 			pendingRequest,
-			url.searchParams.get("token") ?? undefined,
+			token,
+			request.method === "POST",
 		);
 	}
 	// Compatibility with already-issued installer setup sessions. No raw model/agent form.

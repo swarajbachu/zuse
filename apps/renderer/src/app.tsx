@@ -1,5 +1,3 @@
-import { CloudBuildMonitor } from "./components/cloud-build-monitor.tsx";
-import { Spinner } from "./components/ui/spinner.tsx";
 import { useCloudOnboarding } from "./hooks/use-cloud-onboarding.ts";
 import { SurfaceFallback } from "./shell/surface-fallback.tsx";
 import "@zuse/i18n/english/shell";
@@ -13,7 +11,6 @@ import { useAuth } from "./hooks/use-auth.ts";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
-import { useModelCatalogUpdates } from "./hooks/use-model-catalog-updates.ts";
 
 import {
 	startDesktopAnalytics,
@@ -52,6 +49,19 @@ import { useProvidersStore } from "./store/providers.ts";
 import { useUiStore } from "./store/ui.ts";
 
 import { useWorkspaceStore } from "./store/workspace.ts";
+
+// Build monitoring starts after account access is ready and needs no startup UI.
+const CloudBuildMonitor = lazy(() =>
+	import("./components/cloud-build-monitor.tsx").then((module) => ({
+		default: module.CloudBuildMonitor,
+	})),
+);
+
+const ModelCatalogUpdates = lazy(() =>
+	import("./hooks/use-model-catalog-updates.ts").then((module) => ({
+		default: module.ModelCatalogUpdates,
+	})),
+);
 
 const PrWatchController = lazy(() =>
 	import("./components/pr-watch-controller.tsx").then((module) => ({
@@ -176,13 +186,20 @@ export function App({ onReady }: { readonly onReady?: () => void }) {
 	);
 	return (
 		<>
+			{!isHostedProduct() && onboardingCompleted ? (
+				<Suspense fallback={null}>
+					<ModelCatalogUpdates />
+				</Suspense>
+			) : null}
 			<ReadyApp
 				onboardingCompleted={isHostedProduct() || onboardingCompleted}
 				onReady={onReady}
 				cloudOnboarding={cloudOnboarding}
 			/>
 			{onboardingCompleted && canConfigureCloud ? (
-				<CloudBuildMonitor key={workspace.key} />
+				<Suspense fallback={null}>
+					<CloudBuildMonitor key={workspace.key} />
+				</Suspense>
 			) : null}
 		</>
 	);
@@ -324,11 +341,6 @@ function ReadyApp({
 		loadProviderAvailability,
 		onboardingCompleted,
 	]);
-	useModelCatalogUpdates(
-		isHostedProduct() || !onboardingCompleted || !catalogInitialized
-			? null
-			: activeEnvironmentId,
-	);
 	useEffect(() => {
 		if (!onboardingCompleted) return;
 		const identity = user?.id ?? null;
@@ -376,17 +388,7 @@ function ReadyApp({
 				<AppearanceController />
 				<PluginReturnHandler />
 				<div className="relative z-50 flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
-					<Suspense
-						fallback={
-							<div
-								role="status"
-								aria-busy="true"
-								className="flex flex-1 items-center justify-center"
-							>
-								<Spinner className="size-5" />
-							</div>
-						}
-					>
+					<Suspense fallback={<SurfaceFallback />}>
 						<CloudOnboardingWizard
 							key={user?.id}
 							onFinish={() => {

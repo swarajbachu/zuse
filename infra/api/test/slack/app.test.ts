@@ -710,6 +710,22 @@ describe("conversational Slack app", () => {
 			),
 		);
 	};
+	const confirmConnection = async (
+		app: Awaited<ReturnType<typeof setup>>,
+		link: string,
+	) => {
+		const preview = await app.fetch(new Request(link));
+		expect(preview.status).toBe(200);
+		return app.fetch(
+			new Request(link, {
+				method: "POST",
+				headers: {
+					origin: "https://app.test",
+					cookie: preview.headers.get("set-cookie")?.split(";")[0] ?? "",
+				},
+			}),
+		);
+	};
 	it("keeps a fresh connection link valid after a preview fetch, then consumes it after sign-in", async () => {
 		const app = await setup("T1", false);
 		mockServices();
@@ -825,8 +841,9 @@ describe("conversational Slack app", () => {
 	it("does not allow an old browser page to disconnect a replacement account", async () => {
 		const app = await setup();
 		mockServices();
-		const response = await app.fetch(
-			new Request(await connectUrl(app.env, app.installation, "U1")),
+		const response = await confirmConnection(
+			app,
+			await connectUrl(app.env, app.installation, "U1"),
 		);
 		const csrf = (await response.text()).match(
 			/name="csrf" value="([a-f0-9]+)"/u,
@@ -944,7 +961,7 @@ describe("conversational Slack app", () => {
 		const other = await connectUrl(app.env, app.installation, "U1");
 		expect((await completeSignIn(app, other)).status).toBe(200);
 		await consumeNext(app);
-		expect((await app.fetch(new Request(original))).status).toBe(200);
+		expect((await confirmConnection(app, original)).status).toBe(200);
 		await consumeNext(app);
 		expect(pickerToken(http)).toMatch(/^[a-f0-9]{64}$/u);
 		expect(app.env.identity.exchange).toHaveBeenCalledTimes(1);
@@ -1009,14 +1026,53 @@ describe("conversational Slack app", () => {
 		)?.[1];
 		if (!retry) throw new Error("Expected recoverable notification link");
 		expect(app.jobs).toHaveLength(0);
+		send.mockRejectedValue(new Error("queue still unavailable"));
+		for (let i = 0; i < 2; i++) {
+			expect((await app.fetch(new Request(retry))).status).toBe(200);
+		}
+		expect(send).toHaveBeenCalledTimes(1);
+		expect(app.jobs).toHaveLength(0);
+		const token = new URL(retry).searchParams.get("token") ?? "";
+		expect(await app.store.authenticate(token, "login")).not.toBeNull();
+		expect(
+			(
+				await app.fetch(
+					new Request(retry, {
+						method: "POST",
+						headers: { origin: "https://evil.test" },
+					}),
+				)
+			).status,
+		).toBe(403);
 		send.mockRestore();
-		expect((await app.fetch(new Request(retry))).status).toBe(200);
+		expect((await confirmConnection(app, retry)).status).toBe(200);
+		expect((await app.fetch(new Request(retry))).status).toBe(401);
 		expect((await consumeNext(app)).retry).not.toHaveBeenCalled();
 		expect(pickerToken(http)).toMatch(/^[a-f0-9]{64}$/u);
 		expect(app.env.identity.exchange).toHaveBeenCalledTimes(1);
 		expect(http.calls.filter((c) => c.url.endsWith("/webhooks"))).toHaveLength(
 			1,
 		);
+	});
+	it("confirms a connected Home link without consuming it during previews", async () => {
+		const app = await setup();
+		mockServices();
+		const link = await connectUrl(app.env, app.installation, "U1");
+		expect((await app.fetch(new Request(link))).status).toBe(200);
+		expect(app.jobs).toHaveLength(0);
+		expect(
+			(
+				await app.fetch(
+					new Request(link, {
+						method: "POST",
+						headers: { origin: "https://app.test" },
+					}),
+				)
+			).status,
+		).toBe(403);
+		expect((await confirmConnection(app, link)).status).toBe(200);
+		expect(app.jobs).toHaveLength(1);
+		expect((await app.fetch(new Request(link))).status).toBe(401);
 	});
 	it("cannot use a notification retry to move a request to a replacement account", async () => {
 		const app = await setup("T1", false);
@@ -1042,7 +1098,7 @@ describe("conversational Slack app", () => {
 				webhookId: "wh_replacement",
 			},
 		});
-		expect((await app.fetch(new Request(retry))).status).toBe(409);
+		expect((await confirmConnection(app, retry)).status).toBe(409);
 		expect(app.jobs).toHaveLength(0);
 	});
 	it("opens a loading modal, restricts it to its user, resumes the task and remembers defaults exactly once", async () => {
