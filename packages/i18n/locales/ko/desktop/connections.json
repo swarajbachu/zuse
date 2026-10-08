@@ -6,7 +6,6 @@
 	"cloud_workspace_info_the_workspace_must_be_running_for_ssh_access": "SSH 액세스를 위해서는 작업공간이 실행 중이어야 합니다.",
 	"cloud_workspace_info_copy_ssh_command": "SSH 명령 복사",
 	"cloud_workspace_info_sync_to_a_local_directory": "로컬 디렉터리에 동기화",
-	"cloud_workspace_info_performance": "성능",
 	"cloud_workspace_info_status": "상태",
 	"cloud_workspace_info_live_usage_needs_the_updated_workspace_runtime": "실시간 사용에는 업데이트된 작업공간 런타임이 필요합니다.",
 	"cloud_workspace_info_restart_workspace": "작업공간 다시 시작",

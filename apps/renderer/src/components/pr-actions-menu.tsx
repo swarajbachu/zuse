@@ -25,6 +25,7 @@ import {
 	Wrench01Icon,
 } from "@zuse/icons/solid-rounded";
 import { useState } from "react";
+import type { EnvironmentPrAction } from "../lib/branch-workflow.ts";
 import { formatError } from "../lib/format-error.ts";
 import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts";
 import { openExternal } from "../lib/platform-capabilities.ts";
@@ -54,14 +55,26 @@ import {
 	MenuSubTrigger,
 	MenuTrigger,
 } from "./ui/menu.tsx";
+import { Spinner } from "./ui/spinner.tsx";
 import { toastManager } from "./ui/toast.tsx";
 
-/** Manual repair stages the next message and remains available during an active turn. */
+const prActionToneClass: Record<EnvironmentPrAction, string> = {
+	resolve: "text-[var(--accent-red)] hover:bg-[var(--accent-red)]/10",
+	fix: "text-[var(--accent-red)] hover:bg-[var(--accent-red)]/10",
+	ready: "text-foreground hover:bg-muted",
+	merge: "text-[var(--accent-green)] hover:bg-[var(--accent-green)]/10",
+};
+
+/**
+ * Manual repair stages the next message and remains available during an active turn.
+ * `action` adds the one ranked next step (see `deriveEnvironmentPrRows`) beside the row.
+ */
 export function PrActionsMenu({
 	executionRef,
 	pr,
 	details,
 	sessionId,
+	action = null,
 	className,
 	onView,
 	onChat,
@@ -70,6 +83,7 @@ export function PrActionsMenu({
 	pr: GitPrInfo;
 	details: GitPrDetails | null;
 	sessionId: SessionId | null;
+	action?: EnvironmentPrAction | null;
 	className?: string;
 	onView: () => void;
 	onChat: () => void;
@@ -163,22 +177,71 @@ export function PrActionsMenu({
 	};
 	const repair = (scope: PrRepairScope) => addContextToChat(scope);
 	const comments = details ? prRepairFeedback(details).length : 0;
+	const rowAction =
+		action === null
+			? null
+			: {
+					resolve: {
+						label: uiMessage("projects:pr_pane_resolve"),
+						title: uiMessage("chat:top_bar_resolve_conflicts"),
+						disabled: !details || !sessionId,
+						run: () => repair("conflicts"),
+					},
+					fix: {
+						label: uiMessage("chat:top_bar_fix"),
+						title: uiMessage("projects:github_failing_checks"),
+						disabled: !details || !sessionId,
+						run: () => repair("checks"),
+					},
+					ready: {
+						label: uiMessage("chat:top_bar_mark_ready"),
+						title: uiMessage("projects:github_ready_review"),
+						disabled: busy,
+						run: () => void setStatus("ready"),
+					},
+					merge: {
+						label: uiMessage("chat:top_bar_merge"),
+						title: uiMessage("chat:top_bar_merge"),
+						disabled: busy,
+						run: () => void merge("merge"),
+					},
+				}[action];
 	return (
 		<Menu modal={false}>
-			<MenuTrigger className={className}>
-				<HugeiconsIcon
-					icon={GitPullRequestIcon}
-					className="size-[15px] shrink-0"
-				/>
-				<span className="min-w-0 flex-1 truncate">
-					{details?.title ||
-						uiMessage("projects:github_pr_number", { number: pr.number ?? "" })}
-				</span>
-				<HugeiconsIcon
-					icon={ArrowDown01Icon}
-					className="size-3 shrink-0 text-muted-foreground"
-				/>
-			</MenuTrigger>
+			<div className={className}>
+				<MenuTrigger className="flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
+					<HugeiconsIcon
+						icon={pr.isDraft ? GitPullRequestDraftIcon : GitPullRequestIcon}
+						className="size-4 shrink-0 text-muted-foreground"
+					/>
+					<span className="min-w-0 flex-1 truncate">
+						{details?.title ||
+							uiMessage("projects:github_pr_number", {
+								number: pr.number ?? "",
+							})}
+					</span>
+					{rowAction === null ? (
+						<HugeiconsIcon
+							icon={ArrowDown01Icon}
+							className="size-3 shrink-0 text-muted-foreground"
+						/>
+					) : null}
+				</MenuTrigger>
+				{action !== null && rowAction !== null ? (
+					<button
+						type="button"
+						title={rowAction.title}
+						disabled={rowAction.disabled}
+						onClick={rowAction.run}
+						className={`inline-flex h-5 shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:opacity-40 ${prActionToneClass[action]}`}
+					>
+						{busy && (action === "merge" || action === "ready") ? (
+							<Spinner className="size-3" />
+						) : null}
+						{rowAction.label}
+					</button>
+				) : null}
+			</div>
 			<MenuPopup side="left" align="start" sideOffset={8} className="w-60">
 				<MenuItem className={compactMenuItemClass} onClick={onView}>
 					<HugeiconsIcon icon={File01Icon} className="size-[15px]" />

@@ -6,7 +6,6 @@
 	"cloud_workspace_info_the_workspace_must_be_running_for_ssh_access": "The workspace must be running for SSH access",
 	"cloud_workspace_info_copy_ssh_command": "Copy SSH command",
 	"cloud_workspace_info_sync_to_a_local_directory": "Sync to a local directory",
-	"cloud_workspace_info_performance": "Performance",
 	"cloud_workspace_info_status": "Status",
 	"cloud_workspace_info_live_usage_needs_the_updated_workspace_runtime": "Live usage needs the updated workspace runtime.",
 	"cloud_workspace_info_restart_workspace": "Restart workspace",

@@ -6,7 +6,6 @@
 	"cloud_workspace_info_the_workspace_must_be_running_for_ssh_access": "SSH アクセスするにはワークスペースが実行されている必要があります",
 	"cloud_workspace_info_copy_ssh_command": "SSHコマンドのコピー",
 	"cloud_workspace_info_sync_to_a_local_directory": "ローカルディレクトリに同期する",
-	"cloud_workspace_info_performance": "パフォーマンス",
 	"cloud_workspace_info_status": "ステータス",
 	"cloud_workspace_info_live_usage_needs_the_updated_workspace_runtime": "ライブで使用するには、更新されたワークスペース ランタイムが必要です。",
 	"cloud_workspace_info_restart_workspace": "ワークスペースを再起動する",
