@@ -57,6 +57,10 @@ const Offers = MemoizeRpcs.toLayerHandler("machines.offers", () =>
 const Plugins = MemoizeRpcs.toLayerHandler("plugins.request", (input) =>
 	withCloudControl((service) => service.plugins(input)),
 );
+const CloudSnapshotImport = MemoizeRpcs.toLayerHandler(
+	"cloud.snapshot.import",
+	(input) => withCloudControl((service) => service.importCloudSnapshot(input)),
+);
 const CloudProviderConnectionsList = MemoizeRpcs.toLayerHandler(
 	"cloud.providerConnections.list",
 	() => withCloudControl((service) => service.cloudProviderConnections()),
@@ -500,6 +504,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudBillingUsageHandler,
 	CloudBillingSetCapHandler,
 	CloudProviders,
+	CloudSnapshotImport,
 	CloudProviderConnectionsList,
 	CloudProviderConnectionsSave,
 	CloudProviderConnectionsDisconnect,

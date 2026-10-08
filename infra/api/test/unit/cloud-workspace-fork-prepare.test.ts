@@ -39,7 +39,7 @@ const fixture = () => {
 		"PRAGMA journal_mode=WAL; CREATE TABLE sessions (id TEXT, chat_id TEXT); CREATE TABLE messages (id TEXT, session_id TEXT); INSERT INTO sessions VALUES ('session','chat'); INSERT INTO messages VALUES ('message','session');",
 	);
 	// Keep the connection open so WAL is required to read the captured rows.
-	const run = (message = "message") =>
+	const run = (message = "message", native = false) =>
 		execFileSync("bash", ["-c", script], {
 			env: {
 				...process.env,
@@ -47,6 +47,7 @@ const fixture = () => {
 				ZUSE_FORK_CHAT_ID: "chat",
 				ZUSE_FORK_SESSION_ID: "session",
 				ZUSE_FORK_MESSAGE_ID: message,
+				ZUSE_SNAPSHOT_NATIVE: native ? "1" : "",
 			},
 			stdio: "pipe",
 		});
@@ -86,6 +87,35 @@ test("rejects an unknown fork point before moving data or initializing storage",
 			false,
 		);
 		expect(existsSync(join(root, "data/fork-source/child/failed"))).toBe(true);
+	} finally {
+		db.close();
+	}
+});
+
+test("native machine forks replace only Zuse-owned SSH identity and preserve native credentials", () => {
+	const { root, data, db, run } = fixture();
+	try {
+		mkdirSync(join(root, "home/.ssh"), { recursive: true });
+		mkdirSync(join(root, "home/.config/gh"), { recursive: true });
+		mkdirSync(join(root, "data/ssh"), { recursive: true });
+		mkdirSync(join(root, "data/workspace"), { recursive: true });
+		writeFileSync(join(root, "home/.ssh/authorized_keys"), "native-key");
+		writeFileSync(join(root, "home/.config/gh/hosts.yml"), "native-login");
+		writeFileSync(join(root, "data/ssh/authorized_keys"), "copied-zuse-key");
+		run("message", true);
+		expect(readFileSync(join(root, "home/.ssh/authorized_keys"), "utf8")).toBe(
+			"native-key",
+		);
+		expect(readFileSync(join(root, "home/.config/gh/hosts.yml"), "utf8")).toBe(
+			"native-login",
+		);
+		expect(existsSync(join(root, "data/ssh/authorized_keys"))).toBe(false);
+		expect(readFileSync(join(root, "data/workspace/owner"), "utf8")).toBe(
+			"child\n",
+		);
+		writeFileSync(join(data, "child-state"), "keep");
+		run("message", true);
+		expect(readFileSync(join(data, "child-state"), "utf8")).toBe("keep");
 	} finally {
 		db.close();
 	}

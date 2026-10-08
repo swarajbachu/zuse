@@ -201,7 +201,10 @@ export const MachineHostServiceLive: Layer.Layer<
 		const runtimeRole = yield* MachineRuntimeRole;
 		const authorizedKeys =
 			process.env.ZUSE_AUTHORIZED_KEYS_FILE ??
-			join(homedir(), ".ssh", "authorized_keys");
+			join(
+				process.env.ZUSE_SSH_DIRECTORY ?? join(homedir(), ".ssh"),
+				"authorized_keys",
+			);
 		const modeFile = join(paths.userData, "secrets", "ssh-mode");
 		const runtimeUpdateDirectory = join(paths.userData, "runtime-update");
 		const runtimeUpdateRequest = join(runtimeUpdateDirectory, "request.json");

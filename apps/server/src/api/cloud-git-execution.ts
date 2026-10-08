@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -26,6 +27,7 @@ const Credential = Schema.Struct({
 
 /** Each immutable identity gets separate files and child-process environment. */
 export const prepareGitExecution = async (input: {
+	readonly nativeRepositoryPath?: string;
 	readonly directory: string;
 	readonly authHelperPath: string;
 	readonly key: string;
@@ -81,7 +83,15 @@ export const prepareGitExecution = async (input: {
 		env: {
 			ZUSE_GITHUB_CONTEXT_DIR: directory,
 			PATH: `${directory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
-			GIT_CONFIG_COUNT: "2",
+			GIT_CONFIG_COUNT: input.nativeRepositoryPath === undefined ? "2" : "4",
+			...(input.nativeRepositoryPath === undefined
+				? {}
+				: {
+						GIT_CONFIG_KEY_2: "url.https://github.com/.insteadOf",
+						GIT_CONFIG_VALUE_2: "git@github.com:",
+						GIT_CONFIG_KEY_3: "url.https://github.com/.insteadOf",
+						GIT_CONFIG_VALUE_3: "ssh://git@github.com/",
+					}),
 			GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
 			GIT_CONFIG_VALUE_0: "",
 			GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
@@ -95,6 +105,8 @@ export const prepareGitExecution = async (input: {
 };
 
 export const makeCloudGitExecution = (input: {
+	readonly preferNativeGit?: boolean;
+	readonly nativeRepositoryPath?: string;
 	readonly sql: SqlClient.SqlClient;
 	readonly directory: string;
 	readonly authHelperPath: string;
@@ -105,7 +117,31 @@ export const makeCloudGitExecution = (input: {
 	readonly initialContext?: typeof CloudGithubCredentialRequest.Type;
 }): GitExecutionResolver => {
 	const cached = new Map<string, Promise<GitExecutionEnvironment>>();
+	let nativeCheck:
+		| { until: number; pending: ReturnType<typeof checkNativeGitAccess> }
+		| undefined;
+
 	return async (sessionId) => {
+		if (
+			input.nativeRepositoryPath !== undefined &&
+			input.preferNativeGit !== false
+		) {
+			if (!nativeCheck || nativeCheck.until < Date.now())
+				nativeCheck = {
+					until: Date.now() + 15_000,
+					pending: checkNativeGitAccess(input.nativeRepositoryPath),
+				};
+			const access = await nativeCheck.pending;
+			if (access === "readable")
+				return { key: "snapshot-native", context: {}, env: {} };
+			if (access === "unavailable")
+				throw new Error(
+					"Snapshot Git access could not be checked. Check the network and retry; native credentials were preserved.",
+				);
+			throw new Error(
+				"Authentication required: sign in to GitHub on this workspace, or connect GitHub in Cloud settings and select Use my Zuse GitHub connection for a new workspace.",
+			);
+		}
 		const rows = await Effect.runPromise(input.sql<{
 			turn_id: string;
 			input_json: string;
@@ -150,3 +186,35 @@ export const makeCloudGitExecution = (input: {
 		}
 	};
 };
+
+/** A read-only check proves read access, never push permission. */
+export const checkNativeGitAccess = (
+	cwd: string,
+): Promise<"readable" | "authentication-required" | "unavailable"> =>
+	new Promise((resolve) => {
+		execFile(
+			"git",
+			["-C", cwd, "ls-remote", "origin", "HEAD"],
+			{
+				timeout: 8000,
+				maxBuffer: 16384,
+				env: {
+					...process.env,
+					GIT_TERMINAL_PROMPT: "0",
+					GIT_ASKPASS: "",
+					GCM_INTERACTIVE: "never",
+					SSH_ASKPASS_REQUIRE: "never",
+				},
+			},
+			(error, _stdout, stderr) =>
+				resolve(
+					!error
+						? "readable"
+						: /Authentication failed|could not read Username|Permission denied \(publickey\)|terminal prompts disabled/i.test(
+									stderr,
+								)
+							? "authentication-required"
+							: "unavailable",
+				),
+		);
+	});

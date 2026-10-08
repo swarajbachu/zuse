@@ -574,13 +574,13 @@ describe("boxd sandbox provider", () => {
 		const prepare = client.execs[0]?.params.command;
 		expect(prepare).toContain("systemctl is-system-running --wait");
 		expect(prepare).toContain(
-			"install -d -m 0700 -o zuse -g zuse /run/zuse-secrets",
+			`install -d -m 0700 -o 'zuse' -g "$(id -gn 'zuse')" /run/zuse-secrets`,
 		);
 		const prime = client.execs[1]?.params.command as string;
-		expect(prime).toContain("sudo -n -u zuse -H bash -c");
+		expect(prime).toContain("sudo -n -u 'zuse' -H bash -c");
 		expect(prime).toContain("zuse --version");
 		expect(prime).toContain(
-			"systemd-run --quiet --collect --wait --uid=zuse -- /bin/true",
+			"systemd-run --quiet --collect --wait --uid='zuse' -- /bin/true",
 		);
 	});
 
@@ -1076,7 +1076,9 @@ describe("boxd sandbox provider", () => {
 		});
 		const install = client.execs[0]?.params.command as string;
 		expect(install).toContain("sudo -n -u 'zuse' mkdir -p '/run/zuse-secrets'");
-		expect(install).toContain("sudo -n install -m 600 -o 'zuse' -g 'zuse'");
+		expect(install).toContain(
+			`sudo -n install -m 600 -o 'zuse' -g "$(id -gn 'zuse')"`,
+		);
 		expect(install).toContain("'/run/zuse-secrets/boot-token'");
 		expect(install).toContain("sudo -n rm -f");
 		expect(install).not.toContain("install -D");
@@ -1644,6 +1646,25 @@ describe("native boxd machine forks", () => {
 		expect(client.methods("machines.fork")).toHaveLength(0);
 		expect(client.methods("machines.setEgressAllow")).toHaveLength(0);
 	});
+});
+
+test("custom snapshot version mismatch is rejected before runtime preparation", async () => {
+	const client = new FakeBoxd();
+	const provider = makeAdapter(client, { runtimeUser: "developer" });
+	const result = await failure(
+		provider.fork({
+			...createInput,
+			snapshotId: "immutable-source",
+			snapshotVersion: 999,
+		}),
+	);
+	expect(result.code).toBe("rejected");
+	expect(client.methods("machines.delete")).toHaveLength(1);
+	expect(
+		client.execs.some((call) =>
+			call.params.command.includes("/run/zuse-secrets"),
+		),
+	).toBe(false);
 });
 
 describe("boxd completed usage", () => {

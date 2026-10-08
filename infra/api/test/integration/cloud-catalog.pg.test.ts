@@ -53,6 +53,36 @@ test.skipIf(!url).each(["a", "organization:org_a"])(
 				[ownerId],
 			);
 			const store = await runtime.runPromise(CloudWorkspaceStore);
+			const imported = {
+				buildId: "imported",
+				projectId: null,
+				accountId: ownerId,
+				provider: "boxd",
+				templateVersion: "1:connection:key",
+				configurationDigest: "snapshot",
+				settings: { source: "custom-snapshot", providerConnectionId: "key" },
+				state: "queued" as const,
+				idempotencyKey: "same-request",
+				nextActionAtMs: 1,
+				revision: 0,
+				createdAtMs: 1,
+				updatedAtMs: 1,
+			};
+			const first = await runtime.runPromise(store.createBuild(imported));
+			const retry = await runtime.runPromise(
+				store.createBuild({ ...imported, buildId: "retry" }),
+			);
+			expect(first.projectId).toBeNull();
+			expect(retry.buildId).toBe(first.buildId);
+			const other = await runtime.runPromise(
+				store.createBuild({
+					...imported,
+					buildId: "other",
+					accountId: "other-owner",
+				}),
+			);
+			expect(other.buildId).toBe("other");
+
 			expect(
 				await runtime.runPromise(store.getWorkspaceSettings(ownerId)),
 			).toEqual({ revision: 0, values: {} });
@@ -104,6 +134,42 @@ test.skipIf(!url).each(["a", "organization:org_a"])(
 			expect((await read(0)).entries).toHaveLength(0);
 			await tx.query("COMMIT");
 			tx.release();
+			const access = [
+				{
+					providerId: "codex" as const,
+					state: "detected" as const,
+					checkedAt: 10,
+				},
+			];
+			const summary = {
+				workspaceId: "w",
+				runtimeGeneration: 1,
+				summaryRevision: 1,
+				title: "Native workspace",
+				lastActivityAtMs: 10,
+				activeSessionId: "session",
+				sessionHeadVersion: 1,
+				updatedAtMs: 10,
+				nativeAgentAccess: access,
+			};
+			expect(
+				(await runtime.runPromise(store.saveRuntimeSummary(summary))).kind,
+			).toBe("applied");
+			expect(
+				(await runtime.runPromise(store.getRuntimeSummary("w")))
+					?.nativeAgentAccess,
+			).toEqual(access);
+			expect(
+				(
+					await runtime.runPromise(
+						store.saveRuntimeSummary({ ...summary, nativeAgentAccess: [] }),
+					)
+				).kind,
+			).toBe("stale");
+			expect(
+				(await runtime.runPromise(store.getRuntimeSummary("w")))
+					?.nativeAgentAccess,
+			).toEqual(access);
 			const created = await read(0);
 			expect(
 				created.entries.map((entry) => entry.workspace.workspaceId),

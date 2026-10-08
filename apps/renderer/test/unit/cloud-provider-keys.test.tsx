@@ -2,8 +2,9 @@ import type { CloudProviderConnection } from "@zuse/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import {
+	CloudProviderConnectForm,
+	type CloudProviderConnections,
 	CloudProviderKeyList,
-	CloudProviderKeys,
 } from "../../src/components/settings/cloud-provider-keys.tsx";
 
 const connection = (
@@ -33,13 +34,34 @@ const renderList = (
 	);
 
 describe("Cloud provider key settings", () => {
-	test("starts in a loading state with the connect form", () => {
-		const markup = renderToStaticMarkup(
-			<CloudProviderKeys onChanged={async () => {}} />,
+	const keys = (
+		active: readonly CloudProviderConnection[],
+	): CloudProviderConnections => ({
+		connections: active,
+		active: [...active],
+		customSnapshotsEnabled: false,
+		loading: false,
+		loadError: false,
+		reload: async () => {},
+		apply: () => {},
+	});
+
+	test("defaults the connect form to boxd and offers replacement for a connected provider", () => {
+		const empty = renderToStaticMarkup(
+			<CloudProviderConnectForm keys={keys([])} onChanged={async () => {}} />,
 		);
-		expect(markup).toContain("Loading provider keys");
-		expect(markup).toContain("Connect a provider");
-		expect(markup).toContain("boxd API key");
+		expect(empty).toContain("boxd API key");
+		expect(empty).toContain("Connect");
+		expect(empty).toContain('aria-label="Sandbox provider"');
+		const replacing = renderToStaticMarkup(
+			<CloudProviderConnectForm
+				keys={keys([connection({ providerId: "boxd" })])}
+				providerId="boxd"
+				onChanged={async () => {}}
+			/>,
+		);
+		expect(replacing).toContain("Replace");
+		expect(replacing).not.toContain('aria-label="Sandbox provider"');
 	});
 
 	test("does not claim an empty account after a failed load", () => {
