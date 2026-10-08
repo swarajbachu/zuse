@@ -9,6 +9,7 @@ import {
 	type Agent as SdkAgent,
 	type Event as SdkEvent,
 	type Part as SdkPart,
+	type Permission as SdkPermission,
 	type ToolPart as SdkToolPart,
 } from "@opencode-ai/sdk";
 
@@ -30,14 +31,17 @@ import { type Cause, Effect, Queue, Stream } from "effect";
 
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
+import { isSensitivePath } from "../kernel/permission-policy.ts";
 import { CheckpointFlushScheduler } from "../kernel/provider-checkpoint-batcher.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
+import type { RequestPermission } from "./claude.ts";
 import {
 	finishCompactEvent,
 	isCompactCommand,
 	startCompactEvent,
 	startCompactSnapshot,
 } from "./compact.ts";
+import { classifyOpencode2Permission } from "./opencode2.ts";
 
 /**
  * Live handle for one OpenCode conversation. Mirrors the other driver
@@ -896,6 +900,7 @@ export const startOpencodeSession = (
 	opencodePath: string,
 	sessionId: AgentSessionId,
 	resumeCursor: string | null = null,
+	requestPermission: RequestPermission | null = null,
 	managedMcp?: import("../user-mcp/types.ts").ResolvedMcpServer,
 ): Effect.Effect<
 	OpencodeSessionHandle,
@@ -999,13 +1004,41 @@ export const startOpencodeSession = (
 			strategy: "opencode-session-id",
 		});
 
-		// Auto-accept permissions for v1.
-		const respondToPermission = async (permissionID: string): Promise<void> => {
+		// Route v1 permission.updated events through the shared broker — the
+		// same classify → requestPermission → reply flow the v2 driver uses —
+		// instead of auto-accepting every request server-side. When no broker
+		// is wired (e.g. headless callers that never supplied one) keep the
+		// historical auto-accept so unattended sessions cannot wedge.
+		const respondToPermission = async (perm: SdkPermission): Promise<void> => {
 			try {
+				let reply: "once" | "always" | "reject" = "once";
+				if (requestPermission !== null) {
+					const patterns = Array.isArray(perm.pattern)
+						? perm.pattern.filter(
+								(item): item is string => typeof item === "string",
+							)
+						: typeof perm.pattern === "string" && perm.pattern.length > 0
+							? [perm.pattern]
+							: [];
+					const decision = await requestPermission(
+						sessionId,
+						classifyOpencode2Permission(
+							perm.type,
+							patterns[0] ?? perm.title ?? "",
+						),
+						{ forcePrompt: patterns.some(isSensitivePath) },
+					);
+					reply =
+						decision._tag === "Deny"
+							? "reject"
+							: decision._tag === "AllowOnce"
+								? "once"
+								: "always";
+				}
 				await client.postSessionIdPermissionsPermissionId({
 					throwOnError: true,
-					body: { response: "once" },
-					path: { id: opencodeSessionId, permissionID },
+					body: { response: reply },
+					path: { id: opencodeSessionId, permissionID: perm.id },
 				});
 			} catch (cause) {
 				dlog(
@@ -1042,7 +1075,7 @@ export const startOpencodeSession = (
 						type === "permission.updated" &&
 						sdkEvent.properties.sessionID === opencodeSessionId
 					) {
-						void respondToPermission(sdkEvent.properties.id);
+						void respondToPermission(sdkEvent.properties);
 					}
 					const translated = translateOpencodeEvent(
 						sdkEvent,

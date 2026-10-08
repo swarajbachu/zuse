@@ -817,6 +817,7 @@ export const ProviderServiceLive = Layer.effect(
 							opencodePath,
 							sessionId,
 							resumeCursor,
+							buildRequestPermission(input.folderId),
 							managedMcp,
 						).pipe(Effect.provideService(AttachmentService, attachmentService));
 					} else if (input.providerId === "opencode2") {

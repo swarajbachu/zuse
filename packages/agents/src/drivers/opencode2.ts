@@ -1113,7 +1113,7 @@ export const extractOpencode2Permission = (
 	};
 };
 
-const classifyOpencode2Permission = (
+export const classifyOpencode2Permission = (
 	action: string,
 	resource: string,
 ): PermissionKind => {
