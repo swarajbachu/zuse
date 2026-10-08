@@ -1,4 +1,4 @@
-import { ComposerInput, ExternalThread } from "@zuse/contracts";
+import { ExternalThread } from "@zuse/contracts";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
@@ -8,7 +8,10 @@ import {
 	workspacePolicyForMode,
 } from "../../src/components/chat-landing.tsx";
 import chatLandingSource from "../../src/components/chat-landing.tsx?raw";
-import { ChatStartupView } from "../../src/components/chat-startup-view.tsx";
+import {
+	CloudQueuedPrompt,
+	CloudQueueStatusHeader,
+} from "../../src/components/composer/cloud-mailbox-queue.tsx";
 import workspacePickerSource from "../../src/components/composer/workspace-picker.tsx?raw";
 import {
 	chatLandingProgress,
@@ -152,40 +155,40 @@ describe("chat landing progress", () => {
 		);
 	});
 
-	test("renders the submitted cloud message, one progress row, and the composer", () => {
+	test("keeps the submitted cloud prompt in the queue tray with one status", () => {
 		const html = renderToStaticMarkup(
-			createElement(ChatStartupView, {
-				input: ComposerInput.make({
-					text: "Please read my image",
-					attachments: [],
-					fileRefs: [],
-					skillRefs: [],
+			createElement(
+				"div",
+				null,
+				createElement(CloudQueueStatusHeader, {
+					status: { busy: true, label: "Preparing cloud workspace…" },
 				}),
-				previews: {},
-				progress: createElement(
-					"div",
-					{ role: "status" },
-					"Preparing workspace",
-				),
-				composer: createElement("textarea", { "aria-label": "Chat composer" }),
-			}),
+				createElement(CloudQueuedPrompt, {
+					text: "Please read my image",
+					attachmentNames: ["design.png"],
+				}),
+			),
 		);
 		expect(html.match(/Please read my image/g)).toHaveLength(1);
 		expect(html.match(/role="status"/g)).toHaveLength(1);
-		expect(html.indexOf("Chat composer")).toBeGreaterThan(
-			html.indexOf("Preparing workspace"),
-		);
-		expect(html).not.toContain("Type a message below to get started");
+		expect(html).toContain("design.png");
+		expect(html).not.toContain("Waiting for agent");
+		// The landing never renders the prompt as a transcript bubble.
+		expect(chatLandingSource).not.toContain("ChatStartupView");
+		expect(chatLandingSource).toContain("pendingCloudQueue ??");
 	});
 
-	test("shows the sandbox's own boot phase while the workspace starts", () => {
-		expect(chatLandingSource).toContain(
-			'phase={pendingCloudSummary?.startupPhase ?? "allocating"}',
+	test("labels each launch step by what the prompt is waiting on", () => {
+		expect(cloudLaunchStepLabel("creating", "Preparing cloud workspace…")).toBe(
+			"Preparing cloud workspace…",
 		);
-		expect(cloudLaunchStepLabel("preparing")).toBe(
-			"Copying files to the sandbox",
+		expect(cloudLaunchStepLabel("starting", "Preparing repository…")).toBe(
+			"Preparing repository…",
 		);
-		expect(cloudLaunchStepLabel("sending")).toBe("Sending message");
+		expect(cloudLaunchStepLabel("preparing", "unused")).toBe(
+			"Copying files to the sandbox…",
+		);
+		expect(cloudLaunchStepLabel("sending", "unused")).toBe("Sending message…");
 	});
 
 	test("owns lifecycle polling behind the control-plane stream", () => {

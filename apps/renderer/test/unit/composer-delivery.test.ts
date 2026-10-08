@@ -153,7 +153,8 @@ describe("composer cloud delivery routing", () => {
 			]),
 		).toEqual({
 			commandId,
-			label: "Waiting for agent",
+			label: "Waiting for cloud",
+			blocked: false,
 			cancellable: true,
 		});
 	});
@@ -192,7 +193,7 @@ describe("composer cloud delivery routing", () => {
 					cancellable: true,
 				},
 			]),
-		).toEqual({ commandId, label, cancellable: true });
+		).toEqual({ commandId, label, blocked: true, cancellable: true });
 	});
 });
 

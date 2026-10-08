@@ -6,7 +6,10 @@ import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { RefreshIcon } from "@zuse/icons/solid-rounded";
 import { useEffect } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
-import { deriveCloudChatActivity } from "../lib/cloud-chat-activity.ts";
+import {
+	cloudWorkspaceIsStarting,
+	deriveCloudChatActivity,
+} from "../lib/cloud-chat-activity.ts";
 import {
 	type CloudConnectionPresentation,
 	cloudConnectionPresentation,
@@ -16,6 +19,8 @@ import {
 	cloudMemoryNotice,
 	shouldObserveCloudMemory,
 } from "../lib/cloud-memory-notice.ts";
+import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
+import { cloudLifecycleLabel } from "../lib/cloud-queue-status.ts";
 import {
 	cloudSummaryActiveSessionId,
 	cloudSummaryForChat,
@@ -125,6 +130,7 @@ export function CloudConnectionNotice() {
 		summary === null ? null : EnvironmentId.make(summary.workspaceId),
 	);
 	const runtime = timeline.runtime;
+	const queuedPrompts = useCloudMessageQueue(timeline).waiting.length;
 	useEffect(() => {
 		if (summary !== null) rearmRegisteredCloudConnection(summary);
 	}, [summary, shell.connection]);
@@ -158,11 +164,20 @@ export function CloudConnectionNotice() {
 			resources.connection === "connected" &&
 			resources.data?.sample.memoryPressure === true,
 	);
-	const presentation = cloudConnectionPresentation(
+	const lifecycle = cloudConnectionPresentation(
 		summary,
 		activity,
 		shell.connection,
 	);
+	// Waiting prompts carry the compute lifecycle in the queue header; showing
+	// it here too would stack two statuses for the same wait.
+	const presentation =
+		queuedPrompts > 0 &&
+		(lifecycle === "paused" ||
+			lifecycle === "resuming" ||
+			lifecycle === "updating")
+			? "hidden"
+			: lifecycle;
 	// A signed-out session can never reconnect a cloud workspace, so it shows
 	// one steady sign-in banner immediately — never the reconnect states.
 	const blockedAuth =
@@ -243,7 +258,18 @@ export function CloudConnectionNotice() {
 							}
 						: presentation === "hidden"
 							? null
-							: copy[presentation];
+							: presentation === "resuming"
+								? {
+										title: cloudLifecycleLabel({
+											summary,
+											activity,
+											connection: shell.connection,
+										}),
+										detail: cloudWorkspaceIsStarting(summary)
+											? undefined
+											: copy.resuming.detail,
+									}
+								: copy[presentation];
 	if (value === null) return null;
 	const busy =
 		!blockedAuth &&
