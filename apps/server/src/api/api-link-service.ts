@@ -142,6 +142,36 @@ export const autoLinkRetryDelayMs = (
  * heal on a later attempt without a restart. A full account is reported once
  * with what to do, not as a warning every attempt.
  */
+const RETIRE_RETRY_MAX_MS = 10 * 60_000;
+
+/**
+ * Keep retiring a saved registration until the account confirms it is gone.
+ * Being signed out or offline at boot is normal; a later attempt finishes it.
+ */
+export const retireUntilRetired = (
+	attempt: Effect.Effect<boolean, ApiLinkError>,
+): Effect.Effect<void> => {
+	const loop = (failures: number): Effect.Effect<void> =>
+		attempt.pipe(
+			Effect.asVoid,
+			Effect.catch((error) =>
+				(failures === 0
+					? Effect.logInfo(
+							"Removing this development copy from the account will retry",
+							error,
+						)
+					: Effect.void
+				).pipe(
+					Effect.andThen(
+						Effect.sleep(Math.min(5_000 * 2 ** failures, RETIRE_RETRY_MAX_MS)),
+					),
+					Effect.andThen(Effect.suspend(() => loop(failures + 1))),
+				),
+			),
+		);
+	return loop(0);
+};
+
 export const autoLinkUntilLinked = (
 	attempt: Effect.Effect<void, ApiLinkError>,
 ): Effect.Effect<void> => {
@@ -198,6 +228,13 @@ export class ApiLinkService extends Context.Service<
 		}) => Effect.Effect<ApiLinkStatusValue, ApiLinkError>;
 		readonly status: () => Effect.Effect<ApiLinkStatusValue, ApiLinkError>;
 		readonly unlink: () => Effect.Effect<void, ApiLinkError>;
+		/**
+		 * Remove this runtime's saved computer from the account, then forget it
+		 * locally. Unlike `unlink`, the local link survives a failed request so a
+		 * later attempt can still remove the account entry. Resolves `false` when
+		 * nothing was linked.
+		 */
+		readonly retire: () => Effect.Effect<boolean, ApiLinkError>;
 		readonly listEnvironments: () => Effect.Effect<
 			ApiEnvironmentList,
 			ApiLinkError
@@ -233,6 +270,7 @@ export const makeDisabledApiLinkService = (
 					advertisedEndpoints: buildAdvertisedEndpoints({ lan: config }),
 				}),
 			unlink: disabled,
+			retire: () => Effect.succeed(false),
 			listEnvironments: disabled,
 			connectEnvironment: disabled,
 			listClients: disabled,
@@ -240,6 +278,10 @@ export const makeDisabledApiLinkService = (
 		}),
 	);
 };
+
+/** The account no longer has this computer (or never did). */
+const isApiNotFound = (error: ApiLinkError): boolean =>
+	error.reason === "api_404" || error.reason.startsWith("api_404:");
 
 const apiHttpErrorReason = async (response: Response): Promise<string> => {
 	const fallback = `api_${response.status}`;
@@ -925,6 +967,30 @@ const makeApiLinkService = (options: {
 						.clearApiConfig()
 						.pipe(Effect.mapError((error) => failApi(error.reason)));
 					yield* log("unlink.success");
+				}),
+			retire: () =>
+				Effect.gen(function* () {
+					const cfg = yield* auth
+						.getApiConfig()
+						.pipe(Effect.orElseSucceed(() => null));
+					if (cfg === null) return false;
+					yield* log("retire.start", { environmentId: cfg.environmentId });
+					const token = yield* authService
+						.getAccessToken()
+						.pipe(Effect.mapError(() => failApi("signed_out")));
+					yield* postJson<unknown>(`${cfg.apiUrl}${ApiPaths.unlink}`, {
+						bearer: token,
+						body: { environmentId: cfg.environmentId },
+					}).pipe(
+						Effect.catch((error) =>
+							isApiNotFound(error) ? Effect.void : Effect.fail(error),
+						),
+					);
+					yield* auth
+						.clearApiConfig()
+						.pipe(Effect.mapError((error) => failApi(error.reason)));
+					yield* log("retire.success", { environmentId: cfg.environmentId });
+					return true;
 				}),
 		});
 	});
