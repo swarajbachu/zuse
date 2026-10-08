@@ -1620,10 +1620,60 @@ export const SessionPlanRespondRpc = Rpc.make("session.plan.respond", {
 	error: SessionNotFoundError,
 });
 
+/**
+ * One server entry in `session.mcp.update`. Accepts the flattened ACP shape
+ * (`{name, command, args, env}` or `{name, url, headers}`) and the nested
+ * `{name, config: {...}}` form cursor normalization tolerates. `env` and
+ * `headers` take either a string map or the ACP `{name, value}[]` array.
+ */
+const McpEnvMapEntry = Schema.Struct({
+	name: Schema.String,
+	value: Schema.String,
+});
+
+const McpEnvMap = Schema.Union([
+	Schema.Record(Schema.String, Schema.String),
+	Schema.Array(McpEnvMapEntry),
+]);
+
+export const SessionMcpServerEntry = Schema.Struct({
+	name: Schema.optional(Schema.String),
+	id: Schema.optional(Schema.String),
+	config: Schema.optional(Schema.Unknown),
+	command: Schema.optional(Schema.String),
+	args: Schema.optional(Schema.Array(Schema.String)),
+	env: Schema.optional(McpEnvMap),
+	cwd: Schema.optional(Schema.String),
+	url: Schema.optional(Schema.String),
+	headers: Schema.optional(McpEnvMap),
+	type: Schema.optional(Schema.Literals(["stdio", "http", "sse"])),
+	transport: Schema.optional(Schema.Literals(["stdio", "http", "sse"])),
+}).check(
+	Schema.makeFilter((entry) => {
+		const hasName =
+			(typeof entry.name === "string" && entry.name.trim().length > 0) ||
+			(typeof entry.id === "string" && entry.id.trim().length > 0);
+		if (!hasName) return false;
+		const hasEndpoint = (value: unknown): boolean => {
+			if (value === null || typeof value !== "object") return false;
+			const config = value as {
+				readonly command?: unknown;
+				readonly url?: unknown;
+			};
+			return (
+				(typeof config.command === "string" &&
+					config.command.trim().length > 0) ||
+				(typeof config.url === "string" && config.url.trim().length > 0)
+			);
+		};
+		return hasEndpoint(entry) || hasEndpoint(entry.config);
+	}),
+);
+
 export const SessionMcpUpdateRpc = Rpc.make("session.mcp.update", {
 	payload: Schema.Struct({
 		sessionId: SessionId,
-		servers: Schema.Array(Schema.Unknown),
+		servers: Schema.Array(SessionMcpServerEntry),
 	}),
 	success: Schema.Void,
 	error: SessionNotFoundError,

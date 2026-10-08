@@ -18,6 +18,7 @@ import {
 	PokemonPokedexEntry,
 	RepositorySettingsFile,
 	Session,
+	SessionMcpServerEntry,
 	SessionTimelineFrame,
 	SettingsFile,
 	Skill,
@@ -964,5 +965,70 @@ describe("Git branch round-trip", () => {
 			upstream: null,
 			kind: "remote" as const,
 		});
+	});
+});
+
+describe("SessionMcpServerEntry", () => {
+	const decode = Schema.decodeUnknownSync(SessionMcpServerEntry);
+
+	it("accepts a flattened stdio entry", () => {
+		expect(() =>
+			decode({
+				name: "fs",
+				command: "npx",
+				args: ["-y", "@modelcontextprotocol/server-filesystem"],
+				env: { FOO: "bar" },
+			}),
+		).not.toThrow();
+	});
+
+	it("accepts an http entry with headers and the ACP env array form", () => {
+		expect(() =>
+			decode({
+				name: "api",
+				url: "https://mcp.example.com",
+				headers: [{ name: "Authorization", value: "Bearer x" }],
+				env: [{ name: "DEBUG", value: "1" }],
+			}),
+		).not.toThrow();
+	});
+
+	it("accepts the nested cursor config form", () => {
+		expect(() =>
+			decode({
+				name: "cursor-server",
+				config: { command: "cursor-mcp", args: ["--stdio"] },
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects entries with no usable name", () => {
+		for (const entry of [
+			{ command: "x" },
+			{ name: "  ", command: "x" },
+			"not-an-object",
+			42,
+		]) {
+			expect(() => decode(entry)).toThrow();
+		}
+	});
+
+	it("rejects entries with no command or url endpoint", () => {
+		for (const entry of [
+			{ name: "nothing" },
+			{ name: "x", config: { foo: 1 } },
+			{ name: "x", config: "not-an-object" },
+		]) {
+			expect(() => decode(entry)).toThrow();
+		}
+	});
+
+	it("rejects malformed env/headers shapes", () => {
+		for (const entry of [
+			{ name: "x", command: "y", env: "FOO=bar" },
+			{ name: "x", url: "https://a", headers: { A: 1 } },
+		]) {
+			expect(() => decode(entry)).toThrow();
+		}
 	});
 });
