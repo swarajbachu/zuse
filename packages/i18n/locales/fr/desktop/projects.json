@@ -311,5 +311,16 @@
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Forfait Zuse Cloud · Gérer la facturation",
 	"project_setup_dialog_in_other_workspace": "Ce dossier est déjà un projet dans un autre espace de travail. Le déplacer ici ? Ses discussions seront déplacées avec lui.",
-	"project_setup_dialog_move_here": "Déplacer ici"
+	"project_setup_dialog_move_here": "Déplacer ici",
+	"github_observation_monitoring_paused": "Surveillance GitHub en pause · Réessayer",
+	"github_observation_authentication": "Reconnecter GitHub",
+	"github_observation_access": "Accès à GitHub indisponible",
+	"github_observation_rate_limited": "Limite GitHub atteinte · Actualisation en pause",
+	"github_observation_offline": "GitHub hors ligne · État en cache",
+	"github_observation_timeout": "Délai GitHub dépassé · État en cache",
+	"github_observation_unavailable": "État GitHub indisponible",
+	"github_observation_loading": "Chargement de l’état GitHub…",
+	"github_observation_cached": "État GitHub en cache",
+	"github_observation_incomplete_checks": "Vérifications incomplètes",
+	"github_observation_refreshing": "Actualisation de GitHub…"
 }

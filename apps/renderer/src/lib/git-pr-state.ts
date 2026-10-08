@@ -3,6 +3,7 @@ import {
 	type GitPrDetails,
 	type GitPrInfo,
 } from "@zuse/contracts";
+import type { MessageKey } from "@zuse/i18n";
 import { summarizeChecks } from "./pr-checks.ts";
 
 /** One check snapshot for the header, summary, and detailed PR view. */
@@ -57,29 +58,32 @@ export function resolveGitPrState(
 	};
 }
 
-export function gitHubStatusLabel(pr: GitPrInfo | null): string | null {
+export function gitHubStatusMessageKey(
+	pr: GitPrInfo | null,
+): MessageKey | null {
 	if (!pr) return null;
-	if (pr.monitoringPaused) return "GitHub monitoring paused · Retry";
+	if (pr.monitoringPaused)
+		return "projects:github_observation_monitoring_paused";
 	switch (pr.prCapability) {
 		case "authentication":
-			return "Reconnect GitHub";
+			return "projects:github_observation_authentication";
 		case "access":
-			return "GitHub access unavailable";
+			return "projects:github_observation_access";
 		case "rate_limited":
-			return "GitHub rate limited · Refresh paused";
+			return "projects:github_observation_rate_limited";
 		case "offline":
-			return "GitHub offline · Cached status";
+			return "projects:github_observation_offline";
 		case "timeout":
-			return "GitHub timed out · Cached status";
+			return "projects:github_observation_timeout";
 		case "unknown":
-			return "GitHub status unavailable";
+			return "projects:github_observation_unavailable";
 		default:
 			return pr.stale
 				? pr.state === "none"
-					? "Loading GitHub status…"
-					: "Cached GitHub status"
+					? "projects:github_observation_loading"
+					: "projects:github_observation_cached"
 				: pr.checksComplete === false
-					? "Checks are incomplete"
+					? "projects:github_observation_incomplete_checks"
 					: null;
 	}
 }

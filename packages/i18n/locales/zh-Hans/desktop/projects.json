@@ -305,5 +305,16 @@
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 套餐 · 管理账单",
 	"project_setup_dialog_in_other_workspace": "此文件夹已是另一个工作区中的项目。要移到这里吗？其聊天会一并移动。",
-	"project_setup_dialog_move_here": "移到这里"
+	"project_setup_dialog_move_here": "移到这里",
+	"github_observation_monitoring_paused": "GitHub 监控已暂停 · 重试",
+	"github_observation_authentication": "重新连接 GitHub",
+	"github_observation_access": "无法访问 GitHub",
+	"github_observation_rate_limited": "GitHub 请求受限 · 刷新已暂停",
+	"github_observation_offline": "GitHub 离线 · 缓存状态",
+	"github_observation_timeout": "GitHub 超时 · 缓存状态",
+	"github_observation_unavailable": "GitHub 状态不可用",
+	"github_observation_loading": "正在加载 GitHub 状态…",
+	"github_observation_cached": "缓存的 GitHub 状态",
+	"github_observation_incomplete_checks": "检查不完整",
+	"github_observation_refreshing": "正在刷新 GitHub…"
 }

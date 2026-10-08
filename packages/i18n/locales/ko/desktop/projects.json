@@ -305,5 +305,16 @@
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud 요금제 · 결제 관리",
 	"project_setup_dialog_in_other_workspace": "이 폴더는 이미 다른 워크스페이스의 프로젝트입니다. 여기로 옮길까요? 채팅도 함께 옮겨집니다.",
-	"project_setup_dialog_move_here": "여기로 이동"
+	"project_setup_dialog_move_here": "여기로 이동",
+	"github_observation_monitoring_paused": "GitHub 모니터링 일시 중지 · 재시도",
+	"github_observation_authentication": "GitHub 다시 연결",
+	"github_observation_access": "GitHub에 접근할 수 없음",
+	"github_observation_rate_limited": "GitHub 요청 한도 초과 · 새로 고침 일시 중지",
+	"github_observation_offline": "GitHub 오프라인 · 캐시된 상태",
+	"github_observation_timeout": "GitHub 시간 초과 · 캐시된 상태",
+	"github_observation_unavailable": "GitHub 상태를 확인할 수 없음",
+	"github_observation_loading": "GitHub 상태 불러오는 중…",
+	"github_observation_cached": "캐시된 GitHub 상태",
+	"github_observation_incomplete_checks": "검사가 불완전함",
+	"github_observation_refreshing": "GitHub 새로 고침 중…"
 }

@@ -305,5 +305,16 @@
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse-Cloud-Tarif · Abrechnung verwalten",
 	"project_setup_dialog_in_other_workspace": "Dieser Ordner ist bereits ein Projekt in einem anderen Arbeitsbereich. Hierher verschieben? Seine Chats werden mit verschoben.",
-	"project_setup_dialog_move_here": "Hierher verschieben"
+	"project_setup_dialog_move_here": "Hierher verschieben",
+	"github_observation_monitoring_paused": "GitHub-Überwachung pausiert · Erneut versuchen",
+	"github_observation_authentication": "GitHub erneut verbinden",
+	"github_observation_access": "GitHub-Zugriff nicht verfügbar",
+	"github_observation_rate_limited": "GitHub-Anfragelimit erreicht · Aktualisierung pausiert",
+	"github_observation_offline": "GitHub offline · Gespeicherter Status",
+	"github_observation_timeout": "GitHub-Zeitüberschreitung · Gespeicherter Status",
+	"github_observation_unavailable": "GitHub-Status nicht verfügbar",
+	"github_observation_loading": "GitHub-Status wird geladen…",
+	"github_observation_cached": "Gespeicherter GitHub-Status",
+	"github_observation_incomplete_checks": "Prüfungen sind unvollständig",
+	"github_observation_refreshing": "GitHub wird aktualisiert…"
 }

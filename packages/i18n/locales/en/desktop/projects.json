@@ -305,5 +305,16 @@
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud plan · Manage billing",
 	"project_setup_dialog_in_other_workspace": "This folder is already a project in another workspace. Move it here? Its chats move with it.",
-	"project_setup_dialog_move_here": "Move here"
+	"project_setup_dialog_move_here": "Move here",
+	"github_observation_monitoring_paused": "GitHub monitoring paused · Retry",
+	"github_observation_authentication": "Reconnect GitHub",
+	"github_observation_access": "GitHub access unavailable",
+	"github_observation_rate_limited": "GitHub rate limited · Refresh paused",
+	"github_observation_offline": "GitHub offline · Cached status",
+	"github_observation_timeout": "GitHub timed out · Cached status",
+	"github_observation_unavailable": "GitHub status unavailable",
+	"github_observation_loading": "Loading GitHub status…",
+	"github_observation_cached": "Cached GitHub status",
+	"github_observation_incomplete_checks": "Checks are incomplete",
+	"github_observation_refreshing": "Refreshing GitHub…"
 }

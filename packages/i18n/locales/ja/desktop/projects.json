@@ -305,5 +305,16 @@
 	"projects_sidebar_plan_cloud": "Cloud",
 	"projects_sidebar_plan_cloud_tooltip": "Zuse Cloud プラン · 請求を管理",
 	"project_setup_dialog_in_other_workspace": "このフォルダーは既に別のワークスペースのプロジェクトです。ここに移動しますか？チャットも一緒に移動します。",
-	"project_setup_dialog_move_here": "ここに移動"
+	"project_setup_dialog_move_here": "ここに移動",
+	"github_observation_monitoring_paused": "GitHub の監視を一時停止中 · 再試行",
+	"github_observation_authentication": "GitHub に再接続",
+	"github_observation_access": "GitHub にアクセスできません",
+	"github_observation_rate_limited": "GitHub のレート制限 · 更新を一時停止中",
+	"github_observation_offline": "GitHub がオフライン · キャッシュ済みの状態",
+	"github_observation_timeout": "GitHub がタイムアウト · キャッシュ済みの状態",
+	"github_observation_unavailable": "GitHub の状態を取得できません",
+	"github_observation_loading": "GitHub の状態を読み込み中…",
+	"github_observation_cached": "キャッシュ済みの GitHub の状態",
+	"github_observation_incomplete_checks": "チェックが不完全です",
+	"github_observation_refreshing": "GitHub を更新中…"
 }
