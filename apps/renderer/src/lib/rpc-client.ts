@@ -27,6 +27,7 @@ import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type { RpcBridge } from "./bridge.ts";
 import { requestBrowserWebSocketUrl } from "./browser-session.ts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
+import { cloudSummaryForEnvironment } from "./cloud-workspace-catalog.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
 import { isPlatformOnline, subscribePlatformOnline } from "./network-status.ts";
@@ -665,7 +666,8 @@ export const getControlPlaneRpcClient = async (
 export const getCloudWorkspaceScope = (
 	workspaceId: string,
 ): WorkspaceScope | undefined =>
-	cloudWorkspaceRegistrations.get(workspaceId)?.workspaceScope;
+	cloudWorkspaceRegistrations.get(workspaceId)?.workspaceScope ??
+	cloudSummaryForEnvironment(workspaceId)?.workspaceScope;
 
 /**
  * This desktop's own server. It serves every workspace: each of its projects

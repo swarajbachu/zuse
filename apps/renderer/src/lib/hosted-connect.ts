@@ -256,7 +256,9 @@ const authenticate = async (
 	});
 };
 
-export const beginHostedSignIn = async (): Promise<void> => {
+export const beginHostedSignIn = async (
+	screenHint: "sign-in" | "sign-up" = "sign-in",
+): Promise<void> => {
 	const configuredClientId = clientId();
 	if (configuredClientId.length === 0) {
 		throw new Error("hosted_auth_not_configured");
@@ -276,6 +278,7 @@ export const beginHostedSignIn = async (): Promise<void> => {
 	);
 	url.searchParams.set("response_type", "code");
 	url.searchParams.set("provider", "authkit");
+	url.searchParams.set("screen_hint", screenHint);
 	url.searchParams.set("code_challenge", await sha256(verifier));
 	url.searchParams.set("code_challenge_method", "S256");
 	url.searchParams.set("state", state);

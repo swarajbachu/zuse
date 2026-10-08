@@ -2968,7 +2968,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 343
+				"line": 338
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -2978,7 +2978,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 347
+				"line": 342
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -2988,7 +2988,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 390
+				"line": 385
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -2998,7 +2998,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 412
+				"line": 407
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3008,7 +3008,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 469
+				"line": 464
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3018,7 +3018,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 503
+				"line": 498
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3033,7 +3033,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 547
+				"line": 542
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3043,7 +3043,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 555
+				"line": 550
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -5528,7 +5528,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 298
+				"line": 293
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -5538,7 +5538,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 305
+				"line": 300
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -5548,7 +5548,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 312
+				"line": 307
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -5558,7 +5558,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 318
+				"line": 313
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6402,7 +6402,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 576
+				"line": 571
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -6412,7 +6412,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 579
+				"line": 574
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8295,6 +8295,10 @@
 			{
 				"path": "apps/renderer/src/startup-application.tsx",
 				"line": 103
+			},
+			{
+				"path": "apps/renderer/src/startup-application.tsx",
+				"line": 105
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8344,7 +8348,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 249
+				"line": 242
 			},
 			{
 				"path": "apps/renderer/src/components/chat-landing.tsx",
@@ -8452,7 +8456,7 @@
 			},
 			{
 				"path": "apps/renderer/src/startup-application.tsx",
-				"line": 112
+				"line": 110
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8772,7 +8776,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/startup-surface.tsx",
-				"line": 149
+				"line": 146
 			},
 			{
 				"path": "apps/renderer/src/components/tool-row.tsx",
@@ -8981,7 +8985,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/environment-summary.tsx",
-				"line": 470
+				"line": 465
 			},
 			{
 				"path": "apps/renderer/src/components/git-stack-menu.tsx",
@@ -9047,7 +9051,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 194
+				"line": 198
 			},
 			{
 				"path": "apps/renderer/src/components/mcp-popover.tsx",
@@ -9087,7 +9091,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 299
+				"line": 300
 			},
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
@@ -9255,7 +9259,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/startup-surface.tsx",
-				"line": 91
+				"line": 96
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9265,7 +9269,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/startup-surface.tsx",
-				"line": 109
+				"line": 117
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9275,7 +9279,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/startup-surface.tsx",
-				"line": 99
+				"line": 92
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9285,7 +9289,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/startup-surface.tsx",
-				"line": 112
+				"line": 119
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9295,7 +9299,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/startup-surface.tsx",
-				"line": 116
+				"line": 107
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9305,7 +9309,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/startup-surface.tsx",
-				"line": 133
+				"line": 127
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9319,7 +9323,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/startup-surface.tsx",
-				"line": 140
+				"line": 137
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9329,7 +9333,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/startup-surface.tsx",
-				"line": 150
+				"line": 147
 			}
 		],
 		"context": "common interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -27143,7 +27147,7 @@
 			},
 			{
 				"path": "apps/renderer/src/startup-application.tsx",
-				"line": 120
+				"line": 118
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30142,7 +30146,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 366
+				"line": 370
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30152,7 +30156,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 368
+				"line": 372
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30187,7 +30191,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 373
+				"line": 267
+			},
+			{
+				"path": "apps/renderer/src/components/browser-access-gate.tsx",
+				"line": 377
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30224,12 +30232,7 @@
 	},
 	"shell:browser_access_gate_zuse_serve": {
 		"source": "Zuse Serve",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 150
-			}
-		],
+		"locations": [],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"shell:browser_access_gate_connecting_to_your_environment": {
@@ -30237,7 +30240,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 159
+				"line": 163
+			},
+			{
+				"path": "apps/renderer/src/components/browser-access-gate.tsx",
+				"line": 169
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30247,7 +30254,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 166
+				"line": 150
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30257,7 +30264,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 173
+				"line": 177
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30267,19 +30274,14 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 184
+				"line": 189
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"shell:browser_access_gate_connecting": {
 		"source": "Connecting…",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 193
-			}
-		],
+		"locations": [],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"shell:browser_access_gate_enter_the_code_shown_on_the_other_computer_in_its_serve_terminal_or_se": {
@@ -30287,7 +30289,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 199
+				"line": 157
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30297,23 +30299,18 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 215
+				"line": 209
 			},
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 313
+				"line": 319
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"shell:browser_access_gate_zuse": {
 		"source": "Zuse",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 279
-			}
-		],
+		"locations": [],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"shell:pending_chat_creation_retrying": {
@@ -30401,7 +30398,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 59
+				"line": 62
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30411,7 +30408,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 61
+				"line": 64
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30421,7 +30418,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 69
+				"line": 72
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30431,7 +30428,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 71
+				"line": 74
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30441,7 +30438,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 80
+				"line": 83
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30451,7 +30448,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 83
+				"line": 86
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30461,7 +30458,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 339
+				"line": 343
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30747,7 +30744,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 267
+				"line": 282
+			},
+			{
+				"path": "apps/renderer/src/components/browser-access-gate.tsx",
+				"line": 286
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30757,7 +30758,17 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 269
+				"line": 288
+			}
+		],
+		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"shell:hosted_create_account": {
+		"source": "Create account",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/browser-access-gate.tsx",
+				"line": 309
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30767,7 +30778,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 270
+				"line": 289
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30777,7 +30788,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 284
+				"line": 275
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -30787,7 +30798,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/browser-access-gate.tsx",
-				"line": 291
+				"line": 278
 			}
 		],
 		"context": "shell interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

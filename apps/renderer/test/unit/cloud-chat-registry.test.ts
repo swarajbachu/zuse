@@ -709,3 +709,48 @@ it("keeps the selected summary stable when binding its runtime project", () => {
 	registerCloudChat(selected ?? row, FolderId.make("runtime-checkout"));
 	expect(cloudSummaryForChat(row.chatId)).toBe(selected);
 });
+
+// Ownership must be known before the first gateway ticket has arrived.
+it("recognizes a cataloged organization environment before the first connection", async () => {
+	const { environmentBelongsToWorkspace, getCloudWorkspaceScope } =
+		await import("../../src/lib/rpc-client.ts");
+	const { observeRendererAccount } = await import(
+		"../../src/lib/renderer-account.ts"
+	);
+	const { selectRendererWorkspace } = await import(
+		"../../src/lib/renderer-workspace.ts"
+	);
+	observeRendererAccount("org-chat-owner");
+	try {
+		const scope = {
+			kind: "organization",
+			organizationId: "org-slack",
+		} as const;
+		selectRendererWorkspace(scope);
+		const row = CloudChatSummary.make({
+			...summary({
+				workspaceId: "slack-org-before-connect",
+				chatId: "chat-slack-org",
+				sessionId: "session-slack-org",
+				revision: 1,
+			}),
+			workspaceScope: scope,
+		});
+		expect(registerCloudChat(row)).toBe(true);
+		expect(environmentBelongsToWorkspace(row.workspaceId, scope)).toBe(true);
+		expect(getCloudWorkspaceScope(row.workspaceId)).toEqual(scope);
+		expect(
+			environmentBelongsToWorkspace(row.workspaceId, { kind: "personal" }),
+		).toBe(false);
+		expect(
+			environmentBelongsToWorkspace(row.workspaceId, {
+				kind: "organization",
+				organizationId: "other",
+			}),
+		).toBe(false);
+		observeRendererAccount(null);
+		expect(getCloudWorkspaceScope(row.workspaceId)).toBeUndefined();
+	} finally {
+		observeRendererAccount(null);
+	}
+});

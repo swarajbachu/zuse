@@ -208,16 +208,21 @@ export const interactions = async (
 			memberRevision: metadata.memberRevision ?? -2,
 		};
 	} else if (
-		["default_agent", "default_model", "default_provider"].includes(
-			action.action_id ?? "",
-		)
+		[
+			"default_agent",
+			"default_model",
+			"default_agent_model",
+			"default_provider",
+		].includes(action.action_id ?? "")
 	) {
 		const field =
-			action.action_id === "default_agent"
-				? "agent"
-				: action.action_id === "default_model"
-					? "model"
-					: "providerId";
+			action.action_id === "default_agent_model"
+				? "agentModel"
+				: action.action_id === "default_agent"
+					? "agent"
+					: action.action_id === "default_model"
+						? "model"
+						: "providerId";
 		const value = action.selected_option?.value;
 		if (!value || value.length > 150)
 			return new Response("invalid default", { status: 400 });
